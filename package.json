@@ -1,0 +1,20 @@
+{
+  "name": "collection-kit-calculator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --configLoader native",
+    "build": "vite build --configLoader native",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit && tsc --noEmit -p cloudflare/tsconfig.json"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260509.1",
+    "@vitejs/plugin-vue": "^6.0.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.6",
+    "vue": "^3.5.34",
+    "vue-tsc": "^3.2.8"
+  }
+}
