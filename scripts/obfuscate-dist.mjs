@@ -8,7 +8,7 @@ const JavaScriptObfuscator = require("javascript-obfuscator");
 const projectRoot = process.cwd();
 const assetsDir = path.join(projectRoot, "dist", "assets");
 
-const obfuscatorOptions = {
+const sharedOptions = {
   compact: true,
   sourceMap: false,
   target: "browser",
@@ -26,12 +26,30 @@ const obfuscatorOptions = {
   simplify: true,
   deadCodeInjection: true,
   controlFlowFlattening: true,
-  debugProtection: true,
+  debugProtection: false,
   disableConsoleOutput: true,
   selfDefending: true,
   renameGlobals: false,
   renameProperties: false,
   domainLock: [],
+};
+
+const aggressiveOptions = {
+  ...sharedOptions,
+  deadCodeInjection: true,
+  controlFlowFlattening: true,
+  selfDefending: true,
+};
+
+const workerOptions = {
+  ...sharedOptions,
+  stringArray: false,
+  splitStrings: false,
+  deadCodeInjection: false,
+  controlFlowFlattening: false,
+  debugProtection: false,
+  disableConsoleOutput: false,
+  selfDefending: false,
 };
 
 async function collectJavaScriptFiles(directory) {
@@ -79,7 +97,8 @@ async function main() {
 
   for (const file of jsFiles) {
     const source = await readFile(file, "utf8");
-    const result = JavaScriptObfuscator.obfuscate(source, obfuscatorOptions);
+    const options = path.basename(file).startsWith("worker-") ? workerOptions : aggressiveOptions;
+    const result = JavaScriptObfuscator.obfuscate(source, options);
     await writeFile(file, result.getObfuscatedCode(), "utf8");
     console.log(`obfuscated ${path.relative(projectRoot, file)}`);
   }
