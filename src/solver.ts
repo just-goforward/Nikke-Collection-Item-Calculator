@@ -1,5 +1,3 @@
-import type { CollectionState, Kit, ProgressEvent, Stock, Strategy } from "./types";
-
   const KIT_ORDER = ["blue", "purple", "yellow"];
   const KIT_META = {
     blue: { label: "초심자용 관리 키트", shortLabel: "초심자", exp: 200 },
@@ -73,14 +71,6 @@ import type { CollectionState, Kit, ProgressEvent, Stock, Strategy } from "./typ
     return { grade, level: clamp(level, 1, 14), exp };
   }
 
-  function isTerminal(state) {
-    return isTerminalNormalized(normalizeState(state));
-  }
-
-  function isConvertState(state) {
-    return isConvertStateNormalized(normalizeState(state));
-  }
-
   function isTerminalNormalized(normalized) {
     return normalized.grade === "SR" && normalized.level >= 15;
   }
@@ -114,10 +104,6 @@ import type { CollectionState, Kit, ProgressEvent, Stock, Strategy } from "./typ
       }
     }
     return { grade, level, exp };
-  }
-
-  function failState(state, kit) {
-    return failStateNormalized(normalizeState(state), kit);
   }
 
   function transitionNormalized(normalized, kit) {

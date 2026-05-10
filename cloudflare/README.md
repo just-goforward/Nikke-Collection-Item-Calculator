@@ -106,7 +106,13 @@ Stores one validated result event.
 
 `GET /api/stats`
 
-Returns 30-day aggregate statistics for display on the site.
+Returns 30-day aggregate statistics for display on the site. This public response is cacheable for 60 seconds.
+
+For an existing D1 database, re-apply the schema after schema changes:
+
+```powershell
+wrangler d1 execute collection-kit-stats --remote --file cloudflare/schema.sql --config cloudflare/wrangler.toml
+```
 
 Referrer/source-host aggregates are intentionally not returned by this public endpoint. Check them privately through D1, for example:
 

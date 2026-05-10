@@ -3,4 +3,6 @@ node_modules/
 dist/
 cloudflare/wrangler.toml
 collection-server.js
+fav.png
+web.zip
 .DS_Store

@@ -11,26 +11,26 @@ import {
   solve,
 } from "./solver";
 
-  const levelGrid = document.getElementById("levelGrid") as HTMLDivElement;
-  const currentExp = document.getElementById("currentExp") as HTMLInputElement;
-  const requiredExpLabel = document.getElementById("requiredExpLabel") as HTMLElement;
-  const blueStock = document.getElementById("blueStock") as HTMLInputElement;
-  const purpleStock = document.getElementById("purpleStock") as HTMLInputElement;
-  const yellowStock = document.getElementById("yellowStock") as HTMLInputElement;
-  const calculateButton = document.getElementById("calculateButton") as HTMLButtonElement;
-  const resetButton = document.getElementById("resetButton") as HTMLButtonElement;
-  const strategyDescription = document.getElementById("strategyDescription") as HTMLElement;
-  const strategyButtons = Array.from(document.querySelectorAll("[data-strategy]")) as HTMLButtonElement[];
-  const resultBox = document.getElementById("resultBox") as HTMLElement;
-  const detailBox = document.getElementById("detailBox") as HTMLElement;
-  const stockPanel = document.querySelector(".stock-panel") as HTMLElement | null;
-  const stockEditNotice = document.getElementById("stockEditNotice") as HTMLElement;
-  const loadingOverlay = document.getElementById("loadingOverlay") as HTMLElement;
-  const loadingText = document.getElementById("loadingText") as HTMLElement;
-  const themeControl = document.querySelector(".theme-control") as HTMLElement | null;
-  const themeButtons = Array.from(document.querySelectorAll("[data-theme-mode]")) as HTMLButtonElement[];
-  const globalStatsPanel = document.getElementById("globalStatsPanel") as HTMLElement;
-  const globalStatsBox = document.getElementById("globalStatsBox") as HTMLElement;
+  let levelGrid: HTMLDivElement;
+  let currentExp: HTMLInputElement;
+  let requiredExpLabel: HTMLElement;
+  let blueStock: HTMLInputElement;
+  let purpleStock: HTMLInputElement;
+  let yellowStock: HTMLInputElement;
+  let calculateButton: HTMLButtonElement;
+  let resetButton: HTMLButtonElement;
+  let strategyDescription: HTMLElement;
+  let strategyButtons: HTMLButtonElement[] = [];
+  let resultBox: HTMLElement;
+  let detailBox: HTMLElement;
+  let stockPanel: HTMLElement | null = null;
+  let stockEditNotice: HTMLElement;
+  let loadingOverlay: HTMLElement;
+  let loadingText: HTMLElement;
+  let themeControl: HTMLElement | null = null;
+  let themeButtons: HTMLButtonElement[] = [];
+  let globalStatsPanel: HTMLElement;
+  let globalStatsBox: HTMLElement;
   const statsConfig = window.COLLECTION_STATS_CONFIG || {};
 
   let selectedGrade = "R";
@@ -45,8 +45,12 @@ import {
   let turnstileReadyPromise: Promise<void> | null = null;
   let turnstileWidgetId: string | null = null;
   let turnstileTokenResolver: ((token: string) => void) | null = null;
+  let turnstileTokenRejecter: ((error: Error) => void) | null = null;
+  let turnstileTimeoutId: ReturnType<typeof window.setTimeout> | null = null;
   let statsRefreshTimer: ReturnType<typeof window.setTimeout> | null = null;
   let statsFloatingTooltip: HTMLElement | null = null;
+  let statsTooltipFrame: number | null = null;
+  let statsTooltipPointer: { bar: HTMLElement; x: number; y: number } | null = null;
   const solveCache = new Map<string, any>();
   const validationCache = new Map<string, any>();
   const SOLVE_CACHE_LIMIT = 10;
@@ -68,6 +72,29 @@ import {
     return `${formatNumber(value * 100, digits)}%`;
   }
 
+  function bindDomHandles() {
+    levelGrid = document.getElementById("levelGrid") as HTMLDivElement;
+    currentExp = document.getElementById("currentExp") as HTMLInputElement;
+    requiredExpLabel = document.getElementById("requiredExpLabel") as HTMLElement;
+    blueStock = document.getElementById("blueStock") as HTMLInputElement;
+    purpleStock = document.getElementById("purpleStock") as HTMLInputElement;
+    yellowStock = document.getElementById("yellowStock") as HTMLInputElement;
+    calculateButton = document.getElementById("calculateButton") as HTMLButtonElement;
+    resetButton = document.getElementById("resetButton") as HTMLButtonElement;
+    strategyDescription = document.getElementById("strategyDescription") as HTMLElement;
+    strategyButtons = Array.from(document.querySelectorAll("[data-strategy]")) as HTMLButtonElement[];
+    resultBox = document.getElementById("resultBox") as HTMLElement;
+    detailBox = document.getElementById("detailBox") as HTMLElement;
+    stockPanel = document.querySelector(".stock-panel") as HTMLElement | null;
+    stockEditNotice = document.getElementById("stockEditNotice") as HTMLElement;
+    loadingOverlay = document.getElementById("loadingOverlay") as HTMLElement;
+    loadingText = document.getElementById("loadingText") as HTMLElement;
+    themeControl = document.querySelector(".theme-control") as HTMLElement | null;
+    themeButtons = Array.from(document.querySelectorAll("[data-theme-mode]")) as HTMLButtonElement[];
+    globalStatsPanel = document.getElementById("globalStatsPanel") as HTMLElement;
+    globalStatsBox = document.getElementById("globalStatsBox") as HTMLElement;
+  }
+
   function formatFlooredPercent(value, digits = 1) {
     const unit = 10 ** digits;
     return `${formatNumber(Math.floor(value * 100 * unit) / unit, digits)}%`;
@@ -84,10 +111,6 @@ import {
 
   function formatSegmentLabel(label) {
     return String(label || "").replace(/^(R|SR)\s+(\d+)→(\d+)$/, "$1 $2 → $3");
-  }
-
-  function formatUses(kitCount) {
-    return `${formatNumber(kitCount / 10, 2)}회`;
   }
 
   function kitName(kit) {
@@ -271,7 +294,20 @@ import {
       document.body.append(container);
     }
     return new Promise<string>((resolve, reject) => {
-      turnstileTokenResolver = resolve;
+      const clearPendingToken = () => {
+        if (turnstileTimeoutId) window.clearTimeout(turnstileTimeoutId);
+        turnstileTimeoutId = null;
+        turnstileTokenResolver = null;
+        turnstileTokenRejecter = null;
+      };
+      turnstileTokenResolver = (token) => {
+        clearPendingToken();
+        resolve(token);
+      };
+      turnstileTokenRejecter = (error) => {
+        clearPendingToken();
+        reject(error);
+      };
       if (turnstileWidgetId === null) {
         turnstileWidgetId = window.turnstile.render(container, {
           sitekey: statsConfig.turnstileSiteKey,
@@ -279,14 +315,19 @@ import {
           action,
           callback: (token) => {
             if (turnstileTokenResolver) turnstileTokenResolver(token);
-            turnstileTokenResolver = null;
           },
-          "error-callback": () => reject(new Error("Turnstile challenge failed.")),
-          "expired-callback": () => reject(new Error("Turnstile token expired.")),
+          "error-callback": () => {
+            if (turnstileTokenRejecter) turnstileTokenRejecter(new Error("Turnstile challenge failed."));
+          },
+          "expired-callback": () => {
+            if (turnstileTokenRejecter) turnstileTokenRejecter(new Error("Turnstile token expired."));
+          },
         });
       }
       window.turnstile.execute(turnstileWidgetId as string, { action });
-      window.setTimeout(() => reject(new Error("Turnstile timed out.")), 12000);
+      turnstileTimeoutId = window.setTimeout(() => {
+        if (turnstileTokenRejecter) turnstileTokenRejecter(new Error("Turnstile timed out."));
+      }, 12000);
     });
   }
 
@@ -674,6 +715,9 @@ import {
   }
 
   function hideDifficultyTooltip() {
+    if (statsTooltipFrame !== null) window.cancelAnimationFrame(statsTooltipFrame);
+    statsTooltipFrame = null;
+    statsTooltipPointer = null;
     if (!statsFloatingTooltip) return;
     statsFloatingTooltip.classList.remove("is-visible");
   }
@@ -681,7 +725,13 @@ import {
   function handleDifficultyTooltipPointer(event) {
     const bar = event.target.closest(".difficulty-bar");
     if (!bar || !globalStatsBox || !globalStatsBox.contains(bar)) return;
-    showDifficultyTooltip(bar, event.clientX, event.clientY);
+    statsTooltipPointer = { bar, x: event.clientX, y: event.clientY };
+    if (statsTooltipFrame !== null) return;
+    statsTooltipFrame = window.requestAnimationFrame(() => {
+      statsTooltipFrame = null;
+      if (!statsTooltipPointer) return;
+      showDifficultyTooltip(statsTooltipPointer.bar, statsTooltipPointer.x, statsTooltipPointer.y);
+    });
   }
 
   function handleDifficultyTooltipOut(event) {
@@ -1073,27 +1123,6 @@ import {
     if (!loadingOverlay) return;
     loadingOverlay.hidden = !active;
     if (active && loadingText) loadingText.textContent = "보유 키트 상태를 MDP로 평가하고 있습니다.";
-  }
-
-  function vectorCells(vector) {
-    return KIT_ORDER.map((kit) => `<span>${KIT_META[kit].shortLabel} ${formatUses(vector[kit])}</span>`).join(" / ");
-  }
-
-  function routeRows(route) {
-    return route
-      .map(
-        (step, index) => `
-          <li>
-            <b>${index + 1}</b>
-            <span>
-              ${step.state}: ${kitText(step.kit)} 사용.
-              대성공 ${formatPercent(step.probability, 1)} → ${step.success},
-              실패 → ${step.fail}
-            </span>
-          </li>
-        `,
-      )
-      .join("");
   }
 
   function candidateRows(candidates) {
@@ -1648,6 +1677,7 @@ import {
   }
 
   function boot() {
+    bindDomHandles();
     bootTheme();
     renderLevels();
     bindEvents();

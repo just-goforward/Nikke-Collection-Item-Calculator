@@ -99,12 +99,12 @@ function corsHeaders(request, env) {
   return headers;
 }
 
-function securityHeaders() {
+function securityHeaders(cacheControl = "no-store") {
   return {
     "Content-Type": "application/json; charset=utf-8",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
-    "Cache-Control": "no-store",
+    "Cache-Control": cacheControl,
   };
 }
 
@@ -113,10 +113,10 @@ function handleOptions(request, env) {
   return new Response(null, { status: 204, headers: corsHeaders(request, env) });
 }
 
-function jsonResponse(request, env, body, status = 200) {
+function jsonResponse(request, env, body, status = 200, cacheControl = "no-store") {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...securityHeaders(), ...corsHeaders(request, env) },
+    headers: { ...securityHeaders(cacheControl), ...corsHeaders(request, env) },
   });
 }
 
@@ -213,32 +213,32 @@ async function handleStats(request, env) {
   const today = kstDateKeyFromUnixSeconds(now);
   const since = kstDateKeyFromUnixSeconds(now - 86400 * 30);
 
-  const statRows = await env.DB.prepare(
-    `SELECT grade, level, kit, SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
-     FROM event_aggregates
-     WHERE date_key >= ?
-     GROUP BY grade, level, kit`,
-  )
-    .bind(since)
-    .all();
-
-  const distributionRows = await env.DB.prepare(
-    `SELECT kit, success_attempt, SUM(events) AS events
-     FROM event_aggregates
-     WHERE date_key >= ? AND outcome = 'great_success'
-     GROUP BY kit, success_attempt
-     ORDER BY kit, success_attempt`,
-  )
-    .bind(since)
-    .all();
-
-  const todayRow = await env.DB.prepare(
-    `SELECT SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
-     FROM event_aggregates
-     WHERE date_key = ?`,
-  )
-    .bind(today)
-    .first();
+  const [statRows, distributionRows, todayRow] = await Promise.all([
+    env.DB.prepare(
+      `SELECT grade, level, kit, SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
+       FROM event_aggregates
+       WHERE date_key >= ?
+       GROUP BY grade, level, kit`,
+    )
+      .bind(since)
+      .all(),
+    env.DB.prepare(
+      `SELECT kit, success_attempt, SUM(events) AS events
+       FROM event_aggregates
+       WHERE date_key >= ? AND outcome = 'great_success'
+       GROUP BY kit, success_attempt
+       ORDER BY kit, success_attempt`,
+    )
+      .bind(since)
+      .all(),
+    env.DB.prepare(
+      `SELECT SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
+       FROM event_aggregates
+       WHERE date_key = ?`,
+    )
+      .bind(today)
+      .first(),
+  ]);
 
   const rows = statRows.results || [];
   const summary = rows.reduce(
@@ -271,27 +271,33 @@ async function handleStats(request, env) {
     return best;
   }, null);
 
-  return jsonResponse(request, env, {
-    windowDays: 30,
-    today,
-    summary: {
-      ...summary,
-      greatSuccessRate: rate(summary.greatSuccesses, summary.attempts),
-      todayEvents: Number((todayRow && todayRow.events) || 0),
-      todayAttempts: Number((todayRow && todayRow.attempts) || 0),
-      todayGreatSuccesses: Number((todayRow && todayRow.great_successes) || 0),
-      mostUsedKit: mostUsedKit ? mostUsedKit.kit : null,
-      mostUsedKitPieces: mostUsedKit ? Number(mostUsedKit.attempts || 0) * 10 : 0,
+  return jsonResponse(
+    request,
+    env,
+    {
+      windowDays: 30,
+      today,
+      summary: {
+        ...summary,
+        greatSuccessRate: rate(summary.greatSuccesses, summary.attempts),
+        todayEvents: Number((todayRow && todayRow.events) || 0),
+        todayAttempts: Number((todayRow && todayRow.attempts) || 0),
+        todayGreatSuccesses: Number((todayRow && todayRow.great_successes) || 0),
+        mostUsedKit: mostUsedKit ? mostUsedKit.kit : null,
+        mostUsedKitPieces: mostUsedKit ? Number(mostUsedKit.attempts || 0) * 10 : 0,
+      },
+      byKit,
+      levelKitStats,
+      segmentStats,
+      successAttemptDistribution: (distributionRows.results || []).map((row) => ({
+        kit: row.kit,
+        successAttempt: Number(row.success_attempt),
+        events: Number(row.events || 0),
+      })),
     },
-    byKit,
-    levelKitStats,
-    segmentStats,
-    successAttemptDistribution: (distributionRows.results || []).map((row) => ({
-      kit: row.kit,
-      successAttempt: Number(row.success_attempt),
-      events: Number(row.events || 0),
-    })),
-  });
+    200,
+    "public, max-age=60, s-maxage=60",
+  );
 }
 
 function aggregateRows(rows) {
@@ -407,21 +413,24 @@ async function rateLimit(request, env, scope, minuteLimit, dayLimit, now) {
   const key = await hashKey(`${env.RATE_LIMIT_SECRET || "change-this-secret"}:${ip}`);
   const minute = Math.floor(now / 60);
   const day = Math.floor(now / 86400);
-  await bumpLimit(env.DB, `${scope}:m:${key}:${minute}`, minuteLimit, now + 180);
-  await bumpLimit(env.DB, `${scope}:d:${key}:${day}`, dayLimit, now + 86400 * 2);
-}
-
-async function bumpLimit(db, key, limit, expiresAt) {
-  const row = await db
-    .prepare(
+  const counters = [
+    { key: `${scope}:m:${key}:${minute}`, limit: minuteLimit, expiresAt: now + 180 },
+    { key: `${scope}:d:${key}:${day}`, limit: dayLimit, expiresAt: now + 86400 * 2 },
+  ];
+  const statements = counters.map((counter) =>
+    env.DB.prepare(
       `INSERT INTO rate_limits (key, count, expires_at)
        VALUES (?, 1, ?)
        ON CONFLICT(key) DO UPDATE SET count = count + 1, expires_at = ?
        RETURNING count`,
     )
-    .bind(key, expiresAt, expiresAt)
-    .first();
-  if (Number(row && row.count) > limit) throw new HttpError(429, "rate_limited");
+      .bind(counter.key, counter.expiresAt, counter.expiresAt),
+  );
+  const results = await env.DB.batch(statements);
+  results.forEach((result, index) => {
+    const row = result.results && result.results[0];
+    if (Number(row && row.count) > counters[index].limit) throw new HttpError(429, "rate_limited");
+  });
 }
 
 function scheduleCleanup(env, ctx, now) {

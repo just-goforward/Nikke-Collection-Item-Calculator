@@ -11,5 +11,15 @@ export default defineConfig({
     minify: "esbuild",
     cssMinify: true,
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vue: ["vue"],
+        },
+      },
+    },
+  },
+  worker: {
+    format: "es",
   },
 });

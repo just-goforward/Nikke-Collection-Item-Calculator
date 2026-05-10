@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS event_aggregates (
 
 CREATE INDEX IF NOT EXISTS idx_event_aggregates_date ON event_aggregates (date_key);
 CREATE INDEX IF NOT EXISTS idx_event_aggregates_kit ON event_aggregates (kit);
+CREATE INDEX IF NOT EXISTS idx_event_aggregates_date_grade_level_kit ON event_aggregates (date_key, grade, level, kit);
 
 CREATE TABLE IF NOT EXISTS referrer_aggregates (
   date_key TEXT NOT NULL,
