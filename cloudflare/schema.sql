@@ -36,3 +36,16 @@ CREATE TABLE IF NOT EXISTS event_aggregates (
 
 CREATE INDEX IF NOT EXISTS idx_event_aggregates_date ON event_aggregates (date_key);
 CREATE INDEX IF NOT EXISTS idx_event_aggregates_kit ON event_aggregates (kit);
+
+CREATE TABLE IF NOT EXISTS referrer_aggregates (
+  date_key TEXT NOT NULL,
+  source_host TEXT NOT NULL,
+  events INTEGER NOT NULL DEFAULT 0,
+  last_seen INTEGER NOT NULL,
+  PRIMARY KEY (
+    date_key,
+    source_host
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_referrer_aggregates_date ON referrer_aggregates (date_key);

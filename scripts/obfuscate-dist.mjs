@@ -12,44 +12,21 @@ const sharedOptions = {
   compact: true,
   sourceMap: false,
   target: "browser",
-  identifierNamesGenerator: "mangled",
-  stringArray: true,
-  stringArrayThreshold: 0.75,
-  stringArrayEncoding: ["base64"],
-  stringArrayRotate: true,
-  stringArrayShuffle: true,
-  stringArrayIndexShift: true,
-  stringArrayWrappersCount: 1,
-  stringArrayWrappersType: "function",
-  splitStrings: true,
-  splitStringsChunkLength: 10,
-  simplify: true,
-  deadCodeInjection: true,
-  controlFlowFlattening: true,
-  debugProtection: false,
-  disableConsoleOutput: true,
-  selfDefending: true,
-  renameGlobals: false,
-  renameProperties: false,
-  domainLock: [],
-};
-
-const aggressiveOptions = {
-  ...sharedOptions,
-  deadCodeInjection: true,
-  controlFlowFlattening: true,
-  selfDefending: true,
-};
-
-const workerOptions = {
-  ...sharedOptions,
-  stringArray: false,
-  splitStrings: false,
-  deadCodeInjection: false,
   controlFlowFlattening: false,
+  deadCodeInjection: false,
   debugProtection: false,
   disableConsoleOutput: false,
+  identifierNamesGenerator: "mangled",
+  log: false,
+  renameGlobals: false,
   selfDefending: false,
+  simplify: true,
+  splitStrings: false,
+  stringArray: true,
+  stringArrayThreshold: 0.75,
+  stringArrayEncoding: [],
+  unicodeEscapeSequence: false,
+  renameProperties: false,
 };
 
 async function collectJavaScriptFiles(directory) {
@@ -97,8 +74,7 @@ async function main() {
 
   for (const file of jsFiles) {
     const source = await readFile(file, "utf8");
-    const options = path.basename(file).startsWith("worker-") ? workerOptions : aggressiveOptions;
-    const result = JavaScriptObfuscator.obfuscate(source, options);
+    const result = JavaScriptObfuscator.obfuscate(source, sharedOptions);
     await writeFile(file, result.getObfuscatedCode(), "utf8");
     console.log(`obfuscated ${path.relative(projectRoot, file)}`);
   }

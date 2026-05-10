@@ -107,3 +107,9 @@ Stores one validated result event.
 `GET /api/stats`
 
 Returns 30-day aggregate statistics for display on the site.
+
+Referrer/source-host aggregates are intentionally not returned by this public endpoint. Check them privately through D1, for example:
+
+```powershell
+wrangler d1 execute collection-kit-stats --remote --command "SELECT date_key, source_host, events FROM referrer_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
+```

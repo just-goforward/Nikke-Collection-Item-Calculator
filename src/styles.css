@@ -1814,15 +1814,79 @@ td {
   }
 
   .kit-grid,
-  .button-row,
-  .outcome-buttons,
   .detail-list div {
     grid-template-columns: 1fr;
   }
 
+  .button-row,
+  .outcome-buttons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
   .strategy-control {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
     padding-inline: 12px;
+  }
+
+  .solve-panel .strategy-button {
+    min-width: 0;
+    padding: 0 7px;
+    font-size: 11px;
+  }
+
+  .success-button,
+  .fail-button,
+  .convert-button {
+    min-width: 0;
+    padding-inline: 8px;
+  }
+
+  .next-action .action-chip-large {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+
+  .next-action .action-chip-large i {
+    flex: 0 0 auto;
+    margin-top: 0;
+  }
+
+  .next-action .action-chip-text {
+    --recommendation-font-size: clamp(18px, 5vw, 24px);
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35em;
+    white-space: nowrap;
+  }
+
+  .next-action .action-chip-name,
+  .next-action .action-chip-count {
+    display: inline;
+    margin-top: 0;
+    overflow-wrap: normal;
+    word-break: keep-all;
+  }
+
+  .detail-panel .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .detail-panel .metric {
+    padding: 10px 8px;
+  }
+
+  .detail-panel .metric > span {
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .detail-panel .metric > strong {
+    font-size: clamp(13px, 3.5vw, 16px);
   }
 
   .stock-panel .kit-grid {

@@ -13,6 +13,7 @@ const REQUIRED_EXP = { R: 1000, SR: 3000 };
 const MAX_BODY_BYTES = 4096;
 const MAX_STOCK = 100000;
 const MAX_RECOMMENDED_USES = 100;
+const MAX_SOURCE_HOST_LENGTH = 80;
 const PRE_MINUTE_LIMIT = 120;
 const PRE_DAY_LIMIT = 1000;
 const POST_MINUTE_LIMIT = 30;
@@ -59,6 +60,16 @@ export default worker;
 
 function normalizeOrigin(origin) {
   return String(origin || "").trim().replace(/\/+$/, "");
+}
+
+function normalizeSourceHost(value) {
+  const raw = typeof value === "string" ? value.trim().toLowerCase().replace(/^www\./, "") : "";
+  if (!raw) return "unknown";
+  if (raw === "direct" || raw === "same-site" || raw === "unknown") return raw;
+  if (raw.length > MAX_SOURCE_HOST_LENGTH) return "unknown";
+  if (!/^[a-z0-9.-]+$/.test(raw)) return "unknown";
+  if (raw.includes("..") || raw.startsWith(".") || raw.endsWith(".") || raw.startsWith("-") || raw.endsWith("-")) return "unknown";
+  return raw;
 }
 
 function allowedOrigins(env) {
@@ -176,6 +187,18 @@ async function handleEvent(request, env, ctx) {
       greatSuccesses,
       now,
     )
+    .run();
+
+  await env.DB.prepare(
+    `INSERT INTO referrer_aggregates
+      (date_key, source_host, events, last_seen)
+     VALUES (?, ?, 1, ?)
+     ON CONFLICT(date_key, source_host)
+     DO UPDATE SET
+      events = events + 1,
+      last_seen = excluded.last_seen`,
+  )
+    .bind(dateKey, normalized.sourceHost, now)
     .run();
 
   scheduleCleanup(env, ctx, now);
@@ -455,6 +478,7 @@ function validatePayload(payload) {
 
   return {
     eventId: payload.eventId,
+    sourceHost: normalizeSourceHost(payload.sourceHost),
     event: {
       kind: "kit_result",
       start,

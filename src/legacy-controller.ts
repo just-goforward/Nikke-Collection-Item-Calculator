@@ -231,6 +231,19 @@ import {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   }
 
+  function sourceHost() {
+    const referrer = document.referrer;
+    if (!referrer) return "direct";
+    try {
+      const referrerUrl = new URL(referrer);
+      if (referrerUrl.hostname === window.location.hostname) return "same-site";
+      const host = referrerUrl.hostname.toLowerCase().replace(/^www\./, "");
+      return /^[a-z0-9.-]{1,80}$/.test(host) ? host : "unknown";
+    } catch (error) {
+      return "unknown";
+    }
+  }
+
   function loadTurnstile() {
     if (!statsEnabled()) return Promise.reject(new Error("Statistics endpoint is not configured."));
     if (window.turnstile) return Promise.resolve();
@@ -287,6 +300,7 @@ import {
         version: 1,
         eventId: makeEventId(),
         clientTime: new Date().toISOString(),
+        sourceHost: sourceHost(),
         turnstileToken,
         event,
       }),
