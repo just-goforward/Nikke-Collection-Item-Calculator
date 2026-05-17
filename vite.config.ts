@@ -1,9 +1,10 @@
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
-import vue from "@vitejs/plugin-vue";
 
 export default defineConfig({
   base: "./",
-  plugins: [vue()],
+  plugins: [react(), tailwindcss()],
   build: {
     outDir: "dist",
     emptyOutDir: true,
@@ -13,13 +14,19 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vue: ["vue"],
+        manualChunks(id) {
+          const normalizedId = id.replace(/\\/g, "/");
+          if (normalizedId.includes("/node_modules/react")) return "react";
+          if (normalizedId.endsWith("/src/solver.ts")) return "solver";
+          return undefined;
         },
       },
     },
   },
   worker: {
     format: "es",
+  },
+  optimizeDeps: {
+    exclude: ["zod", "zod/v4"],
   },
 });

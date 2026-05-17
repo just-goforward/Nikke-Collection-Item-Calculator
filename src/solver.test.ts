@@ -4,8 +4,16 @@ import { convertState, normalizeState, solve, transition } from "./solver";
 
 describe("solver transitions", () => {
   it("normalizes max level states without carrying extra exp", () => {
-    expect(normalizeState({ grade: "R", level: 15, exp: 900 })).toEqual({ grade: "R", level: 15, exp: 0 });
-    expect(normalizeState({ grade: "SR", level: 99, exp: 2900 })).toEqual({ grade: "SR", level: 15, exp: 0 });
+    expect(normalizeState({ grade: "R", level: 15, exp: 900 })).toEqual({
+      grade: "R",
+      level: 15,
+      exp: 0,
+    });
+    expect(normalizeState({ grade: "SR", level: 99, exp: 2900 })).toEqual({
+      grade: "SR",
+      level: 15,
+      exp: 0,
+    });
   });
 
   it("converts R15 into SR5", () => {
@@ -18,8 +26,11 @@ describe("solver transitions", () => {
       undefined,
     );
     expect(result.convertOnly).toBe(true);
-    expect(result.best.firstAction).toBe("convert");
-    expect(result.best.successProbability).toBe(1);
+    const best = result.best;
+    expect(best).toBeDefined();
+    if (!best) throw new Error("Expected conversion best action.");
+    expect(best.firstAction).toBe("convert");
+    expect(best.successProbability).toBe(1);
   });
 
   it("applies SR 10 purple transition probability and fail exp", () => {
@@ -41,9 +52,19 @@ describe("solver policy", () => {
       undefined,
     );
     expect(result.possible).toBe(true);
-    expect(result.best.firstAction).toMatch(/blue|purple|yellow/);
-    expect(result.stats.exact).toBe(true);
-    expect(result.topCandidates.length).toBeGreaterThan(0);
+    const best = result.best;
+    const stats = result.stats;
+    const topCandidates = result.topCandidates;
+    expect(best).toBeDefined();
+    expect(stats).toBeDefined();
+    expect(topCandidates).toBeDefined();
+    if (!best || !stats || !topCandidates) throw new Error("Expected possible MDP result.");
+    expect(best.firstAction).toMatch(/blue|purple|yellow/);
+    expect(stats.exact).toBe(true);
+    expect(topCandidates.length).toBeGreaterThan(0);
+    expect(topCandidates.every((candidate) => candidate.run && candidate.run.count >= 1)).toBe(
+      true,
+    );
   });
 
   it("keeps Monte Carlo validation deterministic for the same seed", () => {
@@ -57,6 +78,8 @@ describe("solver policy", () => {
     const first = solve(input, undefined).monteCarlo;
     const second = solve(input, undefined).monteCarlo;
     expect(second).toEqual(first);
+    expect(first).toBeDefined();
+    if (!first) throw new Error("Expected Monte Carlo result.");
     expect(first.runs).toBe(500);
   });
 });

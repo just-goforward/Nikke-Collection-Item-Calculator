@@ -1,5 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
+import { EventSubmissionSchema } from "./schemas";
+
 interface Env {
   DB: D1Database;
   ALLOWED_ORIGINS?: string;
@@ -7,9 +9,16 @@ interface Env {
   RATE_LIMIT_SECRET?: string;
 }
 
-const KIT_ORDER = ["blue", "purple", "yellow"];
-const KIT_EXP = { blue: 200, purple: 500, yellow: 1000 };
-const REQUIRED_EXP = { R: 1000, SR: 3000 };
+type Grade = "R" | "SR";
+const KIT_ORDER = ["blue", "purple", "yellow"] as const;
+type Kit = (typeof KIT_ORDER)[number];
+// biome-ignore lint/suspicious/noExplicitAny: D1 rows and validated JSON payloads are heterogeneous at runtime; domain checks below narrow them before use.
+type AnyValue = any;
+type KitRecord<T> = Record<Kit, T>;
+type CollectionState = { grade: Grade; level: number; exp: number };
+
+const KIT_EXP: KitRecord<number> = { blue: 200, purple: 500, yellow: 1000 };
+const REQUIRED_EXP: Record<Grade, number> = { R: 1000, SR: 3000 };
 const MAX_BODY_BYTES = 4096;
 const MAX_STOCK = 100000;
 const MAX_RECOMMENDED_USES = 100;
@@ -19,87 +28,154 @@ const PRE_DAY_LIMIT = 1000;
 const POST_MINUTE_LIMIT = 30;
 const POST_DAY_LIMIT = 200;
 const KST_OFFSET_SECONDS = 9 * 60 * 60;
-const GREAT_SUCCESS = {
+const GREAT_SUCCESS: Record<Grade, Record<Kit, Array<number | null>>> = {
   R: {
-    blue: [null, 20.8, 24.0, 27.2, 40.0, 16.0, 19.2, 22.4, 27.2, 40.0, 14.4, 17.6, 22.4, 27.2, 40.0],
-    purple: [null, 65.0, 75.0, 85.0, 100.0, 50.0, 60.0, 70.0, 85.0, 100.0, 45.0, 55.0, 70.0, 85.0, 100.0],
+    blue: [
+      null,
+      20.8,
+      24.0,
+      27.2,
+      40.0,
+      16.0,
+      19.2,
+      22.4,
+      27.2,
+      40.0,
+      14.4,
+      17.6,
+      22.4,
+      27.2,
+      40.0,
+    ],
+    purple: [
+      null,
+      65.0,
+      75.0,
+      85.0,
+      100.0,
+      50.0,
+      60.0,
+      70.0,
+      85.0,
+      100.0,
+      45.0,
+      55.0,
+      70.0,
+      85.0,
+      100.0,
+    ],
     yellow: [null, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
   },
   SR: {
     blue: [null, 5.9, 7.8, 11.3, 15.0, 2.2, 3.3, 4.9, 7.6, 12.5, 1.2, 2.2, 3.1, 4.7, 10.0],
     purple: [null, 19.8, 28.7, 41.3, 55.0, 8.0, 12.0, 18.0, 28.0, 50.0, 5.4, 9.9, 14.4, 21.6, 45.0],
-    yellow: [null, 40.0, 55.0, 75.0, 100.0, 20.0, 30.0, 45.0, 70.0, 100.0, 15.0, 27.5, 40.0, 60.0, 100.0],
+    yellow: [
+      null,
+      40.0,
+      55.0,
+      75.0,
+      100.0,
+      20.0,
+      30.0,
+      45.0,
+      70.0,
+      100.0,
+      15.0,
+      27.5,
+      40.0,
+      60.0,
+      100.0,
+    ],
   },
 };
 
 class HttpError extends Error {
   status: number;
 
-  constructor(status, message) {
+  constructor(status: number, message: string) {
     super(message);
     this.status = status;
   }
 }
 
 const worker: ExportedHandler<Env> = {
-  async fetch(request, env, ctx) {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     try {
       const url = new URL(request.url);
       if (request.method === "OPTIONS") return handleOptions(request, env);
-      if (url.pathname === "/api/stats" && request.method === "GET") return handleStats(request, env);
-      if (url.pathname === "/api/events" && request.method === "POST") return handleEvent(request, env, ctx);
+      if (url.pathname === "/api/stats" && request.method === "GET")
+        return handleStats(request, env);
+      if (url.pathname === "/api/events" && request.method === "POST")
+        return handleEvent(request, env, ctx);
       return jsonResponse(request, env, { error: "not_found" }, 404);
     } catch (error) {
       const status = error instanceof HttpError ? error.status : 500;
-      return jsonResponse(request, env, { error: error.message || "internal_error" }, status);
+      const message = error instanceof Error ? error.message : "internal_error";
+      return jsonResponse(request, env, { error: message || "internal_error" }, status);
     }
   },
 };
 
 export default worker;
 
-function normalizeOrigin(origin) {
-  return String(origin || "").trim().replace(/\/+$/, "");
+function normalizeOrigin(origin: unknown) {
+  return String(origin || "")
+    .trim()
+    .replace(/\/+$/, "");
 }
 
-function normalizeSourceHost(value) {
-  const raw = typeof value === "string" ? value.trim().toLowerCase().replace(/^www\./, "") : "";
+function normalizeSourceHost(value: unknown) {
+  const raw =
+    typeof value === "string"
+      ? value
+          .trim()
+          .toLowerCase()
+          .replace(/^www\./, "")
+      : "";
   if (!raw) return "unknown";
   if (raw === "direct" || raw === "same-site" || raw === "unknown") return raw;
   if (raw.length > MAX_SOURCE_HOST_LENGTH) return "unknown";
   if (!/^[a-z0-9.-]+$/.test(raw)) return "unknown";
-  if (raw.includes("..") || raw.startsWith(".") || raw.endsWith(".") || raw.startsWith("-") || raw.endsWith("-")) return "unknown";
+  if (
+    raw.includes("..") ||
+    raw.startsWith(".") ||
+    raw.endsWith(".") ||
+    raw.startsWith("-") ||
+    raw.endsWith("-")
+  )
+    return "unknown";
   return raw;
 }
 
-function allowedOrigins(env) {
+function allowedOrigins(env: Env) {
   return String(env.ALLOWED_ORIGINS || "")
     .split(",")
     .map(normalizeOrigin)
     .filter(Boolean);
 }
 
-function isAllowedOrigin(request, env) {
+function isAllowedOrigin(request: Request, env: Env) {
   const origin = normalizeOrigin(request.headers.get("Origin"));
   const allowed = allowedOrigins(env);
   if (!origin) return true;
   return allowed.includes(origin);
 }
 
-function corsHeaders(request, env) {
+function corsHeaders(request: Request, env: Env): Record<string, string> {
   const origin = request.headers.get("Origin");
   const normalizedOrigin = normalizeOrigin(origin);
-  const headers = {
+  const headers: Record<string, string> = {
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   };
-  if (normalizedOrigin && isAllowedOrigin(request, env)) headers["Access-Control-Allow-Origin"] = normalizedOrigin;
+  if (normalizedOrigin && isAllowedOrigin(request, env))
+    headers["Access-Control-Allow-Origin"] = normalizedOrigin;
   return headers;
 }
 
-function securityHeaders(cacheControl = "no-store") {
+function securityHeaders(cacheControl = "no-store"): Record<string, string> {
   return {
     "Content-Type": "application/json; charset=utf-8",
     "X-Content-Type-Options": "nosniff",
@@ -108,23 +184,29 @@ function securityHeaders(cacheControl = "no-store") {
   };
 }
 
-function handleOptions(request, env) {
+function handleOptions(request: Request, env: Env) {
   if (!isAllowedOrigin(request, env)) return new Response(null, { status: 403 });
   return new Response(null, { status: 204, headers: corsHeaders(request, env) });
 }
 
-function jsonResponse(request, env, body, status = 200, cacheControl = "no-store") {
+function jsonResponse(
+  request: Request,
+  env: Env,
+  body: AnyValue,
+  status = 200,
+  cacheControl = "no-store",
+) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...securityHeaders(cacheControl), ...corsHeaders(request, env) },
   });
 }
 
-function kstDateKeyFromUnixSeconds(seconds) {
+function kstDateKeyFromUnixSeconds(seconds: number) {
   return new Date((seconds + KST_OFFSET_SECONDS) * 1000).toISOString().slice(0, 10);
 }
 
-async function handleEvent(request, env, ctx) {
+async function handleEvent(request: Request, env: Env, ctx: ExecutionContext) {
   if (!isAllowedOrigin(request, env)) throw new HttpError(403, "origin_not_allowed");
   if (!env.DB) throw new HttpError(500, "database_not_configured");
   const contentType = request.headers.get("Content-Type") || "";
@@ -136,20 +218,26 @@ async function handleEvent(request, env, ctx) {
   await rateLimit(request, env, "pre", PRE_MINUTE_LIMIT, PRE_DAY_LIMIT, now);
 
   const text = await request.text();
-  if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) throw new HttpError(413, "payload_too_large");
+  if (new TextEncoder().encode(text).length > MAX_BODY_BYTES)
+    throw new HttpError(413, "payload_too_large");
 
-  let payload;
+  let payload: unknown;
   try {
     payload = JSON.parse(text);
-  } catch (error) {
+  } catch {
     throw new HttpError(400, "invalid_json");
   }
 
-  await verifyTurnstile(request, env, payload.turnstileToken);
-  await rateLimit(request, env, "post", POST_MINUTE_LIMIT, POST_DAY_LIMIT, now);
-  const normalized = validatePayload(payload);
+  const parsedPayload = EventSubmissionSchema.safeParse(payload);
+  if (!parsedPayload.success) throw new HttpError(400, "invalid_payload");
 
-  const inserted = await env.DB.prepare("INSERT OR IGNORE INTO event_ids (id, created_at) VALUES (?, ?)")
+  await verifyTurnstile(request, env, parsedPayload.data.turnstileToken);
+  await rateLimit(request, env, "post", POST_MINUTE_LIMIT, POST_DAY_LIMIT, now);
+  const normalized = validatePayload(parsedPayload.data);
+
+  const inserted = await env.DB.prepare(
+    "INSERT OR IGNORE INTO event_ids (id, created_at) VALUES (?, ?)",
+  )
     .bind(normalized.eventId, now)
     .run();
 
@@ -160,7 +248,10 @@ async function handleEvent(request, env, ctx) {
 
   const dateKey = kstDateKeyFromUnixSeconds(now);
   const successAttempt = normalized.event.successAttempt || 0;
-  const attempts = normalized.event.outcome === "great_success" ? successAttempt : normalized.event.recommendedUses;
+  const attempts =
+    normalized.event.outcome === "great_success"
+      ? successAttempt
+      : normalized.event.recommendedUses;
   const greatSuccesses = normalized.event.outcome === "great_success" ? 1 : 0;
 
   await env.DB.prepare(
@@ -206,7 +297,7 @@ async function handleEvent(request, env, ctx) {
   return jsonResponse(request, env, { ok: true });
 }
 
-async function handleStats(request, env) {
+async function handleStats(request: Request, env: Env) {
   if (!isAllowedOrigin(request, env)) throw new HttpError(403, "origin_not_allowed");
   if (!env.DB) throw new HttpError(500, "database_not_configured");
   const now = Math.floor(Date.now() / 1000);
@@ -240,9 +331,9 @@ async function handleStats(request, env) {
       .first(),
   ]);
 
-  const rows = statRows.results || [];
+  const rows = (statRows.results || []) as AnyValue[];
   const summary = rows.reduce(
-    (total, row) => {
+    (total: { events: number; attempts: number; greatSuccesses: number }, row: AnyValue) => {
       total.events += Number(row.events || 0);
       total.attempts += Number(row.attempts || 0);
       total.greatSuccesses += Number(row.great_successes || 0);
@@ -266,7 +357,7 @@ async function handleStats(request, env) {
 
   const segmentStats = buildSegmentStats(rows);
   const levelKitStats = buildLevelKitStats(rows);
-  const mostUsedKit = byKit.reduce((best, item) => {
+  const mostUsedKit = byKit.reduce<(typeof byKit)[number] | null>((best, item) => {
     if (!best || Number(item.attempts || 0) > Number(best.attempts || 0)) return item;
     return best;
   }, null);
@@ -280,9 +371,9 @@ async function handleStats(request, env) {
       summary: {
         ...summary,
         greatSuccessRate: rate(summary.greatSuccesses, summary.attempts),
-        todayEvents: Number((todayRow && todayRow.events) || 0),
-        todayAttempts: Number((todayRow && todayRow.attempts) || 0),
-        todayGreatSuccesses: Number((todayRow && todayRow.great_successes) || 0),
+        todayEvents: Number(todayRow?.events || 0),
+        todayAttempts: Number(todayRow?.attempts || 0),
+        todayGreatSuccesses: Number(todayRow?.great_successes || 0),
         mostUsedKit: mostUsedKit ? mostUsedKit.kit : null,
         mostUsedKitPieces: mostUsedKit ? Number(mostUsedKit.attempts || 0) * 10 : 0,
       },
@@ -300,24 +391,33 @@ async function handleStats(request, env) {
   );
 }
 
-function aggregateRows(rows) {
+function aggregateRows(rows: AnyValue[]) {
   return rows.reduce(
-    (total, row) => {
+    (
+      total: {
+        events: number;
+        attempts: number;
+        greatSuccesses: number;
+        expectedGreatSuccesses: number;
+      },
+      row: AnyValue,
+    ) => {
       const attempts = Number(row.attempts || 0);
       total.events += Number(row.events || 0);
       total.attempts += attempts;
       total.greatSuccesses += Number(row.great_successes || 0);
-      total.expectedGreatSuccesses += attempts * greatSuccessProbability(row.grade, Number(row.level), row.kit);
+      total.expectedGreatSuccesses +=
+        attempts * greatSuccessProbability(row.grade as Grade, Number(row.level), row.kit as Kit);
       return total;
     },
     { events: 0, attempts: 0, greatSuccesses: 0, expectedGreatSuccesses: 0 },
   );
 }
 
-function buildSegmentStats(rows) {
+function buildSegmentStats(rows: AnyValue[]) {
   const groups = new Map();
   for (const row of rows) {
-    const segment = segmentForState(row.grade, Number(row.level));
+    const segment = segmentForState(row.grade as Grade, Number(row.level));
     if (!segment) continue;
     const group = groups.get(segment.key) || { ...segment, rows: [] };
     group.rows.push(row);
@@ -341,13 +441,17 @@ function buildSegmentStats(rows) {
   });
 }
 
-function buildLevelKitStats(rows) {
-  return ["R", "SR"].flatMap((grade) =>
+function buildLevelKitStats(rows: AnyValue[]) {
+  return (["R", "SR"] as Grade[]).flatMap((grade) =>
     Array.from({ length: 14 }, (_, index) => {
       const level = index + 1;
       const kits = Object.fromEntries(
         KIT_ORDER.map((kit) => {
-          const totals = aggregateRows(rows.filter((row) => row.grade === grade && Number(row.level) === level && row.kit === kit));
+          const totals = aggregateRows(
+            rows.filter(
+              (row) => row.grade === grade && Number(row.level) === level && row.kit === kit,
+            ),
+          );
           return [
             kit,
             {
@@ -364,13 +468,13 @@ function buildLevelKitStats(rows) {
   );
 }
 
-function greatSuccessProbability(grade, level, kit) {
-  const table = GREAT_SUCCESS[grade] && GREAT_SUCCESS[grade][kit];
+function greatSuccessProbability(grade: Grade, level: number, kit: Kit) {
+  const table = GREAT_SUCCESS[grade]?.[kit];
   if (!table || level < 1 || level > 14) return 0;
   return Number(table[level] || 0) / 100;
 }
 
-function segmentForState(grade, level) {
+function segmentForState(grade: Grade, level: number) {
   if (grade !== "R" && grade !== "SR") return null;
   if (level >= 1 && level <= 4) return { key: `${grade}:1`, label: `${grade} 1→5` };
   if (level >= 5 && level <= 9) return { key: `${grade}:5`, label: `${grade} 5→10` };
@@ -378,17 +482,17 @@ function segmentForState(grade, level) {
   return null;
 }
 
-function segmentForKey(key) {
+function segmentForKey(key: string) {
   const [grade, start] = key.split(":");
   const end = start === "1" ? "5" : start === "5" ? "10" : "15";
   return { key, label: `${grade} ${start}→${end}`, rows: [] };
 }
 
-function rate(numerator, denominator) {
+function rate(numerator: number, denominator: number) {
   return denominator > 0 ? numerator / denominator : 0;
 }
 
-async function verifyTurnstile(request, env, token) {
+async function verifyTurnstile(request: Request, env: Env, token: string) {
   if (!env.TURNSTILE_SECRET_KEY) throw new HttpError(500, "turnstile_not_configured");
   if (typeof token !== "string" || token.length < 20 || token.length > 2048) {
     throw new HttpError(403, "turnstile_token_required");
@@ -408,8 +512,16 @@ async function verifyTurnstile(request, env, token) {
   if (!result.success) throw new HttpError(403, "turnstile_failed");
 }
 
-async function rateLimit(request, env, scope, minuteLimit, dayLimit, now) {
-  const ip = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
+async function rateLimit(
+  request: Request,
+  env: Env,
+  scope: string,
+  minuteLimit: number,
+  dayLimit: number,
+  now: number,
+) {
+  const ip =
+    request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
   const key = await hashKey(`${env.RATE_LIMIT_SECRET || "change-this-secret"}:${ip}`);
   const minute = Math.floor(now / 60);
   const day = Math.floor(now / 86400);
@@ -423,33 +535,37 @@ async function rateLimit(request, env, scope, minuteLimit, dayLimit, now) {
        VALUES (?, 1, ?)
        ON CONFLICT(key) DO UPDATE SET count = count + 1, expires_at = ?
        RETURNING count`,
-    )
-      .bind(counter.key, counter.expiresAt, counter.expiresAt),
+    ).bind(counter.key, counter.expiresAt, counter.expiresAt),
   );
   const results = await env.DB.batch(statements);
-  results.forEach((result, index) => {
-    const row = result.results && result.results[0];
-    if (Number(row && row.count) > counters[index].limit) throw new HttpError(429, "rate_limited");
+  results.forEach((result: D1Result<unknown>, index: number) => {
+    const row = result.results?.[0] as { count?: number } | undefined;
+    if (Number(row?.count) > counters[index].limit) throw new HttpError(429, "rate_limited");
   });
 }
 
-function scheduleCleanup(env, ctx, now) {
+function scheduleCleanup(env: Env, ctx: ExecutionContext, now: number) {
   if (!ctx || now % 20 !== 0) return;
   ctx.waitUntil(
     Promise.all([
       env.DB.prepare("DELETE FROM rate_limits WHERE expires_at < ?").bind(now).run(),
-      env.DB.prepare("DELETE FROM event_ids WHERE created_at < ?").bind(now - 86400 * 14).run(),
+      env.DB.prepare("DELETE FROM event_ids WHERE created_at < ?")
+        .bind(now - 86400 * 14)
+        .run(),
     ]),
   );
 }
 
-async function hashKey(value) {
+async function hashKey(value: string) {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 32);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 32);
 }
 
-function validatePayload(payload) {
+function validatePayload(payload: AnyValue) {
   if (!payload || payload.version !== 1) throw new HttpError(400, "invalid_version");
   if (typeof payload.eventId !== "string" || !/^[a-zA-Z0-9-]{16,80}$/.test(payload.eventId)) {
     throw new HttpError(400, "invalid_event_id");
@@ -460,26 +576,45 @@ function validatePayload(payload) {
   const resultState = normalizeState(event.resultState, true);
   const stockBefore = normalizeStock(event.stockBefore);
   const stockAfter = normalizeStock(event.stockAfter);
-  const kit = KIT_ORDER.includes(event.kit) ? event.kit : null;
+  const kit = KIT_ORDER.includes(event.kit as Kit) ? (event.kit as Kit) : null;
   if (!kit) throw new HttpError(400, "invalid_kit");
-  const recommendedUses = intInRange(event.recommendedUses, 1, MAX_RECOMMENDED_USES, "invalid_recommended_uses");
-  const outcome = event.outcome === "great_success" || event.outcome === "no_great_success" ? event.outcome : null;
+  const recommendedUses = intInRange(
+    event.recommendedUses,
+    1,
+    MAX_RECOMMENDED_USES,
+    "invalid_recommended_uses",
+  );
+  const outcome =
+    event.outcome === "great_success" || event.outcome === "no_great_success"
+      ? event.outcome
+      : null;
   if (!outcome) throw new HttpError(400, "invalid_outcome");
 
-  const otherChanged = KIT_ORDER.some((name) => name !== kit && stockBefore[name] !== stockAfter[name]);
+  const otherChanged = KIT_ORDER.some(
+    (name) => name !== kit && stockBefore[name] !== stockAfter[name],
+  );
   if (otherChanged) throw new HttpError(400, "unexpected_stock_change");
   const usedKits = stockBefore[kit] - stockAfter[kit];
   if (usedKits <= 0 || usedKits % 10 !== 0) throw new HttpError(400, "invalid_stock_delta");
   const usedAttempts = usedKits / 10;
 
-  let successAttempt = null;
+  let successAttempt: number | null = null;
   if (outcome === "great_success") {
-    successAttempt = intInRange(event.successAttempt, 1, recommendedUses, "invalid_success_attempt");
-    if (usedAttempts !== successAttempt) throw new HttpError(400, "stock_delta_does_not_match_success_attempt");
-    if (!sameState(resultState, greatSuccessState(start))) throw new HttpError(400, "invalid_success_result_state");
+    successAttempt = intInRange(
+      event.successAttempt,
+      1,
+      recommendedUses,
+      "invalid_success_attempt",
+    );
+    if (usedAttempts !== successAttempt)
+      throw new HttpError(400, "stock_delta_does_not_match_success_attempt");
+    if (!sameState(resultState, greatSuccessState(start)))
+      throw new HttpError(400, "invalid_success_result_state");
   } else {
-    if (event.successAttempt !== null && event.successAttempt !== undefined) throw new HttpError(400, "unexpected_success_attempt");
-    if (usedAttempts !== recommendedUses) throw new HttpError(400, "stock_delta_does_not_match_recommended_uses");
+    if (event.successAttempt !== null && event.successAttempt !== undefined)
+      throw new HttpError(400, "unexpected_success_attempt");
+    if (usedAttempts !== recommendedUses)
+      throw new HttpError(400, "stock_delta_does_not_match_recommended_uses");
     if (!sameState(resultState, failAfterUses(start, kit, recommendedUses))) {
       throw new HttpError(400, "invalid_fail_result_state");
     }
@@ -502,18 +637,20 @@ function validatePayload(payload) {
   };
 }
 
-function normalizeState(state, allowLevel15) {
-  if (!state || (state.grade !== "R" && state.grade !== "SR")) throw new HttpError(400, "invalid_state_grade");
+function normalizeState(state: AnyValue, allowLevel15: boolean): CollectionState {
+  if (!state || (state.grade !== "R" && state.grade !== "SR"))
+    throw new HttpError(400, "invalid_state_grade");
+  const grade = state.grade as Grade;
   const maxLevel = allowLevel15 ? 15 : 14;
   const level = intInRange(state.level, 1, maxLevel, "invalid_state_level");
-  const required = REQUIRED_EXP[state.grade];
+  const required = REQUIRED_EXP[grade];
   const exp = intInRange(state.exp, 0, required - 100, "invalid_state_exp");
   if (exp % 100 !== 0) throw new HttpError(400, "invalid_state_exp_step");
   if (level === 15 && exp !== 0) throw new HttpError(400, "invalid_level_15_exp");
-  return { grade: state.grade, level, exp };
+  return { grade, level, exp };
 }
 
-function normalizeStock(stock) {
+function normalizeStock(stock: AnyValue): KitRecord<number> {
   if (!stock) throw new HttpError(400, "invalid_stock");
   return {
     blue: intInRange(stock.blue, 0, MAX_STOCK, "invalid_blue_stock"),
@@ -522,32 +659,35 @@ function normalizeStock(stock) {
   };
 }
 
-function intInRange(value, min, max, message) {
-  if (!Number.isInteger(value) || value < min || value > max) throw new HttpError(400, message);
-  return value;
+function intInRange(value: unknown, min: number, max: number, message: string) {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric < min || numeric > max) {
+    throw new HttpError(400, message);
+  }
+  return numeric;
 }
 
-function sameState(a, b) {
+function sameState(a: CollectionState, b: CollectionState) {
   return a.grade === b.grade && a.level === b.level && a.exp === b.exp;
 }
 
-function nextBoundary(level) {
+function nextBoundary(level: number) {
   if (level < 5) return 5;
   if (level < 10) return 10;
   return 15;
 }
 
-function greatSuccessState(state) {
+function greatSuccessState(state: CollectionState) {
   return { grade: state.grade, level: nextBoundary(state.level), exp: 0 };
 }
 
-function failAfterUses(state, kit, uses) {
+function failAfterUses(state: CollectionState, kit: Kit, uses: number) {
   let next = { ...state };
   for (let index = 0; index < uses; index += 1) next = failOnce(next, kit);
   return next;
 }
 
-function failOnce(state, kit) {
+function failOnce(state: CollectionState, kit: Kit) {
   if (state.level >= 15) return { grade: state.grade, level: 15, exp: 0 };
   let level = state.level;
   let exp = state.exp + KIT_EXP[kit];

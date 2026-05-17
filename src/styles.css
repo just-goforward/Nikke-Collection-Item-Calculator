@@ -1,3 +1,14 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: var(--surface);
+  --color-text: var(--ink);
+  --color-border: var(--line);
+  --color-blue-kit: var(--blue);
+  --color-purple-kit: var(--purple);
+  --color-yellow-kit: var(--yellow);
+}
+
 :root {
   color-scheme: light;
   --bg: #eef7fb;
@@ -414,6 +425,7 @@ h2 {
 }
 
 .field-grid label,
+.field-grid .readonly-field,
 .kit-input,
 .select-field {
   display: grid;
@@ -1489,13 +1501,22 @@ h2 {
 }
 
 .difficulty-bar {
+  display: block;
   position: relative;
   overflow: visible;
+  width: 100%;
   height: 13px;
   margin-top: 12px;
   margin-bottom: 17px;
+  padding: 0;
+  border: 0;
   border-radius: 999px;
   background: var(--progress-track);
+  color: inherit;
+  cursor: default;
+  font: inherit;
+  text-align: left;
+  user-select: none;
 }
 
 .difficulty-observed {
