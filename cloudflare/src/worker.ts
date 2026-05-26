@@ -12,6 +12,9 @@ interface Env {
 type Grade = "R" | "SR";
 const KIT_ORDER = ["blue", "purple", "yellow"] as const;
 type Kit = (typeof KIT_ORDER)[number];
+type StatsEventKind = "kit_result" | "solver_diagnostic";
+const STRATEGY_ORDER = ["single", "supply"] as const;
+type Strategy = (typeof STRATEGY_ORDER)[number] | "unknown";
 // biome-ignore lint/suspicious/noExplicitAny: D1 rows and validated JSON payloads are heterogeneous at runtime; domain checks below narrow them before use.
 type AnyValue = any;
 type KitRecord<T> = Record<Kit, T>;
@@ -28,73 +31,35 @@ const PRE_DAY_LIMIT = 1000;
 const POST_MINUTE_LIMIT = 30;
 const POST_DAY_LIMIT = 200;
 const KST_OFFSET_SECONDS = 9 * 60 * 60;
+const TURNSTILE_VERIFY_TIMEOUT_MS = 5_000;
+const TURNSTILE_CLIENT_RETRY_CODES = new Set(["timeout-or-duplicate", "invalid-input-response"]);
 const GREAT_SUCCESS: Record<Grade, Record<Kit, Array<number | null>>> = {
   R: {
     blue: [
-      null,
-      20.8,
-      24.0,
-      27.2,
-      40.0,
-      16.0,
-      19.2,
-      22.4,
-      27.2,
-      40.0,
-      14.4,
-      17.6,
-      22.4,
-      27.2,
-      40.0,
+      17.6, 20.8, 24.0, 27.2, 40.0, 16.0, 19.2, 22.4, 27.2, 40.0, 14.4, 17.6, 22.4, 27.2, 40.0,
     ],
     purple: [
-      null,
-      65.0,
-      75.0,
-      85.0,
-      100.0,
-      50.0,
-      60.0,
-      70.0,
-      85.0,
-      100.0,
-      45.0,
-      55.0,
-      70.0,
-      85.0,
-      100.0,
+      55.0, 65.0, 75.0, 85.0, 100.0, 50.0, 60.0, 70.0, 85.0, 100.0, 45.0, 55.0, 70.0, 85.0, 100.0,
     ],
-    yellow: [null, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+    yellow: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
   },
   SR: {
-    blue: [null, 5.9, 7.8, 11.3, 15.0, 2.2, 3.3, 4.9, 7.6, 12.5, 1.2, 2.2, 3.1, 4.7, 10.0],
-    purple: [null, 19.8, 28.7, 41.3, 55.0, 8.0, 12.0, 18.0, 28.0, 50.0, 5.4, 9.9, 14.4, 21.6, 45.0],
+    blue: [3.6, 5.9, 7.8, 11.3, 15.0, 2.2, 3.3, 4.9, 7.6, 12.5, 1.2, 2.2, 3.1, 4.7, 10.0],
+    purple: [11.0, 19.8, 28.7, 41.3, 55.0, 8.0, 12.0, 18.0, 28.0, 50.0, 5.4, 9.9, 14.4, 21.6, 45.0],
     yellow: [
-      null,
-      40.0,
-      55.0,
-      75.0,
-      100.0,
-      20.0,
-      30.0,
-      45.0,
-      70.0,
-      100.0,
-      15.0,
-      27.5,
-      40.0,
-      60.0,
-      100.0,
+      25.0, 40.0, 55.0, 75.0, 100.0, 20.0, 30.0, 45.0, 70.0, 100.0, 15.0, 27.5, 40.0, 60.0, 100.0,
     ],
   },
 };
 
 class HttpError extends Error {
   status: number;
+  retryable?: boolean;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, retryable?: boolean) {
     super(message);
     this.status = status;
+    this.retryable = retryable;
   }
 }
 
@@ -104,14 +69,20 @@ const worker: ExportedHandler<Env> = {
       const url = new URL(request.url);
       if (request.method === "OPTIONS") return handleOptions(request, env);
       if (url.pathname === "/api/stats" && request.method === "GET")
-        return handleStats(request, env);
+        return await handleStats(request, env);
       if (url.pathname === "/api/events" && request.method === "POST")
-        return handleEvent(request, env, ctx);
+        return await handleEvent(request, env, ctx);
       return jsonResponse(request, env, { error: "not_found" }, 404);
     } catch (error) {
       const status = error instanceof HttpError ? error.status : 500;
       const message = error instanceof Error ? error.message : "internal_error";
-      return jsonResponse(request, env, { error: message || "internal_error" }, status);
+      const body: { error: string; retryable?: boolean } = {
+        error: message || "internal_error",
+      };
+      if (error instanceof HttpError && typeof error.retryable === "boolean") {
+        body.retryable = error.retryable;
+      }
+      return jsonResponse(request, env, body, status);
     }
   },
 };
@@ -145,6 +116,126 @@ function normalizeSourceHost(value: unknown) {
   )
     return "unknown";
   return raw;
+}
+
+function normalizeStrategy(value: unknown): Strategy {
+  return STRATEGY_ORDER.includes(value as (typeof STRATEGY_ORDER)[number])
+    ? (value as (typeof STRATEGY_ORDER)[number])
+    : "unknown";
+}
+
+function normalizeDiagnosticToken(value: unknown) {
+  const token = String(value || "").trim();
+  return /^[a-zA-Z0-9_.-]{1,64}$/.test(token) ? token : "unknown";
+}
+
+function normalizeMajor(value: unknown) {
+  const match = String(value || "").match(/\d+/);
+  if (!match) return "unknown";
+  return match[0].slice(0, 3);
+}
+
+function stripHeaderQuotes(value: string) {
+  return value.trim().replace(/^"|"$/g, "");
+}
+
+function browserFromUserAgent(userAgent: string) {
+  const samsung = userAgent.match(/SamsungBrowser\/(\d+)/i);
+  if (samsung) return { browser: "Samsung Internet", browserMajor: normalizeMajor(samsung[1]) };
+  const edge = userAgent.match(/Edg(?:e|A|iOS)?\/(\d+)/i);
+  if (edge) return { browser: "Edge", browserMajor: normalizeMajor(edge[1]) };
+  const firefox = userAgent.match(/(?:Firefox|FxiOS)\/(\d+)/i);
+  if (firefox) return { browser: "Firefox", browserMajor: normalizeMajor(firefox[1]) };
+  const chrome = userAgent.match(/(?:Chrome|CriOS|Chromium)\/(\d+)/i);
+  if (chrome) return { browser: "Chrome", browserMajor: normalizeMajor(chrome[1]) };
+  const safari = userAgent.match(/Version\/(\d+).+Safari\//i);
+  if (safari) return { browser: "Safari", browserMajor: normalizeMajor(safari[1]) };
+  return null;
+}
+
+function browserFromClientHints(header: string) {
+  const brands: Array<{ brand: string; major: string }> = [];
+  const pattern = /"([^"]+)";v="(\d+)/g;
+  let match = pattern.exec(header);
+  while (match) {
+    const brand = match[1].toLowerCase();
+    if (!(brand.includes("not") && brand.includes("brand"))) {
+      brands.push({ brand, major: normalizeMajor(match[2]) });
+    }
+    match = pattern.exec(header);
+  }
+  const prioritized = [
+    { needle: "samsung", browser: "Samsung Internet" },
+    { needle: "microsoft edge", browser: "Edge" },
+    { needle: "google chrome", browser: "Chrome" },
+    { needle: "chromium", browser: "Chrome" },
+  ];
+  for (const candidate of prioritized) {
+    const brand = brands.find((item) => item.brand.includes(candidate.needle));
+    if (brand) return { browser: candidate.browser, browserMajor: brand.major };
+  }
+  return null;
+}
+
+function osFromUserAgent(userAgent: string) {
+  const android = userAgent.match(/Android\s+(\d+)/i);
+  if (android) return { os: "Android", osMajor: normalizeMajor(android[1]) };
+  const ios = userAgent.match(/(?:iPhone OS|CPU OS)\s+(\d+)/i);
+  if (ios) return { os: "iOS", osMajor: normalizeMajor(ios[1]) };
+  const windows = userAgent.match(/Windows NT\s+(\d+)/i);
+  if (windows) return { os: "Windows", osMajor: normalizeMajor(windows[1]) };
+  const macos = userAgent.match(/Mac OS X\s+(\d+)/i);
+  if (macos) return { os: "macOS", osMajor: normalizeMajor(macos[1]) };
+  const chromeos = userAgent.match(/CrOS/i);
+  if (chromeos) return { os: "ChromeOS", osMajor: "unknown" };
+  if (/Linux/i.test(userAgent)) return { os: "Linux", osMajor: "unknown" };
+  return null;
+}
+
+function osFromClientHints(platformHeader: string, userAgent: string) {
+  const platform = stripHeaderQuotes(platformHeader).toLowerCase();
+  if (!platform) return null;
+  const fallback = osFromUserAgent(userAgent);
+  if (platform.includes("android"))
+    return { os: "Android", osMajor: fallback?.osMajor || "unknown" };
+  if (platform.includes("ios")) return { os: "iOS", osMajor: fallback?.osMajor || "unknown" };
+  if (platform.includes("windows"))
+    return { os: "Windows", osMajor: fallback?.osMajor || "unknown" };
+  if (platform.includes("mac")) return { os: "macOS", osMajor: fallback?.osMajor || "unknown" };
+  if (platform.includes("chrome"))
+    return { os: "ChromeOS", osMajor: fallback?.osMajor || "unknown" };
+  if (platform.includes("linux")) return { os: "Linux", osMajor: fallback?.osMajor || "unknown" };
+  return null;
+}
+
+function deviceTypeFromHeaders(request: Request, userAgent: string) {
+  if (/iPad|Tablet|PlayBook|Silk|Android(?!.*Mobile)/i.test(userAgent)) return "tablet";
+  const mobileHint = request.headers.get("Sec-CH-UA-Mobile");
+  if (mobileHint === "?1") return "mobile";
+  if (/Mobi|Android|iPhone|iPod|Mobile/i.test(userAgent)) return "mobile";
+  if (userAgent) return "desktop";
+  return "unknown";
+}
+
+function clientEnvironment(request: Request) {
+  const userAgent = request.headers.get("User-Agent") || "";
+  const browser = browserFromUserAgent(userAgent) ||
+    browserFromClientHints(request.headers.get("Sec-CH-UA") || "") || {
+      browser: "Unknown",
+      browserMajor: "unknown",
+    };
+  const os = osFromClientHints(request.headers.get("Sec-CH-UA-Platform") || "", userAgent) ||
+    osFromUserAgent(userAgent) || {
+      os: "Unknown",
+      osMajor: "unknown",
+    };
+  return {
+    browser: browser.browser,
+    browserMajor: browser.browserMajor,
+    os: os.os,
+    osMajor: os.osMajor,
+    deviceType: deviceTypeFromHeaders(request, userAgent),
+  };
 }
 
 function allowedOrigins(env: Env) {
@@ -215,6 +306,7 @@ async function handleEvent(request: Request, env: Env, ctx: ExecutionContext) {
   if (contentLength > MAX_BODY_BYTES) throw new HttpError(413, "payload_too_large");
   const now = Math.floor(Date.now() / 1000);
 
+  if (!env.RATE_LIMIT_SECRET) throw new HttpError(500, "rate_limit_not_configured");
   await rateLimit(request, env, "pre", PRE_MINUTE_LIMIT, PRE_DAY_LIMIT, now);
 
   const text = await request.text();
@@ -231,31 +323,35 @@ async function handleEvent(request: Request, env: Env, ctx: ExecutionContext) {
   const parsedPayload = EventSubmissionSchema.safeParse(payload);
   if (!parsedPayload.success) throw new HttpError(400, "invalid_payload");
 
-  await verifyTurnstile(request, env, parsedPayload.data.turnstileToken);
+  await verifyTurnstile(
+    request,
+    env,
+    parsedPayload.data.turnstileToken,
+    parsedPayload.data.event.kind,
+  );
   await rateLimit(request, env, "post", POST_MINUTE_LIMIT, POST_DAY_LIMIT, now);
   const normalized = validatePayload(parsedPayload.data);
 
-  const inserted = await env.DB.prepare(
-    "INSERT OR IGNORE INTO event_ids (id, created_at) VALUES (?, ?)",
-  )
-    .bind(normalized.eventId, now)
-    .run();
-
-  if (!inserted.meta || inserted.meta.changes === 0) {
+  const dateKey = kstDateKeyFromUnixSeconds(now);
+  if (normalized.event.kind === "solver_diagnostic") {
+    const duplicate = await commitEvent(env, normalized.eventId, now, normalized.event.kind, [
+      buildSolverDiagnosticAggregateStatement(env, dateKey, normalized.event, now),
+    ]);
     scheduleCleanup(env, ctx, now);
-    return jsonResponse(request, env, { ok: true, duplicate: true });
+    return jsonResponse(request, env, duplicate ? { ok: true, duplicate: true } : { ok: true });
   }
 
-  const dateKey = kstDateKeyFromUnixSeconds(now);
   const successAttempt = normalized.event.successAttempt || 0;
   const attempts =
     normalized.event.outcome === "great_success"
       ? successAttempt
       : normalized.event.recommendedUses;
   const greatSuccesses = normalized.event.outcome === "great_success" ? 1 : 0;
+  const environment = clientEnvironment(request);
 
-  await env.DB.prepare(
-    `INSERT INTO event_aggregates
+  const duplicate = await commitEvent(env, normalized.eventId, now, "kit_result", [
+    env.DB.prepare(
+      `INSERT INTO event_aggregates
       (date_key, grade, level, exp_bucket, kit, recommended_uses, outcome, success_attempt, events, attempts, great_successes, last_seen)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
      ON CONFLICT(date_key, grade, level, exp_bucket, kit, recommended_uses, outcome, success_attempt)
@@ -264,8 +360,7 @@ async function handleEvent(request: Request, env: Env, ctx: ExecutionContext) {
       attempts = attempts + excluded.attempts,
       great_successes = great_successes + excluded.great_successes,
       last_seen = excluded.last_seen`,
-  )
-    .bind(
+    ).bind(
       dateKey,
       normalized.event.start.grade,
       normalized.event.start.level,
@@ -277,24 +372,130 @@ async function handleEvent(request: Request, env: Env, ctx: ExecutionContext) {
       attempts,
       greatSuccesses,
       now,
-    )
-    .run();
-
-  await env.DB.prepare(
-    `INSERT INTO referrer_aggregates
+    ),
+    env.DB.prepare(
+      `INSERT INTO referrer_aggregates
       (date_key, source_host, events, last_seen)
      VALUES (?, ?, 1, ?)
      ON CONFLICT(date_key, source_host)
      DO UPDATE SET
       events = events + 1,
       last_seen = excluded.last_seen`,
-  )
-    .bind(dateKey, normalized.sourceHost, now)
-    .run();
+    ).bind(dateKey, normalized.sourceHost, now),
+    env.DB.prepare(
+      `INSERT INTO client_env_aggregates
+      (date_key, browser, browser_major, os, os_major, device_type, events, last_seen)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, browser, browser_major, os, os_major, device_type)
+     DO UPDATE SET
+      events = events + 1,
+      last_seen = excluded.last_seen`,
+    ).bind(
+      dateKey,
+      environment.browser,
+      environment.browserMajor,
+      environment.os,
+      environment.osMajor,
+      environment.deviceType,
+      now,
+    ),
+  ]);
 
   scheduleCleanup(env, ctx, now);
 
-  return jsonResponse(request, env, { ok: true });
+  return jsonResponse(request, env, duplicate ? { ok: true, duplicate: true } : { ok: true });
+}
+
+async function commitEvent(
+  env: Env,
+  eventId: string,
+  now: number,
+  eventKind: StatsEventKind,
+  aggregateStatements: D1PreparedStatement[],
+): Promise<boolean> {
+  try {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO event_ids (id, created_at) VALUES (?, ?)").bind(eventId, now),
+      ...aggregateStatements,
+    ]);
+    return false;
+  } catch (error) {
+    let existing: { event_exists?: number } | null;
+    try {
+      existing = await env.DB.prepare("SELECT 1 AS event_exists FROM event_ids WHERE id = ?")
+        .bind(eventId)
+        .first<{ event_exists?: number }>();
+    } catch {
+      console.error("Statistics event storage lookup failed.", {
+        eventKind,
+        error: error instanceof Error ? error.message : "unknown_error",
+      });
+      throw new HttpError(503, "storage_unavailable", true);
+    }
+    if (existing?.event_exists === 1) return true;
+    console.error("Statistics event storage failed.", {
+      eventKind,
+      error: error instanceof Error ? error.message : "unknown_error",
+    });
+    throw new HttpError(503, "storage_unavailable", true);
+  }
+}
+
+function buildSolverDiagnosticAggregateStatement(
+  env: Env,
+  dateKey: string,
+  event: AnyValue,
+  now: number,
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `INSERT INTO solver_diagnostic_aggregates
+      (date_key, diagnostic_version, solver_version, solver_phase, grade, level, exp_bucket,
+       strategy, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
+       recommended_kit, recommended_uses_bucket, candidate_count_bucket,
+       probability_gap_bucket, resource_cost_bucket, legacy_supply_cost_bucket,
+       total_expected_cost_bucket,
+       blue_share_bucket, min_autonomy_days_bucket, changed_from_single,
+       changed_from_legacy_supply, legacy_private_stats_available,
+       legacy_event_aggregate_matchable, events, last_seen)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, diagnostic_version, solver_version, solver_phase, grade, level,
+       exp_bucket, strategy, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
+       recommended_kit, recommended_uses_bucket, candidate_count_bucket,
+       probability_gap_bucket, resource_cost_bucket, legacy_supply_cost_bucket,
+       total_expected_cost_bucket,
+       blue_share_bucket, min_autonomy_days_bucket, changed_from_single,
+       changed_from_legacy_supply, legacy_private_stats_available,
+       legacy_event_aggregate_matchable)
+     DO UPDATE SET
+      events = events + 1,
+      last_seen = excluded.last_seen`,
+  ).bind(
+    dateKey,
+    event.diagnosticVersion,
+    event.solverVersion,
+    event.solverPhase,
+    event.start.grade,
+    event.start.level,
+    event.start.exp,
+    event.strategy,
+    event.stockBuckets.blue,
+    event.stockBuckets.purple,
+    event.stockBuckets.yellow,
+    event.recommendedKit,
+    event.recommendedUsesBucket,
+    event.candidateCountBucket,
+    event.probabilityGapBucket,
+    event.resourceCostBucket,
+    event.legacySupplyCostBucket,
+    event.totalExpectedCostBucket,
+    event.blueShareBucket,
+    event.minAutonomyDaysBucket,
+    event.changedFromSingle,
+    event.changedFromLegacySupply,
+    event.legacyPrivateStatsAvailable ? 1 : 0,
+    event.legacyEventAggregateMatchable ? 1 : 0,
+    now,
+  );
 }
 
 async function handleStats(request: Request, env: Env) {
@@ -304,7 +505,7 @@ async function handleStats(request: Request, env: Env) {
   const today = kstDateKeyFromUnixSeconds(now);
   const since = kstDateKeyFromUnixSeconds(now - 86400 * 30);
 
-  const [statRows, distributionRows, todayRow] = await Promise.all([
+  const [statRows, cumulativeRows, todayRow] = await Promise.all([
     env.DB.prepare(
       `SELECT grade, level, kit, SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
        FROM event_aggregates
@@ -314,14 +515,10 @@ async function handleStats(request: Request, env: Env) {
       .bind(since)
       .all(),
     env.DB.prepare(
-      `SELECT kit, success_attempt, SUM(events) AS events
+      `SELECT grade, level, kit, SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
        FROM event_aggregates
-       WHERE date_key >= ? AND outcome = 'great_success'
-       GROUP BY kit, success_attempt
-       ORDER BY kit, success_attempt`,
-    )
-      .bind(since)
-      .all(),
+       GROUP BY grade, level, kit`,
+    ).all(),
     env.DB.prepare(
       `SELECT SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
        FROM event_aggregates
@@ -332,35 +529,24 @@ async function handleStats(request: Request, env: Env) {
   ]);
 
   const rows = (statRows.results || []) as AnyValue[];
-  const summary = rows.reduce(
-    (total: { events: number; attempts: number; greatSuccesses: number }, row: AnyValue) => {
-      total.events += Number(row.events || 0);
-      total.attempts += Number(row.attempts || 0);
-      total.greatSuccesses += Number(row.great_successes || 0);
-      return total;
-    },
-    { events: 0, attempts: 0, greatSuccesses: 0 },
-  );
-
-  const byKit = KIT_ORDER.map((kit) => {
-    const kitRows = rows.filter((item) => item.kit === kit);
-    const totals = aggregateRows(kitRows);
-    return {
-      kit,
-      events: totals.events,
-      attempts: totals.attempts,
-      greatSuccesses: totals.greatSuccesses,
-      greatSuccessRate: rate(totals.greatSuccesses, totals.attempts),
-      theoreticalGreatSuccessRate: rate(totals.expectedGreatSuccesses, totals.attempts),
-    };
-  });
+  const allRows = (cumulativeRows.results || []) as AnyValue[];
+  const summary = summarizeRows(rows);
+  const cumulativeSummary = summarizeRows(allRows);
+  const byKit = buildByKitStats(rows);
+  const cumulativeByKit = buildByKitStats(allRows);
 
   const segmentStats = buildSegmentStats(rows);
-  const levelKitStats = buildLevelKitStats(rows);
   const mostUsedKit = byKit.reduce<(typeof byKit)[number] | null>((best, item) => {
     if (!best || Number(item.attempts || 0) > Number(best.attempts || 0)) return item;
     return best;
   }, null);
+  const cumulativeMostUsedKit = cumulativeByKit.reduce<(typeof cumulativeByKit)[number] | null>(
+    (best, item) => {
+      if (!best || Number(item.attempts || 0) > Number(best.attempts || 0)) return item;
+      return best;
+    },
+    null,
+  );
 
   return jsonResponse(
     request,
@@ -378,17 +564,54 @@ async function handleStats(request: Request, env: Env) {
         mostUsedKitPieces: mostUsedKit ? Number(mostUsedKit.attempts || 0) * 10 : 0,
       },
       byKit,
-      levelKitStats,
+      cumulative: {
+        summary: {
+          ...cumulativeSummary,
+          mostUsedKit: cumulativeMostUsedKit ? cumulativeMostUsedKit.kit : null,
+          mostUsedKitPieces: cumulativeMostUsedKit
+            ? Number(cumulativeMostUsedKit.attempts || 0) * 10
+            : 0,
+        },
+        byKit: cumulativeByKit,
+      },
+      levelKitStats: [],
       segmentStats,
-      successAttemptDistribution: (distributionRows.results || []).map((row) => ({
-        kit: row.kit,
-        successAttempt: Number(row.success_attempt),
-        events: Number(row.events || 0),
-      })),
+      successAttemptDistribution: [],
     },
     200,
     "public, max-age=60, s-maxage=60",
   );
+}
+
+function summarizeRows(rows: AnyValue[]) {
+  const totals = rows.reduce(
+    (total: { events: number; attempts: number; greatSuccesses: number }, row: AnyValue) => {
+      total.events += Number(row.events || 0);
+      total.attempts += Number(row.attempts || 0);
+      total.greatSuccesses += Number(row.great_successes || 0);
+      return total;
+    },
+    { events: 0, attempts: 0, greatSuccesses: 0 },
+  );
+  return {
+    ...totals,
+    greatSuccessRate: rate(totals.greatSuccesses, totals.attempts),
+  };
+}
+
+function buildByKitStats(rows: AnyValue[]) {
+  return KIT_ORDER.map((kit) => {
+    const kitRows = rows.filter((item) => item.kit === kit);
+    const totals = aggregateRows(kitRows);
+    return {
+      kit,
+      events: totals.events,
+      attempts: totals.attempts,
+      greatSuccesses: totals.greatSuccesses,
+      greatSuccessRate: rate(totals.greatSuccesses, totals.attempts),
+      theoreticalGreatSuccessRate: rate(totals.expectedGreatSuccesses, totals.attempts),
+    };
+  });
 }
 
 function aggregateRows(rows: AnyValue[]) {
@@ -424,7 +647,7 @@ function buildSegmentStats(rows: AnyValue[]) {
     groups.set(segment.key, group);
   }
 
-  return ["R:1", "R:5", "R:10", "SR:1", "SR:5", "SR:10"].map((key) => {
+  return ["R:0", "R:5", "R:10", "SR:0", "SR:5", "SR:10"].map((key) => {
     const group = groups.get(key) || segmentForKey(key);
     const totals = aggregateRows(group.rows || []);
     const actualRate = rate(totals.greatSuccesses, totals.attempts);
@@ -441,42 +664,15 @@ function buildSegmentStats(rows: AnyValue[]) {
   });
 }
 
-function buildLevelKitStats(rows: AnyValue[]) {
-  return (["R", "SR"] as Grade[]).flatMap((grade) =>
-    Array.from({ length: 14 }, (_, index) => {
-      const level = index + 1;
-      const kits = Object.fromEntries(
-        KIT_ORDER.map((kit) => {
-          const totals = aggregateRows(
-            rows.filter(
-              (row) => row.grade === grade && Number(row.level) === level && row.kit === kit,
-            ),
-          );
-          return [
-            kit,
-            {
-              attempts: totals.attempts,
-              greatSuccesses: totals.greatSuccesses,
-              greatSuccessRate: rate(totals.greatSuccesses, totals.attempts),
-              theoreticalGreatSuccessRate: greatSuccessProbability(grade, level, kit),
-            },
-          ];
-        }),
-      );
-      return { grade, level, kits };
-    }),
-  );
-}
-
 function greatSuccessProbability(grade: Grade, level: number, kit: Kit) {
   const table = GREAT_SUCCESS[grade]?.[kit];
-  if (!table || level < 1 || level > 14) return 0;
+  if (!table || level < 0 || level > 14) return 0;
   return Number(table[level] || 0) / 100;
 }
 
 function segmentForState(grade: Grade, level: number) {
   if (grade !== "R" && grade !== "SR") return null;
-  if (level >= 1 && level <= 4) return { key: `${grade}:1`, label: `${grade} 1→5` };
+  if (level >= 0 && level <= 4) return { key: `${grade}:0`, label: `${grade} 0→5` };
   if (level >= 5 && level <= 9) return { key: `${grade}:5`, label: `${grade} 5→10` };
   if (level >= 10 && level <= 14) return { key: `${grade}:10`, label: `${grade} 10→15` };
   return null;
@@ -484,7 +680,7 @@ function segmentForState(grade: Grade, level: number) {
 
 function segmentForKey(key: string) {
   const [grade, start] = key.split(":");
-  const end = start === "1" ? "5" : start === "5" ? "10" : "15";
+  const end = start === "0" ? "5" : start === "5" ? "10" : "15";
   return { key, label: `${grade} ${start}→${end}`, rows: [] };
 }
 
@@ -492,24 +688,104 @@ function rate(numerator: number, denominator: number) {
   return denominator > 0 ? numerator / denominator : 0;
 }
 
-async function verifyTurnstile(request: Request, env: Env, token: string) {
+type SiteverifyResult = {
+  success?: boolean;
+  action?: string;
+  "error-codes"?: string[];
+};
+
+async function requestTurnstileVerification(
+  request: Request,
+  env: Env,
+  token: string,
+  idempotencyKey: string,
+): Promise<SiteverifyResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TURNSTILE_VERIFY_TIMEOUT_MS);
+  try {
+    const form = new FormData();
+    form.append("secret", String(env.TURNSTILE_SECRET_KEY));
+    form.append("response", token);
+    form.append("idempotency_key", idempotencyKey);
+    const ip = request.headers.get("CF-Connecting-IP");
+    if (ip) form.append("remoteip", ip);
+
+    const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      body: form,
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Siteverify returned HTTP ${response.status}.`);
+    return (await response.json()) as SiteverifyResult;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function logTurnstileFailure(
+  eventKind: StatsEventKind,
+  result: SiteverifyResult | null,
+  internallyRetried: boolean,
+) {
+  console.warn("Turnstile verification failed.", {
+    eventKind,
+    expectedAction: eventKind,
+    returnedAction: result?.action || null,
+    errorCodes: result?.["error-codes"] || ["siteverify_unavailable"],
+    internallyRetried,
+  });
+}
+
+async function verifyTurnstile(
+  request: Request,
+  env: Env,
+  token: string,
+  eventKind: StatsEventKind,
+) {
   if (!env.TURNSTILE_SECRET_KEY) throw new HttpError(500, "turnstile_not_configured");
   if (typeof token !== "string" || token.length < 20 || token.length > 2048) {
-    throw new HttpError(403, "turnstile_token_required");
+    throw new HttpError(403, "turnstile_token_required", false);
   }
 
-  const form = new FormData();
-  form.append("secret", env.TURNSTILE_SECRET_KEY);
-  form.append("response", token);
-  const ip = request.headers.get("CF-Connecting-IP");
-  if (ip) form.append("remoteip", ip);
+  const idempotencyKey = crypto.randomUUID();
+  let internallyRetried = false;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let result: SiteverifyResult;
+    try {
+      result = await requestTurnstileVerification(request, env, token, idempotencyKey);
+    } catch {
+      if (attempt === 0) {
+        internallyRetried = true;
+        continue;
+      }
+      logTurnstileFailure(eventKind, null, internallyRetried);
+      throw new HttpError(502, "turnstile_unavailable", true);
+    }
 
-  const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-    method: "POST",
-    body: form,
-  });
-  const result = (await response.json()) as { success?: boolean };
-  if (!result.success) throw new HttpError(403, "turnstile_failed");
+    if (result.success) {
+      if (result.action && result.action !== eventKind) {
+        console.warn("Turnstile action mismatch observed.", {
+          eventKind,
+          expectedAction: eventKind,
+          returnedAction: result.action,
+          internallyRetried,
+        });
+      }
+      return;
+    }
+
+    const errorCodes = Array.isArray(result["error-codes"]) ? result["error-codes"] : [];
+    if (errorCodes.includes("internal-error") && attempt === 0) {
+      internallyRetried = true;
+      continue;
+    }
+    logTurnstileFailure(eventKind, result, internallyRetried);
+    if (errorCodes.includes("internal-error")) {
+      throw new HttpError(502, "turnstile_unavailable", true);
+    }
+    const retryable = errorCodes.some((code) => TURNSTILE_CLIENT_RETRY_CODES.has(code));
+    throw new HttpError(403, "turnstile_failed", retryable);
+  }
 }
 
 async function rateLimit(
@@ -522,7 +798,7 @@ async function rateLimit(
 ) {
   const ip =
     request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
-  const key = await hashKey(`${env.RATE_LIMIT_SECRET || "change-this-secret"}:${ip}`);
+  const key = await hashKey(`${env.RATE_LIMIT_SECRET}:${ip}`);
   const minute = Math.floor(now / 60);
   const day = Math.floor(now / 86400);
   const counters = [
@@ -571,7 +847,40 @@ function validatePayload(payload: AnyValue) {
     throw new HttpError(400, "invalid_event_id");
   }
   const event = payload.event;
-  if (!event || event.kind !== "kit_result") throw new HttpError(400, "invalid_event_kind");
+  if (!event) throw new HttpError(400, "invalid_event_kind");
+  if (event.kind === "solver_diagnostic") {
+    return {
+      eventId: payload.eventId,
+      sourceHost: normalizeSourceHost(payload.sourceHost),
+      event: {
+        kind: "solver_diagnostic",
+        diagnosticVersion: event.diagnosticVersion,
+        solverVersion: normalizeDiagnosticToken(event.solverVersion),
+        solverPhase: normalizeDiagnosticToken(event.solverPhase),
+        start: normalizeState(event.start, false),
+        strategy: normalizeStrategy(event.strategy),
+        stockBuckets: {
+          blue: event.stockBuckets.blue,
+          purple: event.stockBuckets.purple,
+          yellow: event.stockBuckets.yellow,
+        },
+        recommendedKit: event.recommendedKit,
+        recommendedUsesBucket: event.recommendedUsesBucket,
+        candidateCountBucket: event.candidateCountBucket,
+        probabilityGapBucket: event.probabilityGapBucket,
+        resourceCostBucket: event.resourceCostBucket,
+        legacySupplyCostBucket: event.legacySupplyCostBucket,
+        totalExpectedCostBucket: event.totalExpectedCostBucket,
+        blueShareBucket: event.blueShareBucket,
+        minAutonomyDaysBucket: event.minAutonomyDaysBucket,
+        changedFromSingle: event.changedFromSingle,
+        changedFromLegacySupply: event.changedFromLegacySupply,
+        legacyPrivateStatsAvailable: Boolean(event.legacyPrivateStatsAvailable),
+        legacyEventAggregateMatchable: Boolean(event.legacyEventAggregateMatchable),
+      },
+    };
+  }
+  if (event.kind !== "kit_result") throw new HttpError(400, "invalid_event_kind");
   const start = normalizeState(event.start, false);
   const resultState = normalizeState(event.resultState, true);
   const stockBefore = normalizeStock(event.stockBefore);
@@ -642,7 +951,7 @@ function normalizeState(state: AnyValue, allowLevel15: boolean): CollectionState
     throw new HttpError(400, "invalid_state_grade");
   const grade = state.grade as Grade;
   const maxLevel = allowLevel15 ? 15 : 14;
-  const level = intInRange(state.level, 1, maxLevel, "invalid_state_level");
+  const level = intInRange(state.level, 0, maxLevel, "invalid_state_level");
   const required = REQUIRED_EXP[grade];
   const exp = intInRange(state.exp, 0, required - 100, "invalid_state_exp");
   if (exp % 100 !== 0) throw new HttpError(400, "invalid_state_exp_step");

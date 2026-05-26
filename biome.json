@@ -2,11 +2,14 @@
   "$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
   "files": {
     "includes": [
-      "src/**/*.{ts,tsx,js,jsx,vue,json}",
+      "src/**/*.{ts,tsx,js,jsx,json}",
       "cloudflare/src/**/*.ts",
       "e2e/**/*.ts",
+      "benchmarks/**/*.{ts,tsx,js,jsx,json,md}",
       "vite.config.ts",
       "vitest.config.ts",
+      "vitest.cloudflare.config.ts",
+      "vitest.benchmark.config.ts",
       "playwright.config.ts",
       "biome.json",
       "package.json",

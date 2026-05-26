@@ -68,6 +68,9 @@ Set a random rate-limit secret:
 wrangler secret put RATE_LIMIT_SECRET
 ```
 
+Both Worker secrets are required in every deployed environment. If `RATE_LIMIT_SECRET` is
+missing, `/api/events` returns `rate_limit_not_configured` without retrying or storing data.
+
 7. Set `ALLOWED_ORIGINS` in `wrangler.toml`.
 
 For a project page:
@@ -96,7 +99,26 @@ The Worker rejects bad submissions before writing to D1:
 - only the recommended kit may decrease
 - success attempt must match stock delta
 - result level/exp must match the expected transition
+- browser, OS, device type, and referrer are stored only as private aggregates
+- solver diagnostic values are stored only as private bucketed aggregates
 - raw per-user inputs are not exposed by the stats endpoint
+
+Event deduplication and its aggregate write are committed in one D1 batch. An accepted event is
+either fully counted or can be retried with the same event ID after a write failure. Event IDs
+are retained for 14 days, so deduplication applies within that retention window.
+
+Events accepted before the atomic-write change may already have an event ID without matching
+aggregate data if a later write failed. Raw payloads are not retained, so those historical gaps
+cannot be reconstructed or repaired.
+
+Browser submissions are sent in FIFO order. A transient browser retry keeps the same event ID
+but obtains a fresh Turnstile token. A transient Worker-to-Siteverify retry reuses its original
+token with the same `idempotency_key`. Any retry can consume additional pre/post rate-limit
+counters, because abuse-protection accounting is intentionally kept outside the aggregate commit.
+
+The public stats response retains `levelKitStats` and `successAttemptDistribution` as empty
+compatibility arrays. Current UI versions do not consume these fields, but retaining them keeps
+cached older frontend assets from rejecting the entire response.
 
 ## Endpoints
 
@@ -108,6 +130,12 @@ Stores one validated result event.
 
 Returns 30-day aggregate statistics for display on the site. This public response is cacheable for 60 seconds.
 
+Worker/D1 write-path tests use an isolated local Miniflare D1 database:
+
+```powershell
+npm run test:worker
+```
+
 For an existing D1 database, re-apply the schema after schema changes:
 
 ```powershell
@@ -117,5 +145,27 @@ wrangler d1 execute collection-kit-stats --remote --file cloudflare/schema.sql -
 Referrer/source-host aggregates are intentionally not returned by this public endpoint. Check them privately through D1, for example:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --command "SELECT date_key, source_host, events FROM referrer_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, source_host, events FROM referrer_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
+```
+
+Client environment aggregates are also private. Check them through D1:
+
+```powershell
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, browser, browser_major, os, os_major, device_type, events FROM client_env_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
+```
+
+Solver diagnostic aggregates are private and bucketed. They are intended for deciding whether the supply strategy needs a Phase 2 refinement.
+
+The `strategy` column is retained as a fixed compatibility field for the current solver mode and is not a user strategy selection statistic.
+
+```powershell
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, solver_version, solver_phase, grade, level, strategy, probability_gap_bucket, resource_cost_bucket, legacy_supply_cost_bucket, blue_share_bucket, min_autonomy_days_bucket, events FROM solver_diagnostic_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
+```
+
+To delete private aggregate rows for a specific KST date:
+
+```powershell
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "DELETE FROM referrer_aggregates WHERE date_key = '2026-05-18'"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "DELETE FROM client_env_aggregates WHERE date_key = '2026-05-18'"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "DELETE FROM solver_diagnostic_aggregates WHERE date_key = '2026-05-18'"
 ```

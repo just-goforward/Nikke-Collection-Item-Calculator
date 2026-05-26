@@ -26,9 +26,14 @@ const STRATEGY_PROBABILITY_TOLERANCE: Record<Strategy, number> = {
   single: 0.001,
   supply: 0.01,
 };
+// Deprecated: kept on CollectionSolver for compatibility with older debug consumers.
 const SUPPLY_MODE_WEIGHTS = {
   supply: 0.75,
   stock: 0.25,
+};
+const SUPPLY_AVAILABILITY_PARAMS = {
+  horizon: 0.5,
+  normPower: 3,
 };
 const EXP_BUCKETS = 30;
 const LEVEL_BUCKETS = 16;
@@ -45,7 +50,7 @@ const STRATEGY_META = {
   },
   supply: {
     label: "수급량 고려",
-    description: "SR 15 도달 확률을 크게 깎지 않는 선에서 수급량/보유량을 함께 고려",
+    description: "SR 15 도달 확률과 키트 수급/보유량을 함께 고려하여 최적의 선택지를 제공합니다.",
   },
 };
 const EXPECTED_28_DAY_GAIN: KitVector = {
@@ -57,60 +62,18 @@ const EXPECTED_28_DAY_GAIN: KitVector = {
 const GREAT_SUCCESS: Record<Grade, Record<Kit, Array<number | null>>> = {
   R: {
     blue: [
-      null,
-      20.8,
-      24.0,
-      27.2,
-      40.0,
-      16.0,
-      19.2,
-      22.4,
-      27.2,
-      40.0,
-      14.4,
-      17.6,
-      22.4,
-      27.2,
-      40.0,
+      17.6, 20.8, 24.0, 27.2, 40.0, 16.0, 19.2, 22.4, 27.2, 40.0, 14.4, 17.6, 22.4, 27.2, 40.0,
     ],
     purple: [
-      null,
-      65.0,
-      75.0,
-      85.0,
-      100.0,
-      50.0,
-      60.0,
-      70.0,
-      85.0,
-      100.0,
-      45.0,
-      55.0,
-      70.0,
-      85.0,
-      100.0,
+      55.0, 65.0, 75.0, 85.0, 100.0, 50.0, 60.0, 70.0, 85.0, 100.0, 45.0, 55.0, 70.0, 85.0, 100.0,
     ],
-    yellow: [null, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
+    yellow: [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100],
   },
   SR: {
-    blue: [null, 5.9, 7.8, 11.3, 15.0, 2.2, 3.3, 4.9, 7.6, 12.5, 1.2, 2.2, 3.1, 4.7, 10.0],
-    purple: [null, 19.8, 28.7, 41.3, 55.0, 8.0, 12.0, 18.0, 28.0, 50.0, 5.4, 9.9, 14.4, 21.6, 45.0],
+    blue: [3.6, 5.9, 7.8, 11.3, 15.0, 2.2, 3.3, 4.9, 7.6, 12.5, 1.2, 2.2, 3.1, 4.7, 10.0],
+    purple: [11.0, 19.8, 28.7, 41.3, 55.0, 8.0, 12.0, 18.0, 28.0, 50.0, 5.4, 9.9, 14.4, 21.6, 45.0],
     yellow: [
-      null,
-      40.0,
-      55.0,
-      75.0,
-      100.0,
-      20.0,
-      30.0,
-      45.0,
-      70.0,
-      100.0,
-      15.0,
-      27.5,
-      40.0,
-      60.0,
-      100.0,
+      25.0, 40.0, 55.0, 75.0, 100.0, 20.0, 30.0, 45.0, 70.0, 100.0, 15.0, 27.5, 40.0, 60.0, 100.0,
     ],
   },
 };
@@ -126,11 +89,12 @@ function round(value: number, digits = 3) {
 
 function normalizeState(state?: Partial<CollectionState> | null): CollectionState {
   const grade = state && state.grade === "SR" ? "SR" : "R";
-  const level = Math.max(1, Math.floor(Number(state?.level) || 1));
+  const rawLevel = Number(state?.level);
+  const level = Number.isFinite(rawLevel) ? Math.max(0, Math.floor(rawLevel)) : 0;
   const exp = Math.max(0, Math.floor(Number(state?.exp) || 0));
   if (grade === "SR" && level >= 15) return { grade: "SR", level: 15, exp: 0 };
   if (grade === "R" && level >= 15) return { grade: "R", level: 15, exp: 0 };
-  return { grade, level: clamp(level, 1, 14), exp };
+  return { grade, level: clamp(level, 0, 14), exp };
 }
 
 function isTerminalNormalized(normalized: CollectionState) {
@@ -329,13 +293,33 @@ function pressureScore(vector: KitVector, initialUses: KitVector) {
   }, 0);
 }
 
-function supplyCostScore(vector: KitVector) {
+function legacySupplyCostScore(vector: KitVector) {
   return KIT_ORDER.reduce((sum, kit) => sum + vector[kit] / EXPECTED_28_DAY_GAIN[kit], 0);
 }
 
-function resourceCostScore(pressure: number, supplyCost: number, strategy: Strategy) {
+function availabilityCostScore(vector: KitVector, stockPieces: KitVector) {
+  // Supply Phase 1 heuristic:
+  // R_i = current stock pieces_i + horizon * expected 28-day gain_i
+  // cost = (sum((expected consumption_i / R_i) ^ p)) ^ (1 / p)
+  //
+  // This is deterministic and stable for each memoized (state, stock), but it is not a proof of
+  // global whole-route p-norm optimality. The memoized continuation is parent-independent, so
+  // prior route consumption is not part of the state. If this approximation becomes a real
+  // problem in benchmark data, the practical refinement path is shadow-price fixed-point passes,
+  // not expanding the MDP state with cumulative consumption.
+  const powered = KIT_ORDER.reduce((sum, kit) => {
+    const availability =
+      stockPieces[kit] + SUPPLY_AVAILABILITY_PARAMS.horizon * EXPECTED_28_DAY_GAIN[kit];
+    if (availability <= 0) return Number.POSITIVE_INFINITY;
+    const ratio = vector[kit] / availability;
+    return sum + ratio ** SUPPLY_AVAILABILITY_PARAMS.normPower;
+  }, 0);
+  return powered ** (1 / SUPPLY_AVAILABILITY_PARAMS.normPower);
+}
+
+function resourceCostScore(pressure: number, availabilityCost: number, strategy: Strategy) {
   if (strategy !== "supply") return pressure;
-  return SUPPLY_MODE_WEIGHTS.supply * supplyCost + SUPPLY_MODE_WEIGHTS.stock * pressure;
+  return availabilityCost;
 }
 
 function normalizeStrategy(strategy: unknown): Strategy {
@@ -361,8 +345,6 @@ function compareEfficiency(a: AnyValue, b: AnyValue, strategy: Strategy = STRATE
   if (strategy === "supply") {
     if (Math.abs(a.resourceCost - b.resourceCost) > STRICT_EPSILON)
       return a.resourceCost - b.resourceCost;
-    if (Math.abs(a.supplyCost - b.supplyCost) > STRICT_EPSILON) return a.supplyCost - b.supplyCost;
-    if (Math.abs(a.pressure - b.pressure) > STRICT_EPSILON) return a.pressure - b.pressure;
   } else if (Math.abs(a.pressure - b.pressure) > STRICT_EPSILON) {
     return a.pressure - b.pressure;
   }
@@ -415,6 +397,11 @@ function finiteInventoryMdp(input: AnyValue, progress?: ProgressCallback) {
   const memo = new Map<number, AnyValue>();
   const policy = new Map<number, Kit | null>();
   const initialUses = input.actualStockUses || input.stockUses;
+  const initialStockPieces = input.stock || {
+    blue: initialUses.blue * 10,
+    purple: initialUses.purple * 10,
+    yellow: initialUses.yellow * 10,
+  };
   const strategy = normalizeStrategy(input.strategy);
   const capStats = { dynamicCapReductions: 0, dynamicCapFallbacks: 0 };
   let visited = 0;
@@ -475,13 +462,16 @@ function finiteInventoryMdp(input: AnyValue, progress?: ProgressCallback) {
         maxSuccessProbability = actionMaxSuccessProbability;
       }
       const pressure = pressureScore(vector, initialUses);
-      const supplyCost = supplyCostScore(vector);
+      const supplyCost = availabilityCostScore(vector, initialStockPieces);
+      const legacySupplyCost = legacySupplyCostScore(vector);
       const candidate = {
         firstAction: kit,
         successProbability,
         actionMaxSuccessProbability,
         pressure,
         supplyCost,
+        availabilityCost: supplyCost,
+        legacySupplyCost,
         resourceCost: resourceCostScore(pressure, supplyCost, strategy),
         vector,
         edge,
@@ -527,7 +517,8 @@ function finiteInventoryMdp(input: AnyValue, progress?: ProgressCallback) {
         ? stateValue.maxSuccessProbability
         : successProbability;
       const pressure = pressureScore(vector, initialUses);
-      const supplyCost = supplyCostScore(vector);
+      const supplyCost = availabilityCostScore(vector, initialStockPieces);
+      const legacySupplyCost = legacySupplyCostScore(vector);
       return {
         name: STRATEGY_META[strategy].label,
         firstAction: kit,
@@ -539,6 +530,8 @@ function finiteInventoryMdp(input: AnyValue, progress?: ProgressCallback) {
         probabilityGap: Math.max(0, maxSuccessProbability - successProbability),
         pressure,
         supplyCost,
+        availabilityCost: supplyCost,
+        legacySupplyCost,
         resourceCost: resourceCostScore(pressure, supplyCost, strategy),
         vector,
         totalKits: totalKits(vector),
@@ -695,7 +688,7 @@ function normalizeInput(input: AnyValue) {
   return {
     start: normalizeState({
       grade,
-      level: input.start ? input.start.level : 1,
+      level: input.start ? input.start.level : 0,
       exp,
     }),
     strategy: normalizeStrategy(input.strategy),
@@ -819,6 +812,8 @@ function solve(input: AnyValue, progress?: ProgressCallback) {
       probabilityGap: best.probabilityGap,
       pressure: best.pressure,
       supplyCost: best.supplyCost,
+      availabilityCost: best.availabilityCost,
+      legacySupplyCost: best.legacySupplyCost,
       resourceCost: best.resourceCost,
     },
     route,
@@ -832,7 +827,7 @@ function solve(input: AnyValue, progress?: ProgressCallback) {
       dynamicCapReductions: mdp.dynamicCapReductions,
       dynamicCapFallbacks: mdp.dynamicCapFallbacks,
       strategy: normalizedInput.strategy,
-      supplyWeights: SUPPLY_MODE_WEIGHTS,
+      supplyAvailability: SUPPLY_AVAILABILITY_PARAMS,
       iterations: 0,
     },
     topCandidates: actionValues.map((candidate) => ({
@@ -845,6 +840,8 @@ function solve(input: AnyValue, progress?: ProgressCallback) {
       probabilityGap: round(candidate.probabilityGap, 8),
       pressure: round(candidate.pressure, 8),
       supplyCost: round(candidate.supplyCost, 8),
+      availabilityCost: round(candidate.availabilityCost, 8),
+      legacySupplyCost: round(candidate.legacySupplyCost, 8),
       resourceCost: round(candidate.resourceCost, 8),
     })),
   };
@@ -857,6 +854,7 @@ const CollectionSolver = {
   MAX_RELEVANT_USES,
   STRATEGY_PROBABILITY_TOLERANCE,
   SUPPLY_MODE_WEIGHTS,
+  SUPPLY_AVAILABILITY_PARAMS,
   STRATEGY_META,
   EXPECTED_28_DAY_GAIN,
   GREAT_SUCCESS,
@@ -882,6 +880,7 @@ export {
   round,
   STRATEGY_META,
   STRATEGY_PROBABILITY_TOLERANCE,
+  SUPPLY_AVAILABILITY_PARAMS,
   SUPPLY_MODE_WEIGHTS,
   solve,
   stateText as describeState,

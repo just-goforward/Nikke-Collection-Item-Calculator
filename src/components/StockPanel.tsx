@@ -9,6 +9,63 @@ type StockPanelProps = {
   onStockChange: (stock: Stock) => void;
 };
 
+type KitInputDefinition = {
+  kit: Kit;
+  inputId: string;
+  label: string;
+  expLabel: string;
+};
+
+const KIT_INPUTS: KitInputDefinition[] = [
+  {
+    kit: "blue",
+    inputId: "blueStock",
+    label: "초심자용 관리 키트",
+    expLabel: "1회 경험치 200",
+  },
+  {
+    kit: "purple",
+    inputId: "purpleStock",
+    label: "중급자용 관리 키트",
+    expLabel: "1회 경험치 500",
+  },
+  {
+    kit: "yellow",
+    inputId: "yellowStock",
+    label: "상급자용 관리 키트",
+    expLabel: "1회 경험치 1,000",
+  },
+];
+
+const classes = {
+  panel:
+    "min-w-0 rounded-card border border-border bg-surface shadow-panel [contain:layout_paint] [transform:translateZ(0)] transition-[background-color,border-color,box-shadow] duration-[220ms]",
+  panelNeedsEdit: "border-yellow-kit shadow-[0_0_0_3px_rgba(230,170,38,0.22),var(--shadow)]",
+  heading:
+    "flex items-center justify-between gap-3 border-b border-border px-[18px] py-4 transition-[border-color,background-color,color] duration-[220ms] max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",
+  editNotice:
+    "mx-[18px] mt-3.5 rounded-card border-2 border-yellow-kit bg-outcome px-[13px] py-3 text-[13px] text-outcome-text font-semibold leading-[1.45]",
+  kitGrid:
+    "grid grid-cols-3 gap-2.5 px-[18px] py-4 min-[981px]:max-[1099px]:grid-cols-1 min-[981px]:max-[1099px]:gap-2 min-[981px]:max-[1099px]:p-3 max-mobile:grid-cols-3 max-mobile:gap-2 max-mobile:px-3 max-mobile:pt-2.5 max-mobile:pb-[13px]",
+  kitInput:
+    "grid gap-[7px] min-[981px]:max-[1099px]:grid-cols-[minmax(0,1fr)_auto] min-[981px]:max-[1099px]:items-center min-[981px]:max-[1099px]:gap-2 max-mobile:grid-cols-1 max-mobile:grid-rows-[auto_auto_auto] max-mobile:items-start max-mobile:gap-x-0 max-mobile:gap-y-1.5 max-mobile:p-0",
+  kitLabel:
+    "flex items-center gap-[7px] text-[13px] text-muted font-semibold min-[981px]:max-[1099px]:min-w-0 min-[981px]:max-[1099px]:whitespace-nowrap max-mobile:col-start-1 max-mobile:row-start-1 max-mobile:min-w-0 max-mobile:whitespace-normal max-mobile:text-[11px] max-mobile:leading-[1.25] max-mobile:[word-break:keep-all]",
+  kitDot: "inline-block h-3 w-3 rounded-full",
+  kitInputControl:
+    "min-[981px]:max-[1099px]:col-span-full min-[981px]:max-[1099px]:min-w-0 max-mobile:col-start-1 max-mobile:row-start-2 max-mobile:min-w-0 max-mobile:px-1.5 max-mobile:py-2 max-mobile:text-center max-mobile:text-sm",
+  kitInputNeedsEdit: "border-yellow-kit shadow-[0_0_0_3px_rgba(230,170,38,0.18)]",
+  kitHint:
+    "text-muted text-xs font-medium min-[981px]:max-[1099px]:min-w-0 min-[981px]:max-[1099px]:justify-self-end min-[981px]:max-[1099px]:whitespace-nowrap min-[981px]:max-[1099px]:text-[11px] max-tablet:justify-self-end max-tablet:text-right max-mobile:col-start-1 max-mobile:row-start-3 max-mobile:text-[10px]",
+  help: "mx-[18px] mb-4 mt-[-2px] text-muted text-xs font-normal leading-[1.45] min-[981px]:max-[1099px]:mx-3 min-[981px]:max-[1099px]:mb-3 min-[981px]:max-[1099px]:text-[11px] max-mobile:hidden",
+} as const;
+
+const kitDotClass: Record<Kit, string> = {
+  blue: "bg-blue-kit",
+  purple: "bg-purple-kit",
+  yellow: "bg-yellow-kit",
+};
+
 function normalizeStockValue(value: string) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : 0;
@@ -20,6 +77,37 @@ function toStock(stockText: Record<Kit, string>): Stock {
     purple: normalizeStockValue(stockText.purple),
     yellow: normalizeStockValue(stockText.yellow),
   };
+}
+
+type KitInputProps = {
+  definition: KitInputDefinition;
+  needsStockEdit: boolean;
+  value: string;
+  onChange: (kit: Kit, value: string) => void;
+  onCommit: () => void;
+};
+
+function KitInput({ definition, needsStockEdit, value, onChange, onCommit }: KitInputProps) {
+  return (
+    <label className={classes.kitInput}>
+      <span className={classes.kitLabel}>
+        <i aria-hidden="true" className={`${classes.kitDot} ${kitDotClass[definition.kit]}`}></i>
+        {definition.label}
+      </span>
+      <input
+        id={definition.inputId}
+        className={`${classes.kitInputControl} ${needsStockEdit ? classes.kitInputNeedsEdit : ""}`}
+        type="number"
+        min="0"
+        step="1"
+        inputMode="numeric"
+        value={value}
+        onChange={(event) => onChange(definition.kit, event.currentTarget.value)}
+        onBlur={onCommit}
+      />
+      <small className={classes.kitHint}>{definition.expLabel}</small>
+    </label>
+  );
 }
 
 export default function StockPanel({
@@ -47,71 +135,31 @@ export default function StockPanel({
   };
 
   const commitStock = () => onStockChange(toStock(stockText));
-  const panelClassName = needsStockEdit
-    ? "panel stock-panel needs-stock-edit"
-    : "panel stock-panel";
+  const panelClassName = `${classes.panel} ${needsStockEdit ? classes.panelNeedsEdit : ""}`;
 
   return (
     <section className={panelClassName}>
-      <div className="section-heading">
+      <div className={classes.heading}>
         <h2>보유 키트</h2>
       </div>
 
-      <div id="stockEditNotice" className="stock-edit-notice" hidden={!needsStockEdit}>
+      <div id="stockEditNotice" className={classes.editNotice} hidden={!needsStockEdit}>
         {notice}
       </div>
 
-      <div className="kit-grid">
-        <label className="kit-input blue-kit">
-          <span>
-            <i></i>초심자용 관리 키트
-          </span>
-          <input
-            id="blueStock"
-            type="number"
-            min="0"
-            step="1"
-            inputMode="numeric"
-            value={stockText.blue}
-            onChange={(event) => updateStockText("blue", event.currentTarget.value)}
-            onBlur={commitStock}
+      <div className={classes.kitGrid}>
+        {KIT_INPUTS.map((definition) => (
+          <KitInput
+            definition={definition}
+            key={definition.kit}
+            needsStockEdit={needsStockEdit}
+            value={stockText[definition.kit]}
+            onChange={updateStockText}
+            onCommit={commitStock}
           />
-          <small>1회 경험치 200</small>
-        </label>
-        <label className="kit-input purple-kit">
-          <span>
-            <i></i>중급자용 관리 키트
-          </span>
-          <input
-            id="purpleStock"
-            type="number"
-            min="0"
-            step="1"
-            inputMode="numeric"
-            value={stockText.purple}
-            onChange={(event) => updateStockText("purple", event.currentTarget.value)}
-            onBlur={commitStock}
-          />
-          <small>1회 경험치 500</small>
-        </label>
-        <label className="kit-input yellow-kit">
-          <span>
-            <i></i>상급자용 관리 키트
-          </span>
-          <input
-            id="yellowStock"
-            type="number"
-            min="0"
-            step="1"
-            inputMode="numeric"
-            value={stockText.yellow}
-            onChange={(event) => updateStockText("yellow", event.currentTarget.value)}
-            onBlur={commitStock}
-          />
-          <small>1회 경험치 1,000</small>
-        </label>
+        ))}
       </div>
-      <p className="stock-help">현재 보유 중인 키트의 수량을 입력하는 칸입니다.</p>
+      <p className={classes.help}>현재 보유 중인 키트의 수량을 입력하는 칸입니다.</p>
     </section>
   );
 }

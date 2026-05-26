@@ -5,6 +5,8 @@ import type { CollectionState, Grade, Kit, SolverInput, Stock, Strategy } from "
 import type { StatePanelModel } from "../ui-types";
 import { clampStock, requiredForGrade, sanitizeExpValue } from "./calculatorShared";
 
+const ACTIVE_STRATEGY: Strategy = "supply";
+
 type CalculatorStateRef = {
   grade: Grade;
   level: number;
@@ -21,10 +23,9 @@ type UseCalculatorStateOptions = {
 
 export function useCalculatorState({ onInputChanged, onMaxLevelState }: UseCalculatorStateOptions) {
   const [grade, setGradeState] = useState<Grade>("R");
-  const [level, setLevelState] = useState(1);
+  const [level, setLevelState] = useState(0);
   const [exp, setExpState] = useState(0);
   const [stock, setStockState] = useState<Stock>({ blue: 0, purple: 0, yellow: 0 });
-  const [strategy, setStrategyState] = useState<Strategy>("single");
   const [manualStockEditRequired, setManualStockEditRequired] = useState(false);
   const [calculateBusy, setCalculateBusy] = useState(false);
   const stateRef = useRef<CalculatorStateRef>({
@@ -32,13 +33,20 @@ export function useCalculatorState({ onInputChanged, onMaxLevelState }: UseCalcu
     level,
     exp,
     stock,
-    strategy,
+    strategy: ACTIVE_STRATEGY,
     manualStockEditRequired,
   });
 
   useEffect(() => {
-    stateRef.current = { grade, level, exp, stock, strategy, manualStockEditRequired };
-  }, [grade, level, exp, stock, strategy, manualStockEditRequired]);
+    stateRef.current = {
+      grade,
+      level,
+      exp,
+      stock,
+      strategy: ACTIVE_STRATEGY,
+      manualStockEditRequired,
+    };
+  }, [grade, level, exp, stock, manualStockEditRequired]);
 
   const statePanel: StatePanelModel = useMemo(
     () => ({
@@ -51,8 +59,7 @@ export function useCalculatorState({ onInputChanged, onMaxLevelState }: UseCalcu
     [grade, level, exp],
   );
 
-  const strategyDescription =
-    STRATEGY_META[strategy]?.description || STRATEGY_META.single.description;
+  const strategyDescription = STRATEGY_META.supply.description;
   const calculateDisabled = level >= 15 || manualStockEditRequired || calculateBusy;
 
   const setCollectionState = useCallback(
@@ -81,7 +88,7 @@ export function useCalculatorState({ onInputChanged, onMaxLevelState }: UseCalcu
         exp: safeExp,
       },
       stock: { ...current.stock },
-      strategy: current.strategy,
+      strategy: ACTIVE_STRATEGY,
     };
   }, []);
 
@@ -114,7 +121,11 @@ export function useCalculatorState({ onInputChanged, onMaxLevelState }: UseCalcu
 
   const setLevel = useCallback(
     (nextLevel: number) => {
-      const safeLevel = Math.min(15, Math.max(1, Math.trunc(Number(nextLevel) || 1)));
+      const rawLevel = Number(nextLevel);
+      const safeLevel = Math.min(
+        15,
+        Math.max(0, Number.isFinite(rawLevel) ? Math.trunc(rawLevel) : 0),
+      );
       const nextExp = sanitizeExpValue(grade, safeLevel, exp);
       setLevelState(safeLevel);
       setExpState(nextExp);
@@ -141,21 +152,12 @@ export function useCalculatorState({ onInputChanged, onMaxLevelState }: UseCalcu
     [onInputChanged],
   );
 
-  const setStrategy = useCallback(
-    (nextStrategy: Strategy) => {
-      setStrategyState(nextStrategy === "supply" ? "supply" : "single");
-      onInputChanged(manualStockEditRequired);
-    },
-    [manualStockEditRequired, onInputChanged],
-  );
-
   const resetState = useCallback(() => {
     setManualStockEditRequired(false);
     setGradeState("R");
-    setLevelState(1);
+    setLevelState(0);
     setExpState(0);
     setStockState({ blue: 0, purple: 0, yellow: 0 });
-    setStrategyState("single");
   }, []);
 
   return {
@@ -163,13 +165,12 @@ export function useCalculatorState({ onInputChanged, onMaxLevelState }: UseCalcu
     level,
     exp,
     stock,
-    strategy,
+    strategy: ACTIVE_STRATEGY,
     manualStockEditRequired,
     calculateBusy,
     stateRef,
     statePanel,
     solvePanel: {
-      strategy,
       description: strategyDescription,
       calculateDisabled,
     },
@@ -185,7 +186,6 @@ export function useCalculatorState({ onInputChanged, onMaxLevelState }: UseCalcu
       setLevel,
       setExp,
       setStock,
-      setStrategy,
     },
   };
 }

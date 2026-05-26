@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState } from "react";
-
+import { useCallback, useEffect, useRef, useState } from "react";
+import { STATE_FEEDBACK_VISIBLE_MS } from "../components/stateFeedbackAnimations";
 import { formatFlooredPercent, formatInteger, formatPercent } from "../format";
 import { STRATEGY_META, transition } from "../solver";
 import type { Grade, ProgressEvent, SolverInput } from "../types";
@@ -7,7 +7,9 @@ import type {
   CandidateView,
   DetailView,
   LoadingView,
+  RecommendationAction,
   ResultView,
+  StateChangeFeedback,
   ValidationView,
 } from "../ui-types";
 import {
@@ -19,6 +21,7 @@ import {
   inputKey,
   KIT_KEYS,
   makeMonteCarloSeed,
+  makeSolverDiagnosticEvent,
   makeStatsEvent,
   monteCarloRuns,
   type PendingStatsEvent,
@@ -31,16 +34,58 @@ import { useSolverWorker } from "./useSolverWorker";
 import { useStats } from "./useStats";
 import { useTheme } from "./useTheme";
 
+function recommendationFromResult(result: SolverResult | null): RecommendationAction | null {
+  if (!result?.possible || !result.best) return null;
+  return {
+    kit: result.best.firstAction,
+    count: result.best.run?.count || 1,
+  };
+}
+
 export function useCalculatorApp() {
   const [resultView, setResultView] = useState<ResultView>(EMPTY_RESULT);
   const [detailView, setDetailView] = useState<DetailView>(EMPTY_DETAIL);
   const [validationView, setValidationView] = useState<ValidationView>(INITIAL_VALIDATION);
+  const [stateFeedback, setStateFeedback] = useState<StateChangeFeedback | null>(null);
   const [loading, setLoading] = useState<LoadingView>({
     active: false,
     text: DEFAULT_LOADING_TEXT,
   });
+  const stateFeedbackIdRef = useRef(0);
+  const actionTransitionIdRef = useRef(0);
   const latestResultRef = useRef<SolverResult | null>(null);
   const pendingStatsEventRef = useRef<PendingStatsEvent | null>(null);
+
+  useEffect(() => {
+    if (!stateFeedback) return;
+    const timeoutId = window.setTimeout(() => setStateFeedback(null), STATE_FEEDBACK_VISIBLE_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [stateFeedback]);
+
+  const recordStateFeedback = useCallback(
+    (from: StateChangeFeedback["from"], to: StateChangeFeedback["to"]) => {
+      if (from.grade === to.grade && from.level === to.level) return;
+      const nextId = stateFeedbackIdRef.current + 1;
+      stateFeedbackIdRef.current = nextId;
+      const crossesSegment = Math.floor(from.level / 5) !== Math.floor(to.level / 5);
+      const type: StateChangeFeedback["type"] =
+        from.grade !== to.grade ? "grade" : crossesSegment ? "segment" : "level";
+      const label =
+        type === "grade"
+          ? `${from.grade} → ${to.grade} · Lv ${to.level}`
+          : type === "segment"
+            ? `구간 이동 Lv ${from.level} → ${to.level}`
+            : `Lv ${from.level} → Lv ${to.level}`;
+      setStateFeedback({
+        id: nextId,
+        type,
+        label,
+        from: { ...from },
+        to: { ...to },
+      });
+    },
+    [],
+  );
 
   const markInputChanged = useCallback((isManualStockEditRequired: boolean) => {
     latestResultRef.current = null;
@@ -75,7 +120,6 @@ export function useCalculatorApp() {
   const {
     grade,
     stock,
-    strategy,
     manualStockEditRequired,
     stateRef,
     statePanel,
@@ -111,6 +155,8 @@ export function useCalculatorApp() {
     setDetailView,
     setValidationView,
     queueStatsEvent,
+    currentStateSnapshot,
+    recordStateFeedback,
   });
 
   const updateProgress = useCallback((progress: ProgressEvent) => {
@@ -167,7 +213,7 @@ export function useCalculatorApp() {
   );
 
   const renderResult = useCallback(
-    (result: SolverResult) => {
+    (result: SolverResult, previousAction?: RecommendationAction | null) => {
       latestResultRef.current = result;
       if (result.terminal) {
         setResultView({ type: "callout", message: result.message || "완료 상태입니다." });
@@ -199,25 +245,35 @@ export function useCalculatorApp() {
         fail: edge.fail,
         greatSuccessProbability: best.firstProbability,
       };
+      const actionTransition = previousAction
+        ? {
+            id: ++actionTransitionIdRef.current,
+            previous: previousAction,
+          }
+        : undefined;
       setResultView({
         type: "recommendation",
         kit: best.firstAction,
         count: run.count,
-        multiUse: run.count > 1,
+        actionTransition,
       });
-      const strategyKey = result.stats?.strategy || result.input.strategy || strategy;
+      const strategyKey = result.stats?.strategy || result.input.strategy || "supply";
       const candidates: CandidateView[] = (result.topCandidates || []).map((candidate, index) => ({
         rankLabel: index === 0 ? "추천" : `후보 ${index + 1}`,
         kit: candidate.firstAction,
         count: candidate.run?.count || 1,
         successProbability: formatPercent(candidate.successProbability, 2),
+        greatSuccessProbability: formatPercent(
+          candidate.run?.greatSuccessProbability ?? candidate.firstProbability,
+          1,
+        ),
       }));
       setDetailView({
         type: "metrics",
-        strategyLabel: STRATEGY_META[strategyKey]?.label || STRATEGY_META.single.label,
+        strategyLabel: STRATEGY_META[strategyKey]?.label || STRATEGY_META.supply.label,
         successProbability: formatPercent(best.successProbability, 2),
         greatSuccessProbability: formatPercent(
-          run.greatSuccessProbability || best.firstProbability,
+          run.greatSuccessProbability ?? best.firstProbability,
           1,
         ),
         stateCount: formatInteger(Number(result.stats?.states || 0)),
@@ -226,30 +282,49 @@ export function useCalculatorApp() {
       });
       setValidationView(INITIAL_VALIDATION);
     },
-    [strategy],
+    [],
+  );
+
+  const solveAndRenderInput = useCallback(
+    async (input: SolverInput, previousAction?: RecommendationAction | null) => {
+      setLoading({ active: true, text: DEFAULT_LOADING_TEXT });
+      setCalculateBusy(true);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      try {
+        const result = await solveBestAvailable(input);
+        renderResult(result, previousAction);
+        const diagnosticEvent = makeSolverDiagnosticEvent(result);
+        if (diagnosticEvent) queueStatsEvent(diagnosticEvent);
+      } catch (error) {
+        latestResultRef.current = null;
+        setResultView({
+          type: "error",
+          message: error instanceof Error ? error.message : String(error),
+        });
+        setDetailView({ type: "empty", message: "오류가 발생했습니다." });
+      } finally {
+        setLoading({ active: false, text: DEFAULT_LOADING_TEXT });
+        setCalculateBusy(false);
+      }
+    },
+    [queueStatsEvent, renderResult, setCalculateBusy, solveBestAvailable],
   );
 
   const runCalculation = useCallback(async () => {
     const input = collectInput();
     finalizePendingStatsEvent(input);
-    setLoading({ active: true, text: DEFAULT_LOADING_TEXT });
-    setCalculateBusy(true);
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    try {
-      const result = await solveBestAvailable(input);
-      renderResult(result);
-    } catch (error) {
-      latestResultRef.current = null;
-      setResultView({
-        type: "error",
-        message: error instanceof Error ? error.message : String(error),
-      });
-      setDetailView({ type: "empty", message: "오류가 발생했습니다." });
-    } finally {
-      setLoading({ active: false, text: DEFAULT_LOADING_TEXT });
-      setCalculateBusy(false);
-    }
-  }, [collectInput, finalizePendingStatsEvent, renderResult, setCalculateBusy, solveBestAvailable]);
+    await solveAndRenderInput(input);
+  }, [collectInput, finalizePendingStatsEvent, solveAndRenderInput]);
+
+  const applyOutcomeAndMaybeCalculate = useCallback(
+    async (outcome: "success" | "fail") => {
+      const previousAction = recommendationFromResult(latestResultRef.current);
+      const applied = applyOutcome(outcome);
+      if (applied?.outcome !== "fail") return;
+      await solveAndRenderInput(applied.nextInput, previousAction);
+    },
+    [applyOutcome, solveAndRenderInput],
+  );
 
   const runMonteCarloValidation = useCallback(async () => {
     const latest = latestResultRef.current;
@@ -257,7 +332,7 @@ export function useCalculatorApp() {
     const runs = monteCarloRuns();
     const input: SolverInput = {
       start: { ...latest.input.start },
-      strategy: latest.input.strategy || strategy,
+      strategy: latest.input.strategy || "supply",
       stock: { ...latest.input.stock },
     };
     const resultKey = inputKey(input);
@@ -287,7 +362,7 @@ export function useCalculatorApp() {
       const latestKey = currentLatest?.input
         ? inputKey({
             start: currentLatest.input.start,
-            strategy: currentLatest.input.strategy || strategy,
+            strategy: currentLatest.input.strategy || "supply",
             stock: currentLatest.input.stock,
           })
         : "";
@@ -306,7 +381,7 @@ export function useCalculatorApp() {
         message: "검증 중 오류가 발생했습니다.",
       });
     }
-  }, [strategy, validateBestAvailable]);
+  }, [validateBestAvailable]);
 
   const resetInputs = useCallback(() => {
     pendingStatsEventRef.current = null;
@@ -333,16 +408,16 @@ export function useCalculatorApp() {
     loading,
     modal,
     themeMode,
+    stateFeedback,
     actions: {
       setThemeMode,
       setGrade: stateActions.setGrade,
       setLevel: stateActions.setLevel,
       setExp: stateActions.setExp,
       setStock: stateActions.setStock,
-      setStrategy: stateActions.setStrategy,
       calculate: runCalculation,
       reset: resetInputs,
-      applyOutcome,
+      applyOutcome: applyOutcomeAndMaybeCalculate,
       applyConvert,
       runMonteCarloValidation,
       setModalAttempt,

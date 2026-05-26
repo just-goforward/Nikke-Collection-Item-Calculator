@@ -107,44 +107,62 @@ const LevelKitValueSchema = z
   })
   .passthrough();
 
+const StatsSummarySchema = z
+  .object({
+    events: z.number(),
+    attempts: z.number(),
+    greatSuccesses: z.number(),
+    greatSuccessRate: z.number(),
+    todayEvents: z.number().optional(),
+    todayAttempts: z.number().optional(),
+    todayGreatSuccesses: z.number().optional(),
+    mostUsedKit: KitSchema.nullable().optional(),
+    mostUsedKitPieces: z.number().optional(),
+  })
+  .passthrough();
+
+const KitStatsSchema = NumericStatsSchema.extend({
+  kit: KitSchema,
+  theoreticalGreatSuccessRate: z.number(),
+}).passthrough();
+
 export const StatsApiResponseSchema = z
   .object({
     windowDays: z.number(),
     today: z.string(),
-    summary: z
+    summary: StatsSummarySchema.extend({
+      todayEvents: z.number(),
+      todayAttempts: z.number(),
+      todayGreatSuccesses: z.number(),
+      mostUsedKit: KitSchema.nullable(),
+      mostUsedKitPieces: z.number(),
+    }).passthrough(),
+    byKit: z.array(KitStatsSchema),
+    cumulative: z
       .object({
-        events: z.number(),
-        attempts: z.number(),
-        greatSuccesses: z.number(),
-        greatSuccessRate: z.number(),
-        todayEvents: z.number(),
-        todayAttempts: z.number(),
-        todayGreatSuccesses: z.number(),
-        mostUsedKit: KitSchema.nullable(),
-        mostUsedKitPieces: z.number(),
+        summary: StatsSummarySchema,
+        byKit: z.array(KitStatsSchema),
       })
-      .passthrough(),
-    byKit: z.array(
-      NumericStatsSchema.extend({
-        kit: KitSchema,
-        theoreticalGreatSuccessRate: z.number(),
-      }).passthrough(),
-    ),
-    levelKitStats: z.array(
-      z
-        .object({
-          grade: GradeSchema,
-          level: z.number(),
-          kits: z
-            .object({
-              blue: LevelKitValueSchema,
-              purple: LevelKitValueSchema,
-              yellow: LevelKitValueSchema,
-            })
-            .passthrough(),
-        })
-        .passthrough(),
-    ),
+      .passthrough()
+      .optional(),
+    levelKitStats: z
+      .array(
+        z
+          .object({
+            grade: GradeSchema,
+            level: z.number(),
+            kits: z
+              .object({
+                blue: LevelKitValueSchema,
+                purple: LevelKitValueSchema,
+                yellow: LevelKitValueSchema,
+              })
+              .passthrough(),
+          })
+          .passthrough(),
+      )
+      .optional()
+      .default([]),
     segmentStats: z.array(
       NumericStatsSchema.extend({
         key: z.string(),
@@ -153,14 +171,17 @@ export const StatsApiResponseSchema = z
         averageAttempts: z.number(),
       }).passthrough(),
     ),
-    successAttemptDistribution: z.array(
-      z
-        .object({
-          kit: KitSchema,
-          successAttempt: z.number(),
-          events: z.number(),
-        })
-        .passthrough(),
-    ),
+    successAttemptDistribution: z
+      .array(
+        z
+          .object({
+            kit: KitSchema,
+            successAttempt: z.number(),
+            events: z.number(),
+          })
+          .passthrough(),
+      )
+      .optional()
+      .default([]),
   })
   .passthrough();

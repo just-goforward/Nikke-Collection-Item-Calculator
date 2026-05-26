@@ -11,11 +11,34 @@ export type StatePanelModel = {
   expDisabled: boolean;
 };
 
+export type StateChangeFeedback = {
+  id: number;
+  type: "level" | "segment" | "grade";
+  label: string;
+  from: CollectionState;
+  to: CollectionState;
+};
+
+export type RecommendationAction = {
+  kit: Kit;
+  count: number;
+};
+
+export type RecommendationActionTransition = {
+  id: number;
+  previous: RecommendationAction;
+};
+
 export type ResultView =
   | { type: "empty"; message: string }
   | { type: "callout"; message: string }
   | { type: "error"; message: string }
-  | { type: "recommendation"; kit: Kit; count: number; multiUse: boolean }
+  | {
+      type: "recommendation";
+      kit: Kit;
+      count: number;
+      actionTransition?: RecommendationActionTransition;
+    }
   | {
       type: "outcome";
       kit: Kit;
@@ -32,6 +55,7 @@ export type CandidateView = {
   kit: Kit;
   count: number;
   successProbability: string;
+  greatSuccessProbability: string;
 };
 
 export type DetailView =
@@ -90,6 +114,7 @@ export type LevelKitStat = {
 };
 
 export type GlobalStats = {
+  windowDays?: number;
   summary?: {
     events?: number;
     attempts?: number;
@@ -102,6 +127,17 @@ export type GlobalStats = {
     mostUsedKitPieces?: number;
   };
   byKit?: KitStat[];
+  cumulative?: {
+    summary?: {
+      events?: number;
+      attempts?: number;
+      greatSuccesses?: number;
+      greatSuccessRate?: number;
+      mostUsedKit?: Kit | null;
+      mostUsedKitPieces?: number;
+    };
+    byKit?: KitStat[];
+  };
   levelKitStats?: LevelKitStat[];
   segmentStats?: SegmentStat[];
 };

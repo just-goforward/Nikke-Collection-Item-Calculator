@@ -8,9 +8,16 @@ import {
 } from "react";
 
 import { formatInteger } from "../format";
+import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import { convertState, describeState, KIT_META, transition } from "../solver";
-import type { CollectionState, Kit, Stock } from "../types";
-import type { DetailView, ResultView, SuccessAttemptModalState, ValidationView } from "../ui-types";
+import type { CollectionState, Kit, SolverInput, Stock } from "../types";
+import type {
+  DetailView,
+  ResultView,
+  StateChangeFeedback,
+  SuccessAttemptModalState,
+  ValidationView,
+} from "../ui-types";
 import {
   INITIAL_VALIDATION,
   makeStatsEvent,
@@ -35,8 +42,20 @@ type UseOutcomeFlowOptions = {
   setResultView: Dispatch<SetStateAction<ResultView>>;
   setDetailView: Dispatch<SetStateAction<DetailView>>;
   setValidationView: Dispatch<SetStateAction<ValidationView>>;
-  queueStatsEvent: (event: Record<string, unknown>) => void;
+  queueStatsEvent: (event: StatsSubmissionEvent) => void;
+  currentStateSnapshot: () => CollectionState;
+  recordStateFeedback: (from: StateChangeFeedback["from"], to: StateChangeFeedback["to"]) => void;
 };
+
+export type OutcomeApplyResult =
+  | {
+      outcome: "fail";
+      nextInput: SolverInput;
+    }
+  | {
+      outcome: "success";
+    }
+  | null;
 
 export function useOutcomeFlow({
   latestResultRef,
@@ -49,6 +68,8 @@ export function useOutcomeFlow({
   setDetailView,
   setValidationView,
   queueStatsEvent,
+  currentStateSnapshot,
+  recordStateFeedback,
 }: UseOutcomeFlowOptions) {
   const [modal, setModal] = useState<SuccessAttemptModalState>({
     open: false,
@@ -93,6 +114,7 @@ export function useOutcomeFlow({
     (context: TerminalSuccessContext, successAttempt: number | null) => {
       const { best, run, startSnapshot, stockBeforeSnapshot, beforeStock } = context;
       const nextState = run.success;
+      recordStateFeedback(startSnapshot, nextState);
       setCollectionState(nextState, { maxLevelRender: false });
 
       if (successAttempt) {
@@ -145,6 +167,7 @@ export function useOutcomeFlow({
     [
       currentStockSnapshot,
       queueStatsEvent,
+      recordStateFeedback,
       renderOutcomeApplied,
       setCollectionState,
       setManualStockEditRequired,
@@ -153,15 +176,16 @@ export function useOutcomeFlow({
   );
 
   const applyOutcome = useCallback(
-    (outcome: "success" | "fail") => {
+    (outcome: "success" | "fail"): OutcomeApplyResult => {
       const latest = latestResultRef.current;
-      if (!latest?.possible || !latest.best || !latest.input) return;
+      if (!latest?.possible || !latest.best || !latest.input) return null;
       const best = latest.best;
       const edge = transition(latest.input.start, best.firstAction);
       const run = best.run || { count: 1, success: edge.success, fail: edge.fail };
       const startSnapshot = { ...latest.input.start };
       const stockBeforeSnapshot = { ...latest.input.stock };
-      const beforeStock = stockPiecesForKit(currentStockSnapshot(), best.firstAction);
+      const currentStock = currentStockSnapshot();
+      const beforeStock = stockPiecesForKit(currentStock, best.firstAction);
       const terminalMultiSuccess =
         outcome === "success" && run.count > 1 && run.success.level >= 15;
       if (terminalMultiSuccess) {
@@ -173,11 +197,17 @@ export function useOutcomeFlow({
           beforeStock,
         };
         setModal({ open: true, maxAttempt: run.count, attempt: 1 });
-        return;
+        return null;
       }
 
       const exactStockChange = outcome !== "success" || run.count === 1;
       const usedCount = exactStockChange ? run.count * 10 : 0;
+      const stockAfter = exactStockChange
+        ? {
+            ...currentStock,
+            [best.firstAction]: Math.max(0, beforeStock - usedCount),
+          }
+        : currentStock;
       if (exactStockChange) setStockCountForKit(best.firstAction, beforeStock - usedCount);
       if (!exactStockChange) {
         setManualStockEditRequired(true);
@@ -191,12 +221,9 @@ export function useOutcomeFlow({
       }
 
       const nextState = outcome === "success" ? run.success : run.fail;
+      recordStateFeedback(startSnapshot, nextState);
       setCollectionState(nextState, { maxLevelRender: false });
       if (exactStockChange) {
-        const stockAfter = {
-          ...currentStockSnapshot(),
-          [best.firstAction]: Math.max(0, beforeStock - usedCount),
-        };
         queueStatsEvent(
           makeStatsEvent({
             start: startSnapshot,
@@ -225,12 +252,22 @@ export function useOutcomeFlow({
           ? "변경된 상태로 다시 계산하세요."
           : "보유 키트 수를 실제 결과에 맞게 수정하면 계산이 다시 활성화됩니다.",
       });
+      if (outcome !== "fail") return { outcome: "success" };
+      return {
+        outcome: "fail",
+        nextInput: {
+          start: nextState,
+          stock: stockAfter,
+          strategy: latest.input.strategy,
+        },
+      };
     },
     [
       currentStockSnapshot,
       latestResultRef,
       pendingStatsEventRef,
       queueStatsEvent,
+      recordStateFeedback,
       renderOutcomeApplied,
       setCollectionState,
       setManualStockEditRequired,
@@ -239,7 +276,9 @@ export function useOutcomeFlow({
   );
 
   const applyConvert = useCallback(() => {
+    const previousState = currentStateSnapshot();
     const nextState = convertState() as CollectionState;
+    recordStateFeedback(previousState, nextState);
     setCollectionState(nextState, { maxLevelRender: false });
     setResultView({
       type: "callout",
@@ -248,7 +287,15 @@ export function useOutcomeFlow({
     setDetailView({ type: "empty", message: "변경된 상태로 다시 계산하세요." });
     setValidationView(INITIAL_VALIDATION);
     latestResultRef.current = null;
-  }, [latestResultRef, setCollectionState, setDetailView, setResultView, setValidationView]);
+  }, [
+    currentStateSnapshot,
+    latestResultRef,
+    recordStateFeedback,
+    setCollectionState,
+    setDetailView,
+    setResultView,
+    setValidationView,
+  ]);
 
   const submitSuccessAttempt = useCallback(
     (successAttempt: number | null) => {
