@@ -1,0 +1,40 @@
+name: Generate Linux Visual Baselines
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build
+
+      - name: Generate Ubuntu Chromium baselines
+        run: npm run test:visual:update
+
+      - name: Upload Linux visual baselines
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines-chromium-linux
+          path: e2e/visual.spec.ts-snapshots/*-chromium-linux.png
+          if-no-files-found: error
+          retention-days: 7
