@@ -36,10 +36,12 @@ describe("TurnstileTokenProvider", () => {
       action: "kit_result",
       execution: "execute",
     });
+    expect(options.get("widget-kit_result")).not.toHaveProperty("size");
     expect(options.get("widget-solver_diagnostic")).toMatchObject({
       action: "solver_diagnostic",
       execution: "execute",
     });
+    expect(options.get("widget-solver_diagnostic")).not.toHaveProperty("size");
     expect(api.reset).toHaveBeenNthCalledWith(1, "widget-kit_result");
     expect(api.reset).toHaveBeenNthCalledWith(2, "widget-solver_diagnostic");
   });

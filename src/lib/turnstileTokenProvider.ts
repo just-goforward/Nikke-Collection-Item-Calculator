@@ -74,7 +74,6 @@ export class TurnstileTokenProvider {
     if (existing) return existing;
     const widgetId = api.render(this.createContainer(kind), {
       sitekey: this.siteKey,
-      size: "invisible",
       action: kind,
       execution: "execute",
       callback: (token: string) => this.resolvePending(kind, token),
