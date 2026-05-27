@@ -20,18 +20,29 @@ async function maxBackgroundChannel(locator: Locator): Promise<number> {
   });
 }
 
-async function serveConfiguredStagingDocument(page: import("@playwright/test").Page) {
+async function serveStagingDocument(
+  page: import("@playwright/test").Page,
+  staging?: { endpoint: string; turnstileSiteKey: string },
+) {
   await page.route("**/?statsEnv=staging", async (route) => {
     const response = await route.fetch();
+    const replacement = [
+      "      window.COLLECTION_STATS_CONFIG = {",
+      '        endpoint: "https://production.example.test",',
+      '        turnstileSiteKey: "production-site-key",',
+      ...(staging
+        ? [
+            "        staging: {",
+            `          endpoint: "${staging.endpoint}",`,
+            `          turnstileSiteKey: "${staging.turnstileSiteKey}",`,
+            "        },",
+          ]
+        : []),
+      "      };",
+    ].join("\n");
     const body = (await response.text()).replace(
-      '        turnstileSiteKey: "0x4AAAAAADJiF42vmIlh7EOp",',
-      [
-        '        turnstileSiteKey: "0x4AAAAAADJiF42vmIlh7EOp",',
-        "        staging: {",
-        '          endpoint: "https://staging.example.test",',
-        '          turnstileSiteKey: "staging-site-key",',
-        "        },",
-      ].join("\n"),
+      / {6}window\.COLLECTION_STATS_CONFIG = \{[\s\S]*? {6}\};/,
+      replacement,
     );
     await route.fulfill({ response, body, contentType: "text/html" });
   });
@@ -277,6 +288,7 @@ test("staging 설정 누락은 운영 API로 대체하지 않고 알림을 표�
   await page.goto("/?statsEnv=disabled");
   await expect(page.getByLabel("스테이징 환경")).toHaveCount(0);
 
+  await serveStagingDocument(page);
   await page.goto("/?statsEnv=staging");
   await expect(page.getByRole("alert", { name: "스테이징 환경" })).toContainText(
     "STAGING 설정 누락",
@@ -285,7 +297,10 @@ test("staging 설정 누락은 운영 API로 대체하지 않고 알림을 표�
 
 test("staging 설정이 있으면 별도 통계 API와 테스트 배너를 사용한다", async ({ page }) => {
   let requestedStatsUrl = "";
-  await serveConfiguredStagingDocument(page);
+  await serveStagingDocument(page, {
+    endpoint: "https://staging.example.test",
+    turnstileSiteKey: "staging-site-key",
+  });
   await page.route("https://staging.example.test/api/stats", async (route) => {
     requestedStatsUrl = route.request().url();
     await route.fulfill({
