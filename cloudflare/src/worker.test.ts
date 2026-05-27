@@ -7,7 +7,8 @@ const TURNSTILE_TOKEN = "valid-turnstile-token-for-tests";
 const REQUEST_URL = "https://worker.test/api/events";
 let miniflare: Miniflare;
 let database: D1Database;
-let siteverifyForms: FormData[];
+let siteverifyForms: URLSearchParams[];
+let siteverifyContentTypes: Array<string | null>;
 
 const testEnv: {
   DB: D1Database;
@@ -139,11 +140,13 @@ async function applySchema() {
 function mockSiteverify(...outcomes: Array<{ body?: object; status?: number } | Error>): void {
   let index = 0;
   siteverifyForms = [];
+  siteverifyContentTypes = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = init?.body;
-      if (body instanceof FormData) siteverifyForms.push(body);
+      if (body instanceof URLSearchParams) siteverifyForms.push(body);
+      siteverifyContentTypes.push(new Headers(init?.headers).get("Content-Type"));
       const outcome = outcomes[Math.min(index, outcomes.length - 1)];
       index += 1;
       if (outcome instanceof Error) throw outcome;
@@ -354,7 +357,10 @@ describe("Turnstile verification response handling", () => {
 
   it("does not retry configuration errors on the client", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    mockSiteverify({ body: { success: false, "error-codes": ["invalid-input-secret"] } });
+    mockSiteverify({
+      status: 400,
+      body: { success: false, "error-codes": ["invalid-input-secret"] },
+    });
 
     const response = await submit(kitResultEvent("turnstile-secret-0001"));
 
@@ -378,6 +384,10 @@ describe("Turnstile verification response handling", () => {
     expect(siteverifyForms[1].get("idempotency_key")).toBe(
       siteverifyForms[0].get("idempotency_key"),
     );
+    expect(siteverifyContentTypes).toEqual([
+      "application/x-www-form-urlencoded",
+      "application/x-www-form-urlencoded",
+    ]);
     expect(warning).toHaveBeenCalledWith(
       "Turnstile action mismatch observed.",
       expect.objectContaining({
@@ -389,7 +399,7 @@ describe("Turnstile verification response handling", () => {
   });
 
   it("returns retryable unavailable responses for transient Siteverify transport failures", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     mockSiteverify(new Error("network down"), new Error("network still down"));
 
     const networkResponse = await submit(kitResultEvent("turnstile-network-0001"));
@@ -400,6 +410,14 @@ describe("Turnstile verification response handling", () => {
       retryable: true,
     });
     expect(siteverifyForms).toHaveLength(2);
+    expect(warning).toHaveBeenCalledWith(
+      "Turnstile verification unavailable.",
+      expect.objectContaining({
+        failure: "fetch_error",
+        httpStatus: null,
+        internallyRetried: true,
+      }),
+    );
 
     mockSiteverify({ status: 503 }, { status: 503 });
 
@@ -413,6 +431,14 @@ describe("Turnstile verification response handling", () => {
     expect(siteverifyForms).toHaveLength(2);
     expect(siteverifyForms[1].get("idempotency_key")).toBe(
       siteverifyForms[0].get("idempotency_key"),
+    );
+    expect(warning).toHaveBeenCalledWith(
+      "Turnstile verification unavailable.",
+      expect.objectContaining({
+        failure: "http_status",
+        httpStatus: 503,
+        internallyRetried: true,
+      }),
     );
   });
 });

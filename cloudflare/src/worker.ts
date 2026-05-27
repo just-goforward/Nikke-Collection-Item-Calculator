@@ -694,6 +694,19 @@ type SiteverifyResult = {
   "error-codes"?: string[];
 };
 
+type SiteverifyTransportFailure = "fetch_error" | "http_status" | "invalid_json" | "timeout";
+
+class SiteverifyTransportError extends Error {
+  failure: SiteverifyTransportFailure;
+  httpStatus: number | null;
+
+  constructor(failure: SiteverifyTransportFailure, httpStatus: number | null = null) {
+    super("Siteverify transport failed.");
+    this.failure = failure;
+    this.httpStatus = httpStatus;
+  }
+}
+
 async function requestTurnstileVerification(
   request: Request,
   env: Env,
@@ -703,20 +716,34 @@ async function requestTurnstileVerification(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TURNSTILE_VERIFY_TIMEOUT_MS);
   try {
-    const form = new FormData();
+    const form = new URLSearchParams();
     form.append("secret", String(env.TURNSTILE_SECRET_KEY));
     form.append("response", token);
     form.append("idempotency_key", idempotencyKey);
     const ip = request.headers.get("CF-Connecting-IP");
     if (ip) form.append("remoteip", ip);
 
-    const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-      method: "POST",
-      body: form,
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error(`Siteverify returned HTTP ${response.status}.`);
-    return (await response.json()) as SiteverifyResult;
+    try {
+      const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form,
+        signal: controller.signal,
+      });
+      let result: SiteverifyResult;
+      try {
+        result = (await response.json()) as SiteverifyResult;
+      } catch {
+        throw new SiteverifyTransportError("invalid_json", response.status);
+      }
+      if (!response.ok && !Array.isArray(result["error-codes"])) {
+        throw new SiteverifyTransportError("http_status", response.status);
+      }
+      return result;
+    } catch (error) {
+      if (error instanceof SiteverifyTransportError) throw error;
+      throw new SiteverifyTransportError(controller.signal.aborted ? "timeout" : "fetch_error");
+    }
   } finally {
     clearTimeout(timeout);
   }
@@ -732,6 +759,21 @@ function logTurnstileFailure(
     expectedAction: eventKind,
     returnedAction: result?.action || null,
     errorCodes: result?.["error-codes"] || ["siteverify_unavailable"],
+    internallyRetried,
+  });
+}
+
+function logTurnstileTransportFailure(
+  eventKind: StatsEventKind,
+  error: unknown,
+  internallyRetried: boolean,
+) {
+  const transportError = error instanceof SiteverifyTransportError ? error : null;
+  console.warn("Turnstile verification unavailable.", {
+    eventKind,
+    expectedAction: eventKind,
+    failure: transportError?.failure || "fetch_error",
+    httpStatus: transportError?.httpStatus ?? null,
     internallyRetried,
   });
 }
@@ -753,12 +795,12 @@ async function verifyTurnstile(
     let result: SiteverifyResult;
     try {
       result = await requestTurnstileVerification(request, env, token, idempotencyKey);
-    } catch {
+    } catch (error) {
       if (attempt === 0) {
         internallyRetried = true;
         continue;
       }
-      logTurnstileFailure(eventKind, null, internallyRetried);
+      logTurnstileTransportFailure(eventKind, error, internallyRetried);
       throw new HttpError(502, "turnstile_unavailable", true);
     }
 
