@@ -42,9 +42,13 @@ export interface SolverResult {
   topCandidates: Array<Record<string, unknown>>;
 }
 
-export interface StatsConfig {
+export interface StatsEndpointConfig {
   endpoint?: string;
   turnstileSiteKey?: string;
+}
+
+export interface StatsConfig extends StatsEndpointConfig {
+  staging?: StatsEndpointConfig;
 }
 
 export interface ProgressEvent {

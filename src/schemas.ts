@@ -34,6 +34,13 @@ export const StatsConfigSchema = z
   .object({
     endpoint: z.string().trim().url().optional(),
     turnstileSiteKey: z.string().trim().min(1).optional(),
+    staging: z
+      .object({
+        endpoint: z.string().trim().url().optional(),
+        turnstileSiteKey: z.string().trim().min(1).optional(),
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 

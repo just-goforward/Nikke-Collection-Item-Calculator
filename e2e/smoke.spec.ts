@@ -45,7 +45,7 @@ test.afterAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?statsEnv=disabled");
   await expect(page.getByRole("button", { name: "0단계", exact: true })).toBeVisible();
 });
 
@@ -117,7 +117,7 @@ test("SR 10 + 상급자용 100 — 세부 정보에 SR 15 도달 확률이 나�
 
 test("모바일 metric 콘텐츠는 카드 안에서 상하 가운데 정렬된다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/?statsEnv=disabled");
   await page
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
@@ -256,6 +256,16 @@ test("demoStats=1 — 전체 통계 주요 섹션이 표시된다", async ({ pag
   await expect(page.getByText("결과 입력 표본 기준 · 이벤트 단위 집계")).toBeVisible();
 });
 
+test("staging 설정 누락은 운영 API로 대체하지 않고 알림을 표시한다", async ({ page }) => {
+  await page.goto("/?statsEnv=disabled");
+  await expect(page.getByLabel("스테이징 환경")).toHaveCount(0);
+
+  await page.goto("/?statsEnv=staging");
+  await expect(page.getByRole("alert", { name: "스테이징 환경" })).toContainText(
+    "STAGING 설정 누락",
+  );
+});
+
 test("레퍼런스 정리 요소와 통계 비교 상태가 표시된다", async ({ page }) => {
   await page.goto("/?demoStats=1");
 
@@ -304,7 +314,7 @@ test("모바일 탭은 입력, 결과, 통계 화면을 전환한다", async ({ 
 
 test("모바일 하단 액션바로 계산하고 결과 액션을 표시한다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/?statsEnv=disabled");
 
   await page.getByLabel("초심자용 관리 키트").fill("100");
 
@@ -338,7 +348,7 @@ test("대성공 X 선택 후 다음 추천이 자동 계산된다", async ({ pag
 
 test("모바일 결과 탭에서는 대성공 버튼이 하단 액션바에만 표시된다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/?statsEnv=disabled");
 
   await page.getByLabel("초심자용 관리 키트").fill("100");
   await page
@@ -357,7 +367,7 @@ test("모바일 결과 탭에서는 대성공 버튼이 하단 액션바에만 �
 
 test("모바일 상태 스트립은 R/SR 변경에도 레벨 위치가 흔들리지 않는다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/?statsEnv=disabled");
 
   const before = await page.locator(".status-level").boundingBox();
   await page
@@ -373,7 +383,7 @@ test("모바일 상태 스트립은 R/SR 변경에도 레벨 위치가 흔들리
 
 test("모바일 수동 키트 수정 필요 상태는 하단 계산 버튼에서 바로 보인다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/?statsEnv=disabled");
 
   await page.getByLabel("초심자용 관리 키트").fill("100");
   const actionBar = page.getByRole("toolbar", { name: "모바일 작업" });
@@ -394,7 +404,7 @@ test("모바일 수동 키트 수정 필요 상태는 하단 계산 버튼에서
 
 test("mobile convert button keeps the input tab selected", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/?statsEnv=disabled");
 
   await page.locator(".level-button").nth(15).click();
   await page.locator(".mobile-action-bar .convert-button").click();
@@ -476,7 +486,7 @@ test("privacy notice is desktop footer and mobile stats-only footer", async ({ p
 
 test("mobile info-tip text stays inside its bubble", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/?statsEnv=disabled");
   await page.locator("#blueStock").fill("100");
   await page.locator(".mobile-action-bar .primary-button").click();
 

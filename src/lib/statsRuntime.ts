@@ -1,19 +1,63 @@
 import { StatsConfigSchema } from "../schemas";
 
-export function statsApiBase(): string {
-  const parsed = StatsConfigSchema.safeParse(window.COLLECTION_STATS_CONFIG || {});
-  return parsed.success && typeof parsed.data.endpoint === "string"
-    ? parsed.data.endpoint.replace(/\/+$/, "")
-    : "";
+export type StatsRuntimeMode =
+  | "production"
+  | "staging"
+  | "demo"
+  | "disabled"
+  | "staging-misconfigured";
+
+type SubmissionConfig = { endpoint: string; turnstileSiteKey: string };
+
+function parsedStatsConfig() {
+  return StatsConfigSchema.safeParse(window.COLLECTION_STATS_CONFIG || {});
 }
 
-export function statsSubmissionConfig(): { endpoint: string; turnstileSiteKey: string } | null {
-  const parsed = StatsConfigSchema.safeParse(window.COLLECTION_STATS_CONFIG || {});
-  if (!parsed.success || !parsed.data.endpoint || !parsed.data.turnstileSiteKey) return null;
+function normalizedEndpoint(endpoint: string): string {
+  return endpoint.replace(/\/+$/, "");
+}
+
+function completeSubmissionConfig(config?: {
+  endpoint?: string;
+  turnstileSiteKey?: string;
+}): SubmissionConfig | null {
+  if (!config?.endpoint || !config.turnstileSiteKey) return null;
   return {
-    endpoint: parsed.data.endpoint.replace(/\/+$/, ""),
-    turnstileSiteKey: parsed.data.turnstileSiteKey,
+    endpoint: normalizedEndpoint(config.endpoint),
+    turnstileSiteKey: config.turnstileSiteKey,
   };
+}
+
+export function statsRuntimeMode(): StatsRuntimeMode {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("demoStats") === "1") return "demo";
+  if (params.get("statsEnv") === "disabled") return "disabled";
+  if (params.get("statsEnv") !== "staging") return "production";
+
+  const parsed = parsedStatsConfig();
+  if (!parsed.success || !completeSubmissionConfig(parsed.data.staging)) {
+    return "staging-misconfigured";
+  }
+  return "staging";
+}
+
+export function statsApiBase(): string {
+  const mode = statsRuntimeMode();
+  if (mode === "demo" || mode === "disabled" || mode === "staging-misconfigured") return "";
+
+  const parsed = parsedStatsConfig();
+  if (!parsed.success) return "";
+  if (mode === "staging") return normalizedEndpoint(parsed.data.staging?.endpoint || "");
+  return parsed.data.endpoint ? normalizedEndpoint(parsed.data.endpoint) : "";
+}
+
+export function statsSubmissionConfig(): SubmissionConfig | null {
+  const mode = statsRuntimeMode();
+  if (mode === "demo" || mode === "disabled" || mode === "staging-misconfigured") return null;
+
+  const parsed = parsedStatsConfig();
+  if (!parsed.success) return null;
+  return completeSubmissionConfig(mode === "staging" ? parsed.data.staging : parsed.data);
 }
 
 export function makeStatsEventId(): string {

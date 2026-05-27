@@ -9,3 +9,14 @@ database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
 [vars]
 ALLOWED_ORIGINS = "https://YOUR_GITHUB_ID.github.io"
+
+[env.staging]
+workers_dev = true
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "collection-kit-stats-staging"
+database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
+
+[env.staging.vars]
+ALLOWED_ORIGINS = "https://YOUR_GITHUB_ID.github.io"

@@ -169,3 +169,111 @@ wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.t
 wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "DELETE FROM client_env_aggregates WHERE date_key = '2026-05-18'"
 wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "DELETE FROM solver_diagnostic_aggregates WHERE date_key = '2026-05-18'"
 ```
+
+## Staging submission verification
+
+Production statistics must not be used for synthetic browser verification. Use a separate
+staging Worker, D1 database, and Turnstile widget. The deployed GitHub Pages app selects that
+backend only when opened with `?statsEnv=staging`.
+
+This mode validates a frontend version that is already public on GitHub Pages. It is not a
+pre-release frontend preview. Add a separate static staging deployment later if a frontend
+release must be tested before it becomes public.
+
+Runtime modes:
+
+| URL | Display source | Event submissions |
+| --- | --- | --- |
+| normal URL | production API | production API |
+| `?statsEnv=staging` | staging API | staging API |
+| `?demoStats=1` | generated demo data | disabled |
+| `?demoStats=1&statsEnv=staging` | generated demo data | disabled |
+| `?statsEnv=disabled` | no stats backend | disabled |
+
+If staging is requested but no complete staging frontend configuration is present, the app
+shows an error notice and performs neither stats reads nor event submissions. It never falls
+back to production.
+
+### Initial staging setup
+
+Create a physically separate D1 database:
+
+```powershell
+& "C:\Program Files\nodejs\npx.cmd" wrangler d1 create collection-kit-stats-staging
+```
+
+Add the returned database ID to the `[env.staging]` block in `cloudflare/wrangler.toml`, based
+on `cloudflare/wrangler.toml.example`. Apply the regular schema, then the staging-only reset
+guard:
+
+```powershell
+& "C:\Program Files\nodejs\npx.cmd" wrangler d1 execute collection-kit-stats-staging --remote --env staging --file cloudflare/schema.sql --config cloudflare/wrangler.toml
+& "C:\Program Files\nodejs\npx.cmd" wrangler d1 execute collection-kit-stats-staging --remote --env staging --file cloudflare/staging-guard.sql --config cloudflare/wrangler.toml
+```
+
+Create a separate Invisible Turnstile widget in Cloudflare Dashboard. Allow
+`just-goforward.github.io`; do not allow `localhost` unless deployed-site verification is no
+longer the only intended use. Invisible mode is configured on the widget, not with a frontend
+`size: "invisible"` render option.
+
+Set staging-only secrets and deploy the staging Worker:
+
+```powershell
+& "C:\Program Files\nodejs\npx.cmd" wrangler secret put TURNSTILE_SECRET_KEY --env staging --config cloudflare/wrangler.toml
+& "C:\Program Files\nodejs\npx.cmd" wrangler secret put RATE_LIMIT_SECRET --env staging --config cloudflare/wrangler.toml
+& "C:\Program Files\nodejs\npx.cmd" wrangler deploy --env staging --config cloudflare/wrangler.toml
+```
+
+After deployment, add the public staging Worker URL and staging widget site key to
+`window.COLLECTION_STATS_CONFIG` in `index.html`:
+
+```js
+window.COLLECTION_STATS_CONFIG = {
+  endpoint: "https://YOUR_PRODUCTION_WORKER.workers.dev",
+  turnstileSiteKey: "YOUR_PRODUCTION_SITE_KEY",
+  staging: {
+    endpoint: "https://YOUR_STAGING_WORKER.workers.dev",
+    turnstileSiteKey: "YOUR_STAGING_SITE_KEY",
+  },
+};
+```
+
+The site key and Worker URL are public configuration. Secret keys stay only in the
+corresponding Cloudflare Worker environment.
+
+### Staging operation
+
+Deploy or inspect only the staging environment with explicit environment flags:
+
+```powershell
+& "C:\Program Files\nodejs\npx.cmd" wrangler deploy --env staging --config cloudflare/wrangler.toml
+& "C:\Program Files\nodejs\npx.cmd" wrangler tail --env staging --config cloudflare/wrangler.toml
+```
+
+When `cloudflare/schema.sql` changes, apply it to staging first, validate staging behavior, and
+only then apply the production migration. The staging guard is not part of the common schema
+and must never be executed on production.
+
+Reset only disposable staging records with the guarded reset file:
+
+```powershell
+& "C:\Program Files\nodejs\npx.cmd" wrangler d1 execute collection-kit-stats-staging --remote --env staging --file cloudflare/reset-staging.sql --config cloudflare/wrangler.toml
+```
+
+The reset file requires the marker installed by `staging-guard.sql`. If it is mistakenly run
+against a database without the guard table, execution errors before deletion. If a guard table
+exists without the staging marker, every `DELETE` affects zero rows. Never install the staging
+marker in production.
+
+### Manual verification
+
+1. Open `https://just-goforward.github.io/?statsEnv=staging` and confirm the visible staging
+   notice.
+2. In DevTools Network, confirm `/api/stats` and `/api/events` target the staging Worker URL.
+3. Run `calculate -> select fail -> automatic next calculation`.
+4. Observe staging Worker logs with `wrangler tail --env staging`.
+5. Query only staging D1 for accepted validation data. Exact expected deltas are meaningful
+   only after a guarded reset and during an interval with no other staging writers.
+
+Do not submit synthetic flows on the normal production URL. Production traffic means recent
+production timestamps cannot prove whether a test polluted production statistics.

@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { statsApiBase } from "../lib/statsRuntime";
+import { statsApiBase, statsRuntimeMode } from "../lib/statsRuntime";
 import { StatsApiResponseSchema } from "../schemas";
 import { GREAT_SUCCESS } from "../solver";
 import type { Grade, Kit } from "../types";
 import type { GlobalStats, StatsView } from "../ui-types";
 import { KIT_KEYS } from "./calculatorShared";
 import { useStatsSubmission } from "./useStatsSubmission";
-
-function statsDemoEnabled() {
-  return new URLSearchParams(window.location.search).get("demoStats") === "1";
-}
 
 function demoNoise(seed: number) {
   const value = Math.sin(seed * 12.9898) * 43758.5453;
@@ -199,7 +195,7 @@ export function useStats() {
   const statsRefreshTimerRef = useRef<number | null>(null);
 
   const refreshGlobalStats = useCallback(async () => {
-    if (statsDemoEnabled()) {
+    if (statsRuntimeMode() === "demo") {
       const stats = makeDemoStats();
       const totalEvents = Number(stats.summary?.events || 0);
       setStatsView(

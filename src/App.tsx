@@ -17,10 +17,14 @@ import StockPanel from "./components/StockPanel";
 import SuccessAttemptModal from "./components/SuccessAttemptModal";
 import TopBar from "./components/TopBar";
 import { useCalculatorApp } from "./hooks/useCalculatorApp";
+import { statsRuntimeMode } from "./lib/statsRuntime";
 
 const classes = {
   shell:
     "app-shell mx-auto w-[min(1320px,calc(100%_-_32px))] py-7 pb-[42px] max-mobile:w-[min(100%_-_20px,1320px)] max-mobile:py-2.5 max-mobile:pb-3.5",
+  stagingBanner:
+    "mb-3 rounded-card border border-warning bg-warning-soft px-3.5 py-2.5 text-[13px] font-semibold leading-[1.4] text-warning max-mobile:mb-2.5 max-mobile:px-3 max-mobile:py-2 max-mobile:text-xs",
+  stagingErrorBanner: "border-danger bg-danger-soft text-danger",
   mobileHeader:
     "hidden max-mobile:sticky max-mobile:top-0 max-mobile:z-20 max-mobile:mx-[-10px] max-mobile:mb-3 max-mobile:block max-mobile:bg-page max-mobile:px-2.5 max-mobile:shadow-[0_1px_0_var(--line)]",
   workspace:
@@ -39,6 +43,7 @@ export default function App() {
   const calculator = useCalculatorApp();
   const { actions } = calculator;
   const [mobileTab, setMobileTab] = useState<MobileTab>("input");
+  const statsMode = statsRuntimeMode();
 
   const handleCalculate = async () => {
     await actions.calculate();
@@ -65,6 +70,20 @@ export default function App() {
   return (
     <>
       <main className={classes.shell} data-mobile-tab={mobileTab}>
+        {statsMode === "staging" && (
+          <aside className={classes.stagingBanner} aria-label="스테이징 환경">
+            STAGING - 테스트 기록은 운영 통계에 반영되지 않음
+          </aside>
+        )}
+        {statsMode === "staging-misconfigured" && (
+          <aside
+            className={`${classes.stagingBanner} ${classes.stagingErrorBanner}`}
+            aria-label="스테이징 환경"
+            role="alert"
+          >
+            STAGING 설정 누락 - 통계 제출이 중지됨
+          </aside>
+        )}
         <TopBar themeMode={calculator.themeMode} onThemeModeChange={actions.setThemeMode} />
         <div className={classes.mobileHeader}>
           <MobileStatusStrip
