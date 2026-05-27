@@ -20,6 +20,23 @@ async function maxBackgroundChannel(locator: Locator): Promise<number> {
   });
 }
 
+async function serveConfiguredStagingDocument(page: import("@playwright/test").Page) {
+  await page.route("**/?statsEnv=staging", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(
+      '        turnstileSiteKey: "0x4AAAAAADJiF42vmIlh7EOp",',
+      [
+        '        turnstileSiteKey: "0x4AAAAAADJiF42vmIlh7EOp",',
+        "        staging: {",
+        '          endpoint: "https://staging.example.test",',
+        '          turnstileSiteKey: "staging-site-key",',
+        "        },",
+      ].join("\n"),
+    );
+    await route.fulfill({ response, body, contentType: "text/html" });
+  });
+}
+
 test.beforeAll(async () => {
   previewServer = await preview({
     configFile: false,
@@ -264,6 +281,43 @@ test("staging 설정 누락은 운영 API로 대체하지 않고 알림을 표�
   await expect(page.getByRole("alert", { name: "스테이징 환경" })).toContainText(
     "STAGING 설정 누락",
   );
+});
+
+test("staging 설정이 있으면 별도 통계 API와 테스트 배너를 사용한다", async ({ page }) => {
+  let requestedStatsUrl = "";
+  await serveConfiguredStagingDocument(page);
+  await page.route("https://staging.example.test/api/stats", async (route) => {
+    requestedStatsUrl = route.request().url();
+    await route.fulfill({
+      status: 500,
+      headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
+      body: "",
+    });
+  });
+
+  await page.goto("/?statsEnv=staging");
+
+  await expect(page.getByLabel("스테이징 환경")).toContainText(
+    "테스트 기록은 운영 통계에 반영되지 않음",
+  );
+  await expect.poll(() => requestedStatsUrl).toBe("https://staging.example.test/api/stats");
+});
+
+test("demo 및 disabled 계산은 통계 이벤트를 제출하지 않는다", async ({ page }) => {
+  let eventRequests = 0;
+  await page.route("**/api/events", async (route) => {
+    eventRequests += 1;
+    await route.fulfill({ status: 200, body: '{"ok":true}' });
+  });
+
+  for (const query of ["?statsEnv=disabled", "?demoStats=1"]) {
+    await page.goto(`/${query}`);
+    await page.locator("#blueStock").fill("100");
+    await page.locator("#calculateButton").click();
+    await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
+  }
+
+  expect(eventRequests).toBe(0);
 });
 
 test("레퍼런스 정리 요소와 통계 비교 상태가 표시된다", async ({ page }) => {
