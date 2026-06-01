@@ -12,6 +12,8 @@ playwright/.cache/
 blob-report/
 debug.log
 benchmarks/results/
+benchmarks/*.md
+benchmarks/**/*.md
 KIT_EXPECTED_GAIN_SOURCE.ko.md
 MIGRATION_ROADMAP.md
 PLAN_COMPLETE.ko.md
