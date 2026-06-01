@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     include: ["benchmarks/**/*.{test,spec}.ts"],
     exclude: ["e2e/**", "node_modules/**", "dist/**"],
+    fileParallelism: false,
+    maxWorkers: 1,
     testTimeout: 600000,
   },
 });

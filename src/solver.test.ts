@@ -6,21 +6,32 @@ import {
   normalizeState,
   SUPPLY_AVAILABILITY_PARAMS,
   solve,
+  solveWithResearchCostModel,
   transition,
 } from "./solver";
 
 const KITS = ["blue", "purple", "yellow"] as const;
+type CandidateResult = {
+  run?: { count: number };
+  successProbability: number;
+  resourceCost: number;
+};
 
 function expectedAvailabilityCost(
   vector: Record<(typeof KITS)[number], number>,
   stock: Record<(typeof KITS)[number], number>,
+  options: { horizonFactor?: number; normPower?: number } = {},
 ) {
-  const powered = KITS.reduce((sum, kit) => {
-    const availability =
-      stock[kit] + SUPPLY_AVAILABILITY_PARAMS.horizon * EXPECTED_28_DAY_GAIN[kit];
-    return sum + (vector[kit] / availability) ** SUPPLY_AVAILABILITY_PARAMS.normPower;
-  }, 0);
-  return powered ** (1 / SUPPLY_AVAILABILITY_PARAMS.normPower);
+  const horizonFactor = options.horizonFactor ?? SUPPLY_AVAILABILITY_PARAMS.horizon;
+  const normPower = options.normPower ?? SUPPLY_AVAILABILITY_PARAMS.normPower;
+  const ratios = KITS.map((kit) => {
+    const availability = stock[kit] + horizonFactor * EXPECTED_28_DAY_GAIN[kit];
+    if (availability <= 0) return vector[kit] > 1e-12 ? Number.POSITIVE_INFINITY : 0;
+    return vector[kit] / availability;
+  });
+  if (normPower === Number.POSITIVE_INFINITY) return Math.max(...ratios);
+  const powered = ratios.reduce((sum, ratio) => sum + ratio ** normPower, 0);
+  return powered ** (1 / normPower);
 }
 
 describe("solver transitions", () => {
@@ -116,9 +127,11 @@ describe("solver policy", () => {
     expect(best.firstAction).toMatch(/blue|purple|yellow/);
     expect(stats.exact).toBe(true);
     expect(topCandidates.length).toBeGreaterThan(0);
-    expect(topCandidates.every((candidate) => candidate.run && candidate.run.count >= 1)).toBe(
-      true,
-    );
+    expect(
+      topCandidates.every(
+        (candidate: CandidateResult) => candidate.run && candidate.run.count >= 1,
+      ),
+    ).toBe(true);
   });
 
   it("keeps Monte Carlo validation deterministic for the same seed", () => {
@@ -185,14 +198,16 @@ describe("solver policy", () => {
     expect(Math.abs(best.resourceCost - expectedWithFlooredUses)).toBeGreaterThan(0.01);
   });
 
-  it("orders supply candidates by resource cost after the probability gate", () => {
-    const result = solve(
+  it("orders research supply candidates by resource cost after an explicit probability gate", () => {
+    const result = solveWithResearchCostModel(
       {
         start: { grade: "SR", level: 10, exp: 0 },
         stock: { blue: 120, purple: 80, yellow: 40 },
         strategy: "supply",
       },
+      { kind: "availability-pnorm", horizonFactor: 0.5, normPower: 3 },
       undefined,
+      { toleranceOverride: 0.01 },
     );
     const topCandidates = result.topCandidates;
     const stats = result.stats;
@@ -202,7 +217,7 @@ describe("solver policy", () => {
     const maxSuccessProbability = Number(stats?.maxSuccessProbability || 0);
     const tolerance = Number(stats?.probabilityTolerance || 0);
     const eligible = topCandidates.filter(
-      (candidate) =>
+      (candidate: CandidateResult) =>
         maxSuccessProbability - Number(candidate.successProbability) <= tolerance + 1e-12,
     );
     expect(eligible.length).toBeGreaterThan(1);
@@ -214,5 +229,119 @@ describe("solver policy", () => {
         Number(current.resourceCost) + 1e-8,
       );
     }
+  });
+
+  it("keeps the default research cost model identical to the product solver", () => {
+    const input = {
+      start: { grade: "R" as const, level: 10, exp: 0 },
+      stock: { blue: 100, purple: 30, yellow: 100 },
+      strategy: "supply" as const,
+    };
+    const productResult = solve(input, undefined);
+    const researchResult = solveWithResearchCostModel(input, { kind: "availability-pnorm" });
+    const { gateAudit, ...researchStats } = researchResult.stats;
+
+    expect(gateAudit).toBeDefined();
+    expect({ ...researchResult, stats: researchStats }).toEqual(productResult);
+  });
+
+  it("collects bounded probability gate evidence for research solves", () => {
+    const result = solveWithResearchCostModel(
+      {
+        start: { grade: "R", level: 0, exp: 0 },
+        stock: { blue: 100, purple: 100, yellow: 100 },
+        strategy: "supply",
+      },
+      { kind: "availability-pnorm" },
+    );
+    const gateAudit = result.stats?.gateAudit;
+    expect(gateAudit).toBeDefined();
+    if (!gateAudit || !result.stats) throw new Error("Expected research probability gate audit.");
+    expect(gateAudit.decisionCount).toBe(result.stats.states);
+    expect(gateAudit.maxGap).toBeLessThanOrEqual(result.stats.probabilityTolerance + 1e-12);
+    expect(gateAudit.violationCount).toBe(0);
+    expect(gateAudit.eligibleEmptyCount).toBeGreaterThanOrEqual(0);
+    expect(gateAudit.fixedToleranceViolationCount).toBe(0);
+    expect(gateAudit.firstViolationWitness).toBeNull();
+    expect(gateAudit.firstFixedToleranceViolationWitness).toBeNull();
+  });
+
+  it("supports research-only horizon and minimax availability parameters", () => {
+    const stock = { blue: 120, purple: 80, yellow: 40 };
+    const result = solveWithResearchCostModel(
+      {
+        start: { grade: "SR", level: 10, exp: 0 },
+        stock,
+        strategy: "supply",
+      },
+      { kind: "availability-pnorm", horizonFactor: 1, normPower: Number.POSITIVE_INFINITY },
+    );
+    const best = result.best;
+    expect(best).toBeDefined();
+    if (!best) throw new Error("Expected a minimax research recommendation.");
+
+    expect(best.resourceCost).toBeCloseTo(
+      expectedAvailabilityCost(best.vector, stock, {
+        horizonFactor: 1,
+        normPower: Number.POSITIVE_INFINITY,
+      }),
+      10,
+    );
+    expect(best.availabilityCost).toBeCloseTo(expectedAvailabilityCost(best.vector, stock), 10);
+  });
+
+  it("keeps zero-horizon zero-consumption ratios finite for research probes", () => {
+    const result = solveWithResearchCostModel(
+      {
+        start: { grade: "SR", level: 10, exp: 0 },
+        stock: { blue: 0, purple: 0, yellow: 30 },
+        strategy: "supply",
+      },
+      { kind: "availability-pnorm", horizonFactor: 0, normPower: 3 },
+    );
+    const best = result.best;
+    expect(best).toBeDefined();
+    if (!best) throw new Error("Expected a zero-horizon research recommendation.");
+    expect(best.firstAction).toBe("yellow");
+    expect(Number.isFinite(best.resourceCost)).toBe(true);
+  });
+
+  it("applies tolerance overrides only through the research solve path", () => {
+    const input = {
+      start: { grade: "R" as const, level: 0, exp: 0 },
+      stock: { blue: 100, purple: 100, yellow: 100 },
+      strategy: "supply" as const,
+    };
+    const productResult = solve(input, undefined);
+    const researchResult = solveWithResearchCostModel(
+      input,
+      { kind: "availability-pnorm" },
+      undefined,
+      { toleranceOverride: 0 },
+    );
+
+    expect(productResult.stats?.probabilityTolerance).toBe(0.01);
+    expect(researchResult.stats?.probabilityTolerance).toBe(0);
+    expect(researchResult.stats?.gateAudit).toBeDefined();
+  });
+
+  it("uses linear shadow prices only as the research selection cost", () => {
+    const stock = { blue: 120, purple: 80, yellow: 40 };
+    const prices = { blue: 0.02, purple: 0.05, yellow: 0.1 };
+    const result = solveWithResearchCostModel(
+      {
+        start: { grade: "SR", level: 10, exp: 0 },
+        stock,
+        strategy: "supply",
+      },
+      { kind: "linear-shadow", prices },
+    );
+    const best = result.best;
+    expect(best).toBeDefined();
+    if (!best) throw new Error("Expected a linear shadow recommendation.");
+
+    const shadowCost = KITS.reduce((sum, kit) => sum + best.vector[kit] * prices[kit], 0);
+    expect(best.resourceCost).toBeCloseTo(shadowCost, 10);
+    expect(best.availabilityCost).toBeCloseTo(expectedAvailabilityCost(best.vector, stock), 10);
   });
 });

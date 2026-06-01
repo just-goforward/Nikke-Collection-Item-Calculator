@@ -11,3 +11,4 @@ playwright-report/
 playwright/.cache/
 blob-report/
 debug.log
+benchmarks/results/

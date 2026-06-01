@@ -10,6 +10,37 @@ type ProgressCallback = (progress: {
   total?: number | null;
 }) => void;
 type CapStats = { dynamicCapReductions: number; dynamicCapFallbacks: number };
+type ResearchCostModel =
+  | {
+      kind: "availability-pnorm";
+      horizonFactor?: number;
+      normPower?: number;
+    }
+  | { kind: "linear-shadow"; prices: KitVector };
+type AvailabilityPnormResearchCostModel = Extract<
+  ResearchCostModel,
+  { kind: "availability-pnorm" }
+>;
+type ProbabilityGateWitness = {
+  gap: number;
+  state: CollectionState;
+  stockUses: KitVector;
+};
+type ProbabilityGateAudit = {
+  decisionCount: number;
+  maxGap: number;
+  maxGapWitness: ProbabilityGateWitness | null;
+  violationCount: number;
+  firstViolationWitness: ProbabilityGateWitness | null;
+  eligibleEmptyCount: number;
+  fixedToleranceViolationCount: number;
+  firstFixedToleranceViolationWitness: ProbabilityGateWitness | null;
+};
+type SolveExecutionOptions = {
+  researchCostModel?: ResearchCostModel;
+  collectGateAudit?: boolean;
+  toleranceOverride?: number;
+};
 // biome-ignore lint/suspicious/noExplicitAny: The legacy solver stores heterogeneous recursive MDP nodes; explicit any keeps strict migration scoped without changing the algorithm.
 type AnyValue = any;
 
@@ -34,6 +65,9 @@ const SUPPLY_MODE_WEIGHTS = {
 const SUPPLY_AVAILABILITY_PARAMS = {
   horizon: 0.5,
   normPower: 3,
+};
+const DEFAULT_RESEARCH_COST_MODEL: AvailabilityPnormResearchCostModel = {
+  kind: "availability-pnorm",
 };
 const EXP_BUCKETS = 30;
 const LEVEL_BUCKETS = 16;
@@ -297,7 +331,16 @@ function legacySupplyCostScore(vector: KitVector) {
   return KIT_ORDER.reduce((sum, kit) => sum + vector[kit] / EXPECTED_28_DAY_GAIN[kit], 0);
 }
 
-function availabilityCostScore(vector: KitVector, stockPieces: KitVector) {
+function availabilityRatio(consumption: number, availability: number) {
+  if (availability > 0) return consumption / availability;
+  return consumption > STRICT_EPSILON ? Number.POSITIVE_INFINITY : 0;
+}
+
+function availabilityCostScoreWithParams(
+  vector: KitVector,
+  stockPieces: KitVector,
+  model: AvailabilityPnormResearchCostModel = DEFAULT_RESEARCH_COST_MODEL,
+) {
   // Supply Phase 1 heuristic:
   // R_i = current stock pieces_i + horizon * expected 28-day gain_i
   // cost = (sum((expected consumption_i / R_i) ^ p)) ^ (1 / p)
@@ -307,37 +350,114 @@ function availabilityCostScore(vector: KitVector, stockPieces: KitVector) {
   // prior route consumption is not part of the state. If this approximation becomes a real
   // problem in benchmark data, the practical refinement path is shadow-price fixed-point passes,
   // not expanding the MDP state with cumulative consumption.
-  const powered = KIT_ORDER.reduce((sum, kit) => {
-    const availability =
-      stockPieces[kit] + SUPPLY_AVAILABILITY_PARAMS.horizon * EXPECTED_28_DAY_GAIN[kit];
-    if (availability <= 0) return Number.POSITIVE_INFINITY;
-    const ratio = vector[kit] / availability;
-    return sum + ratio ** SUPPLY_AVAILABILITY_PARAMS.normPower;
+  const horizonFactor =
+    typeof model.horizonFactor === "number" && Number.isFinite(model.horizonFactor)
+      ? Math.max(0, model.horizonFactor)
+      : SUPPLY_AVAILABILITY_PARAMS.horizon;
+  const normPower = model.normPower ?? SUPPLY_AVAILABILITY_PARAMS.normPower;
+  const ratios = KIT_ORDER.map((kit) =>
+    availabilityRatio(vector[kit], stockPieces[kit] + horizonFactor * EXPECTED_28_DAY_GAIN[kit]),
+  );
+
+  if (normPower === Number.POSITIVE_INFINITY) return Math.max(...ratios);
+  if (!Number.isFinite(normPower) || normPower <= 0) return Number.POSITIVE_INFINITY;
+
+  const powered = ratios.reduce((sum, ratio) => {
+    return sum + ratio ** normPower;
   }, 0);
-  return powered ** (1 / SUPPLY_AVAILABILITY_PARAMS.normPower);
+  return powered ** (1 / normPower);
 }
 
-function resourceCostScore(pressure: number, availabilityCost: number, strategy: Strategy) {
+function availabilityCostScore(vector: KitVector, stockPieces: KitVector) {
+  return availabilityCostScoreWithParams(vector, stockPieces);
+}
+
+function researchCostScore(vector: KitVector, stockPieces: KitVector, model: ResearchCostModel) {
+  if (model.kind === "availability-pnorm")
+    return availabilityCostScoreWithParams(vector, stockPieces, model);
+  return KIT_ORDER.reduce((sum, kit) => {
+    const price = Number(model.prices[kit]);
+    if (!Number.isFinite(price) || price < 0) return Number.POSITIVE_INFINITY;
+    return sum + price * vector[kit];
+  }, 0);
+}
+
+function resourceCostScore(pressure: number, supplyCost: number, strategy: Strategy) {
   if (strategy !== "supply") return pressure;
-  return availabilityCost;
+  return supplyCost;
+}
+
+function createProbabilityGateAudit(): ProbabilityGateAudit {
+  return {
+    decisionCount: 0,
+    maxGap: 0,
+    maxGapWitness: null,
+    violationCount: 0,
+    firstViolationWitness: null,
+    eligibleEmptyCount: 0,
+    fixedToleranceViolationCount: 0,
+    firstFixedToleranceViolationWitness: null,
+  };
+}
+
+function recordProbabilityGateDecision(
+  audit: ProbabilityGateAudit,
+  gap: number,
+  tolerance: number,
+  eligibleEmpty: boolean,
+  state: CollectionState,
+  stockUses: KitVector,
+) {
+  audit.decisionCount += 1;
+  if (eligibleEmpty) audit.eligibleEmptyCount += 1;
+  if (gap > audit.maxGap) {
+    audit.maxGap = gap;
+    audit.maxGapWitness = { gap, state: { ...state }, stockUses: { ...stockUses } };
+  }
+  if (gap > tolerance + STRICT_EPSILON) {
+    audit.violationCount += 1;
+    if (!audit.firstViolationWitness) {
+      audit.firstViolationWitness = { gap, state: { ...state }, stockUses: { ...stockUses } };
+    }
+  }
+  if (gap > STRATEGY_PROBABILITY_TOLERANCE.supply + STRICT_EPSILON) {
+    audit.fixedToleranceViolationCount += 1;
+    if (!audit.firstFixedToleranceViolationWitness) {
+      audit.firstFixedToleranceViolationWitness = {
+        gap,
+        state: { ...state },
+        stockUses: { ...stockUses },
+      };
+    }
+  }
 }
 
 function normalizeStrategy(strategy: unknown): Strategy {
   return strategy === "supply" ? "supply" : STRATEGY_DEFAULT;
 }
 
-function probabilityToleranceForStrategy(strategy: unknown) {
-  return STRATEGY_PROBABILITY_TOLERANCE[normalizeStrategy(strategy)];
+function probabilityToleranceForStrategy(strategy: unknown, toleranceOverride?: number) {
+  const normalized = normalizeStrategy(strategy);
+  if (
+    normalized === "supply" &&
+    typeof toleranceOverride === "number" &&
+    Number.isFinite(toleranceOverride) &&
+    toleranceOverride >= 0
+  ) {
+    return toleranceOverride;
+  }
+  return STRATEGY_PROBABILITY_TOLERANCE[normalized];
 }
 
 function withinProbabilityTolerance(
   successProbability: number,
   maxSuccessProbability: number,
   strategy: unknown,
+  toleranceOverride?: number,
 ) {
   return (
     maxSuccessProbability - successProbability <=
-    probabilityToleranceForStrategy(strategy) + STRICT_EPSILON
+    probabilityToleranceForStrategy(strategy, toleranceOverride) + STRICT_EPSILON
   );
 }
 
@@ -357,16 +477,23 @@ function chooseEfficientCandidate(
   candidates: AnyValue[],
   maxSuccessProbability: number,
   strategy: Strategy,
+  toleranceOverride?: number,
 ) {
-  if (!candidates.length) return null;
+  if (!candidates.length) return { best: null, eligibleEmpty: false };
   const eligible = candidates.filter((candidate) =>
-    withinProbabilityTolerance(candidate.successProbability, maxSuccessProbability, strategy),
+    withinProbabilityTolerance(
+      candidate.successProbability,
+      maxSuccessProbability,
+      strategy,
+      toleranceOverride,
+    ),
   );
   const pool = eligible.length ? eligible : candidates;
-  return pool.reduce((best, candidate) => {
-    if (!best) return candidate;
-    return compareEfficiency(candidate, best, strategy) < 0 ? candidate : best;
+  const best = pool.reduce((currentBest, candidate) => {
+    if (!currentBest) return candidate;
+    return compareEfficiency(candidate, currentBest, strategy) < 0 ? candidate : currentBest;
   }, null);
+  return { best, eligibleEmpty: eligible.length === 0 };
 }
 
 function compareByStrategy(
@@ -374,16 +501,19 @@ function compareByStrategy(
   b: AnyValue,
   maxSuccessProbability: number,
   strategy: Strategy,
+  toleranceOverride?: number,
 ) {
   const aEligible = withinProbabilityTolerance(
     a.successProbability,
     maxSuccessProbability,
     strategy,
+    toleranceOverride,
   );
   const bEligible = withinProbabilityTolerance(
     b.successProbability,
     maxSuccessProbability,
     strategy,
+    toleranceOverride,
   );
   if (aEligible !== bEligible) return aEligible ? -1 : 1;
   if (aEligible && bEligible) return compareEfficiency(a, b, strategy);
@@ -393,7 +523,11 @@ function compareByStrategy(
   return compareEfficiency(a, b, strategy);
 }
 
-function finiteInventoryMdp(input: AnyValue, progress?: ProgressCallback) {
+function finiteInventoryMdp(
+  input: AnyValue,
+  progress?: ProgressCallback,
+  options: SolveExecutionOptions = {},
+) {
   const memo = new Map<number, AnyValue>();
   const policy = new Map<number, Kit | null>();
   const initialUses = input.actualStockUses || input.stockUses;
@@ -403,6 +537,9 @@ function finiteInventoryMdp(input: AnyValue, progress?: ProgressCallback) {
     yellow: initialUses.yellow * 10,
   };
   const strategy = normalizeStrategy(input.strategy);
+  const researchCostModel = options.researchCostModel || DEFAULT_RESEARCH_COST_MODEL;
+  const probabilityTolerance = probabilityToleranceForStrategy(strategy, options.toleranceOverride);
+  const gateAudit = options.collectGateAudit ? createProbabilityGateAudit() : null;
   const capStats = { dynamicCapReductions: 0, dynamicCapFallbacks: 0 };
   let visited = 0;
 
@@ -462,7 +599,8 @@ function finiteInventoryMdp(input: AnyValue, progress?: ProgressCallback) {
         maxSuccessProbability = actionMaxSuccessProbability;
       }
       const pressure = pressureScore(vector, initialUses);
-      const supplyCost = availabilityCostScore(vector, initialStockPieces);
+      const availabilityCost = availabilityCostScore(vector, initialStockPieces);
+      const supplyCost = researchCostScore(vector, initialStockPieces, researchCostModel);
       const legacySupplyCost = legacySupplyCostScore(vector);
       const candidate = {
         firstAction: kit,
@@ -470,7 +608,7 @@ function finiteInventoryMdp(input: AnyValue, progress?: ProgressCallback) {
         actionMaxSuccessProbability,
         pressure,
         supplyCost,
-        availabilityCost: supplyCost,
+        availabilityCost,
         legacySupplyCost,
         resourceCost: resourceCostScore(pressure, supplyCost, strategy),
         vector,
@@ -483,7 +621,22 @@ function finiteInventoryMdp(input: AnyValue, progress?: ProgressCallback) {
       candidate.maxSuccessProbability = maxSuccessProbability;
       candidate.probabilityGap = Math.max(0, maxSuccessProbability - candidate.successProbability);
     }
-    const best = chooseEfficientCandidate(candidates, maxSuccessProbability, strategy);
+    const { best, eligibleEmpty } = chooseEfficientCandidate(
+      candidates,
+      maxSuccessProbability,
+      strategy,
+      probabilityTolerance,
+    );
+    if (gateAudit && best) {
+      recordProbabilityGateDecision(
+        gateAudit,
+        Math.max(0, maxSuccessProbability - best.successProbability),
+        probabilityTolerance,
+        eligibleEmpty,
+        normalized,
+        stock,
+      );
+    }
     memo.set(key, best);
     policy.set(key, best ? best.firstAction : null);
     return best;
@@ -495,6 +648,7 @@ function finiteInventoryMdp(input: AnyValue, progress?: ProgressCallback) {
     states: memo.size,
     dynamicCapReductions: capStats.dynamicCapReductions,
     dynamicCapFallbacks: capStats.dynamicCapFallbacks,
+    ...(gateAudit ? { gateAudit } : {}),
     actionFor: (state: Partial<CollectionState>, stock: KitVector) => {
       const normalized = normalizeState(state);
       const cappedStock = capStockForState(normalized, stock);
@@ -517,7 +671,8 @@ function finiteInventoryMdp(input: AnyValue, progress?: ProgressCallback) {
         ? stateValue.maxSuccessProbability
         : successProbability;
       const pressure = pressureScore(vector, initialUses);
-      const supplyCost = availabilityCostScore(vector, initialStockPieces);
+      const availabilityCost = availabilityCostScore(vector, initialStockPieces);
+      const supplyCost = researchCostScore(vector, initialStockPieces, researchCostModel);
       const legacySupplyCost = legacySupplyCostScore(vector);
       return {
         name: STRATEGY_META[strategy].label,
@@ -530,7 +685,7 @@ function finiteInventoryMdp(input: AnyValue, progress?: ProgressCallback) {
         probabilityGap: Math.max(0, maxSuccessProbability - successProbability),
         pressure,
         supplyCost,
-        availabilityCost: supplyCost,
+        availabilityCost,
         legacySupplyCost,
         resourceCost: resourceCostScore(pressure, supplyCost, strategy),
         vector,
@@ -703,8 +858,16 @@ function normalizeInput(input: AnyValue) {
   };
 }
 
-function solve(input: AnyValue, progress?: ProgressCallback) {
+function solveInternal(
+  input: AnyValue,
+  progress?: ProgressCallback,
+  options: SolveExecutionOptions = {},
+): AnyValue {
   const normalizedInput = normalizeInput(input);
+  const probabilityTolerance = probabilityToleranceForStrategy(
+    normalizedInput.strategy,
+    options.toleranceOverride,
+  );
   const monteCarloRuns = Math.max(0, Math.floor(Number(input?.monteCarloRuns) || 0));
   const monteCarloSeed = Math.max(0, Math.floor(Number(input?.monteCarloSeed) || 20260505));
   if (progress) progress({ phase: "build", scanned: 0, total: 1 });
@@ -762,7 +925,7 @@ function solve(input: AnyValue, progress?: ProgressCallback) {
     };
   }
 
-  const mdp = finiteInventoryMdp(normalizedInput, progress);
+  const mdp = finiteInventoryMdp(normalizedInput, progress, options);
   const bestAction = mdp.firstAction;
   if (!bestAction) {
     return {
@@ -776,7 +939,15 @@ function solve(input: AnyValue, progress?: ProgressCallback) {
     mdp.valueForAction(normalizedInput.start, normalizedInput.stockUses, kit),
   )
     .filter(Boolean)
-    .sort((a, b) => compareByStrategy(a, b, mdp.maxSuccessProbability, normalizedInput.strategy));
+    .sort((a, b) =>
+      compareByStrategy(
+        a,
+        b,
+        mdp.maxSuccessProbability,
+        normalizedInput.strategy,
+        probabilityTolerance,
+      ),
+    );
 
   const best =
     actionValues.find((candidate) => candidate.firstAction === bestAction) || actionValues[0];
@@ -822,10 +993,11 @@ function solve(input: AnyValue, progress?: ProgressCallback) {
       states: mdp.states,
       exact: true,
       tolerance: 0,
-      probabilityTolerance: probabilityToleranceForStrategy(normalizedInput.strategy),
+      probabilityTolerance,
       maxSuccessProbability: mdp.maxSuccessProbability,
       dynamicCapReductions: mdp.dynamicCapReductions,
       dynamicCapFallbacks: mdp.dynamicCapFallbacks,
+      ...(mdp.gateAudit ? { gateAudit: mdp.gateAudit } : {}),
       strategy: normalizedInput.strategy,
       supplyAvailability: SUPPLY_AVAILABILITY_PARAMS,
       iterations: 0,
@@ -847,6 +1019,23 @@ function solve(input: AnyValue, progress?: ProgressCallback) {
   };
 }
 
+function solve(input: AnyValue, progress?: ProgressCallback): AnyValue {
+  return solveInternal(input, progress);
+}
+
+function solveWithResearchCostModel(
+  input: AnyValue,
+  model: ResearchCostModel = DEFAULT_RESEARCH_COST_MODEL,
+  progress?: ProgressCallback,
+  options: Omit<SolveExecutionOptions, "researchCostModel"> = {},
+): AnyValue {
+  return solveInternal(input, progress, {
+    researchCostModel: model,
+    collectGateAudit: options.collectGateAudit ?? true,
+    toleranceOverride: options.toleranceOverride,
+  });
+}
+
 const CollectionSolver = {
   KIT_ORDER,
   KIT_META,
@@ -864,6 +1053,7 @@ const CollectionSolver = {
   convertState,
   describeState: stateText,
   solve,
+  solveWithResearchCostModel,
   round,
 };
 
@@ -877,12 +1067,17 @@ export {
   MAX_RELEVANT_USES,
   nextBoundary,
   normalizeState,
+  type ProbabilityGateAudit,
+  type ProbabilityGateWitness,
+  type ResearchCostModel,
   round,
+  type SolveExecutionOptions,
   STRATEGY_META,
   STRATEGY_PROBABILITY_TOLERANCE,
   SUPPLY_AVAILABILITY_PARAMS,
   SUPPLY_MODE_WEIGHTS,
   solve,
+  solveWithResearchCostModel,
   stateText as describeState,
   transition,
 };
