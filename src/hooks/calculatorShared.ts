@@ -235,8 +235,8 @@ export function makeSolverDiagnosticEvent(result: SolverResult) {
   return {
     kind: "solver_diagnostic" as const,
     diagnosticVersion: 1,
-    solverVersion: "phase1_availability_pnorm",
-    solverPhase: "phase1",
+    solverVersion: "phase2_availability_h075_tau0_p3",
+    solverPhase: "phase2",
     start: input.start,
     strategy,
     stockBuckets: {

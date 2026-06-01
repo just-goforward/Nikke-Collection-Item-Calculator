@@ -2,6 +2,52 @@
 
 소장품 레벨업 계산기의 주요 변경 이력을 기록합니다.
 
+## 2026-06-01
+
+### Solver 기본 추천 정책 개선
+
+- 3단계 슬라이더 캘리브레이션 연구에서 지배 후보로 확인된 `tau0-h0.75-p3` 정책을 실제 배포용 기본 solver에 적용했습니다.
+  - 수급 가용성 지평을 14일치(`H=0.5`)에서 21일치(`H=0.75`)로 조정했습니다.
+  - `supply` 전략의 성공확률 허용폭을 1.0%p에서 0%p로 조정해, 기본 추천은 최대 SR 15 도달 확률 후보 안에서 수급 비용을 비교합니다.
+  - p-norm 차수는 기존과 동일하게 `p=3`을 유지합니다.
+- 통계 진단 이벤트의 solver 버전을 `phase2_availability_h075_tau0_p3` / `phase2`로 갱신했습니다.
+- 연구용 `(τ,H,p)` benchmark와 historical A 기준은 유지하되, production `solve()`의 기본 경로만 새 정책으로 전환했습니다.
+
+## 2026-05-27
+
+### 통계 수집 정확성 및 보안
+
+- 통계 이벤트 저장을 D1 batch 기반 원자적 처리로 변경했습니다.
+  - 이벤트 ID와 관련 집계를 한 트랜잭션으로 기록해, 집계 실패 후 재시도가 중복 처리로 막히며 통계가 누락되는 문제를 방지합니다.
+  - `kit_result`와 `solver_diagnostic` 모두 정상 처리, 중복 제출, rollback, 실패 후 동일 ID 재시도를 Worker 통합 테스트로 검증합니다.
+- 브라우저의 통계 제출을 FIFO queue로 직렬화했습니다.
+  - 동시에 발생하는 공개 결과 이벤트와 비공개 진단 이벤트가 Turnstile token을 충돌 없이 각각 발급받아 제출됩니다.
+  - 재시도 시 같은 event ID를 유지하고 새 token을 사용해 D1 중복 방지와 복구 흐름을 함께 보장합니다.
+- Turnstile 검증과 오류 분류를 보강했습니다.
+  - action별 widget과 명시적 실행 방식을 사용하고, 유효하지 않은 `size: "invisible"` widget 옵션을 제거했습니다.
+  - Worker에서 Siteverify 일시 실패를 같은 token과 `idempotency_key`로 1회 재시도합니다.
+  - Siteverify 요청을 `application/x-www-form-urlencoded` 형식으로 전송하고, HTTP 400 응답의 `error-codes`를 보존해 secret 설정 오류와 일시 장애를 구분합니다.
+  - token, IP, payload를 남기지 않고 실패 종류와 action 불일치만 관측하도록 로그 범위를 제한했습니다.
+- `RATE_LIMIT_SECRET`이 없는 환경은 fallback secret으로 동작하지 않고 통계 제출을 거부하도록 변경했습니다.
+
+### 통계 응답 및 화면
+
+- 공개 `/api/stats` 응답에서 현재 화면이 사용하지 않는 통계 계산을 제거했습니다.
+  - `successAttemptDistribution` 별도 D1 쿼리와 `levelKitStats` 생성 비용을 제거했습니다.
+  - 기존 클라이언트 호환을 위해 두 응답 필드는 빈 배열로 유지합니다.
+- 통계 난이도 구간 tooltip의 글꼴 스타일을 복구하고, 키보드 연결 및 `Escape` 닫기 동작을 보강했습니다.
+- 대성공 발생 회차 modal에 `Escape` 닫기, focus trap, 닫은 뒤 focus 복귀 동작을 추가했습니다.
+
+### 검증 환경 및 배포
+
+- 운영 통계를 오염시키지 않고 실제 Turnstile 및 D1 저장 흐름을 확인할 수 있는 staging 통계 환경을 추가했습니다.
+  - `?statsEnv=staging`으로 별도 Worker, D1, Turnstile widget을 사용하며 화면에 staging 배너를 표시합니다.
+  - `?demoStats=1`과 `?statsEnv=disabled`에서는 통계 이벤트 전송을 중지합니다.
+  - staging 데이터 초기화를 위한 marker guard 및 reset SQL을 추가했습니다.
+- staging에서 `최초 계산 -> 대성공 X -> 자동 다음 계산` 흐름을 검증해 `kit_result` 1건과 `solver_diagnostic` 2건 저장을 확인한 뒤 시험 데이터를 초기화했습니다.
+- Miniflare 기반 Worker 통합 테스트, 제출 queue 및 Turnstile 단위 테스트, Playwright 시나리오를 보강했습니다.
+- GitHub Actions의 Linux Chromium 환경에서 시각 회귀 테스트가 동작하도록 Ubuntu baseline을 추가했습니다.
+
 ## 2026-05-06
 
 - 계산 방식 선택지를 추가했습니다.

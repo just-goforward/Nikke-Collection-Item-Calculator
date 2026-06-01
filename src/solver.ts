@@ -55,7 +55,7 @@ const MAX_RELEVANT_USES: KitVector = { blue: 220, purple: 88, yellow: 44 };
 const STRICT_EPSILON = 1e-12;
 const STRATEGY_PROBABILITY_TOLERANCE: Record<Strategy, number> = {
   single: 0.001,
-  supply: 0.01,
+  supply: 0,
 };
 // Deprecated: kept on CollectionSolver for compatibility with older debug consumers.
 const SUPPLY_MODE_WEIGHTS = {
@@ -63,7 +63,7 @@ const SUPPLY_MODE_WEIGHTS = {
   stock: 0.25,
 };
 const SUPPLY_AVAILABILITY_PARAMS = {
-  horizon: 0.5,
+  horizon: 0.75,
   normPower: 3,
 };
 const DEFAULT_RESEARCH_COST_MODEL: AvailabilityPnormResearchCostModel = {

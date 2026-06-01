@@ -47,12 +47,12 @@ describe("A interactive-replan baseline", () => {
     expect(result.gateEvidence.boundaryViolationCount).toBe(0);
     // These deterministic values fix the weighted attempt branching contract; success attempts
     // must not be replaced with a uniform pick from the recommended run.
-    expect(result.successProbability).toBeCloseTo(0.5814477455800285, 12);
-    expect(result.expectedConsumption.blue).toBeCloseTo(99.10739090161807, 10);
-    expect(result.expectedConsumption.purple).toBeCloseTo(83.75515182647229, 10);
-    expect(result.expectedConsumption.yellow).toBeCloseTo(22.32669073917042, 10);
-    expect(result.successAttemptSelectionProbability).toBeCloseTo(0.4775226910442265, 12);
-    expect(result.interactiveF).toBeCloseTo(0.452573837916863, 12);
+    expect(result.successProbability).toBeCloseTo(0.5894521493051443, 12);
+    expect(result.expectedConsumption.blue).toBeCloseTo(98.30459302217626, 10);
+    expect(result.expectedConsumption.purple).toBeCloseTo(89.20814221565486, 10);
+    expect(result.expectedConsumption.yellow).toBeCloseTo(19.934149189621014, 10);
+    expect(result.successAttemptSelectionProbability).toBeCloseTo(0.4808787327283736, 12);
+    expect(result.interactiveF).toBeCloseTo(0.3279638107027003, 12);
   });
 
   it("returns explicit incomplete evidence when an evaluation has no budget", () => {

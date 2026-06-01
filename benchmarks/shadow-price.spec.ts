@@ -51,7 +51,7 @@ describe("shadow-price research models", () => {
     expect(candidate.best).toEqual(baseline.best);
   });
 
-  it("rejects a single-update candidate that worsens the root p-norm objective", () => {
+  it("keeps a single-update candidate that improves the current root p-norm objective", () => {
     const scenario = FIXED_SAFETY_GRID.find((item) => item.id === "SR5-blue30");
     expect(scenario).toBeDefined();
     if (!scenario) throw new Error("Expected the blue scarcity scenario.");
@@ -62,11 +62,11 @@ describe("shadow-price research models", () => {
     };
     const baseline = solveWithResearchCostModel(candidateInput, { kind: "availability-pnorm" });
     const candidate = solveSingleUpdateShadow(candidateInput);
-    expect(candidate.stats?.researchShadow?.fallback).toBe("root_objective_worsened");
-    expect(candidate.stats.researchShadow.candidateRootF).toBeGreaterThan(
+    expect(candidate.stats?.researchShadow?.fallback).toBeNull();
+    expect(candidate.stats.researchShadow.candidateRootF).toBeLessThanOrEqual(
       candidate.stats.researchShadow.baselineRootF,
     );
-    expect(candidate.best).toEqual(baseline.best);
+    expect(candidate.best).not.toEqual(baseline.best);
   });
 
   it("rejects a converged fixed-point candidate that worsens the root objective", () => {

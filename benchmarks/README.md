@@ -2,6 +2,10 @@
 
 Korean documentation: [`README.ko.md`](./README.ko.md)
 
+Note as of 2026-06-01: `tau0.01-h0.5-p3` / A is the historical research baseline used by
+these benchmark artifacts. The production solver default has since moved to
+`tau0-h0.75-p3` (`phase2_availability_h075_tau0_p3`).
+
 This directory contains slow, explicitly-run experiments that originally assessed whether the
 historical `phase1_availability_pnorm` policy should eventually be replaced by a dynamic
 supply-pressure model.

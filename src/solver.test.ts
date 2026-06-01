@@ -320,7 +320,7 @@ describe("solver policy", () => {
       { toleranceOverride: 0 },
     );
 
-    expect(productResult.stats?.probabilityTolerance).toBe(0.01);
+    expect(productResult.stats?.probabilityTolerance).toBe(0);
     expect(researchResult.stats?.probabilityTolerance).toBe(0);
     expect(researchResult.stats?.gateAudit).toBeDefined();
   });

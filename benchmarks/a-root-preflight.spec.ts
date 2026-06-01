@@ -31,8 +31,6 @@ describe("production root probability-gate preflight", () => {
 
     expect(decisionCount).toBeGreaterThan(0);
     expect(violationCount).toBe(0);
-    expect(maxGap, `Maximum gap originated at ${maxGapScenario}.`).toBeLessThanOrEqual(
-      0.01 + 1e-12,
-    );
+    expect(maxGap, `Maximum gap originated at ${maxGapScenario}.`).toBeLessThanOrEqual(1e-12);
   });
 });

@@ -2,6 +2,11 @@
 
 영문 원본: [`README.md`](./README.md)
 
+> 2026-06-01 참고: 이 디렉터리의 `tau0.01-h0.5-p3` / A 기준은 연구 당시의 historical baseline입니다.
+> 실제 production 기본 solver는 후속 채택으로 `tau0-h0.75-p3`
+> (`phase2_availability_h075_tau0_p3`)가 되었습니다. benchmark는 과거 A와 새 후보를 비교한
+> 연구 재현용으로 유지합니다.
+
 ## 결론부터
 
 현재 검토한 후보 모델 B/C에 대해서는 **제품 채택 여부를 판단하는 데 필요한 절차가
