@@ -279,8 +279,12 @@ test("demoStats=1 — 전체 통계 주요 섹션이 표시된다", async ({ pag
   await expect(page.locator(".kit-rate-row")).toHaveCount(3);
   await expect(page.locator(".difficulty-row")).toHaveCount(6);
   await expect(page.getByText("누적 입력 표본", { exact: true })).toBeVisible();
-  await expect(page.getByText("최근 30일 체감", { exact: true })).toBeVisible();
-  await expect(page.getByText(/현재 확률표 기준으로 계산한 입력 표본 통계입니다/)).toBeVisible();
+  await expect(page.locator(".overall-stats-window")).toHaveCount(1);
+  await expect(page.locator(".stats-vs-card")).toHaveCount(0);
+  await expect(page.getByText("최근 30일 체감", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/현재 확률표 기준으로 계산한 입력 표본 통계입니다/)).toHaveCount(0);
+  await expect(page.locator(".kit-rate-meta").first()).toContainText(/\d+시도/);
+  await expect(page.locator(".kit-rate-meta").first()).not.toContainText(/실측|기대값/);
   await expect(page.getByText("결과 입력 표본 기준 · 이벤트 단위 집계")).toBeVisible();
 });
 

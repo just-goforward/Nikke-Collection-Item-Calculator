@@ -2,7 +2,7 @@ import type { CSSProperties, FocusEvent, MouseEvent, PointerEvent } from "react"
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { formatInteger, formatNumber, formatPercent } from "../format";
+import { formatInteger, formatPercent } from "../format";
 import { wilsonInterval } from "../lib/stats/binomial";
 import type { Kit } from "../types";
 import type { GlobalStats, KitStat, SegmentStat, StatsView } from "../ui-types";
@@ -81,16 +81,6 @@ const classes = {
   overallWindowTitle: "text-[13px] font-semibold leading-[1.2] text-text-strong",
   overallWindowMeta:
     "text-right text-[11px] font-medium leading-[1.35] text-muted max-mobile:text-left",
-  overallRateGrid: "overall-rate-grid grid grid-cols-3 gap-2",
-  statsCard:
-    "stats-vs-card min-w-0 rounded-card border border-border bg-surface-raised p-3 text-center max-mobile:p-2.5",
-  statsCardLabel: "block text-[11px] font-medium leading-[1.2] text-muted",
-  statsCardValue:
-    "mt-2 block text-[clamp(24px,3.2vw,34px)] font-semibold leading-none max-mobile:mt-1 max-mobile:text-[clamp(20px,6.5vw,24px)]",
-  neutralValue: "text-text-strong",
-  actualValue: "text-grade-active-strong",
-  positiveValue: "text-[#168f7a]",
-  negativeValue: "text-danger",
   empty: "stats-empty m-0 text-[12px] font-normal leading-[1.45] text-muted",
   note: "stats-note m-0 text-[11px] font-normal leading-[1.45] text-muted [overflow-wrap:break-word] [word-break:keep-all]",
   disclaimer:
@@ -152,24 +142,6 @@ const classes = {
 
 function joinClasses(...items: Array<string | false | null | undefined>) {
   return items.filter(Boolean).join(" ");
-}
-
-function weightedTheoryRate(rows: KitStat[] = []) {
-  const attempts = rows.reduce((sum, item) => sum + Number(item.attempts || 0), 0);
-  if (!attempts) return 0;
-  return (
-    rows.reduce(
-      (sum, item) =>
-        sum + Number(item.theoreticalGreatSuccessRate || 0) * Number(item.attempts || 0),
-      0,
-    ) / attempts
-  );
-}
-
-function formatSignedPercentPoint(value: number) {
-  if (!Number.isFinite(value)) return "-";
-  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${sign}${formatNumber(Math.abs(value) * 100, 1)}%p`;
 }
 
 function normalizeSegmentLabel(label: string) {
@@ -456,12 +428,10 @@ function DifficultyRow({
 type OverallStatsSummary = NonNullable<GlobalStats["summary"]>;
 
 function OverallStatsWindow({
-  byKit,
   note,
   summary,
   title,
 }: {
-  byKit: KitStat[];
   note?: string;
   summary?: Partial<OverallStatsSummary>;
   title: string;
@@ -469,12 +439,6 @@ function OverallStatsWindow({
   const attempts = Number(summary?.attempts || 0);
   const events = Number(summary?.events || 0);
   const greatSuccesses = Number(summary?.greatSuccesses || 0);
-  const actualRate = Number(summary?.greatSuccessRate || 0);
-  const theoreticalRate = weightedTheoryRate(byKit);
-  const delta = attempts ? actualRate - theoreticalRate : 0;
-  const deltaClass = delta > 0 ? "positive" : delta < 0 ? "negative" : "neutral";
-  const deltaValueClass =
-    delta > 0 ? classes.positiveValue : delta < 0 ? classes.negativeValue : "";
 
   return (
     <article className={classes.overallWindow}>
@@ -485,65 +449,26 @@ function OverallStatsWindow({
           {formatInteger(greatSuccesses)}회
         </span>
       </div>
-      <div className={classes.overallRateGrid}>
-        <div className={`${classes.statsCard} actual`}>
-          <span className={classes.statsCardLabel}>실측 대성공률</span>
-          <strong className={`${classes.statsCardValue} ${classes.actualValue}`}>
-            {attempts ? formatPercent(actualRate, 1) : "-"}
-          </strong>
-        </div>
-        <div className={`${classes.statsCard} expected`}>
-          <span className={classes.statsCardLabel}>기대값</span>
-          <strong className={`${classes.statsCardValue} ${classes.neutralValue}`}>
-            {attempts ? formatPercent(theoreticalRate, 1) : "-"}
-          </strong>
-        </div>
-        <div className={`${classes.statsCard} delta ${deltaClass}`}>
-          <span className={classes.statsCardLabel}>실측 - 기대값</span>
-          <strong
-            className={joinClasses(classes.statsCardValue, deltaValueClass || classes.neutralValue)}
-          >
-            {attempts ? formatSignedPercentPoint(delta) : "-"}
-          </strong>
-        </div>
-      </div>
       {note ? <p className={classes.note}>{note}</p> : null}
     </article>
   );
 }
 
 function OverallStats({ stats }: { stats: GlobalStats }) {
-  const summary = stats.summary || {};
-  const byKit = Array.isArray(stats.byKit) ? stats.byKit : [];
   const cumulative = stats.cumulative;
   const cumulativeSummary = cumulative?.summary;
-  const cumulativeByKit = Array.isArray(cumulative?.byKit) ? cumulative.byKit : [];
-  const windowDays = Number(stats.windowDays || 30);
 
   return (
     <section className={`${classes.section} stats-overall-section`}>
       <div className={classes.sectionTitle}>
         <h3 className={classes.sectionHeading}>전체 대성공률</h3>
-        <span className={classes.sectionMeta}>
-          누적 중심 · 최근 {formatInteger(windowDays)}일 체감
-        </span>
+        <span className={classes.sectionMeta}>누적 중심</span>
       </div>
       <div className={classes.overallStack}>
         <OverallStatsWindow
-          byKit={cumulativeByKit}
-          note={
-            cumulative
-              ? "현재 확률표 기준으로 계산한 입력 표본 통계입니다."
-              : "누적 통계는 최신 Worker 배포 후 표시됩니다."
-          }
+          note={cumulative ? undefined : "누적 통계는 최신 Worker 배포 후 표시됩니다."}
           summary={cumulativeSummary}
           title="누적 입력 표본"
-        />
-        <OverallStatsWindow
-          byKit={byKit}
-          note={`최근 ${formatInteger(windowDays)}일 동안 사용자가 입력한 결과의 체감 통계입니다.`}
-          summary={summary}
-          title={`최근 ${formatInteger(windowDays)}일 체감`}
         />
       </div>
       <p className={classes.note}>
@@ -593,10 +518,7 @@ function KitRateRow({
         {...tooltipHandlers}
         theoreticalRate={theoreticalRate}
       />
-      <p className={classes.kitRateMeta}>
-        실측 {attempts ? formatPercent(actualRate, 1) : "-"} · 기대값{" "}
-        {attempts ? formatPercent(theoreticalRate, 1) : "-"} · {formatInteger(attempts)}시도
-      </p>
+      <p className={classes.kitRateMeta}>{formatInteger(attempts)}시도</p>
     </div>
   );
 }
