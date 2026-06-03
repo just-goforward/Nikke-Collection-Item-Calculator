@@ -17,6 +17,7 @@ const HORIZON_FACTOR = 0.75;
 const NORM_POWER = 3;
 const TOLERANCE = 0;
 const SOLVER_VERSION = "phase3_rust_min_ef_staging";
+const MAX_RUST_MIN_EF_STOCK_VOLUME = 10_000;
 
 type NormalizedInput = SolverInput & {
   actualStockUses: Stock;
@@ -87,6 +88,23 @@ function normalizeInput(input: SolverInput): NormalizedInput {
     monteCarloRuns: input.monteCarloRuns,
     monteCarloSeed: input.monteCarloSeed,
   };
+}
+
+function rustMinEfStockVolume(stockUses: Stock) {
+  return (stockUses.blue + 1) * (stockUses.purple + 1) * (stockUses.yellow + 1);
+}
+
+function assertRustMinEfInputSupported(input: NormalizedInput) {
+  const volume = rustMinEfStockVolume(input.stockUses);
+  if (volume <= MAX_RUST_MIN_EF_STOCK_VOLUME) return;
+
+  throw new Error(
+    [
+      "Rust min E[f] staging solver is currently limited to smaller inventory states.",
+      `State volume ${volume.toLocaleString("en-US")} exceeds ${MAX_RUST_MIN_EF_STOCK_VOLUME.toLocaleString("en-US")}.`,
+      "Use the default JS solver for this input, or test Rust mode with lower kit counts until the Rust kernel gets dynamic stock capping.",
+    ].join(" "),
+  );
 }
 
 function decrementStock(stock: Stock, kit: Kit): Stock {
@@ -336,6 +354,7 @@ export async function solveRustMinEf(
       message: "사용 가능한 키트가 없습니다. 각 키트는 10개 단위로만 사용할 수 있습니다.",
     };
   }
+  assertRustMinEfInputSupported(normalizedInput);
 
   const solver = await getSolver(wasmUrl);
   const root = solver.solveRoot(
@@ -445,6 +464,7 @@ export async function validateRustMinEf(
   seed = 20260505,
 ) {
   const normalizedInput = normalizeInput(input);
+  assertRustMinEfInputSupported(normalizedInput);
   const solver = await getSolver(wasmUrl);
   solver.solveRoot(
     normalizedInput.start,

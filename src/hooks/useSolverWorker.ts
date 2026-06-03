@@ -12,6 +12,7 @@ import {
 
 const SOLVE_CACHE_LIMIT = 32;
 const VALIDATION_CACHE_LIMIT = 16;
+const RUST_BACKEND_TIMEOUT_MS = 15_000;
 
 type RequestWorkerOptions = {
   payload?: Record<string, unknown>;
@@ -50,14 +51,22 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
       const wasmUrl = backend === "rust-min-ef" ? solverWasmUrl() : undefined;
 
       return new Promise<unknown>((resolve, reject) => {
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        const cleanup = () => {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
+          activeWorker.removeEventListener("message", handleMessage);
+          activeWorker.removeEventListener("error", handleError);
+        };
         const handleMessage = (event: MessageEvent) => {
           const parsed = WorkerResponseSchema.safeParse(event.data || {});
           if (!parsed.success) {
             const raw = event.data || {};
             if (!raw || typeof raw !== "object" || (raw as Record<string, unknown>).id !== id)
               return;
-            activeWorker.removeEventListener("message", handleMessage);
-            activeWorker.removeEventListener("error", handleError);
+            cleanup();
             reject(new Error("Invalid worker response."));
             return;
           }
@@ -67,19 +76,25 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
             options.onProgress?.(data.progress);
             return;
           }
-          activeWorker.removeEventListener("message", handleMessage);
-          activeWorker.removeEventListener("error", handleError);
+          cleanup();
           if (data.type === "result") resolve(data.result);
           else reject(new Error(data.message || "Worker calculation failed."));
         };
         const handleError = (event: ErrorEvent) => {
-          activeWorker.removeEventListener("message", handleMessage);
-          activeWorker.removeEventListener("error", handleError);
+          cleanup();
           reject(new Error(event.message || "Worker calculation failed."));
         };
 
         activeWorker.addEventListener("message", handleMessage);
         activeWorker.addEventListener("error", handleError);
+        if (backend === "rust-min-ef") {
+          timeoutId = setTimeout(() => {
+            cleanup();
+            activeWorker.terminate();
+            if (workerRef.current === activeWorker) workerRef.current = null;
+            reject(new Error("Rust min E[f] staging solver timed out."));
+          }, RUST_BACKEND_TIMEOUT_MS);
+        }
         activeWorker.postMessage({ type, id, input, backend, wasmUrl, ...(options.payload || {}) });
       });
     },
