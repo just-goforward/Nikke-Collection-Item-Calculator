@@ -73,6 +73,8 @@ export type SolverResult = {
     states?: number;
     strategy?: Strategy;
     maxSuccessProbability?: number;
+    solverVersion?: string;
+    solverPhase?: string;
   };
   topCandidates?: SolverCandidate[];
 };
@@ -231,12 +233,18 @@ export function makeSolverDiagnosticEvent(result: SolverResult) {
   );
   // This field is kept for diagnostic schema compatibility. It is no longer a user choice.
   const strategy: Strategy = "supply";
+  const stats = result.stats || {};
+  const solverVersion =
+    typeof stats.solverVersion === "string"
+      ? stats.solverVersion
+      : "phase2_availability_h075_tau0_p3";
+  const solverPhase = typeof stats.solverPhase === "string" ? stats.solverPhase : "phase2";
 
   return {
     kind: "solver_diagnostic" as const,
     diagnosticVersion: 1,
-    solverVersion: "phase2_availability_h075_tau0_p3",
-    solverPhase: "phase2",
+    solverVersion,
+    solverPhase,
     start: input.start,
     strategy,
     stockBuckets: {

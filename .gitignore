@@ -12,6 +12,8 @@ playwright/.cache/
 blob-report/
 debug.log
 benchmarks/results/
+public/solver_rs.wasm
+rust/**/target/
 benchmarks/*.md
 benchmarks/**/*.md
 KIT_EXPECTED_GAIN_SOURCE.ko.md

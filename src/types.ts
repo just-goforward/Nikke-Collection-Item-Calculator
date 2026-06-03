@@ -58,8 +58,16 @@ export interface ProgressEvent {
 }
 
 export type WorkerRequest =
-  | { type: "solve"; id: number; input: SolverInput }
-  | { type: "validate"; id: number; input: SolverInput; runs?: number; seed?: number };
+  | { type: "solve"; id: number; input: SolverInput; backend?: string; wasmUrl?: string }
+  | {
+      type: "validate";
+      id: number;
+      input: SolverInput;
+      runs?: number;
+      seed?: number;
+      backend?: string;
+      wasmUrl?: string;
+    };
 
 export type WorkerResponse =
   | { type: "progress"; id: number; progress: ProgressEvent }

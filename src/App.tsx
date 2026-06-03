@@ -17,6 +17,7 @@ import StockPanel from "./components/StockPanel";
 import SuccessAttemptModal from "./components/SuccessAttemptModal";
 import TopBar from "./components/TopBar";
 import { useCalculatorApp } from "./hooks/useCalculatorApp";
+import { solverBackendFromRuntime } from "./lib/solverRuntime";
 import { statsRuntimeMode } from "./lib/statsRuntime";
 
 const classes = {
@@ -44,6 +45,7 @@ export default function App() {
   const { actions } = calculator;
   const [mobileTab, setMobileTab] = useState<MobileTab>("input");
   const statsMode = statsRuntimeMode();
+  const solverBackend = solverBackendFromRuntime();
 
   const handleCalculate = async () => {
     await actions.calculate();
@@ -73,6 +75,11 @@ export default function App() {
         {statsMode === "staging" && (
           <aside className={classes.stagingBanner} aria-label="스테이징 환경">
             STAGING - 테스트 기록은 운영 통계에 반영되지 않음
+          </aside>
+        )}
+        {statsMode === "staging" && solverBackend === "rust-min-ef" && (
+          <aside className={classes.stagingBanner} aria-label="Rust solver staging">
+            STAGING - Rust min E[f] solver 테스트 중
           </aside>
         )}
         {statsMode === "staging-misconfigured" && (

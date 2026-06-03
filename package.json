@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --configLoader native",
+    "prebuild": "npm run build:solver-wasm",
     "build": "vite build --configLoader native",
+    "build:solver-wasm": "node scripts/build-solver-wasm.mjs",
     "preview": "vite preview --configLoader native",
     "test": "vitest run --configLoader runner",
     "test:worker": "vitest run --config vitest.cloudflare.config.ts",

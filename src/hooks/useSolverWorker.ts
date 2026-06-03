@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 
+import { solverBackendFromRuntime, solverWasmUrl } from "../lib/solverRuntime";
 import { WorkerResponseSchema } from "../schemas";
 import type { ProgressEvent, SolverInput, WorkerTaskType } from "../types";
 import {
@@ -45,6 +46,8 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
       if (!activeWorker) return null;
       requestIdRef.current += 1;
       const id = requestIdRef.current;
+      const backend = solverBackendFromRuntime();
+      const wasmUrl = backend === "rust-min-ef" ? solverWasmUrl() : undefined;
 
       return new Promise<unknown>((resolve, reject) => {
         const handleMessage = (event: MessageEvent) => {
@@ -77,7 +80,7 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
 
         activeWorker.addEventListener("message", handleMessage);
         activeWorker.addEventListener("error", handleError);
-        activeWorker.postMessage({ type, id, input, ...(options.payload || {}) });
+        activeWorker.postMessage({ type, id, input, backend, wasmUrl, ...(options.payload || {}) });
       });
     },
     [getWorker],
@@ -85,7 +88,8 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
 
   const solveBestAvailable = useCallback(
     async (input: SolverInput) => {
-      const key = inputKey(input);
+      const backend = solverBackendFromRuntime();
+      const key = `${backend}|${inputKey(input)}`;
       const cached = solveCacheRef.current.get(key);
       if (cached) return cached;
       const workerPromise = requestWorkerTask("solve", input, { onProgress: onSolveProgress });
@@ -97,8 +101,9 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
             (await workerPromise) as SolverResult,
             SOLVE_CACHE_LIMIT,
           );
-        } catch {
+        } catch (error) {
           resetWorker();
+          if (backend === "rust-min-ef") throw error;
         }
       }
       const { solve } = await import("../solver");
@@ -120,7 +125,8 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
       options: { force?: boolean; seed?: number } = {},
     ) => {
       const seed = Math.max(0, Math.floor(Number(options.seed) || 20260505));
-      const key = `${inputKey(input)}|mc:${runs}|seed:${seed}`;
+      const backend = solverBackendFromRuntime();
+      const key = `${backend}|${inputKey(input)}|mc:${runs}|seed:${seed}`;
       const cached = validationCacheRef.current.get(key);
       if (!options.force && cached) return cached;
       const workerPromise = requestWorkerTask("validate", input, {
@@ -135,8 +141,9 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
             (await workerPromise) as MonteCarloResult,
             VALIDATION_CACHE_LIMIT,
           );
-        } catch {
+        } catch (error) {
           resetWorker();
+          if (backend === "rust-min-ef") throw error;
         }
       }
       const { solve } = await import("../solver");

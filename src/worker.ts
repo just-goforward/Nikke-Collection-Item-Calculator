@@ -2,12 +2,24 @@ import { WorkerRequestSchema } from "./schemas";
 import { solve } from "./solver";
 
 import type { ProgressEvent, WorkerRequest, WorkerResponse } from "./types";
+import { solveRustMinEf, validateRustMinEf } from "./wasm/rustMinEfSolver";
 
 function postWorkerMessage(message: WorkerResponse) {
   self.postMessage(message);
 }
 
-self.onmessage = (event) => {
+let rustTaskQueue: Promise<void> = Promise.resolve();
+
+function runRustTask<T>(task: () => Promise<T>): Promise<T> {
+  const run = rustTaskQueue.then(task, task);
+  rustTaskQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+self.onmessage = async (event) => {
   const parsed = WorkerRequestSchema.safeParse(event.data || {});
   if (!parsed.success) {
     postWorkerMessage({
@@ -21,6 +33,25 @@ self.onmessage = (event) => {
   const data = parsed.data as WorkerRequest;
 
   try {
+    if (data.backend === "rust-min-ef") {
+      const wasmUrl = typeof data.wasmUrl === "string" ? data.wasmUrl : "";
+      if (!wasmUrl) throw new Error("Rust solver WASM URL is missing.");
+      if (data.type === "validate") {
+        const runs = Math.max(0, Math.floor(Number(data.runs) || 0));
+        const seed = Math.max(0, Math.floor(Number(data.seed) || 20260505));
+        const result = await runRustTask(() => validateRustMinEf(data.input, wasmUrl, runs, seed));
+        postWorkerMessage({ type: "result", id: data.id, result });
+        return;
+      }
+      const result = await runRustTask(() =>
+        solveRustMinEf(data.input, wasmUrl, (progress: ProgressEvent) => {
+          postWorkerMessage({ type: "progress", id: data.id, progress });
+        }),
+      );
+      postWorkerMessage({ type: "result", id: data.id, result });
+      return;
+    }
+
     const input =
       data.type === "validate"
         ? {
