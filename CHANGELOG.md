@@ -2,6 +2,23 @@
 
 소장품 레벨업 계산기의 주요 변경 이력을 기록합니다.
 
+## 2026-06-04
+
+### Rust WASM staging solver experiments
+
+- Added Rust WASM status handling for solver capacity limits.
+  - `STATUS_BUDGET_EXCEEDED` and `STATUS_MEMO_FULL` are reported as normal solver statuses instead of traps.
+  - Staging Rust paths fail explicitly on these statuses instead of silently falling back.
+- Added staging-only Rust phase2 backend.
+  - Enabled with `?statsEnv=staging&solverBackend=rust-phase2`.
+  - The default production path remains the JavaScript phase2 solver.
+- Added staging-only Rust phase2 rerank backend.
+  - Enabled with `?statsEnv=staging&solverBackend=rust-phase2-rerank`.
+  - Root candidates are filtered by exact phase2 probability gate first.
+  - Eligible first actions are reranked by fixed-seed first-action E[f] rollout.
+  - A held-out seed is recorded for the selected action to expose seed sensitivity.
+- Added Rust staging smoke coverage and diagnostic-version tests for the new solver variants.
+
 ## 2026-06-01
 
 ### Solver 기본 추천 정책 개선
