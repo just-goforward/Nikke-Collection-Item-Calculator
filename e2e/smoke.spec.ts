@@ -24,7 +24,13 @@ async function serveStagingDocument(
   page: import("@playwright/test").Page,
   staging?: { endpoint: string; turnstileSiteKey: string },
 ) {
-  await page.route("**/?statsEnv=staging", async (route) => {
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.resourceType() !== "document" || url.searchParams.get("statsEnv") !== "staging") {
+      await route.continue();
+      return;
+    }
     const response = await route.fetch();
     const replacement = [
       "      window.COLLECTION_STATS_CONFIG = {",
@@ -608,4 +614,68 @@ test("mobile info-tip text stays inside its bubble", async ({ page }) => {
   expect(layerMetrics?.panelContain).toBe(panelStyleBefore.contain);
   expect(layerMetrics?.panelOverflow).toBe(panelStyleBefore.overflow);
   expect(layerMetrics?.tooltipEscapesPanelTop).toBe(true);
+});
+
+test("staging rust phase2 backend loads wasm and calculates", async ({ page }) => {
+  await serveStagingDocument(page, {
+    endpoint: "https://staging.example.test",
+    turnstileSiteKey: "staging-site-key",
+  });
+  await page.route("https://staging.example.test/api/stats", async (route) => {
+    await route.fulfill({
+      status: 200,
+      headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
+      body: '{"summary":null}',
+    });
+  });
+  await page.route("https://staging.example.test/api/events", async (route) => {
+    await route.fulfill({
+      status: 200,
+      headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
+      body: '{"ok":true}',
+    });
+  });
+
+  await page.goto("/?statsEnv=staging&solverBackend=rust-phase2");
+
+  await expect(page.getByLabel("Rust solver staging")).toContainText("Rust phase2");
+  await page.locator("[data-grade='SR']").click();
+  await page.locator("[data-level='10']").click();
+  await page.locator("#yellowStock").fill("100");
+  await page.locator("#calculateButton").click();
+
+  await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".result-panel .outcome-panel")).toBeVisible();
+});
+
+test("staging rust phase2 rerank backend loads wasm and calculates", async ({ page }) => {
+  await serveStagingDocument(page, {
+    endpoint: "https://staging.example.test",
+    turnstileSiteKey: "staging-site-key",
+  });
+  await page.route("https://staging.example.test/api/stats", async (route) => {
+    await route.fulfill({
+      status: 200,
+      headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
+      body: '{"summary":null}',
+    });
+  });
+  await page.route("https://staging.example.test/api/events", async (route) => {
+    await route.fulfill({
+      status: 200,
+      headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
+      body: '{"ok":true}',
+    });
+  });
+
+  await page.goto("/?statsEnv=staging&solverBackend=rust-phase2-rerank");
+
+  await expect(page.getByLabel("Rust solver staging")).toContainText("Rust phase2 rerank");
+  await page.locator("[data-grade='SR']").click();
+  await page.locator("[data-level='10']").click();
+  await page.locator("#yellowStock").fill("100");
+  await page.locator("#calculateButton").click();
+
+  await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".result-panel .outcome-panel")).toBeVisible();
 });

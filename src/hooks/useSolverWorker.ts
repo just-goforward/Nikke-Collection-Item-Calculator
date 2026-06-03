@@ -48,7 +48,9 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
       requestIdRef.current += 1;
       const id = requestIdRef.current;
       const backend = solverBackendFromRuntime();
-      const wasmUrl = backend === "rust-min-ef" ? solverWasmUrl() : undefined;
+      const isRustBackend =
+        backend === "rust-phase2" || backend === "rust-phase2-rerank" || backend === "rust-min-ef";
+      const wasmUrl = isRustBackend ? solverWasmUrl() : undefined;
 
       return new Promise<unknown>((resolve, reject) => {
         let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -87,12 +89,12 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
 
         activeWorker.addEventListener("message", handleMessage);
         activeWorker.addEventListener("error", handleError);
-        if (backend === "rust-min-ef") {
+        if (isRustBackend) {
           timeoutId = setTimeout(() => {
             cleanup();
             activeWorker.terminate();
             if (workerRef.current === activeWorker) workerRef.current = null;
-            reject(new Error("Rust min E[f] staging solver timed out."));
+            reject(new Error("Rust staging solver timed out."));
           }, RUST_BACKEND_TIMEOUT_MS);
         }
         activeWorker.postMessage({ type, id, input, backend, wasmUrl, ...(options.payload || {}) });
@@ -118,7 +120,12 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
           );
         } catch (error) {
           resetWorker();
-          if (backend === "rust-min-ef") throw error;
+          if (
+            backend === "rust-phase2" ||
+            backend === "rust-phase2-rerank" ||
+            backend === "rust-min-ef"
+          )
+            throw error;
         }
       }
       const { solve } = await import("../solver");
@@ -158,7 +165,12 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
           );
         } catch (error) {
           resetWorker();
-          if (backend === "rust-min-ef") throw error;
+          if (
+            backend === "rust-phase2" ||
+            backend === "rust-phase2-rerank" ||
+            backend === "rust-min-ef"
+          )
+            throw error;
         }
       }
       const { solve } = await import("../solver");

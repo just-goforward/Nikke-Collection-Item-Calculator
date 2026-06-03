@@ -9,7 +9,12 @@
   transition,
 } from "../solver";
 import type { CollectionState, Kit, SolverInput, Stock } from "../types";
-import { loadRustMinEfSolver, type RustMinEfSolver } from "./rustCore";
+import {
+  loadRustMinEfSolver,
+  loadRustPhase2Solver,
+  type RustMinEfSolver,
+  type RustPhase2Solver,
+} from "./rustCore";
 
 const KIT_ORDER: Kit[] = ["blue", "purple", "yellow"];
 const STRICT_EPSILON = 1e-12;
@@ -17,7 +22,12 @@ const HORIZON_FACTOR = 0.75;
 const NORM_POWER = 3;
 const TOLERANCE = 0;
 const SOLVER_VERSION = "phase3_rust_min_ef_staging";
+const PHASE2_SOLVER_VERSION = "phase2_availability_h075_tau0_p3_rust_staging";
+const RERANK_SOLVER_VERSION = "phase2_availability_h075_tau0_p3_rust_rerank_staging";
 const MAX_RUST_MIN_EF_STOCK_VOLUME = 10_000;
+const RERANK_RUNS = 2048;
+const RERANK_SEED = 20260509;
+const RERANK_HELD_OUT_SEED = 20260510;
 
 type NormalizedInput = SolverInput & {
   actualStockUses: Stock;
@@ -26,6 +36,7 @@ type NormalizedInput = SolverInput & {
 };
 
 let solverPromise: Promise<RustMinEfSolver> | null = null;
+let phase2SolverPromise: Promise<RustPhase2Solver> | null = null;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -250,6 +261,26 @@ function buildFailureRoute(
   return route;
 }
 
+function buildFailureRouteWithFirstKit(
+  input: NormalizedInput,
+  actionFor: (state: CollectionState, stockUses: Stock) => Kit | null,
+  firstKit: Kit,
+  limit = 100,
+) {
+  let first = true;
+  return buildFailureRoute(
+    input,
+    (state, stockUses) => {
+      if (first) {
+        first = false;
+        return firstKit;
+      }
+      return actionFor(state, stockUses);
+    },
+    limit,
+  );
+}
+
 function simulate(
   input: NormalizedInput,
   actionFor: (state: CollectionState, stockUses: Stock) => Kit | null,
@@ -297,9 +328,64 @@ function simulate(
   };
 }
 
+function simulateWithFirstKit(
+  input: NormalizedInput,
+  actionFor: (state: CollectionState, stockUses: Stock) => Kit | null,
+  firstKit: Kit,
+  runs = 12000,
+  seed = 20260505,
+) {
+  const random = makeRandom(seed);
+  const totals: Stock = { blue: 0, purple: 0, yellow: 0 };
+  let completed = 0;
+
+  for (let run = 0; run < runs; run += 1) {
+    let state = normalizeState(input.start);
+    let stock = { ...input.stockUses };
+    const used: Stock = { blue: 0, purple: 0, yellow: 0 };
+    let forceFirst = true;
+
+    for (let step = 0; step < 1000; step += 1) {
+      if (isTerminal(state)) {
+        completed += 1;
+        break;
+      }
+      if (isConvertState(state)) {
+        state = convertState();
+        continue;
+      }
+      const kit = forceFirst ? firstKit : actionFor(state, stock);
+      forceFirst = false;
+      if (!kit || stock[kit] <= 0) break;
+      stock = decrementStock(stock, kit);
+      used[kit] += 10;
+      const edge = transition(state, kit);
+      state = random() < edge.probability ? edge.success : edge.fail;
+    }
+
+    for (const kit of KIT_ORDER) totals[kit] += used[kit];
+  }
+
+  return {
+    runs,
+    completed,
+    successProbability: runs > 0 ? completed / runs : 0,
+    vector: {
+      blue: runs > 0 ? totals.blue / runs : 0,
+      purple: runs > 0 ? totals.purple / runs : 0,
+      yellow: runs > 0 ? totals.yellow / runs : 0,
+    },
+  };
+}
+
 async function getSolver(wasmUrl: string) {
   solverPromise ??= loadRustMinEfSolver(wasmUrl);
   return solverPromise;
+}
+
+async function getPhase2Solver(wasmUrl: string) {
+  phase2SolverPromise ??= loadRustPhase2Solver(wasmUrl);
+  return phase2SolverPromise;
 }
 
 export async function solveRustMinEf(
@@ -457,6 +543,362 @@ export async function solveRustMinEf(
   };
 }
 
+export async function solveRustPhase2(
+  input: SolverInput,
+  wasmUrl: string,
+  progress?: (progress: { phase: string; scanned?: number; total?: number | null }) => void,
+) {
+  const normalizedInput = normalizeInput(input);
+  if (progress) progress({ phase: "build", scanned: 0, total: 1 });
+
+  if (isTerminal(normalizedInput.start)) {
+    return {
+      terminal: true,
+      input: normalizedInput,
+      message: "?대? SR 15?덈꺼?낅땲??",
+    };
+  }
+
+  if (isConvertState(normalizedInput.start)) {
+    return {
+      possible: true,
+      convertOnly: true,
+      input: normalizedInput,
+      best: {
+        name: "등급 전환",
+        firstAction: "convert",
+        firstProbability: 1,
+        success: convertState(),
+        fail: convertState(),
+        vector: { blue: 0, purple: 0, yellow: 0 },
+        totalKits: 0,
+        successProbability: 1,
+        pressure: 0,
+      },
+      route: [],
+      monteCarlo: {
+        runs: 0,
+        completed: 0,
+        successProbability: 1,
+        vector: { blue: 0, purple: 0, yellow: 0 },
+      },
+      stats: {
+        states: 0,
+        exact: true,
+        tolerance: 0,
+        iterations: 0,
+        solverVersion: PHASE2_SOLVER_VERSION,
+      },
+      topCandidates: [],
+    };
+  }
+
+  const totalUses = KIT_ORDER.reduce((sum, kit) => sum + normalizedInput.stockUses[kit], 0);
+  if (totalUses <= 0) {
+    return {
+      possible: false,
+      input: normalizedInput,
+      message: "사용 가능한 키트가 없습니다. 각 키트는 10개 단위로만 사용할 수 있습니다.",
+    };
+  }
+
+  const solver = await getPhase2Solver(wasmUrl);
+  const root = solver.solveRoot(
+    normalizedInput.start,
+    normalizedInput.stock,
+    HORIZON_FACTOR,
+    NORM_POWER,
+    TOLERANCE,
+  );
+  if (!root.firstAction) {
+    return {
+      possible: false,
+      input: normalizedInput,
+      message: "현재 보유 키트로 가능한 행동이 없습니다.",
+    };
+  }
+
+  const actionFor = (state: CollectionState, stockUses: Stock) => {
+    if (isTerminal(state) || isConvertState(state)) return null;
+    return solver.actionAt(state, stockUses, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+  };
+  const run = buildRecommendedRun(normalizedInput, actionFor);
+  const route = buildFailureRoute(normalizedInput, actionFor);
+  const edge = transition(normalizedInput.start, root.firstAction);
+  const totalExpectedKits = totalKits(root.vector);
+  const pressure = pressureScore(root.vector, normalizedInput.stockUses);
+  const legacySupplyCost = legacySupplyCostScore(root.vector);
+  const availabilityCost = availabilityCostScore(root.vector, normalizedInput.stock);
+  const monteCarloRuns = Math.max(0, Math.floor(Number(input?.monteCarloRuns) || 0));
+  const monteCarloSeed = Math.max(0, Math.floor(Number(input?.monteCarloSeed) || 20260505));
+  const monteCarlo =
+    monteCarloRuns > 0
+      ? simulate(normalizedInput, actionFor, monteCarloRuns, monteCarloSeed)
+      : {
+          runs: 0,
+          completed: 0,
+          successProbability: root.successProbability,
+          vector: { blue: 0, purple: 0, yellow: 0 },
+        };
+
+  if (progress) progress({ phase: "done", scanned: root.states, total: root.states });
+
+  const candidate = {
+    name: "Rust phase2",
+    firstAction: root.firstAction,
+    firstProbability: edge.probability,
+    run,
+    vector: Object.fromEntries(KIT_ORDER.map((kit) => [kit, round(root.vector[kit], 4)])),
+    totalKits: round(totalExpectedKits, 4),
+    successProbability: round(root.successProbability, 8),
+    probabilityGap: round(Math.max(0, root.maxSuccessProbability - root.successProbability), 8),
+    pressure: round(pressure, 8),
+    supplyCost: round(legacySupplyCost, 8),
+    availabilityCost: round(availabilityCost, 8),
+    legacySupplyCost: round(legacySupplyCost, 8),
+    resourceCost: round(availabilityCost, 8),
+  };
+
+  return {
+    possible: true,
+    terminal: false,
+    input: normalizedInput,
+    candidateCount: 1,
+    best: {
+      name: "Rust phase2",
+      firstAction: root.firstAction,
+      firstProbability: edge.probability,
+      run,
+      success: edge.success,
+      fail: edge.fail,
+      vector: root.vector,
+      totalKits: totalExpectedKits,
+      successProbability: root.successProbability,
+      maxSuccessProbability: root.maxSuccessProbability,
+      probabilityGap: Math.max(0, root.maxSuccessProbability - root.successProbability),
+      pressure,
+      supplyCost: legacySupplyCost,
+      availabilityCost,
+      legacySupplyCost,
+      resourceCost: availabilityCost,
+    },
+    route,
+    monteCarlo,
+    stats: {
+      states: root.states,
+      exact: true,
+      tolerance: 0,
+      probabilityTolerance: TOLERANCE,
+      maxSuccessProbability: root.maxSuccessProbability,
+      strategy: "supply",
+      solverBackend: "rust-phase2",
+      solverVersion: PHASE2_SOLVER_VERSION,
+      solverPhase: "phase2",
+      supplyAvailability: SUPPLY_AVAILABILITY_PARAMS,
+      iterations: 0,
+    },
+    topCandidates: [candidate],
+  };
+}
+
+export async function solveRustPhase2Rerank(
+  input: SolverInput,
+  wasmUrl: string,
+  progress?: (progress: { phase: string; scanned?: number; total?: number | null }) => void,
+) {
+  const normalizedInput = normalizeInput(input);
+  if (progress) progress({ phase: "build", scanned: 0, total: 1 });
+
+  if (isTerminal(normalizedInput.start)) {
+    return {
+      terminal: true,
+      input: normalizedInput,
+      message: "?대? SR 15?덈꺼?낅땲??",
+    };
+  }
+
+  if (isConvertState(normalizedInput.start)) {
+    return {
+      possible: true,
+      convertOnly: true,
+      input: normalizedInput,
+      best: {
+        name: "등급 전환",
+        firstAction: "convert",
+        firstProbability: 1,
+        success: convertState(),
+        fail: convertState(),
+        vector: { blue: 0, purple: 0, yellow: 0 },
+        totalKits: 0,
+        successProbability: 1,
+        pressure: 0,
+      },
+      route: [],
+      monteCarlo: {
+        runs: 0,
+        completed: 0,
+        successProbability: 1,
+        vector: { blue: 0, purple: 0, yellow: 0 },
+      },
+      stats: {
+        states: 0,
+        exact: true,
+        tolerance: 0,
+        iterations: 0,
+        solverVersion: RERANK_SOLVER_VERSION,
+      },
+      topCandidates: [],
+    };
+  }
+
+  const totalUses = KIT_ORDER.reduce((sum, kit) => sum + normalizedInput.stockUses[kit], 0);
+  if (totalUses <= 0) {
+    return {
+      possible: false,
+      input: normalizedInput,
+      message: "사용 가능한 키트가 없습니다. 각 키트는 10개 단위로만 사용할 수 있습니다.",
+    };
+  }
+
+  const solver = await getPhase2Solver(wasmUrl);
+  const baselineRoot = solver.solveRoot(
+    normalizedInput.start,
+    normalizedInput.stock,
+    HORIZON_FACTOR,
+    NORM_POWER,
+    TOLERANCE,
+  );
+  const rerank = solver.selectFirstActionByExpectedCost(
+    normalizedInput.start,
+    normalizedInput.stock,
+    RERANK_RUNS,
+    RERANK_SEED,
+    HORIZON_FACTOR,
+    NORM_POWER,
+    TOLERANCE,
+  );
+  const selected = rerank?.selected;
+  if (!selected?.firstAction) {
+    return {
+      possible: false,
+      input: normalizedInput,
+      message: "현재 보유 키트로 가능한 행동이 없습니다.",
+    };
+  }
+  const heldOut = solver.estimateExpectedCostAfterFirstAction(
+    normalizedInput.start,
+    normalizedInput.stock,
+    selected.firstAction,
+    RERANK_RUNS,
+    RERANK_HELD_OUT_SEED,
+    HORIZON_FACTOR,
+    NORM_POWER,
+    TOLERANCE,
+  );
+
+  const actionFor = (state: CollectionState, stockUses: Stock) => {
+    if (isTerminal(state) || isConvertState(state)) return null;
+    return solver.actionAt(state, stockUses, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+  };
+  const run = buildRecommendedRunForKit(normalizedInput, actionFor, selected.firstAction);
+  const route = buildFailureRouteWithFirstKit(normalizedInput, actionFor, selected.firstAction);
+  const edge = transition(normalizedInput.start, selected.firstAction);
+  const totalExpectedKits = totalKits(selected.vector);
+  const pressure = pressureScore(selected.vector, normalizedInput.stockUses);
+  const legacySupplyCost = legacySupplyCostScore(selected.vector);
+  const availabilityCost = availabilityCostScore(selected.vector, normalizedInput.stock);
+  const monteCarloRuns = Math.max(0, Math.floor(Number(input?.monteCarloRuns) || 0));
+  const monteCarloSeed = Math.max(0, Math.floor(Number(input?.monteCarloSeed) || 20260505));
+  const monteCarlo =
+    monteCarloRuns > 0
+      ? simulateWithFirstKit(
+          normalizedInput,
+          actionFor,
+          selected.firstAction,
+          monteCarloRuns,
+          monteCarloSeed,
+        )
+      : {
+          runs: 0,
+          completed: 0,
+          successProbability: selected.successProbability,
+          vector: { blue: 0, purple: 0, yellow: 0 },
+        };
+
+  if (progress)
+    progress({ phase: "done", scanned: baselineRoot.states, total: baselineRoot.states });
+
+  const candidate = {
+    name: "Rust phase2 rerank",
+    firstAction: selected.firstAction,
+    firstProbability: edge.probability,
+    run,
+    vector: Object.fromEntries(KIT_ORDER.map((kit) => [kit, round(selected.vector[kit], 4)])),
+    totalKits: round(totalExpectedKits, 4),
+    successProbability: round(selected.successProbability, 8),
+    probabilityGap: round(selected.probabilityGap, 8),
+    pressure: round(pressure, 8),
+    supplyCost: round(legacySupplyCost, 8),
+    availabilityCost: round(availabilityCost, 8),
+    legacySupplyCost: round(legacySupplyCost, 8),
+    resourceCost: round(selected.expectedCost, 8),
+    rerankExpectedCost: round(selected.expectedCost, 8),
+    rerankCompletionRate: round(selected.completionRate, 8),
+  };
+
+  return {
+    possible: true,
+    terminal: false,
+    input: normalizedInput,
+    candidateCount: rerank?.candidates.length || 1,
+    best: {
+      name: "Rust phase2 rerank",
+      firstAction: selected.firstAction,
+      firstProbability: edge.probability,
+      run,
+      success: edge.success,
+      fail: edge.fail,
+      vector: selected.vector,
+      totalKits: totalExpectedKits,
+      successProbability: selected.successProbability,
+      maxSuccessProbability: selected.maxSuccessProbability,
+      probabilityGap: selected.probabilityGap,
+      pressure,
+      supplyCost: legacySupplyCost,
+      availabilityCost,
+      legacySupplyCost,
+      resourceCost: selected.expectedCost,
+    },
+    route,
+    monteCarlo,
+    stats: {
+      states: baselineRoot.states,
+      exact: true,
+      tolerance: 0,
+      probabilityTolerance: TOLERANCE,
+      maxSuccessProbability: selected.maxSuccessProbability,
+      strategy: "supply",
+      solverBackend: "rust-phase2-rerank",
+      solverVersion: RERANK_SOLVER_VERSION,
+      solverPhase: "phase2-rerank",
+      supplyAvailability: SUPPLY_AVAILABILITY_PARAMS,
+      rustRerank: {
+        runs: RERANK_RUNS,
+        seed: RERANK_SEED,
+        expectedCost: selected.expectedCost,
+        completionRate: selected.completionRate,
+        heldOutSeed: RERANK_HELD_OUT_SEED,
+        heldOutExpectedCost: heldOut.expectedCost,
+        heldOutCompletionRate: heldOut.completionRate,
+        baselineFirstAction: baselineRoot.firstAction,
+        baselineSuccessProbability: baselineRoot.successProbability,
+      },
+      iterations: 0,
+    },
+    topCandidates: [candidate],
+  };
+}
+
 export async function validateRustMinEf(
   input: SolverInput,
   wasmUrl: string,
@@ -474,4 +916,59 @@ export async function validateRustMinEf(
     TOLERANCE,
   );
   return simulate(normalizedInput, actionFactory(solver), runs, seed);
+}
+
+export async function validateRustPhase2(
+  input: SolverInput,
+  wasmUrl: string,
+  runs: number,
+  seed = 20260505,
+) {
+  const normalizedInput = normalizeInput(input);
+  const solver = await getPhase2Solver(wasmUrl);
+  solver.solveRoot(
+    normalizedInput.start,
+    normalizedInput.stock,
+    HORIZON_FACTOR,
+    NORM_POWER,
+    TOLERANCE,
+  );
+  const actionFor = (state: CollectionState, stockUses: Stock) => {
+    if (isTerminal(state) || isConvertState(state)) return null;
+    return solver.actionAt(state, stockUses, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+  };
+  return simulate(normalizedInput, actionFor, runs, seed);
+}
+
+export async function validateRustPhase2Rerank(
+  input: SolverInput,
+  wasmUrl: string,
+  runs: number,
+  seed = 20260505,
+) {
+  const normalizedInput = normalizeInput(input);
+  const solver = await getPhase2Solver(wasmUrl);
+  const rerank = solver.selectFirstActionByExpectedCost(
+    normalizedInput.start,
+    normalizedInput.stock,
+    RERANK_RUNS,
+    RERANK_SEED,
+    HORIZON_FACTOR,
+    NORM_POWER,
+    TOLERANCE,
+  );
+  const firstKit = rerank?.selected.firstAction;
+  if (!firstKit) {
+    return {
+      runs,
+      completed: 0,
+      successProbability: 0,
+      vector: { blue: 0, purple: 0, yellow: 0 },
+    };
+  }
+  const actionFor = (state: CollectionState, stockUses: Stock) => {
+    if (isTerminal(state) || isConvertState(state)) return null;
+    return solver.actionAt(state, stockUses, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+  };
+  return simulateWithFirstKit(normalizedInput, actionFor, firstKit, runs, seed);
 }

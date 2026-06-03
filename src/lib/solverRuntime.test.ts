@@ -39,6 +39,18 @@ describe("solver runtime selection", () => {
     expect(solverBackendFromRuntime()).toBe("rust-min-ef");
   });
 
+  it("enables rust phase2 only for staging", () => {
+    setRuntime("?statsEnv=staging&solverBackend=rust-phase2");
+
+    expect(solverBackendFromRuntime()).toBe("rust-phase2");
+  });
+
+  it("enables rust phase2 rerank only for staging", () => {
+    setRuntime("?statsEnv=staging&solverBackend=rust-phase2-rerank");
+
+    expect(solverBackendFromRuntime()).toBe("rust-phase2-rerank");
+  });
+
   it("resolves the wasm URL relative to the current document", () => {
     setRuntime("?statsEnv=staging&solverBackend=rust-min-ef", "https://example.test/path/");
 

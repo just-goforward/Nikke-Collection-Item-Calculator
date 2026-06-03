@@ -82,6 +82,16 @@ export default function App() {
             STAGING - Rust min E[f] solver 테스트 중
           </aside>
         )}
+        {statsMode === "staging" && solverBackend === "rust-phase2" && (
+          <aside className={classes.stagingBanner} aria-label="Rust solver staging">
+            STAGING - Rust phase2 solver ?뚯뒪??以?{" "}
+          </aside>
+        )}
+        {statsMode === "staging" && solverBackend === "rust-phase2-rerank" && (
+          <aside className={classes.stagingBanner} aria-label="Rust solver staging">
+            STAGING - Rust phase2 rerank solver testing
+          </aside>
+        )}
         {statsMode === "staging-misconfigured" && (
           <aside
             className={`${classes.stagingBanner} ${classes.stagingErrorBanner}`}

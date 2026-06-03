@@ -28,6 +28,39 @@ const STATE_DIV: i32 = LEVEL_BUCKETS * EXP_BUCKETS; // 480
 const STOCK_P_DIM: i32 = MAX_USES_P + 1; // 89
 const STOCK_Y_DIM: i32 = MAX_USES_Y + 1; // 45
 const STOCK_ID_SIZE: i32 = (MAX_USES_B + 1) * STOCK_P_DIM * STOCK_Y_DIM; // 885105
+const STATUS_OK: i32 = 0;
+const STATUS_BUDGET_EXCEEDED: i32 = 1;
+const STATUS_MEMO_FULL: i32 = 2;
+static mut LAST_STATUS: i32 = STATUS_OK;
+static mut NODE_BUDGET: u32 = 0;
+static mut NODE_COUNT: u32 = 0;
+
+#[inline]
+unsafe fn reset_status() {
+    LAST_STATUS = STATUS_OK;
+    NODE_COUNT = 0;
+}
+
+#[inline]
+unsafe fn status_ok() -> bool {
+    LAST_STATUS == STATUS_OK
+}
+
+#[inline]
+unsafe fn tick_node() -> bool {
+    if LAST_STATUS != STATUS_OK {
+        return false;
+    }
+    if NODE_BUDGET == 0 {
+        return true;
+    }
+    NODE_COUNT = NODE_COUNT.saturating_add(1);
+    if NODE_COUNT > NODE_BUDGET {
+        LAST_STATUS = STATUS_BUDGET_EXCEEDED;
+        return false;
+    }
+    true
+}
 
 // GREAT_SUCCESS percent, flattened [gradeId*45 + kitIdx*15 + level] (solver.ts:96-113).
 #[rustfmt::skip]
@@ -265,7 +298,8 @@ unsafe fn memo_insert(key: u32, sp: f64, spm: f64, vb: f64, vp: f64, vy: f64, ac
     let i = probe(stored);
     if GENS[i] != EPOCH {
         if COUNT >= MEMO_FULL_GUARD {
-            unreachable!("memo table near full: raise CAP"); // panic=abort -> wasm trap
+            LAST_STATUS = STATUS_MEMO_FULL;
+            return -1;
         }
         KEYS[i] = stored;
         GENS[i] = EPOCH;
@@ -407,6 +441,13 @@ static mut SC_VB: Vec<f64> = Vec::new();
 static mut SC_VP: Vec<f64> = Vec::new();
 static mut SC_VY: Vec<f64> = Vec::new();
 static mut SC_COST: Vec<f64> = Vec::new();
+static mut ROOT_SC_VALID: [u8; 3] = [0; 3];
+static mut ROOT_SC_SP: [f64; 3] = [0.0; 3];
+static mut ROOT_SC_VB: [f64; 3] = [0.0; 3];
+static mut ROOT_SC_VP: [f64; 3] = [0.0; 3];
+static mut ROOT_SC_VY: [f64; 3] = [0.0; 3];
+static mut ROOT_SC_COST: [f64; 3] = [0.0; 3];
+static mut ROOT_SC_MAX_SP: f64 = 0.0;
 unsafe fn scratch_ensure() {
     if SC_SP.is_empty() {
         SC_VALID = vec![0u8; MAXDEPTH * 3];
@@ -416,6 +457,16 @@ unsafe fn scratch_ensure() {
         SC_VY = vec![0.0; MAXDEPTH * 3];
         SC_COST = vec![0.0; MAXDEPTH * 3];
     }
+}
+#[inline]
+unsafe fn root_candidate_reset() {
+    ROOT_SC_VALID = [0; 3];
+    ROOT_SC_SP = [0.0; 3];
+    ROOT_SC_VB = [0.0; 3];
+    ROOT_SC_VP = [0.0; 3];
+    ROOT_SC_VY = [0.0; 3];
+    ROOT_SC_COST = [0.0; 3];
+    ROOT_SC_MAX_SP = 0.0;
 }
 #[inline]
 unsafe fn better(a: usize, b: usize) -> bool {
@@ -450,6 +501,11 @@ unsafe fn value(sid: i32, mut b: i32, mut p: i32, mut y: i32) -> i32 {
         return hit;
     }
 
+    if DEPTH >= MAXDEPTH {
+        LAST_STATUS = STATUS_BUDGET_EXCEEDED;
+        return -1;
+    }
+    let is_root_frame = DEPTH == 0;
     let base = DEPTH * 3;
     DEPTH += 1;
     let mut max_msp: f64 = 0.0;
@@ -468,12 +524,20 @@ unsafe fn value(sid: i32, mut b: i32, mut p: i32, mut y: i32) -> i32 {
         let ny = y - if k == 2 { 1 } else { 0 };
 
         let cs = value(succ, nb, np, ny);
+        if !status_ok() {
+            DEPTH -= 1;
+            return -1;
+        }
         let cs_sp = sp_ok_at(cs);
         let cs_spm = sp_max_at(cs);
         let cs_vb = vb_at(cs);
         let cs_vp = vp_at(cs);
         let cs_vy = vy_at(cs);
         let cf = value(fail, nb, np, ny);
+        if !status_ok() {
+            DEPTH -= 1;
+            return -1;
+        }
         let cf_sp = sp_ok_at(cf);
         let cf_spm = sp_max_at(cf);
         let cf_vb = vb_at(cf);
@@ -495,6 +559,19 @@ unsafe fn value(sid: i32, mut b: i32, mut p: i32, mut y: i32) -> i32 {
         SC_VP[s] = vpk;
         SC_VY[s] = vyk;
         SC_COST[s] = availability_cost(vbk, vpk, vyk, G_INIT_B, G_INIT_P, G_INIT_Y, G_HF, G_NP);
+    }
+
+    if is_root_frame {
+        ROOT_SC_MAX_SP = max_msp;
+        for k in 0..3usize {
+            let s = base + k;
+            ROOT_SC_VALID[k] = SC_VALID[s];
+            ROOT_SC_SP[k] = SC_SP[s];
+            ROOT_SC_VB[k] = SC_VB[s];
+            ROOT_SC_VP[k] = SC_VP[s];
+            ROOT_SC_VY[k] = SC_VY[s];
+            ROOT_SC_COST[k] = SC_COST[s];
+        }
     }
 
     let mut any_elig = false;
@@ -525,7 +602,11 @@ unsafe fn value(sid: i32, mut b: i32, mut p: i32, mut y: i32) -> i32 {
     let out_vp = SC_VP[bs];
     let out_vy = SC_VY[bs];
     DEPTH -= 1;
-    memo_insert(key, out_sp, max_msp, out_vb, out_vp, out_vy, best_k as i8)
+    let out = memo_insert(key, out_sp, max_msp, out_vb, out_vp, out_vy, best_k as i8);
+    if !status_ok() {
+        return -1;
+    }
+    out
 }
 
 unsafe fn policy_action(sid: i32, b: i32, p: i32, y: i32) -> i32 {
@@ -640,6 +721,7 @@ unsafe fn solve_start(
     tol: f64,
 ) -> i32 {
     scratch_ensure();
+    root_candidate_reset();
     G_HF = hf;
     G_NP = np;
     G_TOL = tol;
@@ -654,6 +736,7 @@ unsafe fn solve_start(
 // return recommended action (0/1/2) or -1. memo_reset is O(1) (epoch), so per-replan-node calls are
 // cheap. Used by the exact interactive-replan kernel below.
 unsafe fn solve_action_at(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f64, tol: f64) -> i32 {
+    reset_status();
     memo_reset();
     let slot = solve_start(
         sid,
@@ -667,12 +750,26 @@ unsafe fn solve_action_at(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f64,
         np,
         tol,
     );
+    if !status_ok() {
+        return -1;
+    }
     act_at(slot)
 }
 
 #[no_mangle]
+pub extern "C" fn getSolveStatus() -> i32 {
+    unsafe { LAST_STATUS }
+}
+#[no_mangle]
+pub extern "C" fn configureNodeBudget(budget: u32) {
+    unsafe {
+        NODE_BUDGET = budget;
+    }
+}
+#[no_mangle]
 pub extern "C" fn solveCore(sid: i32, b: i32, p: i32, y: i32, hf: f64, np: f64, tol: f64) -> i32 {
     unsafe {
+        reset_status();
         memo_reset();
         solve_start(
             sid,
@@ -724,6 +821,52 @@ pub extern "C" fn resVecP(slot: i32) -> f64 {
 #[no_mangle]
 pub extern "C" fn resVecY(slot: i32) -> f64 {
     unsafe { vy_at(slot) }
+}
+#[no_mangle]
+pub extern "C" fn rootCandidateValid(action: i32) -> i32 {
+    if !(0..=2).contains(&action) {
+        return 0;
+    }
+    unsafe { ROOT_SC_VALID[action as usize] as i32 }
+}
+#[no_mangle]
+pub extern "C" fn rootCandidateMaxSuccessProb() -> f64 {
+    unsafe { ROOT_SC_MAX_SP }
+}
+#[no_mangle]
+pub extern "C" fn rootCandidateSuccessProb(action: i32) -> f64 {
+    if !(0..=2).contains(&action) {
+        return 0.0;
+    }
+    unsafe { ROOT_SC_SP[action as usize] }
+}
+#[no_mangle]
+pub extern "C" fn rootCandidateVecB(action: i32) -> f64 {
+    if !(0..=2).contains(&action) {
+        return 0.0;
+    }
+    unsafe { ROOT_SC_VB[action as usize] }
+}
+#[no_mangle]
+pub extern "C" fn rootCandidateVecP(action: i32) -> f64 {
+    if !(0..=2).contains(&action) {
+        return 0.0;
+    }
+    unsafe { ROOT_SC_VP[action as usize] }
+}
+#[no_mangle]
+pub extern "C" fn rootCandidateVecY(action: i32) -> f64 {
+    if !(0..=2).contains(&action) {
+        return 0.0;
+    }
+    unsafe { ROOT_SC_VY[action as usize] }
+}
+#[no_mangle]
+pub extern "C" fn rootCandidateCost(action: i32) -> f64 {
+    if !(0..=2).contains(&action) {
+        return f64::INFINITY;
+    }
+    unsafe { ROOT_SC_COST[action as usize] }
 }
 #[no_mangle]
 pub extern "C" fn statesCount() -> i32 {
@@ -1532,6 +1675,7 @@ pub extern "C" fn cvarFollowRecordedHinge(eta: f64) -> f64 {
 // the capped deployed solve; impractical at the R0/250+ node-count peak). Register-return + memo.
 const ME_CAP: usize = 1 << 21;
 const ME_MASK: u32 = (ME_CAP - 1) as u32;
+const ME_FULL_GUARD: usize = ME_CAP - (ME_CAP >> 3);
 static mut ME_SID: Vec<i32> = Vec::new(); // -1 = empty
 static mut ME_B: Vec<i32> = Vec::new();
 static mut ME_P: Vec<i32> = Vec::new();
@@ -1552,6 +1696,7 @@ static mut ME_INIT_Y: f64 = 0.0;
 static mut ME_START_B: i32 = 0;
 static mut ME_START_P: i32 = 0;
 static mut ME_START_Y: i32 = 0;
+static mut ME_COUNT: usize = 0;
 // return registers (the node's chosen result)
 static mut MN_SP: f64 = 0.0;
 static mut MN_SPMAX: f64 = 0.0;
@@ -1562,7 +1707,6 @@ static mut MN_EF: f64 = 0.0;
 static mut MN_ACT: i32 = -1;
 // depth-indexed candidate scratch
 const ME_MAXDEPTH: usize = 2048;
-static mut ME_DEPTH: usize = 0;
 static mut ME_SC_VALID: Vec<u8> = Vec::new();
 static mut ME_SC_SP: Vec<f64> = Vec::new();
 static mut ME_SC_SPMAX: Vec<f64> = Vec::new();
@@ -1613,10 +1757,13 @@ unsafe fn me_reset() {
             *s = -1;
         }
     }
-    ME_DEPTH = 0;
+    ME_COUNT = 0;
 }
 
-unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32) {
+unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {
+    if !status_ok() {
+        return;
+    }
     if is_terminal(sid) {
         MN_SP = 1.0;
         MN_SPMAX = 1.0;
@@ -1628,7 +1775,7 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32) {
         return;
     }
     if is_convert(sid) {
-        minef_node(CONVERT_SID, b, p, y);
+        minef_node(CONVERT_SID, b, p, y, depth);
         return;
     }
     let mut i = me_hash(sid, b, p, y);
@@ -1647,8 +1794,19 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32) {
     }
     let slot = i;
 
-    let base = ME_DEPTH * 3;
-    ME_DEPTH += 1;
+    if ME_COUNT >= ME_FULL_GUARD {
+        LAST_STATUS = STATUS_MEMO_FULL;
+        return;
+    }
+    if !tick_node() {
+        return;
+    }
+    if depth >= ME_MAXDEPTH {
+        LAST_STATUS = STATUS_BUDGET_EXCEEDED;
+        return;
+    }
+
+    let base = depth * 3;
     let mut max_msp: f64 = 0.0;
     for k in 0..3i32 {
         let s = base + k as usize;
@@ -1664,9 +1822,15 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32) {
         let np = p - if k == 1 { 1 } else { 0 };
         let ny = y - if k == 2 { 1 } else { 0 };
 
-        minef_node(succ, nb, np, ny);
+        minef_node(succ, nb, np, ny, depth + 1);
+        if !status_ok() {
+            return;
+        }
         let (cs_sp, cs_spmax, cs_vb, cs_vp, cs_vy, cs_ef) = (MN_SP, MN_SPMAX, MN_VB, MN_VP, MN_VY, MN_EF);
-        minef_node(fail, nb, np, ny);
+        minef_node(fail, nb, np, ny, depth + 1);
+        if !status_ok() {
+            return;
+        }
         let (cf_sp, cf_spmax, cf_vb, cf_vp, cf_vy, cf_ef) = (MN_SP, MN_SPMAX, MN_VB, MN_VP, MN_VY, MN_EF);
 
         let inv = 1.0 - prob;
@@ -1682,7 +1846,6 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32) {
             max_msp = amsp;
         }
     }
-    ME_DEPTH -= 1;
 
     let mut any_valid = false;
     for k in 0..3usize {
@@ -1710,6 +1873,7 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32) {
         ME_VY[slot] = 0.0;
         ME_EF[slot] = MN_EF;
         ME_ACT[slot] = -1;
+        ME_COUNT += 1;
         return;
     }
 
@@ -1774,6 +1938,7 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32) {
     ME_VY[slot] = MN_VY;
     ME_EF[slot] = MN_EF;
     ME_ACT[slot] = best_k as i8;
+    ME_COUNT += 1;
 }
 
 #[no_mangle]
@@ -1788,8 +1953,9 @@ pub extern "C" fn solveMinEf(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f
         ME_START_B = uses_of(pb, MAX_USES_B);
         ME_START_P = uses_of(pp, MAX_USES_P);
         ME_START_Y = uses_of(py, MAX_USES_Y);
+        reset_status();
         me_reset();
-        minef_node(sid, ME_START_B, ME_START_P, ME_START_Y);
+        minef_node(sid, ME_START_B, ME_START_P, ME_START_Y, 0);
     }
 }
 #[no_mangle]
@@ -1838,11 +2004,15 @@ pub extern "C" fn minEfActionAt(sid: i32, b: i32, p: i32, y: i32) -> i32 {
 #[no_mangle]
 pub extern "C" fn minEfActionAtOrSolve(sid: i32, b: i32, p: i32, y: i32) -> i32 {
     unsafe {
+        reset_status();
         let cached = min_ef_action_at(sid, b, p, y);
         if cached >= 0 {
             return cached;
         }
-        minef_node(sid, b, p, y);
+        minef_node(sid, b, p, y, 0);
+        if !status_ok() {
+            return -1;
+        }
         MN_ACT
     }
 }
@@ -1864,6 +2034,76 @@ pub extern "C" fn getMcEfCompletion() -> f64 {
         } else {
             0.0
         }
+    }
+}
+#[no_mangle]
+pub extern "C" fn simulateExpectedFAfterFirstAction(
+    start_sid: i32, b0: i32, p0: i32, y0: i32,
+    init_b: f64, init_p: f64, init_y: f64, hf: f64, np: f64, tol: f64,
+    runs: i32, seed: u32, first_action: i32,
+) {
+    unsafe {
+        reset_status();
+        memo_reset();
+        solve_start(start_sid, b0, p0, y0, init_b, init_p, init_y, hf, np, tol);
+        if !status_ok() {
+            MC_EF_MEAN = 0.0;
+            MC_EF_RUNS = runs;
+            MC_EF_COMPLETED = 0;
+            return;
+        }
+
+        if !(0..=2).contains(&first_action) {
+            MC_EF_MEAN = f64::INFINITY;
+            MC_EF_RUNS = runs;
+            MC_EF_COMPLETED = 0;
+            return;
+        }
+
+        RNG = seed;
+        let mut sum_f = 0.0;
+        let mut completed = 0;
+        for _ in 0..runs {
+            let mut sid = start_sid;
+            let (mut b, mut p, mut y) = (b0, p0, y0);
+            let (mut ub, mut up, mut uy) = (0, 0, 0);
+            let mut force_first = true;
+            for _ in 0..1000 {
+                if is_terminal(sid) {
+                    completed += 1;
+                    break;
+                }
+                if is_convert(sid) {
+                    sid = CONVERT_SID;
+                    continue;
+                }
+                let k = if force_first {
+                    force_first = false;
+                    first_action
+                } else {
+                    policy_action(sid, b, p, y)
+                };
+                if k < 0 || stock_of(k, b, p, y) <= 0 {
+                    break;
+                }
+                if k == 0 {
+                    b -= 1;
+                    ub += 10;
+                } else if k == 1 {
+                    p -= 1;
+                    up += 10;
+                } else {
+                    y -= 1;
+                    uy += 10;
+                }
+                compute_transition(sid, k);
+                sid = if next_random() < TX_PROB { TX_SUCC } else { TX_FAIL };
+            }
+            sum_f += availability_cost(ub as f64, up as f64, uy as f64, init_b, init_p, init_y, hf, np);
+        }
+        MC_EF_MEAN = if runs > 0 { sum_f / runs as f64 } else { 0.0 };
+        MC_EF_RUNS = runs;
+        MC_EF_COMPLETED = completed;
     }
 }
 #[no_mangle]

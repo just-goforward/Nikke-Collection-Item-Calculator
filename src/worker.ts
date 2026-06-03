@@ -2,7 +2,14 @@ import { WorkerRequestSchema } from "./schemas";
 import { solve } from "./solver";
 
 import type { ProgressEvent, WorkerRequest, WorkerResponse } from "./types";
-import { solveRustMinEf, validateRustMinEf } from "./wasm/rustMinEfSolver";
+import {
+  solveRustMinEf,
+  solveRustPhase2,
+  solveRustPhase2Rerank,
+  validateRustMinEf,
+  validateRustPhase2,
+  validateRustPhase2Rerank,
+} from "./wasm/rustMinEfSolver";
 
 function postWorkerMessage(message: WorkerResponse) {
   self.postMessage(message);
@@ -33,18 +40,34 @@ self.onmessage = async (event) => {
   const data = parsed.data as WorkerRequest;
 
   try {
-    if (data.backend === "rust-min-ef") {
+    if (
+      data.backend === "rust-phase2" ||
+      data.backend === "rust-phase2-rerank" ||
+      data.backend === "rust-min-ef"
+    ) {
       const wasmUrl = typeof data.wasmUrl === "string" ? data.wasmUrl : "";
       if (!wasmUrl) throw new Error("Rust solver WASM URL is missing.");
+      const solveRust =
+        data.backend === "rust-phase2"
+          ? solveRustPhase2
+          : data.backend === "rust-phase2-rerank"
+            ? solveRustPhase2Rerank
+            : solveRustMinEf;
+      const validateRust =
+        data.backend === "rust-phase2"
+          ? validateRustPhase2
+          : data.backend === "rust-phase2-rerank"
+            ? validateRustPhase2Rerank
+            : validateRustMinEf;
       if (data.type === "validate") {
         const runs = Math.max(0, Math.floor(Number(data.runs) || 0));
         const seed = Math.max(0, Math.floor(Number(data.seed) || 20260505));
-        const result = await runRustTask(() => validateRustMinEf(data.input, wasmUrl, runs, seed));
+        const result = await runRustTask(() => validateRust(data.input, wasmUrl, runs, seed));
         postWorkerMessage({ type: "result", id: data.id, result });
         return;
       }
       const result = await runRustTask(() =>
-        solveRustMinEf(data.input, wasmUrl, (progress: ProgressEvent) => {
+        solveRust(data.input, wasmUrl, (progress: ProgressEvent) => {
           postWorkerMessage({ type: "progress", id: data.id, progress });
         }),
       );

@@ -1,12 +1,15 @@
 import { statsRuntimeMode } from "./statsRuntime";
 
-export type SolverBackend = "js-phase2" | "rust-min-ef";
+export type SolverBackend = "js-phase2" | "rust-phase2" | "rust-phase2-rerank" | "rust-min-ef";
 
 export function solverBackendFromRuntime(): SolverBackend {
   if (typeof window === "undefined") return "js-phase2";
   const params = new URLSearchParams(window.location.search);
   if (statsRuntimeMode() !== "staging") return "js-phase2";
-  return params.get("solverBackend") === "rust-min-ef" ? "rust-min-ef" : "js-phase2";
+  const backend = params.get("solverBackend");
+  return backend === "rust-phase2" || backend === "rust-phase2-rerank" || backend === "rust-min-ef"
+    ? backend
+    : "js-phase2";
 }
 
 export function solverWasmUrl(): string {
