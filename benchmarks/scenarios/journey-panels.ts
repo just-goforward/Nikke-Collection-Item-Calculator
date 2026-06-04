@@ -2,17 +2,17 @@ import type { CollectionState, Stock } from "../../src/types";
 import type { SolverScenario } from "./fixed-grid";
 
 // ---------------------------------------------------------------------------
-// Journey-demand panels (Pareto y-axis source) — SEPARATE from FIXED_SAFETY_GRID.
+// Journey-demand panels (Pareto y-axis source) - separate from FIXED_SAFETY_GRID.
 //
 // FIXED_SAFETY_GRID is a frozen 96-cell safety contract (asserted at length 96 with five
 // required sentinels). Journey panels are a *different* concept and therefore live in their
 // own module so we never have to mutate that contract.
 //
 // A journey panel must satisfy two opposing requirements:
-//   1. completion-sufficient — baseline A reaches SR15 with near-certainty
+//   1. completion-sufficient: baseline A reaches SR15 with near-certainty
 //      (completionRate >= JOURNEY_COMPLETION_THRESHOLD), so the measured total consumption is
 //      the TRUE end-to-end journey demand and is NOT truncated by stock depletion.
-//   2. shaping-preserving — finite enough that availability = stock + H*G stays the same order
+//   2. shaping-preserving: finite enough that availability = stock + H*G stays the same order
 //      as consumption. A "virtual large stock" degenerates (availability -> inf => cost -> 0 =>
 //      the (H, p) shaping vanishes and we would be measuring a probability-first policy, not the
 //      recommended one). This is why we never use an arbitrarily large stock.
@@ -31,7 +31,7 @@ const JOURNEY_START_STATES = [
 ] as const satisfies ReadonlyArray<{ id: string; start: CollectionState }>;
 
 // Candidate panel stocks, ordered smallest -> largest. The journey calibration step
-// (run-availability-journey-calibrate.mjs) selects, per start state, the MINIMUM stock whose
+// (run-availability-journey-calibrate.ts) selects, per start state, the MINIMUM stock whose
 // baseline completionRate >= threshold. Using the minimum (rather than the largest) keeps
 // availability tightest and the (H, p) shaping best preserved, and it is the cheapest panel to
 // evaluate.

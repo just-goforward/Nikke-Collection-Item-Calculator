@@ -1,32 +1,55 @@
-// Journey-panel calibration (correction #4 / round-14 보강 2·3).
+// Journey-panel calibration.
 //
-// Finds, for baseline A, the MINIMUM completion-sufficient balanced stock per start state
+// Finds, for baseline A, the minimum completion-sufficient balanced stock per start state
 // (the cheapest panel whose completionRate >= JOURNEY_COMPLETION_THRESHOLD) plus any
-// completion-sufficient skewed (demand-shaped) panel. Using the minimum keeps availability
-// tight so the (H, p) shaping is preserved, and is far cheaper than balanced300.
+// completion-sufficient skewed demand-shaped panel. Using the minimum keeps availability tight so
+// the (H, p) shaping is preserved, and is cheaper than always using balanced300.
 //
-// Output: benchmarks/results/availability-journey-calibration.json with `recommendedJourneyPanelIds`,
-// which can be passed to the deep runner via AVAILABILITY_DEEP_JOURNEY_PANELS.
+// Output: benchmarks/results/availability-journey-calibration.json with
+// `recommendedJourneyPanelIds`, which can be passed to the deep runner via
+// AVAILABILITY_DEEP_JOURNEY_PANELS.
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
+import type { Stock } from "../src/types";
+import type { TrajectoryTailSummary } from "./metrics";
+import { parsePositiveInteger } from "./runner-utils";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
 const OUTPUT_FILE = new URL("./results/availability-journey-calibration.json", import.meta.url);
 
-function parsePositiveInteger(value, fallback) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
-}
-
 const runs = parsePositiveInteger(process.env.AVAILABILITY_JOURNEY_RUNS, 4000);
 const seed = parsePositiveInteger(process.env.AVAILABILITY_JOURNEY_SEED, 20260505);
-// Skewed SR0 panels are legitimately expensive (~270 s per 8k-run job in isolation), so give each
-// panel a generous default budget. Early-termination (below) means only a handful of panels
-// actually run, so total wall time stays modest.
+// Skewed SR0 panels are legitimately expensive, so give each panel a generous default budget.
+// Early termination below means only a handful of panels normally run.
 const budgetMs = parsePositiveInteger(process.env.AVAILABILITY_JOURNEY_BUDGET_MS, 300_000);
 
-function startStateOf(panelId) {
+type JourneyCalibrationEvaluation =
+  | {
+      panel: string;
+      status: "skipped";
+      reason: "minimum_sufficient_balanced_already_found";
+    }
+  | {
+      panel: string;
+      status: "verification_incomplete";
+      reason: "time_budget_exceeded";
+      runsCompleted: number;
+      elapsedMs: number;
+    }
+  | {
+      panel: string;
+      status: "completed";
+      stock: Stock;
+      shape: "balanced" | "skewed";
+      completionRate: number;
+      completionSufficient: boolean;
+      maxSupplyDebtDaysCvar90: number;
+      meanConsumption: TrajectoryTailSummary["meanConsumption"];
+      elapsedMs: number;
+    };
+
+function startStateOf(panelId: string): string {
   return panelId.split("-")[0];
 }
 
@@ -41,10 +64,18 @@ const server = await createServer({
 });
 
 try {
-  const journey = await server.ssrLoadModule("/benchmarks/scenarios/journey-panels.ts");
-  const availability = await server.ssrLoadModule("/benchmarks/models/availability-grid.ts");
-  const trajectory = await server.ssrLoadModule("/benchmarks/evaluator/trajectory.ts");
-  const metrics = await server.ssrLoadModule("/benchmarks/metrics.ts");
+  const journey = (await server.ssrLoadModule(
+    "/benchmarks/scenarios/journey-panels.ts",
+  )) as typeof import("./scenarios/journey-panels");
+  const availability = (await server.ssrLoadModule(
+    "/benchmarks/models/availability-grid.ts",
+  )) as typeof import("./models/availability-grid");
+  const trajectory = (await server.ssrLoadModule(
+    "/benchmarks/evaluator/trajectory.ts",
+  )) as typeof import("./evaluator/trajectory");
+  const metrics = (await server.ssrLoadModule(
+    "/benchmarks/metrics.ts",
+  )) as typeof import("./metrics");
 
   const baseline = availability.BASELINE_AVAILABILITY_CANDIDATE;
   const threshold = journey.JOURNEY_COMPLETION_THRESHOLD;
@@ -52,14 +83,8 @@ try {
 
   // Panels are declared smallest -> largest within each start state, so the first
   // completion-sufficient balanced panel encountered per start state is the minimum.
-  //
-  // Early-termination: once the minimum completion-sufficient BALANCED stock is found for a start
-  // state, skip the remaining (larger) balanced stocks for that start state. Those larger panels
-  // are never recommended (the minimum already wins) and are the most expensive to evaluate — at
-  // the R0 start they time out entirely and their accumulated memory then starves the later
-  // (tractable) SR0 skewed panel. Skewed panels are always evaluated.
-  const evaluations = [];
-  const minimumSufficientBalancedFound = new Set();
+  const evaluations: JourneyCalibrationEvaluation[] = [];
+  const minimumSufficientBalancedFound = new Set<string>();
   for (const panel of panels) {
     const start = startStateOf(panel.id);
     const isSkewed = panel.id.includes("demand");
@@ -71,6 +96,7 @@ try {
       });
       continue;
     }
+
     const result = trajectory.collectInteractiveTrajectories(panel, {
       modelId: baseline.id,
       costModel: availability.availabilityCostModelFor(baseline),
@@ -89,6 +115,7 @@ try {
       });
       continue;
     }
+
     const summary = metrics.summarizeTrajectories(result.samples);
     const completionSufficient = summary.completionRate >= threshold;
     evaluations.push({
@@ -105,18 +132,28 @@ try {
     if (!isSkewed && completionSufficient) minimumSufficientBalancedFound.add(start);
   }
 
-  const recommended = [];
-  const byStart = new Map();
-  for (const ev of evaluations) {
-    if (ev.status !== "completed") continue;
-    const start = startStateOf(ev.panel);
-    if (!byStart.has(start)) byStart.set(start, []);
-    byStart.get(start).push(ev);
+  const recommended: string[] = [];
+  const byStart = new Map<
+    string,
+    Extract<JourneyCalibrationEvaluation, { status: "completed" }>[]
+  >();
+  for (const evaluation of evaluations) {
+    if (evaluation.status !== "completed") continue;
+    const start = startStateOf(evaluation.panel);
+    const existing = byStart.get(start) ?? [];
+    existing.push(evaluation);
+    byStart.set(start, existing);
   }
-  for (const [, evs] of byStart) {
-    const minimumBalanced = evs.find((ev) => ev.shape === "balanced" && ev.completionSufficient);
+
+  for (const evaluationsForStart of byStart.values()) {
+    const minimumBalanced = evaluationsForStart.find(
+      (evaluation) => evaluation.shape === "balanced" && evaluation.completionSufficient,
+    );
     if (minimumBalanced) recommended.push(minimumBalanced.panel);
-    const skewed = evs.find((ev) => ev.shape === "skewed" && ev.completionSufficient);
+
+    const skewed = evaluationsForStart.find(
+      (evaluation) => evaluation.shape === "skewed" && evaluation.completionSufficient,
+    );
     if (skewed) recommended.push(skewed.panel);
   }
 
@@ -143,11 +180,11 @@ try {
         kind: report.kind,
         completionThreshold: threshold,
         recommendedJourneyPanelIds: recommended,
-        evaluations: evaluations.map((ev) => ({
-          panel: ev.panel,
-          completionRate: ev.completionRate ?? null,
-          sufficient: ev.completionSufficient ?? false,
-          status: ev.status,
+        evaluations: evaluations.map((evaluation) => ({
+          panel: evaluation.panel,
+          completionRate: evaluation.status === "completed" ? evaluation.completionRate : null,
+          sufficient: evaluation.status === "completed" ? evaluation.completionSufficient : false,
+          status: evaluation.status,
         })),
         output: OUTPUT_FILE.pathname,
       },

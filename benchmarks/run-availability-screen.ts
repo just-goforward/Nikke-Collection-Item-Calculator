@@ -1,23 +1,29 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
+import type { AvailabilityScreenResult } from "./evaluator/availability-screen";
+import type { AvailabilitySliderCandidate } from "./models/availability-grid";
+import { csvEscape, parseBoolean, parseList, parsePositiveInteger } from "./runner-utils";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
 const JSON_OUTPUT_FILE = new URL("./results/availability-screen.json", import.meta.url);
 const CSV_OUTPUT_FILE = new URL("./results/availability-screen-configs.csv", import.meta.url);
 
-function parsePositiveInteger(value, fallback) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
-}
-
-function parseBoolean(value) {
-  return value === "1" || value === "true";
-}
-
-function csvEscape(value) {
-  const text = String(value ?? "");
-  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
+type CandidateSummary = AvailabilitySliderCandidate & {
+  status: "budget-deprioritized" | "deep-candidate";
+  scenarioCount: number;
+  screenedCount: number;
+  hardInfeasibleCount: number;
+  errorCount: number;
+  firstActionChangedCount: number;
+  runCountChangedCount: number;
+  eligibleEmptyTotal: number;
+  fixedToleranceViolationTotal: number;
+  maxChosenGap: number;
+  promoteScoreTotal: number;
+  promoteScoreMax: number;
+  lowTopSuccessGapCount: number;
+  lowTopResourceGapCount: number;
+};
 
 const topK = parsePositiveInteger(process.env.AVAILABILITY_SCREEN_TOP_K, 20);
 const scenarioLimit = parsePositiveInteger(
@@ -28,12 +34,7 @@ const includePreservationProbes = parseBoolean(
   process.env.AVAILABILITY_SCREEN_INCLUDE_PRESERVATION,
 );
 const includeSensitivityProbes = parseBoolean(process.env.AVAILABILITY_SCREEN_INCLUDE_SENSITIVITY);
-const requestedScenarios = new Set(
-  String(process.env.AVAILABILITY_SCREEN_SCENARIOS || "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean),
-);
+const requestedScenarios = new Set(parseList(process.env.AVAILABILITY_SCREEN_SCENARIOS, []));
 
 await mkdir(RESULTS_DIRECTORY, { recursive: true });
 
@@ -46,9 +47,15 @@ const server = await createServer({
 });
 
 try {
-  const grid = await server.ssrLoadModule("/benchmarks/scenarios/fixed-grid.ts");
-  const availability = await server.ssrLoadModule("/benchmarks/models/availability-grid.ts");
-  const screen = await server.ssrLoadModule("/benchmarks/evaluator/availability-screen.ts");
+  const grid = (await server.ssrLoadModule(
+    "/benchmarks/scenarios/fixed-grid.ts",
+  )) as typeof import("./scenarios/fixed-grid");
+  const availability = (await server.ssrLoadModule(
+    "/benchmarks/models/availability-grid.ts",
+  )) as typeof import("./models/availability-grid");
+  const screen = (await server.ssrLoadModule(
+    "/benchmarks/evaluator/availability-screen.ts",
+  )) as typeof import("./evaluator/availability-screen");
 
   const candidates = availability.buildAvailabilityGridCandidates({
     includePreservationProbes,
@@ -59,9 +66,9 @@ try {
   ).slice(0, scenarioLimit);
 
   const startedAt = performance.now();
-  const records = [];
+  const records: AvailabilityScreenResult[] = [];
   for (const scenario of scenarios) {
-    const input = { start: scenario.start, stock: scenario.stock, strategy: "supply" };
+    const input = { start: scenario.start, stock: scenario.stock, strategy: "supply" as const };
     const baselineResult = availability.solveAvailabilityCandidate(
       input,
       availability.BASELINE_AVAILABILITY_CANDIDATE,
@@ -71,7 +78,7 @@ try {
     }
   }
 
-  const byCandidate = new Map();
+  const byCandidate = new Map<string, CandidateSummary>();
   for (const candidate of candidates) {
     byCandidate.set(candidate.id, {
       ...candidate,
@@ -94,6 +101,7 @@ try {
 
   for (const record of records) {
     const summary = byCandidate.get(record.candidateId);
+    if (!summary) throw new Error(`Missing candidate summary for ${record.candidateId}`);
     summary.scenarioCount += 1;
     if (record.status === "screened") summary.screenedCount += 1;
     if (record.status === "hard-infeasible") summary.hardInfeasibleCount += 1;
@@ -125,8 +133,8 @@ try {
     );
   });
 
-  const selectedIds = new Set([availability.BASELINE_AVAILABILITY_CANDIDATE.id]);
-  function selectBy(predicate) {
+  const selectedIds = new Set<string>([availability.BASELINE_AVAILABILITY_CANDIDATE.id]);
+  function selectBy(predicate: (summary: CandidateSummary) => boolean) {
     const match = summaries.find((summary) => !selectedIds.has(summary.id) && predicate(summary));
     if (match) selectedIds.add(match.id);
   }
@@ -192,7 +200,7 @@ try {
     "promoteScoreMax",
     "lowTopSuccessGapCount",
     "lowTopResourceGapCount",
-  ];
+  ] as const satisfies ReadonlyArray<keyof CandidateSummary>;
   const csv = [
     columns.join(","),
     ...summaries.map((summary) => columns.map((column) => csvEscape(summary[column])).join(",")),

@@ -11,24 +11,43 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { parsePositiveInteger } from "./runner-utils";
 
-const SCRIPT = fileURLToPath(new URL("./run-availability-deep-slice.mjs", import.meta.url));
+const SCRIPT = fileURLToPath(new URL("./run-availability-deep-slice.ts", import.meta.url));
 const OUTPUT = fileURLToPath(new URL("./results/availability-deep-slice.json", import.meta.url));
-const maxSlices = Number(process.env.AVAILABILITY_DEEP_MAX_SLICES || 100000);
+const maxSlices = parsePositiveInteger(process.env.AVAILABILITY_DEEP_MAX_SLICES, 100_000);
 
-async function readState() {
+type DeepLoopState = {
+  phase: string | null;
+  signature: string | null;
+};
+
+function readNumberField(value: unknown, field: string): number | null {
+  if (typeof value !== "object" || value === null || !(field in value)) return null;
+  const fieldValue = value[field as keyof typeof value];
+  return typeof fieldValue === "number" ? fieldValue : null;
+}
+
+async function readState(): Promise<DeepLoopState> {
   try {
-    const json = JSON.parse(await readFile(OUTPUT, "utf8"));
+    const json: unknown = JSON.parse(await readFile(OUTPUT, "utf8"));
+    const phase =
+      typeof json === "object" && json !== null && "phase" in json && typeof json.phase === "string"
+        ? json.phase
+        : null;
+    const exactJobIndex = readNumberField(json, "exactJobIndex");
+    const finiteTailJobIndex = readNumberField(json, "finiteTailJobIndex");
+    const journeyTailJobIndex = readNumberField(json, "journeyTailJobIndex");
     return {
-      phase: json.phase,
-      signature: `${json.phase}|${json.exactJobIndex}|${json.finiteTailJobIndex}|${json.journeyTailJobIndex}`,
+      phase,
+      signature: `${phase}|${exactJobIndex}|${finiteTailJobIndex}|${journeyTailJobIndex}`,
     };
   } catch {
     return { phase: null, signature: null };
   }
 }
 
-let previousSignature = null;
+let previousSignature: string | null = null;
 let stalledCount = 0;
 
 for (let slice = 1; slice <= maxSlices; slice += 1) {

@@ -40,7 +40,6 @@ describe("rust phase2 wasm parity", () => {
   let solver: RustPhase2Solver;
 
   beforeAll(async () => {
-    // @ts-expect-error Node builtin types are intentionally not part of the browser app tsconfig.
     const fs = (await import("node:fs")) as { readFileSync(path: URL): Uint8Array };
     const wasm = fs.readFileSync(WASM_URL);
     const instantiated = (await WebAssembly.instantiate(wasm)) as

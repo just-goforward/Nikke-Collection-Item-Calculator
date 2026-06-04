@@ -1,5 +1,14 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
+import type {
+  ExactInteractiveEvaluation,
+  ExactInteractiveReplanCheckpoint,
+} from "./evaluator/exact-replan";
+import type { TrajectoryEvaluation } from "./evaluator/trajectory";
+import type { TrajectoryTailSummary } from "./metrics";
+import type { AvailabilitySliderCandidate } from "./models/availability-grid";
+import { isErrorWithCode, parseList, parsePositiveInteger, parseSeeds } from "./runner-utils";
+import type { SolverScenario } from "./scenarios/fixed-grid";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
 const SCREEN_FILE = new URL("./results/availability-screen.json", import.meta.url);
@@ -29,31 +38,146 @@ const DEFAULT_SCENARIO_IDS = [
 const DEFAULT_JOURNEY_PANEL_IDS = ["R0-balanced300", "SR0-balanced300"];
 const DEFAULT_SEEDS = [20260505, 20260506, 20260507, 20260508];
 
-function parsePositiveInteger(value, fallback) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
+type DeepSliceConfig = {
+  candidateIds: string[];
+  scenarioIds: string[];
+  journeyPanelIds: string[];
+  seeds: number[];
+  runsPerSeed: number;
+  exactTotalBudgetMs: number;
+  trajectoryBudgetMs: number;
+};
+
+type AvailabilityScreenReport = {
+  deepCandidateIds?: string[];
+};
+
+type ExactSummary = {
+  status: ExactInteractiveEvaluation["status"];
+  reason?: string;
+  scenario: string;
+  modelId: string;
+  elapsedMs: number;
+  solveCalls: number;
+  cachedNodes: number;
+  cachedPolicies: number;
+  gateEvidence: ExactInteractiveEvaluation["gateEvidence"] | null;
+  successProbability?: number;
+  exactLossVsA?: number | null;
+  relativeLossVsA?: number | null;
+  expectedConsumption?: Extract<
+    ExactInteractiveEvaluation,
+    { status: "completed" }
+  >["expectedConsumption"];
+  interactiveF?: number;
+  manualEntryProbability?: number;
+  expectedManualEntries?: number;
+  successAttemptSelectionProbability?: number;
+  expectedSuccessAttemptSelections?: number;
+};
+
+type TrajectoryJobSummary =
+  | {
+      status: "completed";
+      scenario: string;
+      modelId: string;
+      seed: number;
+      runs: number;
+      elapsedMs: number;
+      solveCalls: number;
+      cachedPolicies: number;
+      summary: TrajectoryTailSummary;
+    }
+  | {
+      status: Extract<TrajectoryEvaluation, { status: "verification_incomplete" }>["status"];
+      reason: Extract<TrajectoryEvaluation, { status: "verification_incomplete" }>["reason"];
+      scenario: string;
+      modelId: string;
+      seed: number;
+      runsCompleted: number;
+      elapsedMs: number;
+      solveCalls: number;
+      cachedPolicies: number;
+    };
+
+type JourneyPanelSummary = TrajectoryJobSummary & {
+  supplyDebtStatus: "completed" | "judgement_incomplete";
+};
+
+type JourneyDemandSummary = {
+  candidateId: string;
+  panels: JourneyPanelSummary[];
+  maxPanelSupplyDebtCvar90: number | null;
+};
+
+type DeepSliceState = {
+  version: 1;
+  config: DeepSliceConfig;
+  phase: "exact" | "finite-tail" | "journey-tail" | "completed";
+  exactJobIndex: number;
+  exactSessionCheckpoint: ExactInteractiveReplanCheckpoint | null;
+  exactResults: ExactSummary[];
+  finiteTailJobIndex: number;
+  finiteStockTail: TrajectoryJobSummary[];
+  journeyTailJobIndex: number;
+  journeyTail: TrajectoryJobSummary[];
+};
+
+function readScreenReport(value: unknown): AvailabilityScreenReport | null {
+  if (typeof value !== "object" || value === null) return null;
+  return {
+    deepCandidateIds:
+      "deepCandidateIds" in value && Array.isArray(value.deepCandidateIds)
+        ? value.deepCandidateIds.filter((id): id is string => typeof id === "string")
+        : undefined,
+  };
 }
 
-function parseNonNegativeInteger(value, fallback) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback;
+function readDeepSliceState(value: unknown, expectedConfig: DeepSliceConfig): DeepSliceState {
+  if (typeof value !== "object" || value === null || !("version" in value) || value.version !== 1) {
+    throw new Error("Unsupported availability deep checkpoint version.");
+  }
+  return {
+    version: 1,
+    config: "config" in value ? (value.config as DeepSliceConfig) : expectedConfig,
+    phase:
+      "phase" in value &&
+      (value.phase === "exact" ||
+        value.phase === "finite-tail" ||
+        value.phase === "journey-tail" ||
+        value.phase === "completed")
+        ? value.phase
+        : "exact",
+    exactJobIndex:
+      "exactJobIndex" in value && typeof value.exactJobIndex === "number" ? value.exactJobIndex : 0,
+    exactSessionCheckpoint:
+      "exactSessionCheckpoint" in value
+        ? (value.exactSessionCheckpoint as ExactInteractiveReplanCheckpoint | null)
+        : null,
+    exactResults:
+      "exactResults" in value && Array.isArray(value.exactResults)
+        ? (value.exactResults as ExactSummary[])
+        : [],
+    finiteTailJobIndex:
+      "finiteTailJobIndex" in value && typeof value.finiteTailJobIndex === "number"
+        ? value.finiteTailJobIndex
+        : 0,
+    finiteStockTail:
+      "finiteStockTail" in value && Array.isArray(value.finiteStockTail)
+        ? (value.finiteStockTail as TrajectoryJobSummary[])
+        : [],
+    journeyTailJobIndex:
+      "journeyTailJobIndex" in value && typeof value.journeyTailJobIndex === "number"
+        ? value.journeyTailJobIndex
+        : 0,
+    journeyTail:
+      "journeyTail" in value && Array.isArray(value.journeyTail)
+        ? (value.journeyTail as TrajectoryJobSummary[])
+        : [],
+  };
 }
 
-function parseList(value, fallback) {
-  const parsed = String(value || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return parsed.length > 0 ? parsed : fallback;
-}
-
-function parseSeeds(value) {
-  return parseList(value, DEFAULT_SEEDS.map(String)).map((seed) =>
-    parseNonNegativeInteger(seed, 0),
-  );
-}
-
-function stateConfig() {
+function stateConfig(): DeepSliceConfig {
   return {
     candidateIds: requestedCandidateIds,
     scenarioIds,
@@ -65,30 +189,45 @@ function stateConfig() {
   };
 }
 
-function sameExactConfig(left, right) {
+function comparableExactConfig(config: DeepSliceConfig): Omit<DeepSliceConfig, "journeyPanelIds"> {
+  return {
+    candidateIds: config.candidateIds,
+    scenarioIds: config.scenarioIds,
+    seeds: config.seeds,
+    runsPerSeed: config.runsPerSeed,
+    exactTotalBudgetMs: config.exactTotalBudgetMs,
+    trajectoryBudgetMs: config.trajectoryBudgetMs,
+  };
+}
+
+function sameExactConfig(left: DeepSliceConfig, right: DeepSliceConfig): boolean {
   // journeyPanelIds is intentionally excluded: the exact-gate and finite-stock-tail phases do not
   // depend on journey panels, so adding/removing a journey panel must NOT invalidate those
   // (expensive) phases. Journey-panel changes are reconciled additively at checkpoint load.
-  const strip = ({ journeyPanelIds, ...rest }) => rest;
-  return JSON.stringify(strip(left)) === JSON.stringify(strip(right));
+  return (
+    JSON.stringify(comparableExactConfig(left)) === JSON.stringify(comparableExactConfig(right))
+  );
 }
 
-function scenarioById(scenarios, id) {
+function scenarioById(scenarios: readonly SolverScenario[], id: string): SolverScenario {
   const scenario = scenarios.find((candidate) => candidate.id === id);
   if (!scenario) throw new Error(`Missing scenario: ${id}`);
   return scenario;
 }
 
-function candidateById(candidates, id) {
+function candidateById(
+  candidates: readonly AvailabilitySliderCandidate[],
+  id: string,
+): AvailabilitySliderCandidate {
   const candidate = candidates.find((item) => item.id === id);
   if (!candidate) throw new Error(`Missing availability candidate: ${id}`);
   return candidate;
 }
 
-function summarizeExact(result) {
+function summarizeExact(result: ExactInteractiveEvaluation): ExactSummary {
   const common = {
     status: result.status,
-    ...(result.reason ? { reason: result.reason } : {}),
+    ...(result.status !== "completed" ? { reason: result.reason } : {}),
     scenario: result.scenario.id,
     modelId: result.modelId,
     elapsedMs: result.elapsedMs,
@@ -110,15 +249,24 @@ function summarizeExact(result) {
   };
 }
 
-function withExactLosses(exactResults, baselineId) {
-  const baselineByScenario = new Map();
+function isCompletedExactSummary(
+  result: ExactSummary,
+): result is ExactSummary & { status: "completed"; successProbability: number } {
+  return result.status === "completed" && typeof result.successProbability === "number";
+}
+
+function withExactLosses(
+  exactResults: readonly ExactSummary[],
+  baselineId: string,
+): ExactSummary[] {
+  const baselineByScenario = new Map<string, number>();
   for (const result of exactResults) {
-    if (result.modelId === baselineId && result.status === "completed") {
+    if (result.modelId === baselineId && isCompletedExactSummary(result)) {
       baselineByScenario.set(result.scenario, result.successProbability);
     }
   }
   return exactResults.map((result) => {
-    if (result.status !== "completed") return result;
+    if (!isCompletedExactSummary(result)) return result;
     const baselineP = baselineByScenario.get(result.scenario);
     return {
       ...result,
@@ -131,7 +279,11 @@ function withExactLosses(exactResults, baselineId) {
   });
 }
 
-function completedBaselineForScenario(exactResults, baselineId, scenarioId) {
+function completedBaselineForScenario(
+  exactResults: readonly ExactSummary[],
+  baselineId: string,
+  scenarioId: string,
+): ExactSummary | undefined {
   return exactResults.find(
     (result) =>
       result.scenario === scenarioId &&
@@ -140,7 +292,11 @@ function completedBaselineForScenario(exactResults, baselineId, scenarioId) {
   );
 }
 
-function incompleteBaselineForScenario(exactResults, baselineId, scenarioId) {
+function incompleteBaselineForScenario(
+  exactResults: readonly ExactSummary[],
+  baselineId: string,
+  scenarioId: string,
+): ExactSummary | undefined {
   return exactResults.find(
     (result) =>
       result.scenario === scenarioId &&
@@ -149,7 +305,10 @@ function incompleteBaselineForScenario(exactResults, baselineId, scenarioId) {
   );
 }
 
-function trajectoryJobSummary(result, metrics) {
+function trajectoryJobSummary(
+  result: TrajectoryEvaluation,
+  metrics: typeof import("./metrics"),
+): TrajectoryJobSummary {
   if (result.status !== "completed") {
     return {
       status: result.status,
@@ -176,11 +335,26 @@ function trajectoryJobSummary(result, metrics) {
   };
 }
 
-function aggregateJourneyDemand(journeyTail) {
-  const grouped = new Map();
+function isCompletedJourneyPanel(panel: JourneyPanelSummary): panel is Extract<
+  TrajectoryJobSummary,
+  { status: "completed" }
+> & {
+  supplyDebtStatus: "completed";
+} {
+  return panel.status === "completed" && panel.supplyDebtStatus === "completed";
+}
+
+function aggregateJourneyDemand(
+  journeyTail: readonly TrajectoryJobSummary[],
+): JourneyDemandSummary[] {
+  const grouped = new Map<string, JourneyDemandSummary>();
   for (const result of journeyTail) {
-    const entry = grouped.get(result.modelId) || { candidateId: result.modelId, panels: [] };
-    const supplyDebtStatus =
+    const entry = grouped.get(result.modelId) || {
+      candidateId: result.modelId,
+      panels: [],
+      maxPanelSupplyDebtCvar90: null,
+    };
+    const supplyDebtStatus: JourneyPanelSummary["supplyDebtStatus"] =
       result.status === "completed" && result.summary.completionRate >= 0.995
         ? "completed"
         : "judgement_incomplete";
@@ -189,7 +363,7 @@ function aggregateJourneyDemand(journeyTail) {
   }
   return Array.from(grouped.values()).map((entry) => {
     const completedPanelDebtValues = entry.panels
-      .filter((panel) => panel.status === "completed" && panel.supplyDebtStatus === "completed")
+      .filter(isCompletedJourneyPanel)
       .map((panel) => panel.summary.maxSupplyDebtDaysCvar90);
     return {
       ...entry,
@@ -199,7 +373,7 @@ function aggregateJourneyDemand(journeyTail) {
   });
 }
 
-async function writeOutputs(state, baselineId) {
+async function writeOutputs(state: DeepSliceState, baselineId: string) {
   const report = {
     kind: "availability-deep-slice",
     version: 1,
@@ -220,11 +394,11 @@ async function writeOutputs(state, baselineId) {
 
 await mkdir(RESULTS_DIRECTORY, { recursive: true });
 
-let screenReport = null;
+let screenReport: AvailabilityScreenReport | null = null;
 try {
-  screenReport = JSON.parse(await readFile(SCREEN_FILE, "utf8"));
+  screenReport = readScreenReport(JSON.parse(await readFile(SCREEN_FILE, "utf8")));
 } catch (error) {
-  if (error?.code !== "ENOENT") throw error;
+  if (!isErrorWithCode(error) || error.code !== "ENOENT") throw error;
 }
 
 const reset = process.env.AVAILABILITY_DEEP_SLICE_RESET === "1";
@@ -240,7 +414,7 @@ const trajectoryBudgetMs = parsePositiveInteger(
   120_000,
 );
 const runsPerSeed = parsePositiveInteger(process.env.AVAILABILITY_DEEP_RUNS_PER_SEED, 12_000);
-const seeds = parseSeeds(process.env.AVAILABILITY_DEEP_SEEDS);
+const seeds = parseSeeds(process.env.AVAILABILITY_DEEP_SEEDS, DEFAULT_SEEDS);
 const scenarioIds = parseList(process.env.AVAILABILITY_DEEP_SCENARIOS, DEFAULT_SCENARIO_IDS);
 const journeyPanelIds = parseList(
   process.env.AVAILABILITY_DEEP_JOURNEY_PANELS,
@@ -254,7 +428,7 @@ const config = stateConfig();
 
 if (reset) await rm(CHECKPOINT_FILE, { force: true });
 
-let state = {
+let state: DeepSliceState = {
   version: 1,
   config,
   phase: "exact",
@@ -268,8 +442,7 @@ let state = {
 };
 
 try {
-  const saved = JSON.parse(await readFile(CHECKPOINT_FILE, "utf8"));
-  if (saved.version !== 1) throw new Error("Unsupported availability deep checkpoint version.");
+  const saved = readDeepSliceState(JSON.parse(await readFile(CHECKPOINT_FILE, "utf8")), config);
   if (!sameExactConfig(saved.config, config)) {
     throw new Error(
       "Availability deep checkpoint config mismatch (non-journey fields). Set AVAILABILITY_DEEP_SLICE_RESET=1.",
@@ -287,7 +460,7 @@ try {
     state.config = config; // adopt the new panel set so subsequent slices see a matching config
   }
 } catch (error) {
-  if (error?.code !== "ENOENT") throw error;
+  if (!isErrorWithCode(error) || error.code !== "ENOENT") throw error;
 }
 
 const server = await createServer({
@@ -299,12 +472,24 @@ const server = await createServer({
 });
 
 try {
-  const grid = await server.ssrLoadModule("/benchmarks/scenarios/fixed-grid.ts");
-  const journey = await server.ssrLoadModule("/benchmarks/scenarios/journey-panels.ts");
-  const availability = await server.ssrLoadModule("/benchmarks/models/availability-grid.ts");
-  const exact = await server.ssrLoadModule("/benchmarks/evaluator/exact-replan.ts");
-  const trajectory = await server.ssrLoadModule("/benchmarks/evaluator/trajectory.ts");
-  const metrics = await server.ssrLoadModule("/benchmarks/metrics.ts");
+  const grid = (await server.ssrLoadModule(
+    "/benchmarks/scenarios/fixed-grid.ts",
+  )) as typeof import("./scenarios/fixed-grid");
+  const journey = (await server.ssrLoadModule(
+    "/benchmarks/scenarios/journey-panels.ts",
+  )) as typeof import("./scenarios/journey-panels");
+  const availability = (await server.ssrLoadModule(
+    "/benchmarks/models/availability-grid.ts",
+  )) as typeof import("./models/availability-grid");
+  const exact = (await server.ssrLoadModule(
+    "/benchmarks/evaluator/exact-replan.ts",
+  )) as typeof import("./evaluator/exact-replan");
+  const trajectory = (await server.ssrLoadModule(
+    "/benchmarks/evaluator/trajectory.ts",
+  )) as typeof import("./evaluator/trajectory");
+  const metrics = (await server.ssrLoadModule(
+    "/benchmarks/metrics.ts",
+  )) as typeof import("./metrics");
 
   const allCandidates = availability.buildAvailabilityGridCandidates({
     includePreservationProbes: true,
@@ -342,7 +527,8 @@ try {
   // Identity set of journey jobs already recorded, so resumed/additive runs skip them instead of
   // re-solving. Keyed by (candidate, panel, seed) rather than job index, so it stays correct even
   // when the panel set grows (the new panel's jobs interleave per candidate).
-  const journeyJobKey = (candidateId, panelId, seed) => `${candidateId}|${panelId}|${seed}`;
+  const journeyJobKey = (candidateId: string, panelId: string, seed: number) =>
+    `${candidateId}|${panelId}|${seed}`;
   const doneJourneyKeys = new Set(
     state.journeyTail.map((result) => journeyJobKey(result.modelId, result.scenario, result.seed)),
   );
@@ -362,7 +548,7 @@ try {
     }
   }
 
-  function exactOptions(candidate, timeBudgetMs) {
+  function exactOptions(candidate: AvailabilitySliderCandidate, timeBudgetMs: number) {
     return {
       modelId: candidate.id,
       costModel: availability.availabilityCostModelFor(candidate),
@@ -405,7 +591,7 @@ try {
       const session = exact.createExactInteractiveReplanSession(
         job.scenario,
         exactOptions(job.candidate, budgetMs),
-        state.exactSessionCheckpoint,
+        state.exactSessionCheckpoint ?? undefined,
       );
       const result = session.advance(budgetMs);
       if (result.status === "completed") {

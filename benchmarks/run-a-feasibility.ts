@@ -1,16 +1,17 @@
 import { createServer } from "vite";
+import type { ExactEvaluationProgress } from "./evaluator/exact-replan";
+import { parsePositiveInteger } from "./runner-utils";
+import type { SolverScenario } from "./scenarios/fixed-grid";
 
 const DEFAULT_TOTAL_BUDGET_MS = 60 * 60 * 1000;
-const requestedBudget = Number(process.env.A_FEASIBILITY_BUDGET_MS);
-const totalBudgetMs =
-  Number.isFinite(requestedBudget) && requestedBudget > 0
-    ? Math.floor(requestedBudget)
-    : DEFAULT_TOTAL_BUDGET_MS;
-const requestedInterval = Number(process.env.A_FEASIBILITY_PROGRESS_CALLS);
-const progressEverySolveCalls =
-  Number.isFinite(requestedInterval) && requestedInterval > 0
-    ? Math.floor(requestedInterval)
-    : 1000;
+const totalBudgetMs = parsePositiveInteger(
+  process.env.A_FEASIBILITY_BUDGET_MS,
+  DEFAULT_TOTAL_BUDGET_MS,
+);
+const progressEverySolveCalls = parsePositiveInteger(
+  process.env.A_FEASIBILITY_PROGRESS_CALLS,
+  1000,
+);
 
 const server = await createServer({
   appType: "custom",
@@ -21,10 +22,12 @@ const server = await createServer({
 });
 
 try {
-  const { evaluateExactInteractiveReplan } = await server.ssrLoadModule(
+  const { evaluateExactInteractiveReplan } = (await server.ssrLoadModule(
     "/benchmarks/evaluator/exact-replan.ts",
-  );
-  const { REQUIRED_SENTINELS } = await server.ssrLoadModule("/benchmarks/scenarios/fixed-grid.ts");
+  )) as typeof import("./evaluator/exact-replan");
+  const { REQUIRED_SENTINELS } = (await server.ssrLoadModule(
+    "/benchmarks/scenarios/fixed-grid.ts",
+  )) as typeof import("./scenarios/fixed-grid");
   const sentinelOrder = [
     "R0-balanced300",
     "SR0-balanced300",
@@ -33,7 +36,9 @@ try {
     "R14e900-yellow30",
   ];
   const sentinels = sentinelOrder.map((id) => {
-    const scenario = REQUIRED_SENTINELS.find((candidate) => candidate.id === id);
+    const scenario: SolverScenario | undefined = REQUIRED_SENTINELS.find(
+      (candidate) => candidate.id === id,
+    );
     if (!scenario) throw new Error(`Missing required sentinel: ${id}`);
     return scenario;
   });
@@ -55,7 +60,7 @@ try {
     const result = evaluateExactInteractiveReplan(scenario, {
       timeBudgetMs: remainingBudget,
       progressEverySolveCalls,
-      onProgress: (progress) => {
+      onProgress: (progress: ExactEvaluationProgress) => {
         console.log(`[A feasibility] progress ${JSON.stringify(progress)}`);
       },
     });

@@ -1,5 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
+import type { solveWithResearchCostModel } from "../src/solver";
+import type { SolverInput } from "../src/types";
+import type { SolverScenario } from "./scenarios/fixed-grid";
+
+type PilotModel = {
+  id: "A" | "B" | "C";
+  solve: (input: SolverInput) => ReturnType<typeof solveWithResearchCostModel>;
+};
 
 const OUTPUT_FILE = new URL("./results/shadow-pilot-root.json", import.meta.url);
 const PILOT_IDS = [
@@ -23,11 +31,17 @@ const server = await createServer({
 });
 
 try {
-  const solver = await server.ssrLoadModule("/src/solver.ts");
-  const metrics = await server.ssrLoadModule("/benchmarks/metrics.ts");
-  const grid = await server.ssrLoadModule("/benchmarks/scenarios/fixed-grid.ts");
-  const shadow = await server.ssrLoadModule("/benchmarks/models/shadow-price.ts");
-  const models = [
+  const solver = (await server.ssrLoadModule("/src/solver.ts")) as typeof import("../src/solver");
+  const metrics = (await server.ssrLoadModule(
+    "/benchmarks/metrics.ts",
+  )) as typeof import("./metrics");
+  const grid = (await server.ssrLoadModule(
+    "/benchmarks/scenarios/fixed-grid.ts",
+  )) as typeof import("./scenarios/fixed-grid");
+  const shadow = (await server.ssrLoadModule(
+    "/benchmarks/models/shadow-price.ts",
+  )) as typeof import("./models/shadow-price");
+  const models: PilotModel[] = [
     {
       id: "A",
       solve: (input) => solver.solveWithResearchCostModel(input, { kind: "availability-pnorm" }),
@@ -38,12 +52,18 @@ try {
 
   const results = [];
   for (const scenarioId of PILOT_IDS) {
-    const scenario = grid.FIXED_SAFETY_GRID.find((candidate) => candidate.id === scenarioId);
+    const scenario: SolverScenario | undefined = grid.FIXED_SAFETY_GRID.find(
+      (candidate) => candidate.id === scenarioId,
+    );
     if (!scenario) throw new Error(`Missing pilot scenario: ${scenarioId}`);
     const modelResults = [];
     for (const model of models) {
       const startedAt = performance.now();
-      const result = model.solve({ start: scenario.start, stock: scenario.stock, strategy: "supply" });
+      const result = model.solve({
+        start: scenario.start,
+        stock: scenario.stock,
+        strategy: "supply",
+      });
       const elapsedMs = Math.round(performance.now() - startedAt);
       if (!result.possible || !result.best) {
         modelResults.push({ model: model.id, elapsedMs, possible: false });

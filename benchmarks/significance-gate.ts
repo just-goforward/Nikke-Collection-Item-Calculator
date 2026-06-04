@@ -1,6 +1,6 @@
 // Pure seed-level completion gating for the significance re-collection, kept CRN-paired.
 //
-// The deep journey y-axis (run-availability-deep-slice.mjs `aggregateJourneyDemand`) drops a
+// The deep journey y-axis (run-availability-deep-slice.ts `aggregateJourneyDemand`) drops a
 // (panel, seed) trajectory job whose completionRate < JOURNEY_COMPLETION_THRESHOLD. The
 // significance re-collection compares A vs a candidate on the same panel by pairing per-run samples
 // across the SHARED seeds, so to match the deep gate WITHOUT breaking the paired-bootstrap CRN

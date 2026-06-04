@@ -1,20 +1,21 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
+import type {
+  ExactInteractiveEvaluation,
+  ExactInteractiveReplanCheckpoint,
+} from "./evaluator/exact-replan";
+import { isErrorWithCode, parsePositiveInteger } from "./runner-utils";
+import type { SolverScenario } from "./scenarios/fixed-grid";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
 const CHECKPOINT_FILE = new URL("./results/a-feasibility.checkpoint.json", import.meta.url);
 const DEFAULT_TOTAL_BUDGET_MS = 60 * 60 * 1000;
 const DEFAULT_SLICE_MS = 30 * 1000;
-const requestedTotalBudget = Number(process.env.A_FEASIBILITY_BUDGET_MS);
-const totalBudgetMs =
-  Number.isFinite(requestedTotalBudget) && requestedTotalBudget > 0
-    ? Math.floor(requestedTotalBudget)
-    : DEFAULT_TOTAL_BUDGET_MS;
-const requestedSlice = Number(process.env.A_FEASIBILITY_SLICE_MS);
-const sliceMs =
-  Number.isFinite(requestedSlice) && requestedSlice > 0
-    ? Math.floor(requestedSlice)
-    : DEFAULT_SLICE_MS;
+const totalBudgetMs = parsePositiveInteger(
+  process.env.A_FEASIBILITY_BUDGET_MS,
+  DEFAULT_TOTAL_BUDGET_MS,
+);
+const sliceMs = parsePositiveInteger(process.env.A_FEASIBILITY_SLICE_MS, DEFAULT_SLICE_MS);
 const reset = process.env.A_FEASIBILITY_RESET === "1";
 const sentinelOrder = [
   "R0-balanced300",
@@ -24,16 +25,70 @@ const sentinelOrder = [
   "R14e900-yellow30",
 ];
 
+type FeasibilityCompletedReport = {
+  status: ExactInteractiveEvaluation["status"];
+  scenario: string;
+  elapsedMs: number;
+  solveCalls: number;
+  cachedNodes: number;
+  cachedPolicies: number;
+  gateEvidence: ExactInteractiveEvaluation["gateEvidence"];
+  successProbability?: number;
+  expectedConsumption?: Extract<
+    ExactInteractiveEvaluation,
+    { status: "completed" }
+  >["expectedConsumption"];
+  interactiveF?: number;
+  manualEntryProbability?: number;
+  expectedManualEntries?: number;
+  successAttemptSelectionProbability?: number;
+  expectedSuccessAttemptSelections?: number;
+};
+
+type FeasibilityCheckpoint = {
+  version: 1;
+  sentinelIndex: number;
+  completed: FeasibilityCompletedReport[];
+  sessionCheckpoint: ExactInteractiveReplanCheckpoint | null;
+};
+
+function readFeasibilityCheckpoint(value: unknown): FeasibilityCheckpoint {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("version" in value) ||
+    value.version !== 1 ||
+    !("sentinelIndex" in value) ||
+    typeof value.sentinelIndex !== "number" ||
+    !("completed" in value) ||
+    !Array.isArray(value.completed)
+  ) {
+    throw new Error("Unsupported feasibility checkpoint version.");
+  }
+  return {
+    version: 1,
+    sentinelIndex: value.sentinelIndex,
+    completed: value.completed as FeasibilityCompletedReport[],
+    sessionCheckpoint:
+      "sessionCheckpoint" in value
+        ? (value.sessionCheckpoint as ExactInteractiveReplanCheckpoint | null)
+        : null,
+  };
+}
+
 await mkdir(RESULTS_DIRECTORY, { recursive: true });
 if (reset) await rm(CHECKPOINT_FILE, { force: true });
 
-let state = { version: 1, sentinelIndex: 0, completed: [], sessionCheckpoint: null };
+let state: FeasibilityCheckpoint = {
+  version: 1,
+  sentinelIndex: 0,
+  completed: [],
+  sessionCheckpoint: null,
+};
 try {
-  const saved = JSON.parse(await readFile(CHECKPOINT_FILE, "utf8"));
-  if (saved.version !== 1) throw new Error("Unsupported feasibility checkpoint version.");
-  state = saved;
+  state = readFeasibilityCheckpoint(JSON.parse(await readFile(CHECKPOINT_FILE, "utf8")));
 } catch (error) {
-  if (error?.code !== "ENOENT") throw error;
+  if (!isErrorWithCode(error) || error.code !== "ENOENT") throw error;
 }
 
 const elapsedBeforeCurrent =
@@ -57,19 +112,25 @@ if (remainingBudgetMs <= 0 && state.sentinelIndex < sentinelOrder.length) {
   });
 
   try {
-    const { createExactInteractiveReplanSession } = await server.ssrLoadModule(
+    const { createExactInteractiveReplanSession } = (await server.ssrLoadModule(
       "/benchmarks/evaluator/exact-replan.ts",
-    );
-    const { REQUIRED_SENTINELS } = await server.ssrLoadModule(
+    )) as typeof import("./evaluator/exact-replan");
+    const { REQUIRED_SENTINELS } = (await server.ssrLoadModule(
       "/benchmarks/scenarios/fixed-grid.ts",
-    );
+    )) as typeof import("./scenarios/fixed-grid");
     const scenarioId = sentinelOrder[state.sentinelIndex];
-    const scenario = REQUIRED_SENTINELS.find((candidate) => candidate.id === scenarioId);
+    const scenario: SolverScenario | undefined = REQUIRED_SENTINELS.find(
+      (candidate) => candidate.id === scenarioId,
+    );
     if (!scenario) throw new Error(`Missing required sentinel: ${scenarioId}`);
 
-    const session = createExactInteractiveReplanSession(scenario, {}, state.sessionCheckpoint);
+    const session = createExactInteractiveReplanSession(
+      scenario,
+      {},
+      state.sessionCheckpoint ?? undefined,
+    );
     const result = session.advance(Math.min(sliceMs, remainingBudgetMs));
-    const report = {
+    const report: FeasibilityCompletedReport = {
       status: result.status,
       scenario: result.scenario.id,
       elapsedMs: result.elapsedMs,
