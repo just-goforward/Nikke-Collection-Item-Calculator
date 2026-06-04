@@ -328,56 +328,6 @@ function simulate(
   };
 }
 
-function simulateWithFirstKit(
-  input: NormalizedInput,
-  actionFor: (state: CollectionState, stockUses: Stock) => Kit | null,
-  firstKit: Kit,
-  runs = 12000,
-  seed = 20260505,
-) {
-  const random = makeRandom(seed);
-  const totals: Stock = { blue: 0, purple: 0, yellow: 0 };
-  let completed = 0;
-
-  for (let run = 0; run < runs; run += 1) {
-    let state = normalizeState(input.start);
-    let stock = { ...input.stockUses };
-    const used: Stock = { blue: 0, purple: 0, yellow: 0 };
-    let forceFirst = true;
-
-    for (let step = 0; step < 1000; step += 1) {
-      if (isTerminal(state)) {
-        completed += 1;
-        break;
-      }
-      if (isConvertState(state)) {
-        state = convertState();
-        continue;
-      }
-      const kit = forceFirst ? firstKit : actionFor(state, stock);
-      forceFirst = false;
-      if (!kit || stock[kit] <= 0) break;
-      stock = decrementStock(stock, kit);
-      used[kit] += 10;
-      const edge = transition(state, kit);
-      state = random() < edge.probability ? edge.success : edge.fail;
-    }
-
-    for (const kit of KIT_ORDER) totals[kit] += used[kit];
-  }
-
-  return {
-    runs,
-    completed,
-    successProbability: runs > 0 ? completed / runs : 0,
-    vector: {
-      blue: runs > 0 ? totals.blue / runs : 0,
-      purple: runs > 0 ? totals.purple / runs : 0,
-      yellow: runs > 0 ? totals.yellow / runs : 0,
-    },
-  };
-}
-
 async function getSolver(wasmUrl: string) {
   solverPromise ??= loadRustMinEfSolver(wasmUrl);
   return solverPromise;
@@ -400,7 +350,7 @@ export async function solveRustMinEf(
     return {
       terminal: true,
       input: normalizedInput,
-      message: "?대? SR 15?덈꺼?낅땲??",
+      message: "이미 SR 15레벨입니다.",
     };
   }
 
@@ -555,7 +505,7 @@ export async function solveRustPhase2(
     return {
       terminal: true,
       input: normalizedInput,
-      message: "?대? SR 15?덈꺼?낅땲??",
+      message: "이미 SR 15레벨입니다.",
     };
   }
 
@@ -633,7 +583,12 @@ export async function solveRustPhase2(
   const monteCarloSeed = Math.max(0, Math.floor(Number(input?.monteCarloSeed) || 20260505));
   const monteCarlo =
     monteCarloRuns > 0
-      ? simulate(normalizedInput, actionFor, monteCarloRuns, monteCarloSeed)
+      ? solver.simulatePolicy(
+          normalizedInput.start,
+          normalizedInput.stock,
+          monteCarloRuns,
+          monteCarloSeed,
+        )
       : {
           runs: 0,
           completed: 0,
@@ -713,7 +668,7 @@ export async function solveRustPhase2Rerank(
     return {
       terminal: true,
       input: normalizedInput,
-      message: "?대? SR 15?덈꺼?낅땲??",
+      message: "이미 SR 15레벨입니다.",
     };
   }
 
@@ -761,13 +716,6 @@ export async function solveRustPhase2Rerank(
   }
 
   const solver = await getPhase2Solver(wasmUrl);
-  const baselineRoot = solver.solveRoot(
-    normalizedInput.start,
-    normalizedInput.stock,
-    HORIZON_FACTOR,
-    NORM_POWER,
-    TOLERANCE,
-  );
   const rerank = solver.selectFirstActionByExpectedCost(
     normalizedInput.start,
     normalizedInput.stock,
@@ -777,15 +725,16 @@ export async function solveRustPhase2Rerank(
     NORM_POWER,
     TOLERANCE,
   );
+  const baselineRoot = rerank?.baseline;
   const selected = rerank?.selected;
-  if (!selected?.firstAction) {
+  if (!baselineRoot || !selected?.firstAction) {
     return {
       possible: false,
       input: normalizedInput,
       message: "현재 보유 키트로 가능한 행동이 없습니다.",
     };
   }
-  const heldOut = solver.estimateExpectedCostAfterFirstAction(
+  const heldOut = solver.estimateExpectedCostAfterFirstActionFromCurrent(
     normalizedInput.start,
     normalizedInput.stock,
     selected.firstAction,
@@ -793,8 +742,18 @@ export async function solveRustPhase2Rerank(
     RERANK_HELD_OUT_SEED,
     HORIZON_FACTOR,
     NORM_POWER,
-    TOLERANCE,
   );
+  const heldOutBaseline = baselineRoot.firstAction
+    ? solver.estimateExpectedCostAfterFirstActionFromCurrent(
+        normalizedInput.start,
+        normalizedInput.stock,
+        baselineRoot.firstAction,
+        RERANK_RUNS,
+        RERANK_HELD_OUT_SEED,
+        HORIZON_FACTOR,
+        NORM_POWER,
+      )
+    : null;
 
   const actionFor = (state: CollectionState, stockUses: Stock) => {
     if (isTerminal(state) || isConvertState(state)) return null;
@@ -811,9 +770,9 @@ export async function solveRustPhase2Rerank(
   const monteCarloSeed = Math.max(0, Math.floor(Number(input?.monteCarloSeed) || 20260505));
   const monteCarlo =
     monteCarloRuns > 0
-      ? simulateWithFirstKit(
-          normalizedInput,
-          actionFor,
+      ? solver.simulatePolicyAfterFirstAction(
+          normalizedInput.start,
+          normalizedInput.stock,
           selected.firstAction,
           monteCarloRuns,
           monteCarloSeed,
@@ -890,6 +849,16 @@ export async function solveRustPhase2Rerank(
         heldOutSeed: RERANK_HELD_OUT_SEED,
         heldOutExpectedCost: heldOut.expectedCost,
         heldOutCompletionRate: heldOut.completionRate,
+        heldOutBaselineExpectedCost: heldOutBaseline?.expectedCost ?? null,
+        heldOutBaselineCompletionRate: heldOutBaseline?.completionRate ?? null,
+        heldOutDeltaVsBaseline:
+          heldOutBaseline && Number.isFinite(heldOutBaseline.expectedCost)
+            ? heldOut.expectedCost - heldOutBaseline.expectedCost
+            : null,
+        heldOutBeatsBaseline:
+          heldOutBaseline && Number.isFinite(heldOutBaseline.expectedCost)
+            ? heldOut.expectedCost <= heldOutBaseline.expectedCost + STRICT_EPSILON
+            : null,
         baselineFirstAction: baselineRoot.firstAction,
         baselineSuccessProbability: baselineRoot.successProbability,
       },
@@ -933,11 +902,7 @@ export async function validateRustPhase2(
     NORM_POWER,
     TOLERANCE,
   );
-  const actionFor = (state: CollectionState, stockUses: Stock) => {
-    if (isTerminal(state) || isConvertState(state)) return null;
-    return solver.actionAt(state, stockUses, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
-  };
-  return simulate(normalizedInput, actionFor, runs, seed);
+  return solver.simulatePolicy(normalizedInput.start, normalizedInput.stock, runs, seed);
 }
 
 export async function validateRustPhase2Rerank(
@@ -966,9 +931,11 @@ export async function validateRustPhase2Rerank(
       vector: { blue: 0, purple: 0, yellow: 0 },
     };
   }
-  const actionFor = (state: CollectionState, stockUses: Stock) => {
-    if (isTerminal(state) || isConvertState(state)) return null;
-    return solver.actionAt(state, stockUses, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
-  };
-  return simulateWithFirstKit(normalizedInput, actionFor, firstKit, runs, seed);
+  return solver.simulatePolicyAfterFirstAction(
+    normalizedInput.start,
+    normalizedInput.stock,
+    firstKit,
+    runs,
+    seed,
+  );
 }

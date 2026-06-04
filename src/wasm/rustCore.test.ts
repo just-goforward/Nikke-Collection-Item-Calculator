@@ -22,6 +22,14 @@ function makeExports(overrides: Partial<RustCoreExports> = {}): RustCoreExports 
     rootCandidateVecP: vi.fn((action: number) => 20 + action),
     rootCandidateVecY: vi.fn((action: number) => 30 + action),
     rootCandidateCost: vi.fn((action: number) => 0.1 + action),
+    policyActionAt: vi.fn(() => 1),
+    simulateCore: vi.fn(),
+    simulateAfterFirstActionCore: vi.fn(),
+    getMcCompleted: vi.fn(() => 80),
+    getMcRuns: vi.fn(() => 100),
+    getMcVecB: vi.fn(() => 1),
+    getMcVecP: vi.fn(() => 2),
+    getMcVecY: vi.fn(() => 3),
     statesCount: vi.fn(() => 1234),
     minEfAction: vi.fn(() => 0),
     minEfSuccessProb: vi.fn(() => 0.9),
@@ -32,6 +40,7 @@ function makeExports(overrides: Partial<RustCoreExports> = {}): RustCoreExports 
     minEfExpectedCost: vi.fn(() => 0.123),
     minEfActionAtOrSolve: vi.fn(() => 1),
     simulateExpectedFAfterFirstAction: vi.fn(),
+    simulateExpectedFAfterFirstActionFromPolicy: vi.fn(),
     getMcEf: vi.fn(() => 0.456),
     getMcEfCompletion: vi.fn(() => 0.99),
     ...overrides,
@@ -227,6 +236,41 @@ describe("rust min-E[f] core wrapper", () => {
     );
   });
 
+  it("looks up phase2 actions from the current policy memo without re-solving", () => {
+    const exports = makeExports();
+    const solver = createRustPhase2Solver(exports);
+
+    solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 });
+
+    expect(
+      solver.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 2, yellow: 3 }),
+    ).toBe("purple");
+    expect(exports.policyActionAt).toHaveBeenCalledWith(510, 1, 2, 3);
+    expect(exports.solveCore).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses Rust policy Monte Carlo exports for phase2 validation", () => {
+    const exports = makeExports();
+    const solver = createRustPhase2Solver(exports);
+
+    solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 });
+
+    expect(
+      solver.simulatePolicy(
+        { grade: "SR", level: 1, exp: 0 },
+        { blue: 10, purple: 20, yellow: 30 },
+        100,
+        20260505,
+      ),
+    ).toEqual({
+      runs: 100,
+      completed: 80,
+      successProbability: 0.8,
+      vector: { blue: 1, purple: 2, yellow: 3 },
+    });
+    expect(exports.simulateCore).toHaveBeenCalledWith(510, 10, 20, 30, 100, 20260505);
+  });
+
   it("throws on first-action E[f] simulation status before reading MC accessors", () => {
     const exports = makeExports({
       getSolveStatus: vi.fn(() => 1),
@@ -261,6 +305,9 @@ describe("rust min-E[f] core wrapper", () => {
       simulateExpectedFAfterFirstAction: vi.fn((...args: number[]) => {
         lastAction = args[12];
       }),
+      simulateExpectedFAfterFirstActionFromPolicy: vi.fn((...args: number[]) => {
+        lastAction = args[11];
+      }),
       getMcEf: vi.fn(() => {
         if (lastAction === 0) return 0.4;
         if (lastAction === 1) return 0.2;
@@ -280,10 +327,12 @@ describe("rust min-E[f] core wrapper", () => {
     );
 
     expect(result?.selected.firstAction).toBe("purple");
+    expect(result?.baseline.firstAction).toBe("yellow");
     expect(result?.candidates.map((candidate) => candidate.firstAction)).toEqual([
       "blue",
       "purple",
     ]);
-    expect(exports.simulateExpectedFAfterFirstAction).toHaveBeenCalledTimes(2);
+    expect(exports.simulateExpectedFAfterFirstActionFromPolicy).toHaveBeenCalledTimes(2);
+    expect(exports.solveCore).toHaveBeenCalledTimes(1);
   });
 });

@@ -77,11 +77,6 @@ export default function App() {
             STAGING - 테스트 기록은 운영 통계에 반영되지 않음
           </aside>
         )}
-        {statsMode === "staging" && solverBackend === "rust-min-ef" && (
-          <aside className={classes.stagingBanner} aria-label="Rust solver staging">
-            STAGING - Rust min E[f] solver 테스트 중
-          </aside>
-        )}
         {statsMode === "staging" && solverBackend === "rust-phase2" && (
           <aside className={classes.stagingBanner} aria-label="Rust solver staging">
             STAGING - Rust phase2 solver ?뚯뒪??以?{" "}

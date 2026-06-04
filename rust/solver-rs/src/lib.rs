@@ -183,7 +183,16 @@ fn ipow(base: f64, p: f64) -> f64 {
         base.powf(p)
     }
 }
-fn availability_cost(vb: f64, vp: f64, vy: f64, sb: f64, sp: f64, sy: f64, hf: f64, np: f64) -> f64 {
+fn availability_cost(
+    vb: f64,
+    vp: f64,
+    vy: f64,
+    sb: f64,
+    sp: f64,
+    sy: f64,
+    hf: f64,
+    np: f64,
+) -> f64 {
     let rb = ratio(vb, sb + hf * GAIN_B);
     let rp = ratio(vp, sp + hf * GAIN_P);
     let ry = ratio(vy, sy + hf * GAIN_Y);
@@ -641,7 +650,15 @@ const HBINS: usize = 256;
 static mut HIST_B: [i32; HBINS] = [0; HBINS];
 static mut HIST_P: [i32; HBINS] = [0; HBINS];
 static mut HIST_Y: [i32; HBINS] = [0; HBINS];
-unsafe fn simulate_run(start_sid: i32, b0: i32, p0: i32, y0: i32, runs: i32, seed: u32) {
+unsafe fn simulate_run_with_first_action(
+    start_sid: i32,
+    b0: i32,
+    p0: i32,
+    y0: i32,
+    runs: i32,
+    seed: u32,
+    first_action: i32,
+) {
     RNG = seed;
     let mut completed = 0;
     let (mut tb, mut tp, mut ty) = (0.0, 0.0, 0.0);
@@ -653,6 +670,7 @@ unsafe fn simulate_run(start_sid: i32, b0: i32, p0: i32, y0: i32, runs: i32, see
         let mut sid = start_sid;
         let (mut b, mut p, mut y) = (b0, p0, y0);
         let (mut ub, mut up, mut uy) = (0, 0, 0);
+        let mut force_first = first_action >= 0;
         for _ in 0..1000 {
             if is_terminal(sid) {
                 completed += 1;
@@ -662,7 +680,12 @@ unsafe fn simulate_run(start_sid: i32, b0: i32, p0: i32, y0: i32, runs: i32, see
                 sid = CONVERT_SID;
                 continue;
             }
-            let k = policy_action(sid, b, p, y);
+            let k = if force_first {
+                force_first = false;
+                first_action
+            } else {
+                policy_action(sid, b, p, y)
+            };
             if k < 0 || stock_of(k, b, p, y) <= 0 {
                 break;
             }
@@ -677,7 +700,11 @@ unsafe fn simulate_run(start_sid: i32, b0: i32, p0: i32, y0: i32, runs: i32, see
                 uy += 10;
             }
             compute_transition(sid, k);
-            sid = if next_random() < TX_PROB { TX_SUCC } else { TX_FAIL };
+            sid = if next_random() < TX_PROB {
+                TX_SUCC
+            } else {
+                TX_FAIL
+            };
         }
         let (fb, fp, fy) = (ub as f64, up as f64, uy as f64);
         tb += fb;
@@ -698,6 +725,10 @@ unsafe fn simulate_run(start_sid: i32, b0: i32, p0: i32, y0: i32, runs: i32, see
     MC_SQB = sqb;
     MC_SQP = sqp;
     MC_SQY = sqy;
+}
+
+unsafe fn simulate_run(start_sid: i32, b0: i32, p0: i32, y0: i32, runs: i32, seed: u32) {
+    simulate_run_with_first_action(start_sid, b0, p0, y0, runs, seed, -1);
 }
 
 // ===== index.ts (wasm exports) ===============================================================
@@ -796,6 +827,37 @@ pub extern "C" fn simulateCore(sid: i32, b: i32, p: i32, y: i32, runs: i32, seed
             runs,
             seed,
         )
+    }
+}
+#[no_mangle]
+pub extern "C" fn simulateAfterFirstActionCore(
+    sid: i32,
+    b: i32,
+    p: i32,
+    y: i32,
+    runs: i32,
+    seed: u32,
+    first_action: i32,
+) {
+    unsafe {
+        simulate_run_with_first_action(
+            sid,
+            uses_of(b, MAX_USES_B),
+            uses_of(p, MAX_USES_P),
+            uses_of(y, MAX_USES_Y),
+            runs,
+            seed,
+            first_action,
+        )
+    }
+}
+#[no_mangle]
+pub extern "C" fn policyActionAt(sid: i32, b: i32, p: i32, y: i32) -> i32 {
+    unsafe {
+        if !status_ok() {
+            return -1;
+        }
+        policy_action(sid, b, p, y)
     }
 }
 #[no_mangle]
@@ -1075,7 +1137,8 @@ unsafe fn run_count(sid: i32, action: i32, ub: i32, up: i32, uy: i32) -> i32 {
     compute_transition(state, action);
     let success_target = TX_SUCC; // firstEdge.success (solver.ts:751)
     let mut count = 0;
-    while count < 100 && !is_terminal(state) && !is_convert(state) && stock_of(action, b, p, y) > 0 {
+    while count < 100 && !is_terminal(state) && !is_convert(state) && stock_of(action, b, p, y) > 0
+    {
         if count > 0 && policy_action(state, b, p, y) != action {
             break; // policy changed (solver.ts:762-763)
         }
@@ -1165,7 +1228,15 @@ unsafe fn exact_value(sid: i32, pb: i32, pp: i32, py: i32) -> f64 {
 }
 
 #[no_mangle]
-pub extern "C" fn exactCore(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f64, tol: f64) -> f64 {
+pub extern "C" fn exactCore(
+    sid: i32,
+    pb: i32,
+    pp: i32,
+    py: i32,
+    hf: f64,
+    np: f64,
+    tol: f64,
+) -> f64 {
     unsafe {
         E_HF = hf;
         E_NP = np;
@@ -1288,7 +1359,16 @@ unsafe fn moment_node(sid: i32, b: i32, p: i32, y: i32) {
 }
 
 #[no_mangle]
-pub extern "C" fn distCore(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f64, tol: f64, kit: i32) {
+pub extern "C" fn distCore(
+    sid: i32,
+    pb: i32,
+    pp: i32,
+    py: i32,
+    hf: f64,
+    np: f64,
+    tol: f64,
+    kit: i32,
+) {
     unsafe {
         TARGET_KIT = kit;
         let uses_b = uses_of(pb, MAX_USES_B);
@@ -1297,7 +1377,9 @@ pub extern "C" fn distCore(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f64
         // build the policy memo once (start stock as cost basis), like solveCore; the moment
         // recursion then FOLLOWS that fixed policy (no per-node re-solve), as simulate does.
         memo_reset();
-        solve_start(sid, uses_b, uses_p, uses_y, pb as f64, pp as f64, py as f64, hf, np, tol);
+        solve_start(
+            sid, uses_b, uses_p, uses_y, pb as f64, pp as f64, py as f64, hf, np, tol,
+        );
         m_reset();
         moment_node(sid, uses_b, uses_p, uses_y);
         START_M1 = DM1;
@@ -1417,7 +1499,9 @@ unsafe fn leaf_cost(b: i32, p: i32, y: i32) -> f64 {
     let cons_b = ((CV_START_B - b) * 10) as f64;
     let cons_p = ((CV_START_P - p) * 10) as f64;
     let cons_y = ((CV_START_Y - y) * 10) as f64;
-    availability_cost(cons_b, cons_p, cons_y, CV_INIT_B, CV_INIT_P, CV_INIT_Y, CV_HF, CV_NP)
+    availability_cost(
+        cons_b, cons_p, cons_y, CV_INIT_B, CV_INIT_P, CV_INIT_Y, CV_HF, CV_NP,
+    )
 }
 #[inline]
 unsafe fn leaf_value(b: i32, p: i32, y: i32) -> f64 {
@@ -1571,7 +1655,11 @@ unsafe fn follow_recorded_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
     }
     let slot = -1 - f;
     let ps = pol_probe(sid, b, p, y);
-    let action: i32 = if POL_SID[ps] == -1 { -1 } else { POL_ACT[ps] as i32 };
+    let action: i32 = if POL_SID[ps] == -1 {
+        -1
+    } else {
+        POL_ACT[ps] as i32
+    };
     if action < 0 {
         let v = leaf_value(b, p, y);
         c_store(slot, sid, b, p, y, v);
@@ -1604,7 +1692,9 @@ pub extern "C" fn cvarSetup(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f6
         CV_START_Y = uses_of(py, MAX_USES_Y);
         CV_START_SID = sid;
         memo_reset();
-        solve_start(sid, CV_START_B, CV_START_P, CV_START_Y, pb as f64, pp as f64, py as f64, hf, np, tol);
+        solve_start(
+            sid, CV_START_B, CV_START_P, CV_START_Y, pb as f64, pp as f64, py as f64, hf, np, tol,
+        );
     }
 }
 #[no_mangle]
@@ -1826,12 +1916,14 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {
         if !status_ok() {
             return;
         }
-        let (cs_sp, cs_spmax, cs_vb, cs_vp, cs_vy, cs_ef) = (MN_SP, MN_SPMAX, MN_VB, MN_VP, MN_VY, MN_EF);
+        let (cs_sp, cs_spmax, cs_vb, cs_vp, cs_vy, cs_ef) =
+            (MN_SP, MN_SPMAX, MN_VB, MN_VP, MN_VY, MN_EF);
         minef_node(fail, nb, np, ny, depth + 1);
         if !status_ok() {
             return;
         }
-        let (cf_sp, cf_spmax, cf_vb, cf_vp, cf_vy, cf_ef) = (MN_SP, MN_SPMAX, MN_VB, MN_VP, MN_VY, MN_EF);
+        let (cf_sp, cf_spmax, cf_vb, cf_vp, cf_vy, cf_ef) =
+            (MN_SP, MN_SPMAX, MN_VB, MN_VP, MN_VY, MN_EF);
 
         let inv = 1.0 - prob;
         ME_SC_VALID[s] = 1;
@@ -1907,7 +1999,8 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {
             }
             continue;
         }
-        let dt = ME_SC_VB[s] + ME_SC_VP[s] + ME_SC_VY[s] - (ME_SC_VB[bs] + ME_SC_VP[bs] + ME_SC_VY[bs]);
+        let dt =
+            ME_SC_VB[s] + ME_SC_VP[s] + ME_SC_VY[s] - (ME_SC_VB[bs] + ME_SC_VP[bs] + ME_SC_VY[bs]);
         if dt.abs() > STRICT_EPSILON {
             if dt < 0.0 {
                 best_k = k as i32;
@@ -2036,11 +2129,95 @@ pub extern "C" fn getMcEfCompletion() -> f64 {
         }
     }
 }
+
+unsafe fn simulate_expected_f_after_first_action_policy(
+    start_sid: i32,
+    b0: i32,
+    p0: i32,
+    y0: i32,
+    init_b: f64,
+    init_p: f64,
+    init_y: f64,
+    hf: f64,
+    np: f64,
+    runs: i32,
+    seed: u32,
+    first_action: i32,
+) {
+    if !(0..=2).contains(&first_action) {
+        MC_EF_MEAN = f64::INFINITY;
+        MC_EF_RUNS = runs;
+        MC_EF_COMPLETED = 0;
+        return;
+    }
+
+    RNG = seed;
+    let mut sum_f = 0.0;
+    let mut completed = 0;
+    for _ in 0..runs {
+        let mut sid = start_sid;
+        let (mut b, mut p, mut y) = (b0, p0, y0);
+        let (mut ub, mut up, mut uy) = (0, 0, 0);
+        let mut force_first = true;
+        for _ in 0..1000 {
+            if is_terminal(sid) {
+                completed += 1;
+                break;
+            }
+            if is_convert(sid) {
+                sid = CONVERT_SID;
+                continue;
+            }
+            let k = if force_first {
+                force_first = false;
+                first_action
+            } else {
+                policy_action(sid, b, p, y)
+            };
+            if k < 0 || stock_of(k, b, p, y) <= 0 {
+                break;
+            }
+            if k == 0 {
+                b -= 1;
+                ub += 10;
+            } else if k == 1 {
+                p -= 1;
+                up += 10;
+            } else {
+                y -= 1;
+                uy += 10;
+            }
+            compute_transition(sid, k);
+            sid = if next_random() < TX_PROB {
+                TX_SUCC
+            } else {
+                TX_FAIL
+            };
+        }
+        sum_f += availability_cost(
+            ub as f64, up as f64, uy as f64, init_b, init_p, init_y, hf, np,
+        );
+    }
+    MC_EF_MEAN = if runs > 0 { sum_f / runs as f64 } else { 0.0 };
+    MC_EF_RUNS = runs;
+    MC_EF_COMPLETED = completed;
+}
+
 #[no_mangle]
 pub extern "C" fn simulateExpectedFAfterFirstAction(
-    start_sid: i32, b0: i32, p0: i32, y0: i32,
-    init_b: f64, init_p: f64, init_y: f64, hf: f64, np: f64, tol: f64,
-    runs: i32, seed: u32, first_action: i32,
+    start_sid: i32,
+    b0: i32,
+    p0: i32,
+    y0: i32,
+    init_b: f64,
+    init_p: f64,
+    init_y: f64,
+    hf: f64,
+    np: f64,
+    tol: f64,
+    runs: i32,
+    seed: u32,
+    first_action: i32,
 ) {
     unsafe {
         reset_status();
@@ -2053,64 +2230,74 @@ pub extern "C" fn simulateExpectedFAfterFirstAction(
             return;
         }
 
-        if !(0..=2).contains(&first_action) {
-            MC_EF_MEAN = f64::INFINITY;
+        simulate_expected_f_after_first_action_policy(
+            start_sid,
+            b0,
+            p0,
+            y0,
+            init_b,
+            init_p,
+            init_y,
+            hf,
+            np,
+            runs,
+            seed,
+            first_action,
+        );
+    }
+}
+#[no_mangle]
+pub extern "C" fn simulateExpectedFAfterFirstActionFromPolicy(
+    start_sid: i32,
+    b0: i32,
+    p0: i32,
+    y0: i32,
+    init_b: f64,
+    init_p: f64,
+    init_y: f64,
+    hf: f64,
+    np: f64,
+    runs: i32,
+    seed: u32,
+    first_action: i32,
+) {
+    unsafe {
+        if !status_ok() {
+            MC_EF_MEAN = 0.0;
             MC_EF_RUNS = runs;
             MC_EF_COMPLETED = 0;
             return;
         }
-
-        RNG = seed;
-        let mut sum_f = 0.0;
-        let mut completed = 0;
-        for _ in 0..runs {
-            let mut sid = start_sid;
-            let (mut b, mut p, mut y) = (b0, p0, y0);
-            let (mut ub, mut up, mut uy) = (0, 0, 0);
-            let mut force_first = true;
-            for _ in 0..1000 {
-                if is_terminal(sid) {
-                    completed += 1;
-                    break;
-                }
-                if is_convert(sid) {
-                    sid = CONVERT_SID;
-                    continue;
-                }
-                let k = if force_first {
-                    force_first = false;
-                    first_action
-                } else {
-                    policy_action(sid, b, p, y)
-                };
-                if k < 0 || stock_of(k, b, p, y) <= 0 {
-                    break;
-                }
-                if k == 0 {
-                    b -= 1;
-                    ub += 10;
-                } else if k == 1 {
-                    p -= 1;
-                    up += 10;
-                } else {
-                    y -= 1;
-                    uy += 10;
-                }
-                compute_transition(sid, k);
-                sid = if next_random() < TX_PROB { TX_SUCC } else { TX_FAIL };
-            }
-            sum_f += availability_cost(ub as f64, up as f64, uy as f64, init_b, init_p, init_y, hf, np);
-        }
-        MC_EF_MEAN = if runs > 0 { sum_f / runs as f64 } else { 0.0 };
-        MC_EF_RUNS = runs;
-        MC_EF_COMPLETED = completed;
+        simulate_expected_f_after_first_action_policy(
+            start_sid,
+            b0,
+            p0,
+            y0,
+            init_b,
+            init_p,
+            init_y,
+            hf,
+            np,
+            runs,
+            seed,
+            first_action,
+        );
     }
 }
 #[no_mangle]
 pub extern "C" fn simulateExpectedF(
-    start_sid: i32, b0: i32, p0: i32, y0: i32,
-    init_b: f64, init_p: f64, init_y: f64, hf: f64, np: f64,
-    runs: i32, seed: u32, mode: i32,
+    start_sid: i32,
+    b0: i32,
+    p0: i32,
+    y0: i32,
+    init_b: f64,
+    init_p: f64,
+    init_y: f64,
+    hf: f64,
+    np: f64,
+    runs: i32,
+    seed: u32,
+    mode: i32,
 ) {
     unsafe {
         RNG = seed;
@@ -2148,9 +2335,15 @@ pub extern "C" fn simulateExpectedF(
                     uy += 10;
                 }
                 compute_transition(sid, k);
-                sid = if next_random() < TX_PROB { TX_SUCC } else { TX_FAIL };
+                sid = if next_random() < TX_PROB {
+                    TX_SUCC
+                } else {
+                    TX_FAIL
+                };
             }
-            sum_f += availability_cost(ub as f64, up as f64, uy as f64, init_b, init_p, init_y, hf, np);
+            sum_f += availability_cost(
+                ub as f64, up as f64, uy as f64, init_b, init_p, init_y, hf, np,
+            );
         }
         MC_EF_MEAN = if runs > 0 { sum_f / runs as f64 } else { 0.0 };
         MC_EF_RUNS = runs;

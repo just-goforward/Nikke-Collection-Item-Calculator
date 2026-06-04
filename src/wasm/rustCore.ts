@@ -33,6 +33,34 @@ export type RustCoreExports = {
   rootCandidateVecP?: (action: number) => number;
   rootCandidateVecY?: (action: number) => number;
   rootCandidateCost?: (action: number) => number;
+  policyActionAt?: (
+    stateId: number,
+    blueUses: number,
+    purpleUses: number,
+    yellowUses: number,
+  ) => number;
+  simulateCore?: (
+    stateId: number,
+    bluePieces: number,
+    purplePieces: number,
+    yellowPieces: number,
+    runs: number,
+    seed: number,
+  ) => void;
+  simulateAfterFirstActionCore?: (
+    stateId: number,
+    bluePieces: number,
+    purplePieces: number,
+    yellowPieces: number,
+    runs: number,
+    seed: number,
+    firstAction: number,
+  ) => void;
+  getMcCompleted?: () => number;
+  getMcRuns?: () => number;
+  getMcVecB?: () => number;
+  getMcVecP?: () => number;
+  getMcVecY?: () => number;
   statesCount?: () => number;
   solveMinEf: (
     stateId: number,
@@ -67,6 +95,20 @@ export type RustCoreExports = {
     horizonFactor: number,
     normPower: number,
     tolerance: number,
+    runs: number,
+    seed: number,
+    firstAction: number,
+  ) => void;
+  simulateExpectedFAfterFirstActionFromPolicy?: (
+    stateId: number,
+    blueUses: number,
+    purpleUses: number,
+    yellowUses: number,
+    initialBluePieces: number,
+    initialPurplePieces: number,
+    initialYellowPieces: number,
+    horizonFactor: number,
+    normPower: number,
     runs: number,
     seed: number,
     firstAction: number,
@@ -110,8 +152,16 @@ export type RustPhase2Candidate = {
 export type RustRerankedCandidate = RustPhase2Candidate & RustFirstActionEstimate;
 
 export type RustRerankResult = {
+  baseline: RustPhase2Root;
   selected: RustRerankedCandidate;
   candidates: RustRerankedCandidate[];
+};
+
+export type RustMonteCarloResult = {
+  runs: number;
+  completed: number;
+  successProbability: number;
+  vector: Record<Kit, number>;
 };
 
 export type RustMinEfSolver = {
@@ -157,6 +207,23 @@ export type RustPhase2Solver = {
     normPower?: number,
     tolerance?: number,
   ) => RustFirstActionEstimate;
+  estimateExpectedCostAfterFirstActionFromCurrent: (
+    start: State,
+    stock: Stock,
+    firstAction: Kit,
+    runs: number,
+    seed: number,
+    horizonFactor?: number,
+    normPower?: number,
+  ) => RustFirstActionEstimate;
+  simulatePolicy: (start: State, stock: Stock, runs: number, seed: number) => RustMonteCarloResult;
+  simulatePolicyAfterFirstAction: (
+    start: State,
+    stock: Stock,
+    firstAction: Kit,
+    runs: number,
+    seed: number,
+  ) => RustMonteCarloResult;
   selectFirstActionByExpectedCost: (
     start: State,
     stock: Stock,
@@ -213,6 +280,41 @@ function readRootCandidates(exports: RustCoreExports, tolerance: number): RustPh
       },
     ];
   });
+}
+
+function readPhase2Root(exports: RustCoreExports, slot: number): RustPhase2Root {
+  const resAction = requireExport(exports, "resAction");
+  const resSuccessProb = requireExport(exports, "resSuccessProb");
+  const resMaxSuccessProb = requireExport(exports, "resMaxSuccessProb");
+  const resVecB = requireExport(exports, "resVecB");
+  const resVecP = requireExport(exports, "resVecP");
+  const resVecY = requireExport(exports, "resVecY");
+  return {
+    firstAction: actionFromIndex(resAction(slot)),
+    successProbability: resSuccessProb(slot),
+    maxSuccessProbability: resMaxSuccessProb(slot),
+    vector: {
+      blue: resVecB(slot),
+      purple: resVecP(slot),
+      yellow: resVecY(slot),
+    },
+    states: exports.statesCount?.() ?? 0,
+  };
+}
+
+function readMonteCarlo(exports: RustCoreExports): RustMonteCarloResult {
+  const runs = requireExport(exports, "getMcRuns")();
+  const completed = requireExport(exports, "getMcCompleted")();
+  return {
+    runs,
+    completed,
+    successProbability: runs > 0 ? completed / runs : 0,
+    vector: {
+      blue: requireExport(exports, "getMcVecB")(),
+      purple: requireExport(exports, "getMcVecP")(),
+      yellow: requireExport(exports, "getMcVecY")(),
+    },
+  };
 }
 
 function rustStatusName(status: number) {
@@ -306,6 +408,75 @@ export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver
 export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solver {
   exports.configureMemo?.(21);
   exports.configureNodeBudget?.(0);
+  const estimateExpectedCostAfterFirstActionFromCurrent = (
+    start: State,
+    stock: Stock,
+    firstAction: Kit,
+    runs: number,
+    seed: number,
+    horizonFactor = 0.75,
+    normPower = 3,
+  ) => {
+    const simulate = requireExport(exports, "simulateExpectedFAfterFirstActionFromPolicy");
+    const getMcEf = requireExport(exports, "getMcEf");
+    const getMcEfCompletion = requireExport(exports, "getMcEfCompletion");
+    const stateId = encodeState(start.grade, start.level, start.exp ?? 0);
+    const stockUses = stockToUses(stock);
+    simulate(
+      stateId,
+      stockUses.blue | 0,
+      stockUses.purple | 0,
+      stockUses.yellow | 0,
+      stock.blue | 0,
+      stock.purple | 0,
+      stock.yellow | 0,
+      horizonFactor,
+      normPower,
+      Math.max(0, Math.floor(runs) || 0),
+      seed >>> 0,
+      actionToIndex(firstAction),
+    );
+    assertRustStatusOk(exports, "phase2 first-action E[f] rollout");
+    return {
+      expectedCost: getMcEf(),
+      completionRate: getMcEfCompletion(),
+    };
+  };
+  const simulatePolicy = (start: State, stock: Stock, runs: number, seed: number) => {
+    const simulate = requireExport(exports, "simulateCore");
+    const stateId = encodeState(start.grade, start.level, start.exp ?? 0);
+    simulate(
+      stateId,
+      stock.blue | 0,
+      stock.purple | 0,
+      stock.yellow | 0,
+      Math.max(0, Math.floor(runs) || 0),
+      seed >>> 0,
+    );
+    assertRustStatusOk(exports, "phase2 Monte Carlo validation");
+    return readMonteCarlo(exports);
+  };
+  const simulatePolicyAfterFirstAction = (
+    start: State,
+    stock: Stock,
+    firstAction: Kit,
+    runs: number,
+    seed: number,
+  ) => {
+    const simulate = requireExport(exports, "simulateAfterFirstActionCore");
+    const stateId = encodeState(start.grade, start.level, start.exp ?? 0);
+    simulate(
+      stateId,
+      stock.blue | 0,
+      stock.purple | 0,
+      stock.yellow | 0,
+      Math.max(0, Math.floor(runs) || 0),
+      seed >>> 0,
+      actionToIndex(firstAction),
+    );
+    assertRustStatusOk(exports, "phase2 first-action Monte Carlo validation");
+    return readMonteCarlo(exports);
+  };
   const rootCandidates = (
     start: State,
     stock: Stock,
@@ -355,47 +526,25 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
   return {
     solveRoot(start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) {
       const slot = solvePhase2Slot(exports, start, stock, horizonFactor, normPower, tolerance);
-      const resAction = requireExport(exports, "resAction");
-      const resSuccessProb = requireExport(exports, "resSuccessProb");
-      const resMaxSuccessProb = requireExport(exports, "resMaxSuccessProb");
-      const resVecB = requireExport(exports, "resVecB");
-      const resVecP = requireExport(exports, "resVecP");
-      const resVecY = requireExport(exports, "resVecY");
-      return {
-        firstAction: actionFromIndex(resAction(slot)),
-        successProbability: resSuccessProb(slot),
-        maxSuccessProbability: resMaxSuccessProb(slot),
-        vector: {
-          blue: resVecB(slot),
-          purple: resVecP(slot),
-          yellow: resVecY(slot),
-        },
-        states: exports.statesCount?.() ?? 0,
-      };
+      return readPhase2Root(exports, slot);
     },
-    actionAt(state, stockUses, horizonFactor = 0.75, normPower = 3, tolerance = 0) {
-      const stockPieces = {
-        blue: stockUses.blue * 10,
-        purple: stockUses.purple * 10,
-        yellow: stockUses.yellow * 10,
-      };
-      const solveCore = requireExport(exports, "solveCore");
+    actionAt(state, stockUses) {
+      const policyActionAt = requireExport(exports, "policyActionAt");
       const stateId = encodeState(state.grade, state.level, state.exp ?? 0);
-      const slot = solveCore(
+      const action = policyActionAt(
         stateId,
-        stockPieces.blue | 0,
-        stockPieces.purple | 0,
-        stockPieces.yellow | 0,
-        horizonFactor,
-        normPower,
-        tolerance,
+        stockUses.blue | 0,
+        stockUses.purple | 0,
+        stockUses.yellow | 0,
       );
       assertRustStatusOk(exports, "phase2 action lookup");
-      if (slot < 0) return null;
-      return actionFromIndex(requireExport(exports, "resAction")(slot));
+      return actionFromIndex(action);
     },
     rootCandidates,
     estimateExpectedCostAfterFirstAction,
+    estimateExpectedCostAfterFirstActionFromCurrent,
+    simulatePolicy,
+    simulatePolicyAfterFirstAction,
     selectFirstActionByExpectedCost(
       start,
       stock,
@@ -405,18 +554,16 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
       normPower = 3,
       tolerance = 0,
     ) {
-      const exactCandidates = rootCandidates(
-        start,
-        stock,
-        horizonFactor,
-        normPower,
-        tolerance,
-      ).filter((candidate) => candidate.eligible);
+      const slot = solvePhase2Slot(exports, start, stock, horizonFactor, normPower, tolerance);
+      const baseline = readPhase2Root(exports, slot);
+      const exactCandidates = readRootCandidates(exports, tolerance).filter(
+        (candidate) => candidate.eligible,
+      );
       if (exactCandidates.length === 0) return null;
 
       const candidates = exactCandidates.map((candidate) => ({
         ...candidate,
-        ...estimateExpectedCostAfterFirstAction(
+        ...estimateExpectedCostAfterFirstActionFromCurrent(
           start,
           stock,
           candidate.firstAction,
@@ -424,7 +571,6 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
           seed,
           horizonFactor,
           normPower,
-          tolerance,
         ),
       }));
       const selected = candidates.reduce((best, candidate) => {
@@ -434,7 +580,7 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
         if (Math.abs(rc) > 1e-12) return rc < 0 ? candidate : best;
         return candidate.successProbability > best.successProbability ? candidate : best;
       });
-      return { selected, candidates };
+      return { baseline, selected, candidates };
     },
   };
 }

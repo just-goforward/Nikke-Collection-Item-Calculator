@@ -48,8 +48,7 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
       requestIdRef.current += 1;
       const id = requestIdRef.current;
       const backend = solverBackendFromRuntime();
-      const isRustBackend =
-        backend === "rust-phase2" || backend === "rust-phase2-rerank" || backend === "rust-min-ef";
+      const isRustBackend = backend === "rust-phase2" || backend === "rust-phase2-rerank";
       const wasmUrl = isRustBackend ? solverWasmUrl() : undefined;
 
       return new Promise<unknown>((resolve, reject) => {
@@ -120,12 +119,7 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
           );
         } catch (error) {
           resetWorker();
-          if (
-            backend === "rust-phase2" ||
-            backend === "rust-phase2-rerank" ||
-            backend === "rust-min-ef"
-          )
-            throw error;
+          if (backend === "rust-phase2" || backend === "rust-phase2-rerank") throw error;
         }
       }
       const { solve } = await import("../solver");
@@ -165,12 +159,7 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
           );
         } catch (error) {
           resetWorker();
-          if (
-            backend === "rust-phase2" ||
-            backend === "rust-phase2-rerank" ||
-            backend === "rust-min-ef"
-          )
-            throw error;
+          if (backend === "rust-phase2" || backend === "rust-phase2-rerank") throw error;
         }
       }
       const { solve } = await import("../solver");
