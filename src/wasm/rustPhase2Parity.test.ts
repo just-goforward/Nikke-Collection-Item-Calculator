@@ -7,6 +7,8 @@ const WASM_URL = new URL("../../public/solver_rs.wasm", import.meta.url);
 const HORIZON_FACTOR = 0.75;
 const NORM_POWER = 3;
 const TOLERANCE = 0;
+const MONTE_CARLO_RUNS = 256;
+const MONTE_CARLO_SEED = 20260505;
 
 type Case = {
   name: string;
@@ -84,6 +86,46 @@ describe("rust phase2 wasm parity", () => {
       closeTo(rust.vector.blue, js.best.vector.blue);
       closeTo(rust.vector.purple, js.best.vector.purple);
       closeTo(rust.vector.yellow, js.best.vector.yellow);
+    });
+
+    it(`matches JS phase2 Monte Carlo for ${testCase.name}`, () => {
+      const js = solveWithResearchCostModel(
+        {
+          start: testCase.start,
+          stock: testCase.stock,
+          strategy: "supply",
+          monteCarloRuns: MONTE_CARLO_RUNS,
+          monteCarloSeed: MONTE_CARLO_SEED,
+        },
+        { kind: "availability-pnorm", horizonFactor: HORIZON_FACTOR, normPower: NORM_POWER },
+        undefined,
+        { toleranceOverride: TOLERANCE },
+      ) as {
+        monteCarlo: {
+          runs: number;
+          completed: number;
+          successProbability: number;
+          vector: { blue: number; purple: number; yellow: number };
+        };
+      };
+
+      solver.solveRoot(testCase.start, testCase.stock, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+      const rust = solver.simulatePolicy(
+        testCase.start,
+        testCase.stock,
+        MONTE_CARLO_RUNS,
+        MONTE_CARLO_SEED,
+        HORIZON_FACTOR,
+        NORM_POWER,
+        TOLERANCE,
+      );
+
+      expect(rust.runs).toBe(js.monteCarlo.runs);
+      expect(rust.completed).toBe(js.monteCarlo.completed);
+      closeTo(rust.successProbability, js.monteCarlo.successProbability);
+      closeTo(rust.vector.blue, js.monteCarlo.vector.blue);
+      closeTo(rust.vector.purple, js.monteCarlo.vector.purple);
+      closeTo(rust.vector.yellow, js.monteCarlo.vector.yellow);
     });
   }
 });

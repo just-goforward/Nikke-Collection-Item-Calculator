@@ -168,14 +168,14 @@ export function MobileStatusStrip({ feedback, state, stock }: MobileStatusStripP
         >
           Lv {state.level}
         </span>
+        <span className={classes.statusDivider} aria-hidden="true">
+          /
+        </span>
         {feedbackActive ? (
           <span className={classes.statusFeedbackBadge} key={feedback.id}>
             {feedback.label}
           </span>
         ) : null}
-        <span className={classes.statusDivider} aria-hidden="true">
-          /
-        </span>
         <span className={classes.statusExpText}>{expSummaryText(state)}</span>
       </div>
       <div className={classes.statusExpBar} aria-hidden="true">

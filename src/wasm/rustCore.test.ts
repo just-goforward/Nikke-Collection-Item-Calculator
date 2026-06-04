@@ -240,13 +240,32 @@ describe("rust min-E[f] core wrapper", () => {
     const exports = makeExports();
     const solver = createRustPhase2Solver(exports);
 
-    solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 });
+    const policy = solver.buildPolicy(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 10, purple: 20, yellow: 30 },
+    );
 
     expect(
-      solver.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 2, yellow: 3 }),
+      policy.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 2, yellow: 3 }),
     ).toBe("purple");
     expect(exports.policyActionAt).toHaveBeenCalledWith(510, 1, 2, 3);
     expect(exports.solveCore).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates phase2 policy handles after a newer policy build", () => {
+    const exports = makeExports();
+    const solver = createRustPhase2Solver(exports);
+    const policy = solver.buildPolicy(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 10, purple: 20, yellow: 30 },
+    );
+
+    solver.solveRoot({ grade: "SR", level: 2, exp: 0 }, { blue: 40, purple: 50, yellow: 60 });
+
+    expect(() =>
+      policy.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 2, yellow: 3 }),
+    ).toThrow("stale");
+    expect(exports.policyActionAt).not.toHaveBeenCalled();
   });
 
   it("uses Rust policy Monte Carlo exports for phase2 validation", () => {
@@ -269,6 +288,23 @@ describe("rust min-E[f] core wrapper", () => {
       vector: { blue: 1, purple: 2, yellow: 3 },
     });
     expect(exports.simulateCore).toHaveBeenCalledWith(510, 10, 20, 30, 100, 20260505);
+  });
+
+  it("throws before phase2 policy Monte Carlo when the requested context differs from the current build", () => {
+    const exports = makeExports();
+    const solver = createRustPhase2Solver(exports);
+
+    solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 });
+
+    expect(() =>
+      solver.simulatePolicy(
+        { grade: "SR", level: 2, exp: 0 },
+        { blue: 10, purple: 20, yellow: 30 },
+        100,
+        20260505,
+      ),
+    ).toThrow("does not match");
+    expect(exports.simulateCore).not.toHaveBeenCalled();
   });
 
   it("throws on first-action E[f] simulation status before reading MC accessors", () => {

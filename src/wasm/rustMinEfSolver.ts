@@ -162,6 +162,8 @@ function makeRandom(seed: number) {
 }
 
 function actionFactory(solver: RustMinEfSolver) {
+  // RustMinEfSolver is research-only. Its action lookup intentionally keeps the historical
+  // build-once contract; product hardening is scoped to RustPhase2Solver.
   return (state: CollectionState, stockUses: Stock): Kit | null => {
     if (isTerminal(state) || isConvertState(state)) return null;
     return solver.actionAt(state, stockUses);
@@ -553,13 +555,14 @@ export async function solveRustPhase2(
   }
 
   const solver = await getPhase2Solver(wasmUrl);
-  const root = solver.solveRoot(
+  const policy = solver.buildPolicy(
     normalizedInput.start,
     normalizedInput.stock,
     HORIZON_FACTOR,
     NORM_POWER,
     TOLERANCE,
   );
+  const root = policy.root;
   if (!root.firstAction) {
     return {
       possible: false,
@@ -570,7 +573,7 @@ export async function solveRustPhase2(
 
   const actionFor = (state: CollectionState, stockUses: Stock) => {
     if (isTerminal(state) || isConvertState(state)) return null;
-    return solver.actionAt(state, stockUses, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+    return policy.actionAt(state, stockUses);
   };
   const run = buildRecommendedRun(normalizedInput, actionFor);
   const route = buildFailureRoute(normalizedInput, actionFor);
@@ -588,6 +591,9 @@ export async function solveRustPhase2(
           normalizedInput.stock,
           monteCarloRuns,
           monteCarloSeed,
+          HORIZON_FACTOR,
+          NORM_POWER,
+          TOLERANCE,
         )
       : {
           runs: 0,
@@ -744,20 +750,22 @@ export async function solveRustPhase2Rerank(
     NORM_POWER,
   );
   const heldOutBaseline = baselineRoot.firstAction
-    ? solver.estimateExpectedCostAfterFirstActionFromCurrent(
-        normalizedInput.start,
-        normalizedInput.stock,
-        baselineRoot.firstAction,
-        RERANK_RUNS,
-        RERANK_HELD_OUT_SEED,
-        HORIZON_FACTOR,
-        NORM_POWER,
-      )
+    ? baselineRoot.firstAction === selected.firstAction
+      ? heldOut
+      : solver.estimateExpectedCostAfterFirstActionFromCurrent(
+          normalizedInput.start,
+          normalizedInput.stock,
+          baselineRoot.firstAction,
+          RERANK_RUNS,
+          RERANK_HELD_OUT_SEED,
+          HORIZON_FACTOR,
+          NORM_POWER,
+        )
     : null;
 
   const actionFor = (state: CollectionState, stockUses: Stock) => {
     if (isTerminal(state) || isConvertState(state)) return null;
-    return solver.actionAt(state, stockUses, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+    return rerank.policy.actionAt(state, stockUses);
   };
   const run = buildRecommendedRunForKit(normalizedInput, actionFor, selected.firstAction);
   const route = buildFailureRouteWithFirstKit(normalizedInput, actionFor, selected.firstAction);
@@ -776,6 +784,9 @@ export async function solveRustPhase2Rerank(
           selected.firstAction,
           monteCarloRuns,
           monteCarloSeed,
+          HORIZON_FACTOR,
+          NORM_POWER,
+          TOLERANCE,
         )
       : {
           runs: 0,
@@ -902,7 +913,15 @@ export async function validateRustPhase2(
     NORM_POWER,
     TOLERANCE,
   );
-  return solver.simulatePolicy(normalizedInput.start, normalizedInput.stock, runs, seed);
+  return solver.simulatePolicy(
+    normalizedInput.start,
+    normalizedInput.stock,
+    runs,
+    seed,
+    HORIZON_FACTOR,
+    NORM_POWER,
+    TOLERANCE,
+  );
 }
 
 export async function validateRustPhase2Rerank(
@@ -937,5 +956,8 @@ export async function validateRustPhase2Rerank(
     firstKit,
     runs,
     seed,
+    HORIZON_FACTOR,
+    NORM_POWER,
+    TOLERANCE,
   );
 }

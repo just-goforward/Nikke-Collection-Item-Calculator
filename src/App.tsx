@@ -79,7 +79,7 @@ export default function App() {
         )}
         {statsMode === "staging" && solverBackend === "rust-phase2" && (
           <aside className={classes.stagingBanner} aria-label="Rust solver staging">
-            STAGING - Rust phase2 solver ?뚯뒪??以?{" "}
+            STAGING - Rust phase2 solver 테스트 중
           </aside>
         )}
         {statsMode === "staging" && solverBackend === "rust-phase2-rerank" && (

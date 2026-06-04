@@ -155,6 +155,7 @@ export type RustRerankResult = {
   baseline: RustPhase2Root;
   selected: RustRerankedCandidate;
   candidates: RustRerankedCandidate[];
+  policy: RustPhase2Policy;
 };
 
 export type RustMonteCarloResult = {
@@ -175,7 +176,19 @@ export type RustMinEfSolver = {
   actionAt: (state: State, stockUses: Stock) => Kit | null;
 };
 
+export type RustPhase2Policy = {
+  root: RustPhase2Root;
+  actionAt: (state: State, stockUses: Stock) => Kit | null;
+};
+
 export type RustPhase2Solver = {
+  buildPolicy: (
+    start: State,
+    stock: Stock,
+    horizonFactor?: number,
+    normPower?: number,
+    tolerance?: number,
+  ) => RustPhase2Policy;
   solveRoot: (
     start: State,
     stock: Stock,
@@ -183,13 +196,6 @@ export type RustPhase2Solver = {
     normPower?: number,
     tolerance?: number,
   ) => RustPhase2Root;
-  actionAt: (
-    state: State,
-    stockUses: Stock,
-    horizonFactor?: number,
-    normPower?: number,
-    tolerance?: number,
-  ) => Kit | null;
   rootCandidates: (
     start: State,
     stock: Stock,
@@ -207,6 +213,8 @@ export type RustPhase2Solver = {
     normPower?: number,
     tolerance?: number,
   ) => RustFirstActionEstimate;
+  // Follows the currently built phase2 policy. The current build's tolerance is intentionally
+  // inherited because this rollout does not rebuild or reselect the policy.
   estimateExpectedCostAfterFirstActionFromCurrent: (
     start: State,
     stock: Stock,
@@ -216,13 +224,24 @@ export type RustPhase2Solver = {
     horizonFactor?: number,
     normPower?: number,
   ) => RustFirstActionEstimate;
-  simulatePolicy: (start: State, stock: Stock, runs: number, seed: number) => RustMonteCarloResult;
+  simulatePolicy: (
+    start: State,
+    stock: Stock,
+    runs: number,
+    seed: number,
+    horizonFactor?: number,
+    normPower?: number,
+    tolerance?: number,
+  ) => RustMonteCarloResult;
   simulatePolicyAfterFirstAction: (
     start: State,
     stock: Stock,
     firstAction: Kit,
     runs: number,
     seed: number,
+    horizonFactor?: number,
+    normPower?: number,
+    tolerance?: number,
   ) => RustMonteCarloResult;
   selectFirstActionByExpectedCost: (
     start: State,
@@ -363,6 +382,56 @@ function solvePhase2Slot(
   return slot;
 }
 
+type Phase2BuildContext = {
+  stateId: number;
+  stock: Stock;
+  horizonFactor: number;
+  normPower: number;
+  tolerance: number;
+};
+
+function phase2BuildContext(
+  start: State,
+  stock: Stock,
+  horizonFactor: number,
+  normPower: number,
+  tolerance: number,
+): Phase2BuildContext {
+  return {
+    stateId: encodeState(start.grade, start.level, start.exp ?? 0),
+    stock: {
+      blue: stock.blue | 0,
+      purple: stock.purple | 0,
+      yellow: stock.yellow | 0,
+    },
+    horizonFactor,
+    normPower,
+    tolerance,
+  };
+}
+
+function nearlySame(a: number, b: number) {
+  return Math.abs(a - b) <= 1e-12;
+}
+
+function phase2ContextMatches(
+  actual: Phase2BuildContext | null,
+  expected: Phase2BuildContext,
+  options: { compareTolerance?: boolean } = {},
+) {
+  if (!actual) return false;
+  const compareTolerance = options.compareTolerance ?? true;
+  return (
+    actual.stateId === expected.stateId &&
+    actual.stock.blue === expected.stock.blue &&
+    actual.stock.purple === expected.stock.purple &&
+    actual.stock.yellow === expected.stock.yellow &&
+    nearlySame(actual.horizonFactor, expected.horizonFactor) &&
+    nearlySame(actual.normPower, expected.normPower) &&
+    (!compareTolerance || nearlySame(actual.tolerance, expected.tolerance))
+  );
+}
+
 export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver {
   exports.configureMemo?.(21);
   exports.configureNodeBudget?.(RUST_MIN_EF_NODE_BUDGET);
@@ -408,6 +477,61 @@ export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver
 export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solver {
   exports.configureMemo?.(21);
   exports.configureNodeBudget?.(0);
+  let currentBuild: Phase2BuildContext | null = null;
+  let buildGeneration = 0;
+
+  const recordBuild = (context: Phase2BuildContext) => {
+    currentBuild = context;
+    buildGeneration += 1;
+    return buildGeneration;
+  };
+
+  const assertCurrentBuild = (
+    expected: Phase2BuildContext,
+    operation: string,
+    options: { compareTolerance?: boolean } = {},
+  ) => {
+    if (phase2ContextMatches(currentBuild, expected, options)) return;
+    throw new Error(`Rust phase2 ${operation} does not match the current policy build.`);
+  };
+
+  const assertPolicyGeneration = (generation: number) => {
+    if (generation === buildGeneration) return;
+    throw new Error("Rust phase2 policy handle is stale because a newer policy was built.");
+  };
+
+  const actionAtForGeneration = (generation: number, state: State, stockUses: Stock) => {
+    assertPolicyGeneration(generation);
+    const policyActionAt = requireExport(exports, "policyActionAt");
+    const stateId = encodeState(state.grade, state.level, state.exp ?? 0);
+    const action = policyActionAt(
+      stateId,
+      stockUses.blue | 0,
+      stockUses.purple | 0,
+      stockUses.yellow | 0,
+    );
+    assertRustStatusOk(exports, "phase2 action lookup");
+    return actionFromIndex(action);
+  };
+
+  const buildPolicy = (
+    start: State,
+    stock: Stock,
+    horizonFactor = 0.75,
+    normPower = 3,
+    tolerance = 0,
+  ): RustPhase2Policy => {
+    const context = phase2BuildContext(start, stock, horizonFactor, normPower, tolerance);
+    const slot = solvePhase2Slot(exports, start, stock, horizonFactor, normPower, tolerance);
+    const generation = recordBuild(context);
+    return {
+      root: readPhase2Root(exports, slot),
+      actionAt(state, stockUses) {
+        return actionAtForGeneration(generation, state, stockUses);
+      },
+    };
+  };
+
   const estimateExpectedCostAfterFirstActionFromCurrent = (
     start: State,
     stock: Stock,
@@ -417,6 +541,11 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
     horizonFactor = 0.75,
     normPower = 3,
   ) => {
+    assertCurrentBuild(
+      phase2BuildContext(start, stock, horizonFactor, normPower, 0),
+      "current-policy first-action E[f] rollout",
+      { compareTolerance: false },
+    );
     const simulate = requireExport(exports, "simulateExpectedFAfterFirstActionFromPolicy");
     const getMcEf = requireExport(exports, "getMcEf");
     const getMcEfCompletion = requireExport(exports, "getMcEfCompletion");
@@ -442,7 +571,19 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
       completionRate: getMcEfCompletion(),
     };
   };
-  const simulatePolicy = (start: State, stock: Stock, runs: number, seed: number) => {
+  const simulatePolicy = (
+    start: State,
+    stock: Stock,
+    runs: number,
+    seed: number,
+    horizonFactor = 0.75,
+    normPower = 3,
+    tolerance = 0,
+  ) => {
+    assertCurrentBuild(
+      phase2BuildContext(start, stock, horizonFactor, normPower, tolerance),
+      "Monte Carlo validation",
+    );
     const simulate = requireExport(exports, "simulateCore");
     const stateId = encodeState(start.grade, start.level, start.exp ?? 0);
     simulate(
@@ -462,7 +603,14 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
     firstAction: Kit,
     runs: number,
     seed: number,
+    horizonFactor = 0.75,
+    normPower = 3,
+    tolerance = 0,
   ) => {
+    assertCurrentBuild(
+      phase2BuildContext(start, stock, horizonFactor, normPower, tolerance),
+      "first-action Monte Carlo validation",
+    );
     const simulate = requireExport(exports, "simulateAfterFirstActionCore");
     const stateId = encodeState(start.grade, start.level, start.exp ?? 0);
     simulate(
@@ -484,7 +632,9 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
     normPower = 3,
     tolerance = 0,
   ) => {
+    const context = phase2BuildContext(start, stock, horizonFactor, normPower, tolerance);
     solvePhase2Slot(exports, start, stock, horizonFactor, normPower, tolerance);
+    recordBuild(context);
     return readRootCandidates(exports, tolerance);
   };
   const estimateExpectedCostAfterFirstAction = (
@@ -524,21 +674,9 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
     };
   };
   return {
+    buildPolicy,
     solveRoot(start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) {
-      const slot = solvePhase2Slot(exports, start, stock, horizonFactor, normPower, tolerance);
-      return readPhase2Root(exports, slot);
-    },
-    actionAt(state, stockUses) {
-      const policyActionAt = requireExport(exports, "policyActionAt");
-      const stateId = encodeState(state.grade, state.level, state.exp ?? 0);
-      const action = policyActionAt(
-        stateId,
-        stockUses.blue | 0,
-        stockUses.purple | 0,
-        stockUses.yellow | 0,
-      );
-      assertRustStatusOk(exports, "phase2 action lookup");
-      return actionFromIndex(action);
+      return buildPolicy(start, stock, horizonFactor, normPower, tolerance).root;
     },
     rootCandidates,
     estimateExpectedCostAfterFirstAction,
@@ -554,8 +692,8 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
       normPower = 3,
       tolerance = 0,
     ) {
-      const slot = solvePhase2Slot(exports, start, stock, horizonFactor, normPower, tolerance);
-      const baseline = readPhase2Root(exports, slot);
+      const policy = buildPolicy(start, stock, horizonFactor, normPower, tolerance);
+      const baseline = policy.root;
       const exactCandidates = readRootCandidates(exports, tolerance).filter(
         (candidate) => candidate.eligible,
       );
@@ -580,7 +718,7 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
         if (Math.abs(rc) > 1e-12) return rc < 0 ? candidate : best;
         return candidate.successProbability > best.successProbability ? candidate : best;
       });
-      return { baseline, selected, candidates };
+      return { baseline, selected, candidates, policy };
     },
   };
 }
