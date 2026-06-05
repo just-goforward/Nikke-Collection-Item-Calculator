@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
 
-import { solverBackendFromRuntime, solverWasmUrl } from "../lib/solverRuntime";
+import {
+  solverBackendFromRuntime,
+  solverBackendShouldFailLoud,
+  solverWasmUrl,
+} from "../lib/solverRuntime";
 import { WorkerResponseSchema } from "../schemas";
 import type { ProgressEvent, SolverInput, WorkerTaskType } from "../types";
 import {
@@ -48,6 +52,7 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
       requestIdRef.current += 1;
       const id = requestIdRef.current;
       const backend = solverBackendFromRuntime();
+      const failLoud = solverBackendShouldFailLoud();
       const isRustBackend = backend === "rust-phase2" || backend === "rust-phase2-rerank";
       const wasmUrl = isRustBackend ? solverWasmUrl() : undefined;
 
@@ -93,7 +98,13 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
             cleanup();
             activeWorker.terminate();
             if (workerRef.current === activeWorker) workerRef.current = null;
-            reject(new Error("Rust staging solver timed out."));
+            reject(
+              new Error(
+                failLoud
+                  ? "Rust staging solver timed out."
+                  : "Rust solver timed out; falling back to JS solver.",
+              ),
+            );
           }, RUST_BACKEND_TIMEOUT_MS);
         }
         activeWorker.postMessage({ type, id, input, backend, wasmUrl, ...(options.payload || {}) });
@@ -105,6 +116,7 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
   const solveBestAvailable = useCallback(
     async (input: SolverInput) => {
       const backend = solverBackendFromRuntime();
+      const failLoud = solverBackendShouldFailLoud();
       const key = `${backend}|${inputKey(input)}`;
       const cached = solveCacheRef.current.get(key);
       if (cached) return cached;
@@ -119,7 +131,7 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
           );
         } catch (error) {
           resetWorker();
-          if (backend === "rust-phase2" || backend === "rust-phase2-rerank") throw error;
+          if (failLoud) throw error;
         }
       }
       const { solve } = await import("../solver");
@@ -142,6 +154,7 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
     ) => {
       const seed = Math.max(0, Math.floor(Number(options.seed) || 20260505));
       const backend = solverBackendFromRuntime();
+      const failLoud = solverBackendShouldFailLoud();
       const key = `${backend}|${inputKey(input)}|mc:${runs}|seed:${seed}`;
       const cached = validationCacheRef.current.get(key);
       if (!options.force && cached) return cached;
@@ -159,7 +172,7 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
           );
         } catch (error) {
           resetWorker();
-          if (backend === "rust-phase2" || backend === "rust-phase2-rerank") throw error;
+          if (failLoud) throw error;
         }
       }
       const { solve } = await import("../solver");

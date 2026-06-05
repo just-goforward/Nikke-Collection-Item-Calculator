@@ -41,8 +41,31 @@ function makeExports(overrides: Partial<RustCoreExports> = {}): RustCoreExports 
     minEfActionAtOrSolve: vi.fn(() => 1),
     simulateExpectedFAfterFirstAction: vi.fn(),
     simulateExpectedFAfterFirstActionFromPolicy: vi.fn(),
+    simulateExpectedFPairFromPolicy: vi.fn(),
     getMcEf: vi.fn(() => 0.456),
+    getMcEfSumSq: vi.fn(() => 20.8),
+    getMcEfRuns: vi.fn(() => 100),
     getMcEfCompletion: vi.fn(() => 0.99),
+    getPairMeanBaseline: vi.fn(() => 0.2),
+    getPairMeanSelected: vi.fn(() => 0.1),
+    getPairMeanDelta: vi.fn(() => -0.1),
+    getPairDeltaSumSq: vi.fn(() => 2),
+    getPairRuns: vi.fn(() => 100),
+    getPairCorrelation: vi.fn(() => 0.5),
+    momentVectorAfterFirstActionFromPolicy: vi.fn(),
+    momentMeanBUses: vi.fn(() => 1),
+    momentMeanPUses: vi.fn(() => 2),
+    momentMeanYUses: vi.fn(() => 3),
+    momentSecondBBUses: vi.fn(() => 2),
+    momentSecondPPUses: vi.fn(() => 6),
+    momentSecondYYUses: vi.fn(() => 12),
+    momentSecondBPUses: vi.fn(() => 3),
+    momentSecondBYUses: vi.fn(() => 4),
+    momentSecondPYUses: vi.fn(() => 8),
+    momentVectorNodeCount: vi.fn(() => 42),
+    cvarSetup: vi.fn(),
+    cvarFollowMeanAfterFirstAction: vi.fn(() => 0.321),
+    cvarNodeCount: vi.fn(() => 24),
     ...overrides,
   };
 }
@@ -370,5 +393,104 @@ describe("rust min-E[f] core wrapper", () => {
     ]);
     expect(exports.simulateExpectedFAfterFirstActionFromPolicy).toHaveBeenCalledTimes(2);
     expect(exports.solveCore).toHaveBeenCalledTimes(1);
+  });
+
+  it("wraps current-policy first-action E[f] moments behind the current build guard", () => {
+    const exports = makeExports();
+    const solver = createRustPhase2Solver(exports);
+
+    solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 });
+    const result = solver.estimateExpectedCostAfterFirstActionFromCurrentWithMoments(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 10, purple: 20, yellow: 30 },
+      "blue",
+      100,
+      20260509,
+      0.75,
+      3,
+    );
+
+    expect(result.expectedCost).toBe(0.456);
+    expect(result.runs).toBe(100);
+    expect(result.sumSq).toBe(20.8);
+    expect(result.variance).toBeCloseTo(20.8 / 100 - 0.456 ** 2, 12);
+    expect(result.standardError).toBeCloseTo(Math.sqrt(result.variance / 100), 12);
+    expect(exports.simulateExpectedFAfterFirstActionFromPolicy).toHaveBeenCalledOnce();
+  });
+
+  it("wraps paired current-policy E[f] rollout and reports exact zero for same-action mocks", () => {
+    const exports = makeExports({
+      getPairMeanBaseline: vi.fn(() => 0.2),
+      getPairMeanSelected: vi.fn(() => 0.2),
+      getPairMeanDelta: vi.fn(() => 0),
+      getPairDeltaSumSq: vi.fn(() => 0),
+      getPairRuns: vi.fn(() => 100),
+      getPairCorrelation: vi.fn(() => 0),
+    });
+    const solver = createRustPhase2Solver(exports);
+
+    solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 });
+    const result = solver.estimateExpectedCostPairFromCurrent(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 10, purple: 20, yellow: 30 },
+      "blue",
+      "blue",
+      100,
+      20260511,
+      0.75,
+      3,
+    );
+
+    expect(result.meanDelta).toBe(0);
+    expect(result.deltaVariance).toBe(0);
+    expect(result.standardError).toBe(0);
+    expect(result.upper95).toBe(0);
+    expect(exports.simulateExpectedFPairFromPolicy).toHaveBeenCalledOnce();
+  });
+
+  it("wraps current-policy A2 vector moments behind the current build guard", () => {
+    const exports = makeExports();
+    const solver = createRustPhase2Solver(exports);
+
+    solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 });
+    const result = solver.estimateA2SurrogateAfterFirstActionFromCurrent(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 10, purple: 20, yellow: 30 },
+      "blue",
+      0.75,
+      3,
+    );
+
+    expect(result.mean).toEqual({ blue: 10, purple: 20, yellow: 30 });
+    expect(result.covariance).toEqual({
+      blueBlue: 100,
+      purplePurple: 200,
+      yellowYellow: 300,
+      bluePurple: 100,
+      blueYellow: 100,
+      purpleYellow: 200,
+    });
+    expect(result.baseCost).toBeGreaterThan(0);
+    expect(Number.isFinite(result.surrogateCost)).toBe(true);
+    expect(result.nodeCount).toBe(42);
+    expect(exports.momentVectorAfterFirstActionFromPolicy).toHaveBeenCalledOnce();
+  });
+
+  it("wraps current-policy exact E[f] behind the current build guard", () => {
+    const exports = makeExports();
+    const solver = createRustPhase2Solver(exports);
+
+    solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 });
+    const result = solver.estimateExactExpectedCostAfterFirstActionFromCurrent(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 10, purple: 20, yellow: 30 },
+      "purple",
+      0.75,
+      3,
+    );
+
+    expect(result).toEqual({ expectedCost: 0.321, nodeCount: 24 });
+    expect(exports.cvarSetup).toHaveBeenCalledOnce();
+    expect(exports.cvarFollowMeanAfterFirstAction).toHaveBeenCalledWith(1);
   });
 });

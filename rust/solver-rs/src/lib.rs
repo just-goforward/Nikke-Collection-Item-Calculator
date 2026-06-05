@@ -1395,6 +1395,268 @@ pub extern "C" fn distVarUses() -> f64 {
     unsafe { START_M2 - START_M1 * START_M1 }
 }
 
+// ===== vector moments for A2 deterministic surrogate =========================================
+// Exact first and second raw moments of the 3-kit consumption vector under the currently built
+// fixed phase2 policy. This is the bounded surrogate layer for E[f]: it avoids carrying the full
+// terminal consumption distribution, but keeps all covariance terms needed by the delta method.
+const VM_CAP: usize = 1 << 20;
+const VM_MASK: u32 = (VM_CAP - 1) as u32;
+const VM_FULL_GUARD: usize = VM_CAP - VM_CAP / 8;
+static mut VM_COUNT: usize = 0;
+static mut VM_SID: Vec<i32> = Vec::new();
+static mut VM_B: Vec<i32> = Vec::new();
+static mut VM_P: Vec<i32> = Vec::new();
+static mut VM_Y: Vec<i32> = Vec::new();
+static mut VM_MB: Vec<f64> = Vec::new();
+static mut VM_MP: Vec<f64> = Vec::new();
+static mut VM_MY: Vec<f64> = Vec::new();
+static mut VM_BB: Vec<f64> = Vec::new();
+static mut VM_PP: Vec<f64> = Vec::new();
+static mut VM_YY: Vec<f64> = Vec::new();
+static mut VM_BP: Vec<f64> = Vec::new();
+static mut VM_BY: Vec<f64> = Vec::new();
+static mut VM_PY: Vec<f64> = Vec::new();
+static mut VMR: [f64; 9] = [0.0; 9];
+static mut VM_START: [f64; 9] = [0.0; 9];
+
+unsafe fn vm_reset() {
+    if VM_SID.is_empty() {
+        VM_SID = vec![-1i32; VM_CAP];
+        VM_B = vec![0i32; VM_CAP];
+        VM_P = vec![0i32; VM_CAP];
+        VM_Y = vec![0i32; VM_CAP];
+        VM_MB = vec![0.0f64; VM_CAP];
+        VM_MP = vec![0.0f64; VM_CAP];
+        VM_MY = vec![0.0f64; VM_CAP];
+        VM_BB = vec![0.0f64; VM_CAP];
+        VM_PP = vec![0.0f64; VM_CAP];
+        VM_YY = vec![0.0f64; VM_CAP];
+        VM_BP = vec![0.0f64; VM_CAP];
+        VM_BY = vec![0.0f64; VM_CAP];
+        VM_PY = vec![0.0f64; VM_CAP];
+    } else {
+        for s in VM_SID.iter_mut() {
+            *s = -1;
+        }
+    }
+    VM_COUNT = 0;
+}
+
+#[inline]
+fn vm_hash(sid: i32, b: i32, p: i32, y: i32) -> usize {
+    let mut h: u32 = (sid as u32).wrapping_mul(2654435761);
+    h ^= (b as u32).wrapping_mul(40503);
+    h ^= (p as u32).wrapping_mul(12289);
+    h ^= (y as u32).wrapping_mul(3079);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x85eb_ca6b);
+    (h & VM_MASK) as usize
+}
+
+#[inline]
+fn vm_mix(action: i32, prob: f64, s: [f64; 9], f: [f64; 9]) -> [f64; 9] {
+    let inv = 1.0 - prob;
+    let yb = prob * s[0] + inv * f[0];
+    let yp = prob * s[1] + inv * f[1];
+    let yy = prob * s[2] + inv * f[2];
+    let ybb = prob * s[3] + inv * f[3];
+    let ypp = prob * s[4] + inv * f[4];
+    let yyy = prob * s[5] + inv * f[5];
+    let ybp = prob * s[6] + inv * f[6];
+    let yby = prob * s[7] + inv * f[7];
+    let ypy = prob * s[8] + inv * f[8];
+    let db = if action == 0 { 1.0 } else { 0.0 };
+    let dp = if action == 1 { 1.0 } else { 0.0 };
+    let dy = if action == 2 { 1.0 } else { 0.0 };
+    [
+        db + yb,
+        dp + yp,
+        dy + yy,
+        db * db + 2.0 * db * yb + ybb,
+        dp * dp + 2.0 * dp * yp + ypp,
+        dy * dy + 2.0 * dy * yy + yyy,
+        db * dp + db * yp + dp * yb + ybp,
+        db * dy + db * yy + dy * yb + yby,
+        dp * dy + dp * yy + dy * yp + ypy,
+    ]
+}
+
+#[inline]
+unsafe fn vm_set(vals: [f64; 9]) {
+    VMR = vals;
+}
+
+#[inline]
+unsafe fn vm_get() -> [f64; 9] {
+    VMR
+}
+
+#[inline]
+unsafe fn vm_store(slot: usize, sid: i32, b: i32, p: i32, y: i32, vals: [f64; 9]) {
+    VM_SID[slot] = sid;
+    VM_B[slot] = b;
+    VM_P[slot] = p;
+    VM_Y[slot] = y;
+    VM_MB[slot] = vals[0];
+    VM_MP[slot] = vals[1];
+    VM_MY[slot] = vals[2];
+    VM_BB[slot] = vals[3];
+    VM_PP[slot] = vals[4];
+    VM_YY[slot] = vals[5];
+    VM_BP[slot] = vals[6];
+    VM_BY[slot] = vals[7];
+    VM_PY[slot] = vals[8];
+}
+
+unsafe fn vector_moment_node(sid: i32, b: i32, p: i32, y: i32) {
+    if !status_ok() {
+        vm_set([0.0; 9]);
+        return;
+    }
+    if is_terminal(sid) {
+        vm_set([0.0; 9]);
+        return;
+    }
+    if is_convert(sid) {
+        vector_moment_node(CONVERT_SID, b, p, y);
+        return;
+    }
+    let mut i = vm_hash(sid, b, p, y);
+    let mut probes = 0usize;
+    while VM_SID[i] != -1 {
+        if VM_SID[i] == sid && VM_B[i] == b && VM_P[i] == p && VM_Y[i] == y {
+            vm_set([
+                VM_MB[i], VM_MP[i], VM_MY[i], VM_BB[i], VM_PP[i], VM_YY[i], VM_BP[i],
+                VM_BY[i], VM_PY[i],
+            ]);
+            return;
+        }
+        probes += 1;
+        if probes >= VM_CAP {
+            LAST_STATUS = STATUS_MEMO_FULL;
+            vm_set([0.0; 9]);
+            return;
+        }
+        i = (i + 1) & (VM_MASK as usize);
+    }
+    if VM_COUNT >= VM_FULL_GUARD {
+        LAST_STATUS = STATUS_MEMO_FULL;
+        vm_set([0.0; 9]);
+        return;
+    }
+    VM_COUNT += 1;
+    let slot = i;
+
+    let action = policy_action(sid, b, p, y);
+    if action < 0 || stock_of(action, b, p, y) <= 0 {
+        let vals = [0.0; 9];
+        vm_store(slot, sid, b, p, y, vals);
+        vm_set(vals);
+        return;
+    }
+
+    compute_transition(sid, action);
+    let prob = TX_PROB;
+    let succ = TX_SUCC;
+    let fail = TX_FAIL;
+    let nb = b - if action == 0 { 1 } else { 0 };
+    let np = p - if action == 1 { 1 } else { 0 };
+    let ny = y - if action == 2 { 1 } else { 0 };
+
+    vector_moment_node(succ, nb, np, ny);
+    if !status_ok() {
+        return;
+    }
+    let succ_vals = vm_get();
+    vector_moment_node(fail, nb, np, ny);
+    if !status_ok() {
+        return;
+    }
+    let fail_vals = vm_get();
+    let vals = vm_mix(action, prob, succ_vals, fail_vals);
+    vm_store(slot, sid, b, p, y, vals);
+    vm_set(vals);
+}
+
+#[no_mangle]
+pub extern "C" fn momentVectorAfterFirstActionFromPolicy(
+    start_sid: i32,
+    b0: i32,
+    p0: i32,
+    y0: i32,
+    first_action: i32,
+) {
+    unsafe {
+        VM_START = [0.0; 9];
+        if !status_ok() || !(0..=2).contains(&first_action) {
+            return;
+        }
+        vm_reset();
+        if stock_of(first_action, b0, p0, y0) <= 0 {
+            return;
+        }
+        compute_transition(start_sid, first_action);
+        let prob = TX_PROB;
+        let succ = TX_SUCC;
+        let fail = TX_FAIL;
+        let nb = b0 - if first_action == 0 { 1 } else { 0 };
+        let np = p0 - if first_action == 1 { 1 } else { 0 };
+        let ny = y0 - if first_action == 2 { 1 } else { 0 };
+        vector_moment_node(succ, nb, np, ny);
+        if !status_ok() {
+            return;
+        }
+        let succ_vals = vm_get();
+        vector_moment_node(fail, nb, np, ny);
+        if !status_ok() {
+            return;
+        }
+        let fail_vals = vm_get();
+        VM_START = vm_mix(first_action, prob, succ_vals, fail_vals);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn momentMeanBUses() -> f64 {
+    unsafe { VM_START[0] }
+}
+#[no_mangle]
+pub extern "C" fn momentMeanPUses() -> f64 {
+    unsafe { VM_START[1] }
+}
+#[no_mangle]
+pub extern "C" fn momentMeanYUses() -> f64 {
+    unsafe { VM_START[2] }
+}
+#[no_mangle]
+pub extern "C" fn momentSecondBBUses() -> f64 {
+    unsafe { VM_START[3] }
+}
+#[no_mangle]
+pub extern "C" fn momentSecondPPUses() -> f64 {
+    unsafe { VM_START[4] }
+}
+#[no_mangle]
+pub extern "C" fn momentSecondYYUses() -> f64 {
+    unsafe { VM_START[5] }
+}
+#[no_mangle]
+pub extern "C" fn momentSecondBPUses() -> f64 {
+    unsafe { VM_START[6] }
+}
+#[no_mangle]
+pub extern "C" fn momentSecondBYUses() -> f64 {
+    unsafe { VM_START[7] }
+}
+#[no_mangle]
+pub extern "C" fn momentSecondPYUses() -> f64 {
+    unsafe { VM_START[8] }
+}
+#[no_mangle]
+pub extern "C" fn momentVectorNodeCount() -> i32 {
+    unsafe { VM_COUNT as i32 }
+}
+
 // ===== cvar.ts ===============================================================================
 // PORT OF: assembly/cvar.ts (Phase 3 본론; see ../PHASE3_CVAR.md). Tail-aware CVaR DP via the R–U
 // η-dual, made tractable by the terminal-cost collapse (consumed_i = (startUses_i − stock_i)·10 is
@@ -1402,6 +1664,8 @@ pub extern "C" fn distVarUses() -> f64 {
 // optimizing DP; *Record + followRecorded* trace the mean/tail Pareto frontier (E[f under π_α]).
 const C_CAP: usize = 1 << 20;
 const C_MASK: u32 = (C_CAP - 1) as u32;
+const C_FULL_GUARD: usize = C_CAP - C_CAP / 8;
+static mut C_COUNT: usize = 0;
 static mut C_SID: Vec<i32> = Vec::new(); // -1 = empty
 static mut C_B: Vec<i32> = Vec::new();
 static mut C_P: Vec<i32> = Vec::new();
@@ -1445,6 +1709,7 @@ unsafe fn c_reset() {
     for s in C_SID.iter_mut() {
         *s = -1;
     }
+    C_COUNT = 0;
 }
 unsafe fn pol_reset() {
     c_ensure();
@@ -1465,10 +1730,16 @@ fn c_hash(sid: i32, b: i32, p: i32, y: i32) -> u32 {
 // hit -> slot index (>=0, sets C_FOUND_VAL); miss -> -1-slot (empty slot for insertion).
 unsafe fn c_find(sid: i32, b: i32, p: i32, y: i32) -> i32 {
     let mut i = c_hash(sid, b, p, y) as usize;
+    let mut probes = 0usize;
     while C_SID[i] != -1 {
         if C_SID[i] == sid && C_B[i] == b && C_P[i] == p && C_Y[i] == y {
             C_FOUND_VAL = C_VAL[i];
             return i as i32;
+        }
+        probes += 1;
+        if probes >= C_CAP {
+            LAST_STATUS = STATUS_MEMO_FULL;
+            return -1;
         }
         i = (i + 1) & (C_MASK as usize);
     }
@@ -1476,12 +1747,17 @@ unsafe fn c_find(sid: i32, b: i32, p: i32, y: i32) -> i32 {
 }
 #[inline]
 unsafe fn c_store(slot: i32, sid: i32, b: i32, p: i32, y: i32, v: f64) {
+    if C_COUNT >= C_FULL_GUARD {
+        LAST_STATUS = STATUS_MEMO_FULL;
+        return;
+    }
     let s = slot as usize;
     C_SID[s] = sid;
     C_B[s] = b;
     C_P[s] = p;
     C_Y[s] = y;
     C_VAL[s] = v;
+    C_COUNT += 1;
 }
 unsafe fn pol_probe(sid: i32, b: i32, p: i32, y: i32) -> usize {
     let mut i = c_hash(sid, b, p, y) as usize;
@@ -1520,6 +1796,9 @@ unsafe fn leaf_value(b: i32, p: i32, y: i32) -> f64 {
 
 // E_π[leaf] under the fixed mean-MDP policy (policy_action).
 unsafe fn follow_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
+    if !status_ok() {
+        return 0.0;
+    }
     if is_terminal(sid) {
         return leaf_value(b, p, y);
     }
@@ -1527,6 +1806,9 @@ unsafe fn follow_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
         return follow_node(CONVERT_SID, b, p, y);
     }
     let f = c_find(sid, b, p, y);
+    if !status_ok() {
+        return 0.0;
+    }
     if f >= 0 {
         return C_FOUND_VAL;
     }
@@ -1545,7 +1827,13 @@ unsafe fn follow_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
     let np = p - if action == 1 { 1 } else { 0 };
     let ny = y - if action == 2 { 1 } else { 0 };
     let vs = follow_node(succ, nb, np, ny);
+    if !status_ok() {
+        return 0.0;
+    }
     let vf = follow_node(fail, nb, np, ny);
+    if !status_ok() {
+        return 0.0;
+    }
     let v = prob * vs + (1.0 - prob) * vf;
     c_store(slot, sid, b, p, y, v);
     v
@@ -1553,6 +1841,9 @@ unsafe fn follow_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
 
 // min_a E[leaf] — the optimizing DP.
 unsafe fn opt_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
+    if !status_ok() {
+        return 0.0;
+    }
     if is_terminal(sid) {
         return leaf_value(b, p, y);
     }
@@ -1560,6 +1851,9 @@ unsafe fn opt_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
         return opt_node(CONVERT_SID, b, p, y);
     }
     let f = c_find(sid, b, p, y);
+    if !status_ok() {
+        return 0.0;
+    }
     if f >= 0 {
         return C_FOUND_VAL;
     }
@@ -1578,7 +1872,13 @@ unsafe fn opt_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
         let np = p - if k == 1 { 1 } else { 0 };
         let ny = y - if k == 2 { 1 } else { 0 };
         let vs = opt_node(succ, nb, np, ny);
+        if !status_ok() {
+            return 0.0;
+        }
         let vf = opt_node(fail, nb, np, ny);
+        if !status_ok() {
+            return 0.0;
+        }
         let v = prob * vs + (1.0 - prob) * vf;
         if !found || v < best {
             best = v;
@@ -1594,6 +1894,9 @@ unsafe fn opt_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
 
 // opt_node + RECORD argmin action per node into the policy table (π_α at fixed η).
 unsafe fn opt_record_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
+    if !status_ok() {
+        return 0.0;
+    }
     if is_terminal(sid) {
         return leaf_value(b, p, y);
     }
@@ -1601,6 +1904,9 @@ unsafe fn opt_record_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
         return opt_record_node(CONVERT_SID, b, p, y);
     }
     let f = c_find(sid, b, p, y);
+    if !status_ok() {
+        return 0.0;
+    }
     if f >= 0 {
         return C_FOUND_VAL;
     }
@@ -1620,7 +1926,13 @@ unsafe fn opt_record_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
         let np = p - if k == 1 { 1 } else { 0 };
         let ny = y - if k == 2 { 1 } else { 0 };
         let vs = opt_record_node(succ, nb, np, ny);
+        if !status_ok() {
+            return 0.0;
+        }
         let vf = opt_record_node(fail, nb, np, ny);
+        if !status_ok() {
+            return 0.0;
+        }
         let v = prob * vs + (1.0 - prob) * vf;
         if !found || v < best {
             best = v;
@@ -1643,6 +1955,9 @@ unsafe fn opt_record_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
 
 // E_π[leaf] under the RECORDED policy (the most recent opt_record pass).
 unsafe fn follow_recorded_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
+    if !status_ok() {
+        return 0.0;
+    }
     if is_terminal(sid) {
         return leaf_value(b, p, y);
     }
@@ -1650,6 +1965,9 @@ unsafe fn follow_recorded_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
         return follow_recorded_node(CONVERT_SID, b, p, y);
     }
     let f = c_find(sid, b, p, y);
+    if !status_ok() {
+        return 0.0;
+    }
     if f >= 0 {
         return C_FOUND_VAL;
     }
@@ -1673,7 +1991,13 @@ unsafe fn follow_recorded_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
     let np = p - if action == 1 { 1 } else { 0 };
     let ny = y - if action == 2 { 1 } else { 0 };
     let vs = follow_recorded_node(succ, nb, np, ny);
+    if !status_ok() {
+        return 0.0;
+    }
     let vf = follow_recorded_node(fail, nb, np, ny);
+    if !status_ok() {
+        return 0.0;
+    }
     let v = prob * vs + (1.0 - prob) * vf;
     c_store(slot, sid, b, p, y, v);
     v
@@ -1682,6 +2006,7 @@ unsafe fn follow_recorded_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
 #[no_mangle]
 pub extern "C" fn cvarSetup(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f64, tol: f64) {
     unsafe {
+        reset_status();
         CV_HF = hf;
         CV_NP = np;
         CV_INIT_B = pb as f64;
@@ -1704,6 +2029,46 @@ pub extern "C" fn cvarFollowMean() -> f64 {
         c_reset();
         follow_node(CV_START_SID, CV_START_B, CV_START_P, CV_START_Y)
     }
+}
+#[no_mangle]
+pub extern "C" fn cvarFollowMeanAfterFirstAction(first_action: i32) -> f64 {
+    unsafe {
+        CV_USE_HINGE = false;
+        c_reset();
+        if !(0..=2).contains(&first_action) {
+            return f64::INFINITY;
+        }
+        let mut sid = CV_START_SID;
+        if is_convert(sid) {
+            sid = CONVERT_SID;
+        }
+        if is_terminal(sid) {
+            return leaf_value(CV_START_B, CV_START_P, CV_START_Y);
+        }
+        if stock_of(first_action, CV_START_B, CV_START_P, CV_START_Y) <= 0 {
+            return leaf_value(CV_START_B, CV_START_P, CV_START_Y);
+        }
+        compute_transition(sid, first_action);
+        let prob = TX_PROB;
+        let succ = TX_SUCC;
+        let fail = TX_FAIL;
+        let nb = CV_START_B - if first_action == 0 { 1 } else { 0 };
+        let np = CV_START_P - if first_action == 1 { 1 } else { 0 };
+        let ny = CV_START_Y - if first_action == 2 { 1 } else { 0 };
+        let vs = follow_node(succ, nb, np, ny);
+        if !status_ok() {
+            return 0.0;
+        }
+        let vf = follow_node(fail, nb, np, ny);
+        if !status_ok() {
+            return 0.0;
+        }
+        prob * vs + (1.0 - prob) * vf
+    }
+}
+#[no_mangle]
+pub extern "C" fn cvarNodeCount() -> i32 {
+    unsafe { C_COUNT as i32 }
 }
 #[no_mangle]
 pub extern "C" fn cvarFollowHinge(eta: f64) -> f64 {
@@ -2113,11 +2478,28 @@ pub extern "C" fn minEfActionAtOrSolve(sid: i32, b: i32, p: i32, y: i32) -> i32 
 // INDEPENDENT Monte-Carlo estimate of E[f] under a policy (mode 0 deployed / 1 min-E[f]) — samples +
 // averages f(realized total), a different path than the DP, so MC≈DP cross-checks the DP's expectation.
 static mut MC_EF_MEAN: f64 = 0.0;
+static mut MC_EF_SUMSQ: f64 = 0.0;
 static mut MC_EF_RUNS: i32 = 0;
 static mut MC_EF_COMPLETED: i32 = 0;
+static mut PAIR_BASE_MEAN: f64 = 0.0;
+static mut PAIR_SELECTED_MEAN: f64 = 0.0;
+static mut PAIR_DELTA_MEAN: f64 = 0.0;
+static mut PAIR_DELTA_SUMSQ: f64 = 0.0;
+static mut PAIR_BASE_SUMSQ: f64 = 0.0;
+static mut PAIR_SELECTED_SUMSQ: f64 = 0.0;
+static mut PAIR_CROSS_SUM: f64 = 0.0;
+static mut PAIR_RUNS: i32 = 0;
 #[no_mangle]
 pub extern "C" fn getMcEf() -> f64 {
     unsafe { MC_EF_MEAN }
+}
+#[no_mangle]
+pub extern "C" fn getMcEfSumSq() -> f64 {
+    unsafe { MC_EF_SUMSQ }
+}
+#[no_mangle]
+pub extern "C" fn getMcEfRuns() -> i32 {
+    unsafe { MC_EF_RUNS }
 }
 #[no_mangle]
 pub extern "C" fn getMcEfCompletion() -> f64 {
@@ -2128,6 +2510,114 @@ pub extern "C" fn getMcEfCompletion() -> f64 {
             0.0
         }
     }
+}
+
+#[no_mangle]
+pub extern "C" fn getPairMeanBaseline() -> f64 {
+    unsafe { PAIR_BASE_MEAN }
+}
+#[no_mangle]
+pub extern "C" fn getPairMeanSelected() -> f64 {
+    unsafe { PAIR_SELECTED_MEAN }
+}
+#[no_mangle]
+pub extern "C" fn getPairMeanDelta() -> f64 {
+    unsafe { PAIR_DELTA_MEAN }
+}
+#[no_mangle]
+pub extern "C" fn getPairDeltaSumSq() -> f64 {
+    unsafe { PAIR_DELTA_SUMSQ }
+}
+#[no_mangle]
+pub extern "C" fn getPairRuns() -> i32 {
+    unsafe { PAIR_RUNS }
+}
+#[no_mangle]
+pub extern "C" fn getPairCorrelation() -> f64 {
+    unsafe {
+        if PAIR_RUNS <= 0 {
+            return 0.0;
+        }
+        let runs = PAIR_RUNS as f64;
+        let cov = PAIR_CROSS_SUM / runs - PAIR_BASE_MEAN * PAIR_SELECTED_MEAN;
+        let base_var = PAIR_BASE_SUMSQ / runs - PAIR_BASE_MEAN * PAIR_BASE_MEAN;
+        let selected_var =
+            PAIR_SELECTED_SUMSQ / runs - PAIR_SELECTED_MEAN * PAIR_SELECTED_MEAN;
+        if base_var <= 0.0 || selected_var <= 0.0 {
+            return 0.0;
+        }
+        cov / (base_var.sqrt() * selected_var.sqrt())
+    }
+}
+
+#[inline]
+fn subseed(seed: u32, run_index: i32) -> u32 {
+    let mut x = seed ^ (run_index as u32).wrapping_mul(0x9E37_79B9);
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x7FEB_352D);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846C_A68B);
+    x ^ (x >> 16)
+}
+
+unsafe fn simulate_expected_f_once(
+    start_sid: i32,
+    b0: i32,
+    p0: i32,
+    y0: i32,
+    init_b: f64,
+    init_p: f64,
+    init_y: f64,
+    hf: f64,
+    np: f64,
+    first_action: i32,
+) -> (f64, bool) {
+    let mut sid = start_sid;
+    let (mut b, mut p, mut y) = (b0, p0, y0);
+    let (mut ub, mut up, mut uy) = (0, 0, 0);
+    let mut force_first = true;
+    let mut completed = false;
+    for _ in 0..1000 {
+        if is_terminal(sid) {
+            completed = true;
+            break;
+        }
+        if is_convert(sid) {
+            sid = CONVERT_SID;
+            continue;
+        }
+        let k = if force_first {
+            force_first = false;
+            first_action
+        } else {
+            policy_action(sid, b, p, y)
+        };
+        if k < 0 || stock_of(k, b, p, y) <= 0 {
+            break;
+        }
+        if k == 0 {
+            b -= 1;
+            ub += 10;
+        } else if k == 1 {
+            p -= 1;
+            up += 10;
+        } else {
+            y -= 1;
+            uy += 10;
+        }
+        compute_transition(sid, k);
+        sid = if next_random() < TX_PROB {
+            TX_SUCC
+        } else {
+            TX_FAIL
+        };
+    }
+    (
+        availability_cost(
+            ub as f64, up as f64, uy as f64, init_b, init_p, init_y, hf, np,
+        ),
+        completed,
+    )
 }
 
 unsafe fn simulate_expected_f_after_first_action_policy(
@@ -2146,6 +2636,7 @@ unsafe fn simulate_expected_f_after_first_action_policy(
 ) {
     if !(0..=2).contains(&first_action) {
         MC_EF_MEAN = f64::INFINITY;
+        MC_EF_SUMSQ = f64::INFINITY;
         MC_EF_RUNS = runs;
         MC_EF_COMPLETED = 0;
         return;
@@ -2153,52 +2644,29 @@ unsafe fn simulate_expected_f_after_first_action_policy(
 
     RNG = seed;
     let mut sum_f = 0.0;
+    let mut sum_sq = 0.0;
     let mut completed = 0;
     for _ in 0..runs {
-        let mut sid = start_sid;
-        let (mut b, mut p, mut y) = (b0, p0, y0);
-        let (mut ub, mut up, mut uy) = (0, 0, 0);
-        let mut force_first = true;
-        for _ in 0..1000 {
-            if is_terminal(sid) {
-                completed += 1;
-                break;
-            }
-            if is_convert(sid) {
-                sid = CONVERT_SID;
-                continue;
-            }
-            let k = if force_first {
-                force_first = false;
-                first_action
-            } else {
-                policy_action(sid, b, p, y)
-            };
-            if k < 0 || stock_of(k, b, p, y) <= 0 {
-                break;
-            }
-            if k == 0 {
-                b -= 1;
-                ub += 10;
-            } else if k == 1 {
-                p -= 1;
-                up += 10;
-            } else {
-                y -= 1;
-                uy += 10;
-            }
-            compute_transition(sid, k);
-            sid = if next_random() < TX_PROB {
-                TX_SUCC
-            } else {
-                TX_FAIL
-            };
-        }
-        sum_f += availability_cost(
-            ub as f64, up as f64, uy as f64, init_b, init_p, init_y, hf, np,
+        let (f, done) = simulate_expected_f_once(
+            start_sid,
+            b0,
+            p0,
+            y0,
+            init_b,
+            init_p,
+            init_y,
+            hf,
+            np,
+            first_action,
         );
+        if done {
+            completed += 1;
+        }
+        sum_f += f;
+        sum_sq += f * f;
     }
     MC_EF_MEAN = if runs > 0 { sum_f / runs as f64 } else { 0.0 };
+    MC_EF_SUMSQ = sum_sq;
     MC_EF_RUNS = runs;
     MC_EF_COMPLETED = completed;
 }
@@ -2225,6 +2693,7 @@ pub extern "C" fn simulateExpectedFAfterFirstAction(
         solve_start(start_sid, b0, p0, y0, init_b, init_p, init_y, hf, np, tol);
         if !status_ok() {
             MC_EF_MEAN = 0.0;
+            MC_EF_SUMSQ = 0.0;
             MC_EF_RUNS = runs;
             MC_EF_COMPLETED = 0;
             return;
@@ -2264,6 +2733,7 @@ pub extern "C" fn simulateExpectedFAfterFirstActionFromPolicy(
     unsafe {
         if !status_ok() {
             MC_EF_MEAN = 0.0;
+            MC_EF_SUMSQ = 0.0;
             MC_EF_RUNS = runs;
             MC_EF_COMPLETED = 0;
             return;
@@ -2282,6 +2752,102 @@ pub extern "C" fn simulateExpectedFAfterFirstActionFromPolicy(
             seed,
             first_action,
         );
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn simulateExpectedFPairFromPolicy(
+    start_sid: i32,
+    b0: i32,
+    p0: i32,
+    y0: i32,
+    init_b: f64,
+    init_p: f64,
+    init_y: f64,
+    hf: f64,
+    np: f64,
+    runs: i32,
+    seed: u32,
+    baseline_action: i32,
+    selected_action: i32,
+) {
+    unsafe {
+        if !status_ok()
+            || !(0..=2).contains(&baseline_action)
+            || !(0..=2).contains(&selected_action)
+        {
+            PAIR_BASE_MEAN = 0.0;
+            PAIR_SELECTED_MEAN = 0.0;
+            PAIR_DELTA_MEAN = 0.0;
+            PAIR_DELTA_SUMSQ = 0.0;
+            PAIR_BASE_SUMSQ = 0.0;
+            PAIR_SELECTED_SUMSQ = 0.0;
+            PAIR_CROSS_SUM = 0.0;
+            PAIR_RUNS = runs;
+            return;
+        }
+
+        let mut sum_base = 0.0;
+        let mut sum_selected = 0.0;
+        let mut sum_delta = 0.0;
+        let mut sum_delta_sq = 0.0;
+        let mut sum_base_sq = 0.0;
+        let mut sum_selected_sq = 0.0;
+        let mut sum_cross = 0.0;
+
+        for run in 0..runs {
+            let run_seed = subseed(seed, run);
+            RNG = run_seed;
+            let (base_f, _) = simulate_expected_f_once(
+                start_sid,
+                b0,
+                p0,
+                y0,
+                init_b,
+                init_p,
+                init_y,
+                hf,
+                np,
+                baseline_action,
+            );
+            RNG = run_seed;
+            let (selected_f, _) = simulate_expected_f_once(
+                start_sid,
+                b0,
+                p0,
+                y0,
+                init_b,
+                init_p,
+                init_y,
+                hf,
+                np,
+                selected_action,
+            );
+            let delta = selected_f - base_f;
+            sum_base += base_f;
+            sum_selected += selected_f;
+            sum_delta += delta;
+            sum_delta_sq += delta * delta;
+            sum_base_sq += base_f * base_f;
+            sum_selected_sq += selected_f * selected_f;
+            sum_cross += base_f * selected_f;
+        }
+
+        if runs > 0 {
+            let inv = 1.0 / runs as f64;
+            PAIR_BASE_MEAN = sum_base * inv;
+            PAIR_SELECTED_MEAN = sum_selected * inv;
+            PAIR_DELTA_MEAN = sum_delta * inv;
+        } else {
+            PAIR_BASE_MEAN = 0.0;
+            PAIR_SELECTED_MEAN = 0.0;
+            PAIR_DELTA_MEAN = 0.0;
+        }
+        PAIR_DELTA_SUMSQ = sum_delta_sq;
+        PAIR_BASE_SUMSQ = sum_base_sq;
+        PAIR_SELECTED_SUMSQ = sum_selected_sq;
+        PAIR_CROSS_SUM = sum_cross;
+        PAIR_RUNS = runs;
     }
 }
 #[no_mangle]

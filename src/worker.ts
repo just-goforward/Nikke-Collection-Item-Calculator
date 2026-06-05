@@ -1,7 +1,7 @@
 import { WorkerRequestSchema } from "./schemas";
 import { solve } from "./solver";
 
-import type { ProgressEvent, WorkerRequest, WorkerResponse } from "./types";
+import type { ProgressEvent, SolverInput, WorkerRequest, WorkerResponse } from "./types";
 import {
   solveRustMinEf,
   solveRustPhase2,
@@ -47,13 +47,22 @@ self.onmessage = async (event) => {
     ) {
       const wasmUrl = typeof data.wasmUrl === "string" ? data.wasmUrl : "";
       if (!wasmUrl) throw new Error("Rust solver WASM URL is missing.");
-      const solveRust =
+      const solveRust: (
+        input: SolverInput,
+        wasmUrl: string,
+        progress?: (progress: ProgressEvent) => void,
+      ) => Promise<unknown> =
         data.backend === "rust-phase2"
           ? solveRustPhase2
           : data.backend === "rust-phase2-rerank"
             ? solveRustPhase2Rerank
             : solveRustMinEf;
-      const validateRust =
+      const validateRust: (
+        input: SolverInput,
+        wasmUrl: string,
+        runs: number,
+        seed?: number,
+      ) => Promise<unknown> =
         data.backend === "rust-phase2"
           ? validateRustPhase2
           : data.backend === "rust-phase2-rerank"

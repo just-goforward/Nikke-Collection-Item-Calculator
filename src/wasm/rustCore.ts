@@ -1,3 +1,4 @@
+import { EXPECTED_28_DAY_GAIN } from "../solver";
 import { encodeState, type State, type Stock } from "./encode";
 
 const KITS = ["blue", "purple", "yellow"] as const;
@@ -114,7 +115,58 @@ export type RustCoreExports = {
     firstAction: number,
   ) => void;
   getMcEf?: () => number;
+  getMcEfSumSq?: () => number;
+  getMcEfRuns?: () => number;
   getMcEfCompletion?: () => number;
+  simulateExpectedFPairFromPolicy?: (
+    stateId: number,
+    blueUses: number,
+    purpleUses: number,
+    yellowUses: number,
+    initialBluePieces: number,
+    initialPurplePieces: number,
+    initialYellowPieces: number,
+    horizonFactor: number,
+    normPower: number,
+    runs: number,
+    seed: number,
+    baselineFirstAction: number,
+    selectedFirstAction: number,
+  ) => void;
+  getPairMeanBaseline?: () => number;
+  getPairMeanSelected?: () => number;
+  getPairMeanDelta?: () => number;
+  getPairDeltaSumSq?: () => number;
+  getPairRuns?: () => number;
+  getPairCorrelation?: () => number;
+  momentVectorAfterFirstActionFromPolicy?: (
+    stateId: number,
+    blueUses: number,
+    purpleUses: number,
+    yellowUses: number,
+    firstAction: number,
+  ) => void;
+  momentMeanBUses?: () => number;
+  momentMeanPUses?: () => number;
+  momentMeanYUses?: () => number;
+  momentSecondBBUses?: () => number;
+  momentSecondPPUses?: () => number;
+  momentSecondYYUses?: () => number;
+  momentSecondBPUses?: () => number;
+  momentSecondBYUses?: () => number;
+  momentSecondPYUses?: () => number;
+  momentVectorNodeCount?: () => number;
+  cvarSetup?: (
+    stateId: number,
+    bluePieces: number,
+    purplePieces: number,
+    yellowPieces: number,
+    horizonFactor: number,
+    normPower: number,
+    tolerance: number,
+  ) => void;
+  cvarFollowMeanAfterFirstAction?: (firstAction: number) => number;
+  cvarNodeCount?: () => number;
 };
 
 export type RustMinEfRoot = {
@@ -137,6 +189,46 @@ export type RustPhase2Root = {
 export type RustFirstActionEstimate = {
   expectedCost: number;
   completionRate: number;
+};
+
+export type RustFirstActionMomentEstimate = RustFirstActionEstimate & {
+  runs: number;
+  sumSq: number;
+  variance: number;
+  standardError: number;
+};
+
+export type RustPairedExpectedCostEstimate = {
+  runs: number;
+  meanBaseline: number;
+  meanSelected: number;
+  meanDelta: number;
+  deltaSumSq: number;
+  deltaVariance: number;
+  standardError: number;
+  upper95: number;
+  correlation: number;
+};
+
+export type RustA2MomentEstimate = {
+  mean: Record<Kit, number>;
+  covariance: {
+    blueBlue: number;
+    purplePurple: number;
+    yellowYellow: number;
+    bluePurple: number;
+    blueYellow: number;
+    purpleYellow: number;
+  };
+  baseCost: number;
+  secondOrderCorrection: number;
+  surrogateCost: number;
+  nodeCount: number;
+};
+
+export type RustExactExpectedCostEstimate = {
+  expectedCost: number;
+  nodeCount: number;
 };
 
 export type RustPhase2Candidate = {
@@ -178,6 +270,7 @@ export type RustMinEfSolver = {
 
 export type RustPhase2Policy = {
   root: RustPhase2Root;
+  candidates: RustPhase2Candidate[];
   actionAt: (state: State, stockUses: Stock) => Kit | null;
 };
 
@@ -224,6 +317,39 @@ export type RustPhase2Solver = {
     horizonFactor?: number,
     normPower?: number,
   ) => RustFirstActionEstimate;
+  estimateExpectedCostAfterFirstActionFromCurrentWithMoments: (
+    start: State,
+    stock: Stock,
+    firstAction: Kit,
+    runs: number,
+    seed: number,
+    horizonFactor?: number,
+    normPower?: number,
+  ) => RustFirstActionMomentEstimate;
+  estimateExpectedCostPairFromCurrent: (
+    start: State,
+    stock: Stock,
+    baselineFirstAction: Kit,
+    selectedFirstAction: Kit,
+    runs: number,
+    seed: number,
+    horizonFactor?: number,
+    normPower?: number,
+  ) => RustPairedExpectedCostEstimate;
+  estimateA2SurrogateAfterFirstActionFromCurrent: (
+    start: State,
+    stock: Stock,
+    firstAction: Kit,
+    horizonFactor?: number,
+    normPower?: number,
+  ) => RustA2MomentEstimate;
+  estimateExactExpectedCostAfterFirstActionFromCurrent: (
+    start: State,
+    stock: Stock,
+    firstAction: Kit,
+    horizonFactor?: number,
+    normPower?: number,
+  ) => RustExactExpectedCostEstimate;
   simulatePolicy: (
     start: State,
     stock: Stock,
@@ -341,6 +467,53 @@ function rustStatusName(status: number) {
   if (status === RUST_STATUS_BUDGET_EXCEEDED) return "budget_exceeded";
   if (status === RUST_STATUS_MEMO_FULL) return "memo_full";
   return `unknown_${status}`;
+}
+
+function populationVariance(sumSq: number, mean: number, runs: number) {
+  if (runs <= 0) return 0;
+  return Math.max(0, sumSq / runs - mean * mean);
+}
+
+function availabilityForKit(stock: Stock, kit: Kit, horizonFactor: number) {
+  return stock[kit] + horizonFactor * EXPECTED_28_DAY_GAIN[kit];
+}
+
+function availabilityCost(
+  vector: Record<Kit, number>,
+  stock: Stock,
+  horizonFactor: number,
+  p: number,
+) {
+  const ratios = KITS.map((kit) => {
+    const availability = availabilityForKit(stock, kit, horizonFactor);
+    if (availability > 0) return vector[kit] / availability;
+    return vector[kit] > 1e-12 ? Number.POSITIVE_INFINITY : 0;
+  });
+  if (!Number.isFinite(p)) return Math.max(...ratios);
+  return ratios.reduce((sum, ratio) => sum + ratio ** p, 0) ** (1 / p);
+}
+
+function availabilityHessian(
+  mean: Record<Kit, number>,
+  stock: Stock,
+  horizonFactor: number,
+  p: number,
+) {
+  if (!Number.isFinite(p) || p <= 1) return [0, 0, 0, 0, 0, 0] as const;
+  const availability = KITS.map((kit) => availabilityForKit(stock, kit, horizonFactor));
+  if (availability.some((value) => value <= 0)) return [0, 0, 0, 0, 0, 0] as const;
+  const c = KITS.map((kit) => Math.max(0, mean[kit]));
+  const w = availability.map((value) => value ** -p);
+  const s = c.reduce((total, value, index) => total + w[index] * value ** p, 0);
+  if (s <= 0) return [0, 0, 0, 0, 0, 0] as const;
+  const crossFactor = (1 - p) * s ** (1 / p - 2);
+  const diagFactor = (p - 1) * s ** (1 / p - 1);
+  const off = (i: number, j: number) =>
+    crossFactor * w[i] * w[j] * c[i] ** (p - 1) * c[j] ** (p - 1);
+  const diag = (i: number) =>
+    crossFactor * w[i] * w[i] * c[i] ** (2 * p - 2) +
+    diagFactor * w[i] * c[i] ** Math.max(0, p - 2);
+  return [diag(0), diag(1), diag(2), off(0, 1), off(0, 2), off(1, 2)] as const;
 }
 
 function assertRustStatusOk(exports: RustCoreExports, operation: string) {
@@ -526,13 +699,14 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
     const generation = recordBuild(context);
     return {
       root: readPhase2Root(exports, slot),
+      candidates: readRootCandidates(exports, tolerance),
       actionAt(state, stockUses) {
         return actionAtForGeneration(generation, state, stockUses);
       },
     };
   };
 
-  const estimateExpectedCostAfterFirstActionFromCurrent = (
+  const estimateExpectedCostAfterFirstActionFromCurrentWithMoments = (
     start: State,
     stock: Stock,
     firstAction: Kit,
@@ -548,6 +722,8 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
     );
     const simulate = requireExport(exports, "simulateExpectedFAfterFirstActionFromPolicy");
     const getMcEf = requireExport(exports, "getMcEf");
+    const getMcEfSumSq = requireExport(exports, "getMcEfSumSq");
+    const getMcEfRuns = requireExport(exports, "getMcEfRuns");
     const getMcEfCompletion = requireExport(exports, "getMcEfCompletion");
     const stateId = encodeState(start.grade, start.level, start.exp ?? 0);
     const stockUses = stockToUses(stock);
@@ -566,9 +742,199 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
       actionToIndex(firstAction),
     );
     assertRustStatusOk(exports, "phase2 first-action E[f] rollout");
+    const expectedCost = getMcEf();
+    const actualRuns = getMcEfRuns();
+    const sumSq = getMcEfSumSq();
+    const variance = populationVariance(sumSq, expectedCost, actualRuns);
     return {
-      expectedCost: getMcEf(),
+      expectedCost,
       completionRate: getMcEfCompletion(),
+      runs: actualRuns,
+      sumSq,
+      variance,
+      standardError: actualRuns > 0 ? Math.sqrt(variance / actualRuns) : 0,
+    };
+  };
+  const estimateExpectedCostAfterFirstActionFromCurrent = (
+    start: State,
+    stock: Stock,
+    firstAction: Kit,
+    runs: number,
+    seed: number,
+    horizonFactor = 0.75,
+    normPower = 3,
+  ) => {
+    const estimate = estimateExpectedCostAfterFirstActionFromCurrentWithMoments(
+      start,
+      stock,
+      firstAction,
+      runs,
+      seed,
+      horizonFactor,
+      normPower,
+    );
+    return {
+      expectedCost: estimate.expectedCost,
+      completionRate: estimate.completionRate,
+    };
+  };
+  const estimateExpectedCostPairFromCurrent = (
+    start: State,
+    stock: Stock,
+    baselineFirstAction: Kit,
+    selectedFirstAction: Kit,
+    runs: number,
+    seed: number,
+    horizonFactor = 0.75,
+    normPower = 3,
+  ) => {
+    assertCurrentBuild(
+      phase2BuildContext(start, stock, horizonFactor, normPower, 0),
+      "current-policy paired E[f] rollout",
+      { compareTolerance: false },
+    );
+    const simulate = requireExport(exports, "simulateExpectedFPairFromPolicy");
+    const getPairRuns = requireExport(exports, "getPairRuns");
+    const getPairMeanBaseline = requireExport(exports, "getPairMeanBaseline");
+    const getPairMeanSelected = requireExport(exports, "getPairMeanSelected");
+    const getPairMeanDelta = requireExport(exports, "getPairMeanDelta");
+    const getPairDeltaSumSq = requireExport(exports, "getPairDeltaSumSq");
+    const getPairCorrelation = requireExport(exports, "getPairCorrelation");
+    const stateId = encodeState(start.grade, start.level, start.exp ?? 0);
+    const stockUses = stockToUses(stock);
+    simulate(
+      stateId,
+      stockUses.blue | 0,
+      stockUses.purple | 0,
+      stockUses.yellow | 0,
+      stock.blue | 0,
+      stock.purple | 0,
+      stock.yellow | 0,
+      horizonFactor,
+      normPower,
+      Math.max(0, Math.floor(runs) || 0),
+      seed >>> 0,
+      actionToIndex(baselineFirstAction),
+      actionToIndex(selectedFirstAction),
+    );
+    assertRustStatusOk(exports, "phase2 paired E[f] rollout");
+    const actualRuns = getPairRuns();
+    const meanDelta = getPairMeanDelta();
+    const deltaSumSq = getPairDeltaSumSq();
+    const deltaVariance = populationVariance(deltaSumSq, meanDelta, actualRuns);
+    const standardError = actualRuns > 0 ? Math.sqrt(deltaVariance / actualRuns) : 0;
+    return {
+      runs: actualRuns,
+      meanBaseline: getPairMeanBaseline(),
+      meanSelected: getPairMeanSelected(),
+      meanDelta,
+      deltaSumSq,
+      deltaVariance,
+      standardError,
+      upper95: meanDelta + 1.96 * standardError,
+      correlation: getPairCorrelation(),
+    };
+  };
+  const estimateA2SurrogateAfterFirstActionFromCurrent = (
+    start: State,
+    stock: Stock,
+    firstAction: Kit,
+    horizonFactor = 0.75,
+    normPower = 3,
+  ) => {
+    assertCurrentBuild(
+      phase2BuildContext(start, stock, horizonFactor, normPower, 0),
+      "current-policy A2 moment rollout",
+      { compareTolerance: false },
+    );
+    const moment = requireExport(exports, "momentVectorAfterFirstActionFromPolicy");
+    const stateId = encodeState(start.grade, start.level, start.exp ?? 0);
+    const stockUses = stockToUses(stock);
+    moment(
+      stateId,
+      stockUses.blue | 0,
+      stockUses.purple | 0,
+      stockUses.yellow | 0,
+      actionToIndex(firstAction),
+    );
+    assertRustStatusOk(exports, "phase2 A2 moment rollout");
+
+    const mean = {
+      blue: requireExport(exports, "momentMeanBUses")() * 10,
+      purple: requireExport(exports, "momentMeanPUses")() * 10,
+      yellow: requireExport(exports, "momentMeanYUses")() * 10,
+    };
+    const second = {
+      blueBlue: requireExport(exports, "momentSecondBBUses")() * 100,
+      purplePurple: requireExport(exports, "momentSecondPPUses")() * 100,
+      yellowYellow: requireExport(exports, "momentSecondYYUses")() * 100,
+      bluePurple: requireExport(exports, "momentSecondBPUses")() * 100,
+      blueYellow: requireExport(exports, "momentSecondBYUses")() * 100,
+      purpleYellow: requireExport(exports, "momentSecondPYUses")() * 100,
+    };
+    const covariance = {
+      blueBlue: Math.max(0, second.blueBlue - mean.blue * mean.blue),
+      purplePurple: Math.max(0, second.purplePurple - mean.purple * mean.purple),
+      yellowYellow: Math.max(0, second.yellowYellow - mean.yellow * mean.yellow),
+      bluePurple: second.bluePurple - mean.blue * mean.purple,
+      blueYellow: second.blueYellow - mean.blue * mean.yellow,
+      purpleYellow: second.purpleYellow - mean.purple * mean.yellow,
+    };
+    const baseCost = availabilityCost(mean, stock, horizonFactor, normPower);
+    const [hBB, hPP, hYY, hBP, hBY, hPY] = availabilityHessian(
+      mean,
+      stock,
+      horizonFactor,
+      normPower,
+    );
+    const secondOrderCorrection =
+      0.5 *
+      (hBB * covariance.blueBlue +
+        hPP * covariance.purplePurple +
+        hYY * covariance.yellowYellow +
+        2 * hBP * covariance.bluePurple +
+        2 * hBY * covariance.blueYellow +
+        2 * hPY * covariance.purpleYellow);
+    return {
+      mean,
+      covariance,
+      baseCost,
+      secondOrderCorrection,
+      surrogateCost: Math.max(0, baseCost + secondOrderCorrection),
+      nodeCount: requireExport(exports, "momentVectorNodeCount")(),
+    };
+  };
+  const estimateExactExpectedCostAfterFirstActionFromCurrent = (
+    start: State,
+    stock: Stock,
+    firstAction: Kit,
+    horizonFactor = 0.75,
+    normPower = 3,
+  ) => {
+    assertCurrentBuild(
+      phase2BuildContext(start, stock, horizonFactor, normPower, 0),
+      "current-policy exact E[f] rollout",
+      { compareTolerance: false },
+    );
+    const setup = requireExport(exports, "cvarSetup");
+    const follow = requireExport(exports, "cvarFollowMeanAfterFirstAction");
+    const stateId = encodeState(start.grade, start.level, start.exp ?? 0);
+    const tolerance = currentBuild?.tolerance ?? 0;
+    setup(
+      stateId,
+      stock.blue | 0,
+      stock.purple | 0,
+      stock.yellow | 0,
+      horizonFactor,
+      normPower,
+      tolerance,
+    );
+    assertRustStatusOk(exports, "phase2 exact E[f] setup");
+    const expectedCost = follow(actionToIndex(firstAction));
+    assertRustStatusOk(exports, "phase2 exact E[f] rollout");
+    return {
+      expectedCost,
+      nodeCount: requireExport(exports, "cvarNodeCount")(),
     };
   };
   const simulatePolicy = (
@@ -681,6 +1047,10 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
     rootCandidates,
     estimateExpectedCostAfterFirstAction,
     estimateExpectedCostAfterFirstActionFromCurrent,
+    estimateExpectedCostAfterFirstActionFromCurrentWithMoments,
+    estimateExpectedCostPairFromCurrent,
+    estimateA2SurrogateAfterFirstActionFromCurrent,
+    estimateExactExpectedCostAfterFirstActionFromCurrent,
     simulatePolicy,
     simulatePolicyAfterFirstAction,
     selectFirstActionByExpectedCost(
@@ -694,9 +1064,7 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
     ) {
       const policy = buildPolicy(start, stock, horizonFactor, normPower, tolerance);
       const baseline = policy.root;
-      const exactCandidates = readRootCandidates(exports, tolerance).filter(
-        (candidate) => candidate.eligible,
-      );
+      const exactCandidates = policy.candidates.filter((candidate) => candidate.eligible);
       if (exactCandidates.length === 0) return null;
 
       const candidates = exactCandidates.map((candidate) => ({

@@ -24,6 +24,8 @@
     "bench:availability-finish": "node benchmarks/run-availability-finish.ts",
     "bench:availability-analyze": "node benchmarks/analyze-availability.ts",
     "bench:rust-rerank": "node benchmarks/run-rust-rerank-benchmark.ts",
+    "bench:rust-runtime": "node benchmarks/run-rust-runtime-benchmark.ts",
+    "bench:rust-analyze": "node benchmarks/analyze-rust-solver-direction.ts",
     "bench:rust-rerank-supplemental": "node benchmarks/run-rust-rerank-supplemental.ts",
     "bench:shadow-pilot": "node benchmarks/run-shadow-pilot.ts",
     "bench:shadow-exact-pilot": "node benchmarks/run-shadow-exact-pilot.ts",

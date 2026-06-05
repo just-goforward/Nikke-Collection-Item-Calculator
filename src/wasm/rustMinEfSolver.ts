@@ -13,7 +13,11 @@ import {
   loadRustMinEfSolver,
   loadRustPhase2Solver,
   type RustMinEfSolver,
+  type RustPairedExpectedCostEstimate,
+  type RustPhase2Candidate,
   type RustPhase2Solver,
+  type RustRerankedCandidate,
+  type RustRerankResult,
 } from "./rustCore";
 
 const KIT_ORDER: Kit[] = ["blue", "purple", "yellow"];
@@ -22,12 +26,20 @@ const HORIZON_FACTOR = 0.75;
 const NORM_POWER = 3;
 const TOLERANCE = 0;
 const SOLVER_VERSION = "phase3_rust_min_ef_staging";
-const PHASE2_SOLVER_VERSION = "phase2_availability_h075_tau0_p3_rust_staging";
-const RERANK_SOLVER_VERSION = "phase2_availability_h075_tau0_p3_rust_rerank_staging";
+const PHASE2_SOLVER_VERSION = "phase2_availability_h075_tau0_p3_rust";
+const RERANK_SOLVER_VERSION = "phase2_availability_h075_tau0_p3_rust_rerank_paired95_staging";
 const MAX_RUST_MIN_EF_STOCK_VOLUME = 10_000;
 const RERANK_RUNS = 2048;
 const RERANK_SEED = 20260509;
 const RERANK_HELD_OUT_SEED = 20260510;
+
+type Paired95RerankDecision = {
+  rerank: RustRerankResult;
+  rawSelected: RustRerankedCandidate;
+  selected: RustRerankedCandidate;
+  gatePair: RustPairedExpectedCostEstimate | null;
+  gatePass: boolean;
+};
 
 type NormalizedInput = SolverInput & {
   actualStockUses: Stock;
@@ -153,6 +165,52 @@ function availabilityCostScore(vector: Stock, stockPieces: Stock) {
   return ratios.reduce((sum, ratio) => sum + ratio ** NORM_POWER, 0) ** (1 / NORM_POWER);
 }
 
+function comparePhase2Candidates(a: RustPhase2Candidate, b: RustPhase2Candidate) {
+  if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
+  if (a.eligible && b.eligible && Math.abs(a.resourceCost - b.resourceCost) > STRICT_EPSILON) {
+    return a.resourceCost - b.resourceCost;
+  }
+  if (Math.abs(a.successProbability - b.successProbability) > STRICT_EPSILON) {
+    return b.successProbability - a.successProbability;
+  }
+  if (Math.abs(a.resourceCost - b.resourceCost) > STRICT_EPSILON) {
+    return a.resourceCost - b.resourceCost;
+  }
+  const totalDiff = totalKits(a.vector) - totalKits(b.vector);
+  if (Math.abs(totalDiff) > STRICT_EPSILON) return totalDiff;
+  return KIT_ORDER.indexOf(a.firstAction) - KIT_ORDER.indexOf(b.firstAction);
+}
+
+function buildPhase2TopCandidates(
+  input: NormalizedInput,
+  candidates: RustPhase2Candidate[],
+  actionFor: (state: CollectionState, stockUses: Stock) => Kit | null,
+) {
+  return [...candidates].sort(comparePhase2Candidates).map((candidate) => {
+    const totalExpectedKits = totalKits(candidate.vector);
+    const pressure = pressureScore(candidate.vector, input.stockUses);
+    const legacySupplyCost = legacySupplyCostScore(candidate.vector);
+    const availabilityCost = availabilityCostScore(candidate.vector, input.stock);
+    const vector = Object.fromEntries(
+      KIT_ORDER.map((kit) => [kit, round(candidate.vector[kit], 4)]),
+    ) as Stock;
+    return {
+      name: "Rust phase2",
+      firstAction: candidate.firstAction,
+      run: buildRecommendedRunForKit(input, actionFor, candidate.firstAction),
+      vector,
+      totalKits: round(totalExpectedKits, 4),
+      successProbability: round(candidate.successProbability, 8),
+      probabilityGap: round(candidate.probabilityGap, 8),
+      pressure: round(pressure, 8),
+      supplyCost: round(legacySupplyCost, 8),
+      availabilityCost: round(availabilityCost, 8),
+      legacySupplyCost: round(legacySupplyCost, 8),
+      resourceCost: round(candidate.resourceCost, 8),
+    };
+  });
+}
+
 function makeRandom(seed: number) {
   let value = seed >>> 0;
   return function random() {
@@ -224,7 +282,7 @@ function buildRecommendedRun(
 function buildFailureRoute(
   input: NormalizedInput,
   actionFor: (state: CollectionState, stockUses: Stock) => Kit | null,
-  limit = 100,
+  limit = 8,
 ) {
   const route = [];
   let state = normalizeState(input.start);
@@ -267,7 +325,7 @@ function buildFailureRouteWithFirstKit(
   input: NormalizedInput,
   actionFor: (state: CollectionState, stockUses: Stock) => Kit | null,
   firstKit: Kit,
-  limit = 100,
+  limit = 8,
 ) {
   let first = true;
   return buildFailureRoute(
@@ -338,6 +396,76 @@ async function getSolver(wasmUrl: string) {
 async function getPhase2Solver(wasmUrl: string) {
   phase2SolverPromise ??= loadRustPhase2Solver(wasmUrl);
   return phase2SolverPromise;
+}
+
+function baselineRerankCandidate(
+  solver: RustPhase2Solver,
+  rerank: RustRerankResult,
+  input: NormalizedInput,
+): RustRerankedCandidate | null {
+  const firstAction = rerank.baseline.firstAction;
+  if (!firstAction) return null;
+  const existing = rerank.candidates.find((candidate) => candidate.firstAction === firstAction);
+  if (existing) return existing;
+  const estimate = solver.estimateExpectedCostAfterFirstActionFromCurrent(
+    input.start,
+    input.stock,
+    firstAction,
+    RERANK_RUNS,
+    RERANK_SEED,
+    HORIZON_FACTOR,
+    NORM_POWER,
+  );
+  return {
+    firstAction,
+    successProbability: rerank.baseline.successProbability,
+    maxSuccessProbability: rerank.baseline.maxSuccessProbability,
+    probabilityGap: Math.max(
+      0,
+      rerank.baseline.maxSuccessProbability - rerank.baseline.successProbability,
+    ),
+    vector: rerank.baseline.vector,
+    resourceCost: estimate.expectedCost,
+    eligible: true,
+    expectedCost: estimate.expectedCost,
+    completionRate: estimate.completionRate,
+  };
+}
+
+function selectPaired95RerankDecision(
+  solver: RustPhase2Solver,
+  input: NormalizedInput,
+): Paired95RerankDecision | null {
+  const rerank = solver.selectFirstActionByExpectedCost(
+    input.start,
+    input.stock,
+    RERANK_RUNS,
+    RERANK_SEED,
+    HORIZON_FACTOR,
+    NORM_POWER,
+    TOLERANCE,
+  );
+  const rawSelected = rerank?.selected;
+  const baselineAction = rerank?.baseline.firstAction;
+  if (!rerank || !rawSelected?.firstAction || !baselineAction) return null;
+  if (baselineAction === rawSelected.firstAction) {
+    return { rerank, rawSelected, selected: rawSelected, gatePair: null, gatePass: true };
+  }
+  const gatePair = solver.estimateExpectedCostPairFromCurrent(
+    input.start,
+    input.stock,
+    baselineAction,
+    rawSelected.firstAction,
+    RERANK_RUNS,
+    RERANK_HELD_OUT_SEED,
+    HORIZON_FACTOR,
+    NORM_POWER,
+  );
+  const gatePass = gatePair.upper95 < 0;
+  if (gatePass) return { rerank, rawSelected, selected: rawSelected, gatePair, gatePass };
+  const baseline = baselineRerankCandidate(solver, rerank, input);
+  if (!baseline) return null;
+  return { rerank, rawSelected, selected: baseline, gatePair, gatePass };
 }
 
 export async function solveRustMinEf(
@@ -575,6 +703,7 @@ export async function solveRustPhase2(
     if (isTerminal(state) || isConvertState(state)) return null;
     return policy.actionAt(state, stockUses);
   };
+  const topCandidates = buildPhase2TopCandidates(normalizedInput, policy.candidates, actionFor);
   const run = buildRecommendedRun(normalizedInput, actionFor);
   const route = buildFailureRoute(normalizedInput, actionFor);
   const edge = transition(normalizedInput.start, root.firstAction);
@@ -604,27 +733,11 @@ export async function solveRustPhase2(
 
   if (progress) progress({ phase: "done", scanned: root.states, total: root.states });
 
-  const candidate = {
-    name: "Rust phase2",
-    firstAction: root.firstAction,
-    firstProbability: edge.probability,
-    run,
-    vector: Object.fromEntries(KIT_ORDER.map((kit) => [kit, round(root.vector[kit], 4)])),
-    totalKits: round(totalExpectedKits, 4),
-    successProbability: round(root.successProbability, 8),
-    probabilityGap: round(Math.max(0, root.maxSuccessProbability - root.successProbability), 8),
-    pressure: round(pressure, 8),
-    supplyCost: round(legacySupplyCost, 8),
-    availabilityCost: round(availabilityCost, 8),
-    legacySupplyCost: round(legacySupplyCost, 8),
-    resourceCost: round(availabilityCost, 8),
-  };
-
   return {
     possible: true,
     terminal: false,
     input: normalizedInput,
-    candidateCount: 1,
+    candidateCount: topCandidates.length,
     best: {
       name: "Rust phase2",
       firstAction: root.firstAction,
@@ -658,7 +771,7 @@ export async function solveRustPhase2(
       supplyAvailability: SUPPLY_AVAILABILITY_PARAMS,
       iterations: 0,
     },
-    topCandidates: [candidate],
+    topCandidates,
   };
 }
 
@@ -722,17 +835,11 @@ export async function solveRustPhase2Rerank(
   }
 
   const solver = await getPhase2Solver(wasmUrl);
-  const rerank = solver.selectFirstActionByExpectedCost(
-    normalizedInput.start,
-    normalizedInput.stock,
-    RERANK_RUNS,
-    RERANK_SEED,
-    HORIZON_FACTOR,
-    NORM_POWER,
-    TOLERANCE,
-  );
+  const decision = selectPaired95RerankDecision(solver, normalizedInput);
+  const rerank = decision?.rerank;
   const baselineRoot = rerank?.baseline;
-  const selected = rerank?.selected;
+  const selected = decision?.selected;
+  const rawSelected = decision?.rawSelected;
   if (!baselineRoot || !selected?.firstAction) {
     return {
       possible: false,
@@ -799,7 +906,7 @@ export async function solveRustPhase2Rerank(
     progress({ phase: "done", scanned: baselineRoot.states, total: baselineRoot.states });
 
   const candidate = {
-    name: "Rust phase2 rerank",
+    name: "Rust phase2 rerank paired95",
     firstAction: selected.firstAction,
     firstProbability: edge.probability,
     run,
@@ -822,7 +929,7 @@ export async function solveRustPhase2Rerank(
     input: normalizedInput,
     candidateCount: rerank?.candidates.length || 1,
     best: {
-      name: "Rust phase2 rerank",
+      name: "Rust phase2 rerank paired95",
       firstAction: selected.firstAction,
       firstProbability: edge.probability,
       run,
@@ -855,6 +962,16 @@ export async function solveRustPhase2Rerank(
       rustRerank: {
         runs: RERANK_RUNS,
         seed: RERANK_SEED,
+        gate: "paired95",
+        gateSeed: RERANK_HELD_OUT_SEED,
+        gatePass: decision?.gatePass ?? null,
+        gateMeanDelta: decision?.gatePair?.meanDelta ?? null,
+        gateStandardError: decision?.gatePair?.standardError ?? null,
+        gateUpper95: decision?.gatePair?.upper95 ?? null,
+        gateCorrelation: decision?.gatePair?.correlation ?? null,
+        rawSelectedFirstAction: rawSelected?.firstAction ?? null,
+        rawExpectedCost: rawSelected?.expectedCost ?? null,
+        rawCompletionRate: rawSelected?.completionRate ?? null,
         expectedCost: selected.expectedCost,
         completionRate: selected.completionRate,
         heldOutSeed: RERANK_HELD_OUT_SEED,
@@ -932,16 +1049,8 @@ export async function validateRustPhase2Rerank(
 ) {
   const normalizedInput = normalizeInput(input);
   const solver = await getPhase2Solver(wasmUrl);
-  const rerank = solver.selectFirstActionByExpectedCost(
-    normalizedInput.start,
-    normalizedInput.stock,
-    RERANK_RUNS,
-    RERANK_SEED,
-    HORIZON_FACTOR,
-    NORM_POWER,
-    TOLERANCE,
-  );
-  const firstKit = rerank?.selected.firstAction;
+  const decision = selectPaired95RerankDecision(solver, normalizedInput);
+  const firstKit = decision?.selected.firstAction;
   if (!firstKit) {
     return {
       runs,

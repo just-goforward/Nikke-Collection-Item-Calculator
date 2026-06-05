@@ -2,12 +2,30 @@ import { statsRuntimeMode } from "./statsRuntime";
 
 export type SolverBackend = "js-phase2" | "rust-phase2" | "rust-phase2-rerank";
 
+const DEFAULT_SOLVER_BACKEND: SolverBackend = "rust-phase2";
+
+function runtimeSearchParams() {
+  if (typeof window === "undefined") return new URLSearchParams();
+  return new URLSearchParams(window.location.search);
+}
+
 export function solverBackendFromRuntime(): SolverBackend {
   if (typeof window === "undefined") return "js-phase2";
-  const params = new URLSearchParams(window.location.search);
-  if (statsRuntimeMode() !== "staging") return "js-phase2";
+  const params = runtimeSearchParams();
   const backend = params.get("solverBackend");
-  return backend === "rust-phase2" || backend === "rust-phase2-rerank" ? backend : "js-phase2";
+  if (backend === "js-phase2") return "js-phase2";
+  if (backend === "rust-phase2") return "rust-phase2";
+  if (statsRuntimeMode() === "staging" && backend === "rust-phase2-rerank") {
+    return "rust-phase2-rerank";
+  }
+  return DEFAULT_SOLVER_BACKEND;
+}
+
+export function solverBackendShouldFailLoud(): boolean {
+  if (typeof window === "undefined") return false;
+  if (statsRuntimeMode() !== "staging") return false;
+  const backend = runtimeSearchParams().get("solverBackend");
+  return backend === "rust-phase2" || backend === "rust-phase2-rerank";
 }
 
 export function solverWasmUrl(): string {

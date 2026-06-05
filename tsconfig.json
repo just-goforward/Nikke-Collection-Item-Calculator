@@ -7,7 +7,7 @@
     "types": ["vite/client", "node"],
     "skipLibCheck": true,
     "moduleResolution": "Bundler",
-    "allowImportingTsExtensions": false,
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "moduleDetection": "force",
     "jsx": "react-jsx",
