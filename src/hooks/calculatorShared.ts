@@ -137,11 +137,17 @@ export function makeStatsEvent({
 
 function bucketStockPieces(value: number) {
   if (value <= 0) return "0";
-  if (value <= 9) return "1_9";
-  if (value <= 49) return "10_49";
+  if (value <= 49) return "1_49";
   if (value <= 99) return "50_99";
-  if (value <= 299) return "100_299";
-  return "300_plus";
+  if (value <= 149) return "100_149";
+  if (value <= 199) return "150_199";
+  if (value <= 249) return "200_249";
+  if (value <= 299) return "250_299";
+  if (value <= 349) return "300_349";
+  if (value <= 399) return "350_399";
+  if (value <= 449) return "400_449";
+  if (value <= 499) return "450_499";
+  return "500_plus";
 }
 
 function bucketRecommendedUses(value: number) {
@@ -242,7 +248,7 @@ export function makeSolverDiagnosticEvent(result: SolverResult) {
 
   return {
     kind: "solver_diagnostic" as const,
-    diagnosticVersion: 1,
+    diagnosticVersion: 2,
     solverVersion,
     solverPhase,
     start: input.start,

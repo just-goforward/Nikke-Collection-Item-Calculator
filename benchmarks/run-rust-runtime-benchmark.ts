@@ -30,6 +30,9 @@ const DEFAULT_SCENARIO_IDS = [
   "SR14e2900-balanced100",
   "R0-gain28Third",
   "R0-gain28One",
+  "R0-observedCore",
+  "SR10-observedYellowLow",
+  "SR10-observedPurpleHigh",
 ] as const;
 
 type RuntimeBackend = (typeof DEFAULT_BACKENDS)[number];
@@ -232,6 +235,9 @@ const fixedGrid = (await server.ssrLoadModule(
 const supplemental = (await server.ssrLoadModule(
   "/benchmarks/scenarios/rerank-supplemental.ts",
 )) as typeof import("./scenarios/rerank-supplemental");
+const productObserved = (await server.ssrLoadModule(
+  "/benchmarks/scenarios/rerank-product.ts",
+)) as typeof import("./scenarios/rerank-product");
 
 const allScenarios: RuntimeScenario[] = [
   ...fixedGrid.FIXED_SAFETY_GRID.map((scenario) => ({
@@ -241,6 +247,10 @@ const allScenarios: RuntimeScenario[] = [
   ...supplemental.RERANK_SUPPLEMENTAL_SCENARIOS.map((scenario) => ({
     ...scenario,
     source: "gain28-supplemental" as const,
+  })),
+  ...productObserved.PRODUCT_RERANK_SCENARIOS.map((scenario) => ({
+    ...scenario,
+    source: scenario.productSource,
   })),
 ];
 const byId = new Map(allScenarios.map((scenario) => [scenario.id, scenario]));

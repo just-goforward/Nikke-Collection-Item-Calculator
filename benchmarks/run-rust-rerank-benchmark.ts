@@ -18,6 +18,11 @@ const HORIZON_FACTOR = 0.75;
 const NORM_POWER = 3;
 const TOLERANCE = 0;
 const DEFAULT_RUNS = 2048;
+const ADAPTIVE_QUICK_RUNS = 512;
+const ADAPTIVE_MAX_RUNS = 2048;
+const ADAPTIVE_GATE_Z = 1.645;
+const ADAPTIVE_QUICK_ACCEPT_MARGIN = -0.001;
+const ADAPTIVE_FULL_ACCEPT_MARGIN = -0.00025;
 const DEFAULT_SEED = 20260509;
 const DEFAULT_HELD_OUT_SEED = 20260510;
 const DEFAULT_EVALUATION_SEEDS = [20260511, 20260512, 20260513, 20260514] as const;
@@ -80,6 +85,23 @@ type ScenarioRecord = {
   paired95EvaluationDeltaVsBaseline: number | null;
   paired95FalsePositive: boolean | null;
   paired95FalseNegative: boolean | null;
+  adaptive90RawSelectedFirstAction: string | null;
+  adaptive90SelectedFirstAction: string | null;
+  adaptive90GatePass: boolean | null;
+  adaptive90Intervened: boolean;
+  adaptive90EvaluationDeltaVsBaseline: number | null;
+  adaptive90FalsePositive: boolean | null;
+  adaptive90FalseNegative: boolean | null;
+  adaptive90GateRuns: number | null;
+  adaptive90GateMeanDelta: number | null;
+  adaptive90GateStandardError: number | null;
+  adaptive90GateUpperBound: number | null;
+  adaptive90GateCorrelation: number | null;
+  a2GatePass: boolean | null;
+  a2GateIntervened: boolean;
+  a2GateEvaluationDeltaVsBaseline: number | null;
+  a2GateFalsePositive: boolean | null;
+  a2GateFalseNegative: boolean | null;
   gatePairMeanDelta: number | null;
   gatePairStandardError: number | null;
   gatePairUpper95: number | null;
@@ -126,11 +148,20 @@ function parseSources(value: string | undefined): Set<ScenarioSource> {
       .map((item) => item.trim())
       .filter(Boolean),
   );
-  if (parsed.has("all")) return new Set(["fixed-grid", "gain28-supplemental"]);
+  if (parsed.has("all"))
+    return new Set([
+      "fixed-grid",
+      "gain28-supplemental",
+      "product-observed",
+      "product-observed-high-stock",
+    ]);
   return new Set(
     [...parsed].filter(
       (source): source is ScenarioSource =>
-        source === "fixed-grid" || source === "gain28-supplemental",
+        source === "fixed-grid" ||
+        source === "gain28-supplemental" ||
+        source === "product-observed" ||
+        source === "product-observed-high-stock",
     ),
   );
 }
@@ -162,10 +193,25 @@ function summarizeDeltaRecords(
   deltaKey:
     | "rawEvaluationDeltaVsBaseline"
     | "twoFoldEvaluationDeltaVsBaseline"
-    | "paired95EvaluationDeltaVsBaseline",
-  interventionKey: "intervened" | "twoFoldIntervened" | "paired95Intervened",
-  falsePositiveKey?: "twoFoldFalsePositive" | "paired95FalsePositive",
-  falseNegativeKey?: "twoFoldFalseNegative" | "paired95FalseNegative",
+    | "paired95EvaluationDeltaVsBaseline"
+    | "adaptive90EvaluationDeltaVsBaseline"
+    | "a2GateEvaluationDeltaVsBaseline",
+  interventionKey:
+    | "intervened"
+    | "twoFoldIntervened"
+    | "paired95Intervened"
+    | "adaptive90Intervened"
+    | "a2GateIntervened",
+  falsePositiveKey?:
+    | "twoFoldFalsePositive"
+    | "paired95FalsePositive"
+    | "adaptive90FalsePositive"
+    | "a2GateFalsePositive",
+  falseNegativeKey?:
+    | "twoFoldFalseNegative"
+    | "paired95FalseNegative"
+    | "adaptive90FalseNegative"
+    | "a2GateFalseNegative",
 ) {
   const completed = records.filter((record) => record.status === "completed");
   const comparable = completed.filter((record) => record[deltaKey] !== null);
@@ -221,6 +267,194 @@ function summarizeDeltaRecords(
       .sort((a, b) => (a[deltaKey] ?? 0) - (b[deltaKey] ?? 0))
       .slice(0, 5)
       .map((record) => ({ scenarioId: record.scenarioId, delta: record[deltaKey] })),
+  };
+}
+
+type SimulatedGateSpec = {
+  key: string;
+  description: string;
+  pass: (record: ScenarioRecord) => boolean;
+};
+
+function summarizeSimulatedGate(records: ScenarioRecord[], spec: SimulatedGateSpec) {
+  const completed = records.filter((record) => record.status === "completed");
+  const comparable = completed.filter((record) => record.rawEvaluationDeltaVsBaseline !== null);
+  const interventions = comparable.filter((record) => record.intervened && spec.pass(record));
+  const deltas = comparable.map((record) =>
+    record.intervened && spec.pass(record) ? (record.rawEvaluationDeltaVsBaseline ?? 0) : 0,
+  );
+  const positive = deltas.filter((value) => value > STRICT_EPSILON);
+  const negative = deltas.filter((value) => value < -STRICT_EPSILON);
+  const comparableWeight = sum(comparable.map((record) => record.weight));
+  const interventionWeight = sum(interventions.map((record) => record.weight));
+  const weightedDeltaSum = weightedSum(comparable, (record) =>
+    record.intervened && spec.pass(record) ? (record.rawEvaluationDeltaVsBaseline ?? 0) : 0,
+  );
+  const weightedInterventionDeltaSum = weightedSum(
+    interventions,
+    (record) => record.rawEvaluationDeltaVsBaseline ?? 0,
+  );
+  return {
+    key: spec.key,
+    description: spec.description,
+    comparableCount: comparable.length,
+    interventionCount: interventions.length,
+    interventionRate: comparable.length > 0 ? interventions.length / comparable.length : null,
+    comparableWeight,
+    interventionWeight,
+    weightedInterventionRate: comparableWeight > 0 ? interventionWeight / comparableWeight : null,
+    sumDelta: sum(deltas),
+    meanDelta: mean(deltas),
+    interventionSumDelta: sum(
+      interventions
+        .map((record) => record.rawEvaluationDeltaVsBaseline)
+        .filter((value): value is number => value !== null),
+    ),
+    interventionMeanDelta: mean(
+      interventions
+        .map((record) => record.rawEvaluationDeltaVsBaseline)
+        .filter((value): value is number => value !== null),
+    ),
+    weightedSumDelta: weightedDeltaSum,
+    weightedMeanDelta: comparableWeight > 0 ? weightedDeltaSum / comparableWeight : null,
+    weightedInterventionSumDelta: weightedInterventionDeltaSum,
+    weightedInterventionMeanDelta:
+      interventionWeight > 0 ? weightedInterventionDeltaSum / interventionWeight : null,
+    positiveDeltaCount: positive.length,
+    positiveDeltaSum: sum(positive),
+    negativeDeltaCount: negative.length,
+    negativeDeltaSum: sum(negative),
+    falsePositiveCount: interventions.filter(
+      (record) => (record.rawEvaluationDeltaVsBaseline ?? 0) > STRICT_EPSILON,
+    ).length,
+    falseNegativeCount: comparable.filter(
+      (record) =>
+        record.intervened &&
+        !spec.pass(record) &&
+        (record.rawEvaluationDeltaVsBaseline ?? 0) < -STRICT_EPSILON,
+    ).length,
+    worstPositiveDeltaTop: interventions
+      .filter((record) => (record.rawEvaluationDeltaVsBaseline ?? 0) > STRICT_EPSILON)
+      .sort((a, b) => (b.rawEvaluationDeltaVsBaseline ?? 0) - (a.rawEvaluationDeltaVsBaseline ?? 0))
+      .slice(0, 5)
+      .map((record) => ({
+        scenarioId: record.scenarioId,
+        delta: record.rawEvaluationDeltaVsBaseline,
+      })),
+    bestNegativeDeltaTop: interventions
+      .filter((record) => (record.rawEvaluationDeltaVsBaseline ?? 0) < -STRICT_EPSILON)
+      .sort((a, b) => (a.rawEvaluationDeltaVsBaseline ?? 0) - (b.rawEvaluationDeltaVsBaseline ?? 0))
+      .slice(0, 5)
+      .map((record) => ({
+        scenarioId: record.scenarioId,
+        delta: record.rawEvaluationDeltaVsBaseline,
+      })),
+  };
+}
+
+function pairedUpperBound(record: ScenarioRecord, z: number) {
+  if (record.gatePairMeanDelta === null || record.gatePairStandardError === null) return null;
+  return record.gatePairMeanDelta + z * record.gatePairStandardError;
+}
+
+function gateSweepSpecs(): SimulatedGateSpec[] {
+  return [
+    {
+      key: "pairedMeanNegative",
+      description: "Paired gate seed point estimate is below baseline.",
+      pass: (record) => (record.gatePairMeanDelta ?? Number.POSITIVE_INFINITY) < 0,
+    },
+    {
+      key: "paired80",
+      description: "Paired upper bound with z=1.282 is below baseline.",
+      pass: (record) => (pairedUpperBound(record, 1.282) ?? Number.POSITIVE_INFINITY) < 0,
+    },
+    {
+      key: "paired90",
+      description: "Paired upper bound with z=1.645 is below baseline.",
+      pass: (record) => (pairedUpperBound(record, 1.645) ?? Number.POSITIVE_INFINITY) < 0,
+    },
+    {
+      key: "paired90Margin025",
+      description: "Paired upper bound with z=1.645 is below -0.00025.",
+      pass: (record) => (pairedUpperBound(record, 1.645) ?? Number.POSITIVE_INFINITY) < -0.00025,
+    },
+    {
+      key: "a2Negative",
+      description: "A2 surrogate delta is below baseline.",
+      pass: (record) => (record.a2DeltaVsBaseline ?? Number.POSITIVE_INFINITY) < 0,
+    },
+    {
+      key: "a2Margin025",
+      description: "A2 surrogate delta is below -0.00025.",
+      pass: (record) => (record.a2DeltaVsBaseline ?? Number.POSITIVE_INFINITY) < -0.00025,
+    },
+    {
+      key: "a2Margin05",
+      description: "A2 surrogate delta is below -0.0005.",
+      pass: (record) => (record.a2DeltaVsBaseline ?? Number.POSITIVE_INFINITY) < -0.0005,
+    },
+    {
+      key: "a2NegativeAndPairedMean",
+      description: "A2 surrogate is negative and paired gate seed point estimate is negative.",
+      pass: (record) =>
+        (record.a2DeltaVsBaseline ?? Number.POSITIVE_INFINITY) < 0 &&
+        (record.gatePairMeanDelta ?? Number.POSITIVE_INFINITY) < 0,
+    },
+    {
+      key: "a2NegativeAndPaired80",
+      description: "A2 surrogate is negative and paired upper bound z=1.282 is below baseline.",
+      pass: (record) =>
+        (record.a2DeltaVsBaseline ?? Number.POSITIVE_INFINITY) < 0 &&
+        (pairedUpperBound(record, 1.282) ?? Number.POSITIVE_INFINITY) < 0,
+    },
+    {
+      key: "a2Margin025AndPairedMean",
+      description: "A2 surrogate is below -0.00025 and paired point estimate is negative.",
+      pass: (record) =>
+        (record.a2DeltaVsBaseline ?? Number.POSITIVE_INFINITY) < -0.00025 &&
+        (record.gatePairMeanDelta ?? Number.POSITIVE_INFINITY) < 0,
+    },
+  ];
+}
+
+function summarizeGateSweep(records: ScenarioRecord[]) {
+  return Object.fromEntries(
+    gateSweepSpecs().map((spec) => [spec.key, summarizeSimulatedGate(records, spec)]),
+  );
+}
+
+function summarizePolicyDeltas(records: ScenarioRecord[]) {
+  return {
+    raw: summarizeDeltaRecords(records, "rawEvaluationDeltaVsBaseline", "intervened"),
+    twoFold: summarizeDeltaRecords(
+      records,
+      "twoFoldEvaluationDeltaVsBaseline",
+      "twoFoldIntervened",
+      "twoFoldFalsePositive",
+      "twoFoldFalseNegative",
+    ),
+    paired95: summarizeDeltaRecords(
+      records,
+      "paired95EvaluationDeltaVsBaseline",
+      "paired95Intervened",
+      "paired95FalsePositive",
+      "paired95FalseNegative",
+    ),
+    adaptive90: summarizeDeltaRecords(
+      records,
+      "adaptive90EvaluationDeltaVsBaseline",
+      "adaptive90Intervened",
+      "adaptive90FalsePositive",
+      "adaptive90FalseNegative",
+    ),
+    a2Gate: summarizeDeltaRecords(
+      records,
+      "a2GateEvaluationDeltaVsBaseline",
+      "a2GateIntervened",
+      "a2GateFalsePositive",
+      "a2GateFalseNegative",
+    ),
   };
 }
 
@@ -287,8 +521,9 @@ function summarize(records: ScenarioRecord[]) {
 }
 
 function summarizeBySource(records: ScenarioRecord[]) {
+  const sources = [...new Set(records.map((record) => record.source))].sort();
   return Object.fromEntries(
-    (["fixed-grid", "gain28-supplemental"] as const).map((source) => [
+    sources.map((source) => [
       source,
       summarize(records.filter((record) => record.source === source)),
     ]),
@@ -348,6 +583,45 @@ function summarizeA1(records: ScenarioRecord[]) {
   };
 }
 
+function finiteNumbers(values: Array<number | null>) {
+  return values.filter(
+    (value): value is number => typeof value === "number" && Number.isFinite(value),
+  );
+}
+
+function summarizePairedDiagnostics(
+  records: ScenarioRecord[],
+  standardErrorKey: "gatePairStandardError" | "adaptive90GateStandardError",
+  correlationKey: "gatePairCorrelation" | "adaptive90GateCorrelation",
+  runsKey?: "adaptive90GateRuns",
+) {
+  const completed = records.filter((record) => record.status === "completed");
+  const standardErrors = finiteNumbers(completed.map((record) => record[standardErrorKey]));
+  const correlations = finiteNumbers(completed.map((record) => record[correlationKey]));
+  const runs = runsKey
+    ? finiteNumbers(completed.map((record) => record[runsKey])).filter((value) => value > 0)
+    : [];
+  return {
+    comparableCount: completed.length,
+    standardErrorCount: standardErrors.length,
+    meanStandardError: mean(standardErrors),
+    maxStandardError: standardErrors.length > 0 ? Math.max(...standardErrors) : null,
+    correlationCount: correlations.length,
+    meanCorrelation: mean(correlations),
+    minCorrelation: correlations.length > 0 ? Math.min(...correlations) : null,
+    maxCorrelation: correlations.length > 0 ? Math.max(...correlations) : null,
+    meanGateRuns: runs.length > 0 ? mean(runs) : null,
+    quickGateCount:
+      runsKey === "adaptive90GateRuns"
+        ? completed.filter((record) => record[runsKey] === ADAPTIVE_QUICK_RUNS).length
+        : null,
+    fullGateCount:
+      runsKey === "adaptive90GateRuns"
+        ? completed.filter((record) => record[runsKey] === ADAPTIVE_MAX_RUNS).length
+        : null,
+  };
+}
+
 const runs = parsePositiveInteger(process.env.RUST_RERANK_BENCH_RUNS, DEFAULT_RUNS);
 const seed = parsePositiveInteger(process.env.RUST_RERANK_BENCH_SEED, DEFAULT_SEED);
 const heldOutSeed = parsePositiveInteger(
@@ -384,6 +658,9 @@ const fixedGrid = (await server.ssrLoadModule(
 const supplemental = (await server.ssrLoadModule(
   "/benchmarks/scenarios/rerank-supplemental.ts",
 )) as typeof import("./scenarios/rerank-supplemental");
+const productObserved = (await server.ssrLoadModule(
+  "/benchmarks/scenarios/rerank-product.ts",
+)) as typeof import("./scenarios/rerank-product");
 
 const requestedSources = parseSources(process.env.RUST_RERANK_BENCH_SOURCES);
 const allScenarios: BenchmarkScenario[] = [
@@ -398,6 +675,13 @@ const allScenarios: BenchmarkScenario[] = [
         ...scenario,
         source: "gain28-supplemental" as const,
       }))
+    : []),
+  ...(requestedSources.has("product-observed") ||
+  requestedSources.has("product-observed-high-stock")
+    ? productObserved.PRODUCT_RERANK_SCENARIOS.map((scenario) => ({
+        ...scenario,
+        source: scenario.productSource,
+      })).filter((scenario) => requestedSources.has(scenario.source))
     : []),
 ];
 const byId = new Map(allScenarios.map((scenario) => [scenario.id, scenario]));
@@ -433,6 +717,42 @@ function summarizeEvaluationPairs(pairs: RustPairedExpectedCostEstimate[]) {
     upper95: meanDelta + 1.96 * standardError,
     seedSpread: seedMeans.length > 0 ? Math.max(...seedMeans) - Math.min(...seedMeans) : null,
   };
+}
+
+type Adaptive90Decision = {
+  rawSelectedFirstAction: string | null;
+  selectedFirstAction: string | null;
+  gatePass: boolean | null;
+  intervened: boolean;
+  evaluationDeltaVsBaseline: number | null;
+  falsePositive: boolean | null;
+  falseNegative: boolean | null;
+  gateRuns: number | null;
+  gateMeanDelta: number | null;
+  gateStandardError: number | null;
+  gateUpperBound: number | null;
+  gateCorrelation: number | null;
+};
+
+function nullAdaptive90Decision(): Adaptive90Decision {
+  return {
+    rawSelectedFirstAction: null,
+    selectedFirstAction: null,
+    gatePass: null,
+    intervened: false,
+    evaluationDeltaVsBaseline: null,
+    falsePositive: null,
+    falseNegative: null,
+    gateRuns: null,
+    gateMeanDelta: null,
+    gateStandardError: null,
+    gateUpperBound: null,
+    gateCorrelation: null,
+  };
+}
+
+function calculateAdaptiveGateUpperBound(pair: RustPairedExpectedCostEstimate) {
+  return pair.meanDelta + ADAPTIVE_GATE_Z * pair.standardError;
 }
 
 try {
@@ -503,6 +823,23 @@ try {
           paired95EvaluationDeltaVsBaseline: null,
           paired95FalsePositive: null,
           paired95FalseNegative: null,
+          adaptive90RawSelectedFirstAction: null,
+          adaptive90SelectedFirstAction: null,
+          adaptive90GatePass: null,
+          adaptive90Intervened: false,
+          adaptive90EvaluationDeltaVsBaseline: null,
+          adaptive90FalsePositive: null,
+          adaptive90FalseNegative: null,
+          adaptive90GateRuns: null,
+          adaptive90GateMeanDelta: null,
+          adaptive90GateStandardError: null,
+          adaptive90GateUpperBound: null,
+          adaptive90GateCorrelation: null,
+          a2GatePass: null,
+          a2GateIntervened: false,
+          a2GateEvaluationDeltaVsBaseline: null,
+          a2GateFalsePositive: null,
+          a2GateFalseNegative: null,
           gatePairMeanDelta: null,
           gatePairStandardError: null,
           gatePairUpper95: null,
@@ -590,6 +927,99 @@ try {
       const rawIntervened = baselineFirstAction !== selectedFirstAction;
       const twoFoldIntervened = rawIntervened && twoFoldGatePass;
       const paired95Intervened = rawIntervened && paired95GatePass;
+      let adaptive90 = nullAdaptive90Decision();
+      const adaptiveRerank = solver.selectFirstActionByExpectedCost(
+        scenario.start,
+        scenario.stock,
+        ADAPTIVE_QUICK_RUNS,
+        seed,
+        HORIZON_FACTOR,
+        NORM_POWER,
+        TOLERANCE,
+      );
+      const adaptiveBaselineAction = adaptiveRerank?.baseline.firstAction;
+      const adaptiveRawSelectedAction = adaptiveRerank?.selected.firstAction;
+      if (adaptiveBaselineAction && adaptiveRawSelectedAction) {
+        if (adaptiveBaselineAction === adaptiveRawSelectedAction) {
+          adaptive90 = {
+            rawSelectedFirstAction: adaptiveRawSelectedAction,
+            selectedFirstAction: adaptiveBaselineAction,
+            gatePass: true,
+            intervened: false,
+            evaluationDeltaVsBaseline: 0,
+            falsePositive: false,
+            falseNegative: false,
+            gateRuns: 0,
+            gateMeanDelta: null,
+            gateStandardError: null,
+            gateUpperBound: null,
+            gateCorrelation: null,
+          };
+        } else {
+          const adaptiveQuickPair = solver.estimateExpectedCostPairFromCurrent(
+            scenario.start,
+            scenario.stock,
+            adaptiveBaselineAction,
+            adaptiveRawSelectedAction,
+            ADAPTIVE_QUICK_RUNS,
+            heldOutSeed,
+            HORIZON_FACTOR,
+            NORM_POWER,
+          );
+          let adaptiveGatePair = adaptiveQuickPair;
+          let adaptiveGateRuns = ADAPTIVE_QUICK_RUNS;
+          let adaptiveGateUpperBound = calculateAdaptiveGateUpperBound(adaptiveQuickPair);
+          let adaptiveGatePass = adaptiveGateUpperBound < ADAPTIVE_QUICK_ACCEPT_MARGIN;
+          const adaptiveQuickLowerBound =
+            adaptiveQuickPair.meanDelta - ADAPTIVE_GATE_Z * adaptiveQuickPair.standardError;
+          if (!adaptiveGatePass && adaptiveQuickLowerBound < 0) {
+            adaptiveGatePair = solver.estimateExpectedCostPairFromCurrent(
+              scenario.start,
+              scenario.stock,
+              adaptiveBaselineAction,
+              adaptiveRawSelectedAction,
+              ADAPTIVE_MAX_RUNS,
+              heldOutSeed,
+              HORIZON_FACTOR,
+              NORM_POWER,
+            );
+            adaptiveGateRuns = ADAPTIVE_MAX_RUNS;
+            adaptiveGateUpperBound = calculateAdaptiveGateUpperBound(adaptiveGatePair);
+            adaptiveGatePass = adaptiveGateUpperBound < ADAPTIVE_FULL_ACCEPT_MARGIN;
+          }
+          const adaptiveEvaluationPairs = evaluationSeeds.map((evaluationSeed) =>
+            solver.estimateExpectedCostPairFromCurrent(
+              scenario.start,
+              scenario.stock,
+              adaptiveBaselineAction,
+              adaptiveRawSelectedAction,
+              ADAPTIVE_MAX_RUNS,
+              evaluationSeed,
+              HORIZON_FACTOR,
+              NORM_POWER,
+            ),
+          );
+          const adaptiveEvaluation = summarizeEvaluationPairs(adaptiveEvaluationPairs);
+          const adaptiveEvaluationSelectedImproves = adaptiveEvaluation.meanDelta < -STRICT_EPSILON;
+          const adaptiveEvaluationSelectedWorsens = adaptiveEvaluation.meanDelta > STRICT_EPSILON;
+          adaptive90 = {
+            rawSelectedFirstAction: adaptiveRawSelectedAction,
+            selectedFirstAction: adaptiveGatePass
+              ? adaptiveRawSelectedAction
+              : adaptiveBaselineAction,
+            gatePass: adaptiveGatePass,
+            intervened: adaptiveGatePass,
+            evaluationDeltaVsBaseline: adaptiveGatePass ? adaptiveEvaluation.meanDelta : 0,
+            falsePositive: adaptiveGatePass ? adaptiveEvaluationSelectedWorsens : false,
+            falseNegative: !adaptiveGatePass ? adaptiveEvaluationSelectedImproves : false,
+            gateRuns: adaptiveGateRuns,
+            gateMeanDelta: adaptiveGatePair.meanDelta,
+            gateStandardError: adaptiveGatePair.standardError,
+            gateUpperBound: adaptiveGateUpperBound,
+            gateCorrelation: adaptiveGatePair.correlation,
+          };
+        }
+      }
       let a2BaselineSurrogateCost: number | null = null;
       let a2SelectedSurrogateCost: number | null = null;
       let a2DeltaVsBaseline: number | null = null;
@@ -652,6 +1082,18 @@ try {
           a1ErrorMessage = error instanceof Error ? error.message : String(error);
         }
       }
+      const a2GatePass = a2DeltaVsBaseline === null ? null : a2DeltaVsBaseline < -STRICT_EPSILON;
+      const a2GateIntervened = rawIntervened && a2GatePass === true;
+      const a2GateEvaluationDeltaVsBaseline =
+        a2GatePass === null ? null : a2GateIntervened ? evaluation.meanDelta : 0;
+      const a2GateFalsePositive =
+        a2GatePass === null ? null : a2GateIntervened ? evaluationSelectedWorsens : false;
+      const a2GateFalseNegative =
+        a2GatePass === null
+          ? null
+          : rawIntervened && !a2GatePass
+            ? evaluationSelectedImproves
+            : false;
 
       records.push({
         ...common,
@@ -692,6 +1134,23 @@ try {
         paired95FalsePositive: paired95Intervened ? evaluationSelectedWorsens : false,
         paired95FalseNegative:
           rawIntervened && !paired95GatePass ? evaluationSelectedImproves : false,
+        adaptive90RawSelectedFirstAction: adaptive90.rawSelectedFirstAction,
+        adaptive90SelectedFirstAction: adaptive90.selectedFirstAction,
+        adaptive90GatePass: adaptive90.gatePass,
+        adaptive90Intervened: adaptive90.intervened,
+        adaptive90EvaluationDeltaVsBaseline: adaptive90.evaluationDeltaVsBaseline,
+        adaptive90FalsePositive: adaptive90.falsePositive,
+        adaptive90FalseNegative: adaptive90.falseNegative,
+        adaptive90GateRuns: adaptive90.gateRuns,
+        adaptive90GateMeanDelta: adaptive90.gateMeanDelta,
+        adaptive90GateStandardError: adaptive90.gateStandardError,
+        adaptive90GateUpperBound: adaptive90.gateUpperBound,
+        adaptive90GateCorrelation: adaptive90.gateCorrelation,
+        a2GatePass,
+        a2GateIntervened,
+        a2GateEvaluationDeltaVsBaseline,
+        a2GateFalsePositive,
+        a2GateFalseNegative,
         gatePairMeanDelta: gatePair.meanDelta,
         gatePairStandardError: gatePair.standardError,
         gatePairUpper95: gatePair.upper95,
@@ -746,6 +1205,23 @@ try {
         paired95EvaluationDeltaVsBaseline: null,
         paired95FalsePositive: null,
         paired95FalseNegative: null,
+        adaptive90RawSelectedFirstAction: null,
+        adaptive90SelectedFirstAction: null,
+        adaptive90GatePass: null,
+        adaptive90Intervened: false,
+        adaptive90EvaluationDeltaVsBaseline: null,
+        adaptive90FalsePositive: null,
+        adaptive90FalseNegative: null,
+        adaptive90GateRuns: null,
+        adaptive90GateMeanDelta: null,
+        adaptive90GateStandardError: null,
+        adaptive90GateUpperBound: null,
+        adaptive90GateCorrelation: null,
+        a2GatePass: null,
+        a2GateIntervened: false,
+        a2GateEvaluationDeltaVsBaseline: null,
+        a2GateFalsePositive: null,
+        a2GateFalseNegative: null,
         gatePairMeanDelta: null,
         gatePairStandardError: null,
         gatePairUpper95: null,
@@ -780,25 +1256,46 @@ try {
       horizonFactor: HORIZON_FACTOR,
       normPower: NORM_POWER,
       tolerance: TOLERANCE,
+      adaptive90: {
+        quickRuns: ADAPTIVE_QUICK_RUNS,
+        maxRuns: ADAPTIVE_MAX_RUNS,
+        gateZ: ADAPTIVE_GATE_Z,
+        quickAcceptMargin: ADAPTIVE_QUICK_ACCEPT_MARGIN,
+        fullAcceptMargin: ADAPTIVE_FULL_ACCEPT_MARGIN,
+      },
       sources: [...requestedSources],
       scenarioIds,
     },
     summary: summarize(records),
-    policySummaries: {
-      raw: summarizeDeltaRecords(records, "rawEvaluationDeltaVsBaseline", "intervened"),
-      twoFold: summarizeDeltaRecords(
+    policySummaries: summarizePolicyDeltas(records),
+    policySummariesBySource: Object.fromEntries(
+      [...new Set(records.map((record) => record.source))]
+        .sort()
+        .map((source) => [
+          source,
+          summarizePolicyDeltas(records.filter((record) => record.source === source)),
+        ]),
+    ),
+    gateSweep: summarizeGateSweep(records),
+    gateSweepBySource: Object.fromEntries(
+      [...new Set(records.map((record) => record.source))]
+        .sort()
+        .map((source) => [
+          source,
+          summarizeGateSweep(records.filter((record) => record.source === source)),
+        ]),
+    ),
+    pairedMcDiagnostics: {
+      paired95Gate: summarizePairedDiagnostics(
         records,
-        "twoFoldEvaluationDeltaVsBaseline",
-        "twoFoldIntervened",
-        "twoFoldFalsePositive",
-        "twoFoldFalseNegative",
+        "gatePairStandardError",
+        "gatePairCorrelation",
       ),
-      paired95: summarizeDeltaRecords(
+      adaptive90Gate: summarizePairedDiagnostics(
         records,
-        "paired95EvaluationDeltaVsBaseline",
-        "paired95Intervened",
-        "paired95FalsePositive",
-        "paired95FalseNegative",
+        "adaptive90GateStandardError",
+        "adaptive90GateCorrelation",
+        "adaptive90GateRuns",
       ),
     },
     a2Summary: summarizeA2(records),
@@ -852,6 +1349,23 @@ try {
     "paired95EvaluationDeltaVsBaseline",
     "paired95FalsePositive",
     "paired95FalseNegative",
+    "adaptive90RawSelectedFirstAction",
+    "adaptive90SelectedFirstAction",
+    "adaptive90GatePass",
+    "adaptive90Intervened",
+    "adaptive90EvaluationDeltaVsBaseline",
+    "adaptive90FalsePositive",
+    "adaptive90FalseNegative",
+    "adaptive90GateRuns",
+    "adaptive90GateMeanDelta",
+    "adaptive90GateStandardError",
+    "adaptive90GateUpperBound",
+    "adaptive90GateCorrelation",
+    "a2GatePass",
+    "a2GateIntervened",
+    "a2GateEvaluationDeltaVsBaseline",
+    "a2GateFalsePositive",
+    "a2GateFalseNegative",
     "gatePairMeanDelta",
     "gatePairStandardError",
     "gatePairUpper95",
@@ -881,6 +1395,8 @@ try {
         elapsedMs: report.elapsedMs,
         summary: report.summary,
         policySummaries: report.policySummaries,
+        gateSweep: report.gateSweep,
+        pairedMcDiagnostics: report.pairedMcDiagnostics,
         a2Summary: report.a2Summary,
         a1Summary: report.a1Summary,
         bySource: report.bySource,

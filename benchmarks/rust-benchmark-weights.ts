@@ -1,6 +1,10 @@
 import type { CollectionState } from "../src/types";
 
-export type RustBenchmarkScenarioSource = "fixed-grid" | "gain28-supplemental";
+export type RustBenchmarkScenarioSource =
+  | "fixed-grid"
+  | "gain28-supplemental"
+  | "product-observed"
+  | "product-observed-high-stock";
 export type RustBenchmarkWeightProfile = "uniform" | "usage-proxy-v1" | "risk-proxy-v1";
 
 export type RustBenchmarkScenarioLike = {
@@ -43,12 +47,26 @@ function profileWeight(scenario: RustBenchmarkScenarioLike, profile: RustBenchma
   if (profile === "usage-proxy-v1") {
     // This is not D1 telemetry. It is a transparent stand-in that gives product-like traffic more
     // influence than stress-only probes until private aggregate weights are wired in.
-    const sourceWeight = scenario.source === "fixed-grid" ? 1 : 0.35;
+    const sourceWeight =
+      scenario.source === "product-observed"
+        ? 1.6
+        : scenario.source === "product-observed-high-stock"
+          ? 0.35
+          : scenario.source === "fixed-grid"
+            ? 0.85
+            : 0.3;
     const groupWeight = scenario.group === "balanced" ? 1.25 : 0.85;
     return sourceWeight * groupWeight * stageWeight(scenario.start);
   }
 
-  const sourceWeight = scenario.source === "fixed-grid" ? 1 : 0.7;
+  const sourceWeight =
+    scenario.source === "product-observed"
+      ? 1.2
+      : scenario.source === "product-observed-high-stock"
+        ? 0.6
+        : scenario.source === "fixed-grid"
+          ? 1
+          : 0.7;
   const groupWeight = scenario.group === "scarcity" ? 1.6 : 1;
   const lateJourneyWeight = scenario.start.level >= 10 ? 1.2 : 1;
   return sourceWeight * groupWeight * lateJourneyWeight;
@@ -80,7 +98,12 @@ export function parseRustBenchmarkWeightSpec(
       spec.group.set(key.slice("group:".length), weight);
     } else if (key.startsWith("source:")) {
       const source = key.slice("source:".length);
-      if (source === "fixed-grid" || source === "gain28-supplemental") {
+      if (
+        source === "fixed-grid" ||
+        source === "gain28-supplemental" ||
+        source === "product-observed" ||
+        source === "product-observed-high-stock"
+      ) {
         spec.source.set(source, weight);
       }
     } else {

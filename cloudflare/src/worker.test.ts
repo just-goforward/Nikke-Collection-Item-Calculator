@@ -291,6 +291,38 @@ describe("solver_diagnostic event commit", () => {
     await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(1);
   });
 
+  it("accepts diagnostic v2 with 50-piece stock buckets", async () => {
+    const payload = solverDiagnosticEvent("solver-diag-v2-bucket1");
+    payload.event.diagnosticVersion = 2;
+    payload.event.stockBuckets = {
+      blue: "300_349",
+      purple: "150_199",
+      yellow: "50_99",
+    };
+
+    const response = await submit(payload);
+
+    expect(response.status).toBe(200);
+    const aggregate = await database
+      .prepare(
+        `SELECT diagnostic_version, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow
+         FROM solver_diagnostic_aggregates
+         LIMIT 1`,
+      )
+      .first<{
+        diagnostic_version: number;
+        stock_bucket_blue: string;
+        stock_bucket_purple: string;
+        stock_bucket_yellow: string;
+      }>();
+    expect(aggregate).toMatchObject({
+      diagnostic_version: 2,
+      stock_bucket_blue: "300_349",
+      stock_bucket_purple: "150_199",
+      stock_bucket_yellow: "50_99",
+    });
+  });
+
   it("does not increment diagnostic aggregates when an event id is submitted twice", async () => {
     const payload = solverDiagnosticEvent("solver-diag-duplicate1");
 

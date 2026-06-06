@@ -35,7 +35,22 @@ const KitResultEventSchema = z
   })
   .passthrough();
 
-const StockBucketSchema = z.enum(["0", "1_9", "10_49", "50_99", "100_299", "300_plus"]);
+const LegacyStockBucketSchema = z.enum(["0", "1_9", "10_49", "50_99", "100_299", "300_plus"]);
+const StockBucketV2Schema = z.enum([
+  "0",
+  "1_49",
+  "50_99",
+  "100_149",
+  "150_199",
+  "200_249",
+  "250_299",
+  "300_349",
+  "350_399",
+  "400_449",
+  "450_499",
+  "500_plus",
+]);
+const StockBucketSchema = z.union([LegacyStockBucketSchema, StockBucketV2Schema]);
 const RecommendedUsesBucketSchema = z.enum(["1", "2", "3_4", "5_9", "10_14", "15_plus"]);
 const CandidateCountBucketSchema = z.enum(["0", "1", "2", "3_plus"]);
 const ProbabilityGapBucketSchema = z.enum([
@@ -63,7 +78,7 @@ const ComparisonBucketSchema = z.enum(["yes", "no", "unknown", "not_applicable"]
 const SolverDiagnosticEventSchema = z
   .object({
     kind: z.literal("solver_diagnostic"),
-    diagnosticVersion: z.literal(1),
+    diagnosticVersion: z.union([z.literal(1), z.literal(2)]),
     solverVersion: z.string(),
     solverPhase: z.string(),
     start: CollectionStateSchema,

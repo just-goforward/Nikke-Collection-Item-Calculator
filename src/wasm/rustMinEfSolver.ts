@@ -27,18 +27,25 @@ const NORM_POWER = 3;
 const TOLERANCE = 0;
 const SOLVER_VERSION = "phase3_rust_min_ef_staging";
 const PHASE2_SOLVER_VERSION = "phase2_availability_h075_tau0_p3_rust";
-const RERANK_SOLVER_VERSION = "phase2_availability_h075_tau0_p3_rust_rerank_paired95_staging";
+const RERANK_SOLVER_VERSION =
+  "phase2_availability_h075_tau0_p3_rust_rerank_adaptive90_m025_confirm_staging";
 const MAX_RUST_MIN_EF_STOCK_VOLUME = 10_000;
-const RERANK_RUNS = 2048;
+const RERANK_QUICK_RUNS = 512;
+const RERANK_MAX_RUNS = 2048;
+const RERANK_GATE_Z = 1.645;
+const RERANK_QUICK_ACCEPT_MARGIN = -0.001;
+const RERANK_FULL_ACCEPT_MARGIN = -0.00025;
 const RERANK_SEED = 20260509;
 const RERANK_HELD_OUT_SEED = 20260510;
 
-type Paired95RerankDecision = {
+type AdaptiveRerankDecision = {
   rerank: RustRerankResult;
   rawSelected: RustRerankedCandidate;
   selected: RustRerankedCandidate;
   gatePair: RustPairedExpectedCostEstimate | null;
   gatePass: boolean;
+  gateRuns: number;
+  gateUpperBound: number | null;
 };
 
 type NormalizedInput = SolverInput & {
@@ -411,7 +418,7 @@ function baselineRerankCandidate(
     input.start,
     input.stock,
     firstAction,
-    RERANK_RUNS,
+    RERANK_QUICK_RUNS,
     RERANK_SEED,
     HORIZON_FACTOR,
     NORM_POWER,
@@ -432,14 +439,14 @@ function baselineRerankCandidate(
   };
 }
 
-function selectPaired95RerankDecision(
+function selectAdaptiveRerankDecision(
   solver: RustPhase2Solver,
   input: NormalizedInput,
-): Paired95RerankDecision | null {
+): AdaptiveRerankDecision | null {
   const rerank = solver.selectFirstActionByExpectedCost(
     input.start,
     input.stock,
-    RERANK_RUNS,
+    RERANK_QUICK_RUNS,
     RERANK_SEED,
     HORIZON_FACTOR,
     NORM_POWER,
@@ -449,23 +456,76 @@ function selectPaired95RerankDecision(
   const baselineAction = rerank?.baseline.firstAction;
   if (!rerank || !rawSelected?.firstAction || !baselineAction) return null;
   if (baselineAction === rawSelected.firstAction) {
-    return { rerank, rawSelected, selected: rawSelected, gatePair: null, gatePass: true };
+    return {
+      rerank,
+      rawSelected,
+      selected: rawSelected,
+      gatePair: null,
+      gatePass: true,
+      gateRuns: 0,
+      gateUpperBound: null,
+    };
   }
-  const gatePair = solver.estimateExpectedCostPairFromCurrent(
+  const quickGatePair = solver.estimateExpectedCostPairFromCurrent(
     input.start,
     input.stock,
     baselineAction,
     rawSelected.firstAction,
-    RERANK_RUNS,
+    RERANK_QUICK_RUNS,
     RERANK_HELD_OUT_SEED,
     HORIZON_FACTOR,
     NORM_POWER,
   );
-  const gatePass = gatePair.upper95 < 0;
-  if (gatePass) return { rerank, rawSelected, selected: rawSelected, gatePair, gatePass };
+  const quickUpperBound = quickGatePair.meanDelta + RERANK_GATE_Z * quickGatePair.standardError;
+  if (quickUpperBound < RERANK_QUICK_ACCEPT_MARGIN) {
+    return {
+      rerank,
+      rawSelected,
+      selected: rawSelected,
+      gatePair: quickGatePair,
+      gatePass: true,
+      gateRuns: RERANK_QUICK_RUNS,
+      gateUpperBound: quickUpperBound,
+    };
+  }
+  const quickLowerBound = quickGatePair.meanDelta - RERANK_GATE_Z * quickGatePair.standardError;
+  const fullGatePair =
+    quickLowerBound >= 0
+      ? quickGatePair
+      : solver.estimateExpectedCostPairFromCurrent(
+          input.start,
+          input.stock,
+          baselineAction,
+          rawSelected.firstAction,
+          RERANK_MAX_RUNS,
+          RERANK_HELD_OUT_SEED,
+          HORIZON_FACTOR,
+          NORM_POWER,
+        );
+  const gateUpperBound = fullGatePair.meanDelta + RERANK_GATE_Z * fullGatePair.standardError;
+  const gatePass = gateUpperBound < RERANK_FULL_ACCEPT_MARGIN;
+  if (gatePass) {
+    return {
+      rerank,
+      rawSelected,
+      selected: rawSelected,
+      gatePair: fullGatePair,
+      gatePass,
+      gateRuns: fullGatePair.runs,
+      gateUpperBound,
+    };
+  }
   const baseline = baselineRerankCandidate(solver, rerank, input);
   if (!baseline) return null;
-  return { rerank, rawSelected, selected: baseline, gatePair, gatePass };
+  return {
+    rerank,
+    rawSelected,
+    selected: baseline,
+    gatePair: fullGatePair,
+    gatePass,
+    gateRuns: fullGatePair.runs,
+    gateUpperBound,
+  };
 }
 
 export async function solveRustMinEf(
@@ -835,7 +895,7 @@ export async function solveRustPhase2Rerank(
   }
 
   const solver = await getPhase2Solver(wasmUrl);
-  const decision = selectPaired95RerankDecision(solver, normalizedInput);
+  const decision = selectAdaptiveRerankDecision(solver, normalizedInput);
   const rerank = decision?.rerank;
   const baselineRoot = rerank?.baseline;
   const selected = decision?.selected;
@@ -851,7 +911,7 @@ export async function solveRustPhase2Rerank(
     normalizedInput.start,
     normalizedInput.stock,
     selected.firstAction,
-    RERANK_RUNS,
+    RERANK_MAX_RUNS,
     RERANK_HELD_OUT_SEED,
     HORIZON_FACTOR,
     NORM_POWER,
@@ -863,7 +923,7 @@ export async function solveRustPhase2Rerank(
           normalizedInput.start,
           normalizedInput.stock,
           baselineRoot.firstAction,
-          RERANK_RUNS,
+          RERANK_MAX_RUNS,
           RERANK_HELD_OUT_SEED,
           HORIZON_FACTOR,
           NORM_POWER,
@@ -906,7 +966,7 @@ export async function solveRustPhase2Rerank(
     progress({ phase: "done", scanned: baselineRoot.states, total: baselineRoot.states });
 
   const candidate = {
-    name: "Rust phase2 rerank paired95",
+    name: "Rust phase2 rerank adaptive90 m0.00025 confirm",
     firstAction: selected.firstAction,
     firstProbability: edge.probability,
     run,
@@ -929,7 +989,7 @@ export async function solveRustPhase2Rerank(
     input: normalizedInput,
     candidateCount: rerank?.candidates.length || 1,
     best: {
-      name: "Rust phase2 rerank paired95",
+      name: "Rust phase2 rerank adaptive90 m0.00025 confirm",
       firstAction: selected.firstAction,
       firstProbability: edge.probability,
       run,
@@ -960,14 +1020,20 @@ export async function solveRustPhase2Rerank(
       solverPhase: "phase2-rerank",
       supplyAvailability: SUPPLY_AVAILABILITY_PARAMS,
       rustRerank: {
-        runs: RERANK_RUNS,
+        runs: RERANK_QUICK_RUNS,
+        maxRuns: RERANK_MAX_RUNS,
         seed: RERANK_SEED,
-        gate: "paired95",
+        gate: "adaptive90",
+        gateZ: RERANK_GATE_Z,
+        gateQuickAcceptMargin: RERANK_QUICK_ACCEPT_MARGIN,
+        gateFullAcceptMargin: RERANK_FULL_ACCEPT_MARGIN,
+        gateRuns: decision?.gateRuns ?? null,
         gateSeed: RERANK_HELD_OUT_SEED,
         gatePass: decision?.gatePass ?? null,
         gateMeanDelta: decision?.gatePair?.meanDelta ?? null,
         gateStandardError: decision?.gatePair?.standardError ?? null,
         gateUpper95: decision?.gatePair?.upper95 ?? null,
+        gateUpperBound: decision?.gateUpperBound ?? null,
         gateCorrelation: decision?.gatePair?.correlation ?? null,
         rawSelectedFirstAction: rawSelected?.firstAction ?? null,
         rawExpectedCost: rawSelected?.expectedCost ?? null,
@@ -1049,7 +1115,7 @@ export async function validateRustPhase2Rerank(
 ) {
   const normalizedInput = normalizeInput(input);
   const solver = await getPhase2Solver(wasmUrl);
-  const decision = selectPaired95RerankDecision(solver, normalizedInput);
+  const decision = selectAdaptiveRerankDecision(solver, normalizedInput);
   const firstKit = decision?.selected.firstAction;
   if (!firstKit) {
     return {

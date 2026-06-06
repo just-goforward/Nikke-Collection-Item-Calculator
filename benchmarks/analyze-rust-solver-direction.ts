@@ -48,6 +48,9 @@ type PolicySummary = {
 
 type RerankResult = {
   policySummaries?: Record<string, PolicySummary>;
+  gateSweep?: Record<string, unknown>;
+  gateSweepBySource?: Record<string, unknown>;
+  pairedMcDiagnostics?: Record<string, unknown>;
   a2Summary?: {
     comparableCount: number;
     errorCount: number;
@@ -86,8 +89,11 @@ function verdict(runtime: RuntimeResult, rerank: RerankResult) {
   const phase2VsJs = runtime.backendComparisons?.["rust-phase2_vs_js-phase2"];
   const rerankVsPhase2 = runtime.backendComparisons?.["rust-phase2-rerank_vs_rust-phase2"];
   const paired95 = rerank.policySummaries?.paired95;
+  const adaptive90 = rerank.policySummaries?.adaptive90;
   const phase2MeanDelta = finite(phase2VsJs?.weightedMeanDeltaMs);
   const rerankMeanDelta = finite(rerankVsPhase2?.weightedMeanDeltaMs);
+  const adaptiveWeightedDelta = finite(adaptive90?.weightedSumDelta);
+  const adaptiveFalsePositive = adaptive90?.falsePositiveCount ?? null;
   const pairedWeightedDelta = finite(paired95?.weightedSumDelta);
   const pairedFalsePositive = paired95?.falsePositiveCount ?? null;
 
@@ -97,13 +103,15 @@ function verdict(runtime: RuntimeResult, rerank: RerankResult) {
         ? "strong_candidate_for_default_backend"
         : "needs_more_runtime_evidence",
     rustPhase2Rerank:
-      pairedWeightedDelta !== null &&
-      pairedWeightedDelta < 0 &&
-      pairedFalsePositive === 0 &&
+      adaptiveWeightedDelta !== null &&
+      adaptiveWeightedDelta < 0 &&
+      adaptiveFalsePositive === 0 &&
       rerankMeanDelta !== null &&
       rerankMeanDelta < 50
         ? "staging_candidate_with_low_observed_added_latency"
-        : "keep_staging_until_quality_or_latency_is_clear",
+        : pairedWeightedDelta !== null && pairedWeightedDelta < 0 && pairedFalsePositive === 0
+          ? "paired95_quality_ok_but_product_adaptive_or_latency_needs_work"
+          : "keep_staging_until_quality_or_latency_is_clear",
     a2:
       (rerank.a2Summary?.comparableCount ?? 0) > 0
         ? "deterministic_surrogate_research_track"
@@ -148,6 +156,11 @@ const analysis = {
     raw: rerank.policySummaries?.raw ?? null,
     twoFold: rerank.policySummaries?.twoFold ?? null,
     paired95: rerank.policySummaries?.paired95 ?? null,
+    adaptive90: rerank.policySummaries?.adaptive90 ?? null,
+    a2Gate: rerank.policySummaries?.a2Gate ?? null,
+    gateSweep: rerank.gateSweep ?? null,
+    gateSweepBySource: rerank.gateSweepBySource ?? null,
+    pairedMcDiagnostics: rerank.pairedMcDiagnostics ?? null,
     a2: rerank.a2Summary ?? null,
     a1: rerank.a1Summary ?? null,
   },
@@ -170,6 +183,11 @@ console.log(
       rustPhase2VsJs: analysis.runtime.rustPhase2VsJs,
       rustRerankVsPhase2: analysis.runtime.rustRerankVsPhase2,
       paired95: analysis.quality.paired95,
+      adaptive90: analysis.quality.adaptive90,
+      a2Gate: analysis.quality.a2Gate,
+      gateSweep: analysis.quality.gateSweep,
+      gateSweepBySource: analysis.quality.gateSweepBySource,
+      pairedMcDiagnostics: analysis.quality.pairedMcDiagnostics,
       a2: analysis.quality.a2,
       a1: analysis.quality.a1,
       output: OUTPUT_FILE.pathname,
