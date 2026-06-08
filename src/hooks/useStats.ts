@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { statsApiBase, statsRuntimeMode } from "../lib/statsRuntime";
-import { StatsApiResponseSchema } from "../schemas";
+import { statsViewFromApiStats } from "../lib/statsView";
+import { type StatsApiResponse, StatsApiResponseSchema } from "../schemas";
 import { GREAT_SUCCESS } from "../solver";
 import type { Grade, Kit } from "../types";
-import type { GlobalStats, StatsView } from "../ui-types";
+import type { StatsView } from "../ui-types";
 import { KIT_KEYS } from "./calculatorShared";
 import { useStatsSubmission } from "./useStatsSubmission";
+
+function warnStatsRefreshFailure(reason: string, detail?: unknown) {
+  if (!import.meta.env.DEV) return;
+  console.warn(`[stats] ${reason}`, detail);
+}
 
 function demoNoise(seed: number) {
   const value = Math.sin(seed * 12.9898) * 43758.5453;
@@ -23,7 +29,7 @@ function demoSegmentBias(grade: Grade, level: number) {
   return bias[segmentIndex] * (grade === "SR" ? 1.1 : 1);
 }
 
-function makeDemoStats(): GlobalStats & Record<string, unknown> {
+function makeDemoStats(): StatsApiResponse {
   const levelKitStats = (["R", "SR"] as Grade[]).flatMap((grade) =>
     Array.from({ length: 15 }, (_, level) => {
       const kits = Object.fromEntries(
@@ -197,12 +203,7 @@ export function useStats() {
   const refreshGlobalStats = useCallback(async () => {
     if (statsRuntimeMode() === "demo") {
       const stats = makeDemoStats();
-      const totalEvents = Number(stats.summary?.events || 0);
-      setStatsView(
-        totalEvents
-          ? { type: "stats", stats }
-          : { type: "empty", message: "아직 집계된 통계가 없습니다." },
-      );
+      setStatsView(statsViewFromApiStats(stats));
       return;
     }
     const base = statsApiBase();
@@ -211,18 +212,18 @@ export function useStats() {
       const response = await fetch(`${base}/api/stats`, {
         headers: { Accept: "application/json" },
       });
-      if (!response.ok) return;
+      if (!response.ok) {
+        warnStatsRefreshFailure(`stats endpoint returned ${response.status}`);
+        return;
+      }
       const parsed = StatsApiResponseSchema.safeParse(await response.json());
-      if (!parsed.success) return;
-      const stats = parsed.data as unknown as GlobalStats;
-      const totalEvents = Number(stats.summary?.events || 0);
-      setStatsView(
-        totalEvents
-          ? { type: "stats", stats }
-          : { type: "empty", message: "아직 집계된 통계가 없습니다." },
-      );
-    } catch {
-      // Optional stats should not block the calculator.
+      if (!parsed.success) {
+        warnStatsRefreshFailure("stats response schema validation failed", parsed.error);
+        return;
+      }
+      setStatsView(statsViewFromApiStats(parsed.data));
+    } catch (error) {
+      warnStatsRefreshFailure("stats refresh failed", error);
     }
   }, []);
 
