@@ -23,10 +23,6 @@ export class StatsSubmissionError extends Error {
 
 type SubmitAttempt = (envelope: StatsSubmissionEnvelope) => Promise<void>;
 
-function keepQueueAliveAfterFailure() {
-  // The enqueue result still rejects; only the internal tail recovers so later events can run.
-}
-
 export class StatsSubmissionQueue {
   private tail: Promise<void> = Promise.resolve();
 
@@ -34,7 +30,7 @@ export class StatsSubmissionQueue {
 
   enqueue(envelope: StatsSubmissionEnvelope): Promise<void> {
     const result = this.tail.then(() => this.submitWithRetry(envelope));
-    this.tail = result.catch(keepQueueAliveAfterFailure);
+    this.tail = result.catch(() => undefined);
     return result;
   }
 

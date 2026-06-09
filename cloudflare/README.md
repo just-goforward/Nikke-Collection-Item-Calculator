@@ -82,13 +82,7 @@ ALLOWED_ORIGINS = "https://YOUR_GITHUB_ID.github.io"
 8. Deploy:
 
 ```powershell
-wrangler deploy --config cloudflare/wrangler.toml --env=""
-```
-
-For staging:
-
-```powershell
-wrangler deploy --config cloudflare/wrangler.toml --env staging
+wrangler deploy --config cloudflare/wrangler.toml
 ```
 
 ## Abuse controls

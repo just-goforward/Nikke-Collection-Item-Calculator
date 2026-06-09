@@ -2,10 +2,6 @@ name = "collection-kit-stats"
 main = "src/worker.ts"
 compatibility_date = "2026-05-05"
 
-[observability.logs]
-enabled = true
-invocation_logs = true
-
 [[d1_databases]]
 binding = "DB"
 database_name = "collection-kit-stats"

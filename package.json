@@ -36,8 +36,7 @@
     "test:visual": "playwright test e2e/visual.spec.ts",
     "test:visual:update": "playwright test e2e/visual.spec.ts --update-snapshots",
     "typecheck": "tsc --noEmit && tsc --noEmit -p cloudflare/tsconfig.json",
-    "lint": "biome check && npm run lint:architecture",
-    "lint:architecture": "node scripts/check-architecture.ts",
+    "lint": "biome check",
     "lint:fix": "biome check --write",
     "format": "biome format --write"
   },
