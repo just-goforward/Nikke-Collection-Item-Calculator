@@ -42,8 +42,8 @@
     "format": "biome format --write"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.15",
-    "@cloudflare/workers-types": "^4.20260509.1",
+    "@biomejs/biome": "^2.4.16",
+    "@cloudflare/workers-types": "^4.20260611.1",
     "@playwright/test": "1.60.0",
     "@tailwindcss/vite": "^4.3.0",
     "@types/node": "^24.13.0",
@@ -52,15 +52,20 @@
     "@vitejs/plugin-react": "^5.2.0",
     "@vitest/coverage-v8": "^4.1.5",
     "esbuild": "^0.28.0",
-    "miniflare": "^4.20260521.0",
+    "miniflare": "^4.20260609.0",
     "tailwindcss": "^4.3.0",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "vite": "^8.0.13",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.8"
   },
   "dependencies": {
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "zod": "4.4.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.0": true,
+    "sharp@0.34.5": true,
+    "workerd@1.20260609.1": true
   }
 }

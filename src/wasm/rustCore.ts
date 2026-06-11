@@ -62,6 +62,10 @@ export type RustCoreExports = {
   getMcVecB?: () => number;
   getMcVecP?: () => number;
   getMcVecY?: () => number;
+  getMcQuantileB?: (q: number) => number;
+  getMcQuantileP?: (q: number) => number;
+  getMcQuantileY?: (q: number) => number;
+  getMcDepletion?: () => number;
   statesCount?: () => number;
   solveMinEf: (
     stateId: number,
@@ -79,6 +83,13 @@ export type RustCoreExports = {
   minEfVecP: () => number;
   minEfVecY: () => number;
   minEfExpectedCost: () => number;
+  minEfRootCandidateValid?: (action: number) => number;
+  minEfRootCandidateMaxSuccessProb?: () => number;
+  minEfRootCandidateSuccessProb?: (action: number) => number;
+  minEfRootCandidateVecB?: (action: number) => number;
+  minEfRootCandidateVecP?: (action: number) => number;
+  minEfRootCandidateVecY?: (action: number) => number;
+  minEfRootCandidateExpectedCost?: (action: number) => number;
   minEfActionAtOrSolve: (
     stateId: number,
     blueUses: number,
@@ -255,6 +266,8 @@ export type RustMonteCarloResult = {
   completed: number;
   successProbability: number;
   vector: Record<Kit, number>;
+  quantiles?: Record<Kit, { p50: number; p90: number; p95: number }>;
+  depletion?: number;
 };
 
 export type RustMinEfSolver = {
@@ -265,6 +278,13 @@ export type RustMinEfSolver = {
     normPower?: number,
     tolerance?: number,
   ) => RustMinEfRoot;
+  rootCandidates: (
+    start: State,
+    stock: Stock,
+    horizonFactor?: number,
+    normPower?: number,
+    tolerance?: number,
+  ) => RustPhase2Candidate[];
   actionAt: (state: State, stockUses: Stock) => Kit | null;
 };
 
@@ -427,6 +447,40 @@ function readRootCandidates(exports: RustCoreExports, tolerance: number): RustPh
   });
 }
 
+function readMinEfRootCandidates(
+  exports: RustCoreExports,
+  tolerance: number,
+): RustPhase2Candidate[] {
+  const valid = requireExport(exports, "minEfRootCandidateValid");
+  const maxSuccess = requireExport(exports, "minEfRootCandidateMaxSuccessProb")();
+  const success = requireExport(exports, "minEfRootCandidateSuccessProb");
+  const vecB = requireExport(exports, "minEfRootCandidateVecB");
+  const vecP = requireExport(exports, "minEfRootCandidateVecP");
+  const vecY = requireExport(exports, "minEfRootCandidateVecY");
+  const expectedCost = requireExport(exports, "minEfRootCandidateExpectedCost");
+
+  return KITS.flatMap((kit, index) => {
+    if (!valid(index)) return [];
+    const successProbability = success(index);
+    const probabilityGap = Math.max(0, maxSuccess - successProbability);
+    return [
+      {
+        firstAction: kit,
+        successProbability,
+        maxSuccessProbability: maxSuccess,
+        probabilityGap,
+        vector: {
+          blue: vecB(index),
+          purple: vecP(index),
+          yellow: vecY(index),
+        },
+        resourceCost: expectedCost(index),
+        eligible: probabilityGap <= tolerance + 1e-12,
+      },
+    ];
+  });
+}
+
 function readPhase2Root(exports: RustCoreExports, slot: number): RustPhase2Root {
   const resAction = requireExport(exports, "resAction");
   const resSuccessProb = requireExport(exports, "resSuccessProb");
@@ -450,6 +504,26 @@ function readPhase2Root(exports: RustCoreExports, slot: number): RustPhase2Root 
 function readMonteCarlo(exports: RustCoreExports): RustMonteCarloResult {
   const runs = requireExport(exports, "getMcRuns")();
   const completed = requireExport(exports, "getMcCompleted")();
+  const quantiles =
+    exports.getMcQuantileB && exports.getMcQuantileP && exports.getMcQuantileY
+      ? {
+          blue: {
+            p50: exports.getMcQuantileB(0.5) * 10,
+            p90: exports.getMcQuantileB(0.9) * 10,
+            p95: exports.getMcQuantileB(0.95) * 10,
+          },
+          purple: {
+            p50: exports.getMcQuantileP(0.5) * 10,
+            p90: exports.getMcQuantileP(0.9) * 10,
+            p95: exports.getMcQuantileP(0.95) * 10,
+          },
+          yellow: {
+            p50: exports.getMcQuantileY(0.5) * 10,
+            p90: exports.getMcQuantileY(0.9) * 10,
+            p95: exports.getMcQuantileY(0.95) * 10,
+          },
+        }
+      : undefined;
   return {
     runs,
     completed,
@@ -459,6 +533,8 @@ function readMonteCarlo(exports: RustCoreExports): RustMonteCarloResult {
       purple: requireExport(exports, "getMcVecP")(),
       yellow: requireExport(exports, "getMcVecY")(),
     },
+    ...(quantiles ? { quantiles } : {}),
+    ...(exports.getMcDepletion ? { depletion: exports.getMcDepletion() } : {}),
   };
 }
 
@@ -467,6 +543,20 @@ function rustStatusName(status: number) {
   if (status === RUST_STATUS_BUDGET_EXCEEDED) return "budget_exceeded";
   if (status === RUST_STATUS_MEMO_FULL) return "memo_full";
   return `unknown_${status}`;
+}
+
+export class RustSolveError extends Error {
+  constructor(
+    operation: string,
+    readonly status: number,
+  ) {
+    super(`Rust solver ${operation} failed with status ${rustStatusName(status)}.`);
+    this.name = "RustSolveError";
+  }
+}
+
+export function isMemoFull(error: unknown): boolean {
+  return error instanceof RustSolveError && error.status === RUST_STATUS_MEMO_FULL;
 }
 
 function populationVariance(sumSq: number, mean: number, runs: number) {
@@ -519,7 +609,7 @@ function availabilityHessian(
 function assertRustStatusOk(exports: RustCoreExports, operation: string) {
   const status = exports.getSolveStatus?.() ?? RUST_STATUS_OK;
   if (status === RUST_STATUS_OK) return;
-  throw new Error(`Rust solver ${operation} failed with status ${rustStatusName(status)}.`);
+  throw new RustSolveError(operation, status);
 }
 
 function requireExport<T extends keyof RustCoreExports>(
@@ -632,6 +722,20 @@ export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver
         },
         expectedCost: exports.minEfExpectedCost(),
       };
+    },
+    rootCandidates(start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) {
+      const stateId = encodeState(start.grade, start.level, start.exp ?? 0);
+      exports.solveMinEf(
+        stateId,
+        stock.blue | 0,
+        stock.purple | 0,
+        stock.yellow | 0,
+        horizonFactor,
+        normPower,
+        tolerance,
+      );
+      assertRustStatusOk(exports, "min-ef root candidates");
+      return readMinEfRootCandidates(exports, tolerance);
     },
     actionAt(state, stockUses) {
       const stateId = encodeState(state.grade, state.level, state.exp ?? 0);

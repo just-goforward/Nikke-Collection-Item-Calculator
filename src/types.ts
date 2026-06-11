@@ -32,6 +32,8 @@ export interface MonteCarloResult {
   completed: number;
   successProbability: number;
   vector: Stock;
+  quantiles?: KitRecord<{ p50: number; p90: number; p95: number }>;
+  depletion?: number;
 }
 
 export interface SolverResult {

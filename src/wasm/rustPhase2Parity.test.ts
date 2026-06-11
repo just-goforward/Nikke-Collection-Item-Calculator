@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { solveWithResearchCostModel } from "../solver";
 import { createRustPhase2Solver, type RustCoreExports, type RustPhase2Solver } from "./rustCore";
-import { solveRustPhase2 } from "./rustMinEfSolver";
+import { solveRustMinEfProduct, solveRustPhase2 } from "./rustMinEfSolver";
 
 const WASM_URL = new URL("../../public/solver_rs.wasm", import.meta.url);
 const HORIZON_FACTOR = 0.75;
@@ -257,6 +257,54 @@ describe("rust phase2 wasm parity", () => {
         closeTo(rustCandidate.vector.purple, jsCandidate.vector.purple);
         closeTo(rustCandidate.vector.yellow, jsCandidate.vector.yellow);
         closeTo(rustCandidate.resourceCost, jsCandidate.resourceCost);
+      }
+    });
+
+    it(`emits a phase2-shaped min-E[f] product result for ${testCase.name}`, async () => {
+      const input = {
+        start: testCase.start,
+        stock: testCase.stock,
+        strategy: "supply" as const,
+        monteCarloRuns: MONTE_CARLO_RUNS,
+        monteCarloSeed: MONTE_CARLO_SEED,
+      };
+      const phase2 = (await solveRustPhase2(input, wasmDataUrl)) as {
+        possible: boolean;
+        best: {
+          successProbability: number;
+          maxSuccessProbability: number;
+          probabilityGap: number;
+          resourceCost: number;
+        };
+        route: unknown[];
+        monteCarlo: {
+          runs: number;
+          completed: number;
+          successProbability: number;
+          quantiles?: unknown;
+          depletion?: number;
+        };
+        topCandidates: Array<{ probabilityGap: number; resourceCost: number }>;
+      };
+      const minef = (await solveRustMinEfProduct(input, wasmDataUrl)) as typeof phase2;
+
+      expect(minef.possible).toBe(phase2.possible);
+      expect(Object.keys(minef).sort()).toEqual(Object.keys(phase2).sort());
+      closeTo(minef.best.successProbability, phase2.best.successProbability);
+      closeTo(minef.best.maxSuccessProbability, phase2.best.maxSuccessProbability);
+      expect(minef.best.probabilityGap).toBeLessThanOrEqual(1e-9);
+      expect(minef.best.resourceCost).toBeGreaterThan(0);
+      expect(minef.route.length).toBeGreaterThan(0);
+      expect(minef.monteCarlo.runs).toBe(MONTE_CARLO_RUNS);
+      expect(minef.monteCarlo.quantiles).toBeDefined();
+      expect(minef.monteCarlo.depletion).toBeGreaterThanOrEqual(0);
+      expect(minef.topCandidates.length).toBeGreaterThan(0);
+      for (let index = 1; index < minef.topCandidates.length; index += 1) {
+        const previous = minef.topCandidates[index - 1];
+        const current = minef.topCandidates[index];
+        if (previous.probabilityGap <= 1e-9 && current.probabilityGap <= 1e-9) {
+          expect(current.resourceCost).toBeGreaterThanOrEqual(previous.resourceCost - 1e-12);
+        }
       }
     });
   }

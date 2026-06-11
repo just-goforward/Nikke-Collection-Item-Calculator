@@ -31,10 +31,10 @@ describe("solver runtime selection", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses rust phase2 by default", () => {
+  it("uses rust min-E[f] by default", () => {
     setRuntime("");
 
-    expect(solverBackendFromRuntime()).toBe("rust-phase2");
+    expect(solverBackendFromRuntime()).toBe("rust-min-ef");
     expect(solverBackendShouldFailLoud()).toBe(false);
   });
 
@@ -45,11 +45,11 @@ describe("solver runtime selection", () => {
     expect(solverBackendShouldFailLoud()).toBe(false);
   });
 
-  it("keeps rust min-E[f] research-only even in staging by using the default backend", () => {
+  it("enables rust min-E[f] in staging as fail-loud", () => {
     setRuntime("?statsEnv=staging&solverBackend=rust-min-ef");
 
-    expect(solverBackendFromRuntime()).toBe("rust-phase2");
-    expect(solverBackendShouldFailLoud()).toBe(false);
+    expect(solverBackendFromRuntime()).toBe("rust-min-ef");
+    expect(solverBackendShouldFailLoud()).toBe(true);
   });
 
   it("enables explicit rust phase2 in staging as fail-loud", () => {
@@ -69,7 +69,14 @@ describe("solver runtime selection", () => {
   it("does not enable rust phase2 rerank outside staging", () => {
     setRuntime("?solverBackend=rust-phase2-rerank");
 
-    expect(solverBackendFromRuntime()).toBe("rust-phase2");
+    expect(solverBackendFromRuntime()).toBe("rust-min-ef");
+    expect(solverBackendShouldFailLoud()).toBe(false);
+  });
+
+  it("allows explicit rust min-E[f] outside staging without fail-loud", () => {
+    setRuntime("?solverBackend=rust-min-ef");
+
+    expect(solverBackendFromRuntime()).toBe("rust-min-ef");
     expect(solverBackendShouldFailLoud()).toBe(false);
   });
 

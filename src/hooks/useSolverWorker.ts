@@ -53,7 +53,8 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
       const id = requestIdRef.current;
       const backend = solverBackendFromRuntime();
       const failLoud = solverBackendShouldFailLoud();
-      const isRustBackend = backend === "rust-phase2" || backend === "rust-phase2-rerank";
+      const isRustBackend =
+        backend === "rust-phase2" || backend === "rust-phase2-rerank" || backend === "rust-min-ef";
       const wasmUrl = isRustBackend ? solverWasmUrl() : undefined;
 
       return new Promise<unknown>((resolve, reject) => {

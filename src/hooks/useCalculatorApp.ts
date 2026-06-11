@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { STATE_FEEDBACK_VISIBLE_MS } from "../components/stateFeedbackAnimations";
-import { formatFlooredPercent, formatInteger, formatPercent } from "../format";
-import { STRATEGY_META, transition } from "../solver";
-import type { Grade, ProgressEvent, SolverInput } from "../types";
+import { formatFlooredPercent, formatInteger, formatNumber, formatPercent } from "../format";
+import { EXPECTED_28_DAY_GAIN, STRATEGY_META, transition } from "../solver";
+import type { Grade, Kit, ProgressEvent, SolverInput } from "../types";
 import type {
   CandidateView,
   DetailView,
@@ -10,6 +10,7 @@ import type {
   RecommendationAction,
   ResultView,
   StateChangeFeedback,
+  ValidationSuccessDistributionView,
   ValidationView,
 } from "../ui-types";
 import {
@@ -33,6 +34,120 @@ import { useOutcomeFlow } from "./useOutcomeFlow";
 import { useSolverWorker } from "./useSolverWorker";
 import { useStats } from "./useStats";
 import { useTheme } from "./useTheme";
+
+const KIT_SHORT_LABELS: Record<Kit, string> = {
+  blue: "파랑",
+  purple: "보라",
+  yellow: "노랑",
+};
+
+function formatKitPieces(value: number) {
+  return `약 ${formatInteger(Math.round(value))}개`;
+}
+
+function formatSupplyDays(pieces: number, kit: Kit) {
+  if (pieces <= 0) return "0일치";
+  const days = (pieces / EXPECTED_28_DAY_GAIN[kit]) * 28;
+  return `${days < 10 ? days.toFixed(1) : formatInteger(Math.round(days))}일치`;
+}
+
+function formatReadablePercent(value: number, digits = 4) {
+  const percent = value * 100;
+  const rounded = Number(percent.toFixed(digits));
+  if (Math.abs(rounded - Math.round(rounded)) <= 1e-10) {
+    return `${formatInteger(Math.round(rounded))}%`;
+  }
+  return `${formatNumber(rounded, digits)}%`;
+}
+
+function formatCompactPercent(value: number, digits = 2) {
+  return formatReadablePercent(value, digits);
+}
+
+function formatKitBreakdown(vector: Partial<Record<Kit, number>> = {}) {
+  return KIT_KEYS.map(
+    (kit) => `${KIT_SHORT_LABELS[kit]} ${formatInteger(Math.round(Number(vector[kit] || 0)))}`,
+  ).join(" · ");
+}
+
+function makeBinomialCurvePoints(runs: number, probability: number, xMin: number, xMax: number) {
+  if (probability <= 0 || probability >= 1 || xMax <= xMin) return [];
+  const mode = Math.min(runs, Math.max(0, Math.floor((runs + 1) * probability)));
+  const weights = new Map<number, number>([[mode, 1]]);
+  for (let x = mode; x < xMax; x += 1) {
+    const current = weights.get(x) || 0;
+    const next =
+      current * ((runs - x) / (x + 1)) * (probability / Math.max(1e-12, 1 - probability));
+    weights.set(x + 1, Number.isFinite(next) ? next : 0);
+  }
+  for (let x = mode; x > xMin; x -= 1) {
+    const current = weights.get(x) || 0;
+    const previous =
+      current * (x / (runs - x + 1)) * ((1 - probability) / Math.max(1e-12, probability));
+    weights.set(x - 1, Number.isFinite(previous) ? previous : 0);
+  }
+  const maxWeight = Math.max(...weights.values(), 1e-12);
+  const step = Math.max(1, Math.ceil((xMax - xMin) / 180));
+  const points: Array<{ x: number; y: number }> = [];
+  for (let x = xMin; x <= xMax; x += step) {
+    points.push({ x, y: Math.max(0, Math.min(1, (weights.get(x) || 0) / maxWeight)) });
+  }
+  if (points[points.length - 1]?.x !== xMax) {
+    points.push({ x: xMax, y: Math.max(0, Math.min(1, (weights.get(xMax) || 0) / maxWeight)) });
+  }
+  return points;
+}
+
+function makeValidationCharts(
+  monteCarlo: {
+    runs: number;
+    completed: number;
+    successProbability: number;
+    vector?: Partial<Record<Kit, number>>;
+    quantiles?: Record<Kit, { p50: number; p90: number; p95: number }>;
+    depletion?: number;
+  },
+  expectedProbability: number,
+) {
+  const expected = Math.min(1, Math.max(0, Number(expectedProbability || 0)));
+  const probability = Math.min(1, Math.max(0, Number(monteCarlo.successProbability || 0)));
+  const runs = Math.max(1, Math.trunc(Number(monteCarlo.runs || 0)));
+  const observedCount = Math.max(0, Math.min(runs, Math.trunc(Number(monteCarlo.completed || 0))));
+  const meanCount = runs * expected;
+  const variance = runs * expected * (1 - expected);
+  const standardDeviation = Math.sqrt(Math.max(0, variance));
+  const lowerCount = Math.max(0, Math.round(meanCount - 1.96 * standardDeviation));
+  const upperCount = Math.min(runs, Math.round(meanCount + 1.96 * standardDeviation));
+  const spread = Math.max(1, standardDeviation);
+  let xMin = Math.max(0, Math.floor(Math.min(meanCount - 4 * spread, observedCount - spread)));
+  let xMax = Math.min(runs, Math.ceil(Math.max(meanCount + 4 * spread, observedCount + spread)));
+  if (xMax <= xMin) {
+    xMin = Math.max(0, Math.floor(meanCount - 1));
+    xMax = Math.min(runs, Math.ceil(meanCount + 1));
+  }
+  const deterministic = standardDeviation <= 1e-9;
+  const skewness = variance > 0 ? (1 - 2 * expected) / Math.sqrt(variance) : 0;
+  const excessKurtosis = variance > 0 ? (1 - 6 * expected * (1 - expected)) / variance : 0;
+  const successDistribution: ValidationSuccessDistributionView = {
+    kind: deterministic ? "deterministic" : "binomial",
+    expectedRateLabel: formatReadablePercent(expected, 4),
+    observedRateLabel: formatPercent(probability, 2),
+    expectedCountLabel: `평균 ${formatNumber(meanCount, 1)}명`,
+    observedCountLabel: `이번 ${formatInteger(observedCount)}명`,
+    intervalLabel: deterministic
+      ? "결과 폭 없음"
+      : `95% 근사 ${formatInteger(lowerCount)} ~ ${formatInteger(upperCount)}명`,
+    standardDeviationLabel: `표준편차 ${formatNumber(standardDeviation, 1)}명`,
+    skewnessLabel: `왜도 ${formatNumber(skewness, 3)}`,
+    kurtosisLabel: `초과첨도 ${formatNumber(excessKurtosis, 3)}`,
+    xMin,
+    xMax,
+    meanCount,
+    observedCount,
+    points: makeBinomialCurvePoints(runs, expected, xMin, xMax),
+  };
+  return { successDistribution };
+}
 
 function recommendationFromResult(result: SolverResult | null): RecommendationAction | null {
   if (!result?.possible || !result.best) return null;
@@ -258,27 +373,56 @@ export function useCalculatorApp() {
         actionTransition,
       });
       const strategyKey = result.stats?.strategy || result.input.strategy || "supply";
-      const candidates: CandidateView[] = (result.topCandidates || []).map((candidate, index) => ({
-        rankLabel: index === 0 ? "추천" : `후보 ${index + 1}`,
-        kit: candidate.firstAction,
-        count: candidate.run?.count || 1,
-        successProbability: formatPercent(candidate.successProbability, 2),
-        greatSuccessProbability: formatPercent(
-          candidate.run?.greatSuccessProbability ?? candidate.firstProbability,
-          1,
-        ),
-      }));
+      const expectedConsumption = KIT_KEYS.map((kit) => {
+        const pieces = Number(best.vector?.[kit] || 0);
+        return {
+          kit,
+          pieces: formatKitPieces(pieces),
+          supplyDays: formatSupplyDays(pieces, kit),
+        };
+      });
+      const expectedRemaining = KIT_KEYS.map((kit) => {
+        const remaining = Math.max(
+          0,
+          Math.round(Number(result.input?.stock?.[kit] || 0) - Number(best.vector?.[kit] || 0)),
+        );
+        return `${KIT_SHORT_LABELS[kit]} ${formatInteger(remaining)}개`;
+      }).join(" · ");
+      const tolerance = Number(result.stats?.probabilityTolerance ?? 0);
+      const candidates: CandidateView[] = (result.topCandidates || []).map((candidate, index) => {
+        const gap = Number(candidate.probabilityGap || 0);
+        const excluded = gap > tolerance + 1e-9;
+        const candidateVector = candidate.vector || {};
+        const totalExpectedKits =
+          Number(candidate.totalKits) ||
+          KIT_KEYS.reduce((sum, kit) => sum + Number(candidateVector[kit] || 0), 0);
+        return {
+          rankLabel: index === 0 && !excluded ? "추천" : `후보 ${index + 1}`,
+          kit: candidate.firstAction,
+          count: candidate.run?.count || 1,
+          successProbability: formatCompactPercent(candidate.successProbability, 2),
+          greatSuccessProbability: formatCompactPercent(
+            candidate.run?.greatSuccessProbability ?? candidate.firstProbability,
+            1,
+          ),
+          expectedKits: formatKitPieces(totalExpectedKits),
+          expectedBreakdown: formatKitBreakdown(candidateVector),
+          excludedReason: excluded ? `허용 확률 차이 초과 (${formatPercent(gap, 2)})` : null,
+        };
+      });
       setDetailView({
         type: "metrics",
         strategyLabel: STRATEGY_META[strategyKey]?.label || STRATEGY_META.supply.label,
-        successProbability: formatPercent(best.successProbability, 2),
-        greatSuccessProbability: formatPercent(
+        successProbability: formatReadablePercent(best.successProbability, 2),
+        greatSuccessProbability: formatCompactPercent(
           run.greatSuccessProbability ?? best.firstProbability,
           1,
         ),
         stateCount: formatInteger(Number(result.stats?.states || 0)),
         candidates,
         monteCarloRuns: monteCarloRuns().toLocaleString("ko-KR"),
+        expectedConsumption,
+        expectedRemaining,
       });
       setValidationView(INITIAL_VALIDATION);
     },
@@ -337,11 +481,12 @@ export function useCalculatorApp() {
     };
     const resultKey = inputKey(input);
     const seed = makeMonteCarloSeed();
-    setValidationView({
+    setValidationView((current) => ({
+      ...current,
       disabled: true,
       buttonLabel: "시도 중",
       message: "가상의 니붕이 0명이 시도를 완료했습니다.",
-    });
+    }));
     await new Promise((resolve) => requestAnimationFrame(resolve));
     try {
       const monteCarlo = await validateBestAvailable(
@@ -367,19 +512,25 @@ export function useCalculatorApp() {
           })
         : "";
       if (latestKey !== resultKey) return;
+      const validationCharts = makeValidationCharts(
+        monteCarlo,
+        Number(latest.best?.successProbability || 0),
+      );
       setValidationView({
         disabled: false,
         buttonLabel: "다시 시켜보기",
         message: `이번엔 가상의 니붕이 ${formatInteger(monteCarlo.runs)}명 중 ${formatInteger(
           monteCarlo.completed || 0,
         )}명(${formatFlooredPercent(monteCarlo.successProbability, 1)})이 SR 15에 성공했습니다.`,
+        successDistribution: validationCharts.successDistribution,
       });
     } catch {
-      setValidationView({
+      setValidationView((current) => ({
+        ...current,
         disabled: false,
         buttonLabel: "니붕이들 시켜보기",
         message: "검증 중 오류가 발생했습니다.",
-      });
+      }));
     }
   }, [validateBestAvailable]);
 

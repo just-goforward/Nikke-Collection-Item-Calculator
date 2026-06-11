@@ -56,6 +56,32 @@ export type CandidateView = {
   count: number;
   successProbability: string;
   greatSuccessProbability: string;
+  expectedKits?: string;
+  expectedBreakdown?: string;
+  excludedReason?: string | null;
+};
+
+export type ExpectedConsumptionView = {
+  kit: Kit;
+  pieces: string;
+  supplyDays: string;
+};
+
+export type ValidationSuccessDistributionView = {
+  kind: "binomial" | "deterministic";
+  expectedRateLabel: string;
+  observedRateLabel: string;
+  expectedCountLabel: string;
+  observedCountLabel: string;
+  intervalLabel: string;
+  standardDeviationLabel: string;
+  skewnessLabel: string;
+  kurtosisLabel: string;
+  xMin: number;
+  xMax: number;
+  meanCount: number;
+  observedCount: number;
+  points: Array<{ x: number; y: number }>;
 };
 
 export type DetailView =
@@ -68,12 +94,15 @@ export type DetailView =
       stateCount: string;
       candidates: CandidateView[];
       monteCarloRuns: string;
+      expectedConsumption: ExpectedConsumptionView[];
+      expectedRemaining: string;
     };
 
 export type ValidationView = {
   buttonLabel: string;
   disabled: boolean;
   message: string;
+  successDistribution?: ValidationSuccessDistributionView | null;
 };
 
 export type LoadingView = {

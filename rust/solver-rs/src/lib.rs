@@ -2169,6 +2169,13 @@ static mut ME_SC_VB: Vec<f64> = Vec::new();
 static mut ME_SC_VP: Vec<f64> = Vec::new();
 static mut ME_SC_VY: Vec<f64> = Vec::new();
 static mut ME_SC_EF: Vec<f64> = Vec::new();
+static mut MINEF_ROOT_SC_VALID: [u8; 3] = [0; 3];
+static mut MINEF_ROOT_SC_SP: [f64; 3] = [0.0; 3];
+static mut MINEF_ROOT_SC_VB: [f64; 3] = [0.0; 3];
+static mut MINEF_ROOT_SC_VP: [f64; 3] = [0.0; 3];
+static mut MINEF_ROOT_SC_VY: [f64; 3] = [0.0; 3];
+static mut MINEF_ROOT_SC_EF: [f64; 3] = [0.0; 3];
+static mut MINEF_ROOT_MAX_SP: f64 = 0.0;
 
 #[inline]
 unsafe fn me_leaf_cost(b: i32, p: i32, y: i32) -> f64 {
@@ -2213,6 +2220,13 @@ unsafe fn me_reset() {
         }
     }
     ME_COUNT = 0;
+    MINEF_ROOT_SC_VALID = [0; 3];
+    MINEF_ROOT_SC_SP = [0.0; 3];
+    MINEF_ROOT_SC_VB = [0.0; 3];
+    MINEF_ROOT_SC_VP = [0.0; 3];
+    MINEF_ROOT_SC_VY = [0.0; 3];
+    MINEF_ROOT_SC_EF = [0.0; 3];
+    MINEF_ROOT_MAX_SP = 0.0;
 }
 
 unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {
@@ -2396,6 +2410,18 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {
     ME_VY[slot] = MN_VY;
     ME_EF[slot] = MN_EF;
     ME_ACT[slot] = best_k as i8;
+    if depth == 0 {
+        MINEF_ROOT_MAX_SP = max_msp;
+        for k in 0..3usize {
+            let s = base + k;
+            MINEF_ROOT_SC_VALID[k] = ME_SC_VALID[s];
+            MINEF_ROOT_SC_SP[k] = ME_SC_SP[s];
+            MINEF_ROOT_SC_VB[k] = ME_SC_VB[s];
+            MINEF_ROOT_SC_VP[k] = ME_SC_VP[s];
+            MINEF_ROOT_SC_VY[k] = ME_SC_VY[s];
+            MINEF_ROOT_SC_EF[k] = ME_SC_EF[s];
+        }
+    }
     ME_COUNT += 1;
 }
 
@@ -2443,6 +2469,52 @@ pub extern "C" fn minEfVecY() -> f64 {
 #[no_mangle]
 pub extern "C" fn minEfExpectedCost() -> f64 {
     unsafe { MN_EF }
+}
+#[no_mangle]
+pub extern "C" fn minEfRootCandidateValid(action: i32) -> i32 {
+    if !(0..=2).contains(&action) {
+        return 0;
+    }
+    unsafe { MINEF_ROOT_SC_VALID[action as usize] as i32 }
+}
+#[no_mangle]
+pub extern "C" fn minEfRootCandidateMaxSuccessProb() -> f64 {
+    unsafe { MINEF_ROOT_MAX_SP }
+}
+#[no_mangle]
+pub extern "C" fn minEfRootCandidateSuccessProb(action: i32) -> f64 {
+    if !(0..=2).contains(&action) {
+        return 0.0;
+    }
+    unsafe { MINEF_ROOT_SC_SP[action as usize] }
+}
+#[no_mangle]
+pub extern "C" fn minEfRootCandidateVecB(action: i32) -> f64 {
+    if !(0..=2).contains(&action) {
+        return 0.0;
+    }
+    unsafe { MINEF_ROOT_SC_VB[action as usize] }
+}
+#[no_mangle]
+pub extern "C" fn minEfRootCandidateVecP(action: i32) -> f64 {
+    if !(0..=2).contains(&action) {
+        return 0.0;
+    }
+    unsafe { MINEF_ROOT_SC_VP[action as usize] }
+}
+#[no_mangle]
+pub extern "C" fn minEfRootCandidateVecY(action: i32) -> f64 {
+    if !(0..=2).contains(&action) {
+        return 0.0;
+    }
+    unsafe { MINEF_ROOT_SC_VY[action as usize] }
+}
+#[no_mangle]
+pub extern "C" fn minEfRootCandidateExpectedCost(action: i32) -> f64 {
+    if !(0..=2).contains(&action) {
+        return f64::INFINITY;
+    }
+    unsafe { MINEF_ROOT_SC_EF[action as usize] }
 }
 // policy lookup for the MC validator: chosen action at (sid, stock uses) from the last solveMinEf memo.
 unsafe fn min_ef_action_at(sid: i32, b: i32, p: i32, y: i32) -> i32 {

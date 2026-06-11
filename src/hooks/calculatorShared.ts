@@ -15,6 +15,7 @@ export const EMPTY_DETAIL: DetailView = {
 export const INITIAL_VALIDATION: ValidationView = {
   buttonLabel: "니붕이들 시켜보기",
   disabled: false,
+  successDistribution: null,
   message: "검산을 실행하면 SR 15 성공률이 여기에 표시됩니다.",
 };
 
@@ -73,6 +74,7 @@ export type SolverResult = {
     states?: number;
     strategy?: Strategy;
     maxSuccessProbability?: number;
+    probabilityTolerance?: number;
     solverVersion?: string;
     solverPhase?: string;
   };
@@ -83,6 +85,9 @@ export type MonteCarloResult = {
   runs: number;
   completed: number;
   successProbability: number;
+  vector?: Partial<Record<Kit, number>>;
+  quantiles?: Record<Kit, { p50: number; p90: number; p95: number }>;
+  depletion?: number;
 };
 
 export type PendingStatsEvent = {

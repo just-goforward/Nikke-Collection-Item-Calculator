@@ -884,7 +884,7 @@ async function hashKey(value: string) {
 }
 
 function validatePayload(payload: AnyValue) {
-  if (!payload || payload.version !== 1) throw new HttpError(400, "invalid_version");
+  if (payload?.version !== 1) throw new HttpError(400, "invalid_version");
   if (typeof payload.eventId !== "string" || !/^[a-zA-Z0-9-]{16,80}$/.test(payload.eventId)) {
     throw new HttpError(400, "invalid_event_id");
   }

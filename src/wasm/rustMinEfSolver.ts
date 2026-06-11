@@ -10,6 +10,7 @@
 } from "../solver";
 import type { CollectionState, Kit, SolverInput, Stock } from "../types";
 import {
+  isMemoFull,
   loadRustMinEfSolver,
   loadRustPhase2Solver,
   type RustMinEfSolver,
@@ -29,7 +30,6 @@ const SOLVER_VERSION = "phase3_rust_min_ef_staging";
 const PHASE2_SOLVER_VERSION = "phase2_availability_h075_tau0_p3_rust";
 const RERANK_SOLVER_VERSION =
   "phase2_availability_h075_tau0_p3_rust_rerank_adaptive90_m025_confirm_staging";
-const MAX_RUST_MIN_EF_STOCK_VOLUME = 10_000;
 const RERANK_QUICK_RUNS = 512;
 const RERANK_MAX_RUNS = 2048;
 const RERANK_GATE_Z = 1.645;
@@ -120,23 +120,6 @@ function normalizeInput(input: SolverInput): NormalizedInput {
   };
 }
 
-function rustMinEfStockVolume(stockUses: Stock) {
-  return (stockUses.blue + 1) * (stockUses.purple + 1) * (stockUses.yellow + 1);
-}
-
-function assertRustMinEfInputSupported(input: NormalizedInput) {
-  const volume = rustMinEfStockVolume(input.stockUses);
-  if (volume <= MAX_RUST_MIN_EF_STOCK_VOLUME) return;
-
-  throw new Error(
-    [
-      "Rust min E[f] staging solver is currently limited to smaller inventory states.",
-      `State volume ${volume.toLocaleString("en-US")} exceeds ${MAX_RUST_MIN_EF_STOCK_VOLUME.toLocaleString("en-US")}.`,
-      "Use the default JS solver for this input, or test Rust mode with lower kit counts until the Rust kernel gets dynamic stock capping.",
-    ].join(" "),
-  );
-}
-
 function decrementStock(stock: Stock, kit: Kit): Stock {
   return {
     blue: stock.blue - (kit === "blue" ? 1 : 0),
@@ -192,8 +175,10 @@ function buildPhase2TopCandidates(
   input: NormalizedInput,
   candidates: RustPhase2Candidate[],
   actionFor: (state: CollectionState, stockUses: Stock) => Kit | null,
+  name = "Rust phase2",
 ) {
   return [...candidates].sort(comparePhase2Candidates).map((candidate) => {
+    const firstProbability = transition(input.start, candidate.firstAction).probability;
     const totalExpectedKits = totalKits(candidate.vector);
     const pressure = pressureScore(candidate.vector, input.stockUses);
     const legacySupplyCost = legacySupplyCostScore(candidate.vector);
@@ -202,8 +187,9 @@ function buildPhase2TopCandidates(
       KIT_ORDER.map((kit) => [kit, round(candidate.vector[kit], 4)]),
     ) as Stock;
     return {
-      name: "Rust phase2",
+      name,
       firstAction: candidate.firstAction,
+      firstProbability,
       run: buildRecommendedRunForKit(input, actionFor, candidate.firstAction),
       vector,
       totalKits: round(totalExpectedKits, 4),
@@ -356,6 +342,11 @@ function simulate(
 ) {
   const random = makeRandom(seed);
   const totals: Stock = { blue: 0, purple: 0, yellow: 0 };
+  const hist: Record<Kit, number[]> = {
+    blue: new Array(256).fill(0),
+    purple: new Array(256).fill(0),
+    yellow: new Array(256).fill(0),
+  };
   let completed = 0;
 
   for (let run = 0; run < runs; run += 1) {
@@ -380,8 +371,32 @@ function simulate(
       state = random() < edge.probability ? edge.success : edge.fail;
     }
 
-    for (const kit of KIT_ORDER) totals[kit] += used[kit];
+    for (const kit of KIT_ORDER) {
+      totals[kit] += used[kit];
+      hist[kit][Math.min(255, Math.floor(used[kit] / 10))] += 1;
+    }
   }
+
+  const quantileUses = (kit: Kit, q: number) => {
+    if (runs <= 0) return 0;
+    const threshold = clamp(Math.trunc(q * runs), 1, runs);
+    let cumulative = 0;
+    for (let uses = 0; uses < hist[kit].length; uses += 1) {
+      cumulative += hist[kit][uses];
+      if (cumulative >= threshold) return uses;
+    }
+    return hist[kit].length - 1;
+  };
+  const quantiles = Object.fromEntries(
+    KIT_ORDER.map((kit) => [
+      kit,
+      {
+        p50: quantileUses(kit, 0.5) * 10,
+        p90: quantileUses(kit, 0.9) * 10,
+        p95: quantileUses(kit, 0.95) * 10,
+      },
+    ]),
+  ) as Record<Kit, { p50: number; p90: number; p95: number }>;
 
   return {
     runs,
@@ -392,6 +407,8 @@ function simulate(
       purple: runs > 0 ? totals.purple / runs : 0,
       yellow: runs > 0 ? totals.yellow / runs : 0,
     },
+    quantiles,
+    depletion: runs > 0 ? (runs - completed) / runs : 0,
   };
 }
 
@@ -528,7 +545,7 @@ function selectAdaptiveRerankDecision(
   };
 }
 
-export async function solveRustMinEf(
+export async function solveRustMinEfProduct(
   input: SolverInput,
   wasmUrl: string,
   progress?: (progress: { phase: string; scanned?: number; total?: number | null }) => void,
@@ -580,107 +597,116 @@ export async function solveRustMinEf(
       message: "사용 가능한 키트가 없습니다. 각 키트는 10개 단위로만 사용할 수 있습니다.",
     };
   }
-  assertRustMinEfInputSupported(normalizedInput);
+  try {
+    const solver = await getSolver(wasmUrl);
+    const root = solver.solveRoot(
+      normalizedInput.start,
+      normalizedInput.stock,
+      HORIZON_FACTOR,
+      NORM_POWER,
+      TOLERANCE,
+    );
+    const candidates = solver.rootCandidates(
+      normalizedInput.start,
+      normalizedInput.stock,
+      HORIZON_FACTOR,
+      NORM_POWER,
+      TOLERANCE,
+    );
+    if (!root.firstAction) {
+      return {
+        possible: false,
+        input: normalizedInput,
+        message: "현재 보유 키트로 가능한 행동이 없습니다.",
+      };
+    }
 
-  const solver = await getSolver(wasmUrl);
-  const root = solver.solveRoot(
-    normalizedInput.start,
-    normalizedInput.stock,
-    HORIZON_FACTOR,
-    NORM_POWER,
-    TOLERANCE,
-  );
-  if (!root.firstAction) {
+    const actionFor = actionFactory(solver);
+    const topCandidates = buildPhase2TopCandidates(
+      normalizedInput,
+      candidates,
+      actionFor,
+      "Rust min E[f]",
+    );
+    const run = buildRecommendedRun(normalizedInput, actionFor);
+    const route = buildFailureRoute(normalizedInput, actionFor);
+    const edge = transition(normalizedInput.start, root.firstAction);
+    const totalExpectedKits = totalKits(root.vector);
+    const pressure = pressureScore(root.vector, normalizedInput.stockUses);
+    const legacySupplyCost = legacySupplyCostScore(root.vector);
+    const availabilityCost = availabilityCostScore(root.vector, normalizedInput.stock);
+    const monteCarloRuns = Math.max(0, Math.floor(Number(input?.monteCarloRuns) || 0));
+    const monteCarloSeed = Math.max(0, Math.floor(Number(input?.monteCarloSeed) || 20260505));
+    const monteCarlo =
+      monteCarloRuns > 0
+        ? simulate(normalizedInput, actionFor, monteCarloRuns, monteCarloSeed)
+        : {
+            runs: 0,
+            completed: 0,
+            successProbability: root.successProbability,
+            vector: { blue: 0, purple: 0, yellow: 0 },
+          };
+
+    if (progress) progress({ phase: "done", scanned: 1, total: 1 });
+
     return {
-      possible: false,
+      possible: true,
+      terminal: false,
       input: normalizedInput,
-      message: "현재 보유 키트로 가능한 행동이 없습니다.",
-    };
-  }
-
-  const actionFor = actionFactory(solver);
-  const run = buildRecommendedRun(normalizedInput, actionFor);
-  const route = buildFailureRoute(normalizedInput, actionFor);
-  const edge = transition(normalizedInput.start, root.firstAction);
-  const totalExpectedKits = totalKits(root.vector);
-  const pressure = pressureScore(root.vector, normalizedInput.stockUses);
-  const legacySupplyCost = legacySupplyCostScore(root.vector);
-  const availabilityCost = availabilityCostScore(root.vector, normalizedInput.stock);
-  const monteCarloRuns = Math.max(0, Math.floor(Number(input?.monteCarloRuns) || 0));
-  const monteCarloSeed = Math.max(0, Math.floor(Number(input?.monteCarloSeed) || 20260505));
-  const monteCarlo =
-    monteCarloRuns > 0
-      ? simulate(normalizedInput, actionFor, monteCarloRuns, monteCarloSeed)
-      : {
-          runs: 0,
-          completed: 0,
-          successProbability: root.successProbability,
-          vector: { blue: 0, purple: 0, yellow: 0 },
-        };
-
-  if (progress) progress({ phase: "done", scanned: 1, total: 1 });
-
-  const candidate = {
-    name: "Rust min E[f]",
-    firstAction: root.firstAction,
-    firstProbability: edge.probability,
-    run,
-    vector: Object.fromEntries(KIT_ORDER.map((kit) => [kit, round(root.vector[kit], 4)])),
-    totalKits: round(totalExpectedKits, 4),
-    successProbability: round(root.successProbability, 8),
-    probabilityGap: round(Math.max(0, root.maxSuccessProbability - root.successProbability), 8),
-    pressure: round(pressure, 8),
-    supplyCost: round(legacySupplyCost, 8),
-    availabilityCost: round(availabilityCost, 8),
-    legacySupplyCost: round(legacySupplyCost, 8),
-    resourceCost: round(root.expectedCost, 8),
-  };
-
-  return {
-    possible: true,
-    terminal: false,
-    input: normalizedInput,
-    candidateCount: 1,
-    best: {
-      name: "Rust min E[f]",
-      firstAction: root.firstAction,
-      firstProbability: edge.probability,
-      run,
-      success: edge.success,
-      fail: edge.fail,
-      vector: root.vector,
-      totalKits: totalExpectedKits,
-      successProbability: root.successProbability,
-      maxSuccessProbability: root.maxSuccessProbability,
-      probabilityGap: Math.max(0, root.maxSuccessProbability - root.successProbability),
-      pressure,
-      supplyCost: legacySupplyCost,
-      availabilityCost,
-      legacySupplyCost,
-      resourceCost: root.expectedCost,
-    },
-    route,
-    monteCarlo,
-    stats: {
-      states: 0,
-      exact: true,
-      tolerance: 0,
-      probabilityTolerance: TOLERANCE,
-      maxSuccessProbability: root.maxSuccessProbability,
-      strategy: "supply",
-      solverBackend: "rust-min-ef",
-      solverVersion: SOLVER_VERSION,
-      solverPhase: "phase3",
-      supplyAvailability: SUPPLY_AVAILABILITY_PARAMS,
-      rustMinEf: {
-        horizonFactor: HORIZON_FACTOR,
-        normPower: NORM_POWER,
-        expectedCost: root.expectedCost,
+      candidateCount: topCandidates.length,
+      best: {
+        name: "Rust min E[f]",
+        firstAction: root.firstAction,
+        firstProbability: edge.probability,
+        run,
+        success: edge.success,
+        fail: edge.fail,
+        vector: root.vector,
+        totalKits: totalExpectedKits,
+        successProbability: root.successProbability,
+        maxSuccessProbability: root.maxSuccessProbability,
+        probabilityGap: Math.max(0, root.maxSuccessProbability - root.successProbability),
+        pressure,
+        supplyCost: legacySupplyCost,
+        availabilityCost,
+        legacySupplyCost,
+        resourceCost: root.expectedCost,
       },
-      iterations: 0,
-    },
-    topCandidates: [candidate],
-  };
+      route,
+      monteCarlo,
+      stats: {
+        states: 0,
+        exact: true,
+        tolerance: 0,
+        probabilityTolerance: TOLERANCE,
+        maxSuccessProbability: root.maxSuccessProbability,
+        strategy: "supply",
+        solverBackend: "rust-min-ef",
+        solverVersion: SOLVER_VERSION,
+        solverPhase: "phase3",
+        supplyAvailability: SUPPLY_AVAILABILITY_PARAMS,
+        rustMinEf: {
+          horizonFactor: HORIZON_FACTOR,
+          normPower: NORM_POWER,
+          expectedCost: root.expectedCost,
+        },
+        iterations: 0,
+      },
+      topCandidates,
+    };
+  } catch (error) {
+    if (!isMemoFull(error)) throw error;
+    if (progress) progress({ phase: "fallback-phase2", scanned: 0, total: 1 });
+    return solveRustPhase2(input, wasmUrl, progress);
+  }
+}
+
+export async function solveRustMinEf(
+  input: SolverInput,
+  wasmUrl: string,
+  progress?: (progress: { phase: string; scanned?: number; total?: number | null }) => void,
+) {
+  return solveRustMinEfProduct(input, wasmUrl, progress);
 }
 
 export async function solveRustPhase2(
@@ -1069,16 +1095,20 @@ export async function validateRustMinEf(
   seed = 20260505,
 ) {
   const normalizedInput = normalizeInput(input);
-  assertRustMinEfInputSupported(normalizedInput);
-  const solver = await getSolver(wasmUrl);
-  solver.solveRoot(
-    normalizedInput.start,
-    normalizedInput.stock,
-    HORIZON_FACTOR,
-    NORM_POWER,
-    TOLERANCE,
-  );
-  return simulate(normalizedInput, actionFactory(solver), runs, seed);
+  try {
+    const solver = await getSolver(wasmUrl);
+    solver.solveRoot(
+      normalizedInput.start,
+      normalizedInput.stock,
+      HORIZON_FACTOR,
+      NORM_POWER,
+      TOLERANCE,
+    );
+    return simulate(normalizedInput, actionFactory(solver), runs, seed);
+  } catch (error) {
+    if (!isMemoFull(error)) throw error;
+    return validateRustPhase2(input, wasmUrl, runs, seed);
+  }
 }
 
 export async function validateRustPhase2(

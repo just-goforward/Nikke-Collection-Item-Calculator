@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createRustMinEfSolver, createRustPhase2Solver, type RustCoreExports } from "./rustCore";
+import {
+  createRustMinEfSolver,
+  createRustPhase2Solver,
+  isMemoFull,
+  type RustCoreExports,
+} from "./rustCore";
 
 function makeExports(overrides: Partial<RustCoreExports> = {}): RustCoreExports {
   return {
@@ -38,6 +43,13 @@ function makeExports(overrides: Partial<RustCoreExports> = {}): RustCoreExports 
     minEfVecP: vi.fn(() => 20),
     minEfVecY: vi.fn(() => 30),
     minEfExpectedCost: vi.fn(() => 0.123),
+    minEfRootCandidateValid: vi.fn((action: number) => (action === 1 ? 0 : 1)),
+    minEfRootCandidateMaxSuccessProb: vi.fn(() => 0.95),
+    minEfRootCandidateSuccessProb: vi.fn((action: number) => (action === 0 ? 0.95 : 0.94)),
+    minEfRootCandidateVecB: vi.fn((action: number) => 10 + action),
+    minEfRootCandidateVecP: vi.fn((action: number) => 20 + action),
+    minEfRootCandidateVecY: vi.fn((action: number) => 30 + action),
+    minEfRootCandidateExpectedCost: vi.fn((action: number) => 0.1 + action),
     minEfActionAtOrSolve: vi.fn(() => 1),
     simulateExpectedFAfterFirstAction: vi.fn(),
     simulateExpectedFAfterFirstActionFromPolicy: vi.fn(),
@@ -123,6 +135,55 @@ describe("rust min-E[f] core wrapper", () => {
     expect(
       solver.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 1, yellow: 1 }),
     ).toBe("purple");
+  });
+
+  it("reads min-E[f] root candidates from the last root solve scratch", () => {
+    const solver = createRustMinEfSolver(makeExports());
+
+    expect(
+      solver.rootCandidates(
+        { grade: "SR", level: 1, exp: 0 },
+        { blue: 10, purple: 10, yellow: 10 },
+      ),
+    ).toEqual([
+      {
+        firstAction: "blue",
+        successProbability: 0.95,
+        maxSuccessProbability: 0.95,
+        probabilityGap: 0,
+        vector: { blue: 10, purple: 20, yellow: 30 },
+        resourceCost: 0.1,
+        eligible: true,
+      },
+      {
+        firstAction: "yellow",
+        successProbability: 0.94,
+        maxSuccessProbability: 0.95,
+        probabilityGap: 0.010000000000000009,
+        vector: { blue: 12, purple: 22, yellow: 32 },
+        resourceCost: 2.1,
+        eligible: false,
+      },
+    ]);
+  });
+
+  it("exposes memo-full as a typed Rust solve error", () => {
+    const solver = createRustMinEfSolver(
+      makeExports({
+        getSolveStatus: vi.fn(() => 2),
+      }),
+    );
+
+    let thrown: unknown;
+    try {
+      solver.rootCandidates(
+        { grade: "SR", level: 1, exp: 0 },
+        { blue: 10, purple: 10, yellow: 10 },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    expect(isMemoFull(thrown)).toBe(true);
   });
 
   it("wraps phase2 solveCore results", () => {

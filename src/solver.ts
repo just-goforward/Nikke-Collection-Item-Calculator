@@ -794,6 +794,11 @@ function makeRandom(seed: number) {
 function simulate(input: AnyValue, actionFor: AnyValue, runs = 12000, seed = 20260505) {
   const random = makeRandom(seed);
   const totals = { blue: 0, purple: 0, yellow: 0 };
+  const hist: Record<Kit, number[]> = {
+    blue: new Array(256).fill(0),
+    purple: new Array(256).fill(0),
+    yellow: new Array(256).fill(0),
+  };
   let completed = 0;
 
   for (let run = 0; run < runs; run += 1) {
@@ -818,18 +823,43 @@ function simulate(input: AnyValue, actionFor: AnyValue, runs = 12000, seed = 202
       state = random() < edge.probability ? edge.success : edge.fail;
     }
 
-    for (const kit of KIT_ORDER) totals[kit] += used[kit];
+    for (const kit of KIT_ORDER) {
+      totals[kit] += used[kit];
+      hist[kit][Math.min(255, Math.floor(used[kit] / 10))] += 1;
+    }
   }
+
+  const quantileUses = (kit: Kit, q: number) => {
+    if (runs <= 0) return 0;
+    const threshold = clamp(Math.trunc(q * runs), 1, runs);
+    let cumulative = 0;
+    for (let uses = 0; uses < hist[kit].length; uses += 1) {
+      cumulative += hist[kit][uses];
+      if (cumulative >= threshold) return uses;
+    }
+    return hist[kit].length - 1;
+  };
+  const kitQuantiles = (kit: Kit) => ({
+    p50: quantileUses(kit, 0.5) * 10,
+    p90: quantileUses(kit, 0.9) * 10,
+    p95: quantileUses(kit, 0.95) * 10,
+  });
 
   return {
     runs,
     completed,
-    successProbability: completed / runs,
+    successProbability: runs > 0 ? completed / runs : 0,
     vector: {
-      blue: totals.blue / runs,
-      purple: totals.purple / runs,
-      yellow: totals.yellow / runs,
+      blue: runs > 0 ? totals.blue / runs : 0,
+      purple: runs > 0 ? totals.purple / runs : 0,
+      yellow: runs > 0 ? totals.yellow / runs : 0,
     },
+    quantiles: {
+      blue: kitQuantiles("blue"),
+      purple: kitQuantiles("purple"),
+      yellow: kitQuantiles("yellow"),
+    },
+    depletion: runs > 0 ? (runs - completed) / runs : 0,
   };
 }
 

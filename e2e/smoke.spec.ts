@@ -128,8 +128,8 @@ test("SR 10 + 상급자용 100 — 세부 정보에 SR 15 도달 확률이 나�
   await page.getByRole("button", { name: "계산", exact: true }).click();
 
   await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("추천 기준")).toBeVisible();
-  await expect(page.getByText("수급량 고려")).toBeVisible();
+  await expect(page.getByText("추천 기준")).toHaveCount(0);
+  await expect(page.getByText("수급량 고려")).toHaveCount(0);
   await expect(page.getByRole("columnheader", { name: "구간 대성공 확률" })).toBeVisible();
   await expect(page.getByText(/\d+(?:\.\d+)?%/).first()).toBeVisible();
   await expect(page.getByRole("table").getByText(/\d+회/).first()).toBeVisible();
