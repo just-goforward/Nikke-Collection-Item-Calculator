@@ -192,3 +192,5 @@ export const StatsApiResponseSchema = z
       .default([]),
   })
   .passthrough();
+
+export type StatsApiResponse = z.infer<typeof StatsApiResponseSchema>;

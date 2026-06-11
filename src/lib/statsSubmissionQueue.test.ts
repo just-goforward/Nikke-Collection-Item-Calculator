@@ -82,4 +82,23 @@ describe("StatsSubmissionQueue", () => {
     ).rejects.toThrow("temporary");
     expect(retryableAttempts).toBe(2);
   });
+
+  it("continues processing later events after an earlier event rejects", async () => {
+    const completed: string[] = [];
+    const queue = new StatsSubmissionQueue(async (item) => {
+      if (item.eventId === "failed-event-id01") {
+        throw new StatsSubmissionError("invalid", false);
+      }
+      completed.push(item.eventId);
+    });
+
+    await expect(queue.enqueue(envelope("failed-event-id01", "kit_result"))).rejects.toThrow(
+      "invalid",
+    );
+    await expect(
+      queue.enqueue(envelope("next-event-id0001", "solver_diagnostic")),
+    ).resolves.toBeUndefined();
+
+    expect(completed).toEqual(["next-event-id0001"]);
+  });
 });
