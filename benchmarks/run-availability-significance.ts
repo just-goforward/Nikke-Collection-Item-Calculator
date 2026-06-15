@@ -8,7 +8,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
 import type { TrajectoryEvaluation } from "./evaluator/trajectory";
 import type { AvailabilitySliderCandidate } from "./models/availability-grid";
-import { isErrorWithCode, parsePositiveInteger } from "./runner-utils";
+import { envValue, isErrorWithCode, parsePositiveInteger } from "./runner-utils";
 import type { SolverScenario } from "./scenarios/fixed-grid";
 import type { SeedSamples } from "./significance-gate";
 
@@ -127,8 +127,8 @@ function readDeepReport(value: unknown): DeepReport {
               typeof entry.status === "string",
           )
         : [],
-    config: "config" in value ? (value.config as DeepConfig) : undefined,
-    options: "options" in value ? (value.options as DeepConfig) : undefined,
+    ...("config" in value ? { config: value.config as DeepConfig } : {}),
+    ...("options" in value ? { options: value.options as DeepConfig } : {}),
   };
 }
 
@@ -170,15 +170,15 @@ function readConfig(report: DeepReport): Required<DeepConfig> {
   };
 }
 
-const resamples = parsePositiveInteger(process.env.AVAILABILITY_SIG_RESAMPLES, 10_000);
-const confidence = parseNumber(process.env.AVAILABILITY_SIG_CONFIDENCE, 0.95);
-const alpha = parseNumber(process.env.AVAILABILITY_SIG_ALPHA, 0.05);
-const cvarAlpha = parseNumber(process.env.AVAILABILITY_SIG_CVAR_ALPHA, 0.9);
-const bootstrapSeed = parsePositiveInteger(process.env.AVAILABILITY_SIG_SEED, 20260505);
-const deltaPBudget = parseNumber(process.env.AVAILABILITY_SELECT_DELTA_P_BUDGET, 0.005);
-const completionThreshold = parseNumber(process.env.AVAILABILITY_SIG_COMPLETION_THRESHOLD, 0.995);
+const resamples = parsePositiveInteger(envValue("AVAILABILITY_SIG_RESAMPLES"), 10_000);
+const confidence = parseNumber(envValue("AVAILABILITY_SIG_CONFIDENCE"), 0.95);
+const alpha = parseNumber(envValue("AVAILABILITY_SIG_ALPHA"), 0.05);
+const cvarAlpha = parseNumber(envValue("AVAILABILITY_SIG_CVAR_ALPHA"), 0.9);
+const bootstrapSeed = parsePositiveInteger(envValue("AVAILABILITY_SIG_SEED"), 20260505);
+const deltaPBudget = parseNumber(envValue("AVAILABILITY_SELECT_DELTA_P_BUDGET"), 0.005);
+const completionThreshold = parseNumber(envValue("AVAILABILITY_SIG_COMPLETION_THRESHOLD"), 0.995);
 const trajectoryBudgetMs = parsePositiveInteger(
-  process.env.AVAILABILITY_SIG_TRAJECTORY_BUDGET_MS,
+  envValue("AVAILABILITY_SIG_TRAJECTORY_BUDGET_MS"),
   1_200_000,
 );
 
@@ -205,7 +205,7 @@ if (aDebt !== null) {
   }
 }
 
-const forcedContenders = (process.env.AVAILABILITY_SIG_FORCE_CONTENDERS || "")
+const forcedContenders = (envValue("AVAILABILITY_SIG_FORCE_CONTENDERS") || "")
   .split(",")
   .map((id) => id.trim())
   .filter((id) => id && id !== BASELINE_ID && !contenders.includes(id));

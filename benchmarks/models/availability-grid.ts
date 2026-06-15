@@ -1,8 +1,5 @@
-import {
-  EXPECTED_28_DAY_GAIN,
-  type ResearchCostModel,
-  solveWithResearchCostModel,
-} from "../../src/solver";
+import { EXPECTED_28_DAY_GAIN, type ResearchCostModel } from "../../src/solver/domain";
+import { solveWithResearchCostModel } from "../../src/solver/solve";
 import type { Kit, SolverInput, Stock } from "../../src/types";
 
 const KITS: Kit[] = ["blue", "purple", "yellow"];

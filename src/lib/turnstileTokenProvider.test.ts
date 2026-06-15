@@ -2,9 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 
 import { type TurnstileApi, TurnstileTokenProvider } from "./turnstileTokenProvider";
 
+const TURNSTILE_CALLBACK_KEY = "callback";
+
 describe("TurnstileTokenProvider", () => {
   it("creates action-specific execute widgets and resets each completed attempt", async () => {
     const options = new Map<string, Record<string, unknown>>();
+    const callbackFor = (id: string): ((token: string) => void) | undefined => {
+      const callback = options.get(id)?.[TURNSTILE_CALLBACK_KEY];
+      return typeof callback === "function" ? (callback as (token: string) => void) : undefined;
+    };
     const api: TurnstileApi = {
       render: vi.fn((_container, config) => {
         const id = `widget-${String(config.action)}`;
@@ -12,8 +18,7 @@ describe("TurnstileTokenProvider", () => {
         return id;
       }),
       execute: vi.fn((id) => {
-        const callback = options.get(id)?.callback as ((token: string) => void) | undefined;
-        callback?.(`token-${id}`);
+        callbackFor(id)?.(`token-${id}`);
       }),
       reset: vi.fn(),
       remove: vi.fn(),

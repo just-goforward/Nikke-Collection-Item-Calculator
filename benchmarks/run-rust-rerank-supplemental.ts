@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
-import type { RustCoreExports } from "../src/wasm/rustCore";
+import { envValue } from "./runner-utils";
 import type { SolverScenario } from "./scenarios/fixed-grid";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
@@ -117,10 +117,10 @@ function summarize(records: ScenarioRecord[]) {
   };
 }
 
-const runs = parsePositiveInteger(process.env.RUST_RERANK_SUPPLEMENTAL_RUNS, DEFAULT_RUNS);
-const seed = parsePositiveInteger(process.env.RUST_RERANK_SUPPLEMENTAL_SEED, DEFAULT_SEED);
+const runs = parsePositiveInteger(envValue("RUST_RERANK_SUPPLEMENTAL_RUNS"), DEFAULT_RUNS);
+const seed = parsePositiveInteger(envValue("RUST_RERANK_SUPPLEMENTAL_SEED"), DEFAULT_SEED);
 const heldOutSeed = parsePositiveInteger(
-  process.env.RUST_RERANK_SUPPLEMENTAL_HELD_OUT_SEED,
+  envValue("RUST_RERANK_SUPPLEMENTAL_HELD_OUT_SEED"),
   DEFAULT_HELD_OUT_SEED,
 );
 await mkdir(RESULTS_DIRECTORY, { recursive: true });
@@ -141,7 +141,7 @@ const supplemental = (await server.ssrLoadModule(
 )) as typeof import("./scenarios/rerank-supplemental");
 
 const scenarioIds = parseList(
-  process.env.RUST_RERANK_SUPPLEMENTAL_SCENARIOS,
+  envValue("RUST_RERANK_SUPPLEMENTAL_SCENARIOS"),
   supplemental.RERANK_SUPPLEMENTAL_SCENARIOS.map((scenario) => scenario.id),
 );
 
@@ -155,7 +155,7 @@ try {
     | { instance: WebAssembly.Instance };
   const instance =
     instantiated instanceof WebAssembly.Instance ? instantiated : instantiated.instance;
-  const solver = rustCore.createRustPhase2Solver(instance.exports as unknown as RustCoreExports);
+  const solver = rustCore.createRustPhase2SolverFromInstance(instance);
   const scenarios = scenarioIds.map((id) => supplemental.rerankSupplementalScenarioById(id));
 
   for (const scenario of scenarios) {

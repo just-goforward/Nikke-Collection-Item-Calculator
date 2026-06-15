@@ -1,260 +1,22 @@
-import {
-  convertState,
-  type ProbabilityGateAudit,
-  type ProbabilityGateWitness,
-  type ResearchCostModel,
-  STRATEGY_PROBABILITY_TOLERANCE,
-  solveWithResearchCostModel,
-  transition,
-} from "../../src/solver";
-import type { CollectionState, Kit, SolverInput, Stock } from "../../src/types";
+import { convertState, STRATEGY_PROBABILITY_TOLERANCE, transition } from "../../src/solver/domain";
+import { solveWithResearchCostModel } from "../../src/solver/solve";
+import type { CollectionState, Kit, Stock } from "../../src/types";
 import { availabilityPnormObjective } from "../metrics";
 import type { SolverScenario } from "../scenarios/fixed-grid";
+import { createGateEvidence, mergeInternalAudit, recordBoundaryGap } from "./exact-replan-gates";
+import { consume, stateStockKey, terminalNode } from "./exact-replan-node";
+import type {
+  ExactEvaluatorOptions,
+  ExactInteractiveEvaluation,
+  ExactInteractiveReplanCheckpoint,
+  ExactInteractiveReplanSession,
+  NodeResult,
+  PolicyDecision,
+} from "./exact-replan-types";
 
 const KITS: Kit[] = ["blue", "purple", "yellow"];
-const EPSILON = 1e-12;
-
-type ModelId = string;
-
-export type ExactEvaluatorOptions = {
-  modelId?: ModelId;
-  costModel?: ResearchCostModel;
-  policySolver?: (input: SolverInput) => ReturnType<typeof solveWithResearchCostModel>;
-  toleranceOverride?: number;
-  timeBudgetMs?: number;
-  progressEverySolveCalls?: number;
-  onProgress?: (progress: ExactEvaluationProgress) => void;
-};
-
-type BoundaryGateWitness = {
-  gap: number;
-  state: CollectionState;
-  physicalStock: Stock;
-};
-
-type GateEvidence = {
-  internalDecisionCount: number;
-  internalMaxGap: number;
-  internalMaxGapWitness: {
-    boundaryState: CollectionState;
-    boundaryPhysicalStock: Stock;
-    mdpWitness: ProbabilityGateWitness;
-  } | null;
-  internalViolationCount: number;
-  internalFirstViolationWitness: {
-    boundaryState: CollectionState;
-    boundaryPhysicalStock: Stock;
-    mdpWitness: ProbabilityGateWitness;
-  } | null;
-  internalEligibleEmptyCount: number;
-  internalFixedToleranceViolationCount: number;
-  internalFirstFixedToleranceViolationWitness: {
-    boundaryState: CollectionState;
-    boundaryPhysicalStock: Stock;
-    mdpWitness: ProbabilityGateWitness;
-  } | null;
-  boundaryDecisionCount: number;
-  boundaryMaxGap: number;
-  boundaryMaxGapWitness: BoundaryGateWitness | null;
-  boundaryViolationCount: number;
-  boundaryFirstViolationWitness: BoundaryGateWitness | null;
-  boundaryFixedToleranceViolationCount: number;
-  boundaryFirstFixedToleranceViolationWitness: BoundaryGateWitness | null;
-};
-
-type NodeResult = {
-  successProbability: number;
-  expectedConsumption: Stock;
-  manualEntryProbability: number;
-  expectedManualEntries: number;
-  successAttemptSelectionProbability: number;
-  expectedSuccessAttemptSelections: number;
-};
-
-type PolicyDecision = {
-  possible: boolean;
-  best: {
-    firstAction: Kit;
-    run: { count: number };
-    probabilityGap: number;
-  } | null;
-};
-
-export type ExactEvaluationProgress = {
-  scenarioId: string;
-  modelId: ModelId;
-  elapsedMs: number;
-  solveCalls: number;
-  cachedNodes: number;
-  cachedPolicies: number;
-  internalDecisionCount: number;
-  internalMaxGap: number;
-  internalViolationCount: number;
-  boundaryDecisionCount: number;
-  boundaryMaxGap: number;
-  boundaryViolationCount: number;
-};
-
-export type ExactInteractiveEvaluation =
-  | {
-      status: "completed";
-      scenario: SolverScenario;
-      modelId: ModelId;
-      elapsedMs: number;
-      solveCalls: number;
-      cachedNodes: number;
-      cachedPolicies: number;
-      gateEvidence: GateEvidence;
-      successProbability: number;
-      expectedConsumption: Stock;
-      interactiveF: number;
-      manualEntryProbability: number;
-      expectedManualEntries: number;
-      successAttemptSelectionProbability: number;
-      expectedSuccessAttemptSelections: number;
-    }
-  | {
-      status: "verification_incomplete";
-      reason: "time_budget_exceeded";
-      scenario: SolverScenario;
-      modelId: ModelId;
-      elapsedMs: number;
-      solveCalls: number;
-      cachedNodes: number;
-      cachedPolicies: number;
-      gateEvidence: GateEvidence;
-    };
-
-export type ExactInteractiveReplanSession = {
-  advance: (timeBudgetMs?: number) => ExactInteractiveEvaluation;
-  checkpoint: () => ExactInteractiveReplanCheckpoint;
-};
-
-export type ExactInteractiveReplanCheckpoint = {
-  version: 1;
-  scenarioId: string;
-  modelId: ModelId;
-  costModel: ResearchCostModel;
-  activeElapsedMs: number;
-  solveCalls: number;
-  gateEvidence: GateEvidence;
-  cachedNodes: Array<[string, NodeResult]>;
-  cachedPolicies: Array<[string, PolicyDecision]>;
-  completedNode: NodeResult | null;
-};
 
 class EvaluationBudgetExceeded extends Error {}
-
-function zeroConsumption(): Stock {
-  return { blue: 0, purple: 0, yellow: 0 };
-}
-
-function terminalNode(successProbability: number): NodeResult {
-  return {
-    successProbability,
-    expectedConsumption: zeroConsumption(),
-    manualEntryProbability: 0,
-    expectedManualEntries: 0,
-    successAttemptSelectionProbability: 0,
-    expectedSuccessAttemptSelections: 0,
-  };
-}
-
-function createGateEvidence(): GateEvidence {
-  return {
-    internalDecisionCount: 0,
-    internalMaxGap: 0,
-    internalMaxGapWitness: null,
-    internalViolationCount: 0,
-    internalFirstViolationWitness: null,
-    internalEligibleEmptyCount: 0,
-    internalFixedToleranceViolationCount: 0,
-    internalFirstFixedToleranceViolationWitness: null,
-    boundaryDecisionCount: 0,
-    boundaryMaxGap: 0,
-    boundaryMaxGapWitness: null,
-    boundaryViolationCount: 0,
-    boundaryFirstViolationWitness: null,
-    boundaryFixedToleranceViolationCount: 0,
-    boundaryFirstFixedToleranceViolationWitness: null,
-  };
-}
-
-function stateStockKey(state: CollectionState, stock: Stock) {
-  return `${state.grade}:${state.level}:${state.exp}|${stock.blue}:${stock.purple}:${stock.yellow}`;
-}
-
-function consume(stock: Stock, kit: Kit, attempts: number): Stock {
-  return {
-    ...stock,
-    [kit]: Math.max(0, stock[kit] - attempts * 10),
-  };
-}
-
-function mergeInternalAudit(
-  evidence: GateEvidence,
-  audit: ProbabilityGateAudit | undefined,
-  boundaryState: CollectionState,
-  boundaryPhysicalStock: Stock,
-) {
-  if (!audit) return;
-  evidence.internalDecisionCount += audit.decisionCount;
-  evidence.internalViolationCount += audit.violationCount;
-  evidence.internalEligibleEmptyCount += audit.eligibleEmptyCount;
-  evidence.internalFixedToleranceViolationCount += audit.fixedToleranceViolationCount;
-  if (audit.maxGapWitness && audit.maxGap > evidence.internalMaxGap) {
-    evidence.internalMaxGap = audit.maxGap;
-    evidence.internalMaxGapWitness = {
-      boundaryState: { ...boundaryState },
-      boundaryPhysicalStock: { ...boundaryPhysicalStock },
-      mdpWitness: audit.maxGapWitness,
-    };
-  }
-  if (!evidence.internalFirstViolationWitness && audit.firstViolationWitness) {
-    evidence.internalFirstViolationWitness = {
-      boundaryState: { ...boundaryState },
-      boundaryPhysicalStock: { ...boundaryPhysicalStock },
-      mdpWitness: audit.firstViolationWitness,
-    };
-  }
-  if (
-    !evidence.internalFirstFixedToleranceViolationWitness &&
-    audit.firstFixedToleranceViolationWitness
-  ) {
-    evidence.internalFirstFixedToleranceViolationWitness = {
-      boundaryState: { ...boundaryState },
-      boundaryPhysicalStock: { ...boundaryPhysicalStock },
-      mdpWitness: audit.firstFixedToleranceViolationWitness,
-    };
-  }
-}
-
-function recordBoundaryGap(
-  evidence: GateEvidence,
-  state: CollectionState,
-  stock: Stock,
-  gap: number,
-  tolerance: number,
-) {
-  const witness = { gap, state: { ...state }, physicalStock: { ...stock } };
-  evidence.boundaryDecisionCount += 1;
-  if (gap > evidence.boundaryMaxGap) {
-    evidence.boundaryMaxGap = gap;
-    evidence.boundaryMaxGapWitness = witness;
-  }
-  if (gap > tolerance + EPSILON) {
-    evidence.boundaryViolationCount += 1;
-    if (!evidence.boundaryFirstViolationWitness) {
-      evidence.boundaryFirstViolationWitness = witness;
-    }
-  }
-  if (gap > STRATEGY_PROBABILITY_TOLERANCE.supply + EPSILON) {
-    evidence.boundaryFixedToleranceViolationCount += 1;
-    if (!evidence.boundaryFirstFixedToleranceViolationWitness) {
-      evidence.boundaryFirstFixedToleranceViolationWitness = witness;
-    }
-  }
-}
 
 export function createExactInteractiveReplanSession(
   scenario: SolverScenario,
@@ -330,7 +92,9 @@ export function createExactInteractiveReplanSession(
     const solved = options.policySolver
       ? options.policySolver(input)
       : solveWithResearchCostModel(input, costModel, undefined, {
-          toleranceOverride: options.toleranceOverride,
+          ...(options.toleranceOverride !== undefined
+            ? { toleranceOverride: options.toleranceOverride }
+            : {}),
         });
     solveCalls += 1;
     mergeInternalAudit(gateEvidence, solved.stats?.gateAudit, state, stock);

@@ -1,15 +1,15 @@
 import { createServer } from "vite";
-import type { ExactEvaluationProgress } from "./evaluator/exact-replan";
-import { parsePositiveInteger } from "./runner-utils";
+import type { ExactEvaluationProgress } from "./evaluator/exact-replan-types";
+import { envValue, parsePositiveInteger } from "./runner-utils";
 import type { SolverScenario } from "./scenarios/fixed-grid";
 
 const DEFAULT_TOTAL_BUDGET_MS = 60 * 60 * 1000;
 const totalBudgetMs = parsePositiveInteger(
-  process.env.A_FEASIBILITY_BUDGET_MS,
+  envValue("A_FEASIBILITY_BUDGET_MS"),
   DEFAULT_TOTAL_BUDGET_MS,
 );
 const progressEverySolveCalls = parsePositiveInteger(
-  process.env.A_FEASIBILITY_PROGRESS_CALLS,
+  envValue("A_FEASIBILITY_PROGRESS_CALLS"),
   1000,
 );
 

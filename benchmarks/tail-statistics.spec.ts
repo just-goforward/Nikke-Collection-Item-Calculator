@@ -32,8 +32,11 @@ describe("paired tail-risk decisions", () => {
       { id: "residual-blue-p05", adversePValue: first.adversePValue },
       { id: "autonomy-p05", adversePValue: 0.7 },
     ]);
-    expect(decisions[0].confirmedWorsening).toBe(true);
-    expect(decisions[1].confirmedWorsening).toBe(false);
+    const firstDecision = decisions[0];
+    const secondDecision = decisions[1];
+    if (!firstDecision || !secondDecision) throw new Error("Expected two Holm decisions.");
+    expect(firstDecision.confirmedWorsening).toBe(true);
+    expect(secondDecision.confirmedWorsening).toBe(false);
   });
 
   it("orients lower-is-better metrics so reduced depletion is not worsening", () => {

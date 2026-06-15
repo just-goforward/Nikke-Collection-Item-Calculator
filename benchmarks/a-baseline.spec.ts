@@ -57,6 +57,7 @@ describe("A interactive-replan baseline", () => {
 
   it("returns explicit incomplete evidence when an evaluation has no budget", () => {
     const scenario = FIXED_SAFETY_GRID[0];
+    if (!scenario) throw new Error("Expected at least one fixed safety scenario.");
     const result = evaluateExactInteractiveReplan(scenario, { timeBudgetMs: 0 });
 
     expect(result.status).toBe("verification_incomplete");

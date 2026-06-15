@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
-import type { solveWithResearchCostModel } from "../src/solver";
+import type { solveWithResearchCostModel } from "../src/solver/solve";
 import type { SolverInput } from "../src/types";
 import type { SolverScenario } from "./scenarios/fixed-grid";
 
@@ -31,7 +31,9 @@ const server = await createServer({
 });
 
 try {
-  const solver = (await server.ssrLoadModule("/src/solver.ts")) as typeof import("../src/solver");
+  const solver = (await server.ssrLoadModule(
+    "/src/solver/solve.ts",
+  )) as typeof import("../src/solver/solve");
   const metrics = (await server.ssrLoadModule(
     "/benchmarks/metrics.ts",
   )) as typeof import("./metrics");
@@ -82,6 +84,7 @@ try {
       });
     }
     const baseline = modelResults[0];
+    if (!baseline) throw new Error(`Missing baseline shadow result for scenario ${scenario.id}.`);
     results.push({
       scenario: scenario.id,
       group: scenario.group,

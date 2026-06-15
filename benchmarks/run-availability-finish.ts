@@ -16,12 +16,16 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { parsePositiveInteger } from "./runner-utils";
+import { envValue, ignoreExpectedRunnerError, parsePositiveInteger } from "./runner-utils";
 
 const SLICE = new URL("./results/availability-deep-slice.json", import.meta.url);
-const pollMs = parsePositiveInteger(process.env.FINISH_POLL_MS, 60_000);
-const stallMs = parsePositiveInteger(process.env.FINISH_STALL_MS, 30 * 60 * 1000);
-const maxWaitMs = parsePositiveInteger(process.env.FINISH_MAX_WAIT_MS, 8 * 3600 * 1000);
+const PHASE_KEY = "phase";
+const JOURNEY_DEMAND_KEY = "journeyDemand";
+const PANELS_KEY = "panels";
+const STATUS_KEY = "status";
+const pollMs = parsePositiveInteger(envValue("FINISH_POLL_MS"), 60_000);
+const stallMs = parsePositiveInteger(envValue("FINISH_STALL_MS"), 30 * 60 * 1000);
+const maxWaitMs = parsePositiveInteger(envValue("FINISH_MAX_WAIT_MS"), 8 * 3600 * 1000);
 
 type FinishDeepState = {
   phase: string | null;
@@ -41,17 +45,22 @@ async function deepState(): Promise<FinishDeepState> {
     const value: unknown = JSON.parse(await readFile(SLICE, "utf8"));
     if (!isObject(value)) return { phase: null, journeyDone: null };
 
-    const phase = typeof value.phase === "string" ? value.phase : null;
-    const journeyDemand = Array.isArray(value.journeyDemand) ? value.journeyDemand : [];
+    const phase = typeof value[PHASE_KEY] === "string" ? value[PHASE_KEY] : null;
+    const journeyDemand = Array.isArray(value[JOURNEY_DEMAND_KEY]) ? value[JOURNEY_DEMAND_KEY] : [];
     const panels = journeyDemand.flatMap((candidate) =>
-      isObject(candidate) && Array.isArray(candidate.panels) ? candidate.panels : [],
+      isObject(candidate) && Array.isArray(candidate[PANELS_KEY]) ? candidate[PANELS_KEY] : [],
     );
 
     return {
       phase,
-      journeyDone: panels.filter((panel) => isObject(panel) && panel.status === "completed").length,
+      journeyDone: panels.filter((panel) => isObject(panel) && panel[STATUS_KEY] === "completed")
+        .length,
     };
-  } catch {
+  } catch (error) {
+    ignoreExpectedRunnerError(
+      "Deep result file is absent or partially written while polling.",
+      error,
+    );
     return { phase: null, journeyDone: null };
   }
 }

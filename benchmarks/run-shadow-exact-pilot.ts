@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
-import type { solveWithResearchCostModel } from "../src/solver";
+import type { solveWithResearchCostModel } from "../src/solver/solve";
 import type { SolverInput } from "../src/types";
 import type { SolverScenario } from "./scenarios/fixed-grid";
 
@@ -34,7 +34,7 @@ try {
     "/benchmarks/models/shadow-price.ts",
   )) as typeof import("./models/shadow-price");
   const models: ExactPilotModel[] = [
-    { id: "A", policySolver: undefined },
+    { id: "A" },
     { id: "B", policySolver: (input) => shadow.solveSingleUpdateShadow(input) },
     { id: "C", policySolver: (input) => shadow.solveBoundedShadow(input) },
   ];
@@ -49,8 +49,8 @@ try {
     for (const model of models) {
       const result = evaluator.evaluateExactInteractiveReplan(scenario, {
         modelId: model.id,
-        policySolver: model.policySolver,
         timeBudgetMs: TIME_BUDGET_MS,
+        ...(model.policySolver ? { policySolver: model.policySolver } : {}),
       });
       modelResults.push(
         result.status === "completed"

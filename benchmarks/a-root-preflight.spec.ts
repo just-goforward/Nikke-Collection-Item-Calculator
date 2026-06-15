@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { solveWithResearchCostModel } from "../src/solver";
+import { solveWithResearchCostModel } from "../src/solver/solve";
 import { FIXED_SAFETY_GRID } from "./scenarios/fixed-grid";
 
 describe("production root probability-gate preflight", () => {

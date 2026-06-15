@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { makeSolverDiagnosticEvent } from "./calculatorShared";
+import { makeSolverDiagnosticEvent } from "./calculatorDiagnostics";
 
 describe("makeSolverDiagnosticEvent", () => {
   it("uses solver version and phase from result stats", () => {

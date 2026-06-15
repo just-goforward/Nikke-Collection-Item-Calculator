@@ -45,6 +45,7 @@ export function gatePairedSeeds(
   for (let i = 0; i < n; i += 1) {
     const b = base[i];
     const c = cand[i];
+    if (!b || !c) continue;
     completionMin = Math.min(completionMin, b.completionRate, c.completionRate);
     // Drop this seed from BOTH arms when either side under-completes it. Excluding the same seed
     // from both keeps the per-index CRN pairing (and equal lengths) intact for paired bootstrap.
@@ -58,8 +59,11 @@ export function gatePairedSeeds(
     }
     const m = Math.min(b.samples.length, c.samples.length);
     for (let j = 0; j < m; j += 1) {
-      basePool.push(b.samples[j]);
-      candPool.push(c.samples[j]);
+      const baseSample = b.samples[j];
+      const candSample = c.samples[j];
+      if (baseSample === undefined || candSample === undefined) continue;
+      basePool.push(baseSample);
+      candPool.push(candSample);
     }
   }
   const seedsKept = n - seedsGated.length;

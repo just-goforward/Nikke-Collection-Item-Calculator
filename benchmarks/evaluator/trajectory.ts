@@ -2,9 +2,9 @@ import {
   convertState,
   EXPECTED_28_DAY_GAIN,
   type ResearchCostModel,
-  solveWithResearchCostModel,
   transition,
-} from "../../src/solver";
+} from "../../src/solver/domain";
+import { solveWithResearchCostModel } from "../../src/solver/solve";
 import type { CollectionState, Kit, SolverInput, Stock } from "../../src/types";
 import type { SolverScenario } from "../scenarios/fixed-grid";
 
@@ -119,7 +119,9 @@ export function collectInteractiveTrajectories(
     const result = options.policySolver
       ? options.policySolver(input)
       : solveWithResearchCostModel(input, costModel, undefined, {
-          toleranceOverride: options.toleranceOverride,
+          ...(options.toleranceOverride !== undefined
+            ? { toleranceOverride: options.toleranceOverride }
+            : {}),
         });
     solveCalls += 1;
     checkBudget();

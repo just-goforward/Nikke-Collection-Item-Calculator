@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
-
+import { envValue } from "./runner-utils";
 import {
   parseRustBenchmarkWeightSpec,
   type RustBenchmarkScenarioSource,
@@ -198,19 +198,19 @@ function scenarioInput(scenario: SolverScenario, monteCarloRuns: number, monteCa
   };
 }
 
-const repeats = parsePositiveInteger(process.env.RUST_RUNTIME_BENCH_REPEATS, DEFAULT_REPEATS);
+const repeats = parsePositiveInteger(envValue("RUST_RUNTIME_BENCH_REPEATS"), DEFAULT_REPEATS);
 const monteCarloRuns = parseNonNegativeInteger(
-  process.env.RUST_RUNTIME_BENCH_MC_RUNS,
+  envValue("RUST_RUNTIME_BENCH_MC_RUNS"),
   DEFAULT_MONTE_CARLO_RUNS,
 );
 const monteCarloSeed = parsePositiveInteger(
-  process.env.RUST_RUNTIME_BENCH_MC_SEED,
+  envValue("RUST_RUNTIME_BENCH_MC_SEED"),
   DEFAULT_MONTE_CARLO_SEED,
 );
-const backends = parseBackends(process.env.RUST_RUNTIME_BENCH_BACKENDS);
+const backends = parseBackends(envValue("RUST_RUNTIME_BENCH_BACKENDS"));
 const weightSpec = parseRustBenchmarkWeightSpec(
-  process.env.RUST_RUNTIME_BENCH_WEIGHTS,
-  process.env.RUST_RUNTIME_BENCH_WEIGHT_PROFILE,
+  envValue("RUST_RUNTIME_BENCH_WEIGHTS"),
+  envValue("RUST_RUNTIME_BENCH_WEIGHT_PROFILE"),
 );
 
 await mkdir(RESULTS_DIRECTORY, { recursive: true });
@@ -224,11 +224,14 @@ const server = await createServer({
 });
 
 const solverModule = (await server.ssrLoadModule(
-  "/src/solver.ts",
-)) as typeof import("../src/solver");
-const rustProductModule = (await server.ssrLoadModule(
-  "/src/wasm/rustMinEfSolver.ts",
-)) as typeof import("../src/wasm/rustMinEfSolver");
+  "/src/solver/solve.ts",
+)) as typeof import("../src/solver/solve");
+const rustPhase2Module = (await server.ssrLoadModule(
+  "/src/wasm/rustPhase2ProductSolver.ts",
+)) as typeof import("../src/wasm/rustPhase2ProductSolver");
+const rustRerankModule = (await server.ssrLoadModule(
+  "/src/wasm/rustRerankProductSolver.ts",
+)) as typeof import("../src/wasm/rustRerankProductSolver");
 const fixedGrid = (await server.ssrLoadModule(
   "/benchmarks/scenarios/fixed-grid.ts",
 )) as typeof import("./scenarios/fixed-grid");
@@ -254,10 +257,11 @@ const allScenarios: RuntimeScenario[] = [
   })),
 ];
 const byId = new Map(allScenarios.map((scenario) => [scenario.id, scenario]));
+const requestedScenarioEnv = envValue("RUST_RUNTIME_BENCH_SCENARIOS");
 const scenarioIds =
-  process.env.RUST_RUNTIME_BENCH_SCENARIOS?.trim() === "all"
+  requestedScenarioEnv?.trim() === "all"
     ? allScenarios.map((scenario) => scenario.id)
-    : parseList(process.env.RUST_RUNTIME_BENCH_SCENARIOS, DEFAULT_SCENARIO_IDS);
+    : parseList(requestedScenarioEnv, DEFAULT_SCENARIO_IDS);
 const scenarios = scenarioIds.map((id) => {
   const scenario = byId.get(id);
   if (!scenario) {
@@ -282,9 +286,9 @@ const solveBackend = async (backend: RuntimeBackend, scenario: RuntimeScenario) 
         { toleranceOverride: TOLERANCE },
       );
     case "rust-phase2":
-      return rustProductModule.solveRustPhase2(input, wasmDataUrl);
+      return rustPhase2Module.solveRustPhase2(input, wasmDataUrl);
     case "rust-phase2-rerank":
-      return rustProductModule.solveRustPhase2Rerank(input, wasmDataUrl);
+      return rustRerankModule.solveRustPhase2Rerank(input, wasmDataUrl);
   }
 };
 

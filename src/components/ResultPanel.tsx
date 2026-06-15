@@ -4,20 +4,14 @@ import type { Kit } from "../types";
 import type { RecommendationActionTransition, ResultKit, ResultView } from "../ui-types";
 import { STATE_FEEDBACK_VISIBLE_MS } from "./stateFeedbackAnimations";
 
-type ResultPanelProps = {
-  view: ResultView;
-  onConvert: () => void;
-  onOutcome: (outcome: "success" | "fail") => void;
-};
-
-const KIT_LABELS: Record<ResultKit, string> = {
+const RESULT_KIT_LABELS: Record<ResultKit, string> = {
   blue: "초심자용 관리 키트",
   purple: "중급자용 관리 키트",
   yellow: "상급자용 관리 키트",
   convert: "SR 등급으로 교체",
 };
 
-const kitDotClass: Record<ResultKit, string> = {
+const resultKitDotClass: Record<ResultKit, string> = {
   blue: "bg-blue-kit",
   purple: "bg-purple-kit",
   yellow: "bg-yellow-kit",
@@ -73,6 +67,12 @@ const classes = {
     "change-note m-0 text-[13px] font-semibold leading-[1.45] text-muted max-mobile:text-[11.5px]",
 } as const;
 
+type ResultPanelProps = {
+  view: ResultView;
+  onConvert: () => void;
+  onOutcome: (outcome: "success" | "fail") => void;
+};
+
 function ActionChip({
   kit,
   count,
@@ -89,8 +89,8 @@ function ActionChip({
   if (!large || kit === "convert") {
     return (
       <span className={className.trim()}>
-        <i aria-hidden="true" className={`${classes.actionDot} ${kitDotClass[kit]}`}></i>
-        {KIT_LABELS[kit]}
+        <i aria-hidden="true" className={`${classes.actionDot} ${resultKitDotClass[kit]}`}></i>
+        {RESULT_KIT_LABELS[kit]}
       </span>
     );
   }
@@ -99,10 +99,10 @@ function ActionChip({
     <span className={className}>
       <i
         aria-hidden="true"
-        className={`${classes.actionDot} ${kitDotClass[kit]} shrink-0 self-center`}
+        className={`${classes.actionDot} ${resultKitDotClass[kit]} shrink-0 self-center`}
       ></i>
       <span className={classes.actionChipText}>
-        <span className={classes.actionChipName}>{KIT_LABELS[kit]}</span>
+        <span className={classes.actionChipName}>{RESULT_KIT_LABELS[kit]}</span>
         <span className={classes.actionChipSeparator}>{"\u00a0×\u00a0"}</span>
         <span className={classes.actionChipCount}>{count || 1}회</span>
       </span>
@@ -115,7 +115,11 @@ function ActionCardContent({ count, kit }: { kit: ResultKit; count?: number }) {
     <div className={classes.nextInner}>
       <span className={classes.actionLabel}>{"\ucd94\ucc9c \ud589\ub3d9"}</span>
       <strong className={classes.nextStrong}>
-        <ActionChip kit={kit} count={count} large={kit !== "convert"} />
+        <ActionChip
+          kit={kit}
+          large={kit !== "convert"}
+          {...(count !== undefined ? { count } : {})}
+        />
       </strong>
     </div>
   );
@@ -160,6 +164,7 @@ function RecommendationBlock({
     </div>
   );
 }
+
 function ConvertRecommendation({ onConvert }: { onConvert: () => void }) {
   return (
     <RecommendationBlock kit="convert" title="등급 교체">
@@ -215,7 +220,7 @@ function renderView(
           kit={view.kit}
           count={view.count}
           title={"\ub300\uc131\uacf5 \uc5ec\ubd80"}
-          transition={view.actionTransition}
+          {...(view.actionTransition ? { transition: view.actionTransition } : {})}
         >
           <p className={classes.changeNote}>
             다회 사용 중 대성공이 발생하면 몇 번째 사용에서 발생했는지 알 수 없으므로, 레벨만
@@ -245,8 +250,8 @@ function renderView(
   return (
     <div className={classes.resultContent}>
       <div className={classes.callout}>
-        적용 완료: {KIT_LABELS[view.kit as Kit]} {view.count}회 사용, {view.outcomeLabel} 결과로{" "}
-        {view.stateText}가 반영되었습니다. {view.stockMessage}
+        적용 완료: {RESULT_KIT_LABELS[view.kit as Kit]} {view.count}회 사용, {view.outcomeLabel}{" "}
+        결과로 {view.stateText}가 반영되었습니다. {view.stockMessage}
       </div>
       {view.showConvertRecommendation ? <ConvertRecommendation onConvert={onConvert} /> : null}
     </div>

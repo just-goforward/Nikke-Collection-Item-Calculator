@@ -1,6 +1,10 @@
-import type { Locator } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
+import {
+  maxBackgroundChannel,
+  mockStagingStatsEndpoints,
+  serveStagingDocument,
+} from "./smoke.helpers";
 
 const PORT = 4173;
 let previewServer: PreviewServer | null = null;
@@ -12,47 +16,6 @@ let previewServer: PreviewServer | null = null;
  * Vue에서 React로 전환해도 동일하게 통과해야 안전망 기능을 한다.
  * 사용자에게 보이는 텍스트, ARIA role, label만 사용한다.
  */
-
-async function maxBackgroundChannel(locator: Locator): Promise<number> {
-  return locator.evaluate((element) => {
-    const channels = getComputedStyle(element).backgroundColor.match(/\d+/g)?.map(Number) ?? [255];
-    return Math.max(...channels.slice(0, 3));
-  });
-}
-
-async function serveStagingDocument(
-  page: import("@playwright/test").Page,
-  staging?: { endpoint: string; turnstileSiteKey: string },
-) {
-  await page.route("**/*", async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    if (request.resourceType() !== "document" || url.searchParams.get("statsEnv") !== "staging") {
-      await route.continue();
-      return;
-    }
-    const response = await route.fetch();
-    const replacement = [
-      "      window.COLLECTION_STATS_CONFIG = {",
-      '        endpoint: "https://production.example.test",',
-      '        turnstileSiteKey: "production-site-key",',
-      ...(staging
-        ? [
-            "        staging: {",
-            `          endpoint: "${staging.endpoint}",`,
-            `          turnstileSiteKey: "${staging.turnstileSiteKey}",`,
-            "        },",
-          ]
-        : []),
-      "      };",
-    ].join("\n");
-    const body = (await response.text()).replace(
-      / {6}window\.COLLECTION_STATS_CONFIG = \{[\s\S]*? {6}\};/,
-      replacement,
-    );
-    await route.fulfill({ response, body, contentType: "text/html" });
-  });
-}
 
 test.beforeAll(async () => {
   previewServer = await preview({
@@ -130,7 +93,7 @@ test("SR 10 + 상급자용 100 — 세부 정보에 SR 15 도달 확률이 나�
   await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("추천 기준")).toHaveCount(0);
   await expect(page.getByText("수급량 고려")).toHaveCount(0);
-  await expect(page.getByRole("columnheader", { name: "구간 대성공 확률" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "구간 대성공 확률" })).toHaveCount(0);
   await expect(page.getByText(/\d+(?:\.\d+)?%/).first()).toBeVisible();
   await expect(page.getByRole("table").getByText(/\d+회/).first()).toBeVisible();
   const desktopMetricDeltas = await page.locator(".metric").evaluateAll((metrics) =>
@@ -621,20 +584,7 @@ test("staging rust phase2 backend loads wasm and calculates", async ({ page }) =
     endpoint: "https://staging.example.test",
     turnstileSiteKey: "staging-site-key",
   });
-  await page.route("https://staging.example.test/api/stats", async (route) => {
-    await route.fulfill({
-      status: 200,
-      headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
-      body: '{"summary":null}',
-    });
-  });
-  await page.route("https://staging.example.test/api/events", async (route) => {
-    await route.fulfill({
-      status: 200,
-      headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
-      body: '{"ok":true}',
-    });
-  });
+  await mockStagingStatsEndpoints(page);
 
   await page.goto("/?statsEnv=staging&solverBackend=rust-phase2");
 
@@ -653,20 +603,7 @@ test("staging rust phase2 rerank backend loads wasm and calculates", async ({ pa
     endpoint: "https://staging.example.test",
     turnstileSiteKey: "staging-site-key",
   });
-  await page.route("https://staging.example.test/api/stats", async (route) => {
-    await route.fulfill({
-      status: 200,
-      headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
-      body: '{"summary":null}',
-    });
-  });
-  await page.route("https://staging.example.test/api/events", async (route) => {
-    await route.fulfill({
-      status: 200,
-      headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
-      body: '{"ok":true}',
-    });
-  });
+  await mockStagingStatsEndpoints(page);
 
   await page.goto("/?statsEnv=staging&solverBackend=rust-phase2-rerank");
 

@@ -1,15 +1,17 @@
 import { WorkerRequestSchema } from "./schemas";
-import { solve } from "./solver";
+import { solve } from "./solver/solve";
 
 import type { ProgressEvent, SolverInput, WorkerRequest, WorkerResponse } from "./types";
+import { solveRustMinEf } from "./wasm/rustMinEfSolver";
+import { solveRustPhase2 } from "./wasm/rustPhase2ProductSolver";
 import {
-  solveRustMinEf,
-  solveRustPhase2,
-  solveRustPhase2Rerank,
   validateRustMinEf,
   validateRustPhase2,
   validateRustPhase2Rerank,
-} from "./wasm/rustMinEfSolver";
+} from "./wasm/rustProductValidation";
+import { solveRustPhase2Rerank } from "./wasm/rustRerankProductSolver";
+
+const WORKER_MESSAGE_ID_KEY = "id";
 
 function postWorkerMessage(message: WorkerResponse) {
   self.postMessage(message);
@@ -111,6 +113,6 @@ self.onmessage = async (event) => {
 
 function messageId(value: unknown) {
   if (!value || typeof value !== "object") return 0;
-  const id = (value as Record<string, unknown>).id;
+  const id = (value as Record<string, unknown>)[WORKER_MESSAGE_ID_KEY];
   return typeof id === "number" && Number.isFinite(id) ? id : 0;
 }

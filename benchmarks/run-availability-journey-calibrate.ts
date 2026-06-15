@@ -13,16 +13,16 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
 import type { Stock } from "../src/types";
 import type { TrajectoryTailSummary } from "./metrics";
-import { parsePositiveInteger } from "./runner-utils";
+import { envValue, parsePositiveInteger } from "./runner-utils";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
 const OUTPUT_FILE = new URL("./results/availability-journey-calibration.json", import.meta.url);
 
-const runs = parsePositiveInteger(process.env.AVAILABILITY_JOURNEY_RUNS, 4000);
-const seed = parsePositiveInteger(process.env.AVAILABILITY_JOURNEY_SEED, 20260505);
+const runs = parsePositiveInteger(envValue("AVAILABILITY_JOURNEY_RUNS"), 4000);
+const seed = parsePositiveInteger(envValue("AVAILABILITY_JOURNEY_SEED"), 20260505);
 // Skewed SR0 panels are legitimately expensive, so give each panel a generous default budget.
 // Early termination below means only a handful of panels normally run.
-const budgetMs = parsePositiveInteger(process.env.AVAILABILITY_JOURNEY_BUDGET_MS, 300_000);
+const budgetMs = parsePositiveInteger(envValue("AVAILABILITY_JOURNEY_BUDGET_MS"), 300_000);
 
 type JourneyCalibrationEvaluation =
   | {
@@ -50,7 +50,7 @@ type JourneyCalibrationEvaluation =
     };
 
 function startStateOf(panelId: string): string {
-  return panelId.split("-")[0];
+  return panelId.split("-")[0] ?? panelId;
 }
 
 await mkdir(RESULTS_DIRECTORY, { recursive: true });

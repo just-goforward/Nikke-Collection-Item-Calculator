@@ -1,3 +1,15 @@
+export function envValue(name: string): string | undefined {
+  return process.env[name];
+}
+
+export function setEnvValue(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}
+
 export function parsePositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
@@ -26,6 +38,17 @@ export function parseSeeds(value: string | undefined, fallback: readonly number[
 
 export function isErrorWithCode(error: unknown): error is { code: string } {
   return typeof error === "object" && error !== null && "code" in error;
+}
+
+export function ignoreExpectedRunnerError(reason: string, error?: unknown): void {
+  if (!parseBoolean(envValue("BENCHMARK_DEBUG"))) return;
+
+  if (error instanceof Error) {
+    console.debug("[benchmark expected-error]", reason, error.message);
+    return;
+  }
+
+  console.debug("[benchmark expected-error]", reason);
 }
 
 export function csvEscape(value: unknown): string {

@@ -42,8 +42,11 @@ function quantile(values: number[], fraction: number) {
   const position = (sorted.length - 1) * Math.max(0, Math.min(1, fraction));
   const lower = Math.floor(position);
   const upper = Math.ceil(position);
-  if (lower === upper) return sorted[lower];
-  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+  const lowerValue = sorted[lower];
+  const upperValue = sorted[upper];
+  if (lowerValue === undefined || upperValue === undefined) return Number.NaN;
+  if (lower === upper) return lowerValue;
+  return lowerValue + (upperValue - lowerValue) * (position - lower);
 }
 
 function improvement(
@@ -75,8 +78,11 @@ export function pairedBootstrapImprovement(
     const candidateSample: number[] = [];
     for (let draw = 0; draw < baselineValues.length; draw += 1) {
       const index = Math.floor(random() * baselineValues.length);
-      baselineSample.push(baselineValues[index]);
-      candidateSample.push(candidateValues[index]);
+      const baselineValue = baselineValues[index];
+      const candidateValue = candidateValues[index];
+      if (baselineValue === undefined || candidateValue === undefined) continue;
+      baselineSample.push(baselineValue);
+      candidateSample.push(candidateValue);
     }
     improvements.push(
       improvement(baselineSample, candidateSample, options.statistic, options.higherIsBetter),
@@ -111,6 +117,7 @@ export function holmBonferroniWorseningDecisions(
 
   for (let index = 0; index < ordered.length; index += 1) {
     const hypothesis = ordered[index];
+    if (!hypothesis) continue;
     const threshold = alpha / (ordered.length - index);
     const confirmedWorsening = continueRejecting && hypothesis.adversePValue <= threshold;
     if (!confirmedWorsening) continueRejecting = false;

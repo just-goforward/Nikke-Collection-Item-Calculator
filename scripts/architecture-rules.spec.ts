@@ -1,0 +1,108 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  architectureIssues,
+  formatArchitectureResult,
+  gitTrackedFiles,
+  measureFunctions,
+} from "./architecture-rules.ts";
+
+describe("architecture rules", () => {
+  it("measures function length, nesting depth, and approximate complexity", () => {
+    const metrics = measureFunctions(
+      `
+function sample(input: boolean) {
+  if (input) {
+    for (const value of [1, 2, 3]) {
+      if (value > 1) return value;
+    }
+  }
+  return 0;
+}
+`,
+      "fixture.ts",
+    );
+
+    expect(metrics).toHaveLength(1);
+    expect(metrics[0]).toMatchObject({
+      file: "fixture.ts",
+      name: "sample",
+      startLine: 2,
+      endLine: 9,
+      maxDepth: 3,
+      complexity: 4,
+    });
+  });
+
+  it("formats pass and fail results for the CLI wrapper", () => {
+    expect(formatArchitectureResult(["src/a.ts"], [])).toContain("Architecture lint passed");
+    expect(
+      formatArchitectureResult(["src/a.ts"], [
+        { code: "re-export", file: "src/a.ts", message: "re-export is not allowed: src/a.ts" },
+      ]),
+    ).toContain("Architecture lint failed");
+  });
+
+  it("flags structural fixtures for boundaries and complexity", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "architecture-rules-")).replace(/\\/g, "/");
+    const unsafeCast = "as " + "any";
+    const emptyCatch = "catch " + "{}";
+    const files = {
+      a: `${fixtureRoot}/a.ts`,
+      b: `${fixtureRoot}/b.ts`,
+      reExport: `${fixtureRoot}/re-export.ts`,
+      unsafe: `${fixtureRoot}/unsafe.ts`,
+      emptyCatch: `${fixtureRoot}/empty-catch.ts`,
+      nested: `${fixtureRoot}/nested.ts`,
+      entry: `${fixtureRoot}/entry.test.ts`,
+      dynamic: `${fixtureRoot}/dynamic.ts`,
+      orphan: `${fixtureRoot}/orphan.ts`,
+    };
+
+    try {
+      writeFileSync(files.a, 'import { b } from "./b";\nexport const a = b;\n');
+      writeFileSync(files.b, 'import { a } from "./a";\nexport const b = a;\n');
+      writeFileSync(files.reExport, 'export { a } from "./a";\n');
+      writeFileSync(files.unsafe, `const value = {} ${unsafeCast};\nvoid value;\n`);
+      writeFileSync(files.emptyCatch, `try {\n  JSON.parse("bad");\n} ${emptyCatch}\n`);
+      writeFileSync(files.entry, 'export async function load() {\n  return import("./dynamic.ts");\n}\n');
+      writeFileSync(files.dynamic, "export const reachable = true;\n");
+      writeFileSync(files.orphan, "export const unreachable = true;\n");
+      writeFileSync(
+        files.nested,
+        `
+function tooNested(a: boolean, b: boolean, c: boolean, d: boolean, e: boolean) {
+  if (a) {
+    if (b) {
+      if (c) {
+        if (d) {
+          if (e) return 1;
+        }
+      }
+    }
+  }
+  return 0;
+}
+`,
+      );
+
+      const issues = architectureIssues([...gitTrackedFiles(), ...Object.values(files)]);
+      expect(issues.map((issue) => issue.code)).toEqual(
+        expect.arrayContaining([
+          "cycle",
+          "empty-catch",
+          "function-depth",
+          "re-export",
+          "unreachable-source",
+          "unsafe-type-escape",
+        ]),
+      );
+      expect(issues.some((issue) => issue.file === files.dynamic)).toBe(false);
+      expect(issues.some((issue) => issue.file === files.orphan)).toBe(true);
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+});

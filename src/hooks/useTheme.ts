@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ignoreExpectedError } from "../lib/errorHandling";
 import type { Grade } from "../types";
 import type { ThemeMode } from "../ui-types";
 
@@ -10,8 +11,11 @@ function initialThemeMode(): ThemeMode {
   try {
     const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
     if (saved === "light" || saved === "dark") return saved;
-  } catch {
-    // Storage is optional; system mode is the safe fallback.
+  } catch (error) {
+    ignoreExpectedError(
+      "theme storage read can fail in private or restricted browser contexts",
+      error,
+    );
   }
   return "system";
 }
@@ -52,8 +56,11 @@ export function useTheme(grade: Grade) {
       try {
         if (nextMode === "system") window.localStorage.removeItem(THEME_STORAGE_KEY);
         else window.localStorage.setItem(THEME_STORAGE_KEY, nextMode);
-      } catch {
-        // Ignore storage failures.
+      } catch (error) {
+        ignoreExpectedError(
+          "theme storage write can fail in private or restricted browser contexts",
+          error,
+        );
       }
     },
     [startThemeTransition, themeMode],

@@ -3,8 +3,8 @@ import { createServer } from "vite";
 import type {
   ExactInteractiveEvaluation,
   ExactInteractiveReplanCheckpoint,
-} from "./evaluator/exact-replan";
-import { isErrorWithCode, parsePositiveInteger } from "./runner-utils";
+} from "./evaluator/exact-replan-types";
+import { envValue, isErrorWithCode, parsePositiveInteger } from "./runner-utils";
 import type { SolverScenario } from "./scenarios/fixed-grid";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
@@ -12,11 +12,11 @@ const CHECKPOINT_FILE = new URL("./results/a-feasibility.checkpoint.json", impor
 const DEFAULT_TOTAL_BUDGET_MS = 60 * 60 * 1000;
 const DEFAULT_SLICE_MS = 30 * 1000;
 const totalBudgetMs = parsePositiveInteger(
-  process.env.A_FEASIBILITY_BUDGET_MS,
+  envValue("A_FEASIBILITY_BUDGET_MS"),
   DEFAULT_TOTAL_BUDGET_MS,
 );
-const sliceMs = parsePositiveInteger(process.env.A_FEASIBILITY_SLICE_MS, DEFAULT_SLICE_MS);
-const reset = process.env.A_FEASIBILITY_RESET === "1";
+const sliceMs = parsePositiveInteger(envValue("A_FEASIBILITY_SLICE_MS"), DEFAULT_SLICE_MS);
+const reset = envValue("A_FEASIBILITY_RESET") === "1";
 const sentinelOrder = [
   "R0-balanced300",
   "SR0-balanced300",

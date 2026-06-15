@@ -3,6 +3,11 @@ import { readFile, writeFile } from "node:fs/promises";
 const RUNTIME_FILE = new URL("./results/rust-runtime-benchmark.json", import.meta.url);
 const RERANK_FILE = new URL("./results/rust-rerank-benchmark.json", import.meta.url);
 const OUTPUT_FILE = new URL("./results/rust-solver-direction-analysis.json", import.meta.url);
+const RAW_POLICY_KEY = "raw";
+const TWO_FOLD_POLICY_KEY = "twoFold";
+const PAIRED_95_POLICY_KEY = "paired95";
+const ADAPTIVE_90_POLICY_KEY = "adaptive90";
+const A2_GATE_POLICY_KEY = "a2Gate";
 
 type RuntimeComparison = {
   meanDeltaMs: number | null;
@@ -88,8 +93,8 @@ function finite(value: number | null | undefined) {
 function verdict(runtime: RuntimeResult, rerank: RerankResult) {
   const phase2VsJs = runtime.backendComparisons?.["rust-phase2_vs_js-phase2"];
   const rerankVsPhase2 = runtime.backendComparisons?.["rust-phase2-rerank_vs_rust-phase2"];
-  const paired95 = rerank.policySummaries?.paired95;
-  const adaptive90 = rerank.policySummaries?.adaptive90;
+  const paired95 = rerank.policySummaries?.[PAIRED_95_POLICY_KEY];
+  const adaptive90 = rerank.policySummaries?.[ADAPTIVE_90_POLICY_KEY];
   const phase2MeanDelta = finite(phase2VsJs?.weightedMeanDeltaMs);
   const rerankMeanDelta = finite(rerankVsPhase2?.weightedMeanDeltaMs);
   const adaptiveWeightedDelta = finite(adaptive90?.weightedSumDelta);
@@ -153,11 +158,11 @@ const analysis = {
     rustRerankVsPhase2: runtime.backendComparisons?.["rust-phase2-rerank_vs_rust-phase2"] ?? null,
   },
   quality: {
-    raw: rerank.policySummaries?.raw ?? null,
-    twoFold: rerank.policySummaries?.twoFold ?? null,
-    paired95: rerank.policySummaries?.paired95 ?? null,
-    adaptive90: rerank.policySummaries?.adaptive90 ?? null,
-    a2Gate: rerank.policySummaries?.a2Gate ?? null,
+    raw: rerank.policySummaries?.[RAW_POLICY_KEY] ?? null,
+    twoFold: rerank.policySummaries?.[TWO_FOLD_POLICY_KEY] ?? null,
+    paired95: rerank.policySummaries?.[PAIRED_95_POLICY_KEY] ?? null,
+    adaptive90: rerank.policySummaries?.[ADAPTIVE_90_POLICY_KEY] ?? null,
+    a2Gate: rerank.policySummaries?.[A2_GATE_POLICY_KEY] ?? null,
     gateSweep: rerank.gateSweep ?? null,
     gateSweepBySource: rerank.gateSweepBySource ?? null,
     pairedMcDiagnostics: rerank.pairedMcDiagnostics ?? null,

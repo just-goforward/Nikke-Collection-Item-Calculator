@@ -1,4 +1,5 @@
 import { StatsConfigSchema } from "../schemas";
+import { ignoreExpectedError } from "./errorHandling";
 
 export type StatsRuntimeMode =
   | "production"
@@ -18,8 +19,8 @@ function normalizedEndpoint(endpoint: string): string {
 }
 
 function completeSubmissionConfig(config?: {
-  endpoint?: string;
-  turnstileSiteKey?: string;
+  endpoint?: string | undefined;
+  turnstileSiteKey?: string | undefined;
 }): SubmissionConfig | null {
   if (!config?.endpoint || !config.turnstileSiteKey) return null;
   return {
@@ -76,7 +77,8 @@ export function statsSourceHost(): string {
     const referrer = new URL(document.referrer);
     if (referrer.host === window.location.host) return "same-site";
     return referrer.host || "unknown";
-  } catch {
+  } catch (error) {
+    ignoreExpectedError("document.referrer may not be a parseable URL", error);
     return "unknown";
   }
 }

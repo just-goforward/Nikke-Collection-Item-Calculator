@@ -1,0 +1,106 @@
+import { type Dispatch, type SetStateAction, useCallback } from "react";
+
+import { transition } from "../solver/domain";
+import type { Grade } from "../types";
+import type { DetailView, RecommendationAction, ResultView, ValidationView } from "../ui-types";
+import { makeMetricsDetailView } from "../view-models/detailMetrics";
+import { INITIAL_VALIDATION, monteCarloRuns, type SolverResult } from "./calculatorShared";
+
+type MutableRef<T> = { current: T };
+
+type ResultRenderingOptions = {
+  actionTransitionIdRef: MutableRef<number>;
+  latestResultRef: MutableRef<SolverResult | null>;
+  setDetailView: Dispatch<SetStateAction<DetailView>>;
+  setResultView: Dispatch<SetStateAction<ResultView>>;
+  setValidationView: Dispatch<SetStateAction<ValidationView>>;
+};
+
+export function useCalculatorResultRendering({
+  actionTransitionIdRef,
+  latestResultRef,
+  setDetailView,
+  setResultView,
+  setValidationView,
+}: ResultRenderingOptions) {
+  const renderMaxLevelState = useCallback(
+    (nextGrade: Grade, nextLevel: number) => {
+      latestResultRef.current = null;
+      setValidationView(INITIAL_VALIDATION);
+      if (nextGrade === "R" && nextLevel >= 15) {
+        setResultView({ type: "convertRecommendation" });
+        setDetailView({
+          type: "empty",
+          message: "R 15레벨은 등급 교체 가능 상태입니다. SR 5레벨로 교체할 수 있습니다.",
+        });
+        return;
+      }
+      if (nextGrade === "SR" && nextLevel >= 15) {
+        setResultView({ type: "callout", message: "SR 15레벨입니다. 최종 목표 상태입니다." });
+        setDetailView({ type: "empty", message: "SR 15레벨은 최종 목표 상태입니다." });
+      }
+    },
+    [latestResultRef, setDetailView, setResultView, setValidationView],
+  );
+
+  const renderResult = useCallback(
+    (result: SolverResult, previousAction?: RecommendationAction | null) => {
+      latestResultRef.current = result;
+      if (result.terminal) {
+        setResultView({ type: "callout", message: result.message || "완료 상태입니다." });
+        setDetailView({ type: "empty", message: "완료 상태입니다." });
+        return;
+      }
+      if (result.convertOnly) {
+        setResultView({ type: "convertRecommendation" });
+        setDetailView({
+          type: "empty",
+          message: "R 15레벨은 등급 교체 가능 상태입니다. SR 5레벨로 교체할 수 있습니다.",
+        });
+        return;
+      }
+      if (!result.possible || !result.best || !result.input) {
+        setResultView({
+          type: "error",
+          message: result.message || "현재 보유 키트로 가능한 행동이 없습니다.",
+        });
+        setDetailView({ type: "empty", message: "사용 가능한 키트가 부족합니다." });
+        return;
+      }
+
+      const best = result.best;
+      const edge = transition(result.input.start, best.firstAction);
+      const run = best.run || {
+        count: 1,
+        success: edge.success,
+        fail: edge.fail,
+        greatSuccessProbability: best.firstProbability,
+      };
+      const actionTransition = previousAction
+        ? { id: ++actionTransitionIdRef.current, previous: previousAction }
+        : undefined;
+      setResultView({
+        type: "recommendation",
+        kit: best.firstAction,
+        count: run.count,
+        ...(actionTransition ? { actionTransition } : {}),
+      });
+      setDetailView(
+        makeMetricsDetailView(
+          {
+            input: result.input,
+            best,
+            ...(result.topCandidates ? { topCandidates: result.topCandidates } : {}),
+            ...(result.stats ? { stats: result.stats } : {}),
+          },
+          run,
+          monteCarloRuns().toLocaleString("ko-KR"),
+        ),
+      );
+      setValidationView(INITIAL_VALIDATION);
+    },
+    [actionTransitionIdRef, latestResultRef, setDetailView, setResultView, setValidationView],
+  );
+
+  return { renderMaxLevelState, renderResult };
+}

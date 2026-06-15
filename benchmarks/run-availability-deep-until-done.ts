@@ -11,11 +11,13 @@
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { parsePositiveInteger } from "./runner-utils";
+import { envValue, ignoreExpectedRunnerError, parsePositiveInteger } from "./runner-utils";
 
 const SCRIPT = fileURLToPath(new URL("./run-availability-deep-slice.ts", import.meta.url));
 const OUTPUT = fileURLToPath(new URL("./results/availability-deep-slice.json", import.meta.url));
-const maxSlices = parsePositiveInteger(process.env.AVAILABILITY_DEEP_MAX_SLICES, 100_000);
+const DEEP_LOOP_RESET_ENV = "AVAILABILITY_DEEP_LOOP_RESET";
+const DEEP_SLICE_RESET_ENV = "AVAILABILITY_DEEP_SLICE_RESET";
+const maxSlices = parsePositiveInteger(envValue("AVAILABILITY_DEEP_MAX_SLICES"), 100_000);
 
 type DeepLoopState = {
   phase: string | null;
@@ -42,7 +44,11 @@ async function readState(): Promise<DeepLoopState> {
       phase,
       signature: `${phase}|${exactJobIndex}|${finiteTailJobIndex}|${journeyTailJobIndex}`,
     };
-  } catch {
+  } catch (error) {
+    ignoreExpectedRunnerError(
+      "Deep slice output is absent or partially written while polling.",
+      error,
+    );
     return { phase: null, signature: null };
   }
 }
@@ -53,10 +59,10 @@ let stalledCount = 0;
 for (let slice = 1; slice <= maxSlices; slice += 1) {
   const env = { ...process.env };
   // Only the first slice may reset; later slices must resume.
-  if (slice === 1 && process.env.AVAILABILITY_DEEP_LOOP_RESET === "1") {
-    env.AVAILABILITY_DEEP_SLICE_RESET = "1";
+  if (slice === 1 && envValue(DEEP_LOOP_RESET_ENV) === "1") {
+    env[DEEP_SLICE_RESET_ENV] = "1";
   } else {
-    delete env.AVAILABILITY_DEEP_SLICE_RESET;
+    delete env[DEEP_SLICE_RESET_ENV];
   }
 
   const startedAt = Date.now();

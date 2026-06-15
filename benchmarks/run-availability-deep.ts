@@ -1,9 +1,28 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
-import type { ExactInteractiveEvaluation } from "./evaluator/exact-replan";
-import type { TrajectoryEvaluation } from "./evaluator/trajectory";
+import {
+  type AvailabilityScreenReport,
+  readScreenReport,
+} from "./availability-deep-slice-state.ts";
+import {
+  baselineIncompleteDeepExactSummary,
+  collectDeepTrajectorySummary,
+  type DeepExactSummary,
+  type DeepJourneyPanelSummary,
+  type DeepTrajectorySummary,
+  maxCompletedPanelSupplyDebt,
+  summarizeDeepExact,
+  withSupplyDebtStatus,
+} from "./availability-deep-summary.ts";
+import type { ExactInteractiveEvaluation } from "./evaluator/exact-replan-types";
 import type { AvailabilitySliderCandidate } from "./models/availability-grid";
-import { isErrorWithCode, parseList, parsePositiveInteger, parseSeeds } from "./runner-utils";
+import {
+  envValue,
+  isErrorWithCode,
+  parseList,
+  parsePositiveInteger,
+  parseSeeds,
+} from "./runner-utils";
 import type { SolverScenario } from "./scenarios/fixed-grid";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
@@ -24,112 +43,6 @@ const DEFAULT_SCENARIO_IDS = [
 // Journey-demand panels resolved from journey-panels.ts; disjoint from the scenarios above.
 const DEFAULT_JOURNEY_PANEL_IDS = ["R0-balanced300", "SR0-balanced300"];
 const DEFAULT_SEEDS = [20260505, 20260506, 20260507, 20260508];
-
-type AvailabilityScreenReport = {
-  deepCandidateIds?: string[];
-};
-
-type ExactSummary = {
-  status: ExactInteractiveEvaluation["status"];
-  reason?: string;
-  scenario: string;
-  modelId: string;
-  elapsedMs?: number;
-  solveCalls?: number;
-  cachedNodes?: number;
-  cachedPolicies?: number;
-  gateEvidence?: ExactInteractiveEvaluation["gateEvidence"];
-  successProbability?: number;
-  exactLossVsA?: number | null;
-  relativeLossVsA?: number | null;
-  expectedConsumption?: Extract<
-    ExactInteractiveEvaluation,
-    { status: "completed" }
-  >["expectedConsumption"];
-  interactiveF?: number;
-  manualEntryProbability?: number;
-  expectedManualEntries?: number;
-  successAttemptSelectionProbability?: number;
-  expectedSuccessAttemptSelections?: number;
-};
-
-type TrajectorySummaryResult =
-  | {
-      status: "completed";
-      scenario: string;
-      modelId: string;
-      seeds: number[];
-      runsPerSeed: number;
-      totalRuns: number;
-      evaluations: Array<{
-        seed: number;
-        runs: number;
-        elapsedMs: number;
-        solveCalls: number;
-        cachedPolicies: number;
-      }>;
-      summary: ReturnType<typeof import("./metrics").summarizeTrajectories>;
-    }
-  | {
-      status: Extract<TrajectoryEvaluation, { status: "verification_incomplete" }>["status"];
-      reason: Extract<TrajectoryEvaluation, { status: "verification_incomplete" }>["reason"];
-      scenario: string;
-      modelId: string;
-      seed: number;
-      runsCompleted: number;
-      elapsedMs: number;
-      solveCalls: number;
-      cachedPolicies: number;
-    };
-
-type JourneyPanelSummary = TrajectorySummaryResult & {
-  supplyDebtStatus: "completed" | "judgement_incomplete";
-};
-
-function readScreenReport(value: unknown): AvailabilityScreenReport | null {
-  if (typeof value !== "object" || value === null) return null;
-  return {
-    deepCandidateIds:
-      "deepCandidateIds" in value && Array.isArray(value.deepCandidateIds)
-        ? value.deepCandidateIds.filter((id): id is string => typeof id === "string")
-        : undefined,
-  };
-}
-
-function summarizeExact(
-  result: ExactInteractiveEvaluation,
-  baseline: ExactInteractiveEvaluation | undefined,
-): ExactSummary {
-  const common = {
-    status: result.status,
-    ...(result.status !== "completed" ? { reason: result.reason } : {}),
-    scenario: result.scenario.id,
-    modelId: result.modelId,
-    elapsedMs: result.elapsedMs,
-    solveCalls: result.solveCalls,
-    cachedNodes: result.cachedNodes,
-    cachedPolicies: result.cachedPolicies,
-    gateEvidence: result.gateEvidence,
-  };
-  if (result.status !== "completed") return common;
-  const baselineP =
-    baseline && baseline.status === "completed" ? baseline.successProbability : Number.NaN;
-  return {
-    ...common,
-    successProbability: result.successProbability,
-    exactLossVsA: Number.isFinite(baselineP) ? baselineP - result.successProbability : null,
-    relativeLossVsA:
-      Number.isFinite(baselineP) && baselineP > 0
-        ? (baselineP - result.successProbability) / baselineP
-        : null,
-    expectedConsumption: result.expectedConsumption,
-    interactiveF: result.interactiveF,
-    manualEntryProbability: result.manualEntryProbability,
-    expectedManualEntries: result.expectedManualEntries,
-    successAttemptSelectionProbability: result.successAttemptSelectionProbability,
-    expectedSuccessAttemptSelections: result.expectedSuccessAttemptSelections,
-  };
-}
 
 function scenarioById(scenarios: readonly SolverScenario[], id: string): SolverScenario {
   const scenario = scenarios.find((candidate) => candidate.id === id);
@@ -155,20 +68,20 @@ try {
   if (!isErrorWithCode(error) || error.code !== "ENOENT") throw error;
 }
 
-const exactBudgetMs = parsePositiveInteger(process.env.AVAILABILITY_DEEP_EXACT_BUDGET_MS, 300_000);
+const exactBudgetMs = parsePositiveInteger(envValue("AVAILABILITY_DEEP_EXACT_BUDGET_MS"), 300_000);
 const trajectoryBudgetMs = parsePositiveInteger(
-  process.env.AVAILABILITY_DEEP_TRAJECTORY_BUDGET_MS,
+  envValue("AVAILABILITY_DEEP_TRAJECTORY_BUDGET_MS"),
   300_000,
 );
-const runsPerSeed = parsePositiveInteger(process.env.AVAILABILITY_DEEP_RUNS_PER_SEED, 12_000);
-const seeds = parseSeeds(process.env.AVAILABILITY_DEEP_SEEDS, DEFAULT_SEEDS);
-const scenarioIds = parseList(process.env.AVAILABILITY_DEEP_SCENARIOS, DEFAULT_SCENARIO_IDS);
+const runsPerSeed = parsePositiveInteger(envValue("AVAILABILITY_DEEP_RUNS_PER_SEED"), 12_000);
+const seeds = parseSeeds(envValue("AVAILABILITY_DEEP_SEEDS"), DEFAULT_SEEDS);
+const scenarioIds = parseList(envValue("AVAILABILITY_DEEP_SCENARIOS"), DEFAULT_SCENARIO_IDS);
 const journeyPanelIds = parseList(
-  process.env.AVAILABILITY_DEEP_JOURNEY_PANELS,
+  envValue("AVAILABILITY_DEEP_JOURNEY_PANELS"),
   DEFAULT_JOURNEY_PANEL_IDS,
 );
 const requestedCandidateIds = parseList(
-  process.env.AVAILABILITY_DEEP_CANDIDATES,
+  envValue("AVAILABILITY_DEEP_CANDIDATES"),
   screenReport?.deepCandidateIds || ["tau0.01-h0.5-p3"],
 );
 
@@ -232,51 +145,17 @@ try {
   function collectTrajectorySummary(
     scenario: SolverScenario,
     candidate: AvailabilitySliderCandidate,
-  ): TrajectorySummaryResult {
-    const samples: Extract<TrajectoryEvaluation, { status: "completed" }>["samples"] = [];
-    const evaluations: Extract<TrajectorySummaryResult, { status: "completed" }>["evaluations"] =
-      [];
-    for (const seed of seeds) {
-      const result = trajectory.collectInteractiveTrajectories(scenario, {
-        modelId: candidate.id,
-        costModel: availability.availabilityCostModelFor(candidate),
-        toleranceOverride: candidate.tolerance,
-        runs: runsPerSeed,
-        seed,
-        timeBudgetMs: trajectoryBudgetMs,
-      });
-      if (result.status !== "completed") {
-        return {
-          status: result.status,
-          reason: result.reason,
-          scenario: scenario.id,
-          modelId: candidate.id,
-          seed,
-          runsCompleted: result.runsCompleted,
-          elapsedMs: result.elapsedMs,
-          solveCalls: result.solveCalls,
-          cachedPolicies: result.cachedPolicies,
-        };
-      }
-      evaluations.push({
-        seed,
-        runs: result.runs,
-        elapsedMs: result.elapsedMs,
-        solveCalls: result.solveCalls,
-        cachedPolicies: result.cachedPolicies,
-      });
-      samples.push(...result.samples);
-    }
-    return {
-      status: "completed",
-      scenario: scenario.id,
-      modelId: candidate.id,
+  ): DeepTrajectorySummary {
+    return collectDeepTrajectorySummary({
+      scenario,
+      candidate,
       seeds,
       runsPerSeed,
-      totalRuns: samples.length,
-      evaluations,
-      summary: metrics.summarizeTrajectories(samples),
-    };
+      trajectoryBudgetMs,
+      availability,
+      metrics,
+      trajectory,
+    });
   }
 
   const baselineCandidate = availability.BASELINE_AVAILABILITY_CANDIDATE;
@@ -286,11 +165,11 @@ try {
     exactBaselineByScenario.set(scenario.id, result);
   }
 
-  const exactResults: ExactSummary[] = [];
-  const finiteStockTail: TrajectorySummaryResult[] = [];
+  const exactResults: DeepExactSummary[] = [];
+  const finiteStockTail: DeepTrajectorySummary[] = [];
   const journeyDemand: Array<{
     candidateId: string;
-    panels: JourneyPanelSummary[];
+    panels: DeepJourneyPanelSummary[];
     maxPanelSupplyDebtCvar90: number | null;
   }> = [];
 
@@ -302,12 +181,7 @@ try {
       // exactLossVsA is computable, so skip the (potentially expensive) candidate exact run and
       // record it as baseline_incomplete instead of wasting the budget (correction #5).
       if (candidate.id !== baselineCandidate.id && baselineResult?.status !== "completed") {
-        exactResults.push({
-          status: "verification_incomplete",
-          reason: "baseline_incomplete",
-          scenario: scenario.id,
-          modelId: candidate.id,
-        });
+        exactResults.push(baselineIncompleteDeepExactSummary(scenario.id, candidate.id));
         finiteStockTail.push(collectTrajectorySummary(scenario, candidate));
         continue;
       }
@@ -315,35 +189,19 @@ try {
         candidate.id === baselineCandidate.id
           ? baselineResult
           : exact.evaluateExactInteractiveReplan(scenario, exactOptions(candidate));
-      exactResults.push(summarizeExact(exactResult, baselineResult));
+      exactResults.push(summarizeDeepExact(exactResult, baselineResult));
       finiteStockTail.push(collectTrajectorySummary(scenario, candidate));
     }
 
-    const panelResults: JourneyPanelSummary[] = [];
+    const panelResults: DeepJourneyPanelSummary[] = [];
     for (const panel of journeyPanels) {
       const panelSummary = collectTrajectorySummary(panel, candidate);
-      panelResults.push({
-        ...panelSummary,
-        supplyDebtStatus:
-          panelSummary.status === "completed" && panelSummary.summary.completionRate >= 0.995
-            ? "completed"
-            : "judgement_incomplete",
-      });
+      panelResults.push(withSupplyDebtStatus(panelSummary));
     }
-    const completedPanelDebtValues = panelResults
-      .filter(
-        (
-          panel,
-        ): panel is Extract<TrajectorySummaryResult, { status: "completed" }> & {
-          supplyDebtStatus: "completed";
-        } => panel.status === "completed" && panel.supplyDebtStatus === "completed",
-      )
-      .map((panel) => panel.summary.maxSupplyDebtDaysCvar90);
     journeyDemand.push({
       candidateId: candidate.id,
       panels: panelResults,
-      maxPanelSupplyDebtCvar90:
-        completedPanelDebtValues.length > 0 ? Math.max(...completedPanelDebtValues) : null,
+      maxPanelSupplyDebtCvar90: maxCompletedPanelSupplyDebt(panelResults),
     });
   }
 

@@ -7,6 +7,12 @@ type SuccessAttemptModalProps = {
   onAttemptChange: (attempt: number) => void;
   onSubmit: (successAttempt: number | null) => void;
 };
+type AttemptSelectorProps = {
+  attempt: number;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  maxAttempt: number;
+  onAttemptChange: (attempt: number) => void;
+};
 
 const classes = {
   overlay:
@@ -36,19 +42,44 @@ const classes = {
   unknownCaption: "text-[11px] font-medium leading-[1.2] text-muted",
 } as const;
 
-export default function SuccessAttemptModal({
-  modal,
-  onAttemptChange,
-  onSubmit,
-}: SuccessAttemptModalProps) {
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+function visibleFocusableElements(dialog: HTMLElement) {
+  return Array.from(
+    dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => element.offsetParent !== null);
+}
+
+function focusFallbackControl() {
+  document
+    .querySelector<HTMLElement>(
+      ".outcome-panel button:not([disabled]), .mobile-action-bar button:not([disabled]), #calculateButton:not([disabled]), button:not([disabled])",
+    )
+    ?.focus();
+}
+
+function restorePreviousFocus(previouslyFocused: HTMLElement | null) {
+  window.requestAnimationFrame(() => {
+    if (previouslyFocused?.isConnected) {
+      previouslyFocused.focus();
+      return;
+    }
+    focusFallbackControl();
+  });
+}
+
+function useDialogFocusTrap(
+  open: boolean,
+  dialogRef: React.RefObject<HTMLDivElement | null>,
+  inputRef: React.RefObject<HTMLInputElement | null>,
+  onDismiss: () => void,
+) {
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
-  const submitRef = useRef(onSubmit);
-  submitRef.current = onSubmit;
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
 
   useEffect(() => {
-    if (!modal.open) return;
+    if (!open) return;
     previouslyFocusedRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     inputRef.current?.focus();
@@ -56,21 +87,18 @@ export default function SuccessAttemptModal({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        submitRef.current(null);
+        dismissRef.current();
         return;
       }
       if (event.key !== "Tab" || !dialogRef.current) return;
-      const focusable = Array.from(
-        dialogRef.current.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-        ),
-      ).filter((element) => element.offsetParent !== null);
+      const focusable = visibleFocusableElements(dialogRef.current);
       if (!focusable.length) {
         event.preventDefault();
         return;
       }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -84,20 +112,79 @@ export default function SuccessAttemptModal({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       const previouslyFocused = previouslyFocusedRef.current;
-      window.requestAnimationFrame(() => {
-        if (previouslyFocused?.isConnected) {
-          previouslyFocused.focus();
-        } else {
-          document
-            .querySelector<HTMLElement>(
-              ".outcome-panel button:not([disabled]), .mobile-action-bar button:not([disabled]), #calculateButton:not([disabled]), button:not([disabled])",
-            )
-            ?.focus();
-        }
-      });
+      restorePreviousFocus(previouslyFocused);
       previouslyFocusedRef.current = null;
     };
-  }, [modal.open]);
+  }, [dialogRef, inputRef, open]);
+}
+
+function AttemptSelector({ attempt, inputRef, maxAttempt, onAttemptChange }: AttemptSelectorProps) {
+  return (
+    <div className={classes.inputRow}>
+      <button
+        className={`${classes.interactive} ${classes.stepButton}`}
+        type="button"
+        aria-label="회차 감소"
+        onClick={() => onAttemptChange(attempt - 1)}
+      >
+        -
+      </button>
+      <label className={classes.numberField}>
+        <input
+          ref={inputRef}
+          className={classes.numberInput}
+          type="number"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          min="1"
+          max={maxAttempt}
+          step="1"
+          value={attempt}
+          aria-label="대성공 발생 회차"
+          onChange={(event) => onAttemptChange(Number(event.target.value))}
+          onBlur={(event) => onAttemptChange(Number(event.target.value))}
+        />
+        <span className={classes.numberHint}>회 / {maxAttempt}회</span>
+      </label>
+      <button
+        className={`${classes.interactive} ${classes.stepButton}`}
+        type="button"
+        aria-label="회차 증가"
+        onClick={() => onAttemptChange(attempt + 1)}
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+function ModalActions({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div className={classes.actions}>
+      <button className={`${classes.interactive} ${classes.submitButton}`} type="submit">
+        기록
+      </button>
+      <button
+        className={`${classes.interactive} ${classes.unknownButton}`}
+        type="button"
+        onClick={onDismiss}
+      >
+        <strong className={classes.unknownTitle}>모르겠음</strong>
+        <small className={classes.unknownCaption}>통계 기록 제외</small>
+      </button>
+    </div>
+  );
+}
+
+export default function SuccessAttemptModal({
+  modal,
+  onAttemptChange,
+  onSubmit,
+}: SuccessAttemptModalProps) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const dismiss = () => onSubmit(null);
+  useDialogFocusTrap(modal.open, dialogRef, inputRef, dismiss);
 
   if (!modal.open) return null;
 
@@ -125,54 +212,13 @@ export default function SuccessAttemptModal({
             onSubmit(modal.attempt);
           }}
         >
-          <div className={classes.inputRow}>
-            <button
-              className={`${classes.interactive} ${classes.stepButton}`}
-              type="button"
-              aria-label="회차 감소"
-              onClick={() => onAttemptChange(modal.attempt - 1)}
-            >
-              -
-            </button>
-            <label className={classes.numberField}>
-              <input
-                ref={inputRef}
-                className={classes.numberInput}
-                type="number"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                min="1"
-                max={modal.maxAttempt}
-                step="1"
-                value={modal.attempt}
-                aria-label="대성공 발생 회차"
-                onChange={(event) => onAttemptChange(Number(event.target.value))}
-                onBlur={(event) => onAttemptChange(Number(event.target.value))}
-              />
-              <span className={classes.numberHint}>회 / {modal.maxAttempt}회</span>
-            </label>
-            <button
-              className={`${classes.interactive} ${classes.stepButton}`}
-              type="button"
-              aria-label="회차 증가"
-              onClick={() => onAttemptChange(modal.attempt + 1)}
-            >
-              +
-            </button>
-          </div>
-          <div className={classes.actions}>
-            <button className={`${classes.interactive} ${classes.submitButton}`} type="submit">
-              기록
-            </button>
-            <button
-              className={`${classes.interactive} ${classes.unknownButton}`}
-              type="button"
-              onClick={() => onSubmit(null)}
-            >
-              <strong className={classes.unknownTitle}>모르겠음</strong>
-              <small className={classes.unknownCaption}>통계 기록 제외</small>
-            </button>
-          </div>
+          <AttemptSelector
+            attempt={modal.attempt}
+            inputRef={inputRef}
+            maxAttempt={modal.maxAttempt}
+            onAttemptChange={onAttemptChange}
+          />
+          <ModalActions onDismiss={dismiss} />
         </form>
       </div>
     </div>

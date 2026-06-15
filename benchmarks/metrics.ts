@@ -1,8 +1,8 @@
-import { EXPECTED_28_DAY_GAIN, SUPPLY_AVAILABILITY_PARAMS } from "../src/solver";
+import { EXPECTED_28_DAY_GAIN, SUPPLY_AVAILABILITY_PARAMS } from "../src/solver/domain";
 import type { Kit, Stock } from "../src/types";
 import type { TrajectorySample } from "./evaluator/trajectory";
 
-const KITS: Kit[] = ["blue", "purple", "yellow"];
+const KITS = ["blue", "purple", "yellow"] as const satisfies readonly Kit[];
 
 export function availabilityPnormObjective(expectedConsumption: Stock, initialStock: Stock) {
   return KITS.reduce((sum, kit) => {
@@ -38,8 +38,11 @@ export function percentile(values: number[], fraction: number) {
   const index = (sorted.length - 1) * clamped;
   const lower = Math.floor(index);
   const upper = Math.ceil(index);
-  if (lower === upper) return sorted[lower];
-  return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+  const lowerValue = sorted[lower];
+  const upperValue = sorted[upper];
+  if (lowerValue === undefined || upperValue === undefined) return Number.NaN;
+  if (lower === upper) return lowerValue;
+  return lowerValue + (upperValue - lowerValue) * (index - lower);
 }
 
 export function cvarUpperTail(values: number[], alpha = 0.9) {

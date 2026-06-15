@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { solveWithResearchCostModel } from "../src/solver";
+import { solveWithResearchCostModel } from "../src/solver/solve";
 import { evaluateExactInteractiveReplan } from "./evaluator/exact-replan";
 import { shadowGradient, solveBoundedShadow, solveSingleUpdateShadow } from "./models/shadow-price";
 import { FIXED_SAFETY_GRID } from "./scenarios/fixed-grid";
@@ -32,8 +32,10 @@ describe("shadow-price research models", () => {
       fallback: null,
     });
     expect(audit.violationCount).toBe(0);
+    const finalPrices = diagnostics.finalPrices;
+    if (!finalPrices) throw new Error("Expected single-update final shadow prices.");
     const shadowCost = KITS.reduce(
-      (sum, kit) => sum + diagnostics.finalPrices[kit] * candidate.best.vector[kit],
+      (sum, kit) => sum + finalPrices[kit] * candidate.best.vector[kit],
       0,
     );
     expect(candidate.best.resourceCost).toBeCloseTo(shadowCost, 10);
@@ -63,6 +65,14 @@ describe("shadow-price research models", () => {
     const baseline = solveWithResearchCostModel(candidateInput, { kind: "availability-pnorm" });
     const candidate = solveSingleUpdateShadow(candidateInput);
     expect(candidate.stats?.researchShadow?.fallback).toBeNull();
+    if (
+      candidate.stats.researchShadow.candidateRootF === null ||
+      candidate.stats.researchShadow.candidateRootF === undefined ||
+      candidate.stats.researchShadow.baselineRootF === null ||
+      candidate.stats.researchShadow.baselineRootF === undefined
+    ) {
+      throw new Error("Expected single-update root objective diagnostics.");
+    }
     expect(candidate.stats.researchShadow.candidateRootF).toBeLessThanOrEqual(
       candidate.stats.researchShadow.baselineRootF,
     );
@@ -84,6 +94,14 @@ describe("shadow-price research models", () => {
       converged: true,
       fallback: "root_objective_worsened",
     });
+    if (
+      candidate.stats.researchShadow.candidateRootF === null ||
+      candidate.stats.researchShadow.candidateRootF === undefined ||
+      candidate.stats.researchShadow.baselineRootF === null ||
+      candidate.stats.researchShadow.baselineRootF === undefined
+    ) {
+      throw new Error("Expected fixed-point root objective diagnostics.");
+    }
     expect(candidate.stats.researchShadow.candidateRootF).toBeGreaterThan(
       candidate.stats.researchShadow.baselineRootF,
     );

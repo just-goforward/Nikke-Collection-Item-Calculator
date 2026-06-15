@@ -1,0 +1,56 @@
+import type { Dispatch, RefObject, SetStateAction } from "react";
+
+import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
+import type { CollectionState, SolverInput, Stock } from "../types";
+import type {
+  DetailView,
+  ResultView,
+  StateChangeFeedback,
+  SuccessAttemptModalState,
+  ValidationView,
+} from "../ui-types";
+import type {
+  PendingStatsEvent,
+  RecommendedRun,
+  SolverBest,
+  SolverResult,
+  TerminalSuccessContext,
+} from "./calculatorShared";
+
+export type OutcomeRenderArgs = {
+  best: SolverBest;
+  run: RecommendedRun;
+  nextState: CollectionState;
+  outcomeLabel: string;
+  stockMessage: string;
+  detailMessage: string;
+};
+
+export type OutcomeSharedOptions = {
+  currentStockSnapshot: () => Stock;
+  latestResultRef: RefObject<SolverResult | null>;
+  pendingStatsEventRef: RefObject<PendingStatsEvent | null>;
+  queueStatsEvent: (event: StatsSubmissionEvent) => void;
+  recordStateFeedback: (from: StateChangeFeedback["from"], to: StateChangeFeedback["to"]) => void;
+  setCollectionState: (
+    next: CollectionState,
+    options?: { maxLevelRender?: boolean; markChanged?: boolean },
+  ) => void;
+  setDetailView: Dispatch<SetStateAction<DetailView>>;
+  setManualStockEditRequired: (required: boolean) => void;
+  setModal: Dispatch<SetStateAction<SuccessAttemptModalState>>;
+  setResultView: Dispatch<SetStateAction<ResultView>>;
+  setStockCountForKit: (kit: SolverBest["firstAction"], value: number) => void;
+  setValidationView: Dispatch<SetStateAction<ValidationView>>;
+  terminalSuccessContextRef: RefObject<TerminalSuccessContext | null>;
+};
+
+export type OutcomeApplyResult =
+  | {
+      outcome: "fail";
+      nextInput: SolverInput;
+    }
+  | {
+      outcome: "success";
+    }
+  | null;

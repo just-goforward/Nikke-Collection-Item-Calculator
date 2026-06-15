@@ -6,7 +6,7 @@
 // is still in progress; partial data is reported as partial.
 
 import { readFile } from "node:fs/promises";
-import { isErrorWithCode } from "./runner-utils";
+import { envValue, isErrorWithCode } from "./runner-utils";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
 const DEEP_SLICE_FILE = new URL("availability-deep-slice.json", RESULTS_DIRECTORY);
@@ -14,9 +14,24 @@ const DEEP_SINGLE_FILE = new URL("availability-deep.json", RESULTS_DIRECTORY);
 const SIGNIFICANCE_FILE = new URL("availability-significance.json", RESULTS_DIRECTORY);
 const SELECTION_FILE = new URL("availability-selection.json", RESULTS_DIRECTORY);
 
-const BASELINE = process.env.BASELINE || "tau0.01-h0.5-p3";
-const DELTA_P = Number(process.env.DELTA_P || 0.005);
+const BASELINE = envValue("BASELINE") || "tau0.01-h0.5-p3";
+const DELTA_P = Number(envValue("DELTA_P") || 0.005);
 const EPS = 1e-9;
+const CONFIG_KEY = "config";
+const OPTIONS_KEY = "options";
+const PHASE_KEY = "phase";
+const GENERATED_AT_KEY = "generatedAt";
+const EXACT_RESULTS_KEY = "exactResults";
+const FINITE_STOCK_TAIL_KEY = "finiteStockTail";
+const JOURNEY_DEMAND_KEY = "journeyDemand";
+const NOTE_KEY = "note";
+const CANDIDATES_KEY = "candidates";
+const OUTCOME_KEY = "outcome";
+const MONOTONE_KEY = "monotone";
+const PRESERVATION_PROVISIONAL_KEY = "preservationProvisional";
+const PRESERVATION_ESCALATION_KEY = "preservationEscalationSuggested";
+const STAGES_KEY = "stages";
+const PARETO_FRONTIER_KEY = "paretoFrontier";
 
 type DeepExactEntry = {
   modelId: string;
@@ -110,17 +125,23 @@ function asObject(value: unknown): Record<string, unknown> | null {
 function readDeepReport(value: unknown): DeepReport {
   const object = asObject(value);
   if (!object) return {};
+  const config = asObject(object[CONFIG_KEY]) as DeepReport["config"] | null;
+  const options = asObject(object[OPTIONS_KEY]) as DeepReport["options"] | null;
   return {
-    phase: typeof object.phase === "string" ? object.phase : undefined,
-    generatedAt: typeof object.generatedAt === "string" ? object.generatedAt : undefined,
-    config: asObject(object.config) as DeepReport["config"],
-    options: asObject(object.options) as DeepReport["options"],
-    exactResults: Array.isArray(object.exactResults)
-      ? (object.exactResults as DeepExactEntry[])
+    ...(typeof object[PHASE_KEY] === "string" ? { phase: object[PHASE_KEY] } : {}),
+    ...(typeof object[GENERATED_AT_KEY] === "string"
+      ? { generatedAt: object[GENERATED_AT_KEY] }
+      : {}),
+    ...(config ? { config } : {}),
+    ...(options ? { options } : {}),
+    exactResults: Array.isArray(object[EXACT_RESULTS_KEY])
+      ? (object[EXACT_RESULTS_KEY] as DeepExactEntry[])
       : [],
-    finiteStockTail: Array.isArray(object.finiteStockTail) ? object.finiteStockTail : [],
-    journeyDemand: Array.isArray(object.journeyDemand)
-      ? (object.journeyDemand as DeepJourneyDemandEntry[])
+    finiteStockTail: Array.isArray(object[FINITE_STOCK_TAIL_KEY])
+      ? object[FINITE_STOCK_TAIL_KEY]
+      : [],
+    journeyDemand: Array.isArray(object[JOURNEY_DEMAND_KEY])
+      ? (object[JOURNEY_DEMAND_KEY] as DeepJourneyDemandEntry[])
       : [],
   };
 }
@@ -129,9 +150,9 @@ function readSignificanceReport(value: unknown): SignificanceReport {
   const object = asObject(value);
   if (!object) return {};
   return {
-    note: typeof object.note === "string" ? object.note : undefined,
-    candidates: Array.isArray(object.candidates)
-      ? (object.candidates as SignificanceCandidate[])
+    ...(typeof object[NOTE_KEY] === "string" ? { note: object[NOTE_KEY] } : {}),
+    candidates: Array.isArray(object[CANDIDATES_KEY])
+      ? (object[CANDIDATES_KEY] as SignificanceCandidate[])
       : [],
   };
 }
@@ -140,14 +161,18 @@ function readSelectionReport(value: unknown): SelectionReport {
   const object = asObject(value);
   if (!object) return {};
   return {
-    outcome: typeof object.outcome === "string" ? object.outcome : undefined,
-    monotone: typeof object.monotone === "boolean" ? object.monotone : undefined,
-    preservationProvisional: Boolean(object.preservationProvisional),
-    preservationEscalationSuggested: Boolean(object.preservationEscalationSuggested),
-    stages: Array.isArray(object.stages) ? (object.stages as SelectionStage[]) : [],
-    paretoFrontier: Array.isArray(object.paretoFrontier)
-      ? object.paretoFrontier.filter((id): id is string => typeof id === "string")
-      : undefined,
+    ...(typeof object[OUTCOME_KEY] === "string" ? { outcome: object[OUTCOME_KEY] } : {}),
+    ...(typeof object[MONOTONE_KEY] === "boolean" ? { monotone: object[MONOTONE_KEY] } : {}),
+    preservationProvisional: Boolean(object[PRESERVATION_PROVISIONAL_KEY]),
+    preservationEscalationSuggested: Boolean(object[PRESERVATION_ESCALATION_KEY]),
+    stages: Array.isArray(object[STAGES_KEY]) ? (object[STAGES_KEY] as SelectionStage[]) : [],
+    ...(Array.isArray(object[PARETO_FRONTIER_KEY])
+      ? {
+          paretoFrontier: object[PARETO_FRONTIER_KEY].filter(
+            (id): id is string => typeof id === "string",
+          ),
+        }
+      : {}),
   };
 }
 

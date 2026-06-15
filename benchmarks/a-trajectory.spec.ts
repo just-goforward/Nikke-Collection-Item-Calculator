@@ -53,7 +53,9 @@ describe("A interactive trajectory baseline", () => {
   });
 
   it("does not claim tail verification after an exhausted time budget", () => {
-    const result = collectInteractiveTrajectories(FIXED_SAFETY_GRID[0], {
+    const scenario = FIXED_SAFETY_GRID[0];
+    if (!scenario) throw new Error("Expected at least one fixed safety scenario.");
+    const result = collectInteractiveTrajectories(scenario, {
       runs: 10,
       timeBudgetMs: 0,
     });

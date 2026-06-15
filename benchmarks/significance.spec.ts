@@ -39,6 +39,7 @@ describe("supplyDebt significance usage", () => {
     const [decision] = holmBonferroniWorseningDecisions([
       { id: "cand", adversePValue: improveTest.adversePValue },
     ]);
+    if (!decision) throw new Error("Expected one Holm decision.");
     expect(decision.confirmedWorsening).toBe(true); // reinterpreted as confirmed improvement
   });
 
@@ -64,6 +65,7 @@ describe("supplyDebt significance usage", () => {
     const [decision] = holmBonferroniWorseningDecisions([
       { id: "cand", adversePValue: improveTest.adversePValue },
     ]);
+    if (!decision) throw new Error("Expected one Holm decision.");
     expect(decision.confirmedWorsening).toBe(false);
   });
 

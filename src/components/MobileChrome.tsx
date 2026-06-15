@@ -7,29 +7,6 @@ import { stateFeedbackAnimations } from "./stateFeedbackAnimations";
 
 export type MobileTab = "input" | "result" | "stats";
 
-type MobileStatusStripProps = {
-  feedback: StateChangeFeedback | null;
-  state: StatePanelModel;
-  stock: Stock;
-};
-
-type MobileTabsProps = {
-  active: MobileTab;
-  hasResult: boolean;
-  onChange: (tab: MobileTab) => void;
-};
-
-type MobileActionBarProps = {
-  view: ResultView;
-  loading: LoadingView;
-  calculateDisabled: boolean;
-  needsStockEdit: boolean;
-  onCalculate: () => void;
-  onReset: () => void;
-  onConvert: () => void;
-  onOutcome: (outcome: "success" | "fail") => void;
-};
-
 type StatusKit = {
   kit: Kit;
   className: string;
@@ -38,7 +15,7 @@ type StatusKit = {
 
 const MOBILE_ACTION_LABEL = "모바일 작업";
 
-const TABS: Array<{ id: MobileTab; label: string }> = [
+const MOBILE_TABS: Array<{ id: MobileTab; label: string }> = [
   { id: "input", label: "입력" },
   { id: "result", label: "결과" },
   { id: "stats", label: "통계" },
@@ -102,6 +79,47 @@ const classes = {
     "disabled:opacity-100 disabled:border-2 disabled:border-yellow-kit disabled:bg-warning-soft disabled:text-warning disabled:shadow-[0_0_0_3px_rgba(230,170,38,0.22)]",
 } as const;
 
+type MobileActionBarProps = {
+  view: ResultView;
+  loading: LoadingView;
+  calculateDisabled: boolean;
+  needsStockEdit: boolean;
+  onCalculate: () => void;
+  onReset: () => void;
+  onConvert: () => void;
+  onOutcome: (outcome: "success" | "fail") => void;
+};
+
+type MobileStatusStripProps = {
+  feedback: StateChangeFeedback | null;
+  state: StatePanelModel;
+  stock: Stock;
+};
+
+type MobileTabsProps = {
+  active: MobileTab;
+  hasResult: boolean;
+  onChange: (tab: MobileTab) => void;
+};
+
+function MobileToolbar({ children, mode }: { children: ReactNode; mode: string }) {
+  const modeClass = mode.includes("mode-outcome")
+    ? classes.actionBarOutcome
+    : mode.includes("mode-convert")
+      ? classes.actionBarConvert
+      : classes.actionBarCalculate;
+
+  return (
+    <div
+      className={`${classes.actionBar} ${modeClass} ${mode}`}
+      role="toolbar"
+      aria-label={MOBILE_ACTION_LABEL}
+    >
+      {children}
+    </div>
+  );
+}
+
 function calculateProgressPercent(state: StatePanelModel) {
   const required = state.expDisabled ? 0 : state.requiredExp;
   if (required <= 0) return 100;
@@ -124,87 +142,6 @@ function StatusStockList({ stock }: { stock: Stock }) {
         </li>
       ))}
     </ul>
-  );
-}
-
-function MobileToolbar({ children, mode }: { children: ReactNode; mode: string }) {
-  const modeClass = mode.includes("mode-outcome")
-    ? classes.actionBarOutcome
-    : mode.includes("mode-convert")
-      ? classes.actionBarConvert
-      : classes.actionBarCalculate;
-
-  return (
-    <div
-      className={`${classes.actionBar} ${modeClass} ${mode}`}
-      role="toolbar"
-      aria-label={MOBILE_ACTION_LABEL}
-    >
-      {children}
-    </div>
-  );
-}
-
-export function MobileStatusStrip({ feedback, state, stock }: MobileStatusStripProps) {
-  const progress = calculateProgressPercent(state);
-  const feedbackActive = feedback?.to.grade === state.grade && feedback.to.level === state.level;
-
-  return (
-    <div
-      className={`${classes.statusStrip} ${feedbackActive ? classes.statusStripFeedback : ""}`}
-      role="status"
-      aria-live="polite"
-    >
-      <div className={classes.statusState}>
-        <span
-          className={`${classes.statusGrade} grade-${state.grade.toLowerCase()} ${
-            feedbackActive && feedback.type === "grade" ? classes.statusGradeFeedback : ""
-          }`}
-        >
-          {state.grade}
-        </span>
-        <span
-          className={`${classes.statusLevel} ${feedbackActive ? classes.statusLevelFeedback : ""}`}
-        >
-          Lv {state.level}
-        </span>
-        <span className={classes.statusDivider} aria-hidden="true">
-          /
-        </span>
-        {feedbackActive ? (
-          <span className={classes.statusFeedbackBadge} key={feedback.id}>
-            {feedback.label}
-          </span>
-        ) : null}
-        <span className={classes.statusExpText}>{expSummaryText(state)}</span>
-      </div>
-      <div className={classes.statusExpBar} aria-hidden="true">
-        <div className={classes.statusExpFill} style={{ width: `${progress}%` }} />
-      </div>
-      <StatusStockList stock={stock} />
-    </div>
-  );
-}
-
-export function MobileTabs({ active, hasResult, onChange }: MobileTabsProps) {
-  return (
-    <div className={classes.tabs} role="tablist" aria-label="화면 전환">
-      {TABS.map((tab) => (
-        <button
-          className={active === tab.id ? `${classes.tab} ${classes.tabActive}` : classes.tab}
-          key={tab.id}
-          type="button"
-          role="tab"
-          aria-selected={active === tab.id}
-          onClick={() => onChange(tab.id)}
-        >
-          <span>{tab.label}</span>
-          {tab.id === "result" && hasResult ? (
-            <em className={classes.tabDot} aria-hidden="true" />
-          ) : null}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -274,7 +211,9 @@ export function MobileActionBar({
         초기화
       </button>
       <button
-        className={`${classes.actionButton} ${classes.primaryButton} ${needsStockEdit ? classes.stockEditDisabled : ""}`}
+        className={`${classes.actionButton} ${classes.primaryButton} ${
+          needsStockEdit ? classes.stockEditDisabled : ""
+        }`}
         type="button"
         disabled={calculateDisabled || loading.active}
         onClick={onCalculate}
@@ -282,5 +221,68 @@ export function MobileActionBar({
         {needsStockEdit ? "키트 수정 필요" : loading.active ? "계산 중" : "계산하기"}
       </button>
     </MobileToolbar>
+  );
+}
+
+export function MobileStatusStrip({ feedback, state, stock }: MobileStatusStripProps) {
+  const progress = calculateProgressPercent(state);
+  const feedbackActive = feedback?.to.grade === state.grade && feedback.to.level === state.level;
+
+  return (
+    <div
+      className={`${classes.statusStrip} ${feedbackActive ? classes.statusStripFeedback : ""}`}
+      role="status"
+      aria-live="polite"
+    >
+      <div className={classes.statusState}>
+        <span
+          className={`${classes.statusGrade} grade-${state.grade.toLowerCase()} ${
+            feedbackActive && feedback.type === "grade" ? classes.statusGradeFeedback : ""
+          }`}
+        >
+          {state.grade}
+        </span>
+        <span
+          className={`${classes.statusLevel} ${feedbackActive ? classes.statusLevelFeedback : ""}`}
+        >
+          Lv {state.level}
+        </span>
+        <span className={classes.statusDivider} aria-hidden="true">
+          /
+        </span>
+        {feedbackActive ? (
+          <span className={classes.statusFeedbackBadge} key={feedback.id}>
+            {feedback.label}
+          </span>
+        ) : null}
+        <span className={classes.statusExpText}>{expSummaryText(state)}</span>
+      </div>
+      <div className={classes.statusExpBar} aria-hidden="true">
+        <div className={classes.statusExpFill} style={{ width: `${progress}%` }} />
+      </div>
+      <StatusStockList stock={stock} />
+    </div>
+  );
+}
+
+export function MobileTabs({ active, hasResult, onChange }: MobileTabsProps) {
+  return (
+    <div className={classes.tabs} role="tablist" aria-label="화면 전환">
+      {MOBILE_TABS.map((tab) => (
+        <button
+          className={active === tab.id ? `${classes.tab} ${classes.tabActive}` : classes.tab}
+          key={tab.id}
+          type="button"
+          role="tab"
+          aria-selected={active === tab.id}
+          onClick={() => onChange(tab.id)}
+        >
+          <span>{tab.label}</span>
+          {tab.id === "result" && hasResult ? (
+            <em className={classes.tabDot} aria-hidden="true" />
+          ) : null}
+        </button>
+      ))}
+    </div>
   );
 }

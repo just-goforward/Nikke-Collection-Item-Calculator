@@ -1,8 +1,10 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { solveWithResearchCostModel } from "../solver";
-import { createRustPhase2Solver, type RustCoreExports, type RustPhase2Solver } from "./rustCore";
-import { solveRustMinEfProduct, solveRustPhase2 } from "./rustMinEfSolver";
+import { solveWithResearchCostModel } from "../solver/solve";
+import { createRustPhase2Solver } from "./rustCore";
+import { solveRustMinEfProduct } from "./rustMinEfSolver";
+import { solveRustPhase2 } from "./rustPhase2ProductSolver";
+import type { RustCoreExports, RustPhase2Solver } from "./rustTypes";
 
 const WASM_URL = new URL("../../public/solver_rs.wasm", import.meta.url);
 const HORIZON_FACTOR = 0.75;
@@ -249,6 +251,7 @@ describe("rust phase2 wasm parity", () => {
       expect(rust.topCandidates.length).toBe(js.topCandidates.length);
       for (const [index, rustCandidate] of rust.topCandidates.entries()) {
         const jsCandidate = js.topCandidates[index];
+        if (!jsCandidate) throw new Error(`Missing JS top candidate at index ${index}.`);
         expect(rustCandidate.firstAction).toBe(jsCandidate.firstAction);
         expect(rustCandidate.run?.count).toBe(jsCandidate.run?.count);
         closeTo(rustCandidate.successProbability, jsCandidate.successProbability);
@@ -302,6 +305,7 @@ describe("rust phase2 wasm parity", () => {
       for (let index = 1; index < minef.topCandidates.length; index += 1) {
         const previous = minef.topCandidates[index - 1];
         const current = minef.topCandidates[index];
+        if (!previous || !current) throw new Error(`Missing min-E[f] top candidate at ${index}.`);
         if (previous.probabilityGap <= 1e-9 && current.probabilityGap <= 1e-9) {
           expect(current.resourceCost).toBeGreaterThanOrEqual(previous.resourceCost - 1e-12);
         }

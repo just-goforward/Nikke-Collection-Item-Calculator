@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
 import type { AvailabilityScreenResult } from "./evaluator/availability-screen";
 import type { AvailabilitySliderCandidate } from "./models/availability-grid";
-import { csvEscape, parseBoolean, parseList, parsePositiveInteger } from "./runner-utils";
+import { csvEscape, envValue, parseBoolean, parseList, parsePositiveInteger } from "./runner-utils";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
 const JSON_OUTPUT_FILE = new URL("./results/availability-screen.json", import.meta.url);
@@ -25,16 +25,16 @@ type CandidateSummary = AvailabilitySliderCandidate & {
   lowTopResourceGapCount: number;
 };
 
-const topK = parsePositiveInteger(process.env.AVAILABILITY_SCREEN_TOP_K, 20);
+const topK = parsePositiveInteger(envValue("AVAILABILITY_SCREEN_TOP_K"), 20);
 const scenarioLimit = parsePositiveInteger(
-  process.env.AVAILABILITY_SCREEN_LIMIT,
+  envValue("AVAILABILITY_SCREEN_LIMIT"),
   Number.POSITIVE_INFINITY,
 );
 const includePreservationProbes = parseBoolean(
-  process.env.AVAILABILITY_SCREEN_INCLUDE_PRESERVATION,
+  envValue("AVAILABILITY_SCREEN_INCLUDE_PRESERVATION"),
 );
-const includeSensitivityProbes = parseBoolean(process.env.AVAILABILITY_SCREEN_INCLUDE_SENSITIVITY);
-const requestedScenarios = new Set(parseList(process.env.AVAILABILITY_SCREEN_SCENARIOS, []));
+const includeSensitivityProbes = parseBoolean(envValue("AVAILABILITY_SCREEN_INCLUDE_SENSITIVITY"));
+const requestedScenarios = new Set(parseList(envValue("AVAILABILITY_SCREEN_SCENARIOS"), []));
 
 await mkdir(RESULTS_DIRECTORY, { recursive: true });
 

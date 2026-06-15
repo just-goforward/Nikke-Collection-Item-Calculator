@@ -14,8 +14,26 @@ type RootRecommendation = {
   probabilityGap: number | null;
   resourceCost: number | null;
 };
-type SolverLike = Partial<ReturnType<typeof solveAvailabilityCandidate>> & {
+type ScreenableSolverResult = {
   possible?: boolean;
+  best?: {
+    firstAction?: Kit | null;
+    run?: { count?: number };
+    successProbability?: number;
+    probabilityGap?: number | null;
+    resourceCost?: number;
+  };
+  topCandidates?: Array<{
+    successProbability?: number;
+    resourceCost?: number;
+  }>;
+  stats?: {
+    gateAudit?: {
+      eligibleEmptyCount?: number;
+      maxGap?: number;
+      fixedToleranceViolationCount?: number;
+    };
+  };
 };
 
 export type AvailabilityScreenResult = {
@@ -35,7 +53,7 @@ export type AvailabilityScreenResult = {
   errorMessage?: string;
 };
 
-function rootRecommendation(result: SolverLike): RootRecommendation {
+function rootRecommendation(result: ScreenableSolverResult): RootRecommendation {
   if (!result.possible || !result.best) {
     return {
       possible: false,
@@ -56,10 +74,13 @@ function rootRecommendation(result: SolverLike): RootRecommendation {
   };
 }
 
-function topGap(result: SolverLike, field: "successProbability" | "resourceCost") {
+function topGap(result: ScreenableSolverResult, field: "successProbability" | "resourceCost") {
   const candidates = Array.isArray(result.topCandidates) ? result.topCandidates : [];
   if (candidates.length < 2) return null;
-  return Math.abs(Number(candidates[0][field]) - Number(candidates[1][field]));
+  const first = candidates[0];
+  const second = candidates[1];
+  if (!first || !second) return null;
+  return Math.abs(Number(first[field]) - Number(second[field]));
 }
 
 function promoteScore(result: AvailabilityScreenResult) {

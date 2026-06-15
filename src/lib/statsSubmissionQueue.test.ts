@@ -56,7 +56,8 @@ describe("StatsSubmissionQueue", () => {
     expect(submitted).toHaveLength(2);
     expect(submitted[0]).toBe(item);
     expect(submitted[1]).toBe(item);
-    expect(submitted[1].eventId).toBe("retry-event-id-0001");
+    const retrySubmission = submitted[1];
+    expect(retrySubmission?.eventId).toBe("retry-event-id-0001");
   });
 
   it("does not retry non-retryable failures or a second failure", async () => {

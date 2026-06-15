@@ -2,8 +2,8 @@ import {
   EXPECTED_28_DAY_GAIN,
   type ResearchCostModel,
   SUPPLY_AVAILABILITY_PARAMS,
-  solveWithResearchCostModel,
-} from "../../src/solver";
+} from "../../src/solver/domain";
+import { solveWithResearchCostModel } from "../../src/solver/solve";
 import type { Kit, SolverInput, Stock } from "../../src/types";
 import { availabilityPnormObjective } from "../metrics";
 

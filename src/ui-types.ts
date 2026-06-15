@@ -55,7 +55,6 @@ export type CandidateView = {
   kit: Kit;
   count: number;
   successProbability: string;
-  greatSuccessProbability: string;
   expectedKits?: string;
   expectedBreakdown?: string;
   excludedReason?: string | null;
@@ -117,12 +116,12 @@ export type SuccessAttemptModalState = {
 };
 
 export type KitStat = {
-  kit?: Kit;
-  events?: number;
-  attempts?: number;
-  greatSuccesses?: number;
-  greatSuccessRate?: number;
-  theoreticalGreatSuccessRate?: number;
+  kit?: Kit | undefined;
+  events?: number | undefined;
+  attempts?: number | undefined;
+  greatSuccesses?: number | undefined;
+  greatSuccessRate?: number | undefined;
+  theoreticalGreatSuccessRate?: number | undefined;
 };
 
 export type SegmentStat = {
@@ -131,9 +130,9 @@ export type SegmentStat = {
   events?: number;
   attempts?: number;
   greatSuccesses?: number;
-  greatSuccessRate?: number;
-  theoreticalGreatSuccessRate?: number;
-  theoreticalRate?: number;
+  greatSuccessRate?: number | undefined;
+  theoreticalGreatSuccessRate?: number | undefined;
+  theoreticalRate?: number | undefined;
 };
 
 export type LevelKitStat = {
@@ -143,32 +142,34 @@ export type LevelKitStat = {
 };
 
 export type GlobalStats = {
-  windowDays?: number;
+  windowDays?: number | undefined;
   summary?: {
-    events?: number;
-    attempts?: number;
-    greatSuccesses?: number;
-    greatSuccessRate?: number;
-    todayEvents?: number;
-    todayAttempts?: number;
-    todayGreatSuccesses?: number;
-    mostUsedKit?: Kit | null;
-    mostUsedKitPieces?: number;
+    events?: number | undefined;
+    attempts?: number | undefined;
+    greatSuccesses?: number | undefined;
+    greatSuccessRate?: number | undefined;
+    todayEvents?: number | undefined;
+    todayAttempts?: number | undefined;
+    todayGreatSuccesses?: number | undefined;
+    mostUsedKit?: Kit | null | undefined;
+    mostUsedKitPieces?: number | undefined;
   };
-  byKit?: KitStat[];
-  cumulative?: {
-    summary?: {
-      events?: number;
-      attempts?: number;
-      greatSuccesses?: number;
-      greatSuccessRate?: number;
-      mostUsedKit?: Kit | null;
-      mostUsedKitPieces?: number;
-    };
-    byKit?: KitStat[];
-  };
-  levelKitStats?: LevelKitStat[];
-  segmentStats?: SegmentStat[];
+  byKit?: KitStat[] | undefined;
+  cumulative?:
+    | {
+        summary?: {
+          events?: number | undefined;
+          attempts?: number | undefined;
+          greatSuccesses?: number | undefined;
+          greatSuccessRate?: number | undefined;
+          mostUsedKit?: Kit | null | undefined;
+          mostUsedKitPieces?: number | undefined;
+        };
+        byKit?: KitStat[] | undefined;
+      }
+    | undefined;
+  levelKitStats?: LevelKitStat[] | undefined;
+  segmentStats?: SegmentStat[] | undefined;
 };
 
 export type StatsView =
