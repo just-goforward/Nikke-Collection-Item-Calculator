@@ -65,7 +65,7 @@ const classes = {
   tablePercent:
     "inline-flex items-baseline justify-start whitespace-nowrap text-[13px] tabular-nums tracking-normal",
   tablePercentInteger: "text-left",
-  tablePercentDecimal: "text-left text-muted",
+  tablePercentDecimal: "text-left",
   tablePercentSymbol: "ml-[1px] text-left",
   tableMuted: "block text-[11px] font-medium text-muted",
   validationDetails: "validation-details rounded-card border border-border bg-surface-raised",
