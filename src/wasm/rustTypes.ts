@@ -12,7 +12,12 @@ export type RustMinEfRoot = {
   maxSuccessProbability: number;
   vector: Record<Kit, number>;
   expectedCost: number;
-  states?: number;
+  states: number;
+};
+
+export type RustMinEfRootResult = {
+  root: RustMinEfRoot;
+  candidates: RustPhase2Candidate[];
 };
 
 export type RustPhase2Root = {
@@ -97,6 +102,13 @@ export type RustMonteCarloResult = {
 };
 
 export type RustMinEfSolver = {
+  solveRootWithCandidates: (
+    start: State,
+    stock: Stock,
+    horizonFactor?: number,
+    normPower?: number,
+    tolerance?: number,
+  ) => RustMinEfRootResult;
   solveRoot: (
     start: State,
     stock: Stock,

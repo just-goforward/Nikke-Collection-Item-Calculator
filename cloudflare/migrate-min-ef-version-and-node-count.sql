@@ -1,0 +1,132 @@
+CREATE TABLE IF NOT EXISTS solver_node_count_aggregates (
+  date_key TEXT NOT NULL,
+  diagnostic_version INTEGER NOT NULL,
+  solver_version TEXT NOT NULL,
+  solver_phase TEXT NOT NULL,
+  node_count_bucket TEXT NOT NULL,
+  events INTEGER NOT NULL DEFAULT 0,
+  last_seen INTEGER NOT NULL,
+  PRIMARY KEY (
+    date_key,
+    diagnostic_version,
+    solver_version,
+    solver_phase,
+    node_count_bucket
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_solver_node_count_aggregates_date
+  ON solver_node_count_aggregates (date_key);
+
+INSERT INTO solver_diagnostic_aggregates (
+  date_key,
+  diagnostic_version,
+  solver_version,
+  solver_phase,
+  grade,
+  level,
+  exp_bucket,
+  strategy,
+  stock_bucket_blue,
+  stock_bucket_purple,
+  stock_bucket_yellow,
+  recommended_kit,
+  recommended_uses_bucket,
+  candidate_count_bucket,
+  probability_gap_bucket,
+  resource_cost_bucket,
+  legacy_supply_cost_bucket,
+  total_expected_cost_bucket,
+  blue_share_bucket,
+  min_autonomy_days_bucket,
+  changed_from_single,
+  changed_from_legacy_supply,
+  legacy_private_stats_available,
+  legacy_event_aggregate_matchable,
+  events,
+  last_seen
+)
+SELECT
+  date_key,
+  diagnostic_version,
+  'phase3_rust_min_ef',
+  solver_phase,
+  grade,
+  level,
+  exp_bucket,
+  strategy,
+  stock_bucket_blue,
+  stock_bucket_purple,
+  stock_bucket_yellow,
+  recommended_kit,
+  recommended_uses_bucket,
+  candidate_count_bucket,
+  probability_gap_bucket,
+  resource_cost_bucket,
+  legacy_supply_cost_bucket,
+  total_expected_cost_bucket,
+  blue_share_bucket,
+  min_autonomy_days_bucket,
+  changed_from_single,
+  changed_from_legacy_supply,
+  legacy_private_stats_available,
+  legacy_event_aggregate_matchable,
+  SUM(events),
+  MAX(last_seen)
+FROM solver_diagnostic_aggregates
+WHERE solver_version = 'phase3_rust_min_ef_staging'
+GROUP BY
+  date_key,
+  diagnostic_version,
+  solver_phase,
+  grade,
+  level,
+  exp_bucket,
+  strategy,
+  stock_bucket_blue,
+  stock_bucket_purple,
+  stock_bucket_yellow,
+  recommended_kit,
+  recommended_uses_bucket,
+  candidate_count_bucket,
+  probability_gap_bucket,
+  resource_cost_bucket,
+  legacy_supply_cost_bucket,
+  total_expected_cost_bucket,
+  blue_share_bucket,
+  min_autonomy_days_bucket,
+  changed_from_single,
+  changed_from_legacy_supply,
+  legacy_private_stats_available,
+  legacy_event_aggregate_matchable
+ON CONFLICT(
+  date_key,
+  diagnostic_version,
+  solver_version,
+  solver_phase,
+  grade,
+  level,
+  exp_bucket,
+  strategy,
+  stock_bucket_blue,
+  stock_bucket_purple,
+  stock_bucket_yellow,
+  recommended_kit,
+  recommended_uses_bucket,
+  candidate_count_bucket,
+  probability_gap_bucket,
+  resource_cost_bucket,
+  legacy_supply_cost_bucket,
+  total_expected_cost_bucket,
+  blue_share_bucket,
+  min_autonomy_days_bucket,
+  changed_from_single,
+  changed_from_legacy_supply,
+  legacy_private_stats_available,
+  legacy_event_aggregate_matchable
+) DO UPDATE SET
+  events = events + excluded.events,
+  last_seen = max(solver_diagnostic_aggregates.last_seen, excluded.last_seen);
+
+DELETE FROM solver_diagnostic_aggregates
+WHERE solver_version = 'phase3_rust_min_ef_staging';

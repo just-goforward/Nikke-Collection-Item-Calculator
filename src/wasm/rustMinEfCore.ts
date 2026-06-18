@@ -1,6 +1,6 @@
 import { actionFromIndex, encodeState, readMinEfRootCandidates } from "./rustCoreShared";
 import { assertRustStatusOk } from "./rustStatus";
-import type { RustCoreExports, RustMinEfSolver, State, Stock } from "./rustTypes";
+import type { RustCoreExports, RustMinEfRoot, RustMinEfSolver, State, Stock } from "./rustTypes";
 
 const RUST_MIN_EF_NODE_BUDGET = 2_000_000;
 
@@ -9,10 +9,13 @@ export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver
   exports.configureNodeBudget?.(RUST_MIN_EF_NODE_BUDGET);
   return {
     actionAt: (state, stockUses) => lookupMinEfAction(exports, state, stockUses),
+    solveRootWithCandidates: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
+      solveMinEfRootWithCandidates(exports, start, stock, horizonFactor, normPower, tolerance),
     rootCandidates: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
-      solveMinEfCandidates(exports, start, stock, horizonFactor, normPower, tolerance),
+      solveMinEfRootWithCandidates(exports, start, stock, horizonFactor, normPower, tolerance)
+        .candidates,
     solveRoot: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
-      solveMinEfRoot(exports, start, stock, horizonFactor, normPower, tolerance),
+      solveMinEfRootWithCandidates(exports, start, stock, horizonFactor, normPower, tolerance).root,
   };
 }
 
@@ -36,7 +39,7 @@ function runMinEf(
   );
 }
 
-function solveMinEfRoot(
+function solveMinEfRootWithCandidates(
   exports: RustCoreExports,
   start: State,
   stock: Stock,
@@ -47,29 +50,24 @@ function solveMinEfRoot(
   runMinEf(exports, start, stock, horizonFactor, normPower, tolerance);
   assertRustStatusOk(exports, "root solve");
   return {
+    root: readMinEfRoot(exports),
+    candidates: readMinEfRootCandidates(exports, tolerance),
+  };
+}
+
+function readMinEfRoot(exports: RustCoreExports): RustMinEfRoot {
+  return {
     expectedCost: exports.minEfExpectedCost(),
     firstAction: actionFromIndex(exports.minEfAction()),
     maxSuccessProbability: exports.minEfMaxSuccessProb(),
     successProbability: exports.minEfSuccessProb(),
+    states: exports.minEfNodeCount?.() ?? 0,
     vector: {
       blue: exports.minEfVecB(),
       purple: exports.minEfVecP(),
       yellow: exports.minEfVecY(),
     },
   };
-}
-
-function solveMinEfCandidates(
-  exports: RustCoreExports,
-  start: State,
-  stock: Stock,
-  horizonFactor: number,
-  normPower: number,
-  tolerance: number,
-) {
-  runMinEf(exports, start, stock, horizonFactor, normPower, tolerance);
-  assertRustStatusOk(exports, "min-ef root candidates");
-  return readMinEfRootCandidates(exports, tolerance);
 }
 
 function lookupMinEfAction(exports: RustCoreExports, state: State, stockUses: Stock) {

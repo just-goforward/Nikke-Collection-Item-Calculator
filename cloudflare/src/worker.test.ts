@@ -6,6 +6,10 @@ const harness = new WorkerTestHarness();
 const testEnv = harness.env;
 const submit = (payload: object) => harness.submit(payload);
 const fetchStats = (origin: string | null = "https://test.example") => harness.fetchStats(origin);
+const fetchAdminSolverDiagnostics = (
+  token: string | null = "test-admin-token",
+  origin: string | null = "https://test.example",
+) => harness.fetchAdminSolverDiagnostics(token, origin);
 const preflight = (origin: string) => harness.preflight(origin);
 const countRows = (table: string) => harness.countRows(table);
 const mockSiteverify = (...outcomes: Parameters<WorkerTestHarness["mockSiteverify"]>) =>
@@ -153,6 +157,7 @@ describe("solver_diagnostic event commit", () => {
     expect(await response.json()).toEqual({ ok: true });
     await expect(countRows("event_ids")).resolves.toBe(1);
     await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(1);
+    await expect(countRows("solver_node_count_aggregates")).resolves.toBe(1);
   });
 
   it("accepts diagnostic v2 with 50-piece stock buckets", async () => {
@@ -199,6 +204,7 @@ describe("solver_diagnostic event commit", () => {
       .first<{ events: number }>();
     expect(aggregate).toMatchObject({ events: 1 });
     await expect(countRows("event_ids")).resolves.toBe(1);
+    await expect(countRows("solver_node_count_aggregates")).resolves.toBe(1);
   });
 
   it("rolls back the event id when a diagnostic write fails and accepts a retry", async () => {
@@ -213,6 +219,7 @@ describe("solver_diagnostic event commit", () => {
     expect(await failed.json()).toEqual({ error: "storage_unavailable", retryable: true });
     await expect(countRows("event_ids")).resolves.toBe(0);
     await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(0);
+    await expect(countRows("solver_node_count_aggregates")).resolves.toBe(0);
     await harness.database.exec("DROP TRIGGER fail_solver_diagnostic;");
 
     const retried = await submit(payload);
@@ -220,6 +227,115 @@ describe("solver_diagnostic event commit", () => {
     expect(await retried.json()).toEqual({ ok: true });
     await expect(countRows("event_ids")).resolves.toBe(1);
     await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(1);
+    await expect(countRows("solver_node_count_aggregates")).resolves.toBe(1);
+  });
+});
+
+describe("admin solver diagnostics", () => {
+  it("fails closed when the admin token is not configured", async () => {
+    delete testEnv.ADMIN_TOKEN;
+
+    const response = await fetchAdminSolverDiagnostics();
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_found" });
+  });
+
+  it("rejects missing, wrong, and disallowed-origin admin requests", async () => {
+    const missing = await fetchAdminSolverDiagnostics(null);
+    const wrong = await fetchAdminSolverDiagnostics("wrong-token");
+    const disallowedOrigin = await fetchAdminSolverDiagnostics(
+      "test-admin-token",
+      "https://not-allowed.example",
+    );
+
+    expect(missing.status).toBe(403);
+    expect(await missing.json()).toEqual({ error: "admin_forbidden" });
+    expect(wrong.status).toBe(403);
+    expect(await wrong.json()).toEqual({ error: "admin_forbidden" });
+    expect(disallowedOrigin.status).toBe(403);
+    expect(await disallowedOrigin.json()).toEqual({ error: "origin_not_allowed" });
+  });
+
+  it("returns private solver diagnostic aggregates by solver version and phase", async () => {
+    const phase1 = solverDiagnosticEvent("solver-admin-phase1-01");
+    const minEf1 = solverDiagnosticEvent("solver-admin-minef-001");
+    const minEf2 = solverDiagnosticEvent("solver-admin-minef-002");
+    minEf1.event.solverVersion = "phase3_rust_min_ef";
+    minEf1.event.solverPhase = "phase3";
+    minEf2.event.solverVersion = "phase3_rust_min_ef";
+    minEf2.event.solverPhase = "phase3";
+
+    expect((await submit(phase1)).status).toBe(200);
+    expect((await submit(minEf1)).status).toBe(200);
+    expect((await submit(minEf2)).status).toBe(200);
+
+    const response = await fetchAdminSolverDiagnostics();
+    const body = (await response.json()) as {
+      windowDays?: number;
+      since?: string;
+      allTime?: Array<{
+        solverVersion: string;
+        solverPhase: string;
+        events: number;
+        firstDate: string | null;
+        lastDate: string | null;
+      }>;
+      window?: Array<{ solverVersion: string; solverPhase: string; events: number }>;
+      daily?: Array<{ date: string; solverVersion: string; solverPhase: string; events: number }>;
+      nodeCounts?: Array<{
+        solverVersion: string;
+        solverPhase: string;
+        nodeCountBucket: string;
+        events: number;
+      }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.windowDays).toBe(30);
+    expect(body.since).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(body.allTime).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          solverVersion: "phase3_rust_min_ef",
+          solverPhase: "phase3",
+          events: 2,
+        }),
+        expect.objectContaining({
+          solverVersion: "phase1",
+          solverPhase: "phase1",
+          events: 1,
+        }),
+      ]),
+    );
+    expect(body.window).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          solverVersion: "phase3_rust_min_ef",
+          solverPhase: "phase3",
+          events: 2,
+        }),
+      ]),
+    );
+    expect(body.daily).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          solverVersion: "phase3_rust_min_ef",
+          solverPhase: "phase3",
+          events: 2,
+        }),
+      ]),
+    );
+    expect(body.nodeCounts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          solverVersion: "phase3_rust_min_ef",
+          solverPhase: "phase3",
+          nodeCountBucket: "1000_9999",
+          events: 2,
+        }),
+      ]),
+    );
   });
 });
 

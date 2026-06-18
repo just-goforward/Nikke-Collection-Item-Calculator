@@ -1,5 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 
+import { handleAdminSolverDiagnostics } from "./admin-solver-diagnostics";
 import type { WorkerEnv } from "./env";
 import { handleEvent } from "./event-submission";
 import { handleOptions, jsonResponse } from "./http";
@@ -11,6 +12,8 @@ const worker: ExportedHandler<WorkerEnv> = {
     try {
       const url = new URL(request.url);
       if (request.method === "OPTIONS") return handleOptions(request, env);
+      if (url.pathname === "/api/admin/solver-diagnostics" && request.method === "GET")
+        return await handleAdminSolverDiagnostics(request, env);
       if (url.pathname === "/api/stats" && request.method === "GET")
         return await handleStats(request, env);
       if (url.pathname === "/api/events" && request.method === "POST")

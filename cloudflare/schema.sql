@@ -133,3 +133,23 @@ CREATE INDEX IF NOT EXISTS idx_solver_diagnostic_aggregates_strategy
   ON solver_diagnostic_aggregates (strategy);
 CREATE INDEX IF NOT EXISTS idx_solver_diagnostic_aggregates_grade_level
   ON solver_diagnostic_aggregates (grade, level);
+
+CREATE TABLE IF NOT EXISTS solver_node_count_aggregates (
+  date_key TEXT NOT NULL,
+  diagnostic_version INTEGER NOT NULL,
+  solver_version TEXT NOT NULL,
+  solver_phase TEXT NOT NULL,
+  node_count_bucket TEXT NOT NULL,
+  events INTEGER NOT NULL DEFAULT 0,
+  last_seen INTEGER NOT NULL,
+  PRIMARY KEY (
+    date_key,
+    diagnostic_version,
+    solver_version,
+    solver_phase,
+    node_count_bucket
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_solver_node_count_aggregates_date
+  ON solver_node_count_aggregates (date_key);

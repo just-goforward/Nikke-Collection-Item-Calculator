@@ -73,6 +73,7 @@ export type RustCoreExports = {
   minEfVecP: () => number;
   minEfVecY: () => number;
   minEfExpectedCost: () => number;
+  minEfNodeCount?: () => number;
   minEfRootCandidateValid?: (action: number) => number;
   minEfRootCandidateMaxSuccessProb?: () => number;
   minEfRootCandidateSuccessProb?: (action: number) => number;

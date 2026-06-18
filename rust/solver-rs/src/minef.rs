@@ -357,6 +357,10 @@ pub extern "C" fn minEfExpectedCost() -> f64 {
     unsafe { MN_EF }
 }
 #[no_mangle]
+pub extern "C" fn minEfNodeCount() -> i32 {
+    unsafe { ME_COUNT as i32 }
+}
+#[no_mangle]
 pub extern "C" fn minEfRootCandidateValid(action: i32) -> i32 {
     if !(0..=2).contains(&action) {
         return 0;

@@ -37,14 +37,7 @@ export async function solveRustMinEfProduct(
   if (earlyResult) return earlyResult;
   try {
     const solver = await getRustMinEfSolver(wasmUrl);
-    const root = solver.solveRoot(
-      normalizedInput.start,
-      normalizedInput.stock,
-      RUST_PRODUCT_HORIZON_FACTOR,
-      RUST_PRODUCT_NORM_POWER,
-      RUST_PRODUCT_TOLERANCE,
-    );
-    const candidates = solver.rootCandidates(
+    const { root, candidates } = solver.solveRootWithCandidates(
       normalizedInput.start,
       normalizedInput.stock,
       RUST_PRODUCT_HORIZON_FACTOR,
@@ -86,7 +79,7 @@ export async function solveRustMinEfProduct(
       solverVersion: RUST_MIN_EF_SOLVER_VERSION,
       solverPhase: "phase3",
       resourceCost: root.expectedCost,
-      states: 0,
+      states: root.states,
       candidateCount: topCandidates.length,
       run,
       route,
@@ -97,6 +90,7 @@ export async function solveRustMinEfProduct(
           horizonFactor: RUST_PRODUCT_HORIZON_FACTOR,
           normPower: RUST_PRODUCT_NORM_POWER,
           expectedCost: root.expectedCost,
+          nodeCount: root.states,
         },
       },
     });

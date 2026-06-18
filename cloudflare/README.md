@@ -68,7 +68,13 @@ Set a random rate-limit secret:
 wrangler secret put RATE_LIMIT_SECRET
 ```
 
-Both Worker secrets are required in every deployed environment. If `RATE_LIMIT_SECRET` is
+Set a private admin token for non-public diagnostic reads:
+
+```powershell
+wrangler secret put ADMIN_TOKEN
+```
+
+All three Worker secrets are required in every deployed environment. If `RATE_LIMIT_SECRET` is
 missing, `/api/events` returns `rate_limit_not_configured` without retrying or storing data.
 
 7. Set `ALLOWED_ORIGINS` in `wrangler.toml`.
@@ -130,6 +136,13 @@ Stores one validated result event.
 
 Returns 30-day aggregate statistics for display on the site. This public response is cacheable for 60 seconds.
 
+`GET /api/admin/solver-diagnostics`
+
+Returns private solver diagnostic aggregates grouped by `solverVersion` and `solverPhase`.
+This endpoint is not used by the public site and requires an `Authorization: Bearer <ADMIN_TOKEN>`
+header. Optional query parameter: `days=30` (1-365). The response also includes recent
+`nodeCounts` buckets for observing Rust min-E[f] state-space pressure and fallback risk.
+
 Worker/D1 write-path tests use an isolated local Miniflare D1 database:
 
 ```powershell
@@ -140,6 +153,12 @@ For an existing D1 database, re-apply the schema after schema changes:
 
 ```powershell
 wrangler d1 execute collection-kit-stats --remote --file cloudflare/schema.sql --config cloudflare/wrangler.toml
+```
+
+For the Rust min-E[f] version-name migration and node-count aggregate table:
+
+```powershell
+wrangler d1 execute collection-kit-stats --remote --file cloudflare/migrate-min-ef-version-and-node-count.sql --config cloudflare/wrangler.toml
 ```
 
 Referrer/source-host aggregates are intentionally not returned by this public endpoint. Check them privately through D1, for example:
@@ -160,6 +179,12 @@ The `strategy` column is retained as a fixed compatibility field for the current
 
 ```powershell
 wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, solver_version, solver_phase, grade, level, strategy, probability_gap_bucket, resource_cost_bucket, legacy_supply_cost_bucket, blue_share_bucket, min_autonomy_days_bucket, events FROM solver_diagnostic_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
+```
+
+Or query the protected admin endpoint:
+
+```powershell
+Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:ADMIN_TOKEN" } "https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev/api/admin/solver-diagnostics?days=30"
 ```
 
 To delete private aggregate rows for a specific KST date:
@@ -221,6 +246,7 @@ Set staging-only secrets and deploy the staging Worker:
 ```powershell
 & "C:\Program Files\nodejs\npx.cmd" wrangler secret put TURNSTILE_SECRET_KEY --env staging --config cloudflare/wrangler.toml
 & "C:\Program Files\nodejs\npx.cmd" wrangler secret put RATE_LIMIT_SECRET --env staging --config cloudflare/wrangler.toml
+& "C:\Program Files\nodejs\npx.cmd" wrangler secret put ADMIN_TOKEN --env staging --config cloudflare/wrangler.toml
 & "C:\Program Files\nodejs\npx.cmd" wrangler deploy --env staging --config cloudflare/wrangler.toml
 ```
 

@@ -52,6 +52,7 @@ describe("rust min-E[f] core wrapper", () => {
       maxSuccessProbability: 0.95,
       vector: { blue: 10, purple: 20, yellow: 30 },
       expectedCost: 0.123,
+      states: 4321,
     });
     expect(
       solver.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 1, yellow: 1 }),
@@ -59,13 +60,14 @@ describe("rust min-E[f] core wrapper", () => {
   });
 
   it("reads min-E[f] root candidates from the last root solve scratch", () => {
-    const solver = createRustMinEfSolver(makeExports());
+    const exports = makeExports();
+    const solver = createRustMinEfSolver(exports);
 
     expect(
-      solver.rootCandidates(
+      solver.solveRootWithCandidates(
         { grade: "SR", level: 1, exp: 0 },
         { blue: 10, purple: 10, yellow: 10 },
-      ),
+      ).candidates,
     ).toEqual([
       {
         firstAction: "blue",
@@ -86,6 +88,7 @@ describe("rust min-E[f] core wrapper", () => {
         eligible: false,
       },
     ]);
+    expect(exports.solveMinEf).toHaveBeenCalledOnce();
   });
 
   it("exposes memo-full as a typed Rust solve error", () => {

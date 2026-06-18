@@ -35,6 +35,7 @@ export function validateDiagnosticSubmission(
       totalExpectedCostBucket: field(event, "totalExpectedCostBucket"),
       blueShareBucket: field(event, "blueShareBucket"),
       minAutonomyDaysBucket: field(event, "minAutonomyDaysBucket"),
+      nodeCountBucket: normalizeDiagnosticToken(field(event, "nodeCountBucket")),
       changedFromSingle: field(event, "changedFromSingle"),
       changedFromLegacySupply: field(event, "changedFromLegacySupply"),
       legacyPrivateStatsAvailable: Boolean(field(event, "legacyPrivateStatsAvailable")),

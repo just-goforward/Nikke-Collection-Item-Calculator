@@ -20,6 +20,7 @@ export async function commitSubmission(
   if (normalized.event.kind === "solver_diagnostic") {
     return commitEvent(env, normalized.eventId, now, normalized.event.kind, [
       buildSolverDiagnosticAggregateStatement(env, dateKey, normalized.event, now),
+      buildSolverNodeCountAggregateStatement(env, dateKey, normalized.event, now),
     ]);
   }
 
@@ -30,6 +31,30 @@ export async function commitSubmission(
     normalized.sourceHost,
     normalized.event,
     dateKey,
+    now,
+  );
+}
+
+function buildSolverNodeCountAggregateStatement(
+  env: WorkerEnv,
+  dateKey: string,
+  event: ValidatedSolverDiagnosticEvent,
+  now: number,
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `INSERT INTO solver_node_count_aggregates
+      (date_key, diagnostic_version, solver_version, solver_phase, node_count_bucket, events, last_seen)
+     VALUES (?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, diagnostic_version, solver_version, solver_phase, node_count_bucket)
+     DO UPDATE SET
+      events = events + 1,
+      last_seen = excluded.last_seen`,
+  ).bind(
+    dateKey,
+    event.diagnosticVersion,
+    event.solverVersion,
+    event.solverPhase,
+    event.nodeCountBucket,
     now,
   );
 }

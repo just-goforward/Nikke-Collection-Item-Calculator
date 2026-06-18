@@ -31,6 +31,7 @@ export type ValidatedSolverDiagnosticEvent = {
   totalExpectedCostBucket: unknown;
   blueShareBucket: unknown;
   minAutonomyDaysBucket: unknown;
+  nodeCountBucket: string;
   changedFromSingle: unknown;
   changedFromLegacySupply: unknown;
   legacyPrivateStatsAvailable: boolean;

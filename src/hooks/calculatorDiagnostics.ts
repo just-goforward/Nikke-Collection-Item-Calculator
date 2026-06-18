@@ -77,6 +77,17 @@ function bucketMinAutonomyDays(value: number) {
   return "28_plus";
 }
 
+function bucketNodeCount(value: number) {
+  if (value <= 0) return "0";
+  if (value <= 99) return "1_99";
+  if (value <= 999) return "100_999";
+  if (value <= 9999) return "1000_9999";
+  if (value <= 99_999) return "10000_99999";
+  if (value <= 499_999) return "100000_499999";
+  if (value <= 999_999) return "500000_999999";
+  return "1000000_plus";
+}
+
 function vectorValue(vector: Partial<Record<Kit, number>> | undefined, kit: Kit) {
   return Math.max(0, Number(vector?.[kit] || 0));
 }
@@ -115,7 +126,7 @@ export function makeSolverDiagnosticEvent(result: SolverResult) {
 
   return {
     kind: "solver_diagnostic" as const,
-    diagnosticVersion: 2,
+    diagnosticVersion: 3,
     solverVersion,
     solverPhase,
     start: input.start,
@@ -132,6 +143,7 @@ export function makeSolverDiagnosticEvent(result: SolverResult) {
     ),
     probabilityGapBucket: bucketProbabilityGap(probabilityGap),
     resourceCostBucket: bucketResourceCost(Number(best.resourceCost || 0)),
+    nodeCountBucket: bucketNodeCount(Number(stats.states || 0)),
     legacySupplyCostBucket: bucketResourceCost(Number(best.legacySupplyCost || 0)),
     totalExpectedCostBucket: bucketTotalExpectedCost(totalExpectedCost),
     blueShareBucket: bucketBlueShare(blueShare),

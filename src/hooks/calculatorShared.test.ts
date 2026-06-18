@@ -37,9 +37,10 @@ describe("makeSolverDiagnosticEvent", () => {
     } as Parameters<typeof makeSolverDiagnosticEvent>[0];
 
     expect(makeSolverDiagnosticEvent(result)).toMatchObject({
-      diagnosticVersion: 2,
+      diagnosticVersion: 3,
       solverVersion: "phase2_availability_h075_tau0_p3_rust_rerank_staging",
       solverPhase: "phase2-rerank",
+      nodeCountBucket: "0",
       stockBuckets: { blue: "100_149", purple: "100_149", yellow: "100_149" },
     });
   });

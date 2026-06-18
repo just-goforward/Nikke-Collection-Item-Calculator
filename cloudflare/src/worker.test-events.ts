@@ -40,6 +40,7 @@ export function solverDiagnosticEvent(eventId: string) {
       candidateCountBucket: "3_plus",
       probabilityGapBucket: "0_1_0_3pp",
       resourceCostBucket: "0_1_0_25",
+      nodeCountBucket: "1000_9999",
       legacySupplyCostBucket: "0_1_0_25",
       totalExpectedCostBucket: "100_199",
       blueShareBucket: "50_70",

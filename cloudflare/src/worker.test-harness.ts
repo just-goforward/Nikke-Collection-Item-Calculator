@@ -14,9 +14,11 @@ export class WorkerTestHarness {
   readonly env: {
     DB?: D1Database;
     ALLOWED_ORIGINS?: string;
+    ADMIN_TOKEN?: string;
     TURNSTILE_SECRET_KEY: string;
     RATE_LIMIT_SECRET?: string;
   } = {
+    ADMIN_TOKEN: "test-admin-token",
     ALLOWED_ORIGINS: "https://test.example",
     TURNSTILE_SECRET_KEY: "test-turnstile-secret",
     RATE_LIMIT_SECRET: "test-rate-limit-secret",
@@ -42,6 +44,7 @@ export class WorkerTestHarness {
     });
     this.#database = await this.#miniflare.getD1Database("DB");
     this.env.DB = this.#database;
+    this.env.ADMIN_TOKEN = "test-admin-token";
     this.env.ALLOWED_ORIGINS = "https://test.example";
     this.env.RATE_LIMIT_SECRET = "test-rate-limit-secret";
     await this.applySchema();
@@ -51,6 +54,7 @@ export class WorkerTestHarness {
   async teardown() {
     vi.unstubAllGlobals();
     delete this.env.ALLOWED_ORIGINS;
+    delete this.env.ADMIN_TOKEN;
     await this.#miniflare?.dispose();
     this.#database = null;
     this.#miniflare = null;
@@ -86,6 +90,21 @@ export class WorkerTestHarness {
       new Request("https://worker.test/api/stats", {
         ...(origin ? { headers: { Origin: origin } } : {}),
       }) as WorkerRequest,
+      this.workerEnv(),
+      this.executionContext(),
+    );
+  }
+
+  async fetchAdminSolverDiagnostics(
+    token: string | null = "test-admin-token",
+    origin: string | null = "https://test.example",
+  ) {
+    if (!worker.fetch) throw new Error("Worker fetch handler is not defined.");
+    const headers = new Headers();
+    if (origin) headers.set("Origin", origin);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return worker.fetch(
+      new Request("https://worker.test/api/admin/solver-diagnostics", { headers }) as WorkerRequest,
       this.workerEnv(),
       this.executionContext(),
     );

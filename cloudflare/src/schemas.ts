@@ -73,12 +73,22 @@ const ResourceCostBucketSchema = z.enum([
 const TotalExpectedCostBucketSchema = z.enum(["0_49", "50_99", "100_199", "200_399", "400_plus"]);
 const BlueShareBucketSchema = z.enum(["0_30", "30_50", "50_70", "70_90", "90_100"]);
 const MinAutonomyDaysBucketSchema = z.enum(["lt_0", "0_3", "3_7", "7_14", "14_28", "28_plus"]);
+const NodeCountBucketSchema = z.enum([
+  "0",
+  "1_99",
+  "100_999",
+  "1000_9999",
+  "10000_99999",
+  "100000_499999",
+  "500000_999999",
+  "1000000_plus",
+]);
 const ComparisonBucketSchema = z.enum(["yes", "no", "unknown", "not_applicable"]);
 
 const SolverDiagnosticEventSchema = z
   .object({
     kind: z.literal("solver_diagnostic"),
-    diagnosticVersion: z.union([z.literal(1), z.literal(2)]),
+    diagnosticVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     solverVersion: z.string(),
     solverPhase: z.string(),
     start: CollectionStateSchema,
@@ -99,6 +109,7 @@ const SolverDiagnosticEventSchema = z
     totalExpectedCostBucket: TotalExpectedCostBucketSchema,
     blueShareBucket: BlueShareBucketSchema,
     minAutonomyDaysBucket: MinAutonomyDaysBucketSchema,
+    nodeCountBucket: NodeCountBucketSchema.optional(),
     changedFromSingle: ComparisonBucketSchema,
     changedFromLegacySupply: ComparisonBucketSchema,
     legacyPrivateStatsAvailable: z.boolean(),

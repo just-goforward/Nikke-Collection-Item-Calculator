@@ -94,6 +94,7 @@ describe("validatePayload", () => {
         candidateCountBucket: "3_plus",
         probabilityGapBucket: "0_1_0_3pp",
         resourceCostBucket: "0_1_0_25",
+        nodeCountBucket: "100000_499999",
         legacySupplyCostBucket: "0_1_0_25",
         totalExpectedCostBucket: "100_199",
         blueShareBucket: "50_70",
@@ -110,6 +111,7 @@ describe("validatePayload", () => {
       solverVersion: "phase3_rust-min.ef",
       solverPhase: "unknown",
       strategy: "unknown",
+      nodeCountBucket: "100000_499999",
       legacyPrivateStatsAvailable: true,
       legacyEventAggregateMatchable: false,
     });

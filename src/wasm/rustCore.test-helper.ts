@@ -37,6 +37,7 @@ export function makeRustCoreExports(overrides: Partial<RustCoreExports> = {}): R
     minEfVecP: vi.fn(() => 20),
     minEfVecY: vi.fn(() => 30),
     minEfExpectedCost: vi.fn(() => 0.123),
+    minEfNodeCount: vi.fn(() => 4321),
     minEfRootCandidateValid: vi.fn((action: number) => (action === 1 ? 0 : 1)),
     minEfRootCandidateMaxSuccessProb: vi.fn(() => 0.95),
     minEfRootCandidateSuccessProb: vi.fn((action: number) => (action === 0 ? 0.95 : 0.94)),
