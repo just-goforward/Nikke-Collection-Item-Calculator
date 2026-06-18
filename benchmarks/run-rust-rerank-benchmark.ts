@@ -70,9 +70,9 @@ const server = await createServer({
   server: { middlewareMode: true },
 });
 
-const rustCore = (await server.ssrLoadModule(
-  "/src/wasm/rustCore.ts",
-)) as typeof import("../src/wasm/rustCore");
+const rustResearch = (await server.ssrLoadModule(
+  "/src/wasm/rustResearchLoader.ts",
+)) as typeof import("../src/wasm/rustResearchLoader");
 const fixedGrid = (await server.ssrLoadModule(
   "/benchmarks/scenarios/fixed-grid.ts",
 )) as typeof import("./scenarios/fixed-grid");
@@ -130,7 +130,7 @@ try {
     | { instance: WebAssembly.Instance };
   const instance =
     instantiated instanceof WebAssembly.Instance ? instantiated : instantiated.instance;
-  const solver = rustCore.createRustPhase2SolverFromInstance(instance);
+  const solver = rustResearch.createRustPhase2ResearchSolverFromInstance(instance);
 
   for (const scenario of scenarios) {
     const scenarioStartedAt = performance.now();

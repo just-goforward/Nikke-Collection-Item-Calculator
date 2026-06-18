@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { solveWithResearchCostModel } from "../solver/solve";
-import { createRustPhase2Solver } from "./rustCore";
 import { solveRustMinEfProduct } from "./rustMinEfSolver";
 import { solveRustPhase2 } from "./rustPhase2ProductSolver";
+import { createRustPhase2ResearchSolver } from "./rustPhase2ResearchCore";
 import type { RustCoreExports, RustPhase2Solver } from "./rustTypes";
 
 const WASM_URL = new URL("../../public/solver_rs.wasm", import.meta.url);
@@ -54,7 +54,7 @@ describe("rust phase2 wasm parity", () => {
       | { instance: WebAssembly.Instance };
     const instance =
       instantiated instanceof WebAssembly.Instance ? instantiated : instantiated.instance;
-    solver = createRustPhase2Solver(instance.exports as unknown as RustCoreExports);
+    solver = createRustPhase2ResearchSolver(instance.exports as unknown as RustCoreExports);
   });
 
   for (const testCase of CASES) {

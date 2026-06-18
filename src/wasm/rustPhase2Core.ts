@@ -5,14 +5,6 @@ import {
   solvePhase2Slot,
 } from "./rustCoreShared";
 import {
-  estimateA2SurrogateAfterFirstActionFromCurrent,
-  estimateExactExpectedCostAfterFirstActionFromCurrent,
-  estimateExpectedCostAfterFirstAction,
-  estimateExpectedCostAfterFirstActionFromCurrent,
-  estimateExpectedCostAfterFirstActionFromCurrentWithMoments,
-  estimateExpectedCostPairFromCurrent,
-} from "./rustPhase2ExpectedCost";
-import {
   actionAtForPhase2Generation,
   type Phase2FactoryState,
   recordPhase2Build,
@@ -21,7 +13,7 @@ import { simulatePolicy, simulatePolicyAfterFirstAction } from "./rustPhase2Vali
 import type {
   RustCoreExports,
   RustPhase2Policy,
-  RustPhase2Solver,
+  RustPhase2ProductSolver,
   State,
   Stock,
 } from "./rustTypes";
@@ -60,7 +52,7 @@ function rootCandidates(
   return readRootCandidates(state.exports, tolerance);
 }
 
-export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solver {
+export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2ProductSolver {
   exports.configureMemo?.(21);
   exports.configureNodeBudget?.(0);
   const state: Phase2FactoryState = { buildGeneration: 0, currentBuild: null, exports };
@@ -68,59 +60,7 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Solv
     buildPolicy: (...args) => buildPolicy(state, ...args),
     solveRoot: (...args) => buildPolicy(state, ...args).root,
     rootCandidates: (...args) => rootCandidates(state, ...args),
-    estimateExpectedCostAfterFirstAction: (...args) =>
-      estimateExpectedCostAfterFirstAction(state, ...args),
-    estimateExpectedCostAfterFirstActionFromCurrent: (...args) =>
-      estimateExpectedCostAfterFirstActionFromCurrent(state, ...args),
-    estimateExpectedCostAfterFirstActionFromCurrentWithMoments: (...args) =>
-      estimateExpectedCostAfterFirstActionFromCurrentWithMoments(state, ...args),
-    estimateExpectedCostPairFromCurrent: (...args) =>
-      estimateExpectedCostPairFromCurrent(state, ...args),
-    estimateA2SurrogateAfterFirstActionFromCurrent: (...args) =>
-      estimateA2SurrogateAfterFirstActionFromCurrent(state, ...args),
-    estimateExactExpectedCostAfterFirstActionFromCurrent: (...args) =>
-      estimateExactExpectedCostAfterFirstActionFromCurrent(state, ...args),
     simulatePolicy: (...args) => simulatePolicy(state, ...args),
     simulatePolicyAfterFirstAction: (...args) => simulatePolicyAfterFirstAction(state, ...args),
-    selectFirstActionByExpectedCost(
-      start,
-      stock,
-      runs,
-      seed,
-      horizonFactor = 0.75,
-      normPower = 3,
-      tolerance = 0,
-    ) {
-      const policy = buildPolicy(state, start, stock, horizonFactor, normPower, tolerance);
-      const exactCandidates = policy.candidates.filter((candidate) => candidate.eligible);
-      if (exactCandidates.length === 0) return null;
-      const candidates = exactCandidates.map((candidate) => ({
-        ...candidate,
-        ...estimateExpectedCostAfterFirstActionFromCurrent(
-          state,
-          start,
-          stock,
-          candidate.firstAction,
-          runs,
-          seed,
-          horizonFactor,
-          normPower,
-        ),
-      }));
-      const selected = selectLowestExpectedCostCandidate(candidates);
-      return { baseline: policy.root, selected, candidates, policy };
-    },
   };
-}
-
-function selectLowestExpectedCostCandidate<
-  T extends { expectedCost: number; resourceCost: number; successProbability: number },
->(candidates: T[]) {
-  return candidates.reduce((best, candidate) => {
-    const expectedCostDelta = candidate.expectedCost - best.expectedCost;
-    if (Math.abs(expectedCostDelta) > 1e-12) return expectedCostDelta < 0 ? candidate : best;
-    const resourceCostDelta = candidate.resourceCost - best.resourceCost;
-    if (Math.abs(resourceCostDelta) > 1e-12) return resourceCostDelta < 0 ? candidate : best;
-    return candidate.successProbability > best.successProbability ? candidate : best;
-  });
 }

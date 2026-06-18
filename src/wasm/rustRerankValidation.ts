@@ -5,8 +5,8 @@ import {
   RUST_PRODUCT_TOLERANCE,
 } from "./rustProductConfig";
 import { normalizeRustProductInput } from "./rustProductInput";
-import { getRustPhase2Solver } from "./rustProductSolverCache";
 import { selectAdaptiveRerankDecision } from "./rustRerankDecision";
+import { getRustPhase2ResearchSolver } from "./rustResearchSolverCache";
 
 export async function validateRustPhase2Rerank(
   input: SolverInput,
@@ -15,7 +15,7 @@ export async function validateRustPhase2Rerank(
   seed = 20260505,
 ) {
   const normalizedInput = normalizeRustProductInput(input);
-  const solver = await getRustPhase2Solver(wasmUrl);
+  const solver = await getRustPhase2ResearchSolver(wasmUrl);
   const decision = selectAdaptiveRerankDecision(solver, normalizedInput);
   const firstKit = decision?.selected.firstAction;
   if (!firstKit) {

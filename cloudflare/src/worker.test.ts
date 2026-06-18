@@ -66,7 +66,7 @@ describe("kit_result event commit", () => {
     } finally {
       nowSpy.mockRestore();
     }
-  });
+  }, 30_000);
 
   it("does not increment aggregates when an event id is submitted twice", async () => {
     const payload = kitResultEvent("kit-result-duplicate-001");

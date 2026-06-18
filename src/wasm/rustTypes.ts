@@ -136,7 +136,7 @@ export type RustPhase2Policy = {
   actionAt: (state: State, stockUses: Stock) => Kit | null;
 };
 
-export type RustPhase2Solver = {
+export type RustPhase2ProductSolver = {
   buildPolicy: (
     start: State,
     stock: Stock,
@@ -158,6 +158,28 @@ export type RustPhase2Solver = {
     normPower?: number,
     tolerance?: number,
   ) => RustPhase2Candidate[];
+  simulatePolicy: (
+    start: State,
+    stock: Stock,
+    runs: number,
+    seed: number,
+    horizonFactor?: number,
+    normPower?: number,
+    tolerance?: number,
+  ) => RustMonteCarloResult;
+  simulatePolicyAfterFirstAction: (
+    start: State,
+    stock: Stock,
+    firstAction: Kit,
+    runs: number,
+    seed: number,
+    horizonFactor?: number,
+    normPower?: number,
+    tolerance?: number,
+  ) => RustMonteCarloResult;
+};
+
+export type RustPhase2Solver = RustPhase2ProductSolver & {
   estimateExpectedCostAfterFirstAction: (
     start: State,
     stock: Stock,
@@ -212,25 +234,6 @@ export type RustPhase2Solver = {
     horizonFactor?: number,
     normPower?: number,
   ) => RustExactExpectedCostEstimate;
-  simulatePolicy: (
-    start: State,
-    stock: Stock,
-    runs: number,
-    seed: number,
-    horizonFactor?: number,
-    normPower?: number,
-    tolerance?: number,
-  ) => RustMonteCarloResult;
-  simulatePolicyAfterFirstAction: (
-    start: State,
-    stock: Stock,
-    firstAction: Kit,
-    runs: number,
-    seed: number,
-    horizonFactor?: number,
-    normPower?: number,
-    tolerance?: number,
-  ) => RustMonteCarloResult;
   selectFirstActionByExpectedCost: (
     start: State,
     stock: Stock,

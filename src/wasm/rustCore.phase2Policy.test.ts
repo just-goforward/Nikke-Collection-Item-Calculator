@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createRustPhase2Solver } from "./rustCore";
 import { makeRustCoreExports as makeExports } from "./rustCore.test-helper";
+import { createRustPhase2ResearchSolver as createRustPhase2Solver } from "./rustPhase2ResearchCore";
 
 describe("rust phase2 policy wrapper", () => {
   it("looks up phase2 actions from the current policy memo without re-solving", () => {

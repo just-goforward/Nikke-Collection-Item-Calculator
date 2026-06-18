@@ -5,10 +5,10 @@ import {
 import type { CollectionState, Kit, Stock } from "../types";
 import { loadRustMinEfSolver, loadRustPhase2Solver } from "./rustCore";
 import type { RustActionLookup } from "./rustProductView";
-import type { RustMinEfPolicyHandle, RustMinEfSolver, RustPhase2Solver } from "./rustTypes";
+import type { RustMinEfPolicyHandle, RustMinEfSolver, RustPhase2ProductSolver } from "./rustTypes";
 
 let minEfSolverPromise: Promise<RustMinEfSolver> | null = null;
-let phase2SolverPromise: Promise<RustPhase2Solver> | null = null;
+let phase2SolverPromise: Promise<RustPhase2ProductSolver> | null = null;
 
 export async function getRustMinEfSolver(wasmUrl: string) {
   minEfSolverPromise ??= loadRustMinEfSolver(wasmUrl);

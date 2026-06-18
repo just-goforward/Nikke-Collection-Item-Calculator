@@ -28,9 +28,9 @@ import {
   readRustMonteCarloSeed,
 } from "./rustProductInput";
 import { buildRustEarlyResult, buildRustNoActionResult } from "./rustProductResults";
-import { getRustPhase2Solver } from "./rustProductSolverCache";
 import { buildFailureRouteWithFirstKit, buildRecommendedRunForKit } from "./rustProductView";
 import { selectAdaptiveRerankDecision } from "./rustRerankDecision";
+import { getRustPhase2ResearchSolver } from "./rustResearchSolverCache";
 
 const KIT_ORDER: Kit[] = ["blue", "purple", "yellow"];
 const STRICT_EPSILON = 1e-12;
@@ -46,7 +46,7 @@ export async function solveRustPhase2Rerank(
   const earlyResult = buildRustEarlyResult(normalizedInput, RUST_RERANK_SOLVER_VERSION);
   if (earlyResult) return earlyResult;
 
-  const solver = await getRustPhase2Solver(wasmUrl);
+  const solver = await getRustPhase2ResearchSolver(wasmUrl);
   const decision = selectAdaptiveRerankDecision(solver, normalizedInput);
   const rerank = decision?.rerank;
   const baselineRoot = rerank?.baseline;

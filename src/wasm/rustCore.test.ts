@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createRustPhase2Solver } from "./rustCore";
 import { makeRustCoreExports as makeExports } from "./rustCore.test-helper";
+import { createRustPhase2ResearchSolver } from "./rustPhase2ResearchCore";
 
 describe("rust phase2 core wrapper", () => {
   it("wraps phase2 solveCore results", () => {
@@ -109,7 +110,7 @@ describe("rust phase2 core wrapper", () => {
 
   it("wraps phase2 first-action E[f] simulation", () => {
     const exports = makeExports();
-    const solver = createRustPhase2Solver(exports);
+    const solver = createRustPhase2ResearchSolver(exports);
 
     expect(
       solver.estimateExpectedCostAfterFirstAction(
