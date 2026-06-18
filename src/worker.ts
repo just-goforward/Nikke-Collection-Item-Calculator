@@ -4,12 +4,7 @@ import { solve } from "./solver/solve";
 import type { ProgressEvent, SolverInput, WorkerRequest, WorkerResponse } from "./types";
 import { solveRustMinEf } from "./wasm/rustMinEfSolver";
 import { solveRustPhase2 } from "./wasm/rustPhase2ProductSolver";
-import {
-  validateRustMinEf,
-  validateRustPhase2,
-  validateRustPhase2Rerank,
-} from "./wasm/rustProductValidation";
-import { solveRustPhase2Rerank } from "./wasm/rustRerankProductSolver";
+import { validateRustMinEf, validateRustPhase2 } from "./wasm/rustProductValidation";
 
 const WORKER_MESSAGE_ID_KEY = "id";
 
@@ -56,9 +51,9 @@ self.onmessage = async (event) => {
       ) => Promise<unknown> =
         data.backend === "rust-phase2"
           ? solveRustPhase2
-          : data.backend === "rust-phase2-rerank"
-            ? solveRustPhase2Rerank
-            : solveRustMinEf;
+          : data.backend === "rust-min-ef"
+            ? solveRustMinEf
+            : (await import("./wasm/rustRerankProductSolver")).solveRustPhase2Rerank;
       const validateRust: (
         input: SolverInput,
         wasmUrl: string,
@@ -67,9 +62,9 @@ self.onmessage = async (event) => {
       ) => Promise<unknown> =
         data.backend === "rust-phase2"
           ? validateRustPhase2
-          : data.backend === "rust-phase2-rerank"
-            ? validateRustPhase2Rerank
-            : validateRustMinEf;
+          : data.backend === "rust-min-ef"
+            ? validateRustMinEf
+            : (await import("./wasm/rustRerankValidation")).validateRustPhase2Rerank;
       if (data.type === "validate") {
         const runs = Math.max(0, Math.floor(Number(data.runs) || 0));
         const seed = Math.max(0, Math.floor(Number(data.seed) || 20260505));

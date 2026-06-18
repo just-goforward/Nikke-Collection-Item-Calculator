@@ -1,21 +1,33 @@
 import { actionFromIndex, encodeState, readMinEfRootCandidates } from "./rustCoreShared";
-import { assertRustStatusOk } from "./rustStatus";
-import type { RustCoreExports, RustMinEfRoot, RustMinEfSolver, State, Stock } from "./rustTypes";
+import { assertRustStatusOk, RustSolveError } from "./rustStatus";
+import type {
+  RustCoreExports,
+  RustMinEfPolicyHandle,
+  RustMinEfRoot,
+  RustMinEfSolver,
+  State,
+  Stock,
+} from "./rustTypes";
 
 const RUST_MIN_EF_NODE_BUDGET = 2_000_000;
+
+type MinEfFactoryState = {
+  buildGeneration: number;
+  exports: RustCoreExports;
+};
 
 export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver {
   exports.configureMemo?.(21);
   exports.configureNodeBudget?.(RUST_MIN_EF_NODE_BUDGET);
+  const state: MinEfFactoryState = { buildGeneration: 0, exports };
   return {
-    actionAt: (state, stockUses) => lookupMinEfAction(exports, state, stockUses),
     solveRootWithCandidates: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
-      solveMinEfRootWithCandidates(exports, start, stock, horizonFactor, normPower, tolerance),
+      solveMinEfRootWithCandidates(state, start, stock, horizonFactor, normPower, tolerance),
     rootCandidates: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
-      solveMinEfRootWithCandidates(exports, start, stock, horizonFactor, normPower, tolerance)
+      solveMinEfRootWithCandidates(state, start, stock, horizonFactor, normPower, tolerance)
         .candidates,
     solveRoot: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
-      solveMinEfRootWithCandidates(exports, start, stock, horizonFactor, normPower, tolerance).root,
+      solveMinEfRootWithCandidates(state, start, stock, horizonFactor, normPower, tolerance).root,
   };
 }
 
@@ -40,18 +52,27 @@ function runMinEf(
 }
 
 function solveMinEfRootWithCandidates(
-  exports: RustCoreExports,
+  state: MinEfFactoryState,
   start: State,
   stock: Stock,
   horizonFactor: number,
   normPower: number,
   tolerance: number,
-) {
+): RustMinEfPolicyHandle {
+  const exports = state.exports;
   runMinEf(exports, start, stock, horizonFactor, normPower, tolerance);
   assertRustStatusOk(exports, "root solve");
+  state.buildGeneration += 1;
+  const generation = state.buildGeneration;
+  const root = readMinEfRoot(exports);
   return {
-    root: readMinEfRoot(exports),
+    root,
     candidates: readMinEfRootCandidates(exports, tolerance),
+    nodeCount: root.states,
+    actionAt(nodeState, stockUses) {
+      assertMinEfPolicyGeneration(state, generation);
+      return lookupMinEfAction(exports, nodeState, stockUses);
+    },
   };
 }
 
@@ -80,4 +101,9 @@ function lookupMinEfAction(exports: RustCoreExports, state: State, stockUses: St
   );
   assertRustStatusOk(exports, "action lookup");
   return actionFromIndex(action);
+}
+
+function assertMinEfPolicyGeneration(state: MinEfFactoryState, generation: number) {
+  if (generation === state.buildGeneration) return;
+  throw new RustSolveError("min-E[f] policy", null, "stale_handle");
 }

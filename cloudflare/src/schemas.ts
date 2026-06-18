@@ -83,14 +83,28 @@ const NodeCountBucketSchema = z.enum([
   "500000_999999",
   "1000000_plus",
 ]);
+const SolveMsBucketSchema = z.enum([
+  "unknown",
+  "0_50",
+  "50_100",
+  "100_250",
+  "250_500",
+  "500_1000",
+  "1000_2500",
+  "2500_5000",
+  "5000_plus",
+]);
 const ComparisonBucketSchema = z.enum(["yes", "no", "unknown", "not_applicable"]);
 
 const SolverDiagnosticEventSchema = z
   .object({
     kind: z.literal("solver_diagnostic"),
-    diagnosticVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    diagnosticVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
     solverVersion: z.string(),
     solverPhase: z.string(),
+    solverBackend: z.string().optional(),
+    fallbackFrom: z.string().optional(),
+    fallbackReason: z.string().optional(),
     start: CollectionStateSchema,
     strategy: StrategySchema,
     stockBuckets: z
@@ -110,6 +124,7 @@ const SolverDiagnosticEventSchema = z
     blueShareBucket: BlueShareBucketSchema,
     minAutonomyDaysBucket: MinAutonomyDaysBucketSchema,
     nodeCountBucket: NodeCountBucketSchema.optional(),
+    solveMsBucket: SolveMsBucketSchema.optional(),
     changedFromSingle: ComparisonBucketSchema,
     changedFromLegacySupply: ComparisonBucketSchema,
     legacyPrivateStatsAvailable: z.boolean(),

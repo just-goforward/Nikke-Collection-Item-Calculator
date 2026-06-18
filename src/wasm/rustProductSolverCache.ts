@@ -5,7 +5,7 @@ import {
 import type { CollectionState, Kit, Stock } from "../types";
 import { loadRustMinEfSolver, loadRustPhase2Solver } from "./rustCore";
 import type { RustActionLookup } from "./rustProductView";
-import type { RustMinEfSolver, RustPhase2Solver } from "./rustTypes";
+import type { RustMinEfPolicyHandle, RustMinEfSolver, RustPhase2Solver } from "./rustTypes";
 
 let minEfSolverPromise: Promise<RustMinEfSolver> | null = null;
 let phase2SolverPromise: Promise<RustPhase2Solver> | null = null;
@@ -20,11 +20,9 @@ export async function getRustPhase2Solver(wasmUrl: string) {
   return phase2SolverPromise;
 }
 
-export function minEfActionFactory(solver: RustMinEfSolver): RustActionLookup {
-  // RustMinEfSolver is research-only. Its action lookup intentionally keeps the historical
-  // build-once contract; product hardening is scoped to RustPhase2Solver.
+export function minEfActionFactory(policy: RustMinEfPolicyHandle): RustActionLookup {
   return (state: CollectionState, stockUses: Stock): Kit | null => {
     if (isTerminal(state) || isConvertState(state)) return null;
-    return solver.actionAt(state, stockUses);
+    return policy.actionAt(state, stockUses);
   };
 }

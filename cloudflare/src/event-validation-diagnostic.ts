@@ -19,6 +19,9 @@ export function validateDiagnosticSubmission(
       diagnosticVersion: field(event, "diagnosticVersion"),
       solverVersion: normalizeDiagnosticToken(field(event, "solverVersion")),
       solverPhase: normalizeDiagnosticToken(field(event, "solverPhase")),
+      solverBackend: normalizeDiagnosticToken(field(event, "solverBackend")),
+      fallbackFrom: normalizeOptionalDiagnosticToken(field(event, "fallbackFrom"), "none"),
+      fallbackReason: normalizeOptionalDiagnosticToken(field(event, "fallbackReason"), "none"),
       start: normalizeState(field(event, "start"), false),
       strategy: normalizeStrategy(field(event, "strategy")),
       stockBuckets: {
@@ -36,10 +39,16 @@ export function validateDiagnosticSubmission(
       blueShareBucket: field(event, "blueShareBucket"),
       minAutonomyDaysBucket: field(event, "minAutonomyDaysBucket"),
       nodeCountBucket: normalizeDiagnosticToken(field(event, "nodeCountBucket")),
+      solveMsBucket: normalizeOptionalDiagnosticToken(field(event, "solveMsBucket"), "unknown"),
       changedFromSingle: field(event, "changedFromSingle"),
       changedFromLegacySupply: field(event, "changedFromLegacySupply"),
       legacyPrivateStatsAvailable: Boolean(field(event, "legacyPrivateStatsAvailable")),
       legacyEventAggregateMatchable: Boolean(field(event, "legacyEventAggregateMatchable")),
     },
   };
+}
+
+function normalizeOptionalDiagnosticToken(value: unknown, fallback: string) {
+  if (typeof value !== "string" || !value.trim()) return fallback;
+  return normalizeDiagnosticToken(value);
 }

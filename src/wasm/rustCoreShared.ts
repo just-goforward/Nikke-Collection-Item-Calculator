@@ -1,6 +1,6 @@
 import { EXPECTED_28_DAY_GAIN } from "../solver/domain";
 import type { Kit } from "../types";
-import { assertRustStatusOk } from "./rustStatus";
+import { assertRustStatusOk, RustSolveError } from "./rustStatus";
 import type {
   RustCoreExports,
   RustMonteCarloResult,
@@ -55,7 +55,7 @@ export function requireExport<T extends keyof RustCoreExports>(
 ): NonNullable<RustCoreExports[T]> {
   const value = exports[name];
   if (typeof value !== "function") {
-    throw new Error(`Rust solver export ${String(name)} is missing.`);
+    throw new RustSolveError(String(name), null, "missing_export");
   }
   return value as NonNullable<RustCoreExports[T]>;
 }

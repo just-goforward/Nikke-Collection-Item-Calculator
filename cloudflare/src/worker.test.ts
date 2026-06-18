@@ -158,6 +158,7 @@ describe("solver_diagnostic event commit", () => {
     await expect(countRows("event_ids")).resolves.toBe(1);
     await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(1);
     await expect(countRows("solver_node_count_aggregates")).resolves.toBe(1);
+    await expect(countRows("solver_runtime_aggregates")).resolves.toBe(1);
   });
 
   it("accepts diagnostic v2 with 50-piece stock buckets", async () => {
@@ -205,6 +206,7 @@ describe("solver_diagnostic event commit", () => {
     expect(aggregate).toMatchObject({ events: 1 });
     await expect(countRows("event_ids")).resolves.toBe(1);
     await expect(countRows("solver_node_count_aggregates")).resolves.toBe(1);
+    await expect(countRows("solver_runtime_aggregates")).resolves.toBe(1);
   });
 
   it("rolls back the event id when a diagnostic write fails and accepts a retry", async () => {
@@ -220,6 +222,7 @@ describe("solver_diagnostic event commit", () => {
     await expect(countRows("event_ids")).resolves.toBe(0);
     await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(0);
     await expect(countRows("solver_node_count_aggregates")).resolves.toBe(0);
+    await expect(countRows("solver_runtime_aggregates")).resolves.toBe(0);
     await harness.database.exec("DROP TRIGGER fail_solver_diagnostic;");
 
     const retried = await submit(payload);
@@ -228,6 +231,7 @@ describe("solver_diagnostic event commit", () => {
     await expect(countRows("event_ids")).resolves.toBe(1);
     await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(1);
     await expect(countRows("solver_node_count_aggregates")).resolves.toBe(1);
+    await expect(countRows("solver_runtime_aggregates")).resolves.toBe(1);
   });
 });
 
@@ -263,8 +267,10 @@ describe("admin solver diagnostics", () => {
     const minEf2 = solverDiagnosticEvent("solver-admin-minef-002");
     minEf1.event.solverVersion = "phase3_rust_min_ef";
     minEf1.event.solverPhase = "phase3";
+    minEf1.event.solverBackend = "rust-min-ef";
     minEf2.event.solverVersion = "phase3_rust_min_ef";
     minEf2.event.solverPhase = "phase3";
+    minEf2.event.solverBackend = "rust-min-ef";
 
     expect((await submit(phase1)).status).toBe(200);
     expect((await submit(minEf1)).status).toBe(200);
@@ -287,6 +293,35 @@ describe("admin solver diagnostics", () => {
         solverVersion: string;
         solverPhase: string;
         nodeCountBucket: string;
+        events: number;
+      }>;
+      runtime?: Array<{
+        solverVersion: string;
+        solverPhase: string;
+        solverBackend: string;
+        fallbackFrom: string;
+        fallbackReason: string;
+        grade: string;
+        level: number;
+        expBucket: number;
+        stockBuckets: { blue: string; purple: string; yellow: string };
+        nodeCountBucket: string;
+        solveMsBucket: string;
+        events: number;
+      }>;
+      fallbacks?: Array<{
+        solverVersion: string;
+        solverPhase: string;
+        solverBackend: string;
+        events: number;
+        fallbackEvents: number;
+        fallbackRate: number;
+      }>;
+      latencies?: Array<{
+        solverVersion: string;
+        solverPhase: string;
+        solverBackend: string;
+        solveMsBucket: string;
         events: number;
       }>;
     };
@@ -332,6 +367,44 @@ describe("admin solver diagnostics", () => {
           solverVersion: "phase3_rust_min_ef",
           solverPhase: "phase3",
           nodeCountBucket: "1000_9999",
+          events: 2,
+        }),
+      ]),
+    );
+    expect(body.runtime).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          solverVersion: "phase3_rust_min_ef",
+          solverPhase: "phase3",
+          solverBackend: "rust-min-ef",
+          fallbackFrom: "none",
+          fallbackReason: "none",
+          grade: "SR",
+          level: 1,
+          expBucket: 0,
+          stockBuckets: { blue: "100_299", purple: "50_99", yellow: "10_49" },
+          nodeCountBucket: "1000_9999",
+          solveMsBucket: "0_50",
+          events: 2,
+        }),
+      ]),
+    );
+    expect(body.fallbacks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          solverVersion: "phase3_rust_min_ef",
+          solverBackend: "rust-min-ef",
+          fallbackEvents: 0,
+          fallbackRate: 0,
+        }),
+      ]),
+    );
+    expect(body.latencies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          solverVersion: "phase3_rust_min_ef",
+          solverBackend: "rust-min-ef",
+          solveMsBucket: "0_50",
           events: 2,
         }),
       ]),

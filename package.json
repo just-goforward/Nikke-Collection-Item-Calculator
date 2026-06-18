@@ -27,6 +27,7 @@
     "bench:rust-runtime": "node benchmarks/run-rust-runtime-benchmark.ts",
     "bench:rust-analyze": "node benchmarks/analyze-rust-solver-direction.ts",
     "bench:rust-rerank-supplemental": "node benchmarks/run-rust-rerank-supplemental.ts",
+    "bench:solver-runtime:ci": "node scripts/bench-solver-runtime-ci.ts",
     "bench:shadow-pilot": "node benchmarks/run-shadow-pilot.ts",
     "bench:shadow-exact-pilot": "node benchmarks/run-shadow-exact-pilot.ts",
     "test:coverage": "vitest run --configLoader runner --coverage",
@@ -40,6 +41,7 @@
     "lint:architecture": "node scripts/check-architecture.ts",
     "lint:fix": "biome check --write",
     "format": "biome format --write",
+    "report:bundle": "node scripts/report-bundle.ts",
     "clean:artifacts": "node scripts/clean-artifacts.ts --apply",
     "clean:artifacts:dry-run": "node scripts/clean-artifacts.ts"
   },

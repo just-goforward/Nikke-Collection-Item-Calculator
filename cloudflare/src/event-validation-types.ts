@@ -19,6 +19,9 @@ export type ValidatedSolverDiagnosticEvent = {
   diagnosticVersion: unknown;
   solverVersion: string;
   solverPhase: string;
+  solverBackend: string;
+  fallbackFrom: string;
+  fallbackReason: string;
   start: CollectionState;
   strategy: string;
   stockBuckets: { blue: unknown; purple: unknown; yellow: unknown };
@@ -32,6 +35,7 @@ export type ValidatedSolverDiagnosticEvent = {
   blueShareBucket: unknown;
   minAutonomyDaysBucket: unknown;
   nodeCountBucket: string;
+  solveMsBucket: string;
   changedFromSingle: unknown;
   changedFromLegacySupply: unknown;
   legacyPrivateStatsAvailable: boolean;

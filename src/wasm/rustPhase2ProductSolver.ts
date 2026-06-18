@@ -32,6 +32,7 @@ export async function solveRustPhase2(
   wasmUrl: string,
   progress?: (progress: { phase: string; scanned?: number; total?: number | null }) => void,
 ) {
+  const startedAt = nowMs();
   const normalizedInput = normalizeRustProductInput(input);
   if (progress) progress({ phase: "build", scanned: 0, total: 1 });
 
@@ -95,5 +96,18 @@ export async function solveRustPhase2(
     route,
     monteCarlo,
     topCandidates,
+    statsExtras: {
+      solveMs: elapsedMs(startedAt),
+    },
   });
+}
+
+function nowMs() {
+  return typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
+
+function elapsedMs(startedAt: number) {
+  return Math.max(0, Math.round((nowMs() - startedAt) * 100) / 100);
 }

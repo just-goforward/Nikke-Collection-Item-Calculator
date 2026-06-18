@@ -30,13 +30,17 @@ describe("rust min-E[f] core wrapper", () => {
 
   it("throws on action lookup memo-full status after the endpoint call", () => {
     const exports = makeExports({
-      getSolveStatus: vi.fn(() => 2),
+      getSolveStatus: vi.fn().mockReturnValueOnce(0).mockReturnValue(2),
       minEfActionAtOrSolve: vi.fn(() => 1),
     });
     const solver = createRustMinEfSolver(exports);
+    const policy = solver.solveRootWithCandidates(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 10, purple: 10, yellow: 10 },
+    );
 
     expect(() =>
-      solver.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 1, yellow: 1 }),
+      policy.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 1, yellow: 1 }),
     ).toThrow("memo_full");
     expect(exports.minEfActionAtOrSolve).toHaveBeenCalledOnce();
   });
@@ -55,7 +59,12 @@ describe("rust min-E[f] core wrapper", () => {
       states: 4321,
     });
     expect(
-      solver.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 1, yellow: 1 }),
+      solver
+        .solveRootWithCandidates(
+          { grade: "SR", level: 1, exp: 0 },
+          { blue: 10, purple: 10, yellow: 10 },
+        )
+        .actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 1, yellow: 1 }),
     ).toBe("purple");
   });
 
@@ -89,6 +98,22 @@ describe("rust min-E[f] core wrapper", () => {
       },
     ]);
     expect(exports.solveMinEf).toHaveBeenCalledOnce();
+  });
+
+  it("invalidates min-E[f] policy handles after a newer root solve", () => {
+    const exports = makeExports();
+    const solver = createRustMinEfSolver(exports);
+    const policy = solver.solveRootWithCandidates(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 10, purple: 10, yellow: 10 },
+    );
+
+    solver.solveRoot({ grade: "SR", level: 2, exp: 0 }, { blue: 30, purple: 30, yellow: 30 });
+
+    expect(() =>
+      policy.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 1, yellow: 1 }),
+    ).toThrow("stale");
+    expect(exports.minEfActionAtOrSolve).not.toHaveBeenCalled();
   });
 
   it("exposes memo-full as a typed Rust solve error", () => {

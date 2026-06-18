@@ -20,6 +20,11 @@ export type RustMinEfRootResult = {
   candidates: RustPhase2Candidate[];
 };
 
+export type RustMinEfPolicyHandle = RustMinEfRootResult & {
+  nodeCount: number;
+  actionAt: (state: State, stockUses: Stock) => Kit | null;
+};
+
 export type RustPhase2Root = {
   firstAction: Kit | null;
   successProbability: number;
@@ -108,7 +113,7 @@ export type RustMinEfSolver = {
     horizonFactor?: number,
     normPower?: number,
     tolerance?: number,
-  ) => RustMinEfRootResult;
+  ) => RustMinEfPolicyHandle;
   solveRoot: (
     start: State,
     stock: Stock,
@@ -123,7 +128,6 @@ export type RustMinEfSolver = {
     normPower?: number,
     tolerance?: number,
   ) => RustPhase2Candidate[];
-  actionAt: (state: State, stockUses: Stock) => Kit | null;
 };
 
 export type RustPhase2Policy = {

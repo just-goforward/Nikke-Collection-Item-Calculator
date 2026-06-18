@@ -77,6 +77,10 @@ export type SolverResult = {
     probabilityTolerance?: number;
     solverVersion?: string;
     solverPhase?: string;
+    solverBackend?: string;
+    fallbackFrom?: string;
+    fallbackReason?: string;
+    solveMs?: number;
   };
   topCandidates?: SolverCandidate[];
 };

@@ -30,6 +30,7 @@ export async function solveRustMinEfProduct(
   wasmUrl: string,
   progress?: (progress: { phase: string; scanned?: number; total?: number | null }) => void,
 ) {
+  const startedAt = nowMs();
   const normalizedInput = normalizeRustProductInput(input);
   if (progress) progress({ phase: "build", scanned: 0, total: 1 });
 
@@ -37,18 +38,19 @@ export async function solveRustMinEfProduct(
   if (earlyResult) return earlyResult;
   try {
     const solver = await getRustMinEfSolver(wasmUrl);
-    const { root, candidates } = solver.solveRootWithCandidates(
+    const policy = solver.solveRootWithCandidates(
       normalizedInput.start,
       normalizedInput.stock,
       RUST_PRODUCT_HORIZON_FACTOR,
       RUST_PRODUCT_NORM_POWER,
       RUST_PRODUCT_TOLERANCE,
     );
+    const { root, candidates } = policy;
     if (!root.firstAction) {
       return buildRustNoActionResult(normalizedInput, "현재 보유 키트로 가능한 행동이 없습니다.");
     }
 
-    const actionFor = minEfActionFactory(solver);
+    const actionFor = minEfActionFactory(policy);
     const topCandidates = buildPhase2TopCandidates(
       normalizedInput,
       candidates,
@@ -90,14 +92,16 @@ export async function solveRustMinEfProduct(
           horizonFactor: RUST_PRODUCT_HORIZON_FACTOR,
           normPower: RUST_PRODUCT_NORM_POWER,
           expectedCost: root.expectedCost,
-          nodeCount: root.states,
+          nodeCount: policy.nodeCount,
         },
+        solveMs: elapsedMs(startedAt),
       },
     });
   } catch (error) {
     if (!isMemoFull(error)) throw error;
     if (progress) progress({ phase: "fallback-phase2", scanned: 0, total: 1 });
-    return solveRustPhase2(input, wasmUrl, progress);
+    const fallback = await solveRustPhase2(input, wasmUrl, progress);
+    return withFallbackStats(fallback, startedAt);
   }
 }
 
@@ -107,4 +111,28 @@ export async function solveRustMinEf(
   progress?: (progress: { phase: string; scanned?: number; total?: number | null }) => void,
 ) {
   return solveRustMinEfProduct(input, wasmUrl, progress);
+}
+
+function nowMs() {
+  return typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
+
+function elapsedMs(startedAt: number) {
+  return Math.max(0, Math.round((nowMs() - startedAt) * 100) / 100);
+}
+
+function withFallbackStats(result: unknown, startedAt: number) {
+  if (!result || typeof result !== "object") return result;
+  const record = result as { stats?: Record<string, unknown> };
+  return {
+    ...record,
+    stats: {
+      ...(record.stats || {}),
+      fallbackFrom: "rust-min-ef",
+      fallbackReason: "memo_full",
+      solveMs: elapsedMs(startedAt),
+    },
+  };
 }

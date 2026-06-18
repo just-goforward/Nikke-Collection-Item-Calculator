@@ -21,6 +21,7 @@ export async function commitSubmission(
     return commitEvent(env, normalized.eventId, now, normalized.event.kind, [
       buildSolverDiagnosticAggregateStatement(env, dateKey, normalized.event, now),
       buildSolverNodeCountAggregateStatement(env, dateKey, normalized.event, now),
+      buildSolverRuntimeAggregateStatement(env, dateKey, normalized.event, now),
     ]);
   }
 
@@ -55,6 +56,46 @@ function buildSolverNodeCountAggregateStatement(
     event.solverVersion,
     event.solverPhase,
     event.nodeCountBucket,
+    now,
+  );
+}
+
+function buildSolverRuntimeAggregateStatement(
+  env: WorkerEnv,
+  dateKey: string,
+  event: ValidatedSolverDiagnosticEvent,
+  now: number,
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `INSERT INTO solver_runtime_aggregates
+      (date_key, diagnostic_version, solver_version, solver_phase, solver_backend,
+       fallback_from, fallback_reason, grade, level, exp_bucket,
+       stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
+       node_count_bucket, solve_ms_bucket, events, last_seen)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, diagnostic_version, solver_version, solver_phase, solver_backend,
+       fallback_from, fallback_reason, grade, level, exp_bucket,
+       stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
+       node_count_bucket, solve_ms_bucket)
+     DO UPDATE SET
+      events = events + 1,
+      last_seen = excluded.last_seen`,
+  ).bind(
+    dateKey,
+    event.diagnosticVersion,
+    event.solverVersion,
+    event.solverPhase,
+    event.solverBackend,
+    event.fallbackFrom,
+    event.fallbackReason,
+    event.start.grade,
+    event.start.level,
+    event.start.exp,
+    event.stockBuckets.blue,
+    event.stockBuckets.purple,
+    event.stockBuckets.yellow,
+    event.nodeCountBucket,
+    event.solveMsBucket,
     now,
   );
 }

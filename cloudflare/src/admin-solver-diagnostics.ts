@@ -25,6 +25,23 @@ type SolverNodeCountRow = {
   events?: number | string | null;
 };
 
+type SolverRuntimeRow = {
+  solver_version?: string | null;
+  solver_phase?: string | null;
+  solver_backend?: string | null;
+  fallback_from?: string | null;
+  fallback_reason?: string | null;
+  grade?: string | null;
+  level?: number | string | null;
+  exp_bucket?: number | string | null;
+  stock_bucket_blue?: string | null;
+  stock_bucket_purple?: string | null;
+  stock_bucket_yellow?: string | null;
+  node_count_bucket?: string | null;
+  solve_ms_bucket?: string | null;
+  events?: number | string | null;
+};
+
 const DEFAULT_WINDOW_DAYS = 30;
 const MAX_WINDOW_DAYS = 365;
 
@@ -34,11 +51,12 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
   const windowDays = readWindowDays(request);
   const since = kstDateKeyFromUnixSeconds(now - 86400 * windowDays);
 
-  const [allTime, window, daily, nodeCounts] = await Promise.all([
+  const [allTime, window, daily, nodeCounts, runtime] = await Promise.all([
     readSolverDiagnosticSummary(env),
     readSolverDiagnosticSummary(env, since),
     readSolverDiagnosticDaily(env, since),
     readSolverNodeCounts(env, since),
+    readSolverRuntime(env, since),
   ]);
 
   return jsonResponse(request, env, {
@@ -49,6 +67,9 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     window,
     daily,
     nodeCounts,
+    runtime,
+    fallbacks: summarizeFallbacks(runtime),
+    latencies: summarizeLatencyBuckets(runtime),
   });
 }
 
@@ -141,4 +162,111 @@ async function readSolverNodeCounts(env: WorkerEnv, since: string) {
     nodeCountBucket: String(row.node_count_bucket || "unknown"),
     events: Number(row.events || 0),
   }));
+}
+
+async function readSolverRuntime(env: WorkerEnv, since: string) {
+  const result = await env.DB.prepare(
+    `SELECT
+       solver_version,
+       solver_phase,
+       solver_backend,
+       fallback_from,
+       fallback_reason,
+       grade,
+       level,
+       exp_bucket,
+       stock_bucket_blue,
+       stock_bucket_purple,
+       stock_bucket_yellow,
+       node_count_bucket,
+       solve_ms_bucket,
+       SUM(events) AS events
+     FROM solver_runtime_aggregates
+     WHERE date_key >= ?
+     GROUP BY solver_version, solver_phase, solver_backend, fallback_from, fallback_reason,
+       grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
+       node_count_bucket, solve_ms_bucket
+     ORDER BY solver_version ASC, solver_phase ASC, events DESC`,
+  )
+    .bind(since)
+    .all<SolverRuntimeRow>();
+
+  return (result.results || []).map((row) => ({
+    solverVersion: String(row.solver_version || "unknown"),
+    solverPhase: String(row.solver_phase || "unknown"),
+    solverBackend: String(row.solver_backend || "unknown"),
+    fallbackFrom: String(row.fallback_from || "none"),
+    fallbackReason: String(row.fallback_reason || "none"),
+    grade: String(row.grade || "unknown"),
+    level: Number(row.level || 0),
+    expBucket: Number(row.exp_bucket || 0),
+    stockBuckets: {
+      blue: String(row.stock_bucket_blue || "unknown"),
+      purple: String(row.stock_bucket_purple || "unknown"),
+      yellow: String(row.stock_bucket_yellow || "unknown"),
+    },
+    nodeCountBucket: String(row.node_count_bucket || "unknown"),
+    solveMsBucket: String(row.solve_ms_bucket || "unknown"),
+    events: Number(row.events || 0),
+  }));
+}
+
+function summarizeFallbacks(runtime: Awaited<ReturnType<typeof readSolverRuntime>>) {
+  const grouped = new Map<
+    string,
+    {
+      solverVersion: string;
+      solverPhase: string;
+      solverBackend: string;
+      events: number;
+      fallbackEvents: number;
+    }
+  >();
+  for (const row of runtime) {
+    const key = `${row.solverVersion}\0${row.solverPhase}\0${row.solverBackend}`;
+    const item = grouped.get(key) || {
+      solverVersion: row.solverVersion,
+      solverPhase: row.solverPhase,
+      solverBackend: row.solverBackend,
+      events: 0,
+      fallbackEvents: 0,
+    };
+    item.events += row.events;
+    if (row.fallbackReason !== "none") item.fallbackEvents += row.events;
+    grouped.set(key, item);
+  }
+  return [...grouped.values()].map((item) => ({
+    ...item,
+    fallbackRate: item.events > 0 ? item.fallbackEvents / item.events : 0,
+  }));
+}
+
+function summarizeLatencyBuckets(runtime: Awaited<ReturnType<typeof readSolverRuntime>>) {
+  const grouped = new Map<
+    string,
+    {
+      solverVersion: string;
+      solverPhase: string;
+      solverBackend: string;
+      solveMsBucket: string;
+      events: number;
+    }
+  >();
+  for (const row of runtime) {
+    const key = `${row.solverVersion}\0${row.solverPhase}\0${row.solverBackend}\0${row.solveMsBucket}`;
+    const item = grouped.get(key) || {
+      solverVersion: row.solverVersion,
+      solverPhase: row.solverPhase,
+      solverBackend: row.solverBackend,
+      solveMsBucket: row.solveMsBucket,
+      events: 0,
+    };
+    item.events += row.events;
+    grouped.set(key, item);
+  }
+  return [...grouped.values()].sort((a, b) => {
+    const version = a.solverVersion.localeCompare(b.solverVersion);
+    if (version !== 0) return version;
+    return b.events - a.events;
+  });
 }

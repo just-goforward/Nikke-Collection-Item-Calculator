@@ -88,6 +88,22 @@ function bucketNodeCount(value: number) {
   return "1000000_plus";
 }
 
+function bucketSolveMs(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "unknown";
+  if (value <= 50) return "0_50";
+  if (value <= 100) return "50_100";
+  if (value <= 250) return "100_250";
+  if (value <= 500) return "250_500";
+  if (value <= 1000) return "500_1000";
+  if (value <= 2500) return "1000_2500";
+  if (value <= 5000) return "2500_5000";
+  return "5000_plus";
+}
+
+function diagnosticToken(value: unknown, fallback = "unknown") {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
 function vectorValue(vector: Partial<Record<Kit, number>> | undefined, kit: Kit) {
   return Math.max(0, Number(vector?.[kit] || 0));
 }
@@ -123,12 +139,16 @@ export function makeSolverDiagnosticEvent(result: SolverResult) {
       ? stats.solverVersion
       : "phase2_availability_h075_tau0_p3";
   const solverPhase = typeof stats.solverPhase === "string" ? stats.solverPhase : "phase2";
+  const solverBackend = diagnosticToken(stats.solverBackend, "js-phase2");
 
   return {
     kind: "solver_diagnostic" as const,
-    diagnosticVersion: 3,
+    diagnosticVersion: 4,
     solverVersion,
     solverPhase,
+    solverBackend,
+    fallbackFrom: diagnosticToken(stats.fallbackFrom, "none"),
+    fallbackReason: diagnosticToken(stats.fallbackReason, "none"),
     start: input.start,
     strategy,
     stockBuckets: {
@@ -144,6 +164,7 @@ export function makeSolverDiagnosticEvent(result: SolverResult) {
     probabilityGapBucket: bucketProbabilityGap(probabilityGap),
     resourceCostBucket: bucketResourceCost(Number(best.resourceCost || 0)),
     nodeCountBucket: bucketNodeCount(Number(stats.states || 0)),
+    solveMsBucket: bucketSolveMs(Number(stats.solveMs || 0)),
     legacySupplyCostBucket: bucketResourceCost(Number(best.legacySupplyCost || 0)),
     totalExpectedCostBucket: bucketTotalExpectedCost(totalExpectedCost),
     blueShareBucket: bucketBlueShare(blueShare),

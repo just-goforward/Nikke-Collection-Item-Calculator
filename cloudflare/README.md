@@ -161,6 +161,12 @@ For the Rust min-E[f] version-name migration and node-count aggregate table:
 wrangler d1 execute collection-kit-stats --remote --file cloudflare/migrate-min-ef-version-and-node-count.sql --config cloudflare/wrangler.toml
 ```
 
+For solver runtime backend/fallback/latency aggregates:
+
+```powershell
+wrangler d1 execute collection-kit-stats --remote --file cloudflare/add-solver-runtime-aggregates.sql --config cloudflare/wrangler.toml
+```
+
 Referrer/source-host aggregates are intentionally not returned by this public endpoint. Check them privately through D1, for example:
 
 ```powershell
@@ -179,6 +185,36 @@ The `strategy` column is retained as a fixed compatibility field for the current
 
 ```powershell
 wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, solver_version, solver_phase, grade, level, strategy, probability_gap_bucket, resource_cost_bucket, legacy_supply_cost_bucket, blue_share_bucket, min_autonomy_days_bucket, events FROM solver_diagnostic_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
+```
+
+Current real-service solver event counts:
+
+```powershell
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT solver_version, solver_phase, SUM(events) AS events FROM solver_diagnostic_aggregates GROUP BY solver_version, solver_phase ORDER BY events DESC"
+```
+
+Rust min-E[f] fallback rate and reason buckets:
+
+```powershell
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT solver_backend, fallback_from, fallback_reason, SUM(events) AS events FROM solver_runtime_aggregates GROUP BY solver_backend, fallback_from, fallback_reason ORDER BY events DESC"
+```
+
+Rust min-E[f] fallback contexts for future kernel tuning:
+
+```powershell
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, fallback_reason, SUM(events) AS events FROM solver_runtime_aggregates WHERE fallback_reason != 'none' GROUP BY grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, fallback_reason ORDER BY events DESC LIMIT 50"
+```
+
+Node-count bucket pressure:
+
+```powershell
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT solver_version, solver_phase, node_count_bucket, SUM(events) AS events FROM solver_node_count_aggregates GROUP BY solver_version, solver_phase, node_count_bucket ORDER BY events DESC"
+```
+
+Approximate solve latency distribution by bucket:
+
+```powershell
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT solver_backend, solve_ms_bucket, SUM(events) AS events FROM solver_runtime_aggregates GROUP BY solver_backend, solve_ms_bucket ORDER BY solver_backend ASC, events DESC"
 ```
 
 Or query the protected admin endpoint:
