@@ -139,34 +139,36 @@ body {
   overflow-wrap: break-word;
 }
 
+html.theme-commit *,
+html.theme-commit *::before,
+html.theme-commit *::after {
+  transition: none !important;
+}
+
+@keyframes theme-view-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
-  body.theme-transitioning,
-  body.theme-transitioning .panel,
-  body.theme-transitioning .section-heading,
-  body.theme-transitioning .bg-surface,
-  body.theme-transitioning .bg-surface-strong,
-  body.theme-transitioning .bg-surface-raised,
-  body.theme-transitioning .bg-input,
-  body.theme-transitioning .bg-button,
-  body.theme-transitioning .bg-action,
-  body.theme-transitioning .bg-outcome,
-  body.theme-transitioning .bg-overlay,
-  body.theme-transitioning .border-border,
-  body.theme-transitioning .theme-options,
-  body.theme-transitioning .theme-button,
-  body.theme-transitioning .mobile-status-strip,
-  body.theme-transitioning .mobile-action-bar,
-  body.theme-transitioning .next-action,
-  body.theme-transitioning .outcome-panel,
-  body.theme-transitioning button,
-  body.theme-transitioning input,
-  body.theme-transitioning select {
-    transition-duration: 320ms;
-    transition-property:
-      background-color,
-      border-color,
-      color;
-    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  ::view-transition-old(root) {
+    animation: none;
+  }
+
+  ::view-transition-new(root) {
+    animation: theme-view-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
   }
 }
 }

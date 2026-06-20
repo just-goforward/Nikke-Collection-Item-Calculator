@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/knip/schema-jsonc.json",
+  "entry": [
+    "src/worker.ts",
+    "cloudflare/src/worker.ts"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx,css}",
+    "cloudflare/src/**/*.ts",
+    "scripts/**/*.ts",
+    "benchmarks/**/*.ts",
+    "e2e/**/*.ts"
+  ],
+  "include": [
+    "files",
+    "dependencies",
+    "devDependencies",
+    "unlisted",
+    "binaries",
+    "unresolved"
+  ],
+  "ignoreFiles": ["cloudflare/src/test-env.d.ts"],
+  "ignoreDependencies": ["wrangler"]
+}

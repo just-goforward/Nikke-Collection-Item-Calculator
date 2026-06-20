@@ -23,7 +23,7 @@ const kitDotClass: Record<Kit, string> = {
 
 const classes = {
   panel:
-    "panel detail-panel relative col-span-full min-w-0 overflow-visible rounded-card border border-border bg-surface shadow-panel [contain:layout] [transform:translateZ(0)] transition-[background-color,border-color,box-shadow] duration-[220ms]",
+    "panel detail-panel relative col-span-full min-w-0 overflow-visible rounded-card border border-border bg-surface shadow-panel [contain:layout] transition-[background-color,border-color,box-shadow] duration-[220ms]",
   heading:
     "section-heading flex items-center justify-between gap-3 border-b border-border px-[18px] py-4 transition-[border-color,background-color,color] duration-[220ms] max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",
   emptyResult: "empty-result px-[18px] py-[22px] font-medium text-muted",

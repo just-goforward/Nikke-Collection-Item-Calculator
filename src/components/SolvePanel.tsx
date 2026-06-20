@@ -7,7 +7,7 @@ type SolvePanelProps = {
 
 const classes = {
   panel:
-    "min-w-0 rounded-card border border-border bg-surface shadow-panel [contain:layout_paint] [transform:translateZ(0)] transition-[background-color,border-color,box-shadow] duration-[220ms]",
+    "min-w-0 rounded-card border border-border bg-surface shadow-panel [contain:layout_paint] transition-[background-color,border-color,box-shadow] duration-[220ms]",
   heading:
     "flex items-center justify-between gap-3 border-b border-border px-[18px] py-4 transition-[border-color,background-color,color] duration-[220ms] max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",
   note: "mx-[18px] mb-3.5 mt-4 rounded-card border border-border bg-surface-strong px-3.5 py-[13px] text-text-soft text-[13px] font-normal leading-[1.45] [overflow-wrap:break-word] [word-break:keep-all] max-mobile:mx-3 max-mobile:mb-2 max-mobile:mt-3 max-mobile:px-3 max-mobile:py-[11px] max-mobile:text-[12.5px] max-mobile:leading-4",

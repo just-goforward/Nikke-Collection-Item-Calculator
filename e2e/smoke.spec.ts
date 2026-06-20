@@ -215,12 +215,46 @@ test("SR 15 — 최종 목표 상태 문구가 정상 한글로 표시된다", a
 test("테마 선택 — 다크/라이트 버튼이 body 테마 클래스를 바꾼다", async ({ page }) => {
   const themeGroup = page.getByRole("group", { name: "테마 선택" });
   const body = page.locator("body");
+  const html = page.locator("html");
+
+  await page.evaluate(() => {
+    const startViewTransition = document.startViewTransition.bind(document);
+    document.startViewTransition = (update) => {
+      document.documentElement.dataset.themeViewTransition = "started";
+      return startViewTransition(update);
+    };
+  });
 
   await themeGroup.getByRole("button", { name: "다크", exact: true }).click();
   await expect(body).toHaveClass(/theme-dark/);
+  await expect(html).toHaveAttribute("data-theme-view-transition", "started");
+  await expect(html).not.toHaveClass(/theme-commit/);
+  await expect(html).not.toHaveClass(/theme-view-transitioning/);
 
   await themeGroup.getByRole("button", { name: "라이트", exact: true }).click();
   await expect(body).toHaveClass(/theme-light/);
+});
+
+test("테마 선택 — reduced motion에서는 View Transition을 건너뛴다", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.evaluate(() => {
+    Reflect.defineProperty(document, "startViewTransition", {
+      configurable: true,
+      value: () => {
+        document.documentElement.dataset.unexpectedViewTransition = "called";
+        throw new Error("View Transition should not run with reduced motion.");
+      },
+    });
+  });
+
+  await page
+    .getByRole("group", { name: "테마 선택" })
+    .getByRole("button", { name: "다크", exact: true })
+    .click();
+
+  await expect(page.locator("body")).toHaveClass(/theme-dark/);
+  await expect(page.locator("html")).not.toHaveAttribute("data-unexpected-view-transition");
+  await expect(page.locator("html")).not.toHaveClass(/theme-commit/);
 });
 
 test("테마 선택 — 계산 패널은 다크 모드에서 어두운 배경을 유지한다", async ({ page }) => {

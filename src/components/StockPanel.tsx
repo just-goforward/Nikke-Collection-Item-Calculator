@@ -39,7 +39,7 @@ const KIT_INPUTS: KitInputDefinition[] = [
 
 const classes = {
   panel:
-    "min-w-0 rounded-card border border-border bg-surface shadow-panel [contain:layout_paint] [transform:translateZ(0)] transition-[background-color,border-color,box-shadow] duration-[220ms]",
+    "min-w-0 rounded-card border border-border bg-surface shadow-panel [contain:layout_paint] transition-[background-color,border-color,box-shadow] duration-[220ms]",
   panelNeedsEdit: "border-yellow-kit shadow-[0_0_0_3px_rgba(230,170,38,0.22),var(--shadow)]",
   heading:
     "flex items-center justify-between gap-3 border-b border-border px-[18px] py-4 transition-[border-color,background-color,color] duration-[220ms] max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",

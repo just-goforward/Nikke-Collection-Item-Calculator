@@ -17,6 +17,7 @@ async function openDemo(page: import("@playwright/test").Page) {
 async function setTheme(page: import("@playwright/test").Page, theme: "light" | "dark") {
   await page.locator(`button[data-theme-mode="${theme}"]`).click();
   await expect(page.locator("body")).toHaveClass(new RegExp(`theme-${theme}`));
+  await expect(page.locator("html")).not.toHaveClass(/theme-view-transitioning/);
 }
 
 async function setGrade(page: import("@playwright/test").Page, grade: "R" | "SR") {

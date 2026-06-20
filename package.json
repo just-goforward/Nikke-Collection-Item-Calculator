@@ -37,8 +37,9 @@
     "test:visual": "playwright test e2e/visual.spec.ts",
     "test:visual:update": "playwright test e2e/visual.spec.ts --update-snapshots",
     "typecheck": "tsc --noEmit && tsc --noEmit -p cloudflare/tsconfig.json",
-    "lint": "biome check && npm run lint:architecture",
+    "lint": "biome check && npm run lint:architecture && npm run lint:unused",
     "lint:architecture": "node scripts/check-architecture.ts",
+    "lint:unused": "knip",
     "lint:fix": "biome check --write",
     "format": "biome format --write",
     "report:bundle": "node scripts/report-bundle.ts",
@@ -46,6 +47,7 @@
     "clean:artifacts:dry-run": "node scripts/clean-artifacts.ts"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
     "@biomejs/biome": "^2.5.0",
     "@cloudflare/workers-types": "^4.20260617.1",
     "@playwright/test": "1.61.0",
@@ -56,12 +58,14 @@
     "@vitejs/plugin-react": "^6.0.2",
     "@vitest/coverage-v8": "^4.1.9",
     "esbuild": "^0.28.1",
+    "fast-check": "^4.8.0",
+    "knip": "^6.17.1",
     "miniflare": "^4.20260617.0",
     "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.16",
     "vitest": "^4.1.9",
-    "wrangler": "^4.102.0"
+    "wrangler": "^4.103.0"
   },
   "dependencies": {
     "react": "^19.2.7",
@@ -69,8 +73,8 @@
     "zod": "4.4.3"
   },
   "allowScripts": {
-    "esbuild@0.28.0": true,
+    "esbuild@0.28.1": true,
     "sharp@0.34.5": true,
-    "workerd@1.20260609.1": true
+    "workerd@1.20260617.1": true
   }
 }

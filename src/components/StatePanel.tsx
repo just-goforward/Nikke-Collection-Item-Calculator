@@ -13,7 +13,7 @@ const LEVEL_ROWS = [
 
 const classes = {
   panel:
-    "panel state-panel relative min-w-0 rounded-card border border-border bg-surface shadow-panel [contain:layout_paint] [transform:translateZ(0)] transition-[background-color,border-color,box-shadow] duration-[220ms]",
+    "panel state-panel relative min-w-0 rounded-card border border-border bg-surface shadow-panel [contain:layout_paint] transition-[background-color,border-color,box-shadow] duration-[220ms]",
   feedbackRing: `pointer-events-none absolute inset-0 z-[1] rounded-card border-2 border-grade-active opacity-0 ${stateFeedbackAnimations.ring}`,
   feedbackBadge: `state-feedback-badge pointer-events-none ml-auto inline-flex shrink-0 items-center rounded-pill border border-grade-active bg-surface-raised px-2.5 py-1 text-[11px] font-semibold leading-none text-grade-active-strong shadow-[0_8px_18px_rgba(21,43,58,0.14)] ${stateFeedbackAnimations.badge}`,
   heading:

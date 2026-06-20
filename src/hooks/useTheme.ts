@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { ignoreExpectedError } from "../lib/errorHandling";
 import type { Grade } from "../types";
 import type { ThemeMode } from "../ui-types";
 
 const THEME_STORAGE_KEY = "collectionThemeMode";
-const THEME_TRANSITION_MS = 360;
+const THEME_COMMIT_CLASS = "theme-commit";
+const THEME_VIEW_TRANSITION_CLASS = "theme-view-transitioning";
+let themeTransitionGeneration = 0;
 
 function initialThemeMode(): ThemeMode {
   try {
@@ -31,28 +34,61 @@ function resolvedTheme(mode: ThemeMode) {
   return mode === "system" ? (systemPrefersDark() ? "dark" : "light") : mode;
 }
 
+function applyTheme(mode: ThemeMode) {
+  const resolved = resolvedTheme(mode);
+  document.body.classList.toggle("theme-dark", resolved === "dark");
+  document.body.classList.toggle("theme-light", resolved === "light");
+}
+
+function prefersReducedMotion() {
+  return (
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+function releaseThemeCommitClass() {
+  document.documentElement.classList.remove(THEME_COMMIT_CLASS);
+}
+
+function releaseViewTransitionClass(generation: number) {
+  if (generation !== themeTransitionGeneration) return;
+  document.documentElement.classList.remove(THEME_VIEW_TRANSITION_CLASS);
+}
+
+function commitThemeChange(update: () => void) {
+  document.documentElement.classList.add(THEME_COMMIT_CLASS);
+  if (
+    prefersReducedMotion() ||
+    document.visibilityState !== "visible" ||
+    typeof document.startViewTransition !== "function"
+  ) {
+    update();
+    window.requestAnimationFrame(releaseThemeCommitClass);
+    return;
+  }
+
+  const generation = ++themeTransitionGeneration;
+  document.documentElement.classList.add(THEME_VIEW_TRANSITION_CLASS);
+  const transition = document.startViewTransition(update);
+  void transition.ready.then(releaseThemeCommitClass, releaseThemeCommitClass);
+  void transition.finished.then(
+    () => releaseViewTransitionClass(generation),
+    () => releaseViewTransitionClass(generation),
+  );
+}
+
 export function useTheme(grade: Grade) {
   const [themeMode, setThemeModeState] = useState<ThemeMode>(initialThemeMode);
-  const didApplyThemeRef = useRef(false);
-  const transitionTimerRef = useRef<number | null>(null);
-
-  const startThemeTransition = useCallback(() => {
-    if (!didApplyThemeRef.current) return;
-    document.body.classList.add("theme-transitioning");
-    // Make the transition class observable before theme CSS variables change.
-    void document.body.offsetHeight;
-    if (transitionTimerRef.current !== null) window.clearTimeout(transitionTimerRef.current);
-    transitionTimerRef.current = window.setTimeout(() => {
-      document.body.classList.remove("theme-transitioning");
-      transitionTimerRef.current = null;
-    }, THEME_TRANSITION_MS);
-  }, []);
 
   const setThemeMode = useCallback(
     (mode: ThemeMode) => {
       const nextMode = mode === "dark" || mode === "light" ? mode : "system";
-      if (nextMode !== themeMode) startThemeTransition();
-      setThemeModeState(nextMode);
+      if (nextMode === themeMode) return;
+      commitThemeChange(() => {
+        flushSync(() => setThemeModeState(nextMode));
+        applyTheme(nextMode);
+      });
       try {
         if (nextMode === "system") window.localStorage.removeItem(THEME_STORAGE_KEY);
         else window.localStorage.setItem(THEME_STORAGE_KEY, nextMode);
@@ -63,34 +99,24 @@ export function useTheme(grade: Grade) {
         );
       }
     },
-    [startThemeTransition, themeMode],
+    [themeMode],
   );
 
   useEffect(() => {
-    const apply = () => {
-      const resolved = resolvedTheme(themeMode);
-      document.body.classList.toggle("theme-dark", resolved === "dark");
-      document.body.classList.toggle("theme-light", resolved === "light");
-      didApplyThemeRef.current = true;
-    };
-    apply();
+    applyTheme(themeMode);
     const media = window.matchMedia?.("(prefers-color-scheme: dark)");
     if (!media || themeMode !== "system") return undefined;
     const handleSystemThemeChange = () => {
-      startThemeTransition();
-      apply();
+      commitThemeChange(() => applyTheme(themeMode));
     };
     media.addEventListener("change", handleSystemThemeChange);
     return () => media.removeEventListener("change", handleSystemThemeChange);
-  }, [startThemeTransition, themeMode]);
+  }, [themeMode]);
 
   useEffect(() => {
     return () => {
-      if (transitionTimerRef.current !== null) {
-        window.clearTimeout(transitionTimerRef.current);
-        transitionTimerRef.current = null;
-      }
-      document.body.classList.remove("theme-transitioning");
+      releaseThemeCommitClass();
+      document.documentElement.classList.remove(THEME_VIEW_TRANSITION_CLASS);
     };
   }, []);
 
