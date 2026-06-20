@@ -7,6 +7,7 @@ import {
   formatArchitectureResult,
   gitTrackedFiles,
   measureFunctions,
+  violatesModuleBoundary,
 } from "./architecture-rules.ts";
 
 describe("architecture rules", () => {
@@ -34,6 +35,28 @@ function sample(input: boolean) {
       maxDepth: 3,
       complexity: 4,
     });
+  });
+
+  it("uses the TypeScript AST instead of counting braces inside strings", () => {
+    const metrics = measureFunctions(`
+function outer() {
+  const marker = "}";
+  if (marker) return 1;
+  return 0;
+}
+`, "fixture.ts");
+
+    expect(metrics).toHaveLength(1);
+    expect(metrics[0]).toMatchObject({ name: "outer", endLine: 6, maxDepth: 1, complexity: 2 });
+  });
+
+  it("rejects imports that cross product runtime boundaries", () => {
+    expect(violatesModuleBoundary("src/app.ts", "cloudflare/src/worker.ts")).toBe(true);
+    expect(violatesModuleBoundary("cloudflare/src/worker.ts", "src/types.ts")).toBe(true);
+    expect(violatesModuleBoundary("src/app.ts", "src/types.ts")).toBe(false);
+    expect(
+      violatesModuleBoundary("cloudflare/src/worker.ts", "cloudflare/src/http.ts"),
+    ).toBe(false);
   });
 
   it("formats pass and fail results for the CLI wrapper", () => {

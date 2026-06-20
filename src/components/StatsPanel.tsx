@@ -107,11 +107,15 @@ export default function StatsPanel({ view }: StatsPanelProps) {
       </div>
       <div
         id="globalStatsBox"
-        className={view.type === "empty" || view.type === "hidden" ? classes.panelEmpty : ""}
+        className={
+          view.type === "empty" || view.type === "error" || view.type === "hidden"
+            ? classes.panelEmpty
+            : ""
+        }
       >
         {view.type === "stats" ? (
           <StatsContent stats={view.stats} />
-        ) : view.type === "empty" ? (
+        ) : view.type === "empty" || view.type === "error" ? (
           view.message
         ) : (
           "통계 서버를 연결하면 전체 사용자의 결과가 표시됩니다."

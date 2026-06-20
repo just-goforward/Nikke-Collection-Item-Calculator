@@ -1,5 +1,5 @@
 import { actionFromIndex, encodeState, readMinEfRootCandidates } from "./rustCoreShared";
-import { assertRustStatusOk, RustSolveError } from "./rustStatus";
+import { assertRustStatusOk, RUST_STATUS_OK, RustSolveError } from "./rustStatus";
 import type {
   RustCoreExports,
   RustMinEfPolicyHandle,
@@ -61,7 +61,7 @@ function solveMinEfRootWithCandidates(
 ): RustMinEfPolicyHandle {
   const exports = state.exports;
   runMinEf(exports, start, stock, horizonFactor, normPower, tolerance);
-  assertRustStatusOk(exports, "root solve");
+  assertMinEfRootStatusOk(exports);
   state.buildGeneration += 1;
   const generation = state.buildGeneration;
   const root = readMinEfRoot(exports);
@@ -74,6 +74,12 @@ function solveMinEfRootWithCandidates(
       return lookupMinEfAction(exports, nodeState, stockUses);
     },
   };
+}
+
+function assertMinEfRootStatusOk(exports: RustCoreExports) {
+  const status = exports.getSolveStatus?.() ?? RUST_STATUS_OK;
+  if (status === RUST_STATUS_OK) return;
+  throw new RustSolveError("root solve", status, "status", exports.minEfNodeCount?.() ?? null);
 }
 
 function readMinEfRoot(exports: RustCoreExports): RustMinEfRoot {

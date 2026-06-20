@@ -1,49 +1,42 @@
-import { asRecord, field, normalizeState } from "./event-validation-common";
-import type {
-  SubmissionEnvelope,
-  UnknownRecord,
-  ValidatedSubmission,
-} from "./event-validation-types";
+import { validateState } from "./event-validation-common";
+import type { SubmissionEnvelope, ValidatedSubmission } from "./event-validation-types";
 import { normalizeDiagnosticToken, normalizeSourceHost, normalizeStrategy } from "./normalization";
+import type { SolverDiagnosticEventInput } from "./schemas";
 
 export function validateDiagnosticSubmission(
   payload: SubmissionEnvelope,
-  event: UnknownRecord,
+  event: SolverDiagnosticEventInput,
 ): ValidatedSubmission {
-  const stockBuckets = asRecord(field(event, "stockBuckets"), "invalid_stock_buckets");
   return {
     eventId: payload.eventId,
     sourceHost: normalizeSourceHost(payload.sourceHost),
     event: {
       kind: "solver_diagnostic",
-      diagnosticVersion: field(event, "diagnosticVersion"),
-      solverVersion: normalizeDiagnosticToken(field(event, "solverVersion")),
-      solverPhase: normalizeDiagnosticToken(field(event, "solverPhase")),
-      solverBackend: normalizeDiagnosticToken(field(event, "solverBackend")),
-      fallbackFrom: normalizeOptionalDiagnosticToken(field(event, "fallbackFrom"), "none"),
-      fallbackReason: normalizeOptionalDiagnosticToken(field(event, "fallbackReason"), "none"),
-      start: normalizeState(field(event, "start"), false),
-      strategy: normalizeStrategy(field(event, "strategy")),
-      stockBuckets: {
-        blue: field(stockBuckets, "blue"),
-        purple: field(stockBuckets, "purple"),
-        yellow: field(stockBuckets, "yellow"),
-      },
-      recommendedKit: field(event, "recommendedKit"),
-      recommendedUsesBucket: field(event, "recommendedUsesBucket"),
-      candidateCountBucket: field(event, "candidateCountBucket"),
-      probabilityGapBucket: field(event, "probabilityGapBucket"),
-      resourceCostBucket: field(event, "resourceCostBucket"),
-      legacySupplyCostBucket: field(event, "legacySupplyCostBucket"),
-      totalExpectedCostBucket: field(event, "totalExpectedCostBucket"),
-      blueShareBucket: field(event, "blueShareBucket"),
-      minAutonomyDaysBucket: field(event, "minAutonomyDaysBucket"),
-      nodeCountBucket: normalizeDiagnosticToken(field(event, "nodeCountBucket")),
-      solveMsBucket: normalizeOptionalDiagnosticToken(field(event, "solveMsBucket"), "unknown"),
-      changedFromSingle: field(event, "changedFromSingle"),
-      changedFromLegacySupply: field(event, "changedFromLegacySupply"),
-      legacyPrivateStatsAvailable: Boolean(field(event, "legacyPrivateStatsAvailable")),
-      legacyEventAggregateMatchable: Boolean(field(event, "legacyEventAggregateMatchable")),
+      diagnosticVersion: event.diagnosticVersion,
+      solverVersion: normalizeDiagnosticToken(event.solverVersion),
+      solverPhase: normalizeDiagnosticToken(event.solverPhase),
+      solverBackend: normalizeDiagnosticToken(event.solverBackend),
+      fallbackFrom: normalizeOptionalDiagnosticToken(event.fallbackFrom, "none"),
+      fallbackReason: normalizeOptionalDiagnosticToken(event.fallbackReason, "none"),
+      start: validateState(event.start, false),
+      strategy: normalizeStrategy(event.strategy),
+      stockBuckets: event.stockBuckets,
+      recommendedKit: event.recommendedKit,
+      recommendedUsesBucket: event.recommendedUsesBucket,
+      candidateCountBucket: event.candidateCountBucket,
+      probabilityGapBucket: event.probabilityGapBucket,
+      resourceCostBucket: event.resourceCostBucket,
+      legacySupplyCostBucket: event.legacySupplyCostBucket,
+      totalExpectedCostBucket: event.totalExpectedCostBucket,
+      blueShareBucket: event.blueShareBucket,
+      minAutonomyDaysBucket: event.minAutonomyDaysBucket,
+      nodeCountBucket: normalizeDiagnosticToken(event.nodeCountBucket),
+      attemptedNodeCountBucket: normalizeDiagnosticToken(event.attemptedNodeCountBucket),
+      solveMsBucket: normalizeOptionalDiagnosticToken(event.solveMsBucket, "unknown"),
+      changedFromSingle: event.changedFromSingle,
+      changedFromLegacySupply: event.changedFromLegacySupply,
+      legacyPrivateStatsAvailable: event.legacyPrivateStatsAvailable,
+      legacyEventAggregateMatchable: event.legacyEventAggregateMatchable,
     },
   };
 }

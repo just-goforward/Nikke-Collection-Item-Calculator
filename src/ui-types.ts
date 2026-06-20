@@ -175,6 +175,7 @@ export type GlobalStats = {
 export type StatsView =
   | { type: "hidden" }
   | { type: "empty"; message: string }
+  | { type: "error"; message: string }
   | { type: "stats"; stats: GlobalStats };
 
 export type CalculatorInput = {

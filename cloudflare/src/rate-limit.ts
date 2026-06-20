@@ -39,16 +39,13 @@ export async function rateLimit(
   });
 }
 
-export function scheduleCleanup(env: RateLimitEnv, ctx: ExecutionContext, now: number) {
-  if (!ctx || now % 20 !== 0) return;
-  ctx.waitUntil(
-    Promise.all([
-      env.DB.prepare("DELETE FROM rate_limits WHERE expires_at < ?").bind(now).run(),
-      env.DB.prepare("DELETE FROM event_ids WHERE created_at < ?")
-        .bind(now - 86400 * 14)
-        .run(),
-    ]),
-  );
+export async function cleanupExpiredStatistics(env: RateLimitEnv, now: number): Promise<void> {
+  await Promise.all([
+    env.DB.prepare("DELETE FROM rate_limits WHERE expires_at < ?").bind(now).run(),
+    env.DB.prepare("DELETE FROM event_ids WHERE created_at < ?")
+      .bind(now - 86400 * 14)
+      .run(),
+  ]);
 }
 
 async function hashKey(value: string) {

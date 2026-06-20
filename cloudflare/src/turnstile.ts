@@ -62,6 +62,7 @@ export async function verifyTurnstile(
           returnedAction: result.action,
           internallyRetried,
         });
+        throw new HttpError(403, "turnstile_action_mismatch", false);
       }
       return;
     }

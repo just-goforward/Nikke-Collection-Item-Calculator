@@ -1,3 +1,4 @@
+import { kstDateKeyFromUnixSeconds } from "./date-key";
 import { GREAT_SUCCESS, type Grade, KIT_ORDER, type Kit } from "./domain";
 import { isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
@@ -20,14 +21,12 @@ type SegmentGroup = NonNullable<ReturnType<typeof segmentForState>> & {
   rows: StatsAggregateRow[];
 };
 
-const KST_OFFSET_SECONDS = 9 * 60 * 60;
-
 export async function handleStats(request: Request, env: StatsReadEnv) {
   if (!isAllowedOrigin(request, env)) throw new HttpError(403, "origin_not_allowed");
   if (!env.DB) throw new HttpError(500, "database_not_configured");
   const now = Math.floor(Date.now() / 1000);
   const today = kstDateKeyFromUnixSeconds(now);
-  const since = kstDateKeyFromUnixSeconds(now - 86400 * 30);
+  const since = kstDateKeyFromUnixSeconds(now - 86400 * 29);
 
   const [statRows, cumulativeRows, todayRow] = await Promise.all([
     env.DB.prepare(
@@ -95,10 +94,6 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
     200,
     "public, max-age=60, s-maxage=60",
   );
-}
-
-export function kstDateKeyFromUnixSeconds(seconds: number) {
-  return new Date((seconds + KST_OFFSET_SECONDS) * 1000).toISOString().slice(0, 10);
 }
 
 function summarizeRows(rows: StatsAggregateRow[]) {

@@ -143,7 +143,7 @@ export function makeSolverDiagnosticEvent(result: SolverResult) {
 
   return {
     kind: "solver_diagnostic" as const,
-    diagnosticVersion: 4,
+    diagnosticVersion: 5,
     solverVersion,
     solverPhase,
     solverBackend,
@@ -164,6 +164,7 @@ export function makeSolverDiagnosticEvent(result: SolverResult) {
     probabilityGapBucket: bucketProbabilityGap(probabilityGap),
     resourceCostBucket: bucketResourceCost(Number(best.resourceCost || 0)),
     nodeCountBucket: bucketNodeCount(Number(stats.states || 0)),
+    attemptedNodeCountBucket: bucketNodeCount(Number(stats.attemptedStates ?? stats.states ?? 0)),
     solveMsBucket: bucketSolveMs(Number(stats.solveMs || 0)),
     legacySupplyCostBucket: bucketResourceCost(Number(best.legacySupplyCost || 0)),
     totalExpectedCostBucket: bucketTotalExpectedCost(totalExpectedCost),

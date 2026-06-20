@@ -133,5 +133,6 @@ describe("rust min-E[f] core wrapper", () => {
       thrown = error;
     }
     expect(isMemoFull(thrown)).toBe(true);
+    if (isMemoFull(thrown)) expect(thrown.nodeCount).toBe(4321);
   });
 });

@@ -3,20 +3,22 @@ import z from "zod/v4";
 const GradeSchema = z.enum(["R", "SR"]);
 const KitSchema = z.enum(["blue", "purple", "yellow"]);
 const StrategySchema = z.enum(["single", "supply"]);
+const EventIdSchema = z.string().regex(/^[a-zA-Z0-9-]{16,80}$/);
+const StockValueSchema = z.number().int().min(0).max(100_000);
 
 const CollectionStateSchema = z
   .object({
     grade: GradeSchema,
-    level: z.number(),
-    exp: z.number(),
+    level: z.number().int().min(0).max(15),
+    exp: z.number().int().min(0).max(2_900),
   })
   .passthrough();
 
 const StockSchema = z
   .object({
-    blue: z.number(),
-    purple: z.number(),
-    yellow: z.number(),
+    blue: StockValueSchema,
+    purple: StockValueSchema,
+    yellow: StockValueSchema,
   })
   .passthrough();
 
@@ -25,10 +27,10 @@ const KitResultEventSchema = z
     kind: z.literal("kit_result"),
     start: CollectionStateSchema,
     kit: KitSchema,
-    recommendedUses: z.number(),
+    recommendedUses: z.number().int().min(1).max(100),
     strategy: StrategySchema.optional(),
     outcome: z.enum(["great_success", "no_great_success"]),
-    successAttempt: z.number().nullable().optional(),
+    successAttempt: z.number().int().min(1).max(100).nullable().optional(),
     stockBefore: StockSchema,
     stockAfter: StockSchema,
     resultState: CollectionStateSchema,
@@ -99,7 +101,13 @@ const ComparisonBucketSchema = z.enum(["yes", "no", "unknown", "not_applicable"]
 const SolverDiagnosticEventSchema = z
   .object({
     kind: z.literal("solver_diagnostic"),
-    diagnosticVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+    diagnosticVersion: z.union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(3),
+      z.literal(4),
+      z.literal(5),
+    ]),
     solverVersion: z.string(),
     solverPhase: z.string(),
     solverBackend: z.string().optional(),
@@ -124,6 +132,7 @@ const SolverDiagnosticEventSchema = z
     blueShareBucket: BlueShareBucketSchema,
     minAutonomyDaysBucket: MinAutonomyDaysBucketSchema,
     nodeCountBucket: NodeCountBucketSchema.optional(),
+    attemptedNodeCountBucket: NodeCountBucketSchema.optional(),
     solveMsBucket: SolveMsBucketSchema.optional(),
     changedFromSingle: ComparisonBucketSchema,
     changedFromLegacySupply: ComparisonBucketSchema,
@@ -135,10 +144,18 @@ const SolverDiagnosticEventSchema = z
 export const EventSubmissionSchema = z
   .object({
     version: z.literal(1),
-    eventId: z.string(),
-    clientTime: z.string().optional(),
+    eventId: EventIdSchema,
+    clientTime: z.string().datetime().optional(),
     sourceHost: z.string().optional(),
-    turnstileToken: z.string(),
+    turnstileToken: z.string().min(20).max(2048),
     event: z.discriminatedUnion("kind", [KitResultEventSchema, SolverDiagnosticEventSchema]),
   })
   .passthrough();
+
+export type EventSubmission = z.infer<typeof EventSubmissionSchema>;
+export type EventSubmissionEvent = EventSubmission["event"];
+export type KitResultEventInput = Extract<EventSubmissionEvent, { kind: "kit_result" }>;
+export type SolverDiagnosticEventInput = Extract<
+  EventSubmissionEvent,
+  { kind: "solver_diagnostic" }
+>;

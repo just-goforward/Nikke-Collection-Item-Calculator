@@ -5,44 +5,19 @@ import {
   KIT_ORDER,
   type Kit,
 } from "./domain";
-import {
-  field,
-  intInRange,
-  normalizeState,
-  normalizeStock,
-  sameState,
-} from "./event-validation-common";
-import type {
-  SubmissionEnvelope,
-  UnknownRecord,
-  ValidatedSubmission,
-} from "./event-validation-types";
+import { sameState, validateState } from "./event-validation-common";
+import type { SubmissionEnvelope, ValidatedSubmission } from "./event-validation-types";
 import { HttpError } from "./http-error";
 import { normalizeSourceHost } from "./normalization";
-
-const MAX_RECOMMENDED_USES = 100;
+import type { KitResultEventInput } from "./schemas";
 
 export function validateKitResultSubmission(
   payload: SubmissionEnvelope,
-  event: UnknownRecord,
+  event: KitResultEventInput,
 ): ValidatedSubmission {
-  const start = normalizeState(field(event, "start"), false);
-  const resultState = normalizeState(field(event, "resultState"), true);
-  const stockBefore = normalizeStock(field(event, "stockBefore"));
-  const stockAfter = normalizeStock(field(event, "stockAfter"));
-  const inputKit = field(event, "kit");
-  const kit = KIT_ORDER.includes(inputKit as Kit) ? (inputKit as Kit) : null;
-  if (!kit) throw new HttpError(400, "invalid_kit");
-  const recommendedUses = intInRange(
-    field(event, "recommendedUses"),
-    1,
-    MAX_RECOMMENDED_USES,
-    "invalid_recommended_uses",
-  );
-  const inputOutcome = field(event, "outcome");
-  const outcome =
-    inputOutcome === "great_success" || inputOutcome === "no_great_success" ? inputOutcome : null;
-  if (!outcome) throw new HttpError(400, "invalid_outcome");
+  const start = validateState(event.start, false);
+  const resultState = validateState(event.resultState, true);
+  const { kit, outcome, recommendedUses, stockAfter, stockBefore } = event;
 
   const otherChanged = KIT_ORDER.some(
     (name) => name !== kit && stockBefore[name] !== stockAfter[name],
@@ -81,18 +56,16 @@ export function validateKitResultSubmission(
 }
 
 function validateGreatSuccessOutcome(
-  event: UnknownRecord,
+  event: KitResultEventInput,
   start: CollectionState,
   resultState: CollectionState,
   recommendedUses: number,
   usedAttempts: number,
 ) {
-  const successAttempt = intInRange(
-    field(event, "successAttempt"),
-    1,
-    recommendedUses,
-    "invalid_success_attempt",
-  );
+  const successAttempt = event.successAttempt;
+  if (successAttempt === null || successAttempt === undefined || successAttempt > recommendedUses) {
+    throw new HttpError(400, "invalid_success_attempt");
+  }
   if (usedAttempts !== successAttempt) {
     throw new HttpError(400, "stock_delta_does_not_match_success_attempt");
   }
@@ -103,14 +76,14 @@ function validateGreatSuccessOutcome(
 }
 
 function validateNoGreatSuccessOutcome(
-  event: UnknownRecord,
+  event: KitResultEventInput,
   start: CollectionState,
   resultState: CollectionState,
   kit: Kit,
   recommendedUses: number,
   usedAttempts: number,
 ) {
-  if (field(event, "successAttempt") !== null && field(event, "successAttempt") !== undefined) {
+  if (event.successAttempt !== null && event.successAttempt !== undefined) {
     throw new HttpError(400, "unexpected_success_attempt");
   }
   if (usedAttempts !== recommendedUses) {

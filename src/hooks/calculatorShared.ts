@@ -80,6 +80,7 @@ export type SolverResult = {
     solverBackend?: string;
     fallbackFrom?: string;
     fallbackReason?: string;
+    attemptedStates?: number;
     solveMs?: number;
   };
   topCandidates?: SolverCandidate[];

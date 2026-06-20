@@ -38,4 +38,14 @@ describe("statsViewFromApiStats", () => {
 
     expect(statsViewFromApiStats(stats)).toEqual({ type: "stats", stats });
   });
+
+  it("keeps cumulative statistics visible when the recent window is empty", () => {
+    const stats = statsWithEvents(0);
+    stats.cumulative = {
+      summary: { events: 5, attempts: 8, greatSuccesses: 2, greatSuccessRate: 0.25 },
+      byKit: [],
+    };
+
+    expect(statsViewFromApiStats(stats)).toEqual({ type: "stats", stats });
+  });
 });

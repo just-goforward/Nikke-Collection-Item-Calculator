@@ -3,7 +3,7 @@ import { commitSubmission } from "./event-commit";
 import { validatePayload } from "./event-validation";
 import { isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
-import { rateLimit, scheduleCleanup } from "./rate-limit";
+import { rateLimit } from "./rate-limit";
 import { EventSubmissionSchema } from "./schemas";
 import { verifyTurnstile } from "./turnstile";
 
@@ -13,7 +13,7 @@ const PRE_DAY_LIMIT = 1000;
 const POST_MINUTE_LIMIT = 30;
 const POST_DAY_LIMIT = 200;
 
-export async function handleEvent(request: Request, env: WorkerEnv, ctx: ExecutionContext) {
+export async function handleEvent(request: Request, env: WorkerEnv) {
   assertEventRequest(request, env);
   const now = Math.floor(Date.now() / 1000);
   await rateLimit(request, env, "pre", PRE_MINUTE_LIMIT, PRE_DAY_LIMIT, now);
@@ -31,7 +31,6 @@ export async function handleEvent(request: Request, env: WorkerEnv, ctx: Executi
   await rateLimit(request, env, "post", POST_MINUTE_LIMIT, POST_DAY_LIMIT, now);
 
   const duplicate = await commitSubmission(request, env, validatePayload(parsedPayload.data), now);
-  scheduleCleanup(env, ctx, now);
   return jsonResponse(request, env, duplicate ? { ok: true, duplicate: true } : { ok: true });
 }
 

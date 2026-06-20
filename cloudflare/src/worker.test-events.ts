@@ -29,7 +29,7 @@ export function solverDiagnosticEvent(eventId: string) {
     turnstileToken: TEST_TURNSTILE_TOKEN,
     event: {
       kind: "solver_diagnostic",
-      diagnosticVersion: 4,
+      diagnosticVersion: 5,
       solverVersion: "phase1",
       solverPhase: "phase1",
       solverBackend: "js-phase2",
@@ -44,6 +44,7 @@ export function solverDiagnosticEvent(eventId: string) {
       probabilityGapBucket: "0_1_0_3pp",
       resourceCostBucket: "0_1_0_25",
       nodeCountBucket: "1000_9999",
+      attemptedNodeCountBucket: "1000_9999",
       solveMsBucket: "0_50",
       legacySupplyCostBucket: "0_1_0_25",
       totalExpectedCostBucket: "100_199",

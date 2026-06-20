@@ -14,9 +14,12 @@ function warnStatsRefreshFailure(reason: string, detail?: unknown) {
 
 export function useStats() {
   const [statsView, setStatsView] = useState<StatsView>({ type: "hidden" });
+  const statsRefreshSequenceRef = useRef(0);
   const statsRefreshTimerRef = useRef<number | null>(null);
 
-  const refreshGlobalStats = useCallback(async () => {
+  const refreshGlobalStats = useCallback(async (fresh = false) => {
+    const sequence = statsRefreshSequenceRef.current + 1;
+    statsRefreshSequenceRef.current = sequence;
     if (statsRuntimeMode() === "demo") {
       const stats = makeDemoStats();
       setStatsView(statsViewFromApiStats(stats));
@@ -26,35 +29,47 @@ export function useStats() {
     if (!base) return;
     try {
       const response = await fetch(`${base}/api/stats`, {
+        cache: fresh ? "no-store" : "default",
         headers: { Accept: "application/json" },
       });
       if (!response.ok) {
         warnStatsRefreshFailure(`stats endpoint returned ${response.status}`);
+        if (sequence === statsRefreshSequenceRef.current) {
+          setStatsView({ type: "error", message: "통계를 불러오지 못했습니다." });
+        }
         return;
       }
       const parsed = StatsApiResponseSchema.safeParse(await response.json());
       if (!parsed.success) {
         warnStatsRefreshFailure("stats response schema validation failed", parsed.error);
+        if (sequence === statsRefreshSequenceRef.current) {
+          setStatsView({ type: "error", message: "통계 응답 형식이 올바르지 않습니다." });
+        }
         return;
       }
-      setStatsView(statsViewFromApiStats(parsed.data));
+      if (sequence === statsRefreshSequenceRef.current) {
+        setStatsView(statsViewFromApiStats(parsed.data));
+      }
     } catch (error) {
       warnStatsRefreshFailure("stats refresh failed", error);
+      if (sequence === statsRefreshSequenceRef.current) {
+        setStatsView({ type: "error", message: "통계 서버에 연결하지 못했습니다." });
+      }
     }
   }, []);
 
   const refreshGlobalStatsDelayed = useCallback(
-    (delay = 500) => {
+    (delay = 500, fresh = false) => {
       if (statsRefreshTimerRef.current !== null) window.clearTimeout(statsRefreshTimerRef.current);
       statsRefreshTimerRef.current = window.setTimeout(() => {
         statsRefreshTimerRef.current = null;
-        void refreshGlobalStats();
+        void refreshGlobalStats(fresh);
       }, delay);
     },
     [refreshGlobalStats],
   );
 
-  const queueStatsEvent = useStatsSubmission(() => refreshGlobalStatsDelayed(500));
+  const queueStatsEvent = useStatsSubmission(() => refreshGlobalStatsDelayed(500, true));
 
   useEffect(() => {
     void refreshGlobalStats();

@@ -5,10 +5,11 @@ import type { WorkerEnv } from "./env";
 import { handleEvent } from "./event-submission";
 import { handleOptions, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
+import { cleanupExpiredStatistics } from "./rate-limit";
 import { handleStats } from "./stats-read";
 
 const worker: ExportedHandler<WorkerEnv> = {
-  async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext) {
+  async fetch(request: Request, env: WorkerEnv) {
     try {
       const url = new URL(request.url);
       if (request.method === "OPTIONS") return handleOptions(request, env);
@@ -17,11 +18,21 @@ const worker: ExportedHandler<WorkerEnv> = {
       if (url.pathname === "/api/stats" && request.method === "GET")
         return await handleStats(request, env);
       if (url.pathname === "/api/events" && request.method === "POST")
-        return await handleEvent(request, env, ctx);
+        return await handleEvent(request, env);
       return jsonResponse(request, env, { error: "not_found" }, 404);
     } catch (error) {
-      const status = error instanceof HttpError ? error.status : 500;
-      const message = error instanceof Error ? error.message : "internal_error";
+      const expected = error instanceof HttpError;
+      const status = expected ? error.status : 500;
+      const message = expected ? error.message : "internal_error";
+      if (!expected) {
+        console.error(
+          JSON.stringify({
+            message: "unhandled_worker_error",
+            error: error instanceof Error ? error.message : "unknown_error",
+            path: new URL(request.url).pathname,
+          }),
+        );
+      }
       const body: { error: string; retryable?: boolean } = {
         error: message || "internal_error",
       };
@@ -30,6 +41,17 @@ const worker: ExportedHandler<WorkerEnv> = {
       }
       return jsonResponse(request, env, body, status);
     }
+  },
+  scheduled(_controller, env, ctx) {
+    const cleanup = cleanupExpiredStatistics(env, Math.floor(Date.now() / 1000)).catch((error) => {
+      console.error(
+        JSON.stringify({
+          message: "statistics_cleanup_failed",
+          error: error instanceof Error ? error.message : "unknown_error",
+        }),
+      );
+    });
+    ctx.waitUntil(cleanup);
   },
 };
 

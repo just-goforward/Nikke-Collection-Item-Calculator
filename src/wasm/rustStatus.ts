@@ -16,20 +16,32 @@ export function rustStatusName(status: number) {
 }
 
 export class RustSolveError extends Error {
+  readonly nodeCount: number | null;
   readonly reason: RustSolveErrorReason;
   readonly status: number | null;
 
-  constructor(operation: string, status: number, reason?: "status");
-  constructor(operation: string, status: null, reason: "missing_export" | "stale_handle");
-  constructor(operation: string, status: number | null, reason: RustSolveErrorReason = "status") {
+  constructor(operation: string, status: number, reason?: "status", nodeCount?: number | null);
+  constructor(
+    operation: string,
+    status: null,
+    reason: "missing_export" | "stale_handle",
+    nodeCount?: number | null,
+  );
+  constructor(
+    operation: string,
+    status: number | null,
+    reason: RustSolveErrorReason = "status",
+    nodeCount: number | null = null,
+  ) {
     super(errorMessage(operation, status, reason));
     this.name = "RustSolveError";
+    this.nodeCount = nodeCount;
     this.reason = reason;
     this.status = status;
   }
 }
 
-export function isMemoFull(error: unknown): boolean {
+export function isMemoFull(error: unknown): error is RustSolveError {
   return (
     error instanceof RustSolveError &&
     error.reason === "status" &&

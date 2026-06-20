@@ -1,7 +1,7 @@
+import { kstDateKeyFromUnixSeconds } from "./date-key";
 import type { WorkerEnv } from "./env";
 import { isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
-import { kstDateKeyFromUnixSeconds } from "./stats-read";
 
 type SolverDiagnosticSummaryRow = {
   solver_version?: string | null;
@@ -19,8 +19,7 @@ type SolverDiagnosticDailyRow = {
 };
 
 type SolverNodeCountRow = {
-  solver_version?: string | null;
-  solver_phase?: string | null;
+  solver_backend?: string | null;
   node_count_bucket?: string | null;
   events?: number | string | null;
 };
@@ -38,6 +37,7 @@ type SolverRuntimeRow = {
   stock_bucket_purple?: string | null;
   stock_bucket_yellow?: string | null;
   node_count_bucket?: string | null;
+  attempted_node_count_bucket?: string | null;
   solve_ms_bucket?: string | null;
   events?: number | string | null;
 };
@@ -49,7 +49,7 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
   assertAdminRequest(request, env);
   const now = Math.floor(Date.now() / 1000);
   const windowDays = readWindowDays(request);
-  const since = kstDateKeyFromUnixSeconds(now - 86400 * windowDays);
+  const since = kstDateKeyFromUnixSeconds(now - 86400 * (windowDays - 1));
 
   const [allTime, window, daily, nodeCounts, runtime] = await Promise.all([
     readSolverDiagnosticSummary(env),
@@ -144,21 +144,20 @@ async function readSolverDiagnosticDaily(env: WorkerEnv, since: string) {
 async function readSolverNodeCounts(env: WorkerEnv, since: string) {
   const result = await env.DB.prepare(
     `SELECT
-       solver_version,
-       solver_phase,
-       node_count_bucket,
+       CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS solver_backend,
+       attempted_node_count_bucket AS node_count_bucket,
        SUM(events) AS events
-     FROM solver_node_count_aggregates
+     FROM solver_runtime_aggregates
      WHERE date_key >= ?
-     GROUP BY solver_version, solver_phase, node_count_bucket
-     ORDER BY solver_version ASC, solver_phase ASC, events DESC`,
+     GROUP BY CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END,
+       attempted_node_count_bucket
+     ORDER BY solver_backend ASC, events DESC`,
   )
     .bind(since)
     .all<SolverNodeCountRow>();
 
   return (result.results || []).map((row) => ({
-    solverVersion: String(row.solver_version || "unknown"),
-    solverPhase: String(row.solver_phase || "unknown"),
+    solverBackend: String(row.solver_backend || "unknown"),
     nodeCountBucket: String(row.node_count_bucket || "unknown"),
     events: Number(row.events || 0),
   }));
@@ -179,13 +178,14 @@ async function readSolverRuntime(env: WorkerEnv, since: string) {
        stock_bucket_purple,
        stock_bucket_yellow,
        node_count_bucket,
+       attempted_node_count_bucket,
        solve_ms_bucket,
        SUM(events) AS events
      FROM solver_runtime_aggregates
      WHERE date_key >= ?
      GROUP BY solver_version, solver_phase, solver_backend, fallback_from, fallback_reason,
        grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
-       node_count_bucket, solve_ms_bucket
+        node_count_bucket, attempted_node_count_bucket, solve_ms_bucket
      ORDER BY solver_version ASC, solver_phase ASC, events DESC`,
   )
     .bind(since)
@@ -206,6 +206,7 @@ async function readSolverRuntime(env: WorkerEnv, since: string) {
       yellow: String(row.stock_bucket_yellow || "unknown"),
     },
     nodeCountBucket: String(row.node_count_bucket || "unknown"),
+    attemptedNodeCountBucket: String(row.attempted_node_count_bucket || "unknown"),
     solveMsBucket: String(row.solve_ms_bucket || "unknown"),
     events: Number(row.events || 0),
   }));
@@ -215,19 +216,16 @@ function summarizeFallbacks(runtime: Awaited<ReturnType<typeof readSolverRuntime
   const grouped = new Map<
     string,
     {
-      solverVersion: string;
-      solverPhase: string;
-      solverBackend: string;
+      attemptedBackend: string;
       events: number;
       fallbackEvents: number;
     }
   >();
   for (const row of runtime) {
-    const key = `${row.solverVersion}\0${row.solverPhase}\0${row.solverBackend}`;
+    const attemptedBackend = row.fallbackFrom !== "none" ? row.fallbackFrom : row.solverBackend;
+    const key = attemptedBackend;
     const item = grouped.get(key) || {
-      solverVersion: row.solverVersion,
-      solverPhase: row.solverPhase,
-      solverBackend: row.solverBackend,
+      attemptedBackend,
       events: 0,
       fallbackEvents: 0,
     };

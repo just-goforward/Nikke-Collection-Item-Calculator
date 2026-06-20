@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS solver_runtime_aggregates (
   stock_bucket_purple TEXT NOT NULL,
   stock_bucket_yellow TEXT NOT NULL,
   node_count_bucket TEXT NOT NULL,
+  attempted_node_count_bucket TEXT NOT NULL,
   solve_ms_bucket TEXT NOT NULL,
   events INTEGER NOT NULL DEFAULT 0,
   last_seen INTEGER NOT NULL,
@@ -31,12 +32,11 @@ CREATE TABLE IF NOT EXISTS solver_runtime_aggregates (
     stock_bucket_purple,
     stock_bucket_yellow,
     node_count_bucket,
+    attempted_node_count_bucket,
     solve_ms_bucket
   )
 );
 
-CREATE INDEX IF NOT EXISTS idx_solver_runtime_aggregates_date
-  ON solver_runtime_aggregates (date_key);
 CREATE INDEX IF NOT EXISTS idx_solver_runtime_aggregates_backend
   ON solver_runtime_aggregates (solver_backend);
 CREATE INDEX IF NOT EXISTS idx_solver_runtime_aggregates_fallback_context

@@ -101,7 +101,7 @@ export async function solveRustMinEfProduct(
     if (!isMemoFull(error)) throw error;
     if (progress) progress({ phase: "fallback-phase2", scanned: 0, total: 1 });
     const fallback = await solveRustPhase2(input, wasmUrl, progress);
-    return withFallbackStats(fallback, startedAt);
+    return withFallbackStats(fallback, startedAt, error.nodeCount);
   }
 }
 
@@ -123,7 +123,7 @@ function elapsedMs(startedAt: number) {
   return Math.max(0, Math.round((nowMs() - startedAt) * 100) / 100);
 }
 
-function withFallbackStats(result: unknown, startedAt: number) {
+function withFallbackStats(result: unknown, startedAt: number, attemptedStates: number | null) {
   if (!result || typeof result !== "object") return result;
   const record = result as { stats?: Record<string, unknown> };
   return {
@@ -132,6 +132,7 @@ function withFallbackStats(result: unknown, startedAt: number) {
       ...(record.stats || {}),
       fallbackFrom: "rust-min-ef",
       fallbackReason: "memo_full",
+      ...(attemptedStates === null ? {} : { attemptedStates }),
       solveMs: elapsedMs(startedAt),
     },
   };

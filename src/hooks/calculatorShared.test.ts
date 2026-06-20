@@ -35,19 +35,22 @@ describe("makeSolverDiagnosticEvent", () => {
         solverBackend: "rust-phase2-rerank",
         fallbackFrom: "rust-min-ef",
         fallbackReason: "memo_full",
+        attemptedStates: 750_000,
+        states: 12_000,
         solveMs: 123,
       },
       topCandidates: [],
     } as Parameters<typeof makeSolverDiagnosticEvent>[0];
 
     expect(makeSolverDiagnosticEvent(result)).toMatchObject({
-      diagnosticVersion: 4,
+      diagnosticVersion: 5,
       solverVersion: "phase2_availability_h075_tau0_p3_rust_rerank_staging",
       solverPhase: "phase2-rerank",
       solverBackend: "rust-phase2-rerank",
       fallbackFrom: "rust-min-ef",
       fallbackReason: "memo_full",
-      nodeCountBucket: "0",
+      nodeCountBucket: "10000_99999",
+      attemptedNodeCountBucket: "500000_999999",
       solveMsBucket: "100_250",
       stockBuckets: { blue: "100_149", purple: "100_149", yellow: "100_149" },
     });

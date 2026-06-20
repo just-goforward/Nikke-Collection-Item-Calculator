@@ -2,12 +2,14 @@ CREATE TABLE IF NOT EXISTS event_ids (
   id TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_event_ids_created_at ON event_ids (created_at);
 
 CREATE TABLE IF NOT EXISTS rate_limits (
   key TEXT PRIMARY KEY,
   count INTEGER NOT NULL,
   expires_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_rate_limits_expires_at ON rate_limits (expires_at);
 
 CREATE TABLE IF NOT EXISTS event_aggregates (
   date_key TEXT NOT NULL,
@@ -34,8 +36,6 @@ CREATE TABLE IF NOT EXISTS event_aggregates (
   )
 );
 
-CREATE INDEX IF NOT EXISTS idx_event_aggregates_date ON event_aggregates (date_key);
-CREATE INDEX IF NOT EXISTS idx_event_aggregates_kit ON event_aggregates (kit);
 CREATE INDEX IF NOT EXISTS idx_event_aggregates_date_grade_level_kit ON event_aggregates (date_key, grade, level, kit);
 
 CREATE TABLE IF NOT EXISTS referrer_aggregates (
@@ -48,8 +48,6 @@ CREATE TABLE IF NOT EXISTS referrer_aggregates (
     source_host
   )
 );
-
-CREATE INDEX IF NOT EXISTS idx_referrer_aggregates_date ON referrer_aggregates (date_key);
 
 CREATE TABLE IF NOT EXISTS client_env_aggregates (
   date_key TEXT NOT NULL,
@@ -69,8 +67,6 @@ CREATE TABLE IF NOT EXISTS client_env_aggregates (
     device_type
   )
 );
-
-CREATE INDEX IF NOT EXISTS idx_client_env_aggregates_date ON client_env_aggregates (date_key);
 
 CREATE TABLE IF NOT EXISTS solver_diagnostic_aggregates (
   date_key TEXT NOT NULL,
@@ -127,32 +123,10 @@ CREATE TABLE IF NOT EXISTS solver_diagnostic_aggregates (
   )
 );
 
-CREATE INDEX IF NOT EXISTS idx_solver_diagnostic_aggregates_date
-  ON solver_diagnostic_aggregates (date_key);
 CREATE INDEX IF NOT EXISTS idx_solver_diagnostic_aggregates_strategy
   ON solver_diagnostic_aggregates (strategy);
 CREATE INDEX IF NOT EXISTS idx_solver_diagnostic_aggregates_grade_level
   ON solver_diagnostic_aggregates (grade, level);
-
-CREATE TABLE IF NOT EXISTS solver_node_count_aggregates (
-  date_key TEXT NOT NULL,
-  diagnostic_version INTEGER NOT NULL,
-  solver_version TEXT NOT NULL,
-  solver_phase TEXT NOT NULL,
-  node_count_bucket TEXT NOT NULL,
-  events INTEGER NOT NULL DEFAULT 0,
-  last_seen INTEGER NOT NULL,
-  PRIMARY KEY (
-    date_key,
-    diagnostic_version,
-    solver_version,
-    solver_phase,
-    node_count_bucket
-  )
-);
-
-CREATE INDEX IF NOT EXISTS idx_solver_node_count_aggregates_date
-  ON solver_node_count_aggregates (date_key);
 
 CREATE TABLE IF NOT EXISTS solver_runtime_aggregates (
   date_key TEXT NOT NULL,
@@ -169,6 +143,7 @@ CREATE TABLE IF NOT EXISTS solver_runtime_aggregates (
   stock_bucket_purple TEXT NOT NULL,
   stock_bucket_yellow TEXT NOT NULL,
   node_count_bucket TEXT NOT NULL,
+  attempted_node_count_bucket TEXT NOT NULL,
   solve_ms_bucket TEXT NOT NULL,
   events INTEGER NOT NULL DEFAULT 0,
   last_seen INTEGER NOT NULL,
@@ -187,12 +162,11 @@ CREATE TABLE IF NOT EXISTS solver_runtime_aggregates (
     stock_bucket_purple,
     stock_bucket_yellow,
     node_count_bucket,
+    attempted_node_count_bucket,
     solve_ms_bucket
   )
 );
 
-CREATE INDEX IF NOT EXISTS idx_solver_runtime_aggregates_date
-  ON solver_runtime_aggregates (date_key);
 CREATE INDEX IF NOT EXISTS idx_solver_runtime_aggregates_backend
   ON solver_runtime_aggregates (solver_backend);
 CREATE INDEX IF NOT EXISTS idx_solver_runtime_aggregates_fallback_context

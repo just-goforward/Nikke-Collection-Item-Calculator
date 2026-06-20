@@ -1,6 +1,5 @@
 import type { CollectionState, Kit, KitRecord } from "./domain";
-
-export type UnknownRecord = Record<string, unknown>;
+import type { SolverDiagnosticEventInput } from "./schemas";
 
 export type ValidatedKitResultEvent = {
   kind: "kit_result";
@@ -16,7 +15,7 @@ export type ValidatedKitResultEvent = {
 
 export type ValidatedSolverDiagnosticEvent = {
   kind: "solver_diagnostic";
-  diagnosticVersion: unknown;
+  diagnosticVersion: SolverDiagnosticEventInput["diagnosticVersion"];
   solverVersion: string;
   solverPhase: string;
   solverBackend: string;
@@ -24,20 +23,21 @@ export type ValidatedSolverDiagnosticEvent = {
   fallbackReason: string;
   start: CollectionState;
   strategy: string;
-  stockBuckets: { blue: unknown; purple: unknown; yellow: unknown };
-  recommendedKit: unknown;
-  recommendedUsesBucket: unknown;
-  candidateCountBucket: unknown;
-  probabilityGapBucket: unknown;
-  resourceCostBucket: unknown;
-  legacySupplyCostBucket: unknown;
-  totalExpectedCostBucket: unknown;
-  blueShareBucket: unknown;
-  minAutonomyDaysBucket: unknown;
+  stockBuckets: SolverDiagnosticEventInput["stockBuckets"];
+  recommendedKit: SolverDiagnosticEventInput["recommendedKit"];
+  recommendedUsesBucket: SolverDiagnosticEventInput["recommendedUsesBucket"];
+  candidateCountBucket: SolverDiagnosticEventInput["candidateCountBucket"];
+  probabilityGapBucket: SolverDiagnosticEventInput["probabilityGapBucket"];
+  resourceCostBucket: SolverDiagnosticEventInput["resourceCostBucket"];
+  legacySupplyCostBucket: SolverDiagnosticEventInput["legacySupplyCostBucket"];
+  totalExpectedCostBucket: SolverDiagnosticEventInput["totalExpectedCostBucket"];
+  blueShareBucket: SolverDiagnosticEventInput["blueShareBucket"];
+  minAutonomyDaysBucket: SolverDiagnosticEventInput["minAutonomyDaysBucket"];
   nodeCountBucket: string;
+  attemptedNodeCountBucket: string;
   solveMsBucket: string;
-  changedFromSingle: unknown;
-  changedFromLegacySupply: unknown;
+  changedFromSingle: SolverDiagnosticEventInput["changedFromSingle"];
+  changedFromLegacySupply: SolverDiagnosticEventInput["changedFromLegacySupply"];
   legacyPrivateStatsAvailable: boolean;
   legacyEventAggregateMatchable: boolean;
 };
@@ -50,5 +50,5 @@ export type ValidatedSubmission = {
 
 export type SubmissionEnvelope = {
   eventId: string;
-  sourceHost: unknown;
+  sourceHost: string | undefined;
 };

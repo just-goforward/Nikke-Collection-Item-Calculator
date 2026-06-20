@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanupExpiredStatistics } from "./rate-limit";
 import { kitResultEvent, solverDiagnosticEvent, TEST_TURNSTILE_TOKEN } from "./worker.test-events";
 import { WorkerTestHarness } from "./worker.test-harness";
 
@@ -15,6 +16,49 @@ const countRows = (table: string) => harness.countRows(table);
 const mockSiteverify = (...outcomes: Parameters<WorkerTestHarness["mockSiteverify"]>) =>
   harness.mockSiteverify(...outcomes);
 const siteverifyForm = (index: number) => harness.siteverifyForm(index);
+
+type AdminDiagnosticsBody = {
+  windowDays?: number;
+  since?: string;
+  allTime?: Array<{
+    solverVersion: string;
+    solverPhase: string;
+    events: number;
+    firstDate: string | null;
+    lastDate: string | null;
+  }>;
+  window?: Array<{ solverVersion: string; solverPhase: string; events: number }>;
+  daily?: Array<{ date: string; solverVersion: string; solverPhase: string; events: number }>;
+  nodeCounts?: Array<{ solverBackend: string; nodeCountBucket: string; events: number }>;
+  runtime?: Array<{
+    solverVersion: string;
+    solverPhase: string;
+    solverBackend: string;
+    fallbackFrom: string;
+    fallbackReason: string;
+    grade: string;
+    level: number;
+    expBucket: number;
+    stockBuckets: { blue: string; purple: string; yellow: string };
+    nodeCountBucket: string;
+    attemptedNodeCountBucket: string;
+    solveMsBucket: string;
+    events: number;
+  }>;
+  fallbacks?: Array<{
+    attemptedBackend: string;
+    events: number;
+    fallbackEvents: number;
+    fallbackRate: number;
+  }>;
+  latencies?: Array<{
+    solverVersion: string;
+    solverPhase: string;
+    solverBackend: string;
+    solveMsBucket: string;
+    events: number;
+  }>;
+};
 
 beforeEach(async () => {
   await harness.setup();
@@ -149,6 +193,33 @@ describe("stats response compatibility", () => {
   });
 });
 
+describe("scheduled statistics cleanup", () => {
+  it("deletes only expired rate-limit and event-id rows", async () => {
+    const now = 1_800_000_000;
+    await harness.database.batch([
+      harness.database
+        .prepare("INSERT INTO rate_limits (key, count, expires_at) VALUES (?, 1, ?)")
+        .bind("expired", now - 1),
+      harness.database
+        .prepare("INSERT INTO rate_limits (key, count, expires_at) VALUES (?, 1, ?)")
+        .bind("active", now + 1),
+      harness.database
+        .prepare("INSERT INTO event_ids (id, created_at) VALUES (?, ?)")
+        .bind("expired-event-id", now - 86400 * 15),
+      harness.database
+        .prepare("INSERT INTO event_ids (id, created_at) VALUES (?, ?)")
+        .bind("active-event-id", now - 86400 * 13),
+    ]);
+
+    const database = testEnv.DB;
+    if (!database) throw new Error("Test database was not initialized.");
+    await cleanupExpiredStatistics({ DB: database }, now);
+
+    await expect(countRows("rate_limits")).resolves.toBe(1);
+    await expect(countRows("event_ids")).resolves.toBe(1);
+  });
+});
+
 describe("solver_diagnostic event commit", () => {
   it("writes one id and one diagnostic aggregate for a valid diagnostic", async () => {
     const response = await submit(solverDiagnosticEvent("solver-diag-valid-001"));
@@ -157,7 +228,6 @@ describe("solver_diagnostic event commit", () => {
     expect(await response.json()).toEqual({ ok: true });
     await expect(countRows("event_ids")).resolves.toBe(1);
     await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(1);
-    await expect(countRows("solver_node_count_aggregates")).resolves.toBe(1);
     await expect(countRows("solver_runtime_aggregates")).resolves.toBe(1);
   });
 
@@ -205,7 +275,6 @@ describe("solver_diagnostic event commit", () => {
       .first<{ events: number }>();
     expect(aggregate).toMatchObject({ events: 1 });
     await expect(countRows("event_ids")).resolves.toBe(1);
-    await expect(countRows("solver_node_count_aggregates")).resolves.toBe(1);
     await expect(countRows("solver_runtime_aggregates")).resolves.toBe(1);
   });
 
@@ -221,7 +290,6 @@ describe("solver_diagnostic event commit", () => {
     expect(await failed.json()).toEqual({ error: "storage_unavailable", retryable: true });
     await expect(countRows("event_ids")).resolves.toBe(0);
     await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(0);
-    await expect(countRows("solver_node_count_aggregates")).resolves.toBe(0);
     await expect(countRows("solver_runtime_aggregates")).resolves.toBe(0);
     await harness.database.exec("DROP TRIGGER fail_solver_diagnostic;");
 
@@ -230,7 +298,6 @@ describe("solver_diagnostic event commit", () => {
     expect(await retried.json()).toEqual({ ok: true });
     await expect(countRows("event_ids")).resolves.toBe(1);
     await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(1);
-    await expect(countRows("solver_node_count_aggregates")).resolves.toBe(1);
     await expect(countRows("solver_runtime_aggregates")).resolves.toBe(1);
   });
 });
@@ -265,66 +332,27 @@ describe("admin solver diagnostics", () => {
     const phase1 = solverDiagnosticEvent("solver-admin-phase1-01");
     const minEf1 = solverDiagnosticEvent("solver-admin-minef-001");
     const minEf2 = solverDiagnosticEvent("solver-admin-minef-002");
+    const minEfFallback = solverDiagnosticEvent("solver-admin-fallback-01");
     minEf1.event.solverVersion = "phase3_rust_min_ef";
     minEf1.event.solverPhase = "phase3";
     minEf1.event.solverBackend = "rust-min-ef";
     minEf2.event.solverVersion = "phase3_rust_min_ef";
     minEf2.event.solverPhase = "phase3";
     minEf2.event.solverBackend = "rust-min-ef";
+    minEfFallback.event.solverVersion = "phase2_availability_h075_tau0_p3_rust";
+    minEfFallback.event.solverPhase = "phase2";
+    minEfFallback.event.solverBackend = "rust-phase2";
+    minEfFallback.event.fallbackFrom = "rust-min-ef";
+    minEfFallback.event.fallbackReason = "memo_full";
+    minEfFallback.event.attemptedNodeCountBucket = "500000_999999";
 
     expect((await submit(phase1)).status).toBe(200);
     expect((await submit(minEf1)).status).toBe(200);
     expect((await submit(minEf2)).status).toBe(200);
+    expect((await submit(minEfFallback)).status).toBe(200);
 
     const response = await fetchAdminSolverDiagnostics();
-    const body = (await response.json()) as {
-      windowDays?: number;
-      since?: string;
-      allTime?: Array<{
-        solverVersion: string;
-        solverPhase: string;
-        events: number;
-        firstDate: string | null;
-        lastDate: string | null;
-      }>;
-      window?: Array<{ solverVersion: string; solverPhase: string; events: number }>;
-      daily?: Array<{ date: string; solverVersion: string; solverPhase: string; events: number }>;
-      nodeCounts?: Array<{
-        solverVersion: string;
-        solverPhase: string;
-        nodeCountBucket: string;
-        events: number;
-      }>;
-      runtime?: Array<{
-        solverVersion: string;
-        solverPhase: string;
-        solverBackend: string;
-        fallbackFrom: string;
-        fallbackReason: string;
-        grade: string;
-        level: number;
-        expBucket: number;
-        stockBuckets: { blue: string; purple: string; yellow: string };
-        nodeCountBucket: string;
-        solveMsBucket: string;
-        events: number;
-      }>;
-      fallbacks?: Array<{
-        solverVersion: string;
-        solverPhase: string;
-        solverBackend: string;
-        events: number;
-        fallbackEvents: number;
-        fallbackRate: number;
-      }>;
-      latencies?: Array<{
-        solverVersion: string;
-        solverPhase: string;
-        solverBackend: string;
-        solveMsBucket: string;
-        events: number;
-      }>;
-    };
+    const body = (await response.json()) as AdminDiagnosticsBody;
 
     expect(response.status).toBe(200);
     expect(body.windowDays).toBe(30);
@@ -364,8 +392,7 @@ describe("admin solver diagnostics", () => {
     expect(body.nodeCounts).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          solverVersion: "phase3_rust_min_ef",
-          solverPhase: "phase3",
+          solverBackend: "rust-min-ef",
           nodeCountBucket: "1000_9999",
           events: 2,
         }),
@@ -384,6 +411,7 @@ describe("admin solver diagnostics", () => {
           expBucket: 0,
           stockBuckets: { blue: "100_299", purple: "50_99", yellow: "10_49" },
           nodeCountBucket: "1000_9999",
+          attemptedNodeCountBucket: "1000_9999",
           solveMsBucket: "0_50",
           events: 2,
         }),
@@ -392,10 +420,10 @@ describe("admin solver diagnostics", () => {
     expect(body.fallbacks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          solverVersion: "phase3_rust_min_ef",
-          solverBackend: "rust-min-ef",
-          fallbackEvents: 0,
-          fallbackRate: 0,
+          attemptedBackend: "rust-min-ef",
+          events: 3,
+          fallbackEvents: 1,
+          fallbackRate: 1 / 3,
         }),
       ]),
     );
@@ -454,10 +482,9 @@ describe("Turnstile verification response handling", () => {
   });
 
   it("retries a transient Siteverify error with the same token and idempotency key", async () => {
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     mockSiteverify(
       { body: { success: false, "error-codes": ["internal-error"] } },
-      { body: { success: true, action: "solver_diagnostic" } },
+      { body: { success: true, action: "kit_result" } },
     );
 
     const response = await submit(kitResultEvent("turnstile-internal-001"));
@@ -471,14 +498,20 @@ describe("Turnstile verification response handling", () => {
       "application/x-www-form-urlencoded",
       "application/x-www-form-urlencoded",
     ]);
-    expect(warning).toHaveBeenCalledWith(
-      "Turnstile action mismatch observed.",
-      expect.objectContaining({
-        eventKind: "kit_result",
-        expectedAction: "kit_result",
-        returnedAction: "solver_diagnostic",
-      }),
-    );
+  });
+
+  it("rejects a successful Turnstile response for a different action", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    mockSiteverify({ body: { success: true, action: "solver_diagnostic" } });
+
+    const response = await submit(kitResultEvent("turnstile-action-0001"));
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "turnstile_action_mismatch",
+      retryable: false,
+    });
+    await expect(countRows("event_ids")).resolves.toBe(0);
   });
 
   it("returns retryable unavailable responses for transient Siteverify transport failures", async () => {

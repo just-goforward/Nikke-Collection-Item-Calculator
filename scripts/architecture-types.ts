@@ -8,6 +8,7 @@ export type DebtEntry = {
 export type ArchitectureIssue = {
   code:
     | "cycle"
+    | "boundary-violation"
     | "empty-catch"
     | "function-complexity"
     | "function-depth"

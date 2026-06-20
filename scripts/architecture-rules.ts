@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import ts from "typescript";
 import {
   BIOME_IGNORE_ALLOWLIST,
   CHECK_ROOTS as DEFAULT_CHECK_ROOTS,
@@ -94,19 +95,11 @@ function findUnreachableSources(files: string[]) {
 function importGraph(files: string[]) {
   const fileSet = new Set(files);
   const graph = new Map(files.map((file) => [file, new Set<string>()]));
-  const staticImportPattern =
-    /(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']/g;
-  const dynamicImportPattern = /import\s*\(\s*["']([^"']+)["']\s*\)/g;
-
   for (const file of files.filter((entry) => entry.endsWith(".ts") || entry.endsWith(".tsx"))) {
     const source = sourceOf(file);
-    for (const pattern of [staticImportPattern, dynamicImportPattern]) {
-      for (const match of source.matchAll(pattern)) {
-        const specifier = match[1];
-        if (!specifier) continue;
-        const resolved = resolveImport(file, specifier, fileSet);
-        if (resolved) graph.get(file)?.add(resolved);
-      }
+    for (const imported of ts.preProcessFile(source, true, true).importedFiles) {
+      const resolved = resolveImport(file, imported.fileName, fileSet);
+      if (resolved) graph.get(file)?.add(resolved);
     }
   }
 
@@ -145,10 +138,42 @@ function findCycles(graph: Map<string, Set<string>>) {
 }
 
 function findReExports(files: string[]) {
-  const reExportPattern = /^\s*export\s+(?:type\s+)?(?:\*|\{[^}]*\})\s+from\s+["'][^"']+["']/m;
   return files
     .filter((file) => file.endsWith(".ts") || file.endsWith(".tsx"))
-    .filter((file) => reExportPattern.test(sourceOf(file)));
+    .filter((file) => {
+      const sourceFile = ts.createSourceFile(
+        file,
+        sourceOf(file),
+        ts.ScriptTarget.Latest,
+        true,
+        file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+      );
+      return sourceFile.statements.some(
+        (statement) => ts.isExportDeclaration(statement) && Boolean(statement.moduleSpecifier),
+      );
+    });
+}
+
+export function violatesModuleBoundary(file: string, dependency: string) {
+  const appViolation =
+    file.startsWith("src/") &&
+    (dependency.startsWith("cloudflare/") ||
+      dependency.startsWith("benchmarks/") ||
+      dependency.startsWith("scripts/") ||
+      dependency.startsWith("e2e/"));
+  const workerViolation =
+    file.startsWith("cloudflare/src/") && !dependency.startsWith("cloudflare/src/");
+  return appViolation || workerViolation;
+}
+
+function findBoundaryViolations(graph: Map<string, Set<string>>) {
+  const violations: Array<{ file: string; dependency: string }> = [];
+  for (const [file, dependencies] of graph) {
+    for (const dependency of dependencies) {
+      if (violatesModuleBoundary(file, dependency)) violations.push({ file, dependency });
+    }
+  }
+  return violations;
 }
 
 function findUnsafeTypeEscapes(files: string[]) {
@@ -232,7 +257,8 @@ export function architectureIssues(files: string[]) {
   const oversizedFiles = files
     .map((file) => ({ file, lines: lineCount(file) }))
     .filter(({ file, lines }) => lines > DEFAULT_MAX_FILE_LINES && !longFileAllowlist.has(file));
-  const cycles = findCycles(importGraph(files));
+  const graph = importGraph(files);
+  const cycles = findCycles(graph);
 
   const issues: ArchitectureIssue[] = [
     ...oversizedFiles.map(({ file, lines }) => ({
@@ -248,6 +274,11 @@ export function architectureIssues(files: string[]) {
     ...cycles.map((cycle) => ({
       code: "cycle" as const,
       message: `cycle: ${cycle.join(" -> ")}`,
+    })),
+    ...findBoundaryViolations(graph).map(({ file, dependency }) => ({
+      code: "boundary-violation" as const,
+      file,
+      message: `module boundary violation: ${file} -> ${dependency}`,
     })),
     ...findReExports(files).map((file) => ({
       code: "re-export" as const,

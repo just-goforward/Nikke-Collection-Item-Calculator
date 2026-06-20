@@ -105,6 +105,7 @@ The Worker rejects bad submissions before writing to D1:
 - only the recommended kit may decrease
 - success attempt must match stock delta
 - result level/exp must match the expected transition
+- successful Turnstile verification must match the submitted event action
 - browser, OS, device type, and referrer are stored only as private aggregates
 - solver diagnostic values are stored only as private bucketed aggregates
 - raw per-user inputs are not exposed by the stats endpoint
@@ -149,7 +150,8 @@ Worker/D1 write-path tests use an isolated local Miniflare D1 database:
 npm run test:worker
 ```
 
-For an existing D1 database, re-apply the schema after schema changes:
+Use `schema.sql` for a new database. Existing databases must apply the versioned migrations instead
+of re-running `CREATE TABLE IF NOT EXISTS`, which cannot change an existing primary key.
 
 ```powershell
 wrangler d1 execute collection-kit-stats --remote --file cloudflare/schema.sql --config cloudflare/wrangler.toml
@@ -166,6 +168,16 @@ For solver runtime backend/fallback/latency aggregates:
 ```powershell
 wrangler d1 execute collection-kit-stats --remote --file cloudflare/add-solver-runtime-aggregates.sql --config cloudflare/wrangler.toml
 ```
+
+For diagnostic v5 attempted-node buckets, cleanup indexes, and the runtime aggregate primary key:
+
+```powershell
+npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/migrate-runtime-v5.sql --config cloudflare/wrangler.toml
+```
+
+The legacy `solver_node_count_aggregates` table is retained in existing databases for historical
+queries, but new events no longer write to it. Current node pressure is derived from
+`solver_runtime_aggregates`.
 
 Referrer/source-host aggregates are intentionally not returned by this public endpoint. Check them privately through D1, for example:
 
@@ -196,19 +208,19 @@ wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.t
 Rust min-E[f] fallback rate and reason buckets:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT solver_backend, fallback_from, fallback_reason, SUM(events) AS events FROM solver_runtime_aggregates GROUP BY solver_backend, fallback_from, fallback_reason ORDER BY events DESC"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS attempted_backend, SUM(events) AS attempts, SUM(CASE WHEN fallback_reason != 'none' THEN events ELSE 0 END) AS fallback_events, 1.0 * SUM(CASE WHEN fallback_reason != 'none' THEN events ELSE 0 END) / SUM(events) AS fallback_rate FROM solver_runtime_aggregates GROUP BY attempted_backend ORDER BY attempts DESC"
 ```
 
 Rust min-E[f] fallback contexts for future kernel tuning:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, fallback_reason, SUM(events) AS events FROM solver_runtime_aggregates WHERE fallback_reason != 'none' GROUP BY grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, fallback_reason ORDER BY events DESC LIMIT 50"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, attempted_node_count_bucket, fallback_reason, SUM(events) AS events FROM solver_runtime_aggregates WHERE fallback_reason != 'none' GROUP BY grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, attempted_node_count_bucket, fallback_reason ORDER BY events DESC LIMIT 50"
 ```
 
 Node-count bucket pressure:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT solver_version, solver_phase, node_count_bucket, SUM(events) AS events FROM solver_node_count_aggregates GROUP BY solver_version, solver_phase, node_count_bucket ORDER BY events DESC"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS attempted_backend, attempted_node_count_bucket, SUM(events) AS events FROM solver_runtime_aggregates GROUP BY attempted_backend, attempted_node_count_bucket ORDER BY attempted_backend, events DESC"
 ```
 
 Approximate solve latency distribution by bucket:
