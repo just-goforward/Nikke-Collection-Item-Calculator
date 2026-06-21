@@ -1,6 +1,6 @@
 import { useCallback, useRef } from "react";
 
-import { solverBackendFromRuntime, solverBackendShouldFailLoud } from "../lib/solverRuntime";
+import { solverBackendFromRuntime } from "../lib/solverRuntime";
 import type { ProgressEvent, SolverInput } from "../types";
 import {
   inputKey,
@@ -15,12 +15,10 @@ const SOLVE_CACHE_LIMIT = 32;
 const VALIDATION_CACHE_LIMIT = 16;
 
 async function resolveWorkerOrFallback<T>({
-  failLoud,
   fallback,
   onWorkerError,
   workerPromise,
 }: {
-  failLoud: boolean;
   fallback: () => Promise<T>;
   onWorkerError: () => void;
   workerPromise: Promise<unknown> | null;
@@ -28,9 +26,8 @@ async function resolveWorkerOrFallback<T>({
   if (workerPromise) {
     try {
       return (await workerPromise) as T;
-    } catch (error) {
+    } catch {
       onWorkerError();
-      if (failLoud) throw error;
     }
   }
   return fallback();
@@ -48,7 +45,6 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
       const cached = solveCacheRef.current.get(key);
       if (cached) return cached;
       const result = await resolveWorkerOrFallback<SolverResult>({
-        failLoud: solverBackendShouldFailLoud(),
         fallback: () => solveWithJsFallback(input, onSolveProgress),
         onWorkerError: resetWorker,
         workerPromise: requestWorkerTask("solve", input, { onProgress: onSolveProgress }),
@@ -71,7 +67,6 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
       const cached = validationCacheRef.current.get(key);
       if (!options.force && cached) return cached;
       const result = await resolveWorkerOrFallback<MonteCarloResult>({
-        failLoud: solverBackendShouldFailLoud(),
         fallback: () => validateWithJsFallback(input, runs, seed, onProgress),
         onWorkerError: resetWorker,
         workerPromise: requestWorkerTask("validate", input, {

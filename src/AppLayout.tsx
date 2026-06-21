@@ -15,7 +15,6 @@ import StockPanel from "./components/StockPanel";
 import SuccessAttemptModal from "./components/SuccessAttemptModal";
 import TopBar from "./components/TopBar";
 import type { useCalculatorApp } from "./hooks/useCalculatorApp";
-import type { SolverBackend } from "./lib/solverRuntime";
 import type { StatsRuntimeMode } from "./lib/statsRuntime";
 
 const classes = {
@@ -47,13 +46,7 @@ export type AppHandlers = {
   onOutcome: (outcome: "success" | "fail") => Promise<void>;
 };
 
-function StagingBanners({
-  solverBackend,
-  statsMode,
-}: {
-  solverBackend: SolverBackend;
-  statsMode: StatsRuntimeMode;
-}) {
+function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
   if (statsMode === "staging-misconfigured") {
     return (
       <aside
@@ -68,38 +61,10 @@ function StagingBanners({
   if (statsMode !== "staging") return null;
 
   return (
-    <>
-      <aside className={classes.stagingBanner} aria-label="스테이징 환경">
-        STAGING - 테스트 기록은 운영 통계에 반영되지 않음
-      </aside>
-      <SolverBackendBanner solverBackend={solverBackend} />
-    </>
+    <aside className={classes.stagingBanner} aria-label="스테이징 환경">
+      STAGING - 테스트 기록은 운영 통계에 반영되지 않음
+    </aside>
   );
-}
-
-function SolverBackendBanner({ solverBackend }: { solverBackend: SolverBackend }) {
-  if (solverBackend === "rust-phase2") {
-    return (
-      <aside className={classes.stagingBanner} aria-label="Rust solver staging">
-        STAGING - Rust phase2 solver 테스트 중
-      </aside>
-    );
-  }
-  if (solverBackend === "rust-phase2-rerank") {
-    return (
-      <aside className={classes.stagingBanner} aria-label="Rust solver staging">
-        STAGING - Rust phase2 rerank solver testing
-      </aside>
-    );
-  }
-  if (solverBackend === "rust-min-ef") {
-    return (
-      <aside className={classes.stagingBanner} aria-label="Rust solver staging">
-        STAGING - Rust min E[f] solver 테스트 중
-      </aside>
-    );
-  }
-  return null;
 }
 
 function MobileHeader({ calculator }: { calculator: CalculatorApp }) {
@@ -118,10 +83,12 @@ function Workspace({
   calculator,
   handlers,
   mobileTab,
+  showSolverBackend,
 }: {
   calculator: CalculatorApp;
   handlers: AppHandlers;
   mobileTab: MobileTab;
+  showSolverBackend: boolean;
 }) {
   const { actions } = calculator;
 
@@ -164,6 +131,7 @@ function Workspace({
           view={calculator.detailView}
           validation={calculator.validationView}
           onRunValidation={actions.runMonteCarloValidation}
+          showSolverBackend={showSolverBackend}
         />
       </div>
       <div className={gridCellClass(mobileTab, "stats")} data-tab="stats">
@@ -209,14 +177,12 @@ export function AppLayout({
   handlers,
   mobileTab,
   onTabChange,
-  solverBackend,
   statsMode,
 }: {
   calculator: CalculatorApp;
   handlers: AppHandlers;
   mobileTab: MobileTab;
   onTabChange: (tab: MobileTab) => void;
-  solverBackend: SolverBackend;
   statsMode: StatsRuntimeMode;
 }) {
   const hasResult = calculator.resultView.type !== "empty";
@@ -224,13 +190,18 @@ export function AppLayout({
   return (
     <>
       <main className={classes.shell} data-mobile-tab={mobileTab}>
-        <StagingBanners solverBackend={solverBackend} statsMode={statsMode} />
+        <StagingBanners statsMode={statsMode} />
         <TopBar
           themeMode={calculator.themeMode}
           onThemeModeChange={calculator.actions.setThemeMode}
         />
         <MobileHeader calculator={calculator} />
-        <Workspace calculator={calculator} handlers={handlers} mobileTab={mobileTab} />
+        <Workspace
+          calculator={calculator}
+          handlers={handlers}
+          mobileTab={mobileTab}
+          showSolverBackend={statsMode === "staging"}
+        />
       </main>
       <MobileBottomBar
         calculator={calculator}

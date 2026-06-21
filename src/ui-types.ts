@@ -95,6 +95,7 @@ export type DetailView =
       monteCarloRuns: string;
       expectedConsumption: ExpectedConsumptionView[];
       expectedRemaining: string;
+      solverLabel: string;
     };
 
 export type ValidationView = {

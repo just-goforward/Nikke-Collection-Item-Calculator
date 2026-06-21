@@ -37,34 +37,21 @@ self.onmessage = async (event) => {
   const data = parsed.data as WorkerRequest;
 
   try {
-    if (
-      data.backend === "rust-phase2" ||
-      data.backend === "rust-phase2-rerank" ||
-      data.backend === "rust-min-ef"
-    ) {
+    if (data.backend === "rust-phase2" || data.backend === "rust-min-ef") {
       const wasmUrl = typeof data.wasmUrl === "string" ? data.wasmUrl : "";
       if (!wasmUrl) throw new Error("Rust solver WASM URL is missing.");
       const solveRust: (
         input: SolverInput,
         wasmUrl: string,
         progress?: (progress: ProgressEvent) => void,
-      ) => Promise<unknown> =
-        data.backend === "rust-phase2"
-          ? solveRustPhase2
-          : data.backend === "rust-min-ef"
-            ? solveRustMinEf
-            : (await import("./wasm/rustRerankProductSolver")).solveRustPhase2Rerank;
+      ) => Promise<unknown> = data.backend === "rust-phase2" ? solveRustPhase2 : solveRustMinEf;
       const validateRust: (
         input: SolverInput,
         wasmUrl: string,
         runs: number,
         seed?: number,
       ) => Promise<unknown> =
-        data.backend === "rust-phase2"
-          ? validateRustPhase2
-          : data.backend === "rust-min-ef"
-            ? validateRustMinEf
-            : (await import("./wasm/rustRerankValidation")).validateRustPhase2Rerank;
+        data.backend === "rust-phase2" ? validateRustPhase2 : validateRustMinEf;
       if (data.type === "validate") {
         const runs = Math.max(0, Math.floor(Number(data.runs) || 0));
         const seed = Math.max(0, Math.floor(Number(data.seed) || 20260505));

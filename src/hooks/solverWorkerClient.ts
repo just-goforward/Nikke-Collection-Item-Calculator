@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import { ignoreExpectedError } from "../lib/errorHandling";
-import {
-  solverBackendFromRuntime,
-  solverBackendShouldFailLoud,
-  solverWasmUrl,
-} from "../lib/solverRuntime";
+import { solverBackendFromRuntime, solverWasmUrl } from "../lib/solverRuntime";
 import { WorkerResponseSchema } from "../schemas";
 import type { ProgressEvent, SolverInput, WorkerTaskType } from "../types";
 
@@ -55,21 +51,15 @@ function rawWorkerMessageId(value: unknown): number | null {
 
 function runtimeWorkerOptions() {
   const backend = solverBackendFromRuntime();
-  const isRustBackend =
-    backend === "rust-phase2" || backend === "rust-phase2-rerank" || backend === "rust-min-ef";
+  const isRustBackend = backend === "rust-phase2" || backend === "rust-min-ef";
   return {
     backend,
-    failLoud: solverBackendShouldFailLoud(),
     isRustBackend,
     wasmUrl: isRustBackend ? solverWasmUrl() : undefined,
   };
 }
 
-function workerTimeoutMessage(runtime: WorkerRuntimeOptions) {
-  return runtime.failLoud
-    ? "Rust staging solver timed out."
-    : "Rust solver timed out; falling back to JS solver.";
-}
+const RUST_WORKER_TIMEOUT_MESSAGE = "Rust solver timed out; falling back to JS solver.";
 
 function workerEventOutcome(data: unknown, id: number): WorkerEventOutcome {
   const parsed = WorkerResponseSchema.safeParse(data || {});
@@ -127,7 +117,7 @@ function startWorkerTask({
         cleanup();
         activeWorker.terminate();
         resetActiveWorker(activeWorker);
-        reject(new Error(workerTimeoutMessage(runtime)));
+        reject(new Error(RUST_WORKER_TIMEOUT_MESSAGE));
       }, RUST_BACKEND_TIMEOUT_MS);
     }
     activeWorker.postMessage({

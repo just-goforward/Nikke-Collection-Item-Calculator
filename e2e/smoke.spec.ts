@@ -66,6 +66,7 @@ test("R 1 + 초심자용 100 — 계산 결과 패널에 추천 행동이 나타
     .toBe("0px");
   await expect(page.locator(".result-panel .outcome-panel")).toBeVisible();
   await expect(page.getByRole("heading", { name: "대성공 여부" })).toBeVisible();
+  await expect(page.getByText(/Solver · (?:Rust|JS)/)).toHaveCount(0);
   await expect(page.getByText(/실제 게임 결과에 맞게 대성공 여부를 선택하세요/)).toHaveCount(0);
   await expect(page.locator(".result-panel .outcome-panel .change-note")).toBeVisible();
 });
@@ -613,16 +614,21 @@ test("mobile info-tip text stays inside its bubble", async ({ page }) => {
   expect(layerMetrics?.tooltipEscapesPanelTop).toBe(true);
 });
 
-test("staging rust phase2 backend loads wasm and calculates", async ({ page }) => {
+test("staging uses the production solver behavior and isolated stats endpoint", async ({
+  page,
+}) => {
   await serveStagingDocument(page, {
     endpoint: "https://staging.example.test",
     turnstileSiteKey: "staging-site-key",
   });
   await mockStagingStatsEndpoints(page);
 
-  await page.goto("/?statsEnv=staging&solverBackend=rust-phase2");
+  await page.goto("/?statsEnv=staging");
 
-  await expect(page.getByLabel("Rust solver staging")).toContainText("Rust phase2");
+  await expect(page.getByLabel("스테이징 환경")).toContainText(
+    "테스트 기록은 운영 통계에 반영되지 않음",
+  );
+  await expect(page.getByLabel("Rust solver staging")).toHaveCount(0);
   await page.locator("[data-grade='SR']").click();
   await page.locator("[data-level='10']").click();
   await page.locator("#yellowStock").fill("100");
@@ -630,23 +636,5 @@ test("staging rust phase2 backend loads wasm and calculates", async ({ page }) =
 
   await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".result-panel .outcome-panel")).toBeVisible();
-});
-
-test("staging rust phase2 rerank backend loads wasm and calculates", async ({ page }) => {
-  await serveStagingDocument(page, {
-    endpoint: "https://staging.example.test",
-    turnstileSiteKey: "staging-site-key",
-  });
-  await mockStagingStatsEndpoints(page);
-
-  await page.goto("/?statsEnv=staging&solverBackend=rust-phase2-rerank");
-
-  await expect(page.getByLabel("Rust solver staging")).toContainText("Rust phase2 rerank");
-  await page.locator("[data-grade='SR']").click();
-  await page.locator("[data-level='10']").click();
-  await page.locator("#yellowStock").fill("100");
-  await page.locator("#calculateButton").click();
-
-  await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator(".result-panel .outcome-panel")).toBeVisible();
+  await expect(page.getByText("Solver · Rust min E[f]", { exact: true })).toBeVisible();
 });

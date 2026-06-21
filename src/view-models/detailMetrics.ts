@@ -44,8 +44,23 @@ type DetailResultSource = {
     states?: number;
     strategy?: Strategy;
     probabilityTolerance?: number;
+    solverBackend?: string;
   };
 };
+
+function solverLabel(backend?: string) {
+  switch (backend) {
+    case "rust-min-ef":
+      return "Rust min E[f]";
+    case "rust-phase2":
+      return "Rust phase2";
+    case "js-phase2":
+    case undefined:
+      return "JS phase2";
+    default:
+      return backend;
+  }
+}
 
 function formatKitPieces(value: number) {
   return `약 ${formatInteger(Math.round(value))}개`;
@@ -135,5 +150,6 @@ export function makeMetricsDetailView(
       );
       return `${KIT_SHORT_LABELS[kit]} ${formatInteger(remaining)}개`;
     }).join(" · "),
+    solverLabel: solverLabel(result.stats?.solverBackend),
   };
 }

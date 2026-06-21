@@ -26,6 +26,8 @@ const classes = {
     "panel detail-panel relative col-span-full min-w-0 overflow-visible rounded-card border border-border bg-surface shadow-panel [contain:layout] transition-[background-color,border-color,box-shadow] duration-[220ms]",
   heading:
     "section-heading flex items-center justify-between gap-3 border-b border-border px-[18px] py-4 transition-[border-color,background-color,color] duration-[220ms] max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",
+  solverBadge:
+    "inline-flex min-h-6 items-center rounded-control border border-border bg-surface-strong px-2 py-1 text-[11px] font-semibold leading-none text-muted",
   emptyResult: "empty-result px-[18px] py-[22px] font-medium text-muted",
   resultContent:
     "result-content grid gap-3.5 p-[18px] max-mobile:gap-2.5 max-mobile:px-3.5 max-mobile:py-3",
@@ -84,6 +86,7 @@ type DetailPanelProps = {
   view: DetailView;
   validation: ValidationView;
   onRunValidation: () => void;
+  showSolverBackend: boolean;
 };
 
 function KitChip({
@@ -306,11 +309,21 @@ function MetricsDetail({
   );
 }
 
-export default function DetailPanel({ view, validation, onRunValidation }: DetailPanelProps) {
+export default function DetailPanel({
+  view,
+  validation,
+  onRunValidation,
+  showSolverBackend,
+}: DetailPanelProps) {
   return (
     <section className={classes.panel}>
       <div className={classes.heading}>
         <h2>세부 정보</h2>
+        {showSolverBackend && view.type === "metrics" ? (
+          <span className={classes.solverBadge}>
+            Solver <span aria-hidden="true">·</span> {view.solverLabel}
+          </span>
+        ) : null}
       </div>
       <div id="detailBox" className={view.type === "empty" ? classes.emptyResult : ""}>
         {view.type === "empty" ? (

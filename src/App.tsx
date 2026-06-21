@@ -3,7 +3,6 @@ import { useState } from "react";
 import { type AppHandlers, AppLayout } from "./AppLayout";
 import type { MobileTab } from "./components/MobileChrome";
 import { useCalculatorApp } from "./hooks/useCalculatorApp";
-import { solverBackendFromRuntime } from "./lib/solverRuntime";
 import { statsRuntimeMode } from "./lib/statsRuntime";
 
 export default function App() {
@@ -11,7 +10,6 @@ export default function App() {
   const { actions } = calculator;
   const [mobileTab, setMobileTab] = useState<MobileTab>("input");
   const statsMode = statsRuntimeMode();
-  const solverBackend = solverBackendFromRuntime();
 
   const handlers: AppHandlers = {
     onCalculate: async () => {
@@ -38,7 +36,6 @@ export default function App() {
       handlers={handlers}
       mobileTab={mobileTab}
       onTabChange={setMobileTab}
-      solverBackend={solverBackend}
       statsMode={statsMode}
     />
   );

@@ -18,6 +18,7 @@ describe("makeMetricsDetailView", () => {
         stats: {
           states: 1234,
           probabilityTolerance: 0.01,
+          solverBackend: "rust-min-ef",
           strategy: "supply",
         },
       },
@@ -35,6 +36,7 @@ describe("makeMetricsDetailView", () => {
     ]);
     expect(view.expectedRemaining).toBe("파랑 70개 · 보라 50개 · 노랑 10개");
     expect(view.monteCarloRuns).toBe("12,000");
+    expect(view.solverLabel).toBe("Rust min E[f]");
   });
 
   it("marks candidates outside the probability tolerance", () => {
@@ -77,5 +79,6 @@ describe("makeMetricsDetailView", () => {
     expect(view.candidates[0]?.excludedReason).toBeNull();
     expect(view.candidates[1]?.rankLabel).toBe("후보 2");
     expect(view.candidates[1]?.excludedReason).toContain("허용 확률 차이 초과");
+    expect(view.solverLabel).toBe("JS phase2");
   });
 });

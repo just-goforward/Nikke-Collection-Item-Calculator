@@ -1,11 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { StatsConfig } from "../types";
-import {
-  solverBackendFromRuntime,
-  solverBackendShouldFailLoud,
-  solverWasmUrl,
-} from "./solverRuntime";
+import { solverBackendFromRuntime, solverWasmUrl } from "./solverRuntime";
 
 const productionConfig: StatsConfig = {
   endpoint: "https://production.example.workers.dev/",
@@ -35,49 +31,42 @@ describe("solver runtime selection", () => {
     setRuntime("");
 
     expect(solverBackendFromRuntime()).toBe("rust-min-ef");
-    expect(solverBackendShouldFailLoud()).toBe(false);
   });
 
   it("allows explicitly opting out to the JS solver", () => {
     setRuntime("?solverBackend=js-phase2");
 
     expect(solverBackendFromRuntime()).toBe("js-phase2");
-    expect(solverBackendShouldFailLoud()).toBe(false);
   });
 
-  it("enables rust min-E[f] in staging as fail-loud", () => {
-    setRuntime("?statsEnv=staging&solverBackend=rust-min-ef");
+  it("uses the production default solver in staging", () => {
+    setRuntime("?statsEnv=staging");
 
     expect(solverBackendFromRuntime()).toBe("rust-min-ef");
-    expect(solverBackendShouldFailLoud()).toBe(true);
   });
 
-  it("enables explicit rust phase2 in staging as fail-loud", () => {
+  it("applies the same explicit backend override in staging", () => {
     setRuntime("?statsEnv=staging&solverBackend=rust-phase2");
 
     expect(solverBackendFromRuntime()).toBe("rust-phase2");
-    expect(solverBackendShouldFailLoud()).toBe(true);
   });
 
-  it("enables rust phase2 rerank only for staging", () => {
+  it("ignores the removed rerank backend in staging", () => {
     setRuntime("?statsEnv=staging&solverBackend=rust-phase2-rerank");
 
-    expect(solverBackendFromRuntime()).toBe("rust-phase2-rerank");
-    expect(solverBackendShouldFailLoud()).toBe(true);
+    expect(solverBackendFromRuntime()).toBe("rust-min-ef");
   });
 
   it("does not enable rust phase2 rerank outside staging", () => {
     setRuntime("?solverBackend=rust-phase2-rerank");
 
     expect(solverBackendFromRuntime()).toBe("rust-min-ef");
-    expect(solverBackendShouldFailLoud()).toBe(false);
   });
 
-  it("allows explicit rust min-E[f] outside staging without fail-loud", () => {
+  it("allows explicit rust min-E[f] outside staging", () => {
     setRuntime("?solverBackend=rust-min-ef");
 
     expect(solverBackendFromRuntime()).toBe("rust-min-ef");
-    expect(solverBackendShouldFailLoud()).toBe(false);
   });
 
   it("resolves the wasm URL relative to the current document", () => {
