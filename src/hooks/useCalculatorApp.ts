@@ -42,13 +42,15 @@ export function useCalculatorApp() {
     }
   }, []);
 
-  const { renderMaxLevelState, renderResult } = useCalculatorResultRendering({
-    actionTransitionIdRef,
-    latestResultRef,
-    setDetailView,
-    setResultView,
-    setValidationView,
-  });
+  const { clearActionTransition, renderMaxLevelState, renderResult } = useCalculatorResultRendering(
+    {
+      actionTransitionIdRef,
+      latestResultRef,
+      setDetailView,
+      setResultView,
+      setValidationView,
+    },
+  );
 
   const calculatorState = useCalculatorState({
     onInputChanged: markInputChanged,
@@ -119,6 +121,7 @@ export function useCalculatorApp() {
   return makeCalculatorAppModel({
     applyOutcomeAndMaybeCalculate,
     calculatorState,
+    clearActionTransition,
     detailView,
     loading,
     outcomeFlow,

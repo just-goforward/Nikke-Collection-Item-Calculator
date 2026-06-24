@@ -1,4 +1,3 @@
-import { formatNumber } from "../format";
 import { wilsonInterval } from "../lib/stats/binomial";
 import type { KitStat } from "../ui-types";
 
@@ -28,12 +27,6 @@ export function weightedTheoryRate(rows: KitStat[] = []) {
   );
 }
 
-export function formatSignedPercentPoint(value: number) {
-  if (!Number.isFinite(value)) return "-";
-  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${sign}${formatNumber(Math.abs(value) * 100, 1)}%p`;
-}
-
 export function normalizeSegmentLabel(label: string) {
   const text = String(label || "");
   const match = text.match(/^(R|SR)\s*(\d+)\D+(\d+)$/);
@@ -56,13 +49,6 @@ export function comparisonState(
     return { className: "luck-bad", interval, label: "기대 대비 낮음" };
   }
   return { className: "luck-neutral", interval, label: "기대 범위 내" };
-}
-
-export function difficultyLabel(attempts: number, theoreticalRate: number) {
-  if (!attempts) return "집계 대기";
-  if (theoreticalRate >= 0.5) return "쉬움";
-  if (theoreticalRate >= 0.15) return "보통";
-  return "어려움";
 }
 
 export function percentPosition(rate: number) {

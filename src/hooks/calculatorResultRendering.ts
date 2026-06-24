@@ -23,6 +23,22 @@ export function useCalculatorResultRendering({
   setResultView,
   setValidationView,
 }: ResultRenderingOptions) {
+  const clearActionTransition = useCallback(
+    (transitionId: number) => {
+      setResultView((current) => {
+        if (current.type !== "recommendation" || current.actionTransition?.id !== transitionId) {
+          return current;
+        }
+        return {
+          type: "recommendation",
+          kit: current.kit,
+          count: current.count,
+        };
+      });
+    },
+    [setResultView],
+  );
+
   const renderMaxLevelState = useCallback(
     (nextGrade: Grade, nextLevel: number) => {
       latestResultRef.current = null;
@@ -102,5 +118,5 @@ export function useCalculatorResultRendering({
     [actionTransitionIdRef, latestResultRef, setDetailView, setResultView, setValidationView],
   );
 
-  return { renderMaxLevelState, renderResult };
+  return { clearActionTransition, renderMaxLevelState, renderResult };
 }

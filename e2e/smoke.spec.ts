@@ -284,14 +284,28 @@ test("demoStats=1 — 전체 통계 주요 섹션이 표시된다", async ({ pag
   await expect(page.locator(".difficulty-row")).toHaveCount(6);
   await expect(page.getByText("누적 입력 표본", { exact: true })).toBeVisible();
   await expect(page.locator(".overall-stats-window")).toHaveCount(1);
-  await expect(page.locator(".stats-vs-card")).toHaveCount(3);
+  await expect(page.locator(".stats-vs-card")).toHaveCount(2);
   await expect(page.getByText("실측 대성공률", { exact: true })).toBeVisible();
-  await expect(page.getByText("실측 - 기대값", { exact: true })).toBeVisible();
+  await expect(page.getByText("실측 - 기대값", { exact: true })).toHaveCount(0);
   await expect(page.getByText("최근 30일 체감", { exact: true })).toHaveCount(0);
   await expect(page.getByText(/현재 확률표 기준으로 계산한 입력 표본 통계입니다/)).toHaveCount(0);
-  await expect(page.locator(".kit-rate-meta").first()).toContainText(/\d+시도/);
+  await expect(page.locator(".kit-rate-meta").first()).toContainText(/\d+회/);
   await expect(page.locator(".kit-rate-meta").first()).not.toContainText(/실측|기대값/);
+  await expect(page.locator(".difficulty-attempts")).toHaveCount(6);
+  await expect(page.locator(".difficulty-attempts").first()).toContainText(/\d+회/);
+  await expect(page.getByText(/^(쉬움|보통|어려움)$/)).toHaveCount(0);
   await expect(page.getByText("결과 입력 표본 기준 · 이벤트 단위 집계")).toBeVisible();
+});
+
+test("제목 버튼은 입력값과 계산 결과를 초기화한다", async ({ page }) => {
+  await page.getByLabel("초심자용 관리 키트").fill("100");
+  await page.getByRole("button", { name: "계산", exact: true }).click();
+  await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
+
+  await page.getByRole("button", { name: "소장품 레벨업 계산기", exact: true }).click();
+
+  await expect(page.getByLabel("초심자용 관리 키트")).toHaveValue("0");
+  await expect(page.getByText("입력값을 넣고 계산을 실행하세요.")).toBeVisible();
 });
 
 test("staging 설정 누락은 운영 API로 대체하지 않고 알림을 표시한다", async ({ page }) => {
@@ -423,6 +437,15 @@ test("대성공 X 선택 후 다음 추천이 자동 계산된다", async ({ pag
   await expect(page.getByRole("heading", { name: "대성공 여부" })).toBeVisible();
   await expect(page.locator(".next-action-previous")).toHaveCount(1);
   await expect(page.locator(".next-action-current")).toHaveCount(1);
+
+  await expect(page.locator(".next-action-previous")).toHaveCount(0, { timeout: 3_000 });
+  await expect(page.locator(".next-action-current")).toHaveCount(0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("tab", { name: "입력" }).click();
+  await page.getByRole("tab", { name: "결과" }).click();
+  await expect(page.locator(".next-action-previous")).toHaveCount(0);
+  await expect(page.locator(".next-action-current")).toHaveCount(0);
 });
 
 test("모바일 결과 탭에서는 대성공 버튼이 하단 액션바에만 표시된다", async ({ page }) => {
@@ -553,6 +576,8 @@ test("desktop difficulty interval click does not move tooltip position", async (
 test("privacy notice is desktop footer and mobile stats-only footer", async ({ page }) => {
   await page.goto("/?demoStats=1");
   await expect(page.locator("footer:visible")).toHaveCount(1);
+  await expect(page.locator("footer:visible")).toContainText("보유 키트 수량 구간");
+  await expect(page.locator("footer:visible")).toContainText("사용 solver·폴백 사유");
   await expect(page.getByText("계산 모드")).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });

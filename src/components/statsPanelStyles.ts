@@ -44,7 +44,7 @@ export const classes = {
   overallWindowTitle: "text-[13px] font-semibold leading-[1.2] text-text-strong",
   overallWindowMeta:
     "text-right text-[11px] font-medium leading-[1.35] text-muted max-mobile:text-left",
-  overallRateGrid: "overall-rate-grid grid grid-cols-3 gap-2",
+  overallRateGrid: "overall-rate-grid grid grid-cols-2 gap-2",
   statsCard:
     "stats-vs-card min-w-0 rounded-card border border-border bg-surface-raised p-3 text-center max-mobile:p-2.5",
   statsCardLabel: "block text-[11px] font-medium leading-[1.2] text-muted",
@@ -52,8 +52,6 @@ export const classes = {
     "mt-2 block text-[clamp(24px,3.2vw,34px)] font-semibold leading-none max-mobile:mt-1 max-mobile:text-[clamp(20px,6.5vw,24px)]",
   neutralValue: "text-text-strong",
   actualValue: "text-grade-active-strong",
-  positiveValue: "text-[#168f7a]",
-  negativeValue: "text-danger",
   empty: "stats-empty m-0 text-[12px] font-normal leading-[1.45] text-muted",
   note: "stats-note m-0 text-[11px] font-normal leading-[1.45] text-muted [overflow-wrap:break-word] [word-break:keep-all]",
   disclaimer:
@@ -66,10 +64,10 @@ export const classes = {
   difficultySegment:
     "difficulty-segment min-w-0 whitespace-nowrap text-[13px] font-semibold leading-[1.2] text-text-strong max-mobile:text-[12px]",
   difficultyTags: "difficulty-tags flex min-w-0 flex-wrap justify-end gap-[5px]",
+  difficultyAttempts:
+    "difficulty-attempts whitespace-nowrap text-[11px] font-medium leading-none text-muted",
   difficultyComparison:
     "difficulty-comparison whitespace-nowrap rounded-pill border border-[color-mix(in_srgb,var(--line)_76%,var(--grade-active))] bg-[color-mix(in_srgb,var(--surface-raised)_82%,var(--grade-active-soft))] px-2 py-[3px] text-[11px] font-medium leading-none text-muted",
-  difficultyLabel:
-    "difficulty-label whitespace-nowrap rounded-pill border border-border bg-surface-raised px-2 py-[3px] text-[11px] font-medium leading-none text-text-strong",
   rateBar:
     "difficulty-bar relative block h-[13px] w-full overflow-visible rounded-pill border-0 bg-progress-track p-0 text-left text-inherit [margin-block:12px_17px] [font:inherit] [user-select:none] cursor-default",
   kitRateBar:

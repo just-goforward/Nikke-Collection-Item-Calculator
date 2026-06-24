@@ -29,12 +29,14 @@ type CalculatorAppModelOptions = {
   theme: ThemeState;
   validationView: ValidationView;
   applyOutcomeAndMaybeCalculate: (outcome: "success" | "fail") => Promise<void>;
+  clearActionTransition: (transitionId: number) => void;
   resetInputs: () => void;
 };
 
 export function makeCalculatorAppModel({
   applyOutcomeAndMaybeCalculate,
   calculatorState,
+  clearActionTransition,
   detailView,
   loading,
   outcomeFlow,
@@ -72,6 +74,7 @@ export function makeCalculatorAppModel({
       calculate: runCalculation,
       reset: resetInputs,
       applyOutcome: applyOutcomeAndMaybeCalculate,
+      clearActionTransition,
       applyConvert: outcomeFlow.applyConvert,
       runMonteCarloValidation,
       setModalAttempt: outcomeFlow.setModalAttempt,

@@ -122,6 +122,7 @@ function Workspace({
       <div className={gridCellClass(mobileTab, "result")} data-tab="result">
         <ResultPanel
           view={calculator.resultView}
+          onActionTransitionComplete={actions.clearActionTransition}
           onConvert={handlers.onConvert}
           onOutcome={handlers.onOutcome}
         />
@@ -192,6 +193,7 @@ export function AppLayout({
       <main className={classes.shell} data-mobile-tab={mobileTab}>
         <StagingBanners statsMode={statsMode} />
         <TopBar
+          onReset={handlers.onReset}
           themeMode={calculator.themeMode}
           onThemeModeChange={calculator.actions.setThemeMode}
         />

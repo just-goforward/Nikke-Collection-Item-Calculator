@@ -2,13 +2,7 @@ import { formatInteger, formatPercent } from "../format";
 import type { GlobalStats, KitStat, SegmentStat } from "../ui-types";
 import { RateBar } from "./StatsRateBar";
 import type { IntervalTooltipHandlers } from "./StatsTooltip";
-import {
-  comparisonState,
-  difficultyLabel,
-  formatSignedPercentPoint,
-  normalizeSegmentLabel,
-  weightedTheoryRate,
-} from "./statsPanelModel";
+import { comparisonState, normalizeSegmentLabel, weightedTheoryRate } from "./statsPanelModel";
 import { classes, joinClasses, KIT_LABELS, KIT_ORDER, kitDotClass } from "./statsPanelStyles";
 
 function DifficultyRow({
@@ -25,7 +19,6 @@ function DifficultyRow({
   const theoreticalRate = Number(item.theoreticalGreatSuccessRate || item.theoreticalRate || 0);
   const greatSuccesses = Number(item.greatSuccesses || 0);
   const comparison = comparisonState(greatSuccesses, attempts, theoreticalRate);
-  const label = difficultyLabel(attempts, theoreticalRate);
 
   return (
     <div
@@ -38,8 +31,8 @@ function DifficultyRow({
       <div className={classes.difficultyHead}>
         <span className={classes.difficultySegment}>{normalizeSegmentLabel(item.label)}</span>
         <span className={classes.difficultyTags}>
+          <span className={classes.difficultyAttempts}>{formatInteger(attempts)}회</span>
           <span className={classes.difficultyComparison}>{comparison.label}</span>
-          <span className={classes.difficultyLabel}>{label}</span>
         </span>
       </div>
       <RateBar
@@ -71,10 +64,6 @@ function OverallStatsWindow({
   const greatSuccesses = Number(summary?.greatSuccesses || 0);
   const actualRate = Number(summary?.greatSuccessRate || 0);
   const theoreticalRate = weightedTheoryRate(byKit);
-  const delta = attempts ? actualRate - theoreticalRate : 0;
-  const deltaClass = delta > 0 ? "positive" : delta < 0 ? "negative" : "neutral";
-  const deltaValueClass =
-    delta > 0 ? classes.positiveValue : delta < 0 ? classes.negativeValue : "";
 
   return (
     <article className={classes.overallWindow}>
@@ -96,14 +85,6 @@ function OverallStatsWindow({
           <span className={classes.statsCardLabel}>기대값</span>
           <strong className={`${classes.statsCardValue} ${classes.neutralValue}`}>
             {attempts ? formatPercent(theoreticalRate, 1) : "-"}
-          </strong>
-        </div>
-        <div className={`${classes.statsCard} delta ${deltaClass}`}>
-          <span className={classes.statsCardLabel}>실측 - 기대값</span>
-          <strong
-            className={joinClasses(classes.statsCardValue, deltaValueClass || classes.neutralValue)}
-          >
-            {attempts ? formatSignedPercentPoint(delta) : "-"}
           </strong>
         </div>
       </div>
@@ -178,7 +159,7 @@ function KitRateRow({
         {...tooltipHandlers}
         theoreticalRate={theoreticalRate}
       />
-      <p className={classes.kitRateMeta}>{formatInteger(attempts)}시도</p>
+      <p className={classes.kitRateMeta}>{formatInteger(attempts)}회</p>
     </div>
   );
 }

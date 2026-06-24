@@ -8,7 +8,9 @@ const classes = {
   root: "mb-[18px] flex items-end justify-between gap-[18px] max-mobile:mb-[10px] max-mobile:items-center max-mobile:gap-[10px]",
   titleWrap: "max-mobile:min-w-0 max-mobile:flex-1",
   title:
-    "text-[clamp(27px,3vw,42px)] font-medium leading-[1.05] max-mobile:max-w-none max-mobile:text-[clamp(20px,5vw,24px)] max-mobile:leading-[1.15] max-mobile:tracking-[-0.01em] max-phone-xs:text-[18.5px]",
+    "m-0 text-[clamp(27px,3vw,42px)] font-semibold leading-[1.05] max-mobile:max-w-none max-mobile:text-[clamp(20px,5vw,24px)] max-mobile:leading-[1.15] max-mobile:tracking-[-0.01em] max-phone-xs:text-[18.5px]",
+  titleButton:
+    "block border-0 bg-transparent p-0 text-left font-semibold text-inherit transition-opacity duration-150 hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-2 focus-visible:ring-offset-page",
   control:
     "inline-grid grid-cols-[auto] items-center gap-1 rounded-card border border-border bg-surface p-0.5 [--theme-index:0] max-mobile:self-center max-mobile:gap-0",
   options:
@@ -19,18 +21,28 @@ const classes = {
 } as const;
 
 type TopBarProps = {
+  onReset: () => void;
   themeMode: ThemeMode;
   onThemeModeChange: (themeMode: ThemeMode) => void;
 };
 
-export default function TopBar({ themeMode, onThemeModeChange }: TopBarProps) {
+export default function TopBar({ onReset, themeMode, onThemeModeChange }: TopBarProps) {
   const themeIndex = Math.max(0, THEME_MODES.indexOf(themeMode));
   const controlStyle = { "--theme-index": themeIndex } as CSSProperties;
 
   return (
     <header className={classes.root}>
       <div className={classes.titleWrap}>
-        <h1 className={classes.title}>소장품 레벨업 계산기</h1>
+        <h1 className={classes.title}>
+          <button
+            className={classes.titleButton}
+            onClick={onReset}
+            title="입력값 초기화"
+            type="button"
+          >
+            소장품 레벨업 계산기
+          </button>
+        </h1>
       </div>
       {/* biome-ignore lint/a11y/useSemanticElements: Existing CSS and tests use this grouped control contract. */}
       <div className={classes.control} role="group" aria-label="테마 선택" style={controlStyle}>

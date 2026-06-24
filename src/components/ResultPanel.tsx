@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { type CSSProperties, type ReactNode, useEffect } from "react";
 
 import type { Kit } from "../types";
 import type { RecommendationActionTransition, ResultKit, ResultView } from "../ui-types";
@@ -69,6 +69,7 @@ const classes = {
 
 type ResultPanelProps = {
   view: ResultView;
+  onActionTransitionComplete: (transitionId: number) => void;
   onConvert: () => void;
   onOutcome: (outcome: "success" | "fail") => void;
 };
@@ -131,13 +132,25 @@ function RecommendationBlock({
   title,
   children,
   transition,
+  onTransitionComplete,
 }: {
   kit: ResultKit;
   count?: number;
   title: string;
   children: ReactNode;
   transition?: RecommendationActionTransition;
+  onTransitionComplete?: (transitionId: number) => void;
 }) {
+  useEffect(() => {
+    if (!transition || !onTransitionComplete) return;
+    const transitionId = transition.id;
+    const timeoutId = window.setTimeout(
+      () => onTransitionComplete(transitionId),
+      STATE_FEEDBACK_VISIBLE_MS,
+    );
+    return () => window.clearTimeout(timeoutId);
+  }, [onTransitionComplete, transition]);
+
   const transitionStyle = transition
     ? ({ "--next-action-feedback-ms": `${STATE_FEEDBACK_VISIBLE_MS}ms` } as CSSProperties)
     : undefined;
@@ -184,6 +197,7 @@ function ConvertRecommendation({ onConvert }: { onConvert: () => void }) {
 
 function renderView(
   view: ResultView,
+  onActionTransitionComplete: (transitionId: number) => void,
   onConvert: () => void,
   onOutcome: (outcome: "success" | "fail") => void,
 ) {
@@ -219,6 +233,7 @@ function renderView(
         <RecommendationBlock
           kit={view.kit}
           count={view.count}
+          onTransitionComplete={onActionTransitionComplete}
           title={"\ub300\uc131\uacf5 \uc5ec\ubd80"}
           {...(view.actionTransition ? { transition: view.actionTransition } : {})}
         >
@@ -258,14 +273,19 @@ function renderView(
   );
 }
 
-export default function ResultPanel({ view, onConvert, onOutcome }: ResultPanelProps) {
+export default function ResultPanel({
+  view,
+  onActionTransitionComplete,
+  onConvert,
+  onOutcome,
+}: ResultPanelProps) {
   return (
     <section className={classes.panel}>
       <div className={classes.heading}>
         <h2>결과</h2>
       </div>
       <div id="resultBox" className={view.type === "empty" ? classes.emptyResult : ""}>
-        {renderView(view, onConvert, onOutcome)}
+        {renderView(view, onActionTransitionComplete, onConvert, onOutcome)}
       </div>
     </section>
   );
