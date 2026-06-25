@@ -31,7 +31,6 @@ function DifficultyRow({
       <div className={classes.difficultyHead}>
         <span className={classes.difficultySegment}>{normalizeSegmentLabel(item.label)}</span>
         <span className={classes.difficultyTags}>
-          <span className={classes.difficultyAttempts}>{formatInteger(attempts)}회</span>
           <span className={classes.difficultyComparison}>{comparison.label}</span>
         </span>
       </div>
@@ -42,6 +41,7 @@ function DifficultyRow({
         {...tooltipHandlers}
         theoreticalRate={theoreticalRate}
       />
+      <p className={classes.difficultyAttempts}>{formatInteger(attempts)}회</p>
     </div>
   );
 }

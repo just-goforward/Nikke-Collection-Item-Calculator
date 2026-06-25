@@ -65,7 +65,7 @@ export const classes = {
     "difficulty-segment min-w-0 whitespace-nowrap text-[13px] font-semibold leading-[1.2] text-text-strong max-mobile:text-[12px]",
   difficultyTags: "difficulty-tags flex min-w-0 flex-wrap justify-end gap-[5px]",
   difficultyAttempts:
-    "difficulty-attempts whitespace-nowrap text-[11px] font-medium leading-none text-muted",
+    "difficulty-attempts m-0 text-[11px] font-medium leading-[1.45] text-muted [overflow-wrap:break-word] [word-break:keep-all]",
   difficultyComparison:
     "difficulty-comparison whitespace-nowrap rounded-pill border border-[color-mix(in_srgb,var(--line)_76%,var(--grade-active))] bg-[color-mix(in_srgb,var(--surface-raised)_82%,var(--grade-active-soft))] px-2 py-[3px] text-[11px] font-medium leading-none text-muted",
   rateBar:
