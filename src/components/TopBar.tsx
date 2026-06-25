@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { useEffect, useState } from "react";
 
 import type { ThemeMode } from "../ui-types";
 
@@ -10,7 +11,8 @@ const classes = {
   title:
     "m-0 text-[clamp(27px,3vw,42px)] font-semibold leading-[1.05] max-mobile:max-w-none max-mobile:text-[clamp(20px,5vw,24px)] max-mobile:leading-[1.15] max-mobile:tracking-[-0.01em] max-phone-xs:text-[18.5px]",
   titleButton:
-    "block border-0 bg-transparent p-0 text-left font-semibold text-inherit transition-opacity duration-150 hover:opacity-75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-2 focus-visible:ring-offset-page",
+    "-mx-1 -my-0.5 block rounded-control border-0 bg-transparent px-1 py-0.5 text-left font-semibold text-inherit transition-[background-color,box-shadow,opacity,transform] duration-150 hover:bg-[color-mix(in_srgb,var(--surface-raised)_72%,transparent)] hover:opacity-90 active:translate-y-px active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-2 focus-visible:ring-offset-page",
+  titleButtonFeedback: "[animation:title-reset-feedback_420ms_cubic-bezier(0.2,0.8,0.2,1)_both]",
   control:
     "inline-grid grid-cols-[auto] items-center gap-1 rounded-card border border-border bg-surface p-0.5 [--theme-index:0] max-mobile:self-center max-mobile:gap-0",
   options:
@@ -20,6 +22,8 @@ const classes = {
   activeButton: "text-page",
 } as const;
 
+const RESET_FEEDBACK_MS = 420;
+
 type TopBarProps = {
   onReset: () => void;
   themeMode: ThemeMode;
@@ -27,16 +31,30 @@ type TopBarProps = {
 };
 
 export default function TopBar({ onReset, themeMode, onThemeModeChange }: TopBarProps) {
+  const [isResetFeedbackVisible, setIsResetFeedbackVisible] = useState(false);
   const themeIndex = Math.max(0, THEME_MODES.indexOf(themeMode));
   const controlStyle = { "--theme-index": themeIndex } as CSSProperties;
+
+  useEffect(() => {
+    if (!isResetFeedbackVisible) return undefined;
+    const timer = window.setTimeout(() => setIsResetFeedbackVisible(false), RESET_FEEDBACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [isResetFeedbackVisible]);
+
+  const handleReset = () => {
+    onReset();
+    setIsResetFeedbackVisible(true);
+  };
 
   return (
     <header className={classes.root}>
       <div className={classes.titleWrap}>
         <h1 className={classes.title}>
           <button
-            className={classes.titleButton}
-            onClick={onReset}
+            className={`${classes.titleButton} ${
+              isResetFeedbackVisible ? classes.titleButtonFeedback : ""
+            }`}
+            onClick={handleReset}
             title="입력값 초기화"
             type="button"
           >

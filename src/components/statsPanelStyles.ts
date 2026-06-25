@@ -35,7 +35,6 @@ export const classes = {
   sectionTitle: "stats-section-title flex min-w-0 items-center justify-between gap-2.5",
   sectionHeading:
     "m-0 text-[15px] font-semibold leading-[1.25] text-text-strong max-mobile:text-[14px]",
-  sectionMeta: "text-right text-[11px] font-medium text-muted whitespace-normal",
   overallStack: "overall-stats-stack grid gap-2.5",
   overallWindow:
     "overall-stats-window grid min-w-0 gap-2 rounded-card border border-border bg-surface-raised p-[11px] max-mobile:p-2.5",
@@ -54,8 +53,6 @@ export const classes = {
   actualValue: "text-grade-active-strong",
   empty: "stats-empty m-0 text-[12px] font-normal leading-[1.45] text-muted",
   note: "stats-note m-0 text-[11px] font-normal leading-[1.45] text-muted [overflow-wrap:break-word] [word-break:keep-all]",
-  disclaimer:
-    "stats-disclaimer m-0 px-0.5 text-right text-[11px] font-normal leading-[1.45] text-muted [overflow-wrap:break-word] [word-break:keep-all]",
   difficultyList: "difficulty-list grid gap-0",
   difficultyRow:
     "difficulty-row flex min-w-0 flex-col gap-[7px] px-0.5 pb-3 pt-[15px] max-mobile:py-2.5 max-mobile:pb-3",

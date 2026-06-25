@@ -155,6 +155,26 @@ html.theme-commit *::after {
   }
 }
 
+@keyframes title-reset-feedback {
+  0% {
+    background-color: color-mix(in srgb, var(--grade-active-soft) 0%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--grade-active) 0%, transparent);
+    transform: translateY(0) scale(1);
+  }
+
+  35% {
+    background-color: color-mix(in srgb, var(--grade-active-soft) 72%, transparent);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--grade-active) 14%, transparent);
+    transform: translateY(1px) scale(0.99);
+  }
+
+  100% {
+    background-color: color-mix(in srgb, var(--grade-active-soft) 0%, transparent);
+    box-shadow: 0 0 0 9px color-mix(in srgb, var(--grade-active) 0%, transparent);
+    transform: translateY(0) scale(1);
+  }
+}
+
 @media (prefers-reduced-motion: no-preference) {
   ::view-transition-old(root) {
     animation: none;

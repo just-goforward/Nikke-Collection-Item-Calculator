@@ -294,7 +294,10 @@ test("demoStats=1 — 전체 통계 주요 섹션이 표시된다", async ({ pag
   await expect(page.locator(".difficulty-attempts")).toHaveCount(6);
   await expect(page.locator(".difficulty-attempts").first()).toContainText(/\d+회/);
   await expect(page.getByText(/^(쉬움|보통|어려움)$/)).toHaveCount(0);
-  await expect(page.getByText("결과 입력 표본 기준 · 이벤트 단위 집계")).toBeVisible();
+  await expect(page.getByText("누적 중심", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("기대값 vs 실측", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("기록된 키트 조합 기준", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("결과 입력 표본 기준 · 이벤트 단위 집계")).toHaveCount(0);
 });
 
 test("제목 버튼은 입력값과 계산 결과를 초기화한다", async ({ page }) => {
@@ -302,7 +305,9 @@ test("제목 버튼은 입력값과 계산 결과를 초기화한다", async ({ 
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
 
-  await page.getByRole("button", { name: "소장품 레벨업 계산기", exact: true }).click();
+  const titleButton = page.getByRole("button", { name: "소장품 레벨업 계산기", exact: true });
+  await titleButton.click();
+  await expect(titleButton).toHaveClass(/title-reset-feedback/);
 
   await expect(page.getByLabel("초심자용 관리 키트")).toHaveValue("0");
   await expect(page.getByText("입력값을 넣고 계산을 실행하세요.")).toBeVisible();

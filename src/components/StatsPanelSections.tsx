@@ -102,7 +102,6 @@ export function OverallStats({ stats }: { stats: GlobalStats }) {
     <section className={`${classes.section} stats-overall-section`}>
       <div className={classes.sectionTitle}>
         <h3 className={classes.sectionHeading}>전체 대성공률</h3>
-        <span className={classes.sectionMeta}>누적 중심</span>
       </div>
       <div className={classes.overallStack}>
         <OverallStatsWindow
@@ -176,7 +175,6 @@ export function KitStats({
     <section className={`${classes.section} stats-kit-section`}>
       <div className={classes.sectionTitle}>
         <h3 className={classes.sectionHeading}>키트별 대성공률</h3>
-        <span className={classes.sectionMeta}>기대값 vs 실측</span>
       </div>
       {byKit.length ? (
         <div className={classes.kitRateList}>
@@ -205,7 +203,6 @@ export function DifficultyStats({
     <section className={classes.section}>
       <div className={classes.sectionTitle}>
         <h3 className={classes.sectionHeading}>구간별 체감 난이도</h3>
-        <span className={classes.sectionMeta}>기록된 키트 조합 기준</span>
       </div>
       {rows.length ? (
         <div className={classes.difficultyList}>

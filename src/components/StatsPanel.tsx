@@ -93,7 +93,6 @@ function StatsContent({ stats }: { stats: GlobalStats }) {
         </div>
         <DifficultyStats rows={segmentRows} tooltipHandlers={intervalTooltipHandlers} />
       </div>
-      <p className={classes.disclaimer}>결과 입력 표본 기준 · 이벤트 단위 집계</p>
       <DifficultyTooltip tooltip={tooltip} />
     </div>
   );
