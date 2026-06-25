@@ -26,17 +26,8 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
   if (!env.DB) throw new HttpError(500, "database_not_configured");
   const now = Math.floor(Date.now() / 1000);
   const today = kstDateKeyFromUnixSeconds(now);
-  const since = kstDateKeyFromUnixSeconds(now - 86400 * 29);
 
-  const [statRows, cumulativeRows, todayRow] = await Promise.all([
-    env.DB.prepare(
-      `SELECT grade, level, kit, SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
-       FROM event_aggregates
-       WHERE date_key >= ?
-       GROUP BY grade, level, kit`,
-    )
-      .bind(since)
-      .all<StatsAggregateRow>(),
+  const [aggregateRowsResult, todayRow] = await Promise.all([
     env.DB.prepare(
       `SELECT grade, level, kit, SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
        FROM event_aggregates
@@ -51,12 +42,11 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
       .first(),
   ]);
 
-  const rows = statRows.results || [];
-  const allRows = cumulativeRows.results || [];
+  const rows = aggregateRowsResult.results || [];
   const summary = summarizeRows(rows);
-  const cumulativeSummary = summarizeRows(allRows);
+  const cumulativeSummary = summary;
   const byKit = buildByKitStats(rows);
-  const cumulativeByKit = buildByKitStats(allRows);
+  const cumulativeByKit = byKit;
   const segmentStats = buildSegmentStats(rows);
   const mostUsedKit = mostUsedKitFromStats(byKit);
   const cumulativeMostUsedKit = mostUsedKitFromStats(cumulativeByKit);
@@ -65,7 +55,7 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
     request,
     env,
     {
-      windowDays: 30,
+      windowDays: 0,
       today,
       summary: {
         ...summary,

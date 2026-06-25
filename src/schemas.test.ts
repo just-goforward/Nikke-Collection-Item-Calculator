@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { StatsApiResponseSchema } from "./schemas";
 
 const baseResponse = {
-  windowDays: 30,
+  windowDays: 0,
   today: "2026-05-26",
   summary: {
     events: 0,

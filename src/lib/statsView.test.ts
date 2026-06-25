@@ -5,7 +5,7 @@ import { EMPTY_STATS_MESSAGE, statsViewFromApiStats } from "./statsView";
 
 function statsWithEvents(events: number): StatsApiResponse {
   return {
-    windowDays: 30,
+    windowDays: 0,
     today: "2026-06-11",
     summary: {
       events,

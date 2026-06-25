@@ -171,6 +171,33 @@ describe("stats response compatibility", () => {
     expect(body.segmentStats).toBeDefined();
   });
 
+  it("uses all historical aggregate rows for public statistics by default", async () => {
+    await harness.database
+      .prepare(
+        `INSERT INTO event_aggregates
+         (date_key, grade, level, exp_bucket, kit, recommended_uses, outcome, success_attempt, events, attempts, great_successes, last_seen)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind("2020-01-01", "R", 0, 50, "blue", 1, "great", 1, 1, 3, 2, 1_800_000_000)
+      .run();
+
+    const response = await fetchStats();
+    const body = (await response.json()) as {
+      windowDays?: number;
+      summary?: { events?: number; attempts?: number; greatSuccesses?: number };
+      byKit?: Array<{ kit?: string; attempts?: number }>;
+      segmentStats?: Array<{ key?: string; attempts?: number }>;
+      cumulative?: { summary?: { events?: number; attempts?: number; greatSuccesses?: number } };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.windowDays).toBe(0);
+    expect(body.summary).toMatchObject({ events: 1, attempts: 3, greatSuccesses: 2 });
+    expect(body.cumulative?.summary).toMatchObject({ events: 1, attempts: 3, greatSuccesses: 2 });
+    expect(body.byKit?.find((item) => item.kit === "blue")).toMatchObject({ attempts: 3 });
+    expect(body.segmentStats?.find((item) => item.key === "R:0")).toMatchObject({ attempts: 3 });
+  });
+
   it("keeps the existing origin policy for browser and non-browser reads", async () => {
     const allowed = await fetchStats();
     const noOrigin = await fetchStats(null);

@@ -190,7 +190,7 @@ export function makeDemoStats(): StatsApiResponse {
   const cumulativeMostUsed = mostUsedKit(cumulativeByKit);
 
   return {
-    windowDays: 30,
+    windowDays: 0,
     today: "2026-05-07",
     summary: {
       events: totalEvents,
