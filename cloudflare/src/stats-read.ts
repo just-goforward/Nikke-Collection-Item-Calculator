@@ -47,6 +47,7 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
   const cumulativeSummary = summary;
   const byKit = buildByKitStats(rows);
   const cumulativeByKit = byKit;
+  const levelKitStats = buildLevelKitStats(rows);
   const segmentStats = buildSegmentStats(rows);
   const mostUsedKit = mostUsedKitFromStats(byKit);
   const cumulativeMostUsedKit = mostUsedKitFromStats(cumulativeByKit);
@@ -77,7 +78,7 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
         },
         byKit: cumulativeByKit,
       },
-      levelKitStats: [],
+      levelKitStats,
       segmentStats,
       successAttemptDistribution: [],
     },
@@ -175,6 +176,33 @@ function buildSegmentStats(rows: StatsAggregateRow[]) {
       byKit,
     };
   });
+}
+
+function buildLevelKitStats(rows: StatsAggregateRow[]) {
+  return (["R", "SR"] as const).flatMap((grade) =>
+    Array.from({ length: 15 }, (_, level) => {
+      const levelRows = rows.filter(
+        (row) => rowGrade(row) === grade && Number(row.level) === level,
+      );
+      const byKit = buildByKitStats(levelRows);
+      const kits = Object.fromEntries(
+        KIT_ORDER.map((kit) => [kit, byKit.find((row) => row.kit === kit) || emptyKitStats(kit)]),
+      );
+      return { grade, level, kits };
+    }),
+  );
+}
+
+function emptyKitStats(kit: Kit) {
+  return {
+    kit,
+    events: 0,
+    attempts: 0,
+    pieces: 0,
+    greatSuccesses: 0,
+    greatSuccessRate: 0,
+    theoreticalGreatSuccessRate: 0,
+  };
 }
 
 function mostUsedKitFromStats(stats: ReturnType<typeof buildByKitStats>) {

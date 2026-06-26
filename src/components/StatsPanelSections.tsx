@@ -12,11 +12,13 @@ import { classes, joinClasses, KIT_LABELS, KIT_ORDER, kitDotClass } from "./stat
 function DifficultyRow({
   index,
   item,
+  levelKitStats,
   tooltipHandlers,
   usageTooltipHandlers,
 }: {
   index: number;
   item: SegmentStat;
+  levelKitStats: GlobalStats["levelKitStats"];
   tooltipHandlers: IntervalTooltipHandlers;
   usageTooltipHandlers: UsageTooltipHandlers;
 }) {
@@ -26,7 +28,7 @@ function DifficultyRow({
   const theoreticalRate = Number(item.theoreticalGreatSuccessRate || item.theoreticalRate || 0);
   const greatSuccesses = Number(item.greatSuccesses || 0);
   const comparison = comparisonState(greatSuccesses, attempts, theoreticalRate);
-  const usageItems = usageItemsFromStats(item.byKit);
+  const usageItems = segmentUsageItems(item, levelKitStats);
 
   return (
     <div
@@ -64,6 +66,43 @@ function usageItemsFromStats(items: KitStat[] | undefined): UsageTooltipItem[] {
   return KIT_ORDER.map((kit) => {
     const item = Array.isArray(items) ? items.find((row) => row.kit === kit) : undefined;
     return { kit, pieces: item ? piecesFromStat(item) : 0 };
+  });
+}
+
+function segmentUsageItems(
+  item: SegmentStat,
+  levelKitStats: GlobalStats["levelKitStats"],
+): UsageTooltipItem[] {
+  if (Array.isArray(item.byKit) && item.byKit.length > 0) return usageItemsFromStats(item.byKit);
+  return usageItemsFromStats(segmentKitStatsFromLevels(item.key, levelKitStats));
+}
+
+function segmentKitStatsFromLevels(
+  key: string | undefined,
+  levelKitStats: GlobalStats["levelKitStats"],
+): KitStat[] {
+  const [grade, startText] = String(key || "").split(":");
+  const start = Number(startText);
+  if ((grade !== "R" && grade !== "SR") || !Number.isInteger(start)) return [];
+  const end = start === 0 ? 4 : start === 5 ? 9 : start === 10 ? 14 : -1;
+  if (end < start) return [];
+
+  return KIT_ORDER.map((kit) => {
+    const totals = (levelKitStats || [])
+      .filter((row) => row.grade === grade && row.level >= start && row.level <= end)
+      .reduce(
+        (sum, row) => {
+          const stats = row.kits[kit];
+          sum.attempts += Number(stats?.attempts || 0);
+          sum.pieces += piecesFromStat({
+            attempts: stats?.attempts,
+            pieces: stats?.pieces,
+          });
+          return sum;
+        },
+        { attempts: 0, pieces: 0 },
+      );
+    return { kit, attempts: totals.attempts, pieces: totals.pieces };
   });
 }
 
@@ -238,14 +277,15 @@ export function KitStats({
 }
 
 export function DifficultyStats({
-  rows,
+  stats,
   tooltipHandlers,
   usageTooltipHandlers,
 }: {
-  rows: SegmentStat[];
+  stats: GlobalStats;
   tooltipHandlers: IntervalTooltipHandlers;
   usageTooltipHandlers: UsageTooltipHandlers;
 }) {
+  const rows = Array.isArray(stats.segmentStats) ? stats.segmentStats : [];
   return (
     <section className={classes.section}>
       <div className={classes.sectionTitle}>
@@ -258,6 +298,7 @@ export function DifficultyStats({
               index={index}
               item={row}
               key={row.key}
+              levelKitStats={stats.levelKitStats}
               tooltipHandlers={tooltipHandlers}
               usageTooltipHandlers={usageTooltipHandlers}
             />

@@ -123,9 +123,10 @@ but obtains a fresh Turnstile token. A transient Worker-to-Siteverify retry reus
 token with the same `idempotency_key`. Any retry can consume additional pre/post rate-limit
 counters, because abuse-protection accounting is intentionally kept outside the aggregate commit.
 
-The public stats response retains `levelKitStats` and `successAttemptDistribution` as empty
-compatibility arrays. Current UI versions do not consume these fields, but retaining them keeps
-cached older frontend assets from rejecting the entire response.
+The public stats response retains `levelKitStats` for level-by-kit usage breakdowns and
+`successAttemptDistribution` as an empty compatibility array. Retaining these fields keeps cached
+older frontend assets from rejecting the entire response while newer UI versions can show kit usage
+tooltips.
 
 ## Endpoints
 
@@ -135,7 +136,7 @@ Stores one validated result event.
 
 `GET /api/stats`
 
-Returns 30-day aggregate statistics for display on the site. This public response is cacheable for 60 seconds.
+Returns all-time aggregate statistics for display on the site. This public response is cacheable for 60 seconds.
 
 `GET /api/admin/solver-diagnostics`
 

@@ -98,9 +98,11 @@ export const classes = {
   tooltipTop: "side-top [--tooltip-offset-y:-100%]",
   tooltipMessage:
     "difficulty-tooltip-message grid max-w-[calc(100vw-40px)] gap-1.5 text-[12px] font-light leading-[1.65] text-[#f8fcfe] [inline-size:clamp(240px,42vw,360px)] [overflow-wrap:break-word] [text-wrap:pretty] [word-break:keep-all] whitespace-normal",
+  tooltipMessageUsage:
+    "difficulty-tooltip-message-usage w-max min-w-[170px] max-w-[calc(100vw-44px)] [inline-size:auto]",
   tooltipParagraph: "m-0",
-  tooltipUsageList: "grid gap-1.5",
-  tooltipUsageItem: "inline-flex items-center justify-between gap-3 text-[12px] leading-none",
+  tooltipUsageList: "grid w-max min-w-full gap-1.5",
+  tooltipUsageItem: "grid grid-cols-[1fr_auto] items-center gap-4 text-[12px] leading-none",
   tooltipUsageKit: "inline-flex items-center gap-1.5 text-[#f8fcfe]",
   tooltipUsageDot: "size-[9px] flex-none rounded-pill",
   tooltipUsageValue: "font-semibold text-[#f8fcfe]",

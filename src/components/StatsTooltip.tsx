@@ -137,7 +137,12 @@ export function DifficultyTooltip({ tooltip }: { tooltip: TooltipState }) {
       role="tooltip"
       style={tooltipStyle}
     >
-      <div className={classes.tooltipMessage}>
+      <div
+        className={joinClasses(
+          classes.tooltipMessage,
+          tooltip.content.type === "usage" && classes.tooltipMessageUsage,
+        )}
+      >
         {tooltip.content.type === "usage" ? (
           <UsageTooltipContent items={tooltip.content.items} />
         ) : (

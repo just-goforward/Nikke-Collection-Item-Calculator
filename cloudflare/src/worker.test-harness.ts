@@ -10,6 +10,36 @@ type WorkerFetch = NonNullable<typeof worker.fetch>;
 type WorkerEnv = Parameters<WorkerFetch>[1];
 type WorkerRequest = Parameters<WorkerFetch>[0];
 
+class TestSpan {
+  get isTraced() {
+    return false;
+  }
+
+  setAttribute() {}
+
+  end() {}
+}
+
+const testSpan: Span = new TestSpan();
+const testTracing: Tracing = {
+  enterSpan(_name, callback, ...args) {
+    return callback(testSpan, ...args);
+  },
+  startActiveSpan(_name, callback, ...args) {
+    return callback(testSpan, ...args);
+  },
+  Span: TestSpan,
+};
+
+function makeExecutionContext(waitUntil: (promise: Promise<unknown>) => void = () => {}) {
+  return {
+    props: {},
+    tracing: testTracing,
+    waitUntil,
+    passThroughOnException() {},
+  } satisfies ExecutionContext;
+}
+
 export class WorkerTestHarness {
   readonly env: {
     DB?: D1Database;
@@ -63,13 +93,7 @@ export class WorkerTestHarness {
   async submit(payload: object) {
     if (!worker.fetch) throw new Error("Worker fetch handler is not defined.");
     const pending: Promise<unknown>[] = [];
-    const ctx: ExecutionContext = {
-      props: {},
-      waitUntil(promise: Promise<unknown>) {
-        pending.push(promise);
-      },
-      passThroughOnException() {},
-    };
+    const ctx = makeExecutionContext((promise) => pending.push(promise));
     const request = new Request(REQUEST_URL, {
       method: "POST",
       headers: {
@@ -172,10 +196,6 @@ export class WorkerTestHarness {
   }
 
   private executionContext(): ExecutionContext {
-    return {
-      props: {},
-      waitUntil() {},
-      passThroughOnException() {},
-    };
+    return makeExecutionContext();
   }
 }

@@ -39,14 +39,14 @@ async function accessibilityViolations(
   return result.violations.filter((violation) => !allowedViolationIds.has(violation.id));
 }
 
-test("desktop light application has no untracked WCAG A/AA violations", async ({ page }) => {
+test("데스크톱 라이트 화면에는 추적되지 않은 WCAG A/AA 위반이 없다", async ({ page }) => {
   await page.goto(`http://127.0.0.1:${PORT}/?demoStats=1`);
   await expect(page.locator(".app-shell")).toBeVisible();
 
   expect(await accessibilityViolations(page, new Set(["color-contrast"]))).toEqual([]);
 });
 
-test("mobile dark application has no WCAG A/AA violations", async ({ page }) => {
+test("모바일 다크 화면에는 WCAG A/AA 위반이 없다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`http://127.0.0.1:${PORT}/?demoStats=1`);
   await page

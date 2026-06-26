@@ -138,7 +138,6 @@ function showTooltipAtPointer(
 
 function StatsContent({ stats }: { stats: GlobalStats }) {
   const { intervalTooltipHandlers, tooltip, usageTooltipHandlers } = useStatsTooltips();
-  const segmentRows = Array.isArray(stats.segmentStats) ? stats.segmentStats : [];
 
   return (
     <div className={classes.resultContent}>
@@ -148,7 +147,7 @@ function StatsContent({ stats }: { stats: GlobalStats }) {
           <KitStats stats={stats} tooltipHandlers={intervalTooltipHandlers} />
         </div>
         <DifficultyStats
-          rows={segmentRows}
+          stats={stats}
           tooltipHandlers={intervalTooltipHandlers}
           usageTooltipHandlers={usageTooltipHandlers}
         />

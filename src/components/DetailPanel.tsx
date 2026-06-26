@@ -49,7 +49,7 @@ const classes = {
   infoTip:
     "info-tip group relative top-[-0.28em] inline-grid size-3.5 cursor-help place-items-center rounded-full border border-border bg-surface-raised p-0 text-[9px] font-bold leading-none text-muted align-baseline",
   infoTipBubble:
-    "absolute bottom-[calc(100%+9px)] z-[5] hidden box-border w-[min(280px,74vw)] max-w-[calc(100vw-32px)] whitespace-normal rounded-card border border-border bg-surface px-[11px] py-2.5 text-left text-xs font-normal leading-[1.45] text-text-soft shadow-panel [overflow-wrap:anywhere] [word-break:keep-all] group-hover:block group-focus:block group-focus-visible:block",
+    "absolute bottom-[calc(100%+9px)] z-[5] hidden box-border w-[min(280px,74vw)] max-w-[calc(100vw-32px)] whitespace-normal rounded-card border border-border bg-surface px-[11px] py-2.5 text-left text-xs font-normal leading-[1.45] text-text-soft shadow-panel [overflow-wrap:anywhere] [word-break:keep-all] group-hover:block",
   infoTipBubbleLeft: "right-0",
   infoTipBubbleRight: "left-0",
   chip: "action-chip inline-flex items-center justify-center gap-[9px]",

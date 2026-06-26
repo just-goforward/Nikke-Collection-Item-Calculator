@@ -151,7 +151,7 @@ describe("kit_result event commit", () => {
 });
 
 describe("stats response compatibility", () => {
-  it("keeps unused legacy fields as empty arrays", async () => {
+  it("keeps legacy fields present for stats consumers", async () => {
     const response = await fetchStats();
     const body = (await response.json()) as {
       levelKitStats?: unknown[];
@@ -163,7 +163,7 @@ describe("stats response compatibility", () => {
     };
 
     expect(response.status).toBe(200);
-    expect(body.levelKitStats).toEqual([]);
+    expect(body.levelKitStats).toHaveLength(30);
     expect(body.successAttemptDistribution).toEqual([]);
     expect(body.summary).toBeDefined();
     expect(body.byKit).toBeDefined();
@@ -186,7 +186,21 @@ describe("stats response compatibility", () => {
       windowDays?: number;
       summary?: { events?: number; attempts?: number; greatSuccesses?: number };
       byKit?: Array<{ kit?: string; attempts?: number }>;
-      segmentStats?: Array<{ key?: string; attempts?: number }>;
+      levelKitStats?: Array<{
+        grade?: string;
+        level?: number;
+        kits?: {
+          blue?: { attempts?: number; pieces?: number };
+          purple?: { attempts?: number; pieces?: number };
+          yellow?: { attempts?: number; pieces?: number };
+        };
+      }>;
+      segmentStats?: Array<{
+        key?: string;
+        attempts?: number;
+        pieces?: number;
+        byKit?: Array<{ kit?: string; attempts?: number; pieces?: number }>;
+      }>;
       cumulative?: { summary?: { events?: number; attempts?: number; greatSuccesses?: number } };
     };
 
@@ -195,7 +209,14 @@ describe("stats response compatibility", () => {
     expect(body.summary).toMatchObject({ events: 1, attempts: 3, greatSuccesses: 2 });
     expect(body.cumulative?.summary).toMatchObject({ events: 1, attempts: 3, greatSuccesses: 2 });
     expect(body.byKit?.find((item) => item.kit === "blue")).toMatchObject({ attempts: 3 });
-    expect(body.segmentStats?.find((item) => item.key === "R:0")).toMatchObject({ attempts: 3 });
+    expect(
+      body.levelKitStats?.find((item) => item.grade === "R" && item.level === 0)?.kits?.blue,
+    ).toMatchObject({ attempts: 3, pieces: 30 });
+    expect(body.segmentStats?.find((item) => item.key === "R:0")).toMatchObject({
+      attempts: 3,
+      pieces: 30,
+      byKit: expect.arrayContaining([expect.objectContaining({ kit: "blue", pieces: 30 })]),
+    });
   });
 
   it("keeps the existing origin policy for browser and non-browser reads", async () => {

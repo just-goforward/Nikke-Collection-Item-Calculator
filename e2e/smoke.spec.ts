@@ -526,7 +526,7 @@ test("모바일 수동 키트 수정 필요 상태는 하단 계산 버튼에서
   await expect(page.locator("#stockEditNotice")).toBeVisible();
 });
 
-test("mobile convert button keeps the input tab selected", async ({ page }) => {
+test("모바일 변환 버튼은 입력 탭 선택 상태를 유지한다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?statsEnv=disabled");
 
@@ -538,7 +538,7 @@ test("mobile convert button keeps the input tab selected", async ({ page }) => {
   await expect(page.locator(".status-level")).toHaveText("Lv 5");
 });
 
-test("mobile 520px difficulty tooltip stays inside viewport", async ({ page }) => {
+test("모바일 520px 구간 툴팁은 viewport 안에 머문다", async ({ page }) => {
   await page.setViewportSize({ width: 520, height: 900 });
   await page.goto("/?demoStats=1");
   await page.locator(".mobile-tab").nth(2).click();
@@ -568,7 +568,7 @@ test("mobile 520px difficulty tooltip stays inside viewport", async ({ page }) =
   }
 });
 
-test("desktop difficulty interval click does not move tooltip position", async ({ page }) => {
+test("데스크톱 구간 막대 클릭은 툴팁 위치를 움직이지 않는다", async ({ page }) => {
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.goto("/?demoStats=1");
 
@@ -595,7 +595,7 @@ test("desktop difficulty interval click does not move tooltip position", async (
   await expect(tooltip).not.toHaveClass(/is-visible/);
 });
 
-test("privacy notice is desktop footer and mobile stats-only footer", async ({ page }) => {
+test("개인정보 안내는 데스크톱 푸터와 모바일 통계 탭 푸터에만 표시된다", async ({ page }) => {
   await page.goto("/?demoStats=1");
   await expect(page.locator("footer:visible")).toHaveCount(1);
   await expect(page.locator("footer:visible")).toContainText("보유 키트 수량 구간");
@@ -610,7 +610,7 @@ test("privacy notice is desktop footer and mobile stats-only footer", async ({ p
   await expect(page.locator("footer:visible")).toHaveCount(1);
 });
 
-test("mobile info-tip text stays inside its bubble", async ({ page }) => {
+test("모바일 info-tip 텍스트는 말풍선 안에 머문다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?statsEnv=disabled");
   await page.locator("#blueStock").fill("100");
@@ -626,7 +626,7 @@ test("mobile info-tip text stays inside its bubble", async ({ page }) => {
       overflow: style.overflow,
     };
   });
-  await infoTip.focus();
+  await infoTip.hover();
 
   const textBox = infoTip.locator("span");
   await expect(textBox).toBeVisible();
@@ -661,9 +661,7 @@ test("mobile info-tip text stays inside its bubble", async ({ page }) => {
   expect(layerMetrics?.tooltipEscapesPanelTop).toBe(true);
 });
 
-test("staging uses the production solver behavior and isolated stats endpoint", async ({
-  page,
-}) => {
+test("스테이징은 운영 solver 동작과 분리된 통계 endpoint를 사용한다", async ({ page }) => {
   await serveStagingDocument(page, {
     endpoint: "https://staging.example.test",
     turnstileSiteKey: "staging-site-key",

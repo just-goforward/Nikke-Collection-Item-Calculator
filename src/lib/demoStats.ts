@@ -232,7 +232,7 @@ export function makeDemoStats(): StatsApiResponse {
       },
       byKit: cumulativeByKit,
     },
-    levelKitStats: [],
+    levelKitStats,
     segmentStats,
     successAttemptDistribution: [],
   };

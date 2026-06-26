@@ -76,7 +76,7 @@ test.afterAll(async () => {
   previewServer = null;
 });
 
-test("desktop light R design baseline", async ({ page }) => {
+test("데스크톱 라이트 R 디자인 기준", async ({ page }) => {
   await page.setViewportSize({ height: 900, width: 1365 });
   await openDemo(page);
   await setTheme(page, "light");
@@ -85,7 +85,7 @@ test("desktop light R design baseline", async ({ page }) => {
   await expectDesignSnapshot(page, "desktop-light-r.png");
 });
 
-test("desktop dark SR design baseline", async ({ page }) => {
+test("데스크톱 다크 SR 디자인 기준", async ({ page }) => {
   await page.setViewportSize({ height: 900, width: 1365 });
   await openDemo(page);
   await setTheme(page, "dark");
@@ -94,7 +94,7 @@ test("desktop dark SR design baseline", async ({ page }) => {
   await expectDesignSnapshot(page, "desktop-dark-sr.png");
 });
 
-test("mobile light R input baseline", async ({ page }) => {
+test("모바일 라이트 R 입력 기준", async ({ page }) => {
   await page.setViewportSize({ height: 844, width: 390 });
   await openDemo(page);
   await setTheme(page, "light");
@@ -103,7 +103,7 @@ test("mobile light R input baseline", async ({ page }) => {
   await expectDesignSnapshot(page, "mobile-light-r-input.png");
 });
 
-test("mobile dark SR stats baseline", async ({ page }) => {
+test("모바일 다크 SR 통계 기준", async ({ page }) => {
   await page.setViewportSize({ height: 844, width: 390 });
   await openDemo(page);
   await setTheme(page, "dark");
@@ -113,7 +113,7 @@ test("mobile dark SR stats baseline", async ({ page }) => {
   await expectDesignSnapshot(page, "mobile-dark-sr-stats.png");
 });
 
-test("mobile dark SR interval tooltip baseline", async ({ page }) => {
+test("모바일 다크 SR 구간 툴팁 기준", async ({ page }) => {
   await page.setViewportSize({ height: 844, width: 390 });
   await openDemo(page);
   await setTheme(page, "dark");
@@ -125,7 +125,7 @@ test("mobile dark SR interval tooltip baseline", async ({ page }) => {
   await expectDesignSnapshot(page, "mobile-dark-sr-interval-tooltip.png");
 });
 
-test("desktop light SR result baseline", async ({ page }) => {
+test("데스크톱 라이트 SR 결과 기준", async ({ page }) => {
   await page.setViewportSize({ height: 900, width: 1365 });
   await openDemo(page);
   await setTheme(page, "light");
@@ -137,7 +137,7 @@ test("desktop light SR result baseline", async ({ page }) => {
   await expectDesignSnapshot(page, "desktop-light-sr-result.png");
 });
 
-test("desktop light SR success modal baseline", async ({ page }) => {
+test("데스크톱 라이트 SR 대성공 모달 기준", async ({ page }) => {
   await page.setViewportSize({ height: 900, width: 1365 });
   await openDemo(page);
   await setTheme(page, "light");
@@ -151,7 +151,7 @@ test("desktop light SR success modal baseline", async ({ page }) => {
   await expectDesignSnapshot(page, "desktop-light-sr-success-modal.png");
 });
 
-test("mobile dark R result baseline", async ({ page }) => {
+test("모바일 다크 R 결과 기준", async ({ page }) => {
   await page.setViewportSize({ height: 844, width: 390 });
   await openDemo(page);
   await setTheme(page, "dark");
