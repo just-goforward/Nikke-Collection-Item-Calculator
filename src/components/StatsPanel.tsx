@@ -1,4 +1,4 @@
-import type { FocusEvent, PointerEvent } from "react";
+import type { Dispatch, FocusEvent, PointerEvent, SetStateAction } from "react";
 import { useEffect, useState } from "react";
 
 import type { GlobalStats, StatsView } from "../ui-types";
@@ -7,8 +7,11 @@ import {
   DifficultyTooltip,
   type IntervalTooltipHandlers,
   positionTooltip,
+  type TooltipContent,
   type TooltipMoveEvent,
   type TooltipState,
+  type UsageTooltipHandlers,
+  type UsageTooltipItem,
 } from "./StatsTooltip";
 import { classes } from "./statsPanelStyles";
 
@@ -16,7 +19,9 @@ type StatsPanelProps = {
   view: StatsView;
 };
 
-function StatsContent({ stats }: { stats: GlobalStats }) {
+type SetTooltip = Dispatch<SetStateAction<TooltipState>>;
+
+function useStatsTooltips() {
   const [tooltip, setTooltip] = useState<TooltipState>({
     visible: false,
     left: 0,
@@ -24,20 +29,39 @@ function StatsContent({ stats }: { stats: GlobalStats }) {
     sideY: "bottom",
     top: 0,
     locked: false,
+    content: { type: "interval" },
   });
-  const segmentRows = Array.isArray(stats.segmentStats) ? stats.segmentStats : [];
+  useTooltipDismissal(tooltip, setTooltip);
 
+  const hideTooltip = () => {
+    setTooltip((current) => (current.locked ? current : { ...current, visible: false }));
+  };
+
+  return {
+    intervalTooltipHandlers: useIntervalTooltipHandlers(setTooltip, hideTooltip),
+    tooltip,
+    usageTooltipHandlers: useUsageTooltipHandlers(setTooltip, hideTooltip),
+  };
+}
+
+function useTooltipDismissal(tooltip: TooltipState, setTooltip: SetTooltip) {
   useEffect(() => {
     if (!tooltip.locked) return;
     const closeLockedTooltip = (event: globalThis.PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
-      if (target.closest(".difficulty-interval") || target.closest(".difficulty-tooltip")) return;
+      if (
+        target.closest(".difficulty-interval") ||
+        target.closest(".stats-usage-trigger") ||
+        target.closest(".difficulty-tooltip")
+      ) {
+        return;
+      }
       setTooltip((current) => ({ ...current, locked: false, visible: false }));
     };
     document.addEventListener("pointerdown", closeLockedTooltip, true);
     return () => document.removeEventListener("pointerdown", closeLockedTooltip, true);
-  }, [tooltip.locked]);
+  }, [setTooltip, tooltip.locked]);
 
   useEffect(() => {
     if (!tooltip.visible) return;
@@ -47,35 +71,38 @@ function StatsContent({ stats }: { stats: GlobalStats }) {
     };
     document.addEventListener("keydown", closeTooltipOnEscape);
     return () => document.removeEventListener("keydown", closeTooltipOnEscape);
-  }, [tooltip.visible]);
+  }, [setTooltip, tooltip.visible]);
+}
 
+function useIntervalTooltipHandlers(
+  setTooltip: SetTooltip,
+  hideTooltip: () => void,
+): IntervalTooltipHandlers {
   const moveTooltip = (event: TooltipMoveEvent) => {
-    const nextPosition = positionTooltip(event.clientX, event.clientY);
-    setTooltip((current) => ({ ...current, visible: true, ...nextPosition }));
+    showTooltipAtPointer(setTooltip, event, { type: "interval" });
   };
-
   const showTooltipFromFocus = (event: FocusEvent<HTMLButtonElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const nextPosition = positionTooltip(rect.left + rect.width / 2, rect.top + rect.height / 2);
     setTooltip((current) =>
       current.visible
-        ? { ...current, locked: false, visible: true }
-        : { ...current, locked: false, visible: true, ...nextPosition },
+        ? { ...current, content: { type: "interval" }, locked: false, visible: true }
+        : {
+            ...current,
+            content: { type: "interval" },
+            locked: false,
+            visible: true,
+            ...nextPosition,
+          },
     );
   };
-
   const lockTooltip = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.pointerType === "mouse") return;
     event.preventDefault();
     event.stopPropagation();
-    const nextPosition = positionTooltip(event.clientX, event.clientY);
-    setTooltip((current) => ({ ...current, locked: true, visible: true, ...nextPosition }));
+    showTooltipAtPointer(setTooltip, event, { type: "interval" }, true);
   };
-
-  const hideTooltip = () => {
-    setTooltip((current) => (current.locked ? current : { ...current, visible: false }));
-  };
-  const intervalTooltipHandlers: IntervalTooltipHandlers = {
+  return {
     onIntervalBlur: hideTooltip,
     onIntervalFocus: showTooltipFromFocus,
     onIntervalPointerDown: lockTooltip,
@@ -83,6 +110,35 @@ function StatsContent({ stats }: { stats: GlobalStats }) {
     onIntervalPointerLeave: hideTooltip,
     onIntervalPointerMove: moveTooltip,
   };
+}
+
+function useUsageTooltipHandlers(
+  setTooltip: SetTooltip,
+  hideTooltip: () => void,
+): UsageTooltipHandlers {
+  const showUsageTooltip = (event: TooltipMoveEvent, items: UsageTooltipItem[]) => {
+    showTooltipAtPointer(setTooltip, event, { type: "usage", items });
+  };
+  return {
+    onUsagePointerEnter: showUsageTooltip,
+    onUsagePointerLeave: hideTooltip,
+    onUsagePointerMove: showUsageTooltip,
+  };
+}
+
+function showTooltipAtPointer(
+  setTooltip: SetTooltip,
+  event: TooltipMoveEvent,
+  content: TooltipContent,
+  locked = false,
+) {
+  const nextPosition = positionTooltip(event.clientX, event.clientY);
+  setTooltip((current) => ({ ...current, content, locked, visible: true, ...nextPosition }));
+}
+
+function StatsContent({ stats }: { stats: GlobalStats }) {
+  const { intervalTooltipHandlers, tooltip, usageTooltipHandlers } = useStatsTooltips();
+  const segmentRows = Array.isArray(stats.segmentStats) ? stats.segmentStats : [];
 
   return (
     <div className={classes.resultContent}>
@@ -91,7 +147,11 @@ function StatsContent({ stats }: { stats: GlobalStats }) {
           <OverallStats stats={stats} />
           <KitStats stats={stats} tooltipHandlers={intervalTooltipHandlers} />
         </div>
-        <DifficultyStats rows={segmentRows} tooltipHandlers={intervalTooltipHandlers} />
+        <DifficultyStats
+          rows={segmentRows}
+          tooltipHandlers={intervalTooltipHandlers}
+          usageTooltipHandlers={usageTooltipHandlers}
+        />
       </div>
       <DifficultyTooltip tooltip={tooltip} />
     </div>

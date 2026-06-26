@@ -41,6 +41,7 @@ type DemoKitSummary = {
   kit: Kit;
   events: number;
   attempts: number;
+  pieces: number;
   greatSuccesses: number;
   greatSuccessRate: number;
   theoreticalGreatSuccessRate: number;
@@ -88,6 +89,7 @@ function makeByKit(levelKitStats: DemoLevelKitRow[]): DemoKitSummary[] {
       kit,
       events: Math.round(attempts / 3.8),
       attempts,
+      pieces: attempts * 10,
       greatSuccesses,
       greatSuccessRate: attempts ? greatSuccesses / attempts : 0,
       theoreticalGreatSuccessRate: attempts ? expected / attempts : 0,
@@ -116,15 +118,29 @@ function makeSegmentStats(levelKitStats: DemoLevelKitRow[]) {
       );
       const totals = sumAllKitRows(rows);
       const averageAttempts = demoAverageAttempts(grade, segmentIndex);
+      const byKit = DEMO_KITS.map((kit) => {
+        const { attempts, expected, greatSuccesses } = sumKitRows(rows, kit);
+        return {
+          kit,
+          events: Math.round(attempts / averageAttempts),
+          attempts,
+          pieces: attempts * 10,
+          greatSuccesses,
+          greatSuccessRate: attempts ? greatSuccesses / attempts : 0,
+          theoreticalGreatSuccessRate: attempts ? expected / attempts : 0,
+        };
+      });
       return {
         key: `${grade}:${segment.suffix}`,
         label: `${grade} ${segment.labelRange}`,
         events: Math.round(totals.attempts / averageAttempts),
         attempts: totals.attempts,
+        pieces: totals.attempts * 10,
         greatSuccesses: totals.greatSuccesses,
         greatSuccessRate: totals.attempts ? totals.greatSuccesses / totals.attempts : 0,
         theoreticalGreatSuccessRate: totals.attempts ? totals.expected / totals.attempts : 0,
         averageAttempts,
+        byKit,
       };
     }),
   );
@@ -166,6 +182,7 @@ function scaleCumulativeByKit(byKit: DemoKitSummary[]) {
   return byKit.map((item) => ({
     ...item,
     attempts: item.attempts * 6,
+    pieces: item.pieces * 6,
     events: item.events * 6,
     greatSuccesses: item.greatSuccesses * 6,
   }));

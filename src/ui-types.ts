@@ -120,6 +120,7 @@ export type KitStat = {
   kit?: Kit | undefined;
   events?: number | undefined;
   attempts?: number | undefined;
+  pieces?: number | undefined;
   greatSuccesses?: number | undefined;
   greatSuccessRate?: number | undefined;
   theoreticalGreatSuccessRate?: number | undefined;
@@ -128,12 +129,14 @@ export type KitStat = {
 export type SegmentStat = {
   key: string;
   label: string;
-  events?: number;
-  attempts?: number;
-  greatSuccesses?: number;
+  events?: number | undefined;
+  attempts?: number | undefined;
+  pieces?: number | undefined;
+  greatSuccesses?: number | undefined;
   greatSuccessRate?: number | undefined;
   theoreticalGreatSuccessRate?: number | undefined;
   theoreticalRate?: number | undefined;
+  byKit?: KitStat[] | undefined;
 };
 
 export type LevelKitStat = {

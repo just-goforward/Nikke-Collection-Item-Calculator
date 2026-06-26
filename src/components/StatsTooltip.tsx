@@ -1,12 +1,22 @@
 import type { CSSProperties, FocusEvent, MouseEvent, PointerEvent } from "react";
 import { createPortal } from "react-dom";
 
+import type { Kit } from "../types";
 import {
   classes,
   INTERVAL_TOOLTIP_ID,
   INTERVAL_TOOLTIP_MESSAGES,
   joinClasses,
+  KIT_LABELS,
+  kitDotClass,
 } from "./statsPanelStyles";
+
+export type UsageTooltipItem = {
+  kit: Kit;
+  pieces: number;
+};
+
+export type TooltipContent = { type: "interval" } | { type: "usage"; items: UsageTooltipItem[] };
 
 export type TooltipState = {
   visible: boolean;
@@ -15,6 +25,7 @@ export type TooltipState = {
   sideX: "left" | "right";
   sideY: "bottom" | "top";
   locked: boolean;
+  content: TooltipContent;
 };
 
 export type TooltipMoveEvent = PointerEvent<HTMLElement> | MouseEvent<HTMLElement>;
@@ -26,6 +37,12 @@ export type IntervalTooltipHandlers = {
   onIntervalPointerEnter: (event: TooltipMoveEvent) => void;
   onIntervalPointerLeave: () => void;
   onIntervalPointerMove: (event: TooltipMoveEvent) => void;
+};
+
+export type UsageTooltipHandlers = {
+  onUsagePointerEnter: (event: TooltipMoveEvent, items: UsageTooltipItem[]) => void;
+  onUsagePointerLeave: () => void;
+  onUsagePointerMove: (event: TooltipMoveEvent, items: UsageTooltipItem[]) => void;
 };
 
 export function positionTooltip(
@@ -76,6 +93,27 @@ export function positionTooltip(
   return { left: anchorX, sideX, sideY, top: anchorY };
 }
 
+function UsageTooltipContent({ items }: { items: UsageTooltipItem[] }) {
+  return (
+    <div className={classes.tooltipUsageList}>
+      {items.map((item) => (
+        <div className={classes.tooltipUsageItem} key={item.kit}>
+          <span className={classes.tooltipUsageKit}>
+            <i
+              aria-hidden="true"
+              className={`${classes.tooltipUsageDot} ${kitDotClass[item.kit]}`}
+            ></i>
+            {KIT_LABELS[item.kit]}
+          </span>
+          <strong className={classes.tooltipUsageValue}>
+            {item.pieces.toLocaleString("ko-KR")}개
+          </strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function DifficultyTooltip({ tooltip }: { tooltip: TooltipState }) {
   if (typeof document === "undefined") return null;
 
@@ -100,11 +138,15 @@ export function DifficultyTooltip({ tooltip }: { tooltip: TooltipState }) {
       style={tooltipStyle}
     >
       <div className={classes.tooltipMessage}>
-        {INTERVAL_TOOLTIP_MESSAGES.map((message) => (
-          <p className={classes.tooltipParagraph} key={message}>
-            {message}
-          </p>
-        ))}
+        {tooltip.content.type === "usage" ? (
+          <UsageTooltipContent items={tooltip.content.items} />
+        ) : (
+          INTERVAL_TOOLTIP_MESSAGES.map((message) => (
+            <p className={classes.tooltipParagraph} key={message}>
+              {message}
+            </p>
+          ))
+        )}
       </div>
     </div>,
     document.body,

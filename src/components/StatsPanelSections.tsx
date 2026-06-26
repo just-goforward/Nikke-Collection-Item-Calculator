@@ -1,7 +1,11 @@
 import { formatInteger, formatPercent } from "../format";
 import type { GlobalStats, KitStat, SegmentStat } from "../ui-types";
 import { RateBar } from "./StatsRateBar";
-import type { IntervalTooltipHandlers } from "./StatsTooltip";
+import type {
+  IntervalTooltipHandlers,
+  UsageTooltipHandlers,
+  UsageTooltipItem,
+} from "./StatsTooltip";
 import { comparisonState, normalizeSegmentLabel, weightedTheoryRate } from "./statsPanelModel";
 import { classes, joinClasses, KIT_LABELS, KIT_ORDER, kitDotClass } from "./statsPanelStyles";
 
@@ -9,16 +13,20 @@ function DifficultyRow({
   index,
   item,
   tooltipHandlers,
+  usageTooltipHandlers,
 }: {
   index: number;
   item: SegmentStat;
   tooltipHandlers: IntervalTooltipHandlers;
+  usageTooltipHandlers: UsageTooltipHandlers;
 }) {
   const attempts = Number(item.attempts || 0);
+  const pieces = piecesFromStat(item);
   const actualRate = Number(item.greatSuccessRate || 0);
   const theoreticalRate = Number(item.theoreticalGreatSuccessRate || item.theoreticalRate || 0);
   const greatSuccesses = Number(item.greatSuccesses || 0);
   const comparison = comparisonState(greatSuccesses, attempts, theoreticalRate);
+  const usageItems = usageItemsFromStats(item.byKit);
 
   return (
     <div
@@ -41,8 +49,44 @@ function DifficultyRow({
         {...tooltipHandlers}
         theoreticalRate={theoreticalRate}
       />
-      <p className={classes.difficultyAttempts}>{formatInteger(attempts)}회</p>
+      <p className={classes.difficultyAttempts}>
+        <UsageAmount pieces={pieces} items={usageItems} tooltipHandlers={usageTooltipHandlers} />
+      </p>
     </div>
+  );
+}
+
+function piecesFromStat(item: Pick<KitStat, "attempts" | "pieces">) {
+  return Number(item.pieces ?? Number(item.attempts || 0) * 10);
+}
+
+function usageItemsFromStats(items: KitStat[] | undefined): UsageTooltipItem[] {
+  return KIT_ORDER.map((kit) => {
+    const item = Array.isArray(items) ? items.find((row) => row.kit === kit) : undefined;
+    return { kit, pieces: item ? piecesFromStat(item) : 0 };
+  });
+}
+
+function UsageAmount({
+  items,
+  pieces,
+  tooltipHandlers,
+}: {
+  items: UsageTooltipItem[];
+  pieces: number;
+  tooltipHandlers: UsageTooltipHandlers;
+}) {
+  const activeItems = items.filter((item) => item.pieces > 0);
+  const tooltipItems = activeItems.length ? activeItems : items;
+  return (
+    <span
+      className={classes.usageTrigger}
+      onPointerEnter={(event) => tooltipHandlers.onUsagePointerEnter(event, tooltipItems)}
+      onPointerLeave={tooltipHandlers.onUsagePointerLeave}
+      onPointerMove={(event) => tooltipHandlers.onUsagePointerMove(event, tooltipItems)}
+    >
+      {formatInteger(pieces)}개
+    </span>
   );
 }
 
@@ -130,6 +174,7 @@ function KitRateRow({
   const kit = item.kit;
   if (!kit) return null;
   const attempts = Number(item.attempts || 0);
+  const pieces = piecesFromStat(item);
   const greatSuccesses = Number(item.greatSuccesses || 0);
   const actualRate = Number(item.greatSuccessRate || 0);
   const theoreticalRate = Number(item.theoreticalGreatSuccessRate || 0);
@@ -158,7 +203,7 @@ function KitRateRow({
         {...tooltipHandlers}
         theoreticalRate={theoreticalRate}
       />
-      <p className={classes.kitRateMeta}>{formatInteger(attempts)}회</p>
+      <p className={classes.kitRateMeta}>{formatInteger(pieces)}개</p>
     </div>
   );
 }
@@ -195,9 +240,11 @@ export function KitStats({
 export function DifficultyStats({
   rows,
   tooltipHandlers,
+  usageTooltipHandlers,
 }: {
   rows: SegmentStat[];
   tooltipHandlers: IntervalTooltipHandlers;
+  usageTooltipHandlers: UsageTooltipHandlers;
 }) {
   return (
     <section className={classes.section}>
@@ -212,6 +259,7 @@ export function DifficultyStats({
               item={row}
               key={row.key}
               tooltipHandlers={tooltipHandlers}
+              usageTooltipHandlers={usageTooltipHandlers}
             />
           ))}
         </div>

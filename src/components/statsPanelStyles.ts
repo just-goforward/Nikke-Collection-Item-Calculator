@@ -15,8 +15,8 @@ export const kitDotClass: Record<Kit, string> = {
 };
 
 export const INTERVAL_TOOLTIP_MESSAGES = [
-  "횟수가 적으면 우연히 결과가 좋거나 나쁠 수 있습니다.",
-  "따라서 시도 횟수를 고려해 '결과값이 어느 정도 폭으로 움직일 수 있는지'를 보여줍니다.",
+  "표본이 적으면 우연히 결과가 좋거나 나쁠 수 있습니다.",
+  "따라서 표본 규모를 고려해 '결과값이 어느 정도 폭으로 움직일 수 있는지'를 보여줍니다.",
 ];
 export const INTERVAL_TOOLTIP_ID = "difficultyIntervalTooltip";
 
@@ -63,6 +63,8 @@ export const classes = {
   difficultyTags: "difficulty-tags flex min-w-0 flex-wrap justify-end gap-[5px]",
   difficultyAttempts:
     "difficulty-attempts m-0 text-[11px] font-medium leading-[1.45] text-muted [overflow-wrap:break-word] [word-break:keep-all]",
+  usageTrigger:
+    "stats-usage-trigger inline-flex items-center text-[11px] font-medium leading-[1.45] text-muted cursor-help",
   difficultyComparison:
     "difficulty-comparison whitespace-nowrap rounded-pill border border-[color-mix(in_srgb,var(--line)_76%,var(--grade-active))] bg-[color-mix(in_srgb,var(--surface-raised)_82%,var(--grade-active-soft))] px-2 py-[3px] text-[11px] font-medium leading-none text-muted",
   rateBar:
@@ -97,6 +99,11 @@ export const classes = {
   tooltipMessage:
     "difficulty-tooltip-message grid max-w-[calc(100vw-40px)] gap-1.5 text-[12px] font-light leading-[1.65] text-[#f8fcfe] [inline-size:clamp(240px,42vw,360px)] [overflow-wrap:break-word] [text-wrap:pretty] [word-break:keep-all] whitespace-normal",
   tooltipParagraph: "m-0",
+  tooltipUsageList: "grid gap-1.5",
+  tooltipUsageItem: "inline-flex items-center justify-between gap-3 text-[12px] leading-none",
+  tooltipUsageKit: "inline-flex items-center gap-1.5 text-[#f8fcfe]",
+  tooltipUsageDot: "size-[9px] flex-none rounded-pill",
+  tooltipUsageValue: "font-semibold text-[#f8fcfe]",
   kitRateList: "kit-rate-list grid gap-3",
   kitRateRow: "kit-rate-row grid min-w-0 gap-[7px]",
   kitRateRowBorder: "border-t border-border pt-3",

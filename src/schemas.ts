@@ -99,6 +99,7 @@ const NumericStatsSchema = z
   .object({
     events: z.number(),
     attempts: z.number(),
+    pieces: z.number().optional(),
     greatSuccesses: z.number(),
     greatSuccessRate: z.number().optional(),
     theoreticalGreatSuccessRate: z.number().optional(),
@@ -108,6 +109,7 @@ const NumericStatsSchema = z
 const LevelKitValueSchema = z
   .object({
     attempts: z.number(),
+    pieces: z.number().optional(),
     greatSuccesses: z.number(),
     greatSuccessRate: z.number(),
     theoreticalGreatSuccessRate: z.number(),
@@ -176,6 +178,7 @@ export const StatsApiResponseSchema = z
         label: z.string(),
         theoreticalGreatSuccessRate: z.number(),
         averageAttempts: z.number(),
+        byKit: z.array(KitStatsSchema).optional(),
       }).passthrough(),
     ),
     successAttemptDistribution: z

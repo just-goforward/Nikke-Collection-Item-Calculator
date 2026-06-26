@@ -51,7 +51,7 @@ const classes = {
     "grid gap-[7px] min-[981px]:max-[1099px]:grid-cols-[minmax(0,1fr)_auto] min-[981px]:max-[1099px]:items-center min-[981px]:max-[1099px]:gap-2 max-mobile:grid-cols-1 max-mobile:grid-rows-[auto_auto_auto] max-mobile:items-start max-mobile:gap-x-0 max-mobile:gap-y-1.5 max-mobile:p-0",
   kitLabel:
     "flex items-center gap-[7px] text-[13px] text-muted font-semibold min-[981px]:max-[1099px]:min-w-0 min-[981px]:max-[1099px]:whitespace-nowrap max-mobile:col-start-1 max-mobile:row-start-1 max-mobile:min-w-0 max-mobile:whitespace-normal max-mobile:text-[11px] max-mobile:leading-[1.25] max-mobile:[word-break:keep-all]",
-  kitDot: "inline-block h-3 w-3 rounded-full",
+  kitDot: "inline-block size-3 flex-none rounded-full",
   kitInputControl:
     "min-[981px]:max-[1099px]:col-span-full min-[981px]:max-[1099px]:min-w-0 max-mobile:col-start-1 max-mobile:row-start-2 max-mobile:min-w-0 max-mobile:px-1.5 max-mobile:py-2 max-mobile:text-center max-mobile:text-sm",
   kitInputNeedsEdit: "border-yellow-kit shadow-[0_0_0_3px_rgba(230,170,38,0.18)]",

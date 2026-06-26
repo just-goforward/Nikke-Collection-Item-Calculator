@@ -110,6 +110,7 @@ function buildByKitStats(rows: StatsAggregateRow[]) {
       kit,
       events: totals.events,
       attempts: totals.attempts,
+      pieces: totals.attempts * 10,
       greatSuccesses: totals.greatSuccesses,
       greatSuccessRate: rate(totals.greatSuccesses, totals.attempts),
       theoreticalGreatSuccessRate: rate(totals.expectedGreatSuccesses, totals.attempts),
@@ -160,15 +161,18 @@ function buildSegmentStats(rows: StatsAggregateRow[]) {
     const group = groups.get(key) || segmentForKey(key);
     const totals = aggregateRows(group.rows || []);
     const actualRate = rate(totals.greatSuccesses, totals.attempts);
+    const byKit = buildByKitStats(group.rows || []);
     return {
       key,
       label: group.label,
       events: totals.events,
       attempts: totals.attempts,
+      pieces: totals.attempts * 10,
       greatSuccesses: totals.greatSuccesses,
       greatSuccessRate: actualRate,
       theoreticalGreatSuccessRate: rate(totals.expectedGreatSuccesses, totals.attempts),
       averageAttempts: rate(totals.attempts, totals.events),
+      byKit,
     };
   });
 }

@@ -289,10 +289,27 @@ test("demoStats=1 — 전체 통계 주요 섹션이 표시된다", async ({ pag
   await expect(page.getByText("실측 - 기대값", { exact: true })).toHaveCount(0);
   await expect(page.getByText("최근 30일 체감", { exact: true })).toHaveCount(0);
   await expect(page.getByText(/현재 확률표 기준으로 계산한 입력 표본 통계입니다/)).toHaveCount(0);
-  await expect(page.locator(".kit-rate-meta").first()).toContainText(/\d+회/);
+  await expect(page.locator(".kit-rate-meta").first()).toContainText(/\d+개/);
   await expect(page.locator(".kit-rate-meta").first()).not.toContainText(/실측|기대값/);
+  await expect(page.locator(".kit-rate-meta .stats-usage-trigger")).toHaveCount(0);
   await expect(page.locator(".difficulty-attempts")).toHaveCount(6);
-  await expect(page.locator(".difficulty-attempts").first()).toContainText(/\d+회/);
+  await expect(page.locator(".difficulty-attempts").first()).toContainText(/\d+개/);
+  await expect(page.locator(".difficulty-attempts .stats-usage-trigger")).toHaveCount(6);
+  const usageTrigger = page.locator(".difficulty-attempts .stats-usage-trigger").first();
+  await usageTrigger.hover();
+  const tooltip = page.locator(".difficulty-tooltip");
+  await expect(tooltip).toContainText("초심자용 관리 키트");
+  await expect(tooltip).toContainText(/개/);
+  const beforeClick = await tooltip.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { left: Math.round(rect.left), top: Math.round(rect.top) };
+  });
+  await usageTrigger.click();
+  const afterClick = await tooltip.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { left: Math.round(rect.left), top: Math.round(rect.top) };
+  });
+  expect(afterClick).toEqual(beforeClick);
   await expect(page.getByText(/^(쉬움|보통|어려움)$/)).toHaveCount(0);
   await expect(page.getByText("누적 중심", { exact: true })).toHaveCount(0);
   await expect(page.getByText("기대값 vs 실측", { exact: true })).toHaveCount(0);
@@ -300,14 +317,14 @@ test("demoStats=1 — 전체 통계 주요 섹션이 표시된다", async ({ pag
   await expect(page.getByText("결과 입력 표본 기준 · 이벤트 단위 집계")).toHaveCount(0);
 });
 
-test("제목 버튼은 입력값과 계산 결과를 초기화한다", async ({ page }) => {
+test("제목 링크는 처음 화면으로 이동해 입력값과 계산 결과를 초기화한다", async ({ page }) => {
   await page.getByLabel("초심자용 관리 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
 
-  const titleButton = page.getByRole("button", { name: "소장품 레벨업 계산기", exact: true });
-  await titleButton.click();
-  await expect(titleButton).toHaveClass(/title-reset-feedback/);
+  const titleLink = page.getByRole("link", { name: "소장품 레벨업 계산기", exact: true });
+  await titleLink.click();
+  await expect(page).toHaveURL("http://127.0.0.1:4173/");
 
   await expect(page.getByLabel("초심자용 관리 키트")).toHaveValue("0");
   await expect(page.getByText("입력값을 넣고 계산을 실행하세요.")).toBeVisible();
@@ -541,7 +558,7 @@ test("mobile 520px difficulty tooltip stays inside viewport", async ({ page }) =
     await expect(tooltip).toHaveClass(/is-visible/);
     await expect(interval).toHaveAttribute("aria-describedby", "difficultyIntervalTooltip");
     await expect(tooltip).toHaveAttribute("id", "difficultyIntervalTooltip");
-    await expect(tooltip).toContainText("횟수가 적으면 우연히 결과가 좋거나 나쁠 수 있습니다.");
+    await expect(tooltip).toContainText("표본이 적으면 우연히 결과가 좋거나 나쁠 수 있습니다.");
     const rect = await tooltip.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       return { left: bounds.left, right: bounds.right };
