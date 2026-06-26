@@ -53,7 +53,7 @@ function rootCandidates(
 }
 
 export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2ProductSolver {
-  exports.configureMemo?.(21);
+  exports.configureMemo?.(22);
   exports.configureNodeBudget?.(0);
   const state: Phase2FactoryState = { buildGeneration: 0, currentBuild: null, exports };
   return {

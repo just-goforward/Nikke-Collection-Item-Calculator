@@ -312,4 +312,30 @@ describe("rust phase2 wasm parity", () => {
       }
     });
   }
+
+  it("falls back from min-E[f] to rust phase2 instead of JS for a large R0 inventory", async () => {
+    const minef = (await solveRustMinEfProduct(
+      {
+        start: { grade: "R", level: 0, exp: 0 },
+        stock: { blue: 400, purple: 200, yellow: 100 },
+        strategy: "supply",
+        monteCarloRuns: 0,
+      },
+      wasmDataUrl,
+    )) as {
+      possible: boolean;
+      stats?: {
+        fallbackFrom?: string;
+        fallbackReason?: string;
+        solverBackend?: string;
+      };
+    };
+
+    expect(minef.possible).toBe(true);
+    expect(minef.stats).toMatchObject({
+      fallbackFrom: "rust-min-ef",
+      fallbackReason: "memo_full",
+      solverBackend: "rust-phase2",
+    });
+  });
 });

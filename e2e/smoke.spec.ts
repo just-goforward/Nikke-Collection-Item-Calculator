@@ -326,7 +326,8 @@ test("제목 링크는 처음 화면으로 이동해 입력값과 계산 결과�
   await titleLink.click();
   await expect(page).toHaveURL("http://127.0.0.1:4173/");
 
-  await expect(page.getByLabel("초심자용 관리 키트")).toHaveValue("0");
+  await expect(page.getByLabel("초심자용 관리 키트")).toHaveValue("");
+  await expect(page.getByLabel("초심자용 관리 키트")).toHaveAttribute("placeholder", "0");
   await expect(page.getByText("입력값을 넣고 계산을 실행하세요.")).toBeVisible();
 });
 

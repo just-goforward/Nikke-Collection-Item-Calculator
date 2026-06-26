@@ -53,7 +53,7 @@ const classes = {
     "flex items-center gap-[7px] text-[13px] text-muted font-semibold min-[981px]:max-[1099px]:min-w-0 min-[981px]:max-[1099px]:whitespace-nowrap max-mobile:col-start-1 max-mobile:row-start-1 max-mobile:min-w-0 max-mobile:whitespace-normal max-mobile:text-[11px] max-mobile:leading-[1.25] max-mobile:[word-break:keep-all]",
   kitDot: "inline-block size-3 flex-none rounded-full",
   kitInputControl:
-    "min-[981px]:max-[1099px]:col-span-full min-[981px]:max-[1099px]:min-w-0 max-mobile:col-start-1 max-mobile:row-start-2 max-mobile:min-w-0 max-mobile:px-1.5 max-mobile:py-2 max-mobile:text-center max-mobile:text-sm",
+    "min-[981px]:max-[1099px]:col-span-full min-[981px]:max-[1099px]:min-w-0 placeholder:text-muted/55 max-mobile:col-start-1 max-mobile:row-start-2 max-mobile:min-w-0 max-mobile:px-1.5 max-mobile:py-2 max-mobile:text-center max-mobile:text-sm",
   kitInputNeedsEdit: "border-yellow-kit shadow-[0_0_0_3px_rgba(230,170,38,0.18)]",
   kitHint:
     "text-muted text-xs font-medium min-[981px]:max-[1099px]:min-w-0 min-[981px]:max-[1099px]:justify-self-end min-[981px]:max-[1099px]:whitespace-nowrap min-[981px]:max-[1099px]:text-[11px] max-tablet:justify-self-end max-tablet:text-right max-mobile:col-start-1 max-mobile:row-start-3 max-mobile:text-[10px]",
@@ -79,6 +79,10 @@ function toStock(stockText: Record<Kit, string>): Stock {
   };
 }
 
+function stockValueToText(value: number) {
+  return value > 0 ? String(value) : "";
+}
+
 type KitInputProps = {
   definition: KitInputDefinition;
   needsStockEdit: boolean;
@@ -101,6 +105,7 @@ function KitInput({ definition, needsStockEdit, value, onChange, onCommit }: Kit
         min="0"
         step="1"
         inputMode="numeric"
+        placeholder="0"
         value={value}
         onChange={(event) => onChange(definition.kit, event.currentTarget.value)}
         onBlur={onCommit}
@@ -117,16 +122,16 @@ export default function StockPanel({
   onStockChange,
 }: StockPanelProps) {
   const [stockText, setStockText] = useState<Record<Kit, string>>({
-    blue: String(stock.blue),
-    purple: String(stock.purple),
-    yellow: String(stock.yellow),
+    blue: stockValueToText(stock.blue),
+    purple: stockValueToText(stock.purple),
+    yellow: stockValueToText(stock.yellow),
   });
 
   useEffect(() => {
     setStockText({
-      blue: String(stock.blue),
-      purple: String(stock.purple),
-      yellow: String(stock.yellow),
+      blue: stockValueToText(stock.blue),
+      purple: stockValueToText(stock.purple),
+      yellow: stockValueToText(stock.yellow),
     });
   }, [stock.blue, stock.purple, stock.yellow]);
 
