@@ -1,4 +1,5 @@
 import { actionFromIndex, encodeState, readMinEfRootCandidates } from "./rustCoreShared";
+import { RUST_MIN_EF_MEMO_TIER } from "./rustProductConfig";
 import { assertRustStatusOk, RUST_STATUS_OK, RustSolveError } from "./rustStatus";
 import type {
   RustCoreExports,
@@ -14,13 +15,22 @@ const RUST_MIN_EF_NODE_BUDGET = 2_000_000;
 type MinEfFactoryState = {
   buildGeneration: number;
   exports: RustCoreExports;
+  memoTier: number;
 };
 
 export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver {
   exports.configureMemo?.(21);
+  exports.configureMinEfMemo?.(RUST_MIN_EF_MEMO_TIER);
   exports.configureNodeBudget?.(RUST_MIN_EF_NODE_BUDGET);
-  const state: MinEfFactoryState = { buildGeneration: 0, exports };
+  const state: MinEfFactoryState = {
+    buildGeneration: 0,
+    exports,
+    memoTier: RUST_MIN_EF_MEMO_TIER,
+  };
   return {
+    configureMemoTier: (tier) => configureMinEfMemoTier(state, tier),
+    memoTier: () => state.memoTier,
+    releaseMemo: () => releaseMemo(state),
     solveRootWithCandidates: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
       solveMinEfRootWithCandidates(state, start, stock, horizonFactor, normPower, tolerance),
     rootCandidates: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
@@ -29,6 +39,18 @@ export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver
     solveRoot: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
       solveMinEfRootWithCandidates(state, start, stock, horizonFactor, normPower, tolerance).root,
   };
+}
+
+function configureMinEfMemoTier(state: MinEfFactoryState, tier: number) {
+  const normalizedTier = Math.min(22, Math.max(18, Math.floor(tier)));
+  state.exports.configureMinEfMemo?.(normalizedTier);
+  state.memoTier = normalizedTier;
+  state.buildGeneration += 1;
+}
+
+function releaseMemo(state: MinEfFactoryState) {
+  state.exports.releaseMinEfMemo?.();
+  state.buildGeneration += 1;
 }
 
 function runMinEf(

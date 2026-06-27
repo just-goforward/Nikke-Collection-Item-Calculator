@@ -14,9 +14,10 @@ use crate::{memo_reset, policy_action, solve_start, uses_of};
 // PORT OF: assembly/minef.ts. min-E[f] policy: SAME τ-gate as value(), secondary criterion = min
 // E[f(total)] (terminal-only → decomposable) instead of the Jensen surrogate. UNCAPPED (heavier than
 // the capped deployed solve; impractical at the R0/250+ node-count peak). Register-return + memo.
-const ME_CAP: usize = 1 << 21;
-const ME_MASK: u32 = (ME_CAP - 1) as u32;
-const ME_FULL_GUARD: usize = ME_CAP - (ME_CAP >> 3);
+const ME_CAP_DEFAULT: usize = 1 << 21;
+static mut ME_CAP: usize = ME_CAP_DEFAULT;
+static mut ME_MASK: u32 = (ME_CAP_DEFAULT - 1) as u32;
+static mut ME_FULL_GUARD: usize = ME_CAP_DEFAULT - (ME_CAP_DEFAULT >> 3);
 static mut ME_SID: Vec<i32> = Vec::new(); // -1 = empty
 static mut ME_B: Vec<i32> = Vec::new();
 static mut ME_P: Vec<i32> = Vec::new();
@@ -62,7 +63,43 @@ static mut MINEF_ROOT_SC_VP: [f64; 3] = [0.0; 3];
 static mut MINEF_ROOT_SC_VY: [f64; 3] = [0.0; 3];
 static mut MINEF_ROOT_SC_EF: [f64; 3] = [0.0; 3];
 static mut MINEF_ROOT_MAX_SP: f64 = 0.0;
+unsafe fn me_clear_results() {
+    ME_COUNT = 0; MN_SP = 0.0; MN_SPMAX = 0.0; MN_VB = 0.0; MN_VP = 0.0; MN_VY = 0.0;
+    MN_EF = 0.0; MN_ACT = -1; MINEF_ROOT_SC_VALID = [0; 3]; MINEF_ROOT_SC_SP = [0.0; 3];
+    MINEF_ROOT_SC_VB = [0.0; 3]; MINEF_ROOT_SC_VP = [0.0; 3]; MINEF_ROOT_SC_VY = [0.0; 3];
+    MINEF_ROOT_SC_EF = [0.0; 3];
+    MINEF_ROOT_MAX_SP = 0.0;
+}
 
+unsafe fn me_release_arrays() {
+    ME_SID = Vec::new(); ME_B = Vec::new(); ME_P = Vec::new(); ME_Y = Vec::new();
+    ME_SP = Vec::new(); ME_SPMAX = Vec::new(); ME_VB = Vec::new(); ME_VP = Vec::new();
+    ME_VY = Vec::new(); ME_EF = Vec::new(); ME_ACT = Vec::new(); ME_SC_VALID = Vec::new();
+    ME_SC_SP = Vec::new(); ME_SC_SPMAX = Vec::new(); ME_SC_VB = Vec::new(); ME_SC_VP = Vec::new();
+    ME_SC_VY = Vec::new();
+    ME_SC_EF = Vec::new();
+    me_clear_results();
+}
+
+#[no_mangle]
+pub extern "C" fn configureMinEfMemo(cap_log2: i32) {
+    unsafe {
+        let n = cap_log2.clamp(18, 22) as u32;
+        let new_cap = 1usize << n;
+        if !ME_SID.is_empty() && new_cap == ME_CAP {
+            return;
+        }
+        ME_CAP = new_cap;
+        ME_MASK = (new_cap - 1) as u32;
+        ME_FULL_GUARD = new_cap - (new_cap >> 3);
+        me_release_arrays();
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn releaseMinEfMemo() {
+    unsafe { me_release_arrays(); }
+}
 #[inline]
 unsafe fn me_leaf_cost(b: i32, p: i32, y: i32) -> f64 {
     let cb = ((ME_START_B - b) * 10) as f64;
@@ -71,7 +108,7 @@ unsafe fn me_leaf_cost(b: i32, p: i32, y: i32) -> f64 {
     availability_cost(cb, cp, cy, ME_INIT_B, ME_INIT_P, ME_INIT_Y, ME_HF, ME_NP)
 }
 #[inline]
-fn me_hash(sid: i32, b: i32, p: i32, y: i32) -> usize {
+unsafe fn me_hash(sid: i32, b: i32, p: i32, y: i32) -> usize {
     let mut h: u32 = (sid as u32).wrapping_mul(2654435761);
     h ^= (b as u32).wrapping_mul(40503);
     h ^= (p as u32).wrapping_mul(12289);
@@ -82,22 +119,12 @@ fn me_hash(sid: i32, b: i32, p: i32, y: i32) -> usize {
 }
 unsafe fn me_reset() {
     if ME_SID.is_empty() {
-        ME_SID = vec![-1i32; ME_CAP];
-        ME_B = vec![0i32; ME_CAP];
-        ME_P = vec![0i32; ME_CAP];
-        ME_Y = vec![0i32; ME_CAP];
-        ME_SP = vec![0.0; ME_CAP];
-        ME_SPMAX = vec![0.0; ME_CAP];
-        ME_VB = vec![0.0; ME_CAP];
-        ME_VP = vec![0.0; ME_CAP];
-        ME_VY = vec![0.0; ME_CAP];
-        ME_EF = vec![0.0; ME_CAP];
-        ME_ACT = vec![0i8; ME_CAP];
-        ME_SC_VALID = vec![0u8; ME_MAXDEPTH * 3];
-        ME_SC_SP = vec![0.0; ME_MAXDEPTH * 3];
-        ME_SC_SPMAX = vec![0.0; ME_MAXDEPTH * 3];
-        ME_SC_VB = vec![0.0; ME_MAXDEPTH * 3];
-        ME_SC_VP = vec![0.0; ME_MAXDEPTH * 3];
+        ME_SID = vec![-1i32; ME_CAP]; ME_B = vec![0i32; ME_CAP]; ME_P = vec![0i32; ME_CAP];
+        ME_Y = vec![0i32; ME_CAP]; ME_SP = vec![0.0; ME_CAP]; ME_SPMAX = vec![0.0; ME_CAP];
+        ME_VB = vec![0.0; ME_CAP]; ME_VP = vec![0.0; ME_CAP]; ME_VY = vec![0.0; ME_CAP];
+        ME_EF = vec![0.0; ME_CAP]; ME_ACT = vec![0i8; ME_CAP]; ME_SC_VALID = vec![0u8; ME_MAXDEPTH * 3];
+        ME_SC_SP = vec![0.0; ME_MAXDEPTH * 3]; ME_SC_SPMAX = vec![0.0; ME_MAXDEPTH * 3];
+        ME_SC_VB = vec![0.0; ME_MAXDEPTH * 3]; ME_SC_VP = vec![0.0; ME_MAXDEPTH * 3];
         ME_SC_VY = vec![0.0; ME_MAXDEPTH * 3];
         ME_SC_EF = vec![0.0; ME_MAXDEPTH * 3];
     } else {
@@ -105,14 +132,7 @@ unsafe fn me_reset() {
             *s = -1;
         }
     }
-    ME_COUNT = 0;
-    MINEF_ROOT_SC_VALID = [0; 3];
-    MINEF_ROOT_SC_SP = [0.0; 3];
-    MINEF_ROOT_SC_VB = [0.0; 3];
-    MINEF_ROOT_SC_VP = [0.0; 3];
-    MINEF_ROOT_SC_VY = [0.0; 3];
-    MINEF_ROOT_SC_EF = [0.0; 3];
-    MINEF_ROOT_MAX_SP = 0.0;
+    me_clear_results();
 }
 
 unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {

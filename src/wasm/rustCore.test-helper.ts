@@ -4,7 +4,10 @@ import type { RustCoreExports } from "./rustTypes";
 export function makeRustCoreExports(overrides: Partial<RustCoreExports> = {}): RustCoreExports {
   return {
     configureMemo: vi.fn(),
+    configureMinEfMemo: vi.fn(),
     configureNodeBudget: vi.fn(),
+    releaseMinEfMemo: vi.fn(),
+    releasePhase2Memo: vi.fn(),
     getSolveStatus: vi.fn(() => 0),
     solveMinEf: vi.fn(),
     solveCore: vi.fn(() => 7),

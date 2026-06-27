@@ -65,8 +65,26 @@ function rootCandidates(
 export function createRustPhase2ResearchSolver(exports: RustCoreExports): RustPhase2Solver {
   exports.configureMemo?.(21);
   exports.configureNodeBudget?.(0);
-  const state: Phase2FactoryState = { buildGeneration: 0, currentBuild: null, exports };
+  const state: Phase2FactoryState = {
+    buildGeneration: 0,
+    currentBuild: null,
+    exports,
+    memoTier: 21,
+  };
   return {
+    configureMemoTier(tier) {
+      const memoTier = Math.min(24, Math.max(16, Math.floor(tier)));
+      exports.configureMemo?.(memoTier);
+      state.memoTier = memoTier;
+      state.currentBuild = null;
+      state.buildGeneration += 1;
+    },
+    memoTier: () => state.memoTier,
+    releaseMemo() {
+      exports.releasePhase2Memo?.();
+      state.currentBuild = null;
+      state.buildGeneration += 1;
+    },
     buildPolicy: (...args) => buildPolicy(state, ...args),
     solveRoot: (...args) => buildPolicy(state, ...args).root,
     rootCandidates: (...args) => rootCandidates(state, ...args),

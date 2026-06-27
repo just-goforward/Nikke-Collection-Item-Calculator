@@ -44,12 +44,14 @@ function buildSolverRuntimeAggregateStatement(
   return env.DB.prepare(
     `INSERT INTO solver_runtime_aggregates
       (date_key, diagnostic_version, solver_version, solver_phase, solver_backend,
-       fallback_from, fallback_reason, grade, level, exp_bucket,
+       fallback_from, fallback_reason, memory_strategy, min_ef_memo_tier,
+       phase2_memo_tier, phase2_memo_retried, grade, level, exp_bucket,
        stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
        node_count_bucket, attempted_node_count_bucket, solve_ms_bucket, events, last_seen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
      ON CONFLICT(date_key, diagnostic_version, solver_version, solver_phase, solver_backend,
-       fallback_from, fallback_reason, grade, level, exp_bucket,
+       fallback_from, fallback_reason, memory_strategy, min_ef_memo_tier,
+       phase2_memo_tier, phase2_memo_retried, grade, level, exp_bucket,
        stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
        node_count_bucket, attempted_node_count_bucket, solve_ms_bucket)
      DO UPDATE SET
@@ -63,6 +65,10 @@ function buildSolverRuntimeAggregateStatement(
     event.solverBackend,
     event.fallbackFrom,
     event.fallbackReason,
+    event.memoryStrategy,
+    event.minEfMemoTier,
+    event.phase2MemoTier,
+    event.phase2MemoRetried,
     event.start.grade,
     event.start.level,
     event.start.exp,

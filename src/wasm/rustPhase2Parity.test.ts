@@ -327,6 +327,10 @@ describe("rust phase2 wasm parity", () => {
       stats?: {
         fallbackFrom?: string;
         fallbackReason?: string;
+        memoryStrategy?: string;
+        minEfMemoTier?: number;
+        phase2MemoRetried?: boolean;
+        phase2MemoTier?: number;
         solverBackend?: string;
       };
     };
@@ -335,6 +339,10 @@ describe("rust phase2 wasm parity", () => {
     expect(minef.stats).toMatchObject({
       fallbackFrom: "rust-min-ef",
       fallbackReason: "memo_full",
+      memoryStrategy: "balanced-v1",
+      minEfMemoTier: 21,
+      phase2MemoRetried: false,
+      phase2MemoTier: 22,
       solverBackend: "rust-phase2",
     });
   });

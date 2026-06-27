@@ -104,6 +104,19 @@ function diagnosticToken(value: unknown, fallback = "unknown") {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
+function booleanDiagnosticToken(value: unknown, fallback = "unknown") {
+  if (value === true) return "yes";
+  if (value === false) return "no";
+  return fallback;
+}
+
+function tierDiagnosticToken(value: unknown, fallback = "unknown") {
+  const tier = Math.trunc(Number(value));
+  if (!Number.isFinite(tier)) return fallback;
+  if (tier < 16 || tier > 24) return fallback;
+  return String(tier);
+}
+
 function vectorValue(vector: Partial<Record<Kit, number>> | undefined, kit: Kit) {
   return Math.max(0, Number(vector?.[kit] || 0));
 }
@@ -149,6 +162,10 @@ export function makeSolverDiagnosticEvent(result: SolverResult) {
     solverBackend,
     fallbackFrom: diagnosticToken(stats.fallbackFrom, "none"),
     fallbackReason: diagnosticToken(stats.fallbackReason, "none"),
+    memoryStrategy: diagnosticToken(stats.memoryStrategy, "unknown"),
+    minEfMemoTier: tierDiagnosticToken(stats.minEfMemoTier),
+    phase2MemoTier: tierDiagnosticToken(stats.phase2MemoTier),
+    phase2MemoRetried: booleanDiagnosticToken(stats.phase2MemoRetried),
     start: input.start,
     strategy,
     stockBuckets: {

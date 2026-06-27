@@ -10,6 +10,7 @@ import {
   recordPhase2Build,
 } from "./rustPhase2PolicyState";
 import { simulatePolicy, simulatePolicyAfterFirstAction } from "./rustPhase2Validation";
+import { RUST_PHASE2_DEFAULT_MEMO_TIER } from "./rustProductConfig";
 import type {
   RustCoreExports,
   RustPhase2Policy,
@@ -53,14 +54,40 @@ function rootCandidates(
 }
 
 export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2ProductSolver {
-  exports.configureMemo?.(22);
+  const state: Phase2FactoryState = {
+    buildGeneration: 0,
+    currentBuild: null,
+    exports,
+    memoTier: RUST_PHASE2_DEFAULT_MEMO_TIER,
+  };
+  configureMemoTier(state, RUST_PHASE2_DEFAULT_MEMO_TIER);
   exports.configureNodeBudget?.(0);
-  const state: Phase2FactoryState = { buildGeneration: 0, currentBuild: null, exports };
   return {
+    configureMemoTier: (tier) => configureMemoTier(state, tier),
+    memoTier: () => state.memoTier,
+    releaseMemo: () => releaseMemo(state),
     buildPolicy: (...args) => buildPolicy(state, ...args),
     solveRoot: (...args) => buildPolicy(state, ...args).root,
     rootCandidates: (...args) => rootCandidates(state, ...args),
     simulatePolicy: (...args) => simulatePolicy(state, ...args),
     simulatePolicyAfterFirstAction: (...args) => simulatePolicyAfterFirstAction(state, ...args),
   };
+}
+
+function configureMemoTier(state: Phase2FactoryState, tier: number) {
+  const normalizedTier = clampMemoTier(tier);
+  state.exports.configureMemo?.(normalizedTier);
+  state.memoTier = normalizedTier;
+  state.currentBuild = null;
+  state.buildGeneration += 1;
+}
+
+function releaseMemo(state: Phase2FactoryState) {
+  state.exports.releasePhase2Memo?.();
+  state.currentBuild = null;
+  state.buildGeneration += 1;
+}
+
+function clampMemoTier(tier: number) {
+  return Math.min(24, Math.max(16, Math.floor(tier)));
 }

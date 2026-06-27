@@ -20,6 +20,22 @@ export async function getRustPhase2Solver(wasmUrl: string) {
   return phase2SolverPromise;
 }
 
+export async function releaseRustMinEfSolverCache() {
+  const solverPromise = minEfSolverPromise;
+  minEfSolverPromise = null;
+  if (!solverPromise) return;
+  const solver = await solverPromise;
+  solver.releaseMemo();
+}
+
+export async function releaseRustPhase2SolverCache() {
+  const solverPromise = phase2SolverPromise;
+  phase2SolverPromise = null;
+  if (!solverPromise) return;
+  const solver = await solverPromise;
+  solver.releaseMemo();
+}
+
 export function minEfActionFactory(policy: RustMinEfPolicyHandle): RustActionLookup {
   return (state: CollectionState, stockUses: Stock): Kit | null => {
     if (isTerminal(state) || isConvertState(state)) return null;

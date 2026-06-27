@@ -10,7 +10,20 @@ describe("rust min-E[f] core wrapper", () => {
     createRustMinEfSolver(exports);
 
     expect(exports.configureMemo).toHaveBeenCalledWith(21);
+    expect(exports.configureMinEfMemo).toHaveBeenCalledWith(21);
     expect(exports.configureNodeBudget).toHaveBeenCalledWith(2_000_000);
+  });
+
+  it("can reconfigure and release the min-E[f] memo", () => {
+    const exports = makeExports();
+    const solver = createRustMinEfSolver(exports);
+
+    solver.configureMemoTier(20);
+    solver.releaseMemo();
+
+    expect(solver.memoTier()).toBe(20);
+    expect(exports.configureMinEfMemo).toHaveBeenLastCalledWith(20);
+    expect(exports.releaseMinEfMemo).toHaveBeenCalledOnce();
   });
 
   it("throws on root-solve budget status before reading result accessors", () => {
@@ -109,6 +122,22 @@ describe("rust min-E[f] core wrapper", () => {
     );
 
     solver.solveRoot({ grade: "SR", level: 2, exp: 0 }, { blue: 30, purple: 30, yellow: 30 });
+
+    expect(() =>
+      policy.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 1, yellow: 1 }),
+    ).toThrow("stale");
+    expect(exports.minEfActionAtOrSolve).not.toHaveBeenCalled();
+  });
+
+  it("invalidates min-E[f] policy handles after memo release", () => {
+    const exports = makeExports();
+    const solver = createRustMinEfSolver(exports);
+    const policy = solver.solveRootWithCandidates(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 10, purple: 10, yellow: 10 },
+    );
+
+    solver.releaseMemo();
 
     expect(() =>
       policy.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 1, yellow: 1 }),

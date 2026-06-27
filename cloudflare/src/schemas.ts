@@ -97,6 +97,11 @@ const SolveMsBucketSchema = z.enum([
   "5000_plus",
 ]);
 const ComparisonBucketSchema = z.enum(["yes", "no", "unknown", "not_applicable"]);
+const MemoryStrategySchema = z.string().trim().min(1).max(64).optional();
+const MemoTierSchema = z
+  .enum(["16", "17", "18", "19", "20", "21", "22", "23", "24", "unknown"])
+  .optional();
+const Phase2MemoRetriedSchema = z.enum(["yes", "no", "unknown"]).optional();
 
 const SolverDiagnosticEventSchema = z
   .object({
@@ -113,6 +118,10 @@ const SolverDiagnosticEventSchema = z
     solverBackend: z.string().optional(),
     fallbackFrom: z.string().optional(),
     fallbackReason: z.string().optional(),
+    memoryStrategy: MemoryStrategySchema,
+    minEfMemoTier: MemoTierSchema,
+    phase2MemoTier: MemoTierSchema,
+    phase2MemoRetried: Phase2MemoRetriedSchema,
     start: CollectionStateSchema,
     strategy: StrategySchema,
     stockBuckets: z

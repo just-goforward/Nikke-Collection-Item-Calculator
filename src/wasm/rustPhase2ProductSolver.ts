@@ -5,6 +5,9 @@ import {
 } from "../solver/domain";
 import type { CollectionState, SolverInput, Stock } from "../types";
 import {
+  RUST_MEMORY_STRATEGY,
+  RUST_PHASE2_DEFAULT_MEMO_TIER,
+  RUST_PHASE2_FALLBACK_MEMO_TIER,
   RUST_PHASE2_SOLVER_VERSION,
   RUST_PRODUCT_HORIZON_FACTOR,
   RUST_PRODUCT_NORM_POWER,
@@ -26,11 +29,18 @@ import {
   buildPhase2TopCandidates,
   buildRecommendedRun,
 } from "./rustProductView";
+import { isMemoFull } from "./rustStatus";
+
+type RustPhase2SolveOptions = {
+  initialMemoTier?: number;
+  retryOnMemoFull?: boolean;
+};
 
 export async function solveRustPhase2(
   input: SolverInput,
   wasmUrl: string,
   progress?: (progress: { phase: string; scanned?: number; total?: number | null }) => void,
+  options: RustPhase2SolveOptions = {},
 ) {
   const startedAt = nowMs();
   const normalizedInput = normalizeRustProductInput(input);
@@ -40,13 +50,7 @@ export async function solveRustPhase2(
   if (earlyResult) return earlyResult;
 
   const solver = await getRustPhase2Solver(wasmUrl);
-  const policy = solver.buildPolicy(
-    normalizedInput.start,
-    normalizedInput.stock,
-    RUST_PRODUCT_HORIZON_FACTOR,
-    RUST_PRODUCT_NORM_POWER,
-    RUST_PRODUCT_TOLERANCE,
-  );
+  const { policy, retried } = buildPolicyWithMemoRetry(solver, normalizedInput, options);
   const root = policy.root;
   if (!root.firstAction) {
     return buildRustNoActionResult(normalizedInput, "현재 보유 키트로 가능한 행동이 없습니다.");
@@ -97,9 +101,45 @@ export async function solveRustPhase2(
     monteCarlo,
     topCandidates,
     statsExtras: {
+      memoryStrategy: RUST_MEMORY_STRATEGY,
+      phase2MemoRetried: retried,
+      phase2MemoTier: solver.memoTier(),
       solveMs: elapsedMs(startedAt),
     },
   });
+}
+
+function buildPolicyWithMemoRetry(
+  solver: Awaited<ReturnType<typeof getRustPhase2Solver>>,
+  normalizedInput: ReturnType<typeof normalizeRustProductInput>,
+  options: RustPhase2SolveOptions,
+) {
+  const initialTier = options.initialMemoTier ?? RUST_PHASE2_DEFAULT_MEMO_TIER;
+  const retryOnMemoFull = options.retryOnMemoFull ?? true;
+  solver.configureMemoTier(initialTier);
+  try {
+    return { policy: buildPolicy(solver, normalizedInput), retried: false };
+  } catch (error) {
+    if (!retryOnMemoFull || !isMemoFull(error) || initialTier >= RUST_PHASE2_FALLBACK_MEMO_TIER) {
+      throw error;
+    }
+    solver.releaseMemo();
+    solver.configureMemoTier(RUST_PHASE2_FALLBACK_MEMO_TIER);
+    return { policy: buildPolicy(solver, normalizedInput), retried: true };
+  }
+}
+
+function buildPolicy(
+  solver: Awaited<ReturnType<typeof getRustPhase2Solver>>,
+  normalizedInput: ReturnType<typeof normalizeRustProductInput>,
+) {
+  return solver.buildPolicy(
+    normalizedInput.start,
+    normalizedInput.stock,
+    RUST_PRODUCT_HORIZON_FACTOR,
+    RUST_PRODUCT_NORM_POWER,
+    RUST_PRODUCT_TOLERANCE,
+  );
 }
 
 function nowMs() {

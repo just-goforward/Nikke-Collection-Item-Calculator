@@ -57,6 +57,19 @@ static mut ACT: Vec<i8> = Vec::new();
 static mut EPOCH: u32 = 1;
 static mut COUNT: usize = 0;
 
+unsafe fn release_phase2_memo_arrays() {
+    KEYS = Vec::new();
+    GENS = Vec::new();
+    SP_OK = Vec::new();
+    SP_MAX = Vec::new();
+    VB = Vec::new();
+    VP = Vec::new();
+    VY = Vec::new();
+    ACT = Vec::new();
+    EPOCH = 1;
+    COUNT = 0;
+}
+
 unsafe fn memo_ensure() {
     if KEYS.is_empty() {
         let cap = MEMO_CAP;
@@ -83,16 +96,13 @@ pub extern "C" fn configureMemo(cap_log2: i32) {
         MEMO_CAP = new_cap;
         MEMO_MASK = (new_cap - 1) as u32;
         MEMO_FULL_GUARD = new_cap - (new_cap >> 3);
-        KEYS = Vec::new(); // drop old arrays (RAII frees them); memo_ensure reallocates at new_cap
-        GENS = Vec::new();
-        SP_OK = Vec::new();
-        SP_MAX = Vec::new();
-        VB = Vec::new();
-        VP = Vec::new();
-        VY = Vec::new();
-        ACT = Vec::new();
-        EPOCH = 1;
-        COUNT = 0;
+        release_phase2_memo_arrays(); // drop old arrays; memo_ensure reallocates at new_cap
+    }
+}
+#[no_mangle]
+pub extern "C" fn releasePhase2Memo() {
+    unsafe {
+        release_phase2_memo_arrays();
     }
 }
 pub(crate) unsafe fn memo_reset() {

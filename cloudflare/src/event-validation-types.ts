@@ -21,6 +21,10 @@ export type ValidatedSolverDiagnosticEvent = {
   solverBackend: string;
   fallbackFrom: string;
   fallbackReason: string;
+  memoryStrategy: string;
+  minEfMemoTier: string;
+  phase2MemoTier: string;
+  phase2MemoRetried: string;
   start: CollectionState;
   strategy: string;
   stockBuckets: SolverDiagnosticEventInput["stockBuckets"];

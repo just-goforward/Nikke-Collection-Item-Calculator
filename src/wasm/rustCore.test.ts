@@ -5,6 +5,27 @@ import { makeRustCoreExports as makeExports } from "./rustCore.test-helper";
 import { createRustPhase2ResearchSolver } from "./rustPhase2ResearchCore";
 
 describe("rust phase2 core wrapper", () => {
+  it("configures the product phase2 memo tier on creation", () => {
+    const exports = makeExports();
+
+    createRustPhase2Solver(exports);
+
+    expect(exports.configureMemo).toHaveBeenCalledWith(21);
+    expect(exports.configureNodeBudget).toHaveBeenCalledWith(0);
+  });
+
+  it("can reconfigure and release the phase2 memo", () => {
+    const exports = makeExports();
+    const solver = createRustPhase2Solver(exports);
+
+    solver.configureMemoTier(22);
+    solver.releaseMemo();
+
+    expect(solver.memoTier()).toBe(22);
+    expect(exports.configureMemo).toHaveBeenLastCalledWith(22);
+    expect(exports.releasePhase2Memo).toHaveBeenCalledOnce();
+  });
+
   it("wraps phase2 solveCore results", () => {
     const solver = createRustPhase2Solver(makeExports());
 
@@ -106,6 +127,22 @@ describe("rust phase2 core wrapper", () => {
       ),
     ).toThrow("memo_full");
     expect(exports.rootCandidateValid).not.toHaveBeenCalled();
+  });
+
+  it("invalidates phase2 policy handles after memo release", () => {
+    const exports = makeExports();
+    const solver = createRustPhase2Solver(exports);
+    const policy = solver.buildPolicy(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 10, purple: 20, yellow: 30 },
+    );
+
+    solver.releaseMemo();
+
+    expect(() =>
+      policy.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 2, yellow: 3 }),
+    ).toThrow("stale");
+    expect(exports.policyActionAt).not.toHaveBeenCalled();
   });
 
   it("wraps phase2 first-action E[f] simulation", () => {

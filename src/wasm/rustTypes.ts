@@ -107,6 +107,9 @@ export type RustMonteCarloResult = {
 };
 
 export type RustMinEfSolver = {
+  configureMemoTier: (tier: number) => void;
+  memoTier: () => number;
+  releaseMemo: () => void;
   solveRootWithCandidates: (
     start: State,
     stock: Stock,
@@ -137,6 +140,9 @@ export type RustPhase2Policy = {
 };
 
 export type RustPhase2ProductSolver = {
+  configureMemoTier: (tier: number) => void;
+  memoTier: () => number;
+  releaseMemo: () => void;
   buildPolicy: (
     start: State,
     stock: Stock,

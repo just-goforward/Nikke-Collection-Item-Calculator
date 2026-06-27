@@ -80,6 +80,10 @@ export type SolverResult = {
     solverBackend?: string;
     fallbackFrom?: string;
     fallbackReason?: string;
+    memoryStrategy?: string;
+    minEfMemoTier?: number;
+    phase2MemoTier?: number;
+    phase2MemoRetried?: boolean;
     attemptedStates?: number;
     solveMs?: number;
   };

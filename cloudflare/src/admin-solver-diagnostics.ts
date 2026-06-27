@@ -30,6 +30,10 @@ type SolverRuntimeRow = {
   solver_backend?: string | null;
   fallback_from?: string | null;
   fallback_reason?: string | null;
+  memory_strategy?: string | null;
+  min_ef_memo_tier?: string | null;
+  phase2_memo_tier?: string | null;
+  phase2_memo_retried?: string | null;
   grade?: string | null;
   level?: number | string | null;
   exp_bucket?: number | string | null;
@@ -171,6 +175,10 @@ async function readSolverRuntime(env: WorkerEnv, since: string) {
        solver_backend,
        fallback_from,
        fallback_reason,
+       memory_strategy,
+       min_ef_memo_tier,
+       phase2_memo_tier,
+       phase2_memo_retried,
        grade,
        level,
        exp_bucket,
@@ -184,6 +192,7 @@ async function readSolverRuntime(env: WorkerEnv, since: string) {
      FROM solver_runtime_aggregates
      WHERE date_key >= ?
      GROUP BY solver_version, solver_phase, solver_backend, fallback_from, fallback_reason,
+       memory_strategy, min_ef_memo_tier, phase2_memo_tier, phase2_memo_retried,
        grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
         node_count_bucket, attempted_node_count_bucket, solve_ms_bucket
      ORDER BY solver_version ASC, solver_phase ASC, events DESC`,
@@ -197,6 +206,10 @@ async function readSolverRuntime(env: WorkerEnv, since: string) {
     solverBackend: String(row.solver_backend || "unknown"),
     fallbackFrom: String(row.fallback_from || "none"),
     fallbackReason: String(row.fallback_reason || "none"),
+    memoryStrategy: String(row.memory_strategy || "unknown"),
+    minEfMemoTier: String(row.min_ef_memo_tier || "unknown"),
+    phase2MemoTier: String(row.phase2_memo_tier || "unknown"),
+    phase2MemoRetried: String(row.phase2_memo_retried || "unknown"),
     grade: String(row.grade || "unknown"),
     level: Number(row.level || 0),
     expBucket: Number(row.exp_bucket || 0),

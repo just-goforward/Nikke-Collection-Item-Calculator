@@ -1,5 +1,8 @@
 export type RustCoreExports = {
   configureMemo?: (capLog2: number) => void;
+  releasePhase2Memo?: () => void;
+  configureMinEfMemo?: (capLog2: number) => void;
+  releaseMinEfMemo?: () => void;
   configureNodeBudget?: (budget: number) => void;
   getSolveStatus?: () => number;
   solveCore?: (

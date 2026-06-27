@@ -36,6 +36,10 @@ type AdminDiagnosticsBody = {
     solverBackend: string;
     fallbackFrom: string;
     fallbackReason: string;
+    memoryStrategy: string;
+    minEfMemoTier: string;
+    phase2MemoTier: string;
+    phase2MemoRetried: string;
     grade: string;
     level: number;
     expBucket: number;
@@ -277,6 +281,24 @@ describe("solver_diagnostic event commit", () => {
     await expect(countRows("event_ids")).resolves.toBe(1);
     await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(1);
     await expect(countRows("solver_runtime_aggregates")).resolves.toBe(1);
+    const runtime = await harness.database
+      .prepare(
+        `SELECT memory_strategy, min_ef_memo_tier, phase2_memo_tier, phase2_memo_retried
+         FROM solver_runtime_aggregates
+         LIMIT 1`,
+      )
+      .first<{
+        memory_strategy: string;
+        min_ef_memo_tier: string;
+        phase2_memo_tier: string;
+        phase2_memo_retried: string;
+      }>();
+    expect(runtime).toMatchObject({
+      memory_strategy: "balanced-v1",
+      min_ef_memo_tier: "21",
+      phase2_memo_tier: "22",
+      phase2_memo_retried: "no",
+    });
   });
 
   it("accepts diagnostic v2 with 50-piece stock buckets", async () => {
@@ -454,6 +476,10 @@ describe("admin solver diagnostics", () => {
           solverBackend: "rust-min-ef",
           fallbackFrom: "none",
           fallbackReason: "none",
+          memoryStrategy: "balanced-v1",
+          minEfMemoTier: "21",
+          phase2MemoTier: "22",
+          phase2MemoRetried: "no",
           grade: "SR",
           level: 1,
           expBucket: 0,

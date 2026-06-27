@@ -13,6 +13,7 @@ export type Phase2FactoryState = {
   buildGeneration: number;
   currentBuild: Phase2BuildContext | null;
   exports: RustCoreExports;
+  memoTier: number;
 };
 
 export function recordPhase2Build(state: Phase2FactoryState, context: Phase2BuildContext) {

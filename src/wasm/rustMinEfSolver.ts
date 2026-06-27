@@ -2,7 +2,10 @@
 import { isMemoFull } from "./rustCore";
 import { solveRustPhase2 } from "./rustPhase2ProductSolver";
 import {
+  RUST_MEMORY_STRATEGY,
+  RUST_MIN_EF_MEMO_TIER,
   RUST_MIN_EF_SOLVER_VERSION,
+  RUST_PHASE2_FALLBACK_MEMO_TIER,
   RUST_PRODUCT_HORIZON_FACTOR,
   RUST_PRODUCT_NORM_POWER,
   RUST_PRODUCT_TOLERANCE,
@@ -17,7 +20,11 @@ import {
   buildRustNoActionResult,
   buildRustRootResult,
 } from "./rustProductResults";
-import { getRustMinEfSolver, minEfActionFactory } from "./rustProductSolverCache";
+import {
+  getRustMinEfSolver,
+  minEfActionFactory,
+  releaseRustMinEfSolverCache,
+} from "./rustProductSolverCache";
 import {
   buildFailureRoute,
   buildPhase2TopCandidates,
@@ -92,15 +99,22 @@ export async function solveRustMinEfProduct(
           horizonFactor: RUST_PRODUCT_HORIZON_FACTOR,
           normPower: RUST_PRODUCT_NORM_POWER,
           expectedCost: root.expectedCost,
+          memoTier: solver.memoTier(),
           nodeCount: policy.nodeCount,
         },
+        memoryStrategy: RUST_MEMORY_STRATEGY,
+        minEfMemoTier: RUST_MIN_EF_MEMO_TIER,
         solveMs: elapsedMs(startedAt),
       },
     });
   } catch (error) {
     if (!isMemoFull(error)) throw error;
+    await releaseRustMinEfSolverCache();
     if (progress) progress({ phase: "fallback-phase2", scanned: 0, total: 1 });
-    const fallback = await solveRustPhase2(input, wasmUrl, progress);
+    const fallback = await solveRustPhase2(input, wasmUrl, progress, {
+      initialMemoTier: RUST_PHASE2_FALLBACK_MEMO_TIER,
+      retryOnMemoFull: false,
+    });
     return withFallbackStats(fallback, startedAt, error.nodeCount);
   }
 }
@@ -133,6 +147,8 @@ function withFallbackStats(result: unknown, startedAt: number, attemptedStates: 
       fallbackFrom: "rust-min-ef",
       fallbackReason: "memo_full",
       ...(attemptedStates === null ? {} : { attemptedStates }),
+      memoryStrategy: RUST_MEMORY_STRATEGY,
+      minEfMemoTier: RUST_MIN_EF_MEMO_TIER,
       solveMs: elapsedMs(startedAt),
     },
   };
