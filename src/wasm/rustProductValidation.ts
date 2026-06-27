@@ -15,6 +15,7 @@ import {
   releaseRustMinEfSolverCache,
 } from "./rustProductSolverCache";
 import { simulate } from "./rustProductView";
+import type { RustPhase2Policy } from "./rustTypes";
 
 export async function validateRustMinEf(
   input: SolverInput,
@@ -49,8 +50,9 @@ export async function validateRustPhase2(
   const normalizedInput = normalizeRustProductInput(input);
   const solver = await getRustPhase2Solver(wasmUrl);
   solver.configureMemoTier(RUST_PHASE2_DEFAULT_MEMO_TIER);
+  let policy: RustPhase2Policy;
   try {
-    solver.solveRoot(
+    policy = solver.buildPolicy(
       normalizedInput.start,
       normalizedInput.stock,
       RUST_PRODUCT_HORIZON_FACTOR,
@@ -61,7 +63,7 @@ export async function validateRustPhase2(
     if (!isMemoFull(error)) throw error;
     solver.releaseMemo();
     solver.configureMemoTier(RUST_PHASE2_FALLBACK_MEMO_TIER);
-    solver.solveRoot(
+    policy = solver.buildPolicy(
       normalizedInput.start,
       normalizedInput.stock,
       RUST_PRODUCT_HORIZON_FACTOR,
@@ -69,13 +71,5 @@ export async function validateRustPhase2(
       RUST_PRODUCT_TOLERANCE,
     );
   }
-  return solver.simulatePolicy(
-    normalizedInput.start,
-    normalizedInput.stock,
-    runs,
-    seed,
-    RUST_PRODUCT_HORIZON_FACTOR,
-    RUST_PRODUCT_NORM_POWER,
-    RUST_PRODUCT_TOLERANCE,
-  );
+  return simulate(normalizedInput, policy.actionAt, runs, seed);
 }

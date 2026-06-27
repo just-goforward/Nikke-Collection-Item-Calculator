@@ -11,6 +11,7 @@ import {
 } from "./domain";
 import type { NormalizedSolverInput } from "./input";
 import type { ActionFor } from "./routes";
+import { makeStageReachDistribution, stageRank } from "./stageReach";
 
 function makeRandom(seed: number) {
   let value = seed >>> 0;
@@ -45,6 +46,7 @@ export function simulate(
     yellow: new Array(256).fill(0),
   };
   let completed = 0;
+  const finalRanks: number[] = [];
 
   for (let run = 0; run < runs; run += 1) {
     let state = normalizeState(input.start);
@@ -73,6 +75,7 @@ export function simulate(
       const bucket = Math.min(255, Math.floor(used[kit] / 10));
       hist[kit][bucket] = (hist[kit][bucket] ?? 0) + 1;
     }
+    finalRanks.push(stageRank(state));
   }
 
   const kitQuantiles = (kit: Kit) => ({
@@ -96,5 +99,6 @@ export function simulate(
       yellow: kitQuantiles("yellow"),
     },
     depletion: runs > 0 ? (runs - completed) / runs : 0,
+    stageReach: makeStageReachDistribution(finalRanks, runs),
   };
 }

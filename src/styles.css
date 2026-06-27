@@ -562,9 +562,18 @@ h2 {
 @media (max-width: 660px) {
   /* --- shell padding adjusted for sticky bottom bar (action + tabs) --- */
   body {
-    padding-bottom: 116px;
+    padding-bottom: calc(116px + env(safe-area-inset-bottom, 0px));
   }
 
+  .app-shell[data-mobile-action="outcome"] {
+    padding-bottom: 104px;
+  }
+
+  @media (max-width: 380px) {
+    .app-shell[data-mobile-action="outcome"] {
+      padding-bottom: 126px;
+    }
+  }
 
   /* --- compact top bar — single row, theme as icon pill --- */
 

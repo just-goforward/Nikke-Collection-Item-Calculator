@@ -85,7 +85,7 @@ function setValidationComplete(
     disabled: false,
     buttonLabel: "다시 시켜보기",
     message: validationCompleteMessage(monteCarlo),
-    successDistribution: validationCharts.successDistribution,
+    stageReach: validationCharts.stageReach,
   });
 }
 

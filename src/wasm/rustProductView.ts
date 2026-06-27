@@ -12,6 +12,7 @@ import {
   totalKits,
   transition,
 } from "../solver/domain";
+import { makeStageReachDistribution, stageRank } from "../solver/stageReach";
 import type { CollectionState, Kit, Stock } from "../types";
 import type { RustProductInput } from "./rustProductInput";
 import type { RustPhase2Candidate } from "./rustTypes";
@@ -198,6 +199,7 @@ export function simulate(
     yellow: new Array(256).fill(0),
   };
   let completed = 0;
+  const finalRanks: number[] = [];
 
   for (let run = 0; run < runs; run += 1) {
     let state = normalizeState(input.start);
@@ -226,6 +228,7 @@ export function simulate(
       const bucket = Math.min(255, Math.floor(used[kit] / 10));
       hist[kit][bucket] = (hist[kit][bucket] ?? 0) + 1;
     }
+    finalRanks.push(stageRank(state));
   }
 
   const quantileUses = (kit: Kit, q: number) => {
@@ -260,5 +263,6 @@ export function simulate(
     },
     quantiles,
     depletion: runs > 0 ? (runs - completed) / runs : 0,
+    stageReach: makeStageReachDistribution(finalRanks, runs),
   };
 }

@@ -27,6 +27,13 @@ export interface TransitionResult {
   fail: CollectionState;
 }
 
+export interface StageReachPoint {
+  grade: Grade;
+  level: number;
+  reached: number;
+  probability: number;
+}
+
 export interface MonteCarloResult {
   runs: number;
   completed: number;
@@ -34,6 +41,7 @@ export interface MonteCarloResult {
   vector: Stock;
   quantiles?: KitRecord<{ p50: number; p90: number; p95: number }>;
   depletion?: number;
+  stageReach?: StageReachPoint[];
 }
 
 export interface SolverResult {

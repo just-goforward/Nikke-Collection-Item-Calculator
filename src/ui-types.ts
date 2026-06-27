@@ -66,21 +66,18 @@ export type ExpectedConsumptionView = {
   supplyDays: string;
 };
 
-export type ValidationSuccessDistributionView = {
-  kind: "binomial" | "deterministic";
-  expectedRateLabel: string;
-  observedRateLabel: string;
-  expectedCountLabel: string;
-  observedCountLabel: string;
-  intervalLabel: string;
-  standardDeviationLabel: string;
-  skewnessLabel: string;
-  kurtosisLabel: string;
-  xMin: number;
-  xMax: number;
-  meanCount: number;
-  observedCount: number;
-  points: Array<{ x: number; y: number }>;
+export type ValidationStageReachPointView = {
+  label: string;
+  probability: number;
+  percentLabel: string;
+  reachedLabel: string;
+  aggregateBelow?: boolean;
+  aggregateAbove?: boolean;
+};
+
+export type ValidationStageReachView = {
+  runsLabel: string;
+  points: ValidationStageReachPointView[];
 };
 
 export type DetailView =
@@ -102,7 +99,7 @@ export type ValidationView = {
   buttonLabel: string;
   disabled: boolean;
   message: string;
-  successDistribution?: ValidationSuccessDistributionView | null;
+  stageReach?: ValidationStageReachView | null;
 };
 
 export type LoadingView = {

@@ -1,4 +1,4 @@
-import type { Kit } from "../types";
+import type { Kit, StageReachPoint } from "../types";
 import type { RustCoreExports as RawRustCoreExports } from "./rustCoreExports";
 
 export type State = { grade: string; level: number; exp?: number };
@@ -104,6 +104,7 @@ export type RustMonteCarloResult = {
   vector: Record<Kit, number>;
   quantiles?: Record<Kit, { p50: number; p90: number; p95: number }>;
   depletion?: number;
+  stageReach?: StageReachPoint[];
 };
 
 export type RustMinEfSolver = {

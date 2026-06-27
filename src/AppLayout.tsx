@@ -67,6 +67,17 @@ function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
   );
 }
 
+function mobileActionMode(view: CalculatorApp["resultView"]) {
+  if (view.type === "recommendation") return "outcome";
+  if (
+    view.type === "convertRecommendation" ||
+    (view.type === "outcome" && view.showConvertRecommendation)
+  ) {
+    return "convert";
+  }
+  return "calculate";
+}
+
 function MobileHeader({ calculator }: { calculator: CalculatorApp }) {
   return (
     <div className={classes.mobileHeader}>
@@ -187,10 +198,11 @@ export function AppLayout({
   statsMode: StatsRuntimeMode;
 }) {
   const hasResult = calculator.resultView.type !== "empty";
+  const actionMode = mobileActionMode(calculator.resultView);
 
   return (
     <>
-      <main className={classes.shell} data-mobile-tab={mobileTab}>
+      <main className={classes.shell} data-mobile-action={actionMode} data-mobile-tab={mobileTab}>
         <StagingBanners statsMode={statsMode} />
         <TopBar
           onReset={handlers.onReset}

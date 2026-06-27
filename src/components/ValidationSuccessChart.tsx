@@ -1,122 +1,201 @@
-import type { ValidationSuccessDistributionView, ValidationView } from "../ui-types";
+import type { ValidationStageReachView, ValidationView } from "../ui-types";
 
 const classes = {
-  validationGraphGrid: "grid max-w-[560px] gap-2.5",
-  validationGraph:
-    "rounded-card border border-border bg-surface px-3 py-2.5 text-[12px] text-text-soft",
-  graphTitle: "text-[12px] font-semibold text-text-strong",
-  graphMeta: "mt-1 text-[11px] font-medium leading-snug text-muted",
-  probabilityTrack: "relative mt-3 h-[92px] rounded-control border border-border bg-surface-strong",
-  probabilityCurve:
-    "absolute left-2 top-2 h-[54px] w-[calc(100%_-_1rem)] overflow-visible text-grade-active [--curve-fill:color-mix(in_srgb,currentColor_18%,transparent)] [--curve-stroke:currentColor]",
-  probabilityCurveArea: "fill-[var(--curve-fill)]",
-  probabilityCurveLine: "fill-none stroke-[var(--curve-stroke)] stroke-[2]",
-  probabilityAxisLine: "absolute left-2 right-2 bottom-6 h-px bg-border",
-  probabilityMarker: "absolute bottom-6 top-2 w-px",
-  probabilityExpected: "bg-grade-active",
-  probabilityObserved: "bg-text-strong",
-  probabilityMarkerLabel:
-    "absolute top-[-1px] -translate-x-1/2 rounded-[3px] bg-surface px-1 text-[9px] font-semibold leading-4 text-muted shadow-sm",
-  probabilityAxis:
-    "absolute bottom-1 left-2 right-2 flex justify-between text-[10px] font-medium text-muted",
-  probabilityLegend: "mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[10px] font-medium text-muted",
-  probabilityDot: "inline-block size-2 rounded-full",
+  chartCard:
+    "grid max-w-[620px] gap-2.5 rounded-card border border-border bg-surface px-3 py-2.5 text-[12px] text-text-soft",
+  header: "flex flex-wrap items-center justify-between gap-2",
+  title: "text-[12px] font-semibold text-text-strong",
+  badge:
+    "rounded-control border border-grade-active/35 bg-grade-active/10 px-2 py-1 text-[11px] font-semibold text-grade-active-strong",
+  canvasWrap:
+    "rounded-card border border-border bg-surface-strong px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]",
+  canvas: "block h-auto w-full text-grade-active",
+  grid: "stroke-border/70 stroke-[1]",
+  axisLine: "stroke-muted/55 stroke-[1.1]",
+  axisText: "fill-muted text-[9px] font-normal",
+  stepLine:
+    "fill-none stroke-grade-active stroke-[1.7] [stroke-linecap:round] [stroke-linejoin:round]",
+  point: "fill-text-strong stroke-surface stroke-[2.2]",
+  pointLabelBox: "fill-surface stroke-border stroke-[1]",
+  pointText: "fill-text-strong text-[9px] font-medium",
+  helper: "text-[11px] font-medium leading-snug text-muted",
 } as const;
 
-function distributionPosition(value: number, distribution: ValidationSuccessDistributionView) {
-  const width = Math.max(1, distribution.xMax - distribution.xMin);
-  return Math.max(0, Math.min(100, ((value - distribution.xMin) / width) * 100));
+const CHART = {
+  width: 340,
+  height: 144,
+  left: 42,
+  right: 34,
+  top: 16,
+  bottom: 36,
+} as const;
+
+const plotWidth = CHART.width - CHART.left - CHART.right;
+const plotHeight = CHART.height - CHART.top - CHART.bottom;
+const plotBottom = CHART.height - CHART.bottom;
+const plotRight = CHART.width - CHART.right;
+const labelBoxWidth = 44;
+const labelBoxHeight = 14;
+
+function chartX(index: number, total: number) {
+  if (total <= 1) return CHART.left + plotWidth / 2;
+  return CHART.left + (index / (total - 1)) * plotWidth;
 }
 
-function distributionPath(distribution: ValidationSuccessDistributionView) {
-  if (!distribution.points.length) return { line: "", area: "" };
-  const first = distribution.points[0];
-  const last = distribution.points.at(-1);
-  if (!first || !last) return { line: "", area: "" };
-  const toPoint = (point: { x: number; y: number }) => {
-    const x = distributionPosition(point.x, distribution);
-    const y = 48 - point.y * 38;
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
+function chartY(probability: number) {
+  return CHART.top + (1 - Math.max(0, Math.min(1, probability))) * plotHeight;
+}
+
+function stepPath(points: ValidationStageReachView["points"]) {
+  if (!points.length) return "";
+  const first = points[0];
+  if (!first) return "";
+  const commands = [
+    `M${chartX(0, points.length).toFixed(2)},${chartY(first.probability).toFixed(2)}`,
+  ];
+  for (let index = 1; index < points.length; index += 1) {
+    const point = points[index];
+    if (!point) continue;
+    const x = chartX(index, points.length).toFixed(2);
+    const y = chartY(point.probability).toFixed(2);
+    commands.push(`H${x}`);
+    commands.push(`V${y}`);
+  }
+  return commands.join(" ");
+}
+
+function valueLabelPosition(index: number, total: number, x: number, y: number) {
+  const clampedX = Math.max(
+    CHART.left + labelBoxWidth / 2,
+    Math.min(plotRight - labelBoxWidth / 2, x),
+  );
+  const isEdge = index === 0 || index === total - 1;
+  const preferBelow = y < CHART.top + labelBoxHeight + 8 || isEdge;
+  const boxY = preferBelow
+    ? Math.min(plotBottom - labelBoxHeight - 4, y + 7)
+    : Math.max(CHART.top + 2, y - labelBoxHeight - 9);
+  return {
+    boxX: clampedX - labelBoxWidth / 2,
+    boxY,
+    textX: clampedX,
+    textY: boxY + 10,
   };
-  const line = distribution.points
-    .map((point, index) => `${index === 0 ? "M" : "L"}${toPoint(point)}`)
-    .join(" ");
-  const firstX = distributionPosition(first.x, distribution).toFixed(2);
-  const lastX = distributionPosition(last.x, distribution).toFixed(2);
-  const area = `${line} L${lastX},50 L${firstX},50 Z`;
-  return { line, area };
+}
+
+function axisLabelAnchor(index: number, total: number) {
+  if (index === 0) return "start";
+  if (index === total - 1) return "end";
+  return "middle";
+}
+
+function axisLabelX(index: number, total: number, x: number) {
+  if (index === 0) return Math.max(CHART.left, x - 2);
+  if (index === total - 1) return Math.min(plotRight, x + 2);
+  return x;
+}
+
+function StageReachSvg({ chart }: { chart: ValidationStageReachView }) {
+  const path = stepPath(chart.points);
+  return (
+    <svg
+      aria-label="단계별 도달률 계단 그래프"
+      className={classes.canvas}
+      role="img"
+      viewBox={`0 0 ${CHART.width} ${CHART.height}`}
+    >
+      <line className={classes.grid} x1={CHART.left} x2={plotRight} y1={CHART.top} y2={CHART.top} />
+      <line
+        className={classes.grid}
+        x1={CHART.left}
+        x2={plotRight}
+        y1={chartY(0.5)}
+        y2={chartY(0.5)}
+      />
+      <line
+        className={classes.grid}
+        x1={CHART.left}
+        x2={plotRight}
+        y1={plotBottom}
+        y2={plotBottom}
+      />
+      <line
+        className={classes.axisLine}
+        x1={CHART.left}
+        x2={CHART.left}
+        y1={CHART.top}
+        y2={plotBottom}
+      />
+      <line
+        className={classes.axisLine}
+        x1={CHART.left}
+        x2={plotRight}
+        y1={plotBottom}
+        y2={plotBottom}
+      />
+      <text className={classes.axisText} textAnchor="end" x={CHART.left - 6} y={CHART.top + 3}>
+        100%
+      </text>
+      <text className={classes.axisText} textAnchor="end" x={CHART.left - 6} y={chartY(0.5) + 3}>
+        50%
+      </text>
+      <text className={classes.axisText} textAnchor="end" x={CHART.left - 6} y={plotBottom + 3}>
+        0%
+      </text>
+      <path className={classes.stepLine} d={path} />
+      {chart.points.map((point, index) => {
+        const x = chartX(index, chart.points.length);
+        const y = chartY(point.probability);
+        const valueLabel = valueLabelPosition(index, chart.points.length, x, y);
+        const tickTextAnchor = axisLabelAnchor(index, chart.points.length);
+        const tickX = axisLabelX(index, chart.points.length, x);
+        return (
+          <g key={point.label}>
+            <circle className={classes.point} cx={x.toFixed(2)} cy={y.toFixed(2)} r="3.5" />
+            <rect
+              className={classes.pointLabelBox}
+              height={labelBoxHeight}
+              rx="4"
+              width={labelBoxWidth}
+              x={valueLabel.boxX.toFixed(2)}
+              y={valueLabel.boxY.toFixed(2)}
+            />
+            <text
+              className={classes.pointText}
+              textAnchor="middle"
+              x={valueLabel.textX.toFixed(2)}
+              y={valueLabel.textY.toFixed(2)}
+            >
+              {point.reachedLabel}
+            </text>
+            <text
+              className={classes.axisText}
+              textAnchor={tickTextAnchor}
+              x={tickX.toFixed(2)}
+              y={CHART.height - 14}
+            >
+              {point.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
 }
 
 export function ValidationSuccessChart({ validation }: { validation: ValidationView }) {
-  if (!validation.successDistribution) return null;
-  const distribution = validation.successDistribution;
-  const expectedPosition = `${distributionPosition(distribution.meanCount, distribution)}%`;
-  const observedPosition = `${distributionPosition(distribution.observedCount, distribution)}%`;
-  const { line, area } = distributionPath(distribution);
+  if (!validation.stageReach) return null;
   return (
-    <div className={classes.validationGraphGrid}>
-      <div className={classes.validationGraph}>
-        <div className={classes.graphTitle}>SR 15 도달 확률</div>
-        <div className={classes.probabilityTrack}>
-          {distribution.kind === "deterministic" ? (
-            <span
-              className={`${classes.probabilityMarker} ${classes.probabilityExpected}`}
-              style={{ left: expectedPosition }}
-              aria-hidden="true"
-            />
-          ) : (
-            <svg
-              aria-hidden="true"
-              className={classes.probabilityCurve}
-              preserveAspectRatio="none"
-              viewBox="0 0 100 52"
-            >
-              <path className={classes.probabilityCurveArea} d={area} />
-              <path className={classes.probabilityCurveLine} d={line} />
-            </svg>
-          )}
-          <span className={classes.probabilityAxisLine} aria-hidden="true" />
-          <span
-            className={`${classes.probabilityMarker} ${classes.probabilityExpected}`}
-            style={{ left: expectedPosition }}
-            aria-hidden="true"
-          >
-            <span className={classes.probabilityMarkerLabel}>계산</span>
-          </span>
-          <span
-            className={`${classes.probabilityMarker} ${classes.probabilityObserved}`}
-            style={{ left: observedPosition }}
-            aria-hidden="true"
-          >
-            <span className={classes.probabilityMarkerLabel}>검증</span>
-          </span>
-          <div className={classes.probabilityAxis}>
-            <span>{Math.round(distribution.xMin)}명</span>
-            <span>{distribution.expectedCountLabel}</span>
-            <span>{Math.round(distribution.xMax)}명</span>
-          </div>
-        </div>
-        <div className={classes.probabilityLegend}>
-          <span>
-            <i className={`${classes.probabilityDot} bg-grade-active/35`} /> 이항분포
-          </span>
-          <span>
-            <i className={`${classes.probabilityDot} bg-grade-active`} /> 계산 기준
-          </span>
-          <span>
-            <i className={`${classes.probabilityDot} bg-text-strong`} /> 이번 검증
-          </span>
-        </div>
-        <p className={classes.graphMeta}>
-          계산 기준 {distribution.expectedRateLabel}({distribution.expectedCountLabel}) · 이번 검증{" "}
-          {distribution.observedRateLabel}({distribution.observedCountLabel}) ·{" "}
-          {distribution.intervalLabel}
-        </p>
-        <p className={classes.graphMeta}>
-          {distribution.standardDeviationLabel} · {distribution.skewnessLabel} ·{" "}
-          {distribution.kurtosisLabel}
-        </p>
+    <div className={classes.chartCard}>
+      <div className={classes.header}>
+        <div className={classes.title}>단계별 도달률</div>
+        <div className={classes.badge}>{validation.stageReach.runsLabel}</div>
       </div>
+      <div className={classes.canvasWrap}>
+        <StageReachSvg chart={validation.stageReach} />
+      </div>
+      <p className={classes.helper}>
+        각 지점은 해당 단계 이상까지 도달한 비율입니다. 오른쪽으로 갈수록 더 높은 목표 단계입니다.
+      </p>
     </div>
   );
 }

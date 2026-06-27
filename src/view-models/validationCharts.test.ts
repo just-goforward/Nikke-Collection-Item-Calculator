@@ -1,53 +1,73 @@
 import { describe, expect, it } from "vitest";
-import { makeValidationCharts } from "./validationCharts";
+import type { StageReachPoint } from "../types";
+import { makeStageReachChart, makeValidationCharts } from "./validationCharts";
+
+function stageReach(points: Array<[StageReachPoint["grade"], number, number]>): StageReachPoint[] {
+  return points.map(([grade, level, probability]) => ({
+    grade,
+    level,
+    probability,
+    reached: Math.round(probability * 12_000),
+  }));
+}
 
 describe("makeValidationCharts", () => {
-  it("marks certain outcomes as deterministic", () => {
-    const { successDistribution } = makeValidationCharts(
-      {
-        runs: 1000,
-        completed: 1000,
-        successProbability: 1,
-      },
-      1,
-    );
+  it("builds a stage reach chart from Monte Carlo reach data", () => {
+    const chart = makeStageReachChart({
+      runs: 12_000,
+      completed: 360,
+      successProbability: 0.03,
+      stageReach: stageReach([
+        ["SR", 15, 0.03],
+        ["SR", 14, 0.12],
+        ["SR", 13, 0.37],
+        ["SR", 12, 0.74],
+        ["SR", 11, 0.99],
+      ]),
+    });
 
-    expect(successDistribution.kind).toBe("deterministic");
-    expect(successDistribution.points).toEqual([]);
-    expect(successDistribution.intervalLabel).toBe("결과 폭 없음");
-    expect(successDistribution.expectedRateLabel).toBe("100%");
+    expect(chart.runsLabel).toBe("검산 12,000명 기준");
+    expect(chart.points.map((point) => point.label)).toEqual([
+      "SR 11 이하",
+      "SR 12",
+      "SR 13",
+      "SR 14",
+      "SR 15",
+    ]);
+    expect(chart.points[0]?.aggregateBelow).toBe(true);
+    expect(chart.points.at(-1)?.percentLabel).toBe("3.0%");
   });
 
-  it("builds a low-probability binomial distribution around the expected count", () => {
-    const { successDistribution } = makeValidationCharts(
-      {
-        runs: 12_000,
-        completed: 364,
-        successProbability: 364 / 12_000,
-      },
-      0.031402,
-    );
-
-    expect(successDistribution.kind).toBe("binomial");
-    expect(successDistribution.points.length).toBeGreaterThan(10);
-    expect(successDistribution.xMin).toBeLessThanOrEqual(successDistribution.observedCount);
-    expect(successDistribution.xMax).toBeGreaterThanOrEqual(successDistribution.observedCount);
-    expect(successDistribution.skewnessLabel).toMatch(/^왜도 0\./);
-    expect(successDistribution.kurtosisLabel).toMatch(/^초과첨도 0\./);
-  });
-
-  it("keeps an outlier observation visible in the chart domain", () => {
-    const { successDistribution } = makeValidationCharts(
+  it("falls back to the SR15 success rate when reach data is unavailable", () => {
+    const { stageReach: chart } = makeValidationCharts(
       {
         runs: 1000,
-        completed: 900,
-        successProbability: 0.9,
+        completed: 90,
+        successProbability: 0.09,
       },
-      0.5,
+      0.1,
     );
 
-    expect(successDistribution.xMin).toBeLessThan(successDistribution.meanCount);
-    expect(successDistribution.xMax).toBeGreaterThanOrEqual(900);
-    expect(successDistribution.observedCountLabel).toBe("이번 900명");
+    expect(chart.points).toHaveLength(1);
+    expect(chart.points[0]?.label).toBe("SR 15");
+    expect(chart.points[0]?.reachedLabel).toBe("90명");
+  });
+
+  it("collapses repeated high-stage probabilities instead of forcing SR15 on the right edge", () => {
+    const chart = makeStageReachChart({
+      runs: 12_000,
+      completed: 408,
+      successProbability: 0.034,
+      stageReach: stageReach([
+        ["SR", 15, 0.0338],
+        ["SR", 14, 0.0339],
+        ["SR", 13, 0.0341],
+        ["SR", 12, 0.0342],
+        ["SR", 11, 0.039],
+      ]),
+    });
+
+    expect(chart.points.map((point) => point.label)).toEqual(["SR 11", "SR 12 이상"]);
+    expect(chart.points.at(-1)?.aggregateAbove).toBe(true);
   });
 });

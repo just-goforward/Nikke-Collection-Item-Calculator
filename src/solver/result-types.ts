@@ -19,6 +19,7 @@ export type SolverMonteCarlo = {
   vector: KitVector;
   quantiles?: ReturnType<typeof simulate>["quantiles"];
   depletion?: number;
+  stageReach?: ReturnType<typeof simulate>["stageReach"];
 };
 
 export type ResearchShadowDiagnostics = {
