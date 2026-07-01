@@ -1,6 +1,7 @@
 import type { SolverInput } from "../types";
 import { isMemoFull } from "./rustCore";
 import {
+  RUST_MIN_EF_MEMO_TIER,
   RUST_PHASE2_DEFAULT_MEMO_TIER,
   RUST_PHASE2_FALLBACK_MEMO_TIER,
   RUST_PRODUCT_HORIZON_FACTOR,
@@ -12,9 +13,13 @@ import {
   getRustMinEfSolver,
   getRustPhase2Solver,
   minEfActionFactory,
+  minEfPolicyCacheKey,
+  readLastMinEfPolicy,
   releaseRustMinEfSolverCache,
+  rememberLastMinEfPolicy,
 } from "./rustProductSolverCache";
 import { simulate } from "./rustProductView";
+import { RustSolveError } from "./rustStatus";
 import type { RustPhase2Policy } from "./rustTypes";
 
 export async function validateRustMinEf(
@@ -24,6 +29,25 @@ export async function validateRustMinEf(
   seed = 20260505,
 ) {
   const normalizedInput = normalizeRustProductInput(input);
+  const cacheKey = minEfPolicyCacheKey({
+    horizonFactor: RUST_PRODUCT_HORIZON_FACTOR,
+    input: normalizedInput,
+    memoTier: RUST_MIN_EF_MEMO_TIER,
+    normPower: RUST_PRODUCT_NORM_POWER,
+    tolerance: RUST_PRODUCT_TOLERANCE,
+  });
+  const cachedPolicy = readLastMinEfPolicy(cacheKey);
+  if (cachedPolicy) {
+    try {
+      return {
+        ...simulate(normalizedInput, minEfActionFactory(cachedPolicy), runs, seed),
+        validationPolicyCache: "hit" as const,
+      };
+    } catch (error) {
+      if (!(error instanceof RustSolveError) || error.reason !== "stale_handle") throw error;
+    }
+  }
+
   try {
     const solver = await getRustMinEfSolver(wasmUrl);
     const policy = solver.solveRootWithCandidates(
@@ -33,11 +57,18 @@ export async function validateRustMinEf(
       RUST_PRODUCT_NORM_POWER,
       RUST_PRODUCT_TOLERANCE,
     );
-    return simulate(normalizedInput, minEfActionFactory(policy), runs, seed);
+    rememberLastMinEfPolicy(cacheKey, policy);
+    return {
+      ...simulate(normalizedInput, minEfActionFactory(policy), runs, seed),
+      validationPolicyCache: "miss" as const,
+    };
   } catch (error) {
     if (!isMemoFull(error)) throw error;
     await releaseRustMinEfSolverCache();
-    return validateRustPhase2(input, wasmUrl, runs, seed);
+    return {
+      ...(await validateRustPhase2(input, wasmUrl, runs, seed)),
+      validationPolicyCache: "miss" as const,
+    };
   }
 }
 

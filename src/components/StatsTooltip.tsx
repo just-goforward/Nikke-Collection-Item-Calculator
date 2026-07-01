@@ -40,6 +40,7 @@ export type IntervalTooltipHandlers = {
 };
 
 export type UsageTooltipHandlers = {
+  onUsagePointerDown: (event: PointerEvent<HTMLElement>, items: UsageTooltipItem[]) => void;
   onUsagePointerEnter: (event: TooltipMoveEvent, items: UsageTooltipItem[]) => void;
   onUsagePointerLeave: () => void;
   onUsagePointerMove: (event: TooltipMoveEvent, items: UsageTooltipItem[]) => void;

@@ -88,6 +88,7 @@ export type SolverResult = {
     solverBackend?: string;
     fallbackFrom?: string;
     fallbackReason?: string;
+    workerErrorCode?: string;
     memoryStrategy?: string;
     minEfMemoTier?: number;
     phase2MemoTier?: number;

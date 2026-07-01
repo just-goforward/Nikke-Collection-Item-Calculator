@@ -52,23 +52,37 @@ export const ProgressEventSchema = z
   })
   .passthrough();
 
+export const WorkerBackendSchema = z.enum(["js-phase2", "rust-phase2", "rust-min-ef"]);
+export const WorkerErrorCodeSchema = z.enum([
+  "worker_unavailable",
+  "rust_timeout",
+  "wasm_url_missing",
+  "wasm_load_failed",
+  "missing_export",
+  "rust_status",
+  "memo_full",
+  "invalid_worker_payload",
+  "worker_error",
+]);
+
+const WorkerRequestBaseSchema = z.object({
+  backend: WorkerBackendSchema,
+  wasmUrl: z.string().optional(),
+});
+
 export const WorkerRequestSchema = z.discriminatedUnion("type", [
-  z
-    .object({
-      type: z.literal("solve"),
-      id: z.number(),
-      input: SolverInputSchema,
-    })
-    .passthrough(),
-  z
-    .object({
-      type: z.literal("validate"),
-      id: z.number(),
-      input: SolverInputSchema,
-      runs: z.number().optional(),
-      seed: z.number().optional(),
-    })
-    .passthrough(),
+  WorkerRequestBaseSchema.extend({
+    type: z.literal("solve"),
+    id: z.number(),
+    input: SolverInputSchema,
+  }).passthrough(),
+  WorkerRequestBaseSchema.extend({
+    type: z.literal("validate"),
+    id: z.number(),
+    input: SolverInputSchema,
+    runs: z.number().optional(),
+    seed: z.number().optional(),
+  }).passthrough(),
 ]);
 
 export const WorkerResponseSchema = z.discriminatedUnion("type", [
@@ -90,7 +104,10 @@ export const WorkerResponseSchema = z.discriminatedUnion("type", [
     .object({
       type: z.literal("error"),
       id: z.number(),
+      code: WorkerErrorCodeSchema,
       message: z.string(),
+      retryable: z.boolean().optional(),
+      fallbackEligible: z.boolean().optional(),
     })
     .passthrough(),
 ]);

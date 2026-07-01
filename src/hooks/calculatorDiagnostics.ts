@@ -162,6 +162,7 @@ export function makeSolverDiagnosticEvent(result: SolverResult) {
     solverBackend,
     fallbackFrom: diagnosticToken(stats.fallbackFrom, "none"),
     fallbackReason: diagnosticToken(stats.fallbackReason, "none"),
+    workerErrorCode: diagnosticToken(stats.workerErrorCode, "none"),
     memoryStrategy: diagnosticToken(stats.memoryStrategy, "unknown"),
     minEfMemoTier: tierDiagnosticToken(stats.minEfMemoTier),
     phase2MemoTier: tierDiagnosticToken(stats.phase2MemoTier),

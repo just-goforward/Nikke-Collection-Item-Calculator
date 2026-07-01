@@ -23,7 +23,9 @@ import {
 import {
   getRustMinEfSolver,
   minEfActionFactory,
+  minEfPolicyCacheKey,
   releaseRustMinEfSolverCache,
+  rememberLastMinEfPolicy,
 } from "./rustProductSolverCache";
 import {
   buildFailureRoute,
@@ -51,6 +53,16 @@ export async function solveRustMinEfProduct(
       RUST_PRODUCT_HORIZON_FACTOR,
       RUST_PRODUCT_NORM_POWER,
       RUST_PRODUCT_TOLERANCE,
+    );
+    rememberLastMinEfPolicy(
+      minEfPolicyCacheKey({
+        horizonFactor: RUST_PRODUCT_HORIZON_FACTOR,
+        input: normalizedInput,
+        memoTier: solver.memoTier(),
+        normPower: RUST_PRODUCT_NORM_POWER,
+        tolerance: RUST_PRODUCT_TOLERANCE,
+      }),
+      policy,
     );
     const { root, candidates } = policy;
     if (!root.firstAction) {

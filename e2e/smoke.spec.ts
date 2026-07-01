@@ -317,6 +317,65 @@ test("demoStats=1 — 전체 통계 주요 섹션이 표시된다", async ({ pag
   await expect(page.getByText("결과 입력 표본 기준 · 이벤트 단위 집계")).toHaveCount(0);
 });
 
+test("모바일 키트 사용량 툴팁은 탭 후 유지되고 외부 터치로 닫힌다", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?demoStats=1");
+  await page.getByRole("tab", { name: "통계" }).click();
+
+  const usageTrigger = page.locator(".difficulty-attempts .stats-usage-trigger").first();
+  const tooltip = page.locator(".difficulty-tooltip");
+  await expect(usageTrigger).toBeVisible();
+
+  const box = await usageTrigger.boundingBox();
+  if (!box) throw new Error("Expected usage trigger to have a bounding box.");
+  const point = {
+    x: Math.round(box.x + box.width / 2),
+    y: Math.round(box.y + box.height / 2),
+  };
+
+  await usageTrigger.evaluate((element, eventPoint) => {
+    element.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        clientX: eventPoint.x,
+        clientY: eventPoint.y,
+        isPrimary: true,
+        pointerId: 1,
+        pointerType: "touch",
+      }),
+    );
+  }, point);
+  await expect(tooltip).toHaveClass(/is-visible/);
+
+  await usageTrigger.evaluate((element, eventPoint) => {
+    element.dispatchEvent(
+      new PointerEvent("pointerleave", {
+        bubbles: true,
+        clientX: eventPoint.x,
+        clientY: eventPoint.y,
+        pointerId: 1,
+        pointerType: "touch",
+      }),
+    );
+  }, point);
+  await expect(tooltip).toHaveClass(/is-visible/);
+
+  await page.locator("body").evaluate((element) => {
+    element.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        clientX: 8,
+        clientY: 8,
+        isPrimary: true,
+        pointerId: 2,
+        pointerType: "touch",
+      }),
+    );
+  });
+  await expect(tooltip).not.toHaveClass(/is-visible/);
+});
+
 test("제목 링크는 처음 화면으로 이동해 입력값과 계산 결과를 초기화한다", async ({ page }) => {
   await page.getByLabel("초심자용 관리 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();

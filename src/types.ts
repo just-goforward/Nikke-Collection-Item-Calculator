@@ -67,19 +67,45 @@ export interface ProgressEvent {
   total?: number | null;
 }
 
+export type WorkerSolverBackend = "js-phase2" | "rust-phase2" | "rust-min-ef";
+
+export type WorkerErrorCode =
+  | "worker_unavailable"
+  | "rust_timeout"
+  | "wasm_url_missing"
+  | "wasm_load_failed"
+  | "missing_export"
+  | "rust_status"
+  | "memo_full"
+  | "invalid_worker_payload"
+  | "worker_error";
+
+export type WorkerErrorPayload = {
+  code: WorkerErrorCode;
+  message: string;
+  retryable?: boolean;
+  fallbackEligible?: boolean;
+};
+
 export type WorkerRequest =
-  | { type: "solve"; id: number; input: SolverInput; backend?: string; wasmUrl?: string }
+  | {
+      type: "solve";
+      id: number;
+      input: SolverInput;
+      backend: WorkerSolverBackend;
+      wasmUrl?: string;
+    }
   | {
       type: "validate";
       id: number;
       input: SolverInput;
       runs?: number;
       seed?: number;
-      backend?: string;
+      backend: WorkerSolverBackend;
       wasmUrl?: string;
     };
 
 export type WorkerResponse =
   | { type: "progress"; id: number; progress: ProgressEvent }
   | { type: "result"; id: number; result: unknown }
-  | { type: "error"; id: number; message: string };
+  | ({ type: "error"; id: number } & WorkerErrorPayload);

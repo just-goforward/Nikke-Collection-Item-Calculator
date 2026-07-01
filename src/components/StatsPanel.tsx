@@ -119,7 +119,14 @@ function useUsageTooltipHandlers(
   const showUsageTooltip = (event: TooltipMoveEvent, items: UsageTooltipItem[]) => {
     showTooltipAtPointer(setTooltip, event, { type: "usage", items });
   };
+  const lockUsageTooltip = (event: PointerEvent<HTMLElement>, items: UsageTooltipItem[]) => {
+    if (event.pointerType === "mouse") return;
+    event.preventDefault();
+    event.stopPropagation();
+    showTooltipAtPointer(setTooltip, event, { type: "usage", items }, true);
+  };
   return {
+    onUsagePointerDown: lockUsageTooltip,
     onUsagePointerEnter: showUsageTooltip,
     onUsagePointerLeave: hideTooltip,
     onUsagePointerMove: showUsageTooltip,

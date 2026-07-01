@@ -3,7 +3,13 @@ import { useCallback, useEffect, useRef } from "react";
 import { ignoreExpectedError } from "../lib/errorHandling";
 import { solverBackendFromRuntime, solverWasmUrl } from "../lib/solverRuntime";
 import { WorkerResponseSchema } from "../schemas";
-import type { ProgressEvent, SolverInput, WorkerTaskType } from "../types";
+import type {
+  ProgressEvent,
+  SolverInput,
+  WorkerErrorCode,
+  WorkerErrorPayload,
+  WorkerTaskType,
+} from "../types";
 
 const RUST_BACKEND_TIMEOUT_MS = 15_000;
 const WORKER_MESSAGE_ID_KEY = "id";
@@ -18,7 +24,7 @@ type WorkerRuntimeOptions = ReturnType<typeof runtimeWorkerOptions>;
 type WorkerEventOutcome =
   | { kind: "ignore" }
   | { kind: "progress"; progress: ProgressEvent }
-  | { kind: "reject"; error: Error }
+  | { kind: "reject"; error: WorkerTaskError }
   | { kind: "resolve"; result: unknown };
 
 type WorkerTaskRequest = {
@@ -61,11 +67,37 @@ function runtimeWorkerOptions() {
 
 const RUST_WORKER_TIMEOUT_MESSAGE = "Rust solver timed out; falling back to JS solver.";
 
+export class WorkerTaskError extends Error {
+  readonly code: WorkerErrorCode;
+  readonly fallbackEligible: boolean;
+  readonly retryable: boolean;
+
+  constructor(payload: WorkerErrorPayload) {
+    super(payload.message);
+    this.name = "WorkerTaskError";
+    this.code = payload.code;
+    this.fallbackEligible = payload.fallbackEligible ?? true;
+    this.retryable = payload.retryable ?? true;
+  }
+}
+
+function workerTaskError(payload: WorkerErrorPayload) {
+  return new WorkerTaskError(payload);
+}
+
 function workerEventOutcome(data: unknown, id: number): WorkerEventOutcome {
   const parsed = WorkerResponseSchema.safeParse(data || {});
   if (!parsed.success) {
     return rawWorkerMessageId(data) === id
-      ? { kind: "reject", error: new Error("Invalid worker response.") }
+      ? {
+          kind: "reject",
+          error: workerTaskError({
+            code: "worker_error",
+            fallbackEligible: true,
+            message: "Invalid worker response.",
+            retryable: true,
+          }),
+        }
       : { kind: "ignore" };
   }
   const response = parsed.data;
@@ -74,7 +106,33 @@ function workerEventOutcome(data: unknown, id: number): WorkerEventOutcome {
     return { kind: "progress", progress: normalizeProgressEvent(response.progress) };
   }
   if (response.type === "result") return { kind: "resolve", result: response.result };
-  return { kind: "reject", error: new Error(response.message || "Worker calculation failed.") };
+  return {
+    kind: "reject",
+    error: workerTaskError(
+      compactWorkerErrorPayload({
+        code: response.code,
+        fallbackEligible: response.fallbackEligible,
+        message: response.message || "Worker calculation failed.",
+        retryable: response.retryable,
+      }),
+    ),
+  };
+}
+
+function compactWorkerErrorPayload(payload: {
+  code: WorkerErrorCode;
+  fallbackEligible?: boolean | undefined;
+  message: string;
+  retryable?: boolean | undefined;
+}): WorkerErrorPayload {
+  return {
+    code: payload.code,
+    message: payload.message,
+    ...(payload.fallbackEligible === undefined
+      ? {}
+      : { fallbackEligible: payload.fallbackEligible }),
+    ...(payload.retryable === undefined ? {} : { retryable: payload.retryable }),
+  };
 }
 
 function startWorkerTask({
@@ -107,7 +165,14 @@ function startWorkerTask({
     };
     const handleError = (event: ErrorEvent) => {
       cleanup();
-      reject(new Error(event.message || "Worker calculation failed."));
+      reject(
+        workerTaskError({
+          code: "worker_error",
+          fallbackEligible: true,
+          message: event.message || "Worker calculation failed.",
+          retryable: true,
+        }),
+      );
     };
 
     activeWorker.addEventListener("message", handleMessage);
@@ -117,7 +182,14 @@ function startWorkerTask({
         cleanup();
         activeWorker.terminate();
         resetActiveWorker(activeWorker);
-        reject(new Error(RUST_WORKER_TIMEOUT_MESSAGE));
+        reject(
+          workerTaskError({
+            code: "rust_timeout",
+            fallbackEligible: true,
+            message: RUST_WORKER_TIMEOUT_MESSAGE,
+            retryable: true,
+          }),
+        );
       }, RUST_BACKEND_TIMEOUT_MS);
     }
     activeWorker.postMessage({
@@ -155,7 +227,16 @@ export function useWorkerTaskClient() {
   const requestWorkerTask = useCallback(
     (type: WorkerTaskType, input: SolverInput, options: RequestWorkerOptions = {}) => {
       const activeWorker = getWorker();
-      if (!activeWorker) return null;
+      if (!activeWorker) {
+        return Promise.reject(
+          workerTaskError({
+            code: "worker_unavailable",
+            fallbackEligible: true,
+            message: "Web worker is unavailable.",
+            retryable: false,
+          }),
+        );
+      }
       requestIdRef.current += 1;
       const id = requestIdRef.current;
       const runtime = runtimeWorkerOptions();

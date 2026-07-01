@@ -1,6 +1,6 @@
 import { kstDateKeyFromUnixSeconds } from "./date-key";
 import { GREAT_SUCCESS, type Grade, KIT_ORDER, type Kit } from "./domain";
-import { isAllowedOrigin, jsonResponse } from "./http";
+import { emptyResponse, isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
 
 type StatsReadEnv = {
@@ -44,6 +44,11 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
 
   const rows = aggregateRowsResult.results || [];
   const summary = summarizeRows(rows);
+  const cacheControl = "public, max-age=60, s-maxage=60";
+  const etag = statsEtag(today, summary);
+  if (etagMatches(request.headers.get("If-None-Match"), etag)) {
+    return emptyResponse(request, env, 304, cacheControl, { ETag: etag });
+  }
   const cumulativeSummary = summary;
   const byKit = buildByKitStats(rows);
   const cumulativeByKit = byKit;
@@ -83,8 +88,24 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
       successAttemptDistribution: [],
     },
     200,
-    "public, max-age=60, s-maxage=60",
+    cacheControl,
+    { ETag: etag },
   );
+}
+
+function statsEtag(
+  today: string,
+  summary: { attempts: number; events: number; greatSuccesses: number },
+) {
+  return `"stats-${today}-${summary.events}-${summary.attempts}-${summary.greatSuccesses}"`;
+}
+
+function etagMatches(header: string | null, etag: string) {
+  if (!header) return false;
+  return header
+    .split(",")
+    .map((value) => value.trim())
+    .includes(etag);
 }
 
 function summarizeRows(rows: StatsAggregateRow[]) {

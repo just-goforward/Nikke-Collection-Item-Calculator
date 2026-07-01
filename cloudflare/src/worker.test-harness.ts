@@ -108,11 +108,13 @@ export class WorkerTestHarness {
     return response;
   }
 
-  async fetchStats(origin: string | null = "https://test.example") {
+  async fetchStats(origin: string | null = "https://test.example", extraHeaders?: HeadersInit) {
     if (!worker.fetch) throw new Error("Worker fetch handler is not defined.");
+    const headers = new Headers(extraHeaders);
+    if (origin) headers.set("Origin", origin);
     return worker.fetch(
       new Request("https://worker.test/api/stats", {
-        ...(origin ? { headers: { Origin: origin } } : {}),
+        headers,
       }) as WorkerRequest,
       this.workerEnv(),
       this.executionContext(),

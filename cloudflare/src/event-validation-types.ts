@@ -21,6 +21,7 @@ export type ValidatedSolverDiagnosticEvent = {
   solverBackend: string;
   fallbackFrom: string;
   fallbackReason: string;
+  workerErrorCode: string;
   memoryStrategy: string;
   minEfMemoTier: string;
   phase2MemoTier: string;

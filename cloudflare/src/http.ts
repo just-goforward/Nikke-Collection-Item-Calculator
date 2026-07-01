@@ -51,15 +51,29 @@ export function handleOptions(request: Request, env: CorsEnv) {
   return new Response(null, { status: 204, headers: corsHeaders(request, env) });
 }
 
+export function emptyResponse(
+  request: Request,
+  env: CorsEnv,
+  status: number,
+  cacheControl = "no-store",
+  extraHeaders: Record<string, string> = {},
+) {
+  return new Response(null, {
+    status,
+    headers: { ...securityHeaders(cacheControl), ...extraHeaders, ...corsHeaders(request, env) },
+  });
+}
+
 export function jsonResponse(
   request: Request,
   env: CorsEnv,
   body: unknown,
   status = 200,
   cacheControl = "no-store",
+  extraHeaders: Record<string, string> = {},
 ) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...securityHeaders(cacheControl), ...corsHeaders(request, env) },
+    headers: { ...securityHeaders(cacheControl), ...extraHeaders, ...corsHeaders(request, env) },
   });
 }

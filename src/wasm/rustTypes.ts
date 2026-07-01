@@ -105,6 +105,7 @@ export type RustMonteCarloResult = {
   quantiles?: Record<Kit, { p50: number; p90: number; p95: number }>;
   depletion?: number;
   stageReach?: StageReachPoint[];
+  validationPolicyCache?: "hit" | "miss";
 };
 
 export type RustMinEfSolver = {

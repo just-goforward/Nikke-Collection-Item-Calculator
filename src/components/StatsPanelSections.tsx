@@ -120,6 +120,7 @@ function UsageAmount({
   return (
     <span
       className={classes.usageTrigger}
+      onPointerDown={(event) => tooltipHandlers.onUsagePointerDown(event, tooltipItems)}
       onPointerEnter={(event) => tooltipHandlers.onUsagePointerEnter(event, tooltipItems)}
       onPointerLeave={tooltipHandlers.onUsagePointerLeave}
       onPointerMove={(event) => tooltipHandlers.onUsagePointerMove(event, tooltipItems)}

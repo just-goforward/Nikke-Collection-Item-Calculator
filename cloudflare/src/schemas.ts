@@ -118,6 +118,7 @@ const SolverDiagnosticEventSchema = z
     solverBackend: z.string().optional(),
     fallbackFrom: z.string().optional(),
     fallbackReason: z.string().optional(),
+    workerErrorCode: z.string().optional(),
     memoryStrategy: MemoryStrategySchema,
     minEfMemoTier: MemoTierSchema,
     phase2MemoTier: MemoTierSchema,

@@ -6,7 +6,8 @@ import { WorkerTestHarness } from "./worker.test-harness";
 const harness = new WorkerTestHarness();
 const testEnv = harness.env;
 const submit = (payload: object) => harness.submit(payload);
-const fetchStats = (origin: string | null = "https://test.example") => harness.fetchStats(origin);
+const fetchStats = (origin: string | null = "https://test.example", headers?: HeadersInit) =>
+  harness.fetchStats(origin, headers);
 const fetchAdminSolverDiagnostics = (
   token: string | null = "test-admin-token",
   origin: string | null = "https://test.example",
@@ -233,6 +234,21 @@ describe("stats response compatibility", () => {
     expect(noOrigin.status).toBe(200);
     expect(noOrigin.headers.get("Access-Control-Allow-Origin")).toBeNull();
     expect(rejected.status).toBe(403);
+  });
+
+  it("returns an ETag and answers matching stats requests with 304", async () => {
+    const first = await fetchStats();
+    const etag = first.headers.get("ETag");
+
+    expect(first.status).toBe(200);
+    expect(etag).toMatch(/^"stats-/);
+
+    const second = await fetchStats("https://test.example", { "If-None-Match": etag || "" });
+
+    expect(second.status).toBe(304);
+    expect(second.headers.get("ETag")).toBe(etag);
+    expect(second.headers.get("Access-Control-Allow-Origin")).toBe("https://test.example");
+    expect(await second.text()).toBe("");
   });
 
   it("answers preflight only for an allowed browser origin", async () => {

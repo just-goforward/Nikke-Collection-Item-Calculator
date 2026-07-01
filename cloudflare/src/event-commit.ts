@@ -168,20 +168,25 @@ async function commitEvent(
       existing = await env.DB.prepare("SELECT 1 AS event_exists FROM event_ids WHERE id = ?")
         .bind(eventId)
         .first<{ event_exists?: number }>();
-    } catch {
+    } catch (lookupError) {
       console.error("Statistics event storage lookup failed.", {
         eventKind,
-        error: error instanceof Error ? error.message : "unknown_error",
+        duplicateLookupError: errorMessage(lookupError),
+        primaryWriteError: errorMessage(error),
       });
       throw new HttpError(503, "storage_unavailable", true);
     }
     if (existing?.event_exists === 1) return true;
     console.error("Statistics event storage failed.", {
       eventKind,
-      error: error instanceof Error ? error.message : "unknown_error",
+      primaryWriteError: errorMessage(error),
     });
     throw new HttpError(503, "storage_unavailable", true);
   }
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "unknown_error";
 }
 
 function buildSolverDiagnosticAggregateStatement(

@@ -18,6 +18,7 @@ export function validateDiagnosticSubmission(
       solverBackend: normalizeDiagnosticToken(event.solverBackend),
       fallbackFrom: normalizeOptionalDiagnosticToken(event.fallbackFrom, "none"),
       fallbackReason: normalizeOptionalDiagnosticToken(event.fallbackReason, "none"),
+      workerErrorCode: normalizeOptionalDiagnosticToken(event.workerErrorCode, "none"),
       memoryStrategy: normalizeOptionalDiagnosticToken(event.memoryStrategy, "unknown"),
       minEfMemoTier: normalizeOptionalDiagnosticToken(event.minEfMemoTier, "unknown"),
       phase2MemoTier: normalizeOptionalDiagnosticToken(event.phase2MemoTier, "unknown"),
