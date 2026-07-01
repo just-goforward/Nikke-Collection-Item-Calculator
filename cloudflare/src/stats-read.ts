@@ -97,15 +97,18 @@ function statsEtag(
   today: string,
   summary: { attempts: number; events: number; greatSuccesses: number },
 ) {
-  return `"stats-${today}-${summary.events}-${summary.attempts}-${summary.greatSuccesses}"`;
+  return `W/"stats-${today}-${summary.events}-${summary.attempts}-${summary.greatSuccesses}"`;
 }
 
 function etagMatches(header: string | null, etag: string) {
   if (!header) return false;
+  const strongEtag = etag.replace(/^W\//, "");
   return header
     .split(",")
     .map((value) => value.trim())
-    .includes(etag);
+    .some(
+      (value) => value === etag || value === strongEtag || value.replace(/^W\//, "") === strongEtag,
+    );
 }
 
 function summarizeRows(rows: StatsAggregateRow[]) {

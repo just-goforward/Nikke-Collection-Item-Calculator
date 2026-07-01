@@ -241,7 +241,7 @@ describe("stats response compatibility", () => {
     const etag = first.headers.get("ETag");
 
     expect(first.status).toBe(200);
-    expect(etag).toMatch(/^"stats-/);
+    expect(etag).toMatch(/^W\/"stats-/);
 
     const second = await fetchStats("https://test.example", { "If-None-Match": etag || "" });
 
