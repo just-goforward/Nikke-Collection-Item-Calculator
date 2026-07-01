@@ -1,0 +1,12 @@
+Superloopy command capture
+startedAt: 2026-07-01T09:40:10.088Z
+finishedAt: 2026-07-01T09:40:10.237Z
+cwd: C:\Users\PC\Desktop\바이브 코딩\Codex\모듈작
+status: pass
+exitCode: 0
+signal: null
+command: ["node","-e","const cp=require('child_process');const out=cp.execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim().split(/\\r?\\n/).filter(Boolean).sort();const expected=['e2e/visual.spec.ts-snapshots/mobile-dark-sr-interval-tooltip-chromium-linux.png','e2e/visual.spec.ts-snapshots/mobile-dark-sr-stats-chromium-linux.png'].sort();if(JSON.stringify(out)!==JSON.stringify(expected)){console.error('actual',out);console.error('expected',expected);process.exit(1)}console.log('DIFF_OK '+out.join(','));"]
+[stdout]
+DIFF_OK e2e/visual.spec.ts-snapshots/mobile-dark-sr-interval-tooltip-chromium-linux.png,e2e/visual.spec.ts-snapshots/mobile-dark-sr-stats-chromium-linux.png
+
+[stderr]

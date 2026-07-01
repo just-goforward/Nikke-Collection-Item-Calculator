@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "mode": "strict",
+  "createdAt": "2026-07-01T09:35:54.605Z",
+  "updatedAt": "2026-07-01T09:40:06.170Z",
+  "briefPath": ".superloopy/sessions/20260701-linux-visual-snapshots/brief.md",
+  "evidencePath": ".superloopy/sessions/20260701-linux-visual-snapshots/evidence",
+  "goalsPath": ".superloopy/sessions/20260701-linux-visual-snapshots/goals.json",
+  "ledgerPath": ".superloopy/sessions/20260701-linux-visual-snapshots/ledger.jsonl",
+  "goals": [
+    {
+      "id": "G001",
+      "title": "CI Linux Playwright visual snapshot 갱신",
+      "objective": "CI Linux Playwright visual snapshot 갱신",
+      "status": "complete",
+      "attempt": 1,
+      "createdAt": "2026-07-01T09:35:54.605Z",
+      "updatedAt": "2026-07-01T09:40:06.170Z",
+      "criteria": [
+        {
+          "id": "C001",
+          "kind": "happy",
+          "scenario": "Happy path works from the real user-facing surface.",
+          "essential": true,
+          "status": "pass",
+          "artifact": ".superloopy/sessions/20260701-linux-visual-snapshots/evidence/G001-C001-capture.txt",
+          "capturedAt": "2026-07-01T09:38:18.755Z",
+          "notes": "CI artifact actual PNGs match updated Linux snapshots by SHA-256",
+          "command": [
+            "node",
+            "-e",
+            "const fs=require('fs');const crypto=require('crypto');const pairs=[['.superloopy/sessions/20260701-linux-visual-snapshots/evidence/playwright-failure-artifacts/test-results/visual-모바일-다크-SR-통계-기준-chromium/mobile-dark-sr-stats-actual.png','e2e/visual.spec.ts-snapshots/mobile-dark-sr-stats-chromium-linux.png'],['.superloopy/sessions/20260701-linux-visual-snapshots/evidence/playwright-failure-artifacts/test-results/visual-모바일-다크-SR-구간-툴팁-기준-chromium/mobile-dark-sr-interval-tooltip-actual.png','e2e/visual.spec.ts-snapshots/mobile-dark-sr-interval-tooltip-chromium-linux.png']];function h(p){return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex')}for(const [a,b] of pairs){const ha=h(a), hb=h(b); if(ha!==hb){throw new Error('hash mismatch '+b)} console.log('MATCH '+b+' '+hb.slice(0,16));}"
+          ],
+          "exitCode": 0
+        },
+        {
+          "id": "C002",
+          "kind": "risk",
+          "scenario": "Riskiest edge or failure path is handled.",
+          "essential": true,
+          "status": "pass",
+          "artifact": ".superloopy/sessions/20260701-linux-visual-snapshots/evidence/G001-C002-capture.txt",
+          "capturedAt": "2026-07-01T09:38:33.670Z",
+          "notes": "Tracked product diff is limited to the two failed Linux visual snapshots",
+          "command": [
+            "node",
+            "-e",
+            "const cp=require('child_process');const out=cp.execFileSync('git',['diff','--name-only'],{encoding:'utf8'}).trim().split(/\\r?\\n/).filter(Boolean).sort();const expected=['e2e/visual.spec.ts-snapshots/mobile-dark-sr-interval-tooltip-chromium-linux.png','e2e/visual.spec.ts-snapshots/mobile-dark-sr-stats-chromium-linux.png'].sort();if(JSON.stringify(out)!==JSON.stringify(expected)){console.error('actual',out);console.error('expected',expected);process.exit(1)}console.log('DIFF_OK '+out.join(','));"
+          ],
+          "exitCode": 0
+        },
+        {
+          "id": "C003",
+          "kind": "regression",
+          "scenario": "Adjacent existing behavior still works.",
+          "essential": true,
+          "status": "pass",
+          "artifact": ".superloopy/sessions/20260701-linux-visual-snapshots/evidence/G001-C003-capture.txt",
+          "capturedAt": "2026-07-01T09:39:22.246Z",
+          "notes": "Local Playwright visual regression remains green on Windows baselines",
+          "command": [
+            "cmd.exe",
+            "/c",
+            "npm",
+            "run",
+            "test:visual"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "startedAt": "2026-07-01T09:36:00.255Z",
+      "completedAt": "2026-07-01T09:40:06.170Z",
+      "evidence": "CI artifact actual PNGs promoted to Linux Playwright visual snapshots; local visual regression passed"
+    }
+  ],
+  "aggregateCompletion": {
+    "status": "complete",
+    "completedAt": "2026-07-01T09:40:06.170Z",
+    "evidence": "CI artifact actual PNGs promoted to Linux Playwright visual snapshots; local visual regression passed",
+    "qualityGate": {
+      "status": "passed",
+      "artifacts": [
+        {
+          "absolutePath": "C:\\Users\\PC\\Desktop\\바이브 코딩\\Codex\\모듈작\\.superloopy\\sessions\\20260701-linux-visual-snapshots\\evidence\\G001-C001-capture.txt",
+          "relativePath": ".superloopy/sessions/20260701-linux-visual-snapshots/evidence/G001-C001-capture.txt",
+          "size": 1287
+        },
+        {
+          "absolutePath": "C:\\Users\\PC\\Desktop\\바이브 코딩\\Codex\\모듈작\\.superloopy\\sessions\\20260701-linux-visual-snapshots\\evidence\\G001-C002-capture.txt",
+          "relativePath": ".superloopy/sessions/20260701-linux-visual-snapshots/evidence/G001-C002-capture.txt",
+          "size": 897
+        },
+        {
+          "absolutePath": "C:\\Users\\PC\\Desktop\\바이브 코딩\\Codex\\모듈작\\.superloopy\\sessions\\20260701-linux-visual-snapshots\\evidence\\G001-C003-capture.txt",
+          "relativePath": ".superloopy/sessions/20260701-linux-visual-snapshots/evidence/G001-C003-capture.txt",
+          "size": 2442
+        }
+      ]
+    }
+  },
+  "sessionId": "20260701-linux-visual-snapshots"
+}
