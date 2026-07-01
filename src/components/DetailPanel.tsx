@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Kit } from "../types";
 import type { DetailView, ValidationView } from "../ui-types";
 import { ValidationSuccessChart } from "./ValidationSuccessChart";
@@ -49,7 +49,8 @@ const classes = {
   infoTip:
     "info-tip group relative top-[-0.28em] inline-grid size-3.5 cursor-help place-items-center rounded-full border border-border bg-surface-raised p-0 text-[9px] font-bold leading-none text-muted align-baseline",
   infoTipBubble:
-    "absolute bottom-[calc(100%+9px)] z-[5] hidden box-border w-[min(280px,74vw)] max-w-[calc(100vw-32px)] whitespace-normal rounded-card border border-border bg-surface px-[11px] py-2.5 text-left text-xs font-normal leading-[1.45] text-text-soft shadow-panel [overflow-wrap:anywhere] [word-break:keep-all] group-hover:block",
+    "invisible pointer-events-none absolute bottom-[calc(100%+9px)] z-[5] box-border w-[min(280px,74vw)] max-w-[calc(100vw-32px)] whitespace-normal rounded-card border border-border bg-surface px-[11px] py-2.5 text-left text-xs font-normal leading-[1.45] text-text-soft opacity-0 shadow-panel transition-opacity duration-[160ms] [overflow-wrap:anywhere] [word-break:keep-all] group-hover:visible group-hover:opacity-100",
+  infoTipBubbleOpen: "visible pointer-events-auto opacity-100",
   infoTipBubbleLeft: "right-0",
   infoTipBubbleRight: "left-0",
   chip: "action-chip inline-flex items-center justify-center gap-[9px]",
@@ -110,6 +111,9 @@ function KitChip({
 
 function InfoTip({ label, children }: { label: string; children: string }) {
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const tooltipId = useId();
+  const [lockedOpen, setLockedOpen] = useState(false);
+  const [open, setOpen] = useState(false);
   const [openToRight, setOpenToRight] = useState(false);
 
   const updateDirection = () => {
@@ -124,20 +128,65 @@ function InfoTip({ label, children }: { label: string; children: string }) {
     setOpenToRight(wouldOverflowLeft);
   };
 
+  const showTip = () => {
+    updateDirection();
+    setOpen(true);
+  };
+
+  const hideTip = () => {
+    if (!lockedOpen) setOpen(false);
+  };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeTip = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setLockedOpen(false);
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
+    document.addEventListener("keydown", closeTip);
+    return () => document.removeEventListener("keydown", closeTip);
+  }, [open]);
+
+  useEffect(() => {
+    if (!lockedOpen) return undefined;
+    const closeTip = (event: globalThis.PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && buttonRef.current?.contains(target)) return;
+      setLockedOpen(false);
+      setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeTip, true);
+    return () => document.removeEventListener("pointerdown", closeTip, true);
+  }, [lockedOpen]);
+
   return (
     <button
       ref={buttonRef}
       className={classes.infoTip}
       type="button"
+      aria-describedby={open ? tooltipId : undefined}
+      aria-expanded={open}
       aria-label={`${label} 설명`}
-      onFocus={updateDirection}
-      onPointerEnter={updateDirection}
+      onBlur={hideTip}
+      onClick={() => {
+        updateDirection();
+        const next = !lockedOpen;
+        setLockedOpen(next);
+        setOpen(next);
+      }}
+      onFocus={showTip}
+      onPointerEnter={showTip}
+      onPointerLeave={hideTip}
     >
       i
       <span
+        id={tooltipId}
+        role="tooltip"
         className={`${classes.infoTipBubble} ${
           openToRight ? classes.infoTipBubbleRight : classes.infoTipBubbleLeft
-        }`}
+        } ${open ? classes.infoTipBubbleOpen : ""}`}
       >
         {children}
       </span>

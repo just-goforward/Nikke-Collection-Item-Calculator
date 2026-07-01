@@ -33,8 +33,25 @@ const classes = {
     "hidden max-mobile:fixed max-mobile:inset-x-0 max-mobile:bottom-0 max-mobile:z-30 max-mobile:block max-mobile:border-t max-mobile:border-border max-mobile:bg-surface max-mobile:shadow-[0_-6px_20px_rgba(15,30,45,0.08)] max-mobile:[padding-bottom:env(safe-area-inset-bottom,0px)]",
 } as const;
 
-function gridCellClass(activeTab: MobileTab, tab: MobileTab) {
-  return `${classes.gridCell} ${activeTab === tab ? "" : classes.gridCellHidden}`;
+const MOBILE_PANEL_IDS: Record<MobileTab, string> = {
+  input: "mobile-panel-input",
+  result: "mobile-panel-result",
+  stats: "mobile-panel-stats",
+};
+
+function tabPanelClass(activeTab: MobileTab, tab: MobileTab) {
+  return `${classes.gridCell} max-mobile:grid max-mobile:gap-2.5 ${
+    activeTab === tab ? "" : classes.gridCellHidden
+  }`;
+}
+
+function tabPanelProps(tab: MobileTab) {
+  return {
+    "aria-labelledby": `mobile-tab-${tab}`,
+    "data-tab": tab,
+    id: MOBILE_PANEL_IDS[tab],
+    role: "tabpanel",
+  } as const;
 }
 
 type CalculatorApp = ReturnType<typeof useCalculatorApp>;
@@ -105,7 +122,7 @@ function Workspace({
 
   return (
     <section className={classes.workspace}>
-      <div className={gridCellClass(mobileTab, "input")} data-tab="input">
+      <div className={tabPanelClass(mobileTab, "input")} {...tabPanelProps("input")}>
         <StatePanel
           feedback={calculator.stateFeedback}
           state={calculator.statePanel}
@@ -113,16 +130,12 @@ function Workspace({
           onLevelChange={actions.setLevel}
           onExpChange={actions.setExp}
         />
-      </div>
-      <div className={gridCellClass(mobileTab, "input")} data-tab="input">
         <StockPanel
           stock={calculator.stockPanel.stock}
           needsStockEdit={calculator.stockPanel.needsStockEdit}
           notice={calculator.stockPanel.notice}
           onStockChange={actions.setStock}
         />
-      </div>
-      <div className={gridCellClass(mobileTab, "input")} data-tab="input">
         <SolvePanel
           description={calculator.solvePanel.description}
           calculateDisabled={calculator.solvePanel.calculateDisabled}
@@ -130,15 +143,13 @@ function Workspace({
           onReset={handlers.onReset}
         />
       </div>
-      <div className={gridCellClass(mobileTab, "result")} data-tab="result">
+      <div className={tabPanelClass(mobileTab, "result")} {...tabPanelProps("result")}>
         <ResultPanel
           view={calculator.resultView}
           onActionTransitionComplete={actions.clearActionTransition}
           onConvert={handlers.onConvert}
           onOutcome={handlers.onOutcome}
         />
-      </div>
-      <div className={gridCellClass(mobileTab, "result")} data-tab="result">
         <DetailPanel
           view={calculator.detailView}
           validation={calculator.validationView}
@@ -146,7 +157,7 @@ function Workspace({
           showSolverBackend={showSolverBackend}
         />
       </div>
-      <div className={gridCellClass(mobileTab, "stats")} data-tab="stats">
+      <div className={tabPanelClass(mobileTab, "stats")} {...tabPanelProps("stats")}>
         <StatsPanel view={calculator.statsView} />
         <PrivacyFooter placement="mobileStats" />
       </div>
@@ -169,16 +180,18 @@ function MobileBottomBar({
 }) {
   return (
     <div className={classes.mobileBottom}>
-      <MobileActionBar
-        view={calculator.resultView}
-        loading={calculator.loading}
-        calculateDisabled={calculator.solvePanel.calculateDisabled}
-        needsStockEdit={calculator.stockPanel.needsStockEdit}
-        onCalculate={handlers.onCalculate}
-        onReset={handlers.onReset}
-        onConvert={handlers.onConvert}
-        onOutcome={handlers.onOutcome}
-      />
+      {mobileTab === "stats" ? null : (
+        <MobileActionBar
+          view={calculator.resultView}
+          loading={calculator.loading}
+          calculateDisabled={calculator.solvePanel.calculateDisabled}
+          needsStockEdit={calculator.stockPanel.needsStockEdit}
+          onCalculate={handlers.onCalculate}
+          onReset={handlers.onReset}
+          onConvert={handlers.onConvert}
+          onOutcome={handlers.onOutcome}
+        />
+      )}
       <MobileTabs active={mobileTab} hasResult={hasResult} onChange={onTabChange} />
     </div>
   );

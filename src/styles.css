@@ -71,7 +71,7 @@
   --input-bg: #ffffff;
   --button-bg: #ffffff;
   --ink: #172534;
-  --muted: #687887;
+  --muted: #506475;
   --text-soft: #31413b;
   --text-strong: #24342e;
   --line: #d5e6ef;
@@ -87,12 +87,12 @@
   --grade-active-soft: #dff4fd;
   --theme-active: #25384a;
   --theme-active-soft: #e7eef4;
-  --warn: #9a6500;
+  --warn: #8a5900;
   --warn-soft: #fff4d8;
   --danger: #a63b19;
   --danger-soft: #ffeadf;
   --action-bg: #20322c;
-  --action-label: #b8cec8;
+  --action-label: #d0e2dc;
   --outcome-bg: #fffaf0;
   --outcome-ink: #523600;
   --success-button-ink: #241900;
@@ -145,6 +145,12 @@ html.theme-commit *::after {
   transition: none !important;
 }
 
+html.theme-view-transitioning *,
+html.theme-view-transitioning *::before,
+html.theme-view-transitioning *::after {
+  transition: none !important;
+}
+
 @keyframes theme-view-in {
   from {
     opacity: 0;
@@ -193,7 +199,7 @@ html.theme-commit *::after {
 }
 }
 
-/* NEUTRAL dark mode — design-system canonical (cool-leaning grays, no warm tones) */
+/* NEUTRAL dark mode - design-system canonical (cool-leaning grays, no warm tones) */
 body.theme-dark {
   color-scheme: dark;
   --bg: #1a1c1f;
@@ -203,7 +209,7 @@ body.theme-dark {
   --input-bg: #1c1f23;
   --button-bg: #21252a;
   --ink: #e8eaed;
-  --muted: #9aa0a6;
+  --muted: #adb4bd;
   --text-soft: #d4d7db;
   --text-strong: #f1f3f5;
   --line: #393d43;
@@ -554,7 +560,7 @@ h2 {
 }
 
 /* =========================================================
-   Mobile chrome — sticky status strip + tab nav + action bar
+   Mobile chrome - sticky status strip + tab nav + action bar
    Hidden at desktop widths. Used to collapse the vertically
    elongated panel stack into focused tabbed sections.
    ========================================================= */
@@ -565,20 +571,24 @@ h2 {
     padding-bottom: calc(116px + env(safe-area-inset-bottom, 0px));
   }
 
+  body:has(.app-shell[data-mobile-tab="stats"]) {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  }
+
   .app-shell[data-mobile-action="outcome"] {
     padding-bottom: 104px;
   }
 
   @media (max-width: 380px) {
     .app-shell[data-mobile-action="outcome"] {
-      padding-bottom: 126px;
+      padding-bottom: 128px;
     }
   }
 
-  /* --- compact top bar — single row, theme as icon pill --- */
+  /* --- compact top bar - single row, theme as icon pill --- */
 
   /* --- sticky header stack (status + tabs) --- */
-  /* --- status strip — always-visible state summary --- */
+  /* --- status strip - always-visible state summary --- */
 
   /* --- bottom bar = action row + tab nav row, fixed --- */
   /* tab nav (below action) */

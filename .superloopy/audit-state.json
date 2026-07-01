@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "sessionId": null,
+  "auditsAccepted": 0,
+  "updatedAt": "2026-07-01T07:51:16.069Z",
+  "criteria": [
+    {
+      "criterion": "G001/C001",
+      "scenario": "Happy path works from the real user-facing surface.",
+      "inputHash": "7c16d08a461b385e7773e51a7bb9eaf985008d39eb063bf7430192e64eb17e53",
+      "sourceHash": "e054635bc9e965d5a5a11f458187c6657f40624ea692dff3e6924bf168737154",
+      "verdict": null,
+      "failCount": 0,
+      "auditedAt": "2026-07-01T07:51:16.052Z",
+      "command": null,
+      "rerunStatus": "manual-recheck",
+      "rerunArtifact": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/VISUAL_QA.md",
+      "rerunArtifactHash": "e054635bc9e965d5a5a11f458187c6657f40624ea692dff3e6924bf168737154",
+      "floor": "pass",
+      "verdictArtifact": null,
+      "verdictHash": null
+    },
+    {
+      "criterion": "G001/C002",
+      "scenario": "Riskiest edge or failure path is handled.",
+      "inputHash": "12217149ebe2f35b5b762973b8d97219122b68cdb665360860f4fd846b55c34c",
+      "sourceHash": "a27370ca6f17955a05d9652e74d20abdb28430d7a81c8503222c0bba004675b5",
+      "verdict": null,
+      "failCount": 0,
+      "auditedAt": "2026-07-01T07:51:16.060Z",
+      "command": null,
+      "rerunStatus": "manual-recheck",
+      "rerunArtifact": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/RISK_QA.md",
+      "rerunArtifactHash": "a27370ca6f17955a05d9652e74d20abdb28430d7a81c8503222c0bba004675b5",
+      "floor": "pass",
+      "verdictArtifact": null,
+      "verdictHash": null
+    },
+    {
+      "criterion": "G001/C003",
+      "scenario": "Adjacent existing behavior still works.",
+      "inputHash": "d7b7b327b454081eafa97ede68214f68094bc0e12ded318cdecece655e8658f4",
+      "sourceHash": "f09b41d493f2174e041b73f2a6e310ac3dc5c8735131b2f80660ffbca0be774c",
+      "verdict": null,
+      "failCount": 0,
+      "auditedAt": "2026-07-01T07:51:16.067Z",
+      "command": null,
+      "rerunStatus": "manual-recheck",
+      "rerunArtifact": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/REGRESSION_QA.md",
+      "rerunArtifactHash": "f09b41d493f2174e041b73f2a6e310ac3dc5c8735131b2f80660ffbca0be774c",
+      "floor": "pass",
+      "verdictArtifact": null,
+      "verdictHash": null
+    }
+  ]
+}

@@ -43,7 +43,7 @@ test("데스크톱 라이트 화면에는 추적되지 않은 WCAG A/AA 위반�
   await page.goto(`http://127.0.0.1:${PORT}/?demoStats=1`);
   await expect(page.locator(".app-shell")).toBeVisible();
 
-  expect(await accessibilityViolations(page, new Set(["color-contrast"]))).toEqual([]);
+  expect(await accessibilityViolations(page)).toEqual([]);
 });
 
 test("모바일 다크 화면에는 WCAG A/AA 위반이 없다", async ({ page }) => {

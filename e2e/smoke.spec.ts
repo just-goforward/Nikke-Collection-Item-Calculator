@@ -479,6 +479,11 @@ test("모바일 탭은 입력, 결과, 통계 화면을 전환한다", async ({ 
   await page.getByRole("tab", { name: "통계" }).click();
   await expect(page.getByRole("heading", { name: "전체 통계" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "현재 소장품" })).toBeHidden();
+  await expect(page.getByRole("toolbar", { name: "모바일 작업" })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: "통계" })).toHaveAttribute(
+    "aria-controls",
+    "mobile-panel-stats",
+  );
 
   await page.getByRole("tab", { name: "결과" }).click();
   await expect(page.getByRole("heading", { name: "결과" })).toBeVisible();
@@ -584,6 +589,9 @@ test("모바일 수동 키트 수정 필요 상태는 하단 계산 버튼에서
     actionBar.getByRole("button", { name: "키트 수정 필요", exact: true }),
   ).toBeDisabled();
   await expect(page.locator("#stockEditNotice")).toBeVisible();
+
+  await page.getByLabel("초심자용 관리 키트").fill("90");
+  await expect(actionBar.getByRole("button", { name: "계산하기", exact: true })).toBeEnabled();
 });
 
 test("모바일 변환 버튼은 입력 탭 선택 상태를 유지한다", async ({ page }) => {
@@ -689,6 +697,20 @@ test("모바일 info-tip 텍스트는 말풍선 안에 머문다", async ({ page
   await infoTip.hover();
 
   const textBox = infoTip.locator("span");
+  await expect(textBox).toBeVisible();
+  await infoTip.blur();
+  await infoTip.focus();
+  await expect(textBox).toBeVisible();
+  await expect(infoTip).toHaveAttribute("aria-expanded", "true");
+  await page.keyboard.press("Escape");
+  await expect(infoTip).toHaveAttribute("aria-expanded", "false");
+
+  await infoTip.click();
+  await expect(infoTip).toHaveAttribute("aria-expanded", "true");
+  await page.mouse.click(8, 8);
+  await expect(infoTip).toHaveAttribute("aria-expanded", "false");
+
+  await infoTip.focus();
   await expect(textBox).toBeVisible();
   const boxMetrics = await textBox.evaluate((element) => ({
     clientWidth: element.clientWidth,

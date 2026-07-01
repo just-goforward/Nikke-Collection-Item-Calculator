@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 import type { ValidationStageReachView, ValidationView } from "../ui-types";
 
 const classes = {
@@ -95,14 +97,21 @@ function axisLabelX(index: number, total: number, x: number) {
 }
 
 function StageReachSvg({ chart }: { chart: ValidationStageReachView }) {
+  const titleId = useId();
+  const descId = useId();
   const path = stepPath(chart.points);
+  const description = chart.points
+    .map((point) => `${point.label}: ${point.reachedLabel}, ${point.percentLabel}`)
+    .join(" / ");
   return (
     <svg
-      aria-label="단계별 도달률 계단 그래프"
+      aria-labelledby={`${titleId} ${descId}`}
       className={classes.canvas}
       role="img"
       viewBox={`0 0 ${CHART.width} ${CHART.height}`}
     >
+      <title id={titleId}>단계별 도달률 계단 그래프</title>
+      <desc id={descId}>{description}</desc>
       <line className={classes.grid} x1={CHART.left} x2={plotRight} y1={CHART.top} y2={CHART.top} />
       <line
         className={classes.grid}

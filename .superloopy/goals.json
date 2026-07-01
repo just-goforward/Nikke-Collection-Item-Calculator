@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "mode": "strict",
+  "createdAt": "2026-07-01T07:35:01.934Z",
+  "updatedAt": "2026-07-01T07:51:16.044Z",
+  "briefPath": ".superloopy/brief.md",
+  "evidencePath": ".superloopy/evidence",
+  "goalsPath": ".superloopy/goals.json",
+  "ledgerPath": ".superloopy/ledger.jsonl",
+  "goals": [
+    {
+      "id": "G001",
+      "title": "프론트엔드 핵심 UX/A11y 개선",
+      "objective": "프론트엔드 핵심 UX/A11y 개선",
+      "status": "complete",
+      "attempt": 1,
+      "createdAt": "2026-07-01T07:35:01.934Z",
+      "updatedAt": "2026-07-01T07:51:16.044Z",
+      "criteria": [
+        {
+          "id": "C001",
+          "kind": "happy",
+          "scenario": "Happy path works from the real user-facing surface.",
+          "essential": true,
+          "status": "pass",
+          "artifact": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/VISUAL_QA.md",
+          "capturedAt": "2026-07-01T07:50:49.467Z",
+          "notes": "Real-browser visual QA at 390, 768, and 1280 px passed"
+        },
+        {
+          "id": "C002",
+          "kind": "risk",
+          "scenario": "Riskiest edge or failure path is handled.",
+          "essential": true,
+          "status": "pass",
+          "artifact": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/RISK_QA.md",
+          "capturedAt": "2026-07-01T07:50:49.427Z",
+          "notes": "Accessibility and stale-input risk paths passed"
+        },
+        {
+          "id": "C003",
+          "kind": "regression",
+          "scenario": "Adjacent existing behavior still works.",
+          "essential": true,
+          "status": "pass",
+          "artifact": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/REGRESSION_QA.md",
+          "capturedAt": "2026-07-01T07:50:49.454Z",
+          "notes": "Automated regression suite passed"
+        }
+      ],
+      "startedAt": "2026-07-01T07:35:01.948Z",
+      "completedAt": "2026-07-01T07:51:16.044Z",
+      "evidence": "frontend UX/A11y criteria passed"
+    }
+  ],
+  "aggregateCompletion": {
+    "status": "complete",
+    "completedAt": "2026-07-01T07:51:16.044Z",
+    "evidence": "frontend UX/A11y criteria passed",
+    "qualityGate": {
+      "status": "passed",
+      "artifacts": [
+        {
+          "absolutePath": "C:\\Users\\PC\\Desktop\\바이브 코딩\\Codex\\모듈작\\.superloopy\\evidence\\frontend\\20260701-frontend-ux-a11y\\VISUAL_QA.md",
+          "relativePath": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/VISUAL_QA.md",
+          "size": 2559
+        },
+        {
+          "absolutePath": "C:\\Users\\PC\\Desktop\\바이브 코딩\\Codex\\모듈작\\.superloopy\\evidence\\frontend\\20260701-frontend-ux-a11y\\RISK_QA.md",
+          "relativePath": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/RISK_QA.md",
+          "size": 1279
+        },
+        {
+          "absolutePath": "C:\\Users\\PC\\Desktop\\바이브 코딩\\Codex\\모듈작\\.superloopy\\evidence\\frontend\\20260701-frontend-ux-a11y\\REGRESSION_QA.md",
+          "relativePath": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/REGRESSION_QA.md",
+          "size": 739
+        }
+      ]
+    }
+  }
+}

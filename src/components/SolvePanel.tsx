@@ -18,6 +18,17 @@ const classes = {
     "min-h-[42px] border border-border bg-button text-text-soft min-[661px]:max-desktop:min-h-[38px] min-[661px]:max-desktop:text-[13px] enabled:hover:border-grade-active enabled:hover:text-grade-active-strong",
 } as const;
 
+function commitFocusedInput() {
+  const activeElement = document.activeElement;
+  if (
+    activeElement instanceof HTMLInputElement ||
+    activeElement instanceof HTMLSelectElement ||
+    activeElement instanceof HTMLTextAreaElement
+  ) {
+    activeElement.blur();
+  }
+}
+
 export default function SolvePanel({
   description,
   calculateDisabled,
@@ -40,6 +51,7 @@ export default function SolvePanel({
           className={classes.primaryButton}
           type="button"
           disabled={calculateDisabled}
+          onPointerDown={commitFocusedInput}
           onClick={onCalculate}
         >
           계산

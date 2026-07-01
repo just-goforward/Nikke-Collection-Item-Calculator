@@ -136,7 +136,9 @@ export default function StockPanel({
   }, [stock.blue, stock.purple, stock.yellow]);
 
   const updateStockText = (kit: Kit, value: string) => {
-    setStockText((current) => ({ ...current, [kit]: value }));
+    const next = { ...stockText, [kit]: value };
+    setStockText(next);
+    onStockChange(toStock(next));
   };
 
   const commitStock = () => onStockChange(toStock(stockText));

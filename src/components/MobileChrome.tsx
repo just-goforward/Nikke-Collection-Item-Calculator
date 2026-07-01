@@ -21,10 +21,16 @@ const MOBILE_TABS: Array<{ id: MobileTab; label: string }> = [
   { id: "stats", label: "통계" },
 ];
 
+const MOBILE_TAB_PANELS: Record<MobileTab, string> = {
+  input: "mobile-panel-input",
+  result: "mobile-panel-result",
+  stats: "mobile-panel-stats",
+};
+
 const STATUS_KITS: StatusKit[] = [
-  { kit: "blue", className: "kit-dot blue-kit", dotClassName: "bg-[#4ea7e3]" },
-  { kit: "purple", className: "kit-dot purple-kit", dotClassName: "bg-[#a065d4]" },
-  { kit: "yellow", className: "kit-dot yellow-kit", dotClassName: "bg-[#e6aa26]" },
+  { kit: "blue", className: "kit-dot blue-kit", dotClassName: "bg-blue-kit" },
+  { kit: "purple", className: "kit-dot purple-kit", dotClassName: "bg-purple-kit" },
+  { kit: "yellow", className: "kit-dot yellow-kit", dotClassName: "bg-yellow-kit" },
 ];
 
 const classes = {
@@ -118,6 +124,17 @@ function MobileToolbar({ children, mode }: { children: ReactNode; mode: string }
       {children}
     </div>
   );
+}
+
+function commitFocusedInput() {
+  const activeElement = document.activeElement;
+  if (
+    activeElement instanceof HTMLInputElement ||
+    activeElement instanceof HTMLSelectElement ||
+    activeElement instanceof HTMLTextAreaElement
+  ) {
+    activeElement.blur();
+  }
 }
 
 function calculateProgressPercent(state: StatePanelModel) {
@@ -216,6 +233,7 @@ export function MobileActionBar({
         }`}
         type="button"
         disabled={calculateDisabled || loading.active}
+        onPointerDown={commitFocusedInput}
         onClick={onCalculate}
       >
         {needsStockEdit ? "키트 수정 필요" : loading.active ? "계산 중" : "계산하기"}
@@ -271,8 +289,10 @@ export function MobileTabs({ active, hasResult, onChange }: MobileTabsProps) {
       {MOBILE_TABS.map((tab) => (
         <button
           className={active === tab.id ? `${classes.tab} ${classes.tabActive}` : classes.tab}
+          aria-controls={MOBILE_TAB_PANELS[tab.id]}
           key={tab.id}
           type="button"
+          id={`mobile-tab-${tab.id}`}
           role="tab"
           aria-selected={active === tab.id}
           onClick={() => onChange(tab.id)}

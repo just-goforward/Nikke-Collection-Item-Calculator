@@ -11,6 +11,9 @@ export default function LoadingOverlay({ loading }: LoadingOverlayProps) {
     <div
       id="loadingOverlay"
       className="fixed inset-0 z-20 grid place-items-center bg-overlay p-6 backdrop-blur-[4px] max-[660px]:z-50"
+      aria-busy="true"
+      aria-live="polite"
+      role="status"
     >
       <div className="grid min-w-[min(320px,100%)] justify-items-center gap-2.5 rounded-card border border-border bg-surface p-[22px] text-center shadow-panel">
         <div

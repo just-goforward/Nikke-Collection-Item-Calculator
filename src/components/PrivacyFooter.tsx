@@ -18,7 +18,7 @@ const footerText = (
 export default function PrivacyFooter({ placement = "desktop" }: PrivacyFooterProps) {
   const className =
     placement === "mobileStats"
-      ? "mx-[10px] mb-[88px] mt-3 hidden w-auto text-muted text-[11px] font-normal leading-[1.55] opacity-70 max-[660px]:block"
+      ? "mx-[10px] mb-14 mt-3 hidden w-auto text-muted text-[11px] font-normal leading-[1.55] opacity-70 max-[660px]:block"
       : "mx-auto mb-7 mt-[-20px] w-[min(1320px,calc(100%_-_32px))] text-muted text-[11px] font-normal leading-[1.55] opacity-70 max-[660px]:hidden";
 
   return <footer className={className}>{footerText}</footer>;
