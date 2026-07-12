@@ -28,6 +28,12 @@ export const classes = {
   headingCollapsed: "!border-b-0",
   headingStatic: "cursor-default",
   panelEmpty: "empty-result px-[18px] py-[22px] font-medium text-muted",
+  panelLoading:
+    "stats-loading-state grid min-h-[128px] place-items-center px-[18px] py-[22px] text-muted max-mobile:min-h-[112px]",
+  panelLoadingInner: "grid justify-items-center gap-3 text-center",
+  panelLoadingSpinner:
+    "stats-loading-spinner size-7 animate-spin rounded-full border-[3px] border-primary-soft border-t-primary",
+  panelLoadingText: "m-0 text-[13px] font-semibold leading-[1.4] text-text-soft",
   resultContent:
     "result-content stats-content grid gap-3.5 p-[18px] max-mobile:gap-2.5 max-mobile:px-3.5 max-mobile:py-3",
   layout: "stats-layout grid grid-cols-2 gap-3 max-tablet:grid-cols-1",

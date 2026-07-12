@@ -48,7 +48,7 @@ const classes = {
   activeButton: "theme-option-active",
   mobileTheme: "relative hidden max-[684px]:block",
   themeButton:
-    "inline-flex min-h-[34px] min-w-[72px] items-center justify-center gap-1.5 rounded-card border border-border bg-button px-2.5 text-[10.5px] font-bold text-muted transition-[border-color,color,background-color] duration-[160ms] hover:border-grade-active hover:text-text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-2 focus-visible:ring-offset-page",
+    "inline-flex min-h-[34px] min-w-[58px] items-center justify-center gap-1 rounded-card border border-border bg-button px-2 text-[10.5px] font-bold text-muted transition-[border-color,color,background-color] duration-[160ms] hover:border-grade-active hover:text-text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-2 focus-visible:ring-offset-page",
 } as const;
 
 type TopBarProps = {

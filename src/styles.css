@@ -742,21 +742,7 @@ h2 {
 @media (max-width: 660px) {
   /* --- shell padding adjusted for sticky bottom bar (action + tabs) --- */
   .app-shell {
-    padding-bottom: calc(116px + env(safe-area-inset-bottom, 0px));
-  }
-
-  .app-shell[data-mobile-action="outcome"] {
-    padding-bottom: 104px;
-  }
-
-  @media (max-width: 380px) {
-    .app-shell[data-mobile-action="outcome"] {
-      padding-bottom: 128px;
-    }
-  }
-
-  .app-shell[data-mobile-tab="stats"] {
-    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(var(--mobile-bottom-height, 116px) + 12px);
   }
 
   .app-shell:not([data-mobile-tab="stats"]) .privacy-footer {

@@ -153,6 +153,23 @@ function StatsContent({ stats }: { stats: StatsPanelModel }) {
 }
 
 function StatsBody({ view }: StatsPanelProps) {
+  if (view.type === "loading") {
+    return (
+      <div
+        id="globalStatsBox"
+        className={classes.panelLoading}
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <div className={classes.panelLoadingInner}>
+          <span className={classes.panelLoadingSpinner} aria-hidden="true" />
+          <p className={classes.panelLoadingText}>{view.message}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       id="globalStatsBox"

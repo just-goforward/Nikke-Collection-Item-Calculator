@@ -548,6 +548,7 @@ test("staging 설정 누락은 운영 API로 대체하지 않고 알림을 표�
 test("staging 통계는 통계 탭을 열 때만 별도 API에서 조회한다", async ({ page }) => {
   let requestedStatsUrl = "";
   const requestedStatsAssets: string[] = [];
+  const statsResponse = Promise.withResolvers<void>();
   page.on("request", (request) => {
     if (request.url().includes("StatsPanelBody-")) requestedStatsAssets.push(request.url());
   });
@@ -557,6 +558,7 @@ test("staging 통계는 통계 탭을 열 때만 별도 API에서 조회한다",
   });
   await page.route("https://staging.example.test/api/stats", async (route) => {
     requestedStatsUrl = route.request().url();
+    await statsResponse.promise;
     await route.fulfill({
       status: 500,
       headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
@@ -574,8 +576,15 @@ test("staging 통계는 통계 탭을 열 때만 별도 API에서 조회한다",
   expect(requestedStatsAssets).toHaveLength(0);
 
   await page.getByRole("tab", { name: "통계" }).first().click();
+  const statsLoading = page.locator("#globalStatsBox[aria-busy='true']");
+  await expect(statsLoading).toBeVisible();
+  await expect(statsLoading.locator(".stats-loading-spinner")).toBeVisible();
+  await expect(statsLoading).toContainText("통계");
   await expect.poll(() => requestedStatsUrl).toBe("https://staging.example.test/api/stats");
   await expect.poll(() => requestedStatsAssets.length).toBe(1);
+  statsResponse.resolve();
+  await expect(statsLoading).toBeHidden();
+  await expect(page.getByText("통계를 불러오지 못했습니다.")).toBeVisible();
 });
 
 test("demo 및 disabled 계산은 통계 이벤트를 제출하지 않는다", async ({ page }) => {
@@ -638,6 +647,10 @@ test("모바일 탭은 입력, 결과, 통계 화면을 전환한다", async ({ 
   await page.goto("/?demoStats=1");
 
   await expect(page.getByRole("heading", { name: "현재 소장품" })).toBeVisible();
+  const themeButton = page.getByRole("button", { name: /테마 선택:/ });
+  const themeButtonBox = await themeButton.boundingBox();
+  expect(themeButtonBox).not.toBeNull();
+  expect(themeButtonBox?.width).toBeLessThanOrEqual(64);
 
   await page.getByRole("tab", { name: "통계" }).click();
   await expect(page.locator(".mobile-tabs")).toHaveAttribute("data-active-index", "2");
@@ -695,6 +708,49 @@ test("모바일 하단 액션바로 계산하고 결과 액션을 표시한다",
   await expect(actionBar).not.toContainText("누르면 누른 자리가 확정 버튼으로 바뀝니다.");
   await expect(actionBar.getByRole("button", { name: "대성공 O", exact: true })).toBeVisible();
   await expect(actionBar.getByRole("button", { name: "대성공 X", exact: true })).toBeVisible();
+
+  await page.setViewportSize({ width: 320, height: 720 });
+  const initialToolbarBox = await actionBar.boundingBox();
+  const initialSuccessBox = await actionBar
+    .getByRole("button", { name: "대성공 O", exact: true })
+    .boundingBox();
+  const initialFailBox = await actionBar
+    .getByRole("button", { name: "대성공 X", exact: true })
+    .boundingBox();
+  expect(initialToolbarBox).not.toBeNull();
+  expect(initialSuccessBox).not.toBeNull();
+  expect(initialFailBox).not.toBeNull();
+
+  await actionBar.getByRole("button", { name: "대성공 O", exact: true }).click();
+  const pendingToolbarBox = await actionBar.boundingBox();
+  const confirmBox = await actionBar
+    .getByRole("button", { name: "대성공 O 확정", exact: true })
+    .boundingBox();
+  const cancelBox = await actionBar
+    .getByRole("button", { name: "취소", exact: true })
+    .boundingBox();
+  expect(pendingToolbarBox?.height).toBe(initialToolbarBox?.height);
+  expect(confirmBox?.width).toBe(initialSuccessBox?.width);
+  expect(confirmBox?.height).toBe(initialSuccessBox?.height);
+  expect(cancelBox?.width).toBe(initialFailBox?.width);
+  expect(cancelBox?.height).toBe(initialFailBox?.height);
+  await expect(actionBar).not.toContainText("아니라면 취소");
+
+  const tabsBox = await page.locator(".mobile-tabs").boundingBox();
+  expect(pendingToolbarBox).not.toBeNull();
+  expect(tabsBox).not.toBeNull();
+  expect((pendingToolbarBox?.y ?? 0) + (pendingToolbarBox?.height ?? 0)).toBeLessThanOrEqual(
+    tabsBox?.y ?? 0,
+  );
+
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const detailPanelBox = await page.locator("#mobile-panel-result .detail-panel").boundingBox();
+  const mobileBottomBox = await page.locator(".mobile-bottom-bar").boundingBox();
+  expect(detailPanelBox).not.toBeNull();
+  expect(mobileBottomBox).not.toBeNull();
+  expect((detailPanelBox?.y ?? 0) + (detailPanelBox?.height ?? 0)).toBeLessThanOrEqual(
+    (mobileBottomBox?.y ?? 0) - 8,
+  );
 });
 
 test("대성공 X 선택 후 다음 추천이 자동 계산된다", async ({ page }) => {

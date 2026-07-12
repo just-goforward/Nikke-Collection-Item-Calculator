@@ -86,7 +86,9 @@ export function useStatsQuery(queryEnabled: boolean) {
   useEffect(() => {
     if (!queryEnabled || (hasLoadedRef.current && !dirtyRef.current)) return;
     setStatsView((current) =>
-      current.type === "hidden" ? { type: "empty", message: "통계를 불러오는 중입니다." } : current,
+      current.type === "hidden"
+        ? { type: "loading", message: "전체 통계를 불러오고 있습니다." }
+        : current,
     );
     void refresh();
   }, [queryEnabled, refresh]);

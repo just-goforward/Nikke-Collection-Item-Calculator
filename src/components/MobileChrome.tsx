@@ -59,19 +59,19 @@ const classes = {
   actionBar: "mobile-action-bar grid grid-cols-1 gap-2 px-3 pt-2.5 pb-2.5 shadow-none",
   actionBarCalculate: "mode-calculate grid-cols-[68px_1fr]",
   actionBarOutcome:
-    "mode-outcome outcome-ring grid-cols-2 rounded-card border-2 border-yellow-kit bg-outcome text-outcome-text",
+    "mode-outcome outcome-ring mx-1 mb-1.5 mt-1 grid-cols-2 rounded-card border-2 border-yellow-kit bg-outcome text-outcome-text",
   actionBarConvert: "mode-convert grid-cols-1",
   actionPrompt:
     "mobile-action-prompt col-span-full text-center text-[13px] font-semibold leading-[1.3] text-outcome-text",
   actionChangeNote:
     "change-note col-span-full m-0 text-center text-[11.5px] font-semibold leading-[1.45] text-outcome-text",
-  actionOutcomeChoice: "grid min-w-0 gap-1",
+  actionOutcomeChoice: "grid min-w-0 grid-rows-[48px_30px] gap-1",
   actionChoiceCaption:
-    "m-0 min-h-[13px] text-center text-[10px] font-semibold leading-[1.2] text-muted",
+    "m-0 grid h-[30px] place-items-center overflow-hidden text-balance text-center text-[10px] font-semibold leading-[1.25] text-muted",
   actionCaptionPrefix: "text-muted",
   actionCaptionValue: "font-bold text-text-strong",
   actionButton:
-    "min-h-12 rounded-card text-[15px] font-bold tracking-[0.01em] max-phone-xs:min-h-12 max-phone-xs:text-sm",
+    "h-12 min-h-12 whitespace-nowrap rounded-card text-[15px] font-bold tracking-[0.01em] max-phone-xs:text-[13px]",
   primaryButton:
     "primary-button bg-action text-ice shadow-[inset_0_0_0_1px_rgba(248,252,254,0.10),0_10px_22px_rgba(21,43,58,0.18)] transition-[filter,box-shadow,transform,background-color] duration-[140ms] enabled:hover:brightness-[1.08] enabled:hover:shadow-[inset_0_0_0_1px_rgba(248,252,254,0.16),0_12px_26px_rgba(21,43,58,0.24)] enabled:active:translate-y-px enabled:active:shadow-[inset_0_0_0_1px_rgba(248,252,254,0.12),0_4px_10px_rgba(21,43,58,0.18)] [body.theme-dark_&]:bg-[#ee7a87] [body.theme-dark_&]:text-[#2a0c12] [body.theme-dark_&]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22),0_10px_22px_rgba(0,0,0,0.45)] [body.theme-dark_&]:enabled:hover:bg-[#f48f99] [body.theme-dark_&]:enabled:hover:brightness-100 [body.theme-dark_&]:enabled:hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.28),0_12px_26px_rgba(0,0,0,0.55)] [body.theme-dark_&]:enabled:active:bg-[#d6646f] [body.theme-dark_&]:enabled:active:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22),0_4px_10px_rgba(0,0,0,0.4)]",
   resetButton:
@@ -170,21 +170,11 @@ function ActionPreviewCaption({ preview }: { preview: OutcomePreview }) {
   );
 }
 
-function PendingActionCaption({
-  outcome,
-  preview,
-}: {
-  outcome: "success" | "fail";
-  preview: OutcomePreview;
-}) {
-  const label = outcome === "success" ? "대성공 O" : "대성공 X";
-
+function PendingActionCaption({ preview }: { preview: OutcomePreview }) {
   return (
     <>
-      <strong className={classes.actionCaptionValue}>{label}</strong>
-      <span className={classes.actionCaptionPrefix}>로 기록합니다 (</span>
+      <span className={classes.actionCaptionPrefix}>확정 시 →</span>{" "}
       <ActionPreviewValue preview={preview} />
-      <span className={classes.actionCaptionPrefix}>) — 아니라면 취소</span>
     </>
   );
 }
@@ -216,7 +206,7 @@ function MobileOutcomeActionBar({
           대성공 O 확정
         </button>
         <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
-          <PendingActionCaption outcome="success" preview={view.successPreview} />
+          <PendingActionCaption preview={view.successPreview} />
         </strong>
       </span>
     ) : pendingOutcome === "fail" ? (
@@ -255,7 +245,7 @@ function MobileOutcomeActionBar({
           대성공 X 확정
         </button>
         <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
-          <PendingActionCaption outcome="fail" preview={view.failPreview} />
+          <PendingActionCaption preview={view.failPreview} />
         </strong>
       </span>
     ) : pendingOutcome === "success" ? (

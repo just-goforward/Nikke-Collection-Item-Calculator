@@ -10,10 +10,19 @@ type StatsPanelProps = {
   view: StatsView;
 };
 
-function StatsPanelLoading() {
+function StatsPanelLoading({ message = "통계 화면을 준비하고 있습니다." }: { message?: string }) {
   return (
-    <div id="globalStatsBox" className={classes.panelEmpty} role="status" aria-live="polite">
-      통계를 준비 중입니다.
+    <div
+      id="globalStatsBox"
+      className={classes.panelLoading}
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className={classes.panelLoadingInner}>
+        <span className={classes.panelLoadingSpinner} aria-hidden="true" />
+        <p className={classes.panelLoadingText}>{message}</p>
+      </div>
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import { type CSSProperties, useLayoutEffect, useRef, useState } from "react";
+
 import DetailPanel from "./components/DetailPanel";
 import {
   MobileActionBar,
@@ -34,7 +36,7 @@ const classes = {
     "stats-column-layout min-w-0 min-[661px]:col-span-full max-mobile:grid max-mobile:gap-2.5",
   gridCellHidden: "max-mobile:hidden",
   mobileBottom:
-    "hidden max-mobile:fixed max-mobile:inset-x-0 max-mobile:bottom-0 max-mobile:z-30 max-mobile:block max-mobile:border-t max-mobile:border-border max-mobile:bg-surface max-mobile:shadow-[0_-6px_20px_rgba(15,30,45,0.08)] max-mobile:[padding-bottom:env(safe-area-inset-bottom,0px)]",
+    "mobile-bottom-bar hidden max-mobile:fixed max-mobile:inset-x-0 max-mobile:bottom-0 max-mobile:z-30 max-mobile:block max-mobile:border-t max-mobile:border-border max-mobile:bg-surface max-mobile:shadow-[0_-6px_20px_rgba(15,30,45,0.08)] max-mobile:[padding-bottom:env(safe-area-inset-bottom,0px)]",
   resetToast:
     "fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-pill bg-action px-4 py-2.5 text-[13px] font-semibold text-ice shadow-[0_14px_32px_rgba(10,18,30,0.35)] max-mobile:bottom-[calc(64px+env(safe-area-inset-bottom,0px))] max-mobile:max-w-[calc(100%-24px)] max-mobile:text-[12.5px]",
   resetToastButton:
@@ -100,20 +102,6 @@ function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
       STAGING - 테스트 기록은 운영 통계에 반영되지 않음
     </aside>
   );
-}
-
-function mobileActionMode(
-  view: CalculatorApp["resultView"],
-  needsStockEdit: boolean,
-  isResultStale: boolean,
-) {
-  if (needsStockEdit) return "calculate";
-  if (isResultStale) return "calculate";
-  if (view.type === "recommendation") return "outcome";
-  if (view.type === "convertRecommendation" || (view.type === "outcome" && view.canConvert)) {
-    return "convert";
-  }
-  return "calculate";
 }
 
 function MobileHeader({ calculator }: { calculator: CalculatorApp }) {
@@ -246,6 +234,7 @@ function MobileBottomBar({
   pendingOutcome,
   onTabChange,
   onPendingOutcomeChange,
+  onHeightChange,
 }: {
   calculator: CalculatorApp;
   hasResult: boolean;
@@ -254,9 +243,22 @@ function MobileBottomBar({
   pendingOutcome: "success" | "fail" | null;
   onTabChange: (tab: MobileTab) => void;
   onPendingOutcomeChange: (outcome: "success" | "fail" | null) => void;
+  onHeightChange: (height: number) => void;
 }) {
+  const bottomBarRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const bottomBar = bottomBarRef.current;
+    if (!bottomBar) return undefined;
+    const updateHeight = () => onHeightChange(Math.ceil(bottomBar.getBoundingClientRect().height));
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(bottomBar);
+    return () => observer.disconnect();
+  }, [onHeightChange]);
+
   return (
-    <div className={classes.mobileBottom}>
+    <div className={classes.mobileBottom} ref={bottomBarRef}>
       {mobileTab === "stats" ? null : (
         <MobileActionBar
           view={calculator.resultView}
@@ -305,16 +307,16 @@ export function AppLayout({
   statsMode: StatsRuntimeMode;
   viewTab: TopViewTab;
 }) {
+  const [mobileBottomHeight, setMobileBottomHeight] = useState(116);
   const hasResult = calculator.resultView.type !== "empty";
-  const actionMode = mobileActionMode(
-    calculator.resultView,
-    calculator.stockPanel.needsStockEdit,
-    calculator.stockPanel.isStale,
-  );
 
   return (
     <>
-      <div className={classes.shell} data-mobile-action={actionMode} data-mobile-tab={mobileTab}>
+      <div
+        className={classes.shell}
+        data-mobile-tab={mobileTab}
+        style={{ "--mobile-bottom-height": `${mobileBottomHeight}px` } as CSSProperties}
+      >
         <main className={classes.content}>
           <StagingBanners statsMode={statsMode} />
           <TopBar
@@ -344,6 +346,7 @@ export function AppLayout({
         pendingOutcome={pendingOutcome}
         onTabChange={onTabChange}
         onPendingOutcomeChange={onPendingOutcomeChange}
+        onHeightChange={setMobileBottomHeight}
       />
       <ResetToast toast={resetToast} />
       {calculator.loading.active ? <LoadingPopup text={calculator.loading.text} /> : null}
