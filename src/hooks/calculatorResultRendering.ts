@@ -4,6 +4,7 @@ import { transition } from "../solver/domain";
 import type { Grade } from "../types";
 import type { DetailView, RecommendationAction, ResultView, ValidationView } from "../ui-types";
 import { makeMetricsDetailView } from "../view-models/detailMetrics";
+import { makeOutcomePreview } from "../view-models/outcomePresentation";
 import { INITIAL_VALIDATION, monteCarloRuns, type SolverResult } from "./calculatorShared";
 
 type MutableRef<T> = { current: T };
@@ -16,6 +17,19 @@ type ResultRenderingOptions = {
   setValidationView: Dispatch<SetStateAction<ValidationView>>;
 };
 
+function withoutActionTransition(current: ResultView, transitionId: number): ResultView {
+  if (current.type !== "recommendation" || current.actionTransition?.id !== transitionId) {
+    return current;
+  }
+  return {
+    type: "recommendation",
+    kit: current.kit,
+    count: current.count,
+    failPreview: current.failPreview,
+    successPreview: current.successPreview,
+  };
+}
+
 export function useCalculatorResultRendering({
   actionTransitionIdRef,
   latestResultRef,
@@ -25,16 +39,7 @@ export function useCalculatorResultRendering({
 }: ResultRenderingOptions) {
   const clearActionTransition = useCallback(
     (transitionId: number) => {
-      setResultView((current) => {
-        if (current.type !== "recommendation" || current.actionTransition?.id !== transitionId) {
-          return current;
-        }
-        return {
-          type: "recommendation",
-          kit: current.kit,
-          count: current.count,
-        };
-      });
+      setResultView((current) => withoutActionTransition(current, transitionId));
     },
     [setResultView],
   );
@@ -44,15 +49,19 @@ export function useCalculatorResultRendering({
       latestResultRef.current = null;
       setValidationView(INITIAL_VALIDATION);
       if (nextGrade === "R" && nextLevel >= 15) {
-        setResultView({ type: "convertRecommendation" });
+        setResultView({ type: "convertRecommendation", reason: "r15_conversion" });
         setDetailView({
           type: "empty",
-          message: "R 15레벨은 등급 교체 가능 상태입니다. SR 5레벨로 교체할 수 있습니다.",
+          message: "최대 레벨입니다. R 15레벨은 SR 5레벨로 교체할 수 있습니다.",
         });
         return;
       }
       if (nextGrade === "SR" && nextLevel >= 15) {
-        setResultView({ type: "callout", message: "SR 15레벨입니다. 최종 목표 상태입니다." });
+        setResultView({
+          type: "callout",
+          reason: "final_target",
+          message: "SR 15레벨입니다. 최종 목표 상태입니다.",
+        });
         setDetailView({ type: "empty", message: "SR 15레벨은 최종 목표 상태입니다." });
       }
     },
@@ -63,21 +72,30 @@ export function useCalculatorResultRendering({
     (result: SolverResult, previousAction?: RecommendationAction | null) => {
       latestResultRef.current = result;
       if (result.terminal) {
-        setResultView({ type: "callout", message: result.message || "완료 상태입니다." });
+        setResultView({
+          type: "callout",
+          reason: "final_target",
+          message: result.message || "완료 상태입니다.",
+        });
         setDetailView({ type: "empty", message: "완료 상태입니다." });
         return;
       }
       if (result.convertOnly) {
-        setResultView({ type: "convertRecommendation" });
+        setResultView({
+          type: "convertRecommendation",
+          reason: "r15_conversion",
+          ...(previousAction ? { autoCalculateAfterConvert: true } : {}),
+        });
         setDetailView({
           type: "empty",
-          message: "R 15레벨은 등급 교체 가능 상태입니다. SR 5레벨로 교체할 수 있습니다.",
+          message: "최대 레벨입니다. R 15레벨은 SR 5레벨로 교체할 수 있습니다.",
         });
         return;
       }
       if (!result.possible || !result.best || !result.input) {
         setResultView({
           type: "error",
+          reason: "no_action",
           message: result.message || "현재 보유 키트로 가능한 행동이 없습니다.",
         });
         setDetailView({ type: "empty", message: "사용 가능한 키트가 부족합니다." });
@@ -99,6 +117,8 @@ export function useCalculatorResultRendering({
         type: "recommendation",
         kit: best.firstAction,
         count: run.count,
+        failPreview: makeOutcomePreview(result.input.start, run.fail),
+        successPreview: makeOutcomePreview(result.input.start, run.success),
         ...(actionTransition ? { actionTransition } : {}),
       });
       setDetailView(

@@ -1,7 +1,8 @@
+import { GREAT_SUCCESS, type Grade, KIT_ORDER, type Kit } from "../../shared/game";
 import { kstDateKeyFromUnixSeconds } from "./date-key";
-import { GREAT_SUCCESS, type Grade, KIT_ORDER, type Kit } from "./domain";
 import { emptyResponse, isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
+import { logInfo } from "./logger";
 
 type StatsReadEnv = {
   DB: D1Database;
@@ -25,6 +26,7 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
   if (!isAllowedOrigin(request, env)) throw new HttpError(403, "origin_not_allowed");
   if (!env.DB) throw new HttpError(500, "database_not_configured");
   const now = Math.floor(Date.now() / 1000);
+  const queryStartedAt = performance.now();
   const today = kstDateKeyFromUnixSeconds(now);
 
   const [aggregateRowsResult, todayRow] = await Promise.all([
@@ -43,6 +45,11 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
   ]);
 
   const rows = aggregateRowsResult.results || [];
+  logInfo("stats_query_completed", {
+    durationMs: Math.max(0, Math.round((performance.now() - queryStartedAt) * 100) / 100),
+    queryCount: 2,
+    rowCount: rows.length,
+  });
   const summary = summarizeRows(rows);
   const cacheControl = "public, max-age=60, s-maxage=60";
   const etag = statsEtag(today, summary);

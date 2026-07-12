@@ -7,6 +7,7 @@ export function validateDiagnosticSubmission(
   payload: SubmissionEnvelope,
   event: SolverDiagnosticEventInput,
 ): ValidatedSubmission {
+  const solverBackend = normalizeDiagnosticToken(event.solverBackend);
   return {
     eventId: payload.eventId,
     sourceHost: normalizeSourceHost(payload.sourceHost),
@@ -15,7 +16,9 @@ export function validateDiagnosticSubmission(
       diagnosticVersion: event.diagnosticVersion,
       solverVersion: normalizeDiagnosticToken(event.solverVersion),
       solverPhase: normalizeDiagnosticToken(event.solverPhase),
-      solverBackend: normalizeDiagnosticToken(event.solverBackend),
+      solverBackend,
+      requestedBackend: normalizeOptionalDiagnosticToken(event.requestedBackend, solverBackend),
+      executionKind: event.executionKind || "executed",
       fallbackFrom: normalizeOptionalDiagnosticToken(event.fallbackFrom, "none"),
       fallbackReason: normalizeOptionalDiagnosticToken(event.fallbackReason, "none"),
       workerErrorCode: normalizeOptionalDiagnosticToken(event.workerErrorCode, "none"),

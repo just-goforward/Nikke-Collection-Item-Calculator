@@ -8,10 +8,14 @@ const productionConfig: StatsConfig = {
   turnstileSiteKey: "production-key",
 };
 
-function setRuntime(search: string, config: StatsConfig = productionConfig) {
+function setRuntime(
+  search: string,
+  config: StatsConfig = productionConfig,
+  hostname = "example.test",
+) {
   vi.stubGlobal("window", {
     COLLECTION_STATS_CONFIG: config,
-    location: { search },
+    location: { hostname, search },
   });
 }
 
@@ -29,6 +33,14 @@ describe("stats runtime mode", () => {
       endpoint: "https://production.example.workers.dev",
       turnstileSiteKey: "production-key",
     });
+  });
+
+  it("disables API reads and submissions by default on local preview origins", () => {
+    setRuntime("", productionConfig, "127.0.0.1");
+
+    expect(statsRuntimeMode()).toBe("disabled");
+    expect(statsApiBase()).toBe("");
+    expect(statsSubmissionConfig()).toBeNull();
   });
 
   it("disables API reads and submissions in demo mode, including when staging is requested", () => {

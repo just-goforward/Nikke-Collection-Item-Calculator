@@ -2,17 +2,15 @@ import type {
   CollectionState,
   Kit,
   KitVector,
-  ResearchCostModel,
   Strategy,
   SUPPLY_AVAILABILITY_PARAMS,
 } from "./domain";
 import type { ProbabilityGateAudit } from "./gate";
 import type { NormalizedSolverInput } from "./input";
-import type { SolveExecutionOptions } from "./mdp";
 import type { FailureRouteStep, RecommendedRun } from "./routes";
 import type { simulate } from "./simulation";
 
-export type SolverMonteCarlo = {
+type SolverMonteCarlo = {
   runs: number;
   completed: number;
   successProbability: number;
@@ -22,7 +20,7 @@ export type SolverMonteCarlo = {
   stageReach?: ReturnType<typeof simulate>["stageReach"];
 };
 
-export type ResearchShadowDiagnostics = {
+type ResearchShadowDiagnostics = {
   variant?: "single-update" | "bounded-fixed-point";
   iterations?: number;
   converged?: boolean | null;
@@ -34,7 +32,7 @@ export type ResearchShadowDiagnostics = {
   candidateRunCount?: number | null;
 };
 
-export type SolverStats = {
+type SolverStats = {
   states: number;
   exact: boolean;
   tolerance: number;
@@ -49,7 +47,7 @@ export type SolverStats = {
   researchShadow?: ResearchShadowDiagnostics;
 };
 
-export type SolverBest = {
+type SolverBest = {
   name: string;
   firstAction: Kit | "convert" | null;
   firstProbability: number;
@@ -68,7 +66,7 @@ export type SolverBest = {
   resourceCost: number;
 };
 
-export type SolverKitBest = Omit<SolverBest, "firstAction" | "run"> & {
+type SolverKitBest = Omit<SolverBest, "firstAction" | "run"> & {
   firstAction: Kit | null;
   run?: RecommendedRun;
 };
@@ -113,6 +111,3 @@ export type ResearchSolverResult = Omit<SolverResult, "best" | "stats" | "topCan
   };
   topCandidates: SolverTopCandidate[];
 };
-
-export type ResearchSolveOptions = Omit<SolveExecutionOptions, "researchCostModel">;
-export type ResearchSolveModel = ResearchCostModel;

@@ -1,8 +1,8 @@
 import { useCallback } from "react";
 
-import { transition } from "../solver/domain";
-import { makeStatsEvent, stockPiecesForKit } from "./calculatorShared";
-import { kitStockChangeMessage, stockAfterKitUse } from "./outcomeFlowHelpers";
+import { convertState, transition } from "../solver/domain";
+import { DEFAULT_STOCK_NOTICE, makeStatsEvent, stockPiecesForKit } from "./calculatorShared";
+import { stockAfterKitUse } from "./outcomeFlowHelpers";
 import type {
   OutcomeApplyResult,
   OutcomeRenderArgs,
@@ -18,9 +18,7 @@ export function useOutcomeApplication({
   renderOutcomeApplied,
   setCollectionState,
   setManualStockEditRequired,
-  setModal,
   setStockCountForKit,
-  terminalSuccessContextRef,
 }: Pick<
   OutcomeSharedOptions,
   | "currentStockSnapshot"
@@ -30,9 +28,7 @@ export function useOutcomeApplication({
   | "recordStateFeedback"
   | "setCollectionState"
   | "setManualStockEditRequired"
-  | "setModal"
   | "setStockCountForKit"
-  | "terminalSuccessContextRef"
 > & {
   renderOutcomeApplied: (args: OutcomeRenderArgs) => void;
 }) {
@@ -47,25 +43,51 @@ export function useOutcomeApplication({
       const stockBeforeSnapshot = { ...latest.input.stock };
       const currentStock = currentStockSnapshot();
       const beforeStock = stockPiecesForKit(currentStock, best.firstAction);
-      if (outcome === "success" && run.count > 1 && run.success.level >= 15) {
-        terminalSuccessContextRef.current = {
-          best,
-          run,
-          startSnapshot,
-          stockBeforeSnapshot,
-          beforeStock,
-        };
-        setModal({ open: true, maxAttempt: run.count, attempt: 1 });
-        return null;
-      }
 
-      const exactStockChange = outcome !== "success" || run.count === 1;
-      const usedCount = exactStockChange ? run.count * 10 : 0;
-      const stockAfter = exactStockChange
-        ? stockAfterKitUse(currentStock, best.firstAction, beforeStock, usedCount)
-        : currentStock;
-      if (exactStockChange) setStockCountForKit(best.firstAction, beforeStock - usedCount);
-      if (!exactStockChange) {
+      if (outcome === "success") {
+        const nextState = run.success;
+        const reachesConvertState = nextState.grade === "R" && nextState.level >= 15;
+        const reachesFinalTarget = nextState.grade === "SR" && nextState.level >= 15;
+
+        if (reachesConvertState) {
+          const convertedState = convertState();
+          pendingStatsEventRef.current = {
+            start: startSnapshot,
+            kit: best.firstAction,
+            recommendedUses: run.count,
+            stockBefore: stockBeforeSnapshot,
+            resultState: convertedState,
+          };
+          setManualStockEditRequired(false);
+          recordStateFeedback(startSnapshot, nextState);
+          setCollectionState(nextState, { maxLevelRender: false });
+          renderOutcomeApplied({
+            best,
+            run,
+            nextState,
+            outcome: "success",
+            stockMessage: "SR 5로 교체한 뒤 보유 키트를 수정해야 계산이 진행됩니다.",
+            detailMessage: "SR 5로 교체한 뒤 보유 키트를 실제 결과에 맞게 수정해 주세요.",
+          });
+          return { outcome: "success", needsStockEdit: false };
+        }
+
+        if (reachesFinalTarget) {
+          pendingStatsEventRef.current = null;
+          setManualStockEditRequired(false);
+          recordStateFeedback(startSnapshot, nextState);
+          setCollectionState(nextState, { maxLevelRender: false });
+          renderOutcomeApplied({
+            best,
+            run,
+            nextState,
+            outcome: "success",
+            stockMessage: "최종 단계에 도달했습니다.",
+            detailMessage: "최종 단계에 도달했습니다.",
+          });
+          return { outcome: "success", needsStockEdit: false };
+        }
+
         setManualStockEditRequired(true);
         pendingStatsEventRef.current = {
           start: startSnapshot,
@@ -74,41 +96,45 @@ export function useOutcomeApplication({
           stockBefore: stockBeforeSnapshot,
           resultState: { ...run.success },
         };
+        recordStateFeedback(startSnapshot, nextState);
+        setCollectionState(nextState, { maxLevelRender: false });
+        renderOutcomeApplied({
+          best,
+          run,
+          nextState,
+          outcome: "success",
+          stockMessage: DEFAULT_STOCK_NOTICE,
+          detailMessage: "보유 키트 수를 실제 결과에 맞게 수정하면 계산이 다시 활성화됩니다.",
+          preserveExistingResult: true,
+        });
+        return { outcome: "success", needsStockEdit: true };
       }
 
-      const nextState = outcome === "success" ? run.success : run.fail;
-      recordStateFeedback(startSnapshot, nextState);
-      setCollectionState(nextState, { maxLevelRender: false });
-      if (exactStockChange) {
-        queueStatsEvent(
-          makeStatsEvent({
-            start: startSnapshot,
-            kit: best.firstAction,
-            recommendedUses: run.count,
-            outcome: outcome === "success" ? "great_success" : "no_great_success",
-            successAttempt: outcome === "success" ? 1 : null,
-            stockBefore: stockBeforeSnapshot,
-            stockAfter,
-            resultState: nextState,
-          }),
-        );
-      }
+      const usedCount = run.count * 10;
+      const stockAfter = stockAfterKitUse(currentStock, best.firstAction, beforeStock, usedCount);
+      const nextState = run.fail;
 
-      renderOutcomeApplied({
-        best,
-        run,
-        nextState,
-        outcomeLabel: outcome === "success" ? "대성공 O" : "대성공 X",
-        stockMessage: exactStockChange
-          ? kitStockChangeMessage(best.firstAction, beforeStock, stockAfter[best.firstAction])
-          : "다회 사용 중 대성공 발생 시점이 불명확하므로 보유 키트 수를 직접 수정해야 합니다. 수정 전까지 계산은 잠깁니다.",
-        detailMessage: exactStockChange
-          ? "변경된 상태로 다시 계산하세요."
-          : "보유 키트 수를 실제 결과에 맞게 수정하면 계산이 다시 활성화됩니다.",
-      });
-      if (outcome !== "fail") return { outcome: "success" };
       return {
         outcome: "fail",
+        commit: () => {
+          setStockCountForKit(best.firstAction, beforeStock - usedCount);
+          recordStateFeedback(startSnapshot, nextState);
+          setCollectionState(nextState, { maxLevelRender: false });
+          queueStatsEvent(
+            makeStatsEvent({
+              start: startSnapshot,
+              kit: best.firstAction,
+              recommendedUses: run.count,
+              outcome: "no_great_success",
+              successAttempt: null,
+              stockBefore: stockBeforeSnapshot,
+              stockAfter,
+              resultState: nextState,
+            }),
+          );
+        },
+        needsStockEdit: false,
+        previousAction: { kit: best.firstAction, count: run.count },
         nextInput: {
           start: nextState,
           stock: stockAfter,
@@ -125,9 +151,7 @@ export function useOutcomeApplication({
       renderOutcomeApplied,
       setCollectionState,
       setManualStockEditRequired,
-      setModal,
       setStockCountForKit,
-      terminalSuccessContextRef,
     ],
   );
 }

@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanupExpiredStatistics } from "./rate-limit";
-import { kitResultEvent, solverDiagnosticEvent, TEST_TURNSTILE_TOKEN } from "./worker.test-events";
+import {
+  kitResultEvent,
+  solverDiagnosticEvent,
+  solverRecoveryEvent,
+  TEST_TURNSTILE_TOKEN,
+} from "./worker.test-events";
 import { WorkerTestHarness } from "./worker.test-harness";
 
 const harness = new WorkerTestHarness();
@@ -48,6 +53,38 @@ type AdminDiagnosticsBody = {
     nodeCountBucket: string;
     attemptedNodeCountBucket: string;
     solveMsBucket: string;
+    events: number;
+  }>;
+  cache?: Array<{
+    diagnosticVersion: number;
+    requestedBackend: string;
+    terminalBackend: string;
+    executionKind: string;
+    events: number;
+  }>;
+  runtimeDataPolicy?: {
+    trustworthyFromDiagnosticVersion: number;
+    filteredToTrustworthyVersions: boolean;
+    legacyClassification: string;
+    solveMsSemantics: string;
+  };
+  recoveryDataPolicy?: {
+    aggregatesAreIndependent: boolean;
+    ratioWarning: string;
+  };
+  recoveryRungs?: Array<{
+    policyVersion: string;
+    requestedBackend: string;
+    rungBackend: string;
+    rungExit: string;
+    deviceType: string;
+    events: number;
+  }>;
+  recoveryTerminals?: Array<{
+    policyVersion: string;
+    requestedBackend: string;
+    terminalBackend: string;
+    terminalOutcome: string;
     events: number;
   }>;
   fallbacks?: Array<{
@@ -297,6 +334,7 @@ describe("solver_diagnostic event commit", () => {
     await expect(countRows("event_ids")).resolves.toBe(1);
     await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(1);
     await expect(countRows("solver_runtime_aggregates")).resolves.toBe(1);
+    await expect(countRows("solver_cache_aggregates")).resolves.toBe(1);
     const runtime = await harness.database
       .prepare(
         `SELECT memory_strategy, min_ef_memo_tier, phase2_memo_tier, phase2_memo_retried
@@ -314,6 +352,59 @@ describe("solver_diagnostic event commit", () => {
       min_ef_memo_tier: "21",
       phase2_memo_tier: "22",
       phase2_memo_retried: "no",
+    });
+  });
+
+  it("keeps cache hits in usage and cache aggregates without duplicating runtime", async () => {
+    const executed = solverDiagnosticEvent("solver-cache-executed1");
+    const cacheHit = solverDiagnosticEvent("solver-cache-hit-0001");
+    cacheHit.event.executionKind = "cache_hit";
+
+    expect((await submit(executed)).status).toBe(200);
+    expect((await submit(cacheHit)).status).toBe(200);
+
+    const usage = await harness.database
+      .prepare("SELECT SUM(events) AS events FROM solver_diagnostic_aggregates")
+      .first<{ events: number }>();
+    const runtime = await harness.database
+      .prepare("SELECT SUM(events) AS events FROM solver_runtime_aggregates")
+      .first<{ events: number }>();
+    const cache = await harness.database
+      .prepare(
+        "SELECT execution_kind, SUM(events) AS events FROM solver_cache_aggregates GROUP BY execution_kind ORDER BY execution_kind",
+      )
+      .all<{ execution_kind: string; events: number }>();
+
+    expect(usage?.events).toBe(2);
+    expect(runtime?.events).toBe(1);
+    expect(cache.results).toEqual([
+      { execution_kind: "cache_hit", events: 1 },
+      { execution_kind: "executed", events: 1 },
+    ]);
+  });
+
+  it("normalizes the requested backend fallback for legacy diagnostics", async () => {
+    const payload = solverDiagnosticEvent("solver-diag-legacy-backend");
+    payload.event.diagnosticVersion = 5;
+    payload.event.solverBackend = "invalid backend value";
+    Reflect.deleteProperty(payload.event, "requestedBackend");
+    Reflect.deleteProperty(payload.event, "executionKind");
+
+    expect((await submit(payload)).status).toBe(200);
+
+    const cache = await harness.database
+      .prepare(
+        "SELECT requested_backend, terminal_backend, execution_kind FROM solver_cache_aggregates LIMIT 1",
+      )
+      .first<{
+        requested_backend: string;
+        terminal_backend: string;
+        execution_kind: string;
+      }>();
+    expect(cache).toEqual({
+      requested_backend: "unknown",
+      terminal_backend: "unknown",
+      execution_kind: "executed",
     });
   });
 
@@ -388,6 +479,61 @@ describe("solver_diagnostic event commit", () => {
   });
 });
 
+describe("solver_recovery event commit", () => {
+  it("writes bucketed rung and terminal aggregates without raw attempt identifiers", async () => {
+    const response = await submit(solverRecoveryEvent("solver-recovery-valid1"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    await expect(countRows("solver_recovery_rung_aggregates")).resolves.toBe(2);
+    await expect(countRows("solver_recovery_terminal_aggregates")).resolves.toBe(1);
+    const terminal = await harness.database
+      .prepare(
+        `SELECT policy_version, requested_backend, min_ef_exit, phase2_exit,
+                terminal_backend, terminal_outcome, device_type
+         FROM solver_recovery_terminal_aggregates`,
+      )
+      .first<{
+        policy_version: string;
+        requested_backend: string;
+        min_ef_exit: string;
+        phase2_exit: string;
+        terminal_backend: string;
+        terminal_outcome: string;
+        device_type: string;
+      }>();
+    expect(terminal).toEqual({
+      policy_version: "ladder_v1",
+      requested_backend: "rust-min-ef",
+      min_ef_exit: "memo_full",
+      phase2_exit: "success",
+      terminal_backend: "rust-phase2",
+      terminal_outcome: "success",
+      device_type: "unknown",
+    });
+
+    const admin = (await (await fetchAdminSolverDiagnostics()).json()) as AdminDiagnosticsBody;
+    expect(admin.recoveryRungs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          policyVersion: "ladder_v1",
+          rungBackend: "rust-min-ef",
+          rungExit: "memo_full",
+          events: 1,
+        }),
+      ]),
+    );
+    expect(admin.recoveryTerminals).toEqual([
+      expect.objectContaining({
+        policyVersion: "ladder_v1",
+        terminalBackend: "rust-phase2",
+        terminalOutcome: "success",
+        events: 1,
+      }),
+    ]);
+  });
+});
+
 describe("admin solver diagnostics", () => {
   it("fails closed when the admin token is not configured", async () => {
     delete testEnv.ADMIN_TOKEN;
@@ -413,7 +559,9 @@ describe("admin solver diagnostics", () => {
     expect(disallowedOrigin.status).toBe(403);
     expect(await disallowedOrigin.json()).toEqual({ error: "origin_not_allowed" });
   });
+});
 
+describe("admin solver diagnostic aggregates", () => {
   it("returns private solver diagnostic aggregates by solver version and phase", async () => {
     const phase1 = solverDiagnosticEvent("solver-admin-phase1-01");
     const minEf1 = solverDiagnosticEvent("solver-admin-minef-001");
@@ -422,12 +570,15 @@ describe("admin solver diagnostics", () => {
     minEf1.event.solverVersion = "phase3_rust_min_ef";
     minEf1.event.solverPhase = "phase3";
     minEf1.event.solverBackend = "rust-min-ef";
+    minEf1.event.requestedBackend = "rust-min-ef";
     minEf2.event.solverVersion = "phase3_rust_min_ef";
     minEf2.event.solverPhase = "phase3";
     minEf2.event.solverBackend = "rust-min-ef";
+    minEf2.event.requestedBackend = "rust-min-ef";
     minEfFallback.event.solverVersion = "phase2_availability_h075_tau0_p3_rust";
     minEfFallback.event.solverPhase = "phase2";
     minEfFallback.event.solverBackend = "rust-phase2";
+    minEfFallback.event.requestedBackend = "rust-min-ef";
     minEfFallback.event.fallbackFrom = "rust-min-ef";
     minEfFallback.event.fallbackReason = "memo_full";
     minEfFallback.event.attemptedNodeCountBucket = "500000_999999";
@@ -463,6 +614,16 @@ describe("admin solver diagnostics", () => {
           solverVersion: "phase3_rust_min_ef",
           solverPhase: "phase3",
           events: 2,
+        }),
+      ]),
+    );
+    expect(body.cache).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          diagnosticVersion: 6,
+          requestedBackend: "rust-min-ef",
+          terminalBackend: "rust-min-ef",
+          executionKind: "executed",
         }),
       ]),
     );
@@ -527,6 +688,44 @@ describe("admin solver diagnostics", () => {
         }),
       ]),
     );
+  });
+
+  it("documents runtime trust and independent recovery aggregate semantics", async () => {
+    const body = (await (await fetchAdminSolverDiagnostics()).json()) as AdminDiagnosticsBody;
+
+    expect(body.runtimeDataPolicy).toEqual({
+      trustworthyFromDiagnosticVersion: 6,
+      filteredToTrustworthyVersions: true,
+      legacyClassification: "usage_weighted_historical_snapshot",
+      solveMsSemantics: "end_to_end_recovery_wall_time",
+    });
+    expect(body.recoveryDataPolicy).toEqual({
+      aggregatesAreIndependent: true,
+      ratioWarning: "do_not_divide_terminal_counts_by_rung_counts",
+    });
+  });
+
+  it("keeps legacy diagnostics in history but excludes them from runtime distributions", async () => {
+    const legacy = solverDiagnosticEvent("solver-admin-legacy-v5-01");
+    legacy.event.diagnosticVersion = 5;
+    legacy.event.solverVersion = "legacy_runtime_v5";
+    legacy.event.solverPhase = "legacy";
+    legacy.event.solverBackend = "legacy-js";
+    legacy.event.requestedBackend = "legacy-js";
+    const current = solverDiagnosticEvent("solver-admin-current-v6");
+
+    expect((await submit(legacy)).status).toBe(200);
+    expect((await submit(current)).status).toBe(200);
+
+    const body = (await (await fetchAdminSolverDiagnostics()).json()) as AdminDiagnosticsBody;
+    expect(body.allTime).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ solverVersion: "legacy_runtime_v5", events: 1 }),
+      ]),
+    );
+    expect(body.runtime?.some((row) => row.solverVersion === "legacy_runtime_v5")).toBe(false);
+    expect(body.nodeCounts?.some((row) => row.solverBackend === "legacy-js")).toBe(false);
+    expect(body.cache?.some((row) => row.diagnosticVersion === 5)).toBe(false);
   });
 });
 
@@ -616,9 +815,10 @@ describe("Turnstile verification response handling", () => {
       retryable: true,
     });
     expect(harness.siteverifyForms).toHaveLength(2);
-    expect(warning).toHaveBeenCalledWith(
-      "Turnstile verification unavailable.",
+    const networkWarnings = warning.mock.calls.map(([line]) => JSON.parse(String(line)));
+    expect(networkWarnings).toContainEqual(
       expect.objectContaining({
+        event: "turnstile_verification_unavailable",
         failure: "fetch_error",
         httpStatus: null,
         internallyRetried: true,
@@ -636,9 +836,10 @@ describe("Turnstile verification response handling", () => {
     });
     expect(harness.siteverifyForms).toHaveLength(2);
     expect(siteverifyForm(1).get("idempotency_key")).toBe(siteverifyForm(0).get("idempotency_key"));
-    expect(warning).toHaveBeenCalledWith(
-      "Turnstile verification unavailable.",
+    const httpWarnings = warning.mock.calls.map(([line]) => JSON.parse(String(line)));
+    expect(httpWarnings).toContainEqual(
       expect.objectContaining({
+        event: "turnstile_verification_unavailable",
         failure: "http_status",
         httpStatus: 503,
         internallyRetried: true,

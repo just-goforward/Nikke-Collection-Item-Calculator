@@ -1,111 +1,194 @@
-import ts from "typescript";
+import { parseSync, type Program } from "oxc-parser";
 
 import type { FunctionMetrics } from "./architecture-types.ts";
 
-function scriptKind(file: string) {
-  return file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-}
+type AstNode = {
+  type: string;
+  start: number;
+  end: number;
+  [key: string]: unknown;
+};
 
-function sourceFileFor(source: string, file: string) {
-  return ts.createSourceFile(
-    file,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKind(file),
-  );
-}
+const FUNCTION_TYPES = new Set([
+  "ArrowFunctionExpression",
+  "FunctionDeclaration",
+  "FunctionExpression",
+  "MethodDefinition",
+  "TSDeclareMethod",
+]);
 
-function isMeasuredFunction(node: ts.Node): node is ts.FunctionLikeDeclaration {
-  return (
-    ts.isArrowFunction(node) ||
-    ts.isConstructorDeclaration(node) ||
-    ts.isFunctionDeclaration(node) ||
-    ts.isFunctionExpression(node) ||
-    ts.isGetAccessorDeclaration(node) ||
-    ts.isMethodDeclaration(node) ||
-    ts.isSetAccessorDeclaration(node)
-  );
-}
+const CONTROL_TYPES = new Set([
+  "CatchClause",
+  "ConditionalExpression",
+  "DoWhileStatement",
+  "ForInStatement",
+  "ForOfStatement",
+  "ForStatement",
+  "IfStatement",
+  "SwitchStatement",
+  "WhileStatement",
+]);
 
-function functionName(node: ts.FunctionLikeDeclaration, sourceFile: ts.SourceFile) {
-  if (node.name) return node.name.getText(sourceFile);
-  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
-    const parent = node.parent;
-    if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) return parent.name.text;
-    if (ts.isPropertyAssignment(parent)) return parent.name.getText(sourceFile);
+const LOGICAL_OPERATORS = new Set(["&&", "||", "??"]);
+
+function parseProgram(source: string, file: string) {
+  const result = parseSync(file, source, {
+    astType: "ts",
+    lang: file.endsWith(".tsx") ? "tsx" : "ts",
+    sourceType: "module",
+  });
+  if (result.errors.length > 0) {
+    throw new Error(`Failed to parse ${file}: ${result.errors[0]?.message ?? "unknown error"}`);
   }
-  if (ts.isConstructorDeclaration(node)) return "constructor";
+  return result.program;
+}
+
+function isAstNode(value: unknown): value is AstNode {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { type?: unknown }).type === "string" &&
+    typeof (value as { start?: unknown }).start === "number" &&
+    typeof (value as { end?: unknown }).end === "number"
+  );
+}
+
+function childNodes(node: AstNode): AstNode[] {
+  const children: AstNode[] = [];
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "parent") continue;
+    if (isAstNode(value)) {
+      children.push(value);
+      continue;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (isAstNode(item)) children.push(item);
+      }
+    }
+  }
+  return children;
+}
+
+function lineStarts(source: string) {
+  const starts = [0];
+  for (let index = 0; index < source.length; index += 1) {
+    if (source.charCodeAt(index) === 10) starts.push(index + 1);
+  }
+  return starts;
+}
+
+function lineForPosition(starts: number[], position: number) {
+  let low = 0;
+  let high = starts.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const start = starts[middle] ?? 0;
+    const next = starts[middle + 1] ?? Number.POSITIVE_INFINITY;
+    if (position < start) high = middle - 1;
+    else if (position >= next) low = middle + 1;
+    else return middle + 1;
+  }
+  return starts.length;
+}
+
+function isMeasuredFunction(node: AstNode) {
+  return FUNCTION_TYPES.has(node.type);
+}
+
+function identifierName(value: unknown) {
+  if (isAstNode(value) && value.type === "Identifier") {
+    const name = value["name"];
+    return typeof name === "string" ? name : null;
+  }
+  return null;
+}
+
+function propertyName(value: unknown) {
+  if (!isAstNode(value)) return null;
+  if (value.type === "Identifier" || value.type === "PrivateIdentifier") {
+    const name = value["name"];
+    return typeof name === "string" ? name : null;
+  }
+  if (value.type === "Literal") {
+    const raw = value["raw"];
+    const literal = value["value"];
+    if (typeof literal === "string") return literal;
+    return typeof raw === "string" ? raw : null;
+  }
+  return null;
+}
+
+function functionName(node: AstNode, parent: AstNode | null) {
+  const directName = identifierName(node["id"]) ?? propertyName(node["key"]);
+  if (directName) return directName;
+  if (parent?.type === "VariableDeclarator") {
+    return identifierName(parent["id"]) ?? "<anonymous>";
+  }
+  if (parent?.type === "Property" || parent?.type === "PropertyDefinition") {
+    return propertyName(parent["key"]) ?? "<anonymous>";
+  }
+  if (node["kind"] === "constructor") return "constructor";
   return "<anonymous>";
 }
 
-function isControlNode(node: ts.Node) {
-  return (
-    ts.isCatchClause(node) ||
-    ts.isConditionalExpression(node) ||
-    ts.isDoStatement(node) ||
-    ts.isForInStatement(node) ||
-    ts.isForOfStatement(node) ||
-    ts.isForStatement(node) ||
-    ts.isIfStatement(node) ||
-    ts.isSwitchStatement(node) ||
-    ts.isWhileStatement(node)
-  );
+function isControlNode(node: AstNode) {
+  return CONTROL_TYPES.has(node.type);
 }
 
-function complexityIncrement(node: ts.Node) {
+function complexityIncrement(node: AstNode) {
   if (isControlNode(node)) return 1;
-  if (ts.isCaseClause(node)) return 1;
-  if (
-    ts.isBinaryExpression(node) &&
-    [
-      ts.SyntaxKind.AmpersandAmpersandToken,
-      ts.SyntaxKind.BarBarToken,
-      ts.SyntaxKind.QuestionQuestionToken,
-    ].includes(node.operatorToken.kind)
-  ) {
+  if (node.type === "SwitchCase") return 1;
+  if (node.type === "LogicalExpression" && LOGICAL_OPERATORS.has(String(node["operator"]))) {
     return 1;
   }
   return 0;
 }
 
-function controlFlowMetrics(root: ts.FunctionLikeDeclaration) {
+function controlFlowMetrics(root: AstNode) {
   let complexity = 1;
   let maxDepth = 0;
 
-  function visit(node: ts.Node, depth: number) {
+  function visit(node: AstNode, depth: number) {
     if (node !== root && isMeasuredFunction(node)) return;
     const control = isControlNode(node);
     const nextDepth = control ? depth + 1 : depth;
     if (control) maxDepth = Math.max(maxDepth, nextDepth);
     complexity += complexityIncrement(node);
-    ts.forEachChild(node, (child) => visit(child, nextDepth));
+    for (const child of childNodes(node)) visit(child, nextDepth);
   }
 
-  if (root.body) visit(root.body, 0);
+  const body = isAstNode(root["body"]) ? root["body"] : root;
+  visit(body, 0);
   return { complexity, maxDepth };
 }
 
+function walkFunctions(root: Program, visitor: (node: AstNode, parent: AstNode | null) => void) {
+  if (!isAstNode(root)) throw new Error("Oxc parser returned a non-node Program.");
+  function visit(node: AstNode, parent: AstNode | null) {
+    if (isMeasuredFunction(node)) visitor(node, parent);
+    for (const child of childNodes(node)) visit(child, node);
+  }
+  visit(root, null);
+}
+
 export function measureFunctions(source: string, file = "<memory>"): FunctionMetrics[] {
-  const sourceFile = sourceFileFor(source, file);
+  const program = parseProgram(source, file);
+  const starts = lineStarts(source);
   const metrics: FunctionMetrics[] = [];
 
-  function visit(node: ts.Node) {
-    if (isMeasuredFunction(node) && node.body) {
-      const startLine = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-      const endLine = sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
-      metrics.push({
-        file,
-        name: functionName(node, sourceFile),
-        startLine,
-        endLine,
-        lines: endLine - startLine + 1,
-        ...controlFlowMetrics(node),
-      });
-    }
-    ts.forEachChild(node, visit);
-  }
+  walkFunctions(program, (node, parent) => {
+    const startLine = lineForPosition(starts, node.start);
+    const endLine = lineForPosition(starts, node.end);
+    metrics.push({
+      file,
+      name: functionName(node, parent),
+      startLine,
+      endLine,
+      lines: endLine - startLine + 1,
+      ...controlFlowMetrics(node),
+    });
+  });
 
-  visit(sourceFile);
   return metrics;
 }

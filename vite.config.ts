@@ -17,7 +17,6 @@ export default defineConfig({
         manualChunks(id) {
           const normalizedId = id.replace(/\\/g, "/");
           if (normalizedId.includes("/node_modules/react")) return "react";
-          if (normalizedId.endsWith("/src/solver.ts")) return "solver";
           return undefined;
         },
       },
@@ -25,8 +24,5 @@ export default defineConfig({
   },
   worker: {
     format: "es",
-  },
-  optimizeDeps: {
-    exclude: ["zod", "zod/v4"],
   },
 });

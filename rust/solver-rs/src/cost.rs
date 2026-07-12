@@ -21,6 +21,10 @@ fn ipow(base: f64, p: f64) -> f64 {
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "keeps verified floating-point operand order"
+)]
 pub(crate) fn availability_cost(
     vb: f64,
     vp: f64,
@@ -31,14 +35,40 @@ pub(crate) fn availability_cost(
     hf: f64,
     np: f64,
 ) -> f64 {
-    let rb = ratio(vb, sb + hf * GAIN_B);
-    let rp = ratio(vp, sp + hf * GAIN_P);
-    let ry = ratio(vy, sy + hf * GAIN_Y);
+    availability_cost_pre(
+        vb,
+        vp,
+        vy,
+        sb + hf * GAIN_B,
+        sp + hf * GAIN_P,
+        sy + hf * GAIN_Y,
+        np,
+        1.0 / np,
+    )
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "keeps verified floating-point operand order with solve-invariant inputs"
+)]
+pub(crate) fn availability_cost_pre(
+    vb: f64,
+    vp: f64,
+    vy: f64,
+    availability_b: f64,
+    availability_p: f64,
+    availability_y: f64,
+    np: f64,
+    inv_np: f64,
+) -> f64 {
+    let rb = ratio(vb, availability_b);
+    let rp = ratio(vp, availability_p);
+    let ry = ratio(vy, availability_y);
     if np == f64::INFINITY {
         return rb.max(rp).max(ry);
     }
     if !np.is_finite() || np <= 0.0 {
         return f64::INFINITY;
     }
-    (ipow(rb, np) + ipow(rp, np) + ipow(ry, np)).powf(1.0 / np)
+    (ipow(rb, np) + ipow(rp, np) + ipow(ry, np)).powf(inv_np)
 }

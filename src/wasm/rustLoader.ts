@@ -7,7 +7,7 @@ export function rustCoreExportsFromInstance(instance: WebAssembly.Instance): Rus
   return instance.exports as unknown as RustCoreExports;
 }
 
-export function createRustPhase2SolverFromInstance(
+function createRustPhase2SolverFromInstance(
   instance: WebAssembly.Instance,
 ): RustPhase2ProductSolver {
   return createRustPhase2Solver(rustCoreExportsFromInstance(instance));

@@ -42,27 +42,24 @@ function observedToneClass(comparisonClassName: string) {
   return classes.observedDefault;
 }
 
+function observedDirectionClass(
+  geometry: Pick<RateBarGeometry, "actualPercent" | "theoreticalPercent">,
+) {
+  if (geometry.actualPercent < geometry.theoreticalPercent) return classes.observedLeft;
+  return classes.observedRight;
+}
+
 function eventInsideInterval(
   event: BarMoveEvent,
   comparison: ComparisonState,
-  geometry: Pick<RateBarGeometry, "intervalLeft" | "intervalRight">,
+  _geometry: Pick<RateBarGeometry, "intervalLeft" | "intervalRight">,
 ) {
+  void event;
   if (!comparison.interval) return false;
-  const rect = event.currentTarget.getBoundingClientRect();
-  if (rect.width <= 0) return false;
-  const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
-  return xPercent >= geometry.intervalLeft && xPercent <= geometry.intervalRight;
+  return true;
 }
 
-function IntervalBand({
-  geometry,
-  handlers,
-  visible,
-}: {
-  geometry: Pick<RateBarGeometry, "intervalLeft" | "intervalWidth">;
-  handlers: RateBarHandlers;
-  visible: boolean;
-}) {
+function IntervalBand({ handlers, visible }: { handlers: RateBarHandlers; visible: boolean }) {
   if (!visible) return null;
   return (
     <button
@@ -78,7 +75,7 @@ function IntervalBand({
       onPointerEnter={handlers.onIntervalPointerEnter}
       onPointerLeave={handlers.onIntervalPointerLeave}
       onPointerMove={handlers.onIntervalPointerMove}
-      style={{ left: `${geometry.intervalLeft}%`, width: `${geometry.intervalWidth}%` }}
+      style={{ left: "0%", width: "100%" }}
       type="button"
     ></button>
   );
@@ -110,14 +107,14 @@ type RateBarGeometryPick = Pick<RateBarGeometry, "theoreticalPercent"> & {
 };
 
 function ActualMarker({
-  actualWidth,
+  actualPercent,
   attempts,
   actualRate,
-}: Pick<RateBarGeometry, "actualWidth"> & {
+}: Pick<RateBarGeometry, "actualPercent"> & {
   attempts: number;
   actualRate: number;
 }) {
-  const edge = markerEdge(actualWidth);
+  const edge = markerEdge(actualPercent);
   return (
     <div
       className={joinClasses(
@@ -126,7 +123,7 @@ function ActualMarker({
         edge === "high" && "edge-high",
         edge === "high" && classes.actualMarkerHigh,
       )}
-      style={edge === "high" ? undefined : { left: `${actualWidth}%` }}
+      style={edge === "high" ? undefined : { left: `${actualPercent}%` }}
     >
       <span
         className={joinClasses(
@@ -177,14 +174,17 @@ export function RateBar({
       onPointerLeave={onIntervalPointerLeave}
       onPointerMove={handleBarMove}
     >
-      <IntervalBand
-        geometry={geometry}
-        handlers={intervalHandlers}
-        visible={Boolean(comparison.interval)}
-      />
+      <IntervalBand handlers={intervalHandlers} visible={Boolean(comparison.interval)} />
       <div
-        className={joinClasses(classes.observed, observedToneClass(comparison.className))}
-        style={{ width: `${geometry.actualWidth}%` }}
+        className={joinClasses(
+          classes.observed,
+          observedDirectionClass(geometry),
+          observedToneClass(comparison.className),
+        )}
+        style={{
+          left: `${geometry.deviationLeft}%`,
+          width: attempts ? `${geometry.deviationWidth}%` : "0%",
+        }}
       ></div>
       <TheoryMarker
         attempts={attempts}
@@ -193,7 +193,7 @@ export function RateBar({
       />
       <ActualMarker
         actualRate={actualRate}
-        actualWidth={geometry.actualWidth}
+        actualPercent={geometry.actualPercent}
         attempts={attempts}
       />
     </div>

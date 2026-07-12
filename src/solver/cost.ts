@@ -10,12 +10,12 @@ export function legacySupplyCostScore(vector: KitVector) {
   return KIT_ORDER.reduce((sum, kit) => sum + vector[kit] / EXPECTED_28_DAY_GAIN[kit], 0);
 }
 
-export function availabilityRatio(consumption: number, availability: number) {
+function availabilityRatio(consumption: number, availability: number) {
   if (availability > 0) return consumption / availability;
   return consumption > STRICT_EPSILON ? Number.POSITIVE_INFINITY : 0;
 }
 
-export function availabilityCostScoreWithParams(
+function availabilityCostScoreWithParams(
   vector: KitVector,
   stockPieces: KitVector,
   model: Extract<ResearchCostModel, { kind: "availability-pnorm" }> = {

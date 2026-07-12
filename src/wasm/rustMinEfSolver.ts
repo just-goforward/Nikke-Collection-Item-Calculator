@@ -1,5 +1,4 @@
 ﻿import type { SolverInput } from "../types";
-import { isMemoFull } from "./rustCore";
 import { solveRustPhase2 } from "./rustPhase2ProductSolver";
 import {
   RUST_MEMORY_STRATEGY,
@@ -33,11 +32,13 @@ import {
   buildRecommendedRun,
   simulate,
 } from "./rustProductView";
+import { isMemoFull } from "./rustStatus";
 
 export async function solveRustMinEfProduct(
   input: SolverInput,
   wasmUrl: string,
   progress?: (progress: { phase: string; scanned?: number; total?: number | null }) => void,
+  options: { fallbackToPhase2?: boolean } = {},
 ) {
   const startedAt = nowMs();
   const normalizedInput = normalizeRustProductInput(input);
@@ -120,7 +121,7 @@ export async function solveRustMinEfProduct(
       },
     });
   } catch (error) {
-    if (!isMemoFull(error)) throw error;
+    if (!isMemoFull(error) || options.fallbackToPhase2 === false) throw error;
     await releaseRustMinEfSolverCache();
     if (progress) progress({ phase: "fallback-phase2", scanned: 0, total: 1 });
     const fallback = await solveRustPhase2(input, wasmUrl, progress, {
@@ -136,7 +137,7 @@ export async function solveRustMinEf(
   wasmUrl: string,
   progress?: (progress: { phase: string; scanned?: number; total?: number | null }) => void,
 ) {
-  return solveRustMinEfProduct(input, wasmUrl, progress);
+  return solveRustMinEfProduct(input, wasmUrl, progress, { fallbackToPhase2: false });
 }
 
 function nowMs() {

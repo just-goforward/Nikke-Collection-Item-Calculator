@@ -196,6 +196,10 @@ unsafe fn exact_value(
     agg_p
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "keeps exact-replan state explicit and allocation-free"
+)]
 pub(crate) unsafe fn exact_core(
     sid: i32,
     pb: i32,

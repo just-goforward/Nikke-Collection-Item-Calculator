@@ -53,6 +53,8 @@ function outer() {
   it("rejects imports that cross product runtime boundaries", () => {
     expect(violatesModuleBoundary("src/app.ts", "cloudflare/src/worker.ts")).toBe(true);
     expect(violatesModuleBoundary("cloudflare/src/worker.ts", "src/types.ts")).toBe(true);
+    expect(violatesModuleBoundary("cloudflare/src/worker.ts", "shared/game.ts")).toBe(false);
+    expect(violatesModuleBoundary("shared/game.ts", "src/types.ts")).toBe(true);
     expect(violatesModuleBoundary("src/app.ts", "src/types.ts")).toBe(false);
     expect(
       violatesModuleBoundary("cloudflare/src/worker.ts", "cloudflare/src/http.ts"),
@@ -76,6 +78,7 @@ function outer() {
       a: `${fixtureRoot}/a.ts`,
       b: `${fixtureRoot}/b.ts`,
       reExport: `${fixtureRoot}/re-export.ts`,
+      facade: `${fixtureRoot}/facade.ts`,
       unsafe: `${fixtureRoot}/unsafe.ts`,
       emptyCatch: `${fixtureRoot}/empty-catch.ts`,
       nested: `${fixtureRoot}/nested.ts`,
@@ -88,6 +91,7 @@ function outer() {
       writeFileSync(files.a, 'import { b } from "./b";\nexport const a = b;\n');
       writeFileSync(files.b, 'import { a } from "./a";\nexport const b = a;\n');
       writeFileSync(files.reExport, 'export { a } from "./a";\n');
+      writeFileSync(files.facade, 'import { a } from "./a";\nexport { a };\n');
       writeFileSync(files.unsafe, `const value = {} ${unsafeCast};\nvoid value;\n`);
       writeFileSync(files.emptyCatch, `try {\n  JSON.parse("bad");\n} ${emptyCatch}\n`);
       writeFileSync(files.entry, 'export async function load() {\n  return import("./dynamic.ts");\n}\n');
@@ -124,6 +128,9 @@ function tooNested(a: boolean, b: boolean, c: boolean, d: boolean, e: boolean) {
       );
       expect(issues.some((issue) => issue.file === files.dynamic)).toBe(false);
       expect(issues.some((issue) => issue.file === files.orphan)).toBe(true);
+      expect(issues.some((issue) => issue.code === "re-export" && issue.file === files.facade)).toBe(
+        true,
+      );
     } finally {
       rmSync(fixtureRoot, { recursive: true, force: true });
     }

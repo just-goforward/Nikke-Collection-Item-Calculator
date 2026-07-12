@@ -1,18 +1,20 @@
-import { type Dispatch, type SetStateAction, useCallback } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useRef } from "react";
 
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import type { SolverInput } from "../types";
 import type { DetailView, LoadingView, RecommendationAction, ResultView } from "../ui-types";
-import { makeSolverDiagnosticEvent } from "./calculatorDiagnostics";
+import { makeSolverDiagnosticEvent, makeSolverRecoveryEvent } from "./calculatorDiagnostics";
 import {
   DEFAULT_LOADING_TEXT,
-  KIT_KEYS,
   makeStatsEvent,
   type PendingStatsEvent,
+  type SolveOutcome,
   type SolverResult,
   sameState,
 } from "./calculatorShared";
 import type { OutcomeApplyResult } from "./outcomeFlowTypes";
+import { SolverRecoveryFailure } from "./solverRecovery";
+import { WorkerTaskCancelled } from "./solverWorkerClient";
 
 type MutableRef<T> = { current: T };
 
@@ -22,21 +24,27 @@ type SolveFlowOptions = {
   currentStateSnapshot: () => SolverInput["start"];
   latestResultRef: MutableRef<SolverResult | null>;
   pendingStatsEventRef: MutableRef<PendingStatsEvent | null>;
+  prepareForSolve: () => void;
   queueStatsEvent: (event: StatsSubmissionEvent) => void;
   renderResult: (result: SolverResult, previousAction?: RecommendationAction | null) => void;
   setCalculateBusy: (busy: boolean) => void;
   setDetailView: Dispatch<SetStateAction<DetailView>>;
   setLoading: Dispatch<SetStateAction<LoadingView>>;
   setResultView: Dispatch<SetStateAction<ResultView>>;
-  solveBestAvailable: (input: SolverInput) => Promise<SolverResult>;
+  solveBestAvailable: (input: SolverInput) => Promise<SolveOutcome>;
 };
 
-function recommendationFromResult(result: SolverResult | null): RecommendationAction | null {
-  if (!result?.possible || !result.best) return null;
-  return {
-    kit: result.best.firstAction,
-    count: result.best.run?.count || 1,
-  };
+type SolveAndRenderOptions = {
+  beforeRender?: () => void;
+  loadingText?: string;
+  previousAction?: RecommendationAction | null;
+};
+
+const OUTCOME_FAIL_LOADING_TEXT = "대성공 X를 반영해 다음 추천을 계산하고 있습니다.";
+const MIN_LOADING_VISIBLE_MS = 300;
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function pendingStatsEventFromInput({
@@ -56,15 +64,11 @@ function pendingStatsEventFromInput({
   const before = pending.stockBefore;
   const after = input.stock;
   const usedKits = before[pending.kit] - after[pending.kit];
-  const successAttempt = usedKits / 10;
-  const otherChanged = KIT_KEYS.some((kit) => kit !== pending.kit && before[kit] !== after[kit]);
-  const valid =
-    !otherChanged &&
-    Number.isInteger(successAttempt) &&
-    successAttempt >= 1 &&
-    successAttempt <= pending.recommendedUses &&
-    usedKits > 0;
-  if (!valid) return null;
+  const inferredAttempt = Math.round(usedKits / 10);
+  const successAttempt = Math.min(
+    pending.recommendedUses,
+    Math.max(1, Number.isFinite(inferredAttempt) ? inferredAttempt : 1),
+  );
   return makeStatsEvent({
     start: pending.start,
     kit: pending.kit,
@@ -83,6 +87,7 @@ export function useSolveFlow({
   currentStateSnapshot,
   latestResultRef,
   pendingStatsEventRef,
+  prepareForSolve,
   queueStatsEvent,
   renderResult,
   setCalculateBusy,
@@ -91,30 +96,63 @@ export function useSolveFlow({
   setResultView,
   solveBestAvailable,
 }: SolveFlowOptions) {
+  const busyRef = useRef(false);
+
   const solveAndRenderInput = useCallback(
-    async (input: SolverInput, previousAction?: RecommendationAction | null) => {
-      setLoading({ active: true, text: DEFAULT_LOADING_TEXT });
-      setCalculateBusy(true);
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+    async (input: SolverInput, options: SolveAndRenderOptions = {}) => {
+      if (busyRef.current) return false;
+      busyRef.current = true;
+      let skipUiCleanup = false;
+      const loadingStartedAt = performance.now();
       try {
-        const result = await solveBestAvailable(input);
-        renderResult(result, previousAction);
-        const diagnosticEvent = makeSolverDiagnosticEvent(result);
+        prepareForSolve();
+        setLoading({ active: true, text: options.loadingText ?? DEFAULT_LOADING_TEXT });
+        setCalculateBusy(true);
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const outcome = await solveBestAvailable(input);
+        const result = outcome.result;
+        options.beforeRender?.();
+        renderResult(result, options.previousAction);
+        const diagnosticEvent = makeSolverDiagnosticEvent(outcome);
         if (diagnosticEvent) queueStatsEvent(diagnosticEvent);
+        const recoveryEvent = makeSolverRecoveryEvent(result.input, outcome.recoveryTrace);
+        if (recoveryEvent) queueStatsEvent(recoveryEvent);
+        return true;
       } catch (error) {
+        if (
+          error instanceof WorkerTaskCancelled &&
+          error.cancellation.task === "solve" &&
+          error.cancellation.reason === "component_unmount"
+        ) {
+          skipUiCleanup = true;
+          return false;
+        }
+        if (error instanceof SolverRecoveryFailure) {
+          const recoveryEvent = makeSolverRecoveryEvent(input, error.trace);
+          if (recoveryEvent) queueStatsEvent(recoveryEvent);
+        }
+        const reportedError = error instanceof SolverRecoveryFailure ? error.workerError : error;
         latestResultRef.current = null;
         setResultView({
           type: "error",
-          message: error instanceof Error ? error.message : String(error),
+          reason: "solver_failure",
+          message: reportedError instanceof Error ? reportedError.message : String(reportedError),
         });
         setDetailView({ type: "empty", message: "오류가 발생했습니다." });
+        return true;
       } finally {
-        setLoading({ active: false, text: DEFAULT_LOADING_TEXT });
-        setCalculateBusy(false);
+        if (!skipUiCleanup) {
+          const remainingMs = MIN_LOADING_VISIBLE_MS - (performance.now() - loadingStartedAt);
+          if (remainingMs > 0) await delay(remainingMs);
+          setLoading({ active: false, text: DEFAULT_LOADING_TEXT });
+          setCalculateBusy(false);
+        }
+        busyRef.current = false;
       }
     },
     [
       latestResultRef,
+      prepareForSolve,
       queueStatsEvent,
       renderResult,
       setCalculateBusy,
@@ -126,6 +164,7 @@ export function useSolveFlow({
   );
 
   const runCalculation = useCallback(async () => {
+    if (busyRef.current) return;
     const input = collectInput();
     const pendingEvent = pendingStatsEventFromInput({
       currentStateSnapshot,
@@ -144,12 +183,18 @@ export function useSolveFlow({
 
   const applyOutcomeAndMaybeCalculate = useCallback(
     async (outcome: "success" | "fail") => {
-      const previousAction = recommendationFromResult(latestResultRef.current);
+      if (busyRef.current) return null;
       const applied = applyOutcome(outcome);
-      if (applied?.outcome !== "fail") return;
-      await solveAndRenderInput(applied.nextInput, previousAction);
+      if (applied?.outcome !== "fail") return applied;
+      const started = await solveAndRenderInput(applied.nextInput, {
+        beforeRender: applied.commit,
+        loadingText: OUTCOME_FAIL_LOADING_TEXT,
+        previousAction: applied.previousAction,
+      });
+      if (!started) return null;
+      return applied;
     },
-    [applyOutcome, latestResultRef, solveAndRenderInput],
+    [applyOutcome, solveAndRenderInput],
   );
 
   return { applyOutcomeAndMaybeCalculate, runCalculation };

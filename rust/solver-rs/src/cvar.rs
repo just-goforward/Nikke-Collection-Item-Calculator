@@ -355,6 +355,10 @@ unsafe fn follow_recorded_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
     v
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "matches the stable WASM CVaR setup ABI"
+)]
 pub(crate) unsafe fn cvar_setup(
     sid: i32,
     pb: i32,

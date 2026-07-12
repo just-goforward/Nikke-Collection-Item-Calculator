@@ -2,7 +2,9 @@
   "$schema": "./node_modules/knip/schema-jsonc.json",
   "entry": [
     "src/worker.ts",
-    "cloudflare/src/worker.ts"
+    "cloudflare/src/worker.ts",
+    "scripts/**/*.ts",
+    "benchmarks/**/*.ts"
   ],
   "project": [
     "src/**/*.{ts,tsx,css}",
@@ -17,8 +19,13 @@
     "devDependencies",
     "unlisted",
     "binaries",
-    "unresolved"
+    "unresolved",
+    "exports",
+    "types",
+    "duplicates"
   ],
-  "ignoreFiles": ["cloudflare/src/test-env.d.ts"],
-  "ignoreDependencies": ["wrangler"]
+  "ignore": [
+    "src/wasm/rustRerankProductSolver.ts",
+    "src/wasm/rustResearchLoader.ts"
+  ]
 }

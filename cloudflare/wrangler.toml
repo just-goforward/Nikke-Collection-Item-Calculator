@@ -17,6 +17,9 @@ database_id = "3e18385a-af83-4c67-83a0-ab889149692c"
 [vars]
 ALLOWED_ORIGINS = "https://just-goforward.github.io"
 
+[secrets]
+required = ["TURNSTILE_SECRET_KEY", "RATE_LIMIT_SECRET"]
+
 [env.staging]
 workers_dev = true
 
@@ -27,3 +30,6 @@ database_id = "95f4029b-669a-4e1e-a192-5c094e659e33"
 
 [env.staging.vars]
 ALLOWED_ORIGINS = "https://just-goforward.github.io"
+
+[env.staging.secrets]
+required = ["TURNSTILE_SECRET_KEY", "RATE_LIMIT_SECRET"]

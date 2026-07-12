@@ -29,10 +29,12 @@ export function solverDiagnosticEvent(eventId: string) {
     turnstileToken: TEST_TURNSTILE_TOKEN,
     event: {
       kind: "solver_diagnostic",
-      diagnosticVersion: 5,
+      diagnosticVersion: 6,
       solverVersion: "phase1",
       solverPhase: "phase1",
       solverBackend: "js-phase2",
+      requestedBackend: "js-phase2",
+      executionKind: "executed",
       fallbackFrom: "none",
       fallbackReason: "none",
       memoryStrategy: "balanced-v1",
@@ -58,6 +60,30 @@ export function solverDiagnosticEvent(eventId: string) {
       changedFromLegacySupply: "no",
       legacyPrivateStatsAvailable: true,
       legacyEventAggregateMatchable: false,
+    },
+  };
+}
+
+export function solverRecoveryEvent(eventId: string) {
+  return {
+    version: 1,
+    eventId,
+    sourceHost: "test.example",
+    turnstileToken: TEST_TURNSTILE_TOKEN,
+    event: {
+      kind: "solver_recovery",
+      recoveryVersion: 1,
+      policyVersion: "ladder_v1",
+      requestedBackend: "rust-min-ef",
+      minEfExit: "memo_full",
+      phase2Exit: "success",
+      jsExit: "not_attempted",
+      terminalBackend: "rust-phase2",
+      terminalOutcome: "success",
+      minEfMemoTier: "21",
+      phase2MemoTier: "22",
+      start: { grade: "R", level: 0, exp: 0 },
+      stockBuckets: { blue: "400_449", purple: "200_249", yellow: "100_149" },
     },
   };
 }

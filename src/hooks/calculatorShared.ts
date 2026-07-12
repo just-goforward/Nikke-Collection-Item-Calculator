@@ -1,3 +1,5 @@
+import type { SolverExecutionKind } from "../../shared/statsContract";
+import type { SolverBackend } from "../lib/solverRuntime";
 import { FIXED_REQUIRED_EXP } from "../solver/domain";
 import type {
   CollectionState,
@@ -9,6 +11,7 @@ import type {
   Strategy,
 } from "../types";
 import type { DetailView, ResultView, ValidationView } from "../ui-types";
+import type { SolverRecoveryTrace } from "./solverRecoveryPolicy";
 
 export const EMPTY_RESULT: ResultView = {
   type: "empty",
@@ -24,11 +27,12 @@ export const INITIAL_VALIDATION: ValidationView = {
   buttonLabel: "니붕이들 시켜보기",
   disabled: false,
   stageReach: null,
+  status: "idle",
   message: "검산을 실행하면 SR 15 성공률이 여기에 표시됩니다.",
 };
 
 export const DEFAULT_LOADING_TEXT = "보유 키트 상태를 MDP로 평가하고 있습니다.";
-export const DEFAULT_STOCK_NOTICE = "대성공이 발생했습니다. 보유 키트 수를 직접 수정해 주세요.";
+export const DEFAULT_STOCK_NOTICE = "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.";
 export const KIT_KEYS: Kit[] = ["blue", "purple", "yellow"];
 
 export type RecommendedRun = {
@@ -55,7 +59,7 @@ export type SolverBest = {
   resourceCost?: number;
 };
 
-export type SolverCandidate = {
+type SolverCandidate = {
   firstAction: Kit;
   firstProbability: number;
   successProbability: number;
@@ -95,8 +99,19 @@ export type SolverResult = {
     phase2MemoRetried?: boolean;
     attemptedStates?: number;
     solveMs?: number;
+    workerEndToEndMs?: number;
+    workerExecutionMs?: number;
+    workerLane?: "shared" | "validation";
+    workerQueueWaitMs?: number;
   };
   topCandidates?: SolverCandidate[];
+};
+
+export type SolveOutcome = {
+  executionKind: SolverExecutionKind;
+  recoveryTrace?: SolverRecoveryTrace;
+  requestedBackend: SolverBackend;
+  result: SolverResult;
 };
 
 export type MonteCarloResult = {
@@ -107,6 +122,13 @@ export type MonteCarloResult = {
   quantiles?: Record<Kit, { p50: number; p90: number; p95: number }>;
   depletion?: number;
   stageReach?: StageReachPoint[];
+  validationPolicyCache?: "hit" | "miss";
+  workerTiming?: {
+    endToEndMs: number;
+    executionMs: number;
+    lane: "shared" | "validation";
+    queueWaitMs: number;
+  };
 };
 
 export type PendingStatsEvent = {
@@ -225,5 +247,13 @@ export function rememberCache<T>(cache: Map<string, T>, key: string, value: T, l
     if (typeof first !== "string") break;
     cache.delete(first);
   }
+  return value;
+}
+
+export function readCache<T>(cache: Map<string, T>, key: string): T | null {
+  const value = cache.get(key);
+  if (value === undefined) return null;
+  cache.delete(key);
+  cache.set(key, value);
   return value;
 }

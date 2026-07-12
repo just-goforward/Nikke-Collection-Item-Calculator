@@ -1,11 +1,11 @@
 import { ignoreExpectedError } from "../lib/errorHandling";
 import { rustCoreExportsFromInstance } from "./rustLoader";
 import { createRustPhase2ResearchSolver } from "./rustPhase2ResearchCore";
-import type { RustPhase2Solver } from "./rustTypes";
+import type { RustPhase2ResearchSolver } from "./rustTypes";
 
 export function createRustPhase2ResearchSolverFromInstance(
   instance: WebAssembly.Instance,
-): RustPhase2Solver {
+): RustPhase2ResearchSolver {
   return createRustPhase2ResearchSolver(rustCoreExportsFromInstance(instance));
 }
 
@@ -24,7 +24,7 @@ async function instantiateWasmFromUrl(url: string): Promise<WebAssembly.Instance
   }
 }
 
-export async function loadRustPhase2ResearchSolver(url: string): Promise<RustPhase2Solver> {
+export async function loadRustPhase2ResearchSolver(url: string): Promise<RustPhase2ResearchSolver> {
   const instance = await instantiateWasmFromUrl(url);
   return createRustPhase2ResearchSolverFromInstance(instance);
 }

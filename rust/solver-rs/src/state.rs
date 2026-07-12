@@ -1,6 +1,8 @@
 use crate::constants::{
-    EXP_BUCKETS, LEVEL_BUCKETS, STATE_DIV, STOCK_ID_SIZE, STOCK_P_DIM, STOCK_Y_DIM,
+    EXP_BUCKETS, LEVEL_BUCKETS, STATE_BUCKETS, STATE_DIV, STOCK_ID_SIZE, STOCK_P_DIM, STOCK_Y_DIM,
 };
+
+const _: () = assert!((STATE_BUCKETS as u64) * (STOCK_ID_SIZE as u64) <= u32::MAX as u64);
 
 #[inline]
 pub(crate) fn encode_state(grade_id: i32, level: i32, exp100: i32) -> i32 {

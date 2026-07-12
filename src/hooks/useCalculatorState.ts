@@ -44,7 +44,9 @@ export function useCalculatorState({ onInputChanged, onMaxLevelState }: UseCalcu
     },
     stateRef,
   });
-  const calculateDisabled = level >= 15 || manualStockEditRequired || calculateBusy;
+  const hasUsableStock = stock.blue >= 10 || stock.purple >= 10 || stock.yellow >= 10;
+  const calculateDisabled =
+    level >= 15 || manualStockEditRequired || calculateBusy || !hasUsableStock;
 
   return {
     grade,

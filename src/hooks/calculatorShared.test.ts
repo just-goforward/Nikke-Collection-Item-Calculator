@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { makeSolverDiagnosticEvent } from "./calculatorDiagnostics";
+import { makeSolverDiagnosticEvent, makeSolverRecoveryEvent } from "./calculatorDiagnostics";
+import { readCache, rememberCache, type SolverResult } from "./calculatorShared";
 
 describe("makeSolverDiagnosticEvent", () => {
   it("uses solver version and phase from result stats", () => {
-    const result = {
+    const result: SolverResult = {
       possible: true,
       input: {
         start: { grade: "SR", level: 10, exp: 0 },
@@ -27,8 +28,6 @@ describe("makeSolverDiagnosticEvent", () => {
         legacySupplyCost: 0.2,
       },
       candidateCount: 1,
-      route: [],
-      monteCarlo: null,
       stats: {
         solverVersion: "phase2_availability_h075_tau0_p3_rust_rerank_staging",
         solverPhase: "phase2-rerank",
@@ -44,10 +43,18 @@ describe("makeSolverDiagnosticEvent", () => {
         solveMs: 123,
       },
       topCandidates: [],
-    } as Parameters<typeof makeSolverDiagnosticEvent>[0];
+    };
 
-    expect(makeSolverDiagnosticEvent(result)).toMatchObject({
-      diagnosticVersion: 5,
+    expect(
+      makeSolverDiagnosticEvent({
+        executionKind: "executed",
+        requestedBackend: "rust-min-ef",
+        result,
+      }),
+    ).toMatchObject({
+      diagnosticVersion: 6,
+      executionKind: "executed",
+      requestedBackend: "rust-min-ef",
       solverVersion: "phase2_availability_h075_tau0_p3_rust_rerank_staging",
       solverPhase: "phase2-rerank",
       solverBackend: "rust-phase2-rerank",
@@ -61,6 +68,47 @@ describe("makeSolverDiagnosticEvent", () => {
       attemptedNodeCountBucket: "500000_999999",
       solveMsBucket: "100_250",
       stockBuckets: { blue: "100_149", purple: "100_149", yellow: "100_149" },
+    });
+  });
+
+  it("refreshes cache recency on reads", () => {
+    const cache = new Map<string, number>();
+    rememberCache(cache, "a", 1, 2);
+    rememberCache(cache, "b", 2, 2);
+
+    expect(readCache(cache, "a")).toBe(1);
+    rememberCache(cache, "c", 3, 2);
+
+    expect([...cache.entries()]).toEqual([
+      ["a", 1],
+      ["c", 3],
+    ]);
+  });
+
+  it("emits only bucketed recovery context when the backend changes", () => {
+    expect(
+      makeSolverRecoveryEvent(
+        {
+          start: { grade: "R", level: 0, exp: 0 },
+          stock: { blue: 400, purple: 200, yellow: 100 },
+          strategy: "supply",
+        },
+        {
+          jsExit: "not_attempted",
+          minEfExit: "memo_full",
+          phase2Exit: "success",
+          policyVersion: "ladder_v1",
+          requestedBackend: "rust-min-ef",
+          terminalBackend: "rust-phase2",
+          terminalOutcome: "success",
+        },
+      ),
+    ).toMatchObject({
+      kind: "solver_recovery",
+      minEfExit: "memo_full",
+      phase2Exit: "success",
+      stockBuckets: { blue: "400_449", purple: "200_249", yellow: "100_149" },
+      terminalBackend: "rust-phase2",
     });
   });
 });

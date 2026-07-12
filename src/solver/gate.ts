@@ -92,7 +92,7 @@ export function probabilityToleranceForStrategy(strategy: unknown, toleranceOver
   return STRATEGY_PROBABILITY_TOLERANCE[normalized];
 }
 
-export function withinProbabilityTolerance(
+function withinProbabilityTolerance(
   successProbability: number,
   maxSuccessProbability: number,
   strategy: unknown,
@@ -104,7 +104,7 @@ export function withinProbabilityTolerance(
   );
 }
 
-export function compareEfficiency<T extends ComparableCandidate>(
+function compareEfficiency<T extends ComparableCandidate>(
   a: T,
   b: T,
   strategy: Strategy = STRATEGY_DEFAULT,

@@ -33,11 +33,6 @@ export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver
     releaseMemo: () => releaseMemo(state),
     solveRootWithCandidates: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
       solveMinEfRootWithCandidates(state, start, stock, horizonFactor, normPower, tolerance),
-    rootCandidates: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
-      solveMinEfRootWithCandidates(state, start, stock, horizonFactor, normPower, tolerance)
-        .candidates,
-    solveRoot: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
-      solveMinEfRootWithCandidates(state, start, stock, horizonFactor, normPower, tolerance).root,
   };
 }
 

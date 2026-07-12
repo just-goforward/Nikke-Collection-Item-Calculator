@@ -1,62 +1,79 @@
 import { useCallback, useRef } from "react";
 
-import { solverBackendFromRuntime } from "../lib/solverRuntime";
+import { parallelValidationFromRuntime, solverBackendFromRuntime } from "../lib/solverRuntime";
 import type { ProgressEvent, SolverInput } from "../types";
 import {
   inputKey,
   type MonteCarloResult,
+  readCache,
   rememberCache,
+  type SolveOutcome,
   type SolverResult,
 } from "./calculatorShared";
-import { solveWithJsFallback, validateWithJsFallback } from "./solverFallback";
-import { useWorkerTaskClient, WorkerTaskError } from "./solverWorkerClient";
+import { validateWithJsFallback } from "./solverFallback";
+import { solveWithClientRecovery } from "./solverRecovery";
+import { WORKER_ERROR_TRAITS } from "./solverRecoveryPolicy";
+import {
+  classifyWorkerFailure,
+  useWorkerTaskClient,
+  type WorkerClientTiming,
+  type WorkerTaskError,
+} from "./solverWorkerClient";
 
 const SOLVE_CACHE_LIMIT = 32;
 const VALIDATION_CACHE_LIMIT = 16;
 
-async function resolveWorkerOrFallback<T>({
+export function makeSolveCacheKey(
+  backend: ReturnType<typeof solverBackendFromRuntime>,
+  input: SolverInput,
+) {
+  return `${backend}|${inputKey(input)}`;
+}
+
+export function readSolveCache(
+  cache: Map<string, SolverResult>,
+  key: string,
+  requestedBackend: ReturnType<typeof solverBackendFromRuntime>,
+): SolveOutcome | null {
+  const result = readCache(cache, key);
+  return result ? { executionKind: "cache_hit", requestedBackend, result } : null;
+}
+
+export async function resolveWorkerOrFallback<T>({
   fallback,
-  onWorkerError,
   workerPromise,
 }: {
   fallback: () => Promise<T>;
-  onWorkerError: () => void;
   workerPromise: Promise<unknown> | null;
 }): Promise<{ result: T; workerError: WorkerTaskError | null }> {
   if (workerPromise) {
     try {
       return { result: (await workerPromise) as T, workerError: null };
     } catch (error) {
-      onWorkerError();
-      const workerError =
-        error instanceof WorkerTaskError
-          ? error
-          : new WorkerTaskError({
-              code: "worker_error",
-              fallbackEligible: true,
-              message: error instanceof Error ? error.message : String(error),
-              retryable: true,
-            });
+      const failure = classifyWorkerFailure(error);
+      if (failure.kind !== "worker_error") throw failure.error;
+      const workerError = failure.error;
+      const traits = WORKER_ERROR_TRAITS[workerError.code];
+      if (!workerError.fallbackEligible || !traits.jsSemanticallySafe) throw workerError;
       return { result: await fallback(), workerError };
     }
   }
   return { result: await fallback(), workerError: null };
 }
 
-function withWorkerFallbackStats(
+function withWorkerTimingStats(
   result: SolverResult,
-  attemptedBackend: string,
-  workerError: WorkerTaskError | null,
+  timing: WorkerClientTiming | null,
 ): SolverResult {
-  if (!workerError) return result;
+  if (!timing) return result;
   return {
     ...result,
     stats: {
       ...(result.stats || {}),
-      fallbackFrom: attemptedBackend,
-      fallbackReason: workerError.code,
-      solverBackend: result.stats?.solverBackend || "js-phase2",
-      workerErrorCode: workerError.code,
+      workerEndToEndMs: timing.endToEndMs,
+      workerExecutionMs: timing.executionMs,
+      workerLane: timing.lane,
+      workerQueueWaitMs: timing.queueWaitMs,
     },
   };
 }
@@ -64,27 +81,54 @@ function withWorkerFallbackStats(
 export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => void) {
   const solveCacheRef = useRef(new Map<string, SolverResult>());
   const validationCacheRef = useRef(new Map<string, MonteCarloResult>());
-  const { requestWorkerTask, resetWorker } = useWorkerTaskClient();
+  const {
+    preemptValidationForSolve: preemptSharedValidation,
+    requestWorkerTask: requestSharedTask,
+    resetFailedWorker: resetSharedWorker,
+  } = useWorkerTaskClient({ lane: "shared" });
+  const {
+    preemptValidationForSolve: preemptDedicatedValidation,
+    requestWorkerTask: requestValidationTask,
+  } = useWorkerTaskClient({
+    idleTimeoutMs: 30_000,
+    lane: "validation",
+  });
+  const parallelValidation = parallelValidationFromRuntime();
+
+  const cancelValidationForSolve = useCallback(() => {
+    const sharedError = preemptSharedValidation();
+    if (sharedError) return sharedError;
+    return preemptDedicatedValidation();
+  }, [preemptDedicatedValidation, preemptSharedValidation]);
 
   const solveBestAvailable = useCallback(
     async (input: SolverInput) => {
       const backend = solverBackendFromRuntime();
-      const key = `${backend}|${inputKey(input)}`;
-      const cached = solveCacheRef.current.get(key);
+      const key = makeSolveCacheKey(backend, input);
+      const cached = readSolveCache(solveCacheRef.current, key, backend);
       if (cached) return cached;
-      const { result, workerError } = await resolveWorkerOrFallback<SolverResult>({
-        fallback: () => solveWithJsFallback(input, onSolveProgress),
-        onWorkerError: resetWorker,
-        workerPromise: requestWorkerTask("solve", input, { onProgress: onSolveProgress }),
+      const recovered = await solveWithClientRecovery({
+        input,
+        onProgress: onSolveProgress,
+        preemptValidationForNextRung: cancelValidationForSolve,
+        primaryBackend: backend,
+        requestWorkerTask: requestSharedTask,
+        resetFailedWorker: resetSharedWorker,
       });
-      return rememberCache(
+      const solved = rememberCache(
         solveCacheRef.current,
         key,
-        withWorkerFallbackStats(result, backend, workerError),
+        withWorkerTimingStats(recovered.result, recovered.timing),
         SOLVE_CACHE_LIMIT,
       );
+      return {
+        executionKind: "executed",
+        recoveryTrace: recovered.trace,
+        requestedBackend: backend,
+        result: solved,
+      } satisfies SolveOutcome;
     },
-    [onSolveProgress, requestWorkerTask, resetWorker],
+    [cancelValidationForSolve, onSolveProgress, requestSharedTask, resetSharedWorker],
   );
 
   const validateBestAvailable = useCallback(
@@ -97,20 +141,29 @@ export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => vo
       const seed = Math.max(0, Math.floor(Number(options.seed) || 20260505));
       const backend = solverBackendFromRuntime();
       const key = `${backend}|${inputKey(input)}|mc:${runs}|seed:${seed}`;
-      const cached = validationCacheRef.current.get(key);
+      const cached = readCache(validationCacheRef.current, key);
       if (!options.force && cached) return cached;
+      const requestTask = parallelValidation ? requestValidationTask : requestSharedTask;
+      let timing: WorkerClientTiming | null = null;
       const { result } = await resolveWorkerOrFallback<MonteCarloResult>({
         fallback: () => validateWithJsFallback(input, runs, seed, onProgress),
-        onWorkerError: resetWorker,
-        workerPromise: requestWorkerTask("validate", input, {
+        workerPromise: requestTask("validate", input, {
           payload: { runs, seed },
           onProgress,
+          onTiming: (value) => {
+            timing = value;
+          },
         }),
       });
-      return rememberCache(validationCacheRef.current, key, result, VALIDATION_CACHE_LIMIT);
+      return rememberCache(
+        validationCacheRef.current,
+        key,
+        timing ? { ...result, workerTiming: timing } : result,
+        VALIDATION_CACHE_LIMIT,
+      );
     },
-    [requestWorkerTask, resetWorker],
+    [parallelValidation, requestSharedTask, requestValidationTask],
   );
 
-  return { solveBestAvailable, validateBestAvailable };
+  return { cancelValidationForSolve, solveBestAvailable, validateBestAvailable };
 }

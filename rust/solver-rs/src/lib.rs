@@ -1,15 +1,15 @@
 //! Rust port of the finite-inventory MDP solver kernel.
 //!
-//! This is a 1:1 translation of `../assembly/*` (AssemblyScript), which is itself a faithful,
-//! equivalence-verified port of `../../src/solver.ts`. Logic, constants, op-order, and the
-//! determinism strategy are preserved so the SAME `equivalence.test.ts` harness passes when the
-//! loader points at this crate's wasm. Every section cites the original (`solver.ts:<line>` and the
-//! corresponding `assembly/<file>.ts`).
+//! This began as a translation of `../assembly/*` (AssemblyScript), which is itself an
+//! equivalence-verified port of the TypeScript solver. Internal layouts and lookup paths are now
+//! optimized, while observable policy and numeric results remain bit-identical. Floating-point
+//! operand order, candidate traversal, tie-breaks, and documented probe-order contracts are
+//! preserved and guarded by the parity tests.
 //!
 //! Concurrency: wasm is single-threaded, so module state is `static mut` (mirrors the AS module
 //! globals) accessed in `unsafe`. A non-wasm/multi-thread version would wrap this in a struct.
 //!
-//! NOT compiled in this environment (no Rust toolchain). Build: see Cargo.toml header.
+//! Build and verification commands are documented in the Cargo.toml header and package scripts.
 #![allow(non_snake_case, static_mut_refs)]
 
 mod constants;
@@ -222,12 +222,16 @@ static mut G_TOL: f64 = 0.01;
 static mut G_INIT_B: f64 = 0.0;
 static mut G_INIT_P: f64 = 0.0;
 static mut G_INIT_Y: f64 = 0.0;
+static mut G_DEN_B: f64 = 0.0;
+static mut G_DEN_P: f64 = 0.0;
+static mut G_DEN_Y: f64 = 0.0;
+static mut G_INV_NP: f64 = 0.0;
 
 const INF: i32 = i32::MAX;
 static mut WC: Vec<i32> = Vec::new(); // worstCaseUses cache [sid*3+kit], param-independent
 unsafe fn wc_ensure() {
     if WC.is_empty() {
-        WC = vec![-1i32; 960 * 3];
+        WC = vec![-1i32; STATE_BUCKETS as usize * 3];
     }
 }
 unsafe fn worst_case_uses(sid: i32, kit: i32) -> i32 {
@@ -407,7 +411,29 @@ unsafe fn value(sid: i32, mut b: i32, mut p: i32, mut y: i32) -> i32 {
         SC_VB[s] = vbk;
         SC_VP[s] = vpk;
         SC_VY[s] = vyk;
-        SC_COST[s] = availability_cost(vbk, vpk, vyk, G_INIT_B, G_INIT_P, G_INIT_Y, G_HF, G_NP);
+    }
+
+    let mut any_elig = false;
+    for k in 0..3usize {
+        let s = base + k;
+        if SC_VALID[s] != 0 && max_msp - SC_SP[s] <= G_TOL + STRICT_EPSILON {
+            any_elig = true;
+            break;
+        }
+    }
+
+    for k in 0..3usize {
+        let s = base + k;
+        if SC_VALID[s] == 0 {
+            continue;
+        }
+        let eligible = max_msp - SC_SP[s] <= G_TOL + STRICT_EPSILON;
+        if !is_root_frame && any_elig && !eligible {
+            continue;
+        }
+        SC_COST[s] = availability_cost_pre(
+            SC_VB[s], SC_VP[s], SC_VY[s], G_DEN_B, G_DEN_P, G_DEN_Y, G_NP, G_INV_NP,
+        );
     }
 
     if is_root_frame {
@@ -423,14 +449,6 @@ unsafe fn value(sid: i32, mut b: i32, mut p: i32, mut y: i32) -> i32 {
         }
     }
 
-    let mut any_elig = false;
-    for k in 0..3usize {
-        let s = base + k;
-        if SC_VALID[s] != 0 && max_msp - SC_SP[s] <= G_TOL + STRICT_EPSILON {
-            any_elig = true;
-            break;
-        }
-    }
     let mut best_k: i32 = -1;
     for k in 0..3usize {
         let s = base + k;
@@ -476,6 +494,10 @@ pub(crate) fn uses_of(pieces: i32, max_uses: i32) -> i32 {
 
 // solveStart (mdp.ts:221): set params + run value() from (start, stockUses); returns start slot.
 // The CALLER resets the memo (epoch) first — matches AS, where solveStart itself does not reset.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "matches the stable solver entry contract"
+)]
 pub(crate) unsafe fn solve_start(
     sid: i32,
     uses_b: i32,
@@ -496,6 +518,10 @@ pub(crate) unsafe fn solve_start(
     G_INIT_B = init_b;
     G_INIT_P = init_p;
     G_INIT_Y = init_y;
+    G_DEN_B = init_b + hf * GAIN_B;
+    G_DEN_P = init_p + hf * GAIN_P;
+    G_DEN_Y = init_y + hf * GAIN_Y;
+    G_INV_NP = 1.0 / np;
     DEPTH = 0;
     value(sid, uses_b, uses_p, uses_y)
 }

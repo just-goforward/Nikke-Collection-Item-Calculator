@@ -2,30 +2,13 @@ import type { KitVector, ProgressCallback, ResearchCostModel } from "./domain";
 import {
   convertState,
   DEFAULT_RESEARCH_COST_MODEL,
-  EXPECTED_28_DAY_GAIN,
-  FIXED_REQUIRED_EXP,
-  GREAT_SUCCESS,
   isConvertStateNormalized,
   isTerminalNormalized,
-  KIT_META,
   KIT_ORDER,
-  MAX_RELEVANT_USES,
-  nextBoundary,
-  normalizeState,
   round,
-  STRATEGY_META,
-  STRATEGY_PROBABILITY_TOLERANCE,
   SUPPLY_AVAILABILITY_PARAMS,
-  SUPPLY_MODE_WEIGHTS,
-  stateText,
-  transition,
 } from "./domain";
-import {
-  compareByStrategy,
-  type ProbabilityGateAudit,
-  type ProbabilityGateWitness,
-  probabilityToleranceForStrategy,
-} from "./gate";
+import { compareByStrategy, probabilityToleranceForStrategy } from "./gate";
 import {
   normalizeSolverInput,
   type RawSolverInput,
@@ -243,50 +226,4 @@ function solveWithResearchCostModel(
   }) as ResearchSolverResult;
 }
 
-const CollectionSolver = {
-  KIT_ORDER,
-  KIT_META,
-  FIXED_REQUIRED_EXP,
-  MAX_RELEVANT_USES,
-  STRATEGY_PROBABILITY_TOLERANCE,
-  SUPPLY_MODE_WEIGHTS,
-  SUPPLY_AVAILABILITY_PARAMS,
-  STRATEGY_META,
-  EXPECTED_28_DAY_GAIN,
-  GREAT_SUCCESS,
-  nextBoundary,
-  transition,
-  normalizeState,
-  convertState,
-  describeState: stateText,
-  solve,
-  solveWithResearchCostModel,
-  round,
-};
-
-export {
-  convertState,
-  EXPECTED_28_DAY_GAIN,
-  FIXED_REQUIRED_EXP,
-  GREAT_SUCCESS,
-  KIT_META,
-  KIT_ORDER,
-  MAX_RELEVANT_USES,
-  nextBoundary,
-  normalizeState,
-  type ProbabilityGateAudit,
-  type ProbabilityGateWitness,
-  type ResearchCostModel,
-  round,
-  type SolveExecutionOptions,
-  STRATEGY_META,
-  STRATEGY_PROBABILITY_TOLERANCE,
-  SUPPLY_AVAILABILITY_PARAMS,
-  SUPPLY_MODE_WEIGHTS,
-  solve,
-  solveWithResearchCostModel,
-  stateText as describeState,
-  transition,
-};
-
-export default CollectionSolver;
+export { solve, solveWithResearchCostModel };

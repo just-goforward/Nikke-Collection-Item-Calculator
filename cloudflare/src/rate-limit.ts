@@ -40,11 +40,9 @@ export async function rateLimit(
 }
 
 export async function cleanupExpiredStatistics(env: RateLimitEnv, now: number): Promise<void> {
-  await Promise.all([
-    env.DB.prepare("DELETE FROM rate_limits WHERE expires_at < ?").bind(now).run(),
-    env.DB.prepare("DELETE FROM event_ids WHERE created_at < ?")
-      .bind(now - 86400 * 14)
-      .run(),
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM rate_limits WHERE expires_at < ?").bind(now),
+    env.DB.prepare("DELETE FROM event_ids WHERE created_at < ?").bind(now - 86400 * 14),
   ]);
 }
 

@@ -68,15 +68,7 @@ export async function solveRustPhase2(
   const monteCarloSeed = readRustMonteCarloSeed(input);
   const monteCarlo =
     monteCarloRuns > 0
-      ? solver.simulatePolicy(
-          normalizedInput.start,
-          normalizedInput.stock,
-          monteCarloRuns,
-          monteCarloSeed,
-          RUST_PRODUCT_HORIZON_FACTOR,
-          RUST_PRODUCT_NORM_POWER,
-          RUST_PRODUCT_TOLERANCE,
-        )
+      ? policy.simulate(monteCarloRuns, monteCarloSeed)
       : {
           runs: 0,
           completed: 0,

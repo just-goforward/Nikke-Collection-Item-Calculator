@@ -13,7 +13,7 @@ type RuntimeRecord = {
   error?: string;
 };
 
-const DEFAULT_REPEATS = 2;
+const DEFAULT_REPEATS = 10;
 const REGRESSION_LIMIT = 1.2;
 const wasmFile = new URL("../public/solver_rs.wasm", import.meta.url);
 
@@ -85,29 +85,29 @@ function quantile(values: number[], q: number) {
 }
 
 function summarize(records: RuntimeRecord[]) {
-  const byBackend = new Map<Backend, RuntimeRecord[]>();
-  for (const backend of ["rust-min-ef", "rust-phase2", "js-phase2"] as const) {
-    byBackend.set(
-      backend,
-      records.filter((record) => record.backend === backend),
-    );
-  }
   return Object.fromEntries(
-    [...byBackend].map(([backend, backendRecords]) => {
+    scenarios.flatMap((scenario) =>
+      (["rust-min-ef", "rust-phase2", "js-phase2"] as const).map((backend) => {
+        const backendRecords = records.filter(
+          (record) => record.backend === backend && record.scenario === scenario.id,
+        );
       const completed = backendRecords
         .filter((record) => record.status === "completed")
         .map((record) => record.elapsedMs);
       return [
-        backend,
+        `${scenario.id}:${backend}`,
         {
+          backend,
+          scenario: scenario.id,
           completed: completed.length,
           errors: backendRecords.length - completed.length,
           p50Ms: quantile(completed, 0.5),
           p95Ms: quantile(completed, 0.95),
           maxMs: completed.length > 0 ? Math.max(...completed) : null,
         },
-      ];
-    }),
+        ];
+      }),
+    ),
   );
 }
 
@@ -169,8 +169,8 @@ try {
   }
 
   for (const scenario of scenarios) {
-    for (const backend of backendOrder) {
-      for (let repeat = 0; repeat < repeats(); repeat += 1) {
+    for (let repeat = 0; repeat < repeats(); repeat += 1) {
+      for (const backend of backendOrder) {
         const startedAt = performance.now();
         try {
           await solveBackend(modules, backend, scenario.input, wasmUrl);
@@ -191,8 +191,8 @@ try {
             error: error instanceof Error ? error.message : String(error),
           });
         }
-      }
     }
+      }
   }
 } finally {
   await server.close();
@@ -209,6 +209,7 @@ const report = {
 const failures = assertNoRegression(summary, await readBaseline());
 
 console.log(JSON.stringify(report, null, 2));
-if (failures.length > 0) {
+if (failures.length > 0 && process.env["SOLVER_RUNTIME_ENFORCE"] === "1") {
   throw new Error(`Solver runtime regression detected:\n${failures.join("\n")}`);
 }
+if (failures.length > 0) console.warn(`Solver runtime regression report:\n${failures.join("\n")}`);

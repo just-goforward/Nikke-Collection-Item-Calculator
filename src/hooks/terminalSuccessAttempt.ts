@@ -55,7 +55,7 @@ export function useTerminalSuccessAttempt({
           best,
           run,
           nextState,
-          outcomeLabel: "대성공 O",
+          outcome: "success",
           stockMessage: kitStockChangeMessage(
             best.firstAction,
             beforeStock,
@@ -72,13 +72,14 @@ export function useTerminalSuccessAttempt({
         best,
         run,
         nextState,
-        outcomeLabel: "대성공 O",
+        outcome: "success",
         stockMessage: needsStockEdit
           ? "대성공 시점을 알 수 없어 통계 전송은 생략했습니다. 보유 키트 수를 직접 수정해 주세요."
           : "대성공 시점을 알 수 없어 시도 분포 통계는 생략했습니다.",
         detailMessage: needsStockEdit
           ? "보유 키트 수를 실제 결과에 맞게 수정하면 계산이 다시 활성화됩니다."
           : "SR 15레벨은 최종 목표 상태입니다.",
+        preserveExistingResult: needsStockEdit,
       });
     },
     [

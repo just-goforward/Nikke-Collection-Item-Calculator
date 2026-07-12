@@ -4,7 +4,7 @@ import {
   greatSuccessState,
   KIT_ORDER,
   type Kit,
-} from "./domain";
+} from "../../shared/game";
 import { sameState, validateState } from "./event-validation-common";
 import type { SubmissionEnvelope, ValidatedSubmission } from "./event-validation-types";
 import { HttpError } from "./http-error";

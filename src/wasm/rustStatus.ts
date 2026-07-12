@@ -8,7 +8,7 @@ export type RustStatusExports = {
 
 export type RustSolveErrorReason = "status" | "missing_export" | "stale_handle";
 
-export function rustStatusName(status: number) {
+function rustStatusName(status: number) {
   if (status === RUST_STATUS_OK) return "ok";
   if (status === RUST_STATUS_BUDGET_EXCEEDED) return "budget_exceeded";
   if (status === RUST_STATUS_MEMO_FULL) return "memo_full";

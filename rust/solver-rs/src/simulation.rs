@@ -45,6 +45,10 @@ pub(crate) unsafe fn simulate_run(
     simulate_run_with_first_action(start_sid, b0, p0, y0, runs, seed, -1, policy_action);
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "hot loop passes scalar state without allocation"
+)]
 pub(crate) unsafe fn simulate_run_with_first_action(
     start_sid: i32,
     b0: i32,

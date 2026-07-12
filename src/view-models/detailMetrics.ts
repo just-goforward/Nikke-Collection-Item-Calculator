@@ -1,6 +1,5 @@
-import { formatInteger, formatNumber, formatPercent } from "../format";
-import { EXPECTED_28_DAY_GAIN, STRATEGY_META } from "../solver/domain";
-import type { Kit, Stock, Strategy } from "../types";
+import { formatInteger, formatNumber } from "../format";
+import type { Kit, Strategy } from "../types";
 import type { CandidateView, DetailView } from "../ui-types";
 
 const KIT_KEYS: Kit[] = ["blue", "purple", "yellow"];
@@ -26,13 +25,11 @@ type DetailCandidateSource = {
   vector?: DetailVectorSource;
   totalKits?: number;
   probabilityGap?: number;
+  resourceCost?: number;
 };
 
 type DetailResultSource = {
-  input: {
-    stock: Stock;
-    strategy?: Strategy;
-  };
+  input: { strategy?: Strategy };
   best: {
     firstAction: Kit;
     firstProbability: number;
@@ -41,7 +38,6 @@ type DetailResultSource = {
   };
   topCandidates?: DetailCandidateSource[];
   stats?: {
-    states?: number;
     strategy?: Strategy;
     probabilityTolerance?: number;
     solverBackend?: string;
@@ -66,12 +62,6 @@ function formatKitPieces(value: number) {
   return `약 ${formatInteger(Math.round(value))}개`;
 }
 
-function formatSupplyDays(pieces: number, kit: Kit) {
-  if (pieces <= 0) return "0일치";
-  const days = (pieces / EXPECTED_28_DAY_GAIN[kit]) * 28;
-  return `${days < 10 ? days.toFixed(1) : formatInteger(Math.round(days))}일치`;
-}
-
 function formatReadablePercent(value: number, digits = 4) {
   const percent = value * 100;
   const rounded = Number(percent.toFixed(digits));
@@ -91,26 +81,132 @@ function formatKitBreakdown(vector: DetailVectorSource = {}) {
   ).join(" · ");
 }
 
+function excludedCandidateReason(candidateSuccess: string, bestSuccess: string, rawGap: number) {
+  if (rawGap <= 0) return { label: null, help: null };
+  if (candidateSuccess === bestSuccess) {
+    return {
+      label: "미세 열세",
+      help: "표시값은 같지만, 반올림 전 SR 15 도달 확률이 추천 후보보다 낮습니다.",
+    };
+  }
+  return {
+    label: "도달률 낮음",
+    help: "SR 15 도달 확률이 추천 후보보다 낮아 제외되었습니다.",
+  };
+}
+
+const COMPARISON_EPSILON = 1e-9;
+
+function candidateTotalKits(candidate: DetailCandidateSource) {
+  if (Number.isFinite(candidate.totalKits)) return Number(candidate.totalKits);
+  return KIT_KEYS.reduce((sum, kit) => sum + Number(candidate.vector?.[kit] || 0), 0);
+}
+
+function candidateExclusionReason({
+  candidate,
+  candidateSuccess,
+  maxSuccess,
+  recommended,
+  recommendedSuccess,
+  tolerance,
+}: {
+  candidate: DetailCandidateSource;
+  candidateSuccess: string;
+  maxSuccess: string;
+  recommended: DetailCandidateSource;
+  recommendedSuccess: string;
+  tolerance: number;
+}) {
+  const gap = Number(candidate.probabilityGap || 0);
+  if (gap > tolerance + COMPARISON_EPSILON) {
+    return excludedCandidateReason(candidateSuccess, maxSuccess, gap);
+  }
+
+  const candidateCost = Number(candidate.resourceCost);
+  const recommendedCost = Number(recommended.resourceCost);
+  if (
+    Number.isFinite(candidateCost) &&
+    Number.isFinite(recommendedCost) &&
+    candidateCost > recommendedCost + COMPARISON_EPSILON
+  ) {
+    return {
+      label: "키트 부담 높음",
+      help: "SR 15 도달률 조건은 충족했지만, 보유량과 향후 수급을 반영한 키트 부담이 추천 후보보다 높아 제외되었습니다.",
+    };
+  }
+
+  if (candidateTotalKits(candidate) > candidateTotalKits(recommended) + COMPARISON_EPSILON) {
+    return {
+      label: "예상 소모량 많음",
+      help: "SR 15 도달률과 키트 부담이 비슷하지만, 총 예상 소모량이 추천 후보보다 많아 제외되었습니다.",
+    };
+  }
+
+  const rawProbabilityGap =
+    Number(recommended.successProbability) - Number(candidate.successProbability);
+  if (rawProbabilityGap > COMPARISON_EPSILON) {
+    return excludedCandidateReason(candidateSuccess, recommendedSuccess, rawProbabilityGap);
+  }
+
+  return {
+    label: "계산상 동률",
+    help: "주요 비교값이 같아, 일관된 결과를 위한 고정 우선순위에서 제외되었습니다.",
+  };
+}
+
 function makeCandidateViews(
   candidates: DetailCandidateSource[] = [],
   tolerance: number,
+  recommendedAction: Kit,
 ): CandidateView[] {
-  return candidates.map((candidate, index) => {
-    const gap = Number(candidate.probabilityGap || 0);
-    const excluded = gap > tolerance + 1e-9;
+  const maxSuccess = formatCompactPercent(
+    candidates.reduce(
+      (best, candidate) => Math.max(best, Number(candidate.successProbability) || 0),
+      0,
+    ),
+    2,
+  );
+  const recommendedIndex = candidates.findIndex(
+    (candidate) => candidate.firstAction === recommendedAction,
+  );
+  const orderedCandidates =
+    recommendedIndex > 0
+      ? [
+          candidates[recommendedIndex] as DetailCandidateSource,
+          ...candidates.filter((_, index) => index !== recommendedIndex),
+        ]
+      : candidates;
+  const recommended = orderedCandidates[0];
+  const recommendedSuccess = formatCompactPercent(recommended?.successProbability || 0, 2);
+
+  return orderedCandidates.map((candidate, index) => {
+    const recommendedCandidate = index === 0;
     const candidateVector = candidate.vector || {};
-    const totalExpectedKits =
-      Number(candidate.totalKits) ||
-      KIT_KEYS.reduce((sum, kit) => sum + Number(candidateVector[kit] || 0), 0);
+    const totalExpectedKits = candidateTotalKits(candidate);
+    const successProbability = formatCompactPercent(candidate.successProbability, 2);
+    const excludedReason =
+      recommendedCandidate || !recommended
+        ? { label: null, help: null }
+        : candidateExclusionReason({
+            candidate,
+            candidateSuccess: successProbability,
+            maxSuccess,
+            recommended,
+            recommendedSuccess,
+            tolerance,
+          });
 
     return {
-      rankLabel: index === 0 && !excluded ? "추천" : `후보 ${index + 1}`,
+      rankLabel: recommendedCandidate ? "추천" : `후보 ${index + 1}`,
       kit: candidate.firstAction,
       count: candidate.run?.count || 1,
-      successProbability: formatCompactPercent(candidate.successProbability, 2),
+      successProbability,
+      successProbabilityMedium: formatCompactPercent(candidate.successProbability, 3),
+      successProbabilityDetailed: formatCompactPercent(candidate.successProbability, 4),
       expectedKits: formatKitPieces(totalExpectedKits),
       expectedBreakdown: formatKitBreakdown(candidateVector),
-      excludedReason: excluded ? `허용 확률 차이 초과 (${formatPercent(gap, 2)})` : null,
+      excludedReason: excludedReason.label,
+      excludedReasonHelp: excludedReason.help,
     };
   });
 }
@@ -121,35 +217,17 @@ export function makeMetricsDetailView(
   monteCarloRunsLabel: string,
 ): Extract<DetailView, { type: "metrics" }> {
   const best = result.best;
-  const strategyKey = result.stats?.strategy || result.input.strategy || "supply";
   const tolerance = Number(result.stats?.probabilityTolerance ?? 0);
 
   return {
     type: "metrics",
-    strategyLabel: STRATEGY_META[strategyKey].label,
     successProbability: formatReadablePercent(best.successProbability, 2),
     greatSuccessProbability: formatCompactPercent(
       run.greatSuccessProbability ?? best.firstProbability,
       1,
     ),
-    stateCount: formatInteger(Number(result.stats?.states || 0)),
-    candidates: makeCandidateViews(result.topCandidates, tolerance),
+    candidates: makeCandidateViews(result.topCandidates, tolerance, best.firstAction),
     monteCarloRuns: monteCarloRunsLabel,
-    expectedConsumption: KIT_KEYS.map((kit) => {
-      const pieces = Number(best.vector?.[kit] || 0);
-      return {
-        kit,
-        pieces: formatKitPieces(pieces),
-        supplyDays: formatSupplyDays(pieces, kit),
-      };
-    }),
-    expectedRemaining: KIT_KEYS.map((kit) => {
-      const remaining = Math.max(
-        0,
-        Math.round(Number(result.input.stock[kit] || 0) - Number(best.vector?.[kit] || 0)),
-      );
-      return `${KIT_SHORT_LABELS[kit]} ${formatInteger(remaining)}개`;
-    }).join(" · "),
     solverLabel: solverLabel(result.stats?.solverBackend),
   };
 }

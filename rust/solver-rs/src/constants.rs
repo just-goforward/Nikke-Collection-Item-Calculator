@@ -10,6 +10,7 @@ pub(crate) const MAX_USES_Y: i32 = 44;
 pub(crate) const LEVEL_BUCKETS: i32 = 16;
 pub(crate) const EXP_BUCKETS: i32 = 30;
 pub(crate) const STATE_DIV: i32 = LEVEL_BUCKETS * EXP_BUCKETS;
+pub(crate) const STATE_BUCKETS: i32 = 2 * STATE_DIV;
 pub(crate) const STOCK_P_DIM: i32 = MAX_USES_P + 1;
 pub(crate) const STOCK_Y_DIM: i32 = MAX_USES_Y + 1;
 pub(crate) const STOCK_ID_SIZE: i32 = (MAX_USES_B + 1) * STOCK_P_DIM * STOCK_Y_DIM;

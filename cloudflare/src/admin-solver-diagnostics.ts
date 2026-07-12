@@ -46,22 +46,59 @@ type SolverRuntimeRow = {
   events?: number | string | null;
 };
 
+type SolverCacheRow = {
+  diagnostic_version?: number | string | null;
+  requested_backend?: string | null;
+  terminal_backend?: string | null;
+  execution_kind?: string | null;
+  events?: number | string | null;
+};
+
+type SolverRecoveryRungRow = {
+  policy_version?: string | null;
+  requested_backend?: string | null;
+  rung_backend?: string | null;
+  rung_exit?: string | null;
+  device_type?: string | null;
+  events?: number | string | null;
+};
+
+type SolverRecoveryTerminalRow = {
+  policy_version?: string | null;
+  requested_backend?: string | null;
+  terminal_backend?: string | null;
+  terminal_outcome?: string | null;
+  events?: number | string | null;
+};
+
 const DEFAULT_WINDOW_DAYS = 30;
 const MAX_WINDOW_DAYS = 365;
+const TRUSTWORTHY_RUNTIME_DIAGNOSTIC_VERSION = 6;
 
 export async function handleAdminSolverDiagnostics(request: Request, env: WorkerEnv) {
-  assertAdminRequest(request, env);
+  await assertAdminRequest(request, env);
   const now = Math.floor(Date.now() / 1000);
   const windowDays = readWindowDays(request);
   const since = kstDateKeyFromUnixSeconds(now - 86400 * (windowDays - 1));
 
-  const [allTime, window, daily, nodeCounts, runtime] = await Promise.all([
-    readSolverDiagnosticSummary(env),
-    readSolverDiagnosticSummary(env, since),
-    readSolverDiagnosticDaily(env, since),
-    readSolverNodeCounts(env, since),
-    readSolverRuntime(env, since),
+  const results = await env.DB.batch([
+    solverDiagnosticSummaryStatement(env),
+    solverDiagnosticSummaryStatement(env, since),
+    solverDiagnosticDailyStatement(env, since),
+    solverNodeCountsStatement(env, since),
+    solverRuntimeStatement(env, since),
+    solverCacheStatement(env, since),
+    solverRecoveryRungStatement(env, since),
+    solverRecoveryTerminalStatement(env, since),
   ]);
+  const allTime = mapSolverDiagnosticSummary(resultAt(results, 0));
+  const window = mapSolverDiagnosticSummary(resultAt(results, 1));
+  const daily = mapSolverDiagnosticDaily(resultAt(results, 2));
+  const nodeCounts = mapSolverNodeCounts(resultAt(results, 3));
+  const runtime = mapSolverRuntime(resultAt(results, 4));
+  const cache = mapSolverCache(resultAt(results, 5));
+  const recoveryRungs = mapSolverRecoveryRungs(resultAt(results, 6));
+  const recoveryTerminals = mapSolverRecoveryTerminals(resultAt(results, 7));
 
   return jsonResponse(request, env, {
     generatedAt: new Date(now * 1000).toISOString(),
@@ -72,16 +109,52 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     daily,
     nodeCounts,
     runtime,
+    cache,
+    recoveryRungs,
+    recoveryTerminals,
     fallbacks: summarizeFallbacks(runtime),
     latencies: summarizeLatencyBuckets(runtime),
+    runtimeDataPolicy: {
+      trustworthyFromDiagnosticVersion: TRUSTWORTHY_RUNTIME_DIAGNOSTIC_VERSION,
+      filteredToTrustworthyVersions: true,
+      legacyClassification: "usage_weighted_historical_snapshot",
+      solveMsSemantics: "end_to_end_recovery_wall_time",
+    },
+    recoveryDataPolicy: {
+      aggregatesAreIndependent: true,
+      ratioWarning: "do_not_divide_terminal_counts_by_rung_counts",
+    },
   });
 }
 
-function assertAdminRequest(request: Request, env: WorkerEnv) {
+async function assertAdminRequest(request: Request, env: WorkerEnv) {
   if (!isAllowedOrigin(request, env)) throw new HttpError(403, "origin_not_allowed");
   if (!env.DB) throw new HttpError(500, "database_not_configured");
   if (!env.ADMIN_TOKEN) throw new HttpError(404, "not_found");
-  if (bearerToken(request) !== env.ADMIN_TOKEN) throw new HttpError(403, "admin_forbidden");
+  if (!(await tokensMatch(bearerToken(request), env.ADMIN_TOKEN)))
+    throw new HttpError(403, "admin_forbidden");
+}
+
+async function tokensMatch(provided: string, expected: string) {
+  const encoder = new TextEncoder();
+  const [providedHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ]);
+  if (typeof crypto.subtle.timingSafeEqual === "function")
+    return crypto.subtle.timingSafeEqual(providedHash, expectedHash);
+  return constantTimeEqual(providedHash, expectedHash);
+}
+
+function constantTimeEqual(left: ArrayBuffer, right: ArrayBuffer) {
+  const leftBytes = new Uint8Array(left);
+  const rightBytes = new Uint8Array(right);
+  let difference = leftBytes.length ^ rightBytes.length;
+  const length = Math.max(leftBytes.length, rightBytes.length);
+  for (let index = 0; index < length; index += 1) {
+    difference |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
+  }
+  return difference === 0;
 }
 
 function bearerToken(request: Request) {
@@ -96,7 +169,13 @@ function readWindowDays(request: Request) {
   return Math.min(MAX_WINDOW_DAYS, Math.floor(value));
 }
 
-async function readSolverDiagnosticSummary(env: WorkerEnv, since?: string) {
+function resultAt(results: D1Result<unknown>[], index: number) {
+  const result = results[index];
+  if (!result) throw new HttpError(500, "diagnostic_query_incomplete");
+  return result;
+}
+
+function solverDiagnosticSummaryStatement(env: WorkerEnv, since?: string) {
   const query = `
     SELECT
       solver_version,
@@ -109,21 +188,24 @@ async function readSolverDiagnosticSummary(env: WorkerEnv, since?: string) {
     GROUP BY solver_version, solver_phase
     ORDER BY events DESC, solver_version ASC
   `;
-  const result = since
-    ? await env.DB.prepare(query).bind(since).all<SolverDiagnosticSummaryRow>()
-    : await env.DB.prepare(query).all<SolverDiagnosticSummaryRow>();
-
-  return (result.results || []).map((row) => ({
-    solverVersion: String(row.solver_version || "unknown"),
-    solverPhase: String(row.solver_phase || "unknown"),
-    events: Number(row.events || 0),
-    firstDate: typeof row.first_date === "string" ? row.first_date : null,
-    lastDate: typeof row.last_date === "string" ? row.last_date : null,
-  }));
+  return since ? env.DB.prepare(query).bind(since) : env.DB.prepare(query);
 }
 
-async function readSolverDiagnosticDaily(env: WorkerEnv, since: string) {
-  const result = await env.DB.prepare(
+function mapSolverDiagnosticSummary(result: D1Result<unknown>) {
+  return (result.results || []).map((rawRow) => {
+    const row = rawRow as SolverDiagnosticSummaryRow;
+    return {
+      solverVersion: String(row.solver_version || "unknown"),
+      solverPhase: String(row.solver_phase || "unknown"),
+      events: Number(row.events || 0),
+      firstDate: typeof row.first_date === "string" ? row.first_date : null,
+      lastDate: typeof row.last_date === "string" ? row.last_date : null,
+    };
+  });
+}
+
+function solverDiagnosticDailyStatement(env: WorkerEnv, since: string) {
+  return env.DB.prepare(
     `SELECT
        date_key,
        solver_version,
@@ -133,42 +215,48 @@ async function readSolverDiagnosticDaily(env: WorkerEnv, since: string) {
      WHERE date_key >= ?
      GROUP BY date_key, solver_version, solver_phase
      ORDER BY date_key DESC, events DESC, solver_version ASC`,
-  )
-    .bind(since)
-    .all<SolverDiagnosticDailyRow>();
-
-  return (result.results || []).map((row) => ({
-    date: typeof row.date_key === "string" ? row.date_key : "",
-    solverVersion: String(row.solver_version || "unknown"),
-    solverPhase: String(row.solver_phase || "unknown"),
-    events: Number(row.events || 0),
-  }));
+  ).bind(since);
 }
 
-async function readSolverNodeCounts(env: WorkerEnv, since: string) {
-  const result = await env.DB.prepare(
+function mapSolverDiagnosticDaily(result: D1Result<unknown>) {
+  return (result.results || []).map((rawRow) => {
+    const row = rawRow as SolverDiagnosticDailyRow;
+    return {
+      date: typeof row.date_key === "string" ? row.date_key : "",
+      solverVersion: String(row.solver_version || "unknown"),
+      solverPhase: String(row.solver_phase || "unknown"),
+      events: Number(row.events || 0),
+    };
+  });
+}
+
+function solverNodeCountsStatement(env: WorkerEnv, since: string) {
+  return env.DB.prepare(
     `SELECT
        CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS solver_backend,
        attempted_node_count_bucket AS node_count_bucket,
        SUM(events) AS events
      FROM solver_runtime_aggregates
-     WHERE date_key >= ?
+     WHERE date_key >= ? AND diagnostic_version >= ?
      GROUP BY CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END,
        attempted_node_count_bucket
      ORDER BY solver_backend ASC, events DESC`,
-  )
-    .bind(since)
-    .all<SolverNodeCountRow>();
-
-  return (result.results || []).map((row) => ({
-    solverBackend: String(row.solver_backend || "unknown"),
-    nodeCountBucket: String(row.node_count_bucket || "unknown"),
-    events: Number(row.events || 0),
-  }));
+  ).bind(since, TRUSTWORTHY_RUNTIME_DIAGNOSTIC_VERSION);
 }
 
-async function readSolverRuntime(env: WorkerEnv, since: string) {
-  const result = await env.DB.prepare(
+function mapSolverNodeCounts(result: D1Result<unknown>) {
+  return (result.results || []).map((rawRow) => {
+    const row = rawRow as SolverNodeCountRow;
+    return {
+      solverBackend: String(row.solver_backend || "unknown"),
+      nodeCountBucket: String(row.node_count_bucket || "unknown"),
+      events: Number(row.events || 0),
+    };
+  });
+}
+
+function solverRuntimeStatement(env: WorkerEnv, since: string) {
+  return env.DB.prepare(
     `SELECT
        solver_version,
        solver_phase,
@@ -190,42 +278,130 @@ async function readSolverRuntime(env: WorkerEnv, since: string) {
        solve_ms_bucket,
        SUM(events) AS events
      FROM solver_runtime_aggregates
-     WHERE date_key >= ?
+     WHERE date_key >= ? AND diagnostic_version >= ?
      GROUP BY solver_version, solver_phase, solver_backend, fallback_from, fallback_reason,
        memory_strategy, min_ef_memo_tier, phase2_memo_tier, phase2_memo_retried,
        grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
         node_count_bucket, attempted_node_count_bucket, solve_ms_bucket
      ORDER BY solver_version ASC, solver_phase ASC, events DESC`,
-  )
-    .bind(since)
-    .all<SolverRuntimeRow>();
-
-  return (result.results || []).map((row) => ({
-    solverVersion: String(row.solver_version || "unknown"),
-    solverPhase: String(row.solver_phase || "unknown"),
-    solverBackend: String(row.solver_backend || "unknown"),
-    fallbackFrom: String(row.fallback_from || "none"),
-    fallbackReason: String(row.fallback_reason || "none"),
-    memoryStrategy: String(row.memory_strategy || "unknown"),
-    minEfMemoTier: String(row.min_ef_memo_tier || "unknown"),
-    phase2MemoTier: String(row.phase2_memo_tier || "unknown"),
-    phase2MemoRetried: String(row.phase2_memo_retried || "unknown"),
-    grade: String(row.grade || "unknown"),
-    level: Number(row.level || 0),
-    expBucket: Number(row.exp_bucket || 0),
-    stockBuckets: {
-      blue: String(row.stock_bucket_blue || "unknown"),
-      purple: String(row.stock_bucket_purple || "unknown"),
-      yellow: String(row.stock_bucket_yellow || "unknown"),
-    },
-    nodeCountBucket: String(row.node_count_bucket || "unknown"),
-    attemptedNodeCountBucket: String(row.attempted_node_count_bucket || "unknown"),
-    solveMsBucket: String(row.solve_ms_bucket || "unknown"),
-    events: Number(row.events || 0),
-  }));
+  ).bind(since, TRUSTWORTHY_RUNTIME_DIAGNOSTIC_VERSION);
 }
 
-function summarizeFallbacks(runtime: Awaited<ReturnType<typeof readSolverRuntime>>) {
+function mapSolverRuntime(result: D1Result<unknown>) {
+  return (result.results || []).map((rawRow) => {
+    const row = rawRow as SolverRuntimeRow;
+    return {
+      solverVersion: stringOr(row.solver_version, "unknown"),
+      solverPhase: stringOr(row.solver_phase, "unknown"),
+      solverBackend: stringOr(row.solver_backend, "unknown"),
+      fallbackFrom: stringOr(row.fallback_from, "none"),
+      fallbackReason: stringOr(row.fallback_reason, "none"),
+      memoryStrategy: stringOr(row.memory_strategy, "unknown"),
+      minEfMemoTier: stringOr(row.min_ef_memo_tier, "unknown"),
+      phase2MemoTier: stringOr(row.phase2_memo_tier, "unknown"),
+      phase2MemoRetried: stringOr(row.phase2_memo_retried, "unknown"),
+      grade: stringOr(row.grade, "unknown"),
+      level: numberOrZero(row.level),
+      expBucket: numberOrZero(row.exp_bucket),
+      stockBuckets: {
+        blue: stringOr(row.stock_bucket_blue, "unknown"),
+        purple: stringOr(row.stock_bucket_purple, "unknown"),
+        yellow: stringOr(row.stock_bucket_yellow, "unknown"),
+      },
+      nodeCountBucket: stringOr(row.node_count_bucket, "unknown"),
+      attemptedNodeCountBucket: stringOr(row.attempted_node_count_bucket, "unknown"),
+      solveMsBucket: stringOr(row.solve_ms_bucket, "unknown"),
+      events: numberOrZero(row.events),
+    };
+  });
+}
+
+function solverCacheStatement(env: WorkerEnv, since: string) {
+  return env.DB.prepare(
+    `SELECT
+       diagnostic_version,
+       requested_backend,
+       terminal_backend,
+       execution_kind,
+       SUM(events) AS events
+     FROM solver_cache_aggregates
+     WHERE date_key >= ? AND diagnostic_version >= ?
+     GROUP BY diagnostic_version, requested_backend, terminal_backend, execution_kind
+     ORDER BY diagnostic_version ASC, requested_backend ASC, execution_kind ASC`,
+  ).bind(since, TRUSTWORTHY_RUNTIME_DIAGNOSTIC_VERSION);
+}
+
+function mapSolverCache(result: D1Result<unknown>) {
+  return (result.results || []).map((rawRow) => {
+    const row = rawRow as SolverCacheRow;
+    return {
+      diagnosticVersion: numberOrZero(row.diagnostic_version),
+      requestedBackend: stringOr(row.requested_backend, "unknown"),
+      terminalBackend: stringOr(row.terminal_backend, "unknown"),
+      executionKind: stringOr(row.execution_kind, "unknown"),
+      events: numberOrZero(row.events),
+    };
+  });
+}
+
+function solverRecoveryRungStatement(env: WorkerEnv, since: string) {
+  return env.DB.prepare(
+    `SELECT policy_version, requested_backend, rung_backend, rung_exit, device_type,
+            SUM(events) AS events
+     FROM solver_recovery_rung_aggregates
+     WHERE date_key >= ?
+     GROUP BY policy_version, requested_backend, rung_backend, rung_exit, device_type
+     ORDER BY events DESC, rung_backend ASC`,
+  ).bind(since);
+}
+
+function mapSolverRecoveryRungs(result: D1Result<unknown>) {
+  return (result.results || []).map((rawRow) => {
+    const row = rawRow as SolverRecoveryRungRow;
+    return {
+      policyVersion: stringOr(row.policy_version, "unknown"),
+      requestedBackend: stringOr(row.requested_backend, "unknown"),
+      rungBackend: stringOr(row.rung_backend, "unknown"),
+      rungExit: stringOr(row.rung_exit, "unknown"),
+      deviceType: stringOr(row.device_type, "unknown"),
+      events: numberOrZero(row.events),
+    };
+  });
+}
+
+function solverRecoveryTerminalStatement(env: WorkerEnv, since: string) {
+  return env.DB.prepare(
+    `SELECT policy_version, requested_backend, terminal_backend, terminal_outcome,
+            SUM(events) AS events
+     FROM solver_recovery_terminal_aggregates
+     WHERE date_key >= ?
+     GROUP BY policy_version, requested_backend, terminal_backend, terminal_outcome
+     ORDER BY events DESC, terminal_backend ASC`,
+  ).bind(since);
+}
+
+function mapSolverRecoveryTerminals(result: D1Result<unknown>) {
+  return (result.results || []).map((rawRow) => {
+    const row = rawRow as SolverRecoveryTerminalRow;
+    return {
+      policyVersion: stringOr(row.policy_version, "unknown"),
+      requestedBackend: stringOr(row.requested_backend, "unknown"),
+      terminalBackend: stringOr(row.terminal_backend, "none"),
+      terminalOutcome: stringOr(row.terminal_outcome, "unknown"),
+      events: numberOrZero(row.events),
+    };
+  });
+}
+
+function stringOr(value: string | null | undefined, fallback: string) {
+  return value ? String(value) : fallback;
+}
+
+function numberOrZero(value: number | string | null | undefined) {
+  return value ? Number(value) : 0;
+}
+
+function summarizeFallbacks(runtime: ReturnType<typeof mapSolverRuntime>) {
   const grouped = new Map<
     string,
     {
@@ -252,7 +428,7 @@ function summarizeFallbacks(runtime: Awaited<ReturnType<typeof readSolverRuntime
   }));
 }
 
-function summarizeLatencyBuckets(runtime: Awaited<ReturnType<typeof readSolverRuntime>>) {
+function summarizeLatencyBuckets(runtime: ReturnType<typeof mapSolverRuntime>) {
   const grouped = new Map<
     string,
     {

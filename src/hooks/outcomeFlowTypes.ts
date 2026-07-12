@@ -4,6 +4,7 @@ import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import type { CollectionState, SolverInput, Stock } from "../types";
 import type {
   DetailView,
+  RecommendationAction,
   ResultView,
   StateChangeFeedback,
   SuccessAttemptModalState,
@@ -21,9 +22,10 @@ export type OutcomeRenderArgs = {
   best: SolverBest;
   run: RecommendedRun;
   nextState: CollectionState;
-  outcomeLabel: string;
+  outcome: "success" | "fail";
   stockMessage: string;
   detailMessage: string;
+  preserveExistingResult?: boolean;
 };
 
 export type OutcomeSharedOptions = {
@@ -48,9 +50,13 @@ export type OutcomeSharedOptions = {
 export type OutcomeApplyResult =
   | {
       outcome: "fail";
+      commit: () => void;
       nextInput: SolverInput;
+      needsStockEdit: false;
+      previousAction: RecommendationAction;
     }
   | {
       outcome: "success";
+      needsStockEdit: boolean;
     }
   | null;

@@ -26,3 +26,12 @@ export function solverWasmUrl(): string {
   }
   return "solver_rs.wasm";
 }
+
+export function parallelValidationFromRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  const params = runtimeSearchParams();
+  if (params.get("statsEnv") !== "staging" || params.get("parallelValidation") !== "1") {
+    return false;
+  }
+  return window.matchMedia?.("(hover: hover) and (pointer: fine)").matches === true;
+}

@@ -1,7 +1,9 @@
-use crate::constants::{MAX_USES_B, MAX_USES_P, MAX_USES_Y, STRICT_EPSILON};
-use crate::cost::availability_cost;
+use crate::constants::{
+    GAIN_B, GAIN_P, GAIN_Y, MAX_USES_B, MAX_USES_P, MAX_USES_Y, STRICT_EPSILON,
+};
+use crate::cost::{availability_cost, availability_cost_pre};
 use crate::simulation::{next_random, seed_rng};
-use crate::state::stock_of;
+use crate::state::{memo_key, stock_of};
 use crate::status::{
     reset_status, status_ok, tick_node, LAST_STATUS, STATUS_BUDGET_EXCEEDED, STATUS_MEMO_FULL,
 };
@@ -18,10 +20,9 @@ const ME_CAP_DEFAULT: usize = 1 << 21;
 static mut ME_CAP: usize = ME_CAP_DEFAULT;
 static mut ME_MASK: u32 = (ME_CAP_DEFAULT - 1) as u32;
 static mut ME_FULL_GUARD: usize = ME_CAP_DEFAULT - (ME_CAP_DEFAULT >> 3);
-static mut ME_SID: Vec<i32> = Vec::new(); // -1 = empty
-static mut ME_B: Vec<i32> = Vec::new();
-static mut ME_P: Vec<i32> = Vec::new();
-static mut ME_Y: Vec<i32> = Vec::new();
+static mut ME_KEY: Vec<u32> = Vec::new();
+static mut ME_GEN: Vec<u32> = Vec::new();
+static mut ME_EPOCH: u32 = 1;
 static mut ME_SP: Vec<f64> = Vec::new();
 static mut ME_SPMAX: Vec<f64> = Vec::new();
 static mut ME_VB: Vec<f64> = Vec::new();
@@ -35,6 +36,10 @@ static mut ME_TOL: f64 = 0.0;
 static mut ME_INIT_B: f64 = 0.0;
 static mut ME_INIT_P: f64 = 0.0;
 static mut ME_INIT_Y: f64 = 0.0;
+static mut ME_DEN_B: f64 = 0.0;
+static mut ME_DEN_P: f64 = 0.0;
+static mut ME_DEN_Y: f64 = 0.0;
+static mut ME_INV_NP: f64 = 0.0;
 static mut ME_START_B: i32 = 0;
 static mut ME_START_P: i32 = 0;
 static mut ME_START_Y: i32 = 0;
@@ -64,18 +69,39 @@ static mut MINEF_ROOT_SC_VY: [f64; 3] = [0.0; 3];
 static mut MINEF_ROOT_SC_EF: [f64; 3] = [0.0; 3];
 static mut MINEF_ROOT_MAX_SP: f64 = 0.0;
 unsafe fn me_clear_results() {
-    ME_COUNT = 0; MN_SP = 0.0; MN_SPMAX = 0.0; MN_VB = 0.0; MN_VP = 0.0; MN_VY = 0.0;
-    MN_EF = 0.0; MN_ACT = -1; MINEF_ROOT_SC_VALID = [0; 3]; MINEF_ROOT_SC_SP = [0.0; 3];
-    MINEF_ROOT_SC_VB = [0.0; 3]; MINEF_ROOT_SC_VP = [0.0; 3]; MINEF_ROOT_SC_VY = [0.0; 3];
+    ME_COUNT = 0;
+    MN_SP = 0.0;
+    MN_SPMAX = 0.0;
+    MN_VB = 0.0;
+    MN_VP = 0.0;
+    MN_VY = 0.0;
+    MN_EF = 0.0;
+    MN_ACT = -1;
+    MINEF_ROOT_SC_VALID = [0; 3];
+    MINEF_ROOT_SC_SP = [0.0; 3];
+    MINEF_ROOT_SC_VB = [0.0; 3];
+    MINEF_ROOT_SC_VP = [0.0; 3];
+    MINEF_ROOT_SC_VY = [0.0; 3];
     MINEF_ROOT_SC_EF = [0.0; 3];
     MINEF_ROOT_MAX_SP = 0.0;
 }
 
 unsafe fn me_release_arrays() {
-    ME_SID = Vec::new(); ME_B = Vec::new(); ME_P = Vec::new(); ME_Y = Vec::new();
-    ME_SP = Vec::new(); ME_SPMAX = Vec::new(); ME_VB = Vec::new(); ME_VP = Vec::new();
-    ME_VY = Vec::new(); ME_EF = Vec::new(); ME_ACT = Vec::new(); ME_SC_VALID = Vec::new();
-    ME_SC_SP = Vec::new(); ME_SC_SPMAX = Vec::new(); ME_SC_VB = Vec::new(); ME_SC_VP = Vec::new();
+    ME_KEY = Vec::new();
+    ME_GEN = Vec::new();
+    ME_EPOCH = 1;
+    ME_SP = Vec::new();
+    ME_SPMAX = Vec::new();
+    ME_VB = Vec::new();
+    ME_VP = Vec::new();
+    ME_VY = Vec::new();
+    ME_EF = Vec::new();
+    ME_ACT = Vec::new();
+    ME_SC_VALID = Vec::new();
+    ME_SC_SP = Vec::new();
+    ME_SC_SPMAX = Vec::new();
+    ME_SC_VB = Vec::new();
+    ME_SC_VP = Vec::new();
     ME_SC_VY = Vec::new();
     ME_SC_EF = Vec::new();
     me_clear_results();
@@ -86,7 +112,7 @@ pub extern "C" fn configureMinEfMemo(cap_log2: i32) {
     unsafe {
         let n = cap_log2.clamp(18, 22) as u32;
         let new_cap = 1usize << n;
-        if !ME_SID.is_empty() && new_cap == ME_CAP {
+        if !ME_KEY.is_empty() && new_cap == ME_CAP {
             return;
         }
         ME_CAP = new_cap;
@@ -98,16 +124,22 @@ pub extern "C" fn configureMinEfMemo(cap_log2: i32) {
 
 #[no_mangle]
 pub extern "C" fn releaseMinEfMemo() {
-    unsafe { me_release_arrays(); }
+    unsafe {
+        me_release_arrays();
+    }
 }
 #[inline]
 unsafe fn me_leaf_cost(b: i32, p: i32, y: i32) -> f64 {
     let cb = ((ME_START_B - b) * 10) as f64;
     let cp = ((ME_START_P - p) * 10) as f64;
     let cy = ((ME_START_Y - y) * 10) as f64;
-    availability_cost(cb, cp, cy, ME_INIT_B, ME_INIT_P, ME_INIT_Y, ME_HF, ME_NP)
+    availability_cost_pre(cb, cp, cy, ME_DEN_B, ME_DEN_P, ME_DEN_Y, ME_NP, ME_INV_NP)
 }
 #[inline]
+// The stored key is packed, but the hash must keep the AssemblyScript port's component-wise
+// mixing. minef captures an insertion slot before recursing, so a child may occupy that slot and
+// change the number of recomputations. Changing probe order can therefore change ME_COUNT and the
+// MEMO_FULL fallback boundary even when the policy and floating-point results remain identical.
 unsafe fn me_hash(sid: i32, b: i32, p: i32, y: i32) -> usize {
     let mut h: u32 = (sid as u32).wrapping_mul(2654435761);
     h ^= (b as u32).wrapping_mul(40503);
@@ -118,18 +150,31 @@ unsafe fn me_hash(sid: i32, b: i32, p: i32, y: i32) -> usize {
     (h & ME_MASK) as usize
 }
 unsafe fn me_reset() {
-    if ME_SID.is_empty() {
-        ME_SID = vec![-1i32; ME_CAP]; ME_B = vec![0i32; ME_CAP]; ME_P = vec![0i32; ME_CAP];
-        ME_Y = vec![0i32; ME_CAP]; ME_SP = vec![0.0; ME_CAP]; ME_SPMAX = vec![0.0; ME_CAP];
-        ME_VB = vec![0.0; ME_CAP]; ME_VP = vec![0.0; ME_CAP]; ME_VY = vec![0.0; ME_CAP];
-        ME_EF = vec![0.0; ME_CAP]; ME_ACT = vec![0i8; ME_CAP]; ME_SC_VALID = vec![0u8; ME_MAXDEPTH * 3];
-        ME_SC_SP = vec![0.0; ME_MAXDEPTH * 3]; ME_SC_SPMAX = vec![0.0; ME_MAXDEPTH * 3];
-        ME_SC_VB = vec![0.0; ME_MAXDEPTH * 3]; ME_SC_VP = vec![0.0; ME_MAXDEPTH * 3];
+    if ME_KEY.is_empty() {
+        ME_KEY = vec![0u32; ME_CAP];
+        ME_GEN = vec![0u32; ME_CAP];
+        ME_EPOCH = 1;
+        ME_SP = vec![0.0; ME_CAP];
+        ME_SPMAX = vec![0.0; ME_CAP];
+        ME_VB = vec![0.0; ME_CAP];
+        ME_VP = vec![0.0; ME_CAP];
+        ME_VY = vec![0.0; ME_CAP];
+        ME_EF = vec![0.0; ME_CAP];
+        ME_ACT = vec![0i8; ME_CAP];
+        ME_SC_VALID = vec![0u8; ME_MAXDEPTH * 3];
+        ME_SC_SP = vec![0.0; ME_MAXDEPTH * 3];
+        ME_SC_SPMAX = vec![0.0; ME_MAXDEPTH * 3];
+        ME_SC_VB = vec![0.0; ME_MAXDEPTH * 3];
+        ME_SC_VP = vec![0.0; ME_MAXDEPTH * 3];
         ME_SC_VY = vec![0.0; ME_MAXDEPTH * 3];
         ME_SC_EF = vec![0.0; ME_MAXDEPTH * 3];
     } else {
-        for s in ME_SID.iter_mut() {
-            *s = -1;
+        ME_EPOCH = ME_EPOCH.wrapping_add(1);
+        if ME_EPOCH == 0 {
+            for generation in ME_GEN.iter_mut() {
+                *generation = 0;
+            }
+            ME_EPOCH = 1;
         }
     }
     me_clear_results();
@@ -153,9 +198,10 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {
         minef_node(CONVERT_SID, b, p, y, depth);
         return;
     }
+    let key = memo_key(sid, b, p, y);
     let mut i = me_hash(sid, b, p, y);
-    while ME_SID[i] != -1 {
-        if ME_SID[i] == sid && ME_B[i] == b && ME_P[i] == p && ME_Y[i] == y {
+    while ME_GEN[i] == ME_EPOCH {
+        if ME_KEY[i] == key {
             MN_SP = ME_SP[i];
             MN_SPMAX = ME_SPMAX[i];
             MN_VB = ME_VB[i];
@@ -239,10 +285,8 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {
         MN_VY = 0.0;
         MN_EF = me_leaf_cost(b, p, y);
         MN_ACT = -1;
-        ME_SID[slot] = sid;
-        ME_B[slot] = b;
-        ME_P[slot] = p;
-        ME_Y[slot] = y;
+        ME_KEY[slot] = key;
+        ME_GEN[slot] = ME_EPOCH;
         ME_SP[slot] = 0.0;
         ME_SPMAX[slot] = 0.0;
         ME_VB[slot] = 0.0;
@@ -305,10 +349,8 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {
     MN_VY = ME_SC_VY[bs];
     MN_EF = ME_SC_EF[bs];
     MN_ACT = best_k;
-    ME_SID[slot] = sid;
-    ME_B[slot] = b;
-    ME_P[slot] = p;
-    ME_Y[slot] = y;
+    ME_KEY[slot] = key;
+    ME_GEN[slot] = ME_EPOCH;
     ME_SP[slot] = MN_SP;
     ME_SPMAX[slot] = MN_SPMAX;
     ME_VB[slot] = MN_VB;
@@ -340,6 +382,10 @@ pub extern "C" fn solveMinEf(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f
         ME_INIT_B = pb as f64;
         ME_INIT_P = pp as f64;
         ME_INIT_Y = py as f64;
+        ME_DEN_B = ME_INIT_B + hf * GAIN_B;
+        ME_DEN_P = ME_INIT_P + hf * GAIN_P;
+        ME_DEN_Y = ME_INIT_Y + hf * GAIN_Y;
+        ME_INV_NP = 1.0 / np;
         ME_START_B = uses_of(pb, MAX_USES_B);
         ME_START_P = uses_of(pp, MAX_USES_P);
         ME_START_Y = uses_of(py, MAX_USES_Y);
@@ -428,9 +474,10 @@ pub extern "C" fn minEfRootCandidateExpectedCost(action: i32) -> f64 {
 }
 // policy lookup for the MC validator: chosen action at (sid, stock uses) from the last solveMinEf memo.
 unsafe fn min_ef_action_at(sid: i32, b: i32, p: i32, y: i32) -> i32 {
+    let key = memo_key(sid, b, p, y);
     let mut i = me_hash(sid, b, p, y);
-    while ME_SID[i] != -1 {
-        if ME_SID[i] == sid && ME_B[i] == b && ME_P[i] == p && ME_Y[i] == y {
+    while ME_GEN[i] == ME_EPOCH {
+        if ME_KEY[i] == key {
             return ME_ACT[i] as i32;
         }
         i = (i + 1) & (ME_MASK as usize);
@@ -541,6 +588,10 @@ fn subseed(seed: u32, run_index: i32) -> u32 {
     x ^ (x >> 16)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "hot loop passes scalar state without allocation"
+)]
 unsafe fn simulate_expected_f_once(
     start_sid: i32,
     b0: i32,
@@ -601,6 +652,10 @@ unsafe fn simulate_expected_f_once(
     )
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "matches the research rollout export contract"
+)]
 unsafe fn simulate_expected_f_after_first_action_policy(
     start_sid: i32,
     b0: i32,

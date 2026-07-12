@@ -5,6 +5,10 @@ export type DebtEntry = {
   removalTarget: string;
 };
 
+export type FunctionDebtEntry = DebtEntry & {
+  function: string;
+};
+
 export type ArchitectureIssue = {
   code:
     | "cycle"

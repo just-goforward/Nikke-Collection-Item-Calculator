@@ -1,4 +1,4 @@
-import { StatsConfigSchema } from "../schemas";
+import type { StatsConfig, StatsEndpointConfig } from "../types";
 import { ignoreExpectedError } from "./errorHandling";
 
 export type StatsRuntimeMode =
@@ -9,9 +9,60 @@ export type StatsRuntimeMode =
   | "staging-misconfigured";
 
 type SubmissionConfig = { endpoint: string; turnstileSiteKey: string };
+type StatsConfigRecord = Record<string, unknown> & {
+  endpoint?: unknown;
+  staging?: unknown;
+  turnstileSiteKey?: unknown;
+};
 
-function parsedStatsConfig() {
-  return StatsConfigSchema.safeParse(window.COLLECTION_STATS_CONFIG || {});
+type ParsedStatsConfig =
+  | { success: true; data: StatsConfig }
+  | { success: false; data?: undefined };
+
+function isRecord(value: unknown): value is StatsConfigRecord {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function normalizedUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizedNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function endpointConfig(value: unknown): StatsEndpointConfig | undefined {
+  if (!isRecord(value)) return undefined;
+  const config: StatsEndpointConfig = {};
+  const endpoint = normalizedUrl(value.endpoint);
+  const turnstileSiteKey = normalizedNonEmptyString(value.turnstileSiteKey);
+  if (endpoint) config.endpoint = endpoint;
+  if (turnstileSiteKey) config.turnstileSiteKey = turnstileSiteKey;
+  return config;
+}
+
+function parsedStatsConfig(): ParsedStatsConfig {
+  const raw = window.COLLECTION_STATS_CONFIG || {};
+  if (!isRecord(raw)) return { success: false };
+  const base = endpointConfig(raw);
+  if (!base) return { success: false };
+  const staging = endpointConfig(raw.staging);
+  return {
+    success: true,
+    data: {
+      ...base,
+      ...(staging ? { staging } : {}),
+    },
+  };
 }
 
 function normalizedEndpoint(endpoint: string): string {
@@ -29,11 +80,19 @@ function completeSubmissionConfig(config?: {
   };
 }
 
+function isLocalHost(hostname?: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
 export function statsRuntimeMode(): StatsRuntimeMode {
   const params = new URLSearchParams(window.location.search);
   if (params.get("demoStats") === "1") return "demo";
   if (params.get("statsEnv") === "disabled") return "disabled";
-  if (params.get("statsEnv") !== "staging") return "production";
+  const statsEnv = params.get("statsEnv");
+  if (statsEnv !== "staging") {
+    if (!statsEnv && isLocalHost(window.location.hostname)) return "disabled";
+    return "production";
+  }
 
   const parsed = parsedStatsConfig();
   if (!parsed.success || !completeSubmissionConfig(parsed.data.staging)) {

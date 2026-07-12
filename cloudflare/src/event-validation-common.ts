@@ -1,5 +1,4 @@
-import type { CollectionState } from "./domain";
-import { REQUIRED_EXP } from "./domain";
+import { type CollectionState, REQUIRED_EXP } from "../../shared/game";
 import { HttpError } from "./http-error";
 
 export function validateState(state: CollectionState, allowLevel15: boolean): CollectionState {

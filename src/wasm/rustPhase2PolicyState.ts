@@ -32,7 +32,7 @@ export function assertCurrentPhase2Build(
   throw new Error(`Rust phase2 ${operation} does not match the current policy build.`);
 }
 
-export function assertPhase2PolicyGeneration(state: Phase2FactoryState, generation: number) {
+function assertPhase2PolicyGeneration(state: Phase2FactoryState, generation: number) {
   if (generation === state.buildGeneration) return;
   throw new Error("Rust phase2 policy handle is stale because a newer policy was built.");
 }

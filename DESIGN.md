@@ -40,8 +40,13 @@ Light theme:
 - Outcome background: `#fffaf0`, `--outcome-bg`, great-success decision fill.
 - Outcome text: `#523600`, `--outcome-ink`, text over outcome fill.
 - Progress track: `#e5ebe8`, `--progress-track`, stat bar and progress tracks.
+- Stats divider: `#c9deeb`, `--stats-divider`, statistics section title dividers.
+- Stats divider soft: `#e4eef4`, `--stats-divider-soft`, balance table row dividers.
 - Overlay: `rgba(245, 247, 244, 0.72)`, `--overlay-bg`, loading overlay.
 - Shadow: `0 18px 42px rgba(21, 43, 58, 0.08)`, `--shadow`, panel elevation.
+- Tab active shadow: `0 1px 3px rgba(15, 30, 45, 0.18)`, `--tab-active-shadow`, desktop/tablet view tab active elevation.
+- Segmented thumb: `#ffffff`, `--seg-thumb`, desktop view/theme segmented control active thumb.
+- Segmented shadow: `0 1px 3px rgba(15, 30, 45, 0.18)`, `--seg-shadow`, desktop view/theme segmented control thumb elevation.
 
 Dark theme:
 - Page: `#1a1c1f`, `--bg`.
@@ -62,6 +67,9 @@ Dark theme:
 - Danger: `#ffb39b`, `--danger`.
 - Overlay: `rgba(10, 12, 14, 0.78)`, `--overlay-bg`.
 - Shadow: `0 18px 42px rgba(0, 0, 0, 0.42)`, `--shadow`.
+- Tab active shadow: `0 1px 3px rgba(0, 0, 0, 0.28)`, `--tab-active-shadow`, desktop/tablet view tab active elevation.
+- Segmented thumb: `#31363c`, `--seg-thumb`, desktop view/theme segmented control active thumb.
+- Segmented shadow: `0 1px 3px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.07)`, `--seg-shadow`, desktop view/theme segmented control thumb elevation.
 
 Additional declared implementation colors:
 - `#0878b8`, light R active control.
@@ -84,6 +92,8 @@ Additional declared implementation colors:
 - `#2e2818`, dark warning/outcome fill.
 - `#2e1c17`, dark danger fill.
 - `#2f3338`, dark progress track.
+- `#454b52`, dark stats section divider.
+- `#34383e`, dark stats soft row divider.
 - `#33373d`, dark spinner track.
 - `#131518`, dark action background.
 - `#ffe2a2`, dark outcome text.
@@ -165,6 +175,17 @@ Mobile chrome:
 - Status strip uses `--surface`, `--line`, `--grade-active`, `--muted`.
 - Bottom navigation is fixed, surface backed, and uses the active grade color for the selected tab.
 - The stats tab hides calculation actions and keeps only navigation.
+
+Outcome decision:
+- Use `--outcome-bg`, `--outcome-ink`, and `--yellow` to separate the great-success decision from ordinary panels.
+- O/X choices must stay visually balanced; do not style one choice as the preferred answer.
+- Captions sit below the buttons with muted prefixes and strong destination values.
+- The outcome border sweep is decorative only, uses the same yellow token, and must be disabled by reduced-motion preferences.
+
+Privacy notice:
+- PrivacyFooter is page chrome, not tab content.
+- Keep it as a sticky footer pattern inside the app shell: shell min-height `100dvh`, shell column layout, content `flex: 1`, footer `margin-top: auto`.
+- Do not use fixed positioning or negative margin compensation for the privacy notice.
 
 Stats:
 - Labels use `--muted` only when contrast passes normal text requirements.

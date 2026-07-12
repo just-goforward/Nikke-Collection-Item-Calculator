@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import ts from "typescript";
+import { parseSync } from "oxc-parser";
 import {
   BIOME_IGNORE_ALLOWLIST,
   CHECK_ROOTS as DEFAULT_CHECK_ROOTS,
@@ -22,6 +22,38 @@ import {
 import type { ArchitectureIssue, DebtEntry, FunctionMetrics } from "./architecture-types.ts";
 
 export const CHECK_ROOTS = DEFAULT_CHECK_ROOTS;
+
+type AstObject = {
+  type: string;
+  [key: string]: unknown;
+};
+
+function isAstObject(value: unknown): value is AstObject {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { type?: unknown }).type === "string"
+  );
+}
+
+function literalValue(value: unknown) {
+  if (!isAstObject(value)) return null;
+  const literal = value["value"];
+  return typeof literal === "string" ? literal : null;
+}
+
+function exportSourceSpecifiers(program: unknown) {
+  if (!isAstObject(program) || !Array.isArray(program["body"])) return [];
+  return program["body"]
+    .filter(isAstObject)
+    .filter(
+      (node) =>
+        (node.type === "ExportNamedDeclaration" || node.type === "ExportAllDeclaration") &&
+        Boolean(node["source"]),
+    )
+    .map((node) => literalValue(node["source"]))
+    .filter((value) => typeof value === "string");
+}
 
 export function gitTrackedFiles(roots?: string[]) {
   return collectGitTrackedFiles(roots);
@@ -92,13 +124,47 @@ function findUnreachableSources(files: string[]) {
   return sourceFiles.filter((file) => !reachable.has(file));
 }
 
+function moduleSpecifierFromSpan(source: string, start: number, end: number) {
+  const raw = source.slice(start, end).trim();
+  if (
+    (raw.startsWith('"') && raw.endsWith('"')) ||
+    (raw.startsWith("'") && raw.endsWith("'")) ||
+    (raw.startsWith("`") && raw.endsWith("`"))
+  ) {
+    return raw.slice(1, -1);
+  }
+  return raw;
+}
+
+function importCallSpecifiers(source: string) {
+  const specifiers: string[] = [];
+  const pattern = /\bimport\s*\(\s*(['"`])([^'"`]+)\1\s*\)/g;
+  for (const match of source.matchAll(pattern)) {
+    if (match[2]) specifiers.push(match[2]);
+  }
+  return specifiers;
+}
+
 function importGraph(files: string[]) {
   const fileSet = new Set(files);
   const graph = new Map(files.map((file) => [file, new Set<string>()]));
   for (const file of files.filter((entry) => entry.endsWith(".ts") || entry.endsWith(".tsx"))) {
     const source = sourceOf(file);
-    for (const imported of ts.preProcessFile(source, true, true).importedFiles) {
-      const resolved = resolveImport(file, imported.fileName, fileSet);
+    const parsed = parseSync(file, source, {
+      astType: "ts",
+      lang: file.endsWith(".tsx") ? "tsx" : "ts",
+      sourceType: "module",
+    });
+    const imports = [
+      ...parsed.module.staticImports.map((imported) => imported.moduleRequest.value),
+      ...parsed.module.dynamicImports.map((imported) =>
+        moduleSpecifierFromSpan(source, imported.moduleRequest.start, imported.moduleRequest.end),
+      ),
+      ...exportSourceSpecifiers(parsed.program),
+      ...importCallSpecifiers(source),
+    ];
+    for (const imported of imports) {
+      const resolved = resolveImport(file, imported, fileSet);
       if (resolved) graph.get(file)?.add(resolved);
     }
   }
@@ -141,17 +207,40 @@ function findReExports(files: string[]) {
   return files
     .filter((file) => file.endsWith(".ts") || file.endsWith(".tsx"))
     .filter((file) => {
-      const sourceFile = ts.createSourceFile(
-        file,
-        sourceOf(file),
-        ts.ScriptTarget.Latest,
-        true,
-        file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-      );
-      return sourceFile.statements.some(
-        (statement) => ts.isExportDeclaration(statement) && Boolean(statement.moduleSpecifier),
+      const parsed = parseSync(file, sourceOf(file), {
+        astType: "ts",
+        lang: file.endsWith(".tsx") ? "tsx" : "ts",
+        sourceType: "module",
+      });
+      return (
+        exportSourceSpecifiers(parsed.program).length > 0 ||
+        importsThenExportsLocalBinding(sourceOf(file))
       );
     });
+}
+
+function importsThenExportsLocalBinding(source: string) {
+  const imported = new Set<string>();
+  for (const match of source.matchAll(/\bimport\s+(?:type\s+)?\{([^}]+)\}\s+from\b/g)) {
+    for (const rawSpecifier of match[1]?.split(",") ?? []) {
+      const specifier = rawSpecifier.trim().replace(/^type\s+/, "");
+      if (!specifier) continue;
+      const parts = specifier.split(/\s+as\s+/);
+      const local = parts.at(-1)?.trim();
+      if (local) imported.add(local);
+    }
+  }
+  for (const match of source.matchAll(/\bimport\s+([A-Za-z_$][\w$]*)\s+from\b/g)) {
+    if (match[1]) imported.add(match[1]);
+  }
+  for (const match of source.matchAll(/\bexport\s+(?:type\s+)?\{([^}]+)\}\s*;/g)) {
+    for (const rawSpecifier of match[1]?.split(",") ?? []) {
+      const local = rawSpecifier.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]?.trim();
+      if (local && imported.has(local)) return true;
+    }
+  }
+  const defaultExport = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\s*;/.exec(source)?.[1];
+  return Boolean(defaultExport && imported.has(defaultExport));
 }
 
 export function violatesModuleBoundary(file: string, dependency: string) {
@@ -162,8 +251,11 @@ export function violatesModuleBoundary(file: string, dependency: string) {
       dependency.startsWith("scripts/") ||
       dependency.startsWith("e2e/"));
   const workerViolation =
-    file.startsWith("cloudflare/src/") && !dependency.startsWith("cloudflare/src/");
-  return appViolation || workerViolation;
+    file.startsWith("cloudflare/src/") &&
+    !dependency.startsWith("cloudflare/src/") &&
+    !dependency.startsWith("shared/");
+  const sharedViolation = file.startsWith("shared/") && !dependency.startsWith("shared/");
+  return appViolation || workerViolation || sharedViolation;
 }
 
 function findBoundaryViolations(graph: Map<string, Set<string>>) {
@@ -210,12 +302,14 @@ function findEmptyCatches(files: string[]) {
 }
 
 function findFunctionMetricIssues(files: string[]) {
-  const complexityAllowlist = debtFiles(COMPLEXITY_ALLOWLIST);
+  const complexityAllowlist = new Set(
+    COMPLEXITY_ALLOWLIST.map((entry) => `${entry.file}\0${entry.function}`),
+  );
   const issues: ArchitectureIssue[] = [];
   for (const file of files.filter((entry) => entry.endsWith(".ts") || entry.endsWith(".tsx"))) {
-    if (complexityAllowlist.has(file)) continue;
     const limits = limitsFor(file);
     for (const metric of measureFunctions(sourceOf(file), file)) {
+      if (complexityAllowlist.has(`${file}\0${metric.name}`)) continue;
       if (metric.lines > limits.maxFunctionLines) {
         issues.push({
           code: "function-lines",

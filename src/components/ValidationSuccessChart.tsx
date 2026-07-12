@@ -1,210 +1,94 @@
-import { useId } from "react";
-
 import type { ValidationStageReachView, ValidationView } from "../ui-types";
 
 const classes = {
   chartCard:
-    "grid max-w-[620px] gap-2.5 rounded-card border border-border bg-surface px-3 py-2.5 text-[12px] text-text-soft",
+    "validation-chart-card grid min-h-[112px] w-full max-w-[620px] gap-[9px] rounded-card border border-border bg-surface px-3 py-2.5 text-[12px] text-text-soft",
   header: "flex flex-wrap items-center justify-between gap-2",
-  title: "text-[12px] font-semibold text-text-strong",
+  title: "text-[11.5px] font-semibold text-text-strong",
   badge:
-    "rounded-control border border-grade-active/35 bg-grade-active/10 px-2 py-1 text-[11px] font-semibold text-grade-active-strong",
-  canvasWrap:
-    "rounded-card border border-border bg-surface-strong px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]",
-  canvas: "block h-auto w-full text-grade-active",
-  grid: "stroke-border/70 stroke-[1]",
-  axisLine: "stroke-muted/55 stroke-[1.1]",
-  axisText: "fill-muted text-[9px] font-normal",
-  stepLine:
-    "fill-none stroke-grade-active stroke-[1.7] [stroke-linecap:round] [stroke-linejoin:round]",
-  point: "fill-text-strong stroke-surface stroke-[2.2]",
-  pointLabelBox: "fill-surface stroke-border stroke-[1]",
-  pointText: "fill-text-strong text-[9px] font-medium",
-  helper: "text-[11px] font-medium leading-snug text-muted",
+    "rounded-control border border-primary/35 bg-primary-soft px-2 py-1 text-[10px] font-semibold text-primary-strong",
+  list: "m-0 grid list-none gap-2 px-0 py-0.5",
+  row: "grid grid-cols-[86px_minmax(120px,1fr)_138px] items-center gap-2.5 max-mobile:grid-cols-[64px_minmax(90px,1fr)_112px] max-mobile:gap-2",
+  targetRow: "",
+  label: "text-[12px] font-semibold text-muted max-mobile:text-[11px]",
+  targetLabel: "font-extrabold text-text-strong",
+  track: "h-[9px] overflow-hidden rounded-pill bg-progress-track",
+  fill: "block h-full rounded-pill bg-blue-kit transition-[width] duration-[420ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+  targetFill: "bg-grade-active",
+  value:
+    "justify-self-end whitespace-nowrap text-right text-[12px] font-bold text-text-strong max-mobile:text-[11px]",
+  targetValue: "text-[13.5px] font-extrabold max-mobile:text-[12px]",
+  reached: "font-medium text-muted",
+  loading:
+    "validation-chart-loading grid min-h-[58px] place-items-center gap-2 text-center text-[11.5px] font-medium text-muted",
+  spinner:
+    "validation-chart-spinner size-5 animate-spin rounded-full border-[3px] border-primary-soft border-t-primary motion-reduce:animate-none",
 } as const;
 
-const CHART = {
-  width: 340,
-  height: 144,
-  left: 42,
-  right: 34,
-  top: 16,
-  bottom: 36,
-} as const;
-
-const plotWidth = CHART.width - CHART.left - CHART.right;
-const plotHeight = CHART.height - CHART.top - CHART.bottom;
-const plotBottom = CHART.height - CHART.bottom;
-const plotRight = CHART.width - CHART.right;
-const labelBoxWidth = 44;
-const labelBoxHeight = 14;
-
-function chartX(index: number, total: number) {
-  if (total <= 1) return CHART.left + plotWidth / 2;
-  return CHART.left + (index / (total - 1)) * plotWidth;
-}
-
-function chartY(probability: number) {
-  return CHART.top + (1 - Math.max(0, Math.min(1, probability))) * plotHeight;
-}
-
-function stepPath(points: ValidationStageReachView["points"]) {
-  if (!points.length) return "";
-  const first = points[0];
-  if (!first) return "";
-  const commands = [
-    `M${chartX(0, points.length).toFixed(2)},${chartY(first.probability).toFixed(2)}`,
-  ];
-  for (let index = 1; index < points.length; index += 1) {
-    const point = points[index];
-    if (!point) continue;
-    const x = chartX(index, points.length).toFixed(2);
-    const y = chartY(point.probability).toFixed(2);
-    commands.push(`H${x}`);
-    commands.push(`V${y}`);
-  }
-  return commands.join(" ");
-}
-
-function valueLabelPosition(index: number, total: number, x: number, y: number) {
-  const clampedX = Math.max(
-    CHART.left + labelBoxWidth / 2,
-    Math.min(plotRight - labelBoxWidth / 2, x),
-  );
-  const isEdge = index === 0 || index === total - 1;
-  const preferBelow = y < CHART.top + labelBoxHeight + 8 || isEdge;
-  const boxY = preferBelow
-    ? Math.min(plotBottom - labelBoxHeight - 4, y + 7)
-    : Math.max(CHART.top + 2, y - labelBoxHeight - 9);
-  return {
-    boxX: clampedX - labelBoxWidth / 2,
-    boxY,
-    textX: clampedX,
-    textY: boxY + 10,
-  };
-}
-
-function axisLabelAnchor(index: number, total: number) {
-  if (index === 0) return "start";
-  if (index === total - 1) return "end";
-  return "middle";
-}
-
-function axisLabelX(index: number, total: number, x: number) {
-  if (index === 0) return Math.max(CHART.left, x - 2);
-  if (index === total - 1) return Math.min(plotRight, x + 2);
-  return x;
-}
-
-function StageReachSvg({ chart }: { chart: ValidationStageReachView }) {
-  const titleId = useId();
-  const descId = useId();
-  const path = stepPath(chart.points);
-  const description = chart.points
-    .map((point) => `${point.label}: ${point.reachedLabel}, ${point.percentLabel}`)
-    .join(" / ");
+function StageReachBars({ chart }: { chart: ValidationStageReachView }) {
   return (
-    <svg
-      aria-labelledby={`${titleId} ${descId}`}
-      className={classes.canvas}
-      role="img"
-      viewBox={`0 0 ${CHART.width} ${CHART.height}`}
-    >
-      <title id={titleId}>단계별 도달률 계단 그래프</title>
-      <desc id={descId}>{description}</desc>
-      <line className={classes.grid} x1={CHART.left} x2={plotRight} y1={CHART.top} y2={CHART.top} />
-      <line
-        className={classes.grid}
-        x1={CHART.left}
-        x2={plotRight}
-        y1={chartY(0.5)}
-        y2={chartY(0.5)}
-      />
-      <line
-        className={classes.grid}
-        x1={CHART.left}
-        x2={plotRight}
-        y1={plotBottom}
-        y2={plotBottom}
-      />
-      <line
-        className={classes.axisLine}
-        x1={CHART.left}
-        x2={CHART.left}
-        y1={CHART.top}
-        y2={plotBottom}
-      />
-      <line
-        className={classes.axisLine}
-        x1={CHART.left}
-        x2={plotRight}
-        y1={plotBottom}
-        y2={plotBottom}
-      />
-      <text className={classes.axisText} textAnchor="end" x={CHART.left - 6} y={CHART.top + 3}>
-        100%
-      </text>
-      <text className={classes.axisText} textAnchor="end" x={CHART.left - 6} y={chartY(0.5) + 3}>
-        50%
-      </text>
-      <text className={classes.axisText} textAnchor="end" x={CHART.left - 6} y={plotBottom + 3}>
-        0%
-      </text>
-      <path className={classes.stepLine} d={path} />
+    <ul className={classes.list} aria-label="단계별 도달률">
       {chart.points.map((point, index) => {
-        const x = chartX(index, chart.points.length);
-        const y = chartY(point.probability);
-        const valueLabel = valueLabelPosition(index, chart.points.length, x, y);
-        const tickTextAnchor = axisLabelAnchor(index, chart.points.length);
-        const tickX = axisLabelX(index, chart.points.length, x);
+        const isTarget = index === chart.points.length - 1;
+        const percent = Math.max(0, Math.min(100, point.probability * 100));
         return (
-          <g key={point.label}>
-            <circle className={classes.point} cx={x.toFixed(2)} cy={y.toFixed(2)} r="3.5" />
-            <rect
-              className={classes.pointLabelBox}
-              height={labelBoxHeight}
-              rx="4"
-              width={labelBoxWidth}
-              x={valueLabel.boxX.toFixed(2)}
-              y={valueLabel.boxY.toFixed(2)}
-            />
-            <text
-              className={classes.pointText}
-              textAnchor="middle"
-              x={valueLabel.textX.toFixed(2)}
-              y={valueLabel.textY.toFixed(2)}
-            >
-              {point.reachedLabel}
-            </text>
-            <text
-              className={classes.axisText}
-              textAnchor={tickTextAnchor}
-              x={tickX.toFixed(2)}
-              y={CHART.height - 14}
-            >
+          <li className={`${classes.row} ${isTarget ? classes.targetRow : ""}`} key={point.label}>
+            <span className={`${classes.label} ${isTarget ? classes.targetLabel : ""}`}>
               {point.label}
-            </text>
-          </g>
+            </span>
+            <span className={classes.track} aria-hidden="true">
+              <span
+                className={`${classes.fill} ${isTarget ? classes.targetFill : ""}`}
+                style={{ width: `${percent}%` }}
+              />
+            </span>
+            <span className={`${classes.value} ${isTarget ? classes.targetValue : ""}`}>
+              {point.percentLabel} <span className={classes.reached}>· {point.reachedLabel}</span>
+            </span>
+          </li>
         );
       })}
-    </svg>
+    </ul>
   );
 }
 
-export function ValidationSuccessChart({ validation }: { validation: ValidationView }) {
-  if (!validation.stageReach) return null;
+function validationPlaceholderMessage(status: ValidationView["status"]) {
+  if (status === "error") return "검산 그래프를 표시하지 못했습니다.";
+  if (status === "cancelled") return "새 계산 결과에서 다시 검산할 수 있습니다.";
+  if (status === "running") return "검산 결과를 계산하고 있습니다.";
+  return "검산 결과를 기다리고 있습니다.";
+}
+
+function ValidationChartPlaceholder({ status }: { status: ValidationView["status"] }) {
+  const loading = status === "running";
   return (
-    <div className={classes.chartCard}>
+    <div className={classes.loading} aria-live="polite" role={loading ? "status" : undefined}>
+      {loading ? <span className={classes.spinner} aria-hidden="true" /> : null}
+      <span>{validationPlaceholderMessage(status)}</span>
+    </div>
+  );
+}
+
+export function ValidationSuccessChart({
+  monteCarloRunsLabel,
+  validation,
+}: {
+  monteCarloRunsLabel: string;
+  validation: ValidationView;
+}) {
+  return (
+    <div className={classes.chartCard} aria-busy={validation.status === "running"}>
       <div className={classes.header}>
         <div className={classes.title}>단계별 도달률</div>
-        <div className={classes.badge}>{validation.stageReach.runsLabel}</div>
+        <div className={classes.badge}>
+          {validation.stageReach?.runsLabel ?? `검산 ${monteCarloRunsLabel}명 기준`}
+        </div>
       </div>
-      <div className={classes.canvasWrap}>
-        <StageReachSvg chart={validation.stageReach} />
-      </div>
-      <p className={classes.helper}>
-        각 지점은 해당 단계 이상까지 도달한 비율입니다. 오른쪽으로 갈수록 더 높은 목표 단계입니다.
-      </p>
+      {validation.stageReach ? (
+        <StageReachBars chart={validation.stageReach} />
+      ) : (
+        <ValidationChartPlaceholder status={validation.status} />
+      )}
     </div>
   );
 }

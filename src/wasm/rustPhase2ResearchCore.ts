@@ -21,7 +21,7 @@ import { simulatePolicy, simulatePolicyAfterFirstAction } from "./rustPhase2Vali
 import type {
   RustCoreExports,
   RustPhase2Policy,
-  RustPhase2Solver,
+  RustPhase2ResearchSolver,
   State,
   Stock,
 } from "./rustTypes";
@@ -45,6 +45,9 @@ function buildPolicy(
     actionAt(nodeState, stockUses) {
       return actionAtForPhase2Generation(state, generation, nodeState, stockUses);
     },
+    simulate(runs, seed) {
+      return simulatePolicy(state, start, stock, runs, seed, horizonFactor, normPower, tolerance);
+    },
   };
 }
 
@@ -62,7 +65,7 @@ function rootCandidates(
   return readRootCandidates(state.exports, tolerance);
 }
 
-export function createRustPhase2ResearchSolver(exports: RustCoreExports): RustPhase2Solver {
+export function createRustPhase2ResearchSolver(exports: RustCoreExports): RustPhase2ResearchSolver {
   exports.configureMemo?.(21);
   exports.configureNodeBudget?.(0);
   const state: Phase2FactoryState = {

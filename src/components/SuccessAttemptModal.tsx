@@ -1,45 +1,46 @@
 import { useEffect, useRef } from "react";
-
+import type { Kit } from "../types";
 import type { SuccessAttemptModalState } from "../ui-types";
 
 type SuccessAttemptModalProps = {
   modal: SuccessAttemptModalState;
-  onAttemptChange: (attempt: number) => void;
   onSubmit: (successAttempt: number | null) => void;
 };
-type AttemptSelectorProps = {
-  attempt: number;
-  inputRef: React.RefObject<HTMLInputElement | null>;
-  maxAttempt: number;
-  onAttemptChange: (attempt: number) => void;
+
+const KIT_LABELS: Record<Kit, string> = {
+  blue: "초심자용 관리 키트",
+  purple: "중급자용 관리 키트",
+  yellow: "상급자용 관리 키트",
 };
 
 const classes = {
   overlay:
     "attempt-modal-overlay fixed inset-0 z-30 grid place-items-center bg-[rgba(9,18,28,0.48)] p-6 backdrop-blur-[7px] backdrop-saturate-[1.08] animate-[attempt-overlay-in_180ms_ease-out] motion-reduce:animate-none max-mobile:z-40 max-mobile:place-items-end max-mobile:px-2.5 max-mobile:pt-0 max-mobile:pb-3",
   modal:
-    "attempt-modal relative grid w-[min(420px,100%)] gap-[18px] overflow-hidden rounded-card border border-border [border-color:color-mix(in_srgb,var(--grade-active)_28%,var(--line))] bg-surface p-[22px] shadow-[0_0_0_1px_rgba(248,252,254,0.08),0_26px_70px_rgba(0,0,0,0.28)] animate-[attempt-modal-in_240ms_cubic-bezier(0.16,1,0.3,1)] motion-reduce:animate-none max-mobile:w-[min(100%,420px)]",
+    "attempt-modal relative grid w-[min(480px,100%)] gap-3 overflow-hidden rounded-card border border-border [border-color:color-mix(in_srgb,var(--grade-active)_28%,var(--line))] bg-surface p-[22px] shadow-[0_0_0_1px_rgba(248,252,254,0.08),0_26px_70px_rgba(0,0,0,0.28)] animate-[attempt-modal-in_240ms_cubic-bezier(0.16,1,0.3,1)] motion-reduce:animate-none max-mobile:w-[min(100%,420px)] max-mobile:rounded-t-[16px] max-mobile:p-4",
+  handle: "hidden h-1 w-9 justify-self-center rounded-pill bg-border max-mobile:block",
   header: "attempt-modal-header grid justify-items-center border-b border-border pb-4 text-center",
-  title: "m-0 text-center text-[21px] font-semibold leading-[1.25] text-text-strong",
-  form: "attempt-entry-form grid gap-3.5",
-  inputRow:
-    "attempt-input-row grid grid-cols-[56px_minmax(0,1fr)_56px] items-stretch gap-2.5 max-mobile:grid-cols-[44px_minmax(0,1fr)_44px]",
+  title:
+    "m-0 text-center text-[18px] font-semibold leading-[1.25] text-text-strong max-mobile:text-[14px]",
+  description:
+    "m-0 text-center text-[12.5px] font-semibold leading-[1.5] text-muted max-mobile:text-[11px]",
+  form: "attempt-entry-form grid gap-3",
+  choices: "grid grid-cols-3 gap-2 max-mobile:grid-cols-1 max-mobile:gap-[7px]",
   interactive:
     "min-h-14 rounded-card border border-border transition-[transform,border-color,background-color,box-shadow] duration-[140ms] ease-[ease] hover:-translate-y-px hover:border-grade-active hover:shadow-[0_8px_20px_rgba(21,43,58,0.12)] hover:outline-none focus-visible:-translate-y-px focus-visible:border-grade-active focus-visible:shadow-[0_8px_20px_rgba(21,43,58,0.12)] focus-visible:outline-none active:translate-y-0 motion-reduce:transition-none",
-  stepButton:
-    "attempt-step-button bg-surface-raised text-[26px] leading-none text-text-strong hover:bg-grade-active-soft focus-visible:bg-grade-active-soft",
-  numberField:
-    "attempt-number-field flex min-h-14 items-center justify-center gap-2 rounded-card border border-border bg-surface-raised px-3",
-  numberInput:
-    "attempt-number-input w-auto min-w-0 flex-[0_1_auto] border-0 bg-transparent p-0 text-center text-[26px] font-bold leading-none text-text-strong [appearance:textfield] focus:border-0 focus:shadow-none max-mobile:text-[22px] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:[-webkit-appearance:none] [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:[-webkit-appearance:none]",
-  numberHint: "text-sm font-medium whitespace-nowrap text-muted",
-  actions: "attempt-modal-actions grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2",
-  submitButton:
-    "attempt-submit-button bg-grade-active text-ice hover:brightness-[0.96] focus-visible:brightness-[0.96]",
-  unknownButton:
-    "attempt-unknown-button grid place-items-center content-center justify-items-center gap-0.5 bg-button text-center text-text-soft hover:bg-grade-active-soft focus-visible:bg-grade-active-soft",
-  unknownTitle: "text-sm leading-none text-text-strong",
-  unknownCaption: "text-[11px] font-medium leading-[1.2] text-muted",
+  choiceButton:
+    "attempt-choice-button grid min-h-[54px] content-center gap-0.5 rounded-card border border-yellow-kit bg-surface-strong px-2 py-1.5 text-center hover:bg-grade-active-soft focus-visible:bg-grade-active-soft max-mobile:flex max-mobile:min-h-[46px] max-mobile:items-center max-mobile:justify-between max-mobile:px-3.5",
+  choiceValue: "text-[15px] font-extrabold leading-tight text-text-strong max-mobile:text-[14px]",
+  choiceCaption: "text-[10.5px] font-semibold leading-tight text-muted",
+  why: "rounded-card border border-border bg-surface-strong",
+  whySummary: "cursor-pointer px-3 py-2 text-[11.5px] font-bold text-grade-active-strong",
+  whyText: "m-0 px-3 pb-2.5 text-[11.5px] font-medium leading-[1.55] text-muted",
+  actions:
+    "attempt-modal-actions flex items-center justify-between gap-2 border-t border-[var(--stats-divider-soft)] pt-3",
+  laterButton:
+    "min-h-9 border-0 bg-transparent px-1 text-[12px] font-semibold text-muted underline underline-offset-[3px]",
+  directButton:
+    "min-h-9 border border-border bg-button px-3.5 text-[12.5px] font-bold text-text-soft",
 } as const;
 
 function visibleFocusableElements(dialog: HTMLElement) {
@@ -71,7 +72,7 @@ function restorePreviousFocus(previouslyFocused: HTMLElement | null) {
 function useDialogFocusTrap(
   open: boolean,
   dialogRef: React.RefObject<HTMLDivElement | null>,
-  inputRef: React.RefObject<HTMLInputElement | null>,
+  firstFocusRef: React.RefObject<HTMLButtonElement | null>,
   onDismiss: () => void,
 ) {
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
@@ -82,7 +83,7 @@ function useDialogFocusTrap(
     if (!open) return;
     previouslyFocusedRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    inputRef.current?.focus();
+    firstFocusRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -115,78 +116,84 @@ function useDialogFocusTrap(
       restorePreviousFocus(previouslyFocused);
       previouslyFocusedRef.current = null;
     };
-  }, [dialogRef, inputRef, open]);
+  }, [dialogRef, firstFocusRef, open]);
 }
 
-function AttemptSelector({ attempt, inputRef, maxAttempt, onAttemptChange }: AttemptSelectorProps) {
+function residualChoices(modal: SuccessAttemptModalState) {
+  const beforeStock = modal.beforeStock ?? modal.maxAttempt * 10;
+  return Array.from({ length: modal.maxAttempt }, (_, index) => {
+    const attempt = index + 1;
+    return {
+      attempt,
+      remaining: Math.max(0, beforeStock - attempt * 10),
+    };
+  });
+}
+
+function AttemptSelector({
+  firstFocusRef,
+  modal,
+  onSubmit,
+}: {
+  firstFocusRef: React.RefObject<HTMLButtonElement | null>;
+  modal: SuccessAttemptModalState;
+  onSubmit: (successAttempt: number) => void;
+}) {
   return (
-    <div className={classes.inputRow}>
-      <button
-        className={`${classes.interactive} ${classes.stepButton}`}
-        type="button"
-        aria-label="회차 감소"
-        onClick={() => onAttemptChange(attempt - 1)}
-      >
-        -
-      </button>
-      <label className={classes.numberField}>
-        <input
-          ref={inputRef}
-          className={classes.numberInput}
-          type="number"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          min="1"
-          max={maxAttempt}
-          step="1"
-          value={attempt}
-          aria-label="대성공 발생 회차"
-          onChange={(event) => onAttemptChange(Number(event.target.value))}
-          onBlur={(event) => onAttemptChange(Number(event.target.value))}
-        />
-        <span className={classes.numberHint}>회 / {maxAttempt}회</span>
-      </label>
-      <button
-        className={`${classes.interactive} ${classes.stepButton}`}
-        type="button"
-        aria-label="회차 증가"
-        onClick={() => onAttemptChange(attempt + 1)}
-      >
-        +
-      </button>
+    <div className={classes.choices}>
+      {residualChoices(modal).map((choice, index) => (
+        <button
+          ref={index === 0 ? firstFocusRef : undefined}
+          className={`${classes.interactive} ${classes.choiceButton}`}
+          type="button"
+          key={choice.attempt}
+          onClick={() => onSubmit(choice.attempt)}
+        >
+          <strong className={classes.choiceValue}>{choice.remaining}개</strong>
+          <span className={classes.choiceCaption}>{choice.attempt}회차에 대성공</span>
+        </button>
+      ))}
     </div>
+  );
+}
+
+function WhyNeeded() {
+  return (
+    <details className={classes.why}>
+      <summary className={classes.whySummary}>왜 필요한가요?</summary>
+      <p className={classes.whyText}>
+        대성공이 나면 남은 사용은 진행하지 않아 실제 소모량이 회차에 따라 달라집니다. 선택한
+        잔량으로 대성공 시점을 역산해 통계에 반영합니다.
+      </p>
+    </details>
   );
 }
 
 function ModalActions({ onDismiss }: { onDismiss: () => void }) {
   return (
     <div className={classes.actions}>
-      <button className={`${classes.interactive} ${classes.submitButton}`} type="submit">
-        기록
+      <button className={`${classes.laterButton}`} type="button" onClick={onDismiss}>
+        나중에 입력
       </button>
       <button
-        className={`${classes.interactive} ${classes.unknownButton}`}
+        className={`${classes.interactive} ${classes.directButton}`}
         type="button"
         onClick={onDismiss}
       >
-        <strong className={classes.unknownTitle}>모르겠음</strong>
-        <small className={classes.unknownCaption}>통계 기록 제외</small>
+        직접 입력할게요
       </button>
     </div>
   );
 }
 
-export default function SuccessAttemptModal({
-  modal,
-  onAttemptChange,
-  onSubmit,
-}: SuccessAttemptModalProps) {
+export default function SuccessAttemptModal({ modal, onSubmit }: SuccessAttemptModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const firstFocusRef = useRef<HTMLButtonElement | null>(null);
   const dismiss = () => onSubmit(null);
-  useDialogFocusTrap(modal.open, dialogRef, inputRef, dismiss);
+  useDialogFocusTrap(modal.open, dialogRef, firstFocusRef, dismiss);
 
   if (!modal.open) return null;
+  const kitLabel = modal.kit ? KIT_LABELS[modal.kit] : "관리 키트";
 
   return (
     <div
@@ -200,10 +207,15 @@ export default function SuccessAttemptModal({
       }}
     >
       <div className={classes.modal}>
+        <span className={classes.handle} aria-hidden="true" />
         <div className={classes.header}>
           <h3 id="attemptModalTitle" className={classes.title}>
-            대성공이 발생한 시점을 입력해주세요.
+            남은 {kitLabel}가 몇 개인가요?
           </h3>
+          <p className={classes.description}>
+            몇 번째 사용에서 대성공이 났는지 알 수 없어 남은 수량을 확정해야 해요. 게임 인벤토리의
+            지금 수량을 그대로 고르면 됩니다.
+          </p>
         </div>
         <form
           className={classes.form}
@@ -212,12 +224,8 @@ export default function SuccessAttemptModal({
             onSubmit(modal.attempt);
           }}
         >
-          <AttemptSelector
-            attempt={modal.attempt}
-            inputRef={inputRef}
-            maxAttempt={modal.maxAttempt}
-            onAttemptChange={onAttemptChange}
-          />
+          <AttemptSelector firstFocusRef={firstFocusRef} modal={modal} onSubmit={onSubmit} />
+          <WhyNeeded />
           <ModalActions onDismiss={dismiss} />
         </form>
       </div>

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { createRustPhase2Solver } from "./rustCore";
 import { makeRustCoreExports as makeExports } from "./rustCore.test-helper";
+import { createRustPhase2Solver } from "./rustPhase2Core";
 import { createRustPhase2ResearchSolver } from "./rustPhase2ResearchCore";
 
 describe("rust phase2 core wrapper", () => {
@@ -30,7 +29,8 @@ describe("rust phase2 core wrapper", () => {
     const solver = createRustPhase2Solver(makeExports());
 
     expect(
-      solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 }),
+      solver.buildPolicy({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 })
+        .root,
     ).toEqual({
       firstAction: "yellow",
       successProbability: 0.8,
@@ -50,7 +50,7 @@ describe("rust phase2 core wrapper", () => {
     const solver = createRustPhase2Solver(exports);
 
     expect(() =>
-      solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 10, yellow: 10 }),
+      solver.buildPolicy({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 10, yellow: 10 }),
     ).toThrow("memo_full");
     expect(exports.resAction).not.toHaveBeenCalled();
   });
@@ -69,7 +69,7 @@ describe("rust phase2 core wrapper", () => {
     );
 
     expect(
-      solver.solveRoot({ grade: "R", level: 0, exp: 0 }, { blue: 0, purple: 0, yellow: 0 }),
+      solver.buildPolicy({ grade: "R", level: 0, exp: 0 }, { blue: 0, purple: 0, yellow: 0 }).root,
     ).toEqual({
       firstAction: null,
       successProbability: 0,
@@ -84,10 +84,8 @@ describe("rust phase2 core wrapper", () => {
     const solver = createRustPhase2Solver(exports);
 
     expect(
-      solver.rootCandidates(
-        { grade: "SR", level: 1, exp: 0 },
-        { blue: 10, purple: 20, yellow: 30 },
-      ),
+      solver.buildPolicy({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 })
+        .candidates,
     ).toEqual([
       {
         firstAction: "blue",
@@ -121,10 +119,7 @@ describe("rust phase2 core wrapper", () => {
     const solver = createRustPhase2Solver(exports);
 
     expect(() =>
-      solver.rootCandidates(
-        { grade: "SR", level: 1, exp: 0 },
-        { blue: 10, purple: 10, yellow: 10 },
-      ),
+      solver.buildPolicy({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 10, yellow: 10 }),
     ).toThrow("memo_full");
     expect(exports.rootCandidateValid).not.toHaveBeenCalled();
   });

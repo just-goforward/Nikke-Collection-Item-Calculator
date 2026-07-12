@@ -7,21 +7,17 @@ export type StageReachPoint = {
   probability: number;
 };
 
-export const MAX_STAGE_RANK = 30;
+const MAX_STAGE_RANK = 30;
 
 export function stageRank(state: CollectionState) {
   if (state.grade === "SR") return Math.min(MAX_STAGE_RANK, 15 + Math.max(0, state.level));
   return Math.min(14, Math.max(0, state.level));
 }
 
-export function stageFromRank(rank: number): { grade: Grade; level: number } {
+function stageFromRank(rank: number): { grade: Grade; level: number } {
   const normalized = Math.max(0, Math.min(MAX_STAGE_RANK, Math.floor(rank)));
   if (normalized <= 14) return { grade: "R", level: normalized };
   return { grade: "SR", level: normalized - 15 };
-}
-
-export function stageLabel(grade: Grade, level: number) {
-  return `${grade} ${level}`;
 }
 
 export function makeStageReachDistribution(finalRanks: number[], runs: number) {

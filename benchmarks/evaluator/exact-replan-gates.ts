@@ -1,5 +1,5 @@
 import { STRATEGY_PROBABILITY_TOLERANCE } from "../../src/solver/domain";
-import type { ProbabilityGateAudit } from "../../src/solver/solve";
+import type { ProbabilityGateAudit } from "../../src/solver/gate";
 import type { CollectionState, Stock } from "../../src/types";
 import type { GateEvidence } from "./exact-replan-types";
 

@@ -5,6 +5,20 @@ import { type PreviewServer, preview } from "vite";
 const PORT = 4175;
 let previewServer: PreviewServer | null = null;
 
+async function setTheme(page: import("@playwright/test").Page, theme: "light" | "dark") {
+  const label = theme === "dark" ? "다크" : "라이트";
+  const desktopButton = page.locator(`button[data-theme-mode="${theme}"]`).first();
+  if (await desktopButton.isVisible()) {
+    await desktopButton.click();
+    return;
+  }
+  await page.getByRole("button", { name: /테마 선택/ }).click();
+  await page
+    .getByRole("listbox", { name: "테마 선택" })
+    .getByRole("option", { name: label })
+    .click();
+}
+
 test.beforeAll(async () => {
   previewServer = await preview({
     base: "./",
@@ -49,10 +63,7 @@ test("데스크톱 라이트 화면에는 추적되지 않은 WCAG A/AA 위반�
 test("모바일 다크 화면에는 WCAG A/AA 위반이 없다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`http://127.0.0.1:${PORT}/?demoStats=1`);
-  await page
-    .getByRole("group", { name: "테마 선택" })
-    .getByRole("button", { name: "다크", exact: true })
-    .click();
+  await setTheme(page, "dark");
   await expect(page.locator("body")).toHaveClass(/theme-dark/);
 
   expect(await accessibilityViolations(page)).toEqual([]);

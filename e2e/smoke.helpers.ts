@@ -41,18 +41,18 @@ export async function serveStagingDocument(
   });
 }
 
-export async function mockStagingStatsEndpoints(page: Page) {
+export async function mockStagingStatsEndpoints(page: Page, origin = "http://127.0.0.1:4173") {
   await page.route("https://staging.example.test/api/stats", async (route) => {
     await route.fulfill({
       status: 200,
-      headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
+      headers: { "Access-Control-Allow-Origin": origin },
       body: '{"summary":null}',
     });
   });
   await page.route("https://staging.example.test/api/events", async (route) => {
     await route.fulfill({
       status: 200,
-      headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
+      headers: { "Access-Control-Allow-Origin": origin },
       body: '{"ok":true}',
     });
   });

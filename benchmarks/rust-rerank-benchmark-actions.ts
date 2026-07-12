@@ -1,5 +1,5 @@
 import type { Kit } from "../src/types";
-import type { RustPhase2Solver } from "../src/wasm/rustTypes";
+import type { RustPhase2ResearchSolver } from "../src/wasm/rustTypes";
 import {
   ADAPTIVE_FULL_ACCEPT_MARGIN,
   ADAPTIVE_GATE_Z,
@@ -26,7 +26,7 @@ export type CostComparison = {
 };
 
 export function evaluateAdaptive90Gate(args: {
-  solver: RustPhase2Solver;
+  solver: RustPhase2ResearchSolver;
   scenario: BenchmarkScenario;
   seed: number;
   heldOutSeed: number;
@@ -109,7 +109,7 @@ export function evaluateAdaptive90Gate(args: {
 }
 
 export function compareA2ForActions(args: {
-  solver: RustPhase2Solver;
+  solver: RustPhase2ResearchSolver;
   scenario: BenchmarkScenario;
   baselineFirstAction: Kit;
   selectedFirstAction: Kit;
@@ -145,7 +145,7 @@ export function compareA2ForActions(args: {
 }
 
 export function compareA1ForActions(args: {
-  solver: RustPhase2Solver;
+  solver: RustPhase2ResearchSolver;
   scenario: BenchmarkScenario;
   baselineFirstAction: Kit;
   selectedFirstAction: Kit;
@@ -184,7 +184,7 @@ export function compareA1ForActions(args: {
 
 function estimatePair(
   args: {
-    solver: RustPhase2Solver;
+    solver: RustPhase2ResearchSolver;
     scenario: BenchmarkScenario;
     heldOutSeed: number;
   },

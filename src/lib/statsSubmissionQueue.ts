@@ -1,4 +1,4 @@
-export type StatsEventKind = "kit_result" | "solver_diagnostic";
+export type StatsEventKind = "kit_result" | "solver_diagnostic" | "solver_recovery";
 
 export type StatsSubmissionEvent = Record<string, unknown> & {
   kind: StatsEventKind;

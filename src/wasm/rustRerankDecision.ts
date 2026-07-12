@@ -13,7 +13,7 @@ import {
 import type { RustProductInput } from "./rustProductInput";
 import type {
   RustPairedExpectedCostEstimate,
-  RustPhase2Solver,
+  RustPhase2ResearchSolver,
   RustRerankedCandidate,
   RustRerankResult,
 } from "./rustTypes";
@@ -29,7 +29,7 @@ export type AdaptiveRerankDecision = {
 };
 
 function baselineRerankCandidate(
-  solver: RustPhase2Solver,
+  solver: RustPhase2ResearchSolver,
   rerank: RustRerankResult,
   input: RustProductInput,
 ): RustRerankedCandidate | null {
@@ -63,7 +63,7 @@ function baselineRerankCandidate(
 }
 
 export function selectAdaptiveRerankDecision(
-  solver: RustPhase2Solver,
+  solver: RustPhase2ResearchSolver,
   input: RustProductInput,
 ): AdaptiveRerankDecision | null {
   const rerank = solver.selectFirstActionByExpectedCost(

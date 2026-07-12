@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { createRustMinEfSolver, isMemoFull } from "./rustCore";
 import { makeRustCoreExports as makeExports } from "./rustCore.test-helper";
+import { createRustMinEfSolver } from "./rustMinEfCore";
+import { isMemoFull } from "./rustStatus";
 
 describe("rust min-E[f] core wrapper", () => {
   it("configures memo and deterministic node budget on creation", () => {
@@ -36,7 +36,10 @@ describe("rust min-E[f] core wrapper", () => {
     const solver = createRustMinEfSolver(exports);
 
     expect(() =>
-      solver.solveRoot({ grade: "R", level: 0, exp: 0 }, { blue: 10, purple: 10, yellow: 10 }),
+      solver.solveRootWithCandidates(
+        { grade: "R", level: 0, exp: 0 },
+        { blue: 10, purple: 10, yellow: 10 },
+      ),
     ).toThrow("budget_exceeded");
     expect(exports.minEfAction).not.toHaveBeenCalled();
   });
@@ -62,7 +65,10 @@ describe("rust min-E[f] core wrapper", () => {
     const solver = createRustMinEfSolver(makeExports());
 
     expect(
-      solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 10, yellow: 10 }),
+      solver.solveRootWithCandidates(
+        { grade: "SR", level: 1, exp: 0 },
+        { blue: 10, purple: 10, yellow: 10 },
+      ).root,
     ).toEqual({
       firstAction: "blue",
       successProbability: 0.9,
@@ -121,7 +127,10 @@ describe("rust min-E[f] core wrapper", () => {
       { blue: 10, purple: 10, yellow: 10 },
     );
 
-    solver.solveRoot({ grade: "SR", level: 2, exp: 0 }, { blue: 30, purple: 30, yellow: 30 });
+    solver.solveRootWithCandidates(
+      { grade: "SR", level: 2, exp: 0 },
+      { blue: 30, purple: 30, yellow: 30 },
+    );
 
     expect(() =>
       policy.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 1, yellow: 1 }),
@@ -154,7 +163,7 @@ describe("rust min-E[f] core wrapper", () => {
 
     let thrown: unknown;
     try {
-      solver.rootCandidates(
+      solver.solveRootWithCandidates(
         { grade: "SR", level: 1, exp: 0 },
         { blue: 10, purple: 10, yellow: 10 },
       );

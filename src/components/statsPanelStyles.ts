@@ -24,7 +24,9 @@ export const classes = {
   panel:
     "panel stats-panel col-span-full min-w-0 rounded-card border border-border bg-surface shadow-panel [contain:layout_paint] transition-[background-color,border-color,box-shadow] duration-[220ms]",
   heading:
-    "section-heading flex items-center justify-between gap-3 border-b border-border px-[18px] py-4 transition-[border-color,background-color,color] duration-[220ms] max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",
+    "section-heading flex cursor-pointer list-none items-center justify-between gap-3 border-b border-border px-[18px] py-4 transition-[border-color,background-color,color] duration-[220ms] [&::-webkit-details-marker]:hidden max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",
+  headingCollapsed: "!border-b-0",
+  headingStatic: "cursor-default",
   panelEmpty: "empty-result px-[18px] py-[22px] font-medium text-muted",
   resultContent:
     "result-content stats-content grid gap-3.5 p-[18px] max-mobile:gap-2.5 max-mobile:px-3.5 max-mobile:py-3",
@@ -32,9 +34,12 @@ export const classes = {
   column: "stats-column grid min-w-0 content-start gap-3",
   section:
     "stats-section grid min-w-0 content-start gap-3.5 rounded-card border border-border bg-[linear-gradient(180deg,color-mix(in_srgb,var(--surface-raised)_86%,var(--grade-active-soft)),var(--surface-strong))] p-[15px] max-mobile:gap-2.5 max-mobile:rounded-control max-mobile:p-3",
-  sectionTitle: "stats-section-title flex min-w-0 items-center justify-between gap-2.5",
+  sectionTitle:
+    "stats-section-title flex min-w-0 items-center justify-between gap-2.5 border-b-2 border-[var(--stats-divider)] pb-2",
   sectionHeading:
-    "m-0 text-[15px] font-semibold leading-[1.25] text-text-strong max-mobile:text-[14px]",
+    "m-0 text-[16px] font-bold leading-[1.25] text-text-strong max-mobile:text-[14px]",
+  sectionMeta:
+    "whitespace-nowrap text-right text-[11px] font-medium leading-[1.3] text-muted max-mobile:text-[10.5px]",
   overallStack: "overall-stats-stack grid gap-2.5",
   overallWindow:
     "overall-stats-window grid min-w-0 gap-2 rounded-card border border-border bg-surface-raised p-[11px] max-mobile:p-2.5",
@@ -68,18 +73,21 @@ export const classes = {
   difficultyComparison:
     "difficulty-comparison whitespace-nowrap rounded-pill border border-[color-mix(in_srgb,var(--line)_76%,var(--grade-active))] bg-[color-mix(in_srgb,var(--surface-raised)_82%,var(--grade-active-soft))] px-2 py-[3px] text-[11px] font-medium leading-none text-muted",
   rateBar:
-    "difficulty-bar relative block h-[13px] w-full overflow-visible rounded-pill border-0 bg-progress-track p-0 text-left text-inherit [margin-block:12px_17px] [font:inherit] [user-select:none] cursor-default",
+    "difficulty-bar relative block h-[13px] w-full overflow-visible rounded-pill border-0 bg-progress-track p-0 text-left text-inherit [margin-block:14px_19px] [font:inherit] [user-select:none] cursor-default",
   kitRateBar:
-    "kit-rate-bar relative block h-[13px] w-full overflow-visible rounded-pill border-0 bg-progress-track p-0 text-left text-inherit [margin-block:12px_17px] [font:inherit] [user-select:none] cursor-default",
+    "kit-rate-bar relative block h-[13px] w-full overflow-visible rounded-pill border-0 bg-progress-track p-0 text-left text-inherit [margin-block:14px_19px] [font:inherit] [user-select:none] cursor-default",
   interval:
-    "difficulty-interval absolute bottom-[-2px] top-[-2px] z-[3] min-w-[14px] cursor-help appearance-none rounded-pill border border-[color-mix(in_srgb,var(--grade-active)_38%,transparent)] bg-[color-mix(in_srgb,var(--grade-active-soft)_65%,transparent)] p-0 focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--grade-active)_24%,transparent)]",
+    "difficulty-interval absolute bottom-[-5px] top-[-5px] z-[3] cursor-help appearance-none rounded-pill border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--grade-active)_24%,transparent)]",
   observed:
-    "difficulty-observed relative z-[1] block h-full rounded-pill transition-[width] duration-[240ms] ease-[ease]",
+    "difficulty-observed absolute top-0 z-[1] block h-full transition-[left,width] duration-[240ms] ease-[ease]",
+  observedRight: "rounded-r-pill",
+  observedLeft: "rounded-l-pill",
   observedDefault: "bg-[linear-gradient(90deg,var(--blue),var(--purple),var(--yellow))]",
-  observedGood: "bg-[linear-gradient(90deg,#22b573,#46d28f)]",
-  observedBad: "bg-[linear-gradient(90deg,#ef5350,#ff8a65)]",
-  observedNeutral: "bg-[linear-gradient(90deg,var(--blue),var(--purple))]",
-  theoryMarker: "difficulty-theory absolute bottom-0 top-0 z-[2] w-0.5 -translate-x-px bg-muted",
+  observedGood: "bg-[linear-gradient(90deg,#2fbf7e,#46d28f)]",
+  observedBad: "bg-[linear-gradient(90deg,#ff8a65,#ef5350)]",
+  observedNeutral: "bg-blue-kit",
+  theoryMarker:
+    "difficulty-theory absolute bottom-[-4px] top-[-4px] z-[2] w-0.5 -translate-x-px bg-muted",
   theoryMarkerLabel:
     "absolute bottom-[calc(100%+4px)] left-1/2 whitespace-nowrap text-[10px] font-medium leading-none text-muted -translate-x-1/2",
   theoryMarkerLabelLow: "left-0 translate-x-0",

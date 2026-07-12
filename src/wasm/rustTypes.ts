@@ -15,7 +15,7 @@ export type RustMinEfRoot = {
   states: number;
 };
 
-export type RustMinEfRootResult = {
+type RustMinEfRootResult = {
   root: RustMinEfRoot;
   candidates: RustPhase2Candidate[];
 };
@@ -119,26 +119,13 @@ export type RustMinEfSolver = {
     normPower?: number,
     tolerance?: number,
   ) => RustMinEfPolicyHandle;
-  solveRoot: (
-    start: State,
-    stock: Stock,
-    horizonFactor?: number,
-    normPower?: number,
-    tolerance?: number,
-  ) => RustMinEfRoot;
-  rootCandidates: (
-    start: State,
-    stock: Stock,
-    horizonFactor?: number,
-    normPower?: number,
-    tolerance?: number,
-  ) => RustPhase2Candidate[];
 };
 
 export type RustPhase2Policy = {
   root: RustPhase2Root;
   candidates: RustPhase2Candidate[];
   actionAt: (state: State, stockUses: Stock) => Kit | null;
+  simulate: (runs: number, seed: number) => RustMonteCarloResult;
 };
 
 export type RustPhase2ProductSolver = {
@@ -152,6 +139,9 @@ export type RustPhase2ProductSolver = {
     normPower?: number,
     tolerance?: number,
   ) => RustPhase2Policy;
+};
+
+export type RustPhase2ResearchSolver = RustPhase2ProductSolver & {
   solveRoot: (
     start: State,
     stock: Stock,
@@ -185,9 +175,6 @@ export type RustPhase2ProductSolver = {
     normPower?: number,
     tolerance?: number,
   ) => RustMonteCarloResult;
-};
-
-export type RustPhase2Solver = RustPhase2ProductSolver & {
   estimateExpectedCostAfterFirstAction: (
     start: State,
     stock: Stock,

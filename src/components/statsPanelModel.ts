@@ -9,6 +9,9 @@ export type ComparisonState = {
 
 export type RateBarGeometry = {
   actualWidth: number;
+  actualPercent: number;
+  deviationLeft: number;
+  deviationWidth: number;
   intervalLeft: number;
   intervalRight: number;
   intervalWidth: number;
@@ -51,7 +54,7 @@ export function comparisonState(
   return { className: "luck-neutral", interval, label: "기대 범위 내" };
 }
 
-export function percentPosition(rate: number) {
+function percentPosition(rate: number) {
   return Math.min(100, Math.max(0, rate * 100));
 }
 
@@ -65,13 +68,18 @@ export function rateBarGeometry(
   comparison: ComparisonState,
   theoreticalRate: number,
 ): RateBarGeometry {
-  const actualPercent = percentPosition(actualRate);
-  const theoreticalPercent = percentPosition(theoreticalRate);
-  const actualWidth = attempts > 0 ? Math.max(1, actualPercent) : 0;
+  const theoreticalPercent = 50;
+  const deltaPercentagePoints = (actualRate - theoreticalRate) * 100;
+  const deviation = Math.max(-50, Math.min(50, deltaPercentagePoints * 10));
+  const observedPercent = attempts > 0 ? theoreticalPercent + deviation : theoreticalPercent;
+  const actualWidth = attempts > 0 ? Math.abs(deviation) : 0;
   const intervalLeft = comparison.interval ? percentPosition(comparison.interval.low) : 0;
   const intervalRight = comparison.interval ? percentPosition(comparison.interval.high) : 0;
   return {
+    actualPercent: observedPercent,
     actualWidth,
+    deviationLeft: Math.min(theoreticalPercent, observedPercent),
+    deviationWidth: Math.max(1, actualWidth),
     intervalLeft,
     intervalRight,
     intervalWidth: Math.max(0, intervalRight - intervalLeft),

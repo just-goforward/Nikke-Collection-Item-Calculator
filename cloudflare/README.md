@@ -176,6 +176,26 @@ For diagnostic v5 attempted-node buckets, cleanup indexes, and the runtime aggre
 npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/migrate-runtime-v5.sql --config cloudflare/wrangler.toml
 ```
 
+For diagnostic v6 cache execution aggregates, apply the migration to both databases explicitly:
+
+```powershell
+npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/add-solver-cache-aggregates.sql --config cloudflare/wrangler.toml --env=""
+npx wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/add-solver-cache-aggregates.sql --config cloudflare/wrangler.toml
+```
+
+For the `ladder_v1` recovery rung and terminal aggregates:
+
+```powershell
+npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/add-solver-recovery-aggregates.sql --config cloudflare/wrangler.toml --env=""
+npx wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/add-solver-recovery-aggregates.sql --config cloudflare/wrangler.toml
+```
+
+Diagnostic versions before v6 can contain repeated cache-hit timing and node-count values. Treat
+that runtime data as a usage-weighted historical snapshot, not as an execution distribution.
+The protected admin endpoint filters runtime, latency, fallback, and node-count distributions to
+diagnostic v6 and later. Its `solveMs` buckets represent end-to-end recovery wall time, including
+failed ladder rungs before the terminal result.
+
 The legacy `solver_node_count_aggregates` table is retained in existing databases for historical
 queries, but new events no longer write to it. Current node pressure is derived from
 `solver_runtime_aggregates`.
@@ -209,25 +229,41 @@ wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.t
 Rust min-E[f] fallback rate and reason buckets:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS attempted_backend, SUM(events) AS attempts, SUM(CASE WHEN fallback_reason != 'none' THEN events ELSE 0 END) AS fallback_events, 1.0 * SUM(CASE WHEN fallback_reason != 'none' THEN events ELSE 0 END) / SUM(events) AS fallback_rate FROM solver_runtime_aggregates GROUP BY attempted_backend ORDER BY attempts DESC"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS attempted_backend, SUM(events) AS attempts, SUM(CASE WHEN fallback_reason != 'none' THEN events ELSE 0 END) AS fallback_events, 1.0 * SUM(CASE WHEN fallback_reason != 'none' THEN events ELSE 0 END) / SUM(events) AS fallback_rate FROM solver_runtime_aggregates WHERE diagnostic_version >= 6 GROUP BY attempted_backend ORDER BY attempts DESC"
 ```
 
 Rust min-E[f] fallback contexts for future kernel tuning:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, attempted_node_count_bucket, fallback_reason, SUM(events) AS events FROM solver_runtime_aggregates WHERE fallback_reason != 'none' GROUP BY grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, attempted_node_count_bucket, fallback_reason ORDER BY events DESC LIMIT 50"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, attempted_node_count_bucket, fallback_reason, SUM(events) AS events FROM solver_runtime_aggregates WHERE diagnostic_version >= 6 AND fallback_reason != 'none' GROUP BY grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, attempted_node_count_bucket, fallback_reason ORDER BY events DESC LIMIT 50"
 ```
 
 Node-count bucket pressure:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS attempted_backend, attempted_node_count_bucket, SUM(events) AS events FROM solver_runtime_aggregates GROUP BY attempted_backend, attempted_node_count_bucket ORDER BY attempted_backend, events DESC"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS attempted_backend, attempted_node_count_bucket, SUM(events) AS events FROM solver_runtime_aggregates WHERE diagnostic_version >= 6 GROUP BY attempted_backend, attempted_node_count_bucket ORDER BY attempted_backend, events DESC"
 ```
 
 Approximate solve latency distribution by bucket:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT solver_backend, solve_ms_bucket, SUM(events) AS events FROM solver_runtime_aggregates GROUP BY solver_backend, solve_ms_bucket ORDER BY solver_backend ASC, events DESC"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT solver_backend, solve_ms_bucket, SUM(events) AS events FROM solver_runtime_aggregates WHERE diagnostic_version >= 6 GROUP BY solver_backend, solve_ms_bucket ORDER BY solver_backend ASC, events DESC"
+```
+
+Observed solve-cache execution and hit counts (diagnostic v6 and later):
+
+```powershell
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT diagnostic_version, requested_backend, terminal_backend, execution_kind, SUM(events) AS events FROM solver_cache_aggregates WHERE diagnostic_version >= 6 GROUP BY diagnostic_version, requested_backend, terminal_backend, execution_kind ORDER BY diagnostic_version, requested_backend, execution_kind"
+```
+
+Recovery rung and terminal counts are independent operational aggregates. Do not divide one table
+by the other as a success rate: Turnstile, the in-memory submission queue, and page exits can affect
+which observations reach D1. The data also cannot observe work lost when the page exits before an
+event is queued.
+
+```powershell
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT policy_version, requested_backend, rung_backend, rung_exit, device_type, SUM(events) AS events FROM solver_recovery_rung_aggregates GROUP BY policy_version, requested_backend, rung_backend, rung_exit, device_type ORDER BY events DESC"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT policy_version, requested_backend, terminal_backend, terminal_outcome, SUM(events) AS events FROM solver_recovery_terminal_aggregates GROUP BY policy_version, requested_backend, terminal_backend, terminal_outcome ORDER BY events DESC"
 ```
 
 Or query the protected admin endpoint:
@@ -281,8 +317,8 @@ on `cloudflare/wrangler.toml.example`. Apply the regular schema, then the stagin
 guard:
 
 ```powershell
-& "C:\Program Files\nodejs\npx.cmd" wrangler d1 execute collection-kit-stats-staging --remote --env staging --file cloudflare/schema.sql --config cloudflare/wrangler.toml
-& "C:\Program Files\nodejs\npx.cmd" wrangler d1 execute collection-kit-stats-staging --remote --env staging --file cloudflare/staging-guard.sql --config cloudflare/wrangler.toml
+& "C:\Program Files\nodejs\npx.cmd" wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/schema.sql --config cloudflare/wrangler.toml
+& "C:\Program Files\nodejs\npx.cmd" wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/staging-guard.sql --config cloudflare/wrangler.toml
 ```
 
 Create a separate Invisible Turnstile widget in Cloudflare Dashboard. Allow
@@ -332,7 +368,7 @@ and must never be executed on production.
 Reset only disposable staging records with the guarded reset file:
 
 ```powershell
-& "C:\Program Files\nodejs\npx.cmd" wrangler d1 execute collection-kit-stats-staging --remote --env staging --file cloudflare/reset-staging.sql --config cloudflare/wrangler.toml
+& "C:\Program Files\nodejs\npx.cmd" wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/reset-staging.sql --config cloudflare/wrangler.toml
 ```
 
 The reset file requires the marker installed by `staging-guard.sql`. If it is mistakenly run

@@ -1,70 +1,150 @@
 import type { StatsApiResponse } from "../schemas";
 import type { Kit } from "../types";
-import type { SegmentStat, StatsView } from "../ui-types";
+import type {
+  KitStat,
+  LevelKitStat,
+  SegmentStat,
+  StatsPanelModel,
+  StatsSummary,
+  StatsView,
+} from "../ui-types";
 
 export const EMPTY_STATS_MESSAGE = "아직 집계된 통계가 없습니다.";
 const KIT_ORDER: Kit[] = ["blue", "purple", "yellow"];
 
-export function statsViewFromApiStats(stats: StatsApiResponse): StatsView {
-  const totalEvents = Math.max(
-    Number(stats.summary?.events || 0),
-    Number(stats.cumulative?.summary?.events || 0),
-  );
-  return totalEvents
-    ? { type: "stats", stats: withSegmentKitUsage(stats) }
-    : { type: "empty", message: EMPTY_STATS_MESSAGE };
+type ApiKitStat = StatsApiResponse["byKit"][number];
+type ApiSummary =
+  | StatsApiResponse["summary"]
+  | NonNullable<StatsApiResponse["cumulative"]>["summary"];
+
+function numberValue(value: unknown) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number : 0;
 }
 
-function withSegmentKitUsage(stats: StatsApiResponse): StatsApiResponse {
-  if (!Array.isArray(stats.segmentStats) || !Array.isArray(stats.levelKitStats)) return stats;
+function normalizeSummary(summary: ApiSummary | undefined): StatsSummary {
   return {
-    ...stats,
-    segmentStats: stats.segmentStats.map((segment) =>
-      Array.isArray(segment.byKit) && segment.byKit.length > 0
-        ? segment
-        : { ...segment, byKit: segmentKitStats(segment, stats.levelKitStats) },
-    ),
+    events: numberValue(summary?.events),
+    attempts: numberValue(summary?.attempts),
+    greatSuccesses: numberValue(summary?.greatSuccesses),
+    greatSuccessRate: numberValue(summary?.greatSuccessRate),
+    todayEvents: numberValue(summary?.todayEvents),
+    todayAttempts: numberValue(summary?.todayAttempts),
+    todayGreatSuccesses: numberValue(summary?.todayGreatSuccesses),
+    mostUsedKit: summary?.mostUsedKit ?? null,
+    mostUsedKitPieces: numberValue(summary?.mostUsedKitPieces),
   };
 }
 
-function piecesFromStat(stat: { attempts?: number | undefined; pieces?: number | undefined }) {
-  return Number(stat.pieces ?? Number(stat.attempts || 0) * 10);
+function normalizeKitStat(source: Partial<ApiKitStat> | undefined, kit: Kit): KitStat {
+  const attempts = numberValue(source?.attempts);
+  return {
+    kit,
+    events: numberValue(source?.events),
+    attempts,
+    pieces: numberValue(source?.pieces ?? attempts * 10),
+    greatSuccesses: numberValue(source?.greatSuccesses),
+    greatSuccessRate: numberValue(source?.greatSuccessRate),
+    theoreticalGreatSuccessRate: numberValue(source?.theoreticalGreatSuccessRate),
+  };
 }
 
-function segmentKitStats(segment: SegmentStat, levelKitStats: StatsApiResponse["levelKitStats"]) {
-  const [grade, startText] = String(segment.key || "").split(":");
+function normalizeKitStats(rows: ApiKitStat[] | undefined) {
+  return KIT_ORDER.map((kit) =>
+    normalizeKitStat(
+      rows?.find((row) => row.kit === kit),
+      kit,
+    ),
+  );
+}
+
+function normalizeLevelKitStats(rows: StatsApiResponse["levelKitStats"]): LevelKitStat[] {
+  return rows.map((row) => ({
+    grade: row.grade,
+    level: row.level,
+    kits: {
+      blue: normalizeKitStat(row.kits.blue, "blue"),
+      purple: normalizeKitStat(row.kits.purple, "purple"),
+      yellow: normalizeKitStat(row.kits.yellow, "yellow"),
+    },
+  }));
+}
+
+function segmentKitStats(key: string, levelKitStats: LevelKitStat[]) {
+  const [grade, startText] = key.split(":");
   const start = Number(startText);
-  if ((grade !== "R" && grade !== "SR") || !Number.isInteger(start)) return [];
+  if ((grade !== "R" && grade !== "SR") || !Number.isInteger(start)) return normalizeKitStats([]);
   const end = start === 0 ? 4 : start === 5 ? 9 : start === 10 ? 14 : -1;
-  if (end < start) return [];
+  if (end < start) return normalizeKitStats([]);
 
   return KIT_ORDER.map((kit) => {
-    const totals = (levelKitStats || [])
+    const totals = levelKitStats
       .filter((row) => row.grade === grade && row.level >= start && row.level <= end)
       .reduce(
         (sum, row) => {
-          const stats = row.kits[kit];
-          const attempts = Number(stats?.attempts || 0);
-          sum.attempts += Number(stats?.attempts || 0);
-          sum.greatSuccesses += Number(stats?.greatSuccesses || 0);
-          sum.pieces += piecesFromStat({
-            attempts: stats?.attempts,
-            pieces: stats?.pieces,
-          });
-          sum.weightedTheory += attempts * Number(stats?.theoreticalGreatSuccessRate || 0);
+          const item = row.kits[kit];
+          sum.events += item.events;
+          sum.attempts += item.attempts;
+          sum.pieces += item.pieces;
+          sum.greatSuccesses += item.greatSuccesses;
+          sum.weightedTheory += item.attempts * item.theoreticalGreatSuccessRate;
           return sum;
         },
-        { attempts: 0, greatSuccesses: 0, pieces: 0, weightedTheory: 0 },
+        { events: 0, attempts: 0, pieces: 0, greatSuccesses: 0, weightedTheory: 0 },
       );
     return {
       kit,
+      events: totals.events,
       attempts: totals.attempts,
-      events: totals.attempts,
+      pieces: totals.pieces,
       greatSuccesses: totals.greatSuccesses,
       greatSuccessRate: totals.attempts > 0 ? totals.greatSuccesses / totals.attempts : 0,
-      pieces: totals.pieces,
       theoreticalGreatSuccessRate:
         totals.attempts > 0 ? totals.weightedTheory / totals.attempts : 0,
     };
   });
+}
+
+function normalizeSegments(
+  rows: StatsApiResponse["segmentStats"],
+  levelKitStats: LevelKitStat[],
+): SegmentStat[] {
+  return rows.map((row) => ({
+    key: row.key,
+    label: row.label,
+    events: numberValue(row.events),
+    attempts: numberValue(row.attempts),
+    pieces: numberValue(row.pieces ?? numberValue(row.attempts) * 10),
+    greatSuccesses: numberValue(row.greatSuccesses),
+    greatSuccessRate: numberValue(row.greatSuccessRate),
+    theoreticalGreatSuccessRate: numberValue(row.theoreticalGreatSuccessRate),
+    averageAttempts: numberValue(row.averageAttempts),
+    byKit:
+      row.byKit && row.byKit.length > 0
+        ? normalizeKitStats(row.byKit)
+        : segmentKitStats(row.key, levelKitStats),
+  }));
+}
+
+function statsPanelModelFromApi(stats: StatsApiResponse): StatsPanelModel {
+  const levelKitStats = normalizeLevelKitStats(stats.levelKitStats);
+  return {
+    windowDays: stats.windowDays,
+    summary: normalizeSummary(stats.summary),
+    byKit: normalizeKitStats(stats.byKit),
+    cumulative: {
+      summary: normalizeSummary(stats.cumulative?.summary ?? stats.summary),
+      byKit: normalizeKitStats(stats.cumulative?.byKit ?? stats.byKit),
+    },
+    levelKitStats,
+    segmentStats: normalizeSegments(stats.segmentStats, levelKitStats),
+  };
+}
+
+export function statsViewFromApiStats(stats: StatsApiResponse): StatsView {
+  const model = statsPanelModelFromApi(stats);
+  const totalEvents = Math.max(model.summary.events, model.cumulative.summary.events);
+  return totalEvents
+    ? { type: "stats", stats: model }
+    : { type: "empty", message: EMPTY_STATS_MESSAGE };
 }

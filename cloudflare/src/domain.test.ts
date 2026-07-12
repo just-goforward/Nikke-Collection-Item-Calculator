@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { failAfterUses, failOnce, greatSuccessState } from "./domain";
+import { failAfterUses, failOnce, greatSuccessState } from "../../shared/game";
 
 describe("worker domain transitions", () => {
   it("moves great success to the next 5-level boundary", () => {

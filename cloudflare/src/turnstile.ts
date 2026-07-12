@@ -1,6 +1,7 @@
 import { HttpError } from "./http-error";
+import { logWarn } from "./logger";
 
-type TurnstileEventKind = "kit_result" | "solver_diagnostic";
+type TurnstileEventKind = "kit_result" | "solver_diagnostic" | "solver_recovery";
 
 type TurnstileEnv = {
   TURNSTILE_SECRET_KEY?: string;
@@ -56,7 +57,7 @@ export async function verifyTurnstile(
 
     if (result.success) {
       if (result.action && result.action !== eventKind) {
-        console.warn("Turnstile action mismatch observed.", {
+        logWarn("turnstile_action_mismatch", {
           eventKind,
           expectedAction: eventKind,
           returnedAction: result.action,
@@ -133,7 +134,7 @@ function logTurnstileFailure(
   result: SiteverifyResult | null,
   internallyRetried: boolean,
 ) {
-  console.warn("Turnstile verification failed.", {
+  logWarn("turnstile_verification_failed", {
     eventKind,
     expectedAction: eventKind,
     returnedAction: result?.action || null,
@@ -148,7 +149,7 @@ function logTurnstileTransportFailure(
   internallyRetried: boolean,
 ) {
   const transportError = error instanceof SiteverifyTransportError ? error : null;
-  console.warn("Turnstile verification unavailable.", {
+  logWarn("turnstile_verification_unavailable", {
     eventKind,
     expectedAction: eventKind,
     failure: transportError?.failure || "fetch_error",

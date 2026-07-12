@@ -1,5 +1,4 @@
 import type { SolverInput } from "../types";
-import { isMemoFull } from "./rustCore";
 import {
   RUST_MIN_EF_MEMO_TIER,
   RUST_PHASE2_DEFAULT_MEMO_TIER,
@@ -19,7 +18,7 @@ import {
   rememberLastMinEfPolicy,
 } from "./rustProductSolverCache";
 import { simulate } from "./rustProductView";
-import { RustSolveError } from "./rustStatus";
+import { isMemoFull, RustSolveError } from "./rustStatus";
 import type { RustPhase2Policy } from "./rustTypes";
 
 export async function validateRustMinEf(
@@ -102,5 +101,5 @@ export async function validateRustPhase2(
       RUST_PRODUCT_TOLERANCE,
     );
   }
-  return simulate(normalizedInput, policy.actionAt, runs, seed);
+  return policy.simulate(runs, seed);
 }

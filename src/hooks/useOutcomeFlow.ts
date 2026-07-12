@@ -48,8 +48,6 @@ export function useOutcomeFlow(options: UseOutcomeFlowOptions) {
   const applyOutcome = useOutcomeApplication({
     ...options,
     renderOutcomeApplied,
-    setModal,
-    terminalSuccessContextRef,
   });
   const applyConvert = useConvertAction(options);
 
@@ -64,13 +62,6 @@ export function useOutcomeFlow(options: UseOutcomeFlowOptions) {
     [applyTerminalSuccessAttempt],
   );
 
-  const setModalAttempt = useCallback((attempt: number) => {
-    setModal((current) => ({
-      ...current,
-      attempt: Math.min(current.maxAttempt, Math.max(1, Math.trunc(Number(attempt) || 1))),
-    }));
-  }, []);
-
   const resetOutcomeFlow = useCallback(() => {
     terminalSuccessContextRef.current = null;
     setModal({ open: false, maxAttempt: 1, attempt: 1 });
@@ -80,7 +71,6 @@ export function useOutcomeFlow(options: UseOutcomeFlowOptions) {
     modal,
     applyOutcome,
     applyConvert,
-    setModalAttempt,
     submitSuccessAttempt,
     resetOutcomeFlow,
   };

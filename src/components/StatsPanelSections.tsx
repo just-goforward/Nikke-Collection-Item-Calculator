@@ -1,5 +1,5 @@
 import { formatInteger, formatPercent } from "../format";
-import type { GlobalStats, KitStat, SegmentStat } from "../ui-types";
+import type { KitStat, SegmentStat, StatsPanelModel } from "../ui-types";
 import { RateBar } from "./StatsRateBar";
 import type {
   IntervalTooltipHandlers,
@@ -18,14 +18,14 @@ function DifficultyRow({
 }: {
   index: number;
   item: SegmentStat;
-  levelKitStats: GlobalStats["levelKitStats"];
+  levelKitStats: StatsPanelModel["levelKitStats"];
   tooltipHandlers: IntervalTooltipHandlers;
   usageTooltipHandlers: UsageTooltipHandlers;
 }) {
   const attempts = Number(item.attempts || 0);
   const pieces = piecesFromStat(item);
   const actualRate = Number(item.greatSuccessRate || 0);
-  const theoreticalRate = Number(item.theoreticalGreatSuccessRate || item.theoreticalRate || 0);
+  const theoreticalRate = Number(item.theoreticalGreatSuccessRate || 0);
   const greatSuccesses = Number(item.greatSuccesses || 0);
   const comparison = comparisonState(greatSuccesses, attempts, theoreticalRate);
   const usageItems = segmentUsageItems(item, levelKitStats);
@@ -41,7 +41,7 @@ function DifficultyRow({
       <div className={classes.difficultyHead}>
         <span className={classes.difficultySegment}>{normalizeSegmentLabel(item.label)}</span>
         <span className={classes.difficultyTags}>
-          <span className={classes.difficultyComparison}>{comparison.label}</span>
+          <UsageAmount pieces={pieces} items={usageItems} tooltipHandlers={usageTooltipHandlers} />
         </span>
       </div>
       <RateBar
@@ -51,9 +51,6 @@ function DifficultyRow({
         {...tooltipHandlers}
         theoreticalRate={theoreticalRate}
       />
-      <p className={classes.difficultyAttempts}>
-        <UsageAmount pieces={pieces} items={usageItems} tooltipHandlers={usageTooltipHandlers} />
-      </p>
     </div>
   );
 }
@@ -71,39 +68,9 @@ function usageItemsFromStats(items: KitStat[] | undefined): UsageTooltipItem[] {
 
 function segmentUsageItems(
   item: SegmentStat,
-  levelKitStats: GlobalStats["levelKitStats"],
+  _levelKitStats: StatsPanelModel["levelKitStats"],
 ): UsageTooltipItem[] {
-  if (Array.isArray(item.byKit) && item.byKit.length > 0) return usageItemsFromStats(item.byKit);
-  return usageItemsFromStats(segmentKitStatsFromLevels(item.key, levelKitStats));
-}
-
-function segmentKitStatsFromLevels(
-  key: string | undefined,
-  levelKitStats: GlobalStats["levelKitStats"],
-): KitStat[] {
-  const [grade, startText] = String(key || "").split(":");
-  const start = Number(startText);
-  if ((grade !== "R" && grade !== "SR") || !Number.isInteger(start)) return [];
-  const end = start === 0 ? 4 : start === 5 ? 9 : start === 10 ? 14 : -1;
-  if (end < start) return [];
-
-  return KIT_ORDER.map((kit) => {
-    const totals = (levelKitStats || [])
-      .filter((row) => row.grade === grade && row.level >= start && row.level <= end)
-      .reduce(
-        (sum, row) => {
-          const stats = row.kits[kit];
-          sum.attempts += Number(stats?.attempts || 0);
-          sum.pieces += piecesFromStat({
-            attempts: stats?.attempts,
-            pieces: stats?.pieces,
-          });
-          return sum;
-        },
-        { attempts: 0, pieces: 0 },
-      );
-    return { kit, attempts: totals.attempts, pieces: totals.pieces };
-  });
+  return usageItemsFromStats(item.byKit);
 }
 
 function UsageAmount({
@@ -130,7 +97,7 @@ function UsageAmount({
   );
 }
 
-type OverallStatsSummary = NonNullable<GlobalStats["summary"]>;
+type OverallStatsSummary = StatsPanelModel["summary"];
 
 function OverallStatsWindow({
   byKit,
@@ -177,7 +144,7 @@ function OverallStatsWindow({
   );
 }
 
-export function OverallStats({ stats }: { stats: GlobalStats }) {
+export function OverallStats({ stats }: { stats: StatsPanelModel }) {
   const cumulative = stats.cumulative;
   const cumulativeSummary = cumulative?.summary;
   const cumulativeByKit = Array.isArray(cumulative?.byKit) ? cumulative.byKit : [];
@@ -186,6 +153,12 @@ export function OverallStats({ stats }: { stats: GlobalStats }) {
     <section className={`${classes.section} stats-overall-section`}>
       <div className={classes.sectionTitle}>
         <h3 className={classes.sectionHeading}>전체 대성공률</h3>
+        {cumulativeSummary ? (
+          <span className={classes.sectionMeta}>
+            {formatInteger(Number(cumulativeSummary.attempts || 0))}시도 · 대성공{" "}
+            {formatInteger(Number(cumulativeSummary.greatSuccesses || 0))}회
+          </span>
+        ) : null}
       </div>
       <div className={classes.overallStack}>
         <OverallStatsWindow
@@ -233,7 +206,7 @@ function KitRateRow({
           <i aria-hidden="true" className={`${classes.kitRateDot} ${kitDotClass[kit]}`}></i>
           {KIT_LABELS[kit]}
         </span>
-        <span className={classes.difficultyComparison}>{comparison.label}</span>
+        <span className={classes.kitRateMeta}>{formatInteger(pieces)}개 사용</span>
       </div>
       <RateBar
         actualRate={actualRate}
@@ -243,7 +216,6 @@ function KitRateRow({
         {...tooltipHandlers}
         theoreticalRate={theoreticalRate}
       />
-      <p className={classes.kitRateMeta}>{formatInteger(pieces)}개</p>
     </div>
   );
 }
@@ -252,7 +224,7 @@ export function KitStats({
   stats,
   tooltipHandlers,
 }: {
-  stats: GlobalStats;
+  stats: StatsPanelModel;
   tooltipHandlers: IntervalTooltipHandlers;
 }) {
   const byKit = Array.isArray(stats.byKit) ? stats.byKit : [];
@@ -260,11 +232,13 @@ export function KitStats({
     <section className={`${classes.section} stats-kit-section`}>
       <div className={classes.sectionTitle}>
         <h3 className={classes.sectionHeading}>키트별 대성공률</h3>
+        <span className={classes.sectionMeta}>중앙 = 기대값 · 축 ±5%p</span>
       </div>
       {byKit.length ? (
         <div className={classes.kitRateList}>
           {KIT_ORDER.map((kit, index) => {
-            const item = byKit.find((row) => row.kit === kit) || { kit };
+            const item = byKit.find((row) => row.kit === kit);
+            if (!item) return null;
             return (
               <KitRateRow index={index} item={item} key={kit} tooltipHandlers={tooltipHandlers} />
             );
@@ -282,7 +256,7 @@ export function DifficultyStats({
   tooltipHandlers,
   usageTooltipHandlers,
 }: {
-  stats: GlobalStats;
+  stats: StatsPanelModel;
   tooltipHandlers: IntervalTooltipHandlers;
   usageTooltipHandlers: UsageTooltipHandlers;
 }) {
@@ -291,6 +265,7 @@ export function DifficultyStats({
     <section className={classes.section}>
       <div className={classes.sectionTitle}>
         <h3 className={classes.sectionHeading}>구간별 체감 난이도</h3>
+        <span className={classes.sectionMeta}>중앙 = 기대값 · 축 ±5%p</span>
       </div>
       {rows.length ? (
         <div className={classes.difficultyList}>

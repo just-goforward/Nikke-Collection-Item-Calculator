@@ -1,6 +1,6 @@
 import { gzip } from "node:zlib";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { extname, relative } from "node:path";
+import { basename, extname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -12,7 +12,7 @@ const rootPath = fileURLToPath(root);
 
 type BundleEntry = {
   path: string;
-  kind: "js" | "css" | "wasm" | "asset";
+  kind: "initial-js" | "lazy-stats" | "worker" | "css" | "wasm" | "asset";
   rawBytes: number;
   gzipBytes: number;
 };
@@ -42,7 +42,10 @@ async function collectFiles(dir: URL): Promise<URL[]> {
 
 function kindFor(pathname: string): BundleEntry["kind"] {
   const ext = extname(pathname);
-  if (ext === ".js") return "js";
+  const name = basename(pathname);
+  if (ext === ".js" && /^worker-/.test(name)) return "worker";
+  if (ext === ".js" && /^(StatsPanelBody|schemas)-/.test(name)) return "lazy-stats";
+  if (ext === ".js") return "initial-js";
   if (ext === ".css") return "css";
   if (ext === ".wasm") return "wasm";
   return "asset";
@@ -76,7 +79,9 @@ if (!(await fileExists(distDir))) {
 
 const distFiles = await collectFiles(distDir);
 const entries = await Promise.all(distFiles.map(entryFor));
-if (await fileExists(wasmFile)) entries.push(await entryFor(wasmFile));
+if (!entries.some((entry) => entry.kind === "wasm") && (await fileExists(wasmFile))) {
+  entries.push(await entryFor(wasmFile));
+}
 
 const report = {
   generatedAt: new Date().toISOString(),

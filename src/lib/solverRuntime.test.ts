@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { StatsConfig } from "../types";
-import { solverBackendFromRuntime, solverWasmUrl } from "./solverRuntime";
+import {
+  parallelValidationFromRuntime,
+  solverBackendFromRuntime,
+  solverWasmUrl,
+} from "./solverRuntime";
 
 const productionConfig: StatsConfig = {
   endpoint: "https://production.example.workers.dev/",
@@ -12,10 +16,15 @@ const productionConfig: StatsConfig = {
   },
 };
 
-function setRuntime(search: string, href = "https://example.test/app/index.html") {
+function setRuntime(
+  search: string,
+  href = "https://example.test/app/index.html",
+  finePointer = false,
+) {
   vi.stubGlobal("window", {
     COLLECTION_STATS_CONFIG: productionConfig,
     location: { href, search },
+    matchMedia: vi.fn(() => ({ matches: finePointer })),
   });
   vi.stubGlobal("document", {
     baseURI: href,
@@ -73,5 +82,16 @@ describe("solver runtime selection", () => {
     setRuntime("?statsEnv=staging&solverBackend=rust-phase2", "https://example.test/path/");
 
     expect(solverWasmUrl()).toBe("https://example.test/path/solver_rs.wasm");
+  });
+
+  it("enables parallel validation only for an explicit desktop staging experiment", () => {
+    setRuntime("?statsEnv=staging&parallelValidation=1", undefined, true);
+    expect(parallelValidationFromRuntime()).toBe(true);
+
+    setRuntime("?statsEnv=staging&parallelValidation=1", undefined, false);
+    expect(parallelValidationFromRuntime()).toBe(false);
+
+    setRuntime("?parallelValidation=1", undefined, true);
+    expect(parallelValidationFromRuntime()).toBe(false);
   });
 });

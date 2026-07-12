@@ -1,5 +1,6 @@
 import type { ResearchCostModel } from "../../src/solver/domain";
-import type { ProbabilityGateWitness, solveWithResearchCostModel } from "../../src/solver/solve";
+import type { ProbabilityGateWitness } from "../../src/solver/gate";
+import type { solveWithResearchCostModel } from "../../src/solver/solve";
 import type { CollectionState, Kit, SolverInput, Stock } from "../../src/types";
 import type { SolverScenario } from "../scenarios/fixed-grid";
 

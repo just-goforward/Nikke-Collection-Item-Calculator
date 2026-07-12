@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-
-import { createRustMinEfSolver } from "./rustCore";
 import { makeRustCoreExports as makeExports } from "./rustCore.test-helper";
+import { createRustMinEfSolver } from "./rustMinEfCore";
 import { normalizeRustProductInput } from "./rustProductInput";
 import {
   clearLastMinEfPolicy,

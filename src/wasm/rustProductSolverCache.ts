@@ -3,7 +3,7 @@ import {
   isTerminalNormalized as isTerminal,
 } from "../solver/domain";
 import type { CollectionState, Kit, Stock } from "../types";
-import { loadRustMinEfSolver, loadRustPhase2Solver } from "./rustCore";
+import { loadRustMinEfSolver, loadRustPhase2Solver } from "./rustLoader";
 import type { RustProductInput } from "./rustProductInput";
 import type { RustActionLookup } from "./rustProductView";
 import type { RustMinEfPolicyHandle, RustMinEfSolver, RustPhase2ProductSolver } from "./rustTypes";
@@ -32,14 +32,6 @@ export async function releaseRustMinEfSolverCache() {
   const solverPromise = minEfSolverPromise;
   minEfSolverPromise = null;
   clearLastMinEfPolicy();
-  if (!solverPromise) return;
-  const solver = await solverPromise;
-  solver.releaseMemo();
-}
-
-export async function releaseRustPhase2SolverCache() {
-  const solverPromise = phase2SolverPromise;
-  phase2SolverPromise = null;
   if (!solverPromise) return;
   const solver = await solverPromise;
   solver.releaseMemo();

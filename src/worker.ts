@@ -1,20 +1,22 @@
-import { WorkerRequestSchema } from "./schemas";
+import type { SolverInput } from "../shared/game";
+import {
+  type ProgressEvent,
+  parseWorkerRequest,
+  type WorkerErrorCode,
+  type WorkerErrorPayload,
+  type WorkerResponse,
+  type WorkerTaskTiming,
+  workerMessageId,
+} from "../shared/workerProtocol";
 import { solve } from "./solver/solve";
-
-import type {
-  ProgressEvent,
-  SolverInput,
-  WorkerErrorCode,
-  WorkerErrorPayload,
-  WorkerRequest,
-  WorkerResponse,
-} from "./types";
 import { solveRustMinEf } from "./wasm/rustMinEfSolver";
 import { solveRustPhase2 } from "./wasm/rustPhase2ProductSolver";
 import { validateRustMinEf, validateRustPhase2 } from "./wasm/rustProductValidation";
-import { RUST_STATUS_MEMO_FULL, RustSolveError } from "./wasm/rustStatus";
-
-const WORKER_MESSAGE_ID_KEY = "id";
+import {
+  RUST_STATUS_BUDGET_EXCEEDED,
+  RUST_STATUS_MEMO_FULL,
+  RustSolveError,
+} from "./wasm/rustStatus";
 
 function postWorkerMessage(message: WorkerResponse) {
   self.postMessage(message);
@@ -22,8 +24,22 @@ function postWorkerMessage(message: WorkerResponse) {
 
 let rustTaskQueue: Promise<void> = Promise.resolve();
 
-function runRustTask<T>(task: () => Promise<T>): Promise<T> {
-  const run = rustTaskQueue.then(task, task);
+function runRustTask<T>(
+  task: () => Promise<T>,
+  onStart: (queueWaitMs: number) => void,
+): Promise<{ result: T; timing: WorkerTaskTiming }> {
+  const queuedAt = performance.now();
+  const execute = async () => {
+    const startedAt = performance.now();
+    const queueWaitMs = startedAt - queuedAt;
+    onStart(queueWaitMs);
+    const result = await task();
+    return {
+      result,
+      timing: { queueWaitMs, executionMs: performance.now() - startedAt },
+    };
+  };
+  const run = rustTaskQueue.then(execute, execute);
   rustTaskQueue = run.then(
     () => undefined,
     () => undefined,
@@ -32,20 +48,20 @@ function runRustTask<T>(task: () => Promise<T>): Promise<T> {
 }
 
 self.onmessage = async (event) => {
-  const parsed = WorkerRequestSchema.safeParse(event.data || {});
+  const parsed = parseWorkerRequest(event.data);
   if (!parsed.success) {
     postWorkerMessage({
       type: "error",
-      id: messageId(event.data),
+      id: workerMessageId(event.data),
       code: "invalid_worker_payload",
-      fallbackEligible: true,
+      fallbackEligible: false,
       message: "Invalid worker request.",
       retryable: false,
     });
     return;
   }
 
-  const data = parsed.data as WorkerRequest;
+  const data = parsed.data;
 
   try {
     if (data.backend === "rust-phase2" || data.backend === "rust-min-ef") {
@@ -58,11 +74,6 @@ self.onmessage = async (event) => {
           retryable: false,
         });
       }
-      const solveRust: (
-        input: SolverInput,
-        wasmUrl: string,
-        progress?: (progress: ProgressEvent) => void,
-      ) => Promise<unknown> = data.backend === "rust-phase2" ? solveRustPhase2 : solveRustMinEf;
       const validateRust: (
         input: SolverInput,
         wasmUrl: string,
@@ -73,16 +84,44 @@ self.onmessage = async (event) => {
       if (data.type === "validate") {
         const runs = Math.max(0, Math.floor(Number(data.runs) || 0));
         const seed = Math.max(0, Math.floor(Number(data.seed) || 20260505));
-        const result = await runRustTask(() => validateRust(data.input, wasmUrl, runs, seed));
-        postWorkerMessage({ type: "result", id: data.id, result });
+        const { result, timing } = await runRustTask(
+          () => validateRust(data.input, wasmUrl, runs, seed),
+          (queueWaitMs) => {
+            postWorkerMessage({
+              type: "progress",
+              id: data.id,
+              progress: { phase: "worker-started", queueWaitMs },
+            });
+          },
+        );
+        postWorkerMessage({ type: "result", id: data.id, result, timing });
         return;
       }
-      const result = await runRustTask(() =>
-        solveRust(data.input, wasmUrl, (progress: ProgressEvent) => {
-          postWorkerMessage({ type: "progress", id: data.id, progress });
-        }),
+      const { result, timing } = await runRustTask(
+        () => {
+          const reportProgress = (progress: ProgressEvent) => {
+            postWorkerMessage({ type: "progress", id: data.id, progress });
+          };
+          return data.backend === "rust-phase2"
+            ? solveRustPhase2(data.input, wasmUrl, reportProgress, {
+                ...(data.phase2MemoTier === undefined
+                  ? {}
+                  : { initialMemoTier: data.phase2MemoTier }),
+                ...(data.phase2RetryOnMemoFull === undefined
+                  ? {}
+                  : { retryOnMemoFull: data.phase2RetryOnMemoFull }),
+              })
+            : solveRustMinEf(data.input, wasmUrl, reportProgress);
+        },
+        (queueWaitMs) => {
+          postWorkerMessage({
+            type: "progress",
+            id: data.id,
+            progress: { phase: "worker-started", queueWaitMs },
+          });
+        },
       );
-      postWorkerMessage({ type: "result", id: data.id, result });
+      postWorkerMessage({ type: "result", id: data.id, result, timing });
       return;
     }
 
@@ -94,6 +133,7 @@ self.onmessage = async (event) => {
             monteCarloSeed: Math.max(0, Math.floor(Number(data.seed) || 20260505)),
           }
         : data.input;
+    const startedAt = performance.now();
     const result = solve(input, (progress: ProgressEvent) => {
       postWorkerMessage({ type: "progress", id: data.id, progress });
     });
@@ -101,6 +141,7 @@ self.onmessage = async (event) => {
       type: "result",
       id: data.id,
       result: data.type === "validate" ? result.monteCarlo : result,
+      timing: { queueWaitMs: 0, executionMs: performance.now() - startedAt },
     });
   } catch (error) {
     const payload = workerErrorPayload(error);
@@ -111,12 +152,6 @@ self.onmessage = async (event) => {
     });
   }
 };
-
-function messageId(value: unknown) {
-  if (!value || typeof value !== "object") return 0;
-  const id = (value as Record<string, unknown>)[WORKER_MESSAGE_ID_KEY];
-  return typeof id === "number" && Number.isFinite(id) ? id : 0;
-}
 
 function workerTaskError(payload: WorkerErrorPayload) {
   const error = new Error(payload.message) as Error & { workerPayload?: WorkerErrorPayload };
@@ -132,10 +167,12 @@ function workerErrorPayload(error: unknown): WorkerErrorPayload {
   if (workerPayload) return workerPayload;
 
   if (error instanceof RustSolveError) {
+    const code = rustSolveErrorCode(error);
     return {
-      code: rustSolveErrorCode(error),
-      fallbackEligible: error.reason !== "stale_handle",
+      code,
+      fallbackEligible: code !== "stale_handle" && code !== "unknown_rust_status",
       message: error.message,
+      ...(error.nodeCount === null ? {} : { nodeCount: error.nodeCount }),
       retryable: error.reason === "status",
     };
   }
@@ -151,8 +188,12 @@ function workerErrorPayload(error: unknown): WorkerErrorPayload {
 
 function rustSolveErrorCode(error: RustSolveError): WorkerErrorCode {
   if (error.reason === "missing_export") return "missing_export";
+  if (error.reason === "stale_handle") return "stale_handle";
   if (error.reason === "status" && error.status === RUST_STATUS_MEMO_FULL) return "memo_full";
-  if (error.reason === "status") return "rust_status";
+  if (error.reason === "status" && error.status === RUST_STATUS_BUDGET_EXCEEDED) {
+    return "budget_exceeded";
+  }
+  if (error.reason === "status") return "unknown_rust_status";
   return "worker_error";
 }
 

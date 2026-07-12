@@ -1,5 +1,6 @@
-import type { CollectionState, Kit, KitRecord } from "./domain";
-import type { SolverDiagnosticEventInput } from "./schemas";
+import type { CollectionState, Kit, KitRecord } from "../../shared/game";
+import type { SolverExecutionKind } from "../../shared/statsContract";
+import type { SolverDiagnosticEventInput, SolverRecoveryEventInput } from "./schemas";
 
 export type ValidatedKitResultEvent = {
   kind: "kit_result";
@@ -19,6 +20,8 @@ export type ValidatedSolverDiagnosticEvent = {
   solverVersion: string;
   solverPhase: string;
   solverBackend: string;
+  requestedBackend: string;
+  executionKind: SolverExecutionKind;
   fallbackFrom: string;
   fallbackReason: string;
   workerErrorCode: string;
@@ -47,10 +50,12 @@ export type ValidatedSolverDiagnosticEvent = {
   legacyEventAggregateMatchable: boolean;
 };
 
+export type ValidatedSolverRecoveryEvent = SolverRecoveryEventInput;
+
 export type ValidatedSubmission = {
   eventId: string;
   sourceHost: string;
-  event: ValidatedKitResultEvent | ValidatedSolverDiagnosticEvent;
+  event: ValidatedKitResultEvent | ValidatedSolverDiagnosticEvent | ValidatedSolverRecoveryEvent;
 };
 
 export type SubmissionEnvelope = {

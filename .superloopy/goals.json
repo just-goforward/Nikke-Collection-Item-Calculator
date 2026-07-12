@@ -1,8 +1,8 @@
 {
   "version": 1,
   "mode": "strict",
-  "createdAt": "2026-07-01T07:35:01.934Z",
-  "updatedAt": "2026-07-01T07:51:16.044Z",
+  "createdAt": "2026-07-04T20:54:26.232Z",
+  "updatedAt": "2026-07-04T20:57:25.812Z",
   "briefPath": ".superloopy/brief.md",
   "evidencePath": ".superloopy/evidence",
   "goalsPath": ".superloopy/goals.json",
@@ -10,12 +10,12 @@
   "goals": [
     {
       "id": "G001",
-      "title": "프론트엔드 핵심 UX/A11y 개선",
-      "objective": "프론트엔드 핵심 UX/A11y 개선",
+      "title": "26개 UX/A11y 목표 완료 감사 및 모바일 후보 표기 보정",
+      "objective": "26개 UX/A11y 목표 완료 감사 및 모바일 후보 표기 보정",
       "status": "complete",
       "attempt": 1,
-      "createdAt": "2026-07-01T07:35:01.934Z",
-      "updatedAt": "2026-07-01T07:51:16.044Z",
+      "createdAt": "2026-07-04T20:54:26.232Z",
+      "updatedAt": "2026-07-04T20:57:25.812Z",
       "criteria": [
         {
           "id": "C001",
@@ -23,9 +23,14 @@
           "scenario": "Happy path works from the real user-facing surface.",
           "essential": true,
           "status": "pass",
-          "artifact": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/VISUAL_QA.md",
-          "capturedAt": "2026-07-01T07:50:49.467Z",
-          "notes": "Real-browser visual QA at 390, 768, and 1280 px passed"
+          "artifact": ".superloopy/evidence/G001-C001-capture.txt",
+          "capturedAt": "2026-07-04T20:55:08.420Z",
+          "command": [
+            "cmd",
+            "/c",
+            "npm run test:e2e -- e2e/smoke.spec.ts e2e/outcome-regression.spec.ts"
+          ],
+          "exitCode": 0
         },
         {
           "id": "C002",
@@ -33,9 +38,14 @@
           "scenario": "Riskiest edge or failure path is handled.",
           "essential": true,
           "status": "pass",
-          "artifact": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/RISK_QA.md",
-          "capturedAt": "2026-07-01T07:50:49.427Z",
-          "notes": "Accessibility and stale-input risk paths passed"
+          "artifact": ".superloopy/evidence/G001-C002-capture.txt",
+          "capturedAt": "2026-07-04T20:55:33.581Z",
+          "command": [
+            "cmd",
+            "/c",
+            "npm run test:e2e -- e2e/accessibility.spec.ts e2e/visual.spec.ts"
+          ],
+          "exitCode": 0
         },
         {
           "id": "C003",
@@ -43,37 +53,42 @@
           "scenario": "Adjacent existing behavior still works.",
           "essential": true,
           "status": "pass",
-          "artifact": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/REGRESSION_QA.md",
-          "capturedAt": "2026-07-01T07:50:49.454Z",
-          "notes": "Automated regression suite passed"
+          "artifact": ".superloopy/evidence/G001-C003-capture.txt",
+          "capturedAt": "2026-07-04T20:56:02.634Z",
+          "command": [
+            "cmd",
+            "/c",
+            "npm run typecheck && npm run lint && npm test -- --run"
+          ],
+          "exitCode": 0
         }
       ],
-      "startedAt": "2026-07-01T07:35:01.948Z",
-      "completedAt": "2026-07-01T07:51:16.044Z",
-      "evidence": "frontend UX/A11y criteria passed"
+      "startedAt": "2026-07-04T20:54:26.253Z",
+      "completedAt": "2026-07-04T20:57:25.812Z",
+      "evidence": "26 UX/A11y requirements audited, mobile candidate visible label corrected, tests passed"
     }
   ],
   "aggregateCompletion": {
     "status": "complete",
-    "completedAt": "2026-07-01T07:51:16.044Z",
-    "evidence": "frontend UX/A11y criteria passed",
+    "completedAt": "2026-07-04T20:57:25.812Z",
+    "evidence": "26 UX/A11y requirements audited, mobile candidate visible label corrected, tests passed",
     "qualityGate": {
       "status": "passed",
       "artifacts": [
         {
-          "absolutePath": "C:\\Users\\PC\\Desktop\\바이브 코딩\\Codex\\모듈작\\.superloopy\\evidence\\frontend\\20260701-frontend-ux-a11y\\VISUAL_QA.md",
-          "relativePath": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/VISUAL_QA.md",
-          "size": 2559
+          "absolutePath": "C:\\Users\\PC\\Desktop\\바이브 코딩\\Codex\\모듈작\\.superloopy\\evidence\\G001-C001-capture.txt",
+          "relativePath": ".superloopy/evidence/G001-C001-capture.txt",
+          "size": 6508
         },
         {
-          "absolutePath": "C:\\Users\\PC\\Desktop\\바이브 코딩\\Codex\\모듈작\\.superloopy\\evidence\\frontend\\20260701-frontend-ux-a11y\\RISK_QA.md",
-          "relativePath": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/RISK_QA.md",
-          "size": 1279
+          "absolutePath": "C:\\Users\\PC\\Desktop\\바이브 코딩\\Codex\\모듈작\\.superloopy\\evidence\\G001-C002-capture.txt",
+          "relativePath": ".superloopy/evidence/G001-C002-capture.txt",
+          "size": 2789
         },
         {
-          "absolutePath": "C:\\Users\\PC\\Desktop\\바이브 코딩\\Codex\\모듈작\\.superloopy\\evidence\\frontend\\20260701-frontend-ux-a11y\\REGRESSION_QA.md",
-          "relativePath": ".superloopy/evidence/frontend/20260701-frontend-ux-a11y/REGRESSION_QA.md",
-          "size": 739
+          "absolutePath": "C:\\Users\\PC\\Desktop\\바이브 코딩\\Codex\\모듈작\\.superloopy\\evidence\\G001-C003-capture.txt",
+          "relativePath": ".superloopy/evidence/G001-C003-capture.txt",
+          "size": 1092
         }
       ]
     }

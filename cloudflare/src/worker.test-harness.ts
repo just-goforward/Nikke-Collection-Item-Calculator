@@ -30,9 +30,11 @@ const testTracing: Tracing = {
   },
   Span: TestSpan,
 };
+const testExports = {} as Cloudflare.Exports;
 
 function makeExecutionContext(waitUntil: (promise: Promise<unknown>) => void = () => {}) {
   return {
+    exports: testExports,
     props: {},
     tracing: testTracing,
     waitUntil,
@@ -41,13 +43,7 @@ function makeExecutionContext(waitUntil: (promise: Promise<unknown>) => void = (
 }
 
 export class WorkerTestHarness {
-  readonly env: {
-    DB?: D1Database;
-    ALLOWED_ORIGINS?: string;
-    ADMIN_TOKEN?: string;
-    TURNSTILE_SECRET_KEY: string;
-    RATE_LIMIT_SECRET?: string;
-  } = {
+  readonly env: Partial<WorkerEnv> = {
     ADMIN_TOKEN: "test-admin-token",
     ALLOWED_ORIGINS: "https://test.example",
     TURNSTILE_SECRET_KEY: "test-turnstile-secret",
@@ -72,8 +68,10 @@ export class WorkerTestHarness {
       compatibilityDate: "2026-05-05",
       d1Databases: ["DB"],
     });
-    this.#database = await this.#miniflare.getD1Database("DB");
-    this.env.DB = this.#database;
+    const database = await this.#miniflare.getD1Database("DB");
+    if (!database) throw new Error("Worker test DB binding is not available.");
+    this.#database = database;
+    this.env.DB = database;
     this.env.ADMIN_TOKEN = "test-admin-token";
     this.env.ALLOWED_ORIGINS = "https://test.example";
     this.env.RATE_LIMIT_SECRET = "test-rate-limit-secret";
@@ -194,7 +192,13 @@ export class WorkerTestHarness {
   private workerEnv(): WorkerEnv {
     const db = this.env.DB;
     if (!db) throw new Error("Worker test DB binding is not initialized.");
-    return { ...this.env, DB: db };
+    return {
+      DB: db,
+      ALLOWED_ORIGINS: this.env.ALLOWED_ORIGINS ?? "",
+      ADMIN_TOKEN: this.env.ADMIN_TOKEN ?? "",
+      TURNSTILE_SECRET_KEY: this.env.TURNSTILE_SECRET_KEY ?? "",
+      RATE_LIMIT_SECRET: this.env.RATE_LIMIT_SECRET ?? "",
+    };
   }
 
   private executionContext(): ExecutionContext {

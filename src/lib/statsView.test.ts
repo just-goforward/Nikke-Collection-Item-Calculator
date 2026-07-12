@@ -33,10 +33,21 @@ describe("statsViewFromApiStats", () => {
     });
   });
 
-  it("returns a stats view with the validated payload when events exist", () => {
+  it("returns a complete panel model when events exist", () => {
     const stats = statsWithEvents(3);
 
-    expect(statsViewFromApiStats(stats)).toEqual({ type: "stats", stats });
+    const view = statsViewFromApiStats(stats);
+
+    expect(view).toMatchObject({
+      type: "stats",
+      stats: {
+        windowDays: 0,
+        summary: { events: 3, attempts: 6, greatSuccesses: 3 },
+        cumulative: { summary: { events: 3, attempts: 6, greatSuccesses: 3 } },
+      },
+    });
+    if (view.type !== "stats") throw new Error("Expected stats view.");
+    expect(view.stats.byKit.map((row) => row.kit)).toEqual(["blue", "purple", "yellow"]);
   });
 
   it("keeps cumulative statistics visible when the recent window is empty", () => {
@@ -46,7 +57,17 @@ describe("statsViewFromApiStats", () => {
       byKit: [],
     };
 
-    expect(statsViewFromApiStats(stats)).toEqual({ type: "stats", stats });
+    const view = statsViewFromApiStats(stats);
+
+    expect(view).toMatchObject({
+      type: "stats",
+      stats: {
+        summary: { events: 0 },
+        cumulative: {
+          summary: { events: 5, attempts: 8, greatSuccesses: 2, greatSuccessRate: 0.25 },
+        },
+      },
+    });
   });
 
   it("precomputes segment kit usage from level kit rows for rendering", () => {

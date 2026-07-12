@@ -1,12 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { Kit, Stock } from "../types";
 
 type StockPanelProps = {
   stock: Stock;
   needsStockEdit: boolean;
+  isStale: boolean;
+  stockStale: boolean;
   notice: string;
   onStockChange: (stock: Stock) => void;
+  description: string;
+  calculateDisabled: boolean;
+  loading: boolean;
+  onCalculate: () => void;
+  onReset: () => void;
 };
 
 type KitInputDefinition = {
@@ -21,43 +28,55 @@ const KIT_INPUTS: KitInputDefinition[] = [
     kit: "blue",
     inputId: "blueStock",
     label: "초심자용 관리 키트",
-    expLabel: "1회 경험치 200",
+    expLabel: "",
   },
   {
     kit: "purple",
     inputId: "purpleStock",
     label: "중급자용 관리 키트",
-    expLabel: "1회 경험치 500",
+    expLabel: "",
   },
   {
     kit: "yellow",
     inputId: "yellowStock",
     label: "상급자용 관리 키트",
-    expLabel: "1회 경험치 1,000",
+    expLabel: "",
   },
 ];
 
 const classes = {
   panel:
-    "min-w-0 rounded-card border border-border bg-surface shadow-panel [contain:layout_paint] transition-[background-color,border-color,box-shadow] duration-[220ms]",
+    "flex h-full min-w-0 flex-col rounded-card border border-border bg-surface shadow-panel [contain:layout_paint] transition-[background-color,border-color,box-shadow] duration-[220ms]",
+  panelStale: "border-grade-active shadow-[0_0_0_3px_var(--grade-active-soft),var(--shadow)]",
   panelNeedsEdit: "border-yellow-kit shadow-[0_0_0_3px_rgba(230,170,38,0.22),var(--shadow)]",
   heading:
     "flex items-center justify-between gap-3 border-b border-border px-[18px] py-4 transition-[border-color,background-color,color] duration-[220ms] max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",
   editNotice:
-    "mx-[18px] mt-3.5 rounded-card border-2 border-yellow-kit bg-outcome px-[13px] py-3 text-[13px] text-outcome-text font-semibold leading-[1.45]",
+    "mx-[18px] mt-3.5 rounded-card border-2 border-yellow-kit bg-outcome px-[13px] py-3 text-[13px] text-outcome-text font-semibold leading-[1.45] max-mobile:mx-3 max-mobile:mt-2.5 max-mobile:px-3 max-mobile:py-2.5 max-mobile:text-[12px]",
   kitGrid:
-    "grid grid-cols-3 gap-2.5 px-[18px] py-4 min-[981px]:max-[1099px]:grid-cols-1 min-[981px]:max-[1099px]:gap-2 min-[981px]:max-[1099px]:p-3 max-mobile:grid-cols-3 max-mobile:gap-2 max-mobile:px-3 max-mobile:pt-2.5 max-mobile:pb-[13px]",
+    "grid grid-cols-3 gap-2.5 px-[18px] py-4 min-[661px]:max-tablet:flex-1 min-[661px]:max-tablet:grid-cols-1 min-[661px]:max-tablet:grid-rows-3 min-[661px]:max-tablet:gap-2 min-[661px]:max-tablet:p-3.5 max-mobile:grid-cols-3 max-mobile:gap-2 max-mobile:px-3 max-mobile:pt-2.5 max-mobile:pb-[13px]",
   kitInput:
-    "grid gap-[7px] min-[981px]:max-[1099px]:grid-cols-[minmax(0,1fr)_auto] min-[981px]:max-[1099px]:items-center min-[981px]:max-[1099px]:gap-2 max-mobile:grid-cols-1 max-mobile:grid-rows-[auto_auto_auto] max-mobile:items-start max-mobile:gap-x-0 max-mobile:gap-y-1.5 max-mobile:p-0",
+    "grid gap-[7px] min-[661px]:max-tablet:grid-cols-[minmax(0,1fr)_104px] min-[661px]:max-tablet:items-center min-[661px]:max-tablet:gap-2 max-mobile:grid-cols-1 max-mobile:items-start max-mobile:gap-x-0 max-mobile:gap-y-1.5 max-mobile:p-0",
   kitLabel:
-    "flex items-center gap-[7px] text-[13px] text-muted font-semibold min-[981px]:max-[1099px]:min-w-0 min-[981px]:max-[1099px]:whitespace-nowrap max-mobile:col-start-1 max-mobile:row-start-1 max-mobile:min-w-0 max-mobile:whitespace-normal max-mobile:text-[11px] max-mobile:leading-[1.25] max-mobile:[word-break:keep-all]",
-  kitDot: "inline-block size-3 flex-none rounded-full",
+    "flex items-center justify-center gap-[7px] text-center text-[12px] font-semibold leading-[1.25] text-muted min-[661px]:max-tablet:justify-start min-[661px]:max-tablet:whitespace-nowrap min-[661px]:max-tablet:text-left max-mobile:col-start-1 max-mobile:row-start-1 max-mobile:min-w-0 max-mobile:whitespace-normal max-mobile:text-[11px] max-mobile:[word-break:keep-all]",
+  kitDot: "inline-block size-[11px] flex-none rounded-full",
   kitInputControl:
-    "min-[981px]:max-[1099px]:col-span-full min-[981px]:max-[1099px]:min-w-0 placeholder:text-muted/55 focus:placeholder:text-transparent max-mobile:col-start-1 max-mobile:row-start-2 max-mobile:min-w-0 max-mobile:px-1.5 max-mobile:py-2 max-mobile:text-center max-mobile:text-sm",
+    "min-h-10 text-center text-[15px] font-semibold tabular-nums placeholder:text-muted/55 focus:placeholder:text-transparent min-[661px]:min-h-9 min-[661px]:px-[10px] min-[661px]:py-[6px] min-[661px]:text-[14px] min-[661px]:max-tablet:min-w-0 max-mobile:col-start-1 max-mobile:row-start-2 max-mobile:min-w-0 max-mobile:px-1.5 max-mobile:py-2 max-mobile:text-center max-mobile:text-sm",
   kitInputNeedsEdit: "border-yellow-kit shadow-[0_0_0_3px_rgba(230,170,38,0.18)]",
-  kitHint:
-    "text-muted text-xs font-medium min-[981px]:max-[1099px]:min-w-0 min-[981px]:max-[1099px]:justify-self-end min-[981px]:max-[1099px]:whitespace-nowrap min-[981px]:max-[1099px]:text-[11px] max-tablet:justify-self-end max-tablet:text-right max-mobile:col-start-1 max-mobile:row-start-3 max-mobile:text-[10px]",
-  help: "mx-[18px] mb-4 mt-[-2px] text-muted text-xs font-normal leading-[1.45] min-[981px]:max-[1099px]:mx-3 min-[981px]:max-[1099px]:mb-3 min-[981px]:max-[1099px]:text-[11px] max-mobile:hidden",
+  kitHint: "hidden",
+  help: "sr-only",
+  buttonRow:
+    "mt-auto grid grid-cols-[82px_minmax(0,1fr)] gap-2.5 px-[18px] pb-4 min-[661px]:max-tablet:grid-cols-[minmax(0,1fr)_76px] min-[661px]:max-tablet:px-3.5 min-[661px]:max-tablet:pt-1 max-mobile:hidden",
+  primaryButton:
+    "relative order-2 inline-flex min-h-[42px] items-center justify-center gap-2 bg-action text-ice tracking-[0.02em] shadow-[inset_0_0_0_1px_rgba(248,252,254,0.10),0_10px_22px_rgba(21,43,58,0.18)] transition-[filter,box-shadow,transform,background-color] duration-[140ms] enabled:hover:brightness-[1.08] enabled:hover:shadow-[inset_0_0_0_1px_rgba(248,252,254,0.16),0_12px_26px_rgba(21,43,58,0.24)] enabled:active:translate-y-px enabled:active:shadow-[inset_0_0_0_1px_rgba(248,252,254,0.12),0_4px_10px_rgba(21,43,58,0.18)] min-[661px]:max-tablet:order-1 min-[661px]:max-tablet:min-h-[38px] min-[661px]:max-tablet:text-[13px] [body.theme-dark_&]:bg-[#ee7a87] [body.theme-dark_&]:text-[#2a0c12] [body.theme-dark_&]:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22),0_10px_22px_rgba(0,0,0,0.45)] [body.theme-dark_&]:enabled:hover:bg-[#f48f99] [body.theme-dark_&]:enabled:hover:brightness-100 [body.theme-dark_&]:enabled:hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.28),0_12px_26px_rgba(0,0,0,0.55)] [body.theme-dark_&]:enabled:active:bg-[#d6646f] [body.theme-dark_&]:enabled:active:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22),0_4px_10px_rgba(0,0,0,0.4)]",
+  primaryButtonStale:
+    "shadow-[0_0_0_4px_var(--grade-active-soft),inset_0_0_0_1px_rgba(248,252,254,0.10),0_10px_22px_rgba(21,43,58,0.18)]",
+  primaryButtonLocked:
+    "disabled:opacity-100 disabled:border-2 disabled:border-yellow-kit disabled:bg-warning-soft disabled:text-warning disabled:shadow-[0_0_0_3px_rgba(230,170,38,0.22)]",
+  secondaryButton:
+    "order-1 min-h-[42px] border-0 bg-transparent px-1 text-[13px] font-semibold text-muted underline underline-offset-[3px] transition-[color,transform] duration-[140ms] enabled:hover:text-text-strong enabled:active:translate-y-px min-[661px]:max-tablet:order-2 min-[661px]:max-tablet:min-h-[38px] min-[661px]:max-tablet:text-[12px]",
+  spinner:
+    "inline-block size-[13px] animate-spin rounded-full border-2 border-[color-mix(in_srgb,var(--ice)_32%,transparent)] border-t-ice [body.theme-dark_&]:border-[rgba(42,12,18,0.24)] [body.theme-dark_&]:border-t-[#2a0c12]",
 } as const;
 
 const kitDotClass: Record<Kit, string> = {
@@ -79,19 +98,37 @@ function toStock(stockText: Record<Kit, string>): Stock {
   };
 }
 
+function sameStock(a: Stock, b: Stock) {
+  return a.blue === b.blue && a.purple === b.purple && a.yellow === b.yellow;
+}
+
 function stockValueToText(value: number) {
   return value > 0 ? String(value) : "";
 }
 
+function sanitizeStockText(value: string) {
+  return value.replace(/\D/g, "");
+}
+
 type KitInputProps = {
   definition: KitInputDefinition;
+  calculateDisabled: boolean;
   needsStockEdit: boolean;
   value: string;
   onChange: (kit: Kit, value: string) => void;
   onCommit: () => void;
+  onCalculate: () => void;
 };
 
-function KitInput({ definition, needsStockEdit, value, onChange, onCommit }: KitInputProps) {
+function KitInput({
+  definition,
+  calculateDisabled,
+  needsStockEdit,
+  value,
+  onChange,
+  onCommit,
+  onCalculate,
+}: KitInputProps) {
   return (
     <label className={classes.kitInput}>
       <span className={classes.kitLabel}>
@@ -101,33 +138,60 @@ function KitInput({ definition, needsStockEdit, value, onChange, onCommit }: Kit
       <input
         id={definition.inputId}
         className={`${classes.kitInputControl} ${needsStockEdit ? classes.kitInputNeedsEdit : ""}`}
-        type="number"
-        min="0"
-        step="1"
+        type="text"
         inputMode="numeric"
+        pattern="[0-9]*"
+        autoComplete="off"
         placeholder="0"
         value={value}
-        onChange={(event) => onChange(definition.kit, event.currentTarget.value)}
+        onChange={(event) => onChange(definition.kit, sanitizeStockText(event.currentTarget.value))}
         onBlur={onCommit}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          onCommit();
+          event.currentTarget.blur();
+          if (!calculateDisabled) onCalculate();
+        }}
       />
       <small className={classes.kitHint}>{definition.expLabel}</small>
     </label>
   );
 }
 
+function commitFocusedInput() {
+  const activeElement = document.activeElement;
+  if (
+    activeElement instanceof HTMLInputElement ||
+    activeElement instanceof HTMLSelectElement ||
+    activeElement instanceof HTMLTextAreaElement
+  ) {
+    activeElement.blur();
+  }
+}
+
 export default function StockPanel({
   stock,
   needsStockEdit,
+  isStale,
+  stockStale,
   notice,
   onStockChange,
+  description,
+  calculateDisabled,
+  loading,
+  onCalculate,
+  onReset,
 }: StockPanelProps) {
   const [stockText, setStockText] = useState<Record<Kit, string>>({
     blue: stockValueToText(stock.blue),
     purple: stockValueToText(stock.purple),
     yellow: stockValueToText(stock.yellow),
   });
+  const committedStockRef = useRef<Stock>(stock);
 
   useEffect(() => {
+    committedStockRef.current = { blue: stock.blue, purple: stock.purple, yellow: stock.yellow };
     setStockText({
       blue: stockValueToText(stock.blue),
       purple: stockValueToText(stock.purple),
@@ -137,12 +201,26 @@ export default function StockPanel({
 
   const updateStockText = (kit: Kit, value: string) => {
     const next = { ...stockText, [kit]: value };
+    const nextStock = toStock(next);
     setStockText(next);
-    onStockChange(toStock(next));
+    if (sameStock(committedStockRef.current, nextStock)) return;
+    committedStockRef.current = nextStock;
+    onStockChange(nextStock);
   };
 
-  const commitStock = () => onStockChange(toStock(stockText));
-  const panelClassName = `${classes.panel} ${needsStockEdit ? classes.panelNeedsEdit : ""}`;
+  const commitStock = () => {
+    const nextStock = toStock(stockText);
+    if (sameStock(committedStockRef.current, nextStock)) return;
+    committedStockRef.current = nextStock;
+    onStockChange(nextStock);
+  };
+  const handleCalculate = () => {
+    commitStock();
+    onCalculate();
+  };
+  const panelClassName = `${classes.panel} ${
+    needsStockEdit ? classes.panelNeedsEdit : stockStale ? classes.panelStale : ""
+  }`;
 
   return (
     <section className={panelClassName}>
@@ -153,20 +231,62 @@ export default function StockPanel({
       <div id="stockEditNotice" className={classes.editNotice} hidden={!needsStockEdit}>
         {notice}
       </div>
+      <div className={classes.editNotice} hidden={!stockStale || needsStockEdit}>
+        보유 키트가 변경되었습니다. 계산 버튼을 눌러 결과를 갱신해주세요.
+      </div>
 
       <div className={classes.kitGrid}>
         {KIT_INPUTS.map((definition) => (
           <KitInput
             definition={definition}
+            calculateDisabled={calculateDisabled || loading}
             key={definition.kit}
             needsStockEdit={needsStockEdit}
             value={stockText[definition.kit]}
             onChange={updateStockText}
             onCommit={commitStock}
+            onCalculate={handleCalculate}
           />
         ))}
       </div>
-      <p className={classes.help}>현재 보유 중인 키트의 수량을 입력하는 칸입니다.</p>
+      <p id="strategyDescription" className={classes.help}>
+        {description}
+      </p>
+      <div className={classes.buttonRow}>
+        <button
+          id="resetButton"
+          className={classes.secondaryButton}
+          type="button"
+          onClick={onReset}
+        >
+          초기화
+        </button>
+        <button
+          id="calculateButton"
+          className={`${classes.primaryButton} ${
+            needsStockEdit ? classes.primaryButtonLocked : isStale ? classes.primaryButtonStale : ""
+          }`}
+          type="button"
+          disabled={calculateDisabled || loading}
+          aria-describedby="strategyDescription"
+          aria-live="polite"
+          onPointerDown={commitFocusedInput}
+          onClick={handleCalculate}
+        >
+          {needsStockEdit ? (
+            "키트 수정 필요"
+          ) : loading ? (
+            <>
+              <span className={classes.spinner} aria-hidden="true" />
+              계산 중...
+            </>
+          ) : isStale ? (
+            "다시 계산"
+          ) : (
+            "계산"
+          )}
+        </button>
+      </div>
     </section>
   );
 }

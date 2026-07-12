@@ -4,7 +4,7 @@ import { solveWithResearchCostModel } from "../solver/solve";
 import { solveRustMinEfProduct } from "./rustMinEfSolver";
 import { solveRustPhase2 } from "./rustPhase2ProductSolver";
 import { createRustPhase2ResearchSolver } from "./rustPhase2ResearchCore";
-import type { RustCoreExports, RustPhase2Solver } from "./rustTypes";
+import type { RustCoreExports, RustPhase2ResearchSolver } from "./rustTypes";
 
 const WASM_URL = new URL("../../public/solver_rs.wasm", import.meta.url);
 const HORIZON_FACTOR = 0.75;
@@ -42,12 +42,13 @@ function closeTo(actual: number, expected: number) {
 }
 
 describe("rust phase2 wasm parity", () => {
-  let solver: RustPhase2Solver;
+  let solver: RustPhase2ResearchSolver;
+  let wasm: Uint8Array;
   let wasmDataUrl: string;
 
   beforeAll(async () => {
     const fs = (await import("node:fs")) as { readFileSync(path: URL): Uint8Array };
-    const wasm = fs.readFileSync(WASM_URL);
+    wasm = fs.readFileSync(WASM_URL);
     wasmDataUrl = `data:application/wasm;base64,${Buffer.from(wasm).toString("base64")}`;
     const instantiated = (await WebAssembly.instantiate(wasm)) as
       | WebAssembly.Instance
@@ -55,6 +56,26 @@ describe("rust phase2 wasm parity", () => {
     const instance =
       instantiated instanceof WebAssembly.Instance ? instantiated : instantiated.instance;
     solver = createRustPhase2ResearchSolver(instance.exports as unknown as RustCoreExports);
+  });
+
+  it("keeps the min-E[f] probe-order node count invariant", async () => {
+    const instantiated = (await WebAssembly.instantiate(wasm)) as
+      | WebAssembly.Instance
+      | { instance: WebAssembly.Instance };
+    const instance =
+      instantiated instanceof WebAssembly.Instance ? instantiated : instantiated.instance;
+    const exports = instance.exports as unknown as RustCoreExports;
+    if (!exports.configureMinEfMemo || !exports.minEfNodeCount) {
+      throw new Error("min-E[f] memo configuration exports are required for the golden test.");
+    }
+
+    // This count depends on the component-wise hash, tier-21 mask, and a fresh instance. The
+    // objective parameters do not alter the expanded state set, but are fixed for auditability.
+    exports.configureMinEfMemo(21);
+    exports.solveMinEf(30, 100, 100, 100, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+
+    expect(exports.getSolveStatus?.()).toBe(0);
+    expect(exports.minEfNodeCount()).toBe(218_278);
   });
 
   for (const testCase of CASES) {

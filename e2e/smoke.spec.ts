@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
 import {
   maxBackgroundChannel,
@@ -8,6 +8,7 @@ import {
 
 const PORT = 4173;
 let previewServer: PreviewServer | null = null;
+const MOBILE_OUTCOME_PROMPT = "추천 행동의 대성공 여부를 선택해주세요.";
 
 /**
  * 회귀 안전망 스모크 테스트.
@@ -46,6 +47,44 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole("button", { name: "0단계", exact: true })).toBeVisible();
 });
 
+async function openDetails(details: Locator) {
+  if ((await details.count()) === 0) return;
+  const summary = details.locator("summary").first();
+  await expect(summary).toBeVisible();
+  if (!(await details.evaluate((element: HTMLDetailsElement) => element.open))) {
+    await summary.click({ position: { x: 10, y: 10 } });
+    await expect
+      .poll(() => details.evaluate((element: HTMLDetailsElement) => element.open))
+      .toBe(true);
+  }
+}
+
+async function confirmOutcome(page: Page, locator: Locator, outcome: "대성공 O" | "대성공 X") {
+  await locator.click();
+  await page
+    .getByRole("button", { name: `${outcome} 확정`, exact: true })
+    .first()
+    .click();
+}
+
+async function openStatsPanel(page: Page) {
+  const globalStatsBox = page.locator("#globalStatsBox");
+  if (!(await globalStatsBox.isVisible().catch(() => false))) {
+    const desktopStatsTab = page.getByRole("tab", { name: "통계" }).first();
+    if ((await desktopStatsTab.count()) > 0 && (await desktopStatsTab.isVisible())) {
+      await desktopStatsTab.click();
+    }
+  }
+
+  const details = page.locator("#globalStatsPanel details");
+  if ((await details.count()) === 0) {
+    await expect(globalStatsBox).toBeVisible();
+    return;
+  }
+  await expect(page.locator("#globalStatsPanel summary")).toBeVisible();
+  await openDetails(details);
+}
+
 test("R 1 + 초심자용 100 — 계산 결과 패널에 추천 행동이 나타난다", async ({ page }) => {
   await expect(page.getByRole("group", { name: "최적화 방식" })).toHaveCount(0);
   await expect(page.locator("[data-strategy]")).toHaveCount(0);
@@ -53,7 +92,7 @@ test("R 1 + 초심자용 100 — 계산 결과 패널에 추천 행동이 나타
   await page.getByLabel("초심자용 관리 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
 
-  await expect(page.getByText("추천 행동")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".next-action .action-chip-text").first()).toHaveText(/\s×\s\d+회/);
   await expect(page.locator(".table-wrap .action-chip-text").first()).toHaveText(/\s×\s\d+회/);
   await expect
@@ -77,8 +116,21 @@ test("R 등급 추천은 추천 횟수와 무관하게 대성공 여부 칸에 �
   await page.getByLabel("상급자용 관리 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
 
-  await expect(page.getByText("추천 행동")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+    timeout: 20_000,
+  });
   await expect(page.locator(".result-panel .outcome-panel .change-note")).toBeVisible();
+});
+
+test("사용 가능한 키트가 10개 미만이면 계산 버튼이 비활성화된다", async ({ page }) => {
+  const calculateButton = page.getByRole("button", { name: "계산", exact: true });
+  await expect(calculateButton).toBeDisabled();
+
+  await page.getByLabel("초심자용 관리 키트").fill("9");
+  await expect(calculateButton).toBeDisabled();
+
+  await page.getByLabel("초심자용 관리 키트").fill("10");
+  await expect(calculateButton).toBeEnabled();
 });
 
 test("SR 10 + 상급자용 100 — 세부 정보에 SR 15 도달 확률이 나타난다", async ({ page }) => {
@@ -113,6 +165,67 @@ test("SR 10 + 상급자용 100 — 세부 정보에 SR 15 도달 확률이 나�
   expect(Math.max(...desktopMetricDeltas.filter((delta) => delta !== null))).toBeLessThanOrEqual(1);
 });
 
+test("SR 15 도달률이 모두 100%면 비추천 후보를 키트 부담 사유로 제외한다", async ({ page }) => {
+  await page
+    .getByRole("group", { name: "소장품 등급" })
+    .getByRole("button", { name: "SR" })
+    .click();
+  await page.getByRole("button", { name: "14단계", exact: true }).click();
+  await page.getByLabel("초심자용 관리 키트").fill("200");
+  await page.getByLabel("중급자용 관리 키트").fill("100");
+  await page.getByLabel("상급자용 관리 키트").fill("100");
+  await page.getByRole("button", { name: "계산", exact: true }).click();
+
+  const rows = page.locator(".table-wrap tbody tr");
+  await expect(rows).toHaveCount(3, { timeout: 20_000 });
+  await expect(rows.nth(0)).toContainText("추천");
+  await expect(rows.nth(0).locator(".candidate-probability-wide")).toHaveText("100%");
+  for (const index of [1, 2]) {
+    await expect(rows.nth(index)).toContainText("제외");
+    await expect(rows.nth(index)).toContainText("키트 부담 높음");
+    await expect(rows.nth(index).locator(".candidate-probability-wide")).toHaveText("100%");
+    await expect(rows.nth(index)).toHaveCSS("opacity", "0.6");
+  }
+  const cellAlignments = await rows
+    .locator("th, td")
+    .evaluateAll((cells) => cells.map((cell) => getComputedStyle(cell).verticalAlign));
+  expect(new Set(cellAlignments)).toEqual(new Set(["middle"]));
+});
+
+test("태블릿에서는 현재 소장품 영역을 넓히고 키트 라벨을 한 줄로 유지한다", async ({ page }) => {
+  for (const width of [661, 768, 900, 980]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/?statsEnv=disabled");
+
+    const statePanel = page.locator(".state-panel");
+    const stockPanel = page.getByRole("heading", { name: "보유 키트" }).locator("../..");
+    const [stateBox, stockBox] = await Promise.all([
+      statePanel.boundingBox(),
+      stockPanel.boundingBox(),
+    ]);
+    expect(stateBox).not.toBeNull();
+    expect(stockBox).not.toBeNull();
+    expect(stateBox?.width || 0).toBeGreaterThan(stockBox?.width || 0);
+
+    const labelLayout = await page
+      .getByLabel(/(?:초심자용|중급자용|상급자용) 관리 키트/)
+      .locator("..")
+      .locator("span")
+      .evaluateAll((labels) =>
+        labels.map((label) => ({
+          clientWidth: label.clientWidth,
+          scrollWidth: label.scrollWidth,
+          whiteSpace: getComputedStyle(label).whiteSpace,
+        })),
+      );
+    expect(labelLayout).toHaveLength(3);
+    for (const label of labelLayout) {
+      expect(label.whiteSpace).toBe("nowrap");
+      expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth);
+    }
+  }
+});
+
 test("모바일 metric 콘텐츠는 카드 안에서 상하 가운데 정렬된다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?statsEnv=disabled");
@@ -144,62 +257,92 @@ test("모바일 metric 콘텐츠는 카드 안에서 상하 가운데 정렬된�
   expect(Math.max(...mobileMetricDeltas.filter((delta) => delta !== null))).toBeLessThanOrEqual(1);
 });
 
-test("SR 10 다회 대성공 — 발생 회차 모달에서 기록할 수 있다", async ({ page }) => {
+test("SR 5 다회 대성공 — 모달 없이 키트 수정 후 다시 계산할 수 있다", async ({ page }) => {
   await page
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: "10단계", exact: true }).click();
+  await page.getByRole("button", { name: "5단계", exact: true }).click();
 
   await page.getByLabel("상급자용 관리 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
-  await page.getByRole("button", { name: "대성공 O", exact: true }).click();
-
-  await expect(
-    page.getByRole("heading", { name: "대성공이 발생한 시점을 입력해주세요." }),
-  ).toBeVisible();
-  await expect(page.locator(".attempt-number-input")).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await expect(page.locator(".attempt-step-button").first()).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await expect(page.locator(".attempt-unknown-button")).toBeFocused();
-  await page.getByLabel("대성공 발생 회차").fill("2");
-  await page.getByRole("button", { name: "기록", exact: true }).click();
-
-  await expect(page.getByText("대성공 시점이 기록되었습니다.")).toBeVisible({ timeout: 10_000 });
-});
-
-test("대성공 발생 회차 모달은 Escape로 닫고 다음 조작으로 focus를 돌린다", async ({ page }) => {
-  await page
-    .getByRole("group", { name: "소장품 등급" })
-    .getByRole("button", { name: "SR" })
-    .click();
-  await page.getByRole("button", { name: "10단계", exact: true }).click();
-  await page.getByLabel("상급자용 관리 키트").fill("100");
-  await page.getByRole("button", { name: "계산", exact: true }).click();
-  await page.getByRole("button", { name: "대성공 O", exact: true }).click();
-  await expect(page.locator(".attempt-modal-overlay")).toBeVisible();
-
-  await page.keyboard.press("Escape");
+  await confirmOutcome(
+    page,
+    page.getByRole("button", { name: "대성공 O", exact: true }).first(),
+    "대성공 O",
+  );
 
   await expect(page.locator(".attempt-modal-overlay")).toHaveCount(0);
-  await expect(page.locator("button:focus")).toHaveCount(1);
+  await expect(page.getByLabel("상급자용 관리 키트")).toHaveValue("100");
+  await expect(page.locator("#stockEditNotice")).toContainText(
+    "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.",
+  );
+  await expect(page.getByRole("button", { name: "키트 수정 필요", exact: true })).toBeDisabled();
+
+  await page.getByLabel("상급자용 관리 키트").fill("80");
+  await expect(page.getByRole("button", { name: "다시 계산", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "다시 계산", exact: true }).click();
+
+  await expect(page.getByRole("heading", { name: "대성공 여부" })).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.locator("#stockEditNotice")).toBeHidden();
+});
+
+test("대성공 확정 전 취소하면 같은 패널에서 선택 상태만 해제된다", async ({ page }) => {
+  await page
+    .getByRole("group", { name: "소장품 등급" })
+    .getByRole("button", { name: "SR" })
+    .click();
+  await page.getByRole("button", { name: "10단계", exact: true }).click();
+  await page.getByLabel("상급자용 관리 키트").fill("100");
+  await page.getByRole("button", { name: "계산", exact: true }).click();
+  await page.getByRole("button", { name: "대성공 O", exact: true }).first().click();
+  await expect(page.getByRole("button", { name: "대성공 O 확정", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "취소", exact: true }).click();
+
+  await expect(page.getByRole("button", { name: "대성공 O", exact: true })).toBeVisible();
+  await expect(page.locator(".attempt-modal-overlay")).toHaveCount(0);
 });
 
 test("R 15 — SR 등급 교체 안내와 적용이 동작한다", async ({ page }) => {
   await page.getByRole("button", { name: "15단계", exact: true }).click();
 
   await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
-  await expect(
-    page.getByText("R 15레벨은 등급 교체 가능 상태입니다. SR 5레벨로 교체할 수 있습니다."),
-  ).toBeVisible();
+  await expect(page.getByText("SR 등급 교체를 적용할 수 있습니다.")).toBeVisible();
   await expect(page.getByRole("button", { name: "교체 적용", exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "교체 적용", exact: true }).click();
 
-  await expect(page.locator(".state-panel .state-feedback-badge")).toHaveText(/R → SR/);
+  await expect(page.locator(".current-state-strip")).toContainText("SR");
+  await expect(page.locator(".current-state-strip")).toContainText("5단계");
   await expect(page.getByText(/SR 등급으로 교체했습니다/)).toBeVisible();
   await expect(page.getByText(/SR 5레벨/)).toBeVisible();
+});
+
+test("R 15/SR 15 안내는 소장품 상태를 바꾸면 결과에서 사라진다", async ({ page }) => {
+  await page.getByRole("button", { name: "15단계", exact: true }).click();
+  await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
+
+  await page.getByRole("button", { name: "14단계", exact: true }).click();
+  await expect(page.getByText("SR 등급으로 교체")).toHaveCount(0);
+  await expect(
+    page.getByText("최대 레벨입니다. R 15레벨은 SR 5레벨로 교체할 수 있습니다."),
+  ).toHaveCount(0);
+
+  await page
+    .getByRole("group", { name: "소장품 등급" })
+    .getByRole("button", { name: "SR" })
+    .click();
+  await page.getByRole("button", { name: "15단계", exact: true }).click();
+  await expect(page.getByText("SR 15레벨입니다. 최종 목표 상태입니다.")).toBeVisible();
+
+  await page
+    .getByRole("group", { name: "소장품 등급" })
+    .getByRole("button", { name: "R", exact: true })
+    .click();
+  await expect(page.getByText("SR 15레벨입니다. 최종 목표 상태입니다.")).toHaveCount(0);
+  await expect(page.getByText("SR 등급으로 교체")).toHaveCount(0);
 });
 
 test("SR 15 — 최종 목표 상태 문구가 정상 한글로 표시된다", async ({ page }) => {
@@ -210,7 +353,6 @@ test("SR 15 — 최종 목표 상태 문구가 정상 한글로 표시된다", a
   await page.getByRole("button", { name: "15단계", exact: true }).click();
 
   await expect(page.getByText("SR 15레벨입니다. 최종 목표 상태입니다.")).toBeVisible();
-  await expect(page.getByText("SR 15레벨은 최종 목표 상태입니다.")).toBeVisible();
 });
 
 test("테마 선택 — 다크/라이트 버튼이 body 테마 클래스를 바꾼다", async ({ page }) => {
@@ -258,23 +400,24 @@ test("테마 선택 — reduced motion에서는 View Transition을 건너뛴다"
   await expect(page.locator("html")).not.toHaveClass(/theme-commit/);
 });
 
-test("테마 선택 — 계산 패널은 다크 모드에서 어두운 배경을 유지한다", async ({ page }) => {
+test("테마 선택 — 보유 키트 패널은 다크 모드에서 어두운 배경을 유지한다", async ({ page }) => {
   const themeGroup = page.getByRole("group", { name: "테마 선택" });
-  const calculatePanel = page
+  const stockPanel = page
     .locator("section", {
-      has: page.getByRole("heading", { name: "계산", exact: true }),
+      has: page.getByRole("heading", { name: "보유 키트", exact: true }),
     })
     .last();
 
   await themeGroup.getByRole("button", { name: "다크", exact: true }).click();
-  await expect.poll(() => maxBackgroundChannel(calculatePanel)).toBeLessThan(90);
+  await expect.poll(() => maxBackgroundChannel(stockPanel)).toBeLessThan(90);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect.poll(() => maxBackgroundChannel(calculatePanel)).toBeLessThan(90);
+  await expect.poll(() => maxBackgroundChannel(stockPanel)).toBeLessThan(90);
 });
 
 test("demoStats=1 — 전체 통계 주요 섹션이 표시된다", async ({ page }) => {
   await page.goto("/?demoStats=1");
+  await openStatsPanel(page);
 
   await expect(page.getByRole("heading", { name: "전체 통계" })).toBeVisible();
   await expect(page.getByText("전체 대성공률")).toBeVisible();
@@ -292,10 +435,9 @@ test("demoStats=1 — 전체 통계 주요 섹션이 표시된다", async ({ pag
   await expect(page.locator(".kit-rate-meta").first()).toContainText(/\d+개/);
   await expect(page.locator(".kit-rate-meta").first()).not.toContainText(/실측|기대값/);
   await expect(page.locator(".kit-rate-meta .stats-usage-trigger")).toHaveCount(0);
-  await expect(page.locator(".difficulty-attempts")).toHaveCount(6);
-  await expect(page.locator(".difficulty-attempts").first()).toContainText(/\d+개/);
-  await expect(page.locator(".difficulty-attempts .stats-usage-trigger")).toHaveCount(6);
-  const usageTrigger = page.locator(".difficulty-attempts .stats-usage-trigger").first();
+  await expect(page.locator(".difficulty-row .stats-usage-trigger")).toHaveCount(6);
+  await expect(page.locator(".difficulty-row .stats-usage-trigger").first()).toContainText(/\d+개/);
+  const usageTrigger = page.locator(".difficulty-row .stats-usage-trigger").first();
   await usageTrigger.hover();
   const tooltip = page.locator(".difficulty-tooltip");
   await expect(tooltip).toContainText("초심자용 관리 키트");
@@ -321,8 +463,9 @@ test("모바일 키트 사용량 툴팁은 탭 후 유지되고 외부 터치로
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?demoStats=1");
   await page.getByRole("tab", { name: "통계" }).click();
+  await openStatsPanel(page);
 
-  const usageTrigger = page.locator(".difficulty-attempts .stats-usage-trigger").first();
+  const usageTrigger = page.locator(".difficulty-row .stats-usage-trigger").first();
   const tooltip = page.locator(".difficulty-tooltip");
   await expect(usageTrigger).toBeVisible();
 
@@ -376,18 +519,19 @@ test("모바일 키트 사용량 툴팁은 탭 후 유지되고 외부 터치로
   await expect(tooltip).not.toHaveClass(/is-visible/);
 });
 
-test("제목 링크는 처음 화면으로 이동해 입력값과 계산 결과를 초기화한다", async ({ page }) => {
+test("초기화 버튼은 입력값과 계산 결과를 초기화한다", async ({ page }) => {
   await page.getByLabel("초심자용 관리 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
 
-  const titleLink = page.getByRole("link", { name: "소장품 레벨업 계산기", exact: true });
-  await titleLink.click();
-  await expect(page).toHaveURL("http://127.0.0.1:4173/");
+  await expect(page.getByRole("link", { name: "소장품 레벨업 계산기", exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByRole("button", { name: "초기화", exact: true }).click();
 
   await expect(page.getByLabel("초심자용 관리 키트")).toHaveValue("");
   await expect(page.getByLabel("초심자용 관리 키트")).toHaveAttribute("placeholder", "0");
-  await expect(page.getByText("입력값을 넣고 계산을 실행하세요.")).toBeVisible();
+  await expect(page.getByText("아직 계산 결과가 없습니다. 세 단계면 충분해요.")).toBeVisible();
 });
 
 test("staging 설정 누락은 운영 API로 대체하지 않고 알림을 표시한다", async ({ page }) => {
@@ -401,8 +545,12 @@ test("staging 설정 누락은 운영 API로 대체하지 않고 알림을 표�
   );
 });
 
-test("staging 설정이 있으면 별도 통계 API와 테스트 배너를 사용한다", async ({ page }) => {
+test("staging 통계는 통계 탭을 열 때만 별도 API에서 조회한다", async ({ page }) => {
   let requestedStatsUrl = "";
+  const requestedStatsAssets: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("StatsPanelBody-")) requestedStatsAssets.push(request.url());
+  });
   await serveStagingDocument(page, {
     endpoint: "https://staging.example.test",
     turnstileSiteKey: "staging-site-key",
@@ -421,7 +569,13 @@ test("staging 설정이 있으면 별도 통계 API와 테스트 배너를 사�
   await expect(page.getByLabel("스테이징 환경")).toContainText(
     "테스트 기록은 운영 통계에 반영되지 않음",
   );
+  await page.waitForTimeout(100);
+  expect(requestedStatsUrl).toBe("");
+  expect(requestedStatsAssets).toHaveLength(0);
+
+  await page.getByRole("tab", { name: "통계" }).first().click();
   await expect.poll(() => requestedStatsUrl).toBe("https://staging.example.test/api/stats");
+  await expect.poll(() => requestedStatsAssets.length).toBe(1);
 });
 
 test("demo 및 disabled 계산은 통계 이벤트를 제출하지 않는다", async ({ page }) => {
@@ -443,6 +597,7 @@ test("demo 및 disabled 계산은 통계 이벤트를 제출하지 않는다", a
 
 test("레퍼런스 정리 요소와 통계 비교 상태가 표시된다", async ({ page }) => {
   await page.goto("/?demoStats=1");
+  await openStatsPanel(page);
 
   await expect(page.getByText("Collectibles Leveling up Optimizer")).toHaveCount(0);
   await expect(page.getByText("테마", { exact: true })).toHaveCount(0);
@@ -450,13 +605,11 @@ test("레퍼런스 정리 요소와 통계 비교 상태가 표시된다", async
   await expect(page.getByText("6~10", { exact: true })).toHaveCount(0);
   await expect(page.getByText("11~15", { exact: true })).toHaveCount(0);
   await expect(page.locator(".difficulty-row")).toHaveCount(6);
-  await expect(page.locator(".difficulty-comparison")).not.toHaveCount(0);
-  await expect(
-    page.getByText(/기대 대비 높음|기대 대비 낮음|기대 범위 내|표본 부족/).first(),
-  ).toBeVisible();
+  await expect(page.locator(".difficulty-comparison")).toHaveCount(0);
+  await expect(page.getByText("중앙 = 기대값 · 축 ±5%p").first()).toBeVisible();
 });
 
-test("검산 버튼 — 가상의 니붕이 검산 결과가 표시된다", async ({ page }) => {
+test("검산 details — 펼치면 가상의 니붕이 검산 결과가 자동 표시된다", async ({ page }) => {
   await page
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
@@ -464,11 +617,21 @@ test("검산 버튼 — 가상의 니붕이 검산 결과가 표시된다", asyn
   await page.getByRole("button", { name: "10단계", exact: true }).click();
   await page.getByLabel("상급자용 관리 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
+  await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: "계산", exact: true })).toBeEnabled();
+  await expect(page.locator(".validation-details summary .info-tip")).toHaveCount(1);
+  await expect(page.locator(".validation-button")).toHaveCount(0);
 
-  await page.getByText("가상의 니붕이로 검증해보기").click();
-  await page.getByRole("button", { name: /니붕이들 시켜보기|다시 시켜보기/ }).click();
+  await openDetails(page.locator(".validation-details"));
+  await expect(page.getByText(/가상의 니붕이 .*SR 15/)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/이번엔 가상의 니붕이/)).toHaveCount(0);
 
-  await expect(page.getByText(/이번엔 가상의 니붕이 .*SR 15/)).toBeVisible({ timeout: 20_000 });
+  await page.getByLabel("상급자용 관리 키트").fill("90");
+  await expect(
+    page
+      .locator(".result-panel")
+      .getByText("보유 키트가 변경되었습니다. 계산 버튼을 눌러 결과를 갱신해주세요."),
+  ).toBeVisible();
 });
 test("모바일 탭은 입력, 결과, 통계 화면을 전환한다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -477,6 +640,7 @@ test("모바일 탭은 입력, 결과, 통계 화면을 전환한다", async ({ 
   await expect(page.getByRole("heading", { name: "현재 소장품" })).toBeVisible();
 
   await page.getByRole("tab", { name: "통계" }).click();
+  await expect(page.locator(".mobile-tabs")).toHaveAttribute("data-active-index", "2");
   await expect(page.getByRole("heading", { name: "전체 통계" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "현재 소장품" })).toBeHidden();
   await expect(page.getByRole("toolbar", { name: "모바일 작업" })).toHaveCount(0);
@@ -497,14 +661,38 @@ test("모바일 하단 액션바로 계산하고 결과 액션을 표시한다",
   await page.goto("/?statsEnv=disabled");
 
   await page.getByLabel("초심자용 관리 키트").fill("100");
-
   const actionBar = page.getByRole("toolbar", { name: "모바일 작업" });
   await actionBar.getByRole("button", { name: "계산하기", exact: true }).click();
 
   await expect(page.getByRole("tab", { name: "결과" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByText("추천 행동")).toBeVisible({ timeout: 20_000 });
-  await expect(actionBar.getByText("대성공 여부를 선택하세요")).toBeVisible();
-  await expect(actionBar.locator(".change-note")).toBeVisible();
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.locator(".table-wrap .action-chip-text").first()).toContainText(
+    "초심자용 관리 키트",
+  );
+  await expect(page.locator(".table-wrap .action-chip-name").first()).toHaveAttribute(
+    "data-mobile-label",
+    "초심자용",
+  );
+  await expect
+    .poll(() =>
+      page
+        .locator(".table-wrap .action-chip-name")
+        .first()
+        .evaluate((element) => getComputedStyle(element, "::before").content),
+    )
+    .toBe('"초심자용"');
+  await expect
+    .poll(() =>
+      page
+        .locator(".table-wrap .action-chip-separator")
+        .first()
+        .evaluate((element) => getComputedStyle(element).fontSize),
+    )
+    .toBe("0px");
+  await expect(actionBar.locator(".change-note")).toContainText(MOBILE_OUTCOME_PROMPT);
+  await expect(actionBar).not.toContainText("누르면 누른 자리가 확정 버튼으로 바뀝니다.");
   await expect(actionBar.getByRole("button", { name: "대성공 O", exact: true })).toBeVisible();
   await expect(actionBar.getByRole("button", { name: "대성공 X", exact: true })).toBeVisible();
 });
@@ -518,15 +706,19 @@ test("대성공 X 선택 후 다음 추천이 자동 계산된다", async ({ pag
 
   await expect(page.locator(".next-action-previous")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "대성공 X", exact: true }).click();
+  await page.getByRole("button", { name: "대성공 X", exact: true }).first().click();
+  await page.getByRole("button", { name: "대성공 X 확정", exact: true }).first().click();
+  const loadingPopup = page.getByRole("status").filter({ hasText: "대성공 X를 반영" });
+  await expect(loadingPopup).toBeVisible();
+  await expect(loadingPopup).toBeHidden({ timeout: 20_000 });
 
   await expect(page.getByText("적용 완료")).toBeHidden({ timeout: 20_000 });
   await expect(page.getByRole("heading", { name: "대성공 여부" })).toBeVisible();
+  await expect(page.getByLabel("초심자용 관리 키트")).not.toHaveValue("100");
   await expect(page.locator(".next-action-previous")).toHaveCount(1);
   await expect(page.locator(".next-action-current")).toHaveCount(1);
-
   await expect(page.locator(".next-action-previous")).toHaveCount(0, { timeout: 3_000 });
-  await expect(page.locator(".next-action-current")).toHaveCount(0);
+  await expect(page.locator(".next-action-current")).toHaveCount(0, { timeout: 3_000 });
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("tab", { name: "입력" }).click();
@@ -545,11 +737,11 @@ test("모바일 결과 탭에서는 대성공 버튼이 하단 액션바에만 �
     .getByRole("button", { name: "계산하기", exact: true })
     .click();
 
-  await expect(page.getByText("추천 행동")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".result-panel .outcome-panel")).toBeHidden();
   await expect(
-    page.getByRole("toolbar", { name: "모바일 작업" }).getByText("대성공 여부를 선택하세요"),
-  ).toBeVisible();
+    page.getByRole("toolbar", { name: "모바일 작업" }).locator(".change-note"),
+  ).toContainText(MOBILE_OUTCOME_PROMPT);
   await expect(page.getByRole("button", { name: "대성공 O", exact: true })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "대성공 X", exact: true })).toHaveCount(1);
 });
@@ -577,8 +769,12 @@ test("모바일 수동 키트 수정 필요 상태는 하단 계산 버튼에서
   await page.getByLabel("초심자용 관리 키트").fill("100");
   const actionBar = page.getByRole("toolbar", { name: "모바일 작업" });
   await actionBar.getByRole("button", { name: "계산하기", exact: true }).click();
-  await expect(page.getByText("추천 행동")).toBeVisible({ timeout: 20_000 });
-  await actionBar.getByRole("button", { name: "대성공 O", exact: true }).click();
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({ timeout: 20_000 });
+  await confirmOutcome(
+    page,
+    actionBar.getByRole("button", { name: "대성공 O", exact: true }),
+    "대성공 O",
+  );
 
   await expect(page.getByRole("tab", { name: "입력" })).toHaveAttribute("aria-selected", "true");
 
@@ -591,7 +787,7 @@ test("모바일 수동 키트 수정 필요 상태는 하단 계산 버튼에서
   await expect(page.locator("#stockEditNotice")).toBeVisible();
 
   await page.getByLabel("초심자용 관리 키트").fill("90");
-  await expect(actionBar.getByRole("button", { name: "계산하기", exact: true })).toBeEnabled();
+  await expect(actionBar.getByRole("button", { name: "다시 계산", exact: true })).toBeEnabled();
 });
 
 test("모바일 변환 버튼은 입력 탭 선택 상태를 유지한다", async ({ page }) => {
@@ -603,13 +799,14 @@ test("모바일 변환 버튼은 입력 탭 선택 상태를 유지한다", asyn
 
   await expect(page.locator(".mobile-tab").first()).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".status-grade")).toHaveText("SR");
-  await expect(page.locator(".status-level")).toHaveText("Lv 5");
+  await expect(page.locator(".status-level")).toHaveText("5단계");
 });
 
 test("모바일 520px 구간 툴팁은 viewport 안에 머문다", async ({ page }) => {
   await page.setViewportSize({ width: 520, height: 900 });
   await page.goto("/?demoStats=1");
   await page.locator(".mobile-tab").nth(2).click();
+  await openStatsPanel(page);
 
   const interval = page.locator(".difficulty-list .difficulty-interval").first();
   await expect(interval).toBeVisible();
@@ -639,6 +836,7 @@ test("모바일 520px 구간 툴팁은 viewport 안에 머문다", async ({ page
 test("데스크톱 구간 막대 클릭은 툴팁 위치를 움직이지 않는다", async ({ page }) => {
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.goto("/?demoStats=1");
+  await openStatsPanel(page);
 
   const interval = page.locator(".difficulty-list .difficulty-interval").first();
   await expect(interval).toBeVisible();
@@ -666,8 +864,9 @@ test("데스크톱 구간 막대 클릭은 툴팁 위치를 움직이지 않는�
 test("개인정보 안내는 데스크톱 푸터와 모바일 통계 탭 푸터에만 표시된다", async ({ page }) => {
   await page.goto("/?demoStats=1");
   await expect(page.locator("footer:visible")).toHaveCount(1);
-  await expect(page.locator("footer:visible")).toContainText("보유 키트 수량 구간");
-  await expect(page.locator("footer:visible")).toContainText("사용 solver·폴백 사유");
+  await expect(page.locator("footer:visible")).toContainText(
+    "고유 식별 정보는 통계 DB에 저장하지 않습니다",
+  );
   await expect(page.getByText("계산 모드")).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
