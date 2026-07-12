@@ -1,5 +1,5 @@
-import { formatInteger } from "../format";
-import { KIT_META } from "../solver/domain";
+import { message } from "../i18n/locale";
+import type { MessageKey } from "../i18n/messages.ko";
 import type { Kit, Stock } from "../types";
 
 export function stockAfterKitUse(
@@ -15,7 +15,10 @@ export function stockAfterKitUse(
 }
 
 export function kitStockChangeMessage(kit: Kit, beforeStock: number, afterStock: number) {
-  return `${KIT_META[kit].label} 보유량은 ${formatInteger(beforeStock)}개에서 ${formatInteger(
-    afterStock,
-  )}개가 되었습니다.`;
+  const key: Record<Kit, MessageKey> = {
+    blue: "result.stockAfterUseBlue",
+    purple: "result.stockAfterUsePurple",
+    yellow: "result.stockAfterUseYellow",
+  };
+  return message(key[kit], { before: beforeStock, after: afterStock });
 }

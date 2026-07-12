@@ -1,6 +1,6 @@
 import { type Dispatch, type RefObject, type SetStateAction, useCallback } from "react";
-
-import { convertState, stateText as describeState } from "../solver/domain";
+import { message } from "../i18n/locale";
+import { convertState } from "../solver/domain";
 import type { CollectionState } from "../types";
 import type { DetailView, ResultView, StateChangeFeedback, ValidationView } from "../ui-types";
 import {
@@ -52,11 +52,11 @@ export function useConvertAction({
     setResultView({
       type: "callout",
       reason: "converted",
-      message: `SR 등급으로 교체했습니다. 현재 상태는 ${describeState(nextState)}입니다.`,
+      message: message("result.convertedToSr5"),
     });
     setDetailView({
       type: "empty",
-      message: hasPendingGreatSuccess ? DEFAULT_STOCK_NOTICE : "변경된 상태로 다시 계산하세요.",
+      message: hasPendingGreatSuccess ? DEFAULT_STOCK_NOTICE : message("result.calculateChanged"),
     });
     setValidationView(INITIAL_VALIDATION);
     latestResultRef.current = null;

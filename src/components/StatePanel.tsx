@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { formatInteger } from "../format";
+import { useI18n } from "../i18n/locale";
 import type { Grade } from "../types";
 import type { StatePanelModel } from "../ui-types";
 
@@ -75,9 +75,10 @@ function GradeSelector({
   state,
   onGradeChange,
 }: Pick<StatePanelProps, "disabled" | "state" | "onGradeChange">) {
+  const { t } = useI18n();
   return (
     // biome-ignore lint/a11y/useSemanticElements: Existing CSS and Playwright smoke tests use this grouped control contract.
-    <div className={classes.gradeRow} role="group" aria-label="소장품 등급">
+    <div className={classes.gradeRow} role="group" aria-label={t("state.gradeAria")}>
       <span aria-hidden="true" />
       {(["R", "SR"] as const).map((grade) => (
         <button
@@ -101,9 +102,15 @@ function LevelSelector({
   state,
   onLevelChange,
 }: Pick<StatePanelProps, "disabled" | "state" | "onLevelChange">) {
+  const { t } = useI18n();
   return (
     // biome-ignore lint/a11y/useSemanticElements: Existing CSS and Playwright smoke tests use this grouped control contract.
-    <div id="levelGrid" className={classes.levelGrid} role="group" aria-label="현재 단계">
+    <div
+      id="levelGrid"
+      className={classes.levelGrid}
+      role="group"
+      aria-label={t("state.phaseAria")}
+    >
       {LEVEL_ROWS.map((row, rowIndex) => (
         <div className={classes.levelRow} key={row.label}>
           <span className={classes.levelRowLabel} aria-hidden="true">
@@ -114,7 +121,7 @@ function LevelSelector({
               className={levelButtonClass(level === state.level)}
               data-level={level}
               type="button"
-              aria-label={`${level}단계`}
+              aria-label={t("common.phase", { phase: level })}
               aria-pressed={level === state.level}
               disabled={disabled}
               key={level}
@@ -136,6 +143,7 @@ export default function StatePanel({
   onLevelChange,
   onExpChange,
 }: StatePanelProps) {
+  const { formatInteger, t } = useI18n();
   const [expText, setExpText] = useState(expValueToText(state.exp));
 
   useEffect(() => {
@@ -153,7 +161,7 @@ export default function StatePanel({
     <section className={classes.panel} aria-disabled={disabled}>
       {disabled ? <span className={classes.staleOverlay} aria-hidden="true" /> : null}
       <div className={classes.heading}>
-        <h2>현재 소장품</h2>
+        <h2>{t("state.current")}</h2>
       </div>
 
       <GradeSelector disabled={disabled} state={state} onGradeChange={onGradeChange} />
@@ -161,7 +169,7 @@ export default function StatePanel({
 
       <div className={classes.expGrid}>
         <label className={classes.fieldControl}>
-          <span className={classes.fieldLabel}>현재 경험치</span>
+          <span className={classes.fieldLabel}>{t("state.currentExp")}</span>
           <input
             id="currentExp"
             className={classes.expInput}
@@ -184,7 +192,7 @@ export default function StatePanel({
           /
         </div>
         <div className={`readonly-field ${classes.fieldControl}`}>
-          <span className={classes.fieldLabel}>레벨업 필요 경험치</span>
+          <span className={classes.fieldLabel}>{t("state.requiredExp")}</span>
           <strong id="requiredExpLabel" className={classes.readonlyValue}>
             {formatInteger(state.requiredExp)}
           </strong>

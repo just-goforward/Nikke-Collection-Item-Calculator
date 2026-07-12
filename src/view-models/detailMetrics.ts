@@ -1,14 +1,9 @@
 import { formatInteger, formatNumber } from "../format";
+import { message } from "../i18n/locale";
 import type { Kit, Strategy } from "../types";
 import type { CandidateView, DetailView } from "../ui-types";
 
 const KIT_KEYS: Kit[] = ["blue", "purple", "yellow"];
-
-const KIT_SHORT_LABELS: Record<Kit, string> = {
-  blue: "파랑",
-  purple: "보라",
-  yellow: "노랑",
-};
 
 type DetailRunSource = {
   count: number;
@@ -59,7 +54,7 @@ function solverLabel(backend?: string) {
 }
 
 function formatKitPieces(value: number) {
-  return `약 ${formatInteger(Math.round(value))}개`;
+  return message("detail.approxPieces", { count: Math.round(value) });
 }
 
 function formatReadablePercent(value: number, digits = 4) {
@@ -76,22 +71,24 @@ function formatCompactPercent(value: number, digits = 2) {
 }
 
 function formatKitBreakdown(vector: DetailVectorSource = {}) {
-  return KIT_KEYS.map(
-    (kit) => `${KIT_SHORT_LABELS[kit]} ${formatInteger(Math.round(Number(vector[kit] || 0)))}`,
-  ).join(" · ");
+  return message("detail.kitBreakdown", {
+    blue: Math.round(Number(vector.blue || 0)),
+    purple: Math.round(Number(vector.purple || 0)),
+    yellow: Math.round(Number(vector.yellow || 0)),
+  });
 }
 
 function excludedCandidateReason(candidateSuccess: string, bestSuccess: string, rawGap: number) {
   if (rawGap <= 0) return { label: null, help: null };
   if (candidateSuccess === bestSuccess) {
     return {
-      label: "미세 열세",
-      help: "표시값은 같지만, 반올림 전 SR 15 도달 확률이 추천 후보보다 낮습니다.",
+      label: message("detail.reasonSlightlyLower"),
+      help: message("detail.reasonSlightlyLowerHelp"),
     };
   }
   return {
-    label: "도달률 낮음",
-    help: "SR 15 도달 확률이 추천 후보보다 낮아 제외되었습니다.",
+    label: message("detail.reasonLowerReach"),
+    help: message("detail.reasonLowerReachHelp"),
   };
 }
 
@@ -130,15 +127,15 @@ function candidateExclusionReason({
     candidateCost > recommendedCost + COMPARISON_EPSILON
   ) {
     return {
-      label: "키트 부담 높음",
-      help: "SR 15 도달률 조건은 충족했지만, 보유량과 향후 수급을 반영한 키트 부담이 추천 후보보다 높아 제외되었습니다.",
+      label: message("detail.reasonHigherBurden"),
+      help: message("detail.reasonHigherBurdenHelp"),
     };
   }
 
   if (candidateTotalKits(candidate) > candidateTotalKits(recommended) + COMPARISON_EPSILON) {
     return {
-      label: "예상 소모량 많음",
-      help: "SR 15 도달률과 키트 부담이 비슷하지만, 총 예상 소모량이 추천 후보보다 많아 제외되었습니다.",
+      label: message("detail.reasonMoreConsumption"),
+      help: message("detail.reasonMoreConsumptionHelp"),
     };
   }
 
@@ -149,8 +146,8 @@ function candidateExclusionReason({
   }
 
   return {
-    label: "계산상 동률",
-    help: "주요 비교값이 같아, 일관된 결과를 위한 고정 우선순위에서 제외되었습니다.",
+    label: message("detail.reasonTie"),
+    help: message("detail.reasonTieHelp"),
   };
 }
 
@@ -197,7 +194,9 @@ function makeCandidateViews(
           });
 
     return {
-      rankLabel: recommendedCandidate ? "추천" : `후보 ${index + 1}`,
+      rankLabel: recommendedCandidate
+        ? message("common.recommended")
+        : message("detail.rankCandidate", { rank: index + 1 }),
       kit: candidate.firstAction,
       count: candidate.run?.count || 1,
       successProbability,
@@ -214,7 +213,7 @@ function makeCandidateViews(
 export function makeMetricsDetailView(
   result: DetailResultSource,
   run: DetailRunSource,
-  monteCarloRunsLabel: string,
+  monteCarloRuns: number,
 ): Extract<DetailView, { type: "metrics" }> {
   const best = result.best;
   const tolerance = Number(result.stats?.probabilityTolerance ?? 0);
@@ -227,7 +226,7 @@ export function makeMetricsDetailView(
       1,
     ),
     candidates: makeCandidateViews(result.topCandidates, tolerance, best.firstAction),
-    monteCarloRuns: monteCarloRunsLabel,
+    monteCarloRuns,
     solverLabel: solverLabel(result.stats?.solverBackend),
   };
 }

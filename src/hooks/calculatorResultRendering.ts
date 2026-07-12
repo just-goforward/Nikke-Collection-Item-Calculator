@@ -1,5 +1,5 @@
 import { type Dispatch, type SetStateAction, useCallback } from "react";
-
+import { message } from "../i18n/locale";
 import { transition } from "../solver/domain";
 import type { Grade } from "../types";
 import type { DetailView, RecommendationAction, ResultView, ValidationView } from "../ui-types";
@@ -52,7 +52,7 @@ export function useCalculatorResultRendering({
         setResultView({ type: "convertRecommendation", reason: "r15_conversion" });
         setDetailView({
           type: "empty",
-          message: "최대 레벨입니다. R 15레벨은 SR 5레벨로 교체할 수 있습니다.",
+          message: message("result.convertAvailable"),
         });
         return;
       }
@@ -60,9 +60,9 @@ export function useCalculatorResultRendering({
         setResultView({
           type: "callout",
           reason: "final_target",
-          message: "SR 15레벨입니다. 최종 목표 상태입니다.",
+          message: message("result.finalTarget"),
         });
-        setDetailView({ type: "empty", message: "SR 15레벨은 최종 목표 상태입니다." });
+        setDetailView({ type: "empty", message: message("detail.finalTarget") });
       }
     },
     [latestResultRef, setDetailView, setResultView, setValidationView],
@@ -75,9 +75,9 @@ export function useCalculatorResultRendering({
         setResultView({
           type: "callout",
           reason: "final_target",
-          message: result.message || "완료 상태입니다.",
+          message: message("result.complete"),
         });
-        setDetailView({ type: "empty", message: "완료 상태입니다." });
+        setDetailView({ type: "empty", message: message("result.complete") });
         return;
       }
       if (result.convertOnly) {
@@ -88,7 +88,7 @@ export function useCalculatorResultRendering({
         });
         setDetailView({
           type: "empty",
-          message: "최대 레벨입니다. R 15레벨은 SR 5레벨로 교체할 수 있습니다.",
+          message: message("result.convertAvailable"),
         });
         return;
       }
@@ -96,9 +96,9 @@ export function useCalculatorResultRendering({
         setResultView({
           type: "error",
           reason: "no_action",
-          message: result.message || "현재 보유 키트로 가능한 행동이 없습니다.",
+          message: message("result.noAction"),
         });
-        setDetailView({ type: "empty", message: "사용 가능한 키트가 부족합니다." });
+        setDetailView({ type: "empty", message: message("result.noKits") });
         return;
       }
 
@@ -130,7 +130,7 @@ export function useCalculatorResultRendering({
             ...(result.stats ? { stats: result.stats } : {}),
           },
           run,
-          monteCarloRuns().toLocaleString("ko-KR"),
+          monteCarloRuns(),
         ),
       );
       setValidationView(INITIAL_VALIDATION);

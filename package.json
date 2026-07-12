@@ -34,6 +34,7 @@
     "test:coverage": "vitest run --configLoader runner --coverage",
     "pretest:e2e": "npm run build",
     "test:e2e": "playwright test",
+    "test:compat": "playwright test --config playwright.compat.config.ts",
     "pretest:visual": "npm run build",
     "test:visual": "playwright test e2e/visual.spec.ts",
     "test:visual:update": "playwright test e2e/visual.spec.ts --update-snapshots",

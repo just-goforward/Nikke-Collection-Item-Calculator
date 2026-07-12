@@ -21,12 +21,12 @@ describe("makeMetricsDetailView", () => {
         },
       },
       { count: 3, greatSuccessProbability: 0.875 },
-      "12,000",
+      12_000,
     );
 
     expect(view.successProbability).toBe("100%");
     expect(view.greatSuccessProbability).toBe("87.5%");
-    expect(view.monteCarloRuns).toBe("12,000");
+    expect(view.monteCarloRuns).toBe(12_000);
     expect(view.solverLabel).toBe("Rust min E[f]");
   });
 
@@ -61,15 +61,18 @@ describe("makeMetricsDetailView", () => {
         },
       },
       { count: 1, greatSuccessProbability: 0.25 },
-      "12,000",
+      12_000,
     );
 
-    expect(view.candidates[0]?.rankLabel).toBe("추천");
+    expect(view.candidates[0]?.rankLabel.key).toBe("common.recommended");
     expect(view.candidates[0]?.excludedReason).toBeNull();
     expect(view.candidates[0]?.successProbabilityDetailed).toBe("99%");
-    expect(view.candidates[1]?.rankLabel).toBe("후보 2");
-    expect(view.candidates[1]?.excludedReason).toBe("도달률 낮음");
-    expect(view.candidates[1]?.excludedReasonHelp).toContain("도달 확률이 추천 후보보다 낮아");
+    expect(view.candidates[1]?.rankLabel).toEqual({
+      key: "detail.rankCandidate",
+      params: { rank: 2 },
+    });
+    expect(view.candidates[1]?.excludedReason?.key).toBe("detail.reasonLowerReach");
+    expect(view.candidates[1]?.excludedReasonHelp?.key).toBe("detail.reasonLowerReachHelp");
     expect(view.solverLabel).toBe("JS phase2");
   });
 
@@ -104,7 +107,7 @@ describe("makeMetricsDetailView", () => {
         },
       },
       { count: 2, greatSuccessProbability: 0.25 },
-      "12,000",
+      12_000,
     );
 
     expect(view.candidates[0]?.successProbability).toBe("99.01%");
@@ -113,8 +116,8 @@ describe("makeMetricsDetailView", () => {
     expect(view.candidates[1]?.successProbability).toBe("99.01%");
     expect(view.candidates[1]?.successProbabilityMedium).toBe("99.006%");
     expect(view.candidates[1]?.successProbabilityDetailed).toBe("99.0061%");
-    expect(view.candidates[1]?.excludedReason).toBe("미세 열세");
-    expect(view.candidates[1]?.excludedReasonHelp).toContain("반올림 전");
+    expect(view.candidates[1]?.excludedReason?.key).toBe("detail.reasonSlightlyLower");
+    expect(view.candidates[1]?.excludedReasonHelp?.key).toBe("detail.reasonSlightlyLowerHelp");
   });
 });
 
@@ -160,7 +163,7 @@ describe("candidate exclusion reasons", () => {
         },
       },
       { count: 2, greatSuccessProbability: 0.25 },
-      "12,000",
+      12_000,
     );
 
     expect(view.candidates.map((candidate) => candidate.successProbability)).toEqual([
@@ -168,11 +171,11 @@ describe("candidate exclusion reasons", () => {
       "100%",
       "100%",
     ]);
-    expect(view.candidates[0]?.rankLabel).toBe("추천");
+    expect(view.candidates[0]?.rankLabel.key).toBe("common.recommended");
     expect(view.candidates[0]?.excludedReason).toBeNull();
-    expect(view.candidates[1]?.excludedReason).toBe("키트 부담 높음");
-    expect(view.candidates[1]?.excludedReasonHelp).toContain("보유량과 향후 수급");
-    expect(view.candidates[2]?.excludedReason).toBe("키트 부담 높음");
+    expect(view.candidates[1]?.excludedReason?.key).toBe("detail.reasonHigherBurden");
+    expect(view.candidates[1]?.excludedReasonHelp?.key).toBe("detail.reasonHigherBurdenHelp");
+    expect(view.candidates[2]?.excludedReason?.key).toBe("detail.reasonHigherBurden");
   });
 
   it("keeps the actual recommended action first before assigning exclusion reasons", () => {
@@ -208,16 +211,16 @@ describe("candidate exclusion reasons", () => {
         },
       },
       { count: 1, greatSuccessProbability: 0.25 },
-      "12,000",
+      12_000,
     );
 
     expect(view.candidates[0]).toMatchObject({
       excludedReason: null,
       kit: "yellow",
-      rankLabel: "추천",
+      rankLabel: { key: "common.recommended" },
     });
     expect(view.candidates[1]).toMatchObject({
-      excludedReason: "키트 부담 높음",
+      excludedReason: { key: "detail.reasonHigherBurden" },
       kit: "blue",
     });
   });

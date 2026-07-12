@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 
+import { useI18n } from "../i18n/locale";
 import type { StatsView } from "../ui-types";
 import { classes } from "./statsPanelStyles";
 
@@ -10,7 +11,8 @@ type StatsPanelProps = {
   view: StatsView;
 };
 
-function StatsPanelLoading({ message = "통계 화면을 준비하고 있습니다." }: { message?: string }) {
+function StatsPanelLoading() {
+  const { t } = useI18n();
   return (
     <div
       id="globalStatsBox"
@@ -21,17 +23,18 @@ function StatsPanelLoading({ message = "통계 화면을 준비하고 있습니�
     >
       <div className={classes.panelLoadingInner}>
         <span className={classes.panelLoadingSpinner} aria-hidden="true" />
-        <p className={classes.panelLoadingText}>{message}</p>
+        <p className={classes.panelLoadingText}>{t("stats.preparing")}</p>
       </div>
     </div>
   );
 }
 
 export default function StatsPanel({ renderContent = true, view }: StatsPanelProps) {
+  const { t } = useI18n();
   return (
     <section id="globalStatsPanel" className={classes.panel} hidden={view.type === "hidden"}>
       <div className={`${classes.heading} ${classes.headingStatic}`}>
-        <h2>전체 통계</h2>
+        <h2>{t("stats.title")}</h2>
       </div>
       {renderContent ? (
         <Suspense fallback={<StatsPanelLoading />}>

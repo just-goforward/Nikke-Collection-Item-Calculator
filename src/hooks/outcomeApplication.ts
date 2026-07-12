@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-
+import { message } from "../i18n/locale";
 import { convertState, transition } from "../solver/domain";
 import { DEFAULT_STOCK_NOTICE, makeStatsEvent, stockPiecesForKit } from "./calculatorShared";
 import { stockAfterKitUse } from "./outcomeFlowHelpers";
@@ -66,8 +66,8 @@ export function useOutcomeApplication({
             run,
             nextState,
             outcome: "success",
-            stockMessage: "SR 5로 교체한 뒤 보유 키트를 수정해야 계산이 진행됩니다.",
-            detailMessage: "SR 5로 교체한 뒤 보유 키트를 실제 결과에 맞게 수정해 주세요.",
+            stockMessage: message("result.convertThenEdit"),
+            detailMessage: message("result.convertThenEditDetail"),
           });
           return { outcome: "success", needsStockEdit: false };
         }
@@ -82,8 +82,8 @@ export function useOutcomeApplication({
             run,
             nextState,
             outcome: "success",
-            stockMessage: "최종 단계에 도달했습니다.",
-            detailMessage: "최종 단계에 도달했습니다.",
+            stockMessage: message("result.finalReached"),
+            detailMessage: message("result.finalReached"),
           });
           return { outcome: "success", needsStockEdit: false };
         }
@@ -104,7 +104,7 @@ export function useOutcomeApplication({
           nextState,
           outcome: "success",
           stockMessage: DEFAULT_STOCK_NOTICE,
-          detailMessage: "보유 키트 수를 실제 결과에 맞게 수정하면 계산이 다시 활성화됩니다.",
+          detailMessage: message("result.editStockToContinue"),
           preserveExistingResult: true,
         });
         return { outcome: "success", needsStockEdit: true };

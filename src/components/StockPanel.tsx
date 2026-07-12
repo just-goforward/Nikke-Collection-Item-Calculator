@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useI18n } from "../i18n/locale";
+import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
 import type { Kit, Stock } from "../types";
 
 type StockPanelProps = {
@@ -7,9 +9,9 @@ type StockPanelProps = {
   needsStockEdit: boolean;
   isStale: boolean;
   stockStale: boolean;
-  notice: string;
+  notice: LocalizedMessage;
   onStockChange: (stock: Stock) => void;
-  description: string;
+  description: LocalizedMessage;
   calculateDisabled: boolean;
   loading: boolean;
   onCalculate: () => void;
@@ -19,7 +21,7 @@ type StockPanelProps = {
 type KitInputDefinition = {
   kit: Kit;
   inputId: string;
-  label: string;
+  labelKey: MessageKey;
   expLabel: string;
 };
 
@@ -27,19 +29,19 @@ const KIT_INPUTS: KitInputDefinition[] = [
   {
     kit: "blue",
     inputId: "blueStock",
-    label: "초심자용 관리 키트",
+    labelKey: "kit.blue",
     expLabel: "",
   },
   {
     kit: "purple",
     inputId: "purpleStock",
-    label: "중급자용 관리 키트",
+    labelKey: "kit.purple",
     expLabel: "",
   },
   {
     kit: "yellow",
     inputId: "yellowStock",
-    label: "상급자용 관리 키트",
+    labelKey: "kit.yellow",
     expLabel: "",
   },
 ];
@@ -129,11 +131,12 @@ function KitInput({
   onCommit,
   onCalculate,
 }: KitInputProps) {
+  const { t } = useI18n();
   return (
     <label className={classes.kitInput}>
       <span className={classes.kitLabel}>
         <i aria-hidden="true" className={`${classes.kitDot} ${kitDotClass[definition.kit]}`}></i>
-        {definition.label}
+        {t(definition.labelKey)}
       </span>
       <input
         id={definition.inputId}
@@ -170,6 +173,11 @@ function commitFocusedInput() {
   }
 }
 
+function stockPanelClassName(needsStockEdit: boolean, stockStale: boolean) {
+  const stateClass = needsStockEdit ? classes.panelNeedsEdit : stockStale ? classes.panelStale : "";
+  return `${classes.panel} ${stateClass}`;
+}
+
 export default function StockPanel({
   stock,
   needsStockEdit,
@@ -183,6 +191,7 @@ export default function StockPanel({
   onCalculate,
   onReset,
 }: StockPanelProps) {
+  const { t, text } = useI18n();
   const [stockText, setStockText] = useState<Record<Kit, string>>({
     blue: stockValueToText(stock.blue),
     purple: stockValueToText(stock.purple),
@@ -218,21 +227,19 @@ export default function StockPanel({
     commitStock();
     onCalculate();
   };
-  const panelClassName = `${classes.panel} ${
-    needsStockEdit ? classes.panelNeedsEdit : stockStale ? classes.panelStale : ""
-  }`;
+  const panelClassName = stockPanelClassName(needsStockEdit, stockStale);
 
   return (
     <section className={panelClassName}>
       <div className={classes.heading}>
-        <h2>보유 키트</h2>
+        <h2>{t("stock.title")}</h2>
       </div>
 
       <div id="stockEditNotice" className={classes.editNotice} hidden={!needsStockEdit}>
-        {notice}
+        {text(notice)}
       </div>
       <div className={classes.editNotice} hidden={!stockStale || needsStockEdit}>
-        보유 키트가 변경되었습니다. 계산 버튼을 눌러 결과를 갱신해주세요.
+        {t("stock.changed")}
       </div>
 
       <div className={classes.kitGrid}>
@@ -250,7 +257,7 @@ export default function StockPanel({
         ))}
       </div>
       <p id="strategyDescription" className={classes.help}>
-        {description}
+        {text(description)}
       </p>
       <div className={classes.buttonRow}>
         <button
@@ -259,7 +266,7 @@ export default function StockPanel({
           type="button"
           onClick={onReset}
         >
-          초기화
+          {t("common.reset")}
         </button>
         <button
           id="calculateButton"
@@ -274,16 +281,16 @@ export default function StockPanel({
           onClick={handleCalculate}
         >
           {needsStockEdit ? (
-            "키트 수정 필요"
+            t("common.stockEditRequired")
           ) : loading ? (
             <>
               <span className={classes.spinner} aria-hidden="true" />
-              계산 중...
+              {t("common.calculating")}
             </>
           ) : isStale ? (
-            "다시 계산"
+            t("common.recalculate")
           ) : (
-            "계산"
+            t("common.calculate")
           )}
         </button>
       </div>

@@ -1,4 +1,5 @@
 import type { SolverExecutionKind } from "../../shared/statsContract";
+import { message } from "../i18n/locale";
 import type { SolverBackend } from "../lib/solverRuntime";
 import { FIXED_REQUIRED_EXP } from "../solver/domain";
 import type {
@@ -15,24 +16,24 @@ import type { SolverRecoveryTrace } from "./solverRecoveryPolicy";
 
 export const EMPTY_RESULT: ResultView = {
   type: "empty",
-  message: "입력값을 넣고 계산을 실행하세요.",
+  message: message("result.initial"),
 };
 
 export const EMPTY_DETAIL: DetailView = {
   type: "empty",
-  message: "계산 후 선택 근거와 검산 결과가 표시됩니다.",
+  message: message("detail.initial"),
 };
 
 export const INITIAL_VALIDATION: ValidationView = {
-  buttonLabel: "니붕이들 시켜보기",
+  buttonLabel: message("validation.idleButton"),
   disabled: false,
   stageReach: null,
   status: "idle",
-  message: "검산을 실행하면 SR 15 성공률이 여기에 표시됩니다.",
+  message: message("validation.idle"),
 };
 
-export const DEFAULT_LOADING_TEXT = "보유 키트 상태를 MDP로 평가하고 있습니다.";
-export const DEFAULT_STOCK_NOTICE = "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.";
+export const DEFAULT_LOADING_TEXT = message("result.loadingDefault");
+export const DEFAULT_STOCK_NOTICE = message("stock.notice");
 export const KIT_KEYS: Kit[] = ["blue", "purple", "yellow"];
 
 export type RecommendedRun = {

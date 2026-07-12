@@ -1,3 +1,4 @@
+import { useI18n } from "../i18n/locale";
 import type { ValidationStageReachView, ValidationView } from "../ui-types";
 
 const classes = {
@@ -26,15 +27,23 @@ const classes = {
 } as const;
 
 function StageReachBars({ chart }: { chart: ValidationStageReachView }) {
+  const { formatPercent, t } = useI18n();
   return (
-    <ul className={classes.list} aria-label="단계별 도달률">
+    <ul className={classes.list} aria-label={t("validation.chartAria")}>
       {chart.points.map((point, index) => {
         const isTarget = index === chart.points.length - 1;
         const percent = Math.max(0, Math.min(100, point.probability * 100));
         return (
-          <li className={`${classes.row} ${isTarget ? classes.targetRow : ""}`} key={point.label}>
+          <li
+            className={`${classes.row} ${isTarget ? classes.targetRow : ""}`}
+            key={`${point.stateLabel}-${point.aggregateBelow ? "below" : point.aggregateAbove ? "above" : "exact"}`}
+          >
             <span className={`${classes.label} ${isTarget ? classes.targetLabel : ""}`}>
-              {point.label}
+              {point.aggregateBelow
+                ? t("validation.phaseBelow", { state: point.stateLabel })
+                : point.aggregateAbove
+                  ? t("validation.phaseAbove", { state: point.stateLabel })
+                  : point.stateLabel}
             </span>
             <span className={classes.track} aria-hidden="true">
               <span
@@ -43,7 +52,10 @@ function StageReachBars({ chart }: { chart: ValidationStageReachView }) {
               />
             </span>
             <span className={`${classes.value} ${isTarget ? classes.targetValue : ""}`}>
-              {point.percentLabel} <span className={classes.reached}>· {point.reachedLabel}</span>
+              {formatPercent(point.probability, 1)}{" "}
+              <span className={classes.reached}>
+                · {t("validation.peopleReached", { count: point.reached })}
+              </span>
             </span>
           </li>
         );
@@ -52,36 +64,40 @@ function StageReachBars({ chart }: { chart: ValidationStageReachView }) {
   );
 }
 
-function validationPlaceholderMessage(status: ValidationView["status"]) {
-  if (status === "error") return "검산 그래프를 표시하지 못했습니다.";
-  if (status === "cancelled") return "새 계산 결과에서 다시 검산할 수 있습니다.";
-  if (status === "running") return "검산 결과를 계산하고 있습니다.";
-  return "검산 결과를 기다리고 있습니다.";
+function validationPlaceholderKey(status: ValidationView["status"]) {
+  if (status === "error") return "validation.chartError" as const;
+  if (status === "cancelled") return "validation.chartCancelled" as const;
+  if (status === "running") return "validation.chartRunning" as const;
+  return "validation.chartWaiting" as const;
 }
 
 function ValidationChartPlaceholder({ status }: { status: ValidationView["status"] }) {
+  const { t } = useI18n();
   const loading = status === "running";
   return (
     <div className={classes.loading} aria-live="polite" role={loading ? "status" : undefined}>
       {loading ? <span className={classes.spinner} aria-hidden="true" /> : null}
-      <span>{validationPlaceholderMessage(status)}</span>
+      <span>{t(validationPlaceholderKey(status))}</span>
     </div>
   );
 }
 
 export function ValidationSuccessChart({
-  monteCarloRunsLabel,
+  monteCarloRuns,
   validation,
 }: {
-  monteCarloRunsLabel: string;
+  monteCarloRuns: number;
   validation: ValidationView;
 }) {
+  const { t } = useI18n();
   return (
     <div className={classes.chartCard} aria-busy={validation.status === "running"}>
       <div className={classes.header}>
-        <div className={classes.title}>단계별 도달률</div>
+        <div className={classes.title}>{t("validation.chartTitle")}</div>
         <div className={classes.badge}>
-          {validation.stageReach?.runsLabel ?? `검산 ${monteCarloRunsLabel}명 기준`}
+          {t("validation.chartRuns", {
+            runs: validation.stageReach?.runs ?? monteCarloRuns,
+          })}
         </div>
       </div>
       {validation.stageReach ? (

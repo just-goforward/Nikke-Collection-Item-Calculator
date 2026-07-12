@@ -1,4 +1,3 @@
-import { formatInteger, formatPercent } from "../format";
 import type { Kit, StageReachPoint } from "../types";
 import type { ValidationStageReachPointView, ValidationStageReachView } from "../ui-types";
 
@@ -25,12 +24,8 @@ function stageRank(stage: Pick<StageReachPoint, "grade" | "level">) {
   return stage.grade === "SR" ? 15 + stage.level : stage.level;
 }
 
-function stageLabel(
-  stage: Pick<StageReachPoint, "grade" | "level">,
-  aggregate: "none" | "below" | "above" = "none",
-) {
-  const suffix = aggregate === "below" ? " 이하" : aggregate === "above" ? " 이상" : "";
-  return `${stage.grade} ${stage.level}${suffix}`;
+function stageLabel(stage: Pick<StageReachPoint, "grade" | "level">) {
+  return `${stage.grade} ${stage.level}`;
 }
 
 function displayedProbabilityKey(point: StageReachPoint) {
@@ -63,10 +58,9 @@ function toStagePointView(
   const reached = Math.max(0, Math.min(runs, Math.trunc(Number(point.reached || 0))));
   const probability = Math.max(0, Math.min(1, Number(point.probability || 0)));
   return {
-    label: stageLabel(point, aggregateBelow ? "below" : aggregateAbove ? "above" : "none"),
+    stateLabel: stageLabel(point),
     probability,
-    percentLabel: formatPercent(probability, 1),
-    reachedLabel: `${formatInteger(reached)}명`,
+    reached,
     ...(aggregateBelow ? { aggregateBelow: true } : {}),
     ...(aggregateAbove ? { aggregateAbove: true } : {}),
   };
@@ -112,7 +106,7 @@ export function makeStageReachChart(
   });
 
   return {
-    runsLabel: `검산 ${formatInteger(runs)}명 기준`,
+    runs,
     points,
   };
 }

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-import { formatInteger } from "../format";
 import { useAnimatedStateProgress } from "../hooks/useAnimatedStateProgress";
+import { useI18n } from "../i18n/locale";
 import type {
   LoadingView,
   OutcomePreview,
@@ -14,12 +14,7 @@ import { stateFeedbackAnimations } from "./stateFeedbackAnimations";
 
 export type MobileTab = "input" | "result" | "stats";
 
-const MOBILE_ACTION_LABEL = "모바일 작업";
-const MOBILE_TABS: Array<{ id: MobileTab; label: string }> = [
-  { id: "input", label: "입력" },
-  { id: "result", label: "결과" },
-  { id: "stats", label: "통계" },
-];
+const MOBILE_TABS: MobileTab[] = ["input", "result", "stats"];
 
 const MOBILE_TAB_PANELS: Record<MobileTab, string> = {
   input: "mobile-panel-input",
@@ -117,6 +112,7 @@ type MobileTabsProps = {
 };
 
 function MobileToolbar({ children, mode }: { children: ReactNode; mode: string }) {
+  const { t } = useI18n();
   const modeClass = mode.includes("mode-outcome")
     ? classes.actionBarOutcome
     : mode.includes("mode-convert")
@@ -127,7 +123,7 @@ function MobileToolbar({ children, mode }: { children: ReactNode; mode: string }
     <div
       className={`${classes.actionBar} ${modeClass} ${mode}`}
       role="toolbar"
-      aria-label={MOBILE_ACTION_LABEL}
+      aria-label={t("common.mobileActions")}
     >
       {children}
     </div>
@@ -145,14 +141,19 @@ function commitFocusedInput() {
   }
 }
 
-function expSummaryText(state: StatePanelModel) {
+function expSummaryText(
+  state: StatePanelModel,
+  formatInteger: (value: number) => string,
+  maxPhaseLabel: string,
+) {
   const required = state.expDisabled ? 0 : state.requiredExp;
-  if (required <= 0) return "최대 레벨";
+  if (required <= 0) return maxPhaseLabel;
   return `${formatInteger(state.exp)} / ${formatInteger(required)}`;
 }
 
 function ActionPreviewValue({ preview }: { preview: OutcomePreview }) {
-  const parts = presentOutcomePreview(preview);
+  const { locale } = useI18n();
+  const parts = presentOutcomePreview(preview, locale);
   return (
     <>
       <strong className={classes.actionCaptionValue}>{parts.emphasis}</strong>
@@ -162,18 +163,20 @@ function ActionPreviewValue({ preview }: { preview: OutcomePreview }) {
 }
 
 function ActionPreviewCaption({ preview }: { preview: OutcomePreview }) {
+  const { t } = useI18n();
   return (
     <>
-      <span className={classes.actionCaptionPrefix}>선택 시 →</span>{" "}
+      <span className={classes.actionCaptionPrefix}>{t("common.selectionArrow")}</span>{" "}
       <ActionPreviewValue preview={preview} />
     </>
   );
 }
 
 function PendingActionCaption({ preview }: { preview: OutcomePreview }) {
+  const { t } = useI18n();
   return (
     <>
-      <span className={classes.actionCaptionPrefix}>확정 시 →</span>{" "}
+      <span className={classes.actionCaptionPrefix}>{t("common.confirmArrow")}</span>{" "}
       <ActionPreviewValue preview={preview} />
     </>
   );
@@ -187,6 +190,7 @@ function MobileOutcomeActionBar({
 }: Pick<MobileActionBarProps, "onOutcome" | "onPendingOutcomeChange" | "pendingOutcome"> & {
   view: Extract<ResultView, { type: "recommendation" }>;
 }) {
+  const { t } = useI18n();
   const armOutcome = (outcome: "success" | "fail") => {
     onPendingOutcomeChange(outcome);
   };
@@ -203,7 +207,7 @@ function MobileOutcomeActionBar({
           type="button"
           onClick={() => confirmOutcome("success")}
         >
-          대성공 O 확정
+          {t("common.superSuccessYesConfirm")}
         </button>
         <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
           <PendingActionCaption preview={view.successPreview} />
@@ -216,7 +220,7 @@ function MobileOutcomeActionBar({
           type="button"
           onClick={() => onPendingOutcomeChange(null)}
         >
-          취소
+          {t("common.cancel")}
         </button>
         <span className={classes.actionChoiceCaption} aria-hidden="true" />
       </span>
@@ -227,7 +231,7 @@ function MobileOutcomeActionBar({
           type="button"
           onClick={() => armOutcome("success")}
         >
-          대성공 O
+          {t("common.superSuccessYes")}
         </button>
         <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
           <ActionPreviewCaption preview={view.successPreview} />
@@ -242,7 +246,7 @@ function MobileOutcomeActionBar({
           type="button"
           onClick={() => confirmOutcome("fail")}
         >
-          대성공 X 확정
+          {t("common.superSuccessNoConfirm")}
         </button>
         <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
           <PendingActionCaption preview={view.failPreview} />
@@ -255,7 +259,7 @@ function MobileOutcomeActionBar({
           type="button"
           onClick={() => onPendingOutcomeChange(null)}
         >
-          취소
+          {t("common.cancel")}
         </button>
         <span className={classes.actionChoiceCaption} aria-hidden="true" />
       </span>
@@ -266,7 +270,7 @@ function MobileOutcomeActionBar({
           type="button"
           onClick={() => armOutcome("fail")}
         >
-          대성공 X
+          {t("common.superSuccessNo")}
         </button>
         <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
           <ActionPreviewCaption preview={view.failPreview} />
@@ -276,7 +280,7 @@ function MobileOutcomeActionBar({
 
   return (
     <MobileToolbar mode={`mode-outcome ${pendingOutcome ? "is-holding-ring" : ""}`}>
-      <p className={classes.actionChangeNote}>추천 행동의 대성공 여부를 선택해주세요.</p>
+      <p className={classes.actionChangeNote}>{t("result.outcomePrompt")}</p>
       {successButton}
       {failButton}
     </MobileToolbar>
@@ -284,15 +288,16 @@ function MobileOutcomeActionBar({
 }
 
 function MobileConvertActionBar({ onConvert }: Pick<MobileActionBarProps, "onConvert">) {
+  const { t } = useI18n();
   return (
     <MobileToolbar mode="mode-convert">
       <button
         className={`${classes.actionButton} ${classes.outcomeButton} ${classes.convertButton} convert-button`}
         type="button"
-        aria-label="SR 등급으로 교체"
+        aria-label={t("common.convertToSr")}
         onClick={onConvert}
       >
-        교체 적용
+        {t("common.applyConversion")}
       </button>
     </MobileToolbar>
   );
@@ -309,6 +314,7 @@ function MobileCalculateActionBar({
   MobileActionBarProps,
   "calculateDisabled" | "isStale" | "loading" | "needsStockEdit" | "onCalculate" | "onReset"
 >) {
+  const { t } = useI18n();
   return (
     <MobileToolbar mode={needsStockEdit ? "mode-calculate needs-stock-edit" : "mode-calculate"}>
       <button
@@ -316,7 +322,7 @@ function MobileCalculateActionBar({
         type="button"
         onClick={onReset}
       >
-        초기화
+        {t("common.reset")}
       </button>
       <button
         className={`${classes.actionButton} ${classes.primaryButton} ${
@@ -328,15 +334,15 @@ function MobileCalculateActionBar({
         onClick={onCalculate}
       >
         {needsStockEdit ? (
-          "키트 수정 필요"
+          t("common.stockEditRequired")
         ) : loading.active ? (
           <>
-            <span className={classes.spinner} aria-hidden="true" /> 계산 중...
+            <span className={classes.spinner} aria-hidden="true" /> {t("common.calculating")}
           </>
         ) : isStale ? (
-          "다시 계산"
+          t("common.recalculate")
         ) : (
-          "계산하기"
+          t("common.calculateLong")
         )}
       </button>
     </MobileToolbar>
@@ -384,6 +390,7 @@ export function MobileActionBar({
 }
 
 export function MobileStatusStrip({ feedback, state }: MobileStatusStripProps) {
+  const { formatInteger, t } = useI18n();
   const feedbackActive = feedback?.to.grade === state.grade && feedback.to.level === state.level;
   const animated = useAnimatedStateProgress(state, feedbackActive ? feedback : null);
   const displayState = animated.state;
@@ -421,7 +428,7 @@ export function MobileStatusStrip({ feedback, state }: MobileStatusStripProps) {
               feedbackActive ? classes.statusLevelFeedback : ""
             }`}
           >
-            {displayState.level}단계
+            {t("common.phase", { phase: displayState.level })}
           </span>
         </span>
         <div className={classes.statusExpBar} aria-hidden="true">
@@ -432,37 +439,45 @@ export function MobileStatusStrip({ feedback, state }: MobileStatusStripProps) {
             style={{ width: `${animated.progress}%` }}
           />
         </div>
-        <span className={classes.statusExpText}>{expSummaryText(displayState)}</span>
+        <span className={classes.statusExpText}>
+          {expSummaryText(displayState, formatInteger, t("common.maxPhase"))}
+        </span>
       </div>
     </div>
   );
 }
 
 export function MobileTabs({ active, hasResult, needsStockEdit, onChange }: MobileTabsProps) {
-  const activeIndex = MOBILE_TABS.findIndex((tab) => tab.id === active);
+  const { t } = useI18n();
+  const tabLabels: Record<MobileTab, string> = {
+    input: t("tab.input"),
+    result: t("tab.result"),
+    stats: t("tab.stats"),
+  };
+  const activeIndex = MOBILE_TABS.indexOf(active);
 
   return (
     <div
       className={classes.tabs}
       data-active-index={activeIndex < 0 ? 0 : activeIndex}
       role="tablist"
-      aria-label="화면 전환"
+      aria-label={t("common.viewSwitch")}
     >
       <span className={classes.tabHighlight} aria-hidden="true" />
       {MOBILE_TABS.map((tab) => (
         <button
-          className={active === tab.id ? `${classes.tab} ${classes.tabActive}` : classes.tab}
-          aria-controls={MOBILE_TAB_PANELS[tab.id]}
-          key={tab.id}
+          className={active === tab ? `${classes.tab} ${classes.tabActive}` : classes.tab}
+          aria-controls={MOBILE_TAB_PANELS[tab]}
+          key={tab}
           type="button"
-          id={`mobile-tab-${tab.id}`}
+          id={`mobile-tab-${tab}`}
           role="tab"
-          aria-selected={active === tab.id}
-          onClick={() => onChange(tab.id)}
+          aria-selected={active === tab}
+          onClick={() => onChange(tab)}
         >
-          <span>{tab.label}</span>
-          {(needsStockEdit && tab.id === "input") ||
-          (!needsStockEdit && tab.id === "result" && hasResult) ? (
+          <span>{tabLabels[tab]}</span>
+          {(needsStockEdit && tab === "input") ||
+          (!needsStockEdit && tab === "result" && hasResult) ? (
             <em className={classes.tabDot} aria-hidden="true" />
           ) : null}
         </button>

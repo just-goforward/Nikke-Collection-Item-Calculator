@@ -1,26 +1,27 @@
 import type { CSSProperties, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 
+import { type AppLocale, useI18n } from "../i18n/locale";
+import type { MessageKey } from "../i18n/messages.ko";
 import type { ThemeMode } from "../ui-types";
 
 const THEME_MODES: ThemeMode[] = ["system", "light", "dark"];
-const THEME_LABELS: Record<ThemeMode, string> = {
-  system: "자동",
-  light: "라이트",
-  dark: "다크",
+const THEME_MESSAGE_KEYS: Record<ThemeMode, MessageKey> = {
+  system: "theme.system",
+  light: "theme.light",
+  dark: "theme.dark",
 };
 const LANG_OPTIONS = [
-  { value: "ko", label: "한국어", enabled: true },
-  { value: "en", label: "English", enabled: false },
-  { value: "ja", label: "日本語", enabled: false },
+  { value: "ko", label: "한국어" },
+  { value: "en", label: "English" },
+  { value: "ja", label: "日本語" },
 ] as const;
-const LANGUAGE_STORAGE_KEY = "collection-kit-calculator.language";
 
 const classes = {
   root: "mb-[18px] flex items-center justify-between gap-[18px] max-mobile:mb-[10px] max-mobile:gap-[10px]",
   titleWrap: "flex min-w-0 flex-1 items-center gap-4 max-mobile:block",
   title:
-    "m-0 truncate text-[clamp(30px,4vw,42px)] font-semibold leading-[1.05] max-mobile:max-w-none max-mobile:text-[clamp(20px,5vw,24px)] max-mobile:leading-[1.15] max-mobile:tracking-[-0.01em] max-phone-xs:text-[18.5px]",
+    "m-0 min-w-0 text-[42px] font-semibold leading-[1.08] [overflow-wrap:break-word] max-tablet:text-[30px] max-mobile:max-w-none max-mobile:text-[20px] max-mobile:leading-[1.18] max-mobile:tracking-[-0.01em] max-phone-xs:text-[18.5px]",
   titleText: "-mx-1 -my-0.5 block px-1 py-0.5 font-semibold text-inherit",
   viewTabs:
     "relative grid shrink-0 grid-cols-2 gap-0.5 self-center rounded-card border border-border bg-button p-0.5 [--seg-index:0] before:pointer-events-none before:absolute before:inset-y-0.5 before:left-0.5 before:z-0 before:w-[calc((100%_-_6px)/2)] before:rounded-control before:bg-[var(--seg-thumb)] before:shadow-[var(--seg-shadow)] before:[transform:translateX(calc(var(--seg-index)*(100%+2px)))] before:[transition:transform_220ms_cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:before:transition-none max-mobile:hidden",
@@ -36,8 +37,6 @@ const classes = {
     "topbar-menu-rollout absolute right-0 top-[calc(100%+6px)] z-30 grid min-w-[132px] gap-0.5 rounded-card border border-border bg-surface p-1 shadow-panel",
   langOption:
     "flex min-h-8 items-center gap-2 rounded-control border-0 bg-transparent px-2.5 text-left text-[12.5px] font-bold text-text-soft hover:bg-surface-strong",
-  langOptionDisabled:
-    "cursor-not-allowed text-muted opacity-45 hover:bg-transparent hover:text-muted",
   langCheck: "inline-block w-4 shrink-0 text-center text-[12px] leading-none",
   control:
     "inline-grid grid-cols-[auto] items-center gap-1 rounded-card border border-border bg-button p-0.5 [--seg-index:0] transition-[border-color,background-color] duration-[160ms] max-[684px]:hidden",
@@ -61,27 +60,12 @@ type TopBarProps = {
 export type TopViewTab = "calc" | "stats";
 
 type LanguageSelectorProps = {
-  lang: (typeof LANG_OPTIONS)[number]["value"];
+  lang: AppLocale;
   langOpen: boolean;
   langRef: RefObject<HTMLDivElement | null>;
-  onLangChange: (lang: (typeof LANG_OPTIONS)[number]["value"]) => void;
+  onLangChange: (lang: AppLocale) => void;
   onToggle: () => void;
 };
-
-function detectInitialLanguage(): (typeof LANG_OPTIONS)[number]["value"] {
-  try {
-    const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    if (saved === "ko") return saved;
-    const browserLanguages = navigator.languages?.length
-      ? navigator.languages
-      : [navigator.language];
-    const supported = browserLanguages.find((language) => language.toLowerCase().startsWith("ko"));
-    if (supported) return "ko";
-  } catch {
-    return "ko";
-  }
-  return "ko";
-}
 
 function useDismissableMenu(
   open: boolean,
@@ -114,6 +98,7 @@ function LanguageSelector({
   onLangChange,
   onToggle,
 }: LanguageSelectorProps) {
+  const { t } = useI18n();
   return (
     <div className={classes.lang} ref={langRef}>
       <button
@@ -137,18 +122,16 @@ function LanguageSelector({
           <path d="M1.9 8h12.2" />
         </svg>
         <span aria-hidden="true">▾</span>
-        <span className={classes.langText}>언어 선택</span>
+        <span className={classes.langText}>{t("top.language")}</span>
       </button>
       {langOpen ? (
-        <div className={classes.langMenu} role="listbox" aria-label="언어 선택">
+        <div className={classes.langMenu} role="listbox" aria-label={t("top.language")}>
           {LANG_OPTIONS.map((option) => (
             <button
-              className={`${classes.langOption} ${option.enabled ? "" : classes.langOptionDisabled}`}
+              className={classes.langOption}
               type="button"
               role="option"
               aria-selected={lang === option.value}
-              aria-disabled={!option.enabled}
-              disabled={!option.enabled}
               key={option.value}
               onClick={() => onLangChange(option.value)}
             >
@@ -179,10 +162,17 @@ function ThemeControl({
   onThemeModeChange: (themeMode: ThemeMode) => void;
   onToggle: () => void;
 }) {
+  const { t } = useI18n();
+  const themeLabel = (mode: ThemeMode) => t(THEME_MESSAGE_KEYS[mode]);
   return (
     <>
       {/* biome-ignore lint/a11y/useSemanticElements: Existing CSS and tests use this grouped control contract. */}
-      <div className={classes.control} role="group" aria-label="테마 선택" style={controlStyle}>
+      <div
+        className={classes.control}
+        role="group"
+        aria-label={t("top.theme")}
+        style={controlStyle}
+      >
         <div className={classes.options}>
           {THEME_MODES.map((mode) => (
             <button
@@ -193,7 +183,7 @@ function ThemeControl({
               key={mode}
               onClick={() => onThemeModeChange(mode)}
             >
-              {THEME_LABELS[mode]}
+              {themeLabel(mode)}
             </button>
           ))}
         </div>
@@ -202,16 +192,16 @@ function ThemeControl({
         <button
           className={classes.themeButton}
           type="button"
-          aria-label={`테마 선택: ${THEME_LABELS[themeMode]}`}
+          aria-label={`${t("top.theme")}: ${themeLabel(themeMode)}`}
           aria-expanded={themeOpen}
           aria-haspopup="listbox"
           onClick={onToggle}
         >
-          <span>{THEME_LABELS[themeMode]}</span>
+          <span>{themeLabel(themeMode)}</span>
           <span aria-hidden="true">▾</span>
         </button>
         {themeOpen ? (
-          <div className={classes.langMenu} role="listbox" aria-label="테마 선택">
+          <div className={classes.langMenu} role="listbox" aria-label={t("top.theme")}>
             {THEME_MODES.map((mode) => (
               <button
                 className={classes.langOption}
@@ -224,7 +214,7 @@ function ThemeControl({
                 <span className={classes.langCheck} aria-hidden="true">
                   {themeMode === mode ? "✓" : ""}
                 </span>
-                <span>{THEME_LABELS[mode]}</span>
+                <span>{themeLabel(mode)}</span>
               </button>
             ))}
           </div>
@@ -241,10 +231,16 @@ function ViewTabs({
   active: TopViewTab;
   onChange: (viewTab: TopViewTab) => void;
 }) {
+  const { t } = useI18n();
   const viewIndex = active === "stats" ? 1 : 0;
   const viewTabStyle = { "--seg-index": viewIndex } as CSSProperties;
   return (
-    <div className={classes.viewTabs} role="tablist" aria-label="화면 전환" style={viewTabStyle}>
+    <div
+      className={classes.viewTabs}
+      role="tablist"
+      aria-label={t("common.viewSwitch")}
+      style={viewTabStyle}
+    >
       <button
         className={`${classes.viewTab} ${active === "calc" ? classes.viewTabActive : ""}`}
         type="button"
@@ -253,7 +249,7 @@ function ViewTabs({
         aria-selected={active === "calc"}
         onClick={() => onChange("calc")}
       >
-        계산기
+        {t("top.calculator")}
       </button>
       <button
         className={`${classes.viewTab} ${active === "stats" ? classes.viewTabActive : ""}`}
@@ -263,7 +259,7 @@ function ViewTabs({
         aria-selected={active === "stats"}
         onClick={() => onChange("stats")}
       >
-        통계
+        {t("top.stats")}
       </button>
     </div>
   );
@@ -275,7 +271,7 @@ export default function TopBar({
   onThemeModeChange,
   onViewTabChange,
 }: TopBarProps) {
-  const [lang, setLang] = useState<(typeof LANG_OPTIONS)[number]["value"]>(detectInitialLanguage);
+  const { locale, setLocale, t } = useI18n();
   const [langOpen, setLangOpen] = useState(false);
   const [themeOpen, setThemeOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
@@ -285,20 +281,8 @@ export default function TopBar({
 
   useDismissableMenu(langOpen, langRef, () => setLangOpen(false));
   useDismissableMenu(themeOpen, themeRef, () => setThemeOpen(false));
-  useEffect(() => {
-    document.documentElement.lang = lang;
-  }, [lang]);
-
-  const handleLangChange = (nextLang: (typeof LANG_OPTIONS)[number]["value"]) => {
-    const option = LANG_OPTIONS.find((item) => item.value === nextLang);
-    if (!option?.enabled) return;
-    setLang(nextLang);
-    try {
-      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLang);
-      document.documentElement.lang = nextLang;
-    } catch {
-      document.documentElement.lang = nextLang;
-    }
+  const handleLangChange = (nextLang: AppLocale) => {
+    setLocale(nextLang);
     setLangOpen(false);
   };
   const handleThemeChange = (nextThemeMode: ThemeMode) => {
@@ -310,13 +294,13 @@ export default function TopBar({
     <header className={classes.root}>
       <div className={classes.titleWrap}>
         <h1 className={classes.title}>
-          <span className={classes.titleText}>소장품 레벨업 계산기</span>
+          <span className={classes.titleText}>{t("app.title")}</span>
         </h1>
         <ViewTabs active={viewTab} onChange={onViewTabChange} />
       </div>
       <div className={classes.utilities}>
         <LanguageSelector
-          lang={lang}
+          lang={locale}
           langOpen={langOpen}
           langRef={langRef}
           onLangChange={handleLangChange}

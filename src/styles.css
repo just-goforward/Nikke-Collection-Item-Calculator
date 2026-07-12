@@ -1,15 +1,13 @@
 @import "tailwindcss";
 
-/* Pretendard Variable is loaded from index.html via dynamic subset CDN. */
+/* The locale-specific Pretendard dynamic subset is selected before app boot. */
 
 /* Design token bridge
    - Runtime theme classes below own the actual palette.
    - Tailwind utilities should reference these semantic tokens, not raw colors.
    - Complex controls with pseudo-elements may keep semantic CSS selectors. */
 @theme {
-  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto,
-    "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic",
-    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+  --font-sans: var(--app-font-sans);
   --color-page: var(--bg);
   --color-surface: var(--surface);
   --color-surface-strong: var(--surface-strong);
@@ -64,6 +62,9 @@
 
 :root {
   color-scheme: light;
+  --app-font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui,
+    Roboto, "Helvetica Neue", "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic",
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
   --bg: #eef7fb;
   --surface: #ffffff;
   --surface-strong: #f3f8fb;
@@ -110,6 +111,19 @@
   --control-active-ink: #f8fcfe;
 }
 
+html[data-locale="en"] {
+  --app-font-sans: "Pretendard Std Variable", "Pretendard Std", Pretendard, -apple-system,
+    BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+}
+
+html[data-locale="ja"] {
+  --app-font-sans: "Pretendard JP Variable", "Pretendard JP", Pretendard, -apple-system,
+    BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Hiragino Sans",
+    "Apple SD Gothic Neo", Meiryo, "Noto Sans JP", "Noto Sans KR", "Malgun Gothic", Osaka,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+}
+
 @layer base {
 html {
   overflow-y: scroll;
@@ -126,21 +140,7 @@ body {
   background-color: var(--bg);
   color: var(--ink);
   font-family:
-    "Pretendard Variable",
-    Pretendard,
-    -apple-system,
-    BlinkMacSystemFont,
-    system-ui,
-    Roboto,
-    "Helvetica Neue",
-    "Segoe UI",
-    "Apple SD Gothic Neo",
-    "Noto Sans KR",
-    "Malgun Gothic",
-    "Apple Color Emoji",
-    "Segoe UI Emoji",
-    "Segoe UI Symbol",
-    sans-serif;
+    var(--app-font-sans);
   word-break: keep-all;
   overflow-wrap: break-word;
 }

@@ -1,5 +1,5 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
-
+import type { LocalizedMessage } from "../i18n/messages.ko";
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import type { CollectionState, SolverInput, Stock } from "../types";
 import type {
@@ -23,8 +23,8 @@ export type OutcomeRenderArgs = {
   run: RecommendedRun;
   nextState: CollectionState;
   outcome: "success" | "fail";
-  stockMessage: string;
-  detailMessage: string;
+  stockMessage: LocalizedMessage;
+  detailMessage: LocalizedMessage;
   preserveExistingResult?: boolean;
 };
 

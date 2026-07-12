@@ -1,4 +1,4 @@
-import { formatInteger } from "../format";
+import { type AppLocale, formatIntegerForLocale, translate } from "../i18n/locale";
 import type { CollectionState } from "../types";
 import type { OutcomePreview } from "../ui-types";
 
@@ -10,10 +10,14 @@ export function makeOutcomePreview(start: CollectionState, next: CollectionState
   };
 }
 
-export function presentOutcomePreview(preview: OutcomePreview) {
+export function presentOutcomePreview(preview: OutcomePreview, locale: AppLocale) {
   const stateLabel = `${preview.state.grade} ${preview.state.level}`;
   return {
-    emphasis: `${stateLabel} ${preview.movement === "reach" ? "도달" : "유지"}`,
-    suffix: preview.expDelta > 0 ? ` · EXP +${formatInteger(preview.expDelta)}` : "",
+    emphasis: `${stateLabel} ${translate(
+      locale,
+      preview.movement === "reach" ? "common.reach" : "common.stay",
+    )}`,
+    suffix:
+      preview.expDelta > 0 ? ` · EXP +${formatIntegerForLocale(locale, preview.expDelta)}` : "",
   };
 }

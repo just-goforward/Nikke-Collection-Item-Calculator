@@ -60,10 +60,13 @@ jobs:
         run: npm run test:worker
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium webkit
 
       - name: E2E and visual regression tests
         run: npm run test:e2e
+
+      - name: WebKit language and accessibility compatibility tests
+        run: npm run test:compat
 
       - name: Upload Playwright failure artifacts
         if: failure()

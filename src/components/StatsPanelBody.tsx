@@ -2,6 +2,7 @@ import type { Dispatch, FocusEvent, PointerEvent, SetStateAction } from "react";
 import { useState } from "react";
 
 import { useDismissableLayer } from "../hooks/useDismissableLayer";
+import { useI18n } from "../i18n/locale";
 import type { StatsPanelModel, StatsView } from "../ui-types";
 import { DifficultyStats, KitStats, OverallStats } from "./StatsPanelSections";
 import {
@@ -153,6 +154,7 @@ function StatsContent({ stats }: { stats: StatsPanelModel }) {
 }
 
 function StatsBody({ view }: StatsPanelProps) {
+  const { t, text } = useI18n();
   if (view.type === "loading") {
     return (
       <div
@@ -164,7 +166,7 @@ function StatsBody({ view }: StatsPanelProps) {
       >
         <div className={classes.panelLoadingInner}>
           <span className={classes.panelLoadingSpinner} aria-hidden="true" />
-          <p className={classes.panelLoadingText}>{view.message}</p>
+          <p className={classes.panelLoadingText}>{t("stats.loading")}</p>
         </div>
       </div>
     );
@@ -182,9 +184,9 @@ function StatsBody({ view }: StatsPanelProps) {
       {view.type === "stats" ? (
         <StatsContent stats={view.stats} />
       ) : view.type === "empty" || view.type === "error" ? (
-        view.message
+        text(view.message)
       ) : (
-        "통계 서버를 연결하면 전체 사용자의 결과가 표시됩니다."
+        t("stats.unconfigured")
       )}
     </div>
   );

@@ -1,9 +1,9 @@
 import { type CSSProperties, type ReactNode, useEffect } from "react";
 
-import { formatInteger } from "../format";
 import { useAnimatedStateProgress } from "../hooks/useAnimatedStateProgress";
-import { stateText as describeState } from "../solver/domain";
-import type { Kit } from "../types";
+import { useI18n } from "../i18n/locale";
+import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
+import type { CollectionState, Kit } from "../types";
 import type {
   OutcomePreview,
   RecommendationActionTransition,
@@ -15,11 +15,11 @@ import type {
 import { presentOutcomePreview } from "../view-models/outcomePresentation";
 import { STATE_FEEDBACK_VISIBLE_MS, stateFeedbackAnimations } from "./stateFeedbackAnimations";
 
-const RESULT_KIT_LABELS: Record<ResultKit, string> = {
-  blue: "초심자용 관리 키트",
-  purple: "중급자용 관리 키트",
-  yellow: "상급자용 관리 키트",
-  convert: "SR 등급으로 교체",
+const RESULT_KIT_KEYS: Record<ResultKit, MessageKey> = {
+  blue: "kit.blue",
+  purple: "kit.purple",
+  yellow: "kit.yellow",
+  convert: "common.convertToSr",
 };
 
 const resultKitDotClass: Record<ResultKit, string> = {
@@ -129,7 +129,7 @@ type ResultPanelProps = {
   needsStockEdit: boolean;
   isStale: boolean;
   staleSource: "state" | "stock" | null;
-  stockEditNotice: string;
+  stockEditNotice: LocalizedMessage;
   feedback: StateChangeFeedback | null;
   state: StatePanelModel;
   view: ResultView;
@@ -150,6 +150,8 @@ function ActionChip({
   count?: number;
   large?: boolean;
 }) {
+  const { formatCount, t } = useI18n();
+  const kitLabel = t(RESULT_KIT_KEYS[kit]);
   const className = `${classes.actionChip} ${large ? classes.actionChipLarge : ""} ${
     kit === "convert" ? "" : kit
   }`;
@@ -158,7 +160,7 @@ function ActionChip({
     return (
       <span className={className.trim()}>
         <i aria-hidden="true" className={`${classes.actionDot} ${resultKitDotClass[kit]}`}></i>
-        {RESULT_KIT_LABELS[kit]}
+        {kitLabel}
       </span>
     );
   }
@@ -170,18 +172,19 @@ function ActionChip({
         className={`${classes.actionDot} ${resultKitDotClass[kit]} shrink-0 self-center`}
       ></i>
       <span className={classes.actionChipText}>
-        <span className={classes.actionChipName}>{RESULT_KIT_LABELS[kit]}</span>
+        <span className={classes.actionChipName}>{kitLabel}</span>
         <span className={classes.actionChipSeparator}>{"\u00a0×\u00a0"}</span>
-        <span className={classes.actionChipCount}>{count || 1}회</span>
+        <span className={classes.actionChipCount}>{formatCount(count || 1, "use")}</span>
       </span>
     </span>
   );
 }
 
 function ActionCardContent({ count, kit }: { kit: ResultKit; count?: number }) {
+  const { t } = useI18n();
   return (
     <div className={classes.nextInner}>
-      <span className={classes.actionLabel}>{"\ucd94\ucc9c \ud589\ub3d9"}</span>
+      <span className={classes.actionLabel}>{t("common.recommended")}</span>
       <strong className={classes.nextStrong}>
         <ActionChip
           kit={kit}
@@ -200,6 +203,7 @@ function CurrentStateStrip({
   feedback: StateChangeFeedback | null;
   state: StatePanelModel;
 }) {
+  const { formatInteger, t } = useI18n();
   const feedbackActive = feedback?.to.grade === state.grade && feedback.to.level === state.level;
   const animated = useAnimatedStateProgress(state, feedbackActive ? feedback : null);
   const displayState = animated.state;
@@ -224,14 +228,16 @@ function CurrentStateStrip({
             ))}
           </span>
         ) : null}
-        <strong className={classes.stateLevel}>{displayState.level}단계</strong>
+        <strong className={classes.stateLevel}>
+          {t("common.phase", { phase: displayState.level })}
+        </strong>
       </span>
       <span className={classes.expGroup}>
         <span className={classes.expHeader}>
           <span className={classes.expLabel}>EXP</span>
           <span className={classes.expValue}>
             {displayState.expDisabled
-              ? "최대 레벨"
+              ? t("common.maxPhase")
               : `${formatInteger(displayState.exp)} / ${formatInteger(displayState.requiredExp)}`}
           </span>
         </span>
@@ -312,7 +318,8 @@ function RecommendationBlock({
 }
 
 function OutcomePreviewValue({ preview }: { preview: OutcomePreview }) {
-  const parts = presentOutcomePreview(preview);
+  const { locale } = useI18n();
+  const parts = presentOutcomePreview(preview, locale);
   return (
     <>
       <strong className={classes.outcomeCaptionValue}>{parts.emphasis}</strong>
@@ -322,9 +329,10 @@ function OutcomePreviewValue({ preview }: { preview: OutcomePreview }) {
 }
 
 function OutcomePreviewCaption({ preview }: { preview: OutcomePreview }) {
+  const { t } = useI18n();
   return (
     <>
-      <span className={classes.outcomeCaptionPrefix}>선택 시 →</span>{" "}
+      <span className={classes.outcomeCaptionPrefix}>{t("common.selectionArrow")}</span>{" "}
       <OutcomePreviewValue preview={preview} />
     </>
   );
@@ -337,18 +345,20 @@ function PendingOutcomeCaption({
   outcome: "success" | "fail";
   preview: OutcomePreview;
 }) {
-  const label = outcome === "success" ? "대성공 O" : "대성공 X";
+  const { t } = useI18n();
+  const label = t(outcome === "success" ? "common.superSuccessYes" : "common.superSuccessNo");
   return (
     <>
       <strong className={classes.outcomeCaptionValue}>{label}</strong>
-      <span className={classes.outcomeCaptionPrefix}>로 기록합니다 (</span>
+      <span className={classes.outcomeCaptionPrefix}>{t("result.recordPrefix")}</span>
       <OutcomePreviewValue preview={preview} />
-      <span className={classes.outcomeCaptionPrefix}>) — 아니라면 취소</span>
+      <span className={classes.outcomeCaptionPrefix}>{t("result.recordSuffix")}</span>
     </>
   );
 }
 
 function ConvertRecommendation({ onConvert }: { onConvert: () => void | Promise<void> }) {
+  const { t } = useI18n();
   return (
     <RecommendationBlock
       actionContent={
@@ -359,31 +369,35 @@ function ConvertRecommendation({ onConvert }: { onConvert: () => void | Promise<
             data-convert="sr"
             onClick={onConvert}
           >
-            교체 적용
+            {t("common.applyConversion")}
           </button>
         </div>
       }
       kit="convert"
-      title="등급 교체"
+      title={t("result.conversionTitle")}
     >
-      <span className="sr-only">SR 등급 교체를 적용할 수 있습니다.</span>
+      <span className="sr-only">{t("result.conversionSrOnly")}</span>
     </RecommendationBlock>
   );
 }
 
 function EmptyResultGuide() {
+  const { t } = useI18n();
+  const steps = [
+    t("result.emptyStepState"),
+    t("result.emptyStepStock"),
+    t("result.emptyStepCalculate"),
+  ];
   return (
     <div className={classes.emptyGuide}>
-      <p className={classes.emptyLead}>아직 계산 결과가 없습니다. 세 단계면 충분해요.</p>
+      <p className={classes.emptyLead}>{t("result.emptyLead")}</p>
       <ol className={classes.emptySteps}>
-        {["현재 소장품을 선택합니다.", "보유 키트 수량을 입력합니다.", "계산을 누릅니다."].map(
-          (step, index) => (
-            <li className={classes.emptyStep} key={step}>
-              <span className={classes.emptyStepNumber}>{index + 1}</span>
-              <span>{step}</span>
-            </li>
-          ),
-        )}
+        {steps.map((step, index) => (
+          <li className={classes.emptyStep} key={step}>
+            <span className={classes.emptyStepNumber}>{index + 1}</span>
+            <span>{step}</span>
+          </li>
+        ))}
       </ol>
     </div>
   );
@@ -404,6 +418,7 @@ function OutcomeActionButtons({
   onOutcome: (outcome: "success" | "fail") => void;
   onPendingOutcomeChange: (outcome: "success" | "fail" | null) => void;
 }) {
+  const { t } = useI18n();
   const armOutcome = (outcome: "success" | "fail") => {
     if (disabled) return;
     onPendingOutcomeChange(outcome);
@@ -424,7 +439,7 @@ function OutcomeActionButtons({
             disabled={disabled}
             onClick={() => confirmOutcome("success")}
           >
-            대성공 O 확정
+            {t("common.superSuccessYesConfirm")}
           </button>
           <button
             className={classes.outcomeCancelButton}
@@ -432,7 +447,7 @@ function OutcomeActionButtons({
             disabled={disabled}
             onClick={() => onPendingOutcomeChange(null)}
           >
-            취소
+            {t("common.cancel")}
           </button>
         </div>
         <p className={classes.outcomeCaption}>
@@ -452,7 +467,7 @@ function OutcomeActionButtons({
             disabled={disabled}
             onClick={() => onPendingOutcomeChange(null)}
           >
-            취소
+            {t("common.cancel")}
           </button>
           <button
             className={classes.outcomeConfirmButton}
@@ -460,7 +475,7 @@ function OutcomeActionButtons({
             disabled={disabled}
             onClick={() => confirmOutcome("fail")}
           >
-            대성공 X 확정
+            {t("common.superSuccessNoConfirm")}
           </button>
         </div>
         <p className={classes.outcomeCaption}>
@@ -480,7 +495,7 @@ function OutcomeActionButtons({
             disabled={disabled}
             onClick={() => armOutcome("success")}
           >
-            대성공 O
+            {t("common.superSuccessYes")}
           </button>
           <strong className={`${classes.outcomeChoiceCaption} text-text-strong`}>
             <OutcomePreviewCaption preview={successPreview} />
@@ -493,7 +508,7 @@ function OutcomeActionButtons({
             disabled={disabled}
             onClick={() => armOutcome("fail")}
           >
-            대성공 X
+            {t("common.superSuccessNo")}
           </button>
           <strong className={`${classes.outcomeChoiceCaption} text-text-strong`}>
             <OutcomePreviewCaption preview={failPreview} />
@@ -504,15 +519,29 @@ function OutcomeActionButtons({
   );
 }
 
-function renderView(
-  view: ResultView,
-  onActionTransitionComplete: (transitionId: number) => void,
-  onConvert: () => void | Promise<void>,
-  onOutcome: (outcome: "success" | "fail") => void,
-  outcomeDisabled: boolean,
-  pendingOutcome: "success" | "fail" | null,
-  onPendingOutcomeChange: (outcome: "success" | "fail" | null) => void,
-) {
+function ResultViewContent({
+  onActionTransitionComplete,
+  onConvert,
+  onOutcome,
+  onPendingOutcomeChange,
+  outcomeDisabled,
+  pendingOutcome,
+  view,
+}: Pick<
+  ResultPanelProps,
+  | "onActionTransitionComplete"
+  | "onConvert"
+  | "onOutcome"
+  | "onPendingOutcomeChange"
+  | "outcomeDisabled"
+  | "pendingOutcome"
+  | "view"
+>) {
+  const { formatInteger, t, text } = useI18n();
+  const describeState = (state: CollectionState) => {
+    const phase = `${state.grade} ${t("common.phase", { phase: state.level })}`;
+    return state.exp > 0 ? `${phase} · EXP ${formatInteger(state.exp)}` : phase;
+  };
   if (view.type === "empty") {
     return <EmptyResultGuide />;
   }
@@ -520,7 +549,7 @@ function renderView(
   if (view.type === "callout") {
     return (
       <div className={classes.resultContent}>
-        <div className={classes.callout}>{view.message}</div>
+        <div className={classes.callout}>{text(view.message)}</div>
       </div>
     );
   }
@@ -528,7 +557,9 @@ function renderView(
   if (view.type === "error") {
     return (
       <div className={classes.resultContent}>
-        <div className={classes.error}>{view.message}</div>
+        <div className={classes.error}>
+          {t(view.reason === "solver_failure" ? "result.solverError" : "result.noAction")}
+        </div>
       </div>
     );
   }
@@ -560,10 +591,10 @@ function renderView(
           outcomePending={pendingOutcome !== null}
           outcomeRing
           onTransitionComplete={onActionTransitionComplete}
-          title={"\ub300\uc131\uacf5 \uc5ec\ubd80"}
+          title={t("result.outcomeTitle")}
           {...(view.actionTransition ? { transition: view.actionTransition } : {})}
         >
-          <p className={classes.changeNote}>추천 행동의 대성공 여부를 선택해주세요.</p>
+          <p className={classes.changeNote}>{t("result.outcomePrompt")}</p>
         </RecommendationBlock>
       </div>
     );
@@ -572,9 +603,15 @@ function renderView(
   return (
     <div className={classes.resultContent}>
       <div className={classes.callout}>
-        {RESULT_KIT_LABELS[view.kit as Kit]} {view.count}회 사용,{" "}
-        {view.outcome === "success" ? "대성공 O" : "대성공 X"} 결과가 {describeState(view.state)}에
-        반영되었습니다. {view.stockMessage}
+        {t("result.applied", {
+          kit: t(RESULT_KIT_KEYS[view.kit as Kit]),
+          uses: formatInteger(view.count),
+          outcome: t(
+            view.outcome === "success" ? "common.superSuccessYes" : "common.superSuccessNo",
+          ),
+          state: describeState(view.state),
+          stock: text(view.stockMessage),
+        })}
       </div>
       {view.canConvert ? <ConvertRecommendation onConvert={onConvert} /> : null}
     </div>
@@ -596,15 +633,16 @@ export default function ResultPanel({
   pendingOutcome,
   onPendingOutcomeChange,
 }: ResultPanelProps) {
+  const { t, text } = useI18n();
   const showStaleOverlay = needsStockEdit || (isStale && view.type !== "empty");
   const staleMessage = needsStockEdit
-    ? stockEditNotice
-    : `${staleSource === "stock" ? "보유 키트가" : "소장품 상태가"} 변경되었습니다. 계산 버튼을 눌러 결과를 갱신해주세요.`;
+    ? text(stockEditNotice)
+    : t(staleSource === "stock" ? "result.staleStock" : "result.staleState");
 
   return (
     <section className={classes.panel} aria-disabled={showStaleOverlay || undefined}>
       <div className={classes.heading}>
-        <h2>결과</h2>
+        <h2>{t("result.title")}</h2>
         <CurrentStateStrip feedback={feedback} state={state} />
       </div>
       <div className={classes.resultBody}>
@@ -614,15 +652,15 @@ export default function ResultPanel({
           </div>
         ) : null}
         <div id="resultBox" className={view.type === "empty" ? classes.emptyResult : ""}>
-          {renderView(
-            view,
-            onActionTransitionComplete,
-            onConvert,
-            onOutcome,
-            outcomeDisabled,
-            pendingOutcome,
-            onPendingOutcomeChange,
-          )}
+          <ResultViewContent
+            view={view}
+            onActionTransitionComplete={onActionTransitionComplete}
+            onConvert={onConvert}
+            onOutcome={onOutcome}
+            outcomeDisabled={outcomeDisabled}
+            pendingOutcome={pendingOutcome}
+            onPendingOutcomeChange={onPendingOutcomeChange}
+          />
         </div>
       </div>
     </section>

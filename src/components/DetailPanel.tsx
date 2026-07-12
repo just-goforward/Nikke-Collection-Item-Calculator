@@ -1,19 +1,21 @@
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useDismissableLayer } from "../hooks/useDismissableLayer";
+import { useI18n } from "../i18n/locale";
+import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
 import type { Kit } from "../types";
 import type { DetailView, ValidationView } from "../ui-types";
 import { ValidationSuccessChart } from "./ValidationSuccessChart";
 
-const KIT_LABELS: Record<Kit, string> = {
-  blue: "초심자용 관리 키트",
-  purple: "중급자용 관리 키트",
-  yellow: "상급자용 관리 키트",
+const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
+  blue: "kit.blue",
+  purple: "kit.purple",
+  yellow: "kit.yellow",
 };
 
-const KIT_MOBILE_LABELS: Record<Kit, string> = {
-  blue: "초심자용",
-  purple: "중급자용",
-  yellow: "상급자용",
+const KIT_MOBILE_LABEL_KEYS: Record<Kit, MessageKey> = {
+  blue: "kit.blueShort",
+  purple: "kit.purpleShort",
+  yellow: "kit.yellowShort",
 };
 
 const kitDotClass: Record<Kit, string> = {
@@ -112,21 +114,23 @@ function KitChip({
   kit: MetricsDetailView["candidates"][number]["kit"];
   count: number;
 }) {
+  const { formatCount, t } = useI18n();
   return (
     <span className={`${classes.chip} ${kit}`}>
       <i aria-hidden="true" className={`${classes.chipDot} ${kitDotClass[kit]}`}></i>
       <span className={classes.chipText}>
-        <span className={classes.chipName} data-mobile-label={KIT_MOBILE_LABELS[kit]}>
-          {KIT_LABELS[kit]}
+        <span className={classes.chipName} data-mobile-label={t(KIT_MOBILE_LABEL_KEYS[kit])}>
+          {t(KIT_LABEL_KEYS[kit])}
         </span>
         <span className={classes.chipSeparator}>{"\u00a0×\u00a0"}</span>
-        <span className={classes.chipCount}>{count}회</span>
+        <span className={classes.chipCount}>{formatCount(count, "use")}</span>
       </span>
     </span>
   );
 }
 
 function InfoTip({ label, children }: { label: string; children: ReactNode }) {
+  const { t } = useI18n();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const tooltipId = useId();
   const [lockedOpen, setLockedOpen] = useState(false);
@@ -173,7 +177,7 @@ function InfoTip({ label, children }: { label: string; children: ReactNode }) {
       type="button"
       aria-describedby={open ? tooltipId : undefined}
       aria-expanded={open}
-      aria-label={`${label} 설명`}
+      aria-label={t("common.description", { label })}
       onBlur={hideTip}
       onClick={(event) => {
         event.stopPropagation();
@@ -237,7 +241,14 @@ function ResponsivePercentValue({
   );
 }
 
-function CandidateReason({ label, help }: { label: string; help?: string | null }) {
+function CandidateReason({
+  label,
+  help,
+}: {
+  label: LocalizedMessage;
+  help?: LocalizedMessage | null;
+}) {
+  const { text } = useI18n();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const tooltipId = useId();
   const [lockedOpen, setLockedOpen] = useState(false);
@@ -307,7 +318,7 @@ function CandidateReason({ label, help }: { label: string; help?: string | null 
       onPointerEnter={showTip}
       onPointerLeave={hideTip}
     >
-      ({label})
+      ({text(label)})
       {help ? (
         <span
           id={tooltipId}
@@ -315,7 +326,7 @@ function CandidateReason({ label, help }: { label: string; help?: string | null 
           className={`${classes.tableReasonBubble} ${open ? classes.tableReasonBubbleOpen : ""}`}
           style={{ left: position.left, top: position.top }}
         >
-          {help}
+          {text(help)}
         </span>
       ) : null}
     </button>
@@ -323,6 +334,8 @@ function CandidateReason({ label, help }: { label: string; help?: string | null 
 }
 
 function DetailMetricGrid({ view }: { view: MetricsDetailView }) {
+  const { t } = useI18n();
+  const probabilityLabel = t("detail.sr15Probability");
   return (
     <div className={classes.metricGrid}>
       <div className={`${classes.metric} ${classes.metricHighlight}`}>
@@ -330,11 +343,8 @@ function DetailMetricGrid({ view }: { view: MetricsDetailView }) {
           className={`${classes.metricLabel} ${classes.metricLabelHighlight}`}
           style={{ color: "var(--green-dark)" }}
         >
-          <span>SR 15 도달 확률</span>
-          <InfoTip label="SR 15 도달 확률">
-            현재 보유 키트와 현재 상태에서, 이후에도 계산기가 고른 행동을 계속 따랐을 때 최종 목표인
-            SR 15에 도달할 확률입니다.
-          </InfoTip>
+          <span>{probabilityLabel}</span>
+          <InfoTip label={probabilityLabel}>{t("detail.sr15ProbabilityHelp")}</InfoTip>
         </span>
         <strong
           className={`${classes.metricValue} ${classes.metricValueHighlight}`}
@@ -344,7 +354,7 @@ function DetailMetricGrid({ view }: { view: MetricsDetailView }) {
         </strong>
       </div>
       <div className={classes.metric}>
-        <span className={classes.metricText}>구간 대성공 확률</span>
+        <span className={classes.metricText}>{t("detail.segmentSuperSuccess")}</span>
         <strong className={classes.metricValue}>{view.greatSuccessProbability}</strong>
       </div>
     </div>
@@ -352,20 +362,25 @@ function DetailMetricGrid({ view }: { view: MetricsDetailView }) {
 }
 
 function CandidateTable({ view }: { view: MetricsDetailView }) {
+  const { t, text } = useI18n();
   return (
     <div className={classes.tableWrap}>
       <table className={classes.table}>
         <thead>
           <tr>
-            <th className={`${classes.tableCell} ${classes.tableHeadCell}`}>후보</th>
-            <th className={`${classes.tableCell} ${classes.tableHeadCell}`}>첫 행동</th>
             <th className={`${classes.tableCell} ${classes.tableHeadCell}`}>
-              <span className="max-mobile:hidden">SR 15 도달 확률</span>
-              <span className="hidden max-mobile:inline">도달률</span>
+              {t("detail.candidate")}
             </th>
             <th className={`${classes.tableCell} ${classes.tableHeadCell}`}>
-              <span className="max-mobile:hidden">예상 소모량</span>
-              <span className="hidden max-mobile:inline">소모량</span>
+              {t("detail.firstAction")}
+            </th>
+            <th className={`${classes.tableCell} ${classes.tableHeadCell}`}>
+              <span className="max-mobile:hidden">{t("detail.sr15Probability")}</span>
+              <span className="hidden max-mobile:inline">{t("detail.reachRate")}</span>
+            </th>
+            <th className={`${classes.tableCell} ${classes.tableHeadCell}`}>
+              <span className="max-mobile:hidden">{t("detail.expectedConsumption")}</span>
+              <span className="hidden max-mobile:inline">{t("detail.consumption")}</span>
             </th>
           </tr>
         </thead>
@@ -373,14 +388,14 @@ function CandidateTable({ view }: { view: MetricsDetailView }) {
           {view.candidates.map((candidate, index) => (
             <tr
               className={candidate.excludedReason ? "opacity-60" : ""}
-              key={`${candidate.rankLabel}-${candidate.kit}-${candidate.count}-${candidate.successProbability}`}
+              key={`${candidate.kit}-${candidate.count}-${candidate.successProbability}`}
             >
               <td
                 className={`${classes.tableCell} ${classes.tableBodyCell} ${
                   index > 0 ? classes.tableBodyCellSeparated : ""
                 }`}
               >
-                {candidate.excludedReason ? "제외" : candidate.rankLabel}
+                {candidate.excludedReason ? t("common.excluded") : text(candidate.rankLabel)}
                 {candidate.excludedReason ? (
                   <CandidateReason
                     label={candidate.excludedReason}
@@ -411,9 +426,11 @@ function CandidateTable({ view }: { view: MetricsDetailView }) {
                   index > 0 ? classes.tableBodyCellSeparated : ""
                 }`}
               >
-                <span className="block">{candidate.expectedKits || "-"}</span>
+                <span className="block">
+                  {candidate.expectedKits ? text(candidate.expectedKits) : "-"}
+                </span>
                 {candidate.expectedBreakdown ? (
-                  <span className={classes.tableMuted}>{candidate.expectedBreakdown}</span>
+                  <span className={classes.tableMuted}>{text(candidate.expectedBreakdown)}</span>
                 ) : null}
               </td>
             </tr>
@@ -425,14 +442,15 @@ function CandidateTable({ view }: { view: MetricsDetailView }) {
 }
 
 function ValidationDetails({
-  monteCarloRunsLabel,
+  monteCarloRuns,
   validation,
   onRunValidation,
 }: {
-  monteCarloRunsLabel: string;
+  monteCarloRuns: number;
   validation: ValidationView;
   onRunValidation: () => void;
 }) {
+  const { formatInteger, t, text } = useI18n();
   const [open, setOpen] = useState(false);
 
   return (
@@ -449,19 +467,20 @@ function ValidationDetails({
     >
       <summary className={classes.validationSummary}>
         <span className={classes.validationSummaryLabel}>
-          <span>검증</span>
-          <InfoTip label="검증">
-            가상의 니붕이 {monteCarloRunsLabel}명을 동일한 조건에서 시도시켜, 계산 결과와 비슷한지
-            확인해보는 기능입니다.
+          <span>{t("detail.validation")}</span>
+          <InfoTip label={t("detail.validation")}>
+            {t("detail.validationHelp", { runs: formatInteger(monteCarloRuns) })}
           </InfoTip>
         </span>
-        <span className={classes.validationSummaryMeta}>{open ? "접기 ▴" : "펼치기 ▾"}</span>
+        <span className={classes.validationSummaryMeta}>
+          {t(open ? "common.collapse" : "common.expand")}
+        </span>
       </summary>
       <div className={classes.validationContent}>
         <p className={`${classes.validationText} validation-result`} data-validation-result>
-          {validation.message}
+          {text(validation.message)}
         </p>
-        <ValidationSuccessChart monteCarloRunsLabel={monteCarloRunsLabel} validation={validation} />
+        <ValidationSuccessChart monteCarloRuns={monteCarloRuns} validation={validation} />
       </div>
     </details>
   );
@@ -481,7 +500,7 @@ function MetricsDetail({
       <DetailMetricGrid view={view} />
       <CandidateTable view={view} />
       <ValidationDetails
-        monteCarloRunsLabel={view.monteCarloRuns}
+        monteCarloRuns={view.monteCarloRuns}
         onRunValidation={onRunValidation}
         validation={validation}
       />
@@ -495,12 +514,13 @@ export default function DetailPanel({
   onRunValidation,
   showSolverBackend,
 }: DetailPanelProps) {
+  const { t } = useI18n();
   if (view.type === "empty") return null;
 
   return (
     <section className={classes.panel}>
       <div className={classes.heading}>
-        <h2>세부 정보</h2>
+        <h2>{t("detail.title")}</h2>
         {showSolverBackend && view.type === "metrics" ? (
           <span className={classes.solverBadge}>
             Solver <span aria-hidden="true">·</span> {view.solverLabel}

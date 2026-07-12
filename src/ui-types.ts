@@ -1,3 +1,4 @@
+import type { LocalizedMessage } from "./i18n/messages.ko";
 import type { CollectionState, Grade, Kit } from "./types";
 
 export type ThemeMode = "system" | "light" | "dark";
@@ -14,7 +15,6 @@ export type StatePanelModel = {
 export type StateChangeFeedback = {
   id: number;
   type: "level" | "segment" | "grade";
-  label: string;
   from: CollectionState;
   to: CollectionState;
 };
@@ -36,9 +36,9 @@ export type OutcomePreview = {
 };
 
 export type ResultView =
-  | { type: "empty"; message: string }
-  | { type: "callout"; reason: "final_target" | "converted"; message: string }
-  | { type: "error"; reason: "no_action" | "solver_failure"; message: string }
+  | { type: "empty"; message: LocalizedMessage }
+  | { type: "callout"; reason: "final_target" | "converted"; message: LocalizedMessage }
+  | { type: "error"; reason: "no_action" | "solver_failure"; message: LocalizedMessage }
   | {
       type: "recommendation";
       kit: Kit;
@@ -53,7 +53,7 @@ export type ResultView =
       count: number;
       outcome: "success" | "fail";
       state: CollectionState;
-      stockMessage: string;
+      stockMessage: LocalizedMessage;
       canConvert: boolean;
     }
   | {
@@ -63,54 +63,53 @@ export type ResultView =
     };
 
 export type CandidateView = {
-  rankLabel: string;
+  rankLabel: LocalizedMessage;
   kit: Kit;
   count: number;
   successProbability: string;
   successProbabilityMedium: string;
   successProbabilityDetailed: string;
-  expectedKits?: string;
-  expectedBreakdown?: string;
-  excludedReason?: string | null;
-  excludedReasonHelp?: string | null;
+  expectedKits?: LocalizedMessage;
+  expectedBreakdown?: LocalizedMessage;
+  excludedReason?: LocalizedMessage | null;
+  excludedReasonHelp?: LocalizedMessage | null;
 };
 
 export type ValidationStageReachPointView = {
-  label: string;
+  stateLabel: string;
   probability: number;
-  percentLabel: string;
-  reachedLabel: string;
+  reached: number;
   aggregateBelow?: boolean;
   aggregateAbove?: boolean;
 };
 
 export type ValidationStageReachView = {
-  runsLabel: string;
+  runs: number;
   points: ValidationStageReachPointView[];
 };
 
 export type DetailView =
-  | { type: "empty"; message: string }
+  | { type: "empty"; message: LocalizedMessage }
   | {
       type: "metrics";
       successProbability: string;
       greatSuccessProbability: string;
       candidates: CandidateView[];
-      monteCarloRuns: string;
+      monteCarloRuns: number;
       solverLabel: string;
     };
 
 export type ValidationView = {
-  buttonLabel: string;
+  buttonLabel: LocalizedMessage;
   disabled: boolean;
-  message: string;
+  message: LocalizedMessage;
   status: "idle" | "running" | "complete" | "cancelled" | "error";
   stageReach?: ValidationStageReachView | null;
 };
 
 export type LoadingView = {
   active: boolean;
-  text: string;
+  text: LocalizedMessage;
 };
 
 export type SuccessAttemptModalState = {
@@ -176,7 +175,7 @@ export type StatsPanelModel = {
 
 export type StatsView =
   | { type: "hidden" }
-  | { type: "loading"; message: string }
-  | { type: "empty"; message: string }
-  | { type: "error"; message: string }
+  | { type: "loading"; message: LocalizedMessage }
+  | { type: "empty"; message: LocalizedMessage }
+  | { type: "error"; message: LocalizedMessage }
   | { type: "stats"; stats: StatsPanelModel };

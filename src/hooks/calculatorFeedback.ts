@@ -21,16 +21,9 @@ export function useStateFeedbackNotifier() {
       const crossesSegment = Math.floor(from.level / 5) !== Math.floor(to.level / 5);
       const type: StateChangeFeedback["type"] =
         from.grade !== to.grade ? "grade" : crossesSegment ? "segment" : "level";
-      const label =
-        type === "grade"
-          ? `${from.grade} → ${to.grade} · Lv ${to.level}`
-          : type === "segment"
-            ? `구간 이동 Lv ${from.level} → ${to.level}`
-            : `Lv ${from.level} → Lv ${to.level}`;
       setStateFeedback({
         id: nextId,
         type,
-        label,
         from: { ...from },
         to: { ...to },
       });

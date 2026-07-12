@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" data-locale="ko">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -8,13 +8,42 @@
       content="니케 소장품 레벨업에 필요한 키트 사용 순서와 SR 15 도달 확률을 계산합니다."
     />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
-    <link
-      as="style"
-      rel="preload"
-      crossorigin
-      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
-      onload="this.onload=null;this.rel='stylesheet'"
-    />
+    <script>
+      (() => {
+        const storageKey = "collection-kit-calculator.language";
+        const supported = ["ko", "ja", "en"];
+        const normalize = (value) => {
+          if (!value) return null;
+          const tag = String(value).trim().toLowerCase();
+          return supported.find((locale) => tag === locale || tag.startsWith(`${locale}-`)) || null;
+        };
+        let locale = null;
+        try {
+          locale = normalize(window.localStorage.getItem(storageKey));
+        } catch {
+          locale = null;
+        }
+        if (!locale) {
+          const languages = navigator.languages && navigator.languages.length
+            ? navigator.languages
+            : [navigator.language];
+          locale = languages.map(normalize).find(Boolean) || "ko";
+        }
+        const fontStylesheets = {
+          ko: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css",
+          en: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-std-dynamic-subset.min.css",
+          ja: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-jp-dynamic-subset.min.css",
+        };
+        document.documentElement.lang = locale;
+        document.documentElement.dataset.locale = locale;
+        const fontLink = document.createElement("link");
+        fontLink.id = "locale-font-stylesheet";
+        fontLink.rel = "stylesheet";
+        fontLink.crossOrigin = "anonymous";
+        fontLink.href = fontStylesheets[locale];
+        document.head.append(fontLink);
+      })();
+    </script>
     <noscript>
       <link
         rel="stylesheet"

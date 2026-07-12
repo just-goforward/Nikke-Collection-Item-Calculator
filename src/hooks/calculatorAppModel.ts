@@ -1,3 +1,4 @@
+import type { LocalizedMessage } from "../i18n/messages.ko";
 import type { Grade, Stock } from "../types";
 import type {
   DetailView,
@@ -30,9 +31,9 @@ export type CalculatorAppModel = {
     isStale: boolean;
     staleSource: "state" | "stock" | null;
     stockStale: boolean;
-    notice: string;
+    notice: LocalizedMessage;
   };
-  solvePanel: { description: string; calculateDisabled: boolean };
+  solvePanel: { description: LocalizedMessage; calculateDisabled: boolean };
   resultView: ResultView;
   detailView: DetailView;
   validationView: ValidationView;

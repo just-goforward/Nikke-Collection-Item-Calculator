@@ -1,15 +1,16 @@
 import type { CSSProperties, FocusEvent, MouseEvent, PointerEvent } from "react";
 import { createPortal } from "react-dom";
 
+import { useI18n } from "../i18n/locale";
+import type { MessageKey } from "../i18n/messages.ko";
 import type { Kit } from "../types";
-import {
-  classes,
-  INTERVAL_TOOLTIP_ID,
-  INTERVAL_TOOLTIP_MESSAGES,
-  joinClasses,
-  KIT_LABELS,
-  kitDotClass,
-} from "./statsPanelStyles";
+import { classes, INTERVAL_TOOLTIP_ID, joinClasses, kitDotClass } from "./statsPanelStyles";
+
+const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
+  blue: "kit.blue",
+  purple: "kit.purple",
+  yellow: "kit.yellow",
+};
 
 export type UsageTooltipItem = {
   kit: Kit;
@@ -95,6 +96,7 @@ export function positionTooltip(
 }
 
 function UsageTooltipContent({ items }: { items: UsageTooltipItem[] }) {
+  const { formatCount, t } = useI18n();
   return (
     <div className={classes.tooltipUsageList}>
       {items.map((item) => (
@@ -104,11 +106,9 @@ function UsageTooltipContent({ items }: { items: UsageTooltipItem[] }) {
               aria-hidden="true"
               className={`${classes.tooltipUsageDot} ${kitDotClass[item.kit]}`}
             ></i>
-            {KIT_LABELS[item.kit]}
+            {t(KIT_LABEL_KEYS[item.kit])}
           </span>
-          <strong className={classes.tooltipUsageValue}>
-            {item.pieces.toLocaleString("ko-KR")}개
-          </strong>
+          <strong className={classes.tooltipUsageValue}>{formatCount(item.pieces, "piece")}</strong>
         </div>
       ))}
     </div>
@@ -116,6 +116,7 @@ function UsageTooltipContent({ items }: { items: UsageTooltipItem[] }) {
 }
 
 export function DifficultyTooltip({ tooltip }: { tooltip: TooltipState }) {
+  const { t } = useI18n();
   if (typeof document === "undefined") return null;
 
   const tooltipStyle = {
@@ -147,7 +148,7 @@ export function DifficultyTooltip({ tooltip }: { tooltip: TooltipState }) {
         {tooltip.content.type === "usage" ? (
           <UsageTooltipContent items={tooltip.content.items} />
         ) : (
-          INTERVAL_TOOLTIP_MESSAGES.map((message) => (
+          [t("stats.sampleHelp1"), t("stats.sampleHelp2")].map((message) => (
             <p className={classes.tooltipParagraph} key={message}>
               {message}
             </p>

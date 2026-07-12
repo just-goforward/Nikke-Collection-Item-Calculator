@@ -26,16 +26,16 @@ describe("makeValidationCharts", () => {
       ]),
     });
 
-    expect(chart.runsLabel).toBe("검산 12,000명 기준");
-    expect(chart.points.map((point) => point.label)).toEqual([
-      "SR 11 이하",
+    expect(chart.runs).toBe(12_000);
+    expect(chart.points.map((point) => point.stateLabel)).toEqual([
+      "SR 11",
       "SR 12",
       "SR 13",
       "SR 14",
       "SR 15",
     ]);
     expect(chart.points[0]?.aggregateBelow).toBe(true);
-    expect(chart.points.at(-1)?.percentLabel).toBe("3.0%");
+    expect(chart.points.at(-1)?.probability).toBe(0.03);
   });
 
   it("falls back to the SR15 success rate when reach data is unavailable", () => {
@@ -49,8 +49,8 @@ describe("makeValidationCharts", () => {
     );
 
     expect(chart.points).toHaveLength(1);
-    expect(chart.points[0]?.label).toBe("SR 15");
-    expect(chart.points[0]?.reachedLabel).toBe("90명");
+    expect(chart.points[0]?.stateLabel).toBe("SR 15");
+    expect(chart.points[0]?.reached).toBe(90);
   });
 
   it("collapses repeated high-stage probabilities instead of forcing SR15 on the right edge", () => {
@@ -67,7 +67,7 @@ describe("makeValidationCharts", () => {
       ]),
     });
 
-    expect(chart.points.map((point) => point.label)).toEqual(["SR 11", "SR 12 이상"]);
+    expect(chart.points.map((point) => point.stateLabel)).toEqual(["SR 11", "SR 12"]);
     expect(chart.points.at(-1)?.aggregateAbove).toBe(true);
   });
 });

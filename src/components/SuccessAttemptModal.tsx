@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+import { useI18n } from "../i18n/locale";
+import type { MessageKey } from "../i18n/messages.ko";
 import type { Kit } from "../types";
 import type { SuccessAttemptModalState } from "../ui-types";
 
@@ -7,10 +9,10 @@ type SuccessAttemptModalProps = {
   onSubmit: (successAttempt: number | null) => void;
 };
 
-const KIT_LABELS: Record<Kit, string> = {
-  blue: "초심자용 관리 키트",
-  purple: "중급자용 관리 키트",
-  yellow: "상급자용 관리 키트",
+const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
+  blue: "kit.blue",
+  purple: "kit.purple",
+  yellow: "kit.yellow",
 };
 
 const classes = {
@@ -139,6 +141,7 @@ function AttemptSelector({
   modal: SuccessAttemptModalState;
   onSubmit: (successAttempt: number) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className={classes.choices}>
       {residualChoices(modal).map((choice, index) => (
@@ -149,8 +152,12 @@ function AttemptSelector({
           key={choice.attempt}
           onClick={() => onSubmit(choice.attempt)}
         >
-          <strong className={classes.choiceValue}>{choice.remaining}개</strong>
-          <span className={classes.choiceCaption}>{choice.attempt}회차에 대성공</span>
+          <strong className={classes.choiceValue}>
+            {t("modal.remaining", { count: choice.remaining })}
+          </strong>
+          <span className={classes.choiceCaption}>
+            {t("modal.successAttempt", { attempt: choice.attempt })}
+          </span>
         </button>
       ))}
     </div>
@@ -158,42 +165,42 @@ function AttemptSelector({
 }
 
 function WhyNeeded() {
+  const { t } = useI18n();
   return (
     <details className={classes.why}>
-      <summary className={classes.whySummary}>왜 필요한가요?</summary>
-      <p className={classes.whyText}>
-        대성공이 나면 남은 사용은 진행하지 않아 실제 소모량이 회차에 따라 달라집니다. 선택한
-        잔량으로 대성공 시점을 역산해 통계에 반영합니다.
-      </p>
+      <summary className={classes.whySummary}>{t("modal.why")}</summary>
+      <p className={classes.whyText}>{t("modal.whyDetail")}</p>
     </details>
   );
 }
 
 function ModalActions({ onDismiss }: { onDismiss: () => void }) {
+  const { t } = useI18n();
   return (
     <div className={classes.actions}>
       <button className={`${classes.laterButton}`} type="button" onClick={onDismiss}>
-        나중에 입력
+        {t("modal.later")}
       </button>
       <button
         className={`${classes.interactive} ${classes.directButton}`}
         type="button"
         onClick={onDismiss}
       >
-        직접 입력할게요
+        {t("modal.manual")}
       </button>
     </div>
   );
 }
 
 export default function SuccessAttemptModal({ modal, onSubmit }: SuccessAttemptModalProps) {
+  const { t } = useI18n();
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const firstFocusRef = useRef<HTMLButtonElement | null>(null);
   const dismiss = () => onSubmit(null);
   useDialogFocusTrap(modal.open, dialogRef, firstFocusRef, dismiss);
 
   if (!modal.open) return null;
-  const kitLabel = modal.kit ? KIT_LABELS[modal.kit] : "관리 키트";
+  const kitLabel = modal.kit ? t(KIT_LABEL_KEYS[modal.kit]) : t("modal.genericKit");
 
   return (
     <div
@@ -210,12 +217,9 @@ export default function SuccessAttemptModal({ modal, onSubmit }: SuccessAttemptM
         <span className={classes.handle} aria-hidden="true" />
         <div className={classes.header}>
           <h3 id="attemptModalTitle" className={classes.title}>
-            남은 {kitLabel}가 몇 개인가요?
+            {t("modal.question", { kit: kitLabel })}
           </h3>
-          <p className={classes.description}>
-            몇 번째 사용에서 대성공이 났는지 알 수 없어 남은 수량을 확정해야 해요. 게임 인벤토리의
-            지금 수량을 그대로 고르면 됩니다.
-          </p>
+          <p className={classes.description}>{t("modal.instruction")}</p>
         </div>
         <form
           className={classes.form}

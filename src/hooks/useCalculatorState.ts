@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { STRATEGY_META } from "../solver/domain";
+import { message } from "../i18n/locale";
 import type { Grade, Stock } from "../types";
 import type { StatePanelModel } from "../ui-types";
 import { requiredForGrade } from "./calculatorShared";
@@ -59,7 +59,7 @@ export function useCalculatorState({ onInputChanged, onMaxLevelState }: UseCalcu
     stateRef,
     statePanel,
     solvePanel: {
-      description: STRATEGY_META.supply.description,
+      description: message("solver.strategySupply"),
       calculateDisabled,
     },
     setCollectionState: stateActions.setCollectionState,

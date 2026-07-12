@@ -1,3 +1,4 @@
+import { message } from "../i18n/locale";
 import type { StatsApiResponse } from "../schemas";
 import type { Kit } from "../types";
 import type {
@@ -9,7 +10,7 @@ import type {
   StatsView,
 } from "../ui-types";
 
-export const EMPTY_STATS_MESSAGE = "아직 집계된 통계가 없습니다.";
+export const EMPTY_STATS_MESSAGE = message("stats.empty");
 const KIT_ORDER: Kit[] = ["blue", "purple", "yellow"];
 
 type ApiKitStat = StatsApiResponse["byKit"][number];

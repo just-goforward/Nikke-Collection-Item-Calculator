@@ -1,6 +1,5 @@
 import {
   failOnce,
-  KIT_EXP,
   REQUIRED_EXP,
   GREAT_SUCCESS as SHARED_GREAT_SUCCESS,
   KIT_ORDER as SHARED_KIT_ORDER,
@@ -34,12 +33,6 @@ export type AvailabilityPnormResearchCostModel = Extract<
   ResearchCostModel,
   { kind: "availability-pnorm" }
 >;
-
-export const KIT_META: Record<Kit, { label: string; shortLabel: string; exp: number }> = {
-  blue: { label: "초심자용 관리 키트", shortLabel: "초심자", exp: KIT_EXP.blue },
-  purple: { label: "중급자용 관리 키트", shortLabel: "중급자", exp: KIT_EXP.purple },
-  yellow: { label: "상급자용 관리 키트", shortLabel: "상급자", exp: KIT_EXP.yellow },
-};
 
 export const FIXED_REQUIRED_EXP = REQUIRED_EXP;
 export const MAX_RELEVANT_USES: KitVector = { blue: 220, purple: 88, yellow: 44 };

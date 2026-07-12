@@ -1,13 +1,14 @@
 import { type Dispatch, type SetStateAction, useCallback } from "react";
 
-import { formatInteger } from "../format";
+import { message } from "../i18n/locale";
 import type { ProgressEvent } from "../types";
 import type { LoadingView } from "../ui-types";
 
-const STICKY_LOADING_PREFIXES = ["대성공 X를 반영"];
-
-function preserveStickyLoadingText(current: LoadingView, nextText: string): LoadingView {
-  if (STICKY_LOADING_PREFIXES.some((prefix) => current.text.includes(prefix))) {
+function preserveStickyLoadingText(
+  current: LoadingView,
+  nextText: LoadingView["text"],
+): LoadingView {
+  if (current.text.key === "result.loadingApplyFailure") {
     return { active: true, text: current.text };
   }
   return { active: true, text: nextText };
@@ -19,12 +20,14 @@ export function useSolverProgressLoading(setLoading: Dispatch<SetStateAction<Loa
       const scanned = Math.trunc(Number(progress.scanned || 0));
       if (progress.phase === "mdp") {
         setLoading((current) =>
-          preserveStickyLoadingText(current, `${formatInteger(scanned)}개 상태를 평가했습니다.`),
+          preserveStickyLoadingText(current, message("result.loadingStates", { count: scanned })),
         );
         return;
       }
       if (progress.phase === "done") {
-        setLoading((current) => preserveStickyLoadingText(current, "결과를 정리하고 있습니다."));
+        setLoading((current) =>
+          preserveStickyLoadingText(current, message("result.loadingFinalize")),
+        );
       }
     },
     [setLoading],

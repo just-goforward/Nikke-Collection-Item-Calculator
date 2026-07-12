@@ -1,5 +1,6 @@
 import { type Dispatch, type SetStateAction, useCallback, useRef } from "react";
-
+import { message } from "../i18n/locale";
+import type { LocalizedMessage } from "../i18n/messages.ko";
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import type { SolverInput } from "../types";
 import type { DetailView, LoadingView, RecommendationAction, ResultView } from "../ui-types";
@@ -36,11 +37,11 @@ type SolveFlowOptions = {
 
 type SolveAndRenderOptions = {
   beforeRender?: () => void;
-  loadingText?: string;
+  loadingText?: LocalizedMessage;
   previousAction?: RecommendationAction | null;
 };
 
-const OUTCOME_FAIL_LOADING_TEXT = "대성공 X를 반영해 다음 추천을 계산하고 있습니다.";
+const OUTCOME_FAIL_LOADING_TEXT = message("result.loadingApplyFailure");
 const MIN_LOADING_VISIBLE_MS = 300;
 
 function delay(ms: number) {
@@ -131,14 +132,13 @@ export function useSolveFlow({
           const recoveryEvent = makeSolverRecoveryEvent(input, error.trace);
           if (recoveryEvent) queueStatsEvent(recoveryEvent);
         }
-        const reportedError = error instanceof SolverRecoveryFailure ? error.workerError : error;
         latestResultRef.current = null;
         setResultView({
           type: "error",
           reason: "solver_failure",
-          message: reportedError instanceof Error ? reportedError.message : String(reportedError),
+          message: message("result.solverError"),
         });
-        setDetailView({ type: "empty", message: "오류가 발생했습니다." });
+        setDetailView({ type: "empty", message: message("result.solverError") });
         return true;
       } finally {
         if (!skipUiCleanup) {

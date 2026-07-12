@@ -1,4 +1,6 @@
-import { formatInteger, formatPercent } from "../format";
+import { useI18n } from "../i18n/locale";
+import type { MessageKey } from "../i18n/messages.ko";
+import type { Kit } from "../types";
 import type { KitStat, SegmentStat, StatsPanelModel } from "../ui-types";
 import { RateBar } from "./StatsRateBar";
 import type {
@@ -7,7 +9,13 @@ import type {
   UsageTooltipItem,
 } from "./StatsTooltip";
 import { comparisonState, normalizeSegmentLabel, weightedTheoryRate } from "./statsPanelModel";
-import { classes, joinClasses, KIT_LABELS, KIT_ORDER, kitDotClass } from "./statsPanelStyles";
+import { classes, joinClasses, KIT_ORDER, kitDotClass } from "./statsPanelStyles";
+
+const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
+  blue: "kit.blue",
+  purple: "kit.purple",
+  yellow: "kit.yellow",
+};
 
 function DifficultyRow({
   index,
@@ -82,6 +90,7 @@ function UsageAmount({
   pieces: number;
   tooltipHandlers: UsageTooltipHandlers;
 }) {
+  const { formatCount } = useI18n();
   const activeItems = items.filter((item) => item.pieces > 0);
   const tooltipItems = activeItems.length ? activeItems : items;
   return (
@@ -92,7 +101,7 @@ function UsageAmount({
       onPointerLeave={tooltipHandlers.onUsagePointerLeave}
       onPointerMove={(event) => tooltipHandlers.onUsagePointerMove(event, tooltipItems)}
     >
-      {formatInteger(pieces)}개
+      {formatCount(pieces, "piece")}
     </span>
   );
 }
@@ -110,6 +119,7 @@ function OverallStatsWindow({
   summary?: Partial<OverallStatsSummary>;
   title: string;
 }) {
+  const { formatInteger, formatPercent, t } = useI18n();
   const attempts = Number(summary?.attempts || 0);
   const events = Number(summary?.events || 0);
   const greatSuccesses = Number(summary?.greatSuccesses || 0);
@@ -121,19 +131,22 @@ function OverallStatsWindow({
       <div className={classes.overallWindowHead}>
         <strong className={classes.overallWindowTitle}>{title}</strong>
         <span className={classes.overallWindowMeta}>
-          {formatInteger(attempts)}시도 / {formatInteger(events)}입력 · 대성공{" "}
-          {formatInteger(greatSuccesses)}회
+          {t("stats.summaryCounts", {
+            attempts: formatInteger(attempts),
+            events: formatInteger(events),
+            successes: formatInteger(greatSuccesses),
+          })}
         </span>
       </div>
       <div className={classes.overallRateGrid}>
         <div className={`${classes.statsCard} actual`}>
-          <span className={classes.statsCardLabel}>실측 대성공률</span>
+          <span className={classes.statsCardLabel}>{t("stats.measuredRate")}</span>
           <strong className={`${classes.statsCardValue} ${classes.actualValue}`}>
             {attempts ? formatPercent(actualRate, 1) : "-"}
           </strong>
         </div>
         <div className={`${classes.statsCard} expected`}>
-          <span className={classes.statsCardLabel}>기대값</span>
+          <span className={classes.statsCardLabel}>{t("stats.expected")}</span>
           <strong className={`${classes.statsCardValue} ${classes.neutralValue}`}>
             {attempts ? formatPercent(theoreticalRate, 1) : "-"}
           </strong>
@@ -145,6 +158,7 @@ function OverallStatsWindow({
 }
 
 export function OverallStats({ stats }: { stats: StatsPanelModel }) {
+  const { formatInteger, t } = useI18n();
   const cumulative = stats.cumulative;
   const cumulativeSummary = cumulative?.summary;
   const cumulativeByKit = Array.isArray(cumulative?.byKit) ? cumulative.byKit : [];
@@ -152,25 +166,25 @@ export function OverallStats({ stats }: { stats: StatsPanelModel }) {
   return (
     <section className={`${classes.section} stats-overall-section`}>
       <div className={classes.sectionTitle}>
-        <h3 className={classes.sectionHeading}>전체 대성공률</h3>
+        <h3 className={classes.sectionHeading}>{t("stats.overallRate")}</h3>
         {cumulativeSummary ? (
           <span className={classes.sectionMeta}>
-            {formatInteger(Number(cumulativeSummary.attempts || 0))}시도 · 대성공{" "}
-            {formatInteger(Number(cumulativeSummary.greatSuccesses || 0))}회
+            {t("stats.cumulativeCounts", {
+              attempts: formatInteger(Number(cumulativeSummary.attempts || 0)),
+              successes: formatInteger(Number(cumulativeSummary.greatSuccesses || 0)),
+            })}
           </span>
         ) : null}
       </div>
       <div className={classes.overallStack}>
         <OverallStatsWindow
           byKit={cumulativeByKit}
-          title="누적 입력 표본"
-          {...(cumulative ? {} : { note: "누적 통계는 최신 Worker 배포 후 표시됩니다." })}
+          title={t("stats.cumulativeSample")}
+          {...(cumulative ? {} : { note: t("stats.cumulativeUnavailable") })}
           {...(cumulativeSummary ? { summary: cumulativeSummary } : {})}
         />
       </div>
-      <p className={classes.note}>
-        기대값은 실제 기록된 레벨·키트 조합의 이론 확률을 시도수로 가중평균한 값입니다.
-      </p>
+      <p className={classes.note}>{t("stats.expectedHelp")}</p>
     </section>
   );
 }
@@ -184,6 +198,7 @@ function KitRateRow({
   item: KitStat;
   tooltipHandlers: IntervalTooltipHandlers;
 }) {
+  const { formatInteger, t } = useI18n();
   const kit = item.kit;
   if (!kit) return null;
   const attempts = Number(item.attempts || 0);
@@ -204,9 +219,11 @@ function KitRateRow({
       <div className={classes.kitRateHead}>
         <span className={joinClasses(classes.kitRateName, kit)}>
           <i aria-hidden="true" className={`${classes.kitRateDot} ${kitDotClass[kit]}`}></i>
-          {KIT_LABELS[kit]}
+          {t(KIT_LABEL_KEYS[kit])}
         </span>
-        <span className={classes.kitRateMeta}>{formatInteger(pieces)}개 사용</span>
+        <span className={classes.kitRateMeta}>
+          {t("stats.piecesUsed", { pieces: formatInteger(pieces) })}
+        </span>
       </div>
       <RateBar
         actualRate={actualRate}
@@ -227,12 +244,13 @@ export function KitStats({
   stats: StatsPanelModel;
   tooltipHandlers: IntervalTooltipHandlers;
 }) {
+  const { t } = useI18n();
   const byKit = Array.isArray(stats.byKit) ? stats.byKit : [];
   return (
     <section className={`${classes.section} stats-kit-section`}>
       <div className={classes.sectionTitle}>
-        <h3 className={classes.sectionHeading}>키트별 대성공률</h3>
-        <span className={classes.sectionMeta}>중앙 = 기대값 · 축 ±5%p</span>
+        <h3 className={classes.sectionHeading}>{t("stats.kitRates")}</h3>
+        <span className={classes.sectionMeta}>{t("stats.axisMeta")}</span>
       </div>
       {byKit.length ? (
         <div className={classes.kitRateList}>
@@ -245,7 +263,7 @@ export function KitStats({
           })}
         </div>
       ) : (
-        <p className={classes.empty}>아직 키트별 통계가 없습니다.</p>
+        <p className={classes.empty}>{t("stats.noKitStats")}</p>
       )}
     </section>
   );
@@ -260,12 +278,13 @@ export function DifficultyStats({
   tooltipHandlers: IntervalTooltipHandlers;
   usageTooltipHandlers: UsageTooltipHandlers;
 }) {
+  const { t } = useI18n();
   const rows = Array.isArray(stats.segmentStats) ? stats.segmentStats : [];
   return (
     <section className={classes.section}>
       <div className={classes.sectionTitle}>
-        <h3 className={classes.sectionHeading}>구간별 체감 난이도</h3>
-        <span className={classes.sectionMeta}>중앙 = 기대값 · 축 ±5%p</span>
+        <h3 className={classes.sectionHeading}>{t("stats.segmentDifficulty")}</h3>
+        <span className={classes.sectionMeta}>{t("stats.axisMeta")}</span>
       </div>
       {rows.length ? (
         <div className={classes.difficultyList}>
@@ -281,7 +300,7 @@ export function DifficultyStats({
           ))}
         </div>
       ) : (
-        <p className={classes.empty}>아직 구간별 통계가 없습니다.</p>
+        <p className={classes.empty}>{t("stats.noSegmentStats")}</p>
       )}
     </section>
   );

@@ -2,22 +2,12 @@ import type { Kit } from "../types";
 
 export const KIT_ORDER: Kit[] = ["blue", "purple", "yellow"];
 
-export const KIT_LABELS: Record<Kit, string> = {
-  blue: "초심자용 관리 키트",
-  purple: "중급자용 관리 키트",
-  yellow: "상급자용 관리 키트",
-};
-
 export const kitDotClass: Record<Kit, string> = {
   blue: "bg-blue-kit",
   purple: "bg-purple-kit",
   yellow: "bg-yellow-kit",
 };
 
-export const INTERVAL_TOOLTIP_MESSAGES = [
-  "표본이 적으면 우연히 결과가 좋거나 나쁠 수 있습니다.",
-  "따라서 표본 규모를 고려해 '결과값이 어느 정도 폭으로 움직일 수 있는지'를 보여줍니다.",
-];
 export const INTERVAL_TOOLTIP_ID = "difficultyIntervalTooltip";
 
 export const classes = {
@@ -41,11 +31,11 @@ export const classes = {
   section:
     "stats-section grid min-w-0 content-start gap-3.5 rounded-card border border-border bg-[linear-gradient(180deg,color-mix(in_srgb,var(--surface-raised)_86%,var(--grade-active-soft)),var(--surface-strong))] p-[15px] max-mobile:gap-2.5 max-mobile:rounded-control max-mobile:p-3",
   sectionTitle:
-    "stats-section-title flex min-w-0 items-center justify-between gap-2.5 border-b-2 border-[var(--stats-divider)] pb-2",
+    "stats-section-title flex min-w-0 items-center justify-between gap-2.5 border-b-2 border-[var(--stats-divider)] pb-2 max-mobile:grid max-mobile:grid-cols-1 max-mobile:gap-1",
   sectionHeading:
     "m-0 text-[16px] font-bold leading-[1.25] text-text-strong max-mobile:text-[14px]",
   sectionMeta:
-    "whitespace-nowrap text-right text-[11px] font-medium leading-[1.3] text-muted max-mobile:text-[10.5px]",
+    "whitespace-nowrap text-right text-[11px] font-medium leading-[1.3] text-muted max-mobile:whitespace-normal max-mobile:text-left max-mobile:text-[10.5px]",
   overallStack: "overall-stats-stack grid gap-2.5",
   overallWindow:
     "overall-stats-window grid min-w-0 gap-2 rounded-card border border-border bg-surface-raised p-[11px] max-mobile:p-2.5",

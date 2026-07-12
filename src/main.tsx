@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 
 import App from "./App";
+import { detectInitialLocale, I18nProvider, translate } from "./i18n/locale";
 import "./styles.css";
 
 function boot() {
@@ -8,7 +9,11 @@ function boot() {
   if (!app) throw new Error("App root element was not found.");
 
   const root = createRoot(app);
-  root.render(<App />);
+  root.render(
+    <I18nProvider>
+      <App />
+    </I18nProvider>,
+  );
 }
 
 function renderBootFailure(error: unknown) {
@@ -20,9 +25,10 @@ function renderBootFailure(error: unknown) {
   panel.className = "boot-error";
   panel.setAttribute("role", "alert");
   const title = document.createElement("h1");
-  title.textContent = "계산기를 불러오지 못했습니다.";
+  const locale = detectInitialLocale();
+  title.textContent = translate(locale, "boot.title");
   const detail = document.createElement("p");
-  detail.textContent = "페이지를 새로고침한 뒤 다시 시도해주세요.";
+  detail.textContent = translate(locale, "boot.detail");
   panel.append(title, detail);
   app.append(panel);
 }

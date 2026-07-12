@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { message } from "../i18n/locale";
 import { makeDemoStats } from "../lib/demoStats";
 import { statsApiBase, statsRuntimeMode } from "../lib/statsRuntime";
 import { statsViewFromApiStats } from "../lib/statsView";
@@ -38,7 +39,7 @@ export function useStatsQuery(queryEnabled: boolean) {
       if (!response.ok) {
         warnStatsRefreshFailure(`stats endpoint returned ${response.status}`);
         if (sequence === refreshSequenceRef.current) {
-          setStatsView({ type: "error", message: "통계를 불러오지 못했습니다." });
+          setStatsView({ type: "error", message: message("stats.loadFailed") });
         }
         return;
       }
@@ -47,7 +48,7 @@ export function useStatsQuery(queryEnabled: boolean) {
       if (!parsed.success) {
         warnStatsRefreshFailure("stats response schema validation failed", parsed.error);
         if (sequence === refreshSequenceRef.current) {
-          setStatsView({ type: "error", message: "통계 응답 형식이 올바르지 않습니다." });
+          setStatsView({ type: "error", message: message("stats.invalidResponse") });
         }
         return;
       }
@@ -59,7 +60,7 @@ export function useStatsQuery(queryEnabled: boolean) {
     } catch (error) {
       warnStatsRefreshFailure("stats refresh failed", error);
       if (sequence === refreshSequenceRef.current) {
-        setStatsView({ type: "error", message: "통계 서버에 연결하지 못했습니다." });
+        setStatsView({ type: "error", message: message("stats.connectionFailed") });
       }
     }
   }, []);
@@ -86,9 +87,7 @@ export function useStatsQuery(queryEnabled: boolean) {
   useEffect(() => {
     if (!queryEnabled || (hasLoadedRef.current && !dirtyRef.current)) return;
     setStatsView((current) =>
-      current.type === "hidden"
-        ? { type: "loading", message: "전체 통계를 불러오고 있습니다." }
-        : current,
+      current.type === "hidden" ? { type: "loading", message: message("stats.loading") } : current,
     );
     void refresh();
   }, [queryEnabled, refresh]);

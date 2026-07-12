@@ -3,7 +3,6 @@ import type { KitStat } from "../ui-types";
 
 export type ComparisonState = {
   className: string;
-  label: string;
   interval: { low: number; high: number } | null;
 };
 
@@ -42,16 +41,16 @@ export function comparisonState(
   attempts: number,
   theoreticalRate: number,
 ): ComparisonState {
-  if (attempts <= 0) return { className: "", interval: null, label: "집계 대기" };
+  if (attempts <= 0) return { className: "", interval: null };
   const interval = wilsonInterval(greatSuccesses, attempts);
-  if (attempts < 5) return { className: "luck-neutral", interval, label: "표본 부족" };
+  if (attempts < 5) return { className: "luck-neutral", interval };
   if (theoreticalRate < interval.low) {
-    return { className: "luck-good", interval, label: "기대 대비 높음" };
+    return { className: "luck-good", interval };
   }
   if (theoreticalRate > interval.high) {
-    return { className: "luck-bad", interval, label: "기대 대비 낮음" };
+    return { className: "luck-bad", interval };
   }
-  return { className: "luck-neutral", interval, label: "기대 범위 내" };
+  return { className: "luck-neutral", interval };
 }
 
 function percentPosition(rate: number) {

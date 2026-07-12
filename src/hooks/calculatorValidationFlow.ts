@@ -1,6 +1,7 @@
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef } from "react";
 
-import { formatFlooredPercent, formatInteger } from "../format";
+import { formatFlooredPercent } from "../format";
+import { message } from "../i18n/locale";
 import { ignoreExpectedError } from "../lib/errorHandling";
 import type { ProgressEvent, SolverInput } from "../types";
 import type { ValidationView } from "../ui-types";
@@ -58,7 +59,7 @@ export function useValidationCoordinator({
             ...current,
             buttonLabel: INITIAL_VALIDATION.buttonLabel,
             disabled: false,
-            message: "계산을 우선하기 위해 검증을 취소했습니다.",
+            message: message("validation.cancelled"),
             status: "cancelled",
           }
         : current,
@@ -89,8 +90,8 @@ function setValidationStarted(setValidationView: ValidationViewSetter) {
   setValidationView((current) => ({
     ...current,
     disabled: true,
-    buttonLabel: "시도 중",
-    message: "가상의 니붕이들이 검산을 진행하고 있습니다.",
+    buttonLabel: message("validation.runningButton"),
+    message: message("validation.running"),
     stageReach: null,
     status: "running",
   }));
@@ -108,15 +109,17 @@ function validationProgressHandler(
     if (scanned <= 0) return;
     setValidationView((current) => ({
       ...current,
-      message: `가상의 니붕이 ${formatInteger(scanned)}명이 시도를 완료했습니다.`,
+      message: message("validation.progress", { count: scanned }),
     }));
   };
 }
 
 function validationCompleteMessage(monteCarlo: MonteCarloResult) {
-  return `가상의 니붕이 ${formatInteger(monteCarlo.runs)}명 중 ${formatInteger(
-    monteCarlo.completed || 0,
-  )}명(${formatFlooredPercent(monteCarlo.successProbability, 1)})이 SR 15에 성공했습니다.`;
+  return message("validation.complete", {
+    runs: monteCarlo.runs,
+    successes: monteCarlo.completed || 0,
+    percent: formatFlooredPercent(monteCarlo.successProbability, 1),
+  });
 }
 
 function setValidationComplete(
@@ -127,7 +130,7 @@ function setValidationComplete(
   const validationCharts = makeValidationCharts(monteCarlo, expectedProbability);
   setValidationView({
     disabled: false,
-    buttonLabel: "다시 시켜보기",
+    buttonLabel: message("validation.retry"),
     message: validationCompleteMessage(monteCarlo),
     status: "complete",
     stageReach: validationCharts.stageReach,
@@ -139,7 +142,7 @@ function setValidationFailed(setValidationView: ValidationViewSetter) {
     ...current,
     disabled: false,
     buttonLabel: INITIAL_VALIDATION.buttonLabel,
-    message: "검증 중 오류가 발생했습니다.",
+    message: message("validation.error"),
     status: "error",
   }));
 }
@@ -198,7 +201,7 @@ export function useValidationFlow({
           ...current,
           buttonLabel: INITIAL_VALIDATION.buttonLabel,
           disabled: false,
-          message: "계산을 우선하기 위해 검증을 취소했습니다.",
+          message: message("validation.cancelled"),
           status: "cancelled",
         }));
         return;

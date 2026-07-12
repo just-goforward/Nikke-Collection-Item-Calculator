@@ -1,6 +1,6 @@
 import type { MouseEvent, PointerEvent } from "react";
 
-import { formatPercent } from "../format";
+import { useI18n } from "../i18n/locale";
 import type { IntervalTooltipHandlers } from "./StatsTooltip";
 import {
   type ComparisonState,
@@ -60,11 +60,12 @@ function eventInsideInterval(
 }
 
 function IntervalBand({ handlers, visible }: { handlers: RateBarHandlers; visible: boolean }) {
+  const { t } = useI18n();
   if (!visible) return null;
   return (
     <button
       aria-describedby={INTERVAL_TOOLTIP_ID}
-      aria-label="기대 범위 설명"
+      aria-label={t("stats.expectedRangeAria")}
       className={classes.interval}
       onBlur={handlers.onIntervalBlur}
       onFocus={handlers.onIntervalFocus}
@@ -82,6 +83,7 @@ function IntervalBand({ handlers, visible }: { handlers: RateBarHandlers; visibl
 }
 
 function TheoryMarker({ attempts, theoreticalPercent, theoreticalRate }: RateBarGeometryPick) {
+  const { formatPercent, t } = useI18n();
   const edge = markerEdge(theoreticalPercent);
   return (
     <div
@@ -95,7 +97,9 @@ function TheoryMarker({ attempts, theoreticalPercent, theoreticalRate }: RateBar
           edge === "high" && classes.theoryMarkerLabelHigh,
         )}
       >
-        기대값 {attempts ? formatPercent(theoreticalRate, 1) : "-"}
+        {t("stats.expectedLabel", {
+          value: attempts ? formatPercent(theoreticalRate, 1) : "-",
+        })}
       </span>
     </div>
   );
@@ -114,6 +118,7 @@ function ActualMarker({
   attempts: number;
   actualRate: number;
 }) {
+  const { formatPercent, t } = useI18n();
   const edge = markerEdge(actualPercent);
   return (
     <div
@@ -132,7 +137,7 @@ function ActualMarker({
           edge === "high" && classes.actualMarkerLabelHigh,
         )}
       >
-        실측 {attempts ? formatPercent(actualRate, 1) : "-"}
+        {t("stats.actualLabel", { value: attempts ? formatPercent(actualRate, 1) : "-" })}
       </span>
     </div>
   );

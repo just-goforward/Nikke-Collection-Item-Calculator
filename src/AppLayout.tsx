@@ -15,6 +15,8 @@ import StockPanel from "./components/StockPanel";
 import SuccessAttemptModal from "./components/SuccessAttemptModal";
 import TopBar, { type TopViewTab } from "./components/TopBar";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
+import { useI18n } from "./i18n/locale";
+import type { LocalizedMessage } from "./i18n/messages.ko";
 import type { StatsRuntimeMode } from "./lib/statsRuntime";
 
 const classes = {
@@ -84,22 +86,23 @@ export type AppHandlers = {
 };
 
 function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
+  const { t } = useI18n();
   if (statsMode === "staging-misconfigured") {
     return (
       <aside
         className={`${classes.stagingBanner} ${classes.stagingErrorBanner}`}
-        aria-label="스테이징 환경"
+        aria-label={t("staging.label")}
         role="alert"
       >
-        STAGING 설정 누락 - 통계 제출이 중지됨
+        {t("staging.missing")}
       </aside>
     );
   }
   if (statsMode !== "staging") return null;
 
   return (
-    <aside className={classes.stagingBanner} aria-label="스테이징 환경">
-      STAGING - 테스트 기록은 운영 통계에 반영되지 않음
+    <aside className={classes.stagingBanner} aria-label={t("staging.label")}>
+      {t("staging.notice")}
     </aside>
   );
 }
@@ -113,18 +116,20 @@ function MobileHeader({ calculator }: { calculator: CalculatorApp }) {
 }
 
 function ResetToast({ toast }: { toast: ResetToastView | null }) {
+  const { t } = useI18n();
   if (!toast) return null;
   return (
     <div className={classes.resetToast} role="status" aria-live="polite">
-      <span>입력이 초기화되었습니다</span>
+      <span>{t("reset.done")}</span>
       <button className={classes.resetToastButton} type="button" onClick={toast.onUndo}>
-        되돌리기 ({toast.secondsLeft})
+        {t("reset.undo", { seconds: toast.secondsLeft })}
       </button>
     </div>
   );
 }
 
-function LoadingPopup({ text }: { text: string }) {
+function LoadingPopup({ text: loadingMessage }: { text: LocalizedMessage }) {
+  const { t, text } = useI18n();
   return (
     <div
       className={classes.loadingOverlay}
@@ -135,8 +140,8 @@ function LoadingPopup({ text }: { text: string }) {
     >
       <div className={classes.loadingPopup}>
         <span className={classes.loadingSpinner} aria-hidden="true" />
-        <strong className={classes.loadingTitle}>계산 중</strong>
-        <p className={classes.loadingText}>{text}</p>
+        <strong className={classes.loadingTitle}>{t("common.loadingTitle")}</strong>
+        <p className={classes.loadingText}>{text(loadingMessage)}</p>
       </div>
     </div>
   );
