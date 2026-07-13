@@ -1,5 +1,6 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
+import { test } from "./test";
 
 const PORT = 4174;
 let previewServer: PreviewServer | null = null;
@@ -7,6 +8,10 @@ const THEME_LABELS = {
   dark: "다크",
   light: "라이트",
 } as const;
+
+test.beforeEach(async ({ page }) => {
+  await page.unroute("https://cdn.jsdelivr.net/**");
+});
 
 async function waitForStableUi(page: import("@playwright/test").Page) {
   await page.evaluate(() => document.fonts.ready);

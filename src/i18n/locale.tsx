@@ -3,10 +3,11 @@ import {
   type ReactNode,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 
 import { ignoreExpectedError } from "../lib/errorHandling";
 import { enMessages } from "./messages.en";
@@ -23,6 +24,7 @@ type CountUnit = "attempt" | "input" | "person" | "piece" | "state" | "use";
 
 const LANGUAGE_STORAGE_KEY = "collection-kit-calculator.language";
 const LOCALE_FONT_LINK_ID = "locale-font-stylesheet";
+const LOCALE_FONT_LOAD_TIMEOUT_MS = 5_000;
 const LOCALE_CODES: Record<AppLocale, string> = {
   ko: "ko-KR",
   en: "en-US",
@@ -32,6 +34,11 @@ const FONT_STYLESHEETS: Record<AppLocale, string> = {
   ko: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css",
   en: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-std-dynamic-subset.min.css",
   ja: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-jp-dynamic-subset.min.css",
+};
+const FONT_FAMILY_NAMES: Record<AppLocale, string> = {
+  ko: "Pretendard Variable",
+  en: "Pretendard Std Variable",
+  ja: "Pretendard JP Variable",
 };
 const MESSAGE_CATALOGS = {
   ko: koMessages,
@@ -67,7 +74,7 @@ const UNIT_LABELS: Record<AppLocale, Record<CountUnit, readonly [string, string]
 
 type LocaleContextValue = {
   locale: AppLocale;
-  setLocale: (locale: AppLocale) => void;
+  setLocale: (locale: AppLocale) => Promise<void>;
   t: (key: MessageKey, params?: MessageParams) => string;
   text: (message: LocalizedMessage) => string;
   formatCount: (value: number, unit: CountUnit) => string;
@@ -77,6 +84,7 @@ type LocaleContextValue = {
 };
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
+const localeFontPromises = new Map<AppLocale, Promise<boolean>>();
 
 export function localeFromLanguageTag(language: string | null | undefined): AppLocale | null {
   if (!language) return null;
@@ -153,30 +161,144 @@ export function formatIntegerForLocale(locale: AppLocale, value: number) {
   return new Intl.NumberFormat(LOCALE_CODES[locale], { maximumFractionDigits: 0 }).format(value);
 }
 
-function applyLocaleToDocument(locale: AppLocale) {
+function localeFontSample(locale: AppLocale) {
+  const sample = `${Object.values(MESSAGE_CATALOGS[locale]).join(" ")} 0123456789 × % R SR EXP`;
+  return [...new Set(sample.replace(/\{[^}]+\}/g, ""))].join("");
+}
+
+function createLocaleFontLink(locale: AppLocale) {
+  const link = document.createElement("link");
+  link.id = `${LOCALE_FONT_LINK_ID}-${locale}`;
+  link.setAttribute("data-locale-font", locale);
+  link.setAttribute("data-load-state", "loading");
+  link.rel = "stylesheet";
+  link.crossOrigin = "anonymous";
+  link.href = FONT_STYLESHEETS[locale];
+  link.addEventListener("load", () => {
+    link.setAttribute("data-load-state", "loaded");
+  });
+  link.addEventListener("error", () => {
+    link.setAttribute("data-load-state", "error");
+  });
+  document.head.append(link);
+  return link;
+}
+
+function localeFontLink(locale: AppLocale) {
+  const selector = `link[data-locale-font="${locale}"]`;
+  const current = document.querySelector<HTMLLinkElement>(selector);
+  if (current?.getAttribute("data-load-state") !== "error") {
+    return current ?? createLocaleFontLink(locale);
+  }
+  current.remove();
+  return createLocaleFontLink(locale);
+}
+
+function remainingFontLoadTime(deadline: number) {
+  return Math.max(0, deadline - performance.now());
+}
+
+function waitForStylesheet(link: HTMLLinkElement, deadline: number) {
+  if (link.getAttribute("data-load-state") === "loaded" || link.sheet) {
+    return Promise.resolve(true);
+  }
+  if (link.getAttribute("data-load-state") === "error") return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (loaded: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      link.removeEventListener("load", handleLoad);
+      link.removeEventListener("error", handleError);
+      resolve(loaded);
+    };
+    const handleLoad = () => finish(true);
+    const handleError = () => finish(false);
+    const timeoutId = window.setTimeout(() => finish(false), remainingFontLoadTime(deadline));
+    link.addEventListener("load", handleLoad, { once: true });
+    link.addEventListener("error", handleError, { once: true });
+  });
+}
+
+function waitForFontFace(locale: AppLocale, deadline: number) {
+  if (!document.fonts) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (loaded: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      resolve(loaded);
+    };
+    const timeoutId = window.setTimeout(() => finish(false), remainingFontLoadTime(deadline));
+    document.fonts
+      .load(`600 1rem "${FONT_FAMILY_NAMES[locale]}"`, localeFontSample(locale))
+      .then(() => finish(true))
+      .catch((error: unknown) => {
+        ignoreExpectedError("locale font loading can fail and use the system fallback", error);
+        finish(false);
+      });
+  });
+}
+
+async function loadLocaleFont(locale: AppLocale) {
+  const deadline = performance.now() + LOCALE_FONT_LOAD_TIMEOUT_MS;
+  const stylesheetLoaded = await waitForStylesheet(localeFontLink(locale), deadline);
+  if (!stylesheetLoaded) return false;
+  return waitForFontFace(locale, deadline);
+}
+
+function ensureLocaleFontReady(locale: AppLocale) {
+  const cached = localeFontPromises.get(locale);
+  if (cached) return cached;
+  const pending = loadLocaleFont(locale);
+  localeFontPromises.set(locale, pending);
+  void pending.then((loaded) => {
+    if (!loaded && localeFontPromises.get(locale) === pending) localeFontPromises.delete(locale);
+  });
+  return pending;
+}
+
+function applyLocaleToDocument(locale: AppLocale, fontReady: boolean) {
   document.documentElement.lang = locale;
   document.documentElement.setAttribute("data-locale", locale);
+  document.documentElement.setAttribute("data-locale-font-ready", String(fontReady));
   document.title = translate(locale, "app.title");
   const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
   if (description) description.content = translate(locale, "app.description");
-  const fontLink = document.getElementById(LOCALE_FONT_LINK_ID);
-  if (fontLink instanceof HTMLLinkElement && fontLink.href !== FONT_STYLESHEETS[locale]) {
-    fontLink.href = FONT_STYLESHEETS[locale];
-  }
+}
+
+export async function prepareInitialLocale() {
+  const locale = detectInitialLocale();
+  const fontReady = await ensureLocaleFontReady(locale);
+  applyLocaleToDocument(locale, fontReady);
+  return locale;
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<AppLocale>(detectInitialLocale);
-  const setLocale = useCallback((nextLocale: AppLocale) => {
-    setLocaleState(nextLocale);
-    try {
-      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLocale);
-    } catch (error) {
-      ignoreExpectedError("language storage write can fail in restricted browser contexts", error);
-    }
-  }, []);
-
-  useEffect(() => applyLocaleToDocument(locale), [locale]);
+  const localeRequestRef = useRef(0);
+  const setLocale = useCallback(
+    async (nextLocale: AppLocale) => {
+      const request = localeRequestRef.current + 1;
+      localeRequestRef.current = request;
+      if (nextLocale === locale) return;
+      const fontReady = await ensureLocaleFontReady(nextLocale);
+      if (localeRequestRef.current !== request) return;
+      applyLocaleToDocument(nextLocale, fontReady);
+      flushSync(() => setLocaleState(nextLocale));
+      try {
+        window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLocale);
+      } catch (error) {
+        ignoreExpectedError(
+          "language storage write can fail in restricted browser contexts",
+          error,
+        );
+      }
+    },
+    [locale],
+  );
 
   const value = useMemo<LocaleContextValue>(() => {
     const formatNumber = (number: number, digits = 2) =>

@@ -1,12 +1,13 @@
 import { createRoot } from "react-dom/client";
 
 import App from "./App";
-import { detectInitialLocale, I18nProvider, translate } from "./i18n/locale";
+import { detectInitialLocale, I18nProvider, prepareInitialLocale, translate } from "./i18n/locale";
 import "./styles.css";
 
-function boot() {
+async function boot() {
   const app = document.getElementById("app");
   if (!app) throw new Error("App root element was not found.");
+  await prepareInitialLocale();
 
   const root = createRoot(app);
   root.render(
@@ -33,8 +34,4 @@ function renderBootFailure(error: unknown) {
   app.append(panel);
 }
 
-try {
-  boot();
-} catch (error) {
-  renderBootFailure(error);
-}
+void boot().catch(renderBootFailure);

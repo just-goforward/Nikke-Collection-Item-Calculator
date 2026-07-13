@@ -26,7 +26,7 @@ const classes = {
   viewTabs:
     "relative grid shrink-0 grid-cols-2 gap-0.5 self-center rounded-card border border-border bg-button p-0.5 [--seg-index:0] before:pointer-events-none before:absolute before:inset-y-0.5 before:left-0.5 before:z-0 before:w-[calc((100%_-_6px)/2)] before:rounded-control before:bg-[var(--seg-thumb)] before:shadow-[var(--seg-shadow)] before:[transform:translateX(calc(var(--seg-index)*(100%+2px)))] before:[transition:transform_220ms_cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:before:transition-none max-mobile:hidden",
   viewTab:
-    "relative z-[1] grid min-h-[30px] place-items-center whitespace-nowrap rounded-control border-0 bg-transparent px-3.5 text-[12.5px] font-bold text-muted transition-colors duration-[220ms] ease-[ease] motion-reduce:transition-none [&[aria-selected=true]]:text-text-strong [&:not([aria-selected=true])]:hover:text-text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-1 focus-visible:ring-offset-page",
+    "relative z-[1] grid min-h-[30px] place-items-center whitespace-nowrap rounded-control border-0 bg-transparent px-3.5 text-[12.5px] font-bold leading-none text-muted transition-colors duration-[220ms] ease-[ease] motion-reduce:transition-none [&[aria-selected=true]]:text-text-strong [&:not([aria-selected=true])]:hover:text-text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-1 focus-visible:ring-offset-page",
   viewTabActive: "text-text-strong",
   utilities: "flex shrink-0 items-center gap-2 self-center",
   lang: "relative",
@@ -43,11 +43,14 @@ const classes = {
   options:
     "relative grid min-w-0 grid-cols-[repeat(3,minmax(42px,1fr))] gap-0.5 before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:z-0 before:w-[calc((100%_-_4px)/3)] before:rounded-control before:bg-[var(--seg-thumb)] before:shadow-[var(--seg-shadow)] before:[transform:translateX(calc(var(--seg-index)*(100%+2px)))] before:[transition:transform_220ms_cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:before:transition-none",
   button:
-    "relative z-[1] min-h-[28px] whitespace-nowrap bg-transparent px-2 text-[11px] font-semibold text-muted transition-colors duration-[220ms] ease-[ease] motion-reduce:transition-none [&[aria-pressed=true]]:text-text-strong [&:not([aria-pressed=true])]:hover:text-text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-1 focus-visible:ring-offset-surface",
+    "relative z-[1] grid min-h-[28px] place-items-center whitespace-nowrap bg-transparent px-2 text-[11px] font-semibold leading-none text-muted transition-colors duration-[220ms] ease-[ease] motion-reduce:transition-none [&[aria-pressed=true]]:text-text-strong [&:not([aria-pressed=true])]:hover:text-text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-1 focus-visible:ring-offset-surface",
+  opticalLabel: "topbar-optical-label relative top-px block leading-none",
   activeButton: "theme-option-active",
   mobileTheme: "relative hidden max-[684px]:block",
   themeButton:
     "inline-flex min-h-[34px] min-w-[58px] items-center justify-center gap-1 rounded-card border border-border bg-button px-2 text-[10.5px] font-bold text-muted transition-[border-color,color,background-color] duration-[160ms] hover:border-grade-active hover:text-text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-2 focus-visible:ring-offset-page",
+  mobileThemeOpticalLabel:
+    "mobile-theme-optical-label relative top-px inline-flex items-center gap-1 leading-none",
 } as const;
 
 type TopBarProps = {
@@ -183,7 +186,7 @@ function ThemeControl({
               key={mode}
               onClick={() => onThemeModeChange(mode)}
             >
-              {themeLabel(mode)}
+              <span className={classes.opticalLabel}>{themeLabel(mode)}</span>
             </button>
           ))}
         </div>
@@ -197,8 +200,10 @@ function ThemeControl({
           aria-haspopup="listbox"
           onClick={onToggle}
         >
-          <span>{themeLabel(themeMode)}</span>
-          <span aria-hidden="true">▾</span>
+          <span className={classes.mobileThemeOpticalLabel}>
+            <span>{themeLabel(themeMode)}</span>
+            <span aria-hidden="true">▾</span>
+          </span>
         </button>
         {themeOpen ? (
           <div className={classes.langMenu} role="listbox" aria-label={t("top.theme")}>
@@ -249,7 +254,7 @@ function ViewTabs({
         aria-selected={active === "calc"}
         onClick={() => onChange("calc")}
       >
-        {t("top.calculator")}
+        <span className={classes.opticalLabel}>{t("top.calculator")}</span>
       </button>
       <button
         className={`${classes.viewTab} ${active === "stats" ? classes.viewTabActive : ""}`}
@@ -259,7 +264,7 @@ function ViewTabs({
         aria-selected={active === "stats"}
         onClick={() => onChange("stats")}
       >
-        {t("top.stats")}
+        <span className={classes.opticalLabel}>{t("top.stats")}</span>
       </button>
     </div>
   );
@@ -282,7 +287,7 @@ export default function TopBar({
   useDismissableMenu(langOpen, langRef, () => setLangOpen(false));
   useDismissableMenu(themeOpen, themeRef, () => setThemeOpen(false));
   const handleLangChange = (nextLang: AppLocale) => {
-    setLocale(nextLang);
+    void setLocale(nextLang);
     setLangOpen(false);
   };
   const handleThemeChange = (nextThemeMode: ThemeMode) => {

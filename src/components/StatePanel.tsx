@@ -20,7 +20,8 @@ const classes = {
   gradeRow:
     "grade-row grid grid-cols-[42px_repeat(2,minmax(0,1fr))] gap-[5px] px-[18px] pb-2.5 pt-4 max-mobile:grid-cols-[28px_repeat(2,minmax(0,1fr))] max-mobile:gap-1.5 max-mobile:px-3 max-mobile:pb-1.5 max-mobile:pt-2",
   segmentButton:
-    "seg-button min-h-10 border transition-[background-color,color,border-color,box-shadow,text-shadow,filter] duration-[220ms] max-mobile:min-h-[30px] max-mobile:px-2 max-mobile:py-0 max-mobile:text-[12.5px]",
+    "seg-button grid min-h-10 place-items-center border leading-none transition-[background-color,color,border-color,box-shadow,text-shadow,filter] duration-[220ms] max-mobile:min-h-[30px] max-mobile:px-2 max-mobile:py-0 max-mobile:text-[12.5px]",
+  gradeOpticalLabel: "state-grade-optical-label relative top-px block leading-none",
   inactiveButton:
     "border-border bg-surface-strong text-muted [text-shadow:none] enabled:hover:border-grade-active-strong enabled:hover:text-text-soft enabled:hover:brightness-[0.98]",
   activeButton:
@@ -32,7 +33,8 @@ const classes = {
   levelRowLabel:
     "whitespace-nowrap text-[11px] font-bold leading-none text-muted max-mobile:text-[10px]",
   levelButton:
-    "level-button relative min-h-9 min-w-0 whitespace-nowrap border px-2 text-[13px] font-bold leading-[1.1] transition-[background-color,color,border-color,box-shadow,text-shadow,filter] duration-[220ms] max-mobile:min-h-[30px] max-mobile:px-0.5 max-mobile:py-0 max-mobile:text-[10.5px]",
+    "level-button relative grid min-h-9 min-w-0 place-items-center whitespace-nowrap border px-2 text-[13px] font-bold leading-none transition-[background-color,color,border-color,box-shadow,text-shadow,filter] duration-[220ms] max-mobile:min-h-[30px] max-mobile:px-0.5 max-mobile:py-0 max-mobile:text-[10.5px]",
+  levelOpticalLabel: "state-level-optical-label relative block leading-none max-mobile:top-px",
   activeLevelButton: "z-[2] shadow-[0_0_0_3px_var(--grade-active-soft)]",
   expGrid:
     "field-grid exp-grid grid grid-cols-[minmax(0,1fr)_16px_minmax(0,1fr)] items-end gap-2.5 border-t border-border px-[18px] pb-4 pt-3.5 font-medium max-mobile:grid-cols-[minmax(0,1fr)_12px_minmax(0,1fr)] max-mobile:gap-1.5 max-mobile:px-3 max-mobile:pb-[9px] max-mobile:pt-2",
@@ -90,7 +92,7 @@ function GradeSelector({
           key={grade}
           onClick={() => onGradeChange(grade)}
         >
-          {grade}
+          <span className={classes.gradeOpticalLabel}>{grade}</span>
         </button>
       ))}
     </div>
@@ -127,7 +129,7 @@ function LevelSelector({
               key={level}
               onClick={() => onLevelChange(level)}
             >
-              {level}
+              <span className={classes.levelOpticalLabel}>{level}</span>
             </button>
           ))}
         </div>

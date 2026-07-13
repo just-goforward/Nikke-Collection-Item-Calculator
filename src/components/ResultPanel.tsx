@@ -47,6 +47,7 @@ const classes = {
     "grid grid-cols-[24px_minmax(0,1fr)] items-center gap-2 rounded-control border border-border bg-surface-strong px-3 py-2",
   emptyStepNumber:
     "grid size-6 place-items-center rounded-full bg-theme-active text-[11px] font-extrabold text-page",
+  emptyStepText: "flex min-h-6 items-center leading-[1.35]",
   resultContent:
     "result-content grid gap-3 p-[18px] max-mobile:gap-2.5 max-mobile:px-3.5 max-mobile:py-3",
   resultBody: "relative min-h-0 overflow-hidden rounded-b-card",
@@ -71,7 +72,8 @@ const classes = {
   callout:
     "callout rounded-card bg-primary-soft px-3.5 py-[13px] font-bold leading-[1.45] text-primary-strong",
   error: "error rounded-card bg-danger-soft px-3.5 py-[13px] font-bold leading-[1.45] text-danger",
-  recommendation: "recommendation grid items-stretch gap-3 max-mobile:gap-2.5",
+  recommendation:
+    "recommendation grid items-stretch gap-3 [container-type:inline-size] max-mobile:gap-2.5",
   nextAction:
     "next-action relative grid min-h-[120px] overflow-hidden rounded-card bg-action p-[18px] text-center text-ice [perspective:900px] max-mobile:min-h-24 max-mobile:p-3",
   nextActionCard: "next-action-card grid min-h-full w-full place-items-center",
@@ -86,21 +88,23 @@ const classes = {
   actionChip: "action-chip inline-flex items-center justify-center gap-[9px]",
   actionDot: "inline-block size-4 rounded-full shadow-[0_0_0_3px_rgba(255,255,255,0.18)]",
   actionChipLarge:
-    "action-chip-large inline-flex max-w-full flex-nowrap items-center justify-center gap-2.5 max-mobile:gap-2",
+    "action-chip-large inline-flex max-w-full flex-nowrap items-center justify-center gap-2.5 max-mobile:grid max-mobile:w-full max-mobile:grid-cols-[16px_minmax(0,1fr)] max-mobile:gap-2",
   actionChipText:
-    "action-chip-text inline-flex min-w-0 items-baseline gap-0 whitespace-nowrap text-[clamp(23px,2.7vw,34px)] max-mobile:text-[clamp(18px,5vw,24px)]",
+    "action-chip-text inline-flex min-w-0 items-baseline gap-0 whitespace-nowrap text-[clamp(23px,2.7vw,34px)] max-mobile:grid max-mobile:justify-items-center max-mobile:whitespace-normal max-mobile:text-[clamp(18px,5vw,24px)]",
   actionChipName:
-    "action-chip-name inline min-w-0 leading-[1.16] [overflow-wrap:break-word] [word-break:keep-all] max-mobile:[overflow-wrap:normal]",
+    "action-chip-name inline min-w-0 leading-[1.16] [overflow-wrap:break-word] [word-break:keep-all] max-mobile:block max-mobile:w-full max-mobile:text-balance max-mobile:[overflow-wrap:normal]",
+  actionChipQuantity: "inline-flex items-baseline whitespace-nowrap",
   actionChipSeparator:
     "action-chip-separator inline min-w-0 whitespace-pre leading-[1.08] text-ice",
   actionChipCount: "action-chip-count inline min-w-0 leading-[1.08] text-ice",
   outcomePanel:
     "outcome-panel grid grid-cols-[minmax(0,1fr)_320px] items-center gap-3.5 rounded-card border-2 border-yellow-kit bg-outcome px-4 py-3 shadow-[0_12px_26px_rgba(128,89,11,0.12)] min-[661px]:max-tablet:grid-cols-[minmax(0,1fr)_280px] min-[661px]:max-tablet:gap-3 min-[661px]:max-tablet:px-4 max-mobile:hidden",
   outcomePanelRing: "outcome-ring",
-  outcomeCopy: "grid min-w-0 gap-1.5",
+  outcomeCopy: "outcome-copy grid min-w-0 gap-1.5",
   outcomeTitle:
-    "m-0 flex items-center gap-2 whitespace-nowrap text-[17px] font-semibold text-outcome-text before:inline-block before:size-[11px] before:rounded-full before:bg-yellow-kit before:shadow-[0_0_0_4px_rgba(230,170,38,0.22)] before:content-[''] min-[661px]:max-tablet:text-[15px]",
-  outcomeActionGroup: "grid content-center gap-1",
+    "outcome-title m-0 flex min-w-0 items-center gap-2 whitespace-nowrap text-[17px] font-semibold text-outcome-text before:inline-block before:size-[11px] before:shrink-0 before:rounded-full before:bg-yellow-kit before:shadow-[0_0_0_4px_rgba(230,170,38,0.22)] before:content-[''] min-[661px]:max-tablet:text-[15px]",
+  outcomeTitleText: "outcome-title-text min-w-0",
+  outcomeActionGroup: "outcome-action-group grid min-w-0 content-center gap-1",
   outcomeButtons: "outcome-buttons grid grid-cols-2 gap-2",
   outcomeChoice: "grid min-w-0 gap-1",
   outcomeChoiceCaption:
@@ -108,7 +112,7 @@ const classes = {
   outcomeCaptionPrefix: "text-muted",
   outcomeCaptionValue: "font-bold text-text-strong",
   outcomeButton:
-    "relative min-h-[52px] overflow-hidden whitespace-nowrap border bg-button px-2 text-[16px] font-bold [touch-action:manipulation] [user-select:none] min-[661px]:max-tablet:min-h-[46px] min-[661px]:max-tablet:text-[13.5px] max-mobile:min-w-0 max-mobile:px-2 max-mobile:text-[13px] max-mobile:min-h-10",
+    "relative inline-flex min-h-[52px] items-center justify-center overflow-hidden whitespace-nowrap border bg-button px-2 text-[16px] font-bold leading-none [touch-action:manipulation] [user-select:none] min-[661px]:max-tablet:min-h-[46px] min-[661px]:max-tablet:text-[13.5px] max-mobile:min-w-0 max-mobile:px-2 max-mobile:text-[13px] max-mobile:min-h-10",
   successButton: "success-button border-yellow-kit text-text",
   failButton: "fail-button border-yellow-kit text-text",
   successHoldFill: "bg-[rgba(230,170,38,0.42)]",
@@ -120,9 +124,9 @@ const classes = {
   changeNote:
     "change-note m-0 text-[13px] font-semibold leading-[1.45] text-muted max-mobile:text-[11.5px]",
   outcomeConfirmButton:
-    "min-h-[52px] whitespace-nowrap border-0 bg-action px-2 text-[15px] font-bold text-ice shadow-[inset_0_0_0_1px_rgba(248,252,254,0.10)] min-[661px]:max-tablet:min-h-[46px] min-[661px]:max-tablet:text-[13px]",
+    "inline-flex min-h-[52px] items-center justify-center whitespace-nowrap border-0 bg-action px-2 text-[15px] font-bold leading-none text-ice shadow-[inset_0_0_0_1px_rgba(248,252,254,0.10)] min-[661px]:max-tablet:min-h-[46px] min-[661px]:max-tablet:text-[13px]",
   outcomeCancelButton:
-    "min-h-[52px] whitespace-nowrap border border-border bg-button px-2 text-[14px] font-bold text-muted min-[661px]:max-tablet:min-h-[46px] min-[661px]:max-tablet:text-[13px]",
+    "inline-flex min-h-[52px] items-center justify-center whitespace-nowrap border border-border bg-button px-2 text-[14px] font-bold leading-none text-muted min-[661px]:max-tablet:min-h-[46px] min-[661px]:max-tablet:text-[13px]",
 } as const;
 
 type ResultPanelProps = {
@@ -173,8 +177,10 @@ function ActionChip({
       ></i>
       <span className={classes.actionChipText}>
         <span className={classes.actionChipName}>{kitLabel}</span>
-        <span className={classes.actionChipSeparator}>{"\u00a0×\u00a0"}</span>
-        <span className={classes.actionChipCount}>{formatCount(count || 1, "use")}</span>
+        <span className={classes.actionChipQuantity}>
+          <span className={classes.actionChipSeparator}>{"\u00a0×\u00a0"}</span>
+          <span className={classes.actionChipCount}>{formatCount(count || 1, "use")}</span>
+        </span>
       </span>
     </span>
   );
@@ -308,7 +314,9 @@ function RecommendationBlock({
         }`}
       >
         <div className={classes.outcomeCopy}>
-          <h3 className={classes.outcomeTitle}>{title}</h3>
+          <h3 className={classes.outcomeTitle}>
+            <span className={classes.outcomeTitleText}>{title}</span>
+          </h3>
           {children}
         </div>
         {actionContent}
@@ -395,7 +403,7 @@ function EmptyResultGuide() {
         {steps.map((step, index) => (
           <li className={classes.emptyStep} key={step}>
             <span className={classes.emptyStepNumber}>{index + 1}</span>
-            <span>{step}</span>
+            <span className={classes.emptyStepText}>{step}</span>
           </li>
         ))}
       </ol>

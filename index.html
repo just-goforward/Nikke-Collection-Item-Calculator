@@ -38,9 +38,17 @@
         document.documentElement.dataset.locale = locale;
         const fontLink = document.createElement("link");
         fontLink.id = "locale-font-stylesheet";
+        fontLink.dataset.localeFont = locale;
+        fontLink.dataset.loadState = "loading";
         fontLink.rel = "stylesheet";
         fontLink.crossOrigin = "anonymous";
         fontLink.href = fontStylesheets[locale];
+        fontLink.addEventListener("load", () => {
+          fontLink.dataset.loadState = "loaded";
+        });
+        fontLink.addEventListener("error", () => {
+          fontLink.dataset.loadState = "error";
+        });
         document.head.append(fontLink);
       })();
     </script>

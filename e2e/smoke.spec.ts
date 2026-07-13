@@ -1,10 +1,11 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
 import {
   maxBackgroundChannel,
   mockStagingStatsEndpoints,
   serveStagingDocument,
 } from "./smoke.helpers";
+import { test } from "./test";
 
 const PORT = 4173;
 let previewServer: PreviewServer | null = null;
@@ -89,7 +90,7 @@ test("R 1 + 초심자용 100 — 계산 결과 패널에 추천 행동이 나타
   await expect(page.getByRole("group", { name: "최적화 방식" })).toHaveCount(0);
   await expect(page.locator("[data-strategy]")).toHaveCount(0);
 
-  await page.getByLabel("초심자용 관리 키트").fill("100");
+  await page.getByLabel("초심자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
 
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({ timeout: 20_000 });
@@ -113,7 +114,7 @@ test("R 1 + 초심자용 100 — 계산 결과 패널에 추천 행동이 나타
 test("R 등급 추천은 추천 횟수와 무관하게 대성공 여부 칸에 안내 문구를 표시한다", async ({
   page,
 }) => {
-  await page.getByLabel("상급자용 관리 키트").fill("100");
+  await page.getByLabel("상급자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
 
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({
@@ -126,10 +127,10 @@ test("사용 가능한 키트가 10개 미만이면 계산 버튼이 비활성�
   const calculateButton = page.getByRole("button", { name: "계산", exact: true });
   await expect(calculateButton).toBeDisabled();
 
-  await page.getByLabel("초심자용 관리 키트").fill("9");
+  await page.getByLabel("초심자용 키트").fill("9");
   await expect(calculateButton).toBeDisabled();
 
-  await page.getByLabel("초심자용 관리 키트").fill("10");
+  await page.getByLabel("초심자용 키트").fill("10");
   await expect(calculateButton).toBeEnabled();
 });
 
@@ -140,7 +141,7 @@ test("SR 10 + 상급자용 100 — 세부 정보에 SR 15 도달 확률이 나�
     .click();
   await page.getByRole("button", { name: "10단계", exact: true }).click();
 
-  await page.getByLabel("상급자용 관리 키트").fill("100");
+  await page.getByLabel("상급자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
 
   await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible({ timeout: 20_000 });
@@ -171,9 +172,9 @@ test("SR 15 도달률이 모두 100%면 비추천 후보를 키트 부담 사유
     .getByRole("button", { name: "SR" })
     .click();
   await page.getByRole("button", { name: "14단계", exact: true }).click();
-  await page.getByLabel("초심자용 관리 키트").fill("200");
-  await page.getByLabel("중급자용 관리 키트").fill("100");
-  await page.getByLabel("상급자용 관리 키트").fill("100");
+  await page.getByLabel("초심자용 키트").fill("200");
+  await page.getByLabel("중급자용 키트").fill("100");
+  await page.getByLabel("상급자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
 
   const rows = page.locator(".table-wrap tbody tr");
@@ -208,7 +209,7 @@ test("태블릿에서는 현재 소장품 영역을 넓히고 키트 라벨을 �
     expect(stateBox?.width || 0).toBeGreaterThan(stockBox?.width || 0);
 
     const labelLayout = await page
-      .getByLabel(/(?:초심자용|중급자용|상급자용) 관리 키트/)
+      .getByLabel(/(?:초심자용|중급자용|상급자용) 키트/)
       .locator("..")
       .locator("span")
       .evaluateAll((labels) =>
@@ -234,7 +235,7 @@ test("모바일 metric 콘텐츠는 카드 안에서 상하 가운데 정렬된�
     .getByRole("button", { name: "SR" })
     .click();
   await page.getByRole("button", { name: "10단계", exact: true }).click();
-  await page.getByLabel("상급자용 관리 키트").fill("100");
+  await page.getByLabel("상급자용 키트").fill("100");
   await page
     .getByRole("toolbar", { name: "모바일 작업" })
     .getByRole("button", { name: "계산하기" })
@@ -264,7 +265,7 @@ test("SR 5 다회 대성공 — 모달 없이 키트 수정 후 다시 계산할
     .click();
   await page.getByRole("button", { name: "5단계", exact: true }).click();
 
-  await page.getByLabel("상급자용 관리 키트").fill("100");
+  await page.getByLabel("상급자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await confirmOutcome(
     page,
@@ -273,13 +274,13 @@ test("SR 5 다회 대성공 — 모달 없이 키트 수정 후 다시 계산할
   );
 
   await expect(page.locator(".attempt-modal-overlay")).toHaveCount(0);
-  await expect(page.getByLabel("상급자용 관리 키트")).toHaveValue("100");
+  await expect(page.getByLabel("상급자용 키트")).toHaveValue("100");
   await expect(page.locator("#stockEditNotice")).toContainText(
     "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.",
   );
   await expect(page.getByRole("button", { name: "키트 수정 필요", exact: true })).toBeDisabled();
 
-  await page.getByLabel("상급자용 관리 키트").fill("80");
+  await page.getByLabel("상급자용 키트").fill("80");
   await expect(page.getByRole("button", { name: "다시 계산", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "다시 계산", exact: true }).click();
 
@@ -295,7 +296,7 @@ test("대성공 확정 전 취소하면 같은 패널에서 선택 상태만 해
     .getByRole("button", { name: "SR" })
     .click();
   await page.getByRole("button", { name: "10단계", exact: true }).click();
-  await page.getByLabel("상급자용 관리 키트").fill("100");
+  await page.getByLabel("상급자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await page.getByRole("button", { name: "대성공 O", exact: true }).first().click();
   await expect(page.getByRole("button", { name: "대성공 O 확정", exact: true })).toBeVisible();
@@ -520,7 +521,7 @@ test("모바일 키트 사용량 툴팁은 탭 후 유지되고 외부 터치로
 });
 
 test("초기화 버튼은 입력값과 계산 결과를 초기화한다", async ({ page }) => {
-  await page.getByLabel("초심자용 관리 키트").fill("100");
+  await page.getByLabel("초심자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
 
@@ -529,8 +530,8 @@ test("초기화 버튼은 입력값과 계산 결과를 초기화한다", async 
   );
   await page.getByRole("button", { name: "초기화", exact: true }).click();
 
-  await expect(page.getByLabel("초심자용 관리 키트")).toHaveValue("");
-  await expect(page.getByLabel("초심자용 관리 키트")).toHaveAttribute("placeholder", "0");
+  await expect(page.getByLabel("초심자용 키트")).toHaveValue("");
+  await expect(page.getByLabel("초심자용 키트")).toHaveAttribute("placeholder", "0");
   await expect(page.getByText("아직 계산 결과가 없습니다. 세 단계면 충분해요.")).toBeVisible();
 });
 
@@ -624,7 +625,7 @@ test("검산 details — 펼치면 가상의 니붕이 검산 결과가 자동 �
     .getByRole("button", { name: "SR" })
     .click();
   await page.getByRole("button", { name: "10단계", exact: true }).click();
-  await page.getByLabel("상급자용 관리 키트").fill("100");
+  await page.getByLabel("상급자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: "계산", exact: true })).toBeEnabled();
@@ -635,7 +636,7 @@ test("검산 details — 펼치면 가상의 니붕이 검산 결과가 자동 �
   await expect(page.getByText(/가상의 니붕이 .*SR 15/)).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(/이번엔 가상의 니붕이/)).toHaveCount(0);
 
-  await page.getByLabel("상급자용 관리 키트").fill("90");
+  await page.getByLabel("상급자용 키트").fill("90");
   await expect(
     page
       .locator(".result-panel")
@@ -673,7 +674,7 @@ test("모바일 하단 액션바로 계산하고 결과 액션을 표시한다",
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?statsEnv=disabled");
 
-  await page.getByLabel("초심자용 관리 키트").fill("100");
+  await page.getByLabel("초심자용 키트").fill("100");
   const actionBar = page.getByRole("toolbar", { name: "모바일 작업" });
   await actionBar.getByRole("button", { name: "계산하기", exact: true }).click();
 
@@ -682,28 +683,19 @@ test("모바일 하단 액션바로 계산하고 결과 액션을 표시한다",
     timeout: 20_000,
   });
   await expect(page.locator(".table-wrap .action-chip-text").first()).toContainText(
-    "초심자용 관리 키트",
+    "초심자용 키트",
   );
-  await expect(page.locator(".table-wrap .action-chip-name").first()).toHaveAttribute(
-    "data-mobile-label",
-    "초심자용",
-  );
-  await expect
-    .poll(() =>
-      page
-        .locator(".table-wrap .action-chip-name")
-        .first()
-        .evaluate((element) => getComputedStyle(element, "::before").content),
-    )
-    .toBe('"초심자용"');
+  await expect(page.locator(".table-wrap .action-chip-name-short").first()).toHaveText("초심자용");
+  await expect(page.locator(".table-wrap .action-chip-name-short").first()).toBeVisible();
+  await expect(page.locator(".table-wrap .action-chip-name-full").first()).toBeHidden();
   await expect
     .poll(() =>
       page
         .locator(".table-wrap .action-chip-separator")
         .first()
-        .evaluate((element) => getComputedStyle(element).fontSize),
+        .evaluate((element) => getComputedStyle(element).display),
     )
-    .toBe("0px");
+    .toBe("none");
   await expect(actionBar.locator(".change-note")).toContainText(MOBILE_OUTCOME_PROMPT);
   await expect(actionBar).not.toContainText("누르면 누른 자리가 확정 버튼으로 바뀝니다.");
   await expect(actionBar.getByRole("button", { name: "대성공 O", exact: true })).toBeVisible();
@@ -754,7 +746,7 @@ test("모바일 하단 액션바로 계산하고 결과 액션을 표시한다",
 });
 
 test("대성공 X 선택 후 다음 추천이 자동 계산된다", async ({ page }) => {
-  await page.getByLabel("초심자용 관리 키트").fill("100");
+  await page.getByLabel("초심자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.getByRole("heading", { name: "대성공 여부" })).toBeVisible({
     timeout: 20_000,
@@ -770,7 +762,7 @@ test("대성공 X 선택 후 다음 추천이 자동 계산된다", async ({ pag
 
   await expect(page.getByText("적용 완료")).toBeHidden({ timeout: 20_000 });
   await expect(page.getByRole("heading", { name: "대성공 여부" })).toBeVisible();
-  await expect(page.getByLabel("초심자용 관리 키트")).not.toHaveValue("100");
+  await expect(page.getByLabel("초심자용 키트")).not.toHaveValue("100");
   await expect(page.locator(".next-action-previous")).toHaveCount(1);
   await expect(page.locator(".next-action-current")).toHaveCount(1);
   await expect(page.locator(".next-action-previous")).toHaveCount(0, { timeout: 3_000 });
@@ -787,7 +779,7 @@ test("모바일 결과 탭에서는 대성공 버튼이 하단 액션바에만 �
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?statsEnv=disabled");
 
-  await page.getByLabel("초심자용 관리 키트").fill("100");
+  await page.getByLabel("초심자용 키트").fill("100");
   await page
     .getByRole("toolbar", { name: "모바일 작업" })
     .getByRole("button", { name: "계산하기", exact: true })
@@ -822,7 +814,7 @@ test("모바일 수동 키트 수정 필요 상태는 하단 계산 버튼에서
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?statsEnv=disabled");
 
-  await page.getByLabel("초심자용 관리 키트").fill("100");
+  await page.getByLabel("초심자용 키트").fill("100");
   const actionBar = page.getByRole("toolbar", { name: "모바일 작업" });
   await actionBar.getByRole("button", { name: "계산하기", exact: true }).click();
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({ timeout: 20_000 });
@@ -842,7 +834,7 @@ test("모바일 수동 키트 수정 필요 상태는 하단 계산 버튼에서
   ).toBeDisabled();
   await expect(page.locator("#stockEditNotice")).toBeVisible();
 
-  await page.getByLabel("초심자용 관리 키트").fill("90");
+  await page.getByLabel("초심자용 키트").fill("90");
   await expect(actionBar.getByRole("button", { name: "다시 계산", exact: true })).toBeEnabled();
 });
 
@@ -931,6 +923,50 @@ test("개인정보 안내는 데스크톱 푸터와 모바일 통계 탭 푸터�
 
   await page.locator(".mobile-tab").nth(2).click();
   await expect(page.locator("footer:visible")).toHaveCount(1);
+});
+
+test("모바일 통계 탭은 첫 프레임부터 footer 하단 여백을 실제 탭바 높이에 맞춘다", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?demoStats=1");
+
+  const samples = await page.evaluate(
+    () =>
+      new Promise<Array<{ actualHeight: number; declaredHeight: number }>>((resolve, reject) => {
+        const shell = document.querySelector<HTMLElement>(".app-shell");
+        const bottomBar = document.querySelector<HTMLElement>(".mobile-bottom-bar");
+        const statsTab = document.querySelector<HTMLButtonElement>("#mobile-tab-stats");
+        if (!shell || !bottomBar || !statsTab) {
+          reject(new Error("Missing mobile footer transition target."));
+          return;
+        }
+
+        const readSample = () => ({
+          actualHeight: Math.ceil(bottomBar.getBoundingClientRect().height),
+          declaredHeight: Number.parseFloat(shell.style.getPropertyValue("--mobile-bottom-height")),
+        });
+        const observer = new MutationObserver(() => {
+          if (shell.dataset.mobileTab !== "stats") return;
+          observer.disconnect();
+          const measured = [readSample()];
+          requestAnimationFrame(() => {
+            measured.push(readSample());
+            requestAnimationFrame(() => {
+              measured.push(readSample());
+              resolve(measured);
+            });
+          });
+        });
+        observer.observe(shell, { attributeFilter: ["data-mobile-tab"] });
+        statsTab.click();
+      }),
+  );
+
+  expect(samples).toHaveLength(3);
+  for (const sample of samples) {
+    expect(sample.declaredHeight).toBe(sample.actualHeight);
+  }
 });
 
 test("모바일 info-tip 텍스트는 말풍선 안에 머문다", async ({ page }) => {

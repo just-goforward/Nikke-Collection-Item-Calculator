@@ -42,7 +42,7 @@ const classes = {
   resetToast:
     "fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-pill bg-action px-4 py-2.5 text-[13px] font-semibold text-ice shadow-[0_14px_32px_rgba(10,18,30,0.35)] max-mobile:bottom-[calc(64px+env(safe-area-inset-bottom,0px))] max-mobile:max-w-[calc(100%-24px)] max-mobile:text-[12.5px]",
   resetToastButton:
-    "min-h-[30px] rounded-pill border-0 bg-[rgba(248,252,254,0.14)] px-3 text-[12.5px] font-bold text-ice",
+    "inline-flex min-h-[30px] items-center justify-center rounded-pill border-0 bg-[rgba(248,252,254,0.14)] px-3 text-[12.5px] font-bold leading-none text-ice",
   loadingOverlay:
     "fixed inset-0 z-50 grid place-items-center bg-[var(--overlay-bg)] px-4 backdrop-blur-[1px]",
   loadingPopup:
@@ -255,12 +255,16 @@ function MobileBottomBar({
   useLayoutEffect(() => {
     const bottomBar = bottomBarRef.current;
     if (!bottomBar) return undefined;
-    const updateHeight = () => onHeightChange(Math.ceil(bottomBar.getBoundingClientRect().height));
+    const updateHeight = () => {
+      const hasActionBar = Boolean(bottomBar.querySelector(".mobile-action-bar"));
+      if (hasActionBar !== (mobileTab !== "stats")) return;
+      onHeightChange(Math.ceil(bottomBar.getBoundingClientRect().height));
+    };
     updateHeight();
     const observer = new ResizeObserver(updateHeight);
     observer.observe(bottomBar);
     return () => observer.disconnect();
-  }, [onHeightChange]);
+  }, [mobileTab, onHeightChange]);
 
   return (
     <div className={classes.mobileBottom} ref={bottomBarRef}>

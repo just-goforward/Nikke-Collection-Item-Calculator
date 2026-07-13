@@ -29,19 +29,19 @@ const KIT_INPUTS: KitInputDefinition[] = [
   {
     kit: "blue",
     inputId: "blueStock",
-    labelKey: "kit.blue",
+    labelKey: "kit.bluePanel",
     expLabel: "",
   },
   {
     kit: "purple",
     inputId: "purpleStock",
-    labelKey: "kit.purple",
+    labelKey: "kit.purplePanel",
     expLabel: "",
   },
   {
     kit: "yellow",
     inputId: "yellowStock",
-    labelKey: "kit.yellow",
+    labelKey: "kit.yellowPanel",
     expLabel: "",
   },
 ];
@@ -76,7 +76,7 @@ const classes = {
   primaryButtonLocked:
     "disabled:opacity-100 disabled:border-2 disabled:border-yellow-kit disabled:bg-warning-soft disabled:text-warning disabled:shadow-[0_0_0_3px_rgba(230,170,38,0.22)]",
   secondaryButton:
-    "order-1 min-h-[42px] border-0 bg-transparent px-1 text-[13px] font-semibold text-muted underline underline-offset-[3px] transition-[color,transform] duration-[140ms] enabled:hover:text-text-strong enabled:active:translate-y-px min-[661px]:max-tablet:order-2 min-[661px]:max-tablet:min-h-[38px] min-[661px]:max-tablet:text-[12px]",
+    "order-1 inline-flex min-h-[42px] items-center justify-center border-0 bg-transparent px-1 text-[13px] font-semibold leading-none text-muted underline underline-offset-[3px] transition-[color,transform] duration-[140ms] enabled:hover:text-text-strong enabled:active:translate-y-px min-[661px]:max-tablet:order-2 min-[661px]:max-tablet:min-h-[38px] min-[661px]:max-tablet:text-[12px]",
   spinner:
     "inline-block size-[13px] animate-spin rounded-full border-2 border-[color-mix(in_srgb,var(--ice)_32%,transparent)] border-t-ice [body.theme-dark_&]:border-[rgba(42,12,18,0.24)] [body.theme-dark_&]:border-t-[#2a0c12]",
 } as const;

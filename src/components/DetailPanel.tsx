@@ -12,7 +12,13 @@ const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
   yellow: "kit.yellow",
 };
 
-const KIT_MOBILE_LABEL_KEYS: Record<Kit, MessageKey> = {
+const KIT_PANEL_LABEL_KEYS: Record<Kit, MessageKey> = {
+  blue: "kit.bluePanel",
+  purple: "kit.purplePanel",
+  yellow: "kit.yellowPanel",
+};
+
+const KIT_SHORT_LABEL_KEYS: Record<Kit, MessageKey> = {
   blue: "kit.blueShort",
   purple: "kit.purpleShort",
   yellow: "kit.yellowShort",
@@ -39,9 +45,9 @@ const classes = {
     "metric flex min-w-0 flex-col items-center justify-center rounded-card border border-border bg-surface-strong p-3 text-center max-tablet:px-2 max-tablet:py-2.5 max-mobile:rounded-control max-mobile:p-2",
   metricHighlight: "border-primary/35 [background:var(--green-soft)]",
   metricText:
-    "block text-[12px] font-semibold text-muted max-tablet:whitespace-nowrap max-tablet:text-[11px]",
+    "block text-[12px] font-semibold text-muted max-tablet:whitespace-nowrap max-tablet:text-[11px] max-mobile:flex max-mobile:min-h-[2.5em] max-mobile:items-center max-mobile:justify-center max-mobile:whitespace-normal max-mobile:text-[9.5px] max-mobile:leading-[1.25]",
   metricLabel:
-    "metric-label relative inline-block min-h-[1.2em] whitespace-normal leading-[1.2] text-xs font-semibold text-muted max-tablet:whitespace-nowrap max-tablet:text-[11px]",
+    "metric-label relative inline-flex min-h-[1.2em] items-center justify-center whitespace-normal leading-[1.2] text-xs font-semibold text-muted max-tablet:whitespace-nowrap max-tablet:text-[11px] max-mobile:min-h-[2.5em] max-mobile:whitespace-normal max-mobile:text-[9.5px] max-mobile:leading-[1.25]",
   metricLabelHighlight: "[color:var(--green-dark)]",
   metricValue:
     "mt-[5px] block text-[24px] font-semibold leading-[1.16] text-text-strong max-tablet:text-[clamp(16px,3.5vw,20px)] max-mobile:text-[16px]",
@@ -58,21 +64,30 @@ const classes = {
   infoTipBubbleOpen: "visible pointer-events-auto opacity-100",
   infoTipBubbleLeft: "right-0",
   infoTipBubbleRight: "left-0",
-  chip: "action-chip inline-flex items-center justify-center gap-[9px] max-mobile:gap-1.5",
+  chip: "action-chip action-chip-responsive grid w-full min-w-0 grid-cols-[16px_minmax(0,1fr)] items-center gap-2 max-mobile:grid-cols-[12px_minmax(0,1fr)] max-mobile:gap-1.5",
   chipDot:
     "inline-block aspect-square size-4 flex-none rounded-full shadow-[0_0_0_3px_rgba(255,255,255,0.18)] max-mobile:size-3 max-mobile:shadow-none",
   chipText:
-    "action-chip-text inline-flex items-baseline gap-0 whitespace-nowrap max-mobile:text-[11px]",
-  chipName: "action-chip-name inline",
-  chipSeparator: "action-chip-separator inline whitespace-pre",
-  chipCount: "action-chip-count inline",
-  tableWrap: "table-wrap overflow-x-auto",
-  table: "w-full border-collapse max-mobile:w-max max-mobile:min-w-full",
+    "action-chip-text grid min-w-0 grid-cols-[minmax(0,var(--action-name-track-width))_auto_var(--action-count-width)] items-baseline justify-start whitespace-nowrap max-mobile:text-[10px]",
+  chipName: "action-chip-name min-w-0 justify-self-start whitespace-nowrap",
+  chipNameFull: "action-chip-name-full",
+  chipNamePanel: "action-chip-name-panel",
+  chipNameShort: "action-chip-name-short",
+  chipSeparator: "action-chip-separator justify-self-end whitespace-pre",
+  chipCount:
+    "action-chip-count w-[var(--action-count-width)] justify-self-start whitespace-nowrap text-left tabular-nums",
+  tableWrap: "table-wrap overflow-x-hidden",
+  table: "w-full table-fixed border-collapse",
+  tableColCandidate: "w-[17%] max-mobile:w-[20%]",
+  tableColAction: "w-[39%] max-mobile:w-[44%]",
+  tableColProbability: "w-[20%] max-mobile:w-[18%]",
+  tableColConsumption: "w-[24%] max-mobile:w-[18%]",
   tableCell:
-    "whitespace-nowrap px-3 py-2 align-middle text-left max-mobile:px-2 max-mobile:py-2 max-mobile:text-[11px] max-mobile:leading-tight",
+    "min-w-0 px-3 py-2 align-middle text-left [overflow-wrap:break-word] max-mobile:px-1 max-mobile:py-2 max-mobile:text-[10.5px] max-mobile:leading-tight",
   tableHeadCell:
     "border-y border-[var(--stats-divider-soft)] bg-surface-strong text-[12px] font-semibold text-text-soft max-mobile:text-[10.5px]",
   tableBodyCell: "text-[13px] font-medium text-text-soft max-mobile:text-[11px]",
+  tableActionCell: "overflow-hidden",
   tableBodyCellSeparated: "border-t border-[var(--stats-divider-soft)]",
   tablePercent:
     "inline-flex items-baseline justify-start whitespace-nowrap text-[13px] tabular-nums tracking-normal",
@@ -115,15 +130,23 @@ function KitChip({
   count: number;
 }) {
   const { formatCount, t } = useI18n();
+  const countLabel = formatCount(count, "use");
   return (
     <span className={`${classes.chip} ${kit}`}>
+      <span className="sr-only">{`${t(KIT_LABEL_KEYS[kit])} × ${countLabel}`}</span>
       <i aria-hidden="true" className={`${classes.chipDot} ${kitDotClass[kit]}`}></i>
-      <span className={classes.chipText}>
-        <span className={classes.chipName} data-mobile-label={t(KIT_MOBILE_LABEL_KEYS[kit])}>
+      <span className={classes.chipText} aria-hidden="true">
+        <span className={`${classes.chipName} ${classes.chipNameFull}`}>
           {t(KIT_LABEL_KEYS[kit])}
         </span>
+        <span className={`${classes.chipName} ${classes.chipNamePanel}`}>
+          {t(KIT_PANEL_LABEL_KEYS[kit])}
+        </span>
+        <span className={`${classes.chipName} ${classes.chipNameShort}`}>
+          {t(KIT_SHORT_LABEL_KEYS[kit])}
+        </span>
         <span className={classes.chipSeparator}>{"\u00a0×\u00a0"}</span>
-        <span className={classes.chipCount}>{formatCount(count, "use")}</span>
+        <span className={classes.chipCount}>{countLabel}</span>
       </span>
     </span>
   );
@@ -366,6 +389,12 @@ function CandidateTable({ view }: { view: MetricsDetailView }) {
   return (
     <div className={classes.tableWrap}>
       <table className={classes.table}>
+        <colgroup>
+          <col className={classes.tableColCandidate} />
+          <col className={classes.tableColAction} />
+          <col className={classes.tableColProbability} />
+          <col className={classes.tableColConsumption} />
+        </colgroup>
         <thead>
           <tr>
             <th className={`${classes.tableCell} ${classes.tableHeadCell}`}>
@@ -404,7 +433,7 @@ function CandidateTable({ view }: { view: MetricsDetailView }) {
                 ) : null}
               </td>
               <td
-                className={`${classes.tableCell} ${classes.tableBodyCell} ${
+                className={`${classes.tableCell} ${classes.tableBodyCell} ${classes.tableActionCell} ${
                   index > 0 ? classes.tableBodyCellSeparated : ""
                 }`}
               >

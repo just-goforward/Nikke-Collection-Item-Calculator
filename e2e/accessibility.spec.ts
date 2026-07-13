@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
+import { test } from "./test";
 
 const PORT = 4175;
 let previewServer: PreviewServer | null = null;

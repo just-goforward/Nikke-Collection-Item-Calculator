@@ -1,7 +1,7 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
-
 import { mockStagingStatsEndpoints, serveStagingDocument } from "./smoke.helpers";
+import { test } from "./test";
 
 const PORT = 4175;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
@@ -168,7 +168,7 @@ async function solveSr10(page: Page, yellow: string) {
     .getByRole("button", { name: "SR" })
     .click();
   await page.getByRole("button", { name: "10단계", exact: true }).click();
-  await page.getByLabel("상급자용 관리 키트").fill(yellow);
+  await page.getByLabel("상급자용 키트").fill(yellow);
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible({ timeout: 20_000 });
 }
@@ -211,7 +211,7 @@ test("input edits let shared validation finish without terminating its Worker", 
   const loadingCard = await page.locator(".validation-chart-card").boundingBox();
   expect(loadingCard?.height || 0).toBeGreaterThanOrEqual(112);
 
-  await page.getByLabel("상급자용 관리 키트").fill("90");
+  await page.getByLabel("상급자용 키트").fill("90");
   await page.getByRole("button", { name: "9단계", exact: true }).click();
   await expect(
     page
@@ -236,7 +236,7 @@ test("a new solve preempts edited-input validation before starting replacement w
   await openValidation(page);
   await expect(page.locator(".validation-chart-loading")).toBeVisible();
   await expect.poll(async () => (await workerProbe(page)).validationPosted).toBe(1);
-  await page.getByLabel("상급자용 관리 키트").fill("90");
+  await page.getByLabel("상급자용 키트").fill("90");
   await page.getByRole("button", { name: "9단계", exact: true }).click();
   await expect(
     page
@@ -284,9 +284,9 @@ test("min-E[f] capacity fallback restarts in a fresh phase2 Worker", async ({ pa
     });
   });
   await page.goto(`${ORIGIN}/?statsEnv=staging`);
-  await page.getByLabel("초심자용 관리 키트").fill("400");
-  await page.getByLabel("중급자용 관리 키트").fill("200");
-  await page.getByLabel("상급자용 관리 키트").fill("100");
+  await page.getByLabel("초심자용 키트").fill("400");
+  await page.getByLabel("중급자용 키트").fill("200");
+  await page.getByLabel("상급자용 키트").fill("100");
   await page.locator("#calculateButton").click();
 
   await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible({ timeout: 35_000 });

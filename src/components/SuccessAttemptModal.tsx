@@ -40,9 +40,9 @@ const classes = {
   actions:
     "attempt-modal-actions flex items-center justify-between gap-2 border-t border-[var(--stats-divider-soft)] pt-3",
   laterButton:
-    "min-h-9 border-0 bg-transparent px-1 text-[12px] font-semibold text-muted underline underline-offset-[3px]",
+    "inline-flex min-h-9 items-center justify-center border-0 bg-transparent px-1 text-[12px] font-semibold leading-none text-muted underline underline-offset-[3px]",
   directButton:
-    "min-h-9 border border-border bg-button px-3.5 text-[12.5px] font-bold text-text-soft",
+    "inline-flex min-h-9 items-center justify-center border border-border bg-button px-3.5 text-[12.5px] font-bold leading-none text-text-soft",
 } as const;
 
 function visibleFocusableElements(dialog: HTMLElement) {

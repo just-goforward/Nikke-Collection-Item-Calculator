@@ -124,6 +124,23 @@ html[data-locale="ja"] {
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
 }
 
+html[data-locale-font-ready="false"] {
+  --app-font-sans: -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue",
+    "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+}
+
+html[data-locale="en"][data-locale-font-ready="false"] {
+  --app-font-sans: -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue",
+    "Segoe UI", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+}
+
+html[data-locale="ja"][data-locale-font-ready="false"] {
+  --app-font-sans: -apple-system, BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue",
+    "Segoe UI", "Hiragino Sans", "Apple SD Gothic Neo", Meiryo, "Noto Sans JP", "Noto Sans KR",
+    "Malgun Gothic", Osaka, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+}
+
 @layer base {
 html {
   overflow-y: scroll;
@@ -679,29 +696,116 @@ h2 {
   }
 }
 
-@media (max-width: 660px) {
-  .table-wrap .action-chip-name[data-mobile-label],
-  .table-wrap .action-chip-separator {
-    font-size: 0;
+.table-wrap {
+  --action-count-width: 4.5ch;
+  --action-name-track-width: 8.75em;
+
+  container-type: inline-size;
+}
+
+html[data-locale="en"] .table-wrap {
+  --action-count-width: 7ch;
+  --action-name-track-width: 14em;
+}
+
+html[data-locale="ja"] .table-wrap {
+  --action-name-track-width: 11em;
+}
+
+.action-chip-name-panel,
+.action-chip-name-short {
+  display: none;
+}
+
+@container (max-width: 720px) {
+  .table-wrap .action-chip-text {
+    --action-name-track-width: 6.5em;
   }
 
-  .table-wrap .action-chip-name[data-mobile-label]::before {
-    content: attr(data-mobile-label);
-    font-size: 11px;
+  html[data-locale="en"] .table-wrap .action-chip-text {
+    --action-name-track-width: 8.5em;
   }
 
-  .table-wrap .action-chip-separator::before {
-    content: " ";
-    font-size: 11px;
+  html[data-locale="ja"] .table-wrap .action-chip-text {
+    --action-name-track-width: 7em;
+  }
+
+  .table-wrap .action-chip-name-full {
+    display: none;
+  }
+
+  .table-wrap .action-chip-name-panel {
+    display: inline;
   }
 }
 
-.table-wrap {
-  container-type: inline-size;
+@container (max-width: 500px) {
+  .table-wrap .action-chip-text {
+    --action-name-track-width: 4em;
+  }
+
+  html[data-locale="en"] .table-wrap .action-chip-text {
+    --action-name-track-width: 6.5em;
+  }
+
+  .table-wrap .action-chip-name-panel {
+    display: none;
+  }
+
+  .table-wrap .action-chip-name-short {
+    display: inline;
+  }
+}
+
+@container (max-width: 360px) {
+  .table-wrap .action-chip-responsive {
+    column-gap: 4px;
+    grid-template-columns: 10px minmax(0, 1fr);
+  }
+
+  .table-wrap .action-chip-text {
+    font-size: 9.5px;
+  }
+
+  .table-wrap .action-chip-separator {
+    display: none;
+  }
+
+  .table-wrap .action-chip-count {
+    margin-inline-start: 0.35em;
+  }
 }
 
 .candidate-probability-set {
   display: inline-grid;
+}
+
+html[data-locale="ja"] .outcome-copy,
+html[data-locale="ja"] .outcome-title-text {
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+html[data-locale="ja"] .outcome-title-text {
+  white-space: normal;
+}
+
+@container (max-width: 600px) {
+  .recommendation .outcome-panel {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .recommendation .outcome-title-text,
+  .recommendation .change-note {
+    white-space: normal;
+    word-break: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .recommendation .outcome-action-group {
+    width: 100%;
+  }
 }
 
 .candidate-probability {

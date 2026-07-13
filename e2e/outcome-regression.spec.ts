@@ -1,5 +1,6 @@
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
+import { test } from "./test";
 
 const PORT = 4176;
 let previewServer: PreviewServer | null = null;
@@ -44,7 +45,7 @@ async function confirmOutcome(page: Page, locator: Locator, outcome: "대성공 
 test("보유 키트 입력값이 실제로 바뀌지 않으면 직전 결과를 stale로 바꾸지 않는다", async ({
   page,
 }) => {
-  await page.getByLabel("초심자용 관리 키트").fill("100");
+  await page.getByLabel("초심자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
 
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({
@@ -52,7 +53,7 @@ test("보유 키트 입력값이 실제로 바뀌지 않으면 직전 결과를 
   });
   await expect(page.getByRole("heading", { name: "대성공 여부" })).toBeVisible();
 
-  const blueStock = page.getByLabel("초심자용 관리 키트");
+  const blueStock = page.getByLabel("초심자용 키트");
   await blueStock.focus();
   await blueStock.blur();
 
@@ -67,7 +68,7 @@ test("보유 키트 입력값이 실제로 바뀌지 않으면 직전 결과를 
 
 test("R 10 대성공 O로 R 15에 도달하면 SR 5 교체 후 키트 수정이 필요하다", async ({ page }) => {
   await page.getByRole("button", { name: "10단계", exact: true }).click();
-  await page.getByLabel("초심자용 관리 키트").fill("100");
+  await page.getByLabel("초심자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({
     timeout: 20_000,
@@ -95,7 +96,7 @@ test("R 10 대성공 O로 R 15에 도달하면 SR 5 교체 후 키트 수정이 
 test("모바일 R 10 대성공 O는 결과 탭에 SR 5 교체 버튼을 먼저 표시한다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "10단계", exact: true }).click();
-  await page.getByLabel("초심자용 관리 키트").fill("100");
+  await page.getByLabel("초심자용 키트").fill("100");
 
   const actionBar = page.getByRole("toolbar", { name: "모바일 작업" });
   await actionBar.getByRole("button", { name: "계산하기", exact: true }).click();
@@ -137,7 +138,7 @@ test("SR 단회 대성공이 SR 15에 도달하면 키트 수정 잠금 없이 �
     .click();
   await page.getByRole("button", { name: "14단계", exact: true }).click();
 
-  await page.getByLabel("상급자용 관리 키트").fill("10");
+  await page.getByLabel("상급자용 키트").fill("10");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({
     timeout: 20_000,
@@ -148,7 +149,7 @@ test("SR 단회 대성공이 SR 15에 도달하면 키트 수정 잠금 없이 �
     "대성공 O",
   );
 
-  await expect(page.getByLabel("상급자용 관리 키트")).toHaveValue("10");
+  await expect(page.getByLabel("상급자용 키트")).toHaveValue("10");
   await expect(page.locator("#stockEditNotice")).toBeHidden();
   await expect(page.getByText("최종 단계에 도달했습니다.")).toBeVisible();
   await expect(page.getByRole("button", { name: "키트 수정 필요", exact: true })).toHaveCount(0);
