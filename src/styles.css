@@ -900,6 +900,10 @@ html[data-locale="ja"] .outcome-panel.is-holding-ring .outcome-action-group {
   --outcome-actions-width: 320px;
 }
 
+html[data-locale="ko"] .outcome-panel.is-holding-ring .outcome-action-group {
+  --outcome-actions-width: 284px;
+}
+
 @media (max-width: 660px) {
   html[data-locale="ko"] .next-action .action-chip-name-full,
   html[data-locale="ja"] .next-action .action-chip-name-full {
