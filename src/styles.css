@@ -182,7 +182,7 @@ html[data-locale="en"] .mobile-tabs {
 }
 
 html[data-locale="en"] .theme-menu-control {
-  --text-optical-segment-y: 1px;
+  --text-optical-segment-y: 0.5px;
 }
 
 @media (max-width: 660px) {
