@@ -897,7 +897,7 @@ html[data-locale="ja"] .outcome-action-group {
 }
 
 html[data-locale="ja"] .outcome-panel.is-holding-ring .outcome-action-group {
-  --outcome-actions-width: 320px;
+  --outcome-actions-width: 360px;
 }
 
 html[data-locale="ko"] .outcome-panel.is-holding-ring .outcome-action-group {
