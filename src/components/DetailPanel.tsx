@@ -1,4 +1,13 @@
-import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useDismissableLayer } from "../hooks/useDismissableLayer";
 import { useI18n } from "../i18n/locale";
 import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
@@ -45,9 +54,9 @@ const classes = {
     "metric flex min-w-0 flex-col items-center justify-center rounded-card border border-border bg-surface-strong p-3 text-center max-tablet:px-2 max-tablet:py-2.5 max-mobile:rounded-control max-mobile:p-2",
   metricHighlight: "border-primary/35 [background:var(--green-soft)]",
   metricText:
-    "block text-[12px] font-semibold text-muted max-tablet:whitespace-nowrap max-tablet:text-[11px] max-mobile:flex max-mobile:min-h-[2.5em] max-mobile:items-center max-mobile:justify-center max-mobile:whitespace-normal max-mobile:text-[9.5px] max-mobile:leading-[1.25]",
+    "metric-copy block text-[12px] font-semibold text-muted max-tablet:whitespace-nowrap max-tablet:text-[11px] max-mobile:flex max-mobile:items-center max-mobile:justify-center max-mobile:whitespace-normal max-mobile:text-[9.5px] max-mobile:leading-[1.25]",
   metricLabel:
-    "metric-label relative inline-flex min-h-[1.2em] items-center justify-center whitespace-normal leading-[1.2] text-xs font-semibold text-muted max-tablet:whitespace-nowrap max-tablet:text-[11px] max-mobile:min-h-[2.5em] max-mobile:whitespace-normal max-mobile:text-[9.5px] max-mobile:leading-[1.25]",
+    "metric-copy metric-label relative inline-flex min-h-[1.2em] items-center justify-center whitespace-normal leading-[1.2] text-xs font-semibold text-muted max-tablet:whitespace-nowrap max-tablet:text-[11px] max-mobile:whitespace-normal max-mobile:text-[9.5px] max-mobile:leading-[1.25]",
   metricLabelHighlight: "[color:var(--green-dark)]",
   metricValue:
     "mt-[5px] block text-[24px] font-semibold leading-[1.16] text-text-strong max-tablet:text-[clamp(16px,3.5vw,20px)] max-mobile:text-[16px]",
@@ -68,22 +77,22 @@ const classes = {
   chipDot:
     "inline-block aspect-square size-4 flex-none rounded-full shadow-[0_0_0_3px_rgba(255,255,255,0.18)] max-mobile:size-3 max-mobile:shadow-none",
   chipText:
-    "action-chip-text grid min-w-0 grid-cols-[minmax(0,var(--action-name-track-width))_auto_var(--action-count-width)] items-baseline justify-start whitespace-nowrap max-mobile:text-[10px]",
+    "action-chip-text grid min-w-0 grid-cols-[minmax(0,var(--action-name-track-width))_auto_max-content] items-baseline justify-start whitespace-nowrap max-mobile:text-[10px]",
   chipName: "action-chip-name min-w-0 justify-self-start whitespace-nowrap",
   chipNameFull: "action-chip-name-full",
   chipNamePanel: "action-chip-name-panel",
   chipNameShort: "action-chip-name-short",
   chipSeparator: "action-chip-separator justify-self-end whitespace-pre",
-  chipCount:
-    "action-chip-count w-[var(--action-count-width)] justify-self-start whitespace-nowrap text-left tabular-nums",
+  chipCount: "action-chip-count justify-self-start whitespace-nowrap text-left tabular-nums",
   tableWrap: "table-wrap overflow-x-hidden",
   table: "w-full table-fixed border-collapse",
-  tableColCandidate: "w-[17%] max-mobile:w-[20%]",
-  tableColAction: "w-[39%] max-mobile:w-[44%]",
-  tableColProbability: "w-[20%] max-mobile:w-[18%]",
-  tableColConsumption: "w-[24%] max-mobile:w-[18%]",
+  tableColCandidate: "w-[var(--candidate-col-width)]",
+  tableColAction: "w-[var(--action-col-width)]",
+  tableColProbability: "w-[var(--probability-col-width)]",
+  tableColConsumption: "w-[var(--consumption-col-width)]",
   tableCell:
-    "min-w-0 px-3 py-2 align-middle text-left [overflow-wrap:break-word] max-mobile:px-1 max-mobile:py-2 max-mobile:text-[10.5px] max-mobile:leading-tight",
+    "min-w-0 px-1 py-2 align-middle text-left [overflow-wrap:break-word] max-mobile:py-2 max-mobile:text-[10.5px] max-mobile:leading-tight",
+  tableCandidateCell: "candidate-rank-cell",
   tableHeadCell:
     "border-y border-[var(--stats-divider-soft)] bg-surface-strong text-[12px] font-semibold text-text-soft max-mobile:text-[10.5px]",
   tableBodyCell: "text-[13px] font-medium text-text-soft max-mobile:text-[11px]",
@@ -384,10 +393,86 @@ function DetailMetricGrid({ view }: { view: MetricsDetailView }) {
   );
 }
 
+function useResponsiveCandidateTable(tableWrapRef: RefObject<HTMLDivElement | null>) {
+  useLayoutEffect(() => {
+    const tableWrap = tableWrapRef.current;
+    if (!tableWrap) return;
+
+    const actionLabelVariants = ["full", "panel", "short"] as const;
+    const alignVisibleActionNames = () => {
+      tableWrap.style.setProperty("--action-name-track-width", "max-content");
+      const visibleNames = Array.from(
+        tableWrap.querySelectorAll<HTMLElement>(".action-chip-name"),
+      ).filter((name) => getComputedStyle(name).display !== "none");
+      const longestName = Math.max(0, ...visibleNames.map((name) => name.scrollWidth));
+      tableWrap.style.setProperty("--action-name-track-width", `${Math.ceil(longestName)}px`);
+    };
+
+    const actionLabelsFit = () => {
+      alignVisibleActionNames();
+      const labelsFit = Array.from(
+        tableWrap.querySelectorAll<HTMLElement>(".action-chip-text"),
+      ).every((chip) => chip.scrollWidth <= chip.clientWidth + 1);
+      const countStarts = Array.from(
+        tableWrap.querySelectorAll<HTMLElement>(".action-chip-count"),
+        (count) => count.getBoundingClientRect().left,
+      );
+      const firstCountStart = countStarts[0];
+      const countsAlign =
+        firstCountStart === undefined ||
+        countStarts.every((start) => Math.abs(start - firstCountStart) <= 1);
+      return labelsFit && countsAlign;
+    };
+
+    const headerLabelsFit = () =>
+      Array.from(tableWrap.querySelectorAll<HTMLElement>(".candidate-header-full")).every(
+        (label) => {
+          const cell = label.closest<HTMLElement>("th");
+          if (!cell) return false;
+          const style = getComputedStyle(cell);
+          const available =
+            cell.clientWidth -
+            Number.parseFloat(style.paddingInlineStart) -
+            Number.parseFloat(style.paddingInlineEnd);
+          const range = document.createRange();
+          range.selectNodeContents(label);
+          return (
+            range.getClientRects().length === 1 &&
+            range.getBoundingClientRect().width <= available + 1
+          );
+        },
+      );
+
+    const alignActionNames = () => {
+      for (const variant of actionLabelVariants) {
+        tableWrap.setAttribute("data-action-label", variant);
+        if (actionLabelsFit()) break;
+      }
+      tableWrap.setAttribute("data-header-label", "full");
+      if (!headerLabelsFit()) tableWrap.setAttribute("data-header-label", "compact");
+      alignVisibleActionNames();
+    };
+
+    alignActionNames();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(alignActionNames);
+    observer.observe(tableWrap);
+    return () => observer.disconnect();
+  });
+}
+
 function CandidateTable({ view }: { view: MetricsDetailView }) {
   const { t, text } = useI18n();
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  useResponsiveCandidateTable(tableWrapRef);
+
   return (
-    <div className={classes.tableWrap}>
+    <div
+      className={classes.tableWrap}
+      data-action-label="full"
+      data-header-label="full"
+      ref={tableWrapRef}
+    >
       <table className={classes.table}>
         <colgroup>
           <col className={classes.tableColCandidate} />
@@ -397,19 +482,21 @@ function CandidateTable({ view }: { view: MetricsDetailView }) {
         </colgroup>
         <thead>
           <tr>
-            <th className={`${classes.tableCell} ${classes.tableHeadCell}`}>
+            <th
+              className={`${classes.tableCell} ${classes.tableHeadCell} ${classes.tableCandidateCell}`}
+            >
               {t("detail.candidate")}
             </th>
             <th className={`${classes.tableCell} ${classes.tableHeadCell}`}>
               {t("detail.firstAction")}
             </th>
             <th className={`${classes.tableCell} ${classes.tableHeadCell}`}>
-              <span className="max-mobile:hidden">{t("detail.sr15Probability")}</span>
-              <span className="hidden max-mobile:inline">{t("detail.reachRate")}</span>
+              <span className="candidate-header-full">{t("detail.sr15Probability")}</span>
+              <span className="candidate-header-compact">{t("detail.reachRate")}</span>
             </th>
             <th className={`${classes.tableCell} ${classes.tableHeadCell}`}>
-              <span className="max-mobile:hidden">{t("detail.expectedConsumption")}</span>
-              <span className="hidden max-mobile:inline">{t("detail.consumption")}</span>
+              <span className="candidate-header-full">{t("detail.expectedConsumption")}</span>
+              <span className="candidate-header-compact">{t("detail.consumption")}</span>
             </th>
           </tr>
         </thead>
@@ -420,7 +507,7 @@ function CandidateTable({ view }: { view: MetricsDetailView }) {
               key={`${candidate.kit}-${candidate.count}-${candidate.successProbability}`}
             >
               <td
-                className={`${classes.tableCell} ${classes.tableBodyCell} ${
+                className={`${classes.tableCell} ${classes.tableBodyCell} ${classes.tableCandidateCell} ${
                   index > 0 ? classes.tableBodyCellSeparated : ""
                 }`}
               >

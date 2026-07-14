@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "../i18n/locale";
 import type { Grade } from "../types";
 import type { StatePanelModel } from "../ui-types";
+import { AlignedText } from "./AlignedText";
 
 const LEVEL_ROWS = [
   { label: "0~4", levels: [0, 1, 2, 3, 4] },
@@ -21,7 +22,6 @@ const classes = {
     "grade-row grid grid-cols-[42px_repeat(2,minmax(0,1fr))] gap-[5px] px-[18px] pb-2.5 pt-4 max-mobile:grid-cols-[28px_repeat(2,minmax(0,1fr))] max-mobile:gap-1.5 max-mobile:px-3 max-mobile:pb-1.5 max-mobile:pt-2",
   segmentButton:
     "seg-button grid min-h-10 place-items-center border leading-none transition-[background-color,color,border-color,box-shadow,text-shadow,filter] duration-[220ms] max-mobile:min-h-[30px] max-mobile:px-2 max-mobile:py-0 max-mobile:text-[12.5px]",
-  gradeOpticalLabel: "state-grade-optical-label relative top-px block leading-none",
   inactiveButton:
     "border-border bg-surface-strong text-muted [text-shadow:none] enabled:hover:border-grade-active-strong enabled:hover:text-text-soft enabled:hover:brightness-[0.98]",
   activeButton:
@@ -34,14 +34,13 @@ const classes = {
     "whitespace-nowrap text-[11px] font-bold leading-none text-muted max-mobile:text-[10px]",
   levelButton:
     "level-button relative grid min-h-9 min-w-0 place-items-center whitespace-nowrap border px-2 text-[13px] font-bold leading-none transition-[background-color,color,border-color,box-shadow,text-shadow,filter] duration-[220ms] max-mobile:min-h-[30px] max-mobile:px-0.5 max-mobile:py-0 max-mobile:text-[10.5px]",
-  levelOpticalLabel: "state-level-optical-label relative block leading-none max-mobile:top-px",
   activeLevelButton: "z-[2] shadow-[0_0_0_3px_var(--grade-active-soft)]",
   expGrid:
     "field-grid exp-grid grid grid-cols-[minmax(0,1fr)_16px_minmax(0,1fr)] items-end gap-2.5 border-t border-border px-[18px] pb-4 pt-3.5 font-medium max-mobile:grid-cols-[minmax(0,1fr)_12px_minmax(0,1fr)] max-mobile:gap-1.5 max-mobile:px-3 max-mobile:pb-[9px] max-mobile:pt-2",
   fieldControl: "grid gap-[7px]",
   fieldLabel: "text-[13px] font-medium text-muted max-mobile:text-[11px]",
   expInput:
-    "text-center text-[15px] font-semibold tabular-nums text-text-strong placeholder:text-text-strong/75 focus:placeholder:text-transparent min-[661px]:min-h-9 min-[661px]:px-[10px] min-[661px]:py-[6px] min-[661px]:text-[14px] max-mobile:min-h-[34px] max-mobile:px-[9px] max-mobile:py-1.5 max-mobile:text-[13px]",
+    "numeric-text-control current-exp-control text-center text-[15px] font-semibold tabular-nums text-text-strong placeholder:text-text-strong/75 focus:placeholder:text-transparent min-[661px]:px-[10px] min-[661px]:text-[14px] max-mobile:px-[9px] max-mobile:text-[13px]",
   expDivider:
     "exp-divider grid min-h-[42px] place-items-center text-[18px] font-semibold text-muted min-[661px]:min-h-9 max-mobile:min-h-[34px] max-mobile:text-[16px]",
   readonlyValue:
@@ -92,7 +91,7 @@ function GradeSelector({
           key={grade}
           onClick={() => onGradeChange(grade)}
         >
-          <span className={classes.gradeOpticalLabel}>{grade}</span>
+          <AlignedText alignmentRole="segment">{grade}</AlignedText>
         </button>
       ))}
     </div>
@@ -129,7 +128,7 @@ function LevelSelector({
               key={level}
               onClick={() => onLevelChange(level)}
             >
-              <span className={classes.levelOpticalLabel}>{level}</span>
+              <AlignedText alignmentRole="segment">{level}</AlignedText>
             </button>
           ))}
         </div>
@@ -146,7 +145,7 @@ export default function StatePanel({
   onExpChange,
 }: StatePanelProps) {
   const { formatInteger, t } = useI18n();
-  const [expText, setExpText] = useState(expValueToText(state.exp));
+  const [expText, setExpText] = useState(() => expValueToText(state.exp));
 
   useEffect(() => {
     setExpText(expValueToText(state.exp));
@@ -160,7 +159,7 @@ export default function StatePanel({
   };
 
   return (
-    <section className={classes.panel} aria-disabled={disabled}>
+    <section className={classes.panel}>
       {disabled ? <span className={classes.staleOverlay} aria-hidden="true" /> : null}
       <div className={classes.heading}>
         <h2>{t("state.current")}</h2>

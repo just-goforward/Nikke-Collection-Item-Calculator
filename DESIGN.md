@@ -104,7 +104,7 @@ Additional declared implementation colors:
 - `#21102c`, dark SR active text.
 - `#241900`, light success-button text.
 - `#241a00`, dark success-button text.
-- `#22b573` and `#46d28f`, positive stats gradient.
+- `#22b573`, `#2fbf7e`, and `#46d28f`, positive stats gradients.
 - `#ef5350` and `#ff8a65`, negative stats gradient.
 - `#ee7a87`, `#f48f99`, `#d6646f`, dark primary action states.
 - `#2a0c12`, dark primary action text.
@@ -132,6 +132,14 @@ Type tokens:
 - Metric value: 21px desktop, 13-16px compact, 600, 1.16 line-height.
 - Action value: 24-38px clamp desktop, 18-24px clamp mobile, 800, 1.05 line-height.
 - Numeric text uses tabular alignment where already declared.
+
+Vertical alignment contract:
+- Interactive one-line labels use `AlignedText`; the control owns geometric centering and the inner label owns optical correction.
+- Roles are `segment`, `action`, and `status`. Each role has an explicit unit line-height and a `--text-optical-*-y` token.
+- Optical offsets are limited to `-1px`, `0px`, or `1px`. They may vary by locale and control context only after cross-engine measurement; OS and browser sniffing are forbidden.
+- Selected, unselected, hover, and focus states must keep the same height, padding, border width, font weight, and line-height. State styling may change color, background, shadow, or an absolutely positioned thumb.
+- Numeric inputs use the separate `numeric-text-control` contract. Placeholder, value, caret, and selection share the same explicit height, line-height, and balanced block padding; transforms are forbidden on inputs.
+- Geometry and glyph ink are distinct checks: line-box center delta must be at most 0.5 CSS px and measured ink center delta at most 1 CSS px.
 
 ## Spacing
 
@@ -191,6 +199,13 @@ Stats:
 - Labels use `--muted` only when contrast passes normal text requirements.
 - Comparison pills use `--surface-raised`, `--grade-active-soft`, `--line`, and `--muted`.
 - Rate bars use semantic positive, negative, and neutral gradients already declared in `statsPanelStyles`.
+
+Localized responsive layout:
+- Prefer intrinsic sizing, wrapping, and measured content fit over a breakpoint chosen for the longest locale.
+- Candidate labels use the longest variant that fits the current table column without horizontal scrolling.
+- The outcome decision stays horizontal while its copy and actions fit; only the overflowing state stacks.
+- Tablet stock width follows the intrinsic one-line kit label and fixed input width instead of a shared locale maximum.
+- Stats columns use a 300px CJK content floor and a 450px English content floor before collapsing to one column.
 
 Tooltip:
 - Tooltip surface is dark neutral, fixed-positioned above content, and uses white text from the existing tooltip token set.

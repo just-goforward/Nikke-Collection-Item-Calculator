@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { statsSubmissionConfig } from "../lib/statsRuntime";
 import {
@@ -20,12 +20,6 @@ export function useStatsSubmission(onKitResultCommitted: () => void) {
   const turnstileReadyPromiseRef = useRef<Promise<TurnstileApi> | null>(null);
   const providerRef = useRef<TurnstileTokenProvider | null>(null);
   const providerSiteKeyRef = useRef<string | null>(null);
-  const submitAttemptRef = useRef<(envelope: StatsSubmissionEnvelope) => Promise<void>>(
-    async () => undefined,
-  );
-  const queueRef = useRef<StatsSubmissionQueue | null>(null);
-
-  callbackRef.current = onKitResultCommitted;
 
   const loadTurnstile = useCallback(async (): Promise<TurnstileApi> => {
     return loadTurnstileApi(turnstileReadyPromiseRef);
@@ -41,24 +35,32 @@ export function useStatsSubmission(onKitResultCommitted: () => void) {
     },
     [getProvider],
   );
+  const submitAttemptRef = useRef(submitAttempt);
 
-  submitAttemptRef.current = submitAttempt;
-  if (!queueRef.current) {
-    queueRef.current = new StatsSubmissionQueue((envelope) => submitAttemptRef.current(envelope));
-  }
+  useLayoutEffect(() => {
+    callbackRef.current = onKitResultCommitted;
+    submitAttemptRef.current = submitAttempt;
+  }, [onKitResultCommitted, submitAttempt]);
 
-  const queueStatsEvent = useCallback((event: StatsSubmissionEvent): void => {
-    if (!statsSubmissionConfig()) return;
-    const envelope = makeStatsSubmissionEnvelope(event);
-    void queueRef.current
-      ?.enqueue(envelope)
-      .then(() => {
-        if (event.kind === "kit_result") callbackRef.current();
-      })
-      .catch((error) => {
-        console.warn("Statistics event was not submitted.", error);
-      });
-  }, []);
+  const [queue] = useState(
+    () => new StatsSubmissionQueue((envelope) => submitAttemptRef.current(envelope)),
+  );
+
+  const queueStatsEvent = useCallback(
+    (event: StatsSubmissionEvent): void => {
+      if (!statsSubmissionConfig()) return;
+      const envelope = makeStatsSubmissionEnvelope(event);
+      void queue
+        .enqueue(envelope)
+        .then(() => {
+          if (event.kind === "kit_result") callbackRef.current();
+        })
+        .catch((error) => {
+          console.warn("Statistics event was not submitted.", error);
+        });
+    },
+    [queue],
+  );
 
   useEffect(
     () => () => {

@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, useEffect } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
 
 import { useAnimatedStateProgress } from "../hooks/useAnimatedStateProgress";
 import { useI18n } from "../i18n/locale";
@@ -13,6 +13,7 @@ import type {
   StatePanelModel,
 } from "../ui-types";
 import { presentOutcomePreview } from "../view-models/outcomePresentation";
+import { AlignedText } from "./AlignedText";
 import { STATE_FEEDBACK_VISIBLE_MS, stateFeedbackAnimations } from "./stateFeedbackAnimations";
 
 const RESULT_KIT_KEYS: Record<ResultKit, MessageKey> = {
@@ -20,6 +21,12 @@ const RESULT_KIT_KEYS: Record<ResultKit, MessageKey> = {
   purple: "kit.purple",
   yellow: "kit.yellow",
   convert: "common.convertToSr",
+};
+
+const RESULT_KIT_PANEL_KEYS: Record<Kit, MessageKey> = {
+  blue: "kit.bluePanel",
+  purple: "kit.purplePanel",
+  yellow: "kit.yellowPanel",
 };
 
 const resultKitDotClass: Record<ResultKit, string> = {
@@ -55,7 +62,7 @@ const classes = {
   stateStripFeedback: `border-grade-active shadow-[0_0_0_3px_var(--grade-active-soft)] ${stateFeedbackAnimations.panel}`,
   stateGrade:
     "grid size-6 shrink-0 place-items-center rounded-[6px] bg-[var(--control-active-bg)] text-[12px] font-extrabold leading-none text-[var(--control-active-ink)]",
-  stateMain: "relative grid min-w-[48px] gap-[3px]",
+  stateMain: "state-main relative grid min-w-[48px] gap-[3px]",
   stateLevel: "whitespace-nowrap text-[15px] font-extrabold leading-none text-text-strong",
   levelBurst:
     "pointer-events-none absolute bottom-[calc(100%+1px)] left-1/2 grid -translate-x-1/2 grid-cols-3 gap-px text-[9px] font-extrabold leading-none text-grade-active motion-reduce:hidden",
@@ -88,27 +95,30 @@ const classes = {
   actionChip: "action-chip inline-flex items-center justify-center gap-[9px]",
   actionDot: "inline-block size-4 rounded-full shadow-[0_0_0_3px_rgba(255,255,255,0.18)]",
   actionChipLarge:
-    "action-chip-large inline-flex max-w-full flex-nowrap items-center justify-center gap-2.5 max-mobile:grid max-mobile:w-full max-mobile:grid-cols-[16px_minmax(0,1fr)] max-mobile:gap-2",
+    "action-chip-large inline-flex max-w-full flex-nowrap items-center justify-center gap-2.5 max-mobile:w-auto max-mobile:gap-2",
   actionChipText:
-    "action-chip-text inline-flex min-w-0 items-baseline gap-0 whitespace-nowrap text-[clamp(23px,2.7vw,34px)] max-mobile:grid max-mobile:justify-items-center max-mobile:whitespace-normal max-mobile:text-[clamp(18px,5vw,24px)]",
+    "action-chip-text inline-flex min-w-0 items-baseline gap-0 whitespace-nowrap text-[clamp(23px,2.7vw,34px)] max-mobile:flex max-mobile:flex-wrap max-mobile:justify-center max-mobile:whitespace-normal max-mobile:text-[clamp(18px,5vw,24px)]",
   actionChipName:
-    "action-chip-name inline min-w-0 leading-[1.16] [overflow-wrap:break-word] [word-break:keep-all] max-mobile:block max-mobile:w-full max-mobile:text-balance max-mobile:[overflow-wrap:normal]",
-  actionChipQuantity: "inline-flex items-baseline whitespace-nowrap",
+    "action-chip-name inline min-w-0 leading-[1.16] [overflow-wrap:break-word] [word-break:keep-all] max-mobile:w-auto max-mobile:max-w-full",
+  actionChipNameFull: "action-chip-name-full",
+  actionChipNameMobile: "action-chip-name-mobile hidden",
+  actionChipQuantity: "action-chip-quantity inline-flex shrink-0 items-baseline whitespace-nowrap",
   actionChipSeparator:
     "action-chip-separator inline min-w-0 whitespace-pre leading-[1.08] text-ice",
   actionChipCount: "action-chip-count inline min-w-0 leading-[1.08] text-ice",
   outcomePanel:
-    "outcome-panel grid grid-cols-[minmax(0,1fr)_320px] items-center gap-3.5 rounded-card border-2 border-yellow-kit bg-outcome px-4 py-3 shadow-[0_12px_26px_rgba(128,89,11,0.12)] min-[661px]:max-tablet:grid-cols-[minmax(0,1fr)_280px] min-[661px]:max-tablet:gap-3 min-[661px]:max-tablet:px-4 max-mobile:hidden",
+    "outcome-panel grid grid-cols-[minmax(0,1fr)_max-content] items-center gap-3.5 rounded-card border-2 border-yellow-kit bg-outcome px-4 py-3 shadow-[0_12px_26px_rgba(128,89,11,0.12)] min-[661px]:max-tablet:gap-3 min-[661px]:max-tablet:px-4 max-mobile:hidden",
   outcomePanelRing: "outcome-ring",
   outcomeCopy: "outcome-copy grid min-w-0 gap-1.5",
   outcomeTitle:
     "outcome-title m-0 flex min-w-0 items-center gap-2 whitespace-nowrap text-[17px] font-semibold text-outcome-text before:inline-block before:size-[11px] before:shrink-0 before:rounded-full before:bg-yellow-kit before:shadow-[0_0_0_4px_rgba(230,170,38,0.22)] before:content-[''] min-[661px]:max-tablet:text-[15px]",
   outcomeTitleText: "outcome-title-text min-w-0",
-  outcomeActionGroup: "outcome-action-group grid min-w-0 content-center gap-1",
+  outcomeActionGroup:
+    "outcome-action-group grid w-max min-w-0 max-w-[min(360px,100%)] justify-self-end content-center gap-1",
   outcomeButtons: "outcome-buttons grid grid-cols-2 gap-2",
-  outcomeChoice: "grid min-w-0 gap-1",
+  outcomeChoice: "grid min-w-0 grid-rows-[auto_minmax(18px,auto)] gap-0.5",
   outcomeChoiceCaption:
-    "m-0 min-h-[13px] text-center text-[10.5px] font-semibold leading-[1.2] text-muted",
+    "outcome-choice-caption m-0 flex min-h-[18px] flex-wrap items-center justify-center text-balance text-center text-[10.5px] font-semibold leading-[1.2] text-muted [overflow-wrap:anywhere] [word-break:keep-all]",
   outcomeCaptionPrefix: "text-muted",
   outcomeCaptionValue: "font-bold text-text-strong",
   outcomeButton:
@@ -118,7 +128,8 @@ const classes = {
   successHoldFill: "bg-[rgba(230,170,38,0.42)]",
   failHoldFill: "bg-[rgba(230,170,38,0.42)]",
   hiddenDot: "hidden",
-  outcomeCaption: "m-0 text-center text-[10.5px] font-semibold leading-[1.2] text-muted",
+  outcomeCaption:
+    "outcome-caption m-0 flex min-h-[18px] flex-wrap items-center justify-center text-balance text-center text-[10.5px] font-semibold leading-[1.2] text-muted [overflow-wrap:anywhere] [word-break:keep-all]",
   convertActionGroup: "grid justify-self-end w-[min(180px,100%)]",
   convertButton: "convert-button bg-primary text-ice",
   changeNote:
@@ -176,7 +187,10 @@ function ActionChip({
         className={`${classes.actionDot} ${resultKitDotClass[kit]} shrink-0 self-center`}
       ></i>
       <span className={classes.actionChipText}>
-        <span className={classes.actionChipName}>{kitLabel}</span>
+        <span className={classes.actionChipName}>
+          <span className={classes.actionChipNameFull}>{kitLabel}</span>
+          <span className={classes.actionChipNameMobile}>{t(RESULT_KIT_PANEL_KEYS[kit])}</span>
+        </span>
         <span className={classes.actionChipQuantity}>
           <span className={classes.actionChipSeparator}>{"\u00a0×\u00a0"}</span>
           <span className={classes.actionChipCount}>{formatCount(count || 1, "use")}</span>
@@ -235,7 +249,9 @@ function CurrentStateStrip({
           </span>
         ) : null}
         <strong className={classes.stateLevel}>
-          {t("common.phase", { phase: displayState.level })}
+          <AlignedText alignmentRole="status">
+            {t("common.phase", { phase: displayState.level })}
+          </AlignedText>
         </strong>
       </span>
       <span className={classes.expGroup}>
@@ -279,6 +295,8 @@ function RecommendationBlock({
   transition?: RecommendationActionTransition;
   onTransitionComplete?: (transitionId: number) => void;
 }) {
+  const outcomePanelRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     if (!transition || !onTransitionComplete) return;
     const transitionId = transition.id;
@@ -288,6 +306,50 @@ function RecommendationBlock({
     );
     return () => window.clearTimeout(timeoutId);
   }, [onTransitionComplete, transition]);
+
+  useLayoutEffect(() => {
+    const panel = outcomePanelRef.current;
+    if (!panel) return;
+
+    let measuredWidth = -1;
+    const updateLayout = () => {
+      const panelWidth = panel.getBoundingClientRect().width;
+      if (Math.abs(panelWidth - measuredWidth) < 0.5) return;
+      measuredWidth = panelWidth;
+      panel.setAttribute("data-layout", "inline");
+
+      const copy = panel.querySelector<HTMLElement>(".outcome-copy");
+      const actions = panel.querySelector<HTMLElement>(".outcome-action-group");
+      if (!copy || !actions) return;
+
+      const panelBounds = panel.getBoundingClientRect();
+      const copyBounds = copy.getBoundingClientRect();
+      const actionBounds = actions.getBoundingClientRect();
+      const panelStyle = getComputedStyle(panel);
+      const contentLeft =
+        panelBounds.left +
+        Number.parseFloat(panelStyle.borderLeftWidth) +
+        Number.parseFloat(panelStyle.paddingLeft);
+      const contentRight =
+        panelBounds.right -
+        Number.parseFloat(panelStyle.borderRightWidth) -
+        Number.parseFloat(panelStyle.paddingRight);
+      const childOverflows =
+        copyBounds.left < contentLeft - 1 || actionBounds.right > contentRight + 1;
+      const copyOverflows = copy.scrollWidth > copy.clientWidth + 1;
+      const actionsOverflow = actions.scrollWidth > actions.clientWidth + 1;
+      panel.setAttribute(
+        "data-layout",
+        childOverflows || copyOverflows || actionsOverflow ? "stacked" : "inline",
+      );
+    };
+
+    updateLayout();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(updateLayout);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  });
 
   const transitionStyle = transition
     ? ({ "--next-action-feedback-ms": `${STATE_FEEDBACK_VISIBLE_MS}ms` } as CSSProperties)
@@ -309,6 +371,8 @@ function RecommendationBlock({
         </div>
       </div>
       <div
+        ref={outcomePanelRef}
+        data-layout="inline"
         className={`${classes.outcomePanel} ${outcomeRing ? classes.outcomePanelRing : ""} ${
           outcomePending ? "is-holding-ring" : ""
         }`}
@@ -337,13 +401,7 @@ function OutcomePreviewValue({ preview }: { preview: OutcomePreview }) {
 }
 
 function OutcomePreviewCaption({ preview }: { preview: OutcomePreview }) {
-  const { t } = useI18n();
-  return (
-    <>
-      <span className={classes.outcomeCaptionPrefix}>{t("common.selectionArrow")}</span>{" "}
-      <OutcomePreviewValue preview={preview} />
-    </>
-  );
+  return <OutcomePreviewValue preview={preview} />;
 }
 
 function PendingOutcomeCaption({
@@ -377,7 +435,7 @@ function ConvertRecommendation({ onConvert }: { onConvert: () => void | Promise<
             data-convert="sr"
             onClick={onConvert}
           >
-            {t("common.applyConversion")}
+            <AlignedText alignmentRole="action">{t("common.applyConversion")}</AlignedText>
           </button>
         </div>
       }
@@ -447,7 +505,7 @@ function OutcomeActionButtons({
             disabled={disabled}
             onClick={() => confirmOutcome("success")}
           >
-            {t("common.superSuccessYesConfirm")}
+            <AlignedText alignmentRole="action">{t("common.superSuccessYesConfirm")}</AlignedText>
           </button>
           <button
             className={classes.outcomeCancelButton}
@@ -455,7 +513,7 @@ function OutcomeActionButtons({
             disabled={disabled}
             onClick={() => onPendingOutcomeChange(null)}
           >
-            {t("common.cancel")}
+            <AlignedText alignmentRole="action">{t("common.cancel")}</AlignedText>
           </button>
         </div>
         <p className={classes.outcomeCaption}>
@@ -475,7 +533,7 @@ function OutcomeActionButtons({
             disabled={disabled}
             onClick={() => onPendingOutcomeChange(null)}
           >
-            {t("common.cancel")}
+            <AlignedText alignmentRole="action">{t("common.cancel")}</AlignedText>
           </button>
           <button
             className={classes.outcomeConfirmButton}
@@ -483,7 +541,7 @@ function OutcomeActionButtons({
             disabled={disabled}
             onClick={() => confirmOutcome("fail")}
           >
-            {t("common.superSuccessNoConfirm")}
+            <AlignedText alignmentRole="action">{t("common.superSuccessNoConfirm")}</AlignedText>
           </button>
         </div>
         <p className={classes.outcomeCaption}>
@@ -503,7 +561,7 @@ function OutcomeActionButtons({
             disabled={disabled}
             onClick={() => armOutcome("success")}
           >
-            {t("common.superSuccessYes")}
+            <AlignedText alignmentRole="action">{t("common.superSuccessYes")}</AlignedText>
           </button>
           <strong className={`${classes.outcomeChoiceCaption} text-text-strong`}>
             <OutcomePreviewCaption preview={successPreview} />
@@ -516,7 +574,7 @@ function OutcomeActionButtons({
             disabled={disabled}
             onClick={() => armOutcome("fail")}
           >
-            {t("common.superSuccessNo")}
+            <AlignedText alignmentRole="action">{t("common.superSuccessNo")}</AlignedText>
           </button>
           <strong className={`${classes.outcomeChoiceCaption} text-text-strong`}>
             <OutcomePreviewCaption preview={failPreview} />
@@ -648,7 +706,7 @@ export default function ResultPanel({
     : t(staleSource === "stock" ? "result.staleStock" : "result.staleState");
 
   return (
-    <section className={classes.panel} aria-disabled={showStaleOverlay || undefined}>
+    <section className={classes.panel}>
       <div className={classes.heading}>
         <h2>{t("result.title")}</h2>
         <CurrentStateStrip feedback={feedback} state={state} />
@@ -659,7 +717,11 @@ export default function ResultPanel({
             <span className={classes.staleNotice}>{staleMessage}</span>
           </div>
         ) : null}
-        <div id="resultBox" className={view.type === "empty" ? classes.emptyResult : ""}>
+        <div
+          id="resultBox"
+          className={view.type === "empty" ? classes.emptyResult : ""}
+          inert={showStaleOverlay || undefined}
+        >
           <ResultViewContent
             view={view}
             onActionTransitionComplete={onActionTransitionComplete}

@@ -212,8 +212,6 @@ export const enMessages = {
   "modal.why": "Why is this needed?",
   "modal.whyDetail":
     "Once a Super Success occurs, the remaining planned uses are skipped, so actual consumption depends on the attempt. Your remaining inventory lets us infer that attempt for stats.",
-  "modal.later": "Enter later",
-  "modal.manual": "Enter manually",
   "modal.question": "How many {kit} pieces remain?",
   "modal.instruction":
     "The exact Super Success attempt is unknown, so confirm the remaining amount. Select the amount currently shown in your game inventory.",

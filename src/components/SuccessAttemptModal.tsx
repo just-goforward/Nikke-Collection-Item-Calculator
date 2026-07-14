@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import { useI18n } from "../i18n/locale";
 import type { MessageKey } from "../i18n/messages.ko";
 import type { Kit } from "../types";
 import type { SuccessAttemptModalState } from "../ui-types";
+import { AlignedText } from "./AlignedText";
 
 type SuccessAttemptModalProps = {
   modal: SuccessAttemptModalState;
@@ -38,9 +39,7 @@ const classes = {
   whySummary: "cursor-pointer px-3 py-2 text-[11.5px] font-bold text-grade-active-strong",
   whyText: "m-0 px-3 pb-2.5 text-[11.5px] font-medium leading-[1.55] text-muted",
   actions:
-    "attempt-modal-actions flex items-center justify-between gap-2 border-t border-[var(--stats-divider-soft)] pt-3",
-  laterButton:
-    "inline-flex min-h-9 items-center justify-center border-0 bg-transparent px-1 text-[12px] font-semibold leading-none text-muted underline underline-offset-[3px]",
+    "attempt-modal-actions flex items-center justify-end gap-2 border-t border-[var(--stats-divider-soft)] pt-3",
   directButton:
     "inline-flex min-h-9 items-center justify-center border border-border bg-button px-3.5 text-[12.5px] font-bold leading-none text-text-soft",
 } as const;
@@ -78,8 +77,7 @@ function useDialogFocusTrap(
   onDismiss: () => void,
 ) {
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
-  const dismissRef = useRef(onDismiss);
-  dismissRef.current = onDismiss;
+  const dismiss = useEffectEvent(onDismiss);
 
   useEffect(() => {
     if (!open) return;
@@ -90,7 +88,7 @@ function useDialogFocusTrap(
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        dismissRef.current();
+        dismiss();
         return;
       }
       if (event.key !== "Tab" || !dialogRef.current) return;
@@ -178,15 +176,12 @@ function ModalActions({ onDismiss }: { onDismiss: () => void }) {
   const { t } = useI18n();
   return (
     <div className={classes.actions}>
-      <button className={`${classes.laterButton}`} type="button" onClick={onDismiss}>
-        {t("modal.later")}
-      </button>
       <button
         className={`${classes.interactive} ${classes.directButton}`}
         type="button"
         onClick={onDismiss}
       >
-        {t("modal.manual")}
+        <AlignedText alignmentRole="action">{t("common.cancel")}</AlignedText>
       </button>
     </div>
   );

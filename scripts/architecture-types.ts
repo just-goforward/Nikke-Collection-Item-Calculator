@@ -20,6 +20,7 @@ export type ArchitectureIssue = {
     | "missing-allowlist-entry"
     | "oversized-file"
     | "re-export"
+    | "text-alignment"
     | "unreachable-source"
     | "unsafe-type-escape"
     | `unapproved-${"biome"}-ignore`;

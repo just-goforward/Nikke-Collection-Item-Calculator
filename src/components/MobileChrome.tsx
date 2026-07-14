@@ -10,6 +10,7 @@ import type {
   StatePanelModel,
 } from "../ui-types";
 import { presentOutcomePreview } from "../view-models/outcomePresentation";
+import { AlignedText } from "./AlignedText";
 import { stateFeedbackAnimations } from "./stateFeedbackAnimations";
 
 export type MobileTab = "input" | "result" | "stats";
@@ -29,10 +30,9 @@ const classes = {
   statusState: "status-state flex min-w-0 items-center gap-2",
   statusGrade:
     "status-grade inline-flex size-6 min-w-6 flex-[0_0_24px] items-center justify-center rounded-[5px] bg-[var(--control-active-bg)] px-1 text-[11px] font-bold tracking-[0.04em] text-[var(--control-active-ink)] [text-shadow:none]",
-  statusGradeOpticalLabel: "mobile-status-grade-optical-label relative top-px block leading-none",
   statusGradeFeedback: stateFeedbackAnimations.target,
   statusLevel:
-    "status-level whitespace-nowrap text-[15px] font-extrabold text-text-strong [font-variant-numeric:tabular-nums]",
+    "status-level inline-flex min-h-6 items-center whitespace-nowrap text-[15px] font-extrabold text-text-strong [font-variant-numeric:tabular-nums]",
   statusLevelWrap: "relative grid min-w-[48px] gap-[3px]",
   levelBurst:
     "pointer-events-none absolute bottom-[calc(100%+1px)] left-1/2 grid -translate-x-1/2 grid-cols-3 gap-px text-[9px] font-extrabold leading-none text-grade-active motion-reduce:hidden",
@@ -61,9 +61,9 @@ const classes = {
     "mobile-action-prompt col-span-full text-center text-[13px] font-semibold leading-[1.3] text-outcome-text",
   actionChangeNote:
     "change-note col-span-full m-0 text-center text-[11.5px] font-semibold leading-[1.45] text-outcome-text",
-  actionOutcomeChoice: "grid min-w-0 grid-rows-[48px_30px] gap-1",
+  actionOutcomeChoice: "grid min-w-0 grid-rows-[48px_minmax(18px,auto)] gap-0.5",
   actionChoiceCaption:
-    "m-0 grid h-[30px] place-items-center overflow-hidden text-balance text-center text-[10px] font-semibold leading-[1.25] text-muted",
+    "action-choice-caption m-0 flex min-h-[18px] flex-wrap items-center justify-center text-balance text-center text-[10px] font-semibold leading-[1.25] text-muted [overflow-wrap:anywhere] [word-break:keep-all]",
   actionCaptionPrefix: "text-muted",
   actionCaptionValue: "font-bold text-text-strong",
   actionButton:
@@ -164,23 +164,11 @@ function ActionPreviewValue({ preview }: { preview: OutcomePreview }) {
 }
 
 function ActionPreviewCaption({ preview }: { preview: OutcomePreview }) {
-  const { t } = useI18n();
-  return (
-    <>
-      <span className={classes.actionCaptionPrefix}>{t("common.selectionArrow")}</span>{" "}
-      <ActionPreviewValue preview={preview} />
-    </>
-  );
+  return <ActionPreviewValue preview={preview} />;
 }
 
 function PendingActionCaption({ preview }: { preview: OutcomePreview }) {
-  const { t } = useI18n();
-  return (
-    <>
-      <span className={classes.actionCaptionPrefix}>{t("common.confirmArrow")}</span>{" "}
-      <ActionPreviewValue preview={preview} />
-    </>
-  );
+  return <ActionPreviewValue preview={preview} />;
 }
 
 function MobileOutcomeActionBar({
@@ -208,7 +196,7 @@ function MobileOutcomeActionBar({
           type="button"
           onClick={() => confirmOutcome("success")}
         >
-          {t("common.superSuccessYesConfirm")}
+          <AlignedText alignmentRole="action">{t("common.superSuccessYesConfirm")}</AlignedText>
         </button>
         <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
           <PendingActionCaption preview={view.successPreview} />
@@ -221,7 +209,7 @@ function MobileOutcomeActionBar({
           type="button"
           onClick={() => onPendingOutcomeChange(null)}
         >
-          {t("common.cancel")}
+          <AlignedText alignmentRole="action">{t("common.cancel")}</AlignedText>
         </button>
         <span className={classes.actionChoiceCaption} aria-hidden="true" />
       </span>
@@ -232,7 +220,7 @@ function MobileOutcomeActionBar({
           type="button"
           onClick={() => armOutcome("success")}
         >
-          {t("common.superSuccessYes")}
+          <AlignedText alignmentRole="action">{t("common.superSuccessYes")}</AlignedText>
         </button>
         <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
           <ActionPreviewCaption preview={view.successPreview} />
@@ -247,7 +235,7 @@ function MobileOutcomeActionBar({
           type="button"
           onClick={() => confirmOutcome("fail")}
         >
-          {t("common.superSuccessNoConfirm")}
+          <AlignedText alignmentRole="action">{t("common.superSuccessNoConfirm")}</AlignedText>
         </button>
         <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
           <PendingActionCaption preview={view.failPreview} />
@@ -260,7 +248,7 @@ function MobileOutcomeActionBar({
           type="button"
           onClick={() => onPendingOutcomeChange(null)}
         >
-          {t("common.cancel")}
+          <AlignedText alignmentRole="action">{t("common.cancel")}</AlignedText>
         </button>
         <span className={classes.actionChoiceCaption} aria-hidden="true" />
       </span>
@@ -271,7 +259,7 @@ function MobileOutcomeActionBar({
           type="button"
           onClick={() => armOutcome("fail")}
         >
-          {t("common.superSuccessNo")}
+          <AlignedText alignmentRole="action">{t("common.superSuccessNo")}</AlignedText>
         </button>
         <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
           <ActionPreviewCaption preview={view.failPreview} />
@@ -298,7 +286,7 @@ function MobileConvertActionBar({ onConvert }: Pick<MobileActionBarProps, "onCon
         aria-label={t("common.convertToSr")}
         onClick={onConvert}
       >
-        {t("common.applyConversion")}
+        <AlignedText alignmentRole="action">{t("common.applyConversion")}</AlignedText>
       </button>
     </MobileToolbar>
   );
@@ -323,7 +311,7 @@ function MobileCalculateActionBar({
         type="button"
         onClick={onReset}
       >
-        {t("common.reset")}
+        <AlignedText alignmentRole="action">{t("common.reset")}</AlignedText>
       </button>
       <button
         className={`${classes.actionButton} ${classes.primaryButton} ${
@@ -334,17 +322,19 @@ function MobileCalculateActionBar({
         onPointerDown={commitFocusedInput}
         onClick={onCalculate}
       >
-        {needsStockEdit ? (
-          t("common.stockEditRequired")
-        ) : loading.active ? (
-          <>
-            <span className={classes.spinner} aria-hidden="true" /> {t("common.calculating")}
-          </>
-        ) : isStale ? (
-          t("common.recalculate")
-        ) : (
-          t("common.calculateLong")
-        )}
+        <AlignedText alignmentRole="action" className="gap-2">
+          {needsStockEdit ? (
+            t("common.stockEditRequired")
+          ) : loading.active ? (
+            <>
+              <span className={classes.spinner} aria-hidden="true" /> {t("common.calculating")}
+            </>
+          ) : isStale ? (
+            t("common.recalculate")
+          ) : (
+            t("common.calculateLong")
+          )}
+        </AlignedText>
       </button>
     </MobileToolbar>
   );
@@ -408,7 +398,7 @@ export function MobileStatusStrip({ feedback, state }: MobileStatusStripProps) {
             feedbackActive && feedback.type === "grade" ? classes.statusGradeFeedback : ""
           }`}
         >
-          <span className={classes.statusGradeOpticalLabel}>{displayState.grade}</span>
+          <AlignedText alignmentRole="status">{displayState.grade}</AlignedText>
         </span>
         <span className={classes.statusLevelWrap}>
           {feedbackActive ? (
@@ -429,7 +419,9 @@ export function MobileStatusStrip({ feedback, state }: MobileStatusStripProps) {
               feedbackActive ? classes.statusLevelFeedback : ""
             }`}
           >
-            {t("common.phase", { phase: displayState.level })}
+            <AlignedText alignmentRole="status">
+              {t("common.phase", { phase: displayState.level })}
+            </AlignedText>
           </span>
         </span>
         <div className={classes.statusExpBar} aria-hidden="true">
@@ -476,7 +468,7 @@ export function MobileTabs({ active, hasResult, needsStockEdit, onChange }: Mobi
           aria-selected={active === tab}
           onClick={() => onChange(tab)}
         >
-          <span>{tabLabels[tab]}</span>
+          <AlignedText alignmentRole="segment">{tabLabels[tab]}</AlignedText>
           {(needsStockEdit && tab === "input") ||
           (!needsStockEdit && tab === "result" && hasResult) ? (
             <em className={classes.tabDot} aria-hidden="true" />

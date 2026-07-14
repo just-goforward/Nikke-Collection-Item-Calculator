@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { type AppLocale, useI18n } from "../i18n/locale";
 import type { MessageKey } from "../i18n/messages.ko";
 import type { ThemeMode } from "../ui-types";
+import { AlignedText } from "./AlignedText";
 
 const THEME_MODES: ThemeMode[] = ["system", "light", "dark"];
 const THEME_MESSAGE_KEYS: Record<ThemeMode, MessageKey> = {
@@ -24,7 +25,7 @@ const classes = {
     "m-0 min-w-0 text-[42px] font-semibold leading-[1.08] [overflow-wrap:break-word] max-tablet:text-[30px] max-mobile:max-w-none max-mobile:text-[20px] max-mobile:leading-[1.18] max-mobile:tracking-[-0.01em] max-phone-xs:text-[18.5px]",
   titleText: "-mx-1 -my-0.5 block px-1 py-0.5 font-semibold text-inherit",
   viewTabs:
-    "relative grid shrink-0 grid-cols-2 gap-0.5 self-center rounded-card border border-border bg-button p-0.5 [--seg-index:0] before:pointer-events-none before:absolute before:inset-y-0.5 before:left-0.5 before:z-0 before:w-[calc((100%_-_6px)/2)] before:rounded-control before:bg-[var(--seg-thumb)] before:shadow-[var(--seg-shadow)] before:[transform:translateX(calc(var(--seg-index)*(100%+2px)))] before:[transition:transform_220ms_cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:before:transition-none max-mobile:hidden",
+    "view-tabs relative grid shrink-0 grid-cols-2 gap-0.5 self-center rounded-card border border-border bg-button p-0.5 [--seg-index:0] before:pointer-events-none before:absolute before:inset-y-0.5 before:left-0.5 before:z-0 before:w-[calc((100%_-_6px)/2)] before:rounded-control before:bg-[var(--seg-thumb)] before:shadow-[var(--seg-shadow)] before:[transform:translateX(calc(var(--seg-index)*(100%+2px)))] before:[transition:transform_220ms_cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:before:transition-none max-mobile:hidden",
   viewTab:
     "relative z-[1] grid min-h-[30px] place-items-center whitespace-nowrap rounded-control border-0 bg-transparent px-3.5 text-[12.5px] font-bold leading-none text-muted transition-colors duration-[220ms] ease-[ease] motion-reduce:transition-none [&[aria-selected=true]]:text-text-strong [&:not([aria-selected=true])]:hover:text-text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-1 focus-visible:ring-offset-page",
   viewTabActive: "text-text-strong",
@@ -39,18 +40,16 @@ const classes = {
     "flex min-h-8 items-center gap-2 rounded-control border-0 bg-transparent px-2.5 text-left text-[12.5px] font-bold text-text-soft hover:bg-surface-strong",
   langCheck: "inline-block w-4 shrink-0 text-center text-[12px] leading-none",
   control:
-    "inline-grid grid-cols-[auto] items-center gap-1 rounded-card border border-border bg-button p-0.5 [--seg-index:0] transition-[border-color,background-color] duration-[160ms] max-[684px]:hidden",
+    "theme-segment-control inline-grid grid-cols-[auto] items-center gap-1 rounded-card border border-border bg-button p-0.5 [--seg-index:0] transition-[border-color,background-color] duration-[160ms]",
   options:
     "relative grid min-w-0 grid-cols-[repeat(3,minmax(42px,1fr))] gap-0.5 before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:z-0 before:w-[calc((100%_-_4px)/3)] before:rounded-control before:bg-[var(--seg-thumb)] before:shadow-[var(--seg-shadow)] before:[transform:translateX(calc(var(--seg-index)*(100%+2px)))] before:[transition:transform_220ms_cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:before:transition-none",
   button:
     "relative z-[1] grid min-h-[28px] place-items-center whitespace-nowrap bg-transparent px-2 text-[11px] font-semibold leading-none text-muted transition-colors duration-[220ms] ease-[ease] motion-reduce:transition-none [&[aria-pressed=true]]:text-text-strong [&:not([aria-pressed=true])]:hover:text-text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-1 focus-visible:ring-offset-surface",
-  opticalLabel: "topbar-optical-label relative top-px block leading-none",
   activeButton: "theme-option-active",
-  mobileTheme: "relative hidden max-[684px]:block",
+  mobileTheme: "theme-menu-control relative hidden",
   themeButton:
     "inline-flex min-h-[34px] min-w-[58px] items-center justify-center gap-1 rounded-card border border-border bg-button px-2 text-[10.5px] font-bold text-muted transition-[border-color,color,background-color] duration-[160ms] hover:border-grade-active hover:text-text-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-2 focus-visible:ring-offset-page",
-  mobileThemeOpticalLabel:
-    "mobile-theme-optical-label relative top-px inline-flex items-center gap-1 leading-none",
+  mobileThemeLabel: "gap-1",
 } as const;
 
 type TopBarProps = {
@@ -186,7 +185,7 @@ function ThemeControl({
               key={mode}
               onClick={() => onThemeModeChange(mode)}
             >
-              <span className={classes.opticalLabel}>{themeLabel(mode)}</span>
+              <AlignedText alignmentRole="segment">{themeLabel(mode)}</AlignedText>
             </button>
           ))}
         </div>
@@ -200,10 +199,10 @@ function ThemeControl({
           aria-haspopup="listbox"
           onClick={onToggle}
         >
-          <span className={classes.mobileThemeOpticalLabel}>
+          <AlignedText alignmentRole="segment" className={classes.mobileThemeLabel}>
             <span>{themeLabel(themeMode)}</span>
             <span aria-hidden="true">▾</span>
-          </span>
+          </AlignedText>
         </button>
         {themeOpen ? (
           <div className={classes.langMenu} role="listbox" aria-label={t("top.theme")}>
@@ -254,7 +253,7 @@ function ViewTabs({
         aria-selected={active === "calc"}
         onClick={() => onChange("calc")}
       >
-        <span className={classes.opticalLabel}>{t("top.calculator")}</span>
+        <AlignedText alignmentRole="segment">{t("top.calculator")}</AlignedText>
       </button>
       <button
         className={`${classes.viewTab} ${active === "stats" ? classes.viewTabActive : ""}`}
@@ -264,7 +263,7 @@ function ViewTabs({
         aria-selected={active === "stats"}
         onClick={() => onChange("stats")}
       >
-        <span className={classes.opticalLabel}>{t("top.stats")}</span>
+        <AlignedText alignmentRole="segment">{t("top.stats")}</AlignedText>
       </button>
     </div>
   );

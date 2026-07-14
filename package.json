@@ -11,6 +11,7 @@
     "preview": "vite preview --configLoader native",
     "test": "vitest run --configLoader runner",
     "test:worker": "vitest run --config vitest.cloudflare.config.ts",
+    "test:mutation": "stryker run",
     "test:bench": "vitest run --config vitest.benchmark.config.ts --configLoader runner",
     "bench:a-feasibility": "node benchmarks/run-a-feasibility.ts",
     "bench:a-feasibility:slice": "node benchmarks/run-a-feasibility-slice.ts",
@@ -35,6 +36,8 @@
     "pretest:e2e": "npm run build",
     "test:e2e": "playwright test",
     "test:compat": "playwright test --config playwright.compat.config.ts",
+    "pretest:alignment": "npm run build",
+    "test:alignment": "playwright test --config playwright.alignment.config.ts",
     "pretest:visual": "npm run build",
     "test:visual": "playwright test e2e/visual.spec.ts",
     "test:visual:update": "playwright test e2e/visual.spec.ts --update-snapshots",
@@ -56,7 +59,11 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
     "@biomejs/biome": "^2.5.3",
+    "@cloudflare/vitest-pool-workers": "^0.18.4",
     "@playwright/test": "1.61.1",
+    "@stryker-mutator/api": "^9.6.1",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@tailwindcss/vite": "^4.3.2",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
@@ -66,8 +73,8 @@
     "esbuild": "^0.28.1",
     "fast-check": "^4.9.0",
     "knip": "^6.26.0",
-    "miniflare": "^4.20260708.1",
     "oxc-parser": "^0.139.0",
+    "sharp": "0.35.3",
     "tailwindcss": "^4.3.2",
     "typescript": "^7.0.2",
     "vite": "^8.1.4",
@@ -79,9 +86,13 @@
     "react-dom": "^19.2.7",
     "zod": "4.4.3"
   },
+  "overrides": {
+    "qs": "6.15.3"
+  },
   "allowScripts": {
     "esbuild@0.28.1": true,
     "sharp@0.34.5": true,
+    "sharp@0.35.3": true,
     "workerd@1.20260708.1": true
   }
 }

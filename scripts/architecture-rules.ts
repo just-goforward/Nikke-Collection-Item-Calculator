@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseSync } from "oxc-parser";
 import {
   BIOME_IGNORE_ALLOWLIST,
-  CHECK_ROOTS as DEFAULT_CHECK_ROOTS,
   COMPLEXITY_ALLOWLIST,
   DEFAULT_MAX_FILE_LINES,
   EMPTY_CATCH_ALLOWLIST,
@@ -20,8 +19,6 @@ import {
   sourceOf,
 } from "./architecture-sources.ts";
 import type { ArchitectureIssue, DebtEntry, FunctionMetrics } from "./architecture-types.ts";
-
-export const CHECK_ROOTS = DEFAULT_CHECK_ROOTS;
 
 type AstObject = {
   type: string;
@@ -301,6 +298,18 @@ function findEmptyCatches(files: string[]) {
     .filter((file) => emptyCatchPattern.test(sourceOf(file)));
 }
 
+export function containsAdHocTextAlignment(source: string) {
+  const directOffsetPattern = /(?:^|\s)(?:-?top-px|max-[A-Za-z0-9-]+:-?top-px)(?=\s|["'`])/m;
+  return directOffsetPattern.test(source);
+}
+
+function findAdHocTextAlignment(files: string[]) {
+  return files
+    .filter((file) => file.startsWith("src/components/") && file.endsWith(".tsx"))
+    .filter((file) => file !== "src/components/AlignedText.tsx")
+    .filter((file) => containsAdHocTextAlignment(sourceOf(file)));
+}
+
 function findFunctionMetricIssues(files: string[]) {
   const complexityAllowlist = new Set(
     COMPLEXITY_ALLOWLIST.map((entry) => `${entry.file}\0${entry.function}`),
@@ -398,6 +407,11 @@ export function architectureIssues(files: string[]) {
       code: "empty-catch" as const,
       file,
       message: `empty catch is not allowed: ${file}`,
+    })),
+    ...findAdHocTextAlignment(files).map((file) => ({
+      code: "text-alignment" as const,
+      file,
+      message: `direct text optical offset is not allowed; use AlignedText tokens: ${file}`,
     })),
     ...findFunctionMetricIssues(files),
   ];

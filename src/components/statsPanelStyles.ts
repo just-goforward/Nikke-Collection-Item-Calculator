@@ -26,25 +26,26 @@ export const classes = {
   panelLoadingText: "m-0 text-[13px] font-semibold leading-[1.4] text-text-soft",
   resultContent:
     "result-content stats-content grid gap-3.5 p-[18px] max-mobile:gap-2.5 max-mobile:px-3.5 max-mobile:py-3",
-  layout: "stats-layout grid grid-cols-2 gap-3 max-tablet:grid-cols-1",
+  layout: "stats-layout grid gap-3",
   column: "stats-column grid min-w-0 content-start gap-3",
   section:
-    "stats-section grid min-w-0 content-start gap-3.5 rounded-card border border-border bg-[linear-gradient(180deg,color-mix(in_srgb,var(--surface-raised)_86%,var(--grade-active-soft)),var(--surface-strong))] p-[15px] max-mobile:gap-2.5 max-mobile:rounded-control max-mobile:p-3",
+    "stats-section grid min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-3.5 rounded-card border border-border bg-[linear-gradient(180deg,color-mix(in_srgb,var(--surface-raised)_86%,var(--grade-active-soft)),var(--surface-strong))] p-[15px] max-mobile:gap-2.5 max-mobile:rounded-control max-mobile:p-3",
   sectionTitle:
-    "stats-section-title flex min-w-0 items-center justify-between gap-2.5 border-b-2 border-[var(--stats-divider)] pb-2 max-mobile:grid max-mobile:grid-cols-1 max-mobile:gap-1",
+    "stats-section-title flex min-w-0 flex-wrap items-center justify-between gap-x-2.5 gap-y-1 border-b-2 border-[var(--stats-divider)] pb-2",
   sectionHeading:
-    "m-0 text-[16px] font-bold leading-[1.25] text-text-strong max-mobile:text-[14px]",
+    "m-0 max-w-full flex-none text-[16px] font-bold leading-[1.25] text-text-strong [overflow-wrap:anywhere] max-mobile:text-[14px]",
   sectionMeta:
-    "whitespace-nowrap text-right text-[11px] font-medium leading-[1.3] text-muted max-mobile:whitespace-normal max-mobile:text-left max-mobile:text-[10.5px]",
-  overallStack: "overall-stats-stack grid gap-2.5",
+    "max-w-full flex-none whitespace-normal text-right text-[11px] font-medium leading-[1.3] text-muted [overflow-wrap:anywhere] max-mobile:text-[10.5px]",
+  overallStack: "overall-stats-stack grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2.5",
   overallWindow:
-    "overall-stats-window grid min-w-0 gap-2 rounded-card border border-border bg-surface-raised p-[11px] max-mobile:p-2.5",
+    "overall-stats-window grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-card border border-border bg-surface-raised p-[11px] max-mobile:p-2.5",
   overallWindowHead:
-    "overall-stats-window-head flex min-w-0 items-baseline justify-between gap-2 max-mobile:grid max-mobile:gap-[3px]",
-  overallWindowTitle: "text-[13px] font-semibold leading-[1.2] text-text-strong",
+    "overall-stats-window-head flex min-w-0 flex-wrap items-baseline justify-between gap-x-2 gap-y-[3px]",
+  overallWindowTitle:
+    "max-w-full flex-none text-[13px] font-semibold leading-[1.2] text-text-strong [overflow-wrap:anywhere]",
   overallWindowMeta:
-    "text-right text-[11px] font-medium leading-[1.35] text-muted max-mobile:text-left",
-  overallRateGrid: "overall-rate-grid grid grid-cols-2 gap-2",
+    "max-w-full flex-none text-right text-[11px] font-medium leading-[1.35] text-muted [overflow-wrap:anywhere]",
+  overallRateGrid: "overall-rate-grid grid min-w-0 grid-cols-[repeat(2,minmax(0,1fr))] gap-2",
   statsCard:
     "stats-vs-card min-w-0 rounded-card border border-border bg-surface-raised p-3 text-center max-mobile:p-2.5",
   statsCardLabel: "block text-[11px] font-medium leading-[1.2] text-muted",
@@ -53,7 +54,7 @@ export const classes = {
   neutralValue: "text-text-strong",
   actualValue: "text-grade-active-strong",
   empty: "stats-empty m-0 text-[12px] font-normal leading-[1.45] text-muted",
-  note: "stats-note m-0 text-[11px] font-normal leading-[1.45] text-muted [overflow-wrap:break-word] [word-break:keep-all]",
+  note: "stats-note m-0 min-w-0 text-[11px] font-normal leading-[1.45] text-muted [overflow-wrap:anywhere] [word-break:keep-all]",
   difficultyList: "difficulty-list grid gap-0",
   difficultyRow:
     "difficulty-row flex min-w-0 flex-col gap-[7px] px-0.5 pb-3 pt-[15px] max-mobile:py-2.5 max-mobile:pb-3",

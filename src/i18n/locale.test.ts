@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { localeFromLanguageTag, message, translate, translateMessage } from "./locale";
+import {
+  formatIntegerForLocale,
+  localeFromLanguageTag,
+  message,
+  translate,
+  translateMessage,
+} from "./locale";
 
 describe("locale selection", () => {
   it.each([
@@ -23,6 +29,12 @@ describe("message catalogs", () => {
     expect(translate("ja", "validation.progress", { count: 12_000 })).toBe(
       "仮想指揮官12,000人が試行を完了しました。",
     );
+  });
+
+  it("keeps cached integer formatters isolated by locale", () => {
+    expect(formatIntegerForLocale("ko", 12_000)).toBe("12,000");
+    expect(formatIntegerForLocale("en", 12_000)).toBe("12,000");
+    expect(formatIntegerForLocale("ja", 12_000)).toBe("12,000");
   });
 
   it("translates a stored message descriptor without rebuilding its view model", () => {

@@ -27,5 +27,6 @@
   "ignore": [
     "src/wasm/rustRerankProductSolver.ts",
     "src/wasm/rustResearchLoader.ts"
-  ]
+  ],
+  "ignoreDependencies": ["cloudflare"]
 }

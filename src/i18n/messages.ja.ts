@@ -204,8 +204,6 @@ export const jaMessages = {
   "modal.why": "なぜ必要ですか？",
   "modal.whyDetail":
     "大成功すると残りの使用は行われないため、実際の消費量は大成功した回数で変わります。選択した残数から大成功のタイミングを逆算して統計に反映します。",
-  "modal.later": "後で入力",
-  "modal.manual": "手動で入力",
   "modal.question": "残りの{kit}は何個ですか？",
   "modal.instruction":
     "何回目に大成功したか不明なため、残数を確定してください。ゲーム内インベントリに表示されている現在の数を選択します。",

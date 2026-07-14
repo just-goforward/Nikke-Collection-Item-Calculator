@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   architectureIssues,
+  containsAdHocTextAlignment,
   formatArchitectureResult,
   gitTrackedFiles,
   measureFunctions,
@@ -68,6 +69,16 @@ function outer() {
         { code: "re-export", file: "src/a.ts", message: "re-export is not allowed: src/a.ts" },
       ]),
     ).toContain("Architecture lint failed");
+  });
+
+  it("rejects direct one-pixel text offsets outside the alignment contract", () => {
+    expect(containsAdHocTextAlignment('const label = "relative top-px leading-none";')).toBe(true);
+    expect(
+      containsAdHocTextAlignment('const label = "relative max-mobile:top-px leading-none";'),
+    ).toBe(true);
+    expect(containsAdHocTextAlignment('const button = "enabled:active:translate-y-px";')).toBe(
+      false,
+    );
   });
 
   it("flags structural fixtures for boundaries and complexity", () => {

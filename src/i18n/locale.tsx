@@ -45,6 +45,9 @@ const MESSAGE_CATALOGS = {
   en: enMessages,
   ja: jaMessages,
 } satisfies Record<AppLocale, Record<MessageKey, string>>;
+const interpolationFormatters = new Map<AppLocale, Intl.NumberFormat>();
+const decimalFormatters = new Map<string, Intl.NumberFormat>();
+const integerFormatters = new Map<AppLocale, Intl.NumberFormat>();
 const UNIT_LABELS: Record<AppLocale, Record<CountUnit, readonly [string, string]>> = {
   ko: {
     attempt: ["회", "회"],
@@ -126,12 +129,14 @@ export function detectInitialLocale(): AppLocale {
 
 function interpolate(locale: AppLocale, template: string, params?: MessageParams) {
   if (!params) return template;
+  let formatter = interpolationFormatters.get(locale);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(LOCALE_CODES[locale], { maximumFractionDigits: 20 });
+    interpolationFormatters.set(locale, formatter);
+  }
   let result = template;
   for (const [key, value] of Object.entries(params)) {
-    const formatted =
-      typeof value === "number"
-        ? new Intl.NumberFormat(LOCALE_CODES[locale], { maximumFractionDigits: 20 }).format(value)
-        : value;
+    const formatted = typeof value === "number" ? formatter.format(value) : value;
     result = result.split(`{${key}}`).join(String(formatted));
   }
   return result;
@@ -151,14 +156,25 @@ export function translateMessage(locale: AppLocale, value: LocalizedMessage) {
 
 function formatNumberForLocale(locale: AppLocale, value: number, digits = 2) {
   if (!Number.isFinite(value)) return "-";
-  return new Intl.NumberFormat(LOCALE_CODES[locale], {
-    maximumFractionDigits: digits,
-    minimumFractionDigits: digits,
-  }).format(value);
+  const key = `${locale}:${digits}`;
+  let formatter = decimalFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(LOCALE_CODES[locale], {
+      maximumFractionDigits: digits,
+      minimumFractionDigits: digits,
+    });
+    decimalFormatters.set(key, formatter);
+  }
+  return formatter.format(value);
 }
 
 export function formatIntegerForLocale(locale: AppLocale, value: number) {
-  return new Intl.NumberFormat(LOCALE_CODES[locale], { maximumFractionDigits: 0 }).format(value);
+  let formatter = integerFormatters.get(locale);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(LOCALE_CODES[locale], { maximumFractionDigits: 0 });
+    integerFormatters.set(locale, formatter);
+  }
+  return formatter.format(value);
 }
 
 function localeFontSample(locale: AppLocale) {

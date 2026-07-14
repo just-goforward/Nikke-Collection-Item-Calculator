@@ -15,8 +15,6 @@ export function useStatsQuery(queryEnabled: boolean) {
   const [statsView, setStatsView] = useState<StatsView>({ type: "hidden" });
   const dirtyRef = useRef(false);
   const hasLoadedRef = useRef(false);
-  const queryEnabledRef = useRef(queryEnabled);
-  queryEnabledRef.current = queryEnabled;
   const refreshSequenceRef = useRef(0);
   const refreshTimerRef = useRef<number | null>(null);
 
@@ -77,12 +75,12 @@ export function useStatsQuery(queryEnabled: boolean) {
   );
 
   const markSubmitted = useCallback(() => {
-    if (queryEnabledRef.current) {
+    if (queryEnabled) {
       refreshDelayed(500, true);
       return;
     }
     dirtyRef.current = true;
-  }, [refreshDelayed]);
+  }, [queryEnabled, refreshDelayed]);
 
   useEffect(() => {
     if (!queryEnabled || (hasLoadedRef.current && !dirtyRef.current)) return;

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent } from "react";
 
 type DismissableLayerOptions = {
   escapeEnabled: boolean;
@@ -13,15 +13,13 @@ export function useDismissableLayer({
   containsTarget,
   onDismiss,
 }: DismissableLayerOptions) {
-  const containsTargetRef = useRef(containsTarget);
-  const onDismissRef = useRef(onDismiss);
-  containsTargetRef.current = containsTarget;
-  onDismissRef.current = onDismiss;
+  const containsLatestTarget = useEffectEvent(containsTarget);
+  const dismiss = useEffectEvent(onDismiss);
 
   useEffect(() => {
     if (!escapeEnabled) return undefined;
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") onDismissRef.current();
+      if (event.key === "Escape") dismiss();
     };
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
@@ -30,7 +28,7 @@ export function useDismissableLayer({
   useEffect(() => {
     if (!outsideEnabled) return undefined;
     const closeOnOutsidePointer = (event: globalThis.PointerEvent) => {
-      if (!containsTargetRef.current(event.target)) onDismissRef.current();
+      if (!containsLatestTarget(event.target)) dismiss();
     };
     document.addEventListener("pointerdown", closeOnOutsidePointer, true);
     return () => document.removeEventListener("pointerdown", closeOnOutsidePointer, true);

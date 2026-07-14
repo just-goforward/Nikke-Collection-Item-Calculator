@@ -31,7 +31,7 @@ const classes = {
   workspace:
     "grid grid-cols-[430px_minmax(0,1fr)] items-start gap-4 min-[661px]:max-tablet:grid-cols-2 max-mobile:grid-cols-1 max-mobile:gap-2.5",
   inputColumn:
-    "input-column grid min-w-0 content-start gap-4 min-[981px]:sticky min-[981px]:top-7 min-[661px]:max-tablet:col-span-full min-[661px]:max-tablet:grid-cols-[minmax(0,1fr)_minmax(286px,34%)] min-[661px]:max-tablet:items-stretch max-mobile:gap-2.5",
+    "input-column grid min-w-0 content-start gap-4 min-[981px]:sticky min-[981px]:top-7 min-[661px]:max-tablet:col-span-full min-[661px]:max-tablet:grid-cols-[minmax(0,1fr)_max-content] min-[661px]:max-tablet:items-stretch max-mobile:gap-2.5",
   resultColumn:
     "result-column grid min-w-0 content-start gap-4 min-[661px]:max-tablet:col-span-full max-mobile:gap-2.5",
   statsColumn:

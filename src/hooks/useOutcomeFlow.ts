@@ -48,6 +48,8 @@ export function useOutcomeFlow(options: UseOutcomeFlowOptions) {
   const applyOutcome = useOutcomeApplication({
     ...options,
     renderOutcomeApplied,
+    setModal,
+    terminalSuccessContextRef,
   });
   const applyConvert = useConvertAction(options);
 

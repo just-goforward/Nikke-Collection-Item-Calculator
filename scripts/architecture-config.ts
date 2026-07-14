@@ -45,7 +45,7 @@ export const TYPE_ESCAPE_BOUNDARY_ALLOWLIST: DebtEntry[] = [
   {
     file: "cloudflare/src/worker.test.ts",
     owner: "test",
-    reason: "Miniflare and Worker test harness need platform boundary casts.",
+    reason: "The Worker test harness needs Cloudflare runtime boundary casts.",
     removalTarget: "Introduce typed test helpers for env, request, and execution context.",
   },
   {

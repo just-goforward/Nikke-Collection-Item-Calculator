@@ -1,4 +1,5 @@
-import { Miniflare } from "miniflare";
+import { createExecutionContext, reset, waitOnExecutionContext } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import worker from "./worker";
@@ -9,38 +10,6 @@ type SiteverifyOutcome = { body?: object; status?: number } | Error;
 type WorkerFetch = NonNullable<typeof worker.fetch>;
 type WorkerEnv = Parameters<WorkerFetch>[1];
 type WorkerRequest = Parameters<WorkerFetch>[0];
-
-class TestSpan {
-  get isTraced() {
-    return false;
-  }
-
-  setAttribute() {}
-
-  end() {}
-}
-
-const testSpan: Span = new TestSpan();
-const testTracing: Tracing = {
-  enterSpan(_name, callback, ...args) {
-    return callback(testSpan, ...args);
-  },
-  startActiveSpan(_name, callback, ...args) {
-    return callback(testSpan, ...args);
-  },
-  Span: TestSpan,
-};
-const testExports = {} as Cloudflare.Exports;
-
-function makeExecutionContext(waitUntil: (promise: Promise<unknown>) => void = () => {}) {
-  return {
-    exports: testExports,
-    props: {},
-    tracing: testTracing,
-    waitUntil,
-    passThroughOnException() {},
-  } satisfies ExecutionContext;
-}
 
 export class WorkerTestHarness {
   readonly env: Partial<WorkerEnv> = {
@@ -54,7 +23,6 @@ export class WorkerTestHarness {
   siteverifyForms: URLSearchParams[] = [];
 
   #database: D1Database | null = null;
-  #miniflare: Miniflare | null = null;
 
   get database() {
     if (!this.#database) throw new Error("Worker test database is not initialized.");
@@ -62,16 +30,9 @@ export class WorkerTestHarness {
   }
 
   async setup() {
-    this.#miniflare = new Miniflare({
-      modules: true,
-      script: "export default { fetch() { return new Response('unused'); } };",
-      compatibilityDate: "2026-05-05",
-      d1Databases: ["DB"],
-    });
-    const database = await this.#miniflare.getD1Database("DB");
-    if (!database) throw new Error("Worker test DB binding is not available.");
-    this.#database = database;
-    this.env.DB = database;
+    await reset();
+    this.#database = env.DB;
+    this.env.DB = env.DB;
     this.env.ADMIN_TOKEN = "test-admin-token";
     this.env.ALLOWED_ORIGINS = "https://test.example";
     this.env.RATE_LIMIT_SECRET = "test-rate-limit-secret";
@@ -83,15 +44,12 @@ export class WorkerTestHarness {
     vi.unstubAllGlobals();
     delete this.env.ALLOWED_ORIGINS;
     delete this.env.ADMIN_TOKEN;
-    await this.#miniflare?.dispose();
     this.#database = null;
-    this.#miniflare = null;
   }
 
   async submit(payload: object) {
     if (!worker.fetch) throw new Error("Worker fetch handler is not defined.");
-    const pending: Promise<unknown>[] = [];
-    const ctx = makeExecutionContext((promise) => pending.push(promise));
+    const ctx = createExecutionContext();
     const request = new Request(REQUEST_URL, {
       method: "POST",
       headers: {
@@ -102,7 +60,7 @@ export class WorkerTestHarness {
       body: JSON.stringify(payload),
     }) as WorkerRequest;
     const response = await worker.fetch(request, this.workerEnv(), ctx);
-    await Promise.allSettled(pending);
+    await waitOnExecutionContext(ctx);
     return response;
   }
 
@@ -202,6 +160,6 @@ export class WorkerTestHarness {
   }
 
   private executionContext(): ExecutionContext {
-    return makeExecutionContext();
+    return createExecutionContext();
   }
 }

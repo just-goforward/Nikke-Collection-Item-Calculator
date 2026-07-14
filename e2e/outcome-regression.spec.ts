@@ -129,15 +129,12 @@ test("모바일 R 10 대성공 O는 결과 탭에 SR 5 교체 버튼을 먼저 �
   ).toBeDisabled();
 });
 
-test("SR 단회 대성공이 SR 15에 도달하면 키트 수정 잠금 없이 완료 안내를 표시한다", async ({
-  page,
-}) => {
+async function prepareSr14TerminalSuccess(page: Page) {
   await page
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
   await page.getByRole("button", { name: "14단계", exact: true }).click();
-
   await page.getByLabel("상급자용 키트").fill("10");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({
@@ -148,9 +145,53 @@ test("SR 단회 대성공이 SR 15에 도달하면 키트 수정 잠금 없이 �
     page.getByRole("button", { name: "대성공 O", exact: true }).first(),
     "대성공 O",
   );
+}
 
-  await expect(page.getByLabel("상급자용 키트")).toHaveValue("10");
+test("SR 단회 대성공으로 SR 15에 도달하면 회차를 입력해 키트 소모를 기록한다", async ({ page }) => {
+  await prepareSr14TerminalSuccess(page);
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: /1회차에 대성공/ }).click();
+
+  await expect(page.getByLabel("상급자용 키트")).toHaveValue("");
   await expect(page.locator("#stockEditNotice")).toBeHidden();
-  await expect(page.getByText("최종 단계에 도달했습니다.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "15단계", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByText(/SR 15단계에 반영되었습니다/)).toBeVisible();
   await expect(page.getByRole("button", { name: "키트 수정 필요", exact: true })).toHaveCount(0);
+});
+
+test("SR 15 회차 입력을 취소하면 키트 수량을 유지하고 완료 상태만 적용한다", async ({ page }) => {
+  await prepareSr14TerminalSuccess(page);
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "취소", exact: true }).click();
+
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel("상급자용 키트")).toHaveValue("10");
+  await expect(page.getByRole("button", { name: "15단계", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByText(/시도 분포 통계는 생략했습니다/)).toBeVisible();
+});
+
+test("SR 15 회차 입력 팝업 바깥을 누르면 취소와 동일하게 처리한다", async ({ page }) => {
+  await prepareSr14TerminalSuccess(page);
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.click({ position: { x: 4, y: 4 } });
+
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByLabel("상급자용 키트")).toHaveValue("10");
+  await expect(page.getByRole("button", { name: "15단계", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.getByText(/시도 분포 통계는 생략했습니다/)).toBeVisible();
 });

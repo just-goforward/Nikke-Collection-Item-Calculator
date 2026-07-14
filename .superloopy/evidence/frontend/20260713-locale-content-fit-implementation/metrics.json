@@ -1,0 +1,32 @@
+[
+  {
+    "name": "390-ko-result",
+    "locale": "ko",
+    "viewport": [390, 844],
+    "documentWidth": 375,
+    "candidateVariant": "full",
+    "candidateHeader": "compact",
+    "candidateOverflow": 0,
+    "outcomeLayout": "stacked"
+  },
+  {
+    "name": "768-ja-result",
+    "locale": "ja",
+    "viewport": [768, 900],
+    "documentWidth": 753,
+    "candidateVariant": "full",
+    "candidateHeader": "full",
+    "candidateOverflow": 0,
+    "outcomeLayout": "inline"
+  },
+  {
+    "name": "1280-en-result",
+    "locale": "en",
+    "viewport": [1280, 900],
+    "documentWidth": 1265,
+    "candidateVariant": "full",
+    "candidateHeader": "full",
+    "candidateOverflow": 0,
+    "outcomeLayout": "inline"
+  }
+]

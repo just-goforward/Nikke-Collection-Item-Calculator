@@ -145,11 +145,15 @@ This endpoint is not used by the public site and requires an `Authorization: Bea
 header. Optional query parameter: `days=30` (1-365). The response also includes recent
 `nodeCounts` buckets for observing Rust min-E[f] state-space pressure and fallback risk.
 
-Worker/D1 write-path tests use an isolated local Miniflare D1 database:
+Worker/D1 write-path tests use an isolated D1 database in the Cloudflare Vitest pool:
 
 ```powershell
 npm run test:worker
 ```
+
+On Windows, run this command from an ASCII-only checkout path until the upstream
+[`cloudflare:test-internal` non-ASCII path issue](https://github.com/cloudflare/workers-sdk/issues/14655)
+is fixed. CI/Linux is not affected.
 
 Use `schema.sql` for a new database. Existing databases must apply the versioned migrations instead
 of re-running `CREATE TABLE IF NOT EXISTS`, which cannot change an existing primary key.

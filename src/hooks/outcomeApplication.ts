@@ -18,7 +18,9 @@ export function useOutcomeApplication({
   renderOutcomeApplied,
   setCollectionState,
   setManualStockEditRequired,
+  setModal,
   setStockCountForKit,
+  terminalSuccessContextRef,
 }: Pick<
   OutcomeSharedOptions,
   | "currentStockSnapshot"
@@ -28,7 +30,9 @@ export function useOutcomeApplication({
   | "recordStateFeedback"
   | "setCollectionState"
   | "setManualStockEditRequired"
+  | "setModal"
   | "setStockCountForKit"
+  | "terminalSuccessContextRef"
 > & {
   renderOutcomeApplied: (args: OutcomeRenderArgs) => void;
 }) {
@@ -75,15 +79,19 @@ export function useOutcomeApplication({
         if (reachesFinalTarget) {
           pendingStatsEventRef.current = null;
           setManualStockEditRequired(false);
-          recordStateFeedback(startSnapshot, nextState);
-          setCollectionState(nextState, { maxLevelRender: false });
-          renderOutcomeApplied({
+          terminalSuccessContextRef.current = {
             best,
+            beforeStock,
             run,
-            nextState,
-            outcome: "success",
-            stockMessage: message("result.finalReached"),
-            detailMessage: message("result.finalReached"),
+            startSnapshot,
+            stockBeforeSnapshot,
+          };
+          setModal({
+            open: true,
+            maxAttempt: run.count,
+            attempt: 1,
+            kit: best.firstAction,
+            beforeStock,
           });
           return { outcome: "success", needsStockEdit: false };
         }
@@ -151,7 +159,9 @@ export function useOutcomeApplication({
       renderOutcomeApplied,
       setCollectionState,
       setManualStockEditRequired,
+      setModal,
       setStockCountForKit,
+      terminalSuccessContextRef,
     ],
   );
 }

@@ -642,6 +642,8 @@ test("검산 details — 펼치면 가상의 니붕이 검산 결과가 자동 �
       .locator(".result-panel")
       .getByText("보유 키트가 변경되었습니다. 계산 버튼을 눌러 결과를 갱신해주세요."),
   ).toBeVisible();
+  await expect(page.locator(".result-panel #resultBox")).toHaveAttribute("inert", "");
+  await expect(page.locator(".result-panel [role='status']")).not.toHaveAttribute("inert");
 });
 test("모바일 탭은 입력, 결과, 통계 화면을 전환한다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -685,9 +687,9 @@ test("모바일 하단 액션바로 계산하고 결과 액션을 표시한다",
   await expect(page.locator(".table-wrap .action-chip-text").first()).toContainText(
     "초심자용 키트",
   );
-  await expect(page.locator(".table-wrap .action-chip-name-short").first()).toHaveText("초심자용");
-  await expect(page.locator(".table-wrap .action-chip-name-short").first()).toBeVisible();
-  await expect(page.locator(".table-wrap .action-chip-name-full").first()).toBeHidden();
+  await expect(page.locator(".table-wrap")).toHaveAttribute("data-action-label", "full");
+  await expect(page.locator(".table-wrap .action-chip-name-full").first()).toBeVisible();
+  await expect(page.locator(".table-wrap .action-chip-name-short").first()).toBeHidden();
   await expect
     .poll(() =>
       page

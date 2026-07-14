@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n/locale";
 import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
 import type { Kit, Stock } from "../types";
+import { AlignedText } from "./AlignedText";
 
 type StockPanelProps = {
   stock: Stock;
@@ -63,7 +64,7 @@ const classes = {
     "flex items-center justify-center gap-[7px] text-center text-[12px] font-semibold leading-[1.25] text-muted min-[661px]:max-tablet:justify-start min-[661px]:max-tablet:whitespace-nowrap min-[661px]:max-tablet:text-left max-mobile:col-start-1 max-mobile:row-start-1 max-mobile:min-w-0 max-mobile:whitespace-normal max-mobile:text-[11px] max-mobile:[word-break:keep-all]",
   kitDot: "inline-block size-[11px] flex-none rounded-full",
   kitInputControl:
-    "min-h-10 text-center text-[15px] font-semibold tabular-nums placeholder:text-muted/55 focus:placeholder:text-transparent min-[661px]:min-h-9 min-[661px]:px-[10px] min-[661px]:py-[6px] min-[661px]:text-[14px] min-[661px]:max-tablet:min-w-0 max-mobile:col-start-1 max-mobile:row-start-2 max-mobile:min-w-0 max-mobile:px-1.5 max-mobile:py-2 max-mobile:text-center max-mobile:text-sm",
+    "numeric-text-control stock-input-control text-center text-[15px] font-semibold tabular-nums placeholder:text-muted/55 focus:placeholder:text-transparent min-[661px]:px-[10px] min-[661px]:text-[14px] min-[661px]:max-tablet:min-w-0 max-mobile:col-start-1 max-mobile:row-start-2 max-mobile:min-w-0 max-mobile:px-1.5 max-mobile:text-center max-mobile:text-sm",
   kitInputNeedsEdit: "border-yellow-kit shadow-[0_0_0_3px_rgba(230,170,38,0.18)]",
   kitHint: "hidden",
   help: "sr-only",
@@ -227,10 +228,8 @@ export default function StockPanel({
     commitStock();
     onCalculate();
   };
-  const panelClassName = stockPanelClassName(needsStockEdit, stockStale);
-
   return (
-    <section className={panelClassName}>
+    <section className={stockPanelClassName(needsStockEdit, stockStale)}>
       <div className={classes.heading}>
         <h2>{t("stock.title")}</h2>
       </div>
@@ -266,7 +265,7 @@ export default function StockPanel({
           type="button"
           onClick={onReset}
         >
-          {t("common.reset")}
+          <AlignedText alignmentRole="action">{t("common.reset")}</AlignedText>
         </button>
         <button
           id="calculateButton"
@@ -280,18 +279,20 @@ export default function StockPanel({
           onPointerDown={commitFocusedInput}
           onClick={handleCalculate}
         >
-          {needsStockEdit ? (
-            t("common.stockEditRequired")
-          ) : loading ? (
-            <>
-              <span className={classes.spinner} aria-hidden="true" />
-              {t("common.calculating")}
-            </>
-          ) : isStale ? (
-            t("common.recalculate")
-          ) : (
-            t("common.calculate")
-          )}
+          <AlignedText alignmentRole="action" className="gap-2">
+            {needsStockEdit ? (
+              t("common.stockEditRequired")
+            ) : loading ? (
+              <>
+                <span className={classes.spinner} aria-hidden="true" />
+                {t("common.calculating")}
+              </>
+            ) : isStale ? (
+              t("common.recalculate")
+            ) : (
+              t("common.calculate")
+            )}
+          </AlignedText>
         </button>
       </div>
     </section>

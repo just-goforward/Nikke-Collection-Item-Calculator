@@ -203,8 +203,6 @@ export const koMessages = {
   "modal.why": "왜 필요한가요?",
   "modal.whyDetail":
     "대성공이 나면 남은 사용은 진행하지 않아 실제 소모량이 회차에 따라 달라집니다. 선택한 잔량으로 대성공 시점을 역산해 통계에 반영합니다.",
-  "modal.later": "나중에 입력",
-  "modal.manual": "직접 입력할게요",
   "modal.question": "남은 {kit}가 몇 개인가요?",
   "modal.instruction":
     "몇 번째 사용에서 대성공이 났는지 알 수 없어 남은 수량을 확정해야 해요. 게임 인벤토리의 지금 수량을 그대로 고르면 됩니다.",
