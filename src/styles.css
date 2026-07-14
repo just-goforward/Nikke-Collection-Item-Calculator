@@ -786,9 +786,9 @@ h2 {
 
 .table-wrap {
   --candidate-col-width: 16%;
-  --action-col-width: 33%;
+  --action-col-width: 32%;
   --probability-col-width: 17%;
-  --consumption-col-width: 34%;
+  --consumption-col-width: 35%;
   --action-name-track-width: 8.75em;
 
   container-type: inline-size;

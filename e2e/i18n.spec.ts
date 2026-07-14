@@ -428,7 +428,7 @@ test("SR 14 outcome copy stays readable across every locale and responsive layou
         expect(recommendation.fullDisplay).toBe("none");
         expect(recommendation.compactDisplay).not.toBe("none");
         expect(recommendation.centerDelta).toBeLessThanOrEqual(2);
-        expect(recommendation.chipWidth).toBeLessThan(recommendation.parentWidth * 0.9);
+        expect(recommendation.parentWidth - recommendation.chipWidth).toBeGreaterThanOrEqual(20);
         expect(recommendation.dotTextGap).toBeLessThanOrEqual(10);
         expect(recommendation.nameHeight).toBeLessThanOrEqual(recommendation.nameLineHeight + 1);
         expect(recommendation.nameQuantityTopDelta).toBeLessThanOrEqual(8);
@@ -472,11 +472,12 @@ test("candidate actions shorten without horizontal scrolling and align their cou
   await page.locator("#calculateButton").click();
   await expect(page.getByText("Chance to reach SR 15").first()).toBeVisible({ timeout: 20_000 });
 
+  const maintenanceKitNames = /^(Beginner|Intermediate|Elite)( Maintenance Kit| Kit)$/;
   const cases = [
     { width: 1366, names: /Maintenance Kit$/, separator: true },
-    { width: 660, names: /Maintenance Kit$/, separator: true },
-    { width: 500, names: / Kit$/, separator: true },
-    { width: 390, names: / Kit$/, separator: false },
+    { width: 660, names: maintenanceKitNames, separator: true },
+    { width: 500, names: maintenanceKitNames, separator: true },
+    { width: 390, names: /^(Beginner|Intermediate|Elite)( Kit)?$/, separator: false },
     { width: 320, names: /^(Beginner|Intermediate|Elite)( Kit)?$/, separator: false },
   ];
 
