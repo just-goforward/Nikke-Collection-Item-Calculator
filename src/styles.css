@@ -862,6 +862,7 @@ html[data-locale="en"] .stats-layout {
 
   .table-wrap .action-chip-text {
     font-size: 9.5px;
+    grid-template-columns: minmax(0, var(--action-name-track-width)) max-content;
   }
 
   .table-wrap .action-chip-separator {
