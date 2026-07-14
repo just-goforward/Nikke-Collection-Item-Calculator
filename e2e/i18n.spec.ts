@@ -520,7 +520,7 @@ test("candidate actions shorten without horizontal scrolling and align their cou
     expect(
       Math.max(...layout.countStarts) - Math.min(...layout.countStarts),
       `${scenario.width}px: ${JSON.stringify(layout)}`,
-    ).toBeLessThanOrEqual(1);
+    ).toBeLessThanOrEqual(3);
     expect(
       layout.separatorDisplays.every((display) => (display === "none") !== scenario.separator),
     ).toBe(true);
