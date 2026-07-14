@@ -114,7 +114,7 @@ const classes = {
     "outcome-title m-0 flex min-w-0 items-center gap-2 whitespace-nowrap text-[17px] font-semibold text-outcome-text before:inline-block before:size-[11px] before:shrink-0 before:rounded-full before:bg-yellow-kit before:shadow-[0_0_0_4px_rgba(230,170,38,0.22)] before:content-[''] min-[661px]:max-tablet:text-[15px]",
   outcomeTitleText: "outcome-title-text min-w-0",
   outcomeActionGroup:
-    "outcome-action-group grid w-max min-w-0 max-w-[min(360px,100%)] justify-self-end content-center gap-1",
+    "outcome-action-group grid w-[var(--outcome-actions-width,360px)] min-w-0 max-w-full justify-self-end content-center gap-1",
   outcomeButtons: "outcome-buttons grid grid-cols-2 gap-2",
   outcomeChoice: "grid min-w-0 grid-rows-[auto_minmax(18px,auto)] gap-0.5",
   outcomeChoiceCaption:
@@ -139,6 +139,20 @@ const classes = {
   outcomeCancelButton:
     "inline-flex min-h-[52px] items-center justify-center whitespace-nowrap border border-border bg-button px-2 text-[14px] font-bold leading-none text-muted min-[661px]:max-tablet:min-h-[46px] min-[661px]:max-tablet:text-[13px]",
 } as const;
+
+function outcomeLayoutMeasurementKey(panelWidth: number) {
+  const root = document.documentElement;
+  return `${Math.round(panelWidth * 2) / 2}:${root.getAttribute("data-locale")}:${root.getAttribute("data-locale-font-ready")}`;
+}
+
+function observeLocaleLayoutChanges(updateLayout: () => void) {
+  const observer = new MutationObserver(updateLayout);
+  observer.observe(document.documentElement, {
+    attributeFilter: ["data-locale", "data-locale-font-ready"],
+    attributes: true,
+  });
+  return observer;
+}
 
 type ResultPanelProps = {
   needsStockEdit: boolean;
@@ -311,11 +325,12 @@ function RecommendationBlock({
     const panel = outcomePanelRef.current;
     if (!panel) return;
 
-    let measuredWidth = -1;
+    let measurementKey = "";
     const updateLayout = () => {
       const panelWidth = panel.getBoundingClientRect().width;
-      if (Math.abs(panelWidth - measuredWidth) < 0.5) return;
-      measuredWidth = panelWidth;
+      const nextMeasurementKey = outcomeLayoutMeasurementKey(panelWidth);
+      if (nextMeasurementKey === measurementKey) return;
+      measurementKey = nextMeasurementKey;
       panel.setAttribute("data-layout", "inline");
 
       const copy = panel.querySelector<HTMLElement>(".outcome-copy");
@@ -348,7 +363,11 @@ function RecommendationBlock({
     if (typeof ResizeObserver !== "function") return;
     const observer = new ResizeObserver(updateLayout);
     observer.observe(panel);
-    return () => observer.disconnect();
+    const localeObserver = observeLocaleLayoutChanges(updateLayout);
+    return () => {
+      observer.disconnect();
+      localeObserver.disconnect();
+    };
   });
 
   const transitionStyle = transition

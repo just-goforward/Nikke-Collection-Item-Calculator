@@ -891,6 +891,15 @@ html[data-locale="ja"] .outcome-title-text {
   white-space: normal;
 }
 
+html[data-locale="ko"] .outcome-action-group,
+html[data-locale="ja"] .outcome-action-group {
+  --outcome-actions-width: clamp(260px, 29vw, 320px);
+}
+
+html[data-locale="ja"] .outcome-panel.is-holding-ring .outcome-action-group {
+  --outcome-actions-width: 320px;
+}
+
 @media (max-width: 660px) {
   html[data-locale="ko"] .next-action .action-chip-name-full,
   html[data-locale="ja"] .next-action .action-chip-name-full {

@@ -283,6 +283,7 @@ test("Japanese outcome actions never overlap their copy in narrow desktop layout
     const layout = await page.locator(".outcome-panel").evaluate((panel) => {
       const copy = panel.querySelector<HTMLElement>(".outcome-copy");
       const actions = panel.querySelector<HTMLElement>(".outcome-action-group");
+      const actionButtons = [...panel.querySelectorAll<HTMLElement>(".outcome-buttons button")];
       const title = panel.querySelector<HTMLElement>(".outcome-title-text");
       const prompt = panel.querySelector<HTMLElement>(".change-note");
       if (!copy || !actions || !title || !prompt) {
@@ -295,6 +296,8 @@ test("Japanese outcome actions never overlap their copy in narrow desktop layout
       const promptRect = prompt.getBoundingClientRect();
       const stacked = actionsRect.top >= copyRect.bottom - 1;
       return {
+        actionWidth: actionsRect.width,
+        minButtonWidth: Math.min(...actionButtons.map(({ offsetWidth }) => offsetWidth)),
         contentOverflow: Math.max(0, titleRect.right, promptRect.right) - panelRect.right,
         dataLayout: panel.getAttribute("data-layout"),
         horizontalOverlap: stacked
@@ -310,6 +313,8 @@ test("Japanese outcome actions never overlap their copy in narrow desktop layout
     expect(layout.dataLayout).toBe("inline");
     expect(layout.stacked).toBe(layout.dataLayout === "stacked");
     expect(layout.horizontalOverlap).toBeLessThanOrEqual(1);
+    expect(layout.actionWidth).toBeGreaterThanOrEqual(259);
+    expect(layout.minButtonWidth).toBeGreaterThanOrEqual(120);
     expect(layout.contentOverflow).toBeLessThanOrEqual(1);
     expect(layout.promptFits).toBe(true);
     expect(layout.titleFits).toBe(true);
