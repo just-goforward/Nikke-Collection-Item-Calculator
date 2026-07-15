@@ -191,6 +191,21 @@ html[data-locale="en"] .theme-menu-control {
   }
 }
 
+@media (min-width: 981px) {
+  .view-tabs {
+    --text-optical-segment-y: 0.5px;
+  }
+}
+
+@supports (-webkit-hyphens: none) {
+  @media (min-width: 981px) {
+    .view-tabs {
+      /* WebKit's glyph metrics are already optically centered here. */
+      --text-optical-segment-y: 0px;
+    }
+  }
+}
+
 @media (min-width: 1100px) {
   .grade-row {
     --text-optical-segment-y: 1px;
