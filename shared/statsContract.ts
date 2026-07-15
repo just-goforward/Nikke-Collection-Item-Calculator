@@ -1,5 +1,8 @@
 export const SOLVER_DIAGNOSTIC_VERSION = 6 as const;
 
+export const STATS_LOCALES = ["ko", "ja", "en"] as const;
+export type StatsLocale = (typeof STATS_LOCALES)[number];
+
 export const SOLVER_EXECUTION_KINDS = ["executed", "cache_hit"] as const;
 export type SolverExecutionKind = (typeof SOLVER_EXECUTION_KINDS)[number];
 

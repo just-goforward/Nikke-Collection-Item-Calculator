@@ -1,5 +1,5 @@
 import type { CollectionState, Kit, KitRecord } from "../../shared/game";
-import type { SolverExecutionKind } from "../../shared/statsContract";
+import type { SolverExecutionKind, StatsLocale } from "../../shared/statsContract";
 import type { SolverDiagnosticEventInput, SolverRecoveryEventInput } from "./schemas";
 
 export type ValidatedKitResultEvent = {
@@ -17,6 +17,7 @@ export type ValidatedKitResultEvent = {
 export type ValidatedSolverDiagnosticEvent = {
   kind: "solver_diagnostic";
   diagnosticVersion: SolverDiagnosticEventInput["diagnosticVersion"];
+  locale: StatsLocale | null;
   solverVersion: string;
   solverPhase: string;
   solverBackend: string;

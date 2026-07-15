@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { validatePayload } from "./event-validation";
 import { HttpError } from "./http-error";
 import { EventSubmissionSchema } from "./schemas";
+import { solverDiagnosticEvent } from "./worker.test-events";
 
 function kitPayload(overrides: Record<string, unknown> = {}) {
   return {
@@ -145,5 +146,15 @@ describe("validatePayload", () => {
   it("rejects invalid primitive field types at the Zod boundary", () => {
     const payload = kitPayload({ recommendedUses: "1" });
     expect(EventSubmissionSchema.safeParse(payload).success).toBe(false);
+  });
+
+  it("accepts supported calculation locales and rejects unknown locale values", () => {
+    const valid = solverDiagnosticEvent("solver-locale-valid01");
+    valid.event.locale = "ja";
+    expect(validateTestPayload(valid).event).toMatchObject({ locale: "ja" });
+
+    const invalid = solverDiagnosticEvent("solver-locale-invalid1");
+    invalid.event.locale = "fr";
+    expect(EventSubmissionSchema.safeParse(invalid).success).toBe(false);
   });
 });

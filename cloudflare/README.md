@@ -143,7 +143,8 @@ Returns all-time aggregate statistics for display on the site. This public respo
 Returns private solver diagnostic aggregates grouped by `solverVersion` and `solverPhase`.
 This endpoint is not used by the public site and requires an `Authorization: Bearer <ADMIN_TOKEN>`
 header. Optional query parameter: `days=30` (1-365). The response also includes recent
-`nodeCounts` buckets for observing Rust min-E[f] state-space pressure and fallback risk.
+`nodeCounts` buckets for observing Rust min-E[f] state-space pressure and fallback risk, plus
+`calculationLocales` for the language selected when each calculation started.
 
 Worker/D1 write-path tests use an isolated D1 database in the Cloudflare Vitest pool:
 
@@ -192,6 +193,15 @@ For the `ladder_v1` recovery rung and terminal aggregates:
 ```powershell
 npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/add-solver-recovery-aggregates.sql --config cloudflare/wrangler.toml --env=""
 npx wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/add-solver-recovery-aggregates.sql --config cloudflare/wrangler.toml
+```
+
+For calculation-time language aggregates, apply the additive migration to both databases before
+deploying the Worker change. Missing locale values from older clients remain valid and are excluded
+from this table instead of being guessed.
+
+```powershell
+npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/add-calculation-locale-aggregates.sql --config cloudflare/wrangler.toml --env=""
+npx wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/add-calculation-locale-aggregates.sql --config cloudflare/wrangler.toml --env=staging
 ```
 
 Diagnostic versions before v6 can contain repeated cache-hit timing and node-count values. Treat
@@ -258,6 +268,12 @@ Observed solve-cache execution and hit counts (diagnostic v6 and later):
 
 ```powershell
 npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT diagnostic_version, requested_backend, terminal_backend, execution_kind, SUM(events) AS events FROM solver_cache_aggregates WHERE diagnostic_version >= 6 GROUP BY diagnostic_version, requested_backend, terminal_backend, execution_kind ORDER BY diagnostic_version, requested_backend, execution_kind"
+```
+
+Calculation-time language selection, split by actual execution and cache hits:
+
+```powershell
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT locale, requested_backend, terminal_backend, execution_kind, SUM(events) AS events FROM calculation_locale_aggregates GROUP BY locale, requested_backend, terminal_backend, execution_kind ORDER BY events DESC"
 ```
 
 Recovery rung and terminal counts are independent operational aggregates. Do not divide one table

@@ -13,6 +13,7 @@ import {
   RETRY_BUCKETS,
   SOLVE_MS_BUCKETS,
   SOLVER_EXECUTION_KINDS,
+  STATS_LOCALES,
   STOCK_BUCKETS,
   TOTAL_EXPECTED_COST_BUCKETS,
 } from "../../shared/statsContract";
@@ -72,6 +73,7 @@ const MemoryStrategySchema = z.string().trim().min(1).max(64).optional();
 const MemoTierSchema = z.enum(MEMO_TIER_BUCKETS).optional();
 const Phase2MemoRetriedSchema = z.enum(RETRY_BUCKETS).optional();
 const SolverExecutionKindSchema = z.enum(SOLVER_EXECUTION_KINDS).optional();
+const StatsLocaleSchema = z.enum(STATS_LOCALES);
 const SolverBackendSchema = z.enum(["js-phase2", "rust-phase2", "rust-min-ef"]);
 const SolverRecoveryExitSchema = z.enum(["not_attempted", "success", ...WORKER_ERROR_CODES]);
 
@@ -86,6 +88,7 @@ const SolverDiagnosticEventSchema = z
       z.literal(5),
       z.literal(6),
     ]),
+    locale: StatsLocaleSchema.optional(),
     solverVersion: z.string(),
     solverPhase: z.string(),
     solverBackend: z.string().optional(),

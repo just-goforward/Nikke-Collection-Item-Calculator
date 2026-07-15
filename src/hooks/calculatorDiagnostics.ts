@@ -10,6 +10,7 @@ import {
   bucketStockPieces,
   bucketTotalExpectedCost,
   SOLVER_DIAGNOSTIC_VERSION,
+  type StatsLocale,
 } from "../../shared/statsContract";
 import { EXPECTED_28_DAY_GAIN } from "../solver/domain";
 import type { Kit, Strategy } from "../types";
@@ -38,7 +39,7 @@ function vectorValue(vector: Partial<Record<Kit, number>> | undefined, kit: Kit)
   return Math.max(0, Number(vector?.[kit] || 0));
 }
 
-export function makeSolverDiagnosticEvent(outcome: SolveOutcome) {
+export function makeSolverDiagnosticEvent(outcome: SolveOutcome, locale: StatsLocale) {
   const { executionKind, requestedBackend, result } = outcome;
   if (!result.possible || !result.input || !result.best) return null;
   const input = result.input;
@@ -75,6 +76,7 @@ export function makeSolverDiagnosticEvent(outcome: SolveOutcome) {
   return {
     kind: "solver_diagnostic" as const,
     diagnosticVersion: SOLVER_DIAGNOSTIC_VERSION,
+    locale,
     executionKind,
     requestedBackend,
     solverVersion,

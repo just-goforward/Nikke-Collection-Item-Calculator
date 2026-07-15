@@ -14,6 +14,7 @@ export function validateDiagnosticSubmission(
     event: {
       kind: "solver_diagnostic",
       diagnosticVersion: event.diagnosticVersion,
+      locale: event.locale ?? null,
       solverVersion: normalizeDiagnosticToken(event.solverVersion),
       solverPhase: normalizeDiagnosticToken(event.solverPhase),
       solverBackend,

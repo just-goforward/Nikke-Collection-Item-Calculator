@@ -1,5 +1,5 @@
 import { type Dispatch, type SetStateAction, useCallback, useRef } from "react";
-import { message } from "../i18n/locale";
+import { message, useI18n } from "../i18n/locale";
 import type { LocalizedMessage } from "../i18n/messages.ko";
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import type { SolverInput } from "../types";
@@ -97,12 +97,14 @@ export function useSolveFlow({
   setResultView,
   solveBestAvailable,
 }: SolveFlowOptions) {
+  const { locale } = useI18n();
   const busyRef = useRef(false);
 
   const solveAndRenderInput = useCallback(
     async (input: SolverInput, options: SolveAndRenderOptions = {}) => {
       if (busyRef.current) return false;
       busyRef.current = true;
+      const calculationLocale = locale;
       let skipUiCleanup = false;
       const loadingStartedAt = performance.now();
       try {
@@ -114,7 +116,7 @@ export function useSolveFlow({
         const result = outcome.result;
         options.beforeRender?.();
         renderResult(result, options.previousAction);
-        const diagnosticEvent = makeSolverDiagnosticEvent(outcome);
+        const diagnosticEvent = makeSolverDiagnosticEvent(outcome, calculationLocale);
         if (diagnosticEvent) queueStatsEvent(diagnosticEvent);
         const recoveryEvent = makeSolverRecoveryEvent(result.input, outcome.recoveryTrace);
         if (recoveryEvent) queueStatsEvent(recoveryEvent);
@@ -152,6 +154,7 @@ export function useSolveFlow({
     },
     [
       latestResultRef,
+      locale,
       prepareForSolve,
       queueStatsEvent,
       renderResult,

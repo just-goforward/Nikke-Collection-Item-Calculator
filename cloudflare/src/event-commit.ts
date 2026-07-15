@@ -24,6 +24,11 @@ export async function commitSubmission(
       buildSolverDiagnosticAggregateStatement(env, dateKey, normalized.event, now),
       buildSolverCacheAggregateStatement(env, dateKey, normalized.event, now),
     ];
+    if (normalized.event.locale) {
+      aggregateStatements.push(
+        buildCalculationLocaleAggregateStatement(env, dateKey, normalized.event, now),
+      );
+    }
     if (normalized.event.executionKind === "executed") {
       aggregateStatements.push(
         buildSolverRuntimeAggregateStatement(env, dateKey, normalized.event, now),
@@ -63,6 +68,34 @@ function recoveryRungs(event: ValidatedSolverRecoveryEvent): RecoveryRung[] {
     { backend: "js-phase2", exit: event.jsExit, memoTier: "unknown" },
   ];
   return rungs.filter((rung) => rung.exit !== "not_attempted");
+}
+
+function buildCalculationLocaleAggregateStatement(
+  env: WorkerEnv,
+  dateKey: string,
+  event: ValidatedSolverDiagnosticEvent,
+  now: number,
+): D1PreparedStatement {
+  if (!event.locale) throw new HttpError(500, "diagnostic_locale_missing");
+  return env.DB.prepare(
+    `INSERT INTO calculation_locale_aggregates
+      (date_key, diagnostic_version, locale, requested_backend, terminal_backend,
+       execution_kind, events, last_seen)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, diagnostic_version, locale, requested_backend, terminal_backend,
+       execution_kind)
+     DO UPDATE SET
+      events = events + 1,
+      last_seen = excluded.last_seen`,
+  ).bind(
+    dateKey,
+    event.diagnosticVersion,
+    event.locale,
+    event.requestedBackend,
+    event.solverBackend,
+    event.executionKind,
+    now,
+  );
 }
 
 function buildSolverRecoveryRungStatement(

@@ -30,6 +30,7 @@ export function solverDiagnosticEvent(eventId: string) {
     event: {
       kind: "solver_diagnostic",
       diagnosticVersion: 6,
+      locale: "ko",
       solverVersion: "phase1",
       solverPhase: "phase1",
       solverBackend: "js-phase2",

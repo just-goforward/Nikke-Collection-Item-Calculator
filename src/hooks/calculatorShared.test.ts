@@ -46,13 +46,17 @@ describe("makeSolverDiagnosticEvent", () => {
     };
 
     expect(
-      makeSolverDiagnosticEvent({
-        executionKind: "executed",
-        requestedBackend: "rust-min-ef",
-        result,
-      }),
+      makeSolverDiagnosticEvent(
+        {
+          executionKind: "executed",
+          requestedBackend: "rust-min-ef",
+          result,
+        },
+        "ja",
+      ),
     ).toMatchObject({
       diagnosticVersion: 6,
+      locale: "ja",
       executionKind: "executed",
       requestedBackend: "rust-min-ef",
       solverVersion: "phase2_availability_h075_tau0_p3_rust_rerank_staging",

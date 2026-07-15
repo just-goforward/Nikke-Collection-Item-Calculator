@@ -9,6 +9,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 
+import type { StatsLocale } from "../../shared/statsContract";
 import { ignoreExpectedError } from "../lib/errorHandling";
 import { enMessages } from "./messages.en";
 import { jaMessages } from "./messages.ja";
@@ -19,7 +20,7 @@ import {
   type MessageParams,
 } from "./messages.ko";
 
-export type AppLocale = "ko" | "en" | "ja";
+export type AppLocale = StatsLocale;
 type CountUnit = "attempt" | "input" | "person" | "piece" | "state" | "use";
 
 const LANGUAGE_STORAGE_KEY = "collection-kit-calculator.language";

@@ -54,6 +54,10 @@ type SolverCacheRow = {
   events?: number | string | null;
 };
 
+type CalculationLocaleRow = SolverCacheRow & {
+  locale?: string | null;
+};
+
 type SolverRecoveryRungRow = {
   policy_version?: string | null;
   requested_backend?: string | null;
@@ -88,6 +92,7 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     solverNodeCountsStatement(env, since),
     solverRuntimeStatement(env, since),
     solverCacheStatement(env, since),
+    calculationLocaleStatement(env, since),
     solverRecoveryRungStatement(env, since),
     solverRecoveryTerminalStatement(env, since),
   ]);
@@ -97,8 +102,9 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
   const nodeCounts = mapSolverNodeCounts(resultAt(results, 3));
   const runtime = mapSolverRuntime(resultAt(results, 4));
   const cache = mapSolverCache(resultAt(results, 5));
-  const recoveryRungs = mapSolverRecoveryRungs(resultAt(results, 6));
-  const recoveryTerminals = mapSolverRecoveryTerminals(resultAt(results, 7));
+  const calculationLocales = mapCalculationLocales(resultAt(results, 6));
+  const recoveryRungs = mapSolverRecoveryRungs(resultAt(results, 7));
+  const recoveryTerminals = mapSolverRecoveryTerminals(resultAt(results, 8));
 
   return jsonResponse(request, env, {
     generatedAt: new Date(now * 1000).toISOString(),
@@ -110,6 +116,7 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     nodeCounts,
     runtime,
     cache,
+    calculationLocales,
     recoveryRungs,
     recoveryTerminals,
     fallbacks: summarizeFallbacks(runtime),
@@ -123,6 +130,11 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     recoveryDataPolicy: {
       aggregatesAreIndependent: true,
       ratioWarning: "do_not_divide_terminal_counts_by_rung_counts",
+    },
+    localeDataPolicy: {
+      source: "solver_diagnostic_at_calculation_time",
+      missingLocaleEventsExcluded: true,
+      supportedLocales: ["ko", "ja", "en"],
     },
   });
 }
@@ -336,6 +348,36 @@ function mapSolverCache(result: D1Result<unknown>) {
     const row = rawRow as SolverCacheRow;
     return {
       diagnosticVersion: numberOrZero(row.diagnostic_version),
+      requestedBackend: stringOr(row.requested_backend, "unknown"),
+      terminalBackend: stringOr(row.terminal_backend, "unknown"),
+      executionKind: stringOr(row.execution_kind, "unknown"),
+      events: numberOrZero(row.events),
+    };
+  });
+}
+
+function calculationLocaleStatement(env: WorkerEnv, since: string) {
+  return env.DB.prepare(
+    `SELECT
+       diagnostic_version,
+       locale,
+       requested_backend,
+       terminal_backend,
+       execution_kind,
+       SUM(events) AS events
+     FROM calculation_locale_aggregates
+     WHERE date_key >= ?
+     GROUP BY diagnostic_version, locale, requested_backend, terminal_backend, execution_kind
+     ORDER BY locale ASC, execution_kind ASC, requested_backend ASC`,
+  ).bind(since);
+}
+
+function mapCalculationLocales(result: D1Result<unknown>) {
+  return (result.results || []).map((rawRow) => {
+    const row = rawRow as CalculationLocaleRow;
+    return {
+      diagnosticVersion: numberOrZero(row.diagnostic_version),
+      locale: stringOr(row.locale, "unknown"),
       requestedBackend: stringOr(row.requested_backend, "unknown"),
       terminalBackend: stringOr(row.terminal_backend, "unknown"),
       executionKind: stringOr(row.execution_kind, "unknown"),

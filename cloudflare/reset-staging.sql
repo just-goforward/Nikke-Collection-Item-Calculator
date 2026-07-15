@@ -32,3 +32,8 @@ DELETE FROM solver_diagnostic_aggregates
 WHERE EXISTS (
   SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
 );
+
+DELETE FROM calculation_locale_aggregates
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);

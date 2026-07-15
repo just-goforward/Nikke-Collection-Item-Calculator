@@ -306,6 +306,7 @@ test("min-E[f] capacity fallback restarts in a fresh phase2 Worker", async ({ pa
     .toMatchObject({
       fallbackFrom: "rust-min-ef",
       fallbackReason: "memo_full",
+      locale: "ko",
       solverBackend: "rust-phase2",
     });
   expect((await workerProbe(page)).created).toBeGreaterThanOrEqual(2);
