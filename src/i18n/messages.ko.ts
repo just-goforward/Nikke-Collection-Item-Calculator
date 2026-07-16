@@ -49,6 +49,11 @@ export const koMessages = {
   "state.phaseAria": "현재 단계",
   "state.current": "현재 소장품",
   "state.currentExp": "현재 경험치",
+  "state.expHelp": "0 이상의 정수를 100 단위로 입력할 수 있습니다. 현재 최대값은 {max}입니다.",
+  "state.expInvalid": "음수와 소수는 입력할 수 없어 이전 값으로 되돌렸습니다.",
+  "state.expAdjustedStep": "경험치는 100 단위로 입력해야 하므로 {value}으로 조정했습니다.",
+  "state.expAdjustedMax":
+    "현재 등급에서 입력할 수 있는 최대값은 {max}이므로 입력값을 {value}으로 조정했습니다.",
   "state.requiredExp": "레벨업 필요 경험치",
   "state.feedbackSegment": "구간 이동 Lv {from} → {to}",
   "stock.title": "보유 키트",

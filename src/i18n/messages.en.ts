@@ -52,6 +52,13 @@ export const enMessages = {
   "state.phaseAria": "Current Phase",
   "state.current": "Current Collection Item",
   "state.currentExp": "Current EXP",
+  "state.expHelp":
+    "Enter a non-negative whole number in increments of 100. The current maximum is {max}.",
+  "state.expInvalid": "Negative numbers and decimals are not allowed. The previous value was kept.",
+  "state.expAdjustedStep":
+    "EXP must be entered in increments of 100, so the value was adjusted to {value}.",
+  "state.expAdjustedMax":
+    "The maximum for the current grade is {max}, so the value was adjusted to {value}.",
   "state.requiredExp": "EXP required for next Phase",
   "state.feedbackSegment": "Phase moved Lv {from} → {to}",
   "stock.title": "Maintenance Kits",

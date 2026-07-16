@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
+import { useDismissableLayer } from "../hooks/useDismissableLayer";
 import { useI18n } from "../i18n/locale";
 import type { Grade } from "../types";
 import type { StatePanelModel } from "../ui-types";
@@ -39,8 +40,16 @@ const classes = {
     "field-grid exp-grid grid grid-cols-[minmax(0,1fr)_16px_minmax(0,1fr)] items-end gap-2.5 border-t border-border px-[18px] pb-4 pt-3.5 font-medium max-mobile:grid-cols-[minmax(0,1fr)_12px_minmax(0,1fr)] max-mobile:gap-1.5 max-mobile:px-3 max-mobile:pb-[9px] max-mobile:pt-2",
   fieldControl: "grid gap-[7px]",
   fieldLabel: "text-[13px] font-medium text-muted max-mobile:text-[11px]",
+  expFieldControl: "relative grid gap-[7px]",
+  expLabelRow: "flex min-w-0 items-center gap-1",
+  expHelpButton:
+    "grid size-3.5 flex-none cursor-help place-items-center rounded-full border border-border bg-surface-raised p-0 text-[9px] font-bold leading-none text-muted",
+  expTooltip:
+    "invisible pointer-events-none absolute bottom-[calc(100%+8px)] left-0 z-[12] box-border w-[min(280px,calc(100vw-32px))] whitespace-normal rounded-card border border-border bg-surface px-[11px] py-2.5 text-left text-xs font-normal leading-[1.45] text-text-soft opacity-0 shadow-panel transition-opacity duration-[160ms] [overflow-wrap:anywhere] [word-break:keep-all]",
+  expTooltipOpen: "visible pointer-events-auto opacity-100",
   expInput:
     "numeric-text-control current-exp-control text-center text-[15px] font-semibold tabular-nums text-text-strong placeholder:text-text-strong/75 focus:placeholder:text-transparent min-[661px]:px-[10px] min-[661px]:text-[14px] max-mobile:px-[9px] max-mobile:text-[13px]",
+  expInputInvalid: "border-danger focus:border-danger focus:shadow-[0_0_0_3px_var(--danger-soft)]",
   expDivider:
     "exp-divider grid min-h-[42px] place-items-center text-[18px] font-semibold text-muted min-[661px]:min-h-9 max-mobile:min-h-[34px] max-mobile:text-[16px]",
   readonlyValue:
@@ -137,6 +146,125 @@ function LevelSelector({
   );
 }
 
+type ExpFeedback = {
+  reason: "invalid" | "max" | "step";
+  value: number;
+};
+
+type ExperienceInputProps = Pick<StatePanelProps, "disabled" | "onExpChange" | "state">;
+
+function ExperienceInput({ disabled, onExpChange, state }: ExperienceInputProps) {
+  const { formatInteger, t } = useI18n();
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const tooltipId = useId();
+  const [expText, setExpText] = useState(() => expValueToText(state.exp));
+  const [feedback, setFeedback] = useState<ExpFeedback | null>(null);
+  const [focused, setFocused] = useState(false);
+  const [helpLocked, setHelpLocked] = useState(false);
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+
+  useEffect(() => {
+    setExpText(expValueToText(state.exp));
+  }, [state.exp]);
+
+  const maxExp = state.expDisabled ? 0 : Math.max(0, state.requiredExp - 100);
+  const draftInvalid = focused && expText.trim() !== "" && !/^\d+$/.test(expText.trim());
+  const tooltipMessage = expTooltipMessage({
+    feedback,
+    formatInteger,
+    maxExp,
+    t,
+  });
+
+  const closeTooltip = () => {
+    setFeedback(null);
+    setHelpLocked(false);
+    setTooltipOpen(false);
+  };
+
+  useDismissableLayer({
+    escapeEnabled: tooltipOpen,
+    outsideEnabled: tooltipOpen,
+    containsTarget: (target) =>
+      target instanceof Node && Boolean(fieldRef.current?.contains(target)),
+    onDismiss: closeTooltip,
+  });
+
+  const commit = () => {
+    const result = normalizeExpDraft(expText, state.exp, maxExp);
+    setFocused(false);
+    setExpText(expValueToText(result.value));
+    setFeedback(result.feedback);
+    setTooltipOpen(Boolean(result.feedback));
+    if (result.value !== state.exp) onExpChange(result.value);
+  };
+
+  return (
+    <div ref={fieldRef} className={classes.expFieldControl}>
+      <span className={classes.expLabelRow}>
+        <label className={classes.fieldLabel} htmlFor="currentExp">
+          {t("state.currentExp")}
+        </label>
+        <button
+          className={classes.expHelpButton}
+          type="button"
+          aria-describedby={tooltipOpen ? tooltipId : undefined}
+          aria-expanded={tooltipOpen}
+          aria-label={t("common.description", { label: t("state.currentExp") })}
+          onBlur={() => {
+            if (!helpLocked && !feedback) setTooltipOpen(false);
+          }}
+          onClick={() => {
+            const next = !helpLocked;
+            setHelpLocked(next);
+            setTooltipOpen(next);
+          }}
+          onFocus={() => setTooltipOpen(true)}
+          onPointerEnter={() => setTooltipOpen(true)}
+          onPointerLeave={() => {
+            if (!helpLocked && !feedback) setTooltipOpen(false);
+          }}
+        >
+          i
+        </button>
+      </span>
+      <input
+        id="currentExp"
+        className={`${classes.expInput} ${draftInvalid ? classes.expInputInvalid : ""}`}
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        autoComplete="off"
+        placeholder="0"
+        value={expText}
+        disabled={disabled || state.expDisabled}
+        aria-describedby={tooltipOpen ? tooltipId : undefined}
+        aria-invalid={draftInvalid || undefined}
+        onBlur={commit}
+        onChange={(event) => {
+          setExpText(event.currentTarget.value);
+          setFeedback(null);
+          if (!helpLocked) setTooltipOpen(false);
+        }}
+        onFocus={() => {
+          setFocused(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+      />
+      <span
+        id={tooltipId}
+        className={`${classes.expTooltip} ${tooltipOpen ? classes.expTooltipOpen : ""}`}
+        role="tooltip"
+        aria-live="polite"
+      >
+        {tooltipMessage}
+      </span>
+    </div>
+  );
+}
+
 export default function StatePanel({
   disabled = false,
   state,
@@ -145,18 +273,6 @@ export default function StatePanel({
   onExpChange,
 }: StatePanelProps) {
   const { formatInteger, t } = useI18n();
-  const [expText, setExpText] = useState(() => expValueToText(state.exp));
-
-  useEffect(() => {
-    setExpText(expValueToText(state.exp));
-  }, [state.exp]);
-
-  const maxExp = state.expDisabled ? 0 : Math.max(0, state.requiredExp - 100);
-  const updateExpText = (value: string) => {
-    const nextText = sanitizeExpText(value);
-    setExpText(nextText);
-    onExpChange(normalizeExpText(nextText, maxExp));
-  };
 
   return (
     <section className={classes.panel}>
@@ -169,26 +285,7 @@ export default function StatePanel({
       <LevelSelector disabled={disabled} state={state} onLevelChange={onLevelChange} />
 
       <div className={classes.expGrid}>
-        <label className={classes.fieldControl}>
-          <span className={classes.fieldLabel}>{t("state.currentExp")}</span>
-          <input
-            id="currentExp"
-            className={classes.expInput}
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            autoComplete="off"
-            placeholder="0"
-            value={expText}
-            disabled={disabled || state.expDisabled}
-            onChange={(event) => updateExpText(event.currentTarget.value)}
-            onBlur={() => {
-              const normalized = normalizeExpText(expText, maxExp);
-              setExpText(expValueToText(normalized));
-              onExpChange(normalized);
-            }}
-          />
-        </label>
+        <ExperienceInput disabled={disabled} state={state} onExpChange={onExpChange} />
         <div className={classes.expDivider} aria-hidden="true">
           /
         </div>
@@ -207,13 +304,53 @@ function expValueToText(value: number) {
   return value > 0 ? String(value) : "";
 }
 
-function sanitizeExpText(value: string) {
-  return value.replace(/\D/g, "");
+function normalizeExpDraft(value: string, previousValue: number, maxExp: number) {
+  const trimmed = value.trim();
+  if (trimmed === "") return { feedback: null, value: 0 };
+  if (!/^\d+$/.test(trimmed)) {
+    return {
+      feedback: { reason: "invalid", value: previousValue } satisfies ExpFeedback,
+      value: previousValue,
+    };
+  }
+  const numeric = Number(trimmed);
+  if (!Number.isSafeInteger(numeric)) {
+    return {
+      feedback: { reason: "invalid", value: previousValue } satisfies ExpFeedback,
+      value: previousValue,
+    };
+  }
+  if (numeric > maxExp) {
+    return {
+      feedback: { reason: "max", value: maxExp } satisfies ExpFeedback,
+      value: maxExp,
+    };
+  }
+  const stepped = Math.floor(numeric / 100) * 100;
+  return {
+    feedback:
+      stepped === numeric ? null : ({ reason: "step", value: stepped } satisfies ExpFeedback),
+    value: stepped,
+  };
 }
 
-function normalizeExpText(value: string, maxExp: number) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return 0;
-  const stepped = Math.floor(Math.max(0, numeric) / 100) * 100;
-  return Math.min(stepped, maxExp);
+type ExpTooltipMessageOptions = {
+  feedback: ExpFeedback | null;
+  formatInteger: (value: number) => string;
+  maxExp: number;
+  t: ReturnType<typeof useI18n>["t"];
+};
+
+function expTooltipMessage({ feedback, formatInteger, maxExp, t }: ExpTooltipMessageOptions) {
+  if (feedback?.reason === "invalid") return t("state.expInvalid");
+  if (feedback?.reason === "max") {
+    return t("state.expAdjustedMax", {
+      max: formatInteger(maxExp),
+      value: formatInteger(feedback.value),
+    });
+  }
+  if (feedback?.reason === "step") {
+    return t("state.expAdjustedStep", { value: formatInteger(feedback.value) });
+  }
+  return t("state.expHelp", { max: formatInteger(maxExp) });
 }
