@@ -59,12 +59,12 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
     "@biomejs/biome": "^2.5.4",
-    "@cloudflare/vitest-pool-workers": "^0.18.5",
+    "@cloudflare/vitest-pool-workers": "^0.18.6",
     "@playwright/test": "1.61.1",
     "@stryker-mutator/api": "^9.6.1",
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
-    "@tailwindcss/vite": "^4.3.2",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
@@ -75,11 +75,11 @@
     "knip": "^6.27.0",
     "oxc-parser": "^0.140.0",
     "sharp": "0.35.3",
-    "tailwindcss": "^4.3.2",
+    "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.1.4",
+    "vite": "^8.1.5",
     "vitest": "^4.1.10",
-    "wrangler": "^4.111.0"
+    "wrangler": "^4.112.0"
   },
   "dependencies": {
     "react": "^19.2.7",
@@ -93,6 +93,6 @@
     "esbuild@0.28.1": true,
     "sharp@0.34.5": true,
     "sharp@0.35.3": true,
-    "workerd@1.20260710.1": true
+    "workerd@1.20260714.1": true
   }
 }

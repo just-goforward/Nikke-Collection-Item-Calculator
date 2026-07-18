@@ -1,7 +1,7 @@
 # Rust implementation of the finite-inventory solver kernels used by the browser product and
 # research benchmarks. Build to wasm32 and verify against the TypeScript solver parity suite.
 #
-# BUILT + VERIFIED (2026-06-02, Rust 1.96.0): the full harness passes 13/13, 0 skipped against this
+# BUILT + VERIFIED (2026-07-18, Rust 1.97.1): the full harness passes 13/13, 0 skipped against this
 # crate's wasm. Product phase2 behavior remains parity-checked against the TypeScript solver.
 # To reproduce:
 #   rustup target add wasm32-unknown-unknown
