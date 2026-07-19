@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
-import { test } from "./test";
+import { test, waitForSignal, withCleanup } from "./test";
 
 const PORT = 4277;
 const LANGUAGE_STORAGE_KEY = "collection-kit-calculator.language";
@@ -170,12 +170,11 @@ test("initial UI waits for its locale font stylesheet before the first render", 
   });
   await prepareLocale(page, ["ja-JP"]);
   await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`, { waitUntil: "commit" });
-  await fontRequest.promise;
-
-  await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toHaveCount(0);
-  await expect(page.locator("html")).not.toHaveAttribute("data-locale-font-ready", "true");
-
-  releaseFont.release();
+  await withCleanup(async () => {
+    await waitForSignal(fontRequest.promise, "the initial locale font request");
+    await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toHaveCount(0);
+    await expect(page.locator("html")).not.toHaveAttribute("data-locale-font-ready", "true");
+  }, releaseFont.release);
   await page.waitForLoadState("domcontentloaded");
   await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-locale-font-ready", "true");
@@ -197,13 +196,13 @@ test("language changes only after the next locale font is ready", async ({ page 
 
   await page.getByRole("button", { name: "Select language" }).click();
   await page.getByRole("option", { name: "日本語" }).click();
-  await fontRequest.promise;
-  await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(
-    page.getByRole("heading", { name: "Collection Item Upgrade Calculator" }),
-  ).toBeVisible();
-
-  releaseFont.release();
+  await withCleanup(async () => {
+    await waitForSignal(fontRequest.promise, "the changed locale font request");
+    await expect(page.locator("html")).toHaveAttribute("lang", "en");
+    await expect(
+      page.getByRole("heading", { name: "Collection Item Upgrade Calculator" }),
+    ).toBeVisible();
+  }, releaseFont.release);
   await expect(page.locator("html")).toHaveAttribute("lang", "ja");
   await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toBeVisible();
 });
@@ -752,6 +751,7 @@ test("candidate consumption uses available width before wrapping in narrow deskt
 test("desktop control text uses the shared vertical centering contract", async ({ page }) => {
   await prepareLocale(page, ["ko-KR"]);
   await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await expect(page.locator('[data-theme-mode="system"]')).toBeAttached();
   const contracts = await page.evaluate(() => {
     const alignment = (selector: string) => {
       const element = document.querySelector<HTMLElement>(selector);
