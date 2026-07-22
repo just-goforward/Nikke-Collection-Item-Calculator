@@ -3,6 +3,7 @@ import { kstDateKeyFromUnixSeconds } from "./date-key";
 import type { WorkerEnv } from "./env";
 import type {
   ValidatedKitResultEvent,
+  ValidatedRuntimeInvariantEvent,
   ValidatedSolverDiagnosticEvent,
   ValidatedSolverRecoveryEvent,
   ValidatedSubmission,
@@ -10,7 +11,7 @@ import type {
 import { HttpError } from "./http-error";
 import { logError, sanitizedError } from "./logger";
 
-type StatsEventKind = "kit_result" | "solver_diagnostic" | "solver_recovery";
+type StatsEventKind = "kit_result" | "runtime_invariant" | "solver_diagnostic" | "solver_recovery";
 
 export async function commitSubmission(
   request: Request,
@@ -19,6 +20,12 @@ export async function commitSubmission(
   now: number,
 ) {
   const dateKey = kstDateKeyFromUnixSeconds(now);
+  if (normalized.event.kind === "runtime_invariant") {
+    const deviceType = clientEnvironment(request).deviceType;
+    return commitEvent(env, normalized.eventId, now, normalized.event.kind, [
+      buildRuntimeInvariantAggregateStatement(env, dateKey, normalized.event, deviceType, now),
+    ]);
+  }
   if (normalized.event.kind === "solver_diagnostic") {
     const aggregateStatements = [
       buildSolverDiagnosticAggregateStatement(env, dateKey, normalized.event, now),
@@ -57,6 +64,23 @@ export async function commitSubmission(
     dateKey,
     now,
   );
+}
+
+function buildRuntimeInvariantAggregateStatement(
+  env: WorkerEnv,
+  dateKey: string,
+  event: ValidatedRuntimeInvariantEvent,
+  deviceType: string,
+  now: number,
+) {
+  return env.DB.prepare(
+    `INSERT INTO runtime_invariant_aggregates
+      (date_key, invariant_version, invariant_code, component, lane, device_type, events,
+       last_seen)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, invariant_version, invariant_code, component, lane, device_type)
+     DO UPDATE SET events = events + 1, last_seen = excluded.last_seen`,
+  ).bind(dateKey, event.invariantVersion, event.code, event.component, event.lane, deviceType, now);
 }
 
 type RecoveryRung = { backend: string; exit: string; memoTier: string };

@@ -112,6 +112,24 @@ describe("solver recovery policy", () => {
     ).toBe(true);
   });
 
+  it("does not misclassify convertible R15 as a lightweight terminal state", () => {
+    const stock = { blue: 300, purple: 150, yellow: 150 };
+    expect(
+      isLightweightJsInput({
+        start: { grade: "SR", level: 15, exp: 0 },
+        stock,
+        strategy: "supply",
+      }),
+    ).toBe(true);
+    expect(
+      isLightweightJsInput({
+        start: { grade: "R", level: 15, exp: 0 },
+        stock,
+        strategy: "supply",
+      }),
+    ).toBe(false);
+  });
+
   it("defines a trait for every accepted Worker error code", () => {
     expect(Object.keys(WORKER_ERROR_TRAITS)).toHaveLength(15);
   });

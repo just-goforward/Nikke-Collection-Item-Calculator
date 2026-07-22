@@ -59,17 +59,20 @@ jobs:
       - name: Worker D1 integration tests
         run: npm run test:worker
 
+      - name: Build
+        run: npx vite build --configLoader native
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium firefox webkit
 
       - name: E2E and visual regression tests
-        run: npm run test:e2e
+        run: npx playwright test
 
       - name: WebKit language and accessibility compatibility tests
-        run: npm run test:compat
+        run: npx playwright test --config playwright.compat.config.ts
 
       - name: Cross-browser text alignment contracts
-        run: npm run test:alignment
+        run: npx playwright test --config playwright.alignment.config.ts
 
       - name: Upload Playwright failure artifacts
         if: failure()
@@ -80,9 +83,6 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
-
-      - name: Build
-        run: npm run build
 
       - name: Bundle budget
         run: npm run check:bundle-budget

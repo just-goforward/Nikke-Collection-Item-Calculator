@@ -1,6 +1,5 @@
-import { type CSSProperties, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, lazy, Suspense, useLayoutEffect, useRef, useState } from "react";
 
-import DetailPanel from "./components/DetailPanel";
 import {
   MobileActionBar,
   MobileStatusStrip,
@@ -18,6 +17,8 @@ import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
 import { useI18n } from "./i18n/locale";
 import type { LocalizedMessage } from "./i18n/messages.ko";
 import type { StatsRuntimeMode } from "./lib/statsRuntime";
+
+const DetailPanel = lazy(() => import("./components/DetailPanel"));
 
 const classes = {
   shell:
@@ -214,12 +215,16 @@ function Workspace({
           onOutcome={handlers.onOutcome}
           onPendingOutcomeChange={onPendingOutcomeChange}
         />
-        <DetailPanel
-          view={calculator.detailView}
-          validation={calculator.validationView}
-          onRunValidation={actions.runMonteCarloValidation}
-          showSolverBackend={showSolverBackend}
-        />
+        {calculator.detailView.type === "empty" ? null : (
+          <Suspense fallback={null}>
+            <DetailPanel
+              view={calculator.detailView}
+              validation={calculator.validationView}
+              onRunValidation={actions.runMonteCarloValidation}
+              showSolverBackend={showSolverBackend}
+            />
+          </Suspense>
+        )}
       </div>
       <div
         className={`${classes.statsColumn} ${statsDesktopVisibility} ${tabPanelClass(mobileTab, "stats")}`}

@@ -10,6 +10,7 @@ import {
 } from "./domain";
 import { compareByStrategy, probabilityToleranceForStrategy } from "./gate";
 import {
+  type NormalizedSolverInput,
   normalizeSolverInput,
   type RawSolverInput,
   readMonteCarloRuns,
@@ -20,129 +21,119 @@ import type { ResearchSolverResult, SolverResult, SolverTopCandidate } from "./r
 import { buildFailureRoute, buildRecommendedRun, buildRecommendedRunForKit } from "./routes";
 import { simulate } from "./simulation";
 
-function solveInternal(
-  input: RawSolverInput,
-  progress?: ProgressCallback,
-  options: SolveExecutionOptions = {},
-): SolverResult {
-  const normalizedInput = normalizeSolverInput(input);
-  const probabilityTolerance = probabilityToleranceForStrategy(
-    normalizedInput.strategy,
-    options.toleranceOverride,
-  );
-  const monteCarloRuns = readMonteCarloRuns(input);
-  const monteCarloSeed = readMonteCarloSeed(input);
-  if (progress) progress({ phase: "build", scanned: 0, total: 1 });
+type MdpResult = ReturnType<typeof finiteInventoryMdp>;
 
-  if (isTerminalNormalized(normalizedInput.start)) {
-    return {
-      terminal: true,
-      input: normalizedInput,
-      message: "이미 SR 15레벨입니다.",
-    };
+function zeroVector(): KitVector {
+  return { blue: 0, purple: 0, yellow: 0 };
+}
+
+function terminalOrConvertResult(input: NormalizedSolverInput): SolverResult | null {
+  if (isTerminalNormalized(input.start)) {
+    return { terminal: true, input, message: "이미 SR 15레벨입니다." };
   }
+  if (!isConvertStateNormalized(input.start)) return null;
+  return {
+    possible: true,
+    convertOnly: true,
+    input,
+    best: {
+      name: "등급 전환",
+      firstAction: "convert",
+      firstProbability: 1,
+      success: convertState(),
+      fail: convertState(),
+      vector: zeroVector(),
+      totalKits: 0,
+      successProbability: 1,
+      maxSuccessProbability: 1,
+      probabilityGap: 0,
+      pressure: 0,
+      supplyCost: 0,
+      availabilityCost: 0,
+      legacySupplyCost: 0,
+      resourceCost: 0,
+    },
+    route: [],
+    monteCarlo: { runs: 0, completed: 0, successProbability: 1, vector: zeroVector() },
+    stats: { states: 0, exact: true, tolerance: 0, iterations: 0 },
+    topCandidates: [],
+  };
+}
 
-  if (isConvertStateNormalized(normalizedInput.start)) {
-    return {
-      possible: true,
-      convertOnly: true,
-      input: normalizedInput,
-      best: {
-        name: "등급 전환",
-        firstAction: "convert",
-        firstProbability: 1,
-        success: convertState(),
-        fail: convertState(),
-        vector: { blue: 0, purple: 0, yellow: 0 },
-        totalKits: 0,
-        successProbability: 1,
-        maxSuccessProbability: 1,
-        probabilityGap: 0,
-        pressure: 0,
-        supplyCost: 0,
-        availabilityCost: 0,
-        legacySupplyCost: 0,
-        resourceCost: 0,
-      },
-      route: [],
-      monteCarlo: {
-        runs: 0,
-        completed: 0,
-        successProbability: 1,
-        vector: { blue: 0, purple: 0, yellow: 0 },
-      },
-      stats: {
-        states: 0,
-        exact: true,
-        tolerance: 0,
-        iterations: 0,
-      },
-      topCandidates: [],
-    };
-  }
+function impossibleResult(input: NormalizedSolverInput, message: string): SolverResult {
+  return { possible: false, input, message };
+}
 
-  const totalUses =
-    normalizedInput.stockUses.blue +
-    normalizedInput.stockUses.purple +
-    normalizedInput.stockUses.yellow;
-  if (totalUses <= 0) {
-    return {
-      possible: false,
-      input: normalizedInput,
-      message: "사용 가능한 키트가 없습니다. 각 키트는 10개 단위로만 사용할 수 있습니다.",
-    };
-  }
-
-  const mdp = finiteInventoryMdp(normalizedInput, progress, options);
-  const bestAction = mdp.firstAction;
-  if (!bestAction) {
-    return {
-      possible: false,
-      input: normalizedInput,
-      message: "현재 보유 키트로 가능한 행동이 없습니다.",
-    };
-  }
-
-  const actionValues = KIT_ORDER.map((kit) =>
-    mdp.valueForAction(normalizedInput.start, normalizedInput.stockUses, kit),
-  )
+function rankedRootActions(
+  input: NormalizedSolverInput,
+  mdp: MdpResult,
+  probabilityTolerance: number,
+) {
+  return KIT_ORDER.map((kit) => mdp.valueForAction(input.start, input.stockUses, kit))
     .filter((candidate): candidate is ActionValue => Boolean(candidate))
     .sort((a, b) =>
-      compareByStrategy(
-        a,
-        b,
-        mdp.maxSuccessProbability,
-        normalizedInput.strategy,
-        probabilityTolerance,
-      ),
+      compareByStrategy(a, b, mdp.maxSuccessProbability, input.strategy, probabilityTolerance),
     );
+}
 
-  const best =
-    actionValues.find((candidate) => candidate.firstAction === bestAction) || actionValues[0];
-  if (!best) {
-    return {
-      possible: false,
-      input: normalizedInput,
-      message: "현재 보유 키트로 가능한 행동이 없습니다.",
-    };
-  }
-  const run = buildRecommendedRun(normalizedInput, mdp.actionFor);
-  const route = buildFailureRoute(normalizedInput, mdp.actionFor);
+function topCandidate(
+  input: NormalizedSolverInput,
+  mdp: MdpResult,
+  candidate: ActionValue,
+): SolverTopCandidate {
+  const run = buildRecommendedRunForKit(input, mdp.actionFor, candidate.firstAction);
+  if (!run) throw new Error("Expected a recommended run for a feasible root candidate.");
+  return {
+    name: candidate.name,
+    firstAction: candidate.firstAction,
+    firstProbability: candidate.firstProbability,
+    run,
+    vector: Object.fromEntries(
+      KIT_ORDER.map((kit) => [kit, round(candidate.vector[kit], 4)]),
+    ) as KitVector,
+    totalKits: round(candidate.totalKits, 4),
+    successProbability: round(candidate.successProbability, 8),
+    probabilityGap: round(candidate.probabilityGap, 8),
+    pressure: round(candidate.pressure, 8),
+    supplyCost: round(candidate.supplyCost, 8),
+    availabilityCost: round(candidate.availabilityCost, 8),
+    legacySupplyCost: round(candidate.legacySupplyCost, 8),
+    resourceCost: round(candidate.resourceCost, 8),
+  };
+}
+
+function successfulResult({
+  actionValues,
+  best,
+  input,
+  mdp,
+  monteCarloRuns,
+  monteCarloSeed,
+  probabilityTolerance,
+}: {
+  actionValues: ActionValue[];
+  best: ActionValue;
+  input: NormalizedSolverInput;
+  mdp: MdpResult;
+  monteCarloRuns: number;
+  monteCarloSeed: number;
+  probabilityTolerance: number;
+}): SolverResult {
+  const run = buildRecommendedRun(input, mdp.actionFor);
+  const route = buildFailureRoute(input, mdp.actionFor);
   const monteCarlo =
     monteCarloRuns > 0
-      ? simulate(normalizedInput, mdp.actionFor, monteCarloRuns, monteCarloSeed)
+      ? simulate(input, mdp.actionFor, monteCarloRuns, monteCarloSeed)
       : {
           runs: 0,
           completed: 0,
           successProbability: best.successProbability,
-          vector: { blue: 0, purple: 0, yellow: 0 },
+          vector: zeroVector(),
         };
-  if (progress) progress({ phase: "done", scanned: 1, total: 1 });
-
   return {
     possible: true,
     terminal: false,
-    input: normalizedInput,
+    input,
     candidateCount: actionValues.length,
     best: {
       name: "보유량 유한 MDP",
@@ -173,38 +164,58 @@ function solveInternal(
       dynamicCapReductions: mdp.dynamicCapReductions,
       dynamicCapFallbacks: mdp.dynamicCapFallbacks,
       ...(mdp.gateAudit ? { gateAudit: mdp.gateAudit } : {}),
-      strategy: normalizedInput.strategy,
+      strategy: input.strategy,
       supplyAvailability: SUPPLY_AVAILABILITY_PARAMS,
       iterations: 0,
     },
-    topCandidates: actionValues.map((candidate): SolverTopCandidate => {
-      const candidateRun = buildRecommendedRunForKit(
-        normalizedInput,
-        mdp.actionFor,
-        candidate.firstAction,
-      );
-      if (!candidateRun) {
-        throw new Error("Expected a recommended run for a feasible root candidate.");
-      }
-      return {
-        name: candidate.name,
-        firstAction: candidate.firstAction,
-        firstProbability: candidate.firstProbability,
-        run: candidateRun,
-        vector: Object.fromEntries(
-          KIT_ORDER.map((kit) => [kit, round(candidate.vector[kit], 4)]),
-        ) as KitVector,
-        totalKits: round(candidate.totalKits, 4),
-        successProbability: round(candidate.successProbability, 8),
-        probabilityGap: round(candidate.probabilityGap, 8),
-        pressure: round(candidate.pressure, 8),
-        supplyCost: round(candidate.supplyCost, 8),
-        availabilityCost: round(candidate.availabilityCost, 8),
-        legacySupplyCost: round(candidate.legacySupplyCost, 8),
-        resourceCost: round(candidate.resourceCost, 8),
-      };
-    }),
+    topCandidates: actionValues.map((candidate) => topCandidate(input, mdp, candidate)),
   };
+}
+
+function solveInternal(
+  rawInput: RawSolverInput,
+  progress?: ProgressCallback,
+  options: SolveExecutionOptions = {},
+): SolverResult {
+  const input = normalizeSolverInput(rawInput);
+  const probabilityTolerance = probabilityToleranceForStrategy(
+    input.strategy,
+    options.toleranceOverride,
+  );
+  const monteCarloRuns = readMonteCarloRuns(rawInput);
+  const monteCarloSeed = readMonteCarloSeed(rawInput);
+  if (progress) progress({ phase: "build", scanned: 0, total: 1 });
+  const earlyResult = terminalOrConvertResult(input);
+  if (earlyResult) return earlyResult;
+
+  const totalUses = input.stockUses.blue + input.stockUses.purple + input.stockUses.yellow;
+  if (totalUses <= 0) {
+    return impossibleResult(
+      input,
+      "사용 가능한 키트가 없습니다. 각 키트는 10개 단위로만 사용할 수 있습니다.",
+    );
+  }
+
+  const mdp = finiteInventoryMdp(input, progress, options);
+  if (!mdp.firstAction) {
+    return impossibleResult(input, "현재 보유 키트로 가능한 행동이 없습니다.");
+  }
+  const actionValues = rankedRootActions(input, mdp, probabilityTolerance);
+  const best =
+    actionValues.find((candidate) => candidate.firstAction === mdp.firstAction) ?? actionValues[0];
+  if (!best) return impossibleResult(input, "현재 보유 키트로 가능한 행동이 없습니다.");
+
+  const result = successfulResult({
+    actionValues,
+    best,
+    input,
+    mdp,
+    monteCarloRuns,
+    monteCarloSeed,
+    probabilityTolerance,
+  });
+  if (progress) progress({ phase: "done", scanned: 1, total: 1 });
+  return result;
 }
 
 function solve(input: RawSolverInput, progress?: ProgressCallback): SolverResult {

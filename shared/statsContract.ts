@@ -1,4 +1,18 @@
 export const SOLVER_DIAGNOSTIC_VERSION = 6 as const;
+export const RUNTIME_INVARIANT_VERSION = 1 as const;
+
+export const RUNTIME_INVARIANT_CODES = [
+  "validation_cancel_failed",
+  "unexpected_validation_cancellation",
+  "worker_idle_pending",
+] as const;
+export type RuntimeInvariantCode = (typeof RUNTIME_INVARIANT_CODES)[number];
+
+export const RUNTIME_INVARIANT_COMPONENTS = ["validation", "worker_client"] as const;
+export type RuntimeInvariantComponent = (typeof RUNTIME_INVARIANT_COMPONENTS)[number];
+
+export const RUNTIME_INVARIANT_LANES = ["shared", "validation", "unknown"] as const;
+export type RuntimeInvariantLane = (typeof RUNTIME_INVARIANT_LANES)[number];
 
 export const STATS_LOCALES = ["ko", "ja", "en"] as const;
 export type StatsLocale = (typeof STATS_LOCALES)[number];

@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 
 import { parallelValidationFromRuntime, solverBackendFromRuntime } from "../lib/solverRuntime";
 import type { ProgressEvent, SolverInput } from "../types";
+import type { RuntimeInvariantReporter } from "./calculatorDiagnostics";
 import {
   inputKey,
   type MonteCarloResult,
@@ -78,20 +79,27 @@ function withWorkerTimingStats(
   };
 }
 
-export function useSolverWorker(onSolveProgress: (progress: ProgressEvent) => void) {
+export function useSolverWorker(
+  onSolveProgress: (progress: ProgressEvent) => void,
+  reportRuntimeInvariant?: RuntimeInvariantReporter,
+) {
   const solveCacheRef = useRef(new Map<string, SolverResult>());
   const validationCacheRef = useRef(new Map<string, MonteCarloResult>());
   const {
     preemptValidationForSolve: preemptSharedValidation,
     requestWorkerTask: requestSharedTask,
     resetFailedWorker: resetSharedWorker,
-  } = useWorkerTaskClient({ lane: "shared" });
+  } = useWorkerTaskClient({
+    lane: "shared",
+    ...(reportRuntimeInvariant ? { onInvariant: reportRuntimeInvariant } : {}),
+  });
   const {
     preemptValidationForSolve: preemptDedicatedValidation,
     requestWorkerTask: requestValidationTask,
   } = useWorkerTaskClient({
     idleTimeoutMs: 30_000,
     lane: "validation",
+    ...(reportRuntimeInvariant ? { onInvariant: reportRuntimeInvariant } : {}),
   });
   const parallelValidation = parallelValidationFromRuntime();
 

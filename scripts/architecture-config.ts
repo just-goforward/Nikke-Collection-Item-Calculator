@@ -114,20 +114,6 @@ export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
     removalTarget: "Parse each weight dimension through a shared schema-driven helper.",
   },
   {
-    file: "src/hooks/calculatorDiagnostics.ts",
-    function: "makeSolverDiagnosticEvent",
-    owner: "app",
-    reason: "Diagnostic event construction applies many independent privacy buckets.",
-    removalTarget: "Group bucket construction by input, recommendation, and runtime diagnostics.",
-  },
-  {
-    file: "src/hooks/outcomeApplication.ts",
-    function: "useOutcomeApplication",
-    owner: "app",
-    reason: "Outcome application coordinates state, stock, feedback, and statistics side effects.",
-    removalTarget: "Extract stock transition and statistics event decisions from React state updates.",
-  },
-  {
     file: "src/hooks/useCalculatorApp.ts",
     function: "useCalculatorApp",
     owner: "app",
@@ -158,13 +144,6 @@ export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
     removalTarget: "Extract candidate evaluation without changing floating-point operation order.",
   },
   {
-    file: "src/solver/solve.ts",
-    function: "solveInternal",
-    owner: "solver",
-    reason: "Solver result assembly still combines early exits, MDP evaluation, and output shaping.",
-    removalTarget: "Separate input terminal handling, candidate evaluation, and result assembly.",
-  },
-  {
     file: "src/wasm/rustCore.phase2Policy.test.ts",
     function: "<anonymous>",
     owner: "test",
@@ -184,13 +163,6 @@ export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
     owner: "wasm",
     reason: "Research rerank orchestration combines policy build, held-out diagnostics, and output shaping.",
     removalTarget: "Separate research decision diagnostics from product-shaped result assembly.",
-  },
-  {
-    file: "src/worker.ts",
-    function: "<anonymous>",
-    owner: "app",
-    reason: "Browser worker dispatch coordinates backend selection, fallback, progress, and validation.",
-    removalTarget: "Extract backend dispatch and fallback policy into typed command handlers.",
   },
   {
     file: "benchmarks/analyze-availability.ts",

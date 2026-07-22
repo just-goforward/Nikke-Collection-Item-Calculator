@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import type { DetailView, LoadingView, ResultView, ValidationView } from "../ui-types";
 import { useCalculatorAppLifecycle, useInputChangeTracker } from "./calculatorAppLifecycle";
 import { makeCalculatorAppModel } from "./calculatorAppModel";
+import { makeRuntimeInvariantEvent, type RuntimeInvariantReporter } from "./calculatorDiagnostics";
 import { useStateFeedbackNotifier } from "./calculatorFeedback";
 import { useSolverProgressLoading } from "./calculatorProgressLoading";
 import {
@@ -60,8 +61,21 @@ export function useCalculatorApp(statsQueryEnabled = false) {
   const pendingStatsEventRef = useRef<PendingStatsEvent | null>(null);
   const { recordStateFeedback, stateFeedback } = useStateFeedbackNotifier();
   const updateProgress = useSolverProgressLoading(setLoading);
-  const { cancelValidationForSolve, solveBestAvailable, validateBestAvailable } =
-    useSolverWorker(updateProgress);
+  const stats = useStats(statsQueryEnabled);
+  const reportRuntimeInvariant = useCallback<RuntimeInvariantReporter>(
+    (code, component, lane) => {
+      try {
+        stats.queueStatsEvent(makeRuntimeInvariantEvent(code, component, lane));
+      } catch (error) {
+        console.error("Runtime invariant diagnostic could not be queued.", error);
+      }
+    },
+    [stats.queueStatsEvent],
+  );
+  const { cancelValidationForSolve, solveBestAvailable, validateBestAvailable } = useSolverWorker(
+    updateProgress,
+    reportRuntimeInvariant,
+  );
 
   const {
     clearActionTransition,
@@ -83,7 +97,11 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     generationRef: validationGenerationRef,
     invalidateValidation,
     prepareForSolve,
-  } = useValidationCoordinator({ cancelValidationForSolve, setValidationView });
+  } = useValidationCoordinator({
+    cancelValidationForSolve,
+    reportRuntimeInvariant,
+    setValidationView,
+  });
 
   const handleInputChanged = useInputChangeTracker(setStaleSource, markInputChanged);
 
@@ -93,7 +111,6 @@ export function useCalculatorApp(statsQueryEnabled = false) {
   });
   const { currentStateSnapshot, grade, resetState } = calculatorState;
   const theme = useTheme(grade);
-  const stats = useStats(statsQueryEnabled);
 
   const outcomeFlow = useConfiguredOutcomeFlow({
     calculatorState,
@@ -110,6 +127,7 @@ export function useCalculatorApp(statsQueryEnabled = false) {
   const runMonteCarloValidation = useValidationFlow({
     generationRef: validationGenerationRef,
     latestResultRef,
+    reportRuntimeInvariant,
     setValidationView,
     validateBestAvailable,
   });

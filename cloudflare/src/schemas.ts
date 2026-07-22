@@ -11,6 +11,10 @@ import {
   RECOMMENDED_USES_BUCKETS,
   RESOURCE_COST_BUCKETS,
   RETRY_BUCKETS,
+  RUNTIME_INVARIANT_CODES,
+  RUNTIME_INVARIANT_COMPONENTS,
+  RUNTIME_INVARIANT_LANES,
+  RUNTIME_INVARIANT_VERSION,
   SOLVE_MS_BUCKETS,
   SOLVER_EXECUTION_KINDS,
   STATS_LOCALES,
@@ -153,6 +157,16 @@ const SolverRecoveryEventSchema = z
   })
   .passthrough();
 
+const RuntimeInvariantEventSchema = z
+  .object({
+    kind: z.literal("runtime_invariant"),
+    invariantVersion: z.literal(RUNTIME_INVARIANT_VERSION),
+    code: z.enum(RUNTIME_INVARIANT_CODES),
+    component: z.enum(RUNTIME_INVARIANT_COMPONENTS),
+    lane: z.enum(RUNTIME_INVARIANT_LANES),
+  })
+  .strict();
+
 export const EventSubmissionSchema = z
   .object({
     version: z.literal(1),
@@ -162,6 +176,7 @@ export const EventSubmissionSchema = z
     turnstileToken: z.string().min(20).max(2048),
     event: z.discriminatedUnion("kind", [
       KitResultEventSchema,
+      RuntimeInvariantEventSchema,
       SolverDiagnosticEventSchema,
       SolverRecoveryEventSchema,
     ]),
@@ -176,3 +191,7 @@ export type SolverDiagnosticEventInput = Extract<
   { kind: "solver_diagnostic" }
 >;
 export type SolverRecoveryEventInput = Extract<EventSubmissionEvent, { kind: "solver_recovery" }>;
+export type RuntimeInvariantEventInput = Extract<
+  EventSubmissionEvent,
+  { kind: "runtime_invariant" }
+>;

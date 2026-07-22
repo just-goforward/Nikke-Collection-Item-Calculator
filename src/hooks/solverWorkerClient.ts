@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import type { SolverInput } from "../../shared/game";
+import type {
+  RuntimeInvariantCode,
+  RuntimeInvariantComponent,
+  RuntimeInvariantLane,
+} from "../../shared/statsContract";
 import {
   type ProgressEvent,
   parseWorkerResponse,
@@ -40,6 +45,11 @@ export type WorkerTaskRequester = (
 type WorkerTaskClientOptions = {
   idleTimeoutMs?: number;
   lane?: WorkerClientLane;
+  onInvariant?: (
+    code: RuntimeInvariantCode,
+    component: RuntimeInvariantComponent,
+    lane: RuntimeInvariantLane,
+  ) => void;
 };
 
 type WorkerRuntimeOptions = ReturnType<typeof runtimeWorkerOptions>;
@@ -206,6 +216,22 @@ export function solvePreemptionError(pendingTypes: readonly WorkerTaskType[]) {
     });
   }
   return null;
+}
+
+function cancelTasksForUnmount(tasks: PendingTask[]) {
+  for (const task of tasks) {
+    task.finishWithFailure(
+      new WorkerTaskCancelled({ reason: "component_unmount", task: task.type }),
+    );
+  }
+}
+
+function cancelValidationTasks(tasks: PendingTask[]) {
+  for (const task of tasks) {
+    task.finishWithFailure(
+      new WorkerTaskCancelled({ reason: "validation_preempted", task: "validate" }),
+    );
+  }
 }
 
 function invalidWorkerResponse(): WorkerEventOutcome {
@@ -407,6 +433,7 @@ export function useWorkerTaskClient(options: WorkerTaskClientOptions = {}) {
   const pendingRef = useRef(new Map<number, PendingTask>());
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lane = options.lane ?? "shared";
+  const onInvariant = options.onInvariant;
   const idleTimeoutMs = Math.max(0, options.idleTimeoutMs ?? 0);
 
   const clearIdleTimer = useCallback(() => {
@@ -434,22 +461,23 @@ export function useWorkerTaskClient(options: WorkerTaskClientOptions = {}) {
     workerRef.current = null;
     const pending = [...pendingRef.current.values()];
     pendingRef.current.clear();
-    for (const task of pending) {
-      task.finishWithFailure(
-        new WorkerTaskCancelled({ reason: "component_unmount", task: task.type }),
-      );
-    }
+    cancelTasksForUnmount(pending);
   }, [clearIdleTimer]);
 
   const releaseIdleWorker = useCallback(() => {
     if (pendingRef.current.size > 0) {
       console.error("Worker idle-release invariant failed: pending tasks are still active.");
+      try {
+        onInvariant?.("worker_idle_pending", "worker_client", lane);
+      } catch (error) {
+        console.error("Worker invariant reporter failed.", error);
+      }
       return;
     }
     clearIdleTimer();
     workerRef.current?.terminate();
     workerRef.current = null;
-  }, [clearIdleTimer]);
+  }, [clearIdleTimer, lane, onInvariant]);
 
   const resetFailedWorker = useCallback(() => {
     if (pendingRef.current.size > 0) {
@@ -481,11 +509,7 @@ export function useWorkerTaskClient(options: WorkerTaskClientOptions = {}) {
     workerRef.current?.terminate();
     workerRef.current = null;
     pendingRef.current.clear();
-    for (const task of pending) {
-      task.finishWithFailure(
-        new WorkerTaskCancelled({ reason: "validation_preempted", task: "validate" }),
-      );
-    }
+    cancelValidationTasks(pending);
     return null;
   }, [clearIdleTimer]);
 

@@ -1,7 +1,11 @@
 import { HttpError } from "./http-error";
 import { logWarn } from "./logger";
 
-type TurnstileEventKind = "kit_result" | "solver_diagnostic" | "solver_recovery";
+type TurnstileEventKind =
+  | "kit_result"
+  | "runtime_invariant"
+  | "solver_diagnostic"
+  | "solver_recovery";
 
 type TurnstileEnv = {
   TURNSTILE_SECRET_KEY?: string;

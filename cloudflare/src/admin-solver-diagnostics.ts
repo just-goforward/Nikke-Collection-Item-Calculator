@@ -75,6 +75,16 @@ type SolverRecoveryTerminalRow = {
   events?: number | string | null;
 };
 
+type RuntimeInvariantRow = {
+  invariant_version?: number | string | null;
+  invariant_code?: string | null;
+  component?: string | null;
+  lane?: string | null;
+  device_type?: string | null;
+  events?: number | string | null;
+  last_seen?: number | string | null;
+};
+
 const DEFAULT_WINDOW_DAYS = 30;
 const MAX_WINDOW_DAYS = 365;
 const TRUSTWORTHY_RUNTIME_DIAGNOSTIC_VERSION = 6;
@@ -95,6 +105,7 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     calculationLocaleStatement(env, since),
     solverRecoveryRungStatement(env, since),
     solverRecoveryTerminalStatement(env, since),
+    runtimeInvariantStatement(env, since),
   ]);
   const allTime = mapSolverDiagnosticSummary(resultAt(results, 0));
   const window = mapSolverDiagnosticSummary(resultAt(results, 1));
@@ -105,6 +116,7 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
   const calculationLocales = mapCalculationLocales(resultAt(results, 6));
   const recoveryRungs = mapSolverRecoveryRungs(resultAt(results, 7));
   const recoveryTerminals = mapSolverRecoveryTerminals(resultAt(results, 8));
+  const runtimeInvariants = mapRuntimeInvariants(resultAt(results, 9));
 
   return jsonResponse(request, env, {
     generatedAt: new Date(now * 1000).toISOString(),
@@ -119,6 +131,7 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     calculationLocales,
     recoveryRungs,
     recoveryTerminals,
+    runtimeInvariants,
     fallbacks: summarizeFallbacks(runtime),
     latencies: summarizeLatencyBuckets(runtime),
     runtimeDataPolicy: {
@@ -130,6 +143,10 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     recoveryDataPolicy: {
       aggregatesAreIndependent: true,
       ratioWarning: "do_not_divide_terminal_counts_by_rung_counts",
+    },
+    runtimeInvariantDataPolicy: {
+      bucketedOnly: true,
+      rawErrorsStored: false,
     },
     localeDataPolicy: {
       source: "solver_diagnostic_at_calculation_time",
@@ -431,6 +448,32 @@ function mapSolverRecoveryTerminals(result: D1Result<unknown>) {
       terminalBackend: stringOr(row.terminal_backend, "none"),
       terminalOutcome: stringOr(row.terminal_outcome, "unknown"),
       events: numberOrZero(row.events),
+    };
+  });
+}
+
+function runtimeInvariantStatement(env: WorkerEnv, since: string) {
+  return env.DB.prepare(
+    `SELECT invariant_version, invariant_code, component, lane, device_type,
+            SUM(events) AS events, MAX(last_seen) AS last_seen
+     FROM runtime_invariant_aggregates
+     WHERE date_key >= ?
+     GROUP BY invariant_version, invariant_code, component, lane, device_type
+     ORDER BY events DESC, invariant_code ASC`,
+  ).bind(since);
+}
+
+function mapRuntimeInvariants(result: D1Result<unknown>) {
+  return (result.results || []).map((rawRow) => {
+    const row = rawRow as RuntimeInvariantRow;
+    return {
+      invariantVersion: numberOrZero(row.invariant_version),
+      code: stringOr(row.invariant_code, "unknown"),
+      component: stringOr(row.component, "unknown"),
+      lane: stringOr(row.lane, "unknown"),
+      deviceType: stringOr(row.device_type, "unknown"),
+      events: numberOrZero(row.events),
+      lastSeen: numberOrZero(row.last_seen),
     };
   });
 }

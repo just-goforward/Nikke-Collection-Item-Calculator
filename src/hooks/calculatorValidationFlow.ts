@@ -6,6 +6,7 @@ import { ignoreExpectedError } from "../lib/errorHandling";
 import type { ProgressEvent, SolverInput } from "../types";
 import type { ValidationView } from "../ui-types";
 import { makeValidationCharts } from "../view-models/validationCharts";
+import type { RuntimeInvariantReporter } from "./calculatorDiagnostics";
 import {
   INITIAL_VALIDATION,
   inputKey,
@@ -28,6 +29,7 @@ type ValidateBestAvailable = (
 type ValidationFlowOptions = {
   generationRef: MutableRef<number>;
   latestResultRef: MutableRef<SolverResult | null>;
+  reportRuntimeInvariant: RuntimeInvariantReporter;
   setValidationView: Dispatch<SetStateAction<ValidationView>>;
   validateBestAvailable: ValidateBestAvailable;
 };
@@ -36,9 +38,11 @@ type ValidationViewSetter = Dispatch<SetStateAction<ValidationView>>;
 
 export function useValidationCoordinator({
   cancelValidationForSolve,
+  reportRuntimeInvariant,
   setValidationView,
 }: {
   cancelValidationForSolve: () => WorkerTaskError | null;
+  reportRuntimeInvariant: RuntimeInvariantReporter;
   setValidationView: ValidationViewSetter;
 }) {
   const generationRef = useRef(0);
@@ -47,12 +51,16 @@ export function useValidationCoordinator({
     const invariantError = cancelValidationForSolve();
     if (invariantError) {
       console.error("Validation cancellation invariant failed.", invariantError.code);
+      reportRuntimeInvariant("validation_cancel_failed", "validation", "unknown");
     }
-  }, [cancelValidationForSolve]);
+  }, [cancelValidationForSolve, reportRuntimeInvariant]);
   const prepareForSolve = useCallback(() => {
     generationRef.current += 1;
     const invariantError = cancelValidationForSolve();
-    if (invariantError) throw invariantError;
+    if (invariantError) {
+      reportRuntimeInvariant("validation_cancel_failed", "validation", "unknown");
+      throw invariantError;
+    }
     setValidationView((current) =>
       current.disabled
         ? {
@@ -64,7 +72,7 @@ export function useValidationCoordinator({
           }
         : current,
     );
-  }, [cancelValidationForSolve, setValidationView]);
+  }, [cancelValidationForSolve, reportRuntimeInvariant, setValidationView]);
   return { generationRef, invalidateValidation, prepareForSolve };
 }
 
@@ -150,6 +158,7 @@ function setValidationFailed(setValidationView: ValidationViewSetter) {
 export function useValidationFlow({
   generationRef,
   latestResultRef,
+  reportRuntimeInvariant,
   setValidationView,
   validateBestAvailable,
 }: ValidationFlowOptions) {
@@ -193,6 +202,7 @@ export function useValidationFlow({
       if (error instanceof WorkerTaskCancelled) {
         if (error.cancellation.task !== "validate") {
           console.error("Unexpected solve cancellation reached the validation flow.");
+          reportRuntimeInvariant("unexpected_validation_cancellation", "validation", "unknown");
           setValidationFailed(setValidationView);
           return;
         }
@@ -209,5 +219,11 @@ export function useValidationFlow({
       ignoreExpectedError("validation errors are reported through the validation view", error);
       setValidationFailed(setValidationView);
     }
-  }, [generationRef, latestResultRef, setValidationView, validateBestAvailable]);
+  }, [
+    generationRef,
+    latestResultRef,
+    reportRuntimeInvariant,
+    setValidationView,
+    validateBestAvailable,
+  ]);
 }

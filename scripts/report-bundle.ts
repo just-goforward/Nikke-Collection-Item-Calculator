@@ -12,7 +12,7 @@ const rootPath = fileURLToPath(root);
 
 type BundleEntry = {
   path: string;
-  kind: "initial-js" | "lazy-stats" | "worker" | "css" | "wasm" | "asset";
+  kind: "initial-js" | "lazy-detail" | "lazy-stats" | "worker" | "css" | "wasm" | "asset";
   rawBytes: number;
   gzipBytes: number;
 };
@@ -44,6 +44,7 @@ function kindFor(pathname: string): BundleEntry["kind"] {
   const ext = extname(pathname);
   const name = basename(pathname);
   if (ext === ".js" && /^worker-/.test(name)) return "worker";
+  if (ext === ".js" && /^DetailPanel-/.test(name)) return "lazy-detail";
   if (ext === ".js" && /^(StatsPanelBody|schemas)-/.test(name)) return "lazy-stats";
   if (ext === ".js") return "initial-js";
   if (ext === ".css") return "css";

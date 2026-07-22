@@ -9,6 +9,10 @@ import {
   bucketSolveMs,
   bucketStockPieces,
   bucketTotalExpectedCost,
+  RUNTIME_INVARIANT_VERSION,
+  type RuntimeInvariantCode,
+  type RuntimeInvariantComponent,
+  type RuntimeInvariantLane,
   SOLVER_DIAGNOSTIC_VERSION,
   type StatsLocale,
 } from "../../shared/statsContract";
@@ -17,6 +21,29 @@ import type { Kit, Strategy } from "../types";
 import { RUST_MIN_EF_MEMO_TIER, RUST_PHASE2_FALLBACK_MEMO_TIER } from "../wasm/rustProductConfig";
 import { KIT_KEYS, type SolveOutcome } from "./calculatorShared";
 import type { SolverRecoveryTrace } from "./solverRecoveryPolicy";
+
+type DiagnosticResult = SolveOutcome["result"];
+type DiagnosticBest = NonNullable<DiagnosticResult["best"]>;
+
+export type RuntimeInvariantReporter = (
+  code: RuntimeInvariantCode,
+  component: RuntimeInvariantComponent,
+  lane: RuntimeInvariantLane,
+) => void;
+
+export function makeRuntimeInvariantEvent(
+  code: RuntimeInvariantCode,
+  component: RuntimeInvariantComponent,
+  lane: RuntimeInvariantLane,
+) {
+  return {
+    kind: "runtime_invariant" as const,
+    invariantVersion: RUNTIME_INVARIANT_VERSION,
+    code,
+    component,
+    lane,
+  };
+}
 
 function diagnosticToken(value: unknown, fallback = "unknown") {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
@@ -39,39 +66,60 @@ function vectorValue(vector: Partial<Record<Kit, number>> | undefined, kit: Kit)
   return Math.max(0, Number(vector?.[kit] || 0));
 }
 
-export function makeSolverDiagnosticEvent(outcome: SolveOutcome, locale: StatsLocale) {
-  const { executionKind, requestedBackend, result } = outcome;
-  if (!result.possible || !result.input || !result.best) return null;
-  const input = result.input;
-  const best = result.best;
-  const runCount = Math.max(1, Math.trunc(Number(best.run?.count || 1)));
+function diagnosticCostMetrics(
+  input: NonNullable<DiagnosticResult["input"]>,
+  best: DiagnosticBest,
+) {
   const vector = best.vector || {};
-  const totalExpectedCost =
-    Number(best.totalKits) || KIT_KEYS.reduce((sum, kit) => sum + vectorValue(vector, kit), 0);
-  if (!Number.isFinite(totalExpectedCost) || totalExpectedCost <= 0) return null;
-
+  const vectorTotal = KIT_KEYS.reduce((sum, kit) => sum + vectorValue(vector, kit), 0);
+  const totalExpectedCost = Number(best.totalKits) || vectorTotal;
   const blueShare = vectorValue(vector, "blue") / totalExpectedCost;
   const minAutonomyDays = KIT_KEYS.reduce((minimum, kit) => {
     const dailyGain = EXPECTED_28_DAY_GAIN[kit] / 28;
     const remainingDays = (Number(input.stock[kit] || 0) - vectorValue(vector, kit)) / dailyGain;
     return Math.min(minimum, remainingDays);
   }, Number.POSITIVE_INFINITY);
-  const maxSuccessProbability =
-    Number(best.maxSuccessProbability ?? result.stats?.maxSuccessProbability) ||
-    best.successProbability;
-  const probabilityGap = Math.max(
+  return { blueShare, minAutonomyDays, totalExpectedCost };
+}
+
+function diagnosticProbabilityGap(result: DiagnosticResult, best: DiagnosticBest) {
+  const reportedMaximum = best.maxSuccessProbability ?? result.stats?.maxSuccessProbability;
+  const maxSuccessProbability = Number(reportedMaximum) || best.successProbability;
+  return Math.max(
     0,
     Number(best.probabilityGap ?? maxSuccessProbability - best.successProbability) || 0,
   );
+}
+
+function diagnosticSolverIdentity(result: DiagnosticResult) {
+  const stats = result.stats || {};
+  return {
+    solverBackend: diagnosticToken(stats.solverBackend, "js-phase2"),
+    solverPhase: typeof stats.solverPhase === "string" ? stats.solverPhase : "phase2",
+    solverVersion:
+      typeof stats.solverVersion === "string"
+        ? stats.solverVersion
+        : "phase2_availability_h075_tau0_p3",
+    stats,
+  };
+}
+
+function diagnosticCandidateCount(result: DiagnosticResult) {
+  return result.candidateCount || result.topCandidates?.length || 0;
+}
+
+export function makeSolverDiagnosticEvent(outcome: SolveOutcome, locale: StatsLocale) {
+  const { executionKind, requestedBackend, result } = outcome;
+  if (!result.possible || !result.input || !result.best) return null;
+  const input = result.input;
+  const best = result.best;
+  const runCount = Math.max(1, Math.trunc(Number(best.run?.count || 1)));
+  const { blueShare, minAutonomyDays, totalExpectedCost } = diagnosticCostMetrics(input, best);
+  if (!Number.isFinite(totalExpectedCost) || totalExpectedCost <= 0) return null;
+  const probabilityGap = diagnosticProbabilityGap(result, best);
   // This field is kept for diagnostic schema compatibility. It is no longer a user choice.
   const strategy: Strategy = "supply";
-  const stats = result.stats || {};
-  const solverVersion =
-    typeof stats.solverVersion === "string"
-      ? stats.solverVersion
-      : "phase2_availability_h075_tau0_p3";
-  const solverPhase = typeof stats.solverPhase === "string" ? stats.solverPhase : "phase2";
-  const solverBackend = diagnosticToken(stats.solverBackend, "js-phase2");
+  const { solverBackend, solverPhase, solverVersion, stats } = diagnosticSolverIdentity(result);
 
   return {
     kind: "solver_diagnostic" as const,
@@ -98,9 +146,7 @@ export function makeSolverDiagnosticEvent(outcome: SolveOutcome, locale: StatsLo
     },
     recommendedKit: best.firstAction,
     recommendedUsesBucket: bucketRecommendedUses(runCount),
-    candidateCountBucket: bucketCandidateCount(
-      result.candidateCount || result.topCandidates?.length || 0,
-    ),
+    candidateCountBucket: bucketCandidateCount(diagnosticCandidateCount(result)),
     probabilityGapBucket: bucketProbabilityGap(probabilityGap),
     resourceCostBucket: bucketResourceCost(Number(best.resourceCost || 0)),
     nodeCountBucket: bucketNodeCount(Number(stats.states || 0)),

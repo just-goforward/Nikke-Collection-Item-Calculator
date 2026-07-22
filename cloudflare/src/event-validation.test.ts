@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { validatePayload } from "./event-validation";
 import { HttpError } from "./http-error";
 import { EventSubmissionSchema } from "./schemas";
-import { solverDiagnosticEvent } from "./worker.test-events";
+import { runtimeInvariantEvent, solverDiagnosticEvent } from "./worker.test-events";
 
 function kitPayload(overrides: Record<string, unknown> = {}) {
   return {
@@ -156,5 +156,18 @@ describe("validatePayload", () => {
     const invalid = solverDiagnosticEvent("solver-locale-invalid1");
     invalid.event.locale = "fr";
     expect(EventSubmissionSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it("accepts only enumerated runtime invariant fields", () => {
+    const valid = runtimeInvariantEvent("runtime-invariant-valid1");
+    expect(validateTestPayload(valid).event).toEqual(valid.event);
+
+    const withRawError = runtimeInvariantEvent("runtime-invariant-raw001");
+    Object.assign(withRawError.event, { rawError: "private stack trace" });
+    expect(EventSubmissionSchema.safeParse(withRawError).success).toBe(false);
+
+    const unknownCode = runtimeInvariantEvent("runtime-invariant-code01");
+    unknownCode.event.code = "arbitrary_invariant";
+    expect(EventSubmissionSchema.safeParse(unknownCode).success).toBe(false);
   });
 });

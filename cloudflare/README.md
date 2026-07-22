@@ -204,6 +204,14 @@ npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/add-calc
 npx wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/add-calculation-locale-aggregates.sql --config cloudflare/wrangler.toml --env=staging
 ```
 
+For low-cardinality runtime invariant diagnostics, apply the additive migration to both databases
+before deploying the Worker change:
+
+```powershell
+npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/add-runtime-invariant-aggregates.sql --config cloudflare/wrangler.toml --env=""
+npx wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/add-runtime-invariant-aggregates.sql --config cloudflare/wrangler.toml --env=staging
+```
+
 Diagnostic versions before v6 can contain repeated cache-hit timing and node-count values. Treat
 that runtime data as a usage-weighted historical snapshot, not as an execution distribution.
 The protected admin endpoint filters runtime, latency, fallback, and node-count distributions to
@@ -284,6 +292,13 @@ event is queued.
 ```powershell
 npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT policy_version, requested_backend, rung_backend, rung_exit, device_type, SUM(events) AS events FROM solver_recovery_rung_aggregates GROUP BY policy_version, requested_backend, rung_backend, rung_exit, device_type ORDER BY events DESC"
 npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT policy_version, requested_backend, terminal_backend, terminal_outcome, SUM(events) AS events FROM solver_recovery_terminal_aggregates GROUP BY policy_version, requested_backend, terminal_backend, terminal_outcome ORDER BY events DESC"
+```
+
+Runtime invariant diagnostics contain only enumerated codes, component/lane dimensions, device
+type, and counts. Raw errors, inputs, stock, and timings are not stored.
+
+```powershell
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT invariant_version, invariant_code, component, lane, device_type, SUM(events) AS events FROM runtime_invariant_aggregates GROUP BY invariant_version, invariant_code, component, lane, device_type ORDER BY events DESC"
 ```
 
 Or query the protected admin endpoint:

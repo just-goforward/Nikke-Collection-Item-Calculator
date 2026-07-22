@@ -88,3 +88,19 @@ export function solverRecoveryEvent(eventId: string) {
     },
   };
 }
+
+export function runtimeInvariantEvent(eventId: string) {
+  return {
+    version: 1,
+    eventId,
+    sourceHost: "test.example",
+    turnstileToken: TEST_TURNSTILE_TOKEN,
+    event: {
+      kind: "runtime_invariant",
+      invariantVersion: 1,
+      code: "worker_idle_pending",
+      component: "worker_client",
+      lane: "validation",
+    },
+  };
+}

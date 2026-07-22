@@ -29,7 +29,7 @@ jobs:
         run: npm run build
 
       - name: Generate Ubuntu Chromium baselines
-        run: npm run test:visual:update
+        run: npx playwright test e2e/visual.spec.ts --update-snapshots
 
       - name: Upload Linux visual baselines
         uses: actions/upload-artifact@v7

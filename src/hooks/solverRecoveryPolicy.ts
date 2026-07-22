@@ -122,7 +122,7 @@ export function decideSolveRecovery({
 }
 
 export function isLightweightJsInput(input: SolverInput) {
-  if (input.start.level >= 15) return true;
+  if (input.start.grade === "SR" && input.start.level >= 15) return true;
   const totalUses =
     Math.floor(input.stock.blue / 10) +
     Math.floor(input.stock.purple / 10) +

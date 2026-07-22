@@ -152,7 +152,12 @@ export function cleanupStatsSubmissionDom(
 ) {
   providerRef.current?.dispose();
   providerRef.current = null;
-  for (const kind of ["kit_result", "solver_diagnostic", "solver_recovery"] as const) {
+  for (const kind of [
+    "kit_result",
+    "runtime_invariant",
+    "solver_diagnostic",
+    "solver_recovery",
+  ] as const) {
     document.getElementById(`turnstileContainer-${kind}`)?.remove();
   }
 }

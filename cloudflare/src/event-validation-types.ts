@@ -1,6 +1,10 @@
 import type { CollectionState, Kit, KitRecord } from "../../shared/game";
 import type { SolverExecutionKind, StatsLocale } from "../../shared/statsContract";
-import type { SolverDiagnosticEventInput, SolverRecoveryEventInput } from "./schemas";
+import type {
+  RuntimeInvariantEventInput,
+  SolverDiagnosticEventInput,
+  SolverRecoveryEventInput,
+} from "./schemas";
 
 export type ValidatedKitResultEvent = {
   kind: "kit_result";
@@ -52,11 +56,16 @@ export type ValidatedSolverDiagnosticEvent = {
 };
 
 export type ValidatedSolverRecoveryEvent = SolverRecoveryEventInput;
+export type ValidatedRuntimeInvariantEvent = RuntimeInvariantEventInput;
 
 export type ValidatedSubmission = {
   eventId: string;
   sourceHost: string;
-  event: ValidatedKitResultEvent | ValidatedSolverDiagnosticEvent | ValidatedSolverRecoveryEvent;
+  event:
+    | ValidatedKitResultEvent
+    | ValidatedRuntimeInvariantEvent
+    | ValidatedSolverDiagnosticEvent
+    | ValidatedSolverRecoveryEvent;
 };
 
 export type SubmissionEnvelope = {

@@ -1,9 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import { makeSolverDiagnosticEvent, makeSolverRecoveryEvent } from "./calculatorDiagnostics";
+import {
+  makeRuntimeInvariantEvent,
+  makeSolverDiagnosticEvent,
+  makeSolverRecoveryEvent,
+} from "./calculatorDiagnostics";
 import { readCache, rememberCache, type SolverResult } from "./calculatorShared";
 
 describe("makeSolverDiagnosticEvent", () => {
+  it("creates a low-cardinality runtime invariant event", () => {
+    expect(makeRuntimeInvariantEvent("worker_idle_pending", "worker_client", "validation")).toEqual(
+      {
+        kind: "runtime_invariant",
+        invariantVersion: 1,
+        code: "worker_idle_pending",
+        component: "worker_client",
+        lane: "validation",
+      },
+    );
+  });
+
   it("uses solver version and phase from result stats", () => {
     const result: SolverResult = {
       possible: true,
