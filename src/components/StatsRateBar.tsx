@@ -52,14 +52,24 @@ function observedDirectionClass(
 function eventInsideInterval(
   event: BarMoveEvent,
   comparison: ComparisonState,
-  _geometry: Pick<RateBarGeometry, "intervalLeft" | "intervalRight">,
+  geometry: Pick<RateBarGeometry, "intervalLeft" | "intervalRight">,
 ) {
-  void event;
   if (!comparison.interval) return false;
-  return true;
+  const rect = event.currentTarget.getBoundingClientRect();
+  if (rect.width <= 0) return false;
+  const xPercent = ((event.clientX - rect.left) / rect.width) * 100;
+  return xPercent >= geometry.intervalLeft && xPercent <= geometry.intervalRight;
 }
 
-function IntervalBand({ handlers, visible }: { handlers: RateBarHandlers; visible: boolean }) {
+function IntervalBand({
+  geometry,
+  handlers,
+  visible,
+}: {
+  geometry: Pick<RateBarGeometry, "intervalLeft" | "intervalWidth">;
+  handlers: RateBarHandlers;
+  visible: boolean;
+}) {
   const { t } = useI18n();
   if (!visible) return null;
   return (
@@ -76,7 +86,7 @@ function IntervalBand({ handlers, visible }: { handlers: RateBarHandlers; visibl
       onPointerEnter={handlers.onIntervalPointerEnter}
       onPointerLeave={handlers.onIntervalPointerLeave}
       onPointerMove={handlers.onIntervalPointerMove}
-      style={{ left: "0%", width: "100%" }}
+      style={{ left: `${geometry.intervalLeft}%`, width: `${geometry.intervalWidth}%` }}
       type="button"
     ></button>
   );
@@ -179,7 +189,11 @@ export function RateBar({
       onPointerLeave={onIntervalPointerLeave}
       onPointerMove={handleBarMove}
     >
-      <IntervalBand handlers={intervalHandlers} visible={Boolean(comparison.interval)} />
+      <IntervalBand
+        geometry={geometry}
+        handlers={intervalHandlers}
+        visible={Boolean(comparison.interval)}
+      />
       <div
         className={joinClasses(
           classes.observed,

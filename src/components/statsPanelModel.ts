@@ -53,8 +53,12 @@ export function comparisonState(
   return { className: "luck-neutral", interval };
 }
 
-function percentPosition(rate: number) {
-  return Math.min(100, Math.max(0, rate * 100));
+const THEORETICAL_POSITION = 50;
+const DEVIATION_SCALE = 10;
+
+function deviationPosition(rate: number, theoreticalRate: number) {
+  const deltaPercentagePoints = (rate - theoreticalRate) * 100;
+  return Math.min(100, Math.max(0, THEORETICAL_POSITION + deltaPercentagePoints * DEVIATION_SCALE));
 }
 
 export function markerEdge(percent: number) {
@@ -67,13 +71,15 @@ export function rateBarGeometry(
   comparison: ComparisonState,
   theoreticalRate: number,
 ): RateBarGeometry {
-  const theoreticalPercent = 50;
-  const deltaPercentagePoints = (actualRate - theoreticalRate) * 100;
-  const deviation = Math.max(-50, Math.min(50, deltaPercentagePoints * 10));
-  const observedPercent = attempts > 0 ? theoreticalPercent + deviation : theoreticalPercent;
-  const actualWidth = attempts > 0 ? Math.abs(deviation) : 0;
-  const intervalLeft = comparison.interval ? percentPosition(comparison.interval.low) : 0;
-  const intervalRight = comparison.interval ? percentPosition(comparison.interval.high) : 0;
+  const theoreticalPercent = THEORETICAL_POSITION;
+  const observedPercent = attempts > 0 ? deviationPosition(actualRate, theoreticalRate) : 50;
+  const actualWidth = attempts > 0 ? Math.abs(observedPercent - theoreticalPercent) : 0;
+  const intervalLeft = comparison.interval
+    ? deviationPosition(comparison.interval.low, theoreticalRate)
+    : 0;
+  const intervalRight = comparison.interval
+    ? deviationPosition(comparison.interval.high, theoreticalRate)
+    : 0;
   return {
     actualPercent: observedPercent,
     actualWidth,

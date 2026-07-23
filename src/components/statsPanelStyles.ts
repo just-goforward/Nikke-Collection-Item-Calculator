@@ -74,7 +74,7 @@ export const classes = {
   kitRateBar:
     "kit-rate-bar relative block h-[13px] w-full overflow-visible rounded-pill border-0 bg-progress-track p-0 text-left text-inherit [margin-block:14px_19px] [font:inherit] [user-select:none] cursor-default",
   interval:
-    "difficulty-interval absolute bottom-[-5px] top-[-5px] z-[3] cursor-help appearance-none rounded-pill border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--grade-active)_24%,transparent)]",
+    "difficulty-interval absolute bottom-[-2px] top-[-2px] z-[3] cursor-help appearance-none rounded-pill border border-[color-mix(in_srgb,var(--grade-active)_38%,transparent)] bg-[color-mix(in_srgb,var(--grade-active-soft)_65%,transparent)] p-0 transition-[left,width,background-color,border-color] duration-[240ms] ease-[ease] focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--grade-active)_24%,transparent)]",
   observed:
     "difficulty-observed absolute top-0 z-[1] block h-full transition-[left,width] duration-[240ms] ease-[ease]",
   observedRight: "rounded-r-pill",
