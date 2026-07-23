@@ -7,6 +7,7 @@ import type { StatsPanelModel, StatsView } from "../ui-types";
 import { DifficultyStats, KitStats, OverallStats } from "./StatsPanelSections";
 import {
   DifficultyTooltip,
+  type IntervalTooltipData,
   type IntervalTooltipHandlers,
   positionTooltip,
   type TooltipContent,
@@ -31,7 +32,7 @@ function useStatsTooltips() {
     sideY: "bottom",
     top: 0,
     locked: false,
-    content: { type: "interval" },
+    content: { type: "interval", data: null },
   });
   useTooltipDismissal(tooltip, setTooltip);
 
@@ -67,29 +68,32 @@ function useIntervalTooltipHandlers(
   setTooltip: SetTooltip,
   hideTooltip: () => void,
 ): IntervalTooltipHandlers {
-  const moveTooltip = (event: TooltipMoveEvent) => {
-    showTooltipAtPointer(setTooltip, event, { type: "interval" });
+  const moveTooltip = (event: TooltipMoveEvent, data: IntervalTooltipData) => {
+    showTooltipAtPointer(setTooltip, event, { type: "interval", data });
   };
-  const showTooltipFromFocus = (event: FocusEvent<HTMLButtonElement>) => {
+  const showTooltipFromFocus = (
+    event: FocusEvent<HTMLButtonElement>,
+    data: IntervalTooltipData,
+  ) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const nextPosition = positionTooltip(rect.left + rect.width / 2, rect.top + rect.height / 2);
     setTooltip((current) =>
       current.visible
-        ? { ...current, content: { type: "interval" }, locked: false, visible: true }
+        ? { ...current, content: { type: "interval", data }, locked: false, visible: true }
         : {
             ...current,
-            content: { type: "interval" },
+            content: { type: "interval", data },
             locked: false,
             visible: true,
             ...nextPosition,
           },
     );
   };
-  const lockTooltip = (event: PointerEvent<HTMLButtonElement>) => {
+  const lockTooltip = (event: PointerEvent<HTMLButtonElement>, data: IntervalTooltipData) => {
     if (event.pointerType === "mouse") return;
     event.preventDefault();
     event.stopPropagation();
-    showTooltipAtPointer(setTooltip, event, { type: "interval" }, true);
+    showTooltipAtPointer(setTooltip, event, { type: "interval", data }, true);
   };
   return {
     onIntervalBlur: hideTooltip,

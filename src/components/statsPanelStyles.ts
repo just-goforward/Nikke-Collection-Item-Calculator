@@ -36,6 +36,10 @@ export const classes = {
     "m-0 max-w-full flex-none text-[16px] font-bold leading-[1.25] text-text-strong [overflow-wrap:anywhere] max-mobile:text-[14px]",
   sectionMeta:
     "max-w-full flex-none whitespace-normal text-right text-[11px] font-medium leading-[1.3] text-muted [overflow-wrap:anywhere] max-mobile:text-[10.5px]",
+  intervalLegend:
+    "stats-interval-legend flex min-w-0 items-center gap-2 text-[11px] font-medium leading-[1.4] text-muted [overflow-wrap:anywhere] max-mobile:text-[10.5px]",
+  intervalLegendSwatch:
+    "inline-block h-[9px] w-7 flex-none rounded-pill border border-[color-mix(in_srgb,var(--grade-active)_38%,transparent)] bg-[color-mix(in_srgb,var(--grade-active-soft)_65%,transparent)]",
   overallStack: "overall-stats-stack grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2.5",
   overallWindow:
     "overall-stats-window grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 rounded-card border border-border bg-surface-raised p-[11px] max-mobile:p-2.5",
@@ -75,6 +79,12 @@ export const classes = {
     "kit-rate-bar relative block h-[13px] w-full overflow-visible rounded-pill border-0 bg-progress-track p-0 text-left text-inherit [margin-block:14px_19px] [font:inherit] [user-select:none] cursor-default",
   interval:
     "difficulty-interval absolute bottom-[-2px] top-[-2px] z-[3] cursor-help appearance-none rounded-pill border border-[color-mix(in_srgb,var(--grade-active)_38%,transparent)] bg-[color-mix(in_srgb,var(--grade-active-soft)_65%,transparent)] p-0 transition-[left,width,background-color,border-color] duration-[240ms] ease-[ease] focus-visible:outline-none focus-visible:shadow-[0_0_0_3px_color-mix(in_srgb,var(--grade-active)_24%,transparent)]",
+  intervalEdge:
+    "pointer-events-none absolute inset-y-[-1px] flex w-[15px] items-center justify-center text-[14px] font-bold leading-none text-grade-active-strong",
+  intervalEdgeLow:
+    "left-[-1px] rounded-l-pill bg-[linear-gradient(90deg,color-mix(in_srgb,var(--grade-active)_34%,transparent),transparent)]",
+  intervalEdgeHigh:
+    "right-[-1px] rounded-r-pill bg-[linear-gradient(270deg,color-mix(in_srgb,var(--grade-active)_34%,transparent),transparent)]",
   observed:
     "difficulty-observed absolute top-0 z-[1] block h-full transition-[left,width] duration-[240ms] ease-[ease]",
   observedRight: "rounded-r-pill",
@@ -106,6 +116,9 @@ export const classes = {
   tooltipMessageUsage:
     "difficulty-tooltip-message-usage w-max min-w-[170px] max-w-[calc(100vw-44px)] [inline-size:auto]",
   tooltipParagraph: "m-0",
+  tooltipIntervalRange: "font-semibold text-white",
+  tooltipIntervalClipped:
+    "m-0 rounded-control bg-[rgba(255,255,255,0.09)] px-2 py-1.5 font-medium text-white",
   tooltipUsageList: "grid w-max min-w-full gap-1.5",
   tooltipUsageItem: "grid grid-cols-[1fr_auto] items-center gap-4 text-[12px] leading-none",
   tooltipUsageKit: "inline-flex items-center gap-1.5 text-[#f8fcfe]",

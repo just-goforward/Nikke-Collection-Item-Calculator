@@ -16,6 +16,8 @@ describe("rateBarGeometry", () => {
     expect(geometry.intervalLeft).toBeCloseTo(30);
     expect(geometry.intervalRight).toBeCloseTo(70);
     expect(geometry.intervalWidth).toBeCloseTo(40);
+    expect(geometry.intervalClippedLow).toBe(false);
+    expect(geometry.intervalClippedHigh).toBe(false);
   });
 
   it("clips a confidence interval that extends beyond the visible deviation range", () => {
@@ -29,5 +31,7 @@ describe("rateBarGeometry", () => {
     expect(geometry.intervalLeft).toBe(0);
     expect(geometry.intervalRight).toBe(100);
     expect(geometry.intervalWidth).toBe(100);
+    expect(geometry.intervalClippedLow).toBe(true);
+    expect(geometry.intervalClippedHigh).toBe(true);
   });
 });

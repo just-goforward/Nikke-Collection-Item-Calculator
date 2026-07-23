@@ -17,7 +17,17 @@ export type UsageTooltipItem = {
   pieces: number;
 };
 
-export type TooltipContent = { type: "interval" } | { type: "usage"; items: UsageTooltipItem[] };
+export type IntervalTooltipData = {
+  attempts: number;
+  clippedHigh: boolean;
+  clippedLow: boolean;
+  high: number;
+  low: number;
+};
+
+export type TooltipContent =
+  | { type: "interval"; data: IntervalTooltipData | null }
+  | { type: "usage"; items: UsageTooltipItem[] };
 
 export type TooltipState = {
   visible: boolean;
@@ -33,11 +43,14 @@ export type TooltipMoveEvent = PointerEvent<HTMLElement> | MouseEvent<HTMLElemen
 
 export type IntervalTooltipHandlers = {
   onIntervalBlur: () => void;
-  onIntervalFocus: (event: FocusEvent<HTMLButtonElement>) => void;
-  onIntervalPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
-  onIntervalPointerEnter: (event: TooltipMoveEvent) => void;
+  onIntervalFocus: (event: FocusEvent<HTMLButtonElement>, data: IntervalTooltipData) => void;
+  onIntervalPointerDown: (
+    event: PointerEvent<HTMLButtonElement>,
+    data: IntervalTooltipData,
+  ) => void;
+  onIntervalPointerEnter: (event: TooltipMoveEvent, data: IntervalTooltipData) => void;
   onIntervalPointerLeave: () => void;
-  onIntervalPointerMove: (event: TooltipMoveEvent) => void;
+  onIntervalPointerMove: (event: TooltipMoveEvent, data: IntervalTooltipData) => void;
 };
 
 export type UsageTooltipHandlers = {
@@ -115,8 +128,36 @@ function UsageTooltipContent({ items }: { items: UsageTooltipItem[] }) {
   );
 }
 
+function IntervalTooltipContent({ data }: { data: IntervalTooltipData | null }) {
+  const { formatInteger, formatPercent, t } = useI18n();
+  if (!data) return null;
+
+  const clippedKey =
+    data.clippedLow && data.clippedHigh
+      ? "stats.intervalClippedBoth"
+      : data.clippedLow
+        ? "stats.intervalClippedLow"
+        : data.clippedHigh
+          ? "stats.intervalClippedHigh"
+          : null;
+
+  return (
+    <>
+      <strong className={classes.tooltipIntervalRange}>
+        {t("stats.intervalRange", {
+          attempts: formatInteger(data.attempts),
+          high: formatPercent(data.high, 1),
+          low: formatPercent(data.low, 1),
+        })}
+      </strong>
+      {clippedKey ? <p className={classes.tooltipIntervalClipped}>{t(clippedKey)}</p> : null}
+      <p className={classes.tooltipParagraph}>{t("stats.sampleHelp1")}</p>
+      <p className={classes.tooltipParagraph}>{t("stats.sampleHelp2")}</p>
+    </>
+  );
+}
+
 export function DifficultyTooltip({ tooltip }: { tooltip: TooltipState }) {
-  const { t } = useI18n();
   if (typeof document === "undefined") return null;
 
   const tooltipStyle = {
@@ -148,11 +189,7 @@ export function DifficultyTooltip({ tooltip }: { tooltip: TooltipState }) {
         {tooltip.content.type === "usage" ? (
           <UsageTooltipContent items={tooltip.content.items} />
         ) : (
-          [t("stats.sampleHelp1"), t("stats.sampleHelp2")].map((message) => (
-            <p className={classes.tooltipParagraph} key={message}>
-              {message}
-            </p>
-          ))
+          <IntervalTooltipContent data={tooltip.content.data} />
         )}
       </div>
     </div>,

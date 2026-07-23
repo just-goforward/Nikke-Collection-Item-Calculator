@@ -11,6 +11,8 @@ export type RateBarGeometry = {
   actualPercent: number;
   deviationLeft: number;
   deviationWidth: number;
+  intervalClippedHigh: boolean;
+  intervalClippedLow: boolean;
   intervalLeft: number;
   intervalRight: number;
   intervalWidth: number;
@@ -56,9 +58,13 @@ export function comparisonState(
 const THEORETICAL_POSITION = 50;
 const DEVIATION_SCALE = 10;
 
-function deviationPosition(rate: number, theoreticalRate: number) {
+function rawDeviationPosition(rate: number, theoreticalRate: number) {
   const deltaPercentagePoints = (rate - theoreticalRate) * 100;
-  return Math.min(100, Math.max(0, THEORETICAL_POSITION + deltaPercentagePoints * DEVIATION_SCALE));
+  return THEORETICAL_POSITION + deltaPercentagePoints * DEVIATION_SCALE;
+}
+
+function deviationPosition(rate: number, theoreticalRate: number) {
+  return Math.min(100, Math.max(0, rawDeviationPosition(rate, theoreticalRate)));
 }
 
 export function markerEdge(percent: number) {
@@ -80,11 +86,19 @@ export function rateBarGeometry(
   const intervalRight = comparison.interval
     ? deviationPosition(comparison.interval.high, theoreticalRate)
     : 0;
+  const rawIntervalLeft = comparison.interval
+    ? rawDeviationPosition(comparison.interval.low, theoreticalRate)
+    : 0;
+  const rawIntervalRight = comparison.interval
+    ? rawDeviationPosition(comparison.interval.high, theoreticalRate)
+    : 0;
   return {
     actualPercent: observedPercent,
     actualWidth,
     deviationLeft: Math.min(theoreticalPercent, observedPercent),
     deviationWidth: Math.max(1, actualWidth),
+    intervalClippedHigh: rawIntervalRight > 100,
+    intervalClippedLow: rawIntervalLeft < 0,
     intervalLeft,
     intervalRight,
     intervalWidth: Math.max(0, intervalRight - intervalLeft),

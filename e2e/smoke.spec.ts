@@ -424,6 +424,7 @@ test("demoStats=1 — 전체 통계 주요 섹션이 표시된다", async ({ pag
   await expect(page.getByText("전체 대성공률")).toBeVisible();
   await expect(page.getByText("키트별 대성공률")).toBeVisible();
   await expect(page.getByText("구간별 체감 난이도")).toBeVisible();
+  await expect(page.getByText("반투명 영역 · 표본 수를 반영한 95% 오차 범위")).toHaveCount(2);
   await expect(page.locator(".kit-rate-row")).toHaveCount(3);
   await expect(page.locator(".difficulty-row")).toHaveCount(6);
   await expect(page.getByText("누적 입력 표본", { exact: true })).toBeVisible();
@@ -872,7 +873,9 @@ test("모바일 520px 구간 툴팁은 viewport 안에 머문다", async ({ page
     const tooltip = page.locator(".difficulty-tooltip");
     await expect(tooltip).toHaveClass(/is-visible/);
     await expect(interval).toHaveAttribute("aria-describedby", "difficultyIntervalTooltip");
+    await expect(interval).toHaveAttribute("aria-label", /95% 오차 범위.+표본 [\d,]+회/);
     await expect(tooltip).toHaveAttribute("id", "difficultyIntervalTooltip");
+    await expect(tooltip).toContainText(/95% 오차 범위 .+~.+ · 표본 [\d,]+회/);
     await expect(tooltip).toContainText("표본이 적으면 우연히 결과가 좋거나 나쁠 수 있습니다.");
     const rect = await tooltip.evaluate((element) => {
       const bounds = element.getBoundingClientRect();

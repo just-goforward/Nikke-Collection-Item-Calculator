@@ -17,6 +17,16 @@ const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
   yellow: "kit.yellow",
 };
 
+function IntervalLegend() {
+  const { t } = useI18n();
+  return (
+    <p className={classes.intervalLegend}>
+      <span aria-hidden="true" className={classes.intervalLegendSwatch}></span>
+      {t("stats.intervalLegend")}
+    </p>
+  );
+}
+
 function DifficultyRow({
   index,
   item,
@@ -252,6 +262,7 @@ export function KitStats({
         <h3 className={classes.sectionHeading}>{t("stats.kitRates")}</h3>
         <span className={classes.sectionMeta}>{t("stats.axisMeta")}</span>
       </div>
+      <IntervalLegend />
       {byKit.length ? (
         <div className={classes.kitRateList}>
           {KIT_ORDER.map((kit, index) => {
@@ -286,6 +297,7 @@ export function DifficultyStats({
         <h3 className={classes.sectionHeading}>{t("stats.segmentDifficulty")}</h3>
         <span className={classes.sectionMeta}>{t("stats.axisMeta")}</span>
       </div>
+      <IntervalLegend />
       {rows.length ? (
         <div className={classes.difficultyList}>
           {rows.map((row, index) => (

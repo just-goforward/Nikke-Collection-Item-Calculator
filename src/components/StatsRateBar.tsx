@@ -1,7 +1,7 @@
 import type { MouseEvent, PointerEvent } from "react";
 
 import { useI18n } from "../i18n/locale";
-import type { IntervalTooltipHandlers } from "./StatsTooltip";
+import type { IntervalTooltipData, IntervalTooltipHandlers } from "./StatsTooltip";
 import {
   type ComparisonState,
   markerEdge,
@@ -64,31 +64,51 @@ function eventInsideInterval(
 function IntervalBand({
   geometry,
   handlers,
+  tooltipData,
   visible,
 }: {
-  geometry: Pick<RateBarGeometry, "intervalLeft" | "intervalWidth">;
+  geometry: Pick<
+    RateBarGeometry,
+    "intervalClippedHigh" | "intervalClippedLow" | "intervalLeft" | "intervalWidth"
+  >;
   handlers: RateBarHandlers;
+  tooltipData: IntervalTooltipData | null;
   visible: boolean;
 }) {
-  const { t } = useI18n();
-  if (!visible) return null;
+  const { formatInteger, formatPercent, t } = useI18n();
+  if (!visible || !tooltipData) return null;
   return (
     <button
       aria-describedby={INTERVAL_TOOLTIP_ID}
-      aria-label={t("stats.expectedRangeAria")}
+      aria-label={t("stats.intervalRangeAria", {
+        attempts: formatInteger(tooltipData.attempts),
+        high: formatPercent(tooltipData.high, 1),
+        low: formatPercent(tooltipData.low, 1),
+      })}
       className={classes.interval}
       onBlur={handlers.onIntervalBlur}
-      onFocus={handlers.onIntervalFocus}
-      onMouseEnter={handlers.onIntervalPointerEnter}
+      onFocus={(event) => handlers.onIntervalFocus?.(event, tooltipData)}
+      onMouseEnter={(event) => handlers.onIntervalPointerEnter?.(event, tooltipData)}
       onMouseLeave={handlers.onIntervalPointerLeave}
-      onMouseMove={handlers.onIntervalPointerMove}
-      onPointerDown={handlers.onIntervalPointerDown}
-      onPointerEnter={handlers.onIntervalPointerEnter}
+      onMouseMove={(event) => handlers.onIntervalPointerMove?.(event, tooltipData)}
+      onPointerDown={(event) => handlers.onIntervalPointerDown?.(event, tooltipData)}
+      onPointerEnter={(event) => handlers.onIntervalPointerEnter?.(event, tooltipData)}
       onPointerLeave={handlers.onIntervalPointerLeave}
-      onPointerMove={handlers.onIntervalPointerMove}
+      onPointerMove={(event) => handlers.onIntervalPointerMove?.(event, tooltipData)}
       style={{ left: `${geometry.intervalLeft}%`, width: `${geometry.intervalWidth}%` }}
       type="button"
-    ></button>
+    >
+      {geometry.intervalClippedLow ? (
+        <span aria-hidden="true" className={`${classes.intervalEdge} ${classes.intervalEdgeLow}`}>
+          ‹
+        </span>
+      ) : null}
+      {geometry.intervalClippedHigh ? (
+        <span aria-hidden="true" className={`${classes.intervalEdge} ${classes.intervalEdgeHigh}`}>
+          ›
+        </span>
+      ) : null}
+    </button>
   );
 }
 
@@ -167,6 +187,15 @@ export function RateBar({
   theoreticalRate,
 }: RateBarProps) {
   const geometry = rateBarGeometry(actualRate, attempts, comparison, theoreticalRate);
+  const tooltipData: IntervalTooltipData | null = comparison.interval
+    ? {
+        attempts,
+        clippedHigh: geometry.intervalClippedHigh,
+        clippedLow: geometry.intervalClippedLow,
+        high: comparison.interval.high,
+        low: comparison.interval.low,
+      }
+    : null;
   const intervalHandlers = {
     onIntervalBlur,
     onIntervalFocus,
@@ -176,8 +205,9 @@ export function RateBar({
     onIntervalPointerMove,
   };
   const handleBarMove = (event: BarMoveEvent) => {
-    if (eventInsideInterval(event, comparison, geometry)) onIntervalPointerMove?.(event);
-    else onIntervalPointerLeave?.();
+    if (tooltipData && eventInsideInterval(event, comparison, geometry)) {
+      onIntervalPointerMove?.(event, tooltipData);
+    } else onIntervalPointerLeave?.();
   };
 
   return (
@@ -192,7 +222,8 @@ export function RateBar({
       <IntervalBand
         geometry={geometry}
         handlers={intervalHandlers}
-        visible={Boolean(comparison.interval)}
+        tooltipData={tooltipData}
+        visible={Boolean(tooltipData)}
       />
       <div
         className={joinClasses(
