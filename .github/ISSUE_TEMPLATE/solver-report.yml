@@ -1,0 +1,95 @@
+name: Solver 결과 제보
+description: 추천 행동, 도달 확률 또는 fallback 결과가 의심되는 계산을 제보합니다.
+title: "[Solver] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        동일한 계산을 재현하려면 입력 조건과 사용된 solver 정보가 필요합니다.
+        보안 취약점이나 비밀키 노출은 [비공개 보안 신고](https://github.com/just-goforward/Nikke-Collection-Item-Calculator/security/advisories/new)를 이용해주세요.
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: 발생 환경
+      options:
+        - 운영 페이지
+        - staging 페이지
+        - 로컬 개발 환경
+        - 기타
+    validations:
+      required: true
+
+  - type: dropdown
+    id: locale
+    attributes:
+      label: 선택 언어
+      options:
+        - 한국어
+        - 日本語
+        - English
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: 운영체제, 기기, 브라우저
+      placeholder: "예: Windows 11 desktop, Chrome 149"
+    validations:
+      required: true
+
+  - type: input
+    id: collection-state
+    attributes:
+      label: 소장품 상태
+      description: 등급, 레벨, 현재 EXP를 작성해주세요.
+      placeholder: "예: R 8, EXP 0"
+    validations:
+      required: true
+
+  - type: input
+    id: kit-stock
+    attributes:
+      label: 보유 키트
+      description: 초심자용, 중급자용, 상급자용 순서로 작성해주세요.
+      placeholder: "예: 200 / 100 / 50"
+    validations:
+      required: true
+
+  - type: input
+    id: solver-backend
+    attributes:
+      label: 사용된 solver
+      description: 확인할 수 있다면 rust-min-ef, rust-phase2 또는 js-phase2를 작성해주세요.
+      placeholder: "예: rust-min-ef"
+
+  - type: textarea
+    id: calculated-result
+    attributes:
+      label: 표시된 계산 결과
+      description: 추천 행동, SR 15 도달 확률, 후보와 제외 이유를 가능한 한 정확히 작성해주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: concern
+    attributes:
+      label: 의심되는 점
+      description: 어떤 결과를 예상했고 현재 결과가 왜 잘못되었다고 생각하는지 작성해주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 재현 자료
+      description: 스크린샷, 관련 콘솔 출력 또는 반복 재현 여부를 첨부해주세요.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: 공개 정보 확인
+      options:
+        - label: 비밀키, 토큰, 관리자 인증값 또는 개인 식별정보를 포함하지 않았습니다.
+          required: true

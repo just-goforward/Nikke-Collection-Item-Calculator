@@ -1,0 +1,99 @@
+name: 버그 제보
+description: UI, 통계 표시, 번역, 접근성 또는 브라우저 동작 문제를 제보합니다.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        제보해 주셔서 감사합니다. 보안 취약점이나 비밀키 노출은 공개 Issue에 작성하지 말고 [비공개 보안 신고](https://github.com/just-goforward/Nikke-Collection-Item-Calculator/security/advisories/new)를 이용해주세요.
+        한국어, 日本語, English 중 편한 언어로 작성할 수 있습니다.
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: 발생 환경
+      options:
+        - 운영 페이지
+        - staging 페이지
+        - 로컬 개발 환경
+        - 기타
+    validations:
+      required: true
+
+  - type: dropdown
+    id: locale
+    attributes:
+      label: 선택 언어
+      options:
+        - 한국어
+        - 日本語
+        - English
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: 운영체제와 기기
+      description: 운영체제 버전과 desktop, tablet, mobile 구분을 함께 작성해주세요.
+      placeholder: "예: Windows 11 desktop / iOS 19 mobile"
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: 브라우저
+      description: 브라우저 이름과 버전을 작성해주세요.
+      placeholder: "예: Chrome 149.0.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: viewport
+    attributes:
+      label: 화면 크기
+      description: 레이아웃 문제라면 viewport 또는 기기 화면 크기를 작성해주세요.
+      placeholder: "예: 390 × 844 / 1280 × 720"
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 재현 절차
+      description: 문제가 나타날 때까지 수행한 동작을 순서대로 작성해주세요.
+      placeholder: |
+        1. 페이지를 엽니다.
+        2. 언어를 변경합니다.
+        3. 계산을 실행합니다.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대한 동작
+      description: 정상이라면 어떻게 동작해야 하는지 작성해주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 실제 동작
+      description: 실제로 표시되거나 발생한 결과를 작성해주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 스크린샷과 오류 로그
+      description: 필요한 경우 스크린샷이나 민감정보를 제거한 DevTools 오류를 첨부해주세요.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: 공개 정보 확인
+      options:
+        - label: 비밀키, 토큰, 관리자 인증값 또는 개인 식별정보를 포함하지 않았습니다.
+          required: true

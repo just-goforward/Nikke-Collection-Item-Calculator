@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 보안 취약점 비공개 신고
+    url: https://github.com/just-goforward/Nikke-Collection-Item-Calculator/security/advisories/new
+    about: 보안 취약점과 비밀정보 노출은 공개 Issue 대신 이 경로로 신고해주세요.
