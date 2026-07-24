@@ -217,11 +217,7 @@ function serveStatic(rootDir, port) {
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
-    const executable = process.platform === "win32" ? `${command}.cmd` : command;
-    const child =
-      process.platform === "win32"
-        ? spawn([executable, ...args].map(quoteShellArg).join(" "), { cwd: root, shell: true })
-        : spawn(executable, args, { cwd: root, shell: false });
+    const child = spawn(command, args, { cwd: root, shell: false });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
@@ -237,16 +233,17 @@ function run(command, args) {
   });
 }
 
-function quoteShellArg(value) {
-  if (/^[\w./:=@-]+$/.test(value)) return value;
-  return `"${value.replace(/"/g, '\\"')}"`;
+function runNpmExecutable(executable, args) {
+  const npmCliPath = process.env.npm_execpath;
+  if (!npmCliPath) {
+    throw new Error("Run this script through `npm run perf:fonts` so npm_execpath is available.");
+  }
+  return run(process.execPath, [npmCliPath, "exec", "--yes", "--", executable, ...args]);
 }
 
 async function runLighthouse(url, outputPath, formFactor) {
   const isMobile = formFactor === "mobile";
   const args = [
-    "--yes",
-    "lighthouse",
     url,
     "--output=json",
     `--output-path=${outputPath}`,
@@ -261,7 +258,7 @@ async function runLighthouse(url, outputPath, formFactor) {
     "--screenEmulation.deviceScaleFactor=1",
   ];
   try {
-    await run("npx", args);
+    await runNpmExecutable("lighthouse", args);
   } catch (error) {
     if (existsSync(outputPath)) {
       console.warn(
