@@ -1,1 +1,4 @@
-cloudflare/worker-configuration.d.ts -whitespace
+.gitattributes text eol=lf
+cloudflare/worker-configuration.d.ts text eol=lf -whitespace
+package.json text eol=lf
+package-lock.json text eol=lf
