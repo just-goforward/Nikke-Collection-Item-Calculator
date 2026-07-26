@@ -29,6 +29,7 @@
     "bench:rust-analyze": "node benchmarks/analyze-rust-solver-direction.ts",
     "bench:rust-rerank-supplemental": "node benchmarks/run-rust-rerank-supplemental.ts",
     "bench:solver-runtime:ci": "node scripts/bench-solver-runtime-ci.ts",
+    "bench:wasm-opt": "node scripts/bench-wasm-opt.ts",
     "bench:worker-concurrency": "node scripts/bench-worker-concurrency.ts",
     "bench:shadow-pilot": "node benchmarks/run-shadow-pilot.ts",
     "bench:shadow-exact-pilot": "node benchmarks/run-shadow-exact-pilot.ts",
