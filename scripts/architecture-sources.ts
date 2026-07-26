@@ -1,6 +1,6 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { posix } from "node:path";
-import { spawnSync } from "node:child_process";
 import { CHECK_ROOTS, SOURCE_EXTENSIONS } from "./architecture-config.ts";
 
 export function normalizeFile(file: string) {
@@ -21,10 +21,7 @@ function gitLsFiles(args: string[]) {
   if (result.status !== 0) {
     throw new Error(result.stderr || `${args.join(" ")} failed with status ${result.status}`);
   }
-  return result.stdout
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .map(normalizeFile);
+  return result.stdout.split(/\r?\n/).filter(Boolean).map(normalizeFile);
 }
 
 export function sourceOf(file: string) {

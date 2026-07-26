@@ -13,10 +13,10 @@ export default defineConfig({
   testDir: "./e2e",
   testMatch: /alignment\.spec\.ts$/,
   fullyParallel: false,
-  forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
+  forbidOnly: Boolean(process.env["CI"]),
+  retries: process.env["CI"] ? 1 : 0,
   workers: 1,
-  reporter: process.env.CI ? [["github"], ["list"]] : "list",
+  reporter: process.env["CI"] ? [["github"], ["list"]] : "list",
   timeout: 180_000,
   expect: { timeout: 12_000 },
   use: {
@@ -29,7 +29,7 @@ export default defineConfig({
   webServer: {
     command: "npm run preview -- --host 127.0.0.1 --port 4377 --strictPort",
     port: 4377,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: !process.env["CI"],
     timeout: 30_000,
   },
 });

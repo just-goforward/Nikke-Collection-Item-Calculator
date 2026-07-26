@@ -4,10 +4,10 @@ export default defineConfig({
   testDir: "./e2e",
   testMatch: /(?:accessibility|i18n)\.spec\.ts$/,
   fullyParallel: false,
-  forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 2 : 0,
+  forbidOnly: Boolean(process.env["CI"]),
+  retries: process.env["CI"] ? 2 : 0,
   workers: 1,
-  reporter: process.env.CI ? [["github"], ["list"]] : "list",
+  reporter: process.env["CI"] ? [["github"], ["list"]] : "list",
   timeout: 30_000,
   expect: { timeout: 10_000 },
   projects: [

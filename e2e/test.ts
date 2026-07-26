@@ -31,7 +31,7 @@ const test = base.extend<{ localeFontRoute: undefined }>({
       await page.route("https://cdn.jsdelivr.net/**", (route) =>
         route.fulfill({ body: "", contentType: "text/css", status: 200 }),
       );
-      await use();
+      await use(undefined);
     },
     { auto: true },
   ],

@@ -39,13 +39,16 @@ function sample(input: boolean) {
   });
 
   it("uses the TypeScript AST instead of counting braces inside strings", () => {
-    const metrics = measureFunctions(`
+    const metrics = measureFunctions(
+      `
 function outer() {
   const marker = "}";
   if (marker) return 1;
   return 0;
 }
-`, "fixture.ts");
+`,
+      "fixture.ts",
+    );
 
     expect(metrics).toHaveLength(1);
     expect(metrics[0]).toMatchObject({ name: "outer", endLine: 6, maxDepth: 1, complexity: 2 });
@@ -57,17 +60,18 @@ function outer() {
     expect(violatesModuleBoundary("cloudflare/src/worker.ts", "shared/game.ts")).toBe(false);
     expect(violatesModuleBoundary("shared/game.ts", "src/types.ts")).toBe(true);
     expect(violatesModuleBoundary("src/app.ts", "src/types.ts")).toBe(false);
-    expect(
-      violatesModuleBoundary("cloudflare/src/worker.ts", "cloudflare/src/http.ts"),
-    ).toBe(false);
+    expect(violatesModuleBoundary("cloudflare/src/worker.ts", "cloudflare/src/http.ts")).toBe(
+      false,
+    );
   });
 
   it("formats pass and fail results for the CLI wrapper", () => {
     expect(formatArchitectureResult(["src/a.ts"], [])).toContain("Architecture lint passed");
     expect(
-      formatArchitectureResult(["src/a.ts"], [
-        { code: "re-export", file: "src/a.ts", message: "re-export is not allowed: src/a.ts" },
-      ]),
+      formatArchitectureResult(
+        ["src/a.ts"],
+        [{ code: "re-export", file: "src/a.ts", message: "re-export is not allowed: src/a.ts" }],
+      ),
     ).toContain("Architecture lint failed");
   });
 
@@ -105,7 +109,10 @@ function outer() {
       writeFileSync(files.facade, 'import { a } from "./a";\nexport { a };\n');
       writeFileSync(files.unsafe, `const value = {} ${unsafeCast};\nvoid value;\n`);
       writeFileSync(files.emptyCatch, `try {\n  JSON.parse("bad");\n} ${emptyCatch}\n`);
-      writeFileSync(files.entry, 'export async function load() {\n  return import("./dynamic.ts");\n}\n');
+      writeFileSync(
+        files.entry,
+        'export async function load() {\n  return import("./dynamic.ts");\n}\n',
+      );
       writeFileSync(files.dynamic, "export const reachable = true;\n");
       writeFileSync(files.orphan, "export const unreachable = true;\n");
       writeFileSync(
@@ -139,9 +146,9 @@ function tooNested(a: boolean, b: boolean, c: boolean, d: boolean, e: boolean) {
       );
       expect(issues.some((issue) => issue.file === files.dynamic)).toBe(false);
       expect(issues.some((issue) => issue.file === files.orphan)).toBe(true);
-      expect(issues.some((issue) => issue.code === "re-export" && issue.file === files.facade)).toBe(
-        true,
-      );
+      expect(
+        issues.some((issue) => issue.code === "re-export" && issue.file === files.facade),
+      ).toBe(true);
     } finally {
       rmSync(fixtureRoot, { recursive: true, force: true });
     }

@@ -1,27 +1,17 @@
+import { spawnSync } from "node:child_process";
 import { copyFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const crateDir = resolve(root, "rust", "solver-rs");
-const output = resolve(
-  crateDir,
-  "target",
-  "wasm32-unknown-unknown",
-  "release",
-  "solver_rs.wasm",
-);
+const output = resolve(crateDir, "target", "wasm32-unknown-unknown", "release", "solver_rs.wasm");
 const publicOutput = resolve(root, "public", "solver_rs.wasm");
 
-const result = spawnSync(
-  "cargo",
-  ["build", "--release", "--target", "wasm32-unknown-unknown"],
-  {
-    cwd: crateDir,
-    stdio: "inherit",
-  },
-);
+const result = spawnSync("cargo", ["build", "--release", "--target", "wasm32-unknown-unknown"], {
+  cwd: crateDir,
+  stdio: "inherit",
+});
 
 if (result.error) {
   console.error(result.error);

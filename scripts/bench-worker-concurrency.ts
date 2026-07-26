@@ -66,7 +66,12 @@ async function probe(page: Page): Promise<ProbeSnapshot> {
   });
 }
 
-async function waitForTaskCount(page: Page, field: keyof ProbeSnapshot, type: string, count: number) {
+async function waitForTaskCount(
+  page: Page,
+  field: keyof ProbeSnapshot,
+  type: string,
+  count: number,
+) {
   await page.waitForFunction(
     ({ expectedCount, expectedType, probeField }) => {
       const value = Reflect.get(window, "__workerConcurrencyProbe");
@@ -139,14 +144,26 @@ try {
   }
   const summary = Object.fromEntries(
     (["shared", "dedicated"] as const).map((mode) => {
-      const elapsed = records
-        .flatMap((record) =>
-          record.mode === mode && record.status === "completed" ? [record.elapsedMs] : [],
-        );
-      return [mode, { completed: elapsed.length, p50Ms: quantile(elapsed, 0.5), p95Ms: quantile(elapsed, 0.95) }];
+      const elapsed = records.flatMap((record) =>
+        record.mode === mode && record.status === "completed" ? [record.elapsedMs] : [],
+      );
+      return [
+        mode,
+        {
+          completed: elapsed.length,
+          p50Ms: quantile(elapsed, 0.5),
+          p95Ms: quantile(elapsed, 0.95),
+        },
+      ];
     }),
   );
-  console.log(JSON.stringify({ generatedAt: new Date().toISOString(), records, repeats: REPEATS, summary }, null, 2));
+  console.log(
+    JSON.stringify(
+      { generatedAt: new Date().toISOString(), records, repeats: REPEATS, summary },
+      null,
+      2,
+    ),
+  );
 } finally {
   if (server) await new Promise<void>((resolve) => server?.httpServer.close(() => resolve()));
 }

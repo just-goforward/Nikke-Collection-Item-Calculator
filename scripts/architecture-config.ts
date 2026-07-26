@@ -67,13 +67,15 @@ export const BIOME_IGNORE_ALLOWLIST: DebtEntry[] = [
     file: "scripts/architecture-rules.ts",
     owner: "architecture",
     reason: `Rule messages intentionally mention ${BIOME_IGNORE_TOKEN} while checking that token elsewhere.`,
-    removalTarget: "Tokenize rule strings or move rule names to data before removing this exception.",
+    removalTarget:
+      "Tokenize rule strings or move rule names to data before removing this exception.",
   },
   {
     file: "src/components/StatePanel.tsx",
     owner: "app",
     reason: "Existing grouped controls rely on div role=group and stable visual/test contract.",
-    removalTarget: "Replace grouped controls with semantic fieldset/radio UI in a separate UI refactor.",
+    removalTarget:
+      "Replace grouped controls with semantic fieldset/radio UI in a separate UI refactor.",
   },
   {
     file: "src/components/StatsRateBar.tsx",
@@ -96,8 +98,10 @@ export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
     file: "benchmarks/evaluator/exact-replan.ts",
     function: "createExactInteractiveReplanSession",
     owner: "benchmark",
-    reason: "Exact replan session keeps memoized recursion and diagnostics in one benchmark closure.",
-    removalTarget: "Extract memo storage, recursion, and diagnostic reporting into cohesive helpers.",
+    reason:
+      "Exact replan session keeps memoized recursion and diagnostics in one benchmark closure.",
+    removalTarget:
+      "Extract memo storage, recursion, and diagnostic reporting into cohesive helpers.",
   },
   {
     file: "benchmarks/models/availability-grid.ts",
@@ -155,13 +159,15 @@ export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
     function: "<anonymous>",
     owner: "test",
     reason: "Rust/JS parity scenarios share expensive WASM setup and sentinel data.",
-    removalTarget: "Extract shared WASM fixture and split root, walk, and Monte Carlo parity suites.",
+    removalTarget:
+      "Extract shared WASM fixture and split root, walk, and Monte Carlo parity suites.",
   },
   {
     file: "src/wasm/rustRerankProductSolver.ts",
     function: "solveRustPhase2Rerank",
     owner: "wasm",
-    reason: "Research rerank orchestration combines policy build, held-out diagnostics, and output shaping.",
+    reason:
+      "Research rerank orchestration combines policy build, held-out diagnostics, and output shaping.",
     removalTarget: "Separate research decision diagnostics from product-shaped result assembly.",
   },
   {

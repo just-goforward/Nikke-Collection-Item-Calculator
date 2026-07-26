@@ -130,7 +130,7 @@ async function installTurnstileStub(page: Page) {
     let nextId = 0;
     Reflect.set(window, "turnstile", {
       execute(widgetId: string) {
-        const callback = widgets.get(widgetId)?.callback;
+        const callback = widgets.get(widgetId)?.["callback"];
         if (typeof callback === "function") {
           window.setTimeout(() => callback("valid-turnstile-token-for-e2e"), 0);
         }

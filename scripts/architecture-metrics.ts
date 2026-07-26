@@ -1,4 +1,4 @@
-import { parseSync, type Program } from "oxc-parser";
+import { type Program, parseSync } from "oxc-parser";
 
 import type { FunctionMetrics } from "./architecture-types.ts";
 

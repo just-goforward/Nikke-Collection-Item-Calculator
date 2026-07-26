@@ -1,7 +1,8 @@
 node_modules/
 .wrangler/
 dist/
-cloudflare/wrangler.toml
+coverage/
+.stryker-tmp/
 collection-server.js
 fav.png
 web.zip

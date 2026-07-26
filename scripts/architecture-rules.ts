@@ -4,11 +4,11 @@ import {
   BIOME_IGNORE_ALLOWLIST,
   COMPLEXITY_ALLOWLIST,
   DEFAULT_MAX_FILE_LINES,
+  debtFiles,
   EMPTY_CATCH_ALLOWLIST,
   LONG_FILE_ALLOWLIST,
-  TYPE_ESCAPE_BOUNDARY_ALLOWLIST,
-  debtFiles,
   limitsFor,
+  TYPE_ESCAPE_BOUNDARY_ALLOWLIST,
 } from "./architecture-config.ts";
 import { measureFunctions as measureSourceFunctions } from "./architecture-metrics.ts";
 import {
@@ -232,7 +232,11 @@ function importsThenExportsLocalBinding(source: string) {
   }
   for (const match of source.matchAll(/\bexport\s+(?:type\s+)?\{([^}]+)\}\s*;/g)) {
     for (const rawSpecifier of match[1]?.split(",") ?? []) {
-      const local = rawSpecifier.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]?.trim();
+      const local = rawSpecifier
+        .trim()
+        .replace(/^type\s+/, "")
+        .split(/\s+as\s+/)[0]
+        ?.trim();
       if (local && imported.has(local)) return true;
     }
   }
@@ -271,9 +275,7 @@ function findUnsafeTypeEscapes(files: string[]) {
   const tsIgnorePattern = `@ts-${"ignore"}`;
   const tsExpectErrorPattern = `@ts-${"expect-error"}`;
   const unsafeTypePattern = new RegExp(
-    [String.raw`\bas\s+any\b`, doubleCastPattern, tsIgnorePattern, tsExpectErrorPattern].join(
-      "|",
-    ),
+    [String.raw`\bas\s+any\b`, doubleCastPattern, tsIgnorePattern, tsExpectErrorPattern].join("|"),
   );
   return files
     .filter((file) => file.endsWith(".ts") || file.endsWith(".tsx"))

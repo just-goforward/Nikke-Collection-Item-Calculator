@@ -8,7 +8,7 @@ const VIEWPORTS = [
   { height: 900, width: 768 },
   { height: 900, width: 1280 },
 ] as const;
-const DIAGNOSTIC_MODE = process.env.ALIGNMENT_DIAGNOSTIC === "1";
+const DIAGNOSTIC_MODE = process.env["ALIGNMENT_DIAGNOSTIC"] === "1";
 const BREAKPOINT_SENTINELS = [660, 661, 980, 981, 1099, 1100] as const;
 
 type AlignmentRecord = {
@@ -77,7 +77,7 @@ async function alignmentMeasurement(container: Locator): Promise<AlignmentMeasur
         labelRect.top + labelRect.height / 2 - (containerRect.top + containerRect.height / 2),
       ),
       lineHeight: Number.parseFloat(getComputedStyle(label).lineHeight),
-      role: label.dataset.alignRole,
+      role: label.dataset["alignRole"],
     };
   });
 }

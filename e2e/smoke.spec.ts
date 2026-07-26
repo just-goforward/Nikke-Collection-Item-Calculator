@@ -364,7 +364,7 @@ test("테마 선택 — 다크/라이트 버튼이 body 테마 클래스를 바�
   await page.evaluate(() => {
     const startViewTransition = document.startViewTransition.bind(document);
     document.startViewTransition = (update) => {
-      document.documentElement.dataset.themeViewTransition = "started";
+      document.documentElement.dataset["themeViewTransition"] = "started";
       return startViewTransition(update);
     };
   });
@@ -385,7 +385,7 @@ test("테마 선택 — reduced motion에서는 View Transition을 건너뛴다"
     Reflect.defineProperty(document, "startViewTransition", {
       configurable: true,
       value: () => {
-        document.documentElement.dataset.unexpectedViewTransition = "called";
+        document.documentElement.dataset["unexpectedViewTransition"] = "called";
         throw new Error("View Transition should not run with reduced motion.");
       },
     });
@@ -952,7 +952,7 @@ test("모바일 통계 탭은 첫 프레임부터 footer 하단 여백을 실제
           declaredHeight: Number.parseFloat(shell.style.getPropertyValue("--mobile-bottom-height")),
         });
         const observer = new MutationObserver(() => {
-          if (shell.dataset.mobileTab !== "stats") return;
+          if (shell.dataset["mobileTab"] !== "stats") return;
           observer.disconnect();
           const measured = [readSample()];
           requestAnimationFrame(() => {

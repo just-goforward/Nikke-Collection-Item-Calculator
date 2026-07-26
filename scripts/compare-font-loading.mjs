@@ -1,7 +1,7 @@
-import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
@@ -293,7 +293,10 @@ function summarizeReport(report, variantId, runIndex) {
       (sum, item) => sum + Number(item.transferSize || 0),
       0,
     ),
-    fontResourceBytes: pretendardRequests.reduce((sum, item) => sum + Number(item.resourceSize || 0), 0),
+    fontResourceBytes: pretendardRequests.reduce(
+      (sum, item) => sum + Number(item.resourceSize || 0),
+      0,
+    ),
     largestFontRequests: pretendardRequests
       .map((item) => ({
         transferSize: Number(item.transferSize || 0),
@@ -377,8 +380,7 @@ async function main() {
 
   const summary = {
     generatedAt: new Date().toISOString(),
-    note:
-      "Local test serves production build variants for a site intended for GitHub Actions and GitHub Pages deployment.",
+    note: "Local test serves production build variants for a site intended for GitHub Actions and GitHub Pages deployment.",
     options,
     cssUrl: CDN_CSS_URL,
     fontFaceCount: (css.match(/@font-face/g) || []).length,

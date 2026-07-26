@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "target": "ES2024",
+    "types": ["node", "@playwright/test"]
+  },
+  "include": ["e2e/**/*.ts", "playwright*.config.ts"]
+}

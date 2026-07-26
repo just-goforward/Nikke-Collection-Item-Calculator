@@ -1,5 +1,5 @@
-import { rmSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
 
 export const ARTIFACT_TARGETS = [
   "dist",
@@ -18,7 +18,12 @@ function trackedFiles() {
   if (result.status !== 0) {
     throw new Error(result.stderr || `git ls-files failed with status ${result.status}`);
   }
-  return new Set(result.stdout.split(/\r?\n/).filter(Boolean).map((file) => file.replace(/\\/g, "/")));
+  return new Set(
+    result.stdout
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((file) => file.replace(/\\/g, "/")),
+  );
 }
 
 function hasTrackedFileAtOrBelow(target: string, tracked: Set<string>) {

@@ -5,15 +5,13 @@ import { test, waitForSignal, withCleanup } from "./test";
 const PORT = 4277;
 const LANGUAGE_STORAGE_KEY = "collection-kit-calculator.language";
 let previewServer: PreviewServer | null = null;
-
 function createGate() {
-  let release = () => undefined;
+  let release: () => void = () => undefined;
   const promise = new Promise<void>((resolve) => {
     release = resolve;
   });
   return { promise, release };
 }
-
 async function prepareLocale(page: Page, languages: string[], savedLocale?: "ko" | "en" | "ja") {
   await page.addInitScript(
     ({ languageStorageKey, navigatorLanguages, storedLocale }) => {
@@ -81,7 +79,9 @@ async function visibleTextLayout(page: Page, selector: string) {
         const lineTops = [...range.getClientRects()]
           .filter((rect) => rect.width > 0 && rect.height > 0)
           .map((rect) => Math.round(rect.top * 2) / 2)
-          .filter((top, index, values) => index === 0 || Math.abs(top - values[index - 1]) > 1);
+          .filter(
+            (top, index, values) => index === 0 || Math.abs(top - (values[index - 1] ?? top)) > 1,
+          );
         return {
           clientHeight: element.clientHeight,
           clientWidth: element.clientWidth,
@@ -764,7 +764,7 @@ test("desktop control text uses the shared vertical centering contract", async (
         centerDelta: Math.abs(
           labelRect.top + labelRect.height / 2 - (elementRect.top + elementRect.height / 2),
         ),
-        role: label.dataset.alignRole,
+        role: label.dataset["alignRole"],
       };
     };
     return {
@@ -800,7 +800,7 @@ test("mobile controls use shared roles without ad hoc positioning", async ({ pag
         centerDelta: Math.abs(
           labelRect.top + labelRect.height / 2 - (elementRect.top + elementRect.height / 2),
         ),
-        role: label.dataset.alignRole,
+        role: label.dataset["alignRole"],
       };
     };
     return {

@@ -5,10 +5,10 @@ export default defineConfig({
   testIgnore: /alignment\.spec\.ts$/,
   testMatch: /.*\.spec\.ts$/,
   fullyParallel: false,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  forbidOnly: !!process.env["CI"],
+  retries: process.env["CI"] ? 2 : 0,
   workers: 1,
-  reporter: process.env.CI ? [["github"], ["list"]] : "list",
+  reporter: process.env["CI"] ? [["github"], ["list"]] : "list",
   timeout: 30_000,
   expect: { timeout: 10_000 },
   use: {
