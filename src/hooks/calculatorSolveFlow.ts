@@ -65,6 +65,15 @@ function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function preservesExistingResult(
+  error: SolverRecoveryFailure,
+  previousResult: SolverResult | null,
+  input: SolverInput,
+) {
+  if (error.workerError.code !== "wasm_trap" || !previousResult?.input) return false;
+  return inputKey(previousResult.input) === inputKey(input);
+}
+
 function pendingStatsEventFromInput({
   currentStateSnapshot,
   input,
@@ -150,14 +159,7 @@ export function useSolveFlow({
         if (error instanceof SolverRecoveryFailure) {
           const recoveryEvent = makeSolverRecoveryEvent(input, error.trace);
           if (recoveryEvent) queueStatsEvent(recoveryEvent);
-          const previousResult = latestResultRef.current;
-          if (
-            error.workerError.code === "wasm_trap" &&
-            previousResult?.input &&
-            inputKey(previousResult.input) === inputKey(input)
-          ) {
-            return false;
-          }
+          if (preservesExistingResult(error, latestResultRef.current, input)) return false;
         }
         latestResultRef.current = null;
         setResultView({
