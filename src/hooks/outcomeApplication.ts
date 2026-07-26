@@ -1,6 +1,9 @@
 import { useCallback } from "react";
 import { message } from "../i18n/locale";
-import { convertState, transition } from "../solver/domain";
+import { transition } from "../solver/domain";
+import type { SolverInput } from "../types";
+import type { RecommendationAction } from "../ui-types";
+import type { TerminalSuccessContext } from "./calculatorShared";
 import { DEFAULT_STOCK_NOTICE, makeStatsEvent, stockPiecesForKit } from "./calculatorShared";
 import { stockAfterKitUse } from "./outcomeFlowHelpers";
 import type {
@@ -22,6 +25,13 @@ type OutcomeApplicationOptions = Pick<
   | "setStockCountForKit"
   | "terminalSuccessContextRef"
 > & {
+  applyKnownSuccessAttempt: (
+    context: TerminalSuccessContext,
+    successAttempt: number,
+  ) => {
+    nextInput: SolverInput;
+    previousAction: RecommendationAction;
+  };
   renderOutcomeApplied: (args: OutcomeRenderArgs) => void;
 };
 
@@ -50,44 +60,31 @@ function applySuccessfulOutcome(
   prepared: PreparedOutcome,
   options: OutcomeApplicationOptions,
 ): OutcomeApplyResult {
-  const { best, beforeStock, run, startSnapshot, stockBeforeSnapshot } = prepared;
+  const { best, beforeStock, input, run, startSnapshot, stockBeforeSnapshot } = prepared;
   const nextState = run.success;
   const reachesConvertState = nextState.grade === "R" && nextState.level >= 15;
   const reachesFinalTarget = nextState.grade === "SR" && nextState.level >= 15;
+  const successContext: TerminalSuccessContext = {
+    best,
+    beforeStock,
+    input,
+    run,
+    startSnapshot,
+    stockBeforeSnapshot,
+  };
 
-  if (reachesConvertState) {
-    const convertedState = convertState();
-    options.pendingStatsEventRef.current = {
-      start: startSnapshot,
-      kit: best.firstAction,
-      recommendedUses: run.count,
-      stockBefore: stockBeforeSnapshot,
-      resultState: convertedState,
-    };
-    options.setManualStockEditRequired(false);
-    options.recordStateFeedback(startSnapshot, nextState);
-    options.setCollectionState(nextState, { maxLevelRender: false });
-    options.renderOutcomeApplied({
-      best,
-      run,
-      nextState,
+  if (run.count === 1) {
+    return {
       outcome: "success",
-      stockMessage: message("result.convertThenEdit"),
-      detailMessage: message("result.convertThenEditDetail"),
-    });
-    return { outcome: "success", needsStockEdit: false };
+      needsStockEdit: false,
+      autoCalculation: options.applyKnownSuccessAttempt(successContext, 1),
+    };
   }
 
-  if (reachesFinalTarget) {
+  if (reachesConvertState || reachesFinalTarget) {
     options.pendingStatsEventRef.current = null;
     options.setManualStockEditRequired(false);
-    options.terminalSuccessContextRef.current = {
-      best,
-      beforeStock,
-      run,
-      startSnapshot,
-      stockBeforeSnapshot,
-    };
+    options.terminalSuccessContextRef.current = successContext;
     options.setModal({
       open: true,
       maxAttempt: run.count,
@@ -161,6 +158,7 @@ function applyFailedOutcome(
 
 export function useOutcomeApplication(options: OutcomeApplicationOptions) {
   const {
+    applyKnownSuccessAttempt,
     currentStockSnapshot,
     latestResultRef,
     pendingStatsEventRef,
@@ -176,6 +174,7 @@ export function useOutcomeApplication(options: OutcomeApplicationOptions) {
   return useCallback(
     (outcome: "success" | "fail"): OutcomeApplyResult => {
       const currentOptions: OutcomeApplicationOptions = {
+        applyKnownSuccessAttempt,
         currentStockSnapshot,
         latestResultRef,
         pendingStatsEventRef,
@@ -195,6 +194,7 @@ export function useOutcomeApplication(options: OutcomeApplicationOptions) {
         : applyFailedOutcome(prepared, currentOptions);
     },
     [
+      applyKnownSuccessAttempt,
       currentStockSnapshot,
       latestResultRef,
       pendingStatsEventRef,

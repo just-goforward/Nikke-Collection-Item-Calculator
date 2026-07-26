@@ -8,7 +8,10 @@ function preserveStickyLoadingText(
   current: LoadingView,
   nextText: LoadingView["text"],
 ): LoadingView {
-  if (current.text.key === "result.loadingApplyFailure") {
+  if (
+    current.text.key === "result.loadingApplyFailure" ||
+    current.text.key === "result.loadingApplySuccess"
+  ) {
     return { active: true, text: current.text };
   }
   return { active: true, text: nextText };

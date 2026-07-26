@@ -1,21 +1,19 @@
 import { useCallback } from "react";
 
 import { message } from "../i18n/locale";
-import { makeStatsEvent, type TerminalSuccessContext } from "./calculatorShared";
+import { convertState } from "../solver/domain";
+import {
+  makeStatsEvent,
+  type PendingStatsEvent,
+  type TerminalSuccessContext,
+} from "./calculatorShared";
 import { kitStockChangeMessage, stockAfterKitUse } from "./outcomeFlowHelpers";
 import type { OutcomeRenderArgs, OutcomeSharedOptions } from "./outcomeFlowTypes";
 
-export function useTerminalSuccessAttempt({
-  currentStockSnapshot,
-  queueStatsEvent,
-  recordStateFeedback,
-  renderOutcomeApplied,
-  setCollectionState,
-  setManualStockEditRequired,
-  setStockCountForKit,
-}: Pick<
+type TerminalSuccessAttemptOptions = Pick<
   OutcomeSharedOptions,
   | "currentStockSnapshot"
+  | "pendingStatsEventRef"
   | "queueStatsEvent"
   | "recordStateFeedback"
   | "setCollectionState"
@@ -23,68 +21,135 @@ export function useTerminalSuccessAttempt({
   | "setStockCountForKit"
 > & {
   renderOutcomeApplied: (args: OutcomeRenderArgs) => void;
-}) {
+};
+
+function applySuccessAttempt(
+  context: TerminalSuccessContext,
+  successAttempt: number | null,
+  {
+    currentStockSnapshot,
+    pendingStatsEventRef,
+    queueStatsEvent,
+    recordStateFeedback,
+    renderOutcomeApplied,
+    setCollectionState,
+    setManualStockEditRequired,
+    setStockCountForKit,
+  }: TerminalSuccessAttemptOptions,
+) {
+  const { best, beforeStock, input, run, startSnapshot, stockBeforeSnapshot } = context;
+  const nextState = run.success;
+  recordStateFeedback(startSnapshot, nextState);
+  setCollectionState(nextState, { maxLevelRender: false });
+
+  if (successAttempt) {
+    const usedCount = successAttempt * 10;
+    const stockAfter = stockAfterKitUse(
+      currentStockSnapshot(),
+      best.firstAction,
+      beforeStock,
+      usedCount,
+    );
+    pendingStatsEventRef.current = null;
+    setManualStockEditRequired(false);
+    setStockCountForKit(best.firstAction, beforeStock - usedCount);
+    queueStatsEvent(
+      makeStatsEvent({
+        start: startSnapshot,
+        kit: best.firstAction,
+        recommendedUses: run.count,
+        outcome: "great_success",
+        successAttempt,
+        stockBefore: stockBeforeSnapshot,
+        stockAfter,
+        resultState: nextState,
+      }),
+    );
+    renderOutcomeApplied({
+      best,
+      run,
+      nextState,
+      outcome: "success",
+      stockMessage: kitStockChangeMessage(
+        best.firstAction,
+        beforeStock,
+        stockAfter[best.firstAction],
+      ),
+      detailMessage: message("result.successRecorded"),
+    });
+    return {
+      nextInput: {
+        start: nextState,
+        stock: stockAfter,
+        ...(input.strategy ? { strategy: input.strategy } : {}),
+      },
+      previousAction: { kit: best.firstAction, count: run.count },
+    };
+  }
+
+  const reachesConvertState = nextState.grade === "R" && nextState.level >= 15;
+  const reachesFinalTarget = nextState.grade === "SR" && nextState.level >= 15;
+  const needsStockEditNow = !reachesConvertState && !reachesFinalTarget;
+  if (!reachesFinalTarget) {
+    const resultState = reachesConvertState ? convertState() : { ...nextState };
+    const pendingEvent: PendingStatsEvent = {
+      start: startSnapshot,
+      kit: best.firstAction,
+      recommendedUses: run.count,
+      stockBefore: stockBeforeSnapshot,
+      resultState,
+    };
+    pendingStatsEventRef.current = pendingEvent;
+  } else {
+    pendingStatsEventRef.current = null;
+  }
+  setManualStockEditRequired(needsStockEditNow);
+  renderOutcomeApplied({
+    best,
+    run,
+    nextState,
+    outcome: "success",
+    stockMessage: reachesConvertState
+      ? message("result.convertThenEdit")
+      : needsStockEditNow
+        ? message("result.successUnknownEdit")
+        : message("result.successUnknownStats"),
+    detailMessage: reachesConvertState
+      ? message("result.convertThenEditDetail")
+      : needsStockEditNow
+        ? message("result.editStockToContinue")
+        : message("detail.finalTarget"),
+    preserveExistingResult: needsStockEditNow,
+  });
+  return null;
+}
+
+export function useTerminalSuccessAttempt(options: TerminalSuccessAttemptOptions) {
+  const {
+    currentStockSnapshot,
+    pendingStatsEventRef,
+    queueStatsEvent,
+    recordStateFeedback,
+    renderOutcomeApplied,
+    setCollectionState,
+    setManualStockEditRequired,
+    setStockCountForKit,
+  } = options;
   return useCallback(
-    (context: TerminalSuccessContext, successAttempt: number | null) => {
-      const { best, beforeStock, run, startSnapshot, stockBeforeSnapshot } = context;
-      const nextState = run.success;
-      recordStateFeedback(startSnapshot, nextState);
-      setCollectionState(nextState, { maxLevelRender: false });
-
-      if (successAttempt) {
-        const usedCount = successAttempt * 10;
-        setStockCountForKit(best.firstAction, beforeStock - usedCount);
-        const stockAfter = stockAfterKitUse(
-          currentStockSnapshot(),
-          best.firstAction,
-          beforeStock,
-          usedCount,
-        );
-        queueStatsEvent(
-          makeStatsEvent({
-            start: startSnapshot,
-            kit: best.firstAction,
-            recommendedUses: run.count,
-            outcome: "great_success",
-            successAttempt,
-            stockBefore: stockBeforeSnapshot,
-            stockAfter,
-            resultState: nextState,
-          }),
-        );
-        renderOutcomeApplied({
-          best,
-          run,
-          nextState,
-          outcome: "success",
-          stockMessage: kitStockChangeMessage(
-            best.firstAction,
-            beforeStock,
-            stockAfter[best.firstAction],
-          ),
-          detailMessage: message("result.successRecorded"),
-        });
-        return;
-      }
-
-      const needsStockEdit = nextState.grade !== "SR" || nextState.level < 15;
-      setManualStockEditRequired(needsStockEdit);
-      renderOutcomeApplied({
-        best,
-        run,
-        nextState,
-        outcome: "success",
-        stockMessage: needsStockEdit
-          ? message("result.successUnknownEdit")
-          : message("result.successUnknownStats"),
-        detailMessage: needsStockEdit
-          ? message("result.editStockToContinue")
-          : message("detail.finalTarget"),
-        preserveExistingResult: needsStockEdit,
-      });
-    },
+    (context: TerminalSuccessContext, successAttempt: number | null) =>
+      applySuccessAttempt(context, successAttempt, {
+        currentStockSnapshot,
+        pendingStatsEventRef,
+        queueStatsEvent,
+        recordStateFeedback,
+        renderOutcomeApplied,
+        setCollectionState,
+        setManualStockEditRequired,
+        setStockCountForKit,
+      }),
     [
       currentStockSnapshot,
+      pendingStatsEventRef,
       queueStatsEvent,
       recordStateFeedback,
       renderOutcomeApplied,

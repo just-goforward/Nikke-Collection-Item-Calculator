@@ -151,10 +151,10 @@ function AttemptSelector({
           onClick={() => onSubmit(choice.attempt)}
         >
           <strong className={classes.choiceValue}>
-            {t("modal.remaining", { count: choice.remaining })}
+            {t("modal.successAttempt", { attempt: choice.attempt })}
           </strong>
           <span className={classes.choiceCaption}>
-            {t("modal.successAttempt", { attempt: choice.attempt })}
+            {t("modal.remaining", { count: choice.remaining })}
           </span>
         </button>
       ))}

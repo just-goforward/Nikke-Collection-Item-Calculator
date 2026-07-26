@@ -58,5 +58,9 @@ export type OutcomeApplyResult =
   | {
       outcome: "success";
       needsStockEdit: boolean;
+      autoCalculation?: {
+        nextInput: SolverInput;
+        previousAction: RecommendationAction;
+      };
     }
   | null;

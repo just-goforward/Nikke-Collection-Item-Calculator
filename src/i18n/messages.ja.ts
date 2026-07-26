@@ -100,6 +100,7 @@ export const jaMessages = {
   "result.loadingStates": "{count}個の状態を評価しました。",
   "result.loadingFinalize": "結果をまとめています。",
   "result.loadingApplyFailure": "大成功Xを反映し、次のおすすめを計算しています。",
+  "result.loadingApplySuccess": "大成功Oを反映し、次のおすすめを計算しています。",
   "result.converted": "SRへ交換しました。現在は{state}です。",
   "result.convertedToSr5": "SRへ交換しました。現在はSR 5段階です。",
   "result.calculateChanged": "変更後の状態でもう一度計算してください。",

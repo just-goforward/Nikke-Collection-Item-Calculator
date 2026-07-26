@@ -143,6 +143,7 @@ export type PendingStatsEvent = {
 export type TerminalSuccessContext = {
   best: SolverBest;
   run: RecommendedRun;
+  input: SolverInput;
   startSnapshot: CollectionState;
   stockBeforeSnapshot: Stock;
   beforeStock: number;

@@ -66,7 +66,34 @@ test("보유 키트 입력값이 실제로 바뀌지 않으면 직전 결과를 
   await expect(page.getByRole("heading", { name: "대성공 여부" })).toBeVisible();
 });
 
-test("R 10 대성공 O로 R 15에 도달하면 SR 5 교체 후 키트 수정이 필요하다", async ({ page }) => {
+test("모든 키트의 단회 대성공은 팝업 없이 재고를 차감하고 다음 상태를 계산한다", async ({
+  page,
+}) => {
+  for (const kitLabel of ["초심자용 키트", "중급자용 키트", "상급자용 키트"]) {
+    await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+    await page.getByLabel(kitLabel).fill("10");
+    await page.getByRole("button", { name: "계산", exact: true }).click();
+    await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+      timeout: 20_000,
+    });
+
+    await confirmOutcome(
+      page,
+      page.getByRole("button", { name: "대성공 O", exact: true }).first(),
+      "대성공 O",
+    );
+
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByLabel(kitLabel)).toHaveValue("");
+    await expect(page.getByRole("button", { name: "5단계", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.locator("#stockEditNotice")).toBeHidden();
+  }
+});
+
+test("R 10 다회 대성공은 회차를 선택하면 정확한 재고로 R 15를 적용한다", async ({ page }) => {
   await page.getByRole("button", { name: "10단계", exact: true }).click();
   await page.getByLabel("초심자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
@@ -80,20 +107,25 @@ test("R 10 대성공 O로 R 15에 도달하면 SR 5 교체 후 키트 수정이 
     "대성공 O",
   );
 
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  const secondAttempt = dialog.getByRole("button", { name: /2회차에 대성공 80개/ });
+  await expect(secondAttempt.locator("strong")).toHaveText("2회차에 대성공");
+  await secondAttempt.click();
+
   await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
+  await expect(page.getByLabel("초심자용 키트")).toHaveValue("80");
   await expect(page.locator("#stockEditNotice")).toBeHidden();
 
   await page.getByRole("button", { name: "교체 적용", exact: true }).click();
 
   await expect(page.locator(".current-state-strip")).toContainText("SR");
   await expect(page.locator(".current-state-strip")).toContainText("5단계");
-  await expect(page.locator("#stockEditNotice")).toContainText(
-    "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.",
-  );
-  await expect(page.getByRole("button", { name: "키트 수정 필요", exact: true })).toBeDisabled();
+  await expect(page.locator("#stockEditNotice")).toBeHidden();
+  await expect(page.getByRole("button", { name: "키트 수정 필요", exact: true })).toHaveCount(0);
 });
 
-test("모바일 R 10 대성공 O는 결과 탭에 SR 5 교체 버튼을 먼저 표시한다", async ({ page }) => {
+test("모바일 R 10 다회 대성공도 회차 선택 후 SR 5 교체를 표시한다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "10단계", exact: true }).click();
   await page.getByLabel("초심자용 키트").fill("100");
@@ -110,6 +142,10 @@ test("모바일 R 10 대성공 O는 결과 탭에 SR 5 교체 버튼을 먼저 �
     "대성공 O",
   );
 
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: /1회차에 대성공 90개/ }).click();
+
   await expect(page.getByRole("tab", { name: "결과" })).toHaveAttribute("aria-selected", "true");
   await expect(
     actionBar.getByRole("button", { name: "SR 등급으로 교체", exact: true }),
@@ -121,12 +157,10 @@ test("모바일 R 10 대성공 O는 결과 탭에 SR 5 교체 버튼을 먼저 �
   await expect(page.getByRole("tab", { name: "입력" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".status-grade")).toHaveText("SR");
   await expect(page.locator(".status-level")).toHaveText("5단계");
-  await expect(page.locator("#stockEditNotice")).toContainText(
-    "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.",
+  await expect(page.locator("#stockEditNotice")).toBeHidden();
+  await expect(actionBar.getByRole("button", { name: "키트 수정 필요", exact: true })).toHaveCount(
+    0,
   );
-  await expect(
-    actionBar.getByRole("button", { name: "키트 수정 필요", exact: true }),
-  ).toBeDisabled();
 });
 
 async function prepareSr14TerminalSuccess(page: Page) {
@@ -147,51 +181,66 @@ async function prepareSr14TerminalSuccess(page: Page) {
   );
 }
 
-test("SR 단회 대성공으로 SR 15에 도달하면 회차를 입력해 키트 소모를 기록한다", async ({ page }) => {
+test("SR 단회 대성공은 회차 입력 없이 재고 차감 후 SR 15까지 자동 계산한다", async ({ page }) => {
   await prepareSr14TerminalSuccess(page);
 
   const dialog = page.getByRole("dialog");
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole("button", { name: /1회차에 대성공/ }).click();
-
+  await expect(dialog).toHaveCount(0);
   await expect(page.getByLabel("상급자용 키트")).toHaveValue("");
   await expect(page.locator("#stockEditNotice")).toBeHidden();
   await expect(page.getByRole("button", { name: "15단계", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(page.getByText(/SR 15단계에 반영되었습니다/)).toBeVisible();
+  await expect(page.getByText("완료 상태입니다.")).toBeVisible();
   await expect(page.getByRole("button", { name: "키트 수정 필요", exact: true })).toHaveCount(0);
 });
 
-test("SR 15 회차 입력을 취소하면 키트 수량을 유지하고 완료 상태만 적용한다", async ({ page }) => {
-  await prepareSr14TerminalSuccess(page);
+async function prepareR10MultiSuccess(page: Page) {
+  await page.getByRole("button", { name: "10단계", exact: true }).click();
+  await page.getByLabel("초심자용 키트").fill("100");
+  await page.getByRole("button", { name: "계산", exact: true }).click();
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await confirmOutcome(
+    page,
+    page.getByRole("button", { name: "대성공 O", exact: true }).first(),
+    "대성공 O",
+  );
+}
+
+test("R 15 회차 입력을 취소하면 키트 수량을 유지하고 교체 후 수정을 요구한다", async ({ page }) => {
+  await prepareR10MultiSuccess(page);
 
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "취소", exact: true }).click();
 
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByLabel("상급자용 키트")).toHaveValue("10");
+  await expect(page.getByLabel("초심자용 키트")).toHaveValue("100");
   await expect(page.getByRole("button", { name: "15단계", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(page.getByText(/시도 분포 통계는 생략했습니다/)).toBeVisible();
+  await page.getByRole("button", { name: "교체 적용", exact: true }).click();
+  await expect(page.locator("#stockEditNotice")).toContainText(
+    "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.",
+  );
 });
 
-test("SR 15 회차 입력 팝업 바깥을 누르면 취소와 동일하게 처리한다", async ({ page }) => {
-  await prepareSr14TerminalSuccess(page);
+test("다회 회차 입력 팝업 바깥을 누르면 취소와 동일하게 처리한다", async ({ page }) => {
+  await prepareR10MultiSuccess(page);
 
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   await dialog.click({ position: { x: 4, y: 4 } });
 
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByLabel("상급자용 키트")).toHaveValue("10");
+  await expect(page.getByLabel("초심자용 키트")).toHaveValue("100");
   await expect(page.getByRole("button", { name: "15단계", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
-  await expect(page.getByText(/시도 분포 통계는 생략했습니다/)).toBeVisible();
+  await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
 });

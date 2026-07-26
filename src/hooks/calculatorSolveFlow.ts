@@ -42,7 +42,23 @@ type SolveAndRenderOptions = {
 };
 
 const OUTCOME_FAIL_LOADING_TEXT = message("result.loadingApplyFailure");
+const OUTCOME_SUCCESS_LOADING_TEXT = message("result.loadingApplySuccess");
 const MIN_LOADING_VISIBLE_MS = 300;
+
+function calculationAfterOutcome(applied: NonNullable<OutcomeApplyResult>) {
+  if (applied.outcome === "success" && !applied.autoCalculation) return null;
+  const calculation = applied.outcome === "fail" ? applied : applied.autoCalculation;
+  if (!calculation) return null;
+  return {
+    calculation,
+    options: {
+      ...(applied.outcome === "fail" ? { beforeRender: applied.commit } : {}),
+      loadingText:
+        applied.outcome === "fail" ? OUTCOME_FAIL_LOADING_TEXT : OUTCOME_SUCCESS_LOADING_TEXT,
+      previousAction: calculation.previousAction,
+    } satisfies SolveAndRenderOptions,
+  };
+}
 
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -188,12 +204,10 @@ export function useSolveFlow({
     async (outcome: "success" | "fail") => {
       if (busyRef.current) return null;
       const applied = applyOutcome(outcome);
-      if (applied?.outcome !== "fail") return applied;
-      const started = await solveAndRenderInput(applied.nextInput, {
-        beforeRender: applied.commit,
-        loadingText: OUTCOME_FAIL_LOADING_TEXT,
-        previousAction: applied.previousAction,
-      });
+      if (!applied) return null;
+      const next = calculationAfterOutcome(applied);
+      if (!next) return applied;
+      const started = await solveAndRenderInput(next.calculation.nextInput, next.options);
       if (!started) return null;
       return applied;
     },

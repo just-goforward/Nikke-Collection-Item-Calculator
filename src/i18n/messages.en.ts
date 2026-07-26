@@ -104,6 +104,7 @@ export const enMessages = {
   "result.loadingFinalize": "Preparing the result.",
   "result.loadingApplyFailure":
     "Applying the failed Super Success roll and calculating the next action.",
+  "result.loadingApplySuccess": "Applying the Super Success and calculating the next action.",
   "result.converted": "Converted to SR. The current state is {state}.",
   "result.convertedToSr5": "Converted to SR. The current state is SR Phase 5.",
   "result.calculateChanged": "Calculate again with the updated state.",

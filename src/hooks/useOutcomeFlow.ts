@@ -45,8 +45,19 @@ export function useOutcomeFlow(options: UseOutcomeFlowOptions) {
     ...options,
     renderOutcomeApplied,
   });
+  const applyKnownSuccessAttempt = useCallback(
+    (context: TerminalSuccessContext, successAttempt: number) => {
+      const calculation = applyTerminalSuccessAttempt(context, successAttempt);
+      if (!calculation) {
+        throw new Error("Known success attempt did not produce the next solver input.");
+      }
+      return calculation;
+    },
+    [applyTerminalSuccessAttempt],
+  );
   const applyOutcome = useOutcomeApplication({
     ...options,
+    applyKnownSuccessAttempt,
     renderOutcomeApplied,
     setModal,
     terminalSuccessContextRef,

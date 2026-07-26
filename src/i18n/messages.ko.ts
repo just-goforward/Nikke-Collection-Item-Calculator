@@ -98,6 +98,7 @@ export const koMessages = {
   "result.loadingStates": "{count}개 상태를 평가했습니다.",
   "result.loadingFinalize": "결과를 정리하고 있습니다.",
   "result.loadingApplyFailure": "대성공 X를 반영해 다음 추천을 계산하고 있습니다.",
+  "result.loadingApplySuccess": "대성공 O를 반영해 다음 추천을 계산하고 있습니다.",
   "result.converted": "SR 등급으로 교체했습니다. 현재 상태는 {state}입니다.",
   "result.convertedToSr5": "SR 등급으로 교체했습니다. 현재 상태는 SR 5단계입니다.",
   "result.calculateChanged": "변경된 상태로 다시 계산하세요.",
