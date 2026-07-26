@@ -174,3 +174,22 @@ describe("rust min-E[f] core wrapper", () => {
     if (isMemoFull(thrown)) expect(thrown.nodeCount).toBe(4321);
   });
 });
+
+describe("rust min-E[f] memo-key boundary", () => {
+  it("clamps raw stock before solve and lookup", () => {
+    const exports = makeExports();
+    const solver = createRustMinEfSolver(exports);
+    const policy = solver.solveRootWithCandidates(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 999_999, purple: 999_999, yellow: 999_999 },
+    );
+
+    policy.actionAt(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 999_999, purple: 999_999, yellow: 999_999 },
+    );
+
+    expect(exports.solveMinEf).toHaveBeenCalledWith(510, 2_200, 880, 440, 0.75, 3, 0);
+    expect(exports.minEfActionAtOrSolve).toHaveBeenCalledWith(510, 220, 88, 44);
+  });
+});

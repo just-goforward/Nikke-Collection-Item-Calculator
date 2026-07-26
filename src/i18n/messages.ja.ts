@@ -6,6 +6,9 @@ export const jaMessages = {
     "NIKKEのコレクション強化に使うお手入れキットの順番と、SR15段階到達率を計算します。",
   "boot.title": "計算機を読み込めませんでした。",
   "boot.detail": "ページを再読み込みして、もう一度お試しください。",
+  "error.renderTitle": "画面を表示できませんでした。",
+  "error.renderDetail": "最新のファイルを再読み込みすると、計算機を引き続き利用できます。",
+  "error.reload": "ページを再読み込み",
   "common.calculate": "計算",
   "common.calculateLong": "計算する",
   "common.recalculate": "再計算",
@@ -61,6 +64,8 @@ export const jaMessages = {
   "stock.title": "所持キット",
   "stock.changed": "所持キットが変更されました。計算ボタンで結果を更新してください。",
   "stock.notice": "所持キットを修正してから計算ボタンを押してください。",
+  "stock.invalid": "負の数と小数は入力できないため、以前の値に戻しました。",
+  "stock.adjustedMax": "所持キットは最大{max}個までのため、{value}に調整しました。",
   "solver.strategySupply":
     "SR 15段階への到達率と、キットの所持数・今後の入手量を考慮して最適な選択肢を提示します。",
   "kit.blue": "初心者用お手入れキット",

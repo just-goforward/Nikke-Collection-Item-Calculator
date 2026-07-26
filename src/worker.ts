@@ -168,6 +168,15 @@ function workerErrorPayload(error: unknown): WorkerErrorPayload {
     };
   }
 
+  if (typeof WebAssembly !== "undefined" && error instanceof WebAssembly.RuntimeError) {
+    return {
+      code: "wasm_trap",
+      fallbackEligible: false,
+      message: "Rust solver execution trapped.",
+      retryable: false,
+    };
+  }
+
   const message = error instanceof Error ? error.message : String(error);
   return {
     code: inferWorkerErrorCode(message),

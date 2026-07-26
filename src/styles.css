@@ -2,6 +2,33 @@
 
 /* The locale-specific Pretendard dynamic subset is selected before app boot. */
 
+.boot-error {
+  display: grid;
+  min-height: 100dvh;
+  place-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: var(--bg, #f4f7f9);
+  color: var(--ink, #18242c);
+  text-align: center;
+}
+
+.boot-error h1,
+.boot-error p {
+  margin: 0;
+}
+
+.boot-error button {
+  justify-self: center;
+  min-height: 40px;
+  border: 1px solid var(--line, #cbd5dc);
+  border-radius: 6px;
+  background: var(--action-bg, #0878b8);
+  color: var(--ice, #f8fcfe);
+  padding: 8px 14px;
+  font-weight: 700;
+}
+
 /* Design token bridge
    - Runtime theme classes below own the actual palette.
    - Tailwind utilities should reference these semantic tokens, not raw colors.

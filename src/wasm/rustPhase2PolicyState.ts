@@ -1,3 +1,4 @@
+import { clampMemoStockUses } from "../solver/domain";
 import type { Kit } from "../types";
 import {
   actionFromIndex,
@@ -46,11 +47,12 @@ export function actionAtForPhase2Generation(
   assertPhase2PolicyGeneration(state, generation);
   const policyActionAt = requireExport(state.exports, "policyActionAt");
   const stateId = encodeState(nodeState.grade, nodeState.level, nodeState.exp ?? 0);
+  const boundedStock = clampMemoStockUses(stockUses);
   const action = policyActionAt(
     stateId,
-    stockUses.blue | 0,
-    stockUses.purple | 0,
-    stockUses.yellow | 0,
+    boundedStock.blue | 0,
+    boundedStock.purple | 0,
+    boundedStock.yellow | 0,
   );
   assertRustStatusOk(state.exports, "phase2 action lookup");
   return actionFromIndex(action);

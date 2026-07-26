@@ -16,7 +16,13 @@ export type SolverRecoveryTrace = {
   terminalOutcome: "failure" | "success";
 };
 
-type ErrorCategory = "capacity" | "deployment" | "infrastructure" | "integrity" | "invariant";
+type ErrorCategory =
+  | "capacity"
+  | "deployment"
+  | "infrastructure"
+  | "integrity"
+  | "invariant"
+  | "runtime";
 type ErrorTraits = {
   category: ErrorCategory;
   jsSemanticallySafe: boolean;
@@ -50,6 +56,10 @@ export const WORKER_ERROR_TRAITS = {
   wasm_load_failed: {
     category: "infrastructure",
     jsSemanticallySafe: true,
+  },
+  wasm_trap: {
+    category: "runtime",
+    jsSemanticallySafe: false,
   },
   wasm_url_missing: {
     category: "deployment",

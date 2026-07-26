@@ -22,6 +22,7 @@ export const WORKER_ERROR_CODES = [
   "worker_queue_timeout",
   "wasm_url_missing",
   "wasm_load_failed",
+  "wasm_trap",
   "missing_export",
   "budget_exceeded",
   "memo_full",
@@ -125,11 +126,7 @@ function isSolverInput(value: unknown): value is SolverInput {
   const { start, stock } = value;
   if (start.grade !== "R" && start.grade !== "SR") return false;
   if (!isFiniteNumber(start.level) || !isFiniteNumber(start.exp)) return false;
-  if (
-    !isFiniteNumber(stock.blue) ||
-    !isFiniteNumber(stock.purple) ||
-    !isFiniteNumber(stock.yellow)
-  )
+  if (!isFiniteNumber(stock.blue) || !isFiniteNumber(stock.purple) || !isFiniteNumber(stock.yellow))
     return false;
   if (value.strategy !== undefined && value.strategy !== "single" && value.strategy !== "supply")
     return false;
@@ -150,7 +147,8 @@ function parseProgress(value: unknown): ProgressEvent | null {
   if (!isRecord(value) || typeof value.phase !== "string") return null;
   if (!isOptionalFiniteNumber(value.queueWaitMs)) return null;
   if (!isOptionalFiniteNumber(value.scanned)) return null;
-  if (value.total !== undefined && value.total !== null && !isFiniteNumber(value.total)) return null;
+  if (value.total !== undefined && value.total !== null && !isFiniteNumber(value.total))
+    return null;
   return {
     phase: value.phase,
     ...(value.queueWaitMs === undefined ? {} : { queueWaitMs: value.queueWaitMs }),
@@ -178,7 +176,10 @@ export function parseWorkerRequest(value: unknown): ParseResult<WorkerRequest> {
     return { success: false };
   if (!optionalString(value.wasmUrl)) return { success: false };
 
-  const base: Omit<WorkerRequest, "type" | "runs" | "seed" | "phase2MemoTier" | "phase2RetryOnMemoFull"> = {
+  const base: Omit<
+    WorkerRequest,
+    "type" | "runs" | "seed" | "phase2MemoTier" | "phase2RetryOnMemoFull"
+  > = {
     id: value.id,
     input: value.input,
     backend: value.backend as WorkerSolverBackend,
@@ -248,7 +249,9 @@ function parseResultResponse(value: ProtocolRecord & { id: number }): ParseResul
   };
 }
 
-function parseProgressResponse(value: ProtocolRecord & { id: number }): ParseResult<WorkerResponse> {
+function parseProgressResponse(
+  value: ProtocolRecord & { id: number },
+): ParseResult<WorkerResponse> {
   const progress = parseProgress(value.progress);
   return progress
     ? { success: true, data: { type: "progress", id: value.id, progress } }
@@ -263,8 +266,7 @@ function parseErrorResponse(value: ProtocolRecord & { id: number }): ParseResult
     !value.message ||
     !optionalBoolean(value.retryable) ||
     !optionalBoolean(value.fallbackEligible) ||
-    (value.nodeCount !== undefined &&
-      (!isFiniteNumber(value.nodeCount) || value.nodeCount < 0))
+    (value.nodeCount !== undefined && (!isFiniteNumber(value.nodeCount) || value.nodeCount < 0))
   )
     return { success: false };
   return {
@@ -276,9 +278,7 @@ function parseErrorResponse(value: ProtocolRecord & { id: number }): ParseResult
       message: value.message,
       ...(value.nodeCount === undefined ? {} : { nodeCount: value.nodeCount }),
       ...(value.retryable === undefined ? {} : { retryable: value.retryable }),
-      ...(value.fallbackEligible === undefined
-        ? {}
-        : { fallbackEligible: value.fallbackEligible }),
+      ...(value.fallbackEligible === undefined ? {} : { fallbackEligible: value.fallbackEligible }),
     },
   };
 }

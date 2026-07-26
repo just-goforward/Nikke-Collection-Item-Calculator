@@ -41,6 +41,13 @@ function closeTo(actual: number, expected: number) {
   expect(actual).toBeCloseTo(expected, 9);
 }
 
+function f64Bits(value: number) {
+  const bytes = new ArrayBuffer(8);
+  const view = new DataView(bytes);
+  view.setFloat64(0, value, false);
+  return view.getBigUint64(0, false);
+}
+
 describe("rust phase2 wasm parity", () => {
   let solver: RustPhase2ResearchSolver;
   let wasm: Uint8Array;
@@ -58,6 +65,25 @@ describe("rust phase2 wasm parity", () => {
     solver = createRustPhase2ResearchSolver(instance.exports as unknown as RustCoreExports);
   });
 
+  it("keeps the min-E[f] policy when a dominance cap would erase absolute inventory cost", async () => {
+    const instantiated = (await WebAssembly.instantiate(wasm)) as
+      | WebAssembly.Instance
+      | { instance: WebAssembly.Instance };
+    const instance =
+      instantiated instanceof WebAssembly.Instance ? instantiated : instantiated.instance;
+    const exports = instance.exports as unknown as RustCoreExports;
+    if (!exports.configureMinEfMemo || !exports.minEfAction || !exports.minEfExpectedCost) {
+      throw new Error("min-E[f] root exports are required for the dominance-cap regression test.");
+    }
+
+    exports.configureMinEfMemo(21);
+    exports.solveMinEf(0, 60, 120, 900, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+
+    expect(exports.getSolveStatus?.()).toBe(0);
+    expect(["blue", "purple", "yellow"][exports.minEfAction()]).toBe("blue");
+    expect(f64Bits(exports.minEfExpectedCost())).toBe(0x3fbf64e435ab1f1en);
+  });
+
   it("keeps the min-E[f] probe-order node count invariant", async () => {
     const instantiated = (await WebAssembly.instantiate(wasm)) as
       | WebAssembly.Instance
@@ -71,6 +97,7 @@ describe("rust phase2 wasm parity", () => {
 
     // This count depends on the component-wise hash, tier-21 mask, and a fresh instance. The
     // objective parameters do not alter the expanded state set, but are fixed for auditability.
+    // Verify the dominance-cap semantic fixture above before accepting any change to this number.
     exports.configureMinEfMemo(21);
     exports.solveMinEf(30, 100, 100, 100, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
 

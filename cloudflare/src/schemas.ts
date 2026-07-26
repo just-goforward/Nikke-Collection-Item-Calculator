@@ -1,8 +1,10 @@
 import z from "zod/v4";
+import { MAX_STOCK_PIECES } from "../../shared/game";
 import {
   BLUE_SHARE_BUCKETS,
   CANDIDATE_COUNT_BUCKETS,
   COMPARISON_BUCKETS,
+  isSolverDiagnosticVersion,
   LEGACY_STOCK_BUCKETS,
   MEMO_TIER_BUCKETS,
   MIN_AUTONOMY_DAYS_BUCKETS,
@@ -17,6 +19,7 @@ import {
   RUNTIME_INVARIANT_VERSION,
   SOLVE_MS_BUCKETS,
   SOLVER_EXECUTION_KINDS,
+  type SolverDiagnosticVersion,
   STATS_LOCALES,
   STOCK_BUCKETS,
   TOTAL_EXPECTED_COST_BUCKETS,
@@ -27,7 +30,7 @@ const GradeSchema = z.enum(["R", "SR"]);
 const KitSchema = z.enum(["blue", "purple", "yellow"]);
 const StrategySchema = z.enum(["single", "supply"]);
 const EventIdSchema = z.string().regex(/^[a-zA-Z0-9-]{16,80}$/);
-const StockValueSchema = z.number().int().min(0).max(100_000);
+const StockValueSchema = z.number().int().min(0).max(MAX_STOCK_PIECES);
 
 const CollectionStateSchema = z
   .object({
@@ -84,14 +87,7 @@ const SolverRecoveryExitSchema = z.enum(["not_attempted", "success", ...WORKER_E
 const SolverDiagnosticEventSchema = z
   .object({
     kind: z.literal("solver_diagnostic"),
-    diagnosticVersion: z.union([
-      z.literal(1),
-      z.literal(2),
-      z.literal(3),
-      z.literal(4),
-      z.literal(5),
-      z.literal(6),
-    ]),
+    diagnosticVersion: z.custom<SolverDiagnosticVersion>(isSolverDiagnosticVersion),
     locale: StatsLocaleSchema.optional(),
     solverVersion: z.string(),
     solverPhase: z.string(),

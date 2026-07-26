@@ -1,3 +1,4 @@
+import { MAX_STOCK_PIECES } from "../../shared/game";
 import type { SolverExecutionKind } from "../../shared/statsContract";
 import { message } from "../i18n/locale";
 import type { SolverBackend } from "../lib/solverRuntime";
@@ -204,9 +205,9 @@ export function stockPiecesForKit(stock: Stock, kit: Kit) {
 
 export function clampStock(stock: Partial<Stock>): Stock {
   return {
-    blue: Math.max(0, Math.floor(Number(stock.blue) || 0)),
-    purple: Math.max(0, Math.floor(Number(stock.purple) || 0)),
-    yellow: Math.max(0, Math.floor(Number(stock.yellow) || 0)),
+    blue: Math.min(MAX_STOCK_PIECES, Math.max(0, Math.floor(Number(stock.blue) || 0))),
+    purple: Math.min(MAX_STOCK_PIECES, Math.max(0, Math.floor(Number(stock.purple) || 0))),
+    yellow: Math.min(MAX_STOCK_PIECES, Math.max(0, Math.floor(Number(stock.yellow) || 0))),
   };
 }
 

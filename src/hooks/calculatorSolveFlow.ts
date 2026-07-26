@@ -7,6 +7,7 @@ import type { DetailView, LoadingView, RecommendationAction, ResultView } from "
 import { makeSolverDiagnosticEvent, makeSolverRecoveryEvent } from "./calculatorDiagnostics";
 import {
   DEFAULT_LOADING_TEXT,
+  inputKey,
   makeStatsEvent,
   type PendingStatsEvent,
   type SolveOutcome,
@@ -149,6 +150,14 @@ export function useSolveFlow({
         if (error instanceof SolverRecoveryFailure) {
           const recoveryEvent = makeSolverRecoveryEvent(input, error.trace);
           if (recoveryEvent) queueStatsEvent(recoveryEvent);
+          const previousResult = latestResultRef.current;
+          if (
+            error.workerError.code === "wasm_trap" &&
+            previousResult?.input &&
+            inputKey(previousResult.input) === inputKey(input)
+          ) {
+            return false;
+          }
         }
         latestResultRef.current = null;
         setResultView({

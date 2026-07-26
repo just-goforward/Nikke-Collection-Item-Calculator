@@ -3,6 +3,9 @@ export const koMessages = {
   "app.description": "니케 소장품 레벨업에 필요한 키트 사용 순서와 SR 15 도달 확률을 계산합니다.",
   "boot.title": "계산기를 불러오지 못했습니다.",
   "boot.detail": "페이지를 새로고침한 뒤 다시 시도해주세요.",
+  "error.renderTitle": "화면을 표시하지 못했습니다.",
+  "error.renderDetail": "최신 파일을 다시 불러오면 계산기를 계속 사용할 수 있습니다.",
+  "error.reload": "페이지 다시 불러오기",
   "common.calculate": "계산",
   "common.calculateLong": "계산하기",
   "common.recalculate": "다시 계산",
@@ -59,6 +62,9 @@ export const koMessages = {
   "stock.title": "보유 키트",
   "stock.changed": "보유 키트가 변경되었습니다. 계산 버튼을 눌러 결과를 갱신해주세요.",
   "stock.notice": "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.",
+  "stock.invalid": "음수와 소수는 입력할 수 없어 이전 값으로 되돌렸습니다.",
+  "stock.adjustedMax":
+    "보유 키트는 최대 {max}개까지 입력할 수 있어 입력값을 {value}으로 조정했습니다.",
   "solver.strategySupply":
     "SR 15 도달 확률과 키트 수급/보유량을 함께 고려하여 최적의 선택지를 제공합니다.",
   "kit.blue": "초심자용 관리 키트",

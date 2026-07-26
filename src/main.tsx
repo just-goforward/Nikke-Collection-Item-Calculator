@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 
 import App from "./App";
+import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { detectInitialLocale, I18nProvider, prepareInitialLocale, translate } from "./i18n/locale";
 import "./styles.css";
 
@@ -12,7 +13,9 @@ async function boot() {
   const root = createRoot(app);
   root.render(
     <I18nProvider>
-      <App />
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
     </I18nProvider>,
   );
 }

@@ -1,5 +1,13 @@
-export const SOLVER_DIAGNOSTIC_VERSION = 6 as const;
+export const SOLVER_DIAGNOSTIC_VERSIONS = [1, 2, 3, 4, 5, 6] as const;
+export type SolverDiagnosticVersion = (typeof SOLVER_DIAGNOSTIC_VERSIONS)[number];
+export const SOLVER_DIAGNOSTIC_VERSION: SolverDiagnosticVersion = 6;
 export const RUNTIME_INVARIANT_VERSION = 1 as const;
+
+const SOLVER_DIAGNOSTIC_VERSION_SET = new Set<number>(SOLVER_DIAGNOSTIC_VERSIONS);
+
+export function isSolverDiagnosticVersion(value: unknown): value is SolverDiagnosticVersion {
+  return typeof value === "number" && SOLVER_DIAGNOSTIC_VERSION_SET.has(value);
+}
 
 export const RUNTIME_INVARIANT_CODES = [
   "validation_cancel_failed",
@@ -54,9 +62,22 @@ export const RESOURCE_COST_BUCKETS = [
   "0_5_1",
   "1_plus",
 ] as const;
-export const TOTAL_EXPECTED_COST_BUCKETS = ["0_49", "50_99", "100_199", "200_399", "400_plus"] as const;
+export const TOTAL_EXPECTED_COST_BUCKETS = [
+  "0_49",
+  "50_99",
+  "100_199",
+  "200_399",
+  "400_plus",
+] as const;
 export const BLUE_SHARE_BUCKETS = ["0_30", "30_50", "50_70", "70_90", "90_100"] as const;
-export const MIN_AUTONOMY_DAYS_BUCKETS = ["lt_0", "0_3", "3_7", "7_14", "14_28", "28_plus"] as const;
+export const MIN_AUTONOMY_DAYS_BUCKETS = [
+  "lt_0",
+  "0_3",
+  "3_7",
+  "7_14",
+  "14_28",
+  "28_plus",
+] as const;
 export const NODE_COUNT_BUCKETS = [
   "0",
   "1_99",
@@ -79,7 +100,18 @@ export const SOLVE_MS_BUCKETS = [
   "5000_plus",
 ] as const;
 export const COMPARISON_BUCKETS = ["yes", "no", "unknown", "not_applicable"] as const;
-export const MEMO_TIER_BUCKETS = ["16", "17", "18", "19", "20", "21", "22", "23", "24", "unknown"] as const;
+export const MEMO_TIER_BUCKETS = [
+  "16",
+  "17",
+  "18",
+  "19",
+  "20",
+  "21",
+  "22",
+  "23",
+  "24",
+  "unknown",
+] as const;
 export const RETRY_BUCKETS = ["yes", "no", "unknown"] as const;
 
 export function bucketStockPieces(value: number) {

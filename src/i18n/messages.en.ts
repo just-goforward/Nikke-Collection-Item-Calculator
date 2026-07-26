@@ -6,6 +6,9 @@ export const enMessages = {
     "Calculate the best Maintenance Kit order and your chance of reaching SR Phase 15 in NIKKE.",
   "boot.title": "The calculator could not be loaded.",
   "boot.detail": "Refresh the page and try again.",
+  "error.renderTitle": "The page could not be displayed.",
+  "error.renderDetail": "Reload the latest files to continue using the calculator.",
+  "error.reload": "Reload page",
   "common.calculate": "Calculate",
   "common.calculateLong": "Calculate",
   "common.recalculate": "Recalculate",
@@ -64,6 +67,9 @@ export const enMessages = {
   "stock.title": "Maintenance Kits",
   "stock.changed": "Your Maintenance Kits changed. Select Calculate to update the result.",
   "stock.notice": "Update your Maintenance Kits, then select Calculate to continue.",
+  "stock.invalid": "Negative numbers and decimals are not allowed. The previous value was kept.",
+  "stock.adjustedMax":
+    "Maintenance Kit inventory is limited to {max}, so the value was adjusted to {value}.",
   "solver.strategySupply":
     "Balances the chance of reaching SR Phase 15 against current inventory and future Maintenance Kit supply.",
   "kit.blue": "Beginner Maintenance Kit",

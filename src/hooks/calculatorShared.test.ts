@@ -5,7 +5,7 @@ import {
   makeSolverDiagnosticEvent,
   makeSolverRecoveryEvent,
 } from "./calculatorDiagnostics";
-import { readCache, rememberCache, type SolverResult } from "./calculatorShared";
+import { clampStock, readCache, rememberCache, type SolverResult } from "./calculatorShared";
 
 describe("makeSolverDiagnosticEvent", () => {
   it("creates a low-cardinality runtime invariant event", () => {
@@ -103,6 +103,20 @@ describe("makeSolverDiagnosticEvent", () => {
       ["a", 1],
       ["c", 3],
     ]);
+  });
+
+  it("clamps stock to the shared product input range", () => {
+    expect(
+      clampStock({
+        blue: -1,
+        purple: 100_000,
+        yellow: 100_001,
+      }),
+    ).toEqual({
+      blue: 0,
+      purple: 100_000,
+      yellow: 100_000,
+    });
   });
 
   it("emits only bucketed recovery context when the backend changes", () => {

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { convertState, normalizeState, transition } from "./solver/domain";
+import {
+  convertState,
+  MAX_RELEVANT_USES,
+  memoKey,
+  normalizeState,
+  transition,
+} from "./solver/domain";
 import { solve } from "./solver/solve";
 
 describe("solver transitions", () => {
@@ -72,5 +78,20 @@ describe("solver transitions", () => {
   it("levels up from 0 to 1 through failed kit experience", () => {
     const result = transition({ grade: "R", level: 0, exp: 800 }, "blue");
     expect(result.fail).toEqual({ grade: "R", level: 1, exp: 0 });
+  });
+
+  it("maps out-of-range research stock to the explicit memo dimension cap", () => {
+    const state = normalizeState({ grade: "R", level: 0, exp: 0 });
+    const capped = memoKey(state, MAX_RELEVANT_USES);
+    const outOfRange = memoKey(state, {
+      blue: MAX_RELEVANT_USES.blue + 10_000,
+      purple: MAX_RELEVANT_USES.purple + 10_000,
+      yellow: MAX_RELEVANT_USES.yellow + 10_000,
+    });
+    const empty = memoKey(state, { blue: 0, purple: 0, yellow: 0 });
+
+    expect(outOfRange).toBe(capped);
+    expect(memoKey(state, { blue: -10, purple: -10, yellow: -10 })).toBe(empty);
+    expect(capped).not.toBe(empty);
   });
 });

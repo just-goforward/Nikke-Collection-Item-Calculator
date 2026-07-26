@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
+import { MAX_STOCK_PIECES } from "../../shared/game";
+import { useDismissableLayer } from "../hooks/useDismissableLayer";
 import { useI18n } from "../i18n/locale";
 import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
 import type { Kit, Stock } from "../types";
@@ -60,12 +62,18 @@ const classes = {
     "grid grid-cols-3 gap-2.5 px-[18px] py-4 min-[661px]:max-tablet:flex-1 min-[661px]:max-tablet:grid-cols-1 min-[661px]:max-tablet:grid-rows-3 min-[661px]:max-tablet:gap-2 min-[661px]:max-tablet:p-3.5 max-mobile:grid-cols-3 max-mobile:gap-2 max-mobile:px-3 max-mobile:pt-2.5 max-mobile:pb-[13px]",
   kitInput:
     "grid gap-[7px] min-[661px]:max-tablet:grid-cols-[minmax(0,1fr)_104px] min-[661px]:max-tablet:items-center min-[661px]:max-tablet:gap-2 max-mobile:grid-cols-1 max-mobile:items-start max-mobile:gap-x-0 max-mobile:gap-y-1.5 max-mobile:p-0",
+  kitInputField:
+    "relative min-w-0 min-[661px]:max-tablet:min-w-0 max-mobile:col-start-1 max-mobile:row-start-2 max-mobile:min-w-0",
   kitLabel:
     "flex items-center justify-center gap-[7px] text-center text-[12px] font-semibold leading-[1.25] text-muted min-[661px]:max-tablet:justify-start min-[661px]:max-tablet:whitespace-nowrap min-[661px]:max-tablet:text-left max-mobile:col-start-1 max-mobile:row-start-1 max-mobile:min-w-0 max-mobile:whitespace-normal max-mobile:text-[11px] max-mobile:[word-break:keep-all]",
   kitDot: "inline-block size-[11px] flex-none rounded-full",
   kitInputControl:
-    "numeric-text-control stock-input-control text-center text-[15px] font-semibold tabular-nums placeholder:text-muted/55 focus:placeholder:text-transparent min-[661px]:px-[10px] min-[661px]:text-[14px] min-[661px]:max-tablet:min-w-0 max-mobile:col-start-1 max-mobile:row-start-2 max-mobile:min-w-0 max-mobile:px-1.5 max-mobile:text-center max-mobile:text-sm",
+    "numeric-text-control stock-input-control w-full text-center text-[15px] font-semibold tabular-nums placeholder:text-muted/55 focus:placeholder:text-transparent min-[661px]:px-[10px] min-[661px]:text-[14px] max-mobile:px-1.5 max-mobile:text-center max-mobile:text-sm",
+  kitInputInvalid: "border-danger focus:border-danger focus:shadow-[0_0_0_3px_var(--danger-soft)]",
   kitInputNeedsEdit: "border-yellow-kit shadow-[0_0_0_3px_rgba(230,170,38,0.18)]",
+  kitTooltip:
+    "invisible pointer-events-none absolute bottom-[calc(100%+7px)] right-0 z-[14] box-border w-[min(280px,calc(100vw-32px))] whitespace-normal rounded-card border border-border bg-surface px-[11px] py-2.5 text-left text-xs font-normal leading-[1.45] text-text-soft opacity-0 shadow-panel transition-opacity duration-[160ms] [overflow-wrap:anywhere] [word-break:keep-all]",
+  kitTooltipOpen: "visible pointer-events-auto opacity-100",
   kitHint: "hidden",
   help: "sr-only",
   buttonRow:
@@ -88,29 +96,40 @@ const kitDotClass: Record<Kit, string> = {
   yellow: "bg-yellow-kit",
 };
 
-function normalizeStockValue(value: string) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? Math.max(0, Math.floor(numeric)) : 0;
-}
-
-function toStock(stockText: Record<Kit, string>): Stock {
-  return {
-    blue: normalizeStockValue(stockText.blue),
-    purple: normalizeStockValue(stockText.purple),
-    yellow: normalizeStockValue(stockText.yellow),
-  };
-}
-
-function sameStock(a: Stock, b: Stock) {
-  return a.blue === b.blue && a.purple === b.purple && a.yellow === b.yellow;
-}
-
 function stockValueToText(value: number) {
   return value > 0 ? String(value) : "";
 }
 
-function sanitizeStockText(value: string) {
-  return value.replace(/\D/g, "");
+type StockFeedback = {
+  reason: "invalid" | "max";
+  value: number;
+};
+
+function stockDraftExceedsMax(value: string) {
+  const normalized = value.replace(/^0+/, "") || "0";
+  const maximum = String(MAX_STOCK_PIECES);
+  return (
+    normalized.length > maximum.length ||
+    (normalized.length === maximum.length && normalized > maximum)
+  );
+}
+
+function normalizeStockDraft(value: string, previousValue: number) {
+  const trimmed = value.trim();
+  if (trimmed === "") return { feedback: null, value: 0 };
+  if (!/^\d+$/.test(trimmed)) {
+    return {
+      feedback: { reason: "invalid", value: previousValue } satisfies StockFeedback,
+      value: previousValue,
+    };
+  }
+  if (stockDraftExceedsMax(trimmed)) {
+    return {
+      feedback: { reason: "max", value: MAX_STOCK_PIECES } satisfies StockFeedback,
+      value: MAX_STOCK_PIECES,
+    };
+  }
+  return { feedback: null, value: Number(trimmed) };
 }
 
 type KitInputProps = {
@@ -119,7 +138,7 @@ type KitInputProps = {
   needsStockEdit: boolean;
   value: string;
   onChange: (kit: Kit, value: string) => void;
-  onCommit: () => void;
+  onCommit: (kit: Kit, value: string) => StockFeedback | null;
   onCalculate: () => void;
 };
 
@@ -132,32 +151,82 @@ function KitInput({
   onCommit,
   onCalculate,
 }: KitInputProps) {
-  const { t } = useI18n();
+  const { formatInteger, t } = useI18n();
+  const fieldRef = useRef<HTMLSpanElement>(null);
+  const calculateAfterCommitRef = useRef(false);
+  const tooltipId = useId();
+  const [feedback, setFeedback] = useState<StockFeedback | null>(null);
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const trimmed = value.trim();
+  const draftInvalid = trimmed !== "" && (!/^\d+$/.test(trimmed) || stockDraftExceedsMax(trimmed));
+
+  useDismissableLayer({
+    escapeEnabled: tooltipOpen,
+    outsideEnabled: tooltipOpen,
+    containsTarget: (target) =>
+      target instanceof Node && Boolean(fieldRef.current?.contains(target)),
+    onDismiss: () => setTooltipOpen(false),
+  });
+
+  const commit = () => {
+    const nextFeedback = onCommit(definition.kit, value);
+    setFeedback(nextFeedback);
+    setTooltipOpen(Boolean(nextFeedback));
+    if (!calculateAfterCommitRef.current) return;
+    calculateAfterCommitRef.current = false;
+    if (!calculateDisabled) window.setTimeout(onCalculate, 0);
+  };
+
+  const tooltipMessage =
+    feedback?.reason === "max"
+      ? t("stock.adjustedMax", {
+          max: formatInteger(MAX_STOCK_PIECES),
+          value: formatInteger(feedback.value),
+        })
+      : t("stock.invalid");
+
   return (
     <label className={classes.kitInput}>
       <span className={classes.kitLabel}>
         <i aria-hidden="true" className={`${classes.kitDot} ${kitDotClass[definition.kit]}`}></i>
         {t(definition.labelKey)}
       </span>
-      <input
-        id={definition.inputId}
-        className={`${classes.kitInputControl} ${needsStockEdit ? classes.kitInputNeedsEdit : ""}`}
-        type="text"
-        inputMode="numeric"
-        pattern="[0-9]*"
-        autoComplete="off"
-        placeholder="0"
-        value={value}
-        onChange={(event) => onChange(definition.kit, sanitizeStockText(event.currentTarget.value))}
-        onBlur={onCommit}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter") return;
-          event.preventDefault();
-          onCommit();
-          event.currentTarget.blur();
-          if (!calculateDisabled) onCalculate();
-        }}
-      />
+      <span ref={fieldRef} className={classes.kitInputField}>
+        <input
+          id={definition.inputId}
+          className={`${classes.kitInputControl} ${
+            needsStockEdit ? classes.kitInputNeedsEdit : ""
+          } ${draftInvalid ? classes.kitInputInvalid : ""}`}
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
+          placeholder="0"
+          value={value}
+          aria-describedby={tooltipOpen ? tooltipId : undefined}
+          aria-invalid={draftInvalid || undefined}
+          onChange={(event) => {
+            onChange(definition.kit, event.currentTarget.value);
+            setFeedback(null);
+            setTooltipOpen(false);
+          }}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            calculateAfterCommitRef.current = true;
+            event.currentTarget.blur();
+          }}
+        />
+        <span
+          id={tooltipId}
+          className={`${classes.kitTooltip} ${tooltipOpen ? classes.kitTooltipOpen : ""}`}
+          role="tooltip"
+          aria-live="polite"
+        >
+          {tooltipMessage}
+        </span>
+      </span>
       <small className={classes.kitHint}>{definition.expLabel}</small>
     </label>
   );
@@ -210,23 +279,18 @@ export default function StockPanel({
   }, [stock.blue, stock.purple, stock.yellow]);
 
   const updateStockText = (kit: Kit, value: string) => {
-    const next = { ...stockText, [kit]: value };
-    const nextStock = toStock(next);
-    setStockText(next);
-    if (sameStock(committedStockRef.current, nextStock)) return;
-    committedStockRef.current = nextStock;
-    onStockChange(nextStock);
+    setStockText((current) => ({ ...current, [kit]: value }));
   };
 
-  const commitStock = () => {
-    const nextStock = toStock(stockText);
-    if (sameStock(committedStockRef.current, nextStock)) return;
-    committedStockRef.current = nextStock;
-    onStockChange(nextStock);
-  };
-  const handleCalculate = () => {
-    commitStock();
-    onCalculate();
+  const commitStock = (kit: Kit, value: string) => {
+    const result = normalizeStockDraft(value, committedStockRef.current[kit]);
+    setStockText((current) => ({ ...current, [kit]: stockValueToText(result.value) }));
+    if (committedStockRef.current[kit] !== result.value) {
+      const nextStock = { ...committedStockRef.current, [kit]: result.value };
+      committedStockRef.current = nextStock;
+      onStockChange(nextStock);
+    }
+    return result.feedback;
   };
   return (
     <section className={stockPanelClassName(needsStockEdit, stockStale)}>
@@ -251,7 +315,7 @@ export default function StockPanel({
             value={stockText[definition.kit]}
             onChange={updateStockText}
             onCommit={commitStock}
-            onCalculate={handleCalculate}
+            onCalculate={onCalculate}
           />
         ))}
       </div>
@@ -277,7 +341,7 @@ export default function StockPanel({
           aria-describedby="strategyDescription"
           aria-live="polite"
           onPointerDown={commitFocusedInput}
-          onClick={handleCalculate}
+          onClick={onCalculate}
         >
           <AlignedText alignmentRole="action" className="gap-2">
             {needsStockEdit ? (

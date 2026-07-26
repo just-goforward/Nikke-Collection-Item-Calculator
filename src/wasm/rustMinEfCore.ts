@@ -1,4 +1,10 @@
-import { actionFromIndex, encodeState, readMinEfRootCandidates } from "./rustCoreShared";
+import { clampMemoStockUses } from "../solver/domain";
+import {
+  actionFromIndex,
+  clampMemoStockPieces,
+  encodeState,
+  readMinEfRootCandidates,
+} from "./rustCoreShared";
 import { RUST_MIN_EF_MEMO_TIER } from "./rustProductConfig";
 import { assertRustStatusOk, RUST_STATUS_OK, RustSolveError } from "./rustStatus";
 import type {
@@ -57,11 +63,12 @@ function runMinEf(
   tolerance: number,
 ) {
   const stateId = encodeState(start.grade, start.level, start.exp ?? 0);
+  const boundedStock = clampMemoStockPieces(stock);
   exports.solveMinEf(
     stateId,
-    stock.blue | 0,
-    stock.purple | 0,
-    stock.yellow | 0,
+    boundedStock.blue | 0,
+    boundedStock.purple | 0,
+    boundedStock.yellow | 0,
     horizonFactor,
     normPower,
     tolerance,
@@ -116,11 +123,12 @@ function readMinEfRoot(exports: RustCoreExports): RustMinEfRoot {
 
 function lookupMinEfAction(exports: RustCoreExports, state: State, stockUses: Stock) {
   const stateId = encodeState(state.grade, state.level, state.exp ?? 0);
+  const boundedStock = clampMemoStockUses(stockUses);
   const action = exports.minEfActionAtOrSolve(
     stateId,
-    stockUses.blue | 0,
-    stockUses.purple | 0,
-    stockUses.yellow | 0,
+    boundedStock.blue | 0,
+    boundedStock.purple | 0,
+    boundedStock.yellow | 0,
   );
   assertRustStatusOk(exports, "action lookup");
   return actionFromIndex(action);

@@ -489,7 +489,7 @@ pub(crate) unsafe fn policy_action(sid: i32, b: i32, p: i32, y: i32) -> i32 {
 // ===== index.ts (wasm exports) ===============================================================
 #[inline]
 pub(crate) fn uses_of(pieces: i32, max_uses: i32) -> i32 {
-    (pieces / 10).min(max_uses)
+    (pieces / 10).clamp(0, max_uses)
 }
 
 // solveStart (mdp.ts:221): set params + run value() from (start, stockUses); returns start slot.
@@ -622,7 +622,8 @@ pub extern "C" fn policyActionAt(sid: i32, b: i32, p: i32, y: i32) -> i32 {
         if !status_ok() {
             return -1;
         }
-        policy_action(sid, b, p, y)
+        let (bounded_b, bounded_p, bounded_y) = clamp_stock_uses(b, p, y);
+        policy_action(sid, bounded_b, bounded_p, bounded_y)
     }
 }
 #[no_mangle]

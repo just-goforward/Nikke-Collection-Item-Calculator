@@ -112,13 +112,15 @@ const classes = {
   tableReasonBubbleOpen: "opacity-100",
   validationDetails:
     "validation-details relative rounded-card border border-border bg-surface-raised",
+  validationHeader:
+    "flex min-h-[42px] items-center gap-1 px-3.5 py-3 text-[13px] font-semibold text-text-soft max-mobile:min-h-[38px] max-mobile:px-3 max-mobile:py-2.5 max-mobile:text-xs",
   validationSummary:
-    "flex min-h-[42px] cursor-pointer items-center justify-between gap-3 px-3.5 py-3 text-[13px] font-semibold text-text-soft max-mobile:min-h-[38px] max-mobile:px-3 max-mobile:py-2.5 max-mobile:text-xs",
+    "min-w-0 cursor-pointer border-0 bg-transparent p-0 text-left font-[inherit] leading-[1.2] text-[inherit]",
   validationSummaryLabel:
     "validation-summary-label relative inline-block min-h-[1.2em] leading-[1.2]",
   validationSummaryMeta:
-    "shrink-0 whitespace-nowrap text-[11.5px] font-semibold text-muted max-mobile:text-[10.5px]",
-  validationContent: "validation-content grid gap-2.5 px-3.5 pb-3.5",
+    "ml-auto shrink-0 cursor-pointer whitespace-nowrap border-0 bg-transparent p-0 text-[11.5px] font-semibold text-muted max-mobile:text-[10.5px]",
+  validationContent: "validation-content grid gap-2.5 px-3.5 pb-3.5 [&[hidden]]:hidden",
   validationText: "m-0 text-[13px] font-normal leading-normal text-muted",
 } as const;
 
@@ -568,37 +570,48 @@ function ValidationDetails({
 }) {
   const { formatInteger, t, text } = useI18n();
   const [open, setOpen] = useState(false);
+  const contentId = useId();
+
+  const toggleValidation = () => {
+    const nextOpen = !open;
+    setOpen(nextOpen);
+    if (nextOpen && !validation.disabled && !validation.stageReach) {
+      onRunValidation();
+    }
+  };
 
   return (
-    <details
-      className={classes.validationDetails}
-      onToggle={(event) => {
-        if (event.target !== event.currentTarget) return;
-        const nextOpen = event.currentTarget.open;
-        setOpen(nextOpen);
-        if (nextOpen && !validation.disabled && !validation.stageReach) {
-          onRunValidation();
-        }
-      }}
-    >
-      <summary className={classes.validationSummary}>
-        <span className={classes.validationSummaryLabel}>
-          <span>{t("detail.validation")}</span>
-          <InfoTip label={t("detail.validation")}>
-            {t("detail.validationHelp", { runs: formatInteger(monteCarloRuns) })}
-          </InfoTip>
-        </span>
-        <span className={classes.validationSummaryMeta}>
+    <section className={classes.validationDetails}>
+      <div className={classes.validationHeader}>
+        <button
+          className={classes.validationSummary}
+          type="button"
+          aria-controls={contentId}
+          aria-expanded={open}
+          onClick={toggleValidation}
+        >
+          <span className={classes.validationSummaryLabel}>{t("detail.validation")}</span>
+        </button>
+        <InfoTip label={t("detail.validation")}>
+          {t("detail.validationHelp", { runs: formatInteger(monteCarloRuns) })}
+        </InfoTip>
+        <button
+          className={classes.validationSummaryMeta}
+          type="button"
+          aria-controls={contentId}
+          aria-expanded={open}
+          onClick={toggleValidation}
+        >
           {t(open ? "common.collapse" : "common.expand")}
-        </span>
-      </summary>
-      <div className={classes.validationContent}>
+        </button>
+      </div>
+      <div id={contentId} className={classes.validationContent} hidden={!open}>
         <p className={`${classes.validationText} validation-result`} data-validation-result>
           {text(validation.message)}
         </p>
         <ValidationSuccessChart monteCarloRuns={monteCarloRuns} validation={validation} />
       </div>
-    </details>
+    </section>
   );
 }
 

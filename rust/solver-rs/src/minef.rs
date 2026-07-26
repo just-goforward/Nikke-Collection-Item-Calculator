@@ -3,7 +3,7 @@ use crate::constants::{
 };
 use crate::cost::{availability_cost, availability_cost_pre};
 use crate::simulation::{next_random, seed_rng};
-use crate::state::{memo_key, stock_of};
+use crate::state::{clamp_stock_uses, memo_key, stock_of};
 use crate::status::{
     reset_status, status_ok, tick_node, LAST_STATUS, STATUS_BUDGET_EXCEEDED, STATUS_MEMO_FULL,
 };
@@ -16,6 +16,11 @@ use crate::{memo_reset, policy_action, solve_start, uses_of};
 // PORT OF: assembly/minef.ts. min-E[f] policy: SAME τ-gate as value(), secondary criterion = min
 // E[f(total)] (terminal-only → decomposable) instead of the Jensen surrogate. UNCAPPED (heavier than
 // the capped deployed solve; impractical at the R0/250+ node-count peak). Register-return + memo.
+//
+// Do not apply phase2's state-dependent cap_stock here. The current min-E[f] state and memo key do
+// not retain the removed inventory as an offset, but terminal cost depends on absolute remaining
+// inventory. A dominance cap is valid only after that offset is added to the state/key and parity is
+// re-proven. ABI inputs are still bounded to the global memo dimensions.
 const ME_CAP_DEFAULT: usize = 1 << 21;
 static mut ME_CAP: usize = ME_CAP_DEFAULT;
 static mut ME_MASK: u32 = (ME_CAP_DEFAULT - 1) as u32;
@@ -486,17 +491,21 @@ unsafe fn min_ef_action_at(sid: i32, b: i32, p: i32, y: i32) -> i32 {
 }
 #[no_mangle]
 pub extern "C" fn minEfActionAt(sid: i32, b: i32, p: i32, y: i32) -> i32 {
-    unsafe { min_ef_action_at(sid, b, p, y) }
+    unsafe {
+        let (bounded_b, bounded_p, bounded_y) = clamp_stock_uses(b, p, y);
+        min_ef_action_at(sid, bounded_b, bounded_p, bounded_y)
+    }
 }
 #[no_mangle]
 pub extern "C" fn minEfActionAtOrSolve(sid: i32, b: i32, p: i32, y: i32) -> i32 {
     unsafe {
         reset_status();
-        let cached = min_ef_action_at(sid, b, p, y);
+        let (bounded_b, bounded_p, bounded_y) = clamp_stock_uses(b, p, y);
+        let cached = min_ef_action_at(sid, bounded_b, bounded_p, bounded_y);
         if cached >= 0 {
             return cached;
         }
-        minef_node(sid, b, p, y, 0);
+        minef_node(sid, bounded_b, bounded_p, bounded_y, 0);
         if !status_ok() {
             return -1;
         }

@@ -50,8 +50,13 @@ export const DEFAULT_RESEARCH_COST_MODEL: AvailabilityPnormResearchCostModel = {
 };
 const EXP_BUCKETS = 30;
 const LEVEL_BUCKETS = 16;
+const STATE_BUCKETS = 2 * LEVEL_BUCKETS * EXP_BUCKETS;
 const STOCK_ID_SIZE =
   (MAX_RELEVANT_USES.blue + 1) * (MAX_RELEVANT_USES.purple + 1) * (MAX_RELEVANT_USES.yellow + 1);
+const MEMO_KEY_DOMAIN_SIZE = STATE_BUCKETS * STOCK_ID_SIZE;
+if (!Number.isSafeInteger(MEMO_KEY_DOMAIN_SIZE) || MEMO_KEY_DOMAIN_SIZE > 0x7fffffff) {
+  throw new Error("Solver memo key domain exceeds the signed 32-bit ABI.");
+}
 const WORST_CASE_GUARD_LIMIT = 1000;
 const KIT_INDEX: Record<Kit, number> = { blue: 0, purple: 1, yellow: 2 };
 const WORST_CASE_USES_CACHE = new Map<number, number>();
@@ -144,10 +149,20 @@ export function stateIdNormalized(normalized: CollectionState) {
   return ((gradeId * LEVEL_BUCKETS + normalized.level) * EXP_BUCKETS + normalized.exp / 100) | 0;
 }
 
+export function clampMemoStockUses(stock: KitVector): KitVector {
+  return {
+    blue: clamp(Math.floor(Number(stock.blue) || 0), 0, MAX_RELEVANT_USES.blue),
+    purple: clamp(Math.floor(Number(stock.purple) || 0), 0, MAX_RELEVANT_USES.purple),
+    yellow: clamp(Math.floor(Number(stock.yellow) || 0), 0, MAX_RELEVANT_USES.yellow),
+  };
+}
+
 function stockId(stock: KitVector) {
+  const bounded = clampMemoStockUses(stock);
   return (
-    (stock.blue * (MAX_RELEVANT_USES.purple + 1) + stock.purple) * (MAX_RELEVANT_USES.yellow + 1) +
-    stock.yellow
+    (bounded.blue * (MAX_RELEVANT_USES.purple + 1) + bounded.purple) *
+      (MAX_RELEVANT_USES.yellow + 1) +
+    bounded.yellow
   );
 }
 

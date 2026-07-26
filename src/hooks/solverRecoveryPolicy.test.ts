@@ -77,6 +77,18 @@ describe("solver recovery policy", () => {
     ).toEqual({ action: "fail", reason: "no_safe_fallback" });
   });
 
+  it("does not reinterpret a WASM trap as a recoverable contract error", () => {
+    expect(
+      decideSolveRecovery({
+        attemptedBackend: "rust-min-ef",
+        errorCode: "wasm_trap",
+        fallbackEligible: false,
+        jsInputAllowed: true,
+        remainingMs: 10_000,
+      }),
+    ).toEqual({ action: "fail", reason: "no_safe_fallback" });
+  });
+
   it("keeps the fallback whitelist conservative", () => {
     expect(
       isLightweightJsInput({
@@ -131,6 +143,6 @@ describe("solver recovery policy", () => {
   });
 
   it("defines a trait for every accepted Worker error code", () => {
-    expect(Object.keys(WORKER_ERROR_TRAITS)).toHaveLength(15);
+    expect(Object.keys(WORKER_ERROR_TRAITS)).toHaveLength(16);
   });
 });

@@ -20,6 +20,23 @@ describe("rust phase2 policy wrapper", () => {
     expect(exports.solveCore).toHaveBeenCalledTimes(1);
   });
 
+  it("clamps raw phase2 stock to the memo-key domain before solve and lookup", () => {
+    const exports = makeExports();
+    const solver = createRustPhase2Solver(exports);
+    const policy = solver.buildPolicy(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 999_999, purple: 999_999, yellow: 999_999 },
+    );
+
+    policy.actionAt(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 999_999, purple: 999_999, yellow: 999_999 },
+    );
+
+    expect(exports.solveCore).toHaveBeenCalledWith(510, 2_200, 880, 440, 0.75, 3, 0);
+    expect(exports.policyActionAt).toHaveBeenCalledWith(510, 220, 88, 44);
+  });
+
   it("invalidates phase2 policy handles after a newer policy build", () => {
     const exports = makeExports();
     const solver = createRustPhase2Solver(exports);
