@@ -1,4 +1,15 @@
-.gitattributes text eol=lf
+* text=auto eol=lf
+
+*.png -text
+*.jpg -text
+*.jpeg -text
+*.gif -text
+*.ico -text
+*.wasm -text
+*.woff -text
+*.woff2 -text
+*.ttf -text
+
 cloudflare/worker-configuration.d.ts text eol=lf -whitespace
 package.json text eol=lf
 package-lock.json text eol=lf
