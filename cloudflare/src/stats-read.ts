@@ -29,7 +29,7 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
   const queryStartedAt = performance.now();
   const today = kstDateKeyFromUnixSeconds(now);
 
-  const [aggregateRowsResult, todayRow] = await Promise.all([
+  const [aggregateRowsResult, todayRowsResult] = await Promise.all([
     env.DB.prepare(
       `SELECT grade, level, kit, SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
        FROM event_aggregates
@@ -41,14 +41,16 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
        WHERE date_key = ?`,
     )
       .bind(today)
-      .first(),
+      .all<Record<string, unknown>>(),
   ]);
 
   const rows = aggregateRowsResult.results || [];
+  const todayRow = todayRowsResult.results?.[0] ?? null;
   logInfo("stats_query_completed", {
     durationMs: Math.max(0, Math.round((performance.now() - queryStartedAt) * 100) / 100),
     queryCount: 2,
     rowCount: rows.length,
+    rowsRead: d1RowsRead(aggregateRowsResult) + d1RowsRead(todayRowsResult),
   });
   const summary = summarizeRows(rows);
   const cacheControl = "public, max-age=60, s-maxage=60";
@@ -98,6 +100,11 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
     cacheControl,
     { ETag: etag },
   );
+}
+
+function d1RowsRead(result: { meta?: { rows_read?: number } }) {
+  const rowsRead = Number(result.meta?.rows_read ?? 0);
+  return Number.isFinite(rowsRead) && rowsRead >= 0 ? rowsRead : 0;
 }
 
 function statsEtag(

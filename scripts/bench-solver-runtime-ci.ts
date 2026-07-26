@@ -4,20 +4,34 @@ import { createServer } from "vite";
 import type { SolverInput } from "../src/types.ts";
 
 type Backend = "rust-min-ef" | "rust-phase2" | "js-phase2";
+type RuntimeOutcome = "completed" | "memo_full" | "budget_exceeded" | "failure";
 type RuntimeRecord = {
   backend: Backend;
   scenario: string;
   repeat: number;
   elapsedMs: number;
-  status: "completed" | "error";
+  outcome: RuntimeOutcome;
   error?: string;
+};
+type BackendExpectation = {
+  allowedOutcomes: readonly RuntimeOutcome[];
+  baselineOutcome: RuntimeOutcome;
+};
+type RuntimeScenario = {
+  id: string;
+  input: SolverInput;
+  expectations: Record<Backend, BackendExpectation>;
 };
 
 const DEFAULT_REPEATS = 10;
 const REGRESSION_LIMIT = 1.2;
 const wasmFile = new URL("../public/solver_rs.wasm", import.meta.url);
+const completedExpectation = {
+  allowedOutcomes: ["completed"],
+  baselineOutcome: "completed",
+} as const;
 
-const scenarios: Array<{ id: string; input: SolverInput }> = [
+const scenarios: RuntimeScenario[] = [
   {
     id: "R0-observed-low-yellow",
     input: {
@@ -25,6 +39,11 @@ const scenarios: Array<{ id: string; input: SolverInput }> = [
       stock: { blue: 300, purple: 70, yellow: 30 },
       strategy: "supply",
       monteCarloRuns: 0,
+    },
+    expectations: {
+      "rust-min-ef": completedExpectation,
+      "rust-phase2": completedExpectation,
+      "js-phase2": completedExpectation,
     },
   },
   {
@@ -35,6 +54,11 @@ const scenarios: Array<{ id: string; input: SolverInput }> = [
       strategy: "supply",
       monteCarloRuns: 0,
     },
+    expectations: {
+      "rust-min-ef": completedExpectation,
+      "rust-phase2": completedExpectation,
+      "js-phase2": completedExpectation,
+    },
   },
   {
     id: "R0-balanced-observed-high",
@@ -43,6 +67,14 @@ const scenarios: Array<{ id: string; input: SolverInput }> = [
       stock: { blue: 300, purple: 150, yellow: 150 },
       strategy: "supply",
       monteCarloRuns: 0,
+    },
+    expectations: {
+      "rust-min-ef": {
+        allowedOutcomes: ["memo_full"],
+        baselineOutcome: "memo_full",
+      },
+      "rust-phase2": completedExpectation,
+      "js-phase2": completedExpectation,
     },
   },
 ];
@@ -77,6 +109,15 @@ async function solveBackend(
   );
 }
 
+function runtimeOutcome(error: unknown): RuntimeOutcome {
+  if (error && typeof error === "object" && "status" in error) {
+    const status = error.status;
+    if (status === 2) return "memo_full";
+    if (status === 1) return "budget_exceeded";
+  }
+  return "failure";
+}
+
 function quantile(values: number[], q: number) {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
@@ -91,20 +132,26 @@ function summarize(records: RuntimeRecord[]) {
         const backendRecords = records.filter(
           (record) => record.backend === backend && record.scenario === scenario.id,
         );
-      const completed = backendRecords
-        .filter((record) => record.status === "completed")
-        .map((record) => record.elapsedMs);
-      return [
-        `${scenario.id}:${backend}`,
-        {
-          backend,
-          scenario: scenario.id,
-          completed: completed.length,
-          errors: backendRecords.length - completed.length,
-          p50Ms: quantile(completed, 0.5),
-          p95Ms: quantile(completed, 0.95),
-          maxMs: completed.length > 0 ? Math.max(...completed) : null,
-        },
+        const completed = backendRecords
+          .filter((record) => record.outcome === "completed")
+          .map((record) => record.elapsedMs);
+        const outcomes = Object.fromEntries(
+          [...new Set(backendRecords.map((record) => record.outcome))].map((outcome) => [
+            outcome,
+            backendRecords.filter((record) => record.outcome === outcome).length,
+          ]),
+        );
+        return [
+          `${scenario.id}:${backend}`,
+          {
+            backend,
+            scenario: scenario.id,
+            completed: completed.length,
+            outcomes,
+            p50Ms: quantile(completed, 0.5),
+            p95Ms: quantile(completed, 0.95),
+            maxMs: completed.length > 0 ? Math.max(...completed) : null,
+          },
         ];
       }),
     ),
@@ -118,23 +165,49 @@ async function readBaseline() {
   return JSON.parse(text) as { summary?: Record<string, { p95Ms?: number | null }> };
 }
 
-function assertNoRegression(
+function regressionFailures(
   current: Record<string, { p95Ms?: number | null }>,
   baseline: { summary?: Record<string, { p95Ms?: number | null }> } | null,
 ) {
   if (!baseline?.summary) return [];
   const failures: string[] = [];
-  for (const [backend, currentSummary] of Object.entries(current)) {
-    const baselineP95 = baseline.summary[backend]?.p95Ms;
+  for (const [key, currentSummary] of Object.entries(current)) {
+    const baselineP95 = baseline.summary[key]?.p95Ms;
     const currentP95 = currentSummary.p95Ms;
     if (!baselineP95 || !currentP95) continue;
     if (currentP95 > baselineP95 * REGRESSION_LIMIT) {
       failures.push(
-        `${backend} p95 ${currentP95.toFixed(2)}ms exceeds baseline ${baselineP95.toFixed(2)}ms by more than 20%`,
+        `${key} p95 ${currentP95.toFixed(2)}ms exceeds baseline ${baselineP95.toFixed(2)}ms by more than 20%`,
       );
     }
   }
   return failures;
+}
+
+function validateOutcomes(records: RuntimeRecord[]) {
+  const invalid: string[] = [];
+  const baselineChanges: string[] = [];
+  for (const scenario of scenarios) {
+    for (const backend of ["rust-min-ef", "rust-phase2", "js-phase2"] as const) {
+      const expectation = scenario.expectations[backend];
+      const observed = new Set(
+        records
+          .filter((record) => record.scenario === scenario.id && record.backend === backend)
+          .map((record) => record.outcome),
+      );
+      for (const outcome of observed) {
+        if (!expectation.allowedOutcomes.includes(outcome)) {
+          invalid.push(`${scenario.id}:${backend} produced disallowed outcome ${outcome}`);
+        }
+      }
+      if (!observed.has(expectation.baselineOutcome)) {
+        baselineChanges.push(
+          `${scenario.id}:${backend} no longer produced baseline outcome ${expectation.baselineOutcome}`,
+        );
+      }
+    }
+  }
+  return { baselineChanges, invalid };
 }
 
 const wasmUrl = await wasmDataUrl();
@@ -179,7 +252,7 @@ try {
             scenario: scenario.id,
             repeat,
             elapsedMs: performance.now() - startedAt,
-            status: "completed",
+            outcome: "completed",
           });
         } catch (error) {
           records.push({
@@ -187,29 +260,45 @@ try {
             scenario: scenario.id,
             repeat,
             elapsedMs: performance.now() - startedAt,
-            status: "error",
+            outcome: runtimeOutcome(error),
             error: error instanceof Error ? error.message : String(error),
           });
         }
-    }
       }
+    }
   }
 } finally {
   await server.close();
 }
 
 const summary = summarize(records) as Record<string, { p95Ms?: number | null }>;
+const outcomeValidation = validateOutcomes(records);
 const report = {
   generatedAt: new Date().toISOString(),
   repeats: repeats(),
   wasm: fileURLToPath(wasmFile),
+  scenarioExpectations: Object.fromEntries(
+    scenarios.map((scenario) => [scenario.id, scenario.expectations]),
+  ),
   records,
   summary,
 };
-const failures = assertNoRegression(summary, await readBaseline());
+const regressions = regressionFailures(summary, await readBaseline());
 
 console.log(JSON.stringify(report, null, 2));
-if (failures.length > 0 && process.env["SOLVER_RUNTIME_ENFORCE"] === "1") {
-  throw new Error(`Solver runtime regression detected:\n${failures.join("\n")}`);
+if (outcomeValidation.invalid.length > 0) {
+  throw new Error(
+    `Solver runtime outcome contract failed:\n${outcomeValidation.invalid.join("\n")}`,
+  );
 }
-if (failures.length > 0) console.warn(`Solver runtime regression report:\n${failures.join("\n")}`);
+if (outcomeValidation.baselineChanges.length > 0) {
+  console.warn(
+    `Solver runtime baseline outcome changed:\n${outcomeValidation.baselineChanges.join("\n")}`,
+  );
+}
+if (regressions.length > 0 && process.env["SOLVER_RUNTIME_ENFORCE"] === "1") {
+  throw new Error(`Solver runtime regression detected:\n${regressions.join("\n")}`);
+}
+if (regressions.length > 0) {
+  console.warn(`Solver runtime regression report:\n${regressions.join("\n")}`);
+}

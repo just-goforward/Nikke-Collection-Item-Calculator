@@ -8,6 +8,7 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    manifest: true,
     target: "es2022",
     minify: "esbuild",
     cssMinify: true,
