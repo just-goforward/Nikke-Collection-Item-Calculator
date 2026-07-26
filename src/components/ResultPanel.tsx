@@ -129,7 +129,7 @@ const classes = {
   hiddenDot: "hidden",
   outcomeCaption:
     "outcome-caption m-0 flex min-h-[18px] self-center flex-wrap items-center justify-center text-balance text-center text-[10.5px] font-semibold leading-[1.2] text-muted [overflow-wrap:anywhere] [word-break:keep-all]",
-  outcomeCaptionStage: "outcome-caption-stage grid min-h-[18px]",
+  outcomeCaptionStage: "outcome-caption-stage grid min-h-[26px] min-[1004px]:min-h-[18px]",
   outcomeChoiceCaptions: "grid grid-cols-2 gap-2",
   outcomeCaptionLayer: "col-start-1 row-start-1",
   convertActionGroup: "grid justify-self-end w-[min(180px,100%)]",
