@@ -116,7 +116,6 @@ const classes = {
   outcomeActionGroup:
     "outcome-action-group grid w-[var(--outcome-actions-width,360px)] min-w-0 max-w-full justify-self-end content-center gap-1",
   outcomeButtons: "outcome-buttons grid grid-cols-2 gap-2",
-  outcomeChoice: "grid min-w-0 grid-rows-[auto_minmax(18px,auto)] gap-0.5",
   outcomeChoiceCaption:
     "outcome-choice-caption m-0 flex min-h-[18px] flex-wrap items-center justify-center text-balance text-center text-[10.5px] font-semibold leading-[1.2] text-muted [overflow-wrap:anywhere] [word-break:keep-all]",
   outcomeCaptionPrefix: "text-muted",
@@ -130,6 +129,9 @@ const classes = {
   hiddenDot: "hidden",
   outcomeCaption:
     "outcome-caption m-0 flex min-h-[18px] flex-wrap items-center justify-center text-balance text-center text-[10.5px] font-semibold leading-[1.2] text-muted [overflow-wrap:anywhere] [word-break:keep-all]",
+  outcomeCaptionStage: "outcome-caption-stage grid min-h-[18px]",
+  outcomeChoiceCaptions: "grid grid-cols-2 gap-2",
+  outcomeCaptionLayer: "col-start-1 row-start-1",
   convertActionGroup: "grid justify-self-end w-[min(180px,100%)]",
   convertButton: "convert-button bg-primary text-ice",
   changeNote:
@@ -442,6 +444,51 @@ function PendingOutcomeCaption({
   );
 }
 
+function OutcomeCaptionStage({
+  activeOutcome,
+  failPreview,
+  successPreview,
+}: {
+  activeOutcome: "success" | "fail" | null;
+  failPreview: OutcomePreview;
+  successPreview: OutcomePreview;
+}) {
+  return (
+    <div className={classes.outcomeCaptionStage}>
+      <div
+        aria-hidden={activeOutcome !== null}
+        className={`${classes.outcomeChoiceCaptions} ${classes.outcomeCaptionLayer} ${
+          activeOutcome === null ? "" : "invisible"
+        }`}
+      >
+        <strong className={`${classes.outcomeChoiceCaption} text-text-strong`}>
+          <OutcomePreviewCaption preview={successPreview} />
+        </strong>
+        <strong className={`${classes.outcomeChoiceCaption} text-text-strong`}>
+          <OutcomePreviewCaption preview={failPreview} />
+        </strong>
+      </div>
+      {(["success", "fail"] as const).map((outcome) => {
+        const active = outcome === activeOutcome;
+        return (
+          <p
+            aria-hidden={!active}
+            className={`${classes.outcomeCaption} ${classes.outcomeCaptionLayer} ${
+              active ? "" : "invisible"
+            }`}
+            key={outcome}
+          >
+            <PendingOutcomeCaption
+              outcome={outcome}
+              preview={outcome === "success" ? successPreview : failPreview}
+            />
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function ConvertRecommendation({ onConvert }: { onConvert: () => void | Promise<void> }) {
   const { t } = useI18n();
   return (
@@ -535,9 +582,11 @@ function OutcomeActionButtons({
             <AlignedText alignmentRole="action">{t("common.cancel")}</AlignedText>
           </button>
         </div>
-        <p className={classes.outcomeCaption}>
-          <PendingOutcomeCaption outcome="success" preview={successPreview} />
-        </p>
+        <OutcomeCaptionStage
+          activeOutcome="success"
+          failPreview={failPreview}
+          successPreview={successPreview}
+        />
       </div>
     );
   }
@@ -563,9 +612,11 @@ function OutcomeActionButtons({
             <AlignedText alignmentRole="action">{t("common.superSuccessNoConfirm")}</AlignedText>
           </button>
         </div>
-        <p className={classes.outcomeCaption}>
-          <PendingOutcomeCaption outcome="fail" preview={failPreview} />
-        </p>
+        <OutcomeCaptionStage
+          activeOutcome="fail"
+          failPreview={failPreview}
+          successPreview={successPreview}
+        />
       </div>
     );
   }
@@ -573,33 +624,28 @@ function OutcomeActionButtons({
   return (
     <div className={classes.outcomeActionGroup}>
       <div className={classes.outcomeButtons}>
-        <span className={classes.outcomeChoice}>
-          <button
-            className={`${classes.outcomeButton} ${classes.successButton}`}
-            type="button"
-            disabled={disabled}
-            onClick={() => armOutcome("success")}
-          >
-            <AlignedText alignmentRole="action">{t("common.superSuccessYes")}</AlignedText>
-          </button>
-          <strong className={`${classes.outcomeChoiceCaption} text-text-strong`}>
-            <OutcomePreviewCaption preview={successPreview} />
-          </strong>
-        </span>
-        <span className={classes.outcomeChoice}>
-          <button
-            className={`${classes.outcomeButton} ${classes.failButton}`}
-            type="button"
-            disabled={disabled}
-            onClick={() => armOutcome("fail")}
-          >
-            <AlignedText alignmentRole="action">{t("common.superSuccessNo")}</AlignedText>
-          </button>
-          <strong className={`${classes.outcomeChoiceCaption} text-text-strong`}>
-            <OutcomePreviewCaption preview={failPreview} />
-          </strong>
-        </span>
+        <button
+          className={`${classes.outcomeButton} ${classes.successButton}`}
+          type="button"
+          disabled={disabled}
+          onClick={() => armOutcome("success")}
+        >
+          <AlignedText alignmentRole="action">{t("common.superSuccessYes")}</AlignedText>
+        </button>
+        <button
+          className={`${classes.outcomeButton} ${classes.failButton}`}
+          type="button"
+          disabled={disabled}
+          onClick={() => armOutcome("fail")}
+        >
+          <AlignedText alignmentRole="action">{t("common.superSuccessNo")}</AlignedText>
+        </button>
       </div>
+      <OutcomeCaptionStage
+        activeOutcome={null}
+        failPreview={failPreview}
+        successPreview={successPreview}
+      />
     </div>
   );
 }

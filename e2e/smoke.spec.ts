@@ -187,6 +187,17 @@ test("SR 15 도달률이 모두 100%면 비추천 후보를 키트 부담 사유
     await expect(rows.nth(index).locator(".candidate-probability-wide")).toHaveText("100%");
     await expect(rows.nth(index)).toHaveCSS("opacity", "0.6");
   }
+  const candidatePadding = await page.locator(".table-wrap").evaluate((wrap) => {
+    const header = wrap.querySelector<HTMLElement>("thead th:first-child");
+    const body = wrap.querySelector<HTMLElement>("tbody td:first-child");
+    if (!header || !body) throw new Error("Missing candidate cells.");
+    return {
+      body: Number.parseFloat(getComputedStyle(body).paddingInlineStart),
+      header: Number.parseFloat(getComputedStyle(header).paddingInlineStart),
+    };
+  });
+  expect(candidatePadding.header).toBeGreaterThanOrEqual(10);
+  expect(candidatePadding.body).toBe(candidatePadding.header);
   const cellAlignments = await rows
     .locator("th, td")
     .evaluateAll((cells) => cells.map((cell) => getComputedStyle(cell).verticalAlign));
@@ -633,6 +644,23 @@ test("검산 details — 펼치면 가상의 니붕이 검산 결과가 자동 �
   await expect(page.locator(".validation-button")).toHaveCount(0);
 
   const validationToggle = validationDetails.getByRole("button", { name: "검증", exact: true });
+  const validationHeaderGeometry = await validationDetails.evaluate((details) => {
+    const label = details.querySelector<HTMLElement>(".validation-summary-label");
+    const info = details.querySelector<HTMLElement>(".info-tip");
+    const meta = details.querySelector<HTMLElement>(".validation-summary-meta");
+    if (!label || !info || !meta) throw new Error("Missing validation header control.");
+    const labelRect = label.getBoundingClientRect();
+    const infoRect = info.getBoundingClientRect();
+    const metaRect = meta.getBoundingClientRect();
+    return {
+      infoAfterLabel: infoRect.left >= labelRect.right,
+      infoGap: infoRect.left - labelRect.right,
+      infoBeforeMeta: infoRect.right < metaRect.left,
+    };
+  });
+  expect(validationHeaderGeometry.infoAfterLabel).toBe(true);
+  expect(validationHeaderGeometry.infoGap).toBeLessThanOrEqual(6);
+  expect(validationHeaderGeometry.infoBeforeMeta).toBe(true);
   await validationToggle.click();
   await expect(validationToggle).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText(/가상의 니붕이 .*SR 15/)).toBeVisible({ timeout: 20_000 });

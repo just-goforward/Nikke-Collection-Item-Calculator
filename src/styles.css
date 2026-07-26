@@ -836,6 +836,10 @@ h2 {
   container-type: inline-size;
 }
 
+.candidate-rank-cell {
+  padding-inline-start: 10px;
+}
+
 html[data-locale="en"] .table-wrap {
   --candidate-col-width: 17%;
   --action-col-width: 37%;
@@ -933,17 +937,12 @@ html[data-locale="ja"] .outcome-title-text {
   white-space: normal;
 }
 
-html[data-locale="ko"] .outcome-action-group,
 html[data-locale="ja"] .outcome-action-group {
-  --outcome-actions-width: clamp(260px, 29vw, 320px);
-}
-
-html[data-locale="ja"] .outcome-panel.is-holding-ring .outcome-action-group {
   --outcome-actions-width: 360px;
 }
 
-html[data-locale="ko"] .outcome-panel.is-holding-ring .outcome-action-group {
-  --outcome-actions-width: 284px;
+html[data-locale="ko"] .outcome-action-group {
+  --outcome-actions-width: clamp(284px, 29vw, 320px);
 }
 
 @media (max-width: 660px) {

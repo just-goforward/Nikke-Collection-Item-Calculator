@@ -114,12 +114,13 @@ const classes = {
     "validation-details relative rounded-card border border-border bg-surface-raised",
   validationHeader:
     "flex min-h-[42px] items-center gap-1 px-3.5 py-3 text-[13px] font-semibold text-text-soft max-mobile:min-h-[38px] max-mobile:px-3 max-mobile:py-2.5 max-mobile:text-xs",
+  validationLabelGroup: "validation-label-group relative inline-flex min-w-0 items-center",
   validationSummary:
     "min-w-0 cursor-pointer border-0 bg-transparent p-0 text-left font-[inherit] leading-[1.2] text-[inherit]",
   validationSummaryLabel:
     "validation-summary-label relative inline-block min-h-[1.2em] leading-[1.2]",
   validationSummaryMeta:
-    "ml-auto shrink-0 cursor-pointer whitespace-nowrap border-0 bg-transparent p-0 text-[11.5px] font-semibold text-muted max-mobile:text-[10.5px]",
+    "validation-summary-meta ml-auto shrink-0 cursor-pointer whitespace-nowrap border-0 bg-transparent p-0 text-[11.5px] font-semibold text-muted max-mobile:text-[10.5px]",
   validationContent: "validation-content grid gap-2.5 px-3.5 pb-3.5 [&[hidden]]:hidden",
   validationText: "m-0 text-[13px] font-normal leading-normal text-muted",
 } as const;
@@ -583,18 +584,20 @@ function ValidationDetails({
   return (
     <section className={classes.validationDetails}>
       <div className={classes.validationHeader}>
-        <button
-          className={classes.validationSummary}
-          type="button"
-          aria-controls={contentId}
-          aria-expanded={open}
-          onClick={toggleValidation}
-        >
-          <span className={classes.validationSummaryLabel}>{t("detail.validation")}</span>
-        </button>
-        <InfoTip label={t("detail.validation")}>
-          {t("detail.validationHelp", { runs: formatInteger(monteCarloRuns) })}
-        </InfoTip>
+        <span className={classes.validationLabelGroup}>
+          <button
+            className={classes.validationSummary}
+            type="button"
+            aria-controls={contentId}
+            aria-expanded={open}
+            onClick={toggleValidation}
+          >
+            <span className={classes.validationSummaryLabel}>{t("detail.validation")}</span>
+          </button>
+          <InfoTip label={t("detail.validation")}>
+            {t("detail.validationHelp", { runs: formatInteger(monteCarloRuns) })}
+          </InfoTip>
+        </span>
         <button
           className={classes.validationSummaryMeta}
           type="button"

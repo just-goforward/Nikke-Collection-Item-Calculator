@@ -42,6 +42,35 @@ async function confirmOutcome(page: Page, locator: Locator, outcome: "대성공 
     .click();
 }
 
+async function pendingOutcomeGeometry(page: Page) {
+  return page.locator(".outcome-panel").evaluate((panel) => {
+    const actions = panel.querySelector<HTMLElement>(".outcome-action-group");
+    const buttons = [...panel.querySelectorAll<HTMLElement>(".outcome-buttons button")];
+    if (!actions || buttons.length !== 2) throw new Error("Missing pending outcome controls.");
+    const panelRect = panel.getBoundingClientRect();
+    const actionsRect = actions.getBoundingClientRect();
+    return {
+      actionHeight: actionsRect.height,
+      actionWidth: actionsRect.width,
+      buttonHeights: buttons.map((button) => button.getBoundingClientRect().height),
+      buttonWidths: buttons.map((button) => button.getBoundingClientRect().width),
+      panelHeight: panelRect.height,
+      panelWidth: panelRect.width,
+    };
+  });
+}
+
+function expectSameGeometry(
+  left: Awaited<ReturnType<typeof pendingOutcomeGeometry>>,
+  right: Awaited<ReturnType<typeof pendingOutcomeGeometry>>,
+) {
+  for (const key of ["actionHeight", "actionWidth", "panelHeight", "panelWidth"] as const) {
+    expect(Math.abs(left[key] - right[key])).toBeLessThanOrEqual(1);
+  }
+  expect(left.buttonHeights).toEqual(right.buttonHeights);
+  expect(left.buttonWidths).toEqual(right.buttonWidths);
+}
+
 test("보유 키트 입력값이 실제로 바뀌지 않으면 직전 결과를 stale로 바꾸지 않는다", async ({
   page,
 }) => {
@@ -243,4 +272,36 @@ test("다회 회차 입력 팝업 바깥을 누르면 취소와 동일하게 처
     "true",
   );
   await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
+});
+
+test("태블릿과 PC에서 대성공 O/X 확정 상태의 패널과 버튼 크기가 같다", async ({ page }) => {
+  for (const locale of ["ko", "ja", "en"] as const) {
+    await page.evaluate(({ key, value }) => localStorage.setItem(key, value), {
+      key: "collection-kit-calculator.language",
+      value: locale,
+    });
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("lang", locale);
+    await page.locator('[data-grade="R"]').click();
+    await page.locator('[data-level="14"]').click();
+    await page.locator("#blueStock").fill("100");
+    await page.locator("#purpleStock").fill("20");
+    await page.locator("#yellowStock").fill("20");
+    await page.locator("#calculateButton").click();
+    await expect(page.locator(".outcome-panel")).toBeVisible({ timeout: 20_000 });
+
+    for (const width of [768, 1100]) {
+      await page.setViewportSize({ width, height: 900 });
+      const initialGeometry = await pendingOutcomeGeometry(page);
+      await page.locator(".outcome-panel .success-button").click();
+      const successGeometry = await pendingOutcomeGeometry(page);
+      await page.locator(".outcome-panel .outcome-buttons button").nth(1).click();
+      await page.locator(".outcome-panel .fail-button").click();
+      const failGeometry = await pendingOutcomeGeometry(page);
+      expectSameGeometry(initialGeometry, successGeometry);
+      expectSameGeometry(initialGeometry, failGeometry);
+      expectSameGeometry(successGeometry, failGeometry);
+      await page.locator(".outcome-panel .outcome-buttons button").nth(0).click();
+    }
+  }
 });
