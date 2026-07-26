@@ -217,23 +217,12 @@ test("saved language overrides the browser language and persists after reload", 
   await expect(
     page.getByRole("heading", { name: "Collection Item Upgrade Calculator" }),
   ).toBeVisible();
-  await expect(page.locator("label:has(#blueStock) > span").first()).toContainText("Beginner Kit");
-  await expect(page.locator("label:has(#purpleStock) > span").first()).toContainText(
-    "Intermediate Kit",
-  );
-  await expect(page.locator("label:has(#yellowStock) > span").first()).toContainText("Elite Kit");
+  const stockLabels = page.locator("label:has(input[id$='Stock']) > span:first-child");
+  await expect(stockLabels).toHaveText(["Beginner Kit", "Intermediate Kit", "Elite Kit"]);
   await page.getByRole("button", { name: "Select language" }).click();
   await page.getByRole("option", { name: "日本語" }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "ja");
-  await expect(page.locator("label:has(#blueStock) > span").first()).toContainText(
-    "初心者用キット",
-  );
-  await expect(page.locator("label:has(#purpleStock) > span").first()).toContainText(
-    "中級者用キット",
-  );
-  await expect(page.locator("label:has(#yellowStock) > span").first()).toContainText(
-    "上級者用キット",
-  );
+  await expect(stockLabels).toHaveText(["初心者用キット", "中級者用キット", "上級者用キット"]);
   await expect
     .poll(() => page.evaluate((key) => localStorage.getItem(key), LANGUAGE_STORAGE_KEY))
     .toBe("ja");
