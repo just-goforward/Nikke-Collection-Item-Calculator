@@ -19,8 +19,12 @@ const evidenceDir = path.join(
 const variantsDir = path.join(evidenceDir, "variants");
 const fontCacheDir = path.join(evidenceDir, "font-cache");
 const reportsDir = path.join(evidenceDir, "lighthouse");
-const CDN_CSS_URL =
-  "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css";
+const LOCALES = ["ko", "ja", "en"];
+const CDN_CSS_URLS = {
+  ko: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css",
+  en: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-std-dynamic-subset.min.css",
+  ja: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-jp-dynamic-subset.min.css",
+};
 
 const variants = [
   {
@@ -75,11 +79,11 @@ async function fetchBytes(url) {
   return Buffer.from(await response.arrayBuffer());
 }
 
-function extractFontUrls(css) {
+function extractFontUrls(css, cssUrl) {
   const urls = new Set();
   const matches = css.matchAll(/url\((['"]?)([^'")]+\.woff2)\1\)/g);
   for (const match of matches) {
-    urls.add(new URL(match[2], CDN_CSS_URL).toString());
+    urls.add(new URL(match[2], cssUrl).toString());
   }
   return [...urls];
 }
@@ -88,77 +92,90 @@ function fontFileName(url) {
   return path.basename(new URL(url).pathname);
 }
 
-function rewriteCss(css, variant, fontUrls) {
+function rewriteCss(css, cssUrl, variant, fontUrls, locale) {
   const knownUrls = new Set(fontUrls);
   return css
     .replace(/font-display:[^;]+;/g, `font-display:${variant.display};`)
     .replace(/url\((['"]?)([^'")]+\.woff2)\1\)/g, (_match, _quote, rawUrl) => {
-      const url = new URL(rawUrl, CDN_CSS_URL).toString();
+      const url = new URL(rawUrl, cssUrl).toString();
       if (!knownUrls.has(url)) return `url(${rawUrl})`;
       const nextUrl =
-        variant.source === "selfhost" ? `./fonts/pretendard/${fontFileName(url)}` : url;
+        variant.source === "selfhost" ? `./fonts/pretendard/${locale}/${fontFileName(url)}` : url;
       return `url(${nextUrl})`;
     });
 }
 
-function fontLinkBlock({ includePreconnect, href }) {
-  const preconnect = includePreconnect
-    ? '    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />\n'
-    : "";
-  return `${preconnect}    <link
-      as="style"
-      rel="preload"
-      crossorigin
-      href="${href}"
-      onload="this.onload=null;this.rel='stylesheet'"
-    />
-    <noscript>
-      <link rel="stylesheet" crossorigin href="${href}" />
-    </noscript>`;
+function replaceFontStylesheetUrls(html, variant) {
+  let nextHtml = html;
+  for (const locale of LOCALES) {
+    const currentUrl = CDN_CSS_URLS[locale];
+    if (!nextHtml.includes(currentUrl)) {
+      throw new Error(`Could not locate the ${locale} Pretendard stylesheet URL.`);
+    }
+    nextHtml = nextHtml.replaceAll(currentUrl, `./font-pretendard-${locale}.css`);
+  }
+  if (variant.source === "selfhost") {
+    nextHtml = nextHtml.replace(
+      '    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />\n',
+      "",
+    );
+  }
+  return nextHtml;
 }
 
-function replaceCurrentFontBlock(html, nextBlock) {
-  const pattern =
-    /\s*<link rel="preconnect" href="https:\/\/cdn\.jsdelivr\.net" crossorigin \/>\s*<link\s+as="style"\s+rel="preload"\s+crossorigin\s+href="https:\/\/cdn\.jsdelivr\.net\/gh\/orioncactus\/pretendard@v1\.3\.9\/dist\/web\/variable\/pretendardvariable-dynamic-subset\.min\.css"\s+onload="this\.onload=null;this\.rel='stylesheet'"\s+\/>\s*<noscript>\s*<link\s+rel="stylesheet"\s+crossorigin\s+href="https:\/\/cdn\.jsdelivr\.net\/gh\/orioncactus\/pretendard@v1\.3\.9\/dist\/web\/variable\/pretendardvariable-dynamic-subset\.min\.css"\s+\/>\s*<\/noscript>/;
-  if (!pattern.test(html)) throw new Error("Could not locate current Pretendard font block.");
-  return html.replace(pattern, `\n${nextBlock}`);
+function forceInitialLocale(html, locale) {
+  const marker = "        const fontStylesheets = {";
+  if (!html.includes(marker)) throw new Error("Could not locate the locale font bootstrap.");
+  return html.replace(marker, `        locale = "${locale}";\n${marker}`);
 }
 
-async function downloadFontFiles(fontUrls) {
+async function downloadFontFiles(localeAssets) {
   await mkdir(fontCacheDir, { recursive: true });
-  for (const url of fontUrls) {
-    const filePath = path.join(fontCacheDir, fontFileName(url));
-    if (existsSync(filePath)) continue;
-    await writeFile(filePath, await fetchBytes(url));
+  for (const { fontUrls, locale } of localeAssets) {
+    const localeDir = path.join(fontCacheDir, locale);
+    await mkdir(localeDir, { recursive: true });
+    for (const url of fontUrls) {
+      const filePath = path.join(localeDir, fontFileName(url));
+      if (existsSync(filePath)) continue;
+      await writeFile(filePath, await fetchBytes(url));
+    }
   }
 }
 
-async function prepareVariant(variant, css, fontUrls) {
-  const dir = path.join(variantsDir, variant.id);
+async function prepareVariant(variant, initialLocale, localeAssets) {
+  const dir = path.join(variantsDir, `${variant.id}-${initialLocale}`);
   await rm(dir, { recursive: true, force: true });
   await cp(distDir, dir, { recursive: true });
 
-  if (variant.source === "current") return dir;
-
-  const stylesheetName = "font-pretendard.css";
   const htmlPath = path.join(dir, "index.html");
   const html = await readFile(htmlPath, "utf8");
-  const nextHtml = replaceCurrentFontBlock(
-    html,
-    fontLinkBlock({
-      href: `./${stylesheetName}`,
-      includePreconnect: variant.source === "cdn-fonts",
-    }),
-  );
+  const localeHtml = forceInitialLocale(html, initialLocale);
+  if (variant.source === "current") {
+    await writeFile(htmlPath, localeHtml);
+    return dir;
+  }
+
+  const nextHtml = replaceFontStylesheetUrls(localeHtml, variant);
   await writeFile(htmlPath, nextHtml);
-  await writeFile(path.join(dir, stylesheetName), rewriteCss(css, variant, fontUrls));
+  for (const asset of localeAssets) {
+    await writeFile(
+      path.join(dir, `font-pretendard-${asset.locale}.css`),
+      rewriteCss(asset.css, asset.cssUrl, variant, asset.fontUrls, asset.locale),
+    );
+  }
 
   if (variant.source !== "selfhost") return dir;
 
   const fontDir = path.join(dir, "fonts", "pretendard");
-  await mkdir(fontDir, { recursive: true });
-  for (const url of fontUrls) {
-    await cp(path.join(fontCacheDir, fontFileName(url)), path.join(fontDir, fontFileName(url)));
+  for (const asset of localeAssets) {
+    const localeDir = path.join(fontDir, asset.locale);
+    await mkdir(localeDir, { recursive: true });
+    for (const url of asset.fontUrls) {
+      await cp(
+        path.join(fontCacheDir, asset.locale, fontFileName(url)),
+        path.join(localeDir, fontFileName(url)),
+      );
+    }
   }
   return dir;
 }
@@ -274,13 +291,14 @@ function readMetric(audits, id) {
   return Number(audits[id]?.numericValue ?? 0);
 }
 
-function summarizeReport(report, variantId, runIndex) {
+function summarizeReport(report, variantId, locale, runIndex) {
   const audits = report.audits;
   const requests = audits["network-requests"]?.details?.items || [];
   const fontRequests = requests.filter((item) => /\.(?:woff2|css)(?:\?|$)/i.test(item.url || ""));
   const pretendardRequests = fontRequests.filter((item) => /pretendard/i.test(item.url || ""));
   return {
     variantId,
+    locale,
     runIndex,
     score: Math.round((report.categories.performance.score || 0) * 100),
     fcpMs: readMetric(audits, "first-contentful-paint"),
@@ -315,10 +333,13 @@ function median(values, key) {
 function medianSummary(rows) {
   const byVariant = new Map();
   for (const row of rows) {
-    byVariant.set(row.variantId, [...(byVariant.get(row.variantId) || []), row]);
+    const key = `${row.variantId}:${row.locale}`;
+    byVariant.set(key, [...(byVariant.get(key) || []), row]);
   }
-  return [...byVariant.entries()].map(([variantId, items]) => ({
-    variantId,
+  return [...byVariant.entries()].map(([key, items]) => ({
+    key,
+    variantId: items[0]?.variantId,
+    locale: items[0]?.locale,
     runs: items.length,
     score: median(items, "score"),
     fcpMs: median(items, "fcpMs"),
@@ -338,33 +359,47 @@ async function main() {
   await mkdir(evidenceDir, { recursive: true });
   await mkdir(reportsDir, { recursive: true });
 
-  const css = await fetchText(CDN_CSS_URL);
-  const fontUrls = extractFontUrls(css);
-  await writeFile(path.join(evidenceDir, "pretendardvariable-dynamic-subset.min.css"), css);
-  await downloadFontFiles(fontUrls);
+  const localeAssets = await Promise.all(
+    LOCALES.map(async (locale) => {
+      const cssUrl = CDN_CSS_URLS[locale];
+      const css = await fetchText(cssUrl);
+      const fontUrls = extractFontUrls(css, cssUrl);
+      await writeFile(path.join(evidenceDir, `pretendard-${locale}.css`), css);
+      return { css, cssUrl, fontUrls, locale };
+    }),
+  );
+  await downloadFontFiles(localeAssets);
 
   const variantDirs = new Map();
   for (const variant of variants) {
-    variantDirs.set(variant.id, await prepareVariant(variant, css, fontUrls));
+    for (const locale of LOCALES) {
+      const key = `${variant.id}:${locale}`;
+      variantDirs.set(key, await prepareVariant(variant, locale, localeAssets));
+    }
   }
 
   const rows = [];
   const servers = [];
   try {
-    for (const [index, variant] of variants.entries()) {
-      const port = options.port + index;
-      const server = await serveStatic(variantDirs.get(variant.id), port);
-      servers.push(server);
-      const url = `http://127.0.0.1:${port}/?demoStats=1`;
-      if (options.skipLighthouse) continue;
-      for (let runIndex = 1; runIndex <= options.runs; runIndex += 1) {
-        const outputPath = path.join(
-          reportsDir,
-          `${options.formFactor}-${variant.id}-${runIndex}.json`,
-        );
-        await runLighthouse(url, outputPath, options.formFactor);
-        const report = JSON.parse(await readFile(outputPath, "utf8"));
-        rows.push(summarizeReport(report, variant.id, runIndex));
+    let serverIndex = 0;
+    for (const variant of variants) {
+      for (const locale of LOCALES) {
+        const port = options.port + serverIndex;
+        serverIndex += 1;
+        const key = `${variant.id}:${locale}`;
+        const server = await serveStatic(variantDirs.get(key), port);
+        servers.push(server);
+        const url = `http://127.0.0.1:${port}/?demoStats=1`;
+        if (options.skipLighthouse) continue;
+        for (let runIndex = 1; runIndex <= options.runs; runIndex += 1) {
+          const outputPath = path.join(
+            reportsDir,
+            `${options.formFactor}-${variant.id}-${locale}-${runIndex}.json`,
+          );
+          await runLighthouse(url, outputPath, options.formFactor);
+          const report = JSON.parse(await readFile(outputPath, "utf8"));
+          rows.push(summarizeReport(report, variant.id, locale, runIndex));
+        }
       }
     }
   } finally {
@@ -382,9 +417,13 @@ async function main() {
     generatedAt: new Date().toISOString(),
     note: "Local test serves production build variants for a site intended for GitHub Actions and GitHub Pages deployment.",
     options,
-    cssUrl: CDN_CSS_URL,
-    fontFaceCount: (css.match(/@font-face/g) || []).length,
-    fontFileCount: fontUrls.length,
+    cssUrls: CDN_CSS_URLS,
+    localeAssets: localeAssets.map((asset) => ({
+      locale: asset.locale,
+      cssUrl: asset.cssUrl,
+      fontFaceCount: (asset.css.match(/@font-face/g) || []).length,
+      fontFileCount: asset.fontUrls.length,
+    })),
     variants,
     runs: rows,
     medians: medianSummary(rows),
