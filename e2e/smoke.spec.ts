@@ -7,7 +7,7 @@ import {
 } from "./smoke.helpers";
 import { test } from "./test";
 
-const PORT = 4173;
+const PORT = Number(process.env["E2E_SMOKE_PORT"] ?? 4273);
 let previewServer: PreviewServer | null = null;
 const MOBILE_OUTCOME_PROMPT = "추천 행동의 대성공 여부를 선택해주세요.";
 
@@ -209,9 +209,7 @@ test("태블릿에서는 현재 소장품 영역을 넓히고 키트 라벨을 �
     expect(stateBox?.width || 0).toBeGreaterThan(stockBox?.width || 0);
 
     const labelLayout = await page
-      .getByLabel(/(?:초심자용|중급자용|상급자용) 키트/)
-      .locator("..")
-      .locator("span")
+      .getByText(/^(?:초심자용|중급자용|상급자용) 키트$/)
       .evaluateAll((labels) =>
         labels.map((label) => ({
           clientWidth: label.clientWidth,
@@ -563,7 +561,7 @@ test("staging 통계는 통계 탭을 열 때만 별도 API에서 조회한다",
     await statsResponse.promise;
     await route.fulfill({
       status: 500,
-      headers: { "Access-Control-Allow-Origin": "http://127.0.0.1:4173" },
+      headers: { "Access-Control-Allow-Origin": `http://127.0.0.1:${PORT}` },
       body: "",
     });
   });
@@ -630,10 +628,13 @@ test("검산 details — 펼치면 가상의 니붕이 검산 결과가 자동 �
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: "계산", exact: true })).toBeEnabled();
-  await expect(page.locator(".validation-details summary .info-tip")).toHaveCount(1);
+  const validationDetails = page.locator(".validation-details");
+  await expect(validationDetails.locator(".info-tip")).toHaveCount(1);
   await expect(page.locator(".validation-button")).toHaveCount(0);
 
-  await openDetails(page.locator(".validation-details"));
+  const validationToggle = validationDetails.getByRole("button", { name: "검증", exact: true });
+  await validationToggle.click();
+  await expect(validationToggle).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText(/가상의 니붕이 .*SR 15/)).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(/이번엔 가상의 니붕이/)).toHaveCount(0);
 

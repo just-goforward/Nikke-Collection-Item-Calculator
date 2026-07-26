@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const smokePort = Number(process.env["E2E_SMOKE_PORT"] ?? 4273);
+
 export default defineConfig({
   testDir: "./e2e",
   testIgnore: /alignment\.spec\.ts$/,
@@ -12,7 +14,7 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: `http://127.0.0.1:${smokePort}`,
     trace: "retain-on-failure",
     locale: "ko-KR",
   },
