@@ -117,7 +117,7 @@ const classes = {
     "outcome-action-group grid w-[var(--outcome-actions-width,360px)] min-w-0 max-w-full justify-self-end content-center gap-1",
   outcomeButtons: "outcome-buttons grid grid-cols-2 gap-2",
   outcomeChoiceCaption:
-    "outcome-choice-caption m-0 flex min-h-[18px] flex-wrap items-center justify-center text-balance text-center text-[10.5px] font-semibold leading-[1.2] text-muted [overflow-wrap:anywhere] [word-break:keep-all]",
+    "outcome-choice-caption m-0 flex min-h-[18px] self-center flex-wrap items-center justify-center text-balance text-center text-[10.5px] font-semibold leading-[1.2] text-muted [overflow-wrap:anywhere] [word-break:keep-all]",
   outcomeCaptionPrefix: "text-muted",
   outcomeCaptionValue: "font-bold text-text-strong",
   outcomeButton:
@@ -128,7 +128,7 @@ const classes = {
   failHoldFill: "bg-[rgba(230,170,38,0.42)]",
   hiddenDot: "hidden",
   outcomeCaption:
-    "outcome-caption m-0 flex min-h-[18px] flex-wrap items-center justify-center text-balance text-center text-[10.5px] font-semibold leading-[1.2] text-muted [overflow-wrap:anywhere] [word-break:keep-all]",
+    "outcome-caption m-0 flex min-h-[18px] self-center flex-wrap items-center justify-center text-balance text-center text-[10.5px] font-semibold leading-[1.2] text-muted [overflow-wrap:anywhere] [word-break:keep-all]",
   outcomeCaptionStage: "outcome-caption-stage grid min-h-[18px]",
   outcomeChoiceCaptions: "grid grid-cols-2 gap-2",
   outcomeCaptionLayer: "col-start-1 row-start-1",
