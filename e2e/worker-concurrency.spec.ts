@@ -175,8 +175,9 @@ async function solveSr10(page: Page, yellow: string) {
 
 async function openValidation(page: Page) {
   const details = page.locator(".validation-details");
-  await details.locator("summary").click();
-  await expect(details).toHaveAttribute("open", "");
+  const toggle = details.getByRole("button", { name: "검증", exact: true });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
 }
 
 test("staging parallel validation uses a dedicated Worker", async ({ page }) => {

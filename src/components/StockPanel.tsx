@@ -100,6 +100,14 @@ function stockValueToText(value: number) {
   return value > 0 ? String(value) : "";
 }
 
+function stockToText(stock: Stock): Record<Kit, string> {
+  return {
+    blue: stockValueToText(stock.blue),
+    purple: stockValueToText(stock.purple),
+    yellow: stockValueToText(stock.yellow),
+  };
+}
+
 type StockFeedback = {
   reason: "invalid" | "max";
   value: number;
@@ -262,24 +270,23 @@ export default function StockPanel({
   onReset,
 }: StockPanelProps) {
   const { t, text } = useI18n();
-  const [stockText, setStockText] = useState<Record<Kit, string>>({
-    blue: stockValueToText(stock.blue),
-    purple: stockValueToText(stock.purple),
-    yellow: stockValueToText(stock.yellow),
-  });
+  const [stockText, setStockText] = useState<Record<Kit, string>>(() => stockToText(stock));
   const committedStockRef = useRef<Stock>(stock);
 
   useEffect(() => {
-    committedStockRef.current = { blue: stock.blue, purple: stock.purple, yellow: stock.yellow };
-    setStockText({
-      blue: stockValueToText(stock.blue),
-      purple: stockValueToText(stock.purple),
-      yellow: stockValueToText(stock.yellow),
-    });
-  }, [stock.blue, stock.purple, stock.yellow]);
+    committedStockRef.current = stock;
+    setStockText(stockToText(stock));
+  }, [stock]);
 
   const updateStockText = (kit: Kit, value: string) => {
     setStockText((current) => ({ ...current, [kit]: value }));
+    const trimmed = value.trim();
+    if (trimmed !== "" && (!/^\d+$/.test(trimmed) || stockDraftExceedsMax(trimmed))) return;
+    const nextValue = trimmed === "" ? 0 : Number(trimmed);
+    if (committedStockRef.current[kit] === nextValue) return;
+    const nextStock = { ...committedStockRef.current, [kit]: nextValue };
+    committedStockRef.current = nextStock;
+    onStockChange(nextStock);
   };
 
   const commitStock = (kit: Kit, value: string) => {
