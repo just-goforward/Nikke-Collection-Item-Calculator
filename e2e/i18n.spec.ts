@@ -739,9 +739,12 @@ test("candidate consumption uses available width before wrapping in narrow deskt
       };
     });
     expect(layout.overflow).toBeLessThanOrEqual(0);
-    expect(layout.horizontalPadding).toEqual(
-      Array.from({ length: 4 }, () => ({ end: 4, start: 4 })),
-    );
+    expect(layout.horizontalPadding).toEqual([
+      { end: 4, start: 10 },
+      { end: 4, start: 4 },
+      { end: 4, start: 4 },
+      { end: 4, start: 4 },
+    ]);
   }
 });
 
