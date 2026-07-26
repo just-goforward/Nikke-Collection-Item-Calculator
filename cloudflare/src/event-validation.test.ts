@@ -54,6 +54,25 @@ describe("validatePayload", () => {
     });
   });
 
+  it("preserves allowed passthrough fields while accepting optional and nullable values", () => {
+    const payload = kitPayload({
+      futureEventField: "kept",
+      strategy: undefined,
+      successAttempt: null,
+    });
+    Object.assign(payload, { futureEnvelopeField: 42 });
+
+    const parsed = EventSubmissionSchema.parse(payload);
+
+    expect(parsed).toMatchObject({
+      futureEnvelopeField: 42,
+      event: {
+        futureEventField: "kept",
+        successAttempt: null,
+      },
+    });
+  });
+
   it("rejects a failed result state that does not match recommended uses", () => {
     expectHttpError(
       () =>

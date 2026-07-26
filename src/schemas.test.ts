@@ -43,6 +43,26 @@ describe("StatsApiResponseSchema", () => {
     expect(parsed.levelKitStats).toEqual([]);
     expect(parsed.successAttemptDistribution).toEqual([]);
   });
+
+  it("preserves passthrough fields and nullable or optional summary values", () => {
+    const parsed = StatsApiResponseSchema.parse({
+      ...baseResponse,
+      futureTopLevelField: "kept",
+      summary: {
+        ...baseResponse.summary,
+        futureSummaryField: 42,
+        mostUsedKit: null,
+      },
+    });
+
+    expect(parsed).toMatchObject({
+      futureTopLevelField: "kept",
+      summary: {
+        futureSummaryField: 42,
+        mostUsedKit: null,
+      },
+    });
+  });
 });
 
 describe("worker request protocol", () => {

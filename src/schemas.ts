@@ -1,107 +1,96 @@
-import z from "zod/v4";
+import * as z from "zod/mini";
 
 const GradeSchema = z.enum(["R", "SR"]);
 const KitSchema = z.enum(["blue", "purple", "yellow"]);
 
-const NumericStatsSchema = z
-  .object({
-    events: z.number(),
-    attempts: z.number(),
-    pieces: z.number().optional(),
-    greatSuccesses: z.number(),
-    greatSuccessRate: z.number().optional(),
-    theoreticalGreatSuccessRate: z.number().optional(),
-  })
-  .passthrough();
+const NumericStatsSchema = z.looseObject({
+  events: z.number(),
+  attempts: z.number(),
+  pieces: z.optional(z.number()),
+  greatSuccesses: z.number(),
+  greatSuccessRate: z.optional(z.number()),
+  theoreticalGreatSuccessRate: z.optional(z.number()),
+});
 
-const LevelKitValueSchema = z
-  .object({
-    attempts: z.number(),
-    pieces: z.number().optional(),
-    greatSuccesses: z.number(),
-    greatSuccessRate: z.number(),
-    theoreticalGreatSuccessRate: z.number(),
-  })
-  .passthrough();
+const LevelKitValueSchema = z.looseObject({
+  attempts: z.number(),
+  pieces: z.optional(z.number()),
+  greatSuccesses: z.number(),
+  greatSuccessRate: z.number(),
+  theoreticalGreatSuccessRate: z.number(),
+});
 
-const StatsSummarySchema = z
-  .object({
-    events: z.number(),
-    attempts: z.number(),
-    greatSuccesses: z.number(),
-    greatSuccessRate: z.number(),
-    todayEvents: z.number().optional(),
-    todayAttempts: z.number().optional(),
-    todayGreatSuccesses: z.number().optional(),
-    mostUsedKit: KitSchema.nullable().optional(),
-    mostUsedKitPieces: z.number().optional(),
-  })
-  .passthrough();
+const StatsSummarySchema = z.looseObject({
+  events: z.number(),
+  attempts: z.number(),
+  greatSuccesses: z.number(),
+  greatSuccessRate: z.number(),
+  todayEvents: z.optional(z.number()),
+  todayAttempts: z.optional(z.number()),
+  todayGreatSuccesses: z.optional(z.number()),
+  mostUsedKit: z.optional(z.nullable(KitSchema)),
+  mostUsedKitPieces: z.optional(z.number()),
+});
 
-const KitStatsSchema = NumericStatsSchema.extend({
+const KitStatsSchema = z.extend(NumericStatsSchema, {
   kit: KitSchema,
   theoreticalGreatSuccessRate: z.number(),
-}).passthrough();
+});
 
-export const StatsApiResponseSchema = z
-  .object({
-    windowDays: z.number(),
-    today: z.string(),
-    summary: StatsSummarySchema.extend({
-      todayEvents: z.number(),
-      todayAttempts: z.number(),
-      todayGreatSuccesses: z.number(),
-      mostUsedKit: KitSchema.nullable(),
-      mostUsedKitPieces: z.number(),
-    }).passthrough(),
-    byKit: z.array(KitStatsSchema),
-    cumulative: z
-      .object({
-        summary: StatsSummarySchema,
-        byKit: z.array(KitStatsSchema),
-      })
-      .passthrough()
-      .optional(),
-    levelKitStats: z
-      .array(
-        z
-          .object({
-            grade: GradeSchema,
-            level: z.number(),
-            kits: z
-              .object({
-                blue: LevelKitValueSchema,
-                purple: LevelKitValueSchema,
-                yellow: LevelKitValueSchema,
-              })
-              .passthrough(),
-          })
-          .passthrough(),
-      )
-      .optional()
-      .default([]),
-    segmentStats: z.array(
-      NumericStatsSchema.extend({
-        key: z.string(),
-        label: z.string(),
-        theoreticalGreatSuccessRate: z.number(),
-        averageAttempts: z.number(),
-        byKit: z.array(KitStatsSchema).optional(),
-      }).passthrough(),
+export const StatsApiResponseSchema = z.looseObject({
+  windowDays: z.number(),
+  today: z.string(),
+  summary: z.extend(StatsSummarySchema, {
+    todayEvents: z.number(),
+    todayAttempts: z.number(),
+    todayGreatSuccesses: z.number(),
+    mostUsedKit: z.nullable(KitSchema),
+    mostUsedKitPieces: z.number(),
+  }),
+  byKit: z.array(KitStatsSchema),
+  cumulative: z.optional(
+    z.looseObject({
+      summary: StatsSummarySchema,
+      byKit: z.array(KitStatsSchema),
+    }),
+  ),
+  levelKitStats: z._default(
+    z.optional(
+      z.array(
+        z.looseObject({
+          grade: GradeSchema,
+          level: z.number(),
+          kits: z.looseObject({
+            blue: LevelKitValueSchema,
+            purple: LevelKitValueSchema,
+            yellow: LevelKitValueSchema,
+          }),
+        }),
+      ),
     ),
-    successAttemptDistribution: z
-      .array(
-        z
-          .object({
-            kit: KitSchema,
-            successAttempt: z.number(),
-            events: z.number(),
-          })
-          .passthrough(),
-      )
-      .optional()
-      .default([]),
-  })
-  .passthrough();
+    [],
+  ),
+  segmentStats: z.array(
+    z.extend(NumericStatsSchema, {
+      key: z.string(),
+      label: z.string(),
+      theoreticalGreatSuccessRate: z.number(),
+      averageAttempts: z.number(),
+      byKit: z.optional(z.array(KitStatsSchema)),
+    }),
+  ),
+  successAttemptDistribution: z._default(
+    z.optional(
+      z.array(
+        z.looseObject({
+          kit: KitSchema,
+          successAttempt: z.number(),
+          events: z.number(),
+        }),
+      ),
+    ),
+    [],
+  ),
+});
 
 export type StatsApiResponse = z.infer<typeof StatsApiResponseSchema>;
