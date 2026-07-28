@@ -1,4 +1,4 @@
-import { clampMemoStockUses, EXPECTED_28_DAY_GAIN } from "../solver/domain";
+import { EXPECTED_28_DAY_GAIN } from "../solver/domain";
 import type { Kit } from "../types";
 import { assertRustStatusOk, RustSolveError } from "./rustStatus";
 import type {
@@ -46,15 +46,6 @@ export function stockToUses(stock: Stock): Stock {
     blue: Math.floor(stock.blue / 10),
     purple: Math.floor(stock.purple / 10),
     yellow: Math.floor(stock.yellow / 10),
-  };
-}
-
-export function clampMemoStockPieces(stock: Stock): Stock {
-  const uses = clampMemoStockUses(stockToUses(stock));
-  return {
-    blue: uses.blue * 10,
-    purple: uses.purple * 10,
-    yellow: uses.yellow * 10,
   };
 }
 
@@ -234,13 +225,12 @@ export function phase2BuildContext(
   normPower: number,
   tolerance: number,
 ): Phase2BuildContext {
-  const boundedStock = clampMemoStockPieces(stock);
   return {
     stateId: encodeState(start.grade, start.level, start.exp ?? 0),
     stock: {
-      blue: boundedStock.blue | 0,
-      purple: boundedStock.purple | 0,
-      yellow: boundedStock.yellow | 0,
+      blue: stock.blue | 0,
+      purple: stock.purple | 0,
+      yellow: stock.yellow | 0,
     },
     horizonFactor,
     normPower,
@@ -280,12 +270,13 @@ export function solvePhase2Slot(
 ) {
   const solveCore = requireExport(exports, "solveCore");
   const stateId = encodeState(state.grade, state.level, state.exp ?? 0);
-  const boundedStock = clampMemoStockPieces(stockPieces);
+  // Raw pieces define availability-cost denominators.
+  // WASM independently caps derived uses for memo keys.
   const slot = solveCore(
     stateId,
-    boundedStock.blue | 0,
-    boundedStock.purple | 0,
-    boundedStock.yellow | 0,
+    stockPieces.blue | 0,
+    stockPieces.purple | 0,
+    stockPieces.yellow | 0,
     horizonFactor,
     normPower,
     tolerance,

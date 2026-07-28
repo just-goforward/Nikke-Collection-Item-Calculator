@@ -176,12 +176,12 @@ describe("rust min-E[f] core wrapper", () => {
 });
 
 describe("rust min-E[f] memo-key boundary", () => {
-  it("clamps raw stock before solve and lookup", () => {
+  it("passes raw pieces to min-E[f] solve and caps only memo-key lookups", () => {
     const exports = makeExports();
     const solver = createRustMinEfSolver(exports);
     const policy = solver.solveRootWithCandidates(
       { grade: "SR", level: 1, exp: 0 },
-      { blue: 999_999, purple: 999_999, yellow: 999_999 },
+      { blue: 61, purple: 121, yellow: 901 },
     );
 
     policy.actionAt(
@@ -189,7 +189,7 @@ describe("rust min-E[f] memo-key boundary", () => {
       { blue: 999_999, purple: 999_999, yellow: 999_999 },
     );
 
-    expect(exports.solveMinEf).toHaveBeenCalledWith(510, 2_200, 880, 440, 0.75, 3, 0);
+    expect(exports.solveMinEf).toHaveBeenCalledWith(510, 61, 121, 901, 0.75, 3, 0);
     expect(exports.minEfActionAtOrSolve).toHaveBeenCalledWith(510, 220, 88, 44);
   });
 });

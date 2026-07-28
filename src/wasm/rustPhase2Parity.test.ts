@@ -81,6 +81,8 @@ describe("rust phase2 wasm parity", () => {
 
     expect(exports.getSolveStatus?.()).toBe(0);
     expect(["blue", "purple", "yellow"][exports.minEfAction()]).toBe("blue");
+    // Semantic golden for absolute-inventory handling. Do not refresh expected values solely
+    // because this assertion fails. Revalidate the tau gate and dominance-cap distinction first.
     expect(f64Bits(exports.minEfExpectedCost())).toBe(0x3fbf64e435ab1f1en);
   });
 
@@ -103,6 +105,83 @@ describe("rust phase2 wasm parity", () => {
 
     expect(exports.getSolveStatus?.()).toBe(0);
     expect(exports.minEfNodeCount()).toBe(218_278);
+  });
+
+  it("preserves raw inventory above memo saturation when choosing the phase2 root action", () => {
+    const start = { grade: "R" as const, level: 0, exp: 0 };
+    const stock = { blue: 2_210, purple: 890, yellow: 450 };
+    const js = solveWithResearchCostModel(
+      { start, stock, strategy: "supply" },
+      { kind: "availability-pnorm", horizonFactor: HORIZON_FACTOR, normPower: NORM_POWER },
+      undefined,
+      { toleranceOverride: TOLERANCE },
+    ) as { best: { firstAction: string | null } };
+    const rust = solver.solveRoot(start, stock, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+
+    expect(js.best.firstAction).toBe("purple");
+    expect(rust.firstAction).toBe("purple");
+  });
+
+  it("preserves remainder pieces in phase2 action, vector, and availability cost parity", async () => {
+    const start = { grade: "R" as const, level: 5, exp: 0 };
+    const stock = { blue: 880, purple: 439, yellow: 111 };
+    const js = solveWithResearchCostModel(
+      { start, stock, strategy: "supply" },
+      { kind: "availability-pnorm", horizonFactor: HORIZON_FACTOR, normPower: NORM_POWER },
+      undefined,
+      { toleranceOverride: TOLERANCE },
+    ) as {
+      best: {
+        availabilityCost: number;
+        firstAction: string | null;
+        vector: { blue: number; purple: number; yellow: number };
+      };
+    };
+    const rust = (await solveRustPhase2({ start, stock, strategy: "supply" }, wasmDataUrl)) as {
+      best: {
+        availabilityCost: number;
+        firstAction: string | null;
+        vector: { blue: number; purple: number; yellow: number };
+      };
+    };
+
+    expect(js.best.firstAction).toBe("purple");
+    expect(rust.best.firstAction).toBe(js.best.firstAction);
+    closeTo(rust.best.vector.blue, js.best.vector.blue);
+    closeTo(rust.best.vector.purple, js.best.vector.purple);
+    closeTo(rust.best.vector.yellow, js.best.vector.yellow);
+    closeTo(rust.best.availabilityCost, js.best.availabilityCost);
+  }, 30_000);
+
+  it("clamps over-range uses at the moment-vector ABI boundary", async () => {
+    const instantiated = (await WebAssembly.instantiate(wasm)) as
+      | WebAssembly.Instance
+      | { instance: WebAssembly.Instance };
+    const instance =
+      instantiated instanceof WebAssembly.Instance ? instantiated : instantiated.instance;
+    const exports = instance.exports as unknown as RustCoreExports;
+    const solveCore = exports.solveCore;
+    const momentVector = exports.momentVectorAfterFirstActionFromPolicy;
+    const meanB = exports.momentMeanBUses;
+    const meanP = exports.momentMeanPUses;
+    const meanY = exports.momentMeanYUses;
+    const nodeCount = exports.momentVectorNodeCount;
+    if (!solveCore || !momentVector || !meanB || !meanP || !meanY || !nodeCount) {
+      throw new Error("Phase2 moment-vector exports are required for the ABI boundary test.");
+    }
+
+    const run = (blue: number, purple: number, yellow: number) => {
+      solveCore(0, 2_260, 890, 450, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+      expect(exports.getSolveStatus?.()).toBe(0);
+      momentVector(0, blue, purple, yellow, 0);
+      expect(exports.getSolveStatus?.()).toBe(0);
+      return {
+        means: [meanB(), meanP(), meanY()],
+        nodes: nodeCount(),
+      };
+    };
+
+    expect(run(226, 89, 45)).toEqual(run(220, 88, 44));
   });
 
   for (const testCase of CASES) {

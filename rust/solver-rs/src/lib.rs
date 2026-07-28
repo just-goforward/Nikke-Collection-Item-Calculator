@@ -808,11 +808,12 @@ pub extern "C" fn momentVectorAfterFirstActionFromPolicy(
     first_action: i32,
 ) {
     unsafe {
+        let (bounded_b, bounded_p, bounded_y) = clamp_stock_uses(b0, p0, y0);
         moment_vector_after_first_action_from_policy(
             start_sid,
-            b0,
-            p0,
-            y0,
+            bounded_b,
+            bounded_p,
+            bounded_y,
             first_action,
             policy_action,
         )
