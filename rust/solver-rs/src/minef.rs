@@ -49,6 +49,42 @@ static mut ME_START_B: i32 = 0;
 static mut ME_START_P: i32 = 0;
 static mut ME_START_Y: i32 = 0;
 static mut ME_COUNT: usize = 0;
+#[derive(Clone, Copy)]
+struct TerminalCacheLayout {
+    p_dim: usize,
+    y_dim: usize,
+    len: usize,
+}
+impl TerminalCacheLayout {
+    const EMPTY: Self = Self {
+        p_dim: 0,
+        y_dim: 0,
+        len: 0,
+    };
+
+    fn new(b: usize, p: usize, y: usize) -> Self {
+        let p_dim = p + 1;
+        let y_dim = y + 1;
+        let len = (b + 1)
+            .checked_mul(p_dim)
+            .and_then(|value| value.checked_mul(y_dim))
+            .expect("terminal cache dimensions must fit usize");
+        Self { p_dim, y_dim, len }
+    }
+
+    #[inline]
+    fn index(self, b: usize, p: usize, y: usize) -> usize {
+        debug_assert!(p < self.p_dim);
+        debug_assert!(y < self.y_dim);
+        let index = (b * self.p_dim + p) * self.y_dim + y;
+        debug_assert!(index < self.len);
+        index
+    }
+}
+static mut TERM_LAYOUT: TerminalCacheLayout = TerminalCacheLayout::EMPTY;
+static mut TERM_VALUE: Vec<f64> = Vec::new();
+static mut TERM_GEN: Vec<u32> = Vec::new();
+static mut TERM_EPOCH: u32 = 1;
 // return registers (the node's chosen result)
 static mut MN_SP: f64 = 0.0;
 static mut MN_SPMAX: f64 = 0.0;
@@ -109,6 +145,10 @@ unsafe fn me_release_arrays() {
     ME_SC_VP = Vec::new();
     ME_SC_VY = Vec::new();
     ME_SC_EF = Vec::new();
+    TERM_LAYOUT = TerminalCacheLayout::EMPTY;
+    TERM_VALUE = Vec::new();
+    TERM_GEN = Vec::new();
+    TERM_EPOCH = 1;
     me_clear_results();
 }
 
@@ -139,6 +179,46 @@ unsafe fn me_leaf_cost(b: i32, p: i32, y: i32) -> f64 {
     let cp = ((ME_START_P - p) * 10) as f64;
     let cy = ((ME_START_Y - y) * 10) as f64;
     availability_cost_pre(cb, cp, cy, ME_DEN_B, ME_DEN_P, ME_DEN_Y, ME_NP, ME_INV_NP)
+}
+fn terminal_dimension(value: i32, max: i32) -> usize {
+    assert!(
+        (0..=max).contains(&value),
+        "terminal cache dimension outside memo domain"
+    );
+    value as usize
+}
+unsafe fn terminal_cache_reset() {
+    let layout = TerminalCacheLayout::new(
+        terminal_dimension(ME_START_B, MAX_USES_B),
+        terminal_dimension(ME_START_P, MAX_USES_P),
+        terminal_dimension(ME_START_Y, MAX_USES_Y),
+    );
+    if TERM_VALUE.len() != layout.len {
+        TERM_VALUE = vec![0.0; layout.len];
+        TERM_GEN = vec![0; layout.len];
+        TERM_EPOCH = 1;
+    } else {
+        TERM_EPOCH = TERM_EPOCH.wrapping_add(1);
+        if TERM_EPOCH == 0 {
+            TERM_GEN.fill(0);
+            TERM_EPOCH = 1;
+        }
+    }
+    TERM_LAYOUT = layout;
+}
+#[inline]
+unsafe fn me_leaf_cost_cached(b: i32, p: i32, y: i32) -> f64 {
+    debug_assert!(b >= 0 && p >= 0 && y >= 0);
+    // Correctness requires a bounded bijection shared by reads and writes.
+    // Dimension order is a performance choice; benchmark before changing it.
+    let index = TERM_LAYOUT.index(b as usize, p as usize, y as usize);
+    if TERM_GEN[index] == TERM_EPOCH {
+        return TERM_VALUE[index];
+    }
+    let value = me_leaf_cost(b, p, y);
+    TERM_VALUE[index] = value;
+    TERM_GEN[index] = TERM_EPOCH;
+    value
 }
 #[inline]
 // The stored key is packed, but the hash must keep the AssemblyScript port's component-wise
@@ -195,7 +275,7 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {
         MN_VB = 0.0;
         MN_VP = 0.0;
         MN_VY = 0.0;
-        MN_EF = me_leaf_cost(b, p, y);
+        MN_EF = me_leaf_cost_cached(b, p, y);
         MN_ACT = -1;
         return;
     }
@@ -288,7 +368,7 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {
         MN_VB = 0.0;
         MN_VP = 0.0;
         MN_VY = 0.0;
-        MN_EF = me_leaf_cost(b, p, y);
+        MN_EF = me_leaf_cost_cached(b, p, y);
         MN_ACT = -1;
         ME_KEY[slot] = key;
         ME_GEN[slot] = ME_EPOCH;
@@ -395,8 +475,43 @@ pub extern "C" fn solveMinEf(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f
         ME_START_P = uses_of(pp, MAX_USES_P);
         ME_START_Y = uses_of(py, MAX_USES_Y);
         reset_status();
+        terminal_cache_reset();
         me_reset();
         minef_node(sid, ME_START_B, ME_START_P, ME_START_Y, 0);
+    }
+}
+
+#[cfg(test)]
+mod terminal_cache_tests {
+    use super::TerminalCacheLayout;
+
+    #[test]
+    fn layout_uses_the_expected_dense_capacity() {
+        let small = TerminalCacheLayout::new(6, 12, 44);
+        assert_eq!(small.len, 7 * 13 * 45);
+        assert_eq!(small.index(0, 0, 0), 0);
+        assert_eq!(small.index(6, 12, 44), small.len - 1);
+
+        let maximum = TerminalCacheLayout::new(220, 88, 44);
+        assert_eq!(maximum.len, 885_105);
+    }
+
+    #[test]
+    fn layout_is_a_bounded_bijection() {
+        let layout = TerminalCacheLayout::new(3, 2, 4);
+        let mut seen = vec![false; layout.len];
+
+        for b in 0..=3 {
+            for p in 0..=2 {
+                for y in 0..=4 {
+                    let index = layout.index(b, p, y);
+                    assert!(index < layout.len);
+                    assert!(!std::mem::replace(&mut seen[index], true));
+                }
+            }
+        }
+
+        assert!(seen.into_iter().all(|occupied| occupied));
     }
 }
 #[no_mangle]

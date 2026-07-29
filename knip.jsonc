@@ -28,5 +28,6 @@
     "src/wasm/rustRerankProductSolver.ts",
     "src/wasm/rustResearchLoader.ts"
   ],
+  "ignoreBinaries": ["rustc"],
   "ignoreDependencies": ["cloudflare"]
 }
