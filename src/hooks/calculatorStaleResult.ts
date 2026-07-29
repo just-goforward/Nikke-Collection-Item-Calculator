@@ -71,24 +71,9 @@ export function useStaleAwareResultRendering({
   const renderMaxLevelState = useCallback(
     (nextGrade: Grade, nextLevel: number) => {
       clearResultStale();
-      if (isMaxLevelGeneratedResult(resultView)) {
-        latestResultRef.current = null;
-        setResultView(EMPTY_RESULT);
-        setDetailView(EMPTY_DETAIL);
-        setValidationView(INITIAL_VALIDATION);
-        return;
-      }
       renderMaxLevelStateBase(nextGrade, nextLevel);
     },
-    [
-      clearResultStale,
-      latestResultRef,
-      renderMaxLevelStateBase,
-      resultView,
-      setDetailView,
-      setResultView,
-      setValidationView,
-    ],
+    [clearResultStale, renderMaxLevelStateBase],
   );
 
   const renderResult = useCallback(

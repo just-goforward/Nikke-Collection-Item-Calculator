@@ -330,20 +330,26 @@ test("R 15 — SR 등급 교체 안내와 적용이 동작한다", async ({ page
   await expect(page.getByText(/SR 5단계/)).toBeVisible();
 });
 
-test("R 15/SR 15 안내는 소장품 상태를 바꾸면 결과에서 사라진다", async ({ page }) => {
+test("R 15/SR 15 안내는 최대 단계 선택을 반복하거나 등급을 바꿔도 유지된다", async ({ page }) => {
   await page.getByRole("button", { name: "15단계", exact: true }).click();
   await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
 
-  await page.getByRole("button", { name: "14단계", exact: true }).click();
-  await expect(page.getByText("SR 등급으로 교체")).toHaveCount(0);
-  await expect(
-    page.getByText("최대 단계입니다. R 15단계는 SR 5단계로 교체할 수 있습니다."),
-  ).toHaveCount(0);
+  await page
+    .getByRole("group", { name: "소장품 등급" })
+    .getByRole("button", { name: "R", exact: true })
+    .click();
+  await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
+
+  await page.getByRole("button", { name: "15단계", exact: true }).click();
+  await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
 
   await page
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
+  await expect(page.getByText("SR 15단계입니다. 최종 목표 상태입니다.")).toBeVisible();
+  await expect(page.getByText("SR 등급으로 교체")).toHaveCount(0);
+
   await page.getByRole("button", { name: "15단계", exact: true }).click();
   await expect(page.getByText("SR 15단계입니다. 최종 목표 상태입니다.")).toBeVisible();
 
@@ -351,8 +357,14 @@ test("R 15/SR 15 안내는 소장품 상태를 바꾸면 결과에서 사라진�
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "R", exact: true })
     .click();
+  await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
   await expect(page.getByText("SR 15단계입니다. 최종 목표 상태입니다.")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "14단계", exact: true }).click();
   await expect(page.getByText("SR 등급으로 교체")).toHaveCount(0);
+  await expect(
+    page.getByText("최대 단계입니다. R 15단계는 SR 5단계로 교체할 수 있습니다."),
+  ).toHaveCount(0);
 });
 
 test("SR 15 — 최종 목표 상태 문구가 정상 한글로 표시된다", async ({ page }) => {
