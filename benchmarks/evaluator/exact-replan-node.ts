@@ -5,14 +5,33 @@ export function zeroConsumption(): Stock {
   return { blue: 0, purple: 0, yellow: 0 };
 }
 
-export function terminalNode(successProbability: number): NodeResult {
+export function emptyAggregate(): NodeResult {
   return {
-    successProbability,
+    successProbability: 0,
     expectedConsumption: zeroConsumption(),
+    exhaustionProbability: zeroConsumption(),
+    minimumRemainingPieces: {
+      blue: Number.POSITIVE_INFINITY,
+      purple: Number.POSITIVE_INFINITY,
+      yellow: Number.POSITIVE_INFINITY,
+    },
     manualEntryProbability: 0,
     expectedManualEntries: 0,
     successAttemptSelectionProbability: 0,
     expectedSuccessAttemptSelections: 0,
+  };
+}
+
+export function terminalNode(successProbability: number, stock: Stock): NodeResult {
+  return {
+    ...emptyAggregate(),
+    successProbability,
+    exhaustionProbability: {
+      blue: stock.blue < 10 ? 1 : 0,
+      purple: stock.purple < 10 ? 1 : 0,
+      yellow: stock.yellow < 10 ? 1 : 0,
+    },
+    minimumRemainingPieces: { ...stock },
   };
 }
 

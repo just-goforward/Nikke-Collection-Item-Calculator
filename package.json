@@ -25,6 +25,8 @@
     "bench:availability-finish": "node benchmarks/run-availability-finish.ts",
     "bench:availability-analyze": "node benchmarks/analyze-availability.ts",
     "bench:rust-rerank": "node benchmarks/run-rust-rerank-benchmark.ts",
+    "bench:solver-quality": "node benchmarks/run-solver-policy-quality.ts",
+    "bench:cvar-audit": "node benchmarks/run-cvar-audit.ts",
     "bench:rust-runtime": "node benchmarks/run-rust-runtime-benchmark.ts",
     "bench:rust-analyze": "node benchmarks/analyze-rust-solver-direction.ts",
     "bench:rust-rerank-supplemental": "node benchmarks/run-rust-rerank-supplemental.ts",
@@ -63,28 +65,28 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
-    "@biomejs/biome": "^2.5.5",
-    "@cloudflare/vitest-pool-workers": "^0.18.8",
-    "@playwright/test": "1.62.0",
+    "@biomejs/biome": "^2.5.7",
+    "@cloudflare/vitest-pool-workers": "^0.20.1",
+    "@playwright/test": "1.62.1",
     "@stryker-mutator/api": "^9.6.1",
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.1.2",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.4",
     "@vitest/coverage-v8": "^4.1.10",
     "esbuild": "^0.28.1",
     "fast-check": "^4.9.0",
-    "knip": "^6.29.0",
-    "oxc-parser": "^0.142.0",
+    "knip": "^6.31.0",
+    "oxc-parser": "^0.143.0",
     "sharp": "0.35.3",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.1.5",
+    "vite": "^8.2.0",
     "vitest": "^4.1.10",
-    "wrangler": "^4.114.0"
+    "wrangler": "^4.118.0"
   },
   "dependencies": {
     "react": "^19.2.8",
@@ -92,12 +94,13 @@
     "zod": "4.4.3"
   },
   "overrides": {
-    "qs": "6.15.3"
+    "qs": "6.15.3",
+    "undici": "7.29.0"
   },
   "allowScripts": {
     "esbuild@0.28.1": true,
     "sharp@0.34.5": true,
     "sharp@0.35.3": true,
-    "workerd@1.20260722.1": true
+    "workerd@1.20260730.1": true
   }
 }

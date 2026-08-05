@@ -97,6 +97,15 @@ export type RustRerankResult = {
   policy: RustPhase2Policy;
 };
 
+export type RustExactRerankedCandidate = RustPhase2Candidate & RustExactExpectedCostEstimate;
+
+export type RustExactRerankResult = {
+  baseline: RustPhase2Root;
+  selected: RustExactRerankedCandidate;
+  candidates: RustExactRerankedCandidate[];
+  policy: RustPhase2Policy;
+};
+
 export type RustMonteCarloResult = {
   runs: number;
   completed: number;
@@ -238,4 +247,11 @@ export type RustPhase2ResearchSolver = RustPhase2ProductSolver & {
     normPower?: number,
     tolerance?: number,
   ) => RustRerankResult | null;
+  selectFirstActionByExactExpectedCost: (
+    start: State,
+    stock: Stock,
+    horizonFactor?: number,
+    normPower?: number,
+    tolerance?: number,
+  ) => RustExactRerankResult | null;
 };

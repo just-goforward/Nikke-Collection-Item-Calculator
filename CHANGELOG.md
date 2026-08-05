@@ -2,6 +2,20 @@
 
 소장품 레벨업 계산기의 주요 변경 이력을 기록합니다.
 
+## 2026-07-29
+
+### Rust solver 정책 품질 연구
+
+- 현재 raw-pieces·`τ=0`, `H=0.75`, `p=3` 계약으로 phase2 MC rerank와 exact one-step
+  rerank를 다시 평가했습니다.
+- exact interactive-replan evaluator에 키트별 고갈 확률, 최소 잔여량, typed solver
+  failure를 추가했습니다.
+- min-E[f] fallback 시나리오에서 두 rerank 후보가 제품 채택 기준을 통과하지 못해
+  production runtime은 변경하지 않았습니다.
+- 기존 CVaR ABI는 raw pieces를 보존하지만 성공확률 gate와 interactive policy 검증
+  경계가 없어 연구 신호로만 유지합니다.
+- 상세 판정: [`docs/research/solver-policy-quality-findings.ko.md`](docs/research/solver-policy-quality-findings.ko.md)
+
 ## 2026-07-26
 
 ### 단일 대성공 자동 처리와 문서 정리
@@ -50,6 +64,8 @@
   - Root candidates are filtered by exact phase2 probability gate first.
   - Eligible first actions are reranked by fixed-seed first-action E[f] rollout.
   - A held-out seed is recorded for the selected action to expose seed sensitivity.
+  - Historical note: runtime selection wiring was removed on 2026-06-21. The rerank
+    implementation now remains research-only and is not an active product backend.
 - Added Rust staging smoke coverage and diagnostic-version tests for the new solver variants.
 
 ## 2026-06-01

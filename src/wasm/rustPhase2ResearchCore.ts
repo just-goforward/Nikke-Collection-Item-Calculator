@@ -20,6 +20,7 @@ import {
 import { simulatePolicy, simulatePolicyAfterFirstAction } from "./rustPhase2Validation";
 import type {
   RustCoreExports,
+  RustExactRerankedCandidate,
   RustPhase2Policy,
   RustPhase2ResearchSolver,
   State,
@@ -133,7 +134,44 @@ export function createRustPhase2ResearchSolver(exports: RustCoreExports): RustPh
       const selected = selectLowestExpectedCostCandidate(candidates);
       return { baseline: policy.root, selected, candidates, policy };
     },
+    selectFirstActionByExactExpectedCost(
+      start,
+      stock,
+      horizonFactor = 0.75,
+      normPower = 3,
+      tolerance = 0,
+    ) {
+      const policy = buildPolicy(state, start, stock, horizonFactor, normPower, tolerance);
+      const exactCandidates = policy.candidates
+        .filter((candidate) => candidate.eligible)
+        .map((candidate) => ({
+          ...candidate,
+          ...estimateExactExpectedCostAfterFirstActionFromCurrent(
+            state,
+            start,
+            stock,
+            candidate.firstAction,
+            horizonFactor,
+            normPower,
+          ),
+        }));
+      if (exactCandidates.length === 0) return null;
+      const selected = selectExactRerankCandidate(exactCandidates, policy.root.firstAction);
+      return { baseline: policy.root, selected, candidates: exactCandidates, policy };
+    },
   };
+}
+
+export function selectExactRerankCandidate(
+  candidates: RustExactRerankedCandidate[],
+  baselineFirstAction: RustPhase2Policy["root"]["firstAction"],
+) {
+  const baseline =
+    candidates.find((candidate) => candidate.firstAction === baselineFirstAction) ?? candidates[0];
+  if (!baseline) throw new Error("Exact rerank requires at least one eligible candidate.");
+  return candidates.reduce((best, candidate) => {
+    return candidate.expectedCost < best.expectedCost - 1e-12 ? candidate : best;
+  }, baseline);
 }
 
 function selectLowestExpectedCostCandidate<

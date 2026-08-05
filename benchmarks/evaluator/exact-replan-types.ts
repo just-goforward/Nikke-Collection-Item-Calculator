@@ -1,15 +1,26 @@
 import type { ResearchCostModel } from "../../src/solver/domain";
-import type { ProbabilityGateWitness } from "../../src/solver/gate";
-import type { solveWithResearchCostModel } from "../../src/solver/solve";
+import type { ProbabilityGateAudit, ProbabilityGateWitness } from "../../src/solver/gate";
 import type { CollectionState, Kit, SolverInput, Stock } from "../../src/types";
 import type { SolverScenario } from "../scenarios/fixed-grid";
 
 export type ModelId = string;
 
+export type ExactPolicySolverResult = {
+  possible?: boolean;
+  best?: {
+    firstAction: Kit | null;
+    run?: { count: number };
+    probabilityGap: number;
+  } | null;
+  stats?: {
+    gateAudit?: ProbabilityGateAudit;
+  };
+};
+
 export type ExactEvaluatorOptions = {
   modelId?: ModelId;
   costModel?: ResearchCostModel;
-  policySolver?: (input: SolverInput) => ReturnType<typeof solveWithResearchCostModel>;
+  policySolver?: (input: SolverInput) => ExactPolicySolverResult;
   toleranceOverride?: number;
   timeBudgetMs?: number;
   progressEverySolveCalls?: number;
@@ -55,6 +66,8 @@ export type GateEvidence = {
 export type NodeResult = {
   successProbability: number;
   expectedConsumption: Stock;
+  exhaustionProbability: Stock;
+  minimumRemainingPieces: Stock;
   manualEntryProbability: number;
   expectedManualEntries: number;
   successAttemptSelectionProbability: number;
@@ -97,6 +110,8 @@ export type ExactInteractiveEvaluation =
       gateEvidence: GateEvidence;
       successProbability: number;
       expectedConsumption: Stock;
+      exhaustionProbability: Stock;
+      minimumRemainingPieces: Stock;
       interactiveF: number;
       manualEntryProbability: number;
       expectedManualEntries: number;
@@ -113,6 +128,18 @@ export type ExactInteractiveEvaluation =
       cachedNodes: number;
       cachedPolicies: number;
       gateEvidence: GateEvidence;
+    }
+  | {
+      status: "solver_failure";
+      reason: "policy_solver_error";
+      errorMessage: string;
+      scenario: SolverScenario;
+      modelId: ModelId;
+      elapsedMs: number;
+      solveCalls: number;
+      cachedNodes: number;
+      cachedPolicies: number;
+      gateEvidence: GateEvidence;
     };
 
 export type ExactInteractiveReplanSession = {
@@ -121,7 +148,7 @@ export type ExactInteractiveReplanSession = {
 };
 
 export type ExactInteractiveReplanCheckpoint = {
-  version: 1;
+  version: 2;
   scenarioId: string;
   modelId: ModelId;
   costModel: ResearchCostModel;
@@ -131,4 +158,8 @@ export type ExactInteractiveReplanCheckpoint = {
   cachedNodes: Array<[string, NodeResult]>;
   cachedPolicies: Array<[string, PolicyDecision]>;
   completedNode: NodeResult | null;
+  solverFailure: {
+    reason: "policy_solver_error";
+    errorMessage: string;
+  } | null;
 };

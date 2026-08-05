@@ -4,12 +4,13 @@ import type { CollectionState, Kit, Stock } from "../../src/types";
 import { availabilityPnormObjective } from "../metrics";
 import type { SolverScenario } from "../scenarios/fixed-grid";
 import { createGateEvidence, mergeInternalAudit, recordBoundaryGap } from "./exact-replan-gates";
-import { consume, stateStockKey, terminalNode } from "./exact-replan-node";
+import { consume, emptyAggregate, stateStockKey, terminalNode } from "./exact-replan-node";
 import type {
   ExactEvaluatorOptions,
   ExactInteractiveEvaluation,
   ExactInteractiveReplanCheckpoint,
   ExactInteractiveReplanSession,
+  ExactPolicySolverResult,
   NodeResult,
   PolicyDecision,
 } from "./exact-replan-types";
@@ -17,6 +18,13 @@ import type {
 const KITS: Kit[] = ["blue", "purple", "yellow"];
 
 class EvaluationBudgetExceeded extends Error {}
+
+class PolicySolverFailure extends Error {
+  constructor(error: unknown) {
+    super(error instanceof Error ? error.message : String(error), { cause: error });
+    this.name = "PolicySolverFailure";
+  }
+}
 
 export function createExactInteractiveReplanSession(
   scenario: SolverScenario,
@@ -33,7 +41,7 @@ export function createExactInteractiveReplanSession(
       : STRATEGY_PROBABILITY_TOLERANCE.supply;
   if (
     checkpoint &&
-    (checkpoint.version !== 1 ||
+    (checkpoint.version !== 2 ||
       checkpoint.scenarioId !== scenario.id ||
       checkpoint.modelId !== modelId ||
       JSON.stringify(checkpoint.costModel) !== JSON.stringify(costModel))
@@ -48,6 +56,7 @@ export function createExactInteractiveReplanSession(
   let sliceStartedAt: number | null = null;
   let deadline = Number.POSITIVE_INFINITY;
   let completedNode: NodeResult | null = checkpoint?.completedNode || null;
+  let solverFailure = checkpoint?.solverFailure || null;
   const progressInterval = Math.max(0, Math.trunc(options.progressEverySolveCalls || 0));
 
   function elapsedMs() {
@@ -89,14 +98,19 @@ export function createExactInteractiveReplanSession(
     if (cachedPolicy) return cachedPolicy;
 
     const input = { start: state, stock, strategy: "supply" as const };
-    const solved = options.policySolver
-      ? options.policySolver(input)
-      : solveWithResearchCostModel(input, costModel, undefined, {
-          ...(options.toleranceOverride !== undefined
-            ? { toleranceOverride: options.toleranceOverride }
-            : {}),
-        });
+    let solved: ExactPolicySolverResult;
     solveCalls += 1;
+    try {
+      solved = options.policySolver
+        ? options.policySolver(input)
+        : solveWithResearchCostModel(input, costModel, undefined, {
+            ...(options.toleranceOverride !== undefined
+              ? { toleranceOverride: options.toleranceOverride }
+              : {}),
+          });
+    } catch (error) {
+      throw new PolicySolverFailure(error);
+    }
     mergeInternalAudit(gateEvidence, solved.stats?.gateAudit, state, stock);
     const result: PolicyDecision = {
       possible: Boolean(solved.possible),
@@ -120,7 +134,7 @@ export function createExactInteractiveReplanSession(
 
   function visit(state: CollectionState, stock: Stock): NodeResult {
     checkBudget();
-    if (state.grade === "SR" && state.level >= 15) return terminalNode(1);
+    if (state.grade === "SR" && state.level >= 15) return terminalNode(1, stock);
     if (state.grade === "R" && state.level >= 15) return visit(convertState(), stock);
 
     const key = stateStockKey(state, stock);
@@ -129,7 +143,7 @@ export function createExactInteractiveReplanSession(
 
     const result = policyFor(state, stock, key);
     if (!result.possible || !result.best?.run) {
-      const stopped = terminalNode(0);
+      const stopped = terminalNode(0, stock);
       cache.set(key, stopped);
       return stopped;
     }
@@ -139,7 +153,18 @@ export function createExactInteractiveReplanSession(
     const runCount = Math.max(1, Math.trunc(Number(best.run.count) || 1));
     let failState = state;
     let noSuccessProbability = 1;
-    const aggregate = terminalNode(0);
+    const aggregate = emptyAggregate();
+
+    const mergeTerminalRisk = (next: NodeResult, probability: number) => {
+      for (const nextKit of KITS) {
+        aggregate.exhaustionProbability[nextKit] +=
+          probability * next.exhaustionProbability[nextKit];
+        aggregate.minimumRemainingPieces[nextKit] = Math.min(
+          aggregate.minimumRemainingPieces[nextKit],
+          next.minimumRemainingPieces[nextKit],
+        );
+      }
+    };
 
     for (let attempt = 1; attempt <= runCount; attempt += 1) {
       const edge = transition(failState, kit);
@@ -158,6 +183,7 @@ export function createExactInteractiveReplanSession(
           probability * (successAttemptSelection ? 1 : next.successAttemptSelectionProbability);
         aggregate.expectedSuccessAttemptSelections +=
           probability * ((successAttemptSelection ? 1 : 0) + next.expectedSuccessAttemptSelections);
+        mergeTerminalRisk(next, probability);
         for (const nextKit of KITS) {
           aggregate.expectedConsumption[nextKit] +=
             probability *
@@ -179,6 +205,7 @@ export function createExactInteractiveReplanSession(
         noSuccessProbability * failedRun.successAttemptSelectionProbability;
       aggregate.expectedSuccessAttemptSelections +=
         noSuccessProbability * failedRun.expectedSuccessAttemptSelections;
+      mergeTerminalRisk(failedRun, noSuccessProbability);
       for (const nextKit of KITS) {
         aggregate.expectedConsumption[nextKit] +=
           noSuccessProbability *
@@ -219,9 +246,26 @@ export function createExactInteractiveReplanSession(
     };
   }
 
+  function solverFailureResult(): ExactInteractiveEvaluation {
+    if (!solverFailure) throw new Error("Missing exact evaluator solver failure.");
+    return {
+      status: "solver_failure",
+      reason: solverFailure.reason,
+      errorMessage: solverFailure.errorMessage,
+      scenario,
+      modelId,
+      elapsedMs: elapsedMs(),
+      solveCalls,
+      cachedNodes: cache.size,
+      cachedPolicies: policyCache.size,
+      gateEvidence,
+    };
+  }
+
   return {
     advance(timeBudgetMs = options.timeBudgetMs ?? 60_000) {
       if (completedNode) return completedResult(completedNode);
+      if (solverFailure) return solverFailureResult();
       const sliceBudgetMs = Math.max(0, Number(timeBudgetMs) || 0);
       sliceStartedAt = performance.now();
       deadline = sliceStartedAt + sliceBudgetMs;
@@ -229,19 +273,28 @@ export function createExactInteractiveReplanSession(
       try {
         completedNode = visit(scenario.start, scenario.stock);
       } catch (error) {
-        if (!(error instanceof EvaluationBudgetExceeded)) throw error;
-        incomplete = true;
+        if (error instanceof EvaluationBudgetExceeded) {
+          incomplete = true;
+        } else if (error instanceof PolicySolverFailure) {
+          solverFailure = {
+            reason: "policy_solver_error",
+            errorMessage: error.message,
+          };
+        } else {
+          throw error;
+        }
       } finally {
         activeElapsedMs += performance.now() - sliceStartedAt;
         sliceStartedAt = null;
         deadline = Number.POSITIVE_INFINITY;
       }
+      if (solverFailure) return solverFailureResult();
       if (incomplete || !completedNode) return incompleteResult();
       return completedResult(completedNode);
     },
     checkpoint() {
       return {
-        version: 1,
+        version: 2,
         scenarioId: scenario.id,
         modelId,
         costModel,
@@ -251,6 +304,7 @@ export function createExactInteractiveReplanSession(
         cachedNodes: Array.from(cache.entries()),
         cachedPolicies: Array.from(policyCache.entries()),
         completedNode,
+        solverFailure,
       };
     },
   };

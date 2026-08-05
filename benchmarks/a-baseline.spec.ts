@@ -53,6 +53,12 @@ describe("A interactive-replan baseline", () => {
     expect(result.expectedConsumption.yellow).toBeCloseTo(19.934149189621014, 10);
     expect(result.successAttemptSelectionProbability).toBeCloseTo(0.4808787327283736, 12);
     expect(result.interactiveF).toBeCloseTo(0.3279638107027003, 12);
+    for (const kit of ["blue", "purple", "yellow"] as const) {
+      expect(result.exhaustionProbability[kit]).toBeGreaterThanOrEqual(0);
+      expect(result.exhaustionProbability[kit]).toBeLessThanOrEqual(1);
+      expect(result.minimumRemainingPieces[kit]).toBeGreaterThanOrEqual(0);
+      expect(result.minimumRemainingPieces[kit]).toBeLessThanOrEqual(scenario.stock[kit]);
+    }
   });
 
   it("returns explicit incomplete evidence when an evaluation has no budget", () => {

@@ -170,6 +170,13 @@ export type RustCoreExports = {
     normPower: number,
     tolerance: number,
   ) => void;
+  cvarFollowMean?: () => number;
   cvarFollowMeanAfterFirstAction?: (firstAction: number) => number;
+  cvarFollowHinge?: (eta: number) => number;
+  cvarOptMean?: () => number;
+  cvarOptHinge?: (eta: number) => number;
+  cvarOptRecord?: (eta: number) => number;
+  cvarFollowRecordedMean?: () => number;
+  cvarFollowRecordedHinge?: (eta: number) => number;
   cvarNodeCount?: () => number;
 };

@@ -15,6 +15,13 @@ export type ScenarioRecord = {
   stockBlue: number;
   stockPurple: number;
   stockYellow: number;
+  minEfOutcome: "completed" | "memo_full" | "budget_exceeded" | "failure";
+  minEfFirstAction: string | null;
+  minEfSuccessProbability: number | null;
+  minEfExpectedCost: number | null;
+  minEfTotalExpectedUses: number | null;
+  minEfNodeCount: number | null;
+  minEfErrorMessage: string | null;
   candidateCount: number;
   baselineFirstAction: string | null;
   selectedFirstAction: string | null;
@@ -79,5 +86,14 @@ export type ScenarioRecord = {
   a1DeltaVsBaseline: number | null;
   a1NodeCount: number | null;
   a1ErrorMessage: string | null;
+  exactSelectedFirstAction: string | null;
+  exactIntervened: boolean;
+  exactBaselineExpectedCost: number | null;
+  exactSelectedExpectedCost: number | null;
+  exactDeltaVsBaseline: number | null;
+  exactNodeCount: number | null;
+  exactErrorMessage: string | null;
+  mcExactCalibration: string | null;
+  mcExactStandardizedError: number | null;
   elapsedMs: number;
 };

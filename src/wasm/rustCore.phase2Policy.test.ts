@@ -1,9 +1,38 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { makeRustCoreExports as makeExports } from "./rustCore.test-helper";
-import { createRustPhase2ResearchSolver as createRustPhase2Solver } from "./rustPhase2ResearchCore";
+import {
+  createRustPhase2ResearchSolver as createRustPhase2Solver,
+  selectExactRerankCandidate,
+} from "./rustPhase2ResearchCore";
+import type { RustExactRerankedCandidate } from "./rustTypes";
 
 describe("rust phase2 policy wrapper", () => {
+  it("keeps the phase2 baseline when exact rerank costs tie", () => {
+    const candidate = (
+      firstAction: RustExactRerankedCandidate["firstAction"],
+      expectedCost: number,
+    ): RustExactRerankedCandidate => ({
+      firstAction,
+      expectedCost,
+      nodeCount: 1,
+      successProbability: 0.99,
+      maxSuccessProbability: 0.99,
+      probabilityGap: 0,
+      vector: { blue: 1, purple: 1, yellow: 1 },
+      resourceCost: expectedCost,
+      eligible: true,
+    });
+    const candidates = [
+      candidate("blue", 0.2),
+      candidate("purple", 0.2 - 5e-13),
+      candidate("yellow", 0.19),
+    ];
+
+    expect(selectExactRerankCandidate(candidates.slice(0, 2), "blue").firstAction).toBe("blue");
+    expect(selectExactRerankCandidate(candidates, "blue").firstAction).toBe("yellow");
+  });
+
   it("looks up phase2 actions from the current policy memo without re-solving", () => {
     const exports = makeExports();
     const solver = createRustPhase2Solver(exports);
@@ -242,17 +271,17 @@ describe("rust phase2 policy wrapper", () => {
     const exports = makeExports();
     const solver = createRustPhase2Solver(exports);
 
-    solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 });
+    solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 61, purple: 121, yellow: 901 });
     const result = solver.estimateExactExpectedCostAfterFirstActionFromCurrent(
       { grade: "SR", level: 1, exp: 0 },
-      { blue: 10, purple: 20, yellow: 30 },
+      { blue: 61, purple: 121, yellow: 901 },
       "purple",
       0.75,
       3,
     );
 
     expect(result).toEqual({ expectedCost: 0.321, nodeCount: 24 });
-    expect(exports.cvarSetup).toHaveBeenCalledOnce();
+    expect(exports.cvarSetup).toHaveBeenCalledWith(510, 61, 121, 901, 0.75, 3, 0);
     expect(exports.cvarFollowMeanAfterFirstAction).toHaveBeenCalledWith(1);
   });
 });

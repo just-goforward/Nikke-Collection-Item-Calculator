@@ -18,7 +18,7 @@ import {
   summarizePairedDiagnostics,
   summarizePolicyDeltas,
 } from "./rust-rerank-summary.ts";
-import type { ScenarioRecord } from "./rust-rerank-summary-model.ts";
+import { RUST_RERANK_STRICT_EPSILON, type ScenarioRecord } from "./rust-rerank-summary-model.ts";
 
 type RustRerankBenchmarkReportOptions = {
   runs: number;
@@ -39,6 +39,68 @@ type RustRerankBenchmarkReportArgs = {
   options: RustRerankBenchmarkReportOptions;
   records: ScenarioRecord[];
 };
+
+function summarizeExactRerank(records: readonly ScenarioRecord[]) {
+  const evaluated = records.filter((record) => record.exactDeltaVsBaseline !== null);
+  return {
+    evaluated: evaluated.length,
+    errors: records.filter((record) => record.exactErrorMessage !== null).length,
+    interventions: evaluated.filter((record) => record.exactIntervened).length,
+    strictImprovements: evaluated.filter(
+      (record) =>
+        record.exactDeltaVsBaseline !== null &&
+        record.exactDeltaVsBaseline < -RUST_RERANK_STRICT_EPSILON,
+    ).length,
+    regressions: evaluated.filter(
+      (record) =>
+        record.exactDeltaVsBaseline !== null &&
+        record.exactDeltaVsBaseline > RUST_RERANK_STRICT_EPSILON,
+    ).length,
+    mcCalibration: {
+      consistentWithSamplingError: records.filter(
+        (record) => record.mcExactCalibration === "consistent_with_sampling_error",
+      ).length,
+      outsideNominal95Interval: records.filter(
+        (record) => record.mcExactCalibration === "outside_nominal_95_interval",
+      ).length,
+      unavailable: records.filter((record) => record.mcExactCalibration === "unavailable").length,
+    },
+  };
+}
+
+function summarizeMinEfOutcomes(records: readonly ScenarioRecord[]) {
+  return {
+    completed: records.filter((record) => record.minEfOutcome === "completed").length,
+    memoFull: records.filter((record) => record.minEfOutcome === "memo_full").length,
+    budgetExceeded: records.filter((record) => record.minEfOutcome === "budget_exceeded").length,
+    failure: records.filter((record) => record.minEfOutcome === "failure").length,
+  };
+}
+
+function summarizeMinEfOptimality(records: readonly ScenarioRecord[]) {
+  const comparable = records.filter(
+    (record) =>
+      record.minEfOutcome === "completed" &&
+      record.minEfExpectedCost !== null &&
+      record.exactSelectedExpectedCost !== null,
+  );
+  const exactBelowMinEf = comparable.filter(
+    (record) =>
+      (record.exactSelectedExpectedCost ?? 0) <
+      (record.minEfExpectedCost ?? 0) - RUST_RERANK_STRICT_EPSILON,
+  ).length;
+  const exactAboveMinEf = comparable.filter(
+    (record) =>
+      (record.exactSelectedExpectedCost ?? 0) >
+      (record.minEfExpectedCost ?? 0) + RUST_RERANK_STRICT_EPSILON,
+  ).length;
+  return {
+    comparable: comparable.length,
+    exactBelowMinEf,
+    equalWithinEpsilon: comparable.length - exactBelowMinEf - exactAboveMinEf,
+    exactAboveMinEf,
+  };
+}
 
 export function buildRustRerankBenchmarkReport(args: RustRerankBenchmarkReportArgs) {
   const uniqueSources = [...new Set(args.records.map((record) => record.source))].sort();
@@ -98,6 +160,9 @@ export function buildRustRerankBenchmarkReport(args: RustRerankBenchmarkReportAr
     },
     a2Summary: summarizeA2(args.records),
     a1Summary: summarizeA1(args.records),
+    exactRerankSummary: summarizeExactRerank(args.records),
+    minEfOutcomes: summarizeMinEfOutcomes(args.records),
+    minEfOptimality: summarizeMinEfOptimality(args.records),
     bySource: summarizeBySource(args.records),
     records: args.records,
   };
@@ -132,6 +197,9 @@ export function rustRerankBenchmarkConsoleSummary(args: {
     pairedMcDiagnostics: args.report.pairedMcDiagnostics,
     a2Summary: args.report.a2Summary,
     a1Summary: args.report.a1Summary,
+    exactRerankSummary: args.report.exactRerankSummary,
+    minEfOutcomes: args.report.minEfOutcomes,
+    minEfOptimality: args.report.minEfOptimality,
     bySource: args.report.bySource,
     json: args.jsonOutputFile.pathname,
     csv: args.csvOutputFile.pathname,
@@ -148,6 +216,13 @@ const RUST_RERANK_CSV_COLUMNS = [
   "stockBlue",
   "stockPurple",
   "stockYellow",
+  "minEfOutcome",
+  "minEfFirstAction",
+  "minEfSuccessProbability",
+  "minEfExpectedCost",
+  "minEfTotalExpectedUses",
+  "minEfNodeCount",
+  "minEfErrorMessage",
   "candidateCount",
   "baselineFirstAction",
   "selectedFirstAction",
@@ -212,6 +287,15 @@ const RUST_RERANK_CSV_COLUMNS = [
   "a1DeltaVsBaseline",
   "a1NodeCount",
   "a1ErrorMessage",
+  "exactSelectedFirstAction",
+  "exactIntervened",
+  "exactBaselineExpectedCost",
+  "exactSelectedExpectedCost",
+  "exactDeltaVsBaseline",
+  "exactNodeCount",
+  "exactErrorMessage",
+  "mcExactCalibration",
+  "mcExactStandardizedError",
   "elapsedMs",
 ] as const satisfies ReadonlyArray<keyof ScenarioRecord>;
 

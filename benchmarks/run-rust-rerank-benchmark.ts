@@ -1,6 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { createServer } from "vite";
-import { envValue } from "./runner-utils";
+import { classifyMcExactCalibration } from "./rerank-quality.ts";
+import { envValue } from "./runner-utils.ts";
 import {
   parseRustBenchmarkWeightSpec,
   rustBenchmarkWeightForScenario,
@@ -73,6 +74,15 @@ const server = await createServer({
 const rustResearch = (await server.ssrLoadModule(
   "/src/wasm/rustResearchLoader.ts",
 )) as typeof import("../src/wasm/rustResearchLoader");
+const rustLoader = (await server.ssrLoadModule(
+  "/src/wasm/rustLoader.ts",
+)) as typeof import("../src/wasm/rustLoader");
+const rustMinEf = (await server.ssrLoadModule(
+  "/src/wasm/rustMinEfCore.ts",
+)) as typeof import("../src/wasm/rustMinEfCore");
+const rustStatus = (await server.ssrLoadModule(
+  "/src/wasm/rustStatus.ts",
+)) as typeof import("../src/wasm/rustStatus");
 const fixedGrid = (await server.ssrLoadModule(
   "/benchmarks/scenarios/fixed-grid.ts",
 )) as typeof import("./scenarios/fixed-grid");
@@ -131,6 +141,16 @@ try {
   const instance =
     instantiated instanceof WebAssembly.Instance ? instantiated : instantiated.instance;
   const solver = rustResearch.createRustPhase2ResearchSolverFromInstance(instance);
+  const minEfInstantiated = (await WebAssembly.instantiate(wasm)) as
+    | WebAssembly.Instance
+    | { instance: WebAssembly.Instance };
+  const minEfInstance =
+    minEfInstantiated instanceof WebAssembly.Instance
+      ? minEfInstantiated
+      : minEfInstantiated.instance;
+  const minEfSolver = rustMinEf.createRustMinEfSolver(
+    rustLoader.rustCoreExportsFromInstance(minEfInstance),
+  );
 
   for (const scenario of scenarios) {
     const scenarioStartedAt = performance.now();
@@ -144,6 +164,41 @@ try {
       stockPurple: scenario.stock.purple,
       stockYellow: scenario.stock.yellow,
     };
+    let minEfOutcome: ScenarioRecord["minEfOutcome"] = "failure";
+    let minEfFirstAction: string | null = null;
+    let minEfSuccessProbability: number | null = null;
+    let minEfExpectedCost: number | null = null;
+    let minEfTotalExpectedUses: number | null = null;
+    let minEfNodeCount: number | null = null;
+    let minEfErrorMessage: string | null = null;
+    try {
+      const minEfPolicy = minEfSolver.solveRootWithCandidates(
+        scenario.start,
+        scenario.stock,
+        HORIZON_FACTOR,
+        NORM_POWER,
+        TOLERANCE,
+      );
+      minEfOutcome = "completed";
+      minEfFirstAction = minEfPolicy.root.firstAction;
+      minEfSuccessProbability = minEfPolicy.root.successProbability;
+      minEfExpectedCost = minEfPolicy.root.expectedCost;
+      minEfTotalExpectedUses =
+        (minEfPolicy.root.vector.blue +
+          minEfPolicy.root.vector.purple +
+          minEfPolicy.root.vector.yellow) /
+        10;
+      minEfNodeCount = minEfPolicy.nodeCount;
+    } catch (error) {
+      minEfErrorMessage = error instanceof Error ? error.message : String(error);
+      if (error instanceof rustStatus.RustSolveError) {
+        minEfNodeCount = error.nodeCount;
+        if (error.status === rustStatus.RUST_STATUS_MEMO_FULL) minEfOutcome = "memo_full";
+        else if (error.status === rustStatus.RUST_STATUS_BUDGET_EXCEEDED) {
+          minEfOutcome = "budget_exceeded";
+        }
+      }
+    }
     try {
       const rerank = solver.selectFirstActionByExpectedCost(
         scenario.start,
@@ -261,8 +316,44 @@ try {
         scenario,
         baselineFirstAction,
         selectedFirstAction,
-        enabled: a1SentinelIds.has(scenario.id),
+        enabled: true,
       });
+      let exactSelectedFirstAction: string | null = null;
+      let exactIntervened = false;
+      let exactBaselineExpectedCost: number | null = null;
+      let exactSelectedExpectedCost: number | null = null;
+      let exactDeltaVsBaseline: number | null = null;
+      let exactNodeCount: number | null = null;
+      let exactErrorMessage: string | null = null;
+      try {
+        const exactRerank = solver.selectFirstActionByExactExpectedCost(
+          scenario.start,
+          scenario.stock,
+          HORIZON_FACTOR,
+          NORM_POWER,
+          TOLERANCE,
+        );
+        const exactBaseline = exactRerank?.candidates.find(
+          (candidate) => candidate.firstAction === exactRerank.baseline.firstAction,
+        );
+        if (exactRerank && exactBaseline) {
+          exactSelectedFirstAction = exactRerank.selected.firstAction;
+          exactIntervened = exactSelectedFirstAction !== exactRerank.baseline.firstAction;
+          exactBaselineExpectedCost = exactBaseline.expectedCost;
+          exactSelectedExpectedCost = exactRerank.selected.expectedCost;
+          exactDeltaVsBaseline = exactSelectedExpectedCost - exactBaselineExpectedCost;
+          exactNodeCount = Math.max(
+            ...exactRerank.candidates.map((candidate) => candidate.nodeCount),
+          );
+        }
+      } catch (error) {
+        exactErrorMessage = error instanceof Error ? error.message : String(error);
+      }
+      const mcExact = classifyMcExactCalibration(
+        evaluation.meanDelta,
+        evaluation.standardError,
+        a1.deltaVsBaseline,
+      );
       const a2GatePass = a2.deltaVsBaseline === null ? null : a2.deltaVsBaseline < -STRICT_EPSILON;
       const a2GateIntervened = rawIntervened && a2GatePass === true;
       const a2GateEvaluationDeltaVsBaseline =
@@ -279,6 +370,13 @@ try {
       records.push({
         ...common,
         status: "completed",
+        minEfOutcome,
+        minEfFirstAction,
+        minEfSuccessProbability,
+        minEfExpectedCost,
+        minEfTotalExpectedUses,
+        minEfNodeCount,
+        minEfErrorMessage,
         candidateCount: rerank.candidates.length,
         baselineFirstAction,
         selectedFirstAction,
@@ -346,12 +444,28 @@ try {
         a1DeltaVsBaseline: a1.deltaVsBaseline,
         a1NodeCount: a1.nodeCount,
         a1ErrorMessage: a1.errorMessage,
+        exactSelectedFirstAction,
+        exactIntervened,
+        exactBaselineExpectedCost,
+        exactSelectedExpectedCost,
+        exactDeltaVsBaseline,
+        exactNodeCount,
+        exactErrorMessage,
+        mcExactCalibration: mcExact.classification,
+        mcExactStandardizedError: mcExact.standardizedError,
         elapsedMs: Math.round(performance.now() - scenarioStartedAt),
       });
     } catch (error) {
       records.push(
         emptyScenarioRecord(common, "error", Math.round(performance.now() - scenarioStartedAt), {
           errorMessage: error instanceof Error ? error.message : String(error),
+          minEfOutcome,
+          minEfFirstAction,
+          minEfSuccessProbability,
+          minEfExpectedCost,
+          minEfTotalExpectedUses,
+          minEfNodeCount,
+          minEfErrorMessage,
         }),
       );
     }
