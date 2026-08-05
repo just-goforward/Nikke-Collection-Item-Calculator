@@ -58,21 +58,14 @@ function makeAppHandlers({
     },
     onReset: resetWithUndo,
     onConvert: async () => {
-      const autoCalculateAfterConvert =
-        calculator.resultView.type === "convertRecommendation" &&
-        calculator.resultView.autoCalculateAfterConvert === true;
       setPendingOutcome(null);
-      const applied = actions.applyConvert();
+      const applied = await actions.applyConvert();
+      if (!applied) return;
       if (applied?.needsStockEdit) {
         setMobileViewTab("input");
         return;
       }
-      if (autoCalculateAfterConvert) {
-        await actions.calculate();
-        setMobileViewTab("result");
-        return;
-      }
-      setMobileViewTab("input");
+      setMobileViewTab("result");
     },
     onOutcome: async (outcome) => {
       const applied = await actions.applyOutcome(outcome);

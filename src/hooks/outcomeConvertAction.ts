@@ -1,7 +1,7 @@
 import { type Dispatch, type RefObject, type SetStateAction, useCallback } from "react";
 import { message } from "../i18n/locale";
 import { convertState } from "../solver/domain";
-import type { CollectionState } from "../types";
+import type { CollectionState, Stock } from "../types";
 import type { DetailView, ResultView, StateChangeFeedback, ValidationView } from "../ui-types";
 import {
   DEFAULT_STOCK_NOTICE,
@@ -9,8 +9,10 @@ import {
   type PendingStatsEvent,
   type SolverResult,
 } from "./calculatorShared";
+import type { ConvertApplyResult } from "./outcomeFlowTypes";
 
 type ConvertActionOptions = {
+  currentStockSnapshot: () => Stock;
   currentStateSnapshot: () => CollectionState;
   latestResultRef: RefObject<SolverResult | null>;
   pendingStatsEventRef: RefObject<PendingStatsEvent | null>;
@@ -26,6 +28,7 @@ type ConvertActionOptions = {
 };
 
 export function useConvertAction({
+  currentStockSnapshot,
   currentStateSnapshot,
   latestResultRef,
   pendingStatsEventRef,
@@ -36,10 +39,16 @@ export function useConvertAction({
   setResultView,
   setValidationView,
 }: ConvertActionOptions) {
-  return useCallback(() => {
+  return useCallback((): ConvertApplyResult => {
     const previousState = currentStateSnapshot();
     const nextState = convertState() as CollectionState;
     const hasPendingGreatSuccess = pendingStatsEventRef.current !== null;
+    const previousInput = latestResultRef.current?.input;
+    const nextInput = {
+      start: nextState,
+      stock: currentStockSnapshot(),
+      ...(previousInput?.strategy ? { strategy: previousInput.strategy } : {}),
+    };
     if (pendingStatsEventRef.current) {
       pendingStatsEventRef.current = {
         ...pendingStatsEventRef.current,
@@ -60,8 +69,9 @@ export function useConvertAction({
     });
     setValidationView(INITIAL_VALIDATION);
     latestResultRef.current = null;
-    return { needsStockEdit: hasPendingGreatSuccess };
+    return hasPendingGreatSuccess ? { needsStockEdit: true } : { needsStockEdit: false, nextInput };
   }, [
+    currentStockSnapshot,
     currentStateSnapshot,
     latestResultRef,
     pendingStatsEventRef,

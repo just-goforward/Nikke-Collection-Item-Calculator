@@ -84,7 +84,6 @@ export function useCalculatorResultRendering({
         setResultView({
           type: "convertRecommendation",
           reason: "r15_conversion",
-          ...(previousAction ? { autoCalculateAfterConvert: true } : {}),
         });
         setDetailView({
           type: "empty",

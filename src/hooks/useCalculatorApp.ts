@@ -131,7 +131,8 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     setValidationView,
     validateBestAvailable,
   });
-  const { applyOutcomeAndMaybeCalculate, runCalculation } = useSolveFlow({
+  const { applyConvertAndCalculate, applyOutcomeAndMaybeCalculate, runCalculation } = useSolveFlow({
+    applyConvert: outcomeFlow.applyConvert,
     applyOutcome: outcomeFlow.applyOutcome,
     collectInput: calculatorState.collectInput,
     currentStateSnapshot,
@@ -169,6 +170,7 @@ export function useCalculatorApp(statsQueryEnabled = false) {
   });
 
   return makeCalculatorAppModel({
+    applyConvertAndCalculate,
     applyOutcomeAndMaybeCalculate,
     calculatorState,
     clearActionTransition,

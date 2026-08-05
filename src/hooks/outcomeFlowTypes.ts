@@ -64,3 +64,7 @@ export type OutcomeApplyResult =
       };
     }
   | null;
+
+export type ConvertApplyResult =
+  | { needsStockEdit: true }
+  | { needsStockEdit: false; nextInput: SolverInput };

@@ -59,7 +59,6 @@ export type ResultView =
   | {
       type: "convertRecommendation";
       reason: "r15_conversion";
-      autoCalculateAfterConvert?: boolean;
     };
 
 export type CandidateView = {

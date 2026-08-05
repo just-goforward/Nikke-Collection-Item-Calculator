@@ -14,13 +14,14 @@ import {
   type SolverResult,
   sameState,
 } from "./calculatorShared";
-import type { OutcomeApplyResult } from "./outcomeFlowTypes";
+import type { ConvertApplyResult, OutcomeApplyResult } from "./outcomeFlowTypes";
 import { SolverRecoveryFailure } from "./solverRecovery";
 import { WorkerTaskCancelled } from "./solverWorkerClient";
 
 type MutableRef<T> = { current: T };
 
 type SolveFlowOptions = {
+  applyConvert: () => ConvertApplyResult;
   applyOutcome: (outcome: "success" | "fail") => OutcomeApplyResult;
   collectInput: () => SolverInput;
   currentStateSnapshot: () => SolverInput["start"];
@@ -108,7 +109,44 @@ function pendingStatsEventFromInput({
   });
 }
 
+type ManualCalculationOptions = Pick<
+  SolveFlowOptions,
+  "collectInput" | "currentStateSnapshot" | "pendingStatsEventRef" | "queueStatsEvent"
+> & {
+  isBusy: () => boolean;
+  solveAndRenderInput: (input: SolverInput) => Promise<boolean>;
+};
+
+function useManualCalculation({
+  collectInput,
+  currentStateSnapshot,
+  isBusy,
+  pendingStatsEventRef,
+  queueStatsEvent,
+  solveAndRenderInput,
+}: ManualCalculationOptions) {
+  return useCallback(async () => {
+    if (isBusy()) return;
+    const input = collectInput();
+    const pendingEvent = pendingStatsEventFromInput({
+      currentStateSnapshot,
+      input,
+      pendingStatsEventRef,
+    });
+    if (pendingEvent) queueStatsEvent(pendingEvent);
+    await solveAndRenderInput(input);
+  }, [
+    collectInput,
+    currentStateSnapshot,
+    isBusy,
+    pendingStatsEventRef,
+    queueStatsEvent,
+    solveAndRenderInput,
+  ]);
+}
+
 export function useSolveFlow({
+  applyConvert,
   applyOutcome,
   collectInput,
   currentStateSnapshot,
@@ -125,6 +163,7 @@ export function useSolveFlow({
 }: SolveFlowOptions) {
   const { locale } = useI18n();
   const busyRef = useRef(false);
+  const isBusy = useCallback(() => busyRef.current, []);
 
   const solveAndRenderInput = useCallback(
     async (input: SolverInput, options: SolveAndRenderOptions = {}) => {
@@ -193,23 +232,14 @@ export function useSolveFlow({
     ],
   );
 
-  const runCalculation = useCallback(async () => {
-    if (busyRef.current) return;
-    const input = collectInput();
-    const pendingEvent = pendingStatsEventFromInput({
-      currentStateSnapshot,
-      input,
-      pendingStatsEventRef,
-    });
-    if (pendingEvent) queueStatsEvent(pendingEvent);
-    await solveAndRenderInput(input);
-  }, [
+  const runCalculation = useManualCalculation({
     collectInput,
     currentStateSnapshot,
+    isBusy,
     pendingStatsEventRef,
     queueStatsEvent,
     solveAndRenderInput,
-  ]);
+  });
 
   const applyOutcomeAndMaybeCalculate = useCallback(
     async (outcome: "success" | "fail") => {
@@ -219,11 +249,18 @@ export function useSolveFlow({
       const next = calculationAfterOutcome(applied);
       if (!next) return applied;
       const started = await solveAndRenderInput(next.calculation.nextInput, next.options);
-      if (!started) return null;
-      return applied;
+      return started ? applied : null;
     },
     [applyOutcome, solveAndRenderInput],
   );
 
-  return { applyOutcomeAndMaybeCalculate, runCalculation };
+  const applyConvertAndCalculate = useCallback(async () => {
+    if (busyRef.current) return null;
+    const applied = applyConvert();
+    if (applied.needsStockEdit) return applied;
+    const started = await solveAndRenderInput(applied.nextInput);
+    return started ? applied : null;
+  }, [applyConvert, solveAndRenderInput]);
+
+  return { applyConvertAndCalculate, applyOutcomeAndMaybeCalculate, runCalculation };
 }

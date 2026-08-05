@@ -12,7 +12,7 @@ import type {
   ValidationView,
 } from "../ui-types";
 import { DEFAULT_STOCK_NOTICE } from "./calculatorShared";
-import type { OutcomeApplyResult } from "./outcomeFlowTypes";
+import type { ConvertApplyResult, OutcomeApplyResult } from "./outcomeFlowTypes";
 import type { useCalculatorState } from "./useCalculatorState";
 import type { useOutcomeFlow } from "./useOutcomeFlow";
 import type { useStats } from "./useStats";
@@ -52,13 +52,14 @@ export type CalculatorAppModel = {
     reset: () => void;
     applyOutcome: (outcome: "success" | "fail") => Promise<OutcomeApplyResult>;
     clearActionTransition: (transitionId: number) => void;
-    applyConvert: () => { needsStockEdit: boolean };
+    applyConvert: () => Promise<ConvertApplyResult | null>;
     runMonteCarloValidation: () => Promise<void>;
     submitSuccessAttempt: (attempt: number | null) => void;
   };
 };
 
 type CalculatorAppModelOptions = {
+  applyConvertAndCalculate: () => Promise<ConvertApplyResult | null>;
   calculatorState: CalculatorState;
   detailView: DetailView;
   loading: LoadingView;
@@ -90,6 +91,7 @@ function canRecalculateStaleStockAtMaxLevel(
 }
 
 export function makeCalculatorAppModel({
+  applyConvertAndCalculate,
   applyOutcomeAndMaybeCalculate,
   calculatorState,
   clearActionTransition,
@@ -144,7 +146,7 @@ export function makeCalculatorAppModel({
       reset: resetInputs,
       applyOutcome: applyOutcomeAndMaybeCalculate,
       clearActionTransition,
-      applyConvert: outcomeFlow.applyConvert,
+      applyConvert: applyConvertAndCalculate,
       runMonteCarloValidation,
       submitSuccessAttempt: outcomeFlow.submitSuccessAttempt,
     },

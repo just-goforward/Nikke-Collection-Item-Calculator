@@ -316,6 +316,7 @@ test("대성공 확정 전 취소하면 같은 패널에서 선택 상태만 해
 });
 
 test("R 15 — SR 등급 교체 안내와 적용이 동작한다", async ({ page }) => {
+  await page.getByLabel("상급자용 키트").fill("100");
   await page.getByRole("button", { name: "15단계", exact: true }).click();
 
   await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
@@ -327,7 +328,9 @@ test("R 15 — SR 등급 교체 안내와 적용이 동작한다", async ({ page
   await expect(page.locator(".current-state-strip")).toContainText("SR");
   await expect(page.locator(".current-state-strip")).toContainText("5단계");
   await expect(page.getByText(/SR 등급으로 교체했습니다/)).toBeVisible();
-  await expect(page.getByText(/SR 5단계/)).toBeVisible();
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+    timeout: 20_000,
+  });
 });
 
 test("R 15/SR 15 안내는 최대 단계 선택을 반복하거나 등급을 바꿔도 유지된다", async ({ page }) => {
@@ -882,16 +885,20 @@ test("모바일 수동 키트 수정 필요 상태는 하단 계산 버튼에서
   await expect(actionBar.getByRole("button", { name: "다시 계산", exact: true })).toBeEnabled();
 });
 
-test("모바일 변환 버튼은 입력 탭 선택 상태를 유지한다", async ({ page }) => {
+test("모바일 변환 버튼은 SR 5 변환 후 결과 탭에서 자동 계산한다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?statsEnv=disabled");
 
+  await page.getByLabel("상급자용 키트").fill("100");
   await page.locator(".level-button").nth(15).click();
   await page.locator(".mobile-action-bar .convert-button").click();
 
-  await expect(page.locator(".mobile-tab").first()).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "결과" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".status-grade")).toHaveText("SR");
   await expect(page.locator(".status-level")).toHaveText("5단계");
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+    timeout: 20_000,
+  });
 });
 
 test("모바일 520px 구간 툴팁은 viewport 안에 머문다", async ({ page }) => {

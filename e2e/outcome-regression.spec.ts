@@ -154,7 +154,7 @@ test("R 10 다회 대성공은 회차를 선택하면 정확한 재고로 R 15�
   await expect(page.getByRole("button", { name: "키트 수정 필요", exact: true })).toHaveCount(0);
 });
 
-test("모바일 R 10 다회 대성공도 회차 선택 후 SR 5 교체를 표시한다", async ({ page }) => {
+test("모바일 R 10 다회 대성공도 SR 5 교체 후 자동 계산한다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "10단계", exact: true }).click();
   await page.getByLabel("초심자용 키트").fill("100");
@@ -183,10 +183,13 @@ test("모바일 R 10 다회 대성공도 회차 선택 후 SR 5 교체를 표시
 
   await actionBar.getByRole("button", { name: "SR 등급으로 교체", exact: true }).click();
 
-  await expect(page.getByRole("tab", { name: "입력" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "결과" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".status-grade")).toHaveText("SR");
   await expect(page.locator(".status-level")).toHaveText("5단계");
   await expect(page.locator("#stockEditNotice")).toBeHidden();
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+    timeout: 20_000,
+  });
   await expect(actionBar.getByRole("button", { name: "키트 수정 필요", exact: true })).toHaveCount(
     0,
   );
