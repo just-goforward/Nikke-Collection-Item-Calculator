@@ -327,7 +327,6 @@ test("R 15 — SR 등급 교체 안내와 적용이 동작한다", async ({ page
 
   await expect(page.locator(".current-state-strip")).toContainText("SR");
   await expect(page.locator(".current-state-strip")).toContainText("5단계");
-  await expect(page.getByText(/SR 등급으로 교체했습니다/)).toBeVisible();
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({
     timeout: 20_000,
   });

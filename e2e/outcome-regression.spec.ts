@@ -43,7 +43,14 @@ async function confirmOutcome(page: Page, locator: Locator, outcome: "대성공 
 }
 
 async function pendingOutcomeGeometry(page: Page) {
-  return page.locator(".outcome-panel").evaluate((panel) => {
+  const panel = page.locator(".outcome-panel");
+  await panel.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      }),
+  );
+  return panel.evaluate((panel) => {
     const actions = panel.querySelector<HTMLElement>(".outcome-action-group");
     const buttons = [...panel.querySelectorAll<HTMLElement>(".outcome-buttons button")];
     if (!actions || buttons.length !== 2) throw new Error("Missing pending outcome controls.");
