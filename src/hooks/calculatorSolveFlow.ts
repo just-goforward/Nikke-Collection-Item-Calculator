@@ -48,6 +48,7 @@ const OUTCOME_SUCCESS_LOADING_TEXT = message("result.loadingApplySuccess");
 const MIN_LOADING_VISIBLE_MS = 300;
 
 function calculationAfterOutcome(applied: NonNullable<OutcomeApplyResult>) {
+  if (applied.outcome === "success" && applied.needsStockEdit) return null;
   if (applied.outcome === "success" && !applied.autoCalculation) return null;
   const calculation = applied.outcome === "fail" ? applied : applied.autoCalculation;
   if (!calculation) return null;
@@ -75,7 +76,7 @@ function preservesExistingResult(
   return inputKey(previousResult.input) === inputKey(input);
 }
 
-function pendingStatsEventFromInput({
+export function pendingStatsEventFromInput({
   currentStateSnapshot,
   input,
   pendingStatsEventRef,
@@ -91,12 +92,14 @@ function pendingStatsEventFromInput({
   if (!sameState(currentStateSnapshot(), pending.resultState)) return null;
   const before = pending.stockBefore;
   const after = input.stock;
-  const usedKits = before[pending.kit] - after[pending.kit];
-  const inferredAttempt = Math.round(usedKits / 10);
-  const successAttempt = Math.min(
-    pending.recommendedUses,
-    Math.max(1, Number.isFinite(inferredAttempt) ? inferredAttempt : 1),
+  const otherKitChanged = (["blue", "purple", "yellow"] as const).some(
+    (kit) => kit !== pending.kit && before[kit] !== after[kit],
   );
+  if (otherKitChanged) return null;
+  const usedKits = before[pending.kit] - after[pending.kit];
+  if (!Number.isInteger(usedKits) || usedKits <= 0 || usedKits % 10 !== 0) return null;
+  const successAttempt = usedKits / 10;
+  if (successAttempt > pending.recommendedUses) return null;
   return makeStatsEvent({
     start: pending.start,
     kit: pending.kit,

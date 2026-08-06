@@ -36,6 +36,7 @@ function applySuccessAttempt(
     setManualStockEditRequired,
     setStockCountForKit,
   }: TerminalSuccessAttemptOptions,
+  renderIntermediate: boolean,
 ) {
   const { best, beforeStock, input, run, startSnapshot, stockBeforeSnapshot } = context;
   const nextState = run.success;
@@ -65,18 +66,20 @@ function applySuccessAttempt(
         resultState: nextState,
       }),
     );
-    renderOutcomeApplied({
-      best,
-      run,
-      nextState,
-      outcome: "success",
-      stockMessage: kitStockChangeMessage(
-        best.firstAction,
-        beforeStock,
-        stockAfter[best.firstAction],
-      ),
-      detailMessage: message("result.successRecorded"),
-    });
+    if (renderIntermediate) {
+      renderOutcomeApplied({
+        best,
+        run,
+        nextState,
+        outcome: "success",
+        stockMessage: kitStockChangeMessage(
+          best.firstAction,
+          beforeStock,
+          stockAfter[best.firstAction],
+        ),
+        detailMessage: message("result.successRecorded"),
+      });
+    }
     return {
       nextInput: {
         start: nextState,
@@ -136,17 +139,26 @@ export function useTerminalSuccessAttempt(options: TerminalSuccessAttemptOptions
     setStockCountForKit,
   } = options;
   return useCallback(
-    (context: TerminalSuccessContext, successAttempt: number | null) =>
-      applySuccessAttempt(context, successAttempt, {
-        currentStockSnapshot,
-        pendingStatsEventRef,
-        queueStatsEvent,
-        recordStateFeedback,
-        renderOutcomeApplied,
-        setCollectionState,
-        setManualStockEditRequired,
-        setStockCountForKit,
-      }),
+    (
+      context: TerminalSuccessContext,
+      successAttempt: number | null,
+      behavior: { renderIntermediate?: boolean } = {},
+    ) =>
+      applySuccessAttempt(
+        context,
+        successAttempt,
+        {
+          currentStockSnapshot,
+          pendingStatsEventRef,
+          queueStatsEvent,
+          recordStateFeedback,
+          renderOutcomeApplied,
+          setCollectionState,
+          setManualStockEditRequired,
+          setStockCountForKit,
+        },
+        behavior.renderIntermediate ?? true,
+      ),
     [
       currentStockSnapshot,
       pendingStatsEventRef,

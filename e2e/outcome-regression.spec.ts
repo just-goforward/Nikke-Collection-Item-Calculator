@@ -129,6 +129,72 @@ test("모든 키트의 단회 대성공은 팝업 없이 재고를 차감하고 
   }
 });
 
+test("단회 대성공 자동 계산은 중간 성공 결과를 표시하지 않고 다음 추천으로 전환한다", async ({
+  page,
+}) => {
+  await page.getByLabel("초심자용 키트").fill("10");
+  await page.getByRole("button", { name: "계산", exact: true }).click();
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+    timeout: 20_000,
+  });
+
+  await page.evaluate(() => {
+    const panel = document.querySelector(".result-panel");
+    if (!panel) throw new Error("Missing result panel.");
+    const observedTexts: string[] = [];
+    const capture = () => observedTexts.push(panel.textContent ?? "");
+    capture();
+    new MutationObserver(capture).observe(panel, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    (window as typeof window & { __observedResultTexts?: string[] }).__observedResultTexts =
+      observedTexts;
+  });
+
+  await confirmOutcome(
+    page,
+    page.getByRole("button", { name: "대성공 O", exact: true }).first(),
+    "대성공 O",
+  );
+
+  await expect(page.getByRole("button", { name: "5단계", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  const observedTexts = await page.evaluate(
+    () =>
+      (window as typeof window & { __observedResultTexts?: string[] }).__observedResultTexts ?? [],
+  );
+  expect(observedTexts.some((text) => text.includes("대성공 시점이 기록되었습니다."))).toBe(false);
+});
+
+test("R 6에서 5회 추천 대성공은 재고 수정 전 자동 계산하지 않는다", async ({ page }) => {
+  await page.getByRole("button", { name: "6단계", exact: true }).click();
+  await page.getByLabel("초심자용 키트").fill("50");
+  await page.getByRole("button", { name: "계산", exact: true }).click();
+  await expect(page.locator(".next-action .action-chip-count").first()).toContainText("5회", {
+    timeout: 20_000,
+  });
+
+  await confirmOutcome(
+    page,
+    page.getByRole("button", { name: "대성공 O", exact: true }).first(),
+    "대성공 O",
+  );
+
+  await expect(page.getByLabel("초심자용 키트")).toHaveValue("50");
+  await expect(page.locator("#stockEditNotice")).toContainText(
+    "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.",
+  );
+  await expect(
+    page.getByRole("status").filter({ hasText: "대성공 O를 반영해 다음 추천" }),
+  ).toHaveCount(0);
+  await page.waitForTimeout(500);
+  await expect(page.locator(".next-action .action-chip-count").first()).toContainText("5회");
+});
+
 test("R 10 다회 대성공은 회차를 선택하면 정확한 재고로 R 15를 적용한다", async ({ page }) => {
   await page.getByRole("button", { name: "10단계", exact: true }).click();
   await page.getByLabel("초심자용 키트").fill("100");

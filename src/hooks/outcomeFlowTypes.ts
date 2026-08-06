@@ -57,7 +57,12 @@ export type OutcomeApplyResult =
     }
   | {
       outcome: "success";
-      needsStockEdit: boolean;
+      needsStockEdit: true;
+      autoCalculation?: never;
+    }
+  | {
+      outcome: "success";
+      needsStockEdit: false;
       autoCalculation?: {
         nextInput: SolverInput;
         previousAction: RecommendationAction;
