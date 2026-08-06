@@ -162,4 +162,23 @@ describe("significance completion gate (gatePairedSeeds)", () => {
     expect(strict.seedsKept).toBe(1);
     expect(strict.basePool.length).toBe(strict.candPool.length);
   });
+
+  it("fails closed when CRN seed sets or per-seed sample lengths differ", () => {
+    const base = [
+      { seed: 1, completionRate: 1, samples: [1, 2] },
+      { seed: 2, completionRate: 1, samples: [3, 4] },
+    ];
+    expect(
+      gatePairedSeeds(base, [
+        { seed: 2, completionRate: 1, samples: [3, 4] },
+        { seed: 3, completionRate: 1, samples: [5, 6] },
+      ]).reason,
+    ).toBe("seed_set_mismatch");
+    expect(
+      gatePairedSeeds(base, [
+        { seed: 1, completionRate: 1, samples: [1] },
+        { seed: 2, completionRate: 1, samples: [3, 4] },
+      ]).reason,
+    ).toBe("sample_length_mismatch");
+  });
 });

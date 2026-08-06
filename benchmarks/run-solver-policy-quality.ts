@@ -1,11 +1,16 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
 
+import {
+  assertLatencyRecordConsistency,
+  createLatencyMeasurementProtocol,
+  summarizeLatencySamples,
+} from "./latency-report.ts";
 import { envValue } from "./runner-utils.ts";
 import type { SolverScenario } from "./scenarios/fixed-grid";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
-const OUTPUT_FILE = new URL("./results/solver-policy-quality.json", import.meta.url);
+const DEFAULT_OUTPUT_FILE = new URL("./results/solver-policy-quality.json", import.meta.url);
 const WASM_URL = new URL("../public/solver_rs.wasm", import.meta.url);
 const DEFAULT_SCENARIOS = ["R14e900-yellow30", "SR14e2900-observedPurpleHigh"] as const;
 const POLICY_IDS = ["phase2_baseline", "phase2_mc_rerank", "phase2_exact_rerank"] as const;
@@ -21,15 +26,6 @@ function parseList(value: string | undefined, fallback: readonly string[]) {
 function parsePositiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
-}
-
-function percentile(values: readonly number[], quantile: number) {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  return (
-    sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * quantile) - 1))] ??
-    null
-  );
 }
 
 function failureOutcome(error: unknown) {
@@ -50,6 +46,11 @@ function failureOutcome(error: unknown) {
 
 const timeBudgetMs = parsePositiveInteger(envValue("SOLVER_QUALITY_TIME_BUDGET_MS"), 60_000);
 const latencyRepeats = parsePositiveInteger(envValue("SOLVER_QUALITY_LATENCY_REPEATS"), 11);
+const latencyProtocol = createLatencyMeasurementProtocol(latencyRepeats);
+const outputFileValue = envValue("SOLVER_QUALITY_OUTPUT_FILE");
+const outputFile = outputFileValue
+  ? new URL(outputFileValue, RESULTS_DIRECTORY)
+  : DEFAULT_OUTPUT_FILE;
 await mkdir(RESULTS_DIRECTORY, { recursive: true });
 
 const server = await createServer({
@@ -140,13 +141,7 @@ try {
       }
       samples.push(performance.now() - startedAt);
     }
-    return {
-      outcome: "completed" as const,
-      coldMs: samples[0] ?? null,
-      warmP50Ms: percentile(samples.slice(1), 0.5),
-      warmP95Ms: percentile(samples.slice(1), 0.95),
-      repeats: samples.length,
-    };
+    return summarizeLatencySamples(samples, latencyProtocol);
   }
 
   const records = [];
@@ -169,18 +164,12 @@ try {
       latencies.phase2_exact_rerank.outcome === "completed"
         ? latencies.phase2_exact_rerank.warmP95Ms
         : null;
-    const exactLatencyGate =
-      baselineP95 !== null &&
-      exactP95 !== null &&
-      exactP95 <= Math.max(baselineP95 * 1.15, baselineP95 + 50);
+    const exactLatencyGate = quality.passesQualityLatencyGate(baselineP95, exactP95);
     const mcP95 =
       latencies.phase2_mc_rerank.outcome === "completed"
         ? latencies.phase2_mc_rerank.warmP95Ms
         : null;
-    const mcLatencyGate =
-      baselineP95 !== null &&
-      mcP95 !== null &&
-      mcP95 <= Math.max(baselineP95 * 1.15, baselineP95 + 50);
+    const mcLatencyGate = quality.passesQualityLatencyGate(baselineP95, mcP95);
     records.push({
       scenario,
       evaluations,
@@ -218,15 +207,21 @@ try {
   };
   const report = {
     kind: "solver-policy-quality",
-    version: 1,
+    version: 2,
     generatedAt: new Date().toISOString(),
     options: {
       scenarioIds: requestedIds,
       timeBudgetMs,
-      latencyRepeats,
       horizonFactor: 0.75,
       normPower: 3,
       tolerance: 0,
+    },
+    measurementProtocol: {
+      latency: latencyProtocol,
+    },
+    decisionPolicy: {
+      classification: quality.QUALITY_CLASSIFICATION_POLICY,
+      latencyGate: quality.QUALITY_LATENCY_GATE_POLICY,
     },
     decisionScope: {
       gradesApplyOnlyToSelectedScenarios: true,
@@ -235,7 +230,15 @@ try {
     selectedScenarioGrades,
     records,
   };
-  await writeFile(OUTPUT_FILE, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  for (const record of records) {
+    for (const policyId of POLICY_IDS) {
+      const latency = record.latencies[policyId];
+      if (latency.outcome === "completed") {
+        assertLatencyRecordConsistency(latency, latencyProtocol);
+      }
+    }
+  }
+  await writeFile(outputFile, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   console.log(
     JSON.stringify(
       {
@@ -253,7 +256,7 @@ try {
           exactLatencyGate: record.exactLatencyGate,
           mcLatencyGate: record.mcLatencyGate,
         })),
-        output: OUTPUT_FILE.pathname,
+        output: outputFile.pathname,
       },
       null,
       2,

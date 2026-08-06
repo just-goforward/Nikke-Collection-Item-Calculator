@@ -7,13 +7,14 @@ import {
 import { solveWithResearchCostModel } from "../../src/solver/solve";
 import type { CollectionState, Kit, SolverInput, Stock } from "../../src/types";
 import type { SolverScenario } from "../scenarios/fixed-grid";
+import type { ExactPolicySolverResult } from "./exact-replan-types";
 
 const KITS: Kit[] = ["blue", "purple", "yellow"];
 
 type TrajectoryOptions = {
   modelId?: string;
   costModel?: ResearchCostModel;
-  policySolver?: (input: SolverInput) => ReturnType<typeof solveWithResearchCostModel>;
+  policySolver?: (input: SolverInput) => ExactPolicySolverResult;
   toleranceOverride?: number;
   runs?: number;
   seed?: number;
@@ -103,7 +104,7 @@ export function collectInteractiveTrajectories(
   const startedAt = performance.now();
   const deadline = startedAt + (options.timeBudgetMs ?? Number.POSITIVE_INFINITY);
   const random = makeRandom(seed);
-  const policyCache = new Map<string, ReturnType<typeof solveWithResearchCostModel>>();
+  const policyCache = new Map<string, ExactPolicySolverResult>();
   const samples: TrajectorySample[] = [];
   let solveCalls = 0;
 

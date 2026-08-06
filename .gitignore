@@ -4,7 +4,6 @@ dist/
 coverage/
 .stryker-tmp/
 collection-server.js
-fav.png
 web.zip
 .DS_Store
 test-results/
@@ -15,10 +14,3 @@ debug.log
 benchmarks/results/
 public/solver_rs.wasm
 rust/**/target/
-benchmarks/*.md
-benchmarks/**/*.md
-KIT_EXPECTED_GAIN_SOURCE.ko.md
-MIGRATION_ROADMAP.md
-PLAN_COMPLETE.ko.md
-REPORT.ko.md
-SOLVER_WORKER_ANALYSIS.ko.md

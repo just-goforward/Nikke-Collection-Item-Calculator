@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { holmBonferroniWorseningDecisions, pairedBootstrapImprovement } from "./tail-statistics";
+import { cvarUpperTail } from "./metrics";
+import {
+  holmBonferroniWorseningDecisions,
+  pairedBootstrapCvarImprovement,
+  pairedBootstrapImprovement,
+} from "./tail-statistics";
 
 function mean(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -48,5 +53,42 @@ describe("paired tail-risk decisions", () => {
 
     expect(result.pointImprovement).toBe(1);
     expect(result.adversePValue).toBe(1);
+  });
+
+  it("computes both CVaR directions from one deterministic paired resample stream", () => {
+    const baseline = [0, 1, 2, 3, 20, 30];
+    const candidate = [0, 1, 2, 3, 10, 20];
+    const result = pairedBootstrapCvarImprovement(baseline, candidate, {
+      alpha: 0.9,
+      resamples: 1000,
+      seed: 20260805,
+    });
+    const reverse = pairedBootstrapCvarImprovement(candidate, baseline, {
+      alpha: 0.9,
+      resamples: 1000,
+      seed: 20260805,
+    });
+    const generic = pairedBootstrapImprovement(baseline, candidate, {
+      higherIsBetter: false,
+      statistic: (values) => cvarUpperTail(values, 0.9),
+      resamples: 1000,
+      seed: 20260805,
+    });
+    const genericReverse = pairedBootstrapImprovement(candidate, baseline, {
+      higherIsBetter: false,
+      statistic: (values) => cvarUpperTail(values, 0.9),
+      resamples: 1000,
+      seed: 20260805,
+    });
+
+    expect(result.pointImprovement).toBe(10);
+    expect(result.pointImprovement).toBe(generic.pointImprovement);
+    expect(result.confidenceLower).toBe(generic.confidenceLower);
+    expect(result.confidenceUpper).toBe(generic.confidenceUpper);
+    expect(result.adversePValue).toBe(generic.adversePValue);
+    expect(result.reverseAdversePValue).toBe(genericReverse.adversePValue);
+    expect(reverse.pointImprovement).toBe(-result.pointImprovement);
+    expect(result.reverseAdversePValue).toBe(reverse.adversePValue);
+    expect(result.adversePValue).toBe(reverse.reverseAdversePValue);
   });
 });

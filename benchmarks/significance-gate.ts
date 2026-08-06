@@ -37,14 +37,27 @@ export function gatePairedSeeds(
   cand: SeedSamples[],
   threshold: number = JOURNEY_COMPLETION_THRESHOLD,
 ): GatedPair {
+  const sortedBase = [...base].sort((left, right) => left.seed - right.seed);
+  const sortedCand = [...cand].sort((left, right) => left.seed - right.seed);
+  if (
+    sortedBase.length !== sortedCand.length ||
+    sortedBase.some((entry, index) => entry.seed !== sortedCand[index]?.seed)
+  ) {
+    return incompletePair("seed_set_mismatch", Math.min(sortedBase.length, sortedCand.length));
+  }
+  if (
+    sortedBase.some((entry, index) => entry.samples.length !== sortedCand[index]?.samples.length)
+  ) {
+    return incompletePair("sample_length_mismatch", sortedBase.length);
+  }
   const basePool: number[] = [];
   const candPool: number[] = [];
   const seedsGated: GatedSeed[] = [];
   let completionMin = Number.POSITIVE_INFINITY;
-  const n = Math.min(base.length, cand.length);
+  const n = sortedBase.length;
   for (let i = 0; i < n; i += 1) {
-    const b = base[i];
-    const c = cand[i];
+    const b = sortedBase[i];
+    const c = sortedCand[i];
     if (!b || !c) continue;
     completionMin = Math.min(completionMin, b.completionRate, c.completionRate);
     // Drop this seed from BOTH arms when either side under-completes it. Excluding the same seed
@@ -57,8 +70,7 @@ export function gatePairedSeeds(
       });
       continue;
     }
-    const m = Math.min(b.samples.length, c.samples.length);
-    for (let j = 0; j < m; j += 1) {
+    for (let j = 0; j < b.samples.length; j += 1) {
       const baseSample = b.samples[j];
       const candSample = c.samples[j];
       if (baseSample === undefined || candSample === undefined) continue;
@@ -89,5 +101,18 @@ export function gatePairedSeeds(
     seedsTotal: n,
     seedsKept,
     seedsGated,
+  };
+}
+
+function incompletePair(reason: string, seedsTotal: number): GatedPair {
+  return {
+    status: "judgement_incomplete",
+    reason,
+    basePool: [],
+    candPool: [],
+    completionMin: Number.NaN,
+    seedsTotal,
+    seedsKept: 0,
+    seedsGated: [],
   };
 }

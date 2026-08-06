@@ -225,6 +225,8 @@ export const koMessages = {
     "몇 번째 사용에서 대성공이 났는지 알 수 없어 남은 수량을 확정해야 해요. 게임 인벤토리의 지금 수량을 그대로 고르면 됩니다.",
   "privacy.notice":
     "서비스 개선과 대성공 통계를 위해 계산 조건과 결과를 구간값으로 집계합니다. 이름, 이메일, 계정, IP 주소 등 고유 식별 정보는 통계 DB에 저장하지 않습니다.",
+  "license.notice": "이 프로그램은 어떠한 보증도 없이 AGPL-3.0-or-later로 제공됩니다.",
+  "license.source": "라이선스 및 소스 코드",
 } as const;
 
 export type MessageKey = keyof typeof koMessages;

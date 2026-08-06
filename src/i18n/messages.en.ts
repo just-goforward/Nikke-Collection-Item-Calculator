@@ -236,4 +236,6 @@ export const enMessages = {
     "The exact Super Success attempt is unknown, so confirm the remaining amount. Select the amount currently shown in your game inventory.",
   "privacy.notice":
     "To improve the service and aggregate Super Success stats, calculation conditions and results are stored only as ranges. Names, emails, accounts, IP addresses, and other unique identifiers are not stored in the stats database.",
+  "license.notice": "This program is provided without warranty under AGPL-3.0-or-later.",
+  "license.source": "License and source code",
 } satisfies Record<keyof typeof koMessages, string>;

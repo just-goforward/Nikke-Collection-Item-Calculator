@@ -2,6 +2,23 @@
 
 소장품 레벨업 계산기의 주요 변경 이력을 기록합니다.
 
+## 2026-08-06
+
+### H/p 정책 검증, AGPL 전환 및 문서 정리
+
+- 현재 Rust min-E[f]와 phase2 ladder에서 `H × p` 49개 조합을 122개 root 시나리오로
+  재평가하고, exact interactive 및 tail-risk gate를 거쳐 기존 `H=0.75`, `p=3`, `τ=0`
+  정책을 유지했습니다.
+- 프로젝트 코드를 `AGPL-3.0-or-later`로 공개하고, 배포 commit에 대응하는 소스 링크와
+  제3자 고지를 추가했습니다. Pretendard는 SIL Open Font License 1.1을 유지합니다.
+- 현재 구현에서 소비되지 않는 과거 계획·보고 문서와 중복 설계 문서를 제거했습니다.
+- 28일 키트 기대 획득량 근거를 `docs/research`의 추적 문서로 승격하고 현재 21일 수급
+  지평 계약에 맞게 갱신했습니다.
+- GitHub 프로젝트 안내를 한국어 기본 README와 영어·일본어 선택 문서로 확장했습니다.
+- `@vitejs/plugin-react` 6.0.5, `wrangler` 4.119.0,
+  `@cloudflare/vitest-pool-workers` 0.20.2로 개발 의존성을 갱신했습니다.
+- 상세 판정: [`docs/research/min-ef-hp-study-findings.ko.md`](docs/research/min-ef-hp-study-findings.ko.md)
+
 ## 2026-07-29
 
 ### Rust solver 정책 품질 연구

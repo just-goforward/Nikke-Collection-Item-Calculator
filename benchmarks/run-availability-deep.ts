@@ -31,7 +31,6 @@ const OUTPUT_FILE = new URL("./results/availability-deep.json", import.meta.url)
 
 // Gate/guardrail scenarios: scarcity/realistic only. balanced300 is EXCLUDED here (zero gate
 // information at P ~ 0.99999, most expensive exact) and used only as a journey panel.
-// (See REPORT.ko.md, correction #1.)
 const DEFAULT_SCENARIO_IDS = [
   "R0-balanced100",
   "SR0-balanced100",

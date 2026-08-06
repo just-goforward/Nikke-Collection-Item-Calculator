@@ -3,11 +3,15 @@
 Korean documentation:
 [`solver-policy-quality-findings.ko.md`](./solver-policy-quality-findings.ko.md)
 
-Date: 2026-07-29
+Date: 2026-08-05
 
 ## Decision
 
 No researched mean-objective candidate is eligible for product adoption.
+
+A per-scenario `product_candidate` label means only that the fixture-level quality gate passed.
+Product adoption requires reading `selectedScenarioGrades` together with `decisionScope`; this
+report does not authorize product adoption.
 
 - The active product runtime, Worker protocol, solver version, and UI remain unchanged.
 - The historical phase2 rerank runtime wiring was removed in commit `52a59c3`; only the
@@ -76,19 +80,25 @@ budget and five root-latency repetitions.
 
 | Scenario | Candidate | Delta P | Delta interactive F | Delta total uses | Warm p95 | Grade |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| `R10-balanced300` | MC rerank | 0 | +0.000385782 | +1.6391 | 147.55 ms | rejected |
-| `R10-balanced300` | exact one-step | +1.1e-16 | +0.000261342 | -0.7384 | 608.11 ms | research trade-off |
-| `SR0-balanced300` | MC rerank | -1.1e-16 | +0.001684126 | +3.0888 | 886.04 ms | rejected |
-| `SR0-balanced300` | exact one-step | +1.1e-16 | +0.001979388 | +3.2440 | 4105.65 ms | rejected |
+| `R10-balanced300` | MC rerank | 0 | +0.000385782 | +1.6391 | 138.77 ms | rejected |
+| `R10-balanced300` | exact one-step | +1.1e-16 | +0.000261342 | -0.7384 | 573.46 ms | rejected |
+| `SR0-balanced300` | MC rerank | -1.1e-16 | +0.001684126 | +3.0888 | 832.12 ms | rejected |
+| `SR0-balanced300` | exact one-step | +1.1e-16 | +0.001979388 | +3.2440 | 3351.11 ms | rejected |
 
-Lower interactive F and lower total uses are better. The exact candidate reduced total uses in
-`R10-balanced300`, but worsened interactive F and exceeded the latency gate. Static first-action
-improvement therefore did not establish an interactive product improvement.
+Lower interactive F and lower total uses are better. [Confirmed] The exact candidate reduced
+expected total uses by about 0.7384 in `R10-balanced300`, but worsened interactive F and had no
+strict success-probability or F benefit. The current classifier therefore rejects it on quality
+alone; it also independently exceeded the latency gate (`max(+15%, +50ms)`). Static first-action
+improvement did not establish an interactive product improvement.
+
+Warm p95 is nearest-rank p95 over four samples after discarding one cold sample. At this sample
+size it equals the observed maximum and is screening evidence, not a user-latency distribution.
 
 ## Conditional Whole-Policy Screening
 
-A research-only probability-constrained exact-policy prototype was screened because one-step
-rerank did not pass.
+[Unverified and not reproducible from current HEAD] A research-only probability-constrained
+exact-policy prototype was screened because one-step rerank did not pass. The prototype has been
+removed, so the historical numbers below cannot be reproduced by an identical current execution.
 
 - On `R14e900-yellow30`, interactive F increased from `0.3279638107` to `0.3303792873`, and
   expected total consumption increased by about `0.3291` pieces.
@@ -114,7 +124,7 @@ The raw-pieces audit also changed stock from `100/100/30` to `101/101/31`. Uses 
 while mean cost changed by `-0.0074593649`, confirming that the ABI preserves raw stock
 denominators.
 
-This remains `verification_incomplete` for product use:
+This remains [Incomplete] `verification_incomplete` for product use:
 
 - the optimizer admits every stock-valid action instead of the product probability gate
 - the recorded action table is not exposed to the exact interactive evaluator
@@ -129,4 +139,10 @@ research-only recorded-action handle with lifecycle guards. It must then pass th
 interactive probability, mean cost, total-use, latency, and failure gates. Until then, the current
 min-E[f] plus phase2 fallback remains the product policy.
 
-Generated JSON and CSV evidence is stored under ignored `benchmarks/results/`.
+## Artifact Roles
+
+- `benchmarks/rerank-quality.ts` owns the classification execution contract.
+- Benchmark specs protect representative behavioral regressions.
+- The runner owns campaign execution and serialization.
+- This document is the tracked research interpretation.
+- Ignored JSON under `benchmarks/results/` is reproducible raw evidence for a specific run.

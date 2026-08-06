@@ -1,8 +1,19 @@
 import type { ExactInteractiveEvaluation } from "./evaluator/exact-replan-types";
 
-export const QUALITY_PROBABILITY_EPSILON = 1e-12;
-export const QUALITY_COST_EPSILON = 1e-12;
-export const QUALITY_TOTAL_USES_EPSILON = 1e-9;
+export const QUALITY_CLASSIFICATION_POLICY = {
+  id: "p_or_f_benefit_all_nonworse_v1",
+  probabilityEpsilon: 1e-12,
+  costEpsilon: 1e-12,
+  totalUsesEpsilon: 1e-9,
+} as const;
+
+export const QUALITY_LATENCY_GATE_POLICY = {
+  id: "warm_p95_max_relative_or_absolute_v1",
+  relativeFactor: 1.15,
+  absoluteMarginMs: 50,
+} as const;
+
+export const MC_EXACT_DELTA_ZERO_SE_EPSILON = 1e-12;
 
 export type McExactCalibration =
   | "consistent_with_sampling_error"
@@ -38,10 +49,11 @@ export function classifyMcExactCalibration(
   if (standardError === 0) {
     return {
       classification:
-        absoluteError <= QUALITY_COST_EPSILON
+        absoluteError <= MC_EXACT_DELTA_ZERO_SE_EPSILON
           ? "consistent_with_sampling_error"
           : "outside_nominal_95_interval",
-      standardizedError: absoluteError <= QUALITY_COST_EPSILON ? 0 : Number.POSITIVE_INFINITY,
+      standardizedError:
+        absoluteError <= MC_EXACT_DELTA_ZERO_SE_EPSILON ? 0 : Number.POSITIVE_INFINITY,
     };
   }
   const standardizedError = absoluteError / standardError;
@@ -93,11 +105,12 @@ export function classifyExactInteractiveCandidate(
     cost: costDelta,
     totalUses: totalUsesDelta,
   } = completedDeltas(baseline, candidate);
-  const probabilityNonWorse = probabilityDelta >= -QUALITY_PROBABILITY_EPSILON;
-  const costNonWorse = costDelta <= QUALITY_COST_EPSILON;
-  const totalUsesNonWorse = totalUsesDelta <= QUALITY_TOTAL_USES_EPSILON;
+  const probabilityNonWorse = probabilityDelta >= -QUALITY_CLASSIFICATION_POLICY.probabilityEpsilon;
+  const costNonWorse = costDelta <= QUALITY_CLASSIFICATION_POLICY.costEpsilon;
+  const totalUsesNonWorse = totalUsesDelta <= QUALITY_CLASSIFICATION_POLICY.totalUsesEpsilon;
   const strictBenefit =
-    probabilityDelta > QUALITY_PROBABILITY_EPSILON || costDelta < -QUALITY_COST_EPSILON;
+    probabilityDelta > QUALITY_CLASSIFICATION_POLICY.probabilityEpsilon ||
+    costDelta < -QUALITY_CLASSIFICATION_POLICY.costEpsilon;
 
   if (probabilityNonWorse && costNonWorse && totalUsesNonWorse) {
     return strictBenefit ? "product_candidate" : "rejected";
@@ -127,14 +140,27 @@ export function classifyExactInteractiveCandidateSet(
     }
     const deltas = completedDeltas(baseline, candidate);
     strictBenefit ||=
-      deltas.probability > QUALITY_PROBABILITY_EPSILON || deltas.cost < -QUALITY_COST_EPSILON;
+      deltas.probability > QUALITY_CLASSIFICATION_POLICY.probabilityEpsilon ||
+      deltas.cost < -QUALITY_CLASSIFICATION_POLICY.costEpsilon;
     hasTradeoff ||=
-      deltas.probability < -QUALITY_PROBABILITY_EPSILON ||
-      deltas.cost > QUALITY_COST_EPSILON ||
-      deltas.totalUses > QUALITY_TOTAL_USES_EPSILON;
+      deltas.probability < -QUALITY_CLASSIFICATION_POLICY.probabilityEpsilon ||
+      deltas.cost > QUALITY_CLASSIFICATION_POLICY.costEpsilon ||
+      deltas.totalUses > QUALITY_CLASSIFICATION_POLICY.totalUsesEpsilon;
   }
   if (hasTradeoff || !latencyGatePassed) {
     return strictBenefit ? "research_tradeoff" : "rejected";
   }
   return strictBenefit ? "product_candidate" : "rejected";
+}
+
+export function passesQualityLatencyGate(
+  baselineWarmP95Ms: number | null,
+  candidateWarmP95Ms: number | null,
+): boolean {
+  if (baselineWarmP95Ms === null || candidateWarmP95Ms === null) return false;
+  const limit = Math.max(
+    baselineWarmP95Ms * QUALITY_LATENCY_GATE_POLICY.relativeFactor,
+    baselineWarmP95Ms + QUALITY_LATENCY_GATE_POLICY.absoluteMarginMs,
+  );
+  return candidateWarmP95Ms <= limit;
 }

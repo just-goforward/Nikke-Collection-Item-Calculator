@@ -12,6 +12,8 @@
 name = "solver-rs"
 version = "0.1.0"
 edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/just-goforward/Nikke-Collection-Item-Calculator"
 
 [lib]
 crate-type = ["cdylib"]

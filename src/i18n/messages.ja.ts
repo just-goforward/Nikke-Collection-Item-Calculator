@@ -224,4 +224,6 @@ export const jaMessages = {
     "何回目に大成功したか不明なため、残数を確定してください。ゲーム内インベントリに表示されている現在の数を選択します。",
   "privacy.notice":
     "サービス改善と大成功統計のため、計算条件と結果を区間値として集計します。名前、メール、アカウント、IPアドレスなどの個人識別情報は統計DBに保存しません。",
+  "license.notice": "本プログラムは無保証でAGPL-3.0-or-laterに基づき提供されます。",
+  "license.source": "ライセンスとソースコード",
 } satisfies Record<keyof typeof koMessages, string>;

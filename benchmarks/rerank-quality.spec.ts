@@ -5,6 +5,9 @@ import {
   classifyExactInteractiveCandidate,
   classifyExactInteractiveCandidateSet,
   classifyMcExactCalibration,
+  passesQualityLatencyGate,
+  QUALITY_CLASSIFICATION_POLICY,
+  QUALITY_LATENCY_GATE_POLICY,
 } from "./rerank-quality";
 
 function completed(overrides: {
@@ -106,5 +109,53 @@ describe("rerank quality classification", () => {
         false,
       ),
     ).toBe("research_tradeoff");
+  });
+
+  it("keeps total-only improvements and cost regressions out of product candidates", () => {
+    const baseline = completed({});
+    expect(
+      classifyExactInteractiveCandidate(
+        baseline,
+        completed({ cost: 0.21, consumption: { blue: 0, purple: 10, yellow: 10 } }),
+      ),
+    ).toBe("rejected");
+    expect(
+      classifyExactInteractiveCandidateSet(
+        [
+          {
+            baseline,
+            candidate: completed({
+              cost: 0.21,
+              consumption: { blue: 0, purple: 10, yellow: 10 },
+            }),
+          },
+        ],
+        true,
+      ),
+    ).toBe("rejected");
+  });
+
+  it("treats probability changes inside epsilon as ties", () => {
+    const baseline = completed({ probability: 0.9 });
+    expect(
+      classifyExactInteractiveCandidate(baseline, completed({ probability: 0.9 + 0.5e-12 })),
+    ).toBe("rejected");
+    expect(
+      classifyExactInteractiveCandidate(baseline, completed({ probability: 0.9 + 2e-12 })),
+    ).toBe("product_candidate");
+  });
+
+  it("records the classification and latency policy revisions", () => {
+    expect(QUALITY_CLASSIFICATION_POLICY.id).toBe("p_or_f_benefit_all_nonworse_v1");
+    expect(QUALITY_LATENCY_GATE_POLICY.id).toBe("warm_p95_max_relative_or_absolute_v1");
+  });
+
+  it("applies both absolute and relative warm-p95 limits and fails closed", () => {
+    expect(passesQualityLatencyGate(100, 150)).toBe(true);
+    expect(passesQualityLatencyGate(100, 150.1)).toBe(false);
+    expect(passesQualityLatencyGate(1000, 1150)).toBe(true);
+    expect(passesQualityLatencyGate(1000, 1151)).toBe(false);
+    expect(passesQualityLatencyGate(null, 10)).toBe(false);
+    expect(passesQualityLatencyGate(10, null)).toBe(false);
   });
 });

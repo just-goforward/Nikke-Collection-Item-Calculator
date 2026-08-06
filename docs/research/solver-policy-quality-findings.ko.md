@@ -2,11 +2,15 @@
 
 영문 원본: [`solver-policy-quality-findings.md`](./solver-policy-quality-findings.md)
 
-분석 일자: 2026-07-29
+분석 일자: 2026-08-05
 
 ## 최종 판정
 
 이번 평균 목적 연구에서 제품에 채택할 후보는 나오지 않았습니다.
+
+개별 시나리오의 `product_candidate`는 해당 fixture의 품질 gate만 통과했다는 뜻입니다.
+제품 채택 여부는 report의 `selectedScenarioGrades`와 `decisionScope`를 함께 확인해야 하며,
+이번 report는 제품 채택을 승인하지 않습니다.
 
 - 제품 runtime, Worker protocol, solver version, UI는 변경하지 않았습니다.
 - 과거 phase2 rerank runtime 배선은 커밋 `52a59c3`에서 제거됐고, 현재는 연구 구현과
@@ -74,19 +78,25 @@ phase2가 완료되는 fallback 관련 시나리오 2개를 exact budget 120초,
 
 | 시나리오 | 후보 | P 변화 | interactive F 변화 | 총 사용 횟수 변화 | warm p95 | 판정 |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
-| `R10-balanced300` | MC rerank | 0 | +0.000385782 | +1.6391 | 147.55 ms | 기각 |
-| `R10-balanced300` | exact one-step | +1.1e-16 | +0.000261342 | -0.7384 | 608.11 ms | 연구 trade-off |
-| `SR0-balanced300` | MC rerank | -1.1e-16 | +0.001684126 | +3.0888 | 886.04 ms | 기각 |
-| `SR0-balanced300` | exact one-step | +1.1e-16 | +0.001979388 | +3.2440 | 4105.65 ms | 기각 |
+| `R10-balanced300` | MC rerank | 0 | +0.000385782 | +1.6391 | 138.77 ms | 기각 |
+| `R10-balanced300` | exact one-step | +1.1e-16 | +0.000261342 | -0.7384 | 573.46 ms | 기각 |
+| `SR0-balanced300` | MC rerank | -1.1e-16 | +0.001684126 | +3.0888 | 832.12 ms | 기각 |
+| `SR0-balanced300` | exact one-step | +1.1e-16 | +0.001979388 | +3.2440 | 3351.11 ms | 기각 |
 
-interactive F와 총 사용 횟수는 낮을수록 좋습니다. `R10-balanced300` exact 후보는 총
-사용량은 줄였지만 interactive F가 악화됐고 지연 기준도 넘었습니다. 따라서 정적 첫
-행동 개선을 사용자 흐름의 제품 개선으로 승격할 수 없습니다.
+interactive F와 총 사용 횟수는 낮을수록 좋습니다. [확인] `R10-balanced300` exact
+후보는 총 기대 사용량을 약 0.7384회 줄였지만 interactive F가 악화됐고, 성공 확률
+또는 F의 엄격한 개선도 없었습니다. 현행 분류 계약에서는 품질만으로 기각되며, 지연
+gate(`max(+15%, +50ms)`)도 별도로 초과했습니다. 따라서 정적 첫 행동 개선을 사용자
+흐름의 제품 개선으로 승격할 수 없습니다.
+
+warm p95는 cold 1회를 제외한 표본 4개의 nearest-rank p95입니다. 이 표본 수에서는
+관측 최댓값과 같으며, 실제 사용자 지연 분포가 아닌 screening 수치로만 해석합니다.
 
 ## 조건부 전체 정책 screening
 
-one-step rerank가 통과하지 못해 확률 제약 exact-policy prototype을 연구 전용으로
-screening했습니다.
+[미검증·재현 불가] one-step rerank가 통과하지 못해 확률 제약 exact-policy prototype을
+연구 전용으로 screening했습니다. prototype은 현재 HEAD에서 제거됐으므로 아래 당시
+수치는 동일 실행으로 재현할 수 없습니다.
 
 - `R14e900-yellow30`: interactive F가 `0.3279638107`에서 `0.3303792873`으로 증가했고,
   기대 총소모도 약 `0.3291 pieces` 늘었습니다.
@@ -109,7 +119,7 @@ export를 제거했습니다. 기각된 추상화를 제품 artifact에 남기�
 raw pieces 감사에서는 `100/100/30`을 `101/101/31`로 바꿨습니다. uses는 같았지만 평균
 비용은 `-0.0074593649`만큼 달라져 실제 재고 분모가 보존됨을 확인했습니다.
 
-다만 제품 판정은 `verification_incomplete`입니다.
+다만 제품 판정은 [미완료] `verification_incomplete`입니다.
 
 - optimizer가 제품 성공확률 gate 대신 재고가 있는 모든 행동을 허용
 - recorded action table을 exact interactive evaluator에서 읽을 export가 없음
@@ -124,4 +134,10 @@ CVaR 후속 연구를 시작하려면 먼저 probability gate를 지키는 optim
 성공확률·평균 비용·총사용량·지연·실패 기준을 다시 통과해야 합니다. 그 전까지는 현재
 min-E[f]와 phase2 fallback 정책을 유지합니다.
 
-원시 JSON/CSV 결과는 gitignored `benchmarks/results/`에 저장됩니다.
+## 산출물 역할
+
+- 분류 실행 계약은 `benchmarks/rerank-quality.ts`가 소유합니다.
+- 대표 행동 회귀는 benchmark spec이 보호합니다.
+- 캠페인 실행·직렬화 계약은 runner가 소유합니다.
+- 이 문서는 연구 해석의 추적 기록입니다.
+- gitignored `benchmarks/results/` JSON은 특정 실행의 재생성 가능한 원시 결과입니다.

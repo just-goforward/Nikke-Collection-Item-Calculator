@@ -39,7 +39,7 @@ const OUTPUT_FILE = new URL("./results/availability-deep-slice.json", import.met
 // budget. balanced300 is intentionally EXCLUDED: on it every candidate completes with
 // P ~ 0.99999, so exact P-loss vs A ~ 0 (zero gate information) while exact is the most
 // expensive (R0-balanced300 ~ 610s, always times out at 300s). balanced300 is used ONLY as a
-// journey-demand panel below. (See REPORT.ko.md, correction #1.)
+// journey-demand panel below.
 const DEFAULT_SCENARIO_IDS = [
   "R0-balanced100",
   "SR0-balanced100",
