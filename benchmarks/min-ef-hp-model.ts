@@ -100,7 +100,7 @@ export function hpCandidateById(id: string): HpCandidate {
 }
 
 function formatNumber(value: number): string {
-  return Number.isInteger(value) ? String(value) : String(value).replace(/^0\./, "0.");
+  return String(value);
 }
 
 export function summarizeHpScreening(
