@@ -146,6 +146,7 @@ try {
     setup(exports, scenario, core.encodeState);
     const baselineMean = requireFunction(exports, "cvarFollowMean")();
     assertStatus(exports, "CVaR baseline mean");
+    const baselineMaxSuccess = requireFunction(exports, "rootCandidateMaxSuccessProb")();
     const samples = [];
     for (const eta of etas) {
       const baselineHinge = requireFunction(exports, "cvarFollowHinge")(eta);
@@ -156,6 +157,8 @@ try {
       assertStatus(exports, "CVaR recorded-policy mean");
       const candidateHinge = requireFunction(exports, "cvarFollowRecordedHinge")(eta);
       assertStatus(exports, "CVaR recorded-policy hinge");
+      const candidateSuccess = requireFunction(exports, "cvarFollowRecordedSuccess")();
+      assertStatus(exports, "CVaR recorded-policy success");
       const baselineCvar = eta + baselineHinge / (1 - alpha);
       const candidateCvar = eta + candidateHinge / (1 - alpha);
       samples.push({
@@ -166,6 +169,8 @@ try {
         baselineCvar,
         candidateCvar,
         candidateMean,
+        candidateSuccess,
+        successDelta: candidateSuccess - baselineMaxSuccess,
         meanDelta: candidateMean - baselineMean,
         cvarDelta: candidateCvar - baselineCvar,
         nodeCount: requireFunction(exports, "cvarNodeCount")(),
@@ -177,6 +182,7 @@ try {
     records.push({
       scenario,
       baselineMean,
+      baselineMaxSuccess,
       samples,
       bestSample,
       rawPieceSensitivity: await evaluateRawPieceSensitivity(
@@ -188,8 +194,7 @@ try {
       productAssessment: {
         grade: "verification_incomplete",
         reasons: [
-          "The optimizer does not enforce the phase2/min-E[f] success-probability gate.",
-          "The recorded-policy action table is not exposed for exact interactive-replan evaluation.",
+          "This ABI audit does not perform the exact interactive-replan product gate; see the gated CVaR study.",
           "The eta grid is sampled and does not prove the continuous dual optimum.",
         ],
         sampledMeanNonWorse: bestSample.meanDelta <= STRICT_EPSILON,
@@ -212,8 +217,8 @@ try {
     },
     staticContract: {
       rawPiecesPassedToSetup: true,
-      successProbabilityGateEnforcedByOptimizer: false,
-      recordedPolicyActionExportAvailable: false,
+      successProbabilityGateEnforcedByOptimizer: true,
+      recordedPolicyActionExportAvailable: true,
       productRuntimeChanged: false,
     },
     records,

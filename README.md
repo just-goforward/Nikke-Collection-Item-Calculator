@@ -62,6 +62,7 @@ npm run report:bundle
 - [28일 기준 관리 키트 기대 획득량](./docs/research/kit-expected-gain.ko.md)
 - [min-E[f] H/p 공동 최적화 연구](./docs/research/min-ef-hp-study-findings.ko.md)
 - [Solver 정책 품질 연구](./docs/research/solver-policy-quality-findings.ko.md)
+- [Rust phase2 방법론 연구](./docs/research/phase2-methodology-findings.ko.md)
 - [앱 아이콘 원본 이미지](./docs/assets/app-icon-source.png)
 
 실제 UI의 정본은 runtime CSS와 component입니다. 별도 디자인 명세를 중복 관리하지 않으며 visual, alignment, compatibility 테스트로 관측 가능한 레이아웃을 보호합니다.

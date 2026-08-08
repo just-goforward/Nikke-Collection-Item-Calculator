@@ -1,4 +1,6 @@
+use crate::constants::STRICT_EPSILON;
 use crate::cost::availability_cost;
+use crate::phase2_max_success_for_action;
 use crate::state::stock_of;
 use crate::status::{status_ok, LAST_STATUS, STATUS_MEMO_FULL};
 use crate::transition::{
@@ -34,6 +36,7 @@ static mut CV_START_Y: i32 = 0;
 static mut CV_START_SID: i32 = 0;
 static mut CV_ETA: f64 = 0.0;
 static mut CV_USE_HINGE: bool = false;
+static mut CV_TOL: f64 = 0.0;
 
 unsafe fn c_ensure() {
     if C_SID.is_empty() {
@@ -146,6 +149,31 @@ unsafe fn leaf_value(b: i32, p: i32, y: i32) -> f64 {
     }
 }
 
+unsafe fn success_eligible_actions(sid: i32, b: i32, p: i32, y: i32) -> [bool; 3] {
+    let mut success = [f64::NEG_INFINITY; 3];
+    let mut maximum = f64::NEG_INFINITY;
+    for action in 0..3i32 {
+        if stock_of(action, b, p, y) <= 0 {
+            continue;
+        }
+        if let Some(value) = phase2_max_success_for_action(sid, b, p, y, action) {
+            success[action as usize] = value;
+            maximum = maximum.max(value);
+        }
+        if !status_ok() {
+            return [false; 3];
+        }
+    }
+    let mut eligible = [false; 3];
+    if maximum.is_finite() {
+        for action in 0..3usize {
+            eligible[action] =
+                success[action].is_finite() && maximum - success[action] <= CV_TOL + STRICT_EPSILON;
+        }
+    }
+    eligible
+}
+
 // E_pi[leaf] under the fixed mean-MDP policy.
 unsafe fn follow_node(sid: i32, b: i32, p: i32, y: i32, policy_action: PolicyAction) -> f64 {
     if !status_ok() {
@@ -210,10 +238,14 @@ unsafe fn opt_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
         return C_FOUND_VAL;
     }
     let slot = -1 - f;
+    let eligible = success_eligible_actions(sid, b, p, y);
+    if !status_ok() {
+        return 0.0;
+    }
     let mut best = f64::INFINITY;
     let mut found = false;
     for k in 0..3i32 {
-        if stock_of(k, b, p, y) <= 0 {
+        if !eligible[k as usize] {
             continue;
         }
         compute_transition(sid, k);
@@ -263,11 +295,15 @@ unsafe fn opt_record_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
         return C_FOUND_VAL;
     }
     let slot = -1 - f;
+    let eligible = success_eligible_actions(sid, b, p, y);
+    if !status_ok() {
+        return 0.0;
+    }
     let mut best = f64::INFINITY;
     let mut found = false;
     let mut best_k: i32 = -1;
     for k in 0..3i32 {
-        if stock_of(k, b, p, y) <= 0 {
+        if !eligible[k as usize] {
             continue;
         }
         compute_transition(sid, k);
@@ -355,6 +391,64 @@ unsafe fn follow_recorded_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
     v
 }
 
+unsafe fn follow_recorded_success_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
+    if !status_ok() {
+        return 0.0;
+    }
+    if is_terminal(sid) {
+        return 1.0;
+    }
+    if is_convert(sid) {
+        return follow_recorded_success_node(CONVERT_SID, b, p, y);
+    }
+    let f = c_find(sid, b, p, y);
+    if !status_ok() {
+        return 0.0;
+    }
+    if f >= 0 {
+        return C_FOUND_VAL;
+    }
+    let slot = -1 - f;
+    let action = cvar_recorded_action(sid, b, p, y);
+    if action < 0 {
+        c_store(slot, sid, b, p, y, 0.0);
+        return 0.0;
+    }
+    compute_transition(sid, action);
+    let prob = TX_PROB;
+    let succ = TX_SUCC;
+    let fail = TX_FAIL;
+    let nb = b - if action == 0 { 1 } else { 0 };
+    let np = p - if action == 1 { 1 } else { 0 };
+    let ny = y - if action == 2 { 1 } else { 0 };
+    let success = follow_recorded_success_node(succ, nb, np, ny);
+    if !status_ok() {
+        return 0.0;
+    }
+    let failure = follow_recorded_success_node(fail, nb, np, ny);
+    if !status_ok() {
+        return 0.0;
+    }
+    let value = prob * success + (1.0 - prob) * failure;
+    c_store(slot, sid, b, p, y, value);
+    value
+}
+
+pub(crate) unsafe fn cvar_recorded_action(sid: i32, b: i32, p: i32, y: i32) -> i32 {
+    if is_terminal(sid) {
+        return -1;
+    }
+    if is_convert(sid) {
+        return cvar_recorded_action(CONVERT_SID, b, p, y);
+    }
+    let slot = pol_probe(sid, b, p, y);
+    if POL_SID[slot] == -1 {
+        -1
+    } else {
+        POL_ACT[slot] as i32
+    }
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "matches the stable WASM CVaR setup ABI"
@@ -369,6 +463,7 @@ pub(crate) unsafe fn cvar_setup(
     start_b: i32,
     start_p: i32,
     start_y: i32,
+    tolerance: f64,
 ) {
     CV_HF = hf;
     CV_NP = np;
@@ -379,6 +474,7 @@ pub(crate) unsafe fn cvar_setup(
     CV_START_P = start_p;
     CV_START_Y = start_y;
     CV_START_SID = sid;
+    CV_TOL = tolerance;
 }
 
 pub(crate) unsafe fn cvar_follow_mean(policy_action: PolicyAction) -> f64 {
@@ -393,11 +489,7 @@ pub(crate) unsafe fn cvar_follow_mean(policy_action: PolicyAction) -> f64 {
     )
 }
 
-pub(crate) unsafe fn cvar_follow_mean_after_first_action(
-    first_action: i32,
-    policy_action: PolicyAction,
-) -> f64 {
-    CV_USE_HINGE = false;
+unsafe fn cvar_follow_after_first_action(first_action: i32, policy_action: PolicyAction) -> f64 {
     c_reset();
     if !(0..=2).contains(&first_action) {
         return f64::INFINITY;
@@ -428,6 +520,24 @@ pub(crate) unsafe fn cvar_follow_mean_after_first_action(
         return 0.0;
     }
     prob * vs + (1.0 - prob) * vf
+}
+
+pub(crate) unsafe fn cvar_follow_mean_after_first_action(
+    first_action: i32,
+    policy_action: PolicyAction,
+) -> f64 {
+    CV_USE_HINGE = false;
+    cvar_follow_after_first_action(first_action, policy_action)
+}
+
+pub(crate) unsafe fn cvar_follow_hinge_after_first_action(
+    eta: f64,
+    first_action: i32,
+    policy_action: PolicyAction,
+) -> f64 {
+    CV_USE_HINGE = true;
+    CV_ETA = eta;
+    cvar_follow_after_first_action(first_action, policy_action)
 }
 
 pub(crate) unsafe fn cvar_node_count() -> i32 {
@@ -479,4 +589,9 @@ pub(crate) unsafe fn cvar_follow_recorded_hinge(eta: f64) -> f64 {
     CV_ETA = eta;
     c_reset();
     follow_recorded_node(CV_START_SID, CV_START_B, CV_START_P, CV_START_Y)
+}
+
+pub(crate) unsafe fn cvar_follow_recorded_success() -> f64 {
+    c_reset();
+    follow_recorded_success_node(CV_START_SID, CV_START_B, CV_START_P, CV_START_Y)
 }

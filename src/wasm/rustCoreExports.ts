@@ -33,6 +33,13 @@ export type RustCoreExports = {
     purpleUses: number,
     yellowUses: number,
   ) => number;
+  phase2MaxSuccessForActionAt?: (
+    stateId: number,
+    blueUses: number,
+    purpleUses: number,
+    yellowUses: number,
+    action: number,
+  ) => number;
   simulateCore?: (
     stateId: number,
     bluePieces: number,
@@ -172,11 +179,46 @@ export type RustCoreExports = {
   ) => void;
   cvarFollowMean?: () => number;
   cvarFollowMeanAfterFirstAction?: (firstAction: number) => number;
+  cvarFollowHingeAfterFirstAction?: (eta: number, firstAction: number) => number;
   cvarFollowHinge?: (eta: number) => number;
   cvarOptMean?: () => number;
   cvarOptHinge?: (eta: number) => number;
   cvarOptRecord?: (eta: number) => number;
   cvarFollowRecordedMean?: () => number;
   cvarFollowRecordedHinge?: (eta: number) => number;
+  cvarFollowRecordedSuccess?: () => number;
+  cvarRecordedActionAt?: (stateId: number, blue: number, purple: number, yellow: number) => number;
   cvarNodeCount?: () => number;
+  solvePrioritizedSparsePi?: (
+    stateId: number,
+    bluePieces: number,
+    purplePieces: number,
+    yellowPieces: number,
+    horizonFactor: number,
+    normPower: number,
+    tolerance: number,
+    maxPasses: number,
+    maxStates: number,
+    maxUpdatesPerPass: number,
+  ) => void;
+  prioritizedSparsePiOutcome?: () => number;
+  prioritizedSparsePiAction?: () => number;
+  prioritizedSparsePiSuccess?: () => number;
+  prioritizedSparsePiCost?: () => number;
+  prioritizedSparsePiVecB?: () => number;
+  prioritizedSparsePiVecP?: () => number;
+  prioritizedSparsePiVecY?: () => number;
+  prioritizedSparsePiProbabilityGap?: () => number;
+  prioritizedSparsePiPasses?: () => number;
+  prioritizedSparsePiPeakStates?: () => number;
+  prioritizedSparsePiScannedStates?: () => number;
+  prioritizedSparsePiChanges?: () => number;
+  prioritizedSparsePiOverrideCount?: () => number;
+  prioritizedSparsePiActionAt?: (
+    stateId: number,
+    blueUses: number,
+    purpleUses: number,
+    yellowUses: number,
+  ) => number;
+  releasePrioritizedSparsePi?: () => void;
 };

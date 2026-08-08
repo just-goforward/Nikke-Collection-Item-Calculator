@@ -19,6 +19,10 @@ repository = "https://github.com/just-goforward/Nikke-Collection-Item-Calculator
 crate-type = ["cdylib"]
 name = "solver_rs"
 
+[features]
+default = []
+research-sparse-pi = []
+
 [profile.release]
 opt-level = 3
 lto = true

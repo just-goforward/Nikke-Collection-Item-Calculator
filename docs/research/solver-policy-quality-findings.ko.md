@@ -19,8 +19,9 @@
   영역의 exact interactive-replan 품질·지연 기준을 통과하지 못했습니다.
 - 확률 제약 전체 정책 prototype은 완료 fixture를 악화시켰고 fallback fixture에서는
   memo 한계에 도달했습니다. 이 prototype은 screening 후 제거했습니다.
-- CVaR ABI에서는 sampled tail 개선 신호가 나왔지만, 성공확률 gate와 recorded-policy
-  action export가 없어 제품 후보 판정은 할 수 없습니다.
+- 이 보고서 작성 시점의 CVaR ABI에서는 sampled tail 개선 신호가 나왔지만, 성공확률
+  gate와 recorded-policy action export가 없어 제품 후보 판정을 할 수 없었습니다. 두
+  공백을 보강한 후속 연구도 공동 제품 gate에서 기각됐습니다.
 
 ## 평가 계약
 
@@ -125,14 +126,17 @@ raw pieces 감사에서는 `100/100/30`을 `101/101/31`로 바꿨습니다. uses
 - recorded action table을 exact interactive evaluator에서 읽을 export가 없음
 - eta grid는 연속 dual 최적값의 증명이 아니라 표본
 
+후속 연구에서는 성공확률 gate와 recorded-policy action export를 추가하고 122개 root를
+다시 평가했습니다. 행동이 바뀐 2건 모두 exact interactive 평균 부담·총소모·키트별 고갈
+공동 기준 중 하나를 위반했습니다. 현재 판정은
+[`phase2-methodology-findings.ko.md`](./phase2-methodology-findings.ko.md)에 기록합니다.
+
 ## 후속 결정
 
 rerank나 CVaR를 production에 다시 연결하지 않습니다.
 
-CVaR 후속 연구를 시작하려면 먼저 probability gate를 지키는 optimizer와 수명 가드가
-있는 연구 전용 recorded-action handle이 필요합니다. 이후 같은 exact interactive
-성공확률·평균 비용·총사용량·지연·실패 기준을 다시 통과해야 합니다. 그 전까지는 현재
-min-E[f]와 phase2 fallback 정책을 유지합니다.
+후속 연구에서 probability gate와 research action export를 구현했지만 제품 기준을 통과한
+후보는 없었습니다. 현재 min-E[f]와 phase2 fallback 정책을 유지합니다.
 
 ## 산출물 역할
 

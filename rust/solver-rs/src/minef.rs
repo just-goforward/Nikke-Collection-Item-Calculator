@@ -49,6 +49,7 @@ static mut ME_START_B: i32 = 0;
 static mut ME_START_P: i32 = 0;
 static mut ME_START_Y: i32 = 0;
 static mut ME_COUNT: usize = 0;
+static mut ME_TRAVERSAL_ORDER: [i32; 3] = [0, 1, 2];
 #[derive(Clone, Copy)]
 struct TerminalCacheLayout {
     p_dim: usize,
@@ -165,6 +166,25 @@ pub extern "C" fn configureMinEfMemo(cap_log2: i32) {
         ME_FULL_GUARD = new_cap - (new_cap >> 3);
         me_release_arrays();
     }
+}
+
+// Research-only control for measuring whether candidate traversal order changes probe/recompute
+// pressure. Selection and tie-break loops remain in canonical action order.
+#[no_mangle]
+pub extern "C" fn configureMinEfTraversalOrder(order_code: i32) -> i32 {
+    let order = match order_code {
+        0 => [0, 1, 2],
+        1 => [0, 2, 1],
+        2 => [1, 0, 2],
+        3 => [1, 2, 0],
+        4 => [2, 0, 1],
+        5 => [2, 1, 0],
+        _ => return 0,
+    };
+    unsafe {
+        ME_TRAVERSAL_ORDER = order;
+    }
+    1
 }
 
 #[no_mangle]
@@ -314,7 +334,8 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {
 
     let base = depth * 3;
     let mut max_msp: f64 = 0.0;
-    for k in 0..3i32 {
+    let traversal_order = ME_TRAVERSAL_ORDER;
+    for k in traversal_order {
         let s = base + k as usize;
         if stock_of(k, b, p, y) <= 0 {
             ME_SC_VALID[s] = 0;

@@ -12,5 +12,9 @@ playwright/.cache/
 blob-report/
 debug.log
 benchmarks/results/
+output/
+*.prof
+*.trace
+*.checkpoint.json
 public/solver_rs.wasm
 rust/**/target/

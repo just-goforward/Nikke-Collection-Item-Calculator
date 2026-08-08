@@ -2,6 +2,27 @@
 
 소장품 레벨업 계산기의 주요 변경 이력을 기록합니다.
 
+## 2026-08-08
+
+### Rust phase2 방법론 연구
+
+- phase2 cap offset, min-E[f] 행동 순서, 성공확률 gate 적용 CVaR, sparse constrained
+  policy iteration을 현재 raw-pieces·`τ=0`, `H=0.75`, `p=3` 계약에서 비교했습니다.
+- cap offset과 행동 순서 변경은 의미 있는 상태 또는 용량 개선을 만들지 못해 기각했습니다.
+- gate-aware CVaR는 122개 root 중 2개 행동을 바꿨지만 exact interactive 공동 품질
+  기준을 통과하지 못했습니다.
+- sparse policy iteration은 일부 fallback fixture의 interactive 자원 지표를 개선했지만,
+  현재 TypeScript 연구 구현이 phase2보다 warm p95 기준 약 3.85~28.58배 느려 제품 runtime에
+  연결하지 않았습니다.
+- 후속 Rust-native 우선순위 sparse PI는 작은 fixture에서 min-E[f] 의미론을 재현했지만,
+  R10 exact closure가 120만 state budget을 초과했고 bounded 후보도 phase2보다 warm p95가
+  약 1.52배 느렸으며 candidate WASM이 115KB 예산을 넘어서 연구 전용으로 유지했습니다.
+- 공개 저장소에는 benchmark/evaluator 소스, 핵심 fixture와 판정 문서만 유지하고, 대량
+  JSON·분석 notebook·candidate WASM·profiler/trace/checkpoint 산출물은 Git에서 제외했습니다.
+- Node.js 24.19.0, npm 12.0.2 환경에서 `@types/node` 26.2.0, `wrangler` 4.120.0,
+  `@cloudflare/vitest-pool-workers` 0.20.3으로 개발 의존성을 갱신했습니다.
+- 상세 판정: [`docs/research/phase2-methodology-findings.ko.md`](docs/research/phase2-methodology-findings.ko.md)
+
 ## 2026-08-06
 
 ### H/p 정책 검증, AGPL 전환 및 문서 정리

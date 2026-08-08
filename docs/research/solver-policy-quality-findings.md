@@ -20,9 +20,9 @@ report does not authorize product adoption.
   interactive-replan quality and latency gates on min-E[f] fallback scenarios.
 - A probability-constrained whole-policy prototype regressed a completed fixture and reached its
   memo limit on a fallback fixture. The prototype was removed after screening.
-- The existing CVaR ABI produced an interesting sampled tail signal, but it cannot be graded as a
-  product candidate because it does not enforce the success-probability gate and does not expose
-  recorded-policy actions for interactive evaluation.
+- At the time of this report, the CVaR ABI produced an interesting sampled tail signal but could
+  not be graded because it lacked the success-probability gate and recorded-policy actions. A
+  follow-up study closed both gaps but still rejected the candidate under the joint product gate.
 
 ## Evaluation Contract
 
@@ -130,14 +130,17 @@ This remains [Incomplete] `verification_incomplete` for product use:
 - the recorded action table is not exposed to the exact interactive evaluator
 - the eta grid samples rather than proves the continuous dual optimum
 
+The follow-up study added the success-probability gate and recorded-policy action export, then
+screened 122 roots. Both changed roots violated at least one exact-interactive constraint across
+mean burden, total consumption, and per-kit exhaustion. The current decision is recorded in
+[`phase2-methodology-findings.md`](./phase2-methodology-findings.md).
+
 ## Next Decision
 
 Do not reconnect rerank or CVaR to production.
 
-A future CVaR project is justified only if it first adds a gate-aware optimizer and a
-research-only recorded-action handle with lifecycle guards. It must then pass the same exact
-interactive probability, mean cost, total-use, latency, and failure gates. Until then, the current
-min-E[f] plus phase2 fallback remains the product policy.
+The follow-up study implemented the probability gate and research action export, but no candidate
+passed the product criteria. The current min-E[f] plus phase2 fallback remains the product policy.
 
 ## Artifact Roles
 

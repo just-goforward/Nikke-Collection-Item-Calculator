@@ -18,6 +18,8 @@ mod cvar;
 mod distribution;
 mod exact_replan;
 mod minef;
+#[cfg(feature = "research-sparse-pi")]
+mod prioritized_sparse_pi;
 mod simulation;
 mod state;
 mod status;
@@ -486,6 +488,44 @@ pub(crate) unsafe fn policy_action(sid: i32, b: i32, p: i32, y: i32) -> i32 {
     }
 }
 
+pub(crate) unsafe fn phase2_max_success_for_action(
+    sid: i32,
+    mut b: i32,
+    mut p: i32,
+    mut y: i32,
+    action: i32,
+) -> Option<f64> {
+    if !(0..=2).contains(&action) || is_terminal(sid) {
+        return None;
+    }
+    if is_convert(sid) {
+        return phase2_max_success_for_action(CONVERT_SID, b, p, y, action);
+    }
+    cap_stock(sid, b, p, y);
+    b = CAP_B;
+    p = CAP_P;
+    y = CAP_Y;
+    if stock_of(action, b, p, y) <= 0 {
+        return None;
+    }
+    compute_transition(sid, action);
+    let prob = TX_PROB;
+    let succ = TX_SUCC;
+    let fail = TX_FAIL;
+    let nb = b - if action == 0 { 1 } else { 0 };
+    let np = p - if action == 1 { 1 } else { 0 };
+    let ny = y - if action == 2 { 1 } else { 0 };
+    let success_slot = value(succ, nb, np, ny);
+    if !status_ok() {
+        return None;
+    }
+    let failure_slot = value(fail, nb, np, ny);
+    if !status_ok() {
+        return None;
+    }
+    Some(prob * sp_max_at(success_slot) + (1.0 - prob) * sp_max_at(failure_slot))
+}
+
 // ===== index.ts (wasm exports) ===============================================================
 #[inline]
 pub(crate) fn uses_of(pieces: i32, max_uses: i32) -> i32 {
@@ -624,6 +664,19 @@ pub extern "C" fn policyActionAt(sid: i32, b: i32, p: i32, y: i32) -> i32 {
         }
         let (bounded_b, bounded_p, bounded_y) = clamp_stock_uses(b, p, y);
         policy_action(sid, bounded_b, bounded_p, bounded_y)
+    }
+}
+#[no_mangle]
+pub extern "C" fn phase2MaxSuccessForActionAt(
+    sid: i32,
+    b: i32,
+    p: i32,
+    y: i32,
+    action: i32,
+) -> f64 {
+    unsafe {
+        let (bounded_b, bounded_p, bounded_y) = clamp_stock_uses(b, p, y);
+        phase2_max_success_for_action(sid, bounded_b, bounded_p, bounded_y, action).unwrap_or(-1.0)
     }
 }
 #[no_mangle]
@@ -868,7 +921,7 @@ pub extern "C" fn cvarSetup(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f6
         let start_b = uses_of(pb, MAX_USES_B);
         let start_p = uses_of(pp, MAX_USES_P);
         let start_y = uses_of(py, MAX_USES_Y);
-        cvar_setup(sid, pb, pp, py, hf, np, start_b, start_p, start_y);
+        cvar_setup(sid, pb, pp, py, hf, np, start_b, start_p, start_y, tol);
         memo_reset();
         solve_start(
             sid, start_b, start_p, start_y, pb as f64, pp as f64, py as f64, hf, np, tol,
@@ -882,6 +935,10 @@ pub extern "C" fn cvarFollowMean() -> f64 {
 #[no_mangle]
 pub extern "C" fn cvarFollowMeanAfterFirstAction(first_action: i32) -> f64 {
     unsafe { cvar_follow_mean_after_first_action(first_action, policy_action) }
+}
+#[no_mangle]
+pub extern "C" fn cvarFollowHingeAfterFirstAction(eta: f64, first_action: i32) -> f64 {
+    unsafe { cvar_follow_hinge_after_first_action(eta, first_action, policy_action) }
 }
 #[no_mangle]
 pub extern "C" fn cvarNodeCount() -> i32 {
@@ -910,4 +967,15 @@ pub extern "C" fn cvarFollowRecordedMean() -> f64 {
 #[no_mangle]
 pub extern "C" fn cvarFollowRecordedHinge(eta: f64) -> f64 {
     unsafe { cvar_follow_recorded_hinge(eta) }
+}
+#[no_mangle]
+pub extern "C" fn cvarFollowRecordedSuccess() -> f64 {
+    unsafe { cvar_follow_recorded_success() }
+}
+#[no_mangle]
+pub extern "C" fn cvarRecordedActionAt(sid: i32, b: i32, p: i32, y: i32) -> i32 {
+    unsafe {
+        let (bounded_b, bounded_p, bounded_y) = clamp_stock_uses(b, p, y);
+        cvar_recorded_action(sid, bounded_b, bounded_p, bounded_y)
+    }
 }

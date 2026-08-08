@@ -72,8 +72,17 @@ export async function readHpStudyReport(url: URL): Promise<HpStudyReport | null>
 
 export async function writeHpStudyReport(url: URL, report: HpStudyReport): Promise<void> {
   await mkdir(new URL("./", url), { recursive: true });
+  const existing = await readHpStudyReport(url);
+  if (existing && comparableReport(existing) === comparableReport(report)) {
+    report.generatedAt = existing.generatedAt;
+    return;
+  }
   report.generatedAt = new Date().toISOString();
   await writeFile(url, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+}
+
+function comparableReport(report: HpStudyReport): string {
+  return JSON.stringify({ ...report, generatedAt: null });
 }
 
 export async function readExactCheckpoint(
