@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { arch, cpus, platform, release } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -441,6 +441,8 @@ async function runParent() {
       "browser and physical-device measurements are separate adoption gates",
     ],
   };
+  const outputPath = process.env["WASM_BENCH_OUTPUT"];
+  if (outputPath) await writeFile(resolve(outputPath), `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));
   if (blockers.length > 0) process.exitCode = 1;
 }

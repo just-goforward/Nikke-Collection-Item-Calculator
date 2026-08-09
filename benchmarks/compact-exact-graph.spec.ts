@@ -122,6 +122,15 @@ describe("compact exact graph", () => {
     expect(decodeStateStockKey(root.key).stock).toEqual({ blue: 1, purple: 1, yellow: 1 });
   });
 
+  it("does not expand terminal states even when stock remains", () => {
+    const result = buildCompactStateGraph(
+      { grade: "SR", level: 15, exp: 0 },
+      { blue: 10, purple: 10, yellow: 10 },
+    );
+    if (result.outcome !== "completed") throw new Error("Terminal fixture did not complete.");
+    expect(expandFrontierKeysCpu([result.graph.rootKey])).toEqual([]);
+  });
+
   it("fails closed at the pre-registered state budget", () => {
     expect(
       buildCompactStateGraph(

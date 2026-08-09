@@ -199,7 +199,7 @@ export function solveCompactMinEf(
         action: null,
         successProbability: node.terminal ? 1 : 0,
         maxSuccessProbability: node.terminal ? 1 : 0,
-        expectedCost: leafCost(graph, node.stock, horizonFactor, normPower),
+        expectedCost: compactLeafCost(graph, node.stock, horizonFactor, normPower),
         vector: { blue: 0, purple: 0, yellow: 0 },
       });
       continue;
@@ -313,7 +313,8 @@ export function expandFrontierKeysCpu(
 ): number[] {
   const output = new Set<number>();
   for (const key of inputKeys) {
-    const { sid, stock } = decodeStateStockKey(key);
+    const { sid, state, stock } = decodeStateStockKey(key);
+    if (isTerminalNormalized(state) || stock.blue + stock.purple + stock.yellow === 0) continue;
     for (const action of KIT_ORDER) {
       if (stock[action] <= 0) continue;
       const nextStock = decrementUses(stock, action);
@@ -387,7 +388,7 @@ function decrementUses(stock: CompactStockUses, action: Kit): CompactStockUses {
   };
 }
 
-function leafCost(
+export function compactLeafCost(
   graph: CompactStateGraph,
   remaining: CompactStockUses,
   horizonFactor: number,

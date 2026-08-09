@@ -269,23 +269,33 @@ componentwise 비악화를 제품 guardrail로 사용했습니다. H/p tail, bou
 배칭 중 나머지 gate까지 모두 통과한 후보는 없습니다. 이는 모든 Pareto 후보의 부재를 증명하는
 것이 아니라, 정의되지 않은 사용자 선호를 solver에 몰래 넣지 않았다는 뜻입니다.
 
-## 차세대 solver·WebGPU 후속 연구
+## 차세대 solver·플랫폼 후속 연구
 
-[확인] Phase2 방법론 후보를 닫은 뒤 complete-policy oracle, compact LP, WebGPU exact hybrid,
-certified limited depth, AO*/BRTDP 선행 bound, Pareto frontier, 단조성 표본 검사, symbolic
-partition과 그 의존 후보를 별도 계약으로 평가했습니다.
+[확인] Phase2 방법론 후보를 닫은 뒤 complete-policy·HiGHS LP oracle, layer streaming,
+backward exact pruning, strong bound와 AO*/BRTDP 선행 gate, Lagrangian columns, 전역 단조성,
+exact DAG abstraction, certified approximation, distribution compression, WASM SIMD·threads,
+WebGPU를 별도 계약으로 평가했습니다.
 
-- 소형 compact graph는 현재 Rust WASM의 행동·확률·비용·소모 vector와 일치했습니다.
-- WebGPU 정수 frontier는 소형 key-set parity를 통과했지만 `R10-balanced300` exact graph가
-  사전 등록한 120만 상태 상한을 초과했습니다.
-- 제한 깊이 bound는 대표 R10·SR0 root를 depth 8에서도 인증하지 못했고, Pareto와 symbolic
-  후보도 각각 frontier 폭과 압축률 gate를 실패했습니다.
-- 단조성 표본에서 반례는 없었지만 전역 증명이 아니므로 pruning 계약으로 승격하지 않았습니다.
+- Complete-policy enumeration과 HiGHS 1.14.0의 3단 occupancy LP는 작은·중간 compact graph의
+  exact DP와 일치해 독립 연구 oracle로 남았습니다.
+- Layer streaming은 논리 payload를 72.46% 줄였지만 hard graph 상태 수를 줄이지 못했고,
+  backward pruning은 capacity 도달 전에 상태를 하나도 접지 못했습니다.
+- Strong bound는 대표 R10·SR0 root의 비용 action을 depth 8에서도 인증하지 못했습니다.
+  Lagrangian exact pricing은 successor closure를 89만 상태 이상으로 키웠습니다.
+- 초기 root 표본과 달리 내부 exact policy에서는 행동 재진입 반례 13,679건이 발견돼 전역
+  threshold 가설을 기각했습니다. Exact DAG 압축은 R10에서 27.73%로 30% gate에 미달했습니다.
+- Strict distribution cover, certified approximation, SIMD, threads, WebGPU도 각각 오차 폭,
+  속도·크기, 배포·메모리, 상태 capacity gate를 통과하지 못했습니다.
 
 [판정] 후속 연구에서도 제품 채택 후보는 없으며 현재 Rust min-E[f]→phase2 ladder를 유지합니다.
-이는 가능한 모든 알고리즘이 열등하다는 증명이 아니라, 이번 후보와 사전 계약의 판정입니다. 상세
+이는 가능한 모든 알고리즘이 열등하다는 증명이 아니라, 구현한 후보와 사전 계약의 판정입니다. 상세
 수치와 미검증 범위는 [`next-solver-research-findings.ko.md`](./next-solver-research-findings.ko.md)에
 기록했습니다.
+
+[확인] 후속 묶음에서 계속 재사용할 exact oracle과 범용 측정 도구만 코드로 유지했습니다. 기각된
+후보의 전용 구현·runner와 대량 산출물은 Git에 남기지 않고, 판정과 핵심 수치는 findings와 증거
+원장에 보존했습니다. 따라서 후속 묶음의 모든 개별 측정값을 깨끗한 checkout에서 재실행할 수 있다고
+해석하지 않습니다.
 
 ## 미검증 범위
 
@@ -302,8 +312,9 @@ partition과 그 의존 후보를 별도 계약으로 평가했습니다.
 
 ## 재현 자료
 
-candidate WASM과 대량 결과는 로컬 gitignored 경로에 생성됩니다. 아래 runner와 판정 문서가 공개
-재현 계약이며, 단계별 authoritative hash는 `phase2-next-research-ledger.ko.md`에 기록했습니다.
+아래 Phase2 후보의 candidate WASM과 대량 결과는 로컬 gitignored 경로에 생성됩니다. 아래 runner와
+판정 문서가 해당 단계의 공개 재현 계약이며, 단계별 authoritative hash는
+`phase2-next-research-ledger.ko.md`에 기록했습니다.
 
 주요 명령:
 

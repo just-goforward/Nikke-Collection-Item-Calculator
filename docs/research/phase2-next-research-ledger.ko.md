@@ -512,26 +512,77 @@ SHA-256: `292ab2e90714644385949de35e3b2526e20ed310e9e34e3e7fbd699a95eb5645`
 - `[확인]` 제품 runtime, `public/solver_rs.wasm`, UI, Worker protocol, D1 schema, solver 정책
   버전은 변경하지 않았다.
 
-## 6단계: 차세대 solver·WebGPU 후보
+## 6단계: 차세대 solver·플랫폼 후보
 
-Phase2 내부 개선과 H/p 목적함수 후보가 제품 gate를 통과하지 못한 뒤, 서로 다른 상태 표현과
-탐색 방법을 공통 exact 계약 아래에서 screening했다.
+Phase2 내부 개선과 H/p 목적함수 후보가 제품 gate를 통과하지 못한 뒤, 상태 표현·exact pruning·
+수학적 완화·근사 인증·플랫폼 가속을 공통 계약 아래에서 순서대로 screening했다.
 
-| 후보군 | 현재 판정 | 중단 근거 |
+### 독립 oracle
+
+| 후보 | 판정 | 근거 |
 | --- | --- | --- |
-| Complete-policy·LP oracle | 연구 기반만 유지 | 작은 상태 독립 검증용이며 제품 규모 알고리즘은 아님. LP 실행은 HiGHS 부재로 미완료 |
-| WebGPU compact exact hybrid | 기각 | 소형 key parity 통과, R10 exact graph 120만 상태 상한 초과 |
-| Certified limited depth·AO*/BRTDP | 기각 | 대표 R10·SR0 root의 행동 interval 미분리 |
-| Pareto·distributional·adaptive H/p | 기각 | 작은 graph p95 frontier 폭 184, 상한 32 초과 |
-| Monotonicity threshold | 검증 미완료 | 제한 표본 반례 0건은 전역 증명이 아님 |
-| Symbolic partition | 기각 | 127상태가 127 partition으로 남아 압축률 0% |
-| GPU MCTS | 선행 게이트 중단 | exact WebGPU 상태 용량 게이트 실패 |
+| Complete-policy enumeration | 통과 | 4상태의 결정적 정책 3개를 전수열거해 compact exact DP와 일치 |
+| HiGHS occupancy LP | 통과 | HiGHS 1.14.0의 도달률→비용→uses 3단 LP가 3개 fixture에서 exact DP와 일치 |
 
-- `[확인]` 공통 compact DP는 실제 Rust WASM과 action·확률·비용·vector parity를 통과했다.
-- `[확인]` 선행 게이트가 실패한 AO*/BRTDP, GPU MCTS, distributional, adaptive H/p에는 제품용
-  구현이나 runtime 배선을 추가하지 않았다.
-- `[판정]` 현재 Rust min-E[f]→phase2 ladder를 유지한다. 이는 위 후보군과 고정된 예산·정확성
-  계약의 판정이며 수학적으로 가능한 모든 알고리즘에 대한 부재 증명이 아니다.
+두 후보는 제품 solver가 아니라 후속 알고리즘의 정답을 독립적으로 검사하는 연구 oracle이다.
+과거 “HiGHS 부재로 미완료” 판정은 실제 실행과 parity 확인으로 종료됐다.
+
+### Exact 상태 공간과 탐색
+
+| 후보 | 판정 | 중단 근거 |
+| --- | --- | --- |
+| Layer-streaming exact DP | 기각 | payload 72.46% 감소, hard 상태·edge 수와 capacity 실패 동일 |
+| Backward-distance pruning | 기각 | hard fixture에서 capacity 이전에 접힌 상태 0개 |
+| Strong admissible bounds | 기각 | depth 8 비용 구간이 R10 0.3068, SR0 0.4516으로 root action 미인증 |
+| AO*/BRTDP | 선행 게이트 기각 | strong bound가 대표 root를 분리하지 못함 |
+| Lagrangian·reachable columns | 기각 | hard closure가 10,296→83,569→276,843→559,854→890,325상태로 증가 |
+
+- `[확인]` hard 기준은 `R10-balanced300`, 1,200,000상태 상한이다.
+- `[확인]` graph는 37개 layer, 1,162,033상태, 3,452,202 edge까지 진행한 뒤 다음 layer에서
+  `budget_exceeded`가 된다.
+- `[판정]` 저장량만 줄이거나 phase2 방문 집합만 재사용하는 방식은 min-E[f]의 필요한 상태 작업을
+  충분히 줄이지 못했다.
+
+### 구조와 근사
+
+| 후보 | 판정 | 중단 근거 |
+| --- | --- | --- |
+| Global monotone threshold | 기각 | 내부 exact policy line 141,682개에서 행동 재진입 반례 13,679건 |
+| Exact DAG abstraction | 기각 | R10 압축 27.73%로 30% gate 미달, graph 전개 후 구성 |
+| Certified approximation | 기각 | depth-16 cost-regret upper가 R10 0.0934, SR0 0.1693 |
+| Pareto/distribution compression | 기각 | strict cover p95 폭 약 106으로 상한 32 초과 |
+| Adaptive H/p risk | 기각 | strict distribution gate 실패, 기존 H/p 최종 판정도 baseline 유지 |
+
+- `[확인]` 초기 root cube의 반례 0건은 전역 단조성 증거가 아니었다. 내부 state까지 범위를
+  확장하자 전역 threshold 가설이 실제 반례로 기각됐다.
+- `[판정]` 허용 오차를 1 piece 수준으로 넓히면 frontier 폭은 줄지만 현재 exact 제품 계약과
+  다른 목적이므로 사용자 요구 없이 채택하지 않는다.
+
+### WASM·WebGPU
+
+| 후보 | 판정 | 중단 근거 |
+| --- | --- | --- |
+| WASM SIMD | 기각 | parity 통과, +197B, warm ratio 0.9850/1.0083으로 0.97 gate 실패 |
+| WASM threads | 기각 | COOP/COEP·shared layout 부재, 독립 3 instance 약 344.8MiB |
+| WebGPU frontier | 기각 | 데스크톱 key parity 통과, hard graph capacity 동일, Android 미실행 |
+| GPU rollout/MCTS | 선행 게이트 기각 | exact CPU 확인에 필요한 GPU 상태 경로가 capacity gate 실패 |
+
+- `[확인]` WebGPU 데스크톱 run은 Chrome 151/AMD RDNA 2에서 setup 384.6ms,
+  warm p50 2.8ms, p95 3.9ms였다.
+- `[미검증]` 연결 Android의 Chrome package에는 user 0에서 해석 가능한 VIEW activity가 없어
+  Android WebGPU와 device-loss 복구를 검증하지 못했다.
+
+### 6단계 최종 판정
+
+- `[확인]` 공통 compact DP, complete-policy enumeration, HiGHS LP가 작은·중간 fixture의
+  exact 정답 기반을 제공한다.
+- `[확인]` 두 번째 연구 묶음의 판정과 핵심 수치는 이 원장과 상세 findings에 고정했다. 기각된
+  후보의 일회성 구현·전용 runner·최종화 코드와 대량 원시 보고서는 영구 Git 자산으로 남기지
+  않았다.
+- `[확인]` 제품 runtime, `public/solver_rs.wasm`, UI, Worker protocol, D1 schema, solver
+  정책 버전은 변경하지 않았다.
+- `[판정]` 현재 Rust min-E[f]→phase2 ladder를 유지한다. 이는 구현한 후보와 고정된 예산·
+  정확성 계약에 대한 판정이며 수학적으로 가능한 모든 알고리즘의 부재 증명이 아니다.
 - 상세 보고서: [`next-solver-research-findings.ko.md`](./next-solver-research-findings.ko.md)
 
 ## 다음 기록 위치
@@ -552,6 +603,12 @@ Phase2 내부 개선과 H/p 목적함수 후보가 제품 gate를 통과하지 �
 - 단일 사용 결과: `benchmarks/results/single-use-batching-study-v1.json`
 - 차세대 solver 계약: `benchmarks/next-solver-research-contract.ts`
 - Compact exact graph: `benchmarks/compact-exact-graph.ts`
-- 차세대 solver 결과: `benchmarks/results/next-solver-research-v1.json`
+- Complete-policy oracle: `benchmarks/complete-policy-oracle.ts`
+- HiGHS LP oracle: `benchmarks/compact-lp-oracle.ts`, `benchmarks/run-compact-lp-oracle.ts`
+- 첫 연구 묶음 결과: `benchmarks/results/next-solver-research-v1.json`
+- 유지된 구조·플랫폼 runner: `benchmarks/run-structure-candidate-screen.ts`,
+  `scripts/run-webgpu-frontier-study.ts`, `scripts/smoke-webgpu-frontier-android.ts`
+- 두 번째 연구 묶음의 기각 후보: 일회성 구현과 대량 결과는 미추적이며, 판정 근거는 이 원장과
+  `next-solver-research-findings.ko.md`가 소유한다.
 - 차세대 solver 판정: `next-solver-research-findings.ko.md`
 - 채택·기각 해석: 이 원장과 `phase2-methodology-findings.ko.md`

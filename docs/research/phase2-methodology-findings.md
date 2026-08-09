@@ -264,27 +264,34 @@ No H/p-tail, bounded-hybrid, CVaR, or single-use candidate passed that guardrail
 other product gates. This does not prove that no Pareto candidate exists; it avoids silently adding
 an undefined user preference to the solver.
 
-## Next-Generation Solver And WebGPU Follow-Up
+## Next-Generation Solver And Platform Follow-Up
 
-[Confirmed] After closing the phase2 methodology candidates, a separate contract evaluated a
-complete-policy oracle, compact LP, WebGPU exact hybrid, certified limited depth, prerequisite
-bounds for AO*/BRTDP, Pareto frontiers, sampled monotonicity, symbolic partitioning, and their
-dependent candidates.
+[Confirmed] After closing the phase2 methodology candidates, separate contracts evaluated
+complete-policy and HiGHS LP oracles, layer streaming, backward exact pruning, strong bounds and the
+AO*/BRTDP prerequisite, Lagrangian columns, global monotonicity, exact DAG abstraction, certified
+approximation, distribution compression, WASM SIMD and threads, and WebGPU.
 
-- The small compact graph matched the current Rust WASM action, probability, cost, and consumption
-  vector.
-- The integer WebGPU frontier passed small key-set parity, but the `R10-balanced300` exact graph
-  exceeded the pre-registered 1.2-million-state cap.
-- Limited-depth bounds could not certify the representative R10 and SR0 roots at depth eight, while
-  the Pareto and symbolic candidates failed their frontier-width and compression gates.
-- Sampled monotonicity found no counterexample, but it was not promoted into a pruning contract
-  without a global proof.
+- Complete-policy enumeration and a three-stage HiGHS 1.14.0 occupancy LP matched compact exact DP
+  on small and medium fixtures and remain independent research oracles.
+- Layer streaming reduced logical payload by 72.46% without reducing hard-graph state work, while
+  backward pruning collapsed no state before capacity exhaustion.
+- Strong bounds did not certify representative R10/SR0 cost actions at depth eight. Lagrangian exact
+  pricing expanded successor closure beyond 890,000 states.
+- Unlike the initial root sample, internal exact policies contained 13,679 re-entrant action lines,
+  rejecting a global threshold rule. Exact DAG reduction was 27.73% on R10, below the 30% gate.
+- Strict distribution covers, certified approximation, SIMD, threads, and WebGPU failed their error,
+  speed/size, deployment/memory, or state-capacity gates.
 
 [Decision] No follow-up candidate qualified for product adoption, so the current Rust min-E[f] to
-phase2 ladder remains unchanged. This is a decision about the tested candidates and pre-registered
-contract, not a proof that every possible algorithm is inferior. See
+phase2 ladder remains unchanged. This is a decision about the implemented candidates and registered
+contracts, not a proof that every possible algorithm is inferior. See
 [`next-solver-research-findings.md`](./next-solver-research-findings.md) for measurements and
 unverified scope.
+
+[Confirmed] Only reusable exact oracles and generic measurement tools from the follow-up campaign
+remain as code. Dedicated rejected-candidate implementations/runners and bulk artifacts are not
+Git-tracked; findings and the evidence ledger retain the decisions and key measurements. Therefore,
+not every follow-up figure is replayable from a clean checkout.
 
 ## Unverified Scope
 
@@ -302,9 +309,9 @@ unverified scope.
 
 ## Reproduction
 
-Candidate WASM and large reports are generated in local gitignored paths. The runners and decision
-documents below are the public reproduction contract. Authoritative stage hashes are recorded in
-`phase2-next-research-ledger.ko.md`.
+Candidate WASM and large reports for the Phase2 candidates below are generated in local gitignored
+paths. These runners and decision documents are that stage's public reproduction contract.
+Authoritative stage hashes are recorded in `phase2-next-research-ledger.ko.md`.
 
 ```powershell
 npm run test:bench

@@ -15,10 +15,10 @@ import type {} from "../benchmarks/webgpu/android-frontier-page.ts";
 const DEFAULT_ADB = String.raw`C:\Users\PC\AppData\Local\Android\Sdk\platform-tools\adb.exe`;
 const DEFAULT_SERIAL = "R3CN90M590A";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const OUTPUT = resolve(REPO_ROOT, "benchmarks/results/webgpu-frontier-android-v1.json");
+const OUTPUT = resolve(REPO_ROOT, "benchmarks/results/webgpu-frontier-android-v2.json");
 const CONTRACT = {
   kind: "webgpu-frontier-android",
-  version: 1,
+  version: 2,
   parityScenario: "SR10e2900-balanced30",
   capacityScenario: "R10-balanced300",
   repeats: 3,

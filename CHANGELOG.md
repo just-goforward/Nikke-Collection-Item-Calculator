@@ -4,18 +4,21 @@
 
 ## 2026-08-09
 
-### 차세대 solver·WebGPU 연구 기반
+### 차세대 solver·플랫폼 연구
 
-- complete-policy 전수열거와 compact LP 모델을 작은 상태의 독립 oracle로 추가하고,
-  compact exact graph가 현재 Rust WASM의 행동·확률·비용·소모 vector와 일치하는지 검증했습니다.
-- WebGPU는 정수 상태 전개와 중복 제거만 담당하고 최종 f64 Bellman 판정은 CPU가 소유하는
-  exact-hybrid 경계를 구현했습니다. 소형 fixture의 CPU/GPU key-set은 일치했지만
-  `R10-balanced300`이 사전 등록한 120만 상태 상한을 초과해 제품 후보로 채택하지 않았습니다.
-- certified limited-depth, Pareto-frontier, 단조성 표본 검사, symbolic partition 후보를 같은
-  계약으로 screening했습니다. 대표 fallback root의 행동 인증, frontier 폭, 압축률 gate를
-  통과한 제품 후보는 없었습니다.
-- AO*/BRTDP, GPU MCTS, distributional chance constraint, adaptive H/p는 필요한 선행 게이트가
-  실패해 복잡한 후속 구현을 시작하지 않았습니다.
+- complete-policy 전수열거와 HiGHS 1.14.0의 3단 occupancy LP가 compact exact DP와 일치함을
+  확인해 작은·중간 상태의 독립 연구 oracle을 완성했습니다.
+- layer-streaming, backward-distance pruning, strong admissible bound, Lagrangian columns를
+  구현·검증했지만 `R10-balanced300`의 상태 capacity나 root 인증 gate를 통과하지 못했습니다.
+- 전역 단조성은 내부 exact policy에서 행동 재진입 반례 13,679건으로 기각했고, exact DAG
+  abstraction은 27.73% 압축으로 사전 gate 30%에 미달했습니다.
+- certified approximation과 strict distribution cover는 허용 오차·폭 gate를 실패했습니다.
+  SIMD는 parity만 통과하고 속도·크기 gate를 실패했으며, threads는 배포 헤더와 shared memo
+  구조가 없어 현재 제품 후보에서 제외했습니다.
+- WebGPU 정수 frontier는 데스크톱 key parity를 통과했지만 exact graph capacity를 줄이지
+  못했고 연결 Android의 Chrome 자동 실행도 불가능해 채택하지 않았습니다.
+- 후속 연구에 재사용할 exact oracle·범용 측정 도구만 유지하고, 기각 후보의 일회성 구현과 전용
+  runner·대량 산출물은 Git 추적 대상에서 제외했습니다. 판정과 핵심 수치는 연구 문서에 남겼습니다.
 - 제품 solver, `public/solver_rs.wasm`, UI, Worker protocol, D1 schema와 telemetry는 변경하지
   않았습니다. 상세 판정은
   [`docs/research/next-solver-research-findings.ko.md`](docs/research/next-solver-research-findings.ko.md)에

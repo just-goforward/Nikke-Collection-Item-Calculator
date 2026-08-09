@@ -17,10 +17,10 @@ import {
 import type {} from "../benchmarks/webgpu/frontier-page.ts";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const OUTPUT = resolve(REPO_ROOT, "benchmarks/results/webgpu-compact-frontier-v1.json");
+const OUTPUT = resolve(REPO_ROOT, "benchmarks/results/webgpu-compact-frontier-v2.json");
 const CONTRACT = {
   kind: "webgpu-compact-frontier",
-  version: 1,
+  version: 2,
   scenario: "SR10e2900-balanced30",
   repeats: 5,
   discardColdSamples: 1,
@@ -146,7 +146,7 @@ try {
 const provenance = collectResearchProvenance({
   repoRoot: REPO_ROOT,
   studyId: "webgpu-compact-frontier",
-  protocolVersion: 1,
+  protocolVersion: 2,
   contract: CONTRACT,
   sourceFiles: [
     "benchmarks/compact-exact-graph.ts",
