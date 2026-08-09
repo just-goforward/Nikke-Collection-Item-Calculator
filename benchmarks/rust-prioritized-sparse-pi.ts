@@ -13,7 +13,9 @@ export type RustPrioritizedSparsePiOutcome =
   | "phase2_failure"
   | "iteration_budget_exceeded"
   | "state_budget_exceeded"
-  | "invalid_input";
+  | "invalid_input"
+  | "probability_invariant_violation"
+  | "closure_incomplete";
 
 export type RustPrioritizedSparsePiOptions = {
   horizonFactor?: number;
@@ -22,6 +24,7 @@ export type RustPrioritizedSparsePiOptions = {
   maxUpdatesPerPass?: number;
   memoTier?: number;
   normPower?: number;
+  priorityMode?: "discovery_order" | "max_path_probability";
   tolerance?: number;
 };
 
@@ -37,6 +40,12 @@ export type RustPrioritizedSparsePiResult = {
   peakStates: number;
   scannedStates: number;
   changes: number;
+  finalPassStates: number;
+  finalPassScanned: number;
+  successInvariantChecks: number;
+  successInvariantMaxGap: number;
+  initialCost: number;
+  initialSuccess: number;
   overrides: number;
 };
 
@@ -46,6 +55,8 @@ const OUTCOMES: readonly RustPrioritizedSparsePiOutcome[] = [
   "iteration_budget_exceeded",
   "state_budget_exceeded",
   "invalid_input",
+  "probability_invariant_violation",
+  "closure_incomplete",
 ] as const;
 
 function requireFunction<T extends keyof RustCoreExports>(
@@ -77,6 +88,7 @@ export function solveRustPrioritizedSparsePi(
     options.maxPasses ?? 40,
     options.maxStates ?? 1_200_000,
     options.maxUpdatesPerPass ?? 256,
+    options.priorityMode === "discovery_order" ? 0 : 1,
   );
   const outcomeCode = requireFunction(exports, "prioritizedSparsePiOutcome")();
   const actionIndex = requireFunction(exports, "prioritizedSparsePiAction")();
@@ -96,6 +108,12 @@ export function solveRustPrioritizedSparsePi(
     peakStates: requireFunction(exports, "prioritizedSparsePiPeakStates")(),
     scannedStates: requireFunction(exports, "prioritizedSparsePiScannedStates")(),
     changes: requireFunction(exports, "prioritizedSparsePiChanges")(),
+    finalPassStates: requireFunction(exports, "prioritizedSparsePiFinalPassStates")(),
+    finalPassScanned: requireFunction(exports, "prioritizedSparsePiFinalPassScanned")(),
+    successInvariantChecks: requireFunction(exports, "prioritizedSparsePiSuccessInvariantChecks")(),
+    successInvariantMaxGap: requireFunction(exports, "prioritizedSparsePiSuccessInvariantMaxGap")(),
+    initialCost: requireFunction(exports, "prioritizedSparsePiInitialCost")(),
+    initialSuccess: requireFunction(exports, "prioritizedSparsePiInitialSuccess")(),
     overrides: requireFunction(exports, "prioritizedSparsePiOverrideCount")(),
   };
 }
@@ -105,11 +123,20 @@ export function prioritizedSparsePiActionAt(
   stateId: number,
   stock: { blue: number; purple: number; yellow: number },
 ) {
-  const uses = clampMemoStockUses(stockToUses(stock));
-  return requireFunction(exports, "prioritizedSparsePiActionAt")(
+  return prioritizedSparsePiActionAtUses(exports, stateId, stockToUses(stock));
+}
+
+export function prioritizedSparsePiActionAtUses(
+  exports: RustCoreExports,
+  stateId: number,
+  stockUses: { blue: number; purple: number; yellow: number },
+) {
+  const uses = clampMemoStockUses(stockUses);
+  const actionIndex = requireFunction(exports, "prioritizedSparsePiActionAt")(
     stateId,
     uses.blue,
     uses.purple,
     uses.yellow,
   );
+  return actionIndex >= 0 ? (KIT_ORDER[actionIndex] ?? null) : null;
 }

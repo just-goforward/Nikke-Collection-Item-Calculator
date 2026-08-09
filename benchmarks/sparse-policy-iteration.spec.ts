@@ -57,6 +57,13 @@ describe("sparse constrained policy iteration", () => {
     expect(sparse.finalValue?.vector[0]).toBeCloseTo(minEf.vector.blue, 10);
     expect(sparse.finalValue?.vector[1]).toBeCloseTo(minEf.vector.purple, 10);
     expect(sparse.finalValue?.vector[2]).toBeCloseTo(minEf.vector.yellow, 10);
+    expect(sparse.iterations.length).toBeGreaterThan(0);
+    for (const iteration of sparse.iterations) {
+      expect(iteration.closureStates).toBe(sparse.closureStates);
+      expect(iteration.improvementStates).toBe(iteration.closureStates);
+      expect(iteration.evaluatedStates).toBe(iteration.closureStates);
+      expect(iteration.successInvariantChecks).toBeGreaterThan(0);
+    }
   });
 
   it("reports an iteration-budget outcome instead of treating an unstable policy as complete", async () => {
@@ -71,5 +78,32 @@ describe("sparse constrained policy iteration", () => {
     expect(result.iterations).toHaveLength(1);
     expect(result.iterations[0]?.changes).toBeGreaterThan(0);
     expect(result.outcome).toBe("iteration_budget_exceeded");
+  });
+
+  it("does not report completion when the eligible closure exceeds the state budget", async () => {
+    const scenario = scenarioById("R10-balanced300");
+    const instance = await instantiate(wasm);
+    const result = solveSparsePolicyIteration(
+      rustCoreExportsFromInstance(instance),
+      { start: scenario.start, stock: scenario.stock, strategy: "supply" },
+      { maxIterations: 40, maxStates: 50_000, memoTier: 22, timeBudgetMs: 120_000 },
+    );
+
+    expect(result.outcome).toBe("state_budget_exceeded");
+    expect(result.closureStates).toBe(50_001);
+    expect(result.iterations).toHaveLength(0);
+  });
+
+  it("rejects nonzero tau because the exact success-preservation proof is tau=0 only", async () => {
+    const scenario = scenarioById("SR10-yellow10");
+    const instance = await instantiate(wasm);
+
+    expect(() =>
+      solveSparsePolicyIteration(
+        rustCoreExportsFromInstance(instance),
+        { start: scenario.start, stock: scenario.stock, strategy: "supply" },
+        { tolerance: 1e-6 },
+      ),
+    ).toThrow("tau=0");
   });
 });

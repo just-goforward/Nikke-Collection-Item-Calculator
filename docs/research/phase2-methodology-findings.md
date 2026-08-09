@@ -3,9 +3,11 @@
 Korean documentation:
 [`phase2-methodology-findings.ko.md`](./phase2-methodology-findings.ko.md)
 
-Date: 2026-08-08  
-Baseline commit: `6251db3` plus the uncommitted research changes  
-Scope: research-only Rust/WASM ABI, TypeScript evaluators, benchmarks, and notebook
+Date: 2026-08-09
+
+Baseline commit: `45fc4175c332cb5d9656d86ae3f30fe6e4c5e527` plus the uncommitted research changes
+
+Scope: research-only Rust/WASM ABI, TypeScript evaluators, benchmarks, and decision records
 
 ## Decision
 
@@ -15,17 +17,16 @@ product runtime, UI, Worker protocol, D1 schema, and solver policy version remai
 - A cap-offset state extension was rejected because it restores no mathematically distinct state.
 - Changing min-E[f] action traversal order changed node counts by only tens and did not move any
   completion boundary.
-- A success-gated CVaR one-step policy changed two of 122 roots, but neither survived the joint
-  exact-interactive product gate.
-- Sparse constrained policy iteration improved user-flow resource metrics on some fallback inputs.
-  The current TypeScript implementation is nevertheless about 3.85 to 28.58 times slower than
-  phase2 at warm p95 and is not a product candidate.
-
-[Confirmed] The isolated Rust/WASM priority implementation was also tested. It matched min-E[f]
-semantics on small completed fixtures, but the exact R10 closure exceeded the 1.2-million-state
-budget. The bounded four-pass candidate had a 1.515x warm-p95 ratio to phase2, and the candidate
-WASM was 131,426 bytes against a 115KB budget. The pre-registered stop conditions therefore ended
-the study before exact-interactive evaluation or product wiring.
+- B0-based branch-and-bound passed correctness, one capacity recovery, WASM-size, and memory gates,
+  but was 1.93x slower than phase2 on the hard fixture and was rejected.
+- Corrected exact sparse policy iteration matched min-E[f] on small fixtures, but exceeded the
+  1.2-million-state budget on `R10-balanced300`.
+- The Rust max-path bounded candidate improved SR0 resource quality, but regressed R10 and failed
+  all four direct latency campaigns and the 115KB WASM budget.
+- Full recorded CVaR exceeded memo capacity on all 21 product-fallback states where it was tried,
+  recovered through phase2, and changed no exact result.
+- Forcing every recommended run to one reduced expected manual entries, but regressed R10 F and
+  total consumption while the added confirmation and recalculation burden remained unmeasured.
 
 ## Candidate Audit
 
@@ -34,7 +35,9 @@ the study before exact-interactive evaluation or product wiring.
 | A. Phase2 cap offset | Does preserving clipped stock as an offset restore useful phase2 information? | An independent recurrence matched `capStockForState` for every nonterminal state across 960 encoded states and three kits | Rejected |
 | B. Sparse constrained PI | Can exact improvement of only necessary phase2 states cover min-E[f] fallback inputs? | The TypeScript candidate showed quality signal but was slow; the prioritized Rust candidate failed exact R10 capacity, bounded latency, and WASM-size gates | Rejected |
 | C. min-E[f] action order | Can traversal order reduce `MEMO_FULL` outcomes? | Six permutations preserved action, success bits, and cost bits; node deltas were 6 to 56 with no outcome change | Rejected |
-| D. Gate-aware CVaR | Can a tail objective preserve the product's success and resource constraints? | Two of 122 roots changed; both failed the exact-interactive joint gate | Rejected |
+| D. Gate-aware CVaR | Can a tail objective preserve the product's success and resource constraints? | Two one-step changes failed the joint gate; the full recorded policy failed capacity on all 21 product-fallback attempts | Rejected |
+| E. Branch-and-bound | Can an admissible lower bound reduce min-E[f] state pressure? | B2 passed semantic, capacity, memory, and WASM gates but regressed hard-fixture p95 by 1.93x | Rejected |
+| F. Single-use batching | Can one-use runs reduce manual input without increasing resource burden? | Expected manual input fell by about 0.15, but R10 F and total use regressed and interaction burden was unmeasured | Rejected |
 
 ## A. Cap Offset
 
@@ -60,29 +63,81 @@ measurable but operationally negligible effect on the tested capacity boundary.
 
 ## D. Gate-Aware CVaR
 
-[Confirmed] The CVaR candidate was restricted to actions inside the phase2 maximum-success gate.
-Only `R10-balanced300` and `SR5-observedPurpleHigh` changed root action in the 122-root screen.
+[Historically confirmed] The one-step CVaR candidate was restricted to actions inside the phase2
+maximum-success gate. Only `R10-balanced300` and `SR5-observedPurpleHigh` changed root action in the
+122-root screen.
 
 | Fixture | Interactive P delta | Interactive F delta | Total-use delta | Rejection reason |
 | --- | ---: | ---: | ---: | --- |
 | R10-balanced300 | 0 | +0.0009873 | +2.2575 | Burden and total consumption regressed |
 | SR5-observedPurpleHigh | about +1 ulp | -0.005313 | -8.8477 | Blue exhaustion probability increased by 0.004558 |
 
-This rejects the tested eta grid and one-step policy under the joint product gate. It does not
-prove that every possible tail-risk objective is useless.
+[Historically confirmed] Neither one-step root signal preserved success, mean burden, total
+consumption, and per-kit exhaustion under the joint product gate.
+
+[Confirmed] The follow-up ran Rust's full recorded CVaR policy with `alpha=0.9` and
+`eta={0,0.05,0.1,0.2,0.4,0.8,1.6}`. Of 122 roots, 115 completed and seven exceeded the current
+1,000,000-slot memo. A recorded policy passed the tail, success, and mean guardrails on 29 roots,
+but only `SR10-skewPurple` changed first action or run. The product ladder solves that input with
+min-E[f] first, in 168 states.
+
+[Confirmed] In exact product-fallback evaluation, all four CVaR attempts for `R10-balanced300` and
+all 17 attempts for `SR0-balanced300` failed with status 2 and recovered through phase2. Success,
+F, total consumption, and per-kit exhaustion remained identical to baseline, with zero CVaR
+decision changes.
+
+[Decision] Full recorded CVaR under the current memo and finite eta grid does not improve the
+product fallback. This does not prove that every CVaR objective is useless; a larger state
+representation or a different tail objective requires a new capacity and performance contract.
+
+### Prior H/p Supply-Debt Tail Decision
+
+[Confirmed] The separate `min-ef-hp-study-findings.md` screened 49 H/p combinations under current
+raw-pieces semantics and completed 176 exact records for a 16-candidate shortlist. The only tail
+challenger to baseline `H0.75-p3`, `H0.5-p3`, increased max-kit supply-debt CVaR90 on
+`R0-balanced150` from 76.4861 to 85.9952 days, a 9.5091-day Holm-adjusted significant regression.
+The baseline was retained. This is a decision over the fixed grid and current tail panel, not a
+proof of optimality over every possible risk objective.
+
+## E. Admissible Branch-And-Bound
+
+[Confirmed] The immediate-consumption B0 bound uses nonnegativity and monotonicity of terminal
+cost. Exhaustive small-state checks confirmed that it never exceeds the actual continuation cost.
+Corrected B2 added a compact maximum-success oracle, matched the phase2 oracle bit-for-bit on four
+hard fixtures, and changed the existing `MEMO_FULL` result for `SR0 / 350,300,150` to completed.
+
+| Item | Result |
+| --- | --- |
+| Tier-22 linear-memory growth versus product | +64.00MiB, inside the pre-registered +66MiB cap |
+| Candidate WASM | 110,336 bytes, inside the 115KB budget |
+| `R0 / 60,120,900` warm p95 | 199.81ms to 139.61ms, ratio 0.70 |
+| `R0 / 250,250,250` warm p95 | 1,576.39ms to 3,042.48ms, ratio 1.93 |
+
+[Confirmed] The hard fixture exceeded the `max(+15%, +50ms)` latency gate by a wide margin. A
+small input can save more pruning work than the oracle costs while a large input does the reverse.
+The study therefore does not generalize B0/B2 into a product-wide improvement. Browser and Android
+measurements were skipped under the pre-registered stop rule.
 
 ## Sparse Constrained Policy Iteration
+
+> **Current correction:** The root, interactive, and latency tables below describe observations
+> from the legacy TypeScript prototype whose completion test was unsound. States discovered after
+> an iteration began could remain unscanned while the run still returned `completed`. The former
+> convergence interpretation is withdrawn. The current exact baseline saturates the closure first
+> and scans every state in every iteration; `phase2-next-research-ledger.ko.md` and
+> `sparse-policy-exact-baseline-v2.json` own that result.
 
 The initial policy is phase2. The evaluator computes exact raw-stock terminal cost under the
 current policy, expands the successor closure of alternative actions within the phase2
 maximum-success gate, and replaces only states with a strict cost improvement. Exact ties preserve
 the existing action. Iteration, state, and time limits produce typed outcomes.
 
-[Confirmed] On four small semantic fixtures, converged sparse PI matched Rust min-E[f] in action,
-success probability, cost, and the three-axis expected-consumption vector. A one-iteration unstable
-policy reports `iteration_budget_exceeded`, not `completed`.
+[Confirmed] The corrected implementation scanned the complete closure on every iteration for four
+small semantic fixtures and matched Rust min-E[f] in action, success probability, cost, and the
+three-axis expected-consumption vector. `R10-balanced300` returned `state_budget_exceeded` at the
+fixed 1.2-million-state budget. The legacy root table below is not a result of that corrected run.
 
-### Root Screen
+### Legacy Root Screen (Pre-Correction Prototype)
 
 | Fixture | Iterations | Root cost delta | Expected-use delta | Maximum evaluated states |
 | --- | ---: | ---: | ---: | ---: |
@@ -105,23 +160,24 @@ replanning remains the product-quality judge.
 The alternative-action successor closure grows rapidly on R10. Current latency therefore reflects
 both TypeScript/WASM boundary overhead and a genuinely large repeatedly evaluated state set.
 
-### Exact Interactive Results
+### Legacy Interactive Results (Not Evidence of Exact Convergence)
 
 The candidate follows the product ladder: a completed min-E[f] result is retained, and sparse PI
 is invoked only where min-E[f] fails.
 
 | Fixture | Sparse mode | P delta | Interactive F delta | Total-use delta | Exhaustion delta | Expected manual-entry delta |
 | --- | --- | ---: | ---: | ---: | --- | ---: |
-| R10-balanced300 | converged | -1.11e-16 | -0.0000195441 | -0.00737312 | blue -0.0000925147 | -0.0401802 |
-| R0-observedBalanced | converged | 0 | 0 | 0 | all zero | 0 |
-| SR0-observedPurpleHigh | converged | 0 | 0 | 0 | all zero | 0 |
+| R10-balanced300 | legacy `completed` | -1.11e-16 | -0.0000195441 | -0.00737312 | blue -0.0000925147 | -0.0401802 |
+| R0-observedBalanced | legacy `completed` | 0 | 0 | 0 | all zero | 0 |
+| SR0-observedPurpleHigh | legacy `completed` | 0 | 0 | 0 | all zero | 0 |
 | SR0-balanced300 | four sweeps | -1.11e-16 | -0.00312231 | -0.302357 | blue -0.00349444 | +0.533577 |
 
-Within the `1e-12` success-probability tolerance, R10 improves F, total consumption, blue
-exhaustion, and manual-entry burden. The four-sweep SR0 policy improves resource metrics but is not
-converged and increases expected manual entries.
+[Historically confirmed] The legacy R10 observation showed a signal in F, total consumption, blue
+exhaustion, and manual-entry burden within the `1e-12` success tolerance. The corrected exact run
+exceeds the closure budget on that input, so this is not evidence of an exactly converged policy
+improvement. The four-sweep SR0 record is also approximate and increases expected manual entries.
 
-### Performance Screening
+### Legacy Performance Screening
 
 Warm p95 is nearest-rank over four samples after discarding the first measurement from the same
 WASM instance. This small campaign is a rejection screen, not a user-latency estimate.
@@ -160,54 +216,93 @@ tolerances. Probability gap was zero in every record.
 `state_budget_exceeded`. The budget was not raised after observing the result, so this candidate
 does not establish an exact replacement for the phase2 fallback.
 
-[Confirmed] For bounded `4 passes x 256 updates`, nearest-rank p95 over four warm samples from the
-same instance was 216.12ms for phase2 and 327.47ms for the candidate, a 1.515x ratio. This is much
-lower than the TypeScript four-sweep ratio of 9.19x, but it fails both the pre-registered 1.5x
-continuation screen and the product `max(+15%, +50ms)` gate. The small campaign is a rejection
-screen, not a user-latency estimate.
+[Confirmed] Under the same bounded budget of `4 passes x 256 updates`,
+`max_path_probability` produced a lower final phase2-policy E[F] than `discovery_order` on all three
+screening fixtures. This is a bounded-update ordering win, not exact convergence or product
+adoption.
 
-The first exploratory latency run was discarded because it created a fresh instance for every
-repeat but still removed only the first sample as if the remainder were warm. The values above are
-from the corrected protocol, which reuses one baseline instance and one candidate instance and
-discards each instance's first allocation.
+[Confirmed] Exact product-ladder evaluation kept R10 success unchanged but regressed F by
+`+0.0010308173`, total expected uses by `+0.1342049927`, and blue exhaustion by `+0.0002999188`.
+SR0 improved F by `-0.0027377024`, total uses by `-0.2987284709`, and blue exhaustion by
+`-0.0025905029`, while expected manual entries increased by `+0.2029253483`. The scenario-level
+hard gate does not offset the R10 regression with the SR0 improvement.
 
-[Confirmed] The isolated candidate WASM was 131,426 bytes; the product WASM from the same checkout
-was 99,937 bytes. The candidate exceeds the 115,000-byte product budget. Because exact capacity,
-bounded latency, and size failed independently, the study stopped without selecting favorable
-exact-interactive outcomes. The product artifact and runtime wiring remain unchanged.
+[Confirmed] Direct fallback latency removed the common min-E[f] rung and collected 31 warm samples
+per arm in two independent campaigns. R10 p95 ratios were 1.322 and 1.368; SR0 ratios were 1.185
+and 1.162. All four exceeded `max(+15%, +50ms)`. The isolated candidate WASM was 133,089 bytes,
+18,089 bytes over the 115,000-byte product budget.
+
+[Decision] Exact R10 capacity, R10 interactive quality, direct latency, and WASM size failed
+independently. The candidate was not wired into the product runtime, and `public/solver_rs.wasm`
+remains unchanged.
+
+## Single-Use Batching
+
+The experiment preserved the action chosen by the current min-E[f]-to-phase2 ladder but forced the
+recommended run count to one, causing a new solve after every use.
+
+| Fixture | P delta | Interactive F delta | Total-use delta | Blue-exhaustion delta | Manual-entry delta | Solve-call delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `R10-balanced300` | 0 | +0.0000000475 | +0.0000809789 | -0.0000000949 | -0.1475407801 | +292 |
+| `SR0-balanced300` | +2.22e-16 | -0.0001656483 | -0.0292006848 | -0.0006787112 | -0.1526720255 | +976 |
+
+[Confirmed] Expected manual entries fell by about 0.15 in both scenarios. R10 nevertheless
+regressed F and total use and had no strict success/F benefit, so it failed the joint quality gate.
+The evaluator also does not measure added user confirmations, recalculation clicks, or perceived
+interaction burden. The candidate is rejected on resource quality before that unmeasured tradeoff
+could be considered.
+
+## Per-Kit Exhaustion Objective
+
+Per-kit exhaustion is the vector
+`g=(P[blue<10], P[purple<10], P[yellow<10])`. If a policy protects blue by consuming more purple,
+there is no natural total order without user-provided weights or a lexicographic priority. This
+study did not invent such weights. Instead, componentwise non-regression was a product guardrail.
+No H/p-tail, bounded-hybrid, CVaR, or single-use candidate passed that guardrail together with all
+other product gates. This does not prove that no Pareto candidate exists; it avoids silently adding
+an undefined user preference to the solver.
 
 ## Unverified Scope
 
-- [Unverified] Exact candidate evaluation for `R0-balanced300` did not complete within this study;
-  its baseline alone takes about 812 seconds in the exhaustive evaluator.
-- [Unverified] Fully converged exact-interactive evaluation for `SR0-balanced300` exceeded the
-  five-minute budget. The four-sweep result is an approximate policy, not a converged value.
-- [Unverified] Performance screening used one Windows/Node environment and five measurements per
-  candidate. Browser, Android, and tail campaigns were not run because the candidate failed the
-  first performance screen.
+- [Unverified] Branch-and-bound, bounded hybrid, and full recorded CVaR failed earlier Node,
+  quality, or size gates and were not measured in browsers or on Android.
+- [Unverified] Full CVaR covers alpha 0.9, seven eta values, and the current 1,000,000-slot memo. It
+  does not generalize to a larger memo or a different tail-risk definition.
+- [Unverified] The exact evaluator does not measure the added confirmation and recalculation burden
+  of single-use batching.
+- [Unverified] No user weighting or priority order has been defined for the per-kit exhaustion
+  vector.
 - [Unverified] Synthetic and historically aggregated scenario definitions are not user-frequency
   estimates.
 - Exact evaluator elapsed time is exhaustive research cost, not one user solve latency.
 
 ## Reproduction
 
-The analysis notebook and candidate WASM are generated under local `output/` and are not included
-in the public repository. The runners and decision documents below are the public reproduction
-contract.
+Candidate WASM and large reports are generated in local gitignored paths. The runners and decision
+documents below are the public reproduction contract. Authoritative stage hashes are recorded in
+`phase2-next-research-ledger.ko.md`.
 
 ```powershell
 npm run test:bench
 npm run bench:phase2:action-order
+npm run bench:phase2:branch-bound:latency
 npm run bench:phase2:gated-cvar:screen
 npm run bench:phase2:gated-cvar:interactive
+npm run bench:phase2:recorded-cvar:screen
+npm run bench:phase2:recorded-cvar:interactive
+npm run bench:phase2:single-use-batching
 npm run bench:phase2:successor-closure
 npm run bench:phase2:sparse-pi
+npm run bench:phase2:sparse-pi:exact-baseline
 npm run bench:phase2:sparse-pi:interactive
 npm run bench:phase2:sparse-pi:performance
 npm run build:solver-wasm:sparse-pi
 npm run bench:phase2:sparse-pi:rust
+npm run bench:phase2:prioritized-policy
+npm run bench:phase2:bounded-hybrid:quality
+npm run bench:phase2:bounded-hybrid:performance
 ```
 
-Large JSON outputs are generated under `benchmarks/results/`; analysis notebooks and candidate WASM
-artifacts are generated under `output/`. Both locations are gitignored. The values in this report
-were checked against local artifacts regenerated from the current code.
+Large JSON outputs are generated under `benchmarks/results/`; candidate WASM artifacts are generated
+under `output/`. Both locations are gitignored. This report distinguishes fingerprinted current
+artifacts from records explicitly labeled as legacy evidence.

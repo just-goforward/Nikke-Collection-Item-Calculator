@@ -34,8 +34,10 @@ export type SparsePolicyIterationStep = {
   rootSuccess: number;
   rootTotalUses: number;
   policyStates: number;
+  closureStates: number;
   improvementStates: number;
   evaluatedStates: number;
+  successInvariantChecks: number;
   changes: number;
   overrides: number;
 };
@@ -55,6 +57,7 @@ export type SparsePolicyIterationResult = {
   finalOverrides: number;
   finalAction: Kit | null;
   finalValue: SparsePolicyValue | null;
+  closureStates: number;
   probabilityGap: number;
   runCount: number;
 };
@@ -83,6 +86,7 @@ const STRICT_EPSILON = 1e-12;
 class SparsePolicyBudgetExceeded extends Error {
   constructor(
     readonly outcome: Extract<SparsePolicyIterationOutcome, `${string}_budget_exceeded`>,
+    readonly observedStates: number,
   ) {
     super(outcome);
   }
@@ -236,9 +240,19 @@ type PolicyEvaluation = {
 type EligibleAction = {
   action: number;
   edge: ReturnType<typeof transitionNormalized>;
+  maximumSuccess: number;
+};
+
+type EligibleActionSet = {
+  actions: EligibleAction[];
+  stateMaximumSuccess: number;
 };
 
 function resolveSparsePolicyConfig(options: SparsePolicyIterationOptions): SparsePolicyConfig {
+  const tolerance = options.tolerance ?? 0;
+  if (tolerance !== 0) {
+    throw new Error("Exact sparse policy iteration currently proves only the tau=0 contract.");
+  }
   return {
     horizonFactor: options.horizonFactor ?? 0.75,
     maxIterations: Math.max(1, Math.trunc(options.maxIterations ?? 40)),
@@ -246,7 +260,7 @@ function resolveSparsePolicyConfig(options: SparsePolicyIterationOptions): Spars
     memoTier: Math.min(24, Math.max(16, Math.trunc(options.memoTier ?? 22))),
     normPower: options.normPower ?? 3,
     timeBudgetMs: Math.max(1, Number(options.timeBudgetMs ?? 300_000)),
-    tolerance: options.tolerance ?? 0,
+    tolerance,
   };
 }
 
@@ -298,10 +312,10 @@ function createSparsePolicyContext(
     baselineActionAt: requireFunction(exports, "policyActionAt"),
     checkBudget(size) {
       if (size > config.maxStates) {
-        throw new SparsePolicyBudgetExceeded("state_budget_exceeded");
+        throw new SparsePolicyBudgetExceeded("state_budget_exceeded", size);
       }
       if (performance.now() - startedAt > config.timeBudgetMs) {
-        throw new SparsePolicyBudgetExceeded("time_budget_exceeded");
+        throw new SparsePolicyBudgetExceeded("time_budget_exceeded", size);
       }
     },
     input,
@@ -370,15 +384,28 @@ function createPolicyEvaluation(context: SparsePolicyContext): PolicyEvaluation 
   return { actionAt, reachable, value, values };
 }
 
-function eligibleActions(
+function potentiallyEligibleActions(
   context: SparsePolicyContext,
   state: UsesState,
   decoded: CollectionState,
-): EligibleAction[] {
-  const actionSuccesses = KIT_ORDER.map((_, action) =>
-    context.successForAction(state.sid, state.blue, state.purple, state.yellow, action),
-  );
-  const maximum = Math.max(...actionSuccesses);
+): EligibleActionSet {
+  const actionSuccesses = KIT_ORDER.map((kit, action) => {
+    if (state[kit] <= 0) return -1;
+    const maximum = context.successForAction(
+      state.sid,
+      state.blue,
+      state.purple,
+      state.yellow,
+      action,
+    );
+    if (!Number.isFinite(maximum) || maximum < 0) {
+      throw new Error(
+        `Phase2 maximum-success lookup failed for state ${pack(state)} action ${action}.`,
+      );
+    }
+    return maximum;
+  });
+  const stateMaximumSuccess = Math.max(...actionSuccesses);
   const eligible: EligibleAction[] = [];
   for (let action = 0; action < KIT_ORDER.length; action += 1) {
     const kit = KIT_ORDER[action];
@@ -387,58 +414,101 @@ function eligibleActions(
       kit &&
       state[kit] > 0 &&
       actionSuccess !== undefined &&
-      maximum - actionSuccess <= context.tolerance + STRICT_EPSILON
+      stateMaximumSuccess - actionSuccess <= context.tolerance + STRICT_EPSILON
     ) {
-      eligible.push({ action, edge: transitionNormalized(decoded, kit) });
+      eligible.push({
+        action,
+        edge: transitionNormalized(decoded, kit),
+        maximumSuccess: actionSuccess,
+      });
     }
   }
-  return eligible;
+  return { actions: eligible, stateMaximumSuccess };
 }
 
-function expandSuccessorClosure(
-  context: SparsePolicyContext,
-  evaluation: PolicyEvaluation,
-): number[] {
-  const policyStates = [...evaluation.reachable];
-  for (const key of policyStates) {
+function buildEligibleSuccessorClosure(context: SparsePolicyContext): number[] {
+  const seen = new Set<number>();
+  const queue: number[] = [];
+  const add = (state: UsesState) => {
+    const key = pack(state);
+    if (seen.has(key)) return;
+    seen.add(key);
+    context.checkBudget(seen.size);
+    queue.push(key);
+  };
+  add(context.start);
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    context.checkBudget(seen.size);
+    const key = queue[cursor];
+    if (key === undefined) throw new Error("Sparse closure cursor exceeded its queue.");
     const state = unpack(key);
     const decoded = decodeState(state.sid);
-    if (isTerminalNormalized(decoded) || isConvertStateNormalized(decoded)) continue;
-    for (const { action, edge } of eligibleActions(context, state, decoded)) {
+    if (isTerminalNormalized(decoded)) continue;
+    if (isConvertStateNormalized(decoded)) {
+      add({ ...state, sid: stateIdNormalized(convertState()) });
+      continue;
+    }
+    const { actions } = potentiallyEligibleActions(context, state, decoded);
+    for (const { action, edge } of actions) {
       const nextStock = decrement(state, action);
-      evaluation.value({ ...nextStock, sid: stateIdNormalized(edge.success) }, false);
-      evaluation.value({ ...nextStock, sid: stateIdNormalized(edge.fail) }, false);
+      add({ ...nextStock, sid: stateIdNormalized(edge.success) });
+      add({ ...nextStock, sid: stateIdNormalized(edge.fail) });
     }
   }
-  return policyStates;
+  return queue;
 }
 
-function improvePolicy(context: SparsePolicyContext, evaluation: PolicyEvaluation) {
-  const improvementStates = [...evaluation.values.keys()];
+function improvePolicy(
+  context: SparsePolicyContext,
+  evaluation: PolicyEvaluation,
+  closure: readonly number[],
+) {
   const nextOverrides = new Map(context.overrides);
   let changes = 0;
-  for (const key of improvementStates) {
+  let successInvariantChecks = 0;
+  for (const key of closure) {
     const state = unpack(key);
     const decoded = decodeState(state.sid);
     if (isTerminalNormalized(decoded) || isConvertStateNormalized(decoded)) continue;
     const currentAction = evaluation.actionAt(state);
-    let bestAction = currentAction;
-    let bestValue = evaluation.values.get(key) ?? {
-      cost: Number.POSITIVE_INFINITY,
-      success: 0,
-      totalUses: Number.POSITIVE_INFINITY,
-      vector: [0, 0, 0] as [number, number, number],
-    };
-    for (const { action, edge } of eligibleActions(context, state, decoded)) {
+    const currentValue = evaluation.values.get(key);
+    if (!currentValue) throw new Error(`Missing exact policy value for closure state ${key}.`);
+    const { actions, stateMaximumSuccess } = potentiallyEligibleActions(context, state, decoded);
+    const candidates = actions.map(({ action, edge, maximumSuccess }) => {
       const nextStock = decrement(state, action);
-      const candidateValue = combine(
-        edge.probability,
-        evaluation.value({ ...nextStock, sid: stateIdNormalized(edge.success) }, false),
-        evaluation.value({ ...nextStock, sid: stateIdNormalized(edge.fail) }, false),
-      );
-      if (isBetter(candidateValue, bestValue)) {
-        bestAction = action;
-        bestValue = candidateValue;
+      return {
+        action,
+        maximumSuccess,
+        value: combine(
+          edge.probability,
+          evaluation.value({ ...nextStock, sid: stateIdNormalized(edge.success) }, false),
+          evaluation.value({ ...nextStock, sid: stateIdNormalized(edge.fail) }, false),
+        ),
+      };
+    });
+    for (const candidate of candidates) {
+      successInvariantChecks += 1;
+      if (Math.abs(candidate.maximumSuccess - candidate.value.success) > STRICT_EPSILON) {
+        throw new Error(
+          `Tau=0 success invariant failed for state ${key} action ${candidate.action}: ` +
+            `${candidate.value.success} != ${candidate.maximumSuccess}.`,
+        );
+      }
+    }
+    const actuallyEligible = candidates.filter(
+      (candidate) =>
+        stateMaximumSuccess - candidate.value.success <= context.tolerance + STRICT_EPSILON,
+    );
+    const pool = actuallyEligible.length > 0 ? actuallyEligible : candidates;
+    const first = pool[0];
+    if (!first) continue;
+    const current = pool.find((candidate) => candidate.action === currentAction);
+    let bestAction = current?.action ?? first.action;
+    let bestValue = current?.value ?? first.value;
+    for (const candidate of pool) {
+      if (candidate.action !== bestAction && isBetter(candidate.value, bestValue)) {
+        bestAction = candidate.action;
+        bestValue = candidate.value;
       }
     }
     if (bestAction === currentAction) continue;
@@ -447,7 +517,7 @@ function improvePolicy(context: SparsePolicyContext, evaluation: PolicyEvaluatio
     if (bestAction === baseline) nextOverrides.delete(key);
     else nextOverrides.set(key, bestAction);
   }
-  return { changes, improvementStates, nextOverrides };
+  return { changes, nextOverrides, successInvariantChecks };
 }
 
 function actionAtFromOverrides(
@@ -479,12 +549,32 @@ function applyOverrides(target: Map<number, number>, source: ReadonlyMap<number,
 function runSparseIterations(context: SparsePolicyContext) {
   let finalValue: SparsePolicyValue | null = null;
   let outcome: SparsePolicyIterationOutcome = "iteration_budget_exceeded";
+  let closureStates = 0;
   try {
+    const closure = buildEligibleSuccessorClosure(context);
+    closureStates = closure.length;
     for (let iteration = 0; iteration < context.maxIterations; iteration += 1) {
       const evaluation = createPolicyEvaluation(context);
       const root = evaluation.value(context.start, true);
-      const policyStates = expandSuccessorClosure(context, evaluation);
-      const { changes, improvementStates, nextOverrides } = improvePolicy(context, evaluation);
+      const policyStates = evaluation.reachable.size;
+      for (const key of closure) {
+        evaluation.value(unpack(key), false);
+      }
+      if (evaluation.values.size !== closure.length) {
+        throw new Error(
+          `Policy evaluation escaped the saturated closure: ${evaluation.values.size} != ${closure.length}.`,
+        );
+      }
+      const { changes, nextOverrides, successInvariantChecks } = improvePolicy(
+        context,
+        evaluation,
+        closure,
+      );
+      if (evaluation.values.size !== closure.length) {
+        throw new Error(
+          `Policy improvement escaped the saturated closure: ${evaluation.values.size} != ${closure.length}.`,
+        );
+      }
       const rootAction = evaluation.actionAt(context.start);
       const nextRootAction =
         nextOverrides.get(pack(context.start)) ??
@@ -503,9 +593,11 @@ function runSparseIterations(context: SparsePolicyContext) {
         rootCost: root.cost,
         rootSuccess: root.success,
         rootTotalUses: root.totalUses,
-        policyStates: policyStates.length,
-        improvementStates: improvementStates.length,
+        policyStates,
+        closureStates: closure.length,
+        improvementStates: closure.length,
         evaluatedStates: evaluation.values.size,
+        successInvariantChecks,
         changes,
         overrides: nextOverrides.size,
       });
@@ -518,8 +610,9 @@ function runSparseIterations(context: SparsePolicyContext) {
   } catch (error) {
     if (!(error instanceof SparsePolicyBudgetExceeded)) throw error;
     outcome = error.outcome;
+    closureStates = Math.max(closureStates, error.observedStates);
   }
-  return { finalValue, outcome };
+  return { closureStates, finalValue, outcome };
 }
 
 function finalPolicyResult(
@@ -527,6 +620,7 @@ function finalPolicyResult(
   outcome: SparsePolicyIterationOutcome,
   setupStatus: number,
   finalValue: SparsePolicyValue | null,
+  closureStates: number,
   startedAt: number,
 ): SparsePolicyIterationResult {
   const actionAt = actionAtFromOverrides(context, context.overrides);
@@ -549,7 +643,6 @@ function finalPolicyResult(
       )
     : [];
   const maximumSuccess = actionSuccesses.length > 0 ? Math.max(...actionSuccesses) : 0;
-  const selectedSuccess = actionIndex >= 0 ? (actionSuccesses[actionIndex] ?? 0) : 0;
   return {
     outcome,
     setupStatus,
@@ -558,7 +651,8 @@ function finalPolicyResult(
     finalOverrides: context.overrides.size,
     finalAction,
     finalValue,
-    probabilityGap: Math.max(0, maximumSuccess - selectedSuccess),
+    closureStates,
+    probabilityGap: Math.max(0, maximumSuccess - (finalValue?.success ?? 0)),
     runCount: finalAction
       ? recommendedRunCount(context.input.start, context.uses, finalAction, actionAt)
       : 0,
@@ -594,13 +688,14 @@ export function solveSparsePolicyIteration(
       finalOverrides: 0,
       finalAction: null,
       finalValue: null,
+      closureStates: 0,
       probabilityGap: Number.POSITIVE_INFINITY,
       runCount: 0,
     };
   }
   const context = createSparsePolicyContext(exports, input, config, startedAt);
-  const { finalValue, outcome } = runSparseIterations(context);
-  return finalPolicyResult(context, outcome, setupStatus, finalValue, startedAt);
+  const { closureStates, finalValue, outcome } = runSparseIterations(context);
+  return finalPolicyResult(context, outcome, setupStatus, finalValue, closureStates, startedAt);
 }
 
 export function createSparsePolicyIterationSolver(

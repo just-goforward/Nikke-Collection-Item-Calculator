@@ -200,6 +200,7 @@ export type RustCoreExports = {
     maxPasses: number,
     maxStates: number,
     maxUpdatesPerPass: number,
+    priorityMode: number,
   ) => void;
   prioritizedSparsePiOutcome?: () => number;
   prioritizedSparsePiAction?: () => number;
@@ -213,6 +214,12 @@ export type RustCoreExports = {
   prioritizedSparsePiPeakStates?: () => number;
   prioritizedSparsePiScannedStates?: () => number;
   prioritizedSparsePiChanges?: () => number;
+  prioritizedSparsePiFinalPassStates?: () => number;
+  prioritizedSparsePiFinalPassScanned?: () => number;
+  prioritizedSparsePiSuccessInvariantChecks?: () => number;
+  prioritizedSparsePiSuccessInvariantMaxGap?: () => number;
+  prioritizedSparsePiInitialCost?: () => number;
+  prioritizedSparsePiInitialSuccess?: () => number;
   prioritizedSparsePiOverrideCount?: () => number;
   prioritizedSparsePiActionAt?: (
     stateId: number,

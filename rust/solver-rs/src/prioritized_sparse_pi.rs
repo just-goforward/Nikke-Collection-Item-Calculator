@@ -25,6 +25,10 @@ const OUTCOME_PHASE2_FAILURE: i32 = 1;
 const OUTCOME_ITERATION_BUDGET_EXCEEDED: i32 = 2;
 const OUTCOME_STATE_BUDGET_EXCEEDED: i32 = 3;
 const OUTCOME_INVALID_INPUT: i32 = 4;
+const OUTCOME_PROBABILITY_INVARIANT_VIOLATION: i32 = 5;
+const OUTCOME_CLOSURE_INCOMPLETE: i32 = 6;
+const PRIORITY_DISCOVERY_ORDER: i32 = 0;
+const PRIORITY_MAX_PATH_PROBABILITY: i32 = 1;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct UsesState {
@@ -63,6 +67,7 @@ struct PolicyEvaluation<'a> {
     norm_power: f64,
     inverse_norm_power: f64,
     max_states: usize,
+    priority_mode: i32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -98,6 +103,7 @@ impl Ord for PendingState {
 enum EvaluationError {
     Phase2Failure,
     StateBudgetExceeded,
+    ProbabilityInvariantViolation,
 }
 
 static mut LAST_OUTCOME: i32 = OUTCOME_INVALID_INPUT;
@@ -112,6 +118,12 @@ static mut LAST_PASSES: i32 = 0;
 static mut LAST_PEAK_STATES: i32 = 0;
 static mut LAST_SCANNED_STATES: i32 = 0;
 static mut LAST_CHANGES: i32 = 0;
+static mut LAST_FINAL_PASS_STATES: i32 = 0;
+static mut LAST_FINAL_PASS_SCANNED: i32 = 0;
+static mut LAST_SUCCESS_INVARIANT_CHECKS: i32 = 0;
+static mut LAST_SUCCESS_INVARIANT_MAX_GAP: f64 = 0.0;
+static mut LAST_INITIAL_COST: f64 = f64::INFINITY;
+static mut LAST_INITIAL_SUCCESS: f64 = 0.0;
 static mut LAST_OVERRIDES: Vec<(u32, i8)> = Vec::new();
 
 #[inline]
@@ -218,6 +230,14 @@ impl PolicyEvaluation<'_> {
         Ok(value)
     }
 
+    fn pending_priority(&self, entry_index: usize) -> f64 {
+        if self.priority_mode == PRIORITY_MAX_PATH_PROBABILITY {
+            self.entries[entry_index].path_priority
+        } else {
+            0.0
+        }
+    }
+
     fn value(
         &mut self,
         state: UsesState,
@@ -283,6 +303,7 @@ fn evaluate_policy<'a>(
     horizon_factor: f64,
     norm_power: f64,
     max_states: usize,
+    priority_mode: i32,
 ) -> Result<(PolicyEvaluation<'a>, PolicyValue), EvaluationError> {
     let mut evaluation = PolicyEvaluation {
         entries: Vec::new(),
@@ -295,6 +316,7 @@ fn evaluate_policy<'a>(
         norm_power,
         inverse_norm_power: 1.0 / norm_power,
         max_states,
+        priority_mode,
     };
     let root = evaluation.value(start, 1.0)?;
     Ok((evaluation, root))
@@ -327,8 +349,9 @@ fn best_action(
         }
     }
 
-    let mut selected_action = current_action;
-    let mut selected_value = entry.value;
+    let mut candidate_valid = [false; 3];
+    let mut candidate_actual = [false; 3];
+    let mut candidate_values = [PolicyValue::default(); 3];
     for action in 0..3i32 {
         let success_probability = action_success[action as usize];
         if success_probability < 0.0
@@ -358,13 +381,44 @@ fn best_action(
         for index in previous_len..evaluation.entries.len() {
             pending.push(PendingState {
                 entry_index: index,
-                path_priority: evaluation.entries[index].path_priority,
+                path_priority: evaluation.pending_priority(index),
             });
         }
         let candidate = combine(probability, success, failure);
-        if is_better(candidate, selected_value) {
+        let success_gap = (success_probability - candidate.success).abs();
+        unsafe {
+            LAST_SUCCESS_INVARIANT_CHECKS = LAST_SUCCESS_INVARIANT_CHECKS.saturating_add(1);
+            LAST_SUCCESS_INVARIANT_MAX_GAP = LAST_SUCCESS_INVARIANT_MAX_GAP.max(success_gap);
+        }
+        if success_gap > STRICT_EPSILON {
+            return Err(EvaluationError::ProbabilityInvariantViolation);
+        }
+        candidate_valid[action as usize] = true;
+        candidate_actual[action as usize] =
+            maximum - candidate.success <= tolerance + STRICT_EPSILON;
+        candidate_values[action as usize] = candidate;
+    }
+
+    let any_actual = candidate_actual.iter().any(|eligible| *eligible);
+    let in_pool = |action: i32| {
+        candidate_valid[action as usize] && (!any_actual || candidate_actual[action as usize])
+    };
+    let mut selected_action = if (0..=2).contains(&current_action) && in_pool(current_action) {
+        current_action
+    } else {
+        (0..3i32).find(|action| in_pool(*action)).unwrap_or(-1)
+    };
+    if selected_action < 0 {
+        return Ok(None);
+    }
+    let mut selected_value = candidate_values[selected_action as usize];
+    for action in 0..3i32 {
+        if action != selected_action
+            && in_pool(action)
+            && is_better(candidate_values[action as usize], selected_value)
+        {
             selected_action = action;
-            selected_value = candidate;
+            selected_value = candidate_values[action as usize];
         }
     }
     Ok((selected_action != current_action).then_some(selected_action))
@@ -384,6 +438,12 @@ fn reset_result() {
         LAST_PEAK_STATES = 0;
         LAST_SCANNED_STATES = 0;
         LAST_CHANGES = 0;
+        LAST_FINAL_PASS_STATES = 0;
+        LAST_FINAL_PASS_SCANNED = 0;
+        LAST_SUCCESS_INVARIANT_CHECKS = 0;
+        LAST_SUCCESS_INVARIANT_MAX_GAP = 0.0;
+        LAST_INITIAL_COST = f64::INFINITY;
+        LAST_INITIAL_SUCCESS = 0.0;
         LAST_OVERRIDES = Vec::new();
     }
 }
@@ -406,7 +466,6 @@ fn publish_root(overrides: &HashMap<u32, i8>, start: UsesState, root: PolicyValu
         |value| *value as i32,
     );
     let mut maximum: f64 = -1.0;
-    let mut selected = -1.0;
     for candidate in 0..3i32 {
         if let Some(value) = unsafe {
             phase2_max_success_for_action(
@@ -418,9 +477,6 @@ fn publish_root(overrides: &HashMap<u32, i8>, start: UsesState, root: PolicyValu
             )
         } {
             maximum = maximum.max(value);
-            if candidate == action {
-                selected = value;
-            }
         }
     }
     unsafe {
@@ -430,8 +486,8 @@ fn publish_root(overrides: &HashMap<u32, i8>, start: UsesState, root: PolicyValu
         LAST_BLUE = root.blue;
         LAST_PURPLE = root.purple;
         LAST_YELLOW = root.yellow;
-        LAST_PROBABILITY_GAP = if selected >= 0.0 {
-            (maximum - selected).max(0.0)
+        LAST_PROBABILITY_GAP = if action >= 0 {
+            (maximum - root.success).max(0.0)
         } else {
             f64::INFINITY
         };
@@ -454,17 +510,22 @@ pub extern "C" fn solvePrioritizedSparsePi(
     max_passes: i32,
     max_states: i32,
     max_updates_per_pass: i32,
+    priority_mode: i32,
 ) {
     reset_result();
     if max_passes <= 0
         || max_states <= 0
         || max_updates_per_pass <= 0
+        || !matches!(
+            priority_mode,
+            PRIORITY_DISCOVERY_ORDER | PRIORITY_MAX_PATH_PROBABILITY
+        )
         || !horizon_factor.is_finite()
         || horizon_factor < 0.0
         || !(norm_power.is_finite() || norm_power == f64::INFINITY)
         || norm_power <= 0.0
         || !tolerance.is_finite()
-        || tolerance < 0.0
+        || tolerance != 0.0
     {
         return;
     }
@@ -516,6 +577,7 @@ pub extern "C" fn solvePrioritizedSparsePi(
             horizon_factor,
             norm_power,
             max_states,
+            priority_mode,
         ) {
             Ok(result) => result,
             Err(EvaluationError::Phase2Failure) => {
@@ -526,20 +588,33 @@ pub extern "C" fn solvePrioritizedSparsePi(
                 outcome = OUTCOME_STATE_BUDGET_EXCEEDED;
                 break;
             }
+            Err(EvaluationError::ProbabilityInvariantViolation) => {
+                outcome = OUTCOME_PROBABILITY_INVARIANT_VIOLATION;
+                break;
+            }
         };
         final_root = Some(root);
         unsafe {
             LAST_PASSES = pass + 1;
             LAST_PEAK_STATES = LAST_PEAK_STATES.max(evaluation.entries.len() as i32);
+            if pass == 0 {
+                LAST_INITIAL_COST = root.cost;
+                LAST_INITIAL_SUCCESS = root.success;
+            }
         }
         let mut pending = BinaryHeap::new();
         for (entry_index, entry) in evaluation.entries.iter().enumerate() {
             pending.push(PendingState {
                 entry_index,
-                path_priority: entry.path_priority,
+                path_priority: if priority_mode == PRIORITY_MAX_PATH_PROBABILITY {
+                    entry.path_priority
+                } else {
+                    0.0
+                },
             });
         }
         let mut scanned = vec![false; evaluation.entries.len()];
+        let mut pass_scanned = 0usize;
         let mut changes = Vec::<(u32, i8)>::new();
         let mut failed = None;
         while let Some(next) = pending.pop() {
@@ -550,6 +625,7 @@ pub extern "C" fn solvePrioritizedSparsePi(
                 continue;
             }
             scanned[next.entry_index] = true;
+            pass_scanned += 1;
             unsafe {
                 LAST_SCANNED_STATES = LAST_SCANNED_STATES.saturating_add(1);
             }
@@ -577,15 +653,26 @@ pub extern "C" fn solvePrioritizedSparsePi(
                 LAST_PEAK_STATES = LAST_PEAK_STATES.max(evaluation.entries.len() as i32);
             }
         }
+        unsafe {
+            LAST_FINAL_PASS_STATES = evaluation.entries.len() as i32;
+            LAST_FINAL_PASS_SCANNED = pass_scanned as i32;
+        }
         if let Some(error) = failed {
             outcome = match error {
                 EvaluationError::Phase2Failure => OUTCOME_PHASE2_FAILURE,
                 EvaluationError::StateBudgetExceeded => OUTCOME_STATE_BUDGET_EXCEEDED,
+                EvaluationError::ProbabilityInvariantViolation => {
+                    OUTCOME_PROBABILITY_INVARIANT_VIOLATION
+                }
             };
             break;
         }
         if changes.is_empty() {
-            outcome = OUTCOME_COMPLETED;
+            outcome = if pass_scanned == evaluation.entries.len() {
+                OUTCOME_COMPLETED
+            } else {
+                OUTCOME_CLOSURE_INCOMPLETE
+            };
             final_root = Some(root);
             break;
         }
@@ -614,6 +701,7 @@ pub extern "C" fn solvePrioritizedSparsePi(
             horizon_factor,
             norm_power,
             max_states,
+            priority_mode,
         ) {
             unsafe {
                 LAST_PEAK_STATES = LAST_PEAK_STATES.max(evaluation.entries.len() as i32);
@@ -691,6 +779,36 @@ pub extern "C" fn prioritizedSparsePiChanges() -> i32 {
 }
 
 #[no_mangle]
+pub extern "C" fn prioritizedSparsePiFinalPassStates() -> i32 {
+    unsafe { LAST_FINAL_PASS_STATES }
+}
+
+#[no_mangle]
+pub extern "C" fn prioritizedSparsePiFinalPassScanned() -> i32 {
+    unsafe { LAST_FINAL_PASS_SCANNED }
+}
+
+#[no_mangle]
+pub extern "C" fn prioritizedSparsePiSuccessInvariantChecks() -> i32 {
+    unsafe { LAST_SUCCESS_INVARIANT_CHECKS }
+}
+
+#[no_mangle]
+pub extern "C" fn prioritizedSparsePiSuccessInvariantMaxGap() -> f64 {
+    unsafe { LAST_SUCCESS_INVARIANT_MAX_GAP }
+}
+
+#[no_mangle]
+pub extern "C" fn prioritizedSparsePiInitialCost() -> f64 {
+    unsafe { LAST_INITIAL_COST }
+}
+
+#[no_mangle]
+pub extern "C" fn prioritizedSparsePiInitialSuccess() -> f64 {
+    unsafe { LAST_INITIAL_SUCCESS }
+}
+
+#[no_mangle]
 pub extern "C" fn prioritizedSparsePiOverrideCount() -> i32 {
     unsafe { LAST_OVERRIDES.len() as i32 }
 }
@@ -718,66 +836,5 @@ pub extern "C" fn releasePrioritizedSparsePi() {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn packed_state_round_trips_at_domain_edges() {
-        for state in [
-            UsesState {
-                sid: 0,
-                blue: 0,
-                purple: 0,
-                yellow: 0,
-            },
-            UsesState {
-                sid: 959,
-                blue: MAX_USES_B,
-                purple: MAX_USES_P,
-                yellow: MAX_USES_Y,
-            },
-        ] {
-            assert_eq!(
-                unpack(memo_key(state.sid, state.blue, state.purple, state.yellow)).sid,
-                state.sid
-            );
-            let unpacked = unpack(memo_key(state.sid, state.blue, state.purple, state.yellow));
-            assert_eq!(
-                (unpacked.blue, unpacked.purple, unpacked.yellow),
-                (state.blue, state.purple, state.yellow)
-            );
-        }
-    }
-
-    #[test]
-    fn strict_improvement_preserves_ties() {
-        let incumbent = PolicyValue {
-            cost: 1.0,
-            success: 0.8,
-            total_uses: 10.0,
-            ..PolicyValue::default()
-        };
-        assert!(!is_better(incumbent, incumbent));
-        assert!(is_better(
-            PolicyValue {
-                cost: 0.9,
-                ..incumbent
-            },
-            incumbent
-        ));
-        assert!(is_better(
-            PolicyValue {
-                total_uses: 9.0,
-                ..incumbent
-            },
-            incumbent
-        ));
-        assert!(is_better(
-            PolicyValue {
-                success: 0.9,
-                ..incumbent
-            },
-            incumbent
-        ));
-    }
-}
+#[path = "prioritized_sparse_pi_tests.rs"]
+mod tests;

@@ -21,6 +21,7 @@ name = "solver_rs"
 
 [features]
 default = []
+research-branch-bound = []
 research-sparse-pi = []
 
 [profile.release]
