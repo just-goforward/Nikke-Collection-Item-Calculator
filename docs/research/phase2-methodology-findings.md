@@ -5,7 +5,9 @@ Korean documentation:
 
 Date: 2026-08-09
 
-Baseline commit: `45fc4175c332cb5d9656d86ae3f30fe6e4c5e527` plus the uncommitted research changes
+Research baseline: `45fc4175c332cb5d9656d86ae3f30fe6e4c5e527`
+
+Phase2 result checkpoint: `99331dbf00632e2ac83b6930c6213766908e895a`
 
 Scope: research-only Rust/WASM ABI, TypeScript evaluators, benchmarks, and decision records
 
@@ -261,6 +263,28 @@ study did not invent such weights. Instead, componentwise non-regression was a p
 No H/p-tail, bounded-hybrid, CVaR, or single-use candidate passed that guardrail together with all
 other product gates. This does not prove that no Pareto candidate exists; it avoids silently adding
 an undefined user preference to the solver.
+
+## Next-Generation Solver And WebGPU Follow-Up
+
+[Confirmed] After closing the phase2 methodology candidates, a separate contract evaluated a
+complete-policy oracle, compact LP, WebGPU exact hybrid, certified limited depth, prerequisite
+bounds for AO*/BRTDP, Pareto frontiers, sampled monotonicity, symbolic partitioning, and their
+dependent candidates.
+
+- The small compact graph matched the current Rust WASM action, probability, cost, and consumption
+  vector.
+- The integer WebGPU frontier passed small key-set parity, but the `R10-balanced300` exact graph
+  exceeded the pre-registered 1.2-million-state cap.
+- Limited-depth bounds could not certify the representative R10 and SR0 roots at depth eight, while
+  the Pareto and symbolic candidates failed their frontier-width and compression gates.
+- Sampled monotonicity found no counterexample, but it was not promoted into a pruning contract
+  without a global proof.
+
+[Decision] No follow-up candidate qualified for product adoption, so the current Rust min-E[f] to
+phase2 ladder remains unchanged. This is a decision about the tested candidates and pre-registered
+contract, not a proof that every possible algorithm is inferior. See
+[`next-solver-research-findings.md`](./next-solver-research-findings.md) for measurements and
+unverified scope.
 
 ## Unverified Scope
 

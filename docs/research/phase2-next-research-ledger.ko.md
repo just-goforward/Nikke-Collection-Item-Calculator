@@ -2,9 +2,11 @@
 
 기준일: 2026-08-09  
 기준 commit: `45fc4175c332cb5d9656d86ae3f30fe6e4c5e527`  
+Phase2 결과 checkpoint: `99331dbf00632e2ac83b6930c6213766908e895a`
+
 연구 보고서 기준 제품 WASM SHA-256:
 `37d649b6144196c82cb8623bd7e33fefeac92e707019a6ecfe3be69266bda13`  
-현재 연구 worktree 재빌드 제품 WASM SHA-256:
+Phase2 연구 worktree 재빌드 제품 WASM SHA-256:
 `7430c32ae5f3f7c8845c8390568e1f49dcd25c43c67bbda74adb61202c41a8df`
 
 `[확인]` 두 제품 artifact는 모두 99,937B이며 type/import/function/table/memory/global/export/
@@ -15,13 +17,14 @@ element/code/name/producers/target-features 섹션이 byte-identical이다. data
 
 ## 목적과 실행 순서
 
-이 원장은 다음 다섯 연구를 서로 섞지 않고 순서대로 판정하기 위한 기록이다.
+이 원장은 다음 여섯 연구를 서로 섞지 않고 순서대로 판정하기 위한 기록이다.
 
 1. admissible branch-and-bound
 2. sparse constrained policy iteration exact 기준선
 3. prioritized policy improvement
 4. bounded hybrid phase2
 5. CVaR 등 목적함수 변경
+6. 차세대 solver·WebGPU 상태 표현과 탐색 후보
 
 각 단계는 `가설 -> 수학 계약 -> 최소 반례 -> 의미론 parity -> 용량/지연 -> 판정` 순서로
 진행한다. 앞 단계의 결과를 다음 단계가 사용하더라도 원시 결과와 해석을 구분한다.
@@ -509,6 +512,28 @@ SHA-256: `292ab2e90714644385949de35e3b2526e20ed310e9e34e3e7fbd699a95eb5645`
 - `[확인]` 제품 runtime, `public/solver_rs.wasm`, UI, Worker protocol, D1 schema, solver 정책
   버전은 변경하지 않았다.
 
+## 6단계: 차세대 solver·WebGPU 후보
+
+Phase2 내부 개선과 H/p 목적함수 후보가 제품 gate를 통과하지 못한 뒤, 서로 다른 상태 표현과
+탐색 방법을 공통 exact 계약 아래에서 screening했다.
+
+| 후보군 | 현재 판정 | 중단 근거 |
+| --- | --- | --- |
+| Complete-policy·LP oracle | 연구 기반만 유지 | 작은 상태 독립 검증용이며 제품 규모 알고리즘은 아님. LP 실행은 HiGHS 부재로 미완료 |
+| WebGPU compact exact hybrid | 기각 | 소형 key parity 통과, R10 exact graph 120만 상태 상한 초과 |
+| Certified limited depth·AO*/BRTDP | 기각 | 대표 R10·SR0 root의 행동 interval 미분리 |
+| Pareto·distributional·adaptive H/p | 기각 | 작은 graph p95 frontier 폭 184, 상한 32 초과 |
+| Monotonicity threshold | 검증 미완료 | 제한 표본 반례 0건은 전역 증명이 아님 |
+| Symbolic partition | 기각 | 127상태가 127 partition으로 남아 압축률 0% |
+| GPU MCTS | 선행 게이트 중단 | exact WebGPU 상태 용량 게이트 실패 |
+
+- `[확인]` 공통 compact DP는 실제 Rust WASM과 action·확률·비용·vector parity를 통과했다.
+- `[확인]` 선행 게이트가 실패한 AO*/BRTDP, GPU MCTS, distributional, adaptive H/p에는 제품용
+  구현이나 runtime 배선을 추가하지 않았다.
+- `[판정]` 현재 Rust min-E[f]→phase2 ladder를 유지한다. 이는 위 후보군과 고정된 예산·정확성
+  계약의 판정이며 수학적으로 가능한 모든 알고리즘에 대한 부재 증명이 아니다.
+- 상세 보고서: [`next-solver-research-findings.ko.md`](./next-solver-research-findings.ko.md)
+
 ## 다음 기록 위치
 
 - 생성 코드: `benchmarks/run-min-ef-branch-bound-study.ts`
@@ -525,4 +550,8 @@ SHA-256: `292ab2e90714644385949de35e3b2526e20ed310e9e34e3e7fbd699a95eb5645`
 - Full recorded CVaR 결과: `benchmarks/results/recorded-cvar-*-v1.json`
 - 단일 사용 runner: `benchmarks/run-single-use-batching-study.ts`
 - 단일 사용 결과: `benchmarks/results/single-use-batching-study-v1.json`
+- 차세대 solver 계약: `benchmarks/next-solver-research-contract.ts`
+- Compact exact graph: `benchmarks/compact-exact-graph.ts`
+- 차세대 solver 결과: `benchmarks/results/next-solver-research-v1.json`
+- 차세대 solver 판정: `next-solver-research-findings.ko.md`
 - 채택·기각 해석: 이 원장과 `phase2-methodology-findings.ko.md`

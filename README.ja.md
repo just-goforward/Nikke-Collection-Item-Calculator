@@ -63,6 +63,7 @@ npm run report:bundle
 - [min-E[f] H/p共同最適化研究（韓国語）](./docs/research/min-ef-hp-study-findings.ko.md)
 - [Solver方針品質研究（英語）](./docs/research/solver-policy-quality-findings.md)
 - [Rust phase2方法論研究（英語）](./docs/research/phase2-methodology-findings.md)
+- [次世代solver・WebGPU研究（英語）](./docs/research/next-solver-research-findings.md)
 - [アプリアイコンの原本画像](./docs/assets/app-icon-source.png)
 
 実際のUIではruntime CSSとcomponentが正本です。デザイン値を別の文章仕様として重複管理せず、visual・alignment・compatibilityテストで観測可能なレイアウトを保護します。

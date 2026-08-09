@@ -34,6 +34,16 @@
 - [추론] Tail discovery 통과 후보가 없어 D1 후보 replay와 성능 캠페인은 실행하지 않았습니다.
 - [추론] D1 이벤트는 반복 계산 이벤트이며 사용자 수나 실제 사용자 비율로 해석하지 않습니다.
 
+## 후속 adaptive H/p 판정
+
+- [확인] 차세대 solver 연구는 H/p를 경로별·분포별로 바꾸는 adaptive 후보의 선행조건으로
+  distributional state representation을 요구했습니다.
+- [확인] 해당 선행 Pareto 표현은 작은 exact graph에서도 p95 frontier 폭 184로 사전 상한 32를
+  초과해 adaptive H/p 구현을 시작하지 않았습니다.
+- [추론] 이는 현재 고정 `H=0.75, p=3` 판정을 강화하지만, 모든 가능한 adaptive 규칙의 열등성을
+  증명하지는 않습니다. 상세 내용은
+  [`next-solver-research-findings.ko.md`](./next-solver-research-findings.ko.md)를 참고하세요.
+
 ## 판정
 
 - `H1.25-pinf`: rejected

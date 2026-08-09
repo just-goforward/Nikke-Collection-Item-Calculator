@@ -41,6 +41,17 @@ type ReportWithOptionalProvenance = {
   provenance?: ResearchProvenance;
 };
 
+export function readOptionalResearchReport(path: string): ReportWithOptionalProvenance | null {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as ReportWithOptionalProvenance;
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
 export function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;

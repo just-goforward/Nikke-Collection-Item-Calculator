@@ -34,6 +34,16 @@
 - [Inference] No tail-discovery challenger passed, so candidate D1 replay and performance campaigns were skipped.
 - [Inference] D1 events are repeated calculation events, not unique users or user-frequency estimates.
 
+## Adaptive H/p Follow-Up
+
+- [Confirmed] The next-generation solver study required a distributional state representation
+  before implementing a path-dependent adaptive H/p candidate.
+- [Confirmed] That prerequisite Pareto representation reached p95 frontier width 184 on the small
+  exact graph, above the pre-registered cap of 32, so adaptive H/p implementation did not start.
+- [Inference] This supports retaining fixed `H=0.75, p=3` under the current contract, but does not
+  prove that every possible adaptive rule is inferior. See
+  [`next-solver-research-findings.md`](./next-solver-research-findings.md) for details.
+
 ## Decision
 
 - `H1.25-pinf`: rejected

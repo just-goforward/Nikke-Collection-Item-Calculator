@@ -1,6 +1,12 @@
 # Rust 우선순위 sparse policy iteration 연구 계약
 
-분석 기준: 2026-08-08, 커밋 `6251db3` 위의 미커밋 연구 작업
+실행 전 분석 기준: 2026-08-08, 커밋 `6251db3` 위의 당시 미커밋 연구 작업
+
+> **상태: 완료·제품 기각.** 이 문서는 실행 전에 고정한 연구 계약을 보존합니다. 실제 실행에서
+> R10 exact closure가 120만 state budget을 넘었고, bounded 후보는 지연·WASM 크기·공동 품질
+> gate를 모두 통과하지 못했습니다. 현재 판정은
+> [`phase2-methodology-findings.ko.md`](./phase2-methodology-findings.ko.md)와
+> [`phase2-next-research-ledger.ko.md`](./phase2-next-research-ledger.ko.md)가 소유합니다.
 
 ## 질문과 가설
 

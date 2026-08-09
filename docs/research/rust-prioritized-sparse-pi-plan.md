@@ -1,6 +1,12 @@
 # Rust Prioritized Sparse Policy Iteration Research Contract
 
-Baseline: 2026-08-08, uncommitted research work on top of commit `6251db3`
+Pre-execution baseline: 2026-08-08, the then-uncommitted research work on commit `6251db3`
+
+> **Status: completed and rejected for product use.** This document preserves the pre-registered
+> research contract. The actual run exceeded the 1.2-million-state R10 exact-closure budget, and the
+> bounded candidate did not jointly pass latency, WASM-size, and quality gates. The current decision
+> is owned by [`phase2-methodology-findings.md`](./phase2-methodology-findings.md) and the Korean
+> [`phase2-next-research-ledger.ko.md`](./phase2-next-research-ledger.ko.md).
 
 ## Question And Hypotheses
 

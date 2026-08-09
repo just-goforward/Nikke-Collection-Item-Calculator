@@ -4,7 +4,9 @@
 
 분석 일자: 2026-08-09
 
-기준 커밋: `45fc4175c332cb5d9656d86ae3f30fe6e4c5e527` 위의 미커밋 연구 작업
+연구 시작 기준: `45fc4175c332cb5d9656d86ae3f30fe6e4c5e527`
+
+Phase2 결과 checkpoint: `99331dbf00632e2ac83b6930c6213766908e895a`
 
 범위: 연구용 Rust/WASM ABI, TypeScript evaluator, benchmark, 판정 문서
 
@@ -266,6 +268,24 @@ heuristic입니다. `completed`는 recursively discovered eligible closure 전�
 componentwise 비악화를 제품 guardrail로 사용했습니다. H/p tail, bounded hybrid, CVaR, 1회
 배칭 중 나머지 gate까지 모두 통과한 후보는 없습니다. 이는 모든 Pareto 후보의 부재를 증명하는
 것이 아니라, 정의되지 않은 사용자 선호를 solver에 몰래 넣지 않았다는 뜻입니다.
+
+## 차세대 solver·WebGPU 후속 연구
+
+[확인] Phase2 방법론 후보를 닫은 뒤 complete-policy oracle, compact LP, WebGPU exact hybrid,
+certified limited depth, AO*/BRTDP 선행 bound, Pareto frontier, 단조성 표본 검사, symbolic
+partition과 그 의존 후보를 별도 계약으로 평가했습니다.
+
+- 소형 compact graph는 현재 Rust WASM의 행동·확률·비용·소모 vector와 일치했습니다.
+- WebGPU 정수 frontier는 소형 key-set parity를 통과했지만 `R10-balanced300` exact graph가
+  사전 등록한 120만 상태 상한을 초과했습니다.
+- 제한 깊이 bound는 대표 R10·SR0 root를 depth 8에서도 인증하지 못했고, Pareto와 symbolic
+  후보도 각각 frontier 폭과 압축률 gate를 실패했습니다.
+- 단조성 표본에서 반례는 없었지만 전역 증명이 아니므로 pruning 계약으로 승격하지 않았습니다.
+
+[판정] 후속 연구에서도 제품 채택 후보는 없으며 현재 Rust min-E[f]→phase2 ladder를 유지합니다.
+이는 가능한 모든 알고리즘이 열등하다는 증명이 아니라, 이번 후보와 사전 계약의 판정입니다. 상세
+수치와 미검증 범위는 [`next-solver-research-findings.ko.md`](./next-solver-research-findings.ko.md)에
+기록했습니다.
 
 ## 미검증 범위
 

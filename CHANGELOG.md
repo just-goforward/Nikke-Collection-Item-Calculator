@@ -2,6 +2,25 @@
 
 소장품 레벨업 계산기의 주요 변경 이력을 기록합니다.
 
+## 2026-08-09
+
+### 차세대 solver·WebGPU 연구 기반
+
+- complete-policy 전수열거와 compact LP 모델을 작은 상태의 독립 oracle로 추가하고,
+  compact exact graph가 현재 Rust WASM의 행동·확률·비용·소모 vector와 일치하는지 검증했습니다.
+- WebGPU는 정수 상태 전개와 중복 제거만 담당하고 최종 f64 Bellman 판정은 CPU가 소유하는
+  exact-hybrid 경계를 구현했습니다. 소형 fixture의 CPU/GPU key-set은 일치했지만
+  `R10-balanced300`이 사전 등록한 120만 상태 상한을 초과해 제품 후보로 채택하지 않았습니다.
+- certified limited-depth, Pareto-frontier, 단조성 표본 검사, symbolic partition 후보를 같은
+  계약으로 screening했습니다. 대표 fallback root의 행동 인증, frontier 폭, 압축률 gate를
+  통과한 제품 후보는 없었습니다.
+- AO*/BRTDP, GPU MCTS, distributional chance constraint, adaptive H/p는 필요한 선행 게이트가
+  실패해 복잡한 후속 구현을 시작하지 않았습니다.
+- 제품 solver, `public/solver_rs.wasm`, UI, Worker protocol, D1 schema와 telemetry는 변경하지
+  않았습니다. 상세 판정은
+  [`docs/research/next-solver-research-findings.ko.md`](docs/research/next-solver-research-findings.ko.md)에
+  기록했습니다.
+
 ## 2026-08-08
 
 ### Rust phase2 방법론 연구
