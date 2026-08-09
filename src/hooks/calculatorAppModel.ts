@@ -54,6 +54,7 @@ export type CalculatorAppModel = {
     clearActionTransition: (transitionId: number) => void;
     applyConvert: () => Promise<ConvertApplyResult | null>;
     runMonteCarloValidation: () => Promise<void>;
+    retryStats: () => void;
     submitSuccessAttempt: (attempt: number | null) => void;
   };
 };
@@ -69,6 +70,7 @@ type CalculatorAppModelOptions = {
   resultView: ResultView;
   runCalculation: () => Promise<void>;
   runMonteCarloValidation: () => Promise<void>;
+  retryStats: StatsState["retryStats"];
   setStock: (stock: Stock) => void;
   statsView: StatsState["statsView"];
   stateFeedback: StateChangeFeedback | null;
@@ -103,6 +105,7 @@ export function makeCalculatorAppModel({
   resultView,
   runCalculation,
   runMonteCarloValidation,
+  retryStats,
   setStock,
   stateFeedback,
   statsView,
@@ -148,6 +151,7 @@ export function makeCalculatorAppModel({
       clearActionTransition,
       applyConvert: applyConvertAndCalculate,
       runMonteCarloValidation,
+      retryStats,
       submitSuccessAttempt: outcomeFlow.submitSuccessAttempt,
     },
   };

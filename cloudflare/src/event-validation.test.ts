@@ -202,3 +202,50 @@ describe("validatePayload", () => {
     expect(EventSubmissionSchema.safeParse(unknownCode).success).toBe(false);
   });
 });
+
+describe("kit-result attempt probability contract", () => {
+  it("accepts a recommendation whose final failed attempt reaches the next level", () => {
+    expect(
+      validateTestPayload(
+        kitPayload({
+          recommendedUses: 5,
+          stockBefore: { blue: 50, purple: 0, yellow: 0 },
+          stockAfter: { blue: 0, purple: 0, yellow: 0 },
+          resultState: { grade: "R", level: 1, exp: 0 },
+        }),
+      ),
+    ).toMatchObject({ event: { recommendedUses: 5 } });
+  });
+
+  it("rejects attempts that continue after a failed attempt changes level", () => {
+    expectHttpError(
+      () =>
+        validateTestPayload(
+          kitPayload({
+            recommendedUses: 6,
+            stockBefore: { blue: 60, purple: 0, yellow: 0 },
+            stockAfter: { blue: 0, purple: 0, yellow: 0 },
+            resultState: { grade: "R", level: 1, exp: 200 },
+          }),
+        ),
+      "attempts_cross_level_boundary",
+    );
+  });
+
+  it("rejects a reported success after an earlier failure crossed a level boundary", () => {
+    expectHttpError(
+      () =>
+        validateTestPayload(
+          kitPayload({
+            outcome: "great_success",
+            successAttempt: 6,
+            recommendedUses: 6,
+            stockBefore: { blue: 60, purple: 0, yellow: 0 },
+            stockAfter: { blue: 0, purple: 0, yellow: 0 },
+            resultState: { grade: "R", level: 5, exp: 0 },
+          }),
+        ),
+      "attempts_cross_level_boundary",
+    );
+  });
+});

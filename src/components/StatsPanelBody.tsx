@@ -19,6 +19,7 @@ import {
 import { classes } from "./statsPanelStyles";
 
 type StatsPanelProps = {
+  onRetry: () => void;
   view: StatsView;
 };
 
@@ -109,16 +110,32 @@ function useUsageTooltipHandlers(
   setTooltip: SetTooltip,
   hideTooltip: () => void,
 ): UsageTooltipHandlers {
-  const showUsageTooltip = (event: TooltipMoveEvent, items: UsageTooltipItem[]) => {
+  const showUsageTooltip = (event: PointerEvent<HTMLButtonElement>, items: UsageTooltipItem[]) => {
     showTooltipAtPointer(setTooltip, event, { type: "usage", items });
   };
-  const lockUsageTooltip = (event: PointerEvent<HTMLElement>, items: UsageTooltipItem[]) => {
+  const showUsageTooltipFromFocus = (
+    event: FocusEvent<HTMLButtonElement>,
+    items: UsageTooltipItem[],
+  ) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const nextPosition = positionTooltip(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    setTooltip((current) => ({
+      ...current,
+      content: { type: "usage", items },
+      locked: false,
+      visible: true,
+      ...nextPosition,
+    }));
+  };
+  const lockUsageTooltip = (event: PointerEvent<HTMLButtonElement>, items: UsageTooltipItem[]) => {
     if (event.pointerType === "mouse") return;
     event.preventDefault();
     event.stopPropagation();
     showTooltipAtPointer(setTooltip, event, { type: "usage", items }, true);
   };
   return {
+    onUsageBlur: hideTooltip,
+    onUsageFocus: showUsageTooltipFromFocus,
     onUsagePointerDown: lockUsageTooltip,
     onUsagePointerEnter: showUsageTooltip,
     onUsagePointerLeave: hideTooltip,
@@ -128,7 +145,7 @@ function useUsageTooltipHandlers(
 
 function showTooltipAtPointer(
   setTooltip: SetTooltip,
-  event: TooltipMoveEvent,
+  event: TooltipMoveEvent | PointerEvent<HTMLButtonElement>,
   content: TooltipContent,
   locked = false,
 ) {
@@ -157,7 +174,7 @@ function StatsContent({ stats }: { stats: StatsPanelModel }) {
   );
 }
 
-function StatsBody({ view }: StatsPanelProps) {
+function StatsBody({ onRetry, view }: StatsPanelProps) {
   const { t, text } = useI18n();
   if (view.type === "loading") {
     return (
@@ -187,7 +204,14 @@ function StatsBody({ view }: StatsPanelProps) {
     >
       {view.type === "stats" ? (
         <StatsContent stats={view.stats} />
-      ) : view.type === "empty" || view.type === "error" ? (
+      ) : view.type === "error" ? (
+        <div className={classes.errorMessage} role="alert">
+          <p>{text(view.message)}</p>
+          <button className={classes.retryButton} type="button" onClick={onRetry}>
+            {t("stats.retry")}
+          </button>
+        </div>
+      ) : view.type === "empty" ? (
         text(view.message)
       ) : (
         t("stats.unconfigured")
@@ -196,6 +220,6 @@ function StatsBody({ view }: StatsPanelProps) {
   );
 }
 
-export default function StatsPanelBody({ view }: StatsPanelProps) {
-  return <StatsBody view={view} />;
+export default function StatsPanelBody({ onRetry, view }: StatsPanelProps) {
+  return <StatsBody onRetry={onRetry} view={view} />;
 }

@@ -37,6 +37,7 @@ export function validateKitResultSubmission(
           recommendedUses,
           usedAttempts,
         );
+  assertAttemptsStayWithinStartLevel(start, kit, usedAttempts);
 
   return {
     eventId: payload.eventId,
@@ -53,6 +54,21 @@ export function validateKitResultSubmission(
       resultState,
     },
   };
+}
+
+function assertAttemptsStayWithinStartLevel(
+  start: CollectionState,
+  kit: Kit,
+  usedAttempts: number,
+) {
+  if (usedAttempts <= 1) return;
+  const stateBeforeLastAttempt = failAfterUses(start, kit, usedAttempts - 1);
+  if (
+    stateBeforeLastAttempt.grade !== start.grade ||
+    stateBeforeLastAttempt.level !== start.level
+  ) {
+    throw new HttpError(400, "attempts_cross_level_boundary");
+  }
 }
 
 function validateGreatSuccessOutcome(

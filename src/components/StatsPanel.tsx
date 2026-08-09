@@ -7,6 +7,7 @@ import { classes } from "./statsPanelStyles";
 const StatsPanelBody = lazy(() => import("./StatsPanelBody"));
 
 type StatsPanelProps = {
+  onRetry: () => void;
   renderContent?: boolean;
   view: StatsView;
 };
@@ -29,7 +30,7 @@ function StatsPanelLoading() {
   );
 }
 
-export default function StatsPanel({ renderContent = true, view }: StatsPanelProps) {
+export default function StatsPanel({ onRetry, renderContent = true, view }: StatsPanelProps) {
   const { t } = useI18n();
   return (
     <section id="globalStatsPanel" className={classes.panel} hidden={view.type === "hidden"}>
@@ -38,7 +39,7 @@ export default function StatsPanel({ renderContent = true, view }: StatsPanelPro
       </div>
       {renderContent ? (
         <Suspense fallback={<StatsPanelLoading />}>
-          <StatsPanelBody view={view} />
+          <StatsPanelBody onRetry={onRetry} view={view} />
         </Suspense>
       ) : null}
     </section>

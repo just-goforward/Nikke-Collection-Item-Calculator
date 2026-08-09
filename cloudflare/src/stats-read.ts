@@ -175,6 +175,8 @@ function aggregateRows(rows: StatsAggregateRow[]) {
       const grade = rowGrade(row);
       const kit = rowKit(row);
       if (grade && kit) {
+        // Validated recommendation runs stop when a failed attempt changes level,
+        // so every aggregated attempt uses the row's starting-level probability.
         total.expectedGreatSuccesses +=
           attempts * greatSuccessProbability(grade, Number(row.level), kit);
       }

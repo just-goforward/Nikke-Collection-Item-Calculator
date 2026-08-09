@@ -9,7 +9,13 @@ import type {
   UsageTooltipItem,
 } from "./StatsTooltip";
 import { comparisonState, normalizeSegmentLabel, weightedTheoryRate } from "./statsPanelModel";
-import { classes, joinClasses, KIT_ORDER, kitDotClass } from "./statsPanelStyles";
+import {
+  classes,
+  INTERVAL_TOOLTIP_ID,
+  joinClasses,
+  KIT_ORDER,
+  kitDotClass,
+} from "./statsPanelStyles";
 
 const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
   blue: "kit.blue",
@@ -100,19 +106,25 @@ function UsageAmount({
   pieces: number;
   tooltipHandlers: UsageTooltipHandlers;
 }) {
-  const { formatCount } = useI18n();
+  const { formatCount, t } = useI18n();
   const activeItems = items.filter((item) => item.pieces > 0);
   const tooltipItems = activeItems.length ? activeItems : items;
+  const formattedPieces = formatCount(pieces, "piece");
   return (
-    <span
+    <button
       className={classes.usageTrigger}
+      type="button"
+      aria-describedby={INTERVAL_TOOLTIP_ID}
+      aria-label={t("stats.piecesUsedBreakdown", { pieces: formattedPieces })}
+      onBlur={tooltipHandlers.onUsageBlur}
+      onFocus={(event) => tooltipHandlers.onUsageFocus(event, tooltipItems)}
       onPointerDown={(event) => tooltipHandlers.onUsagePointerDown(event, tooltipItems)}
       onPointerEnter={(event) => tooltipHandlers.onUsagePointerEnter(event, tooltipItems)}
       onPointerLeave={tooltipHandlers.onUsagePointerLeave}
       onPointerMove={(event) => tooltipHandlers.onUsagePointerMove(event, tooltipItems)}
     >
-      {formatCount(pieces, "piece")}
-    </span>
+      {formattedPieces}
+    </button>
   );
 }
 

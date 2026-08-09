@@ -50,8 +50,8 @@ async function setTheme(page: import("@playwright/test").Page, theme: "light" | 
   } else {
     await page.getByRole("button", { name: /테마 선택/ }).click();
     await page
-      .getByRole("listbox", { name: "테마 선택" })
-      .getByRole("option", { name: THEME_LABELS[theme] })
+      .getByRole("menu", { name: "테마 선택" })
+      .getByRole("menuitemradio", { name: THEME_LABELS[theme] })
       .click();
   }
   await expect(page.locator("body")).toHaveClass(new RegExp(`theme-${theme}`));

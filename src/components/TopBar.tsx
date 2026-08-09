@@ -1,8 +1,9 @@
-import type { CSSProperties, RefObject } from "react";
+import type { CSSProperties, KeyboardEvent, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { type AppLocale, useI18n } from "../i18n/locale";
 import type { MessageKey } from "../i18n/messages.ko";
+import { nextNavigationIndex } from "../lib/keyboardNavigation";
 import type { ThemeMode } from "../ui-types";
 import { AlignedText } from "./AlignedText";
 
@@ -61,10 +62,13 @@ type TopBarProps = {
 
 export type TopViewTab = "calc" | "stats";
 
+const TOP_VIEW_TABS: TopViewTab[] = ["calc", "stats"];
+
 type LanguageSelectorProps = {
   lang: AppLocale;
   langOpen: boolean;
   langRef: RefObject<HTMLDivElement | null>;
+  triggerRef: RefObject<HTMLButtonElement | null>;
   onLangChange: (lang: AppLocale) => void;
   onToggle: () => void;
 };
@@ -73,6 +77,7 @@ function useDismissableMenu(
   open: boolean,
   ref: RefObject<HTMLDivElement | null>,
   onClose: () => void,
+  onEscape: () => void,
 ) {
   useEffect(() => {
     if (!open) return undefined;
@@ -82,32 +87,66 @@ function useDismissableMenu(
       onClose();
     };
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onEscape();
+    };
+    const closeOnFocusOutside = (event: globalThis.FocusEvent) => {
+      const target = event.target;
+      if (target instanceof Node && ref.current?.contains(target)) return;
+      onClose();
     };
     document.addEventListener("pointerdown", closeOnPointer, true);
     document.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("focusin", closeOnFocusOutside);
     return () => {
       document.removeEventListener("pointerdown", closeOnPointer, true);
       document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("focusin", closeOnFocusOutside);
     };
-  }, [onClose, open, ref]);
+  }, [onClose, onEscape, open, ref]);
+}
+
+function focusMenuItem(
+  event: KeyboardEvent<HTMLButtonElement>,
+  currentIndex: number,
+  itemRefs: RefObject<Array<HTMLButtonElement | null>>,
+) {
+  const nextIndex = nextNavigationIndex(
+    event.key,
+    currentIndex,
+    itemRefs.current.length,
+    "vertical",
+  );
+  if (nextIndex === null) return;
+  event.preventDefault();
+  itemRefs.current[nextIndex]?.focus();
 }
 
 function LanguageSelector({
   lang,
   langOpen,
   langRef,
+  triggerRef,
   onLangChange,
   onToggle,
 }: LanguageSelectorProps) {
   const { t } = useI18n();
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  useEffect(() => {
+    if (!langOpen) return;
+    const selectedIndex = LANG_OPTIONS.findIndex((option) => option.value === lang);
+    optionRefs.current[Math.max(0, selectedIndex)]?.focus();
+  }, [lang, langOpen]);
   return (
     <div className={classes.lang} ref={langRef}>
       <button
         className={classes.langButton}
         type="button"
+        id="language-menu-trigger"
+        ref={triggerRef}
         aria-expanded={langOpen}
-        aria-haspopup="listbox"
+        aria-haspopup="menu"
         onClick={onToggle}
       >
         <svg
@@ -127,14 +166,19 @@ function LanguageSelector({
         <span className={classes.langText}>{t("top.language")}</span>
       </button>
       {langOpen ? (
-        <div className={classes.langMenu} role="listbox" aria-label={t("top.language")}>
-          {LANG_OPTIONS.map((option) => (
+        <div className={classes.langMenu} role="menu" aria-labelledby="language-menu-trigger">
+          {LANG_OPTIONS.map((option, index) => (
             <button
               className={classes.langOption}
               type="button"
-              role="option"
-              aria-selected={lang === option.value}
+              role="menuitemradio"
+              aria-checked={lang === option.value}
+              tabIndex={-1}
               key={option.value}
+              ref={(element) => {
+                optionRefs.current[index] = element;
+              }}
+              onKeyDown={(event) => focusMenuItem(event, index, optionRefs)}
               onClick={() => onLangChange(option.value)}
             >
               <span className={classes.langCheck} aria-hidden="true">
@@ -153,6 +197,7 @@ function ThemeControl({
   controlStyle,
   themeOpen,
   themeRef,
+  triggerRef,
   themeMode,
   onThemeModeChange,
   onToggle,
@@ -160,12 +205,19 @@ function ThemeControl({
   controlStyle: CSSProperties;
   themeOpen: boolean;
   themeRef: RefObject<HTMLDivElement | null>;
+  triggerRef: RefObject<HTMLButtonElement | null>;
   themeMode: ThemeMode;
   onThemeModeChange: (themeMode: ThemeMode) => void;
   onToggle: () => void;
 }) {
   const { t } = useI18n();
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const themeLabel = (mode: ThemeMode) => t(THEME_MESSAGE_KEYS[mode]);
+  useEffect(() => {
+    if (!themeOpen) return;
+    const selectedIndex = THEME_MODES.indexOf(themeMode);
+    optionRefs.current[Math.max(0, selectedIndex)]?.focus();
+  }, [themeMode, themeOpen]);
   return (
     <>
       {/* biome-ignore lint/a11y/useSemanticElements: Existing CSS and tests use this grouped control contract. */}
@@ -194,9 +246,11 @@ function ThemeControl({
         <button
           className={classes.themeButton}
           type="button"
+          id="theme-menu-trigger"
+          ref={triggerRef}
           aria-label={`${t("top.theme")}: ${themeLabel(themeMode)}`}
           aria-expanded={themeOpen}
-          aria-haspopup="listbox"
+          aria-haspopup="menu"
           onClick={onToggle}
         >
           <AlignedText alignmentRole="segment" className={classes.mobileThemeLabel}>
@@ -205,14 +259,19 @@ function ThemeControl({
           </AlignedText>
         </button>
         {themeOpen ? (
-          <div className={classes.langMenu} role="listbox" aria-label={t("top.theme")}>
-            {THEME_MODES.map((mode) => (
+          <div className={classes.langMenu} role="menu" aria-labelledby="theme-menu-trigger">
+            {THEME_MODES.map((mode, index) => (
               <button
                 className={classes.langOption}
                 type="button"
-                role="option"
-                aria-selected={themeMode === mode}
+                role="menuitemradio"
+                aria-checked={themeMode === mode}
+                tabIndex={-1}
                 key={mode}
+                ref={(element) => {
+                  optionRefs.current[index] = element;
+                }}
+                onKeyDown={(event) => focusMenuItem(event, index, optionRefs)}
                 onClick={() => onThemeModeChange(mode)}
               >
                 <span className={classes.langCheck} aria-hidden="true">
@@ -238,6 +297,21 @@ function ViewTabs({
   const { t } = useI18n();
   const viewIndex = active === "stats" ? 1 : 0;
   const viewTabStyle = { "--seg-index": viewIndex } as CSSProperties;
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectFromKeyboard = (event: KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
+    const nextIndex = nextNavigationIndex(
+      event.key,
+      currentIndex,
+      TOP_VIEW_TABS.length,
+      "horizontal",
+    );
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextTab = TOP_VIEW_TABS[nextIndex];
+    if (!nextTab) return;
+    onChange(nextTab);
+    tabRefs.current[nextIndex]?.focus();
+  };
   return (
     <div
       className={classes.viewTabs}
@@ -248,9 +322,15 @@ function ViewTabs({
       <button
         className={`${classes.viewTab} ${active === "calc" ? classes.viewTabActive : ""}`}
         type="button"
+        id="desktop-tab-calc"
         role="tab"
         aria-controls="calculatorWorkspace"
         aria-selected={active === "calc"}
+        tabIndex={active === "calc" ? 0 : -1}
+        ref={(element) => {
+          tabRefs.current[0] = element;
+        }}
+        onKeyDown={(event) => selectFromKeyboard(event, 0)}
         onClick={() => onChange("calc")}
       >
         <AlignedText alignmentRole="segment">{t("top.calculator")}</AlignedText>
@@ -258,9 +338,15 @@ function ViewTabs({
       <button
         className={`${classes.viewTab} ${active === "stats" ? classes.viewTabActive : ""}`}
         type="button"
+        id="desktop-tab-stats"
         role="tab"
-        aria-controls="globalStatsPanel"
+        aria-controls="statsWorkspace"
         aria-selected={active === "stats"}
+        tabIndex={active === "stats" ? 0 : -1}
+        ref={(element) => {
+          tabRefs.current[1] = element;
+        }}
+        onKeyDown={(event) => selectFromKeyboard(event, 1)}
         onClick={() => onChange("stats")}
       >
         <AlignedText alignmentRole="segment">{t("top.stats")}</AlignedText>
@@ -280,18 +366,38 @@ export default function TopBar({
   const [themeOpen, setThemeOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
   const themeRef = useRef<HTMLDivElement>(null);
+  const langTriggerRef = useRef<HTMLButtonElement>(null);
+  const themeTriggerRef = useRef<HTMLButtonElement>(null);
   const themeIndex = Math.max(0, THEME_MODES.indexOf(themeMode));
   const controlStyle = { "--seg-index": themeIndex } as CSSProperties;
 
-  useDismissableMenu(langOpen, langRef, () => setLangOpen(false));
-  useDismissableMenu(themeOpen, themeRef, () => setThemeOpen(false));
+  useDismissableMenu(
+    langOpen,
+    langRef,
+    () => setLangOpen(false),
+    () => {
+      setLangOpen(false);
+      langTriggerRef.current?.focus();
+    },
+  );
+  useDismissableMenu(
+    themeOpen,
+    themeRef,
+    () => setThemeOpen(false),
+    () => {
+      setThemeOpen(false);
+      themeTriggerRef.current?.focus();
+    },
+  );
   const handleLangChange = (nextLang: AppLocale) => {
     void setLocale(nextLang);
     setLangOpen(false);
+    langTriggerRef.current?.focus();
   };
   const handleThemeChange = (nextThemeMode: ThemeMode) => {
     onThemeModeChange(nextThemeMode);
     setThemeOpen(false);
+    themeTriggerRef.current?.focus();
   };
 
   return (
@@ -307,6 +413,7 @@ export default function TopBar({
           lang={locale}
           langOpen={langOpen}
           langRef={langRef}
+          triggerRef={langTriggerRef}
           onLangChange={handleLangChange}
           onToggle={() => setLangOpen((current) => !current)}
         />
@@ -314,6 +421,7 @@ export default function TopBar({
           controlStyle={controlStyle}
           themeOpen={themeOpen}
           themeRef={themeRef}
+          triggerRef={themeTriggerRef}
           themeMode={themeMode}
           onThemeModeChange={handleThemeChange}
           onToggle={() => setThemeOpen((current) => !current)}

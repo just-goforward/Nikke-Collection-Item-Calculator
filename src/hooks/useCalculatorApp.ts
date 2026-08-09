@@ -183,6 +183,7 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     resultView,
     runCalculation: calculateAndClearStale,
     runMonteCarloValidation,
+    retryStats: stats.retryStats,
     setStock,
     stateFeedback,
     statsView: stats.statsView,

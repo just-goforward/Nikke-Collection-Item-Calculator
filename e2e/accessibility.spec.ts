@@ -15,8 +15,8 @@ async function setTheme(page: import("@playwright/test").Page, theme: "light" | 
   }
   await page.getByRole("button", { name: /테마 선택/ }).click();
   await page
-    .getByRole("listbox", { name: "테마 선택" })
-    .getByRole("option", { name: label })
+    .getByRole("menu", { name: "테마 선택" })
+    .getByRole("menuitemradio", { name: label })
     .click();
 }
 

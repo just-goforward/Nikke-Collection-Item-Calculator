@@ -86,6 +86,107 @@ async function openStatsPanel(page: Page) {
   await openDetails(details);
 }
 
+test("데스크톱 탭은 화살표와 Home·End로 선택과 포커스를 함께 이동한다", async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto("/?statsEnv=disabled");
+
+  const calculatorTab = page.getByRole("tab", { name: "계산기" });
+  const statsTab = page.getByRole("tab", { name: "통계" });
+  await expect(calculatorTab).toHaveAttribute("tabindex", "0");
+  await expect(statsTab).toHaveAttribute("tabindex", "-1");
+
+  await calculatorTab.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(statsTab).toBeFocused();
+  await expect(statsTab).toHaveAttribute("aria-selected", "true");
+  await expect(statsTab).toHaveAttribute("tabindex", "0");
+  await expect(page.getByRole("tabpanel", { name: "통계" })).toBeVisible();
+
+  await page.keyboard.press("Home");
+  await expect(calculatorTab).toBeFocused();
+  await expect(calculatorTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel", { name: "계산기" })).toBeVisible();
+
+  await page.keyboard.press("End");
+  await expect(statsTab).toBeFocused();
+  await expect(statsTab).toHaveAttribute("aria-selected", "true");
+});
+
+test("모바일 탭은 순환 키보드 이동과 현재 패널 관계를 유지한다", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?statsEnv=disabled");
+
+  const inputTab = page.getByRole("tab", { name: "입력" });
+  const resultTab = page.getByRole("tab", { name: "결과" });
+  const statsTab = page.getByRole("tab", { name: "통계" });
+  await inputTab.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(resultTab).toBeFocused();
+  await expect(resultTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel", { name: "결과" })).toBeVisible();
+
+  await page.keyboard.press("End");
+  await expect(statsTab).toBeFocused();
+  await expect(statsTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel", { name: "통계" })).toBeVisible();
+
+  await page.keyboard.press("ArrowRight");
+  await expect(inputTab).toBeFocused();
+  await expect(inputTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel", { name: "입력" })).toBeVisible();
+});
+
+test("언어 메뉴는 현재 항목으로 포커스하고 키보드 선택 뒤 트리거로 돌아간다", async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto("/?statsEnv=disabled");
+
+  const trigger = page.getByRole("button", { name: "언어 선택" });
+  await trigger.click();
+  const korean = page.getByRole("menuitemradio", { name: "한국어" });
+  await expect(korean).toBeFocused();
+  await expect(korean).toHaveAttribute("aria-checked", "true");
+
+  await page.keyboard.press("ArrowDown");
+  const english = page.getByRole("menuitemradio", { name: "English" });
+  await expect(english).toBeFocused();
+  await page.keyboard.press("Enter");
+  const localizedTrigger = page.getByRole("button", { name: "Language" });
+  await expect(
+    page.getByRole("heading", { name: "Collection Item Upgrade Calculator" }),
+  ).toBeVisible();
+  await expect(localizedTrigger).toBeFocused();
+
+  await localizedTrigger.click();
+  await page.keyboard.press("End");
+  await expect(page.getByRole("menuitemradio", { name: "日本語" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(localizedTrigger).toBeFocused();
+});
+
+test("모바일 테마 메뉴는 방향키 선택과 Escape 포커스 복귀를 지원한다", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?statsEnv=disabled");
+
+  const trigger = page.getByRole("button", { name: "테마 선택: 자동" });
+  await trigger.click();
+  const automatic = page.getByRole("menuitemradio", { name: "자동" });
+  await expect(automatic).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("menuitemradio", { name: "라이트" })).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  const lightTrigger = page.getByRole("button", { name: "테마 선택: 라이트" });
+  await expect(page.locator("body")).toHaveClass(/theme-light/);
+  await expect(lightTrigger).toBeFocused();
+  await lightTrigger.click();
+  await page.keyboard.press("End");
+  await expect(page.getByRole("menuitemradio", { name: "다크" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(lightTrigger).toBeFocused();
+});
+
 test("R 1 + 초심자용 100 — 계산 결과 패널에 추천 행동이 나타난다", async ({ page }) => {
   await expect(page.getByRole("group", { name: "최적화 방식" })).toHaveCount(0);
   await expect(page.locator("[data-strategy]")).toHaveCount(0);
@@ -447,7 +548,7 @@ test("demoStats=1 — 전체 통계 주요 섹션이 표시된다", async ({ pag
   await expect(page.getByText("전체 대성공률")).toBeVisible();
   await expect(page.getByText("키트별 대성공률")).toBeVisible();
   await expect(page.getByText("구간별 체감 난이도")).toBeVisible();
-  await expect(page.getByText("반투명 영역 · 표본 수를 반영한 95% 오차 범위")).toHaveCount(2);
+  await expect(page.getByText("반투명 영역 · 시도 수를 반영한 보수적 95% 범위")).toHaveCount(2);
   await expect(page.locator(".kit-rate-row")).toHaveCount(3);
   await expect(page.locator(".difficulty-row")).toHaveCount(6);
   await expect(page.getByText("누적 입력 표본", { exact: true })).toBeVisible();
@@ -706,7 +807,7 @@ test("모바일 탭은 입력, 결과, 통계 화면을 전환한다", async ({ 
   await expect(page.getByRole("toolbar", { name: "모바일 작업" })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "통계" })).toHaveAttribute(
     "aria-controls",
-    "mobile-panel-stats",
+    "statsWorkspace",
   );
 
   await page.getByRole("tab", { name: "결과" }).click();
@@ -920,10 +1021,10 @@ test("모바일 520px 구간 툴팁은 viewport 안에 머문다", async ({ page
     const tooltip = page.locator(".difficulty-tooltip");
     await expect(tooltip).toHaveClass(/is-visible/);
     await expect(interval).toHaveAttribute("aria-describedby", "difficultyIntervalTooltip");
-    await expect(interval).toHaveAttribute("aria-label", /95% 오차 범위.+표본 [\d,]+회/);
+    await expect(interval).toHaveAttribute("aria-label", /보수적 95% 범위.+시도 [\d,]+회/);
     await expect(tooltip).toHaveAttribute("id", "difficultyIntervalTooltip");
-    await expect(tooltip).toContainText(/95% 오차 범위 .+~.+ · 표본 [\d,]+회/);
-    await expect(tooltip).toContainText("표본이 적으면 우연히 결과가 좋거나 나쁠 수 있습니다.");
+    await expect(tooltip).toContainText(/보수적 95% 범위 .+~.+ · 시도 [\d,]+회/);
+    await expect(tooltip).toContainText("시도 수가 적으면 우연히 결과가 좋거나 나쁠 수 있습니다.");
     const rect = await tooltip.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       return { left: bounds.left, right: bounds.right };
@@ -931,6 +1032,72 @@ test("모바일 520px 구간 툴팁은 viewport 안에 머문다", async ({ page
     expect(rect.left).toBeGreaterThanOrEqual(0);
     expect(rect.right).toBeLessThanOrEqual(520);
   }
+});
+
+test("통계 키트별 사용량은 키보드 포커스와 Escape로 확인하고 닫는다", async ({ page }) => {
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto("/?demoStats=1");
+  await openStatsPanel(page);
+
+  const usageTrigger = page.getByRole("button", { name: /키트별 사용량 보기/ }).first();
+  const tooltip = page.locator(".difficulty-tooltip");
+  await usageTrigger.focus();
+  await expect(usageTrigger).toBeFocused();
+  await expect(usageTrigger).toHaveAttribute("aria-describedby", "difficultyIntervalTooltip");
+  await expect(tooltip).toHaveClass(/is-visible/);
+  await expect(tooltip).toContainText("초심자용 관리 키트");
+
+  await page.keyboard.press("Escape");
+  await expect(tooltip).not.toHaveClass(/is-visible/);
+  await expect(usageTrigger).toBeFocused();
+});
+
+test("통계 요청 실패 후 화면에서 다시 불러오면 새 요청으로 복구한다", async ({ page }) => {
+  await serveStagingDocument(page, {
+    endpoint: "https://staging.example.test",
+    turnstileSiteKey: "staging-site-key",
+  });
+  let requestCount = 0;
+  await page.route("https://staging.example.test/api/stats", async (route) => {
+    requestCount += 1;
+    const headers = { "Access-Control-Allow-Origin": "*" };
+    if (requestCount === 1) {
+      await route.fulfill({ body: '{"error":"temporary"}', headers, status: 503 });
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await route.fulfill({
+      body: JSON.stringify({
+        byKit: [],
+        segmentStats: [],
+        summary: {
+          attempts: 0,
+          events: 0,
+          greatSuccessRate: 0,
+          greatSuccesses: 0,
+          mostUsedKit: null,
+          mostUsedKitPieces: 0,
+          todayAttempts: 0,
+          todayEvents: 0,
+          todayGreatSuccesses: 0,
+        },
+        today: "2026-08-09",
+        windowDays: 0,
+      }),
+      contentType: "application/json",
+      headers,
+      status: 200,
+    });
+  });
+
+  await page.goto("/?statsEnv=staging");
+  await page.getByRole("tab", { name: "통계" }).click();
+  await expect(page.getByRole("alert")).toContainText("통계를 불러오지 못했습니다.");
+
+  await page.getByRole("button", { name: "다시 불러오기" }).click();
+  await expect(page.locator("#globalStatsBox[aria-busy='true']")).toBeVisible();
+  await expect(page.locator("#globalStatsBox")).toContainText("아직 집계된 통계가 없습니다.");
+  expect(requestCount).toBe(2);
 });
 
 test("데스크톱 구간 막대 클릭은 툴팁 위치를 움직이지 않는다", async ({ page }) => {

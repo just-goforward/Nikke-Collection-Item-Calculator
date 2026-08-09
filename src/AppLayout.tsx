@@ -14,6 +14,7 @@ import StockPanel from "./components/StockPanel";
 import SuccessAttemptModal from "./components/SuccessAttemptModal";
 import TopBar, { type TopViewTab } from "./components/TopBar";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
+import { useMobileLayout } from "./hooks/useMobileLayout";
 import { useI18n } from "./i18n/locale";
 import type { LocalizedMessage } from "./i18n/messages.ko";
 import type { StatsRuntimeMode } from "./lib/statsRuntime";
@@ -29,7 +30,8 @@ const classes = {
   stagingErrorBanner: "border-danger bg-danger-soft text-danger",
   mobileHeader:
     "hidden max-mobile:sticky max-mobile:top-0 max-mobile:z-20 max-mobile:mx-[-10px] max-mobile:mb-3 max-mobile:block max-mobile:bg-page max-mobile:px-2.5 max-mobile:shadow-[0_1px_0_var(--line)]",
-  workspace:
+  workspace: "min-w-0",
+  calculatorWorkspace:
     "grid grid-cols-[430px_minmax(0,1fr)] items-start gap-4 min-[661px]:max-tablet:grid-cols-2 max-mobile:grid-cols-1 max-mobile:gap-2.5",
   inputColumn:
     "input-column grid min-w-0 content-start gap-4 min-[981px]:sticky min-[981px]:top-7 min-[661px]:max-tablet:col-span-full min-[661px]:max-tablet:grid-cols-[minmax(0,1fr)_max-content] min-[661px]:max-tablet:items-stretch max-mobile:gap-2.5",
@@ -53,22 +55,21 @@ const classes = {
   loadingText: "m-0 text-[13px] font-semibold leading-[1.45] text-text-soft",
 } as const;
 
-const MOBILE_PANEL_IDS: Record<MobileTab, string> = {
+const MOBILE_PANEL_IDS: Record<Exclude<MobileTab, "stats">, string> = {
   input: "mobile-panel-input",
   result: "mobile-panel-result",
-  stats: "mobile-panel-stats",
 };
 
 function tabPanelClass(activeTab: MobileTab, tab: MobileTab) {
   return activeTab === tab ? "" : classes.gridCellHidden;
 }
 
-function tabPanelProps(tab: MobileTab) {
+function mobileTabPanelProps(tab: Exclude<MobileTab, "stats">, isMobile: boolean) {
   return {
-    "aria-labelledby": `mobile-tab-${tab}`,
+    "aria-labelledby": isMobile ? `mobile-tab-${tab}` : undefined,
     "data-tab": tab,
     id: MOBILE_PANEL_IDS[tab],
-    role: "tabpanel",
+    role: isMobile ? ("tabpanel" as const) : undefined,
   } as const;
 }
 
@@ -166,71 +167,88 @@ function Workspace({
   onPendingOutcomeChange: (outcome: "success" | "fail" | null) => void;
 }) {
   const { actions } = calculator;
+  const isMobile = useMobileLayout();
   const calcDesktopVisibility = viewTab === "stats" ? "min-[661px]:hidden" : "";
   const statsDesktopVisibility = viewTab === "stats" ? "" : "min-[661px]:hidden";
+  const calcMobileVisibility = mobileTab === "stats" ? classes.gridCellHidden : "";
   const renderStatsContent = viewTab === "stats" || mobileTab === "stats";
+  const desktopCalculatorTabPanelProps = isMobile
+    ? {}
+    : { "aria-labelledby": "desktop-tab-calc", role: "tabpanel" as const };
 
   return (
-    <section id="calculatorWorkspace" className={classes.workspace}>
+    <section className={classes.workspace}>
       <div
-        className={`${classes.inputColumn} ${calcDesktopVisibility} ${tabPanelClass(mobileTab, "input")}`}
-        {...tabPanelProps("input")}
+        id="calculatorWorkspace"
+        className={`${classes.calculatorWorkspace} ${calcDesktopVisibility} ${calcMobileVisibility}`}
+        {...desktopCalculatorTabPanelProps}
       >
-        <StatePanel
-          state={calculator.statePanel}
-          onGradeChange={actions.setGrade}
-          onLevelChange={actions.setLevel}
-          onExpChange={actions.setExp}
-        />
-        <StockPanel
-          stock={calculator.stockPanel.stock}
-          needsStockEdit={calculator.stockPanel.needsStockEdit}
-          isStale={calculator.stockPanel.isStale}
-          stockStale={calculator.stockPanel.stockStale}
-          notice={calculator.stockPanel.notice}
-          onStockChange={actions.setStock}
-          description={calculator.solvePanel.description}
-          calculateDisabled={calculator.solvePanel.calculateDisabled}
-          loading={calculator.loading.active}
-          onCalculate={handlers.onCalculate}
-          onReset={handlers.onReset}
-        />
+        <div
+          className={`${classes.inputColumn} ${tabPanelClass(mobileTab, "input")}`}
+          {...mobileTabPanelProps("input", isMobile)}
+        >
+          <StatePanel
+            state={calculator.statePanel}
+            onGradeChange={actions.setGrade}
+            onLevelChange={actions.setLevel}
+            onExpChange={actions.setExp}
+          />
+          <StockPanel
+            stock={calculator.stockPanel.stock}
+            needsStockEdit={calculator.stockPanel.needsStockEdit}
+            isStale={calculator.stockPanel.isStale}
+            stockStale={calculator.stockPanel.stockStale}
+            notice={calculator.stockPanel.notice}
+            onStockChange={actions.setStock}
+            description={calculator.solvePanel.description}
+            calculateDisabled={calculator.solvePanel.calculateDisabled}
+            loading={calculator.loading.active}
+            onCalculate={handlers.onCalculate}
+            onReset={handlers.onReset}
+          />
+        </div>
+        <div
+          className={`${classes.resultColumn} ${tabPanelClass(mobileTab, "result")}`}
+          {...mobileTabPanelProps("result", isMobile)}
+        >
+          <ResultPanel
+            feedback={calculator.stateFeedback}
+            needsStockEdit={calculator.stockPanel.needsStockEdit}
+            isStale={calculator.stockPanel.isStale}
+            staleSource={calculator.stockPanel.staleSource}
+            stockEditNotice={calculator.stockPanel.notice}
+            state={calculator.statePanel}
+            view={calculator.resultView}
+            outcomeDisabled={calculator.loading.active}
+            pendingOutcome={pendingOutcome}
+            onActionTransitionComplete={actions.clearActionTransition}
+            onConvert={handlers.onConvert}
+            onOutcome={handlers.onOutcome}
+            onPendingOutcomeChange={onPendingOutcomeChange}
+          />
+          {calculator.detailView.type === "empty" ? null : (
+            <Suspense fallback={null}>
+              <DetailPanel
+                view={calculator.detailView}
+                validation={calculator.validationView}
+                onRunValidation={actions.runMonteCarloValidation}
+                showSolverBackend={showSolverBackend}
+              />
+            </Suspense>
+          )}
+        </div>
       </div>
       <div
-        className={`${classes.resultColumn} ${calcDesktopVisibility} ${tabPanelClass(mobileTab, "result")}`}
-        {...tabPanelProps("result")}
-      >
-        <ResultPanel
-          feedback={calculator.stateFeedback}
-          needsStockEdit={calculator.stockPanel.needsStockEdit}
-          isStale={calculator.stockPanel.isStale}
-          staleSource={calculator.stockPanel.staleSource}
-          stockEditNotice={calculator.stockPanel.notice}
-          state={calculator.statePanel}
-          view={calculator.resultView}
-          outcomeDisabled={calculator.loading.active}
-          pendingOutcome={pendingOutcome}
-          onActionTransitionComplete={actions.clearActionTransition}
-          onConvert={handlers.onConvert}
-          onOutcome={handlers.onOutcome}
-          onPendingOutcomeChange={onPendingOutcomeChange}
-        />
-        {calculator.detailView.type === "empty" ? null : (
-          <Suspense fallback={null}>
-            <DetailPanel
-              view={calculator.detailView}
-              validation={calculator.validationView}
-              onRunValidation={actions.runMonteCarloValidation}
-              showSolverBackend={showSolverBackend}
-            />
-          </Suspense>
-        )}
-      </div>
-      <div
+        id="statsWorkspace"
         className={`${classes.statsColumn} ${statsDesktopVisibility} ${tabPanelClass(mobileTab, "stats")}`}
-        {...tabPanelProps("stats")}
+        role="tabpanel"
+        aria-labelledby={isMobile ? "mobile-tab-stats" : "desktop-tab-stats"}
       >
-        <StatsPanel renderContent={renderStatsContent} view={calculator.statsView} />
+        <StatsPanel
+          onRetry={actions.retryStats}
+          renderContent={renderStatsContent}
+          view={calculator.statsView}
+        />
       </div>
     </section>
   );

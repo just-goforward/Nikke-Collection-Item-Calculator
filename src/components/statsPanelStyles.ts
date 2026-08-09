@@ -18,6 +18,9 @@ export const classes = {
   headingCollapsed: "!border-b-0",
   headingStatic: "cursor-default",
   panelEmpty: "empty-result px-[18px] py-[22px] font-medium text-muted",
+  errorMessage: "grid justify-items-center gap-3 text-center [&_p]:m-0",
+  retryButton:
+    "inline-flex min-h-9 items-center justify-center rounded-control border border-border bg-button px-3.5 text-[12.5px] font-bold text-text-soft transition-[border-color,color,background-color] duration-160 hover:border-grade-active hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
   panelLoading:
     "stats-loading-state grid min-h-[128px] place-items-center px-[18px] py-[22px] text-muted max-mobile:min-h-[112px]",
   panelLoadingInner: "grid justify-items-center gap-3 text-center",
@@ -70,7 +73,7 @@ export const classes = {
   difficultyAttempts:
     "difficulty-attempts m-0 text-[11px] font-medium leading-[1.45] text-muted [overflow-wrap:break-word] [word-break:keep-all]",
   usageTrigger:
-    "stats-usage-trigger inline-flex items-center text-[11px] font-medium leading-[1.45] text-muted cursor-help",
+    "stats-usage-trigger inline-flex items-center border-0 bg-transparent p-0 text-[11px] font-medium leading-[1.45] text-muted cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
   difficultyComparison:
     "difficulty-comparison whitespace-nowrap rounded-pill border border-[color-mix(in_srgb,var(--line)_76%,var(--grade-active))] bg-[color-mix(in_srgb,var(--surface-raised)_82%,var(--grade-active-soft))] px-2 py-[3px] text-[11px] font-medium leading-none text-muted",
   rateBar:

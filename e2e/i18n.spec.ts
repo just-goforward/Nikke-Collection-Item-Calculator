@@ -195,7 +195,7 @@ test("language changes only after the next locale font is ready", async ({ page 
   });
 
   await page.getByRole("button", { name: "Select language" }).click();
-  await page.getByRole("option", { name: "日本語" }).click();
+  await page.getByRole("menuitemradio", { name: "日本語" }).click();
   await withCleanup(async () => {
     await waitForSignal(fontRequest.promise, "the changed locale font request");
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
@@ -220,7 +220,7 @@ test("saved language overrides the browser language and persists after reload", 
   const stockLabels = page.locator("label:has(input[id$='Stock']) > span:first-child");
   await expect(stockLabels).toHaveText(["Beginner Kit", "Intermediate Kit", "Elite Kit"]);
   await page.getByRole("button", { name: "Select language" }).click();
-  await page.getByRole("option", { name: "日本語" }).click();
+  await page.getByRole("menuitemradio", { name: "日本語" }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "ja");
   await expect(stockLabels).toHaveText(["初心者用キット", "中級者用キット", "上級者用キット"]);
   await expect
@@ -248,7 +248,7 @@ test("an existing calculation result switches language without recalculation", a
   expect(actionCount).toBeGreaterThan(0);
 
   await page.getByRole("button", { name: "Select language" }).click();
-  await page.getByRole("option", { name: "日本語" }).click();
+  await page.getByRole("menuitemradio", { name: "日本語" }).click();
 
   await expect(page.getByText("SR15到達率").first()).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "候補" })).toBeVisible();
@@ -539,7 +539,7 @@ test("candidate actions shorten without horizontal scrolling and align their cou
   await actionCountLayout(page);
 
   await page.getByRole("button", { name: "Select language" }).click();
-  await page.getByRole("option", { name: "日本語" }).click();
+  await page.getByRole("menuitemradio", { name: "日本語" }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "ja");
   await expect(page.locator(".table-wrap .action-chip-name:visible").first()).toContainText(
     "キット",
@@ -547,7 +547,7 @@ test("candidate actions shorten without horizontal scrolling and align their cou
   await actionCountLayout(page);
 
   await page.getByRole("button", { name: "言語を選択" }).click();
-  await page.getByRole("option", { name: "한국어" }).click();
+  await page.getByRole("menuitemradio", { name: "한국어" }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "ko");
   await expect(page.locator(".table-wrap .action-chip-name:visible").first()).toContainText("키트");
   await actionCountLayout(page);
@@ -576,10 +576,10 @@ test("candidate actions shorten without horizontal scrolling and align their cou
   };
   await captureLocaleWidths("ko");
   await page.getByRole("button", { name: "언어 선택" }).click();
-  await page.getByRole("option", { name: "日本語" }).click();
+  await page.getByRole("menuitemradio", { name: "日本語" }).click();
   await captureLocaleWidths("ja");
   await page.getByRole("button", { name: "言語を選択" }).click();
-  await page.getByRole("option", { name: "English" }).click();
+  await page.getByRole("menuitemradio", { name: "English" }).click();
   await captureLocaleWidths("en");
   for (const viewport of ["mobile", "tablet", "desktop"] as const) {
     expect(localeWidths.en?.[viewport][1]).toBeGreaterThan(localeWidths.ja?.[viewport][1] ?? 0);
@@ -592,10 +592,10 @@ test("candidate actions shorten without horizontal scrolling and align their cou
   await page.locator("#mobile-tab-result").click();
   await expect(page.locator(".table-wrap")).toHaveAttribute("data-action-label", "panel");
   await page.getByRole("button", { name: "Select language" }).click();
-  await page.getByRole("option", { name: "日本語" }).click();
+  await page.getByRole("menuitemradio", { name: "日本語" }).click();
   await expect(page.locator(".table-wrap")).toHaveAttribute("data-action-label", "panel");
   await page.getByRole("button", { name: "言語を選択" }).click();
-  await page.getByRole("option", { name: "한국어" }).click();
+  await page.getByRole("menuitemradio", { name: "한국어" }).click();
   await expect(page.locator(".table-wrap")).toHaveAttribute("data-action-label", "full");
   const candidatePadding = await page.locator(".table-wrap").evaluate((wrap) => {
     const header = wrap.querySelector<HTMLElement>("thead th:first-child");
@@ -787,7 +787,7 @@ test("mobile controls use shared roles without ad hoc positioning", async ({ pag
   await page.setViewportSize({ width: 390, height: 844 });
   await prepareLocale(page, ["ko-KR"]);
   await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
-
+  await expect(page.locator('[data-grade="R"]')).toBeVisible();
   const contracts = await page.evaluate(() => {
     const alignment = (selector: string) => {
       const element = document.querySelector<HTMLElement>(selector);

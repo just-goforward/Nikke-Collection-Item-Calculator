@@ -17,10 +17,13 @@ export function useStatsQuery(queryEnabled: boolean) {
   const hasLoadedRef = useRef(false);
   const refreshSequenceRef = useRef(0);
   const refreshTimerRef = useRef<number | null>(null);
+  const activeRequestRef = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async (fresh = false) => {
     const sequence = refreshSequenceRef.current + 1;
     refreshSequenceRef.current = sequence;
+    activeRequestRef.current?.abort();
+    activeRequestRef.current = null;
     if (statsRuntimeMode() === "demo") {
       setStatsView(statsViewFromApiStats(makeDemoStats()));
       hasLoadedRef.current = true;
@@ -29,10 +32,13 @@ export function useStatsQuery(queryEnabled: boolean) {
     }
     const base = statsApiBase();
     if (!base) return;
+    const controller = new AbortController();
+    activeRequestRef.current = controller;
     try {
       const response = await fetch(`${base}/api/stats`, {
         cache: fresh ? "no-store" : "default",
         headers: { Accept: "application/json" },
+        signal: controller.signal,
       });
       if (!response.ok) {
         warnStatsRefreshFailure(`stats endpoint returned ${response.status}`);
@@ -56,10 +62,13 @@ export function useStatsQuery(queryEnabled: boolean) {
         dirtyRef.current = false;
       }
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
       warnStatsRefreshFailure("stats refresh failed", error);
       if (sequence === refreshSequenceRef.current) {
         setStatsView({ type: "error", message: message("stats.connectionFailed") });
       }
+    } finally {
+      if (activeRequestRef.current === controller) activeRequestRef.current = null;
     }
   }, []);
 
@@ -82,10 +91,30 @@ export function useStatsQuery(queryEnabled: boolean) {
     dirtyRef.current = true;
   }, [queryEnabled, refreshDelayed]);
 
+  const retryStats = useCallback(() => {
+    if (!queryEnabled) return;
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+    setStatsView({ type: "loading", message: message("stats.loading") });
+    void refresh(true);
+  }, [queryEnabled, refresh]);
+
   useEffect(() => {
-    if (!queryEnabled || (hasLoadedRef.current && !dirtyRef.current)) return;
+    if (!queryEnabled) {
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+      refreshSequenceRef.current += 1;
+      activeRequestRef.current?.abort();
+      activeRequestRef.current = null;
+      return;
+    }
+    if (hasLoadedRef.current && !dirtyRef.current) return;
     setStatsView((current) =>
-      current.type === "hidden" ? { type: "loading", message: message("stats.loading") } : current,
+      current.type === "stats" ? current : { type: "loading", message: message("stats.loading") },
     );
     void refresh();
   }, [queryEnabled, refresh]);
@@ -93,8 +122,11 @@ export function useStatsQuery(queryEnabled: boolean) {
   useEffect(() => {
     return () => {
       if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
+      refreshSequenceRef.current += 1;
+      activeRequestRef.current?.abort();
+      activeRequestRef.current = null;
     };
   }, []);
 
-  return { markSubmitted, statsView };
+  return { markSubmitted, retryStats, statsView };
 }

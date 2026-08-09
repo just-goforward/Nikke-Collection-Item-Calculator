@@ -54,10 +54,12 @@ export type IntervalTooltipHandlers = {
 };
 
 export type UsageTooltipHandlers = {
-  onUsagePointerDown: (event: PointerEvent<HTMLElement>, items: UsageTooltipItem[]) => void;
-  onUsagePointerEnter: (event: TooltipMoveEvent, items: UsageTooltipItem[]) => void;
+  onUsageBlur: () => void;
+  onUsageFocus: (event: FocusEvent<HTMLButtonElement>, items: UsageTooltipItem[]) => void;
+  onUsagePointerDown: (event: PointerEvent<HTMLButtonElement>, items: UsageTooltipItem[]) => void;
+  onUsagePointerEnter: (event: PointerEvent<HTMLButtonElement>, items: UsageTooltipItem[]) => void;
   onUsagePointerLeave: () => void;
-  onUsagePointerMove: (event: TooltipMoveEvent, items: UsageTooltipItem[]) => void;
+  onUsagePointerMove: (event: PointerEvent<HTMLButtonElement>, items: UsageTooltipItem[]) => void;
 };
 
 export function positionTooltip(

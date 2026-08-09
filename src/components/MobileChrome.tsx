@@ -1,7 +1,9 @@
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
+import { useRef } from "react";
 
 import { useAnimatedStateProgress } from "../hooks/useAnimatedStateProgress";
 import { useI18n } from "../i18n/locale";
+import { nextNavigationIndex } from "../lib/keyboardNavigation";
 import type {
   LoadingView,
   OutcomePreview,
@@ -20,7 +22,7 @@ const MOBILE_TABS: MobileTab[] = ["input", "result", "stats"];
 const MOBILE_TAB_PANELS: Record<MobileTab, string> = {
   input: "mobile-panel-input",
   result: "mobile-panel-result",
-  stats: "mobile-panel-stats",
+  stats: "statsWorkspace",
 };
 
 const classes = {
@@ -448,6 +450,21 @@ export function MobileTabs({ active, hasResult, needsStockEdit, onChange }: Mobi
     stats: t("tab.stats"),
   };
   const activeIndex = MOBILE_TABS.indexOf(active);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectFromKeyboard = (event: KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
+    const nextIndex = nextNavigationIndex(
+      event.key,
+      currentIndex,
+      MOBILE_TABS.length,
+      "horizontal",
+    );
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextTab = MOBILE_TABS[nextIndex];
+    if (!nextTab) return;
+    onChange(nextTab);
+    tabRefs.current[nextIndex]?.focus();
+  };
 
   return (
     <div
@@ -466,6 +483,11 @@ export function MobileTabs({ active, hasResult, needsStockEdit, onChange }: Mobi
           id={`mobile-tab-${tab}`}
           role="tab"
           aria-selected={active === tab}
+          tabIndex={active === tab ? 0 : -1}
+          ref={(element) => {
+            tabRefs.current[MOBILE_TABS.indexOf(tab)] = element;
+          }}
+          onKeyDown={(event) => selectFromKeyboard(event, MOBILE_TABS.indexOf(tab))}
           onClick={() => onChange(tab)}
         >
           <AlignedText alignmentRole="segment">{tabLabels[tab]}</AlignedText>
