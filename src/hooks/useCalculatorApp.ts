@@ -1,5 +1,11 @@
 import { useCallback, useRef, useState } from "react";
-import type { DetailView, LoadingView, ResultView, ValidationView } from "../ui-types";
+import type {
+  DetailView,
+  LoadingView,
+  ResultView,
+  StockCorrectionView,
+  ValidationView,
+} from "../ui-types";
 import { useCalculatorAppLifecycle, useInputChangeTracker } from "./calculatorAppLifecycle";
 import { makeCalculatorAppModel } from "./calculatorAppModel";
 import { makeRuntimeInvariantEvent, type RuntimeInvariantReporter } from "./calculatorDiagnostics";
@@ -10,15 +16,19 @@ import {
   EMPTY_DETAIL,
   EMPTY_RESULT,
   INITIAL_VALIDATION,
-  type PendingStatsEvent,
   type SolverResult,
 } from "./calculatorShared";
 import { useSolveFlow } from "./calculatorSolveFlow";
 import { useStaleAwareResultRendering } from "./calculatorStaleResult";
+import {
+  type PendingStockCorrectionResolution,
+  resolvePendingStockCorrection,
+} from "./calculatorStockCorrection";
 import { useGuardedStockSetter } from "./calculatorStockEditGuard";
 import { useValidationCoordinator, useValidationFlow } from "./calculatorValidationFlow";
 import { useCalculatorState } from "./useCalculatorState";
 import { useOutcomeFlow } from "./useOutcomeFlow";
+import { usePendingStatsEvent } from "./usePendingStatsEvent";
 import { useSolverWorker } from "./useSolverWorker";
 import { useStats } from "./useStats";
 import { useTheme } from "./useTheme";
@@ -47,6 +57,25 @@ function useConfiguredOutcomeFlow({ calculatorState, ...options }: ConfiguredOut
   });
 }
 
+function stockCorrectionView(
+  resolution: PendingStockCorrectionResolution,
+): StockCorrectionView | null {
+  if (resolution.status === "none") return null;
+  const view = {
+    allowedMaximum: resolution.allowedMaximum,
+    allowedMinimum: resolution.allowedMinimum,
+    beforeStock: resolution.beforeStock,
+    canDiscardStats: resolution.canDiscardStats,
+    currentStock: resolution.currentStock,
+    kit: resolution.kit,
+    recommendedUses: resolution.recommendedUses,
+  };
+  if (resolution.status === "valid") {
+    return { ...view, status: "valid", successAttempt: resolution.successAttempt };
+  }
+  return { ...view, status: "invalid", reason: resolution.reason };
+}
+
 export function useCalculatorApp(statsQueryEnabled = false) {
   const [resultView, setResultView] = useState<ResultView>(EMPTY_RESULT);
   const [detailView, setDetailView] = useState<DetailView>(EMPTY_DETAIL);
@@ -57,8 +86,9 @@ export function useCalculatorApp(statsQueryEnabled = false) {
   });
   const [staleSource, setStaleSource] = useState<"state" | "stock" | null>(null);
   const actionTransitionIdRef = useRef(0);
+  const inputRevisionRef = useRef(0);
   const latestResultRef = useRef<SolverResult | null>(null);
-  const pendingStatsEventRef = useRef<PendingStatsEvent | null>(null);
+  const { pendingStatsEvent, pendingStatsEventRef, setPendingStatsEvent } = usePendingStatsEvent();
   const { recordStateFeedback, stateFeedback } = useStateFeedbackNotifier();
   const updateProgress = useSolverProgressLoading(setLoading);
   const stats = useStats(statsQueryEnabled);
@@ -103,7 +133,17 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     setValidationView,
   });
 
-  const handleInputChanged = useInputChangeTracker(setStaleSource, markInputChanged);
+  const trackInputChanged = useInputChangeTracker(setStaleSource, markInputChanged);
+  const handleInputChanged = useCallback(
+    (manualStockEditRequired: boolean, source: "state" | "stock") => {
+      inputRevisionRef.current += 1;
+      trackInputChanged(manualStockEditRequired, source);
+    },
+    [trackInputChanged],
+  );
+  const invalidateSolveInput = useCallback(() => {
+    inputRevisionRef.current += 1;
+  }, []);
 
   const calculatorState = useCalculatorState({
     onInputChanged: handleInputChanged,
@@ -117,6 +157,7 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     currentStateSnapshot,
     latestResultRef,
     pendingStatsEventRef,
+    setPendingStatsEvent,
     setDetailView,
     setResultView,
     setValidationView,
@@ -135,7 +176,7 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     applyConvert: outcomeFlow.applyConvert,
     applyOutcome: outcomeFlow.applyOutcome,
     collectInput: calculatorState.collectInput,
-    currentStateSnapshot,
+    inputRevisionRef,
     latestResultRef,
     pendingStatsEventRef,
     prepareForSolve,
@@ -144,23 +185,49 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     setCalculateBusy: calculatorState.setCalculateBusy,
     setDetailView,
     setLoading,
+    setManualStockEditRequired: calculatorState.setManualStockEditRequired,
+    setPendingStatsEvent,
     setResultView,
     solveBestAvailable,
   });
 
   const setStock = useGuardedStockSetter({
-    currentStateSnapshot,
-    manualStockEditRequired: calculatorState.manualStockEditRequired,
-    pendingStatsEventRef,
     setStock: calculatorState.actions.setStock,
   });
+
+  const correctionResolution = calculatorState.manualStockEditRequired
+    ? resolvePendingStockCorrection(
+        pendingStatsEvent,
+        {
+          grade: calculatorState.grade,
+          level: calculatorState.level,
+          exp: calculatorState.exp,
+        },
+        calculatorState.stock,
+      )
+    : ({ status: "none" } as const);
+  const correction = stockCorrectionView(correctionResolution);
+  const discardStockCorrectionStats = useCallback(() => {
+    if (correctionResolution.status !== "invalid" || !correctionResolution.canDiscardStats) {
+      return;
+    }
+    setPendingStatsEvent(null);
+    calculatorState.setManualStockEditRequired(false);
+    handleInputChanged(false, "stock");
+  }, [
+    calculatorState.setManualStockEditRequired,
+    correctionResolution,
+    handleInputChanged,
+    setPendingStatsEvent,
+  ]);
 
   const { calculateAndClearStale, resetInputs } = useCalculatorAppLifecycle({
     clearResultStale,
     invalidateValidation,
+    invalidateSolveInput,
     latestResultRef,
     outcomeFlow,
-    pendingStatsEventRef,
+    setPendingStatsEvent,
     resetState,
     runCalculation,
     setDetailView,
@@ -174,6 +241,7 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     applyOutcomeAndMaybeCalculate,
     calculatorState,
     clearActionTransition,
+    discardStockCorrectionStats,
     detailView,
     isResultStale,
     staleSource,
@@ -185,6 +253,7 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     runMonteCarloValidation,
     retryStats: stats.retryStats,
     setStock,
+    stockCorrection: correction,
     stateFeedback,
     statsView: stats.statsView,
     theme,

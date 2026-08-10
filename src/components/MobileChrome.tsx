@@ -10,6 +10,7 @@ import type {
   ResultView,
   StateChangeFeedback,
   StatePanelModel,
+  StockCorrectionView,
 } from "../ui-types";
 import { presentOutcomePreview } from "../view-models/outcomePresentation";
 import { AlignedText } from "./AlignedText";
@@ -94,6 +95,7 @@ type MobileActionBarProps = {
   calculateDisabled: boolean;
   isStale: boolean;
   needsStockEdit: boolean;
+  correction: StockCorrectionView | null;
   onCalculate: () => void;
   onReset: () => void;
   onConvert: () => void | Promise<void>;
@@ -296,6 +298,7 @@ function MobileConvertActionBar({ onConvert }: Pick<MobileActionBarProps, "onCon
 
 function MobileCalculateActionBar({
   calculateDisabled,
+  correction,
   isStale,
   loading,
   needsStockEdit,
@@ -303,7 +306,13 @@ function MobileCalculateActionBar({
   onReset,
 }: Pick<
   MobileActionBarProps,
-  "calculateDisabled" | "isStale" | "loading" | "needsStockEdit" | "onCalculate" | "onReset"
+  | "calculateDisabled"
+  | "correction"
+  | "isStale"
+  | "loading"
+  | "needsStockEdit"
+  | "onCalculate"
+  | "onReset"
 >) {
   const { t } = useI18n();
   return (
@@ -325,7 +334,9 @@ function MobileCalculateActionBar({
         onClick={onCalculate}
       >
         <AlignedText alignmentRole="action" className="gap-2">
-          {needsStockEdit ? (
+          {correction?.status === "valid" ? (
+            t("stock.correctionCalculate", { attempt: correction.successAttempt ?? 1 })
+          ) : needsStockEdit ? (
             t("common.stockEditRequired")
           ) : loading.active ? (
             <>
@@ -346,6 +357,7 @@ export function MobileActionBar({
   view,
   loading,
   calculateDisabled,
+  correction,
   isStale,
   needsStockEdit,
   onCalculate,
@@ -373,6 +385,7 @@ export function MobileActionBar({
   return (
     <MobileCalculateActionBar
       calculateDisabled={calculateDisabled}
+      correction={correction}
       isStale={isStale}
       loading={loading}
       needsStockEdit={needsStockEdit}

@@ -188,6 +188,7 @@ function Workspace({
           {...mobileTabPanelProps("input", isMobile)}
         >
           <StatePanel
+            disabled={calculator.inputLocked || calculator.stockPanel.needsStockEdit}
             state={calculator.statePanel}
             onGradeChange={actions.setGrade}
             onLevelChange={actions.setLevel}
@@ -196,6 +197,7 @@ function Workspace({
           <StockPanel
             stock={calculator.stockPanel.stock}
             needsStockEdit={calculator.stockPanel.needsStockEdit}
+            correction={calculator.stockPanel.correction}
             isStale={calculator.stockPanel.isStale}
             stockStale={calculator.stockPanel.stockStale}
             notice={calculator.stockPanel.notice}
@@ -203,7 +205,9 @@ function Workspace({
             description={calculator.solvePanel.description}
             calculateDisabled={calculator.solvePanel.calculateDisabled}
             loading={calculator.loading.active}
+            disabled={calculator.inputLocked}
             onCalculate={handlers.onCalculate}
+            onDiscardStockCorrectionStats={actions.discardStockCorrectionStats}
             onReset={handlers.onReset}
           />
         </div>
@@ -296,6 +300,7 @@ function MobileBottomBar({
           view={calculator.resultView}
           loading={calculator.loading}
           calculateDisabled={calculator.solvePanel.calculateDisabled}
+          correction={calculator.stockPanel.correction}
           isStale={calculator.stockPanel.isStale}
           needsStockEdit={calculator.stockPanel.needsStockEdit}
           onCalculate={handlers.onCalculate}

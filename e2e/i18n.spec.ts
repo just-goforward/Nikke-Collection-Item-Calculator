@@ -45,14 +45,9 @@ async function expectNoHorizontalOverflow(page: Page) {
 }
 
 async function clickVisibleTab(page: Page, name: string) {
-  const tabs = page.getByRole("tab", { name });
-  for (let index = 0; index < (await tabs.count()); index += 1) {
-    const tab = tabs.nth(index);
-    if (!(await tab.isVisible())) continue;
-    await tab.click();
-    return;
-  }
-  throw new Error(`No visible tab named ${name}.`);
+  const tab = page.getByRole("tab", { name }).filter({ visible: true }).first();
+  await expect(tab).toBeVisible();
+  await tab.click();
 }
 
 async function selectStoredLocale(page: Page, locale: "ko" | "en" | "ja") {

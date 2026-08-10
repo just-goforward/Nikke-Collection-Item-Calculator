@@ -44,10 +44,6 @@ export type UseCalculatorStateOptions = {
   onMaxLevelState: (grade: Grade, level: number) => void;
 };
 
-export type SetStockOptions = {
-  clearManualStockEditRequired?: boolean;
-};
-
 function safeLevelFromInput(nextLevel: number) {
   const rawLevel = Number(nextLevel);
   return Math.min(15, Math.max(0, Number.isFinite(rawLevel) ? Math.trunc(rawLevel) : 0));
@@ -225,17 +221,13 @@ function useCalculatorInputActions({
   );
 
   const setStock = useCallback(
-    (nextStock: Stock, options: SetStockOptions = {}) => {
+    (nextStock: Stock) => {
       const next = clampStock(nextStock);
       if (sameStock(stock, next)) return;
-      const nextManualStockEditRequired = options.clearManualStockEditRequired
-        ? false
-        : manualStockEditRequired;
       setStockState(next);
-      if (options.clearManualStockEditRequired) setManualStockEditRequired(false);
-      onInputChanged(nextManualStockEditRequired, "stock");
+      onInputChanged(manualStockEditRequired, "stock");
     },
-    [manualStockEditRequired, onInputChanged, setManualStockEditRequired, setStockState, stock],
+    [manualStockEditRequired, onInputChanged, setStockState, stock],
   );
 
   const resetState = useCallback(() => {

@@ -16,12 +16,12 @@ type OutcomeApplicationOptions = Pick<
   OutcomeSharedOptions,
   | "currentStockSnapshot"
   | "latestResultRef"
-  | "pendingStatsEventRef"
   | "queueStatsEvent"
   | "recordStateFeedback"
   | "setCollectionState"
   | "setManualStockEditRequired"
   | "setModal"
+  | "setPendingStatsEvent"
   | "setStockCountForKit"
   | "terminalSuccessContextRef"
 > & {
@@ -82,7 +82,7 @@ function applySuccessfulOutcome(
   }
 
   if (reachesConvertState || reachesFinalTarget) {
-    options.pendingStatsEventRef.current = null;
+    options.setPendingStatsEvent(null);
     options.setManualStockEditRequired(false);
     options.terminalSuccessContextRef.current = successContext;
     options.setModal({
@@ -96,13 +96,13 @@ function applySuccessfulOutcome(
   }
 
   options.setManualStockEditRequired(true);
-  options.pendingStatsEventRef.current = {
+  options.setPendingStatsEvent({
     start: startSnapshot,
     kit: best.firstAction,
     recommendedUses: run.count,
     stockBefore: stockBeforeSnapshot,
     resultState: { ...run.success },
-  };
+  });
   options.recordStateFeedback(startSnapshot, nextState);
   options.setCollectionState(nextState, { maxLevelRender: false });
   options.renderOutcomeApplied({
@@ -127,25 +127,24 @@ function applyFailedOutcome(
   const stockAfter = stockAfterKitUse(currentStock, best.firstAction, beforeStock, usedCount);
   const nextState = run.fail;
 
+  options.setStockCountForKit(best.firstAction, beforeStock - usedCount);
+  options.recordStateFeedback(startSnapshot, nextState);
+  options.setCollectionState(nextState, { maxLevelRender: false });
+  options.queueStatsEvent(
+    makeStatsEvent({
+      start: startSnapshot,
+      kit: best.firstAction,
+      recommendedUses: run.count,
+      outcome: "no_great_success",
+      successAttempt: null,
+      stockBefore: stockBeforeSnapshot,
+      stockAfter,
+      resultState: nextState,
+    }),
+  );
+
   return {
     outcome: "fail",
-    commit: () => {
-      options.setStockCountForKit(best.firstAction, beforeStock - usedCount);
-      options.recordStateFeedback(startSnapshot, nextState);
-      options.setCollectionState(nextState, { maxLevelRender: false });
-      options.queueStatsEvent(
-        makeStatsEvent({
-          start: startSnapshot,
-          kit: best.firstAction,
-          recommendedUses: run.count,
-          outcome: "no_great_success",
-          successAttempt: null,
-          stockBefore: stockBeforeSnapshot,
-          stockAfter,
-          resultState: nextState,
-        }),
-      );
-    },
     needsStockEdit: false,
     previousAction: { kit: best.firstAction, count: run.count },
     nextInput: {
@@ -161,13 +160,13 @@ export function useOutcomeApplication(options: OutcomeApplicationOptions) {
     applyKnownSuccessAttempt,
     currentStockSnapshot,
     latestResultRef,
-    pendingStatsEventRef,
     queueStatsEvent,
     recordStateFeedback,
     renderOutcomeApplied,
     setCollectionState,
     setManualStockEditRequired,
     setModal,
+    setPendingStatsEvent,
     setStockCountForKit,
     terminalSuccessContextRef,
   } = options;
@@ -177,13 +176,13 @@ export function useOutcomeApplication(options: OutcomeApplicationOptions) {
         applyKnownSuccessAttempt,
         currentStockSnapshot,
         latestResultRef,
-        pendingStatsEventRef,
         queueStatsEvent,
         recordStateFeedback,
         renderOutcomeApplied,
         setCollectionState,
         setManualStockEditRequired,
         setModal,
+        setPendingStatsEvent,
         setStockCountForKit,
         terminalSuccessContextRef,
       };
@@ -197,13 +196,13 @@ export function useOutcomeApplication(options: OutcomeApplicationOptions) {
       applyKnownSuccessAttempt,
       currentStockSnapshot,
       latestResultRef,
-      pendingStatsEventRef,
       queueStatsEvent,
       recordStateFeedback,
       renderOutcomeApplied,
       setCollectionState,
       setManualStockEditRequired,
       setModal,
+      setPendingStatsEvent,
       setStockCountForKit,
       terminalSuccessContextRef,
     ],

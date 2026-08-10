@@ -13,11 +13,11 @@ import type { OutcomeRenderArgs, OutcomeSharedOptions } from "./outcomeFlowTypes
 type TerminalSuccessAttemptOptions = Pick<
   OutcomeSharedOptions,
   | "currentStockSnapshot"
-  | "pendingStatsEventRef"
   | "queueStatsEvent"
   | "recordStateFeedback"
   | "setCollectionState"
   | "setManualStockEditRequired"
+  | "setPendingStatsEvent"
   | "setStockCountForKit"
 > & {
   renderOutcomeApplied: (args: OutcomeRenderArgs) => void;
@@ -28,12 +28,12 @@ function applySuccessAttempt(
   successAttempt: number | null,
   {
     currentStockSnapshot,
-    pendingStatsEventRef,
     queueStatsEvent,
     recordStateFeedback,
     renderOutcomeApplied,
     setCollectionState,
     setManualStockEditRequired,
+    setPendingStatsEvent,
     setStockCountForKit,
   }: TerminalSuccessAttemptOptions,
   renderIntermediate: boolean,
@@ -51,7 +51,7 @@ function applySuccessAttempt(
       beforeStock,
       usedCount,
     );
-    pendingStatsEventRef.current = null;
+    setPendingStatsEvent(null);
     setManualStockEditRequired(false);
     setStockCountForKit(best.firstAction, beforeStock - usedCount);
     queueStatsEvent(
@@ -102,9 +102,9 @@ function applySuccessAttempt(
       stockBefore: stockBeforeSnapshot,
       resultState,
     };
-    pendingStatsEventRef.current = pendingEvent;
+    setPendingStatsEvent(pendingEvent);
   } else {
-    pendingStatsEventRef.current = null;
+    setPendingStatsEvent(null);
   }
   setManualStockEditRequired(needsStockEditNow);
   renderOutcomeApplied({
@@ -130,12 +130,12 @@ function applySuccessAttempt(
 export function useTerminalSuccessAttempt(options: TerminalSuccessAttemptOptions) {
   const {
     currentStockSnapshot,
-    pendingStatsEventRef,
     queueStatsEvent,
     recordStateFeedback,
     renderOutcomeApplied,
     setCollectionState,
     setManualStockEditRequired,
+    setPendingStatsEvent,
     setStockCountForKit,
   } = options;
   return useCallback(
@@ -149,24 +149,24 @@ export function useTerminalSuccessAttempt(options: TerminalSuccessAttemptOptions
         successAttempt,
         {
           currentStockSnapshot,
-          pendingStatsEventRef,
           queueStatsEvent,
           recordStateFeedback,
           renderOutcomeApplied,
           setCollectionState,
           setManualStockEditRequired,
+          setPendingStatsEvent,
           setStockCountForKit,
         },
         behavior.renderIntermediate ?? true,
       ),
     [
       currentStockSnapshot,
-      pendingStatsEventRef,
       queueStatsEvent,
       recordStateFeedback,
       renderOutcomeApplied,
       setCollectionState,
       setManualStockEditRequired,
+      setPendingStatsEvent,
       setStockCountForKit,
     ],
   );

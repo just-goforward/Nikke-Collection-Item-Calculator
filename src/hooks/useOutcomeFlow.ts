@@ -18,6 +18,7 @@ import { useTerminalSuccessAttempt } from "./terminalSuccessAttempt";
 type UseOutcomeFlowOptions = {
   latestResultRef: RefObject<SolverResult | null>;
   pendingStatsEventRef: RefObject<PendingStatsEvent | null>;
+  setPendingStatsEvent: (event: PendingStatsEvent | null) => void;
   currentStockSnapshot: () => Stock;
   setCollectionState: (
     next: CollectionState,

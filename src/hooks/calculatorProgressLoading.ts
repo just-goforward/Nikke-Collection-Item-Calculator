@@ -4,7 +4,7 @@ import { message } from "../i18n/locale";
 import type { ProgressEvent } from "../types";
 import type { LoadingView } from "../ui-types";
 
-function preserveStickyLoadingText(
+export function preserveStickyLoadingText(
   current: LoadingView,
   nextText: LoadingView["text"],
 ): LoadingView {
@@ -12,9 +12,9 @@ function preserveStickyLoadingText(
     current.text.key === "result.loadingApplyFailure" ||
     current.text.key === "result.loadingApplySuccess"
   ) {
-    return { active: true, text: current.text };
+    return { active: current.active, text: current.text };
   }
-  return { active: true, text: nextText };
+  return { active: current.active, text: nextText };
 }
 
 export function useSolverProgressLoading(setLoading: Dispatch<SetStateAction<LoadingView>>) {

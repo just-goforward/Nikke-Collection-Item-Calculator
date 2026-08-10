@@ -8,12 +8,11 @@ import { makeSolverDiagnosticEvent, makeSolverRecoveryEvent } from "./calculator
 import {
   DEFAULT_LOADING_TEXT,
   inputKey,
-  makeStatsEvent,
   type PendingStatsEvent,
   type SolveOutcome,
   type SolverResult,
-  sameState,
 } from "./calculatorShared";
+import { resolvePendingStockCorrection } from "./calculatorStockCorrection";
 import type { ConvertApplyResult, OutcomeApplyResult } from "./outcomeFlowTypes";
 import { SolverRecoveryFailure } from "./solverRecovery";
 import { WorkerTaskCancelled } from "./solverWorkerClient";
@@ -24,7 +23,7 @@ type SolveFlowOptions = {
   applyConvert: () => ConvertApplyResult;
   applyOutcome: (outcome: "success" | "fail") => OutcomeApplyResult;
   collectInput: () => SolverInput;
-  currentStateSnapshot: () => SolverInput["start"];
+  inputRevisionRef: MutableRef<number>;
   latestResultRef: MutableRef<SolverResult | null>;
   pendingStatsEventRef: MutableRef<PendingStatsEvent | null>;
   prepareForSolve: () => void;
@@ -33,19 +32,21 @@ type SolveFlowOptions = {
   setCalculateBusy: (busy: boolean) => void;
   setDetailView: Dispatch<SetStateAction<DetailView>>;
   setLoading: Dispatch<SetStateAction<LoadingView>>;
+  setManualStockEditRequired: (required: boolean) => void;
+  setPendingStatsEvent: (event: PendingStatsEvent | null) => void;
   setResultView: Dispatch<SetStateAction<ResultView>>;
   solveBestAvailable: (input: SolverInput) => Promise<SolveOutcome>;
 };
 
 type SolveAndRenderOptions = {
-  beforeRender?: () => void;
   loadingText?: LocalizedMessage;
   previousAction?: RecommendationAction | null;
 };
 
 const OUTCOME_FAIL_LOADING_TEXT = message("result.loadingApplyFailure");
 const OUTCOME_SUCCESS_LOADING_TEXT = message("result.loadingApplySuccess");
-const MIN_LOADING_VISIBLE_MS = 300;
+const LOADING_SHOW_DELAY_MS = 120;
+const MIN_LOADING_VISIBLE_MS = 180;
 
 function calculationAfterOutcome(applied: NonNullable<OutcomeApplyResult>) {
   if (applied.outcome === "success" && applied.needsStockEdit) return null;
@@ -55,7 +56,6 @@ function calculationAfterOutcome(applied: NonNullable<OutcomeApplyResult>) {
   return {
     calculation,
     options: {
-      ...(applied.outcome === "fail" ? { beforeRender: applied.commit } : {}),
       loadingText:
         applied.outcome === "fail" ? OUTCOME_FAIL_LOADING_TEXT : OUTCOME_SUCCESS_LOADING_TEXT,
       previousAction: calculation.previousAction,
@@ -67,6 +67,27 @@ function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function startDeferredLoading(setLoading: SolveFlowOptions["setLoading"], text: LocalizedMessage) {
+  let shownAt: number | null = null;
+  setLoading({ active: false, text });
+  const timer = window.setTimeout(() => {
+    shownAt = performance.now();
+    setLoading((current) => ({ ...current, active: true }));
+  }, LOADING_SHOW_DELAY_MS);
+
+  return {
+    finish: async (skipUiCleanup: boolean) => {
+      window.clearTimeout(timer);
+      if (skipUiCleanup) return;
+      if (shownAt !== null) {
+        const remainingMs = MIN_LOADING_VISIBLE_MS - (performance.now() - shownAt);
+        if (remainingMs > 0) await delay(remainingMs);
+      }
+      setLoading({ active: false, text: DEFAULT_LOADING_TEXT });
+    },
+  };
+}
+
 function preservesExistingResult(
   error: SolverRecoveryFailure,
   previousResult: SolverResult | null,
@@ -76,45 +97,138 @@ function preservesExistingResult(
   return inputKey(previousResult.input) === inputKey(input);
 }
 
-export function pendingStatsEventFromInput({
-  currentStateSnapshot,
+type SolveFailureOptions = Pick<
+  SolveFlowOptions,
+  "inputRevisionRef" | "latestResultRef" | "queueStatsEvent" | "setDetailView" | "setResultView"
+> & {
+  error: unknown;
+  input: SolverInput;
+  inputRevision: number;
+};
+
+function handleSolveFailure({
+  error,
+  input,
+  inputRevision,
+  inputRevisionRef,
+  latestResultRef,
+  queueStatsEvent,
+  setDetailView,
+  setResultView,
+}: SolveFailureOptions) {
+  if (inputRevisionRef.current !== inputRevision) {
+    return { result: false, skipUiCleanup: false };
+  }
+  if (
+    error instanceof WorkerTaskCancelled &&
+    error.cancellation.task === "solve" &&
+    error.cancellation.reason === "component_unmount"
+  ) {
+    return { result: false, skipUiCleanup: true };
+  }
+  if (error instanceof SolverRecoveryFailure) {
+    const recoveryEvent = makeSolverRecoveryEvent(input, error.trace);
+    if (recoveryEvent) queueStatsEvent(recoveryEvent);
+    if (preservesExistingResult(error, latestResultRef.current, input)) {
+      return { result: false, skipUiCleanup: false };
+    }
+  }
+  latestResultRef.current = null;
+  setResultView({
+    type: "error",
+    reason: "solver_failure",
+    message: message("result.solverError"),
+  });
+  setDetailView({ type: "empty", message: message("result.solverError") });
+  return { result: true, skipUiCleanup: false };
+}
+
+type ExecuteSolveOptions = Pick<
+  SolveFlowOptions,
+  | "inputRevisionRef"
+  | "latestResultRef"
+  | "prepareForSolve"
+  | "queueStatsEvent"
+  | "renderResult"
+  | "setCalculateBusy"
+  | "setDetailView"
+  | "setLoading"
+  | "setResultView"
+  | "solveBestAvailable"
+> & {
+  busyRef: MutableRef<boolean>;
+  calculationLocale: ReturnType<typeof useI18n>["locale"];
+};
+
+async function executeSolveAndRender(
+  context: ExecuteSolveOptions,
+  input: SolverInput,
+  options: SolveAndRenderOptions,
+) {
+  if (context.busyRef.current) return false;
+  context.busyRef.current = true;
+  const inputRevision = context.inputRevisionRef.current;
+  const loadingSession = startDeferredLoading(
+    context.setLoading,
+    options.loadingText ?? DEFAULT_LOADING_TEXT,
+  );
+  context.setCalculateBusy(true);
+  let skipUiCleanup = false;
+  try {
+    context.prepareForSolve();
+    const outcome = await context.solveBestAvailable(input);
+    if (context.inputRevisionRef.current !== inputRevision) return false;
+    const result = outcome.result;
+    context.renderResult(result, options.previousAction);
+    const diagnosticEvent = makeSolverDiagnosticEvent(outcome, context.calculationLocale);
+    if (diagnosticEvent) context.queueStatsEvent(diagnosticEvent);
+    const recoveryEvent = makeSolverRecoveryEvent(result.input, outcome.recoveryTrace);
+    if (recoveryEvent) context.queueStatsEvent(recoveryEvent);
+    return true;
+  } catch (error) {
+    const failure = handleSolveFailure({ ...context, error, input, inputRevision });
+    skipUiCleanup = failure.skipUiCleanup;
+    return failure.result;
+  } finally {
+    await loadingSession.finish(skipUiCleanup);
+    if (!skipUiCleanup) context.setCalculateBusy(false);
+    context.busyRef.current = false;
+  }
+}
+
+export function consumePendingStockCorrection({
   input,
   pendingStatsEventRef,
+  queueStatsEvent,
+  setManualStockEditRequired,
+  setPendingStatsEvent,
 }: {
-  currentStateSnapshot: () => SolverInput["start"];
   input: SolverInput;
   pendingStatsEventRef: MutableRef<PendingStatsEvent | null>;
+  queueStatsEvent: (event: StatsSubmissionEvent) => void;
+  setManualStockEditRequired: (required: boolean) => void;
+  setPendingStatsEvent: (event: PendingStatsEvent | null) => void;
 }) {
-  const pending = pendingStatsEventRef.current;
-  if (!pending) return null;
-  pendingStatsEventRef.current = null;
-
-  if (!sameState(currentStateSnapshot(), pending.resultState)) return null;
-  const before = pending.stockBefore;
-  const after = input.stock;
-  const otherKitChanged = (["blue", "purple", "yellow"] as const).some(
-    (kit) => kit !== pending.kit && before[kit] !== after[kit],
+  const resolution = resolvePendingStockCorrection(
+    pendingStatsEventRef.current,
+    input.start,
+    input.stock,
   );
-  if (otherKitChanged) return null;
-  const usedKits = before[pending.kit] - after[pending.kit];
-  if (!Number.isInteger(usedKits) || usedKits <= 0 || usedKits % 10 !== 0) return null;
-  const successAttempt = usedKits / 10;
-  if (successAttempt > pending.recommendedUses) return null;
-  return makeStatsEvent({
-    start: pending.start,
-    kit: pending.kit,
-    recommendedUses: pending.recommendedUses,
-    outcome: "great_success",
-    successAttempt,
-    stockBefore: before,
-    stockAfter: after,
-    resultState: pending.resultState,
-  });
+  if (resolution.status === "invalid") return false;
+  if (resolution.status === "none") return true;
+  queueStatsEvent(resolution.event);
+  setPendingStatsEvent(null);
+  setManualStockEditRequired(false);
+  return true;
 }
 
 type ManualCalculationOptions = Pick<
   SolveFlowOptions,
-  "collectInput" | "currentStateSnapshot" | "pendingStatsEventRef" | "queueStatsEvent"
+  | "collectInput"
+  | "pendingStatsEventRef"
+  | "queueStatsEvent"
+  | "setManualStockEditRequired"
+  | "setPendingStatsEvent"
 > & {
   isBusy: () => boolean;
   solveAndRenderInput: (input: SolverInput) => Promise<boolean>;
@@ -122,28 +236,32 @@ type ManualCalculationOptions = Pick<
 
 function useManualCalculation({
   collectInput,
-  currentStateSnapshot,
   isBusy,
   pendingStatsEventRef,
   queueStatsEvent,
+  setManualStockEditRequired,
+  setPendingStatsEvent,
   solveAndRenderInput,
 }: ManualCalculationOptions) {
   return useCallback(async () => {
-    if (isBusy()) return;
+    if (isBusy()) return false;
     const input = collectInput();
-    const pendingEvent = pendingStatsEventFromInput({
-      currentStateSnapshot,
+    const correctionReady = consumePendingStockCorrection({
       input,
       pendingStatsEventRef,
+      queueStatsEvent,
+      setManualStockEditRequired,
+      setPendingStatsEvent,
     });
-    if (pendingEvent) queueStatsEvent(pendingEvent);
-    await solveAndRenderInput(input);
+    if (!correctionReady) return false;
+    return solveAndRenderInput(input);
   }, [
     collectInput,
-    currentStateSnapshot,
     isBusy,
     pendingStatsEventRef,
     queueStatsEvent,
+    setManualStockEditRequired,
+    setPendingStatsEvent,
     solveAndRenderInput,
   ]);
 }
@@ -152,7 +270,7 @@ export function useSolveFlow({
   applyConvert,
   applyOutcome,
   collectInput,
-  currentStateSnapshot,
+  inputRevisionRef,
   latestResultRef,
   pendingStatsEventRef,
   prepareForSolve,
@@ -161,6 +279,8 @@ export function useSolveFlow({
   setCalculateBusy,
   setDetailView,
   setLoading,
+  setManualStockEditRequired,
+  setPendingStatsEvent,
   setResultView,
   solveBestAvailable,
 }: SolveFlowOptions) {
@@ -169,60 +289,28 @@ export function useSolveFlow({
   const isBusy = useCallback(() => busyRef.current, []);
 
   const solveAndRenderInput = useCallback(
-    async (input: SolverInput, options: SolveAndRenderOptions = {}) => {
-      if (busyRef.current) return false;
-      busyRef.current = true;
-      const calculationLocale = locale;
-      let skipUiCleanup = false;
-      const loadingStartedAt = performance.now();
-      try {
-        prepareForSolve();
-        setLoading({ active: true, text: options.loadingText ?? DEFAULT_LOADING_TEXT });
-        setCalculateBusy(true);
-        await new Promise((resolve) => requestAnimationFrame(resolve));
-        const outcome = await solveBestAvailable(input);
-        const result = outcome.result;
-        options.beforeRender?.();
-        renderResult(result, options.previousAction);
-        const diagnosticEvent = makeSolverDiagnosticEvent(outcome, calculationLocale);
-        if (diagnosticEvent) queueStatsEvent(diagnosticEvent);
-        const recoveryEvent = makeSolverRecoveryEvent(result.input, outcome.recoveryTrace);
-        if (recoveryEvent) queueStatsEvent(recoveryEvent);
-        return true;
-      } catch (error) {
-        if (
-          error instanceof WorkerTaskCancelled &&
-          error.cancellation.task === "solve" &&
-          error.cancellation.reason === "component_unmount"
-        ) {
-          skipUiCleanup = true;
-          return false;
-        }
-        if (error instanceof SolverRecoveryFailure) {
-          const recoveryEvent = makeSolverRecoveryEvent(input, error.trace);
-          if (recoveryEvent) queueStatsEvent(recoveryEvent);
-          if (preservesExistingResult(error, latestResultRef.current, input)) return false;
-        }
-        latestResultRef.current = null;
-        setResultView({
-          type: "error",
-          reason: "solver_failure",
-          message: message("result.solverError"),
-        });
-        setDetailView({ type: "empty", message: message("result.solverError") });
-        return true;
-      } finally {
-        if (!skipUiCleanup) {
-          const remainingMs = MIN_LOADING_VISIBLE_MS - (performance.now() - loadingStartedAt);
-          if (remainingMs > 0) await delay(remainingMs);
-          setLoading({ active: false, text: DEFAULT_LOADING_TEXT });
-          setCalculateBusy(false);
-        }
-        busyRef.current = false;
-      }
-    },
+    (input: SolverInput, options: SolveAndRenderOptions = {}) =>
+      executeSolveAndRender(
+        {
+          busyRef,
+          calculationLocale: locale,
+          inputRevisionRef,
+          latestResultRef,
+          prepareForSolve,
+          queueStatsEvent,
+          renderResult,
+          setCalculateBusy,
+          setDetailView,
+          setLoading,
+          setResultView,
+          solveBestAvailable,
+        },
+        input,
+        options,
+      ),
     [
       latestResultRef,
+      inputRevisionRef,
       locale,
       prepareForSolve,
       queueStatsEvent,
@@ -237,10 +325,11 @@ export function useSolveFlow({
 
   const runCalculation = useManualCalculation({
     collectInput,
-    currentStateSnapshot,
     isBusy,
     pendingStatsEventRef,
     queueStatsEvent,
+    setManualStockEditRequired,
+    setPendingStatsEvent,
     solveAndRenderInput,
   });
 

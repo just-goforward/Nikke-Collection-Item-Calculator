@@ -386,13 +386,20 @@ test("SR 5 다회 대성공 — 모달 없이 키트 수정 후 다시 계산할
   await expect(page.locator(".attempt-modal-overlay")).toHaveCount(0);
   await expect(page.getByLabel("상급자용 키트")).toHaveValue("100");
   await expect(page.locator("#stockEditNotice")).toContainText(
-    "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.",
+    "가능한 남은 수량은 70~90개 사이의 10개 간격 값입니다.",
   );
   await expect(page.getByRole("button", { name: "키트 수정 필요", exact: true })).toBeDisabled();
 
+  await page.getByLabel("상급자용 키트").fill("85");
+  await expect(page.locator("#stockEditNotice")).toContainText("감소량은 10개 단위여야 합니다.");
+  await expect(page.getByRole("button", { name: "키트 수정 필요", exact: true })).toBeDisabled();
+
   await page.getByLabel("상급자용 키트").fill("80");
-  await expect(page.getByRole("button", { name: "다시 계산", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "다시 계산", exact: true }).click();
+  await expect(page.locator("#stockEditNotice")).toContainText(
+    "2회차에서 대성공한 것으로 확인됩니다.",
+  );
+  await expect(page.getByRole("button", { name: "2회차 반영 후 계산", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "2회차 반영 후 계산", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "대성공 여부" })).toBeVisible({
     timeout: 10_000,
@@ -913,7 +920,6 @@ test("대성공 X 선택 후 다음 추천이 자동 계산된다", async ({ pag
   await page.getByRole("button", { name: "대성공 X", exact: true }).first().click();
   await page.getByRole("button", { name: "대성공 X 확정", exact: true }).first().click();
   const loadingPopup = page.getByRole("status").filter({ hasText: "대성공 X를 반영" });
-  await expect(loadingPopup).toBeVisible();
   await expect(loadingPopup).toBeHidden({ timeout: 20_000 });
 
   await expect(page.getByText("적용 완료")).toBeHidden({ timeout: 20_000 });
@@ -991,7 +997,34 @@ test("모바일 수동 키트 수정 필요 상태는 하단 계산 버튼에서
   await expect(page.locator("#stockEditNotice")).toBeVisible();
 
   await page.getByLabel("초심자용 키트").fill("90");
-  await expect(actionBar.getByRole("button", { name: "다시 계산", exact: true })).toBeEnabled();
+  await expect(
+    actionBar.getByRole("button", { name: "1회차 반영 후 계산", exact: true }),
+  ).toBeEnabled();
+});
+
+test("다회 대성공 역산이 불가능한 재고는 통계를 명시적으로 생략한 뒤 계산한다", async ({
+  page,
+}) => {
+  await page
+    .getByRole("group", { name: "소장품 등급" })
+    .getByRole("button", { name: "SR" })
+    .click();
+  await page.getByRole("button", { name: "5단계", exact: true }).click();
+  await page.getByLabel("상급자용 키트").fill("100");
+  await page.getByRole("button", { name: "계산", exact: true }).click();
+  await confirmOutcome(
+    page,
+    page.getByRole("button", { name: "대성공 O", exact: true }).first(),
+    "대성공 O",
+  );
+
+  await page.getByLabel("상급자용 키트").fill("85");
+  await page.getByLabel("중급자용 키트").fill("90");
+  await expect(page.locator("#stockEditNotice")).toContainText("추천 키트 외의 보유량도 변경되어");
+  await page.getByRole("button", { name: "통계 생략하고 이 재고로 계속" }).click();
+
+  await expect(page.locator("#stockEditNotice")).toBeHidden();
+  await expect(page.getByRole("button", { name: "다시 계산", exact: true })).toBeEnabled();
 });
 
 test("모바일 변환 버튼은 SR 5 변환 후 결과 탭에서 자동 계산한다", async ({ page }) => {

@@ -67,6 +67,21 @@ export const enMessages = {
   "stock.title": "Maintenance Kits",
   "stock.changed": "Your Maintenance Kits changed. Select Calculate to update the result.",
   "stock.notice": "Update your Maintenance Kits, then select Calculate to continue.",
+  "stock.correctionPrompt":
+    "Update the actual {kit} inventory. It was {before}; valid remaining amounts range from {min} to {max} in steps of 10.",
+  "stock.correctionValid":
+    "This indicates a Super Success on use {attempt} of {kit}. Calculate to record it and continue with the next recommendation.",
+  "stock.correctionStateChanged":
+    "The Collection Item state applied by the Super Success was changed. Restore that state before updating the kits.",
+  "stock.correctionOtherKitChanged":
+    "Another kit inventory also changed, so the Super Success attempt cannot be inferred automatically.",
+  "stock.correctionIncreased":
+    "The {kit} inventory is higher than before the action, so the Super Success attempt cannot be inferred automatically.",
+  "stock.correctionInvalidDelta": "The {kit} inventory must decrease in steps of 10.",
+  "stock.correctionTooMany":
+    "Usage beyond the recommended {uses} attempts cannot be recorded as this Super Success.",
+  "stock.correctionDiscard": "Skip stats and use this inventory",
+  "stock.correctionCalculate": "Apply use {attempt} and calculate",
   "stock.invalid": "Negative numbers and decimals are not allowed. The previous value was kept.",
   "stock.adjustedMax":
     "Maintenance Kit inventory is limited to {max}, so the value was adjusted to {value}.",

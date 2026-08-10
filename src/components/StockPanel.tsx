@@ -5,11 +5,13 @@ import { useDismissableLayer } from "../hooks/useDismissableLayer";
 import { useI18n } from "../i18n/locale";
 import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
 import type { Kit, Stock } from "../types";
+import type { StockCorrectionView } from "../ui-types";
 import { AlignedText } from "./AlignedText";
 
 type StockPanelProps = {
   stock: Stock;
   needsStockEdit: boolean;
+  correction: StockCorrectionView | null;
   isStale: boolean;
   stockStale: boolean;
   notice: LocalizedMessage;
@@ -17,7 +19,9 @@ type StockPanelProps = {
   description: LocalizedMessage;
   calculateDisabled: boolean;
   loading: boolean;
+  disabled: boolean;
   onCalculate: () => void;
+  onDiscardStockCorrectionStats: () => void;
   onReset: () => void;
 };
 
@@ -49,6 +53,12 @@ const KIT_INPUTS: KitInputDefinition[] = [
   },
 ];
 
+const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
+  blue: "kit.bluePanel",
+  purple: "kit.purplePanel",
+  yellow: "kit.yellowPanel",
+};
+
 const classes = {
   panel:
     "flex h-full min-w-0 flex-col rounded-card border border-border bg-surface shadow-panel [contain:layout_paint] transition-[background-color,border-color,box-shadow] duration-[220ms]",
@@ -58,6 +68,9 @@ const classes = {
     "flex items-center justify-between gap-3 border-b border-border px-[18px] py-4 transition-[border-color,background-color,color] duration-[220ms] max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",
   editNotice:
     "mx-[18px] mt-3.5 rounded-card border-2 border-yellow-kit bg-outcome px-[13px] py-3 text-[13px] text-outcome-text font-semibold leading-[1.45] max-mobile:mx-3 max-mobile:mt-2.5 max-mobile:px-3 max-mobile:py-2.5 max-mobile:text-[12px]",
+  editNoticeText: "m-0",
+  editNoticeAction:
+    "mt-2 inline-flex min-h-7 items-center border-0 bg-transparent p-0 text-[12px] font-bold text-text-strong underline underline-offset-[3px]",
   kitGrid:
     "grid grid-cols-3 gap-2.5 px-[18px] py-4 min-[661px]:max-tablet:flex-1 min-[661px]:max-tablet:grid-cols-1 min-[661px]:max-tablet:grid-rows-3 min-[661px]:max-tablet:gap-2 min-[661px]:max-tablet:p-3.5 max-mobile:grid-cols-3 max-mobile:gap-2 max-mobile:px-3 max-mobile:pt-2.5 max-mobile:pb-[13px]",
   kitInput:
@@ -143,6 +156,7 @@ function normalizeStockDraft(value: string, previousValue: number) {
 type KitInputProps = {
   definition: KitInputDefinition;
   calculateDisabled: boolean;
+  disabled: boolean;
   needsStockEdit: boolean;
   value: string;
   onChange: (kit: Kit, value: string) => void;
@@ -153,6 +167,7 @@ type KitInputProps = {
 function KitInput({
   definition,
   calculateDisabled,
+  disabled,
   needsStockEdit,
   value,
   onChange,
@@ -211,6 +226,7 @@ function KitInput({
           autoComplete="off"
           placeholder="0"
           value={value}
+          disabled={disabled}
           aria-describedby={tooltipOpen ? tooltipId : undefined}
           aria-invalid={draftInvalid || undefined}
           onChange={(event) => {
@@ -256,9 +272,97 @@ function stockPanelClassName(needsStockEdit: boolean, stockStale: boolean) {
   return `${classes.panel} ${stateClass}`;
 }
 
+function correctionMessage(
+  correction: StockCorrectionView,
+  t: ReturnType<typeof useI18n>["t"],
+  formatInteger: ReturnType<typeof useI18n>["formatInteger"],
+) {
+  const kit = t(KIT_LABEL_KEYS[correction.kit]);
+  if (correction.status === "valid") {
+    return t("stock.correctionValid", {
+      attempt: correction.successAttempt ?? 1,
+      kit,
+    });
+  }
+  if (correction.reason === "state_changed") return t("stock.correctionStateChanged");
+  if (correction.reason === "other_kit_changed") {
+    return t("stock.correctionOtherKitChanged");
+  }
+  if (correction.reason === "selected_kit_increased") {
+    return t("stock.correctionIncreased", { kit });
+  }
+  if (correction.reason === "invalid_delta") {
+    return t("stock.correctionInvalidDelta", { kit });
+  }
+  if (correction.reason === "too_many_attempts") {
+    return t("stock.correctionTooMany", { uses: correction.recommendedUses });
+  }
+  return t("stock.correctionPrompt", {
+    before: formatInteger(correction.beforeStock),
+    kit,
+    max: formatInteger(correction.allowedMaximum),
+    min: formatInteger(correction.allowedMinimum),
+  });
+}
+
+function StockCorrectionNotice({
+  correction,
+  needsStockEdit,
+  notice,
+  onDiscard,
+}: {
+  correction: StockCorrectionView | null;
+  needsStockEdit: boolean;
+  notice: LocalizedMessage;
+  onDiscard: () => void;
+}) {
+  const { formatInteger, t, text } = useI18n();
+  return (
+    <div
+      id="stockEditNotice"
+      className={classes.editNotice}
+      hidden={!needsStockEdit && !correction}
+      role="status"
+      aria-live="polite"
+    >
+      <p className={classes.editNoticeText}>
+        {correction ? correctionMessage(correction, t, formatInteger) : text(notice)}
+      </p>
+      {correction?.status === "invalid" && correction.canDiscardStats ? (
+        <button className={classes.editNoticeAction} type="button" onClick={onDiscard}>
+          {t("stock.correctionDiscard")}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function StockCalculateLabel({
+  correction,
+  isStale,
+  loading,
+  needsStockEdit,
+}: Pick<StockPanelProps, "correction" | "isStale" | "loading" | "needsStockEdit">) {
+  const { t } = useI18n();
+  if (correction?.status === "valid") {
+    return t("stock.correctionCalculate", { attempt: correction.successAttempt ?? 1 });
+  }
+  if (needsStockEdit) return t("common.stockEditRequired");
+  if (loading) {
+    return (
+      <>
+        <span className={classes.spinner} aria-hidden="true" />
+        {t("common.calculating")}
+      </>
+    );
+  }
+  return t(isStale ? "common.recalculate" : "common.calculate");
+}
+
 export default function StockPanel({
   stock,
   needsStockEdit,
+  correction,
   isStale,
   stockStale,
   notice,
@@ -266,7 +370,9 @@ export default function StockPanel({
   description,
   calculateDisabled,
   loading,
+  disabled,
   onCalculate,
+  onDiscardStockCorrectionStats,
   onReset,
 }: StockPanelProps) {
   const { t, text } = useI18n();
@@ -305,9 +411,12 @@ export default function StockPanel({
         <h2>{t("stock.title")}</h2>
       </div>
 
-      <div id="stockEditNotice" className={classes.editNotice} hidden={!needsStockEdit}>
-        {text(notice)}
-      </div>
+      <StockCorrectionNotice
+        correction={correction}
+        needsStockEdit={needsStockEdit}
+        notice={notice}
+        onDiscard={onDiscardStockCorrectionStats}
+      />
       <div className={classes.editNotice} hidden={!stockStale || needsStockEdit}>
         {t("stock.changed")}
       </div>
@@ -317,8 +426,9 @@ export default function StockPanel({
           <KitInput
             definition={definition}
             calculateDisabled={calculateDisabled || loading}
+            disabled={disabled}
             key={definition.kit}
-            needsStockEdit={needsStockEdit}
+            needsStockEdit={needsStockEdit && (!correction || correction.kit === definition.kit)}
             value={stockText[definition.kit]}
             onChange={updateStockText}
             onCommit={commitStock}
@@ -334,6 +444,7 @@ export default function StockPanel({
           id="resetButton"
           className={classes.secondaryButton}
           type="button"
+          disabled={disabled}
           onClick={onReset}
         >
           <AlignedText alignmentRole="action">{t("common.reset")}</AlignedText>
@@ -341,28 +452,26 @@ export default function StockPanel({
         <button
           id="calculateButton"
           className={`${classes.primaryButton} ${
-            needsStockEdit ? classes.primaryButtonLocked : isStale ? classes.primaryButtonStale : ""
+            needsStockEdit && correction?.status !== "valid"
+              ? classes.primaryButtonLocked
+              : isStale
+                ? classes.primaryButtonStale
+                : ""
           }`}
           type="button"
-          disabled={calculateDisabled || loading}
+          disabled={calculateDisabled || loading || disabled}
           aria-describedby="strategyDescription"
           aria-live="polite"
           onPointerDown={commitFocusedInput}
           onClick={onCalculate}
         >
           <AlignedText alignmentRole="action" className="gap-2">
-            {needsStockEdit ? (
-              t("common.stockEditRequired")
-            ) : loading ? (
-              <>
-                <span className={classes.spinner} aria-hidden="true" />
-                {t("common.calculating")}
-              </>
-            ) : isStale ? (
-              t("common.recalculate")
-            ) : (
-              t("common.calculate")
-            )}
+            <StockCalculateLabel
+              correction={correction}
+              isStale={isStale}
+              loading={loading}
+              needsStockEdit={needsStockEdit}
+            />
           </AlignedText>
         </button>
       </div>

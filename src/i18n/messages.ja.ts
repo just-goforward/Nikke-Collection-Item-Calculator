@@ -64,6 +64,21 @@ export const jaMessages = {
   "stock.title": "所持キット",
   "stock.changed": "所持キットが変更されました。計算ボタンで結果を更新してください。",
   "stock.notice": "所持キットを修正してから計算ボタンを押してください。",
+  "stock.correctionPrompt":
+    "実際の{kit}所持数に修正してください。使用前は{before}個で、有効な残数は{min}～{max}個の範囲を10個刻みで入力できます。",
+  "stock.correctionValid":
+    "{kit}の{attempt}回目で大成功したと判断できます。計算すると統計を記録し、次のおすすめへ進みます。",
+  "stock.correctionStateChanged":
+    "大成功結果として反映されたコレクション状態が変更されています。状態を戻してからキットを修正してください。",
+  "stock.correctionOtherKitChanged":
+    "おすすめ以外のキット所持数も変更されたため、大成功の発生回数を自動判定できません。",
+  "stock.correctionIncreased":
+    "{kit}の所持数が使用前より増えているため、大成功の発生回数を自動判定できません。",
+  "stock.correctionInvalidDelta": "{kit}の減少量は10個単位で入力してください。",
+  "stock.correctionTooMany":
+    "おすすめの{uses}回を超える使用量は大成功の発生回数として記録できません。",
+  "stock.correctionDiscard": "統計を省略してこの所持数で続行",
+  "stock.correctionCalculate": "{attempt}回目を反映して計算",
   "stock.invalid": "負の数と小数は入力できないため、以前の値に戻しました。",
   "stock.adjustedMax": "所持キットは最大{max}個までのため、{value}に調整しました。",
   "solver.strategySupply":

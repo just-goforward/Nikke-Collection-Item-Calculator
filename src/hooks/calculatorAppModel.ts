@@ -7,6 +7,7 @@ import type {
   StateChangeFeedback,
   StatePanelModel,
   StatsView,
+  StockCorrectionView,
   SuccessAttemptModalState,
   ThemeMode,
   ValidationView,
@@ -31,6 +32,7 @@ export type CalculatorAppModel = {
     isStale: boolean;
     staleSource: "state" | "stock" | null;
     stockStale: boolean;
+    correction: StockCorrectionView | null;
     notice: LocalizedMessage;
   };
   solvePanel: { description: LocalizedMessage; calculateDisabled: boolean };
@@ -39,6 +41,7 @@ export type CalculatorAppModel = {
   validationView: ValidationView;
   statsView: StatsView;
   loading: LoadingView;
+  inputLocked: boolean;
   modal: SuccessAttemptModalState;
   themeMode: ThemeMode;
   stateFeedback: StateChangeFeedback | null;
@@ -56,12 +59,14 @@ export type CalculatorAppModel = {
     runMonteCarloValidation: () => Promise<void>;
     retryStats: () => void;
     submitSuccessAttempt: (attempt: number | null) => void;
+    discardStockCorrectionStats: () => void;
   };
 };
 
 type CalculatorAppModelOptions = {
   applyConvertAndCalculate: () => Promise<ConvertApplyResult | null>;
   calculatorState: CalculatorState;
+  discardStockCorrectionStats: () => void;
   detailView: DetailView;
   loading: LoadingView;
   isResultStale: boolean;
@@ -72,6 +77,7 @@ type CalculatorAppModelOptions = {
   runMonteCarloValidation: () => Promise<void>;
   retryStats: StatsState["retryStats"];
   setStock: (stock: Stock) => void;
+  stockCorrection: StockCorrectionView | null;
   statsView: StatsState["statsView"];
   stateFeedback: StateChangeFeedback | null;
   theme: ThemeState;
@@ -97,6 +103,7 @@ export function makeCalculatorAppModel({
   applyOutcomeAndMaybeCalculate,
   calculatorState,
   clearActionTransition,
+  discardStockCorrectionStats,
   detailView,
   isResultStale,
   loading,
@@ -107,6 +114,7 @@ export function makeCalculatorAppModel({
   runMonteCarloValidation,
   retryStats,
   setStock,
+  stockCorrection,
   stateFeedback,
   statsView,
   staleSource,
@@ -114,8 +122,10 @@ export function makeCalculatorAppModel({
   validationView,
 }: CalculatorAppModelOptions): CalculatorAppModel {
   const calculateDisabled =
-    calculatorState.solvePanel.calculateDisabled &&
-    !canRecalculateStaleStockAtMaxLevel(calculatorState, isResultStale, staleSource);
+    calculatorState.calculateBusy ||
+    (calculatorState.solvePanel.calculateDisabled &&
+      stockCorrection?.status !== "valid" &&
+      !canRecalculateStaleStockAtMaxLevel(calculatorState, isResultStale, staleSource));
 
   return {
     statePanel: calculatorState.statePanel,
@@ -125,6 +135,7 @@ export function makeCalculatorAppModel({
       isStale: isResultStale,
       staleSource,
       stockStale: isResultStale && staleSource === "stock",
+      correction: stockCorrection,
       notice: DEFAULT_STOCK_NOTICE,
     },
     solvePanel: {
@@ -136,6 +147,7 @@ export function makeCalculatorAppModel({
     validationView,
     statsView,
     loading,
+    inputLocked: calculatorState.calculateBusy,
     modal: outcomeFlow.modal,
     themeMode: theme.themeMode,
     stateFeedback,
@@ -153,6 +165,7 @@ export function makeCalculatorAppModel({
       runMonteCarloValidation,
       retryStats,
       submitSuccessAttempt: outcomeFlow.submitSuccessAttempt,
+      discardStockCorrectionStats,
     },
   };
 }

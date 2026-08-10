@@ -186,7 +186,7 @@ test("R 6에서 5회 추천 대성공은 재고 수정 전 자동 계산하지 �
 
   await expect(page.getByLabel("초심자용 키트")).toHaveValue("50");
   await expect(page.locator("#stockEditNotice")).toContainText(
-    "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.",
+    "가능한 남은 수량은 0~40개 사이의 10개 간격 값입니다.",
   );
   await expect(
     page.getByRole("status").filter({ hasText: "대성공 O를 반영해 다음 추천" }),
@@ -329,9 +329,62 @@ test("R 15 회차 입력을 취소하면 키트 수량을 유지하고 교체 �
     "true",
   );
   await page.getByRole("button", { name: "교체 적용", exact: true }).click();
-  await expect(page.locator("#stockEditNotice")).toContainText(
-    "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.",
-  );
+  await expect(page.locator("#stockEditNotice")).toContainText("가능한 남은 수량은");
+});
+
+test("다회 대성공 보정 안내와 계산 버튼은 모든 언어와 화면폭에서 넘치지 않는다", async ({
+  page,
+}) => {
+  const expectedButtonLabels = {
+    ko: "2회차 반영 후 계산",
+    ja: "2回目を反映して計算",
+    en: "Apply use 2 and calculate",
+  } as const;
+  const toolbarLabels = {
+    ko: "모바일 작업",
+    ja: "モバイル操作",
+    en: "Mobile actions",
+  } as const;
+
+  for (const locale of ["ko", "ja", "en"] as const) {
+    await page.setViewportSize({ width: 768, height: 900 });
+    await page.evaluate(({ key, value }) => localStorage.setItem(key, value), {
+      key: "collection-kit-calculator.language",
+      value: locale,
+    });
+    await page.reload();
+    await page.locator('[data-grade="SR"]').click();
+    await page.locator('[data-level="5"]').click();
+    await page.locator("#yellowStock").fill("100");
+    await page.locator("#calculateButton").click();
+    await expect(page.locator(".outcome-panel")).toBeVisible({ timeout: 20_000 });
+    await page.locator(".outcome-panel .success-button").click();
+    await page.locator(".outcome-panel .outcome-buttons button").first().click();
+
+    await page.locator("#yellowStock").fill("80");
+    const desktopButton = page.getByRole("button", {
+      name: expectedButtonLabels[locale],
+      exact: true,
+    });
+    await expect(desktopButton).toBeEnabled();
+    expect(
+      await page
+        .locator("#stockEditNotice")
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
+    expect(
+      await desktopButton.evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileButton = page
+      .getByRole("toolbar", { name: toolbarLabels[locale] })
+      .getByRole("button", { name: expectedButtonLabels[locale], exact: true });
+    await expect(mobileButton).toBeEnabled();
+    expect(
+      await mobileButton.evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
+  }
 });
 
 test("다회 회차 입력 팝업 바깥을 누르면 취소와 동일하게 처리한다", async ({ page }) => {

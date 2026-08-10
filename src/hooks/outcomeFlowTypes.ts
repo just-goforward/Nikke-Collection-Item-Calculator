@@ -32,6 +32,7 @@ export type OutcomeSharedOptions = {
   currentStockSnapshot: () => Stock;
   latestResultRef: RefObject<SolverResult | null>;
   pendingStatsEventRef: RefObject<PendingStatsEvent | null>;
+  setPendingStatsEvent: (event: PendingStatsEvent | null) => void;
   queueStatsEvent: (event: StatsSubmissionEvent) => void;
   recordStateFeedback: (from: StateChangeFeedback["from"], to: StateChangeFeedback["to"]) => void;
   setCollectionState: (
@@ -50,7 +51,6 @@ export type OutcomeSharedOptions = {
 export type OutcomeApplyResult =
   | {
       outcome: "fail";
-      commit: () => void;
       nextInput: SolverInput;
       needsStockEdit: false;
       previousAction: RecommendationAction;

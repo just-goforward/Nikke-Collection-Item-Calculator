@@ -13,11 +13,12 @@ import type { useOutcomeFlow } from "./useOutcomeFlow";
 type AppLifecycleOptions = {
   clearResultStale: () => void;
   invalidateValidation: () => void;
+  invalidateSolveInput: () => void;
   latestResultRef: RefObject<SolverResult | null>;
   outcomeFlow: Pick<ReturnType<typeof useOutcomeFlow>, "resetOutcomeFlow">;
-  pendingStatsEventRef: RefObject<PendingStatsEvent | null>;
+  setPendingStatsEvent: (event: PendingStatsEvent | null) => void;
   resetState: () => void;
-  runCalculation: () => Promise<void>;
+  runCalculation: () => Promise<boolean>;
   setDetailView: React.Dispatch<React.SetStateAction<DetailView>>;
   setResultView: React.Dispatch<React.SetStateAction<ResultView>>;
   setStaleSource: React.Dispatch<React.SetStateAction<"state" | "stock" | null>>;
@@ -40,9 +41,10 @@ export function useInputChangeTracker(
 export function useCalculatorAppLifecycle({
   clearResultStale,
   invalidateValidation,
+  invalidateSolveInput,
   latestResultRef,
   outcomeFlow,
-  pendingStatsEventRef,
+  setPendingStatsEvent,
   resetState,
   runCalculation,
   setDetailView,
@@ -51,14 +53,16 @@ export function useCalculatorAppLifecycle({
   setValidationView,
 }: AppLifecycleOptions) {
   const calculateAndClearStale = useCallback(async () => {
-    await runCalculation();
+    const started = await runCalculation();
+    if (!started) return;
     clearResultStale();
     setStaleSource(null);
   }, [clearResultStale, runCalculation, setStaleSource]);
 
   const resetInputs = useCallback(() => {
     invalidateValidation();
-    pendingStatsEventRef.current = null;
+    invalidateSolveInput();
+    setPendingStatsEvent(null);
     latestResultRef.current = null;
     clearResultStale();
     setStaleSource(null);
@@ -70,12 +74,13 @@ export function useCalculatorAppLifecycle({
   }, [
     clearResultStale,
     invalidateValidation,
+    invalidateSolveInput,
     latestResultRef,
     outcomeFlow,
-    pendingStatsEventRef,
     resetState,
     setDetailView,
     setResultView,
+    setPendingStatsEvent,
     setStaleSource,
     setValidationView,
   ]);

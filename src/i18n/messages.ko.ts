@@ -62,6 +62,21 @@ export const koMessages = {
   "stock.title": "보유 키트",
   "stock.changed": "보유 키트가 변경되었습니다. 계산 버튼을 눌러 결과를 갱신해주세요.",
   "stock.notice": "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.",
+  "stock.correctionPrompt":
+    "{kit} 보유량을 실제 결과에 맞게 수정해주세요. 현재 {before}개이며, 가능한 남은 수량은 {min}~{max}개 사이의 10개 간격 값입니다.",
+  "stock.correctionValid":
+    "{kit} {attempt}회차에서 대성공한 것으로 확인됩니다. 계산하면 통계 기록과 다음 추천을 함께 처리합니다.",
+  "stock.correctionStateChanged":
+    "대성공 결과로 반영된 소장품 상태가 바뀌었습니다. 소장품 상태를 되돌린 뒤 키트를 수정해주세요.",
+  "stock.correctionOtherKitChanged":
+    "추천 키트 외의 보유량도 변경되어 대성공 시점을 자동으로 역산할 수 없습니다.",
+  "stock.correctionIncreased":
+    "{kit} 보유량이 사용 전보다 늘어 대성공 시점을 자동으로 역산할 수 없습니다.",
+  "stock.correctionInvalidDelta": "{kit} 감소량은 10개 단위여야 합니다.",
+  "stock.correctionTooMany":
+    "추천된 {uses}회보다 많은 사용량은 대성공 시점으로 기록할 수 없습니다.",
+  "stock.correctionDiscard": "통계 생략하고 이 재고로 계속",
+  "stock.correctionCalculate": "{attempt}회차 반영 후 계산",
   "stock.invalid": "음수와 소수는 입력할 수 없어 이전 값으로 되돌렸습니다.",
   "stock.adjustedMax":
     "보유 키트는 최대 {max}개까지 입력할 수 있어 입력값을 {value}으로 조정했습니다.",

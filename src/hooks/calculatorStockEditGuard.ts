@@ -1,22 +1,17 @@
-import { type RefObject, useCallback } from "react";
+import { useCallback } from "react";
 
-import type { CollectionState, Stock } from "../types";
-import { clampStock, type PendingStatsEvent } from "./calculatorShared";
-import type { SetStockOptions } from "./calculatorStateActions";
+import type { Stock } from "../types";
+import { clampStock } from "./calculatorShared";
 
 type GuardedStockOptions = {
-  currentStateSnapshot: () => CollectionState;
-  manualStockEditRequired: boolean;
-  pendingStatsEventRef: RefObject<PendingStatsEvent | null>;
-  setStock: (stock: Stock, options?: SetStockOptions) => void;
+  setStock: (stock: Stock) => void;
 };
 
-export function useGuardedStockSetter({ manualStockEditRequired, setStock }: GuardedStockOptions) {
+export function useGuardedStockSetter({ setStock }: GuardedStockOptions) {
   return useCallback(
     (nextStock: Stock) => {
-      const stock = clampStock(nextStock);
-      setStock(stock, { clearManualStockEditRequired: manualStockEditRequired });
+      setStock(clampStock(nextStock));
     },
-    [manualStockEditRequired, setStock],
+    [setStock],
   );
 }

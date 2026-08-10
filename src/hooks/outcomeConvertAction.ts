@@ -23,6 +23,7 @@ type ConvertActionOptions = {
   ) => void;
   setDetailView: Dispatch<SetStateAction<DetailView>>;
   setManualStockEditRequired: (required: boolean) => void;
+  setPendingStatsEvent: (event: PendingStatsEvent | null) => void;
   setResultView: Dispatch<SetStateAction<ResultView>>;
   setValidationView: Dispatch<SetStateAction<ValidationView>>;
 };
@@ -36,6 +37,7 @@ export function useConvertAction({
   setCollectionState,
   setDetailView,
   setManualStockEditRequired,
+  setPendingStatsEvent,
   setResultView,
   setValidationView,
 }: ConvertActionOptions) {
@@ -50,10 +52,10 @@ export function useConvertAction({
       ...(previousInput?.strategy ? { strategy: previousInput.strategy } : {}),
     };
     if (pendingStatsEventRef.current) {
-      pendingStatsEventRef.current = {
+      setPendingStatsEvent({
         ...pendingStatsEventRef.current,
         resultState: nextState,
-      };
+      });
     }
     recordStateFeedback(previousState, nextState);
     setCollectionState(nextState, { maxLevelRender: false });
@@ -79,6 +81,7 @@ export function useConvertAction({
     setCollectionState,
     setDetailView,
     setManualStockEditRequired,
+    setPendingStatsEvent,
     setResultView,
     setValidationView,
   ]);
