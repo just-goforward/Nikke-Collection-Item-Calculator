@@ -59,14 +59,12 @@ export type CalculatorAppModel = {
     runMonteCarloValidation: () => Promise<void>;
     retryStats: () => void;
     submitSuccessAttempt: (attempt: number | null) => void;
-    discardStockCorrectionStats: () => void;
   };
 };
 
 type CalculatorAppModelOptions = {
   applyConvertAndCalculate: () => Promise<ConvertApplyResult | null>;
   calculatorState: CalculatorState;
-  discardStockCorrectionStats: () => void;
   detailView: DetailView;
   loading: LoadingView;
   isResultStale: boolean;
@@ -103,7 +101,6 @@ export function makeCalculatorAppModel({
   applyOutcomeAndMaybeCalculate,
   calculatorState,
   clearActionTransition,
-  discardStockCorrectionStats,
   detailView,
   isResultStale,
   loading,
@@ -124,7 +121,7 @@ export function makeCalculatorAppModel({
   const calculateDisabled =
     calculatorState.calculateBusy ||
     (calculatorState.solvePanel.calculateDisabled &&
-      stockCorrection?.status !== "valid" &&
+      !stockCorrection?.canCalculate &&
       !canRecalculateStaleStockAtMaxLevel(calculatorState, isResultStale, staleSource));
 
   return {
@@ -165,7 +162,6 @@ export function makeCalculatorAppModel({
       runMonteCarloValidation,
       retryStats,
       submitSuccessAttempt: outcomeFlow.submitSuccessAttempt,
-      discardStockCorrectionStats,
     },
   };
 }

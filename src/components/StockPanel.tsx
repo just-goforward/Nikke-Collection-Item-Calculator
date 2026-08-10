@@ -21,7 +21,6 @@ type StockPanelProps = {
   loading: boolean;
   disabled: boolean;
   onCalculate: () => void;
-  onDiscardStockCorrectionStats: () => void;
   onReset: () => void;
 };
 
@@ -69,8 +68,6 @@ const classes = {
   editNotice:
     "mx-[18px] mt-3.5 rounded-card border-2 border-yellow-kit bg-outcome px-[13px] py-3 text-[13px] text-outcome-text font-semibold leading-[1.45] max-mobile:mx-3 max-mobile:mt-2.5 max-mobile:px-3 max-mobile:py-2.5 max-mobile:text-[12px]",
   editNoticeText: "m-0",
-  editNoticeAction:
-    "mt-2 inline-flex min-h-7 items-center border-0 bg-transparent p-0 text-[12px] font-bold text-text-strong underline underline-offset-[3px]",
   kitGrid:
     "grid grid-cols-3 gap-2.5 px-[18px] py-4 min-[661px]:max-tablet:flex-1 min-[661px]:max-tablet:grid-cols-1 min-[661px]:max-tablet:grid-rows-3 min-[661px]:max-tablet:gap-2 min-[661px]:max-tablet:p-3.5 max-mobile:grid-cols-3 max-mobile:gap-2 max-mobile:px-3 max-mobile:pt-2.5 max-mobile:pb-[13px]",
   kitInput:
@@ -309,12 +306,10 @@ function StockCorrectionNotice({
   correction,
   needsStockEdit,
   notice,
-  onDiscard,
 }: {
   correction: StockCorrectionView | null;
   needsStockEdit: boolean;
   notice: LocalizedMessage;
-  onDiscard: () => void;
 }) {
   const { formatInteger, t, text } = useI18n();
   return (
@@ -328,10 +323,8 @@ function StockCorrectionNotice({
       <p className={classes.editNoticeText}>
         {correction ? correctionMessage(correction, t, formatInteger) : text(notice)}
       </p>
-      {correction?.status === "invalid" && correction.canDiscardStats ? (
-        <button className={classes.editNoticeAction} type="button" onClick={onDiscard}>
-          {t("stock.correctionDiscard")}
-        </button>
+      {correction?.status === "invalid" && correction.canCalculate ? (
+        <p className={`${classes.editNoticeText} mt-1`}>{t("stock.correctionUntracked")}</p>
       ) : null}
     </div>
   );
@@ -347,6 +340,7 @@ function StockCalculateLabel({
   if (correction?.status === "valid") {
     return t("stock.correctionCalculate", { attempt: correction.successAttempt ?? 1 });
   }
+  if (correction?.canCalculate) return t("common.recalculate");
   if (needsStockEdit) return t("common.stockEditRequired");
   if (loading) {
     return (
@@ -372,7 +366,6 @@ export default function StockPanel({
   loading,
   disabled,
   onCalculate,
-  onDiscardStockCorrectionStats,
   onReset,
 }: StockPanelProps) {
   const { t, text } = useI18n();
@@ -415,7 +408,6 @@ export default function StockPanel({
         correction={correction}
         needsStockEdit={needsStockEdit}
         notice={notice}
-        onDiscard={onDiscardStockCorrectionStats}
       />
       <div className={classes.editNotice} hidden={!stockStale || needsStockEdit}>
         {t("stock.changed")}
@@ -452,7 +444,7 @@ export default function StockPanel({
         <button
           id="calculateButton"
           className={`${classes.primaryButton} ${
-            needsStockEdit && correction?.status !== "valid"
+            needsStockEdit && !correction?.canCalculate
               ? classes.primaryButtonLocked
               : isStale
                 ? classes.primaryButtonStale

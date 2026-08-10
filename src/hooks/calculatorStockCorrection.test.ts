@@ -65,21 +65,29 @@ describe("resolvePendingStockCorrection", () => {
     ).toMatchObject({ status: "invalid", reason: "too_many_attempts" });
   });
 
-  it("rejects a collection state change and does not allow discarding the event", () => {
+  it("does not infer stats after a collection state change but still allows recalculation", () => {
     expect(
       resolve({ blue: 20, purple: 100, yellow: 100 }, { ...RESULT_STATE, level: 11 }),
     ).toMatchObject({
       status: "invalid",
       reason: "state_changed",
-      canDiscardStats: false,
+      canCalculate: true,
     });
   });
 
-  it("allows an explicit stats discard after a stock change that cannot be inferred", () => {
+  it("allows recalculation after a stock change that cannot be inferred", () => {
     expect(resolve({ blue: 25, purple: 100, yellow: 100 })).toMatchObject({
       status: "invalid",
       reason: "invalid_delta",
-      canDiscardStats: true,
+      canCalculate: true,
+    });
+  });
+
+  it("keeps recalculation blocked until at least one kit count changes", () => {
+    expect(resolve({ blue: 50, purple: 100, yellow: 100 })).toMatchObject({
+      status: "invalid",
+      reason: "unchanged",
+      canCalculate: false,
     });
   });
 });

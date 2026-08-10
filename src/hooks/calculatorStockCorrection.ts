@@ -14,7 +14,7 @@ type StockCorrectionBase = {
   allowedMaximum: number;
   allowedMinimum: number;
   beforeStock: number;
-  canDiscardStats: boolean;
+  canCalculate: boolean;
   currentStock: number;
   kit: Kit;
   recommendedUses: number;
@@ -51,7 +51,7 @@ export function resolvePendingStockCorrection(
     allowedMaximum: Math.max(0, before[pending.kit] - 10),
     allowedMinimum: Math.max(0, before[pending.kit] - pending.recommendedUses * 10),
     beforeStock: before[pending.kit],
-    canDiscardStats: stateMatches && stockChanged(before, stockAfter),
+    canCalculate: stockChanged(before, stockAfter),
     currentStock: stockAfter[pending.kit],
     kit: pending.kit,
     recommendedUses: pending.recommendedUses,

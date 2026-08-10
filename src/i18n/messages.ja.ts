@@ -77,7 +77,7 @@ export const jaMessages = {
   "stock.correctionInvalidDelta": "{kit}の減少量は10個単位で入力してください。",
   "stock.correctionTooMany":
     "おすすめの{uses}回を超える使用量は大成功の発生回数として記録できません。",
-  "stock.correctionDiscard": "統計を省略してこの所持数で続行",
+  "stock.correctionUntracked": "この所持数で計算できますが、大成功の統計は記録されません。",
   "stock.correctionCalculate": "{attempt}回目を反映して計算",
   "stock.invalid": "負の数と小数は入力できないため、以前の値に戻しました。",
   "stock.adjustedMax": "所持キットは最大{max}個までのため、{value}に調整しました。",

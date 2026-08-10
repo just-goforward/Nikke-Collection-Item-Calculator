@@ -36,7 +36,7 @@ describe("consumePendingStockCorrection", () => {
     expect(manualUpdates).toEqual([false]);
   });
 
-  it("preserves the pending correction and blocks calculation after an invalid edit", () => {
+  it("skips stats and clears the pending correction after any invalid stock edit", () => {
     const pending = pendingEvent();
     const pendingStatsEventRef = { current: pending as PendingStatsEvent | null };
     const queued: unknown[] = [];
@@ -50,9 +50,29 @@ describe("consumePendingStockCorrection", () => {
       setManualStockEditRequired: (required) => manualUpdates.push(required),
     });
 
-    expect(ready).toBe(false);
+    expect(ready).toBe(true);
     expect(pendingStatsEventRef.current).toBe(pending);
     expect(queued).toEqual([]);
+    expect(pendingUpdates).toEqual([null]);
+    expect(manualUpdates).toEqual([false]);
+  });
+
+  it("preserves the pending correction until a kit count changes", () => {
+    const pending = pendingEvent();
+    const pendingStatsEventRef = { current: pending as PendingStatsEvent | null };
+    const pendingUpdates: Array<PendingStatsEvent | null> = [];
+    const manualUpdates: boolean[] = [];
+    const ready = consumePendingStockCorrection({
+      input: { start: RESULT_STATE, stock: pending.stockBefore },
+      pendingStatsEventRef,
+      queueStatsEvent: () => {
+        throw new Error("Unchanged stock must not queue stats.");
+      },
+      setPendingStatsEvent: (event) => pendingUpdates.push(event),
+      setManualStockEditRequired: (required) => manualUpdates.push(required),
+    });
+
+    expect(ready).toBe(false);
     expect(pendingUpdates).toEqual([]);
     expect(manualUpdates).toEqual([]);
   });

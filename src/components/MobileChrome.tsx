@@ -315,6 +315,20 @@ function MobileCalculateActionBar({
   | "onReset"
 >) {
   const { t } = useI18n();
+  let calculateLabel: ReactNode = t(isStale ? "common.recalculate" : "common.calculateLong");
+  if (correction?.status === "valid") {
+    calculateLabel = t("stock.correctionCalculate", { attempt: correction.successAttempt ?? 1 });
+  } else if (correction?.canCalculate) {
+    calculateLabel = t("common.recalculate");
+  } else if (needsStockEdit) {
+    calculateLabel = t("common.stockEditRequired");
+  } else if (loading.active) {
+    calculateLabel = (
+      <>
+        <span className={classes.spinner} aria-hidden="true" /> {t("common.calculating")}
+      </>
+    );
+  }
   return (
     <MobileToolbar mode={needsStockEdit ? "mode-calculate needs-stock-edit" : "mode-calculate"}>
       <button
@@ -326,7 +340,7 @@ function MobileCalculateActionBar({
       </button>
       <button
         className={`${classes.actionButton} ${classes.primaryButton} ${
-          needsStockEdit ? classes.stockEditDisabled : ""
+          needsStockEdit && !correction?.canCalculate ? classes.stockEditDisabled : ""
         }`}
         type="button"
         disabled={calculateDisabled || loading.active}
@@ -334,19 +348,7 @@ function MobileCalculateActionBar({
         onClick={onCalculate}
       >
         <AlignedText alignmentRole="action" className="gap-2">
-          {correction?.status === "valid" ? (
-            t("stock.correctionCalculate", { attempt: correction.successAttempt ?? 1 })
-          ) : needsStockEdit ? (
-            t("common.stockEditRequired")
-          ) : loading.active ? (
-            <>
-              <span className={classes.spinner} aria-hidden="true" /> {t("common.calculating")}
-            </>
-          ) : isStale ? (
-            t("common.recalculate")
-          ) : (
-            t("common.calculateLong")
-          )}
+          {calculateLabel}
         </AlignedText>
       </button>
     </MobileToolbar>

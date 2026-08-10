@@ -75,7 +75,7 @@ export const koMessages = {
   "stock.correctionInvalidDelta": "{kit} 감소량은 10개 단위여야 합니다.",
   "stock.correctionTooMany":
     "추천된 {uses}회보다 많은 사용량은 대성공 시점으로 기록할 수 없습니다.",
-  "stock.correctionDiscard": "통계 생략하고 이 재고로 계속",
+  "stock.correctionUntracked": "이 재고로 계산할 수 있지만 대성공 통계는 기록하지 않습니다.",
   "stock.correctionCalculate": "{attempt}회차 반영 후 계산",
   "stock.invalid": "음수와 소수는 입력할 수 없어 이전 값으로 되돌렸습니다.",
   "stock.adjustedMax":

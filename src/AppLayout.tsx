@@ -207,7 +207,6 @@ function Workspace({
             loading={calculator.loading.active}
             disabled={calculator.inputLocked}
             onCalculate={handlers.onCalculate}
-            onDiscardStockCorrectionStats={actions.discardStockCorrectionStats}
             onReset={handlers.onReset}
           />
         </div>

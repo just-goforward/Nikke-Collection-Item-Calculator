@@ -115,7 +115,7 @@ export type StockCorrectionView = {
   allowedMaximum: number;
   allowedMinimum: number;
   beforeStock: number;
-  canDiscardStats: boolean;
+  canCalculate: boolean;
   currentStock: number;
   kit: Kit;
   recommendedUses: number;

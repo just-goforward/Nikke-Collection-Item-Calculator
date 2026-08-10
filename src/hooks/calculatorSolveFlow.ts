@@ -214,9 +214,9 @@ export function consumePendingStockCorrection({
     input.start,
     input.stock,
   );
-  if (resolution.status === "invalid") return false;
   if (resolution.status === "none") return true;
-  queueStatsEvent(resolution.event);
+  if (resolution.status === "invalid" && !resolution.canCalculate) return false;
+  if (resolution.status === "valid") queueStatsEvent(resolution.event);
   setPendingStatsEvent(null);
   setManualStockEditRequired(false);
   return true;

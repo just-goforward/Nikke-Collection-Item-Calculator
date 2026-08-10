@@ -65,7 +65,7 @@ function stockCorrectionView(
     allowedMaximum: resolution.allowedMaximum,
     allowedMinimum: resolution.allowedMinimum,
     beforeStock: resolution.beforeStock,
-    canDiscardStats: resolution.canDiscardStats,
+    canCalculate: resolution.canCalculate,
     currentStock: resolution.currentStock,
     kit: resolution.kit,
     recommendedUses: resolution.recommendedUses,
@@ -207,20 +207,6 @@ export function useCalculatorApp(statsQueryEnabled = false) {
       )
     : ({ status: "none" } as const);
   const correction = stockCorrectionView(correctionResolution);
-  const discardStockCorrectionStats = useCallback(() => {
-    if (correctionResolution.status !== "invalid" || !correctionResolution.canDiscardStats) {
-      return;
-    }
-    setPendingStatsEvent(null);
-    calculatorState.setManualStockEditRequired(false);
-    handleInputChanged(false, "stock");
-  }, [
-    calculatorState.setManualStockEditRequired,
-    correctionResolution,
-    handleInputChanged,
-    setPendingStatsEvent,
-  ]);
-
   const { calculateAndClearStale, resetInputs } = useCalculatorAppLifecycle({
     clearResultStale,
     invalidateValidation,
@@ -241,7 +227,6 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     applyOutcomeAndMaybeCalculate,
     calculatorState,
     clearActionTransition,
-    discardStockCorrectionStats,
     detailView,
     isResultStale,
     staleSource,

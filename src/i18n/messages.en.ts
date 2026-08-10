@@ -80,7 +80,8 @@ export const enMessages = {
   "stock.correctionInvalidDelta": "The {kit} inventory must decrease in steps of 10.",
   "stock.correctionTooMany":
     "Usage beyond the recommended {uses} attempts cannot be recorded as this Super Success.",
-  "stock.correctionDiscard": "Skip stats and use this inventory",
+  "stock.correctionUntracked":
+    "You can calculate with this inventory, but the Super Success will not be recorded in stats.",
   "stock.correctionCalculate": "Apply use {attempt} and calculate",
   "stock.invalid": "Negative numbers and decimals are not allowed. The previous value was kept.",
   "stock.adjustedMax":
