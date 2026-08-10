@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { type AppHandlers, AppLayout } from "./AppLayout";
+import { type AppHandlers, AppLayout, preloadDetailPanel } from "./AppLayout";
 import type { MobileTab } from "./components/MobileChrome";
 import type { TopViewTab } from "./components/TopBar";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
@@ -52,12 +52,14 @@ function makeAppHandlers({
 
   return {
     onCalculate: async () => {
+      preloadDetailPanel();
       setPendingOutcome(null);
       await actions.calculate();
       setMobileViewTab("result");
     },
     onReset: resetWithUndo,
     onConvert: async () => {
+      preloadDetailPanel();
       setPendingOutcome(null);
       const applied = await actions.applyConvert();
       if (!applied) return;
@@ -68,6 +70,7 @@ function makeAppHandlers({
       setMobileViewTab("result");
     },
     onOutcome: async (outcome) => {
+      preloadDetailPanel();
       const applied = await actions.applyOutcome(outcome);
       if (!applied) return;
       setPendingOutcome(null);

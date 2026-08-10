@@ -212,6 +212,36 @@ test("R 1 + 초심자용 100 — 계산 결과 패널에 추천 행동이 나타
   await expect(page.locator(".result-panel .outcome-panel .change-note")).toBeVisible();
 });
 
+test("첫 계산은 세부 정보 코드를 solver와 병렬로 요청한다", async ({ page }) => {
+  const releaseWorker = Promise.withResolvers<void>();
+  let detailRequested = false;
+  let workerRequested = false;
+
+  page.on("request", (request) => {
+    if (/\/assets\/DetailPanel-[^/]+\.js(?:\?|$)/.test(request.url())) {
+      detailRequested = true;
+    }
+  });
+  await page.route(/\/assets\/worker-[^/]+\.js(?:\?|$)/, async (route) => {
+    workerRequested = true;
+    await releaseWorker.promise;
+    await route.continue();
+  });
+
+  await page.getByLabel("초심자용 키트").fill("100");
+  await page.getByRole("button", { name: "계산", exact: true }).click();
+
+  try {
+    await expect.poll(() => workerRequested).toBe(true);
+    await expect.poll(() => detailRequested).toBe(true);
+  } finally {
+    releaseWorker.resolve();
+  }
+
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible();
+});
+
 test("R 등급 추천은 추천 횟수와 무관하게 대성공 여부 칸에 안내 문구를 표시한다", async ({
   page,
 }) => {

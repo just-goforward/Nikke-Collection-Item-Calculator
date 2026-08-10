@@ -19,7 +19,22 @@ import { useI18n } from "./i18n/locale";
 import type { LocalizedMessage } from "./i18n/messages.ko";
 import type { StatsRuntimeMode } from "./lib/statsRuntime";
 
-const DetailPanel = lazy(() => import("./components/DetailPanel"));
+type DetailPanelModule = typeof import("./components/DetailPanel");
+
+let detailPanelLoad: Promise<DetailPanelModule> | null = null;
+
+function loadDetailPanel() {
+  detailPanelLoad ??= import("./components/DetailPanel");
+  return detailPanelLoad;
+}
+
+export function preloadDetailPanel() {
+  void loadDetailPanel().catch(() => {
+    detailPanelLoad = null;
+  });
+}
+
+const DetailPanel = lazy(loadDetailPanel);
 
 const classes = {
   shell:
