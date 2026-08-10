@@ -197,7 +197,10 @@ function StatsBody({ onRetry, view }: StatsPanelProps) {
     <div
       id="globalStatsBox"
       className={
-        view.type === "empty" || view.type === "error" || view.type === "hidden"
+        view.type === "empty" ||
+        view.type === "error" ||
+        view.type === "hidden" ||
+        view.type === "unconfigured"
           ? classes.panelEmpty
           : ""
       }
@@ -211,7 +214,7 @@ function StatsBody({ onRetry, view }: StatsPanelProps) {
             {t("stats.retry")}
           </button>
         </div>
-      ) : view.type === "empty" ? (
+      ) : view.type === "empty" || view.type === "unconfigured" ? (
         text(view.message)
       ) : (
         t("stats.unconfigured")

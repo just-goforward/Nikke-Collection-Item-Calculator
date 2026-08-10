@@ -671,6 +671,15 @@ test("staging 설정 누락은 운영 API로 대체하지 않고 알림을 표�
   );
 });
 
+test("비활성 통계는 로딩 상태에 머물지 않고 미설정 안내를 표시한다", async ({ page }) => {
+  await openStatsPanel(page);
+
+  const statsBox = page.locator("#globalStatsBox");
+  await expect(statsBox).toContainText("통계 서버를 연결하면");
+  await expect(statsBox).not.toHaveAttribute("aria-busy", "true");
+  await expect(statsBox.locator(".stats-loading-spinner")).toHaveCount(0);
+});
+
 test("staging 통계는 통계 탭을 열 때만 별도 API에서 조회한다", async ({ page }) => {
   let requestedStatsUrl = "";
   const requestedStatsAssets: string[] = [];

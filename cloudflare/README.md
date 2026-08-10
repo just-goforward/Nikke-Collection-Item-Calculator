@@ -68,14 +68,16 @@ Set a random rate-limit secret:
 wrangler secret put RATE_LIMIT_SECRET
 ```
 
-Set a private admin token for non-public diagnostic reads:
+Optionally set a private admin token to enable non-public diagnostic reads:
 
 ```powershell
 wrangler secret put ADMIN_TOKEN
 ```
 
-All three Worker secrets are required in every deployed environment. If `RATE_LIMIT_SECRET` is
-missing, `/api/events` returns `rate_limit_not_configured` without retrying or storing data.
+`TURNSTILE_SECRET_KEY` and `RATE_LIMIT_SECRET` are required in every deployed environment.
+`ADMIN_TOKEN` is optional: when it is absent, the private diagnostics endpoint stays hidden with
+`404 not_found`. If `RATE_LIMIT_SECRET` is missing, `/api/events` returns
+`rate_limit_not_configured` without retrying or storing data.
 
 7. Set `ALLOWED_ORIGINS` in `wrangler.toml`.
 
@@ -90,6 +92,35 @@ ALLOWED_ORIGINS = "https://YOUR_GITHUB_ID.github.io"
 ```powershell
 wrangler deploy --config cloudflare/wrangler.toml
 ```
+
+### Automated Worker deployment
+
+`.github/workflows/worker-deploy.yml` runs after a successful `main` push completes the
+`Deploy GitHub Pages` workflow. It checks Worker types and D1 integration tests, deploys staging,
+runs read-only CORS and endpoint smoke tests, and then promotes the same commit to production.
+The `cloudflare-production` GitHub environment is the production approval boundary; configure a
+required reviewer for that environment before enabling the workflow.
+
+Automatic runs compare the current commit with the commit tag from the last automated production
+Worker deployment. They skip deployment when Worker source, shared contracts, Worker config,
+dependencies, and deployment tooling are unchanged. A manual run always deploys.
+If tracked D1 SQL changed, an automatic run stops before deployment; apply the migration to staging
+and production explicitly, then use `workflow_dispatch` to perform the guarded deployment.
+
+Configure these GitHub repository settings:
+
+| Type | Name | Value |
+| --- | --- | --- |
+| Secret | `CLOUDFLARE_API_TOKEN` | A scoped token that can deploy this account's Workers |
+| Variable | `CLOUDFLARE_ACCOUNT_ID` | The Cloudflare account ID |
+| Variable | `STATS_ALLOWED_ORIGIN` | `https://just-goforward.github.io` |
+| Variable | `CLOUDFLARE_STAGING_WORKER_URL` | The public staging Worker URL |
+| Variable | `CLOUDFLARE_PRODUCTION_WORKER_URL` | The public production Worker URL |
+
+The workflow does not upload Turnstile, rate-limit, or admin secret values. Wrangler preserves
+secrets already stored on each Worker. A manual `workflow_dispatch` follows the same staging,
+smoke, approval, and production sequence. D1 migrations remain separate operations and are never
+run implicitly by this workflow.
 
 ## Abuse controls
 
@@ -141,8 +172,9 @@ Returns all-time aggregate statistics for display on the site. This public respo
 `GET /api/admin/solver-diagnostics`
 
 Returns private solver diagnostic aggregates grouped by `solverVersion` and `solverPhase`.
-This endpoint is not used by the public site and requires an `Authorization: Bearer <ADMIN_TOKEN>`
-header. Optional query parameter: `days=30` (1-365). The response also includes recent
+This endpoint is not used by the public site. When `ADMIN_TOKEN` is configured, it requires an
+`Authorization: Bearer <ADMIN_TOKEN>` header; without the secret, the endpoint returns 404.
+Optional query parameter: `days=30` (1-365). The response also includes recent
 `nodeCounts` buckets for observing Rust min-E[f] state-space pressure and fallback risk, plus
 `calculationLocales` for the language selected when each calculation started.
 
@@ -361,11 +393,13 @@ Create a separate Invisible Turnstile widget in Cloudflare Dashboard. Allow
 longer the only intended use. Invisible mode is configured on the widget, not with a frontend
 `size: "invisible"` render option.
 
-Set staging-only secrets and deploy the staging Worker:
+Set the required staging secrets, optionally enable private diagnostics, and deploy the staging
+Worker:
 
 ```powershell
 & "C:\Program Files\nodejs\npx.cmd" wrangler secret put TURNSTILE_SECRET_KEY --env staging --config cloudflare/wrangler.toml
 & "C:\Program Files\nodejs\npx.cmd" wrangler secret put RATE_LIMIT_SECRET --env staging --config cloudflare/wrangler.toml
+# Optional: enables /api/admin/solver-diagnostics in staging.
 & "C:\Program Files\nodejs\npx.cmd" wrangler secret put ADMIN_TOKEN --env staging --config cloudflare/wrangler.toml
 & "C:\Program Files\nodejs\npx.cmd" wrangler deploy --env staging --config cloudflare/wrangler.toml
 ```

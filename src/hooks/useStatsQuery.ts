@@ -6,9 +6,27 @@ import { statsApiBase, statsRuntimeMode } from "../lib/statsRuntime";
 import { statsViewFromApiStats } from "../lib/statsView";
 import type { StatsView } from "../ui-types";
 
+type MutableRef<T> = { current: T };
+
 function warnStatsRefreshFailure(reason: string, detail?: unknown) {
   if (!import.meta.env.DEV) return;
   console.warn(`[stats] ${reason}`, detail);
+}
+
+function unconfiguredStatsView(): StatsView {
+  return { type: "unconfigured", message: message("stats.unconfigured") };
+}
+
+function cancelStatsRefresh(
+  timerRef: MutableRef<number | null>,
+  sequenceRef: MutableRef<number>,
+  requestRef: MutableRef<AbortController | null>,
+) {
+  if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+  timerRef.current = null;
+  sequenceRef.current += 1;
+  requestRef.current?.abort();
+  requestRef.current = null;
 }
 
 export function useStatsQuery(queryEnabled: boolean) {
@@ -31,7 +49,11 @@ export function useStatsQuery(queryEnabled: boolean) {
       return;
     }
     const base = statsApiBase();
-    if (!base) return;
+    if (!base) {
+      setStatsView(unconfiguredStatsView());
+      dirtyRef.current = false;
+      return;
+    }
     const controller = new AbortController();
     activeRequestRef.current = controller;
     try {
@@ -93,9 +115,10 @@ export function useStatsQuery(queryEnabled: boolean) {
 
   const retryStats = useCallback(() => {
     if (!queryEnabled) return;
-    if (refreshTimerRef.current !== null) {
-      window.clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = null;
+    cancelStatsRefresh(refreshTimerRef, refreshSequenceRef, activeRequestRef);
+    if (statsRuntimeMode() !== "demo" && !statsApiBase()) {
+      setStatsView(unconfiguredStatsView());
+      return;
     }
     setStatsView({ type: "loading", message: message("stats.loading") });
     void refresh(true);
@@ -103,16 +126,15 @@ export function useStatsQuery(queryEnabled: boolean) {
 
   useEffect(() => {
     if (!queryEnabled) {
-      if (refreshTimerRef.current !== null) {
-        window.clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
-      refreshSequenceRef.current += 1;
-      activeRequestRef.current?.abort();
-      activeRequestRef.current = null;
+      cancelStatsRefresh(refreshTimerRef, refreshSequenceRef, activeRequestRef);
       return;
     }
     if (hasLoadedRef.current && !dirtyRef.current) return;
+    if (statsRuntimeMode() !== "demo" && !statsApiBase()) {
+      setStatsView(unconfiguredStatsView());
+      dirtyRef.current = false;
+      return;
+    }
     setStatsView((current) =>
       current.type === "stats" ? current : { type: "loading", message: message("stats.loading") },
     );
@@ -121,10 +143,7 @@ export function useStatsQuery(queryEnabled: boolean) {
 
   useEffect(() => {
     return () => {
-      if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
-      refreshSequenceRef.current += 1;
-      activeRequestRef.current?.abort();
-      activeRequestRef.current = null;
+      cancelStatsRefresh(refreshTimerRef, refreshSequenceRef, activeRequestRef);
     };
   }, []);
 

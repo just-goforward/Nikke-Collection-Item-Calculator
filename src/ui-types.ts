@@ -175,6 +175,7 @@ export type StatsPanelModel = {
 export type StatsView =
   | { type: "hidden" }
   | { type: "loading"; message: LocalizedMessage }
+  | { type: "unconfigured"; message: LocalizedMessage }
   | { type: "empty"; message: LocalizedMessage }
   | { type: "error"; message: LocalizedMessage }
   | { type: "stats"; stats: StatsPanelModel };
