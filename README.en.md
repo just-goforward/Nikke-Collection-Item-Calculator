@@ -64,6 +64,7 @@ npm run report:bundle
 - [Solver policy quality study](./docs/research/solver-policy-quality-findings.md)
 - [Rust phase2 methodology study](./docs/research/phase2-methodology-findings.md)
 - [Next-generation solver and platform study](./docs/research/next-solver-research-findings.md)
+- [Conditional solver portfolio study](./docs/research/solver-portfolio-findings.md)
 - [Source artwork for the generated app icons](./docs/assets/app-icon-source.png)
 
 Runtime CSS and components are the source of truth for the interface. The repository does not duplicate design values in a separate prose specification; visual, alignment, and compatibility tests protect observable layout behavior.

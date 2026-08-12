@@ -29,6 +29,9 @@
     "bench:availability-analyze": "node benchmarks/analyze-availability.ts",
     "bench:rust-rerank": "node benchmarks/run-rust-rerank-benchmark.ts",
     "bench:solver-quality": "node benchmarks/run-solver-policy-quality.ts",
+    "bench:solver-portfolio": "node benchmarks/run-solver-portfolio-study.ts",
+    "bench:solver-portfolio-routing": "node benchmarks/run-solver-portfolio-routing-validation.ts",
+    "bench:solver-portfolio-finalize": "node benchmarks/finalize-solver-portfolio-study.ts",
     "bench:min-ef-hp": "node benchmarks/run-min-ef-hp-study.ts",
     "bench:min-ef-hp:merge-exact": "node benchmarks/merge-min-ef-hp-exact-shards.ts",
     "bench:min-ef-hp:verify-baseline": "node benchmarks/verify-min-ef-hp-baseline.ts",
@@ -87,6 +90,7 @@
     "validate:wasm-candidate": "node scripts/validate-wasm-candidate.ts",
     "smoke:wasm-candidate:android": "node scripts/smoke-wasm-candidate-android.ts",
     "smoke:stats-worker": "node scripts/smoke-stats-worker.ts",
+    "smoke:pages": "node scripts/smoke-pages-deployment.mjs",
     "worker:types:check": "wrangler types cloudflare/worker-configuration.d.ts --config cloudflare/wrangler.toml --env= --env-interface GeneratedWorkerEnv --strict-vars false --check",
     "typecheck": "npm run worker:types:check && tsc --noEmit && tsc --noEmit -p cloudflare/tsconfig.json && tsc --noEmit -p tsconfig.e2e.json",
     "lint": "biome check --diagnostic-level=warn && npm run lint:architecture && npm run lint:unused",
@@ -103,9 +107,9 @@
     "clean:artifacts:dry-run": "node scripts/clean-artifacts.ts"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.12.1",
-    "@biomejs/biome": "^2.5.7",
-    "@cloudflare/vitest-pool-workers": "^0.21.0",
+    "@axe-core/playwright": "^4.13.0",
+    "@biomejs/biome": "^2.5.8",
+    "@cloudflare/vitest-pool-workers": "^0.21.1",
     "@playwright/test": "1.62.1",
     "@stryker-mutator/api": "^9.6.1",
     "@stryker-mutator/core": "^9.6.1",
@@ -118,14 +122,14 @@
     "@vitest/coverage-v8": "^4.1.10",
     "esbuild": "^0.28.2",
     "fast-check": "^4.9.0",
-    "knip": "^6.32.1",
+    "knip": "^6.32.2",
     "oxc-parser": "^0.144.0",
     "sharp": "0.35.3",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.1",
     "vitest": "^4.1.10",
-    "wrangler": "^4.120.1"
+    "wrangler": "^4.121.0"
   },
   "dependencies": {
     "react": "^19.2.8",

@@ -60,6 +60,16 @@ jobs:
       - name: Build
         run: npx vite build --configLoader native
 
+      - name: Verify current production Worker contract
+        if: github.event_name == 'push'
+        env:
+          PRODUCTION_WORKER_URL: ${{ vars.CLOUDFLARE_PRODUCTION_WORKER_URL }}
+          STATS_ALLOWED_ORIGIN: ${{ vars.STATS_ALLOWED_ORIGIN }}
+        run: |
+          test -n "$PRODUCTION_WORKER_URL" || { echo "Missing CLOUDFLARE_PRODUCTION_WORKER_URL variable." >&2; exit 1; }
+          test -n "$STATS_ALLOWED_ORIGIN" || { echo "Missing STATS_ALLOWED_ORIGIN variable." >&2; exit 1; }
+          npm run smoke:stats-worker -- "$PRODUCTION_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium firefox webkit
 
@@ -101,8 +111,35 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+  post-deploy-smoke:
+    if: github.event_name == 'push'
+    needs:
+      - verify
+      - deploy
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Smoke test deployed Pages assets
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          PAGES_URL: ${{ needs.deploy.outputs.page_url }}
+        run: npm run smoke:pages -- "$PAGES_URL" "$EXPECTED_SHA"

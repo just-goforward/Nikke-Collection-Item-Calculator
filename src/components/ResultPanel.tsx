@@ -79,6 +79,9 @@ const classes = {
   callout:
     "callout rounded-card bg-primary-soft px-3.5 py-[13px] font-bold leading-[1.45] text-primary-strong",
   error: "error rounded-card bg-danger-soft px-3.5 py-[13px] font-bold leading-[1.45] text-danger",
+  errorContent: "grid gap-3",
+  retryButton:
+    "inline-flex min-h-11 w-fit items-center justify-center rounded-control border-0 bg-action px-4 text-sm font-bold leading-none text-ice",
   recommendation:
     "recommendation grid items-stretch gap-3 [container-type:inline-size] max-mobile:gap-2.5",
   nextAction:
@@ -167,6 +170,7 @@ type ResultPanelProps = {
   onActionTransitionComplete: (transitionId: number) => void;
   onConvert: () => void | Promise<void>;
   onOutcome: (outcome: "success" | "fail") => void;
+  onRetryCalculation: () => void | Promise<void>;
   outcomeDisabled: boolean;
   pendingOutcome: "success" | "fail" | null;
   onPendingOutcomeChange: (outcome: "success" | "fail" | null) => void;
@@ -655,6 +659,7 @@ function ResultViewContent({
   onConvert,
   onOutcome,
   onPendingOutcomeChange,
+  onRetryCalculation,
   outcomeDisabled,
   pendingOutcome,
   view,
@@ -664,6 +669,7 @@ function ResultViewContent({
   | "onConvert"
   | "onOutcome"
   | "onPendingOutcomeChange"
+  | "onRetryCalculation"
   | "outcomeDisabled"
   | "pendingOutcome"
   | "view"
@@ -686,10 +692,17 @@ function ResultViewContent({
   }
 
   if (view.type === "error") {
+    const followUpFailure =
+      view.reason === "follow_up_outcome_failure" || view.reason === "follow_up_conversion_failure";
     return (
       <div className={classes.resultContent}>
-        <div className={classes.error}>
-          {t(view.reason === "solver_failure" ? "result.solverError" : "result.noAction")}
+        <div className={`${classes.error} ${classes.errorContent}`} role="alert">
+          <span>{text(view.message)}</span>
+          {followUpFailure ? (
+            <button className={classes.retryButton} type="button" onClick={onRetryCalculation}>
+              <AlignedText alignmentRole="action">{t("result.retryCalculation")}</AlignedText>
+            </button>
+          ) : null}
         </div>
       </div>
     );
@@ -760,6 +773,7 @@ export default function ResultPanel({
   onActionTransitionComplete,
   onConvert,
   onOutcome,
+  onRetryCalculation,
   outcomeDisabled,
   pendingOutcome,
   onPendingOutcomeChange,
@@ -795,6 +809,7 @@ export default function ResultPanel({
             outcomeDisabled={outcomeDisabled}
             pendingOutcome={pendingOutcome}
             onPendingOutcomeChange={onPendingOutcomeChange}
+            onRetryCalculation={onRetryCalculation}
           />
         </div>
       </div>

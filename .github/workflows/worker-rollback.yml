@@ -1,0 +1,117 @@
+name: Roll back Cloudflare Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_id:
+        description: Existing production Worker version ID to restore at 100% traffic
+        required: true
+        type: string
+      reason:
+        description: Reason for the rollback
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PRODUCTION_WORKER_URL: ${{ vars.CLOUDFLARE_PRODUCTION_WORKER_URL }}
+  STATS_ALLOWED_ORIGIN: ${{ vars.STATS_ALLOWED_ORIGIN }}
+
+concurrency:
+  group: cloudflare-worker-production
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    environment:
+      name: cloudflare-production
+      url: ${{ vars.CLOUDFLARE_PRODUCTION_WORKER_URL }}
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Validate rollback configuration
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ROLLBACK_VERSION_ID: ${{ inputs.version_id }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN secret." >&2; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID variable." >&2; exit 1; }
+          test -n "$PRODUCTION_WORKER_URL" || { echo "Missing CLOUDFLARE_PRODUCTION_WORKER_URL variable." >&2; exit 1; }
+          test -n "$STATS_ALLOWED_ORIGIN" || { echo "Missing STATS_ALLOWED_ORIGIN variable." >&2; exit 1; }
+          [[ "$ROLLBACK_VERSION_ID" =~ ^[0-9a-f-]{36}$ ]] || { echo "Version ID must be a UUID." >&2; exit 1; }
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify requested version exists
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ROLLBACK_VERSION_ID: ${{ inputs.version_id }}
+        run: |
+          npx wrangler versions list --env="" --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/production-versions.json"
+          node -e '
+            const fs = require("node:fs");
+            const versions = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            if (!versions.some((version) => version.id === process.argv[2])) {
+              throw new Error(`Requested version ${process.argv[2]} is not in the 10 most recent deployable versions.`);
+            }
+          ' "$RUNNER_TEMP/production-versions.json" "$ROLLBACK_VERSION_ID"
+
+      - name: Roll back production Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ROLLBACK_REASON: ${{ inputs.reason }}
+          ROLLBACK_VERSION_ID: ${{ inputs.version_id }}
+        run: >-
+          npx wrangler versions deploy "$ROLLBACK_VERSION_ID@100%"
+          --yes --env="" --config cloudflare/wrangler.toml
+          --message "Manual rollback: $ROLLBACK_REASON"
+
+      - name: Verify rollback deployment
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ROLLBACK_VERSION_ID: ${{ inputs.version_id }}
+        run: |
+          npx wrangler deployments status --env="" --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/production-after.json"
+          node -e '
+            const fs = require("node:fs");
+            const deployment = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const active = deployment.versions?.find((item) => item.percentage === 100)?.version_id;
+            if (active !== process.argv[2]) throw new Error(`Active version is ${active ?? "unknown"}.`);
+          ' "$RUNNER_TEMP/production-after.json" "$ROLLBACK_VERSION_ID"
+
+      - name: Smoke test rolled-back Worker
+        run: npm run smoke:stats-worker -- "$PRODUCTION_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
+
+      - name: Record rollback
+        env:
+          ROLLBACK_REASON: ${{ inputs.reason }}
+          ROLLBACK_VERSION_ID: ${{ inputs.version_id }}
+        run: |
+          {
+            echo "### Cloudflare production rollback"
+            echo "- Version: \`$ROLLBACK_VERSION_ID\`"
+            echo "- Reason: $ROLLBACK_REASON"
+            echo "- URL: $PRODUCTION_WORKER_URL"
+            echo "- Smoke: passed"
+          } >> "$GITHUB_STEP_SUMMARY"

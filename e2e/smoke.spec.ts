@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
 import {
+  installTurnstileStub,
   maxBackgroundChannel,
   mockStagingStatsEndpoints,
   serveStagingDocument,
@@ -239,6 +240,34 @@ test("첫 계산은 세부 정보 코드를 solver와 병렬로 요청한다", a
   }
 
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible();
+});
+
+test("세부 정보 코드가 늦어져도 결과와 함께 안정적인 준비 패널을 표시한다", async ({ page }) => {
+  const releaseDetail = Promise.withResolvers<void>();
+  let detailRequested = false;
+  await page.route(/\/assets\/DetailPanel-[^/]+\.js(?:\?|$)/, async (route) => {
+    detailRequested = true;
+    await releaseDetail.promise;
+    await route.continue();
+  });
+
+  await page.getByLabel("초심자용 키트").fill("100");
+  await expect.poll(() => detailRequested).toBe(true);
+  await page.getByRole("button", { name: "계산", exact: true }).click();
+
+  try {
+    await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+      timeout: 20_000,
+    });
+    const fallback = page.locator(".detail-panel[aria-busy='true']");
+    await expect(fallback).toBeVisible();
+    await expect(fallback).toContainText("세부 정보를 준비하고 있습니다.");
+  } finally {
+    releaseDetail.resolve();
+  }
+
+  await expect(page.locator(".detail-panel[aria-busy='true']")).toHaveCount(0);
   await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible();
 });
 
@@ -589,7 +618,8 @@ test("demoStats=1 — 전체 통계 주요 섹션이 표시된다", async ({ pag
   await expect(page.getByText("반투명 영역 · 시도 수를 반영한 보수적 95% 범위")).toHaveCount(2);
   await expect(page.locator(".kit-rate-row")).toHaveCount(3);
   await expect(page.locator(".difficulty-row")).toHaveCount(6);
-  await expect(page.getByText("누적 입력 표본", { exact: true })).toBeVisible();
+  await expect(page.getByText("누적 제출 결과", { exact: true })).toBeVisible();
+  await expect(page.getByText(/고유 사용자 수나 전체 이용자를 뜻하지 않습니다/)).toBeVisible();
   await expect(page.locator(".overall-stats-window")).toHaveCount(1);
   await expect(page.locator(".stats-vs-card")).toHaveCount(2);
   await expect(page.getByText("실측 대성공률", { exact: true })).toBeVisible();
@@ -698,6 +728,46 @@ test("초기화 버튼은 입력값과 계산 결과를 초기화한다", async 
   await expect(page.getByText("아직 계산 결과가 없습니다. 세 단계면 충분해요.")).toBeVisible();
 });
 
+test("초기화 되돌리기는 R·SR 입력 스냅샷을 원자적으로 복원한다", async ({ page }) => {
+  const scenarios = [
+    { grade: "R", level: 3, exp: "700", stock: ["110", "220", "330"] },
+    { grade: "SR", level: 7, exp: "2500", stock: ["440", "550", "660"] },
+  ] as const;
+
+  for (const scenario of scenarios) {
+    await page.goto("/?statsEnv=disabled");
+    const gradeGroup = page.getByRole("group", { name: "소장품 등급" });
+    await gradeGroup.getByRole("button", { name: scenario.grade, exact: true }).click();
+    await page.getByRole("button", { name: `${scenario.level}단계`, exact: true }).click();
+    await page.locator("#currentExp").fill(scenario.exp);
+    await page.locator("#currentExp").blur();
+
+    for (const [label, value] of [
+      ["초심자용 키트", scenario.stock[0]],
+      ["중급자용 키트", scenario.stock[1]],
+      ["상급자용 키트", scenario.stock[2]],
+    ] as const) {
+      await page.getByLabel(label).fill(value);
+      await page.getByLabel(label).blur();
+    }
+
+    await page.getByRole("button", { name: "초기화", exact: true }).click();
+    await page.getByRole("button", { name: /되돌리기/ }).click();
+
+    await expect(
+      gradeGroup.getByRole("button", { name: scenario.grade, exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.getByRole("button", { name: `${scenario.level}단계`, exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator("#currentExp")).toHaveValue(scenario.exp);
+    await expect(page.getByLabel("초심자용 키트")).toHaveValue(scenario.stock[0]);
+    await expect(page.getByLabel("중급자용 키트")).toHaveValue(scenario.stock[1]);
+    await expect(page.getByLabel("상급자용 키트")).toHaveValue(scenario.stock[2]);
+    await expect(page.getByText("아직 계산 결과가 없습니다. 세 단계면 충분해요.")).toBeVisible();
+  }
+});
+
 test("staging 설정 누락은 운영 API로 대체하지 않고 알림을 표시한다", async ({ page }) => {
   await page.goto("/?statsEnv=disabled");
   await expect(page.getByLabel("스테이징 환경")).toHaveCount(0);
@@ -758,6 +828,75 @@ test("staging 통계는 통계 탭을 열 때만 별도 API에서 조회한다",
   statsResponse.resolve();
   await expect(statsLoading).toBeHidden();
   await expect(page.getByText("통계를 불러오지 못했습니다.")).toBeVisible();
+});
+
+test("전송 실패 통계는 새로고침 뒤 같은 eventId로 재전송되고 성공 시 삭제된다", async ({
+  page,
+}) => {
+  const endpoint = "https://staging.example.test";
+  const outboxKey = `collection-kit-calculator.stats-outbox.v1:${encodeURIComponent(endpoint)}`;
+  const failedEventIds = new Set<string>();
+  const replayedEventIds = new Set<string>();
+  let acceptEvents = false;
+
+  await installTurnstileStub(page);
+  await serveStagingDocument(page, {
+    endpoint,
+    turnstileSiteKey: "staging-site-key",
+  });
+  await page.route(`${endpoint}/api/events`, async (route) => {
+    const body = route.request().postDataJSON() as { eventId?: unknown };
+    const eventId = typeof body.eventId === "string" ? body.eventId : "";
+    if (acceptEvents) {
+      replayedEventIds.add(eventId);
+      await route.fulfill({
+        status: 200,
+        headers: { "Access-Control-Allow-Origin": `http://127.0.0.1:${PORT}` },
+        body: '{"ok":true}',
+      });
+      return;
+    }
+    failedEventIds.add(eventId);
+    await route.fulfill({
+      status: 503,
+      headers: { "Access-Control-Allow-Origin": `http://127.0.0.1:${PORT}` },
+      body: '{"error":"storage_unavailable","retryable":true}',
+    });
+  });
+
+  await page.goto("/?statsEnv=staging");
+  await page.getByLabel("초심자용 키트").fill("100");
+  await page.getByRole("button", { name: "계산", exact: true }).click();
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect
+    .poll(() =>
+      page.evaluate((key) => {
+        const stored = localStorage.getItem(key);
+        if (!stored) return [];
+        const value = JSON.parse(stored) as {
+          records?: Array<{ envelope?: { eventId?: string } }>;
+        };
+        return value.records?.map((record) => record.envelope?.eventId ?? "") ?? [];
+      }, outboxKey),
+    )
+    .not.toHaveLength(0);
+
+  const storedEventIds = await page.evaluate((key) => {
+    const value = JSON.parse(localStorage.getItem(key) ?? "{}") as {
+      records?: Array<{ envelope?: { eventId?: string } }>;
+    };
+    return value.records?.map((record) => record.envelope?.eventId ?? "") ?? [];
+  }, outboxKey);
+  expect(storedEventIds.every((eventId) => failedEventIds.has(eventId))).toBe(true);
+
+  acceptEvents = true;
+  await page.reload();
+  await expect
+    .poll(() => storedEventIds.every((eventId) => replayedEventIds.has(eventId)))
+    .toBe(true);
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), outboxKey)).toBeNull();
 });
 
 test("demo 및 disabled 계산은 통계 이벤트를 제출하지 않는다", async ({ page }) => {

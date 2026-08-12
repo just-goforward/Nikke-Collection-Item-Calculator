@@ -54,6 +54,36 @@ async function accessibilityViolations(
   return result.violations.filter((violation) => !allowedViolationIds.has(violation.id));
 }
 
+async function calculateSr(
+  page: import("@playwright/test").Page,
+  level: number,
+  stock: { blue?: string; purple?: string; yellow?: string },
+) {
+  await page
+    .getByRole("group", { name: "소장품 등급" })
+    .getByRole("button", { name: "SR" })
+    .click();
+  await page.getByRole("button", { name: `${level}단계`, exact: true }).click();
+  if (stock.blue) await page.getByLabel("초심자용 키트").fill(stock.blue);
+  if (stock.purple) await page.getByLabel("중급자용 키트").fill(stock.purple);
+  if (stock.yellow) await page.getByLabel("상급자용 키트").fill(stock.yellow);
+  const desktopCalculate = page.getByRole("button", { name: "계산", exact: true });
+  if (await desktopCalculate.isVisible()) {
+    await desktopCalculate.click();
+  } else {
+    await page
+      .getByRole("toolbar", { name: "모바일 작업" })
+      .getByRole("button", { name: "계산하기", exact: true })
+      .click();
+  }
+  await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
+}
+
+async function confirmGreatSuccess(page: import("@playwright/test").Page) {
+  await page.getByRole("button", { name: "대성공 O", exact: true }).first().click();
+  await page.getByRole("button", { name: "대성공 O 확정", exact: true }).first().click();
+}
+
 test("데스크톱 라이트 화면에는 추적되지 않은 WCAG A/AA 위반이 없다", async ({ page }) => {
   await page.goto(`http://127.0.0.1:${PORT}/?demoStats=1`);
   await expect(page.locator(".app-shell")).toBeVisible();
@@ -90,5 +120,65 @@ test("Japanese mobile UI has no untracked WCAG A/AA violations", async ({ page }
   await page.goto(`http://127.0.0.1:${PORT}/?demoStats=1`);
   await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toBeVisible();
 
+  expect(await accessibilityViolations(page)).toEqual([]);
+});
+
+test("계산 결과와 키트 수정 상태에는 추적되지 않은 WCAG A/AA 위반이 없다", async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await calculateSr(page, 10, { yellow: "100" });
+  expect(await accessibilityViolations(page)).toEqual([]);
+
+  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await calculateSr(page, 5, { yellow: "100" });
+  await confirmGreatSuccess(page);
+  await expect(page.locator("#stockEditNotice")).toBeVisible();
+  expect(await accessibilityViolations(page)).toEqual([]);
+});
+
+test("대성공 회차 모달은 배경을 차단하고 접근 가능한 설명과 포커스를 유지한다", async ({
+  page,
+}) => {
+  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await calculateSr(page, 14, { blue: "100", purple: "20", yellow: "20" });
+  const outcomeButton = page.getByRole("button", { name: "대성공 O", exact: true }).first();
+  await outcomeButton.click();
+  await page.getByRole("button", { name: "대성공 O 확정", exact: true }).first().click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute("aria-describedby", "attemptModalDescription");
+  await expect(page.locator(".app-shell")).toHaveAttribute("inert", "");
+  await expect(page.locator("body")).toHaveCSS("overflow", "hidden");
+  await expect(dialog.getByRole("button").first()).toBeFocused();
+  expect(await accessibilityViolations(page)).toEqual([]);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".app-shell")).not.toHaveAttribute("inert", "");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const active = document.activeElement;
+        return (
+          active instanceof HTMLElement && active.offsetParent !== null && active.matches("button")
+        );
+      }),
+    )
+    .toBe(true);
+});
+
+test("강제 색상과 200% 확대 상당 폭에서도 결과 화면이 재배치되고 접근 가능하다", async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: "active" });
+  await page.setViewportSize({ width: 640, height: 450 });
+  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await calculateSr(page, 10, { yellow: "100" });
+
+  const widths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(widths.scroll).toBeLessThanOrEqual(widths.client + 1);
   expect(await accessibilityViolations(page)).toEqual([]);
 });

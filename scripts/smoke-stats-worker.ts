@@ -1,3 +1,5 @@
+import { StatsApiResponseSchema } from "../src/schemas.ts";
+
 const endpoint = process.argv[2];
 const allowedOrigin = process.argv[3] ?? "https://just-goforward.github.io";
 
@@ -30,10 +32,11 @@ assert(statsResponse.status === 200, `stats: expected 200, received ${statsRespo
 assertCors(statsResponse, "stats");
 
 const stats: unknown = await statsResponse.json();
-assert(stats && typeof stats === "object" && !Array.isArray(stats), "stats: expected an object");
-for (const key of ["summary", "byKit", "cumulative", "levelKitStats", "segmentStats"]) {
-  assert(Object.hasOwn(stats, key), `stats: missing ${key}`);
-}
+const parsedStats = StatsApiResponseSchema.safeParse(stats);
+assert(
+  parsedStats.success,
+  `stats: response does not satisfy the frontend contract: ${JSON.stringify(parsedStats.error?.issues ?? [])}`,
+);
 
 const preflightResponse = await fetch(endpointUrl("api/stats"), {
   method: "OPTIONS",

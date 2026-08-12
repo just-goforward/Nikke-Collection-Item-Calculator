@@ -39,6 +39,7 @@ type SolveFlowOptions = {
 };
 
 type SolveAndRenderOptions = {
+  failureContext?: "outcome" | "conversion";
   loadingText?: LocalizedMessage;
   previousAction?: RecommendationAction | null;
 };
@@ -56,6 +57,7 @@ function calculationAfterOutcome(applied: NonNullable<OutcomeApplyResult>) {
   return {
     calculation,
     options: {
+      failureContext: "outcome",
       loadingText:
         applied.outcome === "fail" ? OUTCOME_FAIL_LOADING_TEXT : OUTCOME_SUCCESS_LOADING_TEXT,
       previousAction: calculation.previousAction,
@@ -104,10 +106,12 @@ type SolveFailureOptions = Pick<
   error: unknown;
   input: SolverInput;
   inputRevision: number;
+  failureContext?: SolveAndRenderOptions["failureContext"];
 };
 
 function handleSolveFailure({
   error,
+  failureContext,
   input,
   inputRevision,
   inputRevisionRef,
@@ -134,12 +138,24 @@ function handleSolveFailure({
     }
   }
   latestResultRef.current = null;
+  const reason =
+    failureContext === "outcome"
+      ? "follow_up_outcome_failure"
+      : failureContext === "conversion"
+        ? "follow_up_conversion_failure"
+        : "solver_failure";
+  const failureMessage =
+    reason === "follow_up_outcome_failure"
+      ? message("result.followUpOutcomeError")
+      : reason === "follow_up_conversion_failure"
+        ? message("result.followUpConversionError")
+        : message("result.solverError");
   setResultView({
     type: "error",
-    reason: "solver_failure",
-    message: message("result.solverError"),
+    reason,
+    message: failureMessage,
   });
-  setDetailView({ type: "empty", message: message("result.solverError") });
+  setDetailView({ type: "empty", message: failureMessage });
   return { result: true, skipUiCleanup: false };
 }
 
@@ -186,7 +202,13 @@ async function executeSolveAndRender(
     if (recoveryEvent) context.queueStatsEvent(recoveryEvent);
     return true;
   } catch (error) {
-    const failure = handleSolveFailure({ ...context, error, input, inputRevision });
+    const failure = handleSolveFailure({
+      ...context,
+      error,
+      failureContext: options.failureContext,
+      input,
+      inputRevision,
+    });
     skipUiCleanup = failure.skipUiCleanup;
     return failure.result;
   } finally {
@@ -350,7 +372,9 @@ export function useSolveFlow({
     if (busyRef.current) return null;
     const applied = applyConvert();
     if (applied.needsStockEdit) return applied;
-    const started = await solveAndRenderInput(applied.nextInput);
+    const started = await solveAndRenderInput(applied.nextInput, {
+      failureContext: "conversion",
+    });
     return started ? applied : null;
   }, [applyConvert, solveAndRenderInput]);
 

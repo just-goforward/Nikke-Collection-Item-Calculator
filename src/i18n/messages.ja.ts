@@ -51,6 +51,7 @@ export const jaMessages = {
   "staging.notice": "STAGING - テスト記録は本番統計に反映されません",
   "reset.done": "入力をリセットしました",
   "reset.undo": "元に戻す ({seconds})",
+  "reset.undoAction": "入力のリセットを元に戻す",
   "state.gradeAria": "コレクション等級",
   "state.phaseAria": "現在の段階",
   "state.current": "現在のコレクション",
@@ -116,6 +117,9 @@ export const jaMessages = {
   "result.noAction": "現在の所持キットで実行できる行動がありません。",
   "result.noKits": "使用できるお手入れキットが不足しています。",
   "result.solverError": "エラーが発生しました。",
+  "result.followUpOutcomeError": "大成功の結果は反映しましたが、次のおすすめ計算に失敗しました。",
+  "result.followUpConversionError": "SRへの交換は反映しましたが、次のおすすめ計算に失敗しました。",
+  "result.retryCalculation": "もう一度計算",
   "result.loadingDefault": "所持キットの状態をMDPで評価しています。",
   "result.loadingStates": "{count}個の状態を評価しました。",
   "result.loadingFinalize": "結果をまとめています。",
@@ -141,6 +145,7 @@ export const jaMessages = {
     "大成功した回数が不明なため統計送信を省略しました。所持キットを手動で修正してください。",
   "result.successUnknownStats": "大成功した回数が不明なため、試行分布の統計を省略しました。",
   "detail.title": "詳細情報",
+  "detail.preparing": "詳細情報を準備しています。",
   "detail.initial": "計算後に選択理由と検算結果が表示されます。",
   "detail.finalTarget": "SR 15段階は最終目標です。",
   "detail.sr15Probability": "SR15到達率",
@@ -198,13 +203,15 @@ export const jaMessages = {
   "stats.connectionFailed": "統計サーバーに接続できませんでした。",
   "stats.retry": "再読み込み",
   "stats.empty": "まだ集計された統計がありません。",
-  "stats.unconfigured": "統計サーバーを接続すると全ユーザーの結果が表示されます。",
+  "stats.unconfigured": "統計サーバーを接続すると、送信に成功した匿名の結果サンプルを表示します。",
   "stats.overallRate": "全体大成功率",
-  "stats.cumulativeSample": "累計入力サンプル",
+  "stats.cumulativeSample": "累計送信結果",
   "stats.measuredRate": "実測大成功率",
   "stats.expected": "期待値",
   "stats.expectedHelp":
     "期待値は、記録された段階とキットの組み合わせごとの理論確率を試行数で加重平均した値です。",
+  "stats.sampleScope":
+    "大成功の結果が確定し、サーバーへの送信に成功した匿名の結果のみを集計します。ユニークユーザー数や全利用者を示すものではありません。",
   "stats.cumulativeUnavailable": "累計統計は最新Workerのデプロイ後に表示されます。",
   "stats.kitRates": "キット別大成功率",
   "stats.segmentDifficulty": "区間別体感難易度",
@@ -227,7 +234,7 @@ export const jaMessages = {
   "stats.sampleHelp1": "試行数が少ない場合、偶然により結果が高くなったり低くなったりします。",
   "stats.sampleHelp2":
     "試行ごとの理論確率が異なっても範囲を狭めず、観測された大成功率の不確実性を保守的に示します。",
-  "stats.summaryCounts": "{attempts}試行 / {events}入力・大成功{successes}回",
+  "stats.summaryCounts": "{attempts}試行 / 結果{events}件・大成功{successes}回",
   "stats.cumulativeCounts": "{attempts}試行・大成功{successes}回",
   "stats.piecesUsed": "{pieces}個使用",
   "stats.piecesUsedBreakdown": "キット別使用量を表示: {pieces}",
@@ -241,7 +248,7 @@ export const jaMessages = {
   "modal.instruction":
     "何回目に大成功したか不明なため、残数を確定してください。ゲーム内インベントリに表示されている現在の数を選択します。",
   "privacy.notice":
-    "サービス改善と大成功統計のため、計算条件と結果を区間値として集計します。名前、メール、アカウント、IPアドレスなどの個人識別情報は統計DBに保存しません。",
+    "サービス改善と大成功統計のため、計算条件と結果を区間値として集計します。送信に成功したイベントのみを反映し、ユニークユーザー数は集計しません。名前、メール、アカウント、IPアドレスなどの個人識別情報は統計DBに保存しません。",
   "license.notice": "本プログラムは無保証でAGPL-3.0-or-laterに基づき提供されます。",
   "license.source": "ライセンスとソースコード",
 } satisfies Record<keyof typeof koMessages, string>;

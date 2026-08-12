@@ -51,6 +51,7 @@ export const enMessages = {
   "staging.notice": "STAGING - test records are excluded from production stats",
   "reset.done": "Inputs have been reset",
   "reset.undo": "Undo ({seconds})",
+  "reset.undoAction": "Undo input reset",
   "state.gradeAria": "Collection Item rarity",
   "state.phaseAria": "Current Phase",
   "state.current": "Current Collection Item",
@@ -121,6 +122,11 @@ export const enMessages = {
   "result.noAction": "No action is available with the Maintenance Kits you own.",
   "result.noKits": "You do not have enough usable Maintenance Kits.",
   "result.solverError": "An error occurred.",
+  "result.followUpOutcomeError":
+    "The Super Success result was applied, but calculating the next recommendation failed.",
+  "result.followUpConversionError":
+    "The SR conversion was applied, but calculating the next recommendation failed.",
+  "result.retryCalculation": "Calculate again",
   "result.loadingDefault": "Evaluating your Maintenance Kit inventory with an MDP.",
   "result.loadingStates": "Evaluated {count} states.",
   "result.loadingFinalize": "Preparing the result.",
@@ -149,6 +155,7 @@ export const enMessages = {
   "result.successUnknownStats":
     "The Super Success attempt is unknown, so attempt-distribution stats were skipped.",
   "detail.title": "Details",
+  "detail.preparing": "Preparing calculation details.",
   "detail.initial": "Recommendation details and validation results appear after calculation.",
   "detail.finalTarget": "SR Phase 15 is the final target.",
   "detail.sr15Probability": "Chance to reach SR 15",
@@ -208,13 +215,15 @@ export const enMessages = {
   "stats.connectionFailed": "The stats server could not be reached.",
   "stats.retry": "Try again",
   "stats.empty": "No stats have been recorded yet.",
-  "stats.unconfigured": "Connect the stats server to display aggregate results.",
+  "stats.unconfigured": "Connect the stats server to display anonymously submitted result samples.",
   "stats.overallRate": "Overall Super Success Rate",
-  "stats.cumulativeSample": "Cumulative input sample",
+  "stats.cumulativeSample": "Cumulative submitted results",
   "stats.measuredRate": "Observed rate",
   "stats.expected": "Expected",
   "stats.expectedHelp":
     "The expected value is weighted by the number of attempts for each recorded Phase and Maintenance Kit combination.",
+  "stats.sampleScope":
+    "Only anonymous results with a confirmed outcome and a successful server submission are aggregated. These records are not unique users or the entire user population.",
   "stats.cumulativeUnavailable":
     "Cumulative stats are available after the latest Worker is deployed.",
   "stats.kitRates": "Super Success Rate by Kit",
@@ -240,7 +249,8 @@ export const enMessages = {
     "With few attempts, random luck can make results look unusually good or bad.",
   "stats.sampleHelp2":
     "The range stays wide when theoretical rates differ between attempts, giving a conservative view of uncertainty in the observed Super Success rate.",
-  "stats.summaryCounts": "{attempts} attempts / {events} inputs · {successes} Super Successes",
+  "stats.summaryCounts":
+    "{attempts} attempts / {events} result records · {successes} Super Successes",
   "stats.cumulativeCounts": "{attempts} attempts · {successes} Super Successes",
   "stats.piecesUsed": "{pieces} used",
   "stats.piecesUsedBreakdown": "View usage by kit: {pieces}",
@@ -254,7 +264,7 @@ export const enMessages = {
   "modal.instruction":
     "The exact Super Success attempt is unknown, so confirm the remaining amount. Select the amount currently shown in your game inventory.",
   "privacy.notice":
-    "To improve the service and aggregate Super Success stats, calculation conditions and results are stored only as ranges. Names, emails, accounts, IP addresses, and other unique identifiers are not stored in the stats database.",
+    "To improve the service and aggregate Super Success stats, calculation conditions and results are stored only as ranges. Only successfully submitted events are included, and unique users are not counted. Names, emails, accounts, IP addresses, and other unique identifiers are not stored in the stats database.",
   "license.notice": "This program is provided without warranty under AGPL-3.0-or-later.",
   "license.source": "License and source code",
 } satisfies Record<keyof typeof koMessages, string>;

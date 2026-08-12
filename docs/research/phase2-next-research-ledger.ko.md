@@ -1,8 +1,9 @@
 # Phase2 후속 연구 원장
 
-기준일: 2026-08-09  
-기준 commit: `45fc4175c332cb5d9656d86ae3f30fe6e4c5e527`  
-Phase2 결과 checkpoint: `99331dbf00632e2ac83b6930c6213766908e895a`
+- 기준일: 2026-08-12
+- 초기 Phase2 기준 commit: `45fc4175c332cb5d9656d86ae3f30fe6e4c5e527`
+- 후속 연구 기준 commit: `7e3d07130568e6312590b825dfcd1d2213dcbab3`
+- Phase2 결과 checkpoint: `99331dbf00632e2ac83b6930c6213766908e895a`
 
 연구 보고서 기준 제품 WASM SHA-256:
 `37d649b6144196c82cb8623bd7e33fefeac92e707019a6ecfe3be69266bda13`  
@@ -17,7 +18,7 @@ element/code/name/producers/target-features 섹션이 byte-identical이다. data
 
 ## 목적과 실행 순서
 
-이 원장은 다음 여섯 연구를 서로 섞지 않고 순서대로 판정하기 위한 기록이다.
+이 원장은 다음 여덟 연구를 서로 섞지 않고 순서대로 판정하기 위한 기록이다.
 
 1. admissible branch-and-bound
 2. sparse constrained policy iteration exact 기준선
@@ -25,6 +26,8 @@ element/code/name/producers/target-features 섹션이 byte-identical이다. data
 4. bounded hybrid phase2
 5. CVaR 등 목적함수 변경
 6. 차세대 solver·WebGPU 상태 표현과 탐색 후보
+7. 조건부 solver portfolio
+8. min-E[f] memo grow-and-resume
 
 각 단계는 `가설 -> 수학 계약 -> 최소 반례 -> 의미론 parity -> 용량/지연 -> 판정` 순서로
 진행한다. 앞 단계의 결과를 다음 단계가 사용하더라도 원시 결과와 해석을 구분한다.
@@ -89,6 +92,7 @@ provenance 계약으로 baseline을 재측정한다.
 | Prioritized improvement | 현재 순서 가설 통과 | exact R10 용량은 그대로지만 max-path가 discovery 순서를 세 화면 모두 지배 | max-path 한 후보만 bounded 제품 적합성 gate로 이동 |
 | Bounded hybrid | 현재 제품 후보 기각 | max-path 4 pass의 exact interactive 품질, 직접/전체 ladder 지연, WASM 크기 gate 실패 | 동일 계약 재실행 없이 목적함수 연구로 이동 |
 | 목적함수 변경 | 현재 제품 후보 기각 | full recorded CVaR는 fallback 상태에서 용량 실패, 1회 배칭은 R10 품질 실패, H/p tail 후보도 기각 | 새 사용자 선호나 더 큰 CVaR 표현의 별도 계약이 있을 때만 재개 |
+| Memo grow-and-resume | 현재 제품 후보 기각 | tier 21 memo를 tier 22로 rehash해 exact 재시작 대비 p50 31.7~41.6% 단축 | 현재 phase2 대비 R10 p95 +35.5%로 후속 gate 중단 |
 
 ## 1단계: Branch-and-bound 사전 등록
 
@@ -585,6 +589,49 @@ Phase2 내부 개선과 H/p 목적함수 후보가 제품 gate를 통과하지 �
   정확성 계약에 대한 판정이며 수학적으로 가능한 모든 알고리즘의 부재 증명이 아니다.
 - 상세 보고서: [`next-solver-research-findings.ko.md`](./next-solver-research-findings.ko.md)
 
+## 7단계: 조건부 solver portfolio
+
+초기 상태와 재고에 따라 solver를 미리 선택하거나, min-E[f] capacity 실패 뒤 exact solver를 하나
+더 시도하는 조합을 별도 held-out 집합에서 검사했다.
+
+- `[확인]` Discovery 122건과 confirmation 48건에서 tier 21 capacity 실패는 16건이었다.
+- `[확인]` 일반 tier 22 min-E[f]와 B2의 공통 완료 10건은 10/10 bit 동치였고 B2 prepass
+  mismatch는 0건이었다.
+- `[확인]` 사전 등급 라우팅은 12/16을 구제했지만 전체 root 지연 기준은 5/16만 통과했다.
+- `[확인]` 새 24건 validation에서 실패 후 조건부 tier 22는 2/3 완료, 직접 tier 22는 7/8
+  완료·현재 provenance 실행에서 7/8 지연 통과, B2는 9/9 완료·0/9 전체 지연 통과였다.
+- `[확인]` 최악 memory growth는 현재 capacity fallback 311.375MiB, 직접 tier 22
+  425.375MiB, 실패 후 조건부 tier 22 540.25MiB였다.
+- `[판정]` held-out completion·latency·memory를 모두 통과한 조건이 없으므로 exact interactive와
+  Android gate로 승격하지 않고 현재 min-E[f]→phase2 ladder를 유지한다.
+
+상세 계약, 경계 시나리오, 반사실적 B2 해석과 재현 명령은
+[`solver-portfolio-findings.ko.md`](./solver-portfolio-findings.ko.md)에 기록했다.
+
+## 8단계: min-E[f] memo grow-and-resume
+
+tier 21 min-E[f]가 `MEMO_FULL`에 도달하면 기존 memo entry를 tier 22 table로 rehash하고 같은
+exact 탐색을 이어가는 후보를 검사했다. 제품 phase2 fallback과 후보의 목적함수가 다르므로,
+fresh tier 22 exact 재시작과 현재 제품 ladder를 각각 별도 기준선으로 측정했다.
+
+- `[확인]` 218개 root 중 tier 21 capacity 실패는 36건이었다.
+- `[확인]` resume와 fresh tier 22는 각각 24/36을 완료했고 공통 완료는 24/24 full semantic
+  snapshot이 bit-identical했다.
+- `[확인]` rehash는 약 183만 entry에 135.7~152.8ms가 걸렸고, 최대 추가 page growth는
+  fresh tier 22 대비 15,597,568B였다.
+- `[확인]` 4개 hard fixture의 31회 ABBA 캠페인에서 exact 재시작 대비 candidate p50은
+  31.7~41.6% 짧았다.
+- `[확인]` `R10-balanced300`에서는 candidate 전체 p95가 1,222.216ms, 현재 ladder가
+  901.883ms로 candidate가 35.5% 느렸다.
+- `[판정]` 모든 hard fixture의 현재 ladder 대비 p95가 `max(+15%, +50ms)` 안이어야 하는
+  선행 gate를 실패했다. exact-interactive, 브라우저, Android는 실행하지 않았고 candidate 구현과
+  ABI를 제거했다.
+- `[판정]` 제품 runtime과 WASM은 유지한다. 재사용 가능한 scenario/gate 계약과 packed memo-key
+  왕복 테스트만 보존한다.
+
+상세 결과와 artifact hash는
+[`min-ef-grow-resume-findings.ko.md`](./min-ef-grow-resume-findings.ko.md)에 기록했다.
+
 ## 다음 기록 위치
 
 - 생성 코드: `benchmarks/run-min-ef-branch-bound-study.ts`
@@ -611,4 +658,8 @@ Phase2 내부 개선과 H/p 목적함수 후보가 제품 gate를 통과하지 �
 - 두 번째 연구 묶음의 기각 후보: 일회성 구현과 대량 결과는 미추적이며, 판정 근거는 이 원장과
   `next-solver-research-findings.ko.md`가 소유한다.
 - 차세대 solver 판정: `next-solver-research-findings.ko.md`
+- 조건부 solver portfolio: `solver-portfolio-findings.ko.md`
+- min-E[f] grow-and-resume 계약: `benchmarks/min-ef-grow-resume-study.ts`,
+  `benchmarks/scenarios/min-ef-grow-resume.ts`
+- min-E[f] grow-and-resume 판정: `min-ef-grow-resume-findings.ko.md`
 - 채택·기각 해석: 이 원장과 `phase2-methodology-findings.ko.md`

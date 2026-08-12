@@ -68,6 +68,7 @@ export function useCalculatorState({ onInputChanged, onMaxLevelState }: UseCalcu
     setCalculateBusy,
     collectInput: stateActions.collectInput,
     currentStateSnapshot: stateActions.currentStateSnapshot,
+    restoreInputSnapshot: stateActions.restoreInputSnapshot,
     resetState: stateActions.resetState,
     actions: stateActions.actions,
   };

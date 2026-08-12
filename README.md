@@ -64,6 +64,7 @@ npm run report:bundle
 - [Solver 정책 품질 연구](./docs/research/solver-policy-quality-findings.ko.md)
 - [Rust phase2 방법론 연구](./docs/research/phase2-methodology-findings.ko.md)
 - [차세대 solver·플랫폼 연구](./docs/research/next-solver-research-findings.ko.md)
+- [조건부 solver portfolio 연구](./docs/research/solver-portfolio-findings.ko.md)
 - [앱 아이콘 원본 이미지](./docs/assets/app-icon-source.png)
 
 실제 UI의 정본은 runtime CSS와 component입니다. 별도 디자인 명세를 중복 관리하지 않으며 visual, alignment, compatibility 테스트로 관측 가능한 레이아웃을 보호합니다.

@@ -52,6 +52,12 @@ const classes = {
     "input-column grid min-w-0 content-start gap-4 min-[981px]:sticky min-[981px]:top-7 min-[661px]:max-tablet:col-span-full min-[661px]:max-tablet:grid-cols-[minmax(0,1fr)_max-content] min-[661px]:max-tablet:items-stretch max-mobile:gap-2.5",
   resultColumn:
     "result-column grid min-w-0 content-start gap-4 min-[661px]:max-tablet:col-span-full max-mobile:gap-2.5",
+  detailFallback:
+    "panel detail-panel relative col-span-full min-h-[210px] min-w-0 overflow-hidden rounded-card border border-border bg-surface shadow-panel [contain:layout] max-mobile:min-h-[170px]",
+  detailFallbackHeading:
+    "section-heading flex items-center border-b border-border px-[18px] py-4 max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",
+  detailFallbackBody:
+    "grid min-h-[148px] place-items-center px-[18px] py-[22px] text-center text-[13px] font-semibold leading-[1.45] text-muted max-mobile:min-h-[116px] max-mobile:px-3.5 max-mobile:py-3",
   statsColumn:
     "stats-column-layout min-w-0 min-[661px]:col-span-full max-mobile:grid max-mobile:gap-2.5",
   gridCellHidden: "max-mobile:hidden",
@@ -136,10 +142,17 @@ function ResetToast({ toast }: { toast: ResetToastView | null }) {
   const { t } = useI18n();
   if (!toast) return null;
   return (
-    <div className={classes.resetToast} role="status" aria-live="polite">
-      <span>{t("reset.done")}</span>
-      <button className={classes.resetToastButton} type="button" onClick={toast.onUndo}>
-        {t("reset.undo", { seconds: toast.secondsLeft })}
+    <div className={classes.resetToast}>
+      <span role="status" aria-live="polite" aria-atomic="true">
+        {t("reset.done")}
+      </span>
+      <button
+        aria-label={t("reset.undoAction")}
+        className={classes.resetToastButton}
+        type="button"
+        onClick={toast.onUndo}
+      >
+        <span aria-hidden="true">{t("reset.undo", { seconds: toast.secondsLeft })}</span>
       </button>
     </div>
   );
@@ -161,6 +174,24 @@ function LoadingPopup({ text: loadingMessage }: { text: LocalizedMessage }) {
         <p className={classes.loadingText}>{text(loadingMessage)}</p>
       </div>
     </div>
+  );
+}
+
+function DetailPanelFallback() {
+  const { t } = useI18n();
+  return (
+    <section
+      className={classes.detailFallback}
+      aria-busy="true"
+      aria-labelledby="detail-loading-title"
+    >
+      <div className={classes.detailFallbackHeading}>
+        <h2 id="detail-loading-title">{t("detail.title")}</h2>
+      </div>
+      <div className={classes.detailFallbackBody} role="status" aria-live="polite">
+        {t("detail.preparing")}
+      </div>
+    </section>
   );
 }
 
@@ -196,6 +227,8 @@ function Workspace({
       <div
         id="calculatorWorkspace"
         className={`${classes.calculatorWorkspace} ${calcDesktopVisibility} ${calcMobileVisibility}`}
+        onFocusCapture={preloadDetailPanel}
+        onPointerDownCapture={preloadDetailPanel}
         {...desktopCalculatorTabPanelProps}
       >
         <div
@@ -242,10 +275,11 @@ function Workspace({
             onActionTransitionComplete={actions.clearActionTransition}
             onConvert={handlers.onConvert}
             onOutcome={handlers.onOutcome}
+            onRetryCalculation={handlers.onCalculate}
             onPendingOutcomeChange={onPendingOutcomeChange}
           />
           {calculator.detailView.type === "empty" ? null : (
-            <Suspense fallback={null}>
+            <Suspense fallback={<DetailPanelFallback />}>
               <DetailPanel
                 view={calculator.detailView}
                 validation={calculator.validationView}

@@ -51,6 +51,7 @@ export type CalculatorAppModel = {
     setLevel: (level: number) => void;
     setExp: (exp: number) => void;
     setStock: (stock: Stock) => void;
+    restoreInputSnapshot: CalculatorState["restoreInputSnapshot"];
     calculate: () => Promise<void>;
     reset: () => void;
     applyOutcome: (outcome: "success" | "fail") => Promise<OutcomeApplyResult>;
@@ -154,6 +155,7 @@ export function makeCalculatorAppModel({
       setLevel: calculatorState.actions.setLevel,
       setExp: calculatorState.actions.setExp,
       setStock,
+      restoreInputSnapshot: calculatorState.restoreInputSnapshot,
       calculate: runCalculation,
       reset: resetInputs,
       applyOutcome: applyOutcomeAndMaybeCalculate,

@@ -38,7 +38,15 @@ export type OutcomePreview = {
 export type ResultView =
   | { type: "empty"; message: LocalizedMessage }
   | { type: "callout"; reason: "final_target" | "converted"; message: LocalizedMessage }
-  | { type: "error"; reason: "no_action" | "solver_failure"; message: LocalizedMessage }
+  | {
+      type: "error";
+      reason:
+        | "no_action"
+        | "solver_failure"
+        | "follow_up_outcome_failure"
+        | "follow_up_conversion_failure";
+      message: LocalizedMessage;
+    }
   | {
       type: "recommendation";
       kit: Kit;

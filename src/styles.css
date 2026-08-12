@@ -185,6 +185,7 @@ html {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  background-color: inherit;
   letter-spacing: 0;
   transform: translateY(var(--aligned-text-y, 0px));
 }
@@ -202,6 +203,20 @@ html {
 .aligned-text-status {
   --aligned-text-y: var(--text-optical-status-y);
   line-height: var(--text-line-status);
+}
+
+@media (forced-colors: active) {
+  .next-action,
+  .next-action-previous {
+    border: 1px solid CanvasText;
+    background: CanvasText !important;
+    color: Canvas !important;
+  }
+
+  .next-action *,
+  .next-action-previous * {
+    color: Canvas !important;
+  }
 }
 
 html[data-locale="en"] .mobile-tabs {

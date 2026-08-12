@@ -240,6 +240,22 @@ jobs:
       - name: Validate production bundle
         run: npx wrangler deploy --dry-run --env="" --config cloudflare/wrangler.toml
 
+      - name: Capture current production version
+        id: previous
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npx wrangler deployments status --env="" --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/production-before.json"
+          version_id=$(node -e '
+            const fs = require("node:fs");
+            const deployment = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            process.stdout.write(deployment.versions?.find((item) => item.percentage === 100)?.version_id ?? "");
+          ' "$RUNNER_TEMP/production-before.json")
+          test -n "$version_id" || { echo "Could not determine the current production version." >&2; exit 1; }
+          echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
+
       - name: Deploy production Worker
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -250,6 +266,17 @@ jobs:
 
       - name: Smoke test production Worker
         run: npm run smoke:stats-worker -- "$PRODUCTION_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
+
+      - name: Record rollback guidance
+        if: failure() && steps.previous.outputs.version_id != ''
+        env:
+          PREVIOUS_VERSION_ID: ${{ steps.previous.outputs.version_id }}
+        run: |
+          {
+            echo "### Production smoke failed"
+            echo "Use the **Roll back Cloudflare Worker** workflow after reviewing the failure."
+            echo "Previous version: \`$PREVIOUS_VERSION_ID\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Record production deployment
         shell: bash
@@ -263,6 +290,7 @@ jobs:
             echo "### Cloudflare production"
             echo "- Commit: \`$DEPLOY_SHA\`"
             echo "- Version: \`$version_id\`"
+            echo "- Previous version: \`${{ steps.previous.outputs.version_id }}\`"
             echo "- URL: $PRODUCTION_WORKER_URL"
             echo "- Smoke: passed"
           } >> "$GITHUB_STEP_SUMMARY"

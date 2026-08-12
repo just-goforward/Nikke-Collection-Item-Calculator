@@ -138,10 +138,7 @@ export default function App() {
   });
 
   const restoreInputSnapshot = (snapshot: InputSnapshot) => {
-    actions.setGrade(snapshot.grade);
-    actions.setLevel(snapshot.level);
-    actions.setExp(snapshot.exp);
-    actions.setStock(snapshot.stock);
+    actions.restoreInputSnapshot(snapshot);
     setMobileViewTab("input");
     setResetToast(null);
   };

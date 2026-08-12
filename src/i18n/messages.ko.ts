@@ -48,6 +48,7 @@ export const koMessages = {
   "staging.notice": "STAGING - 테스트 기록은 운영 통계에 반영되지 않음",
   "reset.done": "입력이 초기화되었습니다",
   "reset.undo": "되돌리기 ({seconds})",
+  "reset.undoAction": "입력 초기화 되돌리기",
   "state.gradeAria": "소장품 등급",
   "state.phaseAria": "현재 단계",
   "state.current": "현재 소장품",
@@ -115,6 +116,9 @@ export const koMessages = {
   "result.noAction": "현재 보유 키트로 가능한 행동이 없습니다.",
   "result.noKits": "사용 가능한 키트가 부족합니다.",
   "result.solverError": "오류가 발생했습니다.",
+  "result.followUpOutcomeError": "대성공 여부는 반영했습니다. 다음 추천 계산만 실패했습니다.",
+  "result.followUpConversionError": "SR 등급 교체는 반영했습니다. 다음 추천 계산만 실패했습니다.",
+  "result.retryCalculation": "다시 계산",
   "result.loadingDefault": "보유 키트 상태를 MDP로 평가하고 있습니다.",
   "result.loadingStates": "{count}개 상태를 평가했습니다.",
   "result.loadingFinalize": "결과를 정리하고 있습니다.",
@@ -139,6 +143,7 @@ export const koMessages = {
     "대성공 시점을 알 수 없어 통계 전송은 생략했습니다. 보유 키트 수를 직접 수정해 주세요.",
   "result.successUnknownStats": "대성공 시점을 알 수 없어 시도 분포 통계는 생략했습니다.",
   "detail.title": "세부 정보",
+  "detail.preparing": "세부 정보를 준비하고 있습니다.",
   "detail.initial": "계산 후 선택 근거와 검산 결과가 표시됩니다.",
   "detail.finalTarget": "SR 15단계는 최종 목표 상태입니다.",
   "detail.sr15Probability": "SR 15 도달 확률",
@@ -198,13 +203,15 @@ export const koMessages = {
   "stats.connectionFailed": "통계 서버에 연결하지 못했습니다.",
   "stats.retry": "다시 불러오기",
   "stats.empty": "아직 집계된 통계가 없습니다.",
-  "stats.unconfigured": "통계 서버를 연결하면 전체 사용자의 결과가 표시됩니다.",
+  "stats.unconfigured": "통계 서버를 연결하면 전송에 성공한 익명 결과 표본이 표시됩니다.",
   "stats.overallRate": "전체 대성공률",
-  "stats.cumulativeSample": "누적 입력 표본",
+  "stats.cumulativeSample": "누적 제출 결과",
   "stats.measuredRate": "실측 대성공률",
   "stats.expected": "기대값",
   "stats.expectedHelp":
     "기대값은 실제 기록된 레벨·키트 조합의 이론 확률을 시도수로 가중평균한 값입니다.",
+  "stats.sampleScope":
+    "대성공 여부가 확정되고 서버 전송에 성공한 익명 결과만 집계합니다. 고유 사용자 수나 전체 이용자를 뜻하지 않습니다.",
   "stats.cumulativeUnavailable": "누적 통계는 최신 Worker 배포 후 표시됩니다.",
   "stats.kitRates": "키트별 대성공률",
   "stats.segmentDifficulty": "구간별 체감 난이도",
@@ -227,7 +234,7 @@ export const koMessages = {
   "stats.sampleHelp1": "시도 수가 적으면 우연히 결과가 좋거나 나쁠 수 있습니다.",
   "stats.sampleHelp2":
     "시도별 이론 확률 차이로 범위를 좁히지 않고, 관측 대성공률의 불확실성을 보수적으로 보여줍니다.",
-  "stats.summaryCounts": "{attempts}시도 / {events}입력 · 대성공 {successes}회",
+  "stats.summaryCounts": "{attempts}시도 / 결과 {events}건 · 대성공 {successes}회",
   "stats.cumulativeCounts": "{attempts}시도 · 대성공 {successes}회",
   "stats.piecesUsed": "{pieces}개 사용",
   "stats.piecesUsedBreakdown": "키트별 사용량 보기: {pieces}",
@@ -241,7 +248,7 @@ export const koMessages = {
   "modal.instruction":
     "몇 번째 사용에서 대성공이 났는지 알 수 없어 남은 수량을 확정해야 해요. 게임 인벤토리의 지금 수량을 그대로 고르면 됩니다.",
   "privacy.notice":
-    "서비스 개선과 대성공 통계를 위해 계산 조건과 결과를 구간값으로 집계합니다. 이름, 이메일, 계정, IP 주소 등 고유 식별 정보는 통계 DB에 저장하지 않습니다.",
+    "서비스 개선과 대성공 통계를 위해 계산 조건과 결과를 구간값으로 집계합니다. 성공적으로 전송된 이벤트만 반영하며 사용자 수를 집계하지 않습니다. 이름, 이메일, 계정, IP 주소 등 고유 식별 정보는 통계 DB에 저장하지 않습니다.",
   "license.notice": "이 프로그램은 어떠한 보증도 없이 AGPL-3.0-or-later로 제공됩니다.",
   "license.source": "라이선스 및 소스 코드",
 } as const;

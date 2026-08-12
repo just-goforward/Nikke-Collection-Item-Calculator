@@ -31,6 +31,10 @@ export type CalculatorStateValues = {
   manualStockEditRequired: boolean;
 };
 
+type CalculatorInputSnapshot = CollectionState & {
+  stock: Stock;
+};
+
 type CalculatorStateSetters = {
   setGradeState: Dispatch<SetStateAction<Grade>>;
   setLevelState: Dispatch<SetStateAction<number>>;
@@ -97,7 +101,8 @@ function useCalculatorCoreActions({
   setters,
   stateRef,
 }: CalculatorActionOptions) {
-  const { setExpState, setGradeState, setLevelState } = setters;
+  const { setExpState, setGradeState, setLevelState, setManualStockEditRequired, setStockState } =
+    setters;
   const setCollectionState = useCallback(
     (next: CollectionState, options: { maxLevelRender?: boolean; markChanged?: boolean } = {}) => {
       const normalized = normalizeState(next) as CollectionState;
@@ -144,10 +149,41 @@ function useCalculatorCoreActions({
     };
   }, [stateRef]);
 
+  const restoreInputSnapshot = useCallback(
+    (snapshot: CalculatorInputSnapshot) => {
+      const normalized = normalizeState(snapshot) as CollectionState;
+      const nextExp = sanitizeExpValue(normalized.grade, normalized.level, normalized.exp);
+      const nextStock = clampStock(snapshot.stock);
+
+      stateRef.current = {
+        grade: normalized.grade,
+        level: normalized.level,
+        exp: nextExp,
+        stock: nextStock,
+        strategy: ACTIVE_STRATEGY,
+        manualStockEditRequired: false,
+      };
+      setManualStockEditRequired(false);
+      setGradeState(normalized.grade);
+      setLevelState(normalized.level);
+      setExpState(nextExp);
+      setStockState(nextStock);
+    },
+    [
+      setExpState,
+      setGradeState,
+      setLevelState,
+      setManualStockEditRequired,
+      setStockState,
+      stateRef,
+    ],
+  );
+
   return {
     setCollectionState,
     collectInput,
     currentStateSnapshot,
+    restoreInputSnapshot,
   };
 }
 

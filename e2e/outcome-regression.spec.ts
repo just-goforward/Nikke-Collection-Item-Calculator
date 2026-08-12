@@ -42,6 +42,56 @@ async function confirmOutcome(page: Page, locator: Locator, outcome: "대성공 
     .click();
 }
 
+async function failSolveRequest(page: Page, requestNumber: number) {
+  await page.evaluate((targetRequest) => {
+    const OriginalWorker = window.Worker;
+    let solveRequests = 0;
+
+    class FollowUpFailureWorker extends OriginalWorker {
+      override postMessage(
+        message: unknown,
+        options?: StructuredSerializeOptions | Transferable[],
+      ): void {
+        if (
+          message !== null &&
+          typeof message === "object" &&
+          Reflect.get(message, "type") === "solve"
+        ) {
+          solveRequests += 1;
+          if (solveRequests === targetRequest) {
+            const id = Number(Reflect.get(message, "id"));
+            queueMicrotask(() => {
+              this.dispatchEvent(
+                new MessageEvent("message", {
+                  data: {
+                    type: "error",
+                    id,
+                    code: "wasm_trap",
+                    fallbackEligible: false,
+                    message: "Forced follow-up solve failure.",
+                    retryable: false,
+                  },
+                }),
+              );
+            });
+            return;
+          }
+        }
+        Reflect.apply(
+          OriginalWorker.prototype.postMessage,
+          this,
+          options === undefined ? [message] : [message, options],
+        );
+      }
+    }
+
+    Object.defineProperty(window, "Worker", {
+      configurable: true,
+      value: FollowUpFailureWorker,
+    });
+  }, requestNumber);
+}
+
 async function pendingOutcomeGeometry(page: Page) {
   const panel = page.locator(".outcome-panel");
   await panel.evaluate(
@@ -168,6 +218,61 @@ test("단회 대성공 자동 계산은 중간 성공 결과를 표시하지 않
       (window as typeof window & { __observedResultTexts?: string[] }).__observedResultTexts ?? [],
   );
   expect(observedTexts.some((text) => text.includes("대성공 시점이 기록되었습니다."))).toBe(false);
+});
+
+test("결과 적용 후 다음 계산만 실패하면 적용 상태를 보존하고 재계산할 수 있다", async ({
+  page,
+}) => {
+  await failSolveRequest(page, 2);
+  await page.getByLabel("초심자용 키트").fill("1000");
+  await page.getByRole("button", { name: "계산", exact: true }).click();
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+    timeout: 20_000,
+  });
+
+  await confirmOutcome(
+    page,
+    page.getByRole("button", { name: "대성공 X", exact: true }).first(),
+    "대성공 X",
+  );
+
+  await expect(
+    page.getByText("대성공 여부는 반영했습니다. 다음 추천 계산만 실패했습니다."),
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: "대성공 X 확정", exact: true })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "다시 계산", exact: true }).click();
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(
+    page.getByText("대성공 여부는 반영했습니다. 다음 추천 계산만 실패했습니다."),
+  ).toHaveCount(0);
+});
+
+test("SR 교체 후 다음 계산만 실패하면 교체 상태를 보존하고 재계산할 수 있다", async ({ page }) => {
+  await failSolveRequest(page, 1);
+  await page.getByLabel("초심자용 키트").fill("1000");
+  await page.getByRole("button", { name: "15단계", exact: true }).click();
+  await page.getByRole("button", { name: "교체 적용", exact: true }).click();
+
+  await expect(
+    page.getByText("SR 등급 교체는 반영했습니다. 다음 추천 계산만 실패했습니다."),
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page
+      .getByRole("group", { name: "소장품 등급" })
+      .getByRole("button", { name: "SR", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "5단계", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await page.getByRole("button", { name: "다시 계산", exact: true }).click();
+  await expect(page.locator(".next-action .action-label").first()).toBeVisible({
+    timeout: 20_000,
+  });
 });
 
 test("R 6에서 5회 추천 대성공은 재고 수정 전 자동 계산하지 않는다", async ({ page }) => {

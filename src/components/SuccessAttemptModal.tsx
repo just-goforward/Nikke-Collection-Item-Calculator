@@ -53,20 +53,33 @@ function visibleFocusableElements(dialog: HTMLElement) {
 }
 
 function focusFallbackControl() {
-  document
-    .querySelector<HTMLElement>(
+  Array.from(
+    document.querySelectorAll<HTMLElement>(
       ".outcome-panel button:not([disabled]), .mobile-action-bar button:not([disabled]), #calculateButton:not([disabled]), button:not([disabled])",
-    )
+    ),
+  )
+    .find((element) => element.offsetParent !== null)
     ?.focus();
 }
 
 function restorePreviousFocus(previouslyFocused: HTMLElement | null) {
   window.requestAnimationFrame(() => {
-    if (previouslyFocused?.isConnected) {
+    if (previouslyFocused?.isConnected && previouslyFocused.offsetParent !== null) {
       previouslyFocused.focus();
-      return;
+    } else {
+      focusFallbackControl();
     }
-    focusFallbackControl();
+    window.requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (
+        !(active instanceof HTMLElement) ||
+        active === document.body ||
+        !active.isConnected ||
+        active.offsetParent === null
+      ) {
+        focusFallbackControl();
+      }
+    });
   });
 }
 
@@ -83,6 +96,18 @@ function useDialogFocusTrap(
     if (!open) return;
     previouslyFocusedRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const siblings = dialog?.parentElement
+      ? Array.from(dialog.parentElement.children).filter(
+          (element): element is HTMLElement => element instanceof HTMLElement && element !== dialog,
+        )
+      : [];
+    const previouslyInert = new Map(
+      siblings.map((element) => [element, element.hasAttribute("inert")] as const),
+    );
+    for (const sibling of siblings) sibling.setAttribute("inert", "");
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     firstFocusRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -112,6 +137,10 @@ function useDialogFocusTrap(
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
+      for (const [sibling, wasInert] of previouslyInert) {
+        if (!wasInert) sibling.removeAttribute("inert");
+      }
+      document.body.style.overflow = previousBodyOverflow;
       const previouslyFocused = previouslyFocusedRef.current;
       restorePreviousFocus(previouslyFocused);
       previouslyFocusedRef.current = null;
@@ -204,6 +233,7 @@ export default function SuccessAttemptModal({ modal, onSubmit }: SuccessAttemptM
       role="dialog"
       aria-modal="true"
       aria-labelledby="attemptModalTitle"
+      aria-describedby="attemptModalDescription"
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) onSubmit(null);
       }}
@@ -214,7 +244,9 @@ export default function SuccessAttemptModal({ modal, onSubmit }: SuccessAttemptM
           <h3 id="attemptModalTitle" className={classes.title}>
             {t("modal.question", { kit: kitLabel })}
           </h3>
-          <p className={classes.description}>{t("modal.instruction")}</p>
+          <p id="attemptModalDescription" className={classes.description}>
+            {t("modal.instruction")}
+          </p>
         </div>
         <form
           className={classes.form}

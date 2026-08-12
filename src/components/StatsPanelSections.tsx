@@ -207,6 +207,7 @@ export function OverallStats({ stats }: { stats: StatsPanelModel }) {
         />
       </div>
       <p className={classes.note}>{t("stats.expectedHelp")}</p>
+      <p className={classes.note}>{t("stats.sampleScope")}</p>
     </section>
   );
 }
