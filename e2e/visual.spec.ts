@@ -79,6 +79,9 @@ async function fillStock(
 async function calculate(page: import("@playwright/test").Page) {
   await page.locator("#calculateButton").click();
   await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".detail-panel:not([aria-busy='true'])")).toBeVisible({
+    timeout: 20_000,
+  });
 }
 
 async function expectDesignSnapshot(page: import("@playwright/test").Page, name: string) {
@@ -199,6 +202,9 @@ test("모바일 다크 R 결과 기준", async ({ page }) => {
   await fillStock(page, "blue", 100);
   await page.locator(".mobile-action-bar .primary-button").click();
   await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".detail-panel:not([aria-busy='true'])")).toBeVisible({
+    timeout: 20_000,
+  });
 
   await expectDesignSnapshot(page, "mobile-dark-r-result.png");
 });
