@@ -10,6 +10,29 @@ const VIEWPORTS = [
 ] as const;
 const DIAGNOSTIC_MODE = process.env["ALIGNMENT_DIAGNOSTIC"] === "1";
 const BREAKPOINT_SENTINELS = [660, 661, 980, 981, 1099, 1100] as const;
+const ALIGNMENT_BASE_URL = "http://127.0.0.1:4377";
+
+function createGate() {
+  let release: () => void = () => undefined;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+async function waitForGate(promise: Promise<void>, label: string) {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`Timed out waiting for ${label}.`)), 10_000);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 type AlignmentRecord = {
   browser: string;
@@ -218,6 +241,147 @@ test("all locales and viewports keep geometric and optical centers", async ({
   } finally {
     await attachAlignmentReport(testInfo, records);
   }
+});
+
+test("locale font upgrades preserve mobile geometry and CLS in every locale", async ({
+  browser,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-dpr1", "CLS needs one Chromium campaign");
+  test.setTimeout(120_000);
+  const locales = [
+    { code: "ko", title: "소장품 레벨업 계산기" },
+    { code: "ja", title: "コレクション強化計算機" },
+    { code: "en", title: "Collection Item Upgrade Calculator" },
+  ] as const;
+  const selectors = [
+    ".theme-menu-control > button",
+    "#mobile-tab-input",
+    '[data-grade="R"]',
+    '[data-level="0"]',
+    ".mobile-action-bar .primary-button",
+    "#currentExp",
+    "#blueStock",
+  ] as const;
+  const records: Array<{
+    cls: number;
+    dimensions: Array<{
+      afterHeight: number;
+      afterWidth: number;
+      beforeHeight: number;
+      beforeWidth: number;
+      selector: string;
+    }>;
+    locale: (typeof locales)[number]["code"];
+  }> = [];
+
+  for (const locale of locales) {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const page = await context.newPage();
+    const fontRequest = createGate();
+    const releaseFont = createGate();
+    try {
+      await page.addInitScript(
+        ({ key, value }) => {
+          localStorage.setItem(key, value);
+          const state = { cls: 0, supported: false };
+          (
+            window as typeof window & {
+              __fontLayoutShiftState?: typeof state;
+            }
+          ).__fontLayoutShiftState = state;
+          if (!PerformanceObserver.supportedEntryTypes.includes("layout-shift")) return;
+          state.supported = true;
+          new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              const shift = entry as PerformanceEntry & { hadRecentInput: boolean; value: number };
+              if (!shift.hadRecentInput) state.cls += shift.value;
+            }
+          }).observe({ buffered: true, type: "layout-shift" });
+        },
+        { key: LANGUAGE_STORAGE_KEY, value: locale.code },
+      );
+      await page.route("**/*.woff2", async (route) => {
+        fontRequest.release();
+        await releaseFont.promise;
+        await route.continue();
+      });
+
+      await page.goto(`${ALIGNMENT_BASE_URL}/?statsEnv=disabled`, {
+        waitUntil: "domcontentloaded",
+      });
+      await waitForGate(fontRequest.promise, `${locale.code} locale font request`);
+      await expect(page.getByRole("heading", { name: locale.title })).toBeVisible();
+      await expect(page.locator("html")).toHaveAttribute("data-locale-font-ready", "false");
+
+      const before = await page.locator("body").evaluate(
+        (_body, targets) =>
+          targets.map((selector) => {
+            const element = document.querySelector<HTMLElement>(selector);
+            if (!element) throw new Error(`Missing font transition target: ${selector}`);
+            const rect = element.getBoundingClientRect();
+            return { height: rect.height, selector, width: rect.width };
+          }),
+        selectors,
+      );
+
+      releaseFont.release();
+      await expect(page.locator("html")).toHaveAttribute("data-locale-font-ready", "true");
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      });
+
+      const result = await page.locator("body").evaluate((_body, targets) => {
+        const state = (
+          window as typeof window & {
+            __fontLayoutShiftState?: { cls: number; supported: boolean };
+          }
+        ).__fontLayoutShiftState;
+        return {
+          after: targets.map((selector) => {
+            const element = document.querySelector<HTMLElement>(selector);
+            if (!element) throw new Error(`Missing font transition target: ${selector}`);
+            const rect = element.getBoundingClientRect();
+            return { height: rect.height, selector, width: rect.width };
+          }),
+          cls: state?.cls ?? Number.NaN,
+          supported: state?.supported ?? false,
+        };
+      }, selectors);
+
+      expect(result.supported).toBe(true);
+      expect(result.cls, `${locale.code} font transition CLS`).toBeLessThanOrEqual(0.01);
+      const dimensions = before.map((entry, index) => {
+        const after = result.after[index];
+        if (!after) throw new Error(`Missing after geometry for ${entry.selector}`);
+        expect(
+          Math.abs(after.height - entry.height),
+          `${locale.code} ${entry.selector} height`,
+        ).toBeLessThanOrEqual(0.5);
+        expect(
+          Math.abs(after.width - entry.width),
+          `${locale.code} ${entry.selector} width`,
+        ).toBeLessThanOrEqual(0.5);
+        return {
+          afterHeight: after.height,
+          afterWidth: after.width,
+          beforeHeight: entry.height,
+          beforeWidth: entry.width,
+          selector: entry.selector,
+        };
+      });
+      records.push({ cls: result.cls, dimensions, locale: locale.code });
+    } finally {
+      releaseFont.release();
+      await context.close();
+    }
+  }
+
+  await testInfo.attach("font-layout-shift-report.json", {
+    body: Buffer.from(JSON.stringify(records, null, 2)),
+    contentType: "application/json",
+  });
 });
 
 test("responsive breakpoint boundaries preserve the alignment contract", async ({

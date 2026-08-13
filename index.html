@@ -36,14 +36,17 @@
         };
         document.documentElement.lang = locale;
         document.documentElement.dataset.locale = locale;
+        document.documentElement.dataset.localeFontReady = "false";
         const fontLink = document.createElement("link");
         fontLink.id = "locale-font-stylesheet";
         fontLink.dataset.localeFont = locale;
         fontLink.dataset.loadState = "loading";
         fontLink.rel = "stylesheet";
+        fontLink.media = "print";
         fontLink.crossOrigin = "anonymous";
         fontLink.href = fontStylesheets[locale];
         fontLink.addEventListener("load", () => {
+          fontLink.media = "all";
           fontLink.dataset.loadState = "loaded";
         });
         fontLink.addEventListener("error", () => {

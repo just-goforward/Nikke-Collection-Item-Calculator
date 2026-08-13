@@ -3,6 +3,7 @@ import {
   type ReactNode,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -88,7 +89,7 @@ type LocaleContextValue = {
 };
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
-const localeFontPromises = new Map<AppLocale, Promise<boolean>>();
+const localeFontStylesheetPromises = new Map<AppLocale, Promise<boolean>>();
 
 export function localeFromLanguageTag(language: string | null | undefined): AppLocale | null {
   if (!language) return null;
@@ -178,9 +179,9 @@ export function formatIntegerForLocale(locale: AppLocale, value: number) {
   return formatter.format(value);
 }
 
-function localeFontSample(locale: AppLocale) {
-  const sample = `${Object.values(MESSAGE_CATALOGS[locale]).join(" ")} 0123456789 × % R SR EXP`;
-  return [...new Set(sample.replace(/\{[^}]+\}/g, ""))].join("");
+function renderedLocaleFontSample() {
+  const renderedText = document.getElementById("app")?.innerText ?? "";
+  return [...new Set(`${renderedText} 0123456789 × % R SR EXP`)].join("");
 }
 
 function createLocaleFontLink(locale: AppLocale) {
@@ -189,9 +190,11 @@ function createLocaleFontLink(locale: AppLocale) {
   link.setAttribute("data-locale-font", locale);
   link.setAttribute("data-load-state", "loading");
   link.rel = "stylesheet";
+  link.media = "print";
   link.crossOrigin = "anonymous";
   link.href = FONT_STYLESHEETS[locale];
   link.addEventListener("load", () => {
+    link.media = "all";
     link.setAttribute("data-load-state", "loaded");
   });
   link.addEventListener("error", () => {
@@ -216,9 +219,7 @@ function remainingFontLoadTime(deadline: number) {
 }
 
 function waitForStylesheet(link: HTMLLinkElement, deadline: number) {
-  if (link.getAttribute("data-load-state") === "loaded" || link.sheet) {
-    return Promise.resolve(true);
-  }
+  if (link.getAttribute("data-load-state") === "loaded") return Promise.resolve(true);
   if (link.getAttribute("data-load-state") === "error") return Promise.resolve(false);
   return new Promise<boolean>((resolve) => {
     let settled = false;
@@ -238,7 +239,7 @@ function waitForStylesheet(link: HTMLLinkElement, deadline: number) {
   });
 }
 
-function waitForFontFace(locale: AppLocale, deadline: number) {
+function waitForFontFace(locale: AppLocale, sample: string, deadline: number) {
   if (!document.fonts) return Promise.resolve(true);
   return new Promise<boolean>((resolve) => {
     let settled = false;
@@ -250,7 +251,7 @@ function waitForFontFace(locale: AppLocale, deadline: number) {
     };
     const timeoutId = window.setTimeout(() => finish(false), remainingFontLoadTime(deadline));
     document.fonts
-      .load(`600 1rem "${FONT_FAMILY_NAMES[locale]}"`, localeFontSample(locale))
+      .load(`600 1rem "${FONT_FAMILY_NAMES[locale]}"`, sample)
       .then(() => finish(true))
       .catch((error: unknown) => {
         ignoreExpectedError("locale font loading can fail and use the system fallback", error);
@@ -259,22 +260,25 @@ function waitForFontFace(locale: AppLocale, deadline: number) {
   });
 }
 
-async function loadLocaleFont(locale: AppLocale) {
-  const deadline = performance.now() + LOCALE_FONT_LOAD_TIMEOUT_MS;
-  const stylesheetLoaded = await waitForStylesheet(localeFontLink(locale), deadline);
-  if (!stylesheetLoaded) return false;
-  return waitForFontFace(locale, deadline);
-}
-
-function ensureLocaleFontReady(locale: AppLocale) {
-  const cached = localeFontPromises.get(locale);
+function ensureLocaleFontStylesheet(locale: AppLocale, deadline: number) {
+  const cached = localeFontStylesheetPromises.get(locale);
   if (cached) return cached;
-  const pending = loadLocaleFont(locale);
-  localeFontPromises.set(locale, pending);
+  const pending = waitForStylesheet(localeFontLink(locale), deadline);
+  localeFontStylesheetPromises.set(locale, pending);
   void pending.then((loaded) => {
-    if (!loaded && localeFontPromises.get(locale) === pending) localeFontPromises.delete(locale);
+    if (!loaded && localeFontStylesheetPromises.get(locale) === pending) {
+      localeFontStylesheetPromises.delete(locale);
+    }
   });
   return pending;
+}
+
+async function loadRenderedLocaleFont(locale: AppLocale) {
+  const deadline = performance.now() + LOCALE_FONT_LOAD_TIMEOUT_MS;
+  const sample = renderedLocaleFontSample();
+  const stylesheetLoaded = await ensureLocaleFontStylesheet(locale, deadline);
+  if (!stylesheetLoaded) return false;
+  return waitForFontFace(locale, sample, deadline);
 }
 
 function applyLocaleToDocument(locale: AppLocale, fontReady: boolean) {
@@ -286,24 +290,34 @@ function applyLocaleToDocument(locale: AppLocale, fontReady: boolean) {
   if (description) description.content = translate(locale, "app.description");
 }
 
-export async function prepareInitialLocale() {
+export function prepareInitialLocale() {
   const locale = detectInitialLocale();
-  const fontReady = await ensureLocaleFontReady(locale);
-  applyLocaleToDocument(locale, fontReady);
+  applyLocaleToDocument(locale, false);
   return locale;
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<AppLocale>(detectInitialLocale);
   const localeRequestRef = useRef(0);
+  useEffect(() => {
+    let active = true;
+    void loadRenderedLocaleFont(locale).then((fontReady) => {
+      if (!active || document.documentElement.dataset["locale"] !== locale) return;
+      document.documentElement.setAttribute("data-locale-font-ready", String(fontReady));
+    });
+    return () => {
+      active = false;
+    };
+  }, [locale]);
   const setLocale = useCallback(
     async (nextLocale: AppLocale) => {
       const request = localeRequestRef.current + 1;
       localeRequestRef.current = request;
       if (nextLocale === locale) return;
-      const fontReady = await ensureLocaleFontReady(nextLocale);
+      const deadline = performance.now() + LOCALE_FONT_LOAD_TIMEOUT_MS;
+      await ensureLocaleFontStylesheet(nextLocale, deadline);
       if (localeRequestRef.current !== request) return;
-      applyLocaleToDocument(nextLocale, fontReady);
+      applyLocaleToDocument(nextLocale, false);
       flushSync(() => setLocaleState(nextLocale));
       try {
         window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLocale);

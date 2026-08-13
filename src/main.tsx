@@ -5,11 +5,10 @@ import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { detectInitialLocale, I18nProvider, prepareInitialLocale, translate } from "./i18n/locale";
 import "./styles.css";
 
-async function boot() {
+function boot() {
   const app = document.getElementById("app");
   if (!app) throw new Error("App root element was not found.");
-  // Waiting here prevents a fallback-font render from shifting controls after the app mounts.
-  await prepareInitialLocale();
+  prepareInitialLocale();
 
   const root = createRoot(app);
   root.render(
@@ -38,4 +37,8 @@ function renderBootFailure(error: unknown) {
   app.append(panel);
 }
 
-void boot().catch(renderBootFailure);
+try {
+  boot();
+} catch (error) {
+  renderBootFailure(error);
+}

@@ -150,7 +150,7 @@ test("browser language selects Japanese and its font before app use", async ({ p
     .toContain("Pretendard JP Variable");
 });
 
-test("initial UI waits for its locale font stylesheet before the first render", async ({
+test("initial UI renders with its fallback while the locale font stylesheet loads", async ({
   page,
 }) => {
   await page.unroute("https://cdn.jsdelivr.net/**");
@@ -167,15 +167,18 @@ test("initial UI waits for its locale font stylesheet before the first render", 
   await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`, { waitUntil: "commit" });
   await withCleanup(async () => {
     await waitForSignal(fontRequest.promise, "the initial locale font request");
-    await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toHaveCount(0);
-    await expect(page.locator("html")).not.toHaveAttribute("data-locale-font-ready", "true");
+    await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("data-locale-font-ready", "false");
+    await expect
+      .poll(() => page.locator("body").evaluate((body) => getComputedStyle(body).fontFamily))
+      .not.toContain("Pretendard JP Variable");
   }, releaseFont.release);
   await page.waitForLoadState("domcontentloaded");
   await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-locale-font-ready", "true");
 });
 
-test("language changes only after the next locale font is ready", async ({ page }) => {
+test("language changes only after the next locale font stylesheet is ready", async ({ page }) => {
   await prepareLocale(page, ["en-US"]);
   await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
   await page.unroute("https://cdn.jsdelivr.net/**");

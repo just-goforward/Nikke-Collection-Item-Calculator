@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* The locale-specific Pretendard dynamic subset is selected before app boot. */
+/* Locale fonts upgrade after the fallback-font app shell has rendered. */
 
 .boot-error {
   display: grid;
