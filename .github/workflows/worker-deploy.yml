@@ -158,6 +158,13 @@ jobs:
         if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
         run: npx wrangler deploy --dry-run --env staging --config cloudflare/wrangler.toml
 
+      - name: Validate staging D1 schema
+        if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run check:d1-schema -- collection-kit-stats-staging staging
+
       - name: Capture current staging version
         if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
         id: staging_previous
@@ -277,6 +284,12 @@ jobs:
 
       - name: Validate production bundle
         run: npx wrangler deploy --dry-run --env="" --config cloudflare/wrangler.toml
+
+      - name: Validate production D1 schema
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run check:d1-schema -- collection-kit-stats
 
       - name: Capture current production version
         id: previous

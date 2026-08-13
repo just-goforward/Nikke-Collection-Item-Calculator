@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-import { REQUIRED_D1_SCHEMA } from "../shared/d1SchemaContract";
+import { REQUIRED_D1_SCHEMA } from "../shared/d1SchemaContract.ts";
 
 type SchemaRow = { column_name?: unknown; table_name?: unknown };
 

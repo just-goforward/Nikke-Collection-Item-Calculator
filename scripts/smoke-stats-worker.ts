@@ -4,7 +4,7 @@ const endpoint = process.argv[2];
 const allowedOrigin = process.argv[3] ?? "https://just-goforward.github.io";
 const mode = process.argv[4] ?? "full";
 const frontendContractOnly = mode === "frontend-contract-only";
-const healthPropagationAttempts = 15;
+const healthPropagationAttempts = 60;
 const healthPropagationDelayMs = 1_000;
 
 if (!endpoint) {
