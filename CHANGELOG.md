@@ -29,6 +29,8 @@
   `workerd` 생성 타입·설치 스크립트 allowlist를 갱신했습니다.
 - Pages 사전 검증은 현재 프런트엔드가 소비하는 공개 통계 계약만 확인하고, D1 health와
   write 계약은 Worker 배포 후 smoke에서 검사하도록 배포 순환 의존을 제거했습니다.
+- Worker 변경 감지에서 staging 데이터 초기화용 `reset-staging.sql`은 migration 차단
+  대상에서 제외하되 실제 스키마·migration SQL 변경은 계속 수동 적용하도록 유지했습니다.
 
 ## 2026-08-09
 
