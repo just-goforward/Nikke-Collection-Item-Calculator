@@ -2,16 +2,27 @@ import { StatsApiResponseSchema } from "../src/schemas.ts";
 
 const endpoint = process.argv[2];
 const allowedOrigin = process.argv[3] ?? "https://just-goforward.github.io";
+const mode = process.argv[4] ?? "full";
+const frontendContractOnly = mode === "frontend-contract-only";
 
 if (!endpoint) {
-  throw new Error("Usage: npm run smoke:stats-worker -- <worker-url> [allowed-origin]");
+  throw new Error(
+    "Usage: npm run smoke:stats-worker -- <worker-url> [allowed-origin] [frontend-contract-only]",
+  );
 }
+assertMode(mode);
 
 const baseUrl = new URL(endpoint);
 baseUrl.pathname = baseUrl.pathname.replace(/\/+$/, "");
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+
+function assertMode(value: string) {
+  if (value !== "full" && value !== "frontend-contract-only") {
+    throw new Error(`Unsupported smoke mode: ${value}`);
+  }
 }
 
 function endpointUrl(path: string): URL {
@@ -38,46 +49,52 @@ assert(
   `stats: response does not satisfy the frontend contract: ${JSON.stringify(parsedStats.error?.issues ?? [])}`,
 );
 
-const healthResponse = await fetch(endpointUrl("api/health"), {
-  headers: { Accept: "application/json", Origin: allowedOrigin },
-});
-assert(healthResponse.status === 200, `health: expected 200, received ${healthResponse.status}`);
-assertCors(healthResponse, "health");
-const health = (await healthResponse.json()) as {
-  ok?: unknown;
-  schemaContractVersion?: unknown;
-};
-assert(
-  health.ok === true && health.schemaContractVersion === 1,
-  `health: unexpected schema contract response: ${JSON.stringify(health)}`,
-);
+let healthStatus: number | "skipped" = "skipped";
+let writeContractStatus: number | "skipped" = "skipped";
+if (!frontendContractOnly) {
+  const healthResponse = await fetch(endpointUrl("api/health"), {
+    headers: { Accept: "application/json", Origin: allowedOrigin },
+  });
+  healthStatus = healthResponse.status;
+  assert(healthResponse.status === 200, `health: expected 200, received ${healthResponse.status}`);
+  assertCors(healthResponse, "health");
+  const health = (await healthResponse.json()) as {
+    ok?: unknown;
+    schemaContractVersion?: unknown;
+  };
+  assert(
+    health.ok === true && health.schemaContractVersion === 1,
+    `health: unexpected schema contract response: ${JSON.stringify(health)}`,
+  );
 
-const writeContractResponse = await fetch(endpointUrl("api/events"), {
-  method: "POST",
-  headers: { "Content-Type": "application/json", Origin: allowedOrigin },
-  body: JSON.stringify({
-    version: 1,
-    eventId: `worker-smoke-${Date.now()}`,
-    turnstileToken: "worker-smoke-invalid-token",
-    event: {
-      kind: "runtime_invariant",
-      invariantVersion: 1,
-      code: "worker_idle_pending",
-      component: "worker_client",
-      lane: "unknown",
-    },
-  }),
-});
-assert(
-  writeContractResponse.status === 403,
-  `write contract: expected Turnstile rejection 403, received ${writeContractResponse.status}`,
-);
-assertCors(writeContractResponse, "write contract");
-const writeContractBody = (await writeContractResponse.json()) as { error?: unknown };
-assert(
-  writeContractBody.error === "turnstile_failed",
-  `write contract: event did not reach Turnstile verification: ${JSON.stringify(writeContractBody)}`,
-);
+  const writeContractResponse = await fetch(endpointUrl("api/events"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: allowedOrigin },
+    body: JSON.stringify({
+      version: 1,
+      eventId: `worker-smoke-${Date.now()}`,
+      turnstileToken: "worker-smoke-invalid-token",
+      event: {
+        kind: "runtime_invariant",
+        invariantVersion: 1,
+        code: "worker_idle_pending",
+        component: "worker_client",
+        lane: "unknown",
+      },
+    }),
+  });
+  writeContractStatus = writeContractResponse.status;
+  assert(
+    writeContractResponse.status === 403,
+    `write contract: expected Turnstile rejection 403, received ${writeContractResponse.status}`,
+  );
+  assertCors(writeContractResponse, "write contract");
+  const writeContractBody = (await writeContractResponse.json()) as { error?: unknown };
+  assert(
+    writeContractBody.error === "turnstile_failed",
+    `write contract: event did not reach Turnstile verification: ${JSON.stringify(writeContractBody)}`,
+  );
+}
 
 const preflightResponse = await fetch(endpointUrl("api/stats"), {
   method: "OPTIONS",
@@ -111,9 +128,10 @@ assert(
 console.log(
   JSON.stringify({
     endpoint: baseUrl.toString().replace(/\/+$/, ""),
-    health: healthResponse.status,
+    mode: frontendContractOnly ? "frontend-contract-only" : "full",
+    health: healthStatus,
     stats: statsResponse.status,
-    writeContract: writeContractResponse.status,
+    writeContract: writeContractStatus,
     preflight: preflightResponse.status,
     blockedOrigin: blockedOriginResponse.status,
     adminFailClosed: adminResponse.status,

@@ -27,6 +27,8 @@
   정정하고, 연구 문서 색인과 Vite 빌드별 제3자 라이선스 고지 산출물을 추가했습니다.
 - `wrangler` 4.122.0, `@cloudflare/vitest-pool-workers` 0.21.2와 이에 대응하는
   `workerd` 생성 타입·설치 스크립트 allowlist를 갱신했습니다.
+- Pages 사전 검증은 현재 프런트엔드가 소비하는 공개 통계 계약만 확인하고, D1 health와
+  write 계약은 Worker 배포 후 smoke에서 검사하도록 배포 순환 의존을 제거했습니다.
 
 ## 2026-08-09
 
