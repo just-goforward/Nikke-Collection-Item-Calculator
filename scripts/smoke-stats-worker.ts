@@ -4,6 +4,8 @@ const endpoint = process.argv[2];
 const allowedOrigin = process.argv[3] ?? "https://just-goforward.github.io";
 const mode = process.argv[4] ?? "full";
 const frontendContractOnly = mode === "frontend-contract-only";
+const healthPropagationAttempts = 15;
+const healthPropagationDelayMs = 1_000;
 
 if (!endpoint) {
   throw new Error(
@@ -36,6 +38,23 @@ function assertCors(response: Response, test: string) {
   );
 }
 
+async function fetchHealthAfterDeployment() {
+  for (let attempt = 1; attempt <= healthPropagationAttempts; attempt += 1) {
+    const url = endpointUrl("api/health");
+    url.searchParams.set("smokeAttempt", String(attempt));
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "Cache-Control": "no-cache",
+        Origin: allowedOrigin,
+      },
+    });
+    if (response.status !== 404 || attempt === healthPropagationAttempts) return response;
+    await new Promise((resolve) => setTimeout(resolve, healthPropagationDelayMs));
+  }
+  throw new Error("health: deployment propagation retry exhausted");
+}
+
 const statsResponse = await fetch(endpointUrl("api/stats"), {
   headers: { Accept: "application/json", Origin: allowedOrigin },
 });
@@ -52,9 +71,7 @@ assert(
 let healthStatus: number | "skipped" = "skipped";
 let writeContractStatus: number | "skipped" = "skipped";
 if (!frontendContractOnly) {
-  const healthResponse = await fetch(endpointUrl("api/health"), {
-    headers: { Accept: "application/json", Origin: allowedOrigin },
-  });
+  const healthResponse = await fetchHealthAfterDeployment();
   healthStatus = healthResponse.status;
   assert(healthResponse.status === 200, `health: expected 200, received ${healthResponse.status}`);
   assertCors(healthResponse, "health");
