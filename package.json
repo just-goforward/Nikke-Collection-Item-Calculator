@@ -90,6 +90,7 @@
     "validate:wasm-candidate": "node scripts/validate-wasm-candidate.ts",
     "smoke:wasm-candidate:android": "node scripts/smoke-wasm-candidate-android.ts",
     "smoke:stats-worker": "node scripts/smoke-stats-worker.ts",
+    "check:d1-schema": "node scripts/check-d1-schema.ts",
     "smoke:pages": "node scripts/smoke-pages-deployment.mjs",
     "worker:types:check": "wrangler types cloudflare/worker-configuration.d.ts --config cloudflare/wrangler.toml --env= --env-interface GeneratedWorkerEnv --strict-vars false --check",
     "typecheck": "npm run worker:types:check && tsc --noEmit && tsc --noEmit -p cloudflare/tsconfig.json && tsc --noEmit -p tsconfig.e2e.json",
@@ -104,12 +105,14 @@
     "lint:rust": "cargo fmt --manifest-path rust/solver-rs/Cargo.toml --check && cargo clippy --manifest-path rust/solver-rs/Cargo.toml --target wasm32-unknown-unknown -- -D warnings",
     "perf:fonts": "node scripts/compare-font-loading.mjs",
     "clean:artifacts": "node scripts/clean-artifacts.ts --apply",
-    "clean:artifacts:dry-run": "node scripts/clean-artifacts.ts"
+    "clean:artifacts:dry-run": "node scripts/clean-artifacts.ts",
+    "clean:research-artifacts": "node scripts/clean-artifacts.ts --research --apply",
+    "clean:research-artifacts:dry-run": "node scripts/clean-artifacts.ts --research"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@biomejs/biome": "^2.5.8",
-    "@cloudflare/vitest-pool-workers": "^0.21.1",
+    "@cloudflare/vitest-pool-workers": "^0.21.2",
     "@playwright/test": "1.62.1",
     "@stryker-mutator/api": "^9.6.1",
     "@stryker-mutator/core": "^9.6.1",
@@ -129,7 +132,7 @@
     "typescript": "^7.0.2",
     "vite": "^8.2.1",
     "vitest": "^4.1.10",
-    "wrangler": "^4.121.0"
+    "wrangler": "^4.122.0"
   },
   "dependencies": {
     "react": "^19.2.8",
@@ -143,8 +146,7 @@
   "allowScripts": {
     "esbuild@0.28.1": true,
     "esbuild@0.28.2": true,
-    "sharp@0.34.5": true,
     "sharp@0.35.3": true,
-    "workerd@1.20260804.1": true
+    "workerd@1.20260811.1": true
   }
 }

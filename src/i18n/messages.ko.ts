@@ -6,6 +6,8 @@ export const koMessages = {
   "error.renderTitle": "화면을 표시하지 못했습니다.",
   "error.renderDetail": "최신 파일을 다시 불러오면 계산기를 계속 사용할 수 있습니다.",
   "error.reload": "페이지 다시 불러오기",
+  "error.sectionDetail": "이 영역에 필요한 파일을 불러오지 못했습니다.",
+  "error.retrySection": "다시 불러오기",
   "common.calculate": "계산",
   "common.calculateLong": "계산하기",
   "common.recalculate": "다시 계산",

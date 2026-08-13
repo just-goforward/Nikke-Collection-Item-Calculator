@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { useDismissableLayer } from "../hooks/useDismissableLayer";
 import { useI18n } from "../i18n/locale";
+import { nextNavigationIndex } from "../lib/keyboardNavigation";
 import type { Grade } from "../types";
 import type { StatePanelModel } from "../ui-types";
 import { AlignedText } from "./AlignedText";
@@ -86,18 +87,34 @@ function GradeSelector({
   onGradeChange,
 }: Pick<StatePanelProps, "disabled" | "state" | "onGradeChange">) {
   const { t } = useI18n();
+  const gradeRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const grades = ["R", "SR"] as const;
+  const selectFromKeyboard = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const nextIndex = nextNavigationIndex(event.key, index, grades.length, "horizontal");
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const nextGrade = grades[nextIndex];
+    if (!nextGrade) return;
+    onGradeChange(nextGrade);
+    gradeRefs.current[nextIndex]?.focus();
+  };
   return (
-    // biome-ignore lint/a11y/useSemanticElements: Existing CSS and Playwright smoke tests use this grouped control contract.
+    // biome-ignore lint/a11y/useSemanticElements: Button roles preserve the established pressed-control API while the group adds arrow-key navigation.
     <div className={classes.gradeRow} role="group" aria-label={t("state.gradeAria")}>
       <span aria-hidden="true" />
-      {(["R", "SR"] as const).map((grade) => (
+      {grades.map((grade, index) => (
         <button
           className={stateButtonClass(state.grade === grade)}
           type="button"
           data-grade={grade}
           aria-pressed={state.grade === grade}
+          tabIndex={state.grade === grade ? 0 : -1}
           disabled={disabled}
           key={grade}
+          ref={(element) => {
+            gradeRefs.current[index] = element;
+          }}
+          onKeyDown={(event) => selectFromKeyboard(event, index)}
           onClick={() => onGradeChange(grade)}
         >
           <AlignedText alignmentRole="segment">{grade}</AlignedText>
@@ -113,8 +130,16 @@ function LevelSelector({
   onLevelChange,
 }: Pick<StatePanelProps, "disabled" | "state" | "onLevelChange">) {
   const { t } = useI18n();
+  const levelRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectFromKeyboard = (event: React.KeyboardEvent<HTMLButtonElement>, level: number) => {
+    const nextLevel = nextNavigationIndex(event.key, level, 16, "horizontal");
+    if (nextLevel === null) return;
+    event.preventDefault();
+    onLevelChange(nextLevel);
+    levelRefs.current[nextLevel]?.focus();
+  };
   return (
-    // biome-ignore lint/a11y/useSemanticElements: Existing CSS and Playwright smoke tests use this grouped control contract.
+    // biome-ignore lint/a11y/useSemanticElements: Button roles preserve the established pressed-control API while the group adds arrow-key navigation.
     <div
       id="levelGrid"
       className={classes.levelGrid}
@@ -133,8 +158,13 @@ function LevelSelector({
               type="button"
               aria-label={t("common.phase", { phase: level })}
               aria-pressed={level === state.level}
+              tabIndex={level === state.level ? 0 : -1}
               disabled={disabled}
               key={level}
+              ref={(element) => {
+                levelRefs.current[level] = element;
+              }}
+              onKeyDown={(event) => selectFromKeyboard(event, level)}
               onClick={() => onLevelChange(level)}
             >
               <AlignedText alignmentRole="segment">{level}</AlignedText>

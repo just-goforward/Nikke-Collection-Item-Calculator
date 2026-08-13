@@ -1,5 +1,6 @@
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef } from "react";
 
+import { isWorkerSolverBackend, type WorkerSolverBackend } from "../../shared/workerProtocol";
 import { formatFlooredPercent } from "../format";
 import { message } from "../i18n/locale";
 import { ignoreExpectedError } from "../lib/errorHandling";
@@ -23,7 +24,7 @@ type ValidateBestAvailable = (
   input: SolverInput,
   runs: number,
   onProgress: (progress: ProgressEvent) => void,
-  options?: { force?: boolean; seed?: number },
+  options?: { backend?: WorkerSolverBackend; force?: boolean; seed?: number },
 ) => Promise<MonteCarloResult>;
 
 type ValidationFlowOptions = {
@@ -92,6 +93,11 @@ function solverInputKeyFromResult(result: SolverResult | null) {
     strategy: result.input.strategy || "supply",
     stock: result.input.stock,
   });
+}
+
+export function validationBackendFromResult(result: SolverResult): WorkerSolverBackend | undefined {
+  const backend = result.stats?.solverBackend;
+  return isWorkerSolverBackend(backend) ? backend : undefined;
 }
 
 function setValidationStarted(setValidationView: ValidationViewSetter) {
@@ -181,6 +187,7 @@ export function useValidationFlow({
       generationRef.current === generation &&
       solverInputKeyFromResult(latestResultRef.current) === resultKey;
     const seed = makeMonteCarloSeed();
+    const backend = validationBackendFromResult(latest);
     setValidationStarted(setValidationView);
     await new Promise((resolve) => requestAnimationFrame(resolve));
     if (!isCurrent()) return;
@@ -189,7 +196,11 @@ export function useValidationFlow({
         input,
         runs,
         validationProgressHandler(setValidationView, runs, isCurrent),
-        { force: true, seed },
+        {
+          ...(backend ? { backend } : {}),
+          force: true,
+          seed,
+        },
       );
       if (!isCurrent()) return;
       setValidationComplete(

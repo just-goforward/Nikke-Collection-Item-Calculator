@@ -5,6 +5,7 @@ import {
   createRustPhase2ResearchSolver as createRustPhase2Solver,
   selectExactRerankCandidate,
 } from "./rustPhase2ResearchCore";
+import { RustSolveError } from "./rustStatus";
 import type { RustExactRerankedCandidate } from "./rustTypes";
 
 describe("rust phase2 policy wrapper", () => {
@@ -76,9 +77,13 @@ describe("rust phase2 policy wrapper", () => {
 
     solver.solveRoot({ grade: "SR", level: 2, exp: 0 }, { blue: 40, purple: 50, yellow: 60 });
 
-    expect(() =>
-      policy.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 2, yellow: 3 }),
-    ).toThrow("stale");
+    try {
+      policy.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 2, yellow: 3 });
+      throw new Error("Expected the stale phase2 policy to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RustSolveError);
+      expect((error as RustSolveError).reason).toBe("stale_handle");
+    }
     expect(exports.policyActionAt).not.toHaveBeenCalled();
   });
 

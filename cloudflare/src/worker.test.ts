@@ -13,6 +13,7 @@ const testEnv = harness.env;
 const submit = (payload: object) => harness.submit(payload);
 const fetchStats = (origin: string | null = "https://test.example", headers?: HeadersInit) =>
   harness.fetchStats(origin, headers);
+const fetchHealth = (origin: string | null = "https://test.example") => harness.fetchHealth(origin);
 const fetchAdminSolverDiagnostics = (
   token: string | null = "test-admin-token",
   origin: string | null = "https://test.example",
@@ -189,6 +190,27 @@ describe("kit_result event commit", () => {
     expect(await retried.json()).toEqual({ ok: true });
     await expect(countRows("event_ids")).resolves.toBe(1);
     await expect(countRows("event_aggregates")).resolves.toBe(1);
+  });
+});
+
+describe("D1 schema health", () => {
+  it("reports the current aggregate schema contract", async () => {
+    const response = await fetchHealth();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true, schemaContractVersion: 1 });
+  });
+
+  it("fails closed when a required aggregate table is unavailable", async () => {
+    await harness.database.exec("DROP TABLE runtime_invariant_aggregates;");
+
+    const response = await fetchHealth();
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "database_schema_not_ready",
+      retryable: true,
+    });
   });
 });
 

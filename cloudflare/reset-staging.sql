@@ -37,3 +37,28 @@ DELETE FROM calculation_locale_aggregates
 WHERE EXISTS (
   SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
 );
+
+DELETE FROM solver_runtime_aggregates
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM solver_cache_aggregates
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM solver_recovery_rung_aggregates
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM solver_recovery_terminal_aggregates
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM runtime_invariant_aggregates
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);

@@ -1,10 +1,22 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useCallback, useState } from "react";
 
 import { useI18n } from "../i18n/locale";
 import type { StatsView } from "../ui-types";
+import { LazySectionErrorBoundary } from "./LazySectionErrorBoundary";
 import { classes } from "./statsPanelStyles";
 
-const StatsPanelBody = lazy(() => import("./StatsPanelBody"));
+type StatsPanelBodyModule = typeof import("./StatsPanelBody");
+
+let statsPanelBodyLoad: Promise<StatsPanelBodyModule> | null = null;
+
+function loadStatsPanelBody() {
+  statsPanelBodyLoad ??= import("./StatsPanelBody");
+  return statsPanelBodyLoad;
+}
+
+function createStatsPanelBody() {
+  return lazy(loadStatsPanelBody);
+}
 
 type StatsPanelProps = {
   onRetry: () => void;
@@ -30,17 +42,42 @@ function StatsPanelLoading() {
   );
 }
 
+function StatsPanelFailure({ onRetry }: { onRetry: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div className={classes.panelLoading} role="alert">
+      <div className={classes.errorMessage}>
+        <p>{t("error.sectionDetail")}</p>
+        <button className={classes.retryButton} type="button" onClick={onRetry}>
+          {t("error.retrySection")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function StatsPanel({ onRetry, renderContent = true, view }: StatsPanelProps) {
   const { t } = useI18n();
+  const [StatsPanelBody, setStatsPanelBody] = useState(createStatsPanelBody);
+  const retryStatsPanelBody = useCallback(() => {
+    statsPanelBodyLoad = null;
+    setStatsPanelBody(createStatsPanelBody());
+  }, []);
   return (
     <section id="globalStatsPanel" className={classes.panel} hidden={view.type === "hidden"}>
       <div className={`${classes.heading} ${classes.headingStatic}`}>
         <h2>{t("stats.title")}</h2>
       </div>
       {renderContent ? (
-        <Suspense fallback={<StatsPanelLoading />}>
-          <StatsPanelBody onRetry={onRetry} view={view} />
-        </Suspense>
+        <LazySectionErrorBoundary
+          name="StatsPanelBody"
+          onRetry={retryStatsPanelBody}
+          fallback={(retry) => <StatsPanelFailure onRetry={retry} />}
+        >
+          <Suspense fallback={<StatsPanelLoading />}>
+            <StatsPanelBody onRetry={onRetry} view={view} />
+          </Suspense>
+        </LazySectionErrorBoundary>
       ) : null}
     </section>
   );

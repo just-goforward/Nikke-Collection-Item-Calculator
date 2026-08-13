@@ -571,15 +571,20 @@ function ValidationDetails({
 }) {
   const { formatInteger, t, text } = useI18n();
   const [open, setOpen] = useState(false);
+  const wasOpenRef = useRef(false);
   const contentId = useId();
 
-  const toggleValidation = () => {
-    const nextOpen = !open;
-    setOpen(nextOpen);
-    if (nextOpen && !validation.disabled && !validation.stageReach) {
-      onRunValidation();
-    }
-  };
+  useEffect(() => {
+    const justOpened = open && !wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (!open || validation.disabled || validation.stageReach) return;
+
+    // An expanded panel expresses ongoing validation intent. A new solve resets the view to idle,
+    // while reopening also lets the user retry a cancelled or failed validation without a loop.
+    if (validation.status === "idle" || justOpened) void onRunValidation();
+  }, [onRunValidation, open, validation.disabled, validation.stageReach, validation.status]);
+
+  const toggleValidation = () => setOpen((current) => !current);
 
   return (
     <section className={classes.validationDetails}>

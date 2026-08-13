@@ -7,7 +7,7 @@ import {
   phase2ContextMatches,
   requireExport,
 } from "./rustCoreShared";
-import { assertRustStatusOk } from "./rustStatus";
+import { assertRustStatusOk, RustSolveError } from "./rustStatus";
 import type { RustCoreExports, State, Stock } from "./rustTypes";
 
 export type Phase2FactoryState = {
@@ -35,7 +35,7 @@ export function assertCurrentPhase2Build(
 
 function assertPhase2PolicyGeneration(state: Phase2FactoryState, generation: number) {
   if (generation === state.buildGeneration) return;
-  throw new Error("Rust phase2 policy handle is stale because a newer policy was built.");
+  throw new RustSolveError("phase2 policy", null, "stale_handle");
 }
 
 export function actionAtForPhase2Generation(

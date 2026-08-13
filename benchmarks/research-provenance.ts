@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
+import { cpus, release as osRelease, type as osType, version as osVersion } from "node:os";
 import { relative, resolve, sep } from "node:path";
 
 export type ResearchSourceFingerprint = {
@@ -12,7 +13,7 @@ export type ResearchSourceFingerprint = {
 export type ResearchArtifactFingerprint = ResearchSourceFingerprint;
 
 export type ResearchProvenance = {
-  version: 1;
+  version: 2;
   studyId: string;
   protocolVersion: number;
   contractSha256: string;
@@ -23,8 +24,18 @@ export type ResearchProvenance = {
   wasm: ResearchArtifactFingerprint | null;
   runtime: {
     node: string;
+    v8: string;
     platform: NodeJS.Platform;
     arch: string;
+    os: {
+      type: string;
+      release: string;
+      version: string;
+    };
+    cpu: {
+      model: string;
+      logicalCores: number;
+    };
   };
 };
 
@@ -75,9 +86,10 @@ export function collectResearchProvenance({
     .map((path) => fingerprintFile(normalizedRoot, path))
     .sort((left, right) => left.path.localeCompare(right.path));
   const wasm = wasmPath ? fingerprintFile(normalizedRoot, wasmPath) : null;
+  const processors = cpus();
 
   return {
-    version: 1,
+    version: 2,
     studyId,
     protocolVersion,
     contractSha256: sha256(canonicalJson(contract)),
@@ -92,8 +104,18 @@ export function collectResearchProvenance({
     wasm,
     runtime: {
       node: process.version,
+      v8: process.versions.v8,
       platform: process.platform,
       arch: process.arch,
+      os: {
+        type: osType(),
+        release: osRelease(),
+        version: osVersion(),
+      },
+      cpu: {
+        model: processors[0]?.model ?? "unknown",
+        logicalCores: processors.length,
+      },
     },
   };
 }

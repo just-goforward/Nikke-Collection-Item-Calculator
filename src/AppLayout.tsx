@@ -1,5 +1,13 @@
-import { type CSSProperties, lazy, Suspense, useLayoutEffect, useRef, useState } from "react";
-
+import {
+  type CSSProperties,
+  lazy,
+  Suspense,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { LazySectionErrorBoundary } from "./components/LazySectionErrorBoundary";
 import {
   MobileActionBar,
   MobileStatusStrip,
@@ -34,7 +42,9 @@ export function preloadDetailPanel() {
   });
 }
 
-const DetailPanel = lazy(loadDetailPanel);
+function createDetailPanel() {
+  return lazy(loadDetailPanel);
+}
 
 const classes = {
   shell:
@@ -58,6 +68,8 @@ const classes = {
     "section-heading flex items-center border-b border-border px-[18px] py-4 max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",
   detailFallbackBody:
     "grid min-h-[148px] place-items-center px-[18px] py-[22px] text-center text-[13px] font-semibold leading-[1.45] text-muted max-mobile:min-h-[116px] max-mobile:px-3.5 max-mobile:py-3",
+  detailRetryButton:
+    "mt-3 inline-flex min-h-9 items-center justify-center rounded-control border border-border bg-button px-3.5 text-[12.5px] font-bold text-text-soft",
   statsColumn:
     "stats-column-layout min-w-0 min-[661px]:col-span-full max-mobile:grid max-mobile:gap-2.5",
   gridCellHidden: "max-mobile:hidden",
@@ -195,6 +207,34 @@ function DetailPanelFallback() {
   );
 }
 
+function DetailPanelFailure({ onRetry }: { onRetry: () => void }) {
+  const { t } = useI18n();
+  return (
+    <section className={classes.detailFallback} role="alert" aria-labelledby="detail-error-title">
+      <div className={classes.detailFallbackHeading}>
+        <h2 id="detail-error-title">{t("detail.title")}</h2>
+      </div>
+      <div className={classes.detailFallbackBody}>
+        <div>
+          <p>{t("error.sectionDetail")}</p>
+          <button className={classes.detailRetryButton} type="button" onClick={onRetry}>
+            {t("error.retrySection")}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function useRetryableDetailPanel() {
+  const [component, setComponent] = useState(createDetailPanel);
+  const retry = useCallback(() => {
+    detailPanelLoad = null;
+    setComponent(createDetailPanel());
+  }, []);
+  return { component, retry };
+}
+
 function Workspace({
   calculator,
   handlers,
@@ -221,6 +261,7 @@ function Workspace({
   const desktopCalculatorTabPanelProps = isMobile
     ? {}
     : { "aria-labelledby": "desktop-tab-calc", role: "tabpanel" as const };
+  const { component: DetailPanelComponent, retry: retryDetailPanel } = useRetryableDetailPanel();
 
   return (
     <section className={classes.workspace}>
@@ -279,14 +320,20 @@ function Workspace({
             onPendingOutcomeChange={onPendingOutcomeChange}
           />
           {calculator.detailView.type === "empty" ? null : (
-            <Suspense fallback={<DetailPanelFallback />}>
-              <DetailPanel
-                view={calculator.detailView}
-                validation={calculator.validationView}
-                onRunValidation={actions.runMonteCarloValidation}
-                showSolverBackend={showSolverBackend}
-              />
-            </Suspense>
+            <LazySectionErrorBoundary
+              name="DetailPanel"
+              onRetry={retryDetailPanel}
+              fallback={(retry) => <DetailPanelFailure onRetry={retry} />}
+            >
+              <Suspense fallback={<DetailPanelFallback />}>
+                <DetailPanelComponent
+                  view={calculator.detailView}
+                  validation={calculator.validationView}
+                  onRunValidation={actions.runMonteCarloValidation}
+                  showSolverBackend={showSolverBackend}
+                />
+              </Suspense>
+            </LazySectionErrorBoundary>
           )}
         </div>
       </div>

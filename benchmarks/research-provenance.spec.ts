@@ -28,6 +28,11 @@ describe("research provenance", () => {
     const first = collectResearchProvenance({ ...common, contract: { budget: 1 } });
     const second = collectResearchProvenance({ ...common, contract: { budget: 2 } });
 
+    expect(first.version).toBe(2);
+    expect(first.runtime.node).toBe(process.version);
+    expect(first.runtime.v8).toBe(process.versions.v8);
+    expect(first.runtime.os.release.length).toBeGreaterThan(0);
+    expect(first.runtime.cpu.logicalCores).toBeGreaterThan(0);
     expect(first.contractSha256).not.toBe(second.contractSha256);
     expect(sameResearchIdentity(first, second)).toBe(false);
   });

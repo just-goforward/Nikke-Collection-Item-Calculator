@@ -123,6 +123,26 @@ test("Japanese mobile UI has no untracked WCAG A/AA violations", async ({ page }
   expect(await accessibilityViolations(page)).toEqual([]);
 });
 
+test("등급과 단계 버튼은 방향키로 선택과 포커스를 같이 이동한다", async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+
+  const gradeGroup = page.getByRole("group", { name: "소장품 등급" });
+  const rank = gradeGroup.getByRole("button", { name: "R", exact: true });
+  const superRare = gradeGroup.getByRole("button", { name: "SR", exact: true });
+  await rank.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(superRare).toBeFocused();
+  await expect(superRare).toHaveAttribute("aria-pressed", "true");
+
+  const levelGroup = page.getByRole("group", { name: "현재 단계" });
+  const level0 = levelGroup.getByRole("button", { name: "0단계", exact: true });
+  const level1 = levelGroup.getByRole("button", { name: "1단계", exact: true });
+  await level0.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(level1).toBeFocused();
+  await expect(level1).toHaveAttribute("aria-pressed", "true");
+});
+
 test("계산 결과와 키트 수정 상태에는 추적되지 않은 WCAG A/AA 위반이 없다", async ({ page }) => {
   await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
   await calculateSr(page, 10, { yellow: "100" });

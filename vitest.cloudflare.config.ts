@@ -7,7 +7,7 @@ export default defineConfig({
     cloudflareTest({
       main: "./cloudflare/src/worker.ts",
       miniflare: {
-        compatibilityDate: "2026-05-05",
+        compatibilityDate: "2026-08-09",
         bindings: {
           ADMIN_TOKEN: "test-admin-token",
           ALLOWED_ORIGINS: "https://test.example",

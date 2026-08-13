@@ -20,7 +20,7 @@ import { WorkerTaskCancelled } from "./solverWorkerClient";
 type MutableRef<T> = { current: T };
 
 type SolveFlowOptions = {
-  applyConvert: () => ConvertApplyResult;
+  applyConvert: () => ConvertApplyResult | null;
   applyOutcome: (outcome: "success" | "fail") => OutcomeApplyResult;
   collectInput: () => SolverInput;
   inputRevisionRef: MutableRef<number>;
@@ -371,6 +371,7 @@ export function useSolveFlow({
   const applyConvertAndCalculate = useCallback(async () => {
     if (busyRef.current) return null;
     const applied = applyConvert();
+    if (!applied) return null;
     if (applied.needsStockEdit) return applied;
     const started = await solveAndRenderInput(applied.nextInput, {
       failureContext: "conversion",

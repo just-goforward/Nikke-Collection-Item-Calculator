@@ -34,7 +34,7 @@ const classes = {
   choiceButton:
     "attempt-choice-button grid min-h-[54px] content-center gap-0.5 rounded-card border border-yellow-kit bg-surface-strong px-2 py-1.5 text-center hover:bg-grade-active-soft focus-visible:bg-grade-active-soft max-mobile:flex max-mobile:min-h-[46px] max-mobile:items-center max-mobile:justify-between max-mobile:px-3.5",
   choiceValue: "text-[15px] font-extrabold leading-tight text-text-strong max-mobile:text-[14px]",
-  choiceCaption: "text-[10.5px] font-semibold leading-tight text-muted",
+  choiceCaption: "text-[10.5px] font-semibold leading-tight text-text-soft",
   why: "rounded-card border border-border bg-surface-strong",
   whySummary: "cursor-pointer px-3 py-2 text-[11.5px] font-bold text-grade-active-strong",
   whyText: "m-0 px-3 pb-2.5 text-[11.5px] font-medium leading-[1.55] text-muted",

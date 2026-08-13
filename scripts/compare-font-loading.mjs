@@ -9,13 +9,7 @@ import { gzipSync } from "node:zlib";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const distDir = path.join(root, "dist");
-const evidenceDir = path.join(
-  root,
-  ".superloopy",
-  "evidence",
-  "frontend",
-  "20260705-font-loading-comparison",
-);
+const evidenceDir = path.join(root, "output", "font-loading-comparison");
 const variantsDir = path.join(evidenceDir, "variants");
 const fontCacheDir = path.join(evidenceDir, "font-cache");
 const reportsDir = path.join(evidenceDir, "lighthouse");

@@ -77,6 +77,17 @@ export class WorkerTestHarness {
     );
   }
 
+  async fetchHealth(origin: string | null = "https://test.example") {
+    if (!worker.fetch) throw new Error("Worker fetch handler is not defined.");
+    const headers = new Headers();
+    if (origin) headers.set("Origin", origin);
+    return worker.fetch(
+      new Request("https://worker.test/api/health", { headers }) as WorkerRequest,
+      this.workerEnv(),
+      this.executionContext(),
+    );
+  }
+
   async fetchAdminSolverDiagnostics(
     token: string | null = "test-admin-token",
     origin: string | null = "https://test.example",

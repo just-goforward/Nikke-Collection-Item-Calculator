@@ -71,6 +71,10 @@ export type WorkerResponse =
 const BACKENDS = new Set<WorkerSolverBackend>(["js-phase2", "rust-phase2", "rust-min-ef"]);
 const ERROR_CODES = new Set<WorkerErrorCode>(WORKER_ERROR_CODES);
 
+export function isWorkerSolverBackend(value: unknown): value is WorkerSolverBackend {
+  return typeof value === "string" && BACKENDS.has(value as WorkerSolverBackend);
+}
+
 type ParseResult<T> = { success: true; data: T } | { success: false };
 
 type ProtocolRecord = Record<string, unknown> & {
@@ -172,8 +176,7 @@ export function workerMessageId(value: unknown) {
 export function parseWorkerRequest(value: unknown): ParseResult<WorkerRequest> {
   if (!isRecord(value) || !isFiniteNumber(value.id) || !isSolverInput(value.input))
     return { success: false };
-  if (typeof value.backend !== "string" || !BACKENDS.has(value.backend as WorkerSolverBackend))
-    return { success: false };
+  if (!isWorkerSolverBackend(value.backend)) return { success: false };
   if (!optionalString(value.wasmUrl)) return { success: false };
 
   const base: Omit<

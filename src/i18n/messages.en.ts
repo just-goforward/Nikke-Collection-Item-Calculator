@@ -9,6 +9,8 @@ export const enMessages = {
   "error.renderTitle": "The page could not be displayed.",
   "error.renderDetail": "Reload the latest files to continue using the calculator.",
   "error.reload": "Reload page",
+  "error.sectionDetail": "The files required for this section could not be loaded.",
+  "error.retrySection": "Try loading again",
   "common.calculate": "Calculate",
   "common.calculateLong": "Calculate",
   "common.recalculate": "Recalculate",

@@ -24,11 +24,12 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     manifest: true,
+    license: { fileName: "third-party-licenses.md" },
     target: "es2022",
     minify: "esbuild",
     cssMinify: true,
     sourcemap: false,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         manualChunks(id) {
           const normalizedId = id.replace(/\\/g, "/");

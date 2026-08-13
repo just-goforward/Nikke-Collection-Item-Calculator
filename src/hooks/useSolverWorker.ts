@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 
+import type { WorkerSolverBackend } from "../../shared/workerProtocol";
 import { parallelValidationFromRuntime, solverBackendFromRuntime } from "../lib/solverRuntime";
 import type { ProgressEvent, SolverInput } from "../types";
 import type { RuntimeInvariantReporter } from "./calculatorDiagnostics";
@@ -144,10 +145,10 @@ export function useSolverWorker(
       input: SolverInput,
       runs: number,
       onProgress: (progress: ProgressEvent) => void,
-      options: { force?: boolean; seed?: number } = {},
+      options: { backend?: WorkerSolverBackend; force?: boolean; seed?: number } = {},
     ) => {
       const seed = Math.max(0, Math.floor(Number(options.seed) || 20260505));
-      const backend = solverBackendFromRuntime();
+      const backend = options.backend ?? solverBackendFromRuntime();
       const key = `${backend}|${inputKey(input)}|mc:${runs}|seed:${seed}`;
       const cached = readCache(validationCacheRef.current, key);
       if (!options.force && cached) return cached;
@@ -156,6 +157,7 @@ export function useSolverWorker(
       const { result } = await resolveWorkerOrFallback<MonteCarloResult>({
         fallback: () => validateWithJsFallback(input, runs, seed, onProgress),
         workerPromise: requestTask("validate", input, {
+          backend,
           payload: { runs, seed },
           onProgress,
           onTiming: (value) => {

@@ -1,5 +1,10 @@
 node_modules/
 .wrangler/
+.wrangler-dry-run-*/
+.dev.vars*
+.env*
+!.env.example
+!**/.env.example
 dist/
 coverage/
 .stryker-tmp/
@@ -13,6 +18,7 @@ blob-report/
 debug.log
 benchmarks/results/
 output/
+.superloopy/
 *.prof
 *.trace
 *.checkpoint.json

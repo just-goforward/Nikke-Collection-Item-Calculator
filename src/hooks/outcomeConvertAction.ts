@@ -28,6 +28,10 @@ type ConvertActionOptions = {
   setValidationView: Dispatch<SetStateAction<ValidationView>>;
 };
 
+export function canApplyConversion(state: CollectionState) {
+  return state.grade === "R" && state.level >= 15;
+}
+
 export function useConvertAction({
   currentStockSnapshot,
   currentStateSnapshot,
@@ -41,8 +45,9 @@ export function useConvertAction({
   setResultView,
   setValidationView,
 }: ConvertActionOptions) {
-  return useCallback((): ConvertApplyResult => {
+  return useCallback((): ConvertApplyResult | null => {
     const previousState = currentStateSnapshot();
+    if (!canApplyConversion(previousState)) return null;
     const nextState = convertState() as CollectionState;
     const hasPendingGreatSuccess = pendingStatsEventRef.current !== null;
     const previousInput = latestResultRef.current?.input;

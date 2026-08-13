@@ -135,6 +135,7 @@ jobs:
             package-lock.json \
             vitest.cloudflare.config.ts \
             .github/workflows/worker-deploy.yml \
+            scripts/check-d1-schema.ts \
             scripts/smoke-stats-worker.ts; then
             echo "No Worker-relevant changes since $base_sha."
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
@@ -155,6 +156,22 @@ jobs:
         if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
         run: npx wrangler deploy --dry-run --env staging --config cloudflare/wrangler.toml
 
+      - name: Capture current staging version
+        if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
+        id: staging_previous
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npx wrangler deployments status --env staging --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/staging-before.json"
+          version_id=$(node -e '
+            const fs = require("node:fs");
+            const deployment = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            process.stdout.write(deployment.versions?.find((item) => item.percentage === 100)?.version_id ?? "");
+          ' "$RUNNER_TEMP/staging-before.json")
+          echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
+
       - name: Deploy staging Worker
         if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
         env:
@@ -166,7 +183,26 @@ jobs:
 
       - name: Smoke test staging Worker
         if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
+        id: staging_smoke
+        continue-on-error: true
         run: npm run smoke:stats-worker -- "$STAGING_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
+
+      - name: Restore staging after smoke failure
+        if: steps.staging_smoke.outcome == 'failure' && steps.staging_previous.outputs.version_id != ''
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PREVIOUS_VERSION_ID: ${{ steps.staging_previous.outputs.version_id }}
+        run: >-
+          npx wrangler versions deploy "$PREVIOUS_VERSION_ID@100%"
+          --yes --env staging --config cloudflare/wrangler.toml
+          --message "Automatic restore after staging smoke failure"
+
+      - name: Fail staging deployment after restore
+        if: steps.staging_smoke.outcome == 'failure'
+        run: |
+          echo "Staging smoke failed; the previous version was restored when available." >&2
+          exit 1
 
       - name: Record staging deployment
         if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
@@ -265,18 +301,42 @@ jobs:
           --tag "$DEPLOY_SHA" --message "GitHub $DEPLOY_SHA"
 
       - name: Smoke test production Worker
+        id: production_smoke
+        continue-on-error: true
         run: npm run smoke:stats-worker -- "$PRODUCTION_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
 
-      - name: Record rollback guidance
-        if: failure() && steps.previous.outputs.version_id != ''
+      - name: Restore production after smoke failure
+        if: steps.production_smoke.outcome == 'failure' && steps.previous.outputs.version_id != ''
         env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PREVIOUS_VERSION_ID: ${{ steps.previous.outputs.version_id }}
+        run: >-
+          npx wrangler versions deploy "$PREVIOUS_VERSION_ID@100%"
+          --yes --env="" --config cloudflare/wrangler.toml
+          --message "Automatic restore after production smoke failure"
+
+      - name: Verify automatic production restore
+        if: steps.production_smoke.outcome == 'failure' && steps.previous.outputs.version_id != ''
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           PREVIOUS_VERSION_ID: ${{ steps.previous.outputs.version_id }}
         run: |
-          {
-            echo "### Production smoke failed"
-            echo "Use the **Roll back Cloudflare Worker** workflow after reviewing the failure."
-            echo "Previous version: \`$PREVIOUS_VERSION_ID\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          npx wrangler deployments status --env="" --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/production-restored.json"
+          node -e '
+            const fs = require("node:fs");
+            const deployment = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const active = deployment.versions?.find((item) => item.percentage === 100)?.version_id;
+            if (active !== process.argv[2]) throw new Error(`Automatic restore left ${active ?? "unknown"} active.`);
+          ' "$RUNNER_TEMP/production-restored.json" "$PREVIOUS_VERSION_ID"
+
+      - name: Fail production deployment after restore
+        if: steps.production_smoke.outcome == 'failure'
+        run: |
+          echo "Production smoke failed; the previous version was restored." >&2
+          exit 1
 
       - name: Record production deployment
         shell: bash

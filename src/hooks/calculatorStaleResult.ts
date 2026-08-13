@@ -19,10 +19,11 @@ type StaleResultOptions = {
   setValidationView: Dispatch<SetStateAction<ValidationView>>;
 };
 
-function isMaxLevelGeneratedResult(view: ResultView) {
+export function isMaxLevelGeneratedResult(view: ResultView) {
   return (
     view.type === "convertRecommendation" ||
-    (view.type === "callout" && view.reason === "final_target")
+    (view.type === "callout" && view.reason === "final_target") ||
+    (view.type === "outcome" && view.canConvert)
   );
 }
 
@@ -37,7 +38,7 @@ export function useStaleAwareResultRendering({
   const [isResultStale, setResultStale] = useState(false);
 
   const markInputChanged = useCallback(
-    (isManualStockEditRequired: boolean) => {
+    (isManualStockEditRequired: boolean, source: "state" | "stock") => {
       const hadResult = latestResultRef.current !== null;
       if (isManualStockEditRequired) return;
       if (hadResult) {
@@ -46,7 +47,7 @@ export function useStaleAwareResultRendering({
       }
       latestResultRef.current = null;
       setValidationView(INITIAL_VALIDATION);
-      if (isMaxLevelGeneratedResult(resultView)) {
+      if (source === "state" && isMaxLevelGeneratedResult(resultView)) {
         setResultView(EMPTY_RESULT);
         setDetailView(EMPTY_DETAIL);
       }

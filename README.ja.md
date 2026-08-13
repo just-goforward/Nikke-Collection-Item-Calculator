@@ -13,7 +13,7 @@
 - 大成功結果を反映した連続計算とR15からSR等級への交換フロー
 - Rust/WebAssembly製`min-E[f]` solverとRust phase2 fallback
 - 推奨結果を確認する独立した検算処理
-- 利用環境とsolver使用状況に関する公開集計統計
+- 区間別・キット別の大成功率とキット使用量を示す公開集計統計
 - ライト・ダークテーマ、および韓国語・英語・日本語UI
 
 ## 計算方法
@@ -24,7 +24,9 @@ Solverは最初にSR15への到達確率を最大化し、同じ確率範囲で�
 
 ## プライバシーと統計
 
-計算はブラウザ内で実行されます。統計機能はサービスとsolverの動作確認に必要な限定的な集計イベントをCloudflare D1へ記録します。アカウント、氏名、メールアドレス、キット在庫の生データは収集しません。イベント件数はユニークユーザー数を意味しません。
+計算はブラウザ内で実行されます。結果の確定後、統計機能は等級・レベル・使用キット・試行回数・大成功回数などをCloudflare D1で集計します。アカウント、氏名、メールアドレス、固有のユーザー識別子、キット在庫の生データは収集しません。
+
+公開`/api/stats`レスポンスには、大成功とキット使用に関する集計のみが含まれます。参照元ホスト、クライアント環境、solver診断は公開レスポンスから除外され、非公開の運用用バケット集計としてのみ管理されます。イベント件数はユニークユーザー数を意味しません。
 
 セキュリティ上の問題は公開Issueではなく、[セキュリティポリシー](./SECURITY.md)に記載された非公開の報告窓口を利用してください。
 
@@ -32,8 +34,8 @@ Solverは最初にSR15への到達確率を最大化し、同じ確率範囲で�
 
 必要な環境:
 
-- 最新のNode.jsとnpm
-- `wasm32-unknown-unknown` targetを追加したRust toolchain
+- 現行CI基準と同じNode.js 24.xとnpm 12.x
+- [`rust-toolchain.toml`](./rust-toolchain.toml)で固定したRust 1.97.1と`wasm32-unknown-unknown` target
 
 ```powershell
 npm install
@@ -59,6 +61,7 @@ npm run report:bundle
 
 ## 研究・技術資料
 
+- [研究ドキュメントの全索引](./docs/research/README.md)
 - [28日基準のメンテナンスキット期待獲得量（韓国語）](./docs/research/kit-expected-gain.ko.md)
 - [min-E[f] H/p共同最適化研究（韓国語）](./docs/research/min-ef-hp-study-findings.ko.md)
 - [Solver方針品質研究（英語）](./docs/research/solver-policy-quality-findings.md)

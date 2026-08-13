@@ -9,6 +9,8 @@ export const jaMessages = {
   "error.renderTitle": "画面を表示できませんでした。",
   "error.renderDetail": "最新のファイルを再読み込みすると、計算機を引き続き利用できます。",
   "error.reload": "ページを再読み込み",
+  "error.sectionDetail": "この領域に必要なファイルを読み込めませんでした。",
+  "error.retrySection": "もう一度読み込む",
   "common.calculate": "計算",
   "common.calculateLong": "計算する",
   "common.recalculate": "再計算",

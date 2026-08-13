@@ -38,6 +38,47 @@ assert(
   `stats: response does not satisfy the frontend contract: ${JSON.stringify(parsedStats.error?.issues ?? [])}`,
 );
 
+const healthResponse = await fetch(endpointUrl("api/health"), {
+  headers: { Accept: "application/json", Origin: allowedOrigin },
+});
+assert(healthResponse.status === 200, `health: expected 200, received ${healthResponse.status}`);
+assertCors(healthResponse, "health");
+const health = (await healthResponse.json()) as {
+  ok?: unknown;
+  schemaContractVersion?: unknown;
+};
+assert(
+  health.ok === true && health.schemaContractVersion === 1,
+  `health: unexpected schema contract response: ${JSON.stringify(health)}`,
+);
+
+const writeContractResponse = await fetch(endpointUrl("api/events"), {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Origin: allowedOrigin },
+  body: JSON.stringify({
+    version: 1,
+    eventId: `worker-smoke-${Date.now()}`,
+    turnstileToken: "worker-smoke-invalid-token",
+    event: {
+      kind: "runtime_invariant",
+      invariantVersion: 1,
+      code: "worker_idle_pending",
+      component: "worker_client",
+      lane: "unknown",
+    },
+  }),
+});
+assert(
+  writeContractResponse.status === 403,
+  `write contract: expected Turnstile rejection 403, received ${writeContractResponse.status}`,
+);
+assertCors(writeContractResponse, "write contract");
+const writeContractBody = (await writeContractResponse.json()) as { error?: unknown };
+assert(
+  writeContractBody.error === "turnstile_failed",
+  `write contract: event did not reach Turnstile verification: ${JSON.stringify(writeContractBody)}`,
+);
+
 const preflightResponse = await fetch(endpointUrl("api/stats"), {
   method: "OPTIONS",
   headers: {
@@ -70,7 +111,9 @@ assert(
 console.log(
   JSON.stringify({
     endpoint: baseUrl.toString().replace(/\/+$/, ""),
+    health: healthResponse.status,
     stats: statsResponse.status,
+    writeContract: writeContractResponse.status,
     preflight: preflightResponse.status,
     blockedOrigin: blockedOriginResponse.status,
     adminFailClosed: adminResponse.status,

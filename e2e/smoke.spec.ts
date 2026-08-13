@@ -500,6 +500,19 @@ test("R 15 — SR 등급 교체 안내와 적용이 동작한다", async ({ page
   });
 });
 
+test("R 15 교체 안내는 키트 수량만 바꿔도 유지된다", async ({ page }) => {
+  await page.getByLabel("상급자용 키트").fill("100");
+  await page.getByRole("button", { name: "15단계", exact: true }).click();
+
+  await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
+  await expect(page.getByRole("button", { name: "교체 적용", exact: true })).toBeVisible();
+
+  await page.getByLabel("상급자용 키트").fill("90");
+
+  await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
+  await expect(page.getByRole("button", { name: "교체 적용", exact: true })).toBeVisible();
+});
+
 test("R 15/SR 15 안내는 최대 단계 선택을 반복하거나 등급을 바꿔도 유지된다", async ({ page }) => {
   await page.getByRole("button", { name: "15단계", exact: true }).click();
   await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
@@ -1003,6 +1016,21 @@ test("모바일 탭은 입력, 결과, 통계 화면을 전환한다", async ({ 
   await expect(page.getByRole("heading", { name: "현재 소장품" })).toBeVisible();
 });
 
+test("모바일 hash 탐색은 통계에서 계산 입력 탭으로 대칭 복귀한다", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?statsEnv=disabled");
+
+  await page.evaluate(() => {
+    window.location.hash = "stats";
+  });
+  await expect(page.getByRole("tab", { name: "통계" })).toHaveAttribute("aria-selected", "true");
+
+  await page.evaluate(() => {
+    window.location.hash = "";
+  });
+  await expect(page.getByRole("tab", { name: "입력" })).toHaveAttribute("aria-selected", "true");
+});
+
 test("모바일 하단 액션바로 계산하고 결과 액션을 표시한다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?statsEnv=disabled");
@@ -1011,7 +1039,9 @@ test("모바일 하단 액션바로 계산하고 결과 액션을 표시한다",
   const actionBar = page.getByRole("toolbar", { name: "모바일 작업" });
   await actionBar.getByRole("button", { name: "계산하기", exact: true }).click();
 
-  await expect(page.getByRole("tab", { name: "결과" })).toHaveAttribute("aria-selected", "true");
+  const resultTab = page.getByRole("tab", { name: "결과" });
+  await expect(resultTab).toHaveAttribute("aria-selected", "true");
+  await expect(resultTab).toBeFocused();
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({
     timeout: 20_000,
   });

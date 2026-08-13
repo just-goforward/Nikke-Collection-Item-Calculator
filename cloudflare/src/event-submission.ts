@@ -44,10 +44,35 @@ function assertEventRequest(request: Request, env: WorkerEnv) {
   if (!env.RATE_LIMIT_SECRET) throw new HttpError(500, "rate_limit_not_configured");
 }
 
-async function readJsonPayload(request: Request) {
-  const text = await request.text();
-  if (new TextEncoder().encode(text).length > MAX_BODY_BYTES)
-    throw new HttpError(413, "payload_too_large");
+export async function readJsonPayload(request: Request) {
+  const stream = request.body;
+  if (!stream) throw invalidJsonPayload(null);
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytesRead = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > MAX_BODY_BYTES) {
+        await reader.cancel("payload_too_large").catch(() => undefined);
+        throw new HttpError(413, "payload_too_large");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(bytesRead);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const text = new TextDecoder().decode(body);
 
   let payload: unknown;
   try {

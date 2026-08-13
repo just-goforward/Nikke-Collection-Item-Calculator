@@ -212,6 +212,7 @@ function useCalculatorInputActions({
   const setGrade = useCallback(
     (nextGrade: Grade) => {
       const nextExp = sanitizeExpValue(nextGrade, level, exp);
+      if (nextGrade === grade && nextExp === exp) return;
       setGradeState(nextGrade);
       setExpState(nextExp);
       if (level >= 15) onMaxLevelState(nextGrade, level);
@@ -219,6 +220,7 @@ function useCalculatorInputActions({
     },
     [
       exp,
+      grade,
       level,
       manualStockEditRequired,
       onInputChanged,
@@ -232,6 +234,7 @@ function useCalculatorInputActions({
     (nextLevel: number) => {
       const safeLevel = safeLevelFromInput(nextLevel);
       const nextExp = sanitizeExpValue(grade, safeLevel, exp);
+      if (safeLevel === level && nextExp === exp) return;
       setLevelState(safeLevel);
       setExpState(nextExp);
       if (safeLevel >= 15) onMaxLevelState(grade, safeLevel);
@@ -240,6 +243,7 @@ function useCalculatorInputActions({
     [
       exp,
       grade,
+      level,
       manualStockEditRequired,
       onInputChanged,
       onMaxLevelState,
@@ -250,10 +254,12 @@ function useCalculatorInputActions({
 
   const setExp = useCallback(
     (nextExp: number) => {
-      setExpState(sanitizeExpValue(grade, level, nextExp));
+      const safeExp = sanitizeExpValue(grade, level, nextExp);
+      if (safeExp === exp) return;
+      setExpState(safeExp);
       onInputChanged(manualStockEditRequired, "state");
     },
-    [grade, level, manualStockEditRequired, onInputChanged, setExpState],
+    [exp, grade, level, manualStockEditRequired, onInputChanged, setExpState],
   );
 
   const setStock = useCallback(

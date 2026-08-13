@@ -13,7 +13,7 @@ An unofficial browser tool for GODDESS OF VICTORY: NIKKE. Enter the current coll
 - Continued calculation after Great Success outcomes and the R15-to-SR replacement flow
 - Rust/WebAssembly `min-E[f]` solver with a Rust phase2 fallback
 - Independent validation runs for recommendation verification
-- Public aggregate statistics for environments and solver usage
+- Public aggregate Great Success and kit-usage statistics by segment and kit
 - Light and dark themes with Korean, English, and Japanese interfaces
 
 ## How It Calculates
@@ -24,7 +24,9 @@ Results are probabilistic recommendations based on the entered state and the gam
 
 ## Privacy and Statistics
 
-Calculations run in the browser. The statistics service records a limited set of aggregate event categories in Cloudflare D1 to monitor service and solver behavior. It does not collect accounts, names, email addresses, or raw kit inventories. Event counts are not unique-user counts.
+Calculations run in the browser. After an outcome is confirmed, the statistics service aggregates fields such as grade, level, kit, attempt count, and Great Success count in Cloudflare D1. It does not collect accounts, names, email addresses, unique user identifiers, or raw kit inventories.
+
+The public `/api/stats` response contains only aggregate Great Success and kit-usage statistics. Source hosts, client environments, and solver diagnostics are excluded from the public response and retained only as private bucketed operational aggregates. Event counts are not unique-user counts.
 
 For security issues, use the private reporting route in the [security policy](./SECURITY.md) instead of opening a public issue.
 
@@ -32,8 +34,8 @@ For security issues, use the private reporting route in the [security policy](./
 
 Requirements:
 
-- A current Node.js and npm installation
-- A Rust toolchain with the `wasm32-unknown-unknown` target
+- Node.js 24.x and npm 12.x, matching the current CI baseline
+- Rust 1.97.1 and the `wasm32-unknown-unknown` target, pinned by [`rust-toolchain.toml`](./rust-toolchain.toml)
 
 ```powershell
 npm install
@@ -59,6 +61,7 @@ npm run report:bundle
 
 ## Research and Technical Records
 
+- [Complete research-document index](./docs/research/README.md)
 - [Expected 28-day maintenance-kit gains (Korean)](./docs/research/kit-expected-gain.ko.md)
 - [Current min-E[f] H/p study (Korean)](./docs/research/min-ef-hp-study-findings.ko.md)
 - [Solver policy quality study](./docs/research/solver-policy-quality-findings.md)

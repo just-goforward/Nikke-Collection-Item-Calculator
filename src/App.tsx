@@ -23,7 +23,7 @@ type ResetToast = {
 type AppHandlerOptions = {
   calculator: CalculatorAppModel;
   resetWithUndo: () => void;
-  setMobileViewTab: (next: MobileTab) => void;
+  setMobileViewTab: (next: MobileTab, focus?: boolean) => void;
   setPendingOutcome: (outcome: "success" | "fail" | null) => void;
 };
 
@@ -54,27 +54,30 @@ function makeAppHandlers({
     onCalculate: async () => {
       preloadDetailPanel();
       setPendingOutcome(null);
-      await actions.calculate();
-      setMobileViewTab("result");
+      const started = await actions.calculate();
+      if (!started) return;
+      setMobileViewTab("result", true);
     },
-    onReset: resetWithUndo,
+    onReset: () => {
+      if (!calculator.inputLocked) resetWithUndo();
+    },
     onConvert: async () => {
       preloadDetailPanel();
       setPendingOutcome(null);
       const applied = await actions.applyConvert();
       if (!applied) return;
       if (applied?.needsStockEdit) {
-        setMobileViewTab("input");
+        setMobileViewTab("input", true);
         return;
       }
-      setMobileViewTab("result");
+      setMobileViewTab("result", true);
     },
     onOutcome: async (outcome) => {
       preloadDetailPanel();
       const applied = await actions.applyOutcome(outcome);
       if (!applied) return;
       setPendingOutcome(null);
-      setMobileViewTab(applied?.needsStockEdit ? "input" : "result");
+      setMobileViewTab(applied?.needsStockEdit ? "input" : "result", true);
     },
   };
 }
@@ -92,7 +95,9 @@ export default function App() {
     const syncFromHash = () => {
       const next = viewTabFromHash();
       setViewTabState(next);
-      if (next === "stats") setMobileTab("stats");
+      setMobileTab((current) =>
+        next === "stats" ? "stats" : current === "stats" ? "input" : current,
+      );
     };
     syncFromHash();
     window.addEventListener("hashchange", syncFromHash);
@@ -109,11 +114,14 @@ export default function App() {
     setMobileTab((current) => (current === "stats" ? "input" : current));
   };
 
-  const setMobileViewTab = (next: MobileTab) => {
+  const setMobileViewTab = (next: MobileTab, focus = false) => {
     setMobileTab(next);
     const nextViewTab = next === "stats" ? "stats" : "calc";
     setViewTabState(nextViewTab);
     replaceHashForView(nextViewTab);
+    if (focus && window.matchMedia("(max-width: 660px)").matches) {
+      window.requestAnimationFrame(() => document.getElementById(`mobile-tab-${next}`)?.focus());
+    }
   };
 
   useEffect(() => {
@@ -139,7 +147,7 @@ export default function App() {
 
   const restoreInputSnapshot = (snapshot: InputSnapshot) => {
     actions.restoreInputSnapshot(snapshot);
-    setMobileViewTab("input");
+    setMobileViewTab("input", true);
     setResetToast(null);
   };
 
@@ -147,7 +155,7 @@ export default function App() {
     const snapshot = rememberInputSnapshot();
     setPendingOutcome(null);
     actions.reset();
-    setMobileViewTab("input");
+    setMobileViewTab("input", true);
     setResetToast({ snapshot, secondsLeft: RESET_UNDO_SECONDS });
   };
 
@@ -164,7 +172,7 @@ export default function App() {
       handlers={handlers}
       mobileTab={mobileTab}
       pendingOutcome={pendingOutcome}
-      onTabChange={setMobileViewTab}
+      onTabChange={(tab) => setMobileViewTab(tab)}
       onPendingOutcomeChange={setPendingOutcome}
       onViewTabChange={setViewTab}
       resetToast={

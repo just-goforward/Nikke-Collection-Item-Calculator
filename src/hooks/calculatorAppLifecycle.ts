@@ -27,12 +27,12 @@ type AppLifecycleOptions = {
 
 export function useInputChangeTracker(
   setStaleSource: React.Dispatch<React.SetStateAction<"state" | "stock" | null>>,
-  markInputChanged: (manualStockEditRequired: boolean) => void,
+  markInputChanged: (manualStockEditRequired: boolean, source: "state" | "stock") => void,
 ) {
   return useCallback(
     (manualStockEditRequired: boolean, source: "state" | "stock") => {
       setStaleSource(source);
-      markInputChanged(manualStockEditRequired);
+      markInputChanged(manualStockEditRequired, source);
     },
     [markInputChanged, setStaleSource],
   );
@@ -54,9 +54,10 @@ export function useCalculatorAppLifecycle({
 }: AppLifecycleOptions) {
   const calculateAndClearStale = useCallback(async () => {
     const started = await runCalculation();
-    if (!started) return;
+    if (!started) return false;
     clearResultStale();
     setStaleSource(null);
+    return true;
   }, [clearResultStale, runCalculation, setStaleSource]);
 
   const resetInputs = useCallback(() => {

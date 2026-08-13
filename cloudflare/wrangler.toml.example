@@ -2,6 +2,13 @@ name = "collection-kit-stats"
 main = "src/worker.ts"
 compatibility_date = "2026-08-09"
 
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[triggers]
+crons = ["17 3 * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "collection-kit-stats"
@@ -9,6 +16,9 @@ database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
 [vars]
 ALLOWED_ORIGINS = "https://YOUR_GITHUB_ID.github.io"
+
+[secrets]
+required = ["TURNSTILE_SECRET_KEY", "RATE_LIMIT_SECRET"]
 
 [env.staging]
 workers_dev = true
@@ -20,3 +30,6 @@ database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
 
 [env.staging.vars]
 ALLOWED_ORIGINS = "https://YOUR_GITHUB_ID.github.io"
+
+[env.staging.secrets]
+required = ["TURNSTILE_SECRET_KEY", "RATE_LIMIT_SECRET"]

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { semanticParity } from "./solver-portfolio-study.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -19,7 +19,7 @@ const PRIORITIZED_QUALITY_URL = new URL(
   import.meta.url,
 );
 const PRIORITIZED_PERFORMANCE_URL = new URL(
-  "./results/bounded-hybrid-performance-study-v1.json",
+  "./results/bounded-hybrid-performance-study-v2.json",
   import.meta.url,
 );
 const OUTPUT_URL = new URL("./results/solver-portfolio-decision-v1.json", import.meta.url);
@@ -74,24 +74,108 @@ type RoutingReport = {
 };
 
 type Provenance = {
+  version: number;
+  studyId: string;
+  protocolVersion: number;
+  contractSha256: string;
   repoCommit: string;
   sourceFiles: Fingerprint[];
   sourceFingerprint: string;
+  wasm?: Fingerprint | null;
 };
 
 type Fingerprint = { path: string; bytes: number; sha256: string };
+
+type AuxiliaryReport = {
+  kind: string;
+  version: number;
+  provenance: Provenance;
+  [key: string]: unknown;
+};
 
 async function main() {
   const [root, validation, b2Latency, prioritizedQuality, prioritizedPerformance] =
     await Promise.all([
       readJson<RootReport>(ROOT_URL),
       readJson<RoutingReport>(VALIDATION_URL),
-      readJson<Record<string, unknown>>(B2_LATENCY_URL),
-      readJson<Record<string, unknown>>(PRIORITIZED_QUALITY_URL),
-      readJson<Record<string, unknown>>(PRIORITIZED_PERFORMANCE_URL),
+      readJson<AuxiliaryReport>(B2_LATENCY_URL),
+      readJson<AuxiliaryReport>(PRIORITIZED_QUALITY_URL),
+      readJson<AuxiliaryReport>(PRIORITIZED_PERFORMANCE_URL),
     ]);
-  requireReport(root, "solver-portfolio-study", 1);
-  requireReport(validation, "solver-portfolio-routing-validation", 1);
+  requireResearchEvidence(root, "solver-portfolio-study", 1, "solver-portfolio-study-v1", [
+    "benchmarks/research-provenance.ts",
+    "benchmarks/run-solver-portfolio-study.ts",
+    "benchmarks/scenarios/solver-portfolio.ts",
+    "benchmarks/solver-portfolio-study.ts",
+  ]);
+  requireResearchEvidence(
+    validation,
+    "solver-portfolio-routing-validation",
+    1,
+    "solver-portfolio-routing-validation-v1",
+    [
+      "benchmarks/research-provenance.ts",
+      "benchmarks/run-solver-portfolio-routing-validation.ts",
+      "benchmarks/scenarios/solver-portfolio-validation.ts",
+      "benchmarks/solver-portfolio-routing-contract.ts",
+      "benchmarks/solver-portfolio-routing.ts",
+    ],
+  );
+  requireResearchEvidence(
+    b2Latency,
+    "min-ef-branch-bound-b2-latency",
+    1,
+    "min-ef-branch-bound-b2-allocation-warm-latency",
+    [
+      "benchmarks/research-provenance.ts",
+      "benchmarks/run-min-ef-branch-bound-b2-latency.ts",
+      "scripts/build-solver-wasm-branch-bound.ts",
+    ],
+  );
+  requireResearchEvidence(
+    prioritizedQuality,
+    "bounded-hybrid-quality-study",
+    1,
+    "bounded-hybrid-quality-study-v1",
+    [
+      "benchmarks/bounded-hybrid-quality.ts",
+      "benchmarks/evaluator/exact-replan.ts",
+      "benchmarks/research-provenance.ts",
+      "benchmarks/run-bounded-hybrid-quality-study.ts",
+    ],
+  );
+  requireResearchEvidence(
+    prioritizedPerformance,
+    "bounded-hybrid-performance-study",
+    2,
+    "bounded-hybrid-performance-study-v2",
+    [
+      "benchmarks/latency-report.ts",
+      "benchmarks/research-provenance.ts",
+      "benchmarks/run-bounded-hybrid-performance-study.ts",
+    ],
+  );
+  requireSameCommit(root.provenance, validation.provenance, "portfolio root and routing reports");
+  requireSameCommit(
+    b2Latency.provenance,
+    prioritizedQuality.provenance,
+    "branch-bound and prioritized quality reports",
+  );
+  requireSameCommit(
+    prioritizedQuality.provenance,
+    prioritizedPerformance.provenance,
+    "prioritized quality and performance reports",
+  );
+  requireSameFingerprint(
+    root.artifacts.product,
+    validation.artifacts["product"],
+    "product WASM across portfolio reports",
+  );
+  requireSameFingerprint(
+    root.artifacts.branchBound,
+    validation.artifacts["branchBound"],
+    "branch-bound WASM across portfolio reports",
+  );
   await verifyCurrentSources(root.provenance);
   await verifyCurrentSources(validation.provenance);
 
@@ -355,16 +439,102 @@ async function verifyCurrentSources(provenance: Provenance) {
   }
 }
 
+export function requireResearchEvidence(
+  report: { kind: string; version: number; provenance: Provenance },
+  kind: string,
+  version: number,
+  studyId: string,
+  requiredSourcePaths: readonly string[],
+) {
+  requireReport(report, kind, version);
+  const { provenance } = report;
+  if (provenance.studyId !== studyId) {
+    throw new Error(`Unexpected research study: ${provenance.studyId}.`);
+  }
+  if (!Number.isInteger(provenance.protocolVersion) || provenance.protocolVersion < 1) {
+    throw new Error(`Invalid protocol version for ${studyId}.`);
+  }
+  if (!isSha256(provenance.contractSha256) || !isSha256(provenance.sourceFingerprint)) {
+    throw new Error(`Invalid provenance hash for ${studyId}.`);
+  }
+  if (!/^[0-9a-f]{40}$/u.test(provenance.repoCommit)) {
+    throw new Error(`Invalid repository commit for ${studyId}.`);
+  }
+  const paths = provenance.sourceFiles.map((source) => source.path);
+  if (new Set(paths).size !== paths.length) {
+    throw new Error(`Duplicate research source path for ${studyId}.`);
+  }
+  for (const source of provenance.sourceFiles) requireFingerprint(source, studyId);
+  const sourceFingerprint = fingerprintSourceEntries(provenance.sourceFiles);
+  if (sourceFingerprint !== provenance.sourceFingerprint) {
+    throw new Error(`Source fingerprint metadata mismatch for ${studyId}.`);
+  }
+  for (const requiredPath of requiredSourcePaths) {
+    if (!paths.includes(requiredPath)) {
+      throw new Error(`Required research source is missing for ${studyId}: ${requiredPath}.`);
+    }
+  }
+}
+
 function requireArtifactAlignment(
   expected: Fingerprint | undefined,
-  report: Record<string, unknown>,
+  report: { provenance: Provenance },
 ) {
   if (!expected) throw new Error("Missing expected candidate artifact fingerprint.");
-  const provenance = (report as { provenance?: { wasm?: Fingerprint } }).provenance;
-  const actual = provenance?.wasm;
-  if (!actual || actual.sha256 !== expected.sha256 || actual.bytes !== expected.bytes) {
+  const actual = report.provenance.wasm;
+  if (
+    !actual ||
+    actual.path !== expected.path ||
+    actual.sha256 !== expected.sha256 ||
+    actual.bytes !== expected.bytes
+  ) {
     throw new Error(`Candidate artifact mismatch for ${expected.path}.`);
   }
+}
+
+function requireSameCommit(left: Provenance, right: Provenance, label: string) {
+  if (left.repoCommit !== right.repoCommit) {
+    throw new Error(`Repository commit mismatch for ${label}.`);
+  }
+}
+
+function requireSameFingerprint(
+  left: Fingerprint | undefined,
+  right: Fingerprint | undefined,
+  label: string,
+) {
+  if (
+    !left ||
+    !right ||
+    left.path !== right.path ||
+    left.bytes !== right.bytes ||
+    left.sha256 !== right.sha256
+  ) {
+    throw new Error(`Artifact fingerprint mismatch for ${label}.`);
+  }
+}
+
+function requireFingerprint(fingerprint: Fingerprint, studyId: string) {
+  if (
+    !fingerprint.path ||
+    !Number.isInteger(fingerprint.bytes) ||
+    fingerprint.bytes < 0 ||
+    !isSha256(fingerprint.sha256)
+  ) {
+    throw new Error(`Invalid source fingerprint entry for ${studyId}.`);
+  }
+}
+
+function fingerprintSourceEntries(sourceFiles: readonly Fingerprint[]) {
+  const entries = [...sourceFiles]
+    .sort((left, right) => left.path.localeCompare(right.path))
+    .map((file) => `${file.path}\0${file.sha256}\0${file.bytes}`)
+    .join("\n");
+  return createHash("sha256").update(entries).digest("hex");
+}
+
+function isSha256(value: string) {
+  return /^[0-9a-f]{64}$/u.test(value);
 }
 
 function readDecision(report: Record<string, unknown>, key: string) {
@@ -398,4 +568,6 @@ async function fingerprint(path: string, relativePath: string): Promise<Fingerpr
   };
 }
 
-await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}

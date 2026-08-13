@@ -252,6 +252,8 @@ test("a new solve preempts edited-input validation before starting replacement w
 
   await expect.poll(async () => (await workerProbe(page)).created).toBe(2);
   await expect.poll(async () => (await workerProbe(page)).terminated).toBe(1);
+  await expect.poll(async () => (await workerProbe(page)).validationPosted).toBe(2);
+  await expect(page.locator(".validation-chart-loading")).toBeVisible();
   await expect(page.getByText("검증 중 오류가 발생했습니다.")).toHaveCount(0);
 });
 

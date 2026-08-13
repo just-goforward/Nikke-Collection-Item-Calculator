@@ -5,13 +5,25 @@ remain available under their respective terms.
 
 ## Pretendard
 
-The web interface loads Pretendard, Pretendard Std, and Pretendard JP from the Pretendard project.
+The web interface loads Pretendard 1.3.9, Pretendard Std, and Pretendard JP from the Pretendard project.
 Pretendard is licensed under the SIL Open Font License 1.1.
 
 - Project: <https://github.com/orioncactus/pretendard>
 - License: <https://github.com/orioncactus/pretendard/blob/main/LICENSE>
 
 The font names and font files are not relicensed under the GNU AGPL.
+
+## Bundled Runtime Dependencies
+
+The browser bundle includes the following direct runtime dependencies. Each remains under the
+license published by its upstream project.
+
+- React and React DOM: MIT, <https://github.com/facebook/react>
+- Zod: MIT, <https://github.com/colinhacks/zod>
+
+`npm run build` also emits `dist/third-party-licenses.md` from Vite's resolved bundle graph. That
+generated inventory is the authoritative notice for the exact transitive code included in a
+particular frontend build.
 
 ## Cloudflare Worker Type Declarations
 

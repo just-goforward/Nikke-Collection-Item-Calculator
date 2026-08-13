@@ -97,7 +97,10 @@ wrangler deploy --config cloudflare/wrangler.toml
 
 `.github/workflows/worker-deploy.yml` runs after a successful `main` push completes the
 `Deploy GitHub Pages` workflow. It checks Worker types and D1 integration tests, deploys staging,
-runs read-only CORS and endpoint smoke tests, and then promotes the same commit to production.
+runs schema-health, public-read, CORS, and write-contract smoke tests, and then promotes the same
+commit to production. The write-contract probe uses an intentionally invalid Turnstile token, so
+it confirms that a valid event envelope reaches Turnstile validation without adding a statistics
+aggregate. It can still increment abuse-control counters that run before Turnstile verification.
 The `cloudflare-production` GitHub environment is the production approval boundary; configure a
 required reviewer for that environment before enabling the workflow.
 
@@ -106,6 +109,12 @@ Worker deployment. They skip deployment when Worker source, shared contracts, Wo
 dependencies, and deployment tooling are unchanged. A manual run always deploys.
 If tracked D1 SQL changed, an automatic run stops before deployment; apply the migration to staging
 and production explicitly, then use `workflow_dispatch` to perform the guarded deployment.
+
+Before each staging or production deployment, the workflow records the currently active Worker
+version. If the post-deploy smoke test fails, it restores that version at 100% traffic and then
+fails the job. `.github/workflows/worker-rollback.yml` applies the same safety rule when a manually
+selected rollback target is incompatible. A Worker version restore does not restore D1 data or
+schema, so database migrations remain a separate, forward-compatible operation.
 
 Configure these GitHub repository settings:
 
@@ -121,6 +130,10 @@ The workflow does not upload Turnstile, rate-limit, or admin secret values. Wran
 secrets already stored on each Worker. A manual `workflow_dispatch` follows the same staging,
 smoke, approval, and production sequence. D1 migrations remain separate operations and are never
 run implicitly by this workflow.
+
+The deployment token should be limited to this account's Worker deployment and version-management
+operations. The CI workflow deliberately does not require direct D1 API access: deployed schema
+compatibility is checked through the Worker's bound database at `/api/health`.
 
 ## Abuse controls
 
@@ -169,6 +182,13 @@ Stores one validated result event.
 
 Returns all-time aggregate statistics for display on the site. This public response is cacheable for 60 seconds.
 
+`GET /api/health`
+
+Checks the critical D1 tables and columns required by the deployed Worker. It returns
+`schemaContractVersion: 1` on success and fails closed with `503 database_schema_not_ready` when
+the Worker code and bound database are incompatible. This endpoint validates compatibility, not
+the complete historical migration ledger.
+
 `GET /api/admin/solver-diagnostics`
 
 Returns private solver diagnostic aggregates grouped by `solverVersion` and `solverPhase`.
@@ -190,6 +210,26 @@ is fixed. CI/Linux is not affected.
 
 Use `schema.sql` for a new database. Existing databases must apply the versioned migrations instead
 of re-running `CREATE TABLE IF NOT EXISTS`, which cannot change an existing primary key.
+
+After initializing or migrating a database, the same critical schema contract can be checked
+manually. Remote checks require a Wrangler login or API token with D1 read access; a Worker-only
+deployment token is intentionally insufficient.
+
+```powershell
+# Local development database
+npm run check:d1-schema -- collection-kit-stats local
+
+# Remote production and staging databases
+npm run check:d1-schema -- collection-kit-stats
+npm run check:d1-schema -- collection-kit-stats-staging staging
+```
+
+Historical SQL files in this directory predate a Wrangler migration ledger and were applied
+explicitly. Do not retroactively mark them as applied without first reconciling the real staging
+and production schemas. For new schema changes, use an additive SQL file, apply it to staging,
+verify `/api/health` and the smoke flow, then apply the same file to production before deploying
+code that requires it. Cloudflare's D1 migration ledger is suitable for a future controlled
+baseline, but adopting it requires a separate bootstrap procedure for the existing databases.
 
 ```powershell
 wrangler d1 execute collection-kit-stats --remote --file cloudflare/schema.sql --config cloudflare/wrangler.toml

@@ -8,6 +8,7 @@ import "./styles.css";
 async function boot() {
   const app = document.getElementById("app");
   if (!app) throw new Error("App root element was not found.");
+  // Waiting here prevents a fallback-font render from shifting controls after the app mounts.
   await prepareInitialLocale();
 
   const root = createRoot(app);

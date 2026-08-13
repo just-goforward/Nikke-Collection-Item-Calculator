@@ -280,13 +280,17 @@ function MobileOutcomeActionBar({
   );
 }
 
-function MobileConvertActionBar({ onConvert }: Pick<MobileActionBarProps, "onConvert">) {
+function MobileConvertActionBar({
+  loading,
+  onConvert,
+}: Pick<MobileActionBarProps, "loading" | "onConvert">) {
   const { t } = useI18n();
   return (
     <MobileToolbar mode="mode-convert">
       <button
         className={`${classes.actionButton} ${classes.outcomeButton} ${classes.convertButton} convert-button`}
         type="button"
+        disabled={loading.active}
         aria-label={t("common.convertToSr")}
         onClick={onConvert}
       >
@@ -334,6 +338,7 @@ function MobileCalculateActionBar({
       <button
         className={`${classes.actionButton} ${classes.resetButton}`}
         type="button"
+        disabled={loading.active}
         onClick={onReset}
       >
         <AlignedText alignmentRole="action">{t("common.reset")}</AlignedText>
@@ -381,7 +386,7 @@ export function MobileActionBar({
   }
 
   if (view.type === "convertRecommendation" || (view.type === "outcome" && view.canConvert)) {
-    return <MobileConvertActionBar onConvert={onConvert} />;
+    return <MobileConvertActionBar loading={loading} onConvert={onConvert} />;
   }
 
   return (

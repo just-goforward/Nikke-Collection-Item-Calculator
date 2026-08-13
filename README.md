@@ -13,7 +13,7 @@
 - 대성공 결과를 반영한 연속 계산과 R15에서 SR 등급으로의 교체 흐름
 - Rust/WebAssembly 기반 `min-E[f]` solver와 Rust phase2 fallback
 - 별도 검산 실행을 통한 추천 결과 확인
-- 접속 환경과 solver 사용 현황을 집계한 공개 통계
+- 대성공률과 키트 사용량을 구간·키트별로 집계한 공개 통계
 - 라이트·다크 테마 및 한국어·영어·일본어 UI
 
 ## 계산 방식
@@ -24,7 +24,9 @@ Solver는 먼저 SR15 도달 확률을 최대화하고, 같은 확률 범위에�
 
 ## 개인정보 및 통계
 
-계산은 브라우저 안에서 수행됩니다. 통계 기능은 서비스 품질과 solver 동작을 확인하기 위한 제한된 범주의 집계 이벤트를 Cloudflare D1에 기록하며, 계정·이름·이메일이나 원본 키트 재고는 수집하지 않습니다. 통계의 이벤트 수는 고유 사용자 수를 뜻하지 않습니다.
+계산은 브라우저 안에서 수행됩니다. 통계 기능은 결과가 확정된 이벤트의 등급·단계·사용 키트·시도 횟수·대성공 횟수 등을 Cloudflare D1에 집계합니다. 계정·이름·이메일·고유 사용자 식별자와 원본 키트 재고는 수집하지 않습니다.
+
+공개 `/api/stats`는 대성공·키트 사용에 관한 집계만 반환합니다. 출처 호스트, 클라이언트 환경, solver 진단은 공개 응답에 포함되지 않으며 운영 점검용 비공개 버킷 집계로만 관리됩니다. 통계의 이벤트 수는 고유 사용자 수를 뜻하지 않습니다.
 
 보안 문제는 공개 이슈 대신 [보안 정책](./SECURITY.md)에 안내된 비공개 신고 경로를 이용해 주세요.
 
@@ -32,8 +34,8 @@ Solver는 먼저 SR15 도달 확률을 최대화하고, 같은 확률 범위에�
 
 필요 환경:
 
-- 최신 Node.js와 npm
-- Rust toolchain 및 `wasm32-unknown-unknown` target
+- Node.js 24.x와 npm 12.x(현재 CI 검증 기준)
+- [`rust-toolchain.toml`](./rust-toolchain.toml)이 고정한 Rust 1.97.1 및 `wasm32-unknown-unknown` target
 
 ```powershell
 npm install
@@ -59,6 +61,7 @@ npm run report:bundle
 
 ## 연구 및 기술 기록
 
+- [전체 연구 문서 색인](./docs/research/README.md)
 - [28일 기준 관리 키트 기대 획득량](./docs/research/kit-expected-gain.ko.md)
 - [min-E[f] H/p 공동 최적화 연구](./docs/research/min-ef-hp-study-findings.ko.md)
 - [Solver 정책 품질 연구](./docs/research/solver-policy-quality-findings.ko.md)

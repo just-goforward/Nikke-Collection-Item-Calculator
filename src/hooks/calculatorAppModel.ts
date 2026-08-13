@@ -52,7 +52,7 @@ export type CalculatorAppModel = {
     setExp: (exp: number) => void;
     setStock: (stock: Stock) => void;
     restoreInputSnapshot: CalculatorState["restoreInputSnapshot"];
-    calculate: () => Promise<void>;
+    calculate: () => Promise<boolean>;
     reset: () => void;
     applyOutcome: (outcome: "success" | "fail") => Promise<OutcomeApplyResult>;
     clearActionTransition: (transitionId: number) => void;
@@ -72,7 +72,7 @@ type CalculatorAppModelOptions = {
   staleSource: "state" | "stock" | null;
   outcomeFlow: OutcomeFlow;
   resultView: ResultView;
-  runCalculation: () => Promise<void>;
+  runCalculation: () => Promise<boolean>;
   runMonteCarloValidation: () => Promise<void>;
   retryStats: StatsState["retryStats"];
   setStock: (stock: Stock) => void;
