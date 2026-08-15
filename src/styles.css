@@ -244,6 +244,12 @@ html[data-locale="ja"] .theme-menu-control {
   }
 }
 
+@media (min-width: 661px) and (max-width: 1099px) {
+  html[data-locale="en"] .grade-row {
+    --text-optical-segment-y: 0.5px;
+  }
+}
+
 @supports (-webkit-hyphens: none) {
   @media (min-width: 981px) {
     .view-tabs {
@@ -353,7 +359,8 @@ html.theme-view-transitioning *::after {
 }
 
 @media (max-width: 660px) {
-  html[data-locale="ko"][data-locale-font-ready="false"] [data-app-title] {
+  html:is([data-locale="ko"], [data-locale="en"])[data-locale-font-ready="false"]
+    [data-app-title] {
     font-size: 17px;
   }
 }
