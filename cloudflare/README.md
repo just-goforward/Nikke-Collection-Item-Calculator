@@ -122,7 +122,7 @@ Configure these GitHub repository settings:
 | --- | --- | --- |
 | Secret | `CLOUDFLARE_API_TOKEN` | A scoped token that can deploy this account's Workers |
 | Variable | `CLOUDFLARE_ACCOUNT_ID` | The Cloudflare account ID |
-| Variable | `STATS_ALLOWED_ORIGIN` | `https://just-goforward.github.io` |
+| Variable | `STATS_ALLOWED_ORIGIN` | `https://nikkecollection.com` |
 | Variable | `CLOUDFLARE_STAGING_WORKER_URL` | The public staging Worker URL |
 | Variable | `CLOUDFLARE_PRODUCTION_WORKER_URL` | The public production Worker URL |
 
@@ -429,7 +429,7 @@ guard:
 ```
 
 Create a separate Invisible Turnstile widget in Cloudflare Dashboard. Allow
-`just-goforward.github.io`; do not allow `localhost` unless deployed-site verification is no
+`nikkecollection.com`; do not allow `localhost` unless deployed-site verification is no
 longer the only intended use. Invisible mode is configured on the widget, not with a frontend
 `size: "invisible"` render option.
 
@@ -487,7 +487,7 @@ marker in production.
 
 ### Manual verification
 
-1. Open `https://just-goforward.github.io/?statsEnv=staging` and confirm the visible staging
+1. Open `https://nikkecollection.com/?statsEnv=staging` and confirm the visible staging
    notice.
 2. In DevTools Network, confirm `/api/stats` and `/api/events` target the staging Worker URL.
 3. Run `calculate -> select fail -> automatic next calculation`.

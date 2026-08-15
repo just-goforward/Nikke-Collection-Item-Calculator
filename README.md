@@ -2,7 +2,7 @@
 
 **한국어** | [English](./README.en.md) | [日本語](./README.ja.md)
 
-[웹에서 계산기 사용하기](https://just-goforward.github.io/Nikke-Collection-Item-Calculator/)
+[웹에서 계산기 사용하기](https://nikkecollection.com/)
 
 승리의 여신: 니케의 소장품·애장품 레벨업 과정에서 현재 경험치와 보유 관리 키트를 입력하면, 다음 행동과 예상 결과를 계산해 주는 비공식 웹 도구입니다. 설치 없이 브라우저에서 사용할 수 있으며 한국어, 영어, 일본어와 PC·태블릿·모바일 화면을 지원합니다.
 

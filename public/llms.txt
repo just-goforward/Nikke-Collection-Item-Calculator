@@ -4,5 +4,5 @@
 
 ## Links
 
-- [Site](https://just-goforward.github.io/Nikke-Collection-Item-Calculator/)
+- [Site](https://nikkecollection.com/)
 - [Repository](https://github.com/just-goforward/Nikke-Collection-Item-Calculator)

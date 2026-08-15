@@ -1,7 +1,7 @@
 import { StatsApiResponseSchema } from "../src/schemas.ts";
 
 const endpoint = process.argv[2];
-const allowedOrigin = process.argv[3] ?? "https://just-goforward.github.io";
+const allowedOrigin = process.argv[3] ?? "https://nikkecollection.com";
 const mode = process.argv[4] ?? "full";
 const frontendContractOnly = mode === "frontend-contract-only";
 const healthPropagationAttempts = 60;
