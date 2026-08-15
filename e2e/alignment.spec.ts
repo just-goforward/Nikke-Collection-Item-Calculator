@@ -1,8 +1,8 @@
 import { expect, type Locator, type TestInfo, test } from "@playwright/test";
 import sharp from "sharp";
 
-const LANGUAGE_STORAGE_KEY = "collection-kit-calculator.language";
 const LOCALES = ["ko", "ja", "en"] as const;
+const LOCALE_PATHS = { ko: "/", en: "/en/", ja: "/ja/" } as const;
 const VIEWPORTS = [
   { height: 844, width: 390 },
   { height: 900, width: 768 },
@@ -54,14 +54,7 @@ async function preparePage(
   page: import("@playwright/test").Page,
   locale: (typeof LOCALES)[number],
 ) {
-  if (page.url() === "about:blank") await page.goto("/?statsEnv=disabled");
-  await page.evaluate(
-    ({ key, value }) => {
-      localStorage.setItem(key, value);
-    },
-    { key: LANGUAGE_STORAGE_KEY, value: locale },
-  );
-  await page.reload();
+  await page.goto(`${LOCALE_PATHS[locale]}?statsEnv=disabled`);
   await expect(page.locator("html")).toHaveAttribute("lang", locale);
   await expect(page.locator("html")).toHaveAttribute("data-locale-font-ready", "true");
   await page.evaluate(() => document.fonts.ready);
@@ -249,9 +242,9 @@ test("locale font upgrades preserve mobile geometry and CLS in every locale", as
   test.skip(testInfo.project.name !== "chromium-dpr1", "CLS needs one Chromium campaign");
   test.setTimeout(120_000);
   const locales = [
-    { code: "ko", title: "소장품 레벨업 계산기" },
-    { code: "ja", title: "コレクション強化計算機" },
-    { code: "en", title: "Collection Item Upgrade Calculator" },
+    { code: "ko", title: "NIKKE 소장품 레벨업 계산기" },
+    { code: "ja", title: "NIKKE コレクション強化計算機" },
+    { code: "en", title: "NIKKE Collection Item Upgrade Calculator" },
   ] as const;
   const selectors = [
     ".theme-menu-control > button",
@@ -280,33 +273,29 @@ test("locale font upgrades preserve mobile geometry and CLS in every locale", as
     const fontRequest = createGate();
     const releaseFont = createGate();
     try {
-      await page.addInitScript(
-        ({ key, value }) => {
-          localStorage.setItem(key, value);
-          const state = { cls: 0, supported: false };
-          (
-            window as typeof window & {
-              __fontLayoutShiftState?: typeof state;
-            }
-          ).__fontLayoutShiftState = state;
-          if (!PerformanceObserver.supportedEntryTypes.includes("layout-shift")) return;
-          state.supported = true;
-          new PerformanceObserver((list) => {
-            for (const entry of list.getEntries()) {
-              const shift = entry as PerformanceEntry & { hadRecentInput: boolean; value: number };
-              if (!shift.hadRecentInput) state.cls += shift.value;
-            }
-          }).observe({ buffered: true, type: "layout-shift" });
-        },
-        { key: LANGUAGE_STORAGE_KEY, value: locale.code },
-      );
+      await page.addInitScript(() => {
+        const state = { cls: 0, supported: false };
+        (
+          window as typeof window & {
+            __fontLayoutShiftState?: typeof state;
+          }
+        ).__fontLayoutShiftState = state;
+        if (!PerformanceObserver.supportedEntryTypes.includes("layout-shift")) return;
+        state.supported = true;
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            const shift = entry as PerformanceEntry & { hadRecentInput: boolean; value: number };
+            if (!shift.hadRecentInput) state.cls += shift.value;
+          }
+        }).observe({ buffered: true, type: "layout-shift" });
+      });
       await page.route("**/*.woff2", async (route) => {
         fontRequest.release();
         await releaseFont.promise;
         await route.continue();
       });
 
-      await page.goto(`${ALIGNMENT_BASE_URL}/?statsEnv=disabled`, {
+      await page.goto(`${ALIGNMENT_BASE_URL}${LOCALE_PATHS[locale.code]}?statsEnv=disabled`, {
         waitUntil: "domcontentloaded",
       });
       await waitForGate(fontRequest.promise, `${locale.code} locale font request`);

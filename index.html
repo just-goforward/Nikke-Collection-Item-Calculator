@@ -1,39 +1,40 @@
 <!doctype html>
-<html lang="ko" data-locale="ko">
+<html lang="ko" data-locale="ko" data-site-locale-root>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base href="/" />
+<!-- localized-seo:start -->
+    <title>NIKKE 소장품 레벨업 계산기</title>
     <meta
       name="description"
       content="니케 소장품 레벨업에 필요한 키트 사용 순서와 SR 15 도달 확률을 계산합니다."
     />
+<!-- localized-seo:end -->
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <script>
       (() => {
-        const storageKey = "collection-kit-calculator.language";
-        const supported = ["ko", "ja", "en"];
-        const normalize = (value) => {
-          if (!value) return null;
-          const tag = String(value).trim().toLowerCase();
-          return supported.find((locale) => tag === locale || tag.startsWith(`${locale}-`)) || null;
-        };
-        let locale = null;
+        const legacyStorageKey = "collection-kit-calculator.language";
         try {
-          locale = normalize(window.localStorage.getItem(storageKey));
+          const savedLocale = window.localStorage.getItem(legacyStorageKey);
+          if (window.location.pathname === "/") {
+            if (savedLocale === "en" || savedLocale === "ja") {
+              window.history.replaceState(
+                null,
+                "",
+                `/${savedLocale}/${window.location.search}${window.location.hash}`,
+              );
+            }
+          }
+          window.localStorage.removeItem(legacyStorageKey);
         } catch {
-          locale = null;
+          // Language storage can be unavailable in restricted browser contexts.
         }
-        if (!locale) {
-          const languages = navigator.languages && navigator.languages.length
-            ? navigator.languages
-            : [navigator.language];
-          locale = languages.map(normalize).find(Boolean) || "ko";
-        }
-        const fontStylesheets = {
-          ko: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css",
-          en: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-std-dynamic-subset.min.css",
-          ja: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-jp-dynamic-subset.min.css",
-        };
+        const firstPathSegment = window.location.pathname.split("/").find(Boolean);
+        const locale = firstPathSegment === "en" || firstPathSegment === "ja"
+          ? firstPathSegment
+          : "ko";
+        const fontStylesheets = /* localized-font-stylesheets */ {};
         document.documentElement.lang = locale;
         document.documentElement.dataset.locale = locale;
         document.documentElement.dataset.localeFontReady = "false";
@@ -55,17 +56,9 @@
         document.head.append(fontLink);
       })();
     </script>
-    <noscript>
-      <link
-        rel="stylesheet"
-        crossorigin
-        href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
-      />
-    </noscript>
-    <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png" />
-    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
-    <link rel="apple-touch-icon" sizes="192x192" href="./icon-192.png" />
-    <title>소장품 레벨업 계산기</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png" />
   </head>
   <body>
     <script>

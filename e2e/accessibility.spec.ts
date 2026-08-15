@@ -101,24 +101,18 @@ test("모바일 다크 화면에는 WCAG A/AA 위반이 없다", async ({ page }
 });
 
 test("English desktop UI has no untracked WCAG A/AA violations", async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("collection-kit-calculator.language", "en");
-  });
-  await page.goto(`http://127.0.0.1:${PORT}/?demoStats=1`);
+  await page.goto(`http://127.0.0.1:${PORT}/en/?demoStats=1`);
   await expect(
-    page.getByRole("heading", { name: "Collection Item Upgrade Calculator" }),
+    page.getByRole("heading", { name: "NIKKE Collection Item Upgrade Calculator" }),
   ).toBeVisible();
 
   expect(await accessibilityViolations(page)).toEqual([]);
 });
 
 test("Japanese mobile UI has no untracked WCAG A/AA violations", async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem("collection-kit-calculator.language", "ja");
-  });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`http://127.0.0.1:${PORT}/?demoStats=1`);
-  await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toBeVisible();
+  await page.goto(`http://127.0.0.1:${PORT}/ja/?demoStats=1`);
+  await expect(page.getByRole("heading", { name: "NIKKE コレクション強化計算機" })).toBeVisible();
 
   expect(await accessibilityViolations(page)).toEqual([]);
 });

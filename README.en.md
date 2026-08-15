@@ -2,7 +2,7 @@
 
 [한국어](./README.md) | **English** | [日本語](./README.ja.md)
 
-[Open the calculator](https://nikkecollection.com/)
+[Open the calculator](https://nikkecollection.com/en/)
 
 An unofficial browser tool for GODDESS OF VICTORY: NIKKE. Enter the current collection-item grade, level, EXP, and maintenance-kit inventory to calculate a recommended next action and its expected outcome. The interface supports Korean, English, and Japanese across desktop, tablet, and mobile layouts.
 

@@ -1,9 +1,9 @@
+import { SITE_LOCALES } from "../../shared/siteLocales";
 import type { koMessages } from "./messages.ko";
 
 export const jaMessages = {
-  "app.title": "コレクション強化計算機",
-  "app.description":
-    "NIKKEのコレクション強化に使うお手入れキットの順番と、SR15段階到達率を計算します。",
+  "app.title": SITE_LOCALES.ja.title,
+  "app.description": SITE_LOCALES.ja.description,
   "boot.title": "計算機を読み込めませんでした。",
   "boot.detail": "ページを再読み込みして、もう一度お試しください。",
   "error.renderTitle": "画面を表示できませんでした。",

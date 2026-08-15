@@ -10,7 +10,14 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 
-import type { StatsLocale } from "../../shared/statsContract";
+import {
+  SITE_LOCALE_ORDER,
+  SITE_LOCALES,
+  type SiteLocale,
+  siteLocaleFromPathname,
+  siteLocaleJsonLd,
+  siteLocaleUrl,
+} from "../../shared/siteLocales";
 import { ignoreExpectedError } from "../lib/errorHandling";
 import { enMessages } from "./messages.en";
 import { jaMessages } from "./messages.ja";
@@ -21,10 +28,9 @@ import {
   type MessageParams,
 } from "./messages.ko";
 
-export type AppLocale = StatsLocale;
+export type AppLocale = SiteLocale;
 type CountUnit = "attempt" | "input" | "person" | "piece" | "state" | "use";
 
-const LANGUAGE_STORAGE_KEY = "collection-kit-calculator.language";
 const LOCALE_FONT_LINK_ID = "locale-font-stylesheet";
 const LOCALE_FONT_LOAD_TIMEOUT_MS = 5_000;
 const LOCALE_CODES: Record<AppLocale, string> = {
@@ -33,14 +39,14 @@ const LOCALE_CODES: Record<AppLocale, string> = {
   ja: "ja-JP",
 };
 const FONT_STYLESHEETS: Record<AppLocale, string> = {
-  ko: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css",
-  en: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-std-dynamic-subset.min.css",
-  ja: "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-jp-dynamic-subset.min.css",
+  ko: SITE_LOCALES.ko.fontStylesheet,
+  en: SITE_LOCALES.en.fontStylesheet,
+  ja: SITE_LOCALES.ja.fontStylesheet,
 };
 const FONT_FAMILY_NAMES: Record<AppLocale, string> = {
-  ko: "Pretendard Variable",
-  en: "Pretendard Std Variable",
-  ja: "Pretendard JP Variable",
+  ko: SITE_LOCALES.ko.fontFamily,
+  en: SITE_LOCALES.en.fontFamily,
+  ja: SITE_LOCALES.ja.fontFamily,
 };
 const MESSAGE_CATALOGS = {
   ko: koMessages,
@@ -100,33 +106,17 @@ export function localeFromLanguageTag(language: string | null | undefined): AppL
   return null;
 }
 
-function browserLocale(): AppLocale {
+export function detectInitialLocale(): AppLocale {
+  if (typeof window !== "undefined") {
+    return siteLocaleFromPathname(window.location.pathname);
+  }
   if (typeof document !== "undefined") {
     const documentLocale = localeFromLanguageTag(
       document.documentElement.getAttribute("data-locale"),
     );
     if (documentLocale) return documentLocale;
   }
-  if (typeof navigator !== "undefined") {
-    const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
-    for (const language of languages) {
-      const locale = localeFromLanguageTag(language);
-      if (locale) return locale;
-    }
-  }
   return "ko";
-}
-
-export function detectInitialLocale(): AppLocale {
-  if (typeof window !== "undefined") {
-    try {
-      const saved = localeFromLanguageTag(window.localStorage.getItem(LANGUAGE_STORAGE_KEY));
-      if (saved) return saved;
-    } catch (error) {
-      ignoreExpectedError("language storage read can fail in restricted browser contexts", error);
-    }
-  }
-  return browserLocale();
 }
 
 function interpolate(locale: AppLocale, template: string, params?: MessageParams) {
@@ -281,13 +271,58 @@ async function loadRenderedLocaleFont(locale: AppLocale) {
   return waitForFontFace(locale, sample, deadline);
 }
 
+function setMetaContent(selector: string, content: string) {
+  const meta = document.querySelector<HTMLMetaElement>(selector);
+  if (meta) meta.content = content;
+}
+
+function applySeoMetadata(locale: AppLocale) {
+  const metadata = SITE_LOCALES[locale];
+  const canonical = siteLocaleUrl(locale);
+  const imageUrl = new URL(metadata.ogImagePath, canonical).toString();
+  document.title = metadata.title;
+  setMetaContent('meta[name="description"]', metadata.description);
+  setMetaContent('meta[property="og:title"]', metadata.title);
+  setMetaContent('meta[property="og:description"]', metadata.description);
+  setMetaContent('meta[property="og:url"]', canonical);
+  setMetaContent('meta[property="og:locale"]', metadata.ogLocale);
+  setMetaContent('meta[property="og:image"]', imageUrl);
+  setMetaContent('meta[property="og:image:alt"]', metadata.title);
+  const alternateOgLocales = SITE_LOCALE_ORDER.filter((alternate) => alternate !== locale).map(
+    (alternate) => SITE_LOCALES[alternate].ogLocale,
+  );
+  const alternateOgElements = [
+    ...document.querySelectorAll<HTMLMetaElement>('meta[property="og:locale:alternate"]'),
+  ];
+  for (const [index, content] of alternateOgLocales.entries()) {
+    const meta = alternateOgElements[index] ?? document.createElement("meta");
+    meta.setAttribute("property", "og:locale:alternate");
+    meta.content = content;
+    if (!meta.isConnected) document.head.append(meta);
+  }
+  for (const staleMeta of alternateOgElements.slice(alternateOgLocales.length)) {
+    staleMeta.remove();
+  }
+  setMetaContent('meta[name="twitter:title"]', metadata.title);
+  setMetaContent('meta[name="twitter:description"]', metadata.description);
+  setMetaContent('meta[name="twitter:image"]', imageUrl);
+  const canonicalLink = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  if (canonicalLink) canonicalLink.href = canonical;
+  const structuredData = document.querySelector<HTMLScriptElement>("#site-structured-data");
+  if (structuredData) structuredData.textContent = JSON.stringify(siteLocaleJsonLd(locale));
+}
+
 function applyLocaleToDocument(locale: AppLocale, fontReady: boolean) {
-  document.documentElement.lang = locale;
+  document.documentElement.lang = SITE_LOCALES[locale].htmlLang;
   document.documentElement.setAttribute("data-locale", locale);
   document.documentElement.setAttribute("data-locale-font-ready", String(fontReady));
-  document.title = translate(locale, "app.title");
-  const description = document.querySelector<HTMLMetaElement>('meta[name="description"]');
-  if (description) description.content = translate(locale, "app.description");
+  applySeoMetadata(locale);
+}
+
+function pushLocalePath(locale: AppLocale) {
+  const nextPath = SITE_LOCALES[locale].path;
+  if (window.location.pathname === nextPath) return;
+  window.history.pushState(null, "", `${nextPath}${window.location.search}${window.location.hash}`);
 }
 
 export function prepareInitialLocale() {
@@ -309,27 +344,34 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       active = false;
     };
   }, [locale]);
-  const setLocale = useCallback(
-    async (nextLocale: AppLocale) => {
+  const commitLocale = useCallback(
+    async (nextLocale: AppLocale, navigation: "none" | "push") => {
       const request = localeRequestRef.current + 1;
       localeRequestRef.current = request;
-      if (nextLocale === locale) return;
+      if (nextLocale === locale) {
+        if (navigation === "push") pushLocalePath(nextLocale);
+        return;
+      }
       const deadline = performance.now() + LOCALE_FONT_LOAD_TIMEOUT_MS;
       await ensureLocaleFontStylesheet(nextLocale, deadline);
       if (localeRequestRef.current !== request) return;
+      if (navigation === "push") pushLocalePath(nextLocale);
       applyLocaleToDocument(nextLocale, false);
       flushSync(() => setLocaleState(nextLocale));
-      try {
-        window.localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLocale);
-      } catch (error) {
-        ignoreExpectedError(
-          "language storage write can fail in restricted browser contexts",
-          error,
-        );
-      }
     },
     [locale],
   );
+  const setLocale = useCallback(
+    (nextLocale: AppLocale) => commitLocale(nextLocale, "push"),
+    [commitLocale],
+  );
+  useEffect(() => {
+    const syncLocaleFromPath = () => {
+      void commitLocale(siteLocaleFromPathname(window.location.pathname), "none");
+    };
+    window.addEventListener("popstate", syncLocaleFromPath);
+    return () => window.removeEventListener("popstate", syncLocaleFromPath);
+  }, [commitLocale]);
 
   const value = useMemo<LocaleContextValue>(() => {
     const formatNumber = (number: number, digits = 2) =>

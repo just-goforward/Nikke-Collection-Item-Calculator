@@ -3,6 +3,8 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+import { localizedPagesPlugin } from "./scripts/localized-pages.ts";
+
 function sourceRevision() {
   const { GITHUB_SHA: ciRevisionValue } = process.env;
   const ciRevision = ciRevisionValue?.trim();
@@ -15,11 +17,11 @@ function sourceRevision() {
 }
 
 export default defineConfig({
-  base: "./",
+  base: "/",
   define: {
     __SOURCE_REVISION__: JSON.stringify(sourceRevision()),
   },
-  plugins: [react(), tailwindcss()],
+  plugins: [localizedPagesPlugin(), react(), tailwindcss()],
   build: {
     outDir: "dist",
     emptyOutDir: true,

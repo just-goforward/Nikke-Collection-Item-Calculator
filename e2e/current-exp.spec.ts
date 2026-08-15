@@ -3,7 +3,7 @@ import { type PreviewServer, preview } from "vite";
 import { test } from "./test";
 
 const PORT = 4281;
-const LANGUAGE_STORAGE_KEY = "collection-kit-calculator.language";
+const LOCALE_PATHS = { ko: "/", en: "/en/", ja: "/ja/" } as const;
 let previewServer: PreviewServer | null = null;
 
 const expectedCopy = {
@@ -35,11 +35,7 @@ const expectedCopy = {
 } as const;
 
 async function selectLocale(page: Page, locale: keyof typeof expectedCopy) {
-  await page.evaluate(({ key, value }) => localStorage.setItem(key, value), {
-    key: LANGUAGE_STORAGE_KEY,
-    value: locale,
-  });
-  await page.reload();
+  await page.goto(`http://127.0.0.1:${PORT}${LOCALE_PATHS[locale]}?statsEnv=disabled`);
   await expect(page.locator("html")).toHaveAttribute("lang", locale);
 }
 

@@ -1,9 +1,9 @@
+import { SITE_LOCALES } from "../../shared/siteLocales";
 import type { koMessages } from "./messages.ko";
 
 export const enMessages = {
-  "app.title": "Collection Item Upgrade Calculator",
-  "app.description":
-    "Calculate the best Maintenance Kit order and your chance of reaching SR Phase 15 in NIKKE.",
+  "app.title": SITE_LOCALES.en.title,
+  "app.description": SITE_LOCALES.en.description,
   "boot.title": "The calculator could not be loaded.",
   "boot.detail": "Refresh the page and try again.",
   "error.renderTitle": "The page could not be displayed.",

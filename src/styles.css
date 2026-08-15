@@ -223,13 +223,18 @@ html[data-locale="en"] .mobile-tabs {
   --text-optical-segment-y: -1px;
 }
 
-html[data-locale="en"] .theme-menu-control {
+html[data-locale="en"] .theme-menu-control,
+html[data-locale="ja"] .theme-menu-control {
   --text-optical-segment-y: 0.5px;
 }
 
 @media (max-width: 660px) {
   html[data-locale="en"] .level-grid {
     --text-optical-segment-y: 1px;
+  }
+
+  html[data-locale="ja"] .level-grid {
+    --text-optical-segment-y: 0.5px;
   }
 }
 
@@ -345,6 +350,12 @@ html.theme-view-transitioning *::after {
     animation: none;
   }
 }
+}
+
+@media (max-width: 660px) {
+  html[data-locale="ko"][data-locale-font-ready="false"] [data-app-title] {
+    font-size: 17px;
+  }
 }
 
 @property --outcome-ring-angle {

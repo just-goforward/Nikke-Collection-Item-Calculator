@@ -3,6 +3,7 @@ import { type PreviewServer, preview } from "vite";
 import { test } from "./test";
 
 const PORT = 4176;
+const LOCALE_PATHS = { ko: "/", en: "/en/", ja: "/ja/" } as const;
 let previewServer: PreviewServer | null = null;
 
 test.beforeAll(async () => {
@@ -453,11 +454,8 @@ test("다회 대성공 보정 안내와 계산 버튼은 모든 언어와 화면
 
   for (const locale of ["ko", "ja", "en"] as const) {
     await page.setViewportSize({ width: 768, height: 900 });
-    await page.evaluate(({ key, value }) => localStorage.setItem(key, value), {
-      key: "collection-kit-calculator.language",
-      value: locale,
-    });
-    await page.reload();
+    await page.goto(`http://127.0.0.1:${PORT}${LOCALE_PATHS[locale]}?statsEnv=disabled`);
+    await expect(page.locator("html")).toHaveAttribute("lang", locale);
     await page.locator('[data-grade="SR"]').click();
     await page.locator('[data-level="5"]').click();
     await page.locator("#yellowStock").fill("100");
@@ -510,11 +508,7 @@ test("다회 회차 입력 팝업 바깥을 누르면 취소와 동일하게 처
 
 test("태블릿과 PC에서 대성공 O/X 확정 상태의 패널과 버튼 크기가 같다", async ({ page }) => {
   for (const locale of ["ko", "ja", "en"] as const) {
-    await page.evaluate(({ key, value }) => localStorage.setItem(key, value), {
-      key: "collection-kit-calculator.language",
-      value: locale,
-    });
-    await page.reload();
+    await page.goto(`http://127.0.0.1:${PORT}${LOCALE_PATHS[locale]}?statsEnv=disabled`);
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
     await page.locator('[data-grade="R"]').click();
     await page.locator('[data-level="14"]').click();

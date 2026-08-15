@@ -1,6 +1,8 @@
+import { SITE_LOCALES } from "../../shared/siteLocales";
+
 export const koMessages = {
-  "app.title": "소장품 레벨업 계산기",
-  "app.description": "니케 소장품 레벨업에 필요한 키트 사용 순서와 SR 15 도달 확률을 계산합니다.",
+  "app.title": SITE_LOCALES.ko.title,
+  "app.description": SITE_LOCALES.ko.description,
   "boot.title": "계산기를 불러오지 못했습니다.",
   "boot.detail": "페이지를 새로고침한 뒤 다시 시도해주세요.",
   "error.renderTitle": "화면을 표시하지 못했습니다.",

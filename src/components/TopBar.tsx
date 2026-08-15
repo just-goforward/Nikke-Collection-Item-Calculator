@@ -1,6 +1,7 @@
 import type { CSSProperties, KeyboardEvent, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 
+import { SITE_LOCALES } from "../../shared/siteLocales";
 import { type AppLocale, useI18n } from "../i18n/locale";
 import type { MessageKey } from "../i18n/messages.ko";
 import { nextNavigationIndex } from "../lib/keyboardNavigation";
@@ -38,7 +39,7 @@ const classes = {
   langMenu:
     "topbar-menu-rollout absolute right-0 top-[calc(100%+6px)] z-30 grid min-w-[132px] gap-0.5 rounded-card border border-border bg-surface p-1 shadow-panel",
   langOption:
-    "flex min-h-8 items-center gap-2 rounded-control border-0 bg-transparent px-2.5 text-left text-[12.5px] font-bold text-text-soft hover:bg-surface-strong",
+    "flex min-h-8 items-center gap-2 rounded-control border-0 bg-transparent px-2.5 text-left text-[12.5px] font-bold text-text-soft no-underline hover:bg-surface-strong",
   langCheck: "inline-block w-4 shrink-0 text-center text-[12px] leading-none",
   control:
     "theme-segment-control inline-grid grid-cols-[auto] items-center gap-1 rounded-card border border-border bg-button p-0.5 [--seg-index:0] transition-[border-color,background-color] duration-[160ms]",
@@ -107,10 +108,10 @@ function useDismissableMenu(
   }, [onClose, onEscape, open, ref]);
 }
 
-function focusMenuItem(
-  event: KeyboardEvent<HTMLButtonElement>,
+function focusMenuItem<ElementType extends HTMLElement>(
+  event: KeyboardEvent<ElementType>,
   currentIndex: number,
-  itemRefs: RefObject<Array<HTMLButtonElement | null>>,
+  itemRefs: RefObject<Array<ElementType | null>>,
 ) {
   const nextIndex = nextNavigationIndex(
     event.key,
@@ -132,7 +133,7 @@ function LanguageSelector({
   onToggle,
 }: LanguageSelectorProps) {
   const { t } = useI18n();
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const optionRefs = useRef<Array<HTMLAnchorElement | null>>([]);
   useEffect(() => {
     if (!langOpen) return;
     const selectedIndex = LANG_OPTIONS.findIndex((option) => option.value === lang);
@@ -168,24 +169,37 @@ function LanguageSelector({
       {langOpen ? (
         <div className={classes.langMenu} role="menu" aria-labelledby="language-menu-trigger">
           {LANG_OPTIONS.map((option, index) => (
-            <button
+            <a
               className={classes.langOption}
-              type="button"
+              href={SITE_LOCALES[option.value].path}
               role="menuitemradio"
               aria-checked={lang === option.value}
+              aria-current={lang === option.value ? "page" : undefined}
               tabIndex={-1}
               key={option.value}
               ref={(element) => {
                 optionRefs.current[index] = element;
               }}
               onKeyDown={(event) => focusMenuItem(event, index, optionRefs)}
-              onClick={() => onLangChange(option.value)}
+              onClick={(event) => {
+                if (
+                  event.button !== 0 ||
+                  event.altKey ||
+                  event.ctrlKey ||
+                  event.metaKey ||
+                  event.shiftKey
+                ) {
+                  return;
+                }
+                event.preventDefault();
+                onLangChange(option.value);
+              }}
             >
               <span className={classes.langCheck} aria-hidden="true">
                 {lang === option.value ? "✓" : ""}
               </span>
               <span>{option.label}</span>
-            </button>
+            </a>
           ))}
         </div>
       ) : null}
@@ -403,7 +417,7 @@ export default function TopBar({
   return (
     <header className={classes.root}>
       <div className={classes.titleWrap}>
-        <h1 className={classes.title}>
+        <h1 className={classes.title} data-app-title>
           <span className={classes.titleText}>{t("app.title")}</span>
         </h1>
         <ViewTabs active={viewTab} onChange={onViewTabChange} />

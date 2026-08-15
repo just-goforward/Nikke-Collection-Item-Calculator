@@ -3,7 +3,7 @@ import { type PreviewServer, preview } from "vite";
 import { test, waitForSignal, withCleanup } from "./test";
 
 const PORT = 4277;
-const LANGUAGE_STORAGE_KEY = "collection-kit-calculator.language";
+const LOCALE_PATHS = { ko: "/", en: "/en/", ja: "/ja/" } as const;
 let previewServer: PreviewServer | null = null;
 function createGate() {
   let release: () => void = () => undefined;
@@ -12,15 +12,9 @@ function createGate() {
   });
   return { promise, release };
 }
-async function prepareLocale(page: Page, languages: string[], savedLocale?: "ko" | "en" | "ja") {
+async function prepareLocale(page: Page, languages: string[]) {
   await page.addInitScript(
-    ({ languageStorageKey, navigatorLanguages, storedLocale }) => {
-      const seedKey = `${languageStorageKey}.test-seeded`;
-      if (!sessionStorage.getItem(seedKey)) {
-        if (storedLocale) localStorage.setItem(languageStorageKey, storedLocale);
-        else localStorage.removeItem(languageStorageKey);
-        sessionStorage.setItem(seedKey, "1");
-      }
+    ({ navigatorLanguages }) => {
       Object.defineProperty(navigator, "languages", {
         configurable: true,
         get: () => navigatorLanguages,
@@ -31,9 +25,7 @@ async function prepareLocale(page: Page, languages: string[], savedLocale?: "ko"
       });
     },
     {
-      languageStorageKey: LANGUAGE_STORAGE_KEY,
       navigatorLanguages: languages,
-      storedLocale: savedLocale,
     },
   );
 }
@@ -50,12 +42,8 @@ async function clickVisibleTab(page: Page, name: string) {
   await tab.click();
 }
 
-async function selectStoredLocale(page: Page, locale: "ko" | "en" | "ja") {
-  await page.evaluate(({ key, value }) => localStorage.setItem(key, value), {
-    key: LANGUAGE_STORAGE_KEY,
-    value: locale,
-  });
-  await page.reload();
+async function openLocale(page: Page, locale: "ko" | "en" | "ja", search = "?statsEnv=disabled") {
+  await page.goto(`http://127.0.0.1:${PORT}${LOCALE_PATHS[locale]}${search}`);
   await expect(page.locator("html")).toHaveAttribute("lang", locale);
 }
 
@@ -128,29 +116,7 @@ test.afterAll(async () => {
   previewServer = null;
 });
 
-test("browser language selects Japanese and its font before app use", async ({ page }) => {
-  await prepareLocale(page, ["ja-JP", "en-US"]);
-  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
-
-  const html = page.locator("html");
-  await expect(html).toHaveAttribute("lang", "ja");
-  await expect(html).toHaveAttribute("data-locale", "ja");
-  await expect(page).toHaveTitle("コレクション強化計算機");
-  await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toBeVisible();
-  await expect(page.locator('meta[name="description"]')).toHaveAttribute(
-    "content",
-    /お手入れキット/,
-  );
-  await expect(page.locator("#locale-font-stylesheet")).toHaveAttribute(
-    "href",
-    /pretendardvariable-jp-dynamic-subset\.min\.css$/,
-  );
-  await expect
-    .poll(() => page.locator("body").evaluate((body) => getComputedStyle(body).fontFamily))
-    .toContain("Pretendard JP Variable");
-});
-
-test("initial UI renders with its fallback while the locale font stylesheet loads", async ({
+test("initial Japanese UI renders with its fallback while the locale font stylesheet loads", async ({
   page,
 }) => {
   await page.unroute("https://cdn.jsdelivr.net/**");
@@ -163,24 +129,26 @@ test("initial UI renders with its fallback while the locale font stylesheet load
     }
     await route.fulfill({ body: "", contentType: "text/css", status: 200 });
   });
-  await prepareLocale(page, ["ja-JP"]);
-  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`, { waitUntil: "commit" });
+  await prepareLocale(page, ["en-US"]);
+  await page.goto(`http://127.0.0.1:${PORT}/ja/?statsEnv=disabled`, {
+    waitUntil: "commit",
+  });
   await withCleanup(async () => {
     await waitForSignal(fontRequest.promise, "the initial locale font request");
-    await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "NIKKE コレクション強化計算機" })).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-locale-font-ready", "false");
     await expect
       .poll(() => page.locator("body").evaluate((body) => getComputedStyle(body).fontFamily))
       .not.toContain("Pretendard JP Variable");
   }, releaseFont.release);
   await page.waitForLoadState("domcontentloaded");
-  await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "NIKKE コレクション強化計算機" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-locale-font-ready", "true");
 });
 
 test("language changes only after the next locale font stylesheet is ready", async ({ page }) => {
   await prepareLocale(page, ["en-US"]);
-  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await page.goto(`http://127.0.0.1:${PORT}/en/?statsEnv=disabled`);
   await page.unroute("https://cdn.jsdelivr.net/**");
   const fontRequest = createGate();
   const releaseFont = createGate();
@@ -198,41 +166,24 @@ test("language changes only after the next locale font stylesheet is ready", asy
     await waitForSignal(fontRequest.promise, "the changed locale font request");
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(
-      page.getByRole("heading", { name: "Collection Item Upgrade Calculator" }),
+      page.getByRole("heading", { name: "NIKKE Collection Item Upgrade Calculator" }),
     ).toBeVisible();
   }, releaseFont.release);
   await expect(page.locator("html")).toHaveAttribute("lang", "ja");
-  await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toBeVisible();
-});
-
-test("saved language overrides the browser language and persists after reload", async ({
-  page,
-}) => {
-  await prepareLocale(page, ["ja-JP"], "en");
-  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
-
-  await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(
-    page.getByRole("heading", { name: "Collection Item Upgrade Calculator" }),
-  ).toBeVisible();
-  const stockLabels = page.locator("label:has(input[id$='Stock']) > span:first-child");
-  await expect(stockLabels).toHaveText(["Beginner Kit", "Intermediate Kit", "Elite Kit"]);
-  await page.getByRole("button", { name: "Select language" }).click();
-  await page.getByRole("menuitemradio", { name: "日本語" }).click();
-  await expect(page.locator("html")).toHaveAttribute("lang", "ja");
-  await expect(stockLabels).toHaveText(["初心者用キット", "中級者用キット", "上級者用キット"]);
+  await expect(page).toHaveURL(/\/ja\/\?statsEnv=disabled$/);
   await expect
-    .poll(() => page.evaluate((key) => localStorage.getItem(key), LANGUAGE_STORAGE_KEY))
-    .toBe("ja");
-
-  await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("lang", "ja");
-  await expect(page.getByRole("heading", { name: "コレクション強化計算機" })).toBeVisible();
+    .poll(() =>
+      page
+        .locator('meta[property="og:locale:alternate"]')
+        .evaluateAll((metas) => metas.map((meta) => meta.getAttribute("content"))),
+    )
+    .toEqual(["ko_KR", "en_US"]);
+  await expect(page.getByRole("heading", { name: "NIKKE コレクション強化計算機" })).toBeVisible();
 });
 
 test("an existing calculation result switches language without recalculation", async ({ page }) => {
   await prepareLocale(page, ["en-US"]);
-  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await page.goto(`http://127.0.0.1:${PORT}/en/?statsEnv=disabled`);
   await page.locator('[data-grade="SR"]').click();
   await page.locator('[data-level="10"]').click();
   await page.locator("#yellowStock").fill("100");
@@ -248,11 +199,25 @@ test("an existing calculation result switches language without recalculation", a
   await page.getByRole("button", { name: "Select language" }).click();
   await page.getByRole("menuitemradio", { name: "日本語" }).click();
 
+  await expect(page).toHaveURL(/\/ja\/\?statsEnv=disabled$/);
   await expect(page.getByText("SR15到達率").first()).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "候補" })).toBeVisible();
   await expect(page.locator(".next-action .action-chip-name").first()).toContainText(
     "上級者用お手入れキット",
   );
+  await expect(page.locator(".next-action .action-chip-count").first()).toContainText(
+    String(actionCount),
+  );
+
+  await page.goBack();
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(page.getByText("Chance to reach SR 15").first()).toBeVisible();
+  await expect(page.locator(".next-action .action-chip-count").first()).toContainText(
+    String(actionCount),
+  );
+
+  await page.goForward();
+  await expect(page.locator("html")).toHaveAttribute("lang", "ja");
   await expect(page.locator(".next-action .action-chip-count").first()).toContainText(
     String(actionCount),
   );
@@ -263,7 +228,7 @@ test("Japanese outcome actions never overlap their copy in narrow desktop layout
 }) => {
   await page.setViewportSize({ width: 981, height: 900 });
   await prepareLocale(page, ["ja-JP"]);
-  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await openLocale(page, "ja");
   await page.locator('[data-grade="SR"]').click();
   await page.locator('[data-level="10"]').click();
   for (const inputId of ["blueStock", "purpleStock", "yellowStock"]) {
@@ -319,11 +284,10 @@ test("Japanese outcome actions never overlap their copy in narrow desktop layout
 test("SR 14 outcome copy stays readable across every locale and responsive layout", async ({
   page,
 }) => {
-  await prepareLocale(page, ["en-US"], "en");
-  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await prepareLocale(page, ["en-US"]);
 
   for (const locale of ["ko", "ja", "en"] as const) {
-    await selectStoredLocale(page, locale);
+    await openLocale(page, locale);
     await page.setViewportSize({ width: 981, height: 900 });
     await page.locator('[data-grade="R"]').click();
     await page.locator('[data-level="14"]').click();
@@ -462,7 +426,7 @@ test("candidate actions shorten without horizontal scrolling and align their cou
   page,
 }) => {
   await prepareLocale(page, ["en-US"]);
-  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await openLocale(page, "en");
   await page.locator('[data-grade="SR"]').click();
   await page.locator('[data-level="10"]').click();
   for (const inputId of ["blueStock", "purpleStock", "yellowStock"]) {
@@ -612,13 +576,11 @@ test("candidate actions shorten without horizontal scrolling and align their cou
 
 test("responsive density follows each locale's rendered content", async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 900 });
-  await prepareLocale(page, ["ko-KR"], "ko");
-  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await prepareLocale(page, ["ko-KR"]);
 
   const stockWidths: Record<"ko" | "ja" | "en", number> = { ko: 0, ja: 0, en: 0 };
   for (const locale of ["ko", "ja", "en"] as const) {
-    await selectStoredLocale(page, locale);
-    await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+    await openLocale(page, locale);
     await page.setViewportSize({ width: 768, height: 900 });
     const inputWidths = await page
       .locator(".input-column > section")
@@ -645,7 +607,7 @@ test("responsive density follows each locale's rendered content", async ({ page 
     }
 
     await page.setViewportSize({ width: 768, height: 900 });
-    await page.goto(`http://127.0.0.1:${PORT}/?demoStats=1`);
+    await openLocale(page, locale, "?demoStats=1");
     await clickVisibleTab(page, locale === "ko" ? "통계" : locale === "ja" ? "統計" : "Stats");
     await expect(page.locator(".stats-layout")).toBeVisible();
     const tabletColumns = await page.locator(".stats-layout").evaluate(
@@ -675,7 +637,7 @@ test("candidate consumption uses available width before wrapping in narrow deskt
   page,
 }) => {
   await page.setViewportSize({ width: 981, height: 1100 });
-  await prepareLocale(page, ["ko-KR"], "ko");
+  await prepareLocale(page, ["ko-KR"]);
   await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
   await page.locator('[data-grade="R"]').click();
   await page.locator('[data-level="8"]').click();
@@ -820,11 +782,10 @@ test("mobile controls use shared roles without ad hoc positioning", async ({ pag
 });
 
 test("numeric placeholders use explicit balanced line boxes in every locale", async ({ page }) => {
-  await prepareLocale(page, ["ko-KR"], "ko");
-  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await prepareLocale(page, ["ko-KR"]);
 
   for (const locale of ["ko", "ja", "en"] as const) {
-    await selectStoredLocale(page, locale);
+    await openLocale(page, locale);
     await page.setViewportSize({ width: 768, height: 900 });
     await expect(page.locator("#currentExp")).toHaveCSS("line-height", "20px");
     await expect(page.locator("#blueStock")).toHaveCSS("line-height", "20px");
@@ -851,12 +812,7 @@ test("English and Japanese layouts do not overflow common phone, tablet, and des
 }) => {
   await prepareLocale(page, ["en-US"]);
   for (const locale of ["en", "ja"] as const) {
-    await page.goto(`http://127.0.0.1:${PORT}/?demoStats=1`);
-    await page.evaluate(({ key, value }) => localStorage.setItem(key, value), {
-      key: LANGUAGE_STORAGE_KEY,
-      value: locale,
-    });
-    await page.reload();
+    await openLocale(page, locale, "?demoStats=1");
     for (const width of [320, 390, 768, 1365]) {
       await page.setViewportSize({ width, height: 900 });
       await expectNoHorizontalOverflow(page);

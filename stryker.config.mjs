@@ -13,7 +13,7 @@ const config = {
     low: 60,
     break: 0,
   },
-  // Stryker 9.6.1 still calls a TypeScript API removed in TypeScript 7 while
+  // Stryker 10.0.0 still calls a TypeScript API removed in TypeScript 7 while
   // rewriting tsconfig files. Pointing its optional preprocessor at an absent
   // file leaves the real tsconfig available to Vitest inside the sandbox.
   tsconfigFile: "tsconfig.stryker-compat.json",

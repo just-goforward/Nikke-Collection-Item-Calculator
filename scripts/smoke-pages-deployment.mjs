@@ -11,6 +11,28 @@ if (!/^[0-9a-f]{40}$/.test(expectedRevision)) {
 const baseUrl = new URL(pageUrl);
 const retryCount = 10;
 const retryDelayMs = 6_000;
+const localePages = [
+  {
+    canonical: "https://nikkecollection.com/",
+    lang: "ko",
+    path: "",
+    title: "NIKKE 소장품 레벨업 계산기",
+  },
+  {
+    canonical: "https://nikkecollection.com/en/",
+    lang: "en",
+    path: "en/",
+    title: "NIKKE Collection Item Upgrade Calculator",
+  },
+  {
+    canonical: "https://nikkecollection.com/ja/",
+    lang: "ja",
+    path: "ja/",
+    title: "NIKKE コレクション強化計算機",
+  },
+];
+const canonicalUrls = localePages.map(({ canonical }) => canonical);
+const ogImagePaths = localePages.map(({ lang }) => `og/collection-calculator-${lang}.png`);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -30,7 +52,7 @@ async function checkedFetch(url, expectedType) {
   return response;
 }
 
-function assetUrlsFromHtml(html) {
+function assetUrlsFromHtml(html, documentUrl) {
   const urls = new Set();
   for (const match of html.matchAll(/<(script|link)\b[^>]*>/gi)) {
     const tag = match[0];
@@ -39,21 +61,54 @@ function assetUrlsFromHtml(html) {
     const attribute = tagName === "script" ? "src" : "href";
     const value = tag.match(new RegExp(`\\b${attribute}=["']([^"']+)["']`, "i"))?.[1];
     if (value && !value.startsWith("http") && !value.startsWith("data:")) {
-      urls.add(new URL(value, baseUrl));
+      urls.add(new URL(value, documentUrl));
     }
   }
   return [...urls];
 }
 
-async function smokeOnce() {
-  const indexResponse = await checkedFetch(baseUrl, "text/html");
-  const html = await indexResponse.text();
-  assert(html.includes('id="app"'), "index: React application root is missing");
+function verifyLocalizedHtml(html, locale) {
+  assert(html.includes('id="app"'), `${locale.path || "/"}: React application root is missing`);
+  assert(
+    html.includes(`<html lang="${locale.lang}" data-locale="${locale.lang}"`),
+    `${locale.path || "/"}: localized document language is missing`,
+  );
+  assert(html.includes(`<title>${locale.title}</title>`), `${locale.path || "/"}: title mismatch`);
+  assert(
+    html.includes(`<link rel="canonical" href="${locale.canonical}" />`),
+    `${locale.path || "/"}: canonical URL mismatch`,
+  );
+  for (const canonical of canonicalUrls) {
+    assert(
+      html.includes(`rel="alternate"`) && html.includes(`href="${canonical}"`),
+      `${locale.path || "/"}: missing hreflang URL ${canonical}`,
+    );
+  }
+  assert(
+    html.includes('hreflang="x-default" href="https://nikkecollection.com/"'),
+    `${locale.path || "/"}: x-default is missing`,
+  );
+  assert(
+    html.includes('id="site-structured-data"') && html.includes('"@type":"SoftwareApplication"'),
+    `${locale.path || "/"}: SoftwareApplication JSON-LD is missing`,
+  );
+}
 
-  const assetUrls = assetUrlsFromHtml(html);
-  assert(assetUrls.length >= 2, "index: expected module and stylesheet assets");
+async function smokeOnce() {
+  const allAssetUrls = new Map();
+  for (const locale of localePages) {
+    const documentUrl = new URL(locale.path, baseUrl);
+    const response = await checkedFetch(documentUrl, "text/html");
+    const html = await response.text();
+    verifyLocalizedHtml(html, locale);
+
+    const assetUrls = assetUrlsFromHtml(html, documentUrl);
+    assert(assetUrls.length >= 2, `${locale.path || "/"}: expected module and stylesheet assets`);
+    for (const assetUrl of assetUrls) allAssetUrls.set(assetUrl.toString(), assetUrl);
+  }
+
   let revisionFound = false;
-  for (const assetUrl of assetUrls) {
+  for (const assetUrl of allAssetUrls.values()) {
     const isScript = assetUrl.pathname.endsWith(".js");
     const response = await checkedFetch(assetUrl, isScript ? "javascript" : "text/css");
     const body = await response.text();
@@ -71,8 +126,30 @@ async function smokeOnce() {
     "solver WASM has an invalid magic header",
   );
 
+  const robotsResponse = await checkedFetch(new URL("robots.txt", baseUrl), "text/plain");
+  const robots = await robotsResponse.text();
+  assert(
+    robots.includes("Sitemap: https://nikkecollection.com/sitemap.xml"),
+    "robots.txt does not advertise the canonical sitemap",
+  );
+
+  const sitemapResponse = await checkedFetch(new URL("sitemap.xml", baseUrl), "xml");
+  const sitemap = await sitemapResponse.text();
+  const sitemapLocations = [...sitemap.matchAll(/<loc>(.*?)<\/loc>/g)].map((match) => match[1]);
+  assert(
+    JSON.stringify(sitemapLocations) === JSON.stringify(canonicalUrls),
+    `sitemap URLs mismatch: ${JSON.stringify(sitemapLocations)}`,
+  );
+
+  for (const imagePath of ogImagePaths) {
+    const imageResponse = await checkedFetch(new URL(imagePath, baseUrl), "image/png");
+    const image = new Uint8Array(await imageResponse.arrayBuffer());
+    assert(image.length > 5_000, `${imagePath}: OG image is unexpectedly small`);
+  }
+
   return {
-    assets: assetUrls.length,
+    assets: allAssetUrls.size,
+    locales: localePages.length,
     page: baseUrl.toString(),
     revision: expectedRevision,
     wasmBytes: wasm.length,
