@@ -263,6 +263,10 @@ html[data-locale="ja"] .theme-menu-control {
   .grade-row {
     --text-optical-segment-y: 1px;
   }
+
+  html[data-locale="en"] #calculateButton {
+    --text-optical-action-y: 0.5px;
+  }
 }
 
 .numeric-text-control {
@@ -362,6 +366,19 @@ html.theme-view-transitioning *::after {
   html:is([data-locale="ko"], [data-locale="en"])[data-locale-font-ready="false"]
     [data-app-title] {
     font-size: 17px;
+  }
+
+  html[data-locale="en"] [data-app-title] {
+    min-height: 47.2px;
+  }
+
+  html[data-locale="en"][data-locale-font-ready="false"] [data-app-title] {
+    line-height: 1.3882;
+  }
+
+  html[data-locale="en"][data-locale-font-ready="false"] .exp-grid .readonly-field > span {
+    white-space: nowrap;
+    font-size: 10px;
   }
 }
 
