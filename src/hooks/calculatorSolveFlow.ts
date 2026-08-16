@@ -8,6 +8,8 @@ import { makeSolverDiagnosticEvent, makeSolverRecoveryEvent } from "./calculator
 import {
   DEFAULT_LOADING_TEXT,
   inputKey,
+  LOADING_DETAIL,
+  LOADING_RESULT,
   type PendingStatsEvent,
   type SolveOutcome,
   type SolverResult,
@@ -23,6 +25,7 @@ type SolveFlowOptions = {
   applyConvert: () => ConvertApplyResult | null;
   applyOutcome: (outcome: "success" | "fail") => OutcomeApplyResult;
   collectInput: () => SolverInput;
+  getCurrentViews: () => { detail: DetailView; result: ResultView };
   inputRevisionRef: MutableRef<number>;
   latestResultRef: MutableRef<SolverResult | null>;
   pendingStatsEventRef: MutableRef<PendingStatsEvent | null>;
@@ -85,7 +88,6 @@ function startDeferredLoading(setLoading: SolveFlowOptions["setLoading"], text: 
         const remainingMs = MIN_LOADING_VISIBLE_MS - (performance.now() - shownAt);
         if (remainingMs > 0) await delay(remainingMs);
       }
-      setLoading({ active: false, text: DEFAULT_LOADING_TEXT });
     },
   };
 }
@@ -101,12 +103,19 @@ function preservesExistingResult(
 
 type SolveFailureOptions = Pick<
   SolveFlowOptions,
-  "inputRevisionRef" | "latestResultRef" | "queueStatsEvent" | "setDetailView" | "setResultView"
+  "inputRevisionRef" | "latestResultRef" | "queueStatsEvent"
 > & {
   error: unknown;
   input: SolverInput;
   inputRevision: number;
   failureContext?: SolveAndRenderOptions["failureContext"];
+};
+
+type SolveFailureResolution = {
+  result: boolean;
+  restorePreviousViews: boolean;
+  skipUiCleanup: boolean;
+  views?: { detail: DetailView; result: ResultView };
 };
 
 function handleSolveFailure({
@@ -117,24 +126,22 @@ function handleSolveFailure({
   inputRevisionRef,
   latestResultRef,
   queueStatsEvent,
-  setDetailView,
-  setResultView,
-}: SolveFailureOptions) {
+}: SolveFailureOptions): SolveFailureResolution {
   if (inputRevisionRef.current !== inputRevision) {
-    return { result: false, skipUiCleanup: false };
+    return { result: false, restorePreviousViews: true, skipUiCleanup: false };
   }
   if (
     error instanceof WorkerTaskCancelled &&
     error.cancellation.task === "solve" &&
     error.cancellation.reason === "component_unmount"
   ) {
-    return { result: false, skipUiCleanup: true };
+    return { result: false, restorePreviousViews: false, skipUiCleanup: true };
   }
   if (error instanceof SolverRecoveryFailure) {
     const recoveryEvent = makeSolverRecoveryEvent(input, error.trace);
     if (recoveryEvent) queueStatsEvent(recoveryEvent);
     if (preservesExistingResult(error, latestResultRef.current, input)) {
-      return { result: false, skipUiCleanup: false };
+      return { result: false, restorePreviousViews: true, skipUiCleanup: false };
     }
   }
   latestResultRef.current = null;
@@ -150,17 +157,24 @@ function handleSolveFailure({
       : reason === "follow_up_conversion_failure"
         ? message("result.followUpConversionError")
         : message("result.solverError");
-  setResultView({
-    type: "error",
-    reason,
-    message: failureMessage,
-  });
-  setDetailView({ type: "empty", message: failureMessage });
-  return { result: true, skipUiCleanup: false };
+  return {
+    result: true,
+    restorePreviousViews: false,
+    skipUiCleanup: false,
+    views: {
+      result: {
+        type: "error" as const,
+        reason,
+        message: failureMessage,
+      },
+      detail: { type: "empty" as const, message: failureMessage },
+    },
+  };
 }
 
 type ExecuteSolveOptions = Pick<
   SolveFlowOptions,
+  | "getCurrentViews"
   | "inputRevisionRef"
   | "latestResultRef"
   | "prepareForSolve"
@@ -188,14 +202,23 @@ async function executeSolveAndRender(
     context.setLoading,
     options.loadingText ?? DEFAULT_LOADING_TEXT,
   );
+  const previousViews = context.getCurrentViews();
   context.setCalculateBusy(true);
+  context.setResultView(LOADING_RESULT);
+  if (previousViews.detail.type !== "metrics") context.setDetailView(LOADING_DETAIL);
+  let completedResult: SolverResult | null = null;
+  let failureViews: { detail: DetailView; result: ResultView } | null = null;
+  let restorePreviousViews = false;
   let skipUiCleanup = false;
   try {
     context.prepareForSolve();
     const outcome = await context.solveBestAvailable(input);
-    if (context.inputRevisionRef.current !== inputRevision) return false;
+    if (context.inputRevisionRef.current !== inputRevision) {
+      restorePreviousViews = true;
+      return false;
+    }
     const result = outcome.result;
-    context.renderResult(result, options.previousAction);
+    completedResult = result;
     const diagnosticEvent = makeSolverDiagnosticEvent(outcome, context.calculationLocale);
     if (diagnosticEvent) context.queueStatsEvent(diagnosticEvent);
     const recoveryEvent = makeSolverRecoveryEvent(result.input, outcome.recoveryTrace);
@@ -209,11 +232,25 @@ async function executeSolveAndRender(
       input,
       inputRevision,
     });
+    failureViews = failure.views ?? null;
+    restorePreviousViews = failure.restorePreviousViews;
     skipUiCleanup = failure.skipUiCleanup;
     return failure.result;
   } finally {
     await loadingSession.finish(skipUiCleanup);
-    if (!skipUiCleanup) context.setCalculateBusy(false);
+    if (!skipUiCleanup) {
+      if (completedResult) {
+        context.renderResult(completedResult, options.previousAction);
+      } else if (failureViews) {
+        context.setResultView(failureViews.result);
+        context.setDetailView(failureViews.detail);
+      } else if (restorePreviousViews) {
+        context.setResultView(previousViews.result);
+        context.setDetailView(previousViews.detail);
+      }
+      context.setCalculateBusy(false);
+      context.setLoading({ active: false, text: DEFAULT_LOADING_TEXT });
+    }
     context.busyRef.current = false;
   }
 }
@@ -292,6 +329,7 @@ export function useSolveFlow({
   applyConvert,
   applyOutcome,
   collectInput,
+  getCurrentViews,
   inputRevisionRef,
   latestResultRef,
   pendingStatsEventRef,
@@ -316,6 +354,7 @@ export function useSolveFlow({
         {
           busyRef,
           calculationLocale: locale,
+          getCurrentViews,
           inputRevisionRef,
           latestResultRef,
           prepareForSolve,
@@ -331,6 +370,7 @@ export function useSolveFlow({
         options,
       ),
     [
+      getCurrentViews,
       latestResultRef,
       inputRevisionRef,
       locale,

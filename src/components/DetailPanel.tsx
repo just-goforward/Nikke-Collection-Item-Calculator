@@ -46,6 +46,12 @@ const classes = {
     "section-heading flex items-center justify-between gap-3 border-b border-border px-[18px] py-4 transition-[border-color,background-color,color] duration-[220ms] max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",
   solverBadge:
     "inline-flex min-h-6 items-center rounded-control border border-border bg-surface-strong px-2 py-1 text-[11px] font-semibold leading-none text-muted",
+  detailBody: "relative overflow-hidden rounded-b-card",
+  loadingOverlay:
+    "absolute inset-0 z-[4] grid place-items-center bg-[rgba(255,255,255,0.88)] px-[18px] py-[22px] text-center backdrop-blur-[1px] [body.theme-dark_&]:bg-[rgba(35,38,42,0.9)] max-mobile:px-3.5 max-mobile:py-3",
+  loadingStack: "grid justify-items-center gap-2.5 text-[13px] font-semibold text-muted",
+  loadingSpinner:
+    "size-7 animate-spin rounded-full border-[3px] border-primary-soft border-t-primary",
   emptyResult: "empty-result px-[18px] py-[22px] font-medium text-muted",
   resultContent:
     "result-content grid gap-3.5 p-[18px] max-mobile:gap-2.5 max-mobile:px-3.5 max-mobile:py-3",
@@ -128,6 +134,7 @@ const classes = {
 type MetricsDetailView = Extract<DetailView, { type: "metrics" }>;
 
 type DetailPanelProps = {
+  loading: boolean;
   view: DetailView;
   validation: ValidationView;
   onRunValidation: () => void;
@@ -646,26 +653,37 @@ function MetricsDetail({
 }
 
 export default function DetailPanel({
+  loading,
   view,
   validation,
   onRunValidation,
   showSolverBackend,
 }: DetailPanelProps) {
   const { t } = useI18n();
-  if (view.type === "empty") return null;
+  if (view.type !== "metrics") return null;
 
   return (
-    <section className={classes.panel}>
+    <section className={classes.panel} aria-busy={loading || undefined}>
       <div className={classes.heading}>
         <h2>{t("detail.title")}</h2>
-        {showSolverBackend && view.type === "metrics" ? (
+        {showSolverBackend ? (
           <span className={classes.solverBadge}>
             Solver <span aria-hidden="true">·</span> {view.solverLabel}
           </span>
         ) : null}
       </div>
-      <div id="detailBox">
-        <MetricsDetail view={view} validation={validation} onRunValidation={onRunValidation} />
+      <div id="detailBox" className={classes.detailBody}>
+        {loading ? (
+          <div className={classes.loadingOverlay} role="status" aria-live="polite">
+            <div className={classes.loadingStack}>
+              <span className={classes.loadingSpinner} aria-hidden="true" />
+              <span>{t("detail.preparing")}</span>
+            </div>
+          </div>
+        ) : null}
+        <div aria-hidden={loading || undefined} inert={loading || undefined}>
+          <MetricsDetail view={view} validation={validation} onRunValidation={onRunValidation} />
+        </div>
       </div>
     </section>
   );

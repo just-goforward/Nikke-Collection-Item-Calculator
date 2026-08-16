@@ -24,7 +24,6 @@ import TopBar, { type TopViewTab } from "./components/TopBar";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
 import { useMobileLayout } from "./hooks/useMobileLayout";
 import { useI18n } from "./i18n/locale";
-import type { LocalizedMessage } from "./i18n/messages.ko";
 import type { StatsRuntimeMode } from "./lib/statsRuntime";
 
 type DetailPanelModule = typeof import("./components/DetailPanel");
@@ -68,6 +67,9 @@ const classes = {
     "section-heading flex items-center border-b border-border px-[18px] py-4 max-mobile:px-3.5 max-mobile:py-[11px] max-mobile:[&_h2]:text-[16px]",
   detailFallbackBody:
     "grid min-h-[148px] place-items-center px-[18px] py-[22px] text-center text-[13px] font-semibold leading-[1.45] text-muted max-mobile:min-h-[116px] max-mobile:px-3.5 max-mobile:py-3",
+  detailLoadingStack: "grid justify-items-center gap-2.5",
+  detailLoadingSpinner:
+    "size-7 animate-spin rounded-full border-[3px] border-primary-soft border-t-primary",
   detailRetryButton:
     "mt-3 inline-flex min-h-9 items-center justify-center rounded-control border border-border bg-button px-3.5 text-[12.5px] font-bold text-text-soft",
   statsColumn:
@@ -79,13 +81,6 @@ const classes = {
     "fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-pill bg-action px-4 py-2.5 text-[13px] font-semibold text-ice shadow-[0_14px_32px_rgba(10,18,30,0.35)] max-mobile:bottom-[calc(64px+env(safe-area-inset-bottom,0px))] max-mobile:max-w-[calc(100%-24px)] max-mobile:text-[12.5px]",
   resetToastButton:
     "inline-flex min-h-[30px] items-center justify-center rounded-pill border-0 bg-[rgba(248,252,254,0.14)] px-3 text-[12.5px] font-bold leading-none text-ice",
-  loadingOverlay:
-    "fixed inset-0 z-50 grid place-items-center bg-[var(--overlay-bg)] px-4 backdrop-blur-[1px]",
-  loadingPopup:
-    "grid w-[min(340px,calc(100vw-32px))] justify-items-center gap-3 rounded-card border border-border bg-surface-raised px-5 py-4 text-center shadow-panel",
-  loadingSpinner: "size-8 animate-spin rounded-full border-4 border-primary-soft border-t-primary",
-  loadingTitle: "text-[15px] font-extrabold leading-tight text-text-strong",
-  loadingText: "m-0 text-[13px] font-semibold leading-[1.45] text-text-soft",
 } as const;
 
 const MOBILE_PANEL_IDS: Record<Exclude<MobileTab, "stats">, string> = {
@@ -170,25 +165,6 @@ function ResetToast({ toast }: { toast: ResetToastView | null }) {
   );
 }
 
-function LoadingPopup({ text: loadingMessage }: { text: LocalizedMessage }) {
-  const { t, text } = useI18n();
-  return (
-    <div
-      className={classes.loadingOverlay}
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-      aria-busy="true"
-    >
-      <div className={classes.loadingPopup}>
-        <span className={classes.loadingSpinner} aria-hidden="true" />
-        <strong className={classes.loadingTitle}>{t("common.loadingTitle")}</strong>
-        <p className={classes.loadingText}>{text(loadingMessage)}</p>
-      </div>
-    </div>
-  );
-}
-
 function DetailPanelFallback() {
   const { t } = useI18n();
   return (
@@ -201,7 +177,10 @@ function DetailPanelFallback() {
         <h2 id="detail-loading-title">{t("detail.title")}</h2>
       </div>
       <div className={classes.detailFallbackBody} role="status" aria-live="polite">
-        {t("detail.preparing")}
+        <div className={classes.detailLoadingStack}>
+          <span className={classes.detailLoadingSpinner} aria-hidden="true" />
+          <span>{t("detail.preparing")}</span>
+        </div>
       </div>
     </section>
   );
@@ -235,6 +214,37 @@ function useRetryableDetailPanel() {
   return { component, retry };
 }
 
+function DetailPanelRegion({
+  calculator,
+  showSolverBackend,
+}: {
+  calculator: CalculatorApp;
+  showSolverBackend: boolean;
+}) {
+  const { actions, detailView } = calculator;
+  const { component: DetailPanelComponent, retry: retryDetailPanel } = useRetryableDetailPanel();
+  if (detailView.type === "empty") return null;
+  if (detailView.type === "loading") return <DetailPanelFallback />;
+
+  return (
+    <LazySectionErrorBoundary
+      name="DetailPanel"
+      onRetry={retryDetailPanel}
+      fallback={(retry) => <DetailPanelFailure onRetry={retry} />}
+    >
+      <Suspense fallback={<DetailPanelFallback />}>
+        <DetailPanelComponent
+          loading={calculator.resultView.type === "loading"}
+          view={detailView}
+          validation={calculator.validationView}
+          onRunValidation={actions.runMonteCarloValidation}
+          showSolverBackend={showSolverBackend}
+        />
+      </Suspense>
+    </LazySectionErrorBoundary>
+  );
+}
+
 function Workspace({
   calculator,
   handlers,
@@ -261,7 +271,6 @@ function Workspace({
   const desktopCalculatorTabPanelProps = isMobile
     ? {}
     : { "aria-labelledby": "desktop-tab-calc", role: "tabpanel" as const };
-  const { component: DetailPanelComponent, retry: retryDetailPanel } = useRetryableDetailPanel();
 
   return (
     <section className={classes.workspace}>
@@ -311,6 +320,7 @@ function Workspace({
             stockEditNotice={calculator.stockPanel.notice}
             state={calculator.statePanel}
             view={calculator.resultView}
+            loading={calculator.loading}
             outcomeDisabled={calculator.loading.active}
             pendingOutcome={pendingOutcome}
             onActionTransitionComplete={actions.clearActionTransition}
@@ -319,22 +329,7 @@ function Workspace({
             onRetryCalculation={handlers.onCalculate}
             onPendingOutcomeChange={onPendingOutcomeChange}
           />
-          {calculator.detailView.type === "empty" ? null : (
-            <LazySectionErrorBoundary
-              name="DetailPanel"
-              onRetry={retryDetailPanel}
-              fallback={(retry) => <DetailPanelFailure onRetry={retry} />}
-            >
-              <Suspense fallback={<DetailPanelFallback />}>
-                <DetailPanelComponent
-                  view={calculator.detailView}
-                  validation={calculator.validationView}
-                  onRunValidation={actions.runMonteCarloValidation}
-                  showSolverBackend={showSolverBackend}
-                />
-              </Suspense>
-            </LazySectionErrorBoundary>
-          )}
+          <DetailPanelRegion calculator={calculator} showSolverBackend={showSolverBackend} />
         </div>
       </div>
       <div
@@ -481,7 +476,6 @@ export function AppLayout({
         onHeightChange={setMobileBottomHeight}
       />
       <ResetToast toast={resetToast} />
-      {calculator.loading.active ? <LoadingPopup text={calculator.loading.text} /> : null}
       <SuccessAttemptModal
         modal={calculator.modal}
         onSubmit={calculator.actions.submitSuccessAttempt}

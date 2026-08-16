@@ -84,6 +84,10 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     active: false,
     text: DEFAULT_LOADING_TEXT,
   });
+  const getCurrentViews = useCallback(
+    () => ({ detail: detailView, result: resultView }),
+    [detailView, resultView],
+  );
   const [staleSource, setStaleSource] = useState<"state" | "stock" | null>(null);
   const actionTransitionIdRef = useRef(0);
   const inputRevisionRef = useRef(0);
@@ -176,6 +180,7 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     applyConvert: outcomeFlow.applyConvert,
     applyOutcome: outcomeFlow.applyOutcome,
     collectInput: calculatorState.collectInput,
+    getCurrentViews,
     inputRevisionRef,
     latestResultRef,
     pendingStatsEventRef,

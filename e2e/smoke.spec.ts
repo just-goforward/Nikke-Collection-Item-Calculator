@@ -235,11 +235,21 @@ test("첫 계산은 세부 정보 코드를 solver와 병렬로 요청한다", a
   try {
     await expect.poll(() => workerRequested).toBe(true);
     await expect.poll(() => detailRequested).toBe(true);
+    await expect(page.locator(".result-panel[aria-busy='true']")).toBeVisible();
+    await expect(page.locator(".result-panel")).toContainText(
+      "보유 키트 상태를 MDP로 평가하고 있습니다.",
+    );
+    await expect(page.locator(".detail-panel[aria-busy='true']")).toContainText(
+      "세부 정보를 준비하고 있습니다.",
+    );
+    await expect(page.locator("[data-grade='SR']")).toBeDisabled();
   } finally {
     releaseWorker.resolve();
   }
 
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".result-panel[aria-busy='true']")).toHaveCount(0);
+  await expect(page.locator("[data-grade='SR']")).toBeEnabled();
   await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible();
 });
 
@@ -263,6 +273,8 @@ test("세부 정보 코드가 늦어져도 결과와 함께 안정적인 준비 
     const fallback = page.locator(".detail-panel[aria-busy='true']");
     await expect(fallback).toBeVisible();
     await expect(fallback).toContainText("세부 정보를 준비하고 있습니다.");
+    await expect(page.locator(".result-panel[aria-busy='true']")).toHaveCount(0);
+    await expect(page.locator("[data-grade='SR']")).toBeEnabled();
   } finally {
     releaseDetail.resolve();
   }

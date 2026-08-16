@@ -5,6 +5,7 @@ import { useI18n } from "../i18n/locale";
 import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
 import type { CollectionState, Kit } from "../types";
 import type {
+  LoadingView,
   OutcomePreview,
   RecommendationActionTransition,
   ResultKit,
@@ -55,6 +56,13 @@ const classes = {
   emptyStepNumber:
     "grid size-6 place-items-center rounded-full bg-theme-active text-[11px] font-extrabold text-page",
   emptyStepText: "flex min-h-6 items-center leading-[1.35]",
+  loadingResult:
+    "grid min-h-[210px] place-items-center px-[18px] py-[22px] text-center max-mobile:min-h-[170px] max-mobile:px-3.5 max-mobile:py-3",
+  loadingStack: "grid max-w-[320px] justify-items-center gap-2.5",
+  loadingSpinner:
+    "size-7 animate-spin rounded-full border-[3px] border-primary-soft border-t-primary",
+  loadingTitle: "text-[14px] font-bold leading-tight text-text-strong",
+  loadingText: "m-0 text-[12.5px] font-semibold leading-[1.45] text-muted",
   resultContent:
     "result-content grid gap-3 p-[18px] max-mobile:gap-2.5 max-mobile:px-3.5 max-mobile:py-3",
   resultBody: "relative min-h-0 overflow-hidden rounded-b-card",
@@ -165,6 +173,7 @@ type ResultPanelProps = {
   staleSource: "state" | "stock" | null;
   stockEditNotice: LocalizedMessage;
   feedback: StateChangeFeedback | null;
+  loading: LoadingView;
   state: StatePanelModel;
   view: ResultView;
   onActionTransitionComplete: (transitionId: number) => void;
@@ -662,6 +671,7 @@ function ResultViewContent({
   onRetryCalculation,
   outcomeDisabled,
   pendingOutcome,
+  loading,
   view,
 }: Pick<
   ResultPanelProps,
@@ -672,6 +682,7 @@ function ResultViewContent({
   | "onRetryCalculation"
   | "outcomeDisabled"
   | "pendingOutcome"
+  | "loading"
   | "view"
 >) {
   const { formatInteger, t, text } = useI18n();
@@ -679,6 +690,17 @@ function ResultViewContent({
     const phase = `${state.grade} ${t("common.phase", { phase: state.level })}`;
     return state.exp > 0 ? `${phase} · EXP ${formatInteger(state.exp)}` : phase;
   };
+  if (view.type === "loading") {
+    return (
+      <div className={classes.loadingResult} role="status" aria-live="polite" aria-atomic="true">
+        <div className={classes.loadingStack}>
+          <span className={classes.loadingSpinner} aria-hidden="true" />
+          <strong className={classes.loadingTitle}>{t("common.loadingTitle")}</strong>
+          <p className={classes.loadingText}>{text(loading.text)}</p>
+        </div>
+      </div>
+    );
+  }
   if (view.type === "empty") {
     return <EmptyResultGuide />;
   }
@@ -765,6 +787,7 @@ function ResultViewContent({
 export default function ResultPanel({
   feedback,
   isStale,
+  loading,
   needsStockEdit,
   staleSource,
   stockEditNotice,
@@ -779,13 +802,14 @@ export default function ResultPanel({
   onPendingOutcomeChange,
 }: ResultPanelProps) {
   const { t, text } = useI18n();
-  const showStaleOverlay = needsStockEdit || (isStale && view.type !== "empty");
+  const showStaleOverlay =
+    view.type !== "loading" && (needsStockEdit || (isStale && view.type !== "empty"));
   const staleMessage = needsStockEdit
     ? text(stockEditNotice)
     : t(staleSource === "stock" ? "result.staleStock" : "result.staleState");
 
   return (
-    <section className={classes.panel}>
+    <section className={classes.panel} aria-busy={view.type === "loading" || undefined}>
       <div className={classes.heading}>
         <h2>{t("result.title")}</h2>
         <CurrentStateStrip feedback={feedback} state={state} />
@@ -808,6 +832,7 @@ export default function ResultPanel({
             onOutcome={onOutcome}
             outcomeDisabled={outcomeDisabled}
             pendingOutcome={pendingOutcome}
+            loading={loading}
             onPendingOutcomeChange={onPendingOutcomeChange}
             onRetryCalculation={onRetryCalculation}
           />

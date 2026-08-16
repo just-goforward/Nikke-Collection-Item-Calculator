@@ -37,6 +37,7 @@ export type OutcomePreview = {
 
 export type ResultView =
   | { type: "empty"; message: LocalizedMessage }
+  | { type: "loading" }
   | { type: "callout"; reason: "final_target" | "converted"; message: LocalizedMessage }
   | {
       type: "error";
@@ -97,6 +98,7 @@ export type ValidationStageReachView = {
 
 export type DetailView =
   | { type: "empty"; message: LocalizedMessage }
+  | { type: "loading" }
   | {
       type: "metrics";
       successProbability: string;

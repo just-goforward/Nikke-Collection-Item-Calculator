@@ -20,10 +20,14 @@ export const EMPTY_RESULT: ResultView = {
   message: message("result.initial"),
 };
 
+export const LOADING_RESULT: ResultView = { type: "loading" };
+
 export const EMPTY_DETAIL: DetailView = {
   type: "empty",
   message: message("detail.initial"),
 };
+
+export const LOADING_DETAIL: DetailView = { type: "loading" };
 
 export const INITIAL_VALIDATION: ValidationView = {
   buttonLabel: message("validation.idleButton"),
