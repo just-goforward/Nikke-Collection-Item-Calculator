@@ -267,6 +267,8 @@ export const enMessages = {
     "The exact Super Success attempt is unknown, so confirm the remaining amount. Select the amount currently shown in your game inventory.",
   "privacy.notice":
     "To improve the service and aggregate Super Success stats, calculation conditions and results are stored only as ranges. Only successfully submitted events are included, and unique users are not counted. Names, emails, accounts, IP addresses, and other unique identifiers are not stored in the stats database.",
+  "rights.notice":
+    "NIKKE and all related names, trademarks, and in-game assets are the property of their respective owners. This is an unofficial fan-made calculator and is not affiliated with, endorsed by, or sponsored by the game's developer or publisher.",
   "license.notice": "This program is provided without warranty under AGPL-3.0-or-later.",
   "license.source": "License and source code",
 } satisfies Record<keyof typeof koMessages, string>;

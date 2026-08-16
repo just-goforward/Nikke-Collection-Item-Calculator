@@ -7,6 +7,7 @@ export default function PrivacyFooter() {
   return (
     <footer className="privacy-footer mt-auto w-full pt-6 text-muted text-[11px] font-normal leading-[1.55] max-mobile:pt-5">
       <p>{t("privacy.notice")}</p>
+      <p className="mt-1">{t("rights.notice")}</p>
       <p className="mt-1">
         {t("license.notice")}{" "}
         <a

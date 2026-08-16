@@ -1389,7 +1389,20 @@ test("개인정보 안내는 데스크톱 푸터와 모바일 통계 탭 푸터�
   await expect(page.locator("footer:visible")).toContainText(
     "고유 식별 정보는 통계 DB에 저장하지 않습니다",
   );
+  await expect(page.locator("footer:visible")).toContainText(
+    "비공식 팬 제작 계산기이며, 게임 개발사 또는 퍼블리셔와 제휴하거나",
+  );
   await expect(page.getByText("계산 모드")).toHaveCount(0);
+
+  await page.goto("/en/?demoStats=1");
+  await expect(page.locator("footer:visible")).toContainText(
+    "This is an unofficial fan-made calculator and is not affiliated with",
+  );
+
+  await page.goto("/ja/?demoStats=1");
+  await expect(page.locator("footer:visible")).toContainText(
+    "本プロジェクトは非公式のファン制作計算ツールであり",
+  );
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?demoStats=1");
