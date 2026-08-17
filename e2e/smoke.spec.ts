@@ -1474,7 +1474,9 @@ test("모바일 info-tip 텍스트는 말풍선 안에 머문다", async ({ page
   });
   await infoTip.hover();
 
-  const textBox = infoTip.locator("span");
+  const tooltipId = await infoTip.getAttribute("aria-describedby");
+  expect(tooltipId).toBeTruthy();
+  const textBox = page.locator(`#${tooltipId}`);
   await expect(textBox).toBeVisible();
   await infoTip.blur();
   await infoTip.focus();
@@ -1497,15 +1499,24 @@ test("모바일 info-tip 텍스트는 말풍선 안에 머문다", async ({ page
   }));
   const layerMetrics = await page.evaluate(() => {
     const panel = document.querySelector(".detail-panel");
-    const tooltip = document.querySelector(".info-tip span");
+    const infoTip = document.querySelector<HTMLElement>('.info-tip[aria-expanded="true"]');
+    const tooltipId = infoTip?.getAttribute("aria-describedby");
+    const tooltip = tooltipId ? document.getElementById(tooltipId) : null;
     if (!panel || !tooltip) return null;
     const panelRect = panel.getBoundingClientRect();
     const tooltipRect = tooltip.getBoundingClientRect();
     const panelStyle = getComputedStyle(panel);
+    const tooltipCenter = {
+      x: tooltipRect.left + tooltipRect.width / 2,
+      y: tooltipRect.top + tooltipRect.height / 2,
+    };
+    const topmostElement = document.elementFromPoint(tooltipCenter.x, tooltipCenter.y);
     return {
       panelContain: panelStyle.contain,
       panelOverflow: panelStyle.overflow,
       panelBoxShadow: panelStyle.boxShadow,
+      tooltipIsPortaled: tooltip.parentElement === document.body,
+      tooltipIsTopmost: Boolean(topmostElement?.closest('[role="tooltip"]')),
       tooltipEscapesPanelTop: tooltipRect.top < panelRect.top,
     };
   });
@@ -1518,6 +1529,8 @@ test("모바일 info-tip 텍스트는 말풍선 안에 머문다", async ({ page
   expect(layerMetrics?.panelBoxShadow).toBe(panelStyleBefore.boxShadow);
   expect(layerMetrics?.panelContain).toBe(panelStyleBefore.contain);
   expect(layerMetrics?.panelOverflow).toBe(panelStyleBefore.overflow);
+  expect(layerMetrics?.tooltipIsPortaled).toBe(true);
+  expect(layerMetrics?.tooltipIsTopmost).toBe(true);
   expect(layerMetrics?.tooltipEscapesPanelTop).toBe(true);
 });
 

@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useDismissableLayer } from "../hooks/useDismissableLayer";
 import { useI18n } from "../i18n/locale";
 import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
@@ -75,10 +76,7 @@ const classes = {
   infoTip:
     "info-tip group absolute left-[calc(100%+3px)] top-0 z-[2] grid size-3 -translate-y-[35%] cursor-help place-items-center rounded-full border border-border bg-surface-raised p-0 text-[8px] font-bold leading-none text-muted",
   infoTipBubble:
-    "invisible pointer-events-none absolute bottom-[calc(100%+9px)] z-[5] box-border w-[min(280px,74vw)] max-w-[calc(100vw-32px)] whitespace-normal rounded-card border border-border bg-surface px-[11px] py-2.5 text-left text-xs font-normal leading-[1.45] text-text-soft opacity-0 shadow-panel transition-opacity duration-[160ms] [overflow-wrap:anywhere] [word-break:keep-all] group-hover:visible group-hover:opacity-100",
-  infoTipBubbleOpen: "visible pointer-events-auto opacity-100",
-  infoTipBubbleLeft: "right-0",
-  infoTipBubbleRight: "left-0",
+    "pointer-events-auto fixed z-[9999] box-border w-[min(280px,74vw)] max-w-[calc(100vw-32px)] whitespace-normal rounded-card border border-border bg-surface px-[11px] py-2.5 text-left text-xs font-normal leading-[1.45] text-text-soft opacity-100 shadow-panel [overflow-wrap:anywhere] [word-break:keep-all]",
   chip: "action-chip action-chip-responsive grid w-full min-w-0 grid-cols-[16px_minmax(0,1fr)] items-center gap-2 max-mobile:grid-cols-[12px_minmax(0,1fr)] max-mobile:gap-1.5",
   chipDot:
     "inline-block aspect-square size-4 flex-none rounded-full shadow-[0_0_0_3px_rgba(255,255,255,0.18)] max-mobile:size-3 max-mobile:shadow-none",
@@ -174,25 +172,43 @@ function KitChip({
 function InfoTip({ label, children }: { label: string; children: ReactNode }) {
   const { t } = useI18n();
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const bubbleRef = useRef<HTMLSpanElement>(null);
   const tooltipId = useId();
   const [lockedOpen, setLockedOpen] = useState(false);
   const [open, setOpen] = useState(false);
-  const [openToRight, setOpenToRight] = useState(false);
+  const [position, setPosition] = useState({ left: 16, top: 16 });
 
-  const updateDirection = () => {
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const bubbleWidth = Math.min(
-      280,
-      Math.max(0, window.innerWidth - 32),
-      window.innerWidth * 0.74,
+  const updatePosition = useCallback(() => {
+    const triggerRect = buttonRef.current?.getBoundingClientRect();
+    if (!triggerRect) return;
+    const viewportPadding = 16;
+    const gap = 9;
+    const bubbleRect = bubbleRef.current?.getBoundingClientRect();
+    const bubbleWidth =
+      bubbleRect?.width ??
+      Math.min(280, Math.max(0, window.innerWidth - viewportPadding * 2), window.innerWidth * 0.74);
+    const bubbleHeight = bubbleRect?.height ?? 96;
+    const preferredLeft = triggerRect.right - bubbleWidth;
+    const maxLeft = Math.max(viewportPadding, window.innerWidth - viewportPadding - bubbleWidth);
+    const left = Math.min(
+      maxLeft,
+      Math.max(
+        viewportPadding,
+        preferredLeft >= viewportPadding ? preferredLeft : triggerRect.left,
+      ),
     );
-    const wouldOverflowLeft = rect.right - bubbleWidth < 16;
-    setOpenToRight(wouldOverflowLeft);
-  };
+    const above = triggerRect.top - gap - bubbleHeight;
+    const below = triggerRect.bottom + gap;
+    const maxTop = Math.max(viewportPadding, window.innerHeight - viewportPadding - bubbleHeight);
+    const top = Math.min(
+      maxTop,
+      Math.max(viewportPadding, above >= viewportPadding ? above : below),
+    );
+    setPosition({ left, top });
+  }, []);
 
   const showTip = () => {
-    updateDirection();
+    updatePosition();
     setOpen(true);
   };
 
@@ -212,6 +228,17 @@ function InfoTip({ label, children }: { label: string; children: ReactNode }) {
     },
   });
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open, updatePosition]);
+
   return (
     <button
       ref={buttonRef}
@@ -223,7 +250,7 @@ function InfoTip({ label, children }: { label: string; children: ReactNode }) {
       onBlur={hideTip}
       onClick={(event) => {
         event.stopPropagation();
-        updateDirection();
+        updatePosition();
         const next = !lockedOpen;
         setLockedOpen(next);
         setOpen(next);
@@ -233,15 +260,20 @@ function InfoTip({ label, children }: { label: string; children: ReactNode }) {
       onPointerLeave={hideTip}
     >
       i
-      <span
-        id={tooltipId}
-        role="tooltip"
-        className={`${classes.infoTipBubble} ${
-          openToRight ? classes.infoTipBubbleRight : classes.infoTipBubbleLeft
-        } ${open ? classes.infoTipBubbleOpen : ""}`}
-      >
-        {children}
-      </span>
+      {open
+        ? createPortal(
+            <span
+              ref={bubbleRef}
+              id={tooltipId}
+              role="tooltip"
+              className={classes.infoTipBubble}
+              style={{ left: position.left, top: position.top }}
+            >
+              {children}
+            </span>,
+            document.body,
+          )
+        : null}
     </button>
   );
 }
