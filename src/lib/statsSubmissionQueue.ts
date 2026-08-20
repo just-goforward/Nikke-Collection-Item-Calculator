@@ -10,8 +10,8 @@ export type StatsSubmissionEvent = Record<string, unknown> & {
 
 export interface StatsSubmissionEnvelope {
   eventId: string;
-  clientTime: string;
-  sourceHost: string;
+  clientTime?: string;
+  sourceHost?: string;
   event: StatsSubmissionEvent;
 }
 

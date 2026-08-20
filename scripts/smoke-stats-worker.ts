@@ -1,3 +1,4 @@
+import { D1_SCHEMA_CONTRACT_VERSION } from "../shared/d1SchemaContract.ts";
 import { StatsApiResponseSchema } from "../src/schemas.ts";
 
 const endpoint = process.argv[2];
@@ -80,7 +81,7 @@ if (!frontendContractOnly) {
     schemaContractVersion?: unknown;
   };
   assert(
-    health.ok === true && health.schemaContractVersion === 1,
+    health.ok === true && health.schemaContractVersion === D1_SCHEMA_CONTRACT_VERSION,
     `health: unexpected schema contract response: ${JSON.stringify(health)}`,
   );
 

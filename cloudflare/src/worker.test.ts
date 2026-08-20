@@ -198,7 +198,7 @@ describe("D1 schema health", () => {
     const response = await fetchHealth();
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, schemaContractVersion: 1 });
+    await expect(response.json()).resolves.toEqual({ ok: true, schemaContractVersion: 2 });
   });
 
   it("fails closed when a required aggregate table is unavailable", async () => {

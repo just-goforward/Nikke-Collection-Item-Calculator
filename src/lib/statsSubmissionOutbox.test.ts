@@ -25,7 +25,6 @@ class MemoryStorage {
 function envelope(eventId: string): StatsSubmissionEnvelope {
   return {
     eventId,
-    clientTime: "2026-08-12T00:00:00.000Z",
     sourceHost: "direct",
     event: { kind: "kit_result" },
   };
@@ -71,5 +70,20 @@ describe("StatsSubmissionOutbox", () => {
 
     storage.setItem("stats", JSON.stringify({ version: 1, records: [{ envelope: null }] }));
     expect(outbox.list()).toEqual([]);
+  });
+
+  it("restores both current and legacy envelopes", () => {
+    const storage = new MemoryStorage();
+    const outbox = new StatsSubmissionOutbox(storage, "stats", () => 1_000);
+    const current = envelope("event-current");
+    const legacy = {
+      ...envelope("event-legacy"),
+      clientTime: "2026-08-12T00:00:00.000Z",
+    };
+
+    outbox.put(current);
+    outbox.put(legacy);
+
+    expect(outbox.list()).toEqual([current, legacy]);
   });
 });

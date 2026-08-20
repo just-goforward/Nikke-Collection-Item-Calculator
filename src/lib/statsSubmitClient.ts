@@ -141,8 +141,7 @@ export async function submitStatsEnvelope(
 export function makeStatsSubmissionEnvelope(event: StatsSubmissionEvent): StatsSubmissionEnvelope {
   return {
     eventId: makeStatsEventId(),
-    clientTime: new Date().toISOString(),
-    sourceHost: statsSourceHost(),
+    ...(event.kind === "kit_result" ? { sourceHost: statsSourceHost() } : {}),
     event,
   };
 }

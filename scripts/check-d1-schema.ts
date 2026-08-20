@@ -1,49 +1,29 @@
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-import { REQUIRED_D1_SCHEMA } from "../shared/d1SchemaContract.ts";
-
-type SchemaRow = { column_name?: unknown; table_name?: unknown };
-
-export function validateD1SchemaRows(rows: SchemaRow[]) {
-  const actual = new Map<string, Set<string>>();
-  for (const row of rows) {
-    if (typeof row.table_name !== "string" || typeof row.column_name !== "string") continue;
-    const columns = actual.get(row.table_name) ?? new Set<string>();
-    columns.add(row.column_name);
-    actual.set(row.table_name, columns);
-  }
-
-  const failures: string[] = [];
-  for (const [table, requiredColumns] of Object.entries(REQUIRED_D1_SCHEMA)) {
-    const columns = actual.get(table);
-    if (!columns) {
-      failures.push(`missing table: ${table}`);
-      continue;
-    }
-    for (const column of requiredColumns) {
-      if (!columns.has(column)) failures.push(`missing column: ${table}.${column}`);
-    }
-  }
-  return failures;
-}
+import {
+  type D1SchemaRow,
+  REQUIRED_D1_SCHEMA,
+  validateD1SchemaRows,
+} from "../shared/d1SchemaContract.ts";
 
 function schemaQuery() {
   const tables = Object.keys(REQUIRED_D1_SCHEMA)
     .map((table) => `'${table}'`)
     .join(", ");
-  return `SELECT m.name AS table_name, p.name AS column_name
+  return `SELECT m.name AS table_name, p.name AS column_name,
+       p.pk AS primary_key_position
 FROM sqlite_master AS m
 JOIN pragma_table_info(m.name) AS p
 WHERE m.type = 'table' AND m.name IN (${tables})
 ORDER BY m.name, p.cid`;
 }
 
-function readRows(output: string): SchemaRow[] {
+function readRows(output: string): D1SchemaRow[] {
   const payload = JSON.parse(output) as Array<{ results?: unknown }>;
   const rows = payload[0]?.results;
   if (!Array.isArray(rows)) throw new Error("Wrangler did not return D1 schema rows.");
-  return rows as SchemaRow[];
+  return rows as D1SchemaRow[];
 }
 
 function run() {

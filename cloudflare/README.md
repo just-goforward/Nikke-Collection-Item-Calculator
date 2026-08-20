@@ -81,11 +81,15 @@ wrangler secret put ADMIN_TOKEN
 
 7. Set `ALLOWED_ORIGINS` in `wrangler.toml`.
 
-For a project page:
+The production and staging Workers accept browser requests only from the canonical custom domain:
 
 ```toml
-ALLOWED_ORIGINS = "https://YOUR_GITHUB_ID.github.io"
+ALLOWED_ORIGINS = "https://nikkecollection.com"
 ```
+
+The legacy GitHub Pages project URL redirects to the custom domain and does not need Worker CORS
+access. Locale routes such as `/en/` and `/ja/` share the same origin and require no additional
+entries.
 
 8. Deploy:
 
@@ -154,6 +158,24 @@ The Worker rejects bad submissions before writing to D1:
 - solver diagnostic values are stored only as private bucketed aggregates
 - raw per-user inputs are not exposed by the stats endpoint
 
+### Event populations
+
+The aggregate tables intentionally describe different populations. Their event counts must not be
+used as interchangeable denominators.
+
+| Event | Emission condition | Aggregate population |
+| --- | --- | --- |
+| `solver_diagnostic` | A calculation returns a usable recommendation, including cache hits | Calculation results, not visits or users |
+| `kit_result` | The user confirms Great Success or no Great Success | Confirmed outcomes; this is the population for referrer and full client-environment aggregates |
+| `solver_recovery` | A recovery rung fails, falls back, or ends without the requested backend | Recovery-affected calculations only |
+| `runtime_invariant` | A named runtime invariant fails | Operational anomalies only |
+
+`calculation_locale_aggregates` records the selected UI language when a calculation starts. It does
+not record the initial landing route or a unique visitor. `referrer_aggregates` records the external
+referrer host attached to a confirmed `kit_result`; it does not identify the current application
+origin and is not a page-view source report. Search traffic and route-level visits belong in web
+analytics rather than this Turnstile-protected calculation pipeline.
+
 Event deduplication and its aggregate write are committed in one D1 batch. An accepted event is
 either fully counted or can be retried with the same event ID after a write failure. Event IDs
 are retained for 14 days, so deduplication applies within that retention window.
@@ -184,9 +206,10 @@ Returns all-time aggregate statistics for display on the site. This public respo
 
 `GET /api/health`
 
-Checks the critical D1 tables and columns required by the deployed Worker. It returns
-`schemaContractVersion: 1` on success and fails closed with `503 database_schema_not_ready` when
-the Worker code and bound database are incompatible. This endpoint validates compatibility, not
+Checks every D1 column and composite primary-key order required by the deployed Worker's inserts and
+upserts. It returns `schemaContractVersion: 2` on success and fails closed with
+`503 database_schema_not_ready` when the Worker code and bound database are incompatible. This
+endpoint validates the current write contract, not column types, constraints, secondary indexes, or
 the complete historical migration ledger.
 
 `GET /api/admin/solver-diagnostics`
@@ -294,7 +317,9 @@ The legacy `solver_node_count_aggregates` table is retained in existing database
 queries, but new events no longer write to it. Current node pressure is derived from
 `solver_runtime_aggregates`.
 
-Referrer/source-host aggregates are intentionally not returned by this public endpoint. Check them privately through D1, for example:
+Referrer/source-host aggregates are intentionally not returned by this public endpoint. They count
+confirmed result events rather than visits, and `source_host` describes the document referrer rather
+than the current application origin. Check them privately through D1, for example:
 
 ```powershell
 wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, source_host, events FROM referrer_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
@@ -309,6 +334,11 @@ wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.t
 Solver diagnostic aggregates are private and bucketed. They are intended for deciding whether the supply strategy needs a Phase 2 refinement.
 
 The `strategy` column is retained as a fixed compatibility field for the current solver mode and is not a user strategy selection statistic.
+
+Diagnostic v6 also retains fixed legacy comparison fields for schema compatibility. Do not create a
+destructive migration solely to remove them while the database is small. If another diagnostic
+contract change is required, introduce a separately reviewed v7 aggregate layout that removes fixed
+dimensions and preserves historical v1-v6 rows.
 
 ```powershell
 wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, solver_version, solver_phase, grade, level, strategy, probability_gap_bucket, resource_cost_bucket, legacy_supply_cost_bucket, blue_share_bucket, min_autonomy_days_bucket, events FROM solver_diagnostic_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"

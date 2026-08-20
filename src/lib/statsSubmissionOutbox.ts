@@ -36,8 +36,8 @@ function isEnvelope(value: unknown): value is StatsSubmissionEnvelope {
     typeof eventId === "string" &&
     eventId.length > 0 &&
     eventId.length <= 128 &&
-    typeof value["clientTime"] === "string" &&
-    typeof value["sourceHost"] === "string" &&
+    (value["clientTime"] === undefined || typeof value["clientTime"] === "string") &&
+    (value["sourceHost"] === undefined || typeof value["sourceHost"] === "string") &&
     typeof event["kind"] === "string" &&
     EVENT_KINDS.has(event["kind"] as StatsEventKind)
   );
