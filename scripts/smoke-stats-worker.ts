@@ -1,5 +1,6 @@
 import { D1_SCHEMA_CONTRACT_VERSION } from "../shared/d1SchemaContract.ts";
 import { StatsApiResponseSchema } from "../src/schemas.ts";
+import { fetchExpectedHealthAfterDeployment } from "./stats-worker-health.ts";
 
 const endpoint = process.argv[2];
 const allowedOrigin = process.argv[3] ?? "https://nikkecollection.com";
@@ -39,23 +40,6 @@ function assertCors(response: Response, test: string) {
   );
 }
 
-async function fetchHealthAfterDeployment() {
-  for (let attempt = 1; attempt <= healthPropagationAttempts; attempt += 1) {
-    const url = endpointUrl("api/health");
-    url.searchParams.set("smokeAttempt", String(attempt));
-    const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        "Cache-Control": "no-cache",
-        Origin: allowedOrigin,
-      },
-    });
-    if (response.status !== 404 || attempt === healthPropagationAttempts) return response;
-    await new Promise((resolve) => setTimeout(resolve, healthPropagationDelayMs));
-  }
-  throw new Error("health: deployment propagation retry exhausted");
-}
-
 const statsResponse = await fetch(endpointUrl("api/stats"), {
   headers: { Accept: "application/json", Origin: allowedOrigin },
 });
@@ -72,18 +56,15 @@ assert(
 let healthStatus: number | "skipped" = "skipped";
 let writeContractStatus: number | "skipped" = "skipped";
 if (!frontendContractOnly) {
-  const healthResponse = await fetchHealthAfterDeployment();
+  const { response: healthResponse } = await fetchExpectedHealthAfterDeployment({
+    allowedOrigin,
+    attempts: healthPropagationAttempts,
+    delayMs: healthPropagationDelayMs,
+    endpointUrl,
+    expectedContractVersion: D1_SCHEMA_CONTRACT_VERSION,
+  });
   healthStatus = healthResponse.status;
-  assert(healthResponse.status === 200, `health: expected 200, received ${healthResponse.status}`);
   assertCors(healthResponse, "health");
-  const health = (await healthResponse.json()) as {
-    ok?: unknown;
-    schemaContractVersion?: unknown;
-  };
-  assert(
-    health.ok === true && health.schemaContractVersion === D1_SCHEMA_CONTRACT_VERSION,
-    `health: unexpected schema contract response: ${JSON.stringify(health)}`,
-  );
 
   const writeContractResponse = await fetch(endpointUrl("api/events"), {
     method: "POST",
