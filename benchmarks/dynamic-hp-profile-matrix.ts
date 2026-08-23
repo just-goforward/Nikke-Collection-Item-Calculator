@@ -1,8 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildScheduleForecastProfiles, gameDayStartMs } from "../shared/supplyForecastModel";
-import type { SupplyForecastContext } from "../src/wasm/rustTypes";
+import { buildScheduleForecastProfiles, gameDayStartMs } from "../shared/supplyForecastModel.ts";
+import type { SupplyForecastContext } from "../src/wasm/rustTypes.ts";
 
 type Registry = {
   version: 2;

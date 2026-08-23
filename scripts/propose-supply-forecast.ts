@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   assertForecastCandidateInvariants,
   supplyForecastCandidateEnvelopeSchema,
-} from "../shared/supplyForecastCandidate";
+} from "../shared/supplyForecastCandidate.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const registryPath = resolve(root, "shared", "supplyForecasts.json");

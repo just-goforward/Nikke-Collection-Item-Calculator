@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import {
   assertForecastCandidateInvariants,
   supplyForecastCandidateEnvelopeSchema,
-} from "../shared/supplyForecastCandidate";
+} from "../shared/supplyForecastCandidate.ts";
 
 const baseUrl = requiredArgument(2).replace(/\/$/, "");
 const token = requiredArgument(3);
