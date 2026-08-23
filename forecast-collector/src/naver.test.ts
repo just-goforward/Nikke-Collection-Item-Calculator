@@ -30,6 +30,45 @@ describe("Naver Lounge parser", () => {
     });
   });
 
+  it("recognizes the current SmartEditor HTML envelope as structured content", async () => {
+    const payload = {
+      code: 200,
+      content: {
+        feeds: [
+          {
+            feed: {
+              feedId: 8060044,
+              title: "솔로 레이드 오픈 예정",
+              createdDate: "20260814170042",
+              contents: `
+                <div class="se-viewer se-theme-default" lang="ko-KR">
+                  <!-- SE_DOC_HEADER_START --><!--@CONTENTS_HEADER--><!-- SE_DOC_HEADER_END -->
+                  <div class="se-main-container">
+                    <p class="se-text-paragraph"><span>솔로 레이드 시즌 40</span></p>
+                    <p class="se-text-paragraph"><span>진행 기간 - 8/20(목) 12:00 ~ 8/27(목) 4:59</span></p>
+                  </div>
+                </div>`,
+            },
+            user: { role: "game_manager" },
+            feedLink: {
+              pc: "https://game.naver.com/lounge/nikke/board/detail/8060044",
+            },
+          },
+        ],
+      },
+    };
+
+    const items = await parseNaverFeed(payload, 56);
+    const events = await parseScheduleEvents(items);
+
+    expect(items[0]).toMatchObject({ structured: true, official: true });
+    expect(events[0]).toMatchObject({
+      startsAt: "2026-08-20T03:00:00.000Z",
+      endsAt: "2026-08-26T19:59:00.000Z",
+      manualReview: false,
+    });
+  });
+
   it("blocks an ambiguous schedule-change notice for manual review", async () => {
     const payload = JSON.parse(changeFixture) as unknown;
     const events = await parseScheduleEvents(await parseNaverFeed(payload, 48));

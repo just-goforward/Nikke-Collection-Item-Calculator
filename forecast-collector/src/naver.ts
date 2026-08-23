@@ -95,7 +95,7 @@ export async function parseNaverFeed(
     const itemId = String(feed["feedId"] ?? "");
     const title = typeof feed["title"] === "string" ? normalizeWhitespace(feed["title"]) : "";
     const rawContents = typeof feed["contents"] === "string" ? feed["contents"] : "";
-    const extracted = extractSmartEditorText(rawContents);
+    const extracted = await extractSmartEditorText(rawContents);
     const normalizedText = normalizeWhitespace(`${title}\n${extracted.text}`);
     if (!itemId || !title || !hasRelevantKeyword(normalizedText, BOARD_KEYWORDS[boardId])) continue;
     if (seen.has(itemId)) continue;
@@ -155,17 +155,18 @@ export async function parseScheduleEvents(
   return events;
 }
 
-function extractSmartEditorText(rawContents: string): {
+async function extractSmartEditorText(rawContents: string): Promise<{
   text: string;
   structured: boolean;
-} {
+}> {
   try {
     const parsed: unknown = JSON.parse(rawContents);
     const values: string[] = [];
     visit(parsed, values);
     if (values.length > 0) return { text: values.join("\n"), structured: true };
   } catch {
-    // The fallback is retained for observation, but never qualifies a candidate by itself.
+    const smartEditorHtml = await extractSmartEditorHtmlText(rawContents);
+    if (smartEditorHtml !== null) return { text: smartEditorHtml, structured: true };
   }
   return {
     text: rawContents
@@ -174,6 +175,34 @@ function extractSmartEditorText(rawContents: string): {
       .replace(/<[^>]+>/g, " "),
     structured: false,
   };
+}
+
+async function extractSmartEditorHtmlText(rawContents: string) {
+  if (
+    !rawContents.includes("SE_DOC_HEADER_START") ||
+    !/class=["'][^"']*\bse-viewer\b/.test(rawContents)
+  ) {
+    return null;
+  }
+  const values: string[] = [];
+  let sawViewer = false;
+  const response = new HTMLRewriter()
+    .on(".se-viewer", {
+      element() {
+        sawViewer = true;
+      },
+      text(chunk) {
+        values.push(chunk.text);
+      },
+    })
+    .transform(
+      new Response(rawContents, {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+  await response.text();
+  const text = normalizeWhitespace(values.join(" "));
+  return sawViewer && text.length > 0 ? text : null;
 }
 
 export function parseKoreanDateRange(
