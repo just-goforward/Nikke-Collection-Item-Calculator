@@ -81,6 +81,7 @@ jobs:
         env:
           FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          FORECAST_EXPECTED_DEPLOY_SHA: ${{ github.sha }}
         run: npm run smoke:forecast-collector -- "$FORECAST_COLLECTOR_STAGING_URL" "$FORECAST_COLLECTOR_ADMIN_TOKEN"
 
       - name: Record shadow start

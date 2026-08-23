@@ -7,6 +7,7 @@ import {
 const baseUrl = requiredArgument(2).replace(/\/$/, "");
 const token = requiredArgument(3);
 const mode = process.argv[4] ?? "probe";
+const expectedDeploySha = process.env["FORECAST_EXPECTED_DEPLOY_SHA"];
 
 const health = await request("/health", false);
 if (!isRecord(health) || health["status"] !== "ok")
@@ -16,6 +17,8 @@ for (const forbidden of ["payload_json", "error_code", "excerpt", "token"]) {
     throw new Error(`Public health leaked forbidden field: ${forbidden}`);
   }
 }
+
+if (expectedDeploySha) await waitForDeployment(expectedDeploySha);
 
 if (mode === "health-only") {
   console.log("Forecast collector health smoke passed.");
@@ -49,6 +52,15 @@ async function request(path: string, authenticated: boolean, method = "GET") {
   });
   if (!response.ok) throw new Error(`${path} returned ${response.status}.`);
   return response.json() as Promise<unknown>;
+}
+
+async function waitForDeployment(expectedSha: string) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const report = await request("/admin/canary-report", true);
+    if (isRecord(report) && report["deploymentSha"] === expectedSha) return;
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  }
+  throw new Error("Deployed collector SHA did not converge before the smoke timeout.");
 }
 
 function stableJson(value: unknown): string {
