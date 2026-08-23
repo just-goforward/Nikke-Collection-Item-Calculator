@@ -1,9 +1,11 @@
+import { SUPPLY_FORECAST_REGISTRY } from "../../shared/generated/supplyForecast";
 import { kstDateKeyFromUnixSeconds } from "./date-key";
 import type { WorkerEnv } from "./env";
 import { isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
 
 type SolverDiagnosticSummaryRow = {
+  forecast_id?: string | null;
   solver_version?: string | null;
   solver_phase?: string | null;
   events?: number | string | null;
@@ -13,18 +15,21 @@ type SolverDiagnosticSummaryRow = {
 
 type SolverDiagnosticDailyRow = {
   date_key?: string | null;
+  forecast_id?: string | null;
   solver_version?: string | null;
   solver_phase?: string | null;
   events?: number | string | null;
 };
 
 type SolverNodeCountRow = {
+  forecast_id?: string | null;
   solver_backend?: string | null;
   node_count_bucket?: string | null;
   events?: number | string | null;
 };
 
 type SolverRuntimeRow = {
+  forecast_id?: string | null;
   solver_version?: string | null;
   solver_phase?: string | null;
   solver_backend?: string | null;
@@ -48,6 +53,7 @@ type SolverRuntimeRow = {
 
 type SolverCacheRow = {
   diagnostic_version?: number | string | null;
+  forecast_id?: string | null;
   requested_backend?: string | null;
   terminal_backend?: string | null;
   execution_kind?: string | null;
@@ -59,6 +65,7 @@ type CalculationLocaleRow = SolverCacheRow & {
 };
 
 type SolverRecoveryRungRow = {
+  forecast_id?: string | null;
   policy_version?: string | null;
   requested_backend?: string | null;
   rung_backend?: string | null;
@@ -68,6 +75,7 @@ type SolverRecoveryRungRow = {
 };
 
 type SolverRecoveryTerminalRow = {
+  forecast_id?: string | null;
   policy_version?: string | null;
   requested_backend?: string | null;
   terminal_backend?: string | null;
@@ -132,6 +140,7 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     recoveryRungs,
     recoveryTerminals,
     runtimeInvariants,
+    supplyForecastRegistry: SUPPLY_FORECAST_REGISTRY,
     fallbacks: summarizeFallbacks(runtime),
     latencies: summarizeLatencyBuckets(runtime),
     runtimeDataPolicy: {
@@ -207,6 +216,7 @@ function resultAt(results: D1Result<unknown>[], index: number) {
 function solverDiagnosticSummaryStatement(env: WorkerEnv, since?: string) {
   const query = `
     SELECT
+      forecast_id,
       solver_version,
       solver_phase,
       SUM(events) AS events,
@@ -214,8 +224,8 @@ function solverDiagnosticSummaryStatement(env: WorkerEnv, since?: string) {
       MAX(date_key) AS last_date
     FROM solver_diagnostic_aggregates
     ${since ? "WHERE date_key >= ?" : ""}
-    GROUP BY solver_version, solver_phase
-    ORDER BY events DESC, solver_version ASC
+    GROUP BY forecast_id, solver_version, solver_phase
+    ORDER BY events DESC, forecast_id ASC, solver_version ASC
   `;
   return since ? env.DB.prepare(query).bind(since) : env.DB.prepare(query);
 }
@@ -224,6 +234,7 @@ function mapSolverDiagnosticSummary(result: D1Result<unknown>) {
   return (result.results || []).map((rawRow) => {
     const row = rawRow as SolverDiagnosticSummaryRow;
     return {
+      forecastId: String(row.forecast_id || "legacy-unversioned"),
       solverVersion: String(row.solver_version || "unknown"),
       solverPhase: String(row.solver_phase || "unknown"),
       events: Number(row.events || 0),
@@ -237,13 +248,14 @@ function solverDiagnosticDailyStatement(env: WorkerEnv, since: string) {
   return env.DB.prepare(
     `SELECT
        date_key,
+       forecast_id,
        solver_version,
        solver_phase,
        SUM(events) AS events
      FROM solver_diagnostic_aggregates
      WHERE date_key >= ?
-     GROUP BY date_key, solver_version, solver_phase
-     ORDER BY date_key DESC, events DESC, solver_version ASC`,
+     GROUP BY date_key, forecast_id, solver_version, solver_phase
+     ORDER BY date_key DESC, events DESC, forecast_id ASC, solver_version ASC`,
   ).bind(since);
 }
 
@@ -252,6 +264,7 @@ function mapSolverDiagnosticDaily(result: D1Result<unknown>) {
     const row = rawRow as SolverDiagnosticDailyRow;
     return {
       date: typeof row.date_key === "string" ? row.date_key : "",
+      forecastId: String(row.forecast_id || "legacy-unversioned"),
       solverVersion: String(row.solver_version || "unknown"),
       solverPhase: String(row.solver_phase || "unknown"),
       events: Number(row.events || 0),
@@ -262,12 +275,14 @@ function mapSolverDiagnosticDaily(result: D1Result<unknown>) {
 function solverNodeCountsStatement(env: WorkerEnv, since: string) {
   return env.DB.prepare(
     `SELECT
+       forecast_id,
        CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS solver_backend,
        attempted_node_count_bucket AS node_count_bucket,
        SUM(events) AS events
      FROM solver_runtime_aggregates
      WHERE date_key >= ? AND diagnostic_version >= ?
-     GROUP BY CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END,
+     GROUP BY forecast_id,
+       CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END,
        attempted_node_count_bucket
      ORDER BY solver_backend ASC, events DESC`,
   ).bind(since, TRUSTWORTHY_RUNTIME_DIAGNOSTIC_VERSION);
@@ -277,6 +292,7 @@ function mapSolverNodeCounts(result: D1Result<unknown>) {
   return (result.results || []).map((rawRow) => {
     const row = rawRow as SolverNodeCountRow;
     return {
+      forecastId: stringOr(row.forecast_id, "legacy-unversioned"),
       solverBackend: String(row.solver_backend || "unknown"),
       nodeCountBucket: String(row.node_count_bucket || "unknown"),
       events: Number(row.events || 0),
@@ -287,6 +303,7 @@ function mapSolverNodeCounts(result: D1Result<unknown>) {
 function solverRuntimeStatement(env: WorkerEnv, since: string) {
   return env.DB.prepare(
     `SELECT
+       forecast_id,
        solver_version,
        solver_phase,
        solver_backend,
@@ -308,7 +325,7 @@ function solverRuntimeStatement(env: WorkerEnv, since: string) {
        SUM(events) AS events
      FROM solver_runtime_aggregates
      WHERE date_key >= ? AND diagnostic_version >= ?
-     GROUP BY solver_version, solver_phase, solver_backend, fallback_from, fallback_reason,
+     GROUP BY forecast_id, solver_version, solver_phase, solver_backend, fallback_from, fallback_reason,
        memory_strategy, min_ef_memo_tier, phase2_memo_tier, phase2_memo_retried,
        grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
         node_count_bucket, attempted_node_count_bucket, solve_ms_bucket
@@ -320,6 +337,7 @@ function mapSolverRuntime(result: D1Result<unknown>) {
   return (result.results || []).map((rawRow) => {
     const row = rawRow as SolverRuntimeRow;
     return {
+      forecastId: stringOr(row.forecast_id, "legacy-unversioned"),
       solverVersion: stringOr(row.solver_version, "unknown"),
       solverPhase: stringOr(row.solver_phase, "unknown"),
       solverBackend: stringOr(row.solver_backend, "unknown"),
@@ -349,14 +367,15 @@ function solverCacheStatement(env: WorkerEnv, since: string) {
   return env.DB.prepare(
     `SELECT
        diagnostic_version,
+       forecast_id,
        requested_backend,
        terminal_backend,
        execution_kind,
        SUM(events) AS events
      FROM solver_cache_aggregates
      WHERE date_key >= ? AND diagnostic_version >= ?
-     GROUP BY diagnostic_version, requested_backend, terminal_backend, execution_kind
-     ORDER BY diagnostic_version ASC, requested_backend ASC, execution_kind ASC`,
+     GROUP BY diagnostic_version, forecast_id, requested_backend, terminal_backend, execution_kind
+     ORDER BY diagnostic_version ASC, forecast_id ASC, requested_backend ASC, execution_kind ASC`,
   ).bind(since, TRUSTWORTHY_RUNTIME_DIAGNOSTIC_VERSION);
 }
 
@@ -365,6 +384,7 @@ function mapSolverCache(result: D1Result<unknown>) {
     const row = rawRow as SolverCacheRow;
     return {
       diagnosticVersion: numberOrZero(row.diagnostic_version),
+      forecastId: stringOr(row.forecast_id, "legacy-unversioned"),
       requestedBackend: stringOr(row.requested_backend, "unknown"),
       terminalBackend: stringOr(row.terminal_backend, "unknown"),
       executionKind: stringOr(row.execution_kind, "unknown"),
@@ -377,6 +397,7 @@ function calculationLocaleStatement(env: WorkerEnv, since: string) {
   return env.DB.prepare(
     `SELECT
        diagnostic_version,
+       forecast_id,
        locale,
        requested_backend,
        terminal_backend,
@@ -384,8 +405,8 @@ function calculationLocaleStatement(env: WorkerEnv, since: string) {
        SUM(events) AS events
      FROM calculation_locale_aggregates
      WHERE date_key >= ?
-     GROUP BY diagnostic_version, locale, requested_backend, terminal_backend, execution_kind
-     ORDER BY locale ASC, execution_kind ASC, requested_backend ASC`,
+     GROUP BY diagnostic_version, forecast_id, locale, requested_backend, terminal_backend, execution_kind
+     ORDER BY locale ASC, forecast_id ASC, execution_kind ASC, requested_backend ASC`,
   ).bind(since);
 }
 
@@ -394,6 +415,7 @@ function mapCalculationLocales(result: D1Result<unknown>) {
     const row = rawRow as CalculationLocaleRow;
     return {
       diagnosticVersion: numberOrZero(row.diagnostic_version),
+      forecastId: stringOr(row.forecast_id, "legacy-unversioned"),
       locale: stringOr(row.locale, "unknown"),
       requestedBackend: stringOr(row.requested_backend, "unknown"),
       terminalBackend: stringOr(row.terminal_backend, "unknown"),
@@ -405,11 +427,11 @@ function mapCalculationLocales(result: D1Result<unknown>) {
 
 function solverRecoveryRungStatement(env: WorkerEnv, since: string) {
   return env.DB.prepare(
-    `SELECT policy_version, requested_backend, rung_backend, rung_exit, device_type,
+    `SELECT forecast_id, policy_version, requested_backend, rung_backend, rung_exit, device_type,
             SUM(events) AS events
      FROM solver_recovery_rung_aggregates
      WHERE date_key >= ?
-     GROUP BY policy_version, requested_backend, rung_backend, rung_exit, device_type
+     GROUP BY forecast_id, policy_version, requested_backend, rung_backend, rung_exit, device_type
      ORDER BY events DESC, rung_backend ASC`,
   ).bind(since);
 }
@@ -418,6 +440,7 @@ function mapSolverRecoveryRungs(result: D1Result<unknown>) {
   return (result.results || []).map((rawRow) => {
     const row = rawRow as SolverRecoveryRungRow;
     return {
+      forecastId: stringOr(row.forecast_id, "legacy-unversioned"),
       policyVersion: stringOr(row.policy_version, "unknown"),
       requestedBackend: stringOr(row.requested_backend, "unknown"),
       rungBackend: stringOr(row.rung_backend, "unknown"),
@@ -430,11 +453,11 @@ function mapSolverRecoveryRungs(result: D1Result<unknown>) {
 
 function solverRecoveryTerminalStatement(env: WorkerEnv, since: string) {
   return env.DB.prepare(
-    `SELECT policy_version, requested_backend, terminal_backend, terminal_outcome,
+    `SELECT forecast_id, policy_version, requested_backend, terminal_backend, terminal_outcome,
             SUM(events) AS events
      FROM solver_recovery_terminal_aggregates
      WHERE date_key >= ?
-     GROUP BY policy_version, requested_backend, terminal_backend, terminal_outcome
+     GROUP BY forecast_id, policy_version, requested_backend, terminal_backend, terminal_outcome
      ORDER BY events DESC, terminal_backend ASC`,
   ).bind(since);
 }
@@ -443,6 +466,7 @@ function mapSolverRecoveryTerminals(result: D1Result<unknown>) {
   return (result.results || []).map((rawRow) => {
     const row = rawRow as SolverRecoveryTerminalRow;
     return {
+      forecastId: stringOr(row.forecast_id, "legacy-unversioned"),
       policyVersion: stringOr(row.policy_version, "unknown"),
       requestedBackend: stringOr(row.requested_backend, "unknown"),
       terminalBackend: stringOr(row.terminal_backend, "none"),
@@ -490,6 +514,7 @@ function summarizeFallbacks(runtime: ReturnType<typeof mapSolverRuntime>) {
   const grouped = new Map<
     string,
     {
+      forecastId: string;
       attemptedBackend: string;
       events: number;
       fallbackEvents: number;
@@ -497,8 +522,9 @@ function summarizeFallbacks(runtime: ReturnType<typeof mapSolverRuntime>) {
   >();
   for (const row of runtime) {
     const attemptedBackend = row.fallbackFrom !== "none" ? row.fallbackFrom : row.solverBackend;
-    const key = attemptedBackend;
+    const key = `${row.forecastId}\0${attemptedBackend}`;
     const item = grouped.get(key) || {
+      forecastId: row.forecastId,
       attemptedBackend,
       events: 0,
       fallbackEvents: 0,
@@ -517,6 +543,7 @@ function summarizeLatencyBuckets(runtime: ReturnType<typeof mapSolverRuntime>) {
   const grouped = new Map<
     string,
     {
+      forecastId: string;
       solverVersion: string;
       solverPhase: string;
       solverBackend: string;
@@ -525,8 +552,9 @@ function summarizeLatencyBuckets(runtime: ReturnType<typeof mapSolverRuntime>) {
     }
   >();
   for (const row of runtime) {
-    const key = `${row.solverVersion}\0${row.solverPhase}\0${row.solverBackend}\0${row.solveMsBucket}`;
+    const key = `${row.forecastId}\0${row.solverVersion}\0${row.solverPhase}\0${row.solverBackend}\0${row.solveMsBucket}`;
     const item = grouped.get(key) || {
+      forecastId: row.forecastId,
       solverVersion: row.solverVersion,
       solverPhase: row.solverPhase,
       solverBackend: row.solverBackend,
@@ -537,6 +565,8 @@ function summarizeLatencyBuckets(runtime: ReturnType<typeof mapSolverRuntime>) {
     grouped.set(key, item);
   }
   return [...grouped.values()].sort((a, b) => {
+    const forecast = a.forecastId.localeCompare(b.forecastId);
+    if (forecast !== 0) return forecast;
     const version = a.solverVersion.localeCompare(b.solverVersion);
     if (version !== 0) return version;
     return b.events - a.events;

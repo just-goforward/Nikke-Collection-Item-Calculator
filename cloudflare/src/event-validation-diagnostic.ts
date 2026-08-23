@@ -1,5 +1,8 @@
+import { isSupplyForecastId } from "../../shared/generated/supplyForecast";
+import { LEGACY_SUPPLY_FORECAST_ID } from "../../shared/statsContract";
 import { validateState } from "./event-validation-common";
 import type { SubmissionEnvelope, ValidatedSubmission } from "./event-validation-types";
+import { HttpError } from "./http-error";
 import { normalizeDiagnosticToken, normalizeSourceHost, normalizeStrategy } from "./normalization";
 import type { SolverDiagnosticEventInput } from "./schemas";
 
@@ -8,12 +11,14 @@ export function validateDiagnosticSubmission(
   event: SolverDiagnosticEventInput,
 ): ValidatedSubmission {
   const solverBackend = normalizeDiagnosticToken(event.solverBackend);
+  const forecastId = validatedForecastId(event.diagnosticVersion, event.forecastId);
   return {
     eventId: payload.eventId,
     sourceHost: normalizeSourceHost(payload.sourceHost),
     event: {
       kind: "solver_diagnostic",
       diagnosticVersion: event.diagnosticVersion,
+      forecastId,
       locale: event.locale ?? null,
       solverVersion: normalizeDiagnosticToken(event.solverVersion),
       solverPhase: normalizeDiagnosticToken(event.solverPhase),
@@ -48,6 +53,14 @@ export function validateDiagnosticSubmission(
       legacyEventAggregateMatchable: event.legacyEventAggregateMatchable,
     },
   };
+}
+
+function validatedForecastId(diagnosticVersion: number, value: unknown) {
+  if (isSupplyForecastId(value)) return value;
+  if (diagnosticVersion < 7 && (value === undefined || value === null)) {
+    return LEGACY_SUPPLY_FORECAST_ID;
+  }
+  throw new HttpError(400, "invalid_supply_forecast");
 }
 
 function normalizeOptionalDiagnosticToken(value: unknown, fallback: string) {

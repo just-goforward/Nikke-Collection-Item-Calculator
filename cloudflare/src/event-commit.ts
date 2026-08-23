@@ -103,10 +103,10 @@ function buildCalculationLocaleAggregateStatement(
   if (!event.locale) throw new HttpError(500, "diagnostic_locale_missing");
   return env.DB.prepare(
     `INSERT INTO calculation_locale_aggregates
-      (date_key, diagnostic_version, locale, requested_backend, terminal_backend,
+      (date_key, diagnostic_version, forecast_id, locale, requested_backend, terminal_backend,
        execution_kind, events, last_seen)
-     VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-     ON CONFLICT(date_key, diagnostic_version, locale, requested_backend, terminal_backend,
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, diagnostic_version, forecast_id, locale, requested_backend, terminal_backend,
        execution_kind)
      DO UPDATE SET
       events = events + 1,
@@ -114,6 +114,7 @@ function buildCalculationLocaleAggregateStatement(
   ).bind(
     dateKey,
     event.diagnosticVersion,
+    event.forecastId,
     event.locale,
     event.requestedBackend,
     event.solverBackend,
@@ -132,17 +133,18 @@ function buildSolverRecoveryRungStatement(
 ) {
   return env.DB.prepare(
     `INSERT INTO solver_recovery_rung_aggregates
-      (date_key, recovery_version, policy_version, requested_backend, rung_backend, rung_exit,
+      (date_key, recovery_version, forecast_id, policy_version, requested_backend, rung_backend, rung_exit,
        memo_tier, grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple,
        stock_bucket_yellow, device_type, events, last_seen)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
-     ON CONFLICT(date_key, recovery_version, policy_version, requested_backend, rung_backend,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, recovery_version, forecast_id, policy_version, requested_backend, rung_backend,
        rung_exit, memo_tier, grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple,
        stock_bucket_yellow, device_type)
      DO UPDATE SET events = events + 1, last_seen = excluded.last_seen`,
   ).bind(
     dateKey,
     event.recoveryVersion,
+    event.forecastId,
     event.policyVersion,
     event.requestedBackend,
     rung.backend,
@@ -168,17 +170,18 @@ function buildSolverRecoveryTerminalStatement(
 ) {
   return env.DB.prepare(
     `INSERT INTO solver_recovery_terminal_aggregates
-      (date_key, recovery_version, policy_version, requested_backend, min_ef_exit, phase2_exit,
+      (date_key, recovery_version, forecast_id, policy_version, requested_backend, min_ef_exit, phase2_exit,
        js_exit, terminal_backend, terminal_outcome, grade, level, exp_bucket, stock_bucket_blue,
        stock_bucket_purple, stock_bucket_yellow, device_type, events, last_seen)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
-     ON CONFLICT(date_key, recovery_version, policy_version, requested_backend, min_ef_exit,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, recovery_version, forecast_id, policy_version, requested_backend, min_ef_exit,
        phase2_exit, js_exit, terminal_backend, terminal_outcome, grade, level, exp_bucket,
        stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, device_type)
      DO UPDATE SET events = events + 1, last_seen = excluded.last_seen`,
   ).bind(
     dateKey,
     event.recoveryVersion,
+    event.forecastId,
     event.policyVersion,
     event.requestedBackend,
     event.minEfExit,
@@ -205,11 +208,11 @@ function buildSolverCacheAggregateStatement(
 ): D1PreparedStatement {
   return env.DB.prepare(
     `INSERT INTO solver_cache_aggregates
-      (date_key, diagnostic_version, requested_backend, terminal_backend, execution_kind,
+      (date_key, diagnostic_version, forecast_id, requested_backend, terminal_backend, execution_kind,
        grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
        events, last_seen)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
-     ON CONFLICT(date_key, diagnostic_version, requested_backend, terminal_backend,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, diagnostic_version, forecast_id, requested_backend, terminal_backend,
        execution_kind, grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple,
        stock_bucket_yellow)
      DO UPDATE SET
@@ -218,6 +221,7 @@ function buildSolverCacheAggregateStatement(
   ).bind(
     dateKey,
     event.diagnosticVersion,
+    event.forecastId,
     event.requestedBackend,
     event.solverBackend,
     event.executionKind,
@@ -239,13 +243,13 @@ function buildSolverRuntimeAggregateStatement(
 ): D1PreparedStatement {
   return env.DB.prepare(
     `INSERT INTO solver_runtime_aggregates
-      (date_key, diagnostic_version, solver_version, solver_phase, solver_backend,
+      (date_key, diagnostic_version, forecast_id, solver_version, solver_phase, solver_backend,
        fallback_from, fallback_reason, memory_strategy, min_ef_memo_tier,
        phase2_memo_tier, phase2_memo_retried, grade, level, exp_bucket,
        stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
        node_count_bucket, attempted_node_count_bucket, solve_ms_bucket, events, last_seen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
-     ON CONFLICT(date_key, diagnostic_version, solver_version, solver_phase, solver_backend,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, diagnostic_version, forecast_id, solver_version, solver_phase, solver_backend,
        fallback_from, fallback_reason, memory_strategy, min_ef_memo_tier,
        phase2_memo_tier, phase2_memo_retried, grade, level, exp_bucket,
        stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
@@ -256,6 +260,7 @@ function buildSolverRuntimeAggregateStatement(
   ).bind(
     dateKey,
     event.diagnosticVersion,
+    event.forecastId,
     event.solverVersion,
     event.solverPhase,
     event.solverBackend,
@@ -389,7 +394,7 @@ function buildSolverDiagnosticAggregateStatement(
 ): D1PreparedStatement {
   return env.DB.prepare(
     `INSERT INTO solver_diagnostic_aggregates
-      (date_key, diagnostic_version, solver_version, solver_phase, grade, level, exp_bucket,
+      (date_key, diagnostic_version, forecast_id, solver_version, solver_phase, grade, level, exp_bucket,
        strategy, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
        recommended_kit, recommended_uses_bucket, candidate_count_bucket,
        probability_gap_bucket, resource_cost_bucket, legacy_supply_cost_bucket,
@@ -397,8 +402,8 @@ function buildSolverDiagnosticAggregateStatement(
        blue_share_bucket, min_autonomy_days_bucket, changed_from_single,
        changed_from_legacy_supply, legacy_private_stats_available,
        legacy_event_aggregate_matchable, events, last_seen)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
-     ON CONFLICT(date_key, diagnostic_version, solver_version, solver_phase, grade, level,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, diagnostic_version, forecast_id, solver_version, solver_phase, grade, level,
        exp_bucket, strategy, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
        recommended_kit, recommended_uses_bucket, candidate_count_bucket,
        probability_gap_bucket, resource_cost_bucket, legacy_supply_cost_bucket,
@@ -412,6 +417,7 @@ function buildSolverDiagnosticAggregateStatement(
   ).bind(
     dateKey,
     event.diagnosticVersion,
+    event.forecastId,
     event.solverVersion,
     event.solverPhase,
     event.start.grade,

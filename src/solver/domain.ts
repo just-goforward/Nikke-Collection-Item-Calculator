@@ -9,6 +9,7 @@ import {
   type Strategy as SharedStrategy,
   nextBoundary as sharedNextBoundary,
 } from "../../shared/game";
+import { ACTIVE_SUPPLY_FORECAST } from "../../shared/generated/supplyForecast";
 
 export type Grade = SharedGrade;
 export const KIT_ORDER = SHARED_KIT_ORDER;
@@ -72,9 +73,7 @@ export const STRATEGY_META = {
   },
 };
 export const EXPECTED_28_DAY_GAIN: KitVector = {
-  blue: 473.912,
-  purple: 55.808,
-  yellow: 24.736,
+  ...ACTIVE_SUPPLY_FORECAST.expectedGain,
 };
 
 export const GREAT_SUCCESS = SHARED_GREAT_SUCCESS;

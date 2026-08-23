@@ -1,3 +1,4 @@
+import { ACTIVE_SUPPLY_FORECAST_ID } from "../../shared/generated/supplyForecast";
 import { EXPECTED_28_DAY_GAIN } from "../solver/domain";
 import type { Kit } from "../types";
 import { assertRustStatusOk, RustSolveError } from "./rustStatus";
@@ -26,6 +27,7 @@ export function encodeState(grade: string, level: number, exp = 0): number {
 }
 
 export type Phase2BuildContext = {
+  forecastId: string;
   stateId: number;
   stock: Stock;
   horizonFactor: number;
@@ -226,6 +228,7 @@ export function phase2BuildContext(
   tolerance: number,
 ): Phase2BuildContext {
   return {
+    forecastId: ACTIVE_SUPPLY_FORECAST_ID,
     stateId: encodeState(start.grade, start.level, start.exp ?? 0),
     stock: {
       blue: stock.blue | 0,
@@ -246,6 +249,7 @@ export function phase2ContextMatches(
   if (!actual) return false;
   const compareTolerance = options.compareTolerance ?? true;
   return (
+    actual.forecastId === expected.forecastId &&
     actual.stateId === expected.stateId &&
     actual.stock.blue === expected.stock.blue &&
     actual.stock.purple === expected.stock.purple &&

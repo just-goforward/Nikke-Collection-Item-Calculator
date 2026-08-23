@@ -1,8 +1,8 @@
 # 키트 28일 기대 획득량 산출 근거
 
 최초 작성일: 2026-05-28<br>
-현행 계약 확인: 2026-08-06<br>
-용도: `src/solver/domain.ts`와 Rust solver의 `EXPECTED_28_DAY_GAIN` 산출 근거 보존
+현행 계약 확인: 2026-08-21<br>
+용도: `shared/supplyForecasts.json`에 등록된 28일 수급량의 산출 근거 보존
 
 ## 0. 결론
 
@@ -14,15 +14,23 @@
 | 보라 키트 | 55.808개 | 13.952개/주 |
 | 노랑 키트 | 24.736개 | 6.184개/주 |
 
-이 값은 현재 solver 상수와 일치한다.
+이 값은 현재 활성 수급 예측 `supply-2026-08-21-v1`과 일치한다. 제품 코드의 정본은
+`shared/supplyForecasts.json`이며, TypeScript와 Rust 상수는 코드 생성으로 만들어진다.
 
 ```ts
-const EXPECTED_28_DAY_GAIN: KitVector = {
-  blue: 473.912,
-  purple: 55.808,
-  yellow: 24.736,
-};
+{
+  "id": "supply-2026-08-21-v1",
+  "basisDays": 28,
+  "effectiveFrom": "2026-08-21",
+  "expectedGain": { "blue": 473.912, "purple": 55.808, "yellow": 24.736 }
+}
 ```
+
+향후 보상 주기가 바뀌면 기존 항목의 값을 수정하지 않는다. 새 ID와 새 수급량을 목록에
+추가하고 `activeForecastId`만 새 ID로 변경한 뒤 `npm run generate:supply-forecast`를
+실행한다. 이 불변 규칙 덕분에 D1 통계에 저장된 `forecast_id`만으로도 당시 계산에 사용한
+수급량을 레지스트리에서 정확히 복원할 수 있다. 진단 v1~v6처럼 ID가 없던 과거 통계는
+`legacy-unversioned`로 구분하며 특정 수급량을 임의로 추정하지 않는다.
 
 ## 1. 용어
 

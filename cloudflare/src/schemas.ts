@@ -76,6 +76,9 @@ const MemoryStrategySchema = z.optional(
 const MemoTierSchema = z.optional(z.enum(MEMO_TIER_BUCKETS));
 const Phase2MemoRetriedSchema = z.optional(z.enum(RETRY_BUCKETS));
 const SolverExecutionKindSchema = z.optional(z.enum(SOLVER_EXECUTION_KINDS));
+const SupplyForecastIdSchema = z.optional(
+  z.string().check(z.trim(), z.minLength(1), z.maxLength(64)),
+);
 const StatsLocaleSchema = z.enum(STATS_LOCALES);
 const SolverBackendSchema = z.enum(["js-phase2", "rust-phase2", "rust-min-ef"]);
 const SolverRecoveryExitSchema = z.enum(["not_attempted", "success", ...WORKER_ERROR_CODES]);
@@ -89,6 +92,7 @@ const StockBucketsSchema = z.looseObject({
 const SolverDiagnosticEventSchema = z.looseObject({
   kind: z.literal("solver_diagnostic"),
   diagnosticVersion: z.custom<SolverDiagnosticVersion>(isSolverDiagnosticVersion),
+  forecastId: SupplyForecastIdSchema,
   locale: z.optional(StatsLocaleSchema),
   solverVersion: z.string(),
   solverPhase: z.string(),
@@ -126,6 +130,7 @@ const SolverDiagnosticEventSchema = z.looseObject({
 const SolverRecoveryEventSchema = z.looseObject({
   kind: z.literal("solver_recovery"),
   recoveryVersion: z.literal(1),
+  forecastId: SupplyForecastIdSchema,
   policyVersion: z.literal("ladder_v1"),
   requestedBackend: SolverBackendSchema,
   minEfExit: SolverRecoveryExitSchema,

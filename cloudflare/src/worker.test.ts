@@ -7,6 +7,7 @@ import {
   TEST_TURNSTILE_TOKEN,
 } from "./worker.test-events";
 import { WorkerTestHarness } from "./worker.test-harness";
+import type { AdminDiagnosticsBody } from "./worker.test-types";
 
 const harness = new WorkerTestHarness();
 const testEnv = harness.env;
@@ -23,85 +24,6 @@ const countRows = (table: string) => harness.countRows(table);
 const mockSiteverify = (...outcomes: Parameters<WorkerTestHarness["mockSiteverify"]>) =>
   harness.mockSiteverify(...outcomes);
 const siteverifyForm = (index: number) => harness.siteverifyForm(index);
-
-type AdminDiagnosticsBody = {
-  windowDays?: number;
-  since?: string;
-  allTime?: Array<{
-    solverVersion: string;
-    solverPhase: string;
-    events: number;
-    firstDate: string | null;
-    lastDate: string | null;
-  }>;
-  window?: Array<{ solverVersion: string; solverPhase: string; events: number }>;
-  daily?: Array<{ date: string; solverVersion: string; solverPhase: string; events: number }>;
-  nodeCounts?: Array<{ solverBackend: string; nodeCountBucket: string; events: number }>;
-  runtime?: Array<{
-    solverVersion: string;
-    solverPhase: string;
-    solverBackend: string;
-    fallbackFrom: string;
-    fallbackReason: string;
-    memoryStrategy: string;
-    minEfMemoTier: string;
-    phase2MemoTier: string;
-    phase2MemoRetried: string;
-    grade: string;
-    level: number;
-    expBucket: number;
-    stockBuckets: { blue: string; purple: string; yellow: string };
-    nodeCountBucket: string;
-    attemptedNodeCountBucket: string;
-    solveMsBucket: string;
-    events: number;
-  }>;
-  cache?: Array<{
-    diagnosticVersion: number;
-    requestedBackend: string;
-    terminalBackend: string;
-    executionKind: string;
-    events: number;
-  }>;
-  runtimeDataPolicy?: {
-    trustworthyFromDiagnosticVersion: number;
-    filteredToTrustworthyVersions: boolean;
-    legacyClassification: string;
-    solveMsSemantics: string;
-  };
-  recoveryDataPolicy?: {
-    aggregatesAreIndependent: boolean;
-    ratioWarning: string;
-  };
-  recoveryRungs?: Array<{
-    policyVersion: string;
-    requestedBackend: string;
-    rungBackend: string;
-    rungExit: string;
-    deviceType: string;
-    events: number;
-  }>;
-  recoveryTerminals?: Array<{
-    policyVersion: string;
-    requestedBackend: string;
-    terminalBackend: string;
-    terminalOutcome: string;
-    events: number;
-  }>;
-  fallbacks?: Array<{
-    attemptedBackend: string;
-    events: number;
-    fallbackEvents: number;
-    fallbackRate: number;
-  }>;
-  latencies?: Array<{
-    solverVersion: string;
-    solverPhase: string;
-    solverBackend: string;
-    solveMsBucket: string;
-    events: number;
-  }>;
-};
 
 beforeEach(async () => {
   await harness.setup();
@@ -198,7 +120,7 @@ describe("D1 schema health", () => {
     const response = await fetchHealth();
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, schemaContractVersion: 2 });
+    await expect(response.json()).resolves.toEqual({ ok: true, schemaContractVersion: 3 });
   });
 
   it("fails closed when a required aggregate table is unavailable", async () => {
@@ -359,17 +281,19 @@ describe("solver_diagnostic event commit", () => {
     await expect(countRows("solver_cache_aggregates")).resolves.toBe(1);
     const runtime = await harness.database
       .prepare(
-        `SELECT memory_strategy, min_ef_memo_tier, phase2_memo_tier, phase2_memo_retried
+        `SELECT forecast_id, memory_strategy, min_ef_memo_tier, phase2_memo_tier, phase2_memo_retried
          FROM solver_runtime_aggregates
          LIMIT 1`,
       )
       .first<{
+        forecast_id: string;
         memory_strategy: string;
         min_ef_memo_tier: string;
         phase2_memo_tier: string;
         phase2_memo_retried: string;
       }>();
     expect(runtime).toMatchObject({
+      forecast_id: "supply-2026-08-21-v1",
       memory_strategy: "balanced-v1",
       min_ef_memo_tier: "21",
       phase2_memo_tier: "22",
@@ -511,11 +435,12 @@ describe("solver_recovery event commit", () => {
     await expect(countRows("solver_recovery_terminal_aggregates")).resolves.toBe(1);
     const terminal = await harness.database
       .prepare(
-        `SELECT policy_version, requested_backend, min_ef_exit, phase2_exit,
+        `SELECT forecast_id, policy_version, requested_backend, min_ef_exit, phase2_exit,
                 terminal_backend, terminal_outcome, device_type
          FROM solver_recovery_terminal_aggregates`,
       )
       .first<{
+        forecast_id: string;
         policy_version: string;
         requested_backend: string;
         min_ef_exit: string;
@@ -525,6 +450,7 @@ describe("solver_recovery event commit", () => {
         device_type: string;
       }>();
     expect(terminal).toEqual({
+      forecast_id: "supply-2026-08-21-v1",
       policy_version: "ladder_v1",
       requested_backend: "rust-min-ef",
       min_ef_exit: "memo_full",
@@ -538,6 +464,7 @@ describe("solver_recovery event commit", () => {
     expect(admin.recoveryRungs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          forecastId: "supply-2026-08-21-v1",
           policyVersion: "ladder_v1",
           rungBackend: "rust-min-ef",
           rungExit: "memo_full",
@@ -547,6 +474,7 @@ describe("solver_recovery event commit", () => {
     );
     expect(admin.recoveryTerminals).toEqual([
       expect.objectContaining({
+        forecastId: "supply-2026-08-21-v1",
         policyVersion: "ladder_v1",
         terminalBackend: "rust-phase2",
         terminalOutcome: "success",
@@ -619,6 +547,7 @@ describe("admin solver diagnostic aggregates", () => {
     expect(body.allTime).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          forecastId: "supply-2026-08-21-v1",
           solverVersion: "phase3_rust_min_ef",
           solverPhase: "phase3",
           events: 2,
@@ -642,7 +571,8 @@ describe("admin solver diagnostic aggregates", () => {
     expect(body.cache).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          diagnosticVersion: 6,
+          diagnosticVersion: 7,
+          forecastId: "supply-2026-08-21-v1",
           requestedBackend: "rust-min-ef",
           terminalBackend: "rust-min-ef",
           executionKind: "executed",
@@ -670,6 +600,7 @@ describe("admin solver diagnostic aggregates", () => {
     expect(body.runtime).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          forecastId: "supply-2026-08-21-v1",
           solverVersion: "phase3_rust_min_ef",
           solverPhase: "phase3",
           solverBackend: "rust-min-ef",
@@ -703,6 +634,7 @@ describe("admin solver diagnostic aggregates", () => {
     expect(body.latencies).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          forecastId: "supply-2026-08-21-v1",
           solverVersion: "phase3_rust_min_ef",
           solverBackend: "rust-min-ef",
           solveMsBucket: "0_50",
@@ -748,6 +680,25 @@ describe("admin solver diagnostic aggregates", () => {
     expect(body.runtime?.some((row) => row.solverVersion === "legacy_runtime_v5")).toBe(false);
     expect(body.nodeCounts?.some((row) => row.solverBackend === "legacy-js")).toBe(false);
     expect(body.cache?.some((row) => row.diagnosticVersion === 5)).toBe(false);
+  });
+});
+
+describe("admin supply forecast registry", () => {
+  it("resolves stored forecast IDs to their exact supply assumptions", async () => {
+    const body = (await (await fetchAdminSolverDiagnostics()).json()) as AdminDiagnosticsBody;
+
+    expect(body.supplyForecastRegistry).toEqual({
+      version: 1,
+      activeForecastId: "supply-2026-08-21-v1",
+      forecasts: [
+        {
+          id: "supply-2026-08-21-v1",
+          basisDays: 28,
+          effectiveFrom: "2026-08-21",
+          expectedGain: { blue: 473.912, purple: 55.808, yellow: 24.736 },
+        },
+      ],
+    });
   });
 });
 

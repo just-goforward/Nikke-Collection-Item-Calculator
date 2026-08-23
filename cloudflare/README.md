@@ -207,14 +207,18 @@ Returns all-time aggregate statistics for display on the site. This public respo
 `GET /api/health`
 
 Checks every D1 column and composite primary-key order required by the deployed Worker's inserts and
-upserts. It returns `schemaContractVersion: 2` on success and fails closed with
+upserts. It returns `schemaContractVersion: 3` on success and fails closed with
 `503 database_schema_not_ready` when the Worker code and bound database are incompatible. This
 endpoint validates the current write contract, not column types, constraints, secondary indexes, or
 the complete historical migration ledger.
 
 `GET /api/admin/solver-diagnostics`
 
-Returns private solver diagnostic aggregates grouped by `solverVersion` and `solverPhase`.
+Returns private solver diagnostic aggregates grouped by `forecastId`, `solverVersion`, and
+`solverPhase`. The response includes `supplyForecastRegistry`, so every stored `forecastId` can be
+resolved to the exact 28-day blue, purple, and yellow expected gains used by that calculation.
+The D1 aggregate rows deliberately store only the ID, not three duplicate gain values. Historical
+registry entries in `shared/supplyForecasts.json` are append-only and must not be edited or removed.
 This endpoint is not used by the public site. When `ADMIN_TOKEN` is configured, it requires an
 `Authorization: Bearer <ADMIN_TOKEN>` header; without the secret, the endpoint returns 404.
 Optional query parameter: `days=30` (1-365). The response also includes recent
@@ -307,6 +311,29 @@ npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/add-runt
 npx wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/add-runtime-invariant-aggregates.sql --config cloudflare/wrangler.toml --env=staging
 ```
 
+For diagnostic v7 supply-forecast identities, apply the primary-key migration to staging first,
+verify `/api/health`, then apply it to production before deploying the Worker. Existing rows are
+preserved under `legacy-unversioned`; they cannot be assigned a newer forecast retroactively.
+
+```powershell
+npx wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/migrate-supply-forecast-v7.sql --config cloudflare/wrangler.toml --env=staging
+npm run check:d1-schema -- collection-kit-stats-staging staging
+
+npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/migrate-supply-forecast-v7.sql --config cloudflare/wrangler.toml --env=""
+npm run check:d1-schema -- collection-kit-stats
+```
+
+To change the administrator-managed forecast, append a new immutable record to
+`shared/supplyForecasts.json`, set `activeForecastId` to the new ID, and regenerate the TypeScript
+and Rust constants. Never reuse an ID for different gain values: aggregate interpretation and
+solver cache identity depend on that mapping remaining stable.
+
+```powershell
+npm run generate:supply-forecast
+npm run check:supply-forecast
+npm run build:solver-wasm
+```
+
 Diagnostic versions before v6 can contain repeated cache-hit timing and node-count values. Treat
 that runtime data as a usage-weighted historical snapshot, not as an execution distribution.
 The protected admin endpoint filters runtime, latency, fallback, and node-count distributions to
@@ -341,13 +368,13 @@ contract change is required, introduce a separately reviewed v7 aggregate layout
 dimensions and preserves historical v1-v6 rows.
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, solver_version, solver_phase, grade, level, strategy, probability_gap_bucket, resource_cost_bucket, legacy_supply_cost_bucket, blue_share_bucket, min_autonomy_days_bucket, events FROM solver_diagnostic_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, forecast_id, solver_version, solver_phase, grade, level, strategy, probability_gap_bucket, resource_cost_bucket, legacy_supply_cost_bucket, blue_share_bucket, min_autonomy_days_bucket, events FROM solver_diagnostic_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
 ```
 
 Current real-service solver event counts:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT solver_version, solver_phase, SUM(events) AS events FROM solver_diagnostic_aggregates GROUP BY solver_version, solver_phase ORDER BY events DESC"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT forecast_id, solver_version, solver_phase, SUM(events) AS events FROM solver_diagnostic_aggregates GROUP BY forecast_id, solver_version, solver_phase ORDER BY events DESC"
 ```
 
 Rust min-E[f] fallback rate and reason buckets:

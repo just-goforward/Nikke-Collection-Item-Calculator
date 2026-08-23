@@ -26,17 +26,45 @@ function readRows(output: string): D1SchemaRow[] {
   return rows as D1SchemaRow[];
 }
 
-function run() {
-  const args = process.argv.slice(2);
-  const database = args.shift();
+function parseArguments(argv: string[]) {
+  const [database, ...args] = argv;
   if (!database) {
-    throw new Error("Usage: npm run check:d1-schema -- <database-name> [staging] [local]");
+    throw new Error(
+      "Usage: npm run check:d1-schema -- <database-name> [staging] [local] [--persist-to <path>]",
+    );
   }
   const local = args.includes("local") || args.includes("--local");
-  const envIndex = args.indexOf("--env");
-  const positionalEnvironment = args.find((value) => value !== "local" && value !== "--local");
-  const environment = envIndex >= 0 ? args[envIndex + 1] : positionalEnvironment;
-  if (envIndex >= 0 && !environment) throw new Error("--env requires a value.");
+  const environment = readOption(args, "--env") ?? readPositionalEnvironment(args);
+  const persistTo = readOption(args, "--persist-to");
+  return { database, environment, local, persistTo };
+}
+
+function readOption(args: string[], option: string) {
+  const optionIndex = args.indexOf(option);
+  if (optionIndex < 0) return undefined;
+  const value = args[optionIndex + 1];
+  if (!value) throw new Error(`${option} requires a value.`);
+  return value;
+}
+
+function readPositionalEnvironment(args: string[]) {
+  const optionValueIndexes = new Set(
+    [args.indexOf("--env"), args.indexOf("--persist-to")]
+      .filter((index) => index >= 0)
+      .map((index) => index + 1),
+  );
+  return args.find(
+    (value, index) =>
+      value !== "local" &&
+      value !== "--local" &&
+      value !== "--env" &&
+      value !== "--persist-to" &&
+      !optionValueIndexes.has(index),
+  );
+}
+
+function run() {
+  const { database, environment, local, persistTo } = parseArguments(process.argv.slice(2));
 
   const command = process.execPath;
   const wranglerArgs = [
@@ -53,6 +81,7 @@ function run() {
     "--command",
     schemaQuery(),
   ];
+  if (persistTo) wranglerArgs.push("--persist-to", persistTo);
   const result = spawnSync(command, wranglerArgs, { encoding: "utf8" });
   if (result.status !== 0) {
     throw new Error(result.stderr || result.stdout || "Wrangler D1 schema query failed.");

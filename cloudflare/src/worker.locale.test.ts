@@ -23,10 +23,11 @@ describe("calculation locale aggregates", () => {
 
     const stored = await harness.database
       .prepare(
-        `SELECT locale, requested_backend, terminal_backend, execution_kind, events
+        `SELECT forecast_id, locale, requested_backend, terminal_backend, execution_kind, events
          FROM calculation_locale_aggregates`,
       )
       .first<{
+        forecast_id: string;
         locale: string;
         requested_backend: string;
         terminal_backend: string;
@@ -34,6 +35,7 @@ describe("calculation locale aggregates", () => {
         events: number;
       }>();
     expect(stored).toEqual({
+      forecast_id: "supply-2026-08-21-v1",
       locale: "ja",
       requested_backend: "rust-min-ef",
       terminal_backend: "rust-phase2",
@@ -48,7 +50,8 @@ describe("calculation locale aggregates", () => {
     };
     expect(body.calculationLocales).toEqual([
       {
-        diagnosticVersion: 6,
+        diagnosticVersion: 7,
+        forecastId: "supply-2026-08-21-v1",
         locale: "ja",
         requestedBackend: "rust-min-ef",
         terminalBackend: "rust-phase2",

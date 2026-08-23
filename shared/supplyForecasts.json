@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "activeForecastId": "supply-2026-08-21-v1",
+  "forecasts": [
+    {
+      "id": "supply-2026-08-21-v1",
+      "basisDays": 28,
+      "effectiveFrom": "2026-08-21",
+      "expectedGain": {
+        "blue": 473.912,
+        "purple": 55.808,
+        "yellow": 24.736
+      }
+    }
+  ]
+}

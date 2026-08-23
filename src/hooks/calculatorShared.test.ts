@@ -71,7 +71,8 @@ describe("makeSolverDiagnosticEvent", () => {
         "ja",
       ),
     ).toMatchObject({
-      diagnosticVersion: 6,
+      diagnosticVersion: 7,
+      forecastId: "supply-2026-08-21-v1",
       locale: "ja",
       executionKind: "executed",
       requestedBackend: "rust-min-ef",

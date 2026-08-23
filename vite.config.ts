@@ -1,26 +1,11 @@
-import { execFileSync } from "node:child_process";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 import { localizedPagesPlugin } from "./scripts/localized-pages.ts";
 
-function sourceRevision() {
-  const { GITHUB_SHA: ciRevisionValue } = process.env;
-  const ciRevision = ciRevisionValue?.trim();
-  if (ciRevision) return ciRevision;
-  try {
-    return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-  } catch {
-    return "main";
-  }
-}
-
 export default defineConfig({
   base: "/",
-  define: {
-    __SOURCE_REVISION__: JSON.stringify(sourceRevision()),
-  },
   plugins: [localizedPagesPlugin(), react(), tailwindcss()],
   build: {
     outDir: "dist",

@@ -21,6 +21,7 @@ export type ValidatedKitResultEvent = {
 export type ValidatedSolverDiagnosticEvent = {
   kind: "solver_diagnostic";
   diagnosticVersion: SolverDiagnosticEventInput["diagnosticVersion"];
+  forecastId: string;
   locale: StatsLocale | null;
   solverVersion: string;
   solverPhase: string;
@@ -55,7 +56,9 @@ export type ValidatedSolverDiagnosticEvent = {
   legacyEventAggregateMatchable: boolean;
 };
 
-export type ValidatedSolverRecoveryEvent = SolverRecoveryEventInput;
+export type ValidatedSolverRecoveryEvent = SolverRecoveryEventInput & {
+  forecastId: string;
+};
 export type ValidatedRuntimeInvariantEvent = RuntimeInvariantEventInput;
 
 export type ValidatedSubmission = {

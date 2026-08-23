@@ -1,9 +1,7 @@
 pub(crate) const STRICT_EPSILON: f64 = 1e-12;
 pub(crate) const KIT_EXP: [i32; 3] = [200, 500, 1000];
 pub(crate) const REQUIRED_EXP: [i32; 2] = [1000, 3000];
-pub(crate) const GAIN_B: f64 = 473.912;
-pub(crate) const GAIN_P: f64 = 55.808;
-pub(crate) const GAIN_Y: f64 = 24.736;
+include!("generated_supply_forecast.rs");
 pub(crate) const MAX_USES_B: i32 = 220;
 pub(crate) const MAX_USES_P: i32 = 88;
 pub(crate) const MAX_USES_Y: i32 = 44;

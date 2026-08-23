@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS client_env_aggregates (
 CREATE TABLE IF NOT EXISTS solver_diagnostic_aggregates (
   date_key TEXT NOT NULL,
   diagnostic_version INTEGER NOT NULL,
+  forecast_id TEXT NOT NULL,
   solver_version TEXT NOT NULL,
   solver_phase TEXT NOT NULL,
   grade TEXT NOT NULL,
@@ -98,6 +99,7 @@ CREATE TABLE IF NOT EXISTS solver_diagnostic_aggregates (
   PRIMARY KEY (
     date_key,
     diagnostic_version,
+    forecast_id,
     solver_version,
     solver_phase,
     grade,
@@ -131,6 +133,7 @@ CREATE INDEX IF NOT EXISTS idx_solver_diagnostic_aggregates_grade_level
 CREATE TABLE IF NOT EXISTS solver_runtime_aggregates (
   date_key TEXT NOT NULL,
   diagnostic_version INTEGER NOT NULL,
+  forecast_id TEXT NOT NULL,
   solver_version TEXT NOT NULL,
   solver_phase TEXT NOT NULL,
   solver_backend TEXT NOT NULL,
@@ -154,6 +157,7 @@ CREATE TABLE IF NOT EXISTS solver_runtime_aggregates (
   PRIMARY KEY (
     date_key,
     diagnostic_version,
+    forecast_id,
     solver_version,
     solver_phase,
     solver_backend,
@@ -183,6 +187,7 @@ CREATE INDEX IF NOT EXISTS idx_solver_runtime_aggregates_fallback_context
 CREATE TABLE IF NOT EXISTS solver_cache_aggregates (
   date_key TEXT NOT NULL,
   diagnostic_version INTEGER NOT NULL,
+  forecast_id TEXT NOT NULL,
   requested_backend TEXT NOT NULL,
   terminal_backend TEXT NOT NULL,
   execution_kind TEXT NOT NULL,
@@ -197,6 +202,7 @@ CREATE TABLE IF NOT EXISTS solver_cache_aggregates (
   PRIMARY KEY (
     date_key,
     diagnostic_version,
+    forecast_id,
     requested_backend,
     terminal_backend,
     execution_kind,
@@ -215,6 +221,7 @@ CREATE INDEX IF NOT EXISTS idx_solver_cache_aggregates_backend
 CREATE TABLE IF NOT EXISTS calculation_locale_aggregates (
   date_key TEXT NOT NULL,
   diagnostic_version INTEGER NOT NULL,
+  forecast_id TEXT NOT NULL,
   locale TEXT NOT NULL CHECK (locale IN ('ko', 'ja', 'en')),
   requested_backend TEXT NOT NULL,
   terminal_backend TEXT NOT NULL,
@@ -224,6 +231,7 @@ CREATE TABLE IF NOT EXISTS calculation_locale_aggregates (
   PRIMARY KEY (
     date_key,
     diagnostic_version,
+    forecast_id,
     locale,
     requested_backend,
     terminal_backend,
@@ -237,6 +245,7 @@ CREATE INDEX IF NOT EXISTS idx_calculation_locale_aggregates_locale
 CREATE TABLE IF NOT EXISTS solver_recovery_rung_aggregates (
   date_key TEXT NOT NULL,
   recovery_version INTEGER NOT NULL,
+  forecast_id TEXT NOT NULL,
   policy_version TEXT NOT NULL,
   requested_backend TEXT NOT NULL,
   rung_backend TEXT NOT NULL,
@@ -252,7 +261,7 @@ CREATE TABLE IF NOT EXISTS solver_recovery_rung_aggregates (
   events INTEGER NOT NULL DEFAULT 0,
   last_seen INTEGER NOT NULL,
   PRIMARY KEY (
-    date_key, recovery_version, policy_version, requested_backend, rung_backend, rung_exit,
+    date_key, recovery_version, forecast_id, policy_version, requested_backend, rung_backend, rung_exit,
     memo_tier, grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple,
     stock_bucket_yellow, device_type
   )
@@ -261,6 +270,7 @@ CREATE TABLE IF NOT EXISTS solver_recovery_rung_aggregates (
 CREATE TABLE IF NOT EXISTS solver_recovery_terminal_aggregates (
   date_key TEXT NOT NULL,
   recovery_version INTEGER NOT NULL,
+  forecast_id TEXT NOT NULL,
   policy_version TEXT NOT NULL,
   requested_backend TEXT NOT NULL,
   min_ef_exit TEXT NOT NULL,
@@ -278,7 +288,7 @@ CREATE TABLE IF NOT EXISTS solver_recovery_terminal_aggregates (
   events INTEGER NOT NULL DEFAULT 0,
   last_seen INTEGER NOT NULL,
   PRIMARY KEY (
-    date_key, recovery_version, policy_version, requested_backend, min_ef_exit, phase2_exit,
+    date_key, recovery_version, forecast_id, policy_version, requested_backend, min_ef_exit, phase2_exit,
     js_exit, terminal_backend, terminal_outcome, grade, level, exp_bucket, stock_bucket_blue,
     stock_bucket_purple, stock_bucket_yellow, device_type
   )

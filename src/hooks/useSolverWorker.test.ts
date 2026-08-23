@@ -112,6 +112,7 @@ describe("readSolveCache", () => {
     const result = { possible: true };
     const cache = new Map([[rustKey, result]]);
 
+    expect(rustKey).toContain("supply-2026-08-21-v1|");
     expect(phase2Key).not.toBe(rustKey);
     expect(readSolveCache(cache, phase2Key, "rust-phase2")).toBeNull();
     expect(readSolveCache(cache, rustKey, "rust-min-ef")?.result).toBe(result);

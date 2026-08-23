@@ -1,3 +1,4 @@
+import { ACTIVE_SUPPLY_FORECAST_ID } from "../../shared/generated/supplyForecast";
 import {
   isConvertStateNormalized as isConvertState,
   isTerminalNormalized as isTerminal,
@@ -58,6 +59,7 @@ export function minEfPolicyCacheKey({
   tolerance: number;
 }) {
   return [
+    ACTIVE_SUPPLY_FORECAST_ID,
     input.start.grade,
     input.start.level,
     input.start.exp ?? 0,

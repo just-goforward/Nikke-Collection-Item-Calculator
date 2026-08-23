@@ -1,3 +1,4 @@
+import { ACTIVE_SUPPLY_FORECAST_ID } from "../../shared/generated/supplyForecast";
 import {
   bucketBlueShare,
   bucketCandidateCount,
@@ -124,6 +125,7 @@ export function makeSolverDiagnosticEvent(outcome: SolveOutcome, locale: StatsLo
   return {
     kind: "solver_diagnostic" as const,
     diagnosticVersion: SOLVER_DIAGNOSTIC_VERSION,
+    forecastId: ACTIVE_SUPPLY_FORECAST_ID,
     locale,
     executionKind,
     requestedBackend,
@@ -171,6 +173,7 @@ export function makeSolverRecoveryEvent(
   return {
     kind: "solver_recovery" as const,
     recoveryVersion: 1 as const,
+    forecastId: ACTIVE_SUPPLY_FORECAST_ID,
     policyVersion: trace.policyVersion,
     requestedBackend: trace.requestedBackend,
     minEfExit: trace.minEfExit,

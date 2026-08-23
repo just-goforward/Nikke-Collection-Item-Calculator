@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { validatePayload } from "./event-validation";
 import { HttpError } from "./http-error";
 import { EventSubmissionSchema } from "./schemas";
-import { runtimeInvariantEvent, solverDiagnosticEvent } from "./worker.test-events";
+import {
+  runtimeInvariantEvent,
+  solverDiagnosticEvent,
+  solverRecoveryEvent,
+} from "./worker.test-events";
 
 function kitPayload(overrides: Record<string, unknown> = {}) {
   return {
@@ -178,14 +182,14 @@ describe("validatePayload", () => {
   });
 
   it("accepts supported diagnostic versions and rejects unknown future versions", () => {
-    for (const version of [1, 2, 3, 4, 5, 6]) {
+    for (const version of [1, 2, 3, 4, 5, 6, 7]) {
       const supported = solverDiagnosticEvent(`solver-version-${version}-valid01`);
       supported.event.diagnosticVersion = version;
       expect(EventSubmissionSchema.safeParse(supported).success).toBe(true);
     }
 
     const future = solverDiagnosticEvent("solver-version-future01");
-    future.event.diagnosticVersion = 7;
+    future.event.diagnosticVersion = 8;
     expect(EventSubmissionSchema.safeParse(future).success).toBe(false);
   });
 
@@ -200,6 +204,43 @@ describe("validatePayload", () => {
     const unknownCode = runtimeInvariantEvent("runtime-invariant-code01");
     unknownCode.event.code = "arbitrary_invariant";
     expect(EventSubmissionSchema.safeParse(unknownCode).success).toBe(false);
+  });
+});
+
+describe("supply forecast identity validation", () => {
+  it("requires a registered supply forecast for current diagnostics", () => {
+    const missing = solverDiagnosticEvent("solver-forecast-missing01");
+    Reflect.deleteProperty(missing.event, "forecastId");
+    expect(() => validateTestPayload(missing)).toThrow("invalid_supply_forecast");
+
+    const unknown = solverDiagnosticEvent("solver-forecast-unknown01");
+    Reflect.set(unknown.event, "forecastId", "supply-2099-01-01-v1");
+    expect(() => validateTestPayload(unknown)).toThrow("invalid_supply_forecast");
+  });
+
+  it("maps unversioned legacy diagnostics to the legacy forecast identity", () => {
+    const legacy = solverDiagnosticEvent("solver-forecast-legacy001");
+    legacy.event.diagnosticVersion = 6;
+    Reflect.deleteProperty(legacy.event, "forecastId");
+
+    expect(validateTestPayload(legacy).event).toMatchObject({
+      forecastId: "legacy-unversioned",
+    });
+  });
+
+  it("validates recovery forecast identities without breaking legacy clients", () => {
+    const current = solverRecoveryEvent("recovery-forecast-current01");
+    expect(validateTestPayload(current).event).toMatchObject({
+      forecastId: "supply-2026-08-21-v1",
+    });
+
+    const legacy = solverRecoveryEvent("recovery-forecast-legacy001");
+    Reflect.deleteProperty(legacy.event, "forecastId");
+    expect(validateTestPayload(legacy).event).toMatchObject({ forecastId: "legacy-unversioned" });
+
+    const unknown = solverRecoveryEvent("recovery-forecast-unknown01");
+    Reflect.set(unknown.event, "forecastId", "supply-2099-01-01-v1");
+    expect(() => validateTestPayload(unknown)).toThrow("invalid_supply_forecast");
   });
 });
 

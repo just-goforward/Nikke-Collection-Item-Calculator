@@ -1,4 +1,4 @@
-export const D1_SCHEMA_CONTRACT_VERSION = 2 as const;
+export const D1_SCHEMA_CONTRACT_VERSION = 3 as const;
 
 type D1TableContract = {
   columns: readonly string[];
@@ -61,6 +61,7 @@ export const REQUIRED_D1_SCHEMA = {
     columns: [
       "date_key",
       "diagnostic_version",
+      "forecast_id",
       "solver_version",
       "solver_phase",
       "grade",
@@ -89,6 +90,7 @@ export const REQUIRED_D1_SCHEMA = {
     primaryKey: [
       "date_key",
       "diagnostic_version",
+      "forecast_id",
       "solver_version",
       "solver_phase",
       "grade",
@@ -117,6 +119,7 @@ export const REQUIRED_D1_SCHEMA = {
     columns: [
       "date_key",
       "diagnostic_version",
+      "forecast_id",
       "solver_version",
       "solver_phase",
       "solver_backend",
@@ -141,6 +144,7 @@ export const REQUIRED_D1_SCHEMA = {
     primaryKey: [
       "date_key",
       "diagnostic_version",
+      "forecast_id",
       "solver_version",
       "solver_phase",
       "solver_backend",
@@ -165,6 +169,7 @@ export const REQUIRED_D1_SCHEMA = {
     columns: [
       "date_key",
       "diagnostic_version",
+      "forecast_id",
       "requested_backend",
       "terminal_backend",
       "execution_kind",
@@ -180,6 +185,7 @@ export const REQUIRED_D1_SCHEMA = {
     primaryKey: [
       "date_key",
       "diagnostic_version",
+      "forecast_id",
       "requested_backend",
       "terminal_backend",
       "execution_kind",
@@ -195,6 +201,7 @@ export const REQUIRED_D1_SCHEMA = {
     columns: [
       "date_key",
       "diagnostic_version",
+      "forecast_id",
       "locale",
       "requested_backend",
       "terminal_backend",
@@ -205,6 +212,7 @@ export const REQUIRED_D1_SCHEMA = {
     primaryKey: [
       "date_key",
       "diagnostic_version",
+      "forecast_id",
       "locale",
       "requested_backend",
       "terminal_backend",
@@ -215,6 +223,7 @@ export const REQUIRED_D1_SCHEMA = {
     columns: [
       "date_key",
       "recovery_version",
+      "forecast_id",
       "policy_version",
       "requested_backend",
       "rung_backend",
@@ -233,6 +242,7 @@ export const REQUIRED_D1_SCHEMA = {
     primaryKey: [
       "date_key",
       "recovery_version",
+      "forecast_id",
       "policy_version",
       "requested_backend",
       "rung_backend",
@@ -251,6 +261,7 @@ export const REQUIRED_D1_SCHEMA = {
     columns: [
       "date_key",
       "recovery_version",
+      "forecast_id",
       "policy_version",
       "requested_backend",
       "min_ef_exit",
@@ -271,6 +282,7 @@ export const REQUIRED_D1_SCHEMA = {
     primaryKey: [
       "date_key",
       "recovery_version",
+      "forecast_id",
       "policy_version",
       "requested_backend",
       "min_ef_exit",

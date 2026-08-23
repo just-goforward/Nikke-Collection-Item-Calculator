@@ -12,7 +12,7 @@ export default function PrivacyFooter() {
         {t("license.notice")}{" "}
         <a
           className="font-semibold text-text-soft underline underline-offset-[3px] hover:text-text-strong"
-          href={`${SOURCE_REPOSITORY}/tree/${__SOURCE_REVISION__}`}
+          href={SOURCE_REPOSITORY}
           rel="noreferrer"
           target="_blank"
         >

@@ -28,6 +28,7 @@ describe("rust product solver cache", () => {
       tolerance: 0,
     });
 
+    expect(key).toMatch(/^supply-2026-08-21-v1\|/);
     rememberLastMinEfPolicy(key, policy);
 
     expect(readLastMinEfPolicy(key)).toBe(policy);

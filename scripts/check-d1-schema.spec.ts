@@ -40,7 +40,7 @@ describe("validateD1SchemaRows", () => {
     );
 
     expect(validateD1SchemaRows(rows)).toEqual([
-      "primary key mismatch: calculation_locale_aggregates (expected date_key, diagnostic_version, locale, requested_backend, terminal_backend, execution_kind; received date_key, diagnostic_version, locale, requested_backend, terminal_backend)",
+      "primary key mismatch: calculation_locale_aggregates (expected date_key, diagnostic_version, forecast_id, locale, requested_backend, terminal_backend, execution_kind; received date_key, diagnostic_version, forecast_id, locale, requested_backend, terminal_backend)",
     ]);
   });
 });
