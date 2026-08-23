@@ -6,6 +6,9 @@ import { localizedPagesPlugin } from "./scripts/localized-pages.ts";
 
 export default defineConfig({
   base: "/",
+  define: {
+    __APP_REVISION__: JSON.stringify(process.env["GITHUB_SHA"] ?? "local"),
+  },
   plugins: [localizedPagesPlugin(), react(), tailwindcss()],
   build: {
     outDir: "dist",

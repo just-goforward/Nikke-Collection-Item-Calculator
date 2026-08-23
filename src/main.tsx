@@ -8,6 +8,7 @@ import "./styles.css";
 function boot() {
   const app = document.getElementById("app");
   if (!app) throw new Error("App root element was not found.");
+  document.documentElement.dataset["buildRevision"] = __APP_REVISION__;
   prepareInitialLocale();
 
   const root = createRoot(app);
