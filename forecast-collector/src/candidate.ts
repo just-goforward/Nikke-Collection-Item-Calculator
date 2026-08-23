@@ -31,7 +31,10 @@ export function resolveSoloSchedule(
   nowMs: number,
 ): ResolvedSchedule | null {
   const solo = events
-    .filter((event) => event.eventType === "solo" && !event.manualReview)
+    .filter(
+      (event) =>
+        event.eventType === "solo" && event.scheduleStatus === "confirmed" && !event.manualReview,
+    )
     .filter(hasConcreteSchedule)
     .toSorted((left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt));
   const activeOrFutureIndex = solo.findIndex(

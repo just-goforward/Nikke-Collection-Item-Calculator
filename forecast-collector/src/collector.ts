@@ -29,6 +29,28 @@ export async function runCollection(
 ): Promise<CollectionSummary> {
   const nowMs = options.nowMs ?? Date.now();
   const nowIso = new Date(nowMs).toISOString();
+  try {
+    return await runCollectionInternal(env, options, nowMs, nowIso);
+  } catch (error) {
+    await recordCollectorRun(
+      env.FORECAST_DB,
+      "collector",
+      "failure",
+      nowIso,
+      sanitizeErrorCode(error),
+      null,
+      0,
+    );
+    return emptyCollectionSummary("failure");
+  }
+}
+
+async function runCollectionInternal(
+  env: CollectorEnv,
+  options: { nowMs?: number; forceX?: boolean },
+  nowMs: number,
+  nowIso: string,
+): Promise<CollectionSummary> {
   const circuit = await naverCircuitState(env.FORECAST_DB, nowMs);
   if (circuit.open) {
     await recordCollectorRun(

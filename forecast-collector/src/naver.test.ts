@@ -49,7 +49,7 @@ describe("Naver Lounge parser", () => {
                   </div>
                 </div>`,
             },
-            user: { role: "game_manager" },
+            user: { userRoleCode: "game_manager" },
             feedLink: {
               pc: "https://game.naver.com/lounge/nikke/board/detail/8060044",
             },

@@ -114,7 +114,7 @@ export async function parseNaverFeed(
       publishedAt,
       contentHash: await sha256Hex(normalizedText),
       structured: extracted.structured,
-      official: user["role"] === "game_manager",
+      official: user["role"] === "game_manager" || user["userRoleCode"] === "game_manager",
     });
   }
   return result;

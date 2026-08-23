@@ -96,6 +96,26 @@ describe("forecast candidate model", () => {
     expect(resolved?.evidenceEvents).toHaveLength(6);
   });
 
+  it("does not feed a previously estimated round back into cadence history", () => {
+    const staleEstimate: ScheduleEvent = {
+      ...soloEvent,
+      eventId: "solo-estimated",
+      startsAt: "2026-09-21T03:00:00.000Z",
+      endsAt: "2026-09-27T19:59:00.000Z",
+      scheduleStatus: "estimated",
+      reason: "recent_six_start_median",
+    };
+
+    const resolved = resolveSoloSchedule(
+      [soloEvent, staleEstimate],
+      Date.parse("2026-08-24T00:00:00Z"),
+    );
+
+    expect(resolved?.scheduleStatus).toBe("estimated");
+    expect(resolved?.event.startsAt).toBe("2026-09-17T03:00:00.000Z");
+    expect(resolved?.evidenceEvents).toEqual([soloEvent]);
+  });
+
   it("blocks a confirmed new-round cadence outside the validated 21-35 day range", () => {
     const previous: ScheduleEvent = {
       ...soloEvent,
