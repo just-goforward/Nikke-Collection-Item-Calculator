@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScheduleEvent } from "./types";
-import { classifyOfficialXPosts } from "./x-probe";
+import { classifyOfficialXPosts, withProbeDeadline } from "./x-probe";
 
 const target: ScheduleEvent = {
   eventId: "naver-board-56:1:solo",
@@ -25,6 +25,12 @@ const target: ScheduleEvent = {
 };
 
 describe("X public timeline classification", () => {
+  it("enforces one deadline around the entire browser probe", async () => {
+    const never = new Promise<never>(() => undefined);
+
+    await expect(withProbeDeadline(never, 5)).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
   it("treats a login wall or unreadable empty timeline as unavailable", async () => {
     await expect(classifyOfficialXPosts([], target)).resolves.toEqual({
       status: "x_unavailable",

@@ -13,6 +13,22 @@ export async function probeOfficialX(
   targetEvent: ScheduleEvent,
   nowMs: number,
 ): Promise<XProbeResult> {
+  try {
+    return await withProbeDeadline(runBrowserProbe(env, targetEvent, nowMs), PROBE_TIMEOUT_MS);
+  } catch (error) {
+    return {
+      status: "x_unavailable",
+      sourceItem: null,
+      reason: error instanceof Error ? `browser_probe:${error.name}` : "browser_probe_failed",
+    };
+  }
+}
+
+async function runBrowserProbe(
+  env: CollectorEnv,
+  targetEvent: ScheduleEvent,
+  nowMs: number,
+): Promise<XProbeResult> {
   let browser: Awaited<ReturnType<typeof launch>> | null = null;
   try {
     browser = await launch(env.BROWSER, {
@@ -51,14 +67,23 @@ export async function probeOfficialX(
         });
     }
     return classifyOfficialXPosts(relevant, targetEvent);
-  } catch (error) {
-    return {
-      status: "x_unavailable",
-      sourceItem: null,
-      reason: error instanceof Error ? `browser_probe:${error.name}` : "browser_probe_failed",
-    };
   } finally {
     await browser?.close().catch(() => undefined);
+  }
+}
+
+export async function withProbeDeadline<T>(task: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(
+      () => reject(new DOMException("X browser probe exceeded its deadline.", "TimeoutError")),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([task, deadline]);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
