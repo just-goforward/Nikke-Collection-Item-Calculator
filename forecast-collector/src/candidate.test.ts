@@ -41,9 +41,10 @@ describe("forecast candidate model", () => {
     expect(DISPATCH_DAILY_EXPECTED_GAIN.yellow).toBeCloseTo(0.71420816, 9);
   });
 
-  it("builds a monotone, open-ended daily profile during Solo Raid", async () => {
+  it("moves to the next forecast cycle after the Solo Raid day-3 cutoff", async () => {
     const resolved = resolveSoloSchedule([soloEvent], Date.parse("2026-08-24T00:00:00Z"));
     if (!resolved) throw new Error("Expected a resolved schedule.");
+    expect(resolved.scheduleStatus).toBe("estimated");
     const result = await buildForecastCandidate(
       resolved,
       [],

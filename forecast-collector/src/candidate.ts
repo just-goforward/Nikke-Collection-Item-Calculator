@@ -34,7 +34,9 @@ export function resolveSoloSchedule(
     .filter((event) => event.eventType === "solo" && !event.manualReview)
     .filter(hasConcreteSchedule)
     .toSorted((left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt));
-  const activeOrFutureIndex = solo.findIndex((event) => Date.parse(event.endsAt) >= nowMs);
+  const activeOrFutureIndex = solo.findIndex(
+    (event) => gameDayStartMs(Date.parse(event.startsAt)) + 3 * DAY_MS > nowMs,
+  );
   const activeOrFuture = solo[activeOrFutureIndex];
   if (activeOrFuture) {
     const previous = solo[activeOrFutureIndex - 1];

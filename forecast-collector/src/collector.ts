@@ -13,7 +13,7 @@ import {
   shouldProbeX,
   supersedeEarlierCandidates,
 } from "./db";
-import { fetchNaverBoard, parseScheduleEvents } from "./naver";
+import { fetchNaverBoard, fetchNaverSoloHistory, parseScheduleEvents } from "./naver";
 import type {
   CollectionSummary,
   CollectorEnv,
@@ -46,8 +46,13 @@ export async function runCollection(
   let items: NormalizedSourceItem[] = [];
   let events: ScheduleEvent[] = [];
   try {
-    const boards = await Promise.all([fetchNaverBoard(56), fetchNaverBoard(48)]);
-    items = boards.flat();
+    const existingLedger = await loadScheduleEvents(env.FORECAST_DB);
+    const batches = await Promise.all([
+      fetchNaverBoard(56),
+      fetchNaverBoard(48),
+      ...(needsSoloHistory(existingLedger) ? [fetchNaverSoloHistory()] : []),
+    ]);
+    items = deduplicateSourceItems(batches.flat());
     if (items.length === 0) throw new Error("naver_empty_relevant_feed");
     events = await parseScheduleEvents(items);
     await persistSourceItemsAndEvents(env.FORECAST_DB, items, events, nowIso);
@@ -254,6 +259,20 @@ function hasUnresolvedScheduleChange(events: readonly ScheduleEvent[]) {
       (!latestSolo ||
         Date.parse(event.sourceItem.publishedAt) >= Date.parse(latestSolo.sourceItem.publishedAt)),
   );
+}
+
+function needsSoloHistory(events: readonly ScheduleEvent[]) {
+  const starts = new Set(
+    events
+      .filter((event) => event.eventType === "solo" && !event.manualReview)
+      .map((event) => event.startsAt)
+      .filter((value): value is string => value !== null),
+  );
+  return starts.size < 6;
+}
+
+function deduplicateSourceItems(items: readonly NormalizedSourceItem[]) {
+  return [...new Map(items.map((item) => [`${item.source}:${item.itemId}`, item])).values()];
 }
 
 function gameDayKey(nowMs: number) {

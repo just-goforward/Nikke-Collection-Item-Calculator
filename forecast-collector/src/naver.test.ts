@@ -3,6 +3,7 @@ import changeFixture from "../fixtures/naver-board-48-change.json?raw";
 import soloFixture from "../fixtures/naver-board-56-solo.json?raw";
 import {
   fetchNaverBoard,
+  fetchNaverSoloHistory,
   parseKoreanDateRange,
   parseNaverFeed,
   parseScheduleEvents,
@@ -64,6 +65,51 @@ describe("Naver Lounge parser", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     const requestedUrl = new URL(String(fetcher.mock.calls[0]?.[0]));
     expect(requestedUrl.searchParams.get("limit")).toBe("30");
+  });
+
+  it("bootstraps only official Solo Raid opening details from title search", async () => {
+    const fixture = JSON.parse(soloFixture) as {
+      content: { feeds: Array<Record<string, unknown>> };
+    };
+    const detail = fixture.content.feeds[0];
+    if (!detail) throw new Error("Solo fixture is empty.");
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/search/feeds")) {
+        return Response.json({
+          code: 200,
+          content: {
+            feeds: [
+              {
+                feedId: 8060044,
+                title: "솔로 레이드 오픈 안내",
+                board: { boardId: 56 },
+                user: { userRoleCode: "game_manager" },
+              },
+              {
+                feedId: 7877359,
+                title: "솔로 레이드 재오픈 안내",
+                board: { boardId: 56 },
+                user: { userRoleCode: "game_manager" },
+              },
+            ],
+          },
+        });
+      }
+      return Response.json({
+        code: 200,
+        content: {
+          ...detail,
+          user: { userRoleCode: "game_manager" },
+        },
+      });
+    });
+
+    const items = await fetchNaverSoloHistory(fetcher);
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ itemId: "8060044", official: true, structured: true });
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
   it("rejects oversized and malformed responses without producing an empty success", async () => {

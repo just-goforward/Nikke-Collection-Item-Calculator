@@ -2,6 +2,7 @@ import { sha256Hex } from "./crypto";
 import type { NormalizedSourceItem, ScheduleEvent, SourceKind } from "./types";
 
 const NAVER_FEED_URL = "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed";
+const NAVER_SEARCH_URL = "https://comm-api.game.naver.com/nng_main/v2/search/feeds";
 const MAX_RESPONSE_BYTES = 2_000_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -45,6 +46,37 @@ export async function fetchNaverBoard(
   const response = await fetchWithRetry(url, fetcher);
   const payload = await readGuardedJson(response);
   return parseNaverFeed(payload, boardId);
+}
+
+export async function fetchNaverSoloHistory(
+  fetcher: FetchLike = fetch,
+): Promise<NormalizedSourceItem[]> {
+  const candidates = new Map<string, Record<string, unknown>>();
+  for (const keyword of ["솔로레이드", "솔로 레이드"]) {
+    const url = new URL(NAVER_SEARCH_URL);
+    url.search = new URLSearchParams({
+      keyword,
+      limit: "100",
+      loungeId: "nikke",
+      offset: "0",
+      orderType: "LATEST",
+      searchOption: "COMMUNITY_FEED_TITLE",
+    }).toString();
+    for (const row of searchRows(await readGuardedJson(await fetchWithRetry(url, fetcher)))) {
+      if (!isOfficialSoloOpening(row)) continue;
+      const feedId = String(row["feedId"] ?? "");
+      if (feedId) candidates.set(feedId, row);
+    }
+  }
+
+  const items: NormalizedSourceItem[] = [];
+  for (const feedId of [...candidates.keys()].slice(0, 8)) {
+    const url = new URL(`${NAVER_FEED_URL}/${feedId}`);
+    const payload = await readGuardedJson(await fetchWithRetry(url, fetcher));
+    const item = await parseNaverDetail(payload);
+    if (item) items.push(item);
+  }
+  return items;
 }
 
 export async function parseNaverFeed(
@@ -223,6 +255,43 @@ function classifyEvent(text: string): ScheduleEvent["eventType"] | null {
   if (/콜라보/.test(text)) return "collaboration";
   if (/(관리\s*키트\s*상자|보상\s*지급)/.test(text)) return "reward";
   return null;
+}
+
+function searchRows(payload: unknown) {
+  if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_search_schema_code");
+  const content = payload["content"];
+  if (!isRecord(content) || !Array.isArray(content["feeds"])) {
+    throw new Error("naver_search_schema_feeds");
+  }
+  return content["feeds"].filter(isRecord);
+}
+
+function isOfficialSoloOpening(row: Record<string, unknown>) {
+  const title = typeof row["title"] === "string" ? normalizeWhitespace(row["title"]) : "";
+  const user = row["user"];
+  const board = row["board"];
+  return (
+    isRecord(user) &&
+    user["userRoleCode"] === "game_manager" &&
+    isRecord(board) &&
+    board["boardId"] === 56 &&
+    /솔로\s*레이드.*오픈(?:\s*예정|\s*안내)?/.test(title) &&
+    !/재오픈/.test(title)
+  );
+}
+
+async function parseNaverDetail(payload: unknown) {
+  if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_detail_schema_code");
+  const content = payload["content"];
+  if (!isRecord(content) || !isRecord(content["user"])) {
+    throw new Error("naver_detail_schema_content");
+  }
+  const user = content["user"];
+  const normalized = {
+    ...content,
+    user: { ...user, role: user["userRoleCode"] },
+  };
+  return (await parseNaverFeed({ code: 200, content: { feeds: [normalized] } }, 56))[0] ?? null;
 }
 
 function visit(value: unknown, output: string[]) {
