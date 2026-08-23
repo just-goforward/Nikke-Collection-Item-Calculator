@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { beforeAll, describe, expect, it } from "vitest";
-import { ACTIVE_SUPPLY_FORECAST_PROFILE } from "../shared/generated/supplyForecast";
+import { ACTIVE_SUPPLY_FORECAST_BASE_PROFILE } from "../shared/generated/supplyForecast";
 
 import {
   buildCompactStateGraph,
@@ -82,9 +82,9 @@ describe("compact exact graph", () => {
       stock.blue,
       stock.purple,
       stock.yellow,
-      ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.blue,
-      ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.purple,
-      ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.yellow,
+      ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain.blue,
+      ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain.purple,
+      ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain.yellow,
       0.75,
       3,
       0,

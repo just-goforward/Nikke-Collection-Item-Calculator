@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ACTIVE_SUPPLY_FORECAST_PROFILE } from "../shared/generated/supplyForecast.ts";
+import { ACTIVE_SUPPLY_FORECAST_BASE_PROFILE } from "../shared/generated/supplyForecast.ts";
 
 import {
   assertResearchReportCanBeWritten,
@@ -278,9 +278,9 @@ function solve(exports: SolverExports, scenario: Scenario): SolveRecord {
     scenario.stock.blue,
     scenario.stock.purple,
     scenario.stock.yellow,
-    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.blue,
-    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.purple,
-    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.yellow,
+    ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain.blue,
+    ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain.purple,
+    ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain.yellow,
     CONTRACT.horizonFactor,
     CONTRACT.normPower,
     CONTRACT.tolerance,

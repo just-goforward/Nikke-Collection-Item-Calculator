@@ -192,6 +192,8 @@ function renderTypeScript(registry: Registry, activeIndex: number) {
     `export const SUPPLY_FORECAST_REGISTRY =\n${serialized} as const;\n\n` +
     `export const ACTIVE_SUPPLY_FORECAST_ID = SUPPLY_FORECAST_REGISTRY.activeForecastId;\n` +
     `export const ACTIVE_SUPPLY_FORECAST = SUPPLY_FORECAST_REGISTRY.forecasts[${activeIndex}];\n\n` +
+    `export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE = ACTIVE_SUPPLY_FORECAST.profiles[0];\n` +
+    `export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID = ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.id;\n\n` +
     `export type SupplyForecastId = (typeof SUPPLY_FORECAST_REGISTRY.forecasts)[number]["id"];\n` +
     `export type SupplyForecastProfile = {\n` +
     `  id: string;\n` +
@@ -222,9 +224,12 @@ function renderTypeScript(registry: Registry, activeIndex: number) {
     `    return timestampMs >= from && timestampMs < until;\n` +
     `  }) ?? null;\n` +
     `}\n\n` +
-    `const activeProfile = resolveSupplyForecastProfile(ACTIVE_SUPPLY_FORECAST_ID);\n` +
-    `if (!activeProfile) throw new Error("The active supply forecast has no profile for the current time.");\n` +
-    `export const ACTIVE_SUPPLY_FORECAST_PROFILE = activeProfile;\n` +
-    `export const ACTIVE_SUPPLY_FORECAST_PROFILE_ID = activeProfile.id;\n`
+    `export function resolveActiveSupplyForecastProfile(\n` +
+    `  timestampMs = Date.now(),\n` +
+    `): SupplyForecastProfile {\n` +
+    `  const profile = resolveSupplyForecastProfile(ACTIVE_SUPPLY_FORECAST_ID, timestampMs);\n` +
+    `  if (!profile) throw new Error("The active supply forecast has no profile for the requested time.");\n` +
+    `  return profile;\n` +
+    `}\n`
   );
 }

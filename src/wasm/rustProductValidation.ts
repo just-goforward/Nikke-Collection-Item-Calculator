@@ -1,4 +1,5 @@
 import type { SolverInput } from "../types";
+import { activeSupplyForecastContext } from "./rustCoreShared";
 import {
   RUST_MIN_EF_MEMO_TIER,
   RUST_PHASE2_DEFAULT_MEMO_TIER,
@@ -28,11 +29,13 @@ export async function validateRustMinEf(
   seed = 20260505,
 ) {
   const normalizedInput = normalizeRustProductInput(input);
+  const supplyForecast = activeSupplyForecastContext();
   const cacheKey = minEfPolicyCacheKey({
     horizonFactor: RUST_PRODUCT_HORIZON_FACTOR,
     input: normalizedInput,
     memoTier: RUST_MIN_EF_MEMO_TIER,
     normPower: RUST_PRODUCT_NORM_POWER,
+    supplyForecast,
     tolerance: RUST_PRODUCT_TOLERANCE,
   });
   const cachedPolicy = readLastMinEfPolicy(cacheKey);
@@ -49,6 +52,7 @@ export async function validateRustMinEf(
 
   try {
     const solver = await getRustMinEfSolver(wasmUrl);
+    solver.setSupplyForecast(supplyForecast);
     const policy = solver.solveRootWithCandidates(
       normalizedInput.start,
       normalizedInput.stock,
@@ -78,7 +82,9 @@ export async function validateRustPhase2(
   seed = 20260505,
 ) {
   const normalizedInput = normalizeRustProductInput(input);
+  const supplyForecast = activeSupplyForecastContext();
   const solver = await getRustPhase2Solver(wasmUrl);
+  solver.setSupplyForecast(supplyForecast);
   solver.configureMemoTier(RUST_PHASE2_DEFAULT_MEMO_TIER);
   let policy: RustPhase2Policy;
   try {

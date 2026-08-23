@@ -1,4 +1,5 @@
 ﻿import type { SolverInput } from "../types";
+import { activeSupplyForecastContext } from "./rustCoreShared";
 import { solveRustPhase2 } from "./rustPhase2ProductSolver";
 import {
   RUST_MEMORY_STRATEGY,
@@ -48,6 +49,8 @@ export async function solveRustMinEfProduct(
   if (earlyResult) return earlyResult;
   try {
     const solver = await getRustMinEfSolver(wasmUrl);
+    const supplyForecast = activeSupplyForecastContext();
+    solver.setSupplyForecast(supplyForecast);
     const policy = solver.solveRootWithCandidates(
       normalizedInput.start,
       normalizedInput.stock,
@@ -61,6 +64,7 @@ export async function solveRustMinEfProduct(
         input: normalizedInput,
         memoTier: solver.memoTier(),
         normPower: RUST_PRODUCT_NORM_POWER,
+        supplyForecast,
         tolerance: RUST_PRODUCT_TOLERANCE,
       }),
       policy,
@@ -117,6 +121,8 @@ export async function solveRustMinEfProduct(
         },
         memoryStrategy: RUST_MEMORY_STRATEGY,
         minEfMemoTier: RUST_MIN_EF_MEMO_TIER,
+        forecastId: supplyForecast.forecastId,
+        forecastProfileId: supplyForecast.forecastProfileId,
         solveMs: elapsedMs(startedAt),
       },
     });

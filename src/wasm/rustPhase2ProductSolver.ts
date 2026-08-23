@@ -4,6 +4,7 @@ import {
   isTerminalNormalized as isTerminal,
 } from "../solver/domain";
 import type { CollectionState, SolverInput, Stock } from "../types";
+import { activeSupplyForecastContext } from "./rustCoreShared";
 import {
   RUST_MEMORY_STRATEGY,
   RUST_PHASE2_DEFAULT_MEMO_TIER,
@@ -50,6 +51,8 @@ export async function solveRustPhase2(
   if (earlyResult) return earlyResult;
 
   const solver = await getRustPhase2Solver(wasmUrl);
+  const supplyForecast = activeSupplyForecastContext();
+  solver.setSupplyForecast(supplyForecast);
   const { policy, retried } = buildPolicyWithMemoRetry(solver, normalizedInput, options);
   const root = policy.root;
   if (!root.firstAction) {
@@ -94,6 +97,8 @@ export async function solveRustPhase2(
     topCandidates,
     statsExtras: {
       memoryStrategy: RUST_MEMORY_STRATEGY,
+      forecastId: supplyForecast.forecastId,
+      forecastProfileId: supplyForecast.forecastProfileId,
       phase2MemoRetried: retried,
       phase2MemoTier: solver.memoTier(),
       solveMs: elapsedMs(startedAt),

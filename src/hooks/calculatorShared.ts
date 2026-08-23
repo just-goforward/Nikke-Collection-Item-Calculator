@@ -98,6 +98,8 @@ export type SolverResult = {
     solverBackend?: string;
     fallbackFrom?: string;
     fallbackReason?: string;
+    forecastId?: string;
+    forecastProfileId?: string;
     workerErrorCode?: string;
     memoryStrategy?: string;
     minEfMemoTier?: number;

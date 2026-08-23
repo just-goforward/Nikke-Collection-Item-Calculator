@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ACTIVE_SUPPLY_FORECAST_PROFILE } from "../shared/generated/supplyForecast.ts";
+import { ACTIVE_SUPPLY_FORECAST_BASE_PROFILE } from "../shared/generated/supplyForecast.ts";
 
 import {
   assertResearchReportCanBeWritten,
@@ -289,9 +289,9 @@ function runSolve(exports: SolverExports, scenario: Scenario) {
     scenario.stock[0],
     scenario.stock[1],
     scenario.stock[2],
-    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.blue,
-    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.purple,
-    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.yellow,
+    ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain.blue,
+    ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain.purple,
+    ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain.yellow,
     CONTRACT.horizonFactor,
     CONTRACT.normPower,
     CONTRACT.tolerance,

@@ -1,17 +1,18 @@
 import {
-  ACTIVE_SUPPLY_FORECAST_ID,
-  ACTIVE_SUPPLY_FORECAST_PROFILE,
-  ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
-} from "../../shared/generated/supplyForecast";
-import {
   isConvertStateNormalized as isConvertState,
   isTerminalNormalized as isTerminal,
 } from "../solver/domain";
 import type { CollectionState, Kit, Stock } from "../types";
+import { activeSupplyForecastContext } from "./rustCoreShared";
 import { loadRustMinEfSolver, loadRustPhase2Solver } from "./rustLoader";
 import type { RustProductInput } from "./rustProductInput";
 import type { RustActionLookup } from "./rustProductView";
-import type { RustMinEfPolicyHandle, RustMinEfSolver, RustPhase2ProductSolver } from "./rustTypes";
+import type {
+  RustMinEfPolicyHandle,
+  RustMinEfSolver,
+  RustPhase2ProductSolver,
+  SupplyForecastContext,
+} from "./rustTypes";
 
 let minEfSolverPromise: Promise<RustMinEfSolver> | null = null;
 let phase2SolverPromise: Promise<RustPhase2ProductSolver> | null = null;
@@ -54,20 +55,22 @@ export function minEfPolicyCacheKey({
   input,
   memoTier,
   normPower,
+  supplyForecast = activeSupplyForecastContext(),
   tolerance,
 }: {
   horizonFactor: number;
   input: RustProductInput;
   memoTier: number;
   normPower: number;
+  supplyForecast?: SupplyForecastContext;
   tolerance: number;
 }) {
   return [
-    ACTIVE_SUPPLY_FORECAST_ID,
-    ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
-    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.blue,
-    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.purple,
-    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.yellow,
+    supplyForecast.forecastId,
+    supplyForecast.forecastProfileId,
+    supplyForecast.expectedGain.blue,
+    supplyForecast.expectedGain.purple,
+    supplyForecast.expectedGain.yellow,
     input.start.grade,
     input.start.level,
     input.start.exp ?? 0,

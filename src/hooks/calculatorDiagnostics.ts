@@ -1,6 +1,6 @@
 import {
   ACTIVE_SUPPLY_FORECAST_ID,
-  ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
+  resolveActiveSupplyForecastProfile,
 } from "../../shared/generated/supplyForecast";
 import {
   bucketBlueShare,
@@ -124,12 +124,15 @@ export function makeSolverDiagnosticEvent(outcome: SolveOutcome, locale: StatsLo
   // This field is kept for diagnostic schema compatibility. It is no longer a user choice.
   const strategy: Strategy = "supply";
   const { solverBackend, solverPhase, solverVersion, stats } = diagnosticSolverIdentity(result);
+  const currentProfile = resolveActiveSupplyForecastProfile();
+  const forecastProfileId = diagnosticToken(stats.forecastProfileId, currentProfile.id);
+  const forecastId = diagnosticToken(stats.forecastId, ACTIVE_SUPPLY_FORECAST_ID);
 
   return {
     kind: "solver_diagnostic" as const,
     diagnosticVersion: SOLVER_DIAGNOSTIC_VERSION,
-    forecastId: ACTIVE_SUPPLY_FORECAST_ID,
-    forecastProfileId: ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
+    forecastId,
+    forecastProfileId,
     locale,
     executionKind,
     requestedBackend,
@@ -174,11 +177,12 @@ export function makeSolverRecoveryEvent(
   trace: SolverRecoveryTrace | undefined,
 ) {
   if (!input || !trace || !hasRecoverySignal(trace)) return null;
+  const activeProfile = resolveActiveSupplyForecastProfile();
   return {
     kind: "solver_recovery" as const,
     recoveryVersion: 1 as const,
     forecastId: ACTIVE_SUPPLY_FORECAST_ID,
-    forecastProfileId: ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
+    forecastProfileId: activeProfile.id,
     policyVersion: trace.policyVersion,
     requestedBackend: trace.requestedBackend,
     minEfExit: trace.minEfExit,

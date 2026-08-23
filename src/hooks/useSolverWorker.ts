@@ -2,7 +2,7 @@ import { useCallback, useRef } from "react";
 
 import {
   ACTIVE_SUPPLY_FORECAST_ID,
-  ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
+  resolveActiveSupplyForecastProfile,
 } from "../../shared/generated/supplyForecast";
 import type { WorkerSolverBackend } from "../../shared/workerProtocol";
 import { parallelValidationFromRuntime, solverBackendFromRuntime } from "../lib/solverRuntime";
@@ -29,11 +29,22 @@ import {
 const SOLVE_CACHE_LIMIT = 32;
 const VALIDATION_CACHE_LIMIT = 16;
 
+function activeForecastCachePrefix() {
+  const profile = resolveActiveSupplyForecastProfile();
+  return [
+    ACTIVE_SUPPLY_FORECAST_ID,
+    profile.id,
+    profile.expectedGain.blue,
+    profile.expectedGain.purple,
+    profile.expectedGain.yellow,
+  ].join("|");
+}
+
 export function makeSolveCacheKey(
   backend: ReturnType<typeof solverBackendFromRuntime>,
   input: SolverInput,
 ) {
-  return `${ACTIVE_SUPPLY_FORECAST_ID}|${ACTIVE_SUPPLY_FORECAST_PROFILE_ID}|${backend}|${inputKey(input)}`;
+  return `${activeForecastCachePrefix()}|${backend}|${inputKey(input)}`;
 }
 
 export function readSolveCache(
@@ -153,7 +164,7 @@ export function useSolverWorker(
     ) => {
       const seed = Math.max(0, Math.floor(Number(options.seed) || 20260505));
       const backend = options.backend ?? solverBackendFromRuntime();
-      const key = `${ACTIVE_SUPPLY_FORECAST_ID}|${ACTIVE_SUPPLY_FORECAST_PROFILE_ID}|${backend}|${inputKey(input)}|mc:${runs}|seed:${seed}`;
+      const key = `${activeForecastCachePrefix()}|${backend}|${inputKey(input)}|mc:${runs}|seed:${seed}`;
       const cached = readCache(validationCacheRef.current, key);
       if (!options.force && cached) return cached;
       const requestTask = parallelValidation ? requestValidationTask : requestSharedTask;

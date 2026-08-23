@@ -31,6 +31,9 @@ export const SUPPLY_FORECAST_REGISTRY =
 export const ACTIVE_SUPPLY_FORECAST_ID = SUPPLY_FORECAST_REGISTRY.activeForecastId;
 export const ACTIVE_SUPPLY_FORECAST = SUPPLY_FORECAST_REGISTRY.forecasts[0];
 
+export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE = ACTIVE_SUPPLY_FORECAST.profiles[0];
+export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID = ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.id;
+
 export type SupplyForecastId = (typeof SUPPLY_FORECAST_REGISTRY.forecasts)[number]["id"];
 export type SupplyForecastProfile = {
   id: string;
@@ -65,7 +68,10 @@ export function resolveSupplyForecastProfile(
   }) ?? null;
 }
 
-const activeProfile = resolveSupplyForecastProfile(ACTIVE_SUPPLY_FORECAST_ID);
-if (!activeProfile) throw new Error("The active supply forecast has no profile for the current time.");
-export const ACTIVE_SUPPLY_FORECAST_PROFILE = activeProfile;
-export const ACTIVE_SUPPLY_FORECAST_PROFILE_ID = activeProfile.id;
+export function resolveActiveSupplyForecastProfile(
+  timestampMs = Date.now(),
+): SupplyForecastProfile {
+  const profile = resolveSupplyForecastProfile(ACTIVE_SUPPLY_FORECAST_ID, timestampMs);
+  if (!profile) throw new Error("The active supply forecast has no profile for the requested time.");
+  return profile;
+}

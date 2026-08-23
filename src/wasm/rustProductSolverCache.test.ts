@@ -34,6 +34,24 @@ describe("rust product solver cache", () => {
     expect(readLastMinEfPolicy(key)).toBe(policy);
     expect(readLastMinEfPolicy(`${key}|different`)).toBeNull();
 
+    const differentForecastKey = minEfPolicyCacheKey({
+      horizonFactor: 0.75,
+      input: normalizeRustProductInput({
+        start: { grade: "SR", level: 1, exp: 0 },
+        stock: { blue: 10, purple: 10, yellow: 10 },
+      }),
+      memoTier: 21,
+      normPower: 3,
+      supplyForecast: {
+        forecastId: "supply-2026-09-01-v1",
+        forecastProfileId: "supply-2026-09-01-v1@day2",
+        expectedGain: { blue: 100, purple: 20, yellow: 5 },
+      },
+      tolerance: 0,
+    });
+    expect(differentForecastKey).not.toBe(key);
+    expect(readLastMinEfPolicy(differentForecastKey)).toBeNull();
+
     clearLastMinEfPolicy();
     expect(readLastMinEfPolicy(key)).toBeNull();
   });

@@ -1,7 +1,6 @@
 import {
   ACTIVE_SUPPLY_FORECAST_ID,
-  ACTIVE_SUPPLY_FORECAST_PROFILE,
-  ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
+  resolveActiveSupplyForecastProfile,
 } from "../../shared/generated/supplyForecast";
 import { EXPECTED_28_DAY_GAIN } from "../solver/domain";
 import type { Kit } from "../types";
@@ -43,10 +42,11 @@ export type Phase2BuildContext = {
 };
 
 export function activeSupplyForecastContext(): SupplyForecastContext {
+  const profile = resolveActiveSupplyForecastProfile();
   return {
     forecastId: ACTIVE_SUPPLY_FORECAST_ID,
-    forecastProfileId: ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
-    expectedGain: { ...ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain },
+    forecastProfileId: profile.id,
+    expectedGain: { ...profile.expectedGain },
   };
 }
 

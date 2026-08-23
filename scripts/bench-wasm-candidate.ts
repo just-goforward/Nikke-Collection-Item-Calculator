@@ -4,7 +4,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { arch, cpus, platform, release } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ACTIVE_SUPPLY_FORECAST_PROFILE } from "../shared/generated/supplyForecast.ts";
+import { ACTIVE_SUPPLY_FORECAST_BASE_PROFILE } from "../shared/generated/supplyForecast.ts";
 
 type BuildName = "base" | "candidate";
 type Outcome = "completed" | "memo_full" | "budget_exceeded" | "failure";
@@ -147,9 +147,9 @@ function runSolve(exports: MinEfExports, stateId: number, stock: Stock) {
     stock[0],
     stock[1],
     stock[2],
-    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.blue,
-    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.purple,
-    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.yellow,
+    ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain.blue,
+    ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain.purple,
+    ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain.yellow,
     0.75,
     3,
     0,
