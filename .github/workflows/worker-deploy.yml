@@ -138,6 +138,7 @@ jobs:
             vitest.cloudflare.config.ts \
             .github/workflows/worker-deploy.yml \
             scripts/check-d1-schema.ts \
+            scripts/stats-worker-health.ts \
             scripts/smoke-stats-worker.ts; then
             echo "No Worker-relevant changes since $base_sha."
             echo "should_deploy=false" >> "$GITHUB_OUTPUT"
