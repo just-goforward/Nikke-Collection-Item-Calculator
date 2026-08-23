@@ -1,4 +1,4 @@
-use crate::constants::{GAIN_B, GAIN_P, GAIN_Y, STRICT_EPSILON};
+use crate::constants::STRICT_EPSILON;
 
 #[inline]
 fn ratio(consume: f64, availability: f64) -> f64 {
@@ -32,6 +32,9 @@ pub(crate) fn availability_cost(
     sb: f64,
     sp: f64,
     sy: f64,
+    gain_b: f64,
+    gain_p: f64,
+    gain_y: f64,
     hf: f64,
     np: f64,
 ) -> f64 {
@@ -39,9 +42,9 @@ pub(crate) fn availability_cost(
         vb,
         vp,
         vy,
-        sb + hf * GAIN_B,
-        sp + hf * GAIN_P,
-        sy + hf * GAIN_Y,
+        sb + hf * gain_b,
+        sp + hf * gain_p,
+        sy + hf * gain_y,
         np,
         1.0 / np,
     )

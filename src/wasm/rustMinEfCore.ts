@@ -1,5 +1,11 @@
 import { clampMemoStockUses } from "../solver/domain";
-import { actionFromIndex, encodeState, readMinEfRootCandidates } from "./rustCoreShared";
+import {
+  actionFromIndex,
+  activeSupplyForecastContext,
+  encodeState,
+  readMinEfRootCandidates,
+  validateSupplyForecastContext,
+} from "./rustCoreShared";
 import { RUST_MIN_EF_MEMO_TIER } from "./rustProductConfig";
 import { assertRustStatusOk, RUST_STATUS_OK, RustSolveError } from "./rustStatus";
 import type {
@@ -9,6 +15,7 @@ import type {
   RustMinEfSolver,
   State,
   Stock,
+  SupplyForecastContext,
 } from "./rustTypes";
 
 const RUST_MIN_EF_NODE_BUDGET = 2_000_000;
@@ -17,6 +24,7 @@ type MinEfFactoryState = {
   buildGeneration: number;
   exports: RustCoreExports;
   memoTier: number;
+  supplyForecast: SupplyForecastContext;
 };
 
 export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver {
@@ -27,14 +35,22 @@ export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver
     buildGeneration: 0,
     exports,
     memoTier: RUST_MIN_EF_MEMO_TIER,
+    supplyForecast: activeSupplyForecastContext(),
   };
   return {
+    setSupplyForecast: (context) => setSupplyForecast(state, context),
     configureMemoTier: (tier) => configureMinEfMemoTier(state, tier),
     memoTier: () => state.memoTier,
     releaseMemo: () => releaseMemo(state),
     solveRootWithCandidates: (start, stock, horizonFactor = 0.75, normPower = 3, tolerance = 0) =>
       solveMinEfRootWithCandidates(state, start, stock, horizonFactor, normPower, tolerance),
   };
+}
+
+function setSupplyForecast(state: MinEfFactoryState, context: SupplyForecastContext) {
+  state.supplyForecast = validateSupplyForecastContext(context);
+  state.exports.releaseMinEfMemo?.();
+  state.buildGeneration += 1;
 }
 
 function configureMinEfMemoTier(state: MinEfFactoryState, tier: number) {
@@ -56,6 +72,7 @@ function runMinEf(
   horizonFactor: number,
   normPower: number,
   tolerance: number,
+  supplyForecast: SupplyForecastContext,
 ) {
   const stateId = encodeState(start.grade, start.level, start.exp ?? 0);
   // Raw pieces define availability-cost denominators.
@@ -65,6 +82,9 @@ function runMinEf(
     stock.blue | 0,
     stock.purple | 0,
     stock.yellow | 0,
+    supplyForecast.expectedGain.blue,
+    supplyForecast.expectedGain.purple,
+    supplyForecast.expectedGain.yellow,
     horizonFactor,
     normPower,
     tolerance,
@@ -80,7 +100,7 @@ function solveMinEfRootWithCandidates(
   tolerance: number,
 ): RustMinEfPolicyHandle {
   const exports = state.exports;
-  runMinEf(exports, start, stock, horizonFactor, normPower, tolerance);
+  runMinEf(exports, start, stock, horizonFactor, normPower, tolerance, state.supplyForecast);
   assertMinEfRootStatusOk(exports);
   state.buildGeneration += 1;
   const generation = state.buildGeneration;

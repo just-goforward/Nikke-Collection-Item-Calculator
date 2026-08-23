@@ -3,12 +3,14 @@
   "entry": [
     "src/worker.ts",
     "cloudflare/src/worker.ts",
+    "forecast-collector/src/worker.ts",
     "scripts/**/*.ts",
     "benchmarks/**/*.ts"
   ],
   "project": [
     "src/**/*.{ts,tsx,css}",
     "cloudflare/src/**/*.ts",
+    "forecast-collector/src/**/*.ts",
     "scripts/**/*.ts",
     "benchmarks/**/*.ts",
     "e2e/**/*.ts"

@@ -1,4 +1,8 @@
-import { ACTIVE_SUPPLY_FORECAST_ID } from "../../shared/generated/supplyForecast";
+import {
+  ACTIVE_SUPPLY_FORECAST_ID,
+  ACTIVE_SUPPLY_FORECAST_PROFILE,
+  ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
+} from "../../shared/generated/supplyForecast";
 import { EXPECTED_28_DAY_GAIN } from "../solver/domain";
 import type { Kit } from "../types";
 import { assertRustStatusOk, RustSolveError } from "./rustStatus";
@@ -9,6 +13,7 @@ import type {
   RustPhase2Root,
   State,
   Stock,
+  SupplyForecastContext,
 } from "./rustTypes";
 
 export const RUST_KITS: Kit[] = ["blue", "purple", "yellow"];
@@ -28,12 +33,39 @@ export function encodeState(grade: string, level: number, exp = 0): number {
 
 export type Phase2BuildContext = {
   forecastId: string;
+  forecastProfileId: string;
+  expectedGain: Stock;
   stateId: number;
   stock: Stock;
   horizonFactor: number;
   normPower: number;
   tolerance: number;
 };
+
+export function activeSupplyForecastContext(): SupplyForecastContext {
+  return {
+    forecastId: ACTIVE_SUPPLY_FORECAST_ID,
+    forecastProfileId: ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
+    expectedGain: { ...ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain },
+  };
+}
+
+export function validateSupplyForecastContext(context: SupplyForecastContext) {
+  for (const kit of RUST_KITS) {
+    const gain = context.expectedGain[kit];
+    if (!Number.isFinite(gain) || gain < 0) {
+      throw new RangeError("Supply forecast gains must be non-negative finite numbers.");
+    }
+  }
+  if (!context.forecastId || !context.forecastProfileId) {
+    throw new RangeError("Supply forecast IDs must not be empty.");
+  }
+  return {
+    forecastId: context.forecastId,
+    forecastProfileId: context.forecastProfileId,
+    expectedGain: { ...context.expectedGain },
+  };
+}
 
 export function actionFromIndex(index: number): Kit | null {
   return index < 0 ? null : RUST_KITS[index] || null;
@@ -226,9 +258,10 @@ export function phase2BuildContext(
   horizonFactor: number,
   normPower: number,
   tolerance: number,
+  supplyForecast = activeSupplyForecastContext(),
 ): Phase2BuildContext {
   return {
-    forecastId: ACTIVE_SUPPLY_FORECAST_ID,
+    ...validateSupplyForecastContext(supplyForecast),
     stateId: encodeState(start.grade, start.level, start.exp ?? 0),
     stock: {
       blue: stock.blue | 0,
@@ -250,6 +283,10 @@ export function phase2ContextMatches(
   const compareTolerance = options.compareTolerance ?? true;
   return (
     actual.forecastId === expected.forecastId &&
+    actual.forecastProfileId === expected.forecastProfileId &&
+    nearlySame(actual.expectedGain.blue, expected.expectedGain.blue) &&
+    nearlySame(actual.expectedGain.purple, expected.expectedGain.purple) &&
+    nearlySame(actual.expectedGain.yellow, expected.expectedGain.yellow) &&
     actual.stateId === expected.stateId &&
     actual.stock.blue === expected.stock.blue &&
     actual.stock.purple === expected.stock.purple &&
@@ -271,6 +308,7 @@ export function solvePhase2Slot(
   horizonFactor: number,
   normPower: number,
   tolerance: number,
+  supplyForecast = activeSupplyForecastContext(),
 ) {
   const solveCore = requireExport(exports, "solveCore");
   const stateId = encodeState(state.grade, state.level, state.exp ?? 0);
@@ -281,6 +319,9 @@ export function solvePhase2Slot(
     stockPieces.blue | 0,
     stockPieces.purple | 0,
     stockPieces.yellow | 0,
+    supplyForecast.expectedGain.blue,
+    supplyForecast.expectedGain.purple,
+    supplyForecast.expectedGain.yellow,
     horizonFactor,
     normPower,
     tolerance,

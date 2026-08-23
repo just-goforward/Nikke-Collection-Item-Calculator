@@ -63,8 +63,40 @@ describe("rust phase2 policy wrapper", () => {
       { blue: 999_999, purple: 999_999, yellow: 999_999 },
     );
 
-    expect(exports.solveCore).toHaveBeenCalledWith(510, 2_211, 891, 451, 0.75, 3, 0);
+    expect(exports.solveCore).toHaveBeenCalledWith(
+      510,
+      2_211,
+      891,
+      451,
+      473.912,
+      55.808,
+      24.736,
+      0.75,
+      3,
+      0,
+    );
     expect(exports.policyActionAt).toHaveBeenCalledWith(510, 220, 88, 44);
+  });
+
+  it("passes a configured forecast gain vector and invalidates the previous policy", () => {
+    const exports = makeExports();
+    const solver = createRustPhase2Solver(exports);
+    const previous = solver.buildPolicy(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 10, purple: 20, yellow: 30 },
+    );
+
+    solver.setSupplyForecast({
+      forecastId: "supply-2026-09-01-v1",
+      forecastProfileId: "supply-2026-09-01-v1@day1",
+      expectedGain: { blue: 100, purple: 20, yellow: 5 },
+    });
+    solver.buildPolicy({ grade: "SR", level: 1, exp: 0 }, { blue: 10, purple: 20, yellow: 30 });
+
+    expect(exports.solveCore).toHaveBeenLastCalledWith(510, 10, 20, 30, 100, 20, 5, 0.75, 3, 0);
+    expect(() =>
+      previous.actionAt({ grade: "SR", level: 1, exp: 0 }, { blue: 1, purple: 2, yellow: 3 }),
+    ).toThrow("stale");
   });
 
   it("invalidates phase2 policy handles after a newer policy build", () => {
@@ -286,7 +318,18 @@ describe("rust phase2 policy wrapper", () => {
     );
 
     expect(result).toEqual({ expectedCost: 0.321, nodeCount: 24 });
-    expect(exports.cvarSetup).toHaveBeenCalledWith(510, 61, 121, 901, 0.75, 3, 0);
+    expect(exports.cvarSetup).toHaveBeenCalledWith(
+      510,
+      61,
+      121,
+      901,
+      473.912,
+      55.808,
+      24.736,
+      0.75,
+      3,
+      0,
+    );
     expect(exports.cvarFollowMeanAfterFirstAction).toHaveBeenCalledWith(1);
   });
 });

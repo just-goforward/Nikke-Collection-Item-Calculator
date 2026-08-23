@@ -10,7 +10,10 @@ import {
 import { readHpStudyReport, writeHpStudyReport } from "./min-ef-hp-report.ts";
 import { envValue, parseList, parsePositiveInteger } from "./runner-utils.ts";
 
-const REPORT_FILE = new URL("./results/min-ef-hp-study.json", import.meta.url);
+const REPORT_FILE = new URL(
+  envValue("HP_STUDY_REPORT_FILE") ?? "min-ef-hp-study.json",
+  new URL("./results/", import.meta.url),
+);
 const WASM_URL = new URL("../public/solver_rs.wasm", import.meta.url);
 const SCENARIO_IDS = ["SR5-blue30", "R10-balanced300"] as const;
 const ABBA = ["A", "B", "B", "A"] as const;
@@ -85,6 +88,7 @@ try {
               current,
               scenario,
               policy.createHpLadderSession,
+              report.options.supplyForecast,
             );
             if (measurement.status === "failure") {
               failure = `${current.id}:${measurement.error}`;
@@ -196,11 +200,12 @@ async function measurePair(
   candidate: import("./min-ef-hp-model").HpCandidate,
   scenario: import("./scenarios/fixed-grid").SolverScenario,
   factory: typeof import("./min-ef-hp-policy").createHpLadderSession,
+  supplyForecast: import("../src/wasm/rustTypes").SupplyForecastContext,
 ): Promise<
   { status: "completed"; coldMs: number; warmMs: number } | { status: "failure"; error: string }
 > {
   const [minEfInstance, phase2Instance] = await Promise.all([instantiate(wasm), instantiate(wasm)]);
-  const session = factory(minEfInstance, phase2Instance, candidate);
+  const session = factory(minEfInstance, phase2Instance, candidate, supplyForecast);
   try {
     const input = { start: scenario.start, stock: scenario.stock, strategy: "supply" as const };
     const cold = session.screenRoot(input, scenario.id);

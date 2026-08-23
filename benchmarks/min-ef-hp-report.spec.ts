@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
-
+import { activeSupplyForecastContext } from "../src/wasm/rustCoreShared";
 import { HP_BASELINE_ID } from "./min-ef-hp-model";
 import { type HpStudyReport, writeHpStudyReport } from "./min-ef-hp-report";
 
@@ -12,7 +12,7 @@ it("does not rewrite an unchanged H/p report or churn its generated timestamp", 
   const url = pathToFileURL(join(directory, "report.json"));
   const report = {
     kind: "min-ef-hp-study",
-    version: 1,
+    version: 2,
     generatedAt: "initial",
     options: {
       candidates: [],
@@ -22,6 +22,7 @@ it("does not rewrite an unchanged H/p report or churn its generated timestamp", 
       minEfMemoTier: 21,
       phase2MemoTier: 22,
       exactSliceBudgetMs: 1,
+      supplyForecast: activeSupplyForecastContext(),
     },
     measurementProtocol: {},
     decisionPolicy: {},

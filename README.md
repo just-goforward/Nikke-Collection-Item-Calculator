@@ -63,6 +63,7 @@ npm run report:bundle
 
 - [전체 연구 문서 색인](./docs/research/README.md)
 - [28일 기준 관리 키트 기대 획득량](./docs/research/kit-expected-gain.ko.md)
+- [일정 기반 키트 수급 Forecast 계약](./docs/research/schedule-supply-forecast.ko.md)
 - [min-E[f] H/p 공동 최적화 연구](./docs/research/min-ef-hp-study-findings.ko.md)
 - [Solver 정책 품질 연구](./docs/research/solver-policy-quality-findings.ko.md)
 - [Rust phase2 방법론 연구](./docs/research/phase2-methodology-findings.ko.md)

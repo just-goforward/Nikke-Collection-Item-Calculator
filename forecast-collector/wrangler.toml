@@ -1,0 +1,64 @@
+name = "collection-kit-forecast-collector"
+main = "src/worker.ts"
+compatibility_date = "2026-08-14"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[triggers]
+crons = ["*/3 * * * *"]
+
+[browser]
+binding = "BROWSER"
+
+[[ratelimits]]
+name = "ADMIN_RATE_LIMITER"
+namespace_id = "419001"
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60
+
+[[d1_databases]]
+binding = "FORECAST_DB"
+database_name = "collection-kit-forecast-collector"
+database_id = "2d58bcc0-a7b5-43f3-8f42-34e1bf1ff853"
+
+[vars]
+ENVIRONMENT = "production"
+DEPLOY_SHA = "local"
+X_AUTOMATION_ENABLED = "true"
+
+[secrets]
+required = ["ADMIN_TOKEN"]
+
+[env.staging]
+name = "collection-kit-forecast-collector-staging"
+workers_dev = true
+
+[env.staging.browser]
+binding = "BROWSER"
+
+[[env.staging.ratelimits]]
+name = "ADMIN_RATE_LIMITER"
+namespace_id = "419002"
+
+  [env.staging.ratelimits.simple]
+  limit = 60
+  period = 60
+
+[[env.staging.d1_databases]]
+binding = "FORECAST_DB"
+database_name = "collection-kit-forecast-collector-staging"
+database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+DEPLOY_SHA = "local"
+X_AUTOMATION_ENABLED = "true"
+
+[env.staging.secrets]
+required = ["ADMIN_TOKEN"]

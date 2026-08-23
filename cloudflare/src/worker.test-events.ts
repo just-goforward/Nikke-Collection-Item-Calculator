@@ -1,4 +1,7 @@
-import { ACTIVE_SUPPLY_FORECAST_ID } from "../../shared/generated/supplyForecast";
+import {
+  ACTIVE_SUPPLY_FORECAST_ID,
+  ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
+} from "../../shared/generated/supplyForecast";
 
 export const TEST_TURNSTILE_TOKEN = "valid-turnstile-token-for-tests";
 
@@ -31,8 +34,9 @@ export function solverDiagnosticEvent(eventId: string) {
     turnstileToken: TEST_TURNSTILE_TOKEN,
     event: {
       kind: "solver_diagnostic",
-      diagnosticVersion: 7,
+      diagnosticVersion: 8,
       forecastId: ACTIVE_SUPPLY_FORECAST_ID,
+      forecastProfileId: ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
       locale: "ko",
       solverVersion: "phase1",
       solverPhase: "phase1",
@@ -78,6 +82,7 @@ export function solverRecoveryEvent(eventId: string) {
       kind: "solver_recovery",
       recoveryVersion: 1,
       forecastId: ACTIVE_SUPPLY_FORECAST_ID,
+      forecastProfileId: ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
       policyVersion: "ladder_v1",
       requestedBackend: "rust-min-ef",
       minEfExit: "memo_full",

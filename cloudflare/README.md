@@ -207,18 +207,18 @@ Returns all-time aggregate statistics for display on the site. This public respo
 `GET /api/health`
 
 Checks every D1 column and composite primary-key order required by the deployed Worker's inserts and
-upserts. It returns `schemaContractVersion: 3` on success and fails closed with
+upserts. It returns `schemaContractVersion: 4` on success and fails closed with
 `503 database_schema_not_ready` when the Worker code and bound database are incompatible. This
 endpoint validates the current write contract, not column types, constraints, secondary indexes, or
 the complete historical migration ledger.
 
 `GET /api/admin/solver-diagnostics`
 
-Returns private solver diagnostic aggregates grouped by `forecastId`, `solverVersion`, and
-`solverPhase`. The response includes `supplyForecastRegistry`, so every stored `forecastId` can be
-resolved to the exact 28-day blue, purple, and yellow expected gains used by that calculation.
-The D1 aggregate rows deliberately store only the ID, not three duplicate gain values. Historical
-registry entries in `shared/supplyForecasts.json` are append-only and must not be edited or removed.
+Returns private solver diagnostic aggregates grouped by `forecastId`, `forecastProfileId`,
+`solverVersion`, and `solverPhase`. The response includes `supplyForecastRegistry`, so the two IDs
+resolve to the exact blue, purple, and yellow gain vector used by that calculation. The D1 aggregate
+rows deliberately store IDs rather than three duplicate gain values. Historical registry entries
+and profiles in `shared/supplyForecasts.json` are append-only and must not be edited or removed.
 This endpoint is not used by the public site. When `ADMIN_TOKEN` is configured, it requires an
 `Authorization: Bearer <ADMIN_TOKEN>` header; without the secret, the endpoint returns 404.
 Optional query parameter: `days=30` (1-365). The response also includes recent

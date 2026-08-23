@@ -1,10 +1,22 @@
 import { readFile } from "node:fs/promises";
 import { createServer } from "vite";
+import {
+  activeSupplyForecastContext,
+  validateSupplyForecastContext,
+} from "../src/wasm/rustCoreShared.ts";
+import type { SupplyForecastContext } from "../src/wasm/rustTypes.ts";
 
 import { readHpStudyReport, writeHpStudyReport } from "./min-ef-hp-report.ts";
+import { envValue } from "./runner-utils.ts";
 
-const REPORT_FILE = new URL("./results/min-ef-hp-study.json", import.meta.url);
+const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
+const REPORT_FILE = new URL(
+  envValue("HP_STUDY_REPORT_FILE") ?? "min-ef-hp-study.json",
+  RESULTS_DIRECTORY,
+);
 const WASM_URL = new URL("../public/solver_rs.wasm", import.meta.url);
+const report = await readHpStudyReport(REPORT_FILE);
+const supplyForecast = resolveSupplyForecast(report?.options.supplyForecast);
 const wasm = await readFile(WASM_URL);
 const server = await createServer({
   appType: "custom",
@@ -42,12 +54,18 @@ try {
     stock: { blue: 101, purple: 109, yellow: 119 },
     strategy: "supply" as const,
   };
-  const minEfSession = await createSession(wasm, baseline, hpPolicy.createHpLadderSession);
+  const minEfSession = await createSession(
+    wasm,
+    baseline,
+    hpPolicy.createHpLadderSession,
+    supplyForecast,
+  );
   const minEfReferenceInstance = await instantiate(wasm);
   const minEfReference = rustMinEf.createRustMinEfSolver(
     rustLoader.rustCoreExportsFromInstance(minEfReferenceInstance),
   );
   minEfReference.configureMemoTier(21);
+  minEfReference.setSupplyForecast(supplyForecast);
   const minEfScreen = minEfSession.screenRoot(minEfInput, "raw-remainder");
   const minEfRoot = minEfReference.solveRootWithCandidates(
     minEfInput.start,
@@ -69,12 +87,18 @@ try {
     stock: { blue: 300, purple: 300, yellow: 300 },
     strategy: "supply" as const,
   };
-  const phase2Session = await createSession(wasm, baseline, hpPolicy.createHpLadderSession);
+  const phase2Session = await createSession(
+    wasm,
+    baseline,
+    hpPolicy.createHpLadderSession,
+    supplyForecast,
+  );
   const phase2ReferenceInstance = await instantiate(wasm);
   const phase2Reference = rustPhase2.createRustPhase2Solver(
     rustLoader.rustCoreExportsFromInstance(phase2ReferenceInstance),
   );
   phase2Reference.configureMemoTier(22);
+  phase2Reference.setSupplyForecast(supplyForecast);
   const phase2Screen = phase2Session.screenRoot(phase2Input, "phase2-fallback");
   const phase2Policy = phase2Reference.buildPolicy(
     phase2Input.start,
@@ -102,7 +126,12 @@ try {
   phase2Session.release();
   phase2Reference.releaseMemo();
 
-  const flowSession = await createSession(wasm, baseline, hpPolicy.createHpLadderSession);
+  const flowSession = await createSession(
+    wasm,
+    baseline,
+    hpPolicy.createHpLadderSession,
+    supplyForecast,
+  );
   const conversion = evaluator.evaluateExactInteractiveReplan(
     {
       id: "R15-conversion-baseline",
@@ -123,7 +152,6 @@ try {
   notes.push("exact interactive evaluation preserves R15 to SR5 conversion");
   flowSession.release();
 
-  const report = await readHpStudyReport(REPORT_FILE);
   if (report) {
     report.baselineVerification = { candidateId: baseline.id, status: "passed", notes };
     await writeHpStudyReport(REPORT_FILE, report);
@@ -137,12 +165,24 @@ async function createSession(
   bytes: Uint8Array,
   candidate: import("./min-ef-hp-model").HpCandidate,
   factory: typeof import("./min-ef-hp-policy").createHpLadderSession,
+  supplyForecast: SupplyForecastContext,
 ) {
   const [minEfInstance, phase2Instance] = await Promise.all([
     instantiate(bytes),
     instantiate(bytes),
   ]);
-  return factory(minEfInstance, phase2Instance, candidate);
+  return factory(minEfInstance, phase2Instance, candidate, supplyForecast);
+}
+
+function resolveSupplyForecast(stored: SupplyForecastContext | undefined): SupplyForecastContext {
+  const value = envValue("HP_STUDY_SUPPLY_CONTEXT");
+  const context = value
+    ? validateSupplyForecastContext(JSON.parse(value) as SupplyForecastContext)
+    : (stored ?? activeSupplyForecastContext());
+  if (stored && JSON.stringify(stored) !== JSON.stringify(context)) {
+    throw new Error("HP_STUDY_SUPPLY_CONTEXT does not match the stored study contract.");
+  }
+  return context;
 }
 
 async function instantiate(bytes: Uint8Array): Promise<WebAssembly.Instance> {

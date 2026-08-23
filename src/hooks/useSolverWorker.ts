@@ -1,6 +1,9 @@
 import { useCallback, useRef } from "react";
 
-import { ACTIVE_SUPPLY_FORECAST_ID } from "../../shared/generated/supplyForecast";
+import {
+  ACTIVE_SUPPLY_FORECAST_ID,
+  ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
+} from "../../shared/generated/supplyForecast";
 import type { WorkerSolverBackend } from "../../shared/workerProtocol";
 import { parallelValidationFromRuntime, solverBackendFromRuntime } from "../lib/solverRuntime";
 import type { ProgressEvent, SolverInput } from "../types";
@@ -30,7 +33,7 @@ export function makeSolveCacheKey(
   backend: ReturnType<typeof solverBackendFromRuntime>,
   input: SolverInput,
 ) {
-  return `${ACTIVE_SUPPLY_FORECAST_ID}|${backend}|${inputKey(input)}`;
+  return `${ACTIVE_SUPPLY_FORECAST_ID}|${ACTIVE_SUPPLY_FORECAST_PROFILE_ID}|${backend}|${inputKey(input)}`;
 }
 
 export function readSolveCache(
@@ -150,7 +153,7 @@ export function useSolverWorker(
     ) => {
       const seed = Math.max(0, Math.floor(Number(options.seed) || 20260505));
       const backend = options.backend ?? solverBackendFromRuntime();
-      const key = `${ACTIVE_SUPPLY_FORECAST_ID}|${backend}|${inputKey(input)}|mc:${runs}|seed:${seed}`;
+      const key = `${ACTIVE_SUPPLY_FORECAST_ID}|${ACTIVE_SUPPLY_FORECAST_PROFILE_ID}|${backend}|${inputKey(input)}|mc:${runs}|seed:${seed}`;
       const cached = readCache(validationCacheRef.current, key);
       if (!options.force && cached) return cached;
       const requestTask = parallelValidation ? requestValidationTask : requestSharedTask;

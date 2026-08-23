@@ -11,9 +11,11 @@ import {
 } from "./min-ef-hp-report.ts";
 import { envValue, parseList, parsePositiveInteger } from "./runner-utils.ts";
 
-const REPORT_FILE = new URL("./results/min-ef-hp-study.json", import.meta.url);
+const REPORT_FILE = new URL(
+  envValue("HP_STUDY_REPORT_FILE") ?? "min-ef-hp-study.json",
+  new URL("./results/", import.meta.url),
+);
 const SNAPSHOT_FILE = new URL("./results/min-ef-hp-d1-snapshot.json", import.meta.url);
-const CHECKPOINT_DIRECTORY = new URL("./results/min-ef-hp-d1-checkpoints/", import.meta.url);
 const WASM_URL = new URL("../public/solver_rs.wasm", import.meta.url);
 const PROFILES = [
   "finite_low",
@@ -41,6 +43,10 @@ try {
   if (report.tailRisk.status !== "completed") {
     throw new Error("Complete held-out H/p tail confirmation before D1 robustness evaluation.");
   }
+  const checkpointDirectory = new URL(
+    `./min-ef-hp-d1-checkpoints/${safePathSegment(report.options.supplyForecast.forecastProfileId)}/`,
+    new URL("./results/", import.meta.url),
+  );
   const snapshot = JSON.parse(
     await readFile(SNAPSHOT_FILE, "utf8"),
   ) as import("./min-ef-hp-d1").D1HpSnapshot;
@@ -81,10 +87,15 @@ try {
         );
         if (!shouldAdvanceExactEvaluation(existing?.evaluation)) continue;
         const scenario = d1.replayD1Stratum(row, profile);
-        const session = await createSession(wasm, candidate, policy.createHpLadderSession);
+        const session = await createSession(
+          wasm,
+          candidate,
+          policy.createHpLadderSession,
+          report.options.supplyForecast,
+        );
         const checkpointUrl = new URL(
           `${candidateId}/${stratumKey}-${profile}.json`,
-          CHECKPOINT_DIRECTORY,
+          checkpointDirectory,
         );
         try {
           const checkpoint = await readExactCheckpoint(checkpointUrl);
@@ -330,9 +341,10 @@ async function createSession(
   wasm: Uint8Array,
   candidate: import("./min-ef-hp-model").HpCandidate,
   factory: typeof import("./min-ef-hp-policy").createHpLadderSession,
+  supplyForecast: import("../src/wasm/rustTypes").SupplyForecastContext,
 ) {
   const [minEfInstance, phase2Instance] = await Promise.all([instantiate(wasm), instantiate(wasm)]);
-  return factory(minEfInstance, phase2Instance, candidate);
+  return factory(minEfInstance, phase2Instance, candidate, supplyForecast);
 }
 
 async function instantiate(wasm: Uint8Array): Promise<WebAssembly.Instance> {
@@ -340,4 +352,12 @@ async function instantiate(wasm: Uint8Array): Promise<WebAssembly.Instance> {
     | WebAssembly.Instance
     | { instance: WebAssembly.Instance };
   return result instanceof WebAssembly.Instance ? result : result.instance;
+}
+
+function safePathSegment(value: string): string {
+  const safe = value.replaceAll(/[^A-Za-z0-9._-]/g, "_");
+  if (!safe || safe === "." || safe === "..") {
+    throw new Error("Supply forecast profile ID cannot be used as a checkpoint namespace.");
+  }
+  return safe;
 }

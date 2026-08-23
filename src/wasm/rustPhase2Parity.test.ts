@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { EXPECTED_28_DAY_GAIN } from "../solver/domain";
 import { solveWithResearchCostModel } from "../solver/solve";
 import { solveRustMinEfProduct } from "./rustMinEfSolver";
 import { solveRustPhase2 } from "./rustPhase2ProductSolver";
@@ -77,7 +78,18 @@ describe("rust phase2 wasm parity", () => {
     }
 
     exports.configureMinEfMemo(21);
-    exports.solveMinEf(0, 60, 120, 900, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+    exports.solveMinEf(
+      0,
+      60,
+      120,
+      900,
+      EXPECTED_28_DAY_GAIN.blue,
+      EXPECTED_28_DAY_GAIN.purple,
+      EXPECTED_28_DAY_GAIN.yellow,
+      HORIZON_FACTOR,
+      NORM_POWER,
+      TOLERANCE,
+    );
 
     expect(exports.getSolveStatus?.()).toBe(0);
     expect(["blue", "purple", "yellow"][exports.minEfAction()]).toBe("blue");
@@ -101,7 +113,18 @@ describe("rust phase2 wasm parity", () => {
     // objective parameters do not alter the expanded state set, but are fixed for auditability.
     // Verify the dominance-cap semantic fixture above before accepting any change to this number.
     exports.configureMinEfMemo(21);
-    exports.solveMinEf(30, 100, 100, 100, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+    exports.solveMinEf(
+      30,
+      100,
+      100,
+      100,
+      EXPECTED_28_DAY_GAIN.blue,
+      EXPECTED_28_DAY_GAIN.purple,
+      EXPECTED_28_DAY_GAIN.yellow,
+      HORIZON_FACTOR,
+      NORM_POWER,
+      TOLERANCE,
+    );
 
     expect(exports.getSolveStatus?.()).toBe(0);
     expect(exports.minEfNodeCount()).toBe(218_278);
@@ -171,7 +194,18 @@ describe("rust phase2 wasm parity", () => {
     }
 
     const run = (blue: number, purple: number, yellow: number) => {
-      solveCore(0, 2_260, 890, 450, HORIZON_FACTOR, NORM_POWER, TOLERANCE);
+      solveCore(
+        0,
+        2_260,
+        890,
+        450,
+        EXPECTED_28_DAY_GAIN.blue,
+        EXPECTED_28_DAY_GAIN.purple,
+        EXPECTED_28_DAY_GAIN.yellow,
+        HORIZON_FACTOR,
+        NORM_POWER,
+        TOLERANCE,
+      );
       expect(exports.getSolveStatus?.()).toBe(0);
       momentVector(0, blue, purple, yellow, 0);
       expect(exports.getSolveStatus?.()).toBe(0);

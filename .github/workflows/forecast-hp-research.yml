@@ -1,0 +1,212 @@
+name: Start Dynamic Forecast H-p Research
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "shared/supplyForecasts.json"
+      - "shared/generated/supplyForecast.ts"
+  workflow_run:
+    workflows: ["Promote Forecast Collector"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      records_per_profile:
+        description: Maximum new root or exact records per profile
+        required: false
+        default: "64"
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: dynamic-forecast-hp-research
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') &&
+      vars.FORECAST_COLLECTOR_URL != ''
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.contract.outputs.enabled }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      wasm-key: ${{ steps.wasm.outputs.key }}
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify production collector and inactive approved forecast
+        id: contract
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --max-time 10 \
+            "$FORECAST_COLLECTOR_URL/health" > "$RUNNER_TEMP/forecast-health.json"
+          node -e 'const x=require(process.argv[1]);if(x.status!=="ok")process.exit(1)' \
+            "$RUNNER_TEMP/forecast-health.json"
+          node --input-type=module - <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const registry = JSON.parse(readFileSync("shared/supplyForecasts.json", "utf8"));
+          const enabled = registry.version === 2 &&
+            registry.approvedForecastId !== registry.activeForecastId;
+          appendFileSync(process.env.GITHUB_OUTPUT, `enabled=${enabled}\n`);
+          NODE
+
+      - name: Build and verify research WASM
+        if: steps.contract.outputs.enabled == 'true'
+        run: |
+          npm run build:solver-wasm
+          npx vitest run benchmarks/dynamic-hp-profile-matrix.spec.ts benchmarks/min-ef-hp-report.spec.ts \
+            --config vitest.benchmark.config.ts --configLoader runner
+
+      - name: Generate profile matrix
+        if: steps.contract.outputs.enabled == 'true'
+        id: matrix
+        shell: bash
+        run: |
+          npm run bench:min-ef-hp:matrix
+          node --input-type=module - <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const rows = JSON.parse(readFileSync("benchmarks/results/dynamic-hp-profile-matrix.json", "utf8"));
+          appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({profile: rows})}\n`);
+          NODE
+
+      - name: Identify WASM contract
+        if: steps.contract.outputs.enabled == 'true'
+        id: wasm
+        shell: bash
+        run: echo "key=$(sha256sum public/solver_rs.wasm | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload verified WASM
+        if: steps.contract.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dynamic-hp-wasm-${{ github.run_id }}
+          path: public/solver_rs.wasm
+          if-no-files-found: error
+          retention-days: 7
+
+  advance:
+    needs: prepare
+    if: needs.prepare.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      HP_STUDY_REPORT_FILE: dynamic/${{ matrix.profile.id }}.json
+      HP_STUDY_SUPPLY_CONTEXT: ${{ toJSON(matrix.profile.context) }}
+      HP_STUDY_MAX_NEW_RECORDS: ${{ inputs.records_per_profile || '64' }}
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download verified WASM
+        uses: actions/download-artifact@v8
+        with:
+          name: dynamic-hp-wasm-${{ github.run_id }}
+          path: public
+
+      - name: Restore resumable profile state
+        id: restore
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            benchmarks/results/dynamic/${{ matrix.profile.id }}.json
+            benchmarks/results/min-ef-hp-checkpoints/${{ matrix.profile.context.forecastProfileId }}
+          key: dynamic-hp-${{ needs.prepare.outputs.wasm-key }}-${{ matrix.profile.id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dynamic-hp-${{ needs.prepare.outputs.wasm-key }}-${{ matrix.profile.id }}-
+
+      - name: Initialize one record when needed
+        shell: bash
+        run: |
+          if [[ ! -f "benchmarks/results/$HP_STUDY_REPORT_FILE" ]]; then
+            HP_STUDY_STAGE=screen HP_STUDY_MAX_NEW_RECORDS=1 npm run bench:min-ef-hp
+          fi
+
+      - name: Verify baseline under this gain profile
+        run: npm run bench:min-ef-hp:verify-baseline
+
+      - name: Advance bounded research slice
+        shell: bash
+        run: |
+          stage=$(node -e 'const r=require(process.argv[1]);process.stdout.write(r.screening.complete?"exact":"screen")' \
+            "benchmarks/results/$HP_STUDY_REPORT_FILE")
+          if [[ "$stage" == "exact" ]]; then
+            complete=$(node -e 'const r=require(process.argv[1]);process.stdout.write(String(r.exact.complete))' \
+              "benchmarks/results/$HP_STUDY_REPORT_FILE")
+            if [[ "$complete" == "true" ]]; then
+              echo "Exact gate is already complete for this profile."
+              exit 0
+            fi
+          fi
+          HP_STUDY_STAGE="$stage" npm run bench:min-ef-hp
+
+      - name: Validate report contract
+        shell: bash
+        run: |
+          node --input-type=module - <<'NODE'
+          import { readFileSync } from "node:fs";
+          const report = JSON.parse(readFileSync(`benchmarks/results/${process.env.HP_STUDY_REPORT_FILE}`, "utf8"));
+          const expected = JSON.parse(process.env.HP_STUDY_SUPPLY_CONTEXT);
+          if (report.kind !== "min-ef-hp-study" || report.version !== 2) throw new Error("Invalid report contract");
+          if (JSON.stringify(report.options.supplyForecast) !== JSON.stringify(expected)) throw new Error("Forecast context drift");
+          if (report.decisionScope.productAdoptionAuthorized !== false) throw new Error("Research report authorized product adoption");
+          console.log(JSON.stringify({
+            profile: expected.forecastProfileId,
+            screening: report.screening.records.length,
+            screeningComplete: report.screening.complete,
+            exact: report.exact.records.length,
+            exactComplete: report.exact.complete,
+          }));
+          NODE
+
+      - name: Save resumable profile state
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            benchmarks/results/dynamic/${{ matrix.profile.id }}.json
+            benchmarks/results/min-ef-hp-checkpoints/${{ matrix.profile.context.forecastProfileId }}
+          key: dynamic-hp-${{ needs.prepare.outputs.wasm-key }}-${{ matrix.profile.id }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Upload profile report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dynamic-hp-${{ matrix.profile.id }}-${{ github.run_id }}
+          path: benchmarks/results/dynamic/${{ matrix.profile.id }}.json
+          if-no-files-found: error
+          retention-days: 30

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
 
+import { EXPECTED_28_DAY_GAIN } from "../src/solver/domain";
 import type { RustPrioritizedSparsePiResult } from "./rust-prioritized-sparse-pi";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
@@ -144,6 +145,9 @@ try {
         r10.stock.blue,
         r10.stock.purple,
         r10.stock.yellow,
+        EXPECTED_28_DAY_GAIN.blue,
+        EXPECTED_28_DAY_GAIN.purple,
+        EXPECTED_28_DAY_GAIN.yellow,
         0.75,
         3,
         0,

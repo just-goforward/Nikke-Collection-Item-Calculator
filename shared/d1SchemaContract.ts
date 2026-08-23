@@ -1,4 +1,4 @@
-export const D1_SCHEMA_CONTRACT_VERSION = 3 as const;
+export const D1_SCHEMA_CONTRACT_VERSION = 4 as const;
 
 type D1TableContract = {
   columns: readonly string[];
@@ -6,6 +6,26 @@ type D1TableContract = {
 };
 
 export const REQUIRED_D1_SCHEMA = {
+  forecast_profile_aggregates: {
+    columns: [
+      "date_key",
+      "event_kind",
+      "event_version",
+      "forecast_id",
+      "forecast_profile_id",
+      "solver_backend",
+      "events",
+      "last_seen",
+    ],
+    primaryKey: [
+      "date_key",
+      "event_kind",
+      "event_version",
+      "forecast_id",
+      "forecast_profile_id",
+      "solver_backend",
+    ],
+  },
   event_ids: {
     columns: ["id", "created_at"],
     primaryKey: ["id"],

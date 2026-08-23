@@ -189,7 +189,46 @@ describe("rust min-E[f] memo-key boundary", () => {
       { blue: 999_999, purple: 999_999, yellow: 999_999 },
     );
 
-    expect(exports.solveMinEf).toHaveBeenCalledWith(510, 61, 121, 901, 0.75, 3, 0);
+    expect(exports.solveMinEf).toHaveBeenCalledWith(
+      510,
+      61,
+      121,
+      901,
+      473.912,
+      55.808,
+      24.736,
+      0.75,
+      3,
+      0,
+    );
     expect(exports.minEfActionAtOrSolve).toHaveBeenCalledWith(510, 220, 88, 44);
+  });
+
+  it("passes a configured forecast gain vector to min-E[f]", () => {
+    const exports = makeExports();
+    const solver = createRustMinEfSolver(exports);
+    solver.setSupplyForecast({
+      forecastId: "supply-2026-09-01-v1",
+      forecastProfileId: "supply-2026-09-01-v1@day2",
+      expectedGain: { blue: 90, purple: 18, yellow: 4 },
+    });
+
+    solver.solveRootWithCandidates(
+      { grade: "SR", level: 1, exp: 0 },
+      { blue: 61, purple: 121, yellow: 901 },
+    );
+
+    expect(exports.solveMinEf).toHaveBeenLastCalledWith(510, 61, 121, 901, 90, 18, 4, 0.75, 3, 0);
+  });
+
+  it("rejects a non-finite forecast gain before entering WASM", () => {
+    const solver = createRustMinEfSolver(makeExports());
+    expect(() =>
+      solver.setSupplyForecast({
+        forecastId: "supply-2026-09-01-v1",
+        forecastProfileId: "supply-2026-09-01-v1@invalid",
+        expectedGain: { blue: Number.NaN, purple: 18, yellow: 4 },
+      }),
+    ).toThrow("non-negative finite");
   });
 });

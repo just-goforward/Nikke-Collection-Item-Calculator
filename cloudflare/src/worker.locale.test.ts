@@ -50,7 +50,7 @@ describe("calculation locale aggregates", () => {
     };
     expect(body.calculationLocales).toEqual([
       {
-        diagnosticVersion: 7,
+        diagnosticVersion: 8,
         forecastId: "supply-2026-08-21-v1",
         locale: "ja",
         requestedBackend: "rust-min-ef",

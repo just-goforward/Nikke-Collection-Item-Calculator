@@ -1,8 +1,9 @@
-export const SOLVER_DIAGNOSTIC_VERSIONS = [1, 2, 3, 4, 5, 6, 7] as const;
+export const SOLVER_DIAGNOSTIC_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 export type SolverDiagnosticVersion = (typeof SOLVER_DIAGNOSTIC_VERSIONS)[number];
-export const SOLVER_DIAGNOSTIC_VERSION: SolverDiagnosticVersion = 7;
+export const SOLVER_DIAGNOSTIC_VERSION: SolverDiagnosticVersion = 8;
 export const RUNTIME_INVARIANT_VERSION = 1 as const;
 export const LEGACY_SUPPLY_FORECAST_ID = "legacy-unversioned" as const;
+export const LEGACY_SUPPLY_FORECAST_PROFILE_ID = "legacy-unversioned-profile" as const;
 
 const SOLVER_DIAGNOSTIC_VERSION_SET = new Set<number>(SOLVER_DIAGNOSTIC_VERSIONS);
 

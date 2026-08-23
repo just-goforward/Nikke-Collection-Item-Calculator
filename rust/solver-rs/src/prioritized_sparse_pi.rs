@@ -9,8 +9,7 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 
 use crate::constants::{
-    GAIN_B, GAIN_P, GAIN_Y, MAX_USES_B, MAX_USES_P, MAX_USES_Y, STOCK_ID_SIZE, STOCK_P_DIM,
-    STOCK_Y_DIM, STRICT_EPSILON,
+    MAX_USES_B, MAX_USES_P, MAX_USES_Y, STOCK_ID_SIZE, STOCK_P_DIM, STOCK_Y_DIM, STRICT_EPSILON,
 };
 use crate::cost::availability_cost_pre;
 use crate::state::{clamp_stock_uses, memo_key, stock_of};
@@ -18,7 +17,10 @@ use crate::status::{reset_status, status_ok};
 use crate::transition::{
     compute_transition, is_convert, is_terminal, CONVERT_SID, TX_FAIL, TX_PROB, TX_SUCC,
 };
-use crate::{memo_reset, phase2_max_success_for_action, policy_action, solve_start, uses_of};
+use crate::{
+    memo_reset, phase2_max_success_for_action, policy_action, set_gain_context, solve_start,
+    uses_of,
+};
 
 const OUTCOME_COMPLETED: i32 = 0;
 const OUTCOME_PHASE2_FAILURE: i32 = 1;
@@ -300,6 +302,9 @@ fn evaluate_policy<'a>(
     raw_blue: i32,
     raw_purple: i32,
     raw_yellow: i32,
+    gain_blue: f64,
+    gain_purple: f64,
+    gain_yellow: f64,
     horizon_factor: f64,
     norm_power: f64,
     max_states: usize,
@@ -310,9 +315,9 @@ fn evaluate_policy<'a>(
         index: HashMap::new(),
         overrides,
         start,
-        denominator_blue: raw_blue as f64 + horizon_factor * GAIN_B,
-        denominator_purple: raw_purple as f64 + horizon_factor * GAIN_P,
-        denominator_yellow: raw_yellow as f64 + horizon_factor * GAIN_Y,
+        denominator_blue: raw_blue as f64 + horizon_factor * gain_blue,
+        denominator_purple: raw_purple as f64 + horizon_factor * gain_purple,
+        denominator_yellow: raw_yellow as f64 + horizon_factor * gain_yellow,
         norm_power,
         inverse_norm_power: 1.0 / norm_power,
         max_states,
@@ -504,6 +509,9 @@ pub extern "C" fn solvePrioritizedSparsePi(
     raw_blue: i32,
     raw_purple: i32,
     raw_yellow: i32,
+    gain_blue: f64,
+    gain_purple: f64,
+    gain_yellow: f64,
     horizon_factor: f64,
     norm_power: f64,
     tolerance: f64,
@@ -526,11 +534,20 @@ pub extern "C" fn solvePrioritizedSparsePi(
         || norm_power <= 0.0
         || !tolerance.is_finite()
         || tolerance != 0.0
+        || !gain_blue.is_finite()
+        || !gain_purple.is_finite()
+        || !gain_yellow.is_finite()
+        || gain_blue < 0.0
+        || gain_purple < 0.0
+        || gain_yellow < 0.0
     {
         return;
     }
     unsafe {
         reset_status();
+        if !set_gain_context(gain_blue, gain_purple, gain_yellow) {
+            return;
+        }
         memo_reset();
         let root_slot = solve_start(
             sid,
@@ -574,6 +591,9 @@ pub extern "C" fn solvePrioritizedSparsePi(
             raw_blue,
             raw_purple,
             raw_yellow,
+            gain_blue,
+            gain_purple,
+            gain_yellow,
             horizon_factor,
             norm_power,
             max_states,
@@ -698,6 +718,9 @@ pub extern "C" fn solvePrioritizedSparsePi(
             raw_blue,
             raw_purple,
             raw_yellow,
+            gain_blue,
+            gain_purple,
+            gain_yellow,
             horizon_factor,
             norm_power,
             max_states,

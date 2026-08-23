@@ -1,16 +1,27 @@
 {
-  "version": 1,
+  "version": 2,
   "activeForecastId": "supply-2026-08-21-v1",
+  "approvedForecastId": "supply-2026-08-21-v1",
   "forecasts": [
     {
       "id": "supply-2026-08-21-v1",
-      "basisDays": 28,
+      "kind": "fixed",
+      "rulesVersion": "legacy-28-day-v1",
       "effectiveFrom": "2026-08-21",
-      "expectedGain": {
-        "blue": 473.912,
-        "purple": 55.808,
-        "yellow": 24.736
-      }
+      "sourceEvidence": [],
+      "profiles": [
+        {
+          "id": "supply-2026-08-21-v1@fixed",
+          "effectiveFrom": "2026-08-21T00:00:00.000Z",
+          "effectiveUntil": null,
+          "scheduleStatus": "confirmed",
+          "expectedGain": {
+            "blue": 473.912,
+            "purple": 55.808,
+            "yellow": 24.736
+          }
+        }
+      ]
     }
   ]
 }

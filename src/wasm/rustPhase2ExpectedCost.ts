@@ -32,7 +32,7 @@ function runPolicyExpectedCostRollout(
 ) {
   assertCurrentPhase2Build(
     state,
-    phase2BuildContext(start, stock, horizonFactor, normPower, 0),
+    phase2BuildContext(start, stock, horizonFactor, normPower, 0, state.supplyForecast),
     "current-policy first-action E[f] rollout",
     { compareTolerance: false },
   );
@@ -129,7 +129,7 @@ export function estimateExpectedCostPairFromCurrent(
 ): RustPairedExpectedCostEstimate {
   assertCurrentPhase2Build(
     state,
-    phase2BuildContext(start, stock, horizonFactor, normPower, 0),
+    phase2BuildContext(start, stock, horizonFactor, normPower, 0, state.supplyForecast),
     "current-policy paired E[f] rollout",
     { compareTolerance: false },
   );
@@ -204,7 +204,7 @@ export function estimateA2SurrogateAfterFirstActionFromCurrent(
 ): RustA2MomentEstimate {
   assertCurrentPhase2Build(
     state,
-    phase2BuildContext(start, stock, horizonFactor, normPower, 0),
+    phase2BuildContext(start, stock, horizonFactor, normPower, 0, state.supplyForecast),
     "current-policy A2 moment rollout",
     { compareTolerance: false },
   );
@@ -228,7 +228,7 @@ export function estimateExactExpectedCostAfterFirstActionFromCurrent(
 ): RustExactExpectedCostEstimate {
   assertCurrentPhase2Build(
     state,
-    phase2BuildContext(start, stock, horizonFactor, normPower, 0),
+    phase2BuildContext(start, stock, horizonFactor, normPower, 0, state.supplyForecast),
     "current-policy exact E[f] rollout",
     { compareTolerance: false },
   );
@@ -238,6 +238,9 @@ export function estimateExactExpectedCostAfterFirstActionFromCurrent(
     stock.blue | 0,
     stock.purple | 0,
     stock.yellow | 0,
+    state.supplyForecast.expectedGain.blue,
+    state.supplyForecast.expectedGain.purple,
+    state.supplyForecast.expectedGain.yellow,
     horizonFactor,
     normPower,
     state.currentBuild?.tolerance ?? 0,

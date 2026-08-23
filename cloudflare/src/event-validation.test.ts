@@ -189,7 +189,7 @@ describe("validatePayload", () => {
     }
 
     const future = solverDiagnosticEvent("solver-version-future01");
-    future.event.diagnosticVersion = 8;
+    future.event.diagnosticVersion = 9;
     expect(EventSubmissionSchema.safeParse(future).success).toBe(false);
   });
 
@@ -218,13 +218,25 @@ describe("supply forecast identity validation", () => {
     expect(() => validateTestPayload(unknown)).toThrow("invalid_supply_forecast");
   });
 
+  it("requires a registered profile for current diagnostics", () => {
+    const missing = solverDiagnosticEvent("solver-profile-missing001");
+    Reflect.deleteProperty(missing.event, "forecastProfileId");
+    expect(() => validateTestPayload(missing)).toThrow("invalid_supply_forecast_profile");
+
+    const unknown = solverDiagnosticEvent("solver-profile-unknown001");
+    Reflect.set(unknown.event, "forecastProfileId", "supply-2099-01-01-v1@unknown");
+    expect(() => validateTestPayload(unknown)).toThrow("invalid_supply_forecast_profile");
+  });
+
   it("maps unversioned legacy diagnostics to the legacy forecast identity", () => {
     const legacy = solverDiagnosticEvent("solver-forecast-legacy001");
     legacy.event.diagnosticVersion = 6;
     Reflect.deleteProperty(legacy.event, "forecastId");
+    Reflect.deleteProperty(legacy.event, "forecastProfileId");
 
     expect(validateTestPayload(legacy).event).toMatchObject({
       forecastId: "legacy-unversioned",
+      forecastProfileId: "legacy-unversioned-profile",
     });
   });
 
@@ -232,11 +244,16 @@ describe("supply forecast identity validation", () => {
     const current = solverRecoveryEvent("recovery-forecast-current01");
     expect(validateTestPayload(current).event).toMatchObject({
       forecastId: "supply-2026-08-21-v1",
+      forecastProfileId: "supply-2026-08-21-v1@fixed",
     });
 
     const legacy = solverRecoveryEvent("recovery-forecast-legacy001");
     Reflect.deleteProperty(legacy.event, "forecastId");
-    expect(validateTestPayload(legacy).event).toMatchObject({ forecastId: "legacy-unversioned" });
+    Reflect.deleteProperty(legacy.event, "forecastProfileId");
+    expect(validateTestPayload(legacy).event).toMatchObject({
+      forecastId: "legacy-unversioned",
+      forecastProfileId: "legacy-unversioned-profile",
+    });
 
     const unknown = solverRecoveryEvent("recovery-forecast-unknown01");
     Reflect.set(unknown.event, "forecastId", "supply-2099-01-01-v1");

@@ -30,6 +30,16 @@ export async function commitSubmission(
     const aggregateStatements = [
       buildSolverDiagnosticAggregateStatement(env, dateKey, normalized.event, now),
       buildSolverCacheAggregateStatement(env, dateKey, normalized.event, now),
+      buildForecastProfileAggregateStatement(
+        env,
+        dateKey,
+        "solver_diagnostic",
+        normalized.event.diagnosticVersion,
+        normalized.event.forecastId,
+        normalized.event.forecastProfileId,
+        normalized.event.solverBackend,
+        now,
+      ),
     ];
     if (normalized.event.locale) {
       aggregateStatements.push(
@@ -48,6 +58,16 @@ export async function commitSubmission(
     const environment = clientEnvironment(request);
     const aggregateStatements = [
       buildSolverRecoveryTerminalStatement(env, dateKey, event, environment.deviceType, now),
+      buildForecastProfileAggregateStatement(
+        env,
+        dateKey,
+        "solver_recovery",
+        event.recoveryVersion,
+        event.forecastId,
+        event.forecastProfileId,
+        event.terminalBackend,
+        now,
+      ),
       ...recoveryRungs(event).map((rung) =>
         buildSolverRecoveryRungStatement(env, dateKey, event, rung, environment.deviceType, now),
       ),
@@ -64,6 +84,27 @@ export async function commitSubmission(
     dateKey,
     now,
   );
+}
+
+function buildForecastProfileAggregateStatement(
+  env: WorkerEnv,
+  dateKey: string,
+  eventKind: "solver_diagnostic" | "solver_recovery",
+  eventVersion: number,
+  forecastId: string,
+  forecastProfileId: string,
+  solverBackend: string,
+  now: number,
+) {
+  return env.DB.prepare(
+    `INSERT INTO forecast_profile_aggregates
+      (date_key, event_kind, event_version, forecast_id, forecast_profile_id, solver_backend,
+       events, last_seen)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(date_key, event_kind, event_version, forecast_id, forecast_profile_id,
+       solver_backend)
+     DO UPDATE SET events = events + 1, last_seen = excluded.last_seen`,
+  ).bind(dateKey, eventKind, eventVersion, forecastId, forecastProfileId, solverBackend, now);
 }
 
 function buildRuntimeInvariantAggregateStatement(

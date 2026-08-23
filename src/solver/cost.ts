@@ -23,7 +23,7 @@ function availabilityCostScoreWithParams(
   },
 ) {
   // Supply Phase 1 heuristic:
-  // R_i = current stock pieces_i + horizon * expected 28-day gain_i
+  // R_i = current stock pieces_i + horizon * active forecast profile gain_i
   // cost = (sum((expected consumption_i / R_i) ^ p)) ^ (1 / p)
   //
   // This is deterministic and stable for each memoized (state, stock), but it is not a proof of

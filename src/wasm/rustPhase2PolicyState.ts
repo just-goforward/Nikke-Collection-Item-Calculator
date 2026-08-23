@@ -8,13 +8,14 @@ import {
   requireExport,
 } from "./rustCoreShared";
 import { assertRustStatusOk, RustSolveError } from "./rustStatus";
-import type { RustCoreExports, State, Stock } from "./rustTypes";
+import type { RustCoreExports, State, Stock, SupplyForecastContext } from "./rustTypes";
 
 export type Phase2FactoryState = {
   buildGeneration: number;
   currentBuild: Phase2BuildContext | null;
   exports: RustCoreExports;
   memoTier: number;
+  supplyForecast: SupplyForecastContext;
 };
 
 export function recordPhase2Build(state: Phase2FactoryState, context: Phase2BuildContext) {

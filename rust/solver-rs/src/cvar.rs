@@ -130,7 +130,17 @@ unsafe fn leaf_cost(b: i32, p: i32, y: i32) -> f64 {
     let cons_p = ((CV_START_P - p) * 10) as f64;
     let cons_y = ((CV_START_Y - y) * 10) as f64;
     availability_cost(
-        cons_b, cons_p, cons_y, CV_INIT_B, CV_INIT_P, CV_INIT_Y, CV_HF, CV_NP,
+        cons_b,
+        cons_p,
+        cons_y,
+        CV_INIT_B,
+        CV_INIT_P,
+        CV_INIT_Y,
+        crate::G_GAIN_B,
+        crate::G_GAIN_P,
+        crate::G_GAIN_Y,
+        CV_HF,
+        CV_NP,
     )
 }
 

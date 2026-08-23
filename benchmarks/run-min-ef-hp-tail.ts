@@ -4,7 +4,10 @@ import { createServer } from "vite";
 import { readHpStudyReport, writeHpStudyReport } from "./min-ef-hp-report.ts";
 import { envValue, parseList, parsePositiveInteger } from "./runner-utils.ts";
 
-const REPORT_FILE = new URL("./results/min-ef-hp-study.json", import.meta.url);
+const REPORT_FILE = new URL(
+  envValue("HP_STUDY_REPORT_FILE") ?? "min-ef-hp-study.json",
+  new URL("./results/", import.meta.url),
+);
 const WASM_URL = new URL("../public/solver_rs.wasm", import.meta.url);
 const PANEL_IDS = ["R0-balanced150", "SR0-balanced200", "SR0-demand300"] as const;
 const DISCOVERY_SEEDS = [20260811, 20260812, 20260813, 20260814] as const;
@@ -102,7 +105,12 @@ try {
         ) {
           continue;
         }
-        const session = await createSession(wasm, candidate, policy.createHpLadderSession);
+        const session = await createSession(
+          wasm,
+          candidate,
+          policy.createHpLadderSession,
+          report.options.supplyForecast,
+        );
         try {
           const result = trajectory.collectInteractiveTrajectories(panel, {
             modelId: candidateId,
@@ -281,9 +289,10 @@ async function createSession(
   wasm: Uint8Array,
   candidate: import("./min-ef-hp-model").HpCandidate,
   factory: typeof import("./min-ef-hp-policy").createHpLadderSession,
+  supplyForecast: import("../src/wasm/rustTypes").SupplyForecastContext,
 ) {
   const [minEfInstance, phase2Instance] = await Promise.all([instantiate(wasm), instantiate(wasm)]);
-  return factory(minEfInstance, phase2Instance, candidate);
+  return factory(minEfInstance, phase2Instance, candidate, supplyForecast);
 }
 
 async function instantiate(wasm: Uint8Array): Promise<WebAssembly.Instance> {

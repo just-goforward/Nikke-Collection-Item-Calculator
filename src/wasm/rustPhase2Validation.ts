@@ -22,7 +22,7 @@ export function simulatePolicy(
 ): RustMonteCarloResult {
   assertCurrentPhase2Build(
     state,
-    phase2BuildContext(start, stock, horizonFactor, normPower, tolerance),
+    phase2BuildContext(start, stock, horizonFactor, normPower, tolerance, state.supplyForecast),
     "Monte Carlo validation",
   );
   requireExport(state.exports, "simulateCore")(
@@ -50,7 +50,7 @@ export function simulatePolicyAfterFirstAction(
 ): RustMonteCarloResult {
   assertCurrentPhase2Build(
     state,
-    phase2BuildContext(start, stock, horizonFactor, normPower, tolerance),
+    phase2BuildContext(start, stock, horizonFactor, normPower, tolerance, state.supplyForecast),
     "first-action Monte Carlo validation",
   );
   requireExport(state.exports, "simulateAfterFirstActionCore")(

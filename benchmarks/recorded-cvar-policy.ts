@@ -1,4 +1,4 @@
-import { KIT_ORDER, stateIdNormalized } from "../src/solver/domain";
+import { EXPECTED_28_DAY_GAIN, KIT_ORDER, stateIdNormalized } from "../src/solver/domain";
 import type { SolverInput } from "../src/types";
 import { normalizeRustProductInput } from "../src/wasm/rustProductInput";
 import { buildRecommendedRunForKit } from "../src/wasm/rustProductView";
@@ -93,6 +93,9 @@ export function createRecordedCvarPolicySolver(
       normalized.stock.blue | 0,
       normalized.stock.purple | 0,
       normalized.stock.yellow | 0,
+      EXPECTED_28_DAY_GAIN.blue,
+      EXPECTED_28_DAY_GAIN.purple,
+      EXPECTED_28_DAY_GAIN.yellow,
       horizonFactor,
       normPower,
       tolerance,

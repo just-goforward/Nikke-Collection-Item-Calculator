@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-
+import type { SupplyForecastContext } from "../src/wasm/rustTypes";
 import type {
   ExactInteractiveEvaluation,
   ExactInteractiveReplanCheckpoint,
@@ -17,7 +17,7 @@ export type HpExactRecord = {
 
 export type HpStudyReport = {
   kind: "min-ef-hp-study";
-  version: 1;
+  version: 2;
   generatedAt: string;
   options: {
     candidates: HpCandidate[];
@@ -27,6 +27,7 @@ export type HpStudyReport = {
     minEfMemoTier: 21;
     phase2MemoTier: 22;
     exactSliceBudgetMs: number;
+    supplyForecast: SupplyForecastContext;
   };
   measurementProtocol: Record<string, unknown>;
   decisionPolicy: Record<string, unknown>;
@@ -60,7 +61,7 @@ export type HpStudyReport = {
 export async function readHpStudyReport(url: URL): Promise<HpStudyReport | null> {
   try {
     const parsed = JSON.parse(await readFile(url, "utf8")) as HpStudyReport;
-    if (parsed.kind !== "min-ef-hp-study" || parsed.version !== 1) {
+    if (parsed.kind !== "min-ef-hp-study" || parsed.version !== 2) {
       throw new Error("H/p study report kind or version does not match this runner.");
     }
     return parsed;

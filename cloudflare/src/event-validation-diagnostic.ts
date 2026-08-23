@@ -1,5 +1,11 @@
-import { isSupplyForecastId } from "../../shared/generated/supplyForecast";
-import { LEGACY_SUPPLY_FORECAST_ID } from "../../shared/statsContract";
+import {
+  isSupplyForecastId,
+  isSupplyForecastProfileId,
+} from "../../shared/generated/supplyForecast";
+import {
+  LEGACY_SUPPLY_FORECAST_ID,
+  LEGACY_SUPPLY_FORECAST_PROFILE_ID,
+} from "../../shared/statsContract";
 import { validateState } from "./event-validation-common";
 import type { SubmissionEnvelope, ValidatedSubmission } from "./event-validation-types";
 import { HttpError } from "./http-error";
@@ -12,6 +18,10 @@ export function validateDiagnosticSubmission(
 ): ValidatedSubmission {
   const solverBackend = normalizeDiagnosticToken(event.solverBackend);
   const forecastId = validatedForecastId(event.diagnosticVersion, event.forecastId);
+  const forecastProfileId = validatedForecastProfileId(
+    event.diagnosticVersion,
+    event.forecastProfileId,
+  );
   return {
     eventId: payload.eventId,
     sourceHost: normalizeSourceHost(payload.sourceHost),
@@ -19,6 +29,7 @@ export function validateDiagnosticSubmission(
       kind: "solver_diagnostic",
       diagnosticVersion: event.diagnosticVersion,
       forecastId,
+      forecastProfileId,
       locale: event.locale ?? null,
       solverVersion: normalizeDiagnosticToken(event.solverVersion),
       solverPhase: normalizeDiagnosticToken(event.solverPhase),
@@ -53,6 +64,14 @@ export function validateDiagnosticSubmission(
       legacyEventAggregateMatchable: event.legacyEventAggregateMatchable,
     },
   };
+}
+
+function validatedForecastProfileId(diagnosticVersion: number, value: unknown) {
+  if (isSupplyForecastProfileId(value)) return value;
+  if (diagnosticVersion < 8 && (value === undefined || value === null)) {
+    return LEGACY_SUPPLY_FORECAST_PROFILE_ID;
+  }
+  throw new HttpError(400, "invalid_supply_forecast_profile");
 }
 
 function validatedForecastId(diagnosticVersion: number, value: unknown) {

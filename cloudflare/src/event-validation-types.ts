@@ -22,6 +22,7 @@ export type ValidatedSolverDiagnosticEvent = {
   kind: "solver_diagnostic";
   diagnosticVersion: SolverDiagnosticEventInput["diagnosticVersion"];
   forecastId: string;
+  forecastProfileId: string;
   locale: StatsLocale | null;
   solverVersion: string;
   solverPhase: string;
@@ -58,6 +59,7 @@ export type ValidatedSolverDiagnosticEvent = {
 
 export type ValidatedSolverRecoveryEvent = SolverRecoveryEventInput & {
   forecastId: string;
+  forecastProfileId: string;
 };
 export type ValidatedRuntimeInvariantEvent = RuntimeInvariantEventInput;
 

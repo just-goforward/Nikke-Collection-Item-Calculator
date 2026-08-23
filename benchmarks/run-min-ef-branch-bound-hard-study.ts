@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ACTIVE_SUPPLY_FORECAST_PROFILE } from "../shared/generated/supplyForecast.ts";
 
 import {
   assertResearchReportCanBeWritten,
@@ -42,6 +43,9 @@ type AuditExports = WebAssembly.Exports & {
     blue: number,
     purple: number,
     yellow: number,
+    gainBlue: number,
+    gainPurple: number,
+    gainYellow: number,
     horizonFactor: number,
     normPower: number,
     tolerance: number,
@@ -263,6 +267,9 @@ function solveBaseline(exports: BaselineExports, scenario: Scenario) {
     scenario.stock.blue,
     scenario.stock.purple,
     scenario.stock.yellow,
+    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.blue,
+    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.purple,
+    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.yellow,
     CONTRACT.horizonFactor,
     CONTRACT.normPower,
     CONTRACT.tolerance,

@@ -1,8 +1,10 @@
 import {
+  activeSupplyForecastContext,
   phase2BuildContext,
   readPhase2Root,
   readRootCandidates,
   solvePhase2Slot,
+  validateSupplyForecastContext,
 } from "./rustCoreShared";
 import {
   actionAtForPhase2Generation,
@@ -27,8 +29,23 @@ function buildPolicy(
   normPower = 3,
   tolerance = 0,
 ): RustPhase2Policy {
-  const context = phase2BuildContext(start, stock, horizonFactor, normPower, tolerance);
-  const slot = solvePhase2Slot(state.exports, start, stock, horizonFactor, normPower, tolerance);
+  const context = phase2BuildContext(
+    start,
+    stock,
+    horizonFactor,
+    normPower,
+    tolerance,
+    state.supplyForecast,
+  );
+  const slot = solvePhase2Slot(
+    state.exports,
+    start,
+    stock,
+    horizonFactor,
+    normPower,
+    tolerance,
+    state.supplyForecast,
+  );
   const generation = recordPhase2Build(state, context);
   return {
     root: readPhase2Root(state.exports, slot),
@@ -48,15 +65,26 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Prod
     currentBuild: null,
     exports,
     memoTier: RUST_PHASE2_DEFAULT_MEMO_TIER,
+    supplyForecast: activeSupplyForecastContext(),
   };
   configureMemoTier(state, RUST_PHASE2_DEFAULT_MEMO_TIER);
   exports.configureNodeBudget?.(0);
   return {
+    setSupplyForecast: (context) => setSupplyForecast(state, context),
     configureMemoTier: (tier) => configureMemoTier(state, tier),
     memoTier: () => state.memoTier,
     releaseMemo: () => releaseMemo(state),
     buildPolicy: (...args) => buildPolicy(state, ...args),
   };
+}
+
+function setSupplyForecast(
+  state: Phase2FactoryState,
+  context: Parameters<typeof validateSupplyForecastContext>[0],
+) {
+  state.supplyForecast = validateSupplyForecastContext(context);
+  state.currentBuild = null;
+  state.buildGeneration += 1;
 }
 
 function configureMemoTier(state: Phase2FactoryState, tier: number) {

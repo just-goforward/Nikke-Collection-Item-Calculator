@@ -4,6 +4,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { arch, cpus, platform, release } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ACTIVE_SUPPLY_FORECAST_PROFILE } from "../shared/generated/supplyForecast.ts";
 
 type BuildName = "base" | "candidate";
 type Outcome = "completed" | "memo_full" | "budget_exceeded" | "failure";
@@ -19,6 +20,9 @@ type MinEfExports = {
     bluePieces: number,
     purplePieces: number,
     yellowPieces: number,
+    gainBlue: number,
+    gainPurple: number,
+    gainYellow: number,
     horizonFactor: number,
     normPower: number,
     tolerance: number,
@@ -138,7 +142,18 @@ async function instantiateMinEf(module: WebAssembly.Module) {
 
 function runSolve(exports: MinEfExports, stateId: number, stock: Stock) {
   const solveMinEf = requireFunction(exports.solveMinEf, "solveMinEf");
-  solveMinEf(stateId, stock[0], stock[1], stock[2], 0.75, 3, 0);
+  solveMinEf(
+    stateId,
+    stock[0],
+    stock[1],
+    stock[2],
+    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.blue,
+    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.purple,
+    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.yellow,
+    0.75,
+    3,
+    0,
+  );
   const status = requireFunction(exports.getSolveStatus, "getSolveStatus")();
   return {
     nodeCount: exports.minEfNodeCount?.() ?? null,

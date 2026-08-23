@@ -79,6 +79,9 @@ const SolverExecutionKindSchema = z.optional(z.enum(SOLVER_EXECUTION_KINDS));
 const SupplyForecastIdSchema = z.optional(
   z.string().check(z.trim(), z.minLength(1), z.maxLength(64)),
 );
+const SupplyForecastProfileIdSchema = z.optional(
+  z.string().check(z.trim(), z.minLength(1), z.maxLength(96)),
+);
 const StatsLocaleSchema = z.enum(STATS_LOCALES);
 const SolverBackendSchema = z.enum(["js-phase2", "rust-phase2", "rust-min-ef"]);
 const SolverRecoveryExitSchema = z.enum(["not_attempted", "success", ...WORKER_ERROR_CODES]);
@@ -93,6 +96,7 @@ const SolverDiagnosticEventSchema = z.looseObject({
   kind: z.literal("solver_diagnostic"),
   diagnosticVersion: z.custom<SolverDiagnosticVersion>(isSolverDiagnosticVersion),
   forecastId: SupplyForecastIdSchema,
+  forecastProfileId: SupplyForecastProfileIdSchema,
   locale: z.optional(StatsLocaleSchema),
   solverVersion: z.string(),
   solverPhase: z.string(),
@@ -131,6 +135,7 @@ const SolverRecoveryEventSchema = z.looseObject({
   kind: z.literal("solver_recovery"),
   recoveryVersion: z.literal(1),
   forecastId: SupplyForecastIdSchema,
+  forecastProfileId: SupplyForecastProfileIdSchema,
   policyVersion: z.literal("ladder_v1"),
   requestedBackend: SolverBackendSchema,
   minEfExit: SolverRecoveryExitSchema,

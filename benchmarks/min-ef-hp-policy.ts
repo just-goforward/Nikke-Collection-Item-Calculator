@@ -13,6 +13,7 @@ import type {
   RustMinEfPolicyHandle,
   RustPhase2Policy,
   RustPhase2Root,
+  SupplyForecastContext,
 } from "../src/wasm/rustTypes";
 import type {
   ExactInteractiveEvaluation,
@@ -47,9 +48,14 @@ export function createHpLadderSession(
   minEfInstance: WebAssembly.Instance,
   phase2Instance: WebAssembly.Instance,
   candidate: HpCandidate,
+  supplyForecast?: SupplyForecastContext,
 ): HpLadderSession {
   const minEf = createRustMinEfSolver(rustCoreExportsFromInstance(minEfInstance));
   const phase2 = createRustPhase2Solver(rustCoreExportsFromInstance(phase2Instance));
+  if (supplyForecast) {
+    minEf.setSupplyForecast(supplyForecast);
+    phase2.setSupplyForecast(supplyForecast);
+  }
   minEf.configureMemoTier(21);
   phase2.configureMemoTier(22);
   const traces: HpLadderTrace[] = [];

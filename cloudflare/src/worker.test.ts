@@ -120,7 +120,7 @@ describe("D1 schema health", () => {
     const response = await fetchHealth();
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, schemaContractVersion: 3 });
+    await expect(response.json()).resolves.toEqual({ ok: true, schemaContractVersion: 4 });
   });
 
   it("fails closed when a required aggregate table is unavailable", async () => {
@@ -571,7 +571,7 @@ describe("admin solver diagnostic aggregates", () => {
     expect(body.cache).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          diagnosticVersion: 7,
+          diagnosticVersion: 8,
           forecastId: "supply-2026-08-21-v1",
           requestedBackend: "rust-min-ef",
           terminalBackend: "rust-min-ef",
@@ -688,14 +688,25 @@ describe("admin supply forecast registry", () => {
     const body = (await (await fetchAdminSolverDiagnostics()).json()) as AdminDiagnosticsBody;
 
     expect(body.supplyForecastRegistry).toEqual({
-      version: 1,
+      version: 2,
       activeForecastId: "supply-2026-08-21-v1",
+      approvedForecastId: "supply-2026-08-21-v1",
       forecasts: [
         {
           id: "supply-2026-08-21-v1",
-          basisDays: 28,
+          kind: "fixed",
+          rulesVersion: "legacy-28-day-v1",
           effectiveFrom: "2026-08-21",
-          expectedGain: { blue: 473.912, purple: 55.808, yellow: 24.736 },
+          sourceEvidence: [],
+          profiles: [
+            {
+              id: "supply-2026-08-21-v1@fixed",
+              effectiveFrom: "2026-08-21T00:00:00.000Z",
+              effectiveUntil: null,
+              scheduleStatus: "confirmed",
+              expectedGain: { blue: 473.912, purple: 55.808, yellow: 24.736 },
+            },
+          ],
         },
       ],
     });

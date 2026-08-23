@@ -224,6 +224,9 @@ static mut G_TOL: f64 = 0.01;
 static mut G_INIT_B: f64 = 0.0;
 static mut G_INIT_P: f64 = 0.0;
 static mut G_INIT_Y: f64 = 0.0;
+pub(crate) static mut G_GAIN_B: f64 = 0.0;
+pub(crate) static mut G_GAIN_P: f64 = 0.0;
+pub(crate) static mut G_GAIN_Y: f64 = 0.0;
 static mut G_DEN_B: f64 = 0.0;
 static mut G_DEN_P: f64 = 0.0;
 static mut G_DEN_Y: f64 = 0.0;
@@ -558,9 +561,9 @@ pub(crate) unsafe fn solve_start(
     G_INIT_B = init_b;
     G_INIT_P = init_p;
     G_INIT_Y = init_y;
-    G_DEN_B = init_b + hf * GAIN_B;
-    G_DEN_P = init_p + hf * GAIN_P;
-    G_DEN_Y = init_y + hf * GAIN_Y;
+    G_DEN_B = init_b + hf * G_GAIN_B;
+    G_DEN_P = init_p + hf * G_GAIN_P;
+    G_DEN_Y = init_y + hf * G_GAIN_Y;
     G_INV_NP = 1.0 / np;
     DEPTH = 0;
     value(sid, uses_b, uses_p, uses_y)
@@ -601,9 +604,27 @@ pub extern "C" fn configureNodeBudget(budget: u32) {
     }
 }
 #[no_mangle]
-pub extern "C" fn solveCore(sid: i32, b: i32, p: i32, y: i32, hf: f64, np: f64, tol: f64) -> i32 {
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the WASM ABI carries raw inventory, forecast gains, and solver parameters"
+)]
+pub extern "C" fn solveCore(
+    sid: i32,
+    b: i32,
+    p: i32,
+    y: i32,
+    gain_b: f64,
+    gain_p: f64,
+    gain_y: f64,
+    hf: f64,
+    np: f64,
+    tol: f64,
+) -> i32 {
     unsafe {
         reset_status();
+        if !set_gain_context(gain_b, gain_p, gain_y) {
+            return -1;
+        }
         memo_reset();
         solve_start(
             sid,
@@ -618,6 +639,23 @@ pub extern "C" fn solveCore(sid: i32, b: i32, p: i32, y: i32, hf: f64, np: f64, 
             tol,
         )
     }
+}
+
+pub(crate) unsafe fn set_gain_context(gain_b: f64, gain_p: f64, gain_y: f64) -> bool {
+    if !gain_b.is_finite()
+        || !gain_p.is_finite()
+        || !gain_y.is_finite()
+        || gain_b < 0.0
+        || gain_p < 0.0
+        || gain_y < 0.0
+    {
+        LAST_STATUS = STATUS_INVALID_INPUT;
+        return false;
+    }
+    G_GAIN_B = gain_b;
+    G_GAIN_P = gain_p;
+    G_GAIN_Y = gain_y;
+    true
 }
 #[no_mangle]
 pub extern "C" fn simulateCore(sid: i32, b: i32, p: i32, y: i32, runs: i32, seed: u32) {
@@ -914,10 +952,28 @@ pub extern "C" fn momentVectorNodeCount() -> i32 {
     unsafe { moment_vector_node_count() }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the research ABI carries raw inventory, forecast gains, and solver parameters"
+)]
 #[no_mangle]
-pub extern "C" fn cvarSetup(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f64, tol: f64) {
+pub extern "C" fn cvarSetup(
+    sid: i32,
+    pb: i32,
+    pp: i32,
+    py: i32,
+    gain_b: f64,
+    gain_p: f64,
+    gain_y: f64,
+    hf: f64,
+    np: f64,
+    tol: f64,
+) {
     unsafe {
         reset_status();
+        if !set_gain_context(gain_b, gain_p, gain_y) {
+            return;
+        }
         let start_b = uses_of(pb, MAX_USES_B);
         let start_p = uses_of(pp, MAX_USES_P);
         let start_y = uses_of(py, MAX_USES_Y);

@@ -2,10 +2,20 @@ import { writeFile } from "node:fs/promises";
 import { createServer } from "vite";
 
 import { readHpStudyReport, writeHpStudyReport } from "./min-ef-hp-report.ts";
+import { envValue } from "./runner-utils.ts";
 
-const REPORT_FILE = new URL("./results/min-ef-hp-study.json", import.meta.url);
-const KO_FINDINGS = new URL("../docs/research/min-ef-hp-study-findings.ko.md", import.meta.url);
-const EN_FINDINGS = new URL("../docs/research/min-ef-hp-study-findings.md", import.meta.url);
+const REPORT_FILE = new URL(
+  envValue("HP_STUDY_REPORT_FILE") ?? "min-ef-hp-study.json",
+  new URL("./results/", import.meta.url),
+);
+const KO_FINDINGS = new URL(
+  envValue("HP_STUDY_FINDINGS_KO") ?? "../docs/research/min-ef-hp-study-findings.ko.md",
+  import.meta.url,
+);
+const EN_FINDINGS = new URL(
+  envValue("HP_STUDY_FINDINGS_EN") ?? "../docs/research/min-ef-hp-study-findings.md",
+  import.meta.url,
+);
 const server = await createServer({
   appType: "custom",
   configFile: false,

@@ -1,4 +1,8 @@
-import { ACTIVE_SUPPLY_FORECAST_ID } from "../../shared/generated/supplyForecast";
+import {
+  ACTIVE_SUPPLY_FORECAST_ID,
+  ACTIVE_SUPPLY_FORECAST_PROFILE,
+  ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
+} from "../../shared/generated/supplyForecast";
 import {
   isConvertStateNormalized as isConvertState,
   isTerminalNormalized as isTerminal,
@@ -60,6 +64,10 @@ export function minEfPolicyCacheKey({
 }) {
   return [
     ACTIVE_SUPPLY_FORECAST_ID,
+    ACTIVE_SUPPLY_FORECAST_PROFILE_ID,
+    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.blue,
+    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.purple,
+    ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.yellow,
     input.start.grade,
     input.start.level,
     input.start.exp ?? 0,

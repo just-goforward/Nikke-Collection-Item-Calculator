@@ -1,8 +1,10 @@
 import {
+  activeSupplyForecastContext,
   phase2BuildContext,
   readPhase2Root,
   readRootCandidates,
   solvePhase2Slot,
+  validateSupplyForecastContext,
 } from "./rustCoreShared";
 import {
   estimateA2SurrogateAfterFirstActionFromCurrent,
@@ -37,8 +39,23 @@ function buildPolicy(
   normPower = 3,
   tolerance = 0,
 ): RustPhase2Policy {
-  const context = phase2BuildContext(start, stock, horizonFactor, normPower, tolerance);
-  const slot = solvePhase2Slot(state.exports, start, stock, horizonFactor, normPower, tolerance);
+  const context = phase2BuildContext(
+    start,
+    stock,
+    horizonFactor,
+    normPower,
+    tolerance,
+    state.supplyForecast,
+  );
+  const slot = solvePhase2Slot(
+    state.exports,
+    start,
+    stock,
+    horizonFactor,
+    normPower,
+    tolerance,
+    state.supplyForecast,
+  );
   const generation = recordPhase2Build(state, context);
   return {
     root: readPhase2Root(state.exports, slot),
@@ -60,8 +77,23 @@ function rootCandidates(
   normPower = 3,
   tolerance = 0,
 ) {
-  const context = phase2BuildContext(start, stock, horizonFactor, normPower, tolerance);
-  solvePhase2Slot(state.exports, start, stock, horizonFactor, normPower, tolerance);
+  const context = phase2BuildContext(
+    start,
+    stock,
+    horizonFactor,
+    normPower,
+    tolerance,
+    state.supplyForecast,
+  );
+  solvePhase2Slot(
+    state.exports,
+    start,
+    stock,
+    horizonFactor,
+    normPower,
+    tolerance,
+    state.supplyForecast,
+  );
   recordPhase2Build(state, context);
   return readRootCandidates(state.exports, tolerance);
 }
@@ -74,8 +106,14 @@ export function createRustPhase2ResearchSolver(exports: RustCoreExports): RustPh
     currentBuild: null,
     exports,
     memoTier: 21,
+    supplyForecast: activeSupplyForecastContext(),
   };
   return {
+    setSupplyForecast(context) {
+      state.supplyForecast = validateSupplyForecastContext(context);
+      state.currentBuild = null;
+      state.buildGeneration += 1;
+    },
     configureMemoTier(tier) {
       const memoTier = Math.min(24, Math.max(16, Math.floor(tier)));
       exports.configureMemo?.(memoTier);

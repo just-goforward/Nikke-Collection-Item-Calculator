@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
 
+import { EXPECTED_28_DAY_GAIN } from "../src/solver/domain";
 import type { RustCoreExports } from "../src/wasm/rustTypes";
 import { envValue, parseList } from "./runner-utils.ts";
 import type { SolverScenario } from "./scenarios/fixed-grid";
@@ -54,6 +55,9 @@ function setup(
     scenario.stock.blue | 0,
     scenario.stock.purple | 0,
     scenario.stock.yellow | 0,
+    EXPECTED_28_DAY_GAIN.blue,
+    EXPECTED_28_DAY_GAIN.purple,
+    EXPECTED_28_DAY_GAIN.yellow,
     0.75,
     3,
     0,

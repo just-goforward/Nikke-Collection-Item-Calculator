@@ -3,6 +3,11 @@ import type { RustCoreExports as RawRustCoreExports } from "./rustCoreExports";
 
 export type State = { grade: string; level: number; exp?: number };
 export type Stock = { blue: number; purple: number; yellow: number };
+export type SupplyForecastContext = {
+  forecastId: string;
+  forecastProfileId: string;
+  expectedGain: Stock;
+};
 
 export type RustCoreExports = RawRustCoreExports;
 
@@ -118,6 +123,7 @@ export type RustMonteCarloResult = {
 };
 
 export type RustMinEfSolver = {
+  setSupplyForecast: (context: SupplyForecastContext) => void;
   configureMemoTier: (tier: number) => void;
   memoTier: () => number;
   releaseMemo: () => void;
@@ -138,6 +144,7 @@ export type RustPhase2Policy = {
 };
 
 export type RustPhase2ProductSolver = {
+  setSupplyForecast: (context: SupplyForecastContext) => void;
   configureMemoTier: (tier: number) => void;
   memoTier: () => number;
   releaseMemo: () => void;

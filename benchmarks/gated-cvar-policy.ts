@@ -1,6 +1,7 @@
 import {
   type CollectionState,
   clampMemoStockUses,
+  EXPECTED_28_DAY_GAIN,
   isConvertStateNormalized,
   isTerminalNormalized,
   type Kit,
@@ -117,6 +118,9 @@ export function createGatedCvarPolicySolver(
       pieces.blue | 0,
       pieces.purple | 0,
       pieces.yellow | 0,
+      EXPECTED_28_DAY_GAIN.blue,
+      EXPECTED_28_DAY_GAIN.purple,
+      EXPECTED_28_DAY_GAIN.yellow,
       horizonFactor,
       normPower,
       tolerance,

@@ -1,5 +1,10 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { createServer } from "vite";
+import {
+  activeSupplyForecastContext,
+  validateSupplyForecastContext,
+} from "../src/wasm/rustCoreShared.ts";
+import type { SupplyForecastContext } from "../src/wasm/rustTypes.ts";
 
 import {
   type HpStudyReport,
@@ -18,7 +23,6 @@ const outputFileValue = envValue("HP_STUDY_REPORT_FILE");
 const OUTPUT_FILE = outputFileValue
   ? new URL(outputFileValue, RESULTS_DIRECTORY)
   : DEFAULT_OUTPUT_FILE;
-const CHECKPOINT_DIRECTORY = new URL("./results/min-ef-hp-checkpoints/", import.meta.url);
 const WASM_URL = new URL("../public/solver_rs.wasm", import.meta.url);
 const EXACT_SCENARIO_IDS = [
   "R0-balanced100",
@@ -39,6 +43,18 @@ if (stage !== "screen" && stage !== "exact") {
   throw new Error("HP_STUDY_STAGE must be screen or exact for this runner.");
 }
 const exactSliceBudgetMs = parsePositiveInteger(envValue("HP_STUDY_EXACT_BUDGET_MS"), 120_000);
+const maxNewRecords = parsePositiveInteger(
+  envValue("HP_STUDY_MAX_NEW_RECORDS"),
+  Number.MAX_SAFE_INTEGER,
+);
+const supplyContextValue = envValue("HP_STUDY_SUPPLY_CONTEXT");
+const supplyForecast = supplyContextValue
+  ? validateSupplyForecastContext(JSON.parse(supplyContextValue) as SupplyForecastContext)
+  : activeSupplyForecastContext();
+const CHECKPOINT_DIRECTORY = new URL(
+  `./min-ef-hp-checkpoints/${safePathSegment(supplyForecast.forecastProfileId)}/`,
+  RESULTS_DIRECTORY,
+);
 
 await mkdir(RESULTS_DIRECTORY, { recursive: true });
 await mkdir(CHECKPOINT_DIRECTORY, { recursive: true });
@@ -92,7 +108,7 @@ try {
 
   const storedReport = await readHpStudyReport(OUTPUT_FILE);
   const canonicalReport =
-    !storedReport && OUTPUT_FILE.href !== DEFAULT_OUTPUT_FILE.href
+    !supplyContextValue && !storedReport && OUTPUT_FILE.href !== DEFAULT_OUTPUT_FILE.href
       ? await readHpStudyReport(DEFAULT_OUTPUT_FILE)
       : null;
   let report =
@@ -106,12 +122,17 @@ try {
       qualityPolicy: quality.HP_QUALITY_POLICY,
       performancePolicy: quality.HP_PERFORMANCE_POLICY,
       tailPolicy: tail.HP_TAIL_POLICY,
+      supplyForecast,
     });
   if (report.options.exactSliceBudgetMs !== exactSliceBudgetMs) {
     throw new Error("HP_STUDY_EXACT_BUDGET_MS does not match the stored study contract.");
   }
+  if (JSON.stringify(report.options.supplyForecast) !== JSON.stringify(supplyForecast)) {
+    throw new Error("HP_STUDY_SUPPLY_CONTEXT does not match the stored study contract.");
+  }
 
   if (stage === "screen") {
+    let newRecords = 0;
     const candidateIds = parseList(
       envValue("HP_STUDY_CANDIDATES"),
       model.HP_CANDIDATES.map((candidate) => candidate.id),
@@ -120,9 +141,14 @@ try {
       envValue("HP_STUDY_SCENARIOS"),
       allScenarios.map((scenario) => scenario.id),
     );
-    for (const candidateId of candidateIds) {
+    screenCandidates: for (const candidateId of candidateIds) {
       const candidate = model.hpCandidateById(candidateId);
-      const session = await createSession(wasm, candidate, policy.createHpLadderSession);
+      const session = await createSession(
+        wasm,
+        candidate,
+        policy.createHpLadderSession,
+        supplyForecast,
+      );
       try {
         for (const scenarioId of scenarioIds) {
           if (
@@ -143,6 +169,8 @@ try {
           );
           report = refreshScreening(report, model, selection, scenarioById);
           await writeHpStudyReport(OUTPUT_FILE, report);
+          newRecords += 1;
+          if (newRecords >= maxNewRecords) break screenCandidates;
         }
       } finally {
         session.release();
@@ -156,7 +184,8 @@ try {
     }
     const candidateIds = parseList(envValue("HP_STUDY_CANDIDATES"), report.screening.shortlistIds);
     const scenarioIds = parseList(envValue("HP_STUDY_SCENARIOS"), EXACT_SCENARIO_IDS);
-    for (const candidateId of candidateIds) {
+    let newRecords = 0;
+    exactCandidates: for (const candidateId of candidateIds) {
       const candidate = model.hpCandidateById(candidateId);
       for (const scenarioId of scenarioIds) {
         const existing = report.exact.records.find(
@@ -165,7 +194,12 @@ try {
         if (!shouldAdvanceExactEvaluation(existing?.evaluation)) continue;
         const scenario = scenarioById.get(scenarioId);
         if (!scenario) throw new Error(`Unknown H/p exact scenario ${scenarioId}.`);
-        const session = await createSession(wasm, candidate, policy.createHpLadderSession);
+        const session = await createSession(
+          wasm,
+          candidate,
+          policy.createHpLadderSession,
+          supplyForecast,
+        );
         const checkpointUrl = exactCheckpointUrl(candidateId, scenarioId);
         try {
           const checkpoint = await readExactCheckpoint(checkpointUrl);
@@ -192,6 +226,8 @@ try {
           }
           refreshExact(report, model.HP_BASELINE_ID, quality.evaluateHpExactGate);
           await writeHpStudyReport(OUTPUT_FILE, report);
+          newRecords += 1;
+          if (newRecords >= maxNewRecords) break exactCandidates;
         } finally {
           session.release();
         }
@@ -229,9 +265,10 @@ async function createSession(
   wasm: Uint8Array,
   candidate: import("./min-ef-hp-model").HpCandidate,
   factory: typeof import("./min-ef-hp-policy").createHpLadderSession,
+  supplyContext: SupplyForecastContext,
 ) {
   const [minEfInstance, phase2Instance] = await Promise.all([instantiate(wasm), instantiate(wasm)]);
-  return factory(minEfInstance, phase2Instance, candidate);
+  return factory(minEfInstance, phase2Instance, candidate, supplyContext);
 }
 
 async function instantiate(wasm: Uint8Array): Promise<WebAssembly.Instance> {
@@ -249,10 +286,11 @@ function createInitialReport(input: {
   qualityPolicy: Record<string, unknown>;
   performancePolicy: Record<string, unknown>;
   tailPolicy: Record<string, unknown>;
+  supplyForecast: SupplyForecastContext;
 }): HpStudyReport {
   return {
     kind: "min-ef-hp-study",
-    version: 1,
+    version: 2,
     generatedAt: new Date().toISOString(),
     options: {
       candidates: input.candidates,
@@ -262,6 +300,7 @@ function createInitialReport(input: {
       minEfMemoTier: 21,
       phase2MemoTier: 22,
       exactSliceBudgetMs: input.exactSliceBudgetMs,
+      supplyForecast: input.supplyForecast,
     },
     measurementProtocol: {
       performanceLatency: {
@@ -403,4 +442,12 @@ function exactCandidatePriority(
 
 function exactCheckpointUrl(candidateId: string, scenarioId: string): URL {
   return new URL(`${candidateId}/${scenarioId}.json`, CHECKPOINT_DIRECTORY);
+}
+
+function safePathSegment(value: string): string {
+  const safe = value.replaceAll(/[^A-Za-z0-9._-]/g, "_");
+  if (!safe || safe === "." || safe === "..") {
+    throw new Error("Supply forecast profile ID cannot be used as a checkpoint namespace.");
+  }
+  return safe;
 }

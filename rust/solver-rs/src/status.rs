@@ -1,6 +1,7 @@
 pub(crate) const STATUS_OK: i32 = 0;
 pub(crate) const STATUS_BUDGET_EXCEEDED: i32 = 1;
 pub(crate) const STATUS_MEMO_FULL: i32 = 2;
+pub(crate) const STATUS_INVALID_INPUT: i32 = 3;
 
 pub(crate) static mut LAST_STATUS: i32 = STATUS_OK;
 pub(crate) static mut NODE_BUDGET: u32 = 0;

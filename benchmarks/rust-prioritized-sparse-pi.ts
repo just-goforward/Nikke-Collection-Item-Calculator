@@ -1,5 +1,6 @@
 import {
   clampMemoStockUses,
+  EXPECTED_28_DAY_GAIN,
   KIT_ORDER,
   type Kit,
   stateIdNormalized,
@@ -82,6 +83,9 @@ export function solveRustPrioritizedSparsePi(
     input.stock.blue | 0,
     input.stock.purple | 0,
     input.stock.yellow | 0,
+    EXPECTED_28_DAY_GAIN.blue,
+    EXPECTED_28_DAY_GAIN.purple,
+    EXPECTED_28_DAY_GAIN.yellow,
     options.horizonFactor ?? 0.75,
     options.normPower ?? 3,
     options.tolerance ?? 0,

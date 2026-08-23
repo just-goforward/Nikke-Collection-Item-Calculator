@@ -1,6 +1,4 @@
-use crate::constants::{
-    GAIN_B, GAIN_P, GAIN_Y, MAX_USES_B, MAX_USES_P, MAX_USES_Y, STRICT_EPSILON,
-};
+use crate::constants::{MAX_USES_B, MAX_USES_P, MAX_USES_Y, STRICT_EPSILON};
 use crate::cost::{availability_cost, availability_cost_pre};
 use crate::simulation::{next_random, seed_rng};
 use crate::state::{clamp_stock_uses, memo_key, stock_of};
@@ -10,7 +8,7 @@ use crate::status::{
 use crate::transition::{
     compute_transition, is_convert, is_terminal, CONVERT_SID, TX_FAIL, TX_PROB, TX_SUCC,
 };
-use crate::{memo_reset, policy_action, solve_start, uses_of};
+use crate::{memo_reset, policy_action, set_gain_context, solve_start, uses_of};
 
 // ===== minef.ts ==============================================================================
 // PORT OF: assembly/minef.ts. min-E[f] policy: SAME τ-gate as value(), secondary criterion = min
@@ -41,6 +39,9 @@ static mut ME_TOL: f64 = 0.0;
 static mut ME_INIT_B: f64 = 0.0;
 static mut ME_INIT_P: f64 = 0.0;
 static mut ME_INIT_Y: f64 = 0.0;
+static mut ME_GAIN_B: f64 = 0.0;
+static mut ME_GAIN_P: f64 = 0.0;
+static mut ME_GAIN_Y: f64 = 0.0;
 static mut ME_DEN_B: f64 = 0.0;
 static mut ME_DEN_P: f64 = 0.0;
 static mut ME_DEN_Y: f64 = 0.0;
@@ -929,17 +930,39 @@ unsafe fn prepare_branch_bound_prepass(
 }
 
 #[no_mangle]
-pub extern "C" fn solveMinEf(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f64, tol: f64) {
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the WASM ABI carries raw inventory, forecast gains, and solver parameters"
+)]
+pub extern "C" fn solveMinEf(
+    sid: i32,
+    pb: i32,
+    pp: i32,
+    py: i32,
+    gain_b: f64,
+    gain_p: f64,
+    gain_y: f64,
+    hf: f64,
+    np: f64,
+    tol: f64,
+) {
     unsafe {
+        reset_status();
+        if !set_gain_context(gain_b, gain_p, gain_y) {
+            return;
+        }
         ME_HF = hf;
         ME_NP = np;
         ME_TOL = tol;
         ME_INIT_B = pb as f64;
         ME_INIT_P = pp as f64;
         ME_INIT_Y = py as f64;
-        ME_DEN_B = ME_INIT_B + hf * GAIN_B;
-        ME_DEN_P = ME_INIT_P + hf * GAIN_P;
-        ME_DEN_Y = ME_INIT_Y + hf * GAIN_Y;
+        ME_GAIN_B = gain_b;
+        ME_GAIN_P = gain_p;
+        ME_GAIN_Y = gain_y;
+        ME_DEN_B = ME_INIT_B + hf * ME_GAIN_B;
+        ME_DEN_P = ME_INIT_P + hf * ME_GAIN_P;
+        ME_DEN_Y = ME_INIT_Y + hf * ME_GAIN_Y;
         ME_INV_NP = 1.0 / np;
         ME_START_B = uses_of(pb, MAX_USES_B);
         ME_START_P = uses_of(pp, MAX_USES_P);
@@ -948,7 +971,6 @@ pub extern "C" fn solveMinEf(sid: i32, pb: i32, pp: i32, py: i32, hf: f64, np: f
         let Some(prepass) = prepare_branch_bound_prepass(sid, hf, np, tol) else {
             return;
         };
-        reset_status();
         terminal_cache_reset();
         me_reset();
         #[cfg(feature = "research-branch-bound")]
@@ -1351,7 +1373,8 @@ unsafe fn simulate_expected_f_once(
     }
     (
         availability_cost(
-            ub as f64, up as f64, uy as f64, init_b, init_p, init_y, hf, np,
+            ub as f64, up as f64, uy as f64, init_b, init_p, init_y, ME_GAIN_B, ME_GAIN_P,
+            ME_GAIN_Y, hf, np,
         ),
         completed,
     )
@@ -1649,7 +1672,8 @@ pub extern "C" fn simulateExpectedF(
                 };
             }
             sum_f += availability_cost(
-                ub as f64, up as f64, uy as f64, init_b, init_p, init_y, hf, np,
+                ub as f64, up as f64, uy as f64, init_b, init_p, init_y, ME_GAIN_B, ME_GAIN_P,
+                ME_GAIN_Y, hf, np,
             );
         }
         MC_EF_MEAN = if runs > 0 { sum_f / runs as f64 } else { 0.0 };

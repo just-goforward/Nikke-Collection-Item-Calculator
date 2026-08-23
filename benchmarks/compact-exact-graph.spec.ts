@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { beforeAll, describe, expect, it } from "vitest";
+import { ACTIVE_SUPPLY_FORECAST_PROFILE } from "../shared/generated/supplyForecast";
 
 import {
   buildCompactStateGraph,
@@ -20,6 +21,9 @@ type MinEfExports = WebAssembly.Exports & {
     blue: number,
     purple: number,
     yellow: number,
+    gainBlue: number,
+    gainPurple: number,
+    gainYellow: number,
     horizon: number,
     power: number,
     tolerance: number,
@@ -73,7 +77,18 @@ describe("compact exact graph", () => {
     const compact = solveCompactMinEf(result.graph);
 
     exports.configureMinEfMemo(18);
-    exports.solveMinEf(809, stock.blue, stock.purple, stock.yellow, 0.75, 3, 0);
+    exports.solveMinEf(
+      809,
+      stock.blue,
+      stock.purple,
+      stock.yellow,
+      ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.blue,
+      ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.purple,
+      ACTIVE_SUPPLY_FORECAST_PROFILE.expectedGain.yellow,
+      0.75,
+      3,
+      0,
+    );
     expect(exports.getSolveStatus()).toBe(0);
     expect(["blue", "purple", "yellow"][exports.minEfAction()]).toBe(compact.root.action);
     expect(compact.root.successProbability).toBeCloseTo(exports.minEfSuccessProb(), 12);
