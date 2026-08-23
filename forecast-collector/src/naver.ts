@@ -38,7 +38,7 @@ export async function fetchNaverBoard(
   url.search = new URLSearchParams({
     boardId: String(boardId),
     buffFilteringYN: "N",
-    limit: "60",
+    limit: "30",
     offset: "0",
     order: "NEW",
   }).toString();

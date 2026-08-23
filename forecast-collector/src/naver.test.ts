@@ -62,6 +62,8 @@ describe("Naver Lounge parser", () => {
 
     await expect(fetchNaverBoard(56, fetcher)).resolves.toHaveLength(1);
     expect(fetcher).toHaveBeenCalledTimes(2);
+    const requestedUrl = new URL(String(fetcher.mock.calls[0]?.[0]));
+    expect(requestedUrl.searchParams.get("limit")).toBe("30");
   });
 
   it("rejects oversized and malformed responses without producing an empty success", async () => {
