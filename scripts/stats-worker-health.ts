@@ -1,5 +1,7 @@
 type HealthPayload = {
+  error?: unknown;
   ok?: unknown;
+  retryable?: unknown;
   schemaContractVersion?: unknown;
 };
 
@@ -22,6 +24,35 @@ function healthError(response: Response, payload: unknown) {
   return new Error(
     `health: unexpected schema contract response (${response.status}): ${JSON.stringify(payload)}`,
   );
+}
+
+function isExpectedHealth(
+  response: Response,
+  health: HealthPayload,
+  expectedContractVersion: number,
+) {
+  return (
+    response.status === 200 &&
+    health.ok === true &&
+    health.schemaContractVersion === expectedContractVersion
+  );
+}
+
+function isDeploymentPropagationPending(
+  response: Response,
+  health: HealthPayload,
+  expectedContractVersion: number,
+) {
+  const previousContractStillServing =
+    response.status === 200 &&
+    health.ok === true &&
+    typeof health.schemaContractVersion === "number" &&
+    health.schemaContractVersion < expectedContractVersion;
+  const retryableSchemaPropagation =
+    response.status === 503 &&
+    health.error === "database_schema_not_ready" &&
+    health.retryable === true;
+  return previousContractStillServing || retryableSchemaPropagation;
 }
 
 export async function fetchExpectedHealthAfterDeployment({
@@ -65,22 +96,16 @@ export async function fetchExpectedHealthAfterDeployment({
     lastPayload = payload;
 
     const health = payload as HealthPayload;
-    if (
-      response.status === 200 &&
-      health.ok === true &&
-      health.schemaContractVersion === expectedContractVersion
-    ) {
+    if (isExpectedHealth(response, health, expectedContractVersion)) {
       return { payload: health, response };
     }
 
-    const previousContractStillServing =
-      response.status === 200 &&
-      health.ok === true &&
-      typeof health.schemaContractVersion === "number" &&
-      health.schemaContractVersion < expectedContractVersion;
-    if (previousContractStillServing && attempt < attempts) {
-      await sleep(delayMs);
-      continue;
+    if (isDeploymentPropagationPending(response, health, expectedContractVersion)) {
+      if (attempt < attempts) {
+        await sleep(delayMs);
+        continue;
+      }
+      break;
     }
 
     throw healthError(response, payload);
