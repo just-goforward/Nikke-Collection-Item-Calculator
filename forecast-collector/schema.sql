@@ -1,5 +1,13 @@
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+VALUES (1, CURRENT_TIMESTAMP);
+
 CREATE TABLE IF NOT EXISTS collector_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   source TEXT NOT NULL CHECK (source IN ('naver', 'x', 'collector')),

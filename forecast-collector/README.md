@@ -83,6 +83,17 @@ Remote setup needs two dedicated D1 databases, the Browser Run binding, and `ADM
 uses `FORECAST_COLLECTOR_ADMIN_TOKEN`; it is not a GitHub or Cloudflare write token. Deployment uses
 the existing scoped `CLOUDFLARE_API_TOKEN` and account ID.
 
+The deployment token intentionally has no D1 write permission. Apply schema changes as a separate,
+operator-audited migration before deploying either environment. The post-deploy smoke fails closed
+when the expected tables are absent.
+
+```powershell
+npx wrangler d1 execute collection-kit-forecast-collector-staging --remote --env=staging `
+  --config forecast-collector/wrangler.toml --file forecast-collector/schema.sql
+npx wrangler d1 execute collection-kit-forecast-collector --remote --env="" `
+  --config forecast-collector/wrangler.toml --file forecast-collector/schema.sql
+```
+
 Required repository variables:
 
 ```text
