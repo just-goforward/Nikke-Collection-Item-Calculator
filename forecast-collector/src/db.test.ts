@@ -10,6 +10,8 @@ import {
   nextNaverRetryAt,
   persistCandidate,
   persistSourceItemsAndEvents,
+  readCanaryReport,
+  recordCollectorRun,
 } from "./db";
 import type { CollectorEnv, NormalizedSourceItem, ScheduleEvent } from "./types";
 import worker from "./worker";
@@ -106,6 +108,48 @@ describe("forecast collector D1 contract", () => {
     const now = Date.parse("2026-08-24T00:00:00Z");
     expect(nextNaverRetryAt(now, 3)).toBe("2026-08-24T00:06:00.000Z");
     expect(nextNaverRetryAt(now, 20)).toBe("2026-08-24T00:30:00.000Z");
+  });
+
+  it("builds the canary window only from the requested deployment SHA", async () => {
+    const now = Date.parse("2026-08-24T00:00:00Z");
+    const firstStartedAt = new Date(now - 25 * 60 * 60 * 1000).toISOString();
+    const recentStartedAt = new Date(now - 60 * 60 * 1000).toISOString();
+    await recordCollectorRun(
+      testEnv.FORECAST_DB,
+      "old-deployment",
+      "naver",
+      "completed",
+      recentStartedAt,
+      null,
+      null,
+      1,
+    );
+    await recordCollectorRun(
+      testEnv.FORECAST_DB,
+      "current-deployment",
+      "naver",
+      "completed",
+      firstStartedAt,
+      null,
+      null,
+      1,
+    );
+    await recordCollectorRun(
+      testEnv.FORECAST_DB,
+      "current-deployment",
+      "naver",
+      "completed",
+      recentStartedAt,
+      null,
+      null,
+      1,
+    );
+
+    const report = await readCanaryReport(testEnv.FORECAST_DB, now, "current-deployment");
+
+    expect(report.deploymentSha).toBe("current-deployment");
+    expect(report.window.eligible).toBe(true);
+    expect(report.naver).toMatchObject({ attempts: 1, completed: 1, successRate: 1 });
   });
 });
 

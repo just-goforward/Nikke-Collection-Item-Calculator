@@ -34,6 +34,7 @@ export async function runCollection(
   } catch (error) {
     await recordCollectorRun(
       env.FORECAST_DB,
+      env.DEPLOY_SHA,
       "collector",
       "failure",
       nowIso,
@@ -55,6 +56,7 @@ async function runCollectionInternal(
   if (circuit.open) {
     await recordCollectorRun(
       env.FORECAST_DB,
+      env.DEPLOY_SHA,
       "collector",
       "circuit_open",
       nowIso,
@@ -80,6 +82,7 @@ async function runCollectionInternal(
     await persistSourceItemsAndEvents(env.FORECAST_DB, items, events, nowIso);
     await recordCollectorRun(
       env.FORECAST_DB,
+      env.DEPLOY_SHA,
       "naver",
       "completed",
       nowIso,
@@ -92,6 +95,7 @@ async function runCollectionInternal(
     const nextRetryAt = nextNaverRetryAt(nowMs, circuit.failures + 1);
     await recordCollectorRun(
       env.FORECAST_DB,
+      env.DEPLOY_SHA,
       "naver",
       "failure",
       nowIso,
@@ -101,6 +105,7 @@ async function runCollectionInternal(
     );
     await recordCollectorRun(
       env.FORECAST_DB,
+      env.DEPLOY_SHA,
       "collector",
       "failure",
       nowIso,
@@ -115,6 +120,7 @@ async function runCollectionInternal(
   if (hasUnresolvedScheduleChange(ledger)) {
     await recordCollectorRun(
       env.FORECAST_DB,
+      env.DEPLOY_SHA,
       "collector",
       "completed",
       nowIso,
@@ -134,6 +140,7 @@ async function runCollectionInternal(
   if (!resolved) {
     await recordCollectorRun(
       env.FORECAST_DB,
+      env.DEPLOY_SHA,
       "collector",
       "completed",
       nowIso,
@@ -186,6 +193,7 @@ async function runCollectionInternal(
     }
     await recordCollectorRun(
       env.FORECAST_DB,
+      env.DEPLOY_SHA,
       "x",
       xProbe.status === "x_unavailable" ? "failure" : "completed",
       xStarted,
@@ -198,6 +206,7 @@ async function runCollectionInternal(
     if (existingStatus >= 0) {
       await recordCollectorRun(
         env.FORECAST_DB,
+        env.DEPLOY_SHA,
         "collector",
         "completed",
         nowIso,
@@ -227,6 +236,7 @@ async function runCollectionInternal(
   if (await candidateIdExists(env.FORECAST_DB, candidate.candidate.candidateId)) {
     await recordCollectorRun(
       env.FORECAST_DB,
+      env.DEPLOY_SHA,
       "collector",
       "completed",
       nowIso,
@@ -251,6 +261,7 @@ async function runCollectionInternal(
   );
   await recordCollectorRun(
     env.FORECAST_DB,
+    env.DEPLOY_SHA,
     "collector",
     "completed",
     nowIso,

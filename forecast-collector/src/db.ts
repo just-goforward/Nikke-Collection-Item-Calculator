@@ -265,6 +265,7 @@ export async function supersedeEarlierCandidates(
 
 export async function recordCollectorRun(
   db: D1Database,
+  deploymentSha: string,
   source: "naver" | "x" | "collector",
   status: "completed" | "failure" | "circuit_open",
   startedAt: string,
@@ -275,10 +276,20 @@ export async function recordCollectorRun(
   await db
     .prepare(
       `INSERT INTO collector_runs (
-         source, status, started_at, finished_at, error_code, next_retry_at, item_count
-       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         deployment_sha, source, status, started_at, finished_at, error_code,
+         next_retry_at, item_count
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(source, status, startedAt, new Date().toISOString(), errorCode, nextRetryAt, itemCount)
+    .bind(
+      deploymentSha,
+      source,
+      status,
+      startedAt,
+      new Date().toISOString(),
+      errorCode,
+      nextRetryAt,
+      itemCount,
+    )
     .run();
 }
 
@@ -349,12 +360,18 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
   const runs = await db
     .prepare(
       `SELECT source, status, started_at, finished_at
-       FROM collector_runs WHERE started_at >= ? ORDER BY started_at ASC`,
+       FROM collector_runs
+       WHERE started_at >= ? AND deployment_sha = ?
+       ORDER BY started_at ASC`,
     )
-    .bind(since)
+    .bind(since, deploymentSha)
     .all<{ source: string; status: string; started_at: string; finished_at: string }>();
   const first = await db
-    .prepare("SELECT started_at FROM collector_runs ORDER BY started_at ASC LIMIT 1")
+    .prepare(
+      `SELECT started_at FROM collector_runs
+       WHERE deployment_sha = ? ORDER BY started_at ASC LIMIT 1`,
+    )
+    .bind(deploymentSha)
     .first<{ started_at: string }>();
   const candidates = await db
     .prepare("SELECT payload_json, payload_hash FROM forecast_candidates")

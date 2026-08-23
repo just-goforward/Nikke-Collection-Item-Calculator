@@ -88,10 +88,22 @@ operator-audited migration before deploying either environment. The post-deploy 
 when the expected tables are absent.
 
 ```powershell
-npx wrangler d1 execute collection-kit-forecast-collector-staging --remote --env=staging `
+npx wrangler d1 execute FORECAST_DB --remote --env=staging `
   --config forecast-collector/wrangler.toml --file forecast-collector/schema.sql
-npx wrangler d1 execute collection-kit-forecast-collector --remote --env="" `
+npx wrangler d1 execute FORECAST_DB --remote --env="" `
   --config forecast-collector/wrangler.toml --file forecast-collector/schema.sql
+```
+
+For an existing version-1 database, apply the incremental migration instead of replaying the
+bootstrap schema:
+
+```powershell
+npx wrangler d1 execute FORECAST_DB --remote --env=staging `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0002_collector_deployment_sha.sql
+npx wrangler d1 execute FORECAST_DB --remote --env="" `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0002_collector_deployment_sha.sql
 ```
 
 Required repository variables:

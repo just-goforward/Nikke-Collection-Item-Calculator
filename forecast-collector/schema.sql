@@ -8,8 +8,12 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 VALUES (1, CURRENT_TIMESTAMP);
 
+INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+VALUES (2, CURRENT_TIMESTAMP);
+
 CREATE TABLE IF NOT EXISTS collector_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  deployment_sha TEXT NOT NULL,
   source TEXT NOT NULL CHECK (source IN ('naver', 'x', 'collector')),
   status TEXT NOT NULL CHECK (status IN ('completed', 'failure', 'circuit_open')),
   started_at TEXT NOT NULL,
