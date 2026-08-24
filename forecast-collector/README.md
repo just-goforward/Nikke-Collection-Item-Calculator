@@ -116,3 +116,7 @@ FORECAST_COLLECTOR_URL
 
 `FORECAST_COLLECTOR_URL` is set to production only after the 24-hour staging canary and production
 round-trip smoke pass. Until then the proposal workflow skips without failing.
+
+Promotion compares the canary commit with current `main` only across the collector deployment
+inputs covered by the staging workflow path filter. Unrelated application, solver, or documentation
+commits therefore neither restart nor invalidate a running canary; any collector-input change does.

@@ -28,6 +28,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: refs/heads/main
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -45,14 +46,30 @@ jobs:
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
         run: npm run check:forecast-canary
 
-      - name: Verify the canary belongs to current main
+      - name: Verify canary deployment inputs match current main
         if: steps.canary.outputs.canary_passed == 'true'
         env:
           CANARY_SHA: ${{ steps.canary.outputs.deployment_sha }}
         shell: bash
         run: |
-          test "$CANARY_SHA" = "$(git rev-parse HEAD)" || {
-            echo "Staging canary belongs to $CANARY_SHA, not current main." >&2
+          [[ "$CANARY_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Staging canary returned an invalid deployment SHA." >&2
+            exit 1
+          }
+          git cat-file -e "$CANARY_SHA^{commit}" || {
+            echo "Staging canary commit $CANARY_SHA is not in repository history." >&2
+            exit 1
+          }
+          git diff --quiet "$CANARY_SHA" HEAD -- \
+            forecast-collector \
+            shared/supplyForecastCandidate.ts \
+            shared/supplyForecastModel.ts \
+            scripts/smoke-forecast-collector.ts \
+            vitest.forecast-collector.config.ts \
+            .github/workflows/forecast-collector-deploy.yml \
+            package.json \
+            package-lock.json || {
+            echo "Forecast collector deployment inputs changed after canary start." >&2
             exit 1
           }
 
