@@ -140,7 +140,7 @@ jobs:
 
       - name: Restore resumable profile state
         id: restore
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: |
             benchmarks/results/dynamic/${{ matrix.profile.id }}.json
@@ -195,7 +195,7 @@ jobs:
 
       - name: Save resumable profile state
         if: always()
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: |
             benchmarks/results/dynamic/${{ matrix.profile.id }}.json
