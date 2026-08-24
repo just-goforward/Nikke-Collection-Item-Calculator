@@ -35,7 +35,7 @@ Solver는 먼저 SR15 도달 확률을 최대화하고, 같은 확률 범위에�
 필요 환경:
 
 - Node.js 24.x와 npm 12.x(현재 CI 검증 기준)
-- [`rust-toolchain.toml`](./rust-toolchain.toml)이 고정한 Rust 1.97.1 및 `wasm32-unknown-unknown` target
+- [`rust-toolchain.toml`](./rust-toolchain.toml)이 고정한 Rust 1.98.0 및 `wasm32-unknown-unknown` target
 
 ```powershell
 npm install
@@ -69,6 +69,7 @@ npm run report:bundle
 - [Rust phase2 방법론 연구](./docs/research/phase2-methodology-findings.ko.md)
 - [차세대 solver·플랫폼 연구](./docs/research/next-solver-research-findings.ko.md)
 - [조건부 solver portfolio 연구](./docs/research/solver-portfolio-findings.ko.md)
+- [Rust 1.98 toolchain 갱신 검증](./docs/research/rust-1.98-upgrade.ko.md)
 - [앱 아이콘 원본 이미지](./docs/assets/app-icon-source.png)
 
 실제 UI의 정본은 runtime CSS와 component입니다. 별도 디자인 명세를 중복 관리하지 않으며 visual, alignment, compatibility 테스트로 관측 가능한 레이아웃을 보호합니다.

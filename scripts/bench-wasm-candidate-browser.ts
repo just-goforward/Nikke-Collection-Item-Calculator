@@ -1,8 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { type Browser, type BrowserType, chromium, firefox, webkit } from "@playwright/test";
+import { ACTIVE_SUPPLY_FORECAST_BASE_PROFILE } from "../shared/generated/supplyForecast.ts";
 
 type BuildName = "base" | "candidate";
+type BenchProfile = "minef-terminal-cache-v1" | "rust-toolchain-upgrade-v1";
 type EngineName = "chromium" | "firefox" | "webkit";
 type Outcome = "completed" | "memo_full" | "budget_exceeded" | "failure";
 type SolvePhase = "instance_cold_solve" | "allocation_warm_solve";
@@ -36,7 +38,8 @@ type BrowserSample = Omit<RecordSample, "build" | "campaign" | "repeat"> & {
   instantiateMs: number;
 };
 
-const PROFILE = "minef-terminal-cache-v1";
+const TERMINAL_CACHE_PROFILE = "minef-terminal-cache-v1" satisfies BenchProfile;
+const TOOLCHAIN_UPGRADE_PROFILE = "rust-toolchain-upgrade-v1" satisfies BenchProfile;
 const WARM_RATIO_TARGET = 0.97;
 const COLD_PERCENT_LIMIT = 0.05;
 const COLD_ABSOLUTE_LIMIT_MS = 2;
@@ -66,6 +69,14 @@ function requiredPath(name: "WASM_BASE_PATH" | "WASM_CANDIDATE_PATH") {
 function positiveInteger(name: string, fallback: number) {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? Math.trunc(value) : fallback;
+}
+
+function configuredProfile(): BenchProfile {
+  const value = process.env["WASM_BENCH_PROFILE"];
+  if (value === TERMINAL_CACHE_PROFILE || value === TOOLCHAIN_UPGRADE_PROFILE) return value;
+  throw new Error(
+    `WASM_BENCH_PROFILE must be ${TERMINAL_CACHE_PROFILE} or ${TOOLCHAIN_UPGRADE_PROFILE}.`,
+  );
 }
 
 function quantile(values: number[], q: number) {
@@ -121,9 +132,11 @@ async function measureCompile(browser: Browser, artifacts: Record<BuildName, str
 
 async function measureBuildInBrowser({
   artifact,
+  gain,
   scenarios: browserScenarios,
 }: {
   artifact: string;
+  gain: { blue: number; purple: number; yellow: number };
   scenarios: Scenario[];
 }): Promise<BrowserSample[]> {
   type Exports = {
@@ -136,6 +149,9 @@ async function measureBuildInBrowser({
       blue: number,
       purple: number,
       yellow: number,
+      blueGain: number,
+      purpleGain: number,
+      yellowGain: number,
       horizonFactor: number,
       normPower: number,
       tolerance: number,
@@ -169,7 +185,18 @@ async function measureBuildInBrowser({
     return { elapsedMs, exports };
   }
   function solve(exports: Exports, stateId: number, stock: readonly number[]) {
-    exports.solveMinEf?.(stateId, stock[0] ?? 0, stock[1] ?? 0, stock[2] ?? 0, 0.75, 3, 0);
+    exports.solveMinEf?.(
+      stateId,
+      stock[0] ?? 0,
+      stock[1] ?? 0,
+      stock[2] ?? 0,
+      gain.blue,
+      gain.purple,
+      gain.yellow,
+      0.75,
+      3,
+      0,
+    );
     return outcome(exports.getSolveStatus?.() ?? -1);
   }
 
@@ -204,7 +231,11 @@ async function measureBuildInBrowser({
 async function collectBuildSample(browser: Browser, artifact: string) {
   const page = await browser.newPage();
   try {
-    return await page.evaluate(measureBuildInBrowser, { artifact, scenarios });
+    return await page.evaluate(measureBuildInBrowser, {
+      artifact,
+      gain: ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain,
+      scenarios,
+    });
   } finally {
     await page.close();
   }
@@ -361,19 +392,23 @@ function reviewEntry(
   return { blockers, warnings };
 }
 
-function warmCampaignsPass(entries: Array<CampaignSummaryEntry | undefined>) {
+function warmCampaignsPass(
+  profile: BenchProfile,
+  entries: Array<CampaignSummaryEntry | undefined>,
+) {
   return (
     entries.length >= 2 &&
     entries.every(
       (entry) =>
         entry !== undefined &&
-        entry.pairedMedianRatio !== null &&
-        entry.pairedMedianRatio <= WARM_RATIO_TARGET,
+        (profile === TERMINAL_CACHE_PROFILE
+          ? entry.pairedMedianRatio !== null && entry.pairedMedianRatio <= WARM_RATIO_TARGET
+          : !exceedsLimit(entry, 0.05, 2, "p50Ms")),
     )
   );
 }
 
-function review(results: CampaignResult[]) {
+function review(profile: BenchProfile, results: CampaignResult[]) {
   const blockers: string[] = [];
   const warnings: string[] = [];
   for (const engine of [...new Set(results.map((result) => result.engine))]) {
@@ -387,7 +422,7 @@ function review(results: CampaignResult[]) {
           blockers.push(...entryReview.blockers);
           warnings.push(...entryReview.warnings);
         }
-        if (phase === "allocation_warm_solve" && !warmCampaignsPass(entries)) {
+        if (phase === "allocation_warm_solve" && !warmCampaignsPass(profile, entries)) {
           blockers.push(`${engine}:${label} did not pass both p50 campaigns`);
         }
       }
@@ -397,9 +432,7 @@ function review(results: CampaignResult[]) {
 }
 
 async function main() {
-  if (process.env["WASM_BENCH_PROFILE"] !== PROFILE) {
-    throw new Error(`WASM_BENCH_PROFILE must be ${PROFILE}.`);
-  }
+  const profile = configuredProfile();
   const repeats = positiveInteger("WASM_BROWSER_REPEATS", 51);
   const campaignCount = positiveInteger("WASM_BROWSER_CAMPAIGNS", 2);
   const artifacts = {
@@ -414,7 +447,7 @@ async function main() {
   }
   const report = {
     generatedAt: new Date().toISOString(),
-    profile: PROFILE,
+    profile,
     repeats,
     campaignCount,
     campaigns: results.map((result) => ({
@@ -428,7 +461,7 @@ async function main() {
       scenarios: campaignSummary(result),
       version: result.version,
     })),
-    gate: review(results),
+    gate: review(profile, results),
     limitations: [
       "Playwright WebKit is not an iOS Safari device measurement",
       "p95 confirmation runs are required only when both n=51 campaigns warn",

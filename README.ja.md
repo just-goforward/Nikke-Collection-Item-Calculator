@@ -35,7 +35,7 @@ Solverは最初にSR15への到達確率を最大化し、同じ確率範囲で�
 必要な環境:
 
 - 現行CI基準と同じNode.js 24.xとnpm 12.x
-- [`rust-toolchain.toml`](./rust-toolchain.toml)で固定したRust 1.97.1と`wasm32-unknown-unknown` target
+- [`rust-toolchain.toml`](./rust-toolchain.toml)で固定したRust 1.98.0と`wasm32-unknown-unknown` target
 
 ```powershell
 npm install
@@ -68,6 +68,7 @@ npm run report:bundle
 - [Rust phase2方法論研究（英語）](./docs/research/phase2-methodology-findings.md)
 - [次世代solver・プラットフォーム研究（英語）](./docs/research/next-solver-research-findings.md)
 - [条件付きsolver portfolio研究（英語）](./docs/research/solver-portfolio-findings.md)
+- [Rust 1.98 toolchain更新検証（英語）](./docs/research/rust-1.98-upgrade.md)
 - [アプリアイコンの原本画像](./docs/assets/app-icon-source.png)
 
 実際のUIではruntime CSSとcomponentが正本です。デザイン値を別の文章仕様として重複管理せず、visual・alignment・compatibilityテストで観測可能なレイアウトを保護します。

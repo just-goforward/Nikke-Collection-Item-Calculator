@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { ACTIVE_SUPPLY_FORECAST_BASE_PROFILE } from "../shared/generated/supplyForecast.ts";
 
 type BuildName = "base" | "candidate";
+type BenchProfile = "minef-terminal-cache-v1" | "rust-toolchain-upgrade-v1";
 type Outcome = "completed" | "memo_full" | "budget_exceeded" | "failure";
 type SolvePhase = "instance_cold_solve" | "allocation_warm_solve";
 type MinEfExports = {
@@ -59,9 +60,12 @@ type CompileSample = {
   repeat: number;
 };
 
-const PROFILE = "minef-terminal-cache-v1";
+const TERMINAL_CACHE_PROFILE = "minef-terminal-cache-v1" satisfies BenchProfile;
+const TOOLCHAIN_UPGRADE_PROFILE = "rust-toolchain-upgrade-v1" satisfies BenchProfile;
 const REPEATS = 31;
 const WARM_RATIO_TARGET = 0.97;
+const SOLVE_NON_REGRESSION_PERCENT_LIMIT = 0.05;
+const SOLVE_NON_REGRESSION_ABSOLUTE_LIMIT_MS = 2;
 const COLD_PERCENT_LIMIT = 0.05;
 const COLD_ABSOLUTE_LIMIT_MS = 2;
 const PHASE_PERCENT_LIMIT = 0.1;
@@ -94,6 +98,14 @@ function requiredPath(name: "WASM_BASE_PATH" | "WASM_CANDIDATE_PATH") {
 function configuredRepeats() {
   const value = Number(process.env["WASM_BENCH_REPEATS"]);
   return Number.isFinite(value) && value > 0 ? Math.trunc(value) : REPEATS;
+}
+
+function configuredProfile(): BenchProfile {
+  const value = process.env["WASM_BENCH_PROFILE"];
+  if (value === TERMINAL_CACHE_PROFILE || value === TOOLCHAIN_UPGRADE_PROFILE) return value;
+  throw new Error(
+    `WASM_BENCH_PROFILE must be ${TERMINAL_CACHE_PROFILE} or ${TOOLCHAIN_UPGRADE_PROFILE}.`,
+  );
 }
 
 function quantile(values: number[], q: number) {
@@ -338,18 +350,36 @@ function exceedsLimit(
   );
 }
 
-function solveGateBlockers(label: string, phase: SolvePhase, entry: SummaryEntry) {
+function solveGateBlockers(
+  profile: BenchProfile,
+  label: string,
+  phase: SolvePhase,
+  entry: SummaryEntry,
+) {
   if (!outcomesRemainCompleted(entry)) {
     return [`${label} did not remain completed in both builds`];
   }
   const blockers: string[] = [];
-  if (
-    phase === "allocation_warm_solve" &&
-    (entry.pairedMedianRatio === null || entry.pairedMedianRatio > WARM_RATIO_TARGET)
-  ) {
-    blockers.push(
-      `${label} paired median ratio ${entry.pairedMedianRatio ?? "missing"} exceeds ${WARM_RATIO_TARGET}`,
-    );
+  if (phase === "allocation_warm_solve") {
+    if (
+      profile === TERMINAL_CACHE_PROFILE &&
+      (entry.pairedMedianRatio === null || entry.pairedMedianRatio > WARM_RATIO_TARGET)
+    ) {
+      blockers.push(
+        `${label} paired median ratio ${entry.pairedMedianRatio ?? "missing"} exceeds ${WARM_RATIO_TARGET}`,
+      );
+    }
+    if (
+      profile === TOOLCHAIN_UPGRADE_PROFILE &&
+      exceedsLimit(
+        entry.base.p50Ms,
+        entry.candidate.p50Ms,
+        SOLVE_NON_REGRESSION_PERCENT_LIMIT,
+        SOLVE_NON_REGRESSION_ABSOLUTE_LIMIT_MS,
+      )
+    ) {
+      blockers.push(`${label} exceeded the warm non-regression limit`);
+    }
   }
   if (
     phase === "instance_cold_solve" &&
@@ -366,6 +396,7 @@ function solveGateBlockers(label: string, phase: SolvePhase, entry: SummaryEntry
 }
 
 function gate(
+  profile: BenchProfile,
   summary: ReturnType<typeof summarize>,
   compile: { base: number | null; candidate: number | null },
   instantiate: { base: number | null; candidate: number | null },
@@ -374,7 +405,7 @@ function gate(
     (["instance_cold_solve", "allocation_warm_solve"] as const).flatMap((phase) => {
       const label = `${scenario.id}:${phase}`;
       const entry = summary[label];
-      return entry ? solveGateBlockers(label, phase, entry) : [];
+      return entry ? solveGateBlockers(profile, label, phase, entry) : [];
     }),
   );
   for (const [phase, values] of [
@@ -389,9 +420,7 @@ function gate(
 }
 
 async function runParent() {
-  if (process.env["WASM_BENCH_PROFILE"] !== PROFILE) {
-    throw new Error(`WASM_BENCH_PROFILE must be ${PROFILE}.`);
-  }
+  const profile = configuredProfile();
   const paths = {
     base: requiredPath("WASM_BASE_PATH"),
     candidate: requiredPath("WASM_CANDIDATE_PATH"),
@@ -429,11 +458,11 @@ async function runParent() {
     candidate: phaseMedian("candidate", (sample) => sample.instantiateMs),
   };
   const summary = summarize(solveSamples);
-  const blockers = gate(summary, compile, instantiate);
+  const blockers = gate(profile, summary, compile, instantiate);
   const [baseStat, candidateStat] = await Promise.all([stat(paths.base), stat(paths.candidate)]);
   const report = {
     generatedAt: new Date().toISOString(),
-    profile: PROFILE,
+    profile,
     gitCommit: spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim(),
     runtime: {
       arch: arch(),
@@ -441,6 +470,10 @@ async function runParent() {
       node: process.version,
       os: `${platform()} ${release()}`,
       rustc: spawnSync("rustc", ["--version"], { encoding: "utf8" }).stdout.trim(),
+    },
+    toolchains: {
+      base: process.env["WASM_BASE_TOOLCHAIN"] ?? null,
+      candidate: process.env["WASM_CANDIDATE_TOOLCHAIN"] ?? null,
     },
     repeats,
     builds: {

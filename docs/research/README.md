@@ -11,6 +11,7 @@ record the evidence behind decisions and do not override the implementation.
 - [Rust phase2 methodology findings (Korean)](./phase2-methodology-findings.ko.md) / [English](./phase2-methodology-findings.md)
 - [Conditional solver portfolio study (Korean)](./solver-portfolio-findings.ko.md) / [English](./solver-portfolio-findings.md)
 - [min-E[f] memo grow-and-resume findings (Korean)](./min-ef-grow-resume-findings.ko.md) / [English](./min-ef-grow-resume-findings.md)
+- [Rust 1.98 toolchain upgrade validation (Korean)](./rust-1.98-upgrade.ko.md) / [English](./rust-1.98-upgrade.md)
 
 ## Follow-Up Research
 

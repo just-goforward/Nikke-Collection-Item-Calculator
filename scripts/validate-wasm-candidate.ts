@@ -2,8 +2,10 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { ACTIVE_SUPPLY_FORECAST_BASE_PROFILE } from "../shared/generated/supplyForecast.ts";
 
 type MinEfExports = {
+  configureMemo?: (tier: number) => void;
   configureMinEfMemo?: (tier: number) => void;
   configureNodeBudget?: (budget: number) => void;
   getSolveStatus?: () => number;
@@ -24,15 +26,44 @@ type MinEfExports = {
   minEfVecP?: () => number;
   minEfVecY?: () => number;
   releaseMinEfMemo?: () => void;
+  resAction?: (slot: number) => number;
+  resMaxSuccessProb?: (slot: number) => number;
+  resSuccessProb?: (slot: number) => number;
+  resVecB?: (slot: number) => number;
+  resVecP?: (slot: number) => number;
+  resVecY?: (slot: number) => number;
+  rootCandidateCost?: (action: number) => number;
+  rootCandidateMaxSuccessProb?: () => number;
+  rootCandidateSuccessProb?: (action: number) => number;
+  rootCandidateValid?: (action: number) => number;
+  rootCandidateVecB?: (action: number) => number;
+  rootCandidateVecP?: (action: number) => number;
+  rootCandidateVecY?: (action: number) => number;
+  solveCore?: (
+    stateId: number,
+    bluePieces: number,
+    purplePieces: number,
+    yellowPieces: number,
+    blueGain: number,
+    purpleGain: number,
+    yellowGain: number,
+    horizonFactor: number,
+    normPower: number,
+    tolerance: number,
+  ) => number;
   solveMinEf?: (
     stateId: number,
     bluePieces: number,
     purplePieces: number,
     yellowPieces: number,
+    blueGain: number,
+    purpleGain: number,
+    yellowGain: number,
     horizonFactor: number,
     normPower: number,
     tolerance: number,
   ) => void;
+  statesCount?: () => number;
 };
 type CandidateSnapshot =
   | { valid: false }
@@ -48,6 +79,15 @@ type MinEfSnapshot = {
   expectedCostBits: string;
   maxSuccessBits: string;
   nodeCount: number;
+  status: number;
+  successBits: string;
+  vectorBits: [string, string, string];
+};
+type Phase2Snapshot = {
+  action: number;
+  candidates: CandidateSnapshot[];
+  maxSuccessBits: string;
+  stateCount: number;
   status: number;
   successBits: string;
   vectorBits: [string, string, string];
@@ -92,11 +132,15 @@ async function instantiate(path: string) {
 }
 
 function solve(exports: MinEfExports, stateId: number, stock: Stock) {
+  const gain = ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain;
   requireFunction(exports.solveMinEf, "solveMinEf")(
     stateId,
     stock[0],
     stock[1],
     stock[2],
+    gain.blue,
+    gain.purple,
+    gain.yellow,
     0.75,
     3,
     0,
@@ -149,6 +193,63 @@ function snapshot(exports: MinEfExports): MinEfSnapshot {
   };
 }
 
+function snapshotPhase2Candidate(exports: MinEfExports, action: number): CandidateSnapshot {
+  const valid = requireFunction(exports.rootCandidateValid, "rootCandidateValid")(action);
+  if (valid === 0) return { valid: false };
+  return {
+    expectedCostBits: f64Bits(
+      requireFunction(exports.rootCandidateCost, "rootCandidateCost")(action),
+    ),
+    successBits: f64Bits(
+      requireFunction(exports.rootCandidateSuccessProb, "rootCandidateSuccessProb")(action),
+    ),
+    valid: true,
+    vectorBits: [
+      f64Bits(requireFunction(exports.rootCandidateVecB, "rootCandidateVecB")(action)),
+      f64Bits(requireFunction(exports.rootCandidateVecP, "rootCandidateVecP")(action)),
+      f64Bits(requireFunction(exports.rootCandidateVecY, "rootCandidateVecY")(action)),
+    ],
+  };
+}
+
+function solveAndSnapshotPhase2(
+  exports: MinEfExports,
+  stateId: number,
+  stock: Stock,
+): Phase2Snapshot {
+  requireFunction(exports.configureMemo, "configureMemo")(21);
+  const gain = ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain;
+  const slot = requireFunction(exports.solveCore, "solveCore")(
+    stateId,
+    stock[0],
+    stock[1],
+    stock[2],
+    gain.blue,
+    gain.purple,
+    gain.yellow,
+    0.75,
+    3,
+    0,
+  );
+  const status = requireFunction(exports.getSolveStatus, "getSolveStatus")();
+  if (status !== 0 || slot < 0) {
+    throw new Error(`phase2 solve failed with status ${status} and slot ${slot}.`);
+  }
+  return {
+    action: requireFunction(exports.resAction, "resAction")(slot),
+    candidates: [0, 1, 2].map((action) => snapshotPhase2Candidate(exports, action)),
+    maxSuccessBits: f64Bits(requireFunction(exports.resMaxSuccessProb, "resMaxSuccessProb")(slot)),
+    stateCount: requireFunction(exports.statesCount, "statesCount")(),
+    status,
+    successBits: f64Bits(requireFunction(exports.resSuccessProb, "resSuccessProb")(slot)),
+    vectorBits: [
+      f64Bits(requireFunction(exports.resVecB, "resVecB")(slot)),
+      f64Bits(requireFunction(exports.resVecP, "resVecP")(slot)),
+      f64Bits(requireFunction(exports.resVecY, "resVecY")(slot)),
+    ],
+  };
+}
+
 function assertEqual(actual: unknown, expected: unknown, message: string) {
   if (!isDeepStrictEqual(actual, expected)) {
     throw new Error(
@@ -171,11 +272,28 @@ async function sha256(path: string) {
     .digest("hex");
 }
 
+async function moduleContract(path: string) {
+  const module = await WebAssembly.compile(await readFile(path));
+  return {
+    exports: WebAssembly.Module.exports(module),
+    imports: WebAssembly.Module.imports(module),
+    targetFeatures: WebAssembly.Module.customSections(module, "target_features").map((section) =>
+      Buffer.from(section).toString("hex"),
+    ),
+  };
+}
+
 async function main() {
   const basePath = requiredPath("WASM_BASE_PATH");
   const candidatePath = requiredPath("WASM_CANDIDATE_PATH");
-  const [baseHash, candidateHash] = await Promise.all([sha256(basePath), sha256(candidatePath)]);
+  const [baseHash, candidateHash, baseContract, candidateContract] = await Promise.all([
+    sha256(basePath),
+    sha256(candidatePath),
+    moduleContract(basePath),
+    moduleContract(candidatePath),
+  ]);
   if (baseHash === candidateHash) throw new Error("Base and candidate hashes are identical.");
+  assertEqual(candidateContract, baseContract, "Candidate changed the WASM import/export contract");
 
   const fixtures = [
     { id: "dominance-cap", stateId: 0, stock: [60, 120, 900] as const },
@@ -200,6 +318,17 @@ async function main() {
   if (parity["dominance-cap"]?.expectedCostBits !== "0x3fbf64e435ab1f1e") {
     throw new Error("Dominance-cap expected-cost semantic golden changed.");
   }
+
+  const [phase2Base, phase2Candidate] = await Promise.all([
+    instantiate(basePath),
+    instantiate(candidatePath),
+  ]);
+  const phase2Snapshot = solveAndSnapshotPhase2(phase2Base, 30, [100, 100, 100]);
+  assertEqual(
+    solveAndSnapshotPhase2(phase2Candidate, 30, [100, 100, 100]),
+    phase2Snapshot,
+    "R1-balanced changed phase2 semantics",
+  );
 
   const candidateFresh = await instantiate(candidatePath);
   solve(candidateFresh, 0, [60, 120, 900]);
@@ -247,6 +376,11 @@ async function main() {
           base: { path: basePath, sha256: baseHash },
           candidate: { path: candidatePath, sha256: candidateHash },
         },
+        moduleContract: {
+          exportCount: candidateContract.exports.length,
+          importCount: candidateContract.imports.length,
+          targetFeatures: candidateContract.targetFeatures,
+        },
         lifecycle: "passed",
         memory: {
           limitations: "page growth is a coarse signal, not logical allocation size",
@@ -254,6 +388,9 @@ async function main() {
           small: { additional: smallAdditional, base: smallBase, candidate: smallCandidate },
         },
         parity,
+        phase2Parity: {
+          "R1-balanced": phase2Snapshot,
+        },
       },
       null,
       2,

@@ -35,7 +35,7 @@ For security issues, use the private reporting route in the [security policy](./
 Requirements:
 
 - Node.js 24.x and npm 12.x, matching the current CI baseline
-- Rust 1.97.1 and the `wasm32-unknown-unknown` target, pinned by [`rust-toolchain.toml`](./rust-toolchain.toml)
+- Rust 1.98.0 and the `wasm32-unknown-unknown` target, pinned by [`rust-toolchain.toml`](./rust-toolchain.toml)
 
 ```powershell
 npm install
@@ -68,6 +68,7 @@ npm run report:bundle
 - [Rust phase2 methodology study](./docs/research/phase2-methodology-findings.md)
 - [Next-generation solver and platform study](./docs/research/next-solver-research-findings.md)
 - [Conditional solver portfolio study](./docs/research/solver-portfolio-findings.md)
+- [Rust 1.98 toolchain upgrade validation](./docs/research/rust-1.98-upgrade.md)
 - [Source artwork for the generated app icons](./docs/assets/app-icon-source.png)
 
 Runtime CSS and components are the source of truth for the interface. The repository does not duplicate design values in a separate prose specification; visual, alignment, and compatibility tests protect observable layout behavior.

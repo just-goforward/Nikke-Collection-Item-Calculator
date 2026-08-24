@@ -32,8 +32,8 @@ jobs:
 
       - name: Setup Rust
         run: |
-          rustup toolchain install 1.97.1 --profile minimal --target wasm32-unknown-unknown
-          rustup default 1.97.1
+          rustup toolchain install 1.98.0 --profile minimal --target wasm32-unknown-unknown
+          rustup default 1.98.0
           rustup component add rustfmt clippy
 
       - name: Install dependencies
