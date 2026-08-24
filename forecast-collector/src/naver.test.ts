@@ -69,6 +69,32 @@ describe("Naver Lounge parser", () => {
     });
   });
 
+  it("does not treat script or style contents as unstructured source evidence", async () => {
+    const payload = {
+      code: 200,
+      content: {
+        feeds: [
+          {
+            feed: {
+              feedId: 999,
+              title: "일반 공지",
+              createdDate: "20260814170042",
+              contents: `
+                <html><body>
+                  <script>솔로 레이드 8/20 12:00 ~ 8/27 4:59</script data-source="x">
+                  <style>.솔로레이드 { color: red; }</style>
+                  <p>관련 일정이 없는 본문</p>
+                </body></html>`,
+            },
+            user: { userRoleCode: "game_manager" },
+          },
+        ],
+      },
+    };
+
+    await expect(parseNaverFeed(payload, 56)).resolves.toEqual([]);
+  });
+
   it("blocks an ambiguous schedule-change notice for manual review", async () => {
     const payload = JSON.parse(changeFixture) as unknown;
     const events = await parseScheduleEvents(await parseNaverFeed(payload, 48));

@@ -11,6 +11,8 @@ const VIEWPORTS = [
 const DIAGNOSTIC_MODE = process.env["ALIGNMENT_DIAGNOSTIC"] === "1";
 const BREAKPOINT_SENTINELS = [660, 661, 980, 981, 1099, 1100] as const;
 const ALIGNMENT_BASE_URL = "http://127.0.0.1:4377";
+// Glyph extrema vary by half-pixels across OS rasterizers; box geometry keeps the stricter gate.
+const MAX_TEXT_INK_CENTER_DELTA = 1.5;
 
 function createGate() {
   let release: () => void = () => undefined;
@@ -218,7 +220,7 @@ test("all locales and viewports keep geometric and optical centers", async ({
           expect(
             Math.abs(delta),
             `${locale} ${viewport.width}px ${name}: ink center delta ${delta}`,
-          ).toBeLessThanOrEqual(1.1);
+          ).toBeLessThanOrEqual(MAX_TEXT_INK_CENTER_DELTA);
         }
 
         await expectNumericContract(

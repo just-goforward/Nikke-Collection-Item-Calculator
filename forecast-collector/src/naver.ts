@@ -169,12 +169,42 @@ async function extractSmartEditorText(rawContents: string): Promise<{
     if (smartEditorHtml !== null) return { text: smartEditorHtml, structured: true };
   }
   return {
-    text: rawContents
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]+>/g, " "),
+    text: await extractUnstructuredHtmlText(rawContents),
     structured: false,
   };
+}
+
+async function extractUnstructuredHtmlText(rawContents: string) {
+  const sanitized = await new HTMLRewriter()
+    .on("script, style, template", {
+      element(element) {
+        element.remove();
+      },
+    })
+    .transform(
+      new Response(rawContents, {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    )
+    .text();
+  const values: string[] = [];
+  let sawBody = false;
+  const response = new HTMLRewriter()
+    .on("body", {
+      element() {
+        sawBody = true;
+      },
+      text(chunk) {
+        values.push(chunk.text);
+      },
+    })
+    .transform(
+      new Response(sanitized, {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+  await response.text();
+  return sawBody ? normalizeWhitespace(values.join(" ")) : "";
 }
 
 async function extractSmartEditorHtmlText(rawContents: string) {
