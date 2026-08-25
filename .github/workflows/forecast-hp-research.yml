@@ -6,9 +6,6 @@ on:
     paths:
       - "shared/supplyForecasts.json"
       - "shared/generated/supplyForecast.ts"
-  workflow_run:
-    workflows: ["Promote Forecast Collector"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       records_per_profile:
@@ -29,7 +26,7 @@ concurrency:
 jobs:
   prepare:
     if: >-
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success') &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       vars.FORECAST_COLLECTOR_URL != ''
     runs-on: ubuntu-latest
     outputs:

@@ -149,7 +149,8 @@ FORECAST_DIRECT_NAVER_POLL (optional emergency fallback)
 
 The promotion workflow sets `FORECAST_COLLECTOR_URL` to production only after the 12-hour staging
 canary, production queue round-trip smoke, and idempotent Solo Raid ledger bootstrap pass. Until
-then the proposal workflow skips without failing.
+then the proposal workflow skips without failing. Promotion is dispatched manually after reviewing
+the completed canary report and remains protected by the `cloudflare-production` environment.
 
 Promotion compares the canary commit with current `main` only across the collector deployment
 inputs covered by the staging workflow path filter. Unrelated application, solver, or documentation

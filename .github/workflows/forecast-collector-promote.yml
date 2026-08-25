@@ -1,8 +1,6 @@
 name: Promote Forecast Collector
 
 on:
-  schedule:
-    - cron: "23 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -123,8 +121,23 @@ jobs:
           POLL_MODE: ${{ needs.canary.outputs.poll_mode }}
         shell: bash
         run: |
-          npx wrangler versions list --env="" --config forecast-collector/wrangler.toml --json > "$RUNNER_TEMP/forecast-versions.json"
-          if node -e 'const rows=require(process.argv[1]);process.exit(rows.some(x=>x.annotations?.["workers/tag"]===process.argv[2])?0:1)' "$RUNNER_TEMP/forecast-versions.json" "$DEPLOY_SHA-$POLL_MODE"; then
+          set -euo pipefail
+          versions="$RUNNER_TEMP/forecast-versions.json"
+          error_log="$RUNNER_TEMP/forecast-versions.err"
+          if NO_COLOR=1 npx wrangler versions list --env="" \
+            --config forecast-collector/wrangler.toml --json > "$versions" 2> "$error_log"; then
+            echo "worker_exists=true" >> "$GITHUB_OUTPUT"
+          elif grep -q "This Worker does not exist on your account" "$error_log" && \
+            grep -q "code: 10007" "$error_log"; then
+            echo "worker_exists=false" >> "$GITHUB_OUTPUT"
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "Production collector does not exist yet; continuing with its first deployment."
+            exit 0
+          else
+            cat "$error_log" >&2
+            exit 1
+          fi
+          if node -e 'const rows=require(process.argv[1]);process.exit(rows.some(x=>x.annotations?.["workers/tag"]===process.argv[2])?0:1)' "$versions" "$DEPLOY_SHA-$POLL_MODE"; then
             echo "needed=false" >> "$GITHUB_OUTPUT"
           else
             echo "needed=true" >> "$GITHUB_OUTPUT"
@@ -138,7 +151,7 @@ jobs:
           node -e 'require("node:fs").writeFileSync(process.env.RUNNER_TEMP+"/forecast-secrets.json",JSON.stringify({ADMIN_TOKEN:process.env.FORECAST_COLLECTOR_ADMIN_TOKEN}))'
 
       - name: Capture production version
-        if: steps.deployed.outputs.needed == 'true'
+        if: steps.deployed.outputs.needed == 'true' && steps.deployed.outputs.worker_exists == 'true'
         id: previous
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
