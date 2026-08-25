@@ -107,10 +107,11 @@ Remote setup needs two dedicated D1 databases and `ADMIN_TOKEN`. GitHub
 uses `FORECAST_COLLECTOR_ADMIN_TOKEN`; it is not a GitHub or Cloudflare write token. Deployment uses
 the existing scoped `CLOUDFLARE_API_TOKEN` and account ID.
 
-The scoped deployment token needs Workers Scripts edit access and D1 edit access limited to this
-account's dedicated forecast databases. Staging migration 0003 runs before the staging deployment;
-production migration and deployment remain behind the `cloudflare-production` environment
-approval. The post-deploy smoke fails closed when the expected tables are absent.
+The scoped CI deployment token needs Workers Scripts edit access but intentionally does not receive
+D1 write access. Apply migrations separately with an operator-authenticated Wrangler session before
+dispatching a deployment. Production migration and deployment remain separate audited operations;
+the deployment stays behind the `cloudflare-production` environment approval. The post-deploy smoke
+fails closed when the expected tables are absent.
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
