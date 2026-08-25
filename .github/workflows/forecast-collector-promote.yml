@@ -175,6 +175,38 @@ jobs:
           --var ENVIRONMENT:production --var DEPLOY_SHA:$DEPLOY_SHA --var POLL_MODE:$POLL_MODE
           --tag "$DEPLOY_SHA-$POLL_MODE" --message "Forecast collector production $DEPLOY_SHA ($POLL_MODE)"
 
+      - name: Wait for production health readiness
+        env:
+          FORECAST_COLLECTOR_PRODUCTION_URL: ${{ vars.FORECAST_COLLECTOR_PRODUCTION_URL }}
+        run: |
+          node --input-type=module - <<'NODE'
+          const baseUrl = process.env.FORECAST_COLLECTOR_PRODUCTION_URL.replace(/\/$/, "");
+          let lastError = "health endpoint did not become ready";
+          let ready = false;
+          for (let attempt = 1; attempt <= 12; attempt += 1) {
+            try {
+              const response = await fetch(`${baseUrl}/health`, {
+                headers: { accept: "application/json" },
+                signal: AbortSignal.timeout(10_000),
+              });
+              if (response.ok) {
+                const body = await response.json();
+                if (body?.status === "ok") {
+                  ready = true;
+                  break;
+                }
+                lastError = "health response did not contain status=ok";
+              } else {
+                lastError = `health returned ${response.status}`;
+              }
+            } catch (error) {
+              lastError = error instanceof Error ? error.message : String(error);
+            }
+            if (attempt < 12) await new Promise((resolve) => setTimeout(resolve, 5_000));
+          }
+          if (!ready) throw new Error(`Production collector readiness failed: ${lastError}`);
+          NODE
+
       - name: Production round-trip smoke
         id: smoke
         continue-on-error: true
