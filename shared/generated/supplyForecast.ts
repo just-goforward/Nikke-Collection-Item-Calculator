@@ -3,7 +3,7 @@ export const SUPPLY_FORECAST_REGISTRY =
   {
     "version": 2,
     "activeForecastId": "supply-2026-08-21-v1",
-    "approvedForecastId": "supply-2026-08-21-v1",
+    "approvedForecastId": "supply-2026-08-25-v2",
     "forecasts": [
       {
         "id": "supply-2026-08-21-v1",
@@ -21,6 +21,437 @@ export const SUPPLY_FORECAST_REGISTRY =
               "blue": 473.912,
               "purple": 55.808,
               "yellow": 24.736
+            }
+          }
+        ]
+      },
+      {
+        "id": "supply-2026-08-25-v2",
+        "kind": "schedule",
+        "rulesVersion": "schedule-kit-v1",
+        "effectiveFrom": "2026-08-25",
+        "sourceEvidence": [
+          {
+            "source": "naver-board-56",
+            "itemId": "7138616",
+            "url": "https://game.naver.com/lounge/nikke/board/detail/7138616",
+            "publishedAt": "2026-01-02T08:00:33.000Z",
+            "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 33이 곧 오픈될 예정입니다.",
+            "contentHash": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1"
+          },
+          {
+            "source": "naver-board-56",
+            "itemId": "7298679",
+            "url": "https://game.naver.com/lounge/nikke/board/detail/7298679",
+            "publishedAt": "2026-02-13T08:00:39.000Z",
+            "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 34가 곧 오픈될 예정입니다.",
+            "contentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9"
+          },
+          {
+            "source": "naver-board-56",
+            "itemId": "7409051",
+            "url": "https://game.naver.com/lounge/nikke/board/detail/7409051",
+            "publishedAt": "2026-03-13T08:00:32.000Z",
+            "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 35가 곧 오픈될 예정입니다.",
+            "contentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92"
+          },
+          {
+            "source": "naver-board-56",
+            "itemId": "7576019",
+            "url": "https://game.naver.com/lounge/nikke/board/detail/7576019",
+            "publishedAt": "2026-04-24T08:00:39.000Z",
+            "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 36이 곧 오픈될 예정입니다.",
+            "contentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5"
+          },
+          {
+            "source": "naver-board-56",
+            "itemId": "7911818",
+            "url": "https://game.naver.com/lounge/nikke/board/detail/7911818",
+            "publishedAt": "2026-07-10T08:00:35.000Z",
+            "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 39가 곧 오픈될 예정입니다.",
+            "contentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac"
+          },
+          {
+            "source": "naver-board-56",
+            "itemId": "8060044",
+            "url": "https://game.naver.com/lounge/nikke/board/detail/8060044",
+            "publishedAt": "2026-08-14T08:00:42.000Z",
+            "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 40이 곧 오픈될 예정입니다.",
+            "contentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75"
+          },
+          {
+            "source": "naver-board-56",
+            "itemId": "8053292",
+            "url": "https://game.naver.com/lounge/nikke/board/detail/8053292",
+            "publishedAt": "2026-08-12T22:15:28.000Z",
+            "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「퀸(니지마 마코토)」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 퀸(니지마 마코토)의 기간 한정 Pick Up 모집이 시작되었습니다.",
+            "contentHash": "23b3a53852660c81713c80365592e21f4199e28aa80d9f3f5e60537ba12e156f"
+          },
+          {
+            "source": "naver-board-56",
+            "itemId": "8067910",
+            "url": "https://game.naver.com/lounge/nikke/board/detail/8067910",
+            "publishedAt": "2026-08-16T09:00:35.000Z",
+            "excerpt": "콜라보 이벤트 진행 중! 【콜라보 이벤트 진행 중!】 ​ 「승리의 여신: 니케」 x 「P3R」, 「P4G」, 「P5R」 콜라보 한정 프레임이 등장했습니다! ​ 콜라보 기간 중, - THIEF QUEEN PASS - SNOW FLAKES PASS 랭크 10 달성 시 일반 보상에서 획득하실 수 있습니다. ​ ◆ 콜라보 종료 일시 - 9/10(목) 4:59 ​",
+            "contentHash": "510e2f59d2d3bc97b11d08c967cf0615e9e6f166a30b2ed748b2c224e9e3be70"
+          },
+          {
+            "source": "naver-board-56",
+            "itemId": "8080556",
+            "url": "https://game.naver.com/lounge/nikke/board/detail/8080556",
+            "publishedAt": "2026-08-20T01:00:41.000Z",
+            "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 아마기 유키코의 기간 한정 Pick Up 모집이 시작되었습니다.",
+            "contentHash": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec"
+          },
+          {
+            "source": "naver-board-56",
+            "itemId": "8080706",
+            "url": "https://game.naver.com/lounge/nikke/board/detail/8080706",
+            "publishedAt": "2026-08-20T02:00:36.000Z",
+            "excerpt": "스토리 이벤트 진행 중 【스토리 이벤트 진행 중】 ​ 「승리의 여신: 니케」 x 「P3R」, 「P4G」, 「P5R」 신규 콜라보 스토리 이벤트 ‘PERSONA ON FRONTLINE’ 현재 진행 중!",
+            "contentHash": "e60b8189b4abba4b61c3b8c2de5590770f517fc0384789e1f6328c80f8e7934e"
+          }
+        ],
+        "profiles": [
+          {
+            "id": "supply-2026-08-25-v2@2026-08-24T20:00:00.000Z",
+            "effectiveFrom": "2026-08-24T20:00:00.000Z",
+            "effectiveUntil": "2026-08-25T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 472.87459079,
+              "purple": 81.621857884,
+              "yellow": 30.712036633
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-08-25T20:00:00.000Z",
+            "effectiveFrom": "2026-08-25T20:00:00.000Z",
+            "effectiveUntil": "2026-08-26T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 463.927191108,
+              "purple": 79.60731106,
+              "yellow": 29.997828473
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-08-26T20:00:00.000Z",
+            "effectiveFrom": "2026-08-26T20:00:00.000Z",
+            "effectiveUntil": "2026-08-27T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 454.979791425,
+              "purple": 77.592764237,
+              "yellow": 29.283620313
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-08-27T20:00:00.000Z",
+            "effectiveFrom": "2026-08-27T20:00:00.000Z",
+            "effectiveUntil": "2026-08-28T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 446.032391743,
+              "purple": 75.578217413,
+              "yellow": 28.569412153
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-08-28T20:00:00.000Z",
+            "effectiveFrom": "2026-08-28T20:00:00.000Z",
+            "effectiveUntil": "2026-08-29T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 437.08499206,
+              "purple": 73.56367059,
+              "yellow": 27.855203994
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-08-29T20:00:00.000Z",
+            "effectiveFrom": "2026-08-29T20:00:00.000Z",
+            "effectiveUntil": "2026-08-30T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 428.137592378,
+              "purple": 71.549123766,
+              "yellow": 27.140995834
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-08-30T20:00:00.000Z",
+            "effectiveFrom": "2026-08-30T20:00:00.000Z",
+            "effectiveUntil": "2026-08-31T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 419.190192696,
+              "purple": 69.534576942,
+              "yellow": 26.426787674
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-08-31T20:00:00.000Z",
+            "effectiveFrom": "2026-08-31T20:00:00.000Z",
+            "effectiveUntil": "2026-09-01T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 375.242793013,
+              "purple": 63.520030119,
+              "yellow": 23.712579514
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-01T20:00:00.000Z",
+            "effectiveFrom": "2026-09-01T20:00:00.000Z",
+            "effectiveUntil": "2026-09-02T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 366.295393331,
+              "purple": 61.505483295,
+              "yellow": 22.998371355
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-02T20:00:00.000Z",
+            "effectiveFrom": "2026-09-02T20:00:00.000Z",
+            "effectiveUntil": "2026-09-03T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 357.347993648,
+              "purple": 59.490936472,
+              "yellow": 22.284163195
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-03T20:00:00.000Z",
+            "effectiveFrom": "2026-09-03T20:00:00.000Z",
+            "effectiveUntil": "2026-09-04T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 348.400593966,
+              "purple": 57.476389648,
+              "yellow": 21.569955035
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-04T20:00:00.000Z",
+            "effectiveFrom": "2026-09-04T20:00:00.000Z",
+            "effectiveUntil": "2026-09-05T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 339.453194283,
+              "purple": 55.461842824,
+              "yellow": 20.855746875
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-05T20:00:00.000Z",
+            "effectiveFrom": "2026-09-05T20:00:00.000Z",
+            "effectiveUntil": "2026-09-06T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 330.505794601,
+              "purple": 53.447296001,
+              "yellow": 20.141538716
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-06T20:00:00.000Z",
+            "effectiveFrom": "2026-09-06T20:00:00.000Z",
+            "effectiveUntil": "2026-09-07T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 321.558394919,
+              "purple": 51.432749177,
+              "yellow": 19.427330556
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-07T20:00:00.000Z",
+            "effectiveFrom": "2026-09-07T20:00:00.000Z",
+            "effectiveUntil": "2026-09-08T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 277.610995236,
+              "purple": 45.418202354,
+              "yellow": 16.713122396
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-08T20:00:00.000Z",
+            "effectiveFrom": "2026-09-08T20:00:00.000Z",
+            "effectiveUntil": "2026-09-09T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 268.663595554,
+              "purple": 43.40365553,
+              "yellow": 15.998914236
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-09T20:00:00.000Z",
+            "effectiveFrom": "2026-09-09T20:00:00.000Z",
+            "effectiveUntil": "2026-09-10T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 259.716195871,
+              "purple": 41.389108707,
+              "yellow": 15.284706077
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-10T20:00:00.000Z",
+            "effectiveFrom": "2026-09-10T20:00:00.000Z",
+            "effectiveUntil": "2026-09-11T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 250.768796189,
+              "purple": 39.374561883,
+              "yellow": 14.570497917
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-11T20:00:00.000Z",
+            "effectiveFrom": "2026-09-11T20:00:00.000Z",
+            "effectiveUntil": "2026-09-12T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 241.821396507,
+              "purple": 37.360015059,
+              "yellow": 13.856289757
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-12T20:00:00.000Z",
+            "effectiveFrom": "2026-09-12T20:00:00.000Z",
+            "effectiveUntil": "2026-09-13T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 232.873996824,
+              "purple": 35.345468236,
+              "yellow": 13.142081597
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-13T20:00:00.000Z",
+            "effectiveFrom": "2026-09-13T20:00:00.000Z",
+            "effectiveUntil": "2026-09-14T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 223.926597142,
+              "purple": 33.330921412,
+              "yellow": 12.427873438
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-14T20:00:00.000Z",
+            "effectiveFrom": "2026-09-14T20:00:00.000Z",
+            "effectiveUntil": "2026-09-15T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 197.479197459,
+              "purple": 29.316374589,
+              "yellow": 10.713665278
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-15T20:00:00.000Z",
+            "effectiveFrom": "2026-09-15T20:00:00.000Z",
+            "effectiveUntil": "2026-09-16T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 188.531797777,
+              "purple": 27.301827765,
+              "yellow": 9.999457118
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-16T20:00:00.000Z",
+            "effectiveFrom": "2026-09-16T20:00:00.000Z",
+            "effectiveUntil": "2026-09-17T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 179.584398094,
+              "purple": 25.287280941,
+              "yellow": 9.285248958
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-17T20:00:00.000Z",
+            "effectiveFrom": "2026-09-17T20:00:00.000Z",
+            "effectiveUntil": "2026-09-18T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 170.636998412,
+              "purple": 23.272734118,
+              "yellow": 8.571040799
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-18T20:00:00.000Z",
+            "effectiveFrom": "2026-09-18T20:00:00.000Z",
+            "effectiveUntil": "2026-09-19T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 161.68959873,
+              "purple": 21.258187294,
+              "yellow": 7.856832639
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-19T20:00:00.000Z",
+            "effectiveFrom": "2026-09-19T20:00:00.000Z",
+            "effectiveUntil": "2026-09-20T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 152.742199047,
+              "purple": 19.243640471,
+              "yellow": 7.142624479
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-20T20:00:00.000Z",
+            "effectiveFrom": "2026-09-20T20:00:00.000Z",
+            "effectiveUntil": "2026-09-21T03:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 143.794799365,
+              "purple": 17.229093647,
+              "yellow": 6.428416319
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-21T03:00:00.000Z",
+            "effectiveFrom": "2026-09-21T03:00:00.000Z",
+            "effectiveUntil": "2026-09-21T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 114.994799365,
+              "purple": 14.829093647,
+              "yellow": 6.428416319
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-21T20:00:00.000Z",
+            "effectiveFrom": "2026-09-21T20:00:00.000Z",
+            "effectiveUntil": "2026-09-22T20:00:00.000Z",
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 50.947399682,
+              "purple": 6.814546824,
+              "yellow": 3.11420816
+            }
+          },
+          {
+            "id": "supply-2026-08-25-v2@2026-09-22T20:00:00.000Z",
+            "effectiveFrom": "2026-09-22T20:00:00.000Z",
+            "effectiveUntil": null,
+            "scheduleStatus": "estimated",
+            "expectedGain": {
+              "blue": 0,
+              "purple": 0,
+              "yellow": 0
             }
           }
         ]
