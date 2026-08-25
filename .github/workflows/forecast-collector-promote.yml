@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: write
   contents: read
 
 env:
@@ -240,9 +239,17 @@ jobs:
         if: steps.smoke.outcome == 'failure' || steps.bootstrap.outcome == 'failure'
         run: exit 1
 
-      - name: Point proposal workflow at verified production collector
+      - name: Verify proposal workflow targets production collector
         if: steps.smoke.outcome == 'success' && steps.bootstrap.outcome == 'success'
         env:
-          GH_TOKEN: ${{ github.token }}
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
           FORECAST_COLLECTOR_PRODUCTION_URL: ${{ vars.FORECAST_COLLECTOR_PRODUCTION_URL }}
-        run: gh variable set FORECAST_COLLECTOR_URL --body "$FORECAST_COLLECTOR_PRODUCTION_URL"
+        run: |
+          test -n "$FORECAST_COLLECTOR_URL" || {
+            echo "Missing administrator-managed FORECAST_COLLECTOR_URL repository variable." >&2
+            exit 1
+          }
+          test "$FORECAST_COLLECTOR_URL" = "$FORECAST_COLLECTOR_PRODUCTION_URL" || {
+            echo "FORECAST_COLLECTOR_URL does not match the verified production collector URL." >&2
+            exit 1
+          }

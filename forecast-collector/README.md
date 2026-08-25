@@ -147,10 +147,13 @@ FORECAST_COLLECTOR_URL
 FORECAST_DIRECT_NAVER_POLL (optional emergency fallback)
 ```
 
-The promotion workflow sets `FORECAST_COLLECTOR_URL` to production only after the 12-hour staging
-canary, production queue round-trip smoke, and idempotent Solo Raid ledger bootstrap pass. Until
-then the proposal workflow skips without failing. Promotion is dispatched manually after reviewing
-the completed canary report and remains protected by the `cloudflare-production` environment.
+`FORECAST_COLLECTOR_URL` is an administrator-managed one-time repository variable. Set it to the
+production URL only after the first production queue round-trip smoke and idempotent Solo Raid
+ledger bootstrap have passed. The workflow `GITHUB_TOKEN` cannot request the repository
+`Variables: write` permission, so promotion verifies the configured value instead of mutating it.
+Until the variable is present, the proposal workflow skips without failing. Promotion is dispatched
+manually after reviewing the completed 12-hour canary report and remains protected by the
+`cloudflare-production` environment.
 
 Promotion compares the canary commit with current `main` only across the collector deployment
 inputs covered by the staging workflow path filter. Unrelated application, solver, or documentation
