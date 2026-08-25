@@ -13,7 +13,7 @@ export default defineConfig({
           ADMIN_TOKEN: "test-forecast-admin-token",
           ENVIRONMENT: "test",
           DEPLOY_SHA: "test-deploy-sha",
-          X_AUTOMATION_ENABLED: "false",
+          POLL_MODE: "both",
         },
         d1Databases: ["FORECAST_DB"],
       },

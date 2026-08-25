@@ -1,315 +1,44 @@
-import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
+import { nextNaverRetryAt } from "./db";
 import {
-  candidateExists,
-  candidateIdExists,
-  emptyCollectionSummary,
-  loadScheduleEvents,
-  naverCircuitState,
-  nextForecastRevision,
-  nextNaverRetryAt,
-  persistCandidate,
-  persistSourceItemsAndEvents,
-  recordCollectorRun,
-  shouldProbeX,
-  supersedeEarlierCandidates,
-} from "./db";
-import { fetchNaverBoard, fetchNaverSoloHistory, parseScheduleEvents } from "./naver";
-import type {
-  CollectionSummary,
-  CollectorEnv,
-  NormalizedSourceItem,
-  ScheduleEvent,
-  XProbeResult,
-} from "./types";
-import { probeOfficialX } from "./x-probe";
+  finishInvocation,
+  invocationCircuitState,
+  pollNaverSource,
+  sourcesForInvocation,
+  startInvocation,
+} from "./source-queue";
+import type { CollectionSummary, CollectorEnv } from "./types";
 
 export async function runCollection(
   env: CollectorEnv,
-  options: { nowMs?: number; forceX?: boolean } = {},
+  options: { nowMs?: number } = {},
 ): Promise<CollectionSummary> {
   const nowMs = options.nowMs ?? Date.now();
-  const nowIso = new Date(nowMs).toISOString();
-  try {
-    return await runCollectionInternal(env, options, nowMs, nowIso);
-  } catch (error) {
-    await recordCollectorRun(
-      env.FORECAST_DB,
-      env.DEPLOY_SHA,
-      "collector",
-      "failure",
-      nowIso,
-      sanitizeErrorCode(error),
-      null,
-      0,
-    );
-    return emptyCollectionSummary("failure");
-  }
-}
-
-async function runCollectionInternal(
-  env: CollectorEnv,
-  options: { nowMs?: number; forceX?: boolean },
-  nowMs: number,
-  nowIso: string,
-): Promise<CollectionSummary> {
-  const circuit = await naverCircuitState(env.FORECAST_DB, nowMs);
+  const invocationId = await startInvocation(env.FORECAST_DB, env.DEPLOY_SHA, nowMs, env.POLL_MODE);
+  const circuit = await invocationCircuitState(env.FORECAST_DB, nowMs);
   if (circuit.open) {
-    await recordCollectorRun(
+    await finishInvocation(
       env.FORECAST_DB,
-      env.DEPLOY_SHA,
-      "collector",
+      invocationId,
       "circuit_open",
-      nowIso,
+      0,
       "naver_circuit_open",
       circuit.nextRetryAt,
-      0,
     );
-    return emptyCollectionSummary("circuit_open");
+    return { outcome: "circuit_open", polledSources: 0, queuedItems: 0 };
   }
 
-  let items: NormalizedSourceItem[] = [];
-  let events: ScheduleEvent[] = [];
+  const boards = sourcesForInvocation(env.POLL_MODE, nowMs);
   try {
-    const existingLedger = await loadScheduleEvents(env.FORECAST_DB);
-    const batches = await Promise.all([
-      fetchNaverBoard(56),
-      fetchNaverBoard(48),
-      ...(needsSoloHistory(existingLedger) ? [fetchNaverSoloHistory()] : []),
-    ]);
-    items = deduplicateSourceItems(batches.flat());
-    if (items.length === 0) throw new Error("naver_empty_relevant_feed");
-    events = await parseScheduleEvents(items);
-    await persistSourceItemsAndEvents(env.FORECAST_DB, items, events, nowIso);
-    await recordCollectorRun(
-      env.FORECAST_DB,
-      env.DEPLOY_SHA,
-      "naver",
-      "completed",
-      nowIso,
-      null,
-      null,
-      items.length,
-    );
+    let queuedItems = 0;
+    for (const boardId of boards) queuedItems += await pollNaverSource(env.FORECAST_DB, boardId);
+    await finishInvocation(env.FORECAST_DB, invocationId, "completed", queuedItems, null, null);
+    return { outcome: "completed", polledSources: boards.length, queuedItems };
   } catch (error) {
     const errorCode = sanitizeErrorCode(error);
     const nextRetryAt = nextNaverRetryAt(nowMs, circuit.failures + 1);
-    await recordCollectorRun(
-      env.FORECAST_DB,
-      env.DEPLOY_SHA,
-      "naver",
-      "failure",
-      nowIso,
-      errorCode,
-      nextRetryAt,
-      0,
-    );
-    await recordCollectorRun(
-      env.FORECAST_DB,
-      env.DEPLOY_SHA,
-      "collector",
-      "failure",
-      nowIso,
-      "naver_unavailable",
-      nextRetryAt,
-      0,
-    );
-    return emptyCollectionSummary("failure");
+    await finishInvocation(env.FORECAST_DB, invocationId, "failure", 0, errorCode, nextRetryAt);
+    return { outcome: "failure", polledSources: boards.length, queuedItems: 0 };
   }
-
-  const ledger = await loadScheduleEvents(env.FORECAST_DB);
-  if (hasUnresolvedScheduleChange(ledger)) {
-    await recordCollectorRun(
-      env.FORECAST_DB,
-      env.DEPLOY_SHA,
-      "collector",
-      "completed",
-      nowIso,
-      "manual_review_required",
-      null,
-      items.length,
-    );
-    return {
-      outcome: "completed",
-      naverItems: items.length,
-      parsedEvents: events.length,
-      candidates: 0,
-      xStatus: "not_run",
-    };
-  }
-  const resolved = resolveSoloSchedule(ledger, nowMs);
-  if (!resolved) {
-    await recordCollectorRun(
-      env.FORECAST_DB,
-      env.DEPLOY_SHA,
-      "collector",
-      "completed",
-      nowIso,
-      "insufficient_schedule_history",
-      null,
-      items.length,
-    );
-    return {
-      outcome: "completed",
-      naverItems: items.length,
-      parsedEvents: events.length,
-      candidates: 0,
-      xStatus: "not_run",
-    };
-  }
-  if (resolved.scheduleStatus === "estimated") {
-    await persistSourceItemsAndEvents(
-      env.FORECAST_DB,
-      [resolved.event.sourceItem],
-      [resolved.event],
-      nowIso,
-    );
-  }
-
-  const gameDay = gameDayKey(nowMs);
-  const knownCandidate = await Promise.all(
-    (["crosschecked", "x_unavailable", "conflict"] as const).map((status) =>
-      candidateExists(env.FORECAST_DB, resolved.event.eventId, gameDay, status),
-    ),
-  );
-  const xDue =
-    env.X_AUTOMATION_ENABLED === "true" &&
-    (await shouldProbeX(
-      env.FORECAST_DB,
-      nowMs,
-      options.forceX === true ||
-        knownCandidate.every((value) => value === null) ||
-        events.some((event) => nowMs - Date.parse(event.sourceItem.publishedAt) <= 6 * 60 * 1000),
-    ));
-  let xProbe: XProbeResult = {
-    status: "x_unavailable",
-    sourceItem: null,
-    reason: "probe_not_due",
-  };
-  if (xDue) {
-    const xStarted = new Date().toISOString();
-    xProbe = await probeOfficialX(env, resolved.event, nowMs);
-    if (xProbe.sourceItem) {
-      await persistSourceItemsAndEvents(env.FORECAST_DB, [xProbe.sourceItem], [], nowIso);
-    }
-    await recordCollectorRun(
-      env.FORECAST_DB,
-      env.DEPLOY_SHA,
-      "x",
-      xProbe.status === "x_unavailable" ? "failure" : "completed",
-      xStarted,
-      xProbe.reason,
-      null,
-      xProbe.sourceItem ? 1 : 0,
-    );
-  } else {
-    const existingStatus = knownCandidate.findIndex((value) => value !== null);
-    if (existingStatus >= 0) {
-      await recordCollectorRun(
-        env.FORECAST_DB,
-        env.DEPLOY_SHA,
-        "collector",
-        "completed",
-        nowIso,
-        null,
-        null,
-        items.length,
-      );
-      return {
-        outcome: "completed",
-        naverItems: items.length,
-        parsedEvents: events.length,
-        candidates: 0,
-        xStatus: "not_run",
-      };
-    }
-  }
-
-  const revision = await nextForecastRevision(env.FORECAST_DB, gameDay);
-  const collaborationEvents = ledger.filter((event) => event.eventType === "collaboration");
-  const candidate = await buildForecastCandidate(
-    resolved,
-    collaborationEvents,
-    xProbe,
-    nowMs,
-    revision,
-  );
-  if (await candidateIdExists(env.FORECAST_DB, candidate.candidate.candidateId)) {
-    await recordCollectorRun(
-      env.FORECAST_DB,
-      env.DEPLOY_SHA,
-      "collector",
-      "completed",
-      nowIso,
-      null,
-      null,
-      items.length,
-    );
-    return {
-      outcome: "completed",
-      naverItems: items.length,
-      parsedEvents: events.length,
-      candidates: 0,
-      xStatus: xProbe.status,
-    };
-  }
-  await persistCandidate(env.FORECAST_DB, candidate, resolved.event.eventId, gameDay, revision);
-  await supersedeEarlierCandidates(
-    env.FORECAST_DB,
-    resolved.event.eventId,
-    gameDay,
-    candidate.candidate.candidateId,
-  );
-  await recordCollectorRun(
-    env.FORECAST_DB,
-    env.DEPLOY_SHA,
-    "collector",
-    "completed",
-    nowIso,
-    null,
-    null,
-    items.length,
-  );
-  return {
-    outcome: "completed",
-    naverItems: items.length,
-    parsedEvents: events.length,
-    candidates: 1,
-    xStatus: xProbe.status,
-  };
-}
-
-function hasUnresolvedScheduleChange(events: readonly ScheduleEvent[]) {
-  const changes = events.filter((event) => event.eventType === "schedule_change");
-  const latestSolo = events
-    .filter((event) => event.eventType === "solo")
-    .toSorted(
-      (left, right) =>
-        Date.parse(right.sourceItem.publishedAt) - Date.parse(left.sourceItem.publishedAt),
-    )[0];
-  return changes.some(
-    (event) =>
-      event.manualReview &&
-      (!latestSolo ||
-        Date.parse(event.sourceItem.publishedAt) >= Date.parse(latestSolo.sourceItem.publishedAt)),
-  );
-}
-
-function needsSoloHistory(events: readonly ScheduleEvent[]) {
-  const starts = new Set(
-    events
-      .filter((event) => event.eventType === "solo" && !event.manualReview)
-      .map((event) => event.startsAt)
-      .filter((value): value is string => value !== null),
-  );
-  return starts.size < 6;
-}
-
-function deduplicateSourceItems(items: readonly NormalizedSourceItem[]) {
-  return [...new Map(items.map((item) => [`${item.source}:${item.itemId}`, item])).values()];
-}
-
-function gameDayKey(nowMs: number) {
-  return new Date(nowMs + 4 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 function sanitizeErrorCode(error: unknown) {

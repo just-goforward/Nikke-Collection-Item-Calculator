@@ -6,6 +6,7 @@ import {
   assertForecastCandidateInvariants,
   supplyForecastCandidateEnvelopeSchema,
 } from "../shared/supplyForecastCandidate.ts";
+import { probeXAdvisory, type XAdvisoryResult } from "./forecast-x-advisory.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const registryPath = resolve(root, "shared", "supplyForecasts.json");
@@ -34,9 +35,7 @@ const envelope = supplyForecastCandidateEnvelopeSchema.parse(first);
 assertForecastCandidateInvariants(envelope.candidate);
 const calculatedHash = createHash("sha256").update(stableJson(envelope.candidate)).digest("hex");
 if (calculatedHash !== envelope.payloadHash) throw new Error("Forecast candidate hash mismatch.");
-if (envelope.candidate.sourceStatus === "conflict") {
-  throw new Error("A conflicting forecast candidate must not be proposed.");
-}
+const xAdvisory = await probeXAdvisory(envelope.candidate);
 
 const registry = parseRegistry(await readFile(registryPath, "utf8"));
 const existing = registry.forecasts.find(
@@ -55,24 +54,29 @@ registry.forecasts.push({
   profiles: envelope.candidate.profiles,
 });
 await writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf8");
-await writeFile(proposalOutput, renderProposal(envelope), "utf8");
+await writeFile(proposalOutput, renderProposal(envelope, xAdvisory), "utf8");
+const title =
+  xAdvisory.status === "conflict"
+    ? `[X 일정 충돌 검토] ${envelope.candidate.forecastId}`
+    : `수급 Forecast 후보 ${envelope.candidate.forecastId}`;
 await writeOutputs({
   has_candidate: "true",
   candidate_id: envelope.candidate.candidateId,
   forecast_id: envelope.candidate.forecastId,
   branch: `automation/supply-forecast/${envelope.candidate.candidateId}`,
-  title: `수급 Forecast 후보 ${envelope.candidate.forecastId}`,
+  title,
+  draft: String(xAdvisory.status === "conflict"),
 });
 
-function renderProposal(envelope: typeof supplyForecastCandidateEnvelopeSchema._zod.output) {
+function renderProposal(
+  envelope: typeof supplyForecastCandidateEnvelopeSchema._zod.output,
+  xAdvisory: XAdvisoryResult,
+) {
   const candidate = envelope.candidate;
   const active = registry.forecasts.find((forecast) => forecast.id === registry.activeForecastId);
   const activeGain = active?.profiles[0]?.expectedGain;
   const candidateGain = candidate.profiles[0]?.expectedGain;
-  const xChecklist =
-    candidate.sourceStatus === "x_unavailable"
-      ? "- [ ] X `@NIKKE_kr` 공개 게시물을 관리자가 수동 확인했습니다."
-      : "- [x] X 공개 게시물과 자동 교차 확인됐습니다.";
+  const xChecklist = renderXChecklist(xAdvisory);
   const evidence = candidate.sourceEvidence
     .map((source) => `- [${source.source}](${source.url}): ${source.excerpt}`)
     .join("\n");
@@ -87,7 +91,9 @@ function renderProposal(envelope: typeof supplyForecastCandidateEnvelopeSchema._
     `이 PR은 후보를 **approved지만 inactive** 상태로 등록합니다. 제품의 \`activeForecastId\`는 H/p 연구와 별도 adoption PR이 통과할 때까지 변경하지 않습니다.\n\n` +
     `- Candidate: \`${candidate.candidateId}\`\n` +
     `- Payload SHA-256: \`${envelope.payloadHash}\`\n` +
-    `- Source status: \`${candidate.sourceStatus}\`\n` +
+    `- Naver source status: \`${candidate.sourceStatus}\`\n` +
+    `- X advisory: \`${xAdvisory.status}\` (\`${xAdvisory.reason}\`)\n` +
+    `- X advisory source: \`${xAdvisory.source ?? "none"}\`\n` +
     `- Schedule: \`${candidate.schedule.soloStart}\` - \`${candidate.schedule.soloEnd}\` (\`${candidate.schedule.status}\`)\n` +
     `- New-round cadence: \`${candidate.schedule.cadenceDays ?? "not derivable"}\` day(s)\n` +
     `- Rules: \`${candidate.rulesVersion}\`, \`${candidate.dispatchPolicyId}\`\n` +
@@ -98,6 +104,21 @@ function renderProposal(envelope: typeof supplyForecastCandidateEnvelopeSchema._
     `### Profiles\n\n| Profile | From | Until | Status | Blue | Purple | Yellow |\n|---|---|---|---|---:|---:|---:|\n${profileRows}\n\n` +
     `### Warnings\n\n${candidate.warnings.map((warning) => `- ${warning}`).join("\n") || "- None"}\n`
   );
+}
+
+function renderXChecklist(result: XAdvisoryResult) {
+  if (result.status === "matching") {
+    const link = result.statusUrl ? ` ([status](${result.statusUrl}))` : "";
+    if (result.source === "jina") {
+      return `- [ ] Jina Reader가 일정과 일치하는 X status를 찾았습니다. 관리자가 X 원문을 확인해야 합니다.${link}`;
+    }
+    return `- [x] X \`@NIKKE_kr\` 공개 게시물과 일정이 일치했습니다.${link}`;
+  }
+  if (result.status === "conflict") {
+    const link = result.statusUrl ? ` ([status](${result.statusUrl}))` : "";
+    return `- [ ] X 공개 게시물과 Naver 일정이 충돌합니다. 관리자 검토가 필요합니다.${link}`;
+  }
+  return `- [ ] X \`@NIKKE_kr\` 공개 게시물을 관리자가 수동 확인했습니다. 자동 확인 사유: \`${result.reason}\``;
 }
 
 async function writeOutputs(values: Record<string, string>) {

@@ -4,6 +4,7 @@ import soloFixture from "../fixtures/naver-board-56-solo.json?raw";
 import {
   fetchNaverBoard,
   fetchNaverSoloHistory,
+  fetchNaverStructuredItem,
   parseKoreanDateRange,
   parseNaverFeed,
   parseScheduleEvents,
@@ -67,6 +68,48 @@ describe("Naver Lounge parser", () => {
       endsAt: "2026-08-26T19:59:00.000Z",
       manualReview: false,
     });
+  });
+
+  it("does not auto-process an HTML envelope on the Actions JSON-only path", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        code: 200,
+        content: {
+          feed: {
+            feedId: 8060044,
+            title: "솔로 레이드 오픈 예정",
+            createdDate: "20260814170042",
+            contents: '<div class="se-main-container">솔로 레이드 8/20 12:00 ~ 8/27 4:59</div>',
+          },
+          user: { userRoleCode: "game_manager" },
+        },
+      }),
+    );
+
+    await expect(fetchNaverStructuredItem(56, "8060044", fetcher)).rejects.toThrow(
+      "naver_unstructured_body",
+    );
+  });
+
+  it("routes unstructured details to manual review even when only the body is relevant", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        code: 200,
+        content: {
+          feed: {
+            feedId: 8060045,
+            title: "8월 이벤트 안내",
+            createdDate: "20260814170042",
+            contents: '<div class="se-main-container">솔로 레이드 8/20 12:00 ~ 8/27 4:59</div>',
+          },
+          user: { userRoleCode: "game_manager" },
+        },
+      }),
+    );
+
+    await expect(fetchNaverStructuredItem(56, "8060045", fetcher)).rejects.toThrow(
+      "naver_unstructured_body",
+    );
   });
 
   it("does not treat script or style contents as unstructured source evidence", async () => {

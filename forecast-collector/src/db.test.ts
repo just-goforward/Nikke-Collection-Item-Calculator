@@ -11,8 +11,8 @@ import {
   persistCandidate,
   persistSourceItemsAndEvents,
   readCanaryReport,
-  recordCollectorRun,
 } from "./db";
+import { finishInvocation, startInvocation } from "./source-queue";
 import type { CollectorEnv, NormalizedSourceItem, ScheduleEvent } from "./types";
 import worker from "./worker";
 
@@ -99,7 +99,11 @@ describe("forecast collector D1 contract", () => {
     );
 
     expect(health.status).toBe(200);
-    expect(await health.json()).toEqual({ status: "ok", sources: {}, candidateCounts: {} });
+    expect(await health.json()).toEqual({
+      status: "ok",
+      collector: { status: "missing", lastFinishedAt: null },
+      candidateCounts: {},
+    });
     expect(unauthorized.status).toBe(401);
     expect(authorized.status).toBe(200);
   });
@@ -112,46 +116,134 @@ describe("forecast collector D1 contract", () => {
 
   it("builds the canary window only from the requested deployment SHA", async () => {
     const now = Date.parse("2026-08-24T00:00:00Z");
-    const firstStartedAt = new Date(now - 25 * 60 * 60 * 1000).toISOString();
+    const firstStartedAt = new Date(now - 13 * 60 * 60 * 1000).toISOString();
     const recentStartedAt = new Date(now - 60 * 60 * 1000).toISOString();
-    await recordCollectorRun(
-      testEnv.FORECAST_DB,
-      "old-deployment",
-      "naver",
-      "completed",
-      recentStartedAt,
-      null,
-      null,
-      1,
-    );
-    await recordCollectorRun(
-      testEnv.FORECAST_DB,
-      "current-deployment",
-      "naver",
-      "completed",
-      firstStartedAt,
-      null,
-      null,
-      1,
-    );
-    await recordCollectorRun(
-      testEnv.FORECAST_DB,
-      "current-deployment",
-      "naver",
-      "completed",
-      recentStartedAt,
-      null,
-      null,
-      1,
-    );
+    await completedInvocation("old-deployment", Date.parse(recentStartedAt));
+    await completedInvocation("current-deployment", Date.parse(firstStartedAt));
+    await completedInvocation("current-deployment", Date.parse(recentStartedAt));
 
     const report = await readCanaryReport(testEnv.FORECAST_DB, now, "current-deployment");
 
     expect(report.deploymentSha).toBe("current-deployment");
     expect(report.window.eligible).toBe(true);
-    expect(report.naver).toMatchObject({ attempts: 1, completed: 1, successRate: 1 });
+    expect(report).toMatchObject({
+      version: 3,
+      acceptance: { windowHours: 12, minimumScheduled: 200, minimumCompletionRate: 0.99 },
+      invocations: { scheduled: 1, completed: 1, successRate: 1, abandoned: 0 },
+    });
+  });
+
+  it("counts a hard-terminated running invocation as abandoned", async () => {
+    const now = Date.parse("2026-08-24T00:00:00Z");
+    await completedInvocation("current-deployment", now - 13 * 60 * 60 * 1000);
+    await startInvocation(
+      testEnv.FORECAST_DB,
+      "current-deployment",
+      now - 2 * 60 * 60 * 1000,
+      "both",
+    );
+    await completedInvocation("current-deployment", now - 60 * 60 * 1000);
+
+    const report = await readCanaryReport(testEnv.FORECAST_DB, now, "current-deployment");
+
+    expect(report.invocations).toMatchObject({ scheduled: 2, completed: 1, abandoned: 1 });
+    expect(report.window.earlyFailure).toBe(true);
+    expect(report.passed).toBe(false);
+  });
+
+  it("requires two hundred completed invocations across an eligible twelve-hour window", async () => {
+    const now = Date.parse("2026-08-24T00:00:00Z");
+    await completedInvocation("boundary-deployment", now - 13 * 60 * 60 * 1000);
+    await testEnv.FORECAST_DB.prepare(
+      `WITH RECURSIVE seq(i) AS (
+         SELECT 0
+         UNION ALL
+         SELECT i + 1 FROM seq WHERE i < 199
+       )
+       INSERT INTO collector_invocations (
+         invocation_id, deployment_sha, scheduled_at, started_at, finished_at,
+         status, poll_mode, queued_count
+       )
+       SELECT
+         'boundary-deployment:' || i,
+         'boundary-deployment',
+         strftime('%Y-%m-%dT%H:%M:%fZ', ? + i * 180, 'unixepoch'),
+         strftime('%Y-%m-%dT%H:%M:%fZ', ? + i * 180, 'unixepoch'),
+         strftime('%Y-%m-%dT%H:%M:%fZ', ? + i * 180 + 1, 'unixepoch'),
+         'completed',
+         'both',
+         0
+       FROM seq`,
+    )
+      .bind(
+        Math.floor((now - 10 * 60 * 60 * 1000) / 1000),
+        Math.floor((now - 10 * 60 * 60 * 1000) / 1000),
+        Math.floor((now - 10 * 60 * 60 * 1000) / 1000),
+      )
+      .run();
+
+    const passing = await readCanaryReport(testEnv.FORECAST_DB, now, "boundary-deployment");
+    expect(passing.invocations).toMatchObject({ scheduled: 200, completed: 200 });
+    expect(passing.passed).toBe(true);
+
+    await testEnv.FORECAST_DB.prepare(
+      "DELETE FROM collector_invocations WHERE invocation_id = 'boundary-deployment:199'",
+    ).run();
+    const failing = await readCanaryReport(testEnv.FORECAST_DB, now, "boundary-deployment");
+    expect(failing.invocations.scheduled).toBe(199);
+    expect(failing.passed).toBe(false);
+  });
+
+  it("includes all 102 hard terminations in a 240-invocation canary denominator", async () => {
+    const now = Date.parse("2026-08-24T00:00:00Z");
+    await completedInvocation("loaded-deployment", now - 13 * 60 * 60 * 1000);
+    await testEnv.FORECAST_DB.prepare(
+      `WITH RECURSIVE seq(i) AS (
+         SELECT 0
+         UNION ALL
+         SELECT i + 1 FROM seq WHERE i < 239
+       )
+       INSERT INTO collector_invocations (
+         invocation_id, deployment_sha, scheduled_at, started_at, finished_at,
+         status, poll_mode, queued_count
+       )
+       SELECT
+         'loaded-deployment:' || i,
+         'loaded-deployment',
+         strftime('%Y-%m-%dT%H:%M:%fZ', ? + i * 180, 'unixepoch'),
+         strftime('%Y-%m-%dT%H:%M:%fZ', ? + i * 180, 'unixepoch'),
+         CASE WHEN i < 102 THEN NULL
+              ELSE strftime('%Y-%m-%dT%H:%M:%fZ', ? + i * 180 + 1, 'unixepoch') END,
+         CASE WHEN i < 102 THEN 'running' ELSE 'completed' END,
+         'both',
+         0
+       FROM seq`,
+    )
+      .bind(
+        Math.floor((now - 12 * 60 * 60 * 1000) / 1000),
+        Math.floor((now - 12 * 60 * 60 * 1000) / 1000),
+        Math.floor((now - 12 * 60 * 60 * 1000) / 1000),
+      )
+      .run();
+
+    const report = await readCanaryReport(testEnv.FORECAST_DB, now, "loaded-deployment");
+
+    expect(report.invocations).toMatchObject({
+      scheduled: 240,
+      completed: 138,
+      abandoned: 102,
+      successRate: 0.575,
+      latestStatus: "completed",
+    });
+    expect(report.window).toMatchObject({ eligible: true, earlyFailure: true });
+    expect(report.passed).toBe(false);
   });
 });
+
+async function completedInvocation(deploymentSha: string, scheduledTime: number) {
+  const id = await startInvocation(testEnv.FORECAST_DB, deploymentSha, scheduledTime, "both");
+  await finishInvocation(testEnv.FORECAST_DB, id, "completed", 0, null, null);
+}
 
 function sourceItem(): NormalizedSourceItem {
   return {

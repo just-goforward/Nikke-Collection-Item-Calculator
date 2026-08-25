@@ -36,7 +36,7 @@ export function resolveSoloSchedule(
         event.eventType === "solo" && event.scheduleStatus === "confirmed" && !event.manualReview,
     )
     .filter(hasConcreteSchedule)
-    .toSorted((left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt));
+    .sort((left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt));
   const activeOrFutureIndex = solo.findIndex(
     (event) => gameDayStartMs(Date.parse(event.startsAt)) + 3 * DAY_MS > nowMs,
   );
@@ -141,6 +141,7 @@ export async function buildForecastCandidate(
     collaborationPeriods,
   });
   const identity = stableJson({
+    forecastDate,
     schedule: {
       status: resolved.scheduleStatus,
       cadenceDays: resolved.cadenceDays,
@@ -149,7 +150,7 @@ export async function buildForecastCandidate(
       collaborationPeriods,
     },
     sourceStatus: xProbe.status,
-    sourceHashes: deduplicatedEvidence.map((evidence) => evidence.contentHash).toSorted(),
+    sourceHashes: deduplicatedEvidence.map((evidence) => evidence.contentHash).sort(),
   });
   const candidateId = `forecast-${(await sha256Hex(identity)).slice(0, 24)}`;
   const candidate = supplyForecastCandidateSchema.parse({
@@ -175,7 +176,7 @@ export async function buildForecastCandidate(
         ? ["New-round cadence could not be derived from the available history."]
         : []),
       ...(xProbe.status === "x_unavailable"
-        ? ["X could not be cross-checked automatically; manual confirmation is required."]
+        ? ["X is advisory and is evaluated during proposal review."]
         : []),
       ...(xProbe.status === "conflict" ? ["Official sources report conflicting schedules."] : []),
     ],
@@ -186,7 +187,7 @@ export async function buildForecastCandidate(
 
 function median(values: readonly number[]) {
   if (values.length === 0) return null;
-  const sorted = values.toSorted((left, right) => left - right);
+  const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
   if (sorted.length % 2 === 1) return sorted[middle] ?? null;
   return ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;

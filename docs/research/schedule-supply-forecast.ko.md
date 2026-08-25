@@ -5,7 +5,7 @@
 - `[확인]` 기존 제품은 `supply-2026-08-21-v1`의 고정 28일 기대 수급량을 사용한다.
 - `[확인]` 일정 기반 모델과 동적 Rust/WASM gain ABI는 기존 고정값을 입력했을 때 의미론을
   보존하도록 구현됐다.
-- `[미검증]` 일정 기반 forecast는 staging 24시간 shadow, production smoke, 새 H/p 연구와
+- `[미검증]` 일정 기반 forecast는 staging 12시간 shadow, production smoke, 새 H/p 연구와
   별도 adoption PR을 통과하기 전에는 제품에 활성화되지 않는다.
 
 ## 계산 범위
@@ -30,13 +30,30 @@
 
 ## 일정 증거와 승인
 
-Naver 라운지 56·48번 게시판이 자동 판정의 주 출처다. X 공개 타임라인은 Browser Run으로
-확인하는 보조 출처이며 API나 비공식 RSS를 사용하지 않는다. X를 읽을 수 없으면 관리자
-확인 체크를 남기고, 출처가 충돌하면 후보 PR을 만들지 않는다.
+Naver 라운지 56·48번 게시판이 자동 판정의 주 출처다. Free Worker의 3분 Cron은 본문을
+처리하지 않고 얕은 feed 메타데이터만 D1 queue에 넣는다. 5분 GitHub Actions가 구조화된
+SmartEditor JSON을 다시 받아 일정 해석과 후보 생성을 수행한다. X 공개 타임라인은 후보가
+있을 때만 Actions에서 공식 embed, 공개 profile, Jina Reader를 각각 한 번 확인하며 API,
+비공식 RSS, 로그인 cookie를 사용하지 않는다. X를 읽을 수 없으면 관리자 확인 체크를
+남기고, 일정이 충돌하면 draft PR로 격리한다.
 
-수집 Worker는 전용 D1에 후보만 보존한다. GitHub Actions가 같은 schema와 hash를 다시
-검증해 inactive forecast PR을 만들며, 관리자의 PR 병합이 승인이다. 이 승인만으로 제품은
-바뀌지 않는다.
+[Defuddle](https://github.com/kepano/defuddle)은 이미 읽을 수 있는 DOM의 본문 정리 도구이며
+선택적 X fallback이 FxTwitter를 사용하므로 채택하지 않는다. [Jina
+Reader](https://jina.ai/reader/)는 공개 프로필 live preflight에 성공했지만 제3자
+fetch/cache 중계 계층이므로 공식 일정 근거로 채택하지 않는다. `unavailable` 전의 보조
+fallback으로만 사용하며, Jina 일치는 수동 원문 확인을 요구하고 Jina만으로 충돌을 만들지
+않는다.
+
+- `[확인]` 2026-08-25 live contract 검사에서 48·56번 최신 관리자 글과 솔로 레이드 공지는
+  SmartEditor JSON이 아니라 SmartEditor HTML을 반환했다. 현재 JSON-only 경계는 이를
+  `manual_review`로 차단하므로 안전하지만, 검토된 Actions용 구조 파서가 추가되기 전까지
+  Naver 자동 candidate 생성은 활성화할 수 없다.
+
+수집 Worker는 invocation, poll cursor, 최소 queue metadata, 검증된 일정·후보만 전용 D1에
+보존한다. GitHub Actions가 같은 schema와 hash를 다시 검증해 inactive forecast PR을 만들며,
+관리자의 PR 병합이 승인이다. 이 승인만으로 제품은 바뀌지 않는다. Canary v3는 12시간,
+200회 이상, 완료율 99% 이상, abandoned 0건과 queue/cursor/candidate/watermark 정합성을
+요구한다.
 
 ## H/p 재연구
 

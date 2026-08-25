@@ -21,18 +21,6 @@ jobs:
     if: vars.FORECAST_COLLECTOR_URL != ''
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout trusted main
-        uses: actions/checkout@v7
-        with:
-          ref: refs/heads/main
-          fetch-depth: 0
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-
       - name: Validate configuration
         env:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
@@ -41,10 +29,68 @@ jobs:
           test -n "$FORECAST_COLLECTOR_URL" || { echo "Missing FORECAST_COLLECTOR_URL variable." >&2; exit 1; }
           test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" || { echo "Missing FORECAST_COLLECTOR_ADMIN_TOKEN secret." >&2; exit 1; }
 
+      - name: Check whether queue processing or proposal work exists
+        id: preflight
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          FORECAST_DIRECT_NAVER_POLL: ${{ vars.FORECAST_DIRECT_NAVER_POLL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          queue=$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            "$FORECAST_COLLECTOR_URL/admin/source-queue?limit=1")
+          candidates=$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            "$FORECAST_COLLECTOR_URL/admin/candidates")
+          has_work=$(node -e '
+            const q=JSON.parse(process.argv[1]); const c=JSON.parse(process.argv[2]);
+            process.stdout.write(String(process.argv[3]==="true" || q.items?.length>0 || c.candidates?.length>0));
+          ' "$queue" "$candidates" "$FORECAST_DIRECT_NAVER_POLL")
+          echo "has_work=$has_work" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted main
+        if: steps.preflight.outputs.has_work == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+
+      - name: Setup Node
+        if: steps.preflight.outputs.has_work == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
       - name: Install dependencies
+        if: steps.preflight.outputs.has_work == 'true'
         run: npm ci
 
+      - name: Process pending Naver source queue
+        if: steps.preflight.outputs.has_work == 'true'
+        id: queue
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          FORECAST_DIRECT_NAVER_POLL: ${{ vars.FORECAST_DIRECT_NAVER_POLL }}
+        run: npm run process:forecast-source-queue
+
+      - name: Check for a proposal candidate
+        if: steps.preflight.outputs.has_work == 'true'
+        id: ready
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        run: npm run peek:supply-forecast
+
+      - name: Install Chromium for candidate-only X advisory
+        if: steps.ready.outputs.has_candidate == 'true'
+        run: npx playwright install --with-deps chromium
+
       - name: Fetch, verify, and apply one candidate
+        if: steps.ready.outputs.has_candidate == 'true'
         id: candidate
         env:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
@@ -64,6 +110,7 @@ jobs:
         env:
           BRANCH: ${{ steps.candidate.outputs.branch }}
           TITLE: ${{ steps.candidate.outputs.title }}
+          DRAFT: ${{ steps.candidate.outputs.draft }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
@@ -77,8 +124,14 @@ jobs:
           existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
           if [[ -n "$existing" ]]; then
             gh pr edit "$existing" --title "$TITLE" --body-file "$RUNNER_TEMP/forecast-proposal.md"
+            if [[ "$DRAFT" == "true" ]]; then
+              is_draft=$(gh pr view "$existing" --json isDraft --jq '.isDraft')
+              if [[ "$is_draft" != "true" ]]; then gh pr ready "$existing" --undo; fi
+            fi
           else
-            gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file "$RUNNER_TEMP/forecast-proposal.md"
+            args=(--base main --head "$BRANCH" --title "$TITLE" --body-file "$RUNNER_TEMP/forecast-proposal.md")
+            if [[ "$DRAFT" == "true" ]]; then args+=(--draft); fi
+            gh pr create "${args[@]}"
           fi
 
       - name: Mark candidate proposed only after PR succeeds

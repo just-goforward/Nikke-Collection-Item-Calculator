@@ -1,17 +1,25 @@
-import type { BrowserEndpoint } from "@cloudflare/playwright";
 import type { SupplyForecastCandidate } from "../../shared/supplyForecastCandidate";
 
 export type CollectorEnv = {
   FORECAST_DB: D1Database;
-  BROWSER: BrowserEndpoint;
   ADMIN_RATE_LIMITER?: RateLimit;
   ADMIN_TOKEN: string;
   ENVIRONMENT: "test" | "staging" | "production";
   DEPLOY_SHA: string;
-  X_AUTOMATION_ENABLED: "true" | "false";
+  POLL_MODE: "both" | "alternating";
 };
 
 export type SourceKind = "naver-board-48" | "naver-board-56" | "x-nikke-kr";
+export type NaverSourceKind = Extract<SourceKind, `naver-${string}`>;
+
+export type NaverFeedMetadata = {
+  source: NaverSourceKind;
+  itemId: string;
+  url: string;
+  title: string;
+  publishedAt: string;
+  official: boolean;
+};
 
 export type NormalizedSourceItem = {
   source: SourceKind;
@@ -50,8 +58,22 @@ export type CandidateBuildResult = {
 
 export type CollectionSummary = {
   outcome: "completed" | "circuit_open" | "failure";
-  naverItems: number;
-  parsedEvents: number;
-  candidates: number;
-  xStatus: XProbeResult["status"] | "not_run";
+  polledSources: number;
+  queuedItems: number;
 };
+
+export type SourceQueueItem = NaverFeedMetadata & {
+  status: "pending" | "processed" | "ignored" | "manual_review";
+  attempts: number;
+  errorCode: string | null;
+};
+
+export type SourceQueueResult = {
+  source: NaverSourceKind;
+  itemId: string;
+  outcome: "processed" | "ignored" | "manual_review" | "retry";
+  errorCode?: string;
+  item?: NormalizedSourceItem;
+  event?: ScheduleEvent;
+};
+/// <reference path="../worker-configuration.d.ts" />

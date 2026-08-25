@@ -4,14 +4,19 @@ import {
   supplyForecastCandidateSchema,
 } from "../../shared/supplyForecastCandidate";
 import { sha256Hex, stableJson } from "./crypto";
-import type {
-  CandidateBuildResult,
-  CollectionSummary,
-  NormalizedSourceItem,
-  ScheduleEvent,
-} from "./types";
+import type { CandidateBuildResult, NormalizedSourceItem, ScheduleEvent } from "./types";
 
 export async function persistSourceItemsAndEvents(
+  db: D1Database,
+  items: readonly NormalizedSourceItem[],
+  events: readonly ScheduleEvent[],
+  nowIso: string,
+) {
+  const statements = sourceItemAndEventStatements(db, items, events, nowIso);
+  if (statements.length > 0) await db.batch(statements);
+}
+
+export function sourceItemAndEventStatements(
   db: D1Database,
   items: readonly NormalizedSourceItem[],
   events: readonly ScheduleEvent[],
@@ -110,7 +115,7 @@ export async function persistSourceItemsAndEvents(
         .bind(item.source, item.itemId, item.publishedAt, item.contentHash, nowIso),
     );
   }
-  if (statements.length > 0) await db.batch(statements);
+  return statements;
 }
 
 export async function loadScheduleEvents(db: D1Database): Promise<ScheduleEvent[]> {
@@ -121,9 +126,8 @@ export async function loadScheduleEvents(db: D1Database): Promise<ScheduleEvent[
               s.excerpt, s.published_at, s.content_hash, s.structured, s.official
        FROM schedule_events e
        JOIN source_items s ON s.source = e.source AND s.item_id = e.source_item_id
-       WHERE e.event_type IN ('solo', 'collaboration')
        ORDER BY COALESCE(e.starts_at, e.observed_at) DESC
-       LIMIT 120`,
+       LIMIT 240`,
     )
     .all<ScheduleEventRow>();
   return result.results.map(rowToScheduleEvent);
@@ -145,14 +149,6 @@ export async function candidateExists(
   return row?.candidate_id ?? null;
 }
 
-export async function candidateIdExists(db: D1Database, candidateId: string) {
-  const row = await db
-    .prepare("SELECT candidate_id FROM forecast_candidates WHERE candidate_id = ?")
-    .bind(candidateId)
-    .first<{ candidate_id: string }>();
-  return row?.candidate_id ?? null;
-}
-
 export async function nextForecastRevision(db: D1Database, gameDay: string) {
   const row = await db
     .prepare(
@@ -170,8 +166,18 @@ export async function persistCandidate(
   gameDay: string,
   revision: number,
 ) {
+  await db.batch(candidateStatements(db, result, eventId, gameDay, revision));
+}
+
+export function candidateStatements(
+  db: D1Database,
+  result: CandidateBuildResult,
+  eventId: string,
+  gameDay: string,
+  revision: number,
+  now = new Date().toISOString(),
+) {
   const { candidate, payloadHash } = result;
-  const now = new Date().toISOString();
   const targetState = candidate.sourceStatus;
   const statements = [
     db
@@ -213,7 +219,7 @@ export async function persistCandidate(
         .bind(candidate.candidateId, source.source, source.itemId),
     ),
   ];
-  await db.batch(statements);
+  return statements;
 }
 
 export async function listProposalCandidates(db: D1Database) {
@@ -246,130 +252,49 @@ export async function markCandidateProposed(db: D1Database, candidateId: string)
   return Number(result.meta.changes ?? 0) === 1;
 }
 
-export async function supersedeEarlierCandidates(
-  db: D1Database,
-  eventId: string,
-  gameDay: string,
-  currentCandidateId: string,
-) {
-  await db
-    .prepare(
-      `UPDATE forecast_candidates
-       SET state = 'superseded', updated_at = ?
-       WHERE schedule_event_id = ? AND game_day = ? AND candidate_id <> ?
-         AND state IN ('crosschecked', 'x_unavailable', 'conflict', 'proposed')`,
-    )
-    .bind(new Date().toISOString(), eventId, gameDay, currentCandidateId)
-    .run();
-}
-
-export async function recordCollectorRun(
-  db: D1Database,
-  deploymentSha: string,
-  source: "naver" | "x" | "collector",
-  status: "completed" | "failure" | "circuit_open",
-  startedAt: string,
-  errorCode: string | null,
-  nextRetryAt: string | null,
-  itemCount: number,
-) {
-  await db
-    .prepare(
-      `INSERT INTO collector_runs (
-         deployment_sha, source, status, started_at, finished_at, error_code,
-         next_retry_at, item_count
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      deploymentSha,
-      source,
-      status,
-      startedAt,
-      new Date().toISOString(),
-      errorCode,
-      nextRetryAt,
-      itemCount,
-    )
-    .run();
-}
-
-export async function naverCircuitState(db: D1Database, nowMs: number) {
-  const result = await db
-    .prepare(
-      `SELECT status, next_retry_at FROM collector_runs
-       WHERE source = 'naver' ORDER BY started_at DESC LIMIT 12`,
-    )
-    .all<{ status: string; next_retry_at: string | null }>();
-  let failures = 0;
-  for (const row of result.results) {
-    if (row.status !== "failure") break;
-    failures += 1;
-  }
-  const latestRetry = result.results[0]?.next_retry_at;
-  return {
-    failures,
-    open: failures >= 3 && typeof latestRetry === "string" && Date.parse(latestRetry) > nowMs,
-    nextRetryAt: latestRetry ?? null,
-  };
-}
-
-export async function shouldProbeX(db: D1Database, nowMs: number, immediate: boolean) {
-  const dayStart = new Date(nowMs);
-  dayStart.setUTCHours(0, 0, 0, 0);
-  const quota = await db
-    .prepare(
-      `SELECT COUNT(*) AS count FROM collector_runs
-       WHERE source = 'x' AND started_at >= ?`,
-    )
-    .bind(dayStart.toISOString())
-    .first<{ count: number }>();
-  if (Number(quota?.count ?? 0) >= 54) return false;
-  if (immediate) return true;
-  const latest = await db
-    .prepare(
-      "SELECT started_at FROM collector_runs WHERE source = 'x' ORDER BY started_at DESC LIMIT 1",
-    )
-    .first<{ started_at: string }>();
-  return !latest || nowMs - Date.parse(latest.started_at) >= 30 * 60 * 1000;
-}
-
 export async function readHealth(db: D1Database) {
   const latest = await db
     .prepare(
-      `SELECT source, status, finished_at FROM collector_runs
-       WHERE id IN (SELECT MAX(id) FROM collector_runs GROUP BY source)`,
+      `SELECT status, COALESCE(finished_at, started_at) AS finished_at
+       FROM collector_invocations ORDER BY scheduled_at DESC LIMIT 1`,
     )
-    .all<{ source: string; status: string; finished_at: string }>();
+    .first<{ status: string; finished_at: string }>();
   const counts = await db
     .prepare("SELECT state, COUNT(*) AS count FROM forecast_candidates GROUP BY state")
     .all<{ state: string; count: number }>();
   return {
     status: "ok",
-    sources: Object.fromEntries(
-      latest.results.map((row) => [
-        row.source,
-        { status: row.status, lastFinishedAt: row.finished_at },
-      ]),
-    ),
+    collector: latest
+      ? { status: latest.status, lastFinishedAt: latest.finished_at }
+      : { status: "missing", lastFinishedAt: null },
     candidateCounts: Object.fromEntries(counts.results.map((row) => [row.state, row.count])),
   };
 }
 
 export async function readCanaryReport(db: D1Database, nowMs: number, deploymentSha: string) {
-  const since = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
-  const runs = await db
+  const windowHours = 12;
+  const minimumScheduled = 200;
+  const minimumCompletionRate = 0.99;
+  const since = new Date(nowMs - windowHours * 60 * 60 * 1000).toISOString();
+  const invocations = await db
     .prepare(
-      `SELECT source, status, started_at, finished_at
-       FROM collector_runs
-       WHERE started_at >= ? AND deployment_sha = ?
-       ORDER BY started_at ASC`,
+      `SELECT status, poll_mode, scheduled_at, started_at, finished_at
+       FROM collector_invocations
+       WHERE scheduled_at >= ? AND deployment_sha = ?
+       ORDER BY scheduled_at ASC`,
     )
     .bind(since, deploymentSha)
-    .all<{ source: string; status: string; started_at: string; finished_at: string }>();
+    .all<{
+      status: string;
+      poll_mode: "both" | "alternating";
+      scheduled_at: string;
+      started_at: string;
+      finished_at: string | null;
+    }>();
   const first = await db
     .prepare(
-      `SELECT started_at FROM collector_runs
-       WHERE deployment_sha = ? ORDER BY started_at ASC LIMIT 1`,
+      `SELECT scheduled_at AS started_at FROM collector_invocations
+       WHERE deployment_sha = ? ORDER BY scheduled_at ASC LIMIT 1`,
     )
     .bind(deploymentSha)
     .first<{ started_at: string }>();
@@ -393,6 +318,32 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
       stored_published_at: string | null;
       stored_content_hash: string | null;
     }>();
+  const queue = await db
+    .prepare(
+      `SELECT status, attempts, source, item_id, url, published_at
+       FROM source_queue`,
+    )
+    .all<{
+      status: string;
+      attempts: number;
+      source: string;
+      item_id: string;
+      url: string;
+      published_at: string;
+    }>();
+  const cursors = await db
+    .prepare(
+      `SELECT source, committed_item_id, committed_published_at, scan_head_item_id,
+              scan_head_published_at, next_offset FROM source_poll_state`,
+    )
+    .all<{
+      source: string;
+      committed_item_id: string | null;
+      committed_published_at: string | null;
+      scan_head_item_id: string | null;
+      scan_head_published_at: string | null;
+      next_offset: number;
+    }>();
   let invalidCandidates = 0;
   for (const row of candidates.results) {
     try {
@@ -409,36 +360,73 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
       row.stored_published_at !== row.published_at ||
       row.stored_content_hash !== row.content_hash,
   ).length;
-  const naverRuns = runs.results.filter((row) => row.source === "naver");
-  const xRuns = runs.results.filter((row) => row.source === "x");
-  const naverCompleted = naverRuns.filter((row) => row.status === "completed").length;
-  const xCompleted = xRuns.filter((row) => row.status === "completed").length;
-  const naverSuccessRate = naverRuns.length === 0 ? 0 : naverCompleted / naverRuns.length;
-  const xSuccessRate = xRuns.length === 0 ? 0 : xCompleted / xRuns.length;
-  const eligible = first !== null && nowMs - Date.parse(first.started_at) >= 24 * 60 * 60 * 1000;
-  const latestNaver = naverRuns.at(-1);
+  const effective = invocations.results.map((row) => ({
+    ...row,
+    status:
+      row.status === "running" && nowMs - Date.parse(row.scheduled_at) >= 15 * 60 * 1000
+        ? "abandoned"
+        : row.status,
+  }));
+  const completed = effective.filter((row) => row.status === "completed").length;
+  const failures = effective.filter((row) => row.status === "failure").length;
+  const abandoned = effective.filter((row) => row.status === "abandoned").length;
+  const successRate = effective.length === 0 ? 0 : completed / effective.length;
+  const invalidQueue = queue.results.filter((row) => {
+    const url = URL.parse(row.url);
+    return (
+      !["pending", "processed", "ignored", "manual_review"].includes(row.status) ||
+      row.attempts < 0 ||
+      !/^naver-board-(48|56)$/.test(row.source) ||
+      !/^\d{1,20}$/.test(row.item_id) ||
+      !url ||
+      url.protocol !== "https:" ||
+      url.hostname !== "game.naver.com" ||
+      !Number.isFinite(Date.parse(row.published_at))
+    );
+  }).length;
+  const invalidCursors = cursors.results.filter(
+    (row) =>
+      !/^naver-board-(48|56)$/.test(row.source) ||
+      row.next_offset < 0 ||
+      (row.next_offset > 0 && (!row.scan_head_item_id || !row.scan_head_published_at)) ||
+      (row.next_offset === 0 &&
+        (row.scan_head_item_id !== null || row.scan_head_published_at !== null)) ||
+      (row.committed_item_id === null) !== (row.committed_published_at === null),
+  ).length;
+  const eligible =
+    first !== null && nowMs - Date.parse(first.started_at) >= windowHours * 60 * 60 * 1000;
+  const latest = effective.at(-1);
+  const earlyFailure =
+    first !== null &&
+    nowMs - Date.parse(first.started_at) >= 2 * 60 * 60 * 1000 &&
+    effective.length > 0 &&
+    abandoned / effective.length > 0.01;
   const passed =
     eligible &&
-    naverRuns.length >= 400 &&
-    naverSuccessRate >= 0.99 &&
-    latestNaver?.status === "completed" &&
+    effective.length >= minimumScheduled &&
+    successRate >= minimumCompletionRate &&
+    latest?.status === "completed" &&
+    abandoned === 0 &&
     invalidCandidates === 0 &&
-    invalidWatermarks === 0;
+    invalidWatermarks === 0 &&
+    invalidQueue === 0 &&
+    invalidCursors === 0;
   return {
+    version: 3,
     deploymentSha,
-    window: { since, until: new Date(nowMs).toISOString(), eligible },
-    naver: {
-      attempts: naverRuns.length,
-      completed: naverCompleted,
-      successRate: naverSuccessRate,
-      latestStatus: latestNaver?.status ?? "missing",
+    pollMode: latest?.poll_mode ?? "missing",
+    acceptance: { windowHours, minimumScheduled, minimumCompletionRate },
+    window: { since, until: new Date(nowMs).toISOString(), eligible, earlyFailure },
+    invocations: {
+      scheduled: effective.length,
+      completed,
+      failure: failures,
+      abandoned,
+      successRate,
+      latestStatus: latest?.status ?? "missing",
     },
-    x: {
-      attempts: xRuns.length,
-      completed: xCompleted,
-      successRate: xSuccessRate,
-      automationQualified: xRuns.length > 0 && xSuccessRate >= 0.9,
-    },
+    queue: { count: queue.results.length, invalid: invalidQueue },
+    cursors: { count: cursors.results.length, invalid: invalidCursors },
     candidates: { count: candidates.results.length, invalid: invalidCandidates },
     watermarks: { count: watermarks.results.length, invalid: invalidWatermarks },
     passed,
@@ -492,8 +480,4 @@ function rowToScheduleEvent(row: ScheduleEventRow): ScheduleEvent {
     manualReview: row.manual_review === 1,
     reason: row.reason,
   };
-}
-
-export function emptyCollectionSummary(outcome: CollectionSummary["outcome"]): CollectionSummary {
-  return { outcome, naverItems: 0, parsedEvents: 0, candidates: 0, xStatus: "not_run" };
 }

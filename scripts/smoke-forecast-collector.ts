@@ -29,6 +29,21 @@ const probe = await request("/admin/probe", true, "POST");
 if (!isRecord(probe) || !["completed", "circuit_open"].includes(String(probe["outcome"]))) {
   throw new Error("Collector probe did not return a typed successful outcome.");
 }
+const queue = await request("/admin/source-queue?limit=20", true);
+if (!isRecord(queue) || !Array.isArray(queue["items"])) {
+  throw new Error("Collector source queue response is invalid.");
+}
+const ledger = await request("/admin/schedule-ledger", true);
+if (!isRecord(ledger) || !Array.isArray(ledger["events"])) {
+  throw new Error("Collector schedule ledger response is invalid.");
+}
+const roundTrip = await request("/admin/source-queue/process", true, "POST", {
+  mode: "bootstrap",
+  results: [],
+});
+if (!isRecord(roundTrip) || roundTrip["processed"] !== 0) {
+  throw new Error("Collector queue round-trip response is invalid.");
+}
 const pending = await request("/admin/candidates", true);
 if (!isRecord(pending) || !Array.isArray(pending["candidates"])) {
   throw new Error("Collector candidate response is invalid.");
@@ -44,10 +59,18 @@ console.log(
   `Forecast collector smoke passed with ${pending["candidates"].length} pending candidate(s).`,
 );
 
-async function request(path: string, authenticated: boolean, method = "GET") {
+async function request(path: string, authenticated: boolean, method = "GET", body?: unknown) {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
-    ...(authenticated ? { headers: { authorization: `Bearer ${token}` } } : {}),
+    ...(authenticated
+      ? {
+          headers: {
+            authorization: `Bearer ${token}`,
+            ...(body === undefined ? {} : { "content-type": "application/json" }),
+          },
+        }
+      : {}),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) throw new Error(`${path} returned ${response.status}.`);

@@ -6,18 +6,33 @@ statistics and cannot modify the repository or activate a product forecast.
 
 ## Sources and cadence
 
-- Naver Game Lounge boards 56 and 48 are fetched every three minutes through the public Lounge
-  feed endpoint. Only relevant official manager posts with structured SmartEditor contents can
-  support an automatic candidate.
-- X is advisory only. Browser Run opens the public `x.com/NIKKE_kr` timeline at most every 30
-  minutes and at most 54 times per UTC day. No X API token, unofficial RSS feed, or login session is
-  used.
-- An unreadable or blocked X page becomes `x_unavailable`; the proposal may proceed but requires a
-  manual X checklist. A conflicting public X schedule becomes `conflict` and blocks proposal.
+- Every three minutes the Free-plan Worker reads only ten shallow feed records from Naver Lounge
+  boards 56 and 48. It queues IDs, titles, timestamps, manager roles, and URLs; it does not parse or
+  hash post bodies on the Cron path.
+- The five-minute proposal workflow fetches pending details and accepts only official manager posts
+  with structured SmartEditor JSON. It performs schedule parsing, ledger resolution, and candidate
+  generation outside the Worker CPU limit.
+- A live contract check on 2026-08-25 found that the current board-48, board-56, and Solo Raid detail
+  responses use SmartEditor HTML rather than JSON. The JSON-only boundary therefore fails closed to
+  `manual_review`; automatic candidate generation remains blocked until a separately reviewed,
+  structured Actions-side HTML parser is introduced.
+- X is advisory only and runs in GitHub Actions only when a candidate exists. The workflow tries the
+  official embedded profile, the public profile, and then Jina Reader once. It uses no X API, RSS
+  bridge, login session, cookie, Nitter instance, or private syndication endpoint.
+- [Defuddle](https://github.com/kepano/defuddle) is not used because it extracts content from an
+  already accessible DOM and its optional async X fallback uses FxTwitter. [Jina
+  Reader](https://jina.ai/reader/) successfully returned the public profile in a live
+  preflight, but it is an external fetch/cache intermediary and is not accepted as authoritative
+  schedule evidence. A Jina match always leaves manual X verification unchecked, and a transformed
+  Jina response can never create a conflict by itself.
+- An unavailable X page leaves a manual checklist on a normal PR. A matching post adds its status
+  link. A conflicting schedule creates a draft `[X 일정 충돌 검토]` PR that cannot be merged until
+  a person reviews it.
 
-The Naver fetch always overlaps the current feed window. Source items and payload hashes make this
-replay idempotent. A source watermark is updated in the same D1 batch as the corresponding source
-items and parsed events, so a failed batch cannot advance it.
+The Naver cursor walks one overlapping page per invocation when more than ten posts arrived between
+polls. Queue insertion and cursor advancement share one D1 batch, and `(source, itemId)` is unique.
+The evidence watermark advances only after GitHub Actions has parsed and validated the post; a
+failed action therefore cannot skip evidence.
 
 ## Forecast contract
 
@@ -61,6 +76,11 @@ Only a later, manually reviewed adoption PR may activate the forecast or change 
 - Responses are capped at 2 MB and fetched with a 10-second timeout.
 - Network errors and server errors receive one immediate retry.
 - Three consecutive Naver failures open a circuit with exponential backoff capped at 30 minutes.
+- Each scheduled invocation is inserted as `running` before polling. A row still running after 15
+  minutes is counted as `abandoned`, so a hard CPU termination cannot disappear from the canary.
+- Queue processing is idempotent. Retryable detail failures remain pending and the third failed
+  attempt becomes `manual_review`; structurally unsupported detail bodies become `manual_review`
+  immediately instead of being silently ignored.
 - Empty feeds, malformed JSON, schema drift, unofficial posts, ambiguous schedule changes, inverted
   periods, non-finite gains, non-monotone profiles, and out-of-range cadence never delete or
   activate a forecast.
@@ -68,8 +88,12 @@ Only a later, manually reviewed adoption PR may activate the forecast or change 
   require a timing-safe bearer token.
 - Authenticated endpoints share a dedicated Cloudflare rate-limit namespace per environment and
   reject more than 60 requests per minute from the admin request class.
-- X automation is disabled at production promotion when the 24-hour staging success rate is below
-  90%. Naver collection and the last approved product forecast remain available.
+- Canary report v3 requires at least 12 hours, 200 scheduled invocations, 99% completed, a completed
+  latest invocation, zero abandoned rows, and zero invalid queue/cursor/candidate/watermark rows.
+  More than 1% abandoned after the first two hours fails early.
+- If `both` polling cannot pass, `POLL_MODE=alternating` checks one board per invocation (six minutes
+  per board) and starts a fresh 12-hour canary. If that also fails, the Cron trigger is removed and
+  `FORECAST_DIRECT_NAVER_POLL=true` makes the five-minute proposal action collect both boards.
 
 ## Local verification
 
@@ -79,13 +103,14 @@ npm run test:forecast-collector
 npx wrangler deploy --dry-run --env staging --config forecast-collector/wrangler.toml
 ```
 
-Remote setup needs two dedicated D1 databases, the Browser Run binding, and `ADMIN_TOKEN`. GitHub
+Remote setup needs two dedicated D1 databases and `ADMIN_TOKEN`. GitHub
 uses `FORECAST_COLLECTOR_ADMIN_TOKEN`; it is not a GitHub or Cloudflare write token. Deployment uses
 the existing scoped `CLOUDFLARE_API_TOKEN` and account ID.
 
-The deployment token intentionally has no D1 write permission. Apply schema changes as a separate,
-operator-audited migration before deploying either environment. The post-deploy smoke fails closed
-when the expected tables are absent.
+The scoped deployment token needs Workers Scripts edit access and D1 edit access limited to this
+account's dedicated forecast databases. Staging migration 0003 runs before the staging deployment;
+production migration and deployment remain behind the `cloudflare-production` environment
+approval. The post-deploy smoke fails closed when the expected tables are absent.
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
@@ -94,8 +119,8 @@ npx wrangler d1 execute FORECAST_DB --remote --env="" `
   --config forecast-collector/wrangler.toml --file forecast-collector/schema.sql
 ```
 
-For an existing version-1 database, apply the incremental migration instead of replaying the
-bootstrap schema:
+For an existing database, apply the incremental migrations instead of replaying the bootstrap
+schema. Migration 0003 adds invocation accounting, shallow cursors, and the source queue:
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
@@ -104,6 +129,12 @@ npx wrangler d1 execute FORECAST_DB --remote --env=staging `
 npx wrangler d1 execute FORECAST_DB --remote --env="" `
   --config forecast-collector/wrangler.toml `
   --file forecast-collector/migrations/0002_collector_deployment_sha.sql
+npx wrangler d1 execute FORECAST_DB --remote --env=staging `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0003_lightweight_source_queue.sql
+npx wrangler d1 execute FORECAST_DB --remote --env="" `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0003_lightweight_source_queue.sql
 ```
 
 Required repository variables:
@@ -112,10 +143,12 @@ Required repository variables:
 FORECAST_COLLECTOR_STAGING_URL
 FORECAST_COLLECTOR_PRODUCTION_URL
 FORECAST_COLLECTOR_URL
+FORECAST_DIRECT_NAVER_POLL (optional emergency fallback)
 ```
 
-`FORECAST_COLLECTOR_URL` is set to production only after the 24-hour staging canary and production
-round-trip smoke pass. Until then the proposal workflow skips without failing.
+The promotion workflow sets `FORECAST_COLLECTOR_URL` to production only after the 12-hour staging
+canary, production queue round-trip smoke, and idempotent Solo Raid ledger bootstrap pass. Until
+then the proposal workflow skips without failing.
 
 Promotion compares the canary commit with current `main` only across the collector deployment
 inputs covered by the staging workflow path filter. Unrelated application, solver, or documentation

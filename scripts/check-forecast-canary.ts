@@ -12,7 +12,8 @@ if (!isCanaryReport(report)) throw new Error("Canary report schema is invalid.")
 await outputs({
   canary_passed: String(report.passed),
   canary_eligible: String(report.window.eligible),
-  x_enabled: String(report.x.automationQualified),
+  canary_early_failed: String(report.window.earlyFailure),
+  poll_mode: report.pollMode,
   deployment_sha: report.deploymentSha,
 });
 console.log(JSON.stringify(report, null, 2));
@@ -36,20 +37,39 @@ function requiredEnvironment(name: string) {
 }
 
 function isCanaryReport(value: unknown): value is {
+  version: 3;
   deploymentSha: string;
+  pollMode: "both" | "alternating" | "missing";
   passed: boolean;
-  window: { eligible: boolean };
-  x: { automationQualified: boolean };
+  acceptance: { windowHours: 12; minimumScheduled: 200; minimumCompletionRate: 0.99 };
+  window: { eligible: boolean; earlyFailure: boolean };
+  invocations: { scheduled: number; completed: number; abandoned: number };
 } {
-  if (!isRecord(value) || typeof value["deploymentSha"] !== "string") return false;
+  if (!isRecord(value) || value["version"] !== 3 || typeof value["deploymentSha"] !== "string")
+    return false;
   if (typeof value["passed"] !== "boolean") return false;
+  if (!["both", "alternating", "missing"].includes(String(value["pollMode"]))) return false;
   const window = value["window"];
-  const x = value["x"];
+  const acceptance = value["acceptance"];
+  const invocations = value["invocations"];
   return (
+    isAcceptancePolicy(acceptance) &&
     isRecord(window) &&
     typeof window["eligible"] === "boolean" &&
-    isRecord(x) &&
-    typeof x["automationQualified"] === "boolean"
+    typeof window["earlyFailure"] === "boolean" &&
+    isRecord(invocations) &&
+    typeof invocations["scheduled"] === "number" &&
+    typeof invocations["completed"] === "number" &&
+    typeof invocations["abandoned"] === "number"
+  );
+}
+
+function isAcceptancePolicy(value: unknown) {
+  return (
+    isRecord(value) &&
+    value["windowHours"] === 12 &&
+    value["minimumScheduled"] === 200 &&
+    value["minimumCompletionRate"] === 0.99
   );
 }
 

@@ -6,7 +6,7 @@
   `supply-2026-08-21-v1`.
 - `[confirmed]` The schedule model and dynamic Rust/WASM gain ABI preserve existing semantics when
   given that fixed vector.
-- `[unverified]` No schedule forecast becomes active before the 24-hour staging shadow, production
+- `[unverified]` No schedule forecast becomes active before the 12-hour staging shadow, production
   smoke, renewed H/p research, and a separate adoption pull request pass.
 
 ## Model boundary
@@ -17,13 +17,29 @@ the boundary after Solo Raid day 3. Dispatch combines the no-reroll, one-reroll,
 cohorts equally, yielding `8.947399682 / 2.014546824 / 0.714208160` blue/purple/yellow per day.
 Future Tuesday resets add five Kit Box II rewards, or ten during an official collaboration period.
 
-Naver Lounge boards 56 and 48 are the primary automatic evidence. A public Browser Run visit to X
-is advisory and uses neither an API token nor unofficial RSS. An unavailable X page requires manual
-confirmation; conflicting official sources block the proposal.
+Naver Lounge boards 56 and 48 are the primary automatic evidence. The Free Worker Cron stores only
+shallow feed metadata every three minutes. A five-minute GitHub Actions job fetches structured
+SmartEditor JSON and performs schedule resolution and candidate generation. X is checked only for
+an existing candidate: Actions tries the official embed, public profile, and Jina Reader once,
+without an API, RSS bridge, login cookie, or private syndication endpoint. An unavailable timeline
+requires manual confirmation; a conflicting schedule produces an isolated draft pull request.
 
-The collector only stores candidates. GitHub Actions revalidates the schema and hash and proposes
-an inactive registry entry. The administrator's merge approves that evidence, but does not activate
-the forecast.
+[Defuddle](https://github.com/kepano/defuddle) is not adopted because it cleans an already
+accessible DOM and its optional X fallback uses FxTwitter. [Jina Reader](https://jina.ai/reader/)
+passed a live public-profile preflight, but it introduces a third-party fetch/cache intermediary
+and is not accepted as authoritative schedule evidence. It runs only as the last advisory fallback;
+a Jina match still requires manual source verification and Jina alone cannot create a conflict.
+
+- `[confirmed]` A live contract check on 2026-08-25 found that the latest manager posts on boards 48
+  and 56, including the Solo Raid notice, return SmartEditor HTML rather than SmartEditor JSON. The
+  current JSON-only boundary safely routes these posts to `manual_review`, but automatic Naver
+  candidate generation cannot be enabled until a reviewed structured Actions-side parser exists.
+
+The collector stores invocation evidence, cursor and queue metadata, and validated schedule and
+candidate records. GitHub Actions revalidates the schema and hash and proposes an inactive registry
+entry. Canary v3 requires a 12-hour window, at least 200 invocations, at least 99% completion, zero
+abandoned invocations, and consistent queues, cursors, candidates, and watermarks. The
+administrator's merge approves the evidence but does not activate the forecast.
 
 ## Renewed H/p study
 

@@ -1,5 +1,5 @@
 import { sha256Hex } from "./crypto";
-import type { NormalizedSourceItem, ScheduleEvent, SourceKind } from "./types";
+import type { NaverFeedMetadata, NormalizedSourceItem, ScheduleEvent, SourceKind } from "./types";
 
 const NAVER_FEED_URL = "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed";
 const NAVER_SEARCH_URL = "https://comm-api.game.naver.com/nng_main/v2/search/feeds";
@@ -29,7 +29,59 @@ const BOARD_KEYWORDS: Record<48 | 56, readonly string[]> = {
   ],
 };
 
-type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+export async function fetchNaverFeedMetadata(
+  boardId: 48 | 56,
+  offset = 0,
+  fetcher: FetchLike = fetch,
+): Promise<NaverFeedMetadata[]> {
+  const url = new URL(NAVER_FEED_URL);
+  url.search = new URLSearchParams({
+    boardId: String(boardId),
+    buffFilteringYN: "N",
+    limit: "10",
+    offset: String(offset),
+    order: "NEW",
+  }).toString();
+  return parseNaverFeedMetadata(await readGuardedJson(await fetchWithRetry(url, fetcher)), boardId);
+}
+
+function parseNaverFeedMetadata(payload: unknown, boardId: 48 | 56) {
+  if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_schema_code");
+  const content = payload["content"];
+  if (!isRecord(content) || !Array.isArray(content["feeds"])) throw new Error("naver_schema_feeds");
+  const result: NaverFeedMetadata[] = [];
+  for (const row of content["feeds"]) {
+    if (!isRecord(row) || !isRecord(row["feed"]) || !isRecord(row["user"])) continue;
+    const feed = row["feed"];
+    const user = row["user"];
+    const itemId = String(feed["feedId"] ?? "");
+    const title = typeof feed["title"] === "string" ? normalizeWhitespace(feed["title"]) : "";
+    if (!itemId || !title) continue;
+    result.push({
+      source: `naver-board-${boardId}`,
+      itemId,
+      url: readFeedUrl(row, itemId),
+      title,
+      publishedAt: parseNaverDate(feed["createdDate"]),
+      official: user["role"] === "game_manager" || user["userRoleCode"] === "game_manager",
+    });
+  }
+  return result;
+}
+
+export async function fetchNaverStructuredItem(
+  boardId: 48 | 56,
+  itemId: string,
+  fetcher: FetchLike = fetch,
+) {
+  if (!/^\d{1,20}$/.test(itemId)) throw new Error("naver_item_id");
+  const payload = await readGuardedJson(
+    await fetchWithRetry(new URL(`${NAVER_FEED_URL}/${itemId}`), fetcher),
+  );
+  return parseNaverDetail(payload, boardId, true);
+}
 
 export async function fetchNaverBoard(
   boardId: 48 | 56,
@@ -73,7 +125,7 @@ export async function fetchNaverSoloHistory(
   for (const feedId of [...candidates.keys()].slice(0, 8)) {
     const url = new URL(`${NAVER_FEED_URL}/${feedId}`);
     const payload = await readGuardedJson(await fetchWithRetry(url, fetcher));
-    const item = await parseNaverDetail(payload);
+    const item = await parseNaverDetail(payload, 56, true);
     if (item) items.push(item);
   }
   return items;
@@ -82,6 +134,7 @@ export async function fetchNaverSoloHistory(
 export async function parseNaverFeed(
   payload: unknown,
   boardId: 48 | 56,
+  options: { structuredJsonOnly?: boolean } = {},
 ): Promise<NormalizedSourceItem[]> {
   if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_schema_code");
   const content = payload["content"];
@@ -95,7 +148,13 @@ export async function parseNaverFeed(
     const itemId = String(feed["feedId"] ?? "");
     const title = typeof feed["title"] === "string" ? normalizeWhitespace(feed["title"]) : "";
     const rawContents = typeof feed["contents"] === "string" ? feed["contents"] : "";
-    const extracted = await extractSmartEditorText(rawContents);
+    const extracted = await extractSmartEditorText(
+      rawContents,
+      options.structuredJsonOnly === true,
+    );
+    if (options.structuredJsonOnly === true && !extracted.structured) {
+      throw new Error("naver_unstructured_body");
+    }
     const normalizedText = normalizeWhitespace(`${title}\n${extracted.text}`);
     if (!itemId || !title || !hasRelevantKeyword(normalizedText, BOARD_KEYWORDS[boardId])) continue;
     if (seen.has(itemId)) continue;
@@ -155,7 +214,10 @@ export async function parseScheduleEvents(
   return events;
 }
 
-async function extractSmartEditorText(rawContents: string): Promise<{
+async function extractSmartEditorText(
+  rawContents: string,
+  structuredJsonOnly = false,
+): Promise<{
   text: string;
   structured: boolean;
 }> {
@@ -165,6 +227,7 @@ async function extractSmartEditorText(rawContents: string): Promise<{
     visit(parsed, values);
     if (values.length > 0) return { text: values.join("\n"), structured: true };
   } catch {
+    if (structuredJsonOnly) return { text: "", structured: false };
     const smartEditorHtml = await extractSmartEditorHtmlText(rawContents);
     if (smartEditorHtml !== null) return { text: smartEditorHtml, structured: true };
   }
@@ -339,7 +402,7 @@ function isOfficialSoloOpening(row: Record<string, unknown>) {
   );
 }
 
-async function parseNaverDetail(payload: unknown) {
+async function parseNaverDetail(payload: unknown, boardId: 48 | 56, structuredOnly = false) {
   if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_detail_schema_code");
   const content = payload["content"];
   if (!isRecord(content) || !isRecord(content["user"])) {
@@ -350,7 +413,13 @@ async function parseNaverDetail(payload: unknown) {
     ...content,
     user: { ...user, role: user["userRoleCode"] },
   };
-  return (await parseNaverFeed({ code: 200, content: { feeds: [normalized] } }, 56))[0] ?? null;
+  const item =
+    (
+      await parseNaverFeed({ code: 200, content: { feeds: [normalized] } }, boardId, {
+        structuredJsonOnly: structuredOnly,
+      })
+    )[0] ?? null;
+  return item;
 }
 
 function visit(value: unknown, output: string[]) {

@@ -11,9 +11,6 @@ invocation_logs = true
 [triggers]
 crons = ["*/3 * * * *"]
 
-[browser]
-binding = "BROWSER"
-
 [[ratelimits]]
 name = "ADMIN_RATE_LIMITER"
 namespace_id = "419001"
@@ -30,7 +27,7 @@ database_id = "2d58bcc0-a7b5-43f3-8f42-34e1bf1ff853"
 [vars]
 ENVIRONMENT = "production"
 DEPLOY_SHA = "local"
-X_AUTOMATION_ENABLED = "true"
+POLL_MODE = "both"
 
 [secrets]
 required = ["ADMIN_TOKEN"]
@@ -38,9 +35,6 @@ required = ["ADMIN_TOKEN"]
 [env.staging]
 name = "collection-kit-forecast-collector-staging"
 workers_dev = true
-
-[env.staging.browser]
-binding = "BROWSER"
 
 [[env.staging.ratelimits]]
 name = "ADMIN_RATE_LIMITER"
@@ -58,7 +52,7 @@ database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
 [env.staging.vars]
 ENVIRONMENT = "staging"
 DEPLOY_SHA = "local"
-X_AUTOMATION_ENABLED = "true"
+POLL_MODE = "both"
 
 [env.staging.secrets]
 required = ["ADMIN_TOKEN"]

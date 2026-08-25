@@ -57,7 +57,7 @@ describe("forecast candidate model", () => {
     expect(result.candidate.forecastId).toBe("supply-2026-08-24-v1");
     expect(result.candidate.profiles.at(-1)?.effectiveUntil).toBeNull();
     expect(result.candidate.warnings).toContain(
-      "X could not be cross-checked automatically; manual confirmation is required.",
+      "X is advisory and is evaluated during proposal review.",
     );
     for (let index = 1; index < result.candidate.profiles.length; index += 1) {
       const previous = result.candidate.profiles[index - 1]?.expectedGain;
@@ -94,6 +94,27 @@ describe("forecast candidate model", () => {
     expect(resolved?.cadenceDays).toBe(28);
     expect(resolved?.event.startsAt).toBe("2026-09-03T03:00:00.000Z");
     expect(resolved?.evidenceEvents).toHaveLength(6);
+  });
+
+  it("uses the forecast game date in candidate identity", async () => {
+    const resolved = resolveSoloSchedule([soloEvent], Date.parse("2026-08-19T00:00:00Z"));
+    if (!resolved) throw new Error("Expected a resolved schedule.");
+    const first = await buildForecastCandidate(
+      resolved,
+      [],
+      { status: "x_unavailable", sourceItem: null, reason: "test" },
+      Date.parse("2026-08-19T00:00:00Z"),
+      1,
+    );
+    const nextDay = await buildForecastCandidate(
+      resolved,
+      [],
+      { status: "x_unavailable", sourceItem: null, reason: "test" },
+      Date.parse("2026-08-20T00:00:00Z"),
+      1,
+    );
+
+    expect(first.candidate.candidateId).not.toBe(nextDay.candidate.candidateId);
   });
 
   it("does not feed a previously estimated round back into cadence history", () => {
