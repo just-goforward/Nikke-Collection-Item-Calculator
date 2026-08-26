@@ -1,5 +1,5 @@
 import { clientEnvironment } from "./client-environment";
-import { kstDateKeyFromUnixSeconds } from "./date-key";
+import { kstGameDateKeyFromUnixSeconds } from "./date-key";
 import type { WorkerEnv } from "./env";
 import type {
   ValidatedKitResultEvent,
@@ -19,7 +19,7 @@ export async function commitSubmission(
   normalized: ValidatedSubmission,
   now: number,
 ) {
-  const dateKey = kstDateKeyFromUnixSeconds(now);
+  const dateKey = kstGameDateKeyFromUnixSeconds(now);
   if (normalized.event.kind === "runtime_invariant") {
     const deviceType = clientEnvironment(request).deviceType;
     return commitEvent(env, normalized.eventId, now, normalized.event.kind, [
@@ -97,7 +97,7 @@ function buildForecastProfileAggregateStatement(
   now: number,
 ) {
   return env.DB.prepare(
-    `INSERT INTO forecast_profile_aggregates
+    `INSERT INTO forecast_profile_aggregates_game_day
       (date_key, event_kind, event_version, forecast_id, forecast_profile_id, solver_backend,
        events, last_seen)
      VALUES (?, ?, ?, ?, ?, ?, 1, ?)
@@ -115,7 +115,7 @@ function buildRuntimeInvariantAggregateStatement(
   now: number,
 ) {
   return env.DB.prepare(
-    `INSERT INTO runtime_invariant_aggregates
+    `INSERT INTO runtime_invariant_aggregates_game_day
       (date_key, invariant_version, invariant_code, component, lane, device_type, events,
        last_seen)
      VALUES (?, ?, ?, ?, ?, ?, 1, ?)
@@ -143,7 +143,7 @@ function buildCalculationLocaleAggregateStatement(
 ): D1PreparedStatement {
   if (!event.locale) throw new HttpError(500, "diagnostic_locale_missing");
   return env.DB.prepare(
-    `INSERT INTO calculation_locale_aggregates
+    `INSERT INTO calculation_locale_aggregates_game_day
       (date_key, diagnostic_version, forecast_id, locale, requested_backend, terminal_backend,
        execution_kind, events, last_seen)
      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
@@ -173,7 +173,7 @@ function buildSolverRecoveryRungStatement(
   now: number,
 ) {
   return env.DB.prepare(
-    `INSERT INTO solver_recovery_rung_aggregates
+    `INSERT INTO solver_recovery_rung_aggregates_game_day
       (date_key, recovery_version, forecast_id, policy_version, requested_backend, rung_backend, rung_exit,
        memo_tier, grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple,
        stock_bucket_yellow, device_type, events, last_seen)
@@ -210,7 +210,7 @@ function buildSolverRecoveryTerminalStatement(
   now: number,
 ) {
   return env.DB.prepare(
-    `INSERT INTO solver_recovery_terminal_aggregates
+    `INSERT INTO solver_recovery_terminal_aggregates_game_day
       (date_key, recovery_version, forecast_id, policy_version, requested_backend, min_ef_exit, phase2_exit,
        js_exit, terminal_backend, terminal_outcome, grade, level, exp_bucket, stock_bucket_blue,
        stock_bucket_purple, stock_bucket_yellow, device_type, events, last_seen)
@@ -248,7 +248,7 @@ function buildSolverCacheAggregateStatement(
   now: number,
 ): D1PreparedStatement {
   return env.DB.prepare(
-    `INSERT INTO solver_cache_aggregates
+    `INSERT INTO solver_cache_aggregates_game_day
       (date_key, diagnostic_version, forecast_id, requested_backend, terminal_backend, execution_kind,
        grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
        events, last_seen)
@@ -283,7 +283,7 @@ function buildSolverRuntimeAggregateStatement(
   now: number,
 ): D1PreparedStatement {
   return env.DB.prepare(
-    `INSERT INTO solver_runtime_aggregates
+    `INSERT INTO solver_runtime_aggregates_game_day
       (date_key, diagnostic_version, forecast_id, solver_version, solver_phase, solver_backend,
        fallback_from, fallback_reason, memory_strategy, min_ef_memo_tier,
        phase2_memo_tier, phase2_memo_retried, grade, level, exp_bucket,
@@ -340,7 +340,7 @@ async function commitKitResultEvent(
 
   return commitEvent(env, eventId, now, "kit_result", [
     env.DB.prepare(
-      `INSERT INTO event_aggregates
+      `INSERT INTO event_aggregates_game_day
       (date_key, grade, level, exp_bucket, kit, recommended_uses, outcome, success_attempt, events, attempts, great_successes, last_seen)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
      ON CONFLICT(date_key, grade, level, exp_bucket, kit, recommended_uses, outcome, success_attempt)
@@ -363,7 +363,7 @@ async function commitKitResultEvent(
       now,
     ),
     env.DB.prepare(
-      `INSERT INTO referrer_aggregates
+      `INSERT INTO referrer_aggregates_game_day
       (date_key, source_host, events, last_seen)
      VALUES (?, ?, 1, ?)
      ON CONFLICT(date_key, source_host)
@@ -372,7 +372,7 @@ async function commitKitResultEvent(
       last_seen = excluded.last_seen`,
     ).bind(dateKey, sourceHost, now),
     env.DB.prepare(
-      `INSERT INTO client_env_aggregates
+      `INSERT INTO client_env_aggregates_game_day
       (date_key, browser, browser_major, os, os_major, device_type, events, last_seen)
      VALUES (?, ?, ?, ?, ?, ?, 1, ?)
      ON CONFLICT(date_key, browser, browser_major, os, os_major, device_type)
@@ -434,7 +434,7 @@ function buildSolverDiagnosticAggregateStatement(
   now: number,
 ): D1PreparedStatement {
   return env.DB.prepare(
-    `INSERT INTO solver_diagnostic_aggregates
+    `INSERT INTO solver_diagnostic_aggregates_game_day
       (date_key, diagnostic_version, forecast_id, solver_version, solver_phase, grade, level, exp_bucket,
        strategy, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow,
        recommended_kit, recommended_uses_bucket, candidate_count_bucket,

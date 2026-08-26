@@ -21,7 +21,7 @@ describe("runtime_invariant event commit", () => {
     const aggregate = await harness.database
       .prepare(
         `SELECT invariant_version, invariant_code, component, lane, device_type, events
-         FROM runtime_invariant_aggregates`,
+         FROM runtime_invariant_aggregates_game_day`,
       )
       .first<{
         invariant_version: number;

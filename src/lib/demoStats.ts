@@ -209,6 +209,20 @@ export function makeDemoStats(): StatsApiResponse {
   return {
     windowDays: 0,
     today: "2026-05-07",
+    dateContract: {
+      legacy: {
+        id: "kst_calendar_date_v1",
+        boundary: "00:00:00+09:00",
+        acceptsNewWrites: false,
+      },
+      current: {
+        id: "kst_game_day_0500_v2",
+        boundary: "05:00:00+09:00",
+        acceptsNewWrites: true,
+      },
+      cumulativeIncludes: ["kst_calendar_date_v1", "kst_game_day_0500_v2"],
+      todayBasis: "kst_game_day_0500_v2",
+    },
     summary: {
       events: totalEvents,
       attempts: totalAttempts,

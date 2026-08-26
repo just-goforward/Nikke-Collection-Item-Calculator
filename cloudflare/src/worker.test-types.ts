@@ -1,7 +1,16 @@
+type StatisticsDateBasis = "kst_calendar_date_v1" | "kst_game_day_0500_v2";
+
 export type AdminDiagnosticsBody = {
   windowDays?: number;
   since?: string;
+  sinceByDateBasis?: Record<StatisticsDateBasis, string>;
+  dateContract?: {
+    legacy: { id: StatisticsDateBasis; boundary: string; acceptsNewWrites: boolean };
+    current: { id: StatisticsDateBasis; boundary: string; acceptsNewWrites: boolean };
+    rowsExposeDateBasis: boolean;
+  };
   allTime?: Array<{
+    dateBasis: StatisticsDateBasis;
     forecastId: string;
     solverVersion: string;
     solverPhase: string;
@@ -10,12 +19,14 @@ export type AdminDiagnosticsBody = {
     lastDate: string | null;
   }>;
   window?: Array<{
+    dateBasis: StatisticsDateBasis;
     forecastId: string;
     solverVersion: string;
     solverPhase: string;
     events: number;
   }>;
   daily?: Array<{
+    dateBasis: StatisticsDateBasis;
     date: string;
     forecastId: string;
     solverVersion: string;
@@ -23,12 +34,14 @@ export type AdminDiagnosticsBody = {
     events: number;
   }>;
   nodeCounts?: Array<{
+    dateBasis: StatisticsDateBasis;
     forecastId: string;
     solverBackend: string;
     nodeCountBucket: string;
     events: number;
   }>;
   runtime?: Array<{
+    dateBasis: StatisticsDateBasis;
     forecastId: string;
     solverVersion: string;
     solverPhase: string;
@@ -49,6 +62,7 @@ export type AdminDiagnosticsBody = {
     events: number;
   }>;
   cache?: Array<{
+    dateBasis: StatisticsDateBasis;
     diagnosticVersion: number;
     forecastId: string;
     requestedBackend: string;
@@ -67,6 +81,7 @@ export type AdminDiagnosticsBody = {
     ratioWarning: string;
   };
   recoveryRungs?: Array<{
+    dateBasis: StatisticsDateBasis;
     forecastId: string;
     policyVersion: string;
     requestedBackend: string;
@@ -76,6 +91,7 @@ export type AdminDiagnosticsBody = {
     events: number;
   }>;
   recoveryTerminals?: Array<{
+    dateBasis: StatisticsDateBasis;
     forecastId: string;
     policyVersion: string;
     requestedBackend: string;
@@ -84,6 +100,7 @@ export type AdminDiagnosticsBody = {
     events: number;
   }>;
   fallbacks?: Array<{
+    dateBasis: StatisticsDateBasis;
     forecastId: string;
     attemptedBackend: string;
     events: number;
@@ -91,6 +108,7 @@ export type AdminDiagnosticsBody = {
     fallbackRate: number;
   }>;
   latencies?: Array<{
+    dateBasis: StatisticsDateBasis;
     forecastId: string;
     solverVersion: string;
     solverPhase: string;

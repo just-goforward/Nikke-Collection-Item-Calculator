@@ -1,5 +1,10 @@
 import { GREAT_SUCCESS, type Grade, KIT_ORDER, type Kit } from "../../shared/game";
-import { kstDateKeyFromUnixSeconds } from "./date-key";
+import {
+  CURRENT_STATISTICS_DATE_BASIS,
+  kstGameDateKeyFromUnixSeconds,
+  LEGACY_STATISTICS_DATE_BASIS,
+  STATISTICS_DATE_CONTRACT,
+} from "./date-key";
 import { emptyResponse, isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
 import { logInfo } from "./logger";
@@ -27,17 +32,21 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
   if (!env.DB) throw new HttpError(500, "database_not_configured");
   const now = Math.floor(Date.now() / 1000);
   const queryStartedAt = performance.now();
-  const today = kstDateKeyFromUnixSeconds(now);
+  const today = kstGameDateKeyFromUnixSeconds(now);
 
   const [aggregateRowsResult, todayRowsResult] = await Promise.all([
     env.DB.prepare(
       `SELECT grade, level, kit, SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
-       FROM event_aggregates
+       FROM (
+         SELECT grade, level, kit, events, attempts, great_successes FROM event_aggregates
+         UNION ALL
+         SELECT grade, level, kit, events, attempts, great_successes FROM event_aggregates_game_day
+       )
        GROUP BY grade, level, kit`,
     ).all<StatsAggregateRow>(),
     env.DB.prepare(
       `SELECT SUM(events) AS events, SUM(attempts) AS attempts, SUM(great_successes) AS great_successes
-       FROM event_aggregates
+       FROM event_aggregates_game_day
        WHERE date_key = ?`,
     )
       .bind(today)
@@ -72,6 +81,12 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
     {
       windowDays: 0,
       today,
+      dateContract: {
+        legacy: STATISTICS_DATE_CONTRACT.legacy,
+        current: STATISTICS_DATE_CONTRACT.current,
+        cumulativeIncludes: [LEGACY_STATISTICS_DATE_BASIS, CURRENT_STATISTICS_DATE_BASIS],
+        todayBasis: CURRENT_STATISTICS_DATE_BASIS,
+      },
       summary: {
         ...summary,
         greatSuccessRate: rate(summary.greatSuccesses, summary.attempts),
@@ -111,7 +126,7 @@ function statsEtag(
   today: string,
   summary: { attempts: number; events: number; greatSuccesses: number },
 ) {
-  return `W/"stats-${today}-${summary.events}-${summary.attempts}-${summary.greatSuccesses}"`;
+  return `W/"stats-v2-${today}-${summary.events}-${summary.attempts}-${summary.greatSuccesses}"`;
 }
 
 function etagMatches(header: string | null, etag: string) {

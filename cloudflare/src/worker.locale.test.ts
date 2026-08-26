@@ -24,7 +24,7 @@ describe("calculation locale aggregates", () => {
     const stored = await harness.database
       .prepare(
         `SELECT forecast_id, locale, requested_backend, terminal_backend, execution_kind, events
-         FROM calculation_locale_aggregates`,
+         FROM calculation_locale_aggregates_game_day`,
       )
       .first<{
         forecast_id: string;
@@ -50,6 +50,7 @@ describe("calculation locale aggregates", () => {
     };
     expect(body.calculationLocales).toEqual([
       {
+        dateBasis: "kst_game_day_0500_v2",
         diagnosticVersion: 8,
         forecastId: "supply-2026-08-21-v1",
         locale: "ja",
@@ -79,7 +80,7 @@ describe("calculation locale aggregates", () => {
     const rows = await harness.database
       .prepare(
         `SELECT locale, execution_kind, SUM(events) AS events
-         FROM calculation_locale_aggregates
+         FROM calculation_locale_aggregates_game_day
          GROUP BY locale, execution_kind
          ORDER BY execution_kind`,
       )
@@ -95,7 +96,7 @@ describe("calculation locale aggregates", () => {
     Reflect.deleteProperty(legacy.event, "locale");
 
     expect((await harness.submit(legacy)).status).toBe(200);
-    await expect(harness.countRows("solver_diagnostic_aggregates")).resolves.toBe(1);
-    await expect(harness.countRows("calculation_locale_aggregates")).resolves.toBe(0);
+    await expect(harness.countRows("solver_diagnostic_aggregates_game_day")).resolves.toBe(1);
+    await expect(harness.countRows("calculation_locale_aggregates_game_day")).resolves.toBe(0);
   });
 });

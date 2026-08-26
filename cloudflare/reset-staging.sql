@@ -62,3 +62,58 @@ DELETE FROM runtime_invariant_aggregates
 WHERE EXISTS (
   SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
 );
+
+DELETE FROM event_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM referrer_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM client_env_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM solver_diagnostic_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM calculation_locale_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM solver_runtime_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM solver_cache_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM solver_recovery_rung_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM solver_recovery_terminal_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM runtime_invariant_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM forecast_profile_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);

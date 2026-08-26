@@ -1,11 +1,11 @@
-export const D1_SCHEMA_CONTRACT_VERSION = 4 as const;
+export const D1_SCHEMA_CONTRACT_VERSION = 5 as const;
 
 type D1TableContract = {
   columns: readonly string[];
   primaryKey: readonly string[];
 };
 
-export const REQUIRED_D1_SCHEMA = {
+const BASE_REQUIRED_D1_SCHEMA = {
   forecast_profile_aggregates: {
     columns: [
       "date_key",
@@ -339,6 +339,17 @@ export const REQUIRED_D1_SCHEMA = {
       "device_type",
     ],
   },
+} as const satisfies Record<string, D1TableContract>;
+
+const GAME_DAY_D1_SCHEMA = Object.fromEntries(
+  Object.entries(BASE_REQUIRED_D1_SCHEMA)
+    .filter(([table]) => table !== "event_ids" && table !== "rate_limits")
+    .map(([table, contract]) => [`${table}_game_day`, contract]),
+) as Record<string, D1TableContract>;
+
+export const REQUIRED_D1_SCHEMA = {
+  ...BASE_REQUIRED_D1_SCHEMA,
+  ...GAME_DAY_D1_SCHEMA,
 } as const satisfies Record<string, D1TableContract>;
 
 export type D1SchemaRow = {

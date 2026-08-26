@@ -2,6 +2,7 @@ import * as z from "zod/mini";
 
 const GradeSchema = z.enum(["R", "SR"]);
 const KitSchema = z.enum(["blue", "purple", "yellow"]);
+const StatisticsDateBasisSchema = z.enum(["kst_calendar_date_v1", "kst_game_day_0500_v2"]);
 
 const NumericStatsSchema = z.looseObject({
   events: z.number(),
@@ -40,6 +41,22 @@ const KitStatsSchema = z.extend(NumericStatsSchema, {
 export const StatsApiResponseSchema = z.looseObject({
   windowDays: z.number(),
   today: z.string(),
+  dateContract: z.optional(
+    z.looseObject({
+      legacy: z.looseObject({
+        id: z.literal("kst_calendar_date_v1"),
+        boundary: z.literal("00:00:00+09:00"),
+        acceptsNewWrites: z.literal(false),
+      }),
+      current: z.looseObject({
+        id: z.literal("kst_game_day_0500_v2"),
+        boundary: z.literal("05:00:00+09:00"),
+        acceptsNewWrites: z.literal(true),
+      }),
+      cumulativeIncludes: z.array(StatisticsDateBasisSchema),
+      todayBasis: z.literal("kst_game_day_0500_v2"),
+    }),
+  ),
   summary: z.extend(StatsSummarySchema, {
     todayEvents: z.number(),
     todayAttempts: z.number(),

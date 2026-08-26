@@ -111,8 +111,10 @@ required reviewer for that environment before enabling the workflow.
 Automatic runs compare the current commit with the commit tag from the last automated production
 Worker deployment. They skip deployment when Worker source, shared contracts, Worker config,
 dependencies, and deployment tooling are unchanged. A manual run always deploys.
-If tracked D1 SQL changed, an automatic run stops before deployment; apply the migration to staging
-and production explicitly, then use `workflow_dispatch` to perform the guarded deployment.
+The allowlisted additive `add-game-day-statistics-v9.sql` migration runs in the same guarded flow:
+staging is migrated and schema-checked before its Worker deploy, while production is migrated and
+schema-checked only after `cloudflare-production` approval. Any other tracked D1 SQL change still
+fails closed until its migration file and verification procedure are reviewed and allowlisted.
 
 Before each staging or production deployment, the workflow records the currently active Worker
 version. If the post-deploy smoke test fails, it restores that version at 100% traffic and then
@@ -124,7 +126,7 @@ Configure these GitHub repository settings:
 
 | Type | Name | Value |
 | --- | --- | --- |
-| Secret | `CLOUDFLARE_API_TOKEN` | A scoped token that can deploy this account's Workers |
+| Secret | `CLOUDFLARE_API_TOKEN` | A scoped token that can deploy this account's Workers and read/edit the two statistics D1 databases |
 | Variable | `CLOUDFLARE_ACCOUNT_ID` | The Cloudflare account ID |
 | Variable | `STATS_ALLOWED_ORIGIN` | `https://nikkecollection.com` |
 | Variable | `CLOUDFLARE_STAGING_WORKER_URL` | The public staging Worker URL |
@@ -132,12 +134,13 @@ Configure these GitHub repository settings:
 
 The workflow does not upload Turnstile, rate-limit, or admin secret values. Wrangler preserves
 secrets already stored on each Worker. A manual `workflow_dispatch` follows the same staging,
-smoke, approval, and production sequence. D1 migrations remain separate operations and are never
-run implicitly by this workflow.
+schema check, smoke, approval, and production sequence. The v9 migration is additive and may be
+retried safely; a Worker rollback does not remove its new tables or rewrite historical aggregates.
 
 The deployment token should be limited to this account's Worker deployment and version-management
-operations. The CI workflow deliberately does not require direct D1 API access: deployed schema
-compatibility is checked through the Worker's bound database at `/api/health`.
+operations plus read/edit access to `collection-kit-stats` and `collection-kit-stats-staging`.
+Remote schema compatibility is checked directly before deployment and again through the deployed
+Worker's bound database at `/api/health`.
 
 ## Abuse controls
 
@@ -202,12 +205,16 @@ Stores one validated result event.
 
 `GET /api/stats`
 
-Returns all-time aggregate statistics for display on the site. This public response is cacheable for 60 seconds.
+Returns all-time aggregate statistics for display on the site. Cumulative values combine the frozen
+`kst_calendar_date_v1` tables with current `kst_game_day_0500_v2` tables. `today` and the three
+`today*` counters use only the current game-day tables, whose date changes at 05:00 KST. The
+`dateContract` response field identifies both bases and states which one still accepts writes. This
+public response is cacheable for 60 seconds.
 
 `GET /api/health`
 
 Checks every D1 column and composite primary-key order required by the deployed Worker's inserts and
-upserts. It returns `schemaContractVersion: 4` on success and fails closed with
+upserts. It returns `schemaContractVersion: 5` on success and fails closed with
 `503 database_schema_not_ready` when the Worker code and bound database are incompatible. This
 endpoint validates the current write contract, not column types, constraints, secondary indexes, or
 the complete historical migration ledger.
@@ -221,6 +228,8 @@ rows deliberately store IDs rather than three duplicate gain values. Historical 
 and profiles in `shared/supplyForecasts.json` are append-only and must not be edited or removed.
 This endpoint is not used by the public site. When `ADMIN_TOKEN` is configured, it requires an
 `Authorization: Bearer <ADMIN_TOKEN>` header; without the secret, the endpoint returns 404.
+Every aggregate row returned by this endpoint includes `dateBasis`; legacy and current rows are not
+silently merged. `sinceByDateBasis` records the calendar-date and game-day window cutoffs separately.
 Optional query parameter: `days=30` (1-365). The response also includes recent
 `nodeCounts` buckets for observing Rust min-E[f] state-space pressure and fallback risk, plus
 `calculationLocales` for the language selected when each calculation started.
@@ -257,6 +266,11 @@ and production schemas. For new schema changes, use an additive SQL file, apply 
 verify `/api/health` and the smoke flow, then apply the same file to production before deploying
 code that requires it. Cloudflare's D1 migration ledger is suitable for a future controlled
 baseline, but adopting it requires a separate bootstrap procedure for the existing databases.
+
+`add-game-day-statistics-v9.sql` is intentionally additive. Existing aggregate tables retain all
+pre-v9 KST calendar-date rows and receive no new writes from v9 code. Parallel `*_game_day` tables
+receive only 05:00 KST game-day rows. Do not copy old rows into the new tables: historical aggregate
+rows do not contain enough event timestamps to reconstruct the 05:00 boundary exactly.
 
 ```powershell
 wrangler d1 execute collection-kit-stats --remote --file cloudflare/schema.sql --config cloudflare/wrangler.toml
@@ -349,13 +363,13 @@ confirmed result events rather than visits, and `source_host` describes the docu
 than the current application origin. Check them privately through D1, for example:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, source_host, events FROM referrer_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, source_host, events FROM referrer_aggregates_game_day ORDER BY date_key DESC, events DESC LIMIT 50"
 ```
 
 Client environment aggregates are also private. Check them through D1:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, browser, browser_major, os, os_major, device_type, events FROM client_env_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, browser, browser_major, os, os_major, device_type, events FROM client_env_aggregates_game_day ORDER BY date_key DESC, events DESC LIMIT 50"
 ```
 
 Solver diagnostic aggregates are private and bucketed. They are intended for deciding whether the supply strategy needs a Phase 2 refinement.
@@ -368,49 +382,49 @@ contract change is required, introduce a separately reviewed v7 aggregate layout
 dimensions and preserves historical v1-v6 rows.
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, forecast_id, solver_version, solver_phase, grade, level, strategy, probability_gap_bucket, resource_cost_bucket, legacy_supply_cost_bucket, blue_share_bucket, min_autonomy_days_bucket, events FROM solver_diagnostic_aggregates ORDER BY date_key DESC, events DESC LIMIT 50"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT date_key, forecast_id, solver_version, solver_phase, grade, level, strategy, probability_gap_bucket, resource_cost_bucket, legacy_supply_cost_bucket, blue_share_bucket, min_autonomy_days_bucket, events FROM solver_diagnostic_aggregates_game_day ORDER BY date_key DESC, events DESC LIMIT 50"
 ```
 
 Current real-service solver event counts:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT forecast_id, solver_version, solver_phase, SUM(events) AS events FROM solver_diagnostic_aggregates GROUP BY forecast_id, solver_version, solver_phase ORDER BY events DESC"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "SELECT forecast_id, solver_version, solver_phase, SUM(events) AS events FROM solver_diagnostic_aggregates_game_day GROUP BY forecast_id, solver_version, solver_phase ORDER BY events DESC"
 ```
 
 Rust min-E[f] fallback rate and reason buckets:
 
 ```powershell
-npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS attempted_backend, SUM(events) AS attempts, SUM(CASE WHEN fallback_reason != 'none' THEN events ELSE 0 END) AS fallback_events, 1.0 * SUM(CASE WHEN fallback_reason != 'none' THEN events ELSE 0 END) / SUM(events) AS fallback_rate FROM solver_runtime_aggregates WHERE diagnostic_version >= 6 GROUP BY attempted_backend ORDER BY attempts DESC"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS attempted_backend, SUM(events) AS attempts, SUM(CASE WHEN fallback_reason != 'none' THEN events ELSE 0 END) AS fallback_events, 1.0 * SUM(CASE WHEN fallback_reason != 'none' THEN events ELSE 0 END) / SUM(events) AS fallback_rate FROM solver_runtime_aggregates_game_day WHERE diagnostic_version >= 6 GROUP BY attempted_backend ORDER BY attempts DESC"
 ```
 
 Rust min-E[f] fallback contexts for future kernel tuning:
 
 ```powershell
-npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, attempted_node_count_bucket, fallback_reason, SUM(events) AS events FROM solver_runtime_aggregates WHERE diagnostic_version >= 6 AND fallback_reason != 'none' GROUP BY grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, attempted_node_count_bucket, fallback_reason ORDER BY events DESC LIMIT 50"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, attempted_node_count_bucket, fallback_reason, SUM(events) AS events FROM solver_runtime_aggregates_game_day WHERE diagnostic_version >= 6 AND fallback_reason != 'none' GROUP BY grade, level, exp_bucket, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, attempted_node_count_bucket, fallback_reason ORDER BY events DESC LIMIT 50"
 ```
 
 Node-count bucket pressure:
 
 ```powershell
-npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS attempted_backend, attempted_node_count_bucket, SUM(events) AS events FROM solver_runtime_aggregates WHERE diagnostic_version >= 6 GROUP BY attempted_backend, attempted_node_count_bucket ORDER BY attempted_backend, events DESC"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT CASE WHEN fallback_from != 'none' THEN fallback_from ELSE solver_backend END AS attempted_backend, attempted_node_count_bucket, SUM(events) AS events FROM solver_runtime_aggregates_game_day WHERE diagnostic_version >= 6 GROUP BY attempted_backend, attempted_node_count_bucket ORDER BY attempted_backend, events DESC"
 ```
 
 Approximate solve latency distribution by bucket:
 
 ```powershell
-npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT solver_backend, solve_ms_bucket, SUM(events) AS events FROM solver_runtime_aggregates WHERE diagnostic_version >= 6 GROUP BY solver_backend, solve_ms_bucket ORDER BY solver_backend ASC, events DESC"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT solver_backend, solve_ms_bucket, SUM(events) AS events FROM solver_runtime_aggregates_game_day WHERE diagnostic_version >= 6 GROUP BY solver_backend, solve_ms_bucket ORDER BY solver_backend ASC, events DESC"
 ```
 
 Observed solve-cache execution and hit counts (diagnostic v6 and later):
 
 ```powershell
-npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT diagnostic_version, requested_backend, terminal_backend, execution_kind, SUM(events) AS events FROM solver_cache_aggregates WHERE diagnostic_version >= 6 GROUP BY diagnostic_version, requested_backend, terminal_backend, execution_kind ORDER BY diagnostic_version, requested_backend, execution_kind"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT diagnostic_version, requested_backend, terminal_backend, execution_kind, SUM(events) AS events FROM solver_cache_aggregates_game_day WHERE diagnostic_version >= 6 GROUP BY diagnostic_version, requested_backend, terminal_backend, execution_kind ORDER BY diagnostic_version, requested_backend, execution_kind"
 ```
 
 Calculation-time language selection, split by actual execution and cache hits:
 
 ```powershell
-npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT locale, requested_backend, terminal_backend, execution_kind, SUM(events) AS events FROM calculation_locale_aggregates GROUP BY locale, requested_backend, terminal_backend, execution_kind ORDER BY events DESC"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT locale, requested_backend, terminal_backend, execution_kind, SUM(events) AS events FROM calculation_locale_aggregates_game_day GROUP BY locale, requested_backend, terminal_backend, execution_kind ORDER BY events DESC"
 ```
 
 Recovery rung and terminal counts are independent operational aggregates. Do not divide one table
@@ -419,15 +433,15 @@ which observations reach D1. The data also cannot observe work lost when the pag
 event is queued.
 
 ```powershell
-npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT policy_version, requested_backend, rung_backend, rung_exit, device_type, SUM(events) AS events FROM solver_recovery_rung_aggregates GROUP BY policy_version, requested_backend, rung_backend, rung_exit, device_type ORDER BY events DESC"
-npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT policy_version, requested_backend, terminal_backend, terminal_outcome, SUM(events) AS events FROM solver_recovery_terminal_aggregates GROUP BY policy_version, requested_backend, terminal_backend, terminal_outcome ORDER BY events DESC"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT policy_version, requested_backend, rung_backend, rung_exit, device_type, SUM(events) AS events FROM solver_recovery_rung_aggregates_game_day GROUP BY policy_version, requested_backend, rung_backend, rung_exit, device_type ORDER BY events DESC"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT policy_version, requested_backend, terminal_backend, terminal_outcome, SUM(events) AS events FROM solver_recovery_terminal_aggregates_game_day GROUP BY policy_version, requested_backend, terminal_backend, terminal_outcome ORDER BY events DESC"
 ```
 
 Runtime invariant diagnostics contain only enumerated codes, component/lane dimensions, device
 type, and counts. Raw errors, inputs, stock, and timings are not stored.
 
 ```powershell
-npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT invariant_version, invariant_code, component, lane, device_type, SUM(events) AS events FROM runtime_invariant_aggregates GROUP BY invariant_version, invariant_code, component, lane, device_type ORDER BY events DESC"
+npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT invariant_version, invariant_code, component, lane, device_type, SUM(events) AS events FROM runtime_invariant_aggregates_game_day GROUP BY invariant_version, invariant_code, component, lane, device_type ORDER BY events DESC"
 ```
 
 Or query the protected admin endpoint:
@@ -436,12 +450,12 @@ Or query the protected admin endpoint:
 Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:ADMIN_TOKEN" } "https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev/api/admin/solver-diagnostics?days=30"
 ```
 
-To delete private aggregate rows for a specific KST date:
+To delete current private aggregate rows for a specific 05:00 KST game date:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "DELETE FROM referrer_aggregates WHERE date_key = '2026-05-18'"
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "DELETE FROM client_env_aggregates WHERE date_key = '2026-05-18'"
-wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "DELETE FROM solver_diagnostic_aggregates WHERE date_key = '2026-05-18'"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "DELETE FROM referrer_aggregates_game_day WHERE date_key = '2026-05-18'"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "DELETE FROM client_env_aggregates_game_day WHERE date_key = '2026-05-18'"
+wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --command "DELETE FROM solver_diagnostic_aggregates_game_day WHERE date_key = '2026-05-18'"
 ```
 
 ## Staging submission verification

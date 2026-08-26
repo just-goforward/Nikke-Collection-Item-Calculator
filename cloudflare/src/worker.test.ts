@@ -43,7 +43,7 @@ describe("kit_result event commit", () => {
     expect(await response.json()).toEqual({ error: "rate_limit_not_configured" });
     await expect(countRows("rate_limits")).resolves.toBe(0);
     await expect(countRows("event_ids")).resolves.toBe(0);
-    await expect(countRows("event_aggregates")).resolves.toBe(0);
+    await expect(countRows("event_aggregates_game_day")).resolves.toBe(0);
   });
 
   it("writes one id and all public/private aggregates for a valid result", async () => {
@@ -52,9 +52,12 @@ describe("kit_result event commit", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
     await expect(countRows("event_ids")).resolves.toBe(1);
-    await expect(countRows("event_aggregates")).resolves.toBe(1);
-    await expect(countRows("referrer_aggregates")).resolves.toBe(1);
-    await expect(countRows("client_env_aggregates")).resolves.toBe(1);
+    await expect(countRows("event_aggregates_game_day")).resolves.toBe(1);
+    await expect(countRows("referrer_aggregates_game_day")).resolves.toBe(1);
+    await expect(countRows("client_env_aggregates_game_day")).resolves.toBe(1);
+    await expect(countRows("event_aggregates")).resolves.toBe(0);
+    await expect(countRows("referrer_aggregates")).resolves.toBe(0);
+    await expect(countRows("client_env_aggregates")).resolves.toBe(0);
   });
 
   it("rate-limits repeated accepted submissions before writing the limited event", async () => {
@@ -85,33 +88,33 @@ describe("kit_result event commit", () => {
 
     expect(await duplicate.json()).toEqual({ ok: true, duplicate: true });
     const aggregate = await harness.database
-      .prepare("SELECT events, attempts FROM event_aggregates LIMIT 1")
+      .prepare("SELECT events, attempts FROM event_aggregates_game_day LIMIT 1")
       .first<{ events: number; attempts: number }>();
     expect(aggregate).toMatchObject({ events: 1, attempts: 1 });
     await expect(countRows("event_ids")).resolves.toBe(1);
-    await expect(countRows("referrer_aggregates")).resolves.toBe(1);
-    await expect(countRows("client_env_aggregates")).resolves.toBe(1);
+    await expect(countRows("referrer_aggregates_game_day")).resolves.toBe(1);
+    await expect(countRows("client_env_aggregates_game_day")).resolves.toBe(1);
   });
 
   it("rolls back the event id when an aggregate write fails and accepts a retry", async () => {
     const payload = kitResultEvent("kit-result-retry-000001");
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     await harness.database.exec(
-      "CREATE TRIGGER fail_event_aggregate BEFORE INSERT ON event_aggregates BEGIN SELECT RAISE(ABORT, 'forced kit failure'); END;",
+      "CREATE TRIGGER fail_event_aggregate BEFORE INSERT ON event_aggregates_game_day BEGIN SELECT RAISE(ABORT, 'forced kit failure'); END;",
     );
 
     const failed = await submit(payload);
     expect(failed.status).toBe(503);
     expect(await failed.json()).toEqual({ error: "storage_unavailable", retryable: true });
     await expect(countRows("event_ids")).resolves.toBe(0);
-    await expect(countRows("event_aggregates")).resolves.toBe(0);
+    await expect(countRows("event_aggregates_game_day")).resolves.toBe(0);
     await harness.database.exec("DROP TRIGGER fail_event_aggregate;");
 
     const retried = await submit(payload);
 
     expect(await retried.json()).toEqual({ ok: true });
     await expect(countRows("event_ids")).resolves.toBe(1);
-    await expect(countRows("event_aggregates")).resolves.toBe(1);
+    await expect(countRows("event_aggregates_game_day")).resolves.toBe(1);
   });
 });
 
@@ -120,7 +123,7 @@ describe("D1 schema health", () => {
     const response = await fetchHealth();
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, schemaContractVersion: 4 });
+    await expect(response.json()).resolves.toEqual({ ok: true, schemaContractVersion: 5 });
   });
 
   it("fails closed when a required aggregate table is unavailable", async () => {
@@ -276,13 +279,13 @@ describe("solver_diagnostic event commit", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
     await expect(countRows("event_ids")).resolves.toBe(1);
-    await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(1);
-    await expect(countRows("solver_runtime_aggregates")).resolves.toBe(1);
-    await expect(countRows("solver_cache_aggregates")).resolves.toBe(1);
+    await expect(countRows("solver_diagnostic_aggregates_game_day")).resolves.toBe(1);
+    await expect(countRows("solver_runtime_aggregates_game_day")).resolves.toBe(1);
+    await expect(countRows("solver_cache_aggregates_game_day")).resolves.toBe(1);
     const runtime = await harness.database
       .prepare(
         `SELECT forecast_id, memory_strategy, min_ef_memo_tier, phase2_memo_tier, phase2_memo_retried
-         FROM solver_runtime_aggregates
+         FROM solver_runtime_aggregates_game_day
          LIMIT 1`,
       )
       .first<{
@@ -310,14 +313,14 @@ describe("solver_diagnostic event commit", () => {
     expect((await submit(cacheHit)).status).toBe(200);
 
     const usage = await harness.database
-      .prepare("SELECT SUM(events) AS events FROM solver_diagnostic_aggregates")
+      .prepare("SELECT SUM(events) AS events FROM solver_diagnostic_aggregates_game_day")
       .first<{ events: number }>();
     const runtime = await harness.database
-      .prepare("SELECT SUM(events) AS events FROM solver_runtime_aggregates")
+      .prepare("SELECT SUM(events) AS events FROM solver_runtime_aggregates_game_day")
       .first<{ events: number }>();
     const cache = await harness.database
       .prepare(
-        "SELECT execution_kind, SUM(events) AS events FROM solver_cache_aggregates GROUP BY execution_kind ORDER BY execution_kind",
+        "SELECT execution_kind, SUM(events) AS events FROM solver_cache_aggregates_game_day GROUP BY execution_kind ORDER BY execution_kind",
       )
       .all<{ execution_kind: string; events: number }>();
 
@@ -340,7 +343,7 @@ describe("solver_diagnostic event commit", () => {
 
     const cache = await harness.database
       .prepare(
-        "SELECT requested_backend, terminal_backend, execution_kind FROM solver_cache_aggregates LIMIT 1",
+        "SELECT requested_backend, terminal_backend, execution_kind FROM solver_cache_aggregates_game_day LIMIT 1",
       )
       .first<{
         requested_backend: string;
@@ -369,7 +372,7 @@ describe("solver_diagnostic event commit", () => {
     const aggregate = await harness.database
       .prepare(
         `SELECT diagnostic_version, stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow
-         FROM solver_diagnostic_aggregates
+         FROM solver_diagnostic_aggregates_game_day
          LIMIT 1`,
       )
       .first<{
@@ -394,34 +397,34 @@ describe("solver_diagnostic event commit", () => {
 
     expect(await duplicate.json()).toEqual({ ok: true, duplicate: true });
     const aggregate = await harness.database
-      .prepare("SELECT events FROM solver_diagnostic_aggregates LIMIT 1")
+      .prepare("SELECT events FROM solver_diagnostic_aggregates_game_day LIMIT 1")
       .first<{ events: number }>();
     expect(aggregate).toMatchObject({ events: 1 });
     await expect(countRows("event_ids")).resolves.toBe(1);
-    await expect(countRows("solver_runtime_aggregates")).resolves.toBe(1);
+    await expect(countRows("solver_runtime_aggregates_game_day")).resolves.toBe(1);
   });
 
   it("rolls back the event id when a diagnostic write fails and accepts a retry", async () => {
     const payload = solverDiagnosticEvent("solver-diag-retry-0001");
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     await harness.database.exec(
-      "CREATE TRIGGER fail_solver_diagnostic BEFORE INSERT ON solver_diagnostic_aggregates BEGIN SELECT RAISE(ABORT, 'forced diagnostic failure'); END;",
+      "CREATE TRIGGER fail_solver_diagnostic BEFORE INSERT ON solver_diagnostic_aggregates_game_day BEGIN SELECT RAISE(ABORT, 'forced diagnostic failure'); END;",
     );
 
     const failed = await submit(payload);
     expect(failed.status).toBe(503);
     expect(await failed.json()).toEqual({ error: "storage_unavailable", retryable: true });
     await expect(countRows("event_ids")).resolves.toBe(0);
-    await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(0);
-    await expect(countRows("solver_runtime_aggregates")).resolves.toBe(0);
+    await expect(countRows("solver_diagnostic_aggregates_game_day")).resolves.toBe(0);
+    await expect(countRows("solver_runtime_aggregates_game_day")).resolves.toBe(0);
     await harness.database.exec("DROP TRIGGER fail_solver_diagnostic;");
 
     const retried = await submit(payload);
 
     expect(await retried.json()).toEqual({ ok: true });
     await expect(countRows("event_ids")).resolves.toBe(1);
-    await expect(countRows("solver_diagnostic_aggregates")).resolves.toBe(1);
-    await expect(countRows("solver_runtime_aggregates")).resolves.toBe(1);
+    await expect(countRows("solver_diagnostic_aggregates_game_day")).resolves.toBe(1);
+    await expect(countRows("solver_runtime_aggregates_game_day")).resolves.toBe(1);
   });
 });
 
@@ -431,13 +434,13 @@ describe("solver_recovery event commit", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
-    await expect(countRows("solver_recovery_rung_aggregates")).resolves.toBe(2);
-    await expect(countRows("solver_recovery_terminal_aggregates")).resolves.toBe(1);
+    await expect(countRows("solver_recovery_rung_aggregates_game_day")).resolves.toBe(2);
+    await expect(countRows("solver_recovery_terminal_aggregates_game_day")).resolves.toBe(1);
     const terminal = await harness.database
       .prepare(
         `SELECT forecast_id, policy_version, requested_backend, min_ef_exit, phase2_exit,
                 terminal_backend, terminal_outcome, device_type
-         FROM solver_recovery_terminal_aggregates`,
+         FROM solver_recovery_terminal_aggregates_game_day`,
       )
       .first<{
         forecast_id: string;

@@ -120,15 +120,36 @@ jobs:
             exit 0
           fi
 
-          if ! git diff --quiet "$base_sha" "$DEPLOY_SHA" -- \
-            'cloudflare/*.sql' \
-            ':(exclude)cloudflare/reset-staging.sql'; then
-            echo "D1 SQL changed. Apply migrations explicitly, then use workflow_dispatch." >&2
-            exit 1
+          mapfile -t changed_sql < <(
+            git diff --name-only "$base_sha" "$DEPLOY_SHA" -- \
+              'cloudflare/*.sql' \
+              ':(exclude)cloudflare/reset-staging.sql'
+          )
+          if (( ${#changed_sql[@]} > 0 )); then
+            game_day_v9_changed=false
+            for path in "${changed_sql[@]}"; do
+              case "$path" in
+                cloudflare/add-game-day-statistics-v9.sql)
+                  game_day_v9_changed=true
+                  ;;
+                cloudflare/schema.sql)
+                  ;;
+                *)
+                  echo "Unsupported automatic D1 migration file: $path" >&2
+                  exit 1
+                  ;;
+              esac
+            done
+            if [[ "$game_day_v9_changed" != "true" ]]; then
+              echo "D1 SQL changed without the allowlisted game-day statistics v9 migration." >&2
+              exit 1
+            fi
           fi
 
           if git diff --quiet "$base_sha" "$DEPLOY_SHA" -- \
             cloudflare/src \
+            'cloudflare/*.sql' \
+            ':(exclude)cloudflare/reset-staging.sql' \
             cloudflare/tsconfig.json \
             cloudflare/worker-configuration.d.ts \
             cloudflare/wrangler.toml \
@@ -154,6 +175,27 @@ jobs:
       - name: Test Worker D1 integration
         if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
         run: npm run test:worker
+
+      - name: Ensure staging D1 schema
+        if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if npm run check:d1-schema -- collection-kit-stats-staging staging; then
+            echo "Staging D1 schema already satisfies the current contract."
+          else
+            echo "Applying additive game-day statistics migration to staging D1."
+            npx wrangler d1 execute collection-kit-stats-staging \
+              --remote \
+              --env staging \
+              --config cloudflare/wrangler.toml \
+              --file cloudflare/add-game-day-statistics-v9.sql \
+              --yes
+            npm run check:d1-schema -- collection-kit-stats-staging staging
+          fi
 
       - name: Validate staging bundle
         if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
@@ -275,6 +317,26 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Ensure production D1 schema
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if npm run check:d1-schema -- collection-kit-stats; then
+            echo "Production D1 schema already satisfies the current contract."
+          else
+            echo "Applying additive game-day statistics migration to production D1."
+            npx wrangler d1 execute collection-kit-stats \
+              --remote \
+              --env="" \
+              --config cloudflare/wrangler.toml \
+              --file cloudflare/add-game-day-statistics-v9.sql \
+              --yes
+            npm run check:d1-schema -- collection-kit-stats
+          fi
 
       - name: Validate production bundle
         run: npx wrangler deploy --dry-run --env="" --config cloudflare/wrangler.toml
