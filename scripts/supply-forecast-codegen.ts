@@ -153,12 +153,6 @@ function validateProfileSequence(forecastId: string, profiles: readonly Profile[
     if (!next && current.effectiveUntil !== null) {
       throw new Error(`${forecastId} final profile must be open-ended.`);
     }
-    if (!next) continue;
-    for (const kit of ["blue", "purple", "yellow"] as const) {
-      if (next.expectedGain[kit] > current.expectedGain[kit]) {
-        throw new Error(`${forecastId} profiles must be component-wise non-increasing.`);
-      }
-    }
   }
 }
 

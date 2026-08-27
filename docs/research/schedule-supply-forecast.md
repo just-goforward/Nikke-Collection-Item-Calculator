@@ -11,11 +11,28 @@
 
 ## Model boundary
 
-The game day changes at 05:00 KST. Rewards for the current game day are assumed to have already been
-claimed and opened, so a profile contains only future gains from the next 05:00 boundary through
-the boundary after Solo Raid day 3. Dispatch combines the no-reroll, one-reroll, and two-reroll
-cohorts equally, yielding `8.947399682 / 2.014546824 / 0.714208160` blue/purple/yellow per day.
-Future Tuesday resets add five Kit Box II rewards, or ten during an official collaboration period.
+The game day changes at 05:00 KST. A profile's `expectedGain` is a Solo-day-3-pivoted supply
+reference, not necessarily unclaimed future inventory.
+The previous game-day profile remains active through 04:59:59; the next profile and any weekly
+reset take effect exactly at 05:00:00.
+
+- On Solo days 1 and 2, users are assumed not to have spent kits yet. The reference accumulates
+  expected supply from the previous Solo day 3 through the current Solo day, inclusive.
+- From Solo day 3 through the end of that round, it includes the current game day through the
+  current round's end plus the next round's days 1 and 2.
+- Between rounds, it includes the current game day through the next round's day 2.
+
+Profiles can therefore increase from day 1 to day 2, switch reference windows on day 3, and then
+decline. Global monotonic decrease is not an invariant. Dispatch combines the no-reroll,
+one-reroll, and two-reroll cohorts equally, yielding
+`8.947399682 / 2.014546824 / 0.714208160` blue/purple/yellow per game day. Co-op shop supply is
+fixed at five Kit Box II rewards for every Tuesday 05:00 inside the reference window, independent
+of individual Co-op Operation dates. Once an official collaboration schedule is published, only
+Tuesday resets inside that confirmed period are doubled to ten. An unpublished, estimated, or
+ambiguous collaboration period does not enable the multiplier.
+
+These rules are versioned as `schedule-kit-v2`; results are not merged with the old
+`schedule-kit-v1` future-only model.
 
 Naver Lounge boards 56 and 48 are the primary automatic evidence. The Free Worker Cron stores only
 shallow feed metadata every three minutes. A five-minute GitHub Actions job fetches structured

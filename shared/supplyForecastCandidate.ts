@@ -10,11 +10,22 @@ const offsetTimestampSchema = z
   .string()
   .check(z.regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/));
 
+const periodSchema = z.object({
+  effectiveFrom: offsetTimestampSchema,
+  effectiveUntil: offsetTimestampSchema,
+});
+
+const scheduledPeriodSchema = z.object({
+  effectiveFrom: offsetTimestampSchema,
+  effectiveUntil: offsetTimestampSchema,
+  scheduleStatus: z.enum(["confirmed", "estimated"]),
+});
+
 export const supplyForecastCandidateSchema = z.object({
-  payloadVersion: z.literal(2),
+  payloadVersion: z.literal(3),
   candidateId: z.string().check(z.regex(/^forecast-[a-z0-9-]{8,120}$/)),
   forecastId: z.string().check(z.regex(/^supply-\d{4}-\d{2}-\d{2}-v\d+$/)),
-  rulesVersion: z.literal("schedule-kit-v1"),
+  rulesVersion: z.literal("schedule-kit-v2"),
   dispatchPolicyId: z.literal("dispatch-policy-v1"),
   generatedAt: offsetTimestampSchema,
   sourceStatus: z.enum(["crosschecked", "x_unavailable", "conflict"]),
@@ -23,12 +34,8 @@ export const supplyForecastCandidateSchema = z.object({
     cadenceDays: z.nullable(z.number().check(z.minimum(21), z.maximum(35))),
     soloStart: offsetTimestampSchema,
     soloEnd: offsetTimestampSchema,
-    collaborationPeriods: z.array(
-      z.object({
-        effectiveFrom: offsetTimestampSchema,
-        effectiveUntil: offsetTimestampSchema,
-      }),
-    ),
+    soloPeriods: z.array(scheduledPeriodSchema).check(z.minLength(3), z.maxLength(12)),
+    collaborationPeriods: z.array(periodSchema).check(z.maxLength(20)),
   }),
   sourceEvidence: z
     .array(
@@ -41,7 +48,7 @@ export const supplyForecastCandidateSchema = z.object({
         contentHash: z.string().check(z.regex(/^[a-f0-9]{64}$/)),
       }),
     )
-    .check(z.minLength(1), z.maxLength(20)),
+    .check(z.minLength(1), z.maxLength(40)),
   profiles: z
     .array(
       z.object({
@@ -77,9 +84,42 @@ export function assertForecastCandidateInvariants(candidate: SupplyForecastCandi
   ) {
     throw new Error("Solo Raid cadence must be a whole number of game days.");
   }
+  assertPeriods(candidate.schedule.soloPeriods, "Solo Raid", true);
+  assertPeriods(candidate.schedule.collaborationPeriods, "Collaboration", false);
+  if (
+    !candidate.schedule.soloPeriods.some(
+      (period) =>
+        Date.parse(period.effectiveFrom) === soloStart &&
+        Date.parse(period.effectiveUntil) === soloEnd,
+    )
+  ) {
+    throw new Error("Primary Solo Raid schedule is missing from its period ledger.");
+  }
 
   assertSourceEvidence(candidate.sourceEvidence);
   assertProfileSequence(candidate);
+}
+
+function assertPeriods(
+  periods: readonly { effectiveFrom: string; effectiveUntil: string }[],
+  label: string,
+  requireOrdered: boolean,
+) {
+  const identities = new Set<string>();
+  for (let index = 0; index < periods.length; index += 1) {
+    const period = periods[index];
+    if (!period) continue;
+    const start = Date.parse(period.effectiveFrom);
+    const end = Date.parse(period.effectiveUntil);
+    if (!(end > start)) throw new Error(`${label} period is inverted.`);
+    const identity = `${period.effectiveFrom}|${period.effectiveUntil}`;
+    if (identities.has(identity)) throw new Error(`${label} period is duplicated.`);
+    identities.add(identity);
+    const previous = periods[index - 1];
+    if (requireOrdered && previous && start < Date.parse(previous.effectiveUntil)) {
+      throw new Error(`${label} periods must be ordered and non-overlapping.`);
+    }
+  }
 }
 
 function assertSourceEvidence(sourceEvidence: SupplyForecastCandidate["sourceEvidence"]) {
@@ -105,10 +145,9 @@ function assertProfileSequence(candidate: SupplyForecastCandidate) {
     if (!next && current.effectiveUntil !== null) {
       throw new Error("Final forecast profile must be open-ended.");
     }
-    if (!next) continue;
     for (const kit of ["blue", "purple", "yellow"] as const) {
-      if (next.expectedGain[kit] > current.expectedGain[kit] + 1e-9) {
-        throw new Error(`Forecast gain increases at ${next.id}.`);
+      if (!Number.isFinite(current.expectedGain[kit]) || current.expectedGain[kit] < 0) {
+        throw new Error(`Forecast gain is invalid at ${current.id}.`);
       }
     }
   }

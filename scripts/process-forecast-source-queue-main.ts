@@ -51,7 +51,7 @@ if (
   if (resolved) {
     const envelope = await buildForecastCandidate(
       resolved,
-      combinedEvents.filter((event) => event.eventType === "collaboration"),
+      combinedEvents,
       { status: "x_unavailable", sourceItem: null, reason: "github_actions_advisory_pending" },
       Date.now(),
       ledger.nextRevision,

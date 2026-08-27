@@ -90,7 +90,7 @@ export const enMessages = {
   "stock.adjustedMax":
     "Maintenance Kit inventory is limited to {max}, so the value was adjusted to {value}.",
   "solver.strategySupply":
-    "Balances the chance of reaching SR Phase 15 against current inventory and future Maintenance Kit supply.",
+    "Balances the chance of reaching SR Phase 15 against current inventory and the schedule-based Maintenance Kit supply reference.",
   "kit.blue": "Beginner Maintenance Kit",
   "kit.purple": "Intermediate Maintenance Kit",
   "kit.yellow": "Elite Maintenance Kit",

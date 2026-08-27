@@ -95,11 +95,13 @@ function renderProposal(
     `- X advisory: \`${xAdvisory.status}\` (\`${xAdvisory.reason}\`)\n` +
     `- X advisory source: \`${xAdvisory.source ?? "none"}\`\n` +
     `- Schedule: \`${candidate.schedule.soloStart}\` - \`${candidate.schedule.soloEnd}\` (\`${candidate.schedule.status}\`)\n` +
+    `- Solo periods: \`${candidate.schedule.soloPeriods.length}\` (confirmed/estimated ledger)\n` +
+    `- Confirmed collaboration periods: \`${candidate.schedule.collaborationPeriods.length}\`\n` +
     `- New-round cadence: \`${candidate.schedule.cadenceDays ?? "not derivable"}\` day(s)\n` +
     `- Rules: \`${candidate.rulesVersion}\`, \`${candidate.dispatchPolicyId}\`\n` +
     `- Active first-profile gain: \`${formatGain(activeGain)}\`\n` +
     `- Candidate first-profile gain: \`${formatGain(candidateGain)}\`\n\n` +
-    `${xChecklist}\n- [ ] 일정, 05:00 KST 경계, 솔로 레이드 day-3 cutoff를 확인했습니다.\n- [ ] gain profile이 시간에 따라 비증가함을 확인했습니다.\n\n` +
+    `${xChecklist}\n- [ ] 일정, 05:00 KST 경계, 솔로 레이드 3일차 기준 구간 전환을 확인했습니다.\n- [ ] 1·2일차 누적 구간과 3일차 이후 전방 구간의 gain을 확인했습니다.\n- [ ] 매주 화요일 05:00의 기본 상자 II 5개와, 공개된 콜라보 기간 안 화요일의 10개 배율을 확인했습니다.\n\n` +
     `### Sources\n\n${evidence}\n\n` +
     `### Profiles\n\n| Profile | From | Until | Status | Blue | Purple | Yellow |\n|---|---|---|---|---:|---:|---:|\n${profileRows}\n\n` +
     `### Warnings\n\n${candidate.warnings.map((warning) => `- ${warning}`).join("\n") || "- None"}\n`

@@ -85,7 +85,7 @@ export const jaMessages = {
   "stock.invalid": "負の数と小数は入力できないため、以前の値に戻しました。",
   "stock.adjustedMax": "所持キットは最大{max}個までのため、{value}に調整しました。",
   "solver.strategySupply":
-    "SR 15段階への到達率と、キットの所持数・今後の入手量を考慮して最適な選択肢を提示します。",
+    "SR 15段階への到達率と、キットの所持数・スケジュール基準の入手量を考慮して最適な選択肢を提示します。",
   "kit.blue": "初心者用お手入れキット",
   "kit.purple": "中級者用お手入れキット",
   "kit.yellow": "上級者用お手入れキット",

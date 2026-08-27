@@ -23,8 +23,12 @@ function availabilityCostScoreWithParams(
   },
 ) {
   // Supply Phase 1 heuristic:
-  // R_i = current stock pieces_i + horizon * active forecast profile gain_i
+  // R_i = current stock pieces_i + horizon * active forecast profile reference gain_i
   // cost = (sum((expected consumption_i / R_i) ^ p)) ^ (1 / p)
+  //
+  // The schedule profile is a Solo-day-3-pivoted supply reference, not always unclaimed future
+  // inventory. Solo days 1/2 use the accumulated reference window from the previous Solo day 3;
+  // day 3 and later use the current/future window through the next Solo day 2.
   //
   // This is deterministic and stable for each memoized (state, stock), but it is not a proof of
   // global whole-route p-norm optimality. The memoized continuation is parent-independent, so
@@ -36,9 +40,10 @@ function availabilityCostScoreWithParams(
       ? Math.max(0, model.horizonFactor)
       : SUPPLY_AVAILABILITY_PARAMS.horizon;
   const normPower = model.normPower ?? SUPPLY_AVAILABILITY_PARAMS.normPower;
+  const expectedGain = model.expectedGain ?? EXPECTED_28_DAY_GAIN;
 
   const ratios = KIT_ORDER.map((kit) =>
-    availabilityRatio(vector[kit], stockPieces[kit] + horizonFactor * EXPECTED_28_DAY_GAIN[kit]),
+    availabilityRatio(vector[kit], stockPieces[kit] + horizonFactor * expectedGain[kit]),
   );
 
   if (normPower === Number.POSITIVE_INFINITY) return Math.max(...ratios);
@@ -50,8 +55,15 @@ function availabilityCostScoreWithParams(
   return powered ** (1 / normPower);
 }
 
-export function availabilityCostScore(vector: KitVector, stockPieces: KitVector) {
-  return availabilityCostScoreWithParams(vector, stockPieces);
+export function availabilityCostScore(
+  vector: KitVector,
+  stockPieces: KitVector,
+  expectedGain: KitVector = EXPECTED_28_DAY_GAIN,
+) {
+  return availabilityCostScoreWithParams(vector, stockPieces, {
+    kind: "availability-pnorm",
+    expectedGain,
+  });
 }
 
 export function researchCostScore(

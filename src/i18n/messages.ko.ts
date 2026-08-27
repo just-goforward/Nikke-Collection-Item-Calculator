@@ -172,7 +172,7 @@ export const koMessages = {
   "detail.reasonLowerReachHelp": "SR 15 도달 확률이 추천 후보보다 낮아 제외되었습니다.",
   "detail.reasonHigherBurden": "키트 부담 높음",
   "detail.reasonHigherBurdenHelp":
-    "SR 15 도달률 조건은 충족했지만, 보유량과 향후 수급을 반영한 키트 부담이 추천 후보보다 높아 제외되었습니다.",
+    "SR 15 도달률 조건은 충족했지만, 보유량과 일정 기반 수급 기준량을 반영한 키트 부담이 추천 후보보다 높아 제외되었습니다.",
   "detail.reasonMoreConsumption": "예상 소모량 많음",
   "detail.reasonMoreConsumptionHelp":
     "SR 15 도달률과 키트 부담이 비슷하지만, 총 예상 소모량이 추천 후보보다 많아 제외되었습니다.",

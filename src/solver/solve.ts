@@ -1,3 +1,4 @@
+import { resolveActiveSupplyForecastProfile } from "../../shared/generated/supplyForecast";
 import type { KitVector, ProgressCallback, ResearchCostModel } from "./domain";
 import {
   convertState,
@@ -219,7 +220,13 @@ function solveInternal(
 }
 
 function solve(input: RawSolverInput, progress?: ProgressCallback): SolverResult {
-  return solveInternal(input, progress);
+  const profile = resolveActiveSupplyForecastProfile();
+  return solveInternal(input, progress, {
+    researchCostModel: {
+      kind: "availability-pnorm",
+      expectedGain: { ...profile.expectedGain },
+    },
+  });
 }
 
 function solveWithResearchCostModel(

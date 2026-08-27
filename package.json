@@ -131,21 +131,21 @@
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^6.1.0",
     "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.2",
     "fast-check": "^4.9.0",
-    "knip": "^6.32.2",
+    "knip": "^6.32.3",
     "oxc-parser": "^0.147.0",
-    "sharp": "0.35.3",
+    "sharp": "0.35.4",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",
     "vitest": "^4.1.11",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.126.0"
   },
   "dependencies": {
     "react": "^19.2.8",
@@ -161,6 +161,6 @@
     "esbuild@0.28.2": true,
     "sharp@0.35.3": true,
     "workerd@1.20260815.1": true,
-    "workerd@1.20260820.1": true
+    "workerd@1.20260825.1": true
   }
 }

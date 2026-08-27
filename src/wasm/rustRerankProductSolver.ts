@@ -9,6 +9,7 @@ import {
   transition,
 } from "../solver/domain";
 import type { CollectionState, Kit, SolverInput, Stock } from "../types";
+import { activeSupplyForecastContext } from "./rustCoreShared";
 import {
   RUST_PRODUCT_HORIZON_FACTOR,
   RUST_PRODUCT_NORM_POWER,
@@ -47,6 +48,8 @@ export async function solveRustPhase2Rerank(
   if (earlyResult) return earlyResult;
 
   const solver = await getRustPhase2ResearchSolver(wasmUrl);
+  const supplyForecast = activeSupplyForecastContext();
+  solver.setSupplyForecast(supplyForecast);
   const decision = selectAdaptiveRerankDecision(solver, normalizedInput);
   const rerank = decision?.rerank;
   const baselineRoot = rerank?.baseline;
@@ -88,7 +91,11 @@ export async function solveRustPhase2Rerank(
   const totalExpectedKits = totalKits(selected.vector);
   const pressure = pressureScore(selected.vector, normalizedInput.stockUses);
   const legacySupplyCost = legacySupplyCostScore(selected.vector);
-  const availabilityCost = availabilityCostScore(selected.vector, normalizedInput.stock);
+  const availabilityCost = availabilityCostScore(
+    selected.vector,
+    normalizedInput.stock,
+    supplyForecast.expectedGain,
+  );
   const monteCarloRuns = readRustMonteCarloRuns(input);
   const monteCarloSeed = readRustMonteCarloSeed(input);
   const monteCarlo =

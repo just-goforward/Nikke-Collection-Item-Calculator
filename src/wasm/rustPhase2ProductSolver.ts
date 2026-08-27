@@ -31,10 +31,12 @@ import {
   buildRecommendedRun,
 } from "./rustProductView";
 import { isMemoFull } from "./rustStatus";
+import type { SupplyForecastContext } from "./rustTypes";
 
 type RustPhase2SolveOptions = {
   initialMemoTier?: number;
   retryOnMemoFull?: boolean;
+  supplyForecast?: SupplyForecastContext;
 };
 
 export async function solveRustPhase2(
@@ -51,7 +53,7 @@ export async function solveRustPhase2(
   if (earlyResult) return earlyResult;
 
   const solver = await getRustPhase2Solver(wasmUrl);
-  const supplyForecast = activeSupplyForecastContext();
+  const supplyForecast = options.supplyForecast ?? activeSupplyForecastContext();
   solver.setSupplyForecast(supplyForecast);
   const { policy, retried } = buildPolicyWithMemoRetry(solver, normalizedInput, options);
   const root = policy.root;
@@ -63,10 +65,19 @@ export async function solveRustPhase2(
     if (isTerminal(state) || isConvertState(state)) return null;
     return policy.actionAt(state, stockUses);
   };
-  const topCandidates = buildPhase2TopCandidates(normalizedInput, policy.candidates, actionFor);
+  const topCandidates = buildPhase2TopCandidates(
+    normalizedInput,
+    policy.candidates,
+    actionFor,
+    supplyForecast.expectedGain,
+  );
   const run = buildRecommendedRun(normalizedInput, actionFor);
   const route = buildFailureRoute(normalizedInput, actionFor);
-  const availabilityCost = availabilityCostScore(root.vector, normalizedInput.stock);
+  const availabilityCost = availabilityCostScore(
+    root.vector,
+    normalizedInput.stock,
+    supplyForecast.expectedGain,
+  );
   const monteCarloRuns = readRustMonteCarloRuns(input);
   const monteCarloSeed = readRustMonteCarloSeed(input);
   const monteCarlo =
@@ -95,6 +106,7 @@ export async function solveRustPhase2(
     route,
     monteCarlo,
     topCandidates,
+    expectedGain: supplyForecast.expectedGain,
     statsExtras: {
       memoryStrategy: RUST_MEMORY_STRATEGY,
       forecastId: supplyForecast.forecastId,

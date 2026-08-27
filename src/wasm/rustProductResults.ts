@@ -8,7 +8,7 @@ import {
   totalKits,
   transition,
 } from "../solver/domain";
-import type { Kit } from "../types";
+import type { Kit, Stock } from "../types";
 import type { RustProductInput } from "./rustProductInput";
 import type { RustMonteCarloResult } from "./rustTypes";
 
@@ -31,6 +31,7 @@ type RustRootResultArgs = {
   route: unknown;
   monteCarlo: RustMonteCarloResult;
   topCandidates: unknown[];
+  expectedGain: Stock;
   statsExtras?: Record<string, unknown>;
 };
 
@@ -102,7 +103,11 @@ export function buildRustRootResult(args: RustRootResultArgs) {
   const totalExpectedKits = totalKits(args.root.vector);
   const pressure = pressureScore(args.root.vector, args.input.stockUses);
   const legacySupplyCost = legacySupplyCostScore(args.root.vector);
-  const availabilityCost = availabilityCostScore(args.root.vector, args.input.stock);
+  const availabilityCost = availabilityCostScore(
+    args.root.vector,
+    args.input.stock,
+    args.expectedGain,
+  );
   return {
     possible: true,
     terminal: false,

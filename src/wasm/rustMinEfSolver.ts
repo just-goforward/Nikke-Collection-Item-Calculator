@@ -47,9 +47,9 @@ export async function solveRustMinEfProduct(
 
   const earlyResult = buildRustEarlyResult(normalizedInput, RUST_MIN_EF_SOLVER_VERSION);
   if (earlyResult) return earlyResult;
+  const supplyForecast = activeSupplyForecastContext();
   try {
     const solver = await getRustMinEfSolver(wasmUrl);
-    const supplyForecast = activeSupplyForecastContext();
     solver.setSupplyForecast(supplyForecast);
     const policy = solver.solveRootWithCandidates(
       normalizedInput.start,
@@ -79,6 +79,7 @@ export async function solveRustMinEfProduct(
       normalizedInput,
       candidates,
       actionFor,
+      supplyForecast.expectedGain,
       "Rust min E[f]",
     );
     const run = buildRecommendedRun(normalizedInput, actionFor);
@@ -111,6 +112,7 @@ export async function solveRustMinEfProduct(
       route,
       monteCarlo,
       topCandidates,
+      expectedGain: supplyForecast.expectedGain,
       statsExtras: {
         rustMinEf: {
           horizonFactor: RUST_PRODUCT_HORIZON_FACTOR,
@@ -133,6 +135,7 @@ export async function solveRustMinEfProduct(
     const fallback = await solveRustPhase2(input, wasmUrl, progress, {
       initialMemoTier: RUST_PHASE2_FALLBACK_MEMO_TIER,
       retryOnMemoFull: false,
+      supplyForecast,
     });
     return withFallbackStats(fallback, startedAt, error.nodeCount);
   }

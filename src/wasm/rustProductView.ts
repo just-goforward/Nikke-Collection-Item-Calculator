@@ -42,6 +42,7 @@ export function buildPhase2TopCandidates(
   input: RustProductInput,
   candidates: RustPhase2Candidate[],
   actionFor: RustActionLookup,
+  expectedGain: Stock,
   name = "Rust phase2",
 ) {
   return [...candidates].sort(comparePhase2Candidates).map((candidate) => {
@@ -49,7 +50,7 @@ export function buildPhase2TopCandidates(
     const totalExpectedKits = totalKits(candidate.vector);
     const pressure = pressureScore(candidate.vector, input.stockUses);
     const legacySupplyCost = legacySupplyCostScore(candidate.vector);
-    const availabilityCost = availabilityCostScore(candidate.vector, input.stock);
+    const availabilityCost = availabilityCostScore(candidate.vector, input.stock, expectedGain);
     const vector = Object.fromEntries(
       KIT_ORDER.map((kit) => [kit, round(candidate.vector[kit], 4)]),
     ) as Stock;

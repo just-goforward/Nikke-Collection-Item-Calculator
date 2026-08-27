@@ -36,12 +36,16 @@ failed action therefore cannot skip evidence.
 
 ## Forecast contract
 
-The game day changes at 05:00 KST. The current game day's rewards are assumed to have already been
-received and opened; profiles contain only future rewards through the next Solo Raid day-3 cutoff.
+The game day changes at 05:00 KST. Profiles use a Solo-day-3-pivoted supply reference. Solo days 1
+and 2 accumulate expected supply from the previous round's day 3 through the current day. From day
+3 onward, the reference covers the current game day through the current round's end and the next
+round's days 1 and 2; between rounds it covers the current game day through the next day 2.
+The previous profile remains active through 04:59:59 and the next game-day profile starts exactly
+at 05:00:00.
 Confirmed new-round cadence is measured between 05:00 KST game-day starts. When no official future
 schedule exists, the median of the latest six valid 21-35 day intervals is used.
 
-The rules are versioned as `schedule-kit-v1` and `dispatch-policy-v1`. Dispatch mixes no-reroll,
+The rules are versioned as `schedule-kit-v2` and `dispatch-policy-v1`. Dispatch mixes no-reroll,
 one-reroll, and two-reroll cohorts equally. Its independently enumerated daily expectation is:
 
 ```text
@@ -50,8 +54,12 @@ purple 2.014546824
 yellow 0.714208160
 ```
 
-Each candidate records source IDs, URLs, excerpts, hashes, schedule status, cadence, collaboration
-periods, and the complete sequence of gain profiles. Full source bodies are not retained.
+Each candidate records source IDs, URLs, excerpts, hashes, schedule status, cadence, Solo periods,
+confirmed collaboration periods, and the complete sequence of gain profiles. Co-op shop supply is
+always five Kit Box II rewards at every Tuesday 05:00 in the reference window, regardless of
+individual Co-op Operation dates. A Tuesday reset is doubled to ten only when it falls inside a
+published official collaboration period; missing, estimated, or ambiguous collaboration dates keep
+the base five-box amount. Full source bodies are not retained.
 
 ## State and approval boundary
 
@@ -63,8 +71,9 @@ observed -> parsed -> crosschecked | x_unavailable | conflict
 ```
 
 The Worker only exposes pending candidates through an authenticated read endpoint. The proposal
-workflow validates the schema, payload hash, URL allowlist, dates, rules version, and profile
-monotonicity again before creating an `automation/supply-forecast/<candidateId>` pull request.
+workflow validates the schema, payload hash, URL allowlist, dates, rules version, profile
+continuity, and non-negative finite gains again before creating an
+`automation/supply-forecast/<candidateId>` pull request.
 Merging that PR sets `approvedForecastId` but leaves `activeForecastId` unchanged.
 
 After a verified production collector and an approved inactive forecast exist, the dynamic H/p
@@ -82,7 +91,7 @@ Only a later, manually reviewed adoption PR may activate the forecast or change 
   attempt becomes `manual_review`; structurally unsupported detail bodies become `manual_review`
   immediately instead of being silently ignored.
 - Empty feeds, malformed JSON, schema drift, unofficial posts, ambiguous schedule changes, inverted
-  periods, non-finite gains, non-monotone profiles, and out-of-range cadence never delete or
+  periods, non-finite gains, discontinuous profiles, and out-of-range cadence never delete or
   activate a forecast.
 - `/health` exposes only source status and candidate counts. Candidate payloads and canary evidence
   require a timing-safe bearer token.

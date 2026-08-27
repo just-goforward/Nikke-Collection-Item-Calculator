@@ -13,18 +13,22 @@ export type CollaborationPeriod = {
   effectiveUntil: string;
 };
 
+export type ScheduledRewardPeriod = CollaborationPeriod & {
+  scheduleStatus: "confirmed" | "estimated";
+};
+
 export type ScheduleProfileInput = {
   forecastId: string;
   effectiveFrom: string;
-  nextSoloStart: string;
-  scheduleStatus: "confirmed" | "estimated";
+  soloPeriods: readonly ScheduledRewardPeriod[];
   collaborationPeriods: readonly CollaborationPeriod[];
 };
 
 const DAY_MS = 86_400_000;
 const KST_SHIFT_TO_GAME_DATE_MS = 4 * 60 * 60 * 1000;
+export const SUPPLY_PROFILE_HORIZON_DAYS = 56 as const;
 
-export const SUPPLY_RULES_VERSION = "schedule-kit-v1" as const;
+export const SUPPLY_RULES_VERSION = "schedule-kit-v2" as const;
 export const DISPATCH_POLICY_ID = "dispatch-policy-v1" as const;
 
 type DispatchReward = {
@@ -54,11 +58,10 @@ const DISPATCH_REWARDS: readonly DispatchReward[] = [
 export const PURPLE_BOX_GAIN = { blue: 2.4, purple: 0.2, yellow: 0 } as const;
 export const YELLOW_BOX_GAIN = { blue: 3.5, purple: 0.4, yellow: 0.2 } as const;
 
-export const SOLO_REMAINING_GAIN = {
-  beforeStart: { blue: 108.4, purple: 11.2, yellow: 4 },
-  afterDay1: { blue: 79.6, purple: 8.8, yellow: 4 },
-  afterDay2: { blue: 42, purple: 4.8, yellow: 2.4 },
-  afterDay3: { blue: 0, purple: 0, yellow: 0 },
+export const SOLO_DAILY_EXPECTED_GAIN = {
+  day1: { blue: 28.8, purple: 2.4, yellow: 0 },
+  day2: { blue: 37.6, purple: 4, yellow: 1.6 },
+  day3AndLater: { blue: 42, purple: 4.8, yellow: 2.4 },
 } as const;
 
 export const DISPATCH_COHORT_EXPECTED_GAIN = {
@@ -124,46 +127,23 @@ export function buildScheduleForecastProfiles(
   input: ScheduleProfileInput,
 ): SupplyForecastProfile[] {
   const effectiveFrom = parseTimestamp(input.effectiveFrom, "effectiveFrom");
-  const soloStart = parseTimestamp(input.nextSoloStart, "nextSoloStart");
+  const profileUntil = effectiveFrom + SUPPLY_PROFILE_HORIZON_DAYS * DAY_MS;
+  const soloPeriods = parseScheduledPeriods(input.soloPeriods, "soloPeriods");
+  const collaborationPeriods = parsePeriods(input.collaborationPeriods, "collaborationPeriods");
+  assertOrderedNonOverlapping(soloPeriods, "soloPeriods");
 
-  const soloDay1Start = gameDayStartMs(soloStart);
-  const soloDay2Start = soloDay1Start + DAY_MS;
-  const soloDay3Start = soloDay2Start + DAY_MS;
-  const cutoff = soloDay3Start + DAY_MS;
-  if (cutoff <= effectiveFrom) {
-    return [
-      {
-        id: `${input.forecastId}@${new Date(effectiveFrom).toISOString()}`,
-        effectiveFrom: new Date(effectiveFrom).toISOString(),
-        effectiveUntil: null,
-        scheduleStatus: input.scheduleStatus,
-        expectedGain: { ...SOLO_REMAINING_GAIN.afterDay3 },
-      },
-    ];
-  }
-  if (cutoff - effectiveFrom > 56 * DAY_MS) {
-    throw new Error("Forecast cycle must span at most 56 days.");
-  }
-
-  const collaborationPeriods = input.collaborationPeriods.map((period, index) => {
-    const start = parseTimestamp(
-      period.effectiveFrom,
-      `collaborationPeriods[${index}].effectiveFrom`,
-    );
-    const end = parseTimestamp(
-      period.effectiveUntil,
-      `collaborationPeriods[${index}].effectiveUntil`,
-    );
-    if (end <= start) throw new Error(`collaborationPeriods[${index}] is inverted.`);
-    return { start, end };
-  });
-
-  const boundaries = new Set<number>([effectiveFrom, soloStart, cutoff]);
-  for (let reset = nextGameDayStartMs(effectiveFrom); reset < cutoff; reset += DAY_MS) {
+  const boundaries = new Set<number>([effectiveFrom, profileUntil]);
+  for (let reset = nextGameDayStartMs(effectiveFrom); reset < profileUntil; reset += DAY_MS) {
     boundaries.add(reset);
   }
+  for (const period of soloPeriods) {
+    const activeFrom = gameDayStartMs(period.start);
+    if (activeFrom > effectiveFrom && activeFrom < profileUntil) boundaries.add(activeFrom);
+    const activeUntil = periodActiveUntil(period);
+    if (activeUntil > effectiveFrom && activeUntil < profileUntil) boundaries.add(activeUntil);
+  }
   const ordered = [...boundaries]
-    .filter((value) => value >= effectiveFrom && value <= cutoff)
+    .filter((value) => value >= effectiveFrom && value <= profileUntil)
     .sort((a, b) => a - b);
   const profiles: SupplyForecastProfile[] = [];
   for (let index = 0; index < ordered.length - 1; index += 1) {
@@ -172,32 +152,34 @@ export function buildScheduleForecastProfiles(
     if (from === undefined || until === undefined) {
       throw new Error("Forecast boundary sequence is incomplete.");
     }
-    const futureResets = gameDayStartsBetween(from, cutoff);
-    const dispatch = scaleGain(DISPATCH_DAILY_EXPECTED_GAIN, futureResets.length);
-    const coopBoxCount = futureResets.reduce((count, reset) => {
+    const reference = referenceWindowAt(from, soloPeriods);
+    const rewardDays = gameDayStartsInclusive(reference.start, reference.end);
+    const dispatch = scaleGain(DISPATCH_DAILY_EXPECTED_GAIN, rewardDays.length);
+    const coopBoxCount = rewardDays.reduce((count, reset) => {
       if (!isKstTuesday(reset)) return count;
-      const collaboration = collaborationPeriods.some(
+      const collaborationMultiplier = collaborationPeriods.some(
         (period) => reset >= period.start && reset < period.end,
-      );
-      return count + (collaboration ? 10 : 5);
+      )
+        ? 2
+        : 1;
+      return count + 5 * collaborationMultiplier;
     }, 0);
-    const gain = addGains(
-      dispatch,
-      scaleGain(YELLOW_BOX_GAIN, coopBoxCount),
-      soloGainAt(from, soloStart, soloDay2Start, soloDay3Start),
+    const soloGain = soloPeriods.reduce(
+      (gain, period) => addGains(gain, soloGainWithin(period, reference.start, reference.end)),
+      zeroGain(),
     );
+    const gain = addGains(dispatch, scaleGain(YELLOW_BOX_GAIN, coopBoxCount), soloGain);
     profiles.push({
       id: `${input.forecastId}@${new Date(from).toISOString()}`,
       effectiveFrom: new Date(from).toISOString(),
       effectiveUntil: new Date(until).toISOString(),
-      scheduleStatus: input.scheduleStatus,
+      scheduleStatus: reference.scheduleStatus,
       expectedGain: roundGain(gain),
     });
   }
   const finalProfile = profiles.at(-1);
   if (!finalProfile) throw new Error("Forecast cycle did not produce any profiles.");
   finalProfile.effectiveUntil = null;
-  assertMonotonicProfiles(profiles);
   return profiles;
 }
 
@@ -214,10 +196,13 @@ function nextGameDayStartMs(timestampMs: number) {
   return start > timestampMs ? start : start + DAY_MS;
 }
 
-function gameDayStartsBetween(fromExclusive: number, untilExclusive: number) {
+function gameDayStartsInclusive(fromInclusive: number, untilInclusive: number) {
   const result: number[] = [];
-  for (let reset = nextGameDayStartMs(fromExclusive); reset < untilExclusive; reset += DAY_MS)
+  const first = gameDayStartMs(fromInclusive);
+  const last = gameDayStartMs(untilInclusive);
+  for (let reset = first; reset <= last; reset += DAY_MS) {
     result.push(reset);
+  }
   return result;
 }
 
@@ -225,16 +210,114 @@ function isKstTuesday(timestampMs: number) {
   return new Date(timestampMs + 9 * 60 * 60 * 1000).getUTCDay() === 2;
 }
 
-function soloGainAt(
-  from: number,
-  soloStart: number,
-  day2Start: number,
-  day3Start: number,
-): SupplyGain {
-  if (from < soloStart) return { ...SOLO_REMAINING_GAIN.beforeStart };
-  if (from < day2Start) return { ...SOLO_REMAINING_GAIN.afterDay1 };
-  if (from < day3Start) return { ...SOLO_REMAINING_GAIN.afterDay2 };
-  return { ...SOLO_REMAINING_GAIN.afterDay3 };
+type ParsedPeriod = {
+  start: number;
+  end: number;
+};
+
+type ParsedScheduledPeriod = ParsedPeriod & {
+  scheduleStatus: "confirmed" | "estimated";
+};
+
+function referenceWindowAt(timestampMs: number, soloPeriods: readonly ParsedScheduledPeriod[]) {
+  const currentDay = gameDayStartMs(timestampMs);
+  const activeIndex = soloPeriods.findIndex(
+    (period) =>
+      timestampMs >= gameDayStartMs(period.start) && timestampMs < periodActiveUntil(period),
+  );
+  const active = soloPeriods[activeIndex];
+  if (active) {
+    const dayNumber = Math.floor((currentDay - gameDayStartMs(active.start)) / DAY_MS) + 1;
+    if (dayNumber <= 2) {
+      const previous = soloPeriods[activeIndex - 1];
+      if (!previous) throw new Error("Solo day 1/2 requires the previous Solo Raid period.");
+      return {
+        start: gameDayStartMs(previous.start) + 2 * DAY_MS,
+        end: currentDay,
+        scheduleStatus: combinedScheduleStatus(previous, active),
+      };
+    }
+    const next = soloPeriods[activeIndex + 1];
+    if (!next) throw new Error("Solo day 3+ requires the next Solo Raid period.");
+    return {
+      start: currentDay,
+      end: gameDayStartMs(next.start) + DAY_MS,
+      scheduleStatus: combinedScheduleStatus(active, next),
+    };
+  }
+
+  const next = soloPeriods.find((period) => gameDayStartMs(period.start) > timestampMs);
+  if (!next) throw new Error("Forecast requires a future Solo Raid period.");
+  return {
+    start: currentDay,
+    end: gameDayStartMs(next.start) + DAY_MS,
+    scheduleStatus: next.scheduleStatus,
+  };
+}
+
+function soloGainWithin(period: ParsedPeriod, from: number, until: number): SupplyGain {
+  const firstDay = gameDayStartMs(period.start);
+  const activeUntil = periodActiveUntil(period);
+  const result = zeroGain();
+  for (let day = firstDay, dayNumber = 1; day < activeUntil; day += DAY_MS, dayNumber += 1) {
+    if (day < from || day > until) continue;
+    addScaled(
+      result,
+      dayNumber === 1
+        ? SOLO_DAILY_EXPECTED_GAIN.day1
+        : dayNumber === 2
+          ? SOLO_DAILY_EXPECTED_GAIN.day2
+          : SOLO_DAILY_EXPECTED_GAIN.day3AndLater,
+      1,
+    );
+  }
+  return result;
+}
+
+export function gameDayStartCeilMs(timestampMs: number) {
+  const start = gameDayStartMs(timestampMs);
+  return start >= timestampMs ? start : start + DAY_MS;
+}
+
+function periodActiveUntil(period: ParsedPeriod) {
+  return gameDayStartCeilMs(period.end);
+}
+
+function combinedScheduleStatus(...periods: readonly ParsedScheduledPeriod[]) {
+  return periods.some((period) => period.scheduleStatus === "estimated")
+    ? ("estimated" as const)
+    : ("confirmed" as const);
+}
+
+function parseScheduledPeriods(
+  periods: readonly ScheduledRewardPeriod[],
+  label: string,
+): ParsedScheduledPeriod[] {
+  return periods.map((period, index) => ({
+    ...parsePeriod(period, `${label}[${index}]`),
+    scheduleStatus: period.scheduleStatus,
+  }));
+}
+
+function parsePeriods(periods: readonly CollaborationPeriod[], label: string): ParsedPeriod[] {
+  return periods.map((period, index) => parsePeriod(period, `${label}[${index}]`));
+}
+
+function parsePeriod(period: CollaborationPeriod, label: string): ParsedPeriod {
+  const start = parseTimestamp(period.effectiveFrom, `${label}.effectiveFrom`);
+  const end = parseTimestamp(period.effectiveUntil, `${label}.effectiveUntil`);
+  if (end <= start) throw new Error(`${label} is inverted.`);
+  return { start, end };
+}
+
+function assertOrderedNonOverlapping(periods: readonly ParsedPeriod[], label: string) {
+  for (let index = 1; index < periods.length; index += 1) {
+    const previous = periods[index - 1];
+    const current = periods[index];
+    if (!previous || !current) throw new Error(`${label} sequence is incomplete.`);
+    if (current.start < previous.start) throw new Error(`${label} must be ordered.`);
+    if (current.start < previous.end) throw new Error(`${label} must not overlap.`);
+  }
 }
 
 function enumerateWeightedDraws(kept: readonly number[], drawCount: number) {
@@ -271,25 +354,6 @@ function enumerateWeightedDraws(kept: readonly number[], drawCount: number) {
     states = next;
   }
   return states.values();
-}
-
-function assertMonotonicProfiles(profiles: readonly SupplyForecastProfile[]) {
-  for (let index = 1; index < profiles.length; index += 1) {
-    const previousProfile = profiles[index - 1];
-    const currentProfile = profiles[index];
-    if (!previousProfile || !currentProfile) {
-      throw new Error("Forecast profile sequence is incomplete.");
-    }
-    const previous = previousProfile.expectedGain;
-    const current = currentProfile.expectedGain;
-    if (
-      current.blue > previous.blue ||
-      current.purple > previous.purple ||
-      current.yellow > previous.yellow
-    ) {
-      throw new Error(`Forecast profiles are not monotonic at ${currentProfile.id}.`);
-    }
-  }
 }
 
 function parseTimestamp(value: string, label: string) {

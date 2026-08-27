@@ -28,6 +28,7 @@ export type ResearchCostModel =
       kind: "availability-pnorm";
       horizonFactor?: number;
       normPower?: number;
+      expectedGain?: KitVector;
     }
   | { kind: "linear-shadow"; prices: KitVector };
 export type AvailabilityPnormResearchCostModel = Extract<
@@ -69,7 +70,8 @@ export const STRATEGY_META = {
   },
   supply: {
     label: "수급량 고려",
-    description: "SR 15 도달 확률과 키트 수급/보유량을 함께 고려하여 최적의 선택지를 제공합니다.",
+    description:
+      "SR 15 도달 확률과 키트 보유량·일정 기반 수급 기준량을 함께 고려하여 최적의 선택지를 제공합니다.",
   },
 };
 export const EXPECTED_28_DAY_GAIN: KitVector = {

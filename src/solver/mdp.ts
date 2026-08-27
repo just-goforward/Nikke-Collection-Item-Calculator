@@ -113,6 +113,8 @@ export function finiteInventoryMdp(
   const initialStockPieces = input.stock;
   const strategy: Strategy = input.strategy;
   const researchCostModel = options.researchCostModel || DEFAULT_RESEARCH_COST_MODEL;
+  const availabilityExpectedGain =
+    researchCostModel.kind === "availability-pnorm" ? researchCostModel.expectedGain : undefined;
   const probabilityTolerance = probabilityToleranceForStrategy(strategy, options.toleranceOverride);
   const gateAudit = options.collectGateAudit ? createProbabilityGateAudit() : null;
   const capStats = { dynamicCapReductions: 0, dynamicCapFallbacks: 0 };
@@ -165,7 +167,11 @@ export function finiteInventoryMdp(
         maxSuccessProbability = actionMaxSuccessProbability;
       }
       const pressure = pressureScore(vector, initialUses);
-      const availabilityCost = availabilityCostScore(vector, initialStockPieces);
+      const availabilityCost = availabilityCostScore(
+        vector,
+        initialStockPieces,
+        availabilityExpectedGain,
+      );
       const supplyCost = researchCostScore(vector, initialStockPieces, researchCostModel);
       const legacySupplyCost = legacySupplyCostScore(vector);
       candidates.push({
@@ -239,7 +245,11 @@ export function finiteInventoryMdp(
         ? stateValue.maxSuccessProbability
         : successProbability;
       const pressure = pressureScore(vector, initialUses);
-      const availabilityCost = availabilityCostScore(vector, initialStockPieces);
+      const availabilityCost = availabilityCostScore(
+        vector,
+        initialStockPieces,
+        availabilityExpectedGain,
+      );
       const supplyCost = researchCostScore(vector, initialStockPieces, researchCostModel);
       const legacySupplyCost = legacySupplyCostScore(vector);
       return {

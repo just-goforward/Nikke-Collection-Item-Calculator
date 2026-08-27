@@ -51,11 +51,19 @@ export function createDynamicHpProfileMatrix(registry: Registry): DynamicHpProfi
       const forecastDate =
         cycleDays === 21 ? "2026-01-22" : cycleDays === 28 ? "2026-01-29" : "2026-02-05";
       const forecastId = `supply-${forecastDate}-v${scheduleStatus === "confirmed" ? 1 : 2}`;
+      const soloDuration = 7 * 86_400_000 - 7 * 60 * 60 * 1000 - 60 * 1000;
+      const soloPeriods = [-2, -1, 0, 1, 2, 3, 4].map((offset) => {
+        const start = soloStart + offset * cycleDays * 86_400_000;
+        return {
+          effectiveFrom: new Date(start).toISOString(),
+          effectiveUntil: new Date(start + soloDuration).toISOString(),
+          scheduleStatus,
+        };
+      });
       const profiles = buildScheduleForecastProfiles({
         forecastId,
         effectiveFrom: new Date(base).toISOString(),
-        nextSoloStart: new Date(soloStart).toISOString(),
-        scheduleStatus,
+        soloPeriods,
         collaborationPeriods: [],
       });
       const targets = [
