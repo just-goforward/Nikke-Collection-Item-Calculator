@@ -21,8 +21,10 @@ const scheduledPeriodSchema = z.object({
   scheduleStatus: z.enum(["confirmed", "estimated"]),
 });
 
+export const SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION = 3 as const;
+
 export const supplyForecastCandidateSchema = z.object({
-  payloadVersion: z.literal(3),
+  payloadVersion: z.literal(SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION),
   candidateId: z.string().check(z.regex(/^forecast-[a-z0-9-]{8,120}$/)),
   forecastId: z.string().check(z.regex(/^supply-\d{4}-\d{2}-\d{2}-v\d+$/)),
   rulesVersion: z.literal("schedule-kit-v2"),

@@ -1,8 +1,10 @@
 import type { SupplyForecastCandidateEnvelope } from "../../shared/supplyForecastCandidate";
 import {
   assertForecastCandidateInvariants,
+  SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION,
   supplyForecastCandidateSchema,
 } from "../../shared/supplyForecastCandidate";
+import { SUPPLY_RULES_VERSION } from "../../shared/supplyForecastModel";
 import { sha256Hex, stableJson } from "./crypto";
 import type { CandidateBuildResult, NormalizedSourceItem, ScheduleEvent } from "./types";
 
@@ -228,9 +230,12 @@ export async function listProposalCandidates(db: D1Database) {
       `SELECT candidate_id, payload_json, payload_hash
        FROM forecast_candidates
        WHERE state IN ('crosschecked', 'x_unavailable')
+         AND json_extract(payload_json, '$.payloadVersion') = ?
+         AND json_extract(payload_json, '$.rulesVersion') = ?
        ORDER BY created_at ASC
        LIMIT 20`,
     )
+    .bind(SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION, SUPPLY_RULES_VERSION)
     .all<{ candidate_id: string; payload_json: string; payload_hash: string }>();
   return result.results.map(
     (row): SupplyForecastCandidateEnvelope => ({
@@ -238,6 +243,22 @@ export async function listProposalCandidates(db: D1Database) {
       candidate: JSON.parse(row.payload_json) as SupplyForecastCandidateEnvelope["candidate"],
     }),
   );
+}
+
+export async function supersedeIncompatibleCandidates(db: D1Database) {
+  const result = await db
+    .prepare(
+      `UPDATE forecast_candidates
+       SET state = 'superseded', updated_at = ?
+       WHERE state IN ('observed', 'parsed', 'crosschecked', 'x_unavailable', 'conflict', 'proposed')
+         AND (
+           COALESCE(json_extract(payload_json, '$.payloadVersion'), -1) <> ?
+           OR COALESCE(json_extract(payload_json, '$.rulesVersion'), '') <> ?
+         )`,
+    )
+    .bind(new Date().toISOString(), SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION, SUPPLY_RULES_VERSION)
+    .run();
+  return Number(result.meta.changes ?? 0);
 }
 
 export async function markCandidateProposed(db: D1Database, candidateId: string) {
@@ -299,7 +320,10 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
     .bind(deploymentSha)
     .first<{ started_at: string }>();
   const candidates = await db
-    .prepare("SELECT payload_json, payload_hash FROM forecast_candidates")
+    .prepare(
+      `SELECT payload_json, payload_hash FROM forecast_candidates
+       WHERE state NOT IN ('approved', 'rejected', 'superseded')`,
+    )
     .all<{ payload_json: string; payload_hash: string }>();
   const watermarks = await db
     .prepare(

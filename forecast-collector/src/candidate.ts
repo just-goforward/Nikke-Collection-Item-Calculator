@@ -1,5 +1,6 @@
 import {
   assertForecastCandidateInvariants,
+  SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION,
   supplyForecastCandidateSchema,
 } from "../../shared/supplyForecastCandidate";
 import {
@@ -188,7 +189,7 @@ export async function buildForecastCandidate(
   });
   const candidateId = `forecast-${(await sha256Hex(identity)).slice(0, 24)}`;
   const candidate = supplyForecastCandidateSchema.parse({
-    payloadVersion: 3,
+    payloadVersion: SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION,
     candidateId,
     forecastId,
     rulesVersion: SUPPLY_RULES_VERSION,

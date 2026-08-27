@@ -44,6 +44,10 @@ const roundTrip = await request("/admin/source-queue/process", true, "POST", {
 if (!isRecord(roundTrip) || roundTrip["processed"] !== 0) {
   throw new Error("Collector queue round-trip response is invalid.");
 }
+const compatibility = await request("/admin/candidates/supersede-incompatible", true, "POST");
+if (!isRecord(compatibility) || !Number.isInteger(compatibility["superseded"])) {
+  throw new Error("Collector candidate compatibility response is invalid.");
+}
 const pending = await request("/admin/candidates", true);
 if (!isRecord(pending) || !Array.isArray(pending["candidates"])) {
   throw new Error("Collector candidate response is invalid.");

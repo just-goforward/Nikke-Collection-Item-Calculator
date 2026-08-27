@@ -11,6 +11,7 @@ import {
   persistCandidate,
   persistSourceItemsAndEvents,
   readCanaryReport,
+  supersedeIncompatibleCandidates,
 } from "./db";
 import { finishInvocation, startInvocation } from "./source-queue";
 import type { CollectorEnv, NormalizedSourceItem, ScheduleEvent } from "./types";
@@ -106,6 +107,43 @@ describe("forecast collector D1 contract", () => {
     });
     expect(unauthorized.status).toBe(401);
     expect(authorized.status).toBe(200);
+  });
+
+  it("preserves but supersedes candidates from an older payload contract", async () => {
+    const item = sourceItem();
+    const event = soloEvent(item);
+    await persistSourceItemsAndEvents(
+      testEnv.FORECAST_DB,
+      [item],
+      [event],
+      new Date().toISOString(),
+    );
+    const resolved = resolveSoloSchedule([event], Date.parse("2026-08-24T00:00:00Z"));
+    if (!resolved) throw new Error("Expected a resolved schedule.");
+    const candidate = await buildForecastCandidate(
+      resolved,
+      [],
+      { status: "x_unavailable", sourceItem: null, reason: "test" },
+      Date.parse("2026-08-24T00:00:00Z"),
+      1,
+    );
+    await persistCandidate(testEnv.FORECAST_DB, candidate, event.eventId, "2026-08-24", 1);
+    await testEnv.FORECAST_DB.prepare(
+      `UPDATE forecast_candidates
+       SET payload_json = json_set(payload_json, '$.payloadVersion', 2, '$.rulesVersion', 'schedule-kit-v1')
+       WHERE candidate_id = ?`,
+    )
+      .bind(candidate.candidate.candidateId)
+      .run();
+
+    await expect(supersedeIncompatibleCandidates(testEnv.FORECAST_DB)).resolves.toBe(1);
+    await expect(listProposalCandidates(testEnv.FORECAST_DB)).resolves.toEqual([]);
+    const stored = await testEnv.FORECAST_DB.prepare(
+      "SELECT state FROM forecast_candidates WHERE candidate_id = ?",
+    )
+      .bind(candidate.candidate.candidateId)
+      .first<{ state: string }>();
+    expect(stored?.state).toBe("superseded");
   });
 
   it("caps exponential Naver backoff at thirty minutes", () => {

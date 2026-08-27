@@ -1,6 +1,12 @@
 import { runCollection } from "./collector";
 import { timingSafeBearer } from "./crypto";
-import { listProposalCandidates, markCandidateProposed, readCanaryReport, readHealth } from "./db";
+import {
+  listProposalCandidates,
+  markCandidateProposed,
+  readCanaryReport,
+  readHealth,
+  supersedeIncompatibleCandidates,
+} from "./db";
 import { listSourceQueue, processSourceQueue, readScheduleLedger } from "./source-queue";
 import type { CollectorEnv } from "./types";
 
@@ -33,6 +39,9 @@ export default {
     }
     if (request.method === "GET" && url.pathname === "/admin/candidates") {
       return json({ candidates: await listProposalCandidates(env.FORECAST_DB) });
+    }
+    if (request.method === "POST" && url.pathname === "/admin/candidates/supersede-incompatible") {
+      return json({ superseded: await supersedeIncompatibleCandidates(env.FORECAST_DB) });
     }
     if (request.method === "GET" && url.pathname === "/admin/source-queue") {
       const limit = Number(url.searchParams.get("limit") ?? 20);
