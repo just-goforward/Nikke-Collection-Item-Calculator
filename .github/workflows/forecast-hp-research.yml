@@ -314,9 +314,13 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$EXPECTED_PROFILE_COUNT" =~ ^[1-9][0-9]*$ ]] || { echo "Expected profile count is invalid." >&2; exit 1; }
-          report_dir=$(find collected -type d -path '*/benchmarks/results/dynamic' -print -quit)
-          [[ -n "$report_dir" ]] || report_dir=$(find collected -type d -name dynamic -print -quit)
-          [[ -n "$report_dir" ]] || { echo "Downloaded H/p report directory is missing." >&2; exit 1; }
+          report_dir="$RUNNER_TEMP/dynamic-hp-reports"
+          mkdir -p "$report_dir"
+          while IFS= read -r -d '' source; do
+            target="$report_dir/$(basename "$source")"
+            [[ ! -e "$target" ]] || { echo "Duplicate H/p report name: $(basename "$source")" >&2; exit 1; }
+            cp "$source" "$target"
+          done < <(find collected -type f -name '*.json' -print0)
           actual=$(find "$report_dir" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')
           complete=$(node --input-type=module - "$report_dir" "$EXPECTED_PROFILE_COUNT" <<'NODE'
           import { readdirSync, readFileSync } from "node:fs";
