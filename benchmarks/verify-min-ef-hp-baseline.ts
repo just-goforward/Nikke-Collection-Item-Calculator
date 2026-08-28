@@ -1,9 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { createServer } from "vite";
 import {
-  activeSupplyForecastContext,
-  validateSupplyForecastContext,
-} from "../src/wasm/rustCoreShared.ts";
+  ACTIVE_SUPPLY_FORECAST_ID,
+  resolveActiveSupplyForecastProfile,
+} from "../shared/generated/supplyForecast.ts";
 import type { SupplyForecastContext } from "../src/wasm/rustTypes.ts";
 
 import { readHpStudyReport, writeHpStudyReport } from "./min-ef-hp-report.ts";
@@ -183,6 +183,31 @@ function resolveSupplyForecast(stored: SupplyForecastContext | undefined): Suppl
     throw new Error("HP_STUDY_SUPPLY_CONTEXT does not match the stored study contract.");
   }
   return context;
+}
+
+function activeSupplyForecastContext(): SupplyForecastContext {
+  const profile = resolveActiveSupplyForecastProfile();
+  return {
+    forecastId: ACTIVE_SUPPLY_FORECAST_ID,
+    forecastProfileId: profile.id,
+    expectedGain: { ...profile.expectedGain },
+  };
+}
+
+function validateSupplyForecastContext(context: SupplyForecastContext): SupplyForecastContext {
+  for (const gain of Object.values(context.expectedGain)) {
+    if (!Number.isFinite(gain) || gain < 0) {
+      throw new RangeError("Supply forecast gains must be non-negative finite numbers.");
+    }
+  }
+  if (!context.forecastId || !context.forecastProfileId) {
+    throw new RangeError("Supply forecast IDs must not be empty.");
+  }
+  return {
+    forecastId: context.forecastId,
+    forecastProfileId: context.forecastProfileId,
+    expectedGain: { ...context.expectedGain },
+  };
 }
 
 async function instantiate(bytes: Uint8Array): Promise<WebAssembly.Instance> {
