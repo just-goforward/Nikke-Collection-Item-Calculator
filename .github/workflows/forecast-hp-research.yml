@@ -221,10 +221,10 @@ jobs:
           set -euo pipefail
           [[ "$HP_STUDY_SLICES_PER_RUN" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid slices_per_run." >&2; exit 1; }
           for ((slice=1; slice<=HP_STUDY_SLICES_PER_RUN; slice+=1)); do
-            stage=$(node -e 'const r=require(process.argv[1]);process.stdout.write(r.screening.complete?"exact":"screen")' \
+            stage=$(node -e 'const r=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(r.screening.complete?"exact":"screen")' \
               "benchmarks/results/$HP_STUDY_REPORT_FILE")
             if [[ "$stage" == "exact" ]]; then
-              complete=$(node -e 'const r=require(process.argv[1]);process.stdout.write(String(r.exact.complete))' \
+              complete=$(node -e 'const r=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(r.exact.complete))' \
                 "benchmarks/results/$HP_STUDY_REPORT_FILE")
               if [[ "$complete" == "true" ]]; then
                 echo "Exact gate is complete for this profile."
