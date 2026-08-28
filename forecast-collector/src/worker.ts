@@ -7,6 +7,7 @@ import {
   readHealth,
   supersedeIncompatibleCandidates,
 } from "./db";
+import { createDiscordApprovalTest, handleDiscordInteraction } from "./discord-approval";
 import { listSourceQueue, processSourceQueue, readScheduleLedger } from "./source-queue";
 import type { CollectorEnv } from "./types";
 
@@ -19,6 +20,18 @@ export default {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
       return json(await readHealth(env.FORECAST_DB));
+    }
+    if (request.method === "POST" && url.pathname === "/discord/interactions") {
+      if (env.ADMIN_RATE_LIMITER) {
+        const sourceAddress = request.headers.get("cf-connecting-ip") ?? "unknown";
+        const rateLimit = await env.ADMIN_RATE_LIMITER.limit({
+          key: `discord-interactions:${sourceAddress}`,
+        });
+        if (!rateLimit.success) return new Response("Too many requests", { status: 429 });
+      } else if (env.ENVIRONMENT !== "test") {
+        return new Response("Service unavailable", { status: 503 });
+      }
+      return handleDiscordInteraction(request, env);
     }
     if (!url.pathname.startsWith("/admin/")) return new Response("Not found", { status: 404 });
     if (env.ADMIN_RATE_LIMITER) {
@@ -63,6 +76,20 @@ export default {
     }
     if (request.method === "GET" && url.pathname === "/admin/canary-report") {
       return json(await readCanaryReport(env.FORECAST_DB, Date.now(), env.DEPLOY_SHA));
+    }
+    if (request.method === "POST" && url.pathname === "/admin/discord-test-approvals") {
+      if (env.ENVIRONMENT === "production" || env.DISCORD_APPROVAL_MODE !== "test") {
+        return new Response("Not found", { status: 404 });
+      }
+      const length = Number(request.headers.get("content-length") ?? 0);
+      if (length > 32_768) return new Response("Payload too large", { status: 413 });
+      try {
+        return json(await createDiscordApprovalTest(env.FORECAST_DB, await request.json()));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "invalid_request";
+        const status = message === "discord_test_request_key_conflict" ? 409 : 400;
+        return json({ error: message.slice(0, 120) }, status);
+      }
     }
     const proposedMatch = url.pathname.match(
       /^\/admin\/candidates\/(forecast-[a-z0-9-]+)\/proposed$/,

@@ -28,6 +28,7 @@ database_id = "2d58bcc0-a7b5-43f3-8f42-34e1bf1ff853"
 ENVIRONMENT = "production"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
+DISCORD_APPROVAL_MODE = "disabled"
 
 [secrets]
 required = ["ADMIN_TOKEN"]
@@ -53,6 +54,7 @@ database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
 ENVIRONMENT = "staging"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
+DISCORD_APPROVAL_MODE = "test"
 
 [env.staging.secrets]
 required = ["ADMIN_TOKEN"]

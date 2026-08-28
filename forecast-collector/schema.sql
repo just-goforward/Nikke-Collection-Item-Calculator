@@ -14,6 +14,9 @@ VALUES (2, CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 VALUES (3, CURRENT_TIMESTAMP);
 
+INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+VALUES (4, CURRENT_TIMESTAMP);
+
 CREATE TABLE IF NOT EXISTS collector_invocations (
   invocation_id TEXT PRIMARY KEY,
   deployment_sha TEXT NOT NULL,
@@ -145,3 +148,30 @@ CREATE TABLE IF NOT EXISTS candidate_sources (
   FOREIGN KEY (candidate_id) REFERENCES forecast_candidates(candidate_id),
   FOREIGN KEY (source, source_item_id) REFERENCES source_items(source, item_id)
 );
+
+CREATE TABLE IF NOT EXISTS discord_approval_tests (
+  approval_id TEXT PRIMARY KEY,
+  request_key TEXT NOT NULL UNIQUE CHECK (length(request_key) = 64),
+  candidate_id TEXT NOT NULL,
+  forecast_id TEXT NOT NULL,
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64),
+  pull_request_number INTEGER NOT NULL CHECK (pull_request_number > 0),
+  pull_request_url TEXT NOT NULL,
+  head_sha TEXT NOT NULL CHECK (length(head_sha) = 40),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'test_approved', 'expired')),
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  approved_at TEXT,
+  approver_user_id TEXT,
+  interaction_id TEXT UNIQUE,
+  CHECK (
+    (state = 'test_approved' AND approved_at IS NOT NULL
+      AND approver_user_id IS NOT NULL AND interaction_id IS NOT NULL)
+    OR
+    (state IN ('pending', 'expired') AND approved_at IS NULL
+      AND approver_user_id IS NULL AND interaction_id IS NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS discord_approval_tests_state_expires_idx
+  ON discord_approval_tests(state, expires_at);

@@ -28,6 +28,7 @@ database_id = "replace-with-production-d1-id"
 ENVIRONMENT = "production"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
+DISCORD_APPROVAL_MODE = "disabled"
 
 [secrets]
 required = ["ADMIN_TOKEN"]
@@ -53,6 +54,7 @@ database_id = "replace-with-staging-d1-id"
 ENVIRONMENT = "staging"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
+DISCORD_APPROVAL_MODE = "test"
 
 [env.staging.secrets]
 required = ["ADMIN_TOKEN"]

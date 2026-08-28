@@ -80,6 +80,74 @@ After a verified production collector and an approved inactive forecast exist, t
 workflow starts isolated, resumable research slices. It records `productAdoptionAuthorized: false`.
 Only a later, manually reviewed adoption PR may activate the forecast or change H/p.
 
+## Discord approval button test
+
+The optional Discord integration is deliberately test-only. A manually dispatched GitHub Actions
+workflow posts a bot message with a `테스트 승인` button. Discord sends the button interaction to
+the staging collector, which verifies the Ed25519 signature and the configured application, guild,
+channel, and approver user IDs. A successful click changes only a row in
+`discord_approval_tests` from `pending` to `test_approved`.
+
+It does **not** change a forecast candidate state, approve or merge a pull request, update
+`approvedForecastId`, activate a forecast, or start H/p research. The production Wrangler
+environment fixes `DISCORD_APPROVAL_MODE` to `disabled`; both the registration and interaction
+routes return 404 in production. Test records expire after 30 minutes.
+
+Create a Discord application and bot in the Discord Developer Portal, install the bot only in the
+intended server with `View Channel` and `Send Messages`, and set the application's Interactions
+Endpoint URL to:
+
+```text
+https://<staging-collector>/discord/interactions
+```
+
+Set these values only for the staging collector:
+
+```text
+DISCORD_PUBLIC_KEY          Discord application's public key
+DISCORD_APPLICATION_ID      Discord application ID
+DISCORD_APPROVER_USER_ID    only user allowed to click the approval button
+DISCORD_GUILD_ID            only server allowed to deliver the interaction
+DISCORD_CHANNEL_ID          only channel allowed to deliver the interaction
+```
+
+`DISCORD_PUBLIC_KEY` should be stored as a Worker secret. The numeric IDs are non-secret bindings,
+but they still form part of the authorization policy and must be reviewed before deployment. GitHub
+Actions additionally needs:
+
+```text
+secret: DISCORD_FORECAST_BOT_TOKEN
+variable: DISCORD_FORECAST_CHANNEL_ID
+```
+
+For the first staging-only trial, storing all five Worker-side values as staging secrets avoids
+adding test credentials to tracked Wrangler configuration:
+
+```powershell
+npx wrangler secret put DISCORD_PUBLIC_KEY --env staging --config forecast-collector/wrangler.toml
+npx wrangler secret put DISCORD_APPLICATION_ID --env staging --config forecast-collector/wrangler.toml
+npx wrangler secret put DISCORD_APPROVER_USER_ID --env staging --config forecast-collector/wrangler.toml
+npx wrangler secret put DISCORD_GUILD_ID --env staging --config forecast-collector/wrangler.toml
+npx wrangler secret put DISCORD_CHANNEL_ID --env staging --config forecast-collector/wrangler.toml
+```
+
+Apply migration 0004 to the staging D1 database and deploy the staging collector before configuring
+the Discord Interactions Endpoint URL:
+
+```powershell
+npx wrangler d1 execute FORECAST_DB --remote --env=staging `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0004_discord_approval_tests.sql
+```
+
+Then run `Test Discord Forecast Approval` manually with an existing pull request number. The
+workflow checks out trusted `main`, resolves the immutable PR URL and head SHA with a read-only
+`GITHUB_TOKEN`, and validates the machine-readable review metadata embedded by the forecast
+proposal renderer. The Discord card contains only the X status/profile link, the Solo Raid and
+collaboration periods to compare, and a short confirmation instruction. It registers the test
+record with the staging collector before posting the button through the Discord bot API. The test
+cannot be used as a production approval signal.
+
 ## Failure behavior
 
 - Responses are capped at 2 MB and fetched with a 10-second timeout.
@@ -130,7 +198,8 @@ npx wrangler d1 execute FORECAST_DB --remote --env="" `
 ```
 
 For an existing database, apply the incremental migrations instead of replaying the bootstrap
-schema. Migration 0003 adds invocation accounting, shallow cursors, and the source queue:
+schema. Migration 0003 adds invocation accounting, shallow cursors, and the source queue. Migration
+0004 adds the isolated Discord approval test ledger:
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
@@ -145,7 +214,12 @@ npx wrangler d1 execute FORECAST_DB --remote --env=staging `
 npx wrangler d1 execute FORECAST_DB --remote --env="" `
   --config forecast-collector/wrangler.toml `
   --file forecast-collector/migrations/0003_lightweight_source_queue.sql
+npx wrangler d1 execute FORECAST_DB --remote --env=staging `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0004_discord_approval_tests.sql
 ```
+
+Migration 0004 is not required in production while Discord approval mode remains disabled.
 
 Required repository variables:
 

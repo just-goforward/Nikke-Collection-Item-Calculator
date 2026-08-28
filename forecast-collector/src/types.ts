@@ -7,6 +7,12 @@ export type CollectorEnv = {
   ENVIRONMENT: "test" | "staging" | "production";
   DEPLOY_SHA: string;
   POLL_MODE: "both" | "alternating";
+  DISCORD_APPROVAL_MODE?: "disabled" | "test";
+  DISCORD_PUBLIC_KEY?: string;
+  DISCORD_APPLICATION_ID?: string;
+  DISCORD_APPROVER_USER_ID?: string;
+  DISCORD_GUILD_ID?: string;
+  DISCORD_CHANNEL_ID?: string;
 };
 
 export type SourceKind = "naver-board-48" | "naver-board-56" | "x-nikke-kr";
