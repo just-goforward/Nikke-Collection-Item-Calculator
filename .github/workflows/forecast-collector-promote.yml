@@ -2,6 +2,12 @@ name: Promote Forecast Collector
 
 on:
   workflow_dispatch:
+    inputs:
+      canary_only:
+        description: Verify the canary without requesting production approval
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -85,7 +91,7 @@ jobs:
 
   promote:
     needs: canary
-    if: needs.canary.outputs.canary_passed == 'true'
+    if: needs.canary.outputs.canary_passed == 'true' && !inputs.canary_only
     runs-on: ubuntu-latest
     environment: cloudflare-production
     steps:
