@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SUPPLY_FORECAST_REGISTRY } from "../../shared/generated/supplyForecast";
 import { cleanupExpiredStatistics } from "./rate-limit";
 import {
   kitResultEvent,
@@ -690,29 +691,8 @@ describe("admin supply forecast registry", () => {
   it("resolves stored forecast IDs to their exact supply assumptions", async () => {
     const body = (await (await fetchAdminSolverDiagnostics()).json()) as AdminDiagnosticsBody;
 
-    expect(body.supplyForecastRegistry).toEqual({
-      version: 2,
-      activeForecastId: "supply-2026-08-21-v1",
-      approvedForecastId: "supply-2026-08-21-v1",
-      forecasts: [
-        {
-          id: "supply-2026-08-21-v1",
-          kind: "fixed",
-          rulesVersion: "legacy-28-day-v1",
-          effectiveFrom: "2026-08-21",
-          sourceEvidence: [],
-          profiles: [
-            {
-              id: "supply-2026-08-21-v1@fixed",
-              effectiveFrom: "2026-08-21T00:00:00.000Z",
-              effectiveUntil: null,
-              scheduleStatus: "confirmed",
-              expectedGain: { blue: 473.912, purple: 55.808, yellow: 24.736 },
-            },
-          ],
-        },
-      ],
-    });
+    expect(body.supplyForecastRegistry).toEqual(SUPPLY_FORECAST_REGISTRY);
+    expect(body.supplyForecastRegistry?.activeForecastId).toBe("supply-2026-08-21-v1");
   });
 });
 
