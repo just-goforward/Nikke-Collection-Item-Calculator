@@ -1,10 +1,10 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildScheduleForecastProfiles, gameDayStartMs } from "../shared/supplyForecastModel.ts";
 import type { SupplyForecastContext } from "../src/wasm/rustTypes.ts";
 
-type Registry = {
+export type Registry = {
   version: 2;
   approvedForecastId: string;
   forecasts: Array<{
@@ -91,14 +91,20 @@ export function createDynamicHpProfileMatrix(registry: Registry): DynamicHpProfi
   return result;
 }
 
+export async function writeDynamicHpProfileMatrix(registry: Registry, outputPath: URL) {
+  const matrix = createDynamicHpProfileMatrix(registry);
+  await mkdir(new URL("./", outputPath), { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(matrix, null, 2)}\n`, "utf8");
+  return matrix;
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
   const registryPath = new URL("../shared/supplyForecasts.json", import.meta.url);
   const outputPath = process.argv[2]
     ? new URL(process.argv[2], new URL("./results/", import.meta.url))
     : new URL("./results/dynamic-hp-profile-matrix.json", import.meta.url);
   const registry = JSON.parse(await readFile(registryPath, "utf8")) as Registry;
-  const matrix = createDynamicHpProfileMatrix(registry);
-  await writeFile(outputPath, `${JSON.stringify(matrix, null, 2)}\n`, "utf8");
+  const matrix = await writeDynamicHpProfileMatrix(registry, outputPath);
   console.log(JSON.stringify({ profiles: matrix.length, output: outputPath.pathname }, null, 2));
 }
 
