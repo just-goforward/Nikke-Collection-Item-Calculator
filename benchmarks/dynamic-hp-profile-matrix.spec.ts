@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDynamicHpProfileMatrix } from "./dynamic-hp-profile-matrix";
+import { HP_CANDIDATES } from "./min-ef-hp-model";
 
 describe("dynamic H/p profile matrix", () => {
   it("covers 21/28/35-day confirmed and estimated normal/day1/day2/day3 contexts", () => {
@@ -23,6 +24,7 @@ describe("dynamic H/p profile matrix", () => {
     });
 
     expect(matrix).toHaveLength(25);
+    expect(HP_CANDIDATES).toHaveLength(49);
     expect(matrix.filter((entry) => entry.cycleDays !== null)).toHaveLength(24);
     expect(new Set(matrix.map((entry) => entry.id)).size).toBe(matrix.length);
     for (const entry of matrix) {

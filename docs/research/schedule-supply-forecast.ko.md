@@ -89,6 +89,13 @@ probe:forecast-x`는 token이나 원문을 출력하지 않고 공급자별 건�
 200회 이상, 완료율 99% 이상, abandoned 0건과 queue/cursor/candidate/watermark 정합성을
 요구한다.
 
+Canary가 통과하면 staging의 공식 일정 원장을 다시 처리해 inactive forecast PR을 만든다.
+H/p Actions는 그 PR의 코드를 checkout하거나 실행하지 않고, GitHub Actions bot이 만든 비-draft
+PR인지와 변경 파일이 registry 2개뿐인지 확인한 뒤 `shared/supplyForecasts.json`만 commit SHA로
+추출한다. 따라서 관리자가 PR을 병합하기 전에도 후보 수급 profile의 exact interactive gate와
+H/p 연구를 시작할 수 있다. Discord 버튼도 staging의 `test_approved`만 기록하며 PR 병합이나
+forecast 활성화를 수행하지 않는다.
+
 ## H/p 재연구
 
 승인된 일정 forecast는 21·28·35일 주기, 확정·추정 일정, 일반일·솔로 레이드 1·2·3일차
@@ -97,5 +104,6 @@ profile 매트릭스에 들어간다. 각 profile에서 기존 49개 H/p 격자�
 기준점 `H=0.75, p=3`과 비교한다. 서로 다른 p의 `E[F_p]` 값 자체는 직접 비교하지 않는다.
 
 Actions 연구는 profile별 report와 checkpoint를 격리해 제한된 slice만 진행하고 재개할 수
-있다. 연구 report는 제품 채택 권한을 갖지 않는다. 통과 후보가 있더라도 runtime 활성화는
-별도 adoption PR에서만 이뤄진다.
+있다. 미완료 profile이 있으면 최대 16개 bounded workflow generation 안에서 자동 재개하고,
+모든 exact gate가 끝난 경우에만 통합 summary를 만든다. 연구 report는 제품 채택 권한을 갖지
+않는다. 통과 후보가 있더라도 runtime 활성화는 별도 adoption PR에서만 이뤄진다.

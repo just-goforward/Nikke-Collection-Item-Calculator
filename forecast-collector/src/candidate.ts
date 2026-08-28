@@ -1,3 +1,4 @@
+import { deriveSoloRaidCadenceDays, SOLO_RAID_CADENCE_SUMMARY } from "../../shared/soloRaidCadence";
 import {
   assertForecastCandidateInvariants,
   SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION,
@@ -15,7 +16,6 @@ import { sha256Hex, stableJson } from "./crypto";
 import type { CandidateBuildResult, ScheduleEvent, XProbeResult } from "./types";
 
 const DAY_MS = 86_400_000;
-const DEFAULT_INTERVAL_DAYS = 28;
 type ConcreteScheduleEvent = ScheduleEvent & { startsAt: string; endsAt: string };
 
 export type ResolvedSchedule = {
@@ -47,16 +47,12 @@ export function resolveSoloSchedule(
   );
   const activeOrFuture = solo[activeOrFutureIndex];
   const uniqueStarts = solo.slice(-6);
-  const intervals = uniqueStarts.slice(1).map((event, index) => {
-    const previous = uniqueStarts[index];
-    return previous
-      ? gameDayStartMs(Date.parse(event.startsAt)) - gameDayStartMs(Date.parse(previous.startsAt))
-      : 0;
-  });
-  const medianMs = median(
-    intervals.filter((value) => value >= 21 * DAY_MS && value <= 35 * DAY_MS),
+  const liveStartGameDates = solo.map((event) =>
+    new Date(gameDayStartMs(Date.parse(event.startsAt)) + 9 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10),
   );
-  const cadenceMs = medianMs ?? DEFAULT_INTERVAL_DAYS * DAY_MS;
+  const cadenceMs = deriveSoloRaidCadenceDays(liveStartGameDates) * DAY_MS;
 
   let focus: ConcreteScheduleEvent;
   if (activeOrFuture) {
@@ -240,13 +236,13 @@ function estimatedSoloEvent(
       ...base.sourceItem,
       itemId: `${base.sourceItem.itemId}:estimated:${start.slice(0, 10)}`,
       title: `Estimated from recent Solo Raid cadence: ${base.sourceItem.title}`,
-      excerpt: `Recent ${evidenceCount} new-round starts; median interval ${cadenceMs / DAY_MS} days.`,
+      excerpt: `${SOLO_RAID_CADENCE_SUMMARY.rounds} official new-round starts plus ${evidenceCount} live evidence item(s); median interval ${cadenceMs / DAY_MS} days.`,
     },
     startsAt: start,
     endsAt: new Date(startMs + durationMs).toISOString(),
     scheduleStatus: "estimated",
     manualReview: false,
-    reason: "recent_six_start_median",
+    reason: "full_round_history_median",
   };
 }
 
@@ -270,14 +266,6 @@ function uniquePeriod<T extends { effectiveFrom: string; effectiveUntil: string 
         other.effectiveUntil === period.effectiveUntil,
     ) === index
   );
-}
-
-function median(values: readonly number[]) {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 1) return sorted[middle] ?? null;
-  return ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
 }
 
 function hasConcreteSchedule(event: ScheduleEvent): event is ConcreteScheduleEvent {

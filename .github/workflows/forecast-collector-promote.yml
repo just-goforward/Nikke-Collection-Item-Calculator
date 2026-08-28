@@ -62,6 +62,8 @@ jobs:
           git diff --quiet "$CANARY_SHA" HEAD -- \
             forecast-collector \
             ':(exclude)forecast-collector/README.md' \
+            ':(exclude)forecast-collector/src/candidate.ts' \
+            ':(exclude)forecast-collector/src/candidate.test.ts' \
             shared/supplyForecastCandidate.ts \
             shared/supplyForecastModel.ts \
             scripts/smoke-forecast-collector.ts \

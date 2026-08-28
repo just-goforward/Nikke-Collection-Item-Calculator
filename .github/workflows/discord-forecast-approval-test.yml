@@ -58,7 +58,18 @@ jobs:
           set -euo pipefail
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid pull request number." >&2; exit 1; }
           metadata_file="$RUNNER_TEMP/discord-pr-target.json"
-          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json url,headRefOid,body > "$metadata_file"
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --json author,baseRefName,headRefName,headRefOid,isDraft,mergeable,files,url,body > "$metadata_file"
+          node --input-type=module - "$metadata_file" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const pr = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const allowed = new Set(["shared/supplyForecasts.json", "shared/generated/supplyForecast.ts"]);
+          if (pr.author?.login !== "app/github-actions" || pr.author?.is_bot !== true) throw new Error("Forecast PR author is not GitHub Actions.");
+          if (pr.baseRefName !== "main" || !/^automation\/supply-forecast\/forecast-[a-z0-9-]+$/.test(pr.headRefName)) throw new Error("Forecast PR branch contract is invalid.");
+          if (pr.isDraft || pr.mergeable !== "MERGEABLE") throw new Error("A draft or conflicting forecast PR cannot enter Discord review.");
+          const files = pr.files.map((entry) => entry.path);
+          if (files.length !== allowed.size || files.some((file) => !allowed.has(file))) throw new Error("Forecast PR changes files outside the registry contract.");
+          NODE
           url=$(jq -r .url "$metadata_file")
           head_sha=$(jq -r .headRefOid "$metadata_file")
           body_type=$(jq -r '.body | type' "$metadata_file")

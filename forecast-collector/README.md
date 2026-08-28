@@ -74,7 +74,9 @@ round's days 1 and 2; between rounds it covers the current game day through the 
 The previous profile remains active through 04:59:59 and the next game-day profile starts exactly
 at 05:00:00.
 Confirmed new-round cadence is measured between 05:00 KST game-day starts. When no official future
-schedule exists, the median of the latest six valid 21-35 day intervals is used.
+schedule exists, the median of every reconciled new-round start since round 1 is used. Interrupted
+and reopened segments remain part of the original round. The tracked 40-round census currently has
+39 intervals and a 28-day median; newly confirmed rounds are appended before recalculation.
 
 The rules are versioned as `schedule-kit-v2` and `dispatch-policy-v1`. Dispatch mixes no-reroll,
 one-reroll, and two-reroll cohorts equally. Its independently enumerated daily expectation is:

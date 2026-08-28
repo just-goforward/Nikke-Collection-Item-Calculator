@@ -8,13 +8,27 @@ on:
       - "shared/generated/supplyForecast.ts"
   workflow_dispatch:
     inputs:
+      pull_request_number:
+        description: Trusted forecast PR to evaluate without merging
+        required: false
+        default: ""
       records_per_profile:
         description: Maximum new root or exact records per profile
         required: false
         default: "64"
+      slices_per_run:
+        description: Maximum bounded research slices per profile job
+        required: false
+        default: "8"
+      continuation_generation:
+        description: Internal bounded continuation counter
+        required: false
+        default: "0"
 
 permissions:
+  actions: write
   contents: read
+  pull-requests: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -26,12 +40,15 @@ concurrency:
 jobs:
   prepare:
     if: >-
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      vars.FORECAST_COLLECTOR_URL != ''
+      (github.event_name == 'workflow_dispatch' && inputs.pull_request_number != '' && vars.FORECAST_COLLECTOR_STAGING_URL != '') ||
+      ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.pull_request_number == '' && vars.FORECAST_COLLECTOR_URL != '')
     runs-on: ubuntu-latest
+    env:
+      FORECAST_RESEARCH_COLLECTOR_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_request_number != '' && vars.FORECAST_COLLECTOR_STAGING_URL || vars.FORECAST_COLLECTOR_URL }}
     outputs:
       enabled: ${{ steps.contract.outputs.enabled }}
       matrix: ${{ steps.matrix.outputs.matrix }}
+      profile-count: ${{ steps.matrix.outputs.profile_count }}
       wasm-key: ${{ steps.wasm.outputs.key }}
     steps:
       - name: Checkout trusted main
@@ -48,10 +65,49 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify production collector and inactive approved forecast
+      - name: Load candidate registry without executing pull request code
+        if: github.event_name == 'workflow_dispatch' && inputs.pull_request_number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pull_request_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid pull request number." >&2; exit 1; }
+          metadata="$RUNNER_TEMP/forecast-pr.json"
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --json author,baseRefName,headRefName,headRefOid,isDraft,mergeable,files,url > "$metadata"
+          node --input-type=module - "$metadata" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const pr = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const allowed = new Set(["shared/supplyForecasts.json", "shared/generated/supplyForecast.ts"]);
+          if (pr.author?.login !== "app/github-actions" || pr.author?.is_bot !== true) throw new Error("Forecast PR author is not GitHub Actions.");
+          if (pr.baseRefName !== "main" || !/^automation\/supply-forecast\/forecast-[a-z0-9-]+$/.test(pr.headRefName)) throw new Error("Forecast PR branch contract is invalid.");
+          if (pr.isDraft || pr.mergeable !== "MERGEABLE") throw new Error("A draft or conflicting forecast PR cannot enter H/p research.");
+          if (!/^[0-9a-f]{40}$/.test(pr.headRefOid)) throw new Error("Forecast PR head SHA is invalid.");
+          const files = pr.files.map((entry) => entry.path);
+          if (files.length !== allowed.size || files.some((file) => !allowed.has(file))) throw new Error("Forecast PR changes files outside the registry contract.");
+          NODE
+          head_sha=$(jq -r .headRefOid "$metadata")
+          git fetch --no-tags origin "$head_sha"
+          git show "$head_sha:shared/supplyForecasts.json" > "$RUNNER_TEMP/candidate-supplyForecasts.json"
+          node --input-type=module - "$RUNNER_TEMP/candidate-supplyForecasts.json" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const registry = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          if (registry.version !== 2 || registry.approvedForecastId === registry.activeForecastId) throw new Error("Forecast PR does not contain an inactive approved forecast.");
+          const approved = registry.forecasts?.find((entry) => entry.id === registry.approvedForecastId);
+          if (!approved || approved.kind !== "schedule" || approved.rulesVersion !== "schedule-kit-v2" || !Array.isArray(approved.profiles) || approved.profiles.length === 0) throw new Error("Forecast PR approved entry is invalid.");
+          for (const profile of approved.profiles) {
+            for (const value of Object.values(profile.expectedGain ?? {})) if (!Number.isFinite(value) || value < 0) throw new Error("Forecast PR contains an invalid gain vector.");
+          }
+          NODE
+          cp "$RUNNER_TEMP/candidate-supplyForecasts.json" shared/supplyForecasts.json
+          npm run generate:supply-forecast
+
+      - name: Verify collector and inactive approved forecast
         id: contract
         env:
-          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
+          FORECAST_COLLECTOR_URL: ${{ env.FORECAST_RESEARCH_COLLECTOR_URL }}
         shell: bash
         run: |
           set -euo pipefail
@@ -83,7 +139,9 @@ jobs:
           node --input-type=module - <<'NODE'
           import { appendFileSync, readFileSync } from "node:fs";
           const rows = JSON.parse(readFileSync("benchmarks/results/dynamic-hp-profile-matrix.json", "utf8"));
+          if (rows.length === 0) throw new Error("Dynamic H/p profile matrix is empty.");
           appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({profile: rows})}\n`);
+          appendFileSync(process.env.GITHUB_OUTPUT, `profile_count=${rows.length}\n`);
           NODE
 
       - name: Identify WASM contract
@@ -114,6 +172,7 @@ jobs:
       HP_STUDY_REPORT_FILE: dynamic/${{ matrix.profile.id }}.json
       HP_STUDY_SUPPLY_CONTEXT: ${{ toJSON(matrix.profile.context) }}
       HP_STUDY_MAX_NEW_RECORDS: ${{ inputs.records_per_profile || '64' }}
+      HP_STUDY_SLICES_PER_RUN: ${{ inputs.slices_per_run || '8' }}
     steps:
       - name: Checkout trusted main
         uses: actions/checkout@v7
@@ -159,17 +218,26 @@ jobs:
       - name: Advance bounded research slice
         shell: bash
         run: |
-          stage=$(node -e 'const r=require(process.argv[1]);process.stdout.write(r.screening.complete?"exact":"screen")' \
-            "benchmarks/results/$HP_STUDY_REPORT_FILE")
-          if [[ "$stage" == "exact" ]]; then
-            complete=$(node -e 'const r=require(process.argv[1]);process.stdout.write(String(r.exact.complete))' \
+          set -euo pipefail
+          [[ "$HP_STUDY_SLICES_PER_RUN" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid slices_per_run." >&2; exit 1; }
+          for ((slice=1; slice<=HP_STUDY_SLICES_PER_RUN; slice+=1)); do
+            stage=$(node -e 'const r=require(process.argv[1]);process.stdout.write(r.screening.complete?"exact":"screen")' \
               "benchmarks/results/$HP_STUDY_REPORT_FILE")
-            if [[ "$complete" == "true" ]]; then
-              echo "Exact gate is already complete for this profile."
-              exit 0
+            if [[ "$stage" == "exact" ]]; then
+              complete=$(node -e 'const r=require(process.argv[1]);process.stdout.write(String(r.exact.complete))' \
+                "benchmarks/results/$HP_STUDY_REPORT_FILE")
+              if [[ "$complete" == "true" ]]; then
+                echo "Exact gate is complete for this profile."
+                break
+              fi
             fi
-          fi
-          HP_STUDY_STAGE="$stage" npm run bench:min-ef-hp
+            echo "Advancing $stage slice $slice/$HP_STUDY_SLICES_PER_RUN"
+            if [[ "$stage" == "exact" ]]; then
+              HP_STUDY_STAGE="$stage" HP_STUDY_MAX_NEW_RECORDS=8 npm run bench:min-ef-hp
+            else
+              HP_STUDY_STAGE="$stage" npm run bench:min-ef-hp
+            fi
+          done
 
       - name: Validate report contract
         shell: bash
@@ -207,3 +275,98 @@ jobs:
           path: benchmarks/results/dynamic/${{ matrix.profile.id }}.json
           if-no-files-found: error
           retention-days: 30
+
+  summarize:
+    needs: [prepare, advance]
+    if: >-
+      always() && needs.prepare.outputs.enabled == 'true' &&
+      needs.advance.result != 'failure' && needs.advance.result != 'cancelled'
+    runs-on: ubuntu-latest
+    outputs:
+      complete: ${{ steps.contract.outputs.complete }}
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download this run's profile reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: dynamic-hp-*-${{ github.run_id }}
+          path: collected
+          merge-multiple: true
+
+      - name: Check aggregate exact-gate completion
+        id: contract
+        env:
+          EXPECTED_PROFILE_COUNT: ${{ needs.prepare.outputs.profile-count }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_PROFILE_COUNT" =~ ^[1-9][0-9]*$ ]] || { echo "Expected profile count is invalid." >&2; exit 1; }
+          report_dir=$(find collected -type d -path '*/benchmarks/results/dynamic' -print -quit)
+          [[ -n "$report_dir" ]] || report_dir=$(find collected -type d -name dynamic -print -quit)
+          [[ -n "$report_dir" ]] || { echo "Downloaded H/p report directory is missing." >&2; exit 1; }
+          actual=$(find "$report_dir" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')
+          complete=$(node --input-type=module - "$report_dir" "$EXPECTED_PROFILE_COUNT" <<'NODE'
+          import { readdirSync, readFileSync } from "node:fs";
+          const directory = process.argv[2];
+          const expected = Number(process.argv[3]);
+          const reports = readdirSync(directory).filter((name) => name.endsWith(".json")).map((name) => JSON.parse(readFileSync(`${directory}/${name}`, "utf8")));
+          process.stdout.write(String(reports.length === expected && reports.every((report) => report.kind === "min-ef-hp-study" && report.version === 2 && report.exact.complete === true)));
+          NODE
+          )
+          echo "expected_reports=$EXPECTED_PROFILE_COUNT" >> "$GITHUB_STEP_SUMMARY"
+          echo "reports=$actual" >> "$GITHUB_STEP_SUMMARY"
+          echo "complete=$complete" >> "$GITHUB_OUTPUT"
+          echo "report_dir=$report_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Build exact-gate summary
+        if: steps.contract.outputs.complete == 'true'
+        run: >-
+          node benchmarks/summarize-dynamic-hp-gates.ts
+          "${{ steps.contract.outputs.report_dir }}"
+          benchmarks/results/dynamic-hp-exact-gate-summary.json
+
+      - name: Upload exact-gate summary
+        if: steps.contract.outputs.complete == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dynamic-hp-exact-gate-summary-${{ github.run_id }}
+          path: benchmarks/results/dynamic-hp-exact-gate-summary.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Dispatch bounded continuation
+        if: steps.contract.outputs.complete != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pull_request_number }}
+          RECORDS_PER_PROFILE: ${{ inputs.records_per_profile || '64' }}
+          SLICES_PER_RUN: ${{ inputs.slices_per_run || '8' }}
+          GENERATION: ${{ inputs.continuation_generation || '0' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GENERATION" =~ ^[0-9]+$ ]] || { echo "Invalid continuation generation." >&2; exit 1; }
+          if (( GENERATION >= 15 )); then
+            echo "Dynamic H/p research remains incomplete after 16 bounded workflow generations." >&2
+            exit 1
+          fi
+          next=$((GENERATION + 1))
+          gh workflow run forecast-hp-research.yml --ref main \
+            -f pull_request_number="$PR_NUMBER" \
+            -f records_per_profile="$RECORDS_PER_PROFILE" \
+            -f slices_per_run="$SLICES_PER_RUN" \
+            -f continuation_generation="$next"
+          echo "Queued continuation generation $next/15." >> "$GITHUB_STEP_SUMMARY"

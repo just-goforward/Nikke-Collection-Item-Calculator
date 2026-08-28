@@ -4,6 +4,20 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      target_environment:
+        description: Collector environment to read and update
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - staging
+      bootstrap_solo_history:
+        description: Reprocess the official Solo Raid history before proposing
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -18,12 +32,17 @@ concurrency:
 
 jobs:
   propose:
-    if: vars.FORECAST_COLLECTOR_URL != ''
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.target_environment == 'staging' && vars.FORECAST_COLLECTOR_STAGING_URL != '') ||
+      ((github.event_name != 'workflow_dispatch' || inputs.target_environment == 'production') && vars.FORECAST_COLLECTOR_URL != '')
     runs-on: ubuntu-latest
+    env:
+      FORECAST_TARGET_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment == 'staging' && vars.FORECAST_COLLECTOR_STAGING_URL || vars.FORECAST_COLLECTOR_URL }}
+      FORECAST_BOOTSTRAP_SOLO_HISTORY: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_solo_history && 'true' || 'false' }}
     steps:
       - name: Validate configuration
         env:
-          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
+          FORECAST_COLLECTOR_URL: ${{ env.FORECAST_TARGET_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
         run: |
           test -n "$FORECAST_COLLECTOR_URL" || { echo "Missing FORECAST_COLLECTOR_URL variable." >&2; exit 1; }
@@ -32,7 +51,7 @@ jobs:
       - name: Check whether queue processing or proposal work exists
         id: preflight
         env:
-          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
+          FORECAST_COLLECTOR_URL: ${{ env.FORECAST_TARGET_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_DIRECT_NAVER_POLL: ${{ vars.FORECAST_DIRECT_NAVER_POLL }}
         shell: bash
@@ -46,8 +65,8 @@ jobs:
             "$FORECAST_COLLECTOR_URL/admin/candidates")
           has_work=$(node -e '
             const q=JSON.parse(process.argv[1]); const c=JSON.parse(process.argv[2]);
-            process.stdout.write(String(process.argv[3]==="true" || q.items?.length>0 || c.candidates?.length>0));
-          ' "$queue" "$candidates" "$FORECAST_DIRECT_NAVER_POLL")
+            process.stdout.write(String(process.argv[3]==="true" || process.argv[4]==="true" || q.items?.length>0 || c.candidates?.length>0));
+          ' "$queue" "$candidates" "$FORECAST_DIRECT_NAVER_POLL" "$FORECAST_BOOTSTRAP_SOLO_HISTORY")
           echo "has_work=$has_work" >> "$GITHUB_OUTPUT"
 
       - name: Checkout trusted main
@@ -72,16 +91,17 @@ jobs:
         if: steps.preflight.outputs.has_work == 'true'
         id: queue
         env:
-          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
+          FORECAST_COLLECTOR_URL: ${{ env.FORECAST_TARGET_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_DIRECT_NAVER_POLL: ${{ vars.FORECAST_DIRECT_NAVER_POLL }}
+          FORECAST_BOOTSTRAP_SOLO_HISTORY: ${{ env.FORECAST_BOOTSTRAP_SOLO_HISTORY }}
         run: npm run process:forecast-source-queue
 
       - name: Check for a proposal candidate
         if: steps.preflight.outputs.has_work == 'true'
         id: ready
         env:
-          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
+          FORECAST_COLLECTOR_URL: ${{ env.FORECAST_TARGET_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
         run: npm run peek:supply-forecast
 
@@ -89,7 +109,7 @@ jobs:
         if: steps.ready.outputs.has_candidate == 'true'
         id: candidate
         env:
-          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
+          FORECAST_COLLECTOR_URL: ${{ env.FORECAST_TARGET_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_PROPOSAL_OUTPUT: ${{ runner.temp }}/forecast-proposal.md
           X_API_BEARER_TOKEN: ${{ secrets.X_API_BEARER_TOKEN }}
@@ -134,7 +154,7 @@ jobs:
       - name: Mark candidate proposed only after PR succeeds
         if: steps.candidate.outputs.has_candidate == 'true'
         env:
-          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
+          FORECAST_COLLECTOR_URL: ${{ env.FORECAST_TARGET_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           CANDIDATE_ID: ${{ steps.candidate.outputs.candidate_id }}
         shell: bash

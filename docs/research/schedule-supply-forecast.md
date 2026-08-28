@@ -82,6 +82,13 @@ entry. Canary v3 requires a 12-hour window, at least 200 invocations, at least 9
 abandoned invocations, and consistent queues, cursors, candidates, and watermarks. The
 administrator's merge approves the evidence but does not activate the forecast.
 
+After the canary passes, staging replays the official schedule ledger and creates an inactive
+forecast pull request. The H/p workflow does not check out or execute pull-request code. It verifies
+that the PR is a non-draft GitHub Actions bot proposal changing only the two registry files, then
+extracts `shared/supplyForecasts.json` by immutable commit SHA. Exact interactive and H/p research
+can therefore run before the administrator merges the proposal. The Discord button remains a
+staging test that records only `test_approved`; it cannot merge the PR or activate a forecast.
+
 ## Renewed H/p study
 
 The research matrix covers 21, 28, and 35 day cycles, confirmed and estimated schedules, and normal,
@@ -90,5 +97,7 @@ Solo day-1, day-2, and day-3 profiles. Every profile reruns the existing 49-poin
 CVaR90, typed failures, and cold/warm latency. Candidate-specific `E[F_p]` values are not compared
 directly across different p values.
 
-Profile reports and checkpoints are isolated and resumable. Research output explicitly has no
-product-adoption authority; any accepted change requires a separate adoption pull request.
+Profile reports and checkpoints are isolated and resumable. Incomplete profiles continue for at
+most 16 bounded workflow generations, and the aggregate summary is emitted only after every exact
+gate completes. Research output explicitly has no product-adoption authority; any accepted change
+requires a separate adoption pull request.

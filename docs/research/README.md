@@ -22,6 +22,7 @@ record the evidence behind decisions and do not override the implementation.
 ## Statistics And Inputs
 
 - [Schedule-based supply forecast contract (Korean)](./schedule-supply-forecast.ko.md) / [English](./schedule-supply-forecast.md)
+- [Full Solo Raid cadence census (Korean)](./solo-raid-cadence-census.ko.md) / [English](./solo-raid-cadence-census.md)
 - [Expected 28-day kit gains (Korean)](./kit-expected-gain.ko.md)
 - [Statistics interval and D1 rollup review (Korean)](./stats-interval-rollup-findings.ko.md) / [English](./stats-interval-rollup-findings.md)
 

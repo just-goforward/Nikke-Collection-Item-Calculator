@@ -88,7 +88,7 @@ describe("forecast candidate model", () => {
     expect(afterReset?.event.eventId).toBe(nextSolo.eventId);
   });
 
-  it("estimates the next new round from the median of recent valid intervals", () => {
+  it("estimates the next new round from the all-round median", () => {
     const starts = [
       "2026-03-19",
       "2026-04-16",
@@ -213,7 +213,7 @@ describe("forecast candidate model", () => {
       startsAt: "2026-09-21T03:00:00.000Z",
       endsAt: "2026-09-27T19:59:00.000Z",
       scheduleStatus: "estimated",
-      reason: "recent_six_start_median",
+      reason: "full_round_history_median",
     };
 
     const resolved = resolveSoloSchedule(
