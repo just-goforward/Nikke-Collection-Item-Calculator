@@ -1,0 +1,50 @@
+name: Probe Forecast X Sources
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Probe exact X status URLs
+        env:
+          X_API_BEARER_TOKEN: ${{ secrets.X_API_BEARER_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/probe-forecast-x-sources.ts | tee "$RUNNER_TEMP/forecast-x-probe.log"
+          grep -Eq '"firstStatusUrl":"https://x\.com/NIKKE_kr/status/[0-9]+"' \
+            "$RUNNER_TEMP/forecast-x-probe.log" || {
+              echo "No verified @NIKKE_kr status URL was discovered." >&2
+              exit 1
+            }
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Forecast X source probe" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/forecast-x-probe.log" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
