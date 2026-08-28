@@ -1,9 +1,5 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { createServer } from "vite";
-import {
-  activeSupplyForecastContext,
-  validateSupplyForecastContext,
-} from "../src/wasm/rustCoreShared.ts";
 import type { SupplyForecastContext } from "../src/wasm/rustTypes.ts";
 
 import {
@@ -48,16 +44,8 @@ const maxNewRecords = parsePositiveInteger(
   Number.MAX_SAFE_INTEGER,
 );
 const supplyContextValue = envValue("HP_STUDY_SUPPLY_CONTEXT");
-const supplyForecast = supplyContextValue
-  ? validateSupplyForecastContext(JSON.parse(supplyContextValue) as SupplyForecastContext)
-  : activeSupplyForecastContext();
-const CHECKPOINT_DIRECTORY = new URL(
-  `./min-ef-hp-checkpoints/${safePathSegment(supplyForecast.forecastProfileId)}/`,
-  RESULTS_DIRECTORY,
-);
 
 await mkdir(RESULTS_DIRECTORY, { recursive: true });
-await mkdir(CHECKPOINT_DIRECTORY, { recursive: true });
 const wasm = await readFile(WASM_URL);
 const server = await createServer({
   appType: "custom",
@@ -68,6 +56,19 @@ const server = await createServer({
 });
 
 try {
+  const rustCoreShared = (await server.ssrLoadModule(
+    "/src/wasm/rustCoreShared.ts",
+  )) as typeof import("../src/wasm/rustCoreShared");
+  const supplyForecast = supplyContextValue
+    ? rustCoreShared.validateSupplyForecastContext(
+        JSON.parse(supplyContextValue) as SupplyForecastContext,
+      )
+    : rustCoreShared.activeSupplyForecastContext();
+  const checkpointDirectory = new URL(
+    `./min-ef-hp-checkpoints/${safePathSegment(supplyForecast.forecastProfileId)}/`,
+    RESULTS_DIRECTORY,
+  );
+  await mkdir(checkpointDirectory, { recursive: true });
   const model = (await server.ssrLoadModule(
     "/benchmarks/min-ef-hp-model.ts",
   )) as typeof import("./min-ef-hp-model");
@@ -200,7 +201,7 @@ try {
           policy.createHpLadderSession,
           supplyForecast,
         );
-        const checkpointUrl = exactCheckpointUrl(candidateId, scenarioId);
+        const checkpointUrl = exactCheckpointUrl(checkpointDirectory, candidateId, scenarioId);
         try {
           const checkpoint = await readExactCheckpoint(checkpointUrl);
           const exactSession = evaluator.createExactInteractiveReplanSession(
@@ -440,8 +441,8 @@ function exactCandidatePriority(
   );
 }
 
-function exactCheckpointUrl(candidateId: string, scenarioId: string): URL {
-  return new URL(`${candidateId}/${scenarioId}.json`, CHECKPOINT_DIRECTORY);
+function exactCheckpointUrl(directory: URL, candidateId: string, scenarioId: string): URL {
+  return new URL(`${candidateId}/${scenarioId}.json`, directory);
 }
 
 function safePathSegment(value: string): string {
