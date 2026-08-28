@@ -41,7 +41,7 @@ if (!registry.forecasts.some((forecast) => forecast.id === registry.approvedFore
 }
 const active = registry.forecasts[activeIndex];
 if (!active) throw new Error("Active supply forecast index is invalid.");
-const expected = new Map<string, string>([[tsPath, renderTypeScript(registry, activeIndex)]]);
+const expected = new Map<string, string>([[tsPath, renderTypeScript(registry, active)]]);
 
 let stale = false;
 for (const [path, content] of expected) {
@@ -176,18 +176,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function renderTypeScript(registry: Registry, activeIndex: number) {
+function renderTypeScript(registry: Registry, active: Forecast) {
   const serialized = JSON.stringify(registry, null, 2)
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n");
+  const serializedActive = JSON.stringify(active, null, 2)
     .split("\n")
     .map((line) => `  ${line}`)
     .join("\n");
   return (
     `// Generated from shared/supplyForecasts.json. Do not edit directly.\n` +
-    `export const SUPPLY_FORECAST_REGISTRY =\n${serialized} as const;\n\n` +
-    `export const ACTIVE_SUPPLY_FORECAST_ID = SUPPLY_FORECAST_REGISTRY.activeForecastId;\n` +
-    `export const ACTIVE_SUPPLY_FORECAST = SUPPLY_FORECAST_REGISTRY.forecasts[${activeIndex}];\n\n` +
+    `export const ACTIVE_SUPPLY_FORECAST_ID = ${JSON.stringify(active.id)} as const;\n` +
+    `export const ACTIVE_SUPPLY_FORECAST =\n${serializedActive} as const;\n\n` +
     `export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE = ACTIVE_SUPPLY_FORECAST.profiles[0];\n` +
     `export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID = ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.id;\n\n` +
+    `export const SUPPLY_FORECAST_REGISTRY =\n${serialized} as const;\n\n` +
     `export type SupplyForecastId = (typeof SUPPLY_FORECAST_REGISTRY.forecasts)[number]["id"];\n` +
     `export type SupplyForecastProfile = {\n` +
     `  id: string;\n` +
@@ -221,7 +225,11 @@ function renderTypeScript(registry: Registry, activeIndex: number) {
     `export function resolveActiveSupplyForecastProfile(\n` +
     `  timestampMs = Date.now(),\n` +
     `): SupplyForecastProfile {\n` +
-    `  const profile = resolveSupplyForecastProfile(ACTIVE_SUPPLY_FORECAST_ID, timestampMs);\n` +
+    `  const profile = (ACTIVE_SUPPLY_FORECAST.profiles as readonly SupplyForecastProfile[]).find((entry) => {\n` +
+    `    const from = Date.parse(entry.effectiveFrom);\n` +
+    `    const until = entry.effectiveUntil === null ? Number.POSITIVE_INFINITY : Date.parse(entry.effectiveUntil);\n` +
+    `    return timestampMs >= from && timestampMs < until;\n` +
+    `  }) ?? null;\n` +
     `  if (!profile) throw new Error("The active supply forecast has no profile for the requested time.");\n` +
     `  return profile;\n` +
     `}\n`

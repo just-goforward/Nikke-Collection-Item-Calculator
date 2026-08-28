@@ -1,4 +1,30 @@
 // Generated from shared/supplyForecasts.json. Do not edit directly.
+export const ACTIVE_SUPPLY_FORECAST_ID = "supply-2026-08-21-v1" as const;
+export const ACTIVE_SUPPLY_FORECAST =
+  {
+    "id": "supply-2026-08-21-v1",
+    "kind": "fixed",
+    "rulesVersion": "legacy-28-day-v1",
+    "effectiveFrom": "2026-08-21",
+    "sourceEvidence": [],
+    "profiles": [
+      {
+        "id": "supply-2026-08-21-v1@fixed",
+        "effectiveFrom": "2026-08-21T00:00:00.000Z",
+        "effectiveUntil": null,
+        "scheduleStatus": "confirmed",
+        "expectedGain": {
+          "blue": 473.912,
+          "purple": 55.808,
+          "yellow": 24.736
+        }
+      }
+    ]
+  } as const;
+
+export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE = ACTIVE_SUPPLY_FORECAST.profiles[0];
+export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID = ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.id;
+
 export const SUPPLY_FORECAST_REGISTRY =
   {
     "version": 2,
@@ -27,12 +53,6 @@ export const SUPPLY_FORECAST_REGISTRY =
       }
     ]
   } as const;
-
-export const ACTIVE_SUPPLY_FORECAST_ID = SUPPLY_FORECAST_REGISTRY.activeForecastId;
-export const ACTIVE_SUPPLY_FORECAST = SUPPLY_FORECAST_REGISTRY.forecasts[0];
-
-export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE = ACTIVE_SUPPLY_FORECAST.profiles[0];
-export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID = ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.id;
 
 export type SupplyForecastId = (typeof SUPPLY_FORECAST_REGISTRY.forecasts)[number]["id"];
 export type SupplyForecastProfile = {
@@ -71,7 +91,11 @@ export function resolveSupplyForecastProfile(
 export function resolveActiveSupplyForecastProfile(
   timestampMs = Date.now(),
 ): SupplyForecastProfile {
-  const profile = resolveSupplyForecastProfile(ACTIVE_SUPPLY_FORECAST_ID, timestampMs);
+  const profile = (ACTIVE_SUPPLY_FORECAST.profiles as readonly SupplyForecastProfile[]).find((entry) => {
+    const from = Date.parse(entry.effectiveFrom);
+    const until = entry.effectiveUntil === null ? Number.POSITIVE_INFINITY : Date.parse(entry.effectiveUntil);
+    return timestampMs >= from && timestampMs < until;
+  }) ?? null;
   if (!profile) throw new Error("The active supply forecast has no profile for the requested time.");
   return profile;
 }
