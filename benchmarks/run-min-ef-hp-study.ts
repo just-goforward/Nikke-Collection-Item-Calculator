@@ -1,5 +1,9 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { createServer } from "vite";
+import {
+  ACTIVE_SUPPLY_FORECAST_ID,
+  resolveActiveSupplyForecastProfile,
+} from "../shared/generated/supplyForecast.ts";
 import type { SupplyForecastContext } from "../src/wasm/rustTypes.ts";
 
 import {
@@ -56,14 +60,9 @@ const server = await createServer({
 });
 
 try {
-  const rustCoreShared = (await server.ssrLoadModule(
-    "/src/wasm/rustCoreShared.ts",
-  )) as typeof import("../src/wasm/rustCoreShared");
   const supplyForecast = supplyContextValue
-    ? rustCoreShared.validateSupplyForecastContext(
-        JSON.parse(supplyContextValue) as SupplyForecastContext,
-      )
-    : rustCoreShared.activeSupplyForecastContext();
+    ? validateSupplyForecastContext(JSON.parse(supplyContextValue) as SupplyForecastContext)
+    : activeSupplyForecastContext();
   const checkpointDirectory = new URL(
     `./min-ef-hp-checkpoints/${safePathSegment(supplyForecast.forecastProfileId)}/`,
     RESULTS_DIRECTORY,
@@ -451,4 +450,30 @@ function safePathSegment(value: string): string {
     throw new Error("Supply forecast profile ID cannot be used as a checkpoint namespace.");
   }
   return safe;
+}
+
+function activeSupplyForecastContext(): SupplyForecastContext {
+  const profile = resolveActiveSupplyForecastProfile();
+  return validateSupplyForecastContext({
+    forecastId: ACTIVE_SUPPLY_FORECAST_ID,
+    forecastProfileId: profile.id,
+    expectedGain: profile.expectedGain,
+  });
+}
+
+function validateSupplyForecastContext(context: SupplyForecastContext): SupplyForecastContext {
+  for (const kit of ["blue", "purple", "yellow"] as const) {
+    const gain = context.expectedGain[kit];
+    if (!Number.isFinite(gain) || gain < 0) {
+      throw new RangeError("Supply forecast gains must be non-negative finite numbers.");
+    }
+  }
+  if (!context.forecastId || !context.forecastProfileId) {
+    throw new RangeError("Supply forecast IDs must not be empty.");
+  }
+  return {
+    forecastId: context.forecastId,
+    forecastProfileId: context.forecastProfileId,
+    expectedGain: { ...context.expectedGain },
+  };
 }
