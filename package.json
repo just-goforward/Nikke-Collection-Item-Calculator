@@ -98,6 +98,7 @@
     "process:forecast-source-queue": "node scripts/process-forecast-source-queue.ts",
     "peek:supply-forecast": "node scripts/peek-supply-forecast.ts",
     "propose:supply-forecast": "node scripts/propose-supply-forecast.ts",
+    "probe:forecast-x": "node scripts/probe-forecast-x-sources.ts",
     "send:discord-forecast-approval-test": "node scripts/discord-forecast-approval-test.ts",
     "check:d1-schema": "node scripts/check-d1-schema.ts",
     "smoke:pages": "node scripts/smoke-pages-deployment.mjs",

@@ -127,10 +127,22 @@ function parseXReviewMetadata(value: unknown): ForecastReviewMetadata["x"] {
   if (!isRecord(value)) throw new Error("Forecast X review metadata is invalid.");
   const status = oneOf(value["status"], ["matching", "conflict", "unavailable"] as const);
   const source =
-    value["source"] === null ? null : oneOf(value["source"], ["embed", "direct", "jina"] as const);
+    value["source"] === null
+      ? null
+      : oneOf(value["source"], [
+          "x-api",
+          "profile-html",
+          "syndication",
+          "embed",
+          "direct",
+          "jina",
+        ] as const);
   const reason = oneOf(value["reason"], [
     "matched_schedule",
     "schedule_conflict",
+    "schedule_not_verified",
+    "authentication_failed",
+    "invalid_response",
     "timeout",
     "rate_limited",
     "login_wall",
@@ -278,7 +290,8 @@ function renderXChecklist(result: XAdvisoryResult) {
     const link = result.statusUrl ? ` ([status](${result.statusUrl}))` : "";
     return `- [ ] X 공개 게시물과 Naver 일정이 충돌합니다. 관리자 검토가 필요합니다.${link}`;
   }
-  return `- [ ] X \`@NIKKE_kr\` 공개 게시물을 관리자가 수동 확인했습니다. 자동 확인 사유: \`${result.reason}\``;
+  const link = result.statusUrl ? ` ([확인 후보](${result.statusUrl}))` : "";
+  return `- [ ] X \`@NIKKE_kr\` 공개 게시물을 관리자가 수동 확인했습니다. 자동 확인 사유: \`${result.reason}\`${link}`;
 }
 
 function formatGain(gain: { blue: number; purple: number; yellow: number } | undefined) {

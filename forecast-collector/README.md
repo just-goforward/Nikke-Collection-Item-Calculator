@@ -16,18 +16,49 @@ statistics and cannot modify the repository or activate a product forecast.
   responses use SmartEditor HTML rather than JSON. The JSON-only boundary therefore fails closed to
   `manual_review`; automatic candidate generation remains blocked until a separately reviewed,
   structured Actions-side HTML parser is introduced.
-- X is advisory only and runs in GitHub Actions only when a candidate exists. The workflow tries the
-  official embedded profile, the public profile, and then Jina Reader once. It uses no X API, RSS
-  bridge, login session, cookie, Nitter instance, or private syndication endpoint.
-- [Defuddle](https://github.com/kepano/defuddle) is not used because it extracts content from an
-  already accessible DOM and its optional async X fallback uses FxTwitter. [Jina
-  Reader](https://jina.ai/reader/) successfully returned the public profile in a live
-  preflight, but it is an external fetch/cache intermediary and is not accepted as authoritative
-  schedule evidence. A Jina match always leaves manual X verification unchecked, and a transformed
-  Jina response can never create a conflict by itself.
+- X is advisory only and runs in GitHub Actions only when a candidate exists. The primary discovery
+  path is the official recent-search API with the optional `X_API_BEARER_TOKEN` repository secret.
+  Its query is restricted to Solo Raid, collaboration, Co-op Operation, and Kit Box keywords from
+  `@NIKKE_kr`, requests at most ten results, and accepts a post only when the response expansion
+  verifies the official author ID and username. Solo and collaboration dates can be compared with the
+  candidate; Co-op and Kit Box posts are retained only as manual-review URLs.
+- Without that secret, or after a transient API failure, the workflow extracts status IDs from the
+  server-rendered public profile and verifies each ID through X's structured `tweet-result` embed
+  response. It then tries the profile syndication document and Jina Reader. Every structured path
+  requires the returned author to be `NIKKE_kr`; Jina is a last advisory fallback, derives
+  publication time from the status Snowflake ID, and can never create a conflict by itself.
+- [Defuddle](https://github.com/kepano/defuddle) is not used for discovery because it converts an
+  already known URL or accessible DOM to clean content. Its async X extractor also calls FxTwitter.
+  It can read a known status after discovery, but the live result also included adjacent timeline
+  content and its profile Markdown did not retain current status URLs. It would therefore add a
+  second lossy representation of text already returned structurally by X API or X embed data.
 - An unavailable X page leaves a manual checklist on a normal PR. A matching post adds its status
   link. A conflicting schedule creates a draft `[X 일정 충돌 검토]` PR that cannot be merged until
   a person reviews it.
+
+Configure `X_API_BEARER_TOKEN` as a GitHub Actions repository secret to enable the deterministic
+primary path. The token needs read-only access to recent post search; it must not receive post-write,
+DM, account-management, or repository permissions. X currently bills the API per resource and has no
+monthly minimum, so configure a small prepaid balance and spending alert in the X Developer Console.
+The workflow does not fail when the secret is absent, but URL discovery then depends on rate-limited,
+undocumented public fallbacks and may require the Discord/PR manual check. Run the redacted source
+diagnostic with:
+
+```powershell
+$env:X_API_BEARER_TOKEN = "<temporary local token>"
+npm run probe:forecast-x
+Remove-Item Env:X_API_BEARER_TOKEN
+```
+
+The diagnostic prints only source, result count, reason, first status URL, and publication time. It
+never prints the token or response bodies.
+
+`[confirmed]` A 2026-08-28 live probe found five exact status IDs in the public profile HTML and
+verified all five through `tweet-result`, including author, text, and publication time. During the
+same probe, the timeline syndication document and Jina were rate-limited. Defuddle 0.18.1 could read
+a known status and display profile text, but the known-status output included adjacent timeline
+content and its profile Markdown omitted the five status URLs. This is why raw profile ID discovery
+plus structured per-status verification precedes those fallbacks.
 
 The Naver cursor walks one overlapping page per invocation when more than ten posts arrived between
 polls. Queue insertion and cursor advancement share one D1 batch, and `(source, itemId)` is unique.

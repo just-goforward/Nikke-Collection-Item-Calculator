@@ -43,17 +43,40 @@ profile과 주간 reset을 적용한다.
 
 Naver 라운지 56·48번 게시판이 자동 판정의 주 출처다. Free Worker의 3분 Cron은 본문을
 처리하지 않고 얕은 feed 메타데이터만 D1 queue에 넣는다. 5분 GitHub Actions가 구조화된
-SmartEditor JSON을 다시 받아 일정 해석과 후보 생성을 수행한다. X 공개 타임라인은 후보가
-있을 때만 Actions에서 공식 embed, 공개 profile, Jina Reader를 각각 한 번 확인하며 API,
-비공식 RSS, 로그인 cookie를 사용하지 않는다. X를 읽을 수 없으면 관리자 확인 체크를
-남기고, 일정이 충돌하면 draft PR로 격리한다.
+SmartEditor JSON을 다시 받아 일정 해석과 후보 생성을 수행한다. X 검증은 후보가 있을 때만
+Actions에서 실행한다. `X_API_BEARER_TOKEN`이 있으면 공식 recent search를 1차로 사용하고,
+`from:NIKKE_kr`·솔로 레이드/콜라보/협동작전/키트 상자 키워드·최대 10건으로 범위를
+제한한다. 응답의 author expansion이 `NIKKE_kr`임을 확인한 게시물만 사용한다. 솔로 레이드와
+콜라보는 후보 일정과 자동 비교하고, 협동작전·키트 상자는 정확한 URL을 수동 확인 후보로만
+전달한다. API가 없거나 실패하면 공개 프로필 원본에서
+status ID를 찾고 X의 구조화된 `tweet-result` 응답으로 ID·작성자·본문·시각을 재검증한다.
+그다음 profile syndication의 `__NEXT_DATA__`, 마지막으로 Jina Reader를 확인한다. X를 읽을 수
+없으면 관리자 확인 체크를 남기고, 공식 API 또는 X 구조화 응답에서 확인한 일정이 충돌하면
+draft PR로 격리한다.
 
-[Defuddle](https://github.com/kepano/defuddle)은 이미 읽을 수 있는 DOM의 본문 정리 도구이며
-선택적 X fallback이 FxTwitter를 사용하므로 채택하지 않는다. [Jina
-Reader](https://jina.ai/reader/)는 공개 프로필 live preflight에 성공했지만 제3자
-fetch/cache 중계 계층이므로 공식 일정 근거로 채택하지 않는다. `unavailable` 전의 보조
-fallback으로만 사용하며, Jina 일치는 수동 원문 확인을 요구하고 Jina만으로 충돌을 만들지
-않는다.
+[Defuddle](https://github.com/kepano/defuddle)은 이미 알고 있는 URL이나 접근 가능한 DOM을
+Markdown으로 정리하는 데는 쓸 수 있지만, 차단되거나 불완전한 프로필에서 최신 status URL을
+안정적으로 발견하지는 못한다. 선택적 X fallback도 FxTwitter를 사용한다. 2026-08-28 live
+검사에서도 알려진 개별 status와 프로필 본문은 읽었지만, 개별 status 결과에 주변 timeline
+본문이 섞였고 프로필 Markdown에서는 원본에 있던 status URL 5개를 보존하지 못했다. 따라서
+발견·기계 검증 단계에는 넣지 않으며, 공식 API/구조화 응답이 이미 제공하는 본문을 다시 손실
+변환하는 용도로도 추가하지 않는다. [Jina
+Reader](https://jina.ai/reader/)는 제3자 fetch/cache 중계이므로 마지막 보조
+경로로만 사용한다. status Snowflake로 최신성을 검사하고, Jina 일치는 수동 원문 확인을
+요구하며 Jina만으로 충돌을 만들지 않는다.
+
+문서화된 API 계약에 기반한 1차 URL 발견에는 GitHub repository secret
+`X_API_BEARER_TOKEN`이 필요하다. X
+Developer Console에서는 recent search 읽기만 가능한 앱과 소액 prepaid 한도·알림을 사용하고,
+게시·DM·계정 관리 권한은 주지 않는다. secret이 없어도 검증된 공개 프로필 경로로 자동
+발견을 시도하지만, 비문서화 경로의 rate limit이나 형식 변경 시 Discord/PR 수동 확인으로
+강등된다. `npm run
+probe:forecast-x`는 token이나 원문을 출력하지 않고 공급자별 건수·사유·첫 URL·시각만 점검한다.
+
+- `[확인]` 2026-08-28 live probe에서 공개 프로필 HTML의 status ID 5개를 찾았고,
+  `tweet-result`로 5개 모두의 `NIKKE_kr` 작성자·본문·시각을 검증했다. 같은 시각 timeline
+  syndication과 Jina는 rate limit이었다. 따라서 무자격증명 경로는 프로필 ID + 개별 구조화
+  검증을 우선하고, 나머지는 장애 격리용 fallback으로 둔다.
 
 - `[확인]` 2026-08-25 live contract 검사에서 48·56번 최신 관리자 글과 솔로 레이드 공지는
   SmartEditor JSON이 아니라 SmartEditor HTML을 반환했다. 현재 JSON-only 경계는 이를

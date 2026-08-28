@@ -85,10 +85,6 @@ jobs:
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
         run: npm run peek:supply-forecast
 
-      - name: Install Chromium for candidate-only X advisory
-        if: steps.ready.outputs.has_candidate == 'true'
-        run: npx playwright install --with-deps chromium
-
       - name: Fetch, verify, and apply one candidate
         if: steps.ready.outputs.has_candidate == 'true'
         id: candidate
@@ -96,6 +92,7 @@ jobs:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_PROPOSAL_OUTPUT: ${{ runner.temp }}/forecast-proposal.md
+          X_API_BEARER_TOKEN: ${{ secrets.X_API_BEARER_TOKEN }}
         run: npm run propose:supply-forecast
 
       - name: Verify generated registry and focused tests

@@ -95,7 +95,7 @@ describe("supply forecast proposal", () => {
       { payloadHash: "b".repeat(64), candidate },
       {
         status: "matching",
-        source: "jina",
+        source: "x-api",
         reason: "matched_schedule",
         statusUrl: "https://x.com/NIKKE_kr/status/123456789",
         excerpt: "솔로 레이드 일정",
@@ -108,7 +108,11 @@ describe("supply forecast proposal", () => {
     expect(metadata).toMatchObject({
       candidateId: candidate.candidateId,
       forecastId: candidate.forecastId,
-      x: { status: "matching", statusUrl: "https://x.com/NIKKE_kr/status/123456789" },
+      x: {
+        status: "matching",
+        source: "x-api",
+        statusUrl: "https://x.com/NIKKE_kr/status/123456789",
+      },
     });
     expect(discord.xLink).toBe("https://x.com/NIKKE_kr/status/123456789");
     expect(discord.content).toContain("솔로 레이드: 2026-09-21 12:00 KST");
