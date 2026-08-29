@@ -166,7 +166,8 @@ jobs:
     timeout-minutes: 330
     strategy:
       fail-fast: false
-      max-parallel: 3
+      # Keep four of the GitHub Free concurrency slots available for normal CI and deployments.
+      max-parallel: 16
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       HP_STUDY_REPORT_FILE: dynamic/${{ matrix.profile.id }}.json
