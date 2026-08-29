@@ -107,3 +107,15 @@ Actions 연구는 profile별 report와 checkpoint를 격리해 제한된 slice�
 있다. 미완료 profile이 있으면 최대 16개 bounded workflow generation 안에서 자동 재개하고,
 모든 exact gate가 끝난 경우에만 통합 summary를 만든다. 연구 report는 제품 채택 권한을 갖지
 않는다. 통과 후보가 있더라도 runtime 활성화는 별도 adoption PR에서만 이뤄진다.
+
+동일한 `blue/purple/yellow expectedGain` 벡터는 SHA-256 identity로 묶어 한 번만 계산한다.
+날짜·확정 상태·forecast profile ID가 달라도 gain 벡터가 같으면 원 profile은 evidence alias로
+모두 보존되고, 후보 집계에서는 고유 벡터 한 건으로만 센다. 중복 profile의 기존 결과가 서로
+다르면 이를 숨기지 않고 인증서 생성을 실패시킨다. 최종 exact-gate artifact는 solver WASM,
+rules version, 후보 격자, screening/exact 시나리오 집합의 hash와 고유 gain별 결과 hash를 포함해
+90일간 보존한다.
+
+GitHub Free의 표준 hosted-runner 동시 job 한도 20개를 research matrix에 모두 사용한다. 이 한도는
+계정 단위이므로 연구 중 다른 CI·배포 job은 runner가 반환될 때까지 queue에 남을 수 있다. 구형
+workflow가 이미 만든 continuation은 checkpoint 집합을 바꾸지 않도록 deduplication을 끈 상태로
+끝내고, 새 generation-0 캠페인부터 `gain-vector-v1`을 적용한다.

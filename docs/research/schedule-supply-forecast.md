@@ -101,3 +101,16 @@ Profile reports and checkpoints are isolated and resumable. Incomplete profiles 
 most 16 bounded workflow generations, and the aggregate summary is emitted only after every exact
 gate completes. Research output explicitly has no product-adoption authority; any accepted change
 requires a separate adoption pull request.
+
+Identical `blue/purple/yellow expectedGain` vectors are grouped by a SHA-256 identity and evaluated
+once. Profiles that differ only by date, schedule status, or forecast profile ID remain in the
+certificate as evidence aliases, while candidate aggregation counts the unique vector once. If
+previous duplicate-profile results disagree, certificate generation fails instead of hiding the
+conflict. The final exact-gate artifact records the solver WASM, rules version, candidate-grid,
+screening/exact scenario-set, and per-gain result hashes and retains that compact certificate for 90
+days.
+
+The research matrix uses all 20 standard hosted-runner concurrency slots available on GitHub Free.
+That allowance is account-wide, so unrelated CI or deployment jobs can remain queued until a slot is
+released. Continuations already created by the legacy workflow finish without changing their
+checkpoint set; new generation-0 campaigns enable `gain-vector-v1` deduplication.

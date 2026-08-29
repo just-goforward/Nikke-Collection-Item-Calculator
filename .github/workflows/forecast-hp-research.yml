@@ -24,6 +24,15 @@ on:
         description: Internal bounded continuation counter
         required: false
         default: "0"
+      profile_deduplication:
+        description: Gain-vector profile deduplication mode; auto preserves legacy continuations
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - gain-vector-v1
+          - "off"
 
 permissions:
   actions: write
@@ -50,6 +59,8 @@ jobs:
       matrix: ${{ steps.matrix.outputs.matrix }}
       profile-count: ${{ steps.matrix.outputs.profile_count }}
       wasm-key: ${{ steps.wasm.outputs.key }}
+      profile-deduplication: ${{ steps.matrix.outputs.deduplication }}
+      rules-version: ${{ steps.contract.outputs.rules_version }}
     steps:
       - name: Checkout trusted main
         uses: actions/checkout@v7
@@ -121,6 +132,9 @@ jobs:
           const enabled = registry.version === 2 &&
             registry.approvedForecastId !== registry.activeForecastId;
           appendFileSync(process.env.GITHUB_OUTPUT, `enabled=${enabled}\n`);
+          const approved = registry.forecasts.find((entry) => entry.id === registry.approvedForecastId);
+          if (enabled && approved?.rulesVersion !== "schedule-kit-v2") throw new Error("Unsupported forecast rules version.");
+          appendFileSync(process.env.GITHUB_OUTPUT, `rules_version=${approved?.rulesVersion ?? "none"}\n`);
           NODE
 
       - name: Build and verify research WASM
@@ -133,16 +147,46 @@ jobs:
       - name: Generate profile matrix
         if: steps.contract.outputs.enabled == 'true'
         id: matrix
+        env:
+          REQUESTED_DEDUPLICATION: ${{ inputs.profile_deduplication || 'auto' }}
+          CONTINUATION_GENERATION: ${{ inputs.continuation_generation || '0' }}
         shell: bash
         run: |
-          npm run bench:min-ef-hp:matrix
+          set -euo pipefail
+          mode="$REQUESTED_DEDUPLICATION"
+          if [[ "$mode" == "auto" ]]; then
+            if [[ "$CONTINUATION_GENERATION" == "0" ]]; then
+              mode="gain-vector-v1"
+            else
+              # Continuations created by the pre-certificate workflow omitted this input.
+              mode="off"
+            fi
+          fi
+          [[ "$mode" == "off" || "$mode" == "gain-vector-v1" ]] || {
+            echo "Invalid profile deduplication mode: $mode" >&2
+            exit 1
+          }
+          HP_PROFILE_DEDUPLICATION="$mode" npm run bench:min-ef-hp:matrix
           node --input-type=module - <<'NODE'
           import { appendFileSync, readFileSync } from "node:fs";
           const rows = JSON.parse(readFileSync("benchmarks/results/dynamic-hp-profile-matrix.json", "utf8"));
           if (rows.length === 0) throw new Error("Dynamic H/p profile matrix is empty.");
+          const evidence = new Set(rows.flatMap((row) => row.evidenceProfiles.map((entry) => entry.id)));
           appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({profile: rows})}\n`);
           appendFileSync(process.env.GITHUB_OUTPUT, `profile_count=${rows.length}\n`);
+          appendFileSync(process.env.GITHUB_OUTPUT, `evidence_profile_count=${evidence.size}\n`);
           NODE
+          echo "deduplication=$mode" >> "$GITHUB_OUTPUT"
+          echo "profile_deduplication=$mode" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload profile evidence matrix
+        if: steps.contract.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: hp-profile-matrix-${{ github.run_id }}
+          path: benchmarks/results/dynamic-hp-profile-matrix.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Identify WASM contract
         if: steps.contract.outputs.enabled == 'true'
@@ -166,8 +210,9 @@ jobs:
     timeout-minutes: 330
     strategy:
       fail-fast: false
-      # Keep four of the GitHub Free concurrency slots available for normal CI and deployments.
-      max-parallel: 16
+      # GitHub Free permits 20 concurrent standard hosted-runner jobs. Other workflows queue while
+      # this bounded research matrix occupies the account-wide allowance.
+      max-parallel: 20
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     env:
       HP_STUDY_REPORT_FILE: dynamic/${{ matrix.profile.id }}.json
@@ -307,6 +352,12 @@ jobs:
           path: collected
           merge-multiple: true
 
+      - name: Download profile evidence matrix
+        uses: actions/download-artifact@v8
+        with:
+          name: hp-profile-matrix-${{ github.run_id }}
+          path: profile-matrix
+
       - name: Check aggregate exact-gate completion
         id: contract
         env:
@@ -342,6 +393,9 @@ jobs:
           node benchmarks/summarize-dynamic-hp-gates.ts
           "${{ steps.contract.outputs.report_dir }}"
           benchmarks/results/dynamic-hp-exact-gate-summary.json
+          profile-matrix/dynamic-hp-profile-matrix.json
+          "${{ needs.prepare.outputs.wasm-key }}"
+          "${{ needs.prepare.outputs.rules-version }}"
 
       - name: Upload exact-gate summary
         if: steps.contract.outputs.complete == 'true'
@@ -350,7 +404,7 @@ jobs:
           name: dynamic-hp-exact-gate-summary-${{ github.run_id }}
           path: benchmarks/results/dynamic-hp-exact-gate-summary.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
       - name: Dispatch bounded continuation
         if: steps.contract.outputs.complete != 'true'
@@ -360,6 +414,7 @@ jobs:
           RECORDS_PER_PROFILE: ${{ inputs.records_per_profile || '64' }}
           SLICES_PER_RUN: ${{ inputs.slices_per_run || '8' }}
           GENERATION: ${{ inputs.continuation_generation || '0' }}
+          PROFILE_DEDUPLICATION: ${{ needs.prepare.outputs.profile-deduplication }}
         shell: bash
         run: |
           set -euo pipefail
@@ -373,5 +428,6 @@ jobs:
             -f pull_request_number="$PR_NUMBER" \
             -f records_per_profile="$RECORDS_PER_PROFILE" \
             -f slices_per_run="$SLICES_PER_RUN" \
-            -f continuation_generation="$next"
+            -f continuation_generation="$next" \
+            -f profile_deduplication="$PROFILE_DEDUPLICATION"
           echo "Queued continuation generation $next/15." >> "$GITHUB_STEP_SUMMARY"

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { type DynamicHpProfile, gainVectorSha256 } from "./dynamic-hp-profile-matrix";
 import type { HpCandidate } from "./min-ef-hp-model";
 import type { HpExactGateResult } from "./min-ef-hp-quality";
 import type { HpStudyReport } from "./min-ef-hp-report";
@@ -14,8 +15,11 @@ describe("dynamic H/p exact gate summary", () => {
 
     expect(summary).toMatchObject({
       kind: "dynamic-hp-exact-gate-summary",
-      version: 1,
+      version: 2,
       profileCount: 1,
+      evaluatedProfileCount: 1,
+      uniqueGainVectorCount: 1,
+      duplicateProfileCount: 0,
       allProfilesComplete: true,
       candidateCount: 3,
       decisionScope: { researchOnly: true, productAdoptionAuthorized: false },
@@ -52,6 +56,102 @@ describe("dynamic H/p exact gate summary", () => {
         exactIncomplete: 0,
       },
     ]);
+  });
+
+  it("certifies one result for duplicate gain vectors and retains their evidence aliases", () => {
+    const duplicate = fixtureReport();
+    duplicate.options.supplyForecast = {
+      ...duplicate.options.supplyForecast,
+      forecastProfileId: "supply-test-v1@duplicate-date",
+    };
+    const summary = summarizeDynamicHpGates(
+      [
+        { id: "approved-00", report: fixtureReport() },
+        { id: "approved-01", report: duplicate },
+      ],
+      "2026-08-28T00:00:00.000Z",
+    );
+
+    expect(summary).toMatchObject({
+      profileCount: 2,
+      evaluatedProfileCount: 2,
+      uniqueGainVectorCount: 1,
+      duplicateProfileCount: 1,
+      certificate: { identity: "dynamic-hp-gain-vector-certificate-v1" },
+    });
+    expect(summary.profiles).toHaveLength(1);
+    expect(summary.profiles[0]?.evidenceProfileIds).toEqual(["approved-00", "approved-01"]);
+    expect(summary.profiles[0]?.resultContractSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(summary.candidates.find((entry) => entry.candidateId === "H0.75-p3")).toMatchObject({
+      profilesScreened: 1,
+      exactPassed: 1,
+    });
+  });
+
+  it("restores every evidence alias when only the canonical gain profile was evaluated", () => {
+    const report = fixtureReport();
+    const canonicalContext = report.options.supplyForecast;
+    const duplicateContext = {
+      ...canonicalContext,
+      forecastProfileId: "supply-test-v1@duplicate-date",
+    };
+    const matrix: DynamicHpProfile[] = [
+      {
+        id: "approved-00",
+        cycleDays: null,
+        scheduleStatus: "confirmed",
+        phase: "approved",
+        context: canonicalContext,
+        gainVectorSha256: gainVectorSha256(canonicalContext.expectedGain),
+        evidenceProfiles: [
+          {
+            id: "approved-00",
+            cycleDays: null,
+            scheduleStatus: "confirmed",
+            phase: "approved",
+            context: canonicalContext,
+          },
+          {
+            id: "approved-01",
+            cycleDays: null,
+            scheduleStatus: "confirmed",
+            phase: "approved",
+            context: duplicateContext,
+          },
+        ],
+      },
+    ];
+    const summary = summarizeDynamicHpGates(
+      [{ id: "approved-00", report }],
+      "2026-08-28T00:00:00.000Z",
+      { matrix, solverWasmSha256: "a".repeat(64), rulesVersion: "schedule-kit-v2" },
+    );
+
+    expect(summary).toMatchObject({
+      profileCount: 2,
+      evaluatedProfileCount: 1,
+      uniqueGainVectorCount: 1,
+      duplicateProfileCount: 1,
+      certificate: {
+        solverWasmSha256: "a".repeat(64),
+        rulesVersion: "schedule-kit-v2",
+      },
+    });
+    expect(summary.profiles[0]?.evidenceForecastProfileIds).toEqual([
+      "supply-test-v1@2026-08-28",
+      "supply-test-v1@duplicate-date",
+    ]);
+  });
+
+  it("rejects duplicate gain vectors that produced different decisions", () => {
+    const conflicting = fixtureReport();
+    conflicting.screening.shortlistIds = ["H0.75-p3"];
+    expect(() =>
+      summarizeDynamicHpGates([
+        { id: "approved-00", report: fixtureReport() },
+        { id: "approved-01", report: conflicting },
+      ]),
+    ).toThrow("dynamic_hp_duplicate_gain_result_conflict");
   });
 });
 
