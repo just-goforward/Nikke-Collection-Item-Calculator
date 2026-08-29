@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -217,6 +217,56 @@ export function summarizeDynamicHpGates(
   };
 }
 
+export async function writeDynamicHpCertificateBundle(
+  reports: ReadonlyArray<{ id: string; report: HpStudyReport }>,
+  summary: DynamicHpGateSummary,
+  outputDirectory: string,
+  matrix?: readonly DynamicHpProfile[],
+) {
+  const groups = groupReportsByGain(reports, matrix);
+  if (groups.length !== summary.uniqueGainVectorCount) {
+    throw new Error("dynamic_hp_certificate_profile_count_mismatch");
+  }
+
+  const profileDirectory = join(outputDirectory, "profiles");
+  await rm(outputDirectory, { recursive: true, force: true });
+  await mkdir(profileDirectory, { recursive: true });
+  await writeFile(
+    join(outputDirectory, "dynamic-hp-exact-gate-summary.json"),
+    `${JSON.stringify(summary, null, 2)}\n`,
+    "utf8",
+  );
+  if (matrix) {
+    await writeFile(
+      join(outputDirectory, "dynamic-hp-profile-matrix.json"),
+      `${JSON.stringify(matrix, null, 2)}\n`,
+      "utf8",
+    );
+  }
+
+  for (const group of groups) {
+    const canonical = group.reports[0];
+    if (!canonical) throw new Error("dynamic_hp_gain_group_empty");
+    const profile = summary.profiles.find(
+      (entry) => entry.gainVectorSha256 === group.gainVectorSha256,
+    );
+    if (!profile || profile.resultContractSha256 !== reportResultContractSha256(canonical.report)) {
+      throw new Error(`dynamic_hp_certificate_result_mismatch:${group.gainVectorSha256}`);
+    }
+    await writeFile(
+      join(profileDirectory, `${group.gainVectorSha256}.json`),
+      `${JSON.stringify(canonical.report, null, 2)}\n`,
+      "utf8",
+    );
+  }
+
+  return {
+    evidenceProfiles: summary.profileCount,
+    canonicalProfiles: groups.length,
+    duplicatesRemoved: summary.profileCount - groups.length,
+  };
+}
+
 function groupReportsByGain(
   reports: ReadonlyArray<{ id: string; report: HpStudyReport }>,
   matrix: readonly DynamicHpProfile[] | undefined,
@@ -345,6 +395,7 @@ async function main() {
   const matrixFile = process.argv[4] ? resolve(process.argv[4]) : null;
   const solverWasmSha256 = process.argv[5];
   const rulesVersion = process.argv[6];
+  const certificateDirectory = process.argv[7] ? resolve(process.argv[7]) : null;
   const reports: Array<{ id: string; report: HpStudyReport }> = [];
   await collectReports(inputDirectory, reports);
   const matrix = matrixFile
@@ -356,7 +407,20 @@ async function main() {
     ...(rulesVersion ? { rulesVersion } : {}),
   });
   await writeFile(outputFile, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
-  console.log(JSON.stringify({ outputFile, ...summary }, null, 2));
+  const certificate = certificateDirectory
+    ? await writeDynamicHpCertificateBundle(reports, summary, certificateDirectory, matrix)
+    : null;
+  console.log(
+    JSON.stringify(
+      {
+        outputFile,
+        ...(certificateDirectory ? { certificateDirectory, certificate } : {}),
+        ...summary,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 async function collectReports(

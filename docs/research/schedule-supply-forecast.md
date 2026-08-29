@@ -107,8 +107,10 @@ once. Profiles that differ only by date, schedule status, or forecast profile ID
 certificate as evidence aliases, while candidate aggregation counts the unique vector once. If
 previous duplicate-profile results disagree, certificate generation fails instead of hiding the
 conflict. The final exact-gate artifact records the solver WASM, rules version, candidate-grid,
-screening/exact scenario-set, and per-gain result hashes and retains that compact certificate for 90
-days.
+screening/exact scenario-set, and per-gain result hashes and retains the certificate for 90 days.
+The artifact also includes the profile matrix and one full canonical profile report per unique gain
+vector. This preserves every date-level evidence alias without retaining duplicate result files and
+keeps the decision inputs referenced by the summary hashes available for the same retention period.
 
 The research matrix uses all 20 standard hosted-runner concurrency slots available on GitHub Free.
 That allowance is account-wide, so unrelated CI or deployment jobs can remain queued until a slot is

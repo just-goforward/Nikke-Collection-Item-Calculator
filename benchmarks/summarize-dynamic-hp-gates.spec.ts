@@ -1,9 +1,15 @@
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type DynamicHpProfile, gainVectorSha256 } from "./dynamic-hp-profile-matrix";
 import type { HpCandidate } from "./min-ef-hp-model";
 import type { HpExactGateResult } from "./min-ef-hp-quality";
 import type { HpStudyReport } from "./min-ef-hp-report";
-import { summarizeDynamicHpGates } from "./summarize-dynamic-hp-gates";
+import {
+  summarizeDynamicHpGates,
+  writeDynamicHpCertificateBundle,
+} from "./summarize-dynamic-hp-gates";
 
 describe("dynamic H/p exact gate summary", () => {
   it("aggregates completed profile gates without granting adoption authority", () => {
@@ -152,6 +158,43 @@ describe("dynamic H/p exact gate summary", () => {
         { id: "approved-01", report: conflicting },
       ]),
     ).toThrow("dynamic_hp_duplicate_gain_result_conflict");
+  });
+});
+
+describe("dynamic H/p exact gate certificate bundle", () => {
+  it("stores one canonical profile report per gain vector in the certificate bundle", async () => {
+    const canonical = fixtureReport();
+    const duplicate = fixtureReport();
+    duplicate.options.supplyForecast = {
+      ...duplicate.options.supplyForecast,
+      forecastProfileId: "supply-test-v1@duplicate-date",
+    };
+    const reports = [
+      { id: "approved-00", report: canonical },
+      { id: "approved-01", report: duplicate },
+    ];
+    const summary = summarizeDynamicHpGates(reports, "2026-08-28T00:00:00.000Z");
+    const directory = await mkdtemp(join(tmpdir(), "dynamic-hp-certificate-"));
+
+    try {
+      const result = await writeDynamicHpCertificateBundle(reports, summary, directory);
+      const profileFiles = await readdir(join(directory, "profiles"));
+      const storedSummary = JSON.parse(
+        await readFile(join(directory, "dynamic-hp-exact-gate-summary.json"), "utf8"),
+      ) as typeof summary;
+      const storedReport = JSON.parse(
+        await readFile(join(directory, "profiles", profileFiles[0] ?? "missing"), "utf8"),
+      ) as HpStudyReport;
+
+      expect(result).toEqual({ evidenceProfiles: 2, canonicalProfiles: 1, duplicatesRemoved: 1 });
+      expect(profileFiles).toEqual([`${gainVectorSha256({ blue: 1, purple: 1, yellow: 1 })}.json`]);
+      expect(storedSummary.profiles[0]?.evidenceProfileIds).toEqual(["approved-00", "approved-01"]);
+      expect(storedReport.options.supplyForecast.forecastProfileId).toBe(
+        "supply-test-v1@2026-08-28",
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });
 

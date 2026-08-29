@@ -113,7 +113,10 @@ Actions 연구는 profile별 report와 checkpoint를 격리해 제한된 slice�
 모두 보존되고, 후보 집계에서는 고유 벡터 한 건으로만 센다. 중복 profile의 기존 결과가 서로
 다르면 이를 숨기지 않고 인증서 생성을 실패시킨다. 최종 exact-gate artifact는 solver WASM,
 rules version, 후보 격자, screening/exact 시나리오 집합의 hash와 고유 gain별 결과 hash를 포함해
-90일간 보존한다.
+90일간 보존한다. 이 artifact에는 통합 summary와 profile matrix뿐 아니라 고유 gain vector별
+canonical profile report 원문을 하나씩 포함한다. 따라서 날짜별 evidence alias 80개를 유지하면서
+동일 gain 결과 파일은 중복 저장하지 않고, 요약 해시가 가리키는 판정 원문도 같은 보존 기간 동안
+재검증할 수 있다.
 
 GitHub Free의 표준 hosted-runner 동시 job 한도 20개를 research matrix에 모두 사용한다. 이 한도는
 계정 단위이므로 연구 중 다른 CI·배포 job은 runner가 반환될 때까지 queue에 남을 수 있다. 구형

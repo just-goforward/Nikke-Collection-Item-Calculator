@@ -396,13 +396,14 @@ jobs:
           profile-matrix/dynamic-hp-profile-matrix.json
           "${{ needs.prepare.outputs.wasm-key }}"
           "${{ needs.prepare.outputs.rules-version }}"
+          "$RUNNER_TEMP/dynamic-hp-certificate"
 
-      - name: Upload exact-gate summary
+      - name: Upload exact-gate certificate
         if: steps.contract.outputs.complete == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: dynamic-hp-exact-gate-summary-${{ github.run_id }}
-          path: benchmarks/results/dynamic-hp-exact-gate-summary.json
+          path: ${{ runner.temp }}/dynamic-hp-certificate
           if-no-files-found: error
           retention-days: 90
 
