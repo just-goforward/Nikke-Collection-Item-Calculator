@@ -112,6 +112,11 @@ jobs:
           if (!/^[0-9a-f]{64}$/i.test(application.verify_key ?? "")) {
             throw new Error("Discord bot application verify key is invalid.");
           }
+          const applicationName = String(application.name ?? "").trim();
+          if (!applicationName || /[\r\n]/.test(applicationName)) {
+            throw new Error("Discord bot application name is invalid.");
+          }
+          console.log(`Discord bot application: ${applicationName} (${application.id})`);
           writeFileSync(
             process.argv[3],
             JSON.stringify({
