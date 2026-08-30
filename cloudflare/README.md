@@ -101,20 +101,26 @@ wrangler deploy --config cloudflare/wrangler.toml
 
 `.github/workflows/worker-deploy.yml` runs after a successful `main` push completes the
 `Deploy GitHub Pages` workflow. It checks Worker types and D1 integration tests, deploys staging,
-runs schema-health, public-read, CORS, and write-contract smoke tests, and then promotes the same
-commit to production. The write-contract probe uses an intentionally invalid Turnstile token, so
-it confirms that a valid event envelope reaches Turnstile validation without adding a statistics
-aggregate. It can still increment abuse-control counters that run before Turnstile verification.
-The `cloudflare-production` GitHub environment is the production approval boundary; configure a
-required reviewer for that environment before enabling the workflow.
+and runs schema-health, public-read, CORS, and write-contract smoke tests. It stops after staging so
+a production approval cannot hold the staging deployment concurrency queue. The write-contract
+probe uses an intentionally invalid Turnstile token, so it confirms that a valid event envelope
+reaches Turnstile validation without adding a statistics aggregate. It can still increment
+abuse-control counters that run before Turnstile verification.
 
-Automatic runs compare the current commit with the commit tag from the last automated production
-Worker deployment. They skip deployment when Worker source, shared contracts, Worker config,
-dependencies, and deployment tooling are unchanged. A manual run always deploys.
-The allowlisted additive `add-game-day-statistics-v9.sql` migration runs in the same guarded flow:
-staging is migrated and schema-checked before its Worker deploy, while production is migrated and
-schema-checked only after `cloudflare-production` approval. Any other tracked D1 SQL change still
-fails closed until its migration file and verification procedure are reviewed and allowlisted.
+Production promotion is an explicit `.github/workflows/worker-promote.yml` dispatch. Supply the
+full commit SHA reported by the successful staging run. The preflight job requires that SHA to be
+in trusted `main` history and to be the tag of the version currently serving 100% of staging
+traffic. Only after that check, Worker tests, and a production bundle dry-run pass does the
+`cloudflare-production` environment request reviewer approval. Configure a required reviewer for
+that environment before enabling promotion.
+
+Automatic runs compare the current commit with the commit tag of the active staging Worker. They
+skip deployment when Worker source, shared contracts, Worker config, dependencies, and deployment
+tooling are unchanged. A manual staging run always deploys. The allowlisted additive
+`add-game-day-statistics-v9.sql` migration remains guarded: staging is migrated and schema-checked
+before its Worker deploy, while production is migrated and schema-checked only in the separately
+approved promotion. Any other tracked D1 SQL change still fails closed until its migration file and
+verification procedure are reviewed and allowlisted.
 
 Before each staging or production deployment, the workflow records the currently active Worker
 version. If the post-deploy smoke test fails, it restores that version at 100% traffic and then
@@ -132,10 +138,10 @@ Configure these GitHub repository settings:
 | Variable | `CLOUDFLARE_STAGING_WORKER_URL` | The public staging Worker URL |
 | Variable | `CLOUDFLARE_PRODUCTION_WORKER_URL` | The public production Worker URL |
 
-The workflow does not upload Turnstile, rate-limit, or admin secret values. Wrangler preserves
-secrets already stored on each Worker. A manual `workflow_dispatch` follows the same staging,
-schema check, smoke, approval, and production sequence. The v9 migration is additive and may be
-retried safely; a Worker rollback does not remove its new tables or rewrite historical aggregates.
+The workflows do not upload Turnstile, rate-limit, or admin secret values. Wrangler preserves
+secrets already stored on each Worker. Manual staging and production promotion are intentionally
+separate dispatches. The v9 migration is additive and may be retried safely; a Worker rollback does
+not remove its new tables or rewrite historical aggregates.
 
 The deployment token should be limited to this account's Worker deployment and version-management
 operations plus read/edit access to `collection-kit-stats` and `collection-kit-stats-staging`.

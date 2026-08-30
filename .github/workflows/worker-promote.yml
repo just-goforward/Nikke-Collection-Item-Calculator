@@ -1,0 +1,292 @@
+name: Promote Cloudflare Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: Full commit SHA currently active on the staging Worker
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  STATS_ALLOWED_ORIGIN: ${{ vars.STATS_ALLOWED_ORIGIN }}
+  STAGING_WORKER_URL: ${{ vars.CLOUDFLARE_STAGING_WORKER_URL }}
+  PRODUCTION_WORKER_URL: ${{ vars.CLOUDFLARE_PRODUCTION_WORKER_URL }}
+
+concurrency:
+  group: cloudflare-worker-production
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_sha: ${{ steps.commit.outputs.deploy_sha }}
+    steps:
+      - name: Checkout trusted main history
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+
+      - name: Verify requested commit is trusted
+        id: commit
+        env:
+          REQUESTED_SHA: ${{ inputs.deploy_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "deploy_sha must be a full lowercase commit SHA." >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$REQUESTED_SHA" refs/heads/main || {
+            echo "Requested commit is not in trusted main history." >&2
+            exit 1
+          }
+          git checkout --detach "$REQUESTED_SHA"
+          echo "deploy_sha=$REQUESTED_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate promotion configuration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN secret." >&2; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID variable." >&2; exit 1; }
+          test -n "$STATS_ALLOWED_ORIGIN" || { echo "Missing STATS_ALLOWED_ORIGIN variable." >&2; exit 1; }
+          test -n "$STAGING_WORKER_URL" || { echo "Missing CLOUDFLARE_STAGING_WORKER_URL variable." >&2; exit 1; }
+          test -n "$PRODUCTION_WORKER_URL" || { echo "Missing CLOUDFLARE_PRODUCTION_WORKER_URL variable." >&2; exit 1; }
+
+      - name: Verify requested commit is active on staging
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          REQUESTED_SHA: ${{ steps.commit.outputs.deploy_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deployments status --env staging --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/staging-deployment.json"
+          npx wrangler versions list --env staging --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/staging-versions.json"
+          node --input-type=module - "$RUNNER_TEMP/staging-deployment.json" "$RUNNER_TEMP/staging-versions.json" "$REQUESTED_SHA" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const deployment = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const versions = JSON.parse(readFileSync(process.argv[3], "utf8"));
+          const requestedSha = process.argv[4];
+          const activeId = deployment.versions?.find((item) => item.percentage === 100)?.version_id;
+          const active = versions.find((item) => item.id === activeId);
+          if (!activeId || active?.annotations?.["workers/tag"] !== requestedSha) {
+            throw new Error(`Staging is not serving requested commit ${requestedSha}; active tag is ${active?.annotations?.["workers/tag"] ?? "unknown"}.`);
+          }
+          NODE
+
+      - name: Check Worker types
+        run: npm run worker:types:check
+
+      - name: Test Worker D1 integration
+        run: npm run test:worker
+
+      - name: Validate production bundle
+        run: npx wrangler deploy --dry-run --env="" --config cloudflare/wrangler.toml
+
+      - name: Record verified promotion target
+        run: |
+          {
+            echo "### Cloudflare production promotion preflight"
+            echo "- Commit: `${{ steps.commit.outputs.deploy_sha }}`"
+            echo "- Staging URL: $STAGING_WORKER_URL"
+            echo "- Active staging tag: verified"
+            echo "- Worker tests: passed"
+            echo "- Production bundle: valid"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  production:
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment:
+      name: cloudflare-production
+      url: ${{ vars.CLOUDFLARE_PRODUCTION_WORKER_URL }}
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+
+      - name: Verify production checkout matches staging target
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        run: |
+          set -euo pipefail
+          deploy_sha=$(git rev-parse HEAD)
+
+          if [[ ! "$deploy_sha" =~ ^[0-9a-f]{40}$ || ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Production commit verification received an invalid SHA." >&2
+            exit 1
+          fi
+          if [[ "$deploy_sha" != "$EXPECTED_SHA" ]]; then
+            echo "Production checkout does not match the preflight staging commit." >&2
+            exit 1
+          fi
+
+          echo "DEPLOY_SHA=$deploy_sha" >> "$GITHUB_ENV"
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Validate production configuration
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN secret." >&2; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID variable." >&2; exit 1; }
+          test -n "$STATS_ALLOWED_ORIGIN" || { echo "Missing STATS_ALLOWED_ORIGIN variable." >&2; exit 1; }
+          test -n "$PRODUCTION_WORKER_URL" || { echo "Missing CLOUDFLARE_PRODUCTION_WORKER_URL variable." >&2; exit 1; }
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify staging target is still active after approval
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          EXPECTED_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deployments status --env staging --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/staging-deployment.json"
+          npx wrangler versions list --env staging --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/staging-versions.json"
+          node --input-type=module - "$RUNNER_TEMP/staging-deployment.json" "$RUNNER_TEMP/staging-versions.json" "$EXPECTED_SHA" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const deployment = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const versions = JSON.parse(readFileSync(process.argv[3], "utf8"));
+          const expectedSha = process.argv[4];
+          const activeId = deployment.versions?.find((item) => item.percentage === 100)?.version_id;
+          const active = versions.find((item) => item.id === activeId);
+          if (!activeId || active?.annotations?.["workers/tag"] !== expectedSha) {
+            throw new Error(
+              `Staging advanced while production approval was pending; expected ${expectedSha}, active tag is ${active?.annotations?.["workers/tag"] ?? "unknown"}.`,
+            );
+          }
+          NODE
+
+      - name: Ensure production D1 schema
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if npm run check:d1-schema -- collection-kit-stats; then
+            echo "Production D1 schema already satisfies the current contract."
+          else
+            echo "Applying additive game-day statistics migration to production D1."
+            npx wrangler d1 execute collection-kit-stats \
+              --remote \
+              --env="" \
+              --config cloudflare/wrangler.toml \
+              --file cloudflare/add-game-day-statistics-v9.sql \
+              --yes
+            npm run check:d1-schema -- collection-kit-stats
+          fi
+
+      - name: Validate production bundle
+        run: npx wrangler deploy --dry-run --env="" --config cloudflare/wrangler.toml
+
+      - name: Capture current production version
+        id: previous
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npx wrangler deployments status --env="" --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/production-before.json"
+          version_id=$(node -e '
+            const fs = require("node:fs");
+            const deployment = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            process.stdout.write(deployment.versions?.find((item) => item.percentage === 100)?.version_id ?? "");
+          ' "$RUNNER_TEMP/production-before.json")
+          test -n "$version_id" || { echo "Could not determine the current production version." >&2; exit 1; }
+          echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy production Worker
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: >-
+          npx wrangler deploy --env="" --config cloudflare/wrangler.toml
+          --tag "$DEPLOY_SHA" --message "GitHub $DEPLOY_SHA"
+
+      - name: Smoke test production Worker
+        id: production_smoke
+        continue-on-error: true
+        run: npm run smoke:stats-worker -- "$PRODUCTION_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
+
+      - name: Restore production after smoke failure
+        if: steps.production_smoke.outcome == 'failure' && steps.previous.outputs.version_id != ''
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PREVIOUS_VERSION_ID: ${{ steps.previous.outputs.version_id }}
+        run: >-
+          npx wrangler versions deploy "$PREVIOUS_VERSION_ID@100%"
+          --yes --env="" --config cloudflare/wrangler.toml
+          --message "Automatic restore after production smoke failure"
+
+      - name: Verify automatic production restore
+        if: steps.production_smoke.outcome == 'failure' && steps.previous.outputs.version_id != ''
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PREVIOUS_VERSION_ID: ${{ steps.previous.outputs.version_id }}
+        run: |
+          npx wrangler deployments status --env="" --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/production-restored.json"
+          node -e '
+            const fs = require("node:fs");
+            const deployment = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const active = deployment.versions?.find((item) => item.percentage === 100)?.version_id;
+            if (active !== process.argv[2]) throw new Error(`Automatic restore left ${active ?? "unknown"} active.`);
+          ' "$RUNNER_TEMP/production-restored.json" "$PREVIOUS_VERSION_ID"
+
+      - name: Fail production deployment after restore
+        if: steps.production_smoke.outcome == 'failure'
+        run: |
+          echo "Production smoke failed; the previous version was restored." >&2
+          exit 1
+
+      - name: Record production deployment
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npx wrangler versions list --env="" --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/production-versions.json"
+          version_id=$(node -e 'const fs=require("node:fs");const rows=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(rows.at(-1)?.id??"unknown")' "$RUNNER_TEMP/production-versions.json")
+          {
+            echo "### Cloudflare production"
+            echo "- Commit: \`$DEPLOY_SHA\`"
+            echo "- Version: \`$version_id\`"
+            echo "- Previous version: \`${{ steps.previous.outputs.version_id }}\`"
+            echo "- URL: $PRODUCTION_WORKER_URL"
+            echo "- Smoke: passed"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -160,6 +160,44 @@ describe("Discord forecast approval test boundary", () => {
     expect(second.approvalId).toBe(first.approvalId);
   });
 
+  it("expires an old pending staging card and issues a new approval", async () => {
+    const first = await createStagingAdoption();
+    await testEnv.FORECAST_DB.prepare(
+      "UPDATE discord_staging_adoptions SET expires_at = ? WHERE approval_id = ?",
+    )
+      .bind(new Date(nowMs - 1).toISOString(), first.approvalId)
+      .run();
+
+    const second = await createStagingAdoption({ requestKey: "c".repeat(64) });
+    const oldState = await stagingAdoptionState(first.approvalId);
+
+    expect(second.approvalId).not.toBe(first.approvalId);
+    expect(oldState).toBe("expired");
+  });
+
+  it("keeps an approved staging adoption processable after the card TTL", async () => {
+    const approval = await createStagingAdoption();
+    await signedInteraction(
+      componentInteraction(approval.customId, "987654321", "2051"),
+      nowMs,
+      configuredEnv({ DISCORD_APPROVAL_MODE: "staging_adoption" }),
+    );
+    await testEnv.FORECAST_DB.prepare(
+      "UPDATE discord_staging_adoptions SET expires_at = ? WHERE approval_id = ?",
+    )
+      .bind(new Date(nowMs - 1).toISOString(), approval.approvalId)
+      .run();
+
+    const listed = await invokeStagingAdmin(
+      "https://collector.test/admin/discord-staging-adoptions?limit=5",
+      { method: "GET" },
+    );
+
+    expect(await listed.json()).toMatchObject({
+      adoptions: [{ approvalId: approval.approvalId, state: "approved" }],
+    });
+  });
+
   it("processes a legacy duplicate payload only once", async () => {
     const first = await createStagingAdoption();
     const duplicateApprovalId = "discord-staging-11111111-1111-4111-8111-111111111111";
@@ -405,6 +443,15 @@ async function createStagingAdoption(overrides: Record<string, unknown> = {}) {
   );
   expect(response.status).toBe(200);
   return response.json<{ approvalId: string; customId: string }>();
+}
+
+async function stagingAdoptionState(approvalId: string) {
+  const row = await testEnv.FORECAST_DB.prepare(
+    "SELECT state FROM discord_staging_adoptions WHERE approval_id = ?",
+  )
+    .bind(approvalId)
+    .first<{ state: string }>();
+  return row?.state;
 }
 
 async function invokeStagingAdmin(url: string, init: RequestInit) {

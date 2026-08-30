@@ -5,6 +5,10 @@ import {
   STAGING_SUPPLY_FORECAST,
   STAGING_SUPPLY_FORECAST_ID,
 } from "../../shared/generated/supplyForecastRuntime";
+import {
+  STAGING_FORECAST_REVIEW_URL,
+  STAGING_RUNTIME_SEARCH,
+} from "../../shared/runtimeEnvironment";
 import { activeSupplyForecastContext } from "../wasm/rustCoreShared";
 import {
   prepareRuntimeSupplyForecast,
@@ -17,7 +21,7 @@ import {
 const STAGING_TIMESTAMP = Date.parse(STAGING_SUPPLY_FORECAST.profiles[0].effectiveFrom);
 
 beforeAll(async () => {
-  await prepareRuntimeSupplyForecast("?statsEnv=staging");
+  await prepareRuntimeSupplyForecast(STAGING_RUNTIME_SEARCH);
 });
 
 describe("supply forecast runtime", () => {
@@ -32,10 +36,11 @@ describe("supply forecast runtime", () => {
   });
 
   it("uses only the dedicated staging pointer for the staging query", () => {
-    const selection = resolveRuntimeSupplyForecast(STAGING_TIMESTAMP, "?statsEnv=staging");
+    const selection = resolveRuntimeSupplyForecast(STAGING_TIMESTAMP, STAGING_RUNTIME_SEARCH);
     expect(selection.environment).toBe("staging");
     expect(selection.forecastId).toBe(STAGING_SUPPLY_FORECAST_ID);
     expect(selection.profile.id).toBe(STAGING_SUPPLY_FORECAST.profiles[0].id);
+    expect(STAGING_FORECAST_REVIEW_URL).toBe("https://nikkecollection.com/?statsEnv=staging");
   });
 
   it("keeps demo statistics on the production forecast", () => {

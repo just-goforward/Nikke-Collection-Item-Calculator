@@ -4,6 +4,7 @@ export const CHECK_ROOTS = [
   "src",
   "shared",
   "cloudflare/src",
+  "forecast-collector/src",
   "benchmarks",
   "scripts",
   "e2e",
@@ -60,6 +61,30 @@ export const TYPE_ESCAPE_BOUNDARY_ALLOWLIST: DebtEntry[] = [
     reason: "Parity tests instantiate raw WASM exports to compare Rust and JS policies.",
     removalTarget: "Create a typed WASM test loader shared with rustCore tests.",
   },
+  {
+    file: "forecast-collector/src/db.test.ts",
+    owner: "test",
+    reason: "The Miniflare D1 fixture is adapted to the generated Worker binding contract.",
+    removalTarget: "Provide a typed forecast-collector Miniflare environment factory.",
+  },
+  {
+    file: "forecast-collector/src/discord-approval.test.ts",
+    owner: "test",
+    reason: "Discord interaction tests adapt Miniflare bindings and the rate-limit test double.",
+    removalTarget: "Share typed collector environment and rate-limit fixture builders.",
+  },
+  {
+    file: "forecast-collector/src/source-queue.test.ts",
+    owner: "test",
+    reason: "Source queue integration tests adapt a Miniflare environment to generated bindings.",
+    removalTarget: "Use the shared typed collector environment fixture.",
+  },
+  {
+    file: "forecast-collector/src/worker.test.ts",
+    owner: "test",
+    reason: "Worker boundary tests adapt request, execution-context, and rate-limit test doubles.",
+    removalTarget: "Introduce typed Worker request and execution-context fixture builders.",
+  },
 ];
 
 export const BIOME_IGNORE_ALLOWLIST: DebtEntry[] = [
@@ -94,6 +119,76 @@ export const BIOME_IGNORE_ALLOWLIST: DebtEntry[] = [
 export const EMPTY_CATCH_ALLOWLIST: DebtEntry[] = [];
 
 export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
+  {
+    file: "forecast-collector/src/candidate.test.ts",
+    function: "<anonymous>",
+    owner: "test",
+    reason: "Candidate validation cases share one D1-independent fixture contract.",
+    removalTarget: "Split parser, invariant, and payload-hash cases into separate describe blocks.",
+  },
+  {
+    file: "forecast-collector/src/db.test.ts",
+    function: "<anonymous>",
+    owner: "test",
+    reason: "Collector database lifecycle cases share one Miniflare D1 setup.",
+    removalTarget: "Extract a reusable D1 fixture and split canary, health, and candidate suites.",
+  },
+  {
+    file: "forecast-collector/src/db.ts",
+    function: "readCanaryReport",
+    owner: "worker",
+    reason:
+      "The canary certificate currently assembles invocation, queue, and integrity counters together.",
+    removalTarget: "Extract independent counter queries and a pure canary decision assembler.",
+  },
+  {
+    file: "forecast-collector/src/discord-approval.test.ts",
+    function: "<anonymous>",
+    owner: "test",
+    reason:
+      "Discord signature, test approval, and staging adoption cases share one Miniflare D1 fixture.",
+    removalTarget:
+      "Split interaction security and staging state-transition suites around a shared fixture.",
+  },
+  {
+    file: "forecast-collector/src/naver.test.ts",
+    function: "<anonymous>",
+    owner: "test",
+    reason: "Recorded Naver feed and body parser cases share source fixtures.",
+    removalTarget: "Split feed metadata, SmartEditor body, and schedule parsing suites.",
+  },
+  {
+    file: "forecast-collector/src/naver.ts",
+    function: "parseNaverFeed",
+    owner: "worker",
+    reason: "Feed parsing validates several upstream response shapes before normalizing metadata.",
+    removalTarget: "Separate upstream schema validation from normalized feed item construction.",
+  },
+  {
+    file: "forecast-collector/src/source-queue.ts",
+    function: "pollNaverSource",
+    owner: "worker",
+    reason: "Cursor recovery and queue insertion remain one transactional polling operation.",
+    removalTarget:
+      "Extract pagination-state transitions after replay fixtures cover cursor recovery.",
+  },
+  {
+    file: "forecast-collector/src/source-queue.ts",
+    function: "processSourceQueue",
+    owner: "worker",
+    reason:
+      "Queue validation and atomic source, event, and candidate writes share one D1 batch boundary.",
+    removalTarget: "Extract pure payload validation while keeping the final D1 batch atomic.",
+  },
+  {
+    file: "forecast-collector/src/worker.ts",
+    function: "fetch",
+    owner: "worker",
+    reason:
+      "The admin API router keeps authentication and endpoint dispatch in one Worker entrypoint.",
+    removalTarget:
+      "Move authenticated route groups into typed handlers without duplicating auth checks.",
+  },
   {
     file: "benchmarks/evaluator/exact-replan.ts",
     function: "createExactInteractiveReplanSession",

@@ -12,7 +12,6 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  STAGING_FORECAST_URL: "https://nikkecollection.com/?statsEnv=staging"
 
 concurrency:
   group: process-staging-forecast-adoption
@@ -33,6 +32,16 @@ jobs:
         with:
           node-version: 24
           cache: npm
+
+      - name: Read staging runtime contract
+        id: runtime
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from "node:fs";
+          import { STAGING_FORECAST_REVIEW_URL } from "./shared/runtimeEnvironment.ts";
+          appendFileSync(process.env.GITHUB_OUTPUT, `staging_url=${STAGING_FORECAST_REVIEW_URL}\n`);
+          NODE
 
       - name: Read one approved Discord adoption
         id: approval
@@ -208,6 +217,7 @@ jobs:
           APPROVAL_ID: ${{ steps.approval.outputs.approval_id }}
           ADOPTION_PR_NUMBER: ${{ steps.pull_request.outputs.number }}
           ADOPTION_PR_URL: ${{ steps.pull_request.outputs.url }}
+          STAGING_FORECAST_URL: ${{ steps.runtime.outputs.staging_url }}
         shell: bash
         run: |
           jq -n \
@@ -231,6 +241,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pull_request.outputs.number }}
           FORECAST_ID: ${{ steps.approval.outputs.forecast_id }}
+          STAGING_FORECAST_URL: ${{ steps.runtime.outputs.staging_url }}
         run: >-
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"
           --body "이 PR을 병합하고 Pages 배포가 완료되면 $STAGING_FORECAST_URL 에서 Forecast \`$FORECAST_ID\`를 검증할 수 있습니다.\n\n기본 URL의 production \`activeForecastId\`는 변경되지 않습니다."

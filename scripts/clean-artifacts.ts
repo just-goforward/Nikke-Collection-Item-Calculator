@@ -9,6 +9,7 @@ export const ARTIFACT_TARGETS = [
   "playwright/.cache",
   ".wrangler-dry-run-prod",
   ".wrangler-dry-run-staging",
+  "staging-site",
   "debug.log",
   "public/solver_rs.wasm",
   "rust/solver-rs/target",

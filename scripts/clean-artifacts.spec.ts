@@ -11,6 +11,7 @@ describe("clean artifacts", () => {
   it("keeps generated artifact targets explicit", () => {
     expect(ARTIFACT_TARGETS).toContain("dist");
     expect(ARTIFACT_TARGETS).toContain("test-results");
+    expect(ARTIFACT_TARGETS).toContain("staging-site");
     expect(ARTIFACT_TARGETS).not.toContain("benchmarks/results");
     expect(ARTIFACT_TARGETS).toContain("public/solver_rs.wasm");
     expect(RESEARCH_ARTIFACT_TARGETS).toContain("benchmarks/results");

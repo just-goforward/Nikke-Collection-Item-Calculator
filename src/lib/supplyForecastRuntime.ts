@@ -3,6 +3,11 @@ import {
   resolveActiveSupplyForecastProfile,
   type SupplyForecastProfile,
 } from "../../shared/generated/supplyForecast";
+import {
+  STAGING_RUNTIME_QUERY_KEY,
+  STAGING_RUNTIME_QUERY_VALUE,
+  STAGING_RUNTIME_SEARCH,
+} from "../../shared/runtimeEnvironment";
 
 type StagingForecastModule = typeof import("../../shared/generated/supplyForecastRuntime");
 
@@ -24,7 +29,7 @@ function currentSearch() {
     typeof document === "undefined" &&
     Reflect.get(globalThis, "name") === STAGING_SUPPLY_FORECAST_WORKER_NAME
   ) {
-    return "?statsEnv=staging";
+    return STAGING_RUNTIME_SEARCH;
   }
   if (typeof globalThis.location !== "object") return "";
   return globalThis.location.search;
@@ -33,7 +38,9 @@ function currentSearch() {
 export function supplyForecastEnvironment(search = currentSearch()): SupplyForecastEnvironment {
   const params = new URLSearchParams(search);
   if (params.get("demoStats") === "1") return "production";
-  return params.get("statsEnv") === "staging" ? "staging" : "production";
+  return params.get(STAGING_RUNTIME_QUERY_KEY) === STAGING_RUNTIME_QUERY_VALUE
+    ? "staging"
+    : "production";
 }
 
 export function resolveRuntimeSupplyForecast(

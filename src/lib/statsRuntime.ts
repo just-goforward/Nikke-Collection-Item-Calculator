@@ -1,3 +1,7 @@
+import {
+  STAGING_RUNTIME_QUERY_KEY,
+  STAGING_RUNTIME_QUERY_VALUE,
+} from "../../shared/runtimeEnvironment";
 import type { StatsConfig, StatsEndpointConfig } from "../types";
 import { ignoreExpectedError } from "./errorHandling";
 
@@ -87,9 +91,9 @@ function isLocalHost(hostname?: string): boolean {
 export function statsRuntimeMode(): StatsRuntimeMode {
   const params = new URLSearchParams(window.location.search);
   if (params.get("demoStats") === "1") return "demo";
-  if (params.get("statsEnv") === "disabled") return "disabled";
-  const statsEnv = params.get("statsEnv");
-  if (statsEnv !== "staging") {
+  if (params.get(STAGING_RUNTIME_QUERY_KEY) === "disabled") return "disabled";
+  const statsEnv = params.get(STAGING_RUNTIME_QUERY_KEY);
+  if (statsEnv !== STAGING_RUNTIME_QUERY_VALUE) {
     if (!statsEnv && isLocalHost(window.location.hostname)) return "disabled";
     return "production";
   }

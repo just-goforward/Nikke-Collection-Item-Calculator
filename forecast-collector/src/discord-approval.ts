@@ -1,22 +1,24 @@
+import {
+  approvalFailureData,
+  approvedData,
+  boundedString,
+  CUSTOM_ID_PREFIX,
+  DISCORD_INTERACTION_MAX_BYTES,
+  DISCORD_SIGNATURE_MAX_AGE_MS,
+  type DiscordApprovalTestInput,
+  type DiscordStagingAdoptionInput,
+  parseDiscordApprovalTestInput,
+  parseDiscordStagingAdoptionInput,
+  parseStagingAdoptionMessage,
+  parseStagingAdoptionResult,
+  STAGING_ADOPTION_TTL_MS,
+  STAGING_CUSTOM_ID_PREFIX,
+  stagingApprovedData,
+  stringMatching,
+  TEST_APPROVAL_TTL_MS,
+  unavailableApprovalData,
+} from "./discord-approval-contract";
 import type { CollectorEnv } from "./types";
-
-const DISCORD_SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
-const DISCORD_INTERACTION_MAX_BYTES = 64 * 1024;
-const TEST_APPROVAL_TTL_MS = 30 * 60 * 1000;
-const STAGING_ADOPTION_TTL_MS = 24 * 60 * 60 * 1000;
-const CUSTOM_ID_PREFIX = "forecast_test_approve:";
-const STAGING_CUSTOM_ID_PREFIX = "forecast_staging_approve:";
-const REPOSITORY_PATH = "/just-goforward/Nikke-Collection-Item-Calculator";
-
-export type DiscordApprovalTestInput = {
-  requestKey: string;
-  candidateId: string;
-  forecastId: string;
-  payloadHash: string;
-  pullRequestNumber: number;
-  pullRequestUrl: string;
-  headSha: string;
-};
 
 type DiscordApprovalTestRow = {
   approval_id: string;
@@ -33,20 +35,6 @@ type DiscordApprovalTestRow = {
   approved_at: string | null;
   approver_user_id: string | null;
   interaction_id: string | null;
-};
-
-export type DiscordStagingAdoptionInput = {
-  requestKey: string;
-  forecastId: string;
-  payloadHash: string;
-  sourcePullRequestNumber: number;
-  sourcePullRequestUrl: string;
-  sourceHeadSha: string;
-  registrySha: string;
-  researchRunId: number;
-  researchRunUrl: string;
-  researchArtifactName: string;
-  researchArtifactDigest: string;
 };
 
 type DiscordStagingAdoptionRow = {
@@ -131,12 +119,13 @@ export async function createDiscordStagingAdoption(
   createId: () => string = () => crypto.randomUUID(),
 ) {
   const input = parseDiscordStagingAdoptionInput(value);
-  const existing = await readActiveStagingAdoptionByIdentity(db, input);
+  const createdAt = new Date(nowMs).toISOString();
+  await expirePendingStagingAdoptionsByIdentity(db, input, createdAt);
+  const existing = await readActiveStagingAdoptionByIdentity(db, input, createdAt);
   if (existing) {
     return publicStagingAdoption(existing);
   }
   const approvalId = `discord-staging-${createId()}`;
-  const createdAt = new Date(nowMs).toISOString();
   const expiresAt = new Date(nowMs + STAGING_ADOPTION_TTL_MS).toISOString();
   await db
     .prepare(
@@ -178,7 +167,7 @@ export async function listApprovedDiscordStagingAdoptions(db: D1Database, limit:
   const rows = await db
     .prepare(
       `SELECT current.* FROM discord_staging_adoptions AS current
-       WHERE current.state = 'approved' AND current.expires_at > ?
+       WHERE current.state = 'approved'
          AND current.approval_id = (
            SELECT duplicate.approval_id
            FROM discord_staging_adoptions AS duplicate
@@ -188,7 +177,7 @@ export async function listApprovedDiscordStagingAdoptions(db: D1Database, limit:
              AND duplicate.research_run_id = current.research_run_id
              AND duplicate.research_artifact_name = current.research_artifact_name
              AND duplicate.research_artifact_digest = current.research_artifact_digest
-             AND duplicate.state = 'approved' AND duplicate.expires_at > ?
+             AND duplicate.state = 'approved'
            ORDER BY duplicate.approved_at ASC, duplicate.created_at ASC
            LIMIT 1
          )
@@ -204,7 +193,7 @@ export async function listApprovedDiscordStagingAdoptions(db: D1Database, limit:
          )
        ORDER BY current.approved_at ASC LIMIT ?`,
     )
-    .bind(new Date().toISOString(), new Date().toISOString(), safeLimit)
+    .bind(safeLimit)
     .all<DiscordStagingAdoptionRow>();
   return rows.results.map(publicStagingAdoption);
 }
@@ -290,15 +279,30 @@ export async function handleDiscordInteraction(
   _context: ExecutionContext,
   nowMs = Date.now(),
 ) {
-  if (
-    env.ENVIRONMENT === "production" ||
-    (env.DISCORD_APPROVAL_MODE !== "test" && env.DISCORD_APPROVAL_MODE !== "staging_adoption")
-  ) {
+  if (!discordInteractionsEnabled(env)) {
     return new Response("Not found", { status: 404 });
   }
   const configuration = readDiscordConfiguration(env);
   if (!configuration) return new Response("Service unavailable", { status: 503 });
 
+  const body = await readVerifiedDiscordBody(request, configuration.publicKey, nowMs);
+  if (body instanceof Response) return body;
+  const interaction = parseDiscordInteraction(body, configuration.applicationId);
+  if (interaction instanceof Response) return interaction;
+  if (interaction.type === 1) return interactionJson({ type: 1 });
+  const component = authorizeDiscordComponent(interaction, configuration);
+  if (component instanceof Response) return component;
+  return routeDiscordComponent(env, configuration, component, nowMs);
+}
+
+function discordInteractionsEnabled(env: CollectorEnv) {
+  return (
+    env.ENVIRONMENT !== "production" &&
+    (env.DISCORD_APPROVAL_MODE === "test" || env.DISCORD_APPROVAL_MODE === "staging_adoption")
+  );
+}
+
+async function readVerifiedDiscordBody(request: Request, publicKey: string, nowMs: number) {
   const declaredLength = Number(request.headers.get("content-length") ?? 0);
   if (declaredLength > DISCORD_INTERACTION_MAX_BYTES) {
     return new Response("Payload too large", { status: 413 });
@@ -307,23 +311,34 @@ export async function handleDiscordInteraction(
   if (new TextEncoder().encode(body).byteLength > DISCORD_INTERACTION_MAX_BYTES) {
     return new Response("Payload too large", { status: 413 });
   }
-  if (!(await verifyDiscordSignature(request.headers, body, configuration.publicKey, nowMs))) {
-    return new Response("Invalid request signature", { status: 401 });
-  }
+  return (await verifyDiscordSignature(request.headers, body, publicKey, nowMs))
+    ? body
+    : new Response("Invalid request signature", { status: 401 });
+}
 
+function parseDiscordInteraction(body: string, applicationId: string) {
   let interaction: DiscordInteraction;
   try {
     interaction = JSON.parse(body) as DiscordInteraction;
   } catch {
     return new Response("Invalid JSON", { status: 400 });
   }
-  if (interaction.application_id !== configuration.applicationId) {
+  if (interaction.application_id !== applicationId) {
     return new Response("Invalid application", { status: 401 });
   }
-  if (interaction.type === 1) return interactionJson({ type: 1 });
-  if (interaction.type !== 3 || interaction.data?.component_type !== 2) {
+  if (
+    interaction.type !== 1 &&
+    (interaction.type !== 3 || interaction.data?.component_type !== 2)
+  ) {
     return ephemeral("지원하지 않는 Discord interaction입니다.");
   }
+  return interaction;
+}
+
+function authorizeDiscordComponent(
+  interaction: DiscordInteraction,
+  configuration: NonNullable<ReturnType<typeof readDiscordConfiguration>>,
+) {
   if (
     interaction.guild_id !== configuration.guildId ||
     interaction.channel_id !== configuration.channelId
@@ -336,10 +351,19 @@ export async function handleDiscordInteraction(
   }
   const interactionId = stringMatching(interaction.id, /^\d{1,24}$/);
   const customId = stringMatching(interaction.data?.custom_id, /^[a-z_:-]{1,64}[0-9a-f-]{36}$/);
-  const interactionToken = boundedString(interaction.token, 512);
-  if (!interactionId || !customId || !interactionToken) {
+  if (!interactionId || !customId || !boundedString(interaction.token, 512)) {
     return ephemeral("유효하지 않은 승인 버튼입니다.");
   }
+  return { customId, interactionId };
+}
+
+function routeDiscordComponent(
+  env: CollectorEnv,
+  configuration: NonNullable<ReturnType<typeof readDiscordConfiguration>>,
+  component: { customId: string; interactionId: string },
+  nowMs: number,
+) {
+  const { customId, interactionId } = component;
   if (customId.startsWith(STAGING_CUSTOM_ID_PREFIX)) {
     if (env.DISCORD_APPROVAL_MODE !== "staging_adoption") {
       return ephemeral("현재 staging 승인 기능은 비활성 상태입니다.");
@@ -360,10 +384,7 @@ export async function handleDiscordInteraction(
       nowMs,
     );
   }
-  if (
-    !customId.startsWith(CUSTOM_ID_PREFIX) ||
-    (env.DISCORD_APPROVAL_MODE !== "test" && env.DISCORD_APPROVAL_MODE !== "staging_adoption")
-  ) {
+  if (!customId.startsWith(CUSTOM_ID_PREFIX) || !discordInteractionsEnabled(env)) {
     return ephemeral("현재 테스트 승인 기능은 비활성 상태입니다.");
   }
   return completeDiscordTestApproval(
@@ -501,124 +522,6 @@ async function verifyDiscordSignature(
   }
 }
 
-function parseDiscordApprovalTestInput(value: unknown): DiscordApprovalTestInput {
-  if (!isRecord(value)) throw new Error("invalid_discord_test_approval");
-  const input = {
-    requestKey: stringMatching(value["requestKey"], /^[0-9a-f]{64}$/),
-    candidateId: stringMatching(value["candidateId"], /^forecast-[a-z0-9-]{1,80}$/),
-    forecastId: stringMatching(value["forecastId"], /^supply-[a-z0-9-]{1,80}$/),
-    payloadHash: stringMatching(value["payloadHash"], /^[0-9a-f]{64}$/),
-    pullRequestNumber:
-      Number.isInteger(value["pullRequestNumber"]) && Number(value["pullRequestNumber"]) > 0
-        ? Number(value["pullRequestNumber"])
-        : null,
-    pullRequestUrl: stringMatching(value["pullRequestUrl"], /^https:\/\/github\.com\//),
-    headSha: stringMatching(value["headSha"], /^[0-9a-f]{40}$/),
-  };
-  if (Object.values(input).some((entry) => entry === null)) {
-    throw new Error("invalid_discord_test_approval");
-  }
-  const pullRequestUrl = new URL(input.pullRequestUrl as string);
-  const expectedPath = `${REPOSITORY_PATH}/pull/${input.pullRequestNumber}`;
-  if (
-    pullRequestUrl.protocol !== "https:" ||
-    pullRequestUrl.hostname !== "github.com" ||
-    pullRequestUrl.pathname !== expectedPath ||
-    pullRequestUrl.search !== "" ||
-    pullRequestUrl.hash !== ""
-  ) {
-    throw new Error("invalid_discord_test_pull_request_url");
-  }
-  return input as DiscordApprovalTestInput;
-}
-
-function parseDiscordStagingAdoptionInput(value: unknown): DiscordStagingAdoptionInput {
-  if (!isRecord(value)) throw new Error("invalid_discord_staging_adoption");
-  const input = {
-    requestKey: stringMatching(value["requestKey"], /^[0-9a-f]{64}$/),
-    forecastId: stringMatching(value["forecastId"], /^supply-\d{4}-\d{2}-\d{2}-v\d+$/),
-    payloadHash: stringMatching(value["payloadHash"], /^[0-9a-f]{64}$/),
-    sourcePullRequestNumber: positiveInteger(value["sourcePullRequestNumber"]),
-    sourcePullRequestUrl: stringMatching(value["sourcePullRequestUrl"], /^https:\/\/github\.com\//),
-    sourceHeadSha: stringMatching(value["sourceHeadSha"], /^[0-9a-f]{40}$/),
-    registrySha: stringMatching(value["registrySha"], /^[0-9a-f]{40}$/),
-    researchRunId: positiveInteger(value["researchRunId"]),
-    researchRunUrl: stringMatching(value["researchRunUrl"], /^https:\/\/github\.com\//),
-    researchArtifactName: stringMatching(
-      value["researchArtifactName"],
-      /^dynamic-hp-exact-gate-summary-[1-9][0-9]*$/,
-    ),
-    researchArtifactDigest: stringMatching(value["researchArtifactDigest"], /^[0-9a-f]{64}$/),
-  };
-  if (Object.values(input).some((entry) => entry === null)) {
-    throw new Error("invalid_discord_staging_adoption");
-  }
-  assertRepositoryUrl(
-    input.sourcePullRequestUrl as string,
-    `/pull/${input.sourcePullRequestNumber}`,
-    "invalid_discord_staging_source_pr_url",
-  );
-  assertRepositoryUrl(
-    input.researchRunUrl as string,
-    `/actions/runs/${input.researchRunId}`,
-    "invalid_discord_staging_research_url",
-  );
-  return input as DiscordStagingAdoptionInput;
-}
-
-function parseStagingAdoptionResult(value: unknown) {
-  if (!isRecord(value)) throw new Error("invalid_discord_staging_result");
-  const result = {
-    adoptionPullRequestNumber: positiveInteger(value["adoptionPullRequestNumber"]),
-    adoptionPullRequestUrl: stringMatching(
-      value["adoptionPullRequestUrl"],
-      /^https:\/\/github\.com\//,
-    ),
-    stagingUrl: stringMatching(
-      value["stagingUrl"],
-      /^https:\/\/nikkecollection\.com\/\?statsEnv=staging$/,
-    ),
-  };
-  if (Object.values(result).some((entry) => entry === null)) {
-    throw new Error("invalid_discord_staging_result");
-  }
-  assertRepositoryUrl(
-    result.adoptionPullRequestUrl as string,
-    `/pull/${result.adoptionPullRequestNumber}`,
-    "invalid_discord_staging_adoption_pr_url",
-  );
-  return result as {
-    adoptionPullRequestNumber: number;
-    adoptionPullRequestUrl: string;
-    stagingUrl: string;
-  };
-}
-
-function parseStagingAdoptionMessage(value: unknown) {
-  if (!isRecord(value)) throw new Error("invalid_discord_staging_message");
-  const input = {
-    discordChannelId: stringMatching(value["discordChannelId"], /^\d{1,24}$/),
-    discordMessageId: stringMatching(value["discordMessageId"], /^\d{1,24}$/),
-  };
-  if (Object.values(input).some((entry) => entry === null)) {
-    throw new Error("invalid_discord_staging_message");
-  }
-  return input as { discordChannelId: string; discordMessageId: string };
-}
-
-function assertRepositoryUrl(value: string, suffix: string, error: string) {
-  const url = new URL(value);
-  if (
-    url.protocol !== "https:" ||
-    url.hostname !== "github.com" ||
-    url.pathname !== `${REPOSITORY_PATH}${suffix}` ||
-    url.search !== "" ||
-    url.hash !== ""
-  ) {
-    throw new Error(error);
-  }
-}
-
 async function approveDiscordTest(
   db: D1Database,
   approvalId: string,
@@ -725,6 +628,7 @@ async function readStagingAdoptionByRequestKey(db: D1Database, requestKey: strin
 async function readActiveStagingAdoptionByIdentity(
   db: D1Database,
   input: DiscordStagingAdoptionInput,
+  now: string,
 ) {
   return db
     .prepare(
@@ -735,7 +639,10 @@ async function readActiveStagingAdoptionByIdentity(
          AND research_run_id = ?
          AND research_artifact_name = ?
          AND research_artifact_digest = ?
-         AND state IN ('pending', 'approved', 'adoption_pr_created')
+          AND (
+            state IN ('approved', 'adoption_pr_created')
+            OR (state = 'pending' AND expires_at > ?)
+          )
        ORDER BY CASE state
          WHEN 'adoption_pr_created' THEN 0
          WHEN 'approved' THEN 1
@@ -750,8 +657,39 @@ async function readActiveStagingAdoptionByIdentity(
       input.researchRunId,
       input.researchArtifactName,
       input.researchArtifactDigest,
+      now,
     )
     .first<DiscordStagingAdoptionRow>();
+}
+
+async function expirePendingStagingAdoptionsByIdentity(
+  db: D1Database,
+  input: DiscordStagingAdoptionInput,
+  now: string,
+) {
+  await db
+    .prepare(
+      `UPDATE discord_staging_adoptions
+       SET state = 'expired'
+       WHERE forecast_id = ?
+         AND source_pull_request_number = ?
+         AND source_head_sha = ?
+         AND research_run_id = ?
+         AND research_artifact_name = ?
+         AND research_artifact_digest = ?
+         AND state = 'pending'
+         AND expires_at <= ?`,
+    )
+    .bind(
+      input.forecastId,
+      input.sourcePullRequestNumber,
+      input.sourceHeadSha,
+      input.researchRunId,
+      input.researchArtifactName,
+      input.researchArtifactDigest,
+      now,
+    )
+    .run();
 }
 
 async function readStagingAdoptionById(db: D1Database, approvalId: string) {
@@ -856,80 +794,6 @@ function readDiscordConfiguration(env: CollectorEnv) {
     : null;
 }
 
-function approvedData(approval: ReturnType<typeof publicApproval>, customId: string) {
-  return {
-    content:
-      `Forecast \`${approval.forecastId}\`의 Discord 승인 응답 테스트가 완료되었습니다.\n` +
-      "D1에는 `test_approved`만 기록되었으며 staging·production Forecast와 GitHub PR은 변경되지 않았습니다.",
-    allowed_mentions: { parse: [] },
-    components: [
-      {
-        type: 1,
-        components: [
-          {
-            type: 2,
-            style: 3,
-            label: "테스트 승인 완료",
-            custom_id: customId,
-            disabled: true,
-          },
-          {
-            type: 2,
-            style: 5,
-            label: "GitHub PR 열기",
-            url: approval.pullRequestUrl,
-          },
-        ],
-      },
-    ],
-  };
-}
-
-function stagingApprovedData(approval: ReturnType<typeof publicStagingAdoption>, customId: string) {
-  return {
-    content:
-      `Forecast \`${approval.forecastId}\`의 staging 적용 승인이 기록되었습니다.\n` +
-      "GitHub Actions가 adoption PR을 생성합니다. PR 병합과 Pages 배포 후 " +
-      "nikkecollection.com/?statsEnv=staging에서 검증할 수 있으며 기본 production 환경은 변경되지 않습니다.",
-    allowed_mentions: { parse: [] },
-    components: [
-      {
-        type: 1,
-        components: [
-          {
-            type: 2,
-            style: 3,
-            label: "staging 적용 승인 완료",
-            custom_id: customId,
-            disabled: true,
-          },
-          {
-            type: 2,
-            style: 5,
-            label: "H/p 인증 결과 열기",
-            url: approval.researchRunUrl,
-          },
-        ],
-      },
-    ],
-  };
-}
-
-function unavailableApprovalData(content: string) {
-  return {
-    content,
-    allowed_mentions: { parse: [] },
-    components: [],
-  };
-}
-
-function approvalFailureData() {
-  return {
-    content: "승인 기록 중 오류가 발생했습니다. 버튼을 다시 누르거나 새 승인 카드를 요청하십시오.",
-    allowed_mentions: { parse: [] },
-  };
-}
-
 function updateMessage(data: Record<string, unknown>) {
   return interactionJson({ type: 7, data });
 }
@@ -947,27 +811,6 @@ function interactionJson(value: unknown) {
   });
 }
 
-function boundedString(value: unknown, maxLength: number) {
-  if (typeof value !== "string" || value.length === 0 || value.length > maxLength) return null;
-  for (const character of value) {
-    const code = character.charCodeAt(0);
-    if (code <= 31 || code === 127) return null;
-  }
-  return value;
-}
-
 function hexBytes(value: string) {
   return Uint8Array.from(value.match(/.{2}/g) ?? [], (byte) => Number.parseInt(byte, 16));
-}
-
-function stringMatching(value: unknown, pattern: RegExp) {
-  return typeof value === "string" && pattern.test(value) ? value : null;
-}
-
-function positiveInteger(value: unknown) {
-  return Number.isInteger(value) && Number(value) > 0 ? Number(value) : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

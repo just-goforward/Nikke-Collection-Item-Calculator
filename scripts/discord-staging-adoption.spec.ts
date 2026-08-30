@@ -159,6 +159,35 @@ describe("Discord staging forecast adoption", () => {
       registrySha: "e".repeat(40),
     });
   });
+});
+
+describe("Discord staging adoption retry and certificate validation", () => {
+  it("issues a new request identity for a later workflow attempt", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
+      Response.json({
+        approvalId: "discord-staging-00000000-0000-0000-0000-000000000000",
+        customId: "forecast_staging_approve:discord-staging-00000000-0000-0000-0000-000000000000",
+        forecastId: review.forecastId,
+        sourcePullRequestUrl:
+          "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/13",
+        researchRunUrl:
+          "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/33287505614",
+        expiresAt: "2026-08-31T00:00:00.000Z",
+        state: "adoption_pr_created",
+        discordChannelId: null,
+        discordMessageId: null,
+      }),
+    );
+
+    await sendDiscordStagingAdoption(input({ runAttempt: "1" }), fetcher);
+    await sendDiscordStagingAdoption(input({ runAttempt: "2" }), fetcher);
+
+    const bodies = fetcher.mock.calls.map((call) =>
+      JSON.parse(String((call[1] as RequestInit).body)),
+    );
+    expect(bodies[0]?.payloadHash).toBe(bodies[1]?.payloadHash);
+    expect(bodies[0]?.requestKey).not.toBe(bodies[1]?.requestKey);
+  });
 
   it("accepts only a complete research-only baseline certificate", () => {
     expect(parseResearchCertificate(certificate())).toEqual(research);
