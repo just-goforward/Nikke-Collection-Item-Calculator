@@ -1,0 +1,94 @@
+name: Test Discord Forecast Approval
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Existing repository PR used only as the immutable test review target
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: discord-forecast-approval-test
+  cancel-in-progress: false
+
+jobs:
+  send-test-card:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate test configuration
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$FORECAST_COLLECTOR_URL" || { echo "Missing FORECAST_COLLECTOR_STAGING_URL." >&2; exit 1; }
+          test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" || { echo "Missing FORECAST_COLLECTOR_ADMIN_TOKEN." >&2; exit 1; }
+          test -n "$DISCORD_BOT_TOKEN" || { echo "Missing DISCORD_FORECAST_BOT_TOKEN." >&2; exit 1; }
+          [[ "$DISCORD_CHANNEL_ID" =~ ^[0-9]{1,24}$ ]] || { echo "Invalid DISCORD_FORECAST_CHANNEL_ID." >&2; exit 1; }
+
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve immutable PR test target
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pull_request_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid pull request number." >&2; exit 1; }
+          metadata_file="$RUNNER_TEMP/discord-pr-target.json"
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --json author,baseRefName,headRefName,headRefOid,isDraft,mergeable,state,files,url,body > "$metadata_file"
+          node --input-type=module - "$metadata_file" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const pr = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const allowed = new Set(["shared/supplyForecasts.json", "shared/generated/supplyForecast.ts"]);
+          if (pr.author?.login !== "app/github-actions" || pr.author?.is_bot !== true) throw new Error("Forecast PR author is not GitHub Actions.");
+          if (pr.baseRefName !== "main" || !/^automation\/supply-forecast\/forecast-[a-z0-9-]+$/.test(pr.headRefName)) throw new Error("Forecast PR branch contract is invalid.");
+          if (pr.isDraft || !["OPEN", "MERGED"].includes(pr.state)) throw new Error("An untrusted forecast PR state cannot enter Discord review.");
+          if (pr.state === "OPEN" && pr.mergeable !== "MERGEABLE") throw new Error("A conflicting forecast PR cannot enter Discord review.");
+          const files = pr.files.map((entry) => entry.path);
+          if (files.length !== allowed.size || files.some((file) => !allowed.has(file))) throw new Error("Forecast PR changes files outside the registry contract.");
+          NODE
+          url=$(jq -r .url "$metadata_file")
+          head_sha=$(jq -r .headRefOid "$metadata_file")
+          body_type=$(jq -r '.body | type' "$metadata_file")
+          expected="https://github.com/$GITHUB_REPOSITORY/pull/$PR_NUMBER"
+          [[ "$url" == "$expected" ]] || { echo "Unexpected pull request URL." >&2; exit 1; }
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid pull request head SHA." >&2; exit 1; }
+          [[ "$body_type" == "string" ]] || { echo "Pull request body is unavailable." >&2; exit 1; }
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Send test-only Discord approval card
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+          DISCORD_TEST_PR_METADATA_FILE: ${{ runner.temp }}/discord-pr-target.json
+          DISCORD_TEST_PR_NUMBER: ${{ inputs.pull_request_number }}
+          DISCORD_TEST_PR_URL: ${{ steps.target.outputs.url }}
+          DISCORD_TEST_HEAD_SHA: ${{ steps.target.outputs.head_sha }}
+        run: npm run send:discord-forecast-approval-test

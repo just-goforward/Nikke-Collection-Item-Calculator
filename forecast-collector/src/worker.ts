@@ -85,7 +85,10 @@ export default {
       return json(await readCanaryReport(env.FORECAST_DB, Date.now(), env.DEPLOY_SHA));
     }
     if (request.method === "POST" && url.pathname === "/admin/discord-test-approvals") {
-      if (env.ENVIRONMENT === "production" || env.DISCORD_APPROVAL_MODE !== "test") {
+      if (
+        env.ENVIRONMENT === "production" ||
+        (env.DISCORD_APPROVAL_MODE !== "test" && env.DISCORD_APPROVAL_MODE !== "staging_adoption")
+      ) {
         return new Response("Not found", { status: 404 });
       }
       const length = Number(request.headers.get("content-length") ?? 0);

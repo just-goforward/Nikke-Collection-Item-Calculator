@@ -237,21 +237,24 @@ describe("Discord forecast approval test boundary", () => {
       .bind(approval.approvalId)
       .first<{ state: string; approver_user_id: string; interaction_id: string }>();
 
-    expect(await approved.json()).toEqual({ type: 6 });
-    expect(await replayed.json()).toEqual({ type: 6 });
-    expect(lastDiscordEditBody()).toMatchObject({
-      components: [
-        {
-          components: [
-            { label: "확인 완료 (테스트)", disabled: true },
-            {
-              label: "GitHub PR 열기",
-              url: "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/12",
-            },
-          ],
-        },
-      ],
+    expect(await approved.json()).toMatchObject({
+      type: 7,
+      data: {
+        components: [
+          {
+            components: [
+              { label: "확인 완료 (테스트)", disabled: true },
+              {
+                label: "GitHub PR 열기",
+                url: "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/12",
+              },
+            ],
+          },
+        ],
+      },
     });
+    expect(await replayed.json()).toMatchObject({ type: 7 });
+    expect(discordEditFetch).not.toHaveBeenCalled();
     expect(stored).toEqual({
       state: "test_approved",
       approver_user_id: "987654321",
@@ -303,12 +306,12 @@ describe("Discord forecast approval test boundary", () => {
       componentInteraction(approval.customId, "987654321", "1003"),
     );
 
-    expect(await response.json()).toEqual({ type: 6 });
-    expect(await approvalState(approval.approvalId)).toBe("expired");
-    expect(lastDiscordEditBody()).toMatchObject({
-      content: expect.stringContaining("만료"),
-      components: [],
+    expect(await response.json()).toMatchObject({
+      type: 7,
+      data: { content: expect.stringContaining("만료"), components: [] },
     });
+    expect(await approvalState(approval.approvalId)).toBe("expired");
+    expect(discordEditFetch).not.toHaveBeenCalled();
     const candidates = await testEnv.FORECAST_DB.prepare(
       "SELECT COUNT(*) AS count FROM forecast_candidates",
     ).first<{ count: number }>();
@@ -326,6 +329,39 @@ describe("Discord forecast approval test boundary", () => {
 
     expect(registration.status).toBe(404);
     expect(interaction.status).toBe(404);
+  });
+
+  it("allows test-only approvals beside staging adoption without changing forecast state", async () => {
+    const staging = configuredEnv({ DISCORD_APPROVAL_MODE: "staging_adoption" });
+    const registration = await invokeAdmin(staging);
+    expect(registration.status).toBe(200);
+    const approval = await registration.json<{ approvalId: string; customId: string }>();
+
+    const response = await signedInteraction(
+      componentInteraction(approval.customId, "987654321", "1004"),
+      nowMs,
+      staging,
+    );
+    const candidates = await testEnv.FORECAST_DB.prepare(
+      "SELECT COUNT(*) AS count FROM forecast_candidates",
+    ).first<{ count: number }>();
+    const adoptions = await testEnv.FORECAST_DB.prepare(
+      "SELECT COUNT(*) AS count FROM discord_staging_adoptions",
+    ).first<{ count: number }>();
+
+    const responseBody = await response.json<{
+      type: number;
+      data: { components: Array<{ components: Array<Record<string, unknown>> }> };
+    }>();
+    expect(responseBody.type).toBe(7);
+    expect(responseBody.data.components[0]?.components[0]).toMatchObject({
+      label: "확인 완료 (테스트)",
+      disabled: true,
+    });
+    expect(await approvalState(approval.approvalId)).toBe("test_approved");
+    expect(candidates?.count).toBe(0);
+    expect(adoptions?.count).toBe(0);
+    expect(discordEditFetch).not.toHaveBeenCalled();
   });
 });
 
@@ -461,17 +497,6 @@ async function invoke(request: Request, targetEnv = configuredEnv()) {
   const response = await handler(request as Parameters<typeof handler>[0], targetEnv, context);
   await waitOnExecutionContext(context);
   return response;
-}
-
-function lastDiscordEditBody() {
-  const call = discordEditFetch.mock.calls.at(-1);
-  if (!call) throw new Error("Expected Discord original-response edit.");
-  const body = (call[1] as RequestInit | undefined)?.body;
-  if (typeof body !== "string") throw new Error("Expected JSON Discord edit body.");
-  return JSON.parse(body) as {
-    content?: string;
-    components: Array<{ components: Array<Record<string, unknown>> }>;
-  };
 }
 
 async function approvalState(approvalId: string) {

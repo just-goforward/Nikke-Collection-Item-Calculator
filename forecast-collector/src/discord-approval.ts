@@ -287,7 +287,7 @@ export async function markDiscordStagingAdoptionProcessed(
 export async function handleDiscordInteraction(
   request: Request,
   env: CollectorEnv,
-  context: ExecutionContext,
+  _context: ExecutionContext,
   nowMs = Date.now(),
 ) {
   if (
@@ -360,21 +360,20 @@ export async function handleDiscordInteraction(
       nowMs,
     );
   }
-  if (!customId.startsWith(CUSTOM_ID_PREFIX) || env.DISCORD_APPROVAL_MODE !== "test") {
+  if (
+    !customId.startsWith(CUSTOM_ID_PREFIX) ||
+    (env.DISCORD_APPROVAL_MODE !== "test" && env.DISCORD_APPROVAL_MODE !== "staging_adoption")
+  ) {
     return ephemeral("현재 테스트 승인 기능은 비활성 상태입니다.");
   }
-  context.waitUntil(
-    completeDiscordTestApproval(
-      env.FORECAST_DB,
-      customId.slice(CUSTOM_ID_PREFIX.length),
-      customId,
-      interactionId,
-      interactionToken,
-      configuration,
-      nowMs,
-    ),
+  return completeDiscordTestApproval(
+    env.FORECAST_DB,
+    customId.slice(CUSTOM_ID_PREFIX.length),
+    customId,
+    interactionId,
+    configuration,
+    nowMs,
   );
-  return deferredUpdate();
 }
 
 async function completeDiscordStagingAdoption(
@@ -426,7 +425,6 @@ async function completeDiscordTestApproval(
   approvalId: string,
   customId: string,
   interactionId: string,
-  interactionToken: string,
   configuration: NonNullable<ReturnType<typeof readDiscordConfiguration>>,
   nowMs: number,
 ) {
@@ -446,7 +444,14 @@ async function completeDiscordTestApproval(
               ? "테스트 승인 버튼이 만료되었습니다."
               : "테스트 승인 대상을 찾을 수 없습니다.",
           );
-    await editOriginalInteractionResponse(configuration.applicationId, interactionToken, data);
+    console.log(
+      JSON.stringify({
+        event: "discord_test_approval_completed",
+        approvalId,
+        outcome: result.outcome,
+      }),
+    );
+    return updateMessage(data);
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -455,29 +460,7 @@ async function completeDiscordTestApproval(
         message: error instanceof Error ? error.message : "unknown_error",
       }),
     );
-    await editOriginalInteractionResponse(
-      configuration.applicationId,
-      interactionToken,
-      approvalFailureData(),
-    ).catch(() => undefined);
-  }
-}
-
-async function editOriginalInteractionResponse(
-  applicationId: string,
-  interactionToken: string,
-  data: Record<string, unknown>,
-) {
-  const response = await fetch(
-    `https://discord.com/api/v10/webhooks/${applicationId}/${encodeURIComponent(interactionToken)}/messages/@original`,
-    {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(data),
-    },
-  );
-  if (!response.ok) {
-    throw new Error(`discord_original_response_edit_${response.status}`);
+    return updateMessage(approvalFailureData());
   }
 }
 
@@ -940,10 +923,6 @@ function approvalFailureData() {
     content: "승인 기록 중 오류가 발생했습니다. 버튼을 다시 누르거나 새 승인 카드를 요청하십시오.",
     allowed_mentions: { parse: [] },
   };
-}
-
-function deferredUpdate() {
-  return interactionJson({ type: 6 });
 }
 
 function updateMessage(data: Record<string, unknown>) {
