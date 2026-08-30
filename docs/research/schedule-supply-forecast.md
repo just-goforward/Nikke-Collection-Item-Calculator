@@ -88,12 +88,11 @@ that the PR is a non-draft GitHub Actions bot proposal changing only the two reg
 extracts `shared/supplyForecasts.json` by immutable commit SHA. Exact interactive and H/p research
 can therefore run before the administrator merges the proposal. After the exact-gate certificate
 is complete, the Discord button records a staging-only approval. A separate workflow verifies the
-certificate again, creates a staging adoption PR, and deploys the staging site without merging the
-PR or changing the product `activeForecastId`. Once the adoption PR is merged, registry v3 updates
-only `stagingForecastId` and its compact runtime module. Requests to the same static site with
-`?statsEnv=staging` then use the approved temporary forecast, while requests without that query
-continue to use `activeForecastId`. The separate staging-site build may still replace the active ID
-ephemerally at build time, but it does not persist that replacement in the production registry.
+certificate again and creates a staging adoption PR without merging it or changing the product
+`activeForecastId`. After the administrator merges that PR and the Pages deployment completes,
+registry v3 updates `stagingForecastId` and its compact runtime module. Requests to the same static
+site with `?statsEnv=staging` then use the approved temporary forecast, while requests without that
+query continue to use `activeForecastId`. No separate forecast staging Worker is operated.
 
 ## Renewed H/p study
 

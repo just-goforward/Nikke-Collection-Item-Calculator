@@ -12,6 +12,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  STAGING_FORECAST_URL: "https://nikkecollection.com/?statsEnv=staging"
 
 concurrency:
   group: process-staging-forecast-adoption
@@ -199,54 +200,7 @@ jobs:
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Setup Rust for staging build
-        if: steps.approval.outputs.found == 'true'
-        run: |
-          rustup toolchain install 1.98.0 --profile minimal --target wasm32-unknown-unknown
-          rustup default 1.98.0
-
-      - name: Install dependencies
-        if: steps.approval.outputs.found == 'true'
-        run: npm ci
-
-      - name: Build staging with the approved forecast active
-        if: steps.approval.outputs.found == 'true'
-        env:
-          FORECAST_ID: ${{ steps.approval.outputs.forecast_id }}
-          STAGING_REVISION: ${{ steps.pull_request.outputs.revision }}
-        run: |
-          npm run prepare:staging-forecast -- "$FORECAST_ID"
-          npm run build
-          node --input-type=module - <<'NODE'
-          import { writeFileSync } from "node:fs";
-          writeFileSync("dist/robots.txt", "User-agent: *\nDisallow: /\n");
-          writeFileSync("dist/_headers", "/*\n  X-Robots-Tag: noindex, nofollow\n  Cache-Control: no-cache\n");
-          writeFileSync("dist/staging-forecast.json", JSON.stringify({
-            environment: "staging",
-            forecastId: process.env.FORECAST_ID,
-            revision: process.env.STAGING_REVISION,
-            productAdoptionAuthorized: false,
-          }, null, 2));
-          NODE
-
-      - name: Deploy staging static assets
-        if: steps.approval.outputs.found == 'true'
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx wrangler deploy --config staging-site/wrangler.jsonc
-
-      - name: Smoke staging deployment
-        if: steps.approval.outputs.found == 'true'
-        env:
-          STAGING_SITE_URL: ${{ vars.FORECAST_STAGING_SITE_URL }}
-          FORECAST_ID: ${{ steps.approval.outputs.forecast_id }}
-          STAGING_REVISION: ${{ steps.pull_request.outputs.revision }}
-        run: |
-          test -n "$STAGING_SITE_URL" || { echo "Missing FORECAST_STAGING_SITE_URL." >&2; exit 1; }
-          npm run smoke:staging-forecast -- "$STAGING_SITE_URL" "$FORECAST_ID" "$STAGING_REVISION"
-
-      - name: Record completed adoption PR and staging URL
+      - name: Record adoption PR and query-driven staging URL
         if: steps.approval.outputs.found == 'true'
         env:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
@@ -254,13 +208,12 @@ jobs:
           APPROVAL_ID: ${{ steps.approval.outputs.approval_id }}
           ADOPTION_PR_NUMBER: ${{ steps.pull_request.outputs.number }}
           ADOPTION_PR_URL: ${{ steps.pull_request.outputs.url }}
-          STAGING_SITE_URL: ${{ vars.FORECAST_STAGING_SITE_URL }}
         shell: bash
         run: |
           jq -n \
             --argjson adoptionPullRequestNumber "$ADOPTION_PR_NUMBER" \
             --arg adoptionPullRequestUrl "$ADOPTION_PR_URL" \
-            --arg stagingUrl "$STAGING_SITE_URL" \
+            --arg stagingUrl "$STAGING_FORECAST_URL" \
             '{
               adoptionPullRequestNumber: $adoptionPullRequestNumber,
               adoptionPullRequestUrl: $adoptionPullRequestUrl,
@@ -272,13 +225,12 @@ jobs:
             --data-binary @"$RUNNER_TEMP/adoption-result.json" \
             "$FORECAST_COLLECTOR_URL/admin/discord-staging-adoptions/$APPROVAL_ID/adoption-pr"
 
-      - name: Publish staging result to PR
+      - name: Publish staging merge instructions to PR
         if: steps.approval.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pull_request.outputs.number }}
-          STAGING_SITE_URL: ${{ vars.FORECAST_STAGING_SITE_URL }}
           FORECAST_ID: ${{ steps.approval.outputs.forecast_id }}
         run: >-
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"
-          --body "staging 배포가 완료되었습니다: $STAGING_SITE_URL\n\n활성 Forecast: \`$FORECAST_ID\`\nproduction은 변경되지 않았습니다."
+          --body "이 PR을 병합하고 Pages 배포가 완료되면 $STAGING_FORECAST_URL 에서 Forecast \`$FORECAST_ID\`를 검증할 수 있습니다.\n\n기본 URL의 production \`activeForecastId\`는 변경되지 않습니다."

@@ -225,8 +225,9 @@ export function buildDiscordStagingAdoptionMessage(
       `${input.research.profileCount}개 evidence profile에서 완료되었습니다. ` +
       `통과 기준은 \`${input.research.baselineCandidateId}\`입니다.\n` +
       `중복 evidence profile ${input.research.duplicateProfileCount}개는 인증서에서 alias로 보존되었습니다.\n\n` +
-      "승인 시 staging adoption PR 생성과 staging 사이트 배포만 진행됩니다.\n" +
-      "production 사이트의 active forecast는 변경되지 않습니다.",
+      "승인 시 staging adoption PR만 생성됩니다. PR 병합과 Pages 배포가 끝나면 " +
+      "nikkecollection.com/?statsEnv=staging에서 검증할 수 있습니다.\n" +
+      "기본 URL의 production active forecast는 변경되지 않습니다.",
     allowed_mentions: { parse: [] },
     components: [
       {

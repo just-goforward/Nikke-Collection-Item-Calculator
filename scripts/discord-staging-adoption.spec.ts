@@ -54,7 +54,8 @@ describe("Discord staging forecast adoption", () => {
 
     expect(message.content).toContain("승인 요청입니다");
     expect(message.content).toContain("45개 고유 gain vector");
-    expect(message.content).toContain("production 사이트의 active forecast는 변경되지 않습니다");
+    expect(message.content).toContain("기본 URL의 production active forecast는 변경되지 않습니다");
+    expect(message.content).toContain("nikkecollection.com/?statsEnv=staging");
     expect(message.components[0]?.components[0]).toMatchObject({
       label: "staging 적용 승인",
       style: 3,

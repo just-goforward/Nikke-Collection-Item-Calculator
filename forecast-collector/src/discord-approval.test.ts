@@ -114,7 +114,7 @@ describe("Discord forecast approval test boundary", () => {
           adoptionPullRequestNumber: 14,
           adoptionPullRequestUrl:
             "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/14",
-          stagingUrl: "https://collection-kit-calculator-staging.tbvj159.workers.dev",
+          stagingUrl: "https://nikkecollection.com/?statsEnv=staging",
         }),
       },
     );
@@ -127,7 +127,8 @@ describe("Discord forecast approval test boundary", () => {
       data: { content: string; components: Array<{ components: Array<Record<string, unknown>> }> };
     }>();
     expect(approvedResponse.type).toBe(7);
-    expect(approvedResponse.data.content).toContain("production 환경은 변경되지 않습니다");
+    expect(approvedResponse.data.content).toContain("기본 production 환경은 변경되지 않습니다");
+    expect(approvedResponse.data.content).toContain("nikkecollection.com/?statsEnv=staging");
     expect(approvedResponse.data.components[0]?.components[0]).toMatchObject({
       label: "staging 적용 승인 완료",
       disabled: true,
@@ -213,7 +214,7 @@ describe("Discord forecast approval test boundary", () => {
           adoptionPullRequestNumber: 14,
           adoptionPullRequestUrl:
             "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/14",
-          stagingUrl: "https://collection-kit-calculator-staging.tbvj159.workers.dev",
+          stagingUrl: "https://nikkecollection.com/?statsEnv=staging",
         }),
       },
     );

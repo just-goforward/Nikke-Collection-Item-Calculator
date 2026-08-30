@@ -576,7 +576,7 @@ function parseStagingAdoptionResult(value: unknown) {
     ),
     stagingUrl: stringMatching(
       value["stagingUrl"],
-      /^https:\/\/[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev\/?$/,
+      /^https:\/\/nikkecollection\.com\/\?statsEnv=staging$/,
     ),
   };
   if (Object.values(result).some((entry) => entry === null)) {
@@ -889,7 +889,8 @@ function stagingApprovedData(approval: ReturnType<typeof publicStagingAdoption>,
   return {
     content:
       `Forecast \`${approval.forecastId}\`의 staging 적용 승인이 기록되었습니다.\n` +
-      "GitHub Actions가 adoption PR 생성과 staging 배포를 진행합니다. production 환경은 변경되지 않습니다.",
+      "GitHub Actions가 adoption PR을 생성합니다. PR 병합과 Pages 배포 후 " +
+      "nikkecollection.com/?statsEnv=staging에서 검증할 수 있으며 기본 production 환경은 변경되지 않습니다.",
     allowed_mentions: { parse: [] },
     components: [
       {

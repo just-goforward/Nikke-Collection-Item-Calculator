@@ -94,12 +94,12 @@ H/p Actions는 그 PR의 코드를 checkout하거나 실행하지 않고, GitHub
 PR인지와 변경 파일이 registry 2개뿐인지 확인한 뒤 `shared/supplyForecasts.json`만 commit SHA로
 추출한다. 따라서 관리자가 PR을 병합하기 전에도 후보 수급 profile의 exact interactive gate와
 H/p 연구를 시작할 수 있다. 완료된 exact-gate 인증서가 있으면 Discord 버튼은 staging 적용
-승인만 기록한다. 별도 Actions가 인증서를 다시 확인해 staging adoption PR과 staging 사이트를
-만들지만, PR을 병합하거나 제품 `activeForecastId`를 변경하지 않는다. Adoption PR이 병합되면
-registry v3의 `stagingForecastId`와 전용 경량 runtime 모듈만 갱신된다. 따라서 같은 정적 사이트의
-`?statsEnv=staging` 요청은 승인된 임시 forecast를 사용하고, 쿼리가 없는 실서비스 요청은 계속
-`activeForecastId`를 사용한다. 별도 staging 사이트용 build는 기존처럼 빌드 시점에 active ID를
-임시 교체하지만 그 변경을 production registry에 기록하지 않는다.
+승인만 기록한다. 별도 Actions가 인증서를 다시 확인해 staging adoption PR을 만들지만, PR을
+병합하거나 제품 `activeForecastId`를 변경하지 않는다. 관리자가 Adoption PR을 병합하고 Pages
+배포가 끝나면 registry v3의 `stagingForecastId`와 전용 경량 runtime 모듈이 갱신된다. 따라서
+같은 정적 사이트의 `?statsEnv=staging` 요청은 승인된 임시 forecast를 사용하고, 쿼리가 없는
+실서비스 요청은 계속 `activeForecastId`를 사용한다. 별도 forecast staging Worker는 운영하지
+않는다.
 
 ## H/p 재연구
 

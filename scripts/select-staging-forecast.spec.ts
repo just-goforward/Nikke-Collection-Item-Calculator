@@ -1,19 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {
-  activateForecastForStaging,
-  selectForecastForStagingRuntime,
-} from "./prepare-staging-forecast";
+import { selectForecastForStagingRuntime } from "./select-staging-forecast";
 
-describe("staging forecast preparation", () => {
-  it("activates only the approved schedule forecast in an ephemeral build registry", () => {
-    const result = activateForecastForStaging(registry(), "supply-2026-08-28-v1");
-
-    expect(result.activeForecastId).toBe("supply-2026-08-28-v1");
-    expect(result.stagingForecastId).toBe("supply-2026-08-21-v1");
-    expect(result.approvedForecastId).toBe("supply-2026-08-28-v1");
-  });
-
-  it("selects the approved forecast for query-driven staging without changing production", () => {
+describe("staging forecast selection", () => {
+  it("selects the approved forecast without changing production", () => {
     const result = selectForecastForStagingRuntime(registry(), "supply-2026-08-28-v1");
 
     expect(result.activeForecastId).toBe("supply-2026-08-21-v1");
@@ -21,12 +10,12 @@ describe("staging forecast preparation", () => {
     expect(result.approvedForecastId).toBe("supply-2026-08-28-v1");
   });
 
-  it("rejects production-active or unapproved staging targets", () => {
-    expect(() => activateForecastForStaging(registry(), "supply-2026-08-21-v1")).toThrow(
+  it("rejects production-active or unapproved targets", () => {
+    expect(() => selectForecastForStagingRuntime(registry(), "supply-2026-08-21-v1")).toThrow(
       "only the inactive approved forecast",
     );
     expect(() =>
-      activateForecastForStaging(
+      selectForecastForStagingRuntime(
         { ...registry(), activeForecastId: "supply-2026-08-28-v1" },
         "supply-2026-08-28-v1",
       ),
