@@ -858,6 +858,10 @@ function readDiscordConfiguration(env: CollectorEnv) {
 
 function approvedData(approval: ReturnType<typeof publicApproval>, customId: string) {
   return {
+    content:
+      `Forecast \`${approval.forecastId}\`의 Discord 승인 응답 테스트가 완료되었습니다.\n` +
+      "D1에는 `test_approved`만 기록되었으며 staging·production Forecast와 GitHub PR은 변경되지 않았습니다.",
+    allowed_mentions: { parse: [] },
     components: [
       {
         type: 1,
@@ -865,7 +869,7 @@ function approvedData(approval: ReturnType<typeof publicApproval>, customId: str
           {
             type: 2,
             style: 3,
-            label: "확인 완료 (테스트)",
+            label: "테스트 승인 완료",
             custom_id: customId,
             disabled: true,
           },

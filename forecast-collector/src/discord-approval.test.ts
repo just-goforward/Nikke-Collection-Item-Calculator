@@ -240,10 +240,11 @@ describe("Discord forecast approval test boundary", () => {
     expect(await approved.json()).toMatchObject({
       type: 7,
       data: {
+        content: expect.stringContaining("Discord 승인 응답 테스트가 완료되었습니다"),
         components: [
           {
             components: [
-              { label: "확인 완료 (테스트)", disabled: true },
+              { label: "테스트 승인 완료", disabled: true },
               {
                 label: "GitHub PR 열기",
                 url: "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/12",
@@ -354,8 +355,11 @@ describe("Discord forecast approval test boundary", () => {
       data: { components: Array<{ components: Array<Record<string, unknown>> }> };
     }>();
     expect(responseBody.type).toBe(7);
+    expect(responseBody.data).toMatchObject({
+      content: expect.stringContaining("Discord 승인 응답 테스트가 완료되었습니다"),
+    });
     expect(responseBody.data.components[0]?.components[0]).toMatchObject({
-      label: "확인 완료 (테스트)",
+      label: "테스트 승인 완료",
       disabled: true,
     });
     expect(await approvalState(approval.approvalId)).toBe("test_approved");
