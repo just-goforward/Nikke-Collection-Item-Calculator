@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "environment": "staging",
+  "forecastId": "supply-2026-08-28-v1",
+  "sourcePullRequestNumber": 13,
+  "sourceHeadSha": "ae18e8203145a56d0601bde383aa8366242f4e1e",
+  "registrySha": "b474be7fbb8e6156f60a17924f40c16b55a1c363",
+  "discordApprovalId": "discord-staging-9d8cdc20-1011-4677-9218-ba962e937f1f",
+  "hpCertificate": {
+    "runId": 33287505614,
+    "artifactName": "dynamic-hp-exact-gate-summary-33287505614",
+    "artifactDigest": "6ec8ffe0f6970e50d20e0a368777c81114c80c3d12b0f4f6860270fede4fb6e9"
+  },
+  "productAdoptionAuthorized": false
+}
