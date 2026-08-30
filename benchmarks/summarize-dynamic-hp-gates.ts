@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type DynamicHpEvidenceProfile,
@@ -406,6 +406,7 @@ async function main() {
     ...(solverWasmSha256 ? { solverWasmSha256 } : {}),
     ...(rulesVersion ? { rulesVersion } : {}),
   });
+  await mkdir(dirname(outputFile), { recursive: true });
   await writeFile(outputFile, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
   const certificate = certificateDirectory
     ? await writeDynamicHpCertificateBundle(reports, summary, certificateDirectory, matrix)

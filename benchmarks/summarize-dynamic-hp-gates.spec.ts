@@ -170,7 +170,7 @@ describe("dynamic H/p exact gate certificate bundle", () => {
   it("runs through the Node 24 CLI used by the workflow", async () => {
     const directory = await mkdtemp(join(tmpdir(), "dynamic-hp-cli-"));
     const inputDirectory = join(directory, "reports");
-    const outputFile = join(directory, "summary.json");
+    const outputFile = join(directory, "nested", "summary.json");
 
     try {
       await mkdir(inputDirectory);
