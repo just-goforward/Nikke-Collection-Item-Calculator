@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   assertResearchCertificateForecastCoverage,
   buildDiscordStagingAdoptionMessage,
+  type DiscordStagingAdoptionInput,
   parseResearchCertificate,
   sendDiscordStagingAdoption,
 } from "./discord-staging-adoption";
@@ -125,6 +126,39 @@ describe("Discord staging forecast adoption", () => {
     expect(fetcher.mock.calls[1]?.[1]).toMatchObject({ method: "PATCH" });
   });
 
+  it("keeps the approval identity stable across registry revisions", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
+      Response.json({
+        approvalId: "discord-staging-00000000-0000-0000-0000-000000000000",
+        customId: "forecast_staging_approve:discord-staging-00000000-0000-0000-0000-000000000000",
+        forecastId: review.forecastId,
+        sourcePullRequestUrl:
+          "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/13",
+        researchRunUrl:
+          "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/33287505614",
+        expiresAt: "2026-08-31T00:00:00.000Z",
+        state: "adoption_pr_created",
+        discordChannelId: null,
+        discordMessageId: null,
+      }),
+    );
+
+    await sendDiscordStagingAdoption(input({ registrySha: "c".repeat(40) }), fetcher);
+    await sendDiscordStagingAdoption(input({ registrySha: "e".repeat(40) }), fetcher);
+
+    const bodies = fetcher.mock.calls.map((call) =>
+      JSON.parse(String((call[1] as RequestInit).body)),
+    );
+    const first = bodies[0];
+    const second = bodies[1];
+    if (!first || !second) throw new Error("Expected two approval registrations.");
+    expect(second).toMatchObject({
+      requestKey: first.requestKey,
+      payloadHash: first.payloadHash,
+      registrySha: "e".repeat(40),
+    });
+  });
+
   it("accepts only a complete research-only baseline certificate", () => {
     expect(parseResearchCertificate(certificate())).toEqual(research);
     expect(() =>
@@ -164,7 +198,7 @@ describe("Discord staging forecast adoption", () => {
   });
 });
 
-function input() {
+function input(overrides: Partial<DiscordStagingAdoptionInput> = {}) {
   return {
     collectorUrl: "https://collector.example",
     collectorAdminToken: "admin",
@@ -184,6 +218,7 @@ function input() {
     research,
     runId: "100",
     runAttempt: "1",
+    ...overrides,
   };
 }
 

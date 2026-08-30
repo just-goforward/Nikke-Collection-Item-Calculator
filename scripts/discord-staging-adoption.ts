@@ -59,7 +59,6 @@ export async function sendDiscordStagingAdoption(
       forecastId: input.review.forecastId,
       sourcePullRequestNumber: input.sourcePullRequestNumber,
       sourceHeadSha: input.sourceHeadSha,
-      registrySha: input.registrySha,
       researchRunId: input.researchRunId,
       researchArtifactName: input.researchArtifactName,
       researchArtifactDigest: input.researchArtifactDigest,

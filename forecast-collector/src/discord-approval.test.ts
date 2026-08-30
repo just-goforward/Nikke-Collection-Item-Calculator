@@ -148,9 +148,13 @@ describe("Discord forecast approval test boundary", () => {
     expect(forecasts?.count).toBe(0);
   });
 
-  it("reuses an active staging approval for the same payload", async () => {
+  it("reuses an active staging approval across registry revisions", async () => {
     const first = await createStagingAdoption();
-    const second = await createStagingAdoption("c".repeat(64));
+    const second = await createStagingAdoption({
+      requestKey: "c".repeat(64),
+      payloadHash: "9".repeat(64),
+      registrySha: "8".repeat(40),
+    });
 
     expect(second.approvalId).toBe(first.approvalId);
   });
@@ -166,14 +170,21 @@ describe("Discord forecast approval test boundary", () => {
          research_artifact_name, research_artifact_digest,
          state, created_at, expires_at
        )
-       SELECT ?, ?, forecast_id, payload_hash,
+       SELECT ?, ?, forecast_id, ?,
          source_pull_request_number, source_pull_request_url, source_head_sha,
-         registry_sha, research_run_id, research_run_url,
+         ?, research_run_id, research_run_url,
          research_artifact_name, research_artifact_digest,
          'pending', ?, expires_at
        FROM discord_staging_adoptions WHERE approval_id = ?`,
     )
-      .bind(duplicateApprovalId, "c".repeat(64), "2026-08-27T00:00:01.000Z", first.approvalId)
+      .bind(
+        duplicateApprovalId,
+        "c".repeat(64),
+        "9".repeat(64),
+        "8".repeat(40),
+        "2026-08-27T00:00:01.000Z",
+        first.approvalId,
+      )
       .run();
     await signedInteraction(
       componentInteraction(first.customId, "987654321", "2101"),
@@ -328,13 +339,13 @@ async function createApproval() {
   }>();
 }
 
-async function createStagingAdoption(requestKey = "d".repeat(64)) {
+async function createStagingAdoption(overrides: Record<string, unknown> = {}) {
   const response = await invokeStagingAdmin(
     "https://collector.test/admin/discord-staging-adoptions",
     {
       method: "POST",
       body: JSON.stringify({
-        requestKey,
+        requestKey: "d".repeat(64),
         forecastId: "supply-2026-08-28-v1",
         payloadHash: "e".repeat(64),
         sourcePullRequestNumber: 13,
@@ -347,6 +358,7 @@ async function createStagingAdoption(requestKey = "d".repeat(64)) {
           "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/33287505614",
         researchArtifactName: "dynamic-hp-exact-gate-summary-33287505614",
         researchArtifactDigest: "b".repeat(64),
+        ...overrides,
       }),
     },
   );

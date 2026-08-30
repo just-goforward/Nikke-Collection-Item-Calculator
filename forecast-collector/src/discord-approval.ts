@@ -131,11 +131,8 @@ export async function createDiscordStagingAdoption(
   createId: () => string = () => crypto.randomUUID(),
 ) {
   const input = parseDiscordStagingAdoptionInput(value);
-  const existing = await readActiveStagingAdoptionByPayloadHash(db, input.payloadHash);
+  const existing = await readActiveStagingAdoptionByIdentity(db, input);
   if (existing) {
-    if (!sameStagingAdoptionInput(existing, input)) {
-      throw new Error("discord_staging_payload_hash_conflict");
-    }
     return publicStagingAdoption(existing);
   }
   const approvalId = `discord-staging-${createId()}`;
@@ -185,14 +182,24 @@ export async function listApprovedDiscordStagingAdoptions(db: D1Database, limit:
          AND current.approval_id = (
            SELECT duplicate.approval_id
            FROM discord_staging_adoptions AS duplicate
-           WHERE duplicate.payload_hash = current.payload_hash
+           WHERE duplicate.forecast_id = current.forecast_id
+             AND duplicate.source_pull_request_number = current.source_pull_request_number
+             AND duplicate.source_head_sha = current.source_head_sha
+             AND duplicate.research_run_id = current.research_run_id
+             AND duplicate.research_artifact_name = current.research_artifact_name
+             AND duplicate.research_artifact_digest = current.research_artifact_digest
              AND duplicate.state = 'approved' AND duplicate.expires_at > ?
            ORDER BY duplicate.approved_at ASC, duplicate.created_at ASC
            LIMIT 1
          )
          AND NOT EXISTS (
            SELECT 1 FROM discord_staging_adoptions AS completed
-           WHERE completed.payload_hash = current.payload_hash
+           WHERE completed.forecast_id = current.forecast_id
+             AND completed.source_pull_request_number = current.source_pull_request_number
+             AND completed.source_head_sha = current.source_head_sha
+             AND completed.research_run_id = current.research_run_id
+             AND completed.research_artifact_name = current.research_artifact_name
+             AND completed.research_artifact_digest = current.research_artifact_digest
              AND completed.state = 'adoption_pr_created'
          )
        ORDER BY current.approved_at ASC LIMIT ?`,
@@ -732,11 +739,20 @@ async function readStagingAdoptionByRequestKey(db: D1Database, requestKey: strin
     .first<DiscordStagingAdoptionRow>();
 }
 
-async function readActiveStagingAdoptionByPayloadHash(db: D1Database, payloadHash: string) {
+async function readActiveStagingAdoptionByIdentity(
+  db: D1Database,
+  input: DiscordStagingAdoptionInput,
+) {
   return db
     .prepare(
       `SELECT * FROM discord_staging_adoptions
-       WHERE payload_hash = ? AND state IN ('pending', 'approved', 'adoption_pr_created')
+       WHERE forecast_id = ?
+         AND source_pull_request_number = ?
+         AND source_head_sha = ?
+         AND research_run_id = ?
+         AND research_artifact_name = ?
+         AND research_artifact_digest = ?
+         AND state IN ('pending', 'approved', 'adoption_pr_created')
        ORDER BY CASE state
          WHEN 'adoption_pr_created' THEN 0
          WHEN 'approved' THEN 1
@@ -744,7 +760,14 @@ async function readActiveStagingAdoptionByPayloadHash(db: D1Database, payloadHas
        END, created_at DESC
        LIMIT 1`,
     )
-    .bind(payloadHash)
+    .bind(
+      input.forecastId,
+      input.sourcePullRequestNumber,
+      input.sourceHeadSha,
+      input.researchRunId,
+      input.researchArtifactName,
+      input.researchArtifactDigest,
+    )
     .first<DiscordStagingAdoptionRow>();
 }
 
