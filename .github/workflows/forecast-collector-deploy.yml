@@ -79,6 +79,22 @@ jobs:
           --config forecast-collector/wrangler.toml
           --file forecast-collector/migrations/0005_discord_staging_adoptions.sql
 
+      - name: Apply staging Discord message identity migration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env staging \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 6;" \
+            --json)
+          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
+            npx wrangler d1 execute FORECAST_DB --remote --env staging \
+              --config forecast-collector/wrangler.toml \
+              --file forecast-collector/migrations/0006_discord_staging_message_identity.sql
+
       - name: Prepare deployment secret file
         env:
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}

@@ -3,6 +3,7 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import discordApprovalMigrationSql from "../migrations/0004_discord_approval_tests.sql?raw";
 import discordStagingAdoptionMigrationSql from "../migrations/0005_discord_staging_adoptions.sql?raw";
+import discordStagingMessageMigrationSql from "../migrations/0006_discord_staging_message_identity.sql?raw";
 import schemaSql from "../schema.sql?raw";
 import type { CollectorEnv } from "./types";
 import worker from "./worker";
@@ -76,12 +77,25 @@ describe("Discord forecast approval test boundary", () => {
     expect(interaction.status).toBe(404);
   });
 
-  it("applies migration 0005 and records a staging adoption without product activation", async () => {
+  it("applies staging Discord migrations and records an adoption without product activation", async () => {
     await testEnv.FORECAST_DB.prepare("DROP TABLE discord_staging_adoptions").run();
-    await testEnv.FORECAST_DB.prepare("DELETE FROM schema_migrations WHERE version = 5").run();
+    await testEnv.FORECAST_DB.prepare(
+      "DELETE FROM schema_migrations WHERE version IN (5, 6)",
+    ).run();
     await executeSql(discordStagingAdoptionMigrationSql);
+    await executeSql(discordStagingMessageMigrationSql);
 
     const registration = await createStagingAdoption();
+    const messageIdentity = await invokeStagingAdmin(
+      `https://collector.test/admin/discord-staging-adoptions/${registration.approvalId}/message`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          discordChannelId: "333333333",
+          discordMessageId: "444444444",
+        }),
+      },
+    );
     const interaction = componentInteraction(registration.customId, "987654321", "2001");
     const approved = await signedInteraction(
       interaction,
@@ -105,15 +119,20 @@ describe("Discord forecast approval test boundary", () => {
       },
     );
 
-    expect(await approved.json()).toEqual({ type: 6 });
-    const approvedEdit = lastDiscordEditBody();
-    expect(approvedEdit).toMatchObject({
-      content: expect.stringContaining("production 환경은 변경되지 않습니다"),
+    expect(await messageIdentity.json()).toMatchObject({
+      adoption: { discordChannelId: "333333333", discordMessageId: "444444444" },
     });
-    expect(approvedEdit.components[0]?.components[0]).toMatchObject({
+    const approvedResponse = await approved.json<{
+      type: number;
+      data: { content: string; components: Array<{ components: Array<Record<string, unknown>> }> };
+    }>();
+    expect(approvedResponse.type).toBe(7);
+    expect(approvedResponse.data.content).toContain("production 환경은 변경되지 않습니다");
+    expect(approvedResponse.data.components[0]?.components[0]).toMatchObject({
       label: "staging 적용 승인 완료",
       disabled: true,
     });
+    expect(discordEditFetch).not.toHaveBeenCalled();
     expect(await listed.json()).toMatchObject({
       adoptions: [{ approvalId: registration.approvalId, state: "approved" }],
     });
@@ -127,6 +146,71 @@ describe("Discord forecast approval test boundary", () => {
       "SELECT COUNT(*) AS count FROM forecast_candidates",
     ).first<{ count: number }>();
     expect(forecasts?.count).toBe(0);
+  });
+
+  it("reuses an active staging approval for the same payload", async () => {
+    const first = await createStagingAdoption();
+    const second = await createStagingAdoption("c".repeat(64));
+
+    expect(second.approvalId).toBe(first.approvalId);
+  });
+
+  it("processes a legacy duplicate payload only once", async () => {
+    const first = await createStagingAdoption();
+    const duplicateApprovalId = "discord-staging-11111111-1111-4111-8111-111111111111";
+    await testEnv.FORECAST_DB.prepare(
+      `INSERT INTO discord_staging_adoptions (
+         approval_id, request_key, forecast_id, payload_hash,
+         source_pull_request_number, source_pull_request_url, source_head_sha,
+         registry_sha, research_run_id, research_run_url,
+         research_artifact_name, research_artifact_digest,
+         state, created_at, expires_at
+       )
+       SELECT ?, ?, forecast_id, payload_hash,
+         source_pull_request_number, source_pull_request_url, source_head_sha,
+         registry_sha, research_run_id, research_run_url,
+         research_artifact_name, research_artifact_digest,
+         'pending', ?, expires_at
+       FROM discord_staging_adoptions WHERE approval_id = ?`,
+    )
+      .bind(duplicateApprovalId, "c".repeat(64), "2026-08-27T00:00:01.000Z", first.approvalId)
+      .run();
+    await signedInteraction(
+      componentInteraction(first.customId, "987654321", "2101"),
+      nowMs,
+      configuredEnv({ DISCORD_APPROVAL_MODE: "staging_adoption" }),
+    );
+    await signedInteraction(
+      componentInteraction(`forecast_staging_approve:${duplicateApprovalId}`, "987654321", "2102"),
+      nowMs,
+      configuredEnv({ DISCORD_APPROVAL_MODE: "staging_adoption" }),
+    );
+
+    const listed = await invokeStagingAdmin(
+      "https://collector.test/admin/discord-staging-adoptions?limit=5",
+      { method: "GET" },
+    );
+    expect(await listed.json()).toMatchObject({
+      adoptions: [{ approvalId: first.approvalId }],
+    });
+
+    await invokeStagingAdmin(
+      `https://collector.test/admin/discord-staging-adoptions/${first.approvalId}/adoption-pr`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          adoptionPullRequestNumber: 14,
+          adoptionPullRequestUrl:
+            "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/14",
+          stagingUrl: "https://collection-kit-calculator-staging.tbvj159.workers.dev",
+        }),
+      },
+    );
+    const afterProcessing = await invokeStagingAdmin(
+      "https://collector.test/admin/discord-staging-adoptions?limit=5",
+      { method: "GET" },
+    );
+    expect(await afterProcessing.json()).toEqual({ adoptions: [] });
   });
 
   it("records one authorized test approval and makes replay idempotent", async () => {
@@ -244,13 +328,13 @@ async function createApproval() {
   }>();
 }
 
-async function createStagingAdoption() {
+async function createStagingAdoption(requestKey = "d".repeat(64)) {
   const response = await invokeStagingAdmin(
     "https://collector.test/admin/discord-staging-adoptions",
     {
       method: "POST",
       body: JSON.stringify({
-        requestKey: "d".repeat(64),
+        requestKey,
         forecastId: "supply-2026-08-28-v1",
         payloadHash: "e".repeat(64),
         sourcePullRequestNumber: 13,

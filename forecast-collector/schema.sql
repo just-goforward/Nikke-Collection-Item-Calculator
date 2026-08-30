@@ -199,6 +199,8 @@ CREATE TABLE IF NOT EXISTS discord_staging_adoptions (
   adoption_pull_request_url TEXT,
   staging_url TEXT,
   processed_at TEXT,
+  discord_channel_id TEXT CHECK (discord_channel_id IS NULL OR length(discord_channel_id) BETWEEN 1 AND 24),
+  discord_message_id TEXT UNIQUE CHECK (discord_message_id IS NULL OR length(discord_message_id) BETWEEN 1 AND 24),
   CHECK (
     (state = 'pending' AND approved_at IS NULL AND approver_user_id IS NULL
       AND interaction_id IS NULL AND adoption_pull_request_number IS NULL

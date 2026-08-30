@@ -44,6 +44,9 @@ type ApprovalRegistration = {
   sourcePullRequestUrl: string;
   researchRunUrl: string;
   expiresAt: string;
+  state: "pending" | "approved" | "adoption_pr_created" | "expired";
+  discordChannelId: string | null;
+  discordMessageId: string | null;
 };
 
 export async function sendDiscordStagingAdoption(
@@ -62,7 +65,7 @@ export async function sendDiscordStagingAdoption(
       researchArtifactDigest: input.researchArtifactDigest,
     }),
   );
-  const requestKey = sha256(`${input.runId}:${input.runAttempt}:${payloadHash}`);
+  const requestKey = sha256(`staging-adoption:${payloadHash}`);
   const registrationResponse = await fetcher(
     `${input.collectorUrl.replace(/\/$/, "")}/admin/discord-staging-adoptions`,
     {
@@ -94,16 +97,70 @@ export async function sendDiscordStagingAdoption(
     );
   }
   const registration = parseRegistration(await registrationResponse.json());
+  const messagePayload = buildDiscordStagingAdoptionMessage(registration, input);
+  const message = await ensureDiscordStagingAdoptionMessage(
+    input,
+    registration,
+    messagePayload,
+    fetcher,
+  );
+  return { approvalId: registration.approvalId, payloadHash, ...message };
+}
+
+async function ensureDiscordStagingAdoptionMessage(
+  input: DiscordStagingAdoptionInput,
+  registration: ApprovalRegistration,
+  messagePayload: ReturnType<typeof buildDiscordStagingAdoptionMessage>,
+  fetcher: typeof fetch,
+) {
+  if (registration.state !== "pending") {
+    return {
+      messageId: registration.discordMessageId,
+      reused: true,
+    };
+  }
+  if (registration.discordMessageId) {
+    return refreshDiscordStagingAdoptionMessage(input, registration, messagePayload, fetcher);
+  }
+  return createDiscordStagingAdoptionMessage(input, registration, messagePayload, fetcher);
+}
+
+async function refreshDiscordStagingAdoptionMessage(
+  input: DiscordStagingAdoptionInput,
+  registration: ApprovalRegistration,
+  messagePayload: ReturnType<typeof buildDiscordStagingAdoptionMessage>,
+  fetcher: typeof fetch,
+) {
+  if (registration.discordChannelId !== input.discordChannelId) {
+    throw new Error("Discord staging approval channel identity changed.");
+  }
+  const editResponse = await fetcher(
+    `${DISCORD_API_BASE}/channels/${input.discordChannelId}/messages/${registration.discordMessageId}`,
+    {
+      method: "PATCH",
+      headers: discordJsonHeaders(input.discordBotToken),
+      body: JSON.stringify(messagePayload),
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  if (!editResponse.ok) {
+    throw new Error(`Discord staging approval message refresh failed with ${editResponse.status}.`);
+  }
+  return { messageId: registration.discordMessageId, reused: true };
+}
+
+async function createDiscordStagingAdoptionMessage(
+  input: DiscordStagingAdoptionInput,
+  registration: ApprovalRegistration,
+  messagePayload: ReturnType<typeof buildDiscordStagingAdoptionMessage>,
+  fetcher: typeof fetch,
+) {
   const messageResponse = await fetcher(
     `${DISCORD_API_BASE}/channels/${input.discordChannelId}/messages`,
     {
       method: "POST",
-      headers: {
-        authorization: `Bot ${input.discordBotToken}`,
-        "content-type": "application/json",
-        accept: "application/json",
-      },
-      body: JSON.stringify(buildDiscordStagingAdoptionMessage(registration, input)),
+      headers: discordJsonHeaders(input.discordBotToken),
+      body: JSON.stringify(messagePayload),
       signal: AbortSignal.timeout(10_000),
     },
   );
@@ -114,7 +171,45 @@ export async function sendDiscordStagingAdoption(
   if (!isRecord(message) || typeof message["id"] !== "string") {
     throw new Error("Discord returned an invalid staging approval message response.");
   }
-  return { approvalId: registration.approvalId, messageId: message["id"], payloadHash };
+  const messageId = message["id"];
+  const identityResponse = await fetcher(
+    `${input.collectorUrl.replace(/\/$/, "")}/admin/discord-staging-adoptions/${registration.approvalId}/message`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${input.collectorAdminToken}`,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        discordChannelId: input.discordChannelId,
+        discordMessageId: messageId,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    },
+  );
+  if (!identityResponse.ok) {
+    await fetcher(`${DISCORD_API_BASE}/channels/${input.discordChannelId}/messages/${messageId}`, {
+      method: "DELETE",
+      headers: { authorization: `Bot ${input.discordBotToken}` },
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => undefined);
+    throw new Error(
+      `Discord staging approval message identity failed with ${identityResponse.status}.`,
+    );
+  }
+  return {
+    messageId,
+    reused: false,
+  };
+}
+
+function discordJsonHeaders(botToken: string) {
+  return {
+    authorization: `Bot ${botToken}`,
+    "content-type": "application/json",
+    accept: "application/json",
+  };
 }
 
 export function buildDiscordStagingAdoptionMessage(
@@ -358,7 +453,10 @@ function parseRegistration(value: unknown): ApprovalRegistration {
     typeof value["forecastId"] !== "string" ||
     typeof value["sourcePullRequestUrl"] !== "string" ||
     typeof value["researchRunUrl"] !== "string" ||
-    typeof value["expiresAt"] !== "string"
+    typeof value["expiresAt"] !== "string" ||
+    !["pending", "approved", "adoption_pr_created", "expired"].includes(String(value["state"])) ||
+    (value["discordChannelId"] !== null && typeof value["discordChannelId"] !== "string") ||
+    (value["discordMessageId"] !== null && typeof value["discordMessageId"] !== "string")
   ) {
     throw new Error("Collector returned an invalid staging approval registration.");
   }
@@ -369,6 +467,9 @@ function parseRegistration(value: unknown): ApprovalRegistration {
     sourcePullRequestUrl: value["sourcePullRequestUrl"],
     researchRunUrl: value["researchRunUrl"],
     expiresAt: value["expiresAt"],
+    state: value["state"] as ApprovalRegistration["state"],
+    discordChannelId: value["discordChannelId"] as string | null,
+    discordMessageId: value["discordMessageId"] as string | null,
   };
 }
 

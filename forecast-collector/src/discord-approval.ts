@@ -72,6 +72,8 @@ type DiscordStagingAdoptionRow = {
   adoption_pull_request_url: string | null;
   staging_url: string | null;
   processed_at: string | null;
+  discord_channel_id: string | null;
+  discord_message_id: string | null;
 };
 
 type DiscordInteraction = {
@@ -129,6 +131,13 @@ export async function createDiscordStagingAdoption(
   createId: () => string = () => crypto.randomUUID(),
 ) {
   const input = parseDiscordStagingAdoptionInput(value);
+  const existing = await readActiveStagingAdoptionByPayloadHash(db, input.payloadHash);
+  if (existing) {
+    if (!sameStagingAdoptionInput(existing, input)) {
+      throw new Error("discord_staging_payload_hash_conflict");
+    }
+    return publicStagingAdoption(existing);
+  }
   const approvalId = `discord-staging-${createId()}`;
   const createdAt = new Date(nowMs).toISOString();
   const expiresAt = new Date(nowMs + STAGING_ADOPTION_TTL_MS).toISOString();
@@ -171,13 +180,61 @@ export async function listApprovedDiscordStagingAdoptions(db: D1Database, limit:
   const safeLimit = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 20) : 5;
   const rows = await db
     .prepare(
-      `SELECT * FROM discord_staging_adoptions
-       WHERE state = 'approved' AND expires_at > ?
-       ORDER BY approved_at ASC LIMIT ?`,
+      `SELECT current.* FROM discord_staging_adoptions AS current
+       WHERE current.state = 'approved' AND current.expires_at > ?
+         AND current.approval_id = (
+           SELECT duplicate.approval_id
+           FROM discord_staging_adoptions AS duplicate
+           WHERE duplicate.payload_hash = current.payload_hash
+             AND duplicate.state = 'approved' AND duplicate.expires_at > ?
+           ORDER BY duplicate.approved_at ASC, duplicate.created_at ASC
+           LIMIT 1
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM discord_staging_adoptions AS completed
+           WHERE completed.payload_hash = current.payload_hash
+             AND completed.state = 'adoption_pr_created'
+         )
+       ORDER BY current.approved_at ASC LIMIT ?`,
     )
-    .bind(new Date().toISOString(), safeLimit)
+    .bind(new Date().toISOString(), new Date().toISOString(), safeLimit)
     .all<DiscordStagingAdoptionRow>();
   return rows.results.map(publicStagingAdoption);
+}
+
+export async function recordDiscordStagingAdoptionMessage(
+  db: D1Database,
+  approvalId: string,
+  value: unknown,
+) {
+  const input = parseStagingAdoptionMessage(value);
+  const before = await readStagingAdoptionById(db, approvalId);
+  if (!before) return null;
+  if (before.discord_channel_id || before.discord_message_id) {
+    if (
+      before.discord_channel_id !== input.discordChannelId ||
+      before.discord_message_id !== input.discordMessageId
+    ) {
+      throw new Error("discord_staging_message_conflict");
+    }
+    return publicStagingAdoption(before);
+  }
+  if (before.state !== "pending") throw new Error("discord_staging_message_not_pending");
+  const update = await db
+    .prepare(
+      `UPDATE discord_staging_adoptions
+       SET discord_channel_id = ?, discord_message_id = ?
+       WHERE approval_id = ? AND state = 'pending'
+         AND discord_channel_id IS NULL AND discord_message_id IS NULL`,
+    )
+    .bind(input.discordChannelId, input.discordMessageId, approvalId)
+    .run();
+  if (Number(update.meta.changes ?? 0) !== 1) {
+    throw new Error("discord_staging_message_race");
+  }
+  const stored = await readStagingAdoptionById(db, approvalId);
+  if (!stored) throw new Error("discord_staging_message_missing_after_update");
+  return publicStagingAdoption(stored);
 }
 
 export async function markDiscordStagingAdoptionProcessed(
@@ -287,18 +344,14 @@ export async function handleDiscordInteraction(
         approvalMode: "staging_adoption",
       }),
     );
-    context.waitUntil(
-      completeDiscordStagingAdoption(
-        env.FORECAST_DB,
-        customId.slice(STAGING_CUSTOM_ID_PREFIX.length),
-        customId,
-        interactionId,
-        interactionToken,
-        configuration,
-        nowMs,
-      ),
+    return completeDiscordStagingAdoption(
+      env.FORECAST_DB,
+      customId.slice(STAGING_CUSTOM_ID_PREFIX.length),
+      customId,
+      interactionId,
+      configuration,
+      nowMs,
     );
-    return deferredUpdate();
   }
   if (!customId.startsWith(CUSTOM_ID_PREFIX) || env.DISCORD_APPROVAL_MODE !== "test") {
     return ephemeral("현재 테스트 승인 기능은 비활성 상태입니다.");
@@ -322,7 +375,6 @@ async function completeDiscordStagingAdoption(
   approvalId: string,
   customId: string,
   interactionId: string,
-  interactionToken: string,
   configuration: NonNullable<ReturnType<typeof readDiscordConfiguration>>,
   nowMs: number,
 ) {
@@ -349,7 +401,7 @@ async function completeDiscordStagingAdoption(
         outcome: result.outcome,
       }),
     );
-    await editOriginalInteractionResponse(configuration.applicationId, interactionToken, data);
+    return updateMessage(data);
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -358,11 +410,7 @@ async function completeDiscordStagingAdoption(
         message: error instanceof Error ? error.message : "unknown_error",
       }),
     );
-    await editOriginalInteractionResponse(
-      configuration.applicationId,
-      interactionToken,
-      approvalFailureData(),
-    ).catch(() => undefined);
+    return updateMessage(approvalFailureData());
   }
 }
 
@@ -556,6 +604,18 @@ function parseStagingAdoptionResult(value: unknown) {
   };
 }
 
+function parseStagingAdoptionMessage(value: unknown) {
+  if (!isRecord(value)) throw new Error("invalid_discord_staging_message");
+  const input = {
+    discordChannelId: stringMatching(value["discordChannelId"], /^\d{1,24}$/),
+    discordMessageId: stringMatching(value["discordMessageId"], /^\d{1,24}$/),
+  };
+  if (Object.values(input).some((entry) => entry === null)) {
+    throw new Error("invalid_discord_staging_message");
+  }
+  return input as { discordChannelId: string; discordMessageId: string };
+}
+
 function assertRepositoryUrl(value: string, suffix: string, error: string) {
   const url = new URL(value);
   if (
@@ -672,6 +732,22 @@ async function readStagingAdoptionByRequestKey(db: D1Database, requestKey: strin
     .first<DiscordStagingAdoptionRow>();
 }
 
+async function readActiveStagingAdoptionByPayloadHash(db: D1Database, payloadHash: string) {
+  return db
+    .prepare(
+      `SELECT * FROM discord_staging_adoptions
+       WHERE payload_hash = ? AND state IN ('pending', 'approved', 'adoption_pr_created')
+       ORDER BY CASE state
+         WHEN 'adoption_pr_created' THEN 0
+         WHEN 'approved' THEN 1
+         ELSE 2
+       END, created_at DESC
+       LIMIT 1`,
+    )
+    .bind(payloadHash)
+    .first<DiscordStagingAdoptionRow>();
+}
+
 async function readStagingAdoptionById(db: D1Database, approvalId: string) {
   return db
     .prepare("SELECT * FROM discord_staging_adoptions WHERE approval_id = ?")
@@ -718,6 +794,8 @@ function publicStagingAdoption(row: DiscordStagingAdoptionRow) {
     adoptionPullRequestUrl: row.adoption_pull_request_url,
     stagingUrl: row.staging_url,
     processedAt: row.processed_at,
+    discordChannelId: row.discord_channel_id,
+    discordMessageId: row.discord_message_id,
   };
 }
 
@@ -843,6 +921,10 @@ function approvalFailureData() {
 
 function deferredUpdate() {
   return interactionJson({ type: 6 });
+}
+
+function updateMessage(data: Record<string, unknown>) {
+  return interactionJson({ type: 7, data });
 }
 
 function ephemeral(content: string) {

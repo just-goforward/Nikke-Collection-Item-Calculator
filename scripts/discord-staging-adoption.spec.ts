@@ -44,6 +44,9 @@ describe("Discord staging forecast adoption", () => {
         researchRunUrl:
           "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/33287505614",
         expiresAt: "2026-08-31T00:00:00.000Z",
+        state: "pending",
+        discordChannelId: null,
+        discordMessageId: null,
       },
       { review, research },
     );
@@ -70,9 +73,13 @@ describe("Discord staging forecast adoption", () => {
           researchRunUrl:
             "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/33287505614",
           expiresAt: "2026-08-31T00:00:00.000Z",
+          state: "pending",
+          discordChannelId: null,
+          discordMessageId: null,
         }),
       )
-      .mockResolvedValueOnce(Response.json({ id: "987654321" }));
+      .mockResolvedValueOnce(Response.json({ id: "987654321" }))
+      .mockResolvedValueOnce(Response.json({ adoption: { approvalId: "stored" } }));
 
     const result = await sendDiscordStagingAdoption(input(), fetcher);
 
@@ -83,6 +90,39 @@ describe("Discord staging forecast adoption", () => {
     expect(fetcher.mock.calls[1]?.[0]).toBe(
       "https://discord.com/api/v10/channels/123456789/messages",
     );
+    expect(fetcher.mock.calls[2]?.[0]).toBe(
+      "https://collector.example/admin/discord-staging-adoptions/discord-staging-00000000-0000-0000-0000-000000000000/message",
+    );
+  });
+
+  it("refreshes one recorded pending message instead of creating a duplicate card", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          approvalId: "discord-staging-00000000-0000-0000-0000-000000000000",
+          customId: "forecast_staging_approve:discord-staging-00000000-0000-0000-0000-000000000000",
+          forecastId: review.forecastId,
+          sourcePullRequestUrl:
+            "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/13",
+          researchRunUrl:
+            "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/33287505614",
+          expiresAt: "2026-08-31T00:00:00.000Z",
+          state: "pending",
+          discordChannelId: "123456789",
+          discordMessageId: "987654321",
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ id: "987654321" }));
+
+    const result = await sendDiscordStagingAdoption(input(), fetcher);
+
+    expect(result).toMatchObject({ messageId: "987654321", reused: true });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[1]?.[0]).toBe(
+      "https://discord.com/api/v10/channels/123456789/messages/987654321",
+    );
+    expect(fetcher.mock.calls[1]?.[1]).toMatchObject({ method: "PATCH" });
   });
 
   it("accepts only a complete research-only baseline certificate", () => {
