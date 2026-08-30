@@ -71,6 +71,7 @@ jobs:
             --json author,baseRefName,headRefName,headRefOid,state,mergedAt,mergeCommit,files,url,body > "$metadata"
           node --input-type=module - "$metadata" shared/supplyForecasts.json <<'NODE'
           import { readFileSync } from "node:fs";
+          import { parseForecastReviewMetadata } from "./scripts/supply-forecast-proposal.ts";
           const pr = JSON.parse(readFileSync(process.argv[2], "utf8"));
           const registry = JSON.parse(readFileSync(process.argv[3], "utf8"));
           const allowed = new Set(["shared/supplyForecasts.json", "shared/generated/supplyForecast.ts"]);
@@ -82,7 +83,8 @@ jobs:
           if (registry.version !== 2 || registry.approvedForecastId === registry.activeForecastId) throw new Error("Main does not contain an inactive approved forecast.");
           const approved = registry.forecasts?.find((entry) => entry.id === registry.approvedForecastId);
           if (!approved || approved.kind !== "schedule" || approved.rulesVersion !== "schedule-kit-v2") throw new Error("Inactive approved forecast is invalid.");
-          if (!pr.body?.includes(`\"forecastId\":\"${approved.id}\"`) && !pr.body?.includes(approved.id)) throw new Error("Forecast PR metadata does not match the approved forecast.");
+          const review = parseForecastReviewMetadata(pr.body ?? "");
+          if (review.forecastId !== approved.id) throw new Error("Forecast PR metadata does not match the approved forecast.");
           NODE
           echo "pr_url=$(jq -r .url "$metadata")" >> "$GITHUB_OUTPUT"
           echo "head_sha=$(jq -r .headRefOid "$metadata")" >> "$GITHUB_OUTPUT"
