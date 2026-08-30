@@ -126,7 +126,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
-    "@biomejs/biome": "^2.5.10",
+    "@biomejs/biome": "^2.5.11",
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@playwright/test": "1.62.1",
     "@stryker-mutator/api": "^10.0.0",
@@ -136,23 +136,23 @@
     "@types/node": "^26.4.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
-    "@vitejs/plugin-react": "^6.1.0",
+    "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^4.1.11",
     "esbuild": "^0.28.2",
     "fast-check": "^4.9.0",
-    "knip": "^6.32.3",
+    "knip": "^6.33.0",
     "oxc-parser": "^0.147.0",
     "sharp": "0.35.4",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",
     "vitest": "^4.1.11",
-    "wrangler": "^4.126.0"
+    "wrangler": "^4.127.1"
   },
   "dependencies": {
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   },
   "overrides": {
     "qs": "6.15.3",
@@ -163,6 +163,6 @@
     "esbuild@0.28.2": true,
     "sharp@0.35.3": true,
     "workerd@1.20260815.1": true,
-    "workerd@1.20260825.1": true
+    "workerd@1.20260828.1": true
   }
 }
