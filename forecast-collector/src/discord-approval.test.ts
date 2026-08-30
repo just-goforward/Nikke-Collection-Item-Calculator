@@ -2,6 +2,7 @@ import { createExecutionContext, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import discordApprovalMigrationSql from "../migrations/0004_discord_approval_tests.sql?raw";
+import discordStagingAdoptionMigrationSql from "../migrations/0005_discord_staging_adoptions.sql?raw";
 import schemaSql from "../schema.sql?raw";
 import type { CollectorEnv } from "./types";
 import worker from "./worker";
@@ -44,6 +45,86 @@ describe("Discord forecast approval test boundary", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ type: 1 });
+  });
+
+  it("keeps staging adoption registration and interactions unavailable in production", async () => {
+    const production = configuredEnv({
+      ENVIRONMENT: "production",
+      DISCORD_APPROVAL_MODE: "disabled",
+    });
+    const registration = await invoke(
+      new Request("https://collector.test/admin/discord-staging-adoptions", {
+        method: "GET",
+        headers: { authorization: "Bearer test-forecast-admin-token" },
+      }),
+      production,
+    );
+    const interaction = await signedInteraction(
+      { type: 1, application_id: "123456789" },
+      nowMs,
+      production,
+    );
+
+    expect(registration.status).toBe(404);
+    expect(interaction.status).toBe(404);
+  });
+
+  it("applies migration 0005 and records a staging adoption without product activation", async () => {
+    await testEnv.FORECAST_DB.prepare("DROP TABLE discord_staging_adoptions").run();
+    await testEnv.FORECAST_DB.prepare("DELETE FROM schema_migrations WHERE version = 5").run();
+    await executeSql(discordStagingAdoptionMigrationSql);
+
+    const registration = await createStagingAdoption();
+    const interaction = componentInteraction(registration.customId, "987654321", "2001");
+    const approved = await signedInteraction(
+      interaction,
+      nowMs,
+      configuredEnv({ DISCORD_APPROVAL_MODE: "staging_adoption" }),
+    );
+    const listed = await invokeStagingAdmin(
+      "https://collector.test/admin/discord-staging-adoptions?limit=5",
+      { method: "GET" },
+    );
+    const adoptionPr = await invokeStagingAdmin(
+      `https://collector.test/admin/discord-staging-adoptions/${registration.approvalId}/adoption-pr`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          adoptionPullRequestNumber: 14,
+          adoptionPullRequestUrl:
+            "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/14",
+          stagingUrl: "https://collection-kit-calculator-staging.tbvj159.workers.dev",
+        }),
+      },
+    );
+
+    const approvedBody = await approved.json<{
+      type: number;
+      data: { content: string; components: Array<{ components: unknown[] }> };
+    }>();
+    expect(approvedBody).toMatchObject({
+      type: 7,
+      data: {
+        content: expect.stringContaining("production 환경은 변경되지 않습니다"),
+      },
+    });
+    expect(approvedBody.data.components[0]?.components[0]).toMatchObject({
+      label: "staging 적용 승인 완료",
+      disabled: true,
+    });
+    expect(await listed.json()).toMatchObject({
+      adoptions: [{ approvalId: registration.approvalId, state: "approved" }],
+    });
+    expect(await adoptionPr.json()).toMatchObject({
+      adoption: {
+        state: "adoption_pr_created",
+        adoptionPullRequestNumber: 14,
+      },
+    });
+    const forecasts = await testEnv.FORECAST_DB.prepare(
+      "SELECT COUNT(*) AS count FROM forecast_candidates",
+    ).first<{ count: number }>();
+    expect(forecasts?.count).toBe(0);
   });
 
   it("records one authorized test approval and makes replay idempotent", async () => {
@@ -157,6 +238,42 @@ async function createApproval() {
     customId: string;
     expiresAt: string;
   }>();
+}
+
+async function createStagingAdoption() {
+  const response = await invokeStagingAdmin(
+    "https://collector.test/admin/discord-staging-adoptions",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        requestKey: "d".repeat(64),
+        forecastId: "supply-2026-08-28-v1",
+        payloadHash: "e".repeat(64),
+        sourcePullRequestNumber: 13,
+        sourcePullRequestUrl:
+          "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/13",
+        sourceHeadSha: "f".repeat(40),
+        registrySha: "a".repeat(40),
+        researchRunId: 33287505614,
+        researchRunUrl:
+          "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/33287505614",
+        researchArtifactName: "dynamic-hp-exact-gate-summary-33287505614",
+        researchArtifactDigest: "b".repeat(64),
+      }),
+    },
+  );
+  expect(response.status).toBe(200);
+  return response.json<{ approvalId: string; customId: string }>();
+}
+
+async function invokeStagingAdmin(url: string, init: RequestInit) {
+  const headers = new Headers(init.headers);
+  headers.set("authorization", "Bearer test-forecast-admin-token");
+  if (init.body) headers.set("content-type", "application/json");
+  return invoke(
+    new Request(url, { ...init, headers }),
+    configuredEnv({ DISCORD_APPROVAL_MODE: "staging_adoption" }),
+  );
 }
 
 async function invokeAdmin(targetEnv = configuredEnv()) {

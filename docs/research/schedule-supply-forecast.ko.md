@@ -93,8 +93,9 @@ Canary가 통과하면 staging의 공식 일정 원장을 다시 처리해 inact
 H/p Actions는 그 PR의 코드를 checkout하거나 실행하지 않고, GitHub Actions bot이 만든 비-draft
 PR인지와 변경 파일이 registry 2개뿐인지 확인한 뒤 `shared/supplyForecasts.json`만 commit SHA로
 추출한다. 따라서 관리자가 PR을 병합하기 전에도 후보 수급 profile의 exact interactive gate와
-H/p 연구를 시작할 수 있다. Discord 버튼도 staging의 `test_approved`만 기록하며 PR 병합이나
-forecast 활성화를 수행하지 않는다.
+H/p 연구를 시작할 수 있다. 완료된 exact-gate 인증서가 있으면 Discord 버튼은 staging 적용
+승인만 기록한다. 별도 Actions가 인증서를 다시 확인해 staging adoption PR과 staging 사이트를
+만들지만, PR을 병합하거나 제품 `activeForecastId`를 변경하지 않는다.
 
 ## H/p 재연구
 

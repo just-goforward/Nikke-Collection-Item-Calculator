@@ -25,6 +25,7 @@
     "../shared/supplyForecastModel.ts",
     "../scripts/forecast-x-advisory.ts",
     "../scripts/discord-forecast-approval-test.ts",
+    "../scripts/discord-staging-adoption.ts",
     "../scripts/process-forecast-source-queue.ts",
     "../scripts/propose-supply-forecast.ts"
   ]

@@ -1,11 +1,6 @@
 name: Start Dynamic Forecast H-p Research
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "shared/supplyForecasts.json"
-      - "shared/generated/supplyForecast.ts"
   workflow_dispatch:
     inputs:
       pull_request_number:
@@ -54,7 +49,7 @@ jobs:
   prepare:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.pull_request_number != '' && vars.FORECAST_COLLECTOR_STAGING_URL != '') ||
-      ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && inputs.pull_request_number == '' && vars.FORECAST_COLLECTOR_URL != '')
+      (github.event_name == 'workflow_dispatch' && inputs.pull_request_number == '' && vars.FORECAST_COLLECTOR_URL != '')
     runs-on: ubuntu-latest
     env:
       FORECAST_RESEARCH_COLLECTOR_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_request_number != '' && vars.FORECAST_COLLECTOR_STAGING_URL || vars.FORECAST_COLLECTOR_URL }}

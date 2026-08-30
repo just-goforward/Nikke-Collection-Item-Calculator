@@ -54,7 +54,7 @@ database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
 ENVIRONMENT = "staging"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
-DISCORD_APPROVAL_MODE = "test"
+DISCORD_APPROVAL_MODE = "staging_adoption"
 
 [env.staging.secrets]
 required = ["ADMIN_TOKEN"]

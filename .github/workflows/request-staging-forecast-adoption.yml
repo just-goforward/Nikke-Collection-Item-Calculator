@@ -1,0 +1,155 @@
+name: Request Staging Forecast Adoption
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_pull_request_number:
+        description: Merged inactive forecast PR
+        required: true
+        type: string
+      research_run_id:
+        description: Successful dynamic H/p exact certificate run
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: request-staging-forecast-adoption
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate external configuration
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$FORECAST_COLLECTOR_URL" || { echo "Missing FORECAST_COLLECTOR_STAGING_URL." >&2; exit 1; }
+          test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" || { echo "Missing FORECAST_COLLECTOR_ADMIN_TOKEN." >&2; exit 1; }
+          test -n "$DISCORD_BOT_TOKEN" || { echo "Missing DISCORD_FORECAST_BOT_TOKEN." >&2; exit 1; }
+          [[ "$DISCORD_CHANNEL_ID" =~ ^[0-9]{1,24}$ ]] || { echo "Invalid DISCORD_FORECAST_CHANNEL_ID." >&2; exit 1; }
+
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate merged inactive forecast source
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.source_pull_request_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid source PR number." >&2; exit 1; }
+          metadata="$RUNNER_TEMP/staging-source-pr.json"
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --json author,baseRefName,headRefName,headRefOid,state,mergedAt,mergeCommit,files,url,body > "$metadata"
+          node --input-type=module - "$metadata" shared/supplyForecasts.json <<'NODE'
+          import { readFileSync } from "node:fs";
+          const pr = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const registry = JSON.parse(readFileSync(process.argv[3], "utf8"));
+          const allowed = new Set(["shared/supplyForecasts.json", "shared/generated/supplyForecast.ts"]);
+          if (pr.author?.login !== "app/github-actions" || pr.author?.is_bot !== true) throw new Error("Forecast PR author is invalid.");
+          if (pr.baseRefName !== "main" || !/^automation\/supply-forecast\/forecast-[a-z0-9-]+$/.test(pr.headRefName)) throw new Error("Forecast PR branch contract is invalid.");
+          if (pr.state !== "MERGED" || !pr.mergedAt || !/^[0-9a-f]{40}$/.test(pr.mergeCommit?.oid ?? "")) throw new Error("Forecast PR is not merged.");
+          const files = pr.files.map((entry) => entry.path);
+          if (files.length !== allowed.size || files.some((file) => !allowed.has(file))) throw new Error("Forecast PR changed files outside the registry contract.");
+          if (registry.version !== 2 || registry.approvedForecastId === registry.activeForecastId) throw new Error("Main does not contain an inactive approved forecast.");
+          const approved = registry.forecasts?.find((entry) => entry.id === registry.approvedForecastId);
+          if (!approved || approved.kind !== "schedule" || approved.rulesVersion !== "schedule-kit-v2") throw new Error("Inactive approved forecast is invalid.");
+          if (!pr.body?.includes(`\"forecastId\":\"${approved.id}\"`) && !pr.body?.includes(approved.id)) throw new Error("Forecast PR metadata does not match the approved forecast.");
+          NODE
+          echo "pr_url=$(jq -r .url "$metadata")" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(jq -r .headRefOid "$metadata")" >> "$GITHUB_OUTPUT"
+          echo "registry_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "forecast_id=$(node -p 'require("./shared/supplyForecasts.json").approvedForecastId')" >> "$GITHUB_OUTPUT"
+
+      - name: Validate and download H/p exact certificate
+        id: research
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.research_run_id }}
+          FORECAST_ID: ${{ steps.source.outputs.forecast_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid research run ID." >&2; exit 1; }
+          metadata="$RUNNER_TEMP/research-run.json"
+          gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --json name,status,conclusion,headSha,url > "$metadata"
+          node --input-type=module - "$metadata" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const run = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          if (run.name !== "Start Dynamic Forecast H-p Research" || run.status !== "completed" || run.conclusion !== "success") throw new Error("Research run is not a successful H/p workflow.");
+          if (!/^[0-9a-f]{40}$/.test(run.headSha)) throw new Error("Research run head SHA is invalid.");
+          NODE
+          git merge-base --is-ancestor "$(jq -r .headSha "$metadata")" HEAD || {
+            echo "Research workflow did not run from trusted main history." >&2
+            exit 1
+          }
+          artifact_name="dynamic-hp-exact-gate-summary-$RUN_ID"
+          artifact_json="$RUNNER_TEMP/research-artifact.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts" \
+            --jq ".artifacts[] | select(.name == \"$artifact_name\")" > "$artifact_json"
+          node --input-type=module - "$artifact_json" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const artifact = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          if (artifact.expired === true || typeof artifact.digest !== "string" || !/^sha256:[0-9a-f]{64}$/.test(artifact.digest)) throw new Error("Research artifact digest is unavailable.");
+          NODE
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" -n "$artifact_name" -D "$RUNNER_TEMP/research-certificate"
+          summary="$RUNNER_TEMP/research-certificate/dynamic-hp-exact-gate-summary.json"
+          node --input-type=module - "$summary" "$FORECAST_ID" <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { parseResearchCertificate } from "./scripts/discord-staging-adoption.ts";
+          const summary = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          parseResearchCertificate(summary);
+          const expected = `${process.argv[3]}@`;
+          if (!summary.profiles.every((profile) => profile.evidenceForecastProfileIds?.every((id) => id.startsWith(expected)))) throw new Error("Research certificate forecast identity is invalid.");
+          NODE
+          echo "run_url=$(jq -r .url "$metadata")" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "artifact_digest=$(jq -r '.digest | sub("^sha256:"; "")' "$artifact_json")" >> "$GITHUB_OUTPUT"
+          echo "summary=$summary" >> "$GITHUB_OUTPUT"
+
+      - name: Send Discord staging adoption approval
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+          DISCORD_SOURCE_PR_METADATA_FILE: ${{ runner.temp }}/staging-source-pr.json
+          DISCORD_SOURCE_PR_NUMBER: ${{ inputs.source_pull_request_number }}
+          DISCORD_SOURCE_PR_URL: ${{ steps.source.outputs.pr_url }}
+          DISCORD_SOURCE_HEAD_SHA: ${{ steps.source.outputs.head_sha }}
+          DISCORD_REGISTRY_SHA: ${{ steps.source.outputs.registry_sha }}
+          DISCORD_RESEARCH_RUN_ID: ${{ inputs.research_run_id }}
+          DISCORD_RESEARCH_RUN_URL: ${{ steps.research.outputs.run_url }}
+          DISCORD_RESEARCH_ARTIFACT_NAME: ${{ steps.research.outputs.artifact_name }}
+          DISCORD_RESEARCH_ARTIFACT_DIGEST: ${{ steps.research.outputs.artifact_digest }}
+          DISCORD_RESEARCH_SUMMARY_FILE: ${{ steps.research.outputs.summary }}
+        run: npm run send:discord-staging-adoption

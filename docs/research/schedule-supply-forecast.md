@@ -86,8 +86,10 @@ After the canary passes, staging replays the official schedule ledger and create
 forecast pull request. The H/p workflow does not check out or execute pull-request code. It verifies
 that the PR is a non-draft GitHub Actions bot proposal changing only the two registry files, then
 extracts `shared/supplyForecasts.json` by immutable commit SHA. Exact interactive and H/p research
-can therefore run before the administrator merges the proposal. The Discord button remains a
-staging test that records only `test_approved`; it cannot merge the PR or activate a forecast.
+can therefore run before the administrator merges the proposal. After the exact-gate certificate
+is complete, the Discord button records a staging-only approval. A separate workflow verifies the
+certificate again, creates a staging adoption PR, and deploys the staging site without merging the
+PR or changing the product `activeForecastId`.
 
 ## Renewed H/p study
 

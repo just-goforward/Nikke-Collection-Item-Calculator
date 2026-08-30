@@ -1,0 +1,278 @@
+name: Process Staging Forecast Adoption
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: process-staging-forecast-adoption
+  cancel-in-progress: false
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Read one approved Discord adoption
+        id: approval
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$FORECAST_COLLECTOR_URL" && test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" || {
+            echo "Staging collector configuration is missing." >&2
+            exit 1
+          }
+          response="$RUNNER_TEMP/approved-staging-adoptions.json"
+          status=$(curl --silent --show-error --max-time 10 \
+            -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            --output "$response" --write-out "%{http_code}" \
+            "$FORECAST_COLLECTOR_URL/admin/discord-staging-adoptions?limit=1")
+          if [[ "$status" == "404" ]]; then
+            echo "Staging adoption endpoint is not deployed yet; nothing to process."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ "$status" == "200" ]] || {
+            echo "Staging adoption endpoint returned HTTP $status." >&2
+            exit 1
+          }
+          node --input-type=module - "$response" <<'NODE'
+          import { appendFileSync, readFileSync } from "node:fs";
+          const body = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const row = body.adoptions?.[0];
+          if (!row) {
+            appendFileSync(process.env.GITHUB_OUTPUT, "found=false\n");
+            process.exit(0);
+          }
+          const required = {
+            approval_id: [row.approvalId, /^discord-staging-[0-9a-f-]{36}$/],
+            forecast_id: [row.forecastId, /^supply-\d{4}-\d{2}-\d{2}-v\d+$/],
+            source_pr: [String(row.sourcePullRequestNumber), /^[1-9][0-9]*$/],
+            source_head_sha: [row.sourceHeadSha, /^[0-9a-f]{40}$/],
+            registry_sha: [row.registrySha, /^[0-9a-f]{40}$/],
+            research_run_id: [String(row.researchRunId), /^[1-9][0-9]*$/],
+            research_artifact_name: [row.researchArtifactName, /^dynamic-hp-exact-gate-summary-[1-9][0-9]*$/],
+            research_artifact_digest: [row.researchArtifactDigest, /^[0-9a-f]{64}$/],
+          };
+          for (const [key, [value, pattern]] of Object.entries(required)) {
+            if (typeof value !== "string" || !pattern.test(value) || value.includes("\n")) throw new Error(`Invalid approved adoption ${key}.`);
+            appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, "found=true\n");
+          NODE
+
+      - name: Validate approval against current main and H/p artifact
+        if: steps.approval.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORECAST_ID: ${{ steps.approval.outputs.forecast_id }}
+          REGISTRY_SHA: ${{ steps.approval.outputs.registry_sha }}
+          RESEARCH_RUN_ID: ${{ steps.approval.outputs.research_run_id }}
+          RESEARCH_ARTIFACT_NAME: ${{ steps.approval.outputs.research_artifact_name }}
+          RESEARCH_ARTIFACT_DIGEST: ${{ steps.approval.outputs.research_artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$REGISTRY_SHA" HEAD || {
+            echo "Approved registry SHA is not in current main history." >&2
+            exit 1
+          }
+          node --input-type=module - shared/supplyForecasts.json "$FORECAST_ID" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const registry = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const forecastId = process.argv[3];
+          const forecast = registry.forecasts?.find((entry) => entry.id === forecastId);
+          if (registry.version !== 2 || registry.approvedForecastId !== forecastId || registry.activeForecastId === forecastId) throw new Error("Forecast is not the inactive approved main forecast.");
+          if (!forecast || forecast.kind !== "schedule" || forecast.rulesVersion !== "schedule-kit-v2") throw new Error("Approved staging forecast contract is invalid.");
+          NODE
+          artifact="$RUNNER_TEMP/current-artifact.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RESEARCH_RUN_ID/artifacts" \
+            --jq ".artifacts[] | select(.name == \"$RESEARCH_ARTIFACT_NAME\")" > "$artifact"
+          actual=$(jq -r '.digest | sub("^sha256:"; "")' "$artifact")
+          [[ "$actual" == "$RESEARCH_ARTIFACT_DIGEST" && "$(jq -r .expired "$artifact")" == "false" ]] || {
+            echo "H/p certificate artifact identity changed or expired." >&2
+            exit 1
+          }
+
+      - name: Create or update staging adoption PR
+        if: steps.approval.outputs.found == 'true'
+        id: pull_request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORECAST_ID: ${{ steps.approval.outputs.forecast_id }}
+          SOURCE_PR: ${{ steps.approval.outputs.source_pr }}
+          SOURCE_HEAD_SHA: ${{ steps.approval.outputs.source_head_sha }}
+          REGISTRY_SHA: ${{ steps.approval.outputs.registry_sha }}
+          RESEARCH_RUN_ID: ${{ steps.approval.outputs.research_run_id }}
+          RESEARCH_ARTIFACT_NAME: ${{ steps.approval.outputs.research_artifact_name }}
+          RESEARCH_ARTIFACT_DIGEST: ${{ steps.approval.outputs.research_artifact_digest }}
+          APPROVAL_ID: ${{ steps.approval.outputs.approval_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="automation/staging-forecast-adoption/$FORECAST_ID"
+          git checkout -B "$branch" refs/heads/main
+          mkdir -p staging
+          node --input-type=module - staging/adoption.json <<'NODE'
+          import { writeFileSync } from "node:fs";
+          const record = {
+            version: 1,
+            environment: "staging",
+            forecastId: process.env.FORECAST_ID,
+            sourcePullRequestNumber: Number(process.env.SOURCE_PR),
+            sourceHeadSha: process.env.SOURCE_HEAD_SHA,
+            registrySha: process.env.REGISTRY_SHA,
+            discordApprovalId: process.env.APPROVAL_ID,
+            hpCertificate: {
+              runId: Number(process.env.RESEARCH_RUN_ID),
+              artifactName: process.env.RESEARCH_ARTIFACT_NAME,
+              artifactDigest: process.env.RESEARCH_ARTIFACT_DIGEST,
+            },
+            productAdoptionAuthorized: false,
+          };
+          writeFileSync(process.argv[2], `${JSON.stringify(record, null, 2)}\n`);
+          NODE
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add staging/adoption.json
+          if ! git diff --cached --quiet; then
+            git commit -m "staging: approve forecast $FORECAST_ID"
+          fi
+          remote_ref="refs/heads/$branch"
+          remote_sha=$(git ls-remote --heads origin "$remote_ref" | awk '{print $1}')
+          if [[ -n "$remote_sha" ]]; then
+            git push --force-with-lease="$remote_ref:$remote_sha" origin "$branch"
+          else
+            git push origin "$branch"
+          fi
+          body="$RUNNER_TEMP/staging-adoption-pr.md"
+          cat > "$body" <<EOF
+          ## Staging Forecast adoption
+
+          Discord 관리자가 staging 적용을 승인했습니다.
+
+          - Forecast: \`$FORECAST_ID\`
+          - Inactive source PR: #$SOURCE_PR
+          - H/p certificate run: $RESEARCH_RUN_ID
+          - Discord approval: \`$APPROVAL_ID\`
+          - Product adoption authorized: **false**
+
+          이 PR은 staging 증거 레코드만 추가합니다. production \`activeForecastId\`를 변경하지 않으며 자동 병합되지 않습니다.
+          EOF
+          existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "$branch" --json number --jq '.[0].number // empty')
+          if [[ -z "$existing" ]]; then
+            url=$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
+              --title "staging: $FORECAST_ID 적용 승인" --body-file "$body")
+            number=${url##*/}
+          else
+            number=$existing
+            gh pr edit "$number" --repo "$GITHUB_REPOSITORY" \
+              --title "staging: $FORECAST_ID 적용 승인" --body-file "$body"
+            url="https://github.com/$GITHUB_REPOSITORY/pull/$number"
+          fi
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Rust for staging build
+        if: steps.approval.outputs.found == 'true'
+        run: |
+          rustup toolchain install 1.98.0 --profile minimal --target wasm32-unknown-unknown
+          rustup default 1.98.0
+
+      - name: Install dependencies
+        if: steps.approval.outputs.found == 'true'
+        run: npm ci
+
+      - name: Build staging with the approved forecast active
+        if: steps.approval.outputs.found == 'true'
+        env:
+          FORECAST_ID: ${{ steps.approval.outputs.forecast_id }}
+          STAGING_REVISION: ${{ steps.pull_request.outputs.revision }}
+        run: |
+          npm run prepare:staging-forecast -- "$FORECAST_ID"
+          npm run build
+          node --input-type=module - <<'NODE'
+          import { writeFileSync } from "node:fs";
+          writeFileSync("dist/robots.txt", "User-agent: *\nDisallow: /\n");
+          writeFileSync("dist/_headers", "/*\n  X-Robots-Tag: noindex, nofollow\n  Cache-Control: no-cache\n");
+          writeFileSync("dist/staging-forecast.json", JSON.stringify({
+            environment: "staging",
+            forecastId: process.env.FORECAST_ID,
+            revision: process.env.STAGING_REVISION,
+            productAdoptionAuthorized: false,
+          }, null, 2));
+          NODE
+
+      - name: Deploy staging static assets
+        if: steps.approval.outputs.found == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy --config staging-site/wrangler.jsonc
+
+      - name: Smoke staging deployment
+        if: steps.approval.outputs.found == 'true'
+        env:
+          STAGING_SITE_URL: ${{ vars.FORECAST_STAGING_SITE_URL }}
+          FORECAST_ID: ${{ steps.approval.outputs.forecast_id }}
+          STAGING_REVISION: ${{ steps.pull_request.outputs.revision }}
+        run: |
+          test -n "$STAGING_SITE_URL" || { echo "Missing FORECAST_STAGING_SITE_URL." >&2; exit 1; }
+          npm run smoke:staging-forecast -- "$STAGING_SITE_URL" "$FORECAST_ID" "$STAGING_REVISION"
+
+      - name: Record completed adoption PR and staging URL
+        if: steps.approval.outputs.found == 'true'
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          APPROVAL_ID: ${{ steps.approval.outputs.approval_id }}
+          ADOPTION_PR_NUMBER: ${{ steps.pull_request.outputs.number }}
+          ADOPTION_PR_URL: ${{ steps.pull_request.outputs.url }}
+          STAGING_SITE_URL: ${{ vars.FORECAST_STAGING_SITE_URL }}
+        shell: bash
+        run: |
+          jq -n \
+            --argjson adoptionPullRequestNumber "$ADOPTION_PR_NUMBER" \
+            --arg adoptionPullRequestUrl "$ADOPTION_PR_URL" \
+            --arg stagingUrl "$STAGING_SITE_URL" \
+            '{adoptionPullRequestNumber, adoptionPullRequestUrl, stagingUrl}' > "$RUNNER_TEMP/adoption-result.json"
+          curl --fail-with-body --silent --show-error --max-time 10 \
+            -X POST -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @"$RUNNER_TEMP/adoption-result.json" \
+            "$FORECAST_COLLECTOR_URL/admin/discord-staging-adoptions/$APPROVAL_ID/adoption-pr"
+
+      - name: Publish staging result to PR
+        if: steps.approval.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pull_request.outputs.number }}
+          STAGING_SITE_URL: ${{ vars.FORECAST_STAGING_SITE_URL }}
+          FORECAST_ID: ${{ steps.approval.outputs.forecast_id }}
+        run: >-
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"
+          --body "staging 배포가 완료되었습니다: $STAGING_SITE_URL\n\n활성 Forecast: \`$FORECAST_ID\`\nproduction은 변경되지 않았습니다."

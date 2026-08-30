@@ -110,21 +110,25 @@ continuity, and non-negative finite gains again before creating an
 Merging that PR sets `approvedForecastId` but leaves `activeForecastId` unchanged.
 
 After a verified production collector and an approved inactive forecast exist, the dynamic H/p
-workflow starts isolated, resumable research slices. It records `productAdoptionAuthorized: false`.
-Only a later, manually reviewed adoption PR may activate the forecast or change H/p.
+workflow runs only by explicit dispatch. It records `productAdoptionAuthorized: false`; merging an
+inactive forecast no longer starts the expensive study again. A verified exact-gate certificate is
+required before staging adoption can be requested.
 
-## Discord approval button test
+## Discord staging adoption approval
 
-The optional Discord integration is deliberately test-only. A manually dispatched GitHub Actions
-workflow posts a bot message with a `테스트 승인` button. Discord sends the button interaction to
-the staging collector, which verifies the Ed25519 signature and the configured application, guild,
-channel, and approver user IDs. A successful click changes only a row in
-`discord_approval_tests` from `pending` to `test_approved`.
+`Request Staging Forecast Adoption` verifies a merged inactive forecast PR and its immutable H/p
+artifact before posting a Discord button. Discord sends the button interaction to the staging
+collector, which verifies the Ed25519 signature and the configured application, guild, channel,
+and approver user IDs. A successful click changes one `discord_staging_adoptions` row from
+`pending` to `approved`.
 
-It does **not** change a forecast candidate state, approve or merge a pull request, update
-`approvedForecastId`, activate a forecast, or start H/p research. The production Wrangler
-environment fixes `DISCORD_APPROVAL_MODE` to `disabled`; both the registration and interaction
-routes return 404 in production. Test records expire after 30 minutes.
+The button gives the collector no GitHub token. `Process Staging Forecast Adoption` polls approved
+rows with the existing authenticated admin boundary, validates main and the artifact digest again,
+creates a non-auto-merged staging evidence PR, and deploys a separate Workers Static Assets site.
+The build uses the inactive approved forecast only in its ephemeral staging registry. Production
+GitHub Pages and the tracked `activeForecastId` remain unchanged. The production collector fixes
+`DISCORD_APPROVAL_MODE` to `disabled`; all Discord approval routes return 404 there. Pending staging
+approvals expire after 24 hours.
 
 Create a Discord application and bot in the Discord Developer Portal, install the bot only in the
 intended server with `View Channel` and `Send Messages`, and set the application's Interactions
@@ -164,22 +168,23 @@ npx wrangler secret put DISCORD_GUILD_ID --env staging --config forecast-collect
 npx wrangler secret put DISCORD_CHANNEL_ID --env staging --config forecast-collector/wrangler.toml
 ```
 
-Apply migration 0004 to the staging D1 database and deploy the staging collector before configuring
+Apply migrations 0004 and 0005 to the staging D1 database and deploy the staging collector before configuring
 the Discord Interactions Endpoint URL:
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
   --config forecast-collector/wrangler.toml `
   --file forecast-collector/migrations/0004_discord_approval_tests.sql
+npx wrangler d1 execute FORECAST_DB --remote --env=staging `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0005_discord_staging_adoptions.sql
 ```
 
-Then run `Test Discord Forecast Approval` manually with an existing pull request number. The
-workflow checks out trusted `main`, resolves the immutable PR URL and head SHA with a read-only
-`GITHUB_TOKEN`, and validates the machine-readable review metadata embedded by the forecast
-proposal renderer. The Discord card contains only the X status/profile link, the Solo Raid and
-collaboration periods to compare, and a short confirmation instruction. It registers the test
-record with the staging collector before posting the button through the Discord bot API. The test
-cannot be used as a production approval signal.
+Then run `Request Staging Forecast Adoption` with the merged inactive forecast PR number and the
+successful dynamic H/p run ID. The card uses a formal system voice, shows only the schedule/X
+review, exact-gate certificate summary, and staging-only effect, and registers the approval before
+posting the button. The scheduled processor creates the staging adoption PR only after that button
+is clicked. Neither workflow can merge the PR or authorize production adoption.
 
 ## Failure behavior
 
@@ -232,7 +237,8 @@ npx wrangler d1 execute FORECAST_DB --remote --env="" `
 
 For an existing database, apply the incremental migrations instead of replaying the bootstrap
 schema. Migration 0003 adds invocation accounting, shallow cursors, and the source queue. Migration
-0004 adds the isolated Discord approval test ledger:
+0004 adds the isolated Discord approval test ledger, and migration 0005 adds the staging adoption
+ledger:
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
@@ -250,9 +256,13 @@ npx wrangler d1 execute FORECAST_DB --remote --env="" `
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
   --config forecast-collector/wrangler.toml `
   --file forecast-collector/migrations/0004_discord_approval_tests.sql
+npx wrangler d1 execute FORECAST_DB --remote --env=staging `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0005_discord_staging_adoptions.sql
 ```
 
-Migration 0004 is not required in production while Discord approval mode remains disabled.
+Migrations 0004 and 0005 are not required in production while Discord approval mode remains
+disabled.
 
 Required repository variables:
 
@@ -260,6 +270,7 @@ Required repository variables:
 FORECAST_COLLECTOR_STAGING_URL
 FORECAST_COLLECTOR_PRODUCTION_URL
 FORECAST_COLLECTOR_URL
+FORECAST_STAGING_SITE_URL
 FORECAST_DIRECT_NAVER_POLL (optional emergency fallback)
 ```
 

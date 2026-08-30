@@ -3,7 +3,9 @@ import type { CollectorEnv } from "./types";
 const DISCORD_SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
 const DISCORD_INTERACTION_MAX_BYTES = 64 * 1024;
 const TEST_APPROVAL_TTL_MS = 30 * 60 * 1000;
+const STAGING_ADOPTION_TTL_MS = 24 * 60 * 60 * 1000;
 const CUSTOM_ID_PREFIX = "forecast_test_approve:";
+const STAGING_CUSTOM_ID_PREFIX = "forecast_staging_approve:";
 const REPOSITORY_PATH = "/just-goforward/Nikke-Collection-Item-Calculator";
 
 export type DiscordApprovalTestInput = {
@@ -31,6 +33,45 @@ type DiscordApprovalTestRow = {
   approved_at: string | null;
   approver_user_id: string | null;
   interaction_id: string | null;
+};
+
+export type DiscordStagingAdoptionInput = {
+  requestKey: string;
+  forecastId: string;
+  payloadHash: string;
+  sourcePullRequestNumber: number;
+  sourcePullRequestUrl: string;
+  sourceHeadSha: string;
+  registrySha: string;
+  researchRunId: number;
+  researchRunUrl: string;
+  researchArtifactName: string;
+  researchArtifactDigest: string;
+};
+
+type DiscordStagingAdoptionRow = {
+  approval_id: string;
+  request_key: string;
+  forecast_id: string;
+  payload_hash: string;
+  source_pull_request_number: number;
+  source_pull_request_url: string;
+  source_head_sha: string;
+  registry_sha: string;
+  research_run_id: number;
+  research_run_url: string;
+  research_artifact_name: string;
+  research_artifact_digest: string;
+  state: "pending" | "approved" | "adoption_pr_created" | "expired";
+  created_at: string;
+  expires_at: string;
+  approved_at: string | null;
+  approver_user_id: string | null;
+  interaction_id: string | null;
+  adoption_pull_request_number: number | null;
+  adoption_pull_request_url: string | null;
+  staging_url: string | null;
+  processed_at: string | null;
 };
 
 type DiscordInteraction = {
@@ -80,12 +121,113 @@ export async function createDiscordApprovalTest(
   return publicApproval(stored);
 }
 
+export async function createDiscordStagingAdoption(
+  db: D1Database,
+  value: unknown,
+  nowMs = Date.now(),
+  createId: () => string = () => crypto.randomUUID(),
+) {
+  const input = parseDiscordStagingAdoptionInput(value);
+  const approvalId = `discord-staging-${createId()}`;
+  const createdAt = new Date(nowMs).toISOString();
+  const expiresAt = new Date(nowMs + STAGING_ADOPTION_TTL_MS).toISOString();
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO discord_staging_adoptions (
+         approval_id, request_key, forecast_id, payload_hash,
+         source_pull_request_number, source_pull_request_url, source_head_sha,
+         registry_sha, research_run_id, research_run_url,
+         research_artifact_name, research_artifact_digest,
+         state, created_at, expires_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+    )
+    .bind(
+      approvalId,
+      input.requestKey,
+      input.forecastId,
+      input.payloadHash,
+      input.sourcePullRequestNumber,
+      input.sourcePullRequestUrl,
+      input.sourceHeadSha,
+      input.registrySha,
+      input.researchRunId,
+      input.researchRunUrl,
+      input.researchArtifactName,
+      input.researchArtifactDigest,
+      createdAt,
+      expiresAt,
+    )
+    .run();
+  const stored = await readStagingAdoptionByRequestKey(db, input.requestKey);
+  if (!stored) throw new Error("discord_staging_adoption_not_created");
+  if (!sameStagingAdoptionInput(stored, input)) {
+    throw new Error("discord_staging_request_key_conflict");
+  }
+  return publicStagingAdoption(stored);
+}
+
+export async function listApprovedDiscordStagingAdoptions(db: D1Database, limit: number) {
+  const safeLimit = Number.isInteger(limit) ? Math.min(Math.max(limit, 1), 20) : 5;
+  const rows = await db
+    .prepare(
+      `SELECT * FROM discord_staging_adoptions
+       WHERE state = 'approved' AND expires_at > ?
+       ORDER BY approved_at ASC LIMIT ?`,
+    )
+    .bind(new Date().toISOString(), safeLimit)
+    .all<DiscordStagingAdoptionRow>();
+  return rows.results.map(publicStagingAdoption);
+}
+
+export async function markDiscordStagingAdoptionProcessed(
+  db: D1Database,
+  approvalId: string,
+  value: unknown,
+  nowMs = Date.now(),
+) {
+  const input = parseStagingAdoptionResult(value);
+  const before = await readStagingAdoptionById(db, approvalId);
+  if (!before) return null;
+  if (before.state === "adoption_pr_created") {
+    if (!sameStagingAdoptionResult(before, input)) {
+      throw new Error("discord_staging_result_conflict");
+    }
+    return publicStagingAdoption(before);
+  }
+  if (before.state !== "approved") throw new Error("discord_staging_not_approved");
+  const processedAt = new Date(nowMs).toISOString();
+  const update = await db
+    .prepare(
+      `UPDATE discord_staging_adoptions
+       SET state = 'adoption_pr_created', adoption_pull_request_number = ?,
+           adoption_pull_request_url = ?, staging_url = ?, processed_at = ?
+       WHERE approval_id = ? AND state = 'approved'`,
+    )
+    .bind(
+      input.adoptionPullRequestNumber,
+      input.adoptionPullRequestUrl,
+      input.stagingUrl,
+      processedAt,
+      approvalId,
+    )
+    .run();
+  if (Number(update.meta.changes ?? 0) !== 1) {
+    throw new Error("discord_staging_process_race");
+  }
+  const stored = await readStagingAdoptionById(db, approvalId);
+  if (!stored) throw new Error("discord_staging_result_missing");
+  return publicStagingAdoption(stored);
+}
+
 export async function handleDiscordInteraction(
   request: Request,
   env: CollectorEnv,
   nowMs = Date.now(),
 ) {
-  if (env.ENVIRONMENT === "production" || env.DISCORD_APPROVAL_MODE !== "test") {
+  if (
+    env.ENVIRONMENT === "production" ||
+    (env.DISCORD_APPROVAL_MODE !== "test" && env.DISCORD_APPROVAL_MODE !== "staging_adoption")
+  ) {
     return new Response("Not found", { status: 404 });
   }
   const configuration = readDiscordConfiguration(env);
@@ -120,18 +262,38 @@ export async function handleDiscordInteraction(
     interaction.guild_id !== configuration.guildId ||
     interaction.channel_id !== configuration.channelId
   ) {
-    return ephemeral("허용된 Discord 채널에서만 테스트 승인할 수 있습니다.");
+    return ephemeral("허용된 Discord 채널에서만 승인할 수 있습니다.");
   }
   const userId = interaction.member?.user?.id ?? interaction.user?.id;
   if (userId !== configuration.approverUserId) {
-    return ephemeral("이 테스트 승인을 수행할 권한이 없습니다.");
+    return ephemeral("이 승인을 수행할 권한이 없습니다.");
   }
   const interactionId = stringMatching(interaction.id, /^\d{1,24}$/);
-  const customId = stringMatching(
-    interaction.data?.custom_id,
-    /^forecast_test_approve:discord-test-[0-9a-f-]{36}$/,
-  );
-  if (!interactionId || !customId) return ephemeral("유효하지 않은 테스트 승인 버튼입니다.");
+  const customId = stringMatching(interaction.data?.custom_id, /^[a-z_:-]{1,64}[0-9a-f-]{36}$/);
+  if (!interactionId || !customId) return ephemeral("유효하지 않은 승인 버튼입니다.");
+  if (customId.startsWith(STAGING_CUSTOM_ID_PREFIX)) {
+    if (env.DISCORD_APPROVAL_MODE !== "staging_adoption") {
+      return ephemeral("현재 staging 승인 기능은 비활성 상태입니다.");
+    }
+    const result = await approveDiscordStagingAdoption(
+      env.FORECAST_DB,
+      customId.slice(STAGING_CUSTOM_ID_PREFIX.length),
+      interactionId,
+      configuration.approverUserId,
+      nowMs,
+    );
+    if (result.outcome === "approved") {
+      return stagingApprovedMessage(result.approval, customId);
+    }
+    if (result.outcome === "already_approved") {
+      return ephemeral("해당 staging 적용 승인은 이미 기록되어 있습니다.");
+    }
+    if (result.outcome === "expired") return ephemeral("staging 승인 버튼이 만료되었습니다.");
+    return ephemeral("staging 승인 대상을 확인할 수 없습니다.");
+  }
+  if (!customId.startsWith(CUSTOM_ID_PREFIX) || env.DISCORD_APPROVAL_MODE !== "test") {
+    return ephemeral("현재 테스트 승인 기능은 비활성 상태입니다.");
+  }
   const approvalId = customId.slice(CUSTOM_ID_PREFIX.length);
   const result = await approveDiscordTest(
     env.FORECAST_DB,
@@ -216,6 +378,81 @@ function parseDiscordApprovalTestInput(value: unknown): DiscordApprovalTestInput
   return input as DiscordApprovalTestInput;
 }
 
+function parseDiscordStagingAdoptionInput(value: unknown): DiscordStagingAdoptionInput {
+  if (!isRecord(value)) throw new Error("invalid_discord_staging_adoption");
+  const input = {
+    requestKey: stringMatching(value["requestKey"], /^[0-9a-f]{64}$/),
+    forecastId: stringMatching(value["forecastId"], /^supply-\d{4}-\d{2}-\d{2}-v\d+$/),
+    payloadHash: stringMatching(value["payloadHash"], /^[0-9a-f]{64}$/),
+    sourcePullRequestNumber: positiveInteger(value["sourcePullRequestNumber"]),
+    sourcePullRequestUrl: stringMatching(value["sourcePullRequestUrl"], /^https:\/\/github\.com\//),
+    sourceHeadSha: stringMatching(value["sourceHeadSha"], /^[0-9a-f]{40}$/),
+    registrySha: stringMatching(value["registrySha"], /^[0-9a-f]{40}$/),
+    researchRunId: positiveInteger(value["researchRunId"]),
+    researchRunUrl: stringMatching(value["researchRunUrl"], /^https:\/\/github\.com\//),
+    researchArtifactName: stringMatching(
+      value["researchArtifactName"],
+      /^dynamic-hp-exact-gate-summary-[1-9][0-9]*$/,
+    ),
+    researchArtifactDigest: stringMatching(value["researchArtifactDigest"], /^[0-9a-f]{64}$/),
+  };
+  if (Object.values(input).some((entry) => entry === null)) {
+    throw new Error("invalid_discord_staging_adoption");
+  }
+  assertRepositoryUrl(
+    input.sourcePullRequestUrl as string,
+    `/pull/${input.sourcePullRequestNumber}`,
+    "invalid_discord_staging_source_pr_url",
+  );
+  assertRepositoryUrl(
+    input.researchRunUrl as string,
+    `/actions/runs/${input.researchRunId}`,
+    "invalid_discord_staging_research_url",
+  );
+  return input as DiscordStagingAdoptionInput;
+}
+
+function parseStagingAdoptionResult(value: unknown) {
+  if (!isRecord(value)) throw new Error("invalid_discord_staging_result");
+  const result = {
+    adoptionPullRequestNumber: positiveInteger(value["adoptionPullRequestNumber"]),
+    adoptionPullRequestUrl: stringMatching(
+      value["adoptionPullRequestUrl"],
+      /^https:\/\/github\.com\//,
+    ),
+    stagingUrl: stringMatching(
+      value["stagingUrl"],
+      /^https:\/\/[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev\/?$/,
+    ),
+  };
+  if (Object.values(result).some((entry) => entry === null)) {
+    throw new Error("invalid_discord_staging_result");
+  }
+  assertRepositoryUrl(
+    result.adoptionPullRequestUrl as string,
+    `/pull/${result.adoptionPullRequestNumber}`,
+    "invalid_discord_staging_adoption_pr_url",
+  );
+  return result as {
+    adoptionPullRequestNumber: number;
+    adoptionPullRequestUrl: string;
+    stagingUrl: string;
+  };
+}
+
+function assertRepositoryUrl(value: string, suffix: string, error: string) {
+  const url = new URL(value);
+  if (
+    url.protocol !== "https:" ||
+    url.hostname !== "github.com" ||
+    url.pathname !== `${REPOSITORY_PATH}${suffix}` ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    throw new Error(error);
+  }
+}
+
 async function approveDiscordTest(
   db: D1Database,
   approvalId: string,
@@ -257,6 +494,47 @@ async function approveDiscordTest(
   return { outcome: "approved" as const, approval: publicApproval(approved) };
 }
 
+async function approveDiscordStagingAdoption(
+  db: D1Database,
+  approvalId: string,
+  interactionId: string,
+  approverUserId: string,
+  nowMs: number,
+) {
+  const now = new Date(nowMs).toISOString();
+  const before = await readStagingAdoptionById(db, approvalId);
+  if (!before) return { outcome: "missing" as const };
+  if (before.state === "approved" || before.state === "adoption_pr_created") {
+    return { outcome: "already_approved" as const, approval: publicStagingAdoption(before) };
+  }
+  if (Date.parse(before.expires_at) <= nowMs) {
+    await db
+      .prepare(
+        "UPDATE discord_staging_adoptions SET state = 'expired' WHERE approval_id = ? AND state = 'pending'",
+      )
+      .bind(approvalId)
+      .run();
+    return { outcome: "expired" as const };
+  }
+  const update = await db
+    .prepare(
+      `UPDATE discord_staging_adoptions
+       SET state = 'approved', approved_at = ?, approver_user_id = ?, interaction_id = ?
+       WHERE approval_id = ? AND state = 'pending' AND expires_at > ?`,
+    )
+    .bind(now, approverUserId, interactionId, approvalId, now)
+    .run();
+  if (Number(update.meta.changes ?? 0) !== 1) {
+    const after = await readStagingAdoptionById(db, approvalId);
+    return after?.state === "approved" || after?.state === "adoption_pr_created"
+      ? { outcome: "already_approved" as const, approval: publicStagingAdoption(after) }
+      : { outcome: "missing" as const };
+  }
+  const approved = await readStagingAdoptionById(db, approvalId);
+  if (!approved) throw new Error("discord_staging_approval_missing_after_update");
+  return { outcome: "approved" as const, approval: publicStagingAdoption(approved) };
+}
+
 async function readApprovalByRequestKey(db: D1Database, requestKey: string) {
   return db
     .prepare("SELECT * FROM discord_approval_tests WHERE request_key = ?")
@@ -269,6 +547,20 @@ async function readApprovalById(db: D1Database, approvalId: string) {
     .prepare("SELECT * FROM discord_approval_tests WHERE approval_id = ?")
     .bind(approvalId)
     .first<DiscordApprovalTestRow>();
+}
+
+async function readStagingAdoptionByRequestKey(db: D1Database, requestKey: string) {
+  return db
+    .prepare("SELECT * FROM discord_staging_adoptions WHERE request_key = ?")
+    .bind(requestKey)
+    .first<DiscordStagingAdoptionRow>();
+}
+
+async function readStagingAdoptionById(db: D1Database, approvalId: string) {
+  return db
+    .prepare("SELECT * FROM discord_staging_adoptions WHERE approval_id = ?")
+    .bind(approvalId)
+    .first<DiscordStagingAdoptionRow>();
 }
 
 function publicApproval(row: DiscordApprovalTestRow) {
@@ -288,6 +580,31 @@ function publicApproval(row: DiscordApprovalTestRow) {
   };
 }
 
+function publicStagingAdoption(row: DiscordStagingAdoptionRow) {
+  return {
+    approvalId: row.approval_id,
+    customId: `${STAGING_CUSTOM_ID_PREFIX}${row.approval_id}`,
+    forecastId: row.forecast_id,
+    payloadHash: row.payload_hash,
+    sourcePullRequestNumber: row.source_pull_request_number,
+    sourcePullRequestUrl: row.source_pull_request_url,
+    sourceHeadSha: row.source_head_sha,
+    registrySha: row.registry_sha,
+    researchRunId: row.research_run_id,
+    researchRunUrl: row.research_run_url,
+    researchArtifactName: row.research_artifact_name,
+    researchArtifactDigest: row.research_artifact_digest,
+    state: row.state,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    approvedAt: row.approved_at,
+    adoptionPullRequestNumber: row.adoption_pull_request_number,
+    adoptionPullRequestUrl: row.adoption_pull_request_url,
+    stagingUrl: row.staging_url,
+    processedAt: row.processed_at,
+  };
+}
+
 function sameApprovalInput(row: DiscordApprovalTestRow, input: DiscordApprovalTestInput) {
   return (
     row.candidate_id === input.candidateId &&
@@ -296,6 +613,35 @@ function sameApprovalInput(row: DiscordApprovalTestRow, input: DiscordApprovalTe
     row.pull_request_number === input.pullRequestNumber &&
     row.pull_request_url === input.pullRequestUrl &&
     row.head_sha === input.headSha
+  );
+}
+
+function sameStagingAdoptionInput(
+  row: DiscordStagingAdoptionRow,
+  input: DiscordStagingAdoptionInput,
+) {
+  return (
+    row.forecast_id === input.forecastId &&
+    row.payload_hash === input.payloadHash &&
+    row.source_pull_request_number === input.sourcePullRequestNumber &&
+    row.source_pull_request_url === input.sourcePullRequestUrl &&
+    row.source_head_sha === input.sourceHeadSha &&
+    row.registry_sha === input.registrySha &&
+    row.research_run_id === input.researchRunId &&
+    row.research_run_url === input.researchRunUrl &&
+    row.research_artifact_name === input.researchArtifactName &&
+    row.research_artifact_digest === input.researchArtifactDigest
+  );
+}
+
+function sameStagingAdoptionResult(
+  row: DiscordStagingAdoptionRow,
+  input: ReturnType<typeof parseStagingAdoptionResult>,
+) {
+  return (
+    row.adoption_pull_request_number === input.adoptionPullRequestNumber &&
+    row.adoption_pull_request_url === input.adoptionPullRequestUrl &&
+    row.staging_url === input.stagingUrl
   );
 }
 
@@ -338,6 +684,41 @@ function approvedMessage(approval: ReturnType<typeof publicApproval>, customId: 
   });
 }
 
+function stagingApprovedMessage(
+  approval: ReturnType<typeof publicStagingAdoption>,
+  customId: string,
+) {
+  return interactionJson({
+    type: 7,
+    data: {
+      content:
+        `Forecast \`${approval.forecastId}\`의 staging 적용 승인이 기록되었습니다.\n` +
+        "GitHub Actions가 adoption PR 생성과 staging 배포를 진행합니다. production 환경은 변경되지 않습니다.",
+      allowed_mentions: { parse: [] },
+      components: [
+        {
+          type: 1,
+          components: [
+            {
+              type: 2,
+              style: 3,
+              label: "staging 적용 승인 완료",
+              custom_id: customId,
+              disabled: true,
+            },
+            {
+              type: 2,
+              style: 5,
+              label: "H/p 인증 결과 열기",
+              url: approval.researchRunUrl,
+            },
+          ],
+        },
+      ],
+    },
+  });
+}
+
 function ephemeral(content: string) {
   return interactionJson({
     type: 4,
@@ -357,6 +738,10 @@ function hexBytes(value: string) {
 
 function stringMatching(value: unknown, pattern: RegExp) {
   return typeof value === "string" && pattern.test(value) ? value : null;
+}
+
+function positiveInteger(value: unknown) {
+  return Number.isInteger(value) && Number(value) > 0 ? Number(value) : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

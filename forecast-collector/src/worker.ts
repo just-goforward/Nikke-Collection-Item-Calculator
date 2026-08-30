@@ -7,7 +7,13 @@ import {
   readHealth,
   supersedeIncompatibleCandidates,
 } from "./db";
-import { createDiscordApprovalTest, handleDiscordInteraction } from "./discord-approval";
+import {
+  createDiscordApprovalTest,
+  createDiscordStagingAdoption,
+  handleDiscordInteraction,
+  listApprovedDiscordStagingAdoptions,
+  markDiscordStagingAdoptionProcessed,
+} from "./discord-approval";
 import { listSourceQueue, processSourceQueue, readScheduleLedger } from "./source-queue";
 import type { CollectorEnv } from "./types";
 
@@ -88,6 +94,48 @@ export default {
       } catch (error) {
         const message = error instanceof Error ? error.message : "invalid_request";
         const status = message === "discord_test_request_key_conflict" ? 409 : 400;
+        return json({ error: message.slice(0, 120) }, status);
+      }
+    }
+    if (url.pathname === "/admin/discord-staging-adoptions") {
+      if (env.ENVIRONMENT === "production" || env.DISCORD_APPROVAL_MODE !== "staging_adoption") {
+        return new Response("Not found", { status: 404 });
+      }
+      if (request.method === "GET") {
+        const limit = Number(url.searchParams.get("limit") ?? 5);
+        return json({
+          adoptions: await listApprovedDiscordStagingAdoptions(env.FORECAST_DB, limit),
+        });
+      }
+      if (request.method === "POST") {
+        const length = Number(request.headers.get("content-length") ?? 0);
+        if (length > 32_768) return new Response("Payload too large", { status: 413 });
+        try {
+          return json(await createDiscordStagingAdoption(env.FORECAST_DB, await request.json()));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "invalid_request";
+          const status = message === "discord_staging_request_key_conflict" ? 409 : 400;
+          return json({ error: message.slice(0, 120) }, status);
+        }
+      }
+    }
+    const adoptionResultMatch = url.pathname.match(
+      /^\/admin\/discord-staging-adoptions\/(discord-staging-[0-9a-f-]{36})\/adoption-pr$/,
+    );
+    if (request.method === "POST" && adoptionResultMatch?.[1]) {
+      if (env.ENVIRONMENT === "production" || env.DISCORD_APPROVAL_MODE !== "staging_adoption") {
+        return new Response("Not found", { status: 404 });
+      }
+      try {
+        const updated = await markDiscordStagingAdoptionProcessed(
+          env.FORECAST_DB,
+          adoptionResultMatch[1],
+          await request.json(),
+        );
+        return json({ adoption: updated }, updated ? 200 : 404);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "invalid_request";
+        const status = message === "discord_staging_result_conflict" ? 409 : 400;
         return json({ error: message.slice(0, 120) }, status);
       }
     }
