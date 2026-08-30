@@ -82,8 +82,45 @@ jobs:
       - name: Prepare deployment secret file
         env:
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
-        run: >-
-          node -e 'require("node:fs").writeFileSync(process.env.RUNNER_TEMP+"/forecast-secrets.json",JSON.stringify({ADMIN_TOKEN:process.env.FORECAST_COLLECTOR_ADMIN_TOKEN}))'
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" || {
+            echo "Missing FORECAST_COLLECTOR_ADMIN_TOKEN." >&2
+            exit 1
+          }
+          test -n "$DISCORD_BOT_TOKEN" || {
+            echo "Missing DISCORD_FORECAST_BOT_TOKEN." >&2
+            exit 1
+          }
+          application="$RUNNER_TEMP/discord-bot-application.json"
+          status=$(curl --silent --show-error --max-time 10 \
+            -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+            --output "$application" --write-out "%{http_code}" \
+            "https://discord.com/api/v10/oauth2/applications/@me")
+          [[ "$status" == "200" ]] || {
+            echo "Discord bot application lookup returned HTTP $status." >&2
+            exit 1
+          }
+          node --input-type=module - "$application" "$RUNNER_TEMP/forecast-secrets.json" <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          const application = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          if (!/^\d{1,24}$/.test(application.id ?? "")) {
+            throw new Error("Discord bot application ID is invalid.");
+          }
+          if (!/^[0-9a-f]{64}$/i.test(application.verify_key ?? "")) {
+            throw new Error("Discord bot application verify key is invalid.");
+          }
+          writeFileSync(
+            process.argv[3],
+            JSON.stringify({
+              ADMIN_TOKEN: process.env.FORECAST_COLLECTOR_ADMIN_TOKEN,
+              DISCORD_APPLICATION_ID: application.id,
+              DISCORD_PUBLIC_KEY: application.verify_key,
+            }),
+          );
+          NODE
 
       - name: Deploy staging collector
         env:

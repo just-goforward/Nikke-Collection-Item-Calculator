@@ -280,6 +280,13 @@ export async function handleDiscordInteraction(
     if (env.DISCORD_APPROVAL_MODE !== "staging_adoption") {
       return ephemeral("현재 staging 승인 기능은 비활성 상태입니다.");
     }
+    console.log(
+      JSON.stringify({
+        event: "discord_interaction_acknowledged",
+        interactionId,
+        approvalMode: "staging_adoption",
+      }),
+    );
     context.waitUntil(
       completeDiscordStagingAdoption(
         env.FORECAST_DB,
@@ -335,6 +342,13 @@ async function completeDiscordStagingAdoption(
               ? "staging 승인 버튼이 만료되었습니다. 새 승인 카드를 요청하십시오."
               : "staging 승인 대상을 확인할 수 없습니다. 새 승인 카드를 요청하십시오.",
           );
+    console.log(
+      JSON.stringify({
+        event: "discord_staging_approval_completed",
+        approvalId,
+        outcome: result.outcome,
+      }),
+    );
     await editOriginalInteractionResponse(configuration.applicationId, interactionToken, data);
   } catch (error) {
     console.error(
