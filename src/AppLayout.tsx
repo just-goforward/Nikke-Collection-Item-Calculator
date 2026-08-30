@@ -25,6 +25,7 @@ import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
 import { useMobileLayout } from "./hooks/useMobileLayout";
 import { useI18n } from "./i18n/locale";
 import type { StatsRuntimeMode } from "./lib/statsRuntime";
+import { resolveRuntimeSupplyForecast } from "./lib/supplyForecastRuntime";
 
 type DetailPanelModule = typeof import("./components/DetailPanel");
 
@@ -52,6 +53,7 @@ const classes = {
   stagingBanner:
     "mb-3 rounded-card border border-warning bg-warning-soft px-3.5 py-2.5 text-[13px] font-semibold leading-[1.4] text-warning max-mobile:mb-2.5 max-mobile:px-3 max-mobile:py-2 max-mobile:text-xs",
   stagingErrorBanner: "border-danger bg-danger-soft text-danger",
+  stagingForecast: "mt-1 block font-medium text-text-soft",
   mobileHeader:
     "hidden max-mobile:sticky max-mobile:top-0 max-mobile:z-20 max-mobile:mx-[-10px] max-mobile:mb-3 max-mobile:block max-mobile:bg-page max-mobile:px-2.5 max-mobile:shadow-[0_1px_0_var(--line)]",
   workspace: "min-w-0",
@@ -116,23 +118,43 @@ export type AppHandlers = {
 };
 
 function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
-  const { t } = useI18n();
+  const { formatNumber, t } = useI18n();
+  const runtimeForecast = resolveRuntimeSupplyForecast();
+  const isStagingForecast = runtimeForecast.environment === "staging";
+  const forecastDetails = isStagingForecast ? (
+    <span className={classes.stagingForecast} data-testid="staging-forecast-details">
+      {t("staging.forecast", {
+        blue: formatNumber(runtimeForecast.profile.expectedGain.blue, 2),
+        forecastId: runtimeForecast.forecastId,
+        profileId: runtimeForecast.profile.id,
+        purple: formatNumber(runtimeForecast.profile.expectedGain.purple, 2),
+        yellow: formatNumber(runtimeForecast.profile.expectedGain.yellow, 2),
+      })}
+    </span>
+  ) : null;
   if (statsMode === "staging-misconfigured") {
     return (
       <aside
         className={`${classes.stagingBanner} ${classes.stagingErrorBanner}`}
+        data-forecast-id={isStagingForecast ? runtimeForecast.forecastId : undefined}
         aria-label={t("staging.label")}
         role="alert"
       >
         {t("staging.missing")}
+        {forecastDetails}
       </aside>
     );
   }
   if (statsMode !== "staging") return null;
 
   return (
-    <aside className={classes.stagingBanner} aria-label={t("staging.label")}>
+    <aside
+      className={classes.stagingBanner}
+      data-forecast-id={isStagingForecast ? runtimeForecast.forecastId : undefined}
+      aria-label={t("staging.label")}
+    >
       {t("staging.notice")}
+      {forecastDetails}
     </aside>
   );
 }

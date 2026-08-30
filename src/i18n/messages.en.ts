@@ -51,6 +51,8 @@ export const enMessages = {
   "staging.label": "Staging environment",
   "staging.missing": "STAGING configuration is missing. Stats submission is disabled.",
   "staging.notice": "STAGING - test records are excluded from production stats",
+  "staging.forecast":
+    "Temporary Forecast {forecastId} · {profileId} · expected gain Blue {blue} / Purple {purple} / Yellow {yellow}",
   "reset.done": "Inputs have been reset",
   "reset.undo": "Undo ({seconds})",
   "reset.undoAction": "Undo input reset",

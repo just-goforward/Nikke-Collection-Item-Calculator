@@ -8,6 +8,7 @@ import {
   type WorkerTaskTiming,
   workerMessageId,
 } from "../shared/workerProtocol";
+import { prepareRuntimeSupplyForecast } from "./lib/supplyForecastRuntime";
 import { solve } from "./solver/solve";
 import { solveRustMinEf } from "./wasm/rustMinEfSolver";
 import { solveRustPhase2 } from "./wasm/rustPhase2ProductSolver";
@@ -138,6 +139,7 @@ self.onmessage = async (event) => {
     return;
   }
   try {
+    await prepareRuntimeSupplyForecast();
     await dispatchWorkerRequest(parsed.data);
   } catch (error) {
     postWorkerMessage({ type: "error", id: parsed.data.id, ...workerErrorPayload(error) });

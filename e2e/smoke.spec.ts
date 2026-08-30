@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
+import { STAGING_SUPPLY_FORECAST_ID } from "../shared/generated/supplyForecastRuntime";
 import {
   installTurnstileStub,
   maxBackgroundChannel,
@@ -1534,18 +1535,49 @@ test("모바일 info-tip 텍스트는 말풍선 안에 머문다", async ({ page
   expect(layerMetrics?.tooltipEscapesPanelTop).toBe(true);
 });
 
-test("스테이징은 운영 solver 동작과 분리된 통계 endpoint를 사용한다", async ({ page }) => {
+test("스테이징 쿼리는 임시 Forecast를 표시하고 solver worker에도 전달한다", async ({ page }) => {
+  const submittedForecastIds: string[] = [];
+  page.on("request", (request) => {
+    if (request.url() !== "https://staging.example.test/api/events") return;
+    const payload: unknown = request.postDataJSON();
+    const event =
+      typeof payload === "object" && payload !== null && "event" in payload ? payload.event : null;
+    if (
+      typeof event === "object" &&
+      event !== null &&
+      "kind" in event &&
+      event.kind === "solver_diagnostic" &&
+      "forecastId" in event &&
+      typeof event.forecastId === "string"
+    ) {
+      submittedForecastIds.push(event.forecastId);
+    }
+  });
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    Reflect.set(window, "solverWorkerNamesForTest", []);
+    window.Worker = class extends NativeWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        const recorded = Reflect.get(window, "solverWorkerNamesForTest") as string[];
+        recorded.push(options?.name ?? "");
+        super(url, options);
+      }
+    };
+  });
+  await installTurnstileStub(page);
   await serveStagingDocument(page, {
     endpoint: "https://staging.example.test",
     turnstileSiteKey: "staging-site-key",
   });
-  await mockStagingStatsEndpoints(page);
+  await mockStagingStatsEndpoints(page, `http://127.0.0.1:${PORT}`);
 
   await page.goto("/?statsEnv=staging");
 
   await expect(page.getByLabel("스테이징 환경")).toContainText(
     "테스트 기록은 운영 통계에 반영되지 않음",
   );
+  await expect(page.getByLabel("스테이징 환경")).toContainText(STAGING_SUPPLY_FORECAST_ID);
+  await expect(page.getByLabel("스테이징 환경")).toContainText("예상 수급 파랑");
   await expect(page.getByLabel("Rust solver staging")).toHaveCount(0);
   await page.locator("[data-grade='SR']").click();
   await page.locator("[data-level='10']").click();
@@ -1555,4 +1587,13 @@ test("스테이징은 운영 solver 동작과 분리된 통계 endpoint를 사�
   await expect(page.locator(".next-action")).toBeVisible({ timeout: 20_000 });
   await expect(page.locator(".result-panel .outcome-panel")).toBeVisible();
   await expect(page.getByText("Solver · Rust min E[f]", { exact: true })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const names = Reflect.get(window, "solverWorkerNamesForTest") as string[];
+        return names.includes("collection-solver:staging");
+      }),
+    )
+    .toBe(true);
+  await expect.poll(() => submittedForecastIds.at(-1)).toBe(STAGING_SUPPLY_FORECAST_ID);
 });

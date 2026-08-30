@@ -1,7 +1,4 @@
-import {
-  ACTIVE_SUPPLY_FORECAST_ID,
-  resolveActiveSupplyForecastProfile,
-} from "../../shared/generated/supplyForecast";
+import { resolveRuntimeSupplyForecast } from "../lib/supplyForecastRuntime";
 import { EXPECTED_28_DAY_GAIN } from "../solver/domain";
 import type { Kit } from "../types";
 import { assertRustStatusOk, RustSolveError } from "./rustStatus";
@@ -42,9 +39,9 @@ export type Phase2BuildContext = {
 };
 
 export function activeSupplyForecastContext(): SupplyForecastContext {
-  const profile = resolveActiveSupplyForecastProfile();
+  const { forecastId, profile } = resolveRuntimeSupplyForecast();
   return {
-    forecastId: ACTIVE_SUPPLY_FORECAST_ID,
+    forecastId,
     forecastProfileId: profile.id,
     expectedGain: { ...profile.expectedGain },
   };

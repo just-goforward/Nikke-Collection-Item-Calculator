@@ -693,6 +693,7 @@ describe("admin supply forecast registry", () => {
 
     expect(body.supplyForecastRegistry).toEqual(SUPPLY_FORECAST_REGISTRY);
     expect(body.supplyForecastRegistry?.activeForecastId).toBe("supply-2026-08-21-v1");
+    expect(body.supplyForecastRegistry?.stagingForecastId).toBe("supply-2026-08-28-v1");
   });
 });
 

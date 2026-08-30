@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { detectInitialLocale, I18nProvider, prepareInitialLocale, translate } from "./i18n/locale";
+import { prepareRuntimeSupplyForecast } from "./lib/supplyForecastRuntime";
 import "./styles.css";
 
 function boot() {
@@ -38,8 +39,13 @@ function renderBootFailure(error: unknown) {
   app.append(panel);
 }
 
-try {
-  boot();
-} catch (error) {
-  renderBootFailure(error);
+const forecastPreparation = prepareRuntimeSupplyForecast();
+if (forecastPreparation) {
+  void forecastPreparation.then(boot).catch(renderBootFailure);
+} else {
+  try {
+    boot();
+  } catch (error) {
+    renderBootFailure(error);
+  }
 }

@@ -105,7 +105,7 @@ jobs:
           const registry = JSON.parse(readFileSync(process.argv[2], "utf8"));
           const forecastId = process.argv[3];
           const forecast = registry.forecasts?.find((entry) => entry.id === forecastId);
-          if (registry.version !== 2 || registry.approvedForecastId !== forecastId || registry.activeForecastId === forecastId) throw new Error("Forecast is not the inactive approved main forecast.");
+          if (registry.version !== 3 || registry.approvedForecastId !== forecastId || registry.activeForecastId === forecastId) throw new Error("Forecast is not the inactive approved main forecast.");
           if (!forecast || forecast.kind !== "schedule" || forecast.rulesVersion !== "schedule-kit-v2") throw new Error("Approved staging forecast contract is invalid.");
           NODE
           artifact="$RUNNER_TEMP/current-artifact.json"
@@ -155,9 +155,11 @@ jobs:
           };
           writeFileSync(process.argv[2], `${JSON.stringify(record, null, 2)}\n`);
           NODE
+          npm run select:staging-forecast -- "$FORECAST_ID"
+          npm run generate:supply-forecast
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add staging/adoption.json
+          git add staging/adoption.json shared/supplyForecasts.json shared/generated/supplyForecast.ts shared/generated/supplyForecastRuntime.ts
           if ! git diff --cached --quiet; then
             git commit -m "staging: approve forecast $FORECAST_ID"
           fi
@@ -180,7 +182,7 @@ jobs:
           - Discord approval: \`$APPROVAL_ID\`
           - Product adoption authorized: **false**
 
-          이 PR은 staging 증거 레코드만 추가합니다. production \`activeForecastId\`를 변경하지 않으며 자동 병합되지 않습니다.
+          이 PR은 staging 증거 레코드와 \`stagingForecastId\`를 갱신합니다. production \`activeForecastId\`를 변경하지 않으며 자동 병합되지 않습니다.
           EOF
           existing=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --head "$branch" --json number --jq '.[0].number // empty')
           if [[ -z "$existing" ]]; then

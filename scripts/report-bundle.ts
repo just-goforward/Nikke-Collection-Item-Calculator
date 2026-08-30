@@ -18,11 +18,13 @@ const REQUIRED_LAZY_ROOTS = {
 const OPTIONAL_LAZY_ROOTS = {
   "src/components/DetailPanel.tsx": "lazy-detail",
   "src/solver/solve.ts": "lazy-solver",
+  "shared/generated/supplyForecastRuntime.ts": "lazy-forecast",
 } as const;
 
 type BundleKind =
   | "initial-js"
   | "lazy-detail"
+  | "lazy-forecast"
   | "lazy-solver"
   | "lazy-stats"
   | "worker"
@@ -154,13 +156,13 @@ function classifyUnmappedJavaScript(files: URL[], classifications: Map<string, B
   const unmapped = files
     .map((file) => relative(fileURLToPath(distDir), fileURLToPath(file)).replace(/\\/g, "/"))
     .filter((path) => extname(path) === ".js" && !classifications.has(path));
-  if (unmapped.length !== 1) {
+  const workerEntries = unmapped.filter((path) => /(^|\/)worker-[^/]+\.js$/.test(path));
+  if (unmapped.length === 0 || workerEntries.length !== 1) {
     throw new Error(
-      `Expected one Worker asset outside the app import graph, found ${unmapped.length}: ${unmapped.join(", ")}`,
+      `Expected one Worker entry outside the app manifest, found ${workerEntries.length} among: ${unmapped.join(", ")}`,
     );
   }
-  const workerFile = unmapped[0];
-  if (workerFile) classifications.set(workerFile, "worker");
+  for (const workerFile of unmapped) classifications.set(workerFile, "worker");
 }
 
 function kindFor(path: string, classifications: Map<string, BundleKind>): BundleKind {

@@ -1,8 +1,4 @@
 import {
-  ACTIVE_SUPPLY_FORECAST_ID,
-  resolveActiveSupplyForecastProfile,
-} from "../../shared/generated/supplyForecast";
-import {
   bucketBlueShare,
   bucketCandidateCount,
   bucketMinAutonomyDays,
@@ -20,7 +16,7 @@ import {
   SOLVER_DIAGNOSTIC_VERSION,
   type StatsLocale,
 } from "../../shared/statsContract";
-import { EXPECTED_28_DAY_GAIN } from "../solver/domain";
+import { resolveRuntimeSupplyForecast } from "../lib/supplyForecastRuntime";
 import type { Kit, Strategy } from "../types";
 import { RUST_MIN_EF_MEMO_TIER, RUST_PHASE2_FALLBACK_MEMO_TIER } from "../wasm/rustProductConfig";
 import { KIT_KEYS, type SolveOutcome } from "./calculatorShared";
@@ -73,13 +69,14 @@ function vectorValue(vector: Partial<Record<Kit, number>> | undefined, kit: Kit)
 function diagnosticCostMetrics(
   input: NonNullable<DiagnosticResult["input"]>,
   best: DiagnosticBest,
+  expectedGain: Record<Kit, number>,
 ) {
   const vector = best.vector || {};
   const vectorTotal = KIT_KEYS.reduce((sum, kit) => sum + vectorValue(vector, kit), 0);
   const totalExpectedCost = Number(best.totalKits) || vectorTotal;
   const blueShare = vectorValue(vector, "blue") / totalExpectedCost;
   const minAutonomyDays = KIT_KEYS.reduce((minimum, kit) => {
-    const dailyGain = EXPECTED_28_DAY_GAIN[kit] / 28;
+    const dailyGain = expectedGain[kit] / 28;
     const remainingDays = (Number(input.stock[kit] || 0) - vectorValue(vector, kit)) / dailyGain;
     return Math.min(minimum, remainingDays);
   }, Number.POSITIVE_INFINITY);
@@ -117,16 +114,20 @@ export function makeSolverDiagnosticEvent(outcome: SolveOutcome, locale: StatsLo
   if (!result.possible || !result.input || !result.best) return null;
   const input = result.input;
   const best = result.best;
+  const runtimeForecast = resolveRuntimeSupplyForecast();
   const runCount = Math.max(1, Math.trunc(Number(best.run?.count || 1)));
-  const { blueShare, minAutonomyDays, totalExpectedCost } = diagnosticCostMetrics(input, best);
+  const { blueShare, minAutonomyDays, totalExpectedCost } = diagnosticCostMetrics(
+    input,
+    best,
+    runtimeForecast.profile.expectedGain,
+  );
   if (!Number.isFinite(totalExpectedCost) || totalExpectedCost <= 0) return null;
   const probabilityGap = diagnosticProbabilityGap(result, best);
   // This field is kept for diagnostic schema compatibility. It is no longer a user choice.
   const strategy: Strategy = "supply";
   const { solverBackend, solverPhase, solverVersion, stats } = diagnosticSolverIdentity(result);
-  const currentProfile = resolveActiveSupplyForecastProfile();
-  const forecastProfileId = diagnosticToken(stats.forecastProfileId, currentProfile.id);
-  const forecastId = diagnosticToken(stats.forecastId, ACTIVE_SUPPLY_FORECAST_ID);
+  const forecastProfileId = diagnosticToken(stats.forecastProfileId, runtimeForecast.profile.id);
+  const forecastId = diagnosticToken(stats.forecastId, runtimeForecast.forecastId);
 
   return {
     kind: "solver_diagnostic" as const,
@@ -177,12 +178,12 @@ export function makeSolverRecoveryEvent(
   trace: SolverRecoveryTrace | undefined,
 ) {
   if (!input || !trace || !hasRecoverySignal(trace)) return null;
-  const activeProfile = resolveActiveSupplyForecastProfile();
+  const runtimeForecast = resolveRuntimeSupplyForecast();
   return {
     kind: "solver_recovery" as const,
     recoveryVersion: 1 as const,
-    forecastId: ACTIVE_SUPPLY_FORECAST_ID,
-    forecastProfileId: activeProfile.id,
+    forecastId: runtimeForecast.forecastId,
+    forecastProfileId: runtimeForecast.profile.id,
     policyVersion: trace.policyVersion,
     requestedBackend: trace.requestedBackend,
     minEfExit: trace.minEfExit,

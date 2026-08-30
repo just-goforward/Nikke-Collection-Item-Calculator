@@ -104,7 +104,7 @@ jobs:
           node --input-type=module - "$RUNNER_TEMP/candidate-supplyForecasts.json" <<'NODE'
           import { readFileSync } from "node:fs";
           const registry = JSON.parse(readFileSync(process.argv[2], "utf8"));
-          if (registry.version !== 2 || registry.approvedForecastId === registry.activeForecastId) throw new Error("Forecast PR does not contain an inactive approved forecast.");
+          if (registry.version !== 3 || registry.approvedForecastId === registry.activeForecastId) throw new Error("Forecast PR does not contain an inactive approved forecast.");
           const approved = registry.forecasts?.find((entry) => entry.id === registry.approvedForecastId);
           if (!approved || approved.kind !== "schedule" || approved.rulesVersion !== "schedule-kit-v2" || !Array.isArray(approved.profiles) || approved.profiles.length === 0) throw new Error("Forecast PR approved entry is invalid.");
           for (const profile of approved.profiles) {

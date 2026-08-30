@@ -50,6 +50,8 @@ export const koMessages = {
   "staging.label": "스테이징 환경",
   "staging.missing": "STAGING 설정 누락 - 통계 제출이 중지됨",
   "staging.notice": "STAGING - 테스트 기록은 운영 통계에 반영되지 않음",
+  "staging.forecast":
+    "임시 Forecast {forecastId} · {profileId} · 예상 수급 파랑 {blue} / 보라 {purple} / 노랑 {yellow}",
   "reset.done": "입력이 초기화되었습니다",
   "reset.undo": "되돌리기 ({seconds})",
   "reset.undoAction": "입력 초기화 되돌리기",

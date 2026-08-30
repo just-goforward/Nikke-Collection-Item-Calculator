@@ -342,6 +342,12 @@ To change the administrator-managed forecast, append a new immutable record to
 and Rust constants. Never reuse an ID for different gain values: aggregate interpretation and
 solver cache identity depend on that mapping remaining stable.
 
+Registry v3 also has an independent `stagingForecastId`. Changing it does not authorize production
+adoption: it selects the forecast used only when the public app is opened with
+`?statsEnv=staging`. The default URL continues to resolve `activeForecastId`. Use the staging
+adoption workflow or `npm run select:staging-forecast -- <forecast-id>` followed by code generation;
+do not edit generated runtime files directly.
+
 ```powershell
 npm run generate:supply-forecast
 npm run check:supply-forecast
@@ -470,13 +476,13 @@ release must be tested before it becomes public.
 
 Runtime modes:
 
-| URL | Display source | Event submissions |
-| --- | --- | --- |
-| normal URL | production API | production API |
-| `?statsEnv=staging` | staging API | staging API |
-| `?demoStats=1` | generated demo data | disabled |
-| `?demoStats=1&statsEnv=staging` | generated demo data | disabled |
-| `?statsEnv=disabled` | no stats backend | disabled |
+| URL | Forecast | Display source | Event submissions |
+| --- | --- | --- | --- |
+| normal URL | `activeForecastId` | production API | production API |
+| `?statsEnv=staging` | `stagingForecastId` | staging API | staging API |
+| `?demoStats=1` | `activeForecastId` | generated demo data | disabled |
+| `?demoStats=1&statsEnv=staging` | `activeForecastId` | generated demo data | disabled |
+| `?statsEnv=disabled` | `activeForecastId` | no stats backend | disabled |
 
 If staging is requested but no complete staging frontend configuration is present, the app
 shows an error notice and performs neither stats reads nor event submissions. It never falls
@@ -559,11 +565,13 @@ marker in production.
 ### Manual verification
 
 1. Open `https://nikkecollection.com/?statsEnv=staging` and confirm the visible staging
-   notice.
+   notice includes `stagingForecastId`, its profile ID, and expected gain.
 2. In DevTools Network, confirm `/api/stats` and `/api/events` target the staging Worker URL.
 3. Run `calculate -> select fail -> automatic next calculation`.
-4. Observe staging Worker logs with `wrangler tail --env staging`.
-5. Query only staging D1 for accepted validation data. Exact expected deltas are meaningful
+4. Confirm the submitted solver diagnostic uses `stagingForecastId`, then open the normal URL
+   and confirm it still reports `activeForecastId`.
+5. Observe staging Worker logs with `wrangler tail --env staging`.
+6. Query only staging D1 for accepted validation data. Exact expected deltas are meaningful
    only after a guarded reset and during an interval with no other staging writers.
 
 Do not submit synthetic flows on the normal production URL. Production traffic means recent

@@ -51,6 +51,8 @@ export const jaMessages = {
   "staging.label": "ステージング環境",
   "staging.missing": "STAGING設定がありません。統計送信を停止しました。",
   "staging.notice": "STAGING - テスト記録は本番統計に反映されません",
+  "staging.forecast":
+    "一時Forecast {forecastId} · {profileId} · 予想獲得量 青 {blue} / 紫 {purple} / 黄 {yellow}",
   "reset.done": "入力をリセットしました",
   "reset.undo": "元に戻す ({seconds})",
   "reset.undoAction": "入力のリセットを元に戻す",

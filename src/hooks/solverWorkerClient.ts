@@ -17,6 +17,7 @@ import {
 } from "../../shared/workerProtocol";
 import { ignoreExpectedError } from "../lib/errorHandling";
 import { solverBackendFromRuntime, solverWasmUrl } from "../lib/solverRuntime";
+import { supplyForecastWorkerName } from "../lib/supplyForecastRuntime";
 
 const RUST_EXECUTION_TIMEOUT_MS = 15_000;
 const RUST_QUEUE_TIMEOUT_MS = 30_000;
@@ -35,6 +36,13 @@ type RequestWorkerOptions = {
   onTiming?: (timing: WorkerClientTiming) => void;
   queueTimeoutMs?: number;
 };
+
+function createSolverWorker() {
+  return new Worker(new URL("../worker.ts", import.meta.url), {
+    name: supplyForecastWorkerName(),
+    type: "module",
+  });
+}
 
 export type WorkerTaskRequester = (
   type: WorkerTaskType,
@@ -518,7 +526,7 @@ export function useWorkerTaskClient(options: WorkerTaskClientOptions = {}) {
     if (typeof Worker === "undefined") return null;
     if (workerRef.current) return workerRef.current;
     try {
-      workerRef.current = new Worker(new URL("../worker.ts", import.meta.url), { type: "module" });
+      workerRef.current = createSolverWorker();
       return workerRef.current;
     } catch (error) {
       ignoreExpectedError("web worker construction can fail when workers are unavailable", error);

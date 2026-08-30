@@ -99,8 +99,9 @@ function stableJson(value: unknown): string {
 }
 
 function parseRegistry(value: string): {
-  version: 2;
+  version: 3;
   activeForecastId: string;
+  stagingForecastId: string;
   approvedForecastId: string;
   forecasts: Array<{
     id: string;
@@ -118,8 +119,13 @@ function parseRegistry(value: string): {
   }>;
 } {
   const parsed: unknown = JSON.parse(value);
-  if (!isRecord(parsed) || parsed["version"] !== 2 || !Array.isArray(parsed["forecasts"])) {
-    throw new Error("Supply forecast registry is not version 2.");
+  if (
+    !isRecord(parsed) ||
+    parsed["version"] !== 3 ||
+    typeof parsed["stagingForecastId"] !== "string" ||
+    !Array.isArray(parsed["forecasts"])
+  ) {
+    throw new Error("Supply forecast registry is not version 3.");
   }
   return parsed as ReturnType<typeof parseRegistry>;
 }

@@ -27,8 +27,9 @@ export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID = ACTIVE_SUPPLY_FORECAST_BAS
 
 export const SUPPLY_FORECAST_REGISTRY =
   {
-    "version": 2,
+    "version": 3,
     "activeForecastId": "supply-2026-08-21-v1",
+    "stagingForecastId": "supply-2026-08-28-v1",
     "approvedForecastId": "supply-2026-08-28-v1",
     "forecasts": [
       {
@@ -778,14 +779,21 @@ export function resolveSupplyForecastProfile(
   }) ?? null;
 }
 
+function resolveProfileInForecast(
+  forecast: { profiles: readonly SupplyForecastProfile[] },
+  timestampMs: number,
+): SupplyForecastProfile | null {
+  return forecast.profiles.find((profile) => {
+    const from = Date.parse(profile.effectiveFrom);
+    const until = profile.effectiveUntil === null ? Number.POSITIVE_INFINITY : Date.parse(profile.effectiveUntil);
+    return timestampMs >= from && timestampMs < until;
+  }) ?? null;
+}
+
 export function resolveActiveSupplyForecastProfile(
   timestampMs = Date.now(),
 ): SupplyForecastProfile {
-  const profile = (ACTIVE_SUPPLY_FORECAST.profiles as readonly SupplyForecastProfile[]).find((entry) => {
-    const from = Date.parse(entry.effectiveFrom);
-    const until = entry.effectiveUntil === null ? Number.POSITIVE_INFINITY : Date.parse(entry.effectiveUntil);
-    return timestampMs >= from && timestampMs < until;
-  }) ?? null;
+  const profile = resolveProfileInForecast(ACTIVE_SUPPLY_FORECAST, timestampMs);
   if (!profile) throw new Error("The active supply forecast has no profile for the requested time.");
   return profile;
 }

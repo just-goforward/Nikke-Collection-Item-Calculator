@@ -80,7 +80,7 @@ jobs:
           if (pr.state !== "MERGED" || !pr.mergedAt || !/^[0-9a-f]{40}$/.test(pr.mergeCommit?.oid ?? "")) throw new Error("Forecast PR is not merged.");
           const files = pr.files.map((entry) => entry.path);
           if (files.length !== allowed.size || files.some((file) => !allowed.has(file))) throw new Error("Forecast PR changed files outside the registry contract.");
-          if (registry.version !== 2 || registry.approvedForecastId === registry.activeForecastId) throw new Error("Main does not contain an inactive approved forecast.");
+          if (registry.version !== 3 || registry.approvedForecastId === registry.activeForecastId) throw new Error("Main does not contain an inactive approved forecast.");
           const approved = registry.forecasts?.find((entry) => entry.id === registry.approvedForecastId);
           if (!approved || approved.kind !== "schedule" || approved.rulesVersion !== "schedule-kit-v2") throw new Error("Inactive approved forecast is invalid.");
           const review = parseForecastReviewMetadata(pr.body ?? "");

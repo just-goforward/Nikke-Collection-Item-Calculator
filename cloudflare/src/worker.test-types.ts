@@ -119,6 +119,8 @@ export type AdminDiagnosticsBody = {
   supplyForecastRegistry?: {
     version: number;
     activeForecastId: string;
+    stagingForecastId: string;
+    approvedForecastId: string;
     forecasts: Array<{
       id: string;
       basisDays: number;

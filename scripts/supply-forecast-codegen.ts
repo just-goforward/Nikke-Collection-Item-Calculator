@@ -19,8 +19,9 @@ type Forecast = {
   profiles: Profile[];
 };
 type Registry = {
-  version: 2;
+  version: 3;
   activeForecastId: string;
+  stagingForecastId: string;
   approvedForecastId: string;
   forecasts: Forecast[];
 };
@@ -28,6 +29,7 @@ type Registry = {
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = resolve(root, "shared", "supplyForecasts.json");
 const tsPath = resolve(root, "shared", "generated", "supplyForecast.ts");
+const runtimeTsPath = resolve(root, "shared", "generated", "supplyForecastRuntime.ts");
 const checkOnly = process.argv.includes("--check");
 
 const registry = validateRegistry(JSON.parse(await readFile(sourcePath, "utf8")));
@@ -36,12 +38,23 @@ const activeIndex = registry.forecasts.findIndex(
 );
 if (activeIndex < 0)
   throw new Error(`Active supply forecast is missing: ${registry.activeForecastId}`);
+const stagingIndex = registry.forecasts.findIndex(
+  (forecast) => forecast.id === registry.stagingForecastId,
+);
+if (stagingIndex < 0) {
+  throw new Error(`Staging supply forecast is missing: ${registry.stagingForecastId}`);
+}
 if (!registry.forecasts.some((forecast) => forecast.id === registry.approvedForecastId)) {
   throw new Error(`Approved supply forecast is missing: ${registry.approvedForecastId}`);
 }
 const active = registry.forecasts[activeIndex];
 if (!active) throw new Error("Active supply forecast index is invalid.");
-const expected = new Map<string, string>([[tsPath, renderTypeScript(registry, active)]]);
+const staging = registry.forecasts[stagingIndex];
+if (!staging) throw new Error("Staging supply forecast index is invalid.");
+const expected = new Map<string, string>([
+  [tsPath, renderTypeScript(registry, active)],
+  [runtimeTsPath, renderRuntimeTypeScript(staging)],
+]);
 
 let stale = false;
 for (const [path, content] of expected) {
@@ -60,24 +73,28 @@ for (const [path, content] of expected) {
 if (stale) process.exit(1);
 
 function validateRegistry(value: unknown): Registry {
-  if (!isRecord(value) || value["version"] !== 2) {
-    throw new Error("Supply forecast registry must use version 2.");
+  if (!isRecord(value) || value["version"] !== 3) {
+    throw new Error("Supply forecast registry must use version 3.");
   }
   const activeForecastId = value["activeForecastId"];
+  const stagingForecastId = value["stagingForecastId"];
   const approvedForecastId = value["approvedForecastId"];
   const rawForecasts = value["forecasts"];
   if (
     typeof activeForecastId !== "string" ||
+    typeof stagingForecastId !== "string" ||
     typeof approvedForecastId !== "string" ||
     !Array.isArray(rawForecasts)
   ) {
-    throw new Error("Supply forecast registry is missing its active/approved ID or forecast list.");
+    throw new Error(
+      "Supply forecast registry is missing its active/staging/approved ID or forecast list.",
+    );
   }
   const ids = new Set<string>();
   const profileIds = new Set<string>();
   const forecasts = rawForecasts.map((raw) => validateForecast(raw, ids, profileIds));
   if (forecasts.length === 0) throw new Error("Supply forecast registry must not be empty.");
-  return { version: 2, activeForecastId, approvedForecastId, forecasts };
+  return { version: 3, activeForecastId, stagingForecastId, approvedForecastId, forecasts };
 }
 
 function validateForecast(value: unknown, ids: Set<string>, profileIds: Set<string>): Forecast {
@@ -222,15 +239,45 @@ function renderTypeScript(registry: Registry, active: Forecast) {
     `    return timestampMs >= from && timestampMs < until;\n` +
     `  }) ?? null;\n` +
     `}\n\n` +
+    `function resolveProfileInForecast(\n` +
+    `  forecast: { profiles: readonly SupplyForecastProfile[] },\n` +
+    `  timestampMs: number,\n` +
+    `): SupplyForecastProfile | null {\n` +
+    `  return forecast.profiles.find((profile) => {\n` +
+    `    const from = Date.parse(profile.effectiveFrom);\n` +
+    `    const until = profile.effectiveUntil === null ? Number.POSITIVE_INFINITY : Date.parse(profile.effectiveUntil);\n` +
+    `    return timestampMs >= from && timestampMs < until;\n` +
+    `  }) ?? null;\n` +
+    `}\n\n` +
     `export function resolveActiveSupplyForecastProfile(\n` +
     `  timestampMs = Date.now(),\n` +
     `): SupplyForecastProfile {\n` +
-    `  const profile = (ACTIVE_SUPPLY_FORECAST.profiles as readonly SupplyForecastProfile[]).find((entry) => {\n` +
+    `  const profile = resolveProfileInForecast(ACTIVE_SUPPLY_FORECAST, timestampMs);\n` +
+    `  if (!profile) throw new Error("The active supply forecast has no profile for the requested time.");\n` +
+    `  return profile;\n` +
+    `}\n`
+  );
+}
+
+function renderRuntimeTypeScript(staging: Forecast) {
+  const serializedStaging = JSON.stringify({ id: staging.id, profiles: staging.profiles }, null, 2)
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n");
+  return (
+    `// Generated from shared/supplyForecasts.json. Do not edit directly.\n` +
+    `import type { SupplyForecastProfile } from "./supplyForecast";\n\n` +
+    `export const STAGING_SUPPLY_FORECAST_ID = ${JSON.stringify(staging.id)} as const;\n` +
+    `export const STAGING_SUPPLY_FORECAST =\n${serializedStaging} as const;\n\n` +
+    `export function resolveStagingSupplyForecastProfile(\n` +
+    `  timestampMs = Date.now(),\n` +
+    `): SupplyForecastProfile {\n` +
+    `  const profile = (STAGING_SUPPLY_FORECAST.profiles as readonly SupplyForecastProfile[]).find((entry) => {\n` +
     `    const from = Date.parse(entry.effectiveFrom);\n` +
     `    const until = entry.effectiveUntil === null ? Number.POSITIVE_INFINITY : Date.parse(entry.effectiveUntil);\n` +
     `    return timestampMs >= from && timestampMs < until;\n` +
     `  }) ?? null;\n` +
-    `  if (!profile) throw new Error("The active supply forecast has no profile for the requested time.");\n` +
+    `  if (!profile) throw new Error("The staging supply forecast has no profile for the requested time.");\n` +
     `  return profile;\n` +
     `}\n`
   );
