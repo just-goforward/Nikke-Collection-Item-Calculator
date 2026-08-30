@@ -32,7 +32,18 @@ for (let attempt = 1; attempt <= 12; attempt += 1) {
     ) {
       throw new Error("staging marker contract mismatch");
     }
-    const pageResponse = await fetch(baseUrl, { signal: AbortSignal.timeout(10_000) });
+    const redirectResponse = await fetch(baseUrl, {
+      headers: { accept: "text/html" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (redirectResponse.status !== 307)
+      throw new Error("staging page did not select staging stats");
+    const redirectUrl = new URL(redirectResponse.headers.get("location") ?? "", baseUrl);
+    if (redirectUrl.searchParams.get("statsEnv") !== "staging") {
+      throw new Error("staging page selected the wrong stats environment");
+    }
+    const pageResponse = await fetch(redirectUrl, { signal: AbortSignal.timeout(10_000) });
     if (!pageResponse.ok) throw new Error(`staging page returned ${pageResponse.status}`);
     if (pageResponse.headers.get("x-robots-tag") !== "noindex, nofollow") {
       throw new Error("staging page is missing X-Robots-Tag");
