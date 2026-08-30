@@ -176,6 +176,46 @@ export function parseResearchCertificate(value: unknown): ResearchCertificate {
   };
 }
 
+export function assertResearchCertificateForecastCoverage(
+  value: unknown,
+  forecastId: string,
+  expectedProfileIds: readonly string[],
+) {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value["profiles"]) ||
+    !/^supply-\d{4}-\d{2}-\d{2}-v\d+$/.test(forecastId) ||
+    expectedProfileIds.length === 0
+  ) {
+    throw new Error("Research certificate forecast coverage is invalid.");
+  }
+  const expected = new Set(expectedProfileIds);
+  if (
+    expected.size !== expectedProfileIds.length ||
+    expectedProfileIds.some((profileId) => !profileId.startsWith(`${forecastId}@`))
+  ) {
+    throw new Error("Expected forecast profile identity is invalid.");
+  }
+  const evidenceIds = value["profiles"].flatMap((profile) => {
+    if (!isRecord(profile) || !Array.isArray(profile["evidenceForecastProfileIds"])) {
+      throw new Error("Research certificate evidence profile list is invalid.");
+    }
+    if (profile["evidenceForecastProfileIds"].some((profileId) => typeof profileId !== "string")) {
+      throw new Error("Research certificate evidence profile ID is invalid.");
+    }
+    return profile["evidenceForecastProfileIds"] as string[];
+  });
+  const observed = new Set(
+    evidenceIds.filter((profileId) => profileId.startsWith(`${forecastId}@`)),
+  );
+  if (
+    observed.size !== expected.size ||
+    [...expected].some((profileId) => !observed.has(profileId))
+  ) {
+    throw new Error("Research certificate does not cover the approved forecast profiles.");
+  }
+}
+
 function assertResearchCertificateScope(value: Record<string, unknown>) {
   if (
     value["kind"] !== "dynamic-hp-exact-gate-summary" ||

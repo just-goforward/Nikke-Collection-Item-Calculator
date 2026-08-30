@@ -125,13 +125,23 @@ jobs:
           NODE
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" -n "$artifact_name" -D "$RUNNER_TEMP/research-certificate"
           summary="$RUNNER_TEMP/research-certificate/dynamic-hp-exact-gate-summary.json"
-          node --input-type=module - "$summary" "$FORECAST_ID" <<'NODE'
+          node --input-type=module - "$summary" "$FORECAST_ID" shared/supplyForecasts.json <<'NODE'
           import { readFileSync } from "node:fs";
-          import { parseResearchCertificate } from "./scripts/discord-staging-adoption.ts";
+          import {
+            assertResearchCertificateForecastCoverage,
+            parseResearchCertificate,
+          } from "./scripts/discord-staging-adoption.ts";
           const summary = JSON.parse(readFileSync(process.argv[2], "utf8"));
           parseResearchCertificate(summary);
-          const expected = `${process.argv[3]}@`;
-          if (!summary.profiles.every((profile) => profile.evidenceForecastProfileIds?.every((id) => id.startsWith(expected)))) throw new Error("Research certificate forecast identity is invalid.");
+          const forecastId = process.argv[3];
+          const registry = JSON.parse(readFileSync(process.argv[4], "utf8"));
+          const forecast = registry.forecasts?.find((entry) => entry.id === forecastId);
+          if (!forecast || !Array.isArray(forecast.profiles)) throw new Error("Approved forecast profiles are invalid.");
+          assertResearchCertificateForecastCoverage(
+            summary,
+            forecastId,
+            forecast.profiles.map((profile) => profile.id),
+          );
           NODE
           echo "run_url=$(jq -r .url "$metadata")" >> "$GITHUB_OUTPUT"
           echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"

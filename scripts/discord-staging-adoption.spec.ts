@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  assertResearchCertificateForecastCoverage,
   buildDiscordStagingAdoptionMessage,
   parseResearchCertificate,
   sendDiscordStagingAdoption,
@@ -92,6 +93,34 @@ describe("Discord staging forecast adoption", () => {
         decisionScope: { researchOnly: true, productAdoptionAuthorized: true },
       }),
     ).toThrow("scope is invalid");
+  });
+
+  it("requires complete target forecast coverage while allowing synthetic evidence profiles", () => {
+    const summary = {
+      ...certificate(),
+      profiles: [
+        {
+          evidenceForecastProfileIds: [
+            "supply-2026-08-28-v1@2026-08-28T20:00:00.000Z",
+            "supply-2026-01-29-v1@2026-01-29T20:00:00.000Z",
+          ],
+        },
+        {
+          evidenceForecastProfileIds: ["supply-2026-08-28-v1@2026-08-29T20:00:00.000Z"],
+        },
+      ],
+    };
+    const expected = [
+      "supply-2026-08-28-v1@2026-08-28T20:00:00.000Z",
+      "supply-2026-08-28-v1@2026-08-29T20:00:00.000Z",
+    ];
+
+    expect(() =>
+      assertResearchCertificateForecastCoverage(summary, review.forecastId, expected),
+    ).not.toThrow();
+    expect(() =>
+      assertResearchCertificateForecastCoverage(summary, review.forecastId, expected.slice(0, 1)),
+    ).toThrow("does not cover");
   });
 });
 
