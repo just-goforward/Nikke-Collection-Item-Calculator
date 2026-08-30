@@ -6,8 +6,8 @@ import {
   type DynamicHpEvidenceProfile,
   type DynamicHpProfile,
   gainVectorSha256,
-} from "./dynamic-hp-profile-matrix";
-import type { HpStudyReport } from "./min-ef-hp-report";
+} from "./dynamic-hp-profile-matrix.ts";
+import type { HpStudyReport } from "./min-ef-hp-report.ts";
 
 export type DynamicHpGateSummary = {
   kind: "dynamic-hp-exact-gate-summary";

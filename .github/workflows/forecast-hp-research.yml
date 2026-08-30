@@ -24,6 +24,10 @@ on:
         description: Internal bounded continuation counter
         required: false
         default: "0"
+      max_continuation_generation:
+        description: Inclusive fail-closed continuation limit
+        required: false
+        default: "23"
       profile_deduplication:
         description: Gain-vector profile deduplication mode; auto preserves legacy continuations
         required: false
@@ -408,6 +412,7 @@ jobs:
           retention-days: 90
 
       - name: Dispatch bounded continuation
+        id: continuation
         if: steps.contract.outputs.complete != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -415,20 +420,55 @@ jobs:
           RECORDS_PER_PROFILE: ${{ inputs.records_per_profile || '64' }}
           SLICES_PER_RUN: ${{ inputs.slices_per_run || '8' }}
           GENERATION: ${{ inputs.continuation_generation || '0' }}
+          MAX_GENERATION: ${{ inputs.max_continuation_generation || '23' }}
           PROFILE_DEDUPLICATION: ${{ needs.prepare.outputs.profile-deduplication }}
         shell: bash
         run: |
           set -euo pipefail
           [[ "$GENERATION" =~ ^[0-9]+$ ]] || { echo "Invalid continuation generation." >&2; exit 1; }
-          if (( GENERATION >= 15 )); then
-            echo "Dynamic H/p research remains incomplete after 16 bounded workflow generations." >&2
+          [[ "$MAX_GENERATION" =~ ^[0-9]+$ ]] || { echo "Invalid maximum continuation generation." >&2; exit 1; }
+          (( MAX_GENERATION >= 15 && MAX_GENERATION <= 31 )) || {
+            echo "Maximum continuation generation must be between 15 and 31." >&2
             exit 1
+          }
+          if (( GENERATION >= MAX_GENERATION )); then
+            echo "exhausted=true" >> "$GITHUB_OUTPUT"
+            echo "Dynamic H/p research remains incomplete at bounded generation $GENERATION/$MAX_GENERATION." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+          echo "exhausted=false" >> "$GITHUB_OUTPUT"
           next=$((GENERATION + 1))
           gh workflow run forecast-hp-research.yml --ref main \
             -f pull_request_number="$PR_NUMBER" \
             -f records_per_profile="$RECORDS_PER_PROFILE" \
             -f slices_per_run="$SLICES_PER_RUN" \
             -f continuation_generation="$next" \
+            -f max_continuation_generation="$MAX_GENERATION" \
             -f profile_deduplication="$PROFILE_DEDUPLICATION"
-          echo "Queued continuation generation $next/15." >> "$GITHUB_STEP_SUMMARY"
+          echo "Queued continuation generation $next/$MAX_GENERATION." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build bounded-incomplete diagnostic certificate
+        if: steps.continuation.outputs.exhausted == 'true'
+        run: >-
+          node benchmarks/summarize-dynamic-hp-gates.ts
+          "${{ steps.contract.outputs.report_dir }}"
+          benchmarks/results/dynamic-hp-bounded-incomplete-summary.json
+          profile-matrix/dynamic-hp-profile-matrix.json
+          "${{ needs.prepare.outputs.wasm-key }}"
+          "${{ needs.prepare.outputs.rules-version }}"
+          "$RUNNER_TEMP/dynamic-hp-bounded-incomplete-certificate"
+
+      - name: Upload bounded-incomplete diagnostic certificate
+        if: steps.continuation.outputs.exhausted == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dynamic-hp-bounded-incomplete-${{ github.run_id }}
+          path: ${{ runner.temp }}/dynamic-hp-bounded-incomplete-certificate
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Fail bounded-incomplete research
+        if: steps.continuation.outputs.exhausted == 'true'
+        run: |
+          echo "Dynamic H/p research exhausted its bounded continuation budget." >&2
+          exit 1

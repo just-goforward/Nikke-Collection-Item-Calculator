@@ -1,6 +1,9 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { type DynamicHpProfile, gainVectorSha256 } from "./dynamic-hp-profile-matrix";
 import type { HpCandidate } from "./min-ef-hp-model";
@@ -10,6 +13,8 @@ import {
   summarizeDynamicHpGates,
   writeDynamicHpCertificateBundle,
 } from "./summarize-dynamic-hp-gates";
+
+const execFileAsync = promisify(execFile);
 
 describe("dynamic H/p exact gate summary", () => {
   it("aggregates completed profile gates without granting adoption authority", () => {
@@ -162,6 +167,39 @@ describe("dynamic H/p exact gate summary", () => {
 });
 
 describe("dynamic H/p exact gate certificate bundle", () => {
+  it("runs through the Node 24 CLI used by the workflow", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "dynamic-hp-cli-"));
+    const inputDirectory = join(directory, "reports");
+    const outputFile = join(directory, "summary.json");
+
+    try {
+      await mkdir(inputDirectory);
+      await writeFile(
+        join(inputDirectory, "approved-00.json"),
+        `${JSON.stringify(fixtureReport())}\n`,
+        "utf8",
+      );
+      await execFileAsync(process.execPath, [
+        fileURLToPath(new URL("./summarize-dynamic-hp-gates.ts", import.meta.url)),
+        inputDirectory,
+        outputFile,
+      ]);
+
+      const summary = JSON.parse(await readFile(outputFile, "utf8")) as {
+        kind: string;
+        allProfilesComplete: boolean;
+      };
+      expect(summary).toEqual(
+        expect.objectContaining({
+          kind: "dynamic-hp-exact-gate-summary",
+          allProfilesComplete: true,
+        }),
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("stores one canonical profile report per gain vector in the certificate bundle", async () => {
     const canonical = fixtureReport();
     const duplicate = fixtureReport();

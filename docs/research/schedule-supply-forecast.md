@@ -98,9 +98,10 @@ CVaR90, typed failures, and cold/warm latency. Candidate-specific `E[F_p]` value
 directly across different p values.
 
 Profile reports and checkpoints are isolated and resumable. Incomplete profiles continue for at
-most 16 bounded workflow generations, and the aggregate summary is emitted only after every exact
-gate completes. Research output explicitly has no product-adoption authority; any accepted change
-requires a separate adoption pull request.
+most 24 bounded workflow generations by default (generation 0 through 23), and the final aggregate
+summary is emitted only after every exact gate completes. Reaching the configured limit first emits
+a bounded-incomplete diagnostic certificate and then fails closed. Research output explicitly has
+no product-adoption authority; any accepted change requires a separate adoption pull request.
 
 Identical `blue/purple/yellow expectedGain` vectors are grouped by a SHA-256 identity and evaluated
 once. Profiles that differ only by date, schedule status, or forecast profile ID remain in the

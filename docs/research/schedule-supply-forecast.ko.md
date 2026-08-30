@@ -104,9 +104,11 @@ profile 매트릭스에 들어간다. 각 profile에서 기존 49개 H/p 격자�
 기준점 `H=0.75, p=3`과 비교한다. 서로 다른 p의 `E[F_p]` 값 자체는 직접 비교하지 않는다.
 
 Actions 연구는 profile별 report와 checkpoint를 격리해 제한된 slice만 진행하고 재개할 수
-있다. 미완료 profile이 있으면 최대 16개 bounded workflow generation 안에서 자동 재개하고,
-모든 exact gate가 끝난 경우에만 통합 summary를 만든다. 연구 report는 제품 채택 권한을 갖지
-않는다. 통과 후보가 있더라도 runtime 활성화는 별도 adoption PR에서만 이뤄진다.
+있다. 미완료 profile이 있으면 기본 최대 24개 bounded workflow generation(0부터 23까지) 안에서
+자동 재개하고, 모든 exact gate가 끝난 경우에만 최종 통합 summary를 만든다. 설정한 상한에 먼저
+도달하면 bounded-incomplete 진단 인증 자료를 생성한 뒤 fail-closed로 종료한다. 연구 report는
+제품 채택 권한을 갖지 않는다. 통과 후보가 있더라도 runtime 활성화는 별도 adoption PR에서만
+이뤄진다.
 
 동일한 `blue/purple/yellow expectedGain` 벡터는 SHA-256 identity로 묶어 한 번만 계산한다.
 날짜·확정 상태·forecast profile ID가 달라도 gain 벡터가 같으면 원 profile은 evidence alias로
