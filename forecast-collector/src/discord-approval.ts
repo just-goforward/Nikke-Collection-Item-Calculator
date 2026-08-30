@@ -77,6 +77,7 @@ type DiscordStagingAdoptionRow = {
 type DiscordInteraction = {
   id?: unknown;
   application_id?: unknown;
+  token?: unknown;
   type?: unknown;
   guild_id?: unknown;
   channel_id?: unknown;
@@ -222,6 +223,7 @@ export async function markDiscordStagingAdoptionProcessed(
 export async function handleDiscordInteraction(
   request: Request,
   env: CollectorEnv,
+  context: ExecutionContext,
   nowMs = Date.now(),
 ) {
   if (
@@ -270,44 +272,144 @@ export async function handleDiscordInteraction(
   }
   const interactionId = stringMatching(interaction.id, /^\d{1,24}$/);
   const customId = stringMatching(interaction.data?.custom_id, /^[a-z_:-]{1,64}[0-9a-f-]{36}$/);
-  if (!interactionId || !customId) return ephemeral("유효하지 않은 승인 버튼입니다.");
+  const interactionToken = boundedString(interaction.token, 512);
+  if (!interactionId || !customId || !interactionToken) {
+    return ephemeral("유효하지 않은 승인 버튼입니다.");
+  }
   if (customId.startsWith(STAGING_CUSTOM_ID_PREFIX)) {
     if (env.DISCORD_APPROVAL_MODE !== "staging_adoption") {
       return ephemeral("현재 staging 승인 기능은 비활성 상태입니다.");
     }
-    const result = await approveDiscordStagingAdoption(
-      env.FORECAST_DB,
-      customId.slice(STAGING_CUSTOM_ID_PREFIX.length),
-      interactionId,
-      configuration.approverUserId,
-      nowMs,
+    context.waitUntil(
+      completeDiscordStagingAdoption(
+        env.FORECAST_DB,
+        customId.slice(STAGING_CUSTOM_ID_PREFIX.length),
+        customId,
+        interactionId,
+        interactionToken,
+        configuration,
+        nowMs,
+      ),
     );
-    if (result.outcome === "approved") {
-      return stagingApprovedMessage(result.approval, customId);
-    }
-    if (result.outcome === "already_approved") {
-      return ephemeral("해당 staging 적용 승인은 이미 기록되어 있습니다.");
-    }
-    if (result.outcome === "expired") return ephemeral("staging 승인 버튼이 만료되었습니다.");
-    return ephemeral("staging 승인 대상을 확인할 수 없습니다.");
+    return deferredUpdate();
   }
   if (!customId.startsWith(CUSTOM_ID_PREFIX) || env.DISCORD_APPROVAL_MODE !== "test") {
     return ephemeral("현재 테스트 승인 기능은 비활성 상태입니다.");
   }
-  const approvalId = customId.slice(CUSTOM_ID_PREFIX.length);
-  const result = await approveDiscordTest(
-    env.FORECAST_DB,
-    approvalId,
-    interactionId,
-    configuration.approverUserId,
-    nowMs,
+  context.waitUntil(
+    completeDiscordTestApproval(
+      env.FORECAST_DB,
+      customId.slice(CUSTOM_ID_PREFIX.length),
+      customId,
+      interactionId,
+      interactionToken,
+      configuration,
+      nowMs,
+    ),
   );
-  if (result.outcome === "approved") return approvedMessage(result.approval, customId);
-  if (result.outcome === "already_approved") {
-    return ephemeral("이 Discord 테스트 승인은 이미 기록됐습니다.");
+  return deferredUpdate();
+}
+
+async function completeDiscordStagingAdoption(
+  db: D1Database,
+  approvalId: string,
+  customId: string,
+  interactionId: string,
+  interactionToken: string,
+  configuration: NonNullable<ReturnType<typeof readDiscordConfiguration>>,
+  nowMs: number,
+) {
+  try {
+    const result = await approveDiscordStagingAdoption(
+      db,
+      approvalId,
+      interactionId,
+      configuration.approverUserId,
+      nowMs,
+    );
+    const data =
+      result.outcome === "approved" || result.outcome === "already_approved"
+        ? stagingApprovedData(result.approval, customId)
+        : unavailableApprovalData(
+            result.outcome === "expired"
+              ? "staging 승인 버튼이 만료되었습니다. 새 승인 카드를 요청하십시오."
+              : "staging 승인 대상을 확인할 수 없습니다. 새 승인 카드를 요청하십시오.",
+          );
+    await editOriginalInteractionResponse(configuration.applicationId, interactionToken, data);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "discord_staging_approval_failed",
+        approvalId,
+        message: error instanceof Error ? error.message : "unknown_error",
+      }),
+    );
+    await editOriginalInteractionResponse(
+      configuration.applicationId,
+      interactionToken,
+      approvalFailureData(),
+    ).catch(() => undefined);
   }
-  if (result.outcome === "expired") return ephemeral("테스트 승인 버튼이 만료됐습니다.");
-  return ephemeral("테스트 승인 대상을 찾을 수 없습니다.");
+}
+
+async function completeDiscordTestApproval(
+  db: D1Database,
+  approvalId: string,
+  customId: string,
+  interactionId: string,
+  interactionToken: string,
+  configuration: NonNullable<ReturnType<typeof readDiscordConfiguration>>,
+  nowMs: number,
+) {
+  try {
+    const result = await approveDiscordTest(
+      db,
+      approvalId,
+      interactionId,
+      configuration.approverUserId,
+      nowMs,
+    );
+    const data =
+      result.outcome === "approved" || result.outcome === "already_approved"
+        ? approvedData(result.approval, customId)
+        : unavailableApprovalData(
+            result.outcome === "expired"
+              ? "테스트 승인 버튼이 만료되었습니다."
+              : "테스트 승인 대상을 찾을 수 없습니다.",
+          );
+    await editOriginalInteractionResponse(configuration.applicationId, interactionToken, data);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "discord_test_approval_failed",
+        approvalId,
+        message: error instanceof Error ? error.message : "unknown_error",
+      }),
+    );
+    await editOriginalInteractionResponse(
+      configuration.applicationId,
+      interactionToken,
+      approvalFailureData(),
+    ).catch(() => undefined);
+  }
+}
+
+async function editOriginalInteractionResponse(
+  applicationId: string,
+  interactionToken: string,
+  data: Record<string, unknown>,
+) {
+  const response = await fetch(
+    `https://discord.com/api/v10/webhooks/${applicationId}/${encodeURIComponent(interactionToken)}/messages/@original`,
+    {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`discord_original_response_edit_${response.status}`);
+  }
 }
 
 async function verifyDiscordSignature(
@@ -656,67 +758,77 @@ function readDiscordConfiguration(env: CollectorEnv) {
     : null;
 }
 
-function approvedMessage(approval: ReturnType<typeof publicApproval>, customId: string) {
-  return interactionJson({
-    type: 7,
-    data: {
-      components: [
-        {
-          type: 1,
-          components: [
-            {
-              type: 2,
-              style: 3,
-              label: "확인 완료 (테스트)",
-              custom_id: customId,
-              disabled: true,
-            },
-            {
-              type: 2,
-              style: 5,
-              label: "GitHub PR 열기",
-              url: approval.pullRequestUrl,
-            },
-          ],
-        },
-      ],
-    },
-  });
+function approvedData(approval: ReturnType<typeof publicApproval>, customId: string) {
+  return {
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 3,
+            label: "확인 완료 (테스트)",
+            custom_id: customId,
+            disabled: true,
+          },
+          {
+            type: 2,
+            style: 5,
+            label: "GitHub PR 열기",
+            url: approval.pullRequestUrl,
+          },
+        ],
+      },
+    ],
+  };
 }
 
-function stagingApprovedMessage(
-  approval: ReturnType<typeof publicStagingAdoption>,
-  customId: string,
-) {
-  return interactionJson({
-    type: 7,
-    data: {
-      content:
-        `Forecast \`${approval.forecastId}\`의 staging 적용 승인이 기록되었습니다.\n` +
-        "GitHub Actions가 adoption PR 생성과 staging 배포를 진행합니다. production 환경은 변경되지 않습니다.",
-      allowed_mentions: { parse: [] },
-      components: [
-        {
-          type: 1,
-          components: [
-            {
-              type: 2,
-              style: 3,
-              label: "staging 적용 승인 완료",
-              custom_id: customId,
-              disabled: true,
-            },
-            {
-              type: 2,
-              style: 5,
-              label: "H/p 인증 결과 열기",
-              url: approval.researchRunUrl,
-            },
-          ],
-        },
-      ],
-    },
-  });
+function stagingApprovedData(approval: ReturnType<typeof publicStagingAdoption>, customId: string) {
+  return {
+    content:
+      `Forecast \`${approval.forecastId}\`의 staging 적용 승인이 기록되었습니다.\n` +
+      "GitHub Actions가 adoption PR 생성과 staging 배포를 진행합니다. production 환경은 변경되지 않습니다.",
+    allowed_mentions: { parse: [] },
+    components: [
+      {
+        type: 1,
+        components: [
+          {
+            type: 2,
+            style: 3,
+            label: "staging 적용 승인 완료",
+            custom_id: customId,
+            disabled: true,
+          },
+          {
+            type: 2,
+            style: 5,
+            label: "H/p 인증 결과 열기",
+            url: approval.researchRunUrl,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function unavailableApprovalData(content: string) {
+  return {
+    content,
+    allowed_mentions: { parse: [] },
+    components: [],
+  };
+}
+
+function approvalFailureData() {
+  return {
+    content: "승인 기록 중 오류가 발생했습니다. 버튼을 다시 누르거나 새 승인 카드를 요청하십시오.",
+    allowed_mentions: { parse: [] },
+  };
+}
+
+function deferredUpdate() {
+  return interactionJson({ type: 6 });
 }
 
 function ephemeral(content: string) {
@@ -730,6 +842,15 @@ function interactionJson(value: unknown) {
   return Response.json(value, {
     headers: { "cache-control": "no-store", "content-type": "application/json; charset=utf-8" },
   });
+}
+
+function boundedString(value: unknown, maxLength: number) {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLength) return null;
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 31 || code === 127) return null;
+  }
+  return value;
 }
 
 function hexBytes(value: string) {

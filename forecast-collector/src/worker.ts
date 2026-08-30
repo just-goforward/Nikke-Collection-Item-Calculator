@@ -37,7 +37,7 @@ export default {
       } else if (env.ENVIRONMENT !== "test") {
         return new Response("Service unavailable", { status: 503 });
       }
-      return handleDiscordInteraction(request, env);
+      return handleDiscordInteraction(request, env, context);
     }
     if (!url.pathname.startsWith("/admin/")) return new Response("Not found", { status: 404 });
     if (env.ADMIN_RATE_LIMITER) {

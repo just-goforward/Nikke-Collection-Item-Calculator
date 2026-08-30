@@ -1,6 +1,6 @@
-import { createExecutionContext, reset } from "cloudflare:test";
+import { createExecutionContext, reset, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import discordApprovalMigrationSql from "../migrations/0004_discord_approval_tests.sql?raw";
 import discordStagingAdoptionMigrationSql from "../migrations/0005_discord_staging_adoptions.sql?raw";
 import schemaSql from "../schema.sql?raw";
@@ -11,6 +11,7 @@ const testEnv = env as unknown as CollectorEnv;
 const nowMs = Date.parse("2026-08-27T00:00:00.000Z");
 let keyPair: CryptoKeyPair;
 let publicKeyHex: string;
+let discordEditFetch: ReturnType<typeof vi.fn>;
 
 beforeEach(async () => {
   await reset();
@@ -20,7 +21,13 @@ beforeEach(async () => {
     "verify",
   ])) as CryptoKeyPair;
   publicKeyHex = bytesHex(await crypto.subtle.exportKey("raw", keyPair.publicKey));
+  discordEditFetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+  vi.stubGlobal("fetch", discordEditFetch);
   vi.setSystemTime(nowMs);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("Discord forecast approval test boundary", () => {
@@ -98,17 +105,12 @@ describe("Discord forecast approval test boundary", () => {
       },
     );
 
-    const approvedBody = await approved.json<{
-      type: number;
-      data: { content: string; components: Array<{ components: unknown[] }> };
-    }>();
-    expect(approvedBody).toMatchObject({
-      type: 7,
-      data: {
-        content: expect.stringContaining("production 환경은 변경되지 않습니다"),
-      },
+    expect(await approved.json()).toEqual({ type: 6 });
+    const approvedEdit = lastDiscordEditBody();
+    expect(approvedEdit).toMatchObject({
+      content: expect.stringContaining("production 환경은 변경되지 않습니다"),
     });
-    expect(approvedBody.data.components[0]?.components[0]).toMatchObject({
+    expect(approvedEdit.components[0]?.components[0]).toMatchObject({
       label: "staging 적용 승인 완료",
       disabled: true,
     });
@@ -140,23 +142,21 @@ describe("Discord forecast approval test boundary", () => {
       .bind(approval.approvalId)
       .first<{ state: string; approver_user_id: string; interaction_id: string }>();
 
-    expect(await approved.json()).toMatchObject({
-      type: 7,
-      data: {
-        components: [
-          {
-            components: [
-              { label: "확인 완료 (테스트)", disabled: true },
-              {
-                label: "GitHub PR 열기",
-                url: "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/12",
-              },
-            ],
-          },
-        ],
-      },
+    expect(await approved.json()).toEqual({ type: 6 });
+    expect(await replayed.json()).toEqual({ type: 6 });
+    expect(lastDiscordEditBody()).toMatchObject({
+      components: [
+        {
+          components: [
+            { label: "확인 완료 (테스트)", disabled: true },
+            {
+              label: "GitHub PR 열기",
+              url: "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/12",
+            },
+          ],
+        },
+      ],
     });
-    expect(await replayed.json()).toMatchObject({ type: 4, data: { flags: 64 } });
     expect(stored).toEqual({
       state: "test_approved",
       approver_user_id: "987654321",
@@ -208,8 +208,12 @@ describe("Discord forecast approval test boundary", () => {
       componentInteraction(approval.customId, "987654321", "1003"),
     );
 
-    expect(await response.json()).toMatchObject({ type: 4, data: { flags: 64 } });
+    expect(await response.json()).toEqual({ type: 6 });
     expect(await approvalState(approval.approvalId)).toBe("expired");
+    expect(lastDiscordEditBody()).toMatchObject({
+      content: expect.stringContaining("만료"),
+      components: [],
+    });
     const candidates = await testEnv.FORECAST_DB.prepare(
       "SELECT COUNT(*) AS count FROM forecast_candidates",
     ).first<{ count: number }>();
@@ -325,6 +329,7 @@ function componentInteraction(customId: string, userId: string, interactionId: s
   return {
     id: interactionId,
     application_id: "123456789",
+    token: `interaction-token-${interactionId}`,
     type: 3,
     guild_id: "222222222",
     channel_id: "333333333",
@@ -356,7 +361,21 @@ function configuredEnv(overrides: Partial<CollectorEnv> = {}): CollectorEnv {
 async function invoke(request: Request, targetEnv = configuredEnv()) {
   const handler = worker.fetch;
   if (!handler) throw new Error("Missing Worker fetch handler.");
-  return handler(request as Parameters<typeof handler>[0], targetEnv, createExecutionContext());
+  const context = createExecutionContext();
+  const response = await handler(request as Parameters<typeof handler>[0], targetEnv, context);
+  await waitOnExecutionContext(context);
+  return response;
+}
+
+function lastDiscordEditBody() {
+  const call = discordEditFetch.mock.calls.at(-1);
+  if (!call) throw new Error("Expected Discord original-response edit.");
+  const body = (call[1] as RequestInit | undefined)?.body;
+  if (typeof body !== "string") throw new Error("Expected JSON Discord edit body.");
+  return JSON.parse(body) as {
+    content?: string;
+    components: Array<{ components: Array<Record<string, unknown>> }>;
+  };
 }
 
 async function approvalState(approvalId: string) {
