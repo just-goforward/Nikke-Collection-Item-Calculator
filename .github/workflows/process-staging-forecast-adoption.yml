@@ -259,7 +259,11 @@ jobs:
             --argjson adoptionPullRequestNumber "$ADOPTION_PR_NUMBER" \
             --arg adoptionPullRequestUrl "$ADOPTION_PR_URL" \
             --arg stagingUrl "$STAGING_SITE_URL" \
-            '{adoptionPullRequestNumber, adoptionPullRequestUrl, stagingUrl}' > "$RUNNER_TEMP/adoption-result.json"
+            '{
+              adoptionPullRequestNumber: $adoptionPullRequestNumber,
+              adoptionPullRequestUrl: $adoptionPullRequestUrl,
+              stagingUrl: $stagingUrl
+            }' > "$RUNNER_TEMP/adoption-result.json"
           curl --fail-with-body --silent --show-error --max-time 10 \
             -X POST -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
             -H "Content-Type: application/json" \
