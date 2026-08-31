@@ -1,4 +1,4 @@
-import { probeGithubAppWorkflow } from "../forecast-dispatcher/src/github-app";
+import { probeGithubAppWorkflow } from "../forecast-dispatcher/src/github-app.ts";
 
 const result = await probeGithubAppWorkflow({
   appId: requiredEnvironment("FORECAST_GITHUB_APP_ID"),

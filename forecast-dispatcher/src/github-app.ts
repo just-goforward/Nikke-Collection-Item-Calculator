@@ -1,4 +1,4 @@
-import { base64Url, importGithubAppPrivateKey } from "./crypto";
+import { base64Url, importGithubAppPrivateKey } from "./crypto.ts";
 
 const REPOSITORY = "just-goforward/Nikke-Collection-Item-Calculator";
 const REPOSITORY_NAME = "Nikke-Collection-Item-Calculator";
