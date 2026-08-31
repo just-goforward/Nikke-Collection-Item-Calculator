@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateCronCapacity } from "./cloudflare-cron-capacity";
+import { evaluateCronCapacity, readCronSchedules } from "./cloudflare-cron-capacity";
 
 describe("Cloudflare Cron capacity", () => {
   it("does not charge an additional trigger when the target is already scheduled", () => {
@@ -26,5 +26,31 @@ describe("Cloudflare Cron capacity", () => {
         5,
       ),
     ).toMatchObject({ currentCount: 5, additionalCount: 1, projectedCount: 6, allowed: false });
+  });
+
+  it("reads the nested schedules object returned by the Cloudflare API", async () => {
+    const responses = [
+      Response.json({ success: true, result: [{ id: "collector" }, { id: "dispatcher" }] }),
+      Response.json({
+        success: true,
+        result: { schedules: [{ cron: "*/3 * * * *" }] },
+      }),
+      Response.json({ success: true, result: { schedules: [] } }),
+    ];
+    const fetchImpl = async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("Unexpected Cloudflare API request.");
+      return response;
+    };
+
+    await expect(
+      readCronSchedules("15be33fd20ea78eb3d60b719be831148", "token", fetchImpl as typeof fetch),
+    ).resolves.toEqual(
+      new Map([
+        ["collector", 1],
+        ["dispatcher", 0],
+      ]),
+    );
+    expect(responses).toHaveLength(0);
   });
 });

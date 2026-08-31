@@ -58,9 +58,10 @@ export async function readCronSchedules(
       apiToken,
       fetchImpl,
     );
+    const scheduleResult = isRecord(schedulesResponse) ? schedulesResponse["result"] : null;
     const schedules =
-      isRecord(schedulesResponse) && Array.isArray(schedulesResponse["result"])
-        ? schedulesResponse["result"]
+      isRecord(scheduleResult) && Array.isArray(scheduleResult["schedules"])
+        ? scheduleResult["schedules"]
         : null;
     if (!schedules) throw new Error(`Cloudflare schedules response is invalid for ${id}.`);
     result.set(id, schedules.length);
