@@ -1576,8 +1576,20 @@ test("스테이징 쿼리는 임시 Forecast를 표시하고 solver worker에도
   await expect(page.getByLabel("스테이징 환경")).toContainText(
     "테스트 기록은 운영 통계에 반영되지 않음",
   );
-  await expect(page.getByLabel("스테이징 환경")).toContainText(STAGING_SUPPLY_FORECAST_ID);
-  await expect(page.getByLabel("스테이징 환경")).toContainText("예상 수급 파랑");
+  const forecastDetails = page.getByTestId("staging-forecast-details");
+  await expect(page.getByLabel("스테이징 환경")).toHaveAttribute(
+    "data-forecast-id",
+    STAGING_SUPPLY_FORECAST_ID,
+  );
+  await expect(forecastDetails).toHaveAttribute(
+    "data-forecast-profile-id",
+    new RegExp(`^${STAGING_SUPPLY_FORECAST_ID}@`),
+  );
+  await expect(forecastDetails).toContainText("임시 예상 수급");
+  await expect(forecastDetails).toContainText("적용 기간");
+  await expect(forecastDetails).toContainText("KST");
+  await expect(forecastDetails).toContainText("일정 추정");
+  await expect(forecastDetails).not.toContainText(STAGING_SUPPLY_FORECAST_ID);
   await expect(page.getByLabel("Rust solver staging")).toHaveCount(0);
   await page.locator("[data-grade='SR']").click();
   await page.locator("[data-level='10']").click();

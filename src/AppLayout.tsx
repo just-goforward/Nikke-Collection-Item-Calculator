@@ -3,6 +3,7 @@ import {
   lazy,
   Suspense,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -25,6 +26,7 @@ import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
 import { useMobileLayout } from "./hooks/useMobileLayout";
 import { useI18n } from "./i18n/locale";
 import type { StatsRuntimeMode } from "./lib/statsRuntime";
+import { formatStagingForecastKstWindow } from "./lib/supplyForecastPresentation";
 import { resolveRuntimeSupplyForecast } from "./lib/supplyForecastRuntime";
 
 type DetailPanelModule = typeof import("./components/DetailPanel");
@@ -53,7 +55,9 @@ const classes = {
   stagingBanner:
     "mb-3 rounded-card border border-warning bg-warning-soft px-3.5 py-2.5 text-[13px] font-semibold leading-[1.4] text-warning max-mobile:mb-2.5 max-mobile:px-3 max-mobile:py-2 max-mobile:text-xs",
   stagingErrorBanner: "border-danger bg-danger-soft text-danger",
-  stagingForecast: "mt-1 block font-medium text-text-soft",
+  stagingForecast: "mt-1 grid gap-0.5 font-medium text-text-soft",
+  stagingForecastPeriod: "font-semibold text-text",
+  stagingForecastGain: "block",
   mobileHeader:
     "hidden max-mobile:sticky max-mobile:top-0 max-mobile:z-20 max-mobile:mx-[-10px] max-mobile:mb-3 max-mobile:block max-mobile:bg-page max-mobile:px-2.5 max-mobile:shadow-[0_1px_0_var(--line)]",
   workspace: "min-w-0",
@@ -118,18 +122,59 @@ export type AppHandlers = {
 };
 
 function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
-  const { formatNumber, t } = useI18n();
-  const runtimeForecast = resolveRuntimeSupplyForecast();
+  const { formatNumber, locale, t } = useI18n();
+  const [forecastTimestamp, setForecastTimestamp] = useState(Date.now);
+  const runtimeForecast = resolveRuntimeSupplyForecast(forecastTimestamp);
   const isStagingForecast = runtimeForecast.environment === "staging";
+  const profileUntil = runtimeForecast.profile.effectiveUntil;
+  useEffect(() => {
+    if (!isStagingForecast || profileUntil === null) return;
+    const boundaryMs = Date.parse(profileUntil);
+    if (!Number.isFinite(boundaryMs)) return;
+    const delayMs = Math.min(Math.max(boundaryMs - Date.now() + 250, 0), 2_147_483_647);
+    const timer = window.setTimeout(() => setForecastTimestamp(Date.now()), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [isStagingForecast, profileUntil]);
+
+  const forecastWindow = isStagingForecast
+    ? formatStagingForecastKstWindow(runtimeForecast.profile, locale)
+    : null;
+  const scheduleStatus = isStagingForecast
+    ? t(
+        runtimeForecast.profile.scheduleStatus === "confirmed"
+          ? "staging.forecastStatusConfirmed"
+          : "staging.forecastStatusEstimated",
+      )
+    : "";
   const forecastDetails = isStagingForecast ? (
-    <span className={classes.stagingForecast} data-testid="staging-forecast-details">
-      {t("staging.forecast", {
-        blue: formatNumber(runtimeForecast.profile.expectedGain.blue, 2),
+    <span
+      className={classes.stagingForecast}
+      data-testid="staging-forecast-details"
+      data-forecast-profile-id={runtimeForecast.profile.id}
+      title={t("staging.forecastAudit", {
         forecastId: runtimeForecast.forecastId,
         profileId: runtimeForecast.profile.id,
-        purple: formatNumber(runtimeForecast.profile.expectedGain.purple, 2),
-        yellow: formatNumber(runtimeForecast.profile.expectedGain.yellow, 2),
       })}
+    >
+      <span className={classes.stagingForecastPeriod}>
+        {forecastWindow?.until
+          ? t("staging.forecastWindow", {
+              from: forecastWindow.from,
+              until: forecastWindow.until,
+              status: scheduleStatus,
+            })
+          : t("staging.forecastWindowOpenEnded", {
+              from: forecastWindow?.from ?? "-",
+              status: scheduleStatus,
+            })}
+      </span>
+      <span className={classes.stagingForecastGain}>
+        {t("staging.forecastGain", {
+          blue: formatNumber(runtimeForecast.profile.expectedGain.blue, 2),
+          purple: formatNumber(runtimeForecast.profile.expectedGain.purple, 2),
+          yellow: formatNumber(runtimeForecast.profile.expectedGain.yellow, 2),
+        })}
+      </span>
     </span>
   ) : null;
   if (statsMode === "staging-misconfigured") {

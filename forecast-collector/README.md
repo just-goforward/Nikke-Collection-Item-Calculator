@@ -9,9 +9,14 @@ statistics and cannot modify the repository or activate a product forecast.
 - Every three minutes the Free-plan Worker reads only ten shallow feed records from Naver Lounge
   boards 56 and 48. It queues IDs, titles, timestamps, manager roles, and URLs; it does not parse or
   hash post bodies on the Cron path.
-- The five-minute proposal workflow fetches pending details and accepts only official manager posts
-  with structured SmartEditor JSON. It performs schedule parsing, ledger resolution, and candidate
-  generation outside the Worker CPU limit.
+- The offset Dispatcher Worker checks the shared D1 queue at minutes 1, 4, 7, and so on. New work
+  is fingerprinted and reserved with a five-minute D1 lease before a repository-scoped GitHub App
+  requests `forecast-proposal.yml`. The Actions workflow fetches pending details and accepts only
+  official manager posts with structured SmartEditor JSON. It performs schedule parsing, ledger
+  resolution, and candidate generation outside the Worker CPU limit.
+- The proposal workflow's `17,47 * * * *` schedule is a thirty-minute watchdog, not the normal
+  execution path. If it finds actionable work, it records `watchdog_fallback` and processes the work
+  without weakening the same approval boundaries.
 - A live contract check on 2026-08-25 found that the current board-48, board-56, and Solo Raid detail
   responses use SmartEditor HTML rather than JSON. The JSON-only boundary therefore fails closed to
   `manual_review`; automatic candidate generation remains blocked until a separately reviewed,
@@ -109,6 +114,31 @@ continuity, and non-negative finite gains again before creating an
 `automation/supply-forecast/<candidateId>` pull request.
 Merging that PR sets `approvedForecastId` but leaves `activeForecastId` unchanged.
 
+## Event dispatch and operations alerts
+
+`collection-kit-forecast-dispatcher` is a second Worker with no public route. It shares the Forecast
+D1 database but has a separate CPU invocation from the Naver collector. Its GitHub target is fixed
+in code to this repository, `forecast-proposal.yml`, and `main`; source titles, URLs, or bodies can
+never select a repository, workflow, ref, branch, or shell argument.
+
+The GitHub App is named `NIKKE Forecast Dispatcher`, is installed only on this repository, has
+`Actions: write` plus implicit `Metadata: read`, and has webhooks disabled. The private key and the
+Discord bot token are Dispatcher Worker secrets. Installation tokens are minted for one dispatch
+and are never written to D1, logs, GitHub summaries, or Discord.
+
+Each request uses a deterministic three-minute slot ID and a D1 owner lease. An accepted request is
+reported as "execution request accepted", never as a completed run. A dispatched workflow calls the
+Collector at start and finish with its fixed GitHub run URL; retransmission from the same run is
+idempotent, while a second run identity is rejected. A smoke request is staging-only and performs
+the callback and Discord path without reading the queue or changing candidates or repository files.
+
+The Dispatcher sends concise Discord notices for accepted work and grouped operations alerts for
+GitHub authentication or dispatch errors, workflow failures, Collector circuit-open state, stale
+pending work, manual review transitions, invalid callbacks, and unsent critical alerts. Mentions are
+always disabled. The same alert fingerprint sends at most once per thirty minutes unless a new
+occurrence arrives; one green recovery notice is sent after a previously reported alert resolves.
+X/Jina unavailability remains advisory and does not create an independent operations incident.
+
 After a verified production collector and an approved inactive forecast exist, the dynamic H/p
 workflow runs only by explicit dispatch. It records `productAdoptionAuthorized: false`; merging an
 inactive forecast no longer starts the expensive study again. A verified exact-gate certificate is
@@ -168,8 +198,8 @@ npx wrangler secret put DISCORD_GUILD_ID --env staging --config forecast-collect
 npx wrangler secret put DISCORD_CHANNEL_ID --env staging --config forecast-collector/wrangler.toml
 ```
 
-Apply migrations 0004 and 0005 to the staging D1 database and deploy the staging collector before configuring
-the Discord Interactions Endpoint URL:
+Apply migrations 0004 through 0006 to the staging D1 database and deploy the staging collector before
+configuring the Discord Interactions Endpoint URL:
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
@@ -178,6 +208,9 @@ npx wrangler d1 execute FORECAST_DB --remote --env=staging `
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
   --config forecast-collector/wrangler.toml `
   --file forecast-collector/migrations/0005_discord_staging_adoptions.sql
+npx wrangler d1 execute FORECAST_DB --remote --env=staging `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0006_discord_staging_message_identity.sql
 ```
 
 Then run `Request Staging Forecast Adoption` with the merged inactive forecast PR number and the
@@ -199,34 +232,41 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
 - Empty feeds, malformed JSON, schema drift, unofficial posts, ambiguous schedule changes, inverted
   periods, non-finite gains, discontinuous profiles, and out-of-range cadence never delete or
   activate a forecast.
-- `/health` exposes only source status and candidate counts. Candidate payloads and canary evidence
-  require a timing-safe bearer token.
+- `/health` exposes only source status, candidate counts, and redacted Dispatcher health: the latest
+  invocation, actionable work count, oldest pending age, recent dispatch state, and open/unsent alert
+  counts. Candidate payloads and canary evidence require a timing-safe bearer token.
 - Authenticated endpoints share a dedicated Cloudflare rate-limit namespace per environment and
   reject more than 60 requests per minute from the admin request class.
-- Canary report v3 requires at least 12 hours, 200 scheduled invocations, 99% completed, a completed
-  latest invocation, zero abandoned rows, and zero invalid queue/cursor/candidate/watermark rows.
-  More than 1% abandoned after the first two hours fails early.
+- Canary report v4 evaluates Collector and Dispatcher independently. Each must cover at least 12
+  hours and 200 scheduled invocations, complete at least 99%, finish with a completed latest
+  invocation, and have zero abandoned rows. The combined report also requires zero duplicate
+  dispatches, duplicate GitHub run identities, invalid dispatch states, invalid
+  queue/cursor/candidate/watermark rows, and broken smoke callback/Discord links. More than 1%
+  abandoned after the first two hours fails early.
 - If `both` polling cannot pass, `POLL_MODE=alternating` checks one board per invocation (six minutes
   per board) and starts a fresh 12-hour canary. If that also fails, the Cron trigger is removed and
-  `FORECAST_DIRECT_NAVER_POLL=true` makes the five-minute proposal action collect both boards.
+  `FORECAST_DIRECT_NAVER_POLL=true` makes the thirty-minute watchdog action collect both boards.
 
 ## Local verification
 
 ```powershell
 npm run forecast:types:check
 npm run test:forecast-collector
+npm run dispatcher:types:check
+npm run test:forecast-dispatcher
 npx wrangler deploy --dry-run --env staging --config forecast-collector/wrangler.toml
+npx wrangler deploy --dry-run --env staging --config forecast-dispatcher/wrangler.toml
 ```
 
 Remote setup needs two dedicated D1 databases and `ADMIN_TOKEN`. GitHub
 uses `FORECAST_COLLECTOR_ADMIN_TOKEN`; it is not a GitHub or Cloudflare write token. Deployment uses
 the existing scoped `CLOUDFLARE_API_TOKEN` and account ID.
 
-The scoped CI deployment token needs Workers Scripts edit access but intentionally does not receive
-D1 write access. Apply migrations separately with an operator-authenticated Wrangler session before
-dispatching a deployment. Production migration and deployment remain separate audited operations;
-the deployment stays behind the `cloudflare-production` environment approval. The post-deploy smoke
-fails closed when the expected tables are absent.
+The scoped CI deployment token needs Workers Scripts edit and D1 edit access because the staging and
+production deployment workflows apply idempotent schema migrations before deploying either Worker.
+Production migration and deployment remain one environment-protected audited job behind the
+`cloudflare-production` approval. The post-deploy smoke fails closed when the expected tables are
+absent. Do not reuse a broad local Wrangler OAuth credential in CI.
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
@@ -237,8 +277,9 @@ npx wrangler d1 execute FORECAST_DB --remote --env="" `
 
 For an existing database, apply the incremental migrations instead of replaying the bootstrap
 schema. Migration 0003 adds invocation accounting, shallow cursors, and the source queue. Migration
-0004 adds the isolated Discord approval test ledger, and migration 0005 adds the staging adoption
-ledger:
+0004 adds the isolated Discord approval test ledger, migration 0005 adds the staging adoption ledger,
+migration 0006 makes staging approval message identity durable, and migration 0007 adds Dispatcher
+invocation, workflow-dispatch, and grouped operations-alert ledgers:
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
@@ -259,10 +300,19 @@ npx wrangler d1 execute FORECAST_DB --remote --env=staging `
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
   --config forecast-collector/wrangler.toml `
   --file forecast-collector/migrations/0005_discord_staging_adoptions.sql
+npx wrangler d1 execute FORECAST_DB --remote --env=staging `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0006_discord_staging_message_identity.sql
+npx wrangler d1 execute FORECAST_DB --remote --env=staging `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0007_workflow_dispatch_ops.sql
+npx wrangler d1 execute FORECAST_DB --remote --env="" `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0007_workflow_dispatch_ops.sql
 ```
 
-Migrations 0004 and 0005 are not required in production while Discord approval mode remains
-disabled.
+Migrations 0004 through 0006 are not required in production while Discord approval mode remains
+disabled. Migration 0007 is required in both environments.
 
 Required repository variables:
 
@@ -271,7 +321,15 @@ FORECAST_COLLECTOR_STAGING_URL
 FORECAST_COLLECTOR_PRODUCTION_URL
 FORECAST_COLLECTOR_URL
 FORECAST_DIRECT_NAVER_POLL (optional emergency fallback)
+FORECAST_GITHUB_APP_ID
+FORECAST_GITHUB_APP_INSTALLATION_ID
+DISCORD_FORECAST_CHANNEL_ID
 ```
+
+Required repository secrets are `FORECAST_GITHUB_APP_PRIVATE_KEY`,
+`FORECAST_COLLECTOR_ADMIN_TOKEN`, `DISCORD_FORECAST_BOT_TOKEN`, and the existing scoped
+`CLOUDFLARE_API_TOKEN`. The GitHub App is installed only on this repository with `Actions: write`
+and implicit `Metadata: read`; its private key belongs only to the Dispatcher deployment.
 
 `FORECAST_COLLECTOR_URL` is an administrator-managed one-time repository variable. Set it to the
 production URL only after the first production queue round-trip smoke and idempotent Solo Raid

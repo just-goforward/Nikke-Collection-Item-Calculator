@@ -312,6 +312,20 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
       started_at: string;
       finished_at: string | null;
     }>();
+  const dispatcherInvocations = await db
+    .prepare(
+      `SELECT status, scheduled_at, started_at, finished_at
+       FROM dispatcher_invocations
+       WHERE scheduled_at >= ? AND deployment_sha = ?
+       ORDER BY scheduled_at ASC`,
+    )
+    .bind(since, deploymentSha)
+    .all<{
+      status: string;
+      scheduled_at: string;
+      started_at: string;
+      finished_at: string | null;
+    }>();
   const first = await db
     .prepare(
       `SELECT scheduled_at AS started_at FROM collector_invocations
@@ -319,6 +333,42 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
     )
     .bind(deploymentSha)
     .first<{ started_at: string }>();
+  const dispatcherFirst = await db
+    .prepare(
+      `SELECT scheduled_at AS started_at FROM dispatcher_invocations
+       WHERE deployment_sha = ? ORDER BY scheduled_at ASC LIMIT 1`,
+    )
+    .bind(deploymentSha)
+    .first<{ started_at: string }>();
+  const dispatchRows = await db
+    .prepare(
+      `SELECT dispatch_id, slot_key, dispatch_mode, state, reserved_by_invocation,
+              lease_until, requested_at, accepted_at, started_at, finished_at,
+              github_http_status, github_run_id, github_run_attempt, github_run_url,
+              error_code, discord_sent_at
+       FROM workflow_dispatches
+       WHERE dispatcher_deployment_sha = ?
+       ORDER BY created_at`,
+    )
+    .bind(deploymentSha)
+    .all<{
+      dispatch_id: string;
+      slot_key: string;
+      dispatch_mode: "work" | "smoke";
+      state: string;
+      reserved_by_invocation: string | null;
+      lease_until: string | null;
+      requested_at: string | null;
+      accepted_at: string | null;
+      started_at: string | null;
+      finished_at: string | null;
+      github_http_status: number | null;
+      github_run_id: number | null;
+      github_run_attempt: number | null;
+      github_run_url: string | null;
+      error_code: string | null;
+      discord_sent_at: string | null;
+    }>();
   const candidates = await db
     .prepare(
       `SELECT payload_json, payload_hash FROM forecast_candidates
@@ -395,6 +445,22 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
   const failures = effective.filter((row) => row.status === "failure").length;
   const abandoned = effective.filter((row) => row.status === "abandoned").length;
   const successRate = effective.length === 0 ? 0 : completed / effective.length;
+  const effectiveDispatcher = dispatcherInvocations.results.map((row) => ({
+    ...row,
+    status:
+      row.status === "running" && nowMs - Date.parse(row.scheduled_at) >= 15 * 60 * 1000
+        ? "abandoned"
+        : row.status,
+  }));
+  const dispatcherCompleted = effectiveDispatcher.filter(
+    (row) => row.status === "completed",
+  ).length;
+  const dispatcherFailures = effectiveDispatcher.filter((row) => row.status === "failure").length;
+  const dispatcherAbandoned = effectiveDispatcher.filter(
+    (row) => row.status === "abandoned",
+  ).length;
+  const dispatcherSuccessRate =
+    effectiveDispatcher.length === 0 ? 0 : dispatcherCompleted / effectiveDispatcher.length;
   const invalidQueue = queue.results.filter((row) => {
     const url = URL.parse(row.url);
     return (
@@ -417,14 +483,56 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
         (row.scan_head_item_id !== null || row.scan_head_published_at !== null)) ||
       (row.committed_item_id === null) !== (row.committed_published_at === null),
   ).length;
-  const eligible =
+  const collectorEligible =
     first !== null && nowMs - Date.parse(first.started_at) >= windowHours * 60 * 60 * 1000;
+  const dispatcherEligible =
+    dispatcherFirst !== null &&
+    nowMs - Date.parse(dispatcherFirst.started_at) >= windowHours * 60 * 60 * 1000;
+  const eligible = collectorEligible && dispatcherEligible;
   const latest = effective.at(-1);
-  const earlyFailure =
+  const latestDispatcher = effectiveDispatcher.at(-1);
+  const collectorEarlyFailure =
     first !== null &&
     nowMs - Date.parse(first.started_at) >= 2 * 60 * 60 * 1000 &&
     effective.length > 0 &&
     abandoned / effective.length > 0.01;
+  const dispatcherEarlyFailure =
+    dispatcherFirst !== null &&
+    nowMs - Date.parse(dispatcherFirst.started_at) >= 2 * 60 * 60 * 1000 &&
+    effectiveDispatcher.length > 0 &&
+    dispatcherAbandoned / effectiveDispatcher.length > 0.01;
+  const earlyFailure = collectorEarlyFailure || dispatcherEarlyFailure;
+  const slotCounts = new Map<string, number>();
+  const runCounts = new Map<number, number>();
+  let invalidDispatchStates = 0;
+  let invalidSmoke = 0;
+  let smokeCount = 0;
+  for (const row of dispatchRows.results) {
+    slotCounts.set(row.slot_key, (slotCounts.get(row.slot_key) ?? 0) + 1);
+    if (row.github_run_id !== null) {
+      runCounts.set(row.github_run_id, (runCounts.get(row.github_run_id) ?? 0) + 1);
+    }
+    if (!validDispatchState(row)) invalidDispatchStates += 1;
+    if (row.dispatch_mode === "smoke") {
+      smokeCount += 1;
+      if (row.state !== "succeeded" || row.github_run_id === null || row.discord_sent_at === null) {
+        invalidSmoke += 1;
+      }
+    }
+  }
+  const duplicateDispatches = [...slotCounts.values()].filter((count) => count > 1).length;
+  const duplicateRuns = [...runCounts.values()].filter((count) => count > 1).length;
+  const dispatcherPassed =
+    dispatcherEligible &&
+    effectiveDispatcher.length >= minimumScheduled &&
+    dispatcherSuccessRate >= minimumCompletionRate &&
+    latestDispatcher?.status === "completed" &&
+    dispatcherAbandoned === 0 &&
+    duplicateDispatches === 0 &&
+    duplicateRuns === 0 &&
+    invalidDispatchStates === 0 &&
+    smokeCount >= 1 &&
+    invalidSmoke === 0;
   const passed =
     eligible &&
     effective.length >= minimumScheduled &&
@@ -434,13 +542,21 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
     invalidCandidates === 0 &&
     invalidWatermarks === 0 &&
     invalidQueue === 0 &&
-    invalidCursors === 0;
+    invalidCursors === 0 &&
+    dispatcherPassed;
   return {
-    version: 3,
+    version: 4,
     deploymentSha,
     pollMode: latest?.poll_mode ?? "missing",
     acceptance: { windowHours, minimumScheduled, minimumCompletionRate },
-    window: { since, until: new Date(nowMs).toISOString(), eligible, earlyFailure },
+    window: {
+      since,
+      until: new Date(nowMs).toISOString(),
+      eligible,
+      collectorEligible,
+      dispatcherEligible,
+      earlyFailure,
+    },
     invocations: {
       scheduled: effective.length,
       completed,
@@ -449,12 +565,84 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
       successRate,
       latestStatus: latest?.status ?? "missing",
     },
+    dispatcher: {
+      scheduled: effectiveDispatcher.length,
+      completed: dispatcherCompleted,
+      failure: dispatcherFailures,
+      abandoned: dispatcherAbandoned,
+      successRate: dispatcherSuccessRate,
+      latestStatus: latestDispatcher?.status ?? "missing",
+      duplicateDispatches,
+      duplicateRuns,
+      invalidStates: invalidDispatchStates,
+      smokeCount,
+      invalidSmoke,
+      passed: dispatcherPassed,
+    },
     queue: { count: queue.results.length, invalid: invalidQueue },
     cursors: { count: cursors.results.length, invalid: invalidCursors },
     candidates: { count: candidates.results.length, invalid: invalidCandidates },
     watermarks: { count: watermarks.results.length, invalid: invalidWatermarks },
     passed,
   };
+}
+
+type DispatchStateRow = {
+  state: string;
+  reserved_by_invocation: string | null;
+  lease_until: string | null;
+  requested_at: string | null;
+  accepted_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  github_http_status: number | null;
+  github_run_id: number | null;
+  github_run_attempt: number | null;
+  github_run_url: string | null;
+  error_code: string | null;
+};
+
+function validDispatchState(row: DispatchStateRow) {
+  return dispatchStateValidator(row.state)?.(row) ?? false;
+}
+
+function dispatchStateValidator(state: string) {
+  const validators: Record<string, (row: DispatchStateRow) => boolean> = {
+    pending: validPendingDispatch,
+    reserved: validReservedDispatch,
+    accepted: validAcceptedDispatch,
+    running: (row) => row.requested_at !== null && row.started_at !== null && hasRunIdentity(row),
+    succeeded: validFinishedRunDispatch,
+    cancelled: validFinishedRunDispatch,
+    failed: (row) => row.finished_at !== null && (hasRunIdentity(row) || row.error_code !== null),
+    stale: (row) => row.finished_at !== null && row.error_code !== null,
+  };
+  return validators[state];
+}
+
+function validPendingDispatch(row: DispatchStateRow) {
+  return row.requested_at === null && row.accepted_at === null && row.github_run_id === null;
+}
+
+function validReservedDispatch(row: DispatchStateRow) {
+  return row.reserved_by_invocation !== null && row.lease_until !== null;
+}
+
+function validAcceptedDispatch(row: DispatchStateRow) {
+  return row.requested_at !== null && row.accepted_at !== null && row.github_http_status === 204;
+}
+
+function validFinishedRunDispatch(row: DispatchStateRow) {
+  return row.finished_at !== null && hasRunIdentity(row);
+}
+
+function hasRunIdentity(row: DispatchStateRow) {
+  return (
+    row.github_run_id !== null &&
+    row.github_run_attempt !== null &&
+    row.github_run_url ===
+      `https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/${row.github_run_id}`
+  );
 }
 
 export function nextNaverRetryAt(nowMs: number, consecutiveFailures: number) {

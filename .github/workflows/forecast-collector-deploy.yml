@@ -5,11 +5,18 @@ on:
     branches: [main]
     paths:
       - "forecast-collector/**"
+      - "forecast-dispatcher/**"
       - "shared/supplyForecastCandidate.ts"
       - "shared/supplyForecastModel.ts"
       - "scripts/smoke-forecast-collector.ts"
+      - "scripts/smoke-forecast-dispatcher.ts"
+      - "scripts/cloudflare-cron-capacity.ts"
+      - "scripts/probe-forecast-github-app.ts"
+      - "scripts/forecast-dispatcher-workflow.spec.ts"
       - "vitest.forecast-collector.config.ts"
+      - "vitest.forecast-dispatcher.config.ts"
       - ".github/workflows/forecast-collector-deploy.yml"
+      - ".github/workflows/forecast-proposal.yml"
       - "package.json"
       - "package-lock.json"
   workflow_dispatch:
@@ -45,7 +52,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.20.0
           cache: npm
 
       - name: Validate configuration
@@ -54,11 +61,21 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
+          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
+          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
+          DISCORD_FORECAST_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
         run: |
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID variable." >&2; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN secret." >&2; exit 1; }
           test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" || { echo "Missing FORECAST_COLLECTOR_ADMIN_TOKEN secret." >&2; exit 1; }
           test -n "$FORECAST_COLLECTOR_STAGING_URL" || { echo "Missing FORECAST_COLLECTOR_STAGING_URL variable." >&2; exit 1; }
+          [[ "$FORECAST_GITHUB_APP_ID" =~ ^[0-9]{1,20}$ ]] || { echo "Missing or invalid FORECAST_GITHUB_APP_ID variable." >&2; exit 1; }
+          [[ "$FORECAST_GITHUB_APP_INSTALLATION_ID" =~ ^[0-9]{1,20}$ ]] || { echo "Missing or invalid FORECAST_GITHUB_APP_INSTALLATION_ID variable." >&2; exit 1; }
+          test -n "$FORECAST_GITHUB_APP_PRIVATE_KEY" || { echo "Missing FORECAST_GITHUB_APP_PRIVATE_KEY secret." >&2; exit 1; }
+          test -n "$DISCORD_FORECAST_BOT_TOKEN" || { echo "Missing DISCORD_FORECAST_BOT_TOKEN secret." >&2; exit 1; }
+          [[ "$DISCORD_FORECAST_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_CHANNEL_ID variable." >&2; exit 1; }
 
       - name: Install dependencies
         run: npm ci
@@ -69,6 +86,13 @@ jobs:
           npx tsc --noEmit -p forecast-collector/tsconfig.json
           npm run test:forecast-collector
           npx wrangler deploy --dry-run --env staging --config forecast-collector/wrangler.toml
+
+      - name: Verify dispatcher
+        run: |
+          npm run dispatcher:types:check
+          npx tsc --noEmit -p forecast-dispatcher/tsconfig.json
+          npm run test:forecast-dispatcher
+          npx wrangler deploy --dry-run --env staging --config forecast-dispatcher/wrangler.toml
 
       - name: Apply staging Discord adoption migration
         env:
@@ -94,6 +118,72 @@ jobs:
             npx wrangler d1 execute FORECAST_DB --remote --env staging \
               --config forecast-collector/wrangler.toml \
               --file forecast-collector/migrations/0006_discord_staging_message_identity.sql
+
+      - name: Apply staging workflow dispatch operations migration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env staging \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 7;" \
+            --json)
+          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
+            npx wrangler d1 execute FORECAST_DB --remote --env staging \
+              --config forecast-collector/wrangler.toml \
+              --file forecast-collector/migrations/0007_workflow_dispatch_ops.sql
+
+      - name: Verify account Cron trigger capacity
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FORECAST_DISPATCHER_SCRIPT_NAME: collection-kit-forecast-dispatcher-staging
+        run: npm run check:cloudflare-cron-capacity
+
+      - name: Prepare dispatcher secret file
+        env:
+          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - "$RUNNER_TEMP/forecast-dispatcher-secrets.json" <<'NODE'
+          import { writeFileSync } from "node:fs";
+          const privateKey = process.env.FORECAST_GITHUB_APP_PRIVATE_KEY ?? "";
+          const discordToken = process.env.DISCORD_BOT_TOKEN ?? "";
+          if (!privateKey.includes("BEGIN") || !discordToken) throw new Error("Dispatcher secrets are invalid.");
+          writeFileSync(
+            process.argv[2],
+            JSON.stringify({ GITHUB_APP_PRIVATE_KEY: privateKey, DISCORD_BOT_TOKEN: discordToken }),
+            { mode: 0o600 },
+          );
+          NODE
+
+      - name: Probe GitHub App installation and fixed workflow
+        env:
+          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
+          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
+          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
+        run: npm run probe:forecast-github-app
+
+      - name: Deploy staging dispatcher
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
+          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+        run: >-
+          npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml
+          --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json"
+          --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }}
+          --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID
+          --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID
+          --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID
+          --var DISPATCH_ENABLED:false
+          --tag "${{ github.sha }}-disabled" --message "Forecast dispatcher staging disabled ${{ github.sha }}"
 
       - name: Prepare deployment secret file
         env:
@@ -161,11 +251,64 @@ jobs:
           FORECAST_EXPECTED_DEPLOY_SHA: ${{ github.sha }}
         run: npm run smoke:forecast-collector -- "$FORECAST_COLLECTOR_STAGING_URL" "$FORECAST_COLLECTOR_ADMIN_TOKEN"
 
+      - name: Activate staging dispatcher after collector readiness
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
+          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+        run: >-
+          npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml
+          --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json"
+          --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }}
+          --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID
+          --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID
+          --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID
+          --var DISPATCH_ENABLED:true
+          --tag "${{ github.sha }}-enabled" --message "Forecast dispatcher staging enabled ${{ github.sha }}"
+
+      - name: Live staging dispatcher callback and Discord smoke
+        id: dispatcher_smoke
+        continue-on-error: true
+        env:
+          FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        run: >-
+          npm run smoke:forecast-dispatcher --
+          "$FORECAST_COLLECTOR_STAGING_URL"
+          "$FORECAST_COLLECTOR_ADMIN_TOKEN"
+          "deploy:${{ github.sha }}:${{ github.run_id }}"
+
+      - name: Disable staging dispatcher after smoke failure
+        if: steps.dispatcher_smoke.outcome == 'failure'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
+          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+        run: >-
+          npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml
+          --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json"
+          --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }}
+          --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID
+          --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID
+          --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID
+          --var DISPATCH_ENABLED:false
+          --tag "${{ github.sha }}-disabled-after-smoke"
+          --message "Disable forecast dispatcher after staging smoke failure ${{ github.sha }}"
+
+      - name: Fail after staging dispatcher rollback
+        if: steps.dispatcher_smoke.outcome == 'failure'
+        run: exit 1
+
       - name: Record shadow start
         run: |
           {
             echo "### Forecast collector staging shadow"
             echo "- Commit: \`${{ github.sha }}\`"
             echo "- Cron: every 3 minutes"
-            echo "- Promotion: blocked until the authenticated 12-hour canary report passes"
+            echo "- Dispatcher Cron: minute 1, then every 3 minutes"
+            echo "- Promotion: blocked until both authenticated 12-hour canary reports pass"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,48 @@
+name = "collection-kit-forecast-dispatcher"
+main = "src/worker.ts"
+compatibility_date = "2026-08-22"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[triggers]
+crons = ["1-59/3 * * * *"]
+
+[[d1_databases]]
+binding = "FORECAST_DB"
+database_name = "collection-kit-forecast-collector"
+database_id = "2d58bcc0-a7b5-43f3-8f42-34e1bf1ff853"
+
+[vars]
+ENVIRONMENT = "production"
+DEPLOY_SHA = "local"
+GITHUB_APP_ID = "unset"
+GITHUB_APP_INSTALLATION_ID = "unset"
+DISCORD_CHANNEL_ID = "unset"
+DISPATCH_ENABLED = "false"
+
+[secrets]
+required = ["GITHUB_APP_PRIVATE_KEY", "DISCORD_BOT_TOKEN"]
+
+[env.staging]
+name = "collection-kit-forecast-dispatcher-staging"
+workers_dev = false
+
+[[env.staging.d1_databases]]
+binding = "FORECAST_DB"
+database_name = "collection-kit-forecast-collector-staging"
+database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+DEPLOY_SHA = "local"
+GITHUB_APP_ID = "unset"
+GITHUB_APP_INSTALLATION_ID = "unset"
+DISCORD_CHANNEL_ID = "unset"
+DISPATCH_ENABLED = "false"
+
+[env.staging.secrets]
+required = ["GITHUB_APP_PRIVATE_KEY", "DISCORD_BOT_TOKEN"]

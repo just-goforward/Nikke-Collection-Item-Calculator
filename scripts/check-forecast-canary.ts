@@ -36,31 +36,67 @@ function requiredEnvironment(name: string) {
   return value;
 }
 
-function isCanaryReport(value: unknown): value is {
-  version: 3;
+type CanaryReport = {
+  version: 4;
   deploymentSha: string;
   pollMode: "both" | "alternating" | "missing";
   passed: boolean;
   acceptance: { windowHours: 12; minimumScheduled: 200; minimumCompletionRate: 0.99 };
   window: { eligible: boolean; earlyFailure: boolean };
   invocations: { scheduled: number; completed: number; abandoned: number };
-} {
-  if (!isRecord(value) || value["version"] !== 3 || typeof value["deploymentSha"] !== "string")
+  dispatcher: {
+    scheduled: number;
+    completed: number;
+    abandoned: number;
+    duplicateDispatches: number;
+    duplicateRuns: number;
+    invalidStates: number;
+    smokeCount: number;
+    invalidSmoke: number;
+    passed: boolean;
+  };
+};
+
+function isCanaryReport(value: unknown): value is CanaryReport {
+  if (!isRecord(value) || value["version"] !== 4 || typeof value["deploymentSha"] !== "string")
     return false;
   if (typeof value["passed"] !== "boolean") return false;
   if (!["both", "alternating", "missing"].includes(String(value["pollMode"]))) return false;
-  const window = value["window"];
-  const acceptance = value["acceptance"];
-  const invocations = value["invocations"];
   return (
-    isAcceptancePolicy(acceptance) &&
-    isRecord(window) &&
-    typeof window["eligible"] === "boolean" &&
-    typeof window["earlyFailure"] === "boolean" &&
-    isRecord(invocations) &&
-    typeof invocations["scheduled"] === "number" &&
-    typeof invocations["completed"] === "number" &&
-    typeof invocations["abandoned"] === "number"
+    isAcceptancePolicy(value["acceptance"]) &&
+    isCanaryWindow(value["window"]) &&
+    isInvocationSummary(value["invocations"]) &&
+    isDispatcherSummary(value["dispatcher"])
+  );
+}
+
+function isCanaryWindow(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value["eligible"] === "boolean" &&
+    typeof value["earlyFailure"] === "boolean"
+  );
+}
+
+function isInvocationSummary(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value["scheduled"] === "number" &&
+    typeof value["completed"] === "number" &&
+    typeof value["abandoned"] === "number"
+  );
+}
+
+function isDispatcherSummary(value: unknown) {
+  if (!isRecord(value)) return false;
+  if (!isInvocationSummary(value)) return false;
+  return (
+    typeof value["duplicateDispatches"] === "number" &&
+    typeof value["duplicateRuns"] === "number" &&
+    typeof value["invalidStates"] === "number" &&
+    typeof value["smokeCount"] === "number" &&
+    typeof value["invalidSmoke"] === "number" &&
+    typeof value["passed"] === "boolean"
   );
 }
 

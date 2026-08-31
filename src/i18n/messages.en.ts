@@ -51,8 +51,13 @@ export const enMessages = {
   "staging.label": "Staging environment",
   "staging.missing": "STAGING configuration is missing. Stats submission is disabled.",
   "staging.notice": "STAGING - test records are excluded from production stats",
-  "staging.forecast":
-    "Temporary Forecast {forecastId} · {profileId} · expected gain Blue {blue} / Purple {purple} / Yellow {yellow}",
+  "staging.forecastWindow": "Temporary expected gains · active {from} to {until} KST · {status}",
+  "staging.forecastWindowOpenEnded":
+    "Temporary expected gains · active after {from} KST · {status}",
+  "staging.forecastGain": "Blue {blue} / Purple {purple} / Yellow {yellow}",
+  "staging.forecastStatusConfirmed": "confirmed schedule",
+  "staging.forecastStatusEstimated": "estimated schedule",
+  "staging.forecastAudit": "Forecast ID {forecastId} · Profile ID {profileId}",
   "reset.done": "Inputs have been reset",
   "reset.undo": "Undo ({seconds})",
   "reset.undoAction": "Undo input reset",

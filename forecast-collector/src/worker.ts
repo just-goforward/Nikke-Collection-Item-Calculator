@@ -15,6 +15,15 @@ import {
   markDiscordStagingAdoptionProcessed,
   recordDiscordStagingAdoptionMessage,
 } from "./discord-approval";
+import {
+  createDispatcherSmoke,
+  readOperationsHealth,
+  readWorkflowDispatch,
+  recordWatchdogFallback,
+  recordWorkflowDispatchStatus,
+  sanitizeOpsError,
+  upsertOpsAlert,
+} from "./ops";
 import { listSourceQueue, processSourceQueue, readScheduleLedger } from "./source-queue";
 import type { CollectorEnv } from "./types";
 
@@ -26,7 +35,11 @@ export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
-      return json(await readHealth(env.FORECAST_DB));
+      const environment = opsEnvironment(env);
+      return json({
+        ...(await readHealth(env.FORECAST_DB)),
+        operations: await readOperationsHealth(env.FORECAST_DB, environment),
+      });
     }
     if (request.method === "POST" && url.pathname === "/discord/interactions") {
       if (env.ADMIN_RATE_LIMITER) {
@@ -56,6 +69,78 @@ export default {
       const task = runCollection(env);
       context.waitUntil(task);
       return json(await task);
+    }
+    if (request.method === "POST" && url.pathname === "/admin/dispatcher-smoke") {
+      if (env.ENVIRONMENT === "production") return new Response("Not found", { status: 404 });
+      const length = Number(request.headers.get("content-length") ?? 0);
+      if (length > 4_096) return new Response("Payload too large", { status: 413 });
+      try {
+        const body = await request.json();
+        const requestKey =
+          typeof body === "object" && body !== null && !Array.isArray(body)
+            ? (body as Record<string, unknown>)["requestKey"]
+            : null;
+        if (typeof requestKey !== "string") throw new Error("invalid_smoke_request_key");
+        return json(
+          await createDispatcherSmoke(env.FORECAST_DB, opsEnvironment(env), requestKey),
+          202,
+        );
+      } catch (error) {
+        return json({ error: sanitizeOpsError(error) }, 400);
+      }
+    }
+    const workflowStatusMatch = url.pathname.match(
+      /^\/admin\/workflow-dispatches\/(fd-[0-9a-f]{32})\/status$/,
+    );
+    if (workflowStatusMatch?.[1]) {
+      if (request.method === "GET") {
+        const dispatch = await readWorkflowDispatch(
+          env.FORECAST_DB,
+          opsEnvironment(env),
+          workflowStatusMatch[1],
+        );
+        return json({ dispatch }, dispatch ? 200 : 404);
+      }
+      if (request.method === "POST") {
+        const length = Number(request.headers.get("content-length") ?? 0);
+        if (length > 8_192) return new Response("Payload too large", { status: 413 });
+        try {
+          return json({
+            dispatch: await recordWorkflowDispatchStatus(
+              env.FORECAST_DB,
+              opsEnvironment(env),
+              workflowStatusMatch[1],
+              await request.json(),
+            ),
+          });
+        } catch (error) {
+          const code = sanitizeOpsError(error);
+          await upsertOpsAlert(env.FORECAST_DB, {
+            alertKey: `callback:${opsEnvironment(env)}:${code}`,
+            environment: opsEnvironment(env),
+            severity: "critical",
+            component: "workflow-callback",
+            errorCode: code,
+            context: { dispatchId: workflowStatusMatch[1] },
+          });
+          const status =
+            code.includes("not_found") || code.includes("conflict") || code.includes("regression")
+              ? 409
+              : 400;
+          return json({ error: code }, status);
+        }
+      }
+    }
+    if (request.method === "POST" && url.pathname === "/admin/ops-alerts/watchdog-fallback") {
+      const length = Number(request.headers.get("content-length") ?? 0);
+      if (length > 4_096) return new Response("Payload too large", { status: 413 });
+      try {
+        return json(
+          await recordWatchdogFallback(env.FORECAST_DB, opsEnvironment(env), await request.json()),
+        );
+      } catch (error) {
+        return json({ error: sanitizeOpsError(error) }, 400);
+      }
     }
     if (request.method === "GET" && url.pathname === "/admin/candidates") {
       return json({ candidates: await listProposalCandidates(env.FORECAST_DB) });
@@ -182,4 +267,8 @@ function json(value: unknown, status = 200) {
       "content-type": "application/json; charset=utf-8",
     },
   });
+}
+
+function opsEnvironment(env: CollectorEnv) {
+  return env.ENVIRONMENT === "production" ? "production" : "staging";
 }

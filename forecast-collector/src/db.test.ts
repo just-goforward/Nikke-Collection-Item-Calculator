@@ -3,6 +3,7 @@ import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import schemaSql from "../schema.sql?raw";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
+import { sha256Hex } from "./crypto";
 import {
   candidateExists,
   listProposalCandidates,
@@ -104,6 +105,17 @@ describe("forecast collector D1 contract", () => {
       status: "ok",
       collector: { status: "missing", lastFinishedAt: null },
       candidateCounts: {},
+      operations: {
+        dispatcher: {
+          status: "missing",
+          lastObservedAt: null,
+          deploymentSha: null,
+          errorCode: null,
+        },
+        actionableWork: { pending: 0, candidates: 0, oldestPendingAt: null },
+        latestDispatch: null,
+        alerts: { open: 0, unsent: 0, unsentCritical: 0 },
+      },
     });
     expect(unauthorized.status).toBe(401);
     expect(authorized.status).toBe(200);
@@ -165,9 +177,10 @@ describe("forecast collector D1 contract", () => {
     expect(report.deploymentSha).toBe("current-deployment");
     expect(report.window.eligible).toBe(true);
     expect(report).toMatchObject({
-      version: 3,
+      version: 4,
       acceptance: { windowHours: 12, minimumScheduled: 200, minimumCompletionRate: 0.99 },
       invocations: { scheduled: 1, completed: 1, successRate: 1, abandoned: 0 },
+      dispatcher: { scheduled: 1, completed: 1, successRate: 1, abandoned: 0 },
     });
   });
 
@@ -219,6 +232,7 @@ describe("forecast collector D1 contract", () => {
         Math.floor((now - 10 * 60 * 60 * 1000) / 1000),
       )
       .run();
+    await insertDispatcherSeries("boundary-deployment", now - 10 * 60 * 60 * 1000, 200, 200);
 
     const passing = await readCanaryReport(testEnv.FORECAST_DB, now, "boundary-deployment");
     expect(passing.invocations).toMatchObject({ scheduled: 200, completed: 200 });
@@ -281,6 +295,79 @@ describe("forecast collector D1 contract", () => {
 async function completedInvocation(deploymentSha: string, scheduledTime: number) {
   const id = await startInvocation(testEnv.FORECAST_DB, deploymentSha, scheduledTime, "both");
   await finishInvocation(testEnv.FORECAST_DB, id, "completed", 0, null, null);
+  await testEnv.FORECAST_DB.prepare(
+    `INSERT OR IGNORE INTO dispatcher_invocations (
+       invocation_id, deployment_sha, environment, scheduled_at, started_at, finished_at,
+       status, actionable_count
+     ) VALUES (?, ?, 'staging', ?, ?, ?, 'completed', 0)`,
+  )
+    .bind(
+      `dispatcher:${deploymentSha}:${scheduledTime}`,
+      deploymentSha,
+      new Date(scheduledTime).toISOString(),
+      new Date(scheduledTime).toISOString(),
+      new Date(scheduledTime + 1_000).toISOString(),
+    )
+    .run();
+  await insertSuccessfulSmoke(deploymentSha, scheduledTime);
+}
+
+async function insertDispatcherSeries(
+  deploymentSha: string,
+  startMs: number,
+  count: number,
+  completed: number,
+) {
+  for (let index = 0; index < count; index += 1) {
+    const scheduled = startMs + index * 3 * 60 * 1_000;
+    await testEnv.FORECAST_DB.prepare(
+      `INSERT INTO dispatcher_invocations (
+         invocation_id, deployment_sha, environment, scheduled_at, started_at, finished_at,
+         status, actionable_count
+       ) VALUES (?, ?, 'staging', ?, ?, ?, ?, 0)`,
+    )
+      .bind(
+        `dispatcher-series:${deploymentSha}:${index}`,
+        deploymentSha,
+        new Date(scheduled).toISOString(),
+        new Date(scheduled).toISOString(),
+        index < completed ? new Date(scheduled + 1_000).toISOString() : null,
+        index < completed ? "completed" : "running",
+      )
+      .run();
+  }
+}
+
+async function insertSuccessfulSmoke(deploymentSha: string, nowMs: number) {
+  const digest = await sha256Hex(`smoke:${deploymentSha}`);
+  const dispatchId = `fd-${digest.slice(0, 32)}`;
+  const runId = Number.parseInt(digest.slice(0, 8), 16) + 1;
+  const now = new Date(nowMs).toISOString();
+  await testEnv.FORECAST_DB.prepare(
+    `INSERT OR IGNORE INTO workflow_dispatches (
+       dispatch_id, slot_key, environment, dispatch_mode, work_fingerprint,
+       pending_count, candidate_count, attempt, state, dispatcher_deployment_sha,
+       created_at, requested_at, accepted_at, started_at, finished_at,
+       github_http_status, github_run_id, github_run_attempt, github_run_url,
+       discord_message_id, discord_sent_at
+     ) VALUES (?, ?, 'staging', 'smoke', ?, 0, 0, 1, 'succeeded', ?, ?, ?, ?, ?, ?,
+               204, ?, 1, ?, '123456789012345678', ?)`,
+  )
+    .bind(
+      dispatchId,
+      `smoke:${deploymentSha}`,
+      digest,
+      deploymentSha,
+      now,
+      now,
+      now,
+      now,
+      now,
+      runId,
+      `https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/${runId}`,
+      now,
+    )
+    .run();
 }
 
 function sourceItem(): NormalizedSourceItem {

@@ -2,7 +2,7 @@ name: Propose Supply Forecast
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "17,47 * * * *"
   workflow_dispatch:
     inputs:
       target_environment:
@@ -18,6 +18,19 @@ on:
         required: true
         default: false
         type: boolean
+      dispatch_id:
+        description: Dispatcher-owned idempotency identifier (leave empty for manual runs)
+        required: false
+        default: ""
+        type: string
+      dispatch_mode:
+        description: Process actionable work or validate the dispatch callback path only
+        required: true
+        default: work
+        type: choice
+        options:
+          - work
+          - smoke
 
 permissions:
   contents: write
@@ -39,6 +52,8 @@ jobs:
     env:
       FORECAST_TARGET_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.target_environment == 'staging' && vars.FORECAST_COLLECTOR_STAGING_URL || vars.FORECAST_COLLECTOR_URL }}
       FORECAST_BOOTSTRAP_SOLO_HISTORY: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap_solo_history && 'true' || 'false' }}
+      FORECAST_DISPATCH_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.dispatch_id || '' }}
+      FORECAST_DISPATCH_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.dispatch_mode || 'work' }}
     steps:
       - name: Validate configuration
         env:
@@ -47,8 +62,101 @@ jobs:
         run: |
           test -n "$FORECAST_COLLECTOR_URL" || { echo "Missing FORECAST_COLLECTOR_URL variable." >&2; exit 1; }
           test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" || { echo "Missing FORECAST_COLLECTOR_ADMIN_TOKEN secret." >&2; exit 1; }
+          [[ "$FORECAST_DISPATCH_MODE" == "work" || "$FORECAST_DISPATCH_MODE" == "smoke" ]] || { echo "Invalid dispatch mode." >&2; exit 1; }
+          if [[ -n "$FORECAST_DISPATCH_ID" ]]; then
+            [[ "$FORECAST_DISPATCH_ID" =~ ^fd-[0-9a-f]{32}$ ]] || { echo "Invalid dispatch id." >&2; exit 1; }
+          fi
+          if [[ "$FORECAST_DISPATCH_MODE" == "smoke" && -z "$FORECAST_DISPATCH_ID" ]]; then
+            echo "Smoke mode requires a dispatcher-owned dispatch id." >&2
+            exit 1
+          fi
+          if [[ "$FORECAST_DISPATCH_MODE" == "smoke" && "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            echo "Smoke mode is only available through workflow_dispatch." >&2
+            exit 1
+          fi
+          if [[ "$FORECAST_DISPATCH_MODE" == "smoke" && "${{ inputs.target_environment }}" != "staging" ]]; then
+            echo "Smoke mode is staging-only." >&2
+            exit 1
+          fi
+
+      - name: Record dispatcher callback start
+        id: callback_start
+        if: env.FORECAST_DISPATCH_ID != ''
+        env:
+          FORECAST_COLLECTOR_URL: ${{ env.FORECAST_TARGET_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload=$(node -e '
+            process.stdout.write(JSON.stringify({
+              phase:"started",
+              runId:Number(process.env.GITHUB_RUN_ID),
+              runAttempt:Number(process.env.GITHUB_RUN_ATTEMPT),
+              runUrl:`${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+            }));
+          ')
+          status=$(curl --silent --show-error --output "$RUNNER_TEMP/forecast-callback-start.json" --write-out "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "$FORECAST_COLLECTOR_URL/admin/workflow-dispatches/$FORECAST_DISPATCH_ID/status")
+          if [[ "$status" == "200" ]]; then
+            echo "duplicate=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$status" == "409" ]]; then
+            echo "duplicate=true" >> "$GITHUB_OUTPUT"
+            echo "A different GitHub run already owns this dispatch id; this run will make no changes." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Workflow callback start failed with HTTP $status." >&2
+            exit 1
+          fi
+
+      - name: Watch dispatcher health from the schedule fallback
+        if: github.event_name == 'schedule'
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          health=$(curl --fail-with-body --silent --show-error "$FORECAST_TARGET_URL/health")
+          notify=$(node -e '
+            const h=JSON.parse(process.argv[1]);
+            const observed=Date.parse(h.operations?.dispatcher?.lastObservedAt ?? "");
+            const stale=!Number.isFinite(observed) || Date.now()-observed>10*60*1000;
+            process.stdout.write(String(stale || Number(h.operations?.alerts?.unsentCritical ?? 0)>0));
+          ' "$health")
+          if [[ "$notify" != "true" ]]; then exit 0; fi
+          if [[ -z "$DISCORD_BOT_TOKEN" || ! "$DISCORD_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]]; then
+            echo "::warning::Dispatcher watchdog needs Discord configuration."
+            exit 0
+          fi
+          payload=$(node -e '
+            process.stdout.write(JSON.stringify({
+              allowed_mentions:{parse:[]},
+              embeds:[{
+                title:"Forecast Dispatcher watchdog",
+                description:`환경: production\nDispatcher가 10분 이상 관측되지 않았거나 전송되지 않은 critical alert가 있습니다.\nRun: ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+                color:15105570,
+                timestamp:new Date().toISOString()
+              }]
+            }));
+          ')
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "https://discord.com/api/v10/channels/$DISCORD_CHANNEL_ID/messages" >/dev/null || \
+            echo "::warning::Discord watchdog notification failed."
+
+      - name: Confirm smoke path is mutation-free
+        if: env.FORECAST_DISPATCH_MODE == 'smoke' && steps.callback_start.outputs.duplicate != 'true'
+        run: echo "Dispatcher callback and Discord acceptance path reached; no queue or repository mutation was requested." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check whether queue processing or proposal work exists
+        if: env.FORECAST_DISPATCH_MODE == 'work' && steps.callback_start.outputs.duplicate != 'true'
         id: preflight
         env:
           FORECAST_COLLECTOR_URL: ${{ env.FORECAST_TARGET_URL }}
@@ -68,27 +176,41 @@ jobs:
             process.stdout.write(String(process.argv[3]==="true" || process.argv[4]==="true" || q.items?.length>0 || c.candidates?.length>0));
           ' "$queue" "$candidates" "$FORECAST_DIRECT_NAVER_POLL" "$FORECAST_BOOTSTRAP_SOLO_HISTORY")
           echo "has_work=$has_work" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.event_name }}" == "schedule" && "$has_work" == "true" ]]; then
+            payload=$(node -e '
+              process.stdout.write(JSON.stringify({
+                runId:Number(process.env.GITHUB_RUN_ID),
+                runUrl:`${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+              }));
+            ')
+            curl --fail-with-body --silent --show-error \
+              -X POST \
+              -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$payload" \
+              "$FORECAST_COLLECTOR_URL/admin/ops-alerts/watchdog-fallback" >/dev/null
+          fi
 
       - name: Checkout trusted main
-        if: steps.preflight.outputs.has_work == 'true'
+        if: env.FORECAST_DISPATCH_MODE == 'work' && steps.preflight.outputs.has_work == 'true'
         uses: actions/checkout@v7
         with:
           ref: refs/heads/main
           fetch-depth: 0
 
       - name: Setup Node
-        if: steps.preflight.outputs.has_work == 'true'
+        if: env.FORECAST_DISPATCH_MODE == 'work' && steps.preflight.outputs.has_work == 'true'
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.20.0
           cache: npm
 
       - name: Install dependencies
-        if: steps.preflight.outputs.has_work == 'true'
+        if: env.FORECAST_DISPATCH_MODE == 'work' && steps.preflight.outputs.has_work == 'true'
         run: npm ci
 
       - name: Process pending Naver source queue
-        if: steps.preflight.outputs.has_work == 'true'
+        if: env.FORECAST_DISPATCH_MODE == 'work' && steps.preflight.outputs.has_work == 'true'
         id: queue
         env:
           FORECAST_COLLECTOR_URL: ${{ env.FORECAST_TARGET_URL }}
@@ -98,7 +220,7 @@ jobs:
         run: npm run process:forecast-source-queue
 
       - name: Check for a proposal candidate
-        if: steps.preflight.outputs.has_work == 'true'
+        if: env.FORECAST_DISPATCH_MODE == 'work' && steps.preflight.outputs.has_work == 'true'
         id: ready
         env:
           FORECAST_COLLECTOR_URL: ${{ env.FORECAST_TARGET_URL }}
@@ -169,3 +291,30 @@ jobs:
       - name: Summary
         if: steps.candidate.outputs.has_candidate == 'true'
         run: cat "$RUNNER_TEMP/forecast-proposal.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record dispatcher callback finish
+        if: always() && env.FORECAST_DISPATCH_ID != '' && steps.callback_start.outcome == 'success' && steps.callback_start.outputs.duplicate != 'true'
+        env:
+          FORECAST_COLLECTOR_URL: ${{ env.FORECAST_TARGET_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          FORECAST_JOB_STATUS: ${{ job.status }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload=$(node -e '
+            const allowed=new Set(["success","failure","cancelled"]);
+            const conclusion=allowed.has(process.env.FORECAST_JOB_STATUS) ? process.env.FORECAST_JOB_STATUS : "failure";
+            process.stdout.write(JSON.stringify({
+              phase:"finished",
+              runId:Number(process.env.GITHUB_RUN_ID),
+              runAttempt:Number(process.env.GITHUB_RUN_ATTEMPT),
+              runUrl:`${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+              conclusion
+            }));
+          ')
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "$FORECAST_COLLECTOR_URL/admin/workflow-dispatches/$FORECAST_DISPATCH_ID/status" >/dev/null

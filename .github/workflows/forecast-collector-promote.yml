@@ -38,7 +38,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.20.0
           cache: npm
 
       - name: Install dependencies
@@ -67,14 +67,21 @@ jobs:
           }
           git diff --quiet "$CANARY_SHA" HEAD -- \
             forecast-collector \
+            forecast-dispatcher \
             ':(exclude)forecast-collector/README.md' \
             ':(exclude)forecast-collector/src/candidate.ts' \
             ':(exclude)forecast-collector/src/candidate.test.ts' \
             shared/supplyForecastCandidate.ts \
             shared/supplyForecastModel.ts \
             scripts/smoke-forecast-collector.ts \
+            scripts/smoke-forecast-dispatcher.ts \
+            scripts/cloudflare-cron-capacity.ts \
+            scripts/probe-forecast-github-app.ts \
+            scripts/forecast-dispatcher-workflow.spec.ts \
             vitest.forecast-collector.config.ts \
+            vitest.forecast-dispatcher.config.ts \
             .github/workflows/forecast-collector-deploy.yml \
+            .github/workflows/forecast-proposal.yml \
             package.json \
             package-lock.json || {
             echo "Forecast collector deployment inputs changed after canary start." >&2
@@ -103,7 +110,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 24.20.0
           cache: npm
 
       - name: Install dependencies
@@ -115,9 +122,41 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_COLLECTOR_PRODUCTION_URL: ${{ vars.FORECAST_COLLECTOR_PRODUCTION_URL }}
+          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
+          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
+          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
+          DISCORD_FORECAST_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
         run: |
           test -n "$CLOUDFLARE_ACCOUNT_ID" && test -n "$CLOUDFLARE_API_TOKEN" && \
           test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" && test -n "$FORECAST_COLLECTOR_PRODUCTION_URL"
+          [[ "$FORECAST_GITHUB_APP_ID" =~ ^[0-9]{1,20}$ ]]
+          [[ "$FORECAST_GITHUB_APP_INSTALLATION_ID" =~ ^[0-9]{1,20}$ ]]
+          test -n "$FORECAST_GITHUB_APP_PRIVATE_KEY" && test -n "$DISCORD_FORECAST_BOT_TOKEN"
+          [[ "$DISCORD_FORECAST_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]]
+
+      - name: Apply production workflow dispatch operations migration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 7;" \
+            --json)
+          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
+            npx wrangler d1 execute FORECAST_DB --remote --env="" \
+              --config forecast-collector/wrangler.toml \
+              --file forecast-collector/migrations/0007_workflow_dispatch_ops.sql
+
+      - name: Verify production Cron trigger capacity
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FORECAST_DISPATCHER_SCRIPT_NAME: collection-kit-forecast-dispatcher
+        run: npm run check:cloudflare-cron-capacity
 
       - name: Check whether this commit is already deployed
         id: deployed
@@ -150,15 +189,99 @@ jobs:
             echo "needed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Check whether the dispatcher commit is already deployed
+        id: dispatcher_deployed
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DEPLOY_SHA: ${{ needs.canary.outputs.deployment_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          versions="$RUNNER_TEMP/forecast-dispatcher-versions.json"
+          error_log="$RUNNER_TEMP/forecast-dispatcher-versions.err"
+          if NO_COLOR=1 npx wrangler versions list --env="" \
+            --config forecast-dispatcher/wrangler.toml --json > "$versions" 2> "$error_log"; then
+            echo "worker_exists=true" >> "$GITHUB_OUTPUT"
+          elif grep -q "This Worker does not exist on your account" "$error_log" && \
+            grep -q "code: 10007" "$error_log"; then
+            echo "worker_exists=false" >> "$GITHUB_OUTPUT"
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            cat "$error_log" >&2
+            exit 1
+          fi
+          if node -e 'const rows=require(process.argv[1]);process.exit(rows.some(x=>x.annotations?.["workers/tag"]===process.argv[2]+"-enabled")?0:1)' "$versions" "$DEPLOY_SHA"; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Determine coupled production rollout
+        id: rollout
+        env:
+          COLLECTOR_NEEDED: ${{ steps.deployed.outputs.needed }}
+          DISPATCHER_NEEDED: ${{ steps.dispatcher_deployed.outputs.needed }}
+        run: |
+          if [[ "$COLLECTOR_NEEDED" == "true" || "$DISPATCHER_NEEDED" == "true" ]]; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare dispatcher deployment secret file
+        if: steps.rollout.outputs.needed == 'true'
+        env:
+          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - "$RUNNER_TEMP/forecast-dispatcher-secrets.json" <<'NODE'
+          import { writeFileSync } from "node:fs";
+          const privateKey = process.env.FORECAST_GITHUB_APP_PRIVATE_KEY ?? "";
+          const discordToken = process.env.DISCORD_BOT_TOKEN ?? "";
+          if (!privateKey.includes("BEGIN") || !discordToken) throw new Error("Dispatcher secrets are invalid.");
+          writeFileSync(
+            process.argv[2],
+            JSON.stringify({ GITHUB_APP_PRIVATE_KEY: privateKey, DISCORD_BOT_TOKEN: discordToken }),
+            { mode: 0o600 },
+          );
+          NODE
+
       - name: Prepare deployment secret file
-        if: steps.deployed.outputs.needed == 'true'
+        if: steps.rollout.outputs.needed == 'true'
         env:
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
         run: >-
           node -e 'require("node:fs").writeFileSync(process.env.RUNNER_TEMP+"/forecast-secrets.json",JSON.stringify({ADMIN_TOKEN:process.env.FORECAST_COLLECTOR_ADMIN_TOKEN}))'
 
+      - name: Probe GitHub App installation and fixed workflow
+        if: steps.rollout.outputs.needed == 'true'
+        env:
+          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
+          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
+          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
+        run: npm run probe:forecast-github-app
+
+      - name: Verify production dispatch D1 contract
+        if: steps.rollout.outputs.needed == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          result=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT (SELECT COUNT(*) FROM schema_migrations WHERE version=7) AS migration, (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('dispatcher_invocations','workflow_dispatches','forecast_ops_alerts')) AS tables;" \
+            --json)
+          [[ "$(jq -r '.[0].results[0].migration' <<<"$result")" == "1" ]]
+          [[ "$(jq -r '.[0].results[0].tables' <<<"$result")" == "3" ]]
+
       - name: Capture production version
-        if: steps.deployed.outputs.needed == 'true' && steps.deployed.outputs.worker_exists == 'true'
+        if: steps.rollout.outputs.needed == 'true' && steps.deployed.outputs.worker_exists == 'true'
         id: previous
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -169,8 +292,39 @@ jobs:
           version=$(node -e 'const x=require(process.argv[1]);process.stdout.write(x.versions?.find(v=>v.percentage===100)?.version_id??"")' "$RUNNER_TEMP/forecast-before.json")
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Capture production dispatcher version
+        if: steps.rollout.outputs.needed == 'true' && steps.dispatcher_deployed.outputs.worker_exists == 'true'
+        id: dispatcher_previous
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          npx wrangler deployments status --env="" --config forecast-dispatcher/wrangler.toml --json > "$RUNNER_TEMP/forecast-dispatcher-before.json"
+          version=$(node -e 'const x=require(process.argv[1]);process.stdout.write(x.versions?.find(v=>v.percentage===100)?.version_id??"")' "$RUNNER_TEMP/forecast-dispatcher-before.json")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy production dispatcher
+        if: steps.rollout.outputs.needed == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DEPLOY_SHA: ${{ needs.canary.outputs.deployment_sha }}
+          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
+          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+        run: >-
+          npx wrangler deploy --env="" --config forecast-dispatcher/wrangler.toml
+          --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json"
+          --var ENVIRONMENT:production --var DEPLOY_SHA:$DEPLOY_SHA
+          --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID
+          --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID
+          --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID
+          --var DISPATCH_ENABLED:false
+          --tag "$DEPLOY_SHA-disabled" --message "Forecast dispatcher production disabled $DEPLOY_SHA"
+
       - name: Deploy production collector
-        if: steps.deployed.outputs.needed == 'true'
+        if: steps.rollout.outputs.needed == 'true'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -233,8 +387,29 @@ jobs:
           FORECAST_BOOTSTRAP_SOLO_HISTORY: "true"
         run: npm run process:forecast-source-queue
 
+      - name: Activate production dispatcher after collector readiness
+        if: steps.rollout.outputs.needed == 'true' && steps.smoke.outcome == 'success' && steps.bootstrap.outcome == 'success'
+        id: dispatcher_activate
+        continue-on-error: true
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DEPLOY_SHA: ${{ needs.canary.outputs.deployment_sha }}
+          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
+          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+        run: >-
+          npx wrangler deploy --env="" --config forecast-dispatcher/wrangler.toml
+          --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json"
+          --var ENVIRONMENT:production --var DEPLOY_SHA:$DEPLOY_SHA
+          --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID
+          --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID
+          --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID
+          --var DISPATCH_ENABLED:true
+          --tag "$DEPLOY_SHA-enabled" --message "Forecast dispatcher production enabled $DEPLOY_SHA"
+
       - name: Restore production after smoke failure
-        if: steps.deployed.outputs.needed == 'true' && (steps.smoke.outcome == 'failure' || steps.bootstrap.outcome == 'failure') && steps.previous.outputs.version != ''
+        if: steps.rollout.outputs.needed == 'true' && (steps.smoke.outcome == 'failure' || steps.bootstrap.outcome == 'failure' || steps.dispatcher_activate.outcome == 'failure') && steps.previous.outputs.version != ''
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -243,12 +418,22 @@ jobs:
           npx wrangler versions deploy "$PREVIOUS_VERSION@100%" --yes --env=""
           --config forecast-collector/wrangler.toml --message "Restore after forecast smoke failure"
 
+      - name: Restore production dispatcher after smoke failure
+        if: steps.rollout.outputs.needed == 'true' && (steps.smoke.outcome == 'failure' || steps.bootstrap.outcome == 'failure' || steps.dispatcher_activate.outcome == 'failure') && steps.dispatcher_previous.outputs.version != ''
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PREVIOUS_VERSION: ${{ steps.dispatcher_previous.outputs.version }}
+        run: >-
+          npx wrangler versions deploy "$PREVIOUS_VERSION@100%" --yes --env=""
+          --config forecast-dispatcher/wrangler.toml --message "Restore dispatcher after forecast smoke failure"
+
       - name: Fail after restore
-        if: steps.smoke.outcome == 'failure' || steps.bootstrap.outcome == 'failure'
+        if: steps.smoke.outcome == 'failure' || steps.bootstrap.outcome == 'failure' || steps.dispatcher_activate.outcome == 'failure'
         run: exit 1
 
       - name: Verify proposal workflow targets production collector
-        if: steps.smoke.outcome == 'success' && steps.bootstrap.outcome == 'success'
+        if: steps.smoke.outcome == 'success' && steps.bootstrap.outcome == 'success' && steps.dispatcher_activate.outcome != 'failure'
         env:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}
           FORECAST_COLLECTOR_PRODUCTION_URL: ${{ vars.FORECAST_COLLECTOR_PRODUCTION_URL }}
