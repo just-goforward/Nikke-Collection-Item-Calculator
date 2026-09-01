@@ -1,4 +1,4 @@
-import { readBoundedText } from "../../shared/boundedHttp";
+import { readBoundedText } from "../../shared/boundedHttp.ts";
 import { sha256Hex, stableJson } from "./crypto";
 import type { NaverFeedMetadata, NormalizedSourceItem, ScheduleEvent, SourceKind } from "./types";
 

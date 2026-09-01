@@ -1,4 +1,4 @@
-import { readBoundedBytes } from "../../shared/boundedHttp";
+import { readBoundedBytes } from "../../shared/boundedHttp.ts";
 import { base64Url, importGithubAppPrivateKey } from "./crypto.ts";
 
 const REPOSITORY = "just-goforward/Nikke-Collection-Item-Calculator";

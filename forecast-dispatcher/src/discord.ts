@@ -1,4 +1,4 @@
-import { readBoundedBytes } from "../../shared/boundedHttp";
+import { readBoundedBytes } from "../../shared/boundedHttp.ts";
 import type { DispatcherEnv, DispatchReservation, OpsAlertRow } from "./types";
 
 const DISCORD_API = "https://discord.com/api/v10";

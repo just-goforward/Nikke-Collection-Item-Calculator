@@ -1,4 +1,4 @@
-import { readBoundedJson } from "../../shared/boundedHttp";
+import { readBoundedJson } from "../../shared/boundedHttp.ts";
 import { readCanaryReport, startCanaryDeployment } from "./canary";
 import { runCollection } from "./collector";
 import { timingSafeBearer } from "./crypto";

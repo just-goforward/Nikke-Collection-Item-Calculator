@@ -7,6 +7,8 @@ const productionPromote = readFileSync(".github/workflows/forecast-collector-pro
 const dispatcherConfig = readFileSync("forecast-dispatcher/wrangler.toml", "utf8");
 const interactionConfig = readFileSync("forecast-interactions/wrangler.toml", "utf8");
 const manualReview = readFileSync(".github/workflows/resolve-forecast-manual-review.yml", "utf8");
+const githubApp = readFileSync("forecast-dispatcher/src/github-app.ts", "utf8");
+const naverAction = readFileSync("scripts/forecast-naver-action.ts", "utf8");
 
 describe("Forecast dispatcher workflow contract", () => {
   it("keeps the proposal schedule as a thirty-minute watchdog", () => {
@@ -76,5 +78,10 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(manualReview).toContain("npm run resolve:forecast-manual-review");
     expect(manualReview).not.toContain("pull-requests: write");
     expect(manualReview).not.toContain("contents: write");
+  });
+
+  it("keeps directly executed Node imports resolvable on Linux", () => {
+    expect(githubApp).toContain('from "../../shared/boundedHttp.ts"');
+    expect(naverAction).toContain('from "../shared/boundedHttp.ts"');
   });
 });

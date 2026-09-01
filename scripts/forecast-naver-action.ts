@@ -1,6 +1,6 @@
 import { parseNaverFeed } from "../forecast-collector/src/naver";
 import type { NormalizedSourceItem } from "../forecast-collector/src/types";
-import { readBoundedText } from "../shared/boundedHttp";
+import { readBoundedText } from "../shared/boundedHttp.ts";
 
 const NAVER_FEED_URL = "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed";
 const NAVER_SEARCH_URL = "https://comm-api.game.naver.com/nng_main/v2/search/feeds";

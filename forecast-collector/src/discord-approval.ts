@@ -1,4 +1,4 @@
-import { readBoundedText } from "../../shared/boundedHttp";
+import { readBoundedText } from "../../shared/boundedHttp.ts";
 import {
   approvalFailureData,
   approvedData,
