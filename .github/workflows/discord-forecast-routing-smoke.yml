@@ -1,0 +1,37 @@
+name: Test Discord Forecast Routing
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  routing-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.20.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Send one staging smoke message to each routed channel
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
+          DISCORD_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
+          DISCORD_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+          FORECAST_ENVIRONMENT: staging
+        run: npm run smoke:discord-forecast-routing

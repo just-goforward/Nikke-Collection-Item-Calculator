@@ -14,6 +14,7 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(proposal).toContain("dispatch_mode:");
     expect(proposal).toContain("/admin/workflow-dispatches/$FORECAST_DISPATCH_ID/status");
     expect(proposal).toContain("/admin/ops-alerts/watchdog-fallback");
+    expect(proposal).toContain("vars.DISCORD_FORECAST_ALERT_CHANNEL_ID");
     expect(proposal).toContain(
       '"$FORECAST_DISPATCH_MODE" == "smoke" && -z "$FORECAST_DISPATCH_ID"',
     );
@@ -26,6 +27,15 @@ describe("Forecast dispatcher workflow contract", () => {
     for (const workflow of [stagingDeploy, productionPromote]) {
       expect(workflow).toContain("--var DISPATCH_ENABLED:false");
       expect(workflow).toContain("--var DISPATCH_ENABLED:true");
+      expect(workflow).toContain(
+        "--var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID",
+      );
+      expect(workflow).toContain(
+        "--var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID",
+      );
+      expect(workflow).toContain(
+        "--var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID",
+      );
       expect(workflow).toContain("forecast-collector/migrations/0007_workflow_dispatch_ops.sql");
     }
     expect(productionPromote).toContain("environment: cloudflare-production");

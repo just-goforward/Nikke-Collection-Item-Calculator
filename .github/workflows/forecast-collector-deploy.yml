@@ -66,6 +66,10 @@ jobs:
           FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
           DISCORD_FORECAST_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
           DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
+          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
         run: |
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID variable." >&2; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN secret." >&2; exit 1; }
@@ -76,6 +80,10 @@ jobs:
           test -n "$FORECAST_GITHUB_APP_PRIVATE_KEY" || { echo "Missing FORECAST_GITHUB_APP_PRIVATE_KEY secret." >&2; exit 1; }
           test -n "$DISCORD_FORECAST_BOT_TOKEN" || { echo "Missing DISCORD_FORECAST_BOT_TOKEN secret." >&2; exit 1; }
           [[ "$DISCORD_FORECAST_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_CHANNEL_ID variable." >&2; exit 1; }
+          [[ "$DISCORD_FORECAST_APPROVAL_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_APPROVAL_CHANNEL_ID variable." >&2; exit 1; }
+          [[ "$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_ACTIVITY_CHANNEL_ID variable." >&2; exit 1; }
+          [[ "$DISCORD_FORECAST_ALERT_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_ALERT_CHANNEL_ID variable." >&2; exit 1; }
+          [[ "$DISCORD_FORECAST_FALLBACK_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_FALLBACK_CHANNEL_ID variable." >&2; exit 1; }
 
       - name: Install dependencies
         run: npm ci
@@ -175,6 +183,9 @@ jobs:
           FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
           FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
           DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
         run: >-
           npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml
           --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json"
@@ -182,6 +193,9 @@ jobs:
           --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID
           --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID
           --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID
+          --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID
+          --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID
+          --var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID
           --var DISPATCH_ENABLED:false
           --tag "${{ github.sha }}-disabled" --message "Forecast dispatcher staging disabled ${{ github.sha }}"
 
@@ -237,11 +251,13 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
           POLL_MODE: ${{ inputs.poll_mode || 'both' }}
         run: >-
           npx wrangler deploy --env staging --config forecast-collector/wrangler.toml
           --secrets-file "$RUNNER_TEMP/forecast-secrets.json"
           --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE
+          --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID
           --tag "${{ github.sha }}-$POLL_MODE" --message "Forecast collector staging ${{ github.sha }} ($POLL_MODE)"
 
       - name: Live staging queue round-trip smoke
@@ -258,6 +274,9 @@ jobs:
           FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
           FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
           DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
         run: >-
           npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml
           --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json"
@@ -265,6 +284,9 @@ jobs:
           --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID
           --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID
           --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID
+          --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID
+          --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID
+          --var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID
           --var DISPATCH_ENABLED:true
           --tag "${{ github.sha }}-enabled" --message "Forecast dispatcher staging enabled ${{ github.sha }}"
 
@@ -288,6 +310,9 @@ jobs:
           FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
           FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
           DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
         run: >-
           npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml
           --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json"
@@ -295,6 +320,9 @@ jobs:
           --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID
           --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID
           --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID
+          --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID
+          --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID
+          --var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID
           --var DISPATCH_ENABLED:false
           --tag "${{ github.sha }}-disabled-after-smoke"
           --message "Disable forecast dispatcher after staging smoke failure ${{ github.sha }}"

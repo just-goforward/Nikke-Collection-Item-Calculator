@@ -7,6 +7,7 @@ const MAX_RESPONSE_BYTES = 16_384;
 
 type FetchLike = typeof fetch;
 type Delay = (milliseconds: number) => Promise<void>;
+export type DiscordChannelKind = "activity" | "alert";
 
 export class DiscordMessageError extends Error {
   readonly retryable: boolean;
@@ -103,25 +104,24 @@ export function opsRecoveryMessage(alert: OpsAlertRow) {
 
 export async function sendDiscordMessage(
   env: DispatcherEnv,
+  channelKind: DiscordChannelKind,
   payload: object,
   options: { fetchImpl?: FetchLike; delay?: Delay } = {},
 ) {
-  if (!/^\d{6,24}$/.test(env.DISCORD_CHANNEL_ID)) {
-    throw new DiscordMessageError("discord_channel_id_invalid", false);
-  }
+  const channelId = resolveDiscordChannelId(env, channelKind);
   if (!env.DISCORD_BOT_TOKEN) throw new DiscordMessageError("discord_bot_token_missing", false);
   const fetchImpl = options.fetchImpl ?? fetch;
   const delay =
     options.delay ??
     ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
-  let response = await createMessage(env, payload, fetchImpl);
+  let response = await createMessage(env, channelId, payload, fetchImpl);
   if (response.status === 429) {
     const retryAfterMs = await readRetryAfter(response);
     await delay(retryAfterMs);
-    response = await createMessage(env, payload, fetchImpl);
+    response = await createMessage(env, channelId, payload, fetchImpl);
   } else if (response.status >= 500) {
     await delay(1_000);
-    response = await createMessage(env, payload, fetchImpl);
+    response = await createMessage(env, channelId, payload, fetchImpl);
   }
   if (!response.ok) {
     throw new DiscordMessageError(
@@ -140,12 +140,28 @@ export async function sendDiscordMessage(
   if (typeof id !== "string" || !/^\d{6,24}$/.test(id)) {
     throw new DiscordMessageError("discord_response_message_id_missing", false);
   }
-  return { messageId: id };
+  return { messageId: id, channelId };
 }
 
-async function createMessage(env: DispatcherEnv, payload: object, fetchImpl: FetchLike) {
+export function resolveDiscordChannelId(env: DispatcherEnv, kind: DiscordChannelKind) {
+  const preferred =
+    kind === "activity" ? env.DISCORD_ACTIVITY_CHANNEL_ID : env.DISCORD_ALERT_CHANNEL_ID;
+  const candidates = [preferred, env.DISCORD_FALLBACK_CHANNEL_ID, env.DISCORD_CHANNEL_ID];
+  const selected = candidates.find((value) => /^\d{6,24}$/.test(value ?? ""));
+  if (!selected) {
+    throw new DiscordMessageError(`discord_${kind}_channel_id_invalid`, false);
+  }
+  return selected;
+}
+
+async function createMessage(
+  env: DispatcherEnv,
+  channelId: string,
+  payload: object,
+  fetchImpl: FetchLike,
+) {
   try {
-    return await fetchImpl(`${DISCORD_API}/channels/${env.DISCORD_CHANNEL_ID}/messages`, {
+    return await fetchImpl(`${DISCORD_API}/channels/${channelId}/messages`, {
       method: "POST",
       headers: {
         authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,

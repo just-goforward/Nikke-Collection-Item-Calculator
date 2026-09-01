@@ -116,7 +116,7 @@ jobs:
         if: github.event_name == 'schedule'
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
-          DISCORD_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+          DISCORD_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID || vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID || vars.DISCORD_FORECAST_CHANNEL_ID }}
         shell: bash
         run: |
           set -euo pipefail

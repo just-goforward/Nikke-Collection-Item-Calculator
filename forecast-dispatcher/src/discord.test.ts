@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { dispatchAcceptedMessage, sendDiscordMessage } from "./discord";
+import { dispatchAcceptedMessage, resolveDiscordChannelId, sendDiscordMessage } from "./discord";
 import type { DispatcherEnv } from "./types";
 
 describe("Discord forecast operations messages", () => {
@@ -26,8 +26,11 @@ describe("Discord forecast operations messages", () => {
       ],
     });
 
-    await expect(sendDiscordMessage(env(), payload, { fetchImpl, delay })).resolves.toEqual({
+    await expect(
+      sendDiscordMessage(env(), "activity", payload, { fetchImpl, delay }),
+    ).resolves.toEqual({
       messageId: "987654321098765432",
+      channelId: "222222222222222222",
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     expect(delay).toHaveBeenCalledWith(250);
@@ -37,12 +40,38 @@ describe("Discord forecast operations messages", () => {
     };
     expect(sentBody.allowed_mentions).toEqual({ parse: [] });
     expect(sentBody.embeds[0]?.description).toContain("\\@everyone");
+    expect(String(fetchImpl.mock.calls[1]?.[0])).toContain("/channels/222222222222222222/messages");
+  });
+
+  it("routes alerts separately and falls back to the legacy channel when needed", () => {
+    expect(resolveDiscordChannelId(env(), "alert")).toBe("333333333333333333");
+    expect(
+      resolveDiscordChannelId(
+        {
+          ...env(),
+          DISCORD_ACTIVITY_CHANNEL_ID: "invalid",
+          DISCORD_FALLBACK_CHANNEL_ID: "444444444444444444",
+        },
+        "activity",
+      ),
+    ).toBe("444444444444444444");
+    expect(
+      resolveDiscordChannelId(
+        {
+          ...env(),
+          DISCORD_ACTIVITY_CHANNEL_ID: "invalid",
+          DISCORD_FALLBACK_CHANNEL_ID: "invalid",
+        },
+        "activity",
+      ),
+    ).toBe("123456789012345678");
   });
 
   it("does not retry a Discord permission failure", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 403 }));
     const error = await sendDiscordMessage(
       env(),
+      "alert",
       { allowed_mentions: { parse: [] } },
       { fetchImpl },
     ).catch((caught: unknown) => caught);
@@ -55,6 +84,7 @@ describe("Discord forecast operations messages", () => {
     const delay = vi.fn().mockResolvedValue(undefined);
     const error = await sendDiscordMessage(
       env(),
+      "alert",
       { allowed_mentions: { parse: [] } },
       { fetchImpl, delay },
     ).catch((caught: unknown) => caught);
@@ -69,5 +99,8 @@ function env() {
     ENVIRONMENT: "staging",
     DISCORD_BOT_TOKEN: "test-token",
     DISCORD_CHANNEL_ID: "123456789012345678",
+    DISCORD_ACTIVITY_CHANNEL_ID: "222222222222222222",
+    DISCORD_ALERT_CHANNEL_ID: "333333333333333333",
+    DISCORD_FALLBACK_CHANNEL_ID: "123456789012345678",
   } as DispatcherEnv;
 }

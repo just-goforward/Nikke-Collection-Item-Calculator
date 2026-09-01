@@ -101,6 +101,7 @@
     "smoke:stats-worker": "node scripts/smoke-stats-worker.ts",
     "smoke:forecast-collector": "node scripts/smoke-forecast-collector.ts",
     "smoke:forecast-dispatcher": "node scripts/smoke-forecast-dispatcher.ts",
+    "smoke:discord-forecast-routing": "node scripts/discord-forecast-routing-smoke.ts",
     "check:cloudflare-cron-capacity": "node scripts/cloudflare-cron-capacity.ts",
     "probe:forecast-github-app": "node scripts/probe-forecast-github-app.ts",
     "check:forecast-canary": "node scripts/check-forecast-canary.ts",

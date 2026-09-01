@@ -49,6 +49,9 @@ describe("forecast dispatcher orchestration", () => {
     const runtimeEnv = {
       ...testEnv,
       GITHUB_APP_PRIVATE_KEY: await generatePrivateKeyPem(),
+      DISCORD_ACTIVITY_CHANNEL_ID: "222222222222222222",
+      DISCORD_ALERT_CHANNEL_ID: "333333333333333333",
+      DISCORD_FALLBACK_CHANNEL_ID: "123456789012345678",
       DISPATCH_ENABLED: "true",
     } satisfies DispatcherEnv;
 
@@ -56,6 +59,11 @@ describe("forecast dispatcher orchestration", () => {
 
     expect(result).toMatchObject({ status: "completed", actionableCount: 1 });
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes("/channels/222222222222222222/messages"),
+      ),
+    ).toBe(true);
     const dispatch = await testEnv.FORECAST_DB.prepare(
       `SELECT state, github_http_status, discord_message_id, dispatcher_deployment_sha
        FROM workflow_dispatches`,
@@ -108,6 +116,9 @@ describe("forecast dispatcher orchestration", () => {
     const runtimeEnv = {
       ...testEnv,
       GITHUB_APP_PRIVATE_KEY: await generatePrivateKeyPem(),
+      DISCORD_ACTIVITY_CHANNEL_ID: "222222222222222222",
+      DISCORD_ALERT_CHANNEL_ID: "333333333333333333",
+      DISCORD_FALLBACK_CHANNEL_ID: "123456789012345678",
       DISPATCH_ENABLED: "true",
     } satisfies DispatcherEnv;
 
@@ -175,6 +186,9 @@ describe("forecast dispatcher orchestration", () => {
     const runtimeEnv = {
       ...testEnv,
       GITHUB_APP_PRIVATE_KEY: await generatePrivateKeyPem(),
+      DISCORD_ACTIVITY_CHANNEL_ID: "222222222222222222",
+      DISCORD_ALERT_CHANNEL_ID: "333333333333333333",
+      DISCORD_FALLBACK_CHANNEL_ID: "123456789012345678",
       DISPATCH_ENABLED: "true",
     } satisfies DispatcherEnv;
 
@@ -189,6 +203,53 @@ describe("forecast dispatcher orchestration", () => {
       "SELECT COUNT(*) AS count FROM forecast_ops_alerts WHERE alert_key = 'github-dispatch:staging'",
     ).first<{ count: number }>();
     expect(alert?.count).toBe(0);
+  });
+
+  it("sends manual-review operations alerts to the alert channel", async () => {
+    const now = Date.now();
+    const nowIso = new Date(now).toISOString();
+    await testEnv.FORECAST_DB.prepare(
+      `INSERT INTO source_queue (
+         source, item_id, url, title, published_at, official, status,
+         attempts, error_code, first_seen_at, updated_at
+       ) VALUES ('naver-board-48', 'manual-100', ?, '일정 수동 검토', ?, 1,
+         'manual_review', 3, 'schedule_ambiguous', ?, ?)`,
+    )
+      .bind("https://game.naver.com/lounge/nikke/board/detail/manual-100", nowIso, nowIso, nowIso)
+      .run();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/channels/333333333333333333/messages")) {
+        return Response.json({ id: "987654321098765434" }, { status: 200 });
+      }
+      throw new Error(`Unexpected request ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const runtimeEnv = {
+      ...testEnv,
+      DISCORD_ACTIVITY_CHANNEL_ID: "222222222222222222",
+      DISCORD_ALERT_CHANNEL_ID: "333333333333333333",
+      DISCORD_FALLBACK_CHANNEL_ID: "123456789012345678",
+      DISPATCH_ENABLED: "true",
+    } satisfies DispatcherEnv;
+
+    const result = await runDispatcher(runtimeEnv, { scheduledTime: now });
+
+    expect(result).toMatchObject({ status: "completed", actionableCount: 0 });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const alert = await testEnv.FORECAST_DB.prepare(
+      `SELECT state, last_sent_occurrence_count, discord_message_id
+       FROM forecast_ops_alerts WHERE alert_key = 'manual-review:staging:naver-board-48:manual-100'`,
+    ).first<{
+      state: string;
+      last_sent_occurrence_count: number;
+      discord_message_id: string;
+    }>();
+    expect(alert).toEqual({
+      state: "open",
+      last_sent_occurrence_count: 1,
+      discord_message_id: "987654321098765434",
+    });
   });
 });
 

@@ -87,7 +87,11 @@ export async function runDispatcher(env: DispatcherEnv, options: { scheduledTime
         await resolveOpsAlert(env.FORECAST_DB, githubAlertKey(env), acceptedAt);
         await resolveOpsAlert(env.FORECAST_DB, `watchdog-fallback:${env.ENVIRONMENT}`, acceptedAt);
         try {
-          const sent = await sendDiscordMessage(env, dispatchAcceptedMessage(env, reservation));
+          const sent = await sendDiscordMessage(
+            env,
+            "activity",
+            dispatchAcceptedMessage(env, reservation),
+          );
           await markDispatchDiscordSent(
             env.FORECAST_DB,
             reservation.dispatchId,
@@ -194,7 +198,7 @@ async function flushDiscordAlerts(env: DispatcherEnv) {
     try {
       const payload =
         alert.state === "resolved" ? opsRecoveryMessage(alert) : opsAlertMessage(alert);
-      const sent = await sendDiscordMessage(env, payload);
+      const sent = await sendDiscordMessage(env, "alert", payload);
       await markAlertSent(env.FORECAST_DB, alert, sent.messageId, Date.now());
     } catch (error) {
       await markAlertSendFailed(

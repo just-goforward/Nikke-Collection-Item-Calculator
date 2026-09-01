@@ -30,8 +30,9 @@ and repository mutations.
 
 ## Operations alerts
 
-Discord messages disable all mentions. Accepted dispatches are described as requests, not completed
-work, and include at most three sanitized Naver titles and links. Immediate authorization,
+Discord messages disable all mentions. Accepted dispatches go to the activity channel and are
+described as requests, not completed work, with at most three sanitized Naver titles and links.
+Warnings, critical errors, and their recovery messages go to the alert channel. Immediate authorization,
 invariant, callback, workflow-failure, and cancellation errors are recorded as critical alerts.
 Retryable GitHub/Discord failures alert after three occurrences. Pending age, stale dispatches,
 manual review, Collector circuit state, and the thirty-minute watchdog are monitored from D1.
@@ -58,7 +59,10 @@ Required bindings and secrets:
 GITHUB_APP_ID
 GITHUB_APP_INSTALLATION_ID
 GITHUB_APP_PRIVATE_KEY (secret, full PEM)
-DISCORD_CHANNEL_ID
+DISCORD_ACTIVITY_CHANNEL_ID
+DISCORD_ALERT_CHANNEL_ID
+DISCORD_FALLBACK_CHANNEL_ID
+DISCORD_CHANNEL_ID (legacy fallback during migration)
 DISCORD_BOT_TOKEN (secret)
 FORECAST_DB
 ENVIRONMENT
