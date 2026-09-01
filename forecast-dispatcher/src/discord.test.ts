@@ -3,12 +3,10 @@ import { dispatchAcceptedMessage, resolveDiscordChannelId, sendDiscordMessage } 
 import type { DispatcherEnv } from "./types";
 
 describe("Discord forecast operations messages", () => {
-  it("retries one rate limit and always disables mentions", async () => {
+  it("returns the rate-limit delay without sleeping or retrying", async () => {
     const fetchImpl = vi
       .fn()
-      .mockResolvedValueOnce(Response.json({ retry_after: 0.001 }, { status: 429 }))
-      .mockResolvedValueOnce(Response.json({ id: "987654321098765432" }, { status: 200 }));
-    const delay = vi.fn().mockResolvedValue(undefined);
+      .mockResolvedValue(Response.json({ retry_after: 65 }, { status: 429 }));
     const payload = dispatchAcceptedMessage(env(), {
       dispatchId: `fd-${"a".repeat(32)}`,
       mode: "work",
@@ -27,20 +25,20 @@ describe("Discord forecast operations messages", () => {
     });
 
     await expect(
-      sendDiscordMessage(env(), "activity", payload, { fetchImpl, delay }),
-    ).resolves.toEqual({
-      messageId: "987654321098765432",
-      channelId: "222222222222222222",
+      sendDiscordMessage(env(), "activity", payload, { fetchImpl }),
+    ).rejects.toMatchObject({
+      message: "discord_create_message_429",
+      retryable: true,
+      retryAfterMs: 65_000,
     });
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(delay).toHaveBeenCalledWith(250);
-    const sentBody = JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body)) as {
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    const sentBody = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
       allowed_mentions: { parse: string[] };
       embeds: Array<{ description: string }>;
     };
     expect(sentBody.allowed_mentions).toEqual({ parse: [] });
     expect(sentBody.embeds[0]?.description).toContain("\\@everyone");
-    expect(String(fetchImpl.mock.calls[1]?.[0])).toContain("/channels/222222222222222222/messages");
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain("/channels/222222222222222222/messages");
   });
 
   it("routes alerts separately and falls back to the legacy channel when needed", () => {
@@ -79,18 +77,16 @@ describe("Discord forecast operations messages", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
-  it("retries one Discord server failure and keeps the durable error typed", async () => {
+  it("returns a typed retryable server failure without sleeping", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 500 }));
-    const delay = vi.fn().mockResolvedValue(undefined);
     const error = await sendDiscordMessage(
       env(),
       "alert",
       { allowed_mentions: { parse: [] } },
-      { fetchImpl, delay },
+      { fetchImpl },
     ).catch((caught: unknown) => caught);
     expect(error).toMatchObject({ message: "discord_create_message_500", retryable: true });
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(delay).toHaveBeenCalledWith(1_000);
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 });
 

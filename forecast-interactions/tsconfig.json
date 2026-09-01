@@ -18,5 +18,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["src/**/*.ts", "worker-configuration.d.ts", "../shared/boundedHttp.ts"]
+  "include": [
+    "src/**/*.ts",
+    "worker-configuration.d.ts",
+    "../shared/boundedHttp.ts",
+    "../shared/supplyForecastCandidate.ts",
+    "../shared/supplyForecastModel.ts"
+  ]
 }

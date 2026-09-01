@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import schemaSql from "../../forecast-collector/schema.sql?raw";
 import {
   listDueAlerts,
+  markAlertSendFailed,
   markAlertSent,
   markDispatchAccepted,
   markDispatchRequested,
@@ -51,7 +52,11 @@ describe("forecast dispatcher D1 reservations", () => {
     expect(duplicate).toBeNull();
     if (!first) throw new Error("Expected a reservation.");
     await markDispatchRequested(testEnv.FORECAST_DB, first.dispatchId, "invocation-a", now);
-    await markDispatchAccepted(testEnv.FORECAST_DB, first.dispatchId, "invocation-a", now);
+    await markDispatchAccepted(testEnv.FORECAST_DB, first.dispatchId, "invocation-a", now, {
+      status: 204,
+      runId: null,
+      runUrl: null,
+    });
 
     await expect(
       reserveNextDispatch(testEnv.FORECAST_DB, {
@@ -161,6 +166,40 @@ describe("forecast dispatcher alert grouping", () => {
       listDueAlerts(testEnv.FORECAST_DB, "staging", now + 33 * 60 * 1_000),
     ).resolves.toEqual([]);
   });
+
+  it.each([65_000, 1_337_000])(
+    "persists a Discord retry delay of %i ms without blocking the Worker",
+    async (retryAfterMs) => {
+      const now = Date.parse("2026-09-01T00:00:00.000Z");
+      await raiseOpsAlert(testEnv.FORECAST_DB, {
+        alertKey: `discord-retry:${retryAfterMs}`,
+        environment: "staging",
+        severity: "critical",
+        component: "discord",
+        errorCode: "discord_create_message_429",
+        context: {},
+        nowMs: now,
+      });
+
+      await markAlertSendFailed(
+        testEnv.FORECAST_DB,
+        `discord-retry:${retryAfterMs}`,
+        "discord_create_message_429",
+        now,
+        retryAfterMs,
+      );
+
+      const row = await testEnv.FORECAST_DB.prepare(
+        "SELECT next_send_at, last_send_error FROM forecast_ops_alerts WHERE alert_key = ?",
+      )
+        .bind(`discord-retry:${retryAfterMs}`)
+        .first<{ next_send_at: string; last_send_error: string }>();
+      expect(row).toEqual({
+        next_send_at: new Date(now + retryAfterMs).toISOString(),
+        last_send_error: "discord_create_message_429",
+      });
+    },
+  );
 });
 
 async function insertPending(itemId: string, nowMs: number) {

@@ -1,0 +1,30 @@
+name = "collection-kit-forecast-interactions"
+main = "src/worker.ts"
+compatibility_date = "2026-08-22"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[[d1_databases]]
+binding = "STAGING_FORECAST_DB"
+database_name = "collection-kit-forecast-collector-staging"
+database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
+
+[[d1_databases]]
+binding = "PRODUCTION_FORECAST_DB"
+database_name = "collection-kit-forecast-collector"
+database_id = "2d58bcc0-a7b5-43f3-8f42-34e1bf1ff853"
+
+[vars]
+DEPLOY_SHA = "local"
+DISCORD_PUBLIC_KEY = "unset"
+DISCORD_APPLICATION_ID = "unset"
+DISCORD_GUILD_ID = "unset"
+DISCORD_APPROVER_USER_ID = "unset"
+DISCORD_APPROVAL_CHANNEL_ID = "unset"
+DISCORD_ALERT_CHANNEL_ID = "unset"
+DISCORD_ACTIVITY_CHANNEL_ID = "unset"
+PRODUCTION_MUTATIONS_ENABLED = "false"

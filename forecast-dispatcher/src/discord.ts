@@ -1,21 +1,25 @@
+import { readBoundedBytes } from "../../shared/boundedHttp";
 import type { DispatcherEnv, DispatchReservation, OpsAlertRow } from "./types";
 
 const DISCORD_API = "https://discord.com/api/v10";
 const WORKFLOW_URL =
   "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/workflows/forecast-proposal.yml";
+const MANUAL_REVIEW_WORKFLOW_URL =
+  "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/workflows/resolve-forecast-manual-review.yml";
 const MAX_RESPONSE_BYTES = 16_384;
 
 type FetchLike = typeof fetch;
-type Delay = (milliseconds: number) => Promise<void>;
 export type DiscordChannelKind = "activity" | "alert";
 
 export class DiscordMessageError extends Error {
   readonly retryable: boolean;
+  readonly retryAfterMs: number | null;
 
-  constructor(code: string, retryable: boolean) {
+  constructor(code: string, retryable: boolean, retryAfterMs: number | null = null) {
     super(code);
     this.name = "DiscordMessageError";
     this.retryable = retryable;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -55,6 +59,8 @@ export function dispatchAcceptedMessage(env: DispatcherEnv, reservation: Dispatc
 }
 
 export function opsAlertMessage(alert: OpsAlertRow) {
+  const manualReview = manualReviewMessage(alert);
+  if (manualReview) return manualReview;
   const context = Object.entries(alert.context)
     .slice(0, 6)
     .map(([key, value]) => `${cleanText(key, 40)}: ${cleanText(String(value), 180)}`)
@@ -77,6 +83,60 @@ export function opsAlertMessage(alert: OpsAlertRow) {
           .join("\n"),
         color: alert.severity === "critical" ? 0xe74c3c : 0xf1c40f,
         timestamp: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
+function manualReviewMessage(alert: OpsAlertRow) {
+  if (!alert.alertKey.startsWith("manual-review:")) return null;
+  const reviewId = typeof alert.context["reviewId"] === "string" ? alert.context["reviewId"] : "";
+  const sourceUrl = typeof alert.context["url"] === "string" ? alert.context["url"] : "";
+  if (!/^mr-[0-9a-f]{32}$/.test(reviewId)) return null;
+  const environment = alert.environment;
+  const reason = cleanText(String(alert.context["reason"] ?? alert.errorCode), 80);
+  const title = cleanText(String(alert.context["title"] ?? "Naver 일정 게시물"), 120);
+  return {
+    nonce: alertNonce(alert.alertKey, alert.occurrenceCount),
+    enforce_nonce: true,
+    allowed_mentions: { parse: [] as string[] },
+    embeds: [
+      {
+        title: "Forecast 수동 검토 필요",
+        description: [
+          `환경: **${environment}**`,
+          `게시물: ${escapeMarkdown(title)}`,
+          `사유: \`${reason}\``,
+          `검토 ID: \`${reviewId}\``,
+        ].join("\n"),
+        color: 0xf1c40f,
+        timestamp: new Date().toISOString(),
+      },
+    ],
+    components: [
+      {
+        type: 1,
+        components: [
+          { type: 2, style: 5, label: "원문 열기", url: validatedNaverUrl(sourceUrl) },
+          {
+            type: 2,
+            style: 1,
+            custom_id: `forecast_manual_${environment}_requeue:${reviewId}`,
+            label: "재처리",
+          },
+          {
+            type: 2,
+            style: 2,
+            custom_id: `forecast_manual_${environment}_ignore:${reviewId}`,
+            label: "관련 없음",
+          },
+          {
+            type: 2,
+            style: 5,
+            label: "일정 직접 확정",
+            url: MANUAL_REVIEW_WORKFLOW_URL,
+          },
+        ],
       },
     ],
   };
@@ -106,22 +166,15 @@ export async function sendDiscordMessage(
   env: DispatcherEnv,
   channelKind: DiscordChannelKind,
   payload: object,
-  options: { fetchImpl?: FetchLike; delay?: Delay } = {},
+  options: { fetchImpl?: FetchLike } = {},
 ) {
   const channelId = resolveDiscordChannelId(env, channelKind);
   if (!env.DISCORD_BOT_TOKEN) throw new DiscordMessageError("discord_bot_token_missing", false);
   const fetchImpl = options.fetchImpl ?? fetch;
-  const delay =
-    options.delay ??
-    ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
-  let response = await createMessage(env, channelId, payload, fetchImpl);
+  const response = await createMessage(env, channelId, payload, fetchImpl);
   if (response.status === 429) {
     const retryAfterMs = await readRetryAfter(response);
-    await delay(retryAfterMs);
-    response = await createMessage(env, channelId, payload, fetchImpl);
-  } else if (response.status >= 500) {
-    await delay(1_000);
-    response = await createMessage(env, channelId, payload, fetchImpl);
+    throw new DiscordMessageError("discord_create_message_429", true, retryAfterMs);
   }
   if (!response.ok) {
     throw new DiscordMessageError(
@@ -184,24 +237,20 @@ async function readRetryAfter(response: Response) {
     const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
     const retryAfter = isRecord(parsed) ? Number(parsed["retry_after"]) : Number.NaN;
     if (Number.isFinite(retryAfter) && retryAfter >= 0) {
-      return Math.min(Math.max(retryAfter * 1_000, 250), 10_000);
+      return Math.min(Math.max(retryAfter * 1_000, 250), 60 * 60 * 1_000);
     }
   } catch {
     // The fallback delay is intentionally short; the unsent alert remains durable in D1.
   }
-  return 1_000;
+  return 5 * 60 * 1_000;
 }
 
 async function boundedResponseBytes(response: Response) {
-  const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
+  try {
+    return await readBoundedBytes(response, MAX_RESPONSE_BYTES, "discord_response_too_large");
+  } catch {
     throw new DiscordMessageError("discord_response_too_large", false);
   }
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.length > MAX_RESPONSE_BYTES) {
-    throw new DiscordMessageError("discord_response_too_large", false);
-  }
-  return bytes;
 }
 
 function validatedNaverUrl(value: string) {

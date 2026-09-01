@@ -1,9 +1,10 @@
+import { readBoundedJson } from "../../shared/boundedHttp";
+import { readCanaryReport, startCanaryDeployment } from "./canary";
 import { runCollection } from "./collector";
 import { timingSafeBearer } from "./crypto";
 import {
   listProposalCandidates,
   markCandidateProposed,
-  readCanaryReport,
   readHealth,
   supersedeIncompatibleCandidates,
 } from "./db";
@@ -15,11 +16,14 @@ import {
   markDiscordStagingAdoptionProcessed,
   recordDiscordStagingAdoptionMessage,
 } from "./discord-approval";
+import { decideManualReview, listManualReviews } from "./manual-review";
 import {
   createDispatcherSmoke,
   readOperationsHealth,
   readWorkflowDispatch,
+  recordSourceProcessorInternalFailure,
   recordWatchdogFallback,
+  recordWatchdogNotificationFailure,
   recordWorkflowDispatchStatus,
   sanitizeOpsError,
   upsertOpsAlert,
@@ -55,8 +59,11 @@ export default {
     }
     if (!url.pathname.startsWith("/admin/")) return new Response("Not found", { status: 404 });
     if (env.ADMIN_RATE_LIMITER) {
-      const rateLimit = await env.ADMIN_RATE_LIMITER.limit({ key: "admin-api" });
-      if (!rateLimit.success) {
+      const sourceAddress = request.headers.get("cf-connecting-ip") ?? "unknown";
+      const unauthenticatedLimit = await env.ADMIN_RATE_LIMITER.limit({
+        key: `admin-unauth:${sourceAddress}`,
+      });
+      if (!unauthenticatedLimit.success) {
         return new Response("Too many requests", { status: 429 });
       }
     } else if (env.ENVIRONMENT !== "test") {
@@ -64,6 +71,14 @@ export default {
     }
     if (!(await timingSafeBearer(request, env.ADMIN_TOKEN))) {
       return new Response("Unauthorized", { status: 401 });
+    }
+    if (env.ADMIN_RATE_LIMITER) {
+      const authenticatedLimit = await env.ADMIN_RATE_LIMITER.limit({
+        key: `admin-auth:${request.method}:${adminRouteGroup(url.pathname)}`,
+      });
+      if (!authenticatedLimit.success) {
+        return new Response("Too many requests", { status: 429 });
+      }
     }
     if (request.method === "POST" && url.pathname === "/admin/probe") {
       const task = runCollection(env);
@@ -75,7 +90,7 @@ export default {
       const length = Number(request.headers.get("content-length") ?? 0);
       if (length > 4_096) return new Response("Payload too large", { status: 413 });
       try {
-        const body = await request.json();
+        const body = await readBoundedJson(request, 4_096, "dispatcher_smoke_body");
         const requestKey =
           typeof body === "object" && body !== null && !Array.isArray(body)
             ? (body as Record<string, unknown>)["requestKey"]
@@ -110,7 +125,7 @@ export default {
               env.FORECAST_DB,
               opsEnvironment(env),
               workflowStatusMatch[1],
-              await request.json(),
+              await readBoundedJson(request, 8_192, "workflow_callback_body"),
             ),
           });
         } catch (error) {
@@ -136,7 +151,43 @@ export default {
       if (length > 4_096) return new Response("Payload too large", { status: 413 });
       try {
         return json(
-          await recordWatchdogFallback(env.FORECAST_DB, opsEnvironment(env), await request.json()),
+          await recordWatchdogFallback(
+            env.FORECAST_DB,
+            opsEnvironment(env),
+            await readBoundedJson(request, 4_096, "watchdog_body"),
+          ),
+        );
+      } catch (error) {
+        return json({ error: sanitizeOpsError(error) }, 400);
+      }
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/admin/ops-alerts/watchdog-notification-failed"
+    ) {
+      try {
+        return json(
+          await recordWatchdogNotificationFailure(
+            env.FORECAST_DB,
+            opsEnvironment(env),
+            await readBoundedJson(request, 4_096, "watchdog_notification_failure_body"),
+          ),
+        );
+      } catch (error) {
+        return json({ error: sanitizeOpsError(error) }, 400);
+      }
+    }
+    if (
+      request.method === "POST" &&
+      url.pathname === "/admin/ops-alerts/source-processor-internal"
+    ) {
+      try {
+        return json(
+          await recordSourceProcessorInternalFailure(
+            env.FORECAST_DB,
+            opsEnvironment(env),
+            await readBoundedJson(request, 4_096, "source_processor_failure_body"),
+          ),
         );
       } catch (error) {
         return json({ error: sanitizeOpsError(error) }, 400);
@@ -155,11 +206,48 @@ export default {
     if (request.method === "GET" && url.pathname === "/admin/schedule-ledger") {
       return json(await readScheduleLedger(env.FORECAST_DB, Date.now()));
     }
+    if (request.method === "GET" && url.pathname === "/admin/manual-reviews") {
+      const status = url.searchParams.get("status") ?? "pending";
+      if (status !== "pending" && status !== "resolved" && status !== "expired") {
+        return json({ error: "manual_review_status_invalid" }, 400);
+      }
+      const limit = Number(url.searchParams.get("limit") ?? 20);
+      return json({ reviews: await listManualReviews(env.FORECAST_DB, { status, limit }) });
+    }
+    const manualReviewDecisionMatch = url.pathname.match(
+      /^\/admin\/manual-reviews\/(mr-[0-9a-f]{32})\/decision$/,
+    );
+    if (request.method === "POST" && manualReviewDecisionMatch?.[1]) {
+      try {
+        return json({
+          result: await decideManualReview(
+            env.FORECAST_DB,
+            opsEnvironment(env),
+            manualReviewDecisionMatch[1],
+            await readBoundedJson(request, 8_192, "manual_review_body"),
+          ),
+        });
+      } catch (error) {
+        const code = sanitizeOpsError(error);
+        const status =
+          code.includes("conflict") || code.includes("not_pending") || code.includes("race")
+            ? 409
+            : code.includes("not_found")
+              ? 404
+              : 400;
+        return json({ error: code }, status);
+      }
+    }
     if (request.method === "POST" && url.pathname === "/admin/source-queue/process") {
       const length = Number(request.headers.get("content-length") ?? 0);
       if (length > 1_000_000) return new Response("Payload too large", { status: 413 });
       try {
-        return json(await processSourceQueue(env.FORECAST_DB, await request.json()));
+        return json(
+          await processSourceQueue(
+            env.FORECAST_DB,
+            await readBoundedJson(request, 1_000_000, "source_queue_body"),
+          ),
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : "invalid_request";
         const status = message === "candidate_revision_conflict" ? 409 : 400;
@@ -167,7 +255,35 @@ export default {
       }
     }
     if (request.method === "GET" && url.pathname === "/admin/canary-report") {
-      return json(await readCanaryReport(env.FORECAST_DB, Date.now(), env.DEPLOY_SHA));
+      return json(
+        await readCanaryReport(env.FORECAST_DB, Date.now(), env.DEPLOY_SHA, opsEnvironment(env)),
+      );
+    }
+    if (request.method === "POST" && url.pathname === "/admin/canary-deployments/start") {
+      try {
+        const body = await readBoundedJson(request, 4_096, "canary_start_body");
+        if (typeof body !== "object" || body === null || Array.isArray(body)) {
+          throw new Error("canary_start_body_invalid");
+        }
+        const record = body as Record<string, unknown>;
+        if (
+          typeof record["collectorCron"] !== "string" ||
+          typeof record["dispatcherCron"] !== "string"
+        ) {
+          throw new Error("canary_start_cron_invalid");
+        }
+        return json({
+          deployment: await startCanaryDeployment(env.FORECAST_DB, {
+            environment: opsEnvironment(env),
+            deploymentSha: env.DEPLOY_SHA,
+            collectorCron: record["collectorCron"],
+            dispatcherCron: record["dispatcherCron"],
+          }),
+        });
+      } catch (error) {
+        const code = sanitizeOpsError(error);
+        return json({ error: code }, code.includes("conflict") ? 409 : 400);
+      }
     }
     if (request.method === "POST" && url.pathname === "/admin/discord-test-approvals") {
       if (
@@ -179,7 +295,12 @@ export default {
       const length = Number(request.headers.get("content-length") ?? 0);
       if (length > 32_768) return new Response("Payload too large", { status: 413 });
       try {
-        return json(await createDiscordApprovalTest(env.FORECAST_DB, await request.json()));
+        return json(
+          await createDiscordApprovalTest(
+            env.FORECAST_DB,
+            await readBoundedJson(request, 32_768, "discord_test_body"),
+          ),
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : "invalid_request";
         const status = message === "discord_test_request_key_conflict" ? 409 : 400;
@@ -200,7 +321,12 @@ export default {
         const length = Number(request.headers.get("content-length") ?? 0);
         if (length > 32_768) return new Response("Payload too large", { status: 413 });
         try {
-          return json(await createDiscordStagingAdoption(env.FORECAST_DB, await request.json()));
+          return json(
+            await createDiscordStagingAdoption(
+              env.FORECAST_DB,
+              await readBoundedJson(request, 32_768, "discord_adoption_body"),
+            ),
+          );
         } catch (error) {
           const message = error instanceof Error ? error.message : "invalid_request";
           const status = message === "discord_staging_request_key_conflict" ? 409 : 400;
@@ -219,7 +345,7 @@ export default {
         const updated = await recordDiscordStagingAdoptionMessage(
           env.FORECAST_DB,
           adoptionMessageMatch[1],
-          await request.json(),
+          await readBoundedJson(request, 32_768, "discord_message_body"),
         );
         return json({ adoption: updated }, updated ? 200 : 404);
       } catch (error) {
@@ -239,7 +365,7 @@ export default {
         const updated = await markDiscordStagingAdoptionProcessed(
           env.FORECAST_DB,
           adoptionResultMatch[1],
-          await request.json(),
+          await readBoundedJson(request, 32_768, "discord_adoption_result_body"),
         );
         return json({ adoption: updated }, updated ? 200 : 404);
       } catch (error) {
@@ -271,4 +397,14 @@ function json(value: unknown, status = 200) {
 
 function opsEnvironment(env: CollectorEnv) {
   return env.ENVIRONMENT === "production" ? "production" : "staging";
+}
+
+function adminRouteGroup(pathname: string) {
+  if (pathname.startsWith("/admin/workflow-dispatches/")) return "workflow-dispatches";
+  if (pathname.startsWith("/admin/manual-reviews/")) return "manual-reviews";
+  if (pathname.startsWith("/admin/source-queue")) return "source-queue";
+  if (pathname.startsWith("/admin/discord-")) return "discord";
+  if (pathname.startsWith("/admin/candidates")) return "candidates";
+  if (pathname.startsWith("/admin/ops-alerts")) return "ops-alerts";
+  return pathname.slice("/admin/".length).split("/")[0] || "root";
 }

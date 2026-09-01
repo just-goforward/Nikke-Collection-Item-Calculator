@@ -41,8 +41,45 @@ describe("GitHub App workflow dispatch", () => {
         { dispatchId: `fd-${"a".repeat(32)}`, mode: "work" },
         { nowMs: Date.parse("2026-08-31T00:00:00Z"), fetchImpl },
       ),
-    ).resolves.toEqual({ status: 204 });
+    ).resolves.toEqual({ status: 204, runId: null, runUrl: null });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("captures the workflow run identity returned by GitHub API version 2026-03-10", async () => {
+    const pem = await generatePrivateKeyPem();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ token: "ghs_test_installation_token_1234567890" }, { status: 201 }),
+      )
+      .mockImplementationOnce((_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(new Headers(init?.headers).get("x-github-api-version")).toBe("2026-03-10");
+        return Promise.resolve(
+          Response.json(
+            {
+              workflow_run_id: 123456789,
+              run_url:
+                "https://api.github.com/repos/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/123456789",
+              html_url:
+                "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/123456789",
+            },
+            { status: 200 },
+          ),
+        );
+      });
+
+    await expect(
+      dispatchProposalWorkflow(
+        dispatcherEnv(pem),
+        { dispatchId: `fd-${"d".repeat(32)}`, mode: "work" },
+        { fetchImpl },
+      ),
+    ).resolves.toEqual({
+      status: 200,
+      runId: 123456789,
+      runUrl:
+        "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/123456789",
+    });
   });
 
   it("uses the bounded GitHub App JWT lifetime", async () => {

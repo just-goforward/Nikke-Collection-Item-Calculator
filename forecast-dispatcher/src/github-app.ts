@@ -1,10 +1,11 @@
+import { readBoundedBytes } from "../../shared/boundedHttp";
 import { base64Url, importGithubAppPrivateKey } from "./crypto.ts";
 
 const REPOSITORY = "just-goforward/Nikke-Collection-Item-Calculator";
 const REPOSITORY_NAME = "Nikke-Collection-Item-Calculator";
 const WORKFLOW = "forecast-proposal.yml";
 const REF = "main";
-const API_VERSION = "2022-11-28";
+const API_VERSION = "2026-03-10";
 const MAX_RESPONSE_BYTES = 32_768;
 
 type FetchLike = typeof fetch;
@@ -72,8 +73,25 @@ export async function dispatchProposalWorkflow(
     },
     fetchImpl,
   );
-  if (response.status !== 204) throw githubStatusError("github_workflow_dispatch", response);
-  return { status: 204 as const };
+  if (response.status === 204) return { status: 204 as const, runId: null, runUrl: null };
+  if (response.status !== 200) throw githubStatusError("github_workflow_dispatch", response);
+  const bytes = await boundedResponseBytes(response);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  } catch {
+    throw new GithubDispatchError("github_workflow_dispatch_invalid_json");
+  }
+  const runId = isRecord(parsed) ? Number(parsed["workflow_run_id"]) : Number.NaN;
+  const runUrl = isRecord(parsed) ? parsed["html_url"] : null;
+  if (
+    !Number.isSafeInteger(runId) ||
+    runId <= 0 ||
+    runUrl !== `https://github.com/${REPOSITORY}/actions/runs/${runId}`
+  ) {
+    throw new GithubDispatchError("github_workflow_dispatch_identity_invalid");
+  }
+  return { status: 200 as const, runId, runUrl };
 }
 
 export async function createGithubAppJwt(appId: string, pem: string, nowMs: number) {
@@ -183,15 +201,11 @@ function githubStatusError(component: string, response: Response) {
 }
 
 async function boundedResponseBytes(response: Response) {
-  const declaredLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
+  try {
+    return await readBoundedBytes(response, MAX_RESPONSE_BYTES, "github_response_too_large");
+  } catch {
     throw new GithubDispatchError("github_response_too_large");
   }
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.length > MAX_RESPONSE_BYTES) {
-    throw new GithubDispatchError("github_response_too_large");
-  }
-  return bytes;
 }
 
 function assertNumericIdentifier(value: string, code: string): asserts value is string {

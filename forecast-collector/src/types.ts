@@ -8,6 +8,7 @@ export type CollectorEnv = {
   DEPLOY_SHA: string;
   POLL_MODE: "both" | "alternating";
   DISCORD_APPROVAL_MODE?: "disabled" | "test" | "staging_adoption";
+  DISCORD_INTERACTION_OWNER?: "collector" | "router";
   DISCORD_PUBLIC_KEY?: string;
   DISCORD_APPLICATION_ID?: string;
   DISCORD_APPROVER_USER_ID?: string;

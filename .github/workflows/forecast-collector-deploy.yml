@@ -6,17 +6,24 @@ on:
     paths:
       - "forecast-collector/**"
       - "forecast-dispatcher/**"
+      - "forecast-interactions/**"
+      - "shared/boundedHttp.ts"
       - "shared/supplyForecastCandidate.ts"
       - "shared/supplyForecastModel.ts"
       - "scripts/smoke-forecast-collector.ts"
       - "scripts/smoke-forecast-dispatcher.ts"
+      - "scripts/smoke-forecast-interactions.ts"
+      - "scripts/send-forecast-router-test.ts"
+      - "scripts/resolve-forecast-manual-review.ts"
       - "scripts/cloudflare-cron-capacity.ts"
       - "scripts/probe-forecast-github-app.ts"
       - "scripts/forecast-dispatcher-workflow.spec.ts"
       - "vitest.forecast-collector.config.ts"
       - "vitest.forecast-dispatcher.config.ts"
+      - "vitest.forecast-interactions.config.ts"
       - ".github/workflows/forecast-collector-deploy.yml"
       - ".github/workflows/forecast-proposal.yml"
+      - ".github/workflows/resolve-forecast-manual-review.yml"
       - "package.json"
       - "package-lock.json"
   workflow_dispatch:
@@ -29,6 +36,11 @@ on:
         options:
           - both
           - alternating
+      router_endpoint_ready:
+        description: Discord Developer Portal now points to the dedicated Router URL
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -61,6 +73,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_INTERACTIONS_URL: ${{ vars.FORECAST_INTERACTIONS_URL }}
           FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
           FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
           FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
@@ -70,11 +83,21 @@ jobs:
           DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
           DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
           DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
+          DISCORD_FORECAST_GUILD_ID: ${{ vars.DISCORD_FORECAST_GUILD_ID }}
+          DISCORD_FORECAST_APPROVER_USER_ID: ${{ vars.DISCORD_FORECAST_APPROVER_USER_ID }}
+          DISCORD_FORECAST_APPLICATION_ID: ${{ vars.DISCORD_FORECAST_APPLICATION_ID }}
+          DISCORD_FORECAST_PUBLIC_KEY: ${{ vars.DISCORD_FORECAST_PUBLIC_KEY }}
         run: |
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID variable." >&2; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN secret." >&2; exit 1; }
           test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" || { echo "Missing FORECAST_COLLECTOR_ADMIN_TOKEN secret." >&2; exit 1; }
           test -n "$FORECAST_COLLECTOR_STAGING_URL" || { echo "Missing FORECAST_COLLECTOR_STAGING_URL variable." >&2; exit 1; }
+          if [[ "${{ github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready }}" == "true" ]]; then
+            test -n "$FORECAST_INTERACTIONS_URL" || {
+              echo "FORECAST_INTERACTIONS_URL is required when router_endpoint_ready=true." >&2
+              exit 1
+            }
+          fi
           [[ "$FORECAST_GITHUB_APP_ID" =~ ^[0-9]{1,20}$ ]] || { echo "Missing or invalid FORECAST_GITHUB_APP_ID variable." >&2; exit 1; }
           [[ "$FORECAST_GITHUB_APP_INSTALLATION_ID" =~ ^[0-9]{1,20}$ ]] || { echo "Missing or invalid FORECAST_GITHUB_APP_INSTALLATION_ID variable." >&2; exit 1; }
           test -n "$FORECAST_GITHUB_APP_PRIVATE_KEY" || { echo "Missing FORECAST_GITHUB_APP_PRIVATE_KEY secret." >&2; exit 1; }
@@ -84,6 +107,10 @@ jobs:
           [[ "$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_ACTIVITY_CHANNEL_ID variable." >&2; exit 1; }
           [[ "$DISCORD_FORECAST_ALERT_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_ALERT_CHANNEL_ID variable." >&2; exit 1; }
           [[ "$DISCORD_FORECAST_FALLBACK_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_FALLBACK_CHANNEL_ID variable." >&2; exit 1; }
+          [[ "$DISCORD_FORECAST_GUILD_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_GUILD_ID variable." >&2; exit 1; }
+          [[ "$DISCORD_FORECAST_APPROVER_USER_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_APPROVER_USER_ID variable." >&2; exit 1; }
+          [[ "$DISCORD_FORECAST_APPLICATION_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_APPLICATION_ID variable." >&2; exit 1; }
+          [[ "$DISCORD_FORECAST_PUBLIC_KEY" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_PUBLIC_KEY variable." >&2; exit 1; }
 
       - name: Install dependencies
         run: npm ci
@@ -101,6 +128,13 @@ jobs:
           npx tsc --noEmit -p forecast-dispatcher/tsconfig.json
           npm run test:forecast-dispatcher
           npx wrangler deploy --dry-run --env staging --config forecast-dispatcher/wrangler.toml
+
+      - name: Verify interaction Router
+        run: |
+          npm run interactions:types:check
+          npx tsc --noEmit -p forecast-interactions/tsconfig.json
+          npm run test:forecast-interactions
+          npx wrangler deploy --dry-run --config forecast-interactions/wrangler.toml
 
       - name: Apply staging Discord adoption migration
         env:
@@ -142,6 +176,22 @@ jobs:
             npx wrangler d1 execute FORECAST_DB --remote --env staging \
               --config forecast-collector/wrangler.toml \
               --file forecast-collector/migrations/0007_workflow_dispatch_ops.sql
+
+      - name: Apply staging manual review and Router audit migration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env staging \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 8;" \
+            --json)
+          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
+            npx wrangler d1 execute FORECAST_DB --remote --env staging \
+              --config forecast-collector/wrangler.toml \
+              --file forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql
 
       - name: Verify account Cron trigger capacity
         env:
@@ -203,6 +253,8 @@ jobs:
         env:
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_FORECAST_APPLICATION_ID: ${{ vars.DISCORD_FORECAST_APPLICATION_ID }}
+          DISCORD_FORECAST_PUBLIC_KEY: ${{ vars.DISCORD_FORECAST_PUBLIC_KEY }}
         shell: bash
         run: |
           set -euo pipefail
@@ -232,6 +284,12 @@ jobs:
           if (!/^[0-9a-f]{64}$/i.test(application.verify_key ?? "")) {
             throw new Error("Discord bot application verify key is invalid.");
           }
+          if (application.id !== process.env.DISCORD_FORECAST_APPLICATION_ID) {
+            throw new Error("Discord bot application ID does not match the repository variable.");
+          }
+          if (application.verify_key.toLowerCase() !== process.env.DISCORD_FORECAST_PUBLIC_KEY?.toLowerCase()) {
+            throw new Error("Discord bot public key does not match the repository variable.");
+          }
           const applicationName = String(application.name ?? "").trim();
           if (!applicationName || /[\r\n]/.test(applicationName)) {
             throw new Error("Discord bot application name is invalid.");
@@ -247,17 +305,62 @@ jobs:
           );
           NODE
 
+      - name: Deploy dedicated Discord interaction Router
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DISCORD_FORECAST_GUILD_ID: ${{ vars.DISCORD_FORECAST_GUILD_ID }}
+          DISCORD_FORECAST_APPROVER_USER_ID: ${{ vars.DISCORD_FORECAST_APPROVER_USER_ID }}
+          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          application="$RUNNER_TEMP/discord-bot-application.json"
+          application_id=$(jq -r '.id' "$application")
+          public_key=$(jq -r '.verify_key' "$application")
+          npx wrangler deploy --config forecast-interactions/wrangler.toml \
+            --var DEPLOY_SHA:${{ github.sha }} \
+            --var DISCORD_APPLICATION_ID:$application_id \
+            --var DISCORD_PUBLIC_KEY:$public_key \
+            --var DISCORD_GUILD_ID:$DISCORD_FORECAST_GUILD_ID \
+            --var DISCORD_APPROVER_USER_ID:$DISCORD_FORECAST_APPROVER_USER_ID \
+            --var DISCORD_APPROVAL_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
+            --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
+            --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID \
+            --var PRODUCTION_MUTATIONS_ENABLED:false \
+            --tag "${{ github.sha }}-staging" \
+            --message "Forecast interaction Router staging ${{ github.sha }}"
+
+      - name: Verify dedicated Router readiness
+        if: vars.FORECAST_INTERACTIONS_URL != ''
+        env:
+          FORECAST_EXPECTED_DEPLOY_SHA: ${{ github.sha }}
+          FORECAST_INTERACTIONS_URL: ${{ vars.FORECAST_INTERACTIONS_URL }}
+        run: npm run smoke:forecast-interactions -- "$FORECAST_INTERACTIONS_URL"
+
+      - name: Report Router bootstrap URL requirement
+        if: vars.FORECAST_INTERACTIONS_URL == ''
+        run: |
+          {
+            echo "::warning::The dedicated Router was deployed, but FORECAST_INTERACTIONS_URL is not configured."
+            echo "Set FORECAST_INTERACTIONS_URL to the deployed Router origin, update the Discord Interaction Endpoint, then rerun this workflow with router_endpoint_ready=true."
+          }
+
       - name: Deploy staging collector
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
           POLL_MODE: ${{ inputs.poll_mode || 'both' }}
+          DISCORD_INTERACTION_OWNER: ${{ github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && 'router' || 'collector' }}
         run: >-
           npx wrangler deploy --env staging --config forecast-collector/wrangler.toml
           --secrets-file "$RUNNER_TEMP/forecast-secrets.json"
           --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE
           --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID
+          --var DISCORD_INTERACTION_OWNER:$DISCORD_INTERACTION_OWNER
           --tag "${{ github.sha }}-$POLL_MODE" --message "Forecast collector staging ${{ github.sha }} ($POLL_MODE)"
 
       - name: Live staging queue round-trip smoke
@@ -268,6 +371,7 @@ jobs:
         run: npm run smoke:forecast-collector -- "$FORECAST_COLLECTOR_STAGING_URL" "$FORECAST_COLLECTOR_ADMIN_TOKEN"
 
       - name: Activate staging dispatcher after collector readiness
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -291,6 +395,7 @@ jobs:
           --tag "${{ github.sha }}-enabled" --message "Forecast dispatcher staging enabled ${{ github.sha }}"
 
       - name: Live staging dispatcher callback and Discord smoke
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
         id: dispatcher_smoke
         continue-on-error: true
         env:
@@ -303,7 +408,7 @@ jobs:
           "deploy:${{ github.sha }}:${{ github.run_id }}"
 
       - name: Disable staging dispatcher after smoke failure
-        if: steps.dispatcher_smoke.outcome == 'failure'
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.dispatcher_smoke.outcome == 'failure'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -328,8 +433,37 @@ jobs:
           --message "Disable forecast dispatcher after staging smoke failure ${{ github.sha }}"
 
       - name: Fail after staging dispatcher rollback
-        if: steps.dispatcher_smoke.outcome == 'failure'
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.dispatcher_smoke.outcome == 'failure'
         run: exit 1
+
+      - name: Start fresh eight-hour canary
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
+        env:
+          FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --connect-timeout 5 --max-time 20 \
+            --output "$RUNNER_TEMP/canary-start.json" --write-out "%{http_code}" \
+            -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data '{"collectorCron":"*/3 * * * *","dispatcherCron":"1-59/3 * * * *"}' \
+            "$FORECAST_COLLECTOR_STAGING_URL/admin/canary-deployments/start")
+          [[ "$status" == "200" ]] || {
+            echo "Canary start returned HTTP $status." >&2
+            exit 1
+          }
+          jq -e --arg sha "${{ github.sha }}" \
+            '.deployment.deploymentSha == $sha and .deployment.collectorCron == "*/3 * * * *" and .deployment.dispatcherCron == "1-59/3 * * * *"' \
+            "$RUNNER_TEMP/canary-start.json" >/dev/null
+
+      - name: Send mutation-free Router test card
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
+        run: npm run send:forecast-router-test
 
       - name: Record shadow start
         run: |
@@ -338,5 +472,17 @@ jobs:
             echo "- Commit: \`${{ github.sha }}\`"
             echo "- Cron: every 3 minutes"
             echo "- Dispatcher Cron: minute 1, then every 3 minutes"
-            echo "- Promotion: blocked until both authenticated 12-hour canary reports pass"
+            if [[ "${{ github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready }}" == "true" ]]; then
+              echo "- Canary: fresh v5 eight-hour window started after Collector, Dispatcher, and Router readiness"
+              echo "- Required action: click the Router response test card during this canary window"
+              echo "- Promotion: blocked until the authenticated v5 report passes"
+            else
+              echo "- Dispatcher: remains disabled"
+              echo "- Canary: not started"
+              if [[ -n "${{ vars.FORECAST_INTERACTIONS_URL }}" ]]; then
+                echo "- Required action: set the Discord Interaction Endpoint to `${{ vars.FORECAST_INTERACTIONS_URL }}/discord/interactions`, then dispatch this workflow with router_endpoint_ready=true"
+              else
+                echo "- Required action: read the dedicated Router URL from the Wrangler deployment output, set FORECAST_INTERACTIONS_URL to that origin, update the Discord Interaction Endpoint, then dispatch this workflow with router_endpoint_ready=true"
+              fi
+            fi
           } >> "$GITHUB_STEP_SUMMARY"

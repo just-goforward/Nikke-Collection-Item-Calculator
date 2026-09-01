@@ -38,6 +38,50 @@ describe("lightweight Naver source queue", () => {
     expect(state).toEqual({ committed_item_id: "102", next_offset: 0 });
     expect(JSON.stringify(queue.results)).not.toContain("contents");
   });
+});
+
+describe("Naver metadata schema boundary", () => {
+  it("fails closed without queue or cursor writes when one feed row has an unknown shape", async () => {
+    const payload = (await feedResponse(["120", "119"]).json()) as {
+      content: { feeds: unknown[] };
+    };
+    payload.content.feeds.splice(1, 0, { mystery: { changed: true }, rowKind: "unknown" });
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(payload));
+
+    await expect(pollNaverSource(testEnv.FORECAST_DB, 56, fetcher)).rejects.toThrow(
+      "naver_partial_schema_drift",
+    );
+
+    const queueCount = await testEnv.FORECAST_DB.prepare(
+      "SELECT COUNT(*) AS count FROM source_queue",
+    ).first<{ count: number }>();
+    const cursorCount = await testEnv.FORECAST_DB.prepare(
+      "SELECT COUNT(*) AS count FROM source_poll_state",
+    ).first<{ count: number }>();
+    expect(queueCount?.count).toBe(0);
+    expect(cursorCount?.count).toBe(0);
+  });
+});
+
+describe("lightweight Naver queue processing", () => {
+  it("skips an explicitly recognized banner row without treating it as schema drift", async () => {
+    const payload = (await feedResponse(["121"]).json()) as {
+      content: { feeds: unknown[] };
+    };
+    payload.content.feeds.push({ type: "banner", campaignId: "known-non-post" });
+
+    await expect(
+      pollNaverSource(
+        testEnv.FORECAST_DB,
+        56,
+        vi.fn<typeof fetch>().mockResolvedValue(Response.json(payload)),
+      ),
+    ).resolves.toBe(1);
+    const queueCount = await testEnv.FORECAST_DB.prepare(
+      "SELECT COUNT(*) AS count FROM source_queue",
+    ).first<{ count: number }>();
+    expect(queueCount?.count).toBe(1);
+  });
 
   it("walks one page per invocation until it finds a missing cursor", async () => {
     const initial = vi.fn<typeof fetch>().mockResolvedValue(feedResponse(["100"]));

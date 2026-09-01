@@ -6,7 +6,7 @@
   `supply-2026-08-21-v1`.
 - `[confirmed]` The schedule model and dynamic Rust/WASM gain ABI preserve existing semantics when
   given that fixed vector.
-- `[unverified]` No schedule forecast becomes active before the 12-hour staging shadow, production
+- `[unverified]` No schedule forecast becomes active before the eight-hour staging shadow, production
   smoke, renewed H/p research, and a separate adoption pull request pass.
 
 ## Model boundary
@@ -35,8 +35,10 @@ These rules are versioned as `schedule-kit-v2`; results are not merged with the 
 `schedule-kit-v1` future-only model.
 
 Naver Lounge boards 56 and 48 are the primary automatic evidence. The Free Worker Cron stores only
-shallow feed metadata every three minutes. A five-minute GitHub Actions job fetches structured
-SmartEditor JSON and performs schedule resolution and candidate generation. X is checked only for
+shallow feed metadata every three minutes. An offset three-minute Dispatcher requests the proposal
+workflow when D1 contains actionable work; the `17,47` Actions schedule is only a thirty-minute
+watchdog. Actions fetches structured SmartEditor JSON and performs schedule resolution and candidate
+generation. X is checked only for
 an existing candidate. When `X_API_BEARER_TOKEN` is configured, the official recent-search API is
 the primary discovery path, restricted to Solo Raid, collaboration, Co-op Operation, and Kit Box
 keywords from `@NIKKE_kr` and at most ten results. Author expansions must verify the official
@@ -78,9 +80,11 @@ provider diagnostics.
 
 The collector stores invocation evidence, cursor and queue metadata, and validated schedule and
 candidate records. GitHub Actions revalidates the schema and hash and proposes an inactive registry
-entry. Canary v3 requires a 12-hour window, at least 200 invocations, at least 99% completion, zero
-abandoned invocations, and consistent queues, cursors, candidates, and watermarks. The
-administrator's merge approves the evidence but does not activate the forecast.
+entry. Canary v5 generates expected Collector and Dispatcher Cron slots from a server-recorded start
+over a fresh eight-hour window. Both Workers require at least 99% delivery and completion, at most
+one missing slot, a completed latest invocation, no abandoned, late, unexpected, or duplicate work, consistent queue,
+cursor, candidate, watermark, and manual-review state, and successful Dispatcher and signed Router
+smoke evidence. The administrator's merge approves the evidence but does not activate the forecast.
 
 After the canary passes, staging replays the official schedule ledger and creates an inactive
 forecast pull request. The H/p workflow does not check out or execute pull-request code. It verifies

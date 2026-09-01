@@ -29,6 +29,7 @@ ENVIRONMENT = "production"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
 DISCORD_APPROVAL_MODE = "disabled"
+DISCORD_INTERACTION_OWNER = "collector"
 
 [secrets]
 required = ["ADMIN_TOKEN"]
@@ -55,6 +56,7 @@ ENVIRONMENT = "staging"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
 DISCORD_APPROVAL_MODE = "staging_adoption"
+DISCORD_INTERACTION_OWNER = "collector"
 
 [env.staging.secrets]
 required = ["ADMIN_TOKEN"]

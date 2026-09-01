@@ -96,7 +96,9 @@ jobs:
               runUrl:`${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
             }));
           ')
-          status=$(curl --silent --show-error --output "$RUNNER_TEMP/forecast-callback-start.json" --write-out "%{http_code}" \
+          status=$(curl --silent --show-error --connect-timeout 5 --max-time 20 \
+            --retry 2 --retry-all-errors --retry-delay 1 \
+            --output "$RUNNER_TEMP/forecast-callback-start.json" --write-out "%{http_code}" \
             -X POST \
             -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
             -H "Content-Type: application/json" \
@@ -117,39 +119,68 @@ jobs:
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
           DISCORD_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID || vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID || vars.DISCORD_FORECAST_CHANNEL_ID }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          health=$(curl --fail-with-body --silent --show-error "$FORECAST_TARGET_URL/health")
-          notify=$(node -e '
+          health=$(curl --fail-with-body --silent --show-error --connect-timeout 5 --max-time 20 \
+            --retry 2 --retry-all-errors --retry-delay 1 "$FORECAST_TARGET_URL/health")
+          watchdog_reason=$(node -e '
             const h=JSON.parse(process.argv[1]);
-            const observed=Date.parse(h.operations?.dispatcher?.lastObservedAt ?? "");
-            const stale=!Number.isFinite(observed) || Date.now()-observed>10*60*1000;
-            process.stdout.write(String(stale || Number(h.operations?.alerts?.unsentCritical ?? 0)>0));
+            const dispatcher=h.operations?.dispatcher;
+            const tracked=dispatcher !== undefined && dispatcher.status !== "missing";
+            const observed=Date.parse(dispatcher?.lastObservedAt ?? "");
+            const stale=tracked && (!Number.isFinite(observed) || Date.now()-observed>10*60*1000);
+            const unsentCritical=Number(h.operations?.alerts?.unsentCritical ?? 0)>0;
+            process.stdout.write(stale && unsentCritical ? "both" : stale ? "dispatcher_stale" : unsentCritical ? "unsent_critical" : "none");
           ' "$health")
-          if [[ "$notify" != "true" ]]; then exit 0; fi
+          if [[ "$watchdog_reason" == "none" ]]; then exit 0; fi
           if [[ -z "$DISCORD_BOT_TOKEN" || ! "$DISCORD_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]]; then
             echo "::warning::Dispatcher watchdog needs Discord configuration."
             exit 0
           fi
+          export WATCHDOG_REASON="$watchdog_reason"
           payload=$(node -e '
+            const reason=process.env.WATCHDOG_REASON;
+            const reasonText=reason === "both"
+              ? "Dispatcher가 10분 이상 관측되지 않았고 전송되지 않은 critical alert도 있습니다."
+              : reason === "dispatcher_stale"
+                ? "이미 활성화되어 관측되던 Dispatcher가 10분 이상 관측되지 않았습니다."
+                : "전송되지 않은 critical alert가 있습니다.";
             process.stdout.write(JSON.stringify({
+              nonce:`watchdog-${process.env.GITHUB_RUN_ID}`,
+              enforce_nonce:true,
               allowed_mentions:{parse:[]},
               embeds:[{
                 title:"Forecast Dispatcher watchdog",
-                description:`환경: production\nDispatcher가 10분 이상 관측되지 않았거나 전송되지 않은 critical alert가 있습니다.\nRun: ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+                description:`환경: production\n${reasonText}\n원인 코드: ${reason}\nRun: ${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
                 color:15105570,
                 timestamp:new Date().toISOString()
               }]
             }));
           ')
-          curl --fail-with-body --silent --show-error \
+          if ! curl --fail-with-body --silent --show-error --connect-timeout 5 --max-time 20 \
             -X POST \
             -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
             -H "Content-Type: application/json" \
             --data "$payload" \
-            "https://discord.com/api/v10/channels/$DISCORD_CHANNEL_ID/messages" >/dev/null || \
+            "https://discord.com/api/v10/channels/$DISCORD_CHANNEL_ID/messages" >/dev/null; then
             echo "::warning::Discord watchdog notification failed."
+            failure_payload=$(node -e '
+              process.stdout.write(JSON.stringify({
+                runId:Number(process.env.GITHUB_RUN_ID),
+                runUrl:`${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+              }));
+            ')
+            curl --fail-with-body --silent --show-error --connect-timeout 5 --max-time 20 \
+              --retry 2 --retry-all-errors --retry-delay 1 \
+              -X POST \
+              -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$failure_payload" \
+              "$FORECAST_TARGET_URL/admin/ops-alerts/watchdog-notification-failed" >/dev/null || \
+              echo "::warning::Failed to persist watchdog_notification_failed."
+          fi
 
       - name: Confirm smoke path is mutation-free
         if: env.FORECAST_DISPATCH_MODE == 'smoke' && steps.callback_start.outputs.duplicate != 'true'
@@ -165,10 +196,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          queue=$(curl --fail-with-body --silent --show-error \
+          queue=$(curl --fail-with-body --silent --show-error --connect-timeout 5 --max-time 20 \
+            --retry 2 --retry-all-errors --retry-delay 1 \
             -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
             "$FORECAST_COLLECTOR_URL/admin/source-queue?limit=1")
-          candidates=$(curl --fail-with-body --silent --show-error \
+          candidates=$(curl --fail-with-body --silent --show-error --connect-timeout 5 --max-time 20 \
+            --retry 2 --retry-all-errors --retry-delay 1 \
             -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
             "$FORECAST_COLLECTOR_URL/admin/candidates")
           has_work=$(node -e '
@@ -183,7 +216,8 @@ jobs:
                 runUrl:`${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
               }));
             ')
-            curl --fail-with-body --silent --show-error \
+            curl --fail-with-body --silent --show-error --connect-timeout 5 --max-time 20 \
+              --retry 2 --retry-all-errors --retry-delay 1 \
               -X POST \
               -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
               -H "Content-Type: application/json" \
@@ -218,6 +252,28 @@ jobs:
           FORECAST_DIRECT_NAVER_POLL: ${{ vars.FORECAST_DIRECT_NAVER_POLL }}
           FORECAST_BOOTSTRAP_SOLO_HISTORY: ${{ env.FORECAST_BOOTSTRAP_SOLO_HISTORY }}
         run: npm run process:forecast-source-queue
+
+      - name: Persist unexpected source processor failure
+        if: always() && env.FORECAST_DISPATCH_MODE == 'work' && steps.queue.outcome == 'failure'
+        continue-on-error: true
+        env:
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload=$(node -e '
+            process.stdout.write(JSON.stringify({
+              runId:Number(process.env.GITHUB_RUN_ID),
+              runUrl:`${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+            }));
+          ')
+          curl --fail-with-body --silent --show-error --connect-timeout 5 --max-time 20 \
+            --retry 2 --retry-all-errors --retry-delay 1 \
+            -X POST \
+            -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "$FORECAST_TARGET_URL/admin/ops-alerts/source-processor-internal" >/dev/null
 
       - name: Check for a proposal candidate
         if: env.FORECAST_DISPATCH_MODE == 'work' && steps.preflight.outputs.has_work == 'true'
@@ -282,7 +338,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          response=$(curl --fail-with-body --silent --show-error \
+          response=$(curl --fail-with-body --silent --show-error --connect-timeout 5 --max-time 20 \
             -X POST \
             -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
             "$FORECAST_COLLECTOR_URL/admin/candidates/$CANDIDATE_ID/proposed")
@@ -312,7 +368,8 @@ jobs:
               conclusion
             }));
           ')
-          curl --fail-with-body --silent --show-error \
+          curl --fail-with-body --silent --show-error --connect-timeout 5 --max-time 20 \
+            --retry 2 --retry-all-errors --retry-delay 1 \
             -X POST \
             -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
             -H "Content-Type: application/json" \

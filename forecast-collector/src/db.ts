@@ -629,7 +629,11 @@ function validReservedDispatch(row: DispatchStateRow) {
 }
 
 function validAcceptedDispatch(row: DispatchStateRow) {
-  return row.requested_at !== null && row.accepted_at !== null && row.github_http_status === 204;
+  return (
+    row.requested_at !== null &&
+    row.accepted_at !== null &&
+    (row.github_http_status === 204 || (row.github_http_status === 200 && hasRunIdentity(row)))
+  );
 }
 
 function validFinishedRunDispatch(row: DispatchStateRow) {

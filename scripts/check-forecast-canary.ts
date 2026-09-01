@@ -37,15 +37,22 @@ function requiredEnvironment(name: string) {
 }
 
 type CanaryReport = {
-  version: 4;
+  version: 5;
   deploymentSha: string;
   pollMode: "both" | "alternating" | "missing";
   passed: boolean;
-  acceptance: { windowHours: 12; minimumScheduled: 200; minimumCompletionRate: 0.99 };
+  acceptance: {
+    windowHours: 8;
+    minimumDeliveryRate: 0.99;
+    minimumCompletionRate: 0.99;
+    maximumMissingSlots: 1;
+  };
   window: { eligible: boolean; earlyFailure: boolean };
-  invocations: { scheduled: number; completed: number; abandoned: number };
+  collector: InvocationSummary;
   dispatcher: {
-    scheduled: number;
+    expectedSlots: number;
+    observedSlots: number;
+    missingSlots: number;
     completed: number;
     abandoned: number;
     duplicateDispatches: number;
@@ -55,18 +62,42 @@ type CanaryReport = {
     invalidSmoke: number;
     passed: boolean;
   };
+  router: {
+    routerTestCount: number;
+    duplicateInteractions: number;
+    maxInitialResponseMs: number;
+    passed: boolean;
+  };
+  invariants: { totalInvalid: number };
+};
+
+type InvocationSummary = {
+  expectedSlots: number;
+  observedSlots: number;
+  missingSlots: number;
+  deliveryRate: number;
+  completed: number;
+  abandoned: number;
+  completionRate: number;
+  duplicateInvocations: number;
+  unexpectedInvocations: number;
+  lateInvocations: number;
+  latestStatus: string;
 };
 
 function isCanaryReport(value: unknown): value is CanaryReport {
-  if (!isRecord(value) || value["version"] !== 4 || typeof value["deploymentSha"] !== "string")
+  if (!isRecord(value) || value["version"] !== 5 || typeof value["deploymentSha"] !== "string")
     return false;
   if (typeof value["passed"] !== "boolean") return false;
   if (!["both", "alternating", "missing"].includes(String(value["pollMode"]))) return false;
   return (
     isAcceptancePolicy(value["acceptance"]) &&
     isCanaryWindow(value["window"]) &&
-    isInvocationSummary(value["invocations"]) &&
-    isDispatcherSummary(value["dispatcher"])
+    isInvocationSummary(value["collector"]) &&
+    isDispatcherSummary(value["dispatcher"]) &&
+    isRouterSummary(value["router"]) &&
+    isRecord(value["invariants"]) &&
+    typeof value["invariants"]["totalInvalid"] === "number"
   );
 }
 
@@ -81,9 +112,27 @@ function isCanaryWindow(value: unknown) {
 function isInvocationSummary(value: unknown) {
   return (
     isRecord(value) &&
-    typeof value["scheduled"] === "number" &&
+    typeof value["expectedSlots"] === "number" &&
+    typeof value["observedSlots"] === "number" &&
+    typeof value["missingSlots"] === "number" &&
+    typeof value["deliveryRate"] === "number" &&
     typeof value["completed"] === "number" &&
-    typeof value["abandoned"] === "number"
+    typeof value["abandoned"] === "number" &&
+    typeof value["completionRate"] === "number" &&
+    typeof value["duplicateInvocations"] === "number" &&
+    typeof value["unexpectedInvocations"] === "number" &&
+    typeof value["lateInvocations"] === "number" &&
+    typeof value["latestStatus"] === "string"
+  );
+}
+
+function isRouterSummary(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value["routerTestCount"] === "number" &&
+    typeof value["duplicateInteractions"] === "number" &&
+    typeof value["maxInitialResponseMs"] === "number" &&
+    typeof value["passed"] === "boolean"
   );
 }
 
@@ -103,9 +152,10 @@ function isDispatcherSummary(value: unknown) {
 function isAcceptancePolicy(value: unknown) {
   return (
     isRecord(value) &&
-    value["windowHours"] === 12 &&
-    value["minimumScheduled"] === 200 &&
-    value["minimumCompletionRate"] === 0.99
+    value["windowHours"] === 8 &&
+    value["minimumDeliveryRate"] === 0.99 &&
+    value["minimumCompletionRate"] === 0.99 &&
+    value["maximumMissingSlots"] === 1
   );
 }
 

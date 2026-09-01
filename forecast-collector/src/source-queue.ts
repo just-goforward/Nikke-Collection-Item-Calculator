@@ -10,6 +10,7 @@ import {
   nextForecastRevision,
   sourceItemAndEventStatements,
 } from "./db";
+import { ensureManualReviewStatement } from "./manual-review";
 import { type FetchLike, fetchNaverFeedMetadata } from "./naver";
 import type {
   CandidateBuildResult,
@@ -67,6 +68,24 @@ const sourceQueueProcessSchema = z.object({
     }),
   ),
 });
+
+export class NaverPartialSchemaError extends Error {
+  readonly boardId: 48 | 56;
+  readonly offset: number;
+  readonly rejected: Awaited<ReturnType<typeof fetchNaverFeedMetadata>>["unknownRejected"];
+
+  constructor(
+    boardId: 48 | 56,
+    offset: number,
+    rejected: Awaited<ReturnType<typeof fetchNaverFeedMetadata>>["unknownRejected"],
+  ) {
+    super("naver_partial_schema_drift");
+    this.name = "NaverPartialSchemaError";
+    this.boardId = boardId;
+    this.offset = offset;
+    this.rejected = rejected;
+  }
+}
 
 export async function startInvocation(
   db: D1Database,
@@ -145,7 +164,11 @@ export async function pollNaverSource(
     .bind(source)
     .first<PollStateRow>();
   const offset = Number(state?.next_offset ?? 0);
-  const page = await fetchNaverFeedMetadata(boardId, offset, fetcher);
+  const metadataPage = await fetchNaverFeedMetadata(boardId, offset, fetcher);
+  if (metadataPage.unknownRejected.length > 0) {
+    throw new NaverPartialSchemaError(boardId, offset, metadataPage.unknownRejected);
+  }
+  const page = metadataPage.items;
   if (page.length === 0) throw new Error("naver_empty_feed");
   const committedIndex = state?.committed_item_id
     ? page.findIndex((item) => item.itemId === state.committed_item_id)
@@ -245,6 +268,11 @@ export async function processSourceQueue(db: D1Database, raw: unknown) {
     }
     if (request.mode === "queue") {
       statements.push(queueResultStatement(db, result, nowIso));
+      if (result.outcome === "manual_review" || result.outcome === "retry") {
+        statements.push(
+          await ensureManualReviewStatement(db, result.source, result.itemId, nowIso),
+        );
+      }
     }
   }
   if (request.candidate) {

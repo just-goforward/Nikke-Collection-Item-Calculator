@@ -1,4 +1,5 @@
-import { sha256Hex } from "./crypto";
+import { readBoundedText } from "../../shared/boundedHttp";
+import { sha256Hex, stableJson } from "./crypto";
 import type { NaverFeedMetadata, NormalizedSourceItem, ScheduleEvent, SourceKind } from "./types";
 
 const NAVER_FEED_URL = "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed";
@@ -31,11 +32,21 @@ const BOARD_KEYWORDS: Record<48 | 56, readonly string[]> = {
 
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+export type NaverMetadataPage = {
+  items: NaverFeedMetadata[];
+  recognizedSkipped: number[];
+  unknownRejected: Array<{
+    index: number;
+    topLevelKeys: string[];
+    shapeHash: string;
+  }>;
+};
+
 export async function fetchNaverFeedMetadata(
   boardId: 48 | 56,
   offset = 0,
   fetcher: FetchLike = fetch,
-): Promise<NaverFeedMetadata[]> {
+): Promise<NaverMetadataPage> {
   const url = new URL(NAVER_FEED_URL);
   url.search = new URLSearchParams({
     boardId: String(boardId),
@@ -47,28 +58,43 @@ export async function fetchNaverFeedMetadata(
   return parseNaverFeedMetadata(await readGuardedJson(await fetchWithRetry(url, fetcher)), boardId);
 }
 
-function parseNaverFeedMetadata(payload: unknown, boardId: 48 | 56) {
+async function parseNaverFeedMetadata(
+  payload: unknown,
+  boardId: 48 | 56,
+): Promise<NaverMetadataPage> {
   if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_schema_code");
   const content = payload["content"];
   if (!isRecord(content) || !Array.isArray(content["feeds"])) throw new Error("naver_schema_feeds");
-  const result: NaverFeedMetadata[] = [];
-  for (const row of content["feeds"]) {
-    if (!isRecord(row) || !isRecord(row["feed"]) || !isRecord(row["user"])) continue;
+  const items: NaverFeedMetadata[] = [];
+  const recognizedSkipped: number[] = [];
+  const unknownRejected: NaverMetadataPage["unknownRejected"] = [];
+  for (const [index, row] of content["feeds"].entries()) {
+    if (isRecognizedNonPostRow(row)) {
+      recognizedSkipped.push(index);
+      continue;
+    }
+    if (!isValidFeedRow(row)) {
+      unknownRejected.push(await rejectedShape(index, row));
+      continue;
+    }
     const feed = row["feed"];
     const user = row["user"];
     const itemId = String(feed["feedId"] ?? "");
     const title = typeof feed["title"] === "string" ? normalizeWhitespace(feed["title"]) : "";
-    if (!itemId || !title) continue;
-    result.push({
-      source: `naver-board-${boardId}`,
-      itemId,
-      url: readFeedUrl(row, itemId),
-      title,
-      publishedAt: parseNaverDate(feed["createdDate"]),
-      official: user["role"] === "game_manager" || user["userRoleCode"] === "game_manager",
-    });
+    try {
+      items.push({
+        source: `naver-board-${boardId}`,
+        itemId,
+        url: readFeedUrl(row, itemId),
+        title,
+        publishedAt: parseNaverDate(feed["createdDate"]),
+        official: user["role"] === "game_manager" || user["userRoleCode"] === "game_manager",
+      });
+    } catch {
+      unknownRejected.push(await rejectedShape(index, row));
+    }
   }
-  return result;
+  return { items, recognizedSkipped, unknownRejected };
 }
 
 export async function fetchNaverStructuredItem(
@@ -338,11 +364,15 @@ async function fetchWithRetry(url: URL, fetcher: FetchLike) {
         },
         signal: controller.signal,
       });
-      if (response.status >= 500 && attempt === 0) continue;
+      if ((response.status === 429 || response.status >= 500) && attempt === 0) continue;
       return response;
     } catch (error) {
-      lastError = error;
-      if (attempt === 1) throw error;
+      const code =
+        error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")
+          ? "naver_timeout"
+          : "naver_network";
+      lastError = new Error(code);
+      if (attempt === 1) throw lastError;
     } finally {
       clearTimeout(timeout);
     }
@@ -358,10 +388,7 @@ async function readGuardedJson(response: Response): Promise<unknown> {
   }
   const declared = Number(response.headers.get("content-length") ?? 0);
   if (declared > MAX_RESPONSE_BYTES) throw new Error("naver_response_oversize");
-  const text = await response.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) {
-    throw new Error("naver_response_oversize");
-  }
+  const text = await readBoundedText(response, MAX_RESPONSE_BYTES, "naver_response_oversize");
   try {
     return JSON.parse(text) as unknown;
   } catch {
@@ -463,6 +490,53 @@ function hasRelevantKeyword(text: string, keywords: readonly string[]) {
 
 function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function isValidFeedRow(value: unknown): value is Record<string, unknown> & {
+  feed: Record<string, unknown>;
+  user: Record<string, unknown>;
+} {
+  if (!isRecord(value) || !isRecord(value["feed"]) || !isRecord(value["user"])) return false;
+  const feed = value["feed"];
+  const itemId = String(feed["feedId"] ?? "");
+  const title = typeof feed["title"] === "string" ? normalizeWhitespace(feed["title"]) : "";
+  return /^\d{1,20}$/.test(itemId) && title.length > 0 && title.length <= 300;
+}
+
+function isRecognizedNonPostRow(value: unknown) {
+  if (!isRecord(value) || isRecord(value["feed"])) return false;
+  const type = typeof value["type"] === "string" ? value["type"].toLowerCase() : "";
+  return (
+    isRecord(value["advertisement"]) ||
+    value["advertisement"] === true ||
+    value["ad"] === true ||
+    type === "advertisement" ||
+    type === "banner"
+  );
+}
+
+async function rejectedShape(index: number, value: unknown) {
+  const topLevelKeys = isRecord(value) ? Object.keys(value).sort().slice(0, 24) : [];
+  const feedKeys =
+    isRecord(value) && isRecord(value["feed"])
+      ? Object.keys(value["feed"]).sort().slice(0, 24)
+      : [];
+  const userKeys =
+    isRecord(value) && isRecord(value["user"])
+      ? Object.keys(value["user"]).sort().slice(0, 24)
+      : [];
+  return {
+    index,
+    topLevelKeys,
+    shapeHash: await sha256Hex(
+      stableJson({
+        kind: Array.isArray(value) ? "array" : value === null ? "null" : typeof value,
+        topLevelKeys,
+        feedKeys,
+        userKeys,
+      }),
+    ),
+  };
 }
 
 function koreanHour(period: string | undefined, rawHour: string | undefined, fallback: number) {

@@ -211,11 +211,18 @@ describe("forecast dispatcher orchestration", () => {
     await testEnv.FORECAST_DB.prepare(
       `INSERT INTO source_queue (
          source, item_id, url, title, published_at, official, status,
-         attempts, error_code, first_seen_at, updated_at
+         attempts, review_generation, error_code, first_seen_at, updated_at
        ) VALUES ('naver-board-48', 'manual-100', ?, '일정 수동 검토', ?, 1,
-         'manual_review', 3, 'schedule_ambiguous', ?, ?)`,
+         'manual_review', 3, 0, 'schedule_ambiguous', ?, ?)`,
     )
       .bind("https://game.naver.com/lounge/nikke/board/detail/manual-100", nowIso, nowIso, nowIso)
+      .run();
+    await testEnv.FORECAST_DB.prepare(
+      `INSERT INTO source_manual_reviews (
+         review_id, source, item_id, generation, state, created_at, expires_at
+       ) VALUES (?, 'naver-board-48', 'manual-100', 0, 'pending', ?, ?)`,
+    )
+      .bind(`mr-${"a".repeat(32)}`, nowIso, new Date(now + 7 * 24 * 60 * 60 * 1_000).toISOString())
       .run();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

@@ -236,6 +236,7 @@ export async function markDispatchAccepted(
   dispatchId: string,
   invocationId: string,
   nowMs: number,
+  github: { status: 200 | 204; runId: number | null; runUrl: string | null },
 ) {
   const now = new Date(nowMs).toISOString();
   const result = await db
@@ -245,7 +246,13 @@ export async function markDispatchAccepted(
              WHEN state IN ('running', 'succeeded', 'failed', 'cancelled') THEN state
              ELSE 'accepted'
            END,
-           accepted_at = COALESCE(accepted_at, ?), github_http_status = 204,
+           accepted_at = COALESCE(accepted_at, ?), github_http_status = ?,
+           github_run_id = COALESCE(github_run_id, ?),
+           github_run_attempt = CASE
+             WHEN github_run_id IS NULL AND ? IS NOT NULL THEN 1
+             ELSE github_run_attempt
+           END,
+           github_run_url = COALESCE(github_run_url, ?),
            lease_until = NULL, next_attempt_at = NULL,
            error_code = CASE
              WHEN state IN ('succeeded', 'failed', 'cancelled') THEN error_code
@@ -255,7 +262,7 @@ export async function markDispatchAccepted(
          AND state IN ('reserved', 'running', 'succeeded', 'failed', 'cancelled')
          AND reserved_by_invocation = ?`,
     )
-    .bind(now, dispatchId, invocationId)
+    .bind(now, github.status, github.runId, github.runId, github.runUrl, dispatchId, invocationId)
     .run();
   if (Number(result.meta.changes ?? 0) !== 1) throw new Error("dispatch_reservation_lost");
 }
@@ -480,8 +487,11 @@ export async function updateObservedAlerts(
 
   const manual = await db
     .prepare(
-      `SELECT q.source, q.item_id, q.title, q.url, q.error_code
+      `SELECT q.source, q.item_id, q.title, q.url, q.error_code, r.review_id
        FROM source_queue q
+       JOIN source_manual_reviews r
+         ON r.source = q.source AND r.item_id = q.item_id
+        AND r.generation = q.review_generation AND r.state = 'pending'
        LEFT JOIN forecast_ops_alerts a
          ON a.alert_key = 'manual-review:' || ? || ':' || q.source || ':' || q.item_id
        WHERE q.status = 'manual_review' AND a.alert_key IS NULL
@@ -494,6 +504,7 @@ export async function updateObservedAlerts(
       title: string;
       url: string;
       error_code: string | null;
+      review_id: string;
     }>();
   for (const row of manual.results) {
     await raiseOpsAlert(db, {
@@ -505,6 +516,7 @@ export async function updateObservedAlerts(
       context: {
         source: row.source,
         itemId: row.item_id,
+        reviewId: row.review_id,
         title: bounded(row.title, 120),
         url: validatedNaverUrl(row.url),
         reason: row.error_code,
@@ -602,12 +614,17 @@ export async function markAlertSendFailed(
   alertKey: string,
   errorCode: string,
   nowMs: number,
+  retryAfterMs = 5 * 60 * 1_000,
 ) {
   await db
     .prepare(
       `UPDATE forecast_ops_alerts SET last_send_error = ?, next_send_at = ? WHERE alert_key = ?`,
     )
-    .bind(sanitizeErrorCode(errorCode), new Date(nowMs + 5 * 60 * 1_000).toISOString(), alertKey)
+    .bind(
+      sanitizeErrorCode(errorCode),
+      new Date(nowMs + Math.min(Math.max(retryAfterMs, 250), 60 * 60 * 1_000)).toISOString(),
+      alertKey,
+    )
     .run();
 }
 

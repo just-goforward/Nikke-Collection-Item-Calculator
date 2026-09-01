@@ -1,0 +1,110 @@
+name: Resolve Forecast Manual Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: Forecast Collector environment
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      review_id:
+        description: Opaque manual review ID from Discord
+        required: true
+        type: string
+      decision:
+        description: Review decision
+        required: true
+        type: choice
+        options:
+          - requeue
+          - ignore
+          - manual_event
+      reason:
+        description: Decision reason, 1-240 characters
+        required: true
+        type: string
+      event_type:
+        description: Required only for manual_event
+        required: false
+        type: choice
+        options:
+          - solo
+          - cooperation
+          - collaboration
+          - schedule_change
+          - reward
+      starts_at_kst:
+        description: Required only for manual_event, YYYY-MM-DDTHH:mm in KST
+        required: false
+        type: string
+      ends_at_kst:
+        description: Optional end, YYYY-MM-DDTHH:mm in KST
+        required: false
+        type: string
+      schedule_status:
+        description: Required only for manual_event
+        required: false
+        type: choice
+        options:
+          - confirmed
+          - estimated
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forecast-manual-review-${{ inputs.target_environment }}-${{ inputs.review_id }}
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    if: inputs.target_environment == 'staging'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.20.0
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Resolve staging review
+        run: npm run resolve:forecast-manual-review
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          FORECAST_MANUAL_REVIEW_ID: ${{ inputs.review_id }}
+          FORECAST_MANUAL_REVIEW_DECISION: ${{ inputs.decision }}
+          FORECAST_MANUAL_REVIEW_REASON: ${{ inputs.reason }}
+          FORECAST_MANUAL_EVENT_TYPE: ${{ inputs.event_type }}
+          FORECAST_MANUAL_STARTS_AT_KST: ${{ inputs.starts_at_kst }}
+          FORECAST_MANUAL_ENDS_AT_KST: ${{ inputs.ends_at_kst }}
+          FORECAST_MANUAL_SCHEDULE_STATUS: ${{ inputs.schedule_status }}
+
+  production:
+    if: inputs.target_environment == 'production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: cloudflare-production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.20.0
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Resolve production review
+        run: npm run resolve:forecast-manual-review
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_PRODUCTION_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          FORECAST_MANUAL_REVIEW_ID: ${{ inputs.review_id }}
+          FORECAST_MANUAL_REVIEW_DECISION: ${{ inputs.decision }}
+          FORECAST_MANUAL_REVIEW_REASON: ${{ inputs.reason }}
+          FORECAST_MANUAL_EVENT_TYPE: ${{ inputs.event_type }}
+          FORECAST_MANUAL_STARTS_AT_KST: ${{ inputs.starts_at_kst }}
+          FORECAST_MANUAL_ENDS_AT_KST: ${{ inputs.ends_at_kst }}
+          FORECAST_MANUAL_SCHEDULE_STATUS: ${{ inputs.schedule_status }}

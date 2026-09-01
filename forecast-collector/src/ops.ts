@@ -88,6 +88,22 @@ async function resolveOpsAlert(db: D1Database, alertKey: string, nowMs = Date.no
     .run();
 }
 
+export async function resolveOpsAlertsByPrefix(
+  db: D1Database,
+  alertKeyPrefix: string,
+  nowMs = Date.now(),
+) {
+  const now = new Date(nowMs).toISOString();
+  await db
+    .prepare(
+      `UPDATE forecast_ops_alerts
+       SET state = 'resolved', resolved_at = ?, next_send_at = ?
+       WHERE alert_key LIKE ? ESCAPE '\\' AND state = 'open'`,
+    )
+    .bind(now, now, `${likeLiteral(bounded(alertKeyPrefix, 150))}%`)
+    .run();
+}
+
 export async function createDispatcherSmoke(
   db: D1Database,
   environment: OpsEnvironment,
@@ -289,6 +305,59 @@ export async function recordWatchdogFallback(
   return { recorded: true as const };
 }
 
+export async function recordWatchdogNotificationFailure(
+  db: D1Database,
+  environment: OpsEnvironment,
+  raw: unknown,
+  nowMs = Date.now(),
+) {
+  const { runId, runUrl } = parseGithubRun(raw, "invalid_watchdog_notification_failure");
+  await upsertOpsAlert(db, {
+    alertKey: `watchdog-notification-failed:${environment}`,
+    environment,
+    severity: "critical",
+    component: "github-watchdog",
+    errorCode: "watchdog_notification_failed",
+    context: { runId, runUrl },
+    nowMs,
+  });
+  return { recorded: true as const };
+}
+
+export async function recordSourceProcessorInternalFailure(
+  db: D1Database,
+  environment: OpsEnvironment,
+  raw: unknown,
+  nowMs = Date.now(),
+) {
+  const { runId, runUrl } = parseGithubRun(raw, "invalid_source_processor_internal_failure");
+  await upsertOpsAlert(db, {
+    alertKey: `source-processor-internal:${environment}:${runId}`,
+    environment,
+    severity: "critical",
+    component: "source-processor",
+    errorCode: "source_processor_internal",
+    context: { runId, runUrl },
+    nowMs,
+  });
+  return { recorded: true as const };
+}
+
+function parseGithubRun(raw: unknown, invalidCode: string) {
+  if (!isRecord(raw)) throw new Error(invalidCode);
+  const runId = raw["runId"];
+  const runUrl = raw["runUrl"];
+  if (
+    !Number.isInteger(runId) ||
+    Number(runId) <= 0 ||
+    typeof runUrl !== "string" ||
+    runUrl !== `https://github.com/${REPOSITORY}/actions/runs/${runId}`
+  ) {
+    throw new Error(invalidCode);
+  }
+  return { runId: Number(runId), runUrl };
+}
+
 export async function readOperationsHealth(db: D1Database, environment: OpsEnvironment) {
   const [dispatcher, actionable, oldest, latestDispatch, alerts] = await Promise.all([
     db
@@ -443,6 +512,10 @@ function bounded(value: string, max: number) {
     .slice(0, max);
   if (!cleaned) throw new Error("empty_ops_value");
   return cleaned;
+}
+
+function likeLiteral(value: string) {
+  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
 function errorCode(value: string) {

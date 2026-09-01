@@ -23,10 +23,12 @@ the ordered pending source-item and candidate IDs into a work fingerprint. A det
 Cron invocations from reserving the same dispatch. An accepted or running fingerprint is suppressed
 for 20 minutes; a stale five-minute lease or failed attempt can be reacquired.
 
-GitHub's dispatch endpoint has no end-to-end idempotency key. If a network failure occurs after
-GitHub accepts a request, a retry can create another run. The callback contract therefore permits
-only one GitHub run identity to own a dispatch ID; a second run receives HTTP 409 and skips all queue
-and repository mutations.
+GitHub's dispatch endpoint has no end-to-end idempotency key. API version `2026-03-10` normally
+returns HTTP 200 with the created run identity, which the Dispatcher records immediately; the 204
+compatibility response leaves identity ownership to the callback. If a network failure occurs after
+GitHub accepts a request, a retry can still create another run. The callback contract therefore
+permits only one GitHub run identity to own a dispatch ID; a second run receives HTTP 409 and skips
+all queue and repository mutations.
 
 ## Operations alerts
 
@@ -37,9 +39,16 @@ invariant, callback, workflow-failure, and cancellation errors are recorded as c
 Retryable GitHub/Discord failures alert after three occurrences. Pending age, stale dispatches,
 manual review, Collector circuit state, and the thirty-minute watchdog are monitored from D1.
 
-The same alert fingerprint is grouped for 30 minutes. Discord rate limits honor `retry_after`; final
-send failures remain durable and visible in `/health`. Resolution produces one green recovery
-message. X/Jina unavailability remains advisory and is not an operations incident.
+Manual-review alerts include only a validated Naver link, opaque review ID, requeue/ignore buttons,
+and a link to the structured GitHub workflow for a date-bearing manual event. The Discord
+interaction Router owns button verification and D1 mutation; the Dispatcher owns only message
+delivery.
+
+The same alert fingerprint is grouped for 30 minutes. Discord rate limits do not sleep inside the
+Worker: a validated `retry_after` of up to one hour is stored as `next_send_at`, and a later Cron
+retries the same durable alert. Final send failures remain visible in `/health`. Resolution produces
+one green recovery message. X/Jina unavailability remains advisory and is not an operations
+incident.
 
 ## Local verification
 

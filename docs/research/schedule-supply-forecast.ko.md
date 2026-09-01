@@ -5,7 +5,7 @@
 - `[확인]` 기존 제품은 `supply-2026-08-21-v1`의 고정 28일 기대 수급량을 사용한다.
 - `[확인]` 일정 기반 모델과 동적 Rust/WASM gain ABI는 기존 고정값을 입력했을 때 의미론을
   보존하도록 구현됐다.
-- `[미검증]` 일정 기반 forecast는 staging 12시간 shadow, production smoke, 새 H/p 연구와
+- `[미검증]` 일정 기반 forecast는 staging 8시간 shadow, production smoke, 새 H/p 연구와
   별도 adoption PR을 통과하기 전에는 제품에 활성화되지 않는다.
 
 ## 계산 범위
@@ -42,8 +42,10 @@ profile과 주간 reset을 적용한다.
 ## 일정 증거와 승인
 
 Naver 라운지 56·48번 게시판이 자동 판정의 주 출처다. Free Worker의 3분 Cron은 본문을
-처리하지 않고 얕은 feed 메타데이터만 D1 queue에 넣는다. 5분 GitHub Actions가 구조화된
-SmartEditor JSON을 다시 받아 일정 해석과 후보 생성을 수행한다. X 검증은 후보가 있을 때만
+처리하지 않고 얕은 feed 메타데이터만 D1 queue에 넣는다. 3분 offset Dispatcher가 actionable
+work를 발견하면 proposal workflow를 요청하며, `17,47` Actions schedule은 30분 watchdog으로만
+남는다. Actions가 구조화된 SmartEditor JSON을 다시 받아 일정 해석과 후보 생성을 수행한다.
+X 검증은 후보가 있을 때만
 Actions에서 실행한다. `X_API_BEARER_TOKEN`이 있으면 공식 recent search를 1차로 사용하고,
 `from:NIKKE_kr`·솔로 레이드/콜라보/협동작전/키트 상자 키워드·최대 10건으로 범위를
 제한한다. 응답의 author expansion이 `NIKKE_kr`임을 확인한 게시물만 사용한다. 솔로 레이드와
@@ -85,9 +87,12 @@ probe:forecast-x`는 token이나 원문을 출력하지 않고 공급자별 건�
 
 수집 Worker는 invocation, poll cursor, 최소 queue metadata, 검증된 일정·후보만 전용 D1에
 보존한다. GitHub Actions가 같은 schema와 hash를 다시 검증해 inactive forecast PR을 만들며,
-관리자의 PR 병합이 승인이다. 이 승인만으로 제품은 바뀌지 않는다. Canary v3는 12시간,
-200회 이상, 완료율 99% 이상, abandoned 0건과 queue/cursor/candidate/watermark 정합성을
-요구한다.
+관리자의 PR 병합이 승인이다. 이 승인만으로 제품은 바뀌지 않는다. Canary v5는 서버가 기록한
+시작 시각부터 8시간의 Collector·Dispatcher 예상 Cron slot을 생성한다. 두 Worker 모두 전달률과
+완료율 99% 이상, 누락 slot 최대 1개, 최신 상태 completed, abandoned·late·unexpected·중복
+0건이어야 한다.
+queue/cursor/candidate/watermark/manual-review 정합성, Dispatcher smoke와 서명된 Router smoke도
+함께 통과해야 한다.
 
 Canary가 통과하면 staging의 공식 일정 원장을 다시 처리해 inactive forecast PR을 만든다.
 H/p Actions는 그 PR의 코드를 checkout하거나 실행하지 않고, GitHub Actions bot이 만든 비-draft

@@ -73,7 +73,7 @@ export async function runDispatcher(env: DispatcherEnv, options: { scheduledTime
         Date.now(),
       );
       try {
-        await dispatchProposalWorkflow(env, {
+        const github = await dispatchProposalWorkflow(env, {
           dispatchId: reservation.dispatchId,
           mode: reservation.mode,
         });
@@ -83,6 +83,7 @@ export async function runDispatcher(env: DispatcherEnv, options: { scheduledTime
           reservation.dispatchId,
           invocationId,
           acceptedAt,
+          github,
         );
         await resolveOpsAlert(env.FORECAST_DB, githubAlertKey(env), acceptedAt);
         await resolveOpsAlert(env.FORECAST_DB, `watchdog-fallback:${env.ENVIRONMENT}`, acceptedAt);
@@ -206,6 +207,9 @@ async function flushDiscordAlerts(env: DispatcherEnv) {
         alert.alertKey,
         dispatcherErrorCode(error),
         Date.now(),
+        error instanceof DiscordMessageError && error.retryAfterMs !== null
+          ? error.retryAfterMs
+          : undefined,
       );
     }
   }

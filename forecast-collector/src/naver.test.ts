@@ -234,12 +234,12 @@ describe("Naver Lounge parser", () => {
     await expect(fetchNaverBoard(56, malformed)).rejects.toThrow("naver_malformed_json");
   });
 
-  it("fails a rate-limited response without retrying it as a server error", async () => {
+  it("retries one rate-limited response and then fails with the typed status", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValue(new Response("rate limited", { status: 429 }));
 
     await expect(fetchNaverBoard(56, fetcher)).rejects.toThrow("naver_http_429");
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });

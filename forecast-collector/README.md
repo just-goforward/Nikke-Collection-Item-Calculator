@@ -17,6 +17,9 @@ statistics and cannot modify the repository or activate a product forecast.
 - The proposal workflow's `17,47 * * * *` schedule is a thirty-minute watchdog, not the normal
   execution path. If it finds actionable work, it records `watchdog_fallback` and processes the work
   without weakening the same approval boundaries.
+- Each Naver response is parsed as a complete feed contract. Explicitly recognized ad or banner rows
+  may be skipped, but one unknown row shape fails the poll with `naver_partial_schema_drift`. No queue
+  insert or cursor advancement from that response is committed.
 - A live contract check on 2026-08-25 found that the current board-48, board-56, and Solo Raid detail
   responses use SmartEditor HTML rather than JSON. The JSON-only boundary therefore fails closed to
   `manual_review`; automatic candidate generation remains blocked until a separately reviewed,
@@ -144,78 +147,58 @@ workflow runs only by explicit dispatch. It records `productAdoptionAuthorized: 
 inactive forecast no longer starts the expensive study again. A verified exact-gate certificate is
 required before staging adoption can be requested.
 
-## Discord staging adoption approval
+## Discord interactions and manual review
 
 `Request Staging Forecast Adoption` verifies a merged inactive forecast PR and its immutable H/p
-artifact before posting a Discord button. Discord sends the button interaction to the staging
-collector, which verifies the Ed25519 signature and the configured application, guild, channel,
-and approver user IDs. A successful click changes one `discord_staging_adoptions` row from
-`pending` to `approved`.
+artifact before posting a Discord button. Discord sends every component interaction to the dedicated
+`collection-kit-forecast-interactions` Router. The Router has no Cron, GitHub key, Collector admin
+token, or Discord bot token. It verifies the Ed25519 signature and the configured application,
+guild, channel, and approver user IDs, then selects only the staging or production D1 named by the
+opaque custom ID. The old Collector interaction route is disabled after Router readiness succeeds.
 
-The button gives the collector no GitHub token. `Process Staging Forecast Adoption` polls approved
+The button gives the Router no GitHub token. `Process Staging Forecast Adoption` polls approved
 rows with the existing authenticated admin boundary, validates main and the artifact digest again,
-creates a non-auto-merged staging evidence PR, and deploys a separate Workers Static Assets site.
-The build uses the inactive approved forecast only in its ephemeral staging registry. Production
-GitHub Pages and the tracked `activeForecastId` remain unchanged. The production collector fixes
-`DISCORD_APPROVAL_MODE` to `disabled`; all Discord approval routes return 404 there. Pending staging
-approvals expire after 24 hours.
+and creates a non-auto-merged staging evidence PR. After that PR is merged and the normal static site
+is deployed, `https://nikkecollection.com/?statsEnv=staging` reads `stagingForecastId`; the query-free
+production path continues to read `activeForecastId`. No separate Forecast staging Static Assets
+site is operated. Pending staging approvals expire after 24 hours.
 
-Create a Discord application and bot in the Discord Developer Portal, install the bot only in the
-intended server with `View Channel` and `Send Messages`, and set the application's Interactions
-Endpoint URL to:
+Queue items that cannot be safely parsed create one `source_manual_reviews` row per generation and
+one alert-channel card. `재처리` returns the queue item to `pending`; `관련 없음` records it as
+`ignored`. A date-bearing `manual_event` is deliberately unavailable as a Discord button and must be
+submitted through `Resolve Forecast Manual Review`, with structured fields and
+`cloudflare-production` approval in production. All decisions are request-ID and payload-hash
+idempotent; a reused request ID with different input is rejected.
 
-```text
-https://<staging-collector>/discord/interactions
-```
-
-Set these values only for the staging collector:
-
-```text
-DISCORD_PUBLIC_KEY          Discord application's public key
-DISCORD_APPLICATION_ID      Discord application ID
-DISCORD_APPROVER_USER_ID    only user allowed to click the approval button
-DISCORD_GUILD_ID            only server allowed to deliver the interaction
-DISCORD_CHANNEL_ID          only channel allowed to deliver the interaction
-```
-
-`DISCORD_PUBLIC_KEY` should be stored as a Worker secret. The numeric IDs are non-secret bindings,
-but they still form part of the authorization policy and must be reviewed before deployment. GitHub
-Actions additionally needs:
+Create a Discord application and bot, install the bot only in the intended server with `View
+Channel` and `Send Messages`, and set the application's single Interactions Endpoint URL to:
 
 ```text
-secret: DISCORD_FORECAST_BOT_TOKEN
-variable: DISCORD_FORECAST_APPROVAL_CHANNEL_ID
-variable: DISCORD_FORECAST_ACTIVITY_CHANNEL_ID
-variable: DISCORD_FORECAST_ALERT_CHANNEL_ID
-variable: DISCORD_FORECAST_FALLBACK_CHANNEL_ID
-variable: DISCORD_FORECAST_CHANNEL_ID (legacy fallback during migration)
+https://<forecast-interactions-router>/discord/interactions
 ```
 
-For the first staging-only trial, storing all five Worker-side values as staging secrets avoids
-adding test credentials to tracked Wrangler configuration:
+The deployment workflow reads the application ID and public key from Discord's authenticated Bot
+API, requires them to match the repository variables, and then passes them to the Router. Discord
+identity and policy values are repository variables:
 
-```powershell
-npx wrangler secret put DISCORD_PUBLIC_KEY --env staging --config forecast-collector/wrangler.toml
-npx wrangler secret put DISCORD_APPLICATION_ID --env staging --config forecast-collector/wrangler.toml
-npx wrangler secret put DISCORD_APPROVER_USER_ID --env staging --config forecast-collector/wrangler.toml
-npx wrangler secret put DISCORD_GUILD_ID --env staging --config forecast-collector/wrangler.toml
-npx wrangler secret put DISCORD_CHANNEL_ID --env staging --config forecast-collector/wrangler.toml
+```text
+DISCORD_FORECAST_GUILD_ID
+DISCORD_FORECAST_APPROVER_USER_ID
+DISCORD_FORECAST_APPLICATION_ID
+DISCORD_FORECAST_PUBLIC_KEY
+DISCORD_FORECAST_APPROVAL_CHANNEL_ID
+DISCORD_FORECAST_ALERT_CHANNEL_ID
+DISCORD_FORECAST_ACTIVITY_CHANNEL_ID
+DISCORD_FORECAST_FALLBACK_CHANNEL_ID
+DISCORD_FORECAST_CHANNEL_ID (legacy fallback during migration)
+FORECAST_INTERACTIONS_URL
 ```
 
-Apply migrations 0004 through 0006 to the staging D1 database and deploy the staging collector before
-configuring the Discord Interactions Endpoint URL:
-
-```powershell
-npx wrangler d1 execute FORECAST_DB --remote --env=staging `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0004_discord_approval_tests.sql
-npx wrangler d1 execute FORECAST_DB --remote --env=staging `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0005_discord_staging_adoptions.sql
-npx wrangler d1 execute FORECAST_DB --remote --env=staging `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0006_discord_staging_message_identity.sql
-```
+`DISCORD_FORECAST_BOT_TOKEN` remains a Dispatcher/Actions secret and is not present in the Router.
+The first workflow run may deploy the Router before `FORECAST_INTERACTIONS_URL` exists; it keeps the
+Dispatcher disabled and does not start a canary. After registering the emitted Router origin as the
+repository variable and Discord Endpoint URL, manually rerun `Deploy Forecast Collector Staging`
+with `router_endpoint_ready=true`.
 
 Then run `Request Staging Forecast Adoption` with the merged inactive forecast PR number and the
 successful dynamic H/p run ID. The card uses a formal system voice, shows only the schedule/X
@@ -236,19 +219,21 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
 - Empty feeds, malformed JSON, schema drift, unofficial posts, ambiguous schedule changes, inverted
   periods, non-finite gains, discontinuous profiles, and out-of-range cadence never delete or
   activate a forecast.
+- Request and response limits use a streaming reader: `Content-Length` is checked first, and a
+  chunked body is cancelled as soon as its accumulated bytes exceed the configured cap.
 - `/health` exposes only source status, candidate counts, and redacted Dispatcher health: the latest
   invocation, actionable work count, oldest pending age, recent dispatch state, and open/unsent alert
   counts. Candidate payloads and canary evidence require a timing-safe bearer token.
-- Authenticated endpoints share a dedicated Cloudflare rate-limit namespace per environment and
-  reject more than 60 requests per minute from the admin request class.
-- Canary report v4 evaluates Collector and Dispatcher independently. Each must cover at least 12
-  hours and 200 scheduled invocations, complete at least 99%, finish with a completed latest
-  invocation, and have zero abandoned rows. The combined report also requires zero duplicate
-  dispatches, duplicate GitHub run identities, invalid dispatch states, invalid
-  queue/cursor/candidate/watermark rows, and broken smoke callback/Discord links. More than 1%
-  abandoned after the first two hours fails early.
+- Admin abuse is limited first by unauthenticated request IP, then timing-safe bearer verification,
+  then by authenticated HTTP-method and route group. Discord interaction limits are separate.
+- Canary report v5 uses the server-recorded deployment start, not the number of rows that happened
+  to reach D1. It generates expected Collector and Dispatcher Cron slots over a fresh eight-hour
+  window. Each Worker must deliver and complete at least 99%, miss at most one slot, end completed,
+  and have zero abandoned, late, unexpected, or duplicate invocations. Queue, cursor, candidate, watermark, manual
+  review, workflow callback, unsent critical alert, Dispatcher smoke, and Router interaction
+  invariants must also pass. One signed Router test must respond in under one second.
 - If `both` polling cannot pass, `POLL_MODE=alternating` checks one board per invocation (six minutes
-  per board) and starts a fresh 12-hour canary. If that also fails, the Cron trigger is removed and
+  per board) and starts a fresh eight-hour canary. If that also fails, the Cron trigger is removed and
   `FORECAST_DIRECT_NAVER_POLL=true` makes the thirty-minute watchdog action collect both boards.
 
 ## Local verification
@@ -258,8 +243,11 @@ npm run forecast:types:check
 npm run test:forecast-collector
 npm run dispatcher:types:check
 npm run test:forecast-dispatcher
+npm run interactions:types:check
+npm run test:forecast-interactions
 npx wrangler deploy --dry-run --env staging --config forecast-collector/wrangler.toml
 npx wrangler deploy --dry-run --env staging --config forecast-dispatcher/wrangler.toml
+npx wrangler deploy --dry-run --config forecast-interactions/wrangler.toml
 ```
 
 Remote setup needs two dedicated D1 databases and `ADMIN_TOKEN`. GitHub
@@ -282,8 +270,9 @@ npx wrangler d1 execute FORECAST_DB --remote --env="" `
 For an existing database, apply the incremental migrations instead of replaying the bootstrap
 schema. Migration 0003 adds invocation accounting, shallow cursors, and the source queue. Migration
 0004 adds the isolated Discord approval test ledger, migration 0005 adds the staging adoption ledger,
-migration 0006 makes staging approval message identity durable, and migration 0007 adds Dispatcher
-invocation, workflow-dispatch, and grouped operations-alert ledgers:
+migration 0006 makes staging approval message identity durable, migration 0007 adds Dispatcher
+invocation, workflow-dispatch, and grouped operations-alert ledgers, and migration 0008 adds manual
+review decisions, Discord interaction audit, and server-recorded canary deployments:
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
@@ -313,10 +302,16 @@ npx wrangler d1 execute FORECAST_DB --remote --env=staging `
 npx wrangler d1 execute FORECAST_DB --remote --env="" `
   --config forecast-collector/wrangler.toml `
   --file forecast-collector/migrations/0007_workflow_dispatch_ops.sql
+npx wrangler d1 execute FORECAST_DB --remote --env=staging `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql
+npx wrangler d1 execute FORECAST_DB --remote --env="" `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql
 ```
 
 Migrations 0004 through 0006 are not required in production while Discord approval mode remains
-disabled. Migration 0007 is required in both environments.
+disabled. Migrations 0007 and 0008 are required in both environments.
 
 Required repository variables:
 
@@ -324,6 +319,7 @@ Required repository variables:
 FORECAST_COLLECTOR_STAGING_URL
 FORECAST_COLLECTOR_PRODUCTION_URL
 FORECAST_COLLECTOR_URL
+FORECAST_INTERACTIONS_URL
 FORECAST_DIRECT_NAVER_POLL (optional emergency fallback)
 FORECAST_GITHUB_APP_ID
 FORECAST_GITHUB_APP_INSTALLATION_ID
@@ -332,6 +328,10 @@ DISCORD_FORECAST_APPROVAL_CHANNEL_ID
 DISCORD_FORECAST_ACTIVITY_CHANNEL_ID
 DISCORD_FORECAST_ALERT_CHANNEL_ID
 DISCORD_FORECAST_FALLBACK_CHANNEL_ID
+DISCORD_FORECAST_GUILD_ID
+DISCORD_FORECAST_APPROVER_USER_ID
+DISCORD_FORECAST_APPLICATION_ID
+DISCORD_FORECAST_PUBLIC_KEY
 ```
 
 Required repository secrets are `FORECAST_GITHUB_APP_PRIVATE_KEY`,
@@ -344,7 +344,7 @@ production URL only after the first production queue round-trip smoke and idempo
 ledger bootstrap have passed. The workflow `GITHUB_TOKEN` cannot request the repository
 `Variables: write` permission, so promotion verifies the configured value instead of mutating it.
 Until the variable is present, the proposal workflow skips without failing. Promotion is dispatched
-manually after reviewing the completed 12-hour canary report and remains protected by the
+manually after reviewing the completed eight-hour canary report and remains protected by the
 `cloudflare-production` environment.
 
 Promotion compares the canary commit with current `main` only across the collector deployment

@@ -1,5 +1,6 @@
 import { parseNaverFeed } from "../forecast-collector/src/naver";
 import type { NormalizedSourceItem } from "../forecast-collector/src/types";
+import { readBoundedText } from "../shared/boundedHttp";
 
 const NAVER_FEED_URL = "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed";
 const NAVER_SEARCH_URL = "https://comm-api.game.naver.com/nng_main/v2/search/feeds";
@@ -169,10 +170,9 @@ async function fetchGuardedJson(url: URL, fetcher: FetchLike) {
   if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
     throw new Error("naver_response_too_large");
   }
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > MAX_RESPONSE_BYTES) throw new Error("naver_response_too_large");
+  const text = await readBoundedText(response, MAX_RESPONSE_BYTES, "naver_response_too_large");
   try {
-    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    return JSON.parse(text) as unknown;
   } catch {
     throw new Error("naver_malformed_json");
   }
@@ -193,11 +193,15 @@ async function fetchWithRetry(url: URL, fetcher: FetchLike) {
         },
         signal: controller.signal,
       });
-      if (response.status >= 500 && attempt === 0) continue;
+      if ((response.status === 429 || response.status >= 500) && attempt === 0) continue;
       return response;
     } catch (error) {
-      lastError = error;
-      if (attempt === 1) throw error;
+      const code =
+        error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")
+          ? "naver_timeout"
+          : "naver_network";
+      lastError = new Error(code);
+      if (attempt === 1) throw lastError;
     } finally {
       clearTimeout(timeout);
     }

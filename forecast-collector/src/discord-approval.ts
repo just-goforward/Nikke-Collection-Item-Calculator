@@ -1,3 +1,4 @@
+import { readBoundedText } from "../../shared/boundedHttp";
 import {
   approvalFailureData,
   approvedData,
@@ -64,7 +65,7 @@ type DiscordStagingAdoptionRow = {
   discord_message_id: string | null;
 };
 
-type DiscordInteraction = {
+export type DiscordInteraction = {
   id?: unknown;
   application_id?: unknown;
   token?: unknown;
@@ -298,17 +299,24 @@ export async function handleDiscordInteraction(
 function discordInteractionsEnabled(env: CollectorEnv) {
   return (
     env.ENVIRONMENT !== "production" &&
+    env.DISCORD_INTERACTION_OWNER !== "router" &&
     (env.DISCORD_APPROVAL_MODE === "test" || env.DISCORD_APPROVAL_MODE === "staging_adoption")
   );
 }
 
-async function readVerifiedDiscordBody(request: Request, publicKey: string, nowMs: number) {
+export async function readVerifiedDiscordBody(request: Request, publicKey: string, nowMs: number) {
   const declaredLength = Number(request.headers.get("content-length") ?? 0);
   if (declaredLength > DISCORD_INTERACTION_MAX_BYTES) {
     return new Response("Payload too large", { status: 413 });
   }
-  const body = await request.text();
-  if (new TextEncoder().encode(body).byteLength > DISCORD_INTERACTION_MAX_BYTES) {
+  let body: string;
+  try {
+    body = await readBoundedText(
+      request,
+      DISCORD_INTERACTION_MAX_BYTES,
+      "discord_interaction_body_too_large",
+    );
+  } catch {
     return new Response("Payload too large", { status: 413 });
   }
   return (await verifyDiscordSignature(request.headers, body, publicKey, nowMs))
@@ -316,7 +324,7 @@ async function readVerifiedDiscordBody(request: Request, publicKey: string, nowM
     : new Response("Invalid request signature", { status: 401 });
 }
 
-function parseDiscordInteraction(body: string, applicationId: string) {
+export function parseDiscordInteraction(body: string, applicationId: string) {
   let interaction: DiscordInteraction;
   try {
     interaction = JSON.parse(body) as DiscordInteraction;
@@ -522,7 +530,7 @@ async function verifyDiscordSignature(
   }
 }
 
-async function approveDiscordTest(
+export async function approveDiscordTest(
   db: D1Database,
   approvalId: string,
   interactionId: string,
@@ -563,7 +571,7 @@ async function approveDiscordTest(
   return { outcome: "approved" as const, approval: publicApproval(approved) };
 }
 
-async function approveDiscordStagingAdoption(
+export async function approveDiscordStagingAdoption(
   db: D1Database,
   approvalId: string,
   interactionId: string,
@@ -611,7 +619,7 @@ async function readApprovalByRequestKey(db: D1Database, requestKey: string) {
     .first<DiscordApprovalTestRow>();
 }
 
-async function readApprovalById(db: D1Database, approvalId: string) {
+export async function readApprovalById(db: D1Database, approvalId: string) {
   return db
     .prepare("SELECT * FROM discord_approval_tests WHERE approval_id = ?")
     .bind(approvalId)
@@ -692,7 +700,7 @@ async function expirePendingStagingAdoptionsByIdentity(
     .run();
 }
 
-async function readStagingAdoptionById(db: D1Database, approvalId: string) {
+export async function readStagingAdoptionById(db: D1Database, approvalId: string) {
   return db
     .prepare("SELECT * FROM discord_staging_adoptions WHERE approval_id = ?")
     .bind(approvalId)

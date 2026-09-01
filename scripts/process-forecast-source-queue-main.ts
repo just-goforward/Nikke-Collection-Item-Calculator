@@ -9,6 +9,7 @@ import type {
   SourceQueueItem,
   SourceQueueResult,
 } from "../forecast-collector/src/types.ts";
+import { readBoundedText } from "../shared/boundedHttp.ts";
 import { fetchNaverActionItem, fetchNaverActionSoloHistory } from "./forecast-naver-action.ts";
 
 const baseUrl = requiredEnvironment("FORECAST_COLLECTOR_URL").replace(/\/$/, "");
@@ -105,24 +106,27 @@ async function processItem(queued: SourceQueueItem): Promise<SourceQueueResult> 
     };
   } catch (error) {
     const errorCode = sanitizeErrorCode(error);
-    return baseResult(
-      queued,
-      errorCode === "naver_unstructured_body" ? "manual_review" : "retry",
-      errorCode,
-    );
+    const disposition = queueErrorDisposition(errorCode);
+    if (disposition === "fatal") throw error;
+    return baseResult(queued, disposition, errorCode);
   }
 }
 
 async function directItems() {
   const pages = await Promise.all([fetchNaverFeedMetadata(48), fetchNaverFeedMetadata(56)]);
-  return pages.flat().map(
-    (item): SourceQueueItem => ({
-      ...item,
-      status: "pending",
-      attempts: 0,
-      errorCode: null,
-    }),
-  );
+  if (pages.some((page) => page.unknownRejected.length > 0)) {
+    throw new Error("naver_partial_schema_drift");
+  }
+  return pages
+    .flatMap((page) => page.items)
+    .map(
+      (item): SourceQueueItem => ({
+        ...item,
+        status: "pending",
+        attempts: 0,
+        errorCode: null,
+      }),
+    );
 }
 
 async function bootstrapItems() {
@@ -164,9 +168,13 @@ async function request(path: string, init: RequestInit = {}) {
     },
     signal: AbortSignal.timeout(20_000),
   });
-  if (!response.ok)
-    throw new Error(`${path} returned ${response.status}: ${await response.text()}`);
-  return response.json() as Promise<unknown>;
+  const text = await readBoundedText(response, 1_100_000, "collector_response_too_large");
+  if (!response.ok) throw new Error(`${path} returned ${response.status}: ${text.slice(0, 240)}`);
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new Error("collector_response_invalid_json");
+  }
 }
 
 function parseQueue(value: unknown): SourceQueueItem[] {
@@ -224,6 +232,27 @@ async function outputs(values: Record<string, string>) {
 function sanitizeErrorCode(error: unknown) {
   const value = error instanceof Error ? error.message : "unknown";
   return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "unknown";
+}
+
+function queueErrorDisposition(
+  errorCode: string,
+): Extract<SourceQueueResult["outcome"], "retry" | "manual_review"> | "fatal" {
+  if (
+    errorCode === "naver_timeout" ||
+    errorCode === "naver_network" ||
+    errorCode === "naver_http_429" ||
+    /^naver_http_5\d\d$/.test(errorCode)
+  ) {
+    return "retry";
+  }
+  if (
+    errorCode === "naver_unstructured_body" ||
+    errorCode === "naver_http_404" ||
+    errorCode.startsWith("naver_detail_")
+  ) {
+    return "manual_review";
+  }
+  return "fatal";
 }
 
 function requiredEnvironment(name: string) {
