@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 
-const DEFAULT_FREE_LIMIT = 5;
+export const CLOUDFLARE_PAID_CRON_TRIGGER_LIMIT = 250;
 
 export type CronCapacity = {
   currentCount: number;
@@ -11,10 +11,18 @@ export type CronCapacity = {
   allowed: boolean;
 };
 
+export function parseCronTriggerLimit(value: string | undefined) {
+  const limit = Number(value ?? CLOUDFLARE_PAID_CRON_TRIGGER_LIMIT);
+  if (!Number.isInteger(limit) || limit < 1 || limit > CLOUDFLARE_PAID_CRON_TRIGGER_LIMIT) {
+    throw new Error("Invalid Cron trigger limit.");
+  }
+  return limit;
+}
+
 export function evaluateCronCapacity(
   schedulesByScript: ReadonlyMap<string, number>,
   targetScript: string,
-  limit = DEFAULT_FREE_LIMIT,
+  limit = CLOUDFLARE_PAID_CRON_TRIGGER_LIMIT,
 ): CronCapacity {
   const currentCount = [...schedulesByScript.values()].reduce((sum, count) => sum + count, 0);
   const targetAlreadyScheduled = (schedulesByScript.get(targetScript) ?? 0) > 0;
@@ -74,8 +82,7 @@ async function main() {
   const apiToken = requiredEnvironment("CLOUDFLARE_API_TOKEN");
   const targetScript = requiredEnvironment("FORECAST_DISPATCHER_SCRIPT_NAME");
   if (!/^[a-zA-Z0-9_-]{1,64}$/.test(targetScript)) throw new Error("Invalid target Worker name.");
-  const limit = Number(process.env["CLOUDFLARE_CRON_TRIGGER_LIMIT"] ?? DEFAULT_FREE_LIMIT);
-  if (!Number.isInteger(limit) || limit < 1) throw new Error("Invalid Cron trigger limit.");
+  const limit = parseCronTriggerLimit(process.env["CLOUDFLARE_CRON_TRIGGER_LIMIT"]);
   const schedules = await readCronSchedules(accountId, apiToken);
   const capacity = evaluateCronCapacity(schedules, targetScript, limit);
   console.log(JSON.stringify(capacity));
