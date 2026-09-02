@@ -1,6 +1,6 @@
-import { readBoundedJson } from "./boundedHttp";
-import { listCloudflareD1Databases } from "./cloudflareD1Catalog";
-import { CLOUDFLARE_PAID_USAGE_QUERY } from "./cloudflarePaidUsageQuery";
+import { readBoundedJson } from "./boundedHttp.ts";
+import { listCloudflareD1Databases } from "./cloudflareD1Catalog.ts";
+import { CLOUDFLARE_PAID_USAGE_QUERY } from "./cloudflarePaidUsageQuery.ts";
 import {
   assertD1QuotaEvidence,
   buildMetricEvidence,
@@ -9,7 +9,7 @@ import {
   D1_DATABASE_IDS,
   type D1QuotaEvidence,
   quotaActionForPercent,
-} from "./d1QuotaEvidence";
+} from "./d1QuotaEvidence.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const API_RESPONSE_LIMIT_BYTES = 4 * 1024 * 1024;

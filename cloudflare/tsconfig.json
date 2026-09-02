@@ -6,6 +6,7 @@
     "types": ["@cloudflare/vitest-pool-workers/types"],
     "skipLibCheck": true,
     "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "moduleDetection": "force",
     "noEmit": true,

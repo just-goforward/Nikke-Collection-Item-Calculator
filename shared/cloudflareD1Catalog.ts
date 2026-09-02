@@ -1,4 +1,4 @@
-import { readBoundedJson } from "./boundedHttp";
+import { readBoundedJson } from "./boundedHttp.ts";
 
 const API_RESPONSE_LIMIT_BYTES = 4 * 1024 * 1024;
 const API_TIMEOUT_MS = 20_000;
