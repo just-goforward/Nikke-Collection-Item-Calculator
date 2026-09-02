@@ -15,7 +15,7 @@ export default defineConfig({
           DEPLOY_SHA: "test-deploy-sha",
           POLL_MODE: "both",
         },
-        d1Databases: ["FORECAST_DB"],
+        d1Databases: ["FORECAST_DB", "USAGE_GUARD_DB"],
       },
     }),
   ],

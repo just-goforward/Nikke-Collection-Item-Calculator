@@ -45,7 +45,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Read authenticated reset-boundary canary report
+      - name: Verify Paid usage guard is normal
+        env:
+          CLOUDFLARE_USAGE_GUARD_URL: ${{ vars.CLOUDFLARE_USAGE_GUARD_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CLOUDFLARE_USAGE_GUARD_URL" =~ ^https://[^/]+$ ]]
+          refresh_status=$(curl --silent --show-error --connect-timeout 5 --max-time 30 \
+            --output "$RUNNER_TEMP/usage-guard-refresh.json" --write-out "%{http_code}" \
+            -X POST -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            "$CLOUDFLARE_USAGE_GUARD_URL/admin/refresh")
+          [[ "$refresh_status" == "200" ]] || { echo "Usage Guard refresh returned HTTP $refresh_status." >&2; exit 1; }
+          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+            "$CLOUDFLARE_USAGE_GUARD_URL/health" > "$RUNNER_TEMP/usage-guard-health.json"
+          jq -e '.ok == true and .state.action == "normal"' "$RUNNER_TEMP/usage-guard-health.json" >/dev/null
+
+      - name: Read authenticated Paid canary v7 report
         id: canary
         env:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
@@ -71,13 +88,17 @@ jobs:
             forecast-collector \
             forecast-dispatcher \
             forecast-interactions \
+            usage-guard \
+            cloudflare \
             ':(exclude)forecast-collector/README.md' \
             ':(exclude)forecast-collector/src/candidate.ts' \
             ':(exclude)forecast-collector/src/candidate.test.ts' \
             shared/supplyForecastCandidate.ts \
             shared/supplyForecastModel.ts \
             shared/boundedHttp.ts \
+            shared/cloudflarePaidUsage.ts \
             shared/d1QuotaEvidence.ts \
+            shared/usageGuard.ts \
             scripts/smoke-forecast-collector.ts \
             scripts/smoke-forecast-dispatcher.ts \
             scripts/smoke-forecast-interactions.ts \
@@ -91,6 +112,7 @@ jobs:
             vitest.forecast-collector.config.ts \
             vitest.forecast-dispatcher.config.ts \
             vitest.forecast-interactions.config.ts \
+            vitest.usage-guard.config.ts \
             .github/workflows/forecast-collector-deploy.yml \
             .github/workflows/forecast-d1-budget-watch.yml \
             .github/workflows/forecast-proposal.yml \
@@ -105,10 +127,10 @@ jobs:
         if: steps.canary.outputs.canary_passed == 'true'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN }}
+          CLOUDFLARE_BILLING_READ_TOKEN: ${{ secrets.CLOUDFLARE_BILLING_READ_TOKEN }}
         run: >-
-          npm run check:d1-budget -- monitor
-          --evidence "$RUNNER_TEMP/forecast-canary-report.json"
+          npm run check:d1-budget -- preflight
           --output "$RUNNER_TEMP/d1-budget-promotion.json"
 
       - name: Verify statistics production D1 at promotion boundary
@@ -128,7 +150,7 @@ jobs:
         run: |
           echo "Eight-hour forecast automation canary is not yet eligible or has not passed." >> "$GITHUB_STEP_SUMMARY"
           if [[ "${{ steps.canary.outputs.canary_early_failed }}" == "true" ]]; then
-            echo "The v6 early-failure gate rejected this deployment. Do not weaken or reuse this window." >> "$GITHUB_STEP_SUMMARY"
+            echo "The v7 early-failure gate rejected this deployment. Do not weaken or reuse this window." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   promote:
@@ -155,6 +177,9 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN }}
+          CLOUDFLARE_BILLING_READ_TOKEN: ${{ secrets.CLOUDFLARE_BILLING_READ_TOKEN }}
+          CLOUDFLARE_USAGE_GUARD_URL: ${{ vars.CLOUDFLARE_USAGE_GUARD_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_COLLECTOR_PRODUCTION_URL: ${{ vars.FORECAST_COLLECTOR_PRODUCTION_URL }}
           FORECAST_INTERACTIONS_URL: ${{ vars.FORECAST_INTERACTIONS_URL }}
@@ -173,6 +198,8 @@ jobs:
           DISCORD_FORECAST_PUBLIC_KEY: ${{ vars.DISCORD_FORECAST_PUBLIC_KEY }}
         run: |
           test -n "$CLOUDFLARE_ACCOUNT_ID" && test -n "$CLOUDFLARE_API_TOKEN" && \
+          test -n "$CLOUDFLARE_D1_ANALYTICS_TOKEN" && test -n "$CLOUDFLARE_BILLING_READ_TOKEN" && \
+          [[ "$CLOUDFLARE_USAGE_GUARD_URL" =~ ^https://[^/]+$ ]] && \
           test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" && test -n "$FORECAST_COLLECTOR_PRODUCTION_URL" && test -n "$FORECAST_INTERACTIONS_URL"
           [[ "$FORECAST_GITHUB_APP_ID" =~ ^[0-9]{1,20}$ ]]
           [[ "$FORECAST_GITHUB_APP_INSTALLATION_ID" =~ ^[0-9]{1,20}$ ]]
@@ -191,7 +218,8 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN }}
+          CLOUDFLARE_BILLING_READ_TOKEN: ${{ secrets.CLOUDFLARE_BILLING_READ_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -208,6 +236,20 @@ jobs:
             --config cloudflare/wrangler.toml --command "SELECT 1 AS ok;" --json)
           [[ "$(jq -r '.[0].results[0].ok' <<<"$stats_probe")" == "1" ]]
           npm run check:d1-budget -- preflight --output "$RUNNER_TEMP/d1-budget-production-preflight.json"
+
+      - name: Refresh Paid usage guard before production changes
+        env:
+          CLOUDFLARE_USAGE_GUARD_URL: ${{ vars.CLOUDFLARE_USAGE_GUARD_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --connect-timeout 5 --max-time 30 \
+            --output "$RUNNER_TEMP/usage-guard-production-refresh.json" --write-out "%{http_code}" \
+            -X POST -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            "$CLOUDFLARE_USAGE_GUARD_URL/admin/refresh")
+          [[ "$status" == "200" ]]
+          jq -e '.ok == true and .state.action == "normal"' "$RUNNER_TEMP/usage-guard-production-refresh.json" >/dev/null
 
       - name: Apply production workflow dispatch operations migration
         env:
@@ -241,7 +283,7 @@ jobs:
               --config forecast-collector/wrangler.toml \
               --file forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql
 
-      - name: Apply production D1 budget and canary v6 migration
+      - name: Ensure production canary storage migration
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

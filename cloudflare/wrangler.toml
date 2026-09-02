@@ -2,9 +2,13 @@ name = "collection-kit-stats"
 main = "src/worker.ts"
 compatibility_date = "2026-08-09"
 
+[limits]
+cpu_ms = 10
+
 [observability.logs]
 enabled = true
 invocation_logs = true
+head_sampling_rate = 0.1
 
 [triggers]
 crons = ["17 3 * * *"]
@@ -14,22 +18,50 @@ binding = "DB"
 database_name = "collection-kit-stats"
 database_id = "3e18385a-af83-4c67-83a0-ab889149692c"
 
+[[d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+[[ratelimits]]
+name = "EVENT_RATE_LIMITER"
+namespace_id = "419101"
+simple = { limit = 120, period = 60 }
+
 [vars]
 ALLOWED_ORIGINS = "https://nikkecollection.com"
 
 [secrets]
-required = ["TURNSTILE_SECRET_KEY", "RATE_LIMIT_SECRET"]
+required = ["TURNSTILE_SECRET_KEY"]
 
 [env.staging]
 workers_dev = true
+
+[env.staging.limits]
+cpu_ms = 10
+
+[env.staging.observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 0.1
 
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "collection-kit-stats-staging"
 database_id = "95f4029b-669a-4e1e-a192-5c094e659e33"
 
+[[env.staging.d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+[[env.staging.ratelimits]]
+name = "EVENT_RATE_LIMITER"
+namespace_id = "419102"
+simple = { limit = 120, period = 60 }
+
 [env.staging.vars]
 ALLOWED_ORIGINS = "https://nikkecollection.com"
 
 [env.staging.secrets]
-required = ["TURNSTILE_SECRET_KEY", "RATE_LIMIT_SECRET"]
+required = ["TURNSTILE_SECRET_KEY"]

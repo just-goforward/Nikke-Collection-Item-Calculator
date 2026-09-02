@@ -1,3 +1,4 @@
+import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard";
 import { runDispatcher } from "./dispatcher";
 import type { DispatcherEnv } from "./types";
 
@@ -9,6 +10,23 @@ export default {
           event: "forecast_dispatcher_disabled",
           environment: env.ENVIRONMENT,
           deploymentSha: env.DEPLOY_SHA,
+        }),
+      );
+      return;
+    }
+    try {
+      await assertUsageAllowed(
+        env.USAGE_GUARD_DB,
+        env.ENVIRONMENT === "staging" ? "staging_automation" : "production_forecast_automation",
+      );
+    } catch (error) {
+      if (!(error instanceof UsageGuardError)) throw error;
+      console.warn(
+        JSON.stringify({
+          event: "forecast_dispatcher_quota_disabled",
+          environment: env.ENVIRONMENT,
+          action: error.action,
+          errorCode: error.code,
         }),
       );
       return;

@@ -1,18 +1,18 @@
-import { assertD1QuotaEvidence, type D1QuotaEvidence } from "../../shared/d1QuotaEvidence";
+import { assertD1QuotaEvidence } from "../../shared/d1QuotaEvidence";
 import {
   assertForecastCandidateInvariants,
   supplyForecastCandidateSchema,
 } from "../../shared/supplyForecastCandidate";
+import type { UsageGuardEvidence } from "../../shared/usageGuard";
+import { assertCanaryStartWindow, CANARY_WINDOW_MS, readQuotaEvidence } from "./canary-quota";
 import { sha256Hex, stableJson } from "./crypto";
 
-const WINDOW_MODE = "until_d1_reset" as const;
+const WINDOW_MODE = "fixed_8_hours" as const;
 const MINIMUM_DELIVERY_RATE = 0.99;
 const MINIMUM_COMPLETION_RATE = 0.99;
 const COLLECTOR_CRON = "*/3 * * * *";
 const DISPATCHER_CRON = "1-59/3 * * * *";
 const ABANDONED_AFTER_MS = 15 * 60 * 1_000;
-const QUOTA_EVIDENCE_MAX_AGE_MS = 10 * 60 * 1_000;
-const CANARY_START_KST_HOUR = 11;
 
 type Environment = "staging" | "production";
 type CanaryRunRow = {
@@ -71,7 +71,7 @@ export async function startCanaryDeployment(
   const nowMs = input.nowMs ?? Date.now();
   assertCanaryStartWindow(nowMs, quotaEvidence);
   const startedAt = new Date(nowMs).toISOString();
-  const endsAt = new Date(nextD1ResetAtMs(nowMs)).toISOString();
+  const endsAt = new Date(nowMs + CANARY_WINDOW_MS).toISOString();
   const overlapping = await db
     .prepare(
       `SELECT canary_id FROM canary_runs
@@ -112,6 +112,7 @@ export async function readCanaryReport(
   deploymentSha: string,
   environment: Environment = "staging",
   canaryId?: string,
+  runtimeQuota?: UsageGuardEvidence,
 ) {
   const run = canaryId
     ? await readRunById(db, canaryId)
@@ -119,7 +120,7 @@ export async function readCanaryReport(
   if (!run || run.environment !== environment || run.deployment_sha !== deploymentSha) {
     return missingReport(deploymentSha, environment, nowMs, canaryId ?? null);
   }
-  const quota = await readQuotaEvidence(run);
+  const quota = await readQuotaEvidence(run, runtimeQuota, nowMs, environment);
   const startedMs = Date.parse(run.started_at);
   const endsMs = Date.parse(run.ends_at);
   const observationEndMs = Math.min(nowMs, endsMs);
@@ -175,14 +176,14 @@ export async function readCanaryReport(
   });
 
   return {
-    version: 6,
+    version: 7,
     canaryId: run.canary_id,
     deploymentSha,
     environment,
     pollMode: invocations.at(-1)?.poll_mode ?? "missing",
     acceptance: {
       windowMode: WINDOW_MODE,
-      windowHours: (endsMs - startedMs) / (60 * 60 * 1_000),
+      windowHours: CANARY_WINDOW_MS / (60 * 60 * 1_000),
       minimumDeliveryRate: MINIMUM_DELIVERY_RATE,
       minimumCompletionRate: MINIMUM_COMPLETION_RATE,
       maximumMissingSlots: 1,
@@ -674,7 +675,7 @@ function missingReport(
   canaryId: string | null,
 ) {
   return {
-    version: 6,
+    version: 7,
     canaryId,
     deploymentSha,
     environment,
@@ -716,6 +717,9 @@ function missingReport(
       errorCode: "canary_run_missing",
       evidence: null,
       evidenceHash: null,
+      initialEvidenceHash: null,
+      freshnessMinutes: null,
+      cpu: null,
     },
     invariants: {
       queue: 0,
@@ -730,49 +734,6 @@ function missingReport(
     },
     passed: false,
   };
-}
-
-async function readQuotaEvidence(row: CanaryRunRow) {
-  try {
-    const actualHash = await sha256Hex(row.quota_evidence_json);
-    if (actualHash !== row.quota_evidence_hash) {
-      throw new Error("d1_quota_evidence_hash_mismatch");
-    }
-    const evidence = assertD1QuotaEvidence(JSON.parse(row.quota_evidence_json));
-    return {
-      valid: true,
-      errorCode: null,
-      evidence,
-      evidenceHash: row.quota_evidence_hash,
-    };
-  } catch (error) {
-    return {
-      valid: false,
-      errorCode: error instanceof Error ? error.message.slice(0, 120) : "d1_quota_evidence_invalid",
-      evidence: null,
-      evidenceHash: row.quota_evidence_hash,
-    };
-  }
-}
-
-function assertCanaryStartWindow(nowMs: number, evidence: D1QuotaEvidence) {
-  const now = new Date(nowMs);
-  const kstHour = (now.getUTCHours() + 9) % 24;
-  if (kstHour !== CANARY_START_KST_HOUR) {
-    throw new Error("canary_start_outside_kst_window");
-  }
-  const observedAt = Date.parse(evidence.observedAt);
-  if (observedAt > nowMs + 60_000 || nowMs - observedAt > QUOTA_EVIDENCE_MAX_AGE_MS) {
-    throw new Error("d1_quota_evidence_stale");
-  }
-  if (new Date(nowMs).toISOString().slice(0, 10) !== evidence.billingDay) {
-    throw new Error("canary_crosses_d1_billing_day");
-  }
-}
-
-function nextD1ResetAtMs(nowMs: number) {
-  const now = new Date(nowMs);
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
 }
 
 function emptyInvocationSummary() {

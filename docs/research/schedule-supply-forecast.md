@@ -6,7 +6,7 @@
   `supply-2026-08-21-v1`.
 - `[confirmed]` The schedule model and dynamic Rust/WASM gain ABI preserve existing semantics when
   given that fixed vector.
-- `[unverified]` No schedule forecast becomes active before the staging shadow through the next D1 reset, production
+- `[unverified]` No schedule forecast becomes active before the fixed eight-hour staging shadow, production
   smoke, renewed H/p research, and a separate adoption pull request pass.
 
 ## Model boundary
@@ -80,15 +80,14 @@ provider diagnostics.
 
 The collector stores invocation evidence, cursor and queue metadata, and validated schedule and
 candidate records. GitHub Actions revalidates the schema and hash and proposes an inactive registry
-entry. Canary v6 uses an independent `canaryId` and generates expected Collector and Dispatcher Cron slots from a server-recorded start
-through the next 00:00 UTC D1 reset. Both Workers require at least 99% delivery and completion, at most
+entry. Canary v7 uses an independent `canaryId` and generates expected Collector and Dispatcher Cron slots for a fixed eight-hour window from a server-recorded start. Both Workers require at least 99% delivery and completion, at most
 one missing slot, a completed latest invocation, no abandoned, late, unexpected, or duplicate work, consistent queue,
 cursor, candidate, watermark, and manual-review state, and successful Dispatcher and signed Router
 smoke evidence. After covering indexes are verified on both Forecast databases, a 30-minute burn-in
-and a 30-minute runtime watchdog project the current production and staging Forecast rates while
-aggregating every D1 database in the Cloudflare account. They preserve both the Forecast staging
-allowance and a statistics-production reserve. The administrator's merge approves the evidence but
-does not activate the forecast.
+and a 30-minute runtime watchdog aggregate every Worker and D1 database in the Cloudflare account.
+The canary may start only below 25% of each Workers Paid monthly allowance. Guard stages at
+35/40/45/50% stop staging, production Forecast, statistics writes, and optional D1/Cron work in that
+order. The administrator's merge approves the evidence but does not activate the forecast.
 
 After the canary passes, staging replays the official schedule ledger and creates an inactive
 forecast pull request. The H/p workflow does not check out or execute pull-request code. It verifies

@@ -14,11 +14,19 @@ if (!response.ok) throw new Error(`Canary report returned ${response.status}.`);
 const report: unknown = await response.json();
 if (!isCanaryReport(report)) throw new Error("Canary report schema is invalid.");
 assertD1QuotaEvidence(report.quota.evidence);
-const expectedReset = new Date(
-  Date.parse(`${report.quota.evidence.billingDay}T00:00:00.000Z`) + 24 * 60 * 60 * 1_000,
+if (
+  report.quota.evidence.action !== "normal" ||
+  !report.quota.evidence.passed ||
+  report.quota.evidence.utilization.currentPercent >= 25 ||
+  report.quota.evidence.utilization.projectedPercent >= 25
+) {
+  throw new Error("Canary quota evidence is not below the 25% Paid warning threshold.");
+}
+const expectedEnd = new Date(
+  Date.parse(report.window.startedAt) + 8 * 60 * 60 * 1_000,
 ).toISOString();
-if (report.window.endsAt !== expectedReset) {
-  throw new Error("Canary report does not end at the recorded D1 billing reset.");
+if (report.window.endsAt !== expectedEnd) {
+  throw new Error("Canary report is not an exact fixed eight-hour window.");
 }
 const reportOutput = process.env["FORECAST_CANARY_REPORT_OUTPUT"];
 if (reportOutput) await writeFile(reportOutput, `${JSON.stringify(report, null, 2)}\n`, "utf8");
@@ -51,13 +59,13 @@ function requiredEnvironment(name: string) {
 }
 
 type CanaryReport = {
-  version: 6;
+  version: 7;
   canaryId: string;
   deploymentSha: string;
   pollMode: "both" | "alternating" | "missing";
   passed: boolean;
   acceptance: {
-    windowMode: "until_d1_reset";
+    windowMode: "fixed_8_hours";
     windowHours: number;
     minimumDeliveryRate: 0.99;
     minimumCompletionRate: 0.99;
@@ -94,6 +102,13 @@ type CanaryReport = {
     errorCode: null;
     evidence: D1QuotaEvidence;
     evidenceHash: string;
+    initialEvidenceHash: string;
+    freshnessMinutes: number;
+    cpu: {
+      passed: true;
+      missingWorkers: string[];
+      failureCodes: string[];
+    };
   };
   invariants: { totalInvalid: number };
 };
@@ -113,7 +128,7 @@ type InvocationSummary = {
 };
 
 function isCanaryReport(value: unknown): value is CanaryReport {
-  if (!isRecord(value) || value["version"] !== 6 || typeof value["deploymentSha"] !== "string")
+  if (!isRecord(value) || value["version"] !== 7 || typeof value["deploymentSha"] !== "string")
     return false;
   if (!/^fc-[0-9a-f]{32}$/.test(String(value["canaryId"]))) return false;
   if (typeof value["passed"] !== "boolean") return false;
@@ -137,6 +152,12 @@ function isQuotaEvidence(value: unknown): value is CanaryReport["quota"] {
     value["errorCode"] === null &&
     typeof value["evidenceHash"] === "string" &&
     /^[0-9a-f]{64}$/.test(value["evidenceHash"]) &&
+    typeof value["initialEvidenceHash"] === "string" &&
+    /^[0-9a-f]{64}$/.test(value["initialEvidenceHash"]) &&
+    typeof value["freshnessMinutes"] === "number" &&
+    value["freshnessMinutes"] >= 0 &&
+    isRecord(value["cpu"]) &&
+    value["cpu"]["passed"] === true &&
     isRecord(value["evidence"])
   );
 }
@@ -150,7 +171,7 @@ function isCanaryWindow(value: unknown, acceptance: unknown) {
     Number.isFinite(startedAt) &&
     Number.isFinite(endsAt) &&
     endsAt > startedAt &&
-    new Date(endsAt).toISOString().endsWith("T00:00:00.000Z") &&
+    endsAt - startedAt === 8 * 60 * 60 * 1_000 &&
     typeof windowHours === "number" &&
     Math.abs(windowHours - (endsAt - startedAt) / (60 * 60 * 1_000)) < 1e-9 &&
     typeof value["eligible"] === "boolean" &&
@@ -201,10 +222,9 @@ function isDispatcherSummary(value: unknown) {
 function isAcceptancePolicy(value: unknown) {
   return (
     isRecord(value) &&
-    value["windowMode"] === "until_d1_reset" &&
+    value["windowMode"] === "fixed_8_hours" &&
     typeof value["windowHours"] === "number" &&
-    value["windowHours"] > 0 &&
-    value["windowHours"] <= 24 &&
+    value["windowHours"] === 8 &&
     value["minimumDeliveryRate"] === 0.99 &&
     value["minimumCompletionRate"] === 0.99 &&
     value["maximumMissingSlots"] === 1

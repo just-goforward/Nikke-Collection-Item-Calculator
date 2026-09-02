@@ -4,6 +4,7 @@ import { handleEvent } from "./event-submission";
 import { handleOptions, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
 import { logError, sanitizedError } from "./logger";
+import { assertQuotaAllows } from "./quota-guard";
 import { cleanupExpiredStatistics } from "./rate-limit";
 import { handleSchemaHealth } from "./schema-health";
 import { handleStats } from "./stats-read";
@@ -46,9 +47,11 @@ const worker: ExportedHandler<WorkerEnv> = {
     }
   },
   scheduled(_controller, env, ctx) {
-    const cleanup = cleanupExpiredStatistics(env, Math.floor(Date.now() / 1000)).catch((error) => {
-      logError("statistics_cleanup_failed", { error: sanitizedError(error) });
-    });
+    const cleanup = assertQuotaAllows(env, "statistics_write")
+      .then(() => cleanupExpiredStatistics(env, Math.floor(Date.now() / 1000)))
+      .catch((error) => {
+        logError("statistics_cleanup_failed", { error: sanitizedError(error) });
+      });
     ctx.waitUntil(cleanup);
   },
 };

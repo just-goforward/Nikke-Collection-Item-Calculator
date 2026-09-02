@@ -8,11 +8,9 @@ import {
 import { emptyResponse, isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
 import { logInfo } from "./logger";
+import { assertQuotaAllows } from "./quota-guard";
 
-type StatsReadEnv = {
-  DB: D1Database;
-  ALLOWED_ORIGINS?: string;
-};
+type StatsReadEnv = import("./env").WorkerEnv;
 
 type StatsAggregateRow = {
   grade?: string | null;
@@ -30,6 +28,7 @@ type SegmentGroup = NonNullable<ReturnType<typeof segmentForState>> & {
 export async function handleStats(request: Request, env: StatsReadEnv) {
   if (!isAllowedOrigin(request, env)) throw new HttpError(403, "origin_not_allowed");
   if (!env.DB) throw new HttpError(500, "database_not_configured");
+  await assertQuotaAllows(env, "statistics_read");
   const now = Math.floor(Date.now() / 1000);
   const queryStartedAt = performance.now();
   const today = kstGameDateKeyFromUnixSeconds(now);

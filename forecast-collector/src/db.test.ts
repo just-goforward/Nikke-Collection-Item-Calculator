@@ -15,6 +15,7 @@ import {
   supersedeIncompatibleCandidates,
 } from "./db";
 import { finishInvocation, startInvocation } from "./source-queue";
+import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv, NormalizedSourceItem, ScheduleEvent } from "./types";
 import worker from "./worker";
 
@@ -30,6 +31,7 @@ beforeEach(async () => {
     .filter(Boolean)) {
     await testEnv.FORECAST_DB.prepare(statement).run();
   }
+  await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB);
 });
 
 describe("forecast collector D1 contract", () => {

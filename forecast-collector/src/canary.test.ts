@@ -2,9 +2,10 @@ import { reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  D1_CANARY_THRESHOLDS,
+  buildMetricEvidence,
+  CLOUDFLARE_PAID_INCLUDED_LIMITS,
+  CLOUDFLARE_PAID_THRESHOLDS,
   D1_DATABASE_IDS,
-  D1_FREE_LIMITS,
   type D1QuotaEvidence,
 } from "../../shared/d1QuotaEvidence";
 import schemaSql from "../schema.sql?raw";
@@ -22,7 +23,7 @@ const testEnv: CollectorEnv = {
 const SHA = "a".repeat(40);
 const CANARY_ID = `fc-${"a".repeat(32)}`;
 const START = Date.parse("2026-09-01T02:00:30.000Z");
-const END = Date.parse("2026-09-02T00:00:00.000Z");
+const END = START + 8 * 60 * 60 * 1_000;
 
 beforeEach(async () => {
   await reset();
@@ -44,7 +45,7 @@ beforeEach(async () => {
   await insertSmokeAndRouterTest();
 });
 
-describe("canary report v6 storage and start contract", () => {
+describe("canary report v7 storage and start contract", () => {
   it("uses covering indexes for the recurring latest-invocation queries", async () => {
     const collectorPlan = await testEnv.FORECAST_DB.prepare(
       `EXPLAIN QUERY PLAN
@@ -65,23 +66,22 @@ describe("canary report v6 storage and start contract", () => {
     );
   });
 
-  it("passes a certificate covering the rest of the D1 billing day", async () => {
+  it("passes a fixed eight-hour certificate", async () => {
     const collectorSlots = slots(0);
     const dispatcherSlots = slots(1);
-    expect(collectorSlots).toHaveLength(439);
-    expect(dispatcherSlots).toHaveLength(440);
+    expect(collectorSlots).toHaveLength(160);
+    expect(dispatcherSlots).toHaveLength(160);
     await insertInvocationSlots("collector", collectorSlots);
     await insertInvocationSlots("dispatcher", dispatcherSlots);
 
     const report = await readCanaryReport(testEnv.FORECAST_DB, END, SHA, "staging");
 
-    expect(report.version).toBe(6);
+    expect(report.version).toBe(7);
     expect(report.canaryId).toBe(CANARY_ID);
-    expect(report.acceptance).toMatchObject({ windowMode: "until_d1_reset" });
-    expect(report.acceptance.windowHours).toBeCloseTo((END - START) / (60 * 60 * 1_000));
+    expect(report.acceptance).toMatchObject({ windowMode: "fixed_8_hours", windowHours: 8 });
     expect(report.quota).toMatchObject({ valid: true, errorCode: null });
     expect(report.window).toMatchObject({
-      endsAt: "2026-09-02T00:00:00.000Z",
+      endsAt: "2026-09-01T10:00:30.000Z",
       eligible: true,
       earlyFailure: false,
     });
@@ -145,7 +145,7 @@ describe("canary report v6 storage and start contract", () => {
     expect(next.canaryId).not.toBe(CANARY_ID);
   });
 
-  it("rejects stale evidence and canary starts outside the 11 KST window", async () => {
+  it("rejects stale evidence and a canary crossing the billing period", async () => {
     await expect(
       startCanaryDeployment(testEnv.FORECAST_DB, {
         environment: "production",
@@ -153,12 +153,12 @@ describe("canary report v6 storage and start contract", () => {
         deploymentSha: SHA,
         collectorCron: "*/3 * * * *",
         dispatcherCron: "1-59/3 * * * *",
-        quotaEvidence: quotaEvidence(START - 20 * 60_000),
+        quotaEvidence: quotaEvidence(START - 21 * 60_000),
         nowMs: START,
       }),
-    ).rejects.toThrow("d1_quota_evidence_stale");
+    ).rejects.toThrow("cloudflare_paid_quota_evidence_stale");
 
-    const outsideWindow = Date.parse("2026-09-02T01:00:30.000Z");
+    const outsideWindow = Date.parse("2026-09-14T20:00:30.000Z");
     await expect(
       startCanaryDeployment(testEnv.FORECAST_DB, {
         environment: "production",
@@ -169,11 +169,11 @@ describe("canary report v6 storage and start contract", () => {
         quotaEvidence: quotaEvidence(outsideWindow),
         nowMs: outsideWindow,
       }),
-    ).rejects.toThrow("canary_start_outside_kst_window");
+    ).rejects.toThrow("canary_crosses_cloudflare_billing_period");
   });
 });
 
-describe("canary report v6 slot evidence", () => {
+describe("canary report v7 slot evidence", () => {
   it("allows one missing slot but rejects two", async () => {
     const collector = slots(0);
     const dispatcher = slots(1);
@@ -313,7 +313,7 @@ async function insertSmokeAndRouterTest() {
        created_at, requested_at, accepted_at, started_at, finished_at,
        github_http_status, github_run_id, github_run_attempt, github_run_url,
        discord_message_id, discord_sent_at
-       ) VALUES (?, 'smoke:v6', 'staging', 'smoke', ?, 0, 0, 1, 'succeeded', ?,
+       ) VALUES (?, 'smoke:v7', 'staging', 'smoke', ?, 0, 0, 1, 'succeeded', ?,
        ?, ?, ?, ?, ?, 200, 9001, 1, ?, '123456789012345678', ?)`,
   )
     .bind(
@@ -341,82 +341,121 @@ async function insertSmokeAndRouterTest() {
 
 function quotaEvidence(nowMs: number): D1QuotaEvidence {
   const observedAt = new Date(nowMs).toISOString();
-  const startedAt = new Date(nowMs - 30 * 60_000).toISOString();
   const databases: D1QuotaEvidence["databases"] = [
     {
       databaseId: D1_DATABASE_IDS.statsProduction,
       databaseName: "collection-kit-stats",
-      role: "stats-production",
       rowsReadObserved: 10_000,
       rowsWrittenObserved: 100,
-      rowsReadP95: 100_000,
-      rowsWrittenP95: 1_000,
-      rowsReadProjected: 100_000,
-      rowsWrittenProjected: 1_000,
+      storageBytesObserved: 1_000_000,
     },
     {
       databaseId: D1_DATABASE_IDS.statsStaging,
       databaseName: "collection-kit-stats-staging",
-      role: "stats-staging",
       rowsReadObserved: 100,
       rowsWrittenObserved: 1,
-      rowsReadP95: 100,
-      rowsWrittenP95: 1,
-      rowsReadProjected: 100,
-      rowsWrittenProjected: 1,
+      storageBytesObserved: 100_000,
     },
     {
       databaseId: D1_DATABASE_IDS.forecastProduction,
       databaseName: "collection-kit-forecast-collector",
-      role: "forecast-production",
       rowsReadObserved: 1_000,
       rowsWrittenObserved: 10,
-      rowsReadP95: 1_000,
-      rowsWrittenP95: 10,
-      rowsReadProjected: 1_000,
-      rowsWrittenProjected: 10,
+      storageBytesObserved: 500_000,
     },
     {
       databaseId: D1_DATABASE_IDS.forecastStaging,
       databaseName: "collection-kit-forecast-collector-staging",
-      role: "forecast-staging",
       rowsReadObserved: 2_000,
       rowsWrittenObserved: 20,
-      rowsReadP95: 2_000,
-      rowsWrittenP95: 20,
-      rowsReadProjected: 200_000,
-      rowsWrittenProjected: 5_000,
+      storageBytesObserved: 500_000,
+    },
+    {
+      databaseId: D1_DATABASE_IDS.usageGuard,
+      databaseName: "collection-kit-usage-guard",
+      rowsReadObserved: 500,
+      rowsWrittenObserved: 50,
+      storageBytesObserved: 100_000,
     },
   ];
+  const workers: D1QuotaEvidence["workers"] = [
+    worker("collection-kit-forecast-collector-staging", 8),
+    worker("collection-kit-forecast-dispatcher-staging", 4),
+    worker("collection-kit-forecast-interactions", 2),
+    worker("collection-kit-usage-guard", 3),
+  ];
+  const usage = {
+    workerRequests: workers.reduce((sum, value) => sum + value.requestsObserved, 0),
+    workerCpuMs: workers.reduce((sum, value) => sum + value.cpuMsObserved, 0),
+    d1RowsRead: databases.reduce((sum, value) => sum + value.rowsReadObserved, 0),
+    d1RowsWritten: databases.reduce((sum, value) => sum + value.rowsWrittenObserved, 0),
+    d1StorageBytes: databases.reduce((sum, value) => sum + value.storageBytesObserved, 0),
+  };
+  const projectedUsage = {
+    workerRequests: 100_000,
+    workerCpuMs: 500_000,
+    d1RowsRead: 1_000_000,
+    d1RowsWritten: 10_000,
+    d1StorageBytes: 5_000_000,
+  };
+  const metrics = buildMetricEvidence(usage, projectedUsage);
+  const currentPercent = Math.max(...metrics.map((metric) => metric.currentPercent));
+  const projectedPercent = Math.max(...metrics.map((metric) => metric.projectedPercent));
+  const governingMetric = [...metrics].sort(
+    (left, right) =>
+      Math.max(right.currentPercent, right.projectedPercent) -
+        Math.max(left.currentPercent, left.projectedPercent) ||
+      left.metric.localeCompare(right.metric),
+  )[0]?.metric;
+  if (!governingMetric) throw new Error("missing_governing_metric_fixture");
   return {
-    version: 1,
-    source: "cloudflare-graphql-d1-analytics-v1",
-    billingDay: observedAt.slice(0, 10),
+    version: 2,
+    source: "cloudflare-paid-account-analytics-v2",
     observedAt,
-    burnIn: { startedAt, endedAt: observedAt, durationMinutes: 30 },
-    limits: D1_FREE_LIMITS,
-    thresholds: D1_CANARY_THRESHOLDS,
-    account: {
-      rowsReadObserved: 13_100,
-      rowsWrittenObserved: 131,
-      rowsReadProjected: 301_100,
-      rowsWrittenProjected: 6_011,
+    plan: {
+      id: "workers-paid",
+      verified: true,
+      state: "Paid",
+      frequency: "monthly",
+      periodStart: "2026-08-15T00:00:00.000Z",
+      periodEnd: "2026-09-15T00:00:00.000Z",
     },
-    canary: {
-      databaseId: D1_DATABASE_IDS.forecastStaging,
-      rowsReadBurnIn: 10_000,
-      rowsWrittenBurnIn: 100,
-      rowsReadProjected: 200_000,
-      rowsWrittenProjected: 5_000,
+    limits: CLOUDFLARE_PAID_INCLUDED_LIMITS,
+    thresholds: CLOUDFLARE_PAID_THRESHOLDS,
+    usage,
+    projectedUsage,
+    metrics,
+    utilization: {
+      currentPercent,
+      projectedPercent,
+      governingMetric,
     },
-    statsProduction: {
-      databaseId: D1_DATABASE_IDS.statsProduction,
-      rowsReadP95: 100_000,
-      rowsWrittenP95: 1_000,
-      rowsReadReserve: 1_000_000,
-      rowsWrittenReserve: 30_000,
-    },
+    action: "normal",
     databases,
+    workers,
+    workerRuntime: {
+      startedAt: new Date(
+        Math.max(
+          Date.parse("2026-08-15T00:00:00.000Z"),
+          nowMs - CLOUDFLARE_PAID_THRESHOLDS.canaryHours * 60 * 60 * 1_000,
+        ),
+      ).toISOString(),
+      endedAt: observedAt,
+      workers,
+    },
     passed: true,
+  };
+}
+
+function worker(scriptName: string, cpuTimeP99Ms: number): D1QuotaEvidence["workers"][number] {
+  return {
+    scriptName,
+    requestsObserved: 1_000,
+    cpuMsObserved: 10_000,
+    errorsObserved: 0,
+    exceededCpuObserved: 0,
+    cpuTimeAverageMs: 10,
+    cpuTimeP95Ms: Math.min(cpuTimeP99Ms, cpuTimeP99Ms * 0.8),
+    cpuTimeP99Ms,
   };
 }

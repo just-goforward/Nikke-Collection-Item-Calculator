@@ -20,7 +20,7 @@ export default defineConfig({
           DEPLOY_SHA: "test-router-sha",
           PRODUCTION_MUTATIONS_ENABLED: "false",
         },
-        d1Databases: ["STAGING_FORECAST_DB", "PRODUCTION_FORECAST_DB"],
+        d1Databases: ["STAGING_FORECAST_DB", "PRODUCTION_FORECAST_DB", "USAGE_GUARD_DB"],
       },
     }),
   ],

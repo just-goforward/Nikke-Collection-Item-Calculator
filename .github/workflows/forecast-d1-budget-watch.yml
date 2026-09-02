@@ -3,10 +3,10 @@ name: Watch Forecast D1 Budget
 on:
   schedule:
     - cron: "7,37 * * * *"
-    - cron: "57 23 * * *"
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: read
 
 env:
@@ -35,7 +35,33 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Detect an active v6 canary
+      - name: Read Paid usage guard health
+        id: guard
+        continue-on-error: true
+        env:
+          CLOUDFLARE_USAGE_GUARD_URL: ${{ vars.CLOUDFLARE_USAGE_GUARD_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CLOUDFLARE_USAGE_GUARD_URL" =~ ^https://[^/]+$ ]]
+          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+            "$CLOUDFLARE_USAGE_GUARD_URL/health" > "$RUNNER_TEMP/usage-guard-health.json"
+          echo "action=$(jq -er '.effectiveAction' "$RUNNER_TEMP/usage-guard-health.json")" >> "$GITHUB_OUTPUT"
+          jq -e '.ok == true and (.state.action | type == "string")' \
+            "$RUNNER_TEMP/usage-guard-health.json" >/dev/null
+
+      - name: Evaluate current account-wide Paid quota
+        id: budget
+        continue-on-error: true
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN }}
+          CLOUDFLARE_BILLING_READ_TOKEN: ${{ secrets.CLOUDFLARE_BILLING_READ_TOKEN }}
+        run: >-
+          npm run check:d1-budget -- preflight
+          --output "$RUNNER_TEMP/cloudflare-paid-runtime.json"
+
+      - name: Detect an active v7 canary
         id: canary
         continue-on-error: true
         env:
@@ -59,7 +85,7 @@ jobs:
           const now = Date.now();
           const start = Date.parse(report?.window?.startedAt ?? "");
           const end = Date.parse(report?.window?.endsAt ?? "");
-          process.stdout.write(String(report?.version === 6 && start <= now && now < end));
+          process.stdout.write(String(report?.version === 7 && report?.acceptance?.windowMode === "fixed_8_hours" && start <= now && now < end));
           NODE
           )
           echo "active=$active" >> "$GITHUB_OUTPUT"
@@ -67,27 +93,6 @@ jobs:
             jq -r '"canary_id=" + .canaryId, "poll_mode=" + .pollMode' \
               "$RUNNER_TEMP/canary-probe.json" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Alert when the canary endpoint is unavailable
-        if: steps.canary.outcome == 'failure'
-        env:
-          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
-          DISCORD_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          payload=$(jq -n \
-            --arg content "Forecast D1 watchdog could not read the staging canary endpoint. No production service was changed. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            '{content:$content,allowed_mentions:{parse:[]}}')
-          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
-            -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
-            -H "Content-Type: application/json" \
-            --data "$payload" \
-            "https://discord.com/api/v10/channels/$DISCORD_ALERT_CHANNEL_ID/messages" >/dev/null
-
-      - name: Fail after canary endpoint alert
-        if: steps.canary.outcome == 'failure'
-        run: exit 1
 
       - name: Read and validate the exact canary report
         if: steps.canary.outputs.active == 'true'
@@ -101,7 +106,7 @@ jobs:
         run: npm run check:forecast-canary
 
       - name: Verify statistics production D1 remains readable
-        if: steps.canary.outputs.active == 'true' && steps.report.outcome == 'success'
+        if: steps.canary.outputs.active == 'true' && steps.report.outcome == 'success' && steps.guard.outcome == 'success' && steps.guard.outputs.action != 'hard_stop' && steps.budget.outputs.budget_action != 'hard_stop'
         id: stats_probe
         continue-on-error: true
         env:
@@ -114,20 +119,108 @@ jobs:
             --command "SELECT 1 AS ok;" --json)
           [[ "$(jq -r '.[0].results[0].ok' <<<"$result")" == "1" ]]
 
-      - name: Evaluate current account-wide D1 budget
-        if: steps.canary.outputs.active == 'true' && steps.report.outcome == 'success' && steps.stats_probe.outcome == 'success'
-        id: budget
-        continue-on-error: true
+      - name: Classify watchdog action
+        id: action
+        if: always()
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
-        run: >-
-          npm run check:d1-budget -- monitor
-          --evidence "$RUNNER_TEMP/forecast-canary-report.json"
-          --output "$RUNNER_TEMP/d1-budget-runtime.json"
+          CANARY_ACTIVE: ${{ steps.canary.outputs.active }}
+          CANARY_OUTCOME: ${{ steps.canary.outcome }}
+          REPORT_OUTCOME: ${{ steps.report.outcome }}
+          CANARY_EARLY_FAILED: ${{ steps.report.outputs.canary_early_failed }}
+          CANARY_ELIGIBLE: ${{ steps.report.outputs.canary_eligible }}
+          CANARY_PASSED: ${{ steps.report.outputs.canary_passed }}
+          STATS_PROBE_OUTCOME: ${{ steps.stats_probe.outcome }}
+          GUARD_OUTCOME: ${{ steps.guard.outcome }}
+          GUARD_ACTION: ${{ steps.guard.outputs.action }}
+          BUDGET_OUTCOME: ${{ steps.budget.outcome }}
+          BUDGET_ACTION: ${{ steps.budget.outputs.budget_action }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rank() {
+            case "$1" in
+              normal) echo 0 ;;
+              warning) echo 1 ;;
+              disable_staging) echo 2 ;;
+              disable_forecast_production) echo 3 ;;
+              disable_statistics_writes) echo 4 ;;
+              hard_stop) echo 5 ;;
+              *) echo -1 ;;
+            esac
+          }
+          stop_staging=false
+          emergency_action=""
+          alert=false
+          fail=false
+          reasons=()
+          if [[ "$GUARD_OUTCOME" != "success" ]]; then
+            stop_staging=true
+            alert=true
+            fail=true
+            reasons+=("usage_guard_unavailable")
+          elif (( $(rank "$GUARD_ACTION") >= 2 )); then
+            stop_staging=true
+            alert=true
+            fail=true
+            reasons+=("usage_guard_${GUARD_ACTION}")
+          fi
+          if [[ "$BUDGET_OUTCOME" != "success" && "$BUDGET_ACTION" != "warning" ]]; then
+            alert=true
+            fail=true
+            reasons+=("paid_quota_measurement_failed")
+          fi
+          if (( $(rank "$BUDGET_ACTION") >= 2 )); then
+            stop_staging=true
+            alert=true
+            fail=true
+            reasons+=("paid_quota_${BUDGET_ACTION}")
+          fi
+          stricter_action="$GUARD_ACTION"
+          if (( $(rank "$BUDGET_ACTION") > $(rank "$stricter_action") )); then
+            stricter_action="$BUDGET_ACTION"
+          fi
+          if (( $(rank "$stricter_action") >= 3 )); then
+            emergency_action="$stricter_action"
+          fi
+          if [[ "$CANARY_OUTCOME" == "failure" ]]; then
+            alert=true
+            fail=true
+            reasons+=("canary_endpoint_unavailable")
+          elif [[ "$CANARY_ACTIVE" == "true" ]]; then
+            if [[ "$REPORT_OUTCOME" == "failure" || "$CANARY_EARLY_FAILED" == "true" || ( "$CANARY_ELIGIBLE" == "true" && "$CANARY_PASSED" != "true" ) ]]; then
+              stop_staging=true
+              alert=true
+              fail=true
+              reasons+=("canary_runtime_invalid")
+            fi
+            if [[ "$STATS_PROBE_OUTCOME" == "failure" ]]; then
+              stop_staging=true
+              alert=true
+              fail=true
+              reasons+=("stats_production_d1_unreadable")
+            fi
+          fi
+          echo "stop_staging=$stop_staging" >> "$GITHUB_OUTPUT"
+          echo "emergency_action=$emergency_action" >> "$GITHUB_OUTPUT"
+          echo "alert=$alert" >> "$GITHUB_OUTPUT"
+          echo "fail=$fail" >> "$GITHUB_OUTPUT"
+          printf 'reasons=%s\n' "$(IFS=,; echo "${reasons[*]:-none}")" >> "$GITHUB_OUTPUT"
+
+      - name: Record Paid quota status
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Cloudflare Paid quota watchdog"
+            echo "- Guard: \`${{ steps.guard.outputs.action || 'unavailable' }}\`"
+            echo "- Measured action: \`${{ steps.budget.outputs.budget_action || 'unavailable' }}\`"
+            echo "- Current utilization: \`${{ steps.budget.outputs.current_percent || 'unknown' }}%\`"
+            echo "- Projected utilization: \`${{ steps.budget.outputs.projected_percent || 'unknown' }}%\`"
+            echo "- Active canary: \`${{ steps.canary.outputs.active || 'false' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Disable staging Collector and Dispatcher on budget pressure
-        if: always() && steps.canary.outputs.active == 'true' && (steps.report.outcome == 'failure' || steps.stats_probe.outcome == 'failure' || steps.budget.outcome == 'failure')
+        if: always() && steps.action.outputs.stop_staging == 'true'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -182,21 +275,50 @@ jobs:
             --tag "${{ github.sha }}-$POLL_MODE-runtime-budget-stop" \
             --message "Disable forecast collector after runtime D1 budget failure"
 
+      - name: Request protected production Cron stop
+        if: always() && steps.action.outputs.emergency_action != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EMERGENCY_ACTION: ${{ steps.action.outputs.emergency_action }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested_rank() {
+            case "$1" in
+              disable_forecast_production) echo 3 ;;
+              disable_statistics_writes) echo 4 ;;
+              hard_stop) echo 5 ;;
+              *) echo -1 ;;
+            esac
+          }
+          required_rank=$(requested_rank "$EMERGENCY_ACTION")
+          active_rank=$(gh api \
+            "repos/${{ github.repository }}/actions/workflows/cloudflare-quota-emergency-stop.yml/runs?per_page=30" \
+            --jq '[.workflow_runs[] | select(.status != "completed") | .display_title] | map(
+              if contains("hard_stop") then 5
+              elif contains("disable_statistics_writes") then 4
+              elif contains("disable_forecast_production") then 3
+              else -1 end
+            ) | max // -1')
+          if (( active_rank >= required_rank )); then
+            echo "An equal or stricter protected emergency-stop run is already active." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh workflow run cloudflare-quota-emergency-stop.yml \
+            --ref main \
+            -f requested_action="$EMERGENCY_ACTION" \
+            -f source_run_id="${{ github.run_id }}"
+          echo "Requested protected emergency action \`$EMERGENCY_ACTION\`; cloudflare-production approval remains required." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Send direct Discord runtime budget alert
-        if: always() && steps.canary.outputs.active == 'true' && (steps.report.outcome == 'failure' || steps.stats_probe.outcome == 'failure' || steps.budget.outcome == 'failure')
+        if: always() && steps.action.outputs.alert == 'true'
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
           DISCORD_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${{ steps.report.outcome }}" == "failure" ]]; then
-            reasons="canary_report_invalid"
-          elif [[ "${{ steps.stats_probe.outcome }}" == "failure" ]]; then
-            reasons="stats_production_d1_unreadable"
-          else
-            reasons=$(jq -r '.reasons | join(", ")' "$RUNNER_TEMP/d1-budget-runtime.json" 2>/dev/null || echo "budget_monitor_failed")
-          fi
+          reasons="${{ steps.action.outputs.reasons }}"
           payload=$(jq -n \
             --arg content "Forecast staging automation was stopped by the D1 runtime budget guard. Reasons: $reasons. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             '{content:$content,allowed_mentions:{parse:[]}}')
@@ -207,9 +329,9 @@ jobs:
             "https://discord.com/api/v10/channels/$DISCORD_ALERT_CHANNEL_ID/messages" >/dev/null
 
       - name: Fail after runtime budget rollback
-        if: always() && steps.canary.outputs.active == 'true' && (steps.report.outcome == 'failure' || steps.stats_probe.outcome == 'failure' || steps.budget.outcome == 'failure')
+        if: always() && steps.action.outputs.fail == 'true'
         run: exit 1
 
       - name: Record inactive watchdog
         if: steps.canary.outputs.active != 'true'
-        run: echo "No active v6 Forecast staging canary was found." >> "$GITHUB_STEP_SUMMARY"
+        run: echo "No active v7 Forecast staging canary was found; monthly Paid quota monitoring still ran." >> "$GITHUB_STEP_SUMMARY"

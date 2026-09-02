@@ -22,6 +22,7 @@ const fetchAdminSolverDiagnostics = (
 ) => harness.fetchAdminSolverDiagnostics(token, origin);
 const preflight = (origin: string) => harness.preflight(origin);
 const countRows = (table: string) => harness.countRows(table);
+const setGuardAction = (action: string) => harness.setGuardAction(action);
 const mockSiteverify = (...outcomes: Parameters<WorkerTestHarness["mockSiteverify"]>) =>
   harness.mockSiteverify(...outcomes);
 const siteverifyForm = (index: number) => harness.siteverifyForm(index);
@@ -35,13 +36,13 @@ afterEach(async () => {
 });
 
 describe("kit_result event commit", () => {
-  it("fails closed without a rate-limit secret before writing counters or events", async () => {
-    delete testEnv.RATE_LIMIT_SECRET;
+  it("fails closed when the account quota guard disables statistics writes", async () => {
+    await setGuardAction("disable_statistics_writes");
 
     const response = await submit(kitResultEvent("missing-rate-secret01"));
 
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "rate_limit_not_configured" });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "telemetry_budget_disabled", retryable: false });
     await expect(countRows("rate_limits")).resolves.toBe(0);
     await expect(countRows("event_ids")).resolves.toBe(0);
     await expect(countRows("event_aggregates_game_day")).resolves.toBe(0);
@@ -64,18 +65,19 @@ describe("kit_result event commit", () => {
   it("rate-limits repeated accepted submissions before writing the limited event", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
     try {
-      for (let index = 0; index < 30; index += 1) {
+      await setGuardAction("normal");
+      for (let index = 0; index < 120; index += 1) {
         const response = await submit(
           kitResultEvent(`kit-result-rate-${String(index).padStart(4, "0")}`),
         );
-        expect(response.status).toBe(200);
+        expect(response.status, await response.clone().text()).toBe(200);
       }
 
       const limited = await submit(kitResultEvent("kit-result-rate-limited"));
 
       expect(limited.status).toBe(429);
-      expect(await limited.json()).toEqual({ error: "rate_limited" });
-      await expect(countRows("event_ids")).resolves.toBe(30);
+      expect(await limited.json()).toEqual({ error: "rate_limited", retryable: false });
+      await expect(countRows("event_ids")).resolves.toBe(120);
     } finally {
       nowSpy.mockRestore();
     }
@@ -247,7 +249,7 @@ describe("stats response compatibility", () => {
 });
 
 describe("scheduled statistics cleanup", () => {
-  it("deletes only expired rate-limit and event-id rows", async () => {
+  it("deletes expired event IDs without writing legacy D1 rate-limit counters", async () => {
     const now = 1_800_000_000;
     await harness.database.batch([
       harness.database
@@ -268,7 +270,7 @@ describe("scheduled statistics cleanup", () => {
     if (!database) throw new Error("Test database was not initialized.");
     await cleanupExpiredStatistics({ DB: database }, now);
 
-    await expect(countRows("rate_limits")).resolves.toBe(1);
+    await expect(countRows("rate_limits")).resolves.toBe(2);
     await expect(countRows("event_ids")).resolves.toBe(1);
   });
 });

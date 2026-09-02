@@ -179,6 +179,25 @@ jobs:
         if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
         run: npm run test:worker
 
+      - name: Verify Paid quota guard before staging D1 access
+        if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN }}
+          CLOUDFLARE_BILLING_READ_TOKEN: ${{ secrets.CLOUDFLARE_BILLING_READ_TOKEN }}
+          CLOUDFLARE_USAGE_GUARD_URL: ${{ vars.CLOUDFLARE_USAGE_GUARD_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CLOUDFLARE_USAGE_GUARD_URL" =~ ^https://[^/]+$ ]] || {
+            echo "Missing or invalid CLOUDFLARE_USAGE_GUARD_URL variable." >&2
+            exit 1
+          }
+          npm run check:d1-budget -- preflight --output "$RUNNER_TEMP/stats-staging-paid-preflight.json"
+          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+            "$CLOUDFLARE_USAGE_GUARD_URL/health" > "$RUNNER_TEMP/usage-guard-health.json"
+          jq -e '.ok == true and .state.action == "normal"' "$RUNNER_TEMP/usage-guard-health.json" >/dev/null
+
       - name: Ensure staging D1 schema
         if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
         shell: bash

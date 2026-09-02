@@ -1,4 +1,10 @@
 import { readBoundedJson } from "../../shared/boundedHttp.ts";
+import { assertD1QuotaEvidence } from "../../shared/d1QuotaEvidence.ts";
+import {
+  assertUsageAllowed,
+  readUsageGuardEvidence,
+  UsageGuardError,
+} from "../../shared/usageGuard.ts";
 import { readCanaryReport, startCanaryDeployment } from "./canary";
 import { runCollection } from "./collector";
 import { timingSafeBearer } from "./crypto";
@@ -43,12 +49,29 @@ export default {
       );
       return;
     }
+    try {
+      await assertUsageAllowed(requireGuardDb(env), automationOperation(env));
+    } catch (error) {
+      if (error instanceof UsageGuardError) {
+        console.warn(
+          JSON.stringify({
+            event: "forecast_collection_quota_disabled",
+            environment: env.ENVIRONMENT,
+            action: error.action,
+          }),
+        );
+        return;
+      }
+      throw error;
+    }
     context.waitUntil(runCollection(env, { nowMs: event.scheduledTime }));
   },
 
   async fetch(request, env, context) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
+      const quotaResponse = await enforceUsageGuard(env, "admin_read");
+      if (quotaResponse) return quotaResponse;
       const environment = opsEnvironment(env);
       return json({
         ...(await readHealth(env.FORECAST_DB)),
@@ -56,6 +79,8 @@ export default {
       });
     }
     if (request.method === "POST" && url.pathname === "/discord/interactions") {
+      const quotaResponse = await enforceUsageGuard(env, automationOperation(env));
+      if (quotaResponse) return quotaResponse;
       if (env.ADMIN_RATE_LIMITER) {
         const sourceAddress = request.headers.get("cf-connecting-ip") ?? "unknown";
         const rateLimit = await env.ADMIN_RATE_LIMITER.limit({
@@ -90,6 +115,11 @@ export default {
         return new Response("Too many requests", { status: 429 });
       }
     }
+    const quotaResponse = await enforceUsageGuard(
+      env,
+      request.method === "GET" ? "admin_read" : automationOperation(env),
+    );
+    if (quotaResponse) return quotaResponse;
     if (request.method === "POST" && url.pathname === "/admin/probe") {
       const task = runCollection(env);
       context.waitUntil(task);
@@ -276,6 +306,7 @@ export default {
           env.DEPLOY_SHA,
           opsEnvironment(env),
           canaryId,
+          await readUsageGuardEvidence(requireGuardDb(env)),
         ),
       );
     }
@@ -294,6 +325,16 @@ export default {
         ) {
           throw new Error("canary_start_contract_invalid");
         }
+        const guard = await readUsageGuardEvidence(requireGuardDb(env));
+        if (guard.action !== "normal") throw new Error(`cloudflare_paid_guard_${guard.action}`);
+        const requestedEvidence = assertD1QuotaEvidence(record["quotaEvidence"]);
+        if (
+          requestedEvidence.plan.periodStart !== guard.evidence.plan.periodStart ||
+          requestedEvidence.plan.periodEnd !== guard.evidence.plan.periodEnd ||
+          requestedEvidence.action !== "normal"
+        ) {
+          throw new Error("canary_quota_evidence_period_or_action_mismatch");
+        }
         return json({
           canary: await startCanaryDeployment(env.FORECAST_DB, {
             environment: opsEnvironment(env),
@@ -301,7 +342,7 @@ export default {
             deploymentSha: env.DEPLOY_SHA,
             collectorCron: record["collectorCron"],
             dispatcherCron: record["dispatcherCron"],
-            quotaEvidence: record["quotaEvidence"],
+            quotaEvidence: guard.evidence,
           }),
         });
       } catch (error) {
@@ -424,6 +465,32 @@ function json(value: unknown, status = 200) {
 
 function opsEnvironment(env: CollectorEnv) {
   return env.ENVIRONMENT === "production" ? "production" : "staging";
+}
+
+function automationOperation(env: CollectorEnv) {
+  return env.ENVIRONMENT === "production"
+    ? ("production_forecast_automation" as const)
+    : ("staging_automation" as const);
+}
+
+async function enforceUsageGuard(
+  env: CollectorEnv,
+  operation: "admin_read" | "production_forecast_automation" | "staging_automation",
+) {
+  try {
+    await assertUsageAllowed(requireGuardDb(env), operation);
+    return null;
+  } catch (error) {
+    if (error instanceof UsageGuardError) {
+      return json({ error: error.code, retryable: false, action: error.action }, 503);
+    }
+    throw error;
+  }
+}
+
+function requireGuardDb(env: CollectorEnv) {
+  if (!env.USAGE_GUARD_DB) throw new UsageGuardError("hard_stop");
+  return env.USAGE_GUARD_DB;
 }
 
 function adminRouteGroup(pathname: string) {
