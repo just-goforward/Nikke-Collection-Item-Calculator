@@ -17,6 +17,24 @@ beforeEach(async () => {
   }
 });
 
+describe("forecast collector runtime switch", () => {
+  it("does not touch D1 when scheduled collection is disabled", async () => {
+    const waitUntil = vi.fn();
+
+    await worker.scheduled(
+      { scheduledTime: Date.now() } as ScheduledController,
+      { ...testEnv, COLLECT_ENABLED: "false" },
+      { waitUntil } as unknown as ExecutionContext,
+    );
+
+    expect(waitUntil).not.toHaveBeenCalled();
+    const count = await testEnv.FORECAST_DB.prepare(
+      "SELECT COUNT(*) AS count FROM collector_invocations",
+    ).first<{ count: number }>();
+    expect(count?.count).toBe(0);
+  });
+});
+
 describe("forecast collector admin boundary", () => {
   it("checks the admin rate limiter before bearer authentication", async () => {
     const limit = vi.fn().mockResolvedValue({ success: false });

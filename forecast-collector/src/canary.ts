@@ -1,3 +1,4 @@
+import { assertD1QuotaEvidence, type D1QuotaEvidence } from "../../shared/d1QuotaEvidence";
 import {
   assertForecastCandidateInvariants,
   supplyForecastCandidateSchema,
@@ -10,15 +11,20 @@ const MINIMUM_COMPLETION_RATE = 0.99;
 const COLLECTOR_CRON = "*/3 * * * *";
 const DISPATCHER_CRON = "1-59/3 * * * *";
 const ABANDONED_AFTER_MS = 15 * 60 * 1_000;
+const QUOTA_EVIDENCE_MAX_AGE_MS = 10 * 60 * 1_000;
+const CANARY_START_KST_HOUR = 11;
 
 type Environment = "staging" | "production";
-type CanaryDeploymentRow = {
+type CanaryRunRow = {
+  canary_id: string;
   environment: Environment;
   deployment_sha: string;
   collector_cron: string;
   dispatcher_cron: string;
   started_at: string;
   ends_at: string;
+  quota_evidence_json: string;
+  quota_evidence_hash: string;
 };
 
 type InvocationRow = {
@@ -33,49 +39,71 @@ export async function startCanaryDeployment(
   db: D1Database,
   input: {
     environment: Environment;
+    canaryId: string;
     deploymentSha: string;
     collectorCron: string;
     dispatcherCron: string;
+    quotaEvidence: unknown;
     nowMs?: number;
   },
 ) {
+  if (!/^fc-[0-9a-f]{32}$/.test(input.canaryId)) throw new Error("canary_id_invalid");
   if (!/^[0-9a-f]{40}$/.test(input.deploymentSha)) throw new Error("canary_deployment_sha_invalid");
   if (input.collectorCron !== COLLECTOR_CRON || input.dispatcherCron !== DISPATCHER_CRON) {
     throw new Error("canary_cron_contract_invalid");
   }
-  const existing = await readDeployment(db, input.environment, input.deploymentSha);
+  const quotaEvidence = assertD1QuotaEvidence(input.quotaEvidence);
+  const quotaEvidenceJson = stableJson(quotaEvidence);
+  const quotaEvidenceHash = await sha256Hex(quotaEvidenceJson);
+  const existing = await readRunById(db, input.canaryId);
   if (existing) {
     if (
+      existing.environment !== input.environment ||
+      existing.deployment_sha !== input.deploymentSha ||
       existing.collector_cron !== input.collectorCron ||
-      existing.dispatcher_cron !== input.dispatcherCron
+      existing.dispatcher_cron !== input.dispatcherCron ||
+      existing.quota_evidence_hash !== quotaEvidenceHash
     ) {
-      throw new Error("canary_deployment_conflict");
+      throw new Error("canary_run_conflict");
     }
-    return publicDeployment(existing);
+    return publicRun(existing);
   }
   const nowMs = input.nowMs ?? Date.now();
+  assertCanaryStartWindow(nowMs, quotaEvidence);
   const startedAt = new Date(nowMs).toISOString();
   const endsAt = new Date(nowMs + WINDOW_HOURS * 60 * 60 * 1_000).toISOString();
+  const overlapping = await db
+    .prepare(
+      `SELECT canary_id FROM canary_runs
+       WHERE environment = ? AND deployment_sha = ? AND ends_at > ?
+       ORDER BY started_at DESC LIMIT 1`,
+    )
+    .bind(input.environment, input.deploymentSha, startedAt)
+    .first<{ canary_id: string }>();
+  if (overlapping) throw new Error("canary_run_overlap");
   await db
     .prepare(
-      `INSERT INTO canary_deployments (
-         environment, deployment_sha, collector_cron, dispatcher_cron,
-         started_at, ends_at, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO canary_runs (
+         canary_id, environment, deployment_sha, collector_cron, dispatcher_cron,
+         started_at, ends_at, quota_evidence_json, quota_evidence_hash, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
+      input.canaryId,
       input.environment,
       input.deploymentSha,
       input.collectorCron,
       input.dispatcherCron,
       startedAt,
       endsAt,
+      quotaEvidenceJson,
+      quotaEvidenceHash,
       startedAt,
     )
     .run();
-  const stored = await readDeployment(db, input.environment, input.deploymentSha);
-  if (!stored) throw new Error("canary_deployment_missing_after_insert");
-  return publicDeployment(stored);
+  const stored = await readRunById(db, input.canaryId);
+  if (!stored) throw new Error("canary_run_missing_after_insert");
+  return publicRun(stored);
 }
 
 export async function readCanaryReport(
@@ -83,11 +111,17 @@ export async function readCanaryReport(
   nowMs: number,
   deploymentSha: string,
   environment: Environment = "staging",
+  canaryId?: string,
 ) {
-  const deployment = await readDeployment(db, environment, deploymentSha);
-  if (!deployment) return missingReport(deploymentSha, environment, nowMs);
-  const startedMs = Date.parse(deployment.started_at);
-  const endsMs = Date.parse(deployment.ends_at);
+  const run = canaryId
+    ? await readRunById(db, canaryId)
+    : await readLatestRun(db, environment, deploymentSha);
+  if (!run || run.environment !== environment || run.deployment_sha !== deploymentSha) {
+    return missingReport(deploymentSha, environment, nowMs, canaryId ?? null);
+  }
+  const quota = await readQuotaEvidence(run);
+  const startedMs = Date.parse(run.started_at);
+  const endsMs = Date.parse(run.ends_at);
   const observationEndMs = Math.min(nowMs, endsMs);
   const collectorExpected = expectedSlots(startedMs, observationEndMs, 0);
   const dispatcherExpected = expectedSlots(startedMs, observationEndMs, 1);
@@ -95,14 +129,14 @@ export async function readCanaryReport(
     db,
     "collector_invocations",
     deploymentSha,
-    deployment.started_at,
+    run.started_at,
     new Date(observationEndMs).toISOString(),
   );
   const dispatcherInvocations = await readInvocations(
     db,
     "dispatcher_invocations",
     deploymentSha,
-    deployment.started_at,
+    run.started_at,
     new Date(observationEndMs).toISOString(),
   );
   const collector = summarizeInvocations(invocations, collectorExpected, nowMs, observationEndMs);
@@ -114,9 +148,9 @@ export async function readCanaryReport(
   );
 
   const [dispatches, invariants, interactions] = await Promise.all([
-    dispatchSummary(db, deploymentSha, deployment.started_at, deployment.ends_at),
-    invariantSummary(db, environment, deployment.started_at, deployment.ends_at),
-    interactionSummary(db, environment, deployment.started_at, deployment.ends_at),
+    dispatchSummary(db, deploymentSha, run.started_at, run.ends_at),
+    invariantSummary(db, environment, run.started_at, run.ends_at),
+    interactionSummary(db, environment, run.started_at, run.ends_at),
   ]);
   const eligible = nowMs >= endsMs;
   const afterTwoHours = observationEndMs - startedMs >= 2 * 60 * 60 * 1_000;
@@ -135,12 +169,14 @@ export async function readCanaryReport(
     collectorPassed,
     dispatcherPassed,
     routerPassed,
+    quotaPassed: quota.valid,
     totalInvalid: invariants.totalInvalid,
     earlyFailureCount: earlyFailureReasons.length,
   });
 
   return {
-    version: 5,
+    version: 6,
+    canaryId: run.canary_id,
     deploymentSha,
     environment,
     pollMode: invocations.at(-1)?.poll_mode ?? "missing",
@@ -151,8 +187,8 @@ export async function readCanaryReport(
       maximumMissingSlots: 1,
     },
     window: {
-      startedAt: deployment.started_at,
-      endsAt: deployment.ends_at,
+      startedAt: run.started_at,
+      endsAt: run.ends_at,
       observedUntil: new Date(observationEndMs).toISOString(),
       eligible,
       earlyFailure: earlyFailureReasons.length > 0,
@@ -161,19 +197,33 @@ export async function readCanaryReport(
     collector,
     dispatcher: { ...dispatcherInvocationSummary, ...dispatches, passed: dispatcherPassed },
     router: { ...interactions, passed: routerPassed },
+    quota,
     invariants,
     passed,
   };
 }
 
-async function readDeployment(db: D1Database, environment: Environment, deploymentSha: string) {
+async function readRunById(db: D1Database, canaryId: string) {
   return db
     .prepare(
-      `SELECT environment, deployment_sha, collector_cron, dispatcher_cron, started_at, ends_at
-       FROM canary_deployments WHERE environment = ? AND deployment_sha = ?`,
+      `SELECT canary_id, environment, deployment_sha, collector_cron, dispatcher_cron,
+              started_at, ends_at, quota_evidence_json, quota_evidence_hash
+       FROM canary_runs WHERE canary_id = ?`,
+    )
+    .bind(canaryId)
+    .first<CanaryRunRow>();
+}
+
+async function readLatestRun(db: D1Database, environment: Environment, deploymentSha: string) {
+  return db
+    .prepare(
+      `SELECT canary_id, environment, deployment_sha, collector_cron, dispatcher_cron,
+              started_at, ends_at, quota_evidence_json, quota_evidence_hash
+       FROM canary_runs WHERE environment = ? AND deployment_sha = ?
+       ORDER BY started_at DESC LIMIT 1`,
     )
     .bind(environment, deploymentSha)
-    .first<CanaryDeploymentRow>();
+    .first<CanaryRunRow>();
 }
 
 async function readInvocations(
@@ -317,6 +367,7 @@ function reportPassed(input: {
   collectorPassed: boolean;
   dispatcherPassed: boolean;
   routerPassed: boolean;
+  quotaPassed: boolean;
   totalInvalid: number;
   earlyFailureCount: number;
 }) {
@@ -325,6 +376,7 @@ function reportPassed(input: {
     input.collectorPassed &&
     input.dispatcherPassed &&
     input.routerPassed &&
+    input.quotaPassed &&
     input.totalInvalid === 0 &&
     input.earlyFailureCount === 0
   );
@@ -602,8 +654,9 @@ function normalizeSlot(value: string) {
     : "invalid";
 }
 
-function publicDeployment(row: CanaryDeploymentRow) {
+function publicRun(row: CanaryRunRow) {
   return {
+    canaryId: row.canary_id,
     environment: row.environment,
     deploymentSha: row.deployment_sha,
     collectorCron: row.collector_cron,
@@ -613,9 +666,15 @@ function publicDeployment(row: CanaryDeploymentRow) {
   };
 }
 
-function missingReport(deploymentSha: string, environment: Environment, nowMs: number) {
+function missingReport(
+  deploymentSha: string,
+  environment: Environment,
+  nowMs: number,
+  canaryId: string | null,
+) {
   return {
-    version: 5,
+    version: 6,
+    canaryId,
     deploymentSha,
     environment,
     pollMode: "missing",
@@ -650,6 +709,12 @@ function missingReport(deploymentSha: string, environment: Environment, nowMs: n
       failedAuthorizationSmoke: 0,
       passed: false,
     },
+    quota: {
+      valid: false,
+      errorCode: "canary_run_missing",
+      evidence: null,
+      evidenceHash: null,
+    },
     invariants: {
       queue: 0,
       cursors: 0,
@@ -663,6 +728,48 @@ function missingReport(deploymentSha: string, environment: Environment, nowMs: n
     },
     passed: false,
   };
+}
+
+async function readQuotaEvidence(row: CanaryRunRow) {
+  try {
+    const actualHash = await sha256Hex(row.quota_evidence_json);
+    if (actualHash !== row.quota_evidence_hash) {
+      throw new Error("d1_quota_evidence_hash_mismatch");
+    }
+    const evidence = assertD1QuotaEvidence(JSON.parse(row.quota_evidence_json));
+    return {
+      valid: true,
+      errorCode: null,
+      evidence,
+      evidenceHash: row.quota_evidence_hash,
+    };
+  } catch (error) {
+    return {
+      valid: false,
+      errorCode: error instanceof Error ? error.message.slice(0, 120) : "d1_quota_evidence_invalid",
+      evidence: null,
+      evidenceHash: row.quota_evidence_hash,
+    };
+  }
+}
+
+function assertCanaryStartWindow(nowMs: number, evidence: D1QuotaEvidence) {
+  const now = new Date(nowMs);
+  const kstHour = (now.getUTCHours() + 9) % 24;
+  if (kstHour !== CANARY_START_KST_HOUR) {
+    throw new Error("canary_start_outside_kst_window");
+  }
+  const observedAt = Date.parse(evidence.observedAt);
+  if (observedAt > nowMs + 60_000 || nowMs - observedAt > QUOTA_EVIDENCE_MAX_AGE_MS) {
+    throw new Error("d1_quota_evidence_stale");
+  }
+  if (new Date(nowMs).toISOString().slice(0, 10) !== evidence.billingDay) {
+    throw new Error("canary_crosses_d1_billing_day");
+  }
+  const endsAt = nowMs + WINDOW_HOURS * 60 * 60 * 1_000;
+  if (new Date(endsAt - 1).toISOString().slice(0, 10) !== evidence.billingDay) {
+    throw new Error("canary_crosses_d1_billing_day");
+  }
 }
 
 function emptyInvocationSummary() {

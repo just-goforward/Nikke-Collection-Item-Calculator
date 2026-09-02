@@ -1,20 +1,28 @@
-import { appendFile } from "node:fs/promises";
+import { appendFile, writeFile } from "node:fs/promises";
+import { assertD1QuotaEvidence, type D1QuotaEvidence } from "../shared/d1QuotaEvidence.ts";
 
 const baseUrl = requiredEnvironment("FORECAST_COLLECTOR_URL").replace(/\/$/, "");
 const token = requiredEnvironment("FORECAST_COLLECTOR_ADMIN_TOKEN");
-const response = await fetch(`${baseUrl}/admin/canary-report`, {
+const requestedCanaryId = process.env["FORECAST_CANARY_ID"];
+const reportUrl = new URL(`${baseUrl}/admin/canary-report`);
+if (requestedCanaryId) reportUrl.searchParams.set("canaryId", requestedCanaryId);
+const response = await fetch(reportUrl, {
   headers: { authorization: `Bearer ${token}`, accept: "application/json" },
   signal: AbortSignal.timeout(10_000),
 });
 if (!response.ok) throw new Error(`Canary report returned ${response.status}.`);
 const report: unknown = await response.json();
 if (!isCanaryReport(report)) throw new Error("Canary report schema is invalid.");
+assertD1QuotaEvidence(report.quota.evidence);
+const reportOutput = process.env["FORECAST_CANARY_REPORT_OUTPUT"];
+if (reportOutput) await writeFile(reportOutput, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 await outputs({
   canary_passed: String(report.passed),
   canary_eligible: String(report.window.eligible),
   canary_early_failed: String(report.window.earlyFailure),
   poll_mode: report.pollMode,
   deployment_sha: report.deploymentSha,
+  canary_id: report.canaryId,
 });
 console.log(JSON.stringify(report, null, 2));
 
@@ -37,7 +45,8 @@ function requiredEnvironment(name: string) {
 }
 
 type CanaryReport = {
-  version: 5;
+  version: 6;
+  canaryId: string;
   deploymentSha: string;
   pollMode: "both" | "alternating" | "missing";
   passed: boolean;
@@ -68,6 +77,12 @@ type CanaryReport = {
     maxInitialResponseMs: number;
     passed: boolean;
   };
+  quota: {
+    valid: true;
+    errorCode: null;
+    evidence: D1QuotaEvidence;
+    evidenceHash: string;
+  };
   invariants: { totalInvalid: number };
 };
 
@@ -86,8 +101,9 @@ type InvocationSummary = {
 };
 
 function isCanaryReport(value: unknown): value is CanaryReport {
-  if (!isRecord(value) || value["version"] !== 5 || typeof value["deploymentSha"] !== "string")
+  if (!isRecord(value) || value["version"] !== 6 || typeof value["deploymentSha"] !== "string")
     return false;
+  if (!/^fc-[0-9a-f]{32}$/.test(String(value["canaryId"]))) return false;
   if (typeof value["passed"] !== "boolean") return false;
   if (!["both", "alternating", "missing"].includes(String(value["pollMode"]))) return false;
   return (
@@ -96,8 +112,20 @@ function isCanaryReport(value: unknown): value is CanaryReport {
     isInvocationSummary(value["collector"]) &&
     isDispatcherSummary(value["dispatcher"]) &&
     isRouterSummary(value["router"]) &&
+    isQuotaEvidence(value["quota"]) &&
     isRecord(value["invariants"]) &&
     typeof value["invariants"]["totalInvalid"] === "number"
+  );
+}
+
+function isQuotaEvidence(value: unknown): value is CanaryReport["quota"] {
+  return (
+    isRecord(value) &&
+    value["valid"] === true &&
+    value["errorCode"] === null &&
+    typeof value["evidenceHash"] === "string" &&
+    /^[0-9a-f]{64}$/.test(value["evidenceHash"]) &&
+    isRecord(value["evidence"])
   );
 }
 

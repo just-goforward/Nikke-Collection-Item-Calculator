@@ -1,0 +1,214 @@
+name: Watch Forecast D1 Budget
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: forecast-d1-budget-watch
+  cancel-in-progress: false
+
+jobs:
+  watch-staging:
+    if: vars.FORECAST_COLLECTOR_STAGING_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.20.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Detect an active v6 canary
+        id: canary
+        continue-on-error: true
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --connect-timeout 5 --max-time 20 \
+            --output "$RUNNER_TEMP/canary-probe.json" --write-out "%{http_code}" \
+            -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            -H "Accept: application/json" \
+            "$FORECAST_COLLECTOR_URL/admin/canary-report")
+          [[ "$status" == "200" ]] || {
+            echo "Canary probe returned HTTP $status." >&2
+            exit 1
+          }
+          active=$(node --input-type=module - "$RUNNER_TEMP/canary-probe.json" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const report = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const now = Date.now();
+          const start = Date.parse(report?.window?.startedAt ?? "");
+          const end = Date.parse(report?.window?.endsAt ?? "");
+          process.stdout.write(String(report?.version === 6 && start <= now && now < end));
+          NODE
+          )
+          echo "active=$active" >> "$GITHUB_OUTPUT"
+          if [[ "$active" == "true" ]]; then
+            jq -r '"canary_id=" + .canaryId, "poll_mode=" + .pollMode' \
+              "$RUNNER_TEMP/canary-probe.json" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Alert when the canary endpoint is unavailable
+        if: steps.canary.outcome == 'failure'
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload=$(jq -n \
+            --arg content "Forecast D1 watchdog could not read the staging canary endpoint. No production service was changed. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{content:$content,allowed_mentions:{parse:[]}}')
+          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+            -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "https://discord.com/api/v10/channels/$DISCORD_ALERT_CHANNEL_ID/messages" >/dev/null
+
+      - name: Fail after canary endpoint alert
+        if: steps.canary.outcome == 'failure'
+        run: exit 1
+
+      - name: Read and validate the exact canary report
+        if: steps.canary.outputs.active == 'true'
+        id: report
+        continue-on-error: true
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          FORECAST_CANARY_ID: ${{ steps.canary.outputs.canary_id }}
+          FORECAST_CANARY_REPORT_OUTPUT: ${{ runner.temp }}/forecast-canary-report.json
+        run: npm run check:forecast-canary
+
+      - name: Verify statistics production D1 remains readable
+        if: steps.canary.outputs.active == 'true' && steps.report.outcome == 'success'
+        id: stats_probe
+        continue-on-error: true
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          result=$(npx wrangler d1 execute DB --remote --config cloudflare/wrangler.toml \
+            --command "SELECT 1 AS ok;" --json)
+          [[ "$(jq -r '.[0].results[0].ok' <<<"$result")" == "1" ]]
+
+      - name: Evaluate current account-wide D1 budget
+        if: steps.canary.outputs.active == 'true' && steps.report.outcome == 'success' && steps.stats_probe.outcome == 'success'
+        id: budget
+        continue-on-error: true
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+        run: >-
+          npm run check:d1-budget -- monitor
+          --evidence "$RUNNER_TEMP/forecast-canary-report.json"
+          --output "$RUNNER_TEMP/d1-budget-runtime.json"
+
+      - name: Disable staging Collector and Dispatcher on budget pressure
+        if: always() && steps.canary.outputs.active == 'true' && (steps.report.outcome == 'failure' || steps.stats_probe.outcome == 'failure' || steps.budget.outcome == 'failure')
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
+          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
+          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
+          DISCORD_FORECAST_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
+          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
+          DISCORD_FORECAST_APPLICATION_ID: ${{ vars.DISCORD_FORECAST_APPLICATION_ID }}
+          DISCORD_FORECAST_PUBLIC_KEY: ${{ vars.DISCORD_FORECAST_PUBLIC_KEY }}
+          POLL_MODE: ${{ steps.canary.outputs.poll_mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - \
+            "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
+            "$RUNNER_TEMP/forecast-secrets.json" <<'NODE'
+          import { writeFileSync } from "node:fs";
+          writeFileSync(process.argv[2], JSON.stringify({
+            GITHUB_APP_PRIVATE_KEY: process.env.FORECAST_GITHUB_APP_PRIVATE_KEY,
+            DISCORD_BOT_TOKEN: process.env.DISCORD_FORECAST_BOT_TOKEN,
+          }), { mode: 0o600 });
+          writeFileSync(process.argv[3], JSON.stringify({
+            ADMIN_TOKEN: process.env.FORECAST_COLLECTOR_ADMIN_TOKEN,
+            DISCORD_APPLICATION_ID: process.env.DISCORD_FORECAST_APPLICATION_ID,
+            DISCORD_PUBLIC_KEY: process.env.DISCORD_FORECAST_PUBLIC_KEY,
+          }), { mode: 0o600 });
+          NODE
+          npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml \
+            --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
+            --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} \
+            --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID \
+            --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID \
+            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID \
+            --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID \
+            --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
+            --var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID \
+            --var DISPATCH_ENABLED:false \
+            --tag "${{ github.sha }}-runtime-budget-stop" \
+            --message "Disable forecast dispatcher after runtime D1 budget failure"
+          npx wrangler deploy --env staging --config forecast-collector/wrangler.toml \
+            --secrets-file "$RUNNER_TEMP/forecast-secrets.json" \
+            --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
+            --var COLLECT_ENABLED:false \
+            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
+            --var DISCORD_INTERACTION_OWNER:router \
+            --tag "${{ github.sha }}-$POLL_MODE-runtime-budget-stop" \
+            --message "Disable forecast collector after runtime D1 budget failure"
+
+      - name: Send direct Discord runtime budget alert
+        if: always() && steps.canary.outputs.active == 'true' && (steps.report.outcome == 'failure' || steps.stats_probe.outcome == 'failure' || steps.budget.outcome == 'failure')
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.report.outcome }}" == "failure" ]]; then
+            reasons="canary_report_invalid"
+          elif [[ "${{ steps.stats_probe.outcome }}" == "failure" ]]; then
+            reasons="stats_production_d1_unreadable"
+          else
+            reasons=$(jq -r '.reasons | join(", ")' "$RUNNER_TEMP/d1-budget-runtime.json" 2>/dev/null || echo "budget_monitor_failed")
+          fi
+          payload=$(jq -n \
+            --arg content "Forecast staging automation was stopped by the D1 runtime budget guard. Reasons: $reasons. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{content:$content,allowed_mentions:{parse:[]}}')
+          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+            -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "https://discord.com/api/v10/channels/$DISCORD_ALERT_CHANNEL_ID/messages" >/dev/null
+
+      - name: Fail after runtime budget rollback
+        if: always() && steps.canary.outputs.active == 'true' && (steps.report.outcome == 'failure' || steps.stats_probe.outcome == 'failure' || steps.budget.outcome == 'failure')
+        run: exit 1
+
+      - name: Record inactive watchdog
+        if: steps.canary.outputs.active != 'true'
+        run: echo "No active v6 Forecast staging canary was found." >> "$GITHUB_STEP_SUMMARY"

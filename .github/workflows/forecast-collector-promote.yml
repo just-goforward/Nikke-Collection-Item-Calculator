@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       canary_passed: ${{ steps.canary.outputs.canary_passed }}
+      canary_id: ${{ steps.canary.outputs.canary_id }}
       deployment_sha: ${{ steps.canary.outputs.deployment_sha }}
       canary_early_failed: ${{ steps.canary.outputs.canary_early_failed }}
       poll_mode: ${{ steps.canary.outputs.poll_mode }}
@@ -49,6 +50,7 @@ jobs:
         env:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          FORECAST_CANARY_REPORT_OUTPUT: ${{ runner.temp }}/forecast-canary-report.json
         run: npm run check:forecast-canary
 
       - name: Verify canary deployment inputs match current main
@@ -75,18 +77,22 @@ jobs:
             shared/supplyForecastCandidate.ts \
             shared/supplyForecastModel.ts \
             shared/boundedHttp.ts \
+            shared/d1QuotaEvidence.ts \
             scripts/smoke-forecast-collector.ts \
             scripts/smoke-forecast-dispatcher.ts \
             scripts/smoke-forecast-interactions.ts \
             scripts/send-forecast-router-test.ts \
             scripts/resolve-forecast-manual-review.ts \
             scripts/cloudflare-cron-capacity.ts \
+            scripts/cloudflare-d1-budget.ts \
+            scripts/lib/d1-budget.ts \
             scripts/probe-forecast-github-app.ts \
             scripts/forecast-dispatcher-workflow.spec.ts \
             vitest.forecast-collector.config.ts \
             vitest.forecast-dispatcher.config.ts \
             vitest.forecast-interactions.config.ts \
             .github/workflows/forecast-collector-deploy.yml \
+            .github/workflows/forecast-d1-budget-watch.yml \
             .github/workflows/forecast-proposal.yml \
             .github/workflows/resolve-forecast-manual-review.yml \
             package.json \
@@ -95,12 +101,34 @@ jobs:
             exit 1
           }
 
+      - name: Recheck account-wide D1 budget at promotion boundary
+        if: steps.canary.outputs.canary_passed == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+        run: >-
+          npm run check:d1-budget -- monitor
+          --evidence "$RUNNER_TEMP/forecast-canary-report.json"
+          --output "$RUNNER_TEMP/d1-budget-promotion.json"
+
+      - name: Verify statistics production D1 at promotion boundary
+        if: steps.canary.outputs.canary_passed == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          result=$(npx wrangler d1 execute DB --remote --config cloudflare/wrangler.toml \
+            --command "SELECT 1 AS ok;" --json)
+          [[ "$(jq -r '.[0].results[0].ok' <<<"$result")" == "1" ]]
+
       - name: Canary pending summary
         if: steps.canary.outputs.canary_passed != 'true'
         run: |
           echo "Eight-hour forecast automation canary is not yet eligible or has not passed." >> "$GITHUB_STEP_SUMMARY"
           if [[ "${{ steps.canary.outputs.canary_early_failed }}" == "true" ]]; then
-            echo "The v5 early-failure gate rejected this deployment. Do not weaken or reuse this window." >> "$GITHUB_STEP_SUMMARY"
+            echo "The v6 early-failure gate rejected this deployment. Do not weaken or reuse this window." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   promote:
@@ -159,6 +187,19 @@ jobs:
           [[ "$DISCORD_FORECAST_APPLICATION_ID" =~ ^[0-9]{6,24}$ ]]
           [[ "$DISCORD_FORECAST_PUBLIC_KEY" =~ ^[0-9a-fA-F]{64}$ ]]
 
+      - name: Recheck D1 budget before production migrations
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          stats_probe=$(npx wrangler d1 execute DB --remote \
+            --config cloudflare/wrangler.toml --command "SELECT 1 AS ok;" --json)
+          [[ "$(jq -r '.[0].results[0].ok' <<<"$stats_probe")" == "1" ]]
+          npm run check:d1-budget -- preflight --output "$RUNNER_TEMP/d1-budget-production-preflight.json"
+
       - name: Apply production workflow dispatch operations migration
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -190,6 +231,22 @@ jobs:
             npx wrangler d1 execute FORECAST_DB --remote --env="" \
               --config forecast-collector/wrangler.toml \
               --file forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql
+
+      - name: Apply production D1 budget and canary v6 migration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 9;" \
+            --json)
+          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
+            npx wrangler d1 execute FORECAST_DB --remote --env="" \
+              --config forecast-collector/wrangler.toml \
+              --file forecast-collector/migrations/0009_d1_budget_canary_v6.sql
 
       - name: Verify production Cron trigger capacity
         env:
@@ -349,10 +406,11 @@ jobs:
           set -euo pipefail
           result=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
             --config forecast-collector/wrangler.toml \
-            --command "SELECT (SELECT COUNT(*) FROM schema_migrations WHERE version=8) AS migration, (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('dispatcher_invocations','workflow_dispatches','forecast_ops_alerts','source_manual_reviews','discord_interaction_audit','canary_deployments')) AS tables;" \
+            --command "SELECT (SELECT COUNT(*) FROM schema_migrations WHERE version=9) AS migration, (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('dispatcher_invocations','workflow_dispatches','forecast_ops_alerts','source_manual_reviews','discord_interaction_audit','canary_deployments','canary_runs')) AS tables, (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name IN ('collector_invocations_latest_idx','dispatcher_invocations_environment_latest_idx')) AS indexes;" \
             --json)
           [[ "$(jq -r '.[0].results[0].migration' <<<"$result")" == "1" ]]
-          [[ "$(jq -r '.[0].results[0].tables' <<<"$result")" == "6" ]]
+          [[ "$(jq -r '.[0].results[0].tables' <<<"$result")" == "7" ]]
+          [[ "$(jq -r '.[0].results[0].indexes' <<<"$result")" == "2" ]]
 
       - name: Capture production version
         if: steps.rollout.outputs.needed == 'true' && steps.deployed.outputs.worker_exists == 'true'
@@ -451,6 +509,7 @@ jobs:
           npx wrangler deploy --env="" --config forecast-collector/wrangler.toml
           --secrets-file "$RUNNER_TEMP/forecast-secrets.json"
           --var ENVIRONMENT:production --var DEPLOY_SHA:$DEPLOY_SHA --var POLL_MODE:$POLL_MODE
+          --var COLLECT_ENABLED:true
           --var DISCORD_INTERACTION_OWNER:router
           --tag "$DEPLOY_SHA-$POLL_MODE" --message "Forecast collector production $DEPLOY_SHA ($POLL_MODE)"
 
