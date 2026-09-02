@@ -5,6 +5,7 @@ export type DispatcherEnvironment = "staging" | "production";
 export type DispatcherEnv = Omit<GeneratedForecastDispatcherEnv, "ENVIRONMENT"> & {
   ENVIRONMENT: DispatcherEnvironment;
   DISPATCH_ENABLED: "true" | "false";
+  USAGE_GUARD_DB: D1Database;
 };
 
 export type WorkLink = {

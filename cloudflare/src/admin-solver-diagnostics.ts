@@ -9,6 +9,7 @@ import {
 import type { WorkerEnv } from "./env";
 import { isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
+import { assertQuotaAllows } from "./quota-guard";
 
 type SolverDiagnosticSummaryRow = {
   date_basis?: string | null;
@@ -211,6 +212,7 @@ async function assertAdminRequest(request: Request, env: WorkerEnv) {
   if (!env.ADMIN_TOKEN) throw new HttpError(404, "not_found");
   if (!(await tokensMatch(bearerToken(request), env.ADMIN_TOKEN)))
     throw new HttpError(403, "admin_forbidden");
+  await assertQuotaAllows(env, "admin_read");
 }
 
 async function tokensMatch(provided: string, expected: string) {

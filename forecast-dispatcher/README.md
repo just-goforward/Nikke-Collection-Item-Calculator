@@ -50,15 +50,22 @@ retries the same durable alert. Final send failures remain visible in `/health`.
 one green recovery message. X/Jina unavailability remains advisory and is not an operations
 incident.
 
-## D1 account budget guard
+## Workers Paid quota guard
 
-The statistics and Forecast production/staging databases share one Cloudflare Free account quota.
-Before a staging canary starts, GitHub Actions records an account-wide GraphQL baseline, runs the
-Collector and Dispatcher for 30 minutes, and projects that burn-in across the eight-hour window with
-a 2x safety factor. `Watch Forecast D1 Budget` repeats the check every 30 minutes. If the Forecast
-allowance, account projection, statistics-production reserve, or direct statistics D1 read probe
-fails, staging is redeployed with both `DISPATCH_ENABLED=false` and `COLLECT_ENABLED=false`. This
-guard never disables or redeploys the statistics production Worker.
+The Dispatcher checks the shared `USAGE_GUARD_DB` before reading actionable work or dispatching a
+workflow. A dedicated 15-minute Usage Guard verifies the Workers Paid subscription and billing
+period, aggregates all Workers and D1 databases in the account, and conservatively projects every
+monthly metric from the longest available recent window up to six hours. The project uses 50% of
+each included allowance as its software hard cap. A 25%
+warning does not stop work; staging stops at 35%, production Forecast automation at 40%, statistics
+writes at 45%, and optional D1/Cron work at 50%. Missing state is fail-closed, 45-minute-old evidence
+blocks production Forecast automation, and two-hour-old evidence hard-stops optional work.
+
+Before a staging canary starts, GitHub Actions records a baseline, runs Collector and Dispatcher for
+30 minutes, and requires both current and projected month-end utilization below 25%. `Watch Forecast
+D1 Budget` independently repeats account preflight and Guard health checks every 30 minutes. At the
+35% stage or above, it redeploys staging with both `DISPATCH_ENABLED=false` and
+`COLLECT_ENABLED=false`; the in-Worker guard enforces higher stages without waiting for a deployment.
 
 ## Local verification
 
@@ -84,6 +91,7 @@ DISCORD_FALLBACK_CHANNEL_ID
 DISCORD_CHANNEL_ID (legacy fallback during migration)
 DISCORD_BOT_TOKEN (secret)
 FORECAST_DB
+USAGE_GUARD_DB
 ENVIRONMENT
 DEPLOY_SHA
 DISPATCH_ENABLED

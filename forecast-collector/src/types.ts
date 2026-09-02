@@ -2,6 +2,7 @@ import type { SupplyForecastCandidate } from "../../shared/supplyForecastCandida
 
 export type CollectorEnv = {
   FORECAST_DB: D1Database;
+  USAGE_GUARD_DB?: D1Database;
   ADMIN_RATE_LIMITER?: RateLimit;
   ADMIN_TOKEN: string;
   ENVIRONMENT: "test" | "staging" | "production";

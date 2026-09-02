@@ -16,13 +16,13 @@ export class WorkerTestHarness {
     ADMIN_TOKEN: "test-admin-token",
     ALLOWED_ORIGINS: "https://test.example",
     TURNSTILE_SECRET_KEY: "test-turnstile-secret",
-    RATE_LIMIT_SECRET: "test-rate-limit-secret",
   };
 
   siteverifyContentTypes: Array<string | null> = [];
   siteverifyForms: URLSearchParams[] = [];
 
   #database: D1Database | null = null;
+  #guardDatabase: D1Database | null = null;
 
   get database() {
     if (!this.#database) throw new Error("Worker test database is not initialized.");
@@ -32,11 +32,13 @@ export class WorkerTestHarness {
   async setup() {
     await reset();
     this.#database = env.DB;
+    this.#guardDatabase = env.USAGE_GUARD_DB;
     this.env.DB = env.DB;
+    this.env.USAGE_GUARD_DB = env.USAGE_GUARD_DB;
     this.env.ADMIN_TOKEN = "test-admin-token";
     this.env.ALLOWED_ORIGINS = "https://test.example";
-    this.env.RATE_LIMIT_SECRET = "test-rate-limit-secret";
     await this.applySchema();
+    await this.applyGuardState();
     this.mockSiteverify({ body: { success: true } });
   }
 
@@ -45,6 +47,7 @@ export class WorkerTestHarness {
     delete this.env.ALLOWED_ORIGINS;
     delete this.env.ADMIN_TOKEN;
     this.#database = null;
+    this.#guardDatabase = null;
   }
 
   async submit(payload: object) {
@@ -122,6 +125,24 @@ export class WorkerTestHarness {
     return Number(result?.count || 0);
   }
 
+  async setGuardAction(action: string) {
+    if (!this.#guardDatabase) throw new Error("Usage Guard test database is not initialized.");
+    const now = Date.now();
+    await this.#guardDatabase
+      .prepare(
+        `UPDATE usage_guard_state
+         SET action = ?, observed_at = ?, period_start = ?, period_end = ?
+         WHERE singleton_id = 1`,
+      )
+      .bind(
+        action,
+        new Date(now).toISOString(),
+        new Date(now - 24 * 60 * 60 * 1_000).toISOString(),
+        new Date(now + 29 * 24 * 60 * 60 * 1_000).toISOString(),
+      )
+      .run();
+  }
+
   mockSiteverify(...outcomes: SiteverifyOutcome[]): void {
     let index = 0;
     this.siteverifyForms = [];
@@ -158,15 +179,46 @@ export class WorkerTestHarness {
     }
   }
 
+  private async applyGuardState() {
+    if (!this.#guardDatabase) throw new Error("Usage Guard test database is not initialized.");
+    await this.#guardDatabase
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS usage_guard_state (
+           singleton_id INTEGER PRIMARY KEY,
+           action TEXT NOT NULL,
+           observed_at TEXT NOT NULL,
+           period_start TEXT NOT NULL,
+           period_end TEXT NOT NULL,
+           evidence_hash TEXT NOT NULL
+         )`,
+      )
+      .run();
+    const now = Date.now();
+    await this.#guardDatabase
+      .prepare(
+        `INSERT OR REPLACE INTO usage_guard_state (
+           singleton_id, action, observed_at, period_start, period_end, evidence_hash
+         ) VALUES (1, 'normal', ?, ?, ?, ?)`,
+      )
+      .bind(
+        new Date(now).toISOString(),
+        new Date(now - 24 * 60 * 60 * 1_000).toISOString(),
+        new Date(now + 29 * 24 * 60 * 60 * 1_000).toISOString(),
+        "a".repeat(64),
+      )
+      .run();
+  }
+
   private workerEnv(): WorkerEnv {
     const db = this.env.DB;
     if (!db) throw new Error("Worker test DB binding is not initialized.");
     return {
       DB: db,
+      USAGE_GUARD_DB: this.env.USAGE_GUARD_DB ?? db,
+      EVENT_RATE_LIMITER: this.env.EVENT_RATE_LIMITER ?? env.EVENT_RATE_LIMITER,
       ALLOWED_ORIGINS: this.env.ALLOWED_ORIGINS ?? "",
       ADMIN_TOKEN: this.env.ADMIN_TOKEN ?? "",
       TURNSTILE_SECRET_KEY: this.env.TURNSTILE_SECRET_KEY ?? "",
-      RATE_LIMIT_SECRET: this.env.RATE_LIMIT_SECRET ?? "",
     };
   }
 

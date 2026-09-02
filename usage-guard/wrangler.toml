@@ -1,0 +1,35 @@
+name = "collection-kit-usage-guard"
+main = "src/worker.ts"
+compatibility_date = "2026-09-02"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[limits]
+cpu_ms = 25
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 0.25
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[d1_databases]]
+binding = "GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+[vars]
+ENVIRONMENT = "production"
+DEPLOY_SHA = "local"
+CLOUDFLARE_ACCOUNT_ID = "15be33fd20ea78eb3d60b719be831148"
+DISCORD_ALERT_CHANNEL_ID = "1544139171667513354"
+
+[secrets]
+required = [
+  "CLOUDFLARE_D1_ANALYTICS_TOKEN",
+  "CLOUDFLARE_BILLING_READ_TOKEN",
+  "DISCORD_BOT_TOKEN",
+  "ADMIN_TOKEN"
+]

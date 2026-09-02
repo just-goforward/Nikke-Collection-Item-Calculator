@@ -1,0 +1,119 @@
+name: Emergency Stop Cloudflare Automation
+run-name: "Cloudflare quota emergency: ${{ inputs.requested_action }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      requested_action:
+        description: Quota action that requested the stop
+        required: true
+        type: choice
+        options:
+          - disable_forecast_production
+          - disable_statistics_writes
+          - hard_stop
+      source_run_id:
+        description: Watchdog Actions run ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-quota-emergency-${{ inputs.requested_action }}
+  cancel-in-progress: false
+
+jobs:
+  stop-cron-triggers:
+    environment: cloudflare-production
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate request and current guard state
+        id: validate
+        env:
+          REQUESTED_ACTION: ${{ inputs.requested_action }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          CLOUDFLARE_USAGE_GUARD_URL: ${{ vars.CLOUDFLARE_USAGE_GUARD_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid source run ID." >&2; exit 1; }
+          case "$REQUESTED_ACTION" in
+            disable_forecast_production|disable_statistics_writes|hard_stop) ;;
+            *) echo "Invalid emergency action." >&2; exit 1 ;;
+          esac
+          rank() {
+            case "$1" in
+              normal) echo 0 ;;
+              warning) echo 1 ;;
+              disable_staging) echo 2 ;;
+              disable_forecast_production) echo 3 ;;
+              disable_statistics_writes) echo 4 ;;
+              hard_stop) echo 5 ;;
+              *) echo -1 ;;
+            esac
+          }
+          guard_status=$(curl --silent --show-error --connect-timeout 5 --max-time 20 \
+            --output "$RUNNER_TEMP/usage-guard-health.json" --write-out "%{http_code}" \
+            "$CLOUDFLARE_USAGE_GUARD_URL/health" || true)
+          if [[ "$guard_status" == "200" ]]; then
+            guard_action=$(jq -er '.state.action' "$RUNNER_TEMP/usage-guard-health.json")
+            if (( $(rank "$guard_action") < $(rank "$REQUESTED_ACTION") )); then
+              echo "Usage Guard action $guard_action no longer justifies $REQUESTED_ACTION; no triggers were changed." >> "$GITHUB_STEP_SUMMARY"
+              echo "proceed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          elif [[ "$REQUESTED_ACTION" != "hard_stop" ]]; then
+            echo "Usage Guard is unavailable; only an explicitly approved hard_stop may proceed." >&2
+            exit 1
+          else
+            echo "Usage Guard health is unavailable; proceeding with the explicitly approved fail-closed hard stop." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Remove selected Cron triggers
+        if: steps.validate.outputs.proceed == 'true'
+        env:
+          REQUESTED_ACTION: ${{ inputs.requested_action }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing Cloudflare account ID." >&2; exit 1; }
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing Cloudflare API token." >&2; exit 1; }
+
+          scripts=(
+            collection-kit-forecast-collector
+            collection-kit-forecast-dispatcher
+          )
+          if [[ "$REQUESTED_ACTION" == "hard_stop" ]]; then
+            scripts+=(
+              collection-kit-forecast-collector-staging
+              collection-kit-forecast-dispatcher-staging
+              collection-kit-stats
+              collection-kit-stats-staging
+            )
+          fi
+
+          for script in "${scripts[@]}"; do
+            response="$RUNNER_TEMP/${script}-schedules.json"
+            status=$(curl --silent --show-error --connect-timeout 5 --max-time 20 \
+              --output "$response" --write-out "%{http_code}" \
+              -X PUT \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data '[]' \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$script/schedules")
+            [[ "$status" == "200" ]] || { echo "Cron update for $script returned HTTP $status." >&2; exit 1; }
+            jq -e '.success == true and (.result.schedules | type == "array") and (.result.schedules | length == 0)' "$response" >/dev/null
+            echo "- Removed Cron triggers from \`$script\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          {
+            echo ""
+            echo "Usage Guard Cron was intentionally retained so billing-period recovery can still be measured."
+            echo "Trigger changes may take up to 15 minutes to propagate. Restore only through a normal protected deployment after the guard returns to normal."
+          } >> "$GITHUB_STEP_SUMMARY"

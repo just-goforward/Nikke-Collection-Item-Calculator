@@ -65,23 +65,21 @@ describe("Forecast dispatcher workflow contract", () => {
     }
     expect(interactionConfig).not.toContain("[triggers]");
     expect(stagingDeploy).toContain("router_endpoint_ready:");
-    expect(stagingDeploy).toContain("Start canary through the next D1 reset");
-    expect(productionPromote).toContain("Read authenticated reset-boundary canary report");
-    expect(d1BudgetWatch).toContain('cron: "57 23 * * *"');
+    expect(stagingDeploy).toContain("Start fixed eight-hour Paid canary v7");
+    expect(productionPromote).toContain("Read authenticated Paid canary v7 report");
     expect(productionPromote).toContain("environment: cloudflare-production");
     expect(productionPromote).toContain("Determine coupled production rollout");
     expect(stagingDeploy).toContain("Probe GitHub App installation and fixed workflow");
     expect(stagingDeploy).toContain("Disable staging dispatcher after smoke failure");
     expect(stagingDeploy).toContain("Observe 30-minute account-wide D1 burn-in");
     expect(stagingDeploy).toContain("npm run check:d1-budget -- preflight");
-    expect(stagingDeploy.indexOf("Apply staging D1 budget and canary v6 migration")).toBeLessThan(
+    expect(stagingDeploy.indexOf("Ensure staging canary storage migration")).toBeLessThan(
       stagingDeploy.indexOf("npm run check:d1-budget -- preflight"),
     );
     expect(stagingDeploy).toContain("Verify production and staging Forecast covering indexes");
     expect(stagingDeploy).toContain("--var COLLECT_ENABLED:false");
     expect(stagingDeploy).toContain("--var COLLECT_ENABLED:true");
     expect(stagingDeploy).toContain("npm run check:d1-budget -- evaluate");
-    expect(productionPromote).toContain("npm run check:d1-budget -- monitor");
     expect(productionPromote).toContain("npm run check:d1-budget -- preflight");
     expect(d1BudgetWatch).toContain('cron: "7,37 * * * *"');
     expect(d1BudgetWatch).toContain("Disable staging Collector and Dispatcher on budget pressure");
@@ -112,7 +110,7 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(githubApp).toContain('from "../../shared/boundedHttp.ts"');
     expect(naverAction).toContain('from "../shared/boundedHttp.ts"');
     expect(readFileSync("scripts/cloudflare-d1-budget.ts", "utf8")).toContain(
-      'from "./lib/d1-budget.ts"',
+      'from "../shared/cloudflarePaidUsage.ts"',
     );
     expect(readFileSync("scripts/check-forecast-canary.ts", "utf8")).toContain(
       'from "../shared/d1QuotaEvidence.ts"',

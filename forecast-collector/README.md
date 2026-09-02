@@ -226,23 +226,27 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   counts. Candidate payloads and canary evidence require a timing-safe bearer token.
 - Admin abuse is limited first by unauthenticated request IP, then timing-safe bearer verification,
   then by authenticated HTTP-method and route group. Discord interaction limits are separate.
-- Canary report v6 uses an independent `canaryId` and the server-recorded run start, not the number
-  of rows that happened to reach D1. It generates expected Collector and Dispatcher Cron slots from that start through
-  the next D1 daily reset at 00:00 UTC (09:00 KST). Each Worker must deliver and complete at least 99%, miss at most one slot, end completed,
+- Canary report v7 uses an independent `canaryId` and the server-recorded run start, not the number
+  of rows that happened to reach D1. It generates expected Collector and Dispatcher Cron slots for a
+  fixed eight-hour window. Each Worker must deliver and complete at least 99%, miss at most one slot, end completed,
   and have zero abandoned, late, unexpected, or duplicate invocations. Queue, cursor, candidate, watermark, manual
   review, workflow callback, unsent critical alert, Dispatcher smoke, and Router interaction
   invariants must also pass. One signed Router test must respond in under one second. The report also
-  embeds hash-checked account-wide D1 evidence from a 30-minute burn-in. The projected account use,
-  staging canary allowance, and statistics-production reserve must all pass.
-- The four statistics/Forecast production/staging D1 databases share the same Free account limits.
+  embeds hash-checked Workers Paid evidence from a 30-minute burn-in. Current and projected monthly
+  utilization must remain below the 25% warning threshold. Monthly request and CPU totals remain
+  billing-period evidence, while average, p95, p99, and CPU-limit terminations are read from a
+  separate rolling eight-hour Worker runtime window refreshed immediately before the final report.
+  Each Worker must record no CPU-limit termination, and runtime CPU p99 must stay below 80% of its
+  configured per-invocation limit.
+- The statistics, Forecast, and quota-guard databases share one Workers Paid account allowance.
   Migration 0009 covering indexes must be present in both Forecast databases before preflight. The
-  preflight uses current Forecast usage plus a bounded allowance instead of carrying forward stale
-  p95 values caused by the old unindexed scans. The 30-minute burn-in then projects the measured
-  production and staging Forecast rates through that D1 reset with a 2x safety factor.
-  `Watch Forecast D1 Budget` repeats that current-rate projection every 30 minutes and disables only
-  the staging Collector and Dispatcher when the budget or statistics-production read probe fails.
+  dedicated Usage Guard verifies the Paid subscription and billing period, aggregates every Worker
+  and D1 resource in the account, and projects month-end usage using the maximum of daily p95, recent
+  rate, and period average with a 2x safety factor. `Watch Forecast D1 Budget` independently repeats
+  the preflight every 30 minutes. A warning is emitted at 25%; staging is disabled at 35%, production
+  Forecast automation at 40%, statistics writes at 45%, and optional D1/Cron work at 50%.
 - If `both` polling cannot pass, `POLL_MODE=alternating` checks one board per invocation (six minutes
-  per board) and starts a fresh reset-boundary canary. If that also fails, the Cron trigger is removed and
+  per board) and starts a fresh fixed eight-hour canary. If that also fails, the Cron trigger is removed and
   `FORECAST_DIRECT_NAVER_POLL=true` makes the thirty-minute watchdog action collect both boards.
 
 ## Local verification
@@ -284,8 +288,9 @@ schema. Migration 0003 adds invocation accounting, shallow cursors, and the sour
 0004 adds the isolated Discord approval test ledger, migration 0005 adds the staging adoption ledger,
 migration 0006 makes staging approval message identity durable, migration 0007 adds Dispatcher
 invocation, workflow-dispatch, and grouped operations-alert ledgers, migration 0008 adds manual
-review decisions, Discord interaction audit, and legacy v5 deployment evidence, and migration 0009
-adds latest-invocation covering indexes plus independent v6 canary runs with D1 quota evidence:
+review decisions, Discord interaction audit, and legacy v5 deployment evidence. Migration 0009
+introduced the latest-invocation covering indexes and independent canary storage; the same storage is
+used by the current v7 report:
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
@@ -339,6 +344,7 @@ FORECAST_COLLECTOR_STAGING_URL
 FORECAST_COLLECTOR_PRODUCTION_URL
 FORECAST_COLLECTOR_URL
 FORECAST_INTERACTIONS_URL
+CLOUDFLARE_USAGE_GUARD_URL
 FORECAST_DIRECT_NAVER_POLL (optional emergency fallback)
 FORECAST_GITHUB_APP_ID
 FORECAST_GITHUB_APP_INSTALLATION_ID
@@ -354,10 +360,10 @@ DISCORD_FORECAST_PUBLIC_KEY
 ```
 
 Required repository secrets are `FORECAST_GITHUB_APP_PRIVATE_KEY`,
-`FORECAST_COLLECTOR_ADMIN_TOKEN`, `DISCORD_FORECAST_BOT_TOKEN`, and the existing scoped
-`CLOUDFLARE_API_TOKEN`. A separate `CLOUDFLARE_D1_ANALYTICS_TOKEN` with account analytics read access
-is recommended; workflows fall back to the scoped deployment token only when it already has that
-permission. The GitHub App is installed only on this repository with `Actions: write`
+`FORECAST_COLLECTOR_ADMIN_TOKEN`, `DISCORD_FORECAST_BOT_TOKEN`, the scoped
+`CLOUDFLARE_API_TOKEN`, a dedicated `CLOUDFLARE_D1_ANALYTICS_TOKEN`, and a separate
+`CLOUDFLARE_BILLING_READ_TOKEN` limited to `Account > Billing > Read`. Deployment credentials are
+never used as an analytics or billing-token fallback. The GitHub App is installed only on this repository with `Actions: write`
 and implicit `Metadata: read`; its private key belongs only to the Dispatcher deployment.
 
 `FORECAST_COLLECTOR_URL` is an administrator-managed one-time repository variable. Set it to the
@@ -365,7 +371,7 @@ production URL only after the first production queue round-trip smoke and idempo
 ledger bootstrap have passed. The workflow `GITHUB_TOKEN` cannot request the repository
 `Variables: write` permission, so promotion verifies the configured value instead of mutating it.
 Until the variable is present, the proposal workflow skips without failing. Promotion is dispatched
-manually after reviewing the completed reset-boundary canary report and remains protected by the
+manually after reviewing the completed fixed eight-hour v7 canary report and remains protected by the
 `cloudflare-production` environment.
 
 Promotion compares the canary commit with current `main` only across the collector deployment

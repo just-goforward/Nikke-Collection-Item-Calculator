@@ -11,10 +11,15 @@ export default defineConfig({
         bindings: {
           ADMIN_TOKEN: "test-admin-token",
           ALLOWED_ORIGINS: "https://test.example",
-          RATE_LIMIT_SECRET: "test-rate-limit-secret",
           TURNSTILE_SECRET_KEY: "test-turnstile-secret",
         },
-        d1Databases: ["DB"],
+        d1Databases: ["DB", "USAGE_GUARD_DB"],
+        ratelimits: {
+          EVENT_RATE_LIMITER: {
+            namespace_id: "419102",
+            simple: { limit: 120, period: 60 },
+          },
+        },
       },
     }),
   ],

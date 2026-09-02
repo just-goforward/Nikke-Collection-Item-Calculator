@@ -19,7 +19,7 @@ export default defineConfig({
           DISCORD_CHANNEL_ID: "123456789012345678",
           DISPATCH_ENABLED: "true",
         },
-        d1Databases: ["FORECAST_DB"],
+        d1Databases: ["FORECAST_DB", "USAGE_GUARD_DB"],
       },
     }),
   ],

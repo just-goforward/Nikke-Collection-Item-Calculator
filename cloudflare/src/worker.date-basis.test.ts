@@ -18,6 +18,7 @@ describe("statistics date-basis transition", () => {
     const nowSpy = vi.spyOn(Date, "now");
     try {
       nowSpy.mockReturnValue(Date.parse("2026-08-26T04:59:59+09:00"));
+      await harness.setGuardAction("normal");
       expect((await harness.submit(kitResultEvent("kit-result-before-0500"))).status).toBe(200);
 
       nowSpy.mockReturnValue(Date.parse("2026-08-26T05:00:00+09:00"));
@@ -41,6 +42,7 @@ describe("statistics date-basis transition", () => {
   it("combines legacy history but uses only game-day rows for today's counters", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-08-26T04:59:59+09:00"));
     try {
+      await harness.setGuardAction("normal");
       await insertPublicAggregates();
 
       const response = await harness.fetchStats();

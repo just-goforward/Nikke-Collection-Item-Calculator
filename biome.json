@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.8/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.11/schema.json",
   "files": {
     "includes": [
       "src/**/*.{ts,tsx,js,jsx,json}",
@@ -11,6 +11,10 @@
       "!forecast-collector/worker-configuration.d.ts",
       "forecast-dispatcher/**/*.{ts,json}",
       "!forecast-dispatcher/worker-configuration.d.ts",
+      "forecast-interactions/**/*.{ts,json}",
+      "!forecast-interactions/worker-configuration.d.ts",
+      "usage-guard/**/*.{ts,json}",
+      "!usage-guard/worker-configuration.d.ts",
       "e2e/**/*.ts",
       "benchmarks/**/*.{ts,tsx,js,jsx,json,md}",
       "vite.config.ts",
@@ -18,6 +22,8 @@
       "vitest.cloudflare.config.ts",
       "vitest.forecast-collector.config.ts",
       "vitest.forecast-dispatcher.config.ts",
+      "vitest.forecast-interactions.config.ts",
+      "vitest.usage-guard.config.ts",
       "vitest.benchmark.config.ts",
       "playwright*.config.ts",
       "biome.json",

@@ -2,17 +2,17 @@ import { sha256Hex } from "../../forecast-collector/src/crypto";
 import {
   approveDiscordStagingAdoption,
   approveDiscordTest,
+  type DiscordInteraction,
   parseDiscordInteraction,
   readApprovalById,
   readStagingAdoptionById,
   readVerifiedDiscordBody,
-  type DiscordInteraction,
 } from "../../forecast-collector/src/discord-approval";
 import {
   approvedData,
   CUSTOM_ID_PREFIX,
-  stagingApprovedData,
   STAGING_CUSTOM_ID_PREFIX,
+  stagingApprovedData,
   unavailableApprovalData,
 } from "../../forecast-collector/src/discord-approval-contract";
 import {
@@ -20,6 +20,7 @@ import {
   readManualReview,
 } from "../../forecast-collector/src/manual-review";
 import { upsertOpsAlert } from "../../forecast-collector/src/ops";
+import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard";
 import type { InteractionEnvironment, InteractionRouterEnv } from "./types";
 
 const DISCORD_API = "https://discord.com/api/v10";
@@ -82,7 +83,22 @@ export default {
     const interaction = parseDiscordInteraction(body, env.DISCORD_APPLICATION_ID);
     if (interaction instanceof Response) return interaction;
     if (interaction.type === 1) return interactionJson({ type: 1 });
-    const action = await authorizeAction(interaction, env);
+    const parsedAction = authorizeAction(interaction, env);
+    if (parsedAction instanceof Response) return parsedAction;
+    try {
+      await assertUsageAllowed(
+        env.USAGE_GUARD_DB,
+        parsedAction.environment === "staging"
+          ? "staging_automation"
+          : "production_forecast_automation",
+      );
+    } catch (error) {
+      if (!(error instanceof UsageGuardError)) throw error;
+      return ephemeral(
+        `Cloudflare 월간 예산 보호 상태(${error.action})로 Forecast 변경이 중단되었습니다.`,
+      );
+    }
+    const action = await validateActionTarget(parsedAction, env);
     if (action instanceof Response) return action;
 
     const db = databaseFor(env, action.environment);
@@ -160,7 +176,7 @@ async function recordInitialResponse(
   }
 }
 
-async function authorizeAction(interaction: DiscordInteraction, env: InteractionRouterEnv) {
+function authorizeAction(interaction: DiscordInteraction, env: InteractionRouterEnv) {
   if (interaction.guild_id !== env.DISCORD_GUILD_ID) {
     return ephemeral("허용된 Discord 서버에서만 처리할 수 있습니다.");
   }
@@ -186,14 +202,6 @@ async function authorizeAction(interaction: DiscordInteraction, env: Interaction
     }
     const decision = manual[2] as "requeue" | "ignore";
     const reviewId = manual[3];
-    const review = await readManualReview(databaseFor(env, environment), reviewId);
-    if (!review) {
-      return ephemeral("검토 항목이 만료되었거나 이미 처리되었습니다.");
-    }
-    const alreadyResolved = review.state === "resolved" && review.decision === decision;
-    if (review.state !== "pending" && !alreadyResolved) {
-      return ephemeral("검토 항목이 만료되었거나 이미 처리되었습니다.");
-    }
     return {
       kind: "manual_review" as const,
       environment,
@@ -203,7 +211,7 @@ async function authorizeAction(interaction: DiscordInteraction, env: Interaction
       interactionId,
       interactionToken,
       actorUserId,
-      alreadyResolved,
+      alreadyResolved: false,
     };
   }
 
@@ -212,10 +220,6 @@ async function authorizeAction(interaction: DiscordInteraction, env: Interaction
       return ephemeral("수급량 승인 채널에서만 처리할 수 있습니다.");
     }
     const approvalId = customId.slice(STAGING_CUSTOM_ID_PREFIX.length);
-    const row = await readStagingAdoptionById(env.STAGING_FORECAST_DB, approvalId);
-    if (!row || !["pending", "approved", "adoption_pr_created"].includes(row.state)) {
-      return ephemeral("staging 승인 대상이 만료되었거나 존재하지 않습니다.");
-    }
     return {
       kind: "staging_adoption" as const,
       environment: "staging" as const,
@@ -232,10 +236,6 @@ async function authorizeAction(interaction: DiscordInteraction, env: Interaction
       return ephemeral("수급량 승인 채널에서만 처리할 수 있습니다.");
     }
     const approvalId = customId.slice(CUSTOM_ID_PREFIX.length);
-    const row = await readApprovalById(env.STAGING_FORECAST_DB, approvalId);
-    if (!row || !["pending", "test_approved"].includes(row.state)) {
-      return ephemeral("테스트 승인 대상이 만료되었거나 존재하지 않습니다.");
-    }
     return {
       kind: "test_approval" as const,
       environment: "staging" as const,
@@ -267,6 +267,31 @@ async function authorizeAction(interaction: DiscordInteraction, env: Interaction
     };
   }
   return ephemeral("지원하지 않는 Forecast 작업입니다.");
+}
+
+async function validateActionTarget(action: AuthorizedAction, env: InteractionRouterEnv) {
+  if (action.kind === "manual_review") {
+    const review = await readManualReview(databaseFor(env, action.environment), action.reviewId);
+    if (!review) return ephemeral("검토 항목이 만료되었거나 이미 처리되었습니다.");
+    const alreadyResolved = review.state === "resolved" && review.decision === action.decision;
+    if (review.state !== "pending" && !alreadyResolved) {
+      return ephemeral("검토 항목이 만료되었거나 이미 처리되었습니다.");
+    }
+    return { ...action, alreadyResolved };
+  }
+  if (action.kind === "staging_adoption") {
+    const row = await readStagingAdoptionById(env.STAGING_FORECAST_DB, action.approvalId);
+    if (!row || !["pending", "approved", "adoption_pr_created"].includes(row.state)) {
+      return ephemeral("staging 승인 대상이 만료되었거나 존재하지 않습니다.");
+    }
+  }
+  if (action.kind === "test_approval") {
+    const row = await readApprovalById(env.STAGING_FORECAST_DB, action.approvalId);
+    if (!row || !["pending", "test_approved"].includes(row.state)) {
+      return ephemeral("테스트 승인 대상이 만료되었거나 존재하지 않습니다.");
+    }
+  }
+  return action;
 }
 
 async function completeAction(
@@ -375,7 +400,8 @@ async function actionResult(db: D1Database, action: AuthorizedAction) {
     return unavailableApprovalData("테스트 승인 대상이 만료되었거나 존재하지 않습니다.");
   }
   return {
-    content: "Forecast Discord Interaction Router 테스트가 완료되었습니다. Forecast와 PR은 변경되지 않았습니다.",
+    content:
+      "Forecast Discord Interaction Router 테스트가 완료되었습니다. Forecast와 PR은 변경되지 않았습니다.",
     embeds: [],
     components: [
       {
@@ -439,6 +465,19 @@ async function updateOriginalMessage(applicationId: string, token: string, data:
 }
 
 async function health(env: InteractionRouterEnv) {
+  try {
+    await assertUsageAllowed(env.USAGE_GUARD_DB, "admin_read");
+  } catch (error) {
+    if (!(error instanceof UsageGuardError)) throw error;
+    return Response.json(
+      {
+        status: "quota_disabled",
+        deploymentSha: env.DEPLOY_SHA,
+        quotaAction: error.action,
+      },
+      { status: 503, headers: { "cache-control": "no-store" } },
+    );
+  }
   const [staging, production] = await Promise.all([
     healthRow(env.STAGING_FORECAST_DB),
     healthRow(env.PRODUCTION_FORECAST_DB),

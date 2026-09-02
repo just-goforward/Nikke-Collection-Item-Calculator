@@ -4,9 +4,13 @@ compatibility_date = "2026-08-22"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = false
 
+[limits]
+cpu_ms = 25
+
 [observability.logs]
 enabled = true
 invocation_logs = true
+head_sampling_rate = 0.25
 
 [triggers]
 crons = ["1-59/3 * * * *"]
@@ -15,6 +19,11 @@ crons = ["1-59/3 * * * *"]
 binding = "FORECAST_DB"
 database_name = "collection-kit-forecast-collector"
 database_id = "2d58bcc0-a7b5-43f3-8f42-34e1bf1ff853"
+
+[[d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
 
 [vars]
 ENVIRONMENT = "production"
@@ -34,10 +43,23 @@ required = ["GITHUB_APP_PRIVATE_KEY", "DISCORD_BOT_TOKEN"]
 name = "collection-kit-forecast-dispatcher-staging"
 workers_dev = false
 
+[env.staging.limits]
+cpu_ms = 25
+
+[env.staging.observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 0.25
+
 [[env.staging.d1_databases]]
 binding = "FORECAST_DB"
 database_name = "collection-kit-forecast-collector-staging"
 database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
+
+[[env.staging.d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
 
 [env.staging.vars]
 ENVIRONMENT = "staging"

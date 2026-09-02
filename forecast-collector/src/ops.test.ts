@@ -2,11 +2,13 @@ import { createExecutionContext, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import schemaSql from "../schema.sql?raw";
+import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
 import worker from "./worker";
 
 const testEnv: CollectorEnv = {
   FORECAST_DB: env.FORECAST_DB,
+  USAGE_GUARD_DB: env.USAGE_GUARD_DB,
   ADMIN_RATE_LIMITER: env.ADMIN_RATE_LIMITER,
   ADMIN_TOKEN: env.ADMIN_TOKEN,
   ENVIRONMENT: "test",
@@ -25,6 +27,7 @@ beforeEach(async () => {
     .filter(Boolean)) {
     await testEnv.FORECAST_DB.prepare(statement).run();
   }
+  await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB);
 });
 
 describe("dispatcher smoke and workflow callbacks", () => {

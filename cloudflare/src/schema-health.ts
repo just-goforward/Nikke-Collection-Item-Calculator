@@ -7,10 +7,12 @@ import {
 import type { WorkerEnv } from "./env";
 import { isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
+import { assertQuotaAllows } from "./quota-guard";
 
 export async function handleSchemaHealth(request: Request, env: WorkerEnv) {
   if (!isAllowedOrigin(request, env)) throw new HttpError(403, "origin_not_allowed");
   if (!env.DB) throw new HttpError(500, "database_not_configured");
+  await assertQuotaAllows(env, "admin_read");
 
   const tables = Object.keys(REQUIRED_D1_SCHEMA);
   const probes = tables.map((table) =>

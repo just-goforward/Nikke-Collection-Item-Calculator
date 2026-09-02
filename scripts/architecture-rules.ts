@@ -87,6 +87,7 @@ function reachabilityEntries(files: string[]) {
     "src/worker.ts",
     "cloudflare/src/worker.ts",
     "forecast-collector/src/worker.ts",
+    "usage-guard/src/worker.ts",
   ]);
 
   for (const file of files) {

@@ -5,6 +5,7 @@ export const CHECK_ROOTS = [
   "shared",
   "cloudflare/src",
   "forecast-collector/src",
+  "usage-guard/src",
   "benchmarks",
   "scripts",
   "e2e",
@@ -84,6 +85,12 @@ export const TYPE_ESCAPE_BOUNDARY_ALLOWLIST: DebtEntry[] = [
     owner: "test",
     reason: "Worker boundary tests adapt request, execution-context, and rate-limit test doubles.",
     removalTarget: "Introduce typed Worker request and execution-context fixture builders.",
+  },
+  {
+    file: "usage-guard/src/worker.test.ts",
+    owner: "test",
+    reason: "Usage Guard tests adapt the Miniflare environment to generated Worker bindings.",
+    removalTarget: "Provide a typed Usage Guard Miniflare environment factory.",
   },
 ];
 

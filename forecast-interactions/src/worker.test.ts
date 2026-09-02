@@ -2,6 +2,7 @@ import { createExecutionContext, reset, waitOnExecutionContext } from "cloudflar
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import schemaSql from "../../forecast-collector/schema.sql?raw";
+import usageGuardSchemaSql from "../../usage-guard/schema.sql?raw";
 import type { InteractionRouterEnv } from "./types";
 import worker from "./worker";
 
@@ -22,6 +23,28 @@ beforeEach(async () => {
       await db.prepare(statement).run();
     }
   }
+  for (const statement of usageGuardSchemaSql
+    .split(";")
+    .map((entry) => entry.trim())
+    .filter(Boolean)) {
+    await testEnv.USAGE_GUARD_DB.prepare(statement).run();
+  }
+  await testEnv.USAGE_GUARD_DB.prepare(
+    `INSERT INTO usage_guard_state (
+       singleton_id, action, observed_at, period_start, period_end,
+       evidence_json, evidence_hash, current_percent, projected_percent,
+       governing_metric, normal_streak, release_pending, updated_at
+     ) VALUES (1, 'normal', ?, ?, ?, '{}', ?, 0, 0,
+               'workerRequests', 2, 0, ?)`,
+  )
+    .bind(
+      new Date(nowMs).toISOString(),
+      "2026-08-15T00:00:00.000Z",
+      "2026-09-15T00:00:00.000Z",
+      "0".repeat(64),
+      new Date(nowMs).toISOString(),
+    )
+    .run();
   keyPair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
     "sign",
     "verify",
@@ -104,6 +127,46 @@ describe("Discord interaction router", () => {
     expect(review?.state).toBe("pending");
   });
 
+  it("rejects an unauthorized guild before consulting quota state", async () => {
+    await testEnv.USAGE_GUARD_DB.prepare("DELETE FROM usage_guard_state").run();
+    const response = await signedInteraction({
+      ...componentInteraction(
+        `forecast_router_test:${"b".repeat(32)}`,
+        "987654321",
+        "555555555",
+        "1009",
+      ),
+      guild_id: "999999999",
+    });
+
+    expect(await response.json()).toMatchObject({
+      type: 4,
+      data: { content: "허용된 Discord 서버에서만 처리할 수 있습니다.", flags: 64 },
+    });
+  });
+
+  it("consults the quota guard before reading a protected Forecast target", async () => {
+    await testEnv.USAGE_GUARD_DB.prepare("DELETE FROM usage_guard_state").run();
+    await testEnv.STAGING_FORECAST_DB.prepare("DROP TABLE source_manual_reviews").run();
+
+    const response = await signedInteraction(
+      componentInteraction(
+        `forecast_manual_staging_ignore:mr-${"3".repeat(32)}`,
+        "987654321",
+        "444444444",
+        "1010",
+      ),
+    );
+
+    expect(await response.json()).toMatchObject({
+      type: 4,
+      data: {
+        content: "Cloudflare 월간 예산 보호 상태(hard_stop)로 Forecast 변경이 중단되었습니다.",
+        flags: 64,
+      },
+    });
+  });
+
   it("cannot use a staging custom ID to mutate the production database", async () => {
     const reviewId = await insertManualReview(testEnv.PRODUCTION_FORECAST_DB, "201");
     const stagingAttempt = await signedInteraction(
@@ -170,13 +233,14 @@ describe("Discord interaction router", () => {
 async function insertManualReview(db: D1Database, itemId: string) {
   const now = new Date(nowMs).toISOString();
   const reviewId = `mr-${itemId.padStart(32, "0")}`;
-  await db.prepare(
-    `INSERT INTO source_queue (
+  await db
+    .prepare(
+      `INSERT INTO source_queue (
        source, item_id, url, title, published_at, official, status, attempts,
        review_generation, error_code, first_seen_at, updated_at
      ) VALUES ('naver-board-56', ?, ?, ?, ?, 1, 'manual_review', 3, 0,
        'schedule_ambiguous', ?, ?)`,
-  )
+    )
     .bind(
       itemId,
       `https://game.naver.com/lounge/nikke/board/detail/${itemId}`,
@@ -186,11 +250,12 @@ async function insertManualReview(db: D1Database, itemId: string) {
       now,
     )
     .run();
-  await db.prepare(
-    `INSERT INTO source_manual_reviews (
+  await db
+    .prepare(
+      `INSERT INTO source_manual_reviews (
        review_id, source, item_id, generation, state, created_at, expires_at
      ) VALUES (?, 'naver-board-56', ?, 0, 'pending', ?, ?)`,
-  )
+    )
     .bind(reviewId, itemId, now, new Date(nowMs + 24 * 60 * 60 * 1_000).toISOString())
     .run();
   return reviewId;

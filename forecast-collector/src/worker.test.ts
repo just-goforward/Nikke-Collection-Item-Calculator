@@ -2,6 +2,7 @@ import { reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
+import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
 import worker from "./worker";
 
@@ -15,6 +16,7 @@ beforeEach(async () => {
     .filter(Boolean)) {
     await testEnv.FORECAST_DB.prepare(statement).run();
   }
+  await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB);
 });
 
 describe("forecast collector runtime switch", () => {

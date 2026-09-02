@@ -5,6 +5,7 @@ import discordApprovalMigrationSql from "../migrations/0004_discord_approval_tes
 import discordStagingAdoptionMigrationSql from "../migrations/0005_discord_staging_adoptions.sql?raw";
 import discordStagingMessageMigrationSql from "../migrations/0006_discord_staging_message_identity.sql?raw";
 import schemaSql from "../schema.sql?raw";
+import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
 import worker from "./worker";
 
@@ -17,6 +18,7 @@ let discordEditFetch: ReturnType<typeof vi.fn>;
 beforeEach(async () => {
   await reset();
   await executeSql(schemaSql);
+  await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB, nowMs);
   keyPair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
     "sign",
     "verify",
