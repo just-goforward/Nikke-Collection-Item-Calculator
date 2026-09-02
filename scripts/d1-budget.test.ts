@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { listCloudflareD1Databases } from "../shared/cloudflareD1Catalog";
 import {
@@ -18,6 +19,16 @@ const BASELINE_AT = Date.parse("2026-09-01T02:00:00.000Z");
 const CURRENT_AT = BASELINE_AT + 30 * 60_000;
 
 describe("Cloudflare Paid monthly quota budget", () => {
+  it("loads the quota module through the native Node TypeScript ESM loader", () => {
+    expect(() =>
+      execFileSync(
+        process.execPath,
+        ["--input-type=module", "--eval", "await import('./shared/cloudflarePaidUsage.ts')"],
+        { cwd: process.cwd(), stdio: "pipe" },
+      ),
+    ).not.toThrow();
+  });
+
   it.each([
     [24.999999, "normal"],
     [25, "warning"],
