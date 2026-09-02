@@ -89,7 +89,7 @@ Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난
   실행한다. 인덱스 적용 전 전체 스캔이 만든 과거 Forecast p95는 미래 비용으로 재사용하지 않는다.
 - preflight는 각 Forecast DB의 당일 관측량에 canary 상한을 더해 보수적으로 입장 가능성만
   판정한다. 이후 production·staging Forecast DB 각각의 30분 burn-in 증가량을 2배 안전계수로
-  8시간 투영한 실측값이 canary 시작의 최종 근거다.
+  다음 D1 일일 초기화 시점까지 투영한 실측값이 canary 시작의 최종 근거다.
 - 계정 전체 투영 상한은 read 3,000,000, write 60,000이다.
 - staging canary 자체 상한은 read 250,000, write 10,000이다.
 - 통계 production에는 `max(1,000,000, 최근 7일 p95 read × 3)`과
@@ -100,14 +100,16 @@ Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난
 
 ## Canary v6 판독
 
-Canary는 이전 기간을 합치지 않은 8시간 고정 창이다. Collector `*/3`과 Dispatcher `1-59/3`의
-예상 slot을 `canary_runs.startedAt`에서 생성한다. 같은 deployment SHA도 새 `canaryId`로 다시
-검증할 수 있으며 보통 각 Worker당 약 160개다.
+Canary는 이전 기간을 합치지 않고 `canary_runs.startedAt`부터 다음 UTC 00:00, 즉 한국시간
+09:00의 D1 일일 한도 초기화 직전까지 이어진다. Collector `*/3`과 Dispatcher `1-59/3`의 예상
+slot을 이 구간에서 생성한다. 같은 deployment SHA도 새 `canaryId`로 다시 검증할 수 있다.
+통상 11:00 KST 시작이면 Worker별 약 439~440개 slot을 관찰한다.
 
 통과 조건:
 
 ```text
-window >= 8시간
+windowMode = until_d1_reset
+endsAt = 다음 00:00 UTC
 각 Worker deliveryRate >= 99%
 각 Worker completionRate >= 99%
 각 Worker missingSlots <= 1

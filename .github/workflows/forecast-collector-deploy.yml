@@ -632,7 +632,7 @@ jobs:
         if: always() && steps.d1_budget.outcome == 'failure'
         run: exit 1
 
-      - name: Start fresh eight-hour canary
+      - name: Start canary through the next D1 reset
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.d1_budget.outcome == 'success'
         id: canary_start
         env:
@@ -661,6 +661,7 @@ jobs:
             '.canary.canaryId == $canaryId and .canary.deploymentSha == $sha and .canary.collectorCron == "*/3 * * * *" and .canary.dispatcherCron == "1-59/3 * * * *"' \
             "$RUNNER_TEMP/canary-start.json" >/dev/null
           echo "canary_id=$canary_id" >> "$GITHUB_OUTPUT"
+          echo "ends_at=$(jq -r '.canary.endsAt' "$RUNNER_TEMP/canary-start.json")" >> "$GITHUB_OUTPUT"
 
       - name: Send mutation-free Router test card
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
@@ -677,8 +678,9 @@ jobs:
             echo "- Cron: every 3 minutes"
             echo "- Dispatcher Cron: minute 1, then every 3 minutes"
             if [[ "${{ github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready }}" == "true" ]]; then
-              echo "- Canary: fresh v6 eight-hour window started after a 30-minute account-wide D1 burn-in"
+              echo "- Canary: fresh v6 window started after a 30-minute account-wide D1 burn-in and runs through the next D1 reset"
               echo "- Canary ID: `${{ steps.canary_start.outputs.canary_id }}`"
+              echo "- D1 reset boundary: `${{ steps.canary_start.outputs.ends_at }}` (09:00 KST)"
               echo "- D1 policy: all account databases included; statistics production reserve protected"
               echo "- Required action: click the Router response test card during this canary window"
               echo "- Promotion: blocked until the authenticated v6 report and final D1 budget check pass"

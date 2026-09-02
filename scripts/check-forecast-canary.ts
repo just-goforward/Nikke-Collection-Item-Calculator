@@ -14,6 +14,12 @@ if (!response.ok) throw new Error(`Canary report returned ${response.status}.`);
 const report: unknown = await response.json();
 if (!isCanaryReport(report)) throw new Error("Canary report schema is invalid.");
 assertD1QuotaEvidence(report.quota.evidence);
+const expectedReset = new Date(
+  Date.parse(`${report.quota.evidence.billingDay}T00:00:00.000Z`) + 24 * 60 * 60 * 1_000,
+).toISOString();
+if (report.window.endsAt !== expectedReset) {
+  throw new Error("Canary report does not end at the recorded D1 billing reset.");
+}
 const reportOutput = process.env["FORECAST_CANARY_REPORT_OUTPUT"];
 if (reportOutput) await writeFile(reportOutput, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 await outputs({
@@ -51,12 +57,18 @@ type CanaryReport = {
   pollMode: "both" | "alternating" | "missing";
   passed: boolean;
   acceptance: {
-    windowHours: 8;
+    windowMode: "until_d1_reset";
+    windowHours: number;
     minimumDeliveryRate: 0.99;
     minimumCompletionRate: 0.99;
     maximumMissingSlots: 1;
   };
-  window: { eligible: boolean; earlyFailure: boolean };
+  window: {
+    startedAt: string;
+    endsAt: string;
+    eligible: boolean;
+    earlyFailure: boolean;
+  };
   collector: InvocationSummary;
   dispatcher: {
     expectedSlots: number;
@@ -108,7 +120,7 @@ function isCanaryReport(value: unknown): value is CanaryReport {
   if (!["both", "alternating", "missing"].includes(String(value["pollMode"]))) return false;
   return (
     isAcceptancePolicy(value["acceptance"]) &&
-    isCanaryWindow(value["window"]) &&
+    isCanaryWindow(value["window"], value["acceptance"]) &&
     isInvocationSummary(value["collector"]) &&
     isDispatcherSummary(value["dispatcher"]) &&
     isRouterSummary(value["router"]) &&
@@ -129,9 +141,18 @@ function isQuotaEvidence(value: unknown): value is CanaryReport["quota"] {
   );
 }
 
-function isCanaryWindow(value: unknown) {
+function isCanaryWindow(value: unknown, acceptance: unknown) {
+  if (!isRecord(value) || !isRecord(acceptance)) return false;
+  const startedAt = Date.parse(String(value["startedAt"]));
+  const endsAt = Date.parse(String(value["endsAt"]));
+  const windowHours = acceptance["windowHours"];
   return (
-    isRecord(value) &&
+    Number.isFinite(startedAt) &&
+    Number.isFinite(endsAt) &&
+    endsAt > startedAt &&
+    new Date(endsAt).toISOString().endsWith("T00:00:00.000Z") &&
+    typeof windowHours === "number" &&
+    Math.abs(windowHours - (endsAt - startedAt) / (60 * 60 * 1_000)) < 1e-9 &&
     typeof value["eligible"] === "boolean" &&
     typeof value["earlyFailure"] === "boolean"
   );
@@ -180,7 +201,10 @@ function isDispatcherSummary(value: unknown) {
 function isAcceptancePolicy(value: unknown) {
   return (
     isRecord(value) &&
-    value["windowHours"] === 8 &&
+    value["windowMode"] === "until_d1_reset" &&
+    typeof value["windowHours"] === "number" &&
+    value["windowHours"] > 0 &&
+    value["windowHours"] <= 24 &&
     value["minimumDeliveryRate"] === 0.99 &&
     value["minimumCompletionRate"] === 0.99 &&
     value["maximumMissingSlots"] === 1

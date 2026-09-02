@@ -5,7 +5,7 @@ import {
 } from "../../shared/supplyForecastCandidate";
 import { sha256Hex, stableJson } from "./crypto";
 
-const WINDOW_HOURS = 8;
+const WINDOW_MODE = "until_d1_reset" as const;
 const MINIMUM_DELIVERY_RATE = 0.99;
 const MINIMUM_COMPLETION_RATE = 0.99;
 const COLLECTOR_CRON = "*/3 * * * *";
@@ -71,7 +71,7 @@ export async function startCanaryDeployment(
   const nowMs = input.nowMs ?? Date.now();
   assertCanaryStartWindow(nowMs, quotaEvidence);
   const startedAt = new Date(nowMs).toISOString();
-  const endsAt = new Date(nowMs + WINDOW_HOURS * 60 * 60 * 1_000).toISOString();
+  const endsAt = new Date(nextD1ResetAtMs(nowMs)).toISOString();
   const overlapping = await db
     .prepare(
       `SELECT canary_id FROM canary_runs
@@ -181,7 +181,8 @@ export async function readCanaryReport(
     environment,
     pollMode: invocations.at(-1)?.poll_mode ?? "missing",
     acceptance: {
-      windowHours: WINDOW_HOURS,
+      windowMode: WINDOW_MODE,
+      windowHours: (endsMs - startedMs) / (60 * 60 * 1_000),
       minimumDeliveryRate: MINIMUM_DELIVERY_RATE,
       minimumCompletionRate: MINIMUM_COMPLETION_RATE,
       maximumMissingSlots: 1,
@@ -679,7 +680,8 @@ function missingReport(
     environment,
     pollMode: "missing",
     acceptance: {
-      windowHours: WINDOW_HOURS,
+      windowMode: WINDOW_MODE,
+      windowHours: null,
       minimumDeliveryRate: MINIMUM_DELIVERY_RATE,
       minimumCompletionRate: MINIMUM_COMPLETION_RATE,
       maximumMissingSlots: 1,
@@ -766,10 +768,11 @@ function assertCanaryStartWindow(nowMs: number, evidence: D1QuotaEvidence) {
   if (new Date(nowMs).toISOString().slice(0, 10) !== evidence.billingDay) {
     throw new Error("canary_crosses_d1_billing_day");
   }
-  const endsAt = nowMs + WINDOW_HOURS * 60 * 60 * 1_000;
-  if (new Date(endsAt - 1).toISOString().slice(0, 10) !== evidence.billingDay) {
-    throw new Error("canary_crosses_d1_billing_day");
-  }
+}
+
+function nextD1ResetAtMs(nowMs: number) {
+  const now = new Date(nowMs);
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
 }
 
 function emptyInvocationSummary() {

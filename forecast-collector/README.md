@@ -227,8 +227,8 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
 - Admin abuse is limited first by unauthenticated request IP, then timing-safe bearer verification,
   then by authenticated HTTP-method and route group. Discord interaction limits are separate.
 - Canary report v6 uses an independent `canaryId` and the server-recorded run start, not the number
-  of rows that happened to reach D1. It generates expected Collector and Dispatcher Cron slots over a fresh eight-hour
-  window. Each Worker must deliver and complete at least 99%, miss at most one slot, end completed,
+  of rows that happened to reach D1. It generates expected Collector and Dispatcher Cron slots from that start through
+  the next D1 daily reset at 00:00 UTC (09:00 KST). Each Worker must deliver and complete at least 99%, miss at most one slot, end completed,
   and have zero abandoned, late, unexpected, or duplicate invocations. Queue, cursor, candidate, watermark, manual
   review, workflow callback, unsent critical alert, Dispatcher smoke, and Router interaction
   invariants must also pass. One signed Router test must respond in under one second. The report also
@@ -238,11 +238,11 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   Migration 0009 covering indexes must be present in both Forecast databases before preflight. The
   preflight uses current Forecast usage plus a bounded allowance instead of carrying forward stale
   p95 values caused by the old unindexed scans. The 30-minute burn-in then projects the measured
-  production and staging Forecast rates over the eight-hour window with a 2x safety factor.
+  production and staging Forecast rates through that D1 reset with a 2x safety factor.
   `Watch Forecast D1 Budget` repeats that current-rate projection every 30 minutes and disables only
   the staging Collector and Dispatcher when the budget or statistics-production read probe fails.
 - If `both` polling cannot pass, `POLL_MODE=alternating` checks one board per invocation (six minutes
-  per board) and starts a fresh eight-hour canary. If that also fails, the Cron trigger is removed and
+  per board) and starts a fresh reset-boundary canary. If that also fails, the Cron trigger is removed and
   `FORECAST_DIRECT_NAVER_POLL=true` makes the thirty-minute watchdog action collect both boards.
 
 ## Local verification
@@ -365,7 +365,7 @@ production URL only after the first production queue round-trip smoke and idempo
 ledger bootstrap have passed. The workflow `GITHUB_TOKEN` cannot request the repository
 `Variables: write` permission, so promotion verifies the configured value instead of mutating it.
 Until the variable is present, the proposal workflow skips without failing. Promotion is dispatched
-manually after reviewing the completed eight-hour canary report and remains protected by the
+manually after reviewing the completed reset-boundary canary report and remains protected by the
 `cloudflare-production` environment.
 
 Promotion compares the canary commit with current `main` only across the collector deployment

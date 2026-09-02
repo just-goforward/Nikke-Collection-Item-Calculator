@@ -8,7 +8,6 @@ import {
 } from "../../shared/d1QuotaEvidence.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
-const CANARY_WINDOW_MINUTES = 8 * 60;
 const SAFETY_FACTOR = 2;
 
 export type D1DailyUsage = {
@@ -103,7 +102,14 @@ export function evaluateD1CanaryBudget(
   }
   if (durationMinutes > 90) return failure("d1_budget_burn_in_too_long");
 
-  const forecastRates = forecastAutomationRates(baseline, current, durationMinutes);
+  const projectionMinutes = minutesUntilD1Reset(startedAt);
+  const canaryProjectionMinutes = minutesUntilD1Reset(endedAt);
+  const forecastRates = forecastAutomationRates(
+    baseline,
+    current,
+    durationMinutes,
+    projectionMinutes,
+  );
   if (!forecastRates) return failure("d1_budget_counter_regression");
   const canaryRate = forecastRates.get(D1_DATABASE_IDS.forecastStaging);
   if (!canaryRate) return failure("d1_budget_canary_database_missing");
@@ -113,8 +119,8 @@ export function evaluateD1CanaryBudget(
     return failure("d1_budget_burn_in_metrics_missing");
   }
 
-  const canaryProjectedReads = canaryRate.projectedReads;
-  const canaryProjectedWrites = canaryRate.projectedWrites;
+  const canaryProjectedReads = projectRate(burnInReads, durationMinutes, canaryProjectionMinutes);
+  const canaryProjectedWrites = projectRate(burnInWrites, durationMinutes, canaryProjectionMinutes);
   const remainingFraction = remainingBillingDayFraction(endedAt);
   const databases = current.databases.map((database) => {
     const today = dailyUsage(database, current.billingDay);
@@ -275,7 +281,13 @@ export function evaluateD1RuntimeBudget(
   const nowMs = Date.parse(current.capturedAt);
   const elapsedMinutes = (nowMs - startedAt) / 60_000;
   if (elapsedMinutes <= 0) return failure("d1_budget_runtime_time_invalid");
-  const forecastRates = runtimeForecastAutomationRates(initialEvidence, current, elapsedMinutes);
+  const projectionMinutes = minutesUntilD1Reset(startedAt);
+  const forecastRates = runtimeForecastAutomationRates(
+    initialEvidence,
+    current,
+    elapsedMinutes,
+    projectionMinutes,
+  );
   if (!forecastRates) return failure("d1_budget_counter_regression");
   const canaryRate = forecastRates.get(D1_DATABASE_IDS.forecastStaging);
   if (!canaryRate) return failure("d1_budget_canary_database_missing");
@@ -369,8 +381,8 @@ function budgetFailureReasons(evidence: D1QuotaEvidence) {
   return reasons.filter((reason): reason is string => reason !== null);
 }
 
-function projectBurnIn(delta: number, durationMinutes: number) {
-  return Math.ceil((delta * CANARY_WINDOW_MINUTES * SAFETY_FACTOR) / durationMinutes);
+function projectRate(delta: number, durationMinutes: number, projectionMinutes: number) {
+  return Math.ceil((delta * projectionMinutes * SAFETY_FACTOR) / durationMinutes);
 }
 
 type ForecastAutomationRate = {
@@ -386,6 +398,7 @@ function forecastAutomationRates(
   baseline: D1UsageSnapshot,
   current: D1UsageSnapshot,
   durationMinutes: number,
+  projectionMinutes: number,
 ) {
   const rates = new Map<string, ForecastAutomationRate>();
   for (const databaseId of forecastAutomationDatabaseIds()) {
@@ -397,6 +410,7 @@ function forecastAutomationRates(
       after.rowsRead,
       after.rowsWritten,
       durationMinutes,
+      projectionMinutes,
     );
     if (!rate) return null;
     rates.set(databaseId, rate);
@@ -408,6 +422,7 @@ function runtimeForecastAutomationRates(
   initialEvidence: D1QuotaEvidence,
   current: D1UsageSnapshot,
   durationMinutes: number,
+  projectionMinutes: number,
 ) {
   const rates = new Map<string, ForecastAutomationRate>();
   for (const databaseId of forecastAutomationDatabaseIds()) {
@@ -420,6 +435,7 @@ function runtimeForecastAutomationRates(
       after.rowsRead,
       after.rowsWritten,
       durationMinutes,
+      projectionMinutes,
     );
     if (!rate) return null;
     rates.set(databaseId, rate);
@@ -433,6 +449,7 @@ function forecastAutomationRate(
   currentReads: number,
   currentWrites: number,
   durationMinutes: number,
+  projectionMinutes: number,
 ): ForecastAutomationRate | null {
   const deltaReads = currentReads - baselineReads;
   const deltaWrites = currentWrites - baselineWrites;
@@ -442,8 +459,8 @@ function forecastAutomationRate(
     baselineWrites,
     deltaReads,
     deltaWrites,
-    projectedReads: projectBurnIn(deltaReads, durationMinutes),
-    projectedWrites: projectBurnIn(deltaWrites, durationMinutes),
+    projectedReads: projectRate(deltaReads, durationMinutes, projectionMinutes),
+    projectedWrites: projectRate(deltaWrites, durationMinutes, projectionMinutes),
   };
 }
 
@@ -490,8 +507,12 @@ function dailyUsage(database: D1UsageDatabase, date: string) {
 }
 
 function remainingBillingDayFraction(nowMs: number) {
+  return Math.max(0, Math.min(1, minutesUntilD1Reset(nowMs) / (24 * 60)));
+}
+
+function minutesUntilD1Reset(nowMs: number) {
   const nextMidnight = Date.parse(`${utcDate(nowMs + DAY_MS)}T00:00:00.000Z`);
-  return Math.max(0, Math.min(1, (nextMidnight - nowMs) / DAY_MS));
+  return (nextMidnight - nowMs) / 60_000;
 }
 
 function sum(

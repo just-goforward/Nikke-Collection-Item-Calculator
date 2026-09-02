@@ -6,7 +6,7 @@
   `supply-2026-08-21-v1`.
 - `[confirmed]` The schedule model and dynamic Rust/WASM gain ABI preserve existing semantics when
   given that fixed vector.
-- `[unverified]` No schedule forecast becomes active before the eight-hour staging shadow, production
+- `[unverified]` No schedule forecast becomes active before the staging shadow through the next D1 reset, production
   smoke, renewed H/p research, and a separate adoption pull request pass.
 
 ## Model boundary
@@ -81,7 +81,7 @@ provider diagnostics.
 The collector stores invocation evidence, cursor and queue metadata, and validated schedule and
 candidate records. GitHub Actions revalidates the schema and hash and proposes an inactive registry
 entry. Canary v6 uses an independent `canaryId` and generates expected Collector and Dispatcher Cron slots from a server-recorded start
-over a fresh eight-hour window. Both Workers require at least 99% delivery and completion, at most
+through the next 00:00 UTC D1 reset. Both Workers require at least 99% delivery and completion, at most
 one missing slot, a completed latest invocation, no abandoned, late, unexpected, or duplicate work, consistent queue,
 cursor, candidate, watermark, and manual-review state, and successful Dispatcher and signed Router
 smoke evidence. After covering indexes are verified on both Forecast databases, a 30-minute burn-in

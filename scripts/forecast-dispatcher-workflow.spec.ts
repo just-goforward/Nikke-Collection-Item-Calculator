@@ -65,8 +65,9 @@ describe("Forecast dispatcher workflow contract", () => {
     }
     expect(interactionConfig).not.toContain("[triggers]");
     expect(stagingDeploy).toContain("router_endpoint_ready:");
-    expect(stagingDeploy).toContain("Start fresh eight-hour canary");
-    expect(productionPromote).toContain("Read authenticated eight-hour canary report");
+    expect(stagingDeploy).toContain("Start canary through the next D1 reset");
+    expect(productionPromote).toContain("Read authenticated reset-boundary canary report");
+    expect(d1BudgetWatch).toContain('cron: "57 23 * * *"');
     expect(productionPromote).toContain("environment: cloudflare-production");
     expect(productionPromote).toContain("Determine coupled production rollout");
     expect(stagingDeploy).toContain("Probe GitHub App installation and fixed workflow");
@@ -87,9 +88,9 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(d1BudgetWatch).toContain("--var COLLECT_ENABLED:false");
     expect(d1IndexRemediation).toContain("environment: cloudflare-production");
     expect(d1IndexRemediation).toContain("Verify statistics production D1 remains readable");
-    expect(d1IndexRemediation).toContain(
-      "forecast-collector/migrations/0009_d1_budget_canary_v6.sql",
-    );
+    expect(d1IndexRemediation).toContain('run_sql "Collector covering index"');
+    expect(d1IndexRemediation).toContain('run_sql "Dispatcher covering index"');
+    expect(d1IndexRemediation).toContain('run_sql "migration ledger"');
     expect(d1IndexRemediation).toContain("EXPLAIN QUERY PLAN");
     expect(d1IndexRemediation).not.toContain("wrangler deploy");
     for (const workflow of [stagingDeploy, productionPromote]) {
