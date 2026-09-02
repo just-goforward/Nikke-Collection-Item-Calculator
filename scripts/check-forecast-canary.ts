@@ -13,14 +13,16 @@ const response = await fetch(reportUrl, {
 if (!response.ok) throw new Error(`Canary report returned ${response.status}.`);
 const report: unknown = await response.json();
 if (!isCanaryReport(report)) throw new Error("Canary report schema is invalid.");
-assertD1QuotaEvidence(report.quota.evidence);
-if (
-  report.quota.evidence.action !== "normal" ||
-  !report.quota.evidence.passed ||
-  report.quota.evidence.utilization.currentPercent >= 25 ||
-  report.quota.evidence.utilization.projectedPercent >= 25
-) {
-  throw new Error("Canary quota evidence is not below the 25% Paid warning threshold.");
+if (report.quota.valid) {
+  assertD1QuotaEvidence(report.quota.evidence);
+  if (
+    report.quota.evidence.action !== "normal" ||
+    !report.quota.evidence.passed ||
+    report.quota.evidence.utilization.currentPercent >= 25 ||
+    report.quota.evidence.utilization.projectedPercent >= 25
+  ) {
+    throw new Error("Canary quota evidence is not below the 25% Paid warning threshold.");
+  }
 }
 const expectedEnd = new Date(
   Date.parse(report.window.startedAt) + 8 * 60 * 60 * 1_000,
@@ -37,6 +39,8 @@ await outputs({
   poll_mode: report.pollMode,
   deployment_sha: report.deploymentSha,
   canary_id: report.canaryId,
+  canary_quota_valid: String(report.quota.valid),
+  canary_quota_error: report.quota.errorCode ?? "none",
 });
 console.log(JSON.stringify(report, null, 2));
 
@@ -97,21 +101,33 @@ type CanaryReport = {
     maxInitialResponseMs: number;
     passed: boolean;
   };
-  quota: {
-    valid: true;
-    errorCode: null;
-    evidence: D1QuotaEvidence;
-    evidenceHash: string;
-    initialEvidenceHash: string;
-    freshnessMinutes: number;
-    cpu: {
-      passed: true;
-      missingWorkers: string[];
-      failureCodes: string[];
-    };
-  };
+  quota: CanaryQuota;
   invariants: { totalInvalid: number };
 };
+
+type CanaryQuota =
+  | {
+      valid: true;
+      errorCode: null;
+      evidence: D1QuotaEvidence;
+      evidenceHash: string;
+      initialEvidenceHash: string;
+      freshnessMinutes: number;
+      cpu: {
+        passed: true;
+        missingWorkers: string[];
+        failureCodes: string[];
+      };
+    }
+  | {
+      valid: false;
+      errorCode: string;
+      evidence: null;
+      evidenceHash: string;
+      initialEvidenceHash: string;
+      freshnessMinutes: null;
+      cpu: null;
+    };
 
 type InvocationSummary = {
   expectedSlots: number;
@@ -146,19 +162,40 @@ function isCanaryReport(value: unknown): value is CanaryReport {
 }
 
 function isQuotaEvidence(value: unknown): value is CanaryReport["quota"] {
+  if (
+    !isRecord(value) ||
+    typeof value["evidenceHash"] !== "string" ||
+    !/^[0-9a-f]{64}$/.test(value["evidenceHash"]) ||
+    typeof value["initialEvidenceHash"] !== "string" ||
+    !/^[0-9a-f]{64}$/.test(value["initialEvidenceHash"])
+  ) {
+    return false;
+  }
+  if (value["valid"] === true) return isValidQuotaEvidence(value);
+  return isInvalidQuotaEvidence(value);
+}
+
+function isValidQuotaEvidence(value: Record<string, unknown>) {
   return (
-    isRecord(value) &&
-    value["valid"] === true &&
     value["errorCode"] === null &&
-    typeof value["evidenceHash"] === "string" &&
-    /^[0-9a-f]{64}$/.test(value["evidenceHash"]) &&
-    typeof value["initialEvidenceHash"] === "string" &&
-    /^[0-9a-f]{64}$/.test(value["initialEvidenceHash"]) &&
     typeof value["freshnessMinutes"] === "number" &&
     value["freshnessMinutes"] >= 0 &&
     isRecord(value["cpu"]) &&
     value["cpu"]["passed"] === true &&
     isRecord(value["evidence"])
+  );
+}
+
+function isInvalidQuotaEvidence(value: Record<string, unknown>) {
+  const errorCode = value["errorCode"];
+  return (
+    value["valid"] === false &&
+    typeof errorCode === "string" &&
+    errorCode.length > 0 &&
+    errorCode.length <= 120 &&
+    value["evidence"] === null &&
+    value["freshnessMinutes"] === null &&
+    value["cpu"] === null
   );
 }
 
