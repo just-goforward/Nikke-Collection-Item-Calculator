@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { listCloudflareD1Databases } from "../shared/cloudflareD1Catalog";
 import {
   type D1UsageSnapshot,
   evaluateD1CanaryBudget,
@@ -143,6 +144,48 @@ describe("Cloudflare Paid monthly quota budget", () => {
 });
 
 describe("Cloudflare Paid account API", () => {
+  it("follows the real D1 count/page/per_page/total_count pagination contract", async () => {
+    const databases = Array.from({ length: 101 }, (_, index) => ({
+      uuid: `database-${index}`,
+      name: `database-${index}`,
+    }));
+    let requests = 0;
+    const fetchImpl: typeof fetch = async (input) => {
+      requests += 1;
+      const url = new URL(String(input));
+      const page = Number(url.searchParams.get("page"));
+      const result = databases.slice((page - 1) * 100, page * 100);
+      return Response.json({
+        success: true,
+        result,
+        result_info: {
+          count: result.length,
+          page,
+          per_page: 100,
+          total_count: databases.length,
+        },
+      });
+    };
+
+    const catalog = await listCloudflareD1Databases(fetchImpl, "account", "token");
+    expect(requests).toBe(2);
+    expect(catalog.size).toBe(databases.length);
+    expect(catalog.get("database-100")).toBe("database-100");
+  });
+
+  it("fails closed when D1 pagination metadata could omit a returned database", async () => {
+    const fetchImpl: typeof fetch = async () =>
+      Response.json({
+        success: true,
+        result: [{ uuid: "database-1", name: "database-1" }],
+        result_info: { count: 0, page: 1, per_page: 100, total_count: 0 },
+      });
+
+    await expect(listCloudflareD1Databases(fetchImpl, "account", "token")).rejects.toThrow(
+      "cloudflare_d1_list_pagination_inconsistent",
+    );
+  });
+
   it("verifies the Paid subscription and includes unknown account databases and workers", async () => {
     const known = [
       [D1_DATABASE_IDS.statsProduction, "collection-kit-stats"],
@@ -173,7 +216,12 @@ describe("Cloudflare Paid account API", () => {
         return Response.json({
           success: true,
           result: known.map(([uuid, name]) => ({ uuid, name })),
-          result_info: { total_pages: 1 },
+          result_info: {
+            count: known.length,
+            page: 1,
+            per_page: 100,
+            total_count: known.length,
+          },
         });
       }
       if (url.endsWith("/graphql")) {
@@ -359,8 +407,11 @@ describe("Cloudflare Paid GraphQL completeness", () => {
       if (String(input).includes("/d1/database")) {
         return Response.json({
           success: true,
-          result: [],
-          result_info: { total_pages: 51 },
+          result: Array.from({ length: 100 }, (_, index) => ({
+            uuid: `database-${index}`,
+            name: `database-${index}`,
+          })),
+          result_info: { count: 100, page: 1, per_page: 100, total_count: 5_001 },
         });
       }
       return fallback(input, init);
@@ -400,7 +451,12 @@ describe("Cloudflare Paid GraphQL completeness", () => {
         return Response.json({
           success: true,
           result: knownDatabases,
-          result_info: { total_pages: 1 },
+          result_info: {
+            count: knownDatabases.length,
+            page: 1,
+            per_page: 100,
+            total_count: knownDatabases.length,
+          },
         });
       }
       if (url.endsWith("/graphql")) {
@@ -456,7 +512,12 @@ describe("Cloudflare Paid GraphQL completeness", () => {
         return Response.json({
           success: true,
           result: knownDatabases,
-          result_info: { total_pages: 1 },
+          result_info: {
+            count: knownDatabases.length,
+            page: 1,
+            per_page: 100,
+            total_count: knownDatabases.length,
+          },
         });
       }
       if (url.endsWith("/graphql")) {
@@ -596,7 +657,12 @@ function paidApiFetch(overrides: Record<string, unknown> = {}): typeof fetch {
       return Response.json({
         success: true,
         result: databases,
-        result_info: { total_pages: 1 },
+        result_info: {
+          count: databases.length,
+          page: 1,
+          per_page: 100,
+          total_count: databases.length,
+        },
       });
     }
     if (url.endsWith("/graphql")) {
