@@ -43,6 +43,31 @@ jobs:
             --command "SELECT 1 AS ok;" --json)
           [[ "$(jq -r '.[0].results[0].ok' <<<"$result")" == "1" ]]
 
+      - name: Apply production Forecast prerequisite migrations
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for version in 7 8; do
+            migration=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
+              --config forecast-collector/wrangler.toml \
+              --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = $version;" \
+              --json)
+            if [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]]; then
+              continue
+            fi
+            file=$(printf "forecast-collector/migrations/%04d_" "$version")
+            migration_file=$(compgen -G "${file}*.sql" | head -n 1)
+            [[ -n "$migration_file" ]] || {
+              echo "Migration file for version $version was not found." >&2
+              exit 1
+            }
+            npx wrangler d1 execute FORECAST_DB --remote --env="" \
+              --config forecast-collector/wrangler.toml --file "$migration_file"
+          done
+
       - name: Apply production Forecast covering indexes
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -145,6 +170,7 @@ jobs:
           {
             echo "### Forecast production D1 index remediation"
             echo "- Statistics production D1 read probe: passed"
+            echo "- Forecast prerequisite migrations 0007 and 0008: present"
             echo "- Forecast migration 0009: present"
             echo "- Latest Collector and Dispatcher query plans: indexed"
             echo "- Worker deployment and Forecast activation: not performed"
