@@ -183,6 +183,23 @@ jobs:
             --var DEPLOY_SHA:${{ github.sha }} \
             --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
             --tag "${{ github.sha }}" --message "Paid quota guard ${{ github.sha }}"
+          ready=false
+          for attempt in {1..12}; do
+            health_status=$(curl --silent --show-error --connect-timeout 5 --max-time 10 \
+              --output "$RUNNER_TEMP/usage-guard-readiness.json" --write-out "%{http_code}" \
+              "$CLOUDFLARE_USAGE_GUARD_URL/health" || true)
+            if [[ "$health_status" == "200" ]] && \
+              jq -e --arg sha "${{ github.sha }}" '.deploymentSha == $sha' \
+                "$RUNNER_TEMP/usage-guard-readiness.json" >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            if (( attempt < 12 )); then sleep 5; fi
+          done
+          [[ "$ready" == "true" ]] || {
+            echo "Usage Guard endpoint did not expose deployment ${{ github.sha }} within 60 seconds." >&2
+            exit 1
+          }
           status=$(curl --silent --show-error --connect-timeout 5 --max-time 30 \
             --output "$RUNNER_TEMP/usage-guard-refresh.json" --write-out "%{http_code}" \
             -X POST -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \

@@ -93,6 +93,18 @@ describe("Cloudflare Paid quota configuration", () => {
     );
   });
 
+  it("waits for the deployed Usage Guard SHA before sending the mutating refresh", () => {
+    const deploy = read(".github/workflows/forecast-collector-deploy.yml");
+    const readiness = deploy.indexOf('"$CLOUDFLARE_USAGE_GUARD_URL/health"');
+    const deploymentIdentity = deploy.indexOf("'.deploymentSha == $sha'");
+    const refresh = deploy.indexOf('"$CLOUDFLARE_USAGE_GUARD_URL/admin/refresh"');
+    expect(readiness).toBeGreaterThan(-1);
+    expect(deploymentIdentity).toBeGreaterThan(readiness);
+    expect(refresh).toBeGreaterThan(deploymentIdentity);
+    expect(deploy).toContain("for attempt in {1..12}");
+    expect(deploy).toContain("if (( attempt < 12 )); then sleep 5; fi");
+  });
+
   it("keeps production Cron removal behind approval and preserves the Usage Guard Cron", () => {
     const workflow = read(".github/workflows/cloudflare-quota-emergency-stop.yml");
     const watchdog = read(".github/workflows/forecast-d1-budget-watch.yml");
