@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { evaluateCronCapacity, readCronSchedules } from "./cloudflare-cron-capacity";
+import {
+  CLOUDFLARE_PAID_CRON_TRIGGER_LIMIT,
+  evaluateCronCapacity,
+  parseCronTriggerLimit,
+  readCronSchedules,
+} from "./cloudflare-cron-capacity";
 
 describe("Cloudflare Cron capacity", () => {
   it("does not charge an additional trigger when the target is already scheduled", () => {
@@ -26,6 +31,25 @@ describe("Cloudflare Cron capacity", () => {
         5,
       ),
     ).toMatchObject({ currentCount: 5, additionalCount: 1, projectedCount: 6, allowed: false });
+  });
+
+  it("uses the Paid account limit and blocks the first trigger beyond it", () => {
+    expect(CLOUDFLARE_PAID_CRON_TRIGGER_LIMIT).toBe(250);
+    expect(parseCronTriggerLimit(undefined)).toBe(250);
+    expect(parseCronTriggerLimit("25")).toBe(25);
+    expect(() => parseCronTriggerLimit("251")).toThrow("Invalid Cron trigger limit.");
+    const existing = new Map([["other", CLOUDFLARE_PAID_CRON_TRIGGER_LIMIT - 1]]);
+    expect(evaluateCronCapacity(existing, "dispatcher-production")).toMatchObject({
+      projectedCount: 250,
+      limit: 250,
+      allowed: true,
+    });
+    existing.set("other", CLOUDFLARE_PAID_CRON_TRIGGER_LIMIT);
+    expect(evaluateCronCapacity(existing, "dispatcher-production")).toMatchObject({
+      projectedCount: 251,
+      limit: 250,
+      allowed: false,
+    });
   });
 
   it("reads the nested schedules object returned by the Cloudflare API", async () => {
