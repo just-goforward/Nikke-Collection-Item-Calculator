@@ -60,11 +60,13 @@ function buildPolicy(
 }
 
 export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2ProductSolver {
+  exports.configurePhase2Overflow?.(0);
   const state: Phase2FactoryState = {
     buildGeneration: 0,
     currentBuild: null,
     exports,
     memoTier: RUST_PHASE2_DEFAULT_MEMO_TIER,
+    segmentedOverflow: false,
     supplyForecast: activeSupplyForecastContext(),
   };
   configureMemoTier(state, RUST_PHASE2_DEFAULT_MEMO_TIER);
@@ -72,7 +74,11 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Prod
   return {
     setSupplyForecast: (context) => setSupplyForecast(state, context),
     configureMemoTier: (tier) => configureMemoTier(state, tier),
+    configureSegmentedOverflow: (enabled) => configureSegmentedOverflow(state, enabled),
     memoTier: () => state.memoTier,
+    memoCapacity: () => state.exports.phase2MemoCapacity?.() ?? 0,
+    memoLogicalBytes: () => state.exports.phase2MemoLogicalBytes?.() ?? 0,
+    overflowSegments: () => state.exports.phase2OverflowSegments?.() ?? 0,
     releaseMemo: () => releaseMemo(state),
     buildPolicy: (...args) => buildPolicy(state, ...args),
   };
@@ -91,6 +97,14 @@ function configureMemoTier(state: Phase2FactoryState, tier: number) {
   const normalizedTier = clampMemoTier(tier);
   state.exports.configureMemo?.(normalizedTier);
   state.memoTier = normalizedTier;
+  state.currentBuild = null;
+  state.buildGeneration += 1;
+}
+
+function configureSegmentedOverflow(state: Phase2FactoryState, enabled: boolean) {
+  if (state.segmentedOverflow === enabled) return;
+  state.exports.configurePhase2Overflow?.(enabled ? 1 : 0);
+  state.segmentedOverflow = enabled;
   state.currentBuild = null;
   state.buildGeneration += 1;
 }

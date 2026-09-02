@@ -1,5 +1,6 @@
 export type RustCoreExports = {
   configureMemo?: (capLog2: number) => void;
+  configurePhase2Overflow?: (enabled: number) => void;
   releasePhase2Memo?: () => void;
   configureMinEfMemo?: (capLog2: number) => void;
   releaseMinEfMemo?: () => void;
@@ -70,6 +71,9 @@ export type RustCoreExports = {
   getMcQuantileY?: (q: number) => number;
   getMcDepletion?: () => number;
   statesCount?: () => number;
+  phase2OverflowSegments?: () => number;
+  phase2MemoCapacity?: () => number;
+  phase2MemoLogicalBytes?: () => number;
   solveMinEf: (
     stateId: number,
     bluePieces: number,

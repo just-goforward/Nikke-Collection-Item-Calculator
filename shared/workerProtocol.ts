@@ -26,6 +26,7 @@ export const WORKER_ERROR_CODES = [
   "missing_export",
   "budget_exceeded",
   "memo_full",
+  "memory_limit",
   "stale_handle",
   "invalid_worker_payload",
   "invalid_worker_response",

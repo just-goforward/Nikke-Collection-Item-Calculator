@@ -125,8 +125,14 @@ export const jaMessages = {
   "result.noAction": "現在の所持キットで実行できる行動がありません。",
   "result.noKits": "使用できるお手入れキットが不足しています。",
   "result.solverError": "エラーが発生しました。",
+  "result.solverCapacityError":
+    "入力値の誤りではありません。この端末では厳密計算に必要なメモリまたは時間が不足しました。他のタブやアプリを閉じて再試行するか、PCで計算してください。",
   "result.followUpOutcomeError": "大成功の結果は反映しましたが、次のおすすめ計算に失敗しました。",
+  "result.followUpOutcomeCapacityError":
+    "大成功の結果は反映しましたが、この端末のメモリまたは時間の上限により、次の厳密なおすすめ計算を完了できませんでした。",
   "result.followUpConversionError": "SRへの交換は反映しましたが、次のおすすめ計算に失敗しました。",
+  "result.followUpConversionCapacityError":
+    "SRへの交換は反映しましたが、この端末のメモリまたは時間の上限により、次の厳密なおすすめ計算を完了できませんでした。",
   "result.retryCalculation": "もう一度計算",
   "result.loadingDefault": "所持キットの状態をMDPで評価しています。",
   "result.loadingStates": "{count}個の状態を評価しました。",

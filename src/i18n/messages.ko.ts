@@ -126,8 +126,14 @@ export const koMessages = {
   "result.noAction": "현재 보유 키트로 가능한 행동이 없습니다.",
   "result.noKits": "사용 가능한 키트가 부족합니다.",
   "result.solverError": "오류가 발생했습니다.",
+  "result.solverCapacityError":
+    "입력값 오류가 아니라, 이 기기에서 정밀 계산에 필요한 메모리 또는 시간이 부족했습니다. 다른 탭과 앱을 닫고 다시 시도하거나 PC에서 계산해 주세요.",
   "result.followUpOutcomeError": "대성공 여부는 반영했습니다. 다음 추천 계산만 실패했습니다.",
+  "result.followUpOutcomeCapacityError":
+    "대성공 여부는 반영했습니다. 이 기기의 메모리 또는 시간 한도로 다음 추천 계산을 완료하지 못했습니다.",
   "result.followUpConversionError": "SR 등급 교체는 반영했습니다. 다음 추천 계산만 실패했습니다.",
+  "result.followUpConversionCapacityError":
+    "SR 등급 교체는 반영했습니다. 이 기기의 메모리 또는 시간 한도로 다음 추천 계산을 완료하지 못했습니다.",
   "result.retryCalculation": "다시 계산",
   "result.loadingDefault": "보유 키트 상태를 MDP로 평가하고 있습니다.",
   "result.loadingStates": "{count}개 상태를 평가했습니다.",

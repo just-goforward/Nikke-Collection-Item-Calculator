@@ -86,6 +86,7 @@ export async function validateRustPhase2(
   const solver = await getRustPhase2Solver(wasmUrl);
   solver.setSupplyForecast(supplyForecast);
   solver.configureMemoTier(RUST_PHASE2_DEFAULT_MEMO_TIER);
+  solver.configureSegmentedOverflow(false);
   let policy: RustPhase2Policy;
   try {
     policy = solver.buildPolicy(
@@ -99,6 +100,7 @@ export async function validateRustPhase2(
     if (!isMemoFull(error)) throw error;
     solver.releaseMemo();
     solver.configureMemoTier(RUST_PHASE2_FALLBACK_MEMO_TIER);
+    solver.configureSegmentedOverflow(true);
     policy = solver.buildPolicy(
       normalizedInput.start,
       normalizedInput.stock,

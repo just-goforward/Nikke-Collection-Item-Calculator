@@ -8,7 +8,7 @@ export const RUST_PHASE2_FALLBACK_MEMO_TIER = 22;
 export const RUST_MEMORY_STRATEGY = "balanced-v1";
 
 export const RUST_MIN_EF_SOLVER_VERSION = "phase3_rust_min_ef";
-export const RUST_PHASE2_SOLVER_VERSION = "phase2_availability_h075_tau0_p3_rust";
+export const RUST_PHASE2_SOLVER_VERSION = "phase2_availability_h075_tau0_p3_rust_segmented_v1";
 export const RUST_RERANK_SOLVER_VERSION =
   "phase2_availability_h075_tau0_p3_rust_rerank_adaptive90_m025_confirm_staging";
 

@@ -146,7 +146,11 @@ export type RustPhase2Policy = {
 export type RustPhase2ProductSolver = {
   setSupplyForecast: (context: SupplyForecastContext) => void;
   configureMemoTier: (tier: number) => void;
+  configureSegmentedOverflow: (enabled: boolean) => void;
   memoTier: () => number;
+  memoCapacity: () => number;
+  memoLogicalBytes: () => number;
+  overflowSegments: () => number;
   releaseMemo: () => void;
   buildPolicy: (
     start: State,

@@ -4,6 +4,7 @@ import type { RustCoreExports } from "./rustTypes";
 export function makeRustCoreExports(overrides: Partial<RustCoreExports> = {}): RustCoreExports {
   return {
     configureMemo: vi.fn(),
+    configurePhase2Overflow: vi.fn(),
     configureMinEfMemo: vi.fn(),
     configureNodeBudget: vi.fn(),
     releaseMinEfMemo: vi.fn(),
@@ -33,6 +34,9 @@ export function makeRustCoreExports(overrides: Partial<RustCoreExports> = {}): R
     getMcVecP: vi.fn(() => 2),
     getMcVecY: vi.fn(() => 3),
     statesCount: vi.fn(() => 1234),
+    phase2OverflowSegments: vi.fn(() => 0),
+    phase2MemoCapacity: vi.fn(() => 1 << 21),
+    phase2MemoLogicalBytes: vi.fn(() => (1 << 21) * 49),
     minEfAction: vi.fn(() => 0),
     minEfSuccessProb: vi.fn(() => 0.9),
     minEfMaxSuccessProb: vi.fn(() => 0.95),

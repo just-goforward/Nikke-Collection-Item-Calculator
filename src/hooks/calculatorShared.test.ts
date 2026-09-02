@@ -133,7 +133,7 @@ describe("makeSolverDiagnosticEvent", () => {
           jsExit: "not_attempted",
           minEfExit: "memo_full",
           phase2Exit: "success",
-          policyVersion: "ladder_v1",
+          policyVersion: "ladder_v2",
           requestedBackend: "rust-min-ef",
           terminalBackend: "rust-phase2",
           terminalOutcome: "success",

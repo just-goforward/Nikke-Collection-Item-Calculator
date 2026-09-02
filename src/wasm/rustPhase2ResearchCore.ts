@@ -100,12 +100,14 @@ function rootCandidates(
 
 export function createRustPhase2ResearchSolver(exports: RustCoreExports): RustPhase2ResearchSolver {
   exports.configureMemo?.(21);
+  exports.configurePhase2Overflow?.(0);
   exports.configureNodeBudget?.(0);
   const state: Phase2FactoryState = {
     buildGeneration: 0,
     currentBuild: null,
     exports,
     memoTier: 21,
+    segmentedOverflow: false,
     supplyForecast: activeSupplyForecastContext(),
   };
   return {
@@ -121,7 +123,16 @@ export function createRustPhase2ResearchSolver(exports: RustCoreExports): RustPh
       state.currentBuild = null;
       state.buildGeneration += 1;
     },
+    configureSegmentedOverflow(enabled) {
+      exports.configurePhase2Overflow?.(enabled ? 1 : 0);
+      state.segmentedOverflow = enabled;
+      state.currentBuild = null;
+      state.buildGeneration += 1;
+    },
     memoTier: () => state.memoTier,
+    memoCapacity: () => exports.phase2MemoCapacity?.() ?? 0,
+    memoLogicalBytes: () => exports.phase2MemoLogicalBytes?.() ?? 0,
+    overflowSegments: () => exports.phase2OverflowSegments?.() ?? 0,
     releaseMemo() {
       exports.releasePhase2Memo?.();
       state.currentBuild = null;

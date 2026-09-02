@@ -105,6 +105,10 @@ export type SolverResult = {
     minEfMemoTier?: number;
     phase2MemoTier?: number;
     phase2MemoRetried?: boolean;
+    phase2MemoSlots?: number;
+    phase2MemoLogicalBytes?: number;
+    phase2OverflowSegments?: number;
+    phase2MemoryClass?: string;
     attemptedStates?: number;
     solveMs?: number;
     workerEndToEndMs?: number;

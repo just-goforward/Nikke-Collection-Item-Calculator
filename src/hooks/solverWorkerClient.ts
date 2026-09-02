@@ -435,6 +435,53 @@ function useRequestWorkerTask({
   );
 }
 
+function useWorkerIdleRelease({
+  clearIdleTimer,
+  idleTimeoutMs,
+  idleTimerRef,
+  pendingRef,
+  releaseIdleWorker,
+  workerRef,
+}: {
+  clearIdleTimer: () => void;
+  idleTimeoutMs: number;
+  idleTimerRef: { current: ReturnType<typeof setTimeout> | null };
+  pendingRef: { current: Map<number, PendingTask> };
+  releaseIdleWorker: () => void;
+  workerRef: { current: WorkerPort | null };
+}) {
+  const scheduleIdleRelease = useCallback(() => {
+    if (idleTimeoutMs <= 0 || pendingRef.current.size > 0 || !workerRef.current) return;
+    clearIdleTimer();
+    idleTimerRef.current = setTimeout(releaseIdleWorker, idleTimeoutMs);
+  }, [clearIdleTimer, idleTimeoutMs, idleTimerRef, pendingRef, releaseIdleWorker, workerRef]);
+
+  const releaseWorkerWhenIdle = useCallback(
+    (delayMs = 0) => {
+      if (pendingRef.current.size > 0) return false;
+      clearIdleTimer();
+      if (!workerRef.current) return true;
+      const normalizedDelay = Math.max(0, Math.floor(delayMs));
+      if (normalizedDelay === 0) {
+        releaseIdleWorker();
+        return true;
+      }
+      idleTimerRef.current = setTimeout(releaseIdleWorker, normalizedDelay);
+      return true;
+    },
+    [clearIdleTimer, idleTimerRef, pendingRef, releaseIdleWorker, workerRef],
+  );
+
+  return { releaseWorkerWhenIdle, scheduleIdleRelease };
+}
+
+function useClearIdleTimer(idleTimerRef: { current: ReturnType<typeof setTimeout> | null }) {
+  return useCallback(() => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    idleTimerRef.current = null;
+  }, [idleTimerRef]);
+}
+
 export function useWorkerTaskClient(options: WorkerTaskClientOptions = {}) {
   const workerRef = useRef<WorkerPort | null>(null);
   const requestIdRef = useRef(0);
@@ -444,10 +491,7 @@ export function useWorkerTaskClient(options: WorkerTaskClientOptions = {}) {
   const onInvariant = options.onInvariant;
   const idleTimeoutMs = Math.max(0, options.idleTimeoutMs ?? 0);
 
-  const clearIdleTimer = useCallback(() => {
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    idleTimerRef.current = null;
-  }, []);
+  const clearIdleTimer = useClearIdleTimer(idleTimerRef);
 
   const failWorker = useCallback(
     (payload: WorkerErrorPayload, expectedWorker?: WorkerPort) => {
@@ -502,11 +546,14 @@ export function useWorkerTaskClient(options: WorkerTaskClientOptions = {}) {
     return null;
   }, [clearIdleTimer]);
 
-  const scheduleIdleRelease = useCallback(() => {
-    if (idleTimeoutMs <= 0 || pendingRef.current.size > 0 || !workerRef.current) return;
-    clearIdleTimer();
-    idleTimerRef.current = setTimeout(releaseIdleWorker, idleTimeoutMs);
-  }, [clearIdleTimer, idleTimeoutMs, releaseIdleWorker]);
+  const { releaseWorkerWhenIdle, scheduleIdleRelease } = useWorkerIdleRelease({
+    clearIdleTimer,
+    idleTimeoutMs,
+    idleTimerRef,
+    pendingRef,
+    releaseIdleWorker,
+    workerRef,
+  });
 
   const preemptValidationForSolve = useCallback(() => {
     const pending = [...pendingRef.current.values()];
@@ -549,6 +596,7 @@ export function useWorkerTaskClient(options: WorkerTaskClientOptions = {}) {
   return {
     disposeAllTasksForUnmount,
     preemptValidationForSolve,
+    releaseWorkerWhenIdle,
     requestWorkerTask,
     resetFailedWorker,
   };

@@ -16,6 +16,7 @@ import { validateRustMinEf, validateRustPhase2 } from "./wasm/rustProductValidat
 import {
   RUST_STATUS_BUDGET_EXCEEDED,
   RUST_STATUS_MEMO_FULL,
+  RUST_STATUS_MEMORY_LIMIT,
   RustSolveError,
 } from "./wasm/rustStatus";
 
@@ -192,6 +193,9 @@ function rustSolveErrorCode(error: RustSolveError): WorkerErrorCode {
   if (error.reason === "missing_export") return "missing_export";
   if (error.reason === "stale_handle") return "stale_handle";
   if (error.reason === "status" && error.status === RUST_STATUS_MEMO_FULL) return "memo_full";
+  if (error.reason === "status" && error.status === RUST_STATUS_MEMORY_LIMIT) {
+    return "memory_limit";
+  }
   if (error.reason === "status" && error.status === RUST_STATUS_BUDGET_EXCEEDED) {
     return "budget_exceeded";
   }

@@ -1,8 +1,9 @@
 import type { WorkerErrorCode, WorkerSolverBackend } from "../../shared/workerProtocol";
 import type { SolverInput } from "../types";
 
-export const RECOVERY_POLICY_VERSION = "ladder_v1" as const;
-export const SOLVE_DEADLINE_MS = 25_000;
+export const RECOVERY_POLICY_VERSION = "ladder_v2" as const;
+export const SOLVE_DEADLINE_MS = 45_000;
+export const RUST_PHASE2_RUNG_TIMEOUT_MS = 25_000;
 export const RUST_RUNG_TIMEOUT_MS = 15_000;
 
 export type SolverRecoveryExit = "not_attempted" | "success" | WorkerErrorCode;
@@ -42,6 +43,7 @@ export const WORKER_ERROR_TRAITS = {
     jsSemanticallySafe: false,
   },
   memo_full: { category: "capacity", jsSemanticallySafe: true },
+  memory_limit: { category: "capacity", jsSemanticallySafe: false },
   missing_export: { category: "deployment", jsSemanticallySafe: true },
   rust_timeout: { category: "capacity", jsSemanticallySafe: true },
   solve_in_flight: {

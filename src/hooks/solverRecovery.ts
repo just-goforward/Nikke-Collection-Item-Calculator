@@ -7,11 +7,13 @@ import {
   decideSolveRecovery,
   isLightweightJsInput,
   RECOVERY_POLICY_VERSION,
+  RUST_PHASE2_RUNG_TIMEOUT_MS,
   RUST_RUNG_TIMEOUT_MS,
   remainingDeadlineMs,
   SOLVE_DEADLINE_MS,
   type SolverRecoveryExit,
   type SolverRecoveryTrace,
+  WORKER_ERROR_TRAITS,
 } from "./solverRecoveryPolicy";
 import {
   classifyWorkerFailure,
@@ -75,9 +77,11 @@ async function attemptWorkerSolve({
   }
   let timing: WorkerClientTiming | null = null;
   try {
+    const rungTimeoutMs =
+      backend === "rust-phase2" ? RUST_PHASE2_RUNG_TIMEOUT_MS : RUST_RUNG_TIMEOUT_MS;
     const result = (await requestWorkerTask("solve", input, {
       backend,
-      executionTimeoutMs: Math.min(RUST_RUNG_TIMEOUT_MS, remainingMs),
+      executionTimeoutMs: Math.min(rungTimeoutMs, remainingMs),
       onProgress,
       onTiming: (value) => {
         timing = value;
@@ -201,6 +205,13 @@ export async function solveWithClientRecovery({
     });
     if (decision.action === "fail") {
       trace.terminalBackend = attemptedBackend;
+      if (
+        attemptedBackend === "rust-phase2" &&
+        WORKER_ERROR_TRAITS[attempt.error.code].category === "capacity"
+      ) {
+        const resetError = resetFailedWorker();
+        if (resetError) throw new SolverRecoveryFailure(resetError, { ...trace });
+      }
       throw new SolverRecoveryFailure(attempt.error, { ...trace });
     }
     if (decision.action === "run_js_main_thread") {

@@ -44,6 +44,7 @@ export type ResultView =
       reason:
         | "no_action"
         | "solver_failure"
+        | "solver_capacity_failure"
         | "follow_up_outcome_failure"
         | "follow_up_conversion_failure";
       message: LocalizedMessage;

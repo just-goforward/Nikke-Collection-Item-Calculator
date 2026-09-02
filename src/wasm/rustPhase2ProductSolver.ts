@@ -113,6 +113,10 @@ export async function solveRustPhase2(
       forecastProfileId: supplyForecast.forecastProfileId,
       phase2MemoRetried: retried,
       phase2MemoTier: solver.memoTier(),
+      phase2MemoSlots: solver.memoCapacity(),
+      phase2MemoLogicalBytes: solver.memoLogicalBytes(),
+      phase2OverflowSegments: solver.overflowSegments(),
+      phase2MemoryClass: solver.overflowSegments() > 0 ? "segmented" : "base",
       solveMs: elapsedMs(startedAt),
     },
   });
@@ -126,6 +130,7 @@ function buildPolicyWithMemoRetry(
   const initialTier = options.initialMemoTier ?? RUST_PHASE2_DEFAULT_MEMO_TIER;
   const retryOnMemoFull = options.retryOnMemoFull ?? true;
   solver.configureMemoTier(initialTier);
+  solver.configureSegmentedOverflow(initialTier >= RUST_PHASE2_FALLBACK_MEMO_TIER);
   try {
     return { policy: buildPolicy(solver, normalizedInput), retried: false };
   } catch (error) {
@@ -134,6 +139,7 @@ function buildPolicyWithMemoRetry(
     }
     solver.releaseMemo();
     solver.configureMemoTier(RUST_PHASE2_FALLBACK_MEMO_TIER);
+    solver.configureSegmentedOverflow(true);
     return { policy: buildPolicy(solver, normalizedInput), retried: true };
   }
 }

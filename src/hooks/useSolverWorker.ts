@@ -25,6 +25,7 @@ import {
 
 const SOLVE_CACHE_LIMIT = 32;
 const VALIDATION_CACHE_LIMIT = 16;
+const HEAVY_PHASE2_WORKER_RELEASE_MS = 30_000;
 
 function activeForecastCachePrefix() {
   const { forecastId, profile } = resolveRuntimeSupplyForecast();
@@ -100,6 +101,7 @@ export function useSolverWorker(
   const validationCacheRef = useRef(new Map<string, MonteCarloResult>());
   const {
     preemptValidationForSolve: preemptSharedValidation,
+    releaseWorkerWhenIdle: releaseSharedWorkerWhenIdle,
     requestWorkerTask: requestSharedTask,
     resetFailedWorker: resetSharedWorker,
   } = useWorkerTaskClient({
@@ -142,6 +144,12 @@ export function useSolverWorker(
         withWorkerTimingStats(recovered.result, recovered.timing),
         SOLVE_CACHE_LIMIT,
       );
+      if (
+        Number(solved.stats?.phase2MemoTier ?? 0) >= 22 ||
+        Number(solved.stats?.phase2OverflowSegments ?? 0) > 0
+      ) {
+        releaseSharedWorkerWhenIdle(HEAVY_PHASE2_WORKER_RELEASE_MS);
+      }
       return {
         executionKind: "executed",
         recoveryTrace: recovered.trace,
@@ -149,7 +157,13 @@ export function useSolverWorker(
         result: solved,
       } satisfies SolveOutcome;
     },
-    [cancelValidationForSolve, onSolveProgress, requestSharedTask, resetSharedWorker],
+    [
+      cancelValidationForSolve,
+      onSolveProgress,
+      releaseSharedWorkerWhenIdle,
+      requestSharedTask,
+      resetSharedWorker,
+    ],
   );
 
   const validateBestAvailable = useCallback(

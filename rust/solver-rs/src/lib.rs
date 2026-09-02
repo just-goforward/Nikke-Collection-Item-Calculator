@@ -46,6 +46,10 @@ const CAP_DEFAULT: usize = 1 << 22;
 static mut MEMO_CAP: usize = CAP_DEFAULT;
 static mut MEMO_MASK: u32 = (CAP_DEFAULT - 1) as u32;
 static mut MEMO_FULL_GUARD: usize = CAP_DEFAULT - (CAP_DEFAULT >> 3);
+const OVERFLOW_CAP_LOG2: [u32; 2] = [20, 18];
+const MEMO_SLOT_BYTES: usize = 49;
+const SLOT_SEGMENT_SHIFT: usize = 24;
+const SLOT_LOCAL_MASK: usize = (1 << SLOT_SEGMENT_SHIFT) - 1;
 const TERMINAL: i32 = -2;
 const DEPLETED: i32 = -3;
 static mut KEYS: Vec<u32> = Vec::new();
@@ -58,6 +62,73 @@ static mut VY: Vec<f64> = Vec::new();
 static mut ACT: Vec<i8> = Vec::new();
 static mut EPOCH: u32 = 1;
 static mut COUNT: usize = 0;
+static mut PRIMARY_COUNT: usize = 0;
+static mut PHASE2_OVERFLOW_ENABLED: bool = false;
+static mut ACTIVE_OVERFLOW_SEGMENTS: usize = 0;
+static mut OVERFLOW_SEGMENTS: Vec<MemoOverflowSegment> = Vec::new();
+
+struct MemoStorage {
+    keys: Vec<u32>,
+    gens: Vec<u32>,
+    sp_ok: Vec<f64>,
+    sp_max: Vec<f64>,
+    vb: Vec<f64>,
+    vp: Vec<f64>,
+    vy: Vec<f64>,
+    act: Vec<i8>,
+}
+
+impl MemoStorage {
+    fn try_new(cap: usize) -> Result<Self, ()> {
+        Ok(Self {
+            keys: try_filled_vec(cap, 0u32)?,
+            gens: try_filled_vec(cap, 0u32)?,
+            sp_ok: try_filled_vec(cap, 0.0)?,
+            sp_max: try_filled_vec(cap, 0.0)?,
+            vb: try_filled_vec(cap, 0.0)?,
+            vp: try_filled_vec(cap, 0.0)?,
+            vy: try_filled_vec(cap, 0.0)?,
+            act: try_filled_vec(cap, 0i8)?,
+        })
+    }
+}
+
+struct MemoOverflowSegment {
+    cap: usize,
+    count: usize,
+    guard: usize,
+    mask: u32,
+    storage: MemoStorage,
+}
+
+impl MemoOverflowSegment {
+    fn try_new(cap_log2: u32) -> Result<Self, ()> {
+        let cap = 1usize << cap_log2;
+        Ok(Self {
+            cap,
+            count: 0,
+            guard: cap - (cap >> 3),
+            mask: (cap - 1) as u32,
+            storage: MemoStorage::try_new(cap)?,
+        })
+    }
+
+    fn probe(&self, stored: u32, epoch: u32) -> usize {
+        let mask = self.mask as usize;
+        let mut index = hash_slot(stored, self.mask) as usize;
+        while self.storage.gens[index] == epoch && self.storage.keys[index] != stored {
+            index = (index + 1) & mask;
+        }
+        index
+    }
+}
+
+fn try_filled_vec<T: Clone>(len: usize, value: T) -> Result<Vec<T>, ()> {
+    let mut values = Vec::new();
+    values.try_reserve_exact(len).map_err(|_| ())?;
+    values.resize(len, value);
+    Ok(values)
+}
 
 unsafe fn release_phase2_memo_arrays() {
     KEYS = Vec::new();
@@ -68,22 +139,32 @@ unsafe fn release_phase2_memo_arrays() {
     VP = Vec::new();
     VY = Vec::new();
     ACT = Vec::new();
+    OVERFLOW_SEGMENTS = Vec::new();
+    ACTIVE_OVERFLOW_SEGMENTS = 0;
     EPOCH = 1;
     COUNT = 0;
+    PRIMARY_COUNT = 0;
 }
 
-unsafe fn memo_ensure() {
+unsafe fn memo_ensure() -> bool {
     if KEYS.is_empty() {
-        let cap = MEMO_CAP;
-        KEYS = vec![0u32; cap];
-        GENS = vec![0u32; cap];
-        SP_OK = vec![0.0; cap];
-        SP_MAX = vec![0.0; cap];
-        VB = vec![0.0; cap];
-        VP = vec![0.0; cap];
-        VY = vec![0.0; cap];
-        ACT = vec![0i8; cap];
+        let storage = match MemoStorage::try_new(MEMO_CAP) {
+            Ok(storage) => storage,
+            Err(()) => {
+                LAST_STATUS = STATUS_MEMORY_LIMIT;
+                return false;
+            }
+        };
+        KEYS = storage.keys;
+        GENS = storage.gens;
+        SP_OK = storage.sp_ok;
+        SP_MAX = storage.sp_max;
+        VB = storage.vb;
+        VP = storage.vp;
+        VY = storage.vy;
+        ACT = storage.act;
     }
+    true
 }
 // Set the memo capacity to 1<<cap_log2 (clamped to [16,24]) and free the old arrays so the next solve
 // reallocates at the new size. Call once at startup BEFORE solving. No-op if already at that size.
@@ -102,21 +183,44 @@ pub extern "C" fn configureMemo(cap_log2: i32) {
     }
 }
 #[no_mangle]
+pub extern "C" fn configurePhase2Overflow(enabled: i32) {
+    unsafe {
+        let next = enabled != 0;
+        if next == PHASE2_OVERFLOW_ENABLED {
+            return;
+        }
+        PHASE2_OVERFLOW_ENABLED = next;
+        release_phase2_memo_arrays();
+    }
+}
+#[no_mangle]
 pub extern "C" fn releasePhase2Memo() {
     unsafe {
         release_phase2_memo_arrays();
     }
 }
 pub(crate) unsafe fn memo_reset() {
-    memo_ensure();
+    if !memo_ensure() {
+        return;
+    }
     EPOCH = EPOCH.wrapping_add(1); // O(1) reset (epoch stamp), like the AS memo
     if EPOCH == 0 {
         for g in GENS.iter_mut() {
             *g = 0;
         }
+        for segment in OVERFLOW_SEGMENTS.iter_mut() {
+            for generation in segment.storage.gens.iter_mut() {
+                *generation = 0;
+            }
+        }
         EPOCH = 1;
     }
     COUNT = 0;
+    PRIMARY_COUNT = 0;
+    ACTIVE_OVERFLOW_SEGMENTS = 0;
+    for segment in OVERFLOW_SEGMENTS.iter_mut() {
+        segment.count = 0;
+    }
 }
 #[inline]
 fn hash_slot(stored: u32, mask: u32) -> u32 {
@@ -128,7 +232,7 @@ fn hash_slot(stored: u32, mask: u32) -> u32 {
     h ^= h >> 16;
     h & mask
 }
-unsafe fn probe(stored: u32) -> usize {
+unsafe fn probe_primary(stored: u32) -> usize {
     let mask = MEMO_MASK as usize;
     let mut i = hash_slot(stored, MEMO_MASK) as usize;
     while GENS[i] == EPOCH && KEYS[i] != stored {
@@ -137,32 +241,128 @@ unsafe fn probe(stored: u32) -> usize {
     i
 }
 unsafe fn memo_find(key: u32) -> i32 {
-    let i = probe(key + 1);
+    let stored = key + 1;
+    let i = probe_primary(stored);
     if GENS[i] == EPOCH {
-        i as i32
-    } else {
-        -1
+        return i as i32;
     }
+    for (segment_index, segment) in OVERFLOW_SEGMENTS
+        .iter()
+        .take(ACTIVE_OVERFLOW_SEGMENTS)
+        .enumerate()
+    {
+        let local_index = segment.probe(stored, EPOCH);
+        if segment.storage.gens[local_index] == EPOCH {
+            return encode_overflow_slot(segment_index, local_index);
+        }
+    }
+    -1
 }
 unsafe fn memo_insert(key: u32, sp: f64, spm: f64, vb: f64, vp: f64, vy: f64, act: i8) -> i32 {
     let stored = key + 1;
-    let i = probe(stored);
-    if GENS[i] != EPOCH {
-        if COUNT >= MEMO_FULL_GUARD {
-            LAST_STATUS = STATUS_MEMO_FULL;
-            return -1;
-        }
-        KEYS[i] = stored;
-        GENS[i] = EPOCH;
-        COUNT += 1;
+    let primary_index = probe_primary(stored);
+    if GENS[primary_index] == EPOCH {
+        let slot = primary_index as i32;
+        write_memo_slot(slot, sp, spm, vb, vp, vy, act);
+        return slot;
     }
-    SP_OK[i] = sp;
-    SP_MAX[i] = spm;
-    VB[i] = vb;
-    VP[i] = vp;
-    VY[i] = vy;
-    ACT[i] = act;
-    i as i32
+    for (segment_index, segment) in OVERFLOW_SEGMENTS
+        .iter()
+        .take(ACTIVE_OVERFLOW_SEGMENTS)
+        .enumerate()
+    {
+        let local_index = segment.probe(stored, EPOCH);
+        if segment.storage.gens[local_index] == EPOCH {
+            let slot = encode_overflow_slot(segment_index, local_index);
+            write_memo_slot(slot, sp, spm, vb, vp, vy, act);
+            return slot;
+        }
+    }
+
+    if PRIMARY_COUNT < MEMO_FULL_GUARD {
+        KEYS[primary_index] = stored;
+        GENS[primary_index] = EPOCH;
+        PRIMARY_COUNT += 1;
+        COUNT += 1;
+        let slot = primary_index as i32;
+        write_memo_slot(slot, sp, spm, vb, vp, vy, act);
+        return slot;
+    }
+
+    if !PHASE2_OVERFLOW_ENABLED {
+        LAST_STATUS = STATUS_MEMO_FULL;
+        return -1;
+    }
+    let segment_index = match writable_overflow_segment() {
+        Some(index) => index,
+        None => return -1,
+    };
+    let segment = &mut OVERFLOW_SEGMENTS[segment_index];
+    let local_index = segment.probe(stored, EPOCH);
+    segment.storage.keys[local_index] = stored;
+    segment.storage.gens[local_index] = EPOCH;
+    segment.count += 1;
+    COUNT += 1;
+    let slot = encode_overflow_slot(segment_index, local_index);
+    write_memo_slot(slot, sp, spm, vb, vp, vy, act);
+    slot
+}
+
+unsafe fn writable_overflow_segment() -> Option<usize> {
+    if ACTIVE_OVERFLOW_SEGMENTS > 0 {
+        let active_index = ACTIVE_OVERFLOW_SEGMENTS - 1;
+        if OVERFLOW_SEGMENTS[active_index].count < OVERFLOW_SEGMENTS[active_index].guard {
+            return Some(active_index);
+        }
+    }
+    let next_index = ACTIVE_OVERFLOW_SEGMENTS;
+    let Some(&cap_log2) = OVERFLOW_CAP_LOG2.get(next_index) else {
+        LAST_STATUS = STATUS_MEMO_FULL;
+        return None;
+    };
+    if next_index == OVERFLOW_SEGMENTS.len() {
+        let segment = match MemoOverflowSegment::try_new(cap_log2) {
+            Ok(segment) => segment,
+            Err(()) => {
+                LAST_STATUS = STATUS_MEMORY_LIMIT;
+                return None;
+            }
+        };
+        OVERFLOW_SEGMENTS.push(segment);
+    }
+    ACTIVE_OVERFLOW_SEGMENTS += 1;
+    Some(next_index)
+}
+
+#[inline]
+fn encode_overflow_slot(segment_index: usize, local_index: usize) -> i32 {
+    (((segment_index + 1) << SLOT_SEGMENT_SHIFT) | local_index) as i32
+}
+
+#[inline]
+fn decode_memo_slot(slot: i32) -> (usize, usize) {
+    let raw = slot as usize;
+    (raw >> SLOT_SEGMENT_SHIFT, raw & SLOT_LOCAL_MASK)
+}
+
+unsafe fn write_memo_slot(slot: i32, sp: f64, spm: f64, vb: f64, vp: f64, vy: f64, act: i8) {
+    let (segment_tag, local_index) = decode_memo_slot(slot);
+    if segment_tag == 0 {
+        SP_OK[local_index] = sp;
+        SP_MAX[local_index] = spm;
+        VB[local_index] = vb;
+        VP[local_index] = vp;
+        VY[local_index] = vy;
+        ACT[local_index] = act;
+        return;
+    }
+    let storage = &mut OVERFLOW_SEGMENTS[segment_tag - 1].storage;
+    storage.sp_ok[local_index] = sp;
+    storage.sp_max[local_index] = spm;
+    storage.vb[local_index] = vb;
+    storage.vp[local_index] = vp;
+    storage.vy[local_index] = vy;
+    storage.act[local_index] = act;
 }
 #[inline]
 unsafe fn sp_ok_at(slot: i32) -> f64 {
@@ -171,7 +371,12 @@ unsafe fn sp_ok_at(slot: i32) -> f64 {
     } else if slot == DEPLETED {
         0.0
     } else {
-        SP_OK[slot as usize]
+        let (segment_tag, local_index) = decode_memo_slot(slot);
+        if segment_tag == 0 {
+            SP_OK[local_index]
+        } else {
+            OVERFLOW_SEGMENTS[segment_tag - 1].storage.sp_ok[local_index]
+        }
     }
 }
 #[inline]
@@ -181,7 +386,12 @@ unsafe fn sp_max_at(slot: i32) -> f64 {
     } else if slot == DEPLETED {
         0.0
     } else {
-        SP_MAX[slot as usize]
+        let (segment_tag, local_index) = decode_memo_slot(slot);
+        if segment_tag == 0 {
+            SP_MAX[local_index]
+        } else {
+            OVERFLOW_SEGMENTS[segment_tag - 1].storage.sp_max[local_index]
+        }
     }
 }
 #[inline]
@@ -189,7 +399,12 @@ unsafe fn vb_at(slot: i32) -> f64 {
     if slot == TERMINAL || slot == DEPLETED {
         0.0
     } else {
-        VB[slot as usize]
+        let (segment_tag, local_index) = decode_memo_slot(slot);
+        if segment_tag == 0 {
+            VB[local_index]
+        } else {
+            OVERFLOW_SEGMENTS[segment_tag - 1].storage.vb[local_index]
+        }
     }
 }
 #[inline]
@@ -197,7 +412,12 @@ unsafe fn vp_at(slot: i32) -> f64 {
     if slot == TERMINAL || slot == DEPLETED {
         0.0
     } else {
-        VP[slot as usize]
+        let (segment_tag, local_index) = decode_memo_slot(slot);
+        if segment_tag == 0 {
+            VP[local_index]
+        } else {
+            OVERFLOW_SEGMENTS[segment_tag - 1].storage.vp[local_index]
+        }
     }
 }
 #[inline]
@@ -205,7 +425,12 @@ unsafe fn vy_at(slot: i32) -> f64 {
     if slot == TERMINAL || slot == DEPLETED {
         0.0
     } else {
-        VY[slot as usize]
+        let (segment_tag, local_index) = decode_memo_slot(slot);
+        if segment_tag == 0 {
+            VY[local_index]
+        } else {
+            OVERFLOW_SEGMENTS[segment_tag - 1].storage.vy[local_index]
+        }
     }
 }
 #[inline]
@@ -213,7 +438,12 @@ unsafe fn act_at(slot: i32) -> i32 {
     if slot == TERMINAL || slot == DEPLETED {
         -1
     } else {
-        ACT[slot as usize] as i32
+        let (segment_tag, local_index) = decode_memo_slot(slot);
+        if segment_tag == 0 {
+            ACT[local_index] as i32
+        } else {
+            OVERFLOW_SEGMENTS[segment_tag - 1].storage.act[local_index] as i32
+        }
     }
 }
 
@@ -340,6 +570,9 @@ unsafe fn better(a: usize, b: usize) -> bool {
 }
 
 unsafe fn value(sid: i32, mut b: i32, mut p: i32, mut y: i32) -> i32 {
+    if !status_ok() {
+        return -1;
+    }
     if is_terminal(sid) {
         return TERMINAL;
     }
@@ -792,6 +1025,25 @@ pub extern "C" fn statesCount() -> i32 {
     unsafe { COUNT as i32 }
 }
 #[no_mangle]
+pub extern "C" fn phase2OverflowSegments() -> i32 {
+    unsafe { ACTIVE_OVERFLOW_SEGMENTS as i32 }
+}
+#[no_mangle]
+pub extern "C" fn phase2MemoCapacity() -> i32 {
+    unsafe {
+        let overflow_capacity: usize = OVERFLOW_SEGMENTS
+            .iter()
+            .take(ACTIVE_OVERFLOW_SEGMENTS)
+            .map(|segment| segment.cap)
+            .sum();
+        (MEMO_CAP + overflow_capacity) as i32
+    }
+}
+#[no_mangle]
+pub extern "C" fn phase2MemoLogicalBytes() -> i32 {
+    phase2MemoCapacity().saturating_mul(MEMO_SLOT_BYTES as i32)
+}
+#[no_mangle]
 pub extern "C" fn getMcCompleted() -> i32 {
     unsafe { mc_completed() }
 }
@@ -1033,5 +1285,41 @@ pub extern "C" fn cvarRecordedActionAt(sid: i32, b: i32, p: i32, y: i32) -> i32 
     unsafe {
         let (bounded_b, bounded_p, bounded_y) = clamp_stock_uses(b, p, y);
         cvar_recorded_action(sid, bounded_b, bounded_p, bounded_y)
+    }
+}
+
+#[cfg(test)]
+mod segmented_memo_tests {
+    use super::{
+        decode_memo_slot, encode_overflow_slot, hash_slot, MemoOverflowSegment, SLOT_SEGMENT_SHIFT,
+    };
+
+    #[test]
+    fn overflow_slot_encoding_preserves_segment_and_local_index() {
+        let slot = encode_overflow_slot(1, 12_345);
+        assert_eq!(decode_memo_slot(slot), (2, 12_345));
+        assert!(slot >= (2 << SLOT_SEGMENT_SHIFT));
+    }
+
+    #[test]
+    fn overflow_probe_keeps_colliding_keys_distinct() {
+        let mut segment = MemoOverflowSegment::try_new(4).expect("small test segment");
+        let epoch = 7;
+        let first = 1u32;
+        let first_hash = hash_slot(first, segment.mask);
+        let second = (2..10_000u32)
+            .find(|candidate| hash_slot(*candidate, segment.mask) == first_hash)
+            .expect("a collision in 16 slots");
+
+        let first_index = segment.probe(first, epoch);
+        segment.storage.keys[first_index] = first;
+        segment.storage.gens[first_index] = epoch;
+        let second_index = segment.probe(second, epoch);
+        segment.storage.keys[second_index] = second;
+        segment.storage.gens[second_index] = epoch;
+
+        assert_ne!(first_index, second_index);
+        assert_eq!(segment.probe(first, epoch), first_index);
+        assert_eq!(segment.probe(second, epoch), second_index);
     }
 }

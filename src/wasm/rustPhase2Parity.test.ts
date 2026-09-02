@@ -474,16 +474,20 @@ describe("rust phase2 wasm parity", () => {
     });
   }
 
-  it("falls back from min-E[f] to rust phase2 instead of JS for a large R0 inventory", async () => {
+  it("completes the normal high-stock R0 case through segmented rust phase2 instead of JS", async () => {
     const minef = (await solveRustMinEfProduct(
       {
         start: { grade: "R", level: 0, exp: 0 },
-        stock: { blue: 400, purple: 200, yellow: 100 },
+        stock: { blue: 770, purple: 330, yellow: 190 },
         strategy: "supply",
         monteCarloRuns: 0,
       },
       wasmDataUrl,
     )) as {
+      best: {
+        firstAction: string | null;
+        vector: { blue: number; purple: number; yellow: number };
+      };
       possible: boolean;
       stats?: {
         fallbackFrom?: string;
@@ -491,12 +495,21 @@ describe("rust phase2 wasm parity", () => {
         memoryStrategy?: string;
         minEfMemoTier?: number;
         phase2MemoRetried?: boolean;
+        phase2MemoSlots?: number;
+        phase2MemoLogicalBytes?: number;
+        phase2MemoryClass?: string;
+        phase2OverflowSegments?: number;
         phase2MemoTier?: number;
         solverBackend?: string;
+        states?: number;
       };
     };
 
     expect(minef.possible).toBe(true);
+    expect(minef.best.firstAction).toBe("yellow");
+    expect(f64Bits(minef.best.vector.blue)).toBe(0x406d2165d280c9a2n);
+    expect(f64Bits(minef.best.vector.purple)).toBe(0x40531566cda28528n);
+    expect(f64Bits(minef.best.vector.yellow)).toBe(0x4047ac61cd702a9fn);
     expect(minef.stats).toMatchObject({
       fallbackFrom: "rust-min-ef",
       fallbackReason: "memo_full",
@@ -504,7 +517,12 @@ describe("rust phase2 wasm parity", () => {
       minEfMemoTier: 21,
       phase2MemoRetried: false,
       phase2MemoTier: 22,
+      phase2MemoSlots: (1 << 22) + (1 << 20),
+      phase2MemoLogicalBytes: ((1 << 22) + (1 << 20)) * 49,
+      phase2MemoryClass: "segmented",
+      phase2OverflowSegments: 1,
       solverBackend: "rust-phase2",
+      states: 4_584_832,
     });
-  });
+  }, 15_000);
 });

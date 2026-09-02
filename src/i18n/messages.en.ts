@@ -131,10 +131,16 @@ export const enMessages = {
   "result.noAction": "No action is available with the Maintenance Kits you own.",
   "result.noKits": "You do not have enough usable Maintenance Kits.",
   "result.solverError": "An error occurred.",
+  "result.solverCapacityError":
+    "Your input is valid, but this device did not have enough memory or time for the exact calculation. Close other tabs and apps, try again, or calculate on a PC.",
   "result.followUpOutcomeError":
     "The Super Success result was applied, but calculating the next recommendation failed.",
+  "result.followUpOutcomeCapacityError":
+    "The Super Success result was applied, but this device's memory or time limit prevented the next exact recommendation.",
   "result.followUpConversionError":
     "The SR conversion was applied, but calculating the next recommendation failed.",
+  "result.followUpConversionCapacityError":
+    "The SR conversion was applied, but this device's memory or time limit prevented the next exact recommendation.",
   "result.retryCalculation": "Calculate again",
   "result.loadingDefault": "Evaluating your Maintenance Kit inventory with an MDP.",
   "result.loadingStates": "Evaluated {count} states.",

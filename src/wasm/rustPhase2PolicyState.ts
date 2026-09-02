@@ -15,6 +15,7 @@ export type Phase2FactoryState = {
   currentBuild: Phase2BuildContext | null;
   exports: RustCoreExports;
   memoTier: number;
+  segmentedOverflow: boolean;
   supplyForecast: SupplyForecastContext;
 };
 

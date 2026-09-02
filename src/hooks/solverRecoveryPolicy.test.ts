@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { WORKER_ERROR_CODES } from "../../shared/workerProtocol";
 import {
   decideSolveRecovery,
   isLightweightJsInput,
@@ -143,6 +144,6 @@ describe("solver recovery policy", () => {
   });
 
   it("defines a trait for every accepted Worker error code", () => {
-    expect(Object.keys(WORKER_ERROR_TRAITS)).toHaveLength(16);
+    expect(Object.keys(WORKER_ERROR_TRAITS).sort()).toEqual([...WORKER_ERROR_CODES].sort());
   });
 });

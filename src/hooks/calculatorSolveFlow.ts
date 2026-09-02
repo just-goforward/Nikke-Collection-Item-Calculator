@@ -118,6 +118,45 @@ type SolveFailureResolution = {
   views?: { detail: DetailView; result: ResultView };
 };
 
+function isPrecisionCapacityFailure(error: unknown) {
+  return (
+    error instanceof SolverRecoveryFailure &&
+    error.trace.terminalBackend === "rust-phase2" &&
+    (error.workerError.code === "memo_full" ||
+      error.workerError.code === "memory_limit" ||
+      error.workerError.code === "rust_timeout")
+  );
+}
+
+export function solveFailurePresentation(
+  error: unknown,
+  failureContext?: SolveAndRenderOptions["failureContext"],
+) {
+  const capacityFailure = isPrecisionCapacityFailure(error);
+  if (failureContext === "outcome") {
+    return {
+      reason: "follow_up_outcome_failure" as const,
+      message: capacityFailure
+        ? message("result.followUpOutcomeCapacityError")
+        : message("result.followUpOutcomeError"),
+    };
+  }
+  if (failureContext === "conversion") {
+    return {
+      reason: "follow_up_conversion_failure" as const,
+      message: capacityFailure
+        ? message("result.followUpConversionCapacityError")
+        : message("result.followUpConversionError"),
+    };
+  }
+  return capacityFailure
+    ? {
+        reason: "solver_capacity_failure" as const,
+        message: message("result.solverCapacityError"),
+      }
+    : { reason: "solver_failure" as const, message: message("result.solverError") };
+}
+
 function handleSolveFailure({
   error,
   failureContext,
@@ -145,18 +184,7 @@ function handleSolveFailure({
     }
   }
   latestResultRef.current = null;
-  const reason =
-    failureContext === "outcome"
-      ? "follow_up_outcome_failure"
-      : failureContext === "conversion"
-        ? "follow_up_conversion_failure"
-        : "solver_failure";
-  const failureMessage =
-    reason === "follow_up_outcome_failure"
-      ? message("result.followUpOutcomeError")
-      : reason === "follow_up_conversion_failure"
-        ? message("result.followUpConversionError")
-        : message("result.solverError");
+  const presentation = solveFailurePresentation(error, failureContext);
   return {
     result: true,
     restorePreviousViews: false,
@@ -164,10 +192,10 @@ function handleSolveFailure({
     views: {
       result: {
         type: "error" as const,
-        reason,
-        message: failureMessage,
+        reason: presentation.reason,
+        message: presentation.message,
       },
-      detail: { type: "empty" as const, message: failureMessage },
+      detail: { type: "empty" as const, message: presentation.message },
     },
   };
 }

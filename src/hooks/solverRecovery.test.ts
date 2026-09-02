@@ -13,10 +13,15 @@ describe("solveWithClientRecovery", () => {
   it("moves min-E[f] capacity failure to a fresh tier-22 phase2 rung", async () => {
     const calls: Array<{
       backend: string | undefined;
+      executionTimeoutMs: number | undefined;
       payload: Record<string, unknown> | undefined;
     }> = [];
     const requestWorkerTask: WorkerTaskRequester = vi.fn(async (_type, _input, options) => {
-      calls.push({ backend: options?.backend, payload: options?.payload });
+      calls.push({
+        backend: options?.backend,
+        executionTimeoutMs: options?.executionTimeoutMs,
+        payload: options?.payload,
+      });
       if (options?.backend === "rust-min-ef") {
         throw new WorkerTaskError({
           code: "memo_full",
@@ -44,9 +49,10 @@ describe("solveWithClientRecovery", () => {
     });
 
     expect(calls).toEqual([
-      { backend: "rust-min-ef", payload: undefined },
+      { backend: "rust-min-ef", executionTimeoutMs: 15_000, payload: undefined },
       {
         backend: "rust-phase2",
+        executionTimeoutMs: 25_000,
         payload: { phase2MemoTier: 22, phase2RetryOnMemoFull: false },
       },
     ]);
@@ -66,7 +72,7 @@ describe("solveWithClientRecovery", () => {
       jsExit: "not_attempted",
       minEfExit: "memo_full",
       phase2Exit: "success",
-      policyVersion: "ladder_v1",
+      policyVersion: "ladder_v2",
       requestedBackend: "rust-min-ef",
       terminalBackend: "rust-phase2",
       terminalOutcome: "success",
@@ -106,7 +112,7 @@ describe("solveWithClientRecovery", () => {
 
   it("does not start a rung after the absolute recovery deadline", async () => {
     const now = vi.spyOn(performance, "now");
-    now.mockReturnValueOnce(1_000).mockReturnValue(26_001);
+    now.mockReturnValueOnce(1_000).mockReturnValue(46_001);
     const requestWorkerTask: WorkerTaskRequester = vi.fn(async () => ({ possible: true }));
     const preemptValidationForNextRung = vi.fn(() => null);
     const resetFailedWorker = vi.fn(() => null);
@@ -134,5 +140,37 @@ describe("solveWithClientRecovery", () => {
     } finally {
       now.mockRestore();
     }
+  });
+
+  it("releases the heavy phase2 worker after a terminal memory limit", async () => {
+    const memoryError = new WorkerTaskError({
+      code: "memory_limit",
+      fallbackEligible: false,
+      message: "phase2 memory limit",
+      retryable: false,
+    });
+    const requestWorkerTask: WorkerTaskRequester = vi.fn(async () => {
+      throw memoryError;
+    });
+    const resetFailedWorker = vi.fn(() => null);
+
+    await expect(
+      solveWithClientRecovery({
+        input: INPUT,
+        onProgress: () => undefined,
+        preemptValidationForNextRung: () => null,
+        primaryBackend: "rust-phase2",
+        requestWorkerTask,
+        resetFailedWorker,
+      }),
+    ).rejects.toMatchObject({
+      workerError: memoryError,
+      trace: {
+        phase2Exit: "memory_limit",
+        terminalBackend: "rust-phase2",
+        terminalOutcome: "failure",
+      },
+    });
+    expect(resetFailedWorker).toHaveBeenCalledOnce();
   });
 });

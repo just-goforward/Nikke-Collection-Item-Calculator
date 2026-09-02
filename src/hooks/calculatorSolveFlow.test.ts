@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { PendingStatsEvent } from "./calculatorShared";
-import { consumePendingStockCorrection } from "./calculatorSolveFlow";
+import { consumePendingStockCorrection, solveFailurePresentation } from "./calculatorSolveFlow";
+import { SolverRecoveryFailure } from "./solverRecovery";
+import { WorkerTaskError } from "./solverWorkerClient";
 
 const RESULT_STATE = { grade: "R", level: 10, exp: 0 } as const;
 
@@ -75,5 +77,36 @@ describe("consumePendingStockCorrection", () => {
     expect(ready).toBe(false);
     expect(pendingUpdates).toEqual([]);
     expect(manualUpdates).toEqual([]);
+  });
+});
+
+describe("solveFailurePresentation", () => {
+  it("explains a terminal phase2 capacity limit instead of showing a generic error", () => {
+    const error = new SolverRecoveryFailure(
+      new WorkerTaskError({
+        code: "memory_limit",
+        fallbackEligible: false,
+        message: "memory limit",
+        retryable: false,
+      }),
+      {
+        jsExit: "not_attempted",
+        minEfExit: "memo_full",
+        phase2Exit: "memory_limit",
+        policyVersion: "ladder_v2",
+        requestedBackend: "rust-min-ef",
+        terminalBackend: "rust-phase2",
+        terminalOutcome: "failure",
+      },
+    );
+
+    expect(solveFailurePresentation(error)).toEqual({
+      reason: "solver_capacity_failure",
+      message: { key: "result.solverCapacityError" },
+    });
+    expect(solveFailurePresentation(error, "outcome")).toEqual({
+      reason: "follow_up_outcome_failure",
+      message: { key: "result.followUpOutcomeCapacityError" },
+    });
   });
 });

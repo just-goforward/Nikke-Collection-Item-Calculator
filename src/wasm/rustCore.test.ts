@@ -171,3 +171,21 @@ describe("rust phase2 core wrapper", () => {
     );
   });
 });
+
+describe("rust phase2 segmented memory wrapper", () => {
+  it("enables overflow explicitly and exposes active memory metrics", () => {
+    const exports = makeExports({
+      phase2MemoCapacity: vi.fn(() => (1 << 22) + (1 << 20)),
+      phase2MemoLogicalBytes: vi.fn(() => ((1 << 22) + (1 << 20)) * 49),
+      phase2OverflowSegments: vi.fn(() => 1),
+    });
+    const solver = createRustPhase2Solver(exports);
+
+    solver.configureSegmentedOverflow(true);
+
+    expect(exports.configurePhase2Overflow).toHaveBeenCalledWith(1);
+    expect(solver.memoCapacity()).toBe((1 << 22) + (1 << 20));
+    expect(solver.memoLogicalBytes()).toBe(((1 << 22) + (1 << 20)) * 49);
+    expect(solver.overflowSegments()).toBe(1);
+  });
+});

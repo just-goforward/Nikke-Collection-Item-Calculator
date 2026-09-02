@@ -2,6 +2,7 @@ export const RUST_STATUS_OK = 0;
 export const RUST_STATUS_BUDGET_EXCEEDED = 1;
 export const RUST_STATUS_MEMO_FULL = 2;
 const RUST_STATUS_INVALID_INPUT = 3;
+export const RUST_STATUS_MEMORY_LIMIT = 4;
 
 export type RustStatusExports = {
   getSolveStatus?: () => number;
@@ -14,6 +15,7 @@ function rustStatusName(status: number) {
   if (status === RUST_STATUS_BUDGET_EXCEEDED) return "budget_exceeded";
   if (status === RUST_STATUS_MEMO_FULL) return "memo_full";
   if (status === RUST_STATUS_INVALID_INPUT) return "invalid_input";
+  if (status === RUST_STATUS_MEMORY_LIMIT) return "memory_limit";
   return `unknown_${status}`;
 }
 
