@@ -92,8 +92,9 @@ probe:forecast-x`는 token이나 원문을 출력하지 않고 공급자별 건�
 완료율 99% 이상, 누락 slot 최대 1개, 최신 상태 completed, abandoned·late·unexpected·중복
 0건이어야 한다.
 queue/cursor/candidate/watermark/manual-review 정합성, Dispatcher smoke와 서명된 Router smoke도
-함께 통과해야 한다. 시작 전 30분 burn-in과 실행 중 30분 watchdog은 같은 Cloudflare 계정의
-모든 D1을 합산하며, Forecast staging 예산과 통계 production 예약량을 모두 보존해야 한다.
+함께 통과해야 한다. production·staging Forecast D1의 covering index를 먼저 검증한 뒤, 시작 전
+30분 burn-in과 실행 중 30분 watchdog은 두 Forecast DB의 현재 증가율과 같은 Cloudflare 계정의
+모든 D1을 합산한다. Forecast staging 예산과 통계 production 예약량을 모두 보존해야 한다.
 
 Canary가 통과하면 staging의 공식 일정 원장을 다시 처리해 inactive forecast PR을 만든다.
 H/p Actions는 그 PR의 코드를 checkout하거나 실행하지 않고, GitHub Actions bot이 만든 비-draft

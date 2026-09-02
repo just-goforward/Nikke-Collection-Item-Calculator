@@ -84,9 +84,11 @@ entry. Canary v6 uses an independent `canaryId` and generates expected Collector
 over a fresh eight-hour window. Both Workers require at least 99% delivery and completion, at most
 one missing slot, a completed latest invocation, no abandoned, late, unexpected, or duplicate work, consistent queue,
 cursor, candidate, watermark, and manual-review state, and successful Dispatcher and signed Router
-smoke evidence. A 30-minute burn-in and a 30-minute runtime watchdog aggregate every D1 database in
-the Cloudflare account and preserve both the Forecast staging allowance and a statistics-production
-reserve. The administrator's merge approves the evidence but does not activate the forecast.
+smoke evidence. After covering indexes are verified on both Forecast databases, a 30-minute burn-in
+and a 30-minute runtime watchdog project the current production and staging Forecast rates while
+aggregating every D1 database in the Cloudflare account. They preserve both the Forecast staging
+allowance and a statistics-production reserve. The administrator's merge approves the evidence but
+does not activate the forecast.
 
 After the canary passes, staging replays the official schedule ledger and creates an inactive
 forecast pull request. The H/p workflow does not check out or execute pull-request code. It verifies

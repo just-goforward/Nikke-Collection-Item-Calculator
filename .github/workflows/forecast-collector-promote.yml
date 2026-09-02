@@ -195,6 +195,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          indexes=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('collector_invocations_latest_idx', 'dispatcher_invocations_environment_latest_idx') ORDER BY name;" \
+            --json)
+          jq -e '([.[0].results[].name] | sort) == ["collector_invocations_latest_idx","dispatcher_invocations_environment_latest_idx"]' \
+            <<<"$indexes" >/dev/null || {
+              echo "Production Forecast covering indexes are missing. Run Remediate Forecast D1 Indexes first." >&2
+              exit 1
+            }
           stats_probe=$(npx wrangler d1 execute DB --remote \
             --config cloudflare/wrangler.toml --command "SELECT 1 AS ok;" --json)
           [[ "$(jq -r '.[0].results[0].ok' <<<"$stats_probe")" == "1" ]]

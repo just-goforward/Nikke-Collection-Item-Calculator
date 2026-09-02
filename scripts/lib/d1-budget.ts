@@ -103,24 +103,25 @@ export function evaluateD1CanaryBudget(
   }
   if (durationMinutes > 90) return failure("d1_budget_burn_in_too_long");
 
-  const baselineCanary = databaseToday(baseline, D1_DATABASE_IDS.forecastStaging);
-  const currentCanary = databaseToday(current, D1_DATABASE_IDS.forecastStaging);
-  const burnInReads = currentCanary.rowsRead - baselineCanary.rowsRead;
-  const burnInWrites = currentCanary.rowsWritten - baselineCanary.rowsWritten;
-  if (burnInReads < 0 || burnInWrites < 0) return failure("d1_budget_counter_regression");
+  const forecastRates = forecastAutomationRates(baseline, current, durationMinutes);
+  if (!forecastRates) return failure("d1_budget_counter_regression");
+  const canaryRate = forecastRates.get(D1_DATABASE_IDS.forecastStaging);
+  if (!canaryRate) return failure("d1_budget_canary_database_missing");
+  const burnInReads = canaryRate.deltaReads;
+  const burnInWrites = canaryRate.deltaWrites;
   if (burnInReads === 0 || burnInWrites === 0) {
     return failure("d1_budget_burn_in_metrics_missing");
   }
 
-  const canaryProjectedReads = projectBurnIn(burnInReads, durationMinutes);
-  const canaryProjectedWrites = projectBurnIn(burnInWrites, durationMinutes);
+  const canaryProjectedReads = canaryRate.projectedReads;
+  const canaryProjectedWrites = canaryRate.projectedWrites;
   const remainingFraction = remainingBillingDayFraction(endedAt);
   const databases = current.databases.map((database) => {
     const today = dailyUsage(database, current.billingDay);
     const history = database.daily.filter((entry) => entry.date !== current.billingDay);
     const rowsReadP95 = nearestRankP95(history.map((entry) => entry.rowsRead));
     const rowsWrittenP95 = nearestRankP95(history.map((entry) => entry.rowsWritten));
-    const isCanary = database.databaseId === D1_DATABASE_IDS.forecastStaging;
+    const forecastRate = forecastRates.get(database.databaseId);
     return {
       databaseId: database.databaseId,
       databaseName: database.databaseName,
@@ -129,11 +130,11 @@ export function evaluateD1CanaryBudget(
       rowsWrittenObserved: today.rowsWritten,
       rowsReadP95,
       rowsWrittenP95,
-      rowsReadProjected: isCanary
-        ? baselineCanary.rowsRead + canaryProjectedReads
+      rowsReadProjected: forecastRate
+        ? forecastRate.baselineReads + forecastRate.projectedReads
         : today.rowsRead + Math.ceil(rowsReadP95 * remainingFraction),
-      rowsWrittenProjected: isCanary
-        ? baselineCanary.rowsWritten + canaryProjectedWrites
+      rowsWrittenProjected: forecastRate
+        ? forecastRate.baselineWrites + forecastRate.projectedWrites
         : today.rowsWritten + Math.ceil(rowsWrittenP95 * remainingFraction),
     } satisfies D1DatabaseEvidence;
   });
@@ -198,6 +199,7 @@ export function evaluateD1PreflightBudget(snapshot: D1UsageSnapshot): D1BudgetEv
     const history = database.daily.filter((entry) => entry.date !== snapshot.billingDay);
     const rowsReadP95 = nearestRankP95(history.map((entry) => entry.rowsRead));
     const rowsWrittenP95 = nearestRankP95(history.map((entry) => entry.rowsWritten));
+    const forecastAutomation = isForecastAutomationDatabase(database.databaseId);
     return {
       databaseId: database.databaseId,
       databaseName: database.databaseName,
@@ -206,8 +208,16 @@ export function evaluateD1PreflightBudget(snapshot: D1UsageSnapshot): D1BudgetEv
       rowsWrittenObserved: today.rowsWritten,
       rowsReadP95,
       rowsWrittenP95,
-      rowsReadProjected: today.rowsRead + Math.ceil(rowsReadP95 * remainingFraction),
-      rowsWrittenProjected: today.rowsWritten + Math.ceil(rowsWrittenP95 * remainingFraction),
+      rowsReadProjected:
+        today.rowsRead +
+        (forecastAutomation
+          ? D1_CANARY_THRESHOLDS.maximumCanaryRowsRead
+          : Math.ceil(rowsReadP95 * remainingFraction)),
+      rowsWrittenProjected:
+        today.rowsWritten +
+        (forecastAutomation
+          ? D1_CANARY_THRESHOLDS.maximumCanaryRowsWritten
+          : Math.ceil(rowsWrittenP95 * remainingFraction)),
     } satisfies D1DatabaseEvidence;
   });
   const stats = databases.find(
@@ -265,23 +275,21 @@ export function evaluateD1RuntimeBudget(
   const nowMs = Date.parse(current.capturedAt);
   const elapsedMinutes = (nowMs - startedAt) / 60_000;
   if (elapsedMinutes <= 0) return failure("d1_budget_runtime_time_invalid");
-  const initialCanary = initialEvidence.databases.find(
-    (database) => database.databaseId === D1_DATABASE_IDS.forecastStaging,
-  );
-  if (!initialCanary) return failure("d1_budget_canary_database_missing");
-  const currentCanary = databaseToday(current, D1_DATABASE_IDS.forecastStaging);
-  const deltaReads = currentCanary.rowsRead - initialCanary.rowsReadObserved;
-  const deltaWrites = currentCanary.rowsWritten - initialCanary.rowsWrittenObserved;
-  if (deltaReads < 0 || deltaWrites < 0) return failure("d1_budget_counter_regression");
-  const canaryProjectedReads = projectBurnIn(deltaReads, elapsedMinutes);
-  const canaryProjectedWrites = projectBurnIn(deltaWrites, elapsedMinutes);
+  const forecastRates = runtimeForecastAutomationRates(initialEvidence, current, elapsedMinutes);
+  if (!forecastRates) return failure("d1_budget_counter_regression");
+  const canaryRate = forecastRates.get(D1_DATABASE_IDS.forecastStaging);
+  if (!canaryRate) return failure("d1_budget_canary_database_missing");
+  const deltaReads = canaryRate.deltaReads;
+  const deltaWrites = canaryRate.deltaWrites;
+  const canaryProjectedReads = canaryRate.projectedReads;
+  const canaryProjectedWrites = canaryRate.projectedWrites;
   const remainingFraction = remainingBillingDayFraction(nowMs);
   const databases = current.databases.map((database) => {
     const today = dailyUsage(database, current.billingDay);
     const history = database.daily.filter((entry) => entry.date !== current.billingDay);
     const rowsReadP95 = nearestRankP95(history.map((entry) => entry.rowsRead));
     const rowsWrittenP95 = nearestRankP95(history.map((entry) => entry.rowsWritten));
-    const isCanary = database.databaseId === D1_DATABASE_IDS.forecastStaging;
+    const forecastRate = forecastRates.get(database.databaseId);
     return {
       databaseId: database.databaseId,
       databaseName: database.databaseName,
@@ -290,11 +298,11 @@ export function evaluateD1RuntimeBudget(
       rowsWrittenObserved: today.rowsWritten,
       rowsReadP95,
       rowsWrittenP95,
-      rowsReadProjected: isCanary
-        ? initialCanary.rowsReadObserved + canaryProjectedReads
+      rowsReadProjected: forecastRate
+        ? forecastRate.baselineReads + forecastRate.projectedReads
         : today.rowsRead + Math.ceil(rowsReadP95 * remainingFraction),
-      rowsWrittenProjected: isCanary
-        ? initialCanary.rowsWrittenObserved + canaryProjectedWrites
+      rowsWrittenProjected: forecastRate
+        ? forecastRate.baselineWrites + forecastRate.projectedWrites
         : today.rowsWritten + Math.ceil(rowsWrittenP95 * remainingFraction),
     } satisfies D1DatabaseEvidence;
   });
@@ -363,6 +371,90 @@ function budgetFailureReasons(evidence: D1QuotaEvidence) {
 
 function projectBurnIn(delta: number, durationMinutes: number) {
   return Math.ceil((delta * CANARY_WINDOW_MINUTES * SAFETY_FACTOR) / durationMinutes);
+}
+
+type ForecastAutomationRate = {
+  baselineReads: number;
+  baselineWrites: number;
+  deltaReads: number;
+  deltaWrites: number;
+  projectedReads: number;
+  projectedWrites: number;
+};
+
+function forecastAutomationRates(
+  baseline: D1UsageSnapshot,
+  current: D1UsageSnapshot,
+  durationMinutes: number,
+) {
+  const rates = new Map<string, ForecastAutomationRate>();
+  for (const databaseId of forecastAutomationDatabaseIds()) {
+    const before = databaseToday(baseline, databaseId);
+    const after = databaseToday(current, databaseId);
+    const rate = forecastAutomationRate(
+      before.rowsRead,
+      before.rowsWritten,
+      after.rowsRead,
+      after.rowsWritten,
+      durationMinutes,
+    );
+    if (!rate) return null;
+    rates.set(databaseId, rate);
+  }
+  return rates;
+}
+
+function runtimeForecastAutomationRates(
+  initialEvidence: D1QuotaEvidence,
+  current: D1UsageSnapshot,
+  durationMinutes: number,
+) {
+  const rates = new Map<string, ForecastAutomationRate>();
+  for (const databaseId of forecastAutomationDatabaseIds()) {
+    const before = initialEvidence.databases.find((database) => database.databaseId === databaseId);
+    if (!before) return null;
+    const after = databaseToday(current, databaseId);
+    const rate = forecastAutomationRate(
+      before.rowsReadObserved,
+      before.rowsWrittenObserved,
+      after.rowsRead,
+      after.rowsWritten,
+      durationMinutes,
+    );
+    if (!rate) return null;
+    rates.set(databaseId, rate);
+  }
+  return rates;
+}
+
+function forecastAutomationRate(
+  baselineReads: number,
+  baselineWrites: number,
+  currentReads: number,
+  currentWrites: number,
+  durationMinutes: number,
+): ForecastAutomationRate | null {
+  const deltaReads = currentReads - baselineReads;
+  const deltaWrites = currentWrites - baselineWrites;
+  if (deltaReads < 0 || deltaWrites < 0) return null;
+  return {
+    baselineReads,
+    baselineWrites,
+    deltaReads,
+    deltaWrites,
+    projectedReads: projectBurnIn(deltaReads, durationMinutes),
+    projectedWrites: projectBurnIn(deltaWrites, durationMinutes),
+  };
+}
+
+function forecastAutomationDatabaseIds() {
+  return [D1_DATABASE_IDS.forecastProduction, D1_DATABASE_IDS.forecastStaging] as const;
+}
+
+function isForecastAutomationDatabase(databaseId: string) {
+  return forecastAutomationDatabaseIds().includes(
+    databaseId as ReturnType<typeof forecastAutomationDatabaseIds>[number],
+  );
 }
 
 function assertComparableSnapshots(baseline: D1UsageSnapshot, current: D1UsageSnapshot) {
