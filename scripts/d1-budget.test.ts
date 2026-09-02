@@ -14,7 +14,7 @@ const BASELINE_AT = Date.parse("2026-09-01T02:00:00.000Z");
 const CURRENT_AT = BASELINE_AT + 30 * 60_000;
 
 describe("D1 canary budget", () => {
-  it("uses nearest-rank p95 and passes a bounded four-database burn-in", () => {
+  it("projects a bounded four-database burn-in through the next D1 reset", () => {
     expect(nearestRankP95([1, 2, 3, 4, 5, 6, 7])).toBe(7);
     const baseline = snapshot(BASELINE_AT, {
       productionReads: 1_000,
@@ -35,8 +35,8 @@ describe("D1 canary budget", () => {
     expect(evaluation.evidence?.canary).toMatchObject({
       rowsReadBurnIn: 1_000,
       rowsWrittenBurnIn: 10,
-      rowsReadProjected: 32_000,
-      rowsWrittenProjected: 320,
+      rowsReadProjected: 86_000,
+      rowsWrittenProjected: 860,
     });
     expect(evaluation.evidence?.statsProduction).toMatchObject({
       rowsReadReserve: 1_000_000,
@@ -46,7 +46,22 @@ describe("D1 canary budget", () => {
       evaluation.evidence?.databases.find(
         (database) => database.databaseId === D1_DATABASE_IDS.forecastProduction,
       ),
-    ).toMatchObject({ rowsReadProjected: 17_000, rowsWrittenProjected: 170 });
+    ).toMatchObject({ rowsReadProjected: 45_000, rowsWrittenProjected: 450 });
+  });
+
+  it("shortens the projection when burn-in finishes closer to the D1 reset", () => {
+    const lateBaselineAt = Date.parse("2026-09-01T20:00:00.000Z");
+    const lateCurrentAt = lateBaselineAt + 30 * 60_000;
+    const baseline = snapshot(lateBaselineAt, { canaryReads: 2_000, canaryWrites: 20 });
+    const current = snapshot(lateCurrentAt, { canaryReads: 3_000, canaryWrites: 30 });
+
+    const evaluation = evaluateD1CanaryBudget(baseline, current);
+
+    expect(evaluation).toMatchObject({ passed: true, reasons: [] });
+    expect(evaluation.evidence?.canary).toMatchObject({
+      rowsReadProjected: 14_000,
+      rowsWrittenProjected: 140,
+    });
   });
 
   it("uses bounded Forecast allowances after covering indexes instead of stale p95 scans", () => {

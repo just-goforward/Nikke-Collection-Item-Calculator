@@ -22,7 +22,7 @@ const testEnv: CollectorEnv = {
 const SHA = "a".repeat(40);
 const CANARY_ID = `fc-${"a".repeat(32)}`;
 const START = Date.parse("2026-09-01T02:00:30.000Z");
-const END = START + 8 * 60 * 60 * 1_000;
+const END = Date.parse("2026-09-02T00:00:00.000Z");
 
 beforeEach(async () => {
   await reset();
@@ -65,26 +65,36 @@ describe("canary report v6 storage and start contract", () => {
     );
   });
 
-  it("passes an eight-hour 160/160 expected-slot certificate", async () => {
-    await insertInvocationSlots("collector", slots(0));
-    await insertInvocationSlots("dispatcher", slots(1));
+  it("passes a certificate covering the rest of the D1 billing day", async () => {
+    const collectorSlots = slots(0);
+    const dispatcherSlots = slots(1);
+    expect(collectorSlots).toHaveLength(439);
+    expect(dispatcherSlots).toHaveLength(440);
+    await insertInvocationSlots("collector", collectorSlots);
+    await insertInvocationSlots("dispatcher", dispatcherSlots);
 
     const report = await readCanaryReport(testEnv.FORECAST_DB, END, SHA, "staging");
 
     expect(report.version).toBe(6);
     expect(report.canaryId).toBe(CANARY_ID);
+    expect(report.acceptance).toMatchObject({ windowMode: "until_d1_reset" });
+    expect(report.acceptance.windowHours).toBeCloseTo((END - START) / (60 * 60 * 1_000));
     expect(report.quota).toMatchObject({ valid: true, errorCode: null });
-    expect(report.window).toMatchObject({ eligible: true, earlyFailure: false });
+    expect(report.window).toMatchObject({
+      endsAt: "2026-09-02T00:00:00.000Z",
+      eligible: true,
+      earlyFailure: false,
+    });
     expect(report.collector).toMatchObject({
-      expectedSlots: 160,
-      observedSlots: 160,
+      expectedSlots: collectorSlots.length,
+      observedSlots: collectorSlots.length,
       missingSlots: 0,
       deliveryRate: 1,
       completionRate: 1,
     });
     expect(report.dispatcher).toMatchObject({
-      expectedSlots: 160,
-      observedSlots: 160,
+      expectedSlots: dispatcherSlots.length,
+      observedSlots: dispatcherSlots.length,
       smokeCount: 1,
       duplicateDispatches: 0,
       duplicateRuns: 0,
@@ -172,13 +182,13 @@ describe("canary report v6 slot evidence", () => {
 
     const oneMissing = await readCanaryReport(testEnv.FORECAST_DB, END, SHA, "staging");
     expect(oneMissing.collector).toMatchObject({
-      expectedSlots: 160,
-      observedSlots: 159,
+      expectedSlots: collector.length,
+      observedSlots: collector.length - 1,
       missingSlots: 1,
     });
     expect(oneMissing.dispatcher).toMatchObject({
-      expectedSlots: 160,
-      observedSlots: 159,
+      expectedSlots: dispatcher.length,
+      observedSlots: dispatcher.length - 1,
       missingSlots: 1,
     });
     expect(oneMissing.passed).toBe(true);
@@ -187,7 +197,10 @@ describe("canary report v6 slot evidence", () => {
       .bind(collector[1])
       .run();
     const twoMissing = await readCanaryReport(testEnv.FORECAST_DB, END, SHA, "staging");
-    expect(twoMissing.collector).toMatchObject({ observedSlots: 158, missingSlots: 2 });
+    expect(twoMissing.collector).toMatchObject({
+      observedSlots: collector.length - 2,
+      missingSlots: 2,
+    });
     expect(twoMissing.passed).toBe(false);
   });
 

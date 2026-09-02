@@ -3,6 +3,7 @@ name: Watch Forecast D1 Budget
 on:
   schedule:
     - cron: "7,37 * * * *"
+    - cron: "57 23 * * *"
   workflow_dispatch:
 
 permissions:

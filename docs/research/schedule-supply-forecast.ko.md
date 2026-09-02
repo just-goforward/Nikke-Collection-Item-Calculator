@@ -5,7 +5,7 @@
 - `[확인]` 기존 제품은 `supply-2026-08-21-v1`의 고정 28일 기대 수급량을 사용한다.
 - `[확인]` 일정 기반 모델과 동적 Rust/WASM gain ABI는 기존 고정값을 입력했을 때 의미론을
   보존하도록 구현됐다.
-- `[미검증]` 일정 기반 forecast는 staging 8시간 shadow, production smoke, 새 H/p 연구와
+- `[미검증]` 일정 기반 forecast는 다음 D1 일일 초기화까지의 staging shadow, production smoke, 새 H/p 연구와
   별도 adoption PR을 통과하기 전에는 제품에 활성화되지 않는다.
 
 ## 계산 범위
@@ -88,7 +88,7 @@ probe:forecast-x`는 token이나 원문을 출력하지 않고 공급자별 건�
 수집 Worker는 invocation, poll cursor, 최소 queue metadata, 검증된 일정·후보만 전용 D1에
 보존한다. GitHub Actions가 같은 schema와 hash를 다시 검증해 inactive forecast PR을 만들며,
 관리자의 PR 병합이 승인이다. 이 승인만으로 제품은 바뀌지 않는다. Canary v6는 독립
-`canaryId`와 서버가 기록한 시작 시각부터 8시간의 Collector·Dispatcher 예상 Cron slot을 생성한다. 두 Worker 모두 전달률과
+`canaryId`와 서버가 기록한 시작 시각부터 다음 UTC 00:00 D1 초기화까지의 Collector·Dispatcher 예상 Cron slot을 생성한다. 두 Worker 모두 전달률과
 완료율 99% 이상, 누락 slot 최대 1개, 최신 상태 completed, abandoned·late·unexpected·중복
 0건이어야 한다.
 queue/cursor/candidate/watermark/manual-review 정합성, Dispatcher smoke와 서명된 Router smoke도
