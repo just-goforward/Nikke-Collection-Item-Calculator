@@ -5,6 +5,10 @@ const proposal = readFileSync(".github/workflows/forecast-proposal.yml", "utf8")
 const stagingDeploy = readFileSync(".github/workflows/forecast-collector-deploy.yml", "utf8");
 const productionPromote = readFileSync(".github/workflows/forecast-collector-promote.yml", "utf8");
 const d1BudgetWatch = readFileSync(".github/workflows/forecast-d1-budget-watch.yml", "utf8");
+const d1IndexRemediation = readFileSync(
+  ".github/workflows/forecast-d1-index-remediation.yml",
+  "utf8",
+);
 const dispatcherConfig = readFileSync("forecast-dispatcher/wrangler.toml", "utf8");
 const interactionConfig = readFileSync("forecast-interactions/wrangler.toml", "utf8");
 const manualReview = readFileSync(".github/workflows/resolve-forecast-manual-review.yml", "utf8");
@@ -69,6 +73,10 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(stagingDeploy).toContain("Disable staging dispatcher after smoke failure");
     expect(stagingDeploy).toContain("Observe 30-minute account-wide D1 burn-in");
     expect(stagingDeploy).toContain("npm run check:d1-budget -- preflight");
+    expect(stagingDeploy.indexOf("Apply staging D1 budget and canary v6 migration")).toBeLessThan(
+      stagingDeploy.indexOf("npm run check:d1-budget -- preflight"),
+    );
+    expect(stagingDeploy).toContain("Verify production and staging Forecast covering indexes");
     expect(stagingDeploy).toContain("--var COLLECT_ENABLED:false");
     expect(stagingDeploy).toContain("--var COLLECT_ENABLED:true");
     expect(stagingDeploy).toContain("npm run check:d1-budget -- evaluate");
@@ -77,6 +85,13 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(d1BudgetWatch).toContain('cron: "7,37 * * * *"');
     expect(d1BudgetWatch).toContain("Disable staging Collector and Dispatcher on budget pressure");
     expect(d1BudgetWatch).toContain("--var COLLECT_ENABLED:false");
+    expect(d1IndexRemediation).toContain("environment: cloudflare-production");
+    expect(d1IndexRemediation).toContain("Verify statistics production D1 remains readable");
+    expect(d1IndexRemediation).toContain(
+      "forecast-collector/migrations/0009_d1_budget_canary_v6.sql",
+    );
+    expect(d1IndexRemediation).toContain("EXPLAIN QUERY PLAN");
+    expect(d1IndexRemediation).not.toContain("wrangler deploy");
     for (const workflow of [stagingDeploy, productionPromote]) {
       expect(workflow).toContain("DISCORD_FORECAST_APPLICATION_ID");
       expect(workflow).toContain("DISCORD_FORECAST_PUBLIC_KEY");

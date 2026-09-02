@@ -5,6 +5,7 @@ import {
   type D1UsageSnapshot,
   evaluateD1CanaryBudget,
   evaluateD1PreflightBudget,
+  evaluateD1RuntimeBudget,
   fetchD1UsageSnapshot,
   nearestRankP95,
 } from "./lib/d1-budget";
@@ -15,8 +16,18 @@ const CURRENT_AT = BASELINE_AT + 30 * 60_000;
 describe("D1 canary budget", () => {
   it("uses nearest-rank p95 and passes a bounded four-database burn-in", () => {
     expect(nearestRankP95([1, 2, 3, 4, 5, 6, 7])).toBe(7);
-    const baseline = snapshot(BASELINE_AT, { canaryReads: 2_000, canaryWrites: 20 });
-    const current = snapshot(CURRENT_AT, { canaryReads: 3_000, canaryWrites: 30 });
+    const baseline = snapshot(BASELINE_AT, {
+      productionReads: 1_000,
+      productionWrites: 10,
+      canaryReads: 2_000,
+      canaryWrites: 20,
+    });
+    const current = snapshot(CURRENT_AT, {
+      productionReads: 1_500,
+      productionWrites: 15,
+      canaryReads: 3_000,
+      canaryWrites: 30,
+    });
 
     const evaluation = evaluateD1CanaryBudget(baseline, current);
 
@@ -31,9 +42,28 @@ describe("D1 canary budget", () => {
       rowsReadReserve: 1_000_000,
       rowsWrittenReserve: 30_000,
     });
+    expect(
+      evaluation.evidence?.databases.find(
+        (database) => database.databaseId === D1_DATABASE_IDS.forecastProduction,
+      ),
+    ).toMatchObject({ rowsReadProjected: 17_000, rowsWrittenProjected: 170 });
   });
 
-  it("fails preflight before migration when the account projection is already unsafe", () => {
+  it("uses bounded Forecast allowances after covering indexes instead of stale p95 scans", () => {
+    const historicalFullScans = snapshot(BASELINE_AT, {
+      canaryReads: 2_000,
+      canaryWrites: 20,
+      productionHistoryReads: 12_000_000,
+      canaryHistoryReads: 16_000_000,
+    });
+
+    const evaluation = evaluateD1PreflightBudget(historicalFullScans);
+
+    expect(evaluation).toMatchObject({ passed: true, reasons: [] });
+    expect(evaluation.metrics?.accountRowsReadProjected).toBeLessThan(3_000_000);
+  });
+
+  it("fails preflight after index verification when observed usage plus allowances is unsafe", () => {
     const unsafe = snapshot(BASELINE_AT, { canaryReads: 2_900_000, canaryWrites: 59_000 });
 
     const evaluation = evaluateD1PreflightBudget(unsafe);
@@ -52,6 +82,29 @@ describe("D1 canary budget", () => {
     expect(evaluation.passed).toBe(false);
     expect(evaluation.reasons).toContain("d1_budget_canary_reads_exceeded");
     expect(evaluation.evidence).toBeNull();
+  });
+
+  it("includes production Forecast growth in the runtime account projection", () => {
+    const baseline = snapshot(BASELINE_AT, { canaryReads: 2_000, canaryWrites: 20 });
+    const burnIn = snapshot(CURRENT_AT, {
+      productionReads: 1_500,
+      productionWrites: 15,
+      canaryReads: 3_000,
+      canaryWrites: 30,
+    });
+    const initial = evaluateD1CanaryBudget(baseline, burnIn).evidence;
+    if (!initial) throw new Error("Expected the burn-in fixture to produce quota evidence.");
+    const runtime = snapshot(CURRENT_AT + 30 * 60_000, {
+      productionReads: 101_500,
+      productionWrites: 25,
+      canaryReads: 4_000,
+      canaryWrites: 40,
+    });
+
+    const evaluation = evaluateD1RuntimeBudget(initial, runtime);
+
+    expect(evaluation.passed).toBe(false);
+    expect(evaluation.reasons).toContain("d1_budget_projected_reads_exceeded");
   });
 
   it("rejects a burn-in that crosses the UTC D1 billing boundary", () => {
@@ -121,7 +174,16 @@ describe("D1 canary budget", () => {
 
 function snapshot(
   capturedAt: number,
-  input: { canaryReads: number; canaryWrites: number },
+  input: {
+    canaryReads: number;
+    canaryWrites: number;
+    productionReads?: number;
+    productionWrites?: number;
+    productionHistoryReads?: number;
+    productionHistoryWrites?: number;
+    canaryHistoryReads?: number;
+    canaryHistoryWrites?: number;
+  },
 ): D1UsageSnapshot {
   const billingDay = new Date(capturedAt).toISOString().slice(0, 10);
   return {
@@ -151,10 +213,10 @@ function snapshot(
         "forecast-production",
         {
           billingDay,
-          todayReads: 1_000,
-          todayWrites: 10,
-          historyReads: 1_000,
-          historyWrites: 10,
+          todayReads: input.productionReads ?? 1_000,
+          todayWrites: input.productionWrites ?? 10,
+          historyReads: input.productionHistoryReads ?? 1_000,
+          historyWrites: input.productionHistoryWrites ?? 10,
         },
       ),
       database(
@@ -165,8 +227,8 @@ function snapshot(
           billingDay,
           todayReads: input.canaryReads,
           todayWrites: input.canaryWrites,
-          historyReads: 2_000,
-          historyWrites: 20,
+          historyReads: input.canaryHistoryReads ?? 2_000,
+          historyWrites: input.canaryHistoryWrites ?? 20,
         },
       ),
     ],

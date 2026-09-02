@@ -235,8 +235,12 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   embeds hash-checked account-wide D1 evidence from a 30-minute burn-in. The projected account use,
   staging canary allowance, and statistics-production reserve must all pass.
 - The four statistics/Forecast production/staging D1 databases share the same Free account limits.
-  `Watch Forecast D1 Budget` rechecks the active canary every 30 minutes and disables only the staging
-  Collector and Dispatcher when the budget or statistics-production read probe fails.
+  Migration 0009 covering indexes must be present in both Forecast databases before preflight. The
+  preflight uses current Forecast usage plus a bounded allowance instead of carrying forward stale
+  p95 values caused by the old unindexed scans. The 30-minute burn-in then projects the measured
+  production and staging Forecast rates over the eight-hour window with a 2x safety factor.
+  `Watch Forecast D1 Budget` repeats that current-rate projection every 30 minutes and disables only
+  the staging Collector and Dispatcher when the budget or statistics-production read probe fails.
 - If `both` polling cannot pass, `POLL_MODE=alternating` checks one board per invocation (six minutes
   per board) and starts a fresh eight-hour canary. If that also fails, the Cron trigger is removed and
   `FORECAST_DIRECT_NAVER_POLL=true` makes the thirty-minute watchdog action collect both boards.
@@ -262,9 +266,11 @@ the existing scoped `CLOUDFLARE_API_TOKEN` and account ID.
 
 The scoped CI deployment token needs Workers Scripts edit and D1 edit access because the staging and
 production deployment workflows apply idempotent schema migrations before deploying either Worker.
-Production migration and deployment remain one environment-protected audited job behind the
-`cloudflare-production` approval. The post-deploy smoke fails closed when the expected tables are
-absent. Do not reuse a broad local Wrangler OAuth credential in CI.
+The one-time `Remediate Forecast D1 Indexes` workflow applies migration 0009 to production behind the
+`cloudflare-production` approval, verifies both latest-query plans, and does not deploy a Worker.
+Production deployment remains a separate environment-protected audited job. The post-deploy smoke
+fails closed when the expected tables are absent. Do not reuse a broad local Wrangler OAuth
+credential in CI.
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `

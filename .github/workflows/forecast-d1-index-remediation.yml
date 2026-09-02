@@ -1,0 +1,96 @@
+name: Remediate Forecast D1 Indexes
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: forecast-d1-index-remediation
+  cancel-in-progress: false
+
+jobs:
+  remediate-production-indexes:
+    runs-on: ubuntu-latest
+    environment: cloudflare-production
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.20.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify statistics production D1 remains readable
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          result=$(npx wrangler d1 execute DB --remote --config cloudflare/wrangler.toml \
+            --command "SELECT 1 AS ok;" --json)
+          [[ "$(jq -r '.[0].results[0].ok' <<<"$result")" == "1" ]]
+
+      - name: Apply production Forecast covering indexes
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 9;" \
+            --json)
+          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
+            npx wrangler d1 execute FORECAST_DB --remote --env="" \
+              --config forecast-collector/wrangler.toml \
+              --file forecast-collector/migrations/0009_d1_budget_canary_v6.sql
+
+      - name: Verify production Forecast index plans
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          indexes=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('collector_invocations_latest_idx', 'dispatcher_invocations_environment_latest_idx') ORDER BY name;" \
+            --json)
+          jq -e '([.[0].results[].name] | sort) == ["collector_invocations_latest_idx","dispatcher_invocations_environment_latest_idx"]' \
+            <<<"$indexes" >/dev/null
+          collector_plan=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
+            --config forecast-collector/wrangler.toml \
+            --command "EXPLAIN QUERY PLAN SELECT status, COALESCE(finished_at, started_at) FROM collector_invocations ORDER BY scheduled_at DESC LIMIT 1;" \
+            --json)
+          dispatcher_plan=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
+            --config forecast-collector/wrangler.toml \
+            --command "EXPLAIN QUERY PLAN SELECT status, COALESCE(finished_at, started_at), deployment_sha, error_code FROM dispatcher_invocations WHERE environment = 'production' ORDER BY scheduled_at DESC LIMIT 1;" \
+            --json)
+          jq -e '.[0].results | any(.detail | strings | contains("collector_invocations_latest_idx"))' \
+            <<<"$collector_plan" >/dev/null
+          jq -e '.[0].results | any(.detail | strings | contains("dispatcher_invocations_environment_latest_idx"))' \
+            <<<"$dispatcher_plan" >/dev/null
+
+      - name: Record protected remediation
+        run: |
+          {
+            echo "### Forecast production D1 index remediation"
+            echo "- Statistics production D1 read probe: passed"
+            echo "- Forecast migration 0009: present"
+            echo "- Latest Collector and Dispatcher query plans: indexed"
+            echo "- Worker deployment and Forecast activation: not performed"
+          } >> "$GITHUB_STEP_SUMMARY"

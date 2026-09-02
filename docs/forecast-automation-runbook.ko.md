@@ -49,17 +49,21 @@ GitHub App은 이 저장소 하나에만 설치하고 `Actions: write`, `Metadat
 ## Staging 배포와 Router 전환
 
 1. 실행 중인 canary가 있으면 먼저 해당 SHA의 `canary_only=true` 결과를 보존한다.
-2. `Deploy Forecast Collector Staging`을 `router_endpoint_ready=false`로 실행한다.
-3. workflow가 staging D1 migration 0009를 적용하고 Collector와 Dispatcher를 disabled 상태로
+2. migration 0009가 production Forecast D1에 아직 없으면 `Remediate Forecast D1 Indexes`를
+   실행하고 `cloudflare-production` 승인을 거친다. 이 workflow는 통계 production read probe,
+   covering index 생성, query-plan 검증만 수행하며 Worker를 배포하지 않는다.
+3. `Deploy Forecast Collector Staging`을 `router_endpoint_ready=false`로 실행한다.
+4. workflow가 staging D1 migration 0009를 적용하고 양쪽 Forecast D1의 covering index를 확인한 뒤
+   계정 전체 preflight를 실행한다. 이후 Collector와 Dispatcher를 disabled 상태로
    배포한 뒤 Router readiness를 확인한다. 이 단계에서는 새 canary가 시작되지 않는다.
-4. Wrangler 출력의 Router origin을 `FORECAST_INTERACTIONS_URL`에 등록한다.
-5. Discord Developer Portal의 Interaction Endpoint URL을
+5. Wrangler 출력의 Router origin을 `FORECAST_INTERACTIONS_URL`에 등록한다.
+6. Discord Developer Portal의 Interaction Endpoint URL을
    `${FORECAST_INTERACTIONS_URL}/discord/interactions`로 바꿔 검증을 통과시킨다.
-6. `Deploy Forecast Collector Staging`을 `router_endpoint_ready=true`로 다시 실행한다.
-7. activity 채널의 mutation-free Router test 버튼을 지정 approver 계정으로 누른다.
-8. 30분 burn-in 종료 시각이 11:00~11:59 KST가 되도록 workflow를 시작한다. workflow는 통계
+7. `Deploy Forecast Collector Staging`을 `router_endpoint_ready=true`로 다시 실행한다.
+8. activity 채널의 mutation-free Router test 버튼을 지정 approver 계정으로 누른다.
+9. 30분 burn-in 종료 시각이 11:00~11:59 KST가 되도록 workflow를 시작한다. workflow는 통계
    production D1 read probe와 계정 전체 D1 baseline을 확인한 뒤 Collector·Dispatcher를 활성화한다.
-9. burn-in 후 전 계정 투영량과 통계 예약량이 통과하면 독립 `canaryId`의 v6 row가 생성된다.
+10. burn-in 후 전 계정 투영량과 통계 예약량이 통과하면 독립 `canaryId`의 v6 row가 생성된다.
    실패하면 staging Collector·Dispatcher가 모두 비활성화되고 alert 채널에 직접 경고한다.
 
 Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난 뒤 owner 설정으로
@@ -81,7 +85,11 @@ Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난
 일일 한도를 공유한다. Free 한도는 계정 전체 `5,000,000 rows read`, `100,000 rows written`이며
 00:00 UTC, 즉 09:00 KST에 초기화된다. Forecast canary는 이 한도를 독점해서는 안 된다.
 
-- 시작 전 30분 burn-in을 2배 안전계수로 8시간 투영한다.
+- migration 0009의 covering index가 production과 staging Forecast D1 양쪽에 존재해야 preflight를
+  실행한다. 인덱스 적용 전 전체 스캔이 만든 과거 Forecast p95는 미래 비용으로 재사용하지 않는다.
+- preflight는 각 Forecast DB의 당일 관측량에 canary 상한을 더해 보수적으로 입장 가능성만
+  판정한다. 이후 production·staging Forecast DB 각각의 30분 burn-in 증가량을 2배 안전계수로
+  8시간 투영한 실측값이 canary 시작의 최종 근거다.
 - 계정 전체 투영 상한은 read 3,000,000, write 60,000이다.
 - staging canary 자체 상한은 read 250,000, write 10,000이다.
 - 통계 production에는 `max(1,000,000, 최근 7일 p95 read × 3)`과
@@ -124,7 +132,8 @@ smoke 실패는 조기 실패다. 일시적인 slot 1개 누락만으로는 조�
 1. v6 report와 promotion 시점의 계정 전체 D1 재검사가 통과한 뒤에만
    `Promote Forecast Collector`를 실행한다.
 2. `cloudflare-production` environment 승인은 관리자가 직접 수행한다.
-3. workflow는 production migration 0009, Router safe mode, Collector, disabled Dispatcher,
+3. workflow는 보호된 remediation에서 production migration 0009와 covering index가 검증됐는지
+   다시 확인한 뒤 Router safe mode, Collector, disabled Dispatcher,
    queue/bootstrap smoke, enabled Dispatcher 순으로 진행한다.
 4. 모든 smoke가 통과한 마지막 단계에서만 Router production mutation을 활성화한다.
 5. 이 승격은 Forecast ID 전환, Forecast PR merge, H/p adoption을 수행하지 않는다.

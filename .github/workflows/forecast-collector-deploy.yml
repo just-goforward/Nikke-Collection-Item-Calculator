@@ -119,18 +119,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Protect statistics D1 before Forecast migrations
+      - name: Verify statistics production D1 remains readable
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           stats_probe=$(npx wrangler d1 execute DB --remote \
             --config cloudflare/wrangler.toml --command "SELECT 1 AS ok;" --json)
           [[ "$(jq -r '.[0].results[0].ok' <<<"$stats_probe")" == "1" ]]
-          npm run check:d1-budget -- preflight --output "$RUNNER_TEMP/d1-budget-preflight.json"
 
       - name: Verify collector
         run: |
@@ -225,6 +223,36 @@ jobs:
             npx wrangler d1 execute FORECAST_DB --remote --env staging \
               --config forecast-collector/wrangler.toml \
               --file forecast-collector/migrations/0009_d1_budget_canary_v6.sql
+
+      - name: Verify production and staging Forecast covering indexes
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in production staging; do
+            if [[ "$target" == "production" ]]; then
+              environment=(--env="")
+            else
+              environment=(--env staging)
+            fi
+            indexes=$(npx wrangler d1 execute FORECAST_DB --remote "${environment[@]}" \
+              --config forecast-collector/wrangler.toml \
+              --command "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('collector_invocations_latest_idx', 'dispatcher_invocations_environment_latest_idx') ORDER BY name;" \
+              --json)
+            jq -e '([.[0].results[].name] | sort) == ["collector_invocations_latest_idx","dispatcher_invocations_environment_latest_idx"]' \
+              <<<"$indexes" >/dev/null || {
+                echo "Forecast $target covering indexes are missing. Run the protected production index remediation before staging deployment." >&2
+                exit 1
+              }
+          done
+
+      - name: Check account-wide D1 preflight after index verification
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run check:d1-budget -- preflight --output "$RUNNER_TEMP/d1-budget-preflight.json"
 
       - name: Verify account Cron trigger capacity
         env:
