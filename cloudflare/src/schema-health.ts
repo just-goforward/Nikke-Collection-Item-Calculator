@@ -4,6 +4,10 @@ import {
   REQUIRED_D1_SCHEMA,
   validateD1SchemaRows,
 } from "../../shared/d1SchemaContract";
+import {
+  SOLVER_RECOVERY_POLICY_VERSIONS,
+  SOLVER_RECOVERY_VERSIONS,
+} from "../../shared/solverRecoveryContract";
 import type { WorkerEnv } from "./env";
 import { isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
@@ -37,5 +41,7 @@ export async function handleSchemaHealth(request: Request, env: WorkerEnv) {
   return jsonResponse(request, env, {
     ok: true,
     schemaContractVersion: D1_SCHEMA_CONTRACT_VERSION,
+    acceptedRecoveryVersions: SOLVER_RECOVERY_VERSIONS,
+    acceptedRecoveryPolicyVersions: SOLVER_RECOVERY_POLICY_VERSIONS,
   });
 }

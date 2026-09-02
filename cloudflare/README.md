@@ -62,22 +62,16 @@ Set the secret key on the Worker:
 wrangler secret put TURNSTILE_SECRET_KEY
 ```
 
-Set a random rate-limit secret:
-
-```powershell
-wrangler secret put RATE_LIMIT_SECRET
-```
-
 Optionally set a private admin token to enable non-public diagnostic reads:
 
 ```powershell
 wrangler secret put ADMIN_TOKEN
 ```
 
-`TURNSTILE_SECRET_KEY` and `RATE_LIMIT_SECRET` are required in every deployed environment.
+`TURNSTILE_SECRET_KEY` is required in every deployed environment. Request throttling uses the
+native `EVENT_RATE_LIMITER` binding declared in `wrangler.toml`; it has no shared secret.
 `ADMIN_TOKEN` is optional: when it is absent, the private diagnostics endpoint stays hidden with
-`404 not_found`. If `RATE_LIMIT_SECRET` is missing, `/api/events` returns
-`rate_limit_not_configured` without retrying or storing data.
+`404 not_found`.
 
 7. Set `ALLOWED_ORIGINS` in `wrangler.toml`.
 
@@ -117,7 +111,7 @@ that environment before enabling promotion.
 Automatic runs compare the current commit with the commit tag of the active staging Worker. They
 skip deployment when Worker source, shared contracts, Worker config, dependencies, and deployment
 tooling are unchanged. A manual staging run always deploys. The allowlisted additive
-`add-game-day-statistics-v9.sql` migration remains guarded: staging is migrated and schema-checked
+`add-game-day-statistics-v9.sql` and `add-solver-observability-v10.sql` remain guarded: staging is migrated and schema-checked
 before its Worker deploy, while production is migrated and schema-checked only in the separately
 approved promotion. Any other tracked D1 SQL change still fails closed until its migration file and
 verification procedure are reviewed and allowlisted.
@@ -138,9 +132,9 @@ Configure these GitHub repository settings:
 | Variable | `CLOUDFLARE_STAGING_WORKER_URL` | The public staging Worker URL |
 | Variable | `CLOUDFLARE_PRODUCTION_WORKER_URL` | The public production Worker URL |
 
-The workflows do not upload Turnstile, rate-limit, or admin secret values. Wrangler preserves
+The workflows do not upload Turnstile or admin secret values. Wrangler preserves
 secrets already stored on each Worker. Manual staging and production promotion are intentionally
-separate dispatches. The v9 migration is additive and may be retried safely; a Worker rollback does
+separate dispatches. The v9 and v10 migrations are additive and may be retried safely; a Worker rollback does
 not remove its new tables or rewrite historical aggregates.
 
 The deployment token should be limited to this account's Worker deployment and version-management
@@ -155,7 +149,7 @@ The Worker rejects bad submissions before writing to D1:
 - CORS origin allowlist
 - JSON body size limit
 - Turnstile verification
-- IP-based minute/day rate limits
+- native IP-based per-minute rate limiting
 - event id deduplication
 - integer/range checks
 - 10-kit unit checks
@@ -197,6 +191,10 @@ Browser submissions are sent in FIFO order. A transient browser retry keeps the 
 but obtains a fresh Turnstile token. A transient Worker-to-Siteverify retry reuses its original
 token with the same `idempotency_key`. Any retry can consume additional pre/post rate-limit
 counters, because abuse-protection accounting is intentionally kept outside the aggregate commit.
+The browser outbox stores only the existing event envelope plus queue time, attempt count, and a
+closed failure class. It never adds exact stock or raw error text. Retried-success and dropped-4xx
+summaries are attached to the next normal envelope and cleared only after that envelope is accepted.
+If the user never returns or no later event succeeds, that local summary cannot be known centrally.
 
 The public stats response retains `levelKitStats` for level-by-kit usage breakdowns and
 `successAttemptDistribution` as an empty compatibility array. Retaining these fields keeps cached
@@ -220,7 +218,7 @@ public response is cacheable for 60 seconds.
 `GET /api/health`
 
 Checks every D1 column and composite primary-key order required by the deployed Worker's inserts and
-upserts. It returns `schemaContractVersion: 5` on success and fails closed with
+upserts. It returns `schemaContractVersion: 6` on success and fails closed with
 `503 database_schema_not_ready` when the Worker code and bound database are incompatible. This
 endpoint validates the current write contract, not column types, constraints, secondary indexes, or
 the complete historical migration ledger.
@@ -239,6 +237,11 @@ silently merged. `sinceByDateBasis` records the calendar-date and game-day windo
 Optional query parameter: `days=30` (1-365). The response also includes recent
 `nodeCounts` buckets for observing Rust min-E[f] state-space pressure and fallback risk, plus
 `calculationLocales` for the language selected when each calculation started.
+The additive `operationalFailures` and `submissionHealth` sections expose only bucketed failure,
+contract-rejection, and delivery-health rows. Optional `limit` (1-200) and `cursor` parameters bound
+those sections. `observerCoverage` points to the separate read-only audit because the statistics
+Worker is intentionally not bound to the Observer D1. Exact stock, IP addresses, raw User-Agent
+values, error messages, and stacks are absent.
 
 Worker/D1 write-path tests use an isolated D1 database in the Cloudflare Vitest pool:
 
@@ -307,12 +310,33 @@ npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/add-solv
 npx wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/add-solver-cache-aggregates.sql --config cloudflare/wrangler.toml
 ```
 
-For the `ladder_v1` recovery rung and terminal aggregates:
+For recovery rung and terminal aggregates (both `ladder_v1` and `ladder_v2` are accepted):
 
 ```powershell
 npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/add-solver-recovery-aggregates.sql --config cloudflare/wrangler.toml --env=""
 npx wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/add-solver-recovery-aggregates.sql --config cloudflare/wrangler.toml
 ```
+
+For recovery v2 identities, failure-only operational buckets, post-security-gate rejection
+aggregates, and browser delivery-health aggregates, apply v10 only after v9 and before deploying the
+corresponding Worker. This migration is additive and does not backfill previously rejected events.
+
+```powershell
+npx wrangler d1 execute collection-kit-stats-staging --remote --env=staging --config cloudflare/wrangler.toml --file cloudflare/add-solver-observability-v10.sql
+npm run check:d1-schema -- collection-kit-stats-staging staging
+
+npx wrangler d1 execute collection-kit-stats --remote --env="" --config cloudflare/wrangler.toml --file cloudflare/add-solver-observability-v10.sql
+npm run check:d1-schema -- collection-kit-stats
+```
+
+The rollout is server-first. Keep `SOLVER_RECOVERY_EMIT_VERSION=1` until production health
+advertises recovery v2. Then change that shared emission constant to 2 and deploy the Pages client.
+Keep `STATS_DELIVERY_HEALTH_EMIT_ENABLED=false` until the same production deployment accepts the
+delivery-health sidecar. While that gate is false, the production bundle keeps the legacy outbox and
+does not collect or emit delivery-health summaries. Enable the v2 outbox and sidecar together only
+after the server-first rollout has been verified.
+`scripts/smoke-stats-worker.ts` verifies that the emitted version and policy are members of the
+production Worker's advertised allowlists.
 
 For calculation-time language aggregates, apply the additive migration to both databases before
 deploying the Worker change. Missing locale values from older clients remain valid and are excluded
@@ -521,7 +545,6 @@ Worker:
 
 ```powershell
 & "C:\Program Files\nodejs\npx.cmd" wrangler secret put TURNSTILE_SECRET_KEY --env staging --config cloudflare/wrangler.toml
-& "C:\Program Files\nodejs\npx.cmd" wrangler secret put RATE_LIMIT_SECRET --env staging --config cloudflare/wrangler.toml
 # Optional: enables /api/admin/solver-diagnostics in staging.
 & "C:\Program Files\nodejs\npx.cmd" wrangler secret put ADMIN_TOKEN --env staging --config cloudflare/wrangler.toml
 & "C:\Program Files\nodejs\npx.cmd" wrangler deploy --env staging --config cloudflare/wrangler.toml

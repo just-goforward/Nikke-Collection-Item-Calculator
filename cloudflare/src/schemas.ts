@@ -1,6 +1,15 @@
 import * as z from "zod/mini";
 import { MAX_STOCK_PIECES } from "../../shared/game";
 import {
+  DELIVERY_AGE_BUCKETS,
+  DELIVERY_ATTEMPT_BUCKETS,
+  DELIVERY_FAILURE_CLASSES,
+  SOLVER_RECOVERY_APP_REVISION_PATTERN,
+  SOLVER_RECOVERY_POLICY_VERSIONS,
+  SOLVER_RECOVERY_SOLVER_VERSIONS,
+  STATS_DELIVERY_EVENT_KINDS,
+} from "../../shared/solverRecoveryContract";
+import {
   BLUE_SHARE_BUCKETS,
   CANDIDATE_COUNT_BUCKETS,
   COMPARISON_BUCKETS,
@@ -133,10 +142,18 @@ const SolverDiagnosticEventSchema = z.looseObject({
 
 const SolverRecoveryEventSchema = z.looseObject({
   kind: z.literal("solver_recovery"),
-  recoveryVersion: z.literal(1),
+  recoveryVersion: z.union([z.literal(1), z.literal(2)]),
   forecastId: SupplyForecastIdSchema,
   forecastProfileId: SupplyForecastProfileIdSchema,
-  policyVersion: z.literal("ladder_v1"),
+  policyVersion: z.enum(SOLVER_RECOVERY_POLICY_VERSIONS),
+  appRevision: z.optional(z.string().check(z.regex(SOLVER_RECOVERY_APP_REVISION_PATTERN))),
+  solverVersions: z.optional(
+    z.strictObject({
+      rustMinEf: z.literal(SOLVER_RECOVERY_SOLVER_VERSIONS.rustMinEf),
+      rustPhase2: z.literal(SOLVER_RECOVERY_SOLVER_VERSIONS.rustPhase2),
+      jsPhase2: z.literal(SOLVER_RECOVERY_SOLVER_VERSIONS.jsPhase2),
+    }),
+  ),
   requestedBackend: SolverBackendSchema,
   minEfExit: SolverRecoveryExitSchema,
   phase2Exit: SolverRecoveryExitSchema,
@@ -147,6 +164,16 @@ const SolverRecoveryEventSchema = z.looseObject({
   phase2MemoTier: z.enum(MEMO_TIER_BUCKETS),
   start: CollectionStateSchema,
   stockBuckets: StockBucketsSchema,
+});
+
+const DeliveryHealthSchema = z.strictObject({
+  outcome: z.enum(["retried_success", "dropped_nonretryable"]),
+  eventKind: z.enum(STATS_DELIVERY_EVENT_KINDS),
+  appRevision: z.string().check(z.regex(SOLVER_RECOVERY_APP_REVISION_PATTERN)),
+  attempts: z.enum(DELIVERY_ATTEMPT_BUCKETS),
+  age: z.enum(DELIVERY_AGE_BUCKETS),
+  lastFailureClass: z.enum(DELIVERY_FAILURE_CLASSES),
+  events: z.int().check(z.minimum(1), z.maximum(20)),
 });
 
 const RuntimeInvariantEventSchema = z.strictObject({
@@ -162,6 +189,7 @@ export const EventSubmissionSchema = z.looseObject({
   eventId: EventIdSchema,
   clientTime: z.optional(z.iso.datetime()),
   sourceHost: z.optional(z.string()),
+  deliveryHealth: z.optional(DeliveryHealthSchema),
   turnstileToken: z.string().check(z.minLength(20), z.maxLength(2048)),
   event: z.discriminatedUnion("kind", [
     KitResultEventSchema,

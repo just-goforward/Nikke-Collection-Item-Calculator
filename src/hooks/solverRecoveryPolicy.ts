@@ -1,7 +1,8 @@
+import { SOLVER_RECOVERY_EMIT_POLICY_VERSION } from "../../shared/solverRecoveryContract";
 import type { WorkerErrorCode, WorkerSolverBackend } from "../../shared/workerProtocol";
 import type { SolverInput } from "../types";
 
-export const RECOVERY_POLICY_VERSION = "ladder_v2" as const;
+export const RECOVERY_POLICY_VERSION = SOLVER_RECOVERY_EMIT_POLICY_VERSION;
 export const SOLVE_DEADLINE_MS = 45_000;
 export const RUST_PHASE2_RUNG_TIMEOUT_MS = 25_000;
 export const RUST_RUNG_TIMEOUT_MS = 15_000;

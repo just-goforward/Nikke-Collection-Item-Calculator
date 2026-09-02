@@ -13,6 +13,63 @@ import { logError, sanitizedError } from "./logger";
 
 type StatsEventKind = "kit_result" | "runtime_invariant" | "solver_diagnostic" | "solver_recovery";
 
+export type SubmissionRejection = {
+  appRevision: string;
+  eventId: string;
+  eventKind: StatsEventKind;
+  policyVersion: string;
+  recoveryVersion: string;
+  rejectionCode: string;
+};
+
+export async function commitSubmissionRejection(
+  env: WorkerEnv,
+  rejection: SubmissionRejection,
+  now: number,
+) {
+  const dateKey = kstGameDateKeyFromUnixSeconds(now);
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO stats_rejection_event_ids (event_id, rejection_code, created_at)
+         VALUES (?, ?, ?)`,
+      ).bind(rejection.eventId, rejection.rejectionCode, now),
+      env.DB.prepare(
+        `INSERT INTO stats_submission_rejection_aggregates_game_day
+          (date_key, rejection_code, event_kind, recovery_version, policy_version,
+           app_revision, events, first_seen, last_seen)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+         ON CONFLICT(date_key, rejection_code, event_kind, recovery_version,
+           policy_version, app_revision)
+         DO UPDATE SET events = events + 1, last_seen = excluded.last_seen`,
+      ).bind(
+        dateKey,
+        rejection.rejectionCode,
+        rejection.eventKind,
+        rejection.recoveryVersion,
+        rejection.policyVersion,
+        rejection.appRevision,
+        now,
+        now,
+      ),
+    ]);
+  } catch {
+    const duplicate = await env.DB.prepare(
+      `SELECT 1 AS event_exists FROM stats_rejection_event_ids
+       WHERE event_id = ?`,
+    )
+      .bind(rejection.eventId)
+      .first<{ event_exists?: number }>()
+      .catch(() => null);
+    if (duplicate?.event_exists === 1) return;
+    logError("statistics_rejection_storage_failed", {
+      eventKind: rejection.eventKind,
+      rejectionCode: rejection.rejectionCode,
+    });
+    throw new HttpError(503, "rejection_storage_unavailable", true);
+  }
+}
+
 export async function commitSubmission(
   request: Request,
   env: WorkerEnv,
@@ -22,9 +79,15 @@ export async function commitSubmission(
   const dateKey = kstGameDateKeyFromUnixSeconds(now);
   if (normalized.event.kind === "runtime_invariant") {
     const deviceType = clientEnvironment(request).deviceType;
-    return commitEvent(env, normalized.eventId, now, normalized.event.kind, [
-      buildRuntimeInvariantAggregateStatement(env, dateKey, normalized.event, deviceType, now),
-    ]);
+    return commitEvent(
+      env,
+      normalized.eventId,
+      now,
+      normalized.event.kind,
+      appendDeliveryHealthStatement(env, dateKey, normalized.deliveryHealth, now, [
+        buildRuntimeInvariantAggregateStatement(env, dateKey, normalized.event, deviceType, now),
+      ]),
+    );
   }
   if (normalized.event.kind === "solver_diagnostic") {
     const aggregateStatements = [
@@ -51,7 +114,19 @@ export async function commitSubmission(
         buildSolverRuntimeAggregateStatement(env, dateKey, normalized.event, now),
       );
     }
-    return commitEvent(env, normalized.eventId, now, normalized.event.kind, aggregateStatements);
+    return commitEvent(
+      env,
+      normalized.eventId,
+      now,
+      normalized.event.kind,
+      appendDeliveryHealthStatement(
+        env,
+        dateKey,
+        normalized.deliveryHealth,
+        now,
+        aggregateStatements,
+      ),
+    );
   }
   if (normalized.event.kind === "solver_recovery") {
     const event = normalized.event;
@@ -72,7 +147,22 @@ export async function commitSubmission(
         buildSolverRecoveryRungStatement(env, dateKey, event, rung, environment.deviceType, now),
       ),
     ];
-    return commitEvent(env, normalized.eventId, now, normalized.event.kind, aggregateStatements);
+    if (event.terminalOutcome === "failure") {
+      aggregateStatements.push(buildSolverFailureStatement(env, dateKey, event, environment, now));
+    }
+    return commitEvent(
+      env,
+      normalized.eventId,
+      now,
+      normalized.event.kind,
+      appendDeliveryHealthStatement(
+        env,
+        dateKey,
+        normalized.deliveryHealth,
+        now,
+        aggregateStatements,
+      ),
+    );
   }
 
   return commitKitResultEvent(
@@ -81,9 +171,45 @@ export async function commitSubmission(
     normalized.eventId,
     normalized.sourceHost,
     normalized.event,
+    normalized.deliveryHealth,
     dateKey,
     now,
   );
+}
+
+function appendDeliveryHealthStatement(
+  env: WorkerEnv,
+  dateKey: string,
+  deliveryHealth: ValidatedSubmission["deliveryHealth"],
+  now: number,
+  statements: D1PreparedStatement[],
+) {
+  if (!deliveryHealth) return statements;
+  return [
+    ...statements,
+    env.DB.prepare(
+      `INSERT INTO stats_delivery_health_aggregates_game_day
+        (date_key, outcome, event_kind, attempts_bucket, age_bucket,
+         last_failure_class, app_revision, events, first_seen, last_seen)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(date_key, outcome, event_kind, attempts_bucket, age_bucket,
+         last_failure_class, app_revision)
+       DO UPDATE SET
+        events = events + excluded.events,
+        last_seen = excluded.last_seen`,
+    ).bind(
+      dateKey,
+      deliveryHealth.outcome,
+      deliveryHealth.eventKind,
+      deliveryHealth.attempts,
+      deliveryHealth.age,
+      deliveryHealth.lastFailureClass,
+      deliveryHealth.appRevision,
+      deliveryHealth.events,
+      now,
+      now,
+    ),
+  ];
 }
 
 function buildForecastProfileAggregateStatement(
@@ -241,6 +367,69 @@ function buildSolverRecoveryTerminalStatement(
   );
 }
 
+function buildSolverFailureStatement(
+  env: WorkerEnv,
+  dateKey: string,
+  event: ValidatedSolverRecoveryEvent,
+  environment: ReturnType<typeof clientEnvironment>,
+  now: number,
+) {
+  const ingestRevision = normalizedRevision(env.DEPLOYMENT_SHA);
+  return env.DB.prepare(
+    `INSERT INTO solver_failure_aggregates_game_day
+      (date_key, recovery_version, policy_version, app_revision, ingest_revision,
+       forecast_id, forecast_profile_id, rust_min_ef_solver_version,
+       rust_phase2_solver_version, js_phase2_solver_version, requested_backend,
+       min_ef_exit, phase2_exit, js_exit, terminal_backend, grade, level, exp_bucket,
+       stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, browser,
+       browser_major, os, os_major, device_type, events, first_seen, last_seen)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+     ON CONFLICT(date_key, recovery_version, policy_version, app_revision, ingest_revision,
+       forecast_id, forecast_profile_id, rust_min_ef_solver_version,
+       rust_phase2_solver_version, js_phase2_solver_version, requested_backend,
+       min_ef_exit, phase2_exit, js_exit, terminal_backend, grade, level, exp_bucket,
+       stock_bucket_blue, stock_bucket_purple, stock_bucket_yellow, browser,
+       browser_major, os, os_major, device_type)
+     DO UPDATE SET events = events + 1, last_seen = excluded.last_seen`,
+  ).bind(
+    dateKey,
+    event.recoveryVersion,
+    event.policyVersion,
+    event.appRevision,
+    ingestRevision,
+    event.forecastId,
+    event.forecastProfileId,
+    event.solverVersions.rustMinEf,
+    event.solverVersions.rustPhase2,
+    event.solverVersions.jsPhase2,
+    event.requestedBackend,
+    event.minEfExit,
+    event.phase2Exit,
+    event.jsExit,
+    event.terminalBackend,
+    event.start.grade,
+    event.start.level,
+    event.start.exp,
+    event.stockBuckets.blue,
+    event.stockBuckets.purple,
+    event.stockBuckets.yellow,
+    environment.browser,
+    environment.browserMajor,
+    environment.os,
+    environment.osMajor,
+    environment.deviceType,
+    now,
+    now,
+  );
+}
+
+function normalizedRevision(value: string | undefined) {
+  if (value === "local" || value === "unknown" || /^[0-9a-f]{40}$/.test(value || "")) {
+    return value || "unknown";
+  }
+  return "unknown";
+}
+
 function buildSolverCacheAggregateStatement(
   env: WorkerEnv,
   dateKey: string,
@@ -330,6 +519,7 @@ async function commitKitResultEvent(
   eventId: string,
   sourceHost: string,
   event: ValidatedKitResultEvent,
+  deliveryHealth: ValidatedSubmission["deliveryHealth"],
   dateKey: string,
   now: number,
 ) {
@@ -338,9 +528,14 @@ async function commitKitResultEvent(
   const greatSuccesses = event.outcome === "great_success" ? 1 : 0;
   const environment = clientEnvironment(request);
 
-  return commitEvent(env, eventId, now, "kit_result", [
-    env.DB.prepare(
-      `INSERT INTO event_aggregates_game_day
+  return commitEvent(
+    env,
+    eventId,
+    now,
+    "kit_result",
+    appendDeliveryHealthStatement(env, dateKey, deliveryHealth, now, [
+      env.DB.prepare(
+        `INSERT INTO event_aggregates_game_day
       (date_key, grade, level, exp_bucket, kit, recommended_uses, outcome, success_attempt, events, attempts, great_successes, last_seen)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
      ON CONFLICT(date_key, grade, level, exp_bucket, kit, recommended_uses, outcome, success_attempt)
@@ -349,46 +544,47 @@ async function commitKitResultEvent(
       attempts = attempts + excluded.attempts,
       great_successes = great_successes + excluded.great_successes,
       last_seen = excluded.last_seen`,
-    ).bind(
-      dateKey,
-      event.start.grade,
-      event.start.level,
-      event.start.exp,
-      event.kit,
-      event.recommendedUses,
-      event.outcome,
-      successAttempt,
-      attempts,
-      greatSuccesses,
-      now,
-    ),
-    env.DB.prepare(
-      `INSERT INTO referrer_aggregates_game_day
+      ).bind(
+        dateKey,
+        event.start.grade,
+        event.start.level,
+        event.start.exp,
+        event.kit,
+        event.recommendedUses,
+        event.outcome,
+        successAttempt,
+        attempts,
+        greatSuccesses,
+        now,
+      ),
+      env.DB.prepare(
+        `INSERT INTO referrer_aggregates_game_day
       (date_key, source_host, events, last_seen)
      VALUES (?, ?, 1, ?)
      ON CONFLICT(date_key, source_host)
      DO UPDATE SET
       events = events + 1,
       last_seen = excluded.last_seen`,
-    ).bind(dateKey, sourceHost, now),
-    env.DB.prepare(
-      `INSERT INTO client_env_aggregates_game_day
+      ).bind(dateKey, sourceHost, now),
+      env.DB.prepare(
+        `INSERT INTO client_env_aggregates_game_day
       (date_key, browser, browser_major, os, os_major, device_type, events, last_seen)
      VALUES (?, ?, ?, ?, ?, ?, 1, ?)
      ON CONFLICT(date_key, browser, browser_major, os, os_major, device_type)
      DO UPDATE SET
       events = events + 1,
       last_seen = excluded.last_seen`,
-    ).bind(
-      dateKey,
-      environment.browser,
-      environment.browserMajor,
-      environment.os,
-      environment.osMajor,
-      environment.deviceType,
-      now,
-    ),
-  ]);
+      ).bind(
+        dateKey,
+        environment.browser,
+        environment.browserMajor,
+        environment.os,
+        environment.osMajor,
+        environment.deviceType,
+        now,
+      ),
+    ]),
+  );
 }
 
 async function commitEvent(

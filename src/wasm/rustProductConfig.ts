@@ -1,3 +1,8 @@
+import {
+  SOLVER_RECOVERY_RUST_MIN_EF_VERSION,
+  SOLVER_RECOVERY_RUST_PHASE2_VERSION,
+} from "../../shared/solverRecoveryContract";
+
 export const RUST_PRODUCT_HORIZON_FACTOR = 0.75;
 export const RUST_PRODUCT_NORM_POWER = 3;
 export const RUST_PRODUCT_TOLERANCE = 0;
@@ -7,8 +12,8 @@ export const RUST_PHASE2_DEFAULT_MEMO_TIER = 21;
 export const RUST_PHASE2_FALLBACK_MEMO_TIER = 22;
 export const RUST_MEMORY_STRATEGY = "balanced-v1";
 
-export const RUST_MIN_EF_SOLVER_VERSION = "phase3_rust_min_ef";
-export const RUST_PHASE2_SOLVER_VERSION = "phase2_availability_h075_tau0_p3_rust_segmented_v1";
+export const RUST_MIN_EF_SOLVER_VERSION = SOLVER_RECOVERY_RUST_MIN_EF_VERSION;
+export const RUST_PHASE2_SOLVER_VERSION = SOLVER_RECOVERY_RUST_PHASE2_VERSION;
 export const RUST_RERANK_SOLVER_VERSION =
   "phase2_availability_h075_tau0_p3_rust_rerank_adaptive90_m025_confirm_staging";
 

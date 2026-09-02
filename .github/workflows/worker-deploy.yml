@@ -129,10 +129,14 @@ jobs:
           )
           if (( ${#changed_sql[@]} > 0 )); then
             game_day_v9_changed=false
+            solver_observability_v10_changed=false
             for path in "${changed_sql[@]}"; do
               case "$path" in
                 cloudflare/add-game-day-statistics-v9.sql)
                   game_day_v9_changed=true
+                  ;;
+                cloudflare/add-solver-observability-v10.sql)
+                  solver_observability_v10_changed=true
                   ;;
                 cloudflare/schema.sql)
                   ;;
@@ -142,8 +146,8 @@ jobs:
                   ;;
               esac
             done
-            if [[ "$game_day_v9_changed" != "true" ]]; then
-              echo "D1 SQL changed without the allowlisted game-day statistics v9 migration." >&2
+            if [[ "$game_day_v9_changed" != "true" && "$solver_observability_v10_changed" != "true" ]]; then
+              echo "D1 SQL changed without an allowlisted additive migration." >&2
               exit 1
             fi
           fi
@@ -209,12 +213,18 @@ jobs:
           if npm run check:d1-schema -- collection-kit-stats-staging staging; then
             echo "Staging D1 schema already satisfies the current contract."
           else
-            echo "Applying additive game-day statistics migration to staging D1."
+            echo "Applying additive statistics migrations to staging D1."
             npx wrangler d1 execute collection-kit-stats-staging \
               --remote \
               --env staging \
               --config cloudflare/wrangler.toml \
               --file cloudflare/add-game-day-statistics-v9.sql \
+              --yes
+            npx wrangler d1 execute collection-kit-stats-staging \
+              --remote \
+              --env staging \
+              --config cloudflare/wrangler.toml \
+              --file cloudflare/add-solver-observability-v10.sql \
               --yes
             npm run check:d1-schema -- collection-kit-stats-staging staging
           fi
@@ -246,6 +256,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: >-
           npx wrangler deploy --env staging --config cloudflare/wrangler.toml
+          --var "ALLOWED_ORIGINS:$STATS_ALLOWED_ORIGIN"
+          --var "DEPLOYMENT_SHA:$DEPLOY_SHA"
           --tag "$DEPLOY_SHA" --message "GitHub $DEPLOY_SHA"
 
       - name: Smoke test staging Worker

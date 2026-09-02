@@ -26,7 +26,7 @@ Results are probabilistic recommendations based on the entered state and the gam
 
 Calculations run in the browser. After an outcome is confirmed, the statistics service aggregates fields such as grade, level, kit, attempt count, and Great Success count in Cloudflare D1. It does not collect accounts, names, email addresses, unique user identifiers, or raw kit inventories.
 
-The public `/api/stats` response contains only aggregate Great Success and kit-usage statistics. Source hosts, client environments, and solver diagnostics are excluded from the public response and retained only as private bucketed operational aggregates. Event counts are not unique-user counts.
+The public `/api/stats` response contains only aggregate Great Success and kit-usage statistics. Source hosts, client environments, solver diagnostics, and failure observations are excluded from the public response and retained only as private bucketed operational aggregates. Failure observation stores no exact inventory, IP address, user identifier, raw error, or stack trace. Event counts are not unique-user counts.
 
 For security issues, use the private reporting route in the [security policy](./SECURITY.md) instead of opening a public issue.
 

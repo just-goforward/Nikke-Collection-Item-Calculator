@@ -217,6 +217,7 @@ export class WorkerTestHarness {
       USAGE_GUARD_DB: this.env.USAGE_GUARD_DB ?? db,
       EVENT_RATE_LIMITER: this.env.EVENT_RATE_LIMITER ?? env.EVENT_RATE_LIMITER,
       ALLOWED_ORIGINS: this.env.ALLOWED_ORIGINS ?? "",
+      DEPLOYMENT_SHA: this.env.DEPLOYMENT_SHA ?? "test",
       ADMIN_TOKEN: this.env.ADMIN_TOKEN ?? "",
       TURNSTILE_SECRET_KEY: this.env.TURNSTILE_SECRET_KEY ?? "",
     };

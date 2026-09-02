@@ -1,0 +1,160 @@
+name: Promote Stats Observer
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: Full commit SHA certified by the staging Observer canary
+        required: true
+        type: string
+      canary_id:
+        description: Passing staging canary ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stats-observer-production
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_sha: ${{ steps.target.outputs.deploy_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+
+      - id: target
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          CANARY_ID: ${{ inputs.canary_id }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANARY_ID" =~ ^soc-[0-9a-f]{32}$ ]]
+          git merge-base --is-ancestor "$DEPLOY_SHA" refs/heads/main
+          git checkout --detach "$DEPLOY_SHA"
+          echo "deploy_sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.20.0
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify staging certificate and deployment
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          CANARY_ID: ${{ inputs.canary_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          result=$(npx wrangler d1 execute OBSERVER_DB --remote --env staging --config stats-observer/wrangler.toml \
+            --command "SELECT deployment_sha,status,report_json FROM observer_canaries WHERE canary_id='$CANARY_ID';" --json)
+          [[ "$(jq -r '.[0].results[0].deployment_sha' <<<"$result")" == "$DEPLOY_SHA" ]]
+          [[ "$(jq -r '.[0].results[0].status' <<<"$result")" == "passed" ]]
+          jq -e '.[0].results[0].report_json | fromjson | .passed == true' <<<"$result" >/dev/null
+          npx wrangler deployments status --env staging --config stats-observer/wrangler.toml --json > "$RUNNER_TEMP/deployment.json"
+          npx wrangler versions list --env staging --config stats-observer/wrangler.toml --json > "$RUNNER_TEMP/versions.json"
+          node --input-type=module - "$RUNNER_TEMP/deployment.json" "$RUNNER_TEMP/versions.json" "$DEPLOY_SHA" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const deployment = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const versions = JSON.parse(readFileSync(process.argv[3], "utf8"));
+          const activeId = deployment.versions?.find((row) => row.percentage === 100)?.version_id;
+          const active = versions.find((row) => row.id === activeId);
+          if (active?.annotations?.["workers/tag"] !== process.argv[4]) throw new Error("Certified staging Observer is no longer active.");
+          NODE
+          npm run test:stats-observer
+          npx wrangler deploy --dry-run --env="" --config stats-observer/wrangler.toml
+
+  production:
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment:
+      name: cloudflare-production
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.20.0
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify production Stats Worker and quota guard
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_USAGE_GUARD_URL: ${{ vars.CLOUDFLARE_USAGE_GUARD_URL }}
+          PRODUCTION_WORKER_URL: ${{ vars.CLOUDFLARE_PRODUCTION_WORKER_URL }}
+          STATS_ALLOWED_ORIGIN: ${{ vars.STATS_ALLOWED_ORIGIN }}
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+            "$CLOUDFLARE_USAGE_GUARD_URL/health" | jq -e '.state.action == "normal"' >/dev/null
+          npm run smoke:stats-worker -- "$PRODUCTION_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
+          npx wrangler deployments status --env="" --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/stats-deployment.json"
+          npx wrangler versions list --env="" --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/stats-versions.json"
+          node --input-type=module - "$RUNNER_TEMP/stats-deployment.json" "$RUNNER_TEMP/stats-versions.json" "$DEPLOY_SHA" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const deployment = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const versions = JSON.parse(readFileSync(process.argv[3], "utf8"));
+          const activeId = deployment.versions?.find((row) => row.percentage === 100)?.version_id;
+          const active = versions.find((row) => row.id === activeId);
+          if (active?.annotations?.["workers/tag"] !== process.argv[4]) throw new Error("Production statistics Worker and Observer SHA differ.");
+          NODE
+
+      - name: Initialize production Observer D1
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: >-
+          npx wrangler d1 execute OBSERVER_DB --remote --env="" --config stats-observer/wrangler.toml
+          --file stats-observer/schema.sql --yes
+
+      - name: Build deployment secrets
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DISCORD_BOT_TOKEN"
+          jq -n --arg token "$DISCORD_BOT_TOKEN" '{DISCORD_BOT_TOKEN:$token}' > "$RUNNER_TEMP/observer-secrets.json"
+
+      - name: Deploy production Stats Observer
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ALERT_CHANNEL_ID" =~ ^[0-9]{15,22}$ ]]
+          npx wrangler deploy --env="" --config stats-observer/wrangler.toml \
+            --secrets-file "$RUNNER_TEMP/observer-secrets.json" \
+            --var "ENVIRONMENT:production" \
+            --var "DEPLOY_SHA:$DEPLOY_SHA" \
+            --var "DISCORD_ALERT_CHANNEL_ID:$ALERT_CHANNEL_ID" \
+            --tag "$DEPLOY_SHA" --message "GitHub $DEPLOY_SHA"
+          {
+            echo "### Stats Observer production"
+            echo "- Deployment: \`$DEPLOY_SHA\`"
+            echo "- Initial Cron establishes a no-backfill baseline"
+            echo "- Production statistics Worker and solver behavior were not changed by this deployment"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -6,11 +6,16 @@ import { normalizeSourceHost } from "./normalization";
 import type { EventSubmission } from "./schemas";
 
 export function validatePayload(payload: EventSubmission): ValidatedSubmission {
-  const submission = { eventId: payload.eventId, sourceHost: payload.sourceHost };
+  const submission = {
+    eventId: payload.eventId,
+    sourceHost: payload.sourceHost,
+    deliveryHealth: payload.deliveryHealth,
+  };
   if (payload.event.kind === "runtime_invariant") {
     return {
       eventId: payload.eventId,
       sourceHost: normalizeSourceHost(payload.sourceHost),
+      deliveryHealth: payload.deliveryHealth ?? null,
       event: payload.event,
     };
   }

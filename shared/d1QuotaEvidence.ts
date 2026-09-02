@@ -27,6 +27,8 @@ export const D1_DATABASE_IDS = {
   forecastProduction: "2d58bcc0-a7b5-43f3-8f42-34e1bf1ff853",
   forecastStaging: "49b5dc06-37ae-4245-896c-daea98562ed8",
   usageGuard: "49b7f966-f4e8-4c2d-8453-279415737054",
+  statsObserverProduction: "9f998d5d-06e9-407a-8fbf-748f697ee25f",
+  statsObserverStaging: "1452b096-7828-4759-8043-e48e8363a62b",
 } as const;
 
 export const QUOTA_ACTIONS = [

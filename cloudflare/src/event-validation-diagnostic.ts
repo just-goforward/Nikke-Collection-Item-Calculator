@@ -25,6 +25,7 @@ export function validateDiagnosticSubmission(
   return {
     eventId: payload.eventId,
     sourceHost: normalizeSourceHost(payload.sourceHost),
+    deliveryHealth: payload.deliveryHealth ?? null,
     event: {
       kind: "solver_diagnostic",
       diagnosticVersion: event.diagnosticVersion,
