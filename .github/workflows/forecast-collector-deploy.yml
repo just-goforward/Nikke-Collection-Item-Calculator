@@ -763,6 +763,17 @@ jobs:
           echo "canary_id=$canary_id" >> "$GITHUB_OUTPUT"
           echo "ends_at=$(jq -r '.canary.endsAt' "$RUNNER_TEMP/canary-start.json")" >> "$GITHUB_OUTPUT"
 
+      - name: Record dispatcher smoke inside the canary window
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.canary_start.outputs.canary_id != ''
+        env:
+          FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        run: >-
+          npm run smoke:forecast-dispatcher --
+          "$FORECAST_COLLECTOR_STAGING_URL"
+          "$FORECAST_COLLECTOR_ADMIN_TOKEN"
+          "canary:${{ steps.canary_start.outputs.canary_id }}:${{ github.run_id }}"
+
       - name: Send mutation-free Router test card
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
         env:

@@ -9,7 +9,7 @@ import {
   type D1QuotaEvidence,
 } from "../../shared/d1QuotaEvidence";
 import schemaSql from "../schema.sql?raw";
-import { readCanaryReport, startCanaryDeployment } from "./canary";
+import { readCanaryReport, readCanaryWindow, startCanaryDeployment } from "./canary";
 import type { CollectorEnv } from "./types";
 
 const testEnv: CollectorEnv = {
@@ -74,7 +74,7 @@ describe("canary report v7 storage and start contract", () => {
     await insertInvocationSlots("collector", collectorSlots);
     await insertInvocationSlots("dispatcher", dispatcherSlots);
 
-    const report = await readCanaryReport(testEnv.FORECAST_DB, END, SHA, "staging");
+    const report = await readFinalCanaryReport();
 
     expect(report.version).toBe(7);
     expect(report.canaryId).toBe(CANARY_ID);
@@ -106,6 +106,24 @@ describe("canary report v7 storage and start contract", () => {
     });
     expect(report.invariants.totalInvalid).toBe(0);
     expect(report.passed).toBe(true);
+  });
+
+  it("reads canary timing without building the full report", async () => {
+    const active = await readCanaryWindow(
+      testEnv.FORECAST_DB,
+      START + 60 * 60 * 1_000,
+      SHA,
+      "staging",
+    );
+    expect(active).toMatchObject({
+      version: 7,
+      canaryId: CANARY_ID,
+      acceptance: { windowMode: "fixed_8_hours", windowHours: 8 },
+      window: { active: true, eligible: false },
+    });
+
+    const eligible = await readCanaryWindow(testEnv.FORECAST_DB, END, SHA, "staging");
+    expect(eligible.window).toMatchObject({ active: false, eligible: true });
   });
 
   it("keeps retries idempotent and permits a later independent run for the same SHA", async () => {
@@ -145,6 +163,28 @@ describe("canary report v7 storage and start contract", () => {
     expect(next.canaryId).not.toBe(CANARY_ID);
   });
 
+  it("requires exact-window CPU evidence for an eligible certificate", async () => {
+    const withoutEvidence = await readCanaryReport(testEnv.FORECAST_DB, END, SHA, "staging");
+    expect(withoutEvidence.quota).toMatchObject({
+      valid: false,
+      errorCode: "cloudflare_paid_final_evidence_required",
+    });
+
+    const mismatchedEvidence = runtimeQuotaEvidence(START + 60_000, END);
+    const mismatched = await readCanaryReport(
+      testEnv.FORECAST_DB,
+      END,
+      SHA,
+      "staging",
+      undefined,
+      mismatchedEvidence,
+    );
+    expect(mismatched.quota).toMatchObject({
+      valid: false,
+      errorCode: "cloudflare_paid_runtime_window_mismatch",
+    });
+  });
+
   it("rejects stale evidence and a canary crossing the billing period", async () => {
     await expect(
       startCanaryDeployment(testEnv.FORECAST_DB, {
@@ -180,7 +220,7 @@ describe("canary report v7 slot evidence", () => {
     await insertInvocationSlots("collector", collector.slice(1));
     await insertInvocationSlots("dispatcher", dispatcher.slice(0, -1));
 
-    const oneMissing = await readCanaryReport(testEnv.FORECAST_DB, END, SHA, "staging");
+    const oneMissing = await readFinalCanaryReport();
     expect(oneMissing.collector).toMatchObject({
       expectedSlots: collector.length,
       observedSlots: collector.length - 1,
@@ -196,7 +236,7 @@ describe("canary report v7 slot evidence", () => {
     await testEnv.FORECAST_DB.prepare("DELETE FROM collector_invocations WHERE scheduled_at = ?")
       .bind(collector[1])
       .run();
-    const twoMissing = await readCanaryReport(testEnv.FORECAST_DB, END, SHA, "staging");
+    const twoMissing = await readFinalCanaryReport();
     expect(twoMissing.collector).toMatchObject({
       observedSlots: collector.length - 2,
       missingSlots: 2,
@@ -231,7 +271,7 @@ describe("canary report v7 slot evidence", () => {
       .bind(SHA, unexpected, unexpected, unexpected)
       .run();
 
-    const report = await readCanaryReport(testEnv.FORECAST_DB, END, SHA, "staging");
+    const report = await readFinalCanaryReport();
 
     expect(report.collector.unexpectedInvocations).toBe(1);
     expect(report.passed).toBe(false);
@@ -261,7 +301,7 @@ describe("canary report v7 slot evidence", () => {
       .bind(new Date(END).toISOString())
       .run();
 
-    const report = await readCanaryReport(testEnv.FORECAST_DB, END, SHA, "staging");
+    const report = await readFinalCanaryReport();
 
     expect(report.collector).toMatchObject({
       duplicateInvocations: 1,
@@ -337,6 +377,31 @@ async function insertSmokeAndRouterTest() {
   )
     .bind("d".repeat(64), created, created, created)
     .run();
+}
+
+function readFinalCanaryReport() {
+  return readCanaryReport(
+    testEnv.FORECAST_DB,
+    END,
+    SHA,
+    "staging",
+    undefined,
+    runtimeQuotaEvidence(START, END),
+  );
+}
+
+function runtimeQuotaEvidence(runtimeStartedAt: number, runtimeEndedAt: number) {
+  const evidence = quotaEvidence(runtimeEndedAt);
+  evidence.workerRuntime.startedAt = new Date(runtimeStartedAt).toISOString();
+  evidence.workerRuntime.endedAt = new Date(runtimeEndedAt).toISOString();
+  return {
+    action: evidence.action,
+    observedAt: evidence.observedAt,
+    periodStart: evidence.plan.periodStart,
+    periodEnd: evidence.plan.periodEnd,
+    evidenceHash: "f".repeat(64),
+    evidence,
+  };
 }
 
 function quotaEvidence(nowMs: number): D1QuotaEvidence {

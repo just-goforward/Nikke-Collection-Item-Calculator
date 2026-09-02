@@ -85,6 +85,9 @@ one missing slot, a completed latest invocation, no abandoned, late, unexpected,
 cursor, candidate, watermark, and manual-review state, and successful Dispatcher and signed Router
 smoke evidence. After covering indexes are verified on both Forecast databases, a 30-minute burn-in
 and a 30-minute runtime watchdog aggregate every Worker and D1 database in the Cloudflare account.
+The recurring watchdog reads only the server-owned canary window and builds one early full report;
+the final CPU certificate uses the exact fixed eight-hour interval after it closes, so monitoring
+requests do not dominate the runtime distribution being certified.
 The canary may start only below 25% of each Workers Paid monthly allowance. Guard stages at
 35/40/45/50% stop staging, production Forecast, statistics writes, and optional D1/Cron work in that
 order. The administrator's merge approves the evidence but does not activate the forecast.

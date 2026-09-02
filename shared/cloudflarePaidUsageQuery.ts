@@ -4,7 +4,8 @@ export const CLOUDFLARE_PAID_USAGE_QUERY = `query PaidQuota(
   $endDate: Date,
   $startTimestamp: Time,
   $endTimestamp: Time,
-  $runtimeStartTimestamp: Time
+  $runtimeStartTimestamp: Time,
+  $runtimeEndTimestamp: Time
 ) {
   viewer {
     accounts(filter: { accountTag: $accountTag }) {
@@ -33,7 +34,7 @@ export const CLOUDFLARE_PAID_USAGE_QUERY = `query PaidQuota(
       }
       workerRuntime: workersInvocationsAdaptive(
         limit: 10000,
-        filter: { datetime_geq: $runtimeStartTimestamp, datetime_leq: $endTimestamp }
+        filter: { datetime_geq: $runtimeStartTimestamp, datetime_leq: $runtimeEndTimestamp }
       ) {
         sum { requests errors cpuTimeUs }
         quantiles { cpuTimeP95 cpuTimeP99 }

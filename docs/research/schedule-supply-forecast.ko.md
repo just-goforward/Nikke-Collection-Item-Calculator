@@ -94,6 +94,9 @@ probe:forecast-x`는 token이나 원문을 출력하지 않고 공급자별 건�
 queue/cursor/candidate/watermark/manual-review 정합성, Dispatcher smoke와 서명된 Router smoke도
 함께 통과해야 한다. production·staging Forecast D1의 covering index를 먼저 검증한 뒤, 시작 전
 30분 burn-in과 실행 중 30분 watchdog은 같은 Cloudflare 계정의 모든 Worker와 D1을 합산한다.
+watchdog은 평소 서버가 기록한 canary 구간만 가볍게 읽고, 전체 report는 2~2.5시간 단일 조기 판정 구간에
+한정한다. 최종 CPU 인증은 canary 종료 후 정확한 고정 8시간 구간을 별도로 조회하여 반복적인
+관리자 report 호출이 인증 대상의 CPU 분포를 지배하지 않게 한다.
 Workers Paid 월간 제공량의 25% 미만에서만 canary를 시작하며, 35/40/45/50% 단계별 guard가
 staging, production Forecast, 통계 write, 선택적 D1/Cron을 차례로 중단한다.
 

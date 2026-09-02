@@ -239,14 +239,11 @@ function assertWorkerRuntimePeriod(
 ) {
   const runtimeStart = Date.parse(evidence.workerRuntime.startedAt);
   const runtimeEnd = Date.parse(evidence.workerRuntime.endedAt);
-  const expectedRuntimeStart = Math.max(
-    periodStart,
-    observedAt - CLOUDFLARE_PAID_THRESHOLDS.canaryHours * 60 * 60 * 1_000,
-  );
+  const maximumRuntimeMs = CLOUDFLARE_PAID_THRESHOLDS.canaryHours * 60 * 60 * 1_000;
   if (
-    runtimeStart !== expectedRuntimeStart ||
     !(periodStart <= runtimeStart && runtimeStart < runtimeEnd) ||
-    runtimeEnd !== observedAt
+    runtimeEnd > observedAt ||
+    runtimeEnd - runtimeStart > maximumRuntimeMs
   ) {
     throw new Error("cloudflare_paid_quota_worker_runtime_invalid");
   }

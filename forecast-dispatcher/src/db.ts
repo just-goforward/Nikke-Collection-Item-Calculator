@@ -11,6 +11,10 @@ const RESERVATION_LEASE_MS = 5 * 60 * 1_000;
 const RECENT_DISPATCH_MS = 20 * 60 * 1_000;
 const ALERT_SUPPRESSION_MS = 30 * 60 * 1_000;
 const MAX_WORK_IDS = 1_000;
+const EMPTY_WORK_FINGERPRINTS: Record<DispatcherEnvironment, string> = {
+  staging: "faee245f61e12ff37e07bdd6778379da818d2c3dbf1b76e545babc3e5e012c6b",
+  production: "c5056c85d91b2c5f076950484107ac80d8b395c0706ba389e9f3dc0ce6382a62",
+};
 
 export async function startDispatcherInvocation(
   db: D1Database,
@@ -70,34 +74,45 @@ export async function readActionableWork(
   db: D1Database,
   environment: DispatcherEnvironment,
 ): Promise<ActionableWork> {
-  const pending = await db
-    .prepare(
-      `SELECT source, item_id, title, url
+  const [pendingResult, candidateResult] = await db.batch([
+    db
+      .prepare(
+        `SELECT source, item_id, title, url
        FROM source_queue WHERE status = 'pending'
        ORDER BY published_at, source, item_id LIMIT ?`,
-    )
-    .bind(MAX_WORK_IDS + 1)
-    .all<{ source: WorkLink["source"]; item_id: string; title: string; url: string }>();
-  const candidates = await db
-    .prepare(
-      `SELECT candidate_id FROM forecast_candidates
+      )
+      .bind(MAX_WORK_IDS + 1),
+    db
+      .prepare(
+        `SELECT candidate_id FROM forecast_candidates
        WHERE state IN ('crosschecked', 'x_unavailable')
        ORDER BY created_at, candidate_id LIMIT ?`,
-    )
-    .bind(MAX_WORK_IDS + 1)
-    .all<{ candidate_id: string }>();
-  if (pending.results.length > MAX_WORK_IDS || candidates.results.length > MAX_WORK_IDS) {
+      )
+      .bind(MAX_WORK_IDS + 1),
+  ]);
+  if (!pendingResult || !candidateResult) throw new Error("actionable_work_batch_incomplete");
+  const pending = pendingResult.results as Array<{
+    source: WorkLink["source"];
+    item_id: string;
+    title: string;
+    url: string;
+  }>;
+  const candidates = candidateResult.results as Array<{ candidate_id: string }>;
+  if (pending.length > MAX_WORK_IDS || candidates.length > MAX_WORK_IDS) {
     throw new Error("actionable_work_overflow");
   }
-  const pendingIds = pending.results.map((row) => `${row.source}:${row.item_id}`).sort();
-  const candidateIds = candidates.results.map((row) => row.candidate_id).sort();
-  const fingerprint = await sha256Hex(
-    JSON.stringify({ environment, pending: pendingIds, candidates: candidateIds }),
-  );
+  const pendingIds = pending.map((row) => `${row.source}:${row.item_id}`).sort();
+  const candidateIds = candidates.map((row) => row.candidate_id).sort();
+  const fingerprint =
+    pendingIds.length + candidateIds.length === 0
+      ? EMPTY_WORK_FINGERPRINTS[environment]
+      : await sha256Hex(
+          JSON.stringify({ environment, pending: pendingIds, candidates: candidateIds }),
+        );
   return {
     pendingIds,
     candidateIds,
-    links: pending.results.slice(0, 3).map((row) => ({
+    links: pending.slice(0, 3).map((row) => ({
       source: row.source,
       itemId: row.item_id,
       title: row.title,
@@ -398,6 +413,7 @@ export async function updateObservedAlerts(
   db: D1Database,
   environment: DispatcherEnvironment,
   nowMs: number,
+  actionableCount: number,
 ) {
   const now = new Date(nowMs).toISOString();
   const tenMinutesAgo = new Date(nowMs - 10 * 60 * 1_000).toISOString();
@@ -442,16 +458,8 @@ export async function updateObservedAlerts(
     await resolveOpsAlert(db, collectorKey, nowMs);
   }
 
-  const actionable = await db
-    .prepare(
-      `SELECT
-         (SELECT COUNT(*) FROM source_queue WHERE status = 'pending') +
-         (SELECT COUNT(*) FROM forecast_candidates WHERE state IN ('crosschecked', 'x_unavailable'))
-         AS count`,
-    )
-    .first<{ count: number }>();
   const stale =
-    Number(actionable?.count ?? 0) > 0
+    actionableCount > 0
       ? await db
           .prepare(
             `SELECT dispatch_id, state, work_fingerprint
@@ -474,7 +482,7 @@ export async function updateObservedAlerts(
       nowMs,
     });
   }
-  if (Number(actionable?.count ?? 0) === 0) {
+  if (actionableCount === 0) {
     await db
       .prepare(
         `UPDATE forecast_ops_alerts

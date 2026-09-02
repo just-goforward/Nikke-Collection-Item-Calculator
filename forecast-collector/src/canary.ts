@@ -3,7 +3,7 @@ import {
   assertForecastCandidateInvariants,
   supplyForecastCandidateSchema,
 } from "../../shared/supplyForecastCandidate";
-import type { UsageGuardEvidence } from "../../shared/usageGuard";
+import type { UsageGuardEvidence, UsageGuardState } from "../../shared/usageGuard";
 import { assertCanaryStartWindow, CANARY_WINDOW_MS, readQuotaEvidence } from "./canary-quota";
 import { sha256Hex, stableJson } from "./crypto";
 
@@ -112,7 +112,7 @@ export async function readCanaryReport(
   deploymentSha: string,
   environment: Environment = "staging",
   canaryId?: string,
-  runtimeQuota?: UsageGuardEvidence,
+  runtimeQuota?: UsageGuardEvidence | UsageGuardState,
 ) {
   const run = canaryId
     ? await readRunById(db, canaryId)
@@ -120,9 +120,14 @@ export async function readCanaryReport(
   if (!run || run.environment !== environment || run.deployment_sha !== deploymentSha) {
     return missingReport(deploymentSha, environment, nowMs, canaryId ?? null);
   }
-  const quota = await readQuotaEvidence(run, runtimeQuota, nowMs, environment);
   const startedMs = Date.parse(run.started_at);
   const endsMs = Date.parse(run.ends_at);
+  const eligible = nowMs >= endsMs;
+  const quota = await readQuotaEvidence(run, runtimeQuota, nowMs, environment, {
+    finalEvidenceRequired: eligible,
+    runtimeStartedAt: run.started_at,
+    runtimeEndedAt: run.ends_at,
+  });
   const observationEndMs = Math.min(nowMs, endsMs);
   const collectorExpected = expectedSlots(startedMs, observationEndMs, 0);
   const dispatcherExpected = expectedSlots(startedMs, observationEndMs, 1);
@@ -153,7 +158,6 @@ export async function readCanaryReport(
     invariantSummary(db, environment, run.started_at, run.ends_at),
     interactionSummary(db, environment, run.started_at, run.ends_at),
   ]);
-  const eligible = nowMs >= endsMs;
   const afterTwoHours = observationEndMs - startedMs >= 2 * 60 * 60 * 1_000;
   const earlyFailureReasons = collectEarlyFailureReasons(
     collector,
@@ -202,6 +206,53 @@ export async function readCanaryReport(
     quota,
     invariants,
     passed,
+  };
+}
+
+export async function readCanaryWindow(
+  db: D1Database,
+  nowMs: number,
+  deploymentSha: string,
+  environment: Environment = "staging",
+  canaryId?: string,
+) {
+  const run = canaryId
+    ? await readRunById(db, canaryId)
+    : await readLatestRun(db, environment, deploymentSha);
+  if (!run || run.environment !== environment || run.deployment_sha !== deploymentSha) {
+    return {
+      version: 7,
+      canaryId: canaryId ?? null,
+      deploymentSha,
+      environment,
+      acceptance: { windowMode: WINDOW_MODE, windowHours: null },
+      window: {
+        startedAt: null,
+        endsAt: null,
+        observedAt: new Date(nowMs).toISOString(),
+        active: false,
+        eligible: false,
+      },
+    };
+  }
+  const startedMs = Date.parse(run.started_at);
+  const endsMs = Date.parse(run.ends_at);
+  return {
+    version: 7,
+    canaryId: run.canary_id,
+    deploymentSha,
+    environment,
+    acceptance: {
+      windowMode: WINDOW_MODE,
+      windowHours: CANARY_WINDOW_MS / (60 * 60 * 1_000),
+    },
+    window: {
+      startedAt: run.started_at,
+      endsAt: run.ends_at,
+      observedAt: new Date(nowMs).toISOString(),
+      active: startedMs <= nowMs && nowMs < endsMs,
+      eligible: nowMs >= endsMs,
+    },
   };
 }
 

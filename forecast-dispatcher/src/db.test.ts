@@ -28,6 +28,16 @@ beforeEach(async () => {
 });
 
 describe("forecast dispatcher D1 reservations", () => {
+  it("preserves the canonical SHA-256 identity for empty work without runtime hashing", async () => {
+    const work = await readActionableWork(testEnv.FORECAST_DB, "staging");
+
+    expect(work).toMatchObject({
+      pendingCount: 0,
+      candidateCount: 0,
+      fingerprint: "faee245f61e12ff37e07bdd6778379da818d2c3dbf1b76e545babc3e5e012c6b",
+    });
+  });
+
   it("grants one owner per three-minute slot and suppresses a recently accepted fingerprint", async () => {
     const now = Date.parse("2026-08-31T00:00:00.000Z");
     await insertPending("100", now);

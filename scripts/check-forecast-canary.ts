@@ -1,17 +1,19 @@
-import { appendFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { assertD1QuotaEvidence, type D1QuotaEvidence } from "../shared/d1QuotaEvidence.ts";
 
 const baseUrl = requiredEnvironment("FORECAST_COLLECTOR_URL").replace(/\/$/, "");
 const token = requiredEnvironment("FORECAST_COLLECTOR_ADMIN_TOKEN");
 const requestedCanaryId = process.env["FORECAST_CANARY_ID"];
+const quotaEvidencePath = process.env["FORECAST_CANARY_QUOTA_EVIDENCE"];
 const reportUrl = new URL(`${baseUrl}/admin/canary-report`);
 if (requestedCanaryId) reportUrl.searchParams.set("canaryId", requestedCanaryId);
-const response = await fetch(reportUrl, {
-  headers: { authorization: `Bearer ${token}`, accept: "application/json" },
-  signal: AbortSignal.timeout(10_000),
-});
-if (!response.ok) throw new Error(`Canary report returned ${response.status}.`);
-const report: unknown = await response.json();
+const quotaEvidence = quotaEvidencePath
+  ? extractQuotaEvidence(JSON.parse(await readFile(quotaEvidencePath, "utf8")))
+  : null;
+if (quotaEvidence && !requestedCanaryId) {
+  throw new Error("FORECAST_CANARY_ID is required with final quota evidence.");
+}
+const report: unknown = await fetchCanaryReport(reportUrl, token, requestedCanaryId, quotaEvidence);
 if (!isCanaryReport(report)) throw new Error("Canary report schema is invalid.");
 if (report.quota.valid) {
   assertD1QuotaEvidence(report.quota.evidence);
@@ -60,6 +62,31 @@ function requiredEnvironment(name: string) {
   const value = process.env[name];
   if (!value) throw new Error(`Missing ${name}.`);
   return value;
+}
+
+function extractQuotaEvidence(value: unknown) {
+  if (isRecord(value) && "evidence" in value) return assertD1QuotaEvidence(value["evidence"]);
+  return assertD1QuotaEvidence(value);
+}
+
+async function fetchCanaryReport(
+  reportUrl: URL,
+  token: string,
+  canaryId: string | undefined,
+  quotaEvidence: D1QuotaEvidence | null,
+) {
+  const response = await fetch(reportUrl, {
+    method: quotaEvidence ? "POST" : "GET",
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: "application/json",
+      ...(quotaEvidence ? { "content-type": "application/json" } : {}),
+    },
+    ...(quotaEvidence ? { body: JSON.stringify({ canaryId, quotaEvidence }) } : {}),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error(`Canary report returned ${response.status}.`);
+  return response.json();
 }
 
 type CanaryReport = {

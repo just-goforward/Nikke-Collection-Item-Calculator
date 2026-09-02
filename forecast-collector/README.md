@@ -234,10 +234,14 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   invariants must also pass. One signed Router test must respond in under one second. The report also
   embeds hash-checked Workers Paid evidence from a 30-minute burn-in. Current and projected monthly
   utilization must remain below the 25% warning threshold. Monthly request and CPU totals remain
-  billing-period evidence, while average, p95, p99, and CPU-limit terminations are read from a
-  separate rolling eight-hour Worker runtime window refreshed immediately before the final report.
+  billing-period evidence, while average, p95, p99, and CPU-limit terminations are read from the
+  exact server-recorded eight-hour canary interval at final evaluation.
   Each Worker must record no CPU-limit termination, and runtime CPU p99 must stay below 80% of its
   configured per-invocation limit.
+- The 30-minute budget watchdog reads the lightweight `/admin/canary-window` endpoint. It builds at
+  most one full report during the two-to-two-and-a-half-hour early-failure interval; final evaluation posts the
+  separately measured exact-window quota evidence after the window closes. This keeps monitoring
+  traffic from dominating the Collector CPU distribution being certified.
 - The statistics, Forecast, and quota-guard databases share one Workers Paid account allowance.
   Migration 0009 covering indexes must be present in both Forecast databases before preflight. The
   dedicated Usage Guard verifies the Paid subscription and billing period, aggregates every Worker

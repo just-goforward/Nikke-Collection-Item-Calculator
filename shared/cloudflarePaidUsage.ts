@@ -2,6 +2,10 @@ import { readBoundedJson } from "./boundedHttp.ts";
 import { listCloudflareD1Databases } from "./cloudflareD1Catalog.ts";
 import { CLOUDFLARE_PAID_USAGE_QUERY } from "./cloudflarePaidUsageQuery.ts";
 import {
+  assertWorkerRuntimeWindowPair,
+  resolveWorkerRuntimeWindow,
+} from "./cloudflareWorkerRuntimeWindow.ts";
+import {
   assertD1QuotaEvidence,
   buildMetricEvidence,
   CLOUDFLARE_PAID_INCLUDED_LIMITS,
@@ -97,26 +101,33 @@ export type D1BudgetEvaluation = {
 
 type UsageTotals = D1QuotaEvidence["usage"];
 
-export async function fetchCloudflarePaidUsageSnapshot(input: {
+type CloudflarePaidUsageInput = {
   accountId: string;
   analyticsToken: string;
   billingToken: string;
   nowMs?: number;
+  runtimeStartedAt?: string;
+  runtimeEndedAt?: string;
   fetchImpl?: typeof fetch;
-}): Promise<CloudflarePaidUsageSnapshot> {
-  if (!/^[0-9a-f]{32}$/.test(input.accountId)) throw new Error("cloudflare_account_id_invalid");
-  if (!input.analyticsToken) throw new Error("cloudflare_analytics_token_missing");
-  if (!input.billingToken) throw new Error("cloudflare_billing_token_missing");
+};
+
+export async function fetchCloudflarePaidUsageSnapshot(
+  input: CloudflarePaidUsageInput,
+): Promise<CloudflarePaidUsageSnapshot> {
+  assertCloudflarePaidUsageInput(input);
 
   const fetchImpl = input.fetchImpl ?? fetch;
   const nowMs = input.nowMs ?? Date.now();
   const plan = await fetchPaidPlan(fetchImpl, input.accountId, input.billingToken, nowMs);
   const startDate = utcDate(Date.parse(plan.periodStart));
   const endDate = utcDate(nowMs);
-  const runtimeStartedAt = new Date(
-    Math.max(Date.parse(plan.periodStart), nowMs - WORKER_RUNTIME_WINDOW_MS),
-  ).toISOString();
   const capturedAt = new Date(nowMs).toISOString();
+  const { runtimeStartedAt, runtimeEndedAt } = resolveWorkerRuntimeWindow(
+    { startedAt: input.runtimeStartedAt, endedAt: input.runtimeEndedAt },
+    nowMs,
+    plan.periodStart,
+    WORKER_RUNTIME_WINDOW_MS,
+  );
   const [databaseNames, analytics] = await Promise.all([
     listCloudflareD1Databases(fetchImpl, input.accountId, input.analyticsToken),
     queryAccountAnalytics(
@@ -128,6 +139,7 @@ export async function fetchCloudflarePaidUsageSnapshot(input: {
       plan.periodStart,
       capturedAt,
       runtimeStartedAt,
+      runtimeEndedAt,
     ),
   ]);
 
@@ -165,12 +177,19 @@ export async function fetchCloudflarePaidUsageSnapshot(input: {
     ),
     workerRuntime: {
       startedAt: runtimeStartedAt,
-      endedAt: capturedAt,
+      endedAt: runtimeEndedAt,
       workers: [...analytics.runtimeWorkerUsage.values()].sort((left, right) =>
         left.scriptName.localeCompare(right.scriptName),
       ),
     },
   };
+}
+
+function assertCloudflarePaidUsageInput(input: CloudflarePaidUsageInput) {
+  if (!/^[0-9a-f]{32}$/.test(input.accountId)) throw new Error("cloudflare_account_id_invalid");
+  if (!input.analyticsToken) throw new Error("cloudflare_analytics_token_missing");
+  if (!input.billingToken) throw new Error("cloudflare_billing_token_missing");
+  assertWorkerRuntimeWindowPair(input.runtimeStartedAt, input.runtimeEndedAt);
 }
 
 export const fetchD1UsageSnapshot = fetchCloudflarePaidUsageSnapshot;
@@ -542,7 +561,8 @@ function assertSnapshotRuntimeWindow(
     !Number.isFinite(runtimeStart) ||
     !Number.isFinite(runtimeEnd) ||
     runtimeStart >= runtimeEnd ||
-    runtimeEnd !== capturedAt ||
+    runtimeEnd > capturedAt ||
+    runtimeEnd - runtimeStart > WORKER_RUNTIME_WINDOW_MS ||
     runtimeStart < periodStart
   ) {
     throw new Error("cloudflare_paid_worker_runtime_window_invalid");
@@ -636,6 +656,7 @@ async function queryAccountAnalytics(
   startTimestamp: string,
   endTimestamp: string,
   runtimeStartTimestamp: string,
+  runtimeEndTimestamp: string,
 ) {
   const response = await fetchImpl("https://api.cloudflare.com/client/v4/graphql", {
     method: "POST",
@@ -653,6 +674,7 @@ async function queryAccountAnalytics(
         startTimestamp,
         endTimestamp,
         runtimeStartTimestamp,
+        runtimeEndTimestamp,
       },
     }),
     signal: AbortSignal.timeout(API_TIMEOUT_MS),

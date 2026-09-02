@@ -62,11 +62,44 @@ jobs:
             "$CLOUDFLARE_USAGE_GUARD_URL/health" > "$RUNNER_TEMP/usage-guard-health.json"
           jq -e '.ok == true and .state.action == "normal"' "$RUNNER_TEMP/usage-guard-health.json" >/dev/null
 
+      - name: Read the server-owned canary window
+        id: window
+        env:
+          FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+            -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            -H "Accept: application/json" \
+            "$FORECAST_COLLECTOR_URL/admin/canary-window" > "$RUNNER_TEMP/canary-window.json"
+          jq -e '.version == 7 and (.canaryId | test("^fc-[0-9a-f]{32}$")) and (.deploymentSha | test("^[0-9a-f]{40}$"))' \
+            "$RUNNER_TEMP/canary-window.json" >/dev/null
+          echo "canary_id=$(jq -r '.canaryId' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
+          echo "started_at=$(jq -r '.window.startedAt' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
+          echo "ends_at=$(jq -r '.window.endsAt' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
+          echo "eligible=$(jq -r '.window.eligible' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Measure the exact canary CPU window
+        if: steps.window.outputs.eligible == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN }}
+          CLOUDFLARE_BILLING_READ_TOKEN: ${{ secrets.CLOUDFLARE_BILLING_READ_TOKEN }}
+        run: >-
+          npm run check:d1-budget -- preflight
+          --runtime-start "${{ steps.window.outputs.started_at }}"
+          --runtime-end "${{ steps.window.outputs.ends_at }}"
+          --output "$RUNNER_TEMP/canary-final-quota.json"
+
       - name: Read authenticated Paid canary v7 report
         id: canary
         env:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          FORECAST_CANARY_ID: ${{ steps.window.outputs.canary_id }}
+          FORECAST_CANARY_QUOTA_EVIDENCE: ${{ steps.window.outputs.eligible == 'true' && format('{0}/canary-final-quota.json', runner.temp) || '' }}
           FORECAST_CANARY_REPORT_OUTPUT: ${{ runner.temp }}/forecast-canary-report.json
         run: npm run check:forecast-canary
 
@@ -152,6 +185,12 @@ jobs:
           if [[ "${{ steps.canary.outputs.canary_early_failed }}" == "true" ]]; then
             echo "The v7 early-failure gate rejected this deployment. Do not weaken or reuse this window." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Reject an eligible failed canary
+        if: steps.window.outputs.eligible == 'true' && steps.canary.outputs.canary_passed != 'true'
+        run: |
+          echo "The completed v7 canary failed its acceptance contract. A fresh deployment and window are required." >&2
+          exit 1
 
   promote:
     needs: canary

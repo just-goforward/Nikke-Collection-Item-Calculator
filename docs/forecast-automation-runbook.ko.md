@@ -108,6 +108,10 @@ Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난
 - `Watch Forecast D1 Budget`은 canary 유무와 관계없이 30분마다 독립 preflight와 Guard health를
   확인한다. 25% 경고만으로 staging을 끄지 않으며 35% 이상에서만 Collector·Dispatcher를
   disabled 상태로 재배포한다.
+- watchdog의 상시 canary 확인은 D1 한 번만 읽는 `/admin/canary-window`를 사용한다. 전체 slot과
+  invariant를 읽는 report는 시작 후 2~2.5시간의 단일 조기 실패 확인 구간과 8시간 종료 후 최종 판정에서만
+  만든다. 최종 CPU p99는 서버가 기록한 `startedAt` 이상 `endsAt` 이하의 고정 구간을 별도로 조회해
+  판정하므로, 반복적인 관리자 report 호출이 측정 대상을 오염시키지 않는다.
 - 40% 이상이면 watchdog이 `Emergency Stop Cloudflare Automation`을 요청한다. Worker 내부 guard가
   먼저 즉시 차단하고, Cron trigger 제거는 `cloudflare-production` 승인 후에만 수행한다. 40~45%는
   production Forecast Cron을, 50% `hard_stop`은 staging Forecast와 통계 정리 Cron까지 제거한다.
@@ -143,7 +147,7 @@ Router duplicate = 0, initial response < 1초
 모든 manual_review queue row에 pending review와 전송된 alert 존재
 저장된 quota evidence hash와 계정 전체 Worker·D1 합계 일치
 quota action = normal, 현재·월말 예상 사용률 < 25%
-모든 대상 Worker의 최근 8시간 exceededCpu = 0, CPU p99 < 설정 상한의 80%
+모든 대상 Worker의 정확한 canary 8시간 구간에서 exceededCpu = 0, CPU p99 < 설정 상한의 80%
 quota evidence freshness 오류 = 0
 ```
 

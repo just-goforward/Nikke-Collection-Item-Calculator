@@ -74,28 +74,36 @@ jobs:
             --output "$RUNNER_TEMP/canary-probe.json" --write-out "%{http_code}" \
             -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
             -H "Accept: application/json" \
-            "$FORECAST_COLLECTOR_URL/admin/canary-report")
+            "$FORECAST_COLLECTOR_URL/admin/canary-window")
           [[ "$status" == "200" ]] || {
             echo "Canary probe returned HTTP $status." >&2
             exit 1
           }
-          active=$(node --input-type=module - "$RUNNER_TEMP/canary-probe.json" <<'NODE'
+          readarray -t state < <(node --input-type=module - "$RUNNER_TEMP/canary-probe.json" <<'NODE'
           import { readFileSync } from "node:fs";
           const report = JSON.parse(readFileSync(process.argv[2], "utf8"));
           const now = Date.now();
           const start = Date.parse(report?.window?.startedAt ?? "");
           const end = Date.parse(report?.window?.endsAt ?? "");
-          process.stdout.write(String(report?.version === 7 && report?.acceptance?.windowMode === "fixed_8_hours" && start <= now && now < end));
+          const valid = report?.version === 7 && report?.acceptance?.windowMode === "fixed_8_hours";
+          const active = valid && start <= now && now < end;
+          const elapsed = active ? now - start : -1;
+          const earlyCheckDue = active && elapsed >= 2 * 60 * 60 * 1000 && elapsed < 2.5 * 60 * 60 * 1000;
+          console.log(String(active));
+          console.log(String(earlyCheckDue));
           NODE
           )
+          active="${state[0]:-false}"
+          early_check_due="${state[1]:-false}"
           echo "active=$active" >> "$GITHUB_OUTPUT"
+          echo "early_check_due=$early_check_due" >> "$GITHUB_OUTPUT"
           if [[ "$active" == "true" ]]; then
             jq -r '"canary_id=" + .canaryId, "poll_mode=" + .pollMode' \
               "$RUNNER_TEMP/canary-probe.json" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Read and validate the exact canary report
-        if: steps.canary.outputs.active == 'true'
+        if: steps.canary.outputs.active == 'true' && steps.canary.outputs.early_check_due == 'true'
         id: report
         continue-on-error: true
         env:
@@ -106,7 +114,7 @@ jobs:
         run: npm run check:forecast-canary
 
       - name: Verify statistics production D1 remains readable
-        if: steps.canary.outputs.active == 'true' && steps.report.outcome == 'success' && steps.guard.outcome == 'success' && steps.guard.outputs.action != 'hard_stop' && steps.budget.outputs.budget_action != 'hard_stop'
+        if: steps.canary.outputs.active == 'true' && steps.guard.outcome == 'success' && steps.guard.outputs.action != 'hard_stop' && steps.budget.outputs.budget_action != 'hard_stop'
         id: stats_probe
         continue-on-error: true
         env:

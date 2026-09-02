@@ -3,7 +3,7 @@ import {
   CLOUDFLARE_PAID_THRESHOLDS,
   type D1QuotaEvidence,
 } from "../../shared/d1QuotaEvidence";
-import type { UsageGuardEvidence } from "../../shared/usageGuard";
+import type { UsageGuardEvidence, UsageGuardState } from "../../shared/usageGuard";
 import { sha256Hex } from "./crypto";
 
 export const CANARY_WINDOW_MS = CLOUDFLARE_PAID_THRESHOLDS.canaryHours * 60 * 60 * 1_000;
@@ -29,21 +29,17 @@ type StoredQuotaEvidence = {
 
 export async function readQuotaEvidence(
   row: StoredQuotaEvidence,
-  runtimeQuota: UsageGuardEvidence | undefined,
+  runtimeQuota: UsageGuardEvidence | UsageGuardState | undefined,
   nowMs: number,
   environment: Environment,
+  options: {
+    finalEvidenceRequired: boolean;
+    runtimeStartedAt: string;
+    runtimeEndedAt: string;
+  },
 ) {
   try {
-    const actualHash = await sha256Hex(row.quota_evidence_json);
-    if (actualHash !== row.quota_evidence_hash) {
-      throw new Error("d1_quota_evidence_hash_mismatch");
-    }
-    const initialEvidence = assertD1QuotaEvidence(JSON.parse(row.quota_evidence_json));
-    const evidence = runtimeQuota?.evidence ?? initialEvidence;
-    assertSameBillingPeriod(initialEvidence, evidence);
-    assertRuntimeQuotaFresh(runtimeQuota, evidence, nowMs);
-    assertNormalQuota(evidence);
-
+    const evidence = await validateQuotaEvidence(row, runtimeQuota, nowMs, options);
     const cpu = cpuBudgetSummary(evidence, environment);
     if (!cpu.passed) throw new Error(`cloudflare_paid_cpu_budget:${cpu.failureCodes.join(",")}`);
     return {
@@ -53,7 +49,7 @@ export async function readQuotaEvidence(
       evidenceHash: runtimeQuota?.evidenceHash ?? row.quota_evidence_hash,
       initialEvidenceHash: row.quota_evidence_hash,
       freshnessMinutes: runtimeQuota
-        ? Math.max(0, (nowMs - Date.parse(evidence.observedAt)) / 60_000)
+        ? Math.max(0, (nowMs - Date.parse(runtimeQuota.observedAt)) / 60_000)
         : null,
       cpu,
     };
@@ -70,14 +66,69 @@ export async function readQuotaEvidence(
   }
 }
 
+async function validateQuotaEvidence(
+  row: StoredQuotaEvidence,
+  runtimeQuota: UsageGuardEvidence | UsageGuardState | undefined,
+  nowMs: number,
+  options: {
+    finalEvidenceRequired: boolean;
+    runtimeStartedAt: string;
+    runtimeEndedAt: string;
+  },
+) {
+  const actualHash = await sha256Hex(row.quota_evidence_json);
+  if (actualHash !== row.quota_evidence_hash) {
+    throw new Error("d1_quota_evidence_hash_mismatch");
+  }
+  const initialEvidence = assertD1QuotaEvidence(JSON.parse(row.quota_evidence_json));
+  const runtimeEvidence = runtimeQuota && "evidence" in runtimeQuota ? runtimeQuota.evidence : null;
+  if (options.finalEvidenceRequired && !runtimeEvidence) {
+    throw new Error("cloudflare_paid_final_evidence_required");
+  }
+  const evidence = runtimeEvidence ?? initialEvidence;
+  if (
+    runtimeQuota &&
+    (runtimeQuota.periodStart !== initialEvidence.plan.periodStart ||
+      runtimeQuota.periodEnd !== initialEvidence.plan.periodEnd)
+  ) {
+    throw new Error("cloudflare_paid_billing_period_changed");
+  }
+  assertSameBillingPeriod(initialEvidence, evidence);
+  assertRuntimeQuotaFresh(runtimeQuota, evidence, nowMs);
+  assertNormalQuota(evidence);
+  if (
+    runtimeEvidence &&
+    (evidence.workerRuntime.startedAt !== options.runtimeStartedAt ||
+      evidence.workerRuntime.endedAt !== options.runtimeEndedAt)
+  ) {
+    throw new Error("cloudflare_paid_runtime_window_mismatch");
+  }
+  return evidence;
+}
+
 export function assertCanaryStartWindow(nowMs: number, evidence: D1QuotaEvidence) {
   assertQuotaEvidenceFresh(evidence, nowMs);
   assertNormalQuota(evidence);
+  assertRollingRuntimeEvidence(evidence);
   if (
     Date.parse(evidence.plan.periodStart) > nowMs ||
     Date.parse(evidence.plan.periodEnd) < nowMs + CANARY_WINDOW_MS
   ) {
     throw new Error("canary_crosses_cloudflare_billing_period");
+  }
+}
+
+function assertRollingRuntimeEvidence(evidence: D1QuotaEvidence) {
+  const observedAt = Date.parse(evidence.observedAt);
+  const expectedStart = Math.max(
+    Date.parse(evidence.plan.periodStart),
+    observedAt - CANARY_WINDOW_MS,
+  );
+  if (
+    Date.parse(evidence.workerRuntime.startedAt) !== expectedStart ||
+    Date.parse(evidence.workerRuntime.endedAt) !== observedAt
+  ) {
+    throw new Error("cloudflare_paid_canary_start_runtime_invalid");
   }
 }
 
@@ -130,7 +181,7 @@ function assertSameBillingPeriod(initial: D1QuotaEvidence, current: D1QuotaEvide
 }
 
 function assertRuntimeQuotaFresh(
-  runtimeQuota: UsageGuardEvidence | undefined,
+  runtimeQuota: UsageGuardEvidence | UsageGuardState | undefined,
   evidence: D1QuotaEvidence,
   nowMs: number,
 ) {
@@ -138,7 +189,15 @@ function assertRuntimeQuotaFresh(
   if (runtimeQuota.action !== "normal") {
     throw new Error(`cloudflare_paid_guard_${runtimeQuota.action}`);
   }
-  assertQuotaEvidenceFresh(evidence, nowMs);
+  assertObservedAtFresh(runtimeQuota.observedAt, nowMs);
+  if ("evidence" in runtimeQuota) assertQuotaEvidenceFresh(evidence, nowMs);
+}
+
+function assertObservedAtFresh(observedAtValue: string, nowMs: number) {
+  const observedAt = Date.parse(observedAtValue);
+  if (observedAt > nowMs + 60_000 || nowMs - observedAt > QUOTA_EVIDENCE_MAX_AGE_MS) {
+    throw new Error("cloudflare_paid_quota_evidence_stale");
+  }
 }
 
 function assertQuotaEvidenceFresh(evidence: D1QuotaEvidence, nowMs: number) {
