@@ -33,6 +33,16 @@ import type { CollectorEnv } from "./types";
 
 export default {
   async scheduled(event, env, context) {
+    if (env.COLLECT_ENABLED !== "true") {
+      console.log(
+        JSON.stringify({
+          event: "forecast_collection_skipped",
+          environment: env.ENVIRONMENT,
+          reason: "collection_disabled",
+        }),
+      );
+      return;
+    }
     context.waitUntil(runCollection(env, { nowMs: event.scheduledTime }));
   },
 
@@ -255,34 +265,51 @@ export default {
       }
     }
     if (request.method === "GET" && url.pathname === "/admin/canary-report") {
+      const canaryId = url.searchParams.get("canaryId") ?? undefined;
+      if (canaryId !== undefined && !/^fc-[0-9a-f]{32}$/.test(canaryId)) {
+        return json({ error: "canary_id_invalid" }, 400);
+      }
       return json(
-        await readCanaryReport(env.FORECAST_DB, Date.now(), env.DEPLOY_SHA, opsEnvironment(env)),
+        await readCanaryReport(
+          env.FORECAST_DB,
+          Date.now(),
+          env.DEPLOY_SHA,
+          opsEnvironment(env),
+          canaryId,
+        ),
       );
     }
     if (request.method === "POST" && url.pathname === "/admin/canary-deployments/start") {
       try {
-        const body = await readBoundedJson(request, 4_096, "canary_start_body");
+        const body = await readBoundedJson(request, 65_536, "canary_start_body");
         if (typeof body !== "object" || body === null || Array.isArray(body)) {
           throw new Error("canary_start_body_invalid");
         }
         const record = body as Record<string, unknown>;
         if (
+          typeof record["canaryId"] !== "string" ||
           typeof record["collectorCron"] !== "string" ||
-          typeof record["dispatcherCron"] !== "string"
+          typeof record["dispatcherCron"] !== "string" ||
+          !("quotaEvidence" in record)
         ) {
-          throw new Error("canary_start_cron_invalid");
+          throw new Error("canary_start_contract_invalid");
         }
         return json({
-          deployment: await startCanaryDeployment(env.FORECAST_DB, {
+          canary: await startCanaryDeployment(env.FORECAST_DB, {
             environment: opsEnvironment(env),
+            canaryId: record["canaryId"],
             deploymentSha: env.DEPLOY_SHA,
             collectorCron: record["collectorCron"],
             dispatcherCron: record["dispatcherCron"],
+            quotaEvidence: record["quotaEvidence"],
           }),
         });
       } catch (error) {
         const code = sanitizeOpsError(error);
-        return json({ error: code }, code.includes("conflict") ? 409 : 400);
+        return json(
+          { error: code },
+          code.includes("conflict") || code.includes("overlap") ? 409 : 400,
+        );
       }
     }
     if (request.method === "POST" && url.pathname === "/admin/discord-test-approvals") {

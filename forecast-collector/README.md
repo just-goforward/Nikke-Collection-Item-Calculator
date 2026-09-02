@@ -226,12 +226,17 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   counts. Candidate payloads and canary evidence require a timing-safe bearer token.
 - Admin abuse is limited first by unauthenticated request IP, then timing-safe bearer verification,
   then by authenticated HTTP-method and route group. Discord interaction limits are separate.
-- Canary report v5 uses the server-recorded deployment start, not the number of rows that happened
-  to reach D1. It generates expected Collector and Dispatcher Cron slots over a fresh eight-hour
+- Canary report v6 uses an independent `canaryId` and the server-recorded run start, not the number
+  of rows that happened to reach D1. It generates expected Collector and Dispatcher Cron slots over a fresh eight-hour
   window. Each Worker must deliver and complete at least 99%, miss at most one slot, end completed,
   and have zero abandoned, late, unexpected, or duplicate invocations. Queue, cursor, candidate, watermark, manual
   review, workflow callback, unsent critical alert, Dispatcher smoke, and Router interaction
-  invariants must also pass. One signed Router test must respond in under one second.
+  invariants must also pass. One signed Router test must respond in under one second. The report also
+  embeds hash-checked account-wide D1 evidence from a 30-minute burn-in. The projected account use,
+  staging canary allowance, and statistics-production reserve must all pass.
+- The four statistics/Forecast production/staging D1 databases share the same Free account limits.
+  `Watch Forecast D1 Budget` rechecks the active canary every 30 minutes and disables only the staging
+  Collector and Dispatcher when the budget or statistics-production read probe fails.
 - If `both` polling cannot pass, `POLL_MODE=alternating` checks one board per invocation (six minutes
   per board) and starts a fresh eight-hour canary. If that also fails, the Cron trigger is removed and
   `FORECAST_DIRECT_NAVER_POLL=true` makes the thirty-minute watchdog action collect both boards.
@@ -245,6 +250,7 @@ npm run dispatcher:types:check
 npm run test:forecast-dispatcher
 npm run interactions:types:check
 npm run test:forecast-interactions
+npm test -- scripts/d1-budget.test.ts scripts/forecast-dispatcher-workflow.spec.ts
 npx wrangler deploy --dry-run --env staging --config forecast-collector/wrangler.toml
 npx wrangler deploy --dry-run --env staging --config forecast-dispatcher/wrangler.toml
 npx wrangler deploy --dry-run --config forecast-interactions/wrangler.toml
@@ -271,8 +277,9 @@ For an existing database, apply the incremental migrations instead of replaying 
 schema. Migration 0003 adds invocation accounting, shallow cursors, and the source queue. Migration
 0004 adds the isolated Discord approval test ledger, migration 0005 adds the staging adoption ledger,
 migration 0006 makes staging approval message identity durable, migration 0007 adds Dispatcher
-invocation, workflow-dispatch, and grouped operations-alert ledgers, and migration 0008 adds manual
-review decisions, Discord interaction audit, and server-recorded canary deployments:
+invocation, workflow-dispatch, and grouped operations-alert ledgers, migration 0008 adds manual
+review decisions, Discord interaction audit, and legacy v5 deployment evidence, and migration 0009
+adds latest-invocation covering indexes plus independent v6 canary runs with D1 quota evidence:
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
@@ -308,10 +315,16 @@ npx wrangler d1 execute FORECAST_DB --remote --env=staging `
 npx wrangler d1 execute FORECAST_DB --remote --env="" `
   --config forecast-collector/wrangler.toml `
   --file forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql
+npx wrangler d1 execute FORECAST_DB --remote --env=staging `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0009_d1_budget_canary_v6.sql
+npx wrangler d1 execute FORECAST_DB --remote --env="" `
+  --config forecast-collector/wrangler.toml `
+  --file forecast-collector/migrations/0009_d1_budget_canary_v6.sql
 ```
 
 Migrations 0004 through 0006 are not required in production while Discord approval mode remains
-disabled. Migrations 0007 and 0008 are required in both environments.
+disabled. Migrations 0007 through 0009 are required in both environments.
 
 Required repository variables:
 
@@ -336,7 +349,9 @@ DISCORD_FORECAST_PUBLIC_KEY
 
 Required repository secrets are `FORECAST_GITHUB_APP_PRIVATE_KEY`,
 `FORECAST_COLLECTOR_ADMIN_TOKEN`, `DISCORD_FORECAST_BOT_TOKEN`, and the existing scoped
-`CLOUDFLARE_API_TOKEN`. The GitHub App is installed only on this repository with `Actions: write`
+`CLOUDFLARE_API_TOKEN`. A separate `CLOUDFLARE_D1_ANALYTICS_TOKEN` with account analytics read access
+is recommended; workflows fall back to the scoped deployment token only when it already has that
+permission. The GitHub App is installed only on this repository with `Actions: write`
 and implicit `Metadata: read`; its private key belongs only to the Dispatcher deployment.
 
 `FORECAST_COLLECTOR_URL` is an administrator-managed one-time repository variable. Set it to the

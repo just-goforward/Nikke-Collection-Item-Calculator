@@ -50,6 +50,16 @@ retries the same durable alert. Final send failures remain visible in `/health`.
 one green recovery message. X/Jina unavailability remains advisory and is not an operations
 incident.
 
+## D1 account budget guard
+
+The statistics and Forecast production/staging databases share one Cloudflare Free account quota.
+Before a staging canary starts, GitHub Actions records an account-wide GraphQL baseline, runs the
+Collector and Dispatcher for 30 minutes, and projects that burn-in across the eight-hour window with
+a 2x safety factor. `Watch Forecast D1 Budget` repeats the check every 30 minutes. If the Forecast
+allowance, account projection, statistics-production reserve, or direct statistics D1 read probe
+fails, staging is redeployed with both `DISPATCH_ENABLED=false` and `COLLECT_ENABLED=false`. This
+guard never disables or redeploys the statistics production Worker.
+
 ## Local verification
 
 ```powershell

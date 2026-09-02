@@ -1,6 +1,12 @@
 import { reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
+import {
+  D1_CANARY_THRESHOLDS,
+  D1_DATABASE_IDS,
+  D1_FREE_LIMITS,
+  type D1QuotaEvidence,
+} from "../../shared/d1QuotaEvidence";
 import schemaSql from "../schema.sql?raw";
 import { readCanaryReport, startCanaryDeployment } from "./canary";
 import type { CollectorEnv } from "./types";
@@ -14,7 +20,8 @@ const testEnv: CollectorEnv = {
   POLL_MODE: "both",
 };
 const SHA = "a".repeat(40);
-const START = Date.parse("2026-09-01T00:00:30.000Z");
+const CANARY_ID = `fc-${"a".repeat(32)}`;
+const START = Date.parse("2026-09-01T02:00:30.000Z");
 const END = START + 8 * 60 * 60 * 1_000;
 
 beforeEach(async () => {
@@ -27,22 +34,46 @@ beforeEach(async () => {
   }
   await startCanaryDeployment(testEnv.FORECAST_DB, {
     environment: "staging",
+    canaryId: CANARY_ID,
     deploymentSha: SHA,
     collectorCron: "*/3 * * * *",
     dispatcherCron: "1-59/3 * * * *",
+    quotaEvidence: quotaEvidence(START),
     nowMs: START,
   });
   await insertSmokeAndRouterTest();
 });
 
-describe("canary report v5", () => {
+describe("canary report v6 storage and start contract", () => {
+  it("uses covering indexes for the recurring latest-invocation queries", async () => {
+    const collectorPlan = await testEnv.FORECAST_DB.prepare(
+      `EXPLAIN QUERY PLAN
+       SELECT status, next_retry_at FROM collector_invocations
+       WHERE status <> 'running' ORDER BY scheduled_at DESC LIMIT 12`,
+    ).all<{ detail: string }>();
+    const dispatcherPlan = await testEnv.FORECAST_DB.prepare(
+      `EXPLAIN QUERY PLAN
+       SELECT status, error_code FROM dispatcher_invocations
+       WHERE environment = 'staging' ORDER BY scheduled_at DESC LIMIT 1`,
+    ).all<{ detail: string }>();
+
+    expect(collectorPlan.results.map((row) => row.detail).join("\n")).toContain(
+      "collector_invocations_latest_idx",
+    );
+    expect(dispatcherPlan.results.map((row) => row.detail).join("\n")).toContain(
+      "dispatcher_invocations_environment_latest_idx",
+    );
+  });
+
   it("passes an eight-hour 160/160 expected-slot certificate", async () => {
     await insertInvocationSlots("collector", slots(0));
     await insertInvocationSlots("dispatcher", slots(1));
 
     const report = await readCanaryReport(testEnv.FORECAST_DB, END, SHA, "staging");
 
-    expect(report.version).toBe(5);
+    expect(report.version).toBe(6);
+    expect(report.canaryId).toBe(CANARY_ID);
+    expect(report.quota).toMatchObject({ valid: true, errorCode: null });
     expect(report.window).toMatchObject({ eligible: true, earlyFailure: false });
     expect(report.collector).toMatchObject({
       expectedSlots: 160,
@@ -67,6 +98,72 @@ describe("canary report v5", () => {
     expect(report.passed).toBe(true);
   });
 
+  it("keeps retries idempotent and permits a later independent run for the same SHA", async () => {
+    const retry = await startCanaryDeployment(testEnv.FORECAST_DB, {
+      environment: "staging",
+      canaryId: CANARY_ID,
+      deploymentSha: SHA,
+      collectorCron: "*/3 * * * *",
+      dispatcherCron: "1-59/3 * * * *",
+      quotaEvidence: quotaEvidence(START),
+      nowMs: START + 60_000,
+    });
+    expect(retry.canaryId).toBe(CANARY_ID);
+
+    await expect(
+      startCanaryDeployment(testEnv.FORECAST_DB, {
+        environment: "staging",
+        canaryId: `fc-${"e".repeat(32)}`,
+        deploymentSha: SHA,
+        collectorCron: "*/3 * * * *",
+        dispatcherCron: "1-59/3 * * * *",
+        quotaEvidence: quotaEvidence(START),
+        nowMs: START + 60_000,
+      }),
+    ).rejects.toThrow("canary_run_overlap");
+
+    const nextStart = START + 24 * 60 * 60 * 1_000;
+    const next = await startCanaryDeployment(testEnv.FORECAST_DB, {
+      environment: "staging",
+      canaryId: `fc-${"b".repeat(32)}`,
+      deploymentSha: SHA,
+      collectorCron: "*/3 * * * *",
+      dispatcherCron: "1-59/3 * * * *",
+      quotaEvidence: quotaEvidence(nextStart),
+      nowMs: nextStart,
+    });
+    expect(next.canaryId).not.toBe(CANARY_ID);
+  });
+
+  it("rejects stale evidence and canary starts outside the 11 KST window", async () => {
+    await expect(
+      startCanaryDeployment(testEnv.FORECAST_DB, {
+        environment: "production",
+        canaryId: `fc-${"c".repeat(32)}`,
+        deploymentSha: SHA,
+        collectorCron: "*/3 * * * *",
+        dispatcherCron: "1-59/3 * * * *",
+        quotaEvidence: quotaEvidence(START - 20 * 60_000),
+        nowMs: START,
+      }),
+    ).rejects.toThrow("d1_quota_evidence_stale");
+
+    const outsideWindow = Date.parse("2026-09-02T01:00:30.000Z");
+    await expect(
+      startCanaryDeployment(testEnv.FORECAST_DB, {
+        environment: "production",
+        canaryId: `fc-${"d".repeat(32)}`,
+        deploymentSha: SHA,
+        collectorCron: "*/3 * * * *",
+        dispatcherCron: "1-59/3 * * * *",
+        quotaEvidence: quotaEvidence(outsideWindow),
+        nowMs: outsideWindow,
+      }),
+    ).rejects.toThrow("canary_start_outside_kst_window");
+  });
+});
+
+describe("canary report v6 slot evidence", () => {
   it("allows one missing slot but rejects two", async () => {
     const collector = slots(0);
     const dispatcher = slots(1);
@@ -203,7 +300,7 @@ async function insertSmokeAndRouterTest() {
        created_at, requested_at, accepted_at, started_at, finished_at,
        github_http_status, github_run_id, github_run_attempt, github_run_url,
        discord_message_id, discord_sent_at
-     ) VALUES (?, 'smoke:v5', 'staging', 'smoke', ?, 0, 0, 1, 'succeeded', ?,
+       ) VALUES (?, 'smoke:v6', 'staging', 'smoke', ?, 0, 0, 1, 'succeeded', ?,
        ?, ?, ?, ?, ?, 200, 9001, 1, ?, '123456789012345678', ?)`,
   )
     .bind(
@@ -227,4 +324,86 @@ async function insertSmokeAndRouterTest() {
   )
     .bind("d".repeat(64), created, created, created)
     .run();
+}
+
+function quotaEvidence(nowMs: number): D1QuotaEvidence {
+  const observedAt = new Date(nowMs).toISOString();
+  const startedAt = new Date(nowMs - 30 * 60_000).toISOString();
+  const databases: D1QuotaEvidence["databases"] = [
+    {
+      databaseId: D1_DATABASE_IDS.statsProduction,
+      databaseName: "collection-kit-stats",
+      role: "stats-production",
+      rowsReadObserved: 10_000,
+      rowsWrittenObserved: 100,
+      rowsReadP95: 100_000,
+      rowsWrittenP95: 1_000,
+      rowsReadProjected: 100_000,
+      rowsWrittenProjected: 1_000,
+    },
+    {
+      databaseId: D1_DATABASE_IDS.statsStaging,
+      databaseName: "collection-kit-stats-staging",
+      role: "stats-staging",
+      rowsReadObserved: 100,
+      rowsWrittenObserved: 1,
+      rowsReadP95: 100,
+      rowsWrittenP95: 1,
+      rowsReadProjected: 100,
+      rowsWrittenProjected: 1,
+    },
+    {
+      databaseId: D1_DATABASE_IDS.forecastProduction,
+      databaseName: "collection-kit-forecast-collector",
+      role: "forecast-production",
+      rowsReadObserved: 1_000,
+      rowsWrittenObserved: 10,
+      rowsReadP95: 1_000,
+      rowsWrittenP95: 10,
+      rowsReadProjected: 1_000,
+      rowsWrittenProjected: 10,
+    },
+    {
+      databaseId: D1_DATABASE_IDS.forecastStaging,
+      databaseName: "collection-kit-forecast-collector-staging",
+      role: "forecast-staging",
+      rowsReadObserved: 2_000,
+      rowsWrittenObserved: 20,
+      rowsReadP95: 2_000,
+      rowsWrittenP95: 20,
+      rowsReadProjected: 200_000,
+      rowsWrittenProjected: 5_000,
+    },
+  ];
+  return {
+    version: 1,
+    source: "cloudflare-graphql-d1-analytics-v1",
+    billingDay: observedAt.slice(0, 10),
+    observedAt,
+    burnIn: { startedAt, endedAt: observedAt, durationMinutes: 30 },
+    limits: D1_FREE_LIMITS,
+    thresholds: D1_CANARY_THRESHOLDS,
+    account: {
+      rowsReadObserved: 13_100,
+      rowsWrittenObserved: 131,
+      rowsReadProjected: 301_100,
+      rowsWrittenProjected: 6_011,
+    },
+    canary: {
+      databaseId: D1_DATABASE_IDS.forecastStaging,
+      rowsReadBurnIn: 10_000,
+      rowsWrittenBurnIn: 100,
+      rowsReadProjected: 200_000,
+      rowsWrittenProjected: 5_000,
+    },
+    statsProduction: {
+      databaseId: D1_DATABASE_IDS.statsProduction,
+      rowsReadP95: 100_000,
+      rowsWrittenP95: 1_000,
+      rowsReadReserve: 1_000_000,
+      rowsWrittenReserve: 30_000,
+    },
+    databases,
+    passed: true,
+  };
 }

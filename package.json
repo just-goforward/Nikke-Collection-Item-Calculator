@@ -106,6 +106,7 @@
     "send:forecast-router-test": "node scripts/send-forecast-router-test.ts",
     "smoke:discord-forecast-routing": "node scripts/discord-forecast-routing-smoke.ts",
     "check:cloudflare-cron-capacity": "node scripts/cloudflare-cron-capacity.ts",
+    "check:d1-budget": "node scripts/cloudflare-d1-budget.ts",
     "probe:forecast-github-app": "node scripts/probe-forecast-github-app.ts",
     "check:forecast-canary": "node scripts/check-forecast-canary.ts",
     "process:forecast-source-queue": "node scripts/process-forecast-source-queue.ts",

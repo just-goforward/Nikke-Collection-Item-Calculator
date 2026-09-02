@@ -8,6 +8,7 @@ on:
       - "forecast-dispatcher/**"
       - "forecast-interactions/**"
       - "shared/boundedHttp.ts"
+      - "shared/d1QuotaEvidence.ts"
       - "shared/supplyForecastCandidate.ts"
       - "shared/supplyForecastModel.ts"
       - "scripts/smoke-forecast-collector.ts"
@@ -16,12 +17,15 @@ on:
       - "scripts/send-forecast-router-test.ts"
       - "scripts/resolve-forecast-manual-review.ts"
       - "scripts/cloudflare-cron-capacity.ts"
+      - "scripts/cloudflare-d1-budget.ts"
+      - "scripts/lib/d1-budget.ts"
       - "scripts/probe-forecast-github-app.ts"
       - "scripts/forecast-dispatcher-workflow.spec.ts"
       - "vitest.forecast-collector.config.ts"
       - "vitest.forecast-dispatcher.config.ts"
       - "vitest.forecast-interactions.config.ts"
       - ".github/workflows/forecast-collector-deploy.yml"
+      - ".github/workflows/forecast-d1-budget-watch.yml"
       - ".github/workflows/forecast-proposal.yml"
       - ".github/workflows/resolve-forecast-manual-review.yml"
       - "package.json"
@@ -115,6 +119,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Protect statistics D1 before Forecast migrations
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          stats_probe=$(npx wrangler d1 execute DB --remote \
+            --config cloudflare/wrangler.toml --command "SELECT 1 AS ok;" --json)
+          [[ "$(jq -r '.[0].results[0].ok' <<<"$stats_probe")" == "1" ]]
+          npm run check:d1-budget -- preflight --output "$RUNNER_TEMP/d1-budget-preflight.json"
+
       - name: Verify collector
         run: |
           npm run forecast:types:check
@@ -192,6 +209,22 @@ jobs:
             npx wrangler d1 execute FORECAST_DB --remote --env staging \
               --config forecast-collector/wrangler.toml \
               --file forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql
+
+      - name: Apply staging D1 budget and canary v6 migration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env staging \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 9;" \
+            --json)
+          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
+            npx wrangler d1 execute FORECAST_DB --remote --env staging \
+              --config forecast-collector/wrangler.toml \
+              --file forecast-collector/migrations/0009_d1_budget_canary_v6.sql
 
       - name: Verify account Cron trigger capacity
         env:
@@ -359,9 +392,11 @@ jobs:
           npx wrangler deploy --env staging --config forecast-collector/wrangler.toml
           --secrets-file "$RUNNER_TEMP/forecast-secrets.json"
           --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE
+          --var COLLECT_ENABLED:false
           --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID
           --var DISCORD_INTERACTION_OWNER:$DISCORD_INTERACTION_OWNER
-          --tag "${{ github.sha }}-$POLL_MODE" --message "Forecast collector staging ${{ github.sha }} ($POLL_MODE)"
+          --tag "${{ github.sha }}-$POLL_MODE-disabled"
+          --message "Forecast collector staging disabled ${{ github.sha }} ($POLL_MODE)"
 
       - name: Live staging queue round-trip smoke
         env:
@@ -369,6 +404,47 @@ jobs:
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_EXPECTED_DEPLOY_SHA: ${{ github.sha }}
         run: npm run smoke:forecast-collector -- "$FORECAST_COLLECTOR_STAGING_URL" "$FORECAST_COLLECTOR_ADMIN_TOKEN"
+
+      - name: Verify billing window and account-wide D1 baseline
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
+        id: d1_baseline
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          earliest_hour=$(TZ=Asia/Seoul date --date='+30 minutes' +%H)
+          latest_hour=$(TZ=Asia/Seoul date --date='+45 minutes' +%H)
+          [[ "$earliest_hour" == "11" && "$latest_hour" == "11" ]] || {
+            echo "The 30-minute burn-in must finish between 11:00 and 11:59 KST." >&2
+            exit 1
+          }
+          stats_probe=$(npx wrangler d1 execute DB --remote \
+            --config cloudflare/wrangler.toml --command "SELECT 1 AS ok;" --json)
+          [[ "$(jq -r '.[0].results[0].ok' <<<"$stats_probe")" == "1" ]] || {
+            echo "Statistics production D1 read probe failed." >&2
+            exit 1
+          }
+          npm run check:d1-budget -- snapshot --output "$RUNNER_TEMP/d1-budget-baseline.json"
+
+      - name: Activate staging collector for D1 burn-in
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
+          POLL_MODE: ${{ inputs.poll_mode || 'both' }}
+        run: >-
+          npx wrangler deploy --env staging --config forecast-collector/wrangler.toml
+          --secrets-file "$RUNNER_TEMP/forecast-secrets.json"
+          --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE
+          --var COLLECT_ENABLED:true
+          --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID
+          --var DISCORD_INTERACTION_OWNER:router
+          --tag "${{ github.sha }}-$POLL_MODE-burn-in"
+          --message "Forecast collector staging D1 burn-in ${{ github.sha }} ($POLL_MODE)"
 
       - name: Activate staging dispatcher after collector readiness
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
@@ -432,31 +508,131 @@ jobs:
           --tag "${{ github.sha }}-disabled-after-smoke"
           --message "Disable forecast dispatcher after staging smoke failure ${{ github.sha }}"
 
+      - name: Disable staging collector after dispatcher smoke failure
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.dispatcher_smoke.outcome == 'failure'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
+          POLL_MODE: ${{ inputs.poll_mode || 'both' }}
+        run: >-
+          npx wrangler deploy --env staging --config forecast-collector/wrangler.toml
+          --secrets-file "$RUNNER_TEMP/forecast-secrets.json"
+          --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE
+          --var COLLECT_ENABLED:false
+          --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID
+          --var DISCORD_INTERACTION_OWNER:router
+          --tag "${{ github.sha }}-$POLL_MODE-disabled-after-smoke"
+          --message "Disable forecast collector after staging smoke failure ${{ github.sha }}"
+
       - name: Fail after staging dispatcher rollback
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.dispatcher_smoke.outcome == 'failure'
         run: exit 1
 
+      - name: Observe 30-minute account-wide D1 burn-in
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.dispatcher_smoke.outcome == 'success'
+        run: sleep 1800
+
+      - name: Evaluate account-wide D1 budget
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.dispatcher_smoke.outcome == 'success'
+        id: d1_budget
+        continue-on-error: true
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+        run: >-
+          npm run check:d1-budget -- evaluate
+          --baseline "$RUNNER_TEMP/d1-budget-baseline.json"
+          --output "$RUNNER_TEMP/d1-budget-evaluation.json"
+
+      - name: Disable staging Forecast automation after D1 budget failure
+        if: always() && steps.d1_budget.outcome == 'failure'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
+          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
+          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
+          POLL_MODE: ${{ inputs.poll_mode || 'both' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml \
+            --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
+            --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} \
+            --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID \
+            --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID \
+            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID \
+            --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID \
+            --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
+            --var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID \
+            --var DISPATCH_ENABLED:false \
+            --tag "${{ github.sha }}-d1-budget-stop" \
+            --message "Disable forecast dispatcher after D1 budget failure ${{ github.sha }}"
+          npx wrangler deploy --env staging --config forecast-collector/wrangler.toml \
+            --secrets-file "$RUNNER_TEMP/forecast-secrets.json" \
+            --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
+            --var COLLECT_ENABLED:false \
+            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
+            --var DISCORD_INTERACTION_OWNER:router \
+            --tag "${{ github.sha }}-$POLL_MODE-d1-budget-stop" \
+            --message "Disable forecast collector after D1 budget failure ${{ github.sha }}"
+
+      - name: Send direct Discord D1 budget failure alert
+        if: always() && steps.d1_budget.outcome == 'failure'
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          reasons=$(jq -r '.reasons | join(", ")' "$RUNNER_TEMP/d1-budget-evaluation.json" 2>/dev/null || echo "budget_evaluation_failed")
+          payload=$(jq -n \
+            --arg content "Forecast staging D1 canary was stopped. Reasons: $reasons. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{content:$content,allowed_mentions:{parse:[]}}')
+          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+            -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$payload" \
+            "https://discord.com/api/v10/channels/$DISCORD_ALERT_CHANNEL_ID/messages" >/dev/null
+
+      - name: Fail after D1 budget rollback
+        if: always() && steps.d1_budget.outcome == 'failure'
+        run: exit 1
+
       - name: Start fresh eight-hour canary
-        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.d1_budget.outcome == 'success'
+        id: canary_start
         env:
           FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
+          canary_id="fc-$(node --input-type=module -e 'console.log(crypto.randomUUID().replaceAll("-", ""))')"
+          jq -n \
+            --arg canaryId "$canary_id" \
+            --slurpfile evaluation "$RUNNER_TEMP/d1-budget-evaluation.json" \
+            '{canaryId:$canaryId,collectorCron:"*/3 * * * *",dispatcherCron:"1-59/3 * * * *",quotaEvidence:$evaluation[0].evidence}' \
+            > "$RUNNER_TEMP/canary-start-request.json"
           status=$(curl --silent --show-error --connect-timeout 5 --max-time 20 \
             --output "$RUNNER_TEMP/canary-start.json" --write-out "%{http_code}" \
             -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
             -H "Content-Type: application/json" \
-            --data '{"collectorCron":"*/3 * * * *","dispatcherCron":"1-59/3 * * * *"}' \
+            --data-binary "@$RUNNER_TEMP/canary-start-request.json" \
             "$FORECAST_COLLECTOR_STAGING_URL/admin/canary-deployments/start")
           [[ "$status" == "200" ]] || {
             echo "Canary start returned HTTP $status." >&2
             exit 1
           }
-          jq -e --arg sha "${{ github.sha }}" \
-            '.deployment.deploymentSha == $sha and .deployment.collectorCron == "*/3 * * * *" and .deployment.dispatcherCron == "1-59/3 * * * *"' \
+          jq -e --arg sha "${{ github.sha }}" --arg canaryId "$canary_id" \
+            '.canary.canaryId == $canaryId and .canary.deploymentSha == $sha and .canary.collectorCron == "*/3 * * * *" and .canary.dispatcherCron == "1-59/3 * * * *"' \
             "$RUNNER_TEMP/canary-start.json" >/dev/null
+          echo "canary_id=$canary_id" >> "$GITHUB_OUTPUT"
 
       - name: Send mutation-free Router test card
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
@@ -473,9 +649,11 @@ jobs:
             echo "- Cron: every 3 minutes"
             echo "- Dispatcher Cron: minute 1, then every 3 minutes"
             if [[ "${{ github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready }}" == "true" ]]; then
-              echo "- Canary: fresh v5 eight-hour window started after Collector, Dispatcher, and Router readiness"
+              echo "- Canary: fresh v6 eight-hour window started after a 30-minute account-wide D1 burn-in"
+              echo "- Canary ID: `${{ steps.canary_start.outputs.canary_id }}`"
+              echo "- D1 policy: all account databases included; statistics production reserve protected"
               echo "- Required action: click the Router response test card during this canary window"
-              echo "- Promotion: blocked until the authenticated v5 report passes"
+              echo "- Promotion: blocked until the authenticated v6 report and final D1 budget check pass"
             else
               echo "- Dispatcher: remains disabled"
               echo "- Canary: not started"

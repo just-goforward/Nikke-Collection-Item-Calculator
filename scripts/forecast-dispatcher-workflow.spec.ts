@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 const proposal = readFileSync(".github/workflows/forecast-proposal.yml", "utf8");
 const stagingDeploy = readFileSync(".github/workflows/forecast-collector-deploy.yml", "utf8");
 const productionPromote = readFileSync(".github/workflows/forecast-collector-promote.yml", "utf8");
+const d1BudgetWatch = readFileSync(".github/workflows/forecast-d1-budget-watch.yml", "utf8");
 const dispatcherConfig = readFileSync("forecast-dispatcher/wrangler.toml", "utf8");
 const interactionConfig = readFileSync("forecast-interactions/wrangler.toml", "utf8");
 const manualReview = readFileSync(".github/workflows/resolve-forecast-manual-review.yml", "utf8");
@@ -55,6 +56,7 @@ describe("Forecast dispatcher workflow contract", () => {
       expect(workflow).toContain(
         "forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql",
       );
+      expect(workflow).toContain("forecast-collector/migrations/0009_d1_budget_canary_v6.sql");
       expect(workflow).toContain("forecast-interactions/wrangler.toml");
     }
     expect(interactionConfig).not.toContain("[triggers]");
@@ -65,6 +67,16 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(productionPromote).toContain("Determine coupled production rollout");
     expect(stagingDeploy).toContain("Probe GitHub App installation and fixed workflow");
     expect(stagingDeploy).toContain("Disable staging dispatcher after smoke failure");
+    expect(stagingDeploy).toContain("Observe 30-minute account-wide D1 burn-in");
+    expect(stagingDeploy).toContain("npm run check:d1-budget -- preflight");
+    expect(stagingDeploy).toContain("--var COLLECT_ENABLED:false");
+    expect(stagingDeploy).toContain("--var COLLECT_ENABLED:true");
+    expect(stagingDeploy).toContain("npm run check:d1-budget -- evaluate");
+    expect(productionPromote).toContain("npm run check:d1-budget -- monitor");
+    expect(productionPromote).toContain("npm run check:d1-budget -- preflight");
+    expect(d1BudgetWatch).toContain('cron: "7,37 * * * *"');
+    expect(d1BudgetWatch).toContain("Disable staging Collector and Dispatcher on budget pressure");
+    expect(d1BudgetWatch).toContain("--var COLLECT_ENABLED:false");
     for (const workflow of [stagingDeploy, productionPromote]) {
       expect(workflow).toContain("DISCORD_FORECAST_APPLICATION_ID");
       expect(workflow).toContain("DISCORD_FORECAST_PUBLIC_KEY");
@@ -83,5 +95,11 @@ describe("Forecast dispatcher workflow contract", () => {
   it("keeps directly executed Node imports resolvable on Linux", () => {
     expect(githubApp).toContain('from "../../shared/boundedHttp.ts"');
     expect(naverAction).toContain('from "../shared/boundedHttp.ts"');
+    expect(readFileSync("scripts/cloudflare-d1-budget.ts", "utf8")).toContain(
+      'from "./lib/d1-budget.ts"',
+    );
+    expect(readFileSync("scripts/check-forecast-canary.ts", "utf8")).toContain(
+      'from "../shared/d1QuotaEvidence.ts"',
+    );
   });
 });

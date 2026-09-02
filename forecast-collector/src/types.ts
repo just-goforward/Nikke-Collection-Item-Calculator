@@ -7,6 +7,7 @@ export type CollectorEnv = {
   ENVIRONMENT: "test" | "staging" | "production";
   DEPLOY_SHA: string;
   POLL_MODE: "both" | "alternating";
+  COLLECT_ENABLED?: "true" | "false";
   DISCORD_APPROVAL_MODE?: "disabled" | "test" | "staging_adoption";
   DISCORD_INTERACTION_OWNER?: "collector" | "router";
   DISCORD_PUBLIC_KEY?: string;

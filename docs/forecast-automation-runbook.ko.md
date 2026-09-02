@@ -35,6 +35,7 @@ Secrets:
 
 ```text
 CLOUDFLARE_API_TOKEN
+CLOUDFLARE_D1_ANALYTICS_TOKEN (권장, 없으면 CLOUDFLARE_API_TOKEN 사용)
 FORECAST_COLLECTOR_ADMIN_TOKEN
 FORECAST_GITHUB_APP_PRIVATE_KEY
 DISCORD_FORECAST_BOT_TOKEN
@@ -49,14 +50,17 @@ GitHub App은 이 저장소 하나에만 설치하고 `Actions: write`, `Metadat
 
 1. 실행 중인 canary가 있으면 먼저 해당 SHA의 `canary_only=true` 결과를 보존한다.
 2. `Deploy Forecast Collector Staging`을 `router_endpoint_ready=false`로 실행한다.
-3. workflow가 staging D1 migration 0008을 적용하고 Dispatcher를 disabled 상태로 배포한 뒤,
-   Router와 Collector를 배포했는지 확인한다. 이 단계에서는 새 canary가 시작되지 않는다.
+3. workflow가 staging D1 migration 0009를 적용하고 Collector와 Dispatcher를 disabled 상태로
+   배포한 뒤 Router readiness를 확인한다. 이 단계에서는 새 canary가 시작되지 않는다.
 4. Wrangler 출력의 Router origin을 `FORECAST_INTERACTIONS_URL`에 등록한다.
 5. Discord Developer Portal의 Interaction Endpoint URL을
    `${FORECAST_INTERACTIONS_URL}/discord/interactions`로 바꿔 검증을 통과시킨다.
 6. `Deploy Forecast Collector Staging`을 `router_endpoint_ready=true`로 다시 실행한다.
 7. activity 채널의 mutation-free Router test 버튼을 지정 approver 계정으로 누른다.
-8. workflow가 Dispatcher를 활성화하고 서버 시각으로 canary v5 시작 row를 기록했는지 확인한다.
+8. 30분 burn-in 종료 시각이 11:00~11:59 KST가 되도록 workflow를 시작한다. workflow는 통계
+   production D1 read probe와 계정 전체 D1 baseline을 확인한 뒤 Collector·Dispatcher를 활성화한다.
+9. burn-in 후 전 계정 투영량과 통계 예약량이 통과하면 독립 `canaryId`의 v6 row가 생성된다.
+   실패하면 staging Collector·Dispatcher가 모두 비활성화되고 alert 채널에 직접 경고한다.
 
 Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난 뒤 owner 설정으로
 비활성화한다. Endpoint 소유자는 동시에 두 곳이 될 수 없다.
@@ -71,10 +75,26 @@ Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난
 - 동일 request ID와 payload의 재전송은 이전 결과를 반환한다. 같은 request ID에 다른 payload를
   보내면 409이며, 새 request ID로 의도를 다시 제출해야 한다.
 
-## Canary v5 판독
+## D1 Free 계정 보호
+
+통계 production/staging과 Forecast production/staging은 서로 다른 DB지만 같은 Cloudflare 계정의
+일일 한도를 공유한다. Free 한도는 계정 전체 `5,000,000 rows read`, `100,000 rows written`이며
+00:00 UTC, 즉 09:00 KST에 초기화된다. Forecast canary는 이 한도를 독점해서는 안 된다.
+
+- 시작 전 30분 burn-in을 2배 안전계수로 8시간 투영한다.
+- 계정 전체 투영 상한은 read 3,000,000, write 60,000이다.
+- staging canary 자체 상한은 read 250,000, write 10,000이다.
+- 통계 production에는 `max(1,000,000, 최근 7일 p95 read × 3)`과
+  `max(30,000, 최근 7일 p95 write × 3)`을 남긴다.
+- `Watch Forecast D1 Budget`이 활성 canary 동안 30분마다 재검사한다. 통계 D1 read probe,
+  GraphQL 지표, 예약량 중 하나라도 실패하면 Forecast staging만 중지한다. 통계 production은
+  자동 중지하거나 재배포하지 않는다.
+
+## Canary v6 판독
 
 Canary는 이전 기간을 합치지 않은 8시간 고정 창이다. Collector `*/3`과 Dispatcher `1-59/3`의
-예상 slot을 `canary_deployments.startedAt`에서 생성한다. 보통 각 Worker당 약 160개다.
+예상 slot을 `canary_runs.startedAt`에서 생성한다. 같은 deployment SHA도 새 `canaryId`로 다시
+검증할 수 있으며 보통 각 Worker당 약 160개다.
 
 통과 조건:
 
@@ -92,6 +112,8 @@ Dispatcher smoke run과 Discord activity message >= 1
 Router signed test interaction >= 1
 Router duplicate = 0, initial response < 1초
 모든 manual_review queue row에 pending review와 전송된 alert 존재
+저장된 quota evidence hash와 계정·DB 합계 일치
+30분 burn-in, 계정 투영 상한, staging canary 상한, 통계 production 예약량 통과
 ```
 
 2시간 이후 abandoned 비율 1% 초과, missing-slot 비율 5% 초과, invariant 오류, Router 서명·권한
@@ -99,18 +121,31 @@ smoke 실패는 조기 실패다. 일시적인 slot 1개 누락만으로는 조�
 
 ## Production 승격
 
-1. v5 report가 통과한 뒤에만 `Promote Forecast Collector`를 실행한다.
+1. v6 report와 promotion 시점의 계정 전체 D1 재검사가 통과한 뒤에만
+   `Promote Forecast Collector`를 실행한다.
 2. `cloudflare-production` environment 승인은 관리자가 직접 수행한다.
-3. workflow는 production migration 0008, Router safe mode, Collector, disabled Dispatcher,
+3. workflow는 production migration 0009, Router safe mode, Collector, disabled Dispatcher,
    queue/bootstrap smoke, enabled Dispatcher 순으로 진행한다.
 4. 모든 smoke가 통과한 마지막 단계에서만 Router production mutation을 활성화한다.
 5. 이 승격은 Forecast ID 전환, Forecast PR merge, H/p adoption을 수행하지 않는다.
 
 ## Rollback
 
-- 이상 징후가 있으면 Dispatcher Cron만 `DISPATCH_ENABLED=false`로 재배포한다.
+- 일반 Dispatcher 장애는 `DISPATCH_ENABLED=false`로 되돌린다. D1 예산·통계 D1 장애에서는
+  staging Collector도 `COLLECT_ENABLED=false`로 함께 중지한다.
 - Collector queue·cursor·watermark, Forecast registry, 기존 승인 Forecast는 유지한다.
 - 30분 Actions watchdog은 Dispatcher 비활성 기간의 제한된 fallback이다.
 - Router 오류 시 production mutation을 false로 되돌리고 Discord Endpoint는 마지막 검증된 Router
   deployment로 유지한다. Collector route를 동시에 다시 켜지 않는다.
 - 실패한 canary 기간은 수정 후 canary에 재사용하지 않는다.
+
+## 로컬 검증
+
+```powershell
+npm run test:forecast-collector
+npm run test:forecast-dispatcher
+npm run test:forecast-interactions
+npm test -- scripts/d1-budget.test.ts scripts/forecast-dispatcher-workflow.spec.ts
+npm run typecheck
+npm run lint
+```
