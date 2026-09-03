@@ -3,11 +3,14 @@ import { assertD1QuotaEvidence } from "../../shared/d1QuotaEvidence.ts";
 import {
   assertUsageAllowed,
   readUsageGuardEvidence,
+  readUsageGuardState,
   UsageGuardError,
+  type UsageGuardEvidence,
+  type UsageGuardState,
 } from "../../shared/usageGuard.ts";
-import { readCanaryReport, startCanaryDeployment } from "./canary";
+import { readCanaryReport, readCanaryWindow, startCanaryDeployment } from "./canary";
 import { runCollection } from "./collector";
-import { timingSafeBearer } from "./crypto";
+import { sha256Hex, stableJson, timingSafeBearer } from "./crypto";
 import {
   listProposalCandidates,
   markCandidateProposed,
@@ -294,10 +297,57 @@ export default {
         return json({ error: message.slice(0, 120) }, status);
       }
     }
-    if (request.method === "GET" && url.pathname === "/admin/canary-report") {
+    if (request.method === "GET" && url.pathname === "/admin/canary-window") {
       const canaryId = url.searchParams.get("canaryId") ?? undefined;
       if (canaryId !== undefined && !/^fc-[0-9a-f]{32}$/.test(canaryId)) {
         return json({ error: "canary_id_invalid" }, 400);
+      }
+      return json({
+        ...(await readCanaryWindow(
+          env.FORECAST_DB,
+          Date.now(),
+          env.DEPLOY_SHA,
+          opsEnvironment(env),
+          canaryId,
+        )),
+        pollMode: env.POLL_MODE,
+      });
+    }
+    if (
+      (request.method === "GET" || request.method === "POST") &&
+      url.pathname === "/admin/canary-report"
+    ) {
+      let canaryId = url.searchParams.get("canaryId") ?? undefined;
+      if (canaryId !== undefined && !/^fc-[0-9a-f]{32}$/.test(canaryId)) {
+        return json({ error: "canary_id_invalid" }, 400);
+      }
+      let runtimeQuota: UsageGuardEvidence | UsageGuardState | undefined;
+      if (request.method === "POST") {
+        try {
+          const body = await readBoundedJson(request, 1_000_000, "canary_final_evidence_body");
+          if (typeof body !== "object" || body === null || Array.isArray(body)) {
+            throw new Error("canary_final_evidence_body_invalid");
+          }
+          const record = body as Record<string, unknown>;
+          if (typeof record["canaryId"] !== "string" || !("quotaEvidence" in record)) {
+            throw new Error("canary_final_evidence_contract_invalid");
+          }
+          canaryId = record["canaryId"];
+          if (!/^fc-[0-9a-f]{32}$/.test(canaryId)) throw new Error("canary_id_invalid");
+          const evidence = assertD1QuotaEvidence(record["quotaEvidence"]);
+          runtimeQuota = {
+            action: evidence.action,
+            observedAt: evidence.observedAt,
+            periodStart: evidence.plan.periodStart,
+            periodEnd: evidence.plan.periodEnd,
+            evidenceHash: await sha256Hex(stableJson(evidence)),
+            evidence,
+          };
+        } catch (error) {
+          return json({ error: sanitizeOpsError(error) }, 400);
+        }
+      } else {
+        runtimeQuota = await readUsageGuardState(requireGuardDb(env));
       }
       return json(
         await readCanaryReport(
@@ -306,7 +356,7 @@ export default {
           env.DEPLOY_SHA,
           opsEnvironment(env),
           canaryId,
-          await readUsageGuardEvidence(requireGuardDb(env)),
+          runtimeQuota,
         ),
       );
     }

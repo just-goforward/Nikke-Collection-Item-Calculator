@@ -80,11 +80,14 @@ provider diagnostics.
 
 The collector stores invocation evidence, cursor and queue metadata, and validated schedule and
 candidate records. GitHub Actions revalidates the schema and hash and proposes an inactive registry
-entry. Canary v7 uses an independent `canaryId` and generates expected Collector and Dispatcher Cron slots for a fixed eight-hour window from a server-recorded start. Both Workers require at least 99% delivery and completion, at most
+entry. Canary v8 uses an independent `canaryId` and generates expected Collector and Dispatcher Cron slots for a fixed eight-hour window from a server-recorded start. Both Workers require at least 99% delivery and completion, at most
 one missing slot, a completed latest invocation, no abandoned, late, unexpected, or duplicate work, consistent queue,
 cursor, candidate, watermark, and manual-review state, and successful Dispatcher and signed Router
 smoke evidence. After covering indexes are verified on both Forecast databases, a 30-minute burn-in
 and a 30-minute runtime watchdog aggregate every Worker and D1 database in the Cloudflare account.
+The recurring watchdog reads only the server-owned canary window and builds one early full report;
+the final CPU certificate uses the exact fixed eight-hour interval after it closes, so monitoring
+requests do not dominate the runtime distribution being certified.
 The canary may start only below 25% of each Workers Paid monthly allowance. Guard stages at
 35/40/45/50% stop staging, production Forecast, statistics writes, and optional D1/Cron work in that
 order. The administrator's merge approves the evidence but does not activate the forecast.

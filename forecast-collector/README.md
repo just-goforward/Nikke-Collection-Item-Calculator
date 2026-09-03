@@ -226,7 +226,7 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   counts. Candidate payloads and canary evidence require a timing-safe bearer token.
 - Admin abuse is limited first by unauthenticated request IP, then timing-safe bearer verification,
   then by authenticated HTTP-method and route group. Discord interaction limits are separate.
-- Canary report v7 uses an independent `canaryId` and the server-recorded run start, not the number
+- Canary report v8 uses an independent `canaryId` and the server-recorded run start, not the number
   of rows that happened to reach D1. It generates expected Collector and Dispatcher Cron slots for a
   fixed eight-hour window. Each Worker must deliver and complete at least 99%, miss at most one slot, end completed,
   and have zero abandoned, late, unexpected, or duplicate invocations. Queue, cursor, candidate, watermark, manual
@@ -234,10 +234,14 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   invariants must also pass. One signed Router test must respond in under one second. The report also
   embeds hash-checked Workers Paid evidence from a 30-minute burn-in. Current and projected monthly
   utilization must remain below the 25% warning threshold. Monthly request and CPU totals remain
-  billing-period evidence, while average, p95, p99, and CPU-limit terminations are read from a
-  separate rolling eight-hour Worker runtime window refreshed immediately before the final report.
+  billing-period evidence, while average, p95, p99, and CPU-limit terminations are read from the
+  exact server-recorded eight-hour canary interval at final evaluation.
   Each Worker must record no CPU-limit termination, and runtime CPU p99 must stay below 80% of its
   configured per-invocation limit.
+- The 30-minute budget watchdog reads the lightweight `/admin/canary-window` endpoint. It builds at
+  most one full report during the two-to-two-and-a-half-hour early-failure interval; final evaluation posts the
+  separately measured exact-window quota evidence after the window closes. This keeps monitoring
+  traffic from dominating the Collector CPU distribution being certified.
 - The statistics, Forecast, and quota-guard databases share one Workers Paid account allowance.
   Migration 0009 covering indexes must be present in both Forecast databases before preflight. The
   dedicated Usage Guard verifies the Paid subscription and billing period, aggregates every Worker
@@ -371,7 +375,7 @@ production URL only after the first production queue round-trip smoke and idempo
 ledger bootstrap have passed. The workflow `GITHUB_TOKEN` cannot request the repository
 `Variables: write` permission, so promotion verifies the configured value instead of mutating it.
 Until the variable is present, the proposal workflow skips without failing. Promotion is dispatched
-manually after reviewing the completed fixed eight-hour v7 canary report and remains protected by the
+manually after reviewing the completed fixed eight-hour v8 canary report and remains protected by the
 `cloudflare-production` environment.
 
 Promotion compares the canary commit with current `main` only across the collector deployment

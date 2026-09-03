@@ -83,6 +83,26 @@ describe("forecast collector admin boundary", () => {
     expect(keys).toContain("admin-unauth:203.0.113.11");
   });
 
+  it("serves a lightweight canary window without requiring a full report", async () => {
+    const limit = vi.fn().mockResolvedValue({ success: true });
+    const response = await invokeAdmin(
+      {
+        ADMIN_RATE_LIMITER: { limit } as unknown as RateLimit,
+        ADMIN_TOKEN: "expected-token",
+      },
+      { token: "expected-token", path: "/admin/canary-window" },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      version: 8,
+      canaryId: null,
+      acceptance: { windowMode: "fixed_8_hours", windowHours: null },
+      window: { active: false, eligible: false },
+    });
+    expect(limit).toHaveBeenLastCalledWith({ key: "admin-auth:GET:canary-window" });
+  });
+
   it("persists an unexpected source processor failure as a critical operations alert", async () => {
     const limit = vi.fn().mockResolvedValue({ success: true });
     const response = await invokeAdmin(

@@ -732,7 +732,7 @@ jobs:
           [[ "$status" == "200" ]] || { echo "Usage Guard refresh returned HTTP $status." >&2; exit 1; }
           jq -e '.ok == true and .state.action == "normal"' "$RUNNER_TEMP/usage-guard-post-burn-in.json" >/dev/null
 
-      - name: Start fixed eight-hour Paid canary v7
+      - name: Start fixed eight-hour Paid canary v8
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.d1_budget.outcome == 'success'
         id: canary_start
         env:
@@ -763,6 +763,17 @@ jobs:
           echo "canary_id=$canary_id" >> "$GITHUB_OUTPUT"
           echo "ends_at=$(jq -r '.canary.endsAt' "$RUNNER_TEMP/canary-start.json")" >> "$GITHUB_OUTPUT"
 
+      - name: Record dispatcher smoke inside the canary window
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.canary_start.outputs.canary_id != ''
+        env:
+          FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        run: >-
+          npm run smoke:forecast-dispatcher --
+          "$FORECAST_COLLECTOR_STAGING_URL"
+          "$FORECAST_COLLECTOR_ADMIN_TOKEN"
+          "canary:${{ steps.canary_start.outputs.canary_id }}:${{ github.run_id }}"
+
       - name: Send mutation-free Router test card
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
         env:
@@ -778,12 +789,12 @@ jobs:
             echo "- Cron: every 3 minutes"
             echo "- Dispatcher Cron: minute 1, then every 3 minutes"
             if [[ "${{ github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready }}" == "true" ]]; then
-              echo "- Canary: fresh v7 fixed eight-hour window started after a 30-minute Paid account-wide burn-in"
+              echo "- Canary: fresh v8 fixed eight-hour window started after a 30-minute Paid account-wide burn-in"
               echo "- Canary ID: `${{ steps.canary_start.outputs.canary_id }}`"
               echo "- Canary end: `${{ steps.canary_start.outputs.ends_at }}`"
               echo "- Quota policy: all account Workers and D1 databases included; project automation fails closed at 50%"
               echo "- Required action: click the Router response test card during this canary window"
-              echo "- Promotion: blocked until the authenticated v7 report and final Paid quota check pass"
+              echo "- Promotion: blocked until the authenticated v8 report and final Paid quota check pass"
             else
               echo "- Dispatcher: remains disabled"
               echo "- Canary: not started"

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { listCloudflareD1Databases } from "../shared/cloudflareD1Catalog";
 import {
   type D1UsageSnapshot,
@@ -208,7 +208,8 @@ describe("Cloudflare Paid account API", () => {
       [D1_DATABASE_IDS.statsObserverStaging, "collection-kit-stats-observer-staging"],
       ["f".repeat(36), "unrelated-database"],
     ] as const;
-    const fetchImpl: typeof fetch = async (input) => {
+    let graphqlVariables: Record<string, unknown> | undefined;
+    const fetchImpl: typeof fetch = async (input, init) => {
       const url = String(input);
       if (url.endsWith("/subscriptions")) {
         return Response.json({
@@ -238,6 +239,7 @@ describe("Cloudflare Paid account API", () => {
         });
       }
       if (url.endsWith("/graphql")) {
+        graphqlVariables = JSON.parse(String(init?.body))?.variables as Record<string, unknown>;
         return Response.json({
           data: {
             viewer: {
@@ -291,11 +293,15 @@ describe("Cloudflare Paid account API", () => {
       return new Response(null, { status: 404 });
     };
 
+    const runtimeStartedAt = new Date(BASELINE_AT - 2 * 60 * 60 * 1_000).toISOString();
+    const runtimeEndedAt = new Date(BASELINE_AT - 60 * 60 * 1_000).toISOString();
     const result = await fetchD1UsageSnapshot({
       accountId: "a".repeat(32),
       analyticsToken: "analytics-token",
       billingToken: "billing-token",
       nowMs: BASELINE_AT,
+      runtimeStartedAt,
+      runtimeEndedAt,
       fetchImpl,
     });
 
@@ -306,8 +312,8 @@ describe("Cloudflare Paid account API", () => {
     ).toMatchObject({ rowsReadObserved: 10, rowsWrittenObserved: 1 });
     expect(result.workers.map((worker) => worker.scriptName)).toContain("unrelated-worker");
     expect(result.workerRuntime).toMatchObject({
-      startedAt: new Date(BASELINE_AT - 8 * 60 * 60 * 1_000).toISOString(),
-      endedAt: new Date(BASELINE_AT).toISOString(),
+      startedAt: runtimeStartedAt,
+      endedAt: runtimeEndedAt,
       workers: [
         {
           scriptName: "collection-kit-stats",
@@ -317,6 +323,32 @@ describe("Cloudflare Paid account API", () => {
         },
       ],
     });
+    expect(graphqlVariables).toMatchObject({
+      runtimeStartTimestamp: runtimeStartedAt,
+      runtimeEndTimestamp: runtimeEndedAt,
+    });
+    expect(evaluateD1PreflightBudget(result).evidence?.workerRuntime).toMatchObject({
+      startedAt: runtimeStartedAt,
+      endedAt: runtimeEndedAt,
+    });
+  });
+});
+
+describe("Cloudflare Paid runtime window API", () => {
+  it("requires custom runtime window bounds as a pair before making API requests", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+
+    await expect(
+      fetchD1UsageSnapshot({
+        accountId: "a".repeat(32),
+        analyticsToken: "analytics-token",
+        billingToken: "billing-token",
+        nowMs: BASELINE_AT,
+        runtimeStartedAt: new Date(BASELINE_AT - 60_000).toISOString(),
+        fetchImpl,
+      }),
+    ).rejects.toThrow("cloudflare_paid_runtime_window_pair_required");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
 

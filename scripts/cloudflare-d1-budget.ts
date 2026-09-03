@@ -14,10 +14,16 @@ const args = parseArguments(process.argv.slice(3));
 const outputPath = requiredArgument(args, "output");
 
 if (command === "snapshot" || command === "preflight") {
+  const runtimeStartedAt = args.get("runtime-start");
+  const runtimeEndedAt = args.get("runtime-end");
+  if (Boolean(runtimeStartedAt) !== Boolean(runtimeEndedAt)) {
+    throw new Error("--runtime-start and --runtime-end must be provided together.");
+  }
   const snapshot = await fetchD1UsageSnapshot({
     accountId: requiredEnvironment("CLOUDFLARE_ACCOUNT_ID"),
     analyticsToken: requiredEnvironment("CLOUDFLARE_D1_ANALYTICS_TOKEN"),
     billingToken: requiredEnvironment("CLOUDFLARE_BILLING_READ_TOKEN"),
+    ...(runtimeStartedAt && runtimeEndedAt ? { runtimeStartedAt, runtimeEndedAt } : {}),
   });
   if (command === "snapshot") {
     await writeJson(outputPath, snapshot);

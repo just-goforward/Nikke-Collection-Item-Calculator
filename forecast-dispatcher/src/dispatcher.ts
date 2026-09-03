@@ -147,7 +147,7 @@ export async function runDispatcher(env: DispatcherEnv, options: { scheduledTime
         }
       }
     }
-    await updateObservedAlerts(env.FORECAST_DB, env.ENVIRONMENT, Date.now());
+    await updateObservedAlerts(env.FORECAST_DB, env.ENVIRONMENT, Date.now(), actionableCount);
     await flushDiscordAlerts(env);
   } catch (error) {
     invocationError = dispatcherErrorCode(error);

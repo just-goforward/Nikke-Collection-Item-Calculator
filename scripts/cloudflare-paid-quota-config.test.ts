@@ -69,13 +69,13 @@ describe("Cloudflare Paid quota configuration", () => {
     }
   });
 
-  it("uses the fixed eight-hour v7 canary contract", () => {
+  it("uses the fixed eight-hour v8 canary contract", () => {
     const watcher = read(".github/workflows/forecast-d1-budget-watch.yml");
     const deploy = read(".github/workflows/forecast-collector-deploy.yml");
-    expect(watcher).toContain("active v7 canary");
-    expect(watcher).toContain("report?.version === 7");
+    expect(watcher).toContain("active v8 canary");
+    expect(watcher).toContain("report?.version === 8");
     expect(watcher).not.toContain("active v6 canary");
-    expect(deploy).toContain("Start fixed eight-hour Paid canary v7");
+    expect(deploy).toContain("Start fixed eight-hour Paid canary v8");
     expect(deploy).not.toContain("until_d1_reset");
   });
 
@@ -88,7 +88,7 @@ describe("Cloudflare Paid quota configuration", () => {
     expect(query).toContain("quantiles { cpuTimeP95 cpuTimeP99 }");
     expect(analytics).toContain("runtimeWorkerGroups");
     expect(promotion.indexOf("/admin/refresh")).toBeGreaterThan(-1);
-    expect(promotion.indexOf("Read authenticated Paid canary v7 report")).toBeGreaterThan(
+    expect(promotion.indexOf("Read authenticated Paid canary v8 report")).toBeGreaterThan(
       promotion.indexOf("/admin/refresh"),
     );
   });
