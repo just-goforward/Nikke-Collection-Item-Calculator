@@ -87,7 +87,7 @@ probe:forecast-x`는 token이나 원문을 출력하지 않고 공급자별 건�
 
 수집 Worker는 invocation, poll cursor, 최소 queue metadata, 검증된 일정·후보만 전용 D1에
 보존한다. GitHub Actions가 같은 schema와 hash를 다시 검증해 inactive forecast PR을 만들며,
-관리자의 PR 병합이 승인이다. 이 승인만으로 제품은 바뀌지 않는다. Canary v9은 독립
+관리자의 PR 병합이 승인이다. 이 승인만으로 제품은 바뀌지 않는다. Canary v10은 독립
 `canaryId`와 서버가 기록한 시작 시각부터 고정 8시간 동안의 Collector·Dispatcher 예상 Cron slot을 생성한다. 두 Worker 모두 전달률과
 완료율 99% 이상, 누락 slot 최대 1개, 최신 상태 completed, abandoned·late·unexpected·중복
 0건이어야 한다.
@@ -99,7 +99,7 @@ watchdog은 평소 서버가 기록한 canary 구간만 가볍게 읽고, 전체
 관리자 report 호출이 인증 대상의 CPU 분포를 지배하지 않게 한다.
 CPU 판정은 Workers Observability의 scheduled invocation만 사용한다. 실제 CPU 초과나 비정상
 outcome은 hard failure이고, p99 여유 부족만 있으면 `passed_with_warning`, telemetry가 부족하면
-`incomplete`로 분리한다. 첫 v9는 clean scheduled-only 기준선을 만드는 bootstrap 실행이며,
+`incomplete`로 분리한다. 첫 v10은 clean scheduled-only 기준선을 만드는 bootstrap 실행이며,
 생성된 artifact를 별도 검토해 `forecast-collector/runtime-baseline.json`으로 채택하기 전에는
 후속 판정 기준으로 사용하지 않는다.
 Workers Paid 월간 제공량의 25% 미만에서만 canary를 시작하며, 35/40/45/50% 단계별 guard가

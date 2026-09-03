@@ -32,6 +32,9 @@ VALUES (8, CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO schema_migrations (version, applied_at)
 VALUES (9, CURRENT_TIMESTAMP);
 
+INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+VALUES (10, CURRENT_TIMESTAMP);
+
 CREATE TABLE IF NOT EXISTS collector_invocations (
   invocation_id TEXT PRIMARY KEY,
   deployment_sha TEXT NOT NULL,
@@ -171,6 +174,8 @@ CREATE TABLE IF NOT EXISTS canary_runs (
   deployment_sha TEXT NOT NULL CHECK (length(deployment_sha) = 40),
   collector_cron TEXT NOT NULL CHECK (length(collector_cron) BETWEEN 1 AND 80),
   dispatcher_cron TEXT NOT NULL CHECK (length(dispatcher_cron) BETWEEN 1 AND 80),
+  collector_version_id TEXT NOT NULL CHECK (length(collector_version_id) = 36),
+  dispatcher_version_id TEXT NOT NULL CHECK (length(dispatcher_version_id) = 36),
   started_at TEXT NOT NULL,
   ends_at TEXT NOT NULL,
   quota_evidence_json TEXT NOT NULL CHECK (length(quota_evidence_json) BETWEEN 2 AND 65536),

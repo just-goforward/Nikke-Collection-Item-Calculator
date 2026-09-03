@@ -13,7 +13,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
 });
 
-describe("forecast canary v9 CLI", () => {
+describe("forecast canary v10 CLI", () => {
   it("accepts a structurally valid incomplete report without calling it failed", async () => {
     const { result, outputPath } = await runCli(inProgressReport());
     expect(result.stderr).toBe("");
@@ -64,7 +64,7 @@ async function runCli(report: unknown) {
   cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("missing_test_server_address");
-  const directory = await mkdtemp(join(tmpdir(), "forecast-canary-v9-"));
+  const directory = await mkdtemp(join(tmpdir(), "forecast-canary-v10-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const outputPath = join(directory, "github-output.txt");
   const result = await execFileAsync(process.execPath, ["scripts/check-forecast-canary.ts"], {
@@ -82,9 +82,11 @@ async function runCli(report: unknown) {
 function inProgressReport() {
   const sha = "b".repeat(40);
   const canaryId = `fc-${"a".repeat(32)}`;
+  const collectorVersionId = "11111111-1111-4111-8111-111111111111";
+  const dispatcherVersionId = "22222222-2222-4222-8222-222222222222";
   return {
-    version: 9,
-    policyId: "forecast-canary-v9-hybrid-runtime-v1",
+    version: 10,
+    policyId: "forecast-canary-v10-live-contract-v1",
     canaryId,
     deploymentSha: sha,
     environment: "staging",
@@ -92,8 +94,10 @@ function inProgressReport() {
     identity: {
       canaryId,
       deploymentSha: sha,
-      collectorScriptVersion: `${sha}-both-v9`,
-      dispatcherScriptVersion: `${sha}-v9`,
+      collectorScriptVersion: `${sha}-both-v10`,
+      dispatcherScriptVersion: `${sha}-v10`,
+      collectorScriptVersionId: collectorVersionId,
+      dispatcherScriptVersionId: dispatcherVersionId,
       startedAt: "2026-09-02T09:32:10.000Z",
       endedAt: "2026-09-02T17:32:10.000Z",
     },
@@ -206,6 +210,8 @@ function cpuPerformance(scriptName: string, configuredLimitMs: number) {
     unsuccessfulOutcomes: 0,
     duplicateSlots: 0,
     unmatchedTelemetrySlots: 0,
+    markerOnlyIdentities: 0,
+    versionIdOnlyIdentities: 0,
     full: distribution,
     firstHalf: distribution,
     secondHalf: distribution,

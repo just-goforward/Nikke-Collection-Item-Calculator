@@ -121,7 +121,7 @@ type GateResult = {
 };
 
 type CanaryReport = {
-  version: 9;
+  version: 10;
   policyId: typeof FORECAST_CANARY_POLICY_ID;
   canaryId: string;
   deploymentSha: string;
@@ -131,6 +131,8 @@ type CanaryReport = {
     deploymentSha: string;
     collectorScriptVersion: string;
     dispatcherScriptVersion: string;
+    collectorScriptVersionId: string;
+    dispatcherScriptVersionId: string;
     startedAt: string;
     endedAt: string;
   };
@@ -227,6 +229,8 @@ type CpuPerformanceEvidence = {
   unsuccessfulOutcomes: number;
   duplicateSlots: number;
   unmatchedTelemetrySlots: number;
+  markerOnlyIdentities: number;
+  versionIdOnlyIdentities: number;
   full: CpuDistribution;
   firstHalf: CpuDistribution;
   secondHalf: CpuDistribution;
@@ -254,15 +258,17 @@ function isCanaryReport(value: unknown): value is CanaryReport {
   return (
     identity["startedAt"] === window["startedAt"] &&
     identity["endedAt"] === window["endsAt"] &&
-    identity["collectorScriptVersion"] === `${value["deploymentSha"]}-${pollMode}-v9` &&
-    identity["dispatcherScriptVersion"] === `${value["deploymentSha"]}-v9`
+    identity["collectorScriptVersion"] === `${value["deploymentSha"]}-${pollMode}-v10` &&
+    identity["dispatcherScriptVersion"] === `${value["deploymentSha"]}-v10` &&
+    isVersionId(identity["collectorScriptVersionId"]) &&
+    isVersionId(identity["dispatcherScriptVersionId"])
   );
 }
 
 function isCanaryReportHeader(value: unknown): value is Record<string, unknown> {
   return (
     isRecord(value) &&
-    value["version"] === 9 &&
+    value["version"] === 10 &&
     value["policyId"] === FORECAST_CANARY_POLICY_ID &&
     typeof value["deploymentSha"] === "string" &&
     /^[0-9a-f]{40}$/.test(value["deploymentSha"]) &&
@@ -471,6 +477,8 @@ function isCpuPerformanceEvidence(value: unknown): value is CpuPerformanceEviden
     "unsuccessfulOutcomes",
     "duplicateSlots",
     "unmatchedTelemetrySlots",
+    "markerOnlyIdentities",
+    "versionIdOnlyIdentities",
     "p99LimitRatio",
   ];
   return (
@@ -502,6 +510,13 @@ function isCertification(value: unknown): value is CanaryReport["certification"]
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isVersionId(value: unknown) {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

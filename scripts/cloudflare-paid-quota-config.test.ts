@@ -69,15 +69,15 @@ describe("Cloudflare Paid quota configuration", () => {
     }
   });
 
-  it("uses the fixed eight-hour v9 canary contract", () => {
+  it("uses the fixed eight-hour v10 canary contract", () => {
     const watcher = read(".github/workflows/forecast-d1-budget-watch.yml");
     const deploy = read(".github/workflows/forecast-collector-deploy.yml");
     const promotion = read(".github/workflows/forecast-collector-promote.yml");
     const canarySource = read("forecast-collector/src/canary.ts");
-    expect(watcher).toContain("active v9 canary");
-    expect(watcher).toContain("report?.version === 9");
+    expect(watcher).toContain("active v10 canary");
+    expect(watcher).toContain("report?.version === 10");
     expect(watcher).not.toContain("active v6 canary");
-    expect(deploy).toContain("Start fixed eight-hour Paid canary v9");
+    expect(deploy).toContain("Start fixed eight-hour Paid canary v10");
     expect(deploy).not.toContain("until_d1_reset");
     expect(deploy).toContain("CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN");
     expect(promotion).toContain("CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN");
@@ -96,7 +96,7 @@ describe("Cloudflare Paid quota configuration", () => {
     expect(query).toContain("quantiles { cpuTimeP95 cpuTimeP99 }");
     expect(analytics).toContain("runtimeWorkerGroups");
     expect(promotion.indexOf("/admin/refresh")).toBeGreaterThan(-1);
-    expect(promotion.indexOf("Read authenticated Paid canary v9 certificate")).toBeGreaterThan(
+    expect(promotion.indexOf("Read authenticated Paid canary v10 certificate")).toBeGreaterThan(
       promotion.indexOf("/admin/refresh"),
     );
   });

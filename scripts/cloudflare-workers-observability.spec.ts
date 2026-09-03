@@ -9,6 +9,8 @@ import {
 const SHA = "a".repeat(40);
 const START = "2026-09-03T00:00:00.000Z";
 const END = "2026-09-03T08:00:00.000Z";
+const COLLECTOR_VERSION_ID = "11111111-1111-4111-8111-111111111111";
+const DISPATCHER_VERSION_ID = "22222222-2222-4222-8222-222222222222";
 
 describe("Workers Observability forecast runtime evidence", () => {
   it("builds an invocation query constrained to one script and exact window", () => {
@@ -28,14 +30,17 @@ describe("Workers Observability forecast runtime evidence", () => {
       component: "collector",
       scriptName: "collection-kit-forecast-collector-staging",
       deploymentSha: SHA,
-      expectedScriptVersion: `${SHA}-both-v9`,
+      expectedScriptVersion: `${SHA}-both-v10`,
+      expectedScriptVersionId: COLLECTOR_VERSION_ID,
       startedAt: START,
       endedAt: END,
     });
     expect(samples).toEqual([
       expect.objectContaining({
         slot: "2026-09-03T00:03:00.000Z",
-        scriptVersion: `${SHA}-both-v9`,
+        scriptVersionId: COLLECTOR_VERSION_ID,
+        scriptVersionTag: `${SHA}-both-v10`,
+        identitySource: "tag",
         eventType: "scheduled",
         cpuTimeMs: 41.169,
         outcome: "ok",
@@ -50,7 +55,8 @@ describe("Workers Observability forecast runtime evidence", () => {
       component: "collector",
       scriptName: "collection-kit-forecast-collector-staging",
       deploymentSha: SHA,
-      expectedScriptVersion: `${SHA}-both-v9`,
+      expectedScriptVersion: `${SHA}-both-v10`,
+      expectedScriptVersionId: COLLECTOR_VERSION_ID,
       startedAt: START,
       endedAt: END,
     });
@@ -69,7 +75,8 @@ describe("Workers Observability forecast runtime evidence", () => {
         component: "collector",
         scriptName: "collection-kit-forecast-collector-staging",
         deploymentSha: SHA,
-        expectedScriptVersion: `${SHA}-both-v9`,
+        expectedScriptVersion: `${SHA}-both-v10`,
+        expectedScriptVersionId: COLLECTOR_VERSION_ID,
         startedAt: START,
         endedAt: END,
       }),
@@ -83,8 +90,10 @@ describe("Workers Observability forecast runtime evidence", () => {
         deploymentSha: SHA,
         startedAt: START,
         endedAt: END,
-        collectorScriptVersion: `${SHA}-both-v9`,
-        dispatcherScriptVersion: `${SHA}-v9`,
+        collectorScriptVersion: `${SHA}-both-v10`,
+        dispatcherScriptVersion: `${SHA}-v10`,
+        collectorScriptVersionId: COLLECTOR_VERSION_ID,
+        dispatcherScriptVersionId: DISPATCHER_VERSION_ID,
       },
       new Error("observability_http_403"),
     );
@@ -119,8 +128,10 @@ describe("Workers Observability forecast runtime evidence", () => {
       deploymentSha: SHA,
       startedAt: START,
       endedAt: END,
-      collectorScriptVersion: `${SHA}-both-v9`,
-      dispatcherScriptVersion: `${SHA}-v9`,
+      collectorScriptVersion: `${SHA}-both-v10`,
+      dispatcherScriptVersion: `${SHA}-v10`,
+      collectorScriptVersionId: COLLECTOR_VERSION_ID,
+      dispatcherScriptVersionId: DISPATCHER_VERSION_ID,
       fetchImpl: fetchImpl as typeof fetch,
       sleepImpl: async () => {},
     });
@@ -130,13 +141,78 @@ describe("Workers Observability forecast runtime evidence", () => {
   });
 });
 
+describe("Workers Observability optional version identity", () => {
+  it("accepts the documented optional tag when an immutable version ID is present", async () => {
+    const value = fixture("req-id-only", "ok");
+    const events = invocationEvents(value, "req-id-only");
+    const workers = events[0]?.["$workers"];
+    if (!isRecord(workers)) throw new Error("missing_runtime_workers");
+    workers["scriptVersion"] = { id: COLLECTOR_VERSION_ID };
+
+    const samples = await parseInvocationSamples(value, expectedCollector());
+
+    expect(samples[0]).toMatchObject({
+      scriptVersionId: COLLECTOR_VERSION_ID,
+      scriptVersionTag: null,
+      identitySource: "version_id",
+    });
+  });
+
+  it("finds version metadata in a separate event from the CPU summary", async () => {
+    const value = fixture("req-split", "ok");
+    const events = invocationEvents(value, "req-split");
+    const runtimeWorkers = events[0]?.["$workers"];
+    const markerWorkers = events[1]?.["$workers"];
+    if (!isRecord(runtimeWorkers) || !isRecord(markerWorkers)) throw new Error("missing_workers");
+    delete runtimeWorkers["scriptVersion"];
+    markerWorkers["scriptVersion"] = {
+      id: COLLECTOR_VERSION_ID,
+      tag: `${SHA}-both-v10`,
+    };
+
+    const samples = await parseInvocationSamples(value, expectedCollector());
+
+    expect(samples[0]?.identitySource).toBe("tag");
+  });
+
+  it("accepts marker identity when Cloudflare omits all optional version metadata", async () => {
+    const value = fixture("req-marker-only", "ok");
+    const events = invocationEvents(value, "req-marker-only");
+    for (const event of events) {
+      const workers = event["$workers"];
+      if (isRecord(workers)) delete workers["scriptVersion"];
+    }
+
+    const samples = await parseInvocationSamples(value, expectedCollector());
+
+    expect(samples[0]).toMatchObject({
+      scriptVersionId: null,
+      scriptVersionTag: null,
+      identitySource: "marker",
+    });
+  });
+
+  it("rejects a conflicting immutable version ID", async () => {
+    const value = fixture("req-wrong-version", "ok");
+    const events = invocationEvents(value, "req-wrong-version");
+    const workers = events[0]?.["$workers"];
+    if (!isRecord(workers)) throw new Error("missing_runtime_workers");
+    workers["scriptVersion"] = { id: DISPATCHER_VERSION_ID };
+
+    await expect(parseInvocationSamples(value, expectedCollector())).rejects.toThrow(
+      "observability_version_identity_mismatch",
+    );
+  });
+});
+
 function fixture(
   requestId: string,
   outcome: string,
   component: "collector" | "dispatcher" = "collector",
 ) {
   const scriptName = `collection-kit-forecast-${component}-staging`;
-  const scriptVersion = component === "collector" ? `${SHA}-both-v9` : `${SHA}-v9`;
+  const scriptVersion = component === "collector" ? `${SHA}-both-v10` : `${SHA}-v10`;
+  const scriptVersionId = component === "collector" ? COLLECTOR_VERSION_ID : DISPATCHER_VERSION_ID;
   return {
     errors: [],
     result: {
@@ -151,7 +227,7 @@ function fixture(
               outcome,
               requestId,
               scriptName,
-              scriptVersion: { tag: scriptVersion },
+              scriptVersion: { id: scriptVersionId, tag: scriptVersion },
             },
           },
           {
@@ -163,6 +239,30 @@ function fixture(
       },
     },
   };
+}
+
+function expectedCollector() {
+  return {
+    component: "collector" as const,
+    scriptName: "collection-kit-forecast-collector-staging",
+    deploymentSha: SHA,
+    expectedScriptVersion: `${SHA}-both-v10`,
+    expectedScriptVersionId: COLLECTOR_VERSION_ID,
+    startedAt: START,
+    endedAt: END,
+  };
+}
+
+function invocationEvents(value: ReturnType<typeof fixture>, requestId: string) {
+  const events = (value.result.invocations as Record<string, Array<Record<string, unknown>>>)[
+    requestId
+  ];
+  if (!events) throw new Error("missing_fixture_invocation");
+  return events;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function marker(slot: string, component: "collector" | "dispatcher" = "collector") {

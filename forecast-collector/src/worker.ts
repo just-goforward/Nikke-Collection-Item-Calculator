@@ -387,6 +387,8 @@ export default {
           typeof record["canaryId"] !== "string" ||
           typeof record["collectorCron"] !== "string" ||
           typeof record["dispatcherCron"] !== "string" ||
+          typeof record["collectorVersionId"] !== "string" ||
+          typeof record["dispatcherVersionId"] !== "string" ||
           !("quotaEvidence" in record)
         ) {
           throw new Error("canary_start_contract_invalid");
@@ -408,6 +410,8 @@ export default {
             deploymentSha: env.DEPLOY_SHA,
             collectorCron: record["collectorCron"],
             dispatcherCron: record["dispatcherCron"],
+            collectorVersionId: record["collectorVersionId"],
+            dispatcherVersionId: record["dispatcherVersionId"],
             quotaEvidence: guard.evidence,
           }),
         });

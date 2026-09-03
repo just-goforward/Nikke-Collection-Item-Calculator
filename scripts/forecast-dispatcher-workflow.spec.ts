@@ -65,12 +65,18 @@ describe("Forecast dispatcher workflow contract", () => {
     }
     expect(interactionConfig).not.toContain("[triggers]");
     expect(stagingDeploy).toContain("router_endpoint_ready:");
-    expect(stagingDeploy).toContain("Start fixed eight-hour Paid canary v9");
-    expect(productionPromote).toContain("Read authenticated Paid canary v9 certificate");
+    expect(stagingDeploy).toContain("Start fixed eight-hour Paid canary v10");
+    expect(productionPromote).toContain("Read authenticated Paid canary v10 certificate");
     expect(productionPromote).toContain("environment: cloudflare-production");
     expect(productionPromote).toContain("Determine coupled production rollout");
     expect(stagingDeploy).toContain("Probe GitHub App installation and fixed workflow");
-    expect(stagingDeploy).toContain("Disable staging dispatcher after smoke failure");
+    expect(stagingDeploy).toContain("Fail-closed rollback when pre-canary validation fails");
+    expect(stagingDeploy).toContain("Verify live Workers Observability contract before burn-in");
+    expect(stagingDeploy).toContain("FORECAST_COLLECTOR_SCRIPT_VERSION_ID");
+    expect(stagingDeploy).toContain("FORECAST_DISPATCHER_SCRIPT_VERSION_ID");
+    expect(stagingDeploy).toContain(
+      "forecast-collector/migrations/0010_canary_v10_version_identity.sql",
+    );
     expect(stagingDeploy).toContain("Observe 30-minute account-wide D1 burn-in");
     expect(stagingDeploy).toContain("npm run check:d1-budget -- preflight");
     expect(stagingDeploy.indexOf("Ensure staging canary storage migration")).toBeLessThan(

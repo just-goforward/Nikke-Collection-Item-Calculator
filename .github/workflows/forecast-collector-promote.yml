@@ -76,7 +76,7 @@ jobs:
             -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
             -H "Accept: application/json" \
             "$FORECAST_COLLECTOR_URL/admin/canary-window" > "$RUNNER_TEMP/canary-window.json"
-          jq -e '.version == 9 and .policyId == "forecast-canary-v9-hybrid-runtime-v1" and (.canaryId | test("^fc-[0-9a-f]{32}$")) and (.deploymentSha | test("^[0-9a-f]{40}$")) and (.pollMode == "both" or .pollMode == "alternating")' \
+          jq -e '.version == 10 and .policyId == "forecast-canary-v10-live-contract-v1" and (.canaryId | test("^fc-[0-9a-f]{32}$")) and (.deploymentSha | test("^[0-9a-f]{40}$")) and (.collectorVersionId | test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and (.dispatcherVersionId | test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")) and (.pollMode == "both" or .pollMode == "alternating")' \
             "$RUNNER_TEMP/canary-window.json" >/dev/null
           echo "canary_id=$(jq -r '.canaryId' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
           echo "deployment_sha=$(jq -r '.deploymentSha' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
@@ -84,6 +84,8 @@ jobs:
           echo "ends_at=$(jq -r '.window.endsAt' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
           echo "eligible=$(jq -r '.window.eligible' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
           echo "poll_mode=$(jq -r '.pollMode' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
+          echo "collector_version_id=$(jq -r '.collectorVersionId' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
+          echo "dispatcher_version_id=$(jq -r '.dispatcherVersionId' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
 
       - name: Measure account quota evidence for the exact canary window
         if: steps.window.outputs.eligible == 'true'
@@ -116,14 +118,16 @@ jobs:
           FORECAST_CANARY_DEPLOYMENT_SHA: ${{ steps.window.outputs.deployment_sha }}
           FORECAST_CANARY_STARTED_AT: ${{ steps.window.outputs.started_at }}
           FORECAST_CANARY_ENDED_AT: ${{ steps.window.outputs.ends_at }}
-          FORECAST_COLLECTOR_SCRIPT_VERSION: ${{ steps.window.outputs.deployment_sha }}-${{ steps.window.outputs.poll_mode }}-v9
-          FORECAST_DISPATCHER_SCRIPT_VERSION: ${{ steps.window.outputs.deployment_sha }}-v9
+          FORECAST_COLLECTOR_SCRIPT_VERSION: ${{ steps.window.outputs.deployment_sha }}-${{ steps.window.outputs.poll_mode }}-v10
+          FORECAST_DISPATCHER_SCRIPT_VERSION: ${{ steps.window.outputs.deployment_sha }}-v10
+          FORECAST_COLLECTOR_SCRIPT_VERSION_ID: ${{ steps.window.outputs.collector_version_id }}
+          FORECAST_DISPATCHER_SCRIPT_VERSION_ID: ${{ steps.window.outputs.dispatcher_version_id }}
           FORECAST_CANARY_RUNTIME_OUTPUT: ${{ runner.temp }}/forecast-canary-runtime.json
           FORECAST_OBSERVABILITY_MAX_WAIT_MS: 1800000
           FORECAST_OBSERVABILITY_RETRY_INTERVAL_MS: 300000
         run: npm run collect:forecast-runtime
 
-      - name: Read authenticated Paid canary v9 certificate
+      - name: Read authenticated Paid canary v10 certificate
         id: canary
         continue-on-error: true
         env:
@@ -136,12 +140,12 @@ jobs:
           FORECAST_CANARY_REPORT_OUTPUT: ${{ runner.temp }}/forecast-canary-report.json
         run: npm run check:forecast-canary
 
-      - name: Write Korean v9 certification summary
+      - name: Write Korean v10 certification summary
         if: always() && steps.window.outputs.eligible == 'true' && steps.canary.outcome == 'success'
         shell: bash
         run: |
           {
-            echo "# Forecast Canary v9 인증서"
+            echo "# Forecast Canary v10 인증서"
             echo
             echo "- 상태: \`$(jq -r '.certification.status' "$RUNNER_TEMP/forecast-canary-report.json")\`"
             echo "- Canary ID: \`$(jq -r '.canaryId' "$RUNNER_TEMP/forecast-canary-report.json")\`"
@@ -161,7 +165,7 @@ jobs:
           fi
           jq '{
             version:1,
-            id:("forecast-canary-v9-" + .canaryId),
+            id:("forecast-canary-v10-" + .canaryId),
             sourceCanaryId:.canaryId,
             deploymentSha:.deploymentSha,
             collectorScriptVersion:.identity.collectorScriptVersion,
@@ -171,11 +175,11 @@ jobs:
             dispatcher:{full:.performance.dispatcher.full,firstHalf:.performance.dispatcher.firstHalf,secondHalf:.performance.dispatcher.secondHalf}
           }' "$RUNNER_TEMP/forecast-canary-report.json" > "$RUNNER_TEMP/forecast-canary-baseline-bootstrap.json"
 
-      - name: Upload immutable v9 evidence
+      - name: Upload immutable v10 evidence
         if: always() && steps.window.outputs.eligible == 'true'
         uses: actions/upload-artifact@v6
         with:
-          name: forecast-canary-v9-${{ steps.window.outputs.canary_id }}
+          name: forecast-canary-v10-${{ steps.window.outputs.canary_id }}
           path: |
             ${{ runner.temp }}/canary-window.json
             ${{ runner.temp }}/canary-final-quota.json
@@ -267,9 +271,9 @@ jobs:
       - name: Canary pending summary
         if: steps.canary.outputs.canary_promotable != 'true'
         run: |
-          echo "Eight-hour Forecast Canary v9 is not promotable. Status: ${{ steps.canary.outputs.canary_status || 'schema_error' }}." >> "$GITHUB_STEP_SUMMARY"
+          echo "Eight-hour Forecast Canary v10 is not promotable. Status: ${{ steps.canary.outputs.canary_status || 'schema_error' }}." >> "$GITHUB_STEP_SUMMARY"
           if [[ "${{ steps.canary.outputs.canary_early_failed }}" == "true" ]]; then
-            echo "The v9 early-failure gate rejected this deployment. Do not weaken or reuse this window." >> "$GITHUB_STEP_SUMMARY"
+            echo "The v10 early-failure gate rejected this deployment. Do not weaken or reuse this window." >> "$GITHUB_STEP_SUMMARY"
           elif [[ "${{ steps.canary.outputs.canary_status }}" == "incomplete" ]]; then
             echo "Evidence is incomplete. Re-run this workflow to query the same immutable window; do not restart the Worker canary." >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -277,13 +281,13 @@ jobs:
       - name: Reject only a proven failed or malformed canary
         if: steps.window.outputs.eligible == 'true' && (steps.canary.outcome == 'failure' || steps.canary.outputs.canary_status == 'failed')
         run: |
-          echo "The completed v9 canary has a proven hard-gate failure or malformed certificate. A fresh deployment and window are required." >&2
+          echo "The completed v10 canary has a proven hard-gate failure or malformed certificate. A fresh deployment and window are required." >&2
           exit 1
 
       - name: Record promotable warning
         if: steps.canary.outputs.canary_status == 'passed_with_warning'
         run: |
-          echo "::warning::Forecast Canary v9 passed hard gates with warnings: ${{ steps.canary.outputs.canary_warning }}"
+          echo "::warning::Forecast Canary v10 passed hard gates with warnings: ${{ steps.canary.outputs.canary_warning }}"
           echo "Production still requires the cloudflare-production environment approval." >> "$GITHUB_STEP_SUMMARY"
 
   promote:
@@ -431,6 +435,22 @@ jobs:
             npx wrangler d1 execute FORECAST_DB --remote --env="" \
               --config forecast-collector/wrangler.toml \
               --file forecast-collector/migrations/0009_d1_budget_canary_v6.sql
+
+      - name: Ensure production canary v10 version identity migration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 10;" \
+            --json)
+          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
+            npx wrangler d1 execute FORECAST_DB --remote --env="" \
+              --config forecast-collector/wrangler.toml \
+              --file forecast-collector/migrations/0010_canary_v10_version_identity.sql
 
       - name: Verify production Cron trigger capacity
         env:

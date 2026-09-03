@@ -20,12 +20,15 @@ const startedAt = requiredTimestamp("FORECAST_CANARY_STARTED_AT");
 const endedAt = requiredTimestamp("FORECAST_CANARY_ENDED_AT");
 const collectorScriptVersion = requiredEnvironment("FORECAST_COLLECTOR_SCRIPT_VERSION");
 const dispatcherScriptVersion = requiredEnvironment("FORECAST_DISPATCHER_SCRIPT_VERSION");
+const collectorScriptVersionId = requiredEnvironment("FORECAST_COLLECTOR_SCRIPT_VERSION_ID");
+const dispatcherScriptVersionId = requiredEnvironment("FORECAST_DISPATCHER_SCRIPT_VERSION_ID");
 const output = requiredEnvironment("FORECAST_CANARY_RUNTIME_OUTPUT");
 const maxWaitMs =
   mode === "preflight" ? 0 : optionalUnsigned("FORECAST_OBSERVABILITY_MAX_WAIT_MS", 0);
 const retryIntervalMs = optionalUnsigned("FORECAST_OBSERVABILITY_RETRY_INTERVAL_MS", 300_000);
 const deadline = Date.now() + maxWaitMs;
 let evidence: Awaited<ReturnType<typeof collect>>;
+let preflightError: Error | null = null;
 try {
   evidence = await collect();
   while (!hasExpectedCoverage(evidence) && Date.now() < deadline) {
@@ -34,7 +37,6 @@ try {
     evidence = await collect();
   }
 } catch (error) {
-  if (mode === "preflight") throw error;
   evidence = unavailableForecastRuntimeTelemetry(
     {
       canaryId,
@@ -43,16 +45,22 @@ try {
       endedAt,
       collectorScriptVersion,
       dispatcherScriptVersion,
+      collectorScriptVersionId,
+      dispatcherScriptVersionId,
     },
     error,
   );
   console.warn(`Workers Observability evidence is incomplete: ${evidence.collectionErrors?.[0]}`);
+  if (mode === "preflight") {
+    preflightError = error instanceof Error ? error : new Error("observability_request_failed");
+  }
 }
 
+await writeFile(output, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+if (preflightError) throw preflightError;
 if (mode === "preflight" && evidence.workers.some((worker) => worker.samples.length === 0)) {
   throw new Error("observability_preflight_has_no_scheduled_samples");
 }
-await writeFile(output, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
 console.log(
   JSON.stringify({
     source: evidence.source,
@@ -74,6 +82,8 @@ function collect() {
     endedAt,
     collectorScriptVersion,
     dispatcherScriptVersion,
+    collectorScriptVersionId,
+    dispatcherScriptVersionId,
   });
 }
 

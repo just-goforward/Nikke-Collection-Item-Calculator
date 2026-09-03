@@ -16,10 +16,9 @@ import {
   evaluateCanaryDecision,
   missingCanaryReport,
 } from "./canary-report";
+import { existingRunConflicts, validateCanaryStartInput } from "./canary-start-contract";
 import { sha256Hex, stableJson } from "./crypto";
 
-const COLLECTOR_CRON = "*/3 * * * *";
-const DISPATCHER_CRON = "1-59/3 * * * *";
 const ABANDONED_AFTER_MS = 15 * 60 * 1_000;
 
 type Environment = "staging" | "production";
@@ -29,6 +28,8 @@ type CanaryRunRow = {
   deployment_sha: string;
   collector_cron: string;
   dispatcher_cron: string;
+  collector_version_id: string;
+  dispatcher_version_id: string;
   started_at: string;
   ends_at: string;
   quota_evidence_json: string;
@@ -51,29 +52,20 @@ export async function startCanaryDeployment(
     deploymentSha: string;
     collectorCron: string;
     dispatcherCron: string;
+    collectorVersionId: string;
+    dispatcherVersionId: string;
     quotaEvidence: unknown;
     nowMs?: number;
   },
 ) {
-  if (!/^fc-[0-9a-f]{32}$/.test(input.canaryId)) throw new Error("canary_id_invalid");
-  if (!/^[0-9a-f]{40}$/.test(input.deploymentSha)) throw new Error("canary_deployment_sha_invalid");
-  if (input.collectorCron !== COLLECTOR_CRON || input.dispatcherCron !== DISPATCHER_CRON) {
-    throw new Error("canary_cron_contract_invalid");
-  }
+  validateCanaryStartInput(input);
   const quotaEvidence = assertD1QuotaEvidence(input.quotaEvidence);
   const quotaEvidenceJson = stableJson(quotaEvidence);
   const quotaEvidenceHash = await sha256Hex(quotaEvidenceJson);
   const existing = await readRunById(db, input.canaryId);
   if (existing) {
-    if (
-      existing.environment !== input.environment ||
-      existing.deployment_sha !== input.deploymentSha ||
-      existing.collector_cron !== input.collectorCron ||
-      existing.dispatcher_cron !== input.dispatcherCron ||
-      existing.quota_evidence_hash !== quotaEvidenceHash
-    ) {
+    if (existingRunConflicts(existing, input, quotaEvidenceHash))
       throw new Error("canary_run_conflict");
-    }
     return publicRun(existing);
   }
   const nowMs = input.nowMs ?? Date.now();
@@ -93,8 +85,9 @@ export async function startCanaryDeployment(
     .prepare(
       `INSERT INTO canary_runs (
          canary_id, environment, deployment_sha, collector_cron, dispatcher_cron,
-         started_at, ends_at, quota_evidence_json, quota_evidence_hash, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         collector_version_id, dispatcher_version_id, started_at, ends_at,
+         quota_evidence_json, quota_evidence_hash, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       input.canaryId,
@@ -102,6 +95,8 @@ export async function startCanaryDeployment(
       input.deploymentSha,
       input.collectorCron,
       input.dispatcherCron,
+      input.collectorVersionId.toLowerCase(),
+      input.dispatcherVersionId.toLowerCase(),
       startedAt,
       endsAt,
       quotaEvidenceJson,
@@ -165,14 +160,16 @@ export async function readCanaryReport(
   const dispatcherPassed = dispatchPassed(dispatcherInvocationSummary, dispatches, eligible);
   const routerPassed = interactionPassed(interactions);
   const pollMode = invocations.at(-1)?.poll_mode ?? "missing";
-  const collectorScriptVersion = `${deploymentSha}-${pollMode}-v9`;
-  const dispatcherScriptVersion = `${deploymentSha}-v9`;
+  const collectorScriptVersion = `${deploymentSha}-${pollMode}-v10`;
+  const dispatcherScriptVersion = `${deploymentSha}-v10`;
   const runtime = evaluateCanaryRuntime({
     telemetry: runtimeTelemetry,
     run,
     deploymentSha,
     collectorScriptVersion,
     dispatcherScriptVersion,
+    collectorScriptVersionId: run.collector_version_id,
+    dispatcherScriptVersionId: run.dispatcher_version_id,
     invocationEvidence,
     baseline: runtimeBaseline,
   });
@@ -189,27 +186,14 @@ export async function readCanaryReport(
   const runtimeSampleHash = await sha256Hex(stableJson(runtimeTelemetry ?? null));
 
   return {
-    version: 9,
+    version: 10,
     policyId: FORECAST_CANARY_POLICY_ID,
     canaryId: run.canary_id,
     deploymentSha,
     environment,
-    identity: {
-      canaryId: run.canary_id,
-      deploymentSha,
-      collectorScriptVersion,
-      dispatcherScriptVersion,
-      startedAt: run.started_at,
-      endedAt: run.ends_at,
-    },
+    identity: canaryIdentity(run, deploymentSha, collectorScriptVersion, dispatcherScriptVersion),
     pollMode,
-    acceptance: {
-      windowMode: CANARY_WINDOW_MODE,
-      windowHours: CANARY_WINDOW_MS / (60 * 60 * 1_000),
-      minimumDeliveryRate: CANARY_MINIMUM_DELIVERY_RATE,
-      minimumCompletionRate: CANARY_MINIMUM_COMPLETION_RATE,
-      maximumMissingSlots: 1,
-    },
+    acceptance: canaryAcceptance(),
     window: {
       startedAt: run.started_at,
       endsAt: run.ends_at,
@@ -245,11 +229,13 @@ export async function readCanaryWindow(
     : await readLatestRun(db, environment, deploymentSha);
   if (!run || run.environment !== environment || run.deployment_sha !== deploymentSha) {
     return {
-      version: 9,
+      version: 10,
       policyId: FORECAST_CANARY_POLICY_ID,
       canaryId: canaryId ?? null,
       deploymentSha,
       environment,
+      collectorVersionId: null,
+      dispatcherVersionId: null,
       pollMode: "missing",
       acceptance: { windowMode: CANARY_WINDOW_MODE, windowHours: null },
       window: {
@@ -265,11 +251,13 @@ export async function readCanaryWindow(
   const endsMs = Date.parse(run.ends_at);
   const pollMode = await readCanaryPollMode(db, deploymentSha, run.started_at, run.ends_at);
   return {
-    version: 9,
+    version: 10,
     policyId: FORECAST_CANARY_POLICY_ID,
     canaryId: run.canary_id,
     deploymentSha,
     environment,
+    collectorVersionId: run.collector_version_id,
+    dispatcherVersionId: run.dispatcher_version_id,
     pollMode,
     acceptance: {
       windowMode: CANARY_WINDOW_MODE,
@@ -337,6 +325,8 @@ function evaluateCanaryRuntime(input: {
   deploymentSha: string;
   collectorScriptVersion: string;
   dispatcherScriptVersion: string;
+  collectorScriptVersionId: string;
+  dispatcherScriptVersionId: string;
   invocationEvidence: Awaited<ReturnType<typeof readInvocationEvidence>>;
   baseline: unknown;
 }) {
@@ -346,6 +336,8 @@ function evaluateCanaryRuntime(input: {
     deploymentSha: input.deploymentSha,
     collectorScriptVersion: input.collectorScriptVersion,
     dispatcherScriptVersion: input.dispatcherScriptVersion,
+    collectorScriptVersionId: input.collectorScriptVersionId,
+    dispatcherScriptVersionId: input.dispatcherScriptVersionId,
     startedAt: input.run.started_at,
     endedAt: input.run.ends_at,
     collectorExpectedSlots: input.invocationEvidence.collectorExpected,
@@ -362,6 +354,7 @@ async function readRunById(db: D1Database, canaryId: string) {
   return db
     .prepare(
       `SELECT canary_id, environment, deployment_sha, collector_cron, dispatcher_cron,
+              collector_version_id, dispatcher_version_id,
               started_at, ends_at, quota_evidence_json, quota_evidence_hash
        FROM canary_runs WHERE canary_id = ?`,
     )
@@ -373,6 +366,7 @@ async function readLatestRun(db: D1Database, environment: Environment, deploymen
   return db
     .prepare(
       `SELECT canary_id, environment, deployment_sha, collector_cron, dispatcher_cron,
+              collector_version_id, dispatcher_version_id,
               started_at, ends_at, quota_evidence_json, quota_evidence_hash
        FROM canary_runs WHERE environment = ? AND deployment_sha = ?
        ORDER BY started_at DESC LIMIT 1`,
@@ -782,6 +776,34 @@ function expectedSlots(startedMs: number, endsMs: number, minuteRemainder: 0 | 1
   return result;
 }
 
+function canaryIdentity(
+  run: CanaryRunRow,
+  deploymentSha: string,
+  collectorScriptVersion: string,
+  dispatcherScriptVersion: string,
+) {
+  return {
+    canaryId: run.canary_id,
+    deploymentSha,
+    collectorScriptVersion,
+    dispatcherScriptVersion,
+    collectorScriptVersionId: run.collector_version_id,
+    dispatcherScriptVersionId: run.dispatcher_version_id,
+    startedAt: run.started_at,
+    endedAt: run.ends_at,
+  };
+}
+
+function canaryAcceptance() {
+  return {
+    windowMode: CANARY_WINDOW_MODE,
+    windowHours: CANARY_WINDOW_MS / (60 * 60 * 1_000),
+    minimumDeliveryRate: CANARY_MINIMUM_DELIVERY_RATE,
+    minimumCompletionRate: CANARY_MINIMUM_COMPLETION_RATE,
+    maximumMissingSlots: 1,
+  };
+}
+
 function normalizeSlot(value: string) {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp)
@@ -796,6 +818,8 @@ function publicRun(row: CanaryRunRow) {
     deploymentSha: row.deployment_sha,
     collectorCron: row.collector_cron,
     dispatcherCron: row.dispatcher_cron,
+    collectorVersionId: row.collector_version_id,
+    dispatcherVersionId: row.dispatcher_version_id,
     startedAt: row.started_at,
     endsAt: row.ends_at,
   };
