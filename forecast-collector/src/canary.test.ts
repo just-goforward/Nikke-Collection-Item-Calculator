@@ -22,6 +22,8 @@ const testEnv: CollectorEnv = {
 };
 const SHA = "a".repeat(40);
 const CANARY_ID = `fc-${"a".repeat(32)}`;
+const COLLECTOR_VERSION_ID = "11111111-1111-4111-8111-111111111111";
+const DISPATCHER_VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const START = Date.parse("2026-09-01T02:00:30.000Z");
 const END = START + 8 * 60 * 60 * 1_000;
 
@@ -39,13 +41,15 @@ beforeEach(async () => {
     deploymentSha: SHA,
     collectorCron: "*/3 * * * *",
     dispatcherCron: "1-59/3 * * * *",
+    collectorVersionId: COLLECTOR_VERSION_ID,
+    dispatcherVersionId: DISPATCHER_VERSION_ID,
     quotaEvidence: quotaEvidence(START),
     nowMs: START,
   });
   await insertSmokeAndRouterTest();
 });
 
-describe("canary report v9 storage and start contract", () => {
+describe("canary report v10 storage and start contract", () => {
   it("uses covering indexes for the recurring latest-invocation queries", async () => {
     const collectorPlan = await testEnv.FORECAST_DB.prepare(
       `EXPLAIN QUERY PLAN
@@ -76,8 +80,8 @@ describe("canary report v9 storage and start contract", () => {
 
     const report = await readFinalCanaryReport();
 
-    expect(report.version).toBe(9);
-    expect(report.policyId).toBe("forecast-canary-v9-hybrid-runtime-v1");
+    expect(report.version).toBe(10);
+    expect(report.policyId).toBe("forecast-canary-v10-live-contract-v1");
     expect(report.canaryId).toBe(CANARY_ID);
     expect(report.acceptance).toMatchObject({ windowMode: "fixed_8_hours", windowHours: 8 });
     expect(report.quotaEvidence).toMatchObject({ valid: true, errorCode: null });
@@ -145,7 +149,7 @@ describe("canary report v9 storage and start contract", () => {
   });
 });
 
-describe("canary report v9 lifecycle contract", () => {
+describe("canary report v10 lifecycle contract", () => {
   it("reads canary timing without building the full report", async () => {
     const active = await readCanaryWindow(
       testEnv.FORECAST_DB,
@@ -154,8 +158,8 @@ describe("canary report v9 lifecycle contract", () => {
       "staging",
     );
     expect(active).toMatchObject({
-      version: 9,
-      policyId: "forecast-canary-v9-hybrid-runtime-v1",
+      version: 10,
+      policyId: "forecast-canary-v10-live-contract-v1",
       canaryId: CANARY_ID,
       pollMode: "missing",
       acceptance: { windowMode: "fixed_8_hours", windowHours: 8 },
@@ -173,6 +177,8 @@ describe("canary report v9 lifecycle contract", () => {
       deploymentSha: SHA,
       collectorCron: "*/3 * * * *",
       dispatcherCron: "1-59/3 * * * *",
+      collectorVersionId: COLLECTOR_VERSION_ID,
+      dispatcherVersionId: DISPATCHER_VERSION_ID,
       quotaEvidence: quotaEvidence(START),
       nowMs: START + 60_000,
     });
@@ -185,6 +191,8 @@ describe("canary report v9 lifecycle contract", () => {
         deploymentSha: SHA,
         collectorCron: "*/3 * * * *",
         dispatcherCron: "1-59/3 * * * *",
+        collectorVersionId: COLLECTOR_VERSION_ID,
+        dispatcherVersionId: DISPATCHER_VERSION_ID,
         quotaEvidence: quotaEvidence(START),
         nowMs: START + 60_000,
       }),
@@ -197,6 +205,8 @@ describe("canary report v9 lifecycle contract", () => {
       deploymentSha: SHA,
       collectorCron: "*/3 * * * *",
       dispatcherCron: "1-59/3 * * * *",
+      collectorVersionId: COLLECTOR_VERSION_ID,
+      dispatcherVersionId: DISPATCHER_VERSION_ID,
       quotaEvidence: quotaEvidence(nextStart),
       nowMs: nextStart,
     });
@@ -241,6 +251,8 @@ describe("canary report v9 lifecycle contract", () => {
         deploymentSha: SHA,
         collectorCron: "*/3 * * * *",
         dispatcherCron: "1-59/3 * * * *",
+        collectorVersionId: COLLECTOR_VERSION_ID,
+        dispatcherVersionId: DISPATCHER_VERSION_ID,
         quotaEvidence: quotaEvidence(START - 21 * 60_000),
         nowMs: START,
       }),
@@ -254,6 +266,8 @@ describe("canary report v9 lifecycle contract", () => {
         deploymentSha: SHA,
         collectorCron: "*/3 * * * *",
         dispatcherCron: "1-59/3 * * * *",
+        collectorVersionId: COLLECTOR_VERSION_ID,
+        dispatcherVersionId: DISPATCHER_VERSION_ID,
         quotaEvidence: quotaEvidence(outsideWindow),
         nowMs: outsideWindow,
       }),
@@ -261,7 +275,7 @@ describe("canary report v9 lifecycle contract", () => {
   });
 });
 
-describe("canary report v9 slot evidence", () => {
+describe("canary report v10 slot evidence", () => {
   it("allows one missing slot but rejects two", async () => {
     const collector = slots(0);
     const dispatcher = slots(1);
@@ -456,18 +470,20 @@ async function readFinalCanaryReport() {
 
 function runtimeTelemetry(collectorSlots: string[], dispatcherSlots: string[]) {
   return {
-    version: 1,
-    source: "cloudflare-workers-observability-scheduled-v1",
+    version: 2,
+    source: "cloudflare-workers-observability-scheduled-v2",
     canaryId: CANARY_ID,
     deploymentSha: SHA,
-    collectorScriptVersion: `${SHA}-both-v9`,
-    dispatcherScriptVersion: `${SHA}-v9`,
+    collectorScriptVersion: `${SHA}-both-v10`,
+    dispatcherScriptVersion: `${SHA}-v10`,
+    collectorScriptVersionId: COLLECTOR_VERSION_ID,
+    dispatcherScriptVersionId: DISPATCHER_VERSION_ID,
     startedAt: new Date(START).toISOString(),
     endedAt: new Date(END).toISOString(),
     observedAt: new Date(END + 60_000).toISOString(),
     workers: [
-      runtimeWorker("collector", collectorSlots, 41.169, `${SHA}-both-v9`, 50, 0),
-      runtimeWorker("dispatcher", dispatcherSlots, 20.464, `${SHA}-v9`, 25, 1_000),
+      runtimeWorker("collector", collectorSlots, 41.169, `${SHA}-both-v10`, 50, 0),
+      runtimeWorker("dispatcher", dispatcherSlots, 20.464, `${SHA}-v10`, 25, 1_000),
     ],
   };
 }
@@ -488,7 +504,9 @@ function runtimeWorker(
     samples: values.map((slot, index) => ({
       slot,
       requestIdHash: (requestOffset + index + 1).toString(16).padStart(64, "0"),
-      scriptVersion,
+      scriptVersionId: component === "collector" ? COLLECTOR_VERSION_ID : DISPATCHER_VERSION_ID,
+      scriptVersionTag: scriptVersion,
+      identitySource: "tag",
       eventType: "scheduled",
       cpuTimeMs,
       outcome: "ok",

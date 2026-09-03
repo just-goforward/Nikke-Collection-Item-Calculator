@@ -20,6 +20,8 @@ export type ObservabilityQueryOptions = {
   endedAt: string;
   collectorScriptVersion: string;
   dispatcherScriptVersion: string;
+  collectorScriptVersionId: string;
+  dispatcherScriptVersionId: string;
   fetchImpl?: typeof fetch;
   sleepImpl?: (milliseconds: number) => Promise<void>;
 };
@@ -30,12 +32,14 @@ export function unavailableForecastRuntimeTelemetry(
 ): ForecastRuntimeTelemetryEvidence {
   const code = sanitizeCollectionError(error);
   return {
-    version: 1,
+    version: 2,
     source: FORECAST_RUNTIME_TELEMETRY_SOURCE,
     canaryId: options.canaryId,
     deploymentSha: options.deploymentSha,
     collectorScriptVersion: options.collectorScriptVersion,
     dispatcherScriptVersion: options.dispatcherScriptVersion,
+    collectorScriptVersionId: options.collectorScriptVersionId,
+    dispatcherScriptVersionId: options.dispatcherScriptVersionId,
     startedAt: new Date(Date.parse(options.startedAt)).toISOString(),
     endedAt: new Date(Date.parse(options.endedAt)).toISOString(),
     observedAt: new Date().toISOString(),
@@ -54,7 +58,7 @@ export function unavailableForecastRuntimeTelemetry(
 
 export function buildInvocationQuery(scriptName: string, startedAt: string, endedAt: string) {
   return {
-    queryId: `forecast-canary-v9-${scriptName}`,
+    queryId: `forecast-canary-v10-${scriptName}`,
     timeframe: {
       from: Date.parse(startedAt),
       to: Date.parse(endedAt),
@@ -92,6 +96,10 @@ export async function collectForecastRuntimeTelemetry(
         component === "collector"
           ? options.collectorScriptVersion
           : options.dispatcherScriptVersion;
+      const expectedScriptVersionId =
+        component === "collector"
+          ? options.collectorScriptVersionId
+          : options.dispatcherScriptVersionId;
       const response = await runQuery(
         fetchImpl,
         options.accountId,
@@ -109,6 +117,7 @@ export async function collectForecastRuntimeTelemetry(
           scriptName: contract.scriptName,
           deploymentSha: options.deploymentSha,
           expectedScriptVersion,
+          expectedScriptVersionId,
           startedAt: options.startedAt,
           endedAt: options.endedAt,
         }),
@@ -116,12 +125,14 @@ export async function collectForecastRuntimeTelemetry(
     }),
   );
   return {
-    version: 1,
+    version: 2,
     source: FORECAST_RUNTIME_TELEMETRY_SOURCE,
     canaryId: options.canaryId,
     deploymentSha: options.deploymentSha,
     collectorScriptVersion: options.collectorScriptVersion,
     dispatcherScriptVersion: options.dispatcherScriptVersion,
+    collectorScriptVersionId: options.collectorScriptVersionId,
+    dispatcherScriptVersionId: options.dispatcherScriptVersionId,
     startedAt: new Date(Date.parse(options.startedAt)).toISOString(),
     endedAt: new Date(Date.parse(options.endedAt)).toISOString(),
     observedAt: new Date().toISOString(),
@@ -136,6 +147,7 @@ export async function parseInvocationSamples(
     scriptName: string;
     deploymentSha: string;
     expectedScriptVersion: string;
+    expectedScriptVersionId: string;
     startedAt: string;
     endedAt: string;
   },
@@ -164,11 +176,21 @@ async function parseInvocationEntry(
   if (!marker) return null;
   assertMarkerIdentity(marker, expected);
   const runtime = readRuntimeEvent(events, expected.scriptName);
+  if (
+    (runtime.scriptVersionId !== null &&
+      runtime.scriptVersionId !== expected.expectedScriptVersionId.toLowerCase()) ||
+    (runtime.scriptVersionTag !== null &&
+      runtime.scriptVersionTag !== expected.expectedScriptVersion)
+  ) {
+    throw new Error("observability_version_identity_mismatch");
+  }
   const slot = assertMarkerSlot(marker.slot, expected.startedAt, expected.endedAt);
   return {
     slot,
     requestIdHash: createHash("sha256").update(requestId).digest("hex"),
-    scriptVersion: runtime.scriptVersion,
+    scriptVersionId: runtime.scriptVersionId,
+    scriptVersionTag: runtime.scriptVersionTag,
+    identitySource: runtime.identitySource,
     eventType: "scheduled" as const,
     cpuTimeMs: runtime.cpuTimeMs,
     outcome: runtime.outcome,
@@ -195,24 +217,49 @@ function readRuntimeEvent(events: Record<string, unknown>[], expectedScriptName:
   if (workers["eventType"] !== "scheduled" || workers["scriptName"] !== expectedScriptName) {
     throw new Error("observability_scheduled_identity_invalid");
   }
-  return parseRuntimeShape(workers);
+  const runtime = parseRuntimeShape(workers);
+  const version = readScriptVersion(events, expectedScriptName);
+  return {
+    ...runtime,
+    ...version,
+    identitySource: version.scriptVersionTag
+      ? ("tag" as const)
+      : version.scriptVersionId
+        ? ("version_id" as const)
+        : ("marker" as const),
+  };
 }
 
 function parseRuntimeShape(workers: Record<string, unknown>) {
   const outcome = workers["outcome"];
   const cpuTimeMs = workers["cpuTimeMs"];
-  const scriptVersion = workers["scriptVersion"];
   if (
     typeof outcome !== "string" ||
     typeof cpuTimeMs !== "number" ||
     !Number.isFinite(cpuTimeMs) ||
-    cpuTimeMs < 0 ||
-    !isRecord(scriptVersion) ||
-    typeof scriptVersion["tag"] !== "string"
+    cpuTimeMs < 0
   ) {
     throw new Error("observability_runtime_shape_invalid");
   }
-  return { outcome, cpuTimeMs, scriptVersion: scriptVersion["tag"] };
+  return { outcome, cpuTimeMs };
+}
+
+function readScriptVersion(events: Record<string, unknown>[], expectedScriptName: string) {
+  const ids = new Set<string>();
+  const tags = new Set<string>();
+  for (const event of events) {
+    const workers = event["$workers"];
+    if (!isRecord(workers) || workers["scriptName"] !== expectedScriptName) continue;
+    const scriptVersion = workers["scriptVersion"];
+    if (!isRecord(scriptVersion)) continue;
+    if (typeof scriptVersion["id"] === "string") ids.add(scriptVersion["id"].toLowerCase());
+    if (typeof scriptVersion["tag"] === "string") tags.add(scriptVersion["tag"]);
+  }
+  if (ids.size > 1 || tags.size > 1) throw new Error("observability_version_identity_conflict");
+  return {
+    scriptVersionId: ids.values().next().value ?? null,
+    scriptVersionTag: tags.values().next().value ?? null,
+  };
 }
 
 function assertMarkerSlot(value: string, startedAt: string, endedAt: string) {
@@ -321,6 +368,16 @@ function assertOptions(options: ObservabilityQueryOptions) {
     throw new Error("observability_window_invalid");
   }
   if (!options.token) throw new Error("observability_token_missing");
+  if (!isVersionId(options.collectorScriptVersionId)) {
+    throw new Error("observability_collector_version_id_invalid");
+  }
+  if (!isVersionId(options.dispatcherScriptVersionId)) {
+    throw new Error("observability_dispatcher_version_id_invalid");
+  }
+}
+
+function isVersionId(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 function sanitizeCollectionError(error: unknown) {

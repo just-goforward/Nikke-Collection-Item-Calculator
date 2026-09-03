@@ -91,7 +91,7 @@ export function missingCanaryReport(
   canaryId: string | null,
 ) {
   return {
-    version: 9,
+    version: 10,
     policyId: FORECAST_CANARY_POLICY_ID,
     canaryId,
     deploymentSha,
@@ -145,6 +145,8 @@ export function missingCanaryReport(
       deploymentSha,
       collectorScriptVersion: null,
       dispatcherScriptVersion: null,
+      collectorScriptVersionId: null,
+      dispatcherScriptVersionId: null,
       startedAt: null,
       endedAt: null,
     },

@@ -80,7 +80,7 @@ provider diagnostics.
 
 The collector stores invocation evidence, cursor and queue metadata, and validated schedule and
 candidate records. GitHub Actions revalidates the schema and hash and proposes an inactive registry
-entry. Canary v9 uses an independent `canaryId` and generates expected Collector and Dispatcher Cron slots for a fixed eight-hour window from a server-recorded start. Both Workers require at least 99% delivery and completion, at most
+entry. Canary v10 uses an independent `canaryId` and generates expected Collector and Dispatcher Cron slots for a fixed eight-hour window from a server-recorded start. Both Workers require at least 99% delivery and completion, at most
 one missing slot, a completed latest invocation, no abandoned, late, unexpected, or duplicate work, consistent queue,
 cursor, candidate, watermark, and manual-review state, and successful Dispatcher and signed Router
 smoke evidence. After covering indexes are verified on both Forecast databases, a 30-minute burn-in
@@ -91,7 +91,7 @@ the final CPU certificate uses the exact fixed eight-hour interval after it clos
 requests do not dominate the runtime distribution being certified. Runtime evidence uses Workers
 Observability scheduled invocations only. Actual CPU termination or unsuccessful outcomes are hard
 failures; low p99 headroom is `passed_with_warning`, and missing telemetry is `incomplete`. The first
-v9 run bootstraps a clean scheduled-only performance baseline candidate. The artifact does not become
+v10 run bootstraps a clean scheduled-only performance baseline candidate. The artifact does not become
 policy until a separate review adds it as `forecast-collector/runtime-baseline.json`.
 The canary may start only below 25% of each Workers Paid monthly allowance. Guard stages at
 35/40/45/50% stop staging, production Forecast, statistics writes, and optional D1/Cron work in that

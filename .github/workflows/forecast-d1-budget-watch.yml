@@ -61,7 +61,7 @@ jobs:
           npm run check:d1-budget -- preflight
           --output "$RUNNER_TEMP/cloudflare-paid-runtime.json"
 
-      - name: Detect an active v9 canary
+      - name: Detect an active v10 canary
         id: canary
         continue-on-error: true
         env:
@@ -85,7 +85,7 @@ jobs:
           const now = Date.now();
           const start = Date.parse(report?.window?.startedAt ?? "");
           const end = Date.parse(report?.window?.endsAt ?? "");
-          const valid = report?.version === 9 && report?.policyId === "forecast-canary-v9-hybrid-runtime-v1" && report?.acceptance?.windowMode === "fixed_8_hours";
+          const valid = report?.version === 10 && report?.policyId === "forecast-canary-v10-live-contract-v1" && report?.acceptance?.windowMode === "fixed_8_hours";
           const active = valid && start <= now && now < end;
           const elapsed = active ? now - start : -1;
           const halfHour = 30 * 60 * 1000;
@@ -343,4 +343,4 @@ jobs:
 
       - name: Record inactive watchdog
         if: steps.canary.outputs.active != 'true'
-        run: echo "No active v9 Forecast staging canary was found; monthly Paid quota monitoring still ran." >> "$GITHUB_STEP_SUMMARY"
+        run: echo "No active v10 Forecast staging canary was found; monthly Paid quota monitoring still ran." >> "$GITHUB_STEP_SUMMARY"

@@ -95,8 +95,8 @@ describe("forecast collector admin boundary", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      version: 9,
-      policyId: "forecast-canary-v9-hybrid-runtime-v1",
+      version: 10,
+      policyId: "forecast-canary-v10-live-contract-v1",
       canaryId: null,
       pollMode: "missing",
       acceptance: { windowMode: "fixed_8_hours", windowHours: null },

@@ -10,10 +10,12 @@ import {
 
 const SHA = "a".repeat(40);
 const CANARY_ID = `fc-${"b".repeat(32)}`;
+const COLLECTOR_VERSION_ID = "11111111-1111-4111-8111-111111111111";
+const DISPATCHER_VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const START = Date.parse("2026-09-03T01:22:44.843Z");
 const END = START + 8 * 60 * 60 * 1_000;
 
-describe("forecast canary v9 runtime policy", () => {
+describe("forecast canary v10 runtime policy", () => {
   it("classifies the v8 CPU shape as a baseline warning instead of a failure", () => {
     const input = fixture();
     runtimeWorker(input, "collector").samples = samplesWithDistribution(
@@ -27,6 +29,7 @@ describe("forecast canary v9 runtime policy", () => {
       7.283,
       9.266,
       20.464,
+      DISPATCHER_VERSION_ID,
     );
 
     const result = evaluateForecastRuntimeTelemetry(input);
@@ -46,7 +49,12 @@ describe("forecast canary v9 runtime policy", () => {
   it("keeps 80 and 95 percent p99 headroom thresholds as warnings", () => {
     const input = fixture();
     runtimeWorker(input, "collector").samples = samples(slots(0), 30, 40);
-    runtimeWorker(input, "dispatcher").samples = samples(slots(1), 10, 23.75);
+    runtimeWorker(input, "dispatcher").samples = samples(
+      slots(1),
+      10,
+      23.75,
+      DISPATCHER_VERSION_ID,
+    );
 
     const result = evaluateForecastRuntimeTelemetry(input);
 
@@ -104,6 +112,29 @@ describe("forecast canary v9 runtime policy", () => {
     expect(result.runtimeSafety.status).toBe("passed");
   });
 
+  it("accepts omitted optional version metadata with an explicit marker warning", () => {
+    const input = fixture();
+    for (const worker of input.telemetry.workers) {
+      worker.samples = worker.samples.map((sample) => ({
+        ...sample,
+        scriptVersionId: null,
+        scriptVersionTag: null,
+        identitySource: "marker" as const,
+      }));
+    }
+
+    const result = evaluateForecastRuntimeTelemetry(input);
+
+    expect(result.evidence).toEqual({ status: "valid", errors: [] });
+    expect(result.runtimeSafety.status).toBe("passed");
+    expect(result.performance.warnings).toContain("runtime_version_metadata_unavailable:collector");
+    expect(result.performance.warnings).toContain(
+      "runtime_version_metadata_unavailable:dispatcher",
+    );
+  });
+});
+
+describe("forecast canary v10 runtime evidence and regression policy", () => {
   it("keeps a final Observability API failure as incomplete evidence", () => {
     const input = fixture();
     input.telemetry.collectionErrors = ["observability_http_403"];
@@ -177,7 +208,7 @@ describe("forecast canary v9 runtime policy", () => {
     const input = fixture();
     const sample = runtimeWorker(input, "dispatcher").samples[0];
     if (!sample) throw new Error("missing_dispatcher_sample");
-    sample.scriptVersion = "c".repeat(40);
+    sample.scriptVersionId = "33333333-3333-4333-8333-333333333333";
 
     const result = evaluateForecastRuntimeTelemetry(input);
 
@@ -192,12 +223,14 @@ function fixture() {
   const collectorSlots = slots(0);
   const dispatcherSlots = slots(1);
   const telemetry: ForecastRuntimeTelemetryEvidence = {
-    version: 1,
+    version: 2,
     source: FORECAST_RUNTIME_TELEMETRY_SOURCE,
     canaryId: CANARY_ID,
     deploymentSha: SHA,
     collectorScriptVersion: SHA,
     dispatcherScriptVersion: SHA,
+    collectorScriptVersionId: COLLECTOR_VERSION_ID,
+    dispatcherScriptVersionId: DISPATCHER_VERSION_ID,
     startedAt: new Date(START).toISOString(),
     endedAt: new Date(END).toISOString(),
     observedAt: new Date(END + 60_000).toISOString(),
@@ -212,7 +245,7 @@ function fixture() {
         component: "dispatcher",
         ...FORECAST_RUNTIME_WORKERS.dispatcher,
         headSamplingRate: 1,
-        samples: samples(dispatcherSlots, 5, 7),
+        samples: samples(dispatcherSlots, 5, 7, DISPATCHER_VERSION_ID),
       },
     ],
   };
@@ -222,6 +255,8 @@ function fixture() {
     deploymentSha: SHA,
     collectorScriptVersion: SHA,
     dispatcherScriptVersion: SHA,
+    collectorScriptVersionId: COLLECTOR_VERSION_ID,
+    dispatcherScriptVersionId: DISPATCHER_VERSION_ID,
     startedAt: new Date(START).toISOString(),
     endedAt: new Date(END).toISOString(),
     collectorExpectedSlots: collectorSlots,
@@ -238,18 +273,31 @@ function runtimeWorker(input: ReturnType<typeof fixture>, component: "collector"
   return worker;
 }
 
-function samples(values: string[], p95: number, p99: number): ForecastRuntimeSample[] {
+function samples(
+  values: string[],
+  p95: number,
+  p99: number,
+  versionId = COLLECTOR_VERSION_ID,
+): ForecastRuntimeSample[] {
   return values.map((slot, index) => ({
     slot,
     requestIdHash: index.toString(16).padStart(64, "0"),
-    scriptVersion: SHA,
+    scriptVersionId: versionId,
+    scriptVersionTag: SHA,
+    identitySource: "tag",
     eventType: "scheduled",
     cpuTimeMs: index < Math.ceil(values.length * 0.95) ? p95 : p99,
     outcome: "ok",
   }));
 }
 
-function samplesWithDistribution(values: string[], average: number, p95: number, p99: number) {
+function samplesWithDistribution(
+  values: string[],
+  average: number,
+  p95: number,
+  p99: number,
+  versionId = COLLECTOR_VERSION_ID,
+) {
   const p95Count = 7;
   const p99Count = 2;
   const lowerCount = values.length - p95Count - p99Count;
@@ -257,7 +305,9 @@ function samplesWithDistribution(values: string[], average: number, p95: number,
   return values.map((slot, index) => ({
     slot,
     requestIdHash: index.toString(16).padStart(64, "0"),
-    scriptVersion: SHA,
+    scriptVersionId: versionId,
+    scriptVersionTag: SHA,
+    identitySource: "tag" as const,
     eventType: "scheduled" as const,
     cpuTimeMs: index < lowerCount ? lower : index < lowerCount + p95Count ? p95 : p99,
     outcome: "ok",

@@ -69,8 +69,8 @@ GitHub App은 이 저장소 하나에만 설치하고 `Actions: write`, `Metadat
 10. workflow는 통계 production D1 read probe와 계정 전체 baseline을 확인한 뒤
     Collector·Dispatcher를 활성화하고 30분 burn-in을 수행한다. 월간 결제기간을 사용하므로
     KST/UTC 자정에 맞출 필요가 없다.
-11. burn-in 후 현재·월말 예상 사용률이 모두 25% 미만이고 Workers Observability read probe가
-    통과하면 독립 `canaryId`의 v9 row가 생성된다.
+11. 활성화 후 7분 live-contract probe와 30분 burn-in 뒤 재검증이 모두 통과하고, 현재·월말
+    예상 사용률이 모두 25% 미만이면 독립 `canaryId`의 v10 row가 생성된다.
    실패하면 staging Collector·Dispatcher가 모두 비활성화되고 alert 채널에 직접 경고한다.
 
 Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난 뒤 owner 설정으로
@@ -121,7 +121,7 @@ Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난
 - 계산기와 Rust/WASM solver는 브라우저에서 계속 동작한다. 중단되는 것은 통계 기록과 Forecast
   자동 갱신이며, Cloudflare Budget Alert는 외부 알림일 뿐 이 차단 계약을 대체하지 않는다.
 
-## Canary v9 판독
+## Canary v10 판독
 
 Canary는 이전 기간을 합치지 않고 `canary_runs.startedAt`부터 정확히 8시간 진행한다. Collector
 `*/3`과 Dispatcher `1-59/3`의 예상 slot을 이 구간에서 생성하므로 정상적으로 Worker별 약 160개
@@ -131,8 +131,8 @@ slot을 관찰한다. 전체 구간이 현재 결제기간 안에 있어야 하�
 통과 조건:
 
 ```text
-version = 9
-policyId = forecast-canary-v9-hybrid-runtime-v1
+version = 10
+policyId = forecast-canary-v10-live-contract-v1
 windowMode = fixed_8_hours
 endsAt = startedAt + 8시간
 각 Worker deliveryRate >= 99%
@@ -157,16 +157,19 @@ quota evidence freshness 오류 = 0
 2시간 이후 abandoned 비율 1% 초과, missing-slot 비율 5% 초과, invariant 오류, Router 서명·권한
 smoke 실패는 조기 실패다. 일시적인 slot 1개 누락만으로는 조기 실패시키지 않는다.
 
-v9는 판정 자료의 유효성과 정책 위반을 분리한다. API 지연, telemetry coverage 부족, hash나
-배포 신원 불일치는 `incomplete`이며 production으로 진행하지 않는다. 완전한 증거가 기능·무결성·
+v10은 판정 자료의 유효성과 정책 위반을 분리한다. Wrangler가 반환한 불변 Worker Version ID를
+canary row에 저장하고 Observability의 Version ID나 tag가 제공되면 대조한다. Cloudflare가 이
+선택 메타데이터를 생략하면 배포 SHA·구조화 Cron marker·D1 slot의 조합으로 대조하고 경고를
+남긴다. API 지연, telemetry coverage 부족, hash나 배포 신원 불일치는 `incomplete`이며 production으로
+진행하지 않는다. 완전한 증거가 기능·무결성·
 quota·runtime hard gate 위반을 증명할 때만 `failed`다. CPU p99가 설정 상한의 80% 이상이면
 warning, 95% 이상이면 높은 등급의 warning이지만 `exceededCpu=0`이고 다른 hard gate가 정상이면
 `passed_with_warning`이다. 이 상태도 workflow 성공으로 기록되지만 production 승격에는 기존
 `cloudflare-production` 수동 승인이 필요하다.
 
-첫 v9는 이전 v8 GraphQL 집계를 hard baseline으로 사용하지 않고 scheduled-only 기준선을 만드는
+첫 v10은 이전 v8 GraphQL 집계를 hard baseline으로 사용하지 않고 scheduled-only 기준선을 만드는
 `baseline_bootstrap`이다. 생성된 기준선 후보는 Actions artifact일 뿐 자동 적용되지 않는다. 별도
-검토 PR로 `forecast-collector/runtime-baseline.json`을 추가한 뒤에만 이후 v9가 이를 소비한다.
+검토 PR로 `forecast-collector/runtime-baseline.json`을 추가한 뒤에만 이후 v10이 이를 소비한다.
 승인된 기준선이 있는 경우에만 전체 p95와 평균, 독립 4시간 구간 두
 개의 회귀가 모두 같은 방향으로 확인될 때 성능 hard failure로 판정한다. 종료 시 telemetry가
 늦으면 5분 간격으로 최대 30분 재조회하며, 그래도 부족하면 immutable 8시간 window를
@@ -179,7 +182,7 @@ sampling `1.0`을 사용하고 production은 기존 sampling을 유지한다.
 
 ## Production 승격
 
-1. v9 인증 상태가 `passed` 또는 `passed_with_warning`이고 promotion 시점의 계정 전체 Paid quota
+1. v10 인증 상태가 `passed` 또는 `passed_with_warning`이고 promotion 시점의 계정 전체 Paid quota
    preflight가 통과한 뒤에만
    `Promote Forecast Collector`를 실행한다.
 2. `cloudflare-production` environment 승인은 관리자가 직접 수행한다.
