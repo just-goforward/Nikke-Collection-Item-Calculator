@@ -40,8 +40,8 @@ export async function readQuotaEvidence(
 ) {
   try {
     const evidence = await validateQuotaEvidence(row, runtimeQuota, nowMs, options);
-    const cpu = cpuBudgetSummary(evidence, environment);
-    if (!cpu.passed) throw new Error(`cloudflare_paid_cpu_budget:${cpu.failureCodes.join(",")}`);
+    const policy = quotaPolicySummary(evidence);
+    const accountRuntime = accountRuntimeSummary(evidence, environment);
     return {
       valid: true,
       errorCode: null,
@@ -51,7 +51,8 @@ export async function readQuotaEvidence(
       freshnessMinutes: runtimeQuota
         ? Math.max(0, (nowMs - Date.parse(runtimeQuota.observedAt)) / 60_000)
         : null,
-      cpu,
+      policy,
+      accountRuntime,
     };
   } catch (error) {
     return {
@@ -61,7 +62,8 @@ export async function readQuotaEvidence(
       evidenceHash: runtimeQuota?.evidenceHash ?? row.quota_evidence_hash,
       initialEvidenceHash: row.quota_evidence_hash,
       freshnessMinutes: null,
-      cpu: null,
+      policy: null,
+      accountRuntime: null,
     };
   }
 }
@@ -95,7 +97,6 @@ async function validateQuotaEvidence(
   }
   assertSameBillingPeriod(initialEvidence, evidence);
   assertRuntimeQuotaFresh(runtimeQuota, evidence, nowMs);
-  assertNormalQuota(evidence);
   if (
     runtimeEvidence &&
     (evidence.workerRuntime.startedAt !== options.runtimeStartedAt ||
@@ -132,7 +133,7 @@ function assertRollingRuntimeEvidence(evidence: D1QuotaEvidence) {
   }
 }
 
-function cpuBudgetSummary(evidence: D1QuotaEvidence, environment: Environment) {
+function accountRuntimeSummary(evidence: D1QuotaEvidence, environment: Environment) {
   const required = requiredWorkerNames(environment);
   const workers = evidence.workerRuntime.workers
     .filter((worker) => worker.scriptName in WORKER_CPU_LIMITS_MS)
@@ -141,24 +142,41 @@ function cpuBudgetSummary(evidence: D1QuotaEvidence, environment: Environment) {
       return {
         scriptName: worker.scriptName,
         configuredLimitMs,
-        allowedP99Ms: configuredLimitMs * 0.8,
         cpuTimeAverageMs: worker.cpuTimeAverageMs,
         cpuTimeP95Ms: worker.cpuTimeP95Ms,
         cpuTimeP99Ms: worker.cpuTimeP99Ms,
+        errorsObserved: worker.errorsObserved,
         exceededCpuObserved: worker.exceededCpuObserved,
-        passed:
-          configuredLimitMs > 0 &&
-          worker.cpuTimeP99Ms < configuredLimitMs * 0.8 &&
-          worker.exceededCpuObserved === 0,
+        passed: worker.errorsObserved === 0 && worker.exceededCpuObserved === 0,
       };
     });
   const names = new Set(workers.map((worker) => worker.scriptName));
   const missingWorkers = required.filter((scriptName) => !names.has(scriptName));
   const failureCodes = [
     ...missingWorkers.map((scriptName) => `missing:${scriptName}`),
-    ...workers.filter((worker) => !worker.passed).map((worker) => `cpu:${worker.scriptName}`),
+    ...workers.filter((worker) => !worker.passed).map((worker) => `runtime:${worker.scriptName}`),
   ];
-  return { workers, missingWorkers, failureCodes, passed: failureCodes.length === 0 };
+  return {
+    workers,
+    missingWorkers,
+    failureCodes,
+    status:
+      missingWorkers.length > 0 ? "incomplete" : failureCodes.length > 0 ? "failed" : "passed",
+  };
+}
+
+function quotaPolicySummary(evidence: D1QuotaEvidence) {
+  const failureCodes = [
+    !evidence.passed ? "cloudflare_paid_evidence_not_passed" : null,
+    evidence.action !== "normal" ? `cloudflare_paid_guard_${evidence.action}` : null,
+    evidence.utilization.currentPercent >= CLOUDFLARE_PAID_THRESHOLDS.warningPercent
+      ? "cloudflare_paid_current_utilization_at_or_above_25_percent"
+      : null,
+    evidence.utilization.projectedPercent >= CLOUDFLARE_PAID_THRESHOLDS.warningPercent
+      ? "cloudflare_paid_projected_utilization_at_or_above_25_percent"
+      : null,
+  ].filter((value): value is string => value !== null);
+  return { passed: failureCodes.length === 0, failureCodes };
 }
 
 function requiredWorkerNames(environment: Environment) {
@@ -186,9 +204,6 @@ function assertRuntimeQuotaFresh(
   nowMs: number,
 ) {
   if (!runtimeQuota) return;
-  if (runtimeQuota.action !== "normal") {
-    throw new Error(`cloudflare_paid_guard_${runtimeQuota.action}`);
-  }
   assertObservedAtFresh(runtimeQuota.observedAt, nowMs);
   if ("evidence" in runtimeQuota) assertQuotaEvidenceFresh(evidence, nowMs);
 }

@@ -95,12 +95,42 @@ describe("forecast collector admin boundary", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      version: 8,
+      version: 9,
+      policyId: "forecast-canary-v9-hybrid-runtime-v1",
       canaryId: null,
+      pollMode: "missing",
       acceptance: { windowMode: "fixed_8_hours", windowHours: null },
       window: { active: false, eligible: false },
     });
     expect(limit).toHaveBeenLastCalledWith({ key: "admin-auth:GET:canary-window" });
+  });
+
+  it("accepts a null final quota as incomplete evidence instead of rejecting the report request", async () => {
+    const response = await invokeAdmin(
+      {
+        ADMIN_RATE_LIMITER: {
+          limit: vi.fn().mockResolvedValue({ success: true }),
+        } as unknown as RateLimit,
+        ADMIN_TOKEN: "expected-token",
+      },
+      {
+        token: "expected-token",
+        path: "/admin/canary-report",
+        method: "POST",
+        body: JSON.stringify({
+          canaryId: `fc-${"a".repeat(32)}`,
+          quotaEvidence: null,
+          runtimeTelemetry: null,
+          runtimeBaseline: null,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      evidence: { status: "incomplete" },
+      certification: { status: "incomplete", hardFailures: [] },
+    });
   });
 
   it("persists an unexpected source processor failure as a critical operations alert", async () => {

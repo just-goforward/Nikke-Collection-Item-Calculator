@@ -45,7 +45,7 @@ beforeEach(async () => {
   await insertSmokeAndRouterTest();
 });
 
-describe("canary report v8 storage and start contract", () => {
+describe("canary report v9 storage and start contract", () => {
   it("uses covering indexes for the recurring latest-invocation queries", async () => {
     const collectorPlan = await testEnv.FORECAST_DB.prepare(
       `EXPLAIN QUERY PLAN
@@ -76,10 +76,11 @@ describe("canary report v8 storage and start contract", () => {
 
     const report = await readFinalCanaryReport();
 
-    expect(report.version).toBe(8);
+    expect(report.version).toBe(9);
+    expect(report.policyId).toBe("forecast-canary-v9-hybrid-runtime-v1");
     expect(report.canaryId).toBe(CANARY_ID);
     expect(report.acceptance).toMatchObject({ windowMode: "fixed_8_hours", windowHours: 8 });
-    expect(report.quota).toMatchObject({ valid: true, errorCode: null });
+    expect(report.quotaEvidence).toMatchObject({ valid: true, errorCode: null });
     expect(report.window).toMatchObject({
       endsAt: "2026-09-01T10:00:30.000Z",
       eligible: true,
@@ -105,9 +106,46 @@ describe("canary report v8 storage and start contract", () => {
       duplicateInteractions: 0,
     });
     expect(report.invariants.totalInvalid).toBe(0);
-    expect(report.passed).toBe(true);
+    expect(report.evidence).toEqual({ status: "valid", errors: [] });
+    expect(report.functional.status).toBe("passed");
+    expect(report.integrity.status).toBe("passed");
+    expect(report.quota.status).toBe("passed");
+    expect(report.runtimeSafety.status).toBe("passed");
+    expect(report.performance.status).toBe("baseline_bootstrap");
+    expect(report.certification.status).toBe("passed_with_warning");
+    const window = await readCanaryWindow(testEnv.FORECAST_DB, END, SHA, "staging");
+    expect(window.pollMode).toBe("both");
   });
 
+  it("keeps account GraphQL runtime diagnostics out of the scheduled-only hard gate", async () => {
+    const collectorSlots = slots(0);
+    const dispatcherSlots = slots(1);
+    await insertInvocationSlots("collector", collectorSlots);
+    await insertInvocationSlots("dispatcher", dispatcherSlots);
+    const quota = runtimeQuotaEvidence(START, END);
+    quota.evidence.workerRuntime.workers = quota.evidence.workerRuntime.workers.map((worker) => ({
+      ...worker,
+      errorsObserved: worker.scriptName.endsWith("collector-staging") ? 2 : 0,
+    }));
+
+    const report = await readCanaryReport(
+      testEnv.FORECAST_DB,
+      END,
+      SHA,
+      "staging",
+      undefined,
+      quota,
+      runtimeTelemetry(collectorSlots, dispatcherSlots),
+    );
+
+    if (!report.quotaEvidence.accountRuntime) throw new Error("missing_account_runtime_diagnostic");
+    expect(report.quotaEvidence.accountRuntime.status).toBe("failed");
+    expect(report.runtimeSafety.status).toBe("passed");
+    expect(report.certification.status).toBe("passed_with_warning");
+  });
+});
+
+describe("canary report v9 lifecycle contract", () => {
   it("reads canary timing without building the full report", async () => {
     const active = await readCanaryWindow(
       testEnv.FORECAST_DB,
@@ -116,8 +154,10 @@ describe("canary report v8 storage and start contract", () => {
       "staging",
     );
     expect(active).toMatchObject({
-      version: 8,
+      version: 9,
+      policyId: "forecast-canary-v9-hybrid-runtime-v1",
       canaryId: CANARY_ID,
+      pollMode: "missing",
       acceptance: { windowMode: "fixed_8_hours", windowHours: 8 },
       window: { active: true, eligible: false },
     });
@@ -164,10 +204,18 @@ describe("canary report v8 storage and start contract", () => {
   });
 
   it("requires exact-window CPU evidence for an eligible certificate", async () => {
+    const collectorSlots = slots(0);
+    const dispatcherSlots = slots(1);
+    await insertInvocationSlots("collector", collectorSlots);
+    await insertInvocationSlots("dispatcher", dispatcherSlots);
     const withoutEvidence = await readCanaryReport(testEnv.FORECAST_DB, END, SHA, "staging");
-    expect(withoutEvidence.quota).toMatchObject({
+    expect(withoutEvidence.quotaEvidence).toMatchObject({
       valid: false,
       errorCode: "cloudflare_paid_final_evidence_required",
+    });
+    expect(withoutEvidence.certification).toMatchObject({
+      status: "incomplete",
+      hardFailures: [],
     });
 
     const mismatchedEvidence = runtimeQuotaEvidence(START + 60_000, END);
@@ -179,7 +227,7 @@ describe("canary report v8 storage and start contract", () => {
       undefined,
       mismatchedEvidence,
     );
-    expect(mismatched.quota).toMatchObject({
+    expect(mismatched.quotaEvidence).toMatchObject({
       valid: false,
       errorCode: "cloudflare_paid_runtime_window_mismatch",
     });
@@ -213,7 +261,7 @@ describe("canary report v8 storage and start contract", () => {
   });
 });
 
-describe("canary report v8 slot evidence", () => {
+describe("canary report v9 slot evidence", () => {
   it("allows one missing slot but rejects two", async () => {
     const collector = slots(0);
     const dispatcher = slots(1);
@@ -231,7 +279,7 @@ describe("canary report v8 slot evidence", () => {
       observedSlots: dispatcher.length - 1,
       missingSlots: 1,
     });
-    expect(oneMissing.passed).toBe(true);
+    expect(oneMissing.certification.status).toBe("passed_with_warning");
 
     await testEnv.FORECAST_DB.prepare("DELETE FROM collector_invocations WHERE scheduled_at = ?")
       .bind(collector[1])
@@ -241,7 +289,7 @@ describe("canary report v8 slot evidence", () => {
       observedSlots: collector.length - 2,
       missingSlots: 2,
     });
-    expect(twoMissing.passed).toBe(false);
+    expect(twoMissing.certification.status).toBe("failed");
   });
 
   it("fails early after two hours for material delivery loss", async () => {
@@ -256,7 +304,7 @@ describe("canary report v8 slot evidence", () => {
     expect(report.window.eligible).toBe(false);
     expect(report.window.earlyFailure).toBe(true);
     expect(report.window.earlyFailureReasons).toContain("collector_missing_slots_over_5_percent");
-    expect(report.passed).toBe(false);
+    expect(report.certification.status).toBe("failed");
   });
 
   it("rejects an invocation that does not belong to an expected Cron slot", async () => {
@@ -274,7 +322,7 @@ describe("canary report v8 slot evidence", () => {
     const report = await readFinalCanaryReport();
 
     expect(report.collector.unexpectedInvocations).toBe(1);
-    expect(report.passed).toBe(false);
+    expect(report.certification.status).toBe("failed");
   });
 
   it("rejects duplicate, abandoned, and post-window invocation evidence", async () => {
@@ -308,7 +356,7 @@ describe("canary report v8 slot evidence", () => {
       abandoned: 1,
       lateInvocations: 1,
     });
-    expect(report.passed).toBe(false);
+    expect(report.certification.status).toBe("failed");
   });
 });
 
@@ -379,7 +427,19 @@ async function insertSmokeAndRouterTest() {
     .run();
 }
 
-function readFinalCanaryReport() {
+async function readFinalCanaryReport() {
+  const [collectorRows, dispatcherRows] = await Promise.all([
+    testEnv.FORECAST_DB.prepare(
+      "SELECT scheduled_at FROM collector_invocations WHERE deployment_sha = ? ORDER BY scheduled_at",
+    )
+      .bind(SHA)
+      .all<{ scheduled_at: string }>(),
+    testEnv.FORECAST_DB.prepare(
+      "SELECT scheduled_at FROM dispatcher_invocations WHERE deployment_sha = ? ORDER BY scheduled_at",
+    )
+      .bind(SHA)
+      .all<{ scheduled_at: string }>(),
+  ]);
   return readCanaryReport(
     testEnv.FORECAST_DB,
     END,
@@ -387,7 +447,53 @@ function readFinalCanaryReport() {
     "staging",
     undefined,
     runtimeQuotaEvidence(START, END),
+    runtimeTelemetry(
+      collectorRows.results.map((row) => row.scheduled_at),
+      dispatcherRows.results.map((row) => row.scheduled_at),
+    ),
   );
+}
+
+function runtimeTelemetry(collectorSlots: string[], dispatcherSlots: string[]) {
+  return {
+    version: 1,
+    source: "cloudflare-workers-observability-scheduled-v1",
+    canaryId: CANARY_ID,
+    deploymentSha: SHA,
+    collectorScriptVersion: `${SHA}-both-v9`,
+    dispatcherScriptVersion: `${SHA}-v9`,
+    startedAt: new Date(START).toISOString(),
+    endedAt: new Date(END).toISOString(),
+    observedAt: new Date(END + 60_000).toISOString(),
+    workers: [
+      runtimeWorker("collector", collectorSlots, 41.169, `${SHA}-both-v9`, 50, 0),
+      runtimeWorker("dispatcher", dispatcherSlots, 20.464, `${SHA}-v9`, 25, 1_000),
+    ],
+  };
+}
+
+function runtimeWorker(
+  component: "collector" | "dispatcher",
+  values: string[],
+  cpuTimeMs: number,
+  scriptVersion: string,
+  configuredLimitMs: number,
+  requestOffset: number,
+) {
+  return {
+    component,
+    scriptName: `collection-kit-forecast-${component}-staging`,
+    configuredLimitMs,
+    headSamplingRate: 1,
+    samples: values.map((slot, index) => ({
+      slot,
+      requestIdHash: (requestOffset + index + 1).toString(16).padStart(64, "0"),
+      scriptVersion,
+      eventType: "scheduled",
+      cpuTimeMs,
+      outcome: "ok",
+    })),
+  };
 }
 
 function runtimeQuotaEvidence(runtimeStartedAt: number, runtimeEndedAt: number) {

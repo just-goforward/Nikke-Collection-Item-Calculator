@@ -4,6 +4,15 @@ import type { DispatcherEnv } from "./types";
 
 export default {
   async scheduled(event, env, context) {
+    console.log(
+      JSON.stringify({
+        event: "forecast_canary_scheduled_invocation",
+        component: "dispatcher",
+        environment: env.ENVIRONMENT,
+        deploymentSha: env.DEPLOY_SHA,
+        slot: new Date(event.scheduledTime).toISOString(),
+      }),
+    );
     if (env.DISPATCH_ENABLED !== "true") {
       console.log(
         JSON.stringify({

@@ -42,6 +42,15 @@ import type { CollectorEnv } from "./types";
 
 export default {
   async scheduled(event, env, context) {
+    console.log(
+      JSON.stringify({
+        event: "forecast_canary_scheduled_invocation",
+        component: "collector",
+        environment: env.ENVIRONMENT,
+        deploymentSha: env.DEPLOY_SHA,
+        slot: new Date(event.scheduledTime).toISOString(),
+      }),
+    );
     if (env.COLLECT_ENABLED !== "true") {
       console.log(
         JSON.stringify({
@@ -302,16 +311,15 @@ export default {
       if (canaryId !== undefined && !/^fc-[0-9a-f]{32}$/.test(canaryId)) {
         return json({ error: "canary_id_invalid" }, 400);
       }
-      return json({
-        ...(await readCanaryWindow(
+      return json(
+        await readCanaryWindow(
           env.FORECAST_DB,
           Date.now(),
           env.DEPLOY_SHA,
           opsEnvironment(env),
           canaryId,
-        )),
-        pollMode: env.POLL_MODE,
-      });
+        ),
+      );
     }
     if (
       (request.method === "GET" || request.method === "POST") &&
@@ -322,6 +330,8 @@ export default {
         return json({ error: "canary_id_invalid" }, 400);
       }
       let runtimeQuota: UsageGuardEvidence | UsageGuardState | undefined;
+      let runtimeTelemetry: unknown;
+      let runtimeBaseline: unknown;
       if (request.method === "POST") {
         try {
           const body = await readBoundedJson(request, 1_000_000, "canary_final_evidence_body");
@@ -329,20 +339,24 @@ export default {
             throw new Error("canary_final_evidence_body_invalid");
           }
           const record = body as Record<string, unknown>;
-          if (typeof record["canaryId"] !== "string" || !("quotaEvidence" in record)) {
+          if (typeof record["canaryId"] !== "string") {
             throw new Error("canary_final_evidence_contract_invalid");
           }
           canaryId = record["canaryId"];
           if (!/^fc-[0-9a-f]{32}$/.test(canaryId)) throw new Error("canary_id_invalid");
-          const evidence = assertD1QuotaEvidence(record["quotaEvidence"]);
-          runtimeQuota = {
-            action: evidence.action,
-            observedAt: evidence.observedAt,
-            periodStart: evidence.plan.periodStart,
-            periodEnd: evidence.plan.periodEnd,
-            evidenceHash: await sha256Hex(stableJson(evidence)),
-            evidence,
-          };
+          runtimeTelemetry = record["runtimeTelemetry"];
+          runtimeBaseline = record["runtimeBaseline"];
+          if (record["quotaEvidence"] != null) {
+            const evidence = assertD1QuotaEvidence(record["quotaEvidence"]);
+            runtimeQuota = {
+              action: evidence.action,
+              observedAt: evidence.observedAt,
+              periodStart: evidence.plan.periodStart,
+              periodEnd: evidence.plan.periodEnd,
+              evidenceHash: await sha256Hex(stableJson(evidence)),
+              evidence,
+            };
+          }
         } catch (error) {
           return json({ error: sanitizeOpsError(error) }, 400);
         }
@@ -357,6 +371,8 @@ export default {
           opsEnvironment(env),
           canaryId,
           runtimeQuota,
+          runtimeTelemetry,
+          runtimeBaseline,
         ),
       );
     }

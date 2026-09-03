@@ -65,8 +65,8 @@ describe("Forecast dispatcher workflow contract", () => {
     }
     expect(interactionConfig).not.toContain("[triggers]");
     expect(stagingDeploy).toContain("router_endpoint_ready:");
-    expect(stagingDeploy).toContain("Start fixed eight-hour Paid canary v8");
-    expect(productionPromote).toContain("Read authenticated Paid canary v8 report");
+    expect(stagingDeploy).toContain("Start fixed eight-hour Paid canary v9");
+    expect(productionPromote).toContain("Read authenticated Paid canary v9 certificate");
     expect(productionPromote).toContain("environment: cloudflare-production");
     expect(productionPromote).toContain("Determine coupled production rollout");
     expect(stagingDeploy).toContain("Probe GitHub App installation and fixed workflow");
@@ -87,11 +87,11 @@ describe("Forecast dispatcher workflow contract", () => {
       `--runtime-start "\${{ steps.window.outputs.started_at }}"`,
     );
     expect(productionPromote).toContain(`--runtime-end "\${{ steps.window.outputs.ends_at }}"`);
-    expect(productionPromote).toContain("Reject an eligible failed canary");
+    expect(productionPromote).toContain("Reject only a proven failed or malformed canary");
     expect(d1BudgetWatch).toContain('cron: "7,37 * * * *"');
     expect(d1BudgetWatch).toContain("/admin/canary-window");
     expect(d1BudgetWatch).toContain("early_check_due");
-    expect(d1BudgetWatch).toContain("elapsed < 2.5 * 60 * 60 * 1000");
+    expect(d1BudgetWatch).toContain("[2, 4, 6].some");
     expect(d1BudgetWatch).toContain("Disable staging Collector and Dispatcher on budget pressure");
     expect(d1BudgetWatch).toContain("--var COLLECT_ENABLED:false");
     expect(d1IndexRemediation).toContain("environment: cloudflare-production");

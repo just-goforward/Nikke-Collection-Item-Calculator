@@ -61,7 +61,7 @@ jobs:
           npm run check:d1-budget -- preflight
           --output "$RUNNER_TEMP/cloudflare-paid-runtime.json"
 
-      - name: Detect an active v8 canary
+      - name: Detect an active v9 canary
         id: canary
         continue-on-error: true
         env:
@@ -85,10 +85,11 @@ jobs:
           const now = Date.now();
           const start = Date.parse(report?.window?.startedAt ?? "");
           const end = Date.parse(report?.window?.endsAt ?? "");
-          const valid = report?.version === 8 && report?.acceptance?.windowMode === "fixed_8_hours";
+          const valid = report?.version === 9 && report?.policyId === "forecast-canary-v9-hybrid-runtime-v1" && report?.acceptance?.windowMode === "fixed_8_hours";
           const active = valid && start <= now && now < end;
           const elapsed = active ? now - start : -1;
-          const earlyCheckDue = active && elapsed >= 2 * 60 * 60 * 1000 && elapsed < 2.5 * 60 * 60 * 1000;
+          const halfHour = 30 * 60 * 1000;
+          const earlyCheckDue = active && [2, 4, 6].some((hour) => elapsed >= hour * 60 * 60 * 1000 && elapsed < hour * 60 * 60 * 1000 + halfHour);
           console.log(String(active));
           console.log(String(earlyCheckDue));
           NODE
@@ -136,7 +137,7 @@ jobs:
           REPORT_OUTCOME: ${{ steps.report.outcome }}
           CANARY_EARLY_FAILED: ${{ steps.report.outputs.canary_early_failed }}
           CANARY_ELIGIBLE: ${{ steps.report.outputs.canary_eligible }}
-          CANARY_PASSED: ${{ steps.report.outputs.canary_passed }}
+          CANARY_STATUS: ${{ steps.report.outputs.canary_status }}
           STATS_PROBE_OUTCOME: ${{ steps.stats_probe.outcome }}
           GUARD_OUTCOME: ${{ steps.guard.outcome }}
           GUARD_ACTION: ${{ steps.guard.outputs.action }}
@@ -195,7 +196,7 @@ jobs:
             fail=true
             reasons+=("canary_endpoint_unavailable")
           elif [[ "$CANARY_ACTIVE" == "true" ]]; then
-            if [[ "$REPORT_OUTCOME" == "failure" || "$CANARY_EARLY_FAILED" == "true" || ( "$CANARY_ELIGIBLE" == "true" && "$CANARY_PASSED" != "true" ) ]]; then
+            if [[ "$REPORT_OUTCOME" == "failure" || "$CANARY_EARLY_FAILED" == "true" || "$CANARY_STATUS" == "failed" ]]; then
               stop_staging=true
               alert=true
               fail=true
@@ -342,4 +343,4 @@ jobs:
 
       - name: Record inactive watchdog
         if: steps.canary.outputs.active != 'true'
-        run: echo "No active v8 Forecast staging canary was found; monthly Paid quota monitoring still ran." >> "$GITHUB_STEP_SUMMARY"
+        run: echo "No active v9 Forecast staging canary was found; monthly Paid quota monitoring still ran." >> "$GITHUB_STEP_SUMMARY"
