@@ -54,7 +54,7 @@ cpu_ms = 50
 [env.staging.observability.logs]
 enabled = true
 invocation_logs = true
-head_sampling_rate = 0.25
+head_sampling_rate = 1.0
 
 [[env.staging.ratelimits]]
 name = "ADMIN_RATE_LIMITER"

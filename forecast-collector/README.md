@@ -226,7 +226,7 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   counts. Candidate payloads and canary evidence require a timing-safe bearer token.
 - Admin abuse is limited first by unauthenticated request IP, then timing-safe bearer verification,
   then by authenticated HTTP-method and route group. Discord interaction limits are separate.
-- Canary report v8 uses an independent `canaryId` and the server-recorded run start, not the number
+- Canary report v9 uses an independent `canaryId` and the server-recorded run start, not the number
   of rows that happened to reach D1. It generates expected Collector and Dispatcher Cron slots for a
   fixed eight-hour window. Each Worker must deliver and complete at least 99%, miss at most one slot, end completed,
   and have zero abandoned, late, unexpected, or duplicate invocations. Queue, cursor, candidate, watermark, manual
@@ -234,12 +234,20 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   invariants must also pass. One signed Router test must respond in under one second. The report also
   embeds hash-checked Workers Paid evidence from a 30-minute burn-in. Current and projected monthly
   utilization must remain below the 25% warning threshold. Monthly request and CPU totals remain
-  billing-period evidence, while average, p95, p99, and CPU-limit terminations are read from the
-  exact server-recorded eight-hour canary interval at final evaluation.
-  Each Worker must record no CPU-limit termination, and runtime CPU p99 must stay below 80% of its
-  configured per-invocation limit.
-- The 30-minute budget watchdog reads the lightweight `/admin/canary-window` endpoint. It builds at
-  most one full report during the two-to-two-and-a-half-hour early-failure interval; final evaluation posts the
+  billing-period evidence. Runtime safety and performance use Workers Observability invocation
+  records filtered to the exact window, script version, and `scheduled` event type, with staging log
+  head sampling pinned to `1.0`. Telemetry coverage below 99% is `incomplete`, not a manufactured
+  runtime failure. CPU-limit termination or an unsuccessful outcome is a hard failure; p99 at 80%
+  or 95% of the configured limit is a warning while `exceededCpu` remains zero.
+- The first v9 certificate is a `baseline_bootstrap`. Its generated candidate is an Actions artifact,
+  not an automatic policy change. A later baseline can only be adopted by a separate review that adds
+  `forecast-collector/runtime-baseline.json`. With an approved baseline, CPU regression is hard only when full-window p95 and
+  average both exceed their thresholds and both independent four-hour halves regress in the same
+  direction. Final telemetry is retried every five minutes for up to 30 minutes; persistent API or
+  ingestion gaps produce `incomplete`, and the immutable window may be queried again without
+  restarting the Worker canary.
+- The 30-minute budget watchdog reads the lightweight `/admin/canary-window` endpoint. It builds
+  bounded intermediate reports at two, four, and six hours; final evaluation posts the
   separately measured exact-window quota evidence after the window closes. This keeps monitoring
   traffic from dominating the Collector CPU distribution being certified.
 - The statistics, Forecast, and quota-guard databases share one Workers Paid account allowance.
@@ -294,7 +302,7 @@ migration 0006 makes staging approval message identity durable, migration 0007 a
 invocation, workflow-dispatch, and grouped operations-alert ledgers, migration 0008 adds manual
 review decisions, Discord interaction audit, and legacy v5 deployment evidence. Migration 0009
 introduced the latest-invocation covering indexes and independent canary storage; the same storage is
-used by the current v7 report:
+used by the current v9 report:
 
 ```powershell
 npx wrangler d1 execute FORECAST_DB --remote --env=staging `
@@ -375,7 +383,7 @@ production URL only after the first production queue round-trip smoke and idempo
 ledger bootstrap have passed. The workflow `GITHUB_TOKEN` cannot request the repository
 `Variables: write` permission, so promotion verifies the configured value instead of mutating it.
 Until the variable is present, the proposal workflow skips without failing. Promotion is dispatched
-manually after reviewing the completed fixed eight-hour v8 canary report and remains protected by the
+manually after reviewing a v9 `passed` or `passed_with_warning` certificate and remains protected by the
 `cloudflare-production` environment.
 
 Promotion compares the canary commit with current `main` only across the collector deployment

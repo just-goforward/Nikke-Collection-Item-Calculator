@@ -49,7 +49,7 @@ cpu_ms = 25
 [env.staging.observability.logs]
 enabled = true
 invocation_logs = true
-head_sampling_rate = 0.25
+head_sampling_rate = 1.0
 
 [[env.staging.d1_databases]]
 binding = "FORECAST_DB"

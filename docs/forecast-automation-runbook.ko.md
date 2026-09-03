@@ -69,7 +69,8 @@ GitHub App은 이 저장소 하나에만 설치하고 `Actions: write`, `Metadat
 10. workflow는 통계 production D1 read probe와 계정 전체 baseline을 확인한 뒤
     Collector·Dispatcher를 활성화하고 30분 burn-in을 수행한다. 월간 결제기간을 사용하므로
     KST/UTC 자정에 맞출 필요가 없다.
-11. burn-in 후 현재·월말 예상 사용률이 모두 25% 미만이면 독립 `canaryId`의 v8 row가 생성된다.
+11. burn-in 후 현재·월말 예상 사용률이 모두 25% 미만이고 Workers Observability read probe가
+    통과하면 독립 `canaryId`의 v9 row가 생성된다.
    실패하면 staging Collector·Dispatcher가 모두 비활성화되고 alert 채널에 직접 경고한다.
 
 Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난 뒤 owner 설정으로
@@ -109,8 +110,8 @@ Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난
   확인한다. 25% 경고만으로 staging을 끄지 않으며 35% 이상에서만 Collector·Dispatcher를
   disabled 상태로 재배포한다.
 - watchdog의 상시 canary 확인은 D1 한 번만 읽는 `/admin/canary-window`를 사용한다. 전체 slot과
-  invariant를 읽는 report는 시작 후 2~2.5시간의 단일 조기 실패 확인 구간과 8시간 종료 후 최종 판정에서만
-  만든다. 최종 CPU p99는 서버가 기록한 `startedAt` 이상 `endsAt` 이하의 고정 구간을 별도로 조회해
+  invariant를 읽는 report는 시작 후 2·4·6시간 중간 판정과 8시간 종료 후 최종 판정에서만 만든다.
+  최종 CPU p99는 서버가 기록한 `startedAt` 이상 `endsAt` 이하의 고정 구간을 별도로 조회해
   판정하므로, 반복적인 관리자 report 호출이 측정 대상을 오염시키지 않는다.
 - 40% 이상이면 watchdog이 `Emergency Stop Cloudflare Automation`을 요청한다. Worker 내부 guard가
   먼저 즉시 차단하고, Cron trigger 제거는 `cloudflare-production` 승인 후에만 수행한다. 40~45%는
@@ -120,7 +121,7 @@ Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난
 - 계산기와 Rust/WASM solver는 브라우저에서 계속 동작한다. 중단되는 것은 통계 기록과 Forecast
   자동 갱신이며, Cloudflare Budget Alert는 외부 알림일 뿐 이 차단 계약을 대체하지 않는다.
 
-## Canary v8 판독
+## Canary v9 판독
 
 Canary는 이전 기간을 합치지 않고 `canary_runs.startedAt`부터 정확히 8시간 진행한다. Collector
 `*/3`과 Dispatcher `1-59/3`의 예상 slot을 이 구간에서 생성하므로 정상적으로 Worker별 약 160개
@@ -130,7 +131,8 @@ slot을 관찰한다. 전체 구간이 현재 결제기간 안에 있어야 하�
 통과 조건:
 
 ```text
-version = 8
+version = 9
+policyId = forecast-canary-v9-hybrid-runtime-v1
 windowMode = fixed_8_hours
 endsAt = startedAt + 8시간
 각 Worker deliveryRate >= 99%
@@ -147,16 +149,38 @@ Router duplicate = 0, initial response < 1초
 모든 manual_review queue row에 pending review와 전송된 alert 존재
 저장된 quota evidence hash와 계정 전체 Worker·D1 합계 일치
 quota action = normal, 현재·월말 예상 사용률 < 25%
-모든 대상 Worker의 정확한 canary 8시간 구간에서 exceededCpu = 0, CPU p99 < 설정 상한의 80%
+Workers Observability scheduled-only coverage >= 99%
+모든 대상 Worker의 정확한 canary 8시간 구간에서 exceededCpu = 0, 비정상 outcome = 0
 quota evidence freshness 오류 = 0
 ```
 
 2시간 이후 abandoned 비율 1% 초과, missing-slot 비율 5% 초과, invariant 오류, Router 서명·권한
 smoke 실패는 조기 실패다. 일시적인 slot 1개 누락만으로는 조기 실패시키지 않는다.
 
+v9는 판정 자료의 유효성과 정책 위반을 분리한다. API 지연, telemetry coverage 부족, hash나
+배포 신원 불일치는 `incomplete`이며 production으로 진행하지 않는다. 완전한 증거가 기능·무결성·
+quota·runtime hard gate 위반을 증명할 때만 `failed`다. CPU p99가 설정 상한의 80% 이상이면
+warning, 95% 이상이면 높은 등급의 warning이지만 `exceededCpu=0`이고 다른 hard gate가 정상이면
+`passed_with_warning`이다. 이 상태도 workflow 성공으로 기록되지만 production 승격에는 기존
+`cloudflare-production` 수동 승인이 필요하다.
+
+첫 v9는 이전 v8 GraphQL 집계를 hard baseline으로 사용하지 않고 scheduled-only 기준선을 만드는
+`baseline_bootstrap`이다. 생성된 기준선 후보는 Actions artifact일 뿐 자동 적용되지 않는다. 별도
+검토 PR로 `forecast-collector/runtime-baseline.json`을 추가한 뒤에만 이후 v9가 이를 소비한다.
+승인된 기준선이 있는 경우에만 전체 p95와 평균, 독립 4시간 구간 두
+개의 회귀가 모두 같은 방향으로 확인될 때 성능 hard failure로 판정한다. 종료 시 telemetry가
+늦으면 5분 간격으로 최대 30분 재조회하며, 그래도 부족하면 immutable 8시간 window를
+`incomplete`로 보존한다. 같은 window는 evidence만 다시 조회할 수 있지만 `failed` window는
+소급 재판정하지 않는다.
+
+`CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN`은 현재 API가 요구하는 최소 Workers Observability
+권한으로 별도 repository secret에 둔다. staging Collector와 Dispatcher만 canary 동안 log head
+sampling `1.0`을 사용하고 production은 기존 sampling을 유지한다.
+
 ## Production 승격
 
-1. v7 report와 promotion 시점의 계정 전체 Paid quota preflight가 통과한 뒤에만
+1. v9 인증 상태가 `passed` 또는 `passed_with_warning`이고 promotion 시점의 계정 전체 Paid quota
+   preflight가 통과한 뒤에만
    `Promote Forecast Collector`를 실행한다.
 2. `cloudflare-production` environment 승인은 관리자가 직접 수행한다.
 3. workflow는 보호된 remediation에서 production migration 0009와 covering index가 검증됐는지

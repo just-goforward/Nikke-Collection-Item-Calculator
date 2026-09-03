@@ -24,7 +24,9 @@ jobs:
     if: vars.FORECAST_COLLECTOR_STAGING_URL != ''
     runs-on: ubuntu-latest
     outputs:
-      canary_passed: ${{ steps.canary.outputs.canary_passed }}
+      canary_status: ${{ steps.canary.outputs.canary_status }}
+      canary_promotable: ${{ steps.canary.outputs.canary_promotable }}
+      canary_warning: ${{ steps.canary.outputs.canary_warning }}
       canary_id: ${{ steps.canary.outputs.canary_id }}
       deployment_sha: ${{ steps.canary.outputs.deployment_sha }}
       canary_early_failed: ${{ steps.canary.outputs.canary_early_failed }}
@@ -74,37 +76,118 @@ jobs:
             -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
             -H "Accept: application/json" \
             "$FORECAST_COLLECTOR_URL/admin/canary-window" > "$RUNNER_TEMP/canary-window.json"
-          jq -e '.version == 8 and (.canaryId | test("^fc-[0-9a-f]{32}$")) and (.deploymentSha | test("^[0-9a-f]{40}$"))' \
+          jq -e '.version == 9 and .policyId == "forecast-canary-v9-hybrid-runtime-v1" and (.canaryId | test("^fc-[0-9a-f]{32}$")) and (.deploymentSha | test("^[0-9a-f]{40}$")) and (.pollMode == "both" or .pollMode == "alternating")' \
             "$RUNNER_TEMP/canary-window.json" >/dev/null
           echo "canary_id=$(jq -r '.canaryId' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
+          echo "deployment_sha=$(jq -r '.deploymentSha' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
           echo "started_at=$(jq -r '.window.startedAt' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
           echo "ends_at=$(jq -r '.window.endsAt' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
           echo "eligible=$(jq -r '.window.eligible' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
+          echo "poll_mode=$(jq -r '.pollMode' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
 
-      - name: Measure the exact canary CPU window
+      - name: Measure account quota evidence for the exact canary window
         if: steps.window.outputs.eligible == 'true'
+        id: final_quota
+        continue-on-error: true
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN }}
           CLOUDFLARE_BILLING_READ_TOKEN: ${{ secrets.CLOUDFLARE_BILLING_READ_TOKEN }}
-        run: >-
-          npm run check:d1-budget -- preflight
-          --runtime-start "${{ steps.window.outputs.started_at }}"
-          --runtime-end "${{ steps.window.outputs.ends_at }}"
-          --output "$RUNNER_TEMP/canary-final-quota.json"
+        shell: bash
+        run: |
+          set -u
+          for attempt in 1 2 3; do
+            if npm run check:d1-budget -- preflight \
+              --runtime-start "${{ steps.window.outputs.started_at }}" \
+              --runtime-end "${{ steps.window.outputs.ends_at }}" \
+              --output "$RUNNER_TEMP/canary-final-quota.json"; then
+              exit 0
+            fi
+            if (( attempt < 3 )); then sleep $((attempt * 15)); fi
+          done
+          exit 1
 
-      - name: Read authenticated Paid canary v8 report
+      - name: Collect exact scheduled-only Workers Observability evidence
+        if: steps.window.outputs.eligible == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN }}
+          FORECAST_CANARY_ID: ${{ steps.window.outputs.canary_id }}
+          FORECAST_CANARY_DEPLOYMENT_SHA: ${{ steps.window.outputs.deployment_sha }}
+          FORECAST_CANARY_STARTED_AT: ${{ steps.window.outputs.started_at }}
+          FORECAST_CANARY_ENDED_AT: ${{ steps.window.outputs.ends_at }}
+          FORECAST_COLLECTOR_SCRIPT_VERSION: ${{ steps.window.outputs.deployment_sha }}-${{ steps.window.outputs.poll_mode }}-v9
+          FORECAST_DISPATCHER_SCRIPT_VERSION: ${{ steps.window.outputs.deployment_sha }}-v9
+          FORECAST_CANARY_RUNTIME_OUTPUT: ${{ runner.temp }}/forecast-canary-runtime.json
+          FORECAST_OBSERVABILITY_MAX_WAIT_MS: 1800000
+          FORECAST_OBSERVABILITY_RETRY_INTERVAL_MS: 300000
+        run: npm run collect:forecast-runtime
+
+      - name: Read authenticated Paid canary v9 certificate
         id: canary
+        continue-on-error: true
         env:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_CANARY_ID: ${{ steps.window.outputs.canary_id }}
-          FORECAST_CANARY_QUOTA_EVIDENCE: ${{ steps.window.outputs.eligible == 'true' && format('{0}/canary-final-quota.json', runner.temp) || '' }}
+          FORECAST_CANARY_QUOTA_EVIDENCE: ${{ steps.window.outputs.eligible == 'true' && steps.final_quota.outcome == 'success' && format('{0}/canary-final-quota.json', runner.temp) || '' }}
+          FORECAST_CANARY_RUNTIME_EVIDENCE: ${{ steps.window.outputs.eligible == 'true' && format('{0}/forecast-canary-runtime.json', runner.temp) || '' }}
+          FORECAST_CANARY_RUNTIME_BASELINE: ${{ hashFiles('forecast-collector/runtime-baseline.json') != '' && 'forecast-collector/runtime-baseline.json' || '' }}
           FORECAST_CANARY_REPORT_OUTPUT: ${{ runner.temp }}/forecast-canary-report.json
         run: npm run check:forecast-canary
 
+      - name: Write Korean v9 certification summary
+        if: always() && steps.window.outputs.eligible == 'true' && steps.canary.outcome == 'success'
+        shell: bash
+        run: |
+          {
+            echo "# Forecast Canary v9 인증서"
+            echo
+            echo "- 상태: \`$(jq -r '.certification.status' "$RUNNER_TEMP/forecast-canary-report.json")\`"
+            echo "- Canary ID: \`$(jq -r '.canaryId' "$RUNNER_TEMP/forecast-canary-report.json")\`"
+            echo "- 배포 SHA: \`$(jq -r '.deploymentSha' "$RUNNER_TEMP/forecast-canary-report.json")\`"
+            echo "- 증거 상태: \`$(jq -r '.evidence.status' "$RUNNER_TEMP/forecast-canary-report.json")\`"
+            echo "- Collector CPU p95/p99/max: $(jq -r '.performance.collector.full | "\(.p95Ms) / \(.p99Ms) / \(.maxMs) ms"' "$RUNNER_TEMP/forecast-canary-report.json")"
+            echo "- Dispatcher CPU p95/p99/max: $(jq -r '.performance.dispatcher.full | "\(.p95Ms) / \(.p99Ms) / \(.maxMs) ms"' "$RUNNER_TEMP/forecast-canary-report.json")"
+            echo "- 경고: $(jq -r '.certification.warnings | if length == 0 then "없음" else join(", ") end' "$RUNNER_TEMP/forecast-canary-report.json")"
+          } > "$RUNNER_TEMP/forecast-canary-summary.ko.md"
+
+      - name: Create baseline bootstrap candidate
+        if: always() && steps.canary.outputs.canary_promotable == 'true'
+        shell: bash
+        run: |
+          if ! jq -e '.performance.status == "baseline_bootstrap"' "$RUNNER_TEMP/forecast-canary-report.json" >/dev/null; then
+            exit 0
+          fi
+          jq '{
+            version:1,
+            id:("forecast-canary-v9-" + .canaryId),
+            sourceCanaryId:.canaryId,
+            deploymentSha:.deploymentSha,
+            collectorScriptVersion:.identity.collectorScriptVersion,
+            dispatcherScriptVersion:.identity.dispatcherScriptVersion,
+            sampleHash:.performance.sampleHash,
+            collector:{full:.performance.collector.full,firstHalf:.performance.collector.firstHalf,secondHalf:.performance.collector.secondHalf},
+            dispatcher:{full:.performance.dispatcher.full,firstHalf:.performance.dispatcher.firstHalf,secondHalf:.performance.dispatcher.secondHalf}
+          }' "$RUNNER_TEMP/forecast-canary-report.json" > "$RUNNER_TEMP/forecast-canary-baseline-bootstrap.json"
+
+      - name: Upload immutable v9 evidence
+        if: always() && steps.window.outputs.eligible == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: forecast-canary-v9-${{ steps.window.outputs.canary_id }}
+          path: |
+            ${{ runner.temp }}/canary-window.json
+            ${{ runner.temp }}/canary-final-quota.json
+            ${{ runner.temp }}/forecast-canary-runtime.json
+            ${{ runner.temp }}/forecast-canary-report.json
+            ${{ runner.temp }}/forecast-canary-summary.ko.md
+            ${{ runner.temp }}/forecast-canary-baseline-bootstrap.json
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Verify canary deployment inputs match current main
-        if: steps.canary.outputs.canary_passed == 'true'
+        if: steps.canary.outputs.canary_promotable == 'true'
         env:
           CANARY_SHA: ${{ steps.canary.outputs.deployment_sha }}
         shell: bash
@@ -131,6 +214,7 @@ jobs:
             shared/boundedHttp.ts \
             shared/cloudflarePaidUsage.ts \
             shared/d1QuotaEvidence.ts \
+            shared/forecastCanaryRuntime.ts \
             shared/usageGuard.ts \
             scripts/smoke-forecast-collector.ts \
             scripts/smoke-forecast-dispatcher.ts \
@@ -139,7 +223,9 @@ jobs:
             scripts/resolve-forecast-manual-review.ts \
             scripts/cloudflare-cron-capacity.ts \
             scripts/cloudflare-d1-budget.ts \
-            scripts/lib/d1-budget.ts \
+            scripts/cloudflare-workers-observability.ts \
+            scripts/lib/cloudflare-workers-observability.ts \
+            scripts/check-forecast-canary.ts \
             scripts/probe-forecast-github-app.ts \
             scripts/forecast-dispatcher-workflow.spec.ts \
             vitest.forecast-collector.config.ts \
@@ -157,7 +243,7 @@ jobs:
           }
 
       - name: Recheck account-wide D1 budget at promotion boundary
-        if: steps.canary.outputs.canary_passed == 'true'
+        if: steps.canary.outputs.canary_promotable == 'true'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN }}
@@ -167,7 +253,7 @@ jobs:
           --output "$RUNNER_TEMP/d1-budget-promotion.json"
 
       - name: Verify statistics production D1 at promotion boundary
-        if: steps.canary.outputs.canary_passed == 'true'
+        if: steps.canary.outputs.canary_promotable == 'true'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -179,22 +265,30 @@ jobs:
           [[ "$(jq -r '.[0].results[0].ok' <<<"$result")" == "1" ]]
 
       - name: Canary pending summary
-        if: steps.canary.outputs.canary_passed != 'true'
+        if: steps.canary.outputs.canary_promotable != 'true'
         run: |
-          echo "Eight-hour forecast automation canary is not yet eligible or has not passed." >> "$GITHUB_STEP_SUMMARY"
+          echo "Eight-hour Forecast Canary v9 is not promotable. Status: ${{ steps.canary.outputs.canary_status || 'schema_error' }}." >> "$GITHUB_STEP_SUMMARY"
           if [[ "${{ steps.canary.outputs.canary_early_failed }}" == "true" ]]; then
-            echo "The v8 early-failure gate rejected this deployment. Do not weaken or reuse this window." >> "$GITHUB_STEP_SUMMARY"
+            echo "The v9 early-failure gate rejected this deployment. Do not weaken or reuse this window." >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "${{ steps.canary.outputs.canary_status }}" == "incomplete" ]]; then
+            echo "Evidence is incomplete. Re-run this workflow to query the same immutable window; do not restart the Worker canary." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Reject an eligible failed canary
-        if: steps.window.outputs.eligible == 'true' && steps.canary.outputs.canary_passed != 'true'
+      - name: Reject only a proven failed or malformed canary
+        if: steps.window.outputs.eligible == 'true' && (steps.canary.outcome == 'failure' || steps.canary.outputs.canary_status == 'failed')
         run: |
-          echo "The completed v8 canary failed its acceptance contract. A fresh deployment and window are required." >&2
+          echo "The completed v9 canary has a proven hard-gate failure or malformed certificate. A fresh deployment and window are required." >&2
           exit 1
+
+      - name: Record promotable warning
+        if: steps.canary.outputs.canary_status == 'passed_with_warning'
+        run: |
+          echo "::warning::Forecast Canary v9 passed hard gates with warnings: ${{ steps.canary.outputs.canary_warning }}"
+          echo "Production still requires the cloudflare-production environment approval." >> "$GITHUB_STEP_SUMMARY"
 
   promote:
     needs: canary
-    if: needs.canary.outputs.canary_passed == 'true' && !inputs.canary_only
+    if: needs.canary.outputs.canary_promotable == 'true' && !inputs.canary_only
     runs-on: ubuntu-latest
     environment: cloudflare-production
     steps:

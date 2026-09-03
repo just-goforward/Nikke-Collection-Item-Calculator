@@ -13,26 +13,44 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
 });
 
-describe("forecast canary CLI", () => {
-  it("accepts a structurally valid in-progress report while CPU evidence is pending", async () => {
-    const report = inProgressReport();
-    const { result, outputPath } = await runCli(report);
-
+describe("forecast canary v9 CLI", () => {
+  it("accepts a structurally valid incomplete report without calling it failed", async () => {
+    const { result, outputPath } = await runCli(inProgressReport());
     expect(result.stderr).toBe("");
-    expect(JSON.parse(result.stdout)).toMatchObject({ passed: false, quota: { valid: false } });
-    expect(await readFile(outputPath, "utf8")).toContain(
-      "canary_quota_error=cloudflare_paid_cpu_budget:missing:collection-kit-usage-guard",
-    );
-    expect(await readFile(outputPath, "utf8")).toContain("canary_quota_valid=false");
-    expect(await readFile(outputPath, "utf8")).toContain("canary_passed=false");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      certification: { status: "incomplete" },
+      evidence: { status: "incomplete" },
+    });
+    const output = await readFile(outputPath, "utf8");
+    expect(output).toContain("canary_status=incomplete");
+    expect(output).toContain("canary_promotable=false");
+    expect(output).toContain("canary_evidence_status=incomplete");
   });
 
-  it("still rejects a malformed quota failure payload", async () => {
-    const validReport = inProgressReport();
-    const report = { ...validReport, quota: { ...validReport.quota, evidence: {} } };
+  it("allows passed_with_warning to reach only the external approval boundary", async () => {
+    const report = inProgressReport();
+    report.window.eligible = true;
+    report.evidence = { status: "valid", errors: [] };
+    report.functional = gate("passed");
+    report.integrity = gate("passed");
+    report.quota = gate("passed");
+    report.runtimeSafety = gate("passed");
+    report.certification = {
+      status: "passed_with_warning",
+      hardFailures: [],
+      warnings: ["runtime_p99_headroom_low:dispatcher"],
+    };
+    const { outputPath } = await runCli(report);
+    const output = await readFile(outputPath, "utf8");
+    expect(output).toContain("canary_status=passed_with_warning");
+    expect(output).toContain("canary_promotable=true");
+  });
 
+  it("rejects an inconsistent failed certificate without hard evidence", async () => {
+    const report = inProgressReport();
+    report.certification = { status: "failed", hardFailures: [], warnings: [] };
     await expect(runCli(report)).rejects.toMatchObject({
-      stderr: expect.stringContaining("Canary report schema is invalid."),
+      stderr: expect.stringContaining("Failed canary has no hard failure evidence."),
     });
   });
 });
@@ -44,10 +62,9 @@ async function runCli(report: unknown) {
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
-
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("missing_test_server_address");
-  const directory = await mkdtemp(join(tmpdir(), "forecast-canary-"));
+  const directory = await mkdtemp(join(tmpdir(), "forecast-canary-v9-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const outputPath = join(directory, "github-output.txt");
   const result = await execFileAsync(process.execPath, ["scripts/check-forecast-canary.ts"], {
@@ -63,12 +80,23 @@ async function runCli(report: unknown) {
 }
 
 function inProgressReport() {
+  const sha = "b".repeat(40);
+  const canaryId = `fc-${"a".repeat(32)}`;
   return {
-    version: 8,
-    canaryId: `fc-${"a".repeat(32)}`,
-    deploymentSha: "b".repeat(40),
+    version: 9,
+    policyId: "forecast-canary-v9-hybrid-runtime-v1",
+    canaryId,
+    deploymentSha: sha,
     environment: "staging",
     pollMode: "both",
+    identity: {
+      canaryId,
+      deploymentSha: sha,
+      collectorScriptVersion: `${sha}-both-v9`,
+      dispatcherScriptVersion: `${sha}-v9`,
+      startedAt: "2026-09-02T09:32:10.000Z",
+      endedAt: "2026-09-02T17:32:10.000Z",
+    },
     acceptance: {
       windowMode: "fixed_8_hours",
       windowHours: 8,
@@ -101,18 +129,44 @@ function inProgressReport() {
       failedAuthorizationSmoke: 0,
       passed: false,
     },
-    quota: {
+    quotaEvidence: {
       valid: false,
-      errorCode: "cloudflare_paid_cpu_budget:missing:collection-kit-usage-guard",
+      errorCode: "cloudflare_paid_final_evidence_required",
       evidence: null,
       evidenceHash: "c".repeat(64),
       initialEvidenceHash: "d".repeat(64),
       freshnessMinutes: null,
-      cpu: null,
+      policy: null,
+      accountRuntime: null,
     },
     invariants: { totalInvalid: 0 },
-    passed: false,
+    evidence: {
+      status: "incomplete",
+      errors: ["cloudflare_paid_final_evidence_required", "runtime_telemetry_not_object"],
+    },
+    functional: gate("incomplete"),
+    integrity: gate("passed"),
+    quota: gate("incomplete"),
+    runtimeSafety: gate("incomplete"),
+    performance: {
+      status: "baseline_bootstrap",
+      baselineId: null,
+      warnings: ["performance_evidence_incomplete"],
+      regressionCodes: [],
+      sampleHash: "e".repeat(64),
+      collector: cpuPerformance("collection-kit-forecast-collector-staging", 50),
+      dispatcher: cpuPerformance("collection-kit-forecast-dispatcher-staging", 25),
+    },
+    certification: {
+      status: "incomplete",
+      hardFailures: [],
+      warnings: ["performance_evidence_incomplete"],
+    },
   };
+}
+
+function gate(status: "passed" | "failed" | "incomplete") {
+  return { status, failureCodes: status === "failed" ? ["fixture_failure"] : [] };
 }
 
 function invocationSummary() {
@@ -128,5 +182,33 @@ function invocationSummary() {
     unexpectedInvocations: 0,
     lateInvocations: 0,
     latestStatus: "completed",
+  };
+}
+
+function cpuPerformance(scriptName: string, configuredLimitMs: number) {
+  const distribution = {
+    samples: 0,
+    averageMs: 0,
+    p50Ms: 0,
+    p95Ms: 0,
+    p99Ms: 0,
+    maxMs: 0,
+  };
+  return {
+    scriptName,
+    configuredLimitMs,
+    expectedSlots: 0,
+    d1ObservedSlots: 0,
+    telemetryObservedSlots: 0,
+    missingTelemetrySlots: 0,
+    coverage: 0,
+    exceededCpu: 0,
+    unsuccessfulOutcomes: 0,
+    duplicateSlots: 0,
+    unmatchedTelemetrySlots: 0,
+    full: distribution,
+    firstHalf: distribution,
+    secondHalf: distribution,
+    p99LimitRatio: 0,
   };
 }

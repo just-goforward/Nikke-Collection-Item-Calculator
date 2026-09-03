@@ -111,6 +111,8 @@
     "check:d1-budget": "node scripts/cloudflare-d1-budget.ts",
     "probe:forecast-github-app": "node scripts/probe-forecast-github-app.ts",
     "check:forecast-canary": "node scripts/check-forecast-canary.ts",
+    "collect:forecast-runtime": "node scripts/cloudflare-workers-observability.ts collect",
+    "preflight:forecast-runtime": "node scripts/cloudflare-workers-observability.ts preflight",
     "check:stats-observer-canary": "node scripts/check-stats-observer-canary.ts",
     "process:forecast-source-queue": "node scripts/process-forecast-source-queue.ts",
     "resolve:forecast-manual-review": "node scripts/resolve-forecast-manual-review.ts",

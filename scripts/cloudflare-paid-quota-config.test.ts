@@ -6,19 +6,19 @@ const read = (path: string) => readFileSync(path, "utf8");
 
 describe("Cloudflare Paid quota configuration", () => {
   it.each([
-    ["cloudflare/wrangler.toml", 10, 0.1, 2],
-    ["forecast-collector/wrangler.toml", 50, 0.25, 2],
-    ["forecast-dispatcher/wrangler.toml", 25, 0.25, 2],
-    ["forecast-interactions/wrangler.toml", 10, 0.25, 1],
-    ["usage-guard/wrangler.toml", 25, 0.25, 1],
-  ] as const)("pins CPU and log sampling for %s", (path, cpuMs, sampling, occurrences) => {
+    ["cloudflare/wrangler.toml", 10, [0.1, 0.1]],
+    ["forecast-collector/wrangler.toml", 50, [0.25, 1]],
+    ["forecast-dispatcher/wrangler.toml", 25, [0.25, 1]],
+    ["forecast-interactions/wrangler.toml", 10, [0.25]],
+    ["usage-guard/wrangler.toml", 25, [0.25]],
+  ] as const)("pins CPU and log sampling for %s", (path, cpuMs, sampling) => {
     const config = read(path);
     expect([...config.matchAll(/^cpu_ms = (\d+)$/gm)].map((match) => Number(match[1]))).toEqual(
-      Array.from({ length: occurrences }, () => cpuMs),
+      Array.from({ length: sampling.length }, () => cpuMs),
     );
     expect(
       [...config.matchAll(/^head_sampling_rate = ([0-9.]+)$/gm)].map((match) => Number(match[1])),
-    ).toEqual(Array.from({ length: occurrences }, () => sampling));
+    ).toEqual(sampling);
   });
 
   it("keeps the project Cron allowlist and dedicated guard database fixed", () => {
@@ -69,14 +69,22 @@ describe("Cloudflare Paid quota configuration", () => {
     }
   });
 
-  it("uses the fixed eight-hour v8 canary contract", () => {
+  it("uses the fixed eight-hour v9 canary contract", () => {
     const watcher = read(".github/workflows/forecast-d1-budget-watch.yml");
     const deploy = read(".github/workflows/forecast-collector-deploy.yml");
-    expect(watcher).toContain("active v8 canary");
-    expect(watcher).toContain("report?.version === 8");
+    const promotion = read(".github/workflows/forecast-collector-promote.yml");
+    const canarySource = read("forecast-collector/src/canary.ts");
+    expect(watcher).toContain("active v9 canary");
+    expect(watcher).toContain("report?.version === 9");
     expect(watcher).not.toContain("active v6 canary");
-    expect(deploy).toContain("Start fixed eight-hour Paid canary v8");
+    expect(deploy).toContain("Start fixed eight-hour Paid canary v9");
     expect(deploy).not.toContain("until_d1_reset");
+    expect(deploy).toContain("CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN");
+    expect(promotion).toContain("CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN");
+    expect(promotion).toContain("id: final_quota");
+    expect(promotion).toContain("continue-on-error: true");
+    expect(promotion).toContain("FORECAST_CANARY_RUNTIME_BASELINE");
+    expect(canarySource).toContain("const pollMode = await readCanaryPollMode(");
   });
 
   it("refreshes a separate rolling eight-hour Worker CPU window before final canary evaluation", () => {
@@ -88,7 +96,7 @@ describe("Cloudflare Paid quota configuration", () => {
     expect(query).toContain("quantiles { cpuTimeP95 cpuTimeP99 }");
     expect(analytics).toContain("runtimeWorkerGroups");
     expect(promotion.indexOf("/admin/refresh")).toBeGreaterThan(-1);
-    expect(promotion.indexOf("Read authenticated Paid canary v8 report")).toBeGreaterThan(
+    expect(promotion.indexOf("Read authenticated Paid canary v9 certificate")).toBeGreaterThan(
       promotion.indexOf("/admin/refresh"),
     );
   });

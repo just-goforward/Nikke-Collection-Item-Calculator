@@ -1,15 +1,23 @@
 import { assertD1QuotaEvidence } from "../../shared/d1QuotaEvidence";
 import {
+  evaluateForecastRuntimeTelemetry,
+  FORECAST_CANARY_POLICY_ID,
+} from "../../shared/forecastCanaryRuntime";
+import {
   assertForecastCandidateInvariants,
   supplyForecastCandidateSchema,
 } from "../../shared/supplyForecastCandidate";
 import type { UsageGuardEvidence, UsageGuardState } from "../../shared/usageGuard";
 import { assertCanaryStartWindow, CANARY_WINDOW_MS, readQuotaEvidence } from "./canary-quota";
+import {
+  CANARY_MINIMUM_COMPLETION_RATE,
+  CANARY_MINIMUM_DELIVERY_RATE,
+  CANARY_WINDOW_MODE,
+  evaluateCanaryDecision,
+  missingCanaryReport,
+} from "./canary-report";
 import { sha256Hex, stableJson } from "./crypto";
 
-const WINDOW_MODE = "fixed_8_hours" as const;
-const MINIMUM_DELIVERY_RATE = 0.99;
-const MINIMUM_COMPLETION_RATE = 0.99;
 const COLLECTOR_CRON = "*/3 * * * *";
 const DISPATCHER_CRON = "1-59/3 * * * *";
 const ABANDONED_AFTER_MS = 15 * 60 * 1_000;
@@ -113,12 +121,14 @@ export async function readCanaryReport(
   environment: Environment = "staging",
   canaryId?: string,
   runtimeQuota?: UsageGuardEvidence | UsageGuardState,
+  runtimeTelemetry?: unknown,
+  runtimeBaseline?: unknown,
 ) {
   const run = canaryId
     ? await readRunById(db, canaryId)
     : await readLatestRun(db, environment, deploymentSha);
   if (!run || run.environment !== environment || run.deployment_sha !== deploymentSha) {
-    return missingReport(deploymentSha, environment, nowMs, canaryId ?? null);
+    return missingCanaryReport(deploymentSha, environment, nowMs, canaryId ?? null);
   }
   const startedMs = Date.parse(run.started_at);
   const endsMs = Date.parse(run.ends_at);
@@ -129,29 +139,14 @@ export async function readCanaryReport(
     runtimeEndedAt: run.ends_at,
   });
   const observationEndMs = Math.min(nowMs, endsMs);
-  const collectorExpected = expectedSlots(startedMs, observationEndMs, 0);
-  const dispatcherExpected = expectedSlots(startedMs, observationEndMs, 1);
-  const invocations = await readInvocations(
+  const invocationEvidence = await readInvocationEvidence(
     db,
-    "collector_invocations",
+    run,
     deploymentSha,
-    run.started_at,
-    new Date(observationEndMs).toISOString(),
-  );
-  const dispatcherInvocations = await readInvocations(
-    db,
-    "dispatcher_invocations",
-    deploymentSha,
-    run.started_at,
-    new Date(observationEndMs).toISOString(),
-  );
-  const collector = summarizeInvocations(invocations, collectorExpected, nowMs, observationEndMs);
-  const dispatcherInvocationSummary = summarizeInvocations(
-    dispatcherInvocations,
-    dispatcherExpected,
     nowMs,
     observationEndMs,
   );
+  const { collector, dispatcherInvocationSummary, invocations } = invocationEvidence;
 
   const [dispatches, invariants, interactions] = await Promise.all([
     dispatchSummary(db, deploymentSha, run.started_at, run.ends_at),
@@ -169,27 +164,50 @@ export async function readCanaryReport(
   const collectorPassed = invocationPassed(collector, eligible);
   const dispatcherPassed = dispatchPassed(dispatcherInvocationSummary, dispatches, eligible);
   const routerPassed = interactionPassed(interactions);
-  const passed = reportPassed({
+  const pollMode = invocations.at(-1)?.poll_mode ?? "missing";
+  const collectorScriptVersion = `${deploymentSha}-${pollMode}-v9`;
+  const dispatcherScriptVersion = `${deploymentSha}-v9`;
+  const runtime = evaluateCanaryRuntime({
+    telemetry: runtimeTelemetry,
+    run,
+    deploymentSha,
+    collectorScriptVersion,
+    dispatcherScriptVersion,
+    invocationEvidence,
+    baseline: runtimeBaseline,
+  });
+  const decision = evaluateCanaryDecision({
     eligible,
     collectorPassed,
     dispatcherPassed,
     routerPassed,
-    quotaPassed: quota.valid,
-    totalInvalid: invariants.totalInvalid,
-    earlyFailureCount: earlyFailureReasons.length,
+    earlyFailureReasons,
+    invariants,
+    quota,
+    runtime,
   });
+  const runtimeSampleHash = await sha256Hex(stableJson(runtimeTelemetry ?? null));
 
   return {
-    version: 8,
+    version: 9,
+    policyId: FORECAST_CANARY_POLICY_ID,
     canaryId: run.canary_id,
     deploymentSha,
     environment,
-    pollMode: invocations.at(-1)?.poll_mode ?? "missing",
+    identity: {
+      canaryId: run.canary_id,
+      deploymentSha,
+      collectorScriptVersion,
+      dispatcherScriptVersion,
+      startedAt: run.started_at,
+      endedAt: run.ends_at,
+    },
+    pollMode,
     acceptance: {
-      windowMode: WINDOW_MODE,
+      windowMode: CANARY_WINDOW_MODE,
       windowHours: CANARY_WINDOW_MS / (60 * 60 * 1_000),
-      minimumDeliveryRate: MINIMUM_DELIVERY_RATE,
-      minimumCompletionRate: MINIMUM_COMPLETION_RATE,
+      minimumDeliveryRate: CANARY_MINIMUM_DELIVERY_RATE,
+      minimumCompletionRate: CANARY_MINIMUM_COMPLETION_RATE,
       maximumMissingSlots: 1,
     },
     window: {
@@ -203,9 +221,15 @@ export async function readCanaryReport(
     collector,
     dispatcher: { ...dispatcherInvocationSummary, ...dispatches, passed: dispatcherPassed },
     router: { ...interactions, passed: routerPassed },
-    quota,
+    quotaEvidence: quota,
     invariants,
-    passed,
+    evidence: decision.evidence,
+    functional: decision.functional,
+    integrity: decision.integrity,
+    quota: decision.quota,
+    runtimeSafety: decision.runtimeSafety,
+    performance: { ...runtime.performance, sampleHash: runtimeSampleHash },
+    certification: decision.certification,
   };
 }
 
@@ -221,11 +245,13 @@ export async function readCanaryWindow(
     : await readLatestRun(db, environment, deploymentSha);
   if (!run || run.environment !== environment || run.deployment_sha !== deploymentSha) {
     return {
-      version: 8,
+      version: 9,
+      policyId: FORECAST_CANARY_POLICY_ID,
       canaryId: canaryId ?? null,
       deploymentSha,
       environment,
-      acceptance: { windowMode: WINDOW_MODE, windowHours: null },
+      pollMode: "missing",
+      acceptance: { windowMode: CANARY_WINDOW_MODE, windowHours: null },
       window: {
         startedAt: null,
         endsAt: null,
@@ -237,13 +263,16 @@ export async function readCanaryWindow(
   }
   const startedMs = Date.parse(run.started_at);
   const endsMs = Date.parse(run.ends_at);
+  const pollMode = await readCanaryPollMode(db, deploymentSha, run.started_at, run.ends_at);
   return {
-    version: 8,
+    version: 9,
+    policyId: FORECAST_CANARY_POLICY_ID,
     canaryId: run.canary_id,
     deploymentSha,
     environment,
+    pollMode,
     acceptance: {
-      windowMode: WINDOW_MODE,
+      windowMode: CANARY_WINDOW_MODE,
       windowHours: CANARY_WINDOW_MS / (60 * 60 * 1_000),
     },
     window: {
@@ -254,6 +283,79 @@ export async function readCanaryWindow(
       eligible: nowMs >= endsMs,
     },
   };
+}
+
+async function readCanaryPollMode(
+  db: D1Database,
+  deploymentSha: string,
+  startedAt: string,
+  endsAt: string,
+) {
+  const row = await db
+    .prepare(
+      `SELECT poll_mode FROM collector_invocations
+       WHERE deployment_sha = ? AND scheduled_at >= ? AND scheduled_at < ?
+       ORDER BY scheduled_at DESC LIMIT 1`,
+    )
+    .bind(deploymentSha, startedAt, endsAt)
+    .first<{ poll_mode: "both" | "alternating" }>();
+  return row?.poll_mode ?? "missing";
+}
+
+async function readInvocationEvidence(
+  db: D1Database,
+  run: CanaryRunRow,
+  deploymentSha: string,
+  nowMs: number,
+  observationEndMs: number,
+) {
+  const collectorExpected = expectedSlots(Date.parse(run.started_at), observationEndMs, 0);
+  const dispatcherExpected = expectedSlots(Date.parse(run.started_at), observationEndMs, 1);
+  const observedUntil = new Date(observationEndMs).toISOString();
+  const [invocations, dispatcherInvocations] = await Promise.all([
+    readInvocations(db, "collector_invocations", deploymentSha, run.started_at, observedUntil),
+    readInvocations(db, "dispatcher_invocations", deploymentSha, run.started_at, observedUntil),
+  ]);
+  return {
+    collectorExpected,
+    dispatcherExpected,
+    invocations,
+    dispatcherInvocations,
+    collector: summarizeInvocations(invocations, collectorExpected, nowMs, observationEndMs),
+    dispatcherInvocationSummary: summarizeInvocations(
+      dispatcherInvocations,
+      dispatcherExpected,
+      nowMs,
+      observationEndMs,
+    ),
+  };
+}
+
+function evaluateCanaryRuntime(input: {
+  telemetry: unknown;
+  run: CanaryRunRow;
+  deploymentSha: string;
+  collectorScriptVersion: string;
+  dispatcherScriptVersion: string;
+  invocationEvidence: Awaited<ReturnType<typeof readInvocationEvidence>>;
+  baseline: unknown;
+}) {
+  return evaluateForecastRuntimeTelemetry({
+    telemetry: input.telemetry,
+    canaryId: input.run.canary_id,
+    deploymentSha: input.deploymentSha,
+    collectorScriptVersion: input.collectorScriptVersion,
+    dispatcherScriptVersion: input.dispatcherScriptVersion,
+    startedAt: input.run.started_at,
+    endedAt: input.run.ends_at,
+    collectorExpectedSlots: input.invocationEvidence.collectorExpected,
+    dispatcherExpectedSlots: input.invocationEvidence.dispatcherExpected,
+    collectorD1Slots: input.invocationEvidence.invocations.map((row) => row.scheduled_at),
+    dispatcherD1Slots: input.invocationEvidence.dispatcherInvocations.map(
+      (row) => row.scheduled_at,
+    ),
+    baseline: input.baseline,
+  });
 }
 
 async function readRunById(db: D1Database, canaryId: string) {
@@ -362,8 +464,8 @@ function ratio(numerator: number, denominator: number) {
 function invocationPassed(summary: ReturnType<typeof summarizeInvocations>, eligible: boolean) {
   return (
     eligible &&
-    summary.deliveryRate >= MINIMUM_DELIVERY_RATE &&
-    summary.completionRate >= MINIMUM_COMPLETION_RATE &&
+    summary.deliveryRate >= CANARY_MINIMUM_DELIVERY_RATE &&
+    summary.completionRate >= CANARY_MINIMUM_COMPLETION_RATE &&
     summary.missingSlots <= 1 &&
     summary.latestStatus === "completed" &&
     summary.abandoned === 0 &&
@@ -412,26 +514,6 @@ function interactionPassed(interactions: Awaited<ReturnType<typeof interactionSu
     interactions.routerTestCount >= 1 &&
     interactions.duplicateInteractions === 0 &&
     interactions.maxInitialResponseMs < 1_000
-  );
-}
-
-function reportPassed(input: {
-  eligible: boolean;
-  collectorPassed: boolean;
-  dispatcherPassed: boolean;
-  routerPassed: boolean;
-  quotaPassed: boolean;
-  totalInvalid: number;
-  earlyFailureCount: number;
-}) {
-  return (
-    input.eligible &&
-    input.collectorPassed &&
-    input.dispatcherPassed &&
-    input.routerPassed &&
-    input.quotaPassed &&
-    input.totalInvalid === 0 &&
-    input.earlyFailureCount === 0
   );
 }
 
@@ -716,94 +798,6 @@ function publicRun(row: CanaryRunRow) {
     dispatcherCron: row.dispatcher_cron,
     startedAt: row.started_at,
     endsAt: row.ends_at,
-  };
-}
-
-function missingReport(
-  deploymentSha: string,
-  environment: Environment,
-  nowMs: number,
-  canaryId: string | null,
-) {
-  return {
-    version: 8,
-    canaryId,
-    deploymentSha,
-    environment,
-    pollMode: "missing",
-    acceptance: {
-      windowMode: WINDOW_MODE,
-      windowHours: null,
-      minimumDeliveryRate: MINIMUM_DELIVERY_RATE,
-      minimumCompletionRate: MINIMUM_COMPLETION_RATE,
-      maximumMissingSlots: 1,
-    },
-    window: {
-      startedAt: null,
-      endsAt: null,
-      observedUntil: new Date(nowMs).toISOString(),
-      eligible: false,
-      earlyFailure: false,
-      earlyFailureReasons: ["canary_deployment_missing"],
-    },
-    collector: emptyInvocationSummary(),
-    dispatcher: {
-      ...emptyInvocationSummary(),
-      duplicateDispatches: 0,
-      duplicateRuns: 0,
-      invalidStates: 0,
-      smokeCount: 0,
-      invalidSmoke: 0,
-      passed: false,
-    },
-    router: {
-      routerTestCount: 0,
-      duplicateInteractions: 0,
-      maxInitialResponseMs: 0,
-      failedAuthorizationSmoke: 0,
-      passed: false,
-    },
-    quota: {
-      valid: false,
-      errorCode: "canary_run_missing",
-      evidence: null,
-      evidenceHash: null,
-      initialEvidenceHash: null,
-      freshnessMinutes: null,
-      cpu: null,
-    },
-    invariants: {
-      queue: 0,
-      cursors: 0,
-      candidates: 0,
-      watermarks: 0,
-      reviews: 0,
-      manualReviewCoverage: 0,
-      callbackStateConflicts: 0,
-      unsentCriticalAlerts: 0,
-      totalInvalid: 0,
-    },
-    passed: false,
-  };
-}
-
-function emptyInvocationSummary() {
-  return {
-    expectedSlots: 0,
-    observedSlots: 0,
-    missingSlots: 0,
-    deliveryRate: 0,
-    completed: 0,
-    failure: 0,
-    abandoned: 0,
-    completionRate: 0,
-    abandonedRate: 0,
-    missingRate: 0,
-    duplicateInvocations: 0,
-    unexpectedInvocations: 0,
-    lateInvocations: 0,
-    partialSchemaRejections: 0,
-    latestStatus: "missing",
   };
 }
 
