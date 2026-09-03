@@ -69,7 +69,7 @@ GitHub App은 이 저장소 하나에만 설치하고 `Actions: write`, `Metadat
 10. workflow는 통계 production D1 read probe와 계정 전체 baseline을 확인한 뒤
     Collector·Dispatcher를 활성화하고 30분 burn-in을 수행한다. 월간 결제기간을 사용하므로
     KST/UTC 자정에 맞출 필요가 없다.
-11. burn-in 후 현재·월말 예상 사용률이 모두 25% 미만이면 독립 `canaryId`의 v7 row가 생성된다.
+11. burn-in 후 현재·월말 예상 사용률이 모두 25% 미만이면 독립 `canaryId`의 v8 row가 생성된다.
    실패하면 staging Collector·Dispatcher가 모두 비활성화되고 alert 채널에 직접 경고한다.
 
 Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난 뒤 owner 설정으로
@@ -120,7 +120,7 @@ Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난
 - 계산기와 Rust/WASM solver는 브라우저에서 계속 동작한다. 중단되는 것은 통계 기록과 Forecast
   자동 갱신이며, Cloudflare Budget Alert는 외부 알림일 뿐 이 차단 계약을 대체하지 않는다.
 
-## Canary v7 판독
+## Canary v8 판독
 
 Canary는 이전 기간을 합치지 않고 `canary_runs.startedAt`부터 정확히 8시간 진행한다. Collector
 `*/3`과 Dispatcher `1-59/3`의 예상 slot을 이 구간에서 생성하므로 정상적으로 Worker별 약 160개
@@ -130,7 +130,7 @@ slot을 관찰한다. 전체 구간이 현재 결제기간 안에 있어야 하�
 통과 조건:
 
 ```text
-version = 7
+version = 8
 windowMode = fixed_8_hours
 endsAt = startedAt + 8시간
 각 Worker deliveryRate >= 99%

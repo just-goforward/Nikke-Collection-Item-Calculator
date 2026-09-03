@@ -95,7 +95,7 @@ describe("forecast collector admin boundary", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      version: 7,
+      version: 8,
       canaryId: null,
       acceptance: { windowMode: "fixed_8_hours", windowHours: null },
       window: { active: false, eligible: false },

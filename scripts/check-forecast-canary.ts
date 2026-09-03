@@ -90,7 +90,7 @@ async function fetchCanaryReport(
 }
 
 type CanaryReport = {
-  version: 7;
+  version: 8;
   canaryId: string;
   deploymentSha: string;
   pollMode: "both" | "alternating" | "missing";
@@ -171,7 +171,7 @@ type InvocationSummary = {
 };
 
 function isCanaryReport(value: unknown): value is CanaryReport {
-  if (!isRecord(value) || value["version"] !== 7 || typeof value["deploymentSha"] !== "string")
+  if (!isRecord(value) || value["version"] !== 8 || typeof value["deploymentSha"] !== "string")
     return false;
   if (!/^fc-[0-9a-f]{32}$/.test(String(value["canaryId"]))) return false;
   if (typeof value["passed"] !== "boolean") return false;

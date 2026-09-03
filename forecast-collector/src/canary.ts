@@ -180,7 +180,7 @@ export async function readCanaryReport(
   });
 
   return {
-    version: 7,
+    version: 8,
     canaryId: run.canary_id,
     deploymentSha,
     environment,
@@ -221,7 +221,7 @@ export async function readCanaryWindow(
     : await readLatestRun(db, environment, deploymentSha);
   if (!run || run.environment !== environment || run.deployment_sha !== deploymentSha) {
     return {
-      version: 7,
+      version: 8,
       canaryId: canaryId ?? null,
       deploymentSha,
       environment,
@@ -238,7 +238,7 @@ export async function readCanaryWindow(
   const startedMs = Date.parse(run.started_at);
   const endsMs = Date.parse(run.ends_at);
   return {
-    version: 7,
+    version: 8,
     canaryId: run.canary_id,
     deploymentSha,
     environment,
@@ -726,7 +726,7 @@ function missingReport(
   canaryId: string | null,
 ) {
   return {
-    version: 7,
+    version: 8,
     canaryId,
     deploymentSha,
     environment,

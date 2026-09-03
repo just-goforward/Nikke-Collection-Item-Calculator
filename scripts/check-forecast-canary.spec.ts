@@ -64,7 +64,7 @@ async function runCli(report: unknown) {
 
 function inProgressReport() {
   return {
-    version: 7,
+    version: 8,
     canaryId: `fc-${"a".repeat(32)}`,
     deploymentSha: "b".repeat(40),
     environment: "staging",

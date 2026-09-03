@@ -74,7 +74,7 @@ jobs:
             -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
             -H "Accept: application/json" \
             "$FORECAST_COLLECTOR_URL/admin/canary-window" > "$RUNNER_TEMP/canary-window.json"
-          jq -e '.version == 7 and (.canaryId | test("^fc-[0-9a-f]{32}$")) and (.deploymentSha | test("^[0-9a-f]{40}$"))' \
+          jq -e '.version == 8 and (.canaryId | test("^fc-[0-9a-f]{32}$")) and (.deploymentSha | test("^[0-9a-f]{40}$"))' \
             "$RUNNER_TEMP/canary-window.json" >/dev/null
           echo "canary_id=$(jq -r '.canaryId' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
           echo "started_at=$(jq -r '.window.startedAt' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
@@ -93,7 +93,7 @@ jobs:
           --runtime-end "${{ steps.window.outputs.ends_at }}"
           --output "$RUNNER_TEMP/canary-final-quota.json"
 
-      - name: Read authenticated Paid canary v7 report
+      - name: Read authenticated Paid canary v8 report
         id: canary
         env:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
@@ -183,13 +183,13 @@ jobs:
         run: |
           echo "Eight-hour forecast automation canary is not yet eligible or has not passed." >> "$GITHUB_STEP_SUMMARY"
           if [[ "${{ steps.canary.outputs.canary_early_failed }}" == "true" ]]; then
-            echo "The v7 early-failure gate rejected this deployment. Do not weaken or reuse this window." >> "$GITHUB_STEP_SUMMARY"
+            echo "The v8 early-failure gate rejected this deployment. Do not weaken or reuse this window." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Reject an eligible failed canary
         if: steps.window.outputs.eligible == 'true' && steps.canary.outputs.canary_passed != 'true'
         run: |
-          echo "The completed v7 canary failed its acceptance contract. A fresh deployment and window are required." >&2
+          echo "The completed v8 canary failed its acceptance contract. A fresh deployment and window are required." >&2
           exit 1
 
   promote:

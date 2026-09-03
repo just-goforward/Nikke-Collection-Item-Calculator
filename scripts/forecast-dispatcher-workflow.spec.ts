@@ -65,8 +65,8 @@ describe("Forecast dispatcher workflow contract", () => {
     }
     expect(interactionConfig).not.toContain("[triggers]");
     expect(stagingDeploy).toContain("router_endpoint_ready:");
-    expect(stagingDeploy).toContain("Start fixed eight-hour Paid canary v7");
-    expect(productionPromote).toContain("Read authenticated Paid canary v7 report");
+    expect(stagingDeploy).toContain("Start fixed eight-hour Paid canary v8");
+    expect(productionPromote).toContain("Read authenticated Paid canary v8 report");
     expect(productionPromote).toContain("environment: cloudflare-production");
     expect(productionPromote).toContain("Determine coupled production rollout");
     expect(stagingDeploy).toContain("Probe GitHub App installation and fixed workflow");

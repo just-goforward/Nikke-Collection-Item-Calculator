@@ -45,7 +45,7 @@ beforeEach(async () => {
   await insertSmokeAndRouterTest();
 });
 
-describe("canary report v7 storage and start contract", () => {
+describe("canary report v8 storage and start contract", () => {
   it("uses covering indexes for the recurring latest-invocation queries", async () => {
     const collectorPlan = await testEnv.FORECAST_DB.prepare(
       `EXPLAIN QUERY PLAN
@@ -76,7 +76,7 @@ describe("canary report v7 storage and start contract", () => {
 
     const report = await readFinalCanaryReport();
 
-    expect(report.version).toBe(7);
+    expect(report.version).toBe(8);
     expect(report.canaryId).toBe(CANARY_ID);
     expect(report.acceptance).toMatchObject({ windowMode: "fixed_8_hours", windowHours: 8 });
     expect(report.quota).toMatchObject({ valid: true, errorCode: null });
@@ -116,7 +116,7 @@ describe("canary report v7 storage and start contract", () => {
       "staging",
     );
     expect(active).toMatchObject({
-      version: 7,
+      version: 8,
       canaryId: CANARY_ID,
       acceptance: { windowMode: "fixed_8_hours", windowHours: 8 },
       window: { active: true, eligible: false },
@@ -213,7 +213,7 @@ describe("canary report v7 storage and start contract", () => {
   });
 });
 
-describe("canary report v7 slot evidence", () => {
+describe("canary report v8 slot evidence", () => {
   it("allows one missing slot but rejects two", async () => {
     const collector = slots(0);
     const dispatcher = slots(1);
@@ -441,6 +441,20 @@ function quotaEvidence(nowMs: number): D1QuotaEvidence {
       rowsReadObserved: 500,
       rowsWrittenObserved: 50,
       storageBytesObserved: 100_000,
+    },
+    {
+      databaseId: D1_DATABASE_IDS.statsObserverProduction,
+      databaseName: "collection-kit-stats-observer",
+      rowsReadObserved: 100,
+      rowsWrittenObserved: 10,
+      storageBytesObserved: 50_000,
+    },
+    {
+      databaseId: D1_DATABASE_IDS.statsObserverStaging,
+      databaseName: "collection-kit-stats-observer-staging",
+      rowsReadObserved: 100,
+      rowsWrittenObserved: 10,
+      storageBytesObserved: 50_000,
     },
   ];
   const workers: D1QuotaEvidence["workers"] = [
