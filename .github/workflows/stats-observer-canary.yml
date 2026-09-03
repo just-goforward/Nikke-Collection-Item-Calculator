@@ -99,7 +99,24 @@ jobs:
           npx wrangler d1 execute OBSERVER_DB --remote --env staging --config stats-observer/wrangler.toml \
             --command "INSERT INTO observer_canaries (canary_id,deployment_sha,started_at,ends_at,status) VALUES ('$canary_id','$DEPLOY_SHA','$started_at','$ends_at','running');" --yes
           echo "canary_id=$canary_id" >> "$GITHUB_OUTPUT"
+          echo "started_at=$started_at" >> "$GITHUB_OUTPUT"
+          echo "ends_at=$ends_at" >> "$GITHUB_OUTPUT"
+          jq -n \
+            --arg canaryId "$canary_id" \
+            --arg deploymentSha "$DEPLOY_SHA" \
+            --arg startedAt "$started_at" \
+            --arg endsAt "$ends_at" \
+            '{version:1,canaryId:$canaryId,deploymentSha:$deploymentSha,startedAt:$startedAt,endsAt:$endsAt,status:"running"}' \
+            > "$RUNNER_TEMP/stats-observer-canary-start.json"
           echo "Started $canary_id at $started_at; exact end is $ends_at." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload canary start certificate
+        if: inputs.action == 'start' && steps.start.outputs.canary_id != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: stats-observer-canary-start-${{ steps.start.outputs.canary_id }}
+          path: ${{ runner.temp }}/stats-observer-canary-start.json
+          retention-days: 30
 
       - name: Read canary evidence
         if: inputs.action == 'check'
