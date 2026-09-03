@@ -79,6 +79,29 @@ export type AdminDiagnosticsBody = {
   recoveryDataPolicy?: {
     aggregatesAreIndependent: boolean;
     ratioWarning: string;
+    operationalFailuresAreBucketed?: boolean;
+    exactStockStored?: boolean;
+  };
+  operationalFailures?: {
+    rows: Array<{
+      recoveryVersion: number;
+      policyVersion: string;
+      appRevision: string;
+      ingestRevision: string;
+      forecastId: string;
+      forecastProfileId: string;
+      events: number;
+    }>;
+    nextCursor: string | null;
+  };
+  submissionHealth?: {
+    rejections: { rows: unknown[]; nextCursor: string | null };
+    delivery: { rows: unknown[]; nextCursor: string | null };
+  };
+  observerCoverage?: {
+    availableInThisResponse?: boolean;
+    source?: string;
+    auditWorkflow?: string;
   };
   recoveryRungs?: Array<{
     dateBasis: StatisticsDateBasis;

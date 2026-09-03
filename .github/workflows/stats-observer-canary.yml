@@ -1,0 +1,146 @@
+name: Verify Stats Observer Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Start after burn-in, or check after the exact eight-hour window
+        required: true
+        type: choice
+        options: [start, check]
+      deploy_sha:
+        description: Full staging Observer deployment SHA
+        required: true
+        type: string
+      canary_id:
+        description: Required only for check (soc- plus 32 lowercase hex)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stats-observer-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.deploy_sha }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.20.0
+          cache: npm
+
+      - run: npm ci
+
+      - name: Validate inputs
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          ACTION: ${{ inputs.action }}
+          CANARY_ID: ${{ inputs.canary_id }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$DEPLOY_SHA" ]]
+          if [[ "$ACTION" == "check" ]]; then [[ "$CANARY_ID" =~ ^soc-[0-9a-f]{32}$ ]]; fi
+
+      - name: Start canary after healthy burn-in
+        if: inputs.action == 'start'
+        id: start
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deployments status --env staging --config stats-observer/wrangler.toml --json > "$RUNNER_TEMP/deployment.json"
+          npx wrangler versions list --env staging --config stats-observer/wrangler.toml --json > "$RUNNER_TEMP/versions.json"
+          node --input-type=module - "$RUNNER_TEMP/deployment.json" "$RUNNER_TEMP/versions.json" "$DEPLOY_SHA" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const deployment = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const versions = JSON.parse(readFileSync(process.argv[3], "utf8"));
+          const activeId = deployment.versions?.find((row) => row.percentage === 100)?.version_id;
+          const active = versions.find((row) => row.id === activeId);
+          if (active?.annotations?.["workers/tag"] !== process.argv[4]) throw new Error("Staging Observer SHA is not active.");
+          NODE
+          npx wrangler d1 execute OBSERVER_DB --remote --env staging --config stats-observer/wrangler.toml \
+            --command "SELECT baseline_initialized, baseline_at FROM observer_state WHERE singleton_id=1; SELECT scheduled_at, status, deployment_sha, duplicate_attempts FROM observer_runs ORDER BY scheduled_at DESC LIMIT 2;" \
+            --json > "$RUNNER_TEMP/burn-in.json"
+          node --input-type=module - "$RUNNER_TEMP/burn-in.json" "$DEPLOY_SHA" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const rows = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const state = rows[0]?.results?.[0];
+          const runs = rows[1]?.results ?? [];
+          if (state?.baseline_initialized !== 1 || runs.length < 2) throw new Error("Observer burn-in is incomplete.");
+          if (runs.some((row) => row.status !== "completed" || row.deployment_sha !== process.argv[3] || row.duplicate_attempts !== 0)) {
+            throw new Error("Observer burn-in contains an unhealthy or mismatched run.");
+          }
+          if (Date.now() - Date.parse(runs.at(-1).scheduled_at) < 25 * 60_000) throw new Error("Observer burn-in is shorter than 30 minutes.");
+          NODE
+          canary_id="soc-$(node --input-type=module -e 'import { randomBytes } from "node:crypto"; process.stdout.write(randomBytes(16).toString("hex"))')"
+          started_at=$(node -e 'process.stdout.write(new Date().toISOString())')
+          ends_at=$(node -e 'process.stdout.write(new Date(Date.parse(process.argv[1])+8*60*60*1000).toISOString())' "$started_at")
+          npx wrangler d1 execute OBSERVER_DB --remote --env staging --config stats-observer/wrangler.toml \
+            --command "INSERT INTO observer_canaries (canary_id,deployment_sha,started_at,ends_at,status) VALUES ('$canary_id','$DEPLOY_SHA','$started_at','$ends_at','running');" --yes
+          echo "canary_id=$canary_id" >> "$GITHUB_OUTPUT"
+          echo "Started $canary_id at $started_at; exact end is $ends_at." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Read canary evidence
+        if: inputs.action == 'check'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CANARY_ID: ${{ inputs.canary_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute OBSERVER_DB --remote --env staging --config stats-observer/wrangler.toml \
+            --command "SELECT canary_id,deployment_sha,started_at,ends_at,status FROM observer_canaries WHERE canary_id='$CANARY_ID';" --json > "$RUNNER_TEMP/canary.json"
+          started_epoch=$(date -u -d "$(jq -er '.[0].results[0].started_at' "$RUNNER_TEMP/canary.json")" +%s)
+          ends_epoch=$(date -u -d "$(jq -er '.[0].results[0].ends_at' "$RUNNER_TEMP/canary.json")" +%s)
+          npx wrangler d1 execute OBSERVER_DB --remote --env staging --config stats-observer/wrangler.toml \
+            --command "SELECT scheduled_at,status,deployment_sha,duplicate_attempts FROM observer_runs WHERE scheduled_at >= (SELECT started_at FROM observer_canaries WHERE canary_id='$CANARY_ID') AND scheduled_at < (SELECT ends_at FROM observer_canaries WHERE canary_id='$CANARY_ID') ORDER BY scheduled_at;" --json > "$RUNNER_TEMP/runs.json"
+          npx wrangler d1 execute OBSERVER_DB --remote --env staging --config stats-observer/wrangler.toml \
+            --command "SELECT COUNT(*) AS count FROM observer_alerts WHERE state='open' AND send_status!='sent';" --json > "$RUNNER_TEMP/alerts.json"
+          npx wrangler d1 execute STATS_DB --remote --env staging --config stats-observer/wrangler.toml \
+            --command "SELECT COALESCE(SUM(events),0) AS count FROM stats_submission_rejection_aggregates_game_day WHERE last_seen >= $started_epoch AND last_seen < $ends_epoch;" --json > "$RUNNER_TEMP/rejections.json"
+
+      - name: Evaluate exact canary
+        if: inputs.action == 'check'
+        id: check
+        env:
+          OBSERVER_CANARY_ROW: ${{ runner.temp }}/canary.json
+          OBSERVER_CANARY_RUNS: ${{ runner.temp }}/runs.json
+          OBSERVER_CANARY_ALERTS: ${{ runner.temp }}/alerts.json
+          OBSERVER_CANARY_REJECTIONS: ${{ runner.temp }}/rejections.json
+          OBSERVER_CANARY_REPORT_OUTPUT: ${{ runner.temp }}/stats-observer-canary.json
+        run: npm run check:stats-observer-canary
+
+      - name: Seal passing canary
+        if: inputs.action == 'check' && steps.check.outputs.passed == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CANARY_ID: ${{ inputs.canary_id }}
+        shell: bash
+        run: |
+          report=$(jq -c . "$RUNNER_TEMP/stats-observer-canary.json")
+          escaped=$(printf '%s' "$report" | sed "s/'/''/g")
+          npx wrangler d1 execute OBSERVER_DB --remote --env staging --config stats-observer/wrangler.toml \
+            --command "UPDATE observer_canaries SET status='passed',checked_at=CURRENT_TIMESTAMP,report_json='$escaped' WHERE canary_id='$CANARY_ID' AND status='running';" --yes
+
+      - name: Upload canary certificate
+        if: always() && inputs.action == 'check'
+        uses: actions/upload-artifact@v7
+        with:
+          name: stats-observer-canary-${{ inputs.canary_id }}
+          path: ${{ runner.temp }}/stats-observer-canary.json
+          retention-days: 30

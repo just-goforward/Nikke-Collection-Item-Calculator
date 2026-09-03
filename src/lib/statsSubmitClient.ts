@@ -100,14 +100,22 @@ async function postStatsEnvelope(
         turnstileToken,
       }),
       keepalive: true,
+      signal: AbortSignal.timeout(10_000),
     });
   } catch (error) {
     ignoreExpectedError("Statistics fetch failed; raising retryable submission error.", error);
-    throw new StatsSubmissionError("Statistics request failed.", true);
+    if (!__STATS_DELIVERY_HEALTH_EMIT_ENABLED__) {
+      throw new StatsSubmissionError("Statistics request failed.", true);
+    }
+    const failureClass =
+      error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name)
+        ? "timeout"
+        : "network";
+    throw new StatsSubmissionError("Statistics request failed.", true, failureClass);
   }
 }
 
-async function readStatsError(response: Response): Promise<StatsSubmissionError> {
+export async function readStatsError(response: Response): Promise<StatsSubmissionError> {
   let message = response.statusText || "Statistics request failed.";
   let retryable = false;
   try {
@@ -120,7 +128,24 @@ async function readStatsError(response: Response): Promise<StatsSubmissionError>
       error,
     );
   }
-  return new StatsSubmissionError(message, retryable);
+  const retryableStatus = response.status === 429 || response.status >= 500;
+  if (message === "telemetry_budget_disabled") {
+    return new StatsSubmissionError(message, false, "quota_disabled");
+  }
+  if (!__STATS_DELIVERY_HEALTH_EMIT_ENABLED__) {
+    return new StatsSubmissionError(message, retryable || retryableStatus);
+  }
+  const classification = failureClass(response.status, message);
+  return new StatsSubmissionError(message, retryable || retryableStatus, classification);
+}
+
+function failureClass(status: number, message: string) {
+  if (status === 429) return "rate_limited" as const;
+  if (status >= 500) return "server_error" as const;
+  if (message.includes("turnstile")) return "turnstile_rejected" as const;
+  if (message.includes("origin")) return "origin_rejected" as const;
+  if (status >= 400 && status < 500) return "contract_rejected" as const;
+  return "unknown" as const;
 }
 
 export async function submitStatsEnvelope(

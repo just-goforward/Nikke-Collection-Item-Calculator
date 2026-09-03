@@ -1,4 +1,8 @@
 import {
+  SOLVER_RECOVERY_EMIT_VERSION,
+  SOLVER_RECOVERY_JS_PHASE2_VERSION,
+} from "../../shared/solverRecoveryContract";
+import {
   bucketBlueShare,
   bucketCandidateCount,
   bucketMinAutonomyDays,
@@ -100,7 +104,7 @@ function diagnosticSolverIdentity(result: DiagnosticResult) {
     solverVersion:
       typeof stats.solverVersion === "string"
         ? stats.solverVersion
-        : "phase2_availability_h075_tau0_p3",
+        : SOLVER_RECOVERY_JS_PHASE2_VERSION,
     stats,
   };
 }
@@ -181,7 +185,7 @@ export function makeSolverRecoveryEvent(
   const runtimeForecast = resolveRuntimeSupplyForecast();
   return {
     kind: "solver_recovery" as const,
-    recoveryVersion: 1 as const,
+    recoveryVersion: SOLVER_RECOVERY_EMIT_VERSION,
     forecastId: runtimeForecast.forecastId,
     forecastProfileId: runtimeForecast.profile.id,
     policyVersion: trace.policyVersion,

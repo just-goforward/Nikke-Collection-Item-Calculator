@@ -3,6 +3,10 @@ import {
   isSupplyForecastProfileId,
 } from "../../shared/generated/supplyForecast";
 import {
+  LEGACY_RECOVERY_REVISION,
+  LEGACY_RECOVERY_SOLVER_VERSIONS,
+} from "../../shared/solverRecoveryContract";
+import {
   LEGACY_SUPPLY_FORECAST_ID,
   LEGACY_SUPPLY_FORECAST_PROFILE_ID,
 } from "../../shared/statsContract";
@@ -16,15 +20,23 @@ export function validateRecoverySubmission(
   payload: SubmissionEnvelope,
   event: SolverRecoveryEventInput,
 ): ValidatedSubmission {
+  if (event.recoveryVersion === 2) {
+    if (event.policyVersion !== "ladder_v2" || !event.appRevision || !event.solverVersions) {
+      throw new HttpError(400, "invalid_recovery_v2_identity");
+    }
+  }
   const forecastId = recoveryForecastId(event.forecastId);
   const forecastProfileId = recoveryForecastProfileId(event.forecastProfileId);
   return {
     eventId: payload.eventId,
     sourceHost: normalizeSourceHost(payload.sourceHost),
+    deliveryHealth: payload.deliveryHealth ?? null,
     event: {
       ...event,
+      appRevision: event.appRevision ?? LEGACY_RECOVERY_REVISION,
       forecastId,
       forecastProfileId,
+      solverVersions: event.solverVersions ?? LEGACY_RECOVERY_SOLVER_VERSIONS,
       start: validateState(event.start, false),
     },
   };

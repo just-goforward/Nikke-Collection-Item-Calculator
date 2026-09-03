@@ -117,3 +117,23 @@ DELETE FROM forecast_profile_aggregates_game_day
 WHERE EXISTS (
   SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
 );
+
+DELETE FROM solver_failure_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM stats_rejection_event_ids
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM stats_submission_rejection_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);
+
+DELETE FROM stats_delivery_health_aggregates_game_day
+WHERE EXISTS (
+  SELECT 1 FROM staging_environment_guard WHERE id = 1 AND environment = 'staging'
+);

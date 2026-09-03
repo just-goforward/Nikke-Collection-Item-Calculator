@@ -1,0 +1,92 @@
+name: Audit Solver Recovery History
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Statistics environment to read
+        required: true
+        type: choice
+        options: [staging, production]
+
+permissions:
+  contents: read
+
+jobs:
+  production-approval:
+    if: inputs.environment == 'production'
+    runs-on: ubuntu-latest
+    environment:
+      name: cloudflare-production
+    steps:
+      - run: echo "Production read-only audit approved."
+
+  audit:
+    needs: production-approval
+    if: always() && (inputs.environment == 'staging' || needs.production-approval.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.20.0
+          cache: npm
+
+      - run: npm ci
+
+      - name: Export bucketed recovery evidence
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/solver-recovery-audit"
+          if [[ "$TARGET_ENVIRONMENT" == "staging" ]]; then
+            env_args=(--env staging)
+          else
+            env_args=(--env=)
+          fi
+          npx wrangler d1 execute DB --remote "${env_args[@]}" --config cloudflare/wrangler.toml --json \
+            --command "SELECT 'legacy_calendar' AS date_basis,* FROM solver_recovery_terminal_aggregates WHERE terminal_outcome='failure' UNION ALL SELECT 'game_day_0500' AS date_basis,* FROM solver_recovery_terminal_aggregates_game_day WHERE terminal_outcome='failure' ORDER BY last_seen DESC LIMIT 5000;" \
+            > "$RUNNER_TEMP/solver-recovery-audit/terminal-failures.json"
+          npx wrangler d1 execute DB --remote "${env_args[@]}" --config cloudflare/wrangler.toml --json \
+            --command "SELECT 'legacy_calendar' AS date_basis,* FROM solver_recovery_terminal_aggregates WHERE terminal_outcome='failure' AND grade='R' AND level=0 AND stock_bucket_blue='500_plus' AND stock_bucket_purple='300_349' AND stock_bucket_yellow='150_199' UNION ALL SELECT 'game_day_0500' AS date_basis,* FROM solver_recovery_terminal_aggregates_game_day WHERE terminal_outcome='failure' AND grade='R' AND level=0 AND stock_bucket_blue='500_plus' AND stock_bucket_purple='300_349' AND stock_bucket_yellow='150_199' ORDER BY last_seen DESC LIMIT 1000;" \
+            > "$RUNNER_TEMP/solver-recovery-audit/r0-target-buckets.json"
+          npx wrangler d1 execute DB --remote "${env_args[@]}" --config cloudflare/wrangler.toml --json \
+            --command "SELECT * FROM solver_failure_aggregates_game_day ORDER BY last_seen DESC LIMIT 5000; SELECT * FROM stats_submission_rejection_aggregates_game_day ORDER BY last_seen DESC LIMIT 1000; SELECT * FROM stats_delivery_health_aggregates_game_day ORDER BY last_seen DESC LIMIT 1000;" \
+            > "$RUNNER_TEMP/solver-recovery-audit/operational-indexes.json"
+          npx wrangler d1 execute OBSERVER_DB --remote "${env_args[@]}" --config stats-observer/wrangler.toml --json \
+            --command "SELECT baseline_initialized,baseline_at,last_poll_at,updated_at FROM observer_state WHERE singleton_id=1; SELECT scheduled_at,finished_at,status,error_code,deployment_sha FROM observer_runs ORDER BY scheduled_at DESC LIMIT 100; SELECT severity,error_code,first_seen,last_seen,total_count,send_status,last_send_error FROM observer_alerts ORDER BY last_seen DESC LIMIT 100;" \
+            > "$RUNNER_TEMP/solver-recovery-audit/observer-coverage.json"
+
+      - name: Write audit summary
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+        shell: bash
+        run: |
+          terminal_rows=$(jq '.[0].results | length' "$RUNNER_TEMP/solver-recovery-audit/terminal-failures.json")
+          target_rows=$(jq '.[0].results | length' "$RUNNER_TEMP/solver-recovery-audit/r0-target-buckets.json")
+          operational_rows=$(jq '.[0].results | length' "$RUNNER_TEMP/solver-recovery-audit/operational-indexes.json")
+          cat > "$RUNNER_TEMP/solver-recovery-audit/README.md" <<EOF
+          # Solver recovery history audit
+
+          - Environment: $TARGET_ENVIRONMENT
+          - Generated at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          - Historical terminal failure rows: $terminal_rows
+          - R0 / blue 500_plus / purple 300_349 / yellow 150_199 rows: $target_rows
+          - Recovery v2 operational rows: $operational_rows
+
+          This artifact contains aggregate buckets only. It cannot prove that a row came from the
+          exact inventory 720/330/195, and it contains no exact stock, IP address, user identifier,
+          raw User-Agent, error message, or stack trace. The workflow is read-only.
+          EOF
+          cat "$RUNNER_TEMP/solver-recovery-audit/README.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: solver-recovery-history-${{ inputs.environment }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/solver-recovery-audit
+          retention-days: 30

@@ -1,0 +1,120 @@
+name: Deploy Stats Observer
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: Full main commit SHA already deployed to the staging statistics Worker
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stats-observer-staging
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v7
+        with:
+          ref: refs/heads/main
+
+      - name: Verify deployment target
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.deploy_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$REQUESTED_SHA" ]] || {
+            echo "Stats Observer staging deploy must target current trusted main." >&2
+            exit 1
+          }
+          echo "DEPLOY_SHA=$REQUESTED_SHA" >> "$GITHUB_ENV"
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.20.0
+          cache: npm
+
+      - name: Install and verify
+        run: |
+          npm ci
+          npm run stats-observer:types:check
+          npx tsc --noEmit -p stats-observer/tsconfig.json
+          npm run test:stats-observer
+          npx wrangler deploy --dry-run --env staging --config stats-observer/wrangler.toml
+
+      - name: Verify Paid guard and staging Stats contract
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_USAGE_GUARD_URL: ${{ vars.CLOUDFLARE_USAGE_GUARD_URL }}
+          STAGING_WORKER_URL: ${{ vars.CLOUDFLARE_STAGING_WORKER_URL }}
+          STATS_ALLOWED_ORIGIN: ${{ vars.STATS_ALLOWED_ORIGIN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+            "$CLOUDFLARE_USAGE_GUARD_URL/health" | jq -e '.state.action == "normal"' >/dev/null
+          npm run check:d1-schema -- collection-kit-stats-staging staging
+          npm run smoke:stats-worker -- "$STAGING_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
+          npx wrangler deployments status --env staging --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/stats-deployment.json"
+          npx wrangler versions list --env staging --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/stats-versions.json"
+          node --input-type=module - "$RUNNER_TEMP/stats-deployment.json" "$RUNNER_TEMP/stats-versions.json" "$DEPLOY_SHA" <<'NODE'
+          import { readFileSync } from "node:fs";
+          const deployment = JSON.parse(readFileSync(process.argv[2], "utf8"));
+          const versions = JSON.parse(readFileSync(process.argv[3], "utf8"));
+          const activeId = deployment.versions?.find((row) => row.percentage === 100)?.version_id;
+          const active = versions.find((row) => row.id === activeId);
+          if (active?.annotations?.["workers/tag"] !== process.argv[4]) throw new Error("Statistics Worker and Observer SHA differ.");
+          NODE
+
+      - name: Initialize staging Observer D1
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: >-
+          npx wrangler d1 execute OBSERVER_DB --remote --env staging
+          --config stats-observer/wrangler.toml --file stats-observer/schema.sql --yes
+
+      - name: Build deployment secrets
+        shell: bash
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$DISCORD_BOT_TOKEN"
+          jq -n --arg token "$DISCORD_BOT_TOKEN" '{DISCORD_BOT_TOKEN:$token}' > "$RUNNER_TEMP/observer-secrets.json"
+
+      - name: Deploy staging Stats Observer
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ALERT_CHANNEL_ID" =~ ^[0-9]{15,22}$ ]]
+          npx wrangler deploy --env staging --config stats-observer/wrangler.toml \
+            --secrets-file "$RUNNER_TEMP/observer-secrets.json" \
+            --var "ENVIRONMENT:staging" \
+            --var "DEPLOY_SHA:$DEPLOY_SHA" \
+            --var "DISCORD_ALERT_CHANNEL_ID:$ALERT_CHANNEL_ID" \
+            --tag "$DEPLOY_SHA" --message "GitHub $DEPLOY_SHA"
+
+      - name: Record burn-in boundary
+        run: |
+          {
+            echo "### Stats Observer staging"
+            echo "- Deployment: \`$DEPLOY_SHA\`"
+            echo "- Cron: \`7,37 * * * *\`"
+            echo "- Next gate: at least 30 minutes of healthy burn-in, then start a fresh 8-hour canary"
+            echo "- Production and the client recovery emission version were not changed"
+          } >> "$GITHUB_STEP_SUMMARY"
