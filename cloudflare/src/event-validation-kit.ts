@@ -42,6 +42,7 @@ export function validateKitResultSubmission(
   return {
     eventId: payload.eventId,
     sourceHost: normalizeSourceHost(payload.sourceHost),
+    deliveryHealth: payload.deliveryHealth ?? null,
     event: {
       kind: "kit_result",
       start,

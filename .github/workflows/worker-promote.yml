@@ -229,12 +229,18 @@ jobs:
           if npm run check:d1-schema -- collection-kit-stats; then
             echo "Production D1 schema already satisfies the current contract."
           else
-            echo "Applying additive game-day statistics migration to production D1."
+            echo "Applying additive statistics migrations to production D1."
             npx wrangler d1 execute collection-kit-stats \
               --remote \
               --env="" \
               --config cloudflare/wrangler.toml \
               --file cloudflare/add-game-day-statistics-v9.sql \
+              --yes
+            npx wrangler d1 execute collection-kit-stats \
+              --remote \
+              --env="" \
+              --config cloudflare/wrangler.toml \
+              --file cloudflare/add-solver-observability-v10.sql \
               --yes
             npm run check:d1-schema -- collection-kit-stats
           fi
@@ -264,6 +270,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: >-
           npx wrangler deploy --env="" --config cloudflare/wrangler.toml
+          --var "ALLOWED_ORIGINS:$STATS_ALLOWED_ORIGIN"
+          --var "DEPLOYMENT_SHA:$DEPLOY_SHA"
           --tag "$DEPLOY_SHA" --message "GitHub $DEPLOY_SHA"
 
       - name: Smoke test production Worker

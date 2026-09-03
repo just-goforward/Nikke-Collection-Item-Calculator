@@ -1,4 +1,8 @@
 import { D1_SCHEMA_CONTRACT_VERSION } from "../shared/d1SchemaContract.ts";
+import {
+  SOLVER_RECOVERY_EMIT_POLICY_VERSION,
+  SOLVER_RECOVERY_EMIT_VERSION,
+} from "../shared/solverRecoveryContract.ts";
 import { StatsApiResponseSchema } from "../src/schemas.ts";
 import { fetchExpectedHealthAfterDeployment } from "./stats-worker-health.ts";
 
@@ -55,6 +59,28 @@ assert(
 
 let healthStatus: number | "skipped" = "skipped";
 let writeContractStatus: number | "skipped" = "skipped";
+const contractHealthResponse = await fetch(endpointUrl("api/health"), {
+  headers: { Accept: "application/json", Origin: allowedOrigin },
+});
+assert(
+  contractHealthResponse.status === 200,
+  `health contract: expected 200, received ${contractHealthResponse.status}`,
+);
+assertCors(contractHealthResponse, "health contract");
+const contractHealth = (await contractHealthResponse.json()) as {
+  acceptedRecoveryVersions?: unknown;
+  acceptedRecoveryPolicyVersions?: unknown;
+};
+assert(
+  Array.isArray(contractHealth.acceptedRecoveryVersions) &&
+    contractHealth.acceptedRecoveryVersions.includes(SOLVER_RECOVERY_EMIT_VERSION),
+  `health contract: recovery versions mismatch: ${JSON.stringify(contractHealth.acceptedRecoveryVersions)}`,
+);
+assert(
+  Array.isArray(contractHealth.acceptedRecoveryPolicyVersions) &&
+    contractHealth.acceptedRecoveryPolicyVersions.includes(SOLVER_RECOVERY_EMIT_POLICY_VERSION),
+  `health contract: recovery policy versions mismatch: ${JSON.stringify(contractHealth.acceptedRecoveryPolicyVersions)}`,
+);
 if (!frontendContractOnly) {
   const { response: healthResponse } = await fetchExpectedHealthAfterDeployment({
     allowedOrigin,

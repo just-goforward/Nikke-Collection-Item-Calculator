@@ -17,6 +17,7 @@ const REQUIRED_LAZY_ROOTS = {
 } as const;
 const OPTIONAL_LAZY_ROOTS = {
   "src/components/DetailPanel.tsx": "lazy-detail",
+  "src/lib/statsDeliveryHealth.ts": "lazy-stats",
   "src/solver/solve.ts": "lazy-solver",
   "shared/generated/supplyForecastRuntime.ts": "lazy-forecast",
 } as const;

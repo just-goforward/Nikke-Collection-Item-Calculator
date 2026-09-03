@@ -1,5 +1,11 @@
+import {
+  SOLVER_RECOVERY_APP_REVISION_PATTERN,
+  SOLVER_RECOVERY_POLICY_VERSIONS,
+  SOLVER_RECOVERY_SOLVER_VERSIONS,
+  SOLVER_RECOVERY_VERSIONS,
+} from "../../shared/solverRecoveryContract";
 import type { WorkerEnv } from "./env";
-import { commitSubmission } from "./event-commit";
+import { commitSubmission, commitSubmissionRejection } from "./event-commit";
 import { validatePayload } from "./event-validation";
 import { isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
@@ -16,7 +22,15 @@ export async function handleEvent(request: Request, env: WorkerEnv) {
 
   const payload = await readJsonPayload(request);
   const parsedPayload = EventSubmissionSchema.safeParse(payload);
-  if (!parsedPayload.success) throw new HttpError(400, "invalid_payload");
+  if (!parsedPayload.success) {
+    const envelope = securityEnvelope(payload);
+    if (!envelope) throw new HttpError(400, "invalid_payload");
+    await verifyTurnstile(request, env, envelope.turnstileToken, envelope.eventKind);
+    await assertQuotaAllows(env, "statistics_write");
+    const rejection = classifyRejectedPayload(envelope);
+    await commitSubmissionRejection(env, rejection, now);
+    throw new HttpError(400, rejection.rejectionCode);
+  }
 
   await verifyTurnstile(
     request,
@@ -26,8 +40,126 @@ export async function handleEvent(request: Request, env: WorkerEnv) {
   );
   await assertQuotaAllows(env, "statistics_write");
 
-  const duplicate = await commitSubmission(request, env, validatePayload(parsedPayload.data), now);
+  let normalized: ReturnType<typeof validatePayload>;
+  try {
+    normalized = validatePayload(parsedPayload.data);
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 400) {
+      await commitSubmissionRejection(
+        env,
+        {
+          appRevision: rejectedAppRevision(parsedPayload.data.event),
+          eventId: parsedPayload.data.eventId,
+          eventKind: parsedPayload.data.event.kind,
+          policyVersion: rejectedPolicyVersion(parsedPayload.data.event),
+          recoveryVersion: rejectedRecoveryVersion(parsedPayload.data.event),
+          rejectionCode: rejectionCode(error.message),
+        },
+        now,
+      );
+    }
+    throw error;
+  }
+
+  const duplicate = await commitSubmission(request, env, normalized, now);
   return jsonResponse(request, env, duplicate ? { ok: true, duplicate: true } : { ok: true });
+}
+
+type SecurityEnvelope = {
+  event: Record<string, unknown>;
+  eventId: string;
+  eventKind: "kit_result" | "runtime_invariant" | "solver_diagnostic" | "solver_recovery";
+  turnstileToken: string;
+};
+
+const EVENT_KINDS = new Set<SecurityEnvelope["eventKind"]>([
+  "kit_result",
+  "runtime_invariant",
+  "solver_diagnostic",
+  "solver_recovery",
+]);
+
+function securityEnvelope(payload: unknown): SecurityEnvelope | null {
+  if (!isRecord(payload) || payload["version"] !== 1) return null;
+  const eventId = payload["eventId"];
+  const token = payload["turnstileToken"];
+  const event = payload["event"];
+  if (
+    typeof eventId !== "string" ||
+    !/^[a-zA-Z0-9-]{16,80}$/.test(eventId) ||
+    typeof token !== "string" ||
+    token.length < 20 ||
+    token.length > 2048 ||
+    !isRecord(event) ||
+    typeof event["kind"] !== "string" ||
+    !EVENT_KINDS.has(event["kind"] as SecurityEnvelope["eventKind"])
+  ) {
+    return null;
+  }
+  return {
+    event,
+    eventId,
+    eventKind: event["kind"] as SecurityEnvelope["eventKind"],
+    turnstileToken: token,
+  };
+}
+
+function classifyRejectedPayload(envelope: SecurityEnvelope) {
+  const event = envelope.event;
+  let code = "invalid_payload";
+  if (envelope.eventKind === "solver_recovery") {
+    if (!SOLVER_RECOVERY_VERSIONS.includes(event["recoveryVersion"] as never)) {
+      code = "unsupported_recovery_version";
+    } else if (!SOLVER_RECOVERY_POLICY_VERSIONS.includes(event["policyVersion"] as never)) {
+      code = "unsupported_recovery_policy";
+    } else if (event["recoveryVersion"] === 2 && !hasKnownSolverVersions(event["solverVersions"])) {
+      code = "unsupported_solver_version";
+    }
+  }
+  return {
+    appRevision: rejectedAppRevision(event),
+    eventId: envelope.eventId,
+    eventKind: envelope.eventKind,
+    policyVersion: rejectedPolicyVersion(event),
+    recoveryVersion: rejectedRecoveryVersion(event),
+    rejectionCode: code,
+  };
+}
+
+function hasKnownSolverVersions(value: unknown) {
+  return (
+    isRecord(value) &&
+    value["rustMinEf"] === SOLVER_RECOVERY_SOLVER_VERSIONS.rustMinEf &&
+    value["rustPhase2"] === SOLVER_RECOVERY_SOLVER_VERSIONS.rustPhase2 &&
+    value["jsPhase2"] === SOLVER_RECOVERY_SOLVER_VERSIONS.jsPhase2
+  );
+}
+
+function rejectedRecoveryVersion(event: Record<string, unknown>) {
+  return SOLVER_RECOVERY_VERSIONS.includes(event["recoveryVersion"] as never)
+    ? String(event["recoveryVersion"])
+    : "unsupported";
+}
+
+function rejectedPolicyVersion(event: Record<string, unknown>) {
+  return SOLVER_RECOVERY_POLICY_VERSIONS.includes(event["policyVersion"] as never)
+    ? String(event["policyVersion"])
+    : "unsupported";
+}
+
+function rejectedAppRevision(event: Record<string, unknown>) {
+  const value = event["appRevision"];
+  return typeof value === "string" && SOLVER_RECOVERY_APP_REVISION_PATTERN.test(value)
+    ? value
+    : "unknown";
+}
+
+function rejectionCode(value: string) {
+  return /^[a-z0-9_]{1,64}$/.test(value) ? value : "invalid_payload";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function assertEventRequest(request: Request, env: WorkerEnv) {

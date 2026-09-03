@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  LEGACY_RECOVERY_SOLVER_VERSIONS,
+  SOLVER_RECOVERY_SOLVER_VERSIONS,
+} from "../../shared/solverRecoveryContract";
 import { validatePayload } from "./event-validation";
 import { HttpError } from "./http-error";
 import { EventSubmissionSchema } from "./schemas";
@@ -258,6 +262,35 @@ describe("supply forecast identity validation", () => {
     const unknown = solverRecoveryEvent("recovery-forecast-unknown01");
     Reflect.set(unknown.event, "forecastId", "supply-2099-01-01-v1");
     expect(() => validateTestPayload(unknown)).toThrow("invalid_supply_forecast");
+  });
+
+  it("accepts both legacy policies for v1 and requires closed identities for v2", () => {
+    const legacyCurrentPolicy = solverRecoveryEvent("recovery-policy-v1-v2-01");
+    legacyCurrentPolicy.event.policyVersion = "ladder_v2";
+    expect(validateTestPayload(legacyCurrentPolicy).event).toMatchObject({
+      recoveryVersion: 1,
+      policyVersion: "ladder_v2",
+      appRevision: "legacy-unversioned",
+      solverVersions: LEGACY_RECOVERY_SOLVER_VERSIONS,
+    });
+
+    const current = solverRecoveryEvent("recovery-policy-v2-valid1");
+    Object.assign(current.event, {
+      recoveryVersion: 2,
+      policyVersion: "ladder_v2",
+      appRevision: "b".repeat(40),
+      solverVersions: SOLVER_RECOVERY_SOLVER_VERSIONS,
+    });
+    expect(validateTestPayload(current).event).toMatchObject({
+      recoveryVersion: 2,
+      appRevision: "b".repeat(40),
+      solverVersions: SOLVER_RECOVERY_SOLVER_VERSIONS,
+    });
+
+    const incomplete = solverRecoveryEvent("recovery-policy-v2-missing1");
+    incomplete.event.recoveryVersion = 2;
+    incomplete.event.policyVersion = "ladder_v2";
+    expectHttpError(() => validateTestPayload(incomplete), "invalid_recovery_v2_identity");
   });
 });
 

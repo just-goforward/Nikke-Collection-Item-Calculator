@@ -51,7 +51,10 @@ describe("StatsSubmissionQueue", () => {
     });
     const item = envelope("retry-event-id-0001", "kit_result");
 
-    await expect(queue.enqueue(item)).resolves.toBeUndefined();
+    await expect(queue.enqueue(item)).resolves.toEqual({
+      attempts: 2,
+      lastFailureClass: "unknown",
+    });
 
     expect(submitted).toHaveLength(2);
     expect(submitted[0]).toBe(item);
@@ -98,7 +101,7 @@ describe("StatsSubmissionQueue", () => {
     );
     await expect(
       queue.enqueue(envelope("next-event-id0001", "solver_diagnostic")),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ attempts: 1, lastFailureClass: null });
 
     expect(completed).toEqual(["next-event-id0001"]);
   });

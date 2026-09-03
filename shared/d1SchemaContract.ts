@@ -1,4 +1,4 @@
-export const D1_SCHEMA_CONTRACT_VERSION = 5 as const;
+export const D1_SCHEMA_CONTRACT_VERSION = 6 as const;
 
 type D1TableContract = {
   columns: readonly string[];
@@ -347,9 +347,122 @@ const GAME_DAY_D1_SCHEMA = Object.fromEntries(
     .map(([table, contract]) => [`${table}_game_day`, contract]),
 ) as Record<string, D1TableContract>;
 
+const OPERATIONAL_D1_SCHEMA = {
+  solver_failure_aggregates_game_day: {
+    columns: [
+      "date_key",
+      "recovery_version",
+      "policy_version",
+      "app_revision",
+      "ingest_revision",
+      "forecast_id",
+      "forecast_profile_id",
+      "rust_min_ef_solver_version",
+      "rust_phase2_solver_version",
+      "js_phase2_solver_version",
+      "requested_backend",
+      "min_ef_exit",
+      "phase2_exit",
+      "js_exit",
+      "terminal_backend",
+      "grade",
+      "level",
+      "exp_bucket",
+      "stock_bucket_blue",
+      "stock_bucket_purple",
+      "stock_bucket_yellow",
+      "browser",
+      "browser_major",
+      "os",
+      "os_major",
+      "device_type",
+      "events",
+      "first_seen",
+      "last_seen",
+    ],
+    primaryKey: [
+      "date_key",
+      "recovery_version",
+      "policy_version",
+      "app_revision",
+      "ingest_revision",
+      "forecast_id",
+      "forecast_profile_id",
+      "rust_min_ef_solver_version",
+      "rust_phase2_solver_version",
+      "js_phase2_solver_version",
+      "requested_backend",
+      "min_ef_exit",
+      "phase2_exit",
+      "js_exit",
+      "terminal_backend",
+      "grade",
+      "level",
+      "exp_bucket",
+      "stock_bucket_blue",
+      "stock_bucket_purple",
+      "stock_bucket_yellow",
+      "browser",
+      "browser_major",
+      "os",
+      "os_major",
+      "device_type",
+    ],
+  },
+  stats_rejection_event_ids: {
+    columns: ["event_id", "rejection_code", "created_at"],
+    primaryKey: ["event_id"],
+  },
+  stats_submission_rejection_aggregates_game_day: {
+    columns: [
+      "date_key",
+      "rejection_code",
+      "event_kind",
+      "recovery_version",
+      "policy_version",
+      "app_revision",
+      "events",
+      "first_seen",
+      "last_seen",
+    ],
+    primaryKey: [
+      "date_key",
+      "rejection_code",
+      "event_kind",
+      "recovery_version",
+      "policy_version",
+      "app_revision",
+    ],
+  },
+  stats_delivery_health_aggregates_game_day: {
+    columns: [
+      "date_key",
+      "outcome",
+      "event_kind",
+      "attempts_bucket",
+      "age_bucket",
+      "last_failure_class",
+      "app_revision",
+      "events",
+      "first_seen",
+      "last_seen",
+    ],
+    primaryKey: [
+      "date_key",
+      "outcome",
+      "event_kind",
+      "attempts_bucket",
+      "age_bucket",
+      "last_failure_class",
+      "app_revision",
+    ],
+  },
+} as const satisfies Record<string, D1TableContract>;
+
 export const REQUIRED_D1_SCHEMA = {
   ...BASE_REQUIRED_D1_SCHEMA,
   ...GAME_DAY_D1_SCHEMA,
+  ...OPERATIONAL_D1_SCHEMA,
 } as const satisfies Record<string, D1TableContract>;
 
 export type D1SchemaRow = {

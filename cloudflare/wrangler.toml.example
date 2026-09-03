@@ -2,9 +2,13 @@ name = "collection-kit-stats"
 main = "src/worker.ts"
 compatibility_date = "2026-08-09"
 
+[limits]
+cpu_ms = 10
+
 [observability.logs]
 enabled = true
 invocation_logs = true
+head_sampling_rate = 0.1
 
 [triggers]
 crons = ["17 3 * * *"]
@@ -14,22 +18,52 @@ binding = "DB"
 database_name = "collection-kit-stats"
 database_id = "REPLACE_WITH_D1_DATABASE_ID"
 
+[[d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "REPLACE_WITH_USAGE_GUARD_D1_DATABASE_ID"
+
+[[ratelimits]]
+name = "EVENT_RATE_LIMITER"
+namespace_id = "REPLACE_WITH_PRODUCTION_RATE_LIMIT_NAMESPACE_ID"
+simple = { limit = 120, period = 60 }
+
 [vars]
-ALLOWED_ORIGINS = "https://YOUR_GITHUB_ID.github.io"
+ALLOWED_ORIGINS = "https://nikkecollection.com"
+DEPLOYMENT_SHA = "local"
 
 [secrets]
-required = ["TURNSTILE_SECRET_KEY", "RATE_LIMIT_SECRET"]
+required = ["TURNSTILE_SECRET_KEY"]
 
 [env.staging]
 workers_dev = true
+
+[env.staging.limits]
+cpu_ms = 10
+
+[env.staging.observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 0.1
 
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "collection-kit-stats-staging"
 database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
 
+[[env.staging.d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "REPLACE_WITH_USAGE_GUARD_D1_DATABASE_ID"
+
+[[env.staging.ratelimits]]
+name = "EVENT_RATE_LIMITER"
+namespace_id = "REPLACE_WITH_STAGING_RATE_LIMIT_NAMESPACE_ID"
+simple = { limit = 120, period = 60 }
+
 [env.staging.vars]
-ALLOWED_ORIGINS = "https://YOUR_GITHUB_ID.github.io"
+ALLOWED_ORIGINS = "https://nikkecollection.com"
+DEPLOYMENT_SHA = "local"
 
 [env.staging.secrets]
-required = ["TURNSTILE_SECRET_KEY", "RATE_LIMIT_SECRET"]
+required = ["TURNSTILE_SECRET_KEY"]

@@ -3,11 +3,13 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 import { localizedPagesPlugin } from "./scripts/localized-pages.ts";
+import { STATS_DELIVERY_HEALTH_EMIT_ENABLED } from "./shared/solverRecoveryContract.ts";
 
 export default defineConfig({
   base: "/",
   define: {
     __APP_REVISION__: JSON.stringify(process.env["GITHUB_SHA"] ?? "local"),
+    __STATS_DELIVERY_HEALTH_EMIT_ENABLED__: JSON.stringify(STATS_DELIVERY_HEALTH_EMIT_ENABLED),
   },
   plugins: [localizedPagesPlugin(), react(), tailwindcss()],
   build: {

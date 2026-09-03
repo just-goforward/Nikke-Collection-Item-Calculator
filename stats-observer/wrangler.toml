@@ -1,0 +1,71 @@
+name = "collection-kit-stats-observer"
+main = "src/worker.ts"
+compatibility_date = "2026-08-22"
+workers_dev = false
+
+[limits]
+cpu_ms = 25
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 0.25
+
+[triggers]
+crons = ["7,37 * * * *"]
+
+[[d1_databases]]
+binding = "STATS_DB"
+database_name = "collection-kit-stats"
+database_id = "3e18385a-af83-4c67-83a0-ab889149692c"
+
+[[d1_databases]]
+binding = "OBSERVER_DB"
+database_name = "collection-kit-stats-observer"
+database_id = "9f998d5d-06e9-407a-8fbf-748f697ee25f"
+
+[[d1_databases]]
+binding = "GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+[vars]
+ENVIRONMENT = "production"
+DEPLOY_SHA = "local"
+DISCORD_ALERT_CHANNEL_ID = ""
+
+[env.staging]
+name = "collection-kit-stats-observer-staging"
+workers_dev = false
+
+[env.staging.limits]
+cpu_ms = 25
+
+[env.staging.observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 0.25
+
+[env.staging.triggers]
+crons = ["7,37 * * * *"]
+
+[[env.staging.d1_databases]]
+binding = "STATS_DB"
+database_name = "collection-kit-stats-staging"
+database_id = "95f4029b-669a-4e1e-a192-5c094e659e33"
+
+[[env.staging.d1_databases]]
+binding = "OBSERVER_DB"
+database_name = "collection-kit-stats-observer-staging"
+database_id = "1452b096-7828-4759-8043-e48e8363a62b"
+
+[[env.staging.d1_databases]]
+binding = "GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+DEPLOY_SHA = "local"
+DISCORD_ALERT_CHANNEL_ID = ""
+

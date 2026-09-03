@@ -1,6 +1,10 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // Exercise the server-first delivery-health path even while production builds keep it disabled.
+  define: {
+    __STATS_DELIVERY_HEALTH_EMIT_ENABLED__: "true",
+  },
   test: {
     include: [
       "src/**/*.{test,spec}.{ts,tsx}",

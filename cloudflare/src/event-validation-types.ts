@@ -1,4 +1,5 @@
 import type { CollectionState, Kit, KitRecord } from "../../shared/game";
+import type { StatsDeliveryHealth } from "../../shared/solverRecoveryContract";
 import type { SolverExecutionKind, StatsLocale } from "../../shared/statsContract";
 import type {
   RuntimeInvariantEventInput,
@@ -57,15 +58,35 @@ export type ValidatedSolverDiagnosticEvent = {
   legacyEventAggregateMatchable: boolean;
 };
 
-export type ValidatedSolverRecoveryEvent = SolverRecoveryEventInput & {
+export type ValidatedSolverRecoveryEvent = {
+  kind: "solver_recovery";
+  recoveryVersion: SolverRecoveryEventInput["recoveryVersion"];
+  policyVersion: SolverRecoveryEventInput["policyVersion"];
+  appRevision: string;
   forecastId: string;
   forecastProfileId: string;
+  requestedBackend: SolverRecoveryEventInput["requestedBackend"];
+  minEfExit: SolverRecoveryEventInput["minEfExit"];
+  phase2Exit: SolverRecoveryEventInput["phase2Exit"];
+  jsExit: SolverRecoveryEventInput["jsExit"];
+  terminalBackend: SolverRecoveryEventInput["terminalBackend"];
+  terminalOutcome: SolverRecoveryEventInput["terminalOutcome"];
+  minEfMemoTier: SolverRecoveryEventInput["minEfMemoTier"];
+  phase2MemoTier: SolverRecoveryEventInput["phase2MemoTier"];
+  start: CollectionState;
+  stockBuckets: SolverRecoveryEventInput["stockBuckets"];
+  solverVersions: {
+    rustMinEf: string;
+    rustPhase2: string;
+    jsPhase2: string;
+  };
 };
 export type ValidatedRuntimeInvariantEvent = RuntimeInvariantEventInput;
 
 export type ValidatedSubmission = {
   eventId: string;
   sourceHost: string;
+  deliveryHealth: StatsDeliveryHealth | null;
   event:
     | ValidatedKitResultEvent
     | ValidatedRuntimeInvariantEvent
@@ -76,4 +97,5 @@ export type ValidatedSubmission = {
 export type SubmissionEnvelope = {
   eventId: string;
   sourceHost: string | undefined;
+  deliveryHealth: StatsDeliveryHealth | undefined;
 };

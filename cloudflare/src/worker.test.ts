@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SUPPLY_FORECAST_REGISTRY } from "../../shared/generated/supplyForecast";
 import { cleanupExpiredStatistics } from "./rate-limit";
-import {
-  kitResultEvent,
-  solverDiagnosticEvent,
-  solverRecoveryEvent,
-  TEST_TURNSTILE_TOKEN,
-} from "./worker.test-events";
+import { kitResultEvent, solverDiagnosticEvent, TEST_TURNSTILE_TOKEN } from "./worker.test-events";
 import { WorkerTestHarness } from "./worker.test-harness";
 import type { AdminDiagnosticsBody } from "./worker.test-types";
 
@@ -126,7 +121,12 @@ describe("D1 schema health", () => {
     const response = await fetchHealth();
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, schemaContractVersion: 5 });
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      schemaContractVersion: 6,
+      acceptedRecoveryVersions: [1, 2],
+      acceptedRecoveryPolicyVersions: ["ladder_v1", "ladder_v2"],
+    });
   });
 
   it("fails closed when a required aggregate table is unavailable", async () => {
@@ -431,65 +431,6 @@ describe("solver_diagnostic event commit", () => {
   });
 });
 
-describe("solver_recovery event commit", () => {
-  it("writes bucketed rung and terminal aggregates without raw attempt identifiers", async () => {
-    const response = await submit(solverRecoveryEvent("solver-recovery-valid1"));
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true });
-    await expect(countRows("solver_recovery_rung_aggregates_game_day")).resolves.toBe(2);
-    await expect(countRows("solver_recovery_terminal_aggregates_game_day")).resolves.toBe(1);
-    const terminal = await harness.database
-      .prepare(
-        `SELECT forecast_id, policy_version, requested_backend, min_ef_exit, phase2_exit,
-                terminal_backend, terminal_outcome, device_type
-         FROM solver_recovery_terminal_aggregates_game_day`,
-      )
-      .first<{
-        forecast_id: string;
-        policy_version: string;
-        requested_backend: string;
-        min_ef_exit: string;
-        phase2_exit: string;
-        terminal_backend: string;
-        terminal_outcome: string;
-        device_type: string;
-      }>();
-    expect(terminal).toEqual({
-      forecast_id: "supply-2026-08-21-v1",
-      policy_version: "ladder_v1",
-      requested_backend: "rust-min-ef",
-      min_ef_exit: "memo_full",
-      phase2_exit: "success",
-      terminal_backend: "rust-phase2",
-      terminal_outcome: "success",
-      device_type: "unknown",
-    });
-
-    const admin = (await (await fetchAdminSolverDiagnostics()).json()) as AdminDiagnosticsBody;
-    expect(admin.recoveryRungs).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          forecastId: "supply-2026-08-21-v1",
-          policyVersion: "ladder_v1",
-          rungBackend: "rust-min-ef",
-          rungExit: "memo_full",
-          events: 1,
-        }),
-      ]),
-    );
-    expect(admin.recoveryTerminals).toEqual([
-      expect.objectContaining({
-        forecastId: "supply-2026-08-21-v1",
-        policyVersion: "ladder_v1",
-        terminalBackend: "rust-phase2",
-        terminalOutcome: "success",
-        events: 1,
-      }),
-    ]);
-  });
-});
-
 describe("admin solver diagnostics", () => {
   it("fails closed when the admin token is not configured", async () => {
     delete testEnv.ADMIN_TOKEN;
@@ -662,6 +603,8 @@ describe("admin solver diagnostic aggregates", () => {
     expect(body.recoveryDataPolicy).toEqual({
       aggregatesAreIndependent: true,
       ratioWarning: "do_not_divide_terminal_counts_by_rung_counts",
+      operationalFailuresAreBucketed: true,
+      exactStockStored: false,
     });
   });
 

@@ -1,5 +1,13 @@
 import { SUPPLY_FORECAST_REGISTRY } from "../../shared/generated/supplyForecast";
 import {
+  deliveryHealthStatement,
+  mapDeliveryHealth,
+  mapOperationalFailures,
+  mapSubmissionRejections,
+  operationalFailuresStatement,
+  submissionRejectionsStatement,
+} from "./admin-solver-operational";
+import {
   CURRENT_STATISTICS_DATE_BASIS,
   kstDateKeyFromUnixSeconds,
   kstGameDateKeyFromUnixSeconds,
@@ -110,6 +118,8 @@ type RuntimeInvariantRow = {
 
 const DEFAULT_WINDOW_DAYS = 30;
 const MAX_WINDOW_DAYS = 365;
+const DEFAULT_OPERATIONAL_LIMIT = 100;
+const MAX_OPERATIONAL_LIMIT = 200;
 const TRUSTWORTHY_RUNTIME_DIAGNOSTIC_VERSION = 6;
 
 type StatisticsWindow = {
@@ -134,6 +144,7 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     legacy: kstDateKeyFromUnixSeconds(now - 86400 * (windowDays - 1)),
     current: kstGameDateKeyFromUnixSeconds(now - 86400 * (windowDays - 1)),
   } satisfies StatisticsWindow;
+  const operationalPage = readOperationalPage(request);
 
   const results = await env.DB.batch([
     solverDiagnosticSummaryStatement(env),
@@ -146,6 +157,9 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     solverRecoveryRungStatement(env, sinceByDateBasis),
     solverRecoveryTerminalStatement(env, sinceByDateBasis),
     runtimeInvariantStatement(env, sinceByDateBasis),
+    operationalFailuresStatement(env, sinceByDateBasis.current, operationalPage),
+    submissionRejectionsStatement(env, sinceByDateBasis.current, operationalPage),
+    deliveryHealthStatement(env, sinceByDateBasis.current, operationalPage),
   ]);
   const allTime = mapSolverDiagnosticSummary(resultAt(results, 0));
   const window = mapSolverDiagnosticSummary(resultAt(results, 1));
@@ -157,6 +171,15 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
   const recoveryRungs = mapSolverRecoveryRungs(resultAt(results, 7));
   const recoveryTerminals = mapSolverRecoveryTerminals(resultAt(results, 8));
   const runtimeInvariants = mapRuntimeInvariants(resultAt(results, 9));
+  const operationalFailures = pageRows(
+    mapOperationalFailures(resultAt(results, 10)),
+    operationalPage,
+  );
+  const submissionRejections = pageRows(
+    mapSubmissionRejections(resultAt(results, 11)),
+    operationalPage,
+  );
+  const deliveryHealth = pageRows(mapDeliveryHealth(resultAt(results, 12)), operationalPage);
 
   return jsonResponse(request, env, {
     generatedAt: new Date(now * 1000).toISOString(),
@@ -181,6 +204,16 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     recoveryRungs,
     recoveryTerminals,
     runtimeInvariants,
+    operationalFailures,
+    submissionHealth: {
+      rejections: submissionRejections,
+      delivery: deliveryHealth,
+    },
+    observerCoverage: {
+      availableInThisResponse: false,
+      source: "separate_stats_observer_d1",
+      auditWorkflow: "Audit Solver Recovery History",
+    },
     supplyForecastRegistry: SUPPLY_FORECAST_REGISTRY,
     fallbacks: summarizeFallbacks(runtime),
     latencies: summarizeLatencyBuckets(runtime),
@@ -193,6 +226,8 @@ export async function handleAdminSolverDiagnostics(request: Request, env: Worker
     recoveryDataPolicy: {
       aggregatesAreIndependent: true,
       ratioWarning: "do_not_divide_terminal_counts_by_rung_counts",
+      operationalFailuresAreBucketed: true,
+      exactStockStored: false,
     },
     runtimeInvariantDataPolicy: {
       bucketedOnly: true,
@@ -247,6 +282,25 @@ function readWindowDays(request: Request) {
   const value = Number(new URL(request.url).searchParams.get("days") || DEFAULT_WINDOW_DAYS);
   if (!Number.isFinite(value) || value <= 0) return DEFAULT_WINDOW_DAYS;
   return Math.min(MAX_WINDOW_DAYS, Math.floor(value));
+}
+
+function readOperationalPage(request: Request) {
+  const url = new URL(request.url);
+  const limitValue = Number(url.searchParams.get("limit") || DEFAULT_OPERATIONAL_LIMIT);
+  const cursorValue = Number(url.searchParams.get("cursor") || 0);
+  const limit = Number.isFinite(limitValue)
+    ? Math.min(MAX_OPERATIONAL_LIMIT, Math.max(1, Math.floor(limitValue)))
+    : DEFAULT_OPERATIONAL_LIMIT;
+  const offset = Number.isSafeInteger(cursorValue) && cursorValue >= 0 ? cursorValue : 0;
+  return { limit, offset };
+}
+
+function pageRows<T>(rows: T[], page: { limit: number; offset: number }) {
+  const hasMore = rows.length > page.limit;
+  return {
+    rows: rows.slice(0, page.limit),
+    nextCursor: hasMore ? String(page.offset + page.limit) : null,
+  };
 }
 
 function resultAt(results: D1Result<unknown>[], index: number) {

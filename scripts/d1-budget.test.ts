@@ -204,6 +204,8 @@ describe("Cloudflare Paid account API", () => {
       [D1_DATABASE_IDS.forecastProduction, "collection-kit-forecast-collector"],
       [D1_DATABASE_IDS.forecastStaging, "collection-kit-forecast-collector-staging"],
       [D1_DATABASE_IDS.usageGuard, "collection-kit-usage-guard"],
+      [D1_DATABASE_IDS.statsObserverProduction, "collection-kit-stats-observer"],
+      [D1_DATABASE_IDS.statsObserverStaging, "collection-kit-stats-observer-staging"],
       ["f".repeat(36), "unrelated-database"],
     ] as const;
     let graphqlVariables: Record<string, unknown> | undefined;
@@ -304,7 +306,7 @@ describe("Cloudflare Paid account API", () => {
     });
 
     expect(result.plan).toMatchObject({ id: "workers-paid", verified: true });
-    expect(result.databases).toHaveLength(6);
+    expect(result.databases).toHaveLength(8);
     expect(
       result.databases.find((database) => database.databaseName === "unrelated-database"),
     ).toMatchObject({ rowsReadObserved: 10, rowsWrittenObserved: 1 });
