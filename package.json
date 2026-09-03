@@ -161,7 +161,7 @@
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^26.4.0",
+    "@types/node": "^26.4.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^6.1.1",
@@ -169,13 +169,13 @@
     "esbuild": "^0.28.2",
     "fast-check": "^4.9.0",
     "knip": "^6.34.0",
-    "oxc-parser": "^0.147.0",
+    "oxc-parser": "^0.148.0",
     "sharp": "0.35.4",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",
     "vitest": "^4.1.11",
-    "wrangler": "^4.127.1"
+    "wrangler": "^4.128.0"
   },
   "dependencies": {
     "react": "^19.2.8",
