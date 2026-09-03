@@ -59,7 +59,7 @@ jobs:
             --command "SELECT * FROM solver_failure_aggregates_game_day ORDER BY last_seen DESC LIMIT 5000; SELECT * FROM stats_submission_rejection_aggregates_game_day ORDER BY last_seen DESC LIMIT 1000; SELECT * FROM stats_delivery_health_aggregates_game_day ORDER BY last_seen DESC LIMIT 1000;" \
             > "$RUNNER_TEMP/solver-recovery-audit/operational-indexes.json"
           npx wrangler d1 execute OBSERVER_DB --remote "${env_args[@]}" --config stats-observer/wrangler.toml --json \
-            --command "SELECT baseline_initialized,baseline_at,last_poll_at,updated_at FROM observer_state WHERE singleton_id=1; SELECT scheduled_at,finished_at,status,error_code,deployment_sha FROM observer_runs ORDER BY scheduled_at DESC LIMIT 100; SELECT severity,error_code,first_seen,last_seen,total_count,send_status,last_send_error FROM observer_alerts ORDER BY last_seen DESC LIMIT 100;" \
+            --command "SELECT baseline_initialized,baseline_at,last_poll_at,updated_at FROM observer_state WHERE singleton_id=1; SELECT scheduled_at,finished_at,status,error_code,deployment_sha FROM observer_runs ORDER BY scheduled_at DESC LIMIT 100; SELECT severity,error_code,first_seen,last_seen,total_count,send_status,last_send_error FROM observer_alerts ORDER BY last_seen DESC LIMIT 100; SELECT canary_id,deployment_sha,started_at,ends_at,status,checked_at FROM observer_canaries ORDER BY started_at DESC LIMIT 20;" \
             > "$RUNNER_TEMP/solver-recovery-audit/observer-coverage.json"
 
       - name: Write audit summary
