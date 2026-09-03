@@ -46,13 +46,13 @@ export async function runObserver(
   const scheduledAt = new Date(scheduledAtMs).toISOString();
   const runId = `obs-${env.ENVIRONMENT}-${scheduledAt.replace(/[^0-9]/g, "")}-${normalizedSha(env.DEPLOY_SHA).slice(0, 12)}`;
 
-  const guardAccess = await assertUsageAllowed(env.GUARD_DB, "statistics_read", nowMs);
-  if (nowMs - Date.parse(guardAccess.observedAt) >= 45 * 60_000) {
-    throw new UsageGuardError("hard_stop");
-  }
   if (!(await beginRun(env, runId, scheduledAt, now))) return { duplicate: true };
 
   try {
+    const guardAccess = await assertUsageAllowed(env.GUARD_DB, "statistics_read", nowMs);
+    if (nowMs - Date.parse(guardAccess.observedAt) >= 45 * 60_000) {
+      throw new UsageGuardError("hard_stop");
+    }
     const guard = await readUsageGuardEvidence(env.GUARD_DB);
     const baseline = await isBaselineInitialized(env);
     const observations = await readObservations(

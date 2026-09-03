@@ -63,6 +63,24 @@ describe("stats observer D1 integration", () => {
     });
   });
 
+  it("records a failed invocation when the usage guard rejects the poll", async () => {
+    await seedGuard(env.GUARD_DB, NOW - 2 * 60 * 60_000);
+
+    await expect(runObserver(observerEnv(), NOW, { now: () => NOW })).rejects.toThrow(
+      "telemetry_budget_disabled",
+    );
+
+    const run = await env.OBSERVER_DB.prepare(
+      `SELECT status, error_code, deployment_sha
+       FROM observer_runs`,
+    ).first<Record<string, unknown>>();
+    expect(run).toMatchObject({
+      status: "failure",
+      error_code: "telemetry_budget_disabled",
+      deployment_sha: "a".repeat(40),
+    });
+  });
+
   it("does not advance a source cursor when alert persistence fails", async () => {
     await insertFailure(0, Math.floor(NOW / 1_000));
     await runObserver(observerEnv(), NOW, { now: () => NOW });

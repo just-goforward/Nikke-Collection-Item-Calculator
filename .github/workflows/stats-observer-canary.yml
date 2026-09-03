@@ -79,7 +79,15 @@ jobs:
           const rows = JSON.parse(readFileSync(process.argv[2], "utf8"));
           const state = rows[0]?.results?.[0];
           const runs = rows[1]?.results ?? [];
-          if (state?.baseline_initialized !== 1 || runs.length < 2) throw new Error("Observer burn-in is incomplete.");
+          if (state?.baseline_initialized !== 1 || runs.length < 2) {
+            console.error(JSON.stringify({
+              baselineInitialized: state?.baseline_initialized ?? null,
+              baselineAt: state?.baseline_at ?? null,
+              runCount: runs.length,
+              runs,
+            }));
+            throw new Error("Observer burn-in is incomplete.");
+          }
           if (runs.some((row) => row.status !== "completed" || row.deployment_sha !== process.argv[3] || row.duplicate_attempts !== 0)) {
             throw new Error("Observer burn-in contains an unhealthy or mismatched run.");
           }
