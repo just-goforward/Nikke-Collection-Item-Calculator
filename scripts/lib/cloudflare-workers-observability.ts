@@ -9,6 +9,7 @@ import {
 
 const API_BASE = "https://api.cloudflare.com/client/v4";
 const QUERY_LIMIT = 2_000;
+const QUERY_WINDOW_MS = 30 * 60 * 1_000;
 const MARKER_EVENT = "forecast_canary_scheduled_invocation";
 
 export type ObservabilityQueryOptions = {
@@ -81,6 +82,22 @@ export function buildInvocationQuery(scriptName: string, startedAt: string, ende
   };
 }
 
+export function splitInvocationQueryWindows(startedAt: string, endedAt: string) {
+  const startedMs = Date.parse(startedAt);
+  const endedMs = Date.parse(endedAt);
+  if (!Number.isFinite(startedMs) || !Number.isFinite(endedMs) || endedMs <= startedMs) {
+    throw new Error("observability_window_invalid");
+  }
+  const windows: Array<{ startedAt: string; endedAt: string }> = [];
+  for (let cursor = startedMs; cursor < endedMs; cursor += QUERY_WINDOW_MS) {
+    windows.push({
+      startedAt: new Date(cursor).toISOString(),
+      endedAt: new Date(Math.min(cursor + QUERY_WINDOW_MS, endedMs)).toISOString(),
+    });
+  }
+  return windows;
+}
+
 export async function collectForecastRuntimeTelemetry(
   options: ObservabilityQueryOptions,
 ): Promise<ForecastRuntimeTelemetryEvidence> {
@@ -100,27 +117,33 @@ export async function collectForecastRuntimeTelemetry(
         component === "collector"
           ? options.collectorScriptVersionId
           : options.dispatcherScriptVersionId;
-      const response = await runQuery(
-        fetchImpl,
-        options.accountId,
-        options.token,
-        buildInvocationQuery(contract.scriptName, options.startedAt, options.endedAt),
-        sleepImpl,
-      );
+      const samples: ForecastRuntimeSample[] = [];
+      for (const window of splitInvocationQueryWindows(options.startedAt, options.endedAt)) {
+        const response = await runQuery(
+          fetchImpl,
+          options.accountId,
+          options.token,
+          buildInvocationQuery(contract.scriptName, window.startedAt, window.endedAt),
+          sleepImpl,
+        );
+        samples.push(
+          ...(await parseInvocationSamples(response, {
+            component,
+            scriptName: contract.scriptName,
+            deploymentSha: options.deploymentSha,
+            expectedScriptVersion,
+            expectedScriptVersionId,
+            startedAt: window.startedAt,
+            endedAt: window.endedAt,
+          })),
+        );
+      }
       return {
         component,
         scriptName: contract.scriptName,
         configuredLimitMs: contract.configuredLimitMs,
         headSamplingRate: 1 as const,
-        samples: await parseInvocationSamples(response, {
-          component,
-          scriptName: contract.scriptName,
-          deploymentSha: options.deploymentSha,
-          expectedScriptVersion,
-          expectedScriptVersionId,
-          startedAt: options.startedAt,
-          endedAt: options.endedAt,
-        }),
+        samples: mergeInvocationSamples(samples),
       };
     }),
   );
@@ -138,6 +161,18 @@ export async function collectForecastRuntimeTelemetry(
     observedAt: new Date().toISOString(),
     workers,
   };
+}
+
+function mergeInvocationSamples(samples: ForecastRuntimeSample[]) {
+  const unique = new Map<string, ForecastRuntimeSample>();
+  for (const sample of samples) {
+    const existing = unique.get(sample.requestIdHash);
+    if (existing && JSON.stringify(existing) !== JSON.stringify(sample)) {
+      throw new Error("observability_invocation_conflict_across_windows");
+    }
+    unique.set(sample.requestIdHash, sample);
+  }
+  return [...unique.values()].sort((left, right) => left.slot.localeCompare(right.slot));
 }
 
 export async function parseInvocationSamples(
