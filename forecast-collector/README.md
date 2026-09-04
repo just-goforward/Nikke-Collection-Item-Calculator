@@ -252,6 +252,9 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   for up to 30 minutes; persistent API or
   ingestion gaps produce `incomplete`, and the immutable window may be queried again without
   restarting the Worker canary.
+  A custom marker without a sampled invocation summary is retained as a telemetry coverage gap rather
+  than discarding every valid sample in the query; the existing 99% coverage gate decides whether the
+  evidence is sufficient.
 - The 30-minute budget watchdog reads the lightweight `/admin/canary-window` endpoint. It builds
   bounded intermediate reports at two, four, and six hours; final evaluation posts the
   separately measured exact-window quota evidence after the window closes. This keeps monitoring

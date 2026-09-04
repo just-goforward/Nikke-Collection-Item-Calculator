@@ -211,6 +211,7 @@ async function parseInvocationEntry(
   if (!marker) return null;
   assertMarkerIdentity(marker, expected);
   const runtime = readRuntimeEvent(events, expected.scriptName);
+  if (runtime === null) return null;
   if (
     (runtime.scriptVersionId !== null &&
       runtime.scriptVersionId !== expected.expectedScriptVersionId.toLowerCase()) ||
@@ -246,7 +247,9 @@ function readRuntimeEvent(events: Record<string, unknown>[], expectedScriptName:
     const workers = event["$workers"];
     return isRecord(workers) && Number.isFinite(workers["cpuTimeMs"]);
   });
-  if (!runtimeEvent) throw new Error("observability_runtime_event_missing");
+  // Invocation views can expose a custom marker without its sampled invocation summary.
+  // The exact D1-to-telemetry coverage gate accounts for that missing runtime sample.
+  if (!runtimeEvent) return null;
   const workers = runtimeEvent["$workers"];
   if (!isRecord(workers)) throw new Error("observability_workers_payload_missing");
   if (workers["eventType"] !== "scheduled" || workers["scriptName"] !== expectedScriptName) {

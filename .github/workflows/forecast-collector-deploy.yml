@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "forecast-collector/**"
+      - "!forecast-collector/README.md"
       - "forecast-dispatcher/**"
       - "forecast-interactions/**"
       - "usage-guard/**"
@@ -24,8 +25,6 @@ on:
       - "scripts/resolve-forecast-manual-review.ts"
       - "scripts/cloudflare-cron-capacity.ts"
       - "scripts/cloudflare-d1-budget.ts"
-      - "scripts/cloudflare-workers-observability.ts"
-      - "scripts/lib/cloudflare-workers-observability.ts"
       - "scripts/check-forecast-canary.ts"
       - "scripts/probe-forecast-github-app.ts"
       - "scripts/forecast-dispatcher-workflow.spec.ts"

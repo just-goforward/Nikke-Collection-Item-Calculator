@@ -76,6 +76,18 @@ describe("Workers Observability forecast runtime evidence", () => {
     expect(samples[0]?.outcome).toBe("exceededCpu");
   });
 
+  it("represents a marker without a runtime summary as a coverage gap", async () => {
+    const value = fixture("req-marker-without-runtime", "ok");
+    const events = invocationEvents(value, "req-marker-without-runtime");
+    const runtimeWorkers = events[0]?.["$workers"];
+    if (!isRecord(runtimeWorkers)) throw new Error("missing_runtime_workers");
+    delete runtimeWorkers["cpuTimeMs"];
+
+    const samples = await parseInvocationSamples(value, expectedCollector());
+
+    expect(samples).toEqual([]);
+  });
+
   it("rejects a marker outside the immutable query window", async () => {
     const value = fixture("req-3", "ok");
     const invocation = (value.result.invocations as Record<string, Array<Record<string, unknown>>>)[
@@ -152,7 +164,9 @@ describe("Workers Observability forecast runtime evidence", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(4);
     expect(evidence.workers.map((worker) => worker.samples.length)).toEqual([1, 1]);
   });
+});
 
+describe("Workers Observability bounded query windows", () => {
   it("combines complete invocation evidence from all half-hour slices", async () => {
     const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {
