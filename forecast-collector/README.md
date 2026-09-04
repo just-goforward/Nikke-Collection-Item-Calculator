@@ -246,7 +246,10 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   not an automatic policy change. A later baseline can only be adopted by a separate review that adds
   `forecast-collector/runtime-baseline.json`. With an approved baseline, CPU regression is hard only when full-window p95 and
   average both exceed their thresholds and both independent four-hour halves regress in the same
-  direction. Final telemetry is retried every five minutes for up to 30 minutes; persistent API or
+  direction. The exact eight-hour invocation query is split into bounded 30-minute windows and merged
+  by hashed request identity so one oversized response cannot separate a custom marker from its
+  runtime summary. Conflicting duplicates are rejected. Final telemetry is retried every five minutes
+  for up to 30 minutes; persistent API or
   ingestion gaps produce `incomplete`, and the immutable window may be queried again without
   restarting the Worker canary.
 - The 30-minute budget watchdog reads the lightweight `/admin/canary-window` endpoint. It builds

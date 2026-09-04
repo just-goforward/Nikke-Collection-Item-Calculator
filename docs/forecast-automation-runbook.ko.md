@@ -167,6 +167,10 @@ warning, 95% 이상이면 높은 등급의 warning이지만 `exceededCpu=0`이�
 `passed_with_warning`이다. 이 상태도 workflow 성공으로 기록되지만 production 승격에는 기존
 `cloudflare-production` 수동 승인이 필요하다.
 
+Observability의 `invocations` 응답은 긴 구간에서 한 invocation의 custom marker와 runtime summary가
+서로 다른 응답 페이지에 놓일 수 있다. 따라서 8시간 증거는 30분짜리 반개방 구간 16개로 조회한 뒤
+request ID hash로 멱등 병합한다. 같은 invocation이 서로 다른 내용으로 반복되면 증거 충돌로 거부한다.
+
 첫 v10은 이전 v8 GraphQL 집계를 hard baseline으로 사용하지 않고 scheduled-only 기준선을 만드는
 `baseline_bootstrap`이다. 생성된 기준선 후보는 Actions artifact일 뿐 자동 적용되지 않는다. 별도
 검토 PR로 `forecast-collector/runtime-baseline.json`을 추가한 뒤에만 이후 v10이 이를 소비한다.

@@ -3,12 +3,14 @@ import {
   buildInvocationQuery,
   collectForecastRuntimeTelemetry,
   parseInvocationSamples,
+  splitInvocationQueryWindows,
   unavailableForecastRuntimeTelemetry,
 } from "./lib/cloudflare-workers-observability.ts";
 
 const SHA = "a".repeat(40);
 const START = "2026-09-03T00:00:00.000Z";
 const END = "2026-09-03T08:00:00.000Z";
+const SHORT_END = "2026-09-03T00:30:00.000Z";
 const COLLECTOR_VERSION_ID = "11111111-1111-4111-8111-111111111111";
 const DISPATCHER_VERSION_ID = "22222222-2222-4222-8222-222222222222";
 
@@ -22,6 +24,17 @@ describe("Workers Observability forecast runtime evidence", () => {
         datasets: ["cloudflare-workers"],
         filters: [{ key: "$metadata.service", operation: "eq", value: "worker-name" }],
       },
+    });
+  });
+
+  it("splits a long immutable window into bounded half-hour queries", () => {
+    const windows = splitInvocationQueryWindows(START, END);
+
+    expect(windows).toHaveLength(16);
+    expect(windows[0]).toEqual({ startedAt: START, endedAt: SHORT_END });
+    expect(windows.at(-1)).toEqual({
+      startedAt: "2026-09-03T07:30:00.000Z",
+      endedAt: END,
     });
   });
 
@@ -127,7 +140,7 @@ describe("Workers Observability forecast runtime evidence", () => {
       canaryId: `fc-${"b".repeat(32)}`,
       deploymentSha: SHA,
       startedAt: START,
-      endedAt: END,
+      endedAt: SHORT_END,
       collectorScriptVersion: `${SHA}-both-v10`,
       dispatcherScriptVersion: `${SHA}-v10`,
       collectorScriptVersionId: COLLECTOR_VERSION_ID,
@@ -138,6 +151,43 @@ describe("Workers Observability forecast runtime evidence", () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(4);
     expect(evidence.workers.map((worker) => worker.samples.length)).toEqual([1, 1]);
+  });
+
+  it("combines complete invocation evidence from all half-hour slices", async () => {
+    const fetchImpl = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        queryId: string;
+        timeframe: { from: number; to: number };
+      };
+      const collector = body.queryId.includes("collector-staging");
+      const slot = new Date(body.timeframe.from + 3 * 60 * 1_000).toISOString();
+      return Response.json(
+        fixture(
+          `${collector ? "collector" : "dispatcher"}-${body.timeframe.from}`,
+          "ok",
+          collector ? "collector" : "dispatcher",
+          slot,
+        ),
+      );
+    });
+
+    const evidence = await collectForecastRuntimeTelemetry({
+      accountId: "c".repeat(32),
+      token: "test-token",
+      canaryId: `fc-${"b".repeat(32)}`,
+      deploymentSha: SHA,
+      startedAt: START,
+      endedAt: END,
+      collectorScriptVersion: `${SHA}-both-v10`,
+      dispatcherScriptVersion: `${SHA}-v10`,
+      collectorScriptVersionId: COLLECTOR_VERSION_ID,
+      dispatcherScriptVersionId: DISPATCHER_VERSION_ID,
+      fetchImpl: fetchImpl as typeof fetch,
+      sleepImpl: async () => {},
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(32);
+    expect(evidence.workers.map((worker) => worker.samples.length)).toEqual([16, 16]);
   });
 });
 
@@ -209,6 +259,7 @@ function fixture(
   requestId: string,
   outcome: string,
   component: "collector" | "dispatcher" = "collector",
+  slot = "2026-09-03T00:03:00.000Z",
 ) {
   const scriptName = `collection-kit-forecast-${component}-staging`;
   const scriptVersion = component === "collector" ? `${SHA}-both-v10` : `${SHA}-v10`;
@@ -231,7 +282,7 @@ function fixture(
             },
           },
           {
-            source: JSON.stringify(marker("2026-09-03T00:03:00.000Z", component)),
+            source: JSON.stringify(marker(slot, component)),
             $metadata: { id: "custom-event", service: scriptName },
             $workers: { eventType: "scheduled", scriptName },
           },
