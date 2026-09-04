@@ -276,18 +276,22 @@ export async function markCandidateProposed(db: D1Database, candidateId: string)
 export async function readHealth(db: D1Database) {
   const latest = await db
     .prepare(
-      `SELECT status, COALESCE(finished_at, started_at) AS finished_at
+      `SELECT status, deployment_sha, COALESCE(finished_at, started_at) AS finished_at
        FROM collector_invocations ORDER BY scheduled_at DESC LIMIT 1`,
     )
-    .first<{ status: string; finished_at: string }>();
+    .first<{ status: string; deployment_sha: string; finished_at: string }>();
   const counts = await db
     .prepare("SELECT state, COUNT(*) AS count FROM forecast_candidates GROUP BY state")
     .all<{ state: string; count: number }>();
   return {
     status: "ok",
     collector: latest
-      ? { status: latest.status, lastFinishedAt: latest.finished_at }
-      : { status: "missing", lastFinishedAt: null },
+      ? {
+          status: latest.status,
+          lastFinishedAt: latest.finished_at,
+          deploymentSha: latest.deployment_sha,
+        }
+      : { status: "missing", lastFinishedAt: null, deploymentSha: null },
     candidateCounts: Object.fromEntries(counts.results.map((row) => [row.state, row.count])),
   };
 }

@@ -750,6 +750,40 @@ jobs:
           [[ "$status" == "200" ]] || { echo "Usage Guard refresh returned HTTP $status." >&2; exit 1; }
           jq -e '.ok == true and .state.action == "normal"' "$RUNNER_TEMP/usage-guard-post-burn-in.json" >/dev/null
 
+      - name: Align canary start after a completed Cron pair
+        if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.d1_budget.outcome == 'success'
+        env:
+          FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + 420 ))
+          while (( $(date +%s) < deadline )); do
+            now=$(date +%s)
+            minute=$(date -u +%M)
+            second=$(date -u +%S)
+            curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+              "$FORECAST_COLLECTOR_STAGING_URL/health" > "$RUNNER_TEMP/canary-alignment-health.json"
+            collector_at=$(jq -r '.collector.lastFinishedAt // empty' "$RUNNER_TEMP/canary-alignment-health.json")
+            dispatcher_at=$(jq -r '.operations.dispatcher.lastObservedAt // empty' "$RUNNER_TEMP/canary-alignment-health.json")
+            collector_epoch=$(date -d "$collector_at" +%s 2>/dev/null || echo 0)
+            dispatcher_epoch=$(date -d "$dispatcher_at" +%s 2>/dev/null || echo 0)
+            if jq -e --arg sha "${{ github.sha }}" \
+              '(.collector.status == "completed") and
+               (.collector.deploymentSha == $sha) and
+               (.operations.dispatcher.status == "completed") and
+               (.operations.dispatcher.deploymentSha == $sha)' \
+              "$RUNNER_TEMP/canary-alignment-health.json" >/dev/null &&
+              (( now - collector_epoch >= 0 )) && (( now - collector_epoch < 180 )) &&
+              (( now - dispatcher_epoch >= 0 )) && (( now - dispatcher_epoch < 180 )) &&
+              (( 10#$minute % 3 == 2 )) && (( 10#$second >= 10 )) && (( 10#$second <= 40 )); then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "A completed Collector/Dispatcher Cron pair was not observed in a safe start phase." >&2
+          exit 1
+
       - name: Start fixed eight-hour Paid canary v10
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.d1_budget.outcome == 'success'
         id: canary_start

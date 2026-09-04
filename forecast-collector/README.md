@@ -239,8 +239,11 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   `Current Version ID`; Observability version IDs and tags are checked when present. Because Cloudflare
   defines those metadata fields as optional, omitted metadata falls back to the deployment marker and
   matching D1 Cron slot with an explicit warning. Staging log head sampling is pinned to `1.0`.
-  Telemetry coverage below 99% is `incomplete`, not a manufactured
-  runtime failure. CPU-limit termination or an unsuccessful outcome is a hard failure; p99 at 80%
+  Structured marker coverage below 99% is `incomplete`, not a manufactured runtime failure.
+  Cloudflare may retain a marker while omitting that invocation's runtime summary, so CPU
+  distributions require at least 95% coverage and 100 samples; 95-99% is reported as a performance
+  warning and exact-window GraphQL runtime totals remain the hard check for errors and CPU
+  terminations. CPU-limit termination or an unsuccessful outcome is a hard failure; p99 at 80%
   or 95% of the configured limit is a warning while `exceededCpu` remains zero.
 - The first v10 certificate is a `baseline_bootstrap`. Its generated candidate is an Actions artifact,
   not an automatic policy change. A later baseline can only be adopted by a separate review that adds
@@ -252,12 +255,12 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   for up to 30 minutes; persistent API or
   ingestion gaps produce `incomplete`, and the immutable window may be queried again without
   restarting the Worker canary.
-  A custom marker without a sampled invocation summary is retained as a telemetry coverage gap rather
-  than discarding every valid sample in the query; the existing 99% coverage gate decides whether the
-  evidence is sufficient.
+  A custom marker without a sampled invocation summary is retained as identity evidence with a missing
+  CPU sample rather than discarded. Marker and CPU-sample coverage are therefore reported separately.
 - The 30-minute budget watchdog reads the lightweight `/admin/canary-window` endpoint. It builds
   bounded intermediate reports at two, four, and six hours; final evaluation posts the
-  separately measured exact-window quota evidence after the window closes. This keeps monitoring
+  separately measured exact-window quota evidence after the runtime retry loop. This keeps the final
+  evidence inside its freshness contract while monitoring
   traffic from dominating the Collector CPU distribution being certified.
 - The statistics, Forecast, and quota-guard databases share one Workers Paid account allowance.
   Migration 0009 covering indexes must be present in both Forecast databases before preflight. The

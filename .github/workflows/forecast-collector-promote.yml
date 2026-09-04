@@ -87,7 +87,25 @@ jobs:
           echo "collector_version_id=$(jq -r '.collectorVersionId' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
           echo "dispatcher_version_id=$(jq -r '.dispatcherVersionId' "$RUNNER_TEMP/canary-window.json")" >> "$GITHUB_OUTPUT"
 
-      - name: Measure account quota evidence for the exact canary window
+      - name: Collect exact scheduled-only Workers Observability evidence
+        if: steps.window.outputs.eligible == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN }}
+          FORECAST_CANARY_ID: ${{ steps.window.outputs.canary_id }}
+          FORECAST_CANARY_DEPLOYMENT_SHA: ${{ steps.window.outputs.deployment_sha }}
+          FORECAST_CANARY_STARTED_AT: ${{ steps.window.outputs.started_at }}
+          FORECAST_CANARY_ENDED_AT: ${{ steps.window.outputs.ends_at }}
+          FORECAST_COLLECTOR_SCRIPT_VERSION: ${{ steps.window.outputs.deployment_sha }}-${{ steps.window.outputs.poll_mode }}-v10
+          FORECAST_DISPATCHER_SCRIPT_VERSION: ${{ steps.window.outputs.deployment_sha }}-v10
+          FORECAST_COLLECTOR_SCRIPT_VERSION_ID: ${{ steps.window.outputs.collector_version_id }}
+          FORECAST_DISPATCHER_SCRIPT_VERSION_ID: ${{ steps.window.outputs.dispatcher_version_id }}
+          FORECAST_CANARY_RUNTIME_OUTPUT: ${{ runner.temp }}/forecast-canary-runtime.json
+          FORECAST_OBSERVABILITY_MAX_WAIT_MS: 1800000
+          FORECAST_OBSERVABILITY_RETRY_INTERVAL_MS: 300000
+        run: npm run collect:forecast-runtime
+
+      - name: Measure fresh account quota evidence for the exact canary window
         if: steps.window.outputs.eligible == 'true'
         id: final_quota
         continue-on-error: true
@@ -108,24 +126,6 @@ jobs:
             if (( attempt < 3 )); then sleep $((attempt * 15)); fi
           done
           exit 1
-
-      - name: Collect exact scheduled-only Workers Observability evidence
-        if: steps.window.outputs.eligible == 'true'
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN }}
-          FORECAST_CANARY_ID: ${{ steps.window.outputs.canary_id }}
-          FORECAST_CANARY_DEPLOYMENT_SHA: ${{ steps.window.outputs.deployment_sha }}
-          FORECAST_CANARY_STARTED_AT: ${{ steps.window.outputs.started_at }}
-          FORECAST_CANARY_ENDED_AT: ${{ steps.window.outputs.ends_at }}
-          FORECAST_COLLECTOR_SCRIPT_VERSION: ${{ steps.window.outputs.deployment_sha }}-${{ steps.window.outputs.poll_mode }}-v10
-          FORECAST_DISPATCHER_SCRIPT_VERSION: ${{ steps.window.outputs.deployment_sha }}-v10
-          FORECAST_COLLECTOR_SCRIPT_VERSION_ID: ${{ steps.window.outputs.collector_version_id }}
-          FORECAST_DISPATCHER_SCRIPT_VERSION_ID: ${{ steps.window.outputs.dispatcher_version_id }}
-          FORECAST_CANARY_RUNTIME_OUTPUT: ${{ runner.temp }}/forecast-canary-runtime.json
-          FORECAST_OBSERVABILITY_MAX_WAIT_MS: 1800000
-          FORECAST_OBSERVABILITY_RETRY_INTERVAL_MS: 300000
-        run: npm run collect:forecast-runtime
 
       - name: Read authenticated Paid canary v10 certificate
         id: canary

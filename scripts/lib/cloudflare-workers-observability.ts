@@ -210,8 +210,21 @@ async function parseInvocationEntry(
   const marker = events.map(readMarker).find((value) => value !== null);
   if (!marker) return null;
   assertMarkerIdentity(marker, expected);
+  const slot = assertMarkerSlot(marker.slot, expected.startedAt, expected.endedAt);
+  const requestIdHash = createHash("sha256").update(requestId).digest("hex");
   const runtime = readRuntimeEvent(events, expected.scriptName);
-  if (runtime === null) return null;
+  if (runtime === null) {
+    return {
+      slot,
+      requestIdHash,
+      scriptVersionId: null,
+      scriptVersionTag: null,
+      identitySource: "marker" as const,
+      eventType: "scheduled" as const,
+      cpuTimeMs: null,
+      outcome: null,
+    };
+  }
   if (
     (runtime.scriptVersionId !== null &&
       runtime.scriptVersionId !== expected.expectedScriptVersionId.toLowerCase()) ||
@@ -220,10 +233,9 @@ async function parseInvocationEntry(
   ) {
     throw new Error("observability_version_identity_mismatch");
   }
-  const slot = assertMarkerSlot(marker.slot, expected.startedAt, expected.endedAt);
   return {
     slot,
-    requestIdHash: createHash("sha256").update(requestId).digest("hex"),
+    requestIdHash,
     scriptVersionId: runtime.scriptVersionId,
     scriptVersionTag: runtime.scriptVersionTag,
     identitySource: runtime.identitySource,

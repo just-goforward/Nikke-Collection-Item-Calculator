@@ -22,8 +22,8 @@ export type ForecastRuntimeSample = {
   scriptVersionTag: string | null;
   identitySource: "tag" | "version_id" | "marker";
   eventType: "scheduled";
-  cpuTimeMs: number;
-  outcome: string;
+  cpuTimeMs: number | null;
+  outcome: string | null;
 };
 
 export type ForecastRuntimeTelemetryEvidence = {
@@ -96,6 +96,9 @@ export type CpuPerformanceEvidence = {
   telemetryObservedSlots: number;
   missingTelemetrySlots: number;
   coverage: number;
+  runtimeObservedSlots: number;
+  missingRuntimeSlots: number;
+  runtimeCoverage: number;
   exceededCpu: number;
   unsuccessfulOutcomes: number;
   duplicateSlots: number;
@@ -134,6 +137,7 @@ type WorkerEvaluation = {
 
 type WorkerSampleInspection = {
   slotCounts: Map<string, number>;
+  runtimeSlotCounts: Map<string, number>;
   duplicateRequests: number;
   unsuccessfulOutcomes: number;
   exceededCpu: number;
@@ -358,6 +362,7 @@ function inspectWorkerSamples(
   expectedScriptVersionId: string,
 ): WorkerSampleInspection {
   const slotCounts = new Map<string, number>();
+  const runtimeSlotCounts = new Map<string, number>();
   const requestHashes = new Set<string>();
   let duplicateRequests = 0;
   let unsuccessfulOutcomes = 0;
@@ -372,8 +377,11 @@ function inspectWorkerSamples(
     slotCounts.set(slot, (slotCounts.get(slot) ?? 0) + 1);
     if (requestHashes.has(sample.requestIdHash)) duplicateRequests += 1;
     requestHashes.add(sample.requestIdHash);
-    if (!isSuccessfulOutcome(sample.outcome)) unsuccessfulOutcomes += 1;
-    if (sample.outcome.toLowerCase() === "exceededcpu") exceededCpu += 1;
+    if (sample.cpuTimeMs !== null && sample.outcome !== null) {
+      runtimeSlotCounts.set(slot, (runtimeSlotCounts.get(slot) ?? 0) + 1);
+      if (!isSuccessfulOutcome(sample.outcome)) unsuccessfulOutcomes += 1;
+      if (sample.outcome.toLowerCase() === "exceededcpu") exceededCpu += 1;
+    }
     if (sampleVersionMismatch(sample, expectedScriptVersion, expectedScriptVersionId))
       deploymentMismatches += 1;
     if (sample.identitySource === "marker") markerOnlyIdentities += 1;
@@ -382,6 +390,7 @@ function inspectWorkerSamples(
   }
   return {
     slotCounts,
+    runtimeSlotCounts,
     duplicateRequests,
     unsuccessfulOutcomes,
     exceededCpu,
@@ -406,8 +415,8 @@ function sampleVersionMismatch(
 function sampleInvalid(sample: ForecastRuntimeSample, slot: string) {
   return (
     sample.eventType !== "scheduled" ||
-    !Number.isFinite(sample.cpuTimeMs) ||
-    sample.cpuTimeMs < 0 ||
+    (sample.cpuTimeMs !== null && (!Number.isFinite(sample.cpuTimeMs) || sample.cpuTimeMs < 0)) ||
+    (sample.cpuTimeMs === null) !== (sample.outcome === null) ||
     slot === "invalid"
   );
 }
@@ -421,13 +430,16 @@ function buildWorkerSummary(
   endedAt: string,
 ): CpuPerformanceEvidence {
   const telemetrySlots = new Set(inspection.slotCounts.keys());
+  const runtimeSlots = new Set(inspection.runtimeSlotCounts.keys());
   const duplicateSlots = [...inspection.slotCounts.values()].filter((count) => count > 1).length;
   const unmatchedTelemetrySlots = [...telemetrySlots].filter(
     (slot) => !expected.has(slot) || !d1.has(slot),
   ).length;
   const missingTelemetrySlots = [...d1].filter((slot) => !telemetrySlots.has(slot)).length;
+  const missingRuntimeSlots = [...d1].filter((slot) => !runtimeSlots.has(slot)).length;
   const splitMs = Date.parse(startedAt) + (Date.parse(endedAt) - Date.parse(startedAt)) / 2;
-  const full = distribution(worker.samples.map((sample) => sample.cpuTimeMs));
+  const runtimeSamples = worker.samples.filter(hasRuntimeSummary);
+  const full = distribution(runtimeSamples.map((sample) => sample.cpuTimeMs));
   return {
     scriptName: worker.scriptName,
     configuredLimitMs: worker.configuredLimitMs,
@@ -436,6 +448,9 @@ function buildWorkerSummary(
     telemetryObservedSlots: telemetrySlots.size,
     missingTelemetrySlots,
     coverage: ratio(d1.size - missingTelemetrySlots, d1.size),
+    runtimeObservedSlots: runtimeSlots.size,
+    missingRuntimeSlots,
+    runtimeCoverage: ratio(d1.size - missingRuntimeSlots, d1.size),
     exceededCpu: inspection.exceededCpu,
     unsuccessfulOutcomes: inspection.unsuccessfulOutcomes,
     duplicateSlots,
@@ -443,14 +458,14 @@ function buildWorkerSummary(
     markerOnlyIdentities: inspection.markerOnlyIdentities,
     versionIdOnlyIdentities: inspection.versionIdOnlyIdentities,
     full,
-    firstHalf: distributionForHalf(worker.samples, splitMs, "first"),
-    secondHalf: distributionForHalf(worker.samples, splitMs, "second"),
+    firstHalf: distributionForHalf(runtimeSamples, splitMs, "first"),
+    secondHalf: distributionForHalf(runtimeSamples, splitMs, "second"),
     p99LimitRatio: worker.configuredLimitMs > 0 ? full.p99Ms / worker.configuredLimitMs : 1,
   };
 }
 
 function distributionForHalf(
-  samples: ForecastRuntimeSample[],
+  samples: Array<ForecastRuntimeSample & { cpuTimeMs: number; outcome: string }>,
   splitMs: number,
   half: "first" | "second",
 ) {
@@ -461,6 +476,12 @@ function distributionForHalf(
       )
       .map((sample) => sample.cpuTimeMs),
   );
+}
+
+function hasRuntimeSummary(
+  sample: ForecastRuntimeSample,
+): sample is ForecastRuntimeSample & { cpuTimeMs: number; outcome: string } {
+  return sample.cpuTimeMs !== null && sample.outcome !== null;
 }
 
 function workerHardFailures(
@@ -495,11 +516,15 @@ function workerEvidenceErrors(
     summary.coverage < 0.99 || summary.missingTelemetrySlots > 1
       ? `runtime_telemetry_coverage_incomplete:${component}`
       : null,
+    summary.runtimeCoverage < 0.95 || summary.full.samples < 100
+      ? `runtime_cpu_sample_coverage_incomplete:${component}`
+      : null,
   ].filter((value): value is string => value !== null);
 }
 
 function workerWarnings(component: ForecastRuntimeComponent, summary: CpuPerformanceEvidence) {
   return [
+    summary.runtimeCoverage < 0.99 ? `runtime_cpu_sample_coverage_partial:${component}` : null,
     summary.markerOnlyIdentities > 0 ? `runtime_version_metadata_unavailable:${component}` : null,
     summary.versionIdOnlyIdentities > 0 ? `runtime_version_tag_unavailable:${component}` : null,
     summary.p99LimitRatio >= 0.8 ? `runtime_p99_headroom_low:${component}` : null,
@@ -651,6 +676,7 @@ function parseSample(value: unknown): ForecastRuntimeSample {
   if (identitySource === "marker" && (scriptVersionId !== null || scriptVersionTag !== null)) {
     throw new Error("runtime_identity_source_invalid");
   }
+  const runtime = parseOptionalRuntimeSummary(value);
   return {
     slot: requiredTimestamp(value["slot"], "runtime_slot_invalid"),
     requestIdHash,
@@ -658,8 +684,18 @@ function parseSample(value: unknown): ForecastRuntimeSample {
     scriptVersionTag,
     identitySource,
     eventType: "scheduled",
-    cpuTimeMs: requiredFinite(value["cpuTimeMs"], "runtime_cpu_invalid"),
-    outcome: requiredString(value["outcome"], "runtime_outcome_invalid"),
+    ...runtime,
+  };
+}
+
+function parseOptionalRuntimeSummary(value: Record<string, unknown>) {
+  const cpuTimeMs = value["cpuTimeMs"];
+  const outcome = value["outcome"];
+  if (cpuTimeMs === null && outcome === null) return { cpuTimeMs: null, outcome: null };
+  if (cpuTimeMs === null || outcome === null) throw new Error("runtime_summary_partial");
+  return {
+    cpuTimeMs: requiredFinite(cpuTimeMs, "runtime_cpu_invalid"),
+    outcome: requiredString(outcome, "runtime_outcome_invalid"),
   };
 }
 
@@ -696,6 +732,9 @@ function emptyCpuPerformance(): Omit<CpuPerformanceEvidence, "scriptName" | "con
     telemetryObservedSlots: 0,
     missingTelemetrySlots: 0,
     coverage: 0,
+    runtimeObservedSlots: 0,
+    missingRuntimeSlots: 0,
+    runtimeCoverage: 0,
     exceededCpu: 0,
     unsuccessfulOutcomes: 0,
     duplicateSlots: 0,
