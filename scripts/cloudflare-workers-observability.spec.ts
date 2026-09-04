@@ -85,7 +85,13 @@ describe("Workers Observability forecast runtime evidence", () => {
 
     const samples = await parseInvocationSamples(value, expectedCollector());
 
-    expect(samples).toEqual([]);
+    expect(samples).toEqual([
+      expect.objectContaining({
+        identitySource: "marker",
+        cpuTimeMs: null,
+        outcome: null,
+      }),
+    ]);
   });
 
   it("rejects a marker outside the immutable query window", async () => {

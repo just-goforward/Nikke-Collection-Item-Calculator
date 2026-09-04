@@ -112,6 +112,57 @@ describe("forecast canary v10 runtime policy", () => {
     expect(result.runtimeSafety.status).toBe("passed");
   });
 
+  it("keeps complete markers with at least 95 percent CPU samples as valid warning evidence", () => {
+    const input = fixture();
+    const collector = runtimeWorker(input, "collector");
+    collector.samples = collector.samples.map((sample, index) =>
+      index < 5
+        ? {
+            ...sample,
+            scriptVersionId: null,
+            scriptVersionTag: null,
+            identitySource: "marker" as const,
+            cpuTimeMs: null,
+            outcome: null,
+          }
+        : sample,
+    );
+
+    const result = evaluateForecastRuntimeTelemetry(input);
+
+    expect(result.evidence).toEqual({ status: "valid", errors: [] });
+    expect(result.runtimeSafety.status).toBe("passed");
+    expect(result.performance.collector).toMatchObject({
+      coverage: 1,
+      runtimeObservedSlots: 155,
+      missingRuntimeSlots: 5,
+      runtimeCoverage: 0.96875,
+    });
+    expect(result.performance.warnings).toContain("runtime_cpu_sample_coverage_partial:collector");
+  });
+
+  it("keeps fewer than 95 percent CPU samples as incomplete evidence", () => {
+    const input = fixture();
+    const collector = runtimeWorker(input, "collector");
+    collector.samples = collector.samples.map((sample, index) =>
+      index < 9
+        ? {
+            ...sample,
+            scriptVersionId: null,
+            scriptVersionTag: null,
+            identitySource: "marker" as const,
+            cpuTimeMs: null,
+            outcome: null,
+          }
+        : sample,
+    );
+
+    const result = evaluateForecastRuntimeTelemetry(input);
+
+    expect(result.evidence.status).toBe("incomplete");
+    expect(result.evidence.errors).toContain("runtime_cpu_sample_coverage_incomplete:collector");
+  });
+
   it("accepts omitted optional version metadata with an explicit marker warning", () => {
     const input = fixture();
     for (const worker of input.telemetry.workers) {

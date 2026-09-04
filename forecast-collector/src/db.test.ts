@@ -105,7 +105,7 @@ describe("forecast collector D1 contract", () => {
     expect(health.status).toBe(200);
     expect(await health.json()).toEqual({
       status: "ok",
-      collector: { status: "missing", lastFinishedAt: null },
+      collector: { status: "missing", lastFinishedAt: null, deploymentSha: null },
       candidateCounts: {},
       operations: {
         dispatcher: {

@@ -87,6 +87,14 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(stagingDeploy).toContain("--var COLLECT_ENABLED:true");
     expect(stagingDeploy).toContain("Record dispatcher smoke inside the canary window");
     expect(stagingDeploy).toContain("npm run check:d1-budget -- evaluate");
+    const alignment = stagingDeploy.indexOf("Align canary start after a completed Cron pair");
+    const canaryStart = stagingDeploy.indexOf("Start fixed eight-hour Paid canary v10");
+    expect(alignment).toBeGreaterThan(-1);
+    expect(canaryStart).toBeGreaterThan(alignment);
+    expect(stagingDeploy).toContain("10#$minute % 3 == 2");
+    expect(stagingDeploy).toContain("(.collector.deploymentSha == $sha)");
+    expect(stagingDeploy).toContain("now - collector_epoch < 180");
+    expect(stagingDeploy).toContain("now - dispatcher_epoch < 180");
     expect(productionPromote).toContain("npm run check:d1-budget -- preflight");
     expect(productionPromote).toContain("/admin/canary-window");
     expect(productionPromote).toContain(
@@ -94,6 +102,16 @@ describe("Forecast dispatcher workflow contract", () => {
     );
     expect(productionPromote).toContain(`--runtime-end "\${{ steps.window.outputs.ends_at }}"`);
     expect(productionPromote).toContain("Reject only a proven failed or malformed canary");
+    const observability = productionPromote.indexOf(
+      "Collect exact scheduled-only Workers Observability evidence",
+    );
+    const freshQuota = productionPromote.indexOf(
+      "Measure fresh account quota evidence for the exact canary window",
+    );
+    const certificate = productionPromote.indexOf("Read authenticated Paid canary v10 certificate");
+    expect(observability).toBeGreaterThan(-1);
+    expect(freshQuota).toBeGreaterThan(observability);
+    expect(certificate).toBeGreaterThan(freshQuota);
     expect(d1BudgetWatch).toContain('cron: "7,37 * * * *"');
     expect(d1BudgetWatch).toContain("/admin/canary-window");
     expect(d1BudgetWatch).toContain("early_check_due");

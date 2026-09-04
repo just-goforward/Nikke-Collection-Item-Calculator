@@ -149,7 +149,8 @@ Router duplicate = 0, initial response < 1초
 모든 manual_review queue row에 pending review와 전송된 alert 존재
 저장된 quota evidence hash와 계정 전체 Worker·D1 합계 일치
 quota action = normal, 현재·월말 예상 사용률 < 25%
-Workers Observability scheduled-only coverage >= 99%
+Workers Observability scheduled marker coverage >= 99%
+Workers Observability CPU sample coverage >= 95%, CPU samples >= 100
 모든 대상 Worker의 정확한 canary 8시간 구간에서 exceededCpu = 0, 비정상 outcome = 0
 quota evidence freshness 오류 = 0
 ```
@@ -171,8 +172,15 @@ Observability의 `invocations` 응답은 긴 구간에서 한 invocation의 cust
 서로 다른 응답 페이지에 놓일 수 있다. 따라서 8시간 증거는 30분짜리 반개방 구간 16개로 조회한 뒤
 request ID hash로 멱등 병합한다. 같은 invocation이 서로 다른 내용으로 반복되면 증거 충돌로 거부한다.
 custom marker는 있지만 Cloudflare가 해당 invocation runtime summary를 표본화하지 않은 경우에는 전체
-수집을 버리지 않고 해당 slot을 telemetry coverage 누락으로 계산한다. 허용 여부는 기존 99% coverage
-gate가 결정한다.
+수집을 버리지 않는다. marker는 실행 신원 증거로 유지하고 CPU 표본만 누락으로 센다. marker coverage는
+99%를 유지하며, exact-window GraphQL의 오류·CPU 초과 0건 확인을 전제로 CPU 분포는 95% 이상이면서
+100개 이상의 표본이면 사용할 수 있다. 95~99%는 성능 경고로 표시하고 기준선 후보에도 표본 수와
+coverage를 함께 기록한다.
+
+Canary 시작 직전에는 UTC minute modulo 3이 2인 안전 구간에서 직전 Collector·Dispatcher 실행이 모두
+완료됐는지 확인한다. 이 정렬은 canary 시작 전에 예약됐지만 Cloudflare에서 늦게 전달된 Cron을 새
+window의 unexpected invocation으로 잘못 세는 경계 오류를 막는다. 종료 후 runtime evidence를 최대
+30분 재조회할 수 있으므로 최종 quota evidence는 그 재조회가 끝난 뒤 새로 측정한다.
 
 첫 v10은 이전 v8 GraphQL 집계를 hard baseline으로 사용하지 않고 scheduled-only 기준선을 만드는
 `baseline_bootstrap`이다. 생성된 기준선 후보는 Actions artifact일 뿐 자동 적용되지 않는다. 별도
