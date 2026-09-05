@@ -27,6 +27,7 @@ concurrency:
 jobs:
   send:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Validate external configuration
         env:
@@ -43,13 +44,13 @@ jobs:
           [[ "$DISCORD_CHANNEL_ID" =~ ^[0-9]{1,24}$ ]] || { echo "Invalid DISCORD_FORECAST_CHANNEL_ID." >&2; exit 1; }
 
       - name: Checkout trusted main
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: refs/heads/main
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24.20.0
           cache: npm

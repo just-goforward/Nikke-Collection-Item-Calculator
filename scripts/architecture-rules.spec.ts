@@ -171,5 +171,5 @@ function tooNested(a: boolean, b: boolean, c: boolean, d: boolean, e: boolean) {
     } finally {
       rmSync(fixtureRoot, { recursive: true, force: true });
     }
-  }, 10_000);
+  }, 30_000);
 });

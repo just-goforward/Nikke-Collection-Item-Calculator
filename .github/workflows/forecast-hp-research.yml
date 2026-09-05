@@ -51,6 +51,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.pull_request_number != '' && vars.FORECAST_COLLECTOR_STAGING_URL != '') ||
       (github.event_name == 'workflow_dispatch' && inputs.pull_request_number == '' && vars.FORECAST_COLLECTOR_URL != '')
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       FORECAST_RESEARCH_COLLECTOR_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_request_number != '' && vars.FORECAST_COLLECTOR_STAGING_URL || vars.FORECAST_COLLECTOR_URL }}
     outputs:
@@ -62,12 +63,12 @@ jobs:
       rules-version: ${{ steps.contract.outputs.rules_version }}
     steps:
       - name: Checkout trusted main
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: refs/heads/main
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24.20.0
           cache: npm
@@ -180,7 +181,7 @@ jobs:
 
       - name: Upload profile evidence matrix
         if: steps.contract.outputs.enabled == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: hp-profile-matrix-${{ github.run_id }}
           path: benchmarks/results/dynamic-hp-profile-matrix.json
@@ -195,7 +196,7 @@ jobs:
 
       - name: Upload verified WASM
         if: steps.contract.outputs.enabled == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dynamic-hp-wasm-${{ github.run_id }}
           path: public/solver_rs.wasm
@@ -220,12 +221,12 @@ jobs:
       HP_STUDY_SLICES_PER_RUN: ${{ inputs.slices_per_run || '8' }}
     steps:
       - name: Checkout trusted main
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: refs/heads/main
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24.20.0
           cache: npm
@@ -234,14 +235,14 @@ jobs:
         run: npm ci
 
       - name: Download verified WASM
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: dynamic-hp-wasm-${{ github.run_id }}
           path: public
 
       - name: Restore resumable profile state
         id: restore
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             benchmarks/results/dynamic/${{ matrix.profile.id }}.json
@@ -305,7 +306,7 @@ jobs:
 
       - name: Save resumable profile state
         if: always()
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: |
             benchmarks/results/dynamic/${{ matrix.profile.id }}.json
@@ -314,7 +315,7 @@ jobs:
 
       - name: Upload profile report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dynamic-hp-${{ matrix.profile.id }}-${{ github.run_id }}
           path: benchmarks/results/dynamic/${{ matrix.profile.id }}.json
@@ -327,16 +328,17 @@ jobs:
       always() && needs.prepare.outputs.enabled == 'true' &&
       needs.advance.result != 'failure' && needs.advance.result != 'cancelled'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     outputs:
       complete: ${{ steps.contract.outputs.complete }}
     steps:
       - name: Checkout trusted main
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: refs/heads/main
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24.20.0
           cache: npm
@@ -345,14 +347,14 @@ jobs:
         run: npm ci
 
       - name: Download this run's profile reports
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: dynamic-hp-*-${{ github.run_id }}
           path: collected
           merge-multiple: true
 
       - name: Download profile evidence matrix
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: hp-profile-matrix-${{ github.run_id }}
           path: profile-matrix
@@ -399,7 +401,7 @@ jobs:
 
       - name: Upload exact-gate certificate
         if: steps.contract.outputs.complete == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dynamic-hp-exact-gate-summary-${{ github.run_id }}
           path: ${{ runner.temp }}/dynamic-hp-certificate
@@ -455,7 +457,7 @@ jobs:
 
       - name: Upload bounded-incomplete diagnostic certificate
         if: steps.continuation.outputs.exhausted == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dynamic-hp-bounded-incomplete-${{ github.run_id }}
           path: ${{ runner.temp }}/dynamic-hp-bounded-incomplete-certificate
