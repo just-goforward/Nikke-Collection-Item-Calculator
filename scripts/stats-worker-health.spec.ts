@@ -32,6 +32,79 @@ describe("fetchExpectedHealthAfterDeployment", () => {
     expect(String(fetchImpl.mock.calls[1]?.[0])).toContain("smokeAttempt=2");
   });
 
+  it("waits for a deployment route 404 before accepting the current contract", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(
+        Response.json({ ok: true, schemaContractVersion: 2 }, { status: 200 }),
+      );
+    const sleep = vi.fn(async () => undefined);
+
+    const result = await fetchExpectedHealthAfterDeployment({
+      allowedOrigin: "https://nikkecollection.com",
+      attempts: 3,
+      delayMs: 1_000,
+      endpointUrl,
+      expectedContractVersion: 2,
+      fetchImpl,
+      sleep,
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledOnce();
+  });
+
+  it("bounds the health response before parsing JSON", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        ok: true,
+        schemaContractVersion: 2,
+        padding: "x".repeat(2_048),
+      }),
+    );
+
+    await expect(
+      fetchExpectedHealthAfterDeployment({
+        allowedOrigin: "https://nikkecollection.com",
+        attempts: 3,
+        delayMs: 1_000,
+        endpointUrl,
+        expectedContractVersion: 2,
+        fetchImpl,
+        maxResponseBytes: 256,
+      }),
+    ).rejects.toThrow("health_response_invalid");
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("retries a timed out request with a fresh abort signal", async () => {
+    const signals: AbortSignal[] = [];
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (_input, init) => {
+      if (init?.signal) signals.push(init.signal);
+      if (signals.length === 1) throw new DOMException("timed out", "TimeoutError");
+      return Response.json({ ok: true, schemaContractVersion: 2 }, { status: 200 });
+    });
+    const sleep = vi.fn(async () => undefined);
+
+    const result = await fetchExpectedHealthAfterDeployment({
+      allowedOrigin: "https://nikkecollection.com",
+      attempts: 2,
+      delayMs: 1,
+      endpointUrl,
+      expectedContractVersion: 2,
+      fetchImpl,
+      requestTimeoutMs: 50,
+      sleep,
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).not.toBe(signals[1]);
+    expect(sleep).toHaveBeenCalledOnce();
+  });
+
   it("waits for a retryable schema propagation failure to clear", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
