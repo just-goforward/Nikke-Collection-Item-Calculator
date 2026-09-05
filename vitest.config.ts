@@ -6,6 +6,8 @@ export default defineConfig({
     __STATS_DELIVERY_HEALTH_EMIT_ENABLED__: "true",
   },
   test: {
+    // Preserve the Vitest 4 mock lifecycle while the root suite migrates to v5.
+    clearMocks: false,
     include: [
       "src/**/*.{test,spec}.{ts,tsx}",
       "scripts/**/*.{test,spec}.ts",

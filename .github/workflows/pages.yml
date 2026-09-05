@@ -54,8 +54,8 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Worker D1 integration tests
-        run: npm run test:worker
+      - name: Worker integration tests
+        run: npm run test:workers
 
       - name: Build
         run: npx vite build --configLoader native

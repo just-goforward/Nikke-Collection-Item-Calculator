@@ -1,11 +1,11 @@
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   root: import.meta.dirname,
   plugins: [
     cloudflareTest({
-      main: "./forecast-collector/src/worker.ts",
+      main: "./src/worker.ts",
       miniflare: {
         compatibilityDate: "2026-08-14",
         compatibilityFlags: ["nodejs_compat"],
@@ -20,6 +20,7 @@ export default defineConfig({
     }),
   ],
   test: {
-    include: ["forecast-collector/src/**/*.test.ts"],
+    clearMocks: false,
+    include: ["src/**/*.test.ts"],
   },
 });
