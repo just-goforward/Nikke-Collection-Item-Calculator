@@ -38,6 +38,36 @@ const CASES: Case[] = [
   },
 ];
 
+const HIGH_STOCK_FALLBACK_CASES = [
+  {
+    name: "reported Android stock",
+    stock: { blue: 720, purple: 330, yellow: 195 },
+    firstAction: "blue",
+    vectorBits: [0x406c45501f17ecc0n, 0x4053e673f04832dbn, 0x404734189ab5807bn],
+    states: 4_565_512,
+    overflowSegments: 1,
+    memoSlots: (1 << 22) + (1 << 20),
+  },
+  {
+    name: "existing segmented regression stock",
+    stock: { blue: 770, purple: 330, yellow: 190 },
+    firstAction: "yellow",
+    vectorBits: [0x406d2165d280c9a2n, 0x40531566cda28528n, 0x4047ac61cd702a9fn],
+    states: 4_584_832,
+    overflowSegments: 1,
+    memoSlots: (1 << 22) + (1 << 20),
+  },
+  {
+    name: "two-overflow-segment capacity ridge",
+    stock: { blue: 820, purple: 320, yellow: 160 },
+    firstAction: "purple",
+    vectorBits: [0x4070cac77ea66e69n, 0x4055ff4faca27004n, 0x4041c7bdd2326c48n],
+    states: 4_757_035,
+    overflowSegments: 2,
+    memoSlots: (1 << 22) + (1 << 20) + (1 << 18),
+  },
+] as const;
+
 function closeTo(actual: number, expected: number) {
   expect(actual).toBeCloseTo(expected, 9);
 }
@@ -474,55 +504,59 @@ describe("rust phase2 wasm parity", () => {
     });
   }
 
-  it("completes the normal high-stock R0 case through segmented rust phase2 instead of JS", async () => {
-    const minef = (await solveRustMinEfProduct(
-      {
-        start: { grade: "R", level: 0, exp: 0 },
-        stock: { blue: 770, purple: 330, yellow: 190 },
-        strategy: "supply",
-        monteCarloRuns: 0,
-      },
-      wasmDataUrl,
-    )) as {
-      best: {
-        firstAction: string | null;
-        vector: { blue: number; purple: number; yellow: number };
+  it.each(HIGH_STOCK_FALLBACK_CASES)(
+    "completes $name through segmented rust phase2 instead of JS",
+    async ({ stock, firstAction, vectorBits, states, overflowSegments, memoSlots }) => {
+      const minef = (await solveRustMinEfProduct(
+        {
+          start: { grade: "R", level: 0, exp: 0 },
+          stock,
+          strategy: "supply",
+          monteCarloRuns: 0,
+        },
+        wasmDataUrl,
+      )) as {
+        best: {
+          firstAction: string | null;
+          vector: { blue: number; purple: number; yellow: number };
+        };
+        possible: boolean;
+        stats?: {
+          fallbackFrom?: string;
+          fallbackReason?: string;
+          memoryStrategy?: string;
+          minEfMemoTier?: number;
+          phase2MemoRetried?: boolean;
+          phase2MemoSlots?: number;
+          phase2MemoLogicalBytes?: number;
+          phase2MemoryClass?: string;
+          phase2OverflowSegments?: number;
+          phase2MemoTier?: number;
+          solverBackend?: string;
+          states?: number;
+        };
       };
-      possible: boolean;
-      stats?: {
-        fallbackFrom?: string;
-        fallbackReason?: string;
-        memoryStrategy?: string;
-        minEfMemoTier?: number;
-        phase2MemoRetried?: boolean;
-        phase2MemoSlots?: number;
-        phase2MemoLogicalBytes?: number;
-        phase2MemoryClass?: string;
-        phase2OverflowSegments?: number;
-        phase2MemoTier?: number;
-        solverBackend?: string;
-        states?: number;
-      };
-    };
 
-    expect(minef.possible).toBe(true);
-    expect(minef.best.firstAction).toBe("yellow");
-    expect(f64Bits(minef.best.vector.blue)).toBe(0x406d2165d280c9a2n);
-    expect(f64Bits(minef.best.vector.purple)).toBe(0x40531566cda28528n);
-    expect(f64Bits(minef.best.vector.yellow)).toBe(0x4047ac61cd702a9fn);
-    expect(minef.stats).toMatchObject({
-      fallbackFrom: "rust-min-ef",
-      fallbackReason: "memo_full",
-      memoryStrategy: "balanced-v1",
-      minEfMemoTier: 21,
-      phase2MemoRetried: false,
-      phase2MemoTier: 22,
-      phase2MemoSlots: (1 << 22) + (1 << 20),
-      phase2MemoLogicalBytes: ((1 << 22) + (1 << 20)) * 49,
-      phase2MemoryClass: "segmented",
-      phase2OverflowSegments: 1,
-      solverBackend: "rust-phase2",
-      states: 4_584_832,
-    });
-  }, 15_000);
+      expect(minef.possible).toBe(true);
+      expect(minef.best.firstAction).toBe(firstAction);
+      expect(f64Bits(minef.best.vector.blue)).toBe(vectorBits[0]);
+      expect(f64Bits(minef.best.vector.purple)).toBe(vectorBits[1]);
+      expect(f64Bits(minef.best.vector.yellow)).toBe(vectorBits[2]);
+      expect(minef.stats).toMatchObject({
+        fallbackFrom: "rust-min-ef",
+        fallbackReason: "memo_full",
+        memoryStrategy: "balanced-v1",
+        minEfMemoTier: 21,
+        phase2MemoRetried: false,
+        phase2MemoTier: 22,
+        phase2MemoSlots: memoSlots,
+        phase2MemoLogicalBytes: memoSlots * 49,
+        phase2MemoryClass: "segmented",
+        phase2OverflowSegments: overflowSegments,
+        solverBackend: "rust-phase2",
+        states,
+      });
+    },
+    20_000,
+  );
 });
