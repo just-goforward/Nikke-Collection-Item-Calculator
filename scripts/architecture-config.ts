@@ -138,13 +138,7 @@ export const MODULE_BOUNDARY_ALLOWLIST: ModuleBoundaryDebtEntry[] = [
     reason: "The integration test verifies the Collector-owned workflow callback contract.",
     removalTarget: "Move the workflow callback contract and fixture to shared/forecast-ops.",
   },
-  ...[
-    "crypto.ts",
-    "discord-approval.ts",
-    "discord-approval-contract.ts",
-    "manual-review.ts",
-    "ops.ts",
-  ].map((dependency) => ({
+  ...["crypto.ts", "discord-approval.ts", "manual-review.ts", "ops.ts"].map((dependency) => ({
     file: "forecast-interactions/src/worker.ts",
     dependency: `forecast-collector/src/${dependency}`,
     owner: "worker" as const,

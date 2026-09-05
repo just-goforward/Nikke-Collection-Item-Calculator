@@ -1,11 +1,7 @@
 import { STAGING_FORECAST_REVIEW_URL } from "../../shared/runtimeEnvironment";
 
-export const DISCORD_SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
-export const DISCORD_INTERACTION_MAX_BYTES = 64 * 1024;
 export const TEST_APPROVAL_TTL_MS = 30 * 60 * 1000;
 export const STAGING_ADOPTION_TTL_MS = 24 * 60 * 60 * 1000;
-export const CUSTOM_ID_PREFIX = "forecast_test_approve:";
-export const STAGING_CUSTOM_ID_PREFIX = "forecast_staging_approve:";
 
 const REPOSITORY_PATH = "/just-goforward/Nikke-Collection-Item-Calculator";
 
@@ -31,16 +27,6 @@ export type DiscordStagingAdoptionInput = {
   researchRunUrl: string;
   researchArtifactName: string;
   researchArtifactDigest: string;
-};
-
-export type DiscordApprovalView = {
-  forecastId: string;
-  pullRequestUrl: string;
-};
-
-export type DiscordStagingAdoptionView = {
-  forecastId: string;
-  researchRunUrl: string;
 };
 
 export function parseDiscordApprovalTestInput(value: unknown): DiscordApprovalTestInput {
@@ -135,80 +121,6 @@ export function parseStagingAdoptionMessage(value: unknown) {
     throw new Error("invalid_discord_staging_message");
   }
   return input as { discordChannelId: string; discordMessageId: string };
-}
-
-export function approvedData(approval: DiscordApprovalView, customId: string) {
-  return {
-    content:
-      `Forecast \`${approval.forecastId}\`의 Discord 승인 응답 테스트가 완료되었습니다.\n` +
-      "D1에는 `test_approved`만 기록되었으며 staging·production Forecast와 GitHub PR은 변경되지 않았습니다.",
-    allowed_mentions: { parse: [] },
-    components: [
-      {
-        type: 1,
-        components: [
-          {
-            type: 2,
-            style: 3,
-            label: "테스트 승인 완료",
-            custom_id: customId,
-            disabled: true,
-          },
-          {
-            type: 2,
-            style: 5,
-            label: "GitHub PR 열기",
-            url: approval.pullRequestUrl,
-          },
-        ],
-      },
-    ],
-  };
-}
-
-export function stagingApprovedData(approval: DiscordStagingAdoptionView, customId: string) {
-  return {
-    content:
-      `Forecast \`${approval.forecastId}\`의 staging 적용 승인이 기록되었습니다.\n` +
-      "GitHub Actions가 adoption PR을 생성합니다. PR 병합과 Pages 배포 후 " +
-      `${STAGING_FORECAST_REVIEW_URL}에서 검증할 수 있으며 기본 production 환경은 변경되지 않습니다.`,
-    allowed_mentions: { parse: [] },
-    components: [
-      {
-        type: 1,
-        components: [
-          {
-            type: 2,
-            style: 3,
-            label: "staging 적용 승인 완료",
-            custom_id: customId,
-            disabled: true,
-          },
-          {
-            type: 2,
-            style: 5,
-            label: "H/p 인증 결과 열기",
-            url: approval.researchRunUrl,
-          },
-        ],
-      },
-    ],
-  };
-}
-
-export function unavailableApprovalData(content: string) {
-  return {
-    content,
-    allowed_mentions: { parse: [] },
-    components: [],
-  };
-}
-
-export function approvalFailureData() {
-  return {
-    content: "승인 기록 중 오류가 발생했습니다. 버튼을 다시 누르거나 새 승인 카드를 요청하십시오.",
-    allowed_mentions: { parse: [] },
-  };
 }
 
 export function boundedString(value: unknown, maxLength: number) {
