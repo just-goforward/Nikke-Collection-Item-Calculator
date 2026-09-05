@@ -13,6 +13,24 @@
   D1의 제한된 승인 상태만 바꾼다. GitHub key, Collector admin token, Discord bot token은 없다.
 - 수집·승인·research 결과만으로 Forecast를 활성화하거나 PR을 병합하지 않는다.
 
+## PR 검증과 Migration
+
+- 자동 Forecast 및 staging-adoption PR은 branch push 후 `pages.yml`을 명시적으로 호출한다.
+  GITHUB_TOKEN으로 만든 PR의 자동 이벤트에만 의존하지 않는다. branch namespace, 원격 SHA,
+  등록된 run ID를 검증하며 수동 호출에서는 Pages 업로드·배포가 실행되지 않는다.
+- `main`의 필수 검사는 `verify`, `Analyze (actions)`, `Analyze (javascript-typescript)`,
+  `Analyze (rust)`, `CodeQL`이다. 각각 현재 GitHub Actions/Advanced Security 앱의 결과로
+  한정하고 최신 main을 포함한 검증을 요구한다. 기존 관리자 예외 설정은 유지하지만 운영
+  절차에서 실패 검사를 우회하지 않는다.
+- staging/production Forecast migration은 `scripts/apply-forecast-d1-migrations.ts` 한곳에서
+  파일 순서와 ledger를 확인하고 누락된 필수 버전만 적용한다. 각 파일 적용 후 ledger를 다시
+  읽으며, 알 수 없는 버전·중간 누락·예상하지 않은 ledger 변화가 있으면 중단한다.
+- `schema.sql`은 version 10의 신규 DB용 snapshot이다. 기존 DB에 재실행하지 않는다. runner가
+  빈 저장소임을 확인한 경우에만 bootstrap하고, 기존 production의 선택적 0004..0006 누락은
+  허용한다. 부분 적용이나 외부에서 바꾼 schema를 자동 복구하는 기능은 아니다.
+- production migration은 기존 `cloudflare-production` 승인 job 내부에서만 실행한다.
+  로컬 검증은 `node scripts/apply-forecast-d1-migrations.ts --env staging --local`을 사용한다.
+
 ## 필수 Repository 설정
 
 Variables:

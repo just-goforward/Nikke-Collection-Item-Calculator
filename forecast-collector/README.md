@@ -12,7 +12,8 @@ statistics and cannot modify the repository or activate a product forecast.
 - The offset Dispatcher Worker checks the shared D1 queue at minutes 1, 4, 7, and so on. New work
   is fingerprinted and reserved with a five-minute D1 lease before a repository-scoped GitHub App
   requests `forecast-proposal.yml`. The Actions workflow fetches pending details and accepts only
-  official manager posts with structured SmartEditor JSON. It performs schedule parsing, ledger
+  official manager posts with structured SmartEditor JSON or a validated SmartEditor HTML envelope.
+  It performs schedule parsing, ledger
   resolution, and candidate generation outside the Worker CPU limit.
 - The proposal workflow's `17,47 * * * *` schedule is a thirty-minute watchdog, not the normal
   execution path. If it finds actionable work, it records `watchdog_fallback` and processes the work
@@ -20,10 +21,11 @@ statistics and cannot modify the repository or activate a product forecast.
 - Each Naver response is parsed as a complete feed contract. Explicitly recognized ad or banner rows
   may be skipped, but one unknown row shape fails the poll with `naver_partial_schema_drift`. No queue
   insert or cursor advancement from that response is committed.
-- A live contract check on 2026-08-25 found that the current board-48, board-56, and Solo Raid detail
-  responses use SmartEditor HTML rather than JSON. The JSON-only boundary therefore fails closed to
-  `manual_review`; automatic candidate generation remains blocked until a separately reviewed,
-  structured Actions-side HTML parser is introduced.
+- The Actions-side detail adapter validates board/feed identity and the official manager role, then
+  accepts HTML only when both `SE_DOC_HEADER_START` and the `se-viewer` container are present. It
+  removes comments and script/style/template contents before normalizing text into the same
+  structured input consumed by the schedule parser. Arbitrary HTML, empty content, and ambiguous
+  schedules still require manual review. The Worker Cron does not perform this body conversion.
 - X is advisory only and runs in GitHub Actions only when a candidate exists. The primary discovery
   path is the official recent-search API with the optional `X_API_BEARER_TOKEN` repository secret.
   Its query is restricted to Solo Raid, collaboration, Co-op Operation, and Kit Box keywords from
@@ -116,6 +118,22 @@ workflow validates the schema, payload hash, URL allowlist, dates, rules version
 continuity, and non-negative finite gains again before creating an
 `automation/supply-forecast/<candidateId>` pull request.
 Merging that PR sets `approvedForecastId` but leaves `activeForecastId` unchanged.
+
+The proposal and staging-adoption workflows explicitly request the full `pages.yml` verification
+after pushing their automation branch. This avoids relying on a new pull-request event from
+`GITHUB_TOKEN`. The helper validates the branch namespace and pushed SHA, supports GitHub's 200
+response with a run ID and the older 204 response, and confirms a matching workflow-dispatch run.
+Manual verification never uploads or deploys Pages; those steps remain limited to a push on main.
+Generated Forecast files still pass codegen equality checks even when the registry exceeds the
+handwritten-file line limit.
+
+## HTTP ownership
+
+`src/worker.ts` owns scheduled execution and delegates requests to `src/http.ts`. HTTP handling keeps
+public routes separate from the administrator chain: IP pre-limit, timing-safe Bearer authentication,
+method/route-group rate limit, and quota guard. `admin-router.ts` then dispatches to the operations,
+source/manual-review, canary, and Discord-administration route groups. These modules do not bypass
+the shared security chain or redefine production/staging authorization.
 
 ## Event dispatch and operations alerts
 
@@ -307,66 +325,32 @@ Production deployment remains a separate environment-protected audited job. The 
 fails closed when the expected tables are absent. Do not reuse a broad local Wrangler OAuth
 credential in CI.
 
+Both deployment workflows use `scripts/apply-forecast-d1-migrations.ts`. The runner validates the
+ordered incremental files and `schema_migrations`, applies only missing required versions, and
+re-reads the ledger after every applied file. Unknown or gapped histories stop deployment. It does
+not repair an out-of-band or partially applied schema change.
+
+`schema.sql` is the version-10 bootstrap snapshot, not migration 0001. The runner uses it only after
+confirming the database contains no application tables or views. Never replay it over an existing
+database. Existing production histories may omit Discord-only versions 0004..0006; version 0006,
+when present, still requires 0005. A new bootstrap contains all ten versions.
+
+Migration 0003 adds invocation accounting, shallow cursors, and the source queue; 0004..0006 add
+Discord approval/test message identity; 0007 adds dispatch and operations ledgers; 0008 adds manual
+review and interaction audit; 0009 adds covering indexes and independent canary storage; 0010 adds
+the script-version identities used by the current canary contract. SQL files remain the schema
+authority.
+
+For a local-only clean installation or restart check:
+
 ```powershell
-npx wrangler d1 execute FORECAST_DB --remote --env=staging `
-  --config forecast-collector/wrangler.toml --file forecast-collector/schema.sql
-npx wrangler d1 execute FORECAST_DB --remote --env="" `
-  --config forecast-collector/wrangler.toml --file forecast-collector/schema.sql
+node scripts/apply-forecast-d1-migrations.ts --env staging --local
 ```
 
-For an existing database, apply the incremental migrations instead of replaying the bootstrap
-schema. Migration 0003 adds invocation accounting, shallow cursors, and the source queue. Migration
-0004 adds the isolated Discord approval test ledger, migration 0005 adds the staging adoption ledger,
-migration 0006 makes staging approval message identity durable, migration 0007 adds Dispatcher
-invocation, workflow-dispatch, and grouped operations-alert ledgers, migration 0008 adds manual
-review decisions, Discord interaction audit, and legacy v5 deployment evidence. Migration 0009
-introduced the latest-invocation covering indexes and independent canary storage; the same storage is
-used by the current v10 report:
-
-```powershell
-npx wrangler d1 execute FORECAST_DB --remote --env=staging `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0002_collector_deployment_sha.sql
-npx wrangler d1 execute FORECAST_DB --remote --env="" `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0002_collector_deployment_sha.sql
-npx wrangler d1 execute FORECAST_DB --remote --env=staging `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0003_lightweight_source_queue.sql
-npx wrangler d1 execute FORECAST_DB --remote --env="" `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0003_lightweight_source_queue.sql
-npx wrangler d1 execute FORECAST_DB --remote --env=staging `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0004_discord_approval_tests.sql
-npx wrangler d1 execute FORECAST_DB --remote --env=staging `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0005_discord_staging_adoptions.sql
-npx wrangler d1 execute FORECAST_DB --remote --env=staging `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0006_discord_staging_message_identity.sql
-npx wrangler d1 execute FORECAST_DB --remote --env=staging `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0007_workflow_dispatch_ops.sql
-npx wrangler d1 execute FORECAST_DB --remote --env="" `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0007_workflow_dispatch_ops.sql
-npx wrangler d1 execute FORECAST_DB --remote --env=staging `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql
-npx wrangler d1 execute FORECAST_DB --remote --env="" `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql
-npx wrangler d1 execute FORECAST_DB --remote --env=staging `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0009_d1_budget_canary_v6.sql
-npx wrangler d1 execute FORECAST_DB --remote --env="" `
-  --config forecast-collector/wrangler.toml `
-  --file forecast-collector/migrations/0009_d1_budget_canary_v6.sql
-```
-
-Migrations 0004 through 0006 are not required in production while Discord approval mode remains
-disabled. Migrations 0007 through 0009 are required in both environments.
+The runner requires an explicit environment and exactly one of `--local` or `--remote`; it never
+defaults to a remote target. Remote staging applies through `Deploy Forecast Collector Staging`.
+Remote production applies only through the protected `Promote Forecast Collector` job after its
+canary and `cloudflare-production` approval. Existing workflow concurrency is unchanged.
 
 Required repository variables:
 
