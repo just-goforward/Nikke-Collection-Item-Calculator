@@ -49,4 +49,19 @@ describe("statistics response retry policy", () => {
       failureClass: "quota_disabled",
     });
   });
+
+  it("does not consume an oversized error response", async () => {
+    const error = await readStatsError(
+      new Response(JSON.stringify({ error: "x".repeat(20_000), retryable: true }), {
+        status: 400,
+        statusText: "Bad Request",
+      }),
+    );
+
+    expect(error).toMatchObject({
+      message: "Bad Request",
+      retryable: false,
+      failureClass: "contract_rejected",
+    });
+  });
 });

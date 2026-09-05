@@ -89,7 +89,6 @@ function useStatsSubmissionCleanup(providerRef: { current: TurnstileTokenProvide
 
 export function useStatsSubmission(onKitResultCommitted: () => void) {
   const callbackRef = useRef(onKitResultCommitted);
-  const turnstileReadyPromiseRef = useRef<Promise<TurnstileApi> | null>(null);
   const providerRef = useRef<TurnstileTokenProvider | null>(null);
   const providerSiteKeyRef = useRef<string | null>(null);
   const activeEventIdsRef = useRef(new Set<string>());
@@ -102,7 +101,7 @@ export function useStatsSubmission(onKitResultCommitted: () => void) {
   const getDeliveryHealthStore = useStatsDeliveryHealthStore(statsEndpoint);
 
   const loadTurnstile = useCallback(async (): Promise<TurnstileApi> => {
-    return loadTurnstileApi(turnstileReadyPromiseRef);
+    return loadTurnstileApi();
   }, []);
 
   const getProvider = useCallback((): TurnstileTokenProvider => {

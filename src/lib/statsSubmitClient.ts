@@ -28,42 +28,9 @@ function turnstileContainer(kind: StatsSubmissionEvent["kind"]): HTMLElement {
   return container;
 }
 
-function createTurnstileScriptPromise(): Promise<TurnstileApi> {
-  return new Promise<TurnstileApi>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(
-      'script[src*="challenges.cloudflare.com/turnstile"]',
-    );
-    existing?.remove();
-    const script = document.createElement("script");
-    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-    script.async = true;
-    script.defer = true;
-    script.addEventListener(
-      "load",
-      () => {
-        if (window.turnstile) resolve(window.turnstile);
-        else reject(new Error("Turnstile script loaded without an API."));
-      },
-      { once: true },
-    );
-    script.addEventListener("error", () => reject(new Error("Turnstile script failed.")), {
-      once: true,
-    });
-    document.head.append(script);
-  });
-}
-
-export async function loadTurnstileApi(
-  readyPromiseRef: MutableValue<Promise<TurnstileApi> | null>,
-): Promise<TurnstileApi> {
-  if (window.turnstile) return window.turnstile;
-  if (!readyPromiseRef.current) {
-    readyPromiseRef.current = createTurnstileScriptPromise().catch((error) => {
-      readyPromiseRef.current = null;
-      throw error;
-    });
-  }
-  return readyPromiseRef.current;
+export async function loadTurnstileApi(): Promise<TurnstileApi> {
+  const { loadTurnstileScriptApi } = await import("./turnstileScriptLoader");
+  return loadTurnstileScriptApi();
 }
 
 export function statsSubmissionProvider(
@@ -116,36 +83,8 @@ async function postStatsEnvelope(
 }
 
 export async function readStatsError(response: Response): Promise<StatsSubmissionError> {
-  let message = response.statusText || "Statistics request failed.";
-  let retryable = false;
-  try {
-    const body = (await response.json()) as { error?: unknown; retryable?: unknown };
-    if (typeof body.error === "string") message = body.error;
-    retryable = body.retryable === true;
-  } catch (error) {
-    ignoreExpectedError(
-      "Malformed statistics error response; keep the response status text.",
-      error,
-    );
-  }
-  const retryableStatus = response.status === 429 || response.status >= 500;
-  if (message === "telemetry_budget_disabled") {
-    return new StatsSubmissionError(message, false, "quota_disabled");
-  }
-  if (!__STATS_DELIVERY_HEALTH_EMIT_ENABLED__) {
-    return new StatsSubmissionError(message, retryable || retryableStatus);
-  }
-  const classification = failureClass(response.status, message);
-  return new StatsSubmissionError(message, retryable || retryableStatus, classification);
-}
-
-function failureClass(status: number, message: string) {
-  if (status === 429) return "rate_limited" as const;
-  if (status >= 500) return "server_error" as const;
-  if (message.includes("turnstile")) return "turnstile_rejected" as const;
-  if (message.includes("origin")) return "origin_rejected" as const;
-  if (status >= 400 && status < 500) return "contract_rejected" as const;
-  return "unknown" as const;
+  const { parseStatsSubmissionError } = await import("./statsErrorResponse");
+  return parseStatsSubmissionError(response);
 }
 
 export async function submitStatsEnvelope(
