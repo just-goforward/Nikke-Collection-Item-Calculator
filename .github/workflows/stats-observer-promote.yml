@@ -22,10 +22,11 @@ concurrency:
 jobs:
   preflight:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       deploy_sha: ${{ steps.target.outputs.deploy_sha }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: refs/heads/main
           fetch-depth: 0
@@ -43,7 +44,7 @@ jobs:
           git checkout --detach "$DEPLOY_SHA"
           echo "deploy_sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24.20.0
           cache: npm
@@ -80,14 +81,15 @@ jobs:
   production:
     needs: preflight
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
       name: cloudflare-production
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.preflight.outputs.deploy_sha }}
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24.20.0
           cache: npm
