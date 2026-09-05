@@ -22,9 +22,12 @@ Forecast 자동화 인프라는 production에 배포됐지만 제품 Forecast �
 - PR #15: <https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/15>
 - production 자동화 승격 근거: <https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/33880761235>
 
-두 PR의 `Deploy GitHub Pages`가 `action_required`인 것은 PR에서 production Pages 배포 승인을
-요구하지 않는 현재 보호 설정의 결과다. CodeQL 검사는 통과했지만, 이것만으로 Forecast 내용의
-제품 채택이 승인되는 것은 아니다.
+두 후보의 기존 CodeQL 성공만으로 Forecast 내용의 제품 채택이 승인되는 것은 아니다.
+자동 생성 PR의 검증 누락을 막기 위해 proposal/adoption workflow가 branch push 후 전체
+`pages.yml` 검증을 명시적으로 요청하도록 보강했다. 기존 후보는 과거 검사 상태를 유지할 수
+있으므로 병합 전 최신 main을 포함한 `verify` 및 CodeQL 결과를 확인해야 한다.
+PR 또는 수동 검증에서는 Pages 업로드·배포를 실행하지 않으며, 누락된 검사를 production
+Pages 승인 대기로 해석하지 않는다.
 
 위 `passed_with_warning`은 production 승인 단계로 진행할 수 있다는 자동화 인증이지 Forecast
 내용의 채택 판정이 아니다. 해당 실행만으로 `forecast-collector/runtime-baseline.json`을 정본

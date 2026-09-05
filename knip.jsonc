@@ -45,5 +45,9 @@
     "src/wasm/rustResearchLoader.ts"
   ],
   "ignoreBinaries": ["rustc"],
-  "ignoreDependencies": ["cloudflare"]
+  "ignoreDependencies": [
+    "cloudflare",
+    // Knip infers a package for every testRunner; "command" is built into Stryker core.
+    "@stryker-mutator/command-runner"
+  ]
 }
