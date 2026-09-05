@@ -10,6 +10,7 @@ import {
 import {
   architectureIssues,
   containsAdHocTextAlignment,
+  exceedsFileLineLimit,
   formatArchitectureResult,
   gitTrackedFiles,
   measureFunctions,
@@ -17,6 +18,14 @@ import {
 } from "./architecture-rules.ts";
 
 describe("architecture rules", () => {
+  it("allows retained forecast evidence to grow without exempting handwritten sources", () => {
+    expect(exceedsFileLineLimit("shared/generated/supplyForecast.ts", 1482)).toBe(false);
+    expect(exceedsFileLineLimit("shared/generated/supplyForecastRuntime.ts", 2000)).toBe(false);
+    expect(exceedsFileLineLimit("shared/generated/other.ts", 901)).toBe(true);
+    expect(exceedsFileLineLimit("shared/supplyForecast.ts", 901)).toBe(true);
+    expect(exceedsFileLineLimit("src/example.ts", 900)).toBe(false);
+  });
+
   it("covers every production Worker source root and entrypoint", () => {
     for (const root of WORKER_SOURCE_ROOTS) {
       expect(CHECK_ROOTS).toContain(root);

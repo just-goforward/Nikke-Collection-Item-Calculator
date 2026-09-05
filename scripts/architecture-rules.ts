@@ -361,10 +361,9 @@ function missingAllowlistEntries(files: string[], entries: DebtEntry[], label: s
 }
 
 export function architectureIssues(files: string[]) {
-  const longFileAllowlist = debtFiles(LONG_FILE_ALLOWLIST);
   const oversizedFiles = files
     .map((file) => ({ file, lines: lineCount(file) }))
-    .filter(({ file, lines }) => lines > DEFAULT_MAX_FILE_LINES && !longFileAllowlist.has(file));
+    .filter(({ file, lines }) => exceedsFileLineLimit(file, lines));
   const graph = importGraph(files);
   const cycles = findCycles(graph);
 
@@ -423,6 +422,20 @@ export function architectureIssues(files: string[]) {
   ];
 
   return issues;
+}
+
+// Registry data grows with retained evidence; codegen --check verifies these outputs.
+const GENERATED_FORECAST_OUTPUTS = new Set([
+  "shared/generated/supplyForecast.ts",
+  "shared/generated/supplyForecastRuntime.ts",
+]);
+
+export function exceedsFileLineLimit(file: string, lines: number) {
+  return (
+    lines > DEFAULT_MAX_FILE_LINES &&
+    !GENERATED_FORECAST_OUTPUTS.has(file) &&
+    !LONG_FILE_ALLOWLIST.some((entry) => entry.file === file)
+  );
 }
 
 export function formatArchitectureResult(files: string[], issues: ArchitectureIssue[]) {

@@ -12,6 +12,11 @@ const d1IndexRemediation = readFileSync(
 const dispatcherConfig = readFileSync("forecast-dispatcher/wrangler.toml", "utf8");
 const interactionConfig = readFileSync("forecast-interactions/wrangler.toml", "utf8");
 const manualReview = readFileSync(".github/workflows/resolve-forecast-manual-review.yml", "utf8");
+const stagingAdoption = readFileSync(
+  ".github/workflows/process-staging-forecast-adoption.yml",
+  "utf8",
+);
+const pages = readFileSync(".github/workflows/pages.yml", "utf8");
 const githubApp = readFileSync("forecast-dispatcher/src/github-app.ts", "utf8");
 const naverAction = readFileSync("scripts/forecast-naver-action.ts", "utf8");
 
@@ -38,6 +43,16 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(proposal).toContain(
       '"$FORECAST_DISPATCH_MODE" == "smoke" && -z "$FORECAST_DISPATCH_ID"',
     );
+  });
+
+  it("dispatches full verification for GitHub-token-authored pull requests", () => {
+    for (const workflow of [proposal, stagingAdoption]) {
+      expect(workflow).toContain("actions: write");
+      expect(workflow).toContain("npm run dispatch:pages-verification");
+    }
+    expect(pages).toContain("workflow_dispatch:");
+    expect(pages).toContain("deploy:\n    if: github.event_name == 'push'");
+    expect(pages).toContain("Upload Pages artifact\n        if: github.event_name == 'push'");
   });
 
   it("uses an offset private Worker Cron and a two-phase deployment", () => {

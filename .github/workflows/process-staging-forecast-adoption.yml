@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
+  actions: write
   contents: write
   pull-requests: write
 
@@ -165,6 +165,7 @@ jobs:
           echo "number=$number" >> "$GITHUB_OUTPUT"
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          npm run dispatch:pages-verification -- "$branch" "$(git rev-parse HEAD)"
 
       - name: Record adoption PR and query-driven staging URL
         if: steps.approval.outputs.found == 'true'
