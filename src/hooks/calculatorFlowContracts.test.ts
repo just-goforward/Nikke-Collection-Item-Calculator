@@ -4,7 +4,7 @@ import type { ResultView } from "../ui-types";
 import type { SolverResult } from "./calculatorShared";
 import { isMaxLevelGeneratedResult } from "./calculatorStaleResult";
 import { validationBackendFromResult } from "./calculatorValidationFlow";
-import { canApplyConversion } from "./outcomeConvertAction";
+import { canApplyConversion } from "./outcomeTransitionPlans";
 
 describe("validation backend contract", () => {
   it("reuses the backend that produced the displayed result", () => {

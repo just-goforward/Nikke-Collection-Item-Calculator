@@ -1,16 +1,22 @@
 import { useCallback } from "react";
 import { message } from "../i18n/locale";
-import { transition } from "../solver/domain";
 import type { SolverInput } from "../types";
 import type { RecommendationAction } from "../ui-types";
 import type { TerminalSuccessContext } from "./calculatorShared";
-import { DEFAULT_STOCK_NOTICE, makeStatsEvent, stockPiecesForKit } from "./calculatorShared";
-import { stockAfterKitUse } from "./outcomeFlowHelpers";
+import { DEFAULT_STOCK_NOTICE } from "./calculatorShared";
 import type {
   OutcomeApplyResult,
   OutcomeRenderArgs,
   OutcomeSharedOptions,
 } from "./outcomeFlowTypes";
+import {
+  OUTCOME_PLAN_ATTEMPT,
+  OUTCOME_PLAN_KNOWN,
+  type PreparedOutcome,
+  planFailedOutcome,
+  planSuccessfulOutcome,
+  prepareRecommendedOutcome,
+} from "./outcomeTransitionPlans";
 
 type OutcomeApplicationOptions = Pick<
   OutcomeSharedOptions,
@@ -36,55 +42,28 @@ type OutcomeApplicationOptions = Pick<
 };
 
 function prepareOutcome(options: OutcomeApplicationOptions) {
-  const latest = options.latestResultRef.current;
-  if (!latest?.possible || !latest.best || !latest.input) return null;
-  const best = latest.best;
-  const edge = transition(latest.input.start, best.firstAction);
-  const run = best.run || { count: 1, success: edge.success, fail: edge.fail };
-  const currentStock = options.currentStockSnapshot();
-  return {
-    beforeStock: stockPiecesForKit(currentStock, best.firstAction),
-    best,
-    currentStock,
-    input: latest.input,
-    latest,
-    run,
-    startSnapshot: { ...latest.input.start },
-    stockBeforeSnapshot: { ...latest.input.stock },
-  };
+  return prepareRecommendedOutcome(options.latestResultRef.current, options.currentStockSnapshot);
 }
-
-type PreparedOutcome = NonNullable<ReturnType<typeof prepareOutcome>>;
 
 function applySuccessfulOutcome(
   prepared: PreparedOutcome,
   options: OutcomeApplicationOptions,
 ): OutcomeApplyResult {
-  const { best, beforeStock, input, run, startSnapshot, stockBeforeSnapshot } = prepared;
-  const nextState = run.success;
-  const reachesConvertState = nextState.grade === "R" && nextState.level >= 15;
-  const reachesFinalTarget = nextState.grade === "SR" && nextState.level >= 15;
-  const successContext: TerminalSuccessContext = {
-    best,
-    beforeStock,
-    input,
-    run,
-    startSnapshot,
-    stockBeforeSnapshot,
-  };
+  const { best, beforeStock, run } = prepared;
+  const plan = planSuccessfulOutcome(prepared);
 
-  if (run.count === 1) {
+  if (plan.kind === OUTCOME_PLAN_KNOWN) {
     return {
       outcome: "success",
       needsStockEdit: false,
-      autoCalculation: options.applyKnownSuccessAttempt(successContext, 1),
+      autoCalculation: options.applyKnownSuccessAttempt(plan.context, 1),
     };
   }
 
-  if (reachesConvertState || reachesFinalTarget) {
+  if (plan.kind === OUTCOME_PLAN_ATTEMPT) {
     options.setPendingStatsEvent(null);
     options.setManualStockEditRequired(false);
-    options.terminalSuccessContextRef.current = successContext;
+    options.terminalSuccessContextRef.current = plan.context;
     options.setModal({
       open: true,
       maxAttempt: run.count,
@@ -96,19 +75,13 @@ function applySuccessfulOutcome(
   }
 
   options.setManualStockEditRequired(true);
-  options.setPendingStatsEvent({
-    start: startSnapshot,
-    kit: best.firstAction,
-    recommendedUses: run.count,
-    stockBefore: stockBeforeSnapshot,
-    resultState: { ...run.success },
-  });
-  options.recordStateFeedback(startSnapshot, nextState);
-  options.setCollectionState(nextState, { maxLevelRender: false });
+  options.setPendingStatsEvent(plan.pendingEvent);
+  options.recordStateFeedback(plan.context.startSnapshot, plan.nextState);
+  options.setCollectionState(plan.nextState, { maxLevelRender: false });
   options.renderOutcomeApplied({
     best,
     run,
-    nextState,
+    nextState: plan.nextState,
     outcome: "success",
     stockMessage: DEFAULT_STOCK_NOTICE,
     detailMessage: message("result.editStockToContinue"),
@@ -121,37 +94,18 @@ function applyFailedOutcome(
   prepared: PreparedOutcome,
   options: OutcomeApplicationOptions,
 ): OutcomeApplyResult {
-  const { beforeStock, best, currentStock, input, run, startSnapshot, stockBeforeSnapshot } =
-    prepared;
-  const usedCount = run.count * 10;
-  const stockAfter = stockAfterKitUse(currentStock, best.firstAction, beforeStock, usedCount);
-  const nextState = run.fail;
+  const { best } = prepared;
+  const plan = planFailedOutcome(prepared);
 
-  options.setStockCountForKit(best.firstAction, beforeStock - usedCount);
-  options.recordStateFeedback(startSnapshot, nextState);
-  options.setCollectionState(nextState, { maxLevelRender: false });
-  options.queueStatsEvent(
-    makeStatsEvent({
-      start: startSnapshot,
-      kit: best.firstAction,
-      recommendedUses: run.count,
-      outcome: "no_great_success",
-      successAttempt: null,
-      stockBefore: stockBeforeSnapshot,
-      stockAfter,
-      resultState: nextState,
-    }),
-  );
+  options.setStockCountForKit(best.firstAction, plan.stockCountAfter);
+  options.recordStateFeedback(prepared.startSnapshot, plan.nextState);
+  options.setCollectionState(plan.nextState, { maxLevelRender: false });
+  options.queueStatsEvent(plan.statsEvent);
 
   return {
     outcome: "fail",
     needsStockEdit: false,
-    previousAction: { kit: best.firstAction, count: run.count },
-    nextInput: {
-      start: nextState,
-      stock: stockAfter,
-      ...(input.strategy ? { strategy: input.strategy } : {}),
-    },
+    ...plan.calculation,
   };
 }
 

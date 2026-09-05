@@ -1,14 +1,10 @@
 import { useCallback } from "react";
 
 import { message } from "../i18n/locale";
-import { convertState } from "../solver/domain";
-import {
-  makeStatsEvent,
-  type PendingStatsEvent,
-  type TerminalSuccessContext,
-} from "./calculatorShared";
-import { kitStockChangeMessage, stockAfterKitUse } from "./outcomeFlowHelpers";
+import type { TerminalSuccessContext } from "./calculatorShared";
+import { kitStockChangeMessage } from "./outcomeFlowHelpers";
 import type { OutcomeRenderArgs, OutcomeSharedOptions } from "./outcomeFlowTypes";
+import { planSuccessAttempt } from "./outcomeTransitionPlans";
 
 type TerminalSuccessAttemptOptions = Pick<
   OutcomeSharedOptions,
@@ -38,34 +34,21 @@ function applySuccessAttempt(
   }: TerminalSuccessAttemptOptions,
   renderIntermediate: boolean,
 ) {
-  const { best, beforeStock, input, run, startSnapshot, stockBeforeSnapshot } = context;
+  const { best, beforeStock, run, startSnapshot } = context;
   const nextState = run.success;
   recordStateFeedback(startSnapshot, nextState);
   setCollectionState(nextState, { maxLevelRender: false });
+  const plan = planSuccessAttempt(
+    context,
+    successAttempt,
+    successAttempt ? currentStockSnapshot() : null,
+  );
 
-  if (successAttempt) {
-    const usedCount = successAttempt * 10;
-    const stockAfter = stockAfterKitUse(
-      currentStockSnapshot(),
-      best.firstAction,
-      beforeStock,
-      usedCount,
-    );
+  if ("calculation" in plan) {
     setPendingStatsEvent(null);
     setManualStockEditRequired(false);
-    setStockCountForKit(best.firstAction, beforeStock - usedCount);
-    queueStatsEvent(
-      makeStatsEvent({
-        start: startSnapshot,
-        kit: best.firstAction,
-        recommendedUses: run.count,
-        outcome: "great_success",
-        successAttempt,
-        stockBefore: stockBeforeSnapshot,
-        stockAfter,
-        resultState: nextState,
-      }),
-    );
+    setStockCountForKit(best.firstAction, plan.stockCountAfter);
+    queueStatsEvent(plan.statsEvent);
     if (renderIntermediate) {
       renderOutcomeApplied({
         best,
@@ -75,54 +58,32 @@ function applySuccessAttempt(
         stockMessage: kitStockChangeMessage(
           best.firstAction,
           beforeStock,
-          stockAfter[best.firstAction],
+          plan.stockAfter[best.firstAction],
         ),
         detailMessage: message("result.successRecorded"),
       });
     }
-    return {
-      nextInput: {
-        start: nextState,
-        stock: stockAfter,
-        ...(input.strategy ? { strategy: input.strategy } : {}),
-      },
-      previousAction: { kit: best.firstAction, count: run.count },
-    };
+    return plan.calculation;
   }
 
-  const reachesConvertState = nextState.grade === "R" && nextState.level >= 15;
-  const reachesFinalTarget = nextState.grade === "SR" && nextState.level >= 15;
-  const needsStockEditNow = !reachesConvertState && !reachesFinalTarget;
-  if (!reachesFinalTarget) {
-    const resultState = reachesConvertState ? convertState() : { ...nextState };
-    const pendingEvent: PendingStatsEvent = {
-      start: startSnapshot,
-      kit: best.firstAction,
-      recommendedUses: run.count,
-      stockBefore: stockBeforeSnapshot,
-      resultState,
-    };
-    setPendingStatsEvent(pendingEvent);
-  } else {
-    setPendingStatsEvent(null);
-  }
-  setManualStockEditRequired(needsStockEditNow);
+  setPendingStatsEvent(plan.pendingEvent);
+  setManualStockEditRequired(plan.needsStockEdit);
   renderOutcomeApplied({
     best,
     run,
     nextState,
     outcome: "success",
-    stockMessage: reachesConvertState
+    stockMessage: plan.reachesConvertState
       ? message("result.convertThenEdit")
-      : needsStockEditNow
+      : plan.needsStockEdit
         ? message("result.successUnknownEdit")
         : message("result.successUnknownStats"),
-    detailMessage: reachesConvertState
+    detailMessage: plan.reachesConvertState
       ? message("result.convertThenEditDetail")
-      : needsStockEditNow
+      : plan.needsStockEdit
         ? message("result.editStockToContinue")
         : message("detail.finalTarget"),
-    preserveExistingResult: needsStockEditNow,
+    preserveExistingResult: plan.needsStockEdit,
   });
   return null;
 }
