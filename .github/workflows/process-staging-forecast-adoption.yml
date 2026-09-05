@@ -20,6 +20,7 @@ concurrency:
 jobs:
   process:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout trusted main
         uses: actions/checkout@v7
@@ -48,51 +49,7 @@ jobs:
         env:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "$FORECAST_COLLECTOR_URL" && test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" || {
-            echo "Staging collector configuration is missing." >&2
-            exit 1
-          }
-          response="$RUNNER_TEMP/approved-staging-adoptions.json"
-          status=$(curl --silent --show-error --max-time 10 \
-            -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
-            --output "$response" --write-out "%{http_code}" \
-            "$FORECAST_COLLECTOR_URL/admin/discord-staging-adoptions?limit=1")
-          if [[ "$status" == "404" ]]; then
-            echo "Staging adoption endpoint is not deployed yet; nothing to process."
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          [[ "$status" == "200" ]] || {
-            echo "Staging adoption endpoint returned HTTP $status." >&2
-            exit 1
-          }
-          node --input-type=module - "$response" <<'NODE'
-          import { appendFileSync, readFileSync } from "node:fs";
-          const body = JSON.parse(readFileSync(process.argv[2], "utf8"));
-          const row = body.adoptions?.[0];
-          if (!row) {
-            appendFileSync(process.env.GITHUB_OUTPUT, "found=false\n");
-            process.exit(0);
-          }
-          const required = {
-            approval_id: [row.approvalId, /^discord-staging-[0-9a-f-]{36}$/],
-            forecast_id: [row.forecastId, /^supply-\d{4}-\d{2}-\d{2}-v\d+$/],
-            source_pr: [String(row.sourcePullRequestNumber), /^[1-9][0-9]*$/],
-            source_head_sha: [row.sourceHeadSha, /^[0-9a-f]{40}$/],
-            registry_sha: [row.registrySha, /^[0-9a-f]{40}$/],
-            research_run_id: [String(row.researchRunId), /^[1-9][0-9]*$/],
-            research_artifact_name: [row.researchArtifactName, /^dynamic-hp-exact-gate-summary-[1-9][0-9]*$/],
-            research_artifact_digest: [row.researchArtifactDigest, /^[0-9a-f]{64}$/],
-          };
-          for (const [key, [value, pattern]] of Object.entries(required)) {
-            if (typeof value !== "string" || !pattern.test(value) || value.includes("\n")) throw new Error(`Invalid approved adoption ${key}.`);
-            appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
-          }
-          appendFileSync(process.env.GITHUB_OUTPUT, "found=true\n");
-          NODE
+        run: node scripts/read-approved-staging-adoption.ts
 
       - name: Validate approval against current main and H/p artifact
         if: steps.approval.outputs.found == 'true'
@@ -229,7 +186,7 @@ jobs:
               adoptionPullRequestUrl: $adoptionPullRequestUrl,
               stagingUrl: $stagingUrl
             }' > "$RUNNER_TEMP/adoption-result.json"
-          curl --fail-with-body --silent --show-error --max-time 10 \
+          curl --fail-with-body --silent --show-error --connect-timeout 5 --max-time 20 \
             -X POST -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
             -H "Content-Type: application/json" \
             --data-binary @"$RUNNER_TEMP/adoption-result.json" \

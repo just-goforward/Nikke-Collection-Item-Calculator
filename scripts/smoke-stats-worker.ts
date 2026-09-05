@@ -1,3 +1,4 @@
+import { readBoundedJson } from "../shared/boundedHttp.ts";
 import { D1_SCHEMA_CONTRACT_VERSION } from "../shared/d1SchemaContract.ts";
 import {
   SOLVER_RECOVERY_EMIT_POLICY_VERSION,
@@ -12,6 +13,7 @@ const mode = process.argv[4] ?? "full";
 const frontendContractOnly = mode === "frontend-contract-only";
 const healthPropagationAttempts = 60;
 const healthPropagationDelayMs = 1_000;
+const requestTimeoutMs = 20_000;
 
 if (!endpoint) {
   throw new Error(
@@ -37,6 +39,13 @@ function endpointUrl(path: string): URL {
   return new URL(path, `${baseUrl.toString().replace(/\/+$/, "")}/`);
 }
 
+function smokeFetch(input: URL, init?: RequestInit) {
+  return fetch(input, {
+    ...init,
+    signal: AbortSignal.timeout(requestTimeoutMs),
+  });
+}
+
 function assertCors(response: Response, test: string) {
   assert(
     response.headers.get("access-control-allow-origin") === allowedOrigin,
@@ -44,13 +53,13 @@ function assertCors(response: Response, test: string) {
   );
 }
 
-const statsResponse = await fetch(endpointUrl("api/stats"), {
+const statsResponse = await smokeFetch(endpointUrl("api/stats"), {
   headers: { Accept: "application/json", Origin: allowedOrigin },
 });
 assert(statsResponse.status === 200, `stats: expected 200, received ${statsResponse.status}`);
 assertCors(statsResponse, "stats");
 
-const stats: unknown = await statsResponse.json();
+const stats = await readBoundedJson(statsResponse, 2 * 1024 * 1024, "stats_response_invalid");
 const parsedStats = StatsApiResponseSchema.safeParse(stats);
 assert(
   parsedStats.success,
@@ -59,18 +68,15 @@ assert(
 
 let healthStatus: number | "skipped" = "skipped";
 let writeContractStatus: number | "skipped" = "skipped";
-const contractHealthResponse = await fetch(endpointUrl("api/health"), {
-  headers: { Accept: "application/json", Origin: allowedOrigin },
-});
-assert(
-  contractHealthResponse.status === 200,
-  `health contract: expected 200, received ${contractHealthResponse.status}`,
-);
+const { payload: contractHealth, response: contractHealthResponse } =
+  await fetchExpectedHealthAfterDeployment({
+    allowedOrigin,
+    attempts: healthPropagationAttempts,
+    delayMs: healthPropagationDelayMs,
+    endpointUrl,
+    expectedContractVersion: D1_SCHEMA_CONTRACT_VERSION,
+  });
 assertCors(contractHealthResponse, "health contract");
-const contractHealth = (await contractHealthResponse.json()) as {
-  acceptedRecoveryVersions?: unknown;
-  acceptedRecoveryPolicyVersions?: unknown;
-};
 assert(
   Array.isArray(contractHealth.acceptedRecoveryVersions) &&
     contractHealth.acceptedRecoveryVersions.includes(SOLVER_RECOVERY_EMIT_VERSION),
@@ -82,17 +88,9 @@ assert(
   `health contract: recovery policy versions mismatch: ${JSON.stringify(contractHealth.acceptedRecoveryPolicyVersions)}`,
 );
 if (!frontendContractOnly) {
-  const { response: healthResponse } = await fetchExpectedHealthAfterDeployment({
-    allowedOrigin,
-    attempts: healthPropagationAttempts,
-    delayMs: healthPropagationDelayMs,
-    endpointUrl,
-    expectedContractVersion: D1_SCHEMA_CONTRACT_VERSION,
-  });
-  healthStatus = healthResponse.status;
-  assertCors(healthResponse, "health");
+  healthStatus = contractHealthResponse.status;
 
-  const writeContractResponse = await fetch(endpointUrl("api/events"), {
+  const writeContractResponse = await smokeFetch(endpointUrl("api/events"), {
     method: "POST",
     headers: { "Content-Type": "application/json", Origin: allowedOrigin },
     body: JSON.stringify({
@@ -114,14 +112,18 @@ if (!frontendContractOnly) {
     `write contract: expected Turnstile rejection 403, received ${writeContractResponse.status}`,
   );
   assertCors(writeContractResponse, "write contract");
-  const writeContractBody = (await writeContractResponse.json()) as { error?: unknown };
+  const writeContractBody = (await readBoundedJson(
+    writeContractResponse,
+    32 * 1024,
+    "write_contract_response_invalid",
+  )) as { error?: unknown };
   assert(
     writeContractBody.error === "turnstile_failed",
     `write contract: event did not reach Turnstile verification: ${JSON.stringify(writeContractBody)}`,
   );
 }
 
-const preflightResponse = await fetch(endpointUrl("api/stats"), {
+const preflightResponse = await smokeFetch(endpointUrl("api/stats"), {
   method: "OPTIONS",
   headers: {
     Origin: allowedOrigin,
@@ -134,7 +136,7 @@ assert(
 );
 assertCors(preflightResponse, "preflight");
 
-const blockedOriginResponse = await fetch(endpointUrl("api/stats"), {
+const blockedOriginResponse = await smokeFetch(endpointUrl("api/stats"), {
   headers: { Origin: "https://worker-smoke.invalid" },
 });
 assert(
@@ -142,7 +144,7 @@ assert(
   `blocked origin: expected 403, received ${blockedOriginResponse.status}`,
 );
 
-const adminResponse = await fetch(endpointUrl("api/admin/solver-diagnostics"), {
+const adminResponse = await smokeFetch(endpointUrl("api/admin/solver-diagnostics"), {
   headers: { Origin: allowedOrigin },
 });
 assert(
