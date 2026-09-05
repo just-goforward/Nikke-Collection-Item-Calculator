@@ -18,7 +18,7 @@ main-thread eligibility, per-color whole-use limits, and monotonic deadlines.
 
 ## Vitest 5 Compatibility
 
-The installed Stryker Vitest runner 10.0.0 builds test names with a space in
+The Stryker Vitest runner 10.0.0 used by the original configuration builds test names with a space in
 `src/test-helpers.ts` and `src/stryker-setup.ts`. Its `src/vitest-test-runner.ts`
 escapes those names into `testNamePattern`. Vitest 5 instead matches suite and
 test names joined with ` > `, as documented in its
@@ -40,6 +40,11 @@ The ratchet therefore uses the built-in
 with coverage analysis off. Each mutant starts the unfiltered Vitest CLI for
 the two named test files. Stryker activates the mutant through its environment
 variable and uses the command's exit status. No installed packages are patched.
+The unused `@stryker-mutator/vitest-runner` dependency is removed. Knip's Stryker
+plugin infers an external `@stryker-mutator/command-runner` package from the
+runner name, although this runner is implemented inside Stryker core. Only
+that nonexistent package is excluded in `knip.jsonc`; normal dependency
+checks remain enabled.
 The existing absent-tsconfig workaround for Stryker 10 with TypeScript 7 remains.
 
 This costs a fresh Vitest process per mutant and reports one aggregate
@@ -77,6 +82,12 @@ A separate ten-mutant check used only the original nine tests and inherited
 the final 90% threshold. It scored 80% and exited **1**, proving the gate fails.
 Normal verification passed 82 tests, including the unchanged recovery runtime
 tests, plus TypeScript, formatting, and architecture checks.
+
+After integrating main through `a14af7461cbcc7b5b21803a66c516e10dea9b337`, the
+full mutation run reproduced **174/178 killed, 97.75%**, with no timeouts/errors
+in 1 minute 34 seconds. The app suite passed **571 tests** after building the
+current pinned-toolchain WASM in the fresh worktree. These are two distinct
+validation runs, not additional mutants in the same denominator.
 
 ## Local Reports
 

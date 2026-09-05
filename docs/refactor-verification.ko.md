@@ -20,6 +20,7 @@ Forecast 내용 채택과 production Worker 승인은 이 기록의 범위 밖�
 | 자동 PR 검증 | bot branch를 명시적으로 검증하고 반환 run ID와 SHA를 대조한다. 생성 파일은 줄 수 대신 codegen 정합 검사를 유지한다. | [#48](https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/48) |
 | Collector HTTP 분리 | 공통 auth/rate/quota 순서를 유지하면서 operations/source/canary/Discord route를 나눈다. | [#49](https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/49) |
 | migration runner | 기존 SQL을 바꾸지 않고 파일·ledger 검증과 재실행을 공통화한다. production 승인 job 안에 유지한다. | [#50](https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/50) |
+| mutation 검증 | Vitest 5와 Stryker의 이름 필터 충돌을 피하고, 복구 정책 한 모듈의 실제 변조 검출과 90% 하한을 검사한다. 제품 소스는 바꾸지 않는다. | [검증 계약](./mutation-contract.md) |
 
 각 PR의 병합 상태와 최종 SHA는 GitHub가 정본이다. 새로운 업무는 완료된 위 작업을 다시
 구현하지 말고, 현재 main과 후속 diff를 먼저 비교한다.
@@ -36,6 +37,10 @@ Forecast 내용 채택과 production Worker 승인은 이 기록의 범위 밖�
   135바이트 감소를 확인했다. 남은 여유는 작으므로 SHA를 포함하는 CI 빌드 검사를 유지한다.
 - README에 Naver SmartEditor HTML의 자동 처리가 불가능하다는 과거 설명이 남아 있었다.
   현재 Actions adapter의 구조 marker/공식 작성자 검증과 fail-closed 조건으로 고쳤다.
+- Stryker Vitest 어댑터가 예전 공백 구분 테스트 이름으로 Vitest 5를 필터링해 일부 변조에서
+  테스트 0개를 실행했다. 내장 command runner로 두 파일을 명시적으로 실행하고, 기존 테스트의
+  실제 54.49% 검출률을 추가 계약 테스트로 97.75%까지 높였다. 가짜 11.24% 결과를 유효한
+  기준선으로 채택하지 않았다. 사용하지 않는 어댑터 의존성도 제거했다.
 
 ## 직접 확인한 증거
 
@@ -50,6 +55,8 @@ Forecast 내용 채택과 production Worker 승인은 이 기록의 범위 밖�
 - migration은 실제 SQL의 빈 DB bootstrap, 이전 버전 upgrade, backfill, 재시작/no-op,
   ledger 오류 및 실행 실패를 검사했다. 통합 후 migration/workflow/dispatch 99개 테스트,
   전체 typecheck와 lint가 통과했다. 원격 production D1 변경은 로컬 검증에 포함하지 않는다.
+- main 통합 뒤 앱 테스트 571개와 mutation 174/178 검출이 재현됐다. 의도적으로 약한
+  테스트만 사용하는 대조 실행은 80%에서 exit 1이 되어 90% 하한의 실제 차단도 확인했다.
 
 전체 Pages verify에는 lint, 타입 검사, 앱/Worker 테스트, Rust format/clippy/WASM build,
 Playwright E2E·visual·다국어·정렬 검사와 bundle budget이 포함된다. 실제 Android 17 기기나
