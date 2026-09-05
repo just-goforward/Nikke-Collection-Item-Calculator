@@ -1,5 +1,4 @@
-import { ignoreExpectedError } from "../lib/errorHandling";
-import { rustCoreExportsFromInstance } from "./rustLoader";
+import { instantiateRustWasmFromUrl, rustCoreExportsFromInstance } from "./rustLoader";
 import { createRustPhase2ResearchSolver } from "./rustPhase2ResearchCore";
 import type { RustPhase2ResearchSolver } from "./rustTypes";
 
@@ -9,22 +8,7 @@ export function createRustPhase2ResearchSolverFromInstance(
   return createRustPhase2ResearchSolver(rustCoreExportsFromInstance(instance));
 }
 
-async function instantiateWasmFromUrl(url: string): Promise<WebAssembly.Instance> {
-  try {
-    const { instance } = await WebAssembly.instantiateStreaming(fetch(url));
-    return instance;
-  } catch (error) {
-    ignoreExpectedError(
-      "WebAssembly.instantiateStreaming failed; retrying ArrayBuffer fallback",
-      error,
-    );
-    const bytes = await (await fetch(url)).arrayBuffer();
-    const { instance } = await WebAssembly.instantiate(bytes);
-    return instance;
-  }
-}
-
 export async function loadRustPhase2ResearchSolver(url: string): Promise<RustPhase2ResearchSolver> {
-  const instance = await instantiateWasmFromUrl(url);
+  const instance = await instantiateRustWasmFromUrl(url);
   return createRustPhase2ResearchSolverFromInstance(instance);
 }

@@ -3,9 +3,7 @@ use crate::cost::availability_cost;
 use crate::phase2_max_success_for_action;
 use crate::state::stock_of;
 use crate::status::{status_ok, LAST_STATUS, STATUS_MEMO_FULL};
-use crate::transition::{
-    compute_transition, is_convert, is_terminal, CONVERT_SID, TX_FAIL, TX_PROB, TX_SUCC,
-};
+use crate::transition::{compute_transition, is_convert, is_terminal, CONVERT_SID};
 
 pub(crate) type PolicyAction = unsafe fn(i32, i32, i32, i32) -> i32;
 
@@ -209,10 +207,10 @@ unsafe fn follow_node(sid: i32, b: i32, p: i32, y: i32, policy_action: PolicyAct
         c_store(slot, sid, b, p, y, v);
         return v;
     }
-    compute_transition(sid, action);
-    let prob = TX_PROB;
-    let succ = TX_SUCC;
-    let fail = TX_FAIL;
+    let transition = compute_transition(sid, action);
+    let prob = transition.probability;
+    let succ = transition.success;
+    let fail = transition.failure;
     let nb = b - if action == 0 { 1 } else { 0 };
     let np = p - if action == 1 { 1 } else { 0 };
     let ny = y - if action == 2 { 1 } else { 0 };
@@ -258,10 +256,10 @@ unsafe fn opt_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
         if !eligible[k as usize] {
             continue;
         }
-        compute_transition(sid, k);
-        let prob = TX_PROB;
-        let succ = TX_SUCC;
-        let fail = TX_FAIL;
+        let transition = compute_transition(sid, k);
+        let prob = transition.probability;
+        let succ = transition.success;
+        let fail = transition.failure;
         let nb = b - if k == 0 { 1 } else { 0 };
         let np = p - if k == 1 { 1 } else { 0 };
         let ny = y - if k == 2 { 1 } else { 0 };
@@ -316,10 +314,10 @@ unsafe fn opt_record_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
         if !eligible[k as usize] {
             continue;
         }
-        compute_transition(sid, k);
-        let prob = TX_PROB;
-        let succ = TX_SUCC;
-        let fail = TX_FAIL;
+        let transition = compute_transition(sid, k);
+        let prob = transition.probability;
+        let succ = transition.success;
+        let fail = transition.failure;
         let nb = b - if k == 0 { 1 } else { 0 };
         let np = p - if k == 1 { 1 } else { 0 };
         let ny = y - if k == 2 { 1 } else { 0 };
@@ -381,10 +379,10 @@ unsafe fn follow_recorded_node(sid: i32, b: i32, p: i32, y: i32) -> f64 {
         c_store(slot, sid, b, p, y, v);
         return v;
     }
-    compute_transition(sid, action);
-    let prob = TX_PROB;
-    let succ = TX_SUCC;
-    let fail = TX_FAIL;
+    let transition = compute_transition(sid, action);
+    let prob = transition.probability;
+    let succ = transition.success;
+    let fail = transition.failure;
     let nb = b - if action == 0 { 1 } else { 0 };
     let np = p - if action == 1 { 1 } else { 0 };
     let ny = y - if action == 2 { 1 } else { 0 };
@@ -424,10 +422,10 @@ unsafe fn follow_recorded_success_node(sid: i32, b: i32, p: i32, y: i32) -> f64 
         c_store(slot, sid, b, p, y, 0.0);
         return 0.0;
     }
-    compute_transition(sid, action);
-    let prob = TX_PROB;
-    let succ = TX_SUCC;
-    let fail = TX_FAIL;
+    let transition = compute_transition(sid, action);
+    let prob = transition.probability;
+    let succ = transition.success;
+    let fail = transition.failure;
     let nb = b - if action == 0 { 1 } else { 0 };
     let np = p - if action == 1 { 1 } else { 0 };
     let ny = y - if action == 2 { 1 } else { 0 };
@@ -514,10 +512,10 @@ unsafe fn cvar_follow_after_first_action(first_action: i32, policy_action: Polic
     if stock_of(first_action, CV_START_B, CV_START_P, CV_START_Y) <= 0 {
         return leaf_value(CV_START_B, CV_START_P, CV_START_Y);
     }
-    compute_transition(sid, first_action);
-    let prob = TX_PROB;
-    let succ = TX_SUCC;
-    let fail = TX_FAIL;
+    let transition = compute_transition(sid, first_action);
+    let prob = transition.probability;
+    let succ = transition.success;
+    let fail = transition.failure;
     let nb = CV_START_B - if first_action == 0 { 1 } else { 0 };
     let np = CV_START_P - if first_action == 1 { 1 } else { 0 };
     let ny = CV_START_Y - if first_action == 2 { 1 } else { 0 };

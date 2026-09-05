@@ -5,9 +5,7 @@ use crate::state::{clamp_stock_uses, memo_key, stock_of};
 use crate::status::{
     reset_status, status_ok, tick_node, LAST_STATUS, STATUS_BUDGET_EXCEEDED, STATUS_MEMO_FULL,
 };
-use crate::transition::{
-    compute_transition, is_convert, is_terminal, CONVERT_SID, TX_FAIL, TX_PROB, TX_SUCC,
-};
+use crate::transition::{compute_transition, is_convert, is_terminal, CONVERT_SID};
 use crate::{memo_reset, policy_action, set_gain_context, solve_start, uses_of};
 
 // ===== minef.ts ==============================================================================
@@ -33,7 +31,6 @@ static mut ME_VP: Vec<f64> = Vec::new();
 static mut ME_VY: Vec<f64> = Vec::new();
 static mut ME_EF: Vec<f64> = Vec::new();
 static mut ME_ACT: Vec<i8> = Vec::new();
-static mut ME_HF: f64 = 0.75;
 static mut ME_NP: f64 = 3.0;
 static mut ME_TOL: f64 = 0.0;
 static mut ME_INIT_B: f64 = 0.0;
@@ -393,10 +390,7 @@ unsafe fn bb_ms_value(sid: i32, mut b: i32, mut p: i32, mut y: i32, depth: usize
     if is_convert(sid) {
         return bb_ms_value(CONVERT_SID, b, p, y, depth);
     }
-    crate::cap_stock(sid, b, p, y);
-    b = crate::CAP_B;
-    p = crate::CAP_P;
-    y = crate::CAP_Y;
+    (b, p, y) = crate::cap_stock(sid, b, p, y);
     if b <= 0 && p <= 0 && y <= 0 {
         return 0.0;
     }
@@ -420,10 +414,10 @@ unsafe fn bb_ms_value(sid: i32, mut b: i32, mut p: i32, mut y: i32, depth: usize
         if stock_of(action, b, p, y) <= 0 {
             continue;
         }
-        compute_transition(sid, action);
-        let probability = TX_PROB;
-        let success_sid = TX_SUCC;
-        let failure_sid = TX_FAIL;
+        let transition = compute_transition(sid, action);
+        let probability = transition.probability;
+        let success_sid = transition.success;
+        let failure_sid = transition.failure;
         let next_b = b - if action == 0 { 1 } else { 0 };
         let next_p = p - if action == 1 { 1 } else { 0 };
         let next_y = y - if action == 2 { 1 } else { 0 };
@@ -469,17 +463,14 @@ unsafe fn bb_ms_max_success_for_action(
     if is_convert(sid) {
         return bb_ms_max_success_for_action(CONVERT_SID, b, p, y, action);
     }
-    crate::cap_stock(sid, b, p, y);
-    b = crate::CAP_B;
-    p = crate::CAP_P;
-    y = crate::CAP_Y;
+    (b, p, y) = crate::cap_stock(sid, b, p, y);
     if stock_of(action, b, p, y) <= 0 {
         return None;
     }
-    compute_transition(sid, action);
-    let probability = TX_PROB;
-    let success_sid = TX_SUCC;
-    let failure_sid = TX_FAIL;
+    let transition = compute_transition(sid, action);
+    let probability = transition.probability;
+    let success_sid = transition.success;
+    let failure_sid = transition.failure;
     let next_b = b - if action == 0 { 1 } else { 0 };
     let next_p = p - if action == 1 { 1 } else { 0 };
     let next_y = y - if action == 2 { 1 } else { 0 };
@@ -702,10 +693,10 @@ unsafe fn minef_node(sid: i32, b: i32, p: i32, y: i32, depth: usize) {
                 continue;
             }
         }
-        compute_transition(sid, k);
-        let prob = TX_PROB;
-        let succ = TX_SUCC;
-        let fail = TX_FAIL;
+        let transition = compute_transition(sid, k);
+        let prob = transition.probability;
+        let succ = transition.success;
+        let fail = transition.failure;
         let nb = b - if k == 0 { 1 } else { 0 };
         let np = p - if k == 1 { 1 } else { 0 };
         let ny = y - if k == 2 { 1 } else { 0 };
@@ -951,7 +942,6 @@ pub extern "C" fn solveMinEf(
         if !set_gain_context(gain_b, gain_p, gain_y) {
             return;
         }
-        ME_HF = hf;
         ME_NP = np;
         ME_TOL = tol;
         ME_INIT_B = pb as f64;
@@ -1364,11 +1354,11 @@ unsafe fn simulate_expected_f_once(
             y -= 1;
             uy += 10;
         }
-        compute_transition(sid, k);
-        sid = if next_random() < TX_PROB {
-            TX_SUCC
+        let transition = compute_transition(sid, k);
+        sid = if next_random() < transition.probability {
+            transition.success
         } else {
-            TX_FAIL
+            transition.failure
         };
     }
     (
@@ -1664,11 +1654,11 @@ pub extern "C" fn simulateExpectedF(
                     y -= 1;
                     uy += 10;
                 }
-                compute_transition(sid, k);
-                sid = if next_random() < TX_PROB {
-                    TX_SUCC
+                let transition = compute_transition(sid, k);
+                sid = if next_random() < transition.probability {
+                    transition.success
                 } else {
-                    TX_FAIL
+                    transition.failure
                 };
             }
             sum_f += availability_cost(

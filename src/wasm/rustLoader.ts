@@ -17,7 +17,7 @@ function createRustMinEfSolverFromInstance(instance: WebAssembly.Instance): Rust
   return createRustMinEfSolver(rustCoreExportsFromInstance(instance));
 }
 
-async function instantiateWasmFromUrl(url: string): Promise<WebAssembly.Instance> {
+export async function instantiateRustWasmFromUrl(url: string): Promise<WebAssembly.Instance> {
   try {
     const { instance } = await WebAssembly.instantiateStreaming(fetch(url));
     return instance;
@@ -33,11 +33,11 @@ async function instantiateWasmFromUrl(url: string): Promise<WebAssembly.Instance
 }
 
 export async function loadRustMinEfSolver(url: string): Promise<RustMinEfSolver> {
-  const instance = await instantiateWasmFromUrl(url);
+  const instance = await instantiateRustWasmFromUrl(url);
   return createRustMinEfSolverFromInstance(instance);
 }
 
 export async function loadRustPhase2Solver(url: string): Promise<RustPhase2ProductSolver> {
-  const instance = await instantiateWasmFromUrl(url);
+  const instance = await instantiateRustWasmFromUrl(url);
   return createRustPhase2SolverFromInstance(instance);
 }
