@@ -60,8 +60,6 @@ const classes = {
   actionBarOutcome:
     "mode-outcome outcome-ring mx-1 mb-1.5 mt-1 grid-cols-2 rounded-card border-2 border-yellow-kit bg-outcome text-outcome-text",
   actionBarConvert: "mode-convert grid-cols-1",
-  actionPrompt:
-    "mobile-action-prompt col-span-full text-center text-[13px] font-semibold leading-[1.3] text-outcome-text",
   actionChangeNote:
     "change-note col-span-full m-0 text-center text-[11.5px] font-semibold leading-[1.45] text-outcome-text",
   actionOutcomeChoice: "grid min-w-0 grid-rows-[48px_minmax(18px,auto)] gap-0.5",
