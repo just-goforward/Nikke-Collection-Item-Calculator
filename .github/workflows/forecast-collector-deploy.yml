@@ -26,6 +26,8 @@ on:
       - "scripts/cloudflare-cron-capacity.ts"
       - "scripts/cloudflare-d1-budget.ts"
       - "scripts/check-forecast-canary.ts"
+      - "scripts/apply-forecast-d1-migrations.ts"
+      - "scripts/apply-forecast-d1-migrations.spec.ts"
       - "scripts/probe-forecast-github-app.ts"
       - "scripts/forecast-dispatcher-workflow.spec.ts"
       - "forecast-collector/vitest.config.ts"
@@ -245,94 +247,14 @@ jobs:
           npm run test:forecast-interactions
           npx wrangler deploy --dry-run --config forecast-interactions/wrangler.toml
 
-      - name: Apply staging Discord adoption migration
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: >-
-          npx wrangler d1 execute FORECAST_DB --remote --env staging
-          --config forecast-collector/wrangler.toml
-          --file forecast-collector/migrations/0005_discord_staging_adoptions.sql
+      - name: Verify Forecast migration runner
+        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/forecast-dispatcher-workflow.spec.ts
 
-      - name: Apply staging Discord message identity migration
+      - name: Apply staging Forecast D1 migrations
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env staging \
-            --config forecast-collector/wrangler.toml \
-            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 6;" \
-            --json)
-          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
-            npx wrangler d1 execute FORECAST_DB --remote --env staging \
-              --config forecast-collector/wrangler.toml \
-              --file forecast-collector/migrations/0006_discord_staging_message_identity.sql
-
-      - name: Apply staging workflow dispatch operations migration
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env staging \
-            --config forecast-collector/wrangler.toml \
-            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 7;" \
-            --json)
-          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
-            npx wrangler d1 execute FORECAST_DB --remote --env staging \
-              --config forecast-collector/wrangler.toml \
-              --file forecast-collector/migrations/0007_workflow_dispatch_ops.sql
-
-      - name: Apply staging manual review and Router audit migration
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env staging \
-            --config forecast-collector/wrangler.toml \
-            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 8;" \
-            --json)
-          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
-            npx wrangler d1 execute FORECAST_DB --remote --env staging \
-              --config forecast-collector/wrangler.toml \
-              --file forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql
-
-      - name: Ensure staging canary storage migration
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env staging \
-            --config forecast-collector/wrangler.toml \
-            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 9;" \
-            --json)
-          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
-            npx wrangler d1 execute FORECAST_DB --remote --env staging \
-              --config forecast-collector/wrangler.toml \
-              --file forecast-collector/migrations/0009_d1_budget_canary_v6.sql
-
-      - name: Ensure staging canary v10 version identity migration
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env staging \
-            --config forecast-collector/wrangler.toml \
-            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 10;" \
-            --json)
-          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
-            npx wrangler d1 execute FORECAST_DB --remote --env staging \
-              --config forecast-collector/wrangler.toml \
-              --file forecast-collector/migrations/0010_canary_v10_version_identity.sql
+        run: node scripts/apply-forecast-d1-migrations.ts --env staging --remote
 
       - name: Verify production and staging Forecast covering indexes
         env:

@@ -71,11 +71,7 @@ describe("Forecast dispatcher workflow contract", () => {
       expect(workflow).toContain(
         "--var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID",
       );
-      expect(workflow).toContain("forecast-collector/migrations/0007_workflow_dispatch_ops.sql");
-      expect(workflow).toContain(
-        "forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql",
-      );
-      expect(workflow).toContain("forecast-collector/migrations/0009_d1_budget_canary_v6.sql");
+      expect(workflow).toContain("node scripts/apply-forecast-d1-migrations.ts --env");
       expect(workflow).toContain("forecast-interactions/wrangler.toml");
     }
     expect(interactionConfig).not.toContain("[triggers]");
@@ -89,12 +85,10 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(stagingDeploy).toContain("Verify live Workers Observability contract before burn-in");
     expect(stagingDeploy).toContain("FORECAST_COLLECTOR_SCRIPT_VERSION_ID");
     expect(stagingDeploy).toContain("FORECAST_DISPATCHER_SCRIPT_VERSION_ID");
-    expect(stagingDeploy).toContain(
-      "forecast-collector/migrations/0010_canary_v10_version_identity.sql",
-    );
     expect(stagingDeploy).toContain("Observe 30-minute account-wide D1 burn-in");
     expect(stagingDeploy).toContain("npm run check:d1-budget -- preflight");
-    expect(stagingDeploy.indexOf("Ensure staging canary storage migration")).toBeLessThan(
+    expect(stagingDeploy.indexOf("Apply staging Forecast D1 migrations")).toBeGreaterThan(-1);
+    expect(stagingDeploy.indexOf("Apply staging Forecast D1 migrations")).toBeLessThan(
       stagingDeploy.indexOf("npm run check:d1-budget -- preflight"),
     );
     expect(stagingDeploy).toContain("Verify production and staging Forecast covering indexes");
@@ -153,6 +147,40 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(manualReview).toContain("npm run resolve:forecast-manual-review");
     expect(manualReview).not.toContain("pull-requests: write");
     expect(manualReview).not.toContain("contents: write");
+  });
+
+  it("centralizes migrations without moving production writes outside its approval job", () => {
+    const promoteJob = productionPromote.slice(productionPromote.indexOf("\n  promote:\n"));
+    const canaryJob = productionPromote.slice(0, productionPromote.indexOf("\n  promote:\n"));
+    expect(promoteJob).toContain("needs: canary");
+    expect(promoteJob).toContain(
+      "if: needs.canary.outputs.canary_promotable == 'true' && !inputs.canary_only",
+    );
+    expect(promoteJob).toContain("environment: cloudflare-production");
+    expect(canaryJob).not.toContain("apply-forecast-d1-migrations.ts");
+    for (const [environment, workflow] of [
+      ["staging", stagingDeploy],
+      ["production", promoteJob],
+    ] as const) {
+      const command = `run: node scripts/apply-forecast-d1-migrations.ts --env ${environment} --remote`;
+      expect(workflow).toContain(command);
+      expect(workflow.split(command)).toHaveLength(2);
+      expect(workflow).toContain(
+        "run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/forecast-dispatcher-workflow.spec.ts",
+      );
+      expect(workflow).not.toMatch(/--file forecast-collector\/migrations\//);
+      expect(workflow).not.toContain(
+        "SELECT COUNT(*) AS count FROM schema_migrations WHERE version =",
+      );
+    }
+    expect(promoteJob.indexOf("Apply production Forecast D1 migrations")).toBeGreaterThan(
+      promoteJob.indexOf("Recheck D1 budget before production migrations"),
+    );
+    expect(promoteJob.indexOf("Apply production Forecast D1 migrations")).toBeLessThan(
+      promoteJob.indexOf("Verify production Cron trigger capacity"),
+    );
+    expect(stagingDeploy).toContain('"scripts/apply-forecast-d1-migrations.ts"');
+    expect(stagingDeploy).toContain('"scripts/apply-forecast-d1-migrations.spec.ts"');
   });
 
   it("keeps directly executed Node imports resolvable on Linux", () => {
