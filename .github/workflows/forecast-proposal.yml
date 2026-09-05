@@ -33,6 +33,7 @@ on:
           - smoke
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -329,6 +330,7 @@ jobs:
             if [[ "$DRAFT" == "true" ]]; then args+=(--draft); fi
             gh pr create "${args[@]}"
           fi
+          npm run dispatch:pages-verification -- "$BRANCH" "$(git rev-parse HEAD)"
 
       - name: Mark candidate proposed only after PR succeeds
         if: steps.candidate.outputs.has_candidate == 'true'
