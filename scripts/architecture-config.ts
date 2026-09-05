@@ -1,11 +1,29 @@
-import type { DebtEntry, FunctionDebtEntry, RuleLimits } from "./architecture-types.ts";
+import type {
+  DebtEntry,
+  FunctionDebtEntry,
+  ModuleBoundaryDebtEntry,
+  RuleLimits,
+} from "./architecture-types.ts";
+
+export const WORKER_SOURCE_ROOTS = [
+  "cloudflare/src",
+  "forecast-collector/src",
+  "forecast-dispatcher/src",
+  "forecast-interactions/src",
+  "stats-observer/src",
+  "usage-guard/src",
+] as const;
+
+export const APPLICATION_ENTRYPOINTS = [
+  "src/main.tsx",
+  "src/worker.ts",
+  ...WORKER_SOURCE_ROOTS.map((root) => `${root}/worker.ts`),
+] as const;
 
 export const CHECK_ROOTS = [
   "src",
   "shared",
-  "cloudflare/src",
-  "forecast-collector/src",
-  "usage-guard/src",
+  ...WORKER_SOURCE_ROOTS,
   "benchmarks",
   "scripts",
   "e2e",
@@ -92,6 +110,49 @@ export const TYPE_ESCAPE_BOUNDARY_ALLOWLIST: DebtEntry[] = [
     reason: "Usage Guard tests adapt the Miniflare environment to generated Worker bindings.",
     removalTarget: "Provide a typed Usage Guard Miniflare environment factory.",
   },
+  {
+    file: "forecast-dispatcher/src/db.test.ts",
+    owner: "test",
+    reason: "The Dispatcher D1 fixture is adapted to the generated Worker binding contract.",
+    removalTarget: "Provide a typed Dispatcher Miniflare environment factory.",
+  },
+  {
+    file: "forecast-dispatcher/src/dispatcher.test.ts",
+    owner: "test",
+    reason: "The Dispatcher integration fixture is adapted to the generated Worker bindings.",
+    removalTarget: "Provide a typed Dispatcher environment and GitHub API fixture factory.",
+  },
+  {
+    file: "forecast-interactions/src/worker.test.ts",
+    owner: "test",
+    reason: "The Interaction Router fixture is adapted to two generated D1 binding contracts.",
+    removalTarget: "Provide a typed Interaction Router Miniflare environment factory.",
+  },
+];
+
+export const MODULE_BOUNDARY_ALLOWLIST: ModuleBoundaryDebtEntry[] = [
+  {
+    file: "forecast-dispatcher/src/dispatcher.test.ts",
+    dependency: "forecast-collector/src/ops.ts",
+    owner: "test",
+    reason: "The integration test verifies the Collector-owned workflow callback contract.",
+    removalTarget: "Move the workflow callback contract and fixture to shared/forecast-ops.",
+  },
+  ...[
+    "crypto.ts",
+    "discord-approval.ts",
+    "discord-approval-contract.ts",
+    "manual-review.ts",
+    "ops.ts",
+  ].map((dependency) => ({
+    file: "forecast-interactions/src/worker.ts",
+    dependency: `forecast-collector/src/${dependency}`,
+    owner: "worker" as const,
+    reason:
+      "The Router is a separate trust boundary but currently consumes Collector-owned D1 contracts.",
+    removalTarget:
+      "Move the stable interaction, review, and operations contracts into a shared forecast module.",
+  })),
 ];
 
 export const BIOME_IGNORE_ALLOWLIST: DebtEntry[] = [
@@ -123,9 +184,105 @@ export const BIOME_IGNORE_ALLOWLIST: DebtEntry[] = [
   },
 ];
 
-export const EMPTY_CATCH_ALLOWLIST: DebtEntry[] = [];
+export const EMPTY_CATCH_ALLOWLIST: DebtEntry[] = [
+  {
+    file: "forecast-dispatcher/src/db.ts",
+    owner: "worker",
+    reason: "Malformed legacy alert context is intentionally reduced to a safe invalid marker.",
+    removalTarget: "Delete the fallback after all legacy context rows have aged out.",
+  },
+  {
+    file: "forecast-dispatcher/src/discord.ts",
+    owner: "worker",
+    reason: "Invalid Discord retry metadata uses a durable five-minute retry fallback.",
+    removalTarget:
+      "Replace the fallback after Discord retry responses are schema-validated centrally.",
+  },
+  {
+    file: "forecast-dispatcher/src/dispatcher.ts",
+    owner: "worker",
+    reason:
+      "A failed best-effort alert write must not replace the original durable invocation failure evidence.",
+    removalTarget: "Record alert-path failure through an independent service binding or log sink.",
+  },
+  {
+    file: "stats-observer/src/discord.ts",
+    owner: "worker",
+    reason:
+      "Invalid Discord retry metadata and legacy context both fall back to bounded safe values.",
+    removalTarget: "Separate retry parsing and legacy-context migration into typed result helpers.",
+  },
+];
 
 export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
+  {
+    file: "forecast-dispatcher/src/db.ts",
+    function: "updateObservedAlerts",
+    owner: "worker",
+    reason: "Alert observation and monotonic D1 state updates share one transaction boundary.",
+    removalTarget: "Extract pure alert-delta classification from the D1 update loop.",
+  },
+  {
+    file: "forecast-dispatcher/src/dispatcher.test.ts",
+    function: "<anonymous>",
+    owner: "test",
+    reason: "Dispatcher dispatch, retry, watchdog, and callback cases share one Miniflare fixture.",
+    removalTarget: "Split dispatch lifecycle and operational-alert suites around a shared fixture.",
+  },
+  {
+    file: "forecast-dispatcher/src/dispatcher.ts",
+    function: "runDispatcher",
+    owner: "worker",
+    reason:
+      "Lease acquisition, GitHub dispatch, durable status, and alert recovery form one scheduled run.",
+    removalTarget:
+      "Extract dispatch-attempt execution after lease and callback invariants are isolated.",
+  },
+  {
+    file: "forecast-interactions/src/worker.ts",
+    function: "fetch",
+    owner: "worker",
+    reason: "The Router validates the only two public routes before entering Discord verification.",
+    removalTarget: "Move health and interaction routes into typed handlers.",
+  },
+  {
+    file: "forecast-interactions/src/worker.ts",
+    function: "authorizeAction",
+    owner: "worker",
+    reason:
+      "Discord custom IDs map to environment-specific D1 records under one authorization decision.",
+    removalTarget: "Use a data-driven action registry with per-action authorization handlers.",
+  },
+  {
+    file: "stats-observer/src/canary.ts",
+    function: "evaluateObserverCanary",
+    owner: "worker",
+    reason: "The certificate evaluates all immutable Observer evidence gates in one pure function.",
+    removalTarget: "Represent canary gates as data and aggregate typed gate results.",
+  },
+  {
+    file: "stats-observer/src/discord.ts",
+    function: "deliverAlert",
+    owner: "worker",
+    reason:
+      "Discord delivery handles create, update, retry scheduling, and durable result recording.",
+    removalTarget: "Extract response classification from message mutation and D1 persistence.",
+  },
+  {
+    file: "stats-observer/src/observer.test.ts",
+    function: "<anonymous>",
+    owner: "test",
+    reason: "Observer baseline, delta, escalation, and delivery cases share one D1 fixture.",
+    removalTarget: "Split observation, alert escalation, and Discord delivery suites.",
+  },
+  {
+    file: "stats-observer/src/observer.ts",
+    function: "runObserver",
+    owner: "worker",
+    reason:
+      "Overlap reads, monotonic deltas, alert escalation, and cursor commit form one scheduled poll.",
+    removalTarget: "Extract row-delta evaluation and keep only the final D1 commit in the runner.",
+  },
   {
     file: "forecast-collector/src/candidate.test.ts",
     function: "<anonymous>",

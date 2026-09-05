@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parseSync } from "oxc-parser";
 import {
+  APPLICATION_ENTRYPOINTS,
   BIOME_IGNORE_ALLOWLIST,
   COMPLEXITY_ALLOWLIST,
   DEFAULT_MAX_FILE_LINES,
@@ -8,7 +9,9 @@ import {
   EMPTY_CATCH_ALLOWLIST,
   LONG_FILE_ALLOWLIST,
   limitsFor,
+  MODULE_BOUNDARY_ALLOWLIST,
   TYPE_ESCAPE_BOUNDARY_ALLOWLIST,
+  WORKER_SOURCE_ROOTS,
 } from "./architecture-config.ts";
 import { measureFunctions as measureSourceFunctions } from "./architecture-metrics.ts";
 import {
@@ -81,15 +84,7 @@ function packageScriptEntries(files: Set<string>) {
 
 function reachabilityEntries(files: string[]) {
   const fileSet = new Set(files);
-  const entries = new Set<string>([
-    ...packageScriptEntries(fileSet),
-    "src/main.tsx",
-    "src/worker.ts",
-    "cloudflare/src/worker.ts",
-    "forecast-collector/src/worker.ts",
-    "stats-observer/src/worker.ts",
-    "usage-guard/src/worker.ts",
-  ]);
+  const entries = new Set<string>([...packageScriptEntries(fileSet), ...APPLICATION_ENTRYPOINTS]);
 
   for (const file of files) {
     if (file.endsWith(".test.ts") || file.endsWith(".spec.ts")) entries.add(file);
@@ -250,23 +245,28 @@ function importsThenExportsLocalBinding(source: string) {
 export function violatesModuleBoundary(file: string, dependency: string) {
   const appViolation =
     file.startsWith("src/") &&
-    (dependency.startsWith("cloudflare/") ||
+    (WORKER_SOURCE_ROOTS.some((root) => dependency.startsWith(`${root}/`)) ||
       dependency.startsWith("benchmarks/") ||
       dependency.startsWith("scripts/") ||
       dependency.startsWith("e2e/"));
-  const workerViolation =
-    file.startsWith("cloudflare/src/") &&
-    !dependency.startsWith("cloudflare/src/") &&
-    !dependency.startsWith("shared/");
+  const workerRoot = WORKER_SOURCE_ROOTS.find((root) => file.startsWith(`${root}/`));
+  const workerViolation = Boolean(
+    workerRoot && !dependency.startsWith(`${workerRoot}/`) && !dependency.startsWith("shared/"),
+  );
   const sharedViolation = file.startsWith("shared/") && !dependency.startsWith("shared/");
   return appViolation || workerViolation || sharedViolation;
 }
 
 function findBoundaryViolations(graph: Map<string, Set<string>>) {
+  const allowlist = new Set(
+    MODULE_BOUNDARY_ALLOWLIST.map((entry) => `${entry.file}\0${entry.dependency}`),
+  );
   const violations: Array<{ file: string; dependency: string }> = [];
   for (const [file, dependencies] of graph) {
     for (const dependency of dependencies) {
-      if (violatesModuleBoundary(file, dependency)) violations.push({ file, dependency });
+      if (violatesModuleBoundary(file, dependency) && !allowlist.has(`${file}\0${dependency}`)) {
+        violations.push({ file, dependency });
+      }
     }
   }
   return violations;
@@ -379,6 +379,7 @@ export function architectureIssues(files: string[]) {
     ...missingAllowlistEntries(files, BIOME_IGNORE_ALLOWLIST, "biome-ignore"),
     ...missingAllowlistEntries(files, EMPTY_CATCH_ALLOWLIST, "empty-catch"),
     ...missingAllowlistEntries(files, COMPLEXITY_ALLOWLIST, "complexity"),
+    ...missingAllowlistEntries(files, MODULE_BOUNDARY_ALLOWLIST, "module-boundary"),
     ...cycles.map((cycle) => ({
       code: "cycle" as const,
       message: `cycle: ${cycle.join(" -> ")}`,
