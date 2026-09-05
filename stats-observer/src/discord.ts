@@ -15,7 +15,7 @@ export class DiscordObserverError extends Error {
   }
 }
 
-export function alertPayload(env: StatsObserverEnv, alert: ObserverAlertRow) {
+function alertPayload(env: StatsObserverEnv, alert: ObserverAlertRow) {
   const context = safeContext(alert.context_json);
   const revision = String(context["appRevision"] ?? "unknown");
   const revisionLine = /^[0-9a-f]{40}$/.test(revision)

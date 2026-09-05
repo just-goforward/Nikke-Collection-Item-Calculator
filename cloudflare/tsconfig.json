@@ -3,7 +3,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "lib": ["ES2022", "WebWorker"],
-    "types": ["@cloudflare/vitest-pool-workers/types"],
+    "types": ["@cloudflare/vitest-plugin/types"],
     "skipLibCheck": true,
     "moduleResolution": "Bundler",
     "allowImportingTsExtensions": true,

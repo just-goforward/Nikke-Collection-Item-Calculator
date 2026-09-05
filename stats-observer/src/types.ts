@@ -1,6 +1,6 @@
 /// <reference path="../worker-configuration.d.ts" />
 
-export type ObserverEnvironment = "staging" | "production";
+type ObserverEnvironment = "staging" | "production";
 
 export type StatsObserverEnv = Omit<GeneratedStatsObserverEnv, "ENVIRONMENT"> & {
   DISCORD_BOT_TOKEN: string;

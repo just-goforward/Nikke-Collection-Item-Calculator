@@ -157,12 +157,13 @@ jobs:
             'cloudflare/*.sql' \
             ':(exclude)cloudflare/reset-staging.sql' \
             cloudflare/tsconfig.json \
+            cloudflare/package.json \
             cloudflare/worker-configuration.d.ts \
             cloudflare/wrangler.toml \
             shared \
             package.json \
             package-lock.json \
-            vitest.cloudflare.config.ts \
+            cloudflare/vitest.config.ts \
             .github/workflows/worker-deploy.yml \
             .github/workflows/worker-promote.yml \
             scripts/check-d1-schema.ts \
