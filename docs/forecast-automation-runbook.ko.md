@@ -1,5 +1,9 @@
 # Forecast 자동화 운영 Runbook
 
+현재 활성값, 미병합 후보와 재개 순서는
+[Forecast 구현 상태와 재개 절차](./forecast-status.ko.md)에 날짜별 스냅샷으로 정리한다.
+이 문서는 배포·장애 대응 절차를 다룬다.
+
 ## 책임 경계
 
 - Collector는 Naver 48·56번 게시판의 얕은 메타데이터만 3분마다 수집한다.
