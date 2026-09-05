@@ -8,6 +8,7 @@ const ALLOWED_BRANCH =
   /^automation\/(?:supply-forecast\/forecast-[0-9a-f]{24}|staging-forecast-adoption\/[A-Za-z0-9._-]+)$/;
 
 type GitHubWorkflowRun = {
+  id?: unknown;
   event?: unknown;
   head_sha?: unknown;
   html_url?: unknown;
@@ -57,15 +58,27 @@ export async function dispatchPagesVerification(
     body: JSON.stringify({ ref: input.branch }),
     signal: AbortSignal.timeout(10_000),
   });
-  if (dispatch.status !== 204) {
+  if (dispatch.status !== 200 && dispatch.status !== 204) {
     throw new Error(`pages_verification_dispatch_failed:${dispatch.status}`);
+  }
+  let acceptedRunId: number | undefined;
+  if (dispatch.status === 200) {
+    const body = (await dispatch.json()) as { workflow_run_id?: unknown };
+    if (
+      typeof body.workflow_run_id !== "number" ||
+      !Number.isSafeInteger(body.workflow_run_id) ||
+      body.workflow_run_id <= 0
+    ) {
+      throw new Error("pages_verification_dispatch_invalid_run");
+    }
+    acceptedRunId = body.workflow_run_id;
   }
 
   const runsUrl = new URL(`${apiUrl}/repos/${input.repository}/actions/workflows/${WORKFLOW}/runs`);
   runsUrl.searchParams.set("event", "workflow_dispatch");
   runsUrl.searchParams.set("branch", input.branch);
   runsUrl.searchParams.set("per_page", "20");
-  return await waitForRun(runsUrl.toString(), input.headSha, headers, fetchImpl, sleep);
+  return await waitForRun(runsUrl.toString(), input, acceptedRunId, headers, fetchImpl, sleep);
 }
 
 async function waitForHead(
@@ -93,7 +106,8 @@ async function waitForHead(
 
 async function waitForRun(
   url: string,
-  expectedSha: string,
+  input: PagesVerificationInput,
+  acceptedRunId: number | undefined,
   headers: Record<string, string>,
   fetchImpl: typeof fetch,
   sleep: (milliseconds: number) => Promise<void>,
@@ -107,9 +121,17 @@ async function waitForRun(
       const body = (await response.json()) as { workflow_runs?: GitHubWorkflowRun[] };
       const run = body.workflow_runs?.find(
         (candidate) =>
-          candidate.event === "workflow_dispatch" && candidate.head_sha === expectedSha,
+          candidate.event === "workflow_dispatch" &&
+          candidate.head_sha === input.headSha &&
+          (acceptedRunId === undefined || candidate.id === acceptedRunId),
       );
-      if (run && typeof run.html_url === "string") return run.html_url;
+      if (
+        run &&
+        typeof run.html_url === "string" &&
+        run.html_url.startsWith(`https://github.com/${input.repository}/actions/runs/`) &&
+        /^\d+$/.test(run.html_url.split("/").at(-1) ?? "")
+      )
+        return run.html_url;
     } else if (!retryable(response.status)) {
       throw new Error(`pages_verification_run_probe_failed:${response.status}`);
     }

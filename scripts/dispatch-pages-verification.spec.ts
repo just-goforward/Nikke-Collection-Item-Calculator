@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { dispatchPagesVerification } from "./dispatch-pages-verification";
 
 const HEAD = "a".repeat(40);
+const RUN_URL = "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/1";
 const INPUT = {
   repository: "just-goforward/Nikke-Collection-Item-Calculator",
   branch: `automation/supply-forecast/forecast-${"b".repeat(24)}`,
@@ -24,16 +25,14 @@ describe("dispatchPagesVerification", () => {
             {
               event: "workflow_dispatch",
               head_sha: HEAD,
-              html_url: "https://github.com/example/actions/runs/1",
+              html_url: RUN_URL,
             },
           ],
         }),
       );
     const sleep = vi.fn(async () => undefined);
 
-    await expect(dispatchPagesVerification(INPUT, { fetchImpl, sleep })).resolves.toBe(
-      "https://github.com/example/actions/runs/1",
-    );
+    await expect(dispatchPagesVerification(INPUT, { fetchImpl, sleep })).resolves.toBe(RUN_URL);
 
     expect(fetchImpl).toHaveBeenCalledTimes(5);
     expect(fetchImpl.mock.calls[2]?.[1]).toMatchObject({
@@ -47,6 +46,39 @@ describe("dispatchPagesVerification", () => {
     await expect(dispatchPagesVerification({ ...INPUT, branch: "main" })).rejects.toThrow(
       "invalid_pages_verification_branch",
     );
+  });
+
+  it("accepts API v2026's 200 and waits for that run on the expected commit", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ object: { sha: HEAD } }))
+      .mockResolvedValueOnce(Response.json({ workflow_run_id: 1, html_url: RUN_URL }))
+      .mockResolvedValueOnce(
+        Response.json({
+          workflow_runs: [
+            { id: 2, event: "workflow_dispatch", head_sha: HEAD, html_url: `${RUN_URL}2` },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          workflow_runs: [{ id: 1, event: "workflow_dispatch", head_sha: HEAD, html_url: RUN_URL }],
+        }),
+      );
+    const sleep = vi.fn(async () => undefined);
+    await expect(dispatchPagesVerification(INPUT, { fetchImpl, sleep })).resolves.toBe(RUN_URL);
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, "1", 0, -1, 1.5])("rejects a malformed accepted run ID %s", async (id) => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ object: { sha: HEAD } }))
+      .mockResolvedValueOnce(Response.json({ workflow_run_id: id }));
+    await expect(dispatchPagesVerification(INPUT, { fetchImpl })).rejects.toThrow(
+      "pages_verification_dispatch_invalid_run",
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   it("fails closed on a non-retryable ref response", async () => {
