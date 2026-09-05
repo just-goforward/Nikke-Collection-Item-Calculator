@@ -94,8 +94,12 @@ wrangler deploy --config cloudflare/wrangler.toml
 ### Automated Worker deployment
 
 `.github/workflows/worker-deploy.yml` runs after a successful `main` push completes the
-`Deploy GitHub Pages` workflow. It checks Worker types and D1 integration tests, deploys staging,
-and runs schema-health, public-read, CORS, and write-contract smoke tests. It stops after staging so
+`Deploy GitHub Pages` workflow. Before touching D1, it verifies the Workers Paid subscription,
+account-wide Worker and D1 usage, fresh Usage Guard evidence, and a `normal` guard action. It then
+checks Worker types and D1 integration tests, deploys staging, waits through the bounded edge
+propagation window, and runs schema-health, public-read, CORS, and write-contract smoke tests. An old
+contract may be retried only during that bounded propagation period; a response from the new
+deployment with an invalid schema or contract fails immediately. The workflow stops after staging so
 a production approval cannot hold the staging deployment concurrency queue. The write-contract
 probe uses an intentionally invalid Turnstile token, so it confirms that a valid event envelope
 reaches Turnstile validation without adding a statistics aggregate. It can still increment
@@ -127,7 +131,10 @@ Configure these GitHub repository settings:
 | Type | Name | Value |
 | --- | --- | --- |
 | Secret | `CLOUDFLARE_API_TOKEN` | A scoped token that can deploy this account's Workers and read/edit the two statistics D1 databases |
+| Secret | `CLOUDFLARE_D1_ANALYTICS_TOKEN` | A read-only token for account-wide D1 usage evidence |
+| Secret | `CLOUDFLARE_BILLING_READ_TOKEN` | A token limited to `Account > Billing > Read` for the Paid plan and billing period |
 | Variable | `CLOUDFLARE_ACCOUNT_ID` | The Cloudflare account ID |
+| Variable | `CLOUDFLARE_USAGE_GUARD_URL` | The deployed Usage Guard URL used by preflight and smoke checks |
 | Variable | `STATS_ALLOWED_ORIGIN` | `https://nikkecollection.com` |
 | Variable | `CLOUDFLARE_STAGING_WORKER_URL` | The public staging Worker URL |
 | Variable | `CLOUDFLARE_PRODUCTION_WORKER_URL` | The public production Worker URL |
@@ -136,6 +143,9 @@ The workflows do not upload Turnstile or admin secret values. Wrangler preserves
 secrets already stored on each Worker. Manual staging and production promotion are intentionally
 separate dispatches. The v9 and v10 migrations are additive and may be retried safely; a Worker rollback does
 not remove its new tables or rewrite historical aggregates.
+
+The account-wide quota policy, evidence freshness rules, and staged fail-closed actions are
+documented in the [Usage Guard service contract](../usage-guard/README.md).
 
 The deployment token should be limited to this account's Worker deployment and version-management
 operations plus read/edit access to `collection-kit-stats` and `collection-kit-stats-staging`.
@@ -240,8 +250,9 @@ Optional query parameter: `days=30` (1-365). The response also includes recent
 The additive `operationalFailures` and `submissionHealth` sections expose only bucketed failure,
 contract-rejection, and delivery-health rows. Optional `limit` (1-200) and `cursor` parameters bound
 those sections. `observerCoverage` points to the separate read-only audit because the statistics
-Worker is intentionally not bound to the Observer D1. Exact stock, IP addresses, raw User-Agent
-values, error messages, and stacks are absent.
+Worker is intentionally not bound to the Observer D1. The cursor, alert, and canary contract is
+documented in the [Stats Observer README](../stats-observer/README.md). Exact stock, IP addresses,
+raw User-Agent values, error messages, and stacks are absent.
 
 Worker/D1 write-path tests use an isolated D1 database in the Cloudflare Vitest pool:
 
@@ -337,6 +348,11 @@ does not collect or emit delivery-health summaries. Enable the v2 outbox and sid
 after the server-first rollout has been verified.
 `scripts/smoke-stats-worker.ts` verifies that the emitted version and policy are members of the
 production Worker's advertised allowlists.
+
+The browser submission path has a 10-second POST deadline and reads at most 16KiB from an error
+response. Network failures, timeouts, HTTP 429, and server errors remain retryable; an explicit quota
+shutdown is nonretryable so the outbox cannot amplify a budget stop. Turnstile script loading has the
+same bounded timeout and clears a failed singleton promise so a later user action can retry it.
 
 For calculation-time language aggregates, apply the additive migration to both databases before
 deploying the Worker change. Missing locale values from older clients remain valid and are excluded

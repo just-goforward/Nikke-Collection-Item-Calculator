@@ -44,7 +44,11 @@ function alertPayload(env: StatsObserverEnv, alert: ObserverAlertRow) {
           ...contextLines,
         ].join("\n"),
         color:
-          alert.state === "resolved" ? 0x2ecc71 : alert.severity === "critical" ? 0xe74c3c : 0xf1c40f,
+          alert.state === "resolved"
+            ? 0x2ecc71
+            : alert.severity === "critical"
+              ? 0xe74c3c
+              : 0xf1c40f,
         timestamp: new Date().toISOString(),
       },
     ],
@@ -113,7 +117,10 @@ export async function deliverAlert(
 
 function alertNonce(alert: ObserverAlertRow) {
   const window = Math.max(0, Date.parse(alert.window_started_at)).toString(36).slice(-8);
-  return `${alert.fingerprint.slice(0, 12)}-${alert.state[0]}${alert.severity[0]}-${window}`.slice(0, 25);
+  return `${alert.fingerprint.slice(0, 12)}-${alert.state[0]}${alert.severity[0]}-${window}`.slice(
+    0,
+    25,
+  );
 }
 
 async function retryAfter(response: Response) {
@@ -131,7 +138,11 @@ async function retryAfter(response: Response) {
 
 async function responseJson(response: Response) {
   try {
-    const bytes = await readBoundedBytes(response, MAX_RESPONSE_BYTES, "discord_response_too_large");
+    const bytes = await readBoundedBytes(
+      response,
+      MAX_RESPONSE_BYTES,
+      "discord_response_too_large",
+    );
     return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
   } catch (error) {
     if (error instanceof DiscordObserverError) throw error;
@@ -166,7 +177,13 @@ function kst(value: string) {
 }
 
 function clean(value: string, max: number) {
-  return value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+  let printable = "";
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    printable +=
+      codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f) ? " " : character;
+  }
+  return printable.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

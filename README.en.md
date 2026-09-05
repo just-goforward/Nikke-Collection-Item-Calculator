@@ -54,15 +54,19 @@ Primary verification commands:
 npm run typecheck
 npm run lint
 npm test
-npm run test:worker
+npm run test:workers
 npm run build
 npm run report:bundle
 ```
+
+Application and script tests use Vitest 5, while the six Cloudflare Worker workspaces remain on the
+Vitest 4 runtime supported by the official plugin. `npm run lint` verifies this boundary.
 
 ## Research and Technical Records
 
 - [Complete research-document index](./docs/research/README.md)
 - [Expected 28-day maintenance-kit gains (Korean)](./docs/research/kit-expected-gain.ko.md)
+- [Schedule-based supply Forecast contract](./docs/research/schedule-supply-forecast.md)
 - [Current min-E[f] H/p study (Korean)](./docs/research/min-ef-hp-study-findings.ko.md)
 - [Solver policy quality study](./docs/research/solver-policy-quality-findings.md)
 - [Rust phase2 methodology study](./docs/research/phase2-methodology-findings.md)

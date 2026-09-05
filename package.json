@@ -202,8 +202,6 @@
   "allowScripts": {
     "esbuild@0.28.1": true,
     "esbuild@0.28.2": true,
-    "sharp@0.35.3": true,
-    "workerd@1.20260815.1": true,
     "workerd@1.20260903.1": true
   }
 }

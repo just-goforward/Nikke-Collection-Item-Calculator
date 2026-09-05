@@ -1,6 +1,7 @@
-import { env } from "cloudflare:workers";
 import { reset } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import statsSchema from "../../cloudflare/schema.sql?raw";
 import {
   buildMetricEvidence,
   CLOUDFLARE_PAID_INCLUDED_LIMITS,
@@ -8,7 +9,6 @@ import {
   D1_DATABASE_IDS,
   type D1QuotaEvidence,
 } from "../../shared/d1QuotaEvidence";
-import statsSchema from "../../cloudflare/schema.sql?raw";
 import observerSchema from "../schema.sql?raw";
 import { identityCollisionKeys, runObserver } from "./observer";
 import type { SourceObservation, StatsObserverEnv } from "./types";
@@ -102,9 +102,9 @@ describe("stats observer D1 integration", () => {
     expect(cursorAfterFailure?.last_events).toBe(0);
 
     await env.OBSERVER_DB.exec("DROP TRIGGER fail_observer_alert;");
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
-      Response.json({ id: "987654321098765432" }),
-    );
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ id: "987654321098765432" }));
     await runObserver(observerEnv(), NOW + 2 * 60_000, {
       fetchImpl,
       now: () => NOW + 2 * 60_000,
@@ -125,9 +125,9 @@ describe("stats observer D1 integration", () => {
     )
       .bind(Math.floor((NOW + 60_000) / 1_000))
       .run();
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
-      Response.json({ id: "987654321098765432" }),
-    );
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ id: "987654321098765432" }));
 
     await runObserver(observerEnv(), NOW + 60_000, {
       fetchImpl,
@@ -156,9 +156,9 @@ describe("stats observer D1 integration", () => {
     )
       .bind(Math.floor((NOW + 60_000) / 1_000))
       .run();
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
-      Response.json({ id: "987654321098765432" }),
-    );
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ id: "987654321098765432" }));
 
     await runObserver(observerEnv(), NOW + 60_000, {
       fetchImpl,
@@ -334,31 +334,37 @@ async function insertFailure(events: number, now: number) {
 }
 
 async function applySql(db: D1Database, sql: string) {
-  for (const statement of sql.split(";").map((value) => value.trim()).filter(Boolean)) {
+  for (const statement of sql
+    .split(";")
+    .map((value) => value.trim())
+    .filter(Boolean)) {
     await db.prepare(statement).run();
   }
 }
 
 async function seedGuard(db: D1Database, nowMs: number, runtimeErrors = 0) {
-  await db.prepare(
-    `CREATE TABLE IF NOT EXISTS usage_guard_state (
+  await db
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS usage_guard_state (
        singleton_id INTEGER PRIMARY KEY, action TEXT NOT NULL, observed_at TEXT NOT NULL,
        period_start TEXT NOT NULL, period_end TEXT NOT NULL, evidence_json TEXT NOT NULL,
        evidence_hash TEXT NOT NULL
      )`,
-  ).run();
+    )
+    .run();
   const evidence = quotaEvidence(nowMs, runtimeErrors);
   const json = JSON.stringify(evidence);
   const hash = await sha256(json);
-  await db.prepare(
-    `INSERT INTO usage_guard_state
+  await db
+    .prepare(
+      `INSERT INTO usage_guard_state
       (singleton_id, action, observed_at, period_start, period_end, evidence_json, evidence_hash)
      VALUES (1, 'normal', ?, ?, ?, ?, ?)
      ON CONFLICT(singleton_id) DO UPDATE SET
        action=excluded.action, observed_at=excluded.observed_at,
        period_start=excluded.period_start, period_end=excluded.period_end,
        evidence_json=excluded.evidence_json, evidence_hash=excluded.evidence_hash`,
-  )
+    )
     .bind(evidence.observedAt, evidence.plan.periodStart, evidence.plan.periodEnd, json, hash)
     .run();
 }

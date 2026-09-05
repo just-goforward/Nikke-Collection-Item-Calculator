@@ -40,8 +40,11 @@ describe("stats Observer canary", () => {
   it("fails closed on a missing slot, duplicate, alert, rejection, or SHA drift", () => {
     const input = passingInput();
     input.runs.pop();
-    input.runs[0]!.duplicate_attempts = 1;
-    input.runs[1]!.deployment_sha = "c".repeat(40);
+    const firstRun = input.runs[0];
+    const secondRun = input.runs[1];
+    if (!firstRun || !secondRun) throw new Error("passing fixture must include at least two runs");
+    firstRun.duplicate_attempts = 1;
+    secondRun.deployment_sha = "c".repeat(40);
     input.unsentAlerts = 1;
     input.contractRejections = 1;
     expect(evaluateObserverCanary(input)).toMatchObject({

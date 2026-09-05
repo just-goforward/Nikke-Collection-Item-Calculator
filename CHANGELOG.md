@@ -18,8 +18,28 @@
   정리했습니다.
 - Biome 2.5.12, Playwright 1.63.0, React DOM 타입 19.2.7, Wrangler 4.129.0으로 갱신하고
   여섯 Worker의 생성 타입과 `workerd` 설치 허용 목록을 동기화했습니다.
-- Vitest 5는 별도 메이저 마이그레이션과 전체 Worker/E2E 검증이 필요하므로 이번 호환 업데이트에
-  포함하지 않았습니다.
+- 앱·스크립트 테스트를 Vitest 5와 Coverage V8 5로 올리고, Cloudflare 공식 plugin이 아직
+  요구하는 Vitest 4.1.11은 여섯 Worker workspace에 격리했습니다. lockfile 기반 경계 검사가
+  서로 다른 테스트 런타임의 우발적 혼합을 차단합니다.
+
+### 동작 보존 리팩터링과 운영 검증 정비
+
+- 결과 적용, 다회추천 대성공 회차 처리와 R15 교체를 순수 전이 계획으로 분리하고, 기존 재고
+  snapshot·통계 보류·자동 다음 계산 계약을 104개 Playwright 흐름으로 재검증했습니다.
+- Discord interaction의 서명, 요청 크기, freshness, payload와 custom ID 계약을 중립 공유
+  모듈로 옮겼습니다. Collector의 D1 mutation과 운영 경보, Router의 권한 경계는 그대로
+  분리했습니다.
+- Rust solver의 write-only scratch 전역과 중복 WASM URL loader를 제거했습니다. 공개 ABI,
+  action·확률·vector·cost·status·node count 및 product/research instance 격리는 유지됩니다.
+- 외부 GitHub Action을 immutable commit SHA로 고정하고 모든 workflow job에 실행 상한을
+  두었습니다. 저장소 검사기가 mutable ref와 누락된 timeout을 재도입하지 못하게 합니다.
+- Worker 배포 readiness probe는 이전 edge version의 짧은 전파 지연만 제한적으로 재시도하고,
+  새 배포의 schema·계약 불일치는 즉시 실패하도록 정리했습니다.
+- 후보 사유 tooltip을 body portal로 옮기고 후보 표 ResizeObserver의 생명주기를 mount 단위로
+  고정했습니다. 통계 오류 본문은 16KiB로 제한하고 Turnstile loader는 timeout 후 재시도할 수
+  있게 했습니다.
+- Workers Paid Usage Guard, Forecast canary v10과 Stats Observer의 배포·canary·promotion 계약을
+  문서와 검증 명령에 연결했습니다. Forecast 활성화와 production 승인은 계속 별도 경계입니다.
 
 ## 2026-08-13
 

@@ -16,6 +16,7 @@ Forecast 자동화 인프라는 production에 배포됐지만 제품 Forecast �
 | 레지스트리 staging/approved | `supply-2026-08-28-v1` | `schedule-kit-v2`를 staging 쿼리에서 검토할 수 있으나 제품값은 아니다. |
 | 최신 미병합 후보 | PR #37, `supply-2026-09-04-v1` | 새 일정 증거로 만든 inactive 후보다. |
 | 이전 미병합 후보 | PR #15, `supply-2026-09-01-v1` | PR #37보다 오래된 동일 계열 후보다. 자동 폐기하지 않았다. |
+| 최신 v10 자동화 인증 | `passed_with_warning` | 기능·무결성·quota hard gate는 통과했지만 첫 scheduled-only 성능 기준선 bootstrap, Collector CPU 표본의 부분 coverage, 선택적 runtime identity 부재 경고가 남았다. |
 
 - PR #37: <https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/37>
 - PR #15: <https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/15>
@@ -24,6 +25,10 @@ Forecast 자동화 인프라는 production에 배포됐지만 제품 Forecast �
 두 PR의 `Deploy GitHub Pages`가 `action_required`인 것은 PR에서 production Pages 배포 승인을
 요구하지 않는 현재 보호 설정의 결과다. CodeQL 검사는 통과했지만, 이것만으로 Forecast 내용의
 제품 채택이 승인되는 것은 아니다.
+
+위 `passed_with_warning`은 production 승인 단계로 진행할 수 있다는 자동화 인증이지 Forecast
+내용의 채택 판정이 아니다. 해당 실행만으로 `forecast-collector/runtime-baseline.json`을 정본
+기준선으로 채택하지 않았으며, 기준선 갱신에는 별도 검토가 필요하다.
 
 ## 구현된 범위
 

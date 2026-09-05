@@ -54,15 +54,19 @@ npm run build
 npm run typecheck
 npm run lint
 npm test
-npm run test:worker
+npm run test:workers
 npm run build
 npm run report:bundle
 ```
+
+アプリとスクリプトのテストはVitest 5を使用し、6つのCloudflare Worker workspaceは公式
+pluginが対応するVitest 4を維持します。`npm run lint`がこの境界も検証します。
 
 ## 研究・技術資料
 
 - [研究ドキュメントの全索引](./docs/research/README.md)
 - [28日基準のメンテナンスキット期待獲得量（韓国語）](./docs/research/kit-expected-gain.ko.md)
+- [日程ベースのキット需給Forecast契約（英語）](./docs/research/schedule-supply-forecast.md)
 - [min-E[f] H/p共同最適化研究（韓国語）](./docs/research/min-ef-hp-study-findings.ko.md)
 - [Solver方針品質研究（英語）](./docs/research/solver-policy-quality-findings.md)
 - [Rust phase2方法論研究（英語）](./docs/research/phase2-methodology-findings.md)

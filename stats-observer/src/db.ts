@@ -1,7 +1,12 @@
 import { nextSeverity } from "./policy";
 import type { ObserverAlertRow, SourceObservation, StatsObserverEnv } from "./types";
 
-export async function beginRun(env: StatsObserverEnv, runId: string, scheduledAt: string, now: string) {
+export async function beginRun(
+  env: StatsObserverEnv,
+  runId: string,
+  scheduledAt: string,
+  now: string,
+) {
   const result = await env.OBSERVER_DB.prepare(
     `INSERT OR IGNORE INTO observer_runs
       (run_id, scheduled_at, started_at, status, deployment_sha)
@@ -78,11 +83,7 @@ export async function initializeBaseline(
   await env.OBSERVER_DB.batch(statements);
 }
 
-export async function sourceCursor(
-  env: StatsObserverEnv,
-  sourceKind: string,
-  rowHash: string,
-) {
+export async function sourceCursor(env: StatsObserverEnv, sourceKind: string, rowHash: string) {
   return await env.OBSERVER_DB.prepare(
     `SELECT last_events FROM observer_source_cursors
      WHERE source_kind = ? AND row_hash = ?`,
@@ -107,8 +108,7 @@ export function updateSourceCursorStatement(
       last_events = excluded.last_events,
       source_last_seen = excluded.source_last_seen,
       updated_at = excluded.updated_at`,
-  )
-    .bind(sourceKind, rowHash, events, lastSeen, now);
+  ).bind(sourceKind, rowHash, events, lastSeen, now);
 }
 
 export async function recordDeltaStatement(
@@ -127,7 +127,8 @@ export async function recordDeltaStatement(
     .first<Record<string, unknown>>();
   const nowMs = Date.parse(now);
   const currentWindowStart = Date.parse(String(current?.["window_started_at"] ?? ""));
-  const sameWindow = Number.isFinite(currentWindowStart) && nowMs - currentWindowStart < 30 * 60_000;
+  const sameWindow =
+    Number.isFinite(currentWindowStart) && nowMs - currentWindowStart < 30 * 60_000;
   const windowStartedAt = sameWindow ? new Date(currentWindowStart).toISOString() : now;
   const windowCount = (sameWindow ? numberOrZero(current?.["window_count"]) : 0) + delta;
   const totalCount = numberOrZero(current?.["total_count"]) + delta;
@@ -153,21 +154,20 @@ export async function recordDeltaStatement(
       next_send_at = excluded.next_send_at,
       send_status = 'pending',
       updated_at = excluded.updated_at`,
-  )
-    .bind(
-      fingerprint,
-      observation.sourceKind,
-      severity,
-      observation.errorCode,
-      contextJson,
-      new Date(observation.firstSeen * 1_000).toISOString(),
-      new Date(observation.lastSeen * 1_000).toISOString(),
-      windowStartedAt,
-      windowCount,
-      totalCount,
-      now,
-      now,
-    );
+  ).bind(
+    fingerprint,
+    observation.sourceKind,
+    severity,
+    observation.errorCode,
+    contextJson,
+    new Date(observation.firstSeen * 1_000).toISOString(),
+    new Date(observation.lastSeen * 1_000).toISOString(),
+    windowStartedAt,
+    windowCount,
+    totalCount,
+    now,
+    now,
+  );
 }
 
 export async function dueAlerts(env: StatsObserverEnv, now: string) {
@@ -195,8 +195,7 @@ export function resolveProvenAlertStatement(
     `UPDATE observer_alerts SET
       state = 'resolved', last_seen = ?, next_send_at = ?, send_status = 'pending', updated_at = ?
      WHERE fingerprint = ? AND state = 'open' AND last_sent_at IS NOT NULL`,
-  )
-    .bind(now, now, now, fingerprint);
+  ).bind(now, now, now, fingerprint);
 }
 
 export async function markAlertSent(
@@ -239,8 +238,7 @@ export async function markAlertRetry(
 export function touchPollStatement(env: StatsObserverEnv, now: string) {
   return env.OBSERVER_DB.prepare(
     `UPDATE observer_state SET last_poll_at = ?, updated_at = ? WHERE singleton_id = 1`,
-  )
-    .bind(now, now);
+  ).bind(now, now);
 }
 
 function numberOrZero(value: unknown) {

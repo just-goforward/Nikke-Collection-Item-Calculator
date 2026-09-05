@@ -18,7 +18,7 @@ import {
   touchPollStatement,
   updateSourceCursorStatement,
 } from "./db";
-import { deliverAlert, DiscordObserverError } from "./discord";
+import { DiscordObserverError, deliverAlert } from "./discord";
 import {
   deliveryObservation,
   failureObservation,
@@ -163,21 +163,12 @@ export async function runObserver(
       } else if (delta > 0 && observation.alertable) {
         // Aggregate rows retain their historical first_seen value. Once a baseline exists,
         // attribute a positive delta to the latest observation window instead of pre-baseline time.
-        const deltaObservation = cursor
-          ? { ...observation, firstSeen: lastSeen }
-          : observation;
+        const deltaObservation = cursor ? { ...observation, firstSeen: lastSeen } : observation;
         mergeDelta(pending, fingerprint, deltaObservation, delta);
         deltas += delta;
       }
       cursorStatements.push(
-        updateSourceCursorStatement(
-          env,
-          observation.sourceKind,
-          rowHash,
-          events,
-          lastSeen,
-          now,
-        ),
+        updateSourceCursorStatement(env, observation.sourceKind, rowHash, events, lastSeen, now),
       );
     }
 
@@ -276,8 +267,11 @@ async function readObservations(
     ...deliveryRows.map(deliveryObservation),
   ];
 
-  const scriptName = env.ENVIRONMENT === "production" ? "collection-kit-stats" : "collection-kit-stats-staging";
-  const runtime = guard.evidence.workerRuntime.workers.find((worker) => worker.scriptName === scriptName);
+  const scriptName =
+    env.ENVIRONMENT === "production" ? "collection-kit-stats" : "collection-kit-stats-staging";
+  const runtime = guard.evidence.workerRuntime.workers.find(
+    (worker) => worker.scriptName === scriptName,
+  );
   if (runtime) {
     const firstSeen = Math.floor(Date.parse(guard.evidence.workerRuntime.startedAt) / 1_000);
     const lastSeen = Math.floor(Date.parse(guard.evidence.workerRuntime.endedAt) / 1_000);
@@ -368,7 +362,9 @@ async function hashIdentity(identity: Record<string, string | number>) {
 
 function canonicalIdentity(identity: Record<string, string | number>) {
   return JSON.stringify(
-    Object.fromEntries(Object.entries(identity).sort(([left], [right]) => left.localeCompare(right))),
+    Object.fromEntries(
+      Object.entries(identity).sort(([left], [right]) => left.localeCompare(right)),
+    ),
   );
 }
 
@@ -385,7 +381,9 @@ function validCount(value: unknown) {
 
 function validTimestamp(value: unknown, fallbackMs: number) {
   const timestamp = Number(value);
-  return Number.isSafeInteger(timestamp) && timestamp >= 0 ? timestamp : Math.floor(fallbackMs / 1_000);
+  return Number.isSafeInteger(timestamp) && timestamp >= 0
+    ? timestamp
+    : Math.floor(fallbackMs / 1_000);
 }
 
 function normalizedSha(value: string) {

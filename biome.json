@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.11/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
   "files": {
     "includes": [
       "src/**/*.{ts,tsx,js,jsx,json}",
@@ -17,8 +17,8 @@
       "!forecast-interactions/worker-configuration.d.ts",
       "usage-guard/**/*.{ts,json}",
       "!usage-guard/worker-configuration.d.ts",
-      "stats-observer/package.json",
-      "stats-observer/vitest.config.ts",
+      "stats-observer/**/*.{ts,json}",
+      "!stats-observer/worker-configuration.d.ts",
       "e2e/**/*.ts",
       "benchmarks/**/*.{ts,tsx,js,jsx,json,md}",
       "vite.config.ts",
