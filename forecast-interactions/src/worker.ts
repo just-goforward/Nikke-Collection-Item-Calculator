@@ -2,24 +2,24 @@ import { sha256Hex } from "../../forecast-collector/src/crypto";
 import {
   approveDiscordStagingAdoption,
   approveDiscordTest,
-  type DiscordInteraction,
-  parseDiscordInteraction,
   readApprovalById,
   readStagingAdoptionById,
-  readVerifiedDiscordBody,
 } from "../../forecast-collector/src/discord-approval";
-import {
-  approvedData,
-  CUSTOM_ID_PREFIX,
-  STAGING_CUSTOM_ID_PREFIX,
-  stagingApprovedData,
-  unavailableApprovalData,
-} from "../../forecast-collector/src/discord-approval-contract";
 import {
   decideManualReviewFromDiscord,
   readManualReview,
 } from "../../forecast-collector/src/manual-review";
 import { upsertOpsAlert } from "../../forecast-collector/src/ops";
+import {
+  approvedData,
+  CUSTOM_ID_PREFIX,
+  type DiscordInteraction,
+  parseDiscordInteraction,
+  readVerifiedDiscordBody,
+  STAGING_CUSTOM_ID_PREFIX,
+  stagingApprovedData,
+  unavailableApprovalData,
+} from "../../shared/discordInteraction.ts";
 import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard";
 import type { InteractionEnvironment, InteractionRouterEnv } from "./types";
 
