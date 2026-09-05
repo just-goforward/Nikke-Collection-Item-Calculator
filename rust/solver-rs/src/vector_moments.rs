@@ -1,8 +1,6 @@
 use crate::state::stock_of;
 use crate::status::{status_ok, LAST_STATUS, STATUS_MEMO_FULL};
-use crate::transition::{
-    compute_transition, is_convert, is_terminal, CONVERT_SID, TX_FAIL, TX_PROB, TX_SUCC,
-};
+use crate::transition::{compute_transition, is_convert, is_terminal, CONVERT_SID};
 
 pub(crate) type PolicyAction = unsafe fn(i32, i32, i32, i32) -> i32;
 
@@ -162,10 +160,10 @@ unsafe fn vector_moment_node(sid: i32, b: i32, p: i32, y: i32, policy_action: Po
         return;
     }
 
-    compute_transition(sid, action);
-    let prob = TX_PROB;
-    let succ = TX_SUCC;
-    let fail = TX_FAIL;
+    let transition = compute_transition(sid, action);
+    let prob = transition.probability;
+    let succ = transition.success;
+    let fail = transition.failure;
     let nb = b - if action == 0 { 1 } else { 0 };
     let np = p - if action == 1 { 1 } else { 0 };
     let ny = y - if action == 2 { 1 } else { 0 };
@@ -201,10 +199,10 @@ pub(crate) unsafe fn moment_vector_after_first_action_from_policy(
     if stock_of(first_action, b0, p0, y0) <= 0 {
         return;
     }
-    compute_transition(start_sid, first_action);
-    let prob = TX_PROB;
-    let succ = TX_SUCC;
-    let fail = TX_FAIL;
+    let transition = compute_transition(start_sid, first_action);
+    let prob = transition.probability;
+    let succ = transition.success;
+    let fail = transition.failure;
     let nb = b0 - if first_action == 0 { 1 } else { 0 };
     let np = p0 - if first_action == 1 { 1 } else { 0 };
     let ny = y0 - if first_action == 2 { 1 } else { 0 };

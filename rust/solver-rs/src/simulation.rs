@@ -1,7 +1,5 @@
 use crate::state::stock_of;
-use crate::transition::{
-    compute_transition, is_convert, is_terminal, CONVERT_SID, TX_FAIL, TX_PROB, TX_SUCC,
-};
+use crate::transition::{compute_transition, is_convert, is_terminal, CONVERT_SID};
 
 pub(crate) type PolicyAction = unsafe fn(i32, i32, i32, i32) -> i32;
 
@@ -99,11 +97,11 @@ pub(crate) unsafe fn simulate_run_with_first_action(
                 y -= 1;
                 uy += 10;
             }
-            compute_transition(sid, k);
-            sid = if next_random() < TX_PROB {
-                TX_SUCC
+            let transition = compute_transition(sid, k);
+            sid = if next_random() < transition.probability {
+                transition.success
             } else {
-                TX_FAIL
+                transition.failure
             };
         }
         let (fb, fp, fy) = (ub as f64, up as f64, uy as f64);

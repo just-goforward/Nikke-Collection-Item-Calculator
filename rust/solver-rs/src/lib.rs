@@ -448,12 +448,8 @@ unsafe fn act_at(slot: i32) -> i32 {
 }
 
 // ===== mdp.ts ================================================================================
-static mut G_HF: f64 = 0.5;
 static mut G_NP: f64 = 3.0;
 static mut G_TOL: f64 = 0.01;
-static mut G_INIT_B: f64 = 0.0;
-static mut G_INIT_P: f64 = 0.0;
-static mut G_INIT_Y: f64 = 0.0;
 pub(crate) static mut G_GAIN_B: f64 = 0.0;
 pub(crate) static mut G_GAIN_P: f64 = 0.0;
 pub(crate) static mut G_GAIN_Y: f64 = 0.0;
@@ -487,38 +483,26 @@ unsafe fn worst_case_uses(sid: i32, kit: i32) -> i32 {
             s = CONVERT_SID;
             continue;
         }
-        compute_transition(s, kit);
-        s = TX_FAIL;
+        s = compute_transition(s, kit).failure;
         cnt += 1;
     }
     WC[ck] = cnt;
     cnt
 }
-static mut CAP_B: i32 = 0;
-static mut CAP_P: i32 = 0;
-static mut CAP_Y: i32 = 0;
-unsafe fn cap_stock(sid: i32, b: i32, p: i32, y: i32) {
+unsafe fn cap_stock(sid: i32, b: i32, p: i32, y: i32) -> (i32, i32, i32) {
     let cb = worst_case_uses(sid, 0);
     let cp = worst_case_uses(sid, 1);
     let cy = worst_case_uses(sid, 2);
     if cb == INF || cp == INF || cy == INF {
-        CAP_B = b;
-        CAP_P = p;
-        CAP_Y = y;
-        return;
+        return (b, p, y);
     }
     let nb = b.min(cb);
     let np = p.min(cp);
     let ny = y.min(cy);
     if b + p + y > 0 && nb + np + ny <= 0 {
-        CAP_B = b;
-        CAP_P = p;
-        CAP_Y = y;
-        return;
+        return (b, p, y);
     }
-    CAP_B = nb;
-    CAP_P = np;
-    CAP_Y = ny;
+    (nb, np, ny)
 }
 
 const MAXDEPTH: usize = 2048;
@@ -579,10 +563,7 @@ unsafe fn value(sid: i32, mut b: i32, mut p: i32, mut y: i32) -> i32 {
     if is_convert(sid) {
         return value(CONVERT_SID, b, p, y);
     }
-    cap_stock(sid, b, p, y);
-    b = CAP_B;
-    p = CAP_P;
-    y = CAP_Y;
+    (b, p, y) = cap_stock(sid, b, p, y);
     if b <= 0 && p <= 0 && y <= 0 {
         return DEPLETED;
     }
@@ -606,10 +587,10 @@ unsafe fn value(sid: i32, mut b: i32, mut p: i32, mut y: i32) -> i32 {
             SC_VALID[s] = 0;
             continue;
         }
-        compute_transition(sid, k);
-        let prob = TX_PROB;
-        let succ = TX_SUCC;
-        let fail = TX_FAIL;
+        let transition = compute_transition(sid, k);
+        let prob = transition.probability;
+        let succ = transition.success;
+        let fail = transition.failure;
         let nb = b - if k == 0 { 1 } else { 0 };
         let np = p - if k == 1 { 1 } else { 0 };
         let ny = y - if k == 2 { 1 } else { 0 };
@@ -715,8 +696,8 @@ unsafe fn value(sid: i32, mut b: i32, mut p: i32, mut y: i32) -> i32 {
 }
 
 pub(crate) unsafe fn policy_action(sid: i32, b: i32, p: i32, y: i32) -> i32 {
-    cap_stock(sid, b, p, y);
-    let slot = memo_find(memo_key(sid, CAP_B, CAP_P, CAP_Y));
+    let (b, p, y) = cap_stock(sid, b, p, y);
+    let slot = memo_find(memo_key(sid, b, p, y));
     if slot < 0 {
         -1
     } else {
@@ -737,17 +718,14 @@ pub(crate) unsafe fn phase2_max_success_for_action(
     if is_convert(sid) {
         return phase2_max_success_for_action(CONVERT_SID, b, p, y, action);
     }
-    cap_stock(sid, b, p, y);
-    b = CAP_B;
-    p = CAP_P;
-    y = CAP_Y;
+    (b, p, y) = cap_stock(sid, b, p, y);
     if stock_of(action, b, p, y) <= 0 {
         return None;
     }
-    compute_transition(sid, action);
-    let prob = TX_PROB;
-    let succ = TX_SUCC;
-    let fail = TX_FAIL;
+    let transition = compute_transition(sid, action);
+    let prob = transition.probability;
+    let succ = transition.success;
+    let fail = transition.failure;
     let nb = b - if action == 0 { 1 } else { 0 };
     let np = p - if action == 1 { 1 } else { 0 };
     let ny = y - if action == 2 { 1 } else { 0 };
@@ -788,12 +766,8 @@ pub(crate) unsafe fn solve_start(
 ) -> i32 {
     scratch_ensure();
     root_candidate_reset();
-    G_HF = hf;
     G_NP = np;
     G_TOL = tol;
-    G_INIT_B = init_b;
-    G_INIT_P = init_p;
-    G_INIT_Y = init_y;
     G_DEN_B = init_b + hf * G_GAIN_B;
     G_DEN_P = init_p + hf * G_GAIN_P;
     G_DEN_Y = init_y + hf * G_GAIN_Y;

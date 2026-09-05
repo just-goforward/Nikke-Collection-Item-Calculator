@@ -1,6 +1,4 @@
-use crate::transition::{
-    compute_transition, is_convert, is_terminal, CONVERT_SID, TX_FAIL, TX_PROB, TX_SUCC,
-};
+use crate::transition::{compute_transition, is_convert, is_terminal, CONVERT_SID};
 
 type PolicyAction = unsafe fn(i32, i32, i32, i32) -> i32;
 
@@ -92,10 +90,10 @@ unsafe fn moment_node(sid: i32, b: i32, p: i32, y: i32, policy_action: PolicyAct
         set_return(0.0, 0.0);
         return;
     }
-    compute_transition(sid, action);
-    let prob = TX_PROB;
-    let succ = TX_SUCC;
-    let fail = TX_FAIL;
+    let transition = compute_transition(sid, action);
+    let prob = transition.probability;
+    let succ = transition.success;
+    let fail = transition.failure;
     let delta = if action == TARGET_KIT { 1.0 } else { 0.0 };
     let nb = b - if action == 0 { 1 } else { 0 };
     let np = p - if action == 1 { 1 } else { 0 };

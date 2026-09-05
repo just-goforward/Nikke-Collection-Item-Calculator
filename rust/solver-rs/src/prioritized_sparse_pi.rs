@@ -14,9 +14,7 @@ use crate::constants::{
 use crate::cost::availability_cost_pre;
 use crate::state::{clamp_stock_uses, memo_key, stock_of};
 use crate::status::{reset_status, status_ok};
-use crate::transition::{
-    compute_transition, is_convert, is_terminal, CONVERT_SID, TX_FAIL, TX_PROB, TX_SUCC,
-};
+use crate::transition::{compute_transition, is_convert, is_terminal, CONVERT_SID};
 use crate::{
     memo_reset, phase2_max_success_for_action, policy_action, set_gain_context, solve_start,
     uses_of,
@@ -271,8 +269,10 @@ impl PolicyEvaluation<'_> {
         {
             return self.insert(state, self.leaf(state, 0.0), path_priority);
         }
-        compute_transition(state.sid, action);
-        let (probability, success_sid, failure_sid) = unsafe { (TX_PROB, TX_SUCC, TX_FAIL) };
+        let transition = compute_transition(state.sid, action);
+        let probability = transition.probability;
+        let success_sid = transition.success;
+        let failure_sid = transition.failure;
         let next = decrement(state, action);
         let success = self.value(
             UsesState {
@@ -365,8 +365,10 @@ fn best_action(
         {
             continue;
         }
-        compute_transition(state.sid, action);
-        let (probability, success_sid, failure_sid) = unsafe { (TX_PROB, TX_SUCC, TX_FAIL) };
+        let transition = compute_transition(state.sid, action);
+        let probability = transition.probability;
+        let success_sid = transition.success;
+        let failure_sid = transition.failure;
         let next = decrement(state, action);
         let previous_len = evaluation.entries.len();
         let success = evaluation.value(

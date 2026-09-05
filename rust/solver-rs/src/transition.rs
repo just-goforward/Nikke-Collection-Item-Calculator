@@ -38,9 +38,12 @@ fn fail_state_sid(grade_id: i32, mut level: i32, exp100: i32, kit: i32) -> i32 {
     encode_state(grade_id, level, exp / 100)
 }
 
-pub(crate) static mut TX_PROB: f64 = 0.0;
-pub(crate) static mut TX_SUCC: i32 = 0;
-pub(crate) static mut TX_FAIL: i32 = 0;
+#[derive(Clone, Copy)]
+pub(crate) struct Transition {
+    pub(crate) probability: f64,
+    pub(crate) success: i32,
+    pub(crate) failure: i32,
+}
 
 const TRANSITION_TABLE_SIZE: usize = STATE_BUCKETS as usize * 3;
 static mut TRANSITION_PROB: [f64; TRANSITION_TABLE_SIZE] = [0.0; TRANSITION_TABLE_SIZE];
@@ -72,12 +75,47 @@ unsafe fn ensure_transition_table() {
     TRANSITION_TABLE_READY = true;
 }
 
-pub(crate) fn compute_transition(sid: i32, kit: i32) {
+pub(crate) fn compute_transition(sid: i32, kit: i32) -> Transition {
     unsafe {
         ensure_transition_table();
         let index = (sid * 3 + kit) as usize;
-        TX_PROB = TRANSITION_PROB[index];
-        TX_SUCC = TRANSITION_SUCC[index];
-        TX_FAIL = TRANSITION_FAIL[index];
+        Transition {
+            probability: TRANSITION_PROB[index],
+            success: TRANSITION_SUCC[index],
+            failure: TRANSITION_FAIL[index],
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{compute_transition, Transition};
+    use crate::state::encode_state;
+
+    fn assert_copy<T: Copy>() {}
+
+    #[test]
+    fn transition_and_stock_cap_return_the_existing_values() {
+        assert_copy::<Transition>();
+
+        let start = encode_state(0, 0, 0);
+        let transition = compute_transition(start, 0);
+        assert_eq!(
+            transition.probability.to_bits(),
+            (17.6_f64 / 100.0).to_bits()
+        );
+        assert_eq!(transition.success, encode_state(0, 5, 0));
+        assert_eq!(transition.failure, encode_state(0, 0, 2));
+        assert_eq!(
+            unsafe { crate::cap_stock(start, 300, 300, 300) },
+            (225, 90, 45)
+        );
+
+        let terminal = encode_state(1, 15, 0);
+        let terminal_transition = compute_transition(terminal, 2);
+        assert_eq!(terminal_transition.probability, 0.0);
+        assert_eq!(terminal_transition.success, terminal);
+        assert_eq!(terminal_transition.failure, terminal);
+        assert_eq!(unsafe { crate::cap_stock(terminal, 7, 8, 9) }, (7, 8, 9));
     }
 }

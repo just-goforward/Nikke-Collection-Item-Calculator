@@ -1,8 +1,6 @@
 use crate::constants::{MAX_USES_B, MAX_USES_P, MAX_USES_Y};
 use crate::state::{grade_of, level_of, stock_of};
-use crate::transition::{
-    compute_transition, is_convert, is_terminal, CONVERT_SID, TX_FAIL, TX_PROB, TX_SUCC,
-};
+use crate::transition::{compute_transition, is_convert, is_terminal, CONVERT_SID};
 use crate::uses_of;
 
 pub(crate) type SolveActionAt = unsafe fn(i32, i32, i32, i32, f64, f64, f64) -> i32;
@@ -93,16 +91,15 @@ unsafe fn run_count(
     if stock_of(action, b, p, y) <= 0 {
         return 0;
     }
-    compute_transition(state, action);
-    let success_target = TX_SUCC; // firstEdge.success (solver.ts:751)
+    let success_target = compute_transition(state, action).success; // firstEdge.success (solver.ts:751)
     let mut count = 0;
     while count < 100 && !is_terminal(state) && !is_convert(state) && stock_of(action, b, p, y) > 0
     {
         if count > 0 && policy_action(state, b, p, y) != action {
             break; // policy changed (solver.ts:762-763)
         }
-        compute_transition(state, action);
-        if TX_SUCC != success_target {
+        let transition = compute_transition(state, action);
+        if transition.success != success_target {
             break; // success boundary changed (solver.ts:766)
         }
         count += 1;
@@ -113,7 +110,7 @@ unsafe fn run_count(
         } else {
             y -= 1;
         }
-        let fail = TX_FAIL;
+        let fail = transition.failure;
         let leveled = grade_of(fail) != grade_of(state) || level_of(fail) != level_of(state);
         state = fail;
         if leveled {
@@ -166,10 +163,10 @@ unsafe fn exact_value(
     let mut agg_p: f64 = 0.0;
     let mut attempt = 1;
     while attempt <= n {
-        compute_transition(fail_sid, action); // copy BEFORE recursing (recursion re-solves)
-        let prob = TX_PROB;
-        let succ_sid = TX_SUCC;
-        let fail_next = TX_FAIL;
+        let transition = compute_transition(fail_sid, action); // copy BEFORE recursing (recursion re-solves)
+        let prob = transition.probability;
+        let succ_sid = transition.success;
+        let fail_next = transition.failure;
         let p_hit = no_succ * prob; // first success exactly at this attempt (visit:382)
         if p_hit > 0.0 {
             let cb = pb - if action == 0 { attempt * 10 } else { 0 };
