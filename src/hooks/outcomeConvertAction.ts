@@ -1,6 +1,5 @@
 import { type Dispatch, type RefObject, type SetStateAction, useCallback } from "react";
 import { message } from "../i18n/locale";
-import { convertState } from "../solver/domain";
 import type { CollectionState, Stock } from "../types";
 import type { DetailView, ResultView, StateChangeFeedback, ValidationView } from "../ui-types";
 import {
@@ -10,6 +9,7 @@ import {
   type SolverResult,
 } from "./calculatorShared";
 import type { ConvertApplyResult } from "./outcomeFlowTypes";
+import { canApplyConversion, planConversion } from "./outcomeTransitionPlans";
 
 type ConvertActionOptions = {
   currentStockSnapshot: () => Stock;
@@ -28,10 +28,6 @@ type ConvertActionOptions = {
   setValidationView: Dispatch<SetStateAction<ValidationView>>;
 };
 
-export function canApplyConversion(state: CollectionState) {
-  return state.grade === "R" && state.level >= 15;
-}
-
 export function useConvertAction({
   currentStockSnapshot,
   currentStateSnapshot,
@@ -48,23 +44,18 @@ export function useConvertAction({
   return useCallback((): ConvertApplyResult | null => {
     const previousState = currentStateSnapshot();
     if (!canApplyConversion(previousState)) return null;
-    const nextState = convertState() as CollectionState;
-    const hasPendingGreatSuccess = pendingStatsEventRef.current !== null;
     const previousInput = latestResultRef.current?.input;
-    const nextInput = {
-      start: nextState,
-      stock: currentStockSnapshot(),
-      ...(previousInput?.strategy ? { strategy: previousInput.strategy } : {}),
-    };
-    if (pendingStatsEventRef.current) {
-      setPendingStatsEvent({
-        ...pendingStatsEventRef.current,
-        resultState: nextState,
-      });
-    }
-    recordStateFeedback(previousState, nextState);
-    setCollectionState(nextState, { maxLevelRender: false });
-    setManualStockEditRequired(hasPendingGreatSuccess);
+    const plan = planConversion(
+      previousState,
+      currentStockSnapshot(),
+      pendingStatsEventRef.current,
+      previousInput,
+    );
+    if (!plan) return null;
+    if (plan.pendingEvent) setPendingStatsEvent(plan.pendingEvent);
+    recordStateFeedback(previousState, plan.nextState);
+    setCollectionState(plan.nextState, { maxLevelRender: false });
+    setManualStockEditRequired(plan.hasPendingGreatSuccess);
     setResultView({
       type: "callout",
       reason: "converted",
@@ -72,11 +63,15 @@ export function useConvertAction({
     });
     setDetailView({
       type: "empty",
-      message: hasPendingGreatSuccess ? DEFAULT_STOCK_NOTICE : message("result.calculateChanged"),
+      message: plan.hasPendingGreatSuccess
+        ? DEFAULT_STOCK_NOTICE
+        : message("result.calculateChanged"),
     });
     setValidationView(INITIAL_VALIDATION);
     latestResultRef.current = null;
-    return hasPendingGreatSuccess ? { needsStockEdit: true } : { needsStockEdit: false, nextInput };
+    return plan.hasPendingGreatSuccess
+      ? { needsStockEdit: true }
+      : { needsStockEdit: false, nextInput: plan.nextInput };
   }, [
     currentStockSnapshot,
     currentStateSnapshot,
