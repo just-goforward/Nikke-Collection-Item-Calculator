@@ -112,8 +112,7 @@ const classes = {
   tableReason:
     "candidate-reason-trigger mt-0.5 block w-fit max-w-full cursor-help border-0 bg-transparent p-0 text-left text-[11px] font-medium leading-tight text-muted max-mobile:text-[10px]",
   tableReasonBubble:
-    "candidate-reason-bubble pointer-events-none fixed z-[20] box-border w-[min(260px,calc(100vw-24px))] rounded-card border border-border bg-surface px-[11px] py-2 text-left text-xs font-normal leading-[1.45] text-text-soft opacity-0 shadow-panel transition-opacity duration-[160ms] [overflow-wrap:anywhere] [word-break:keep-all]",
-  tableReasonBubbleOpen: "opacity-100",
+    "candidate-reason-bubble pointer-events-none fixed z-[9999] box-border w-[min(260px,calc(100vw-24px))] rounded-card border border-border bg-surface px-[11px] py-2 text-left text-xs font-normal leading-[1.45] text-text-soft shadow-panel [overflow-wrap:anywhere] [word-break:keep-all]",
   validationDetails:
     "validation-details relative rounded-card border border-border bg-surface-raised",
   validationHeader:
@@ -324,6 +323,7 @@ function CandidateReason({
 }) {
   const { text } = useI18n();
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const bubbleRef = useRef<HTMLSpanElement>(null);
   const tooltipId = useId();
   const [lockedOpen, setLockedOpen] = useState(false);
   const [open, setOpen] = useState(false);
@@ -332,12 +332,19 @@ function CandidateReason({
   const updatePosition = useCallback(() => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const bubbleWidth = Math.min(260, Math.max(0, window.innerWidth - 24));
+    const viewportPadding = 12;
+    const gap = 7;
+    const bubbleRect = bubbleRef.current?.getBoundingClientRect();
+    const bubbleWidth = bubbleRect?.width ?? Math.min(260, Math.max(0, window.innerWidth - 24));
+    const bubbleHeight = bubbleRect?.height ?? 80;
     const left = Math.min(
-      Math.max(12, rect.left),
-      Math.max(12, window.innerWidth - bubbleWidth - 12),
+      Math.max(viewportPadding, rect.left),
+      Math.max(viewportPadding, window.innerWidth - bubbleWidth - viewportPadding),
     );
-    const top = rect.bottom + 7;
+    const below = rect.bottom + gap;
+    const above = rect.top - gap - bubbleHeight;
+    const maxTop = Math.max(viewportPadding, window.innerHeight - bubbleHeight - viewportPadding);
+    const top = Math.min(maxTop, Math.max(viewportPadding, below <= maxTop ? below : above));
     setPosition({ left, top });
   }, []);
 
@@ -350,7 +357,7 @@ function CandidateReason({
     if (!lockedOpen) setOpen(false);
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return undefined;
     const update = () => updatePosition();
     window.addEventListener("resize", update);
@@ -393,16 +400,20 @@ function CandidateReason({
       onPointerLeave={hideTip}
     >
       ({text(label)})
-      {help ? (
-        <span
-          id={tooltipId}
-          role="tooltip"
-          className={`${classes.tableReasonBubble} ${open ? classes.tableReasonBubbleOpen : ""}`}
-          style={{ left: position.left, top: position.top }}
-        >
-          {text(help)}
-        </span>
-      ) : null}
+      {open && help
+        ? createPortal(
+            <span
+              ref={bubbleRef}
+              id={tooltipId}
+              role="tooltip"
+              className={classes.tableReasonBubble}
+              style={{ left: position.left, top: position.top }}
+            >
+              {text(help)}
+            </span>,
+            document.body,
+          )
+        : null}
     </button>
   );
 }
@@ -435,8 +446,15 @@ function DetailMetricGrid({ view }: { view: MetricsDetailView }) {
   );
 }
 
-function useResponsiveCandidateTable(tableWrapRef: RefObject<HTMLDivElement | null>) {
+function useResponsiveCandidateTable(
+  tableWrapRef: RefObject<HTMLDivElement | null>,
+  layoutRevision: string,
+) {
+  const alignRef = useRef<() => void>(() => undefined);
+
   useLayoutEffect(() => {
+    // The rendered labels are read from the DOM, so the revision is an execution trigger only.
+    void layoutRevision;
     const tableWrap = tableWrapRef.current;
     if (!tableWrap) return;
 
@@ -495,18 +513,29 @@ function useResponsiveCandidateTable(tableWrapRef: RefObject<HTMLDivElement | nu
       alignVisibleActionNames();
     };
 
+    alignRef.current = alignActionNames;
     alignActionNames();
-    if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(alignActionNames);
+    return () => {
+      alignRef.current = () => undefined;
+    };
+  }, [layoutRevision, tableWrapRef]);
+
+  useLayoutEffect(() => {
+    const tableWrap = tableWrapRef.current;
+    if (!tableWrap || typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(() => alignRef.current());
     observer.observe(tableWrap);
     return () => observer.disconnect();
-  });
+  }, [tableWrapRef]);
 }
 
 function CandidateTable({ view }: { view: MetricsDetailView }) {
-  const { t, text } = useI18n();
+  const { locale, t, text } = useI18n();
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
-  useResponsiveCandidateTable(tableWrapRef);
+  const layoutRevision = `${locale}:${view.candidates
+    .map((candidate) => `${candidate.kit}:${candidate.count}`)
+    .join(",")}`;
+  useResponsiveCandidateTable(tableWrapRef, layoutRevision);
 
   return (
     <div

@@ -1002,6 +1002,93 @@ test("검산 details — 펼치면 가상의 니붕이 검산 결과가 자동 �
   await expect(page.locator(".result-panel #resultBox")).toHaveAttribute("inert", "");
   await expect(page.locator(".result-panel [role='status']")).not.toHaveAttribute("inert");
 });
+
+test("후보 사유 툴팁은 패널 경계를 벗어나고 후보 표 observer는 재사용된다", async ({ page }) => {
+  await page.addInitScript(() => {
+    const NativeResizeObserver = window.ResizeObserver;
+    const counters = { created: 0, disconnected: 0 };
+    class TrackedResizeObserver {
+      private readonly observer: ResizeObserver;
+      private tracksCandidateTable = false;
+
+      constructor(callback: ResizeObserverCallback) {
+        this.observer = new NativeResizeObserver(callback);
+      }
+
+      observe(target: Element, options?: ResizeObserverOptions) {
+        if (target.classList.contains("table-wrap") && !this.tracksCandidateTable) {
+          this.tracksCandidateTable = true;
+          counters.created += 1;
+        }
+        this.observer.observe(target, options);
+      }
+
+      unobserve(target: Element) {
+        this.observer.unobserve(target);
+      }
+
+      disconnect() {
+        if (this.tracksCandidateTable) counters.disconnected += 1;
+        this.observer.disconnect();
+      }
+    }
+    Object.defineProperty(window, "ResizeObserver", {
+      configurable: true,
+      value: TrackedResizeObserver,
+    });
+    Object.defineProperty(window, "__candidateTableObserverCounters", {
+      configurable: true,
+      value: counters,
+    });
+  });
+  await page.reload();
+  await page.getByLabel("초심자용 키트").fill("100");
+  await page.getByLabel("중급자용 키트").fill("100");
+  await page.getByLabel("상급자용 키트").fill("100");
+  await page.getByRole("button", { name: "계산", exact: true }).click();
+
+  const reason = page.locator(".candidate-reason-trigger").first();
+  await expect(reason).toBeVisible({ timeout: 20_000 });
+  await reason.click();
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toBeVisible();
+  const geometry = await tooltip.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      bodyPortal: element.parentElement === document.body,
+      bottom: rect.bottom,
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      viewportHeight: window.innerHeight,
+      viewportWidth: window.innerWidth,
+      zIndex: getComputedStyle(element).zIndex,
+    };
+  });
+  expect(geometry).toMatchObject({ bodyPortal: true, zIndex: "9999" });
+  expect(geometry.left).toBeGreaterThanOrEqual(0);
+  expect(geometry.top).toBeGreaterThanOrEqual(0);
+  expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth);
+  expect(geometry.bottom).toBeLessThanOrEqual(geometry.viewportHeight);
+
+  await page.keyboard.press("Escape");
+  await expect(tooltip).toHaveCount(0);
+  await expect(reason).toBeFocused();
+
+  await page.getByLabel("초심자용 키트").fill("101");
+  await expect(
+    page.getByText("보유 키트가 변경되었습니다. 계산 버튼을 눌러 결과를 갱신해주세요.").first(),
+  ).toBeVisible();
+  const observerCounts = await page.evaluate(
+    () =>
+      (
+        window as typeof window & {
+          __candidateTableObserverCounters: { created: number; disconnected: number };
+        }
+      ).__candidateTableObserverCounters,
+  );
+  expect(observerCounts).toEqual({ created: 1, disconnected: 0 });
+});
 test("모바일 탭은 입력, 결과, 통계 화면을 전환한다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/?demoStats=1");
