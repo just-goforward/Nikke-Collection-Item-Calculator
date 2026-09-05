@@ -3,6 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  APPLICATION_ENTRYPOINTS,
+  CHECK_ROOTS,
+  WORKER_SOURCE_ROOTS,
+} from "./architecture-config.ts";
+import {
   architectureIssues,
   containsAdHocTextAlignment,
   formatArchitectureResult,
@@ -12,6 +17,13 @@ import {
 } from "./architecture-rules.ts";
 
 describe("architecture rules", () => {
+  it("covers every production Worker source root and entrypoint", () => {
+    for (const root of WORKER_SOURCE_ROOTS) {
+      expect(CHECK_ROOTS).toContain(root);
+      expect(APPLICATION_ENTRYPOINTS).toContain(`${root}/worker.ts`);
+    }
+  });
+
   it("measures function length, nesting depth, and approximate complexity", () => {
     const metrics = measureFunctions(
       `
@@ -56,8 +68,15 @@ function outer() {
 
   it("rejects imports that cross product runtime boundaries", () => {
     expect(violatesModuleBoundary("src/app.ts", "cloudflare/src/worker.ts")).toBe(true);
+    expect(violatesModuleBoundary("src/app.ts", "forecast-dispatcher/src/worker.ts")).toBe(true);
     expect(violatesModuleBoundary("cloudflare/src/worker.ts", "src/types.ts")).toBe(true);
     expect(violatesModuleBoundary("cloudflare/src/worker.ts", "shared/game.ts")).toBe(false);
+    expect(
+      violatesModuleBoundary("forecast-dispatcher/src/worker.ts", "forecast-collector/src/db.ts"),
+    ).toBe(true);
+    expect(violatesModuleBoundary("forecast-dispatcher/src/worker.ts", "shared/forecast.ts")).toBe(
+      false,
+    );
     expect(violatesModuleBoundary("shared/game.ts", "src/types.ts")).toBe(true);
     expect(violatesModuleBoundary("src/app.ts", "src/types.ts")).toBe(false);
     expect(violatesModuleBoundary("cloudflare/src/worker.ts", "cloudflare/src/http.ts")).toBe(

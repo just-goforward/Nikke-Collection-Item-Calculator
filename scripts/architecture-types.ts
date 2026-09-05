@@ -9,6 +9,10 @@ export type FunctionDebtEntry = DebtEntry & {
   function: string;
 };
 
+export type ModuleBoundaryDebtEntry = DebtEntry & {
+  dependency: string;
+};
+
 export type ArchitectureIssue = {
   code:
     | "cycle"
