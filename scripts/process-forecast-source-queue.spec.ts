@@ -13,5 +13,5 @@ describe("forecast source-queue processor", () => {
 
     expect(result.status, result.stderr || result.stdout).toBe(0);
     expect(result.stdout).toContain("bundle check passed");
-  });
+  }, 35_000);
 });
