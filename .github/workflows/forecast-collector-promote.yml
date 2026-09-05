@@ -390,69 +390,14 @@ jobs:
           [[ "$status" == "200" ]]
           jq -e '.ok == true and .state.action == "normal"' "$RUNNER_TEMP/usage-guard-production-refresh.json" >/dev/null
 
-      - name: Apply production workflow dispatch operations migration
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
-            --config forecast-collector/wrangler.toml \
-            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 7;" \
-            --json)
-          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
-            npx wrangler d1 execute FORECAST_DB --remote --env="" \
-              --config forecast-collector/wrangler.toml \
-              --file forecast-collector/migrations/0007_workflow_dispatch_ops.sql
+      - name: Verify Forecast migration runner
+        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/forecast-dispatcher-workflow.spec.ts
 
-      - name: Apply production manual review and Router audit migration
+      - name: Apply production Forecast D1 migrations
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
-            --config forecast-collector/wrangler.toml \
-            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 8;" \
-            --json)
-          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
-            npx wrangler d1 execute FORECAST_DB --remote --env="" \
-              --config forecast-collector/wrangler.toml \
-              --file forecast-collector/migrations/0008_manual_reviews_interactions_canary.sql
-
-      - name: Ensure production canary storage migration
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
-            --config forecast-collector/wrangler.toml \
-            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 9;" \
-            --json)
-          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
-            npx wrangler d1 execute FORECAST_DB --remote --env="" \
-              --config forecast-collector/wrangler.toml \
-              --file forecast-collector/migrations/0009_d1_budget_canary_v6.sql
-
-      - name: Ensure production canary v10 version identity migration
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          migration=$(npx wrangler d1 execute FORECAST_DB --remote --env="" \
-            --config forecast-collector/wrangler.toml \
-            --command "SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 10;" \
-            --json)
-          [[ "$(jq -r '.[0].results[0].count' <<<"$migration")" == "1" ]] || \
-            npx wrangler d1 execute FORECAST_DB --remote --env="" \
-              --config forecast-collector/wrangler.toml \
-              --file forecast-collector/migrations/0010_canary_v10_version_identity.sql
+        run: node scripts/apply-forecast-d1-migrations.ts --env production --remote
 
       - name: Verify production Cron trigger capacity
         env:
