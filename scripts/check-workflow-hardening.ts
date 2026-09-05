@@ -21,7 +21,10 @@ function usesReference(line: string): string | undefined {
   const match = line.match(/^\s*(?:-\s+)?uses:\s*(.*?)\s*$/);
   if (!match) return undefined;
 
-  let reference = match[1].replace(/\s+#.*$/, "").trim();
+  const rawReference = match[1];
+  if (rawReference === undefined) return undefined;
+
+  let reference = rawReference.replace(/\s+#.*$/, "").trim();
   if (
     (reference.startsWith('"') && reference.endsWith('"')) ||
     (reference.startsWith("'") && reference.endsWith("'"))
@@ -87,9 +90,12 @@ export function validateWorkflowSource(source: string): WorkflowHardeningIssue[]
 
     const jobMatch = line.match(/^ {2}([A-Za-z_][A-Za-z0-9_-]*):\s*(?:#.*)?$/);
     if (jobMatch) {
+      const jobId = jobMatch[1];
+      if (jobId === undefined) continue;
+
       finishJob();
       currentJob = {
-        id: jobMatch[1],
+        id: jobId,
         line: lineNumber,
         hasTimeout: false,
         callsReusableWorkflow: false,
