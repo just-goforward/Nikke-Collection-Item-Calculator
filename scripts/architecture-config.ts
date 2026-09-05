@@ -339,15 +339,6 @@ export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
     removalTarget: "Extract pure payload validation while keeping the final D1 batch atomic.",
   },
   {
-    file: "forecast-collector/src/worker.ts",
-    function: "fetch",
-    owner: "worker",
-    reason:
-      "The admin API router keeps authentication and endpoint dispatch in one Worker entrypoint.",
-    removalTarget:
-      "Move authenticated route groups into typed handlers without duplicating auth checks.",
-  },
-  {
     file: "benchmarks/evaluator/exact-replan.ts",
     function: "createExactInteractiveReplanSession",
     owner: "benchmark",
