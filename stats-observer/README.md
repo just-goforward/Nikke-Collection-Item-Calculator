@@ -51,6 +51,7 @@ writes. Calculator and solver execution remain client-side and continue normally
 npm run stats-observer:types:check
 npx tsc --noEmit -p stats-observer/tsconfig.json
 npm run test:stats-observer
+npm test -- scripts/stats-observer-workflow.spec.ts
 npx wrangler deploy --dry-run --env staging --config stats-observer/wrangler.toml
 ```
 

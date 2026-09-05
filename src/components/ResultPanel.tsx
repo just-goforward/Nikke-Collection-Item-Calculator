@@ -75,7 +75,6 @@ const classes = {
   levelBurst:
     "pointer-events-none absolute bottom-[calc(100%+1px)] left-1/2 grid -translate-x-1/2 grid-cols-3 gap-px text-[9px] font-extrabold leading-none text-grade-active motion-reduce:hidden",
   levelBurstIcon: "animate-[level-burst_700ms_ease-out_2_both]",
-  stateFeedbackBadge: `state-feedback-badge inline-flex shrink-0 items-center rounded-pill border border-grade-active bg-surface-raised px-2 py-1 text-[10.5px] font-semibold leading-none text-grade-active-strong shadow-[0_8px_18px_rgba(21,43,58,0.14)] ${stateFeedbackAnimations.badge}`,
   expGroup: "grid w-[150px] min-w-0 flex-none gap-[5px] min-[661px]:max-tablet:w-[140px]",
   expHeader: "flex items-center justify-between gap-3",
   expLabel: "text-[9.5px] font-extrabold leading-none text-muted",
@@ -135,9 +134,6 @@ const classes = {
     "relative inline-flex min-h-[52px] items-center justify-center overflow-hidden whitespace-nowrap border bg-button px-2 text-[16px] font-bold leading-none [touch-action:manipulation] [user-select:none] min-[661px]:max-tablet:min-h-[46px] min-[661px]:max-tablet:text-[13.5px] max-mobile:min-w-0 max-mobile:px-2 max-mobile:text-[13px] max-mobile:min-h-10",
   successButton: "success-button border-yellow-kit text-text",
   failButton: "fail-button border-yellow-kit text-text",
-  successHoldFill: "bg-[rgba(230,170,38,0.42)]",
-  failHoldFill: "bg-[rgba(230,170,38,0.42)]",
-  hiddenDot: "hidden",
   outcomeCaption:
     "outcome-caption m-0 flex min-h-[18px] self-center flex-wrap items-center justify-center text-balance text-center text-[10.5px] font-semibold leading-[1.2] text-muted [overflow-wrap:anywhere] [word-break:keep-all]",
   outcomeCaptionStage: "outcome-caption-stage grid min-h-[26px] min-[1004px]:min-h-[18px]",

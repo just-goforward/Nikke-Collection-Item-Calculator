@@ -13,7 +13,9 @@ describe("stats observer alert policy", () => {
   });
 
   it("alerts only for delayed or repeatedly retried delivery summaries", () => {
-    expect(deliveryObservation(deliveryRow({ age_bucket: "2m_5m", attempts_bucket: "2" })).alertable).toBe(false);
+    expect(
+      deliveryObservation(deliveryRow({ age_bucket: "2m_5m", attempts_bucket: "2" })).alertable,
+    ).toBe(false);
     expect(deliveryObservation(deliveryRow({ age_bucket: "5m_15m" })).alertable).toBe(true);
     expect(deliveryObservation(deliveryRow({ attempts_bucket: "3_5" })).alertable).toBe(true);
   });
@@ -67,4 +69,3 @@ function deliveryRow(overrides: Partial<DeliveryAggregateRow> = {}): DeliveryAgg
     ...overrides,
   };
 }
-

@@ -6,7 +6,7 @@ statistics and cannot modify the repository or activate a product forecast.
 
 ## Sources and cadence
 
-- Every three minutes the Free-plan Worker reads only ten shallow feed records from Naver Lounge
+- Every three minutes the Collector Worker reads only ten shallow feed records from Naver Lounge
   boards 56 and 48. It queues IDs, titles, timestamps, manager roles, and URLs; it does not parse or
   hash post bodies on the Cron path.
 - The offset Dispatcher Worker checks the shared D1 queue at minutes 1, 4, 7, and so on. New work
@@ -155,6 +155,10 @@ artifact before posting a Discord button. Discord sends every component interact
 token, or Discord bot token. It verifies the Ed25519 signature and the configured application,
 guild, channel, and approver user IDs, then selects only the staging or production D1 named by the
 opaque custom ID. The old Collector interaction route is disabled after Router readiness succeeds.
+The Router and legacy compatibility route both consume `shared/discordInteraction.ts` for request
+size, Ed25519 signature, five-minute freshness, payload parsing, and custom-ID constants. Collector
+D1 mutations, manual-review decisions, and operations alerts remain Collector-owned rather than
+moving into that neutral contract.
 
 The button gives the Router no GitHub token. `Process Staging Forecast Adoption` polls approved
 rows with the existing authenticated admin boundary, validates main and the artifact digest again,
@@ -282,10 +286,13 @@ npm run dispatcher:types:check
 npm run test:forecast-dispatcher
 npm run interactions:types:check
 npm run test:forecast-interactions
-npm test -- scripts/d1-budget.test.ts scripts/forecast-dispatcher-workflow.spec.ts
+npm run usage-guard:types:check
+npm run test:usage-guard
+npm test -- scripts/d1-budget.test.ts scripts/cloudflare-paid-quota-config.test.ts scripts/forecast-dispatcher-workflow.spec.ts
 npx wrangler deploy --dry-run --env staging --config forecast-collector/wrangler.toml
 npx wrangler deploy --dry-run --env staging --config forecast-dispatcher/wrangler.toml
 npx wrangler deploy --dry-run --config forecast-interactions/wrangler.toml
+npx wrangler deploy --dry-run --config usage-guard/wrangler.toml
 ```
 
 Remote setup needs two dedicated D1 databases and `ADMIN_TOKEN`. GitHub
