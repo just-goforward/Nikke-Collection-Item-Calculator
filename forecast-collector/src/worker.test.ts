@@ -37,6 +37,70 @@ describe("forecast collector runtime switch", () => {
   });
 });
 
+describe("forecast collector route dispatch boundary", () => {
+  it.each([
+    ["/admin/probe", "probe"],
+    ["/admin/dispatcher-smoke", "dispatcher-smoke"],
+    [`/admin/workflow-dispatches/fd-${"a".repeat(32)}/status`, "workflow-dispatches"],
+    ["/admin/ops-alerts/watchdog-fallback", "ops-alerts"],
+    ["/admin/source-queue/process", "source-queue"],
+    [`/admin/manual-reviews/mr-${"a".repeat(32)}/decision`, "manual-reviews"],
+    ["/admin/canary-deployments/start", "canary-deployments"],
+    ["/admin/discord-test-approvals", "discord"],
+  ])("applies the shared authenticated limit before dispatching %s", async (path, group) => {
+    const limit = vi
+      .fn()
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: false });
+    const response = await invokeAdmin(
+      { ADMIN_RATE_LIMITER: { limit } as unknown as RateLimit, ADMIN_TOKEN: "expected-token" },
+      { token: "expected-token", path, method: "POST", body: "invalid-json" },
+    );
+    expect(response.status).toBe(429);
+    expect(limit.mock.calls).toEqual([
+      [{ key: "admin-unauth:unknown" }],
+      [{ key: `admin-auth:POST:${group}` }],
+    ]);
+  });
+
+  it.each([
+    ["GET", "/admin/probe"],
+    ["DELETE", "/admin/candidates"],
+    ["POST", "/admin/unknown"],
+  ])("retains 404 for unsupported %s %s", async (method, path) => {
+    const response = await invokeAdmin(
+      {
+        ADMIN_RATE_LIMITER: {
+          limit: vi.fn().mockResolvedValue({ success: true }),
+        } as unknown as RateLimit,
+        ADMIN_TOKEN: "expected-token",
+      },
+      { token: "expected-token", path, method },
+    );
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("Not found");
+  });
+
+  it.each([
+    "/admin/dispatcher-smoke",
+    "/admin/discord-test-approvals",
+    "/admin/discord-staging-adoptions",
+    `/admin/discord-staging-adoptions/discord-staging-${"a".repeat(36)}/message`,
+    `/admin/discord-staging-adoptions/discord-staging-${"a".repeat(36)}/adoption-pr`,
+  ])("keeps staging-only route %s unavailable in production", async (path) => {
+    const response = await invokeAdmin(
+      {
+        ADMIN_RATE_LIMITER: {
+          limit: vi.fn().mockResolvedValue({ success: true }),
+        } as unknown as RateLimit,
+        ADMIN_TOKEN: "expected-token",
+      },
+      { token: "expected-token", path, method: "POST", body: "{}", environment: "production" },
+    );
+    expect(response.status).toBe(404);
+  });
+});
+
 describe("forecast collector admin boundary", () => {
   it("checks the admin rate limiter before bearer authentication", async () => {
     const limit = vi.fn().mockResolvedValue({ success: false });
@@ -173,9 +237,15 @@ async function invokeAdmin(
     path?: string;
     method?: string;
     body?: string;
+    environment?: "staging" | "production";
   } = {},
 ) {
-  const runtimeEnv = { ...testEnv, ...bindings, ENVIRONMENT: "staging" } as CollectorEnv;
+  const runtimeEnv = {
+    ...testEnv,
+    ...bindings,
+    ENVIRONMENT: options.environment ?? "staging",
+    DISCORD_APPROVAL_MODE: "staging_adoption",
+  } as CollectorEnv;
   const context = {
     passThroughOnException: vi.fn(),
     waitUntil: vi.fn(),
