@@ -9,6 +9,7 @@ dist/
 coverage/
 .vitest/
 .stryker-tmp/
+/reports/mutation/
 collection-server.js
 web.zip
 .DS_Store
