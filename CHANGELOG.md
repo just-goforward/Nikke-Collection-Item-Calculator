@@ -2,6 +2,25 @@
 
 소장품 레벨업 계산기의 주요 변경 이력을 기록합니다.
 
+## 2026-09-05
+
+### Forecast 보류 상태 문서화, 아키텍처 감사 및 고재고 회귀 보강
+
+- production Forecast 자동화 인프라와 현재 활성·staging·미병합 후보의 책임 경계를 정리하고,
+  제품 Forecast는 기존 `supply-2026-08-21-v1`로 유지한 채 재개 절차를 별도 문서화했습니다.
+- 아키텍처 검사 대상에서 빠져 있던 Forecast Dispatcher, Discord Interaction Router와 Stats
+  Observer를 검사 루트와 진입점에 추가했습니다. Worker 간 허용 의존성과 기존 복잡도·타입
+  경계는 파일·함수 단위의 제거 조건이 있는 부채 목록으로 제한했습니다.
+- Android에서 보고된 `R0 / 720·330·195`, 기존 `770·330·190`, 두 번째 phase2 overflow
+  segment의 용량 능선 `820·320·160`을 실제 WASM 회귀 테스트에 추가했습니다. 첫 행동, 기대
+  사용량 vector의 binary64 값, 상태 수와 메모리 segment 수를 고정했습니다.
+- `fast-uri`와 `qs` 전이 의존성을 패치 버전으로 고정해 현재 npm 보안 취약점을 0건으로
+  정리했습니다.
+- Biome 2.5.12, Playwright 1.63.0, React DOM 타입 19.2.7, Wrangler 4.129.0으로 갱신하고
+  여섯 Worker의 생성 타입과 `workerd` 설치 허용 목록을 동기화했습니다.
+- Vitest 5는 별도 메이저 마이그레이션과 전체 Worker/E2E 검증이 필요하므로 이번 호환 업데이트에
+  포함하지 않았습니다.
+
 ## 2026-08-13
 
 ### 계산 흐름·Worker 배포·운영 계약 보강
