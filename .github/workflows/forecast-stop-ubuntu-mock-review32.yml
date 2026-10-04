@@ -1,0 +1,126 @@
+# LOCAL REVIEW DRAFT. No branch push or job execution has been approved.
+name: Forecast REVIEW32 Ubuntu mock
+on:
+  push:
+    branches:
+      - codex/forecast-review32-ubuntu-20261004
+permissions:
+  contents: read
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+concurrency:
+  group: forecast-review32-ubuntu-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  ubuntu-mock:
+    if: github.repository == 'just-goforward/Nikke-Collection-Item-Calculator' &&
+      github.event_name == 'push' && github.ref ==
+      'refs/heads/codex/forecast-review32-ubuntu-20261004' &&
+      github.event.deleted == false && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout approved event commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Setup reviewed Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.21.0
+          package-manager-cache: false
+      - name: Verify parent and reviewed source manifest
+        env:
+          EXPECTED_BASE_SHA: 530d157a57f9cdbe4a15fb11e80b5a7e394df9e7
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE_SHA"
+          node --input-type=module - .review32/ubuntu/manifest.json <<'NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          const manifest=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+          for(const entry of [...manifest.files,...manifest.dependencies]){
+           if(entry.path.includes('..')||entry.path.startsWith('/'))throw Error('invalid_source_path');
+           const bytes=fs.readFileSync(entry.path);
+           if(bytes.length!==entry.bytes||crypto.createHash('sha256').update(bytes).digest('hex')!==entry.sha256)throw Error('reviewed_source_changed');
+          }
+          console.log(JSON.stringify({base:manifest.baseSha,files:manifest.files.length,sourceSha:process.env.GITHUB_SHA,workflowSha:process.env.GITHUB_WORKFLOW_SHA,event:process.env.GITHUB_EVENT_NAME,ref:process.env.GITHUB_REF}));
+          NODE
+      - name: Install locked dependencies without lifecycle scripts
+        env:
+          NPM_CONFIG_CACHE: ${{ runner.temp }}/forecast-review32-npm
+        run: |
+          npm install --global npm@12.2.0 --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = "12.2.0"
+          npm ci --ignore-scripts --no-audit --no-fund
+          node --input-type=module -e "import fs from 'node:fs'; if(JSON.parse(fs.readFileSync('node_modules/zod/package.json')).version!=='4.5.4')process.exit(1);"
+        id: locked_dependencies
+      - name: Run bounded native process and filesystem mocks
+        env:
+          FORECAST_NATIVE_MOCK_ROOT: ${{ runner.temp }}/forecast-review32-native
+        run: >
+          set -euo pipefail
+
+          evidence="$RUNNER_TEMP/forecast-review32-native"
+
+          mkdir -p "$evidence"
+
+          set +e
+
+          node .review32/ubuntu/run-mocks.mjs > "$evidence/stdout.log" 2>
+          "$evidence/stderr.log"
+
+          result=$?
+
+          set -e
+
+          printf '%s\n' "$result" > "$evidence/exit-code.txt"
+
+          cat "$evidence/stdout.log"
+
+          cat "$evidence/stderr.log" >&2
+
+          exit "$result"
+        id: native_mock
+      - name: Run only selected CLI Vitest mock
+        env:
+          FORECAST_STOP_TEST_ROOT: ${{ runner.temp }}/forecast-review32-vitest
+        run: >
+          set -euo pipefail
+
+          evidence="$RUNNER_TEMP/forecast-review32-vitest"
+
+          mkdir -p "$evidence"
+
+          set +e
+
+          node node_modules/vitest/vitest.mjs run --configLoader runner
+          --maxWorkers=1 scripts/forecast-stop-only-cli.spec.ts >
+          "$evidence/stdout.log" 2> "$evidence/stderr.log"
+
+          result=$?
+
+          set -e
+
+          printf '%s\n' "$result" > "$evidence/exit-code.txt"
+
+          cat "$evidence/stdout.log"
+
+          cat "$evidence/stderr.log" >&2
+
+          exit "$result"
+        id: cli_vitest
+        if: always() && steps.locked_dependencies.outcome == 'success'
+      - name: Preserve bounded mock or diagnostic evidence
+        if: always()
+        timeout-minutes: 2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: forecast-review32-ubuntu-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/forecast-review32-native/
+            ${{ runner.temp }}/forecast-review32-vitest/
+          if-no-files-found: error
+          retention-days: 7

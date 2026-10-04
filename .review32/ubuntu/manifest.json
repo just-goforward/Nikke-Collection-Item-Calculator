@@ -1,0 +1,229 @@
+{
+  "format": 1,
+  "kind": "ubuntu",
+  "repository": "just-goforward/Nikke-Collection-Item-Calculator",
+  "branch": "codex/forecast-review32-ubuntu-20261004",
+  "baseSha": "530d157a57f9cdbe4a15fb11e80b5a7e394df9e7",
+  "baseTreeSha": "3c9b17629aafa5cad78541a7d5e31daf26d02e94",
+  "sourceMode": "Minimal explicit delta applied to verified remote base; no current worktree-wide commit",
+  "files": [
+    {
+      "path": ".github/workflows/forecast-stop-ubuntu-mock-review32.yml",
+      "bytes": 4705,
+      "sha256": "8134f36b90c4c69cab6026cf73de64bf00f573ecddc1a476652135877d71f830",
+      "gitBlobSha": "df2db55ffa33c27a419033681fc103497b813be7"
+    },
+    {
+      "path": ".review32/ubuntu/run-mocks.mjs",
+      "bytes": 1133,
+      "sha256": "2285934a79480df3d6830e6d917c63ac5881272cc7af05b818dde15c1a4c76f2",
+      "gitBlobSha": "43b318990d18f649a183c98086338f938008065a"
+    },
+    {
+      "path": ".review32/ubuntu/trace-harness.mjs",
+      "bytes": 10339,
+      "sha256": "71401928927697ec31bd104ccaa75fdbf7ab5fd7aa9d2bcf2d581a3ba4992ed1",
+      "gitBlobSha": "002b5a3ca5d1d6495ff8bfbdd4cc8297aa0b8dd7"
+    },
+    {
+      "path": ".review32/ubuntu/trace-preload.mjs",
+      "bytes": 8377,
+      "sha256": "34937eaa3419f4a1c3d3a9d6943fb7d7170b9e765ee2b823c068bb92d7a2a11a",
+      "gitBlobSha": "2247cbb333d9992eb5edc4cb982484bff180e6ff"
+    },
+    {
+      "path": "scripts/forecast-stop-only-cli.spec.ts",
+      "bytes": 3756,
+      "sha256": "04ca02f816f514b8292805b20666200b1497e490b926c2beebdcc754fc1b5f26",
+      "gitBlobSha": "36d624914478581cb069f398bb3ceb9cf3ae08bc"
+    },
+    {
+      "path": "scripts/forecast-stop-only.ts",
+      "bytes": 1521,
+      "sha256": "1698bfc96254bbb0ee044c2307e61df1e7a19ace03c52c684ffa6ed7369f8359",
+      "gitBlobSha": "993ecabe76f1be1ea8c194f0ca5e83029176f471"
+    },
+    {
+      "path": "scripts/forecast-stop-only/adapters.ts",
+      "bytes": 6889,
+      "sha256": "5a8e27cc467f903da262e41eddcc5709c3fad1d941730738c1071f40dc1b62ba",
+      "gitBlobSha": "861eaeebf8c9da170ccdcd9e5e3a2f0bf79a8f37"
+    },
+    {
+      "path": "scripts/forecast-stop-only/atomic.ts",
+      "bytes": 588,
+      "sha256": "fa31fdf4787316b2c9be84901b53a20693be469bd9d4a0970a3966c45a9f61af",
+      "gitBlobSha": "6dc7063614f9b33cbd5293a575d764e2c6189a4b"
+    },
+    {
+      "path": "scripts/forecast-stop-only/cli.ts",
+      "bytes": 5609,
+      "sha256": "9c297a775607195cbe1449b8ceb8e4c0032cc80a02879214bec12567f7870c20",
+      "gitBlobSha": "191ab86878428ff50a3fcd8e93e41119e57b2952"
+    },
+    {
+      "path": "scripts/forecast-stop-only/evidence.ts",
+      "bytes": 2361,
+      "sha256": "c3cec350c8fcb7c52e055d61bbd250d65a91ffa17a3eab5fce57506bb4f7cf0f",
+      "gitBlobSha": "3f79cc532d212ea1607087ad9ec04537026cf0ae"
+    },
+    {
+      "path": "scripts/forecast-stop-only/finalize.ts",
+      "bytes": 3159,
+      "sha256": "0b4c23e94d8639013a5a238a45762af477a9d80afd3dba0f5271f65e1e138aff",
+      "gitBlobSha": "e4cc53e716271119dc99c5e91de133b6ce3e20fc"
+    },
+    {
+      "path": "scripts/forecast-stop-only/journal.ts",
+      "bytes": 4359,
+      "sha256": "748c48245060ca21b50e74e80fc57dbad451df63ed13275b727b7e71d6b3c657",
+      "gitBlobSha": "0074ef0a9ee14947da672fdb3f6f343dca9ad852"
+    },
+    {
+      "path": "scripts/forecast-stop-only/operator.ts",
+      "bytes": 3442,
+      "sha256": "8c14be206a717149da7bd666c91c7408fcf3187a118260de93cdd8505ff3b8a9",
+      "gitBlobSha": "80ee3dff4c0e386114a2f637b87c69aec23287d0"
+    },
+    {
+      "path": "scripts/forecast-stop-only/read-errors.ts",
+      "bytes": 847,
+      "sha256": "765796b59afd27f3691a6075b808b28fcc3f6b579541397d8a487170ce8b05f6",
+      "gitBlobSha": "8bbb80c757a2b25a85502dfe4e992101e7c96cfa"
+    },
+    {
+      "path": "scripts/forecast-stop-only/registry.ts",
+      "bytes": 2952,
+      "sha256": "2efe547995784ea75917be60855aa7d4182fe22e658bdaf2543a0e5e56026642",
+      "gitBlobSha": "1eb4cd159ca0b1d6f85d7865fb383532bcd6c728"
+    },
+    {
+      "path": "scripts/forecast-stop-only/requests.ts",
+      "bytes": 5781,
+      "sha256": "edd51d3389a4d5597f70551afe936e244db8655910b3060ae792c9d9fff7b12c",
+      "gitBlobSha": "34efb73cf56ea5ca98be3d8c788d9c88065d8ec1"
+    },
+    {
+      "path": "scripts/forecast-stop-only/schemas.ts",
+      "bytes": 1387,
+      "sha256": "b8b8bc22f4ed43517e99e99545426e31d040fe6d5df4d822904e15d480b280ae",
+      "gitBlobSha": "52b68415990460303cb4b334670fa4e86e086a4f"
+    },
+    {
+      "path": "scripts/forecast-stop-only/types.ts",
+      "bytes": 3013,
+      "sha256": "03106cd5fb4d7ae2f92a0b58469503892a5dd635f4b021ef31d3ad72ef2f46af",
+      "gitBlobSha": "806a26d68ae4158201608a4251f7da4e2c0d6734"
+    },
+    {
+      "path": "scripts/forecast-stop-only/watchdog.ts",
+      "bytes": 7878,
+      "sha256": "8787e0160fac4f82d12e613df6b5d37542c5ec41952591c9602e6f797244c05e",
+      "gitBlobSha": "2c722b19218ae85e4a4c59aaa2d0f3b693738eaf"
+    },
+    {
+      "path": "scripts/forecast-stop-only/worker-context.ts",
+      "bytes": 2508,
+      "sha256": "3a7cd6f8619c03442c8acdffa1b96c57b3669fe740afaec51270707a5103139e",
+      "gitBlobSha": "56606dc14e8ab612ad487d823bfc7aae52b22654"
+    },
+    {
+      "path": "scripts/test-forecast-stop-only.ts",
+      "bytes": 3134,
+      "sha256": "4c460eea835c9bd2613df2bda79665e32a8993a4abe581250c7b71468383ef1e",
+      "gitBlobSha": "81898955d98aba199be5cd3b5bc373b4c07c5c54"
+    },
+    {
+      "path": "scripts/test-forecast-stop-temp.ts",
+      "bytes": 329,
+      "sha256": "8bbe98d203151b538c864a5b290e584ac1e8222cfbe9fc455732556745198219",
+      "gitBlobSha": "3bf8aa3df6a0628410b6b88315e71573427650d8"
+    },
+    {
+      "path": "shared/boundedHttp.ts",
+      "bytes": 1754,
+      "sha256": "2ee1a3448dd66bfdbc2a4de784a625f29060c0715928ceff2a6d13bbaa87f603",
+      "gitBlobSha": "26c08c9870baf456442c78a443542bdba8eb2770"
+    }
+  ],
+  "dependencies": [
+    {
+      "path": "package.json",
+      "bytes": 15007,
+      "sha256": "c0c14b2cf1c8bdc4db27bcd14a4720d7e9f2d418fd8ac3e9051e937caa664b7c",
+      "gitBlobSha": "de5a283e41304b75fdd1d3f2dc0740bae92ee14b",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "package-lock.json",
+      "bytes": 581864,
+      "sha256": "505d5791608c3eeb36671d7622391e6abfae8156d5d32841768053c0d469273b",
+      "gitBlobSha": "dcc62cf0d2cb7ba1091f0a11c18796e79c544dbf",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "vitest.config.ts",
+      "bytes": 712,
+      "sha256": "7dec93d45762e5648c56af0b98883a3e2ab2ab6f684a9f6d10329c4ec3b0ac76",
+      "gitBlobSha": "f5410088731c86be162c2f3549ec9985bd23a5af",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "cloudflare/package.json",
+      "bytes": 401,
+      "sha256": "edc1b52df52abab6b652743abf969e2e563bac2e3edeab2d934d997aef4c3eb9",
+      "gitBlobSha": "63ffdf96dc7843fe0f10ce26391557d959372ea9",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "forecast-collector/package.json",
+      "bytes": 407,
+      "sha256": "f3de62dbf25a5b232f1bc8447a2f9c614d75255b63ad39d5da69d4000290f74d",
+      "gitBlobSha": "2c6b08aeadc7e4d24ff6d0f8f48b26e73230d79f",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "forecast-dispatcher/package.json",
+      "bytes": 364,
+      "sha256": "d8784665ece6671c5fe66e96eaf295c9504d5df85891392e1a73117b0d3f5e4d",
+      "gitBlobSha": "35715bce290209bb953929c4254bbe07945bb8ca",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "forecast-interactions/package.json",
+      "bytes": 366,
+      "sha256": "827dd57e17f2517ed506493c86882fe6d0c8adbb325eb75b6a1792ebdb492015",
+      "gitBlobSha": "6c9426f5721a585c4ec0581a0876397e615326bd",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "stats-observer/package.json",
+      "bytes": 359,
+      "sha256": "a6b36c6a57a81e651838cfea92171990ea5df1e26b5fdc8ecb2ee89491e403c2",
+      "gitBlobSha": "26ab3be6fc1a548b1bb1e4e40a8cea31145d86a0",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "usage-guard/package.json",
+      "bytes": 356,
+      "sha256": "46f3dd0f51eaa40f72596acfca96b11b5ed5dad10fba71978af0439f77c67aa8",
+      "gitBlobSha": "282bc742e059f56dca23abd0f215fe2592185eaf",
+      "mode": "inherited unchanged from verified remote base"
+    }
+  ],
+  "runtime": {
+    "node": "24.21.0",
+    "npm": "12.2.0",
+    "zod": "4.5.4",
+    "os": "ubuntu-24.04"
+  },
+  "externalEffects": [
+    "GitHub ref create/push/delete after separate approval",
+    "GitHub-hosted CI check/run/log/artifact records retained7days",
+    "GitHub checkout/action/runtime and npm registry downloads",
+    "Fake GitHub/Cloudflare API only; no actual business API"
+  ],
+  "publicRepository": true,
+  "publicUnreleasedCodeConsentRequired": true,
+  "remoteExecutionApproved": false
+}
