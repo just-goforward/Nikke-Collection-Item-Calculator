@@ -1,0 +1,115 @@
+{
+  "format": 1,
+  "kind": "registry-get",
+  "repository": "just-goforward/Nikke-Collection-Item-Calculator",
+  "branch": "codex/forecast-review32-registry-get-20261004",
+  "baseSha": "530d157a57f9cdbe4a15fb11e80b5a7e394df9e7",
+  "baseTreeSha": "3c9b17629aafa5cad78541a7d5e31daf26d02e94",
+  "sourceMode": "Minimal explicit delta applied to verified remote base; no current worktree-wide commit",
+  "files": [
+    {
+      "path": ".github/workflows/forecast-stop-registry-read-diagnostic.yml",
+      "bytes": 4732,
+      "sha256": "0685667d808cd89a2080163eab9617f1463d88b62a7787de568ee597a5d705e7",
+      "gitBlobSha": "ec995984005f7c15fe2d96d30775fd92c2532459"
+    },
+    {
+      "path": "scripts/forecast-stop-only/registry.ts",
+      "bytes": 2952,
+      "sha256": "2efe547995784ea75917be60855aa7d4182fe22e658bdaf2543a0e5e56026642",
+      "gitBlobSha": "1eb4cd159ca0b1d6f85d7865fb383532bcd6c728"
+    },
+    {
+      "path": "scripts/forecast-stop-only/types.ts",
+      "bytes": 3013,
+      "sha256": "03106cd5fb4d7ae2f92a0b58469503892a5dd635f4b021ef31d3ad72ef2f46af",
+      "gitBlobSha": "806a26d68ae4158201608a4251f7da4e2c0d6734"
+    },
+    {
+      "path": "scripts/forecast-stop-registry-read-diagnostic.ts",
+      "bytes": 7653,
+      "sha256": "469aa70a0b2fb81b77ad3b7154c9ded9288dce7d2c32b1f18a22bce6980f6988",
+      "gitBlobSha": "30b007a0cc205b5e17fa0e5dd3aac382f12d1880"
+    }
+  ],
+  "dependencies": [
+    {
+      "path": "package.json",
+      "bytes": 15007,
+      "sha256": "c0c14b2cf1c8bdc4db27bcd14a4720d7e9f2d418fd8ac3e9051e937caa664b7c",
+      "gitBlobSha": "de5a283e41304b75fdd1d3f2dc0740bae92ee14b",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "package-lock.json",
+      "bytes": 581864,
+      "sha256": "505d5791608c3eeb36671d7622391e6abfae8156d5d32841768053c0d469273b",
+      "gitBlobSha": "dcc62cf0d2cb7ba1091f0a11c18796e79c544dbf",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "vitest.config.ts",
+      "bytes": 712,
+      "sha256": "7dec93d45762e5648c56af0b98883a3e2ab2ab6f684a9f6d10329c4ec3b0ac76",
+      "gitBlobSha": "f5410088731c86be162c2f3549ec9985bd23a5af",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "cloudflare/package.json",
+      "bytes": 401,
+      "sha256": "edc1b52df52abab6b652743abf969e2e563bac2e3edeab2d934d997aef4c3eb9",
+      "gitBlobSha": "63ffdf96dc7843fe0f10ce26391557d959372ea9",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "forecast-collector/package.json",
+      "bytes": 407,
+      "sha256": "f3de62dbf25a5b232f1bc8447a2f9c614d75255b63ad39d5da69d4000290f74d",
+      "gitBlobSha": "2c6b08aeadc7e4d24ff6d0f8f48b26e73230d79f",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "forecast-dispatcher/package.json",
+      "bytes": 364,
+      "sha256": "d8784665ece6671c5fe66e96eaf295c9504d5df85891392e1a73117b0d3f5e4d",
+      "gitBlobSha": "35715bce290209bb953929c4254bbe07945bb8ca",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "forecast-interactions/package.json",
+      "bytes": 366,
+      "sha256": "827dd57e17f2517ed506493c86882fe6d0c8adbb325eb75b6a1792ebdb492015",
+      "gitBlobSha": "6c9426f5721a585c4ec0581a0876397e615326bd",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "stats-observer/package.json",
+      "bytes": 359,
+      "sha256": "a6b36c6a57a81e651838cfea92171990ea5df1e26b5fdc8ecb2ee89491e403c2",
+      "gitBlobSha": "26ab3be6fc1a548b1bb1e4e40a8cea31145d86a0",
+      "mode": "inherited unchanged from verified remote base"
+    },
+    {
+      "path": "usage-guard/package.json",
+      "bytes": 356,
+      "sha256": "46f3dd0f51eaa40f72596acfca96b11b5ed5dad10fba71978af0439f77c67aa8",
+      "gitBlobSha": "282bc742e059f56dca23abd0f215fe2592185eaf",
+      "mode": "inherited unchanged from verified remote base"
+    }
+  ],
+  "runtime": {
+    "node": "24.21.0",
+    "npm": "12.2.0",
+    "zod": "4.5.4",
+    "os": "ubuntu-24.04"
+  },
+  "externalEffects": [
+    "GitHub ref create/push/delete after separate approval",
+    "GitHub-hosted CI check/run/log/artifact records retained7days",
+    "GitHub checkout/action/runtime and npm registry downloads",
+    "At most two fixed GitHub Variables GET requests using default ephemeral job token"
+  ],
+  "publicRepository": true,
+  "publicUnreleasedCodeConsentRequired": true,
+  "remoteExecutionApproved": false
+}
