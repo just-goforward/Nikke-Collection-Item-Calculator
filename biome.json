@@ -79,19 +79,13 @@
   },
   "overrides": [
     {
-      "includes": [
-        "scripts/certified-staging-approved-panel/*.json"
-      ],
+      "includes": ["scripts/certified-staging-approved-panel/*.json"],
       "formatter": {
         "enabled": false
       }
     },
     {
-      "includes": [
-        "scripts/**",
-        "e2e/**",
-        "playwright*.config.ts"
-      ],
+      "includes": ["scripts/**", "e2e/**", "playwright*.config.ts"],
       "linter": {
         "rules": {
           "complexity": {
