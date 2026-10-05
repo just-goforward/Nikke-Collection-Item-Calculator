@@ -1,0 +1,89 @@
+{
+  "code": 200,
+  "message": null,
+  "content": {
+    "feed": {
+      "feedId": 8080706,
+      "originalLoungeId": "NIKKE_The_Goddess_of_Victory",
+      "loungeId": "nikke",
+      "gameId": "GM_NCR_006240",
+      "contentId": "nng-NIKKE_The_Goddess_of_Victory-8080706",
+      "title": "스토리 이벤트 진행 중",
+      "iconTypes": ["VIDEO"],
+      "feedType": "FEED",
+      "buff": 10,
+      "nerf": 0,
+      "repImageUrl": "https://video-phinf.pstatic.net/20260820_287/1787189223141i8GYz_JPEG/DfgWD6uqbD_10.jpg",
+      "attachCount": 1,
+      "attachIconType": "VIDEO",
+      "createdDate": "20260820110036",
+      "updatedDate": "20260820110036",
+      "contents": "<div class=\"se-viewer se-theme-default\" lang=\"ko-KR\">\n    <!-- SE_DOC_HEADER_START -->\n    <!--@CONTENTS_HEADER-->\n    <!-- SE_DOC_HEADER_END -->\n    <div class=\"se-main-container\">\n                <div class=\"se-component se-text se-l-default\" id=\"SE-35f4c013-adae-46fc-82b9-dd1675ed8340\">\n                    <div class=\"se-component-content\">\n                        <div class=\"se-section se-section-text se-l-default\">\n                            <div class=\"se-module se-module-text\">\n                                    <!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-d02ca8db-247c-42e1-a048-6206169d6831\"><span style=\"color:#000000;\" class=\"se-fs- se-ff-nanumgothic   \" id=\"SE-00fda209-7dda-4381-8428-bec056848d29\"><b>【스토리 이벤트 진행 중】</b></span></p>\n<!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-7b0ea89b-addb-46b5-a2e2-c6703f95325c\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-193512d3-5c05-42a2-80d7-9183ffc1882a\">​</span></p>\n<!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-fbaa7f36-be76-4f60-8940-a62daf4c1c6e\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-67a31b33-dba7-4bed-91b6-9fb425bef981\">「승리의 여신: 니케」 x 「P3R」, 「P4G」, 「P5R」</span></p>\n<!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-c4ca6d16-ce0a-4993-b441-762b9c669687\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-9a613f17-eac2-49e6-b30c-c10d09739a60\">신규 콜라보 스토리 이벤트 ‘PERSONA ON FRONTLINE’ 현재 진행 중!</span></p>\n<!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-b47bcdeb-a7a9-4987-b301-0a9d74181787\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-7d36ede0-4770-4a3d-a44d-be20c01db44d\">​</span></p>\n<!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-c5ac55fa-acee-4450-ada8-90461e979a60\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-283089c1-2fae-4333-85ca-7e7f8f97c50b\"><b>◆ 이벤트 진행 기간</b></span></p>\n<!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-652996e7-507f-4af6-8148-cecb1111fb44\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-9ba6a52f-bbc9-402d-a7ae-3334a545178f\">- 8/13(목) 점검 완료 후 ~ 9/10(목) 4:59</span></p>\n<!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-b3e98de9-ba2d-415b-bed1-9418e48ef7d0\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-8452f131-179a-49f7-9a96-1585bbb9cbcf\">​</span></p>\n<!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-6c27a2e1-79b1-428e-90c2-89211bca6a2d\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-71292e47-0542-4f77-8de8-094d56071915\"><b>◆ 고화질 버전</b></span></p>\n<!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-f671d5da-dd07-46c4-b81f-8c0746d26797\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-6b8f6b30-564e-4c76-a678-74fb5d91c60a\"><a href=\"https://youtube.com/shorts/u2gYypqTsMI\" class=\"se-link __se_link\" data-linktype=\"text\" data-linkdata='{\"id\": \"SE-6b8f6b30-564e-4c76-a678-74fb5d91c60a\", \"link\": \"https://youtube.com/shorts/u2gYypqTsMI\"}' target=\"_blank\">https://youtube.com/shorts/u2gYypqTsMI</a></span></p>\n<!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-142e32e7-af63-477d-a7df-8e42fe0dc8d0\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-659e5d05-cdc0-4b57-ae80-828cbbf1d045\">​</span></p>\n<!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-8bf44249-dd79-4522-bd3c-41ce2db39602\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-be46fcbc-c4ea-40f4-a5a2-e2deb62ca56b\">* 인앱 구매(확률형 아이템 포함)</span></p>\n<!-- } SE-TEXT -->\n                            </div>\n                        </div>\n                    </div>\n                    <script type=\"text/data\" class=\"__se_module_data\" data-module-v2='{\"type\": \"v2_text\", \"id\": \"SE-35f4c013-adae-46fc-82b9-dd1675ed8340\", \"data\": {\"ctype\": \"text\"  }}'></script>\n                </div>                <div class=\"se-component se-video se-l-default\">\n                    <div class=\"se-component-content se-component-content-fit\">\n                        <div class=\"se-section se-section-video se-section-align- se-l-default\" >\n                            <div class=\"se-module se-module-video\" id=\"SE-f69a5bd6-7ecc-46e4-ade9-9729aaa51245\">\n                            </div>\n                        </div>\n                    </div>\n                    <script type=\"text/data\" class=\"__se_module_data\" data-module='{\"type\":\"v2_video\", \"id\" :\"SE-f69a5bd6-7ecc-46e4-ade9-9729aaa51245\", \"data\" : { \"videoType\" : \"player\", \"vid\" : \"9B96CE42CF18594F315B66FB526A2C868B1E\", \"inkey\" : \"V12628e5452c21d0ef8b7c10964006b52b35c3c838a0d78dcd5a642ed8f52e6d5cf48c10964006b52b35c\", \"thumbnail\": \"https://video-phinf.pstatic.net/20260820_287/1787189223141i8GYz_JPEG/DfgWD6uqbD_10.jpg\", \"originalWidth\": \"1080\", \"originalHeight\": \"1920\", \"width\": \"840\", \"height\": \"1493\", \"contentMode\": \"fit\", \"format\": \"normal\", \"mediaMeta\": {\"@ctype\":\"mediaMeta\",\"title\":null,\"tags\":[],\"description\":null}, \"useServiceData\": \"false\"}}' data-module-v2='{\"type\": \"v2_video\", \"id\": \"SE-f69a5bd6-7ecc-46e4-ade9-9729aaa51245\", \"data\": {\"ctype\": \"video\", \"ai\": \"false\", \"videoType\": \"player\", \"vid\": \"9B96CE42CF18594F315B66FB526A2C868B1E\", \"inkey\": \"V12451ee2c4077675e36fc10964006b52b35c3c838a0d78dcd5a642ed8f52e6d5cf48c10964006b52b35c\", \"thumbnail\": \"https://video-phinf.pstatic.net/20260820_287/1787189223141i8GYz_JPEG/DfgWD6uqbD_10.jpg\", \"originalWidth\": \"1080\", \"originalHeight\": \"1920\", \"width\": \"840\", \"height\": \"1493\", \"contentMode\": \"fit\", \"format\": \"normal\", \"mediaMeta\": {\"@ctype\":\"mediaMeta\",\"title\":null,\"tags\":[],\"description\":null}, \"useServiceData\": \"false\" }}'></script>\n                </div>                <div class=\"se-component se-text se-l-default\" id=\"SE-084a19ca-5a70-449d-9af4-d54b29c9b674\">\n                    <div class=\"se-component-content\">\n                        <div class=\"se-section se-section-text se-l-default\">\n                            <div class=\"se-module se-module-text\">\n                                    <!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-f78c144f-ad29-4c96-9070-ce1c5e24d21e\"><span style=\"\" class=\"se-fs- se-ff-   \" id=\"SE-a2806e97-2c4b-4846-99ad-229e96e7cfb1\">​</span></p>\n<!-- } SE-TEXT -->\n                            </div>\n                        </div>\n                    </div>\n                    <script type=\"text/data\" class=\"__se_module_data\" data-module-v2='{\"type\": \"v2_text\", \"id\": \"SE-084a19ca-5a70-449d-9af4-d54b29c9b674\", \"data\": {\"ctype\": \"text\"  }}'></script>\n                </div>    </div>\n</div>\n",
+      "bodyExposureYN": "N",
+      "readOnlyJoinUser": "N",
+      "allowComment": "Y",
+      "deviceType": "PC",
+      "menuId": 12,
+      "boardType": "BOARD",
+      "pinned": false,
+      "hideByCleanBot": false
+    },
+    "user": {
+      "userIdHash": "6cd045bd8eedfccc068bd0e70a81ea26",
+      "nickname": "CM 행정부",
+      "profileImageUrl": "https://nng-phinf.pstatic.net/MjAyNjA0MjRfMjU5/MDAxNzc2OTk2MzcwNDk1.KHfcZSAqWccuO5QumvC3ytqOJvKZdyJErxJc4WZKx-kg.OFHFJ8SUtTu53gW5nCbrvxEs4p315RjVhsFajKh4jWwg.JPEG/image.jpg",
+      "userRoleCode": "game_manager",
+      "badge": {
+        "imageUrl": "https://ssl.pstatic.net/static/nng/glive/icon/game_manager.png"
+      },
+      "title": {
+        "name": "CM 행정부",
+        "color": "#FF6A00"
+      },
+      "verifiedMark": false,
+      "verifiedMarkType": null,
+      "level": 15
+    },
+    "comment": {
+      "totalCount": 2,
+      "commentCount": 2,
+      "replyCount": 0,
+      "exposeCount": 2
+    },
+    "clientBuffStatus": {
+      "vote": 0
+    },
+    "feedLink": {
+      "pc": "https://game.naver.com/lounge/nikke/board/detail/8080706",
+      "mobile": "https://m.game.naver.com/lounge/nikke/board/detail/8080706"
+    },
+    "lounge": {
+      "loungeName": "승리의 여신: 니케",
+      "loungeEnglishName": "GODDESS OF VICTORY: NIKKE",
+      "logoImageSquareUrl": "https://nng-phinf.pstatic.net/MjAyNjA1MTRfMjkw/MDAxNzc4NzQ4Mzg2ODk2.ls5vWpzYJycl4e2Ce71u6UZ-33dxxruvZ0izFoJyeQYg.dnkmb4r4nb9BQfyGBNmPSax1fh_nw9iJOuPh3_KVp_Yg.PNG/app_icon_full.png"
+    },
+    "board": {
+      "boardId": 56,
+      "boardName": "🔔 인게임 이벤트",
+      "exposure": true,
+      "type": "COMMON"
+    },
+    "series": null,
+    "season": null,
+    "buff": {
+      "buffCount": 10,
+      "nerfCount": 0,
+      "vote": 0
+    },
+    "score": 0,
+    "readCount": 786,
+    "bookmark": null,
+    "privateUserBlock": false,
+    "preFeedId": 8080556,
+    "postFeedId": 8085127,
+    "tags": "니케,NIKKE,NIKKEx페르소나,NIKKExP30th",
+    "myFeed": false,
+    "feedEndBanner": null,
+    "feedId": 8080706
+  }
+}

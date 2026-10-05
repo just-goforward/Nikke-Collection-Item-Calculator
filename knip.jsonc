@@ -2,9 +2,19 @@
   "$schema": "./node_modules/knip/schema-jsonc.json",
   "workspaces": {
     ".": {
-      "entry": ["src/worker.ts", "scripts/**/*.ts", "benchmarks/**/*.ts"],
+      "entry": [
+        "src/worker.ts",
+        // These exports are consumed by executable Worker bundles and the real Node/browser harnesses.
+        "src/certifiedRuntime/nodeClient.ts",
+        "src/certifiedRuntime/nodeWorker.ts",
+        "src/certifiedRuntime/nodeFixtureWorker.ts",
+        "src/certifiedRuntime/browserHarness.ts",
+        "src/certifiedRuntime/integrationFixture.ts",
+        "scripts/**/*.ts",
+        "benchmarks/**/*.ts"
+      ],
       "project": [
-        "src/**/*.{ts,tsx,css}",
+        "src/**/*.{ts,tsx,css,mjs}",
         "scripts/**/*.ts",
         "benchmarks/**/*.ts",
         "e2e/**/*.ts"
@@ -41,10 +51,16 @@
     "duplicates"
   ],
   "ignore": [
+    // Immutable review packets and measured outputs are data, not executable project modules.
+    ".tmp/**",
+    ".certified-test-tmp/**",
+    "tmp/**",
+    "benchmarks/results/**",
     "src/wasm/rustRerankProductSolver.ts",
     "src/wasm/rustResearchLoader.ts"
   ],
-  "ignoreBinaries": ["rustc"],
+  // where.exe is Windows' built-in PATH lookup for the local Git Bash workflow fixture.
+  "ignoreBinaries": ["rustc", "where.exe"],
   "ignoreDependencies": [
     "cloudflare",
     // Knip infers a package for every testRunner; "command" is built into Stryker core.

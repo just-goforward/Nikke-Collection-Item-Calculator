@@ -1,0 +1,30 @@
+{
+  "version": "review13-approved24-independent-fixture-v1",
+  "historicalInputPanel": {
+    "path": "benchmarks/results/certified-staging-validation-browser-approved-platform-1790831557200-16112/approved-panel.json",
+    "sha256": "9858b94a902a3ead4b28fe50a68b7972013834c321e2f42e94dca9e9d531ed08",
+    "meaning": "Frozen input snapshot only; current expected values are independently recomputed, not copied from candidate output."
+  },
+  "physicalEnumeration": {
+    "path": "benchmarks/results/certified-staging-validation-independent-physical-rates.json",
+    "sha256": "fed3faab0a2b032deb65f9b892684cb9518c38a67596f8ba066f8e9cc7d8be0a",
+    "sources": [
+      {
+        "path": "scripts/certified-staging-oracle-physical-supply.ts",
+        "sha256": "68686624ac22ab517283347c3cce7abb9a04d269eb2acb8b9ad3a63e8d5f13b5"
+      },
+      {
+        "path": "scripts/certified-staging-oracle.ts",
+        "sha256": "b92f50315a31d6b0f5e04054f5d220cf3103ef76b1d4a7c4d557da0a7964823b"
+      }
+    ],
+    "sourceHash": "c412f54ebaa93ac2f834bb2e0b99ab26ec01e6f1f79a833527a5a90f9d2b593a",
+    "meaning": "documented modeled physical odds; exhaustive ordered weighted-without-replacement card draws, fixed latent0/1/2-reroll cohort, regular/II box exactmeans, weekly5II, raid7days/1197-over39"
+  },
+  "snapshot": {
+    "path": "scripts/certified-staging-approved-panel/snapshot.json",
+    "sha256": "5dd4017b6f74bda406bbd93daa0037e720329d0d64eca05a442c59d6dd170e6d"
+  },
+  "independence": "Independent reduced BigInt Bellman oracle and ordered physical enumeration; shared public game rules only. Candidate solver, kernel, pricing, bounds, pages and rational helpers are excluded from expected-value generation.",
+  "coverage": "Approved24 selected inputs only; no2000 campaign or independent waiting proof."
+}

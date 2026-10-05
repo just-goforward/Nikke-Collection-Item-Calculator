@@ -4,6 +4,7 @@ import { MAX_STOCK_PIECES } from "../../shared/game";
 import { useDismissableLayer } from "../hooks/useDismissableLayer";
 import { useI18n } from "../i18n/locale";
 import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
+import type { LegacyRecoveryNotice } from "../lib/legacyInputRecovery";
 import type { Kit, Stock } from "../types";
 import type { StockCorrectionView } from "../ui-types";
 import { AlignedText } from "./AlignedText";
@@ -14,7 +15,7 @@ type StockPanelProps = {
   correction: StockCorrectionView | null;
   isStale: boolean;
   stockStale: boolean;
-  notice: LocalizedMessage;
+  notice: LocalizedMessage | LegacyRecoveryNotice;
   onStockChange: (stock: Stock) => void;
   description: LocalizedMessage;
   calculateDisabled: boolean;
@@ -309,19 +310,23 @@ function StockCorrectionNotice({
 }: {
   correction: StockCorrectionView | null;
   needsStockEdit: boolean;
-  notice: LocalizedMessage;
+  notice: LocalizedMessage | LegacyRecoveryNotice;
 }) {
-  const { formatInteger, t, text } = useI18n();
+  const { locale, formatInteger, t, text } = useI18n();
   return (
     <div
       id="stockEditNotice"
       className={classes.editNotice}
-      hidden={!needsStockEdit && !correction}
+      hidden={!needsStockEdit && !correction && "key" in notice}
       role="status"
       aria-live="polite"
     >
       <p className={classes.editNoticeText}>
-        {correction ? correctionMessage(correction, t, formatInteger) : text(notice)}
+        {correction
+          ? correctionMessage(correction, t, formatInteger)
+          : "key" in notice
+            ? text(notice)
+            : notice[locale]}
       </p>
       {correction?.status === "invalid" && correction.canCalculate ? (
         <p className={`${classes.editNoticeText} mt-1`}>{t("stock.correctionUntracked")}</p>

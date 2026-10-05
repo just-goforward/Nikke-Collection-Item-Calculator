@@ -1,4 +1,5 @@
 import type { LocalizedMessage } from "../i18n/messages.ko";
+import type { LegacyRecoveryNotice } from "../lib/legacyInputRecovery";
 import type { Grade, Stock } from "../types";
 import type {
   DetailView,
@@ -33,7 +34,7 @@ export type CalculatorAppModel = {
     staleSource: "state" | "stock" | null;
     stockStale: boolean;
     correction: StockCorrectionView | null;
-    notice: LocalizedMessage;
+    notice: LocalizedMessage | LegacyRecoveryNotice;
   };
   solvePanel: { description: LocalizedMessage; calculateDisabled: boolean };
   resultView: ResultView;
@@ -134,7 +135,7 @@ export function makeCalculatorAppModel({
       staleSource,
       stockStale: isResultStale && staleSource === "stock",
       correction: stockCorrection,
-      notice: DEFAULT_STOCK_NOTICE,
+      notice: calculatorState.reloadRecoveryNotice ?? DEFAULT_STOCK_NOTICE,
     },
     solvePanel: {
       ...calculatorState.solvePanel,

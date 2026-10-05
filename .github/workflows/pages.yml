@@ -6,6 +6,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Full approved candidate commit (40 hex); must match the dispatched ref
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -24,42 +29,123 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || inputs.candidate_sha || github.sha }}
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24.20.0
+          node-version: 24.21.0
           cache: npm
+
+      - name: Verify exact candidate checkout and record source identity
+        env:
+          EXPECTED_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || inputs.candidate_sha || github.sha }}
+        run: node scripts/ci/assert-candidate-checkout.mjs
 
       - name: Setup Rust
         run: |
-          rustup toolchain install 1.98.0 --profile minimal --target wasm32-unknown-unknown
-          rustup default 1.98.0
+          rustup toolchain install 1.98.1 --profile minimal --target wasm32-unknown-unknown
+          rustup default 1.98.1
           rustup component add rustfmt clippy
 
+      - name: Prepare npm 12.2.0 with pinned integrity
+        shell: bash
+        timeout-minutes: 5
+        env:
+          NPM_CONFIG_CACHE: ${{ runner.temp }}/npm-bootstrap-cache
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { existsSync, mkdtempSync, writeFileSync, appendFileSync } from 'node:fs';
+          import { dirname, join, resolve } from 'node:path';
+          import { execFileSync } from 'node:child_process';
+          import { setTimeout as delay } from 'node:timers/promises';
+          const version = '12.2.0';
+          const url = 'https://registry.npmjs.org/npm/-/npm-12.2.0.tgz';
+          const sri = 'sha512-ZsJjKpTnlmSXOLLXiU1xDCzC4Wlok4IwZmh/aw2KUuXytU7q6qMv/cUT7MoeSf95Slwuw/lRXYefGzGCspHPNQ==';
+          if (process.version !== 'v24.21.0') throw new Error('Unexpected Node version');
+          if (!process.env.RUNNER_TEMP || !process.env.GITHUB_PATH || !process.env.NPM_CONFIG_CACHE) throw new Error('Missing runner paths');
+          const nodeDir = dirname(process.execPath);
+          const sourceCli = [join(nodeDir, 'node_modules/npm/bin/npm-cli.js'), resolve(nodeDir, '../lib/node_modules/npm/bin/npm-cli.js')].find(existsSync);
+          if (!sourceCli) throw new Error('Bundled npm CLI not found');
+          const cleanEnv = Object.fromEntries(['PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'TMPDIR', 'APPDATA', 'LOCALAPPDATA'].filter(k => process.env[k] !== undefined).map(k => [k, process.env[k]]));
+          const root = mkdtempSync(join(process.env.RUNNER_TEMP, 'npm-12.2.0-'));
+          const prefix = join(root, 'prefix');
+          const userConfig = join(root, 'user.npmrc');
+          const globalConfig = join(root, 'global.npmrc');
+          writeFileSync(userConfig, '', { flag: 'wx' });
+          writeFileSync(globalConfig, '', { flag: 'wx' });
+          const cacheKey = `npm-${version}-${process.platform}-${process.arch}-${Buffer.from(sri.slice(7), 'base64').toString('hex')}`;
+          const cache = join(process.env.NPM_CONFIG_CACHE, cacheKey);
+          let bytes;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(30000) });
+              if (!response.ok) {
+                const error = new Error(`npm tarball HTTP ${response.status}`);
+                error.terminal = response.status < 500 && response.status !== 408 && response.status !== 429;
+                throw error;
+              }
+              const chunks = []; let size = 0;
+              for await (const chunk of response.body) {
+                size += chunk.length;
+                if (size > 8 * 1024 * 1024) throw Object.assign(new Error('npm tarball size limit exceeded'), { terminal: true });
+                chunks.push(chunk);
+              }
+              bytes = Buffer.concat(chunks); break;
+            } catch (error) {
+              if (error.terminal || attempt === 2) throw error;
+              await delay(1000 * (attempt + 1));
+            }
+          }
+          if ('sha512-' + createHash('sha512').update(bytes).digest('base64') !== sri) throw new Error('npm tarball integrity mismatch');
+          const tgz = join(root, 'npm-12.2.0.tgz');
+          writeFileSync(tgz, bytes, { flag: 'wx' });
+          const options = { cwd: root, env: cleanEnv, timeout: 120000 };
+          execFileSync(process.execPath, [sourceCli, 'install', '--global', '--prefix', prefix, tgz, '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--no-update-notifier', '--cache', cache, '--userconfig', userConfig, '--globalconfig', globalConfig], { ...options, stdio: 'inherit' });
+          const windows = process.platform === 'win32';
+          const targetCli = join(prefix, windows ? 'node_modules' : 'lib/node_modules', 'npm/bin/npm-cli.js');
+          if (execFileSync(process.execPath, [targetCli, '--version', '--no-update-notifier', '--userconfig', userConfig, '--globalconfig', globalConfig], options).toString().trim() !== version) throw new Error('Installed npm version mismatch');
+          appendFileSync(process.env.GITHUB_PATH, (windows ? prefix : join(prefix, 'bin')) + '\n');
+          appendFileSync(process.env.GITHUB_ENV, 'R65_NPM_CLI=' + targetCli + '\n');
+          console.log(`Prepared npm ${version}; platform=${process.platform}; integrity verified`);
+          NODE
+
       - name: Install dependencies
-        run: npm ci
+        run: node scripts/ci/run-checked-command.mjs install npm ci
 
       - name: Build Rust solver WASM
-        run: npm run build:solver-wasm
+        run: node scripts/ci/run-checked-command.mjs wasm npm run build:solver-wasm
 
       - name: Rust format and clippy
-        run: npm run lint:rust
+        run: node scripts/ci/run-checked-command.mjs rust-lint npm run lint:rust
 
       - name: Lint
-        run: npm run lint
+        run: node scripts/ci/run-checked-command.mjs lint npm run lint
 
       - name: Typecheck
-        run: npm run typecheck
+        run: node scripts/ci/run-checked-command.mjs typecheck npm run typecheck
 
       - name: Test
-        run: npm test
+        run: node scripts/ci/run-checked-command.mjs root-tests npm test
+
+      - name: Exact endpoint coverage (all 11 tests, isolated)
+        timeout-minutes: 15
+        run: node scripts/ci/run-checked-command.mjs exact-endpoints npm run test:certified-endpoints
 
       - name: Worker integration tests
-        run: npm run test:workers
+        run: node scripts/ci/run-checked-command.mjs worker-tests npm run test:workers
 
       - name: Build
-        run: npx vite build --configLoader native
+        run: |
+          node scripts/ci/run-checked-command.mjs engine-build-check npm run check:certified-engine-build
+          node scripts/ci/run-checked-command.mjs build npm run build
+
+      - name: Certified Node runtime regressions after the candidate build
+        run: node scripts/ci/run-checked-command.mjs certified-runtime npm run test:certified-runtime
 
       - name: Verify current production Worker contract
         if: github.event_name == 'push'
@@ -72,29 +158,79 @@ jobs:
           npm run smoke:stats-worker -- "$PRODUCTION_WORKER_URL" "$STATS_ALLOWED_ORIGIN" frontend-contract-only
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium firefox webkit
+        run: node scripts/ci/run-checked-command.mjs browser-install playwright install --with-deps chromium firefox webkit
+
+      - name: Evidence verifier unit regressions
+        run: node scripts/ci/run-checked-command.mjs evidence-units node --test scripts/certified-staging-result-verifier.test.mjs scripts/ci/run-checked-command.test.mjs
+
+      - name: Freeze independent approved24 expectations before browser tests
+        run: node scripts/ci/run-checked-command.mjs freeze node scripts/certified-staging-result-verifier.mjs freeze --expected ci-evidence/approved24-expected.json --commit "$R65_EXPECTED_SHA"
 
       - name: E2E and visual regression tests
-        run: npx playwright test
+        id: e2e
+        run: node scripts/ci/run-checked-command.mjs e2e xvfb-playwright test
 
-      - name: WebKit language and accessibility compatibility tests
-        run: npx playwright test --config playwright.compat.config.ts
+      - name: Verify exact three-browser approved24 results before subsequent Playwright runs
+        if: always() && steps.e2e.outcome != 'skipped'
+        shell: bash
+        run: |
+          exit_code="$(node --input-type=module -e 'import fs from "node:fs"; const r=JSON.parse(fs.readFileSync("ci-evidence/e2e/result.json","utf8")); console.log(Number.isInteger(r.code) && !r.signal && !r.spawnError ? r.code : 1)')"
+          node scripts/ci/run-checked-command.mjs verify-api node scripts/certified-staging-result-verifier.mjs verify --expected ci-evidence/approved24-expected.json --results test-results --output ci-evidence/approved24-verification.json --command-exit-code "$exit_code"
 
-      - name: Cross-browser text alignment contracts
-        run: npx playwright test --config playwright.alignment.config.ts
-
-      - name: Upload Playwright failure artifacts
-        if: failure()
+      - name: Preserve general E2E evidence before compat or alignment
+        if: always() && steps.e2e.outcome != 'skipped'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: playwright-failure-artifacts
+          name: general-e2e-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            playwright-report/
+            ci-evidence/
             test-results/
-          retention-days: 7
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: WebKit language and accessibility compatibility tests
+        id: compat
+        run: node scripts/ci/run-checked-command.mjs compat playwright test --config playwright.compat.config.ts --output test-results-compat
+
+      - name: Preserve compatibility evidence immediately
+        if: always() && steps.compat.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: compat-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ci-evidence/compat/
+            test-results-compat/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cross-browser text alignment contracts
+        id: alignment
+        run: node scripts/ci/run-checked-command.mjs alignment playwright test --config playwright.alignment.config.ts --output test-results-alignment
+
+      - name: Preserve alignment evidence immediately
+        if: always() && steps.alignment.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: alignment-ubuntu-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ci-evidence/checkout-source.json
+            ci-evidence/approved24-expected.json
+            ci-evidence/alignment/
+            test-results-alignment/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Bundle budget
-        run: npm run check:bundle-budget
+        run: node scripts/ci/run-checked-command.mjs bundle-budget npm run check:bundle-budget
+
+      - name: Preserve validation command logs on success or failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: validation-commands-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-evidence/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload Pages artifact
         if: github.event_name == 'push'
@@ -139,7 +275,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24.20.0
+          node-version: 24.21.0
 
       - name: Smoke test deployed Pages assets
         env:

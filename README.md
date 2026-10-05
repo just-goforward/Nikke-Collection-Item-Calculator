@@ -35,7 +35,7 @@ Solver는 먼저 SR15 도달 확률을 최대화하고, 같은 확률 범위에�
 필요 환경:
 
 - Node.js 24.x와 npm 12.x(현재 CI 검증 기준)
-- [`rust-toolchain.toml`](./rust-toolchain.toml)이 고정한 Rust 1.98.0 및 `wasm32-unknown-unknown` target
+- [`rust-toolchain.toml`](./rust-toolchain.toml)이 고정한 Rust 1.98.1 및 `wasm32-unknown-unknown` target
 
 ```powershell
 npm install
@@ -86,3 +86,5 @@ Copyright (C) 2026 just-goforward and contributors.
 Pretendard 계열 글꼴은 SIL Open Font License 1.1을 따르며 AGPL로 재라이선스되지 않습니다.
 
 NIKKE 및 관련 명칭과 자산의 권리는 각 권리자에게 있습니다. 이 프로젝트는 게임 개발사 또는 퍼블리셔와 제휴하거나 그 승인을 받은 공식 서비스가 아닙니다.
+
+번들 예산의 현재 정책과 근거는 [번들 예산 정책](docs/bundle-budget-policy.ko.md)을 참고하세요.

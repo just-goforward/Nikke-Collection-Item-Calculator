@@ -1,4 +1,5 @@
 import { z } from "zod/mini";
+import { type CertifiedSupplySnapshot, isCertifiedSupplySnapshot } from "./certifiedSupply.ts";
 
 const gainSchema = z.object({
   blue: z.number().check(z.minimum(0)),
@@ -63,6 +64,7 @@ export const supplyForecastCandidateSchema = z.object({
     )
     .check(z.minLength(1), z.maxLength(80)),
   warnings: z.array(z.string().check(z.minLength(1), z.maxLength(300))).check(z.maxLength(20)),
+  certifiedSnapshot: z.optional(z.custom<CertifiedSupplySnapshot>(isCertifiedSupplySnapshot)),
 });
 
 export type SupplyForecastCandidate = z.infer<typeof supplyForecastCandidateSchema>;

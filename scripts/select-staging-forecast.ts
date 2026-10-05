@@ -1,13 +1,25 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { CertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
+import { registryCertifiedSnapshot } from "./certified-forecast-registry.ts";
+import {
+  recordSelectionDisposition,
+  StagingForecastEligibilityError,
+  validateStagingRegistry,
+} from "./staging-adoption-eligibility.ts";
 
 type Registry = {
   version: 3;
   activeForecastId: string;
   stagingForecastId: string;
   approvedForecastId: string;
-  forecasts: Array<{ id: string; kind: string; rulesVersion: string }>;
+  forecasts: Array<{
+    id: string;
+    kind: string;
+    rulesVersion: string;
+    certifiedSnapshot?: CertifiedSupplySnapshot;
+  }>;
 };
 
 export function selectForecastForStagingRuntime(value: unknown, forecastId: string): Registry {
@@ -29,12 +41,11 @@ function validatedStagingRegistry(value: unknown, forecastId: string): Registry 
   if (!/^supply-\d{4}-\d{2}-\d{2}-v\d+$/.test(forecastId)) {
     throw new Error("Staging forecast ID is invalid.");
   }
-  if (value["approvedForecastId"] !== forecastId) {
-    throw new Error("Staging may select only the inactive approved forecast.");
-  }
-  if (value["activeForecastId"] === forecastId) {
-    throw new Error("Forecast is already active in production; staging selection is unnecessary.");
-  }
+  const eligibility = validateStagingRegistry({ forecastId, registrySha: "" }, value);
+  if (eligibility.state !== "valid")
+    throw new StagingForecastEligibilityError(
+      eligibility.errorCode ?? "registry_forecast_ineligible",
+    );
   const forecast = value["forecasts"].find(
     (entry) => isRecord(entry) && entry["id"] === forecastId,
   );
@@ -45,6 +56,7 @@ function validatedStagingRegistry(value: unknown, forecastId: string): Registry 
   ) {
     throw new Error("Staging forecast does not satisfy the schedule-kit-v2 contract.");
   }
+  registryCertifiedSnapshot(forecast);
   return value as Registry;
 }
 
@@ -53,10 +65,17 @@ async function main() {
   if (!forecastId) throw new Error("Usage: select-staging-forecast <forecast-id>");
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const registryPath = resolve(root, "shared", "supplyForecasts.json");
-  const registry = selectForecastForStagingRuntime(
-    JSON.parse(await readFile(registryPath, "utf8")),
-    forecastId,
-  );
+  let registry: Registry;
+  try {
+    registry = selectForecastForStagingRuntime(
+      JSON.parse(await readFile(registryPath, "utf8")),
+      forecastId,
+    );
+  } catch (error) {
+    if (error instanceof StagingForecastEligibilityError && process.env["APPROVAL_ID"])
+      await recordSelectionDisposition(process.env["APPROVAL_ID"], error);
+    throw error;
+  }
   await writeFile(registryPath, `${JSON.stringify(registry, null, 2)}\n`, "utf8");
   console.log(`Selected runtime staging forecast ${forecastId}.`);
 }

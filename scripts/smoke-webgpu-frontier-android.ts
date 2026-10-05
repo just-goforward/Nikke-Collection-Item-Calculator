@@ -12,8 +12,6 @@ import {
 // The module is a browser entry loaded by HTML on the device; this type-only edge keeps it in the source graph.
 import type {} from "../benchmarks/webgpu/android-frontier-page.ts";
 
-const DEFAULT_ADB = String.raw`C:\Users\PC\AppData\Local\Android\Sdk\platform-tools\adb.exe`;
-const DEFAULT_SERIAL = "R3CN90M590A";
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT = resolve(REPO_ROOT, "benchmarks/results/webgpu-frontier-android-v2.json");
 const CONTRACT = {
@@ -69,8 +67,14 @@ function deviceMetadata(adbPath: string, serial: string) {
   };
 }
 
-const adbPath = process.env["ADB_PATH"] ?? DEFAULT_ADB;
-const serial = process.env["ADB_SERIAL"] ?? DEFAULT_SERIAL;
+function requiredPath(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is required.`);
+  return value;
+}
+
+const adbPath = requiredPath("ADB_PATH");
+const serial = requiredPath("ADB_SERIAL");
 adb(adbPath, serial, "shell", "input", "keyevent", "KEYCODE_WAKEUP");
 adb(adbPath, serial, "shell", "wm", "dismiss-keyguard");
 const device = deviceMetadata(adbPath, serial);

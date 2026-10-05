@@ -1,0 +1,89 @@
+{
+  "code": 200,
+  "message": null,
+  "content": {
+    "feed": {
+      "feedId": 7699562,
+      "originalLoungeId": "NIKKE_The_Goddess_of_Victory",
+      "loungeId": "nikke",
+      "gameId": "GM_NCR_006240",
+      "contentId": "nng-NIKKE_The_Goddess_of_Victory-7699562",
+      "title": "솔로 레이드 오픈 예정(5/28 내용 수정)",
+      "iconTypes": ["PHOTO"],
+      "feedType": "FEED",
+      "buff": 13,
+      "nerf": 0,
+      "repImageUrl": "https://nng-phinf.pstatic.net/MjAyNjA1MjhfODcg/MDAxNzc5OTUzMTc3NDEx.p3zITf535jtbP7h7NJw-qOQWcdnds1U5iiXRrq4uYeEg.QiKkASbZQwP0pzg9-5hM3_XxaknHKkdyEc3u8lZ07uYg.JPEG/NK%EC%86%94%EB%A1%9C-%EB%A0%88%EC%9D%B4%EB%93%9C_%EC%8B%9C%EC%A6%8C-37_%EC%9A%B8%ED%8A%B8%EB%9D%BC_V2.jpg",
+      "attachCount": 1,
+      "attachIconType": "PHOTO",
+      "createdDate": "20260522170039",
+      "updatedDate": "20260528162742",
+      "contents": "<div class=\"se-viewer se-theme-default\" lang=\"ko-KR\">\n    <!-- SE_DOC_HEADER_START -->\n    <!--@CONTENTS_HEADER-->\n    <!-- SE_DOC_HEADER_END -->\n    <div class=\"se-main-container\">\n                <div class=\"se-component se-text se-l-default\" id=\"SE-7226cf62-8f30-4d99-b8bc-8fb4e232783e\">\n                    <div class=\"se-component-content\">\n                        <div class=\"se-section se-section-text se-l-default\">\n                            <div class=\"se-module se-module-text\">\n                                    <!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-f01c41f6-ab11-4f2d-8f26-0a6d9410fa4f\"><span style=\"color:#000000;\" class=\"se-fs- se-ff-nanumgothic   \" id=\"SE-ae50cfe1-212d-462a-98f8-791d5452b29d\"><b>【솔로 레이드 오픈 예정】</b></span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-b13dead6-a32d-4325-be7a-d03ca9c84590\"><span style=\"color:#000000;\" class=\"se-fs- se-ff-nanumgothic   \" id=\"SE-aa8ceb0f-2038-4443-9b55-369bf12a9363\">​</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-14bc2c32-ca1c-4712-bd32-6b31c7595d8b\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-812c5de0-2636-48ac-b138-950ae7cd9ecd\">솔로 레이드 시즌 37이 곧 오픈될 예정입니다.</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-68cc2429-84b1-4663-a39b-175ec42441d3\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-229ea035-2528-4dc3-a32e-1bfcd6bf3c57\">​</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-586ef58e-28a9-40cd-b72d-a88de2d62138\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-293b7215-a498-41b9-9e6b-f5902781b668\">이번에 등장할 예정인 랩쳐는</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-a279feb0-433f-42c3-bfbb-6e5d61a14813\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-8f9c7170-6197-4f2e-9e3e-1aaf4e972552\">「울트라」입니다.</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-13dd9137-2646-45d2-a75d-235f87311034\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-62092d4b-4671-421d-be36-02dbf77de8dc\">​</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-ac47598a-774b-4c25-acdf-d0f4acf6c4bd\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-02af32c1-8e03-4dcb-87b3-21fb6e85feca\">자세한 정보는 아래 이미지를 통해</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-cf7be061-f771-461e-8749-64a5d174cc1c\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-fc76ab12-b213-47f1-b045-12e4ec20e515\">확인해 주시기 바랍니다.</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-c3241923-095c-4b2c-8cca-a413de7d62ff\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-6b5cabb6-b3be-404a-9b73-3e9f3c5ba684\">​</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-8c3dd41a-3d8a-42ed-8615-0ea8cbdaddae\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-6329f82c-1bd1-47f1-b659-59d47b97b170\">✅ </span><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-baf4240c-043f-4fc8-8020-d88d86fd06cf\"><b>진행 기간</b></span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-279cbf2a-498e-463c-9bff-45d63b6d5340\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-ac4435d5-126e-4a7b-b4f7-784d91c2d083\">- 5/28(목) </span><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-82c9c860-be5c-4198-af77-603c048a1be1\"><strike>12:00</strike></span><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-7d77e22b-4e90-4a89-a438-f98b96f19236\"> 점검 완료 후 ~ 6/4(목) 4:59</span><span style=\"color:#0078cb;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-30bbbe69-f723-40ef-af7e-eaaa8eb6358b\">(5/28 내용 수정)</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-7c925fb1-ac5e-489b-bf55-26b73541508f\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-e6f6bde7-52ef-4711-9da6-baa6e79a4a0b\">​</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-cb1db48e-756a-443e-bafa-c24ce6497e0a\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-58429201-f7df-463f-a372-8eed0ccec7fc\">* 인앱 구매(확률형 아이템 포함)</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-534352a7-18f8-4df7-9dfe-267a41e00633\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-0d1ccdd4-ee80-47da-ac2a-7bdee18bdc4c\">​</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-185846ac-ec0c-46c1-bfa0-30d43c451d89\"><span style=\"color:#ba0000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-f26de9a1-b3e4-4cd8-b1ad-a7629e19a4cd\">※ 일부 내용이 수정되었습니다.</span></p><!-- } SE-TEXT -->\n                            </div>\n                        </div>\n                    </div>\n                    <script type=\"text/data\" class=\"__se_module_data\" data-module-v2='{\"type\": \"v2_text\", \"id\": \"SE-7226cf62-8f30-4d99-b8bc-8fb4e232783e\", \"data\": {\"ctype\": \"text\"  }}'></script>\n                </div>                <div class=\"se-component se-image se-l-default\" id=\"SE-01c8cbff-9045-4021-82b2-3a3255cd4aa9\">\n                    <div class=\"se-component-content se-component-content-fit\">\n                        <div class=\"se-section se-section-image se-l-default se-section-align-\" >\n                                <div class=\"se-module se-module-image\" style=\"\">\n                                    <a href=\"#\" class=\"se-module-image-link __se_image_link __se_link\" style=\"\" onclick=\"return false;\" data-linktype=\"img\" data-linkdata='{\"id\" : \"SE-01c8cbff-9045-4021-82b2-3a3255cd4aa9\", \"src\" : \"https://nng-phinf.pstatic.net/MjAyNjA1MjhfODcg/MDAxNzc5OTUzMTc3NDEx.p3zITf535jtbP7h7NJw-qOQWcdnds1U5iiXRrq4uYeEg.QiKkASbZQwP0pzg9-5hM3_XxaknHKkdyEc3u8lZ07uYg.JPEG/NK%EC%86%94%EB%A1%9C-%EB%A0%88%EC%9D%B4%EB%93%9C_%EC%8B%9C%EC%A6%8C-37_%EC%9A%B8%ED%8A%B8%EB%9D%BC_V2.jpg?type=w1678\", \"originalWidth\" : \"1920\", \"originalHeight\" : \"1080\", \"linkUse\" : \"false\", \"link\" : \"\", \"fileSize\": \"594470\" }'>\n                                        <img src=\"https://nng-phinf.pstatic.net/MjAyNjA1MjhfODcg/MDAxNzc5OTUzMTc3NDEx.p3zITf535jtbP7h7NJw-qOQWcdnds1U5iiXRrq4uYeEg.QiKkASbZQwP0pzg9-5hM3_XxaknHKkdyEc3u8lZ07uYg.JPEG/NK%EC%86%94%EB%A1%9C-%EB%A0%88%EC%9D%B4%EB%93%9C_%EC%8B%9C%EC%A6%8C-37_%EC%9A%B8%ED%8A%B8%EB%9D%BC_V2.jpg?type=w1678\" alt=\"\" class=\"se-image-resource\" />\n                                    </a>\n                                </div>\n                        </div>\n                    </div>\n                    <script type=\"text/data\" class=\"__se_module_data\" data-module-v2='{\"type\": \"v2_image\", \"id\": \"SE-01c8cbff-9045-4021-82b2-3a3255cd4aa9\", \"data\": {\"ctype\": \"image\", \"ai\": \"false\", \"fileSize\": \"594470\" }}'></script>\n                </div>\n                <div class=\"se-component se-text se-l-default\" id=\"SE-fdf8e28a-dc25-40b2-89ae-8accd5a3a3cc\">\n                    <div class=\"se-component-content\">\n                        <div class=\"se-section se-section-text se-l-default\">\n                            <div class=\"se-module se-module-text\">\n                                    <!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-b8c0641e-224d-4cac-a725-bbcf456df1c5\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-778194cc-1da0-47d9-937c-8f8e774060f8\">​</span></p><!-- } SE-TEXT -->\n                            </div>\n                        </div>\n                    </div>\n                    <script type=\"text/data\" class=\"__se_module_data\" data-module-v2='{\"type\": \"v2_text\", \"id\": \"SE-fdf8e28a-dc25-40b2-89ae-8accd5a3a3cc\", \"data\": {\"ctype\": \"text\"  }}'></script>\n                </div>    </div>\n</div>\n",
+      "bodyExposureYN": "N",
+      "readOnlyJoinUser": "N",
+      "allowComment": "Y",
+      "deviceType": "PC",
+      "menuId": 12,
+      "boardType": "BOARD",
+      "pinned": false,
+      "hideByCleanBot": false
+    },
+    "user": {
+      "userIdHash": "6cd045bd8eedfccc068bd0e70a81ea26",
+      "nickname": "CM 행정부",
+      "profileImageUrl": "https://nng-phinf.pstatic.net/MjAyNjA0MjRfMjU5/MDAxNzc2OTk2MzcwNDk1.KHfcZSAqWccuO5QumvC3ytqOJvKZdyJErxJc4WZKx-kg.OFHFJ8SUtTu53gW5nCbrvxEs4p315RjVhsFajKh4jWwg.JPEG/image.jpg",
+      "userRoleCode": "game_manager",
+      "badge": {
+        "imageUrl": "https://ssl.pstatic.net/static/nng/glive/icon/game_manager.png"
+      },
+      "title": {
+        "name": "CM 행정부",
+        "color": "#FF6A00"
+      },
+      "verifiedMark": false,
+      "verifiedMarkType": null,
+      "level": 15
+    },
+    "comment": {
+      "totalCount": 4,
+      "commentCount": 3,
+      "replyCount": 1,
+      "exposeCount": 4
+    },
+    "clientBuffStatus": {
+      "vote": 0
+    },
+    "feedLink": {
+      "pc": "https://game.naver.com/lounge/nikke/board/detail/7699562",
+      "mobile": "https://m.game.naver.com/lounge/nikke/board/detail/7699562"
+    },
+    "lounge": {
+      "loungeName": "승리의 여신: 니케",
+      "loungeEnglishName": "GODDESS OF VICTORY: NIKKE",
+      "logoImageSquareUrl": "https://nng-phinf.pstatic.net/MjAyNjA1MTRfMjkw/MDAxNzc4NzQ4Mzg2ODk2.ls5vWpzYJycl4e2Ce71u6UZ-33dxxruvZ0izFoJyeQYg.dnkmb4r4nb9BQfyGBNmPSax1fh_nw9iJOuPh3_KVp_Yg.PNG/app_icon_full.png"
+    },
+    "board": {
+      "boardId": 56,
+      "boardName": "🔔 인게임 이벤트",
+      "exposure": true,
+      "type": "COMMON"
+    },
+    "series": null,
+    "season": null,
+    "buff": {
+      "buffCount": 13,
+      "nerfCount": 0,
+      "vote": 0
+    },
+    "score": 0,
+    "readCount": 2056,
+    "bookmark": null,
+    "privateUserBlock": false,
+    "preFeedId": 7698136,
+    "postFeedId": 7705700,
+    "tags": "니케,NIKKE,솔로레이드",
+    "myFeed": false,
+    "feedEndBanner": null,
+    "feedId": 7699562
+  }
+}

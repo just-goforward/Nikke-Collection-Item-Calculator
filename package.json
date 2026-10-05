@@ -12,21 +12,21 @@
     "usage-guard"
   ],
   "engines": {
-    "node": ">=24.20.0 <25",
-    "npm": ">=12.0.2 <13"
+    "node": ">=24.21.0 <25",
+    "npm": ">=12.2.0 <13"
   },
-  "packageManager": "npm@12.0.2",
+  "packageManager": "npm@12.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite --configLoader native",
-    "prebuild": "npm run build:solver-wasm",
+    "prebuild": "npm run generate:certified-engine-build && npm run build:solver-wasm",
     "build": "vite build --configLoader native",
     "prebuild:solver-wasm": "npm run generate:supply-forecast",
     "build:solver-wasm": "node scripts/build-solver-wasm.ts",
     "build:solver-wasm:branch-bound": "node scripts/build-solver-wasm-branch-bound.ts",
     "build:solver-wasm:sparse-pi": "node scripts/build-solver-wasm-sparse-pi.ts",
     "preview": "vite preview --configLoader native",
-    "test": "vitest run --configLoader runner",
+    "test": "vitest run --configLoader runner --exclude scripts/certified-staging-oracle-endpoints-integer.spec.ts",
     "test:worker": "npm run test --workspace @collection-kit/stats-worker",
     "test:forecast-collector": "npm run test --workspace @collection-kit/forecast-collector",
     "test:forecast-dispatcher": "npm run test --workspace @collection-kit/forecast-dispatcher",
@@ -98,7 +98,7 @@
     "bench:worker-concurrency": "node scripts/bench-worker-concurrency.ts",
     "bench:shadow-pilot": "node benchmarks/run-shadow-pilot.ts",
     "bench:shadow-exact-pilot": "node benchmarks/run-shadow-exact-pilot.ts",
-    "test:coverage": "vitest run --configLoader runner --coverage",
+    "test:coverage": "vitest run --configLoader runner --coverage --exclude scripts/certified-staging-oracle-endpoints-integer.spec.ts",
     "pretest:e2e": "npm run build",
     "test:e2e": "playwright test",
     "test:compat": "playwright test --config playwright.compat.config.ts",
@@ -108,6 +108,7 @@
     "test:visual": "playwright test e2e/visual.spec.ts",
     "test:visual:update": "playwright test e2e/visual.spec.ts --update-snapshots",
     "worker:types": "wrangler types cloudflare/worker-configuration.d.ts --config cloudflare/wrangler.toml --env= --env-interface GeneratedWorkerEnv --strict-vars false",
+    "validate:certified-staging:waiting-cache": "node --max-old-space-size=768 scripts/validate-certified-staging-waiting-cache.ts",
     "validate:wasm-candidate": "node scripts/validate-wasm-candidate.ts",
     "smoke:wasm-candidate:android": "node scripts/smoke-wasm-candidate-android.ts",
     "smoke:stats-worker": "node scripts/smoke-stats-worker.ts",
@@ -149,7 +150,7 @@
     "typecheck": "npm run worker:types:check && npm run forecast:types:check && npm run dispatcher:types:check && npm run interactions:types:check && npm run usage-guard:types:check && npm run stats-observer:types:check && tsc --noEmit && tsc --noEmit -p cloudflare/tsconfig.json && tsc --noEmit -p forecast-collector/tsconfig.json && tsc --noEmit -p forecast-dispatcher/tsconfig.json && tsc --noEmit -p forecast-interactions/tsconfig.json && tsc --noEmit -p usage-guard/tsconfig.json && tsc --noEmit -p stats-observer/tsconfig.json && tsc --noEmit -p tsconfig.e2e.json",
     "generate:supply-forecast": "node scripts/supply-forecast-codegen.ts",
     "check:supply-forecast": "node scripts/supply-forecast-codegen.ts --check",
-    "lint": "npm run check:supply-forecast && npm run check:workflows && npm run check:test-runtimes && biome check --diagnostic-level=warn && npm run lint:architecture && npm run lint:unused",
+    "lint": "npm run check:certified-engine-build && npm run check:supply-forecast && npm run check:workflows && npm run check:test-runtimes && biome check --diagnostic-level=warn && npm run lint:architecture && npm run lint:unused",
     "lint:advisory": "biome check --diagnostic-level=info --max-diagnostics=none",
     "lint:architecture": "node scripts/check-architecture.ts",
     "check:test-runtimes": "node scripts/check-test-runtime-boundaries.ts",
@@ -164,35 +165,43 @@
     "clean:artifacts": "node scripts/clean-artifacts.ts --apply",
     "clean:artifacts:dry-run": "node scripts/clean-artifacts.ts",
     "clean:research-artifacts": "node scripts/clean-artifacts.ts --research --apply",
-    "clean:research-artifacts:dry-run": "node scripts/clean-artifacts.ts --research"
+    "clean:research-artifacts:dry-run": "node scripts/clean-artifacts.ts --research",
+    "pretest": "node scripts/prepare-certified-staging-oracle-cache.ts",
+    "pretest:certified-endpoints": "node scripts/prepare-certified-staging-oracle-cache.ts",
+    "test:certified-endpoints": "vitest run --configLoader runner scripts/certified-staging-oracle-endpoints-integer.spec.ts --maxWorkers=1",
+    "test:certified-runtime": "node --test src/certifiedRuntime/nodeRuntime.test.mjs",
+    "test:certified-ui": "playwright test e2e/certified-ui.spec.ts",
+    "generate:certified-engine-build": "node scripts/certified-engine-build.ts",
+    "check:certified-engine-build": "node scripts/certified-engine-build.ts --check",
+    "pretest:coverage": "node scripts/prepare-certified-staging-oracle-cache.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
-    "@biomejs/biome": "^2.5.12",
+    "@biomejs/biome": "^2.5.15",
     "@playwright/test": "1.63.0",
     "@stryker-mutator/api": "^10.0.0",
     "@stryker-mutator/core": "^10.0.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^26.4.1",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.7",
+    "@types/node": "^24.19.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
-    "@vitest/coverage-v8": "^5.0.0",
+    "@vitest/coverage-v8": "^5.0.3",
     "esbuild": "^0.28.2",
-    "fast-check": "^4.9.0",
-    "knip": "^6.34.0",
-    "oxc-parser": "^0.148.0",
-    "sharp": "0.35.4",
+    "fast-check": "^4.10.2",
+    "knip": "^6.39.0",
+    "oxc-parser": "^0.152.0",
+    "sharp": "0.35.5",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.2.2",
-    "vitest": "^5.0.0",
-    "wrangler": "^4.129.0"
+    "vite": "^8.3.1",
+    "vitest": "^5.0.3",
+    "wrangler": "^4.145.0"
   },
   "dependencies": {
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "zod": "4.5.4"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "4.6.5"
   },
   "overrides": {
     "fast-uri": "3.1.7",
@@ -202,6 +211,7 @@
   "allowScripts": {
     "esbuild@0.28.1": true,
     "esbuild@0.28.2": true,
-    "workerd@1.20260903.1": true
+    "workerd@1.20260903.1": true,
+    "workerd@1.20260930.2": true
   }
 }

@@ -1,6 +1,8 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { CertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
+import { registryCertifiedSnapshot } from "./certified-forecast-registry.ts";
 
 type Gain = { blue: number; purple: number; yellow: number };
 type Profile = {
@@ -17,6 +19,7 @@ type Forecast = {
   effectiveFrom: string;
   sourceEvidence: unknown[];
   profiles: Profile[];
+  certifiedSnapshot?: CertifiedSupplySnapshot;
 };
 type Registry = {
   version: 3;
@@ -123,7 +126,16 @@ function validateForecast(value: unknown, ids: Set<string>, profileIds: Set<stri
   }
   const profiles = rawProfiles.map((raw) => validateProfile(raw, id, profileIds));
   validateProfileSequence(id, profiles);
-  return { id, kind, rulesVersion, effectiveFrom, sourceEvidence, profiles };
+  const certifiedSnapshot = registryCertifiedSnapshot(value);
+  return {
+    id,
+    kind,
+    rulesVersion,
+    effectiveFrom,
+    sourceEvidence,
+    profiles,
+    ...(certifiedSnapshot ? { certifiedSnapshot } : {}),
+  };
 }
 
 function validateProfile(value: unknown, forecastId: string, ids: Set<string>): Profile {
@@ -260,7 +272,15 @@ function renderTypeScript(registry: Registry, active: Forecast) {
 }
 
 function renderRuntimeTypeScript(staging: Forecast) {
-  const serializedStaging = JSON.stringify({ id: staging.id, profiles: staging.profiles }, null, 2)
+  const serializedStaging = JSON.stringify(
+    {
+      id: staging.id,
+      profiles: staging.profiles,
+      ...(staging.certifiedSnapshot ? { certifiedSnapshot: staging.certifiedSnapshot } : {}),
+    },
+    null,
+    2,
+  )
     .split("\n")
     .map((line) => `  ${line}`)
     .join("\n");

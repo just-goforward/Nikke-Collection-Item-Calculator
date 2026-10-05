@@ -1,8 +1,14 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { extname, relative } from "node:path";
+import { extname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
+import {
+  assertCertifiedHtmlBoundary,
+  type CertifiedBundleBoundary,
+  WORKER_SOURCE_KINDS,
+  type WorkerChunkGraph,
+} from "./certified-bundle-boundary.ts";
 
 const gzipAsync = promisify(gzip);
 const root = new URL("../", import.meta.url);
@@ -12,8 +18,11 @@ const wasmFile = new URL("../public/solver_rs.wasm", import.meta.url);
 const rootPath = fileURLToPath(root);
 
 const REQUIRED_LAZY_ROOTS = {
+  "src/certifiedUi/CertifiedCalculator.tsx": "lazy-certified",
   "src/components/StatsPanelBody.tsx": "lazy-stats",
   "src/schemas.ts": "lazy-stats",
+  "src/components/SuccessAttemptModal.tsx": "lazy-interaction",
+  "src/components/RecommendationContent.tsx": "lazy-interaction",
 } as const;
 const OPTIONAL_LAZY_ROOTS = {
   "src/components/DetailPanel.tsx": "lazy-detail",
@@ -22,15 +31,21 @@ const OPTIONAL_LAZY_ROOTS = {
   "src/lib/turnstileScriptLoader.ts": "lazy-stats",
   "src/solver/solve.ts": "lazy-solver",
   "shared/generated/supplyForecastRuntime.ts": "lazy-forecast",
+  "src/lib/demoStats.ts": "lazy-stats",
+  "src/lib/statsView.ts": "lazy-stats",
+  "src/lib/legacyInputRecovery.ts": "lazy-interaction",
 } as const;
 
 type BundleKind =
   | "initial-js"
+  | "lazy-certified"
   | "lazy-detail"
   | "lazy-forecast"
   | "lazy-solver"
   | "lazy-stats"
+  | "lazy-interaction"
   | "worker"
+  | "certified-worker"
   | "css"
   | "wasm"
   | "asset";
@@ -155,17 +170,67 @@ function manifestClassifications(manifest: Manifest) {
   return classifications;
 }
 
-function classifyUnmappedJavaScript(files: URL[], classifications: Map<string, BundleKind>) {
-  const unmapped = files
-    .map((file) => relative(fileURLToPath(distDir), fileURLToPath(file)).replace(/\\/g, "/"))
-    .filter((path) => extname(path) === ".js" && !classifications.has(path));
-  const workerEntries = unmapped.filter((path) => /(^|\/)worker-[^/]+\.js$/.test(path));
-  if (unmapped.length === 0 || workerEntries.length !== 1) {
-    throw new Error(
-      `Expected one Worker entry outside the app manifest, found ${workerEntries.length} among: ${unmapped.join(", ")}`,
-    );
+function assertWorkerChunkAsset(file: string, available: Set<string>) {
+  if (
+    extname(file) !== ".js" ||
+    file.includes("\\") ||
+    file.includes(":") ||
+    file.split("/").some((segment) => !segment || segment === "." || segment === "..")
+  )
+    throw new Error(`worker_chunk_path_invalid:${file}`);
+  if (!available.has(file)) throw new Error(`Worker chunk asset is missing: ${file}`);
+}
+
+function workerGraphFiles(graph: WorkerChunkGraph, available: Set<string>): Set<string> {
+  if (graph.version !== "worker-chunk-graph-v1")
+    throw new Error(`worker_chunk_ownership_version:${graph.source}`);
+  const chunks = new Map(graph.chunks.map((chunk) => [chunk.file, chunk]));
+  if (chunks.size !== graph.chunks.length)
+    throw new Error(`worker_chunk_ownership_duplicate:${graph.source}`);
+  for (const file of chunks.keys()) assertWorkerChunkAsset(file, available);
+  const reachable = new Set<string>();
+  const visit = (file: string) => {
+    if (reachable.has(file)) return;
+    const chunk = chunks.get(file);
+    if (!chunk) throw new Error(`worker_chunk_graph_missing:${file}`);
+    reachable.add(file);
+    for (const dependency of [...chunk.imports, ...chunk.dynamicImports]) visit(dependency);
+  };
+  visit(graph.entryFile);
+  if (reachable.size !== chunks.size)
+    throw new Error(`worker_chunk_ownership_unreachable:${graph.source}`);
+  return reachable;
+}
+
+export function classifyUnmappedJavaScript(
+  files: readonly string[],
+  classifications: Map<string, BundleKind>,
+  perWorker: readonly WorkerChunkGraph[],
+) {
+  if (!Array.isArray(perWorker as unknown)) throw new Error("worker_chunk_ownership_missing");
+  const sources = perWorker.map((graph) => graph.source);
+  if (
+    sources.length !== Object.keys(WORKER_SOURCE_KINDS).length ||
+    new Set(sources).size !== sources.length ||
+    sources.some((source) => !Object.hasOwn(WORKER_SOURCE_KINDS, source))
+  )
+    throw new Error(`worker_source_ownership_invalid:${sources.join(",")}`);
+  const available = new Set(files);
+  const owned = new Map<string, "worker" | "certified-worker">();
+  for (const graph of perWorker) {
+    const kind = WORKER_SOURCE_KINDS[graph.source];
+    for (const file of workerGraphFiles(graph, available)) {
+      // A chunk shared by both workers receives the stricter display category.
+      // Totals below still charge the complete graph to each owning worker.
+      if (!owned.has(file) || kind === "certified-worker") owned.set(file, kind);
+    }
   }
-  for (const workerFile of unmapped) classifications.set(workerFile, "worker");
+  for (const path of files) {
+    if (extname(path) !== ".js" || classifications.has(path)) continue;
+    const kind = owned.get(path);
+    if (!kind) throw new Error(`JavaScript asset is not classified: ${path}`);
+    classifications.set(path, kind);
+  }
 }
 
 function kindFor(path: string, classifications: Map<string, BundleKind>): BundleKind {
@@ -190,7 +255,7 @@ async function entryFor(file: URL, classifications: Map<string, BundleKind>): Pr
   };
 }
 
-function totals(entries: BundleEntry[]) {
+export function bundleTotals(entries: BundleEntry[], perWorker: readonly WorkerChunkGraph[]) {
   const byKind = new Map<string, { rawBytes: number; gzipBytes: number }>();
   for (const entry of entries) {
     const bucket = byKind.get(entry.kind) || { rawBytes: 0, gzipBytes: 0 };
@@ -198,26 +263,70 @@ function totals(entries: BundleEntry[]) {
     bucket.gzipBytes += entry.gzipBytes;
     byKind.set(entry.kind, bucket);
   }
+  const byPath = new Map(entries.map((entry) => [entry.path, entry]));
+  for (const [source, kind] of Object.entries(WORKER_SOURCE_KINDS)) {
+    const graph = perWorker.find((worker) => worker.source === source);
+    if (!graph) throw new Error(`worker_chunk_ownership_missing:${source}`);
+    const bucket = { rawBytes: 0, gzipBytes: 0 };
+    for (const file of new Set(graph.chunks.map((chunk) => chunk.file))) {
+      const entry = byPath.get(`dist/${file}`);
+      if (!entry) throw new Error(`Worker chunk asset is missing: ${file}`);
+      bucket.rawBytes += entry.rawBytes;
+      bucket.gzipBytes += entry.gzipBytes;
+    }
+    byKind.set(kind, bucket);
+  }
   return Object.fromEntries(byKind);
 }
 
-if (!(await fileExists(distDir)) || !(await fileExists(manifestFile))) {
-  throw new Error("dist manifest does not exist. Run npm run build before npm run report:bundle.");
+async function main() {
+  if (!(await fileExists(distDir)) || !(await fileExists(manifestFile))) {
+    throw new Error(
+      "dist manifest does not exist. Run npm run build before npm run report:bundle.",
+    );
+  }
+
+  const manifest = JSON.parse(await readFile(manifestFile, "utf8")) as Manifest;
+  const distFiles = await collectFiles(distDir);
+  const boundary = JSON.parse(
+    await readFile(new URL(".vite/certified-boundary.json", distDir), "utf8"),
+  ) as CertifiedBundleBoundary;
+  if (boundary.version !== "certified-initial-boundary-v1")
+    throw new Error("certified_initial_boundary_missing");
+  await Promise.all(
+    distFiles
+      .filter((file) => file.pathname.endsWith(".html"))
+      .map(async (file) => {
+        assertCertifiedHtmlBoundary(
+          await readFile(file, "utf8"),
+          relative(fileURLToPath(distDir), fileURLToPath(file)).replaceAll("\\", "/"),
+          boundary.certifiedFiles,
+        );
+      }),
+  );
+  const classifications = manifestClassifications(manifest);
+  classifyUnmappedJavaScript(
+    distFiles.map((file) =>
+      relative(fileURLToPath(distDir), fileURLToPath(file)).replaceAll("\\", "/"),
+    ),
+    classifications,
+    boundary.perWorker,
+  );
+  const entries = await Promise.all(distFiles.map((file) => entryFor(file, classifications)));
+  if (!entries.some((entry) => entry.kind === "wasm") && (await fileExists(wasmFile))) {
+    entries.push(await entryFor(wasmFile, classifications));
+  }
+
+  const report = {
+    generatedAt: new Date().toISOString(),
+    certifiedBoundary: boundary,
+    entries: entries.sort((a, b) => a.path.localeCompare(b.path)),
+    totals: bundleTotals(entries, boundary.perWorker),
+  };
+
+  console.log(JSON.stringify(report, null, 2));
 }
 
-const manifest = JSON.parse(await readFile(manifestFile, "utf8")) as Manifest;
-const distFiles = await collectFiles(distDir);
-const classifications = manifestClassifications(manifest);
-classifyUnmappedJavaScript(distFiles, classifications);
-const entries = await Promise.all(distFiles.map((file) => entryFor(file, classifications)));
-if (!entries.some((entry) => entry.kind === "wasm") && (await fileExists(wasmFile))) {
-  entries.push(await entryFor(wasmFile, classifications));
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  await main();
 }
-
-const report = {
-  generatedAt: new Date().toISOString(),
-  entries: entries.sort((a, b) => a.path.localeCompare(b.path)),
-  totals: totals(entries),
-};
-
-console.log(JSON.stringify(report, null, 2));

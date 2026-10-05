@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { message } from "../i18n/locale";
-import { makeDemoStats } from "../lib/demoStats";
 import { statsApiBase, statsRuntimeMode } from "../lib/statsRuntime";
-import { statsViewFromApiStats } from "../lib/statsView";
 import type { StatsView } from "../ui-types";
 
 type MutableRef<T> = { current: T };
@@ -29,6 +27,31 @@ function cancelStatsRefresh(
   requestRef.current = null;
 }
 
+async function refreshDemoStats(
+  sequence: number,
+  sequenceRef: MutableRef<number>,
+  loadedRef: MutableRef<boolean>,
+  dirtyRef: MutableRef<boolean>,
+  publish: (view: StatsView) => void,
+) {
+  try {
+    const [{ makeDemoStats }, { statsViewFromApiStats }] = await Promise.all([
+      import("../lib/demoStats"),
+      import("../lib/statsView"),
+    ]);
+    if (sequence === sequenceRef.current) {
+      publish(statsViewFromApiStats(makeDemoStats()));
+      loadedRef.current = true;
+      dirtyRef.current = false;
+    }
+  } catch (error) {
+    warnStatsRefreshFailure("demo stats could not be loaded", error);
+    if (sequence === sequenceRef.current) {
+      publish({ type: "error", message: message("stats.loadFailed") });
+    }
+  }
+}
+
 export function useStatsQuery(queryEnabled: boolean) {
   const [statsView, setStatsView] = useState<StatsView>({ type: "hidden" });
   const dirtyRef = useRef(false);
@@ -43,9 +66,7 @@ export function useStatsQuery(queryEnabled: boolean) {
     activeRequestRef.current?.abort();
     activeRequestRef.current = null;
     if (statsRuntimeMode() === "demo") {
-      setStatsView(statsViewFromApiStats(makeDemoStats()));
-      hasLoadedRef.current = true;
-      dirtyRef.current = false;
+      await refreshDemoStats(sequence, refreshSequenceRef, hasLoadedRef, dirtyRef, setStatsView);
       return;
     }
     const base = statsApiBase();
@@ -78,6 +99,7 @@ export function useStatsQuery(queryEnabled: boolean) {
         }
         return;
       }
+      const { statsViewFromApiStats } = await import("../lib/statsView");
       if (sequence === refreshSequenceRef.current) {
         setStatsView(statsViewFromApiStats(parsed.data));
         hasLoadedRef.current = true;

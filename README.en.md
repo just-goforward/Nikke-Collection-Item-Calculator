@@ -35,7 +35,7 @@ For security issues, use the private reporting route in the [security policy](./
 Requirements:
 
 - Node.js 24.x and npm 12.x, matching the current CI baseline
-- Rust 1.98.0 and the `wasm32-unknown-unknown` target, pinned by [`rust-toolchain.toml`](./rust-toolchain.toml)
+- Rust 1.98.1 and the `wasm32-unknown-unknown` target, pinned by [`rust-toolchain.toml`](./rust-toolchain.toml)
 
 ```powershell
 npm install
@@ -86,3 +86,5 @@ Except for separately identified third-party components, this project is distrib
 The Pretendard font family remains under the SIL Open Font License 1.1 and is not relicensed under the AGPL.
 
 NIKKE and related names and assets belong to their respective owners. This independent project is not affiliated with or endorsed by the game's developer or publisher.
+
+See [bundle budget policy](docs/bundle-budget-policy.ko.md) for the fixed limits and their evidence.

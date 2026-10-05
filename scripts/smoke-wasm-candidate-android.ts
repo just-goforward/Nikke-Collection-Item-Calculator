@@ -4,8 +4,6 @@ import { createServer } from "node:http";
 import { ACTIVE_SUPPLY_FORECAST_BASE_PROFILE } from "../shared/generated/supplyForecast.ts";
 import { RUST_PHASE2_RUNG_TIMEOUT_MS } from "../src/hooks/solverRecoveryPolicy.ts";
 
-const DEFAULT_ADB = String.raw`C:\Users\PC\AppData\Local\Android\Sdk\platform-tools\adb.exe`;
-const DEFAULT_SERIAL = "R3CN90M590A";
 const EXPECTED_SEMANTIC_BITS = "3fbf64e435ab1f1e";
 const EXPECTED_PHASE2_VECTOR_BITS = [
   "406d2165d280c9a2",
@@ -376,8 +374,8 @@ function assertSmokeRuns(runs: NonNullable<NonNullable<Window["__p4Result"]>["ru
 }
 
 async function main() {
-  const adbPath = process.env["ADB_PATH"] ?? DEFAULT_ADB;
-  const serial = process.env["ADB_SERIAL"] ?? DEFAULT_SERIAL;
+  const adbPath = requiredPath("ADB_PATH");
+  const serial = requiredPath("ADB_SERIAL");
   const browserPackage = process.env["ANDROID_BROWSER_PACKAGE"] ?? "com.android.chrome";
   const wasm = await readFile(requiredPath("WASM_CANDIDATE_PATH"));
   const metadata = deviceMetadata(adbPath, serial, browserPackage);

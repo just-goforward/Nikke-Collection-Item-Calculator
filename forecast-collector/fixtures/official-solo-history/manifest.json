@@ -1,0 +1,701 @@
+{
+  "acquiredAt": "2026-09-30T06:57:42.135Z",
+  "source": "shared/soloRaidCadence.ts",
+  "requested": 40,
+  "acquired": 40,
+  "acquisitionBounds": {
+    "concurrency": 4,
+    "timeoutMs": 8000,
+    "maxResponseBytes": 2000000,
+    "attemptsPerSource": 1
+  },
+  "records": [
+    {
+      "round": 1,
+      "startGameDate": "2023-05-11",
+      "status": "as_announced",
+      "sourceFeedId": 1950871,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/1950871",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "d01963248deee5dac417e98053777c60e32975d7ac8a43bb856532869ec7d207",
+      "normalizedContentHash": "6bf9b6a30d2a69ee72a053d1bdbeea9a58a5c13c3e7f8fe378000d23fe88b066",
+      "updatedAtRaw": "20230510190035"
+    },
+    {
+      "round": 2,
+      "startGameDate": "2023-06-08",
+      "status": "as_announced",
+      "sourceFeedId": 2055448,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/2055448",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "3254ecbe5f5677e1bba7ba279ff425a682c2d849384eb6c4fdde3094f960f489",
+      "normalizedContentHash": "e31fe2ecd7ebd62978b009ab48274b1d7480859fa71816474aa0893a11fe8b3b",
+      "updatedAtRaw": "20230602120116"
+    },
+    {
+      "round": 3,
+      "startGameDate": "2023-07-13",
+      "status": "as_announced",
+      "sourceFeedId": 2336639,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/2336639",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "e19da9e8a78263017b5936f913efbcded1a6bfe51d25a39ac8a3ec9a7bca0c2b",
+      "normalizedContentHash": "dd7f5c9ed96e1c05e8f49a2af77a7427af2ff36d0ef6ec75e30c455a2be07829",
+      "updatedAtRaw": "20230713122114"
+    },
+    {
+      "round": 4,
+      "startGameDate": "2023-08-10",
+      "status": "as_announced",
+      "sourceFeedId": 2501590,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/2501590",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "9c5f699f0b237b4b130220ca2e42cd71cc876b26fcdd1b088aaccb76df6b3751",
+      "normalizedContentHash": "ff44df4dfc830a335044ed6d558ff409a5c220df2c07664a608758f88d3dcaa7",
+      "updatedAtRaw": "20230804110034"
+    },
+    {
+      "round": 5,
+      "startGameDate": "2023-09-14",
+      "status": "as_announced",
+      "sourceFeedId": 2744161,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/2744161",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "fbc6d011f400207ae9c30017320f99f0b8f01ce4019613e3d1d19b221fce6ab7",
+      "normalizedContentHash": "f67b55359fb43c499c159e045620a996611d6aa3677efd7e65fe207c85b90767",
+      "updatedAtRaw": "20230908180032"
+    },
+    {
+      "round": 6,
+      "startGameDate": "2023-10-12",
+      "status": "as_announced",
+      "sourceFeedId": 2878411,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/2878411",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "5d7b650b34b824f79c42e73028ab44294f12c61925d7b94ed74abdf98da9a917",
+      "normalizedContentHash": "5331f22abc42ada91dc57bdeb45672d02627861c75ad6d9a313abf18db45ceed",
+      "updatedAtRaw": "20231006110238"
+    },
+    {
+      "round": 7,
+      "startGameDate": "2023-11-09",
+      "status": "as_announced",
+      "sourceFeedId": 3022731,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/3022731",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "1f700c91f8cb67767231d18f37ac5e8156a008cb67c520e134d88b8f5f09764a",
+      "normalizedContentHash": "ee71b9b33295368893857caecf29a9ec8d09f3b0ab0273850be009ab3cbac9f8",
+      "updatedAtRaw": "20231103180038"
+    },
+    {
+      "round": 8,
+      "startGameDate": "2023-12-14",
+      "status": "rescheduled",
+      "sourceFeedId": 3276396,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/3276396",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "a4028217d7fb660bc1e0962225e906fc3be5e3f276a6cc916f9ca35e17ee8fff",
+      "normalizedContentHash": "ff81be310d5a733c8f2e9a6892aab170eb6b9ef586f3c3faa8cac6c43e688e21",
+      "updatedAtRaw": "20231214120552"
+    },
+    {
+      "round": 9,
+      "startGameDate": "2024-01-04",
+      "status": "as_announced",
+      "sourceFeedId": 3354291,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/3354291",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "5fa3f815080ac2bc6565e5b680d15d23bd58b03647735405b7eac4a812aa9d9a",
+      "normalizedContentHash": "43640883c59cafc24d99276f6b1f0ec5e31270c5d700b2cd0eb97747a86e4f64",
+      "updatedAtRaw": "20231229161035"
+    },
+    {
+      "round": 10,
+      "startGameDate": "2024-02-09",
+      "status": "as_announced",
+      "sourceFeedId": 3523796,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/3523796",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "a24c7bbd3be64aa41929a274b941ba73338269624906f89c64171a589527938e",
+      "normalizedContentHash": "90c7671d3f1793bc4a8b71a005b1a16c3c7b0db7c259336fb57978b10a45e9c8",
+      "updatedAtRaw": "20240202160034"
+    },
+    {
+      "round": 11,
+      "startGameDate": "2024-03-08",
+      "status": "as_announced",
+      "sourceFeedId": 3668690,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/3668690",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "30a47a97399901517707d787fa5516d01dc04018218fadf35bc1ebecd6448a99",
+      "normalizedContentHash": "f3d5f2780e3d2a8245fce224bfc33aec85c5f681a3776bb2ce99676c1322b8f6",
+      "updatedAtRaw": "20240301180037"
+    },
+    {
+      "round": 12,
+      "startGameDate": "2024-04-04",
+      "status": "as_announced",
+      "sourceFeedId": 3841536,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/3841536",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "5d940c327dcb1d5b8f9b16cf48ee7577e991695ad646015733c5b234e2d5fd92",
+      "normalizedContentHash": "cfcca828e77c742750b7a5f70122923fa831fc92ad71bcc805616c5471bd817e",
+      "updatedAtRaw": "20240403174424"
+    },
+    {
+      "round": 13,
+      "startGameDate": "2024-05-02",
+      "status": "as_announced",
+      "sourceFeedId": 3975245,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/3975245",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "d41ec86bddc74af1a5b8292ad66a714da98f4f7aa5613f9cdfb44f8380caa078",
+      "normalizedContentHash": "cd8f83d7e36ebc2affd249c5df0a2205b17abe08c9f4031dac1b52307ce592db",
+      "updatedAtRaw": "20240426160036"
+    },
+    {
+      "round": 14,
+      "startGameDate": "2024-06-06",
+      "status": "as_announced",
+      "sourceFeedId": 4191267,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/4191267",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "b0e77a3a66287e57b26e0c84fb8698b89fdf017bb53cff9d3ef48484b59d1a1e",
+      "normalizedContentHash": "e38abddcd3aa06648d7b874b8e1ac94d023328d5edc9849f714285409fa99289",
+      "updatedAtRaw": "20240605210013"
+    },
+    {
+      "round": 15,
+      "startGameDate": "2024-07-11",
+      "status": "as_announced",
+      "sourceFeedId": 4375422,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/4375422",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "b60756e6d6b0d033c706ac4e064ad7bd1a7136c5e7c0f3c1f76c3a5d2d4d8e38",
+      "normalizedContentHash": "43de30c03a9ca662bd9e96b8562a1ada72478c84789b454898369d97be07cb75",
+      "updatedAtRaw": "20240705170033"
+    },
+    {
+      "round": 16,
+      "startGameDate": "2024-08-02",
+      "status": "as_announced",
+      "sourceFeedId": 4514386,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/4514386",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "6cdb9213628d91563ffdff96f346b5ccb364d6ed4dd1bf3652c84085b463f27d",
+      "normalizedContentHash": "50fc135f26cb584ac0e302bafa6f7610ec8fca598c3a93e933a6d3fb75868b49",
+      "updatedAtRaw": "20240726170035"
+    },
+    {
+      "round": 17,
+      "startGameDate": "2024-09-05",
+      "status": "as_announced",
+      "sourceFeedId": 4691557,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/4691557",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "332b022fc4c874a61f2ef1671b1f71b3b2876a0566ea937530f26f7bdbc0ca40",
+      "normalizedContentHash": "0682bde4e1920704ee79de9d44a37e1bc8ff63d104c3d318a2551deaf0aeca57",
+      "updatedAtRaw": "20240830170041"
+    },
+    {
+      "round": 18,
+      "startGameDate": "2024-10-03",
+      "status": "as_announced",
+      "sourceFeedId": 4823662,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/4823662",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "1a534e68c16b1fc0467dfc28a43ef0dea0bb9d28dd6749c48ee6ec602802e57c",
+      "normalizedContentHash": "f5da5562dc8e28bafb77973f062a8618f30fd6e1e6c948af1eb02a2164f3177b",
+      "updatedAtRaw": "20240927170037"
+    },
+    {
+      "round": 19,
+      "startGameDate": "2024-10-31",
+      "status": "schedule_changed",
+      "sourceFeedId": 5013873,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/5013873",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "835d890df738bca71beb7ba90b982a40ba7e8210259970bd91f67ff85e2f1a70",
+      "normalizedContentHash": "10cc9eedbbd69ef59c4c5eae79478e75a78758e48c1f4e43f641d762cb1ac36e",
+      "updatedAtRaw": "20241101220853"
+    },
+    {
+      "round": 20,
+      "startGameDate": "2024-12-12",
+      "status": "as_announced",
+      "sourceFeedId": 5250302,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/5250302",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "cfbef65109ffc2e7947ea6603ffdb815863c0cc698247bc94a0743cc08f4f50f",
+      "normalizedContentHash": "5936252dfc44db0a6b34481f1a008c2bb0c246fdd851b31592c78bddf6b6e263",
+      "updatedAtRaw": "20241206170038"
+    },
+    {
+      "round": 21,
+      "startGameDate": "2025-01-09",
+      "status": "as_announced",
+      "sourceFeedId": 5414775,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/5414775",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "b7fed85e107e0e681d71243962499223aa462586fe504f547607e7e189c2186e",
+      "normalizedContentHash": "2108bf088d65797801697ea9e63001e737ec8e8700f5225652cbffe5bcb0ed3d",
+      "updatedAtRaw": "20250103203028"
+    },
+    {
+      "round": 22,
+      "startGameDate": "2025-02-06",
+      "status": "as_announced",
+      "sourceFeedId": 5558577,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/5558577",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "fe34b533f0cf936a4c28288912cb5fc97067b68c054248da9352128ff88c567f",
+      "normalizedContentHash": "c1fdbbfd5448700a489d2450901e81a7d3b0521c1002858ba2b3cfcf90c60f81",
+      "updatedAtRaw": "20250131170048"
+    },
+    {
+      "round": 23,
+      "startGameDate": "2025-03-06",
+      "status": "as_announced",
+      "sourceFeedId": 5689969,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/5689969",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "4a6a30d04dca22f7223eb9237af8e0a647bebd1dcb1438a3fd852c8d223e1acf",
+      "normalizedContentHash": "34b5c26fa74a9ac991d1ba617a5890afab21a2661ba80d442eae1e9732f620b0",
+      "updatedAtRaw": "20250228170054"
+    },
+    {
+      "round": 24,
+      "startGameDate": "2025-04-03",
+      "status": "as_announced",
+      "sourceFeedId": 5815120,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/5815120",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "267a00cf45afb2417f4ea1dad6e67440689a4d9454f060f618f9d2bdf1376129",
+      "normalizedContentHash": "02a237ed6700c8b6f0b271cdec9b38c6d5190e01020e22e953ac34c3fbebfa66",
+      "updatedAtRaw": "20250328170057"
+    },
+    {
+      "round": 25,
+      "startGameDate": "2025-05-08",
+      "status": "as_announced",
+      "sourceFeedId": 5968589,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/5968589",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "309c132f08c663a1a19f2a69a2d860594c2b272638e522129045ae576458cada",
+      "normalizedContentHash": "f3a90e70ff274acce630dc70a431b883a84af7611cc2576f5e940325a50fdd9a",
+      "updatedAtRaw": "20250501170032"
+    },
+    {
+      "round": 26,
+      "startGameDate": "2025-06-19",
+      "status": "schedule_changed",
+      "sourceFeedId": 6225681,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/6225681",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "69a4ff58bb07e039d649c333c6cdd26c06b27b7f84c51183f8b604b23dbec797",
+      "normalizedContentHash": "a29f74d7d10a3a026599d93e2d25c07003a3a73d611c043d62f3c0f093afc7e9",
+      "updatedAtRaw": "20250624165622"
+    },
+    {
+      "round": 27,
+      "startGameDate": "2025-07-24",
+      "status": "as_announced",
+      "sourceFeedId": 6383981,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/6383981",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "c4e718fa040a8647694635806947555b606bf4e822210613eab538dcd114d5bb",
+      "normalizedContentHash": "47b63e9a1bf7345ad332631c6245ac9f548d40d7672a390c3bf3d564858fb9c9",
+      "updatedAtRaw": "20250724172606"
+    },
+    {
+      "round": 28,
+      "startGameDate": "2025-08-21",
+      "status": "schedule_changed",
+      "sourceFeedId": 6579018,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/6579018",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "c6e4cd938f2147c0e0ee8a14fe2d8133595ab2d7db5df514c629e829c97a8dbf",
+      "normalizedContentHash": "c9ab5eb4a538b321863d2d6df03b3009d01013b01a58841f6d9c5da2fbdf5476",
+      "updatedAtRaw": "20250826011042"
+    },
+    {
+      "round": 29,
+      "startGameDate": "2025-09-16",
+      "status": "as_announced",
+      "sourceFeedId": 6674249,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/6674249",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "37e7369216caed6c1e7fd5539ce60164c59819279592217c2b6717983ad139c4",
+      "normalizedContentHash": "b7a09a0c37efd36b973fa62c548face15bf10d93aed31481b7f6de9173ae2a18",
+      "updatedAtRaw": "20250916120057"
+    },
+    {
+      "round": 30,
+      "startGameDate": "2025-10-09",
+      "status": "as_announced",
+      "sourceFeedId": 6748668,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/6748668",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "1347985cf42bc2536c7f518008f2e6dadcbca934d11655e0fc5f00bb6dab88d0",
+      "normalizedContentHash": "3329f3e9e23ae83df1eee1239962767be12bb63feff110d6a0ba4d5a12897f7f",
+      "updatedAtRaw": "20251003170031"
+    },
+    {
+      "round": 31,
+      "startGameDate": "2025-11-13",
+      "status": "as_announced",
+      "sourceFeedId": 6916387,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/6916387",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "538f718b7bd29956ac40cc3c538bb8e52bec6ed6cc1608c6155d7c5035ef00b6",
+      "normalizedContentHash": "254ea9a1c7d12992309ed3d63e6907f0544b1249f5bb6c97ef5466d8bb807307",
+      "updatedAtRaw": "20251107170129"
+    },
+    {
+      "round": 32,
+      "startGameDate": "2025-12-11",
+      "status": "as_announced",
+      "sourceFeedId": 7034442,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/7034442",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "9118351a16895e56396acd7545d92bf4ba689b38fab1270def65f2e9511608fe",
+      "normalizedContentHash": "ee6cd044c91dd76b80a47f6b8bbf65fb689e63bfe70875668d57711060249083",
+      "updatedAtRaw": "20251205170032"
+    },
+    {
+      "round": 33,
+      "startGameDate": "2026-01-08",
+      "status": "as_announced",
+      "sourceFeedId": 7138616,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/7138616",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "982cc4b3d8b8134bc666877b0510ad8446f36ca3060ba946cb43265530bf7e50",
+      "normalizedContentHash": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+      "updatedAtRaw": "20260102170033"
+    },
+    {
+      "round": 34,
+      "startGameDate": "2026-02-19",
+      "status": "as_announced",
+      "sourceFeedId": 7298679,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/7298679",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "9d8fd41a61da5bd2f32545b64749c34fff8a9cdaa2ab3333c521c7840e2ac30e",
+      "normalizedContentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+      "updatedAtRaw": "20260213170039"
+    },
+    {
+      "round": 35,
+      "startGameDate": "2026-03-20",
+      "status": "as_announced",
+      "sourceFeedId": 7409051,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/7409051",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "84950602965b7ad95315859483646399a90dccbb35441cf77410b12276e0ec36",
+      "normalizedContentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+      "updatedAtRaw": "20260313170032"
+    },
+    {
+      "round": 36,
+      "startGameDate": "2026-04-30",
+      "status": "as_announced",
+      "sourceFeedId": 7576019,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/7576019",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "fd487c56ccf1649cf1dd47fd021db2d6847035c2de7d411d87c5773967788e41",
+      "normalizedContentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+      "updatedAtRaw": "20260424170039"
+    },
+    {
+      "round": 37,
+      "startGameDate": "2026-05-28",
+      "status": "reconstructed",
+      "sourceFeedId": 7699562,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/7699562",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "dadce0c3fbfbc3fc78998630f4a7d1a9655a3c7e86caf1e419d02c5166449e62",
+      "normalizedContentHash": "bb7940ef2696302c79c8f3af6a7166b7d0df2f1a4a665c76a39df5ffc1813bea",
+      "updatedAtRaw": "20260528162742"
+    },
+    {
+      "round": 38,
+      "startGameDate": "2026-06-18",
+      "status": "schedule_changed",
+      "sourceFeedId": 7833931,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/7833931",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "9e144114f5e7bfa066fcb30be204857dc1d0abf1da099d150da92131fa27e333",
+      "normalizedContentHash": "a4dc596518bf65f69919ff08ba7f308ecb0428ea48fee3526e27279b55f233eb",
+      "updatedAtRaw": "20260623004733"
+    },
+    {
+      "round": 39,
+      "startGameDate": "2026-07-16",
+      "status": "as_announced",
+      "sourceFeedId": 7911818,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/7911818",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "156bbc8be6d268ef6f7179b3548b7cd9c8535d2c3ac9da0bdddbef698b02eabd",
+      "normalizedContentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+      "updatedAtRaw": "20260710170035"
+    },
+    {
+      "round": 40,
+      "startGameDate": "2026-08-20",
+      "status": "as_announced",
+      "sourceFeedId": 8060044,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/8060044",
+      "acquired": true,
+      "httpStatus": 200,
+      "rawSha256": "b688970dfc06cbe94af2c218e21e2cb6f5fd28eccf5694346238c82846a659bb",
+      "normalizedContentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+      "updatedAtRaw": "20260819100153"
+    }
+  ],
+  "files": [
+    {
+      "path": "1950871.json",
+      "bytes": 7403,
+      "sha256": "d01963248deee5dac417e98053777c60e32975d7ac8a43bb856532869ec7d207"
+    },
+    {
+      "path": "2055448.json",
+      "bytes": 6906,
+      "sha256": "3254ecbe5f5677e1bba7ba279ff425a682c2d849384eb6c4fdde3094f960f489"
+    },
+    {
+      "path": "2336639.json",
+      "bytes": 12113,
+      "sha256": "e19da9e8a78263017b5936f913efbcded1a6bfe51d25a39ac8a3ec9a7bca0c2b"
+    },
+    {
+      "path": "2501590.json",
+      "bytes": 10993,
+      "sha256": "9c5f699f0b237b4b130220ca2e42cd71cc876b26fcdd1b088aaccb76df6b3751"
+    },
+    {
+      "path": "2744161.json",
+      "bytes": 9063,
+      "sha256": "fbc6d011f400207ae9c30017320f99f0b8f01ce4019613e3d1d19b221fce6ab7"
+    },
+    {
+      "path": "2878411.json",
+      "bytes": 8204,
+      "sha256": "5d7b650b34b824f79c42e73028ab44294f12c61925d7b94ed74abdf98da9a917"
+    },
+    {
+      "path": "3022731.json",
+      "bytes": 8677,
+      "sha256": "1f700c91f8cb67767231d18f37ac5e8156a008cb67c520e134d88b8f5f09764a"
+    },
+    {
+      "path": "3276396.json",
+      "bytes": 9597,
+      "sha256": "a4028217d7fb660bc1e0962225e906fc3be5e3f276a6cc916f9ca35e17ee8fff"
+    },
+    {
+      "path": "3354291.json",
+      "bytes": 9275,
+      "sha256": "5fa3f815080ac2bc6565e5b680d15d23bd58b03647735405b7eac4a812aa9d9a"
+    },
+    {
+      "path": "3523796.json",
+      "bytes": 9018,
+      "sha256": "a24c7bbd3be64aa41929a274b941ba73338269624906f89c64171a589527938e"
+    },
+    {
+      "path": "3668690.json",
+      "bytes": 9670,
+      "sha256": "30a47a97399901517707d787fa5516d01dc04018218fadf35bc1ebecd6448a99"
+    },
+    {
+      "path": "3841536.json",
+      "bytes": 9574,
+      "sha256": "5d940c327dcb1d5b8f9b16cf48ee7577e991695ad646015733c5b234e2d5fd92"
+    },
+    {
+      "path": "3975245.json",
+      "bytes": 10383,
+      "sha256": "d41ec86bddc74af1a5b8292ad66a714da98f4f7aa5613f9cdfb44f8380caa078"
+    },
+    {
+      "path": "4191267.json",
+      "bytes": 10500,
+      "sha256": "b0e77a3a66287e57b26e0c84fb8698b89fdf017bb53cff9d3ef48484b59d1a1e"
+    },
+    {
+      "path": "4375422.json",
+      "bytes": 10289,
+      "sha256": "b60756e6d6b0d033c706ac4e064ad7bd1a7136c5e7c0f3c1f76c3a5d2d4d8e38"
+    },
+    {
+      "path": "4514386.json",
+      "bytes": 10005,
+      "sha256": "6cdb9213628d91563ffdff96f346b5ccb364d6ed4dd1bf3652c84085b463f27d"
+    },
+    {
+      "path": "4691557.json",
+      "bytes": 12366,
+      "sha256": "332b022fc4c874a61f2ef1671b1f71b3b2876a0566ea937530f26f7bdbc0ca40"
+    },
+    {
+      "path": "4823662.json",
+      "bytes": 10273,
+      "sha256": "1a534e68c16b1fc0467dfc28a43ef0dea0bb9d28dd6749c48ee6ec602802e57c"
+    },
+    {
+      "path": "5013873.json",
+      "bytes": 26506,
+      "sha256": "835d890df738bca71beb7ba90b982a40ba7e8210259970bd91f67ff85e2f1a70"
+    },
+    {
+      "path": "5250302.json",
+      "bytes": 10120,
+      "sha256": "cfbef65109ffc2e7947ea6603ffdb815863c0cc698247bc94a0743cc08f4f50f"
+    },
+    {
+      "path": "5414775.json",
+      "bytes": 10315,
+      "sha256": "b7fed85e107e0e681d71243962499223aa462586fe504f547607e7e189c2186e"
+    },
+    {
+      "path": "5558577.json",
+      "bytes": 10272,
+      "sha256": "fe34b533f0cf936a4c28288912cb5fc97067b68c054248da9352128ff88c567f"
+    },
+    {
+      "path": "5689969.json",
+      "bytes": 12269,
+      "sha256": "4a6a30d04dca22f7223eb9237af8e0a647bebd1dcb1438a3fd852c8d223e1acf"
+    },
+    {
+      "path": "5815120.json",
+      "bytes": 10267,
+      "sha256": "267a00cf45afb2417f4ea1dad6e67440689a4d9454f060f618f9d2bdf1376129"
+    },
+    {
+      "path": "5968589.json",
+      "bytes": 10885,
+      "sha256": "309c132f08c663a1a19f2a69a2d860594c2b272638e522129045ae576458cada"
+    },
+    {
+      "path": "6225681.json",
+      "bytes": 32550,
+      "sha256": "69a4ff58bb07e039d649c333c6cdd26c06b27b7f84c51183f8b604b23dbec797"
+    },
+    {
+      "path": "6383981.json",
+      "bytes": 9890,
+      "sha256": "c4e718fa040a8647694635806947555b606bf4e822210613eab538dcd114d5bb"
+    },
+    {
+      "path": "6579018.json",
+      "bytes": 20159,
+      "sha256": "c6e4cd938f2147c0e0ee8a14fe2d8133595ab2d7db5df514c629e829c97a8dbf"
+    },
+    {
+      "path": "6674249.json",
+      "bytes": 10873,
+      "sha256": "37e7369216caed6c1e7fd5539ce60164c59819279592217c2b6717983ad139c4"
+    },
+    {
+      "path": "6748668.json",
+      "bytes": 11078,
+      "sha256": "1347985cf42bc2536c7f518008f2e6dadcbca934d11655e0fc5f00bb6dab88d0"
+    },
+    {
+      "path": "6916387.json",
+      "bytes": 10862,
+      "sha256": "538f718b7bd29956ac40cc3c538bb8e52bec6ed6cc1608c6155d7c5035ef00b6"
+    },
+    {
+      "path": "7034442.json",
+      "bytes": 11003,
+      "sha256": "9118351a16895e56396acd7545d92bf4ba689b38fab1270def65f2e9511608fe"
+    },
+    {
+      "path": "7138616.json",
+      "bytes": 10944,
+      "sha256": "982cc4b3d8b8134bc666877b0510ad8446f36ca3060ba946cb43265530bf7e50"
+    },
+    {
+      "path": "7298679.json",
+      "bytes": 10776,
+      "sha256": "9d8fd41a61da5bd2f32545b64749c34fff8a9cdaa2ab3333c521c7840e2ac30e"
+    },
+    {
+      "path": "7409051.json",
+      "bytes": 10896,
+      "sha256": "84950602965b7ad95315859483646399a90dccbb35441cf77410b12276e0ec36"
+    },
+    {
+      "path": "7576019.json",
+      "bytes": 10997,
+      "sha256": "fd487c56ccf1649cf1dd47fd021db2d6847035c2de7d411d87c5773967788e41"
+    },
+    {
+      "path": "7699562.json",
+      "bytes": 12136,
+      "sha256": "dadce0c3fbfbc3fc78998630f4a7d1a9655a3c7e86caf1e419d02c5166449e62"
+    },
+    {
+      "path": "7833931.json",
+      "bytes": 24530,
+      "sha256": "9e144114f5e7bfa066fcb30be204857dc1d0abf1da099d150da92131fa27e333"
+    },
+    {
+      "path": "7911818.json",
+      "bytes": 11148,
+      "sha256": "156bbc8be6d268ef6f7179b3548b7cd9c8535d2c3ac9da0bdddbef698b02eabd"
+    },
+    {
+      "path": "8060044.json",
+      "bytes": 11118,
+      "sha256": "b688970dfc06cbe94af2c218e21e2cb6f5fd28eccf5694346238c82846a659bb"
+    },
+    {
+      "path": "normalized.json",
+      "bytes": 56940,
+      "sha256": "0855f8faf40213dd810cda405d3b722f68ed0aef31924f706806a21025ee56e2"
+    }
+  ]
+}

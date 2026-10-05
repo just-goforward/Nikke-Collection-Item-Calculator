@@ -11,6 +11,9 @@ export const jaMessages = {
   "error.reload": "ページを再読み込み",
   "error.sectionDetail": "この領域に必要なファイルを読み込めませんでした。",
   "error.retrySection": "もう一度読み込む",
+  "error.reloadInputsDetail": "未確定の使用前入力は復元しません。",
+  "error.reloadInputsUnavailable":
+    "入力を保存できません。入力を控えるかキット数を修正して再試行してください。",
   "common.calculate": "計算",
   "common.calculateLong": "計算する",
   "common.recalculate": "再計算",
@@ -105,6 +108,7 @@ export const jaMessages = {
   "kit.purpleColor": "紫",
   "kit.yellowColor": "黄",
   "result.title": "結果",
+  "result.preparing": "おすすめ画面を準備中。",
   "result.initial": "コレクションの状態とキット所持数を入力して計算してください。",
   "result.emptyLead": "まだ計算結果がありません。3ステップで始められます。",
   "result.emptyStepState": "現在のコレクションを選択します。",
@@ -252,15 +256,7 @@ export const jaMessages = {
   "stats.cumulativeCounts": "{attempts}試行・大成功{successes}回",
   "stats.piecesUsed": "{pieces}個使用",
   "stats.piecesUsedBreakdown": "キット別使用量を表示: {pieces}",
-  "modal.genericKit": "お手入れキット",
-  "modal.remaining": "残り{count}個",
-  "modal.successAttempt": "{attempt}回目に大成功",
-  "modal.why": "なぜ必要ですか？",
-  "modal.whyDetail":
-    "大成功すると残りの使用は行われないため、実際の消費量は大成功した回数で変わります。選択した残数から大成功のタイミングを逆算して統計に反映します。",
-  "modal.question": "残りの{kit}は何個ですか？",
-  "modal.instruction":
-    "何回目に大成功したか不明なため、残数を確定してください。ゲーム内インベントリに表示されている現在の数を選択します。",
+  "modal.preparing": "残りのキット数を選ぶ画面を準備中。",
   "privacy.notice":
     "サービス改善と大成功統計のため、計算条件と結果を区間値として集計します。送信に成功したイベントのみを反映し、ユニークユーザー数は集計しません。名前、メール、アカウント、IPアドレスなどの個人識別情報は統計DBに保存しません。",
   "rights.notice":

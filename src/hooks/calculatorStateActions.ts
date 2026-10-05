@@ -6,7 +6,7 @@ import {
   useEffect,
   useRef,
 } from "react";
-
+import { setLegacyOutcomeRecovery } from "../lib/lazyModuleRetry";
 import { normalizeState } from "../solver/domain";
 import type { CollectionState, Grade, Kit, SolverInput, Stock, Strategy } from "../types";
 import { clampStock, sanitizeExpValue } from "./calculatorShared";
@@ -105,6 +105,7 @@ function useCalculatorCoreActions({
     setters;
   const setCollectionState = useCallback(
     (next: CollectionState, options: { maxLevelRender?: boolean; markChanged?: boolean } = {}) => {
+      setLegacyOutcomeRecovery(null);
       const normalized = normalizeState(next) as CollectionState;
       setGradeState(normalized.grade);
       setLevelState(normalized.level);
@@ -151,6 +152,7 @@ function useCalculatorCoreActions({
 
   const restoreInputSnapshot = useCallback(
     (snapshot: CalculatorInputSnapshot) => {
+      setLegacyOutcomeRecovery(null);
       const normalized = normalizeState(snapshot) as CollectionState;
       const nextExp = sanitizeExpValue(normalized.grade, normalized.level, normalized.exp);
       const nextStock = clampStock(snapshot.stock);
@@ -201,6 +203,7 @@ function useCalculatorInputActions({
     setters;
   const setStockCountForKit = useCallback(
     (kit: Kit, value: number) => {
+      setLegacyOutcomeRecovery(null);
       setStockState((current) => ({
         ...current,
         [kit]: Math.max(0, Math.floor(Number(value) || 0)),
@@ -213,6 +216,7 @@ function useCalculatorInputActions({
     (nextGrade: Grade) => {
       const nextExp = sanitizeExpValue(nextGrade, level, exp);
       if (nextGrade === grade && nextExp === exp) return;
+      setLegacyOutcomeRecovery(null);
       setGradeState(nextGrade);
       setExpState(nextExp);
       if (level >= 15) onMaxLevelState(nextGrade, level);
@@ -235,6 +239,7 @@ function useCalculatorInputActions({
       const safeLevel = safeLevelFromInput(nextLevel);
       const nextExp = sanitizeExpValue(grade, safeLevel, exp);
       if (safeLevel === level && nextExp === exp) return;
+      setLegacyOutcomeRecovery(null);
       setLevelState(safeLevel);
       setExpState(nextExp);
       if (safeLevel >= 15) onMaxLevelState(grade, safeLevel);
@@ -256,6 +261,7 @@ function useCalculatorInputActions({
     (nextExp: number) => {
       const safeExp = sanitizeExpValue(grade, level, nextExp);
       if (safeExp === exp) return;
+      setLegacyOutcomeRecovery(null);
       setExpState(safeExp);
       onInputChanged(manualStockEditRequired, "state");
     },
@@ -266,6 +272,7 @@ function useCalculatorInputActions({
     (nextStock: Stock) => {
       const next = clampStock(nextStock);
       if (sameStock(stock, next)) return;
+      setLegacyOutcomeRecovery(null);
       setStockState(next);
       onInputChanged(manualStockEditRequired, "stock");
     },
@@ -273,6 +280,7 @@ function useCalculatorInputActions({
   );
 
   const resetState = useCallback(() => {
+    setLegacyOutcomeRecovery(null);
     setManualStockEditRequired(false);
     setGradeState("R");
     setLevelState(0);

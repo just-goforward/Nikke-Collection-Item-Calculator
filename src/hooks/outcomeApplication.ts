@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { message } from "../i18n/locale";
+import { setLegacyOutcomeRecovery } from "../lib/lazyModuleRetry";
 import type { SolverInput } from "../types";
 import type { RecommendationAction } from "../ui-types";
 import type { TerminalSuccessContext } from "./calculatorShared";
@@ -64,6 +65,7 @@ function applySuccessfulOutcome(
     options.setPendingStatsEvent(null);
     options.setManualStockEditRequired(false);
     options.terminalSuccessContextRef.current = plan.context;
+    setLegacyOutcomeRecovery("pending");
     options.setModal({
       open: true,
       maxAttempt: run.count,

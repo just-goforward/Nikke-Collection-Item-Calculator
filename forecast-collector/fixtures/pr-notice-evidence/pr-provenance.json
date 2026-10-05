@@ -1,0 +1,1727 @@
+{
+  "retrievedAt": "2026-09-30T07:11:08.118Z",
+  "route": "existing GitHub CLI gh api --method GET; public GitHub web initial discovery; bounded public Naver detail GET",
+  "repository": "just-goforward/Nikke-Collection-Item-Calculator",
+  "listedPullRequests": 60,
+  "candidatePullRequests": 11,
+  "relatedStagingPullRequest": 14,
+  "retainedRepositoryArtifactCount": 19,
+  "pullRequests": [
+    {
+      "number": 9,
+      "url": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/9",
+      "state": "closed",
+      "mergedAt": null,
+      "createdAt": "2026-08-25T16:43:46Z",
+      "updatedAt": "2026-08-27T02:10:02Z",
+      "headSha": "821ac800ff877cb314eb7b5017261479703c6fa8",
+      "baseSha": "78e212aef9e854c42d0e0471a04bc7b7b54d7183",
+      "mergeCommitSha": "3bacea950d9c2d58ea91d1e58fc2beecd17689b3",
+      "registryBlobSha": "272821db6929a9bf2f7fbecaee74328f21bef35e",
+      "savedRegistrySha256": "9cb2e531af486e816d6de9254a377e7c39d70439e7611d5d7d78b09bd97b2b8d",
+      "forecastId": "supply-2026-08-25-v2",
+      "claimedCandidateId": "forecast-1a767a428fcebc1104784416",
+      "claimedPayloadSha256": "7e77097090ccdaf7ed67e123ce349bdac4c5d288adecd8f2188b8ecb65791e27",
+      "changedFiles": [
+        {
+          "path": "shared/generated/supplyForecast.ts",
+          "status": "modified",
+          "blobSha": "7023bd9f918c85a8c7d06c6b49a01688675b18a7",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/821ac800ff877cb314eb7b5017261479703c6fa8/shared%2Fgenerated%2FsupplyForecast.ts"
+        },
+        {
+          "path": "shared/supplyForecasts.json",
+          "status": "modified",
+          "blobSha": "272821db6929a9bf2f7fbecaee74328f21bef35e",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/821ac800ff877cb314eb7b5017261479703c6fa8/shared%2FsupplyForecasts.json"
+        }
+      ],
+      "retainedSourceEvidenceFields": [
+        "source",
+        "itemId",
+        "url",
+        "publishedAt",
+        "excerpt",
+        "contentHash"
+      ],
+      "profiles": 31,
+      "firstProfileFrom": "2026-08-24T20:00:00.000Z",
+      "lastProfileFrom": "2026-09-22T20:00:00.000Z",
+      "lastProfileUntil": null,
+      "sourceEvidence": [
+        {
+          "source": "naver-board-56",
+          "itemId": "7138616",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7138616",
+          "publishedAt": "2026-01-02T08:00:33.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 33이 곧 오픈될 예정입니다.",
+          "contentHash": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "reacquiredFullTextSha256": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7298679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7298679",
+          "publishedAt": "2026-02-13T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 34가 곧 오픈될 예정입니다.",
+          "contentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "reacquiredFullTextSha256": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7409051",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7409051",
+          "publishedAt": "2026-03-13T08:00:32.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 35가 곧 오픈될 예정입니다.",
+          "contentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "reacquiredFullTextSha256": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7576019",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7576019",
+          "publishedAt": "2026-04-24T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 36이 곧 오픈될 예정입니다.",
+          "contentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "reacquiredFullTextSha256": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7911818",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7911818",
+          "publishedAt": "2026-07-10T08:00:35.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 39가 곧 오픈될 예정입니다.",
+          "contentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "reacquiredFullTextSha256": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8060044",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8060044",
+          "publishedAt": "2026-08-14T08:00:42.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 40이 곧 오픈될 예정입니다.",
+          "contentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "reacquiredFullTextSha256": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8053292",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8053292",
+          "publishedAt": "2026-08-12T22:15:28.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「퀸(니지마 마코토)」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 퀸(니지마 마코토)의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "23b3a53852660c81713c80365592e21f4199e28aa80d9f3f5e60537ba12e156f",
+          "reacquiredFullTextSha256": "23b3a53852660c81713c80365592e21f4199e28aa80d9f3f5e60537ba12e156f",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8067910",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8067910",
+          "publishedAt": "2026-08-16T09:00:35.000Z",
+          "excerpt": "콜라보 이벤트 진행 중! 【콜라보 이벤트 진행 중!】 ​ 「승리의 여신: 니케」 x 「P3R」, 「P4G」, 「P5R」 콜라보 한정 프레임이 등장했습니다! ​ 콜라보 기간 중, - THIEF QUEEN PASS - SNOW FLAKES PASS 랭크 10 달성 시 일반 보상에서 획득하실 수 있습니다. ​ ◆ 콜라보 종료 일시 - 9/10(목) 4:59 ​",
+          "contentHash": "510e2f59d2d3bc97b11d08c967cf0615e9e6f166a30b2ed748b2c224e9e3be70",
+          "reacquiredFullTextSha256": "510e2f59d2d3bc97b11d08c967cf0615e9e6f166a30b2ed748b2c224e9e3be70",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080556",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080556",
+          "publishedAt": "2026-08-20T01:00:41.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 아마기 유키코의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "reacquiredFullTextSha256": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080706",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080706",
+          "publishedAt": "2026-08-20T02:00:36.000Z",
+          "excerpt": "스토리 이벤트 진행 중 【스토리 이벤트 진행 중】 ​ 「승리의 여신: 니케」 x 「P3R」, 「P4G」, 「P5R」 신규 콜라보 스토리 이벤트 ‘PERSONA ON FRONTLINE’ 현재 진행 중!",
+          "contentHash": "e60b8189b4abba4b61c3b8c2de5590770f517fc0384789e1f6328c80f8e7934e",
+          "reacquiredFullTextSha256": "e60b8189b4abba4b61c3b8c2de5590770f517fc0384789e1f6328c80f8e7934e",
+          "fullTextHashMatches": true
+        }
+      ]
+    },
+    {
+      "number": 10,
+      "url": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/10",
+      "state": "closed",
+      "mergedAt": null,
+      "createdAt": "2026-08-26T01:29:15Z",
+      "updatedAt": "2026-08-27T02:10:06Z",
+      "headSha": "cbbd82a5f291c0335d46f2a31ad48d4747a1da27",
+      "baseSha": "78e212aef9e854c42d0e0471a04bc7b7b54d7183",
+      "mergeCommitSha": "8b2629249f67d59f81bf96e5e5002f244a114e82",
+      "registryBlobSha": "c6fb5e19597f7767831f787f7ff90c5d171a9b07",
+      "savedRegistrySha256": "4b494e181914932626dae9bfffc8985a69717f56bcbaa0a93b2eaf583d2d4bf3",
+      "forecastId": "supply-2026-08-26-v1",
+      "claimedCandidateId": "forecast-adfcd19e2277d64ea8b6aaed",
+      "claimedPayloadSha256": "b11b05929cd50746122717638dd296b49cbe4876347fbd25c7fa4d0a7d7be4f6",
+      "changedFiles": [
+        {
+          "path": "shared/generated/supplyForecast.ts",
+          "status": "modified",
+          "blobSha": "1909226567bc81d9c567926b05ec0c0bfe790a73",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/cbbd82a5f291c0335d46f2a31ad48d4747a1da27/shared%2Fgenerated%2FsupplyForecast.ts"
+        },
+        {
+          "path": "shared/supplyForecasts.json",
+          "status": "modified",
+          "blobSha": "c6fb5e19597f7767831f787f7ff90c5d171a9b07",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/cbbd82a5f291c0335d46f2a31ad48d4747a1da27/shared%2FsupplyForecasts.json"
+        }
+      ],
+      "retainedSourceEvidenceFields": [
+        "source",
+        "itemId",
+        "url",
+        "publishedAt",
+        "excerpt",
+        "contentHash"
+      ],
+      "profiles": 30,
+      "firstProfileFrom": "2026-08-25T20:00:00.000Z",
+      "lastProfileFrom": "2026-09-22T20:00:00.000Z",
+      "lastProfileUntil": null,
+      "sourceEvidence": [
+        {
+          "source": "naver-board-56",
+          "itemId": "7138616",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7138616",
+          "publishedAt": "2026-01-02T08:00:33.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 33이 곧 오픈될 예정입니다.",
+          "contentHash": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "reacquiredFullTextSha256": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7298679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7298679",
+          "publishedAt": "2026-02-13T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 34가 곧 오픈될 예정입니다.",
+          "contentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "reacquiredFullTextSha256": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7409051",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7409051",
+          "publishedAt": "2026-03-13T08:00:32.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 35가 곧 오픈될 예정입니다.",
+          "contentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "reacquiredFullTextSha256": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7576019",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7576019",
+          "publishedAt": "2026-04-24T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 36이 곧 오픈될 예정입니다.",
+          "contentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "reacquiredFullTextSha256": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7911818",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7911818",
+          "publishedAt": "2026-07-10T08:00:35.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 39가 곧 오픈될 예정입니다.",
+          "contentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "reacquiredFullTextSha256": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8060044",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8060044",
+          "publishedAt": "2026-08-14T08:00:42.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 40이 곧 오픈될 예정입니다.",
+          "contentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "reacquiredFullTextSha256": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8053292",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8053292",
+          "publishedAt": "2026-08-12T22:15:28.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「퀸(니지마 마코토)」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 퀸(니지마 마코토)의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "23b3a53852660c81713c80365592e21f4199e28aa80d9f3f5e60537ba12e156f",
+          "reacquiredFullTextSha256": "23b3a53852660c81713c80365592e21f4199e28aa80d9f3f5e60537ba12e156f",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8067910",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8067910",
+          "publishedAt": "2026-08-16T09:00:35.000Z",
+          "excerpt": "콜라보 이벤트 진행 중! 【콜라보 이벤트 진행 중!】 ​ 「승리의 여신: 니케」 x 「P3R」, 「P4G」, 「P5R」 콜라보 한정 프레임이 등장했습니다! ​ 콜라보 기간 중, - THIEF QUEEN PASS - SNOW FLAKES PASS 랭크 10 달성 시 일반 보상에서 획득하실 수 있습니다. ​ ◆ 콜라보 종료 일시 - 9/10(목) 4:59 ​",
+          "contentHash": "510e2f59d2d3bc97b11d08c967cf0615e9e6f166a30b2ed748b2c224e9e3be70",
+          "reacquiredFullTextSha256": "510e2f59d2d3bc97b11d08c967cf0615e9e6f166a30b2ed748b2c224e9e3be70",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080706",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080706",
+          "publishedAt": "2026-08-20T02:00:36.000Z",
+          "excerpt": "스토리 이벤트 진행 중 【스토리 이벤트 진행 중】 ​ 「승리의 여신: 니케」 x 「P3R」, 「P4G」, 「P5R」 신규 콜라보 스토리 이벤트 ‘PERSONA ON FRONTLINE’ 현재 진행 중!",
+          "contentHash": "e60b8189b4abba4b61c3b8c2de5590770f517fc0384789e1f6328c80f8e7934e",
+          "reacquiredFullTextSha256": "e60b8189b4abba4b61c3b8c2de5590770f517fc0384789e1f6328c80f8e7934e",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080556",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080556",
+          "publishedAt": "2026-08-20T01:00:41.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 아마기 유키코의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "reacquiredFullTextSha256": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "fullTextHashMatches": true
+        }
+      ]
+    },
+    {
+      "number": 11,
+      "url": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/11",
+      "state": "closed",
+      "mergedAt": null,
+      "createdAt": "2026-08-28T00:37:47Z",
+      "updatedAt": "2026-08-30T06:37:28Z",
+      "headSha": "282cb518f08772581d7e409a2ccb2a1dba6628f6",
+      "baseSha": "0a53eeed25c956b6b1d9ea217f5f121bf5ba95f5",
+      "mergeCommitSha": "1ba96468a6303664a7db3b93f6cc64fe3cd2ee1b",
+      "registryBlobSha": "3d3dd9195cf191771a4e961e30c63513e5cd43ca",
+      "savedRegistrySha256": "ee738c3b3b3d244f2e8f74abac5f74ee0713990f675ba1d3a07aa956e9b4119a",
+      "forecastId": "supply-2026-08-28-v1",
+      "claimedCandidateId": "forecast-1c165f04bf143c3a59711b31",
+      "claimedPayloadSha256": "9788da7b8beb4ad26a1a701b28e7b54b667ccbade97c74d8dc69774fbf95ccc1",
+      "changedFiles": [
+        {
+          "path": "shared/generated/supplyForecast.ts",
+          "status": "modified",
+          "blobSha": "678fba467ef51cb3443565f97293c5d94f74e6af",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/282cb518f08772581d7e409a2ccb2a1dba6628f6/shared%2Fgenerated%2FsupplyForecast.ts"
+        },
+        {
+          "path": "shared/supplyForecasts.json",
+          "status": "modified",
+          "blobSha": "3d3dd9195cf191771a4e961e30c63513e5cd43ca",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/282cb518f08772581d7e409a2ccb2a1dba6628f6/shared%2FsupplyForecasts.json"
+        }
+      ],
+      "retainedSourceEvidenceFields": [
+        "source",
+        "itemId",
+        "url",
+        "publishedAt",
+        "excerpt",
+        "contentHash"
+      ],
+      "profiles": 56,
+      "firstProfileFrom": "2026-08-27T20:00:00.000Z",
+      "lastProfileFrom": "2026-10-21T20:00:00.000Z",
+      "lastProfileUntil": null,
+      "sourceEvidence": [
+        {
+          "source": "naver-board-56",
+          "itemId": "7138616",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7138616",
+          "publishedAt": "2026-01-02T08:00:33.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 33이 곧 오픈될 예정입니다.",
+          "contentHash": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "reacquiredFullTextSha256": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7298679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7298679",
+          "publishedAt": "2026-02-13T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 34가 곧 오픈될 예정입니다.",
+          "contentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "reacquiredFullTextSha256": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7409051",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7409051",
+          "publishedAt": "2026-03-13T08:00:32.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 35가 곧 오픈될 예정입니다.",
+          "contentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "reacquiredFullTextSha256": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7576019",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7576019",
+          "publishedAt": "2026-04-24T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 36이 곧 오픈될 예정입니다.",
+          "contentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "reacquiredFullTextSha256": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7911818",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7911818",
+          "publishedAt": "2026-07-10T08:00:35.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 39가 곧 오픈될 예정입니다.",
+          "contentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "reacquiredFullTextSha256": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8060044",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8060044",
+          "publishedAt": "2026-08-14T08:00:42.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 40이 곧 오픈될 예정입니다.",
+          "contentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "reacquiredFullTextSha256": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080556",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080556",
+          "publishedAt": "2026-08-20T01:00:41.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 아마기 유키코의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "reacquiredFullTextSha256": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "fullTextHashMatches": true
+        }
+      ]
+    },
+    {
+      "number": 12,
+      "url": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/12",
+      "state": "closed",
+      "mergedAt": null,
+      "createdAt": "2026-08-28T12:43:56Z",
+      "updatedAt": "2026-08-30T06:37:31Z",
+      "headSha": "43570bbd1706881257a4b9a0348482c7518ff2bf",
+      "baseSha": "103d4a19565600076d8eafa736275f4fa5e40822",
+      "mergeCommitSha": "83a5eabc274bab8eea00a2170c437ee54b5191c5",
+      "registryBlobSha": "30f9a64c6b159b72288cc4b8cca710c8d62156a6",
+      "savedRegistrySha256": "5b1dd220134ad8174b945e880196a6bdae548bce3da0d7dd0e130483f9afb6f2",
+      "forecastId": "supply-2026-08-28-v2",
+      "claimedCandidateId": "forecast-4a57e196234ce301702990ba",
+      "claimedPayloadSha256": "1b08ffa33d1508042f204d3c7e795b98bf644bfd50d38b78f10f13600d40921a",
+      "changedFiles": [
+        {
+          "path": "shared/generated/supplyForecast.ts",
+          "status": "modified",
+          "blobSha": "f24c57a1629b286aa736a5d6525d32e75c19da08",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/43570bbd1706881257a4b9a0348482c7518ff2bf/shared%2Fgenerated%2FsupplyForecast.ts"
+        },
+        {
+          "path": "shared/supplyForecasts.json",
+          "status": "modified",
+          "blobSha": "30f9a64c6b159b72288cc4b8cca710c8d62156a6",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/43570bbd1706881257a4b9a0348482c7518ff2bf/shared%2FsupplyForecasts.json"
+        }
+      ],
+      "retainedSourceEvidenceFields": [
+        "source",
+        "itemId",
+        "url",
+        "publishedAt",
+        "excerpt",
+        "contentHash"
+      ],
+      "profiles": 56,
+      "firstProfileFrom": "2026-08-27T20:00:00.000Z",
+      "lastProfileFrom": "2026-10-21T20:00:00.000Z",
+      "lastProfileUntil": null,
+      "sourceEvidence": [
+        {
+          "source": "naver-board-56",
+          "itemId": "7138616",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7138616",
+          "publishedAt": "2026-01-02T08:00:33.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 33이 곧 오픈될 예정입니다.",
+          "contentHash": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "reacquiredFullTextSha256": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7298679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7298679",
+          "publishedAt": "2026-02-13T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 34가 곧 오픈될 예정입니다.",
+          "contentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "reacquiredFullTextSha256": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7409051",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7409051",
+          "publishedAt": "2026-03-13T08:00:32.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 35가 곧 오픈될 예정입니다.",
+          "contentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "reacquiredFullTextSha256": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7576019",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7576019",
+          "publishedAt": "2026-04-24T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 36이 곧 오픈될 예정입니다.",
+          "contentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "reacquiredFullTextSha256": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7911818",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7911818",
+          "publishedAt": "2026-07-10T08:00:35.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 39가 곧 오픈될 예정입니다.",
+          "contentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "reacquiredFullTextSha256": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8060044",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8060044",
+          "publishedAt": "2026-08-14T08:00:42.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 40이 곧 오픈될 예정입니다.",
+          "contentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "reacquiredFullTextSha256": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080556",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080556",
+          "publishedAt": "2026-08-20T01:00:41.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 아마기 유키코의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "reacquiredFullTextSha256": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "fullTextHashMatches": true
+        }
+      ]
+    },
+    {
+      "number": 13,
+      "url": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/13",
+      "state": "closed",
+      "mergedAt": "2026-08-30T06:44:35Z",
+      "createdAt": "2026-08-28T14:01:15Z",
+      "updatedAt": "2026-08-30T06:44:37Z",
+      "headSha": "ae18e8203145a56d0601bde383aa8366242f4e1e",
+      "baseSha": "103d4a19565600076d8eafa736275f4fa5e40822",
+      "mergeCommitSha": "8d55a750d429f8d94643826fb3cd5b05f2b4ba21",
+      "registryBlobSha": "6a66a98391243df43184b43cbcd0346897151cbc",
+      "savedRegistrySha256": "7091e50b4a43cb11e87b67b71d34fcbe39a26c3c51156e818d30a8f3e9240f7b",
+      "forecastId": "supply-2026-08-28-v1",
+      "claimedCandidateId": "forecast-fe4e048060532328c38b6616",
+      "claimedPayloadSha256": "f837adb7e1123b7c91f71f93bbc4a1dc8335a9d46b64762f294288eea8022375",
+      "changedFiles": [
+        {
+          "path": "shared/generated/supplyForecast.ts",
+          "status": "modified",
+          "blobSha": "81e598400978cb4bf00e713d0a9e6bb749c3d4d8",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/ae18e8203145a56d0601bde383aa8366242f4e1e/shared%2Fgenerated%2FsupplyForecast.ts"
+        },
+        {
+          "path": "shared/supplyForecasts.json",
+          "status": "modified",
+          "blobSha": "6a66a98391243df43184b43cbcd0346897151cbc",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/ae18e8203145a56d0601bde383aa8366242f4e1e/shared%2FsupplyForecasts.json"
+        }
+      ],
+      "retainedSourceEvidenceFields": [
+        "source",
+        "itemId",
+        "url",
+        "publishedAt",
+        "excerpt",
+        "contentHash"
+      ],
+      "profiles": 56,
+      "firstProfileFrom": "2026-08-27T20:00:00.000Z",
+      "lastProfileFrom": "2026-10-21T20:00:00.000Z",
+      "lastProfileUntil": null,
+      "sourceEvidence": [
+        {
+          "source": "naver-board-56",
+          "itemId": "7138616",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7138616",
+          "publishedAt": "2026-01-02T08:00:33.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 33이 곧 오픈될 예정입니다.",
+          "contentHash": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "reacquiredFullTextSha256": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7298679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7298679",
+          "publishedAt": "2026-02-13T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 34가 곧 오픈될 예정입니다.",
+          "contentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "reacquiredFullTextSha256": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7409051",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7409051",
+          "publishedAt": "2026-03-13T08:00:32.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 35가 곧 오픈될 예정입니다.",
+          "contentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "reacquiredFullTextSha256": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7576019",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7576019",
+          "publishedAt": "2026-04-24T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 36이 곧 오픈될 예정입니다.",
+          "contentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "reacquiredFullTextSha256": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7911818",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7911818",
+          "publishedAt": "2026-07-10T08:00:35.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 39가 곧 오픈될 예정입니다.",
+          "contentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "reacquiredFullTextSha256": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8060044",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8060044",
+          "publishedAt": "2026-08-14T08:00:42.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 40이 곧 오픈될 예정입니다.",
+          "contentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "reacquiredFullTextSha256": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080556",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080556",
+          "publishedAt": "2026-08-20T01:00:41.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 오픈】 아마기 유키코의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "865b622353b78c5f9aa6a1b615eda68b5e0c906dbac4335170c5a030c18ba915",
+          "reacquiredFullTextSha256": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "fullTextHashMatches": false
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8031679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8031679",
+          "publishedAt": "2026-08-07T02:30:28.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 예고 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 예고】 신규 캐릭터가 곧 등장합니다! 이와 더불어, 콜라보 기간 한정 Pick Up 모집 이벤트가 함께 진행될 예정이니 많이 기대해 주세요! ◆ 콜라보 캐릭터 - 아마기 유키코 ◆ Pick Up 모집 기간 - 8/20(목) 5:00 ~ 9/10(목) 4:59 ※ 「아마기 유키코」는 Pick Up 모집 기간이 종료된 후 일반 모집, 신규 지휘관 전용 모집, 일반 모집(튜토리얼), 소셜 포인트 모집, 몰드 아이템, 마일리지 상점을 통해 획득할 수 없습니다.",
+          "contentHash": "b4d7784e5233b5f7a87ceb33b392ea4c6d46a479064bd9486b95a390da651fba",
+          "reacquiredFullTextSha256": "8353e9d46630afedd3e65c6c91f962df2298e194c3f3f321e2daeb77e62fce17",
+          "fullTextHashMatches": false
+        }
+      ]
+    },
+    {
+      "number": 14,
+      "url": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/14",
+      "state": "closed",
+      "mergedAt": null,
+      "createdAt": "2026-08-30T08:51:55Z",
+      "updatedAt": "2026-09-03T00:28:48Z",
+      "headSha": "b02a1ea383d1e447f8ae03afa9bda170ec264692",
+      "baseSha": "4785169c511704d8a5e600bedeaf77171fb8269f",
+      "mergeCommitSha": "1ed01ed232feb55e27d4b505a2c843ae785589c7",
+      "changedFiles": [
+        {
+          "path": "staging/adoption.json",
+          "status": "added",
+          "blobSha": "de68d54b29c87b6cce12e238cb508a97cdfad6e8",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/b02a1ea383d1e447f8ae03afa9bda170ec264692/staging%2Fadoption.json"
+        }
+      ]
+    },
+    {
+      "number": 15,
+      "url": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/15",
+      "state": "open",
+      "mergedAt": null,
+      "createdAt": "2026-08-31T23:53:21Z",
+      "updatedAt": "2026-08-31T23:53:21Z",
+      "headSha": "e4ff11458ba49fadcd5adebb9c8dbeb34aaf0570",
+      "baseSha": "a9390e991645c91b2200491bf44d012809764ce1",
+      "mergeCommitSha": "d6f822623671c25ab3d7e27e23e5b37e3a29eb26",
+      "registryBlobSha": "42cc9d73105ebccf679841bd8e2b58e6fb928f1c",
+      "savedRegistrySha256": "6ed402a4efe32d314366e1e10c7aea5efb5fc1eab802c9e0a5ea9c0dad7e3959",
+      "forecastId": "supply-2026-09-01-v1",
+      "claimedCandidateId": "forecast-54956f0943ff1cbc954f3292",
+      "claimedPayloadSha256": "862319c7225e469e1a628304aaa8a2a9ce734f23307514108917023e6b4a92cb",
+      "changedFiles": [
+        {
+          "path": "shared/generated/supplyForecast.ts",
+          "status": "modified",
+          "blobSha": "f905ac8f019f7057584053a7e1fd0ee090d4c217",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/e4ff11458ba49fadcd5adebb9c8dbeb34aaf0570/shared%2Fgenerated%2FsupplyForecast.ts"
+        },
+        {
+          "path": "shared/supplyForecasts.json",
+          "status": "modified",
+          "blobSha": "42cc9d73105ebccf679841bd8e2b58e6fb928f1c",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/e4ff11458ba49fadcd5adebb9c8dbeb34aaf0570/shared%2FsupplyForecasts.json"
+        }
+      ],
+      "retainedSourceEvidenceFields": [
+        "source",
+        "itemId",
+        "url",
+        "publishedAt",
+        "excerpt",
+        "contentHash"
+      ],
+      "profiles": 56,
+      "firstProfileFrom": "2026-08-31T20:00:00.000Z",
+      "lastProfileFrom": "2026-10-25T20:00:00.000Z",
+      "lastProfileUntil": null,
+      "sourceEvidence": [
+        {
+          "source": "naver-board-56",
+          "itemId": "7138616",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7138616",
+          "publishedAt": "2026-01-02T08:00:33.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 33이 곧 오픈될 예정입니다.",
+          "contentHash": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "reacquiredFullTextSha256": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7298679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7298679",
+          "publishedAt": "2026-02-13T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 34가 곧 오픈될 예정입니다.",
+          "contentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "reacquiredFullTextSha256": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7409051",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7409051",
+          "publishedAt": "2026-03-13T08:00:32.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 35가 곧 오픈될 예정입니다.",
+          "contentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "reacquiredFullTextSha256": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7576019",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7576019",
+          "publishedAt": "2026-04-24T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 36이 곧 오픈될 예정입니다.",
+          "contentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "reacquiredFullTextSha256": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7911818",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7911818",
+          "publishedAt": "2026-07-10T08:00:35.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 39가 곧 오픈될 예정입니다.",
+          "contentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "reacquiredFullTextSha256": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8060044",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8060044",
+          "publishedAt": "2026-08-14T08:00:42.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 40이 곧 오픈될 예정입니다.",
+          "contentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "reacquiredFullTextSha256": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080556",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080556",
+          "publishedAt": "2026-08-20T01:00:41.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 아마기 유키코의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "reacquiredFullTextSha256": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8031679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8031679",
+          "publishedAt": "2026-08-07T02:30:28.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 예고 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 예고】 신규 캐릭터가 곧 등장합니다! 이와 더불어, 콜라보 기간 한정 Pick Up 모집 이벤트가 함께 진행될 예정이니 많이 기대해 주세요! ◆ 콜라보 캐릭터 - 아마기 유키코 ◆ Pick Up 모집 기간 - 8/20(목) 5:00 ~ 9/10(목) 4:59 ※ 「아마기 유키코」는 Pick Up 모집 기간이 종료된 후 일반 모집, 신규 지휘관 전용 모집, 일반 모집(튜토리얼), 소셜 포인트 모집, 몰드 아이템, 마일리지 상점을 통해 획득할 수 없습니다.",
+          "contentHash": "b4d7784e5233b5f7a87ceb33b392ea4c6d46a479064bd9486b95a390da651fba",
+          "reacquiredFullTextSha256": "8353e9d46630afedd3e65c6c91f962df2298e194c3f3f321e2daeb77e62fce17",
+          "fullTextHashMatches": false
+        }
+      ]
+    },
+    {
+      "number": 37,
+      "url": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/37",
+      "state": "open",
+      "mergedAt": null,
+      "createdAt": "2026-09-04T14:02:04Z",
+      "updatedAt": "2026-09-04T14:02:04Z",
+      "headSha": "68ca387c6cf4ee02a0d85e5bed7c6ee7c6f74267",
+      "baseSha": "5a86b969883000012990badc2438cecfd062d7a1",
+      "mergeCommitSha": "b49ea45533f2f5a93a7b469cafe8cd679a9b74cb",
+      "registryBlobSha": "8d5e378ff7579e099dc8c3c82a9eb1d738551d1c",
+      "savedRegistrySha256": "7d3bad1cab4467ea5507076bcac9e84be2fa25b48220234acf94f80c66cd0ad8",
+      "forecastId": "supply-2026-09-04-v1",
+      "claimedCandidateId": "forecast-a820ac3f955027734c94f25c",
+      "claimedPayloadSha256": "7e29b9eb5214f180f8f1c8f8e097c29a370f18e4a95d78f1c4fefb0f6331091a",
+      "changedFiles": [
+        {
+          "path": "shared/generated/supplyForecast.ts",
+          "status": "modified",
+          "blobSha": "c1f008b70b0b370f3cbbd7b458c7174f11c61cf9",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/68ca387c6cf4ee02a0d85e5bed7c6ee7c6f74267/shared%2Fgenerated%2FsupplyForecast.ts"
+        },
+        {
+          "path": "shared/supplyForecasts.json",
+          "status": "modified",
+          "blobSha": "8d5e378ff7579e099dc8c3c82a9eb1d738551d1c",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/68ca387c6cf4ee02a0d85e5bed7c6ee7c6f74267/shared%2FsupplyForecasts.json"
+        }
+      ],
+      "retainedSourceEvidenceFields": [
+        "source",
+        "itemId",
+        "url",
+        "publishedAt",
+        "excerpt",
+        "contentHash"
+      ],
+      "profiles": 56,
+      "firstProfileFrom": "2026-09-03T20:00:00.000Z",
+      "lastProfileFrom": "2026-10-28T20:00:00.000Z",
+      "lastProfileUntil": null,
+      "sourceEvidence": [
+        {
+          "source": "naver-board-56",
+          "itemId": "7138616",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7138616",
+          "publishedAt": "2026-01-02T08:00:33.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 33이 곧 오픈될 예정입니다.",
+          "contentHash": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "reacquiredFullTextSha256": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7298679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7298679",
+          "publishedAt": "2026-02-13T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 34가 곧 오픈될 예정입니다.",
+          "contentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "reacquiredFullTextSha256": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7409051",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7409051",
+          "publishedAt": "2026-03-13T08:00:32.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 35가 곧 오픈될 예정입니다.",
+          "contentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "reacquiredFullTextSha256": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7576019",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7576019",
+          "publishedAt": "2026-04-24T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 36이 곧 오픈될 예정입니다.",
+          "contentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "reacquiredFullTextSha256": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7911818",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7911818",
+          "publishedAt": "2026-07-10T08:00:35.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 39가 곧 오픈될 예정입니다.",
+          "contentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "reacquiredFullTextSha256": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8060044",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8060044",
+          "publishedAt": "2026-08-14T08:00:42.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 40이 곧 오픈될 예정입니다.",
+          "contentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "reacquiredFullTextSha256": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080556",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080556",
+          "publishedAt": "2026-08-20T01:00:41.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 아마기 유키코의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "reacquiredFullTextSha256": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "fullTextHashMatches": true
+        }
+      ]
+    },
+    {
+      "number": 55,
+      "url": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/55",
+      "state": "open",
+      "mergedAt": null,
+      "createdAt": "2026-09-08T03:05:04Z",
+      "updatedAt": "2026-09-08T03:05:04Z",
+      "headSha": "4ca0e6f5249f3642dacf2f1d9c47ed745eb29e68",
+      "baseSha": "530d157a57f9cdbe4a15fb11e80b5a7e394df9e7",
+      "mergeCommitSha": "113f9524b4aebfdbaff276fb8cecc64079213789",
+      "registryBlobSha": "d4236341192fc88b2eda4b0c8e17ff2946a97c58",
+      "savedRegistrySha256": "3a899232e2e595bd7bc3c482038339847da3cb71f7d32fb34d33ac2866503906",
+      "forecastId": "supply-2026-09-08-v1",
+      "claimedCandidateId": "forecast-a5aeee9828df17e13a4e4c63",
+      "claimedPayloadSha256": "38e3623b54b33f7aa1cb1730773ab3586b7dc9599f109e213298ffa33c0ad9b5",
+      "changedFiles": [
+        {
+          "path": "shared/generated/supplyForecast.ts",
+          "status": "modified",
+          "blobSha": "2ab5cba6cf379113a2bd54cfdc9da4d65e0fe847",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/4ca0e6f5249f3642dacf2f1d9c47ed745eb29e68/shared%2Fgenerated%2FsupplyForecast.ts"
+        },
+        {
+          "path": "shared/supplyForecasts.json",
+          "status": "modified",
+          "blobSha": "d4236341192fc88b2eda4b0c8e17ff2946a97c58",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/4ca0e6f5249f3642dacf2f1d9c47ed745eb29e68/shared%2FsupplyForecasts.json"
+        }
+      ],
+      "retainedSourceEvidenceFields": [
+        "source",
+        "itemId",
+        "url",
+        "publishedAt",
+        "excerpt",
+        "contentHash"
+      ],
+      "profiles": 56,
+      "firstProfileFrom": "2026-09-07T20:00:00.000Z",
+      "lastProfileFrom": "2026-11-01T20:00:00.000Z",
+      "lastProfileUntil": null,
+      "sourceEvidence": [
+        {
+          "source": "naver-board-56",
+          "itemId": "7138616",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7138616",
+          "publishedAt": "2026-01-02T08:00:33.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 33이 곧 오픈될 예정입니다.",
+          "contentHash": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "reacquiredFullTextSha256": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7298679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7298679",
+          "publishedAt": "2026-02-13T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 34가 곧 오픈될 예정입니다.",
+          "contentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "reacquiredFullTextSha256": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7409051",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7409051",
+          "publishedAt": "2026-03-13T08:00:32.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 35가 곧 오픈될 예정입니다.",
+          "contentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "reacquiredFullTextSha256": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7576019",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7576019",
+          "publishedAt": "2026-04-24T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 36이 곧 오픈될 예정입니다.",
+          "contentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "reacquiredFullTextSha256": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7911818",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7911818",
+          "publishedAt": "2026-07-10T08:00:35.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 39가 곧 오픈될 예정입니다.",
+          "contentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "reacquiredFullTextSha256": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8060044",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8060044",
+          "publishedAt": "2026-08-14T08:00:42.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 40이 곧 오픈될 예정입니다.",
+          "contentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "reacquiredFullTextSha256": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080556",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080556",
+          "publishedAt": "2026-08-20T01:00:41.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 아마기 유키코의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "reacquiredFullTextSha256": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "fullTextHashMatches": true
+        }
+      ]
+    },
+    {
+      "number": 56,
+      "url": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/56",
+      "state": "open",
+      "mergedAt": null,
+      "createdAt": "2026-09-10T08:02:43Z",
+      "updatedAt": "2026-09-10T08:02:43Z",
+      "headSha": "0a7ad2df362b522739e46fd2953bdd5fdcdc4d81",
+      "baseSha": "530d157a57f9cdbe4a15fb11e80b5a7e394df9e7",
+      "mergeCommitSha": "3f296d269e324459441ce8ca81d34044085750e2",
+      "registryBlobSha": "c9c087d6e70643a0ed7f11e2cdb1f47cf4f9436f",
+      "savedRegistrySha256": "02c960eabd20a17328b7312bd571f76e328a519a1392960d95a530b90867bb65",
+      "forecastId": "supply-2026-09-10-v1",
+      "claimedCandidateId": "forecast-91a605625ad087dc5a8ea64f",
+      "claimedPayloadSha256": "a194aa69b0a40ef82501c9cb1e717f970d5f7b999897265ebf3b20b240d51e1d",
+      "changedFiles": [
+        {
+          "path": "shared/generated/supplyForecast.ts",
+          "status": "modified",
+          "blobSha": "c1617124c4edbb155ee3dcab00de22fe574b9dd0",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/0a7ad2df362b522739e46fd2953bdd5fdcdc4d81/shared%2Fgenerated%2FsupplyForecast.ts"
+        },
+        {
+          "path": "shared/supplyForecasts.json",
+          "status": "modified",
+          "blobSha": "c9c087d6e70643a0ed7f11e2cdb1f47cf4f9436f",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/0a7ad2df362b522739e46fd2953bdd5fdcdc4d81/shared%2FsupplyForecasts.json"
+        }
+      ],
+      "retainedSourceEvidenceFields": [
+        "source",
+        "itemId",
+        "url",
+        "publishedAt",
+        "excerpt",
+        "contentHash"
+      ],
+      "profiles": 56,
+      "firstProfileFrom": "2026-09-09T20:00:00.000Z",
+      "lastProfileFrom": "2026-11-03T20:00:00.000Z",
+      "lastProfileUntil": null,
+      "sourceEvidence": [
+        {
+          "source": "naver-board-56",
+          "itemId": "7138616",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7138616",
+          "publishedAt": "2026-01-02T08:00:33.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 33이 곧 오픈될 예정입니다.",
+          "contentHash": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "reacquiredFullTextSha256": "a9ff91ffd82256d73c61135d78ceefa6cfe9996870dc021e80b48e04d45b9cb1",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7298679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7298679",
+          "publishedAt": "2026-02-13T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 34가 곧 오픈될 예정입니다.",
+          "contentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "reacquiredFullTextSha256": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7409051",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7409051",
+          "publishedAt": "2026-03-13T08:00:32.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 35가 곧 오픈될 예정입니다.",
+          "contentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "reacquiredFullTextSha256": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7576019",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7576019",
+          "publishedAt": "2026-04-24T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 36이 곧 오픈될 예정입니다.",
+          "contentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "reacquiredFullTextSha256": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7911818",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7911818",
+          "publishedAt": "2026-07-10T08:00:35.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 39가 곧 오픈될 예정입니다.",
+          "contentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "reacquiredFullTextSha256": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8060044",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8060044",
+          "publishedAt": "2026-08-14T08:00:42.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 40이 곧 오픈될 예정입니다.",
+          "contentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "reacquiredFullTextSha256": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080556",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080556",
+          "publishedAt": "2026-08-20T01:00:41.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 아마기 유키코의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "reacquiredFullTextSha256": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "fullTextHashMatches": true
+        }
+      ]
+    },
+    {
+      "number": 58,
+      "url": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/58",
+      "state": "open",
+      "mergedAt": null,
+      "createdAt": "2026-09-18T08:02:39Z",
+      "updatedAt": "2026-09-18T08:02:39Z",
+      "headSha": "b8dbed53795c1363e28685eb0771cad39e8a15f4",
+      "baseSha": "530d157a57f9cdbe4a15fb11e80b5a7e394df9e7",
+      "mergeCommitSha": "4810ef6583cabf5949771a6e8e2742a0330a66d4",
+      "registryBlobSha": "7595797db2a2a76e68120707d23d53bcfb6c019a",
+      "savedRegistrySha256": "304ff73e1d36f96f0dd6e1a76d1318f21e64512204fc7b697f2e6a9a3ae22018",
+      "forecastId": "supply-2026-09-18-v1",
+      "claimedCandidateId": "forecast-3089ee49484ae87016ea1931",
+      "claimedPayloadSha256": "af1127cd924d813dc2dccad4b6fe7dc7923abeb0e1428c6e4107fdce9118434e",
+      "changedFiles": [
+        {
+          "path": "shared/generated/supplyForecast.ts",
+          "status": "modified",
+          "blobSha": "90da22f34a7bc41536955cef14b7e136c39e5849",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/b8dbed53795c1363e28685eb0771cad39e8a15f4/shared%2Fgenerated%2FsupplyForecast.ts"
+        },
+        {
+          "path": "shared/supplyForecasts.json",
+          "status": "modified",
+          "blobSha": "7595797db2a2a76e68120707d23d53bcfb6c019a",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/b8dbed53795c1363e28685eb0771cad39e8a15f4/shared%2FsupplyForecasts.json"
+        }
+      ],
+      "retainedSourceEvidenceFields": [
+        "source",
+        "itemId",
+        "url",
+        "publishedAt",
+        "excerpt",
+        "contentHash"
+      ],
+      "profiles": 56,
+      "firstProfileFrom": "2026-09-17T20:00:00.000Z",
+      "lastProfileFrom": "2026-11-11T20:00:00.000Z",
+      "lastProfileUntil": null,
+      "sourceEvidence": [
+        {
+          "source": "naver-board-56",
+          "itemId": "7298679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7298679",
+          "publishedAt": "2026-02-13T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 34가 곧 오픈될 예정입니다.",
+          "contentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "reacquiredFullTextSha256": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7409051",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7409051",
+          "publishedAt": "2026-03-13T08:00:32.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 35가 곧 오픈될 예정입니다.",
+          "contentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "reacquiredFullTextSha256": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7576019",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7576019",
+          "publishedAt": "2026-04-24T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 36이 곧 오픈될 예정입니다.",
+          "contentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "reacquiredFullTextSha256": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7911818",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7911818",
+          "publishedAt": "2026-07-10T08:00:35.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 39가 곧 오픈될 예정입니다.",
+          "contentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "reacquiredFullTextSha256": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8060044",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8060044",
+          "publishedAt": "2026-08-14T08:00:42.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 40이 곧 오픈될 예정입니다.",
+          "contentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "reacquiredFullTextSha256": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8207413",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8207413",
+          "publishedAt": "2026-09-18T08:00:36.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 41이 곧 오픈될 예정입니다.",
+          "contentHash": "b630123eb0b62d4339398296bb6fdb7de540cebf5ba09e5293417797731523fe",
+          "reacquiredFullTextSha256": "b630123eb0b62d4339398296bb6fdb7de540cebf5ba09e5293417797731523fe",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080556",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080556",
+          "publishedAt": "2026-08-20T01:00:41.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 아마기 유키코의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "reacquiredFullTextSha256": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "fullTextHashMatches": true
+        }
+      ]
+    },
+    {
+      "number": 60,
+      "url": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/60",
+      "state": "open",
+      "mergedAt": null,
+      "createdAt": "2026-09-25T03:03:15Z",
+      "updatedAt": "2026-09-25T03:03:15Z",
+      "headSha": "b9fae2655b70bab3ab44a12c2afc80fa3060a7b8",
+      "baseSha": "530d157a57f9cdbe4a15fb11e80b5a7e394df9e7",
+      "mergeCommitSha": "7a3614359696c95f3b2418c5b0acae3aa2485521",
+      "registryBlobSha": "fee8ecc19b74fe64e19a6d2213cd11ceec8abc33",
+      "savedRegistrySha256": "cac07862b652bbfad5f82b592dddd76bc50417ca0652149d052cad8d794433e2",
+      "forecastId": "supply-2026-09-25-v1",
+      "claimedCandidateId": "forecast-ac8a2b2d8ac8bef5c0386d76",
+      "claimedPayloadSha256": "6cc55552a20f9c9cf99494f134419af441e479cd5db13edcea9807fc1bbd9706",
+      "changedFiles": [
+        {
+          "path": "shared/generated/supplyForecast.ts",
+          "status": "modified",
+          "blobSha": "d8f6455f4346569583505899072717792ce938a9",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/b9fae2655b70bab3ab44a12c2afc80fa3060a7b8/shared%2Fgenerated%2FsupplyForecast.ts"
+        },
+        {
+          "path": "shared/supplyForecasts.json",
+          "status": "modified",
+          "blobSha": "fee8ecc19b74fe64e19a6d2213cd11ceec8abc33",
+          "rawUrl": "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/raw/b9fae2655b70bab3ab44a12c2afc80fa3060a7b8/shared%2FsupplyForecasts.json"
+        }
+      ],
+      "retainedSourceEvidenceFields": [
+        "source",
+        "itemId",
+        "url",
+        "publishedAt",
+        "excerpt",
+        "contentHash"
+      ],
+      "profiles": 56,
+      "firstProfileFrom": "2026-09-24T20:00:00.000Z",
+      "lastProfileFrom": "2026-11-18T20:00:00.000Z",
+      "lastProfileUntil": null,
+      "sourceEvidence": [
+        {
+          "source": "naver-board-56",
+          "itemId": "7298679",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7298679",
+          "publishedAt": "2026-02-13T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 34가 곧 오픈될 예정입니다.",
+          "contentHash": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "reacquiredFullTextSha256": "074409a277cf160f12b82aca2fb1247e983ff2b85db0c68084030a4050ec68d9",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7409051",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7409051",
+          "publishedAt": "2026-03-13T08:00:32.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 35가 곧 오픈될 예정입니다.",
+          "contentHash": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "reacquiredFullTextSha256": "f51d93311359e12b1b97c798f5b03f598fba8c8670b3d2ae4082d86e513ffa92",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7576019",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7576019",
+          "publishedAt": "2026-04-24T08:00:39.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 36이 곧 오픈될 예정입니다.",
+          "contentHash": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "reacquiredFullTextSha256": "fc8449b1c02f6081a86457203afece846d76bf7ec9a25d7f51f32e9f3e5edcc5",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "7911818",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/7911818",
+          "publishedAt": "2026-07-10T08:00:35.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 39가 곧 오픈될 예정입니다.",
+          "contentHash": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "reacquiredFullTextSha256": "08eee95f5c0820b4478b3dfb67edc569e753331c0783d77991aa26f43122f3ac",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8060044",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8060044",
+          "publishedAt": "2026-08-14T08:00:42.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 40이 곧 오픈될 예정입니다.",
+          "contentHash": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "reacquiredFullTextSha256": "b7641af3bc22e0b34c71422f41371245d181e834c1e2f1fae841884b291f5e75",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8207413",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8207413",
+          "publishedAt": "2026-09-18T08:00:36.000Z",
+          "excerpt": "솔로 레이드 오픈 예정 【솔로 레이드 오픈 예정】 ​ 솔로 레이드 시즌 41이 곧 오픈될 예정입니다.",
+          "contentHash": "b630123eb0b62d4339398296bb6fdb7de540cebf5ba09e5293417797731523fe",
+          "reacquiredFullTextSha256": "b630123eb0b62d4339398296bb6fdb7de540cebf5ba09e5293417797731523fe",
+          "fullTextHashMatches": true
+        },
+        {
+          "source": "naver-board-56",
+          "itemId": "8080556",
+          "url": "https://game.naver.com/lounge/nikke/board/detail/8080556",
+          "publishedAt": "2026-08-20T01:00:41.000Z",
+          "excerpt": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」 【콜라보 기간 한정 Pick Up 모집 오픈】 ​ 아마기 유키코의 기간 한정 Pick Up 모집이 시작되었습니다.",
+          "contentHash": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "reacquiredFullTextSha256": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec",
+          "fullTextHashMatches": true
+        }
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 9939754512,
+      "name": "forecast-canary-v10-fc-767a548718d7455fa4ab1c8f83afa67c",
+      "sizeBytes": 22213,
+      "expired": false,
+      "createdAt": "2026-09-04T13:56:12Z",
+      "workflowRunId": 33880761235
+    },
+    {
+      "id": 9933184793,
+      "name": "forecast-canary-v10-fc-767a548718d7455fa4ab1c8f83afa67c",
+      "sizeBytes": 22229,
+      "expired": false,
+      "createdAt": "2026-09-04T10:35:18Z",
+      "workflowRunId": 33863881992
+    },
+    {
+      "id": 9920534821,
+      "name": "forecast-observability-v10-live-probe-33826919984",
+      "sizeBytes": 996,
+      "expired": false,
+      "createdAt": "2026-09-04T01:57:09Z",
+      "workflowRunId": 33826919984
+    },
+    {
+      "id": 9919595790,
+      "name": "forecast-canary-v10-fc-e29c4d5789d54a33b44bff1419e3832a",
+      "sizeBytes": 19633,
+      "expired": false,
+      "createdAt": "2026-09-04T01:14:16Z",
+      "workflowRunId": 33822876547
+    },
+    {
+      "id": 9918513109,
+      "name": "forecast-canary-v10-fc-e29c4d5789d54a33b44bff1419e3832a",
+      "sizeBytes": 7014,
+      "expired": false,
+      "createdAt": "2026-09-04T00:26:34Z",
+      "workflowRunId": 33821544637
+    },
+    {
+      "id": 9917045050,
+      "name": "forecast-canary-v10-fc-e29c4d5789d54a33b44bff1419e3832a",
+      "sizeBytes": 7002,
+      "expired": false,
+      "createdAt": "2026-09-03T23:24:41Z",
+      "workflowRunId": 33817444964
+    },
+    {
+      "id": 9916314048,
+      "name": "forecast-canary-v10-fc-e29c4d5789d54a33b44bff1419e3832a",
+      "sizeBytes": 7007,
+      "expired": false,
+      "createdAt": "2026-09-03T22:56:21Z",
+      "workflowRunId": 33815163767
+    },
+    {
+      "id": 9897408175,
+      "name": "forecast-observability-v10-live-probe-33764824492",
+      "sizeBytes": 954,
+      "expired": false,
+      "createdAt": "2026-09-03T14:15:23Z",
+      "workflowRunId": 33764824492
+    },
+    {
+      "id": 9890688297,
+      "name": "stats-observer-canary-soc-3d7567b80916227e691721d9fb332008",
+      "sizeBytes": 468,
+      "expired": false,
+      "createdAt": "2026-09-03T11:17:02Z",
+      "workflowRunId": 33748784490
+    },
+    {
+      "id": 9879558638,
+      "name": "solver-recovery-history-staging-33719054382",
+      "sizeBytes": 2335,
+      "expired": false,
+      "createdAt": "2026-09-03T05:29:50Z",
+      "workflowRunId": 33719054382
+    },
+    {
+      "id": 9877020287,
+      "name": "solver-recovery-history-staging-33711363710",
+      "sizeBytes": 2287,
+      "expired": false,
+      "createdAt": "2026-09-03T03:27:07Z",
+      "workflowRunId": 33711363710
+    },
+    {
+      "id": 9876770129,
+      "name": "solver-recovery-history-staging-33710606073",
+      "sizeBytes": 2193,
+      "expired": false,
+      "createdAt": "2026-09-03T03:14:20Z",
+      "workflowRunId": 33710606073
+    },
+    {
+      "id": 9876170497,
+      "name": "solver-recovery-history-staging-33708724249",
+      "sizeBytes": 2167,
+      "expired": false,
+      "createdAt": "2026-09-03T02:44:19Z",
+      "workflowRunId": 33708724249
+    },
+    {
+      "id": 9875504286,
+      "name": "solver-recovery-history-staging-33706826937",
+      "sizeBytes": 2068,
+      "expired": false,
+      "createdAt": "2026-09-03T02:14:19Z",
+      "workflowRunId": 33706826937
+    },
+    {
+      "id": 9724917902,
+      "name": "dynamic-hp-exact-gate-summary-33287505614",
+      "sizeBytes": 28428414,
+      "expired": false,
+      "createdAt": "2026-08-30T02:16:46Z",
+      "workflowRunId": 33287505614
+    },
+    {
+      "id": 9724890805,
+      "name": "hp-profile-matrix-33287505614",
+      "sizeBytes": 5315,
+      "expired": false,
+      "createdAt": "2026-08-30T02:14:36Z",
+      "workflowRunId": 33287505614
+    },
+    {
+      "id": 9724498800,
+      "name": "hp-profile-matrix-33286164165",
+      "sizeBytes": 5315,
+      "expired": false,
+      "createdAt": "2026-08-30T01:39:44Z",
+      "workflowRunId": 33286164165
+    },
+    {
+      "id": 9722077196,
+      "name": "hp-profile-matrix-33275898888",
+      "sizeBytes": 5469,
+      "expired": false,
+      "createdAt": "2026-08-29T22:10:55Z",
+      "workflowRunId": 33275898888
+    },
+    {
+      "id": 9718182677,
+      "name": "hp-profile-matrix-33264337009",
+      "sizeBytes": 5469,
+      "expired": false,
+      "createdAt": "2026-08-29T16:57:56Z",
+      "workflowRunId": 33264337009
+    }
+  ],
+  "inspectedLinkedArtifacts": [
+    {
+      "id": 9724890805,
+      "downloadedSha256": "6c8ebbb956da49d33512cf152bbc9b2ca490c5eb312217bc86786bc679151b60",
+      "members": {
+        "length": 58995,
+        "path": "dynamic-hp-profile-matrix.json"
+      },
+      "inspectedTopLevelJsonHasSourceEvidence": false,
+      "inspectedTopLevelJsonHasNormalizedText": false
+    },
+    {
+      "id": 9724917902,
+      "downloadedSha256": "6ec8ffe0f6970e50d20e0a368777c81114c80c3d12b0f4f6860270fede4fb6e9",
+      "members": [
+        {
+          "length": 67352,
+          "path": "dynamic-hp-exact-gate-summary.json"
+        },
+        {
+          "length": 58995,
+          "path": "dynamic-hp-profile-matrix.json"
+        },
+        {
+          "length": 5505941,
+          "path": "profiles/0312ec51d51bc73b8c8317dccdc35a75b2ba06c8f06d5f6549f685e7053a1781.json"
+        },
+        {
+          "length": 5503392,
+          "path": "profiles/057a38b530e08a7daea5b4ec8bd3d15c2bbffb4b7c8cf6cf69b0dd3985deaf2d.json"
+        },
+        {
+          "length": 5506534,
+          "path": "profiles/0cafa6e5b9fc9dcddc366b87f783c493909cdb39cf0bc36894dcce3dd797c65a.json"
+        },
+        {
+          "length": 5506033,
+          "path": "profiles/0e42006c45e0126996f0c05e2b68f41e36932598ea5c1ecec1e75066dafed635.json"
+        },
+        {
+          "length": 5508490,
+          "path": "profiles/199eb2f7a686fc13c8273271744bdd8589a06b0a3eba7400ea152ef8e2337c26.json"
+        },
+        {
+          "length": 5502321,
+          "path": "profiles/1eae87827a20a9a8bccec2fb5de7a1374b157a32197f17b81acdac1ac2e7f718.json"
+        },
+        {
+          "length": 5504389,
+          "path": "profiles/259c39e3f6e9c521805f19d074d92f9a2d3362bd8d4b70de5c91e7a85c7b2d24.json"
+        },
+        {
+          "length": 5501361,
+          "path": "profiles/2d118e3c4df20d2659de82b5768e835ac555a8e76e6f1ef63675bed3d50d452a.json"
+        },
+        {
+          "length": 5506974,
+          "path": "profiles/3161cdec03ef976bcc3a983d2ced37271113d88aa0033c0f0cef5d91c0786e93.json"
+        },
+        {
+          "length": 5506209,
+          "path": "profiles/424b031e142387e7f9d5a2dde5bf00299583407dca3bbc4559b82c49249ddb24.json"
+        },
+        {
+          "length": 5506852,
+          "path": "profiles/5132ed2970cbfbd3796e6a4206f62354c93a939838058f92d14255bf8c1ee742.json"
+        },
+        {
+          "length": 5507952,
+          "path": "profiles/56f7a5b02e80f70a529b55133fa316014048259d74811e6d47401997099065c0.json"
+        },
+        {
+          "length": 5507254,
+          "path": "profiles/51ce78377d6f8e479d547400aa91f49502373b3deb586800eb9bd79cb9a087a1.json"
+        },
+        {
+          "length": 5505581,
+          "path": "profiles/598960b82753b9a3af2566255293a909dbcc695ec31b7fb93fbaa8f2e0cfa7bd.json"
+        },
+        {
+          "length": 5501915,
+          "path": "profiles/5a148851aa7c3f39e141156634a9b2e1472557b2b5078b3a3b92e2a3719854cb.json"
+        },
+        {
+          "length": 5506713,
+          "path": "profiles/5c886a12db0390771ace67bd54e64d278382c94135c2a60a8b117c45c6076a82.json"
+        },
+        {
+          "length": 5502529,
+          "path": "profiles/614a6fee4767e95ec747c453b1668fb706f960f69e23d68773e46b819788cbc3.json"
+        },
+        {
+          "length": 5506988,
+          "path": "profiles/63649e2a2207a388af901d333f80f4f339aeba19bc459b22b67610d5762c85d4.json"
+        },
+        {
+          "length": 5501526,
+          "path": "profiles/6fe8a76f3a683001251266ddff9b45177b5977b28d65499aee49c7248bbcb19f.json"
+        },
+        {
+          "length": 5506443,
+          "path": "profiles/7c2ddd48401e9eda1cb1be21ad6fe0ffec46eaaaa880cf1b8bdf8c81ac1d1ec1.json"
+        },
+        {
+          "length": 5507431,
+          "path": "profiles/7c5dc2944c978020dd3cf1ed513f515e6f72223a4a175ab950a6669dfe062e93.json"
+        },
+        {
+          "length": 5508185,
+          "path": "profiles/8d453c3030ac518359a1121eea23132f02742500a09aeff17ca1c3e0de0e2859.json"
+        },
+        {
+          "length": 5504278,
+          "path": "profiles/992750571e67f8748492067d7da327a9e13af022c8d7520f9b1478a5afdc6f02.json"
+        },
+        {
+          "length": 5506373,
+          "path": "profiles/a5af49c0e5ffb9c5a632f89abc81d2ccc53f9ebdd6679bc613a7dfc01b5c6b91.json"
+        },
+        {
+          "length": 5506732,
+          "path": "profiles/a832077f171117bac94578077a987c5fc1d06de1a0d1c2282b02ff92e69eb4a7.json"
+        },
+        {
+          "length": 5502444,
+          "path": "profiles/ae5f261f961a99aed460c83e802bce6cef7f9091dcccf03b53913bdd88398e6e.json"
+        },
+        {
+          "length": 5506359,
+          "path": "profiles/b3b749314843e0a7625117e1fe83099e8958495b66af5b76dfe042eb6ec88a37.json"
+        },
+        {
+          "length": 5506979,
+          "path": "profiles/b9cf811e5ec2c39d7007f152e038b053fbd87155abae94f9a61b484c11daf965.json"
+        },
+        {
+          "length": 5507717,
+          "path": "profiles/bdcda08f4a6dcfdfb522b84c82c6235fc7c12371fbf5e352510e75b3ce02aec0.json"
+        },
+        {
+          "length": 5505916,
+          "path": "profiles/bf44a488e48e6d7302f1f56d2f10d673511fa85bf7b6f2d187c21722818296d6.json"
+        },
+        {
+          "length": 5505530,
+          "path": "profiles/c4d739c242e435a189a7e81972e5d416139c843e59ad38a92631b73c1b12d080.json"
+        },
+        {
+          "length": 5502412,
+          "path": "profiles/c76f8f6536bd57784b87f85056cdd3d3bc3c60181774352496ec38ee0a5b0933.json"
+        },
+        {
+          "length": 5503800,
+          "path": "profiles/cfc60f3fd589b32f155457b4c886a5ae6fdfc490b986574a9e0b9fa1039e0aeb.json"
+        },
+        {
+          "length": 5508190,
+          "path": "profiles/ce39bc53758b1f8d5e701d4313ac7f8d1b1dac048a4d14910180c59eff7bd2f5.json"
+        },
+        {
+          "length": 5505385,
+          "path": "profiles/d1a4b37d0f320b179da1426c36166a87ff2057daa63c4ed73ef09abec54931e5.json"
+        },
+        {
+          "length": 5508877,
+          "path": "profiles/d26abc5961d9fca5011ddbed4f58631373044abeed85c61e91937411734459c7.json"
+        },
+        {
+          "length": 5505129,
+          "path": "profiles/d9297f2b504b225a63f2729d9d55bff6ef542378d09bea03267e81cfc06ac6c6.json"
+        },
+        {
+          "length": 5507355,
+          "path": "profiles/db04c82daff7fdf4d64c20fd027a5c27a10279b82ffa38aa676a3ce2dac4f17e.json"
+        },
+        {
+          "length": 5506818,
+          "path": "profiles/e30622ea3fea8ffec3879025ce2d028699124d2a06bc62bc6e9c44c9e4b83e57.json"
+        },
+        {
+          "length": 5506783,
+          "path": "profiles/f1c8e1fb4a1b395ee2a7381e8f1b092f4ff73223637b041f575535f4ddc26a8d.json"
+        },
+        {
+          "length": 5506793,
+          "path": "profiles/f3961ebe8e709a4b0c2a6e61a5d8527ed8e2a1d3c7cbc5c0c1b06d8adf26e03e.json"
+        },
+        {
+          "length": 5508396,
+          "path": "profiles/eb5205e17dc0248e5b9f585ff27db3fdb6e407583cb399c81b9be4a98408a21e.json"
+        },
+        {
+          "length": 5507896,
+          "path": "profiles/f3d5d18e426a55c9c7c39bf15d0befc763b1538a783aaf99c7443bedceeca965.json"
+        },
+        {
+          "length": 5506739,
+          "path": "profiles/f7749f0a3b3e58aa618e2d6d7671ecca886676c23cf95b0576c49b5b25e86629.json"
+        },
+        {
+          "length": 5506459,
+          "path": "profiles/fe9e80f24de02164139a03e49d0ff4435810adbc678e01a98ea3d424ca72b3dc.json"
+        }
+      ],
+      "inspectedTopLevelJsonHasSourceEvidence": false,
+      "inspectedTopLevelJsonHasNormalizedText": false
+    }
+  ],
+  "rawLocalEvidenceDirectory": "tmp/forecast-parser/pr-provenance"
+}

@@ -11,6 +11,9 @@ export const enMessages = {
   "error.reload": "Reload page",
   "error.sectionDetail": "The files required for this section could not be loaded.",
   "error.retrySection": "Try loading again",
+  "error.reloadInputsDetail": "Unconfirmed pre-use inputs won't be restored.",
+  "error.reloadInputsUnavailable":
+    "Inputs weren't saved. Copy them or finish kit correction, then retry.",
   "common.calculate": "Calculate",
   "common.calculateLong": "Calculate",
   "common.recalculate": "Recalculate",
@@ -111,6 +114,7 @@ export const enMessages = {
   "kit.purpleColor": "Purple",
   "kit.yellowColor": "Yellow",
   "result.title": "Result",
+  "result.preparing": "Preparing recommendations.",
   "result.initial": "Enter your Collection Item status and kit inventory, then calculate.",
   "result.emptyLead": "No result yet. Three steps are all it takes.",
   "result.emptyStepState": "Select your current Collection Item.",
@@ -269,15 +273,7 @@ export const enMessages = {
   "stats.cumulativeCounts": "{attempts} attempts · {successes} Super Successes",
   "stats.piecesUsed": "{pieces} used",
   "stats.piecesUsedBreakdown": "View usage by kit: {pieces}",
-  "modal.genericKit": "Maintenance Kit",
-  "modal.remaining": "{count} remaining",
-  "modal.successAttempt": "Super Success on attempt {attempt}",
-  "modal.why": "Why is this needed?",
-  "modal.whyDetail":
-    "Once a Super Success occurs, the remaining planned uses are skipped, so actual consumption depends on the attempt. Your remaining inventory lets us infer that attempt for stats.",
-  "modal.question": "How many {kit} pieces remain?",
-  "modal.instruction":
-    "The exact Super Success attempt is unknown, so confirm the remaining amount. Select the amount currently shown in your game inventory.",
+  "modal.preparing": "Loading remaining kit choices.",
   "privacy.notice":
     "To improve the service and aggregate Super Success stats, calculation conditions and results are stored only as ranges. Only successfully submitted events are included, and unique users are not counted. Names, emails, accounts, IP addresses, and other unique identifiers are not stored in the stats database.",
   "rights.notice":

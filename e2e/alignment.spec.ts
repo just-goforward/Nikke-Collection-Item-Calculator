@@ -1,5 +1,12 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
 import { expect, type Locator, type TestInfo, test } from "@playwright/test";
 import sharp from "sharp";
+import {
+  assertDistStable,
+  inspectCertifiedDist,
+} from "../scripts/certified-staging-dist-validation.ts";
 
 const LOCALES = ["ko", "ja", "en"] as const;
 const LOCALE_PATHS = { ko: "/", en: "/en/", ja: "/ja/" } as const;
@@ -13,6 +20,99 @@ const BREAKPOINT_SENTINELS = [660, 661, 980, 981, 1099, 1100] as const;
 const ALIGNMENT_BASE_URL = "http://127.0.0.1:4377";
 // Glyph extrema vary by half-pixels across OS rasterizers; box geometry keeps the stricter gate.
 const MAX_TEXT_INK_CENTER_DELTA = 1.5;
+const alignmentReports = new Map<string, unknown[]>();
+let alignmentProvenance: Record<string, unknown>;
+let alignmentDist: ReturnType<typeof inspectCertifiedDist>;
+
+test.beforeAll(() => {
+  if (process.env["CI"])
+    assert.equal(DIAGNOSTIC_MODE, false, "CI alignment evidence cannot bypass optical assertions");
+  const path = process.env["CERTIFIED_EXPECTED_MANIFEST"];
+  assert.ok(path, "Freeze source/build identity before the alignment campaign");
+  const bytes = readFileSync(path);
+  const expected = JSON.parse(bytes.toString("utf8")) as {
+    source: {
+      commit: string;
+      sha256: string;
+      lockSha256: string;
+      files: { path: string; sha256: string }[];
+    };
+    dist: { inventorySha256: string; manifestSha256: string };
+  };
+  const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
+  assert.equal(sha256("package-lock.json"), expected.source.lockSha256);
+  const sources = ["e2e/alignment.spec.ts", "playwright.alignment.config.ts"].map((path) => {
+    const hash = sha256(path);
+    assert.equal(hash, expected.source.files.find((row) => row.path === path)?.sha256);
+    return { path, sha256: hash };
+  });
+  alignmentDist = inspectCertifiedDist();
+  assert.equal(alignmentDist.inventorySha256, expected.dist.inventorySha256);
+  assert.equal(alignmentDist.manifest.sha256, expected.dist.manifestSha256);
+  alignmentProvenance = {
+    expectedManifestSha256: createHash("sha256").update(bytes).digest("hex"),
+    commit: expected.source.commit,
+    sourceSha256: expected.source.sha256,
+    lockSha256: expected.source.lockSha256,
+    distInventorySha256: expected.dist.inventorySha256,
+    distManifestSha256: expected.dist.manifestSha256,
+    sources,
+  };
+});
+
+test.beforeEach(async ({ browserName: _runnerBrowserName }, testInfo) => {
+  alignmentReports.set(testInfo.testId, []);
+});
+
+test.afterEach(async ({ browserName }, testInfo) => {
+  const path = testInfo.outputPath("alignment-report.json");
+  let invariantError: unknown;
+  try {
+    assert.ok(alignmentDist, "Alignment build identity was not initialized");
+    assertDistStable(alignmentDist);
+  } catch (error) {
+    invariantError = error;
+  }
+  const errors = testInfo.errors.map((error) => ({ message: error.message, stack: error.stack }));
+  if (invariantError)
+    errors.push({
+      message: invariantError instanceof Error ? invariantError.message : String(invariantError),
+      stack: invariantError instanceof Error ? invariantError.stack : undefined,
+    });
+  // Write a real file before attachment, including partial measurements and failures.
+  // Playwright's later output cleanup cannot be allowed before the workflow archives it.
+  writeFileSync(
+    path,
+    `${JSON.stringify(
+      {
+        version: "alignment-evidence-v1",
+        generatedAt: new Date().toISOString(),
+        test: testInfo.title,
+        testId: testInfo.testId,
+        project: testInfo.project.name,
+        browser: browserName,
+        platform: process.platform,
+        node: process.version,
+        deviceScaleFactor: testInfo.project.use.deviceScaleFactor,
+        retry: testInfo.retry,
+        status: invariantError ? "failed" : testInfo.status,
+        observedTestStatus: testInfo.status,
+        expectedStatus: testInfo.expectedStatus,
+        diagnosticMode: DIAGNOSTIC_MODE,
+        provenance: alignmentProvenance,
+        errors,
+        records: alignmentReports.get(testInfo.testId) ?? [],
+        proofBoundary:
+          "Rendered alignment only; each project retains its existing locale/viewport/DPR scope and Chromium-only CLS/breakpoint conditions.",
+      },
+      null,
+      2,
+    )}\n`,
+    { flag: "wx" },
+  );
+  await testInfo.attach("alignment-report.json", { path, contentType: "application/json" });
+  if (invariantError) throw invariantError;
+});
 
 function createGate() {
   let release: () => void = () => undefined;
@@ -181,10 +281,7 @@ function alignmentTargets(page: import("@playwright/test").Page, width: number) 
 }
 
 async function attachAlignmentReport(testInfo: TestInfo, records: AlignmentRecord[]) {
-  await testInfo.attach("alignment-report.json", {
-    body: Buffer.from(JSON.stringify(records, null, 2)),
-    contentType: "application/json",
-  });
+  alignmentReports.set(testInfo.testId, records);
 }
 
 test("all locales and viewports keep geometric and optical centers", async ({
@@ -268,6 +365,7 @@ test("locale font upgrades preserve mobile geometry and CLS in every locale", as
     }>;
     locale: (typeof locales)[number]["code"];
   }> = [];
+  alignmentReports.set(testInfo.testId, records);
 
   for (const locale of locales) {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -368,35 +466,37 @@ test("locale font upgrades preserve mobile geometry and CLS in every locale", as
       await context.close();
     }
   }
-
-  await testInfo.attach("font-layout-shift-report.json", {
-    body: Buffer.from(JSON.stringify(records, null, 2)),
-    contentType: "application/json",
-  });
 });
 
 test("responsive breakpoint boundaries preserve the alignment contract", async ({
   browserName,
   page,
-}) => {
+}, testInfo) => {
   test.skip(browserName !== "chromium", "Breakpoint geometry is engine-independent CSS logic");
   test.skip(
     test.info().project.name !== "chromium-dpr1",
     "DPR coverage belongs to the optical alignment matrix",
   );
+  const records: Array<{ width: number; name: string; measurement: AlignmentMeasurement }> = [];
+  alignmentReports.set(testInfo.testId, records);
   await preparePage(page, "ko");
   for (const width of BREAKPOINT_SENTINELS) {
     await page.setViewportSize({ height: 900, width });
     for (const { name, target } of alignmentTargets(page, width)) {
       await expect(target, `${width}px ${name}`).toBeVisible();
-      await expectGeometricCenter(target);
+      const measurement = await expectGeometricCenter(target);
+      records.push({ width, name, measurement });
     }
     await expectNumericContract(page.locator("#currentExp"), `${width}px breakpoint EXP`);
     await expectNumericContract(page.locator("#blueStock"), `${width}px breakpoint stock`);
   }
 });
 
-test("selected and unselected segmented controls keep identical geometry", async ({ page }) => {
+test("selected and unselected segmented controls keep identical geometry", async ({
+  page,
+}, testInfo) => {
+  const records: Array<Record<string, unknown>> = [];
+  alignmentReports.set(testInfo.testId, records);
   await page.setViewportSize({ height: 900, width: 1280 });
   await preparePage(page, "ko");
   const pairs = [
@@ -409,7 +509,7 @@ test("selected and unselected segmented controls keep identical geometry", async
     [page.locator('[data-level="0"]'), page.locator('[data-level="1"]')],
   ] as const;
 
-  for (const [first, second] of pairs) {
+  for (const [index, [first, second]] of pairs.entries()) {
     const [firstBox, secondBox] = await Promise.all([first.boundingBox(), second.boundingBox()]);
     expect(firstBox).not.toBeNull();
     expect(secondBox).not.toBeNull();
@@ -418,6 +518,7 @@ test("selected and unselected segmented controls keep identical geometry", async
       alignmentMeasurement(first),
       alignmentMeasurement(second),
     ]);
+    records.push({ pair: index, firstBox, secondBox, firstAlignment, secondAlignment });
     expect(Math.abs(firstAlignment.centerDelta - secondAlignment.centerDelta)).toBeLessThanOrEqual(
       0.5,
     );

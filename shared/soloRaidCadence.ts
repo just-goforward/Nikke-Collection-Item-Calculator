@@ -72,6 +72,93 @@ export const SOLO_RAID_CADENCE_SUMMARY = summarizeSoloRaidCadence(
   SOLO_RAID_ROUND_HISTORY.map((entry) => entry.startGameDate),
 );
 
+/** The unreduced observed numerator/count retains the frequency's provenance. */
+export type ExactSoloRaidCadence = {
+  version: "observed-mean-thursday-v1";
+  numerator: number;
+  denominator: number;
+  rounds: number;
+  intervals: number;
+  fromGameDate: string;
+  untilGameDate: string;
+  minimumDays: number;
+  maximumDays: number;
+  sourceStatuses: Readonly<Record<SoloRaidRoundStatus, number>>;
+  sourceUrls: readonly string[];
+};
+
+export function deriveExactSoloRaidCadence(
+  confirmedRounds: readonly SoloRaidRound[] = SOLO_RAID_ROUND_HISTORY,
+): ExactSoloRaidCadence {
+  const ordered = [...confirmedRounds].sort((a, b) => a.round - b.round);
+  const summary = summarizeSoloRaidCadence(ordered.map((entry) => entry.startGameDate));
+  for (let index = 1; index < ordered.length; index += 1) {
+    if (ordered[index]!.round !== ordered[index - 1]!.round + 1) {
+      throw new Error("solo_raid_history_round_gap");
+    }
+  }
+  const first = ordered[0]!;
+  const last = ordered.at(-1)!;
+  const sourceStatuses: Record<SoloRaidRoundStatus, number> = {
+    as_announced: 0,
+    rescheduled: 0,
+    schedule_changed: 0,
+    reconstructed: 0,
+  };
+  for (const entry of ordered) sourceStatuses[entry.status] += 1;
+  return {
+    version: "observed-mean-thursday-v1",
+    numerator: (dateEpoch(last.startGameDate) - dateEpoch(first.startGameDate)) / DAY_MS,
+    denominator: summary.intervals,
+    rounds: summary.rounds,
+    intervals: summary.intervals,
+    fromGameDate: first.startGameDate,
+    untilGameDate: last.startGameDate,
+    minimumDays: summary.minimumDays,
+    maximumDays: summary.maximumDays,
+    sourceStatuses,
+    sourceUrls: ordered.filter((entry) => entry.sourceFeedId > 0).map(soloRaidSourceUrl),
+  };
+}
+
+export type CertifiedSoloEstimate = { round: number; startGameDate: string };
+
+/** Snap anchor + k * mean independently; never recur from an already rounded date. */
+export function estimateCertifiedSoloRounds(input: {
+  anchor: Pick<SoloRaidRound, "round" | "startGameDate">;
+  cadence: Pick<ExactSoloRaidCadence, "numerator" | "denominator">;
+  count: number;
+  offsetDays?: number;
+}): CertifiedSoloEstimate[] {
+  const { numerator, denominator } = input.cadence;
+  if (
+    !Number.isSafeInteger(numerator) ||
+    !Number.isSafeInteger(denominator) ||
+    numerator <= 0 ||
+    denominator <= 0
+  )
+    throw new Error("solo_raid_cadence_invalid");
+  if (!Number.isSafeInteger(input.count) || input.count < 0 || input.count > 10000)
+    throw new Error("solo_raid_estimate_count_invalid");
+  const offset = input.offsetDays ?? 0;
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("solo_raid_delay_invalid");
+  const anchorDay = BigInt(dateEpoch(input.anchor.startGameDate) / DAY_MS);
+  const den = BigInt(denominator);
+  const week = 7n * den;
+  return Array.from({ length: input.count }, (_, index) => {
+    const target = anchorDay * den + BigInt(numerator) * BigInt(index + 1);
+    let quotient = target / week;
+    if (target < 0n && target % week !== 0n) quotient -= 1n;
+    const earlier = quotient * 7n;
+    const later = earlier + 7n;
+    const snapped = target - earlier * den < later * den - target ? earlier : later;
+    return {
+      round: input.anchor.round + index + 1,
+      startGameDate: new Date((Number(snapped) + offset) * DAY_MS).toISOString().slice(0, 10),
+    };
+  });
+}
+
 export function soloRaidSourceUrl(entry: SoloRaidRound) {
   return `${NAVER_DETAIL_PREFIX}${entry.sourceFeedId}`;
 }
@@ -131,6 +218,7 @@ function round(
 function dateEpoch(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("solo_raid_game_date_invalid");
   const epoch = Date.parse(`${value}T00:00:00.000Z`);
-  if (!Number.isFinite(epoch)) throw new Error("solo_raid_game_date_invalid");
+  if (!Number.isFinite(epoch) || new Date(epoch).toISOString().slice(0, 10) !== value)
+    throw new Error("solo_raid_game_date_invalid");
   return epoch;
 }

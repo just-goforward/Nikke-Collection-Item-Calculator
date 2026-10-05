@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useRef, useState } from "react";
-
+import { setLegacyOutcomeRecovery } from "../lib/lazyModuleRetry";
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import type { CollectionState, Kit, Stock } from "../types";
 import type {
@@ -73,12 +73,16 @@ export function useOutcomeFlow(options: UseOutcomeFlowOptions) {
       terminalSuccessContextRef.current = null;
       setModal((current) => ({ ...current, open: false }));
       if (!context) return;
-      applyTerminalSuccessAttempt(context, successAttempt);
+      const settled = applyTerminalSuccessAttempt(context, successAttempt);
+      setLegacyOutcomeRecovery(
+        settled ? { ...settled.nextInput.start, stock: settled.nextInput.stock } : null,
+      );
     },
     [applyTerminalSuccessAttempt],
   );
 
   const resetOutcomeFlow = useCallback(() => {
+    setLegacyOutcomeRecovery(null);
     terminalSuccessContextRef.current = null;
     setModal({ open: false, maxAttempt: 1, attempt: 1 });
   }, []);

@@ -17,6 +17,12 @@ export const WORKER_SOURCE_ROOTS = [
 export const APPLICATION_ENTRYPOINTS = [
   "src/main.tsx",
   "src/worker.ts",
+  // These executable Worker bundles are loaded through new URL()/esbuild, not static imports.
+  "src/certifiedRuntime/browserWorker.ts",
+  "src/certifiedRuntime/nodeWorker.ts",
+  "src/certifiedRuntime/browserFixtureWorker.ts",
+  "src/certifiedRuntime/nodeFixtureWorker.ts",
+  "src/certifiedRuntime/nodeClient.ts",
   ...WORKER_SOURCE_ROOTS.map((root) => `${root}/worker.ts`),
 ] as const;
 

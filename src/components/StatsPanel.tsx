@@ -3,7 +3,7 @@ import { lazy, Suspense, useCallback, useState } from "react";
 import { useI18n } from "../i18n/locale";
 import type { StatsView } from "../ui-types";
 import { LazySectionErrorBoundary } from "./LazySectionErrorBoundary";
-import { classes } from "./statsPanelStyles";
+import { classes } from "./statsPanelShellStyles";
 
 type StatsPanelBodyModule = typeof import("./StatsPanelBody");
 

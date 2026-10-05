@@ -1,5 +1,16 @@
 # Changelog
 
+## Isolated tooling baseline — validation pending
+
+- Node24.21.0/npm12.2.0/Rust1.98.1; preserve the reviewed dependency lock and exact install-script policy.
+- CI installation jobs use pinned npm tarball SHA512; adoption and post-deploy smoke remain non-install exceptions.
+- React19.3.0, Zod4.6.5, Vite8.3.1, root Vitest5.0.3, Worker plugin1.3.4 and Wrangler4.145.0 are the reviewed target cohort.
+- Validation is in progress; no fresh PASS is claimed. Evidence stays in the approved isolated execution report.
+
+
+소장품 레벨업 계산기의 주요 변경 이력을 기록합니다.
+
+
 소장품 레벨업 계산기의 주요 변경 이력을 기록합니다.
 
 ## 2026-09-05

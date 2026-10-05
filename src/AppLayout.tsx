@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { LazySectionErrorBoundary } from "./components/LazySectionErrorBoundary";
+import LazySuccessAttemptModal from "./components/LazySuccessAttemptModal";
 import {
   MobileActionBar,
   MobileStatusStrip,
@@ -20,7 +21,6 @@ import ResultPanel from "./components/ResultPanel";
 import StatePanel from "./components/StatePanel";
 import StatsPanel from "./components/StatsPanel";
 import StockPanel from "./components/StockPanel";
-import SuccessAttemptModal from "./components/SuccessAttemptModal";
 import TopBar, { type TopViewTab } from "./components/TopBar";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
 import { useMobileLayout } from "./hooks/useMobileLayout";
@@ -543,7 +543,7 @@ export function AppLayout({
         onHeightChange={setMobileBottomHeight}
       />
       <ResetToast toast={resetToast} />
-      <SuccessAttemptModal
+      <LazySuccessAttemptModal
         modal={calculator.modal}
         onSubmit={calculator.actions.submitSuccessAttempt}
       />

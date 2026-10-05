@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef } from "react";
+import { useLayoutEffect } from "react";
 import { useI18n } from "../i18n/locale";
 import type { MessageKey } from "../i18n/messages.ko";
 import type { Kit } from "../types";
@@ -8,12 +8,46 @@ import { AlignedText } from "./AlignedText";
 type SuccessAttemptModalProps = {
   modal: SuccessAttemptModalState;
   onSubmit: (successAttempt: number | null) => void;
+  firstFocusRef: React.RefObject<HTMLButtonElement | null>;
 };
 
 const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
   blue: "kit.blue",
   purple: "kit.purple",
   yellow: "kit.yellow",
+};
+
+const MODAL_TEXT = {
+  ko: {
+    instruction: "대성공 회차를 몰라 잔량 확인이 필요합니다. 게임 인벤토리의 현재 수량을 고르세요.",
+    genericKit: "관리 키트",
+    remaining: "{count}개",
+    successAttempt: "{attempt}회차에 대성공",
+    why: "왜 필요한가요?",
+    question: "남은 {kit}가 몇 개인가요?",
+  },
+  en: {
+    instruction: "Super Success attempt is unknown. Choose your current game inventory amount.",
+    genericKit: "Maintenance Kit",
+    remaining: "{count} remaining",
+    successAttempt: "Super Success on attempt {attempt}",
+    why: "Why is this needed?",
+    question: "How many {kit} pieces remain?",
+  },
+  ja: {
+    instruction: "大成功が何回目か不明です。ゲーム内インベントリの現在の残数を選んでください。",
+    genericKit: "お手入れキット",
+    remaining: "残り{count}個",
+    successAttempt: "{attempt}回目に大成功",
+    why: "なぜ必要ですか？",
+    question: "残りの{kit}は何個ですか？",
+  },
+};
+
+const WHY_DETAIL = {
+  ko: "대성공이 나면 남은 사용은 진행하지 않아 실제 소모량이 회차에 따라 달라집니다. 선택한 잔량으로 대성공 시점을 역산해 통계에 반영합니다.",
+  en: "Once a Super Success occurs, the remaining planned uses are skipped, so actual consumption depends on the attempt. Your remaining inventory lets us infer that attempt for stats.",
+  ja: "大成功すると残りの使用は行われないため、実際の消費量は大成功した回数で変わります。選択した残数から大成功のタイミングを逆算して統計に反映します。",
 };
 
 const classes = {
@@ -44,110 +78,6 @@ const classes = {
     "inline-flex min-h-9 items-center justify-center border border-border bg-button px-3.5 text-[12.5px] font-bold leading-none text-text-soft",
 } as const;
 
-function visibleFocusableElements(dialog: HTMLElement) {
-  return Array.from(
-    dialog.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-    ),
-  ).filter((element) => element.offsetParent !== null);
-}
-
-function focusFallbackControl() {
-  Array.from(
-    document.querySelectorAll<HTMLElement>(
-      ".outcome-panel button:not([disabled]), .mobile-action-bar button:not([disabled]), #calculateButton:not([disabled]), button:not([disabled])",
-    ),
-  )
-    .find((element) => element.offsetParent !== null)
-    ?.focus();
-}
-
-function restorePreviousFocus(previouslyFocused: HTMLElement | null) {
-  window.requestAnimationFrame(() => {
-    if (previouslyFocused?.isConnected && previouslyFocused.offsetParent !== null) {
-      previouslyFocused.focus();
-    } else {
-      focusFallbackControl();
-    }
-    window.requestAnimationFrame(() => {
-      const active = document.activeElement;
-      if (
-        !(active instanceof HTMLElement) ||
-        active === document.body ||
-        !active.isConnected ||
-        active.offsetParent === null
-      ) {
-        focusFallbackControl();
-      }
-    });
-  });
-}
-
-function useDialogFocusTrap(
-  open: boolean,
-  dialogRef: React.RefObject<HTMLDivElement | null>,
-  firstFocusRef: React.RefObject<HTMLButtonElement | null>,
-  onDismiss: () => void,
-) {
-  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
-  const dismiss = useEffectEvent(onDismiss);
-
-  useEffect(() => {
-    if (!open) return;
-    previouslyFocusedRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const dialog = dialogRef.current;
-    const siblings = dialog?.parentElement
-      ? Array.from(dialog.parentElement.children).filter(
-          (element): element is HTMLElement => element instanceof HTMLElement && element !== dialog,
-        )
-      : [];
-    const previouslyInert = new Map(
-      siblings.map((element) => [element, element.hasAttribute("inert")] as const),
-    );
-    for (const sibling of siblings) sibling.setAttribute("inert", "");
-    const previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    firstFocusRef.current?.focus();
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        dismiss();
-        return;
-      }
-      if (event.key !== "Tab" || !dialogRef.current) return;
-      const focusable = visibleFocusableElements(dialogRef.current);
-      if (!focusable.length) {
-        event.preventDefault();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      for (const [sibling, wasInert] of previouslyInert) {
-        if (!wasInert) sibling.removeAttribute("inert");
-      }
-      document.body.style.overflow = previousBodyOverflow;
-      const previouslyFocused = previouslyFocusedRef.current;
-      restorePreviousFocus(previouslyFocused);
-      previouslyFocusedRef.current = null;
-    };
-  }, [dialogRef, firstFocusRef, open]);
-}
-
 function residualChoices(modal: SuccessAttemptModalState) {
   const beforeStock = modal.beforeStock ?? modal.maxAttempt * 10;
   return Array.from({ length: modal.maxAttempt }, (_, index) => {
@@ -168,7 +98,7 @@ function AttemptSelector({
   modal: SuccessAttemptModalState;
   onSubmit: (successAttempt: number) => void;
 }) {
-  const { t } = useI18n();
+  const { locale, formatInteger } = useI18n();
   return (
     <div className={classes.choices}>
       {residualChoices(modal).map((choice, index) => (
@@ -180,10 +110,10 @@ function AttemptSelector({
           onClick={() => onSubmit(choice.attempt)}
         >
           <strong className={classes.choiceValue}>
-            {t("modal.successAttempt", { attempt: choice.attempt })}
+            {MODAL_TEXT[locale].successAttempt.replace("{attempt}", formatInteger(choice.attempt))}
           </strong>
           <span className={classes.choiceCaption}>
-            {t("modal.remaining", { count: choice.remaining })}
+            {MODAL_TEXT[locale].remaining.replace("{count}", formatInteger(choice.remaining))}
           </span>
         </button>
       ))}
@@ -192,11 +122,11 @@ function AttemptSelector({
 }
 
 function WhyNeeded() {
-  const { t } = useI18n();
+  const { locale } = useI18n();
   return (
     <details className={classes.why}>
-      <summary className={classes.whySummary}>{t("modal.why")}</summary>
-      <p className={classes.whyText}>{t("modal.whyDetail")}</p>
+      <summary className={classes.whySummary}>{MODAL_TEXT[locale].why}</summary>
+      <p className={classes.whyText}>{WHY_DETAIL[locale]}</p>
     </details>
   );
 }
@@ -216,19 +146,22 @@ function ModalActions({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
-export default function SuccessAttemptModal({ modal, onSubmit }: SuccessAttemptModalProps) {
-  const { t } = useI18n();
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-  const firstFocusRef = useRef<HTMLButtonElement | null>(null);
+export default function SuccessAttemptModal({
+  modal,
+  onSubmit,
+  firstFocusRef,
+}: SuccessAttemptModalProps) {
+  const { locale, t } = useI18n();
   const dismiss = () => onSubmit(null);
-  useDialogFocusTrap(modal.open, dialogRef, firstFocusRef, dismiss);
+  useLayoutEffect(() => {
+    firstFocusRef.current?.focus();
+  }, [firstFocusRef]);
 
   if (!modal.open) return null;
-  const kitLabel = modal.kit ? t(KIT_LABEL_KEYS[modal.kit]) : t("modal.genericKit");
+  const kitLabel = modal.kit ? t(KIT_LABEL_KEYS[modal.kit]) : MODAL_TEXT[locale].genericKit;
 
   return (
     <div
-      ref={dialogRef}
       className={classes.overlay}
       role="dialog"
       aria-modal="true"
@@ -242,10 +175,10 @@ export default function SuccessAttemptModal({ modal, onSubmit }: SuccessAttemptM
         <span className={classes.handle} aria-hidden="true" />
         <div className={classes.header}>
           <h3 id="attemptModalTitle" className={classes.title}>
-            {t("modal.question", { kit: kitLabel })}
+            {MODAL_TEXT[locale].question.replace("{kit}", kitLabel)}
           </h3>
           <p id="attemptModalDescription" className={classes.description}>
-            {t("modal.instruction")}
+            {MODAL_TEXT[locale].instruction}
           </p>
         </div>
         <form

@@ -10,6 +10,9 @@ export const koMessages = {
   "error.reload": "페이지 다시 불러오기",
   "error.sectionDetail": "이 영역에 필요한 파일을 불러오지 못했습니다.",
   "error.retrySection": "다시 불러오기",
+  "error.reloadInputsDetail": "미확정 사용 전 입력은 복원하지 않습니다.",
+  "error.reloadInputsUnavailable":
+    "입력 보관 실패로 새로고침하지 않았습니다. 입력을 기록하거나 키트 수정을 마친 뒤 재시도하세요.",
   "common.calculate": "계산",
   "common.calculateLong": "계산하기",
   "common.recalculate": "다시 계산",
@@ -106,6 +109,7 @@ export const koMessages = {
   "kit.purpleColor": "보라",
   "kit.yellowColor": "노랑",
   "result.title": "결과",
+  "result.preparing": "추천 화면 준비 중.",
   "result.initial": "입력값을 넣고 계산을 실행하세요.",
   "result.emptyLead": "아직 계산 결과가 없습니다. 세 단계면 충분해요.",
   "result.emptyStepState": "현재 소장품을 선택합니다.",
@@ -254,15 +258,7 @@ export const koMessages = {
   "stats.cumulativeCounts": "{attempts}시도 · 대성공 {successes}회",
   "stats.piecesUsed": "{pieces}개 사용",
   "stats.piecesUsedBreakdown": "키트별 사용량 보기: {pieces}",
-  "modal.genericKit": "관리 키트",
-  "modal.remaining": "{count}개",
-  "modal.successAttempt": "{attempt}회차에 대성공",
-  "modal.why": "왜 필요한가요?",
-  "modal.whyDetail":
-    "대성공이 나면 남은 사용은 진행하지 않아 실제 소모량이 회차에 따라 달라집니다. 선택한 잔량으로 대성공 시점을 역산해 통계에 반영합니다.",
-  "modal.question": "남은 {kit}가 몇 개인가요?",
-  "modal.instruction":
-    "몇 번째 사용에서 대성공이 났는지 알 수 없어 남은 수량을 확정해야 해요. 게임 인벤토리의 지금 수량을 그대로 고르면 됩니다.",
+  "modal.preparing": "남은 키트 선택 준비 중.",
   "privacy.notice":
     "서비스 개선과 대성공 통계를 위해 계산 조건과 결과를 구간값으로 집계합니다. 성공적으로 전송된 이벤트만 반영하며 사용자 수를 집계하지 않습니다. 이름, 이메일, 계정, IP 주소 등 고유 식별 정보는 통계 DB에 저장하지 않습니다.",
   "rights.notice":

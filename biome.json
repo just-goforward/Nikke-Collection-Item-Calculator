@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
   "files": {
     "includes": [
       "src/**/*.{ts,tsx,js,jsx,json}",
@@ -33,6 +33,7 @@
       "forecast-collector/tsconfig.json",
       "forecast-dispatcher/tsconfig.json",
       ".github/workflows/*.yml",
+      "!!.tmp",
       "!**/node_modules",
       "!dist",
       "!**/.wrangler",
@@ -78,7 +79,19 @@
   },
   "overrides": [
     {
-      "includes": ["scripts/**", "e2e/**", "playwright*.config.ts"],
+      "includes": [
+        "scripts/certified-staging-approved-panel/*.json"
+      ],
+      "formatter": {
+        "enabled": false
+      }
+    },
+    {
+      "includes": [
+        "scripts/**",
+        "e2e/**",
+        "playwright*.config.ts"
+      ],
       "linter": {
         "rules": {
           "complexity": {

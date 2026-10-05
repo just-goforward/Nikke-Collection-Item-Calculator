@@ -29,6 +29,7 @@
     "vite.config.ts"
   ],
   "exclude": [
+    "benchmarks/results/**",
     "scripts/forecast-x-advisory.ts",
     "scripts/process-forecast-source-queue.ts",
     "scripts/propose-supply-forecast.ts"

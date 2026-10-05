@@ -1,12 +1,14 @@
+import type { ComponentType } from "react";
 import { createRoot } from "react-dom/client";
 
 import App from "./App";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { detectInitialLocale, I18nProvider, prepareInitialLocale, translate } from "./i18n/locale";
+import { usesCertifiedEngineFromSearch } from "./lib/engineProfile";
 import { prepareRuntimeSupplyForecast } from "./lib/supplyForecastRuntime";
 import "./styles.css";
 
-function boot() {
+function boot(Calculator: ComponentType = App) {
   const app = document.getElementById("app");
   if (!app) throw new Error("App root element was not found.");
   document.documentElement.dataset["buildRevision"] = __APP_REVISION__;
@@ -16,7 +18,7 @@ function boot() {
   root.render(
     <I18nProvider>
       <AppErrorBoundary>
-        <App />
+        <Calculator />
       </AppErrorBoundary>
     </I18nProvider>,
   );
@@ -39,13 +41,19 @@ function renderBootFailure(error: unknown) {
   app.append(panel);
 }
 
-const forecastPreparation = prepareRuntimeSupplyForecast();
-if (forecastPreparation) {
-  void forecastPreparation.then(boot).catch(renderBootFailure);
+if (usesCertifiedEngineFromSearch(location.search)) {
+  void import("./certifiedUi/CertifiedCalculator")
+    .then((module) => boot(module.default))
+    .catch(renderBootFailure);
 } else {
-  try {
-    boot();
-  } catch (error) {
-    renderBootFailure(error);
+  const forecastPreparation = prepareRuntimeSupplyForecast();
+  if (forecastPreparation) {
+    void forecastPreparation.then(() => boot()).catch(renderBootFailure);
+  } else {
+    try {
+      boot();
+    } catch (error) {
+      renderBootFailure(error);
+    }
   }
 }

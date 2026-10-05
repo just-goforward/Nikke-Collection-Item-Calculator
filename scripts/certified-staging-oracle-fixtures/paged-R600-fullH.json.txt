@@ -1,0 +1,3496 @@
+{
+  "measurement": "direct node API includes pricing,current,batch,waiting,output; excludes queue,bundle initialization,response transport",
+  "input": {
+    "grade": "R",
+    "stock": [
+      600,
+      100,
+      40
+    ],
+    "level": 0,
+    "exp": 0,
+    "asOf": "2026-09-30T08:00:00.000Z",
+    "snapshot": {
+      "version": "certified-daily-v1",
+      "futureLawSemantics": "independent_given_cohort-v1",
+      "revision": "review6-landed-fullH",
+      "sourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "asOf": "2026-09-30T08:00:00.000Z",
+      "sourceStatus": "uncertain",
+      "rules": [
+        {
+          "id": "schedule-kit-v2:documented-physical-supply-v1",
+          "effectiveFrom": "2026-09-29T20:00:00.000Z",
+          "effectiveUntil": null,
+          "dispatch": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "normalShop": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 5
+            }
+          ],
+          "collaborationShop": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 10
+            }
+          ],
+          "soloDays": [
+            [
+              {
+                "lawId": "regular-box-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "regular-box-v1",
+                "count": 4
+              },
+              {
+                "lawId": "box-ii-v1",
+                "count": 8
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ]
+          ],
+          "provenance": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        }
+      ],
+      "laws": [
+        {
+          "id": "dispatch-board-v1",
+          "kind": "dispatch",
+          "modelVersion": "documented-physical-supply-v1"
+        },
+        {
+          "id": "regular-box-v1",
+          "kind": "box",
+          "modelVersion": "documented-physical-supply-v1"
+        },
+        {
+          "id": "box-ii-v1",
+          "kind": "box",
+          "modelVersion": "documented-physical-supply-v1"
+        }
+      ],
+      "events": [
+        {
+          "id": "dispatch:2026-09-30",
+          "gameDate": "2026-09-30",
+          "at": "2026-09-29T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-01",
+          "gameDate": "2026-10-01",
+          "at": "2026-09-30T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-02",
+          "gameDate": "2026-10-02",
+          "at": "2026-10-01T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-03",
+          "gameDate": "2026-10-03",
+          "at": "2026-10-02T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-04",
+          "gameDate": "2026-10-04",
+          "at": "2026-10-03T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-05",
+          "gameDate": "2026-10-05",
+          "at": "2026-10-04T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-06",
+          "gameDate": "2026-10-06",
+          "at": "2026-10-05T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "shop:2026-10-06",
+          "gameDate": "2026-10-06",
+          "at": "2026-10-05T20:00:00.000Z",
+          "kind": "shop",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 5
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-07",
+          "gameDate": "2026-10-07",
+          "at": "2026-10-06T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-08",
+          "gameDate": "2026-10-08",
+          "at": "2026-10-07T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-09",
+          "gameDate": "2026-10-09",
+          "at": "2026-10-08T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-10",
+          "gameDate": "2026-10-10",
+          "at": "2026-10-09T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-11",
+          "gameDate": "2026-10-11",
+          "at": "2026-10-10T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-12",
+          "gameDate": "2026-10-12",
+          "at": "2026-10-11T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-13",
+          "gameDate": "2026-10-13",
+          "at": "2026-10-12T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "shop:2026-10-13",
+          "gameDate": "2026-10-13",
+          "at": "2026-10-12T20:00:00.000Z",
+          "kind": "shop",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 5
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-14",
+          "gameDate": "2026-10-14",
+          "at": "2026-10-13T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-15",
+          "gameDate": "2026-10-15",
+          "at": "2026-10-14T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-16",
+          "gameDate": "2026-10-16",
+          "at": "2026-10-15T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-17",
+          "gameDate": "2026-10-17",
+          "at": "2026-10-16T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-18",
+          "gameDate": "2026-10-18",
+          "at": "2026-10-17T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-19",
+          "gameDate": "2026-10-19",
+          "at": "2026-10-18T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-20",
+          "gameDate": "2026-10-20",
+          "at": "2026-10-19T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "shop:2026-10-20",
+          "gameDate": "2026-10-20",
+          "at": "2026-10-19T20:00:00.000Z",
+          "kind": "shop",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 5
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-21",
+          "gameDate": "2026-10-21",
+          "at": "2026-10-20T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-22",
+          "gameDate": "2026-10-22",
+          "at": "2026-10-21T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r42:day1",
+          "gameDate": "2026-10-22",
+          "at": "2026-10-21T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "regular-box-v1",
+              "count": 12
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 42,
+          "dayNumber": 1,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-23",
+          "gameDate": "2026-10-23",
+          "at": "2026-10-22T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r42:day2",
+          "gameDate": "2026-10-23",
+          "at": "2026-10-22T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "regular-box-v1",
+              "count": 4
+            },
+            {
+              "lawId": "box-ii-v1",
+              "count": 8
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 42,
+          "dayNumber": 2,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-24",
+          "gameDate": "2026-10-24",
+          "at": "2026-10-23T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r42:day3",
+          "gameDate": "2026-10-24",
+          "at": "2026-10-23T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 12
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 42,
+          "dayNumber": 3,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-25",
+          "gameDate": "2026-10-25",
+          "at": "2026-10-24T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r42:day4",
+          "gameDate": "2026-10-25",
+          "at": "2026-10-24T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 12
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 42,
+          "dayNumber": 4,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-26",
+          "gameDate": "2026-10-26",
+          "at": "2026-10-25T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r42:day5",
+          "gameDate": "2026-10-26",
+          "at": "2026-10-25T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 12
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 42,
+          "dayNumber": 5,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-27",
+          "gameDate": "2026-10-27",
+          "at": "2026-10-26T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "shop:2026-10-27",
+          "gameDate": "2026-10-27",
+          "at": "2026-10-26T20:00:00.000Z",
+          "kind": "shop",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 5
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r42:day6",
+          "gameDate": "2026-10-27",
+          "at": "2026-10-26T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 12
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 42,
+          "dayNumber": 6,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-28",
+          "gameDate": "2026-10-28",
+          "at": "2026-10-27T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r42:day7",
+          "gameDate": "2026-10-28",
+          "at": "2026-10-27T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 12
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 42,
+          "dayNumber": 7,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-29",
+          "gameDate": "2026-10-29",
+          "at": "2026-10-28T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-30",
+          "gameDate": "2026-10-30",
+          "at": "2026-10-29T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-10-31",
+          "gameDate": "2026-10-31",
+          "at": "2026-10-30T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-01",
+          "gameDate": "2026-11-01",
+          "at": "2026-10-31T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-02",
+          "gameDate": "2026-11-02",
+          "at": "2026-11-01T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-03",
+          "gameDate": "2026-11-03",
+          "at": "2026-11-02T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "shop:2026-11-03",
+          "gameDate": "2026-11-03",
+          "at": "2026-11-02T20:00:00.000Z",
+          "kind": "shop",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 5
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-04",
+          "gameDate": "2026-11-04",
+          "at": "2026-11-03T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-05",
+          "gameDate": "2026-11-05",
+          "at": "2026-11-04T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-06",
+          "gameDate": "2026-11-06",
+          "at": "2026-11-05T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-07",
+          "gameDate": "2026-11-07",
+          "at": "2026-11-06T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-08",
+          "gameDate": "2026-11-08",
+          "at": "2026-11-07T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-09",
+          "gameDate": "2026-11-09",
+          "at": "2026-11-08T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-10",
+          "gameDate": "2026-11-10",
+          "at": "2026-11-09T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "shop:2026-11-10",
+          "gameDate": "2026-11-10",
+          "at": "2026-11-09T20:00:00.000Z",
+          "kind": "shop",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 5
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-11",
+          "gameDate": "2026-11-11",
+          "at": "2026-11-10T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-12",
+          "gameDate": "2026-11-12",
+          "at": "2026-11-11T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-13",
+          "gameDate": "2026-11-13",
+          "at": "2026-11-12T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-14",
+          "gameDate": "2026-11-14",
+          "at": "2026-11-13T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-15",
+          "gameDate": "2026-11-15",
+          "at": "2026-11-14T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-16",
+          "gameDate": "2026-11-16",
+          "at": "2026-11-15T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-17",
+          "gameDate": "2026-11-17",
+          "at": "2026-11-16T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "shop:2026-11-17",
+          "gameDate": "2026-11-17",
+          "at": "2026-11-16T20:00:00.000Z",
+          "kind": "shop",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 5
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-18",
+          "gameDate": "2026-11-18",
+          "at": "2026-11-17T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-19",
+          "gameDate": "2026-11-19",
+          "at": "2026-11-18T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r43:day1",
+          "gameDate": "2026-11-19",
+          "at": "2026-11-18T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "regular-box-v1",
+              "count": 12
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 43,
+          "dayNumber": 1,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-20",
+          "gameDate": "2026-11-20",
+          "at": "2026-11-19T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r43:day2",
+          "gameDate": "2026-11-20",
+          "at": "2026-11-19T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "regular-box-v1",
+              "count": 4
+            },
+            {
+              "lawId": "box-ii-v1",
+              "count": 8
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 43,
+          "dayNumber": 2,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-21",
+          "gameDate": "2026-11-21",
+          "at": "2026-11-20T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r43:day3",
+          "gameDate": "2026-11-21",
+          "at": "2026-11-20T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 12
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 43,
+          "dayNumber": 3,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-22",
+          "gameDate": "2026-11-22",
+          "at": "2026-11-21T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r43:day4",
+          "gameDate": "2026-11-22",
+          "at": "2026-11-21T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 12
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 43,
+          "dayNumber": 4,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-23",
+          "gameDate": "2026-11-23",
+          "at": "2026-11-22T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r43:day5",
+          "gameDate": "2026-11-23",
+          "at": "2026-11-22T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 12
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 43,
+          "dayNumber": 5,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-24",
+          "gameDate": "2026-11-24",
+          "at": "2026-11-23T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "shop:2026-11-24",
+          "gameDate": "2026-11-24",
+          "at": "2026-11-23T20:00:00.000Z",
+          "kind": "shop",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 5
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r43:day6",
+          "gameDate": "2026-11-24",
+          "at": "2026-11-23T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 12
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 43,
+          "dayNumber": 6,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "id": "dispatch:2026-11-25",
+          "gameDate": "2026-11-25",
+          "at": "2026-11-24T20:00:00.000Z",
+          "kind": "dispatch",
+          "status": "confirmed",
+          "refs": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "expiresAt": null,
+          "sourceIds": [
+            "shared/supplyForecastModel.ts",
+            "docs/research/kit-expected-gain.ko.md"
+          ]
+        },
+        {
+          "id": "solo:r43:day7",
+          "gameDate": "2026-11-25",
+          "at": "2026-11-24T20:00:00.000Z",
+          "kind": "solo",
+          "status": "estimated",
+          "refs": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 12
+            }
+          ],
+          "ruleId": "schedule-kit-v2:documented-physical-supply-v1",
+          "round": 43,
+          "dayNumber": 7,
+          "expiresAt": null,
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        }
+      ],
+      "soloRounds": [
+        {
+          "round": 1,
+          "startGameDate": "2023-05-11",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/1950871"
+          ]
+        },
+        {
+          "round": 2,
+          "startGameDate": "2023-06-08",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/2055448"
+          ]
+        },
+        {
+          "round": 3,
+          "startGameDate": "2023-07-13",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/2336639"
+          ]
+        },
+        {
+          "round": 4,
+          "startGameDate": "2023-08-10",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/2501590"
+          ]
+        },
+        {
+          "round": 5,
+          "startGameDate": "2023-09-14",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/2744161"
+          ]
+        },
+        {
+          "round": 6,
+          "startGameDate": "2023-10-12",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/2878411"
+          ]
+        },
+        {
+          "round": 7,
+          "startGameDate": "2023-11-09",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/3022731"
+          ]
+        },
+        {
+          "round": 8,
+          "startGameDate": "2023-12-14",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/3276396"
+          ]
+        },
+        {
+          "round": 9,
+          "startGameDate": "2024-01-04",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/3354291"
+          ]
+        },
+        {
+          "round": 10,
+          "startGameDate": "2024-02-09",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/3523796"
+          ]
+        },
+        {
+          "round": 11,
+          "startGameDate": "2024-03-08",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/3668690"
+          ]
+        },
+        {
+          "round": 12,
+          "startGameDate": "2024-04-04",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/3841536"
+          ]
+        },
+        {
+          "round": 13,
+          "startGameDate": "2024-05-02",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/3975245"
+          ]
+        },
+        {
+          "round": 14,
+          "startGameDate": "2024-06-06",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/4191267"
+          ]
+        },
+        {
+          "round": 15,
+          "startGameDate": "2024-07-11",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/4375422"
+          ]
+        },
+        {
+          "round": 16,
+          "startGameDate": "2024-08-02",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/4514386"
+          ]
+        },
+        {
+          "round": 17,
+          "startGameDate": "2024-09-05",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/4691557"
+          ]
+        },
+        {
+          "round": 18,
+          "startGameDate": "2024-10-03",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/4823662"
+          ]
+        },
+        {
+          "round": 19,
+          "startGameDate": "2024-10-31",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/5013873"
+          ]
+        },
+        {
+          "round": 20,
+          "startGameDate": "2024-12-12",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/5250302"
+          ]
+        },
+        {
+          "round": 21,
+          "startGameDate": "2025-01-09",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/5414775"
+          ]
+        },
+        {
+          "round": 22,
+          "startGameDate": "2025-02-06",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/5558577"
+          ]
+        },
+        {
+          "round": 23,
+          "startGameDate": "2025-03-06",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/5689969"
+          ]
+        },
+        {
+          "round": 24,
+          "startGameDate": "2025-04-03",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/5815120"
+          ]
+        },
+        {
+          "round": 25,
+          "startGameDate": "2025-05-08",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/5968589"
+          ]
+        },
+        {
+          "round": 26,
+          "startGameDate": "2025-06-19",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/6225681"
+          ]
+        },
+        {
+          "round": 27,
+          "startGameDate": "2025-07-24",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/6383981"
+          ]
+        },
+        {
+          "round": 28,
+          "startGameDate": "2025-08-21",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/6579018"
+          ]
+        },
+        {
+          "round": 29,
+          "startGameDate": "2025-09-16",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/6674249"
+          ]
+        },
+        {
+          "round": 30,
+          "startGameDate": "2025-10-09",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/6748668"
+          ]
+        },
+        {
+          "round": 31,
+          "startGameDate": "2025-11-13",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/6916387"
+          ]
+        },
+        {
+          "round": 32,
+          "startGameDate": "2025-12-11",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/7034442"
+          ]
+        },
+        {
+          "round": 33,
+          "startGameDate": "2026-01-08",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/7138616"
+          ]
+        },
+        {
+          "round": 34,
+          "startGameDate": "2026-02-19",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/7298679"
+          ]
+        },
+        {
+          "round": 35,
+          "startGameDate": "2026-03-20",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/7409051"
+          ]
+        },
+        {
+          "round": 36,
+          "startGameDate": "2026-04-30",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/7576019"
+          ]
+        },
+        {
+          "round": 37,
+          "startGameDate": "2026-05-28",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/7699562"
+          ]
+        },
+        {
+          "round": 38,
+          "startGameDate": "2026-06-18",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/7833931"
+          ]
+        },
+        {
+          "round": 39,
+          "startGameDate": "2026-07-16",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/7911818"
+          ]
+        },
+        {
+          "round": 40,
+          "startGameDate": "2026-08-20",
+          "endGameDate": null,
+          "status": "confirmed",
+          "sourceIds": [
+            "https://game.naver.com/lounge/nikke/board/detail/8060044"
+          ]
+        },
+        {
+          "round": 41,
+          "startGameDate": "2026-09-17",
+          "endGameDate": null,
+          "status": "unverified",
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "round": 42,
+          "startGameDate": "2026-10-22",
+          "endGameDate": "2026-10-29",
+          "status": "estimated",
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "round": 43,
+          "startGameDate": "2026-11-19",
+          "endGameDate": "2026-11-26",
+          "status": "estimated",
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "round": 44,
+          "startGameDate": "2026-12-24",
+          "endGameDate": "2026-12-31",
+          "status": "estimated",
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "round": 45,
+          "startGameDate": "2027-01-21",
+          "endGameDate": "2027-01-28",
+          "status": "estimated",
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        },
+        {
+          "round": 46,
+          "startGameDate": "2027-02-18",
+          "endGameDate": "2027-02-25",
+          "status": "estimated",
+          "sourceIds": [
+            "observed-mean-thursday-v1"
+          ]
+        }
+      ],
+      "cadence": {
+        "version": "observed-mean-thursday-v1",
+        "numerator": 1197,
+        "denominator": 39,
+        "rounds": 40,
+        "intervals": 39,
+        "fromGameDate": "2023-05-11",
+        "untilGameDate": "2026-08-20",
+        "minimumDays": 21,
+        "maximumDays": 42,
+        "sourceStatuses": {
+          "as_announced": 34,
+          "rescheduled": 1,
+          "schedule_changed": 4,
+          "reconstructed": 1
+        },
+        "sourceUrls": [
+          "https://game.naver.com/lounge/nikke/board/detail/1950871",
+          "https://game.naver.com/lounge/nikke/board/detail/2055448",
+          "https://game.naver.com/lounge/nikke/board/detail/2336639",
+          "https://game.naver.com/lounge/nikke/board/detail/2501590",
+          "https://game.naver.com/lounge/nikke/board/detail/2744161",
+          "https://game.naver.com/lounge/nikke/board/detail/2878411",
+          "https://game.naver.com/lounge/nikke/board/detail/3022731",
+          "https://game.naver.com/lounge/nikke/board/detail/3276396",
+          "https://game.naver.com/lounge/nikke/board/detail/3354291",
+          "https://game.naver.com/lounge/nikke/board/detail/3523796",
+          "https://game.naver.com/lounge/nikke/board/detail/3668690",
+          "https://game.naver.com/lounge/nikke/board/detail/3841536",
+          "https://game.naver.com/lounge/nikke/board/detail/3975245",
+          "https://game.naver.com/lounge/nikke/board/detail/4191267",
+          "https://game.naver.com/lounge/nikke/board/detail/4375422",
+          "https://game.naver.com/lounge/nikke/board/detail/4514386",
+          "https://game.naver.com/lounge/nikke/board/detail/4691557",
+          "https://game.naver.com/lounge/nikke/board/detail/4823662",
+          "https://game.naver.com/lounge/nikke/board/detail/5013873",
+          "https://game.naver.com/lounge/nikke/board/detail/5250302",
+          "https://game.naver.com/lounge/nikke/board/detail/5414775",
+          "https://game.naver.com/lounge/nikke/board/detail/5558577",
+          "https://game.naver.com/lounge/nikke/board/detail/5689969",
+          "https://game.naver.com/lounge/nikke/board/detail/5815120",
+          "https://game.naver.com/lounge/nikke/board/detail/5968589",
+          "https://game.naver.com/lounge/nikke/board/detail/6225681",
+          "https://game.naver.com/lounge/nikke/board/detail/6383981",
+          "https://game.naver.com/lounge/nikke/board/detail/6579018",
+          "https://game.naver.com/lounge/nikke/board/detail/6674249",
+          "https://game.naver.com/lounge/nikke/board/detail/6748668",
+          "https://game.naver.com/lounge/nikke/board/detail/6916387",
+          "https://game.naver.com/lounge/nikke/board/detail/7034442",
+          "https://game.naver.com/lounge/nikke/board/detail/7138616",
+          "https://game.naver.com/lounge/nikke/board/detail/7298679",
+          "https://game.naver.com/lounge/nikke/board/detail/7409051",
+          "https://game.naver.com/lounge/nikke/board/detail/7576019",
+          "https://game.naver.com/lounge/nikke/board/detail/7699562",
+          "https://game.naver.com/lounge/nikke/board/detail/7833931",
+          "https://game.naver.com/lounge/nikke/board/detail/7911818",
+          "https://game.naver.com/lounge/nikke/board/detail/8060044"
+        ]
+      },
+      "delayState": {
+        "anchorRound": 40,
+        "anchorGameDate": "2026-08-20",
+        "offsetDays": 0
+      },
+      "coverage": {
+        "from": "2026-08-04T20:00:00.000Z",
+        "until": "2026-11-25T20:00:00.000Z",
+        "currentDay": "2026-09-30",
+        "past": {
+          "from": "2026-08-04T20:00:00.000Z",
+          "until": "2026-09-29T20:00:00.000Z",
+          "days": 56,
+          "complete": false,
+          "missing": [
+            "history_coverage",
+            "raid_durations",
+            "collaboration_periods",
+            "reward_rules",
+            "unverified_solo_rounds"
+          ]
+        },
+        "future": {
+          "from": "2026-09-30T20:00:00.000Z",
+          "until": "2026-11-25T20:00:00.000Z",
+          "days": 56,
+          "complete": true,
+          "missing": []
+        }
+      },
+      "warnings": [
+        "source_uncertain_no_automatic_delay",
+        "unverified_solo_round:r41",
+        "missing_history:history_coverage",
+        "missing_history:raid_durations",
+        "missing_history:collaboration_periods",
+        "missing_history:reward_rules",
+        "missing_history:unverified_solo_rounds"
+      ],
+      "provenance": [
+        "schedule-kit-v2",
+        "documented-physical-supply-v1",
+        "https://game.naver.com/lounge/nikke/board/detail/1950871",
+        "https://game.naver.com/lounge/nikke/board/detail/2055448",
+        "https://game.naver.com/lounge/nikke/board/detail/2336639",
+        "https://game.naver.com/lounge/nikke/board/detail/2501590",
+        "https://game.naver.com/lounge/nikke/board/detail/2744161",
+        "https://game.naver.com/lounge/nikke/board/detail/2878411",
+        "https://game.naver.com/lounge/nikke/board/detail/3022731",
+        "https://game.naver.com/lounge/nikke/board/detail/3276396",
+        "https://game.naver.com/lounge/nikke/board/detail/3354291",
+        "https://game.naver.com/lounge/nikke/board/detail/3523796",
+        "https://game.naver.com/lounge/nikke/board/detail/3668690",
+        "https://game.naver.com/lounge/nikke/board/detail/3841536",
+        "https://game.naver.com/lounge/nikke/board/detail/3975245",
+        "https://game.naver.com/lounge/nikke/board/detail/4191267",
+        "https://game.naver.com/lounge/nikke/board/detail/4375422",
+        "https://game.naver.com/lounge/nikke/board/detail/4514386",
+        "https://game.naver.com/lounge/nikke/board/detail/4691557",
+        "https://game.naver.com/lounge/nikke/board/detail/4823662",
+        "https://game.naver.com/lounge/nikke/board/detail/5013873",
+        "https://game.naver.com/lounge/nikke/board/detail/5250302",
+        "https://game.naver.com/lounge/nikke/board/detail/5414775",
+        "https://game.naver.com/lounge/nikke/board/detail/5558577",
+        "https://game.naver.com/lounge/nikke/board/detail/5689969",
+        "https://game.naver.com/lounge/nikke/board/detail/5815120",
+        "https://game.naver.com/lounge/nikke/board/detail/5968589",
+        "https://game.naver.com/lounge/nikke/board/detail/6225681",
+        "https://game.naver.com/lounge/nikke/board/detail/6383981",
+        "https://game.naver.com/lounge/nikke/board/detail/6579018",
+        "https://game.naver.com/lounge/nikke/board/detail/6674249",
+        "https://game.naver.com/lounge/nikke/board/detail/6748668",
+        "https://game.naver.com/lounge/nikke/board/detail/6916387",
+        "https://game.naver.com/lounge/nikke/board/detail/7034442",
+        "https://game.naver.com/lounge/nikke/board/detail/7138616",
+        "https://game.naver.com/lounge/nikke/board/detail/7298679",
+        "https://game.naver.com/lounge/nikke/board/detail/7409051",
+        "https://game.naver.com/lounge/nikke/board/detail/7576019",
+        "https://game.naver.com/lounge/nikke/board/detail/7699562",
+        "https://game.naver.com/lounge/nikke/board/detail/7833931",
+        "https://game.naver.com/lounge/nikke/board/detail/7911818",
+        "https://game.naver.com/lounge/nikke/board/detail/8060044"
+      ]
+    },
+    "receivedEventIds": [
+      "dispatch:2026-09-30"
+    ]
+  },
+  "output": {
+    "status": "completed",
+    "current": {
+      "status": "use_certified",
+      "value": {
+        "successP": {
+          "numerator": "11085944440301441847627053134948721644859754099388465671344006999590229490464694303311246309167110105176426483830158893513115995156272737169976668024154713886343891821100096214353602574541980577860161",
+          "denominator": "11641532182693481445312500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "weightedExpectedConsumptionB": {
+          "numerator": "23646018489433052297968609225415029023314713943661438462067425421995606439957176839354813129074214568534267729187133636480799424418762578428915514997491118570194545526169330661991404289396018937283922968979456573985279771259026524887086141435479487346778137506700872851108538570431365817529928342441071638564293040007988418669115863675708129747447679813616298530618518504353473984376810650894806454268290353948850658608446021258262745345982721820175318224303857596207056333044416976618073198599402067490091808115239543029787371933787017710416974637074460590326625419638361294964639905939835696617132325600504603230841780210250511999115754462096523448155528971777781359041749577781027669718271722936278071357049753513436636782380595571408176421817",
+          "denominator": "13601310835524499838215950929589324310347458173945446691767975076950893289794998484393778536901173141420948292511676666896464057682838533731092465791653890181627165314287160939666276888349257650629520337366874050168482441237815136056098079348210801022463478451172326008848130193667491405262180844283169176070319629937527362787321026760301949476512744018708022693948451607251793165330540703459142701668113119087891878706713044772262710213047391086688490980757928870053532285383930898164988246720299030580020138639492027824611505773385952219646885885091869839113496709614992141723632812500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "expectedTotalConsumptionC": {
+          "numerator": "34535813947320996293721652788442559074612206230876162076495218204521779342548210738039874500719650045782663269325572928378971940597652264306591666970990072534518244473118196069587986715215288729277151",
+          "denominator": "58207660913467407226562500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "expectedConsumed": [
+          {
+            "numerator": "376471968403766192489470531753901959883217122254230521011792493495804512493176444847296954101163004110419193964920571323796288513544489061771175756674421850708629964527801727793994510850831553079",
+            "denominator": "727595761418342590332031250000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "numerator": "4456228087762989815770697823695503996572430126866353552951839180895006018437906633860937424288347824624998335806445113334953988677312890146991570171390817294759780686554722445876648165749161",
+            "denominator": "69388939039072283776476979255676269531250000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          {
+            "numerator": "679901416336369047314750055186932844986890456370509561039796548100488878462458041050225116138146830105941948158664029547018688609051506485880140289807286369291821876346214131342384065509890687168351",
+            "denominator": "58207660913467407226562500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ],
+        "display": {
+          "successP": 0.9522753763273544,
+          "weightedExpectedConsumptionB": 1.738510263854374,
+          "expectedTotalConsumptionC": 593.3207657779374
+        }
+      },
+      "kit": "purple",
+      "optimalActionMask": 2,
+      "uses": 2,
+      "pieces": 20,
+      "certification": "exact_rational_finite_inventory_v1"
+    },
+    "waiting": {
+      "status": "certified",
+      "horizonDays": 56,
+      "recommendedDays": 56,
+      "rangeBoundary": true,
+      "bestDayRange": [
+        56,
+        56
+      ],
+      "value": null,
+      "evaluatedDays": [
+        0
+      ],
+      "successImprovementUpperBound": {
+        "numerator": "555587742392039597685446865051278355140245900611534328655993000409770509535305696688753690832889894823573516169841106486884004843727262830023331975845286113656108178899903785646397425458019422139839",
+        "denominator": "11641532182693481445312500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "successProbabilityInterval": {
+        "lower": {
+          "numerator": "11085944440301441847627053134948721644859754099388465671344006999590229490464694303311246309167110105176426483830158893513115995156272737169976668024154713886343891821100096214353602574541980577860161",
+          "denominator": "11641532182693481445312500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "upper": {
+          "numerator": "1",
+          "denominator": "1"
+        }
+      },
+      "reason": null,
+      "evidence": [
+        "fixed_prices_all_dates",
+        "nonnegative_nonexpiring_inventory_coupling",
+        "single_latent_cohort_positive_prior",
+        "positive_mass_receipt_witness_strict_lex_day55_to56",
+        "all_prior_dates_bounded_by_day55",
+        "PH_lower_bound_from_exact_current_P_and_inventory_coupling",
+        "range_only_no_global_or_deadline_claim",
+        "modeled_forecast_source_uncertain_no_automatic_delay"
+      ],
+      "strictBoundaryWitness": {
+        "cohort": 0,
+        "receipts": [
+          {
+            "eventId": "dispatch:2026-10-01",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-02",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-03",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-04",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-05",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-06",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "shop:2026-10-06",
+            "refIndex": 0,
+            "pieces": [
+              25,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "16807",
+              "denominator": "100000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-07",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-08",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-09",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-10",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-11",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-12",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-13",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "shop:2026-10-13",
+            "refIndex": 0,
+            "pieces": [
+              25,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "16807",
+              "denominator": "100000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-14",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-15",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-16",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-17",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-18",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-19",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-20",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "shop:2026-10-20",
+            "refIndex": 0,
+            "pieces": [
+              25,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "16807",
+              "denominator": "100000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-21",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-22",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "solo:r42:day1",
+            "refIndex": 0,
+            "pieces": [
+              36,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "16777216",
+              "denominator": "244140625"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-23",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "solo:r42:day2",
+            "refIndex": 0,
+            "pieces": [
+              12,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "256",
+              "denominator": "625"
+            }
+          },
+          {
+            "eventId": "solo:r42:day2",
+            "refIndex": 1,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "5764801",
+              "denominator": "100000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-24",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "solo:r42:day3",
+            "refIndex": 0,
+            "pieces": [
+              60,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "13841287201",
+              "denominator": "1000000000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-25",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "solo:r42:day4",
+            "refIndex": 0,
+            "pieces": [
+              60,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "13841287201",
+              "denominator": "1000000000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-26",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "solo:r42:day5",
+            "refIndex": 0,
+            "pieces": [
+              60,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "13841287201",
+              "denominator": "1000000000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-27",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "shop:2026-10-27",
+            "refIndex": 0,
+            "pieces": [
+              25,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "16807",
+              "denominator": "100000"
+            }
+          },
+          {
+            "eventId": "solo:r42:day6",
+            "refIndex": 0,
+            "pieces": [
+              60,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "13841287201",
+              "denominator": "1000000000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-28",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "solo:r42:day7",
+            "refIndex": 0,
+            "pieces": [
+              60,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "13841287201",
+              "denominator": "1000000000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-29",
+            "refIndex": 0,
+            "pieces": [
+              32,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "10201547479039",
+              "denominator": "1819970563125000000"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-30",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-10-31",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-01",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-02",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-03",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "shop:2026-11-03",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              10,
+              0
+            ],
+            "mass": {
+              "numerator": "1",
+              "denominator": "3125"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-04",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-05",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-06",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-07",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-08",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-09",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-10",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "shop:2026-11-10",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              10,
+              0
+            ],
+            "mass": {
+              "numerator": "1",
+              "denominator": "3125"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-11",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-12",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-13",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-14",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-15",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-16",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-17",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "shop:2026-11-17",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              10,
+              0
+            ],
+            "mass": {
+              "numerator": "1",
+              "denominator": "3125"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-18",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-19",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "solo:r43:day1",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              12,
+              0
+            ],
+            "mass": {
+              "numerator": "1",
+              "denominator": "244140625"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-20",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "solo:r43:day2",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              4,
+              0
+            ],
+            "mass": {
+              "numerator": "1",
+              "denominator": "625"
+            }
+          },
+          {
+            "eventId": "solo:r43:day2",
+            "refIndex": 1,
+            "pieces": [
+              0,
+              16,
+              0
+            ],
+            "mass": {
+              "numerator": "1",
+              "denominator": "390625"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-21",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "solo:r43:day3",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              24,
+              0
+            ],
+            "mass": {
+              "numerator": "1",
+              "denominator": "244140625"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-22",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "solo:r43:day4",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              24,
+              0
+            ],
+            "mass": {
+              "numerator": "1",
+              "denominator": "244140625"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-23",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "solo:r43:day5",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              24,
+              0
+            ],
+            "mass": {
+              "numerator": "1",
+              "denominator": "244140625"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-24",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              8,
+              0
+            ],
+            "mass": {
+              "numerator": "410271435000725810650965156628096064352511465277652379",
+              "denominator": "1630559076592595401597295799491647398899673931536210937500"
+            }
+          },
+          {
+            "eventId": "shop:2026-11-24",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              10,
+              0
+            ],
+            "mass": {
+              "numerator": "1",
+              "denominator": "3125"
+            }
+          },
+          {
+            "eventId": "solo:r43:day6",
+            "refIndex": 0,
+            "pieces": [
+              0,
+              24,
+              0
+            ],
+            "mass": {
+              "numerator": "1",
+              "denominator": "244140625"
+            }
+          },
+          {
+            "eventId": "dispatch:2026-11-25",
+            "refIndex": 0,
+            "pieces": [
+              40,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "117649",
+              "denominator": "8002500000000"
+            }
+          },
+          {
+            "eventId": "solo:r43:day7",
+            "refIndex": 0,
+            "pieces": [
+              60,
+              0,
+              0
+            ],
+            "mass": {
+              "numerator": "13841287201",
+              "denominator": "1000000000000"
+            }
+          }
+        ],
+        "beforeStock": [
+          2240,
+          476,
+          40
+        ],
+        "afterStock": [
+          2340,
+          476,
+          40
+        ],
+        "beforeValue": {
+          "successP": {
+            "numerator": "1",
+            "denominator": "1"
+          },
+          "weightedExpectedConsumptionB": {
+            "numerator": "669081551453823153138632621325051848995147069910543947008514653406905667705130792815189928288254125142129169715680640580769635540351510867353930327949786850948306135598734686802158435697086474632487450218333491597327462673036556256414262423961242955633647729568807455713946444785987270595574686880437082035096022020418000988577054917198144820668188693258121774717439010231321054335103616310592441722936015358986768217412919214589957297362975110843673334343387430866948943645592414398167573674403910911120767178836292185710176457736864342758197860248102101484659631642794844551085458126728931389463584123335187897487397764884271954520521570692050249892727224046706941586878674404257414895473913647894415711274965978702807495894643482961711641229384508422423665008909717748723904257242219514778316097889729177454679021990530357296317564185737931857847",
+            "denominator": "501360867554235020394452825588420066949260476798059364891787612120977348620599759933973297085099420961484468993244686686348639775959829938511972407579015288661827079856083543536883645639728710419385198169793060248056104030991124914179154441672679930603068863477516022898488438899860002929999295678801189363652177675538599580604449168571977075123903055058284399431412115193223719314885153068008749664571120152725225433088246224238342721124339040260236596522333559034953399627997300199181915369983641994622303172945976257324218750000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "expectedTotalConsumptionC": {
+            "numerator": "479886405964548590082825801711683967725058541553865288024294589742354833122048456397350739892556142529450374915385717810181079712723007176921171905349354973561589773352341537533471613328623562370742493118101737023030503693369165834017943688419932260001660965143815072916816203857499774879988949739255335724399788434180951060121401193948352485736710212281383285446008269800629510655036501751875750025984176546714702042354272307318961318980587462683690128731316608868301159204267423746822799",
+            "denominator": "579563461044909591520583634616818673963681996680904844133287352955872084389942087343330012925501318365052956115000181097976494903889488341519609093666076660156250000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "expectedConsumed": [
+            {
+              "numerator": "479886405964545742268145404035113333157693573014369763585559358994977307825674032169433216761980562773588817210193958032491414122096495045161528323891666301911577477358501952192727112879156285806916610885518898583708234212636110591598818271443854830985138069173783330141674504188204298709621159985823388465144447616014278639691597534663535803221943781482920269274906347356884522493965948142848805610411039376397704311636797093228918340070129087887790271766112840944191336097897894576625909",
+              "denominator": "579563461044909591520583634616818673963681996680904844133287352955872084389942087343330012925501318365052956115000181097976494903889488341519609093666076660156250000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            },
+            {
+              "numerator": "284781468039767657063456736496853949552443873523074737752529637442422791752313057557975586155770519175977768966559062651213175964358145768867165001229599383958534074450044946727656382588223258283843932226948073305524241912541697607742901652289597003174277514169966929547617036778975343194725925534081816667242042980365928481668251476643079846301617110192244374498816107055360902694441557313717031699773071747521409004297891045837479589985696520376792410982310636952917019689",
+              "denominator": "57956346104490959152058363461681867396368199668090484413328735295587208438994208734333001292550131836505295611500018109797649490388948834151960909366607666015625000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            },
+            {
+              "numerator": "0",
+              "denominator": "1"
+            }
+          ],
+          "display": {
+            "successP": 1,
+            "weightedExpectedConsumptionB": 1.3345308634033846,
+            "expectedTotalConsumptionC": 828.0135623100691
+          }
+        },
+        "afterValue": {
+          "successP": {
+            "numerator": "1",
+            "denominator": "1"
+          },
+          "weightedExpectedConsumptionB": {
+            "numerator": "1188349706745131050851026992851428068621572101312517636499955819518777439717321799931902802944660458058868255715969761148863686460690540738820431873544835082868975656297506155324324505580143129567946739738250846697722796389332403843575094839727630913171760814207469669955027065719505275225724819772662037628713660359360547606911567006032679233661533551999260276947",
+            "denominator": "890462513331893813431868407186019177396346209459263072735582781407043375082084284535573398445221811149221732805246979516051095748504964130026805210689671807779680756227858611260876357267379760742187500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "expectedTotalConsumptionC": {
+            "numerator": "63172421440893065284471345095458925526723661616566243538602500805059910099205290301811971428339185580216157936848302055894709033347681629334120234573787372892826808330613952962754213828463631",
+            "denominator": "76293945312500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "expectedConsumed": [
+            {
+              "numerator": "63172421440893065284471345095458925526723661616566243538602500805059910099205290301811971428339185580216157936848302055894709033347681629334120234573787372892826808330613952962754213828463631",
+              "denominator": "76293945312500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            },
+            {
+              "numerator": "0",
+              "denominator": "1"
+            },
+            {
+              "numerator": "0",
+              "denominator": "1"
+            }
+          ],
+          "display": {
+            "successP": 1,
+            "weightedExpectedConsumptionB": 1.334530863403352,
+            "expectedTotalConsumptionC": 828.0135623100736
+          }
+        }
+      }
+    },
+    "refusal": null,
+    "claimNotice": null,
+    "pricing": {
+      "basisStock": [
+        600,
+        100,
+        40
+      ],
+      "recurringRate": [
+        {
+          "numerator": "15389762283014717173488192298532146487374065803562880184079940177627987331620145253638046878958904945264458407650771111419262263292600476675485564521762501052347759813400247580742343599",
+          "denominator": "752448413177895377471798718613685793319002492769025396157188808534513282839026100194914431741815913297564509068910928808486891040832616928546680142967173586174742507512985480000000000"
+        },
+        {
+          "numerator": "4611962249308336063685459472580948008917971298332819975390804436594818757707905004374469197181317660021637563305993713757212068487895390088717722307235052946846662307776079946734422177",
+          "denominator": "1401498153506986772408759025141088033845145407499896493316772849155173945198638039020968551644110527125527868384351257048285223533224925866772701812047256494003764957841220583632812500"
+        },
+        {
+          "numerator": "4353819688207496884055404492705722084117228180790847539752019362097559328291427755218597504213335485000794627209315604616730578984355805961725323467402970297602219156822696385094945366579",
+          "denominator": "3348646254779360394875328230737106342200667426986419354698209260914762279727945821234100859394994752811927920193009936840702827428718756204342242196251578183006329072601956381160000000000"
+        }
+      ],
+      "weights": [
+        {
+          "numerator": "752448413177895377471798718613685793319002492769025396157188808534513282839026100194914431741815913297564509068910928808486891040832616928546680142967173586174742507512985480000000000",
+          "denominator": "466858810189751943656567423466743622478775561464978117878393225298335957035035805370586705924048452923803163848997328396511396887792170633803493650302066652757193264321191535580742343599"
+        },
+        {
+          "numerator": "1401498153506986772408759025141088033845145407499896493316772849155173945198638039020968551644110527125527868384351257048285223533224925866772701812047256494003764957841220583632812500",
+          "denominator": "144761777600007013304561361986689751393432512048322469307068089352112213277571708906471324361592370372574424401741119418585734421810387976765987903511960702347223158091898138310015672177"
+        },
+        {
+          "numerator": "3348646254779360394875328230737106342200667426986419354698209260914762279727945821234100859394994752811927920193009936840702827428718756204342242196251578183006329072601956381160000000000",
+          "denominator": "138299669879381912679068533722189975772143925260247621727680389798688050517409260604582631880013125597477911434929713078244843676133106054135415011317466097617855382060900951631494945366579"
+        }
+      ],
+      "cohortWeights": [
+        {
+          "numerator": "1",
+          "denominator": "3"
+        },
+        {
+          "numerator": "1",
+          "denominator": "3"
+        },
+        {
+          "numerator": "1",
+          "denominator": "3"
+        }
+      ]
+    },
+    "provenance": {
+      "solverVersion": "certified-exact-js-v1",
+      "arithmetic": "exact_bigint_ladder_reduced_public_rationals",
+      "calculationGraph": "repeated_exact_date_expectations_shared_finite_memo",
+      "requestBudgetMs": 15000,
+      "horizonMeaning": "range_only_no_deadline",
+      "snapshotRevision": "review6-landed-fullH",
+      "snapshotSourceHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "objective": "max_P_min_B_min_C_exact_earliest_date"
+    },
+    "diagnostics": {
+      "elapsedMs": 2041.0299,
+      "memoEntries": 53137,
+      "exactTransitions": 61139,
+      "supportPeakPoints": 0,
+      "managedPayloadBytes": 48052710,
+      "managedPayloadDefinition": "owned numerical payload: typed bound pages, BigInt limbs, tuple slots, memo keys, exact support rows; excludes JS engine allocator metadata",
+      "unmeasuredMemory": [
+        "V8 object and Map allocator overhead",
+        "V8 compiler/code cache",
+        "thread stack",
+        "transient supply-law work tables",
+        "transient finite arithmetic and recursive frame temporaries",
+        "constant game graph arrays"
+      ],
+      "wasmMemoryBytes": 0,
+      "kernelCalls": 4
+    }
+  },
+  "elapsedMs": 2041.7898000000002,
+  "currentAt": 1788.9113,
+  "rss": 187695104,
+  "heap": {
+    "rss": 187695104,
+    "heapTotal": 57966592,
+    "heapUsed": 32101840,
+    "external": 17560948,
+    "arrayBuffers": 15318551
+  },
+  "snapshotHash": "b07269c16c3414c0f76a88f0f2b5b7863f034b8159032ea2fb9a2f50d6cde261"
+}

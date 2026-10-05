@@ -1,0 +1,89 @@
+{
+  "code": 200,
+  "message": null,
+  "content": {
+    "feed": {
+      "feedId": 2501590,
+      "originalLoungeId": "NIKKE_The_Goddess_of_Victory",
+      "loungeId": "nikke",
+      "gameId": "GM_NCR_006240",
+      "contentId": "nng-NIKKE_The_Goddess_of_Victory-2501590",
+      "title": "﻿【솔로 레이드 오픈 예정】",
+      "iconTypes": ["PHOTO"],
+      "feedType": "FEED",
+      "buff": 17,
+      "nerf": 4,
+      "repImageUrl": "https://nng-phinf.pstatic.net/MjAyMzA4MDRfMjUx/MDAxNjkxMTEzMjI1NDQw.1FWdtUJaGhJyjM6va5soYWbV48ttDqTY7_sPQ5GAZKog.f9wHNCMnhqQDhgk1LD7BAviaXDRSfShxrhB208klUNYg.JPEG/NK%EC%86%94%EB%A1%9C_%EB%A0%88%EC%9D%B4%EB%93%9C_%EC%98%A4%ED%94%88_%EC%98%88%EA%B3%A0.jpg",
+      "attachCount": 1,
+      "attachIconType": "PHOTO",
+      "createdDate": "20230804110034",
+      "updatedDate": "20230804110034",
+      "contents": "<div class=\"se-viewer se-theme-default\" lang=\"ko-KR\">\n    <!-- SE_DOC_HEADER_START -->\n    <!--@CONTENTS_HEADER-->\n    <!-- SE_DOC_HEADER_END -->\n    <div class=\"se-main-container\">\n                <div class=\"se-component se-text se-l-default\" id=\"SE-9f7f678b-b4b7-42ff-855b-29b2ab03275b\">\n                    <div class=\"se-component-content\">\n                        <div class=\"se-section se-section-text se-l-default\">\n                            <div class=\"se-module se-module-text\">\n                                    <!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-bfc708af-d1e7-460d-a064-3ba52b8e2731\"><span style=\"color:#000000;\" class=\"se-fs- se-ff-nanumgothic   \" id=\"SE-0725b52d-d858-41ee-874b-3cffbe7f3f13\"><b>【솔로 레이드 오픈 예정】</b></span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-ccaa7847-346a-4fb7-9202-fbcc1ba6d2d3\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-57f02cc3-fac1-43bf-9c13-c010709ef9c2\">​</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-dab8d0ca-15f6-4232-b95a-15a113d7ce6d\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-3d4c6c9b-32ab-4f53-8d3a-cc00848be318\">솔로 레이드 시즌 4가 곧 오픈될 예정입니다.</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-ce0d93d5-fb97-47b9-8675-05b6e0aec63c\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-59606ab6-66bb-4219-bee7-c5d6ac23ce4d\">​</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-eeb87c86-dc26-433b-91ea-d9e8da547bf0\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-144aa6f0-3301-4f4c-90bf-3a6802cba51b\"><b>✅ 진행 기간</b></span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-0e52d339-b631-4fc4-a5ec-acc438a0a32d\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-eee59718-0aef-4820-9723-809bdd0e11a2\">- 8/10(목) 12:00 ~ 8/17(목) 4:59</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-2e3a0ba0-8e1a-4fc0-91d7-6c64a44ab83c\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-03f0d93a-916c-44e8-8fb0-36097a7f5a2a\">​</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-35810325-298f-498c-84f5-551fd541f8d6\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-91a78749-a66a-416a-b6eb-db4d724c96e0\"><b>✅ 시즌4 보스 정보</b></span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-ebe7f571-789e-4f68-9906-ebbf6724df3d\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-254fa684-c6f2-4c48-a44a-c9f9e743c0bd\">- 보스 명칭: 알트아이젠</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-4e434fdb-c0f1-405e-a149-ddbb48a30ed8\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-820b0ea9-be14-4697-a203-00425f321354\">- 보스 코드: 수냉 코드(약점 : 전격 코드)</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-c1aef102-d849-43a6-822c-3eaab9aeb8c4\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-b299252c-1a79-4cf7-86da-4a17e8e7c092\">- 스쿼드 추천: 기관단총, 소총 니케</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-26a8946f-b55a-4987-b047-39561ba6049c\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-9355d92b-47a1-4e68-a0a3-296fd76f0899\"><b>​</b></span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-a04177af-5ffd-48a6-8307-e101b8caa919\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-d3d36727-a369-481a-9dca-a9162004fb3a\"><b>​✅ 랩쳐 공격 모드</b></span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-6e2da2b7-3a3a-4883-b408-5da390a806d6\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-ae8c4ec8-4007-4a90-b9a0-58cfecafea6c\">- 앞쪽에서 발사되는 미사일은 파괴하여 방어하세요.</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-fba24cea-9348-4c88-9df6-3f91389ffe2f\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-d61f76c4-ab76-42ec-9581-562a26f6d124\">- 앞, 뒤 터렛의 공격은 공격력이 높은 니케를 우선 공격합니다.</span></p><!-- } SE-TEXT --><!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-f8b045f2-f5e3-4232-b065-5183e0289513\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-69aa7685-cb21-45fc-9ed4-49e9d7246731\">- 캔슬 링을 사격하여 전체 공격을 방어하세요.</span></p><!-- } SE-TEXT -->\n                            </div>\n                        </div>\n                    </div>\n                </div>                <div class=\"se-component se-image se-l-default\" id=\"SE-2f22059f-89af-4a99-9ddd-be4705cb217c\">\n                    <div class=\"se-component-content se-component-content-fit\">\n                        <div class=\"se-section se-section-image se-l-default se-section-align-\" >\n                                <div class=\"se-module se-module-image\" style=\"\">\n                                    <a href=\"#\" class=\"se-module-image-link __se_image_link __se_link\" style=\"\" onclick=\"return false;\" data-linktype=\"img\" data-linkdata='{\"id\" : \"SE-2f22059f-89af-4a99-9ddd-be4705cb217c\", \"src\" : \"https://nng-phinf.pstatic.net/MjAyMzA4MDRfMjUx/MDAxNjkxMTEzMjI1NDQw.1FWdtUJaGhJyjM6va5soYWbV48ttDqTY7_sPQ5GAZKog.f9wHNCMnhqQDhgk1LD7BAviaXDRSfShxrhB208klUNYg.JPEG/NK%EC%86%94%EB%A1%9C_%EB%A0%88%EC%9D%B4%EB%93%9C_%EC%98%A4%ED%94%88_%EC%98%88%EA%B3%A0.jpg?type=w1678\", \"originalWidth\" : \"2400\", \"originalHeight\" : \"1350\", \"linkUse\" : \"false\", \"link\" : \"\"}'>\n                                        <img src=\"https://nng-phinf.pstatic.net/MjAyMzA4MDRfMjUx/MDAxNjkxMTEzMjI1NDQw.1FWdtUJaGhJyjM6va5soYWbV48ttDqTY7_sPQ5GAZKog.f9wHNCMnhqQDhgk1LD7BAviaXDRSfShxrhB208klUNYg.JPEG/NK%EC%86%94%EB%A1%9C_%EB%A0%88%EC%9D%B4%EB%93%9C_%EC%98%A4%ED%94%88_%EC%98%88%EA%B3%A0.jpg?type=w1678\" alt=\"\" class=\"se-image-resource\" />\n                                    </a>\n                                </div>\n                        </div>\n                    </div>\n                </div>\n                <div class=\"se-component se-text se-l-default\" id=\"SE-4e8bca5e-333b-41c1-ba50-c291ee04bdef\">\n                    <div class=\"se-component-content\">\n                        <div class=\"se-section se-section-text se-l-default\">\n                            <div class=\"se-module se-module-text\">\n                                    <!-- SE-TEXT { --><p class=\"se-text-paragraph se-text-paragraph-align- \" style=\"\" id=\"SE-15bc18ca-a679-4548-8448-73e6760f747d\"><span style=\"color:#000000;\" class=\"se-fs-fs13 se-ff-nanumgothic   \" id=\"SE-d2b69294-4da8-4386-94b2-ccacc4ce846f\">​</span></p><!-- } SE-TEXT -->\n                            </div>\n                        </div>\n                    </div>\n                </div>    </div>\n</div>\n",
+      "bodyExposureYN": "N",
+      "readOnlyJoinUser": "N",
+      "allowComment": "Y",
+      "deviceType": "PC",
+      "menuId": 12,
+      "boardType": "BOARD",
+      "pinned": false,
+      "hideByCleanBot": false
+    },
+    "user": {
+      "userIdHash": "6cd045bd8eedfccc068bd0e70a81ea26",
+      "nickname": "CM 행정부",
+      "profileImageUrl": "https://nng-phinf.pstatic.net/MjAyNjA0MjRfMjU5/MDAxNzc2OTk2MzcwNDk1.KHfcZSAqWccuO5QumvC3ytqOJvKZdyJErxJc4WZKx-kg.OFHFJ8SUtTu53gW5nCbrvxEs4p315RjVhsFajKh4jWwg.JPEG/image.jpg",
+      "userRoleCode": "game_manager",
+      "badge": {
+        "imageUrl": "https://ssl.pstatic.net/static/nng/glive/icon/game_manager.png"
+      },
+      "title": {
+        "name": "CM 행정부",
+        "color": "#FF6A00"
+      },
+      "verifiedMark": false,
+      "verifiedMarkType": null,
+      "level": 15
+    },
+    "comment": {
+      "totalCount": 9,
+      "commentCount": 8,
+      "replyCount": 1,
+      "exposeCount": 9
+    },
+    "clientBuffStatus": {
+      "vote": 0
+    },
+    "feedLink": {
+      "pc": "https://game.naver.com/lounge/nikke/board/detail/2501590",
+      "mobile": "https://m.game.naver.com/lounge/nikke/board/detail/2501590"
+    },
+    "lounge": {
+      "loungeName": "승리의 여신: 니케",
+      "loungeEnglishName": "GODDESS OF VICTORY: NIKKE",
+      "logoImageSquareUrl": "https://nng-phinf.pstatic.net/MjAyNjA1MTRfMjkw/MDAxNzc4NzQ4Mzg2ODk2.ls5vWpzYJycl4e2Ce71u6UZ-33dxxruvZ0izFoJyeQYg.dnkmb4r4nb9BQfyGBNmPSax1fh_nw9iJOuPh3_KVp_Yg.PNG/app_icon_full.png"
+    },
+    "board": {
+      "boardId": 56,
+      "boardName": "🔔 인게임 이벤트",
+      "exposure": true,
+      "type": "COMMON"
+    },
+    "series": null,
+    "season": null,
+    "buff": {
+      "buffCount": 17,
+      "nerfCount": 4,
+      "vote": 0
+    },
+    "score": 0,
+    "readCount": 1485,
+    "bookmark": null,
+    "privateUserBlock": false,
+    "preFeedId": 2496715,
+    "postFeedId": 2504986,
+    "tags": "니케,NIKKE,솔로레이드",
+    "myFeed": false,
+    "feedEndBanner": null,
+    "feedId": 2501590
+  }
+}

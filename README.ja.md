@@ -35,7 +35,7 @@ Solverは最初にSR15への到達確率を最大化し、同じ確率範囲で�
 必要な環境:
 
 - 現行CI基準と同じNode.js 24.xとnpm 12.x
-- [`rust-toolchain.toml`](./rust-toolchain.toml)で固定したRust 1.98.0と`wasm32-unknown-unknown` target
+- [`rust-toolchain.toml`](./rust-toolchain.toml)で固定したRust 1.98.1と`wasm32-unknown-unknown` target
 
 ```powershell
 npm install
@@ -86,3 +86,5 @@ Copyright (C) 2026 just-goforward and contributors.
 PretendardフォントファミリーはSIL Open Font License 1.1に従い、AGPLへ再ライセンスされません。
 
 NIKKEおよび関連する名称・素材の権利は各権利者に帰属します。本プロジェクトはゲームの開発元またはパブリッシャーと提携しておらず、承認を受けた公式サービスでもありません。
+
+固定上限と根拠は[バンドル予算ポリシー](docs/bundle-budget-policy.ko.md)を参照してください。

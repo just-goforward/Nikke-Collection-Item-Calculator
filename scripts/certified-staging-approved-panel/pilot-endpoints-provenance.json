@@ -1,0 +1,49 @@
+{
+  "version": "review13-frozen-pilot-six-endpoint-inputs-v1",
+  "original": {
+    "path": "benchmarks/results/certified-staging-validation-actual-h56-final-review7-pilot20-original2000-shard-0-of-1.json",
+    "sha256": "372d7263d0778304d5c5195d014553d70c8dc744892988b8523d9380fe60e88b",
+    "bytes": 824081
+  },
+  "selection": "Preserve complete original rows in original report order, selected by exactly these six IDs.",
+  "selectedIds": [
+    "original-2",
+    "original-6",
+    "original-8",
+    "original-10",
+    "original-12",
+    "original-18"
+  ],
+  "fixture": {
+    "path": "scripts/certified-staging-approved-panel/pilot-endpoints.json",
+    "sha256": "301483c331d467a0d8c53568f271c5a893d941340a8bb0238012af9821f10b45",
+    "rows": 6
+  },
+  "rowSha256": [
+    {
+      "id": "original-2",
+      "sha256": "980ea86891de96f8a22933bc8b3a9ee59638f5b06079cfa2fd7f524f1731f082"
+    },
+    {
+      "id": "original-6",
+      "sha256": "b67d8624da075915db6b11c92180b03fd17e78aa804fb9b2115230be1db02cb8"
+    },
+    {
+      "id": "original-8",
+      "sha256": "dbac5f9af9a5a29f0d4b59a46139a868e75c9db47f771635674d31e3b26b454d"
+    },
+    {
+      "id": "original-10",
+      "sha256": "24576d4644870a431cd20732c25a517dbf4981f48acac71ff8b799efb07bb8df"
+    },
+    {
+      "id": "original-12",
+      "sha256": "7ad005e9d68bb147892a275781c646e8319fcdf69ffca01799f9ddfe206b1562"
+    },
+    {
+      "id": "original-18",
+      "sha256": "45bce3274633deac2cd540708b97d728f54f4d40c77bf9e235b0be536199a06f"
+    }
+  ],
+  "interpretation": "Historical candidate waiting witness inputs only; independent integer endpoint replay remains a separate computation with original5s/10k guards. Frozen data is not an independent waiting or endpoint PASS."
+}

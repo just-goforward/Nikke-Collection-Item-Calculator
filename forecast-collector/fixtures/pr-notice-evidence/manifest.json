@@ -1,0 +1,116 @@
+{
+  "retrievedAt": "2026-09-30T07:12:54.777Z",
+  "route": "bounded public Naver detail GET from PR source URLs",
+  "requested": 6,
+  "acquired": 6,
+  "records": [
+    {
+      "id": 8031679,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/8031679",
+      "acquired": true,
+      "httpStatus": 200,
+      "title": "콜라보 기간 한정 Pick Up 모집 예고 - 「아마기 유키코」",
+      "publishedAtRaw": "20260807113028",
+      "updatedAtRaw": "20260807113335",
+      "rawSha256": "219006fdcf6071c60d6e3a23e383030e98c9d353e7458b0c31e90d7ed48a4ac0",
+      "normalizedContentHash": "8353e9d46630afedd3e65c6c91f962df2298e194c3f3f321e2daeb77e62fce17"
+    },
+    {
+      "id": 8053292,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/8053292",
+      "acquired": true,
+      "httpStatus": 200,
+      "title": "콜라보 기간 한정 Pick Up 모집 오픈 - 「퀸(니지마 마코토)」",
+      "publishedAtRaw": "20260813071528",
+      "updatedAtRaw": "20260813071528",
+      "rawSha256": "44f0cf956ba99107c8ed334eee66c7cbadfc4b2ce22cc3f1141ad2f86fdabf85",
+      "normalizedContentHash": "23b3a53852660c81713c80365592e21f4199e28aa80d9f3f5e60537ba12e156f"
+    },
+    {
+      "id": 8067910,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/8067910",
+      "acquired": true,
+      "httpStatus": 200,
+      "title": "콜라보 이벤트 진행 중!",
+      "publishedAtRaw": "20260816180035",
+      "updatedAtRaw": "20260816180035",
+      "rawSha256": "9b3ee48981def18321155b30b099836e04d69307a742ed8628c600ae3080d2b0",
+      "normalizedContentHash": "510e2f59d2d3bc97b11d08c967cf0615e9e6f166a30b2ed748b2c224e9e3be70"
+    },
+    {
+      "id": 8080556,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/8080556",
+      "acquired": true,
+      "httpStatus": 200,
+      "title": "콜라보 기간 한정 Pick Up 모집 오픈 - 「아마기 유키코」",
+      "publishedAtRaw": "20260820100041",
+      "updatedAtRaw": "20260820100041",
+      "rawSha256": "7986b28dede259bdbd8c5c3083fb3e1218a17864733ab5ec91690c61fd885e9e",
+      "normalizedContentHash": "337e46ac0ea3e5f29054f5d4d06dbc712e050681ddcd5ba5ceda2bc8fda05cec"
+    },
+    {
+      "id": 8080706,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/8080706",
+      "acquired": true,
+      "httpStatus": 200,
+      "title": "스토리 이벤트 진행 중",
+      "publishedAtRaw": "20260820110036",
+      "updatedAtRaw": "20260820110036",
+      "rawSha256": "584c8541282ab5a9a1a28c2a38aa770c6b75d1753f0844e2739f41654fc9a620",
+      "normalizedContentHash": "e60b8189b4abba4b61c3b8c2de5590770f517fc0384789e1f6328c80f8e7934e"
+    },
+    {
+      "id": 8207413,
+      "url": "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/8207413",
+      "acquired": true,
+      "httpStatus": 200,
+      "title": "솔로 레이드 오픈 예정",
+      "publishedAtRaw": "20260918170036",
+      "updatedAtRaw": "20260918170036",
+      "rawSha256": "fb473a114e4bbb7ade727c02715c225bc94e36a952e89cfb3f60d77ce29971ef",
+      "normalizedContentHash": "b630123eb0b62d4339398296bb6fdb7de540cebf5ba09e5293417797731523fe"
+    }
+  ],
+  "files": [
+    {
+      "path": "8031679.json",
+      "bytes": 11748,
+      "sha256": "219006fdcf6071c60d6e3a23e383030e98c9d353e7458b0c31e90d7ed48a4ac0"
+    },
+    {
+      "path": "8053292.json",
+      "bytes": 10472,
+      "sha256": "44f0cf956ba99107c8ed334eee66c7cbadfc4b2ce22cc3f1141ad2f86fdabf85"
+    },
+    {
+      "path": "8067910.json",
+      "bytes": 10634,
+      "sha256": "9b3ee48981def18321155b30b099836e04d69307a742ed8628c600ae3080d2b0"
+    },
+    {
+      "path": "8080556.json",
+      "bytes": 10135,
+      "sha256": "7986b28dede259bdbd8c5c3083fb3e1218a17864733ab5ec91690c61fd885e9e"
+    },
+    {
+      "path": "8080706.json",
+      "bytes": 10589,
+      "sha256": "584c8541282ab5a9a1a28c2a38aa770c6b75d1753f0844e2739f41654fc9a620"
+    },
+    {
+      "path": "8207413.json",
+      "bytes": 11070,
+      "sha256": "fb473a114e4bbb7ade727c02715c225bc94e36a952e89cfb3f60d77ce29971ef"
+    },
+    {
+      "path": "normalized.json",
+      "bytes": 7948,
+      "sha256": "baed768bbc8c351587142d0303370458e2d329da5eb56ea2811699d06f19040b"
+    },
+    {
+      "path": "pr-provenance.json",
+      "bytes": 88831,
+      "sha256": "c1714185cc5cc098e2735ed2d99db062ef0e99f5c30d15c6c1540686149c606d"
+    }
+  ]
+}

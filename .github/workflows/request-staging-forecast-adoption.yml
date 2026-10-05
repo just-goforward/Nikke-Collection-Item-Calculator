@@ -52,8 +52,71 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: 24.20.0
+          node-version: 24.21.0
           cache: npm
+
+      - name: Prepare npm 12.2.0 with pinned integrity
+        shell: bash
+        timeout-minutes: 5
+        env:
+          NPM_CONFIG_CACHE: ${{ runner.temp }}/npm-bootstrap-cache
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { existsSync, mkdtempSync, writeFileSync, appendFileSync } from 'node:fs';
+          import { dirname, join, resolve } from 'node:path';
+          import { execFileSync } from 'node:child_process';
+          import { setTimeout as delay } from 'node:timers/promises';
+          const version = '12.2.0';
+          const url = 'https://registry.npmjs.org/npm/-/npm-12.2.0.tgz';
+          const sri = 'sha512-ZsJjKpTnlmSXOLLXiU1xDCzC4Wlok4IwZmh/aw2KUuXytU7q6qMv/cUT7MoeSf95Slwuw/lRXYefGzGCspHPNQ==';
+          if (process.version !== 'v24.21.0') throw new Error('Unexpected Node version');
+          if (!process.env.RUNNER_TEMP || !process.env.GITHUB_PATH || !process.env.NPM_CONFIG_CACHE) throw new Error('Missing runner paths');
+          const nodeDir = dirname(process.execPath);
+          const sourceCli = [join(nodeDir, 'node_modules/npm/bin/npm-cli.js'), resolve(nodeDir, '../lib/node_modules/npm/bin/npm-cli.js')].find(existsSync);
+          if (!sourceCli) throw new Error('Bundled npm CLI not found');
+          const cleanEnv = Object.fromEntries(['PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'TMPDIR', 'APPDATA', 'LOCALAPPDATA'].filter(k => process.env[k] !== undefined).map(k => [k, process.env[k]]));
+          const root = mkdtempSync(join(process.env.RUNNER_TEMP, 'npm-12.2.0-'));
+          const prefix = join(root, 'prefix');
+          const userConfig = join(root, 'user.npmrc');
+          const globalConfig = join(root, 'global.npmrc');
+          writeFileSync(userConfig, '', { flag: 'wx' });
+          writeFileSync(globalConfig, '', { flag: 'wx' });
+          const cacheKey = `npm-${version}-${process.platform}-${process.arch}-${Buffer.from(sri.slice(7), 'base64').toString('hex')}`;
+          const cache = join(process.env.NPM_CONFIG_CACHE, cacheKey);
+          let bytes;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(30000) });
+              if (!response.ok) {
+                const error = new Error(`npm tarball HTTP ${response.status}`);
+                error.terminal = response.status < 500 && response.status !== 408 && response.status !== 429;
+                throw error;
+              }
+              const chunks = []; let size = 0;
+              for await (const chunk of response.body) {
+                size += chunk.length;
+                if (size > 8 * 1024 * 1024) throw Object.assign(new Error('npm tarball size limit exceeded'), { terminal: true });
+                chunks.push(chunk);
+              }
+              bytes = Buffer.concat(chunks); break;
+            } catch (error) {
+              if (error.terminal || attempt === 2) throw error;
+              await delay(1000 * (attempt + 1));
+            }
+          }
+          if ('sha512-' + createHash('sha512').update(bytes).digest('base64') !== sri) throw new Error('npm tarball integrity mismatch');
+          const tgz = join(root, 'npm-12.2.0.tgz');
+          writeFileSync(tgz, bytes, { flag: 'wx' });
+          const options = { cwd: root, env: cleanEnv, timeout: 120000 };
+          execFileSync(process.execPath, [sourceCli, 'install', '--global', '--prefix', prefix, tgz, '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--no-update-notifier', '--cache', cache, '--userconfig', userConfig, '--globalconfig', globalConfig], { ...options, stdio: 'inherit' });
+          const windows = process.platform === 'win32';
+          const targetCli = join(prefix, windows ? 'node_modules' : 'lib/node_modules', 'npm/bin/npm-cli.js');
+          if (execFileSync(process.execPath, [targetCli, '--version', '--no-update-notifier', '--userconfig', userConfig, '--globalconfig', globalConfig], options).toString().trim() !== version) throw new Error('Installed npm version mismatch');
+          appendFileSync(process.env.GITHUB_PATH, (windows ? prefix : join(prefix, 'bin')) + '\n');
+          console.log(`Prepared npm ${version}; platform=${process.platform}; integrity verified`);
+          NODE
 
       - name: Install dependencies
         run: npm ci

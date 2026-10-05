@@ -1,24 +1,40 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import {
+  certifiedBundleBoundaryPlugin,
+  certifiedWorkerWhitespacePlugin,
+  workerChunkGraphPlugin,
+} from "./scripts/certified-bundle-boundary.ts";
+import { certifiedEngineBuildGuardPlugin } from "./scripts/certified-engine-build.ts";
 
 import { localizedPagesPlugin } from "./scripts/localized-pages.ts";
 import { STATS_DELIVERY_HEALTH_EMIT_ENABLED } from "./shared/solverRecoveryContract.ts";
 
 export default defineConfig({
+  ...(process.env["SOLVER_A_VITE_CACHE_DIR"]
+    ? { cacheDir: process.env["SOLVER_A_VITE_CACHE_DIR"] }
+    : {}),
   base: "/",
   define: {
     __APP_REVISION__: JSON.stringify(process.env["GITHUB_SHA"] ?? "local"),
     __STATS_DELIVERY_HEALTH_EMIT_ENABLED__: JSON.stringify(STATS_DELIVERY_HEALTH_EMIT_ENABLED),
   },
-  plugins: [localizedPagesPlugin(), react(), tailwindcss()],
+  plugins: [
+    certifiedEngineBuildGuardPlugin(),
+    localizedPagesPlugin(),
+    react(),
+    tailwindcss(),
+    certifiedBundleBoundaryPlugin(),
+  ],
+  server: { watch: { ignored: ["**/benchmarks/results/**", "**/.tmp/**", "**/.certified-*/**"] } },
   build: {
     outDir: "dist",
     emptyOutDir: true,
     manifest: true,
     license: { fileName: "third-party-licenses.md" },
     target: "es2022",
-    minify: "esbuild",
+    minify: "oxc",
     cssMinify: true,
     sourcemap: false,
     rolldownOptions: {
@@ -33,5 +49,6 @@ export default defineConfig({
   },
   worker: {
     format: "es",
+    plugins: () => [certifiedWorkerWhitespacePlugin(), workerChunkGraphPlugin()],
   },
 });
