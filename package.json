@@ -26,6 +26,7 @@
     "build:solver-wasm:branch-bound": "node scripts/build-solver-wasm-branch-bound.ts",
     "build:solver-wasm:sparse-pi": "node scripts/build-solver-wasm-sparse-pi.ts",
     "preview": "vite preview --configLoader native",
+    "generate:certified-staging-approved-panel": "node scripts/generate-certified-staging-approved-panel.ts",
     "test": "vitest run --configLoader runner --exclude scripts/certified-staging-oracle-endpoints-integer.spec.ts",
     "test:worker": "npm run test --workspace @collection-kit/stats-worker",
     "test:forecast-collector": "npm run test --workspace @collection-kit/forecast-collector",

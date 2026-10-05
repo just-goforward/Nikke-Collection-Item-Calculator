@@ -51,7 +51,10 @@ function sourceSnapshot(commit) {
   // Only filenames are printed on drift, and Git's optional index writes are disabled.
   git(["diff", "--no-ext-diff", "--no-textconv", "--exit-code", "--name-only", "HEAD", "--"]);
   const paths = git(["ls-files", "-z"]).split("\0").filter(Boolean).sort();
-  assert.equal(new Set(paths).size, paths.length, "duplicate tracked source path");
+  const trackedPaths = new Set(paths);
+  assert.equal(trackedPaths.size, paths.length, "duplicate tracked source path");
+  for (const path of REQUIRED_SOURCES)
+    assert.ok(trackedPaths.has(path), `missing required tracked source: ${path}`);
   const files = paths.map((path) => {
     assert.ok(lstatSync(path).isFile(), `source is not a regular file: ${path}`);
     const bytes = readFileSync(path);
