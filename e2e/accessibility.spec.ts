@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import AxeBuilder from "@axe-core/playwright";
 import { expect } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
@@ -211,8 +212,13 @@ test("대성공 회차 모달은 배경을 차단하고 접근 가능한 설명�
   await expect(dialog.getByRole("button").first()).toBeFocused();
   await waitForModalReadiness(page);
   const result = await accessibilityResults(page);
+  const resultPath = testInfo.outputPath("modal-axe-results.json");
+  await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, {
+    encoding: "utf8",
+    flag: "wx",
+  });
   await testInfo.attach("modal-axe-results", {
-    body: Buffer.from(JSON.stringify(result, null, 2)),
+    path: resultPath,
     contentType: "application/json",
   });
   if (result.incomplete.length > 0) {
