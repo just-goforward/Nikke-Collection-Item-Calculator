@@ -1,7 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
-import { diagnoseModalContrast, prepareModalContrast } from "./modal-contrast-diagnostic";
 import { test } from "./test";
 
 const PORT = 4175;
@@ -55,6 +54,48 @@ async function accessibilityViolations(
 
 async function accessibilityResults(page: import("@playwright/test").Page) {
   return new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+}
+
+async function waitForModalReadiness(page: import("@playwright/test").Page) {
+  const deadline = performance.now() + 5_000;
+  let stableSince = 0;
+  let previousPosition = "";
+  let lastState: unknown = null;
+
+  while (performance.now() < deadline) {
+    const state = await page.evaluate(() => {
+      const overlay = document.querySelector(".attempt-modal-overlay");
+      const panel = overlay?.querySelector(".attempt-modal");
+      if (!(overlay instanceof HTMLElement) || !(panel instanceof HTMLElement)) return null;
+
+      return [overlay, panel].map((element) => {
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return {
+          opacity: style.opacity,
+          transform: style.transform,
+          animationCount: element.getAnimations().length,
+          position: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        };
+      });
+    });
+    lastState = state;
+    const now = performance.now();
+    const ready = state?.every(
+      (element) =>
+        element.opacity === "1" && element.transform === "none" && element.animationCount === 0,
+    );
+    const position = ready ? JSON.stringify(state?.map((element) => element.position) ?? []) : "";
+    if (!ready || position !== previousPosition) stableSince = now;
+    previousPosition = position;
+    if (ready && now - stableSince >= 100 && now < deadline) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  }
+
+  throw new Error(
+    `Modal readiness timed out after 5000ms: expected opacity 1, transform none, no animations, ` +
+      `and stable positions for 100ms. Last state: ${JSON.stringify(lastState)}`,
+  );
 }
 
 async function calculateSr(
@@ -154,40 +195,35 @@ test("계산 결과와 키트 수정 상태에는 추적되지 않은 WCAG A/AA 
 
 test("대성공 회차 모달은 배경을 차단하고 접근 가능한 설명과 포커스를 유지한다", async ({
   page,
-  browserName,
 }, testInfo) => {
-  const diagnosticEnabled =
-    process.env["CI"] === "true" && browserName === "webkit" && testInfo.project.name === "webkit";
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
-  const diagnosticContext = diagnosticEnabled ? await prepareModalContrast(page, testInfo) : null;
   await calculateSr(page, 14, { blue: "100", purple: "20", yellow: "20" });
   const outcomeButton = page.getByRole("button", { name: "대성공 O", exact: true }).first();
   await outcomeButton.click();
   await page.getByRole("button", { name: "대성공 O 확정", exact: true }).first().click();
 
-  const clickCompletedAt = performance.now();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   await expect(dialog).toHaveAttribute("aria-describedby", "attemptModalDescription");
   await expect(page.locator(".app-shell")).toHaveAttribute("inert", "");
   await expect(page.locator("body")).toHaveCSS("overflow", "hidden");
   await expect(dialog.getByRole("button").first()).toBeFocused();
-  if (diagnosticContext) {
-    const diagnostic = await diagnoseModalContrast(
-      page,
-      diagnosticContext,
-      () => accessibilityResults(page),
-      clickCompletedAt,
-      (initial) => {
-        // Same criterion; defer abort only to collect the separate settled evidence.
-        expect.soft(initial.violations, "Initial modal accessibility violations").toEqual([]);
-      },
-    );
-    // Preserve the original failure path: Escape/focus cleanup follows only initial PASS.
-    if (diagnostic.initial.violations.length > 0) return;
-  } else {
-    expect(await accessibilityViolations(page)).toEqual([]);
+  await waitForModalReadiness(page);
+  const result = await accessibilityResults(page);
+  await testInfo.attach("modal-axe-results", {
+    body: Buffer.from(JSON.stringify(result, null, 2)),
+    contentType: "application/json",
+  });
+  if (result.incomplete.length > 0) {
+    testInfo.annotations.push({
+      type: "axe-incomplete",
+      description:
+        "Requires manual review; these results are neither passes nor violations: " +
+        result.incomplete.map((rule) => rule.id).join(", "),
+    });
   }
+  expect(result.violations).toEqual([]);
 
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);

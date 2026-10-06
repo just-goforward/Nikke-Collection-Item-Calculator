@@ -10,14 +10,15 @@ function fixture(module: string, dynamic: boolean): Plugin {
   return {
     name: "certified-boundary-virtual-fixture",
     resolveId(id) {
+      if (id === "certified-fixture-dependency") return dependency;
       return id === entry || id === dependency ? id : undefined;
     },
     load(id) {
       if (id === dependency) return "export const value=7;";
       if (id !== entry) return undefined;
       return dynamic
-        ? `globalThis.load=()=>import(${JSON.stringify(dependency)});`
-        : `import{value}from${JSON.stringify(dependency)};globalThis.value=value;`;
+        ? 'globalThis.load=()=>import("certified-fixture-dependency");'
+        : 'import{value}from"certified-fixture-dependency";globalThis.value=value;';
     },
   };
 }
