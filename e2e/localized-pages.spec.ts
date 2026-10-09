@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
-import { test } from "./test";
+import { closePreviewServer, test } from "./test";
 
 const PORT = 4278;
 const LANGUAGE_STORAGE_KEY = "collection-kit-calculator.language";
@@ -72,13 +72,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  if (!previewServer) return;
-  await new Promise<void>((resolve, reject) => {
-    previewServer?.httpServer.close((error) => {
-      if (error) reject(error);
-      else resolve();
-    });
-  });
+  await closePreviewServer(previewServer);
   previewServer = null;
 });
 

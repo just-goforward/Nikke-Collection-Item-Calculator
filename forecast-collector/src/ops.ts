@@ -16,6 +16,13 @@ export type WorkflowStatusInput = {
 
 export async function upsertOpsAlert(
   db: D1Database,
+  input: Parameters<typeof upsertOpsAlertStatement>[1],
+) {
+  await upsertOpsAlertStatement(db, input).run();
+}
+
+export function upsertOpsAlertStatement(
+  db: D1Database,
   input: {
     alertKey: string;
     environment: OpsEnvironment;
@@ -30,7 +37,7 @@ export async function upsertOpsAlert(
   const nowMs = input.nowMs ?? Date.now();
   const now = new Date(nowMs).toISOString();
   const nextSendAt = now;
-  await db
+  return db
     .prepare(
       `INSERT INTO forecast_ops_alerts (
          alert_key, environment, severity, component, error_code, state, context_json,
@@ -72,8 +79,7 @@ export async function upsertOpsAlert(
       now,
       now,
       nextSendAt,
-    )
-    .run();
+    );
 }
 
 async function resolveOpsAlert(db: D1Database, alertKey: string, nowMs = Date.now()) {
@@ -180,8 +186,12 @@ export async function recordWorkflowDispatchStatus(
 
   const conclusion = input.conclusion;
   if (!conclusion) throw new Error("workflow_dispatch_missing_conclusion");
-  const state =
-    conclusion === "success" ? "succeeded" : conclusion === "failure" ? "failed" : "cancelled";
+  let state: "succeeded" | "failed" | "cancelled" = "cancelled";
+  if (conclusion === "success") {
+    state = "succeeded";
+  } else if (conclusion === "failure") {
+    state = "failed";
+  }
   if (["succeeded", "failed", "cancelled"].includes(row.state) && row.state !== state) {
     throw new Error("workflow_dispatch_terminal_conflict");
   }

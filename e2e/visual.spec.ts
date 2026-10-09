@@ -1,6 +1,7 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
-import { test } from "./test";
+import { confirmOutcome } from "./smoke.helpers";
+import { closePreviewServer, test } from "./test";
 
 const PORT = 4174;
 let previewServer: PreviewServer | null = null;
@@ -33,14 +34,6 @@ async function openStatsPanel(page: Page) {
   }
   await expect(globalStatsBox).toBeVisible();
   await expect(page.locator("#globalStatsPanel .difficulty-list")).toBeVisible();
-}
-
-async function confirmOutcome(page: Page, locator: Locator, outcome: "대성공 O" | "대성공 X") {
-  await locator.click();
-  await page
-    .getByRole("button", { name: `${outcome} 확정`, exact: true })
-    .first()
-    .click();
 }
 
 async function setTheme(page: import("@playwright/test").Page, theme: "light" | "dark") {
@@ -107,13 +100,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  if (!previewServer) return;
-  await new Promise<void>((resolve, reject) => {
-    previewServer?.httpServer.close((error) => {
-      if (error) reject(error);
-      else resolve();
-    });
-  });
+  await closePreviewServer(previewServer);
   previewServer = null;
 });
 

@@ -96,11 +96,12 @@ export function classifyBoundedHybridQuality(
     gates.totalUsesNonWorse &&
     gates.exhaustionNonWorse &&
     gates.probabilityAuditPassed;
-  const grade = allNonWorse
-    ? "scenario_pass"
-    : gates.strictBenefit
-      ? "quality_tradeoff"
-      : "quality_rejected";
+  let grade: BoundedHybridQualityGrade = "quality_rejected";
+  if (allNonWorse) {
+    grade = "scenario_pass";
+  } else if (gates.strictBenefit) {
+    grade = "quality_tradeoff";
+  }
   return { grade, deltas, gates, reasons: failedReasons(gates) };
 }
 

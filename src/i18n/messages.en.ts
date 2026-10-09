@@ -3,7 +3,6 @@ import type { koMessages } from "./messages.ko";
 
 export const enMessages = {
   "app.title": SITE_LOCALES.en.title,
-  "app.description": SITE_LOCALES.en.description,
   "boot.title": "The calculator could not be loaded.",
   "boot.detail": "Refresh the page and try again.",
   "error.renderTitle": "The page could not be displayed.",
@@ -28,8 +27,6 @@ export const enMessages = {
   "common.phase": "Phase {phase}",
   "common.reach": "reached",
   "common.stay": "stays",
-  "common.selectionArrow": "If selected →",
-  "common.confirmArrow": "If confirmed →",
   "common.superSuccessYes": "Super Success",
   "common.superSuccessNo": "No Super Success",
   "common.superSuccessYesConfirm": "Confirm Success",
@@ -76,7 +73,6 @@ export const enMessages = {
   "state.expAdjustedMax":
     "The maximum for the current grade is {max}, so the value was adjusted to {value}.",
   "state.requiredExp": "EXP required for next Phase",
-  "state.feedbackSegment": "Phase moved Lv {from} → {to}",
   "stock.title": "Maintenance Kits",
   "stock.changed": "Your Maintenance Kits changed. Select Calculate to update the result.",
   "stock.notice": "Update your Maintenance Kits, then select Calculate to continue.",
@@ -110,9 +106,6 @@ export const enMessages = {
   "kit.blueShort": "Beginner",
   "kit.purpleShort": "Intermediate",
   "kit.yellowShort": "Elite",
-  "kit.blueColor": "Blue",
-  "kit.purpleColor": "Purple",
-  "kit.yellowColor": "Yellow",
   "result.title": "Result",
   "result.preparing": "Preparing recommendations.",
   "result.initial": "Enter your Collection Item status and kit inventory, then calculate.",
@@ -152,10 +145,8 @@ export const enMessages = {
   "result.loadingApplyFailure":
     "Applying the failed Super Success roll and calculating the next action.",
   "result.loadingApplySuccess": "Applying the Super Success and calculating the next action.",
-  "result.converted": "Converted to SR. The current state is {state}.",
   "result.convertedToSr5": "Converted to SR. The current state is SR Phase 5.",
   "result.calculateChanged": "Calculate again with the updated state.",
-  "result.stockAfterUse": "{kit} inventory changed from {before} to {after}.",
   "result.stockAfterUseBlue":
     "Beginner Maintenance Kit inventory changed from {before} to {after} pieces.",
   "result.stockAfterUsePurple":
@@ -165,7 +156,6 @@ export const enMessages = {
   "result.convertThenEdit": "Convert to SR Phase 5, then update your Maintenance Kits to continue.",
   "result.convertThenEditDetail":
     "After converting to SR Phase 5, update your Maintenance Kits to match the game.",
-  "result.finalReached": "The final Phase has been reached.",
   "result.editStockToContinue":
     "Update your Maintenance Kits to match the actual result to continue.",
   "result.successRecorded": "The Super Success attempt was recorded.",
@@ -259,11 +249,6 @@ export const enMessages = {
   "stats.intervalClippedBoth": "The actual range extends beyond both sides of the chart.",
   "stats.expectedLabel": "Expected {value}",
   "stats.actualLabel": "Observed {value}",
-  "stats.awaiting": "Awaiting data",
-  "stats.smallSample": "Few attempts",
-  "stats.aboveExpected": "Above expected",
-  "stats.belowExpected": "Below expected",
-  "stats.withinExpected": "Within expected range",
   "stats.sampleHelp1":
     "With few attempts, random luck can make results look unusually good or bad.",
   "stats.sampleHelp2":

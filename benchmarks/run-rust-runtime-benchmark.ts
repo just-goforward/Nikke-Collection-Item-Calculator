@@ -1,6 +1,12 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
-import { envValue } from "./runner-utils";
+import {
+  csvEscape,
+  envValue,
+  parseList,
+  parseNonNegativeInteger,
+  parsePositiveInteger,
+} from "./runner-utils";
 import {
   parseRustBenchmarkWeightSpec,
   type RustBenchmarkScenarioSource,
@@ -60,24 +66,6 @@ type RuntimeRecord = {
   errorMessage: string | null;
 };
 
-function parsePositiveInteger(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
-}
-
-function parseNonNegativeInteger(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback;
-}
-
-function parseList(value: string | undefined, fallback: readonly string[]): string[] {
-  const parsed = String(value || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return parsed.length > 0 ? parsed : [...fallback];
-}
-
 function parseBackends(value: string | undefined): RuntimeBackend[] {
   const requested = parseList(value, DEFAULT_BACKENDS);
   const valid = new Set<string>(DEFAULT_BACKENDS);
@@ -98,11 +86,6 @@ function mean(values: number[]) {
 
 function sum(values: number[]) {
   return values.reduce((total, value) => total + value, 0);
-}
-
-function csvEscape(value: unknown): string {
-  const text = String(value ?? "");
-  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
 function summarizeRecords(records: RuntimeRecord[]) {

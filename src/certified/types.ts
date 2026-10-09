@@ -90,7 +90,7 @@ export interface CertifiedOutput {
     cohortWeights: ExactTriple;
   } | null;
   provenance: {
-    solverVersion: "certified-exact-js-v1";
+    solverVersion: "certified-exact-js-v1" | "certified-exact-rust-wasm-v1";
     arithmetic: "exact_bigint_ladder_reduced_public_rationals";
     calculationGraph: "repeated_exact_date_expectations_shared_finite_memo";
     requestBudgetMs: 15000;
@@ -107,7 +107,7 @@ export interface CertifiedOutput {
     managedPayloadBytes: number;
     managedPayloadDefinition: string;
     unmeasuredMemory: readonly string[];
-    wasmMemoryBytes: 0;
+    wasmMemoryBytes: number;
     kernelCalls: number;
   };
 }

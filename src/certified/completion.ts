@@ -1,17 +1,17 @@
 import type { WorkBudget } from "./budget";
-import { EDGES, TERMINAL, type Units } from "./game";
+import { EDGES, KIT_INDICES, type KitIndex, type StateId, TERMINAL, type Units } from "./game";
 import { GUIDE_DIMENSIONS } from "./guidanceDomain";
 
-function worstSuccessor(sid: number, kit: number): number {
-  const [p, great, normal] = EDGES[sid]![kit]!;
+function worstSuccessor(sid: number, kit: KitIndex): number {
+  const [p, great, normal] = EDGES[sid as StateId][kit];
   return p === 1000 ? great : normal;
 }
 
 function verifyOrderedDomain(domain: readonly number[]): void {
-  for (let kit = 0; kit < 3; kit++) {
+  for (const kit of KIT_INDICES) {
     let previous = -1;
     for (const sid of domain) {
-      const [p, great, normal] = EDGES[sid]![kit]!;
+      const [p, great, normal] = EDGES[sid as StateId][kit];
       const worst = worstSuccessor(sid, kit);
       if (p > 0 && great < normal) throw new Error("certified_worst_branch_order");
       if (worst < previous) throw new Error("certified_worst_transition_nonmonotone");
@@ -28,8 +28,8 @@ function verifyOrderedDomain(domain: readonly number[]): void {
  * pair. It is an exact feasibility test, independent of cost or probability size.
  */
 export class CertainCompletion {
-  private readonly yellow = GUIDE_DIMENSIONS[2]!;
-  private readonly stride = GUIDE_DIMENSIONS[1]! * this.yellow;
+  private readonly yellow = GUIDE_DIMENSIONS[2];
+  private readonly stride = GUIDE_DIMENSIONS[1] * this.yellow;
   private readonly minimumBlue: Uint16Array;
   constructor(budget: WorkBudget) {
     verifyOrderedDomain([
@@ -46,7 +46,7 @@ export class CertainCompletion {
     const blue = worstSuccessor(sid, 0) * this.stride;
     const purple = worstSuccessor(sid, 1) * this.stride;
     const yellow = worstSuccessor(sid, 2) * this.stride;
-    for (let p = 0; p < GUIDE_DIMENSIONS[1]!; p++) {
+    for (let p = 0; p < GUIDE_DIMENSIONS[1]; p++) {
       for (let y = 0; y < this.yellow; y++) {
         budget.tick();
         const offset = p * this.yellow + y;
@@ -65,9 +65,12 @@ export class CertainCompletion {
     if (units[kit] === 0) return false;
     const remaining: Units = [...units];
     remaining[kit]!--;
-    return this.has(worstSuccessor(sid, kit), remaining);
+    return this.has(worstSuccessor(sid, kit as KitIndex), remaining);
   }
   mask(sid: number, units: Units): number {
-    return [0, 1, 2].reduce((mask, k) => mask | (this.actionHas(sid, k, units) ? 1 << k : 0), 0);
+    return KIT_INDICES.reduce<number>(
+      (mask, k) => mask | (this.actionHas(sid, k, units) ? 1 << k : 0),
+      0,
+    );
   }
 }

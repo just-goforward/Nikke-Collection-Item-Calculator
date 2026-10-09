@@ -331,17 +331,21 @@ async function main(): Promise<void> {
     const cells = panelIds
       .map((panelId) => padLeft(fmt(row.panels.get(panelId)?.cvar90 ?? null, 1), 11))
       .join("");
-    const vsBaseline =
-      row.maxPanel !== null && baselineDebt !== null
-        ? row.id === BASELINE
-          ? "  (A)"
-          : `${row.maxPanel < baselineDebt - EPS ? "DOWN" : "UP"}${fmt(row.maxPanel - baselineDebt, 1)}`
-        : "  --";
-    const binding = row.maxPanelId
-      ? row.maxPanelId.includes("demand")
+    let vsBaseline = "  --";
+    if (row.maxPanel !== null && baselineDebt !== null) {
+      if (row.id === BASELINE) {
+        vsBaseline = "  (A)";
+      } else {
+        const direction = row.maxPanel < baselineDebt - EPS ? "DOWN" : "UP";
+        vsBaseline = `${direction}${fmt(row.maxPanel - baselineDebt, 1)}`;
+      }
+    }
+    let binding = "--";
+    if (row.maxPanelId) {
+      binding = row.maxPanelId.includes("demand")
         ? `${row.maxPanelId.replace("SR0-", "")}*`
-        : row.maxPanelId.replace("SR0-", "").replace("R0-", "")
-      : "--";
+        : row.maxPanelId.replace("SR0-", "").replace("R0-", "");
+    }
     console.log(
       pad(row.id, 17) +
         padLeft(fmt(row.loss, 4), 8) +
@@ -415,10 +419,11 @@ async function main(): Promise<void> {
       const perPanel = (candidate.perPanel ?? [])
         .map((panel) => {
           const label = panel.panel.replace("SR0-", "").replace("R0-", "");
-          const status =
-            panel.status === "completed"
-              ? `${(panel.confidenceLower ?? 0) > 0 ? "CI+" : "CI~"}${fmt(panel.confidenceLower, 1)}`
-              : panel.status;
+          let status = panel.status;
+          if (panel.status === "completed") {
+            const confidenceLabel = (panel.confidenceLower ?? 0) > 0 ? "CI+" : "CI~";
+            status = `${confidenceLabel}${fmt(panel.confidenceLower, 1)}`;
+          }
           return `${label}:${status}`;
         })
         .join(" ");

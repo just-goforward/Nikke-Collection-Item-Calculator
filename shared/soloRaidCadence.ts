@@ -92,13 +92,16 @@ export function deriveExactSoloRaidCadence(
 ): ExactSoloRaidCadence {
   const ordered = [...confirmedRounds].sort((a, b) => a.round - b.round);
   const summary = summarizeSoloRaidCadence(ordered.map((entry) => entry.startGameDate));
-  for (let index = 1; index < ordered.length; index += 1) {
-    if (ordered[index]!.round !== ordered[index - 1]!.round + 1) {
+  // The summary validates at least two dates before this nonempty tuple is used.
+  const [first] = ordered as [SoloRaidRound, ...SoloRaidRound[]];
+  let last = first;
+  for (const [index, entry] of ordered.entries()) {
+    if (index === 0) continue;
+    if (entry.round !== last.round + 1) {
       throw new Error("solo_raid_history_round_gap");
     }
+    last = entry;
   }
-  const first = ordered[0]!;
-  const last = ordered.at(-1)!;
   const sourceStatuses: Record<SoloRaidRoundStatus, number> = {
     as_announced: 0,
     rescheduled: 0,

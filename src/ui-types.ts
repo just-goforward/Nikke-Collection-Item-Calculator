@@ -122,6 +122,14 @@ export type LoadingView = {
   text: LocalizedMessage;
 };
 
+export type StockCorrectionInvalidReason =
+  | "unchanged"
+  | "state_changed"
+  | "other_kit_changed"
+  | "selected_kit_increased"
+  | "invalid_delta"
+  | "too_many_attempts";
+
 export type StockCorrectionView = {
   allowedMaximum: number;
   allowedMinimum: number;
@@ -131,13 +139,7 @@ export type StockCorrectionView = {
   kit: Kit;
   recommendedUses: number;
   status: "invalid" | "valid";
-  reason?:
-    | "unchanged"
-    | "state_changed"
-    | "other_kit_changed"
-    | "selected_kit_increased"
-    | "invalid_delta"
-    | "too_many_attempts";
+  reason?: StockCorrectionInvalidReason;
   successAttempt?: number;
 };
 

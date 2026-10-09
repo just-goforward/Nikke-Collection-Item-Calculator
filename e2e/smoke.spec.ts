@@ -2,12 +2,13 @@ import { expect, type Locator, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
 import { STAGING_SUPPLY_FORECAST_ID } from "../shared/generated/supplyForecastRuntime";
 import {
+  confirmOutcome,
   installTurnstileStub,
   maxBackgroundChannel,
   mockStagingStatsEndpoints,
   serveStagingDocument,
 } from "./smoke.helpers";
-import { test } from "./test";
+import { closePreviewServer, test } from "./test";
 
 const PORT = Number(process.env["E2E_SMOKE_PORT"] ?? 4273);
 let previewServer: PreviewServer | null = null;
@@ -35,13 +36,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  if (!previewServer) return;
-  await new Promise<void>((resolve, reject) => {
-    previewServer?.httpServer.close((error) => {
-      if (error) reject(error);
-      else resolve();
-    });
-  });
+  await closePreviewServer(previewServer);
   previewServer = null;
 });
 
@@ -60,14 +55,6 @@ async function openDetails(details: Locator) {
       .poll(() => details.evaluate((element: HTMLDetailsElement) => element.open))
       .toBe(true);
   }
-}
-
-async function confirmOutcome(page: Page, locator: Locator, outcome: "대성공 O" | "대성공 X") {
-  await locator.click();
-  await page
-    .getByRole("button", { name: `${outcome} 확정`, exact: true })
-    .first()
-    .click();
 }
 
 async function openStatsPanel(page: Page) {

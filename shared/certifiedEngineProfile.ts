@@ -1,4 +1,5 @@
 import { CERTIFIED_ENGINE_CODE_HASH } from "./generated/certifiedEngineBuild";
+import { CERTIFIED_WASM_HASH } from "./generated/certifiedWasmBuild";
 
 /** A single, serialized contract identifies every part of the staging engine. */
 export type CertifiedEngineProfile = {
@@ -6,9 +7,9 @@ export type CertifiedEngineProfile = {
   environment: "staging";
   schemaVersion: "certified-daily-v1";
   priceVersion: "stock-plus-recurring-day-v1";
-  solverVersion: "certified-exact-js-v1";
+  solverVersion: "certified-exact-rust-wasm-v1";
   lawVersion: "documented-physical-supply-v1";
-  wasmHash: string | null;
+  wasmHash: string;
   codeHash: string;
   cacheNamespace: string;
   sessionNamespace: "collection-certified-staging-v1";
@@ -21,10 +22,9 @@ export const CERTIFIED_STAGING_ENGINE_PROFILE: Readonly<CertifiedEngineProfile> 
   environment: "staging",
   schemaVersion: "certified-daily-v1",
   priceVersion: "stock-plus-recurring-day-v1",
-  solverVersion: "certified-exact-js-v1",
+  solverVersion: "certified-exact-rust-wasm-v1",
   lawVersion: "documented-physical-supply-v1",
-  // The first candidate uses exact rational JavaScript. No WASM artifact is implied.
-  wasmHash: null,
+  wasmHash: CERTIFIED_WASM_HASH,
   codeHash: CERTIFIED_ENGINE_CODE_HASH,
   cacheNamespace: `certified-staging-v1:${CERTIFIED_ENGINE_CODE_HASH}`,
   sessionNamespace: "collection-certified-staging-v1",

@@ -2,7 +2,6 @@ import { SITE_LOCALES } from "../../shared/siteLocales";
 
 export const koMessages = {
   "app.title": SITE_LOCALES.ko.title,
-  "app.description": SITE_LOCALES.ko.description,
   "boot.title": "계산기를 불러오지 못했습니다.",
   "boot.detail": "페이지를 새로고침한 뒤 다시 시도해주세요.",
   "error.renderTitle": "화면을 표시하지 못했습니다.",
@@ -27,8 +26,6 @@ export const koMessages = {
   "common.phase": "{phase}단계",
   "common.reach": "도달",
   "common.stay": "유지",
-  "common.selectionArrow": "선택 시 →",
-  "common.confirmArrow": "확정 시 →",
   "common.superSuccessYes": "대성공 O",
   "common.superSuccessNo": "대성공 X",
   "common.superSuccessYesConfirm": "대성공 O 확정",
@@ -72,7 +69,6 @@ export const koMessages = {
   "state.expAdjustedMax":
     "현재 등급에서 입력할 수 있는 최대값은 {max}이므로 입력값을 {value}으로 조정했습니다.",
   "state.requiredExp": "레벨업 필요 경험치",
-  "state.feedbackSegment": "구간 이동 Lv {from} → {to}",
   "stock.title": "보유 키트",
   "stock.changed": "보유 키트가 변경되었습니다. 계산 버튼을 눌러 결과를 갱신해주세요.",
   "stock.notice": "보유 키트를 수정한 뒤 계산 버튼을 눌러 진행해주세요.",
@@ -105,9 +101,6 @@ export const koMessages = {
   "kit.blueShort": "초심자용",
   "kit.purpleShort": "중급자용",
   "kit.yellowShort": "상급자용",
-  "kit.blueColor": "파랑",
-  "kit.purpleColor": "보라",
-  "kit.yellowColor": "노랑",
   "result.title": "결과",
   "result.preparing": "추천 화면 준비 중.",
   "result.initial": "입력값을 넣고 계산을 실행하세요.",
@@ -144,10 +137,8 @@ export const koMessages = {
   "result.loadingFinalize": "결과를 정리하고 있습니다.",
   "result.loadingApplyFailure": "대성공 X를 반영해 다음 추천을 계산하고 있습니다.",
   "result.loadingApplySuccess": "대성공 O를 반영해 다음 추천을 계산하고 있습니다.",
-  "result.converted": "SR 등급으로 교체했습니다. 현재 상태는 {state}입니다.",
   "result.convertedToSr5": "SR 등급으로 교체했습니다. 현재 상태는 SR 5단계입니다.",
   "result.calculateChanged": "변경된 상태로 다시 계산하세요.",
-  "result.stockAfterUse": "{kit} 보유량은 {before}개에서 {after}개가 되었습니다.",
   "result.stockAfterUseBlue": "초심자용 관리 키트 보유량은 {before}개에서 {after}개가 되었습니다.",
   "result.stockAfterUsePurple":
     "중급자용 관리 키트 보유량은 {before}개에서 {after}개가 되었습니다.",
@@ -155,7 +146,6 @@ export const koMessages = {
     "상급자용 관리 키트 보유량은 {before}개에서 {after}개가 되었습니다.",
   "result.convertThenEdit": "SR 5로 교체한 뒤 보유 키트를 수정해야 계산이 진행됩니다.",
   "result.convertThenEditDetail": "SR 5로 교체한 뒤 보유 키트를 실제 결과에 맞게 수정해 주세요.",
-  "result.finalReached": "최종 단계에 도달했습니다.",
   "result.editStockToContinue":
     "보유 키트 수를 실제 결과에 맞게 수정하면 계산이 다시 활성화됩니다.",
   "result.successRecorded": "대성공 시점이 기록되었습니다.",
@@ -246,11 +236,6 @@ export const koMessages = {
   "stats.intervalClippedBoth": "실제 범위가 표시 영역 양쪽을 모두 벗어납니다.",
   "stats.expectedLabel": "기대값 {value}",
   "stats.actualLabel": "실측 {value}",
-  "stats.awaiting": "집계 대기",
-  "stats.smallSample": "시도 부족",
-  "stats.aboveExpected": "기대 대비 높음",
-  "stats.belowExpected": "기대 대비 낮음",
-  "stats.withinExpected": "기대 범위 내",
   "stats.sampleHelp1": "시도 수가 적으면 우연히 결과가 좋거나 나쁠 수 있습니다.",
   "stats.sampleHelp2":
     "시도별 이론 확률 차이로 범위를 좁히지 않고, 관측 대성공률의 불확실성을 보수적으로 보여줍니다.",

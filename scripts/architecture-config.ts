@@ -34,6 +34,7 @@ export const CHECK_ROOTS = [
   "scripts",
   "e2e",
   "rust/solver-rs/src",
+  "rust/certified/src",
 ];
 
 export const SOURCE_EXTENSIONS = [".ts", ".tsx", ".rs"];
@@ -411,14 +412,6 @@ export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
     reason: "Rust/JS parity scenarios share expensive WASM setup and sentinel data.",
     removalTarget:
       "Extract shared WASM fixture and split root, walk, and Monte Carlo parity suites.",
-  },
-  {
-    file: "src/wasm/rustRerankProductSolver.ts",
-    function: "solveRustPhase2Rerank",
-    owner: "wasm",
-    reason:
-      "Research rerank orchestration combines policy build, held-out diagnostics, and output shaping.",
-    removalTarget: "Separate research decision diagnostics from product-shaped result assembly.",
   },
   {
     file: "benchmarks/analyze-availability.ts",

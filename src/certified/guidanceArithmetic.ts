@@ -1,5 +1,6 @@
 import { type Q, q } from "../../shared/certifiedRational";
 import type { WorkBudget } from "./budget";
+import { KIT_INDICES, type KitIndex } from "./game";
 import type { ExactValue } from "./value";
 
 export type PrimaryRow = { p: bigint; exponent: number; mask: number };
@@ -27,14 +28,15 @@ export class GuidanceArithmetic {
   power(exponent: number): bigint {
     if (!Number.isInteger(exponent) || exponent < 0) throw new Error("certified_guidance_lift");
     while (this.powers.length <= exponent) {
-      const next = this.powers.at(-1)! * 1000n;
+      const previous = this.powers.at(-1)!;
+      const next = previous * 1000n;
       this.powers.push(next);
       this.budget.reserve(24 + Math.ceil(next.toString(2).length / 8));
     }
     return this.powers[exponent]!;
   }
   burden(value: VectorRow): bigint {
-    return value.consumed.reduce((total, n, k) => total + n * this.prices[k]!, 0n);
+    return KIT_INDICES.reduce((total, k) => total + value.consumed[k] * this.prices[k], 0n);
   }
   total(value: VectorRow): bigint {
     return value.consumed[0] + value.consumed[1] + value.consumed[2];
@@ -45,7 +47,8 @@ export class GuidanceArithmetic {
     if (ab !== bb) return ab < bb ? 1 : -1;
     const ac = this.total(a),
       bc = this.total(b);
-    return ac === bc ? 0 : ac < bc ? 1 : -1;
+    if (ac === bc) return 0;
+    return ac < bc ? 1 : -1;
   }
   combine(
     perMille: number,
@@ -58,10 +61,10 @@ export class GuidanceArithmetic {
     const nm =
       perMille < 1000 ? BigInt(1000 - perMille) * this.power(exponent - 1 - normal.exponent) : 0n;
     const immediate = 10n * this.power(exponent);
+    const consumption = (k: KitIndex): bigint =>
+      gm * great.consumed[k] + nm * normal.consumed[k] + (kit === k ? immediate : 0n);
     return {
-      consumed: [0, 1, 2].map(
-        (k) => gm * great.consumed[k]! + nm * normal.consumed[k]! + (kit === k ? immediate : 0n),
-      ) as [bigint, bigint, bigint],
+      consumed: [consumption(0), consumption(1), consumption(2)],
       exponent,
       mask: 1 << kit,
     };

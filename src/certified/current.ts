@@ -1,5 +1,5 @@
 import { CertifiedLimit } from "./budget";
-import { decode, EDGES, TERMINAL } from "./game";
+import { decode, EDGES, KIT_INDICES, type StateId, TERMINAL } from "./game";
 import type { FiniteKernel } from "./kernel";
 import type { CertifiedCurrent, CertifiedInput } from "./types";
 import type { ExactValue } from "./value";
@@ -12,21 +12,21 @@ export function currentView(
   root: ExactValue,
   kernel: FiniteKernel,
 ): CertifiedCurrent {
-  const kitIndex = KITS.findIndex((_, k) => (root.mask & (1 << k)) !== 0);
-  const kit = kitIndex < 0 ? null : KITS[kitIndex]!;
+  const kitIndex = KIT_INDICES.find((k) => (root.mask & (1 << k)) !== 0);
+  const kit = kitIndex === undefined ? null : KITS[kitIndex];
   let uses = 0;
   let s = sid;
   const stock = [...input.stock] as [number, number, number];
   const start = decode(sid);
-  if (kitIndex >= 0) {
+  if (kitIndex !== undefined) {
     const limit = input.batchLimit ?? 10;
     while (uses < limit) {
       try {
         const value = uses === 0 ? root : kernel.solve(s, stock);
         if (!(value.mask & (1 << kitIndex))) break;
         uses++;
-        stock[kitIndex] = stock[kitIndex]! - 10;
-        const [p, , normal] = EDGES[s]![kitIndex]!;
+        stock[kitIndex] = stock[kitIndex] - 10;
+        const [p, , normal] = EDGES[s as StateId][kitIndex];
         s = normal;
         const next = decode(s);
         if (
@@ -42,8 +42,11 @@ export function currentView(
       }
     }
   }
+  let status: CertifiedCurrent["status"] = "preserve";
+  if (sid === TERMINAL) status = "complete";
+  else if (kit) status = "use_certified";
   return {
-    status: sid === TERMINAL ? "complete" : kit ? "use_certified" : "preserve",
+    status,
     value: certifiedValueView(kernel.actualValue(root)),
     kit,
     optimalActionMask: root.mask,

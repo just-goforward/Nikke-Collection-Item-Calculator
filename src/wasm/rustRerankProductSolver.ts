@@ -25,16 +25,32 @@ import {
 } from "./rustProductConfig";
 import {
   normalizeRustProductInput,
+  type RustProductInput,
   readRustMonteCarloRuns,
   readRustMonteCarloSeed,
 } from "./rustProductInput";
 import { buildRustEarlyResult, buildRustNoActionResult } from "./rustProductResults";
 import { buildFailureRouteWithFirstKit, buildRecommendedRunForKit } from "./rustProductView";
-import { selectAdaptiveRerankDecision } from "./rustRerankDecision";
+import { type AdaptiveRerankDecision, selectAdaptiveRerankDecision } from "./rustRerankDecision";
 import { getRustPhase2ResearchSolver } from "./rustResearchSolverCache";
+import type {
+  RustFirstActionEstimate,
+  RustMonteCarloResult,
+  RustPhase2Root,
+  RustRerankedCandidate,
+  RustRerankResult,
+} from "./rustTypes";
 
 const KIT_ORDER: Kit[] = ["blue", "purple", "yellow"];
 const STRICT_EPSILON = 1e-12;
+
+type RerankSelection = {
+  decision: AdaptiveRerankDecision | null;
+  rerank: RustRerankResult;
+  baselineRoot: RustPhase2Root;
+  selected: RustRerankedCandidate;
+  rawSelected: RustRerankedCandidate | undefined;
+};
 
 export async function solveRustPhase2Rerank(
   input: SolverInput,
@@ -58,44 +74,13 @@ export async function solveRustPhase2Rerank(
   if (!baselineRoot || !selected?.firstAction) {
     return buildRustNoActionResult(normalizedInput, "현재 보유 키트로 가능한 행동이 없습니다.");
   }
-  const heldOut = solver.estimateExpectedCostAfterFirstActionFromCurrent(
-    normalizedInput.start,
-    normalizedInput.stock,
-    selected.firstAction,
-    RUST_RERANK_MAX_RUNS,
-    RUST_RERANK_HELD_OUT_SEED,
-    RUST_PRODUCT_HORIZON_FACTOR,
-    RUST_PRODUCT_NORM_POWER,
+  const selection: RerankSelection = { decision, rerank, baselineRoot, selected, rawSelected };
+  const { heldOut, heldOutBaseline } = collectHeldOutDiagnostics(
+    solver,
+    normalizedInput,
+    selection,
   );
-  const heldOutBaseline = baselineRoot.firstAction
-    ? baselineRoot.firstAction === selected.firstAction
-      ? heldOut
-      : solver.estimateExpectedCostAfterFirstActionFromCurrent(
-          normalizedInput.start,
-          normalizedInput.stock,
-          baselineRoot.firstAction,
-          RUST_RERANK_MAX_RUNS,
-          RUST_RERANK_HELD_OUT_SEED,
-          RUST_PRODUCT_HORIZON_FACTOR,
-          RUST_PRODUCT_NORM_POWER,
-        )
-    : null;
-
-  const actionFor = (state: CollectionState, stockUses: Stock) => {
-    if (isTerminal(state) || isConvertState(state)) return null;
-    return rerank.policy.actionAt(state, stockUses);
-  };
-  const run = buildRecommendedRunForKit(normalizedInput, actionFor, selected.firstAction);
-  const route = buildFailureRouteWithFirstKit(normalizedInput, actionFor, selected.firstAction);
-  const edge = transition(normalizedInput.start, selected.firstAction);
-  const totalExpectedKits = totalKits(selected.vector);
-  const pressure = pressureScore(selected.vector, normalizedInput.stockUses);
-  const legacySupplyCost = legacySupplyCostScore(selected.vector);
-  const availabilityCost = availabilityCostScore(
-    selected.vector,
-    normalizedInput.stock,
-    supplyForecast.expectedGain,
-  );
+  const view = buildRerankView(normalizedInput, rerank, selected, supplyForecast.expectedGain);
   const monteCarloRuns = readRustMonteCarloRuns(input);
   const monteCarloSeed = readRustMonteCarloSeed(input);
   const monteCarlo =
@@ -120,6 +105,87 @@ export async function solveRustPhase2Rerank(
   if (progress)
     progress({ phase: "done", scanned: baselineRoot.states, total: baselineRoot.states });
 
+  return buildRerankResult({
+    normalizedInput,
+    selection,
+    view,
+    heldOut,
+    heldOutBaseline,
+    monteCarlo,
+  });
+}
+
+function collectHeldOutDiagnostics(
+  solver: Awaited<ReturnType<typeof getRustPhase2ResearchSolver>>,
+  normalizedInput: RustProductInput,
+  { selected, baselineRoot }: RerankSelection,
+) {
+  const heldOut = solver.estimateExpectedCostAfterFirstActionFromCurrent(
+    normalizedInput.start,
+    normalizedInput.stock,
+    selected.firstAction,
+    RUST_RERANK_MAX_RUNS,
+    RUST_RERANK_HELD_OUT_SEED,
+    RUST_PRODUCT_HORIZON_FACTOR,
+    RUST_PRODUCT_NORM_POWER,
+  );
+  let heldOutBaseline: typeof heldOut | null = null;
+  if (baselineRoot.firstAction === selected.firstAction) {
+    heldOutBaseline = heldOut;
+  } else if (baselineRoot.firstAction) {
+    heldOutBaseline = solver.estimateExpectedCostAfterFirstActionFromCurrent(
+      normalizedInput.start,
+      normalizedInput.stock,
+      baselineRoot.firstAction,
+      RUST_RERANK_MAX_RUNS,
+      RUST_RERANK_HELD_OUT_SEED,
+      RUST_PRODUCT_HORIZON_FACTOR,
+      RUST_PRODUCT_NORM_POWER,
+    );
+  }
+  return { heldOut, heldOutBaseline };
+}
+
+function buildRerankView(
+  normalizedInput: RustProductInput,
+  rerank: RustRerankResult,
+  selected: RustRerankedCandidate,
+  expectedGain: Stock,
+) {
+  const actionFor = (state: CollectionState, stockUses: Stock) => {
+    if (isTerminal(state) || isConvertState(state)) return null;
+    return rerank.policy.actionAt(state, stockUses);
+  };
+  const run = buildRecommendedRunForKit(normalizedInput, actionFor, selected.firstAction);
+  const route = buildFailureRouteWithFirstKit(normalizedInput, actionFor, selected.firstAction);
+  const edge = transition(normalizedInput.start, selected.firstAction);
+  const totalExpectedKits = totalKits(selected.vector);
+  const pressure = pressureScore(selected.vector, normalizedInput.stockUses);
+  const legacySupplyCost = legacySupplyCostScore(selected.vector);
+  const availabilityCost = availabilityCostScore(
+    selected.vector,
+    normalizedInput.stock,
+    expectedGain,
+  );
+  return { run, route, edge, totalExpectedKits, pressure, legacySupplyCost, availabilityCost };
+}
+
+function buildRerankResult({
+  normalizedInput,
+  selection,
+  view: { run, route, edge, totalExpectedKits, pressure, legacySupplyCost, availabilityCost },
+  heldOut,
+  heldOutBaseline,
+  monteCarlo,
+}: {
+  normalizedInput: RustProductInput;
+  selection: RerankSelection;
+  view: ReturnType<typeof buildRerankView>;
+  heldOut: RustFirstActionEstimate;
+  heldOutBaseline: RustFirstActionEstimate | null;
+  monteCarlo: RustMonteCarloResult;
+}) {
+  const { selected, rawSelected, rerank, baselineRoot } = selection;
   const candidate = {
     name: "Rust phase2 rerank adaptive90 m0.00025 confirm",
     firstAction: selected.firstAction,
@@ -182,14 +248,7 @@ export async function solveRustPhase2Rerank(
         gateZ: RUST_RERANK_GATE_Z,
         gateQuickAcceptMargin: RUST_RERANK_QUICK_ACCEPT_MARGIN,
         gateFullAcceptMargin: RUST_RERANK_FULL_ACCEPT_MARGIN,
-        gateRuns: decision?.gateRuns ?? null,
-        gateSeed: RUST_RERANK_HELD_OUT_SEED,
-        gatePass: decision?.gatePass ?? null,
-        gateMeanDelta: decision?.gatePair?.meanDelta ?? null,
-        gateStandardError: decision?.gatePair?.standardError ?? null,
-        gateUpper95: decision?.gatePair?.upper95 ?? null,
-        gateUpperBound: decision?.gateUpperBound ?? null,
-        gateCorrelation: decision?.gatePair?.correlation ?? null,
+        ...buildGateDiagnostics(selection),
         rawSelectedFirstAction: rawSelected?.firstAction ?? null,
         rawExpectedCost: rawSelected?.expectedCost ?? null,
         rawCompletionRate: rawSelected?.completionRate ?? null,
@@ -214,5 +273,18 @@ export async function solveRustPhase2Rerank(
       iterations: 0,
     },
     topCandidates: [candidate],
+  };
+}
+
+function buildGateDiagnostics({ decision }: RerankSelection) {
+  return {
+    gateRuns: decision?.gateRuns ?? null,
+    gateSeed: RUST_RERANK_HELD_OUT_SEED,
+    gatePass: decision?.gatePass ?? null,
+    gateMeanDelta: decision?.gatePair?.meanDelta ?? null,
+    gateStandardError: decision?.gatePair?.standardError ?? null,
+    gateUpper95: decision?.gatePair?.upper95 ?? null,
+    gateUpperBound: decision?.gateUpperBound ?? null,
+    gateCorrelation: decision?.gatePair?.correlation ?? null,
   };
 }

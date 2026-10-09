@@ -1,17 +1,14 @@
 import { expect, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
-import { test, waitForSignal, withCleanup } from "./test";
+import { closePreviewServer, createGate, test, waitForSignal, withCleanup } from "./test";
 
 const PORT = 4277;
 const LOCALE_PATHS = { ko: "/", en: "/en/", ja: "/ja/" } as const;
+const STATS_TAB_LABELS = { ko: "통계", en: "Stats", ja: "統計" } as const satisfies Record<
+  keyof typeof LOCALE_PATHS,
+  string
+>;
 let previewServer: PreviewServer | null = null;
-function createGate() {
-  let release: () => void = () => undefined;
-  const promise = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return { promise, release };
-}
 async function prepareLocale(page: Page, languages: string[]) {
   await page.addInitScript(
     ({ navigatorLanguages }) => {
@@ -106,13 +103,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  if (!previewServer) return;
-  await new Promise<void>((resolve, reject) => {
-    previewServer?.httpServer.close((error) => {
-      if (error) reject(error);
-      else resolve();
-    });
-  });
+  await closePreviewServer(previewServer);
   previewServer = null;
 });
 
@@ -608,7 +599,7 @@ test("responsive density follows each locale's rendered content", async ({ page 
 
     await page.setViewportSize({ width: 768, height: 900 });
     await openLocale(page, locale, "?demoStats=1");
-    await clickVisibleTab(page, locale === "ko" ? "통계" : locale === "ja" ? "統計" : "Stats");
+    await clickVisibleTab(page, STATS_TAB_LABELS[locale]);
     await expect(page.locator(".stats-layout")).toBeVisible();
     const tabletColumns = await page.locator(".stats-layout").evaluate(
       (layout) =>

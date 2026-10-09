@@ -1,9 +1,14 @@
 import type { Interval } from "../../shared/certifiedRational";
 import type { WorkBudget } from "./budget";
 import { outwardWidth, positiveUp, UNKNOWN_BOUND } from "./directedBounds";
-import { CAPS, TERMINAL, type Units } from "./game";
+import { CAPS, KIT_INDICES, type StateId, type StateValues, TERMINAL, type Units } from "./game";
 
-type Layout = { offsets: Uint32Array; purple: Uint16Array; yellow: Uint16Array; cells: number };
+type Layout = {
+  offsets: Uint32Array & StateValues<number>;
+  purple: Uint16Array & StateValues<number>;
+  yellow: Uint16Array & StateValues<number>;
+  cells: number;
+};
 type Page = { lower: Float64Array; width: Float32Array; status: Uint8Array };
 const LAYOUT_BYTES = (TERMINAL + 1) * 8 + 24;
 const PAGE_CELLS = 4096;
@@ -12,16 +17,20 @@ function fits(value: number, upper: number): boolean {
   return Number.isInteger(value) && value >= 0 && value <= upper;
 }
 function layout(rootSid: number, root: Units, budget: WorkBudget): Layout {
-  const offsets = new Uint32Array(TERMINAL + 1);
-  const purple = new Uint16Array(TERMINAL + 1);
-  const yellow = new Uint16Array(TERMINAL + 1);
+  const offsets = new Uint32Array(TERMINAL + 1) as Uint32Array & StateValues<number>;
+  const purple = new Uint16Array(TERMINAL + 1) as Uint16Array & StateValues<number>;
+  const yellow = new Uint16Array(TERMINAL + 1) as Uint16Array & StateValues<number>;
   let cells = 0;
   for (let sid = rootSid; sid < TERMINAL; sid++) {
     budget.tick();
     offsets[sid] = cells;
-    purple[sid] = Math.min(root[1], CAPS[sid]![1]) + 1;
-    yellow[sid] = Math.min(root[2], CAPS[sid]![2]) + 1;
-    cells += (Math.min(root[0], CAPS[sid]![0]) + 1) * purple[sid]! * yellow[sid]!;
+    const state = sid as StateId;
+    const caps = CAPS[state];
+    const purpleRadix = Math.min(root[1], caps[1]) + 1;
+    const yellowRadix = Math.min(root[2], caps[2]) + 1;
+    purple[sid] = purpleRadix;
+    yellow[sid] = yellowRadix;
+    cells += (Math.min(root[0], caps[0]) + 1) * purple[state] * yellow[state];
   }
   if (!Number.isSafeInteger(cells) || cells >= 2 ** 32) throw new Error("certified_bound_domain");
   return { offsets, purple, yellow, cells };
@@ -73,13 +82,15 @@ export class BoundArena {
   private index(sid: number, units: Units): number {
     // Callers have capped units. Checking these dimensions additionally avoids
     // aliases if a future caller accidentally supplies an uncapped stock.
-    if (!this.supports(sid, units) || units.some((v, k) => v > CAPS[sid]![k]!))
+    if (!this.supports(sid, units)) throw new Error("certified_bound_index_outside_domain");
+    const state = sid as StateId;
+    const caps = CAPS[state];
+    const offset = this.domain.offsets[state];
+    const purple = this.domain.purple[state];
+    const yellow = this.domain.yellow[state];
+    if (KIT_INDICES.some((k) => units[k] > caps[k]))
       throw new Error("certified_bound_index_outside_domain");
-    return (
-      this.domain.offsets[sid]! +
-      (units[0] * this.domain.purple[sid]! + units[1]) * this.domain.yellow[sid]! +
-      units[2]
-    );
+    return offset + (units[0] * purple + units[1]) * yellow + units[2];
   }
   get(kind: "failure" | "cost", sid: number, units: Units): Interval | null {
     const i = this.index(sid, units);
@@ -87,7 +98,8 @@ export class BoundArena {
     const row = i % PAGE_CELLS;
     if (!page?.status[row]) return null;
     const lo = page.lower[row]!;
-    const hi = positiveUp(lo + page.width[row]!);
+    const width = page.width[row]!;
+    const hi = positiveUp(lo + width);
     return Number.isFinite(hi) ? { lo, hi } : UNKNOWN_BOUND;
   }
   put(kind: "failure" | "cost", sid: number, units: Units, value: Interval): void {

@@ -122,12 +122,11 @@ export function solveCertifiedLimitedDepth(input: {
   const candidates = actionIntervals(rootState, initialUses, depthLimit, visit);
   const root = combineOptimalIntervals(candidates, tolerance);
   const selectedAction = budgetExceeded ? null : certifyRootAction(candidates, tolerance);
+  let outcome: CertifiedLimitedDepthResult["outcome"] = "numeric_ambiguous";
+  if (budgetExceeded) outcome = "budget_exceeded";
+  else if (selectedAction) outcome = "completed";
   return {
-    outcome: budgetExceeded
-      ? "budget_exceeded"
-      : selectedAction
-        ? "completed"
-        : "numeric_ambiguous",
+    outcome,
     selectedAction,
     root,
     candidates,

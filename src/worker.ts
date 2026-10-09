@@ -80,15 +80,17 @@ async function handleRustSolve(data: Extract<WorkerRequest, { type: "solve" }>) 
   const wasmUrl = requireWasmUrl(data);
   const reportProgress = (progress: ProgressEvent) => postWorkerProgress(data.id, progress);
   const { result, timing } = await runRustTask(
-    () =>
-      data.backend === "rust-phase2"
-        ? solveRustPhase2(data.input, wasmUrl, reportProgress, {
-            ...(data.phase2MemoTier === undefined ? {} : { initialMemoTier: data.phase2MemoTier }),
-            ...(data.phase2RetryOnMemoFull === undefined
-              ? {}
-              : { retryOnMemoFull: data.phase2RetryOnMemoFull }),
-          })
-        : solveRustMinEf(data.input, wasmUrl, reportProgress),
+    () => {
+      if (data.backend === "rust-phase2") {
+        return solveRustPhase2(data.input, wasmUrl, reportProgress, {
+          ...(data.phase2MemoTier === undefined ? {} : { initialMemoTier: data.phase2MemoTier }),
+          ...(data.phase2RetryOnMemoFull === undefined
+            ? {}
+            : { retryOnMemoFull: data.phase2RetryOnMemoFull }),
+        });
+      }
+      return solveRustMinEf(data.input, wasmUrl, reportProgress);
+    },
     (queueWaitMs) => postWorkerProgress(data.id, { phase: "worker-started", queueWaitMs }),
   );
   postWorkerMessage({ type: "result", id: data.id, result, timing });

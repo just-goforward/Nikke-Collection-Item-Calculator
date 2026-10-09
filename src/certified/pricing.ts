@@ -6,6 +6,7 @@ import {
 } from "../../shared/certifiedSupplyLaws";
 import type { WorkBudget } from "./budget";
 import { futureEvents } from "./events";
+import type { KitIndex } from "./game";
 import type { CertifiedInput, CertifiedOutput } from "./types";
 import { requireInput } from "./validation";
 import { wireTriple } from "./views";
@@ -16,16 +17,16 @@ const KITS = ["blue", "purple", "yellow"] as const;
 /** No epsilon: an undefined price is rejected iff that color can actually be used. */
 function futureUsable(
   input: CertifiedInput,
-  color: number,
+  color: KitIndex,
   priors: readonly [Q, Q, Q],
   budget: WorkBudget,
 ): boolean {
   // A completed item has no feasible maintenance action, regardless of arrivals.
   if (input.grade === "SR" && input.level === 15) return false;
-  if (input.stock[color]! >= 10) return true;
+  if (input.stock[color] >= 10) return true;
   for (const cohort of [0, 1, 2] as const) {
     if (!priors[cohort].n) continue;
-    let reachable = input.stock[color]!;
+    let reachable = input.stock[color];
     for (const event of futureEvents(input))
       for (const ref of event.refs) {
         const law = getCertifiedLawDistribution(ref, cohort, {
@@ -34,7 +35,7 @@ function futureUsable(
         });
         budget.setExternalPayload(certifiedSupplyLawPayloadBytes());
         reachable += Math.max(
-          ...law.filter((outcome) => outcome.mass.n > 0n).map((outcome) => outcome.pieces[color]!),
+          ...law.filter((outcome) => outcome.mass.n > 0n).map((outcome) => outcome.pieces[color]),
         );
         if (reachable >= 10) return true;
       }
@@ -52,15 +53,17 @@ export function calculatePricing(
     checkBudget: budget.check,
   });
   budget.setExternalPayload(certifiedSupplyLawPayloadBytes());
-  const weights = rates.map((rate, k) => {
+  const weight = (k: KitIndex): Q => {
+    const rate = rates[k];
     requireInput(rate.n >= 0n, "negative_recurring_rate");
-    const denominator = add(q(basis[k]!), rate);
+    const denominator = add(q(basis[k]), rate);
     if (denominator.n === 0n) {
       requireInput(!futureUsable(input, k, priors, budget), `zero_basis_future_usable_${KITS[k]}`);
       return ZERO;
     }
     return div(ONE, denominator);
-  }) as [Q, Q, Q];
+  };
+  const weights: [Q, Q, Q] = [weight(0), weight(1), weight(2)];
   const pricing = {
     basisStock: basis,
     recurringRate: wireTriple(rates),

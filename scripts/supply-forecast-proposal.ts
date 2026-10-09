@@ -92,9 +92,13 @@ export function renderSupplyForecastProposal(
     `표시는 해당 KST 게임 일자(05:00부터 다음날 04:59까지)에 적용되는 일정과 보상을 뜻합니다.\n\n` +
     `| 게임 일자 (05:00 KST) | 이벤트 / 보상 | 일정 | Blue | Purple | Yellow |\n` +
     `|---|---|---|---:|---:|---:|\n${profileRows}\n\n` +
-    `### Warnings\n\n${candidate.warnings.map((warning) => `- ${warning}`).join("\n") || "- None"}\n\n` +
+    `### Warnings\n\n${formatWarnings(candidate.warnings)}\n\n` +
     `<!-- ${REVIEW_METADATA_PREFIX}${reviewMetadata} -->\n`
   );
+}
+
+function formatWarnings(warnings: readonly string[]): string {
+  return warnings.map((warning) => `- ${warning}`).join("\n") || "- None";
 }
 
 export function parseForecastReviewMetadata(body: string): ForecastReviewMetadata {

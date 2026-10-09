@@ -3,8 +3,9 @@ import {
   assertCertifiedForecastIdentity,
   sameCertifiedForecastIdentity,
 } from "../../shared/certifiedForecastIdentity.ts";
-import { solveCertified } from "../certified/solver.ts";
 import type { CertifiedInput } from "../certified/types.ts";
+import { loadCertifiedWasm } from "../certified/wasmBackend.ts";
+import { solveCertifiedWasm } from "../certified/wasmSolver.ts";
 import { assertTrustedCertifiedForecast } from "../lib/certifiedForecastTrust.ts";
 import { bindCertifiedOutput, type CertifiedRuntimeOutput } from "./outputBinding.ts";
 import {
@@ -35,7 +36,9 @@ function assertTimeRemaining(deadlineAt: number) {
 /** Shared handler; the client owns serialization and hard cancellation by termination. */
 export function createCertifiedWorkerHandler(
   post: (message: CertifiedResponse<CertifiedRuntimeOutput>) => void,
+  readWasmBytes?: () => Promise<Uint8Array>,
 ) {
+  let wasm: WebAssembly.Module | undefined;
   let generation: number | undefined;
   let busy = false;
   let closed = false;
@@ -67,6 +70,9 @@ export function createCertifiedWorkerHandler(
       if (request.type === "init") {
         if (generation !== undefined) throw new Error("Worker is already initialized.");
         generation = request.generation;
+        failureCode = "wasm_initialization_failure";
+        wasm = await loadCertifiedWasm(readWasmBytes);
+        if (closed) return;
         post({ type: "initComplete", generation, engineProfile: request.engineProfile });
         return;
       }
@@ -90,7 +96,8 @@ export function createCertifiedWorkerHandler(
         forecastIdentity,
       });
       failureCode = "solver_execution_failure";
-      const output = solveCertified(request.input, {
+      if (!wasm) throw new Error("certified_wasm_not_initialized");
+      const output = solveCertifiedWasm(wasm, request.input, {
         maxManagedPayloadBytes: CERTIFIED_WORKER_MANAGED_CEILING,
         deadlineAt:
           performance.now() +

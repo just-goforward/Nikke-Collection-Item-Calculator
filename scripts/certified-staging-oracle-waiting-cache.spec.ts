@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,8 +20,12 @@ const fixture = JSON.parse(
   records: { output: CertifiedOutput }[];
 };
 const input = fixture.input;
-const output = fixture.records[0]!.output;
-const prices = mapTriple(output.pricing!.weights, fromWire);
+const record = fixture.records[0];
+assert(record, "Expected historical witness record");
+const output = record.output;
+const pricing = output.pricing;
+assert(pricing, "Expected fixture pricing");
+const prices = mapTriple(pricing.weights, fromWire);
 const snapshotHash = "a".repeat(64);
 const { snapshot: _snapshot, ...fullInput } = input;
 const signature = waitingProofSignature(fullInput, output, prices, snapshotHash);
@@ -48,7 +53,7 @@ function document(): WaitingProofCacheDocument {
 let ordinal = 0;
 function loaded(value = document()) {
   const bytes = JSON.stringify(value);
-  const path = join(directory, String(ordinal++) + ".json");
+  const path = join(directory, `${ordinal++}.json`);
   writeFileSync(path, bytes);
   return loadWaitingProofCache(path, createHash("sha256").update(bytes).digest("hex"));
 }
@@ -76,12 +81,14 @@ function changeValue(value: CertifiedValue, field: number): void {
 describe("exact waiting-proof cache signature controls", () => {
   it("binds the N0 exact-value envelope as well as its current optimum", () => {
     const n0 = structuredClone(output);
+    const current = n0.current;
+    assert(current, "Expected N0 current optimum");
     n0.waiting = {
       ...n0.waiting,
       recommendedDays: 0,
       bestDayRange: [0, 0],
       rangeBoundary: false,
-      value: n0.current!.value,
+      value: current.value,
       successProbabilityInterval: {
         lower: { numerator: "1", denominator: "1" },
         upper: { numerator: "1", denominator: "1" },
@@ -89,14 +96,18 @@ describe("exact waiting-proof cache signature controls", () => {
       successImprovementUpperBound: { numerator: "0", denominator: "1" },
     };
     const doc = document();
+    const entry = doc.entries[0];
+    assert(entry, "Expected cache control entry");
     doc.entries[0] = {
-      ...doc.entries[0]!,
+      ...entry,
       ...waitingProofSignature(fullInput, n0, prices, snapshotHash),
     };
     const cache = loaded(doc);
     expect(cache.find(input, n0, prices, snapshotHash, true)).not.toBeNull();
     const changed = structuredClone(n0);
-    changeValue(changed.waiting.value!, 1);
+    const waitingValue = changed.waiting.value;
+    assert(waitingValue, "Expected N0 waiting value");
+    changeValue(waitingValue, 1);
     expect(cache.find(input, changed, prices, snapshotHash, true)).toBeNull();
   });
   it("requires a measured current proof and exact snapshot/fixed prices", () => {
@@ -105,7 +116,9 @@ describe("exact waiting-proof cache signature controls", () => {
     expect(cache.find(input, output, prices, snapshotHash, false)).toBeNull();
     expect(cache.find(input, output, prices, "c".repeat(64), true)).toBeNull();
     const changed = structuredClone(output);
-    changed.pricing!.weights = mapTriple(changed.pricing!.weights, (q, color) =>
+    const changedPricing = changed.pricing;
+    assert(changedPricing, "Expected pricing mutation target");
+    changedPricing.weights = mapTriple(changedPricing.weights, (q, color) =>
       color === 0 ? { ...q, numerator: String(BigInt(q.numerator) + 1n) } : q,
     );
     expect(cache.find(input, changed, prices, snapshotHash, true)).toBeNull();
@@ -134,29 +147,36 @@ describe("exact waiting-proof cache signature controls", () => {
     for (const endpoint of ["beforeValue", "afterValue"] as const) {
       for (let field = 0; field < 6; field++) {
         const changed = structuredClone(output);
-        changeValue(changed.waiting.strictBoundaryWitness![endpoint], field);
+        const witness = changed.waiting.strictBoundaryWitness;
+        assert(witness, "Expected endpoint mutation target");
+        changeValue(witness[endpoint], field);
         expect(cache.find(input, changed, prices, snapshotHash, true)).toBeNull();
       }
     }
     for (let field = 0; field < 6; field++) {
       const changed = structuredClone(output);
-      changeValue(changed.current!.value, field);
+      const current = changed.current;
+      assert(current, "Expected current mutation target");
+      changeValue(current.value, field);
       expect(cache.find(input, changed, prices, snapshotHash, true)).toBeNull();
     }
   });
   it("rejects changes to the entire waiting envelope and actual receipt support", () => {
     const cache = loaded();
     const changedEnvelope = structuredClone(output);
-    changedEnvelope.waiting.successProbabilityInterval!.upper = {
+    const interval = changedEnvelope.waiting.successProbabilityInterval;
+    assert(interval, "Expected probability interval mutation target");
+    interval.upper = {
       numerator: "999",
       denominator: "1000",
     };
     expect(cache.find(input, changedEnvelope, prices, snapshotHash, true)).toBeNull();
     const changedReceipt = structuredClone(output);
-    changedReceipt.waiting.strictBoundaryWitness!.receipts =
-      changedReceipt.waiting.strictBoundaryWitness!.receipts.map((receipt, index) =>
-        index === 0 ? { ...receipt, pieces: [999, 0, 0] } : receipt,
-      );
+    const witness = changedReceipt.waiting.strictBoundaryWitness;
+    assert(witness, "Expected receipt mutation target");
+    witness.receipts = witness.receipts.map((receipt, index) =>
+      index === 0 ? { ...receipt, pieces: [999, 0, 0] } : receipt,
+    );
     expect(cache.find(input, changedReceipt, prices, snapshotHash, true)).toBeNull();
     const changedDay = structuredClone(output);
     changedDay.waiting.recommendedDays = 55;
@@ -164,16 +184,22 @@ describe("exact waiting-proof cache signature controls", () => {
   });
   it("rejects unverified, duplicate, unstable or source-drifted cache documents", () => {
     const unverified = document();
-    unverified.entries[0]!.check.status = "NOTRUN";
+    const entry = unverified.entries[0];
+    assert(entry, "Expected unverified entry mutation target");
+    entry.check.status = "NOTRUN";
     expect(() => loaded(unverified)).toThrow("unverified");
     const duplicate = document();
-    duplicate.entries.push(duplicate.entries[0]!);
+    const duplicatedEntry = duplicate.entries[0];
+    assert(duplicatedEntry, "Expected duplicate entry mutation target");
+    duplicate.entries.push(duplicatedEntry);
     expect(() => loaded(duplicate)).toThrow("duplicate");
     const unstable = document();
     unstable.sourcesCurrentAtEnd = false;
     expect(() => loaded(unstable)).toThrow("unstable");
     const drift = document();
-    drift.mathSources[0]!.sha256 = "f".repeat(64);
+    const source = drift.mathSources[0];
+    assert(source, "Expected source drift mutation target");
+    source.sha256 = "f".repeat(64);
     expect(() => loaded(drift)).toThrow("source mismatch");
     expect(() => loadWaitingProofCache(join(directory, "0.json"), "0".repeat(64))).toThrow(
       "hash mismatch",

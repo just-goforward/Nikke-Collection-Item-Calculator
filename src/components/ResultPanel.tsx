@@ -2,28 +2,16 @@ import { lazy, Suspense, useCallback, useState } from "react";
 
 import { useAnimatedStateProgress } from "../hooks/useAnimatedStateProgress";
 import { useI18n } from "../i18n/locale";
-import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
+import type { LocalizedMessage } from "../i18n/messages.ko";
 import { lazyModuleRetryUrl, reloadWithLegacyInputs } from "../lib/lazyModuleRetry";
 import type { LegacyRecoveryNotice } from "../lib/legacyInputRecovery";
 import type { CollectionState, Kit } from "../types";
-import type {
-  LoadingView,
-  ResultKit,
-  ResultView,
-  StateChangeFeedback,
-  StatePanelModel,
-} from "../ui-types";
+import type { LoadingView, ResultView, StateChangeFeedback, StatePanelModel } from "../ui-types";
 import { AlignedText } from "./AlignedText";
+import { RESULT_KIT_KEYS } from "./kitPresentation";
 import { LazySectionErrorBoundary } from "./LazySectionErrorBoundary";
 import type { RecommendationProps } from "./RecommendationContent";
 import { stateFeedbackAnimations } from "./stateFeedbackAnimations";
-
-const RESULT_KIT_KEYS: Record<ResultKit, MessageKey> = {
-  blue: "kit.blue",
-  purple: "kit.purple",
-  yellow: "kit.yellow",
-  convert: "common.convertToSr",
-};
 
 const classes = {
   panel:
@@ -205,6 +193,12 @@ function createRecommendation() {
     return recommendationLoad;
   });
 }
+function recommendationFallbackKey(reloadFailed: boolean) {
+  if (reloadFailed) return "error.reloadInputsUnavailable" as const;
+  if (recommendationRetryUrl) return "error.sectionDetail" as const;
+  return "error.reloadInputsDetail" as const;
+}
+
 function LazyRecommendation(props: RecommendationProps) {
   const { t } = useI18n();
   const [Recommendation, setRecommendation] = useState(createRecommendation);
@@ -222,15 +216,7 @@ function LazyRecommendation(props: RecommendationProps) {
       onRetry={retry}
       fallback={(onRetry) => (
         <div className={classes.error} role="alert">
-          <p>
-            {t(
-              reloadFailed
-                ? "error.reloadInputsUnavailable"
-                : recommendationRetryUrl
-                  ? "error.sectionDetail"
-                  : "error.reloadInputsDetail",
-            )}
-          </p>
+          <p>{t(recommendationFallbackKey(reloadFailed))}</p>
           <button
             className={classes.retryButton}
             type="button"
@@ -365,6 +351,18 @@ function ResultViewContent({
   );
 }
 
+function staleOverlayMessage(
+  needsStockEdit: boolean,
+  stockEditNotice: ResultPanelProps["stockEditNotice"],
+  staleSource: ResultPanelProps["staleSource"],
+  { locale, t, text }: Pick<ReturnType<typeof useI18n>, "locale" | "t" | "text">,
+) {
+  if (!needsStockEdit) {
+    return t(staleSource === "stock" ? "result.staleStock" : "result.staleState");
+  }
+  return "key" in stockEditNotice ? text(stockEditNotice) : stockEditNotice[locale];
+}
+
 export default function ResultPanel({
   feedback,
   isStale,
@@ -385,11 +383,11 @@ export default function ResultPanel({
   const { locale, t, text } = useI18n();
   const showStaleOverlay =
     view.type !== "loading" && (needsStockEdit || (isStale && view.type !== "empty"));
-  const staleMessage = needsStockEdit
-    ? "key" in stockEditNotice
-      ? text(stockEditNotice)
-      : stockEditNotice[locale]
-    : t(staleSource === "stock" ? "result.staleStock" : "result.staleState");
+  const staleMessage = staleOverlayMessage(needsStockEdit, stockEditNotice, staleSource, {
+    locale,
+    t,
+    text,
+  });
 
   return (
     <section className={classes.panel} aria-busy={view.type === "loading" || undefined}>

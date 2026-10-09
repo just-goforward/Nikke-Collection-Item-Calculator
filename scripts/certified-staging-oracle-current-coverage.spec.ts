@@ -1,7 +1,8 @@
 import { expect, it } from "vitest";
-import { makeTriple, type OracleInput, q } from "./certified-staging-oracle.ts";
+import { type OracleInput, q } from "./certified-staging-oracle.ts";
 import { independentCurrentCoverage } from "./certified-staging-oracle-current-coverage.ts";
 import { independentPhysicalRecurringRates } from "./certified-staging-oracle-physical-supply.ts";
+import { makeTriple } from "./certified-staging-oracle-tuples.ts";
 
 function physicalInput(grade: "R" | "SR", stock: OracleInput["stock"]): OracleInput {
   const rates = independentPhysicalRecurringRates();
@@ -11,7 +12,7 @@ function physicalInput(grade: "R" | "SR", stock: OracleInput["stock"]): OracleIn
     exp: 0,
     stock,
     prices: makeTriple((color) =>
-      q(rates[color]!.d, BigInt(stock[color]!) * rates[color]!.d + rates[color]!.n),
+      q(rates[color].d, BigInt(stock[color]) * rates[color].d + rates[color].n),
     ),
   };
 }

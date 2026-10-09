@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import { cmp, fromWire, q, toWire } from "../../shared/certifiedRational";
 import {
   buildCertifiedSupplySnapshot,
@@ -89,28 +89,29 @@ describe("mixed-color physical boundary witness", () => {
       expect(result.waiting.status).toBe("certified");
       expect(result.waiting.recommendedDays).toBe(56);
       expect(result.waiting.value).toBeNull();
-      const witness = result.waiting.strictBoundaryWitness!;
+      const witness = result.waiting.strictBoundaryWitness;
+      assert(witness);
       expect(strictOrder(witness.afterValue, witness.beforeValue)).toBe(1);
-      const cohortMass = fromWire(result.pricing!.cohortWeights[witness.cohort]);
+      const pricing = result.pricing;
+      assert(pricing);
+      const cohortMass = fromWire(pricing.cohortWeights[witness.cohort]);
       expect(cohortMass.n).toBeGreaterThan(0n);
       let before: Triple = request.stock;
       let after: Triple = request.stock;
       for (const receipt of witness.receipts) {
         expect(fromWire(receipt.mass).n).toBeGreaterThan(0n);
-        const event = request.snapshot.events.find(
-          (candidate) => candidate.id === receipt.eventId,
-        )!;
-        expect(event).toBeDefined();
-        after = [0, 1, 2].map((color) => after[color]! + receipt.pieces[color]!) as [
-          number,
-          number,
-          number,
+        const event = request.snapshot.events.find((candidate) => candidate.id === receipt.eventId);
+        assert(event);
+        after = [
+          after[0] + receipt.pieces[0],
+          after[1] + receipt.pieces[1],
+          after[2] + receipt.pieces[2],
         ];
         if (eventOffset(request, event) !== 56)
-          before = [0, 1, 2].map((color) => before[color]! + receipt.pieces[color]!) as [
-            number,
-            number,
-            number,
+          before = [
+            before[0] + receipt.pieces[0],
+            before[1] + receipt.pieces[1],
+            before[2] + receipt.pieces[2],
           ];
       }
       expect(before).toEqual(witness.beforeStock);

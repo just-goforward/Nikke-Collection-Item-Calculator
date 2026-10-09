@@ -66,10 +66,10 @@ test.beforeAll(async () => {
   ].filter((row, index, rows) => rows.findIndex((other) => other.path === row.path) === index);
   scenarioSha256 = createHash("sha256").update(JSON.stringify(panel)).digest("hex");
   writeFileSync(`${directory}/client-adapter.js`, adapter.bytes);
-  writeFileSync(`${directory}/approved-panel.json`, JSON.stringify(panel, null, 2) + "\n");
+  writeFileSync(`${directory}/approved-panel.json`, `${JSON.stringify(panel, null, 2)}\n`);
   writeFileSync(
     `${directory}/dist-provenance.json`,
-    JSON.stringify(
+    `${JSON.stringify(
       {
         dist,
         clientAdapter: { ...adapter, bytes: adapter.bytes.length },
@@ -78,7 +78,7 @@ test.beforeAll(async () => {
       },
       null,
       2,
-    ) + "\n",
+    )}\n`,
   );
   server = await startCertifiedDistServer(dist, adapter);
 });
@@ -266,7 +266,7 @@ for (const [name, browserType] of [
       ).toBeGreaterThan(1);
       writeFileSync(
         `${directory}/${name}.json`,
-        JSON.stringify(
+        `${JSON.stringify(
           {
             version: "certified-staging-independent-dist-worker-v1",
             status: "passed",
@@ -324,14 +324,14 @@ for (const [name, browserType] of [
           },
           null,
           2,
-        ) + "\n",
+        )}\n`,
       );
       expect(errors).toEqual([]);
       expect(failures).toEqual([]);
     } catch (error) {
       writeFileSync(
         `${directory}/${name}-failure.json`,
-        JSON.stringify(
+        `${JSON.stringify(
           {
             browser: name,
             status: "failed",
@@ -351,7 +351,7 @@ for (const [name, browserType] of [
           },
           null,
           2,
-        ) + "\n",
+        )}\n`,
       );
       throw error;
     } finally {

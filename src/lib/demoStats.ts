@@ -1,8 +1,8 @@
 import type { StatsApiResponse } from "../schemas";
-import { GREAT_SUCCESS } from "../solver/domain";
+import { KIT_ORDER as DEMO_KITS, GREAT_SUCCESS } from "../solver/domain";
 import type { Grade, Kit } from "../types";
 
-const DEMO_KITS = ["blue", "purple", "yellow"] as const satisfies readonly Kit[];
+const DEMO_GRADES: Grade[] = ["R", "SR"];
 
 const AVERAGE_ATTEMPTS_BY_GRADE = {
   R: [3.9, 6.7, 8.8],
@@ -18,8 +18,14 @@ function clampRatio(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
+function demoSegmentIndex(level: number) {
+  if (level < 5) return 0;
+  if (level < 10) return 1;
+  return 2;
+}
+
 function demoSegmentBias(grade: Grade, level: number) {
-  const segmentIndex = level < 5 ? 0 : level < 10 ? 1 : 2;
+  const segmentIndex = demoSegmentIndex(level);
   const bias = [0.035, -0.035, 0] as const;
   return bias[segmentIndex] * (grade === "SR" ? 1.1 : 1);
 }
@@ -54,7 +60,7 @@ const DEMO_SEGMENTS = [
 ] as const;
 
 function makeLevelKitStats(): DemoLevelKitRow[] {
-  return (["R", "SR"] as Grade[]).flatMap((grade) =>
+  return DEMO_GRADES.flatMap((grade) =>
     Array.from({ length: 15 }, (_, level) => ({
       grade,
       level,
@@ -82,28 +88,39 @@ function demoKitRate(grade: Grade, level: number, kit: Kit, kitIndex: number): D
   };
 }
 
+type DemoTotals = { attempts: number; expected: number; greatSuccesses: number };
+
+function addKitRate(sum: DemoTotals, rate: DemoKitRate) {
+  sum.attempts += Number(rate.attempts || 0);
+  sum.greatSuccesses += Number(rate.greatSuccesses || 0);
+  sum.expected += Number(rate.attempts || 0) * Number(rate.theoreticalGreatSuccessRate || 0);
+}
+
+function demoKitSummary(
+  rows: DemoLevelKitRow[],
+  kit: Kit,
+  attemptsPerEvent: number,
+): DemoKitSummary {
+  const { attempts, expected, greatSuccesses } = sumKitRows(rows, kit);
+  return {
+    kit,
+    events: Math.round(attempts / attemptsPerEvent),
+    attempts,
+    pieces: attempts * 10,
+    greatSuccesses,
+    greatSuccessRate: attempts ? greatSuccesses / attempts : 0,
+    theoreticalGreatSuccessRate: attempts ? expected / attempts : 0,
+  };
+}
+
 function makeByKit(levelKitStats: DemoLevelKitRow[]): DemoKitSummary[] {
-  return DEMO_KITS.map((kit) => {
-    const { attempts, expected, greatSuccesses } = sumKitRows(levelKitStats, kit);
-    return {
-      kit,
-      events: Math.round(attempts / 3.8),
-      attempts,
-      pieces: attempts * 10,
-      greatSuccesses,
-      greatSuccessRate: attempts ? greatSuccesses / attempts : 0,
-      theoreticalGreatSuccessRate: attempts ? expected / attempts : 0,
-    };
-  });
+  return DEMO_KITS.map((kit) => demoKitSummary(levelKitStats, kit, 3.8));
 }
 
 function sumKitRows(rows: DemoLevelKitRow[], kit: Kit) {
   return rows.reduce(
     (sum, row) => {
-      const rate = row.kits[kit];
-      sum.attempts += Number(rate.attempts || 0);
-      sum.greatSuccesses += Number(rate.greatSuccesses || 0);
-      sum.expected += Number(rate.attempts || 0) * Number(rate.theoreticalGreatSuccessRate || 0);
+      addKitRate(sum, row.kits[kit]);
       return sum;
     },
     { attempts: 0, expected: 0, greatSuccesses: 0 },
@@ -111,25 +128,14 @@ function sumKitRows(rows: DemoLevelKitRow[], kit: Kit) {
 }
 
 function makeSegmentStats(levelKitStats: DemoLevelKitRow[]) {
-  return (["R", "SR"] as Grade[]).flatMap((grade) =>
+  return DEMO_GRADES.flatMap((grade) =>
     DEMO_SEGMENTS.map((segment, segmentIndex) => {
       const rows = levelKitStats.filter(
         (row) => row.grade === grade && row.level >= segment.min && row.level <= segment.max,
       );
       const totals = sumAllKitRows(rows);
       const averageAttempts = demoAverageAttempts(grade, segmentIndex);
-      const byKit = DEMO_KITS.map((kit) => {
-        const { attempts, expected, greatSuccesses } = sumKitRows(rows, kit);
-        return {
-          kit,
-          events: Math.round(attempts / averageAttempts),
-          attempts,
-          pieces: attempts * 10,
-          greatSuccesses,
-          greatSuccessRate: attempts ? greatSuccesses / attempts : 0,
-          theoreticalGreatSuccessRate: attempts ? expected / attempts : 0,
-        };
-      });
+      const byKit = DEMO_KITS.map((kit) => demoKitSummary(rows, kit, averageAttempts));
       return {
         key: `${grade}:${segment.suffix}`,
         label: `${grade} ${segment.labelRange}`,
@@ -157,12 +163,7 @@ function demoAverageAttempts(grade: Grade, segmentIndex: number) {
 function sumAllKitRows(rows: DemoLevelKitRow[]) {
   return rows.reduce(
     (sum, row) => {
-      for (const kit of DEMO_KITS) {
-        const rate = row.kits[kit];
-        sum.attempts += Number(rate.attempts || 0);
-        sum.greatSuccesses += Number(rate.greatSuccesses || 0);
-        sum.expected += Number(rate.attempts || 0) * Number(rate.theoreticalGreatSuccessRate || 0);
-      }
+      for (const kit of DEMO_KITS) addKitRate(sum, row.kits[kit]);
       return sum;
     },
     { attempts: 0, expected: 0, greatSuccesses: 0 },

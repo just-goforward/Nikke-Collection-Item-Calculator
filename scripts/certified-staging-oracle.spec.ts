@@ -5,21 +5,55 @@ import {
   compareValue,
   futureStockDistribution,
   independentFailure,
+  makeTriple as originalMakeTriple,
+  mapTriple as originalMapTriple,
   q,
   solveOracle,
   ZERO,
 } from "./certified-staging-oracle.ts";
 import { solveIntegerOracle } from "./certified-staging-oracle-integer.ts";
+import { makeTriple, mapTriple } from "./certified-staging-oracle-tuples.ts";
 
 describe("independent certified staging exact oracle", () => {
+  it("keeps typed tuple aliases reference-identical to the frozen oracle functions", () => {
+    expect(mapTriple).toBe(originalMapTriple);
+    expect(makeTriple).toBe(originalMakeTriple);
+    const indices: number[] = [];
+    expect(
+      makeTriple((index) => {
+        indices.push(index);
+        return index;
+      }),
+    ).toEqual([0, 1, 2]);
+    expect(indices).toEqual([0, 1, 2]);
+    const values = [q(1), q(2), q(3)] as const;
+    expect(mapTriple(values, (value, index) => [value, index])).toEqual([
+      [values[0], 0],
+      [values[1], 1],
+      [values[2], 2],
+    ]);
+    const failure = new Error("callback sentinel");
+    expect(() =>
+      makeTriple(() => {
+        throw failure;
+      }),
+    ).toThrow(failure);
+    expect(() =>
+      mapTriple(values, () => {
+        throw failure;
+      }),
+    ).toThrow(failure);
+  });
   it("checks the integer-denominator original-panel oracle against separate reduced-rational DP", () => {
     for (let index = 0; index < 31; index += 1) {
       const grade = index < 16 ? ("R" as const) : ("SR" as const);
       const level = index < 16 ? index : index - 16;
+      let exp = 0;
+      if (level !== 15) exp = grade === "R" ? 900 : 2900;
       const input = {
         grade,
         level,
-        exp: level === 15 ? 0 : grade === "R" ? 900 : 2900,
+        exp,
         stock: [29, 27, 18] as const,
         prices: [q(7, 211), q(7, 203), q(7, 147)] as const,
       };

@@ -146,11 +146,12 @@ const provenance = collectResearchProvenance({
 });
 const existing = readOptionalResearchReport(OUTPUT);
 assertResearchReportCanBeWritten(existing, provenance);
-const overallOutcome = scenarios.every((scenario) => scenario.solver.outcome === "completed")
-  ? "completed"
-  : scenarios.some((scenario) => scenario.solver.outcome === "failure")
-    ? "failure"
-    : "verification_incomplete";
+let overallOutcome = "verification_incomplete";
+if (scenarios.every((scenario) => scenario.solver.outcome === "completed")) {
+  overallOutcome = "completed";
+} else if (scenarios.some((scenario) => scenario.solver.outcome === "failure")) {
+  overallOutcome = "failure";
+}
 writeFileSync(
   OUTPUT,
   `${JSON.stringify(

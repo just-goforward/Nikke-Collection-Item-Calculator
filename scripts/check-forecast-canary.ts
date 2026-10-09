@@ -58,13 +58,10 @@ async function optionalJson<T>(name: string, transform: (value: unknown) => T) {
 async function outputs(values: Record<string, string>) {
   const path = process.env["GITHUB_OUTPUT"];
   if (!path) return;
-  await appendFile(
-    path,
-    `${Object.entries(values)
-      .map(([key, value]) => `${key}=${value.replace(/[\r\n]/g, " ")}`)
-      .join("\n")}\n`,
-    "utf8",
-  );
+  const content = Object.entries(values)
+    .map(([key, value]) => `${key}=${value.replace(/[\r\n]/g, " ")}`)
+    .join("\n");
+  await appendFile(path, `${content}\n`, "utf8");
 }
 
 function requiredEnvironment(name: string) {

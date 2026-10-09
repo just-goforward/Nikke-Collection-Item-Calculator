@@ -7,6 +7,7 @@ import {
 import { solveWithResearchCostModel } from "../../src/solver/solve";
 import type { CollectionState, Kit, SolverInput, Stock } from "../../src/types";
 import type { SolverScenario } from "../scenarios/fixed-grid";
+import { consume, stateStockKey } from "./exact-replan-node";
 import type { ExactPolicySolverResult } from "./exact-replan-types";
 
 const KITS: Kit[] = ["blue", "purple", "yellow"];
@@ -69,17 +70,6 @@ function makeRandom(seed: number) {
   };
 }
 
-function policyKey(state: CollectionState, stock: Stock) {
-  return `${state.grade}:${state.level}:${state.exp}|${stock.blue}:${stock.purple}:${stock.yellow}`;
-}
-
-function consume(stock: Stock, kit: Kit, attempts: number): Stock {
-  return {
-    ...stock,
-    [kit]: Math.max(0, stock[kit] - attempts * 10),
-  };
-}
-
 function consumed(initialStock: Stock, remainingStock: Stock): Stock {
   return {
     blue: initialStock.blue - remainingStock.blue,
@@ -113,17 +103,20 @@ export function collectInteractiveTrajectories(
   }
 
   function policy(state: CollectionState, stock: Stock) {
-    const key = policyKey(state, stock);
+    const key = stateStockKey(state, stock);
     const cached = policyCache.get(key);
     if (cached) return cached;
     const input = { start: state, stock, strategy: "supply" as const };
-    const result = options.policySolver
-      ? options.policySolver(input)
-      : solveWithResearchCostModel(input, costModel, undefined, {
-          ...(options.toleranceOverride !== undefined
-            ? { toleranceOverride: options.toleranceOverride }
-            : {}),
-        });
+    let result: ExactPolicySolverResult;
+    if (options.policySolver) {
+      result = options.policySolver(input);
+    } else {
+      result = solveWithResearchCostModel(input, costModel, undefined, {
+        ...(options.toleranceOverride !== undefined
+          ? { toleranceOverride: options.toleranceOverride }
+          : {}),
+      });
+    }
     solveCalls += 1;
     checkBudget();
     policyCache.set(key, result);

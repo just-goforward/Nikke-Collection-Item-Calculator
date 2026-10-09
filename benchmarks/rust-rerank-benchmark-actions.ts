@@ -205,12 +205,14 @@ function estimatePair(
 }
 
 function nullCostComparison(error?: unknown): CostComparison {
+  let errorMessage: string | null = null;
+  if (error instanceof Error) errorMessage = error.message;
+  else if (error !== undefined) errorMessage = String(error);
   return {
     baselineCost: null,
     selectedCost: null,
     deltaVsBaseline: null,
     nodeCount: null,
-    errorMessage:
-      error instanceof Error ? error.message : error === undefined ? null : String(error),
+    errorMessage,
   };
 }

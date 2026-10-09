@@ -174,6 +174,26 @@ function StatsContent({ stats }: { stats: StatsPanelModel }) {
   );
 }
 
+function statsBodyContent(
+  view: StatsView,
+  onRetry: StatsPanelProps["onRetry"],
+  { t, text }: Pick<ReturnType<typeof useI18n>, "t" | "text">,
+) {
+  if (view.type === "stats") return <StatsContent stats={view.stats} />;
+  if (view.type === "error") {
+    return (
+      <div className={classes.errorMessage} role="alert">
+        <p>{text(view.message)}</p>
+        <button className={classes.retryButton} type="button" onClick={onRetry}>
+          {t("stats.retry")}
+        </button>
+      </div>
+    );
+  }
+  if (view.type === "empty" || view.type === "unconfigured") return text(view.message);
+  return t("stats.unconfigured");
+}
+
 function StatsBody({ onRetry, view }: StatsPanelProps) {
   const { t, text } = useI18n();
   if (view.type === "loading") {
@@ -205,20 +225,7 @@ function StatsBody({ onRetry, view }: StatsPanelProps) {
           : ""
       }
     >
-      {view.type === "stats" ? (
-        <StatsContent stats={view.stats} />
-      ) : view.type === "error" ? (
-        <div className={classes.errorMessage} role="alert">
-          <p>{text(view.message)}</p>
-          <button className={classes.retryButton} type="button" onClick={onRetry}>
-            {t("stats.retry")}
-          </button>
-        </div>
-      ) : view.type === "empty" || view.type === "unconfigured" ? (
-        text(view.message)
-      ) : (
-        t("stats.unconfigured")
-      )}
+      {statsBodyContent(view, onRetry, { t, text })}
     </div>
   );
 }

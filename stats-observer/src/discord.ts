@@ -25,16 +25,20 @@ function alertPayload(env: StatsObserverEnv, alert: ObserverAlertRow) {
     .filter(([key]) => key !== "appRevision")
     .slice(0, 10)
     .map(([key, value]) => `**${clean(key, 36)}:** ${clean(String(value), 180)}`);
+  let title = "Solver 운영 경고";
+  let color = 0xf1c40f;
+  if (alert.state === "resolved") {
+    title = "Solver 운영 복구";
+    color = 0x2ecc71;
+  } else if (alert.severity === "critical") {
+    title = "Solver 운영 오류";
+    color = 0xe74c3c;
+  }
   return {
     allowed_mentions: { parse: [] as string[] },
     embeds: [
       {
-        title:
-          alert.state === "resolved"
-            ? "Solver 운영 복구"
-            : alert.severity === "critical"
-              ? "Solver 운영 오류"
-              : "Solver 운영 경고",
+        title,
         description: [
           `환경: **${env.ENVIRONMENT}**`,
           `오류 범주: \`${clean(alert.error_code, 64)}\``,
@@ -43,12 +47,7 @@ function alertPayload(env: StatsObserverEnv, alert: ObserverAlertRow) {
           `최초: ${kst(alert.first_seen)} / 최근: ${kst(alert.last_seen)}`,
           ...contextLines,
         ].join("\n"),
-        color:
-          alert.state === "resolved"
-            ? 0x2ecc71
-            : alert.severity === "critical"
-              ? 0xe74c3c
-              : 0xf1c40f,
+        color,
         timestamp: new Date().toISOString(),
       },
     ],

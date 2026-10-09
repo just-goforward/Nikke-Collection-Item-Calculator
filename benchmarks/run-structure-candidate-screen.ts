@@ -136,6 +136,13 @@ try {
   const symbolicPassedScreen =
     symbolicResult.exactValueMismatches === 0 &&
     symbolicResult.reduction >= CONTRACT.symbolicMinimumReduction;
+  let monotonicityReason = "No sampled counterexample is not a global monotonicity proof.";
+  if (reentrantPatternCount > 0) {
+    monotonicityReason =
+      "Sampled inventory lines contain re-entrant actions, refuting a simple threshold policy.";
+  } else if (monotonicityViolationCount > 0) {
+    monotonicityReason = "A sampled success-probability monotonicity check failed.";
+  }
   const reportBody = {
     compactGraph: {
       states: built.graph.nodes.length,
@@ -162,12 +169,7 @@ try {
           reentrantPatternCount > 0 || monotonicityViolationCount > 0
             ? "rejected"
             : "verification_incomplete",
-        reason:
-          reentrantPatternCount > 0
-            ? "Sampled inventory lines contain re-entrant actions, refuting a simple threshold policy."
-            : monotonicityViolationCount > 0
-              ? "A sampled success-probability monotonicity check failed."
-              : "No sampled counterexample is not a global monotonicity proof.",
+        reason: monotonicityReason,
       },
     },
     symbolic: {

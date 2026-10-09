@@ -1,6 +1,7 @@
 import {
   DELIVERY_FAILURE_CLASSES,
   type DeliveryFailureClass,
+  STATS_DELIVERY_EVENT_KINDS,
 } from "../../shared/solverRecoveryContract";
 import { ignoreExpectedError } from "./errorHandling";
 import type { StatsEventKind, StatsSubmissionEnvelope } from "./statsSubmissionQueue";
@@ -10,12 +11,7 @@ export const STATS_OUTBOX_TTL_MS = 15 * 60 * 1000;
 const STATS_OUTBOX_VERSION = 2;
 const STATS_OUTBOX_KEY_PREFIX = "collection-kit-calculator.stats-outbox.v2:";
 const LEGACY_OUTBOX_KEY_PREFIX = "collection-kit-calculator.stats-outbox.v1:";
-const EVENT_KINDS = new Set<StatsEventKind>([
-  "kit_result",
-  "runtime_invariant",
-  "solver_diagnostic",
-  "solver_recovery",
-]);
+const EVENT_KINDS = new Set<StatsEventKind>(STATS_DELIVERY_EVENT_KINDS);
 
 export type StatsOutboxRecord = {
   envelope: StatsSubmissionEnvelope;

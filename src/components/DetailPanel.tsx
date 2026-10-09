@@ -14,30 +14,13 @@ import { useI18n } from "../i18n/locale";
 import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
 import type { Kit } from "../types";
 import type { DetailView, ValidationView } from "../ui-types";
+import { KIT_LABEL_KEYS, KIT_PANEL_LABEL_KEYS, kitDotClass } from "./kitPresentation";
 import { ValidationSuccessChart } from "./ValidationSuccessChart";
-
-const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
-  blue: "kit.blue",
-  purple: "kit.purple",
-  yellow: "kit.yellow",
-};
-
-const KIT_PANEL_LABEL_KEYS: Record<Kit, MessageKey> = {
-  blue: "kit.bluePanel",
-  purple: "kit.purplePanel",
-  yellow: "kit.yellowPanel",
-};
 
 const KIT_SHORT_LABEL_KEYS: Record<Kit, MessageKey> = {
   blue: "kit.blueShort",
   purple: "kit.purpleShort",
   yellow: "kit.yellowShort",
-};
-
-const kitDotClass: Record<Kit, string> = {
-  blue: "bg-blue-kit",
-  purple: "bg-purple-kit",
-  yellow: "bg-yellow-kit",
 };
 
 const classes = {

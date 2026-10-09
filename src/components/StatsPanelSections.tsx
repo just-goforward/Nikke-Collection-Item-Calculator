@@ -1,7 +1,7 @@
+import { KIT_ORDER } from "../../shared/game";
 import { useI18n } from "../i18n/locale";
-import type { MessageKey } from "../i18n/messages.ko";
-import type { Kit } from "../types";
 import type { KitStat, SegmentStat, StatsPanelModel } from "../ui-types";
+import { KIT_LABEL_KEYS, kitDotClass } from "./kitPresentation";
 import { RateBar } from "./StatsRateBar";
 import type {
   IntervalTooltipHandlers,
@@ -9,19 +9,7 @@ import type {
   UsageTooltipItem,
 } from "./StatsTooltip";
 import { comparisonState, normalizeSegmentLabel, weightedTheoryRate } from "./statsPanelModel";
-import {
-  classes,
-  INTERVAL_TOOLTIP_ID,
-  joinClasses,
-  KIT_ORDER,
-  kitDotClass,
-} from "./statsPanelStyles";
-
-const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
-  blue: "kit.blue",
-  purple: "kit.purple",
-  yellow: "kit.yellow",
-};
+import { classes, INTERVAL_TOOLTIP_ID, joinClasses } from "./statsPanelStyles";
 
 function IntervalLegend() {
   const { t } = useI18n();

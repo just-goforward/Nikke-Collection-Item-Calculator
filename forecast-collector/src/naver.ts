@@ -33,6 +33,7 @@ const BOARD_KEYWORDS: Record<48 | 56, readonly string[]> = {
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export type NaverMetadataPage = {
+  rawFeedCount: number;
   items: NaverFeedMetadata[];
   recognizedSkipped: number[];
   unknownRejected: Array<{
@@ -58,6 +59,40 @@ export async function fetchNaverFeedMetadata(
   return parseNaverFeedMetadata(await readGuardedJson(await fetchWithRetry(url, fetcher)), boardId);
 }
 
+export async function fetchNaverItemIdentity(itemId: string, fetcher: FetchLike = fetch) {
+  if (!/^\d{1,20}$/.test(itemId)) throw new Error("naver_item_id");
+  const payload = await readGuardedJson(
+    await fetchWithRetry(new URL(`${NAVER_FEED_URL}/${itemId}`), fetcher),
+  );
+  if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_detail_schema_code");
+  const content = payload["content"];
+  if (
+    !isRecord(content) ||
+    !isRecord(content["feed"]) ||
+    !isRecord(content["user"]) ||
+    !isRecord(content["board"])
+  ) {
+    throw new Error("naver_detail_schema_content");
+  }
+  const feed = content["feed"];
+  const boardId = content["board"]["boardId"];
+  if (
+    String(feed["feedId"]) !== itemId ||
+    feed["loungeId"] !== "nikke" ||
+    typeof boardId !== "number" ||
+    !Number.isSafeInteger(boardId) ||
+    boardId <= 0
+  ) {
+    throw new Error("naver_detail_identity");
+  }
+  return {
+    itemId,
+    boardId,
+    publishedAt: parseNaverDate(feed["createdDate"]),
+    official: content["user"]["userRoleCode"] === "game_manager",
+  };
+}
+
 async function parseNaverFeedMetadata(
   payload: unknown,
   boardId: 48 | 56,
@@ -73,7 +108,7 @@ async function parseNaverFeedMetadata(
       recognizedSkipped.push(index);
       continue;
     }
-    if (!isValidFeedRow(row)) {
+    if (!isValidFeedRow(row, boardId)) {
       unknownRejected.push(await rejectedShape(index, row));
       continue;
     }
@@ -94,7 +129,7 @@ async function parseNaverFeedMetadata(
       unknownRejected.push(await rejectedShape(index, row));
     }
   }
-  return { items, recognizedSkipped, unknownRejected };
+  return { rawFeedCount: content["feeds"].length, items, recognizedSkipped, unknownRejected };
 }
 
 export async function fetchNaverStructuredItem(
@@ -220,6 +255,16 @@ export async function parseScheduleEvents(
     const eventType = classifyEvent(text);
     if (!eventType) continue;
     const eventId = `${item.source}:${item.itemId}:${eventType}`;
+    let reason: ScheduleEvent["reason"] = null;
+    if (manualReview) {
+      if (!item.official) {
+        reason = "not_official_manager";
+      } else if (!item.structured) {
+        reason = "unstructured_body";
+      } else {
+        reason = "ambiguous_schedule_change";
+      }
+    }
     events.push({
       eventId,
       eventType,
@@ -228,13 +273,7 @@ export async function parseScheduleEvents(
       endsAt: schedule?.end ?? null,
       scheduleStatus: "confirmed",
       manualReview,
-      reason: manualReview
-        ? !item.official
-          ? "not_official_manager"
-          : !item.structured
-            ? "unstructured_body"
-            : "ambiguous_schedule_change"
-        : null,
+      reason,
     });
   }
   return events;
@@ -492,15 +531,31 @@ function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function isValidFeedRow(value: unknown): value is Record<string, unknown> & {
+function isValidFeedRow(
+  value: unknown,
+  boardId: 48 | 56,
+): value is Record<string, unknown> & {
   feed: Record<string, unknown>;
   user: Record<string, unknown>;
 } {
-  if (!isRecord(value) || !isRecord(value["feed"]) || !isRecord(value["user"])) return false;
+  if (
+    !isRecord(value) ||
+    !isRecord(value["feed"]) ||
+    !isRecord(value["user"]) ||
+    !isRecord(value["board"])
+  ) {
+    return false;
+  }
   const feed = value["feed"];
   const itemId = String(feed["feedId"] ?? "");
   const title = typeof feed["title"] === "string" ? normalizeWhitespace(feed["title"]) : "";
-  return /^\d{1,20}$/.test(itemId) && title.length > 0 && title.length <= 300;
+  return (
+    /^\d{1,20}$/.test(itemId) &&
+    title.length > 0 &&
+    title.length <= 300 &&
+    feed["loungeId"] === "nikke" &&
+    value["board"]["boardId"] === boardId
+  );
 }
 
 function isRecognizedNonPostRow(value: unknown) {
@@ -525,12 +580,18 @@ async function rejectedShape(index: number, value: unknown) {
     isRecord(value) && isRecord(value["user"])
       ? Object.keys(value["user"]).sort().slice(0, 24)
       : [];
+  let kind: string = typeof value;
+  if (Array.isArray(value)) {
+    kind = "array";
+  } else if (value === null) {
+    kind = "null";
+  }
   return {
     index,
     topLevelKeys,
     shapeHash: await sha256Hex(
       stableJson({
-        kind: Array.isArray(value) ? "array" : value === null ? "null" : typeof value,
+        kind,
         topLevelKeys,
         feedKeys,
         userKeys,

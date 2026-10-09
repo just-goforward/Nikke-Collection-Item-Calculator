@@ -4,13 +4,13 @@ import {
   independentFailure,
   independentProbability,
   independentSuccess,
-  makeTriple,
   type OracleInput,
   type OracleValue,
   type QTriple,
   q,
   type Triple,
 } from "./certified-staging-oracle.ts";
+import { makeTriple } from "./certified-staging-oracle-tuples.ts";
 
 type Color = 0 | 1 | 2;
 type State = Pick<OracleInput, "grade" | "level" | "exp">;
@@ -93,11 +93,11 @@ class ProofBudget {
   readonly maxRows: number;
   graphBytes = 0;
   constructor(limits: PublicPathRelaxationLimits, started: number) {
-    const values = [limits.maxLogicalBytes ?? MAX_LOGICAL, limits.maxRows ?? 1_000_000];
+    const values = [limits.maxLogicalBytes ?? MAX_LOGICAL, limits.maxRows ?? 1_000_000] as const;
     if (values.some((n) => !Number.isSafeInteger(n) || n < 1))
       throw new Error("independent_public_relaxation_invalid_limits");
-    this.maxLogicalBytes = Math.min(values[0]!, MAX_LOGICAL);
-    this.maxRows = Math.min(values[1]!, 1_000_000);
+    this.maxLogicalBytes = Math.min(values[0], MAX_LOGICAL);
+    this.maxRows = Math.min(values[1], 1_000_000);
     this.deadlineAt = Math.min(limits.deadlineAt ?? started + 10_000, started + 10_000);
     if (!Number.isFinite(this.deadlineAt))
       throw new Error("independent_public_relaxation_invalid_deadline");
@@ -216,7 +216,7 @@ function planFor(
   const finiteColors = [...input.finiteColors].sort((a, b) => a - b);
   const widths = makeTriple((color) =>
     finiteColors.includes(color as Color)
-      ? Math.floor(Math.max(input.beforeStock[color]!, input.afterStock[color]!) / 10) + 1
+      ? Math.floor(Math.max(input.beforeStock[color], input.afterStock[color]) / 10) + 1
       : 1,
   );
   const widthProduct = widths.reduce((product, width) => product * width, 1);
@@ -249,12 +249,12 @@ function planFor(
   };
   const admittedLogicalUpperBytes =
     maxRows * maximumRowBytes + Object.values(logicalBreakdown).reduce((sum, n) => sum + n, 0);
-  const reason =
-    maxRows > budget.maxRows
-      ? "independent_public_relaxation_row_admission"
-      : admittedLogicalUpperBytes > budget.maxLogicalBytes
-        ? "independent_public_relaxation_logical_admission"
-        : null;
+  let reason: string | null = null;
+  if (maxRows > budget.maxRows) {
+    reason = "independent_public_relaxation_row_admission";
+  } else if (admittedLogicalUpperBytes > budget.maxLogicalBytes) {
+    reason = "independent_public_relaxation_logical_admission";
+  }
   return {
     admitted: reason === null,
     reason,
@@ -325,11 +325,14 @@ class RelaxationTable {
       throw new Error(plan.reason ?? "independent_public_relaxation_not_admitted");
     this.scale = input.prices.reduce((scale, price) => scale * price.d, 1n);
     this.prices = makeTriple(
-      (color) => input.prices[color]!.n * (this.scale / input.prices[color]!.d),
+      (color) => input.prices[color].n * (this.scale / input.prices[color].d),
     );
     this.finite = [0, 1, 2].map((color) => input.finiteColors.includes(color as Color));
-    for (let depth = 1; depth <= plan.rootDepth; depth++)
-      this.powers.push(this.powers[depth - 1]! * 1000n);
+    let power = 1n;
+    for (let depth = 1; depth <= plan.rootDepth; depth++) {
+      power *= 1000n;
+      this.powers.push(power);
+    }
   }
   get memoRows(): number {
     return this.memo.size;
@@ -353,12 +356,12 @@ class RelaxationTable {
       units[2]
     );
   }
-  private action(node: Node, kit: number, units: Triple): Row {
+  private action(node: Node, kit: Color, units: Triple): Row {
     this.actions++;
     const edge = node.edges[kit]!,
       p = edge.probability;
     const remaining = makeTriple(
-      (color) => units[color]! - (this.finite[kit] && color === kit ? 1 : 0),
+      (color) => units[color] - (this.finite[kit] && color === kit ? 1 : 0),
     );
     const great = this.get(edge.great, remaining),
       ordinary = p < 1000 ? this.get(edge.ordinary, remaining) : EMPTY;
@@ -371,14 +374,14 @@ class RelaxationTable {
     return {
       consumed: makeTriple(
         (color) =>
-          gm * great.consumed[color]! +
-          nm * ordinary.consumed[color]! +
+          gm * great.consumed[color] +
+          nm * ordinary.consumed[color] +
           (color === kit ? 10n * denominator : 0n),
       ),
-      burden: gm * great.burden + nm * ordinary.burden + 10n * this.prices[kit]! * denominator,
+      burden: gm * great.burden + nm * ordinary.burden + 10n * this.prices[kit] * denominator,
       worst: makeTriple(
         (color) =>
-          Math.max(great.worst[color]!, p < 1000 ? ordinary.worst[color]! : 0) +
+          Math.max(great.worst[color], p < 1000 ? ordinary.worst[color] : 0) +
           (color === kit ? 1 : 0),
       ),
       mask: 1 << kit,
@@ -407,7 +410,7 @@ class RelaxationTable {
       previous = this.memo.get(key);
     if (previous) return previous;
     let best: Row | null = null;
-    for (let kit = 0; kit < 3; kit++) {
+    for (const kit of [0, 1, 2] as const) {
       if (this.finite[kit] && units[kit] === 0) continue;
       best = rowChoice(best, this.action(node, kit, units));
     }
@@ -416,14 +419,14 @@ class RelaxationTable {
     return best;
   }
   evaluate(stock: Triple): RelaxedValue {
-    const units = makeTriple((color) => (this.finite[color] ? Math.floor(stock[color]! / 10) : 0));
+    const units = makeTriple((color) => (this.finite[color] ? Math.floor(stock[color] / 10) : 0));
     const row = this.get(this.dag.root, units),
       denominator = this.powers[this.plan.rootDepth]!;
     return {
       P: q(1),
       B: q(row.burden, denominator * this.scale),
       C: q(row.consumed[0] + row.consumed[1] + row.consumed[2], denominator),
-      consumed: makeTriple((color) => q(row.consumed[color]!, denominator)),
+      consumed: makeTriple((color) => q(row.consumed[color], denominator)),
       worst: row.worst,
       mask: row.mask,
       chosen: row.chosen,

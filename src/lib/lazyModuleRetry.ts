@@ -1,7 +1,13 @@
 type DeferredModule = "SuccessAttemptModal" | "RecommendationContent";
 type RecoveryInput = import("./legacyInputRecovery").LegacyRecoveryInput;
+// Kept local so the eager retry path does not load the lazy recovery parser.
+const RECOVERY_KEY = "nikke:legacy-reload-input:v1";
 let readInput: (() => RecoveryInput | null) | null = null;
 let outcomePending = false;
+
+function currentRecoveryUrl() {
+  return location.pathname + location.search;
+}
 
 export function bindLegacyInputRecovery(reader: () => RecoveryInput | null) {
   readInput = reader;
@@ -37,8 +43,8 @@ export function saveLegacyInputRecovery(
               },
             },
     });
-    storage.setItem("nikke:legacy-reload-input:v1", raw);
-    return storage.getItem("nikke:legacy-reload-input:v1") === raw;
+    storage.setItem(RECOVERY_KEY, raw);
+    return storage.getItem(RECOVERY_KEY) === raw;
   } catch {
     return false;
   }
@@ -47,9 +53,8 @@ export function saveLegacyInputRecovery(
 export function setLegacyOutcomeRecovery(input: RecoveryInput | "pending" | null): boolean {
   outcomePending = input === "pending";
   try {
-    if (input)
-      return saveLegacyInputRecovery(input, sessionStorage, location.pathname + location.search);
-    sessionStorage.removeItem("nikke:legacy-reload-input:v1");
+    if (input) return saveLegacyInputRecovery(input, sessionStorage, currentRecoveryUrl());
+    sessionStorage.removeItem(RECOVERY_KEY);
     return true;
   } catch {
     return false;
@@ -59,10 +64,7 @@ export function setLegacyOutcomeRecovery(input: RecoveryInput | "pending" | null
 export function reloadWithLegacyInputs(): boolean {
   try {
     const input = outcomePending ? "pending" : readInput?.();
-    if (
-      !input ||
-      !saveLegacyInputRecovery(input, sessionStorage, location.pathname + location.search)
-    )
+    if (!input || !saveLegacyInputRecovery(input, sessionStorage, currentRecoveryUrl()))
       return false;
     location.reload();
     return true;

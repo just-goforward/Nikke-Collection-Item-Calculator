@@ -68,7 +68,9 @@ function deviationPosition(rate: number, theoreticalRate: number) {
 }
 
 export function markerEdge(percent: number) {
-  return percent <= 12 ? "low" : percent >= 88 ? "high" : "";
+  if (percent <= 12) return "low";
+  if (percent >= 88) return "high";
+  return "";
 }
 
 export function rateBarGeometry(

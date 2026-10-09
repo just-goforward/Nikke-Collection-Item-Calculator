@@ -1,4 +1,20 @@
 import { test as base } from "@playwright/test";
+import type { PreviewServer } from "vite";
+
+export function createGate() {
+  let release: () => void = () => undefined;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+
+export async function closePreviewServer(server: PreviewServer | null) {
+  if (!server) return;
+  await new Promise<void>((resolve, reject) => {
+    server.httpServer.close((error) => (error ? reject(error) : resolve()));
+  });
+}
 
 export async function waitForSignal(signal: Promise<void>, label: string, timeoutMs = 10_000) {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;

@@ -117,6 +117,9 @@ jobs:
       - name: Install dependencies
         run: node scripts/ci/run-checked-command.mjs install npm ci
 
+      - name: Validate pinned certified WASM (no source rebuild)
+        run: node scripts/ci/run-checked-command.mjs certified-wasm npm run build:certified-wasm
+
       - name: Build Rust solver WASM
         run: node scripts/ci/run-checked-command.mjs wasm npm run build:solver-wasm
 

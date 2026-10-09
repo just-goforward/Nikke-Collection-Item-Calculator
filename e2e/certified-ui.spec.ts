@@ -5,6 +5,7 @@ import { certifiedMessages } from "../src/certifiedUi/messages";
 import { enMessages } from "../src/i18n/messages.en";
 import { jaMessages } from "../src/i18n/messages.ja";
 import { koMessages } from "../src/i18n/messages.ko";
+import { closePreviewServer } from "./test";
 
 let server: PreviewServer | null = null;
 const reviewHealthOrigin = "https://collection-kit-forecast-collector-staging.tbvj159.workers.dev";
@@ -58,10 +59,7 @@ test.beforeAll(async () => {
   });
 });
 test.afterAll(async () => {
-  if (!server) return;
-  await new Promise<void>((resolve, reject) =>
-    server?.httpServer.close((error) => (error ? reject(error) : resolve())),
-  );
+  await closePreviewServer(server);
   server = null;
 });
 
@@ -71,6 +69,7 @@ function certifiedAssetPaths() {
   };
   return new Set([
     ...boundary.certifiedFiles,
+    "certified_solver.wasm",
     ...readdirSync("dist/assets")
       .filter((file) => /^browserWorker-.*\.js$/.test(file))
       .map((file) => `assets/${file}`),

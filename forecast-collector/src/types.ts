@@ -66,7 +66,7 @@ export type CandidateBuildResult = {
 };
 
 export type CollectionSummary = {
-  outcome: "completed" | "circuit_open" | "failure";
+  outcome: "completed" | "circuit_open" | "failure" | "held";
   polledSources: number;
   queuedItems: number;
 };

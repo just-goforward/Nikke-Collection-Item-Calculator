@@ -60,8 +60,9 @@ export function createDynamicHpProfileMatrix(
   for (const cycleDays of [21, 28, 35] as const) {
     const soloStart = base + cycleDays * 86_400_000 + 7 * 60 * 60 * 1000;
     for (const scheduleStatus of ["confirmed", "estimated"] as const) {
-      const forecastDate =
-        cycleDays === 21 ? "2026-01-22" : cycleDays === 28 ? "2026-01-29" : "2026-02-05";
+      let forecastDate = "2026-02-05";
+      if (cycleDays === 21) forecastDate = "2026-01-22";
+      else if (cycleDays === 28) forecastDate = "2026-01-29";
       const forecastId = `supply-${forecastDate}-v${scheduleStatus === "confirmed" ? 1 : 2}`;
       const soloDuration = 7 * 86_400_000 - 7 * 60 * 60 * 1000 - 60 * 1000;
       const soloPeriods = [-2, -1, 0, 1, 2, 3, 4].map((offset) => {

@@ -484,12 +484,12 @@ class CertifiedClient<I, O> {
       return;
     }
     if (message.type === "error") {
-      const preserve =
-        message.code === "request_total_deadline"
-          ? "deadline"
-          : message.code === "solver_execution_failure"
-            ? "worker"
-            : undefined;
+      let preserve: "deadline" | "worker" | undefined;
+      if (message.code === "request_total_deadline") {
+        preserve = "deadline";
+      } else if (message.code === "solver_execution_failure") {
+        preserve = "worker";
+      }
       this.failLive(current, `${message.code}: ${message.message}`, preserve);
       return;
     }

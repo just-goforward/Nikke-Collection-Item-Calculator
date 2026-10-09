@@ -17,6 +17,14 @@ export class WorkBudget {
   managedPayloadBytes = 0;
   managedPayloadPeakBytes = 0;
   private externalPayloadBytes = 0;
+  private wasmPayloadBytes = 0;
+  get hostPayloadBytes(): number {
+    return this.managedPayloadBytes + this.externalPayloadBytes;
+  }
+  setWasmPayload(bytes: number): void {
+    this.wasmPayloadBytes = bytes;
+    this.reserve(0);
+  }
   kernelCalls = 0;
   private ticks = 0;
   constructor(options: CertifiedOptions, started: number) {
@@ -52,14 +60,18 @@ export class WorkBudget {
     this.managedPayloadBytes += bytes;
     this.managedPayloadPeakBytes = Math.max(
       this.managedPayloadPeakBytes,
-      this.managedPayloadBytes + this.externalPayloadBytes,
+      this.managedPayloadBytes + this.externalPayloadBytes + this.wasmPayloadBytes,
     );
-    if (this.managedPayloadBytes + this.externalPayloadBytes > this.maxManagedPayloadBytes)
+    if (
+      this.managedPayloadBytes + this.externalPayloadBytes + this.wasmPayloadBytes >
+      this.maxManagedPayloadBytes
+    )
       throw new CertifiedLimit("managed_payload_ceiling");
   }
   canReserve(bytes: number): boolean {
     return (
-      this.managedPayloadBytes + this.externalPayloadBytes + bytes <= this.maxManagedPayloadBytes
+      this.managedPayloadBytes + this.externalPayloadBytes + this.wasmPayloadBytes + bytes <=
+      this.maxManagedPayloadBytes
     );
   }
   setExternalPayload(bytes: number): void {

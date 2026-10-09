@@ -179,7 +179,7 @@ export async function sendDiscordMessage(
   if (!response.ok) {
     throw new DiscordMessageError(
       `discord_create_message_${response.status}`,
-      response.status === 429 || response.status >= 500,
+      response.status >= 500,
     );
   }
   const bytes = await boundedResponseBytes(response);

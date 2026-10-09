@@ -7,7 +7,6 @@ import {
   independentFailure,
   independentProbability,
   independentSuccess,
-  makeTriple,
   mul,
   type OracleInput,
   type OracleValue,
@@ -15,6 +14,7 @@ import {
   q,
   type Triple,
 } from "./certified-staging-oracle.ts";
+import { makeTriple } from "./certified-staging-oracle-tuples.ts";
 
 type State = Pick<OracleInput, "grade" | "level" | "exp">;
 type PolicyValue = { B: ExactQ; C: ExactQ; consumed: QTriple };
@@ -28,7 +28,7 @@ function mixed(probability: ExactQ, success: PolicyValue, normal: PolicyValue): 
     B: add(mul(probability, success.B), mul(other, normal.B)),
     C: add(mul(probability, success.C), mul(other, normal.C)),
     consumed: makeTriple((color) =>
-      add(mul(probability, success.consumed[color]!), mul(other, normal.consumed[color]!)),
+      add(mul(probability, success.consumed[color]), mul(other, normal.consumed[color])),
     ),
   };
 }
@@ -43,7 +43,7 @@ function stateKey(state: State): string {
 }
 function actionValue(
   state: State,
-  color: number,
+  color: 0 | 1 | 2,
   prices: QTriple,
   solve: (state: State) => UnlimitedValue,
 ): RelaxedAction {
@@ -53,14 +53,14 @@ function actionValue(
   const probability = independentProbability(state.grade, state.level, color);
   const value = mixed(probability, successValue, normalValue);
   return {
-    B: add(mul(q(10), prices[color]!), value.B),
+    B: add(mul(q(10), prices[color]), value.B),
     C: add(q(10), value.C),
-    consumed: makeTriple((index) => add(value.consumed[index]!, q(index === color ? 10 : 0))),
+    consumed: makeTriple((index) => add(value.consumed[index], q(index === color ? 10 : 0))),
     worst: makeTriple(
       (index) =>
         Math.max(
-          probability.n > 0n ? successValue.worst[index]! : 0,
-          probability.n < probability.d ? normalValue.worst[index]! : 0,
+          probability.n > 0n ? successValue.worst[index] : 0,
+          probability.n < probability.d ? normalValue.worst[index] : 0,
         ) + (index === color ? 1 : 0),
     ),
   };
@@ -76,8 +76,8 @@ export function createIndependentUnlimited(prices: QTriple) {
     if (cached) return cached;
     if (state.grade === "SR" && state.level === 15)
       return { B: ZERO, C: ZERO, consumed: [ZERO, ZERO, ZERO], worst: [0, 0, 0], actions: [] };
-    const actions = [0, 1, 2].map((color) => actionValue(state, color, prices, solve));
-    let best = actions[0]!;
+    const actions = makeTriple((color) => actionValue(state, color, prices, solve));
+    let best = actions[0];
     for (const action of actions.slice(1)) {
       const burden = cmp(action.B, best.B);
       if (burden < 0 || (burden === 0 && cmp(action.C, best.C) < 0)) best = action;
@@ -112,8 +112,7 @@ export function maximumBlueUses(raw: State): number {
 export function blueReachableStates(raw: State): readonly State[] {
   const pending: State[] = [canonicalState(raw.grade, raw.level, raw.exp)];
   const seen = new Map<string, State>();
-  while (pending.length) {
-    const state = pending.pop()!;
+  for (let state = pending.pop(); state !== undefined; state = pending.pop()) {
     const key = stateKey(state);
     if (seen.has(key) || (state.grade === "SR" && state.level === 15)) continue;
     seen.set(key, state);
@@ -131,11 +130,11 @@ function finiteMix(probability: ExactQ, success: FiniteValue, normal: FiniteValu
 function finiteAction(
   state: State,
   stock: Triple,
-  color: number,
+  color: 0 | 1 | 2,
   prices: QTriple,
   solve: (state: State, stock: Triple) => FiniteValue,
 ): FiniteValue {
-  const reduced = makeTriple((index) => stock[index]! - (index === color ? 10 : 0));
+  const reduced = makeTriple((index) => stock[index] - (index === color ? 10 : 0));
   const [success, normal] = descendants(state, color);
   const value = finiteMix(
     independentProbability(state.grade, state.level, color),
@@ -144,9 +143,9 @@ function finiteAction(
   );
   return {
     P: value.P,
-    B: add(value.B, mul(q(10), prices[color]!)),
+    B: add(value.B, mul(q(10), prices[color])),
     C: add(value.C, q(10)),
-    consumed: makeTriple((index) => add(value.consumed[index]!, q(index === color ? 10 : 0))),
+    consumed: makeTriple((index) => add(value.consumed[index], q(index === color ? 10 : 0))),
   };
 }
 function feasibleRelaxation(stock: Triple, value: UnlimitedValue): boolean {
@@ -168,7 +167,7 @@ export function independentFiniteWitness(
     if (budget.maxMemoEntries !== undefined && memo.size >= budget.maxMemoEntries)
       throw new Error("independent_endpoint_memo_budget");
     const state = canonicalState(raw.grade, raw.level, raw.exp);
-    const key = stateKey(state) + ":" + stock.join(",");
+    const key = `${stateKey(state)}:${stock.join(",")}`;
     const cached = memo.get(key);
     if (cached) return cached;
     if (state.grade === "SR" && state.level === 15)
@@ -177,8 +176,8 @@ export function independentFiniteWitness(
     if (feasibleRelaxation(stock, relaxed)) return { ...relaxed, P: q(1) };
     let best: FiniteValue = { P: ZERO, B: ZERO, C: ZERO, consumed: [ZERO, ZERO, ZERO] };
     let selected = 3;
-    const colors = [0, 1, 2]
-      .filter((color) => stock[color]! >= 10)
+    const colors = ([0, 1, 2] as const)
+      .filter((color) => stock[color] >= 10)
       .sort((a, b) => cmp(relaxed.actions[a]!.B, relaxed.actions[b]!.B) || a - b);
     for (const color of colors) {
       if (

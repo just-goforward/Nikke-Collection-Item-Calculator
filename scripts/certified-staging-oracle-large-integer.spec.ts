@@ -11,10 +11,12 @@ function comparable(value: OracleResult) {
 it("crosschecks the separately admitted large integer oracle against reduced rational Bellman arithmetic", () => {
   for (const grade of ["R", "SR"] as const) {
     for (const level of [0, 4, 5, 9, 10, 14, 15]) {
+      let exp = 0;
+      if (level !== 15) exp = grade === "R" ? 900 : 2900;
       const input: OracleInput = {
         grade,
         level,
-        exp: level === 15 ? 0 : grade === "R" ? 900 : 2900,
+        exp,
         stock: [39, 27, 18],
         prices: [q(7, 211), q(7, 203), q(7, 147)],
       };

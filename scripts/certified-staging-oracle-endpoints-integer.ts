@@ -4,13 +4,13 @@ import {
   independentFailure,
   independentProbability,
   independentSuccess,
-  makeTriple,
   type OracleInput,
   type OracleValue,
   type QTriple,
   q,
   type Triple,
 } from "./certified-staging-oracle.ts";
+import { makeTriple } from "./certified-staging-oracle-tuples.ts";
 import { createIndependentUnlimited } from "./certified-staging-oracle-witness.ts";
 
 type State = Pick<OracleInput, "grade" | "level" | "exp">;
@@ -33,7 +33,7 @@ function gcd(first: bigint, second: bigint): bigint {
 }
 function priceScale(prices: QTriple) {
   const denominator = prices.reduce((value, price) => (value / gcd(value, price.d)) * price.d, 1n);
-  const numerators = makeTriple((color) => prices[color]!.n * (denominator / prices[color]!.d));
+  const numerators = makeTriple((color) => prices[color].n * (denominator / prices[color].d));
   return { denominator, numerators };
 }
 function stockUnits(stock: Triple): number {
@@ -64,14 +64,15 @@ function compare(context: Context, first: Numerators, second: Numerators): numbe
   if (firstB !== secondB) return firstB < secondB ? 1 : -1;
   const firstC = total(first),
     secondC = total(second);
-  return firstC === secondC ? 0 : firstC < secondC ? 1 : -1;
+  if (firstC === secondC) return 0;
+  return firstC < secondC ? 1 : -1;
 }
 function feasible(stock: Triple, value: Unlimited): boolean {
   return stock.every((pieces, color) => pieces >= value.worst[color]! * 10);
 }
 function convertFeasible(value: Unlimited, denominator: bigint): Numerators {
   const consumed = makeTriple((color) => {
-    const amount = value.consumed[color]!;
+    const amount = value.consumed[color];
     if (denominator % amount.d !== 0n)
       throw new Error("independent_endpoint_feasible_denominator_invariant");
     return amount.n * (denominator / amount.d);
@@ -103,7 +104,7 @@ function action(
   color: number,
   denominator: bigint,
 ): Numerators {
-  const remaining = makeTriple((index) => stock[index]! - (index === color ? 10 : 0));
+  const remaining = makeTriple((index) => stock[index] - (index === color ? 10 : 0));
   const probability = perMille(state, color);
   const great =
     probability === 0n
@@ -117,8 +118,8 @@ function action(
     P: probability * great.P + (1000n - probability) * normal.P,
     consumed: makeTriple(
       (index) =>
-        probability * great.consumed[index]! +
-        (1000n - probability) * normal.consumed[index]! +
+        probability * great.consumed[index] +
+        (1000n - probability) * normal.consumed[index] +
         (index === color ? 10n * denominator : 0n),
     ),
   };
@@ -130,8 +131,8 @@ function choose(
   relaxed: Unlimited,
   denominator: bigint,
 ) {
-  const colors = [0, 1, 2]
-    .filter((color) => stock[color]! >= 10)
+  const colors = ([0, 1, 2] as const)
+    .filter((color) => stock[color] >= 10)
     .sort(
       (first, second) =>
         cmp(relaxed.actions[first]!.B, relaxed.actions[second]!.B) || first - second,
@@ -191,7 +192,7 @@ function publicValue(context: Context, input: State & { stock: Triple }) {
     P: q(value.P, denominator),
     B: q(burden(context, value), context.priceDenominator * denominator),
     C: q(total(value), denominator),
-    consumed: makeTriple((color) => q(value.consumed[color]!, denominator)),
+    consumed: makeTriple((color) => q(value.consumed[color], denominator)),
     nodes: context.memo.size,
     unlimitedNodes: context.unlimited.nodes(),
   };

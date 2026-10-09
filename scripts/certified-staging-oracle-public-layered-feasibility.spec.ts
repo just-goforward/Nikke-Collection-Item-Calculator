@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { describe, expect, it, vi } from "vitest";
 import {
   cmp,
@@ -30,17 +31,22 @@ function equivalent(
 ) {
   expect(compareValue(actual, reference)).toBe(0);
   expect(
-    actual.consumed.every((value, color) => cmp(value, reference.consumed[color]!) === 0),
+    actual.consumed.every((value, color) => {
+      const expected = reference.consumed[color];
+      assert(expected, "Expected reference consumption coordinate");
+      return cmp(value, expected) === 0;
+    }),
   ).toBe(true);
   expect(actual.chosen < 0 ? "DONE" : ["blue", "purple", "yellow"][actual.chosen]).toBe(
     reference.action,
   );
   expect(actual.mask).toBe(
-    reference.ties.reduce(
-      (mask, action) =>
-        mask | (action === "blue" ? 1 : action === "purple" ? 2 : action === "yellow" ? 4 : 0),
-      0,
-    ),
+    reference.ties.reduce((mask, action) => {
+      if (action === "blue") return mask | 1;
+      if (action === "purple") return mask | 2;
+      if (action === "yellow") return mask | 4;
+      return mask;
+    }, 0),
   );
 }
 
@@ -63,13 +69,19 @@ describe("ALL-tied-optimal-policy stock feasibility", () => {
         [2, 1],
         [0, 2],
         [1, 2],
-      ]) {
-        const input = { ...request(), prices, stock: [40, purple! * 10, yellow! * 10] as const };
+      ] as const) {
+        const input = { ...request(), prices, stock: [40, purple * 10, yellow * 10] as const };
         const result = evaluatePublicLayeredFeasibility(input);
         expect(result.status).toBe("PASS");
-        equivalent(result.value!, oracle(input));
+        const { value, relaxed } = result;
+        assert(value && relaxed, "Expected feasible and relaxed values");
+        equivalent(value, oracle(input));
         expect(
-          result.relaxed!.worstAll.every((n, color) => n <= Math.floor(input.stock[color]! / 10)),
+          relaxed.worstAll.every((n, color) => {
+            const pieces = input.stock[color];
+            assert(pieces !== undefined, "Expected input stock coordinate");
+            return n <= Math.floor(pieces / 10);
+          }),
         ).toBe(true);
         checks++;
       }
@@ -86,17 +98,31 @@ describe("ALL-tied-optimal-policy stock feasibility", () => {
         afterStock: input.stock,
       });
       expect(result.status).toBe("PASS");
-      expect(compareValue(result.value!, old.before!)).toBe(0);
+      const { value, relaxed } = result;
+      const before = old.before;
+      assert(value && relaxed && before, "Expected matching relaxation values");
+      expect(compareValue(value, before)).toBe(0);
       expect(
-        result.value!.consumed.every((n, color) => cmp(n, old.before!.consumed[color]!) === 0),
+        value.consumed.every((n, color) => {
+          const expected = before.consumed[color];
+          assert(expected, "Expected reference consumption coordinate");
+          return cmp(n, expected) === 0;
+        }),
       ).toBe(true);
-      expect(result.value!.mask).toBe(old.before!.mask);
-      expect(result.value!.chosen).toBe(old.before!.chosen);
-      expect(result.relaxed!.worstAll.every((n, color) => n >= old.before!.worst[color]!)).toBe(
-        true,
-      );
+      expect(value.mask).toBe(before.mask);
+      expect(value.chosen).toBe(before.chosen);
+      expect(
+        relaxed.worstAll.every((n, color) => {
+          const worst = before.worst[color];
+          assert(worst !== undefined, "Expected reference worst-use coordinate");
+          return n >= worst;
+        }),
+      ).toBe(true);
     }
   });
+});
+
+describe("ALL-tied-optimal-policy stock feasibility boundaries", () => {
   it("proves feasible PBC and all action ties below the all-policy public depth", () => {
     const input = {
       ...request(),
@@ -106,12 +132,14 @@ describe("ALL-tied-optimal-policy stock feasibility", () => {
       finiteColors: [],
     };
     const result = evaluatePublicLayeredFeasibility(input);
-    expect(result.plan!.rootDepth).toBe(2);
-    expect(result.plan!.feasibility.actualUses).toEqual([1, 1, 1]);
+    const { plan, relaxed, value } = result;
+    assert(plan && relaxed && value, "Expected admitted feasible result");
+    expect(plan.rootDepth).toBe(2);
+    expect(plan.feasibility.actualUses).toEqual([1, 1, 1]);
     expect(result.status).toBe("PASS");
-    expect(result.relaxed!.worstAll).toEqual([0, 1, 1]);
-    expect(result.value!.mask).toBe(6);
-    equivalent(result.value!, createOracleEvaluator(input.prices)(input));
+    expect(relaxed.worstAll).toEqual([0, 1, 1]);
+    expect(value.mask).toBe(6);
+    equivalent(value, createOracleEvaluator(input.prices)(input));
   });
   it("rejects chosen-policy feasibility when another root-tied policy exceeds stock", () => {
     const input = {
@@ -127,13 +155,17 @@ describe("ALL-tied-optimal-policy stock feasibility", () => {
       afterStock: input.stock,
     });
     expect(old.beforeFits).toBe(true);
-    expect(old.before!.worst).toEqual([1, 0, 0]);
+    const before = old.before;
+    assert(before, "Expected chosen-policy endpoint");
+    expect(before.worst).toEqual([1, 0, 0]);
     const result = evaluatePublicLayeredFeasibility(input);
     expect(result.status).toBe("UNKNOWN");
     expect(result.allOptimalPoliciesFit).toBe(false);
     expect(result.value).toBeNull();
-    expect(result.relaxed!.mask).toBe(7);
-    expect(result.relaxed!.worstAll).toEqual([1, 1, 1]);
+    const relaxed = result.relaxed;
+    assert(relaxed, "Expected infeasible relaxed policy");
+    expect(relaxed.mask).toBe(7);
+    expect(relaxed.worstAll).toEqual([1, 1, 1]);
     expect(createOracleEvaluator(input.prices)(input).ties).toEqual(["blue"]);
   });
   it("includes descendant action ties even when the relaxed root mask is singleton", () => {
@@ -149,12 +181,16 @@ describe("ALL-tied-optimal-policy stock feasibility", () => {
       afterStock: input.stock,
     });
     expect(old.beforeFits).toBe(true);
-    expect(old.before!.mask).toBe(1);
-    expect(old.before!.worst).toEqual([1, 1, 0]);
+    const before = old.before;
+    assert(before, "Expected chosen-policy endpoint");
+    expect(before.mask).toBe(1);
+    expect(before.worst).toEqual([1, 1, 0]);
     const result = evaluatePublicLayeredFeasibility(input);
     expect(result.status).toBe("UNKNOWN");
-    expect(result.relaxed!.mask).toBe(1);
-    expect(result.relaxed!.worstAll).toEqual([1, 1, 1]);
+    const relaxed = result.relaxed;
+    assert(relaxed, "Expected descendant-tie relaxation");
+    expect(relaxed.mask).toBe(1);
+    expect(relaxed.worstAll).toEqual([1, 1, 1]);
     expect(result.value).toBeNull();
   });
   it("does not use expected consumption as a stock-feasibility certificate", () => {
@@ -167,11 +203,15 @@ describe("ALL-tied-optimal-policy stock feasibility", () => {
     };
     const baseline = evaluatePublicLayeredFeasibility(unlimited);
     expect(baseline.status).toBe("PASS");
-    const expected = baseline.value!.consumed[0];
+    const { value, relaxed: baselineRelaxed } = baseline;
+    assert(value && baselineRelaxed, "Expected unlimited baseline values");
+    const expected = value.consumed[0];
     const uses = Number((expected.n + 10n * expected.d - 1n) / (10n * expected.d));
-    expect(uses).toBeLessThan(baseline.relaxed!.worstAll[0]);
+    expect(uses).toBeLessThan(baselineRelaxed.worstAll[0]);
     const result = evaluatePublicLayeredFeasibility({ ...unlimited, stock: [10 * uses, 0, 0] });
-    expect(cmp(result.relaxed!.consumed[0], q(10 * uses))).toBeLessThanOrEqual(0);
+    const relaxed = result.relaxed;
+    assert(relaxed, "Expected limited-stock relaxation");
+    expect(cmp(relaxed.consumed[0], q(10 * uses))).toBeLessThanOrEqual(0);
     expect(result.status).toBe("UNKNOWN");
     expect(result.value).toBeNull();
   });
@@ -184,15 +224,19 @@ describe("ALL-tied-optimal-policy stock feasibility", () => {
     };
     const result = evaluatePublicLayeredFeasibility(input);
     expect(result.status).toBe("PASS");
-    expect(result.value!.mask).toBe(4);
-    expect(result.relaxed!.worstAll).toEqual([0, 0, 1]);
+    const { value, relaxed } = result;
+    assert(value && relaxed, "Expected exact tie-breaking values");
+    expect(value.mask).toBe(4);
+    expect(relaxed.worstAll).toEqual([0, 0, 1]);
     const ties = evaluatePublicLayeredFeasibility({
       ...input,
       exp: 2900,
       prices: [q(1), q(1), q(1)],
     });
-    expect(ties.value!.mask).toBe(7);
-    expect(ties.relaxed!.worstAll).toEqual([1, 1, 1]);
+    const { value: tiedValue, relaxed: tiedRelaxed } = ties;
+    assert(tiedValue && tiedRelaxed, "Expected all-tied values");
+    expect(tiedValue.mask).toBe(7);
+    expect(tiedRelaxed.worstAll).toEqual([1, 1, 1]);
   });
 });
 
@@ -213,8 +257,10 @@ describe("independent feasibility resource and status boundaries", () => {
   it("retires finite layers within the upfront live reservation", () => {
     const result = evaluatePublicLayeredFeasibility({ ...request(), stock: [40, 40, 30] });
     expect(result.status).toBe("PASS");
-    expect(result.diagnostics.cumulativeRows).toBe(result.plan!.cumulativeRows);
-    expect(result.diagnostics.peakLiveRows).toBe(result.plan!.maximumLiveRows);
+    const plan = result.plan;
+    assert(plan, "Expected admitted feasibility plan");
+    expect(result.diagnostics.cumulativeRows).toBe(plan.cumulativeRows);
+    expect(result.diagnostics.peakLiveRows).toBe(plan.maximumLiveRows);
     expect(result.diagnostics.cumulativeRows).toBeGreaterThan(result.diagnostics.peakLiveRows);
   });
   it("refuses live and byte admission before worktable allocation", () => {
@@ -278,8 +324,10 @@ describe("independent feasibility resource and status boundaries", () => {
       prices: [tiny, q(1), q(2)],
     });
     expect(result.status).toBe("PASS");
-    expect(cmp(result.value!.B, q(10n, 1n << 5000n))).toBe(0);
-    expect(result.relaxed!.worstAll).toEqual([1, 0, 0]);
+    const { value, relaxed } = result;
+    assert(value && relaxed, "Expected exact-price feasibility values");
+    expect(cmp(value.B, q(10n, 1n << 5000n))).toBe(0);
+    expect(relaxed.worstAll).toEqual([1, 0, 0]);
   });
   it("handles a terminal root and rejects sparse stock and finite-color tuples", () => {
     const terminal = evaluatePublicLayeredFeasibility({
@@ -289,8 +337,10 @@ describe("independent feasibility resource and status boundaries", () => {
       stock: [0, 0, 0],
     });
     expect(terminal.status).toBe("PASS");
-    expect(terminal.relaxed!.worstAll).toEqual([0, 0, 0]);
-    expect(terminal.value!.mask).toBe(0);
+    const { relaxed, value } = terminal;
+    assert(relaxed && value, "Expected terminal feasibility values");
+    expect(relaxed.worstAll).toEqual([0, 0, 0]);
+    expect(value.mask).toBe(0);
     expect(terminal.diagnostics.cumulativeRows).toBe(0);
     const colors: (0 | 1 | 2)[] = [];
     colors.length = 1;

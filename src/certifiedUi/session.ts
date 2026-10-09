@@ -6,6 +6,7 @@ import {
   fromWire,
   mul,
   ONE,
+  type Q,
   sum,
   toWire,
   type WireQ,
@@ -328,17 +329,23 @@ export function recordCertifiedReceipt(
   if (!validStock(pieces) || !isoTime(at)) throw new Error("invalid_receipt");
   if (!certifiedClaimableEvents([event], session, Date.parse(at)).length)
     throw new Error("receipt_not_claimable");
-  const unnormalized = ([0, 1, 2] as const).map((cohort) => {
+  const posteriorMass = (cohort: 0 | 1 | 2) => {
     let likelihood = ZERO;
     for (const outcome of getCertifiedEventDistribution(event, cohort, lawOptions)) {
       if (outcome.pieces.every((n, i) => n === pieces[i]))
         likelihood = add(likelihood, outcome.mass);
     }
     return mul(fromWire(session.cohortWeights[cohort]), likelihood);
-  });
+  };
+  const unnormalized: [Q, Q, Q] = [posteriorMass(0), posteriorMass(1), posteriorMass(2)];
   const normalizer = sum(unnormalized);
   if (cmp(normalizer, ZERO) === 0) throw new Error("receipt_outside_supply_model");
-  const weights = unnormalized.map((mass) => toWire(div(mass, normalizer)));
+  const posterior = (mass: Q) => toWire(div(mass, normalizer));
+  const weights: [WireQ, WireQ, WireQ] = [
+    posterior(unnormalized[0]),
+    posterior(unnormalized[1]),
+    posterior(unnormalized[2]),
+  ];
   const stock: [number, number, number] = [0, 1, 2].map(
     (i) => (session.stock[i] ?? 0) + (alreadyInStock ? 0 : (pieces[i] ?? 0)),
   ) as [number, number, number];
@@ -346,7 +353,7 @@ export function recordCertifiedReceipt(
   return {
     ...session,
     stock,
-    cohortWeights: [weights[0]!, weights[1]!, weights[2]!],
+    cohortWeights: weights,
     receipts: [...session.receipts, { eventId: event.id, at, pieces: [...pieces], alreadyInStock }],
   };
 }

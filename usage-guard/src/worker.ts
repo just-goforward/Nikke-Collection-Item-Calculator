@@ -327,6 +327,12 @@ async function sendQuotaAlert(
 ) {
   if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_ALERT_CHANNEL_ID) return "not_configured";
   const recovering = effectiveAction === "normal" && previousAction !== null;
+  let color = 0xe74c3c;
+  if (recovering) {
+    color = 0x2ecc71;
+  } else if (effectiveAction === "warning") {
+    color = 0xf1c40f;
+  }
   try {
     const response = await fetch(
       `https://discord.com/api/v10/channels/${env.DISCORD_ALERT_CHANNEL_ID}/messages`,
@@ -350,7 +356,7 @@ async function sendQuotaAlert(
                 `지배 지표: ${evidence.utilization.governingMetric}`,
                 `결제 기간: ${evidence.plan.periodStart} ~ ${evidence.plan.periodEnd}`,
               ].join("\n"),
-              color: recovering ? 0x2ecc71 : effectiveAction === "warning" ? 0xf1c40f : 0xe74c3c,
+              color,
             },
           ],
         }),

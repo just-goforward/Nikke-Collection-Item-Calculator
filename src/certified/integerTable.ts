@@ -1,6 +1,16 @@
 import { cmp, type Q, q } from "../../shared/certifiedRational";
 import type { WorkBudget } from "./budget";
-import { CAPS, EDGES, minPositiveUses, TERMINAL, type Units } from "./game";
+import {
+  CAPS,
+  EDGES,
+  KIT_INDICES,
+  type KitIndex,
+  minPositiveUses,
+  type StateId,
+  TERMINAL,
+  type Units,
+} from "./game";
+import { GUIDE_DIMENSIONS } from "./guidanceDomain";
 import type { Triple } from "./types";
 import type { ExactValue } from "./value";
 
@@ -13,10 +23,9 @@ type IntegerValue = {
 type Relaxation = { value: ExactValue; bound: Units; actions: readonly ExactValue[] };
 const FAILED: IntegerValue = { p: 0n, consumed: [0n, 0n, 0n], exponent: 0, mask: 0 };
 const COMPLETE: IntegerValue = { ...FAILED, p: 1n };
-const DIMENSIONS = [0, 1, 2].map((k) => Math.max(...CAPS.map((cap) => cap[k]!)) + 1);
-const Y_STRIDE = DIMENSIONS[2]!;
-const B_STRIDE = DIMENSIONS[1]! * Y_STRIDE;
-const STATE_STRIDE = DIMENSIONS[0]! * B_STRIDE;
+const Y_STRIDE = GUIDE_DIMENSIONS[2];
+const B_STRIDE = GUIDE_DIMENSIONS[1] * Y_STRIDE;
+const STATE_STRIDE = GUIDE_DIMENSIONS[0] * B_STRIDE;
 const INTEGER_MEMO_MAX_KEY = TERMINAL * STATE_STRIDE - 1;
 if (!Number.isSafeInteger(INTEGER_MEMO_MAX_KEY) || INTEGER_MEMO_MAX_KEY > Number.MAX_SAFE_INTEGER) {
   throw new Error("certified_integer_memo_key_domain_not_exact");
@@ -82,28 +91,29 @@ export class IntegerFiniteTable {
     if (ab !== bb) return ab < bb ? 1 : -1;
     const ac = this.total(a),
       bc = this.total(b);
-    return ac === bc ? 0 : ac < bc ? 1 : -1;
+    if (ac === bc) return 0;
+    return ac < bc ? 1 : -1;
   }
 
-  private action(sid: number, kit: number, units: Units, exponent: number): IntegerValue {
+  private action(sid: number, kit: KitIndex, units: Units, exponent: number): IntegerValue {
     this.budget.tick();
     this.budget.exactTransitions++;
-    const [perMille, great, normal] = EDGES[sid]![kit]!;
+    const [perMille, great, normal] = EDGES[sid as StateId][kit];
     const remaining: Units = [...units];
-    remaining[kit]!--;
+    remaining[kit]--;
     const g = perMille ? this.get(great, remaining) : FAILED;
     const n = perMille < 1000 ? this.get(normal, remaining) : FAILED;
     const gm = perMille ? BigInt(perMille) * this.power(exponent - 1 - g.exponent) : 0n;
     const nm =
       perMille < 1000 ? BigInt(1000 - perMille) * this.power(exponent - 1 - n.exponent) : 0n;
     const immediate = 10n * this.power(exponent);
+    const consumption = (k: KitIndex): bigint =>
+      gm * g.consumed[k] + nm * n.consumed[k] + (kit === k ? immediate : 0n);
     return {
       p: gm * g.p + nm * n.p,
       exponent,
       mask: 1 << kit,
-      consumed: [0, 1, 2].map(
-        (k) => gm * g.consumed[k]! + nm * n.consumed[k]! + (kit === k ? immediate : 0n),
-      ) as [bigint, bigint, bigint],
+      consumed: [consumption(0), consumption(1), consumption(2)],
     };
   }
 
@@ -123,17 +133,17 @@ export class IntegerFiniteTable {
     exponent: number,
     relaxation: Relaxation,
   ): IntegerValue {
-    const order = [0, 1, 2].sort(
-      (a, b) =>
-        cmp(relaxation.actions[a]!.b, relaxation.actions[b]!.b) ||
-        cmp(relaxation.actions[a]!.c, relaxation.actions[b]!.c) ||
-        a - b,
+    // selectActions is reached only for sid<600; unlimited(sid) has filled
+    // all three action slots before returning its relaxation.
+    const actions = relaxation.actions as readonly [ExactValue, ExactValue, ExactValue];
+    const order = [...KIT_INDICES].sort(
+      (a, b) => cmp(actions[a].b, actions[b].b) || cmp(actions[a].c, actions[b].c) || a - b,
     );
     let best = FAILED,
       chosen = -1;
     for (const kit of order) {
       if (units[kit] === 0) continue;
-      if (this.dominatedByRelaxation(best, relaxation.actions[kit]!, exponent)) continue;
+      if (this.dominatedByRelaxation(best, actions[kit], exponent)) continue;
       const action = this.action(sid, kit, units, exponent);
       const comparison = this.compare(action, best);
       if (comparison > 0) {
@@ -153,14 +163,19 @@ export class IntegerFiniteTable {
   private get(sid: number, rawUnits: Triple, enumerateRootActions = false): IntegerValue {
     this.budget.tick();
     if (sid === TERMINAL) return COMPLETE;
-    const units: Units = [0, 1, 2].map((k) => Math.min(rawUnits[k]!, CAPS[sid]![k]!)) as Units;
+    const caps = CAPS[sid as StateId];
+    const units: Units = [
+      Math.min(rawUnits[0], caps[0]),
+      Math.min(rawUnits[1], caps[1]),
+      Math.min(rawUnits[2], caps[2]),
+    ];
     const exponent = units[0] + units[1] + units[2];
     if (exponent < minPositiveUses(sid)) return FAILED;
     const key = sid * STATE_STRIDE + units[0] * B_STRIDE + units[1] * Y_STRIDE + units[2];
     const previous = this.memo.get(key);
     if (previous) return previous;
     const relaxation = this.relaxed(sid);
-    if (!enumerateRootActions && relaxation.bound.every((required, k) => units[k]! >= required)) {
+    if (!enumerateRootActions && KIT_INDICES.every((k) => units[k] >= relaxation.bound[k])) {
       return this.fromRelaxed(relaxation.value, exponent);
     }
     const best = this.selectActions(sid, units, exponent, relaxation);

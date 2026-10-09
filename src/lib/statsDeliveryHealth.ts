@@ -16,6 +16,11 @@ const FAILURE_CLASSES = new Set<DeliveryFailureClass>(DELIVERY_FAILURE_CLASSES);
 const EVENT_KINDS = new Set(STATS_DELIVERY_EVENT_KINDS);
 type HealthStorage = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 
+function normalizeFailureClass(failureClass: DeliveryFailureClass | null) {
+  if (failureClass === null) return null;
+  return FAILURE_CLASSES.has(failureClass) ? failureClass : "unknown";
+}
+
 export class StatsDeliveryHealthStore {
   constructor(
     private readonly storage: HealthStorage,
@@ -44,12 +49,7 @@ export class StatsDeliveryHealthStore {
     if (!record) return;
     const totalAttempts = record.attempts + attempts;
     const recordedFailureClass = failureClass ?? record.lastFailureClass;
-    const normalizedFailureClass =
-      recordedFailureClass === null
-        ? null
-        : FAILURE_CLASSES.has(recordedFailureClass)
-          ? recordedFailureClass
-          : "unknown";
+    const normalizedFailureClass = normalizeFailureClass(recordedFailureClass);
     if (
       outcome === "retried_success" &&
       totalAttempts <= 1 &&

@@ -12,7 +12,12 @@ import {
 } from "./http-shared";
 import { decideManualReview, listManualReviews } from "./manual-review";
 import { sanitizeOpsError } from "./ops";
-import { listSourceQueue, processSourceQueue, readScheduleLedger } from "./source-queue";
+import {
+  listSourceQueue,
+  processSourceQueue,
+  readScheduleLedger,
+  recoverNaverBoundary,
+} from "./source-queue";
 
 const SOURCE_ROUTE_HANDLERS: readonly AdminRouteHandler[] = [
   handleSourceReadRoute,
@@ -65,18 +70,14 @@ async function handleSourceMutationRoute({ request, url, env }: AdminRequestCont
       return new Response("Payload too large", { status: 413 });
     }
     try {
-      return json(
-        await processSourceQueue(
-          env.FORECAST_DB,
-          await readBoundedJson(request, 1_000_000, "source_queue_body"),
-        ),
-      );
+      const body = await readBoundedJson(request, 1_000_000, "source_queue_body");
+      if (isBoundaryRecoveryRequest(body)) {
+        return json(await recoverNaverBoundary(env.FORECAST_DB, opsEnvironment(env), body));
+      }
+      return json(await processSourceQueue(env.FORECAST_DB, body));
     } catch (error) {
       const message = error instanceof Error ? error.message : "invalid_request";
-      return json(
-        { error: message.slice(0, 120) },
-        message === "candidate_revision_conflict" ? 409 : 400,
-      );
+      return json({ error: message.slice(0, 120) }, message.includes("_conflict") ? 409 : 400);
     }
   }
 
@@ -88,6 +89,12 @@ async function handleSourceMutationRoute({ request, url, env }: AdminRequestCont
     return json({ updated }, updated ? 200 : 409);
   }
   return null;
+}
+
+function isBoundaryRecoveryRequest(body: unknown): body is { mode: "recover-boundary" } {
+  return (
+    typeof body === "object" && body !== null && "mode" in body && body.mode === "recover-boundary"
+  );
 }
 
 async function listReviews(url: URL, db: D1Database) {
@@ -111,12 +118,12 @@ async function decideReview(request: Request, env: AdminRequestContext["env"], r
     });
   } catch (error) {
     const code = sanitizeOpsError(error);
-    const status =
-      code.includes("conflict") || code.includes("not_pending") || code.includes("race")
-        ? 409
-        : code.includes("not_found")
-          ? 404
-          : 400;
+    let status = 400;
+    if (code.includes("conflict") || code.includes("not_pending") || code.includes("race")) {
+      status = 409;
+    } else if (code.includes("not_found")) {
+      status = 404;
+    }
     return json({ error: code }, status);
   }
 }

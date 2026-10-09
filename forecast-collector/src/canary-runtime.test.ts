@@ -353,16 +353,24 @@ function samplesWithDistribution(
   const p99Count = 2;
   const lowerCount = values.length - p95Count - p99Count;
   const lower = (average * values.length - p95 * p95Count - p99 * p99Count) / lowerCount;
-  return values.map((slot, index) => ({
-    slot,
-    requestIdHash: index.toString(16).padStart(64, "0"),
-    scriptVersionId: versionId,
-    scriptVersionTag: SHA,
-    identitySource: "tag" as const,
-    eventType: "scheduled" as const,
-    cpuTimeMs: index < lowerCount ? lower : index < lowerCount + p95Count ? p95 : p99,
-    outcome: "ok",
-  }));
+  return values.map((slot, index) => {
+    let cpuTimeMs = p99;
+    if (index < lowerCount) {
+      cpuTimeMs = lower;
+    } else if (index < lowerCount + p95Count) {
+      cpuTimeMs = p95;
+    }
+    return {
+      slot,
+      requestIdHash: index.toString(16).padStart(64, "0"),
+      scriptVersionId: versionId,
+      scriptVersionTag: SHA,
+      identitySource: "tag" as const,
+      eventType: "scheduled" as const,
+      cpuTimeMs,
+      outcome: "ok",
+    };
+  });
 }
 
 function slots(remainder: 0 | 1) {

@@ -101,13 +101,15 @@ export function createExactInteractiveReplanSession(
     let solved: ExactPolicySolverResult;
     solveCalls += 1;
     try {
-      solved = options.policySolver
-        ? options.policySolver(input)
-        : solveWithResearchCostModel(input, costModel, undefined, {
-            ...(options.toleranceOverride !== undefined
-              ? { toleranceOverride: options.toleranceOverride }
-              : {}),
-          });
+      if (options.policySolver) {
+        solved = options.policySolver(input);
+      } else {
+        solved = solveWithResearchCostModel(input, costModel, undefined, {
+          ...(options.toleranceOverride !== undefined
+            ? { toleranceOverride: options.toleranceOverride }
+            : {}),
+        });
+      }
     } catch (error) {
       throw new PolicySolverFailure(error);
     }

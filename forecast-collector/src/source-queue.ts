@@ -11,7 +11,8 @@ import {
   sourceItemAndEventStatements,
 } from "./db";
 import { ensureManualReviewStatement } from "./manual-review";
-import { type FetchLike, fetchNaverFeedMetadata } from "./naver";
+import { type FetchLike, fetchNaverFeedMetadata, fetchNaverItemIdentity } from "./naver";
+import { type OpsEnvironment, upsertOpsAlertStatement } from "./ops";
 import type {
   CandidateBuildResult,
   CollectorEnv,
@@ -68,6 +69,25 @@ const sourceQueueProcessSchema = z.object({
     }),
   ),
 });
+const boundaryRecoverySchema = z.object({
+  mode: z.literal("recover-boundary"),
+  environment: z.enum(["staging", "production"]),
+  source: sourceSchema,
+  expectedCommittedItemId: z.string().check(z.regex(/^\d{1,20}$/)),
+});
+const recoveryGuardSql = `EXISTS (
+  SELECT 1 FROM forecast_ops_alerts
+  WHERE alert_key = ? AND environment = ? AND state = 'resolved'
+    AND json_extract(context_json, '$.recoveryId') = ?
+)`;
+
+type BoundaryHoldProof = {
+  board: number;
+  committedItemId: string | null;
+  committedPublishedAt: string | null;
+  scanHeadItemId: string | null;
+  scanHeadPublishedAt: string | null;
+};
 
 export class NaverPartialSchemaError extends Error {
   readonly boardId: 48 | 56;
@@ -84,6 +104,20 @@ export class NaverPartialSchemaError extends Error {
     this.boardId = boardId;
     this.offset = offset;
     this.rejected = rejected;
+  }
+}
+
+export class NaverScanBoundaryError extends Error {
+  constructor(readonly queuedItems: number) {
+    super("naver_scan_boundary_missing");
+    this.name = "NaverScanBoundaryError";
+  }
+}
+
+export class NaverBoundaryHeldError extends Error {
+  constructor() {
+    super("naver_boundary_held");
+    this.name = "NaverBoundaryHeldError";
   }
 }
 
@@ -127,16 +161,23 @@ export async function finishInvocation(
 export async function invocationCircuitState(db: D1Database, nowMs: number) {
   const rows = await db
     .prepare(
-      `SELECT status, next_retry_at FROM collector_invocations
-       WHERE status <> 'running' ORDER BY scheduled_at DESC LIMIT 12`,
+      `SELECT status, next_retry_at, error_code FROM collector_invocations
+       WHERE status IN ('failure', 'completed')
+         AND (error_code IS NULL OR error_code <> 'naver_boundary_held_only')
+       ORDER BY scheduled_at DESC LIMIT 12`,
     )
-    .all<{ status: string; next_retry_at: string | null }>();
+    .all<{ status: string; next_retry_at: string | null; error_code: string | null }>();
   let failures = 0;
   for (const row of rows.results) {
-    if (row.status !== "failure") break;
+    if (
+      row.status !== "failure" ||
+      row.error_code === "naver_scan_boundary_missing" ||
+      row.error_code === "naver_boundary_held"
+    )
+      break;
     failures += 1;
   }
-  const nextRetryAt = rows.results[0]?.next_retry_at ?? null;
+  const nextRetryAt = failures > 0 ? (rows.results[0]?.next_retry_at ?? null) : null;
   return {
     failures,
     open: failures >= 3 && nextRetryAt !== null && Date.parse(nextRetryAt) > nowMs,
@@ -153,33 +194,29 @@ export async function pollNaverSource(
   db: D1Database,
   boardId: 48 | 56,
   fetcher: FetchLike = fetch,
+  environment: OpsEnvironment = "staging",
 ) {
   const source = `naver-board-${boardId}` as NaverSourceKind;
-  const state = await db
-    .prepare(
-      `SELECT committed_item_id, committed_published_at, scan_head_item_id,
-              scan_head_published_at, next_offset
-       FROM source_poll_state WHERE source = ?`,
-    )
-    .bind(source)
-    .first<PollStateRow>();
+  const state = await readPollState(db, source);
+  if (await readBoundaryHold(db, boardId, environment)) {
+    return recoverMovedNaverBoundary(db, boardId, state, environment, fetcher);
+  }
   const offset = Number(state?.next_offset ?? 0);
   const metadataPage = await fetchNaverFeedMetadata(boardId, offset, fetcher);
   if (metadataPage.unknownRejected.length > 0) {
     throw new NaverPartialSchemaError(boardId, offset, metadataPage.unknownRejected);
   }
   const page = metadataPage.items;
-  if (page.length === 0) throw new Error("naver_empty_feed");
+  if (metadataPage.rawFeedCount === 0 && offset === 0) throw new Error("naver_empty_feed");
   const committedIndex = state?.committed_item_id
     ? page.findIndex((item) => item.itemId === state.committed_item_id)
     : -1;
-  const toQueue = state?.committed_item_id
-    ? committedIndex >= 0
-      ? page.slice(0, committedIndex)
-      : page
-    : page;
-  const scanHead = offset === 0 ? page[0] : state && scanHeadFromState(state);
-  const scanComplete = !state?.committed_item_id || committedIndex >= 0 || page.length < PAGE_SIZE;
+  const toQueue =
+    state?.committed_item_id && committedIndex >= 0 ? page.slice(0, committedIndex) : page;
+  const scanHead = offset === 0 ? page[0] : ((state && scanHeadFromState(state)) ?? page[0]);
+  const scanComplete = committedIndex >= 0 || (!state?.committed_item_id && scanHead !== undefined);
+  const scanEnded = scanComplete || metadataPage.rawFeedCount < PAGE_SIZE;
+  const boundaryMissing = !scanComplete && scanEnded;
   const nowIso = new Date().toISOString();
   const statements = queueStatements(db, toQueue, nowIso);
   statements.push(
@@ -201,18 +238,231 @@ export async function pollNaverSource(
         source,
         scanComplete
           ? (scanHead?.itemId ?? state?.committed_item_id ?? null)
-          : state?.committed_item_id,
+          : (state?.committed_item_id ?? null),
         scanComplete
           ? (scanHead?.publishedAt ?? state?.committed_published_at ?? null)
-          : state?.committed_published_at,
+          : (state?.committed_published_at ?? null),
         scanComplete ? null : (scanHead?.itemId ?? null),
         scanComplete ? null : (scanHead?.publishedAt ?? null),
-        scanComplete ? 0 : offset + PAGE_STEP,
+        scanEnded ? 0 : offset + PAGE_STEP,
         nowIso,
       ),
   );
+  if (boundaryMissing) {
+    statements.push(
+      upsertOpsAlertStatement(db, {
+        alertKey: boundaryHoldKey(boardId, environment),
+        environment,
+        severity: "critical",
+        component: "naver-metadata",
+        errorCode: "naver_scan_boundary_missing",
+        context: {
+          board: boardId,
+          committedItemId: state?.committed_item_id ?? null,
+          committedPublishedAt: state?.committed_published_at ?? null,
+          scanHeadItemId: scanHead?.itemId ?? null,
+          scanHeadPublishedAt: scanHead?.publishedAt ?? null,
+          terminalOffset: offset,
+          rawFeedCount: metadataPage.rawFeedCount,
+          recognizedSkippedCount: metadataPage.recognizedSkipped.length,
+        },
+      }),
+    );
+  }
   await db.batch(statements);
+  if (boundaryMissing) throw new NaverScanBoundaryError(toQueue.length);
   return toQueue.length;
+}
+
+export async function recoverNaverBoundary(
+  db: D1Database,
+  environment: OpsEnvironment,
+  raw: unknown,
+  fetcher: FetchLike = fetch,
+  movedIdentity?: Awaited<ReturnType<typeof fetchNaverItemIdentity>>,
+) {
+  const request = boundaryRecoverySchema.parse(raw);
+  if (request.environment !== environment) throw new Error("naver_boundary_environment_mismatch");
+  const boardId = request.source === "naver-board-48" ? 48 : 56;
+  const state = await readPollState(db, request.source);
+  const hold = await readBoundaryHold(db, boardId, environment);
+  if (!state || !hold) throw new Error("naver_boundary_not_held");
+  const proof = JSON.parse(hold.context_json) as BoundaryHoldProof;
+  if (
+    state.committed_item_id !== request.expectedCommittedItemId ||
+    proof.committedItemId !== request.expectedCommittedItemId ||
+    proof.board !== boardId
+  ) {
+    throw new Error("naver_boundary_marker_conflict");
+  }
+  const page = await fetchNaverFeedMetadata(boardId, 0, fetcher);
+  if (page.unknownRejected.length > 0) {
+    throw new NaverPartialSchemaError(boardId, 0, page.unknownRejected);
+  }
+  const scanHead = page.items[0];
+  if (!scanHead) throw new NaverScanBoundaryError(0);
+  const toQueue = boundaryRecoveryItems(
+    page.items,
+    state,
+    request.expectedCommittedItemId,
+    boardId,
+    proof,
+    movedIdentity,
+  );
+  const nowIso = new Date().toISOString();
+  const recovery = {
+    alertKey: boundaryHoldKey(boardId, environment),
+    environment,
+    recoveryId: crypto.randomUUID(),
+  };
+  const guardBindings = [recovery.alertKey, environment, recovery.recoveryId];
+  const results = await db.batch([
+    db
+      .prepare(
+        `UPDATE forecast_ops_alerts
+         SET state = 'resolved', resolved_at = ?, next_send_at = ?,
+             context_json = json_set(
+               context_json, '$.recoveryId', ?, '$.recoveredHeadItemId', ?,
+               '$.recoveryReason', ?, '$.movedBoardId', ?
+             )
+         WHERE alert_key = ? AND environment = ? AND state = 'open' AND context_json = ?
+           AND EXISTS (
+             SELECT 1 FROM source_poll_state
+             WHERE source = ? AND committed_item_id = ? AND committed_published_at IS ?
+               AND scan_head_item_id IS ? AND scan_head_published_at IS ?
+               AND next_offset = ? AND updated_at = ?
+           )`,
+      )
+      .bind(
+        nowIso,
+        nowIso,
+        recovery.recoveryId,
+        scanHead.itemId,
+        movedIdentity ? "verified_board_change" : "boundary_found",
+        movedIdentity?.boardId ?? null,
+        recovery.alertKey,
+        environment,
+        hold.context_json,
+        request.source,
+        request.expectedCommittedItemId,
+        state.committed_published_at,
+        state.scan_head_item_id,
+        state.scan_head_published_at,
+        state.next_offset,
+        state.updated_at,
+      ),
+    ...queueStatements(db, toQueue, nowIso, recovery),
+    db
+      .prepare(
+        `UPDATE source_poll_state
+         SET committed_item_id = ?, committed_published_at = ?, scan_head_item_id = NULL,
+             scan_head_published_at = NULL, next_offset = 0, updated_at = ?
+         WHERE source = ? AND ${recoveryGuardSql}`,
+      )
+      .bind(scanHead.itemId, scanHead.publishedAt, nowIso, request.source, ...guardBindings),
+  ]);
+  if (results[0]?.meta.changes !== 1) throw new Error("naver_boundary_recovery_conflict");
+  return { recovered: true, source: request.source, queuedItems: toQueue.length };
+}
+
+async function recoverMovedNaverBoundary(
+  db: D1Database,
+  boardId: 48 | 56,
+  state: PollStateRow | null,
+  environment: OpsEnvironment,
+  fetcher: FetchLike,
+) {
+  if (
+    !state?.committed_item_id ||
+    !state.committed_published_at ||
+    !state.scan_head_published_at ||
+    Date.parse(state.scan_head_published_at) >= Date.parse(state.committed_published_at)
+  ) {
+    throw new NaverBoundaryHeldError();
+  }
+  let identity: Awaited<ReturnType<typeof fetchNaverItemIdentity>>;
+  try {
+    identity = await fetchNaverItemIdentity(state.committed_item_id, fetcher);
+  } catch (error) {
+    if (isUnavailableIdentityProof(error)) throw new NaverBoundaryHeldError();
+    throw error;
+  }
+  if (identity.boardId === boardId) throw new NaverBoundaryHeldError();
+  try {
+    const recovered = await recoverNaverBoundary(
+      db,
+      environment,
+      {
+        mode: "recover-boundary",
+        environment,
+        source: `naver-board-${boardId}`,
+        expectedCommittedItemId: state.committed_item_id,
+      },
+      fetcher,
+      identity,
+    );
+    return recovered.queuedItems;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      [
+        "naver_boundary_not_held",
+        "naver_boundary_marker_conflict",
+        "naver_boundary_recovery_conflict",
+      ].includes(error.message)
+    ) {
+      throw new NaverBoundaryHeldError();
+    }
+    throw error;
+  }
+}
+
+function isUnavailableIdentityProof(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return (
+    [
+      "naver_detail_schema_code",
+      "naver_detail_schema_content",
+      "naver_detail_identity",
+      "naver_date",
+      "naver_content_type",
+      "naver_malformed_json",
+      "naver_response_oversize",
+    ].includes(error.message) ||
+    (/^naver_http_4\d{2}$/.test(error.message) && error.message !== "naver_http_429")
+  );
+}
+
+function boundaryRecoveryItems(
+  items: readonly NaverFeedMetadata[],
+  state: PollStateRow,
+  expectedItemId: string,
+  boardId: 48 | 56,
+  proof: BoundaryHoldProof,
+  movedIdentity?: Awaited<ReturnType<typeof fetchNaverItemIdentity>>,
+) {
+  let index = items.findIndex((item) => item.itemId === expectedItemId);
+  if (movedIdentity) {
+    if (
+      index >= 0 ||
+      movedIdentity.itemId !== expectedItemId ||
+      movedIdentity.boardId === boardId ||
+      !movedIdentity.official ||
+      movedIdentity.publishedAt !== state.committed_published_at ||
+      proof.committedPublishedAt !== state.committed_published_at ||
+      proof.scanHeadItemId !== state.scan_head_item_id ||
+      proof.scanHeadPublishedAt !== state.scan_head_published_at
+    ) {
+      throw new NaverScanBoundaryError(0);
+    }
+    index = items.findIndex(
+      (item) =>
+        item.itemId === state.scan_head_item_id &&
+        item.publishedAt === state.scan_head_published_at,
+    );
+  }
+  if (index < 0) throw new NaverScanBoundaryError(0);
+  return items.slice(0, index);
 }
 
 export async function listSourceQueue(db: D1Database, limit: number) {
@@ -324,14 +574,20 @@ export async function processSourceQueue(db: D1Database, raw: unknown) {
   return { processed: request.results.length, candidateCreated: Boolean(request.candidate) };
 }
 
-function queueStatements(db: D1Database, items: readonly NaverFeedMetadata[], nowIso: string) {
+function queueStatements(
+  db: D1Database,
+  items: readonly NaverFeedMetadata[],
+  nowIso: string,
+  recovery?: { alertKey: string; environment: OpsEnvironment; recoveryId: string },
+) {
   return items.map((item) =>
     db
       .prepare(
         `INSERT INTO source_queue (
            source, item_id, url, title, published_at, official, status,
            attempts, first_seen_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)
+         ) SELECT ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?
+         WHERE ${recovery ? recoveryGuardSql : "1"}
          ON CONFLICT(source, item_id) DO UPDATE SET
            url = excluded.url, title = excluded.title, published_at = excluded.published_at,
            official = excluded.official, updated_at = excluded.updated_at`,
@@ -345,6 +601,7 @@ function queueStatements(db: D1Database, items: readonly NaverFeedMetadata[], no
         item.official ? 1 : 0,
         nowIso,
         nowIso,
+        ...(recovery ? [recovery.alertKey, recovery.environment, recovery.recoveryId] : []),
       ),
   );
 }
@@ -424,6 +681,31 @@ function scanHeadFromState(
   };
 }
 
+function readPollState(db: D1Database, source: NaverSourceKind) {
+  return db
+    .prepare(
+      `SELECT committed_item_id, committed_published_at, scan_head_item_id,
+              scan_head_published_at, next_offset, updated_at
+       FROM source_poll_state WHERE source = ?`,
+    )
+    .bind(source)
+    .first<PollStateRow>();
+}
+
+function boundaryHoldKey(boardId: 48 | 56, environment: OpsEnvironment) {
+  return `naver-boundary:${environment}:${boardId}`;
+}
+
+function readBoundaryHold(db: D1Database, boardId: 48 | 56, environment: OpsEnvironment) {
+  return db
+    .prepare(
+      `SELECT context_json FROM forecast_ops_alerts
+       WHERE alert_key = ? AND environment = ? AND state = 'open'`,
+    )
+    .bind(boundaryHoldKey(boardId, environment), environment)
+    .first<{ context_json: string }>();
+}
+
 function rowToQueueItem(row: SourceQueueRow): SourceQueueItem {
   return {
     source: row.source,
@@ -453,6 +735,7 @@ type PollStateRow = {
   scan_head_item_id: string | null;
   scan_head_published_at: string | null;
   next_offset: number;
+  updated_at: string;
 };
 
 type SourceQueueRow = {

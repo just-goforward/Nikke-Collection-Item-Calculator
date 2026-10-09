@@ -21,7 +21,7 @@ const files = git("ls-files", "-z")
     const filename = path.resolve(root, relativePath);
     if (!filename.startsWith(root + path.sep)) throw new Error("Tracked path outside checkout");
     if (!lstatSync(filename).isFile())
-      throw new Error("Expected regular tracked source file: " + relativePath);
+      throw new Error(`Expected regular tracked source file: ${relativePath}`);
     const bytes = readFileSync(filename);
     return {
       path: relativePath,
@@ -48,7 +48,7 @@ const identity = {
   observedAt: new Date().toISOString(),
 };
 mkdirSync("ci-evidence", { recursive: true });
-writeFileSync("ci-evidence/checkout-source.json", JSON.stringify(identity, null, 2) + "\n", {
+writeFileSync("ci-evidence/checkout-source.json", `${JSON.stringify(identity, null, 2)}\n`, {
   flag: "wx",
 });
 if (!process.env.GITHUB_ENV) throw new Error("Missing Actions environment output");

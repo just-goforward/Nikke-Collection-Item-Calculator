@@ -30,8 +30,11 @@ export function q(n: bigint | number, d: bigint | number = 1n): Q {
   return g === 1n ? { n: nn, d: dd } : { n: nn / g, d: dd / g };
 }
 
-export const add = (a: Q, b: Q): Q =>
-  a.n === 0n ? b : b.n === 0n ? a : q(a.n * b.d + b.n * a.d, a.d * b.d);
+export const add = (a: Q, b: Q): Q => {
+  if (a.n === 0n) return b;
+  if (b.n === 0n) return a;
+  return q(a.n * b.d + b.n * a.d, a.d * b.d);
+};
 export const sub = (a: Q, b: Q): Q => q(a.n * b.d - b.n * a.d, a.d * b.d);
 export const mul = (a: Q, b: Q): Q => (a.n === 0n || b.n === 0n ? ZERO : q(a.n * b.n, a.d * b.d));
 export const div = (a: Q, b: Q): Q => {
@@ -40,7 +43,9 @@ export const div = (a: Q, b: Q): Q => {
 };
 export const cmp = (a: Q, b: Q): -1 | 0 | 1 => {
   const x = a.n * b.d - b.n * a.d;
-  return x < 0n ? -1 : x > 0n ? 1 : 0;
+  if (x < 0n) return -1;
+  if (x > 0n) return 1;
+  return 0;
 };
 export const eq = (a: Q, b: Q): boolean => a.n === b.n && a.d === b.d;
 export const isZero = (a: Q): boolean => a.n === 0n;
@@ -63,7 +68,9 @@ export { formatRational as toString };
 export function parse(s: string): Q {
   const m = /^(-?\d+)(?:\/(\d+))?$/.exec(s);
   if (!m) throw new TypeError(`rational: cannot parse ${s}`);
-  return q(BigInt(m[1]!), BigInt(m[2] ?? "1"));
+  const separator = m.input.indexOf("/");
+  if (separator < 0) return q(BigInt(m.input));
+  return q(BigInt(m.input.slice(0, separator)), BigInt(m.input.slice(separator + 1)));
 }
 
 /** Nearest double of a rational (round-to-nearest, via BigInt scaling). */
@@ -148,5 +155,7 @@ export function imulNonneg(a: Interval, b: Interval): Interval {
 export function qInterval(a: Q): Interval {
   const x = toNumber(a);
   const c = cmp(fromBinary64(x), a);
-  return c === 0 ? point(x) : c < 0 ? { lo: x, hi: nextUp(x) } : { lo: nextDown(x), hi: x };
+  if (c === 0) return point(x);
+  if (c < 0) return { lo: x, hi: nextUp(x) };
+  return { lo: nextDown(x), hi: x };
 }

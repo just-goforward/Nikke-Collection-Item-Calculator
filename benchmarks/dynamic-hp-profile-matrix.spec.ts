@@ -37,6 +37,44 @@ describe("dynamic H/p profile matrix", () => {
     expect(matrix).toHaveLength(25);
     expect(HP_CANDIDATES).toHaveLength(49);
     expect(matrix.filter((entry) => entry.cycleDays !== null)).toHaveLength(24);
+    expect(
+      new Set(
+        matrix.filter((entry) => entry.cycleDays !== null).map((entry) => entry.context.forecastId),
+      ),
+    ).toEqual(
+      new Set([
+        "supply-2026-01-22-v1",
+        "supply-2026-01-22-v2",
+        "supply-2026-01-29-v1",
+        "supply-2026-01-29-v2",
+        "supply-2026-02-05-v1",
+        "supply-2026-02-05-v2",
+      ]),
+    );
+    for (const [cycleDays, confirmedId, estimatedId] of [
+      [21, "supply-2026-01-22-v1", "supply-2026-01-22-v2"],
+      [28, "supply-2026-01-29-v1", "supply-2026-01-29-v2"],
+      [35, "supply-2026-02-05-v1", "supply-2026-02-05-v2"],
+    ] as const) {
+      for (const phase of ["normal", "solo_day1", "solo_day2", "solo_day3"] as const) {
+        expect(
+          matrix.find((entry) => entry.id === `cycle-${cycleDays}-confirmed-${phase}`),
+        ).toMatchObject({
+          cycleDays,
+          scheduleStatus: "confirmed",
+          phase,
+          context: { forecastId: confirmedId },
+        });
+        expect(
+          matrix.find((entry) => entry.id === `cycle-${cycleDays}-estimated-${phase}`),
+        ).toMatchObject({
+          cycleDays,
+          scheduleStatus: "estimated",
+          phase,
+          context: { forecastId: estimatedId },
+        });
+      }
+    }
     expect(new Set(matrix.map((entry) => entry.id)).size).toBe(matrix.length);
     for (const entry of matrix) {
       expect(Number.isFinite(entry.context.expectedGain.blue)).toBe(true);

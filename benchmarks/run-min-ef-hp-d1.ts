@@ -148,11 +148,14 @@ try {
       }),
     ),
   );
-  report.d1Robustness.status = complete
-    ? decisions.some((decision) => decision.status === "verification_incomplete")
+  report.d1Robustness.status = "pending";
+  if (complete) {
+    report.d1Robustness.status = decisions.some(
+      (decision) => decision.status === "verification_incomplete",
+    )
       ? "verification_incomplete"
-      : "completed"
-    : "pending";
+      : "completed";
+  }
   Object.assign(report.d1Robustness, {
     snapshot: {
       generatedAt: snapshot.generatedAt,

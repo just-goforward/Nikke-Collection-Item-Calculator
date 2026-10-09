@@ -39,6 +39,7 @@ export function approvedFixtureProvenance() {
       "scripts/certified-staging-approved-panel.ts",
       "scripts/generate-certified-staging-approved-panel.ts",
       "scripts/certified-staging-oracle.ts",
+      "scripts/certified-staging-oracle-tuples.ts",
       "scripts/certified-staging-oracle-fixtures.ts",
       "scripts/certified-staging-oracle-physical-supply.ts",
       "shared/game.ts",
@@ -154,11 +155,12 @@ export function generateIndependentApprovedPanel() {
         expectedTotalConsumptionC: wire(current.C),
         expectedConsumed: mapTriple(current.consumed, wire),
         action: current.action === "STOP" || current.action === "DONE" ? null : current.action,
-        mask: current.ties.reduce(
-          (mask, action) =>
-            mask | (action === "blue" ? 1 : action === "purple" ? 2 : action === "yellow" ? 4 : 0),
-          0,
-        ),
+        mask: current.ties.reduce((mask, action) => {
+          if (action === "blue") return mask | 1;
+          if (action === "purple") return mask | 2;
+          if (action === "yellow") return mask | 4;
+          return mask;
+        }, 0),
         rates: mapTriple(rates, wire),
         prices: mapTriple(prices, wire),
         cohortWeights: mapTriple(original.cohortWeights, wire),

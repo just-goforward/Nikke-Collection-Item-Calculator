@@ -4,13 +4,13 @@ import {
   independentFailure,
   independentProbability,
   independentSuccess,
-  makeTriple,
   type OracleInput,
   type OracleValue,
   type QTriple,
   q,
   type Triple,
 } from "./certified-staging-oracle.ts";
+import { makeTriple, mapTriple } from "./certified-staging-oracle-tuples.ts";
 
 type Color = 0 | 1 | 2;
 type State = Pick<OracleInput, "grade" | "level" | "exp">;
@@ -118,7 +118,9 @@ function validateInput(input: PublicLayeredInput): void {
   for (const stock of [input.beforeStock, input.afterStock]) {
     if (
       stock.length !== 3 ||
-      ![0, 1, 2].every((color) => Number.isSafeInteger(stock[color]) && stock[color]! >= 0)
+      !([0, 1, 2] as const).every(
+        (color) => Number.isSafeInteger(stock[color]) && stock[color] >= 0,
+      )
     )
       throw new Error("public_layered_invalid_stock");
   }
@@ -139,9 +141,10 @@ function validateInput(input: PublicLayeredInput): void {
   if (
     input.finiteColors.length > 2 ||
     new Set(input.finiteColors).size !== input.finiteColors.length ||
-    !Array.from({ length: input.finiteColors.length }, (_, index) =>
-      [0, 1, 2].includes(input.finiteColors[index]!),
-    ).every(Boolean)
+    !Array.from({ length: input.finiteColors.length }, (_, index) => {
+      const color = input.finiteColors[index];
+      return color !== undefined && [0, 1, 2].includes(color);
+    }).every(Boolean)
   )
     throw new Error("public_layered_requires_unlimited_color");
 }
@@ -205,15 +208,16 @@ class PublicGraph {
 }
 
 function adjacentTuples(finite: readonly Color[], units: Triple): number {
-  if (!finite.length) return 1;
-  if (finite.length === 1) return units[finite[0]!] ? 2 : 1;
-  const a = units[finite[0]!]!,
-    b = units[finite[1]!]!;
+  const [first, second] = finite;
+  if (first === undefined) return 1;
+  const a = units[first];
+  if (second === undefined) return a ? 2 : 1;
+  const b = units[second];
   return a === b ? 2 * a + 1 : 2 * (Math.min(a, b) + 1);
 }
 function invariance(input: PublicLayeredInput, finite: readonly Color[], depth: number) {
-  const beforeUses = makeTriple((color) => Math.floor(input.beforeStock[color]! / 10));
-  const afterUses = makeTriple((color) => Math.floor(input.afterStock[color]! / 10));
+  const beforeUses = makeTriple((color) => Math.floor(input.beforeStock[color] / 10));
+  const afterUses = makeTriple((color) => Math.floor(input.afterStock[color] / 10));
   const unlimitedColors = ([0, 1, 2] as const).filter((color) => !finite.includes(color));
   if (!unlimitedColors.every((color) => Math.min(beforeUses[color], afterUses[color]) >= depth))
     throw new Error("public_layered_stock_invariance_not_proved");
@@ -225,21 +229,21 @@ function planFor(input: PublicLayeredInput, graph: PublicGraph, budget: Budget):
   const proof = invariance(input, finiteColors, rootDepth);
   const units = makeTriple((color) =>
     finiteColors.includes(color as Color)
-      ? Math.max(proof.beforeUses[color]!, proof.afterUses[color]!)
+      ? Math.max(proof.beforeUses[color], proof.afterUses[color])
       : 0,
   );
-  const widths = makeTriple((color) => units[color]! + 1);
+  const widths = makeTriple((color) => units[color] + 1);
   const widthProduct = widths.reduce((product, width) => product * width, 1);
   const nonterminalNodes = graph.nodes.filter((node) => node.depth > 0).length;
   const maximumKey = graph.nodes.length * widthProduct - 1;
   const finiteLayers = units.reduce((total, n) => total + n, 0) + 1;
   if (![maximumKey, finiteLayers].every((n) => Number.isSafeInteger(n) && n >= 0))
     throw new Error("public_layered_numeric_key_domain");
-  const numeratorBits = input.prices.map((price) => price.n.toString(2).length);
-  const denominatorBits = input.prices.map((price) => price.d.toString(2).length);
+  const numeratorBits = mapTriple(input.prices, (price) => price.n.toString(2).length);
+  const denominatorBits = mapTriple(input.prices, (price) => price.d.toString(2).length);
   const scaleBits = denominatorBits.reduce((total, bits) => total + bits, 0);
   const integralBits = makeTriple(
-    (color) => numeratorBits[color]! + scaleBits - denominatorBits[color]!,
+    (color) => numeratorBits[color] + scaleBits - denominatorBits[color],
   );
   const consumedBits = 10 * rootDepth + Math.max(1, (10 * rootDepth).toString(2).length) + 1;
   const maximumRowBytes =
@@ -262,12 +266,12 @@ function planFor(input: PublicLayeredInput, graph: PublicGraph, budget: Budget):
   };
   const logicalUpperBytes =
     maximumLiveRows * maximumRowBytes + Object.values(logicalBreakdown).reduce((a, b) => a + b, 0);
-  const reason =
-    maximumLiveRows > budget.maxLiveRows
-      ? "public_layered_live_row_admission"
-      : logicalUpperBytes > budget.maxLogicalBytes
-        ? "public_layered_logical_admission"
-        : null;
+  let reason: string | null = null;
+  if (maximumLiveRows > budget.maxLiveRows) {
+    reason = "public_layered_live_row_admission";
+  } else if (logicalUpperBytes > budget.maxLogicalBytes) {
+    reason = "public_layered_logical_admission";
+  }
   return {
     admitted: reason === null,
     reason,
@@ -302,18 +306,21 @@ export function estimatePublicLayeredRelaxationPair(
 }
 
 function* tuples(layer: number, finite: readonly Color[], widths: Triple): Generator<Triple> {
-  if (!finite.length) {
+  const [a, b] = finite;
+  if (a === undefined) {
     yield [0, 0, 0];
     return;
   }
-  if (finite.length === 1) {
-    yield makeTriple((color) => (color === finite[0] ? layer : 0));
+  if (b === undefined) {
+    yield makeTriple((color) => (color === a ? layer : 0));
     return;
   }
-  const a = finite[0]!,
-    b = finite[1]!;
   for (let n = Math.max(0, layer - widths[b] + 1); n <= Math.min(widths[a] - 1, layer); n++)
-    yield makeTriple((color) => (color === a ? n : color === b ? layer - n : 0));
+    yield makeTriple((color) => {
+      if (color === a) return n;
+      if (color === b) return layer - n;
+      return 0;
+    });
 }
 function choose(best: Row | null, value: Row): Row {
   if (!best || value.burden < best.burden) return value;
@@ -342,18 +349,22 @@ class LayerTable {
     if (!plan.admitted) throw new Error(plan.reason ?? "public_layered_not_admitted");
     this.scale = input.prices.reduce((a, price) => a * price.d, 1n);
     this.prices = makeTriple(
-      (color) => input.prices[color]!.n * (this.scale / input.prices[color]!.d),
+      (color) => input.prices[color].n * (this.scale / input.prices[color].d),
     );
     this.finite = [0, 1, 2].map((color) => plan.finiteColors.includes(color as Color));
-    for (let d = 1; d <= plan.rootDepth; d++) this.powers.push(this.powers[d - 1]! * 1000n);
+    let power = 1n;
+    for (let d = 1; d <= plan.rootDepth; d++) {
+      power *= 1000n;
+      this.powers.push(power);
+    }
   }
   private key(id: number, units: Triple): number {
     if (
-      ![0, 1, 2].every(
+      !([0, 1, 2] as const).every(
         (color) =>
           Number.isInteger(units[color]) &&
-          units[color]! >= 0 &&
-          units[color]! < this.plan.finiteWidths[color]!,
+          units[color] >= 0 &&
+          units[color] < this.plan.finiteWidths[color],
       )
     )
       throw new Error("public_layered_outside_key_domain");
@@ -369,9 +380,9 @@ class LayerTable {
     if (!value) throw new Error("public_layered_missing_positive_child");
     return value;
   }
-  private action(node: Node, units: Triple, color: number): Row {
+  private action(node: Node, units: Triple, color: Color): Row {
     const remaining = makeTriple(
-      (index) => units[index]! - (this.finite[color] && index === color ? 1 : 0),
+      (index) => units[index] - (this.finite[color] && index === color ? 1 : 0),
     );
     const table = this.finite[color] ? this.previous : this.current;
     const edge = node.edges[color]!;
@@ -386,17 +397,17 @@ class LayerTable {
     return {
       consumed: makeTriple(
         (index) =>
-          gm * great.consumed[index]! +
-          nm * ordinary.consumed[index]! +
+          gm * great.consumed[index] +
+          nm * ordinary.consumed[index] +
           (index === color ? 10n * denominator : 0n),
       ),
-      burden: gm * great.burden + nm * ordinary.burden + 10n * this.prices[color]! * denominator,
+      burden: gm * great.burden + nm * ordinary.burden + 10n * this.prices[color] * denominator,
       mask: 1 << color,
     };
   }
   private row(node: Node, units: Triple): Row {
     let best: Row | null = null;
-    for (let color = 0; color < 3; color++) {
+    for (const color of [0, 1, 2] as const) {
       if (this.finite[color] && units[color] === 0) continue;
       best = choose(best, this.action(node, units, color));
     }
@@ -422,17 +433,17 @@ class LayerTable {
       P: q(1),
       B: q(row.burden, denominator * this.scale),
       C: q(row.consumed[0] + row.consumed[1] + row.consumed[2], denominator),
-      consumed: makeTriple((color) => q(row.consumed[color]!, denominator)),
+      consumed: makeTriple((color) => q(row.consumed[color], denominator)),
       mask: row.mask,
       chosen: [0, 1, 2].find((color) => row.mask & (1 << color)) ?? -1,
     };
   }
   evaluate(input: PublicLayeredInput): { before: ExactEndpoint; after: ExactEndpoint } {
     const before = makeTriple((color) =>
-      this.finite[color] ? Math.floor(input.beforeStock[color]! / 10) : 0,
+      this.finite[color] ? Math.floor(input.beforeStock[color] / 10) : 0,
     );
     const after = makeTriple((color) =>
-      this.finite[color] ? Math.floor(input.afterStock[color]! / 10) : 0,
+      this.finite[color] ? Math.floor(input.afterStock[color] / 10) : 0,
     );
     let beforeValue: ExactEndpoint | null = null,
       afterValue: ExactEndpoint | null = null;

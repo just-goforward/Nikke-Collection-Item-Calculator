@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { expect, it } from "vitest";
@@ -12,7 +13,6 @@ import {
   compareValue,
   createOracleEvaluator,
   fromWire,
-  makeTriple,
   type OracleInput,
   type OracleValue,
   type QTriple,
@@ -23,6 +23,7 @@ import {
   createIndependentEndpointIntegerEvaluator,
   independentFiniteWitnessInteger,
 } from "./certified-staging-oracle-endpoints-integer.ts";
+import { makeTriple } from "./certified-staging-oracle-tuples.ts";
 import {
   type FrozenPilotEndpointRow,
   loadFrozenPilotEndpoints,
@@ -32,7 +33,11 @@ type Result = OracleValue & { consumed: QTriple };
 function identical(first: Result, second: Result): boolean {
   return (
     compareValue(first, second) === 0 &&
-    first.consumed.every((value, color) => cmp(value, second.consumed[color]!) === 0)
+    first.consumed.every((value, color) => {
+      const expected = second.consumed[color];
+      assert(expected, "Expected matching consumption coordinate");
+      return cmp(value, expected) === 0;
+    })
   );
 }
 function savedValue(value: CertifiedValue): Result {
@@ -40,7 +45,7 @@ function savedValue(value: CertifiedValue): Result {
     P: fromWire(value.successP),
     B: fromWire(value.weightedExpectedConsumptionB),
     C: fromWire(value.expectedTotalConsumptionC),
-    consumed: makeTriple((color) => fromWire(value.expectedConsumed[color]!)),
+    consumed: makeTriple((color) => fromWire(value.expectedConsumed[color])),
   };
 }
 function smallStocks(): Triple[] {
@@ -91,7 +96,7 @@ function posteriorPrices(): QTriple[] {
   return priors.map((prior) => {
     const rates = independentApprovedPricing(snapshot, prior);
     return makeTriple((color) => {
-      const sum = add(q([100, 50, 20][color]!), rates[color]!);
+      const sum = add(q(([100, 50, 20] as const)[color]), rates[color]);
       return q(sum.d, sum.n);
     });
   });
@@ -128,9 +133,10 @@ it.each(priceFamilies.map((prices, family) => ({ prices, family })))(
 );
 
 function attempt(row: FrozenPilotEndpointRow, rates: QTriple) {
-  const witness = row.output.waiting.strictBoundaryWitness!;
+  const witness = row.output.waiting.strictBoundaryWitness;
+  assert(witness, "Expected pilot endpoint witness");
   const prices = makeTriple((color) =>
-    q(rates[color]!.d, BigInt(row.input.stock[color]!) * rates[color]!.d + rates[color]!.n),
+    q(rates[color].d, BigInt(row.input.stock[color]) * rates[color].d + rates[color].n),
   );
   const start = performance.now(),
     memoryBefore = process.memoryUsage();
@@ -177,6 +183,7 @@ it("replays the six preserved pilot NOTRUN endpoints under the unchanged paired5
     "scripts/certified-staging-oracle-endpoints-integer.ts",
     "scripts/certified-staging-oracle-endpoints-integer.spec.ts",
     "scripts/certified-staging-oracle.ts",
+    "scripts/certified-staging-oracle-tuples.ts",
     "scripts/certified-staging-oracle-witness.ts",
     "scripts/certified-staging-approved-panel.ts",
     "scripts/certified-staging-approved-panel/snapshot.json",
@@ -214,7 +221,7 @@ it("replays the six preserved pilot NOTRUN endpoints under the unchanged paired5
     Date.now() +
     ".json";
   mkdirSync("benchmarks/results", { recursive: true });
-  writeFileSync(path, JSON.stringify(report, null, 2) + "\n");
+  writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`);
   console.log(
     JSON.stringify({ report: path, pass: report.pass, fail: report.fail, notRun: report.notRun }),
   );

@@ -105,8 +105,7 @@ function validateQueryWindow(
 ) {
   knownFields(window, "from until days complete missing");
   if (
-    !window ||
-    window.days !== 56 ||
+    window?.days !== 56 ||
     timestamp(window.from) !== expectedFrom ||
     timestamp(window.until) !== expectedUntil ||
     typeof window.complete !== "boolean" ||
@@ -265,9 +264,13 @@ function validateFiniteLaw(law: CertifiedSupplyLaw, checkBudget?: () => void) {
   )
     throw new Error("certified_snapshot_cohort_law_invalid");
   if (law.outcomesByCohort !== undefined) knownArrayFields(law.outcomesByCohort);
-  const groups = law.outcomesByCohort
-    ? [...law.outcomesByCohort, ...(law.outcomes ? [law.outcomes] : [])]
-    : [law.outcomes];
+  let groups: (readonly WireOutcome[] | undefined)[];
+  if (law.outcomesByCohort) {
+    const cohorts = [...law.outcomesByCohort];
+    groups = law.outcomes ? [...cohorts, law.outcomes] : cohorts;
+  } else {
+    groups = [law.outcomes];
+  }
   for (const outcomes of groups) validateFiniteOutcomes(outcomes, checkBudget);
 }
 

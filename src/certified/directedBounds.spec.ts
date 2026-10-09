@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import { add, cmp, fromBinary64, mul, q } from "../../shared/certifiedRational";
 import { BoundArena } from "./boundArena";
 import { WorkBudget } from "./budget";
@@ -56,10 +56,13 @@ describe("certified directed bounds", () => {
   });
   it("packs widths outward and rejects index aliases", () => {
     const budget = new WorkBudget({}, performance.now());
-    const arena = BoundArena.create(550, [8, 3, 2], true, budget)!;
+    const arena = BoundArena.create(550, [8, 3, 2], true, budget);
+    assert(arena);
     const units: [number, number, number] = [1, 1, 1];
     arena.put("cost", 550, units, { lo: 0.1, hi: positiveUp(0.1) });
-    expect(arena.get("cost", 550, units)!.hi).toBeGreaterThanOrEqual(positiveUp(0.1));
+    const stored = arena.get("cost", 550, units);
+    assert(stored);
+    expect(stored.hi).toBeGreaterThanOrEqual(positiveUp(0.1));
     expect(arena.get("cost", 550, [2, 1, 1])).toBeNull();
     expect(() => arena.get("cost", 550, [1, 4, 0])).toThrow("outside_domain");
     expect(() => arena.get("cost", 549, units)).toThrow("outside_domain");
@@ -71,7 +74,8 @@ describe("certified directed bounds", () => {
   });
   it("admits each page before allocation and accounts its release", () => {
     const budget = new WorkBudget({}, performance.now());
-    const arena = BoundArena.create(0, [60, 10, 4], true, budget)!;
+    const arena = BoundArena.create(0, [60, 10, 4], true, budget);
+    assert(arena);
     const layoutBytes = arena.bytes;
     expect(budget.managedPayloadBytes).toBe(layoutBytes);
     arena.put("failure", 0, [60, 10, 4], { lo: 0.1, hi: 0.2 });
@@ -83,7 +87,8 @@ describe("certified directed bounds", () => {
     budget.release(arena.bytes);
     expect(budget.managedPayloadBytes).toBe(0);
     const tight = new WorkBudget({ maxManagedPayloadBytes: 10000 }, performance.now());
-    const omitted = BoundArena.create(0, [60, 10, 4], true, tight)!;
+    const omitted = BoundArena.create(0, [60, 10, 4], true, tight);
+    assert(omitted);
     omitted.put("cost", 0, [60, 10, 4], { lo: 2, hi: 3 });
     expect(omitted.get("cost", 0, [60, 10, 4])).toBeNull();
     expect(tight.managedPayloadBytes).toBe(omitted.bytes);

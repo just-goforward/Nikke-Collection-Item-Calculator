@@ -96,7 +96,8 @@ describe("review 6 shared supply integrity", () => {
 
   it("preserves noon day-zero arrivals and claims prior-date rewards only while unexpired", () => {
     const snapshot = fixture();
-    const event = snapshot.events.find((row) => row.id === "solo:r40:day1")!;
+    const event = snapshot.events.find((row) => row.id === "solo:r40:day1");
+    if (!event) throw new Error("certified_solo_fixture_event_missing");
     expect(event.gameDate).toBe("2026-08-20");
     expect(event.at).toBe("2026-08-20T03:00:00.000Z");
     expect(Supply.isCertifiedEventClaimable(snapshot, event)).toBe(false);

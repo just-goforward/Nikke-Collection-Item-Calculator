@@ -31,10 +31,11 @@ type DecisionInput = {
 
 export function evaluateCanaryDecision(input: DecisionInput) {
   const functionalFailures = functionalFailureCodes(input);
-  const functional = gateResult(
-    functionalFailures.length > 0 ? "failed" : input.eligible ? "passed" : "incomplete",
-    functionalFailures,
-  );
+  let functionalStatus: CanaryGateResult["status"] = "failed";
+  if (functionalFailures.length === 0) {
+    functionalStatus = input.eligible ? "passed" : "incomplete";
+  }
+  const functional = gateResult(functionalStatus, functionalFailures);
   const integrityFailures = invariantFailureCodes(input.invariants);
   const integrity = gateResult(
     integrityFailures.length > 0 ? "failed" : "passed",
@@ -56,8 +57,12 @@ export function evaluateCanaryDecision(input: DecisionInput) {
   const incomplete =
     evidence.status === "incomplete" ||
     Object.values(gates).some((gate) => gate.status === "incomplete");
-  const hardFailures =
-    earlyHardFailures.length > 0 ? earlyHardFailures : incomplete ? [] : candidateHardFailures;
+  let hardFailures = candidateHardFailures;
+  if (earlyHardFailures.length > 0) {
+    hardFailures = earlyHardFailures;
+  } else if (incomplete) {
+    hardFailures = [];
+  }
   const warnings = [
     ...input.runtime.performance.warnings,
     ...(incomplete ? candidateHardFailures.map((code) => `unconfirmed:${code}`) : []),

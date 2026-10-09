@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import { q } from "../../shared/certifiedRational";
 import { buildCertifiedSupplySnapshot } from "../../shared/certifiedSupply";
 import { BoundArena } from "./boundArena";
 import { WorkBudget } from "./budget";
-import { CAPS, EDGES, encode, minPositiveUses, TERMINAL } from "./game";
+import { CAPS, EDGES, encode, minPositiveUses, type StateId, TERMINAL } from "./game";
 import { GuidanceArithmetic } from "./guidanceArithmetic";
 import { guidedState } from "./guidanceDomain";
 import { FiniteKernel } from "./kernel";
@@ -14,7 +14,7 @@ const sid = encode("SR", 14, 0);
 const invariant = "certified_game_great_probability_invariant";
 
 function withInvalidGreat(p: number, run: () => void): void {
-  const row = EDGES[sid]!;
+  const row = EDGES[sid as StateId];
   const [, great, normal] = row[0];
   EDGES[sid] = [[p, great, normal], row[1], row[2]];
   try {
@@ -29,7 +29,11 @@ describe("positive great precondition for singleton primary candidates", () => {
     withInvalidGreat(0, () => {
       const budget = new WorkBudget({}, performance.now());
       const arithmetic = new GuidanceArithmetic([1n, 1n, 1n], budget);
-      const arena = (): BoundArena => BoundArena.create(sid, [1, 0, 0], true, budget)!;
+      const arena = (): BoundArena => {
+        const result = BoundArena.create(sid, [1, 0, 0], true, budget);
+        assert(result);
+        return result;
+      };
       expect(() => {
         const primary = new PrimaryGuidance(budget, arithmetic, arena);
         return primary.mask(sid, guidedState(sid, [1, 0, 0]));
@@ -76,10 +80,11 @@ describe("positive great precondition for singleton primary candidates", () => {
   it("has a positive all-great continuation after every feasible first kit", () => {
     for (let state = 0; state < TERMINAL; state++) {
       const needed = minPositiveUses(state);
-      for (const [p, great] of EDGES[state]!) {
+      for (const [p, great] of EDGES[state as StateId]) {
         expect(Number.isInteger(p) && p > 0 && p <= 1000).toBe(true);
         expect(minPositiveUses(great)).toBe(needed - 1);
-        for (const capacity of CAPS[great]!) expect(capacity).toBeGreaterThanOrEqual(needed - 1);
+        for (const capacity of CAPS[great as StateId])
+          expect(capacity).toBeGreaterThanOrEqual(needed - 1);
       }
     }
   });

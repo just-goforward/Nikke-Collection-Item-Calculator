@@ -20,6 +20,7 @@ const budgets = {
   "certified-worker": { metric: "rawBytes", limit: 100_000 },
   css: { metric: "gzipBytes", limit: 20_000 },
   wasm: { metric: "rawBytes", limit: 115_000 },
+  "certified-wasm": { metric: "rawBytes", limit: 1_048_576 },
 } as const;
 
 const failures: string[] = [];

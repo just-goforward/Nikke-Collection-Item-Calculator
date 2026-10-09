@@ -14,6 +14,7 @@ import type {
 } from "../ui-types";
 import { presentOutcomePreview } from "../view-models/outcomePresentation";
 import { AlignedText } from "./AlignedText";
+import { commitFocusedInput } from "./focusedInput";
 import { stateFeedbackAnimations } from "./stateFeedbackAnimations";
 
 export type MobileTab = "input" | "result" | "stats";
@@ -114,13 +115,15 @@ type MobileTabsProps = {
   onChange: (tab: MobileTab) => void;
 };
 
+function toolbarModeClass(mode: string) {
+  if (mode.includes("mode-outcome")) return classes.actionBarOutcome;
+  if (mode.includes("mode-convert")) return classes.actionBarConvert;
+  return classes.actionBarCalculate;
+}
+
 function MobileToolbar({ children, mode }: { children: ReactNode; mode: string }) {
   const { t } = useI18n();
-  const modeClass = mode.includes("mode-outcome")
-    ? classes.actionBarOutcome
-    : mode.includes("mode-convert")
-      ? classes.actionBarConvert
-      : classes.actionBarCalculate;
+  const modeClass = toolbarModeClass(mode);
 
   return (
     <div
@@ -131,17 +134,6 @@ function MobileToolbar({ children, mode }: { children: ReactNode; mode: string }
       {children}
     </div>
   );
-}
-
-function commitFocusedInput() {
-  const activeElement = document.activeElement;
-  if (
-    activeElement instanceof HTMLInputElement ||
-    activeElement instanceof HTMLSelectElement ||
-    activeElement instanceof HTMLTextAreaElement
-  ) {
-    activeElement.blur();
-  }
 }
 
 function expSummaryText(
@@ -173,6 +165,99 @@ function PendingActionCaption({ preview }: { preview: OutcomePreview }) {
   return <ActionPreviewValue preview={preview} />;
 }
 
+type OutcomeChoiceArgs = Pick<MobileActionBarProps, "onPendingOutcomeChange" | "pendingOutcome"> & {
+  armOutcome: (outcome: "success" | "fail") => void;
+  confirmOutcome: (outcome: "success" | "fail") => void;
+  t: ReturnType<typeof useI18n>["t"];
+  view: Extract<ResultView, { type: "recommendation" }>;
+};
+
+/** Plain render helpers, not components, so each choice keeps the same span > button tree and focus. */
+function cancelOutcomeChoice({ onPendingOutcomeChange, t }: OutcomeChoiceArgs) {
+  return (
+    <span className={classes.actionOutcomeChoice}>
+      <button
+        className={`${classes.actionButton} ${classes.outcomeButton} ${classes.outcomeCancelButton}`}
+        type="button"
+        onClick={() => onPendingOutcomeChange(null)}
+      >
+        <AlignedText alignmentRole="action">{t("common.cancel")}</AlignedText>
+      </button>
+      <span className={classes.actionChoiceCaption} aria-hidden="true" />
+    </span>
+  );
+}
+
+function successOutcomeChoice(args: OutcomeChoiceArgs) {
+  const { armOutcome, confirmOutcome, pendingOutcome, t, view } = args;
+  if (pendingOutcome === "success") {
+    return (
+      <span className={classes.actionOutcomeChoice}>
+        <button
+          className={`${classes.actionButton} ${classes.outcomeButton} ${classes.outcomeConfirmButton} success-button`}
+          type="button"
+          onClick={() => confirmOutcome("success")}
+        >
+          <AlignedText alignmentRole="action">{t("common.superSuccessYesConfirm")}</AlignedText>
+        </button>
+        <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
+          <PendingActionCaption preview={view.successPreview} />
+        </strong>
+      </span>
+    );
+  }
+  if (pendingOutcome === "fail") return cancelOutcomeChoice(args);
+  return (
+    <span className={classes.actionOutcomeChoice}>
+      <button
+        className={`${classes.actionButton} ${classes.outcomeButton} ${classes.successButton} success-button`}
+        type="button"
+        onClick={() => armOutcome("success")}
+      >
+        <AlignedText alignmentRole="action">{t("common.superSuccessYes")}</AlignedText>
+      </button>
+      <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
+        <ActionPreviewCaption preview={view.successPreview} />
+      </strong>
+    </span>
+  );
+}
+
+function failOutcomeChoice(args: OutcomeChoiceArgs) {
+  const { armOutcome, confirmOutcome, pendingOutcome, t, view } = args;
+  if (pendingOutcome === "fail") {
+    return (
+      <span className={classes.actionOutcomeChoice}>
+        <button
+          className={`${classes.actionButton} ${classes.outcomeButton} ${classes.outcomeConfirmButton} fail-button`}
+          type="button"
+          onClick={() => confirmOutcome("fail")}
+        >
+          <AlignedText alignmentRole="action">{t("common.superSuccessNoConfirm")}</AlignedText>
+        </button>
+        <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
+          <PendingActionCaption preview={view.failPreview} />
+        </strong>
+      </span>
+    );
+  }
+  if (pendingOutcome === "success") return cancelOutcomeChoice(args);
+  return (
+    <span className={classes.actionOutcomeChoice}>
+      <button
+        className={`${classes.actionButton} ${classes.outcomeButton} ${classes.failButton} fail-button`}
+        type="button"
+        onClick={() => armOutcome("fail")}
+      >
+        <AlignedText alignmentRole="action">{t("common.superSuccessNo")}</AlignedText>
+      </button>
+      <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
+        <ActionPreviewCaption preview={view.failPreview} />
+      </strong>
+    </span>
+  );
+}
+
 function MobileOutcomeActionBar({
   onOutcome,
   onPendingOutcomeChange,
@@ -190,84 +275,16 @@ function MobileOutcomeActionBar({
     onOutcome(outcome);
   };
 
-  const successButton =
-    pendingOutcome === "success" ? (
-      <span className={classes.actionOutcomeChoice}>
-        <button
-          className={`${classes.actionButton} ${classes.outcomeButton} ${classes.outcomeConfirmButton} success-button`}
-          type="button"
-          onClick={() => confirmOutcome("success")}
-        >
-          <AlignedText alignmentRole="action">{t("common.superSuccessYesConfirm")}</AlignedText>
-        </button>
-        <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
-          <PendingActionCaption preview={view.successPreview} />
-        </strong>
-      </span>
-    ) : pendingOutcome === "fail" ? (
-      <span className={classes.actionOutcomeChoice}>
-        <button
-          className={`${classes.actionButton} ${classes.outcomeButton} ${classes.outcomeCancelButton}`}
-          type="button"
-          onClick={() => onPendingOutcomeChange(null)}
-        >
-          <AlignedText alignmentRole="action">{t("common.cancel")}</AlignedText>
-        </button>
-        <span className={classes.actionChoiceCaption} aria-hidden="true" />
-      </span>
-    ) : (
-      <span className={classes.actionOutcomeChoice}>
-        <button
-          className={`${classes.actionButton} ${classes.outcomeButton} ${classes.successButton} success-button`}
-          type="button"
-          onClick={() => armOutcome("success")}
-        >
-          <AlignedText alignmentRole="action">{t("common.superSuccessYes")}</AlignedText>
-        </button>
-        <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
-          <ActionPreviewCaption preview={view.successPreview} />
-        </strong>
-      </span>
-    );
-  const failButton =
-    pendingOutcome === "fail" ? (
-      <span className={classes.actionOutcomeChoice}>
-        <button
-          className={`${classes.actionButton} ${classes.outcomeButton} ${classes.outcomeConfirmButton} fail-button`}
-          type="button"
-          onClick={() => confirmOutcome("fail")}
-        >
-          <AlignedText alignmentRole="action">{t("common.superSuccessNoConfirm")}</AlignedText>
-        </button>
-        <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
-          <PendingActionCaption preview={view.failPreview} />
-        </strong>
-      </span>
-    ) : pendingOutcome === "success" ? (
-      <span className={classes.actionOutcomeChoice}>
-        <button
-          className={`${classes.actionButton} ${classes.outcomeButton} ${classes.outcomeCancelButton}`}
-          type="button"
-          onClick={() => onPendingOutcomeChange(null)}
-        >
-          <AlignedText alignmentRole="action">{t("common.cancel")}</AlignedText>
-        </button>
-        <span className={classes.actionChoiceCaption} aria-hidden="true" />
-      </span>
-    ) : (
-      <span className={classes.actionOutcomeChoice}>
-        <button
-          className={`${classes.actionButton} ${classes.outcomeButton} ${classes.failButton} fail-button`}
-          type="button"
-          onClick={() => armOutcome("fail")}
-        >
-          <AlignedText alignmentRole="action">{t("common.superSuccessNo")}</AlignedText>
-        </button>
-        <strong className={`${classes.actionChoiceCaption} text-text-strong`}>
-          <ActionPreviewCaption preview={view.failPreview} />
-        </strong>
-      </span>
-    );
+  const choiceArgs: OutcomeChoiceArgs = {
+    armOutcome,
+    confirmOutcome,
+    onPendingOutcomeChange,
+    pendingOutcome,
+    t,
+    view,
+  };
+  const successButton = successOutcomeChoice(choiceArgs);
+  const failButton = failOutcomeChoice(choiceArgs);
 
   return (
     <MobileToolbar mode={`mode-outcome ${pendingOutcome ? "is-holding-ring" : ""}`}>

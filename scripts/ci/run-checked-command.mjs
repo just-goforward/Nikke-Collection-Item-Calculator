@@ -121,7 +121,7 @@ export async function runChecked(stage, kind, args) {
     startedAt: new Date().toISOString(),
     note: "Command provenance and credential allowlist; not native network or filesystem containment",
   };
-  writeFileSync(path.join(output, "before.json"), JSON.stringify(identity, null, 2) + "\n", {
+  writeFileSync(path.join(output, "before.json"), `${JSON.stringify(identity, null, 2)}\n`, {
     flag: "wx",
   });
   const stdout = createWriteStream(path.join(output, "stdout.log"), { flags: "wx" });
@@ -154,7 +154,7 @@ export async function runChecked(stage, kind, args) {
   );
   await streamsDone;
   const result = { ...identity, finishedAt: new Date().toISOString(), ...termination, spawnError };
-  writeFileSync(path.join(output, "result.json"), JSON.stringify(result, null, 2) + "\n", {
+  writeFileSync(path.join(output, "result.json"), `${JSON.stringify(result, null, 2)}\n`, {
     flag: "wx",
   });
   return termination.code === 0 && !termination.signal && !spawnError ? 0 : termination.code || 1;

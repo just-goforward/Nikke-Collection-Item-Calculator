@@ -12,7 +12,7 @@ export type StatsRuntimeMode =
   | "disabled"
   | "staging-misconfigured";
 
-type SubmissionConfig = { endpoint: string; turnstileSiteKey: string };
+export type StatsSubmissionConfig = { endpoint: string; turnstileSiteKey: string };
 type StatsConfigRecord = Record<string, unknown> & {
   endpoint?: unknown;
   staging?: unknown;
@@ -76,7 +76,7 @@ function normalizedEndpoint(endpoint: string): string {
 function completeSubmissionConfig(config?: {
   endpoint?: string | undefined;
   turnstileSiteKey?: string | undefined;
-}): SubmissionConfig | null {
+}): StatsSubmissionConfig | null {
   if (!config?.endpoint || !config.turnstileSiteKey) return null;
   return {
     endpoint: normalizedEndpoint(config.endpoint),
@@ -91,8 +91,8 @@ function isLocalHost(hostname?: string): boolean {
 export function statsRuntimeMode(): StatsRuntimeMode {
   const params = new URLSearchParams(window.location.search);
   if (params.get("demoStats") === "1") return "demo";
-  if (params.get(STAGING_RUNTIME_QUERY_KEY) === "disabled") return "disabled";
   const statsEnv = params.get(STAGING_RUNTIME_QUERY_KEY);
+  if (statsEnv === "disabled") return "disabled";
   if (statsEnv !== STAGING_RUNTIME_QUERY_VALUE) {
     if (!statsEnv && isLocalHost(window.location.hostname)) return "disabled";
     return "production";
@@ -105,9 +105,13 @@ export function statsRuntimeMode(): StatsRuntimeMode {
   return "staging";
 }
 
+function usesStatsEndpoint(mode: StatsRuntimeMode): mode is "production" | "staging" {
+  return mode === "production" || mode === "staging";
+}
+
 export function statsApiBase(): string {
   const mode = statsRuntimeMode();
-  if (mode === "demo" || mode === "disabled" || mode === "staging-misconfigured") return "";
+  if (!usesStatsEndpoint(mode)) return "";
 
   const parsed = parsedStatsConfig();
   if (!parsed.success) return "";
@@ -115,9 +119,9 @@ export function statsApiBase(): string {
   return parsed.data.endpoint ? normalizedEndpoint(parsed.data.endpoint) : "";
 }
 
-export function statsSubmissionConfig(): SubmissionConfig | null {
+export function statsSubmissionConfig(): StatsSubmissionConfig | null {
   const mode = statsRuntimeMode();
-  if (mode === "demo" || mode === "disabled" || mode === "staging-misconfigured") return null;
+  if (!usesStatsEndpoint(mode)) return null;
 
   const parsed = parsedStatsConfig();
   if (!parsed.success) return null;

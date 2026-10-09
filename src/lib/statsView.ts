@@ -1,3 +1,4 @@
+import { KIT_ORDER } from "../../shared/game";
 import { message } from "../i18n/locale";
 import type { StatsApiResponse } from "../schemas";
 import type { Kit } from "../types";
@@ -11,7 +12,6 @@ import type {
 } from "../ui-types";
 
 export const EMPTY_STATS_MESSAGE = message("stats.empty");
-const KIT_ORDER: Kit[] = ["blue", "purple", "yellow"];
 
 type ApiKitStat = StatsApiResponse["byKit"][number];
 type ApiSummary =
@@ -71,11 +71,17 @@ function normalizeLevelKitStats(rows: StatsApiResponse["levelKitStats"]): LevelK
   }));
 }
 
+const SEGMENT_END_LEVELS = new Map([
+  [0, 4],
+  [5, 9],
+  [10, 14],
+]);
+
 function segmentKitStats(key: string, levelKitStats: LevelKitStat[]) {
   const [grade, startText] = key.split(":");
   const start = Number(startText);
   if ((grade !== "R" && grade !== "SR") || !Number.isInteger(start)) return normalizeKitStats([]);
-  const end = start === 0 ? 4 : start === 5 ? 9 : start === 10 ? 14 : -1;
+  const end = SEGMENT_END_LEVELS.get(start) ?? -1;
   if (end < start) return normalizeKitStats([]);
 
   return KIT_ORDER.map((kit) => {

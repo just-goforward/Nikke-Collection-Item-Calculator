@@ -3,13 +3,12 @@ import {
   independentFailure,
   independentProbability,
   independentSuccess,
-  makeTriple,
-  mapTriple,
   type OracleInput,
   type OracleResult,
   q,
   type Triple,
 } from "./certified-staging-oracle.ts";
+import { makeTriple, mapTriple } from "./certified-staging-oracle-tuples.ts";
 
 type State = ReturnType<typeof canonicalState>;
 type Edge = { good: bigint; bad: bigint; success: number; normal: number };
@@ -124,8 +123,8 @@ function consider(best: Value, edge: Edge, stock: Triple, color: number, context
   if (p < best.p || p === 0n) return best;
   const consumed = makeTriple(
     (index) =>
-      edge.good * good.consumed[index]! +
-      edge.bad * bad.consumed[index]! +
+      edge.good * good.consumed[index] +
+      edge.bad * bad.consumed[index] +
       (index === color ? 10n * context.denominator : 0n),
   );
   const B = consumed.reduce((total, pieces, index) => total + pieces * context.prices[index]!, 0n);
@@ -213,13 +212,14 @@ export function independentLayeredOracle(input: OracleInput, limits: Limits): Or
   );
   const terminal = game.root < 0,
     ties = COLORS.filter((_color, index) => value.mask & (1 << index));
+  const inactiveAction = terminal ? "DONE" : "STOP";
   return {
     P: q(value.p, denominator),
     B: q(value.B, denominator * common),
     C: q(value.C, denominator),
     consumed: mapTriple(value.consumed, (pieces) => q(pieces, denominator)),
-    action: ties[0] ?? (terminal ? "DONE" : "STOP"),
-    ties: ties.length ? ties : [terminal ? "DONE" : "STOP"],
+    action: ties[0] ?? inactiveAction,
+    ties: ties.length ? ties : [inactiveAction],
     candidates: new Map(),
     nodes: cumulative,
   };

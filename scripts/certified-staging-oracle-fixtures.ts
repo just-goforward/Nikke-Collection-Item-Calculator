@@ -5,8 +5,6 @@ import {
   add,
   type ExactQ,
   type GainOutcome,
-  makeTriple,
-  mapTriple,
   mul,
   type OracleEvent,
   type OracleInput,
@@ -15,6 +13,7 @@ import {
   type Triple,
   wire,
 } from "./certified-staging-oracle.ts";
+import { makeTriple, mapTriple } from "./certified-staging-oracle-tuples.ts";
 
 export const VALIDATION_SEED = 0x9a_30_20_26;
 export const MANDATORY_CASES = 2000;
@@ -125,14 +124,11 @@ function fixtureState(index: number, next: () => number) {
   const grade = stage < 16 ? ("R" as const) : ("SR" as const);
   const level = stage < 16 ? stage : stage - 16;
   const required = grade === "R" ? 1000 : 3000;
-  const exp =
-    level === 15
-      ? 0
-      : index % 4 === 0
-        ? required - 100
-        : index % 4 === 1
-          ? 0
-          : (next() % (required / 100)) * 100;
+  let exp = 0;
+  if (level !== 15) {
+    if (index % 4 === 0) exp = required - 100;
+    else if (index % 4 !== 1) exp = (next() % (required / 100)) * 100;
+  }
   const totalUses = index % 9;
   const blue = next() % (totalUses + 1);
   const purple = next() % (totalUses - blue + 1);
@@ -144,7 +140,7 @@ function fixtureState(index: number, next: () => number) {
   const recurring: Triple = [1 + (next() % 5), 1 + (next() % 5), 1 + (next() % 5)];
   const weekly: Triple = [next() % 7, next() % 7, next() % 7];
   const prices = mapTriple(stock, (pieces, color) =>
-    q(7, pieces * 7 + recurring[color]! * 7 + weekly[color]!),
+    q(7, pieces * 7 + recurring[color] * 7 + weekly[color]),
   );
   return { grade, level, exp, totalUses, stock, recurring, weekly, prices };
 }
@@ -165,9 +161,11 @@ function fixtureFuture(index: number, next: () => number) {
   for (let eventIndex = 0; eventIndex < eventCount; eventIndex += 1) {
     const day = eventIndex === 1 ? 56 : [1, 2, 7, 55, 56][index % 5]!;
     const color = (index + eventIndex) % 3;
-    const gain = makeTriple((candidate) =>
-      candidate === color ? 10 : candidate === (color + 1) % 3 ? next() % 3 : 0,
-    );
+    const gain = makeTriple((candidate) => {
+      if (candidate === color) return 10;
+      if (candidate === (color + 1) % 3) return next() % 3;
+      return 0;
+    });
     const probability = [q(1, 2), q(1, 3), q(2, 5), q(4, 5)][index % 4]!;
     const outcomes: GainOutcome[] = randomFuture
       ? [
@@ -279,7 +277,7 @@ export function generateValidationCases(
 export function expectedFixtureRate(validationCase: ValidationCase): QTriple {
   return mapTriple(
     validationCase.oracle.prices,
-    (price, color): ExactQ => add(q(price.d, price.n), q(-validationCase.input.stock[color]!)),
+    (price, color): ExactQ => add(q(price.d, price.n), q(-validationCase.input.stock[color])),
   );
 }
 export function expectedFixtureConsumptionCost(pieces: Triple, prices: QTriple): ExactQ {

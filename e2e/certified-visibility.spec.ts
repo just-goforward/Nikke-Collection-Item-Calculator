@@ -302,8 +302,10 @@ async function hide() {
 }
 
 async function bringVisible() {
-  const hidden = await page.evaluate(() => document.visibilityState === "hidden");
-  const start = await page.evaluate(() => window.__visibilityTrace.length);
+  const { hidden, start } = await page.evaluate(() => ({
+    hidden: document.visibilityState === "hidden",
+    start: window.__visibilityTrace.length,
+  }));
   if (visibilityAdapter === "tab") {
     await page.bringToFront();
   } else {

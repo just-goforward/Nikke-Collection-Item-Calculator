@@ -1,6 +1,7 @@
 import type { CertifiedSupplyEvent } from "../../shared/certifiedSupply";
 import type { ExactSupplyOutcome } from "../../shared/certifiedSupplyLaws";
 import { law } from "./events";
+import { KIT_INDICES, type KitIndex } from "./game";
 import { compareValue, type ExactValue } from "./value";
 import type { WaitingContext } from "./waitingContext";
 import {
@@ -22,14 +23,14 @@ type WitnessPair = {
 const ENTRY_BYTES = 64;
 function colorRange(
   outcomes: readonly ExactSupplyOutcome[],
-  color: number,
+  color: KitIndex,
 ): readonly [number, number] {
   let min = Infinity,
     max = -Infinity;
   for (const outcome of outcomes) {
     if (outcome.mass.n <= 0n) continue;
-    min = Math.min(min, outcome.pieces[color]!);
-    max = Math.max(max, outcome.pieces[color]!);
+    min = Math.min(min, outcome.pieces[color]);
+    max = Math.max(max, outcome.pieces[color]);
   }
   if (!Number.isFinite(min)) throw new Error("certified_empty_positive_law");
   return [min, max];
@@ -38,7 +39,7 @@ function entriesFor(
   context: WaitingContext,
   events: readonly CertifiedSupplyEvent[],
   cohort: Cohort,
-  color: number,
+  color: KitIndex,
 ): Entry[] {
   const entries: Entry[] = [];
   for (const event of events) {
@@ -55,22 +56,18 @@ function entriesFor(
 }
 function selectedInRange(
   outcomes: readonly ExactSupplyOutcome[],
-  color: number,
+  color: KitIndex,
   minimum: number,
   maximum: number,
-  otherColors: readonly number[] = [],
+  otherColors: readonly KitIndex[] = [],
 ): ExactSupplyOutcome | null {
   let chosen: ExactSupplyOutcome | null = null;
   for (const outcome of outcomes) {
-    if (
-      outcome.mass.n <= 0n ||
-      outcome.pieces[color]! < minimum ||
-      outcome.pieces[color]! > maximum
-    )
+    if (outcome.mass.n <= 0n || outcome.pieces[color] < minimum || outcome.pieces[color] > maximum)
       continue;
     if (
       !chosen ||
-      outcome.pieces[color]! > chosen.pieces[color]! ||
+      outcome.pieces[color] > chosen.pieces[color] ||
       (outcome.pieces[color] === chosen.pieces[color] &&
         otherSupply(outcome, otherColors) > otherSupply(chosen, otherColors))
     )
@@ -78,27 +75,39 @@ function selectedInRange(
   }
   return chosen;
 }
-function otherSupply(outcome: ExactSupplyOutcome, colors: readonly number[]): number {
-  return colors.reduce((total, color) => total + outcome.pieces[color]!, 0);
+function otherSupply(outcome: ExactSupplyOutcome, colors: readonly KitIndex[]): number {
+  return colors.reduce<number>((total, color) => total + outcome.pieces[color], 0);
 }
-function suffixRange(entries: readonly Entry[], needed: number): { min: number[]; max: number[] } {
-  const min = Array<number>(entries.length + 1).fill(0),
-    max = Array<number>(entries.length + 1).fill(0);
-  for (let i = entries.length - 1; i >= 0; i--) {
-    min[i] = Math.min(needed + 1, min[i + 1]! + entries[i]!.min);
-    max[i] = Math.min(needed + 1, max[i + 1]! + entries[i]!.max);
-  }
+function suffixRange(
+  entries: readonly Entry[],
+  needed: number,
+): { min: [number, ...number[]]; max: [number, ...number[]] } {
+  const min: [number, ...number[]] = [0],
+    max: [number, ...number[]] = [0];
+  min.length = max.length = entries.length + 1;
+  min.fill(0);
+  max.fill(0);
+  entries.reduceRight<[number, number]>(
+    (suffix, entry, i) => {
+      suffix[0] = Math.min(needed + 1, suffix[0] + entry.min);
+      suffix[1] = Math.min(needed + 1, suffix[1] + entry.max);
+      min[i] = suffix[0];
+      max[i] = suffix[1];
+      return suffix;
+    },
+    [0, 0],
+  );
   return { min, max };
 }
 function targetTrajectory(
   context: WaitingContext,
   events: readonly CertifiedSupplyEvent[],
   cohort: Cohort,
-  color: number,
+  color: KitIndex,
   target: number,
-  otherColors: readonly number[],
+  otherColors: readonly KitIndex[],
 ): Trajectory | null {
-  const needed = target - context.input.stock[color]!;
+  const needed = target - context.input.stock[color];
   if (needed < 0) return null;
   const entries = entriesFor(context, events, cohort, color);
   const path: Trajectory = { stock: context.input.stock, receipts: [], bytes: 0 };
@@ -107,20 +116,21 @@ function targetTrajectory(
   try {
     context.kernel.budget.reserve(rangeBytes);
     const range = suffixRange(entries, needed);
-    if (needed < range.min[0]! || needed > range.max[0]!) return null;
+    if (needed < range.min[0] || needed > range.max[0]) return null;
     let remaining = needed;
-    for (let i = 0; i < entries.length; i++) {
-      const entry = entries[i]!;
+    for (const [i, entry] of entries.entries()) {
+      const suffixMin = range.min[i + 1]!;
+      const suffixMax = range.max[i + 1]!;
       const selected = selectedInRange(
         law(context.input, entry.event, entry.index, cohort, context.kernel.budget),
         color,
-        remaining - range.max[i + 1]!,
-        remaining - range.min[i + 1]!,
+        remaining - suffixMax,
+        remaining - suffixMin,
         otherColors,
       );
       if (!selected) return null;
       appendReceipt(context, path, entry.event, entry.index, selected);
-      remaining -= selected.pieces[color]!;
+      remaining -= selected.pieces[color];
     }
     if (remaining !== 0) return null;
     retained = true;
@@ -132,7 +142,7 @@ function targetTrajectory(
 }
 function maximalOutcome(
   outcomes: readonly ExactSupplyOutcome[],
-  color: number,
+  color: KitIndex,
 ): ExactSupplyOutcome {
   const selected = selectedInRange(outcomes, color, 0, Infinity);
   if (!selected) throw new Error("certified_empty_positive_law");
@@ -142,7 +152,7 @@ function exactPair(
   context: WaitingContext,
   last: readonly CertifiedSupplyEvent[],
   cohort: Cohort,
-  color: number,
+  color: KitIndex,
   before: Trajectory,
 ): WitnessPair | null {
   const after = trajectory(context, last, cohort, before.stock, (_event, _index, outcomes) =>
@@ -176,15 +186,14 @@ export function nearBoundWitness(
   last: readonly CertifiedSupplyEvent[],
 ): WitnessPair | null {
   const bound = context.kernel.unlimited(context.sid).bound;
-  const colors = [0, 1, 2].filter((color) => bound[color]! > 0);
+  const colors = KIT_INDICES.filter((color) => bound[color] > 0);
   if (colors.length > 1)
     colors.sort(
-      (a, b) =>
-        bound[a]! * 10 - context.input.stock[a]! - (bound[b]! * 10 - context.input.stock[b]!),
+      (a, b) => bound[a] * 10 - context.input.stock[a] - (bound[b] * 10 - context.input.stock[b]),
     );
   for (const color of colors) {
     const otherColors = colors.filter((other) => other !== color);
-    const target = bound[color]! * 10 - 10;
+    const target = bound[color] * 10 - 10;
     for (const cohort of [0, 1, 2] as const) {
       if (context.priors[cohort].n === 0n) continue;
       const before = targetTrajectory(context, prior, cohort, color, target, otherColors);

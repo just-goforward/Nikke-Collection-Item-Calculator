@@ -74,14 +74,9 @@ try {
   const confirmedChallengerIds = discoveryDecisions
     .filter((entry) => entry.passed)
     .map((entry) => entry.candidateId);
+  const challengerIds = phase === "discovery" ? exactChallengerIds : confirmedChallengerIds;
   const defaultCandidateIds =
-    phase === "discovery"
-      ? exactChallengerIds.length > 0
-        ? [report.baselineVerification.candidateId, ...exactChallengerIds]
-        : []
-      : confirmedChallengerIds.length > 0
-        ? [report.baselineVerification.candidateId, ...confirmedChallengerIds]
-        : [];
+    challengerIds.length > 0 ? [report.baselineVerification.candidateId, ...challengerIds] : [];
   const candidateIds = parseList(envValue("HP_STUDY_CANDIDATES"), defaultCandidateIds);
   if (phase === "confirmation" && discoveryDecisions.some((decision) => !decision.judgeable)) {
     throw new Error("Complete the canonical discovery campaign before held-out confirmation.");
@@ -178,6 +173,10 @@ try {
       ? "completed"
       : "pending";
   report.tailRisk.records = existing;
+  let skippedReason: string | null = null;
+  if (defaultCandidateIds.length === 0) {
+    skippedReason = phase === "discovery" ? "no_exact_challenger" : "no_discovery_challenger";
+  }
   Object.assign(report.tailRisk, {
     protocol: {
       panels: PANEL_IDS,
@@ -186,12 +185,7 @@ try {
       commonRandomNumbers: true,
       completionThreshold: gate.JOURNEY_COMPLETION_THRESHOLD,
       currentRun: { phase, runs, canonical: runs === (phase === "discovery" ? 12_000 : 20_000) },
-      skippedReason:
-        defaultCandidateIds.length === 0
-          ? phase === "discovery"
-            ? "no_exact_challenger"
-            : "no_discovery_challenger"
-          : null,
+      skippedReason,
     },
     [`${phase}Decisions`]: decisions,
   });

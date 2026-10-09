@@ -134,11 +134,13 @@ async function main(): Promise<SelectionOutput> {
 
   if (!baseline?.gateComplete || !baseline.supplyDebtJudgeable || baseline.supplyDebt === null) {
     out.outcome = "insufficient-evidence";
-    out.reason = !baseline
-      ? "Baseline A absent from results."
-      : !baseline.gateComplete
-        ? `Baseline A gate incomplete (${baseline.gateJudgedCount}/${baseline.gateTotal}; ${baseline.incompleteReasons.join(", ")}).`
-        : "Baseline A journey supplyDebt unjudgeable (no completion-sufficient panel).";
+    if (!baseline) {
+      out.reason = "Baseline A absent from results.";
+    } else if (!baseline.gateComplete) {
+      out.reason = `Baseline A gate incomplete (${baseline.gateJudgedCount}/${baseline.gateTotal}; ${baseline.incompleteReasons.join(", ")}).`;
+    } else {
+      out.reason = "Baseline A journey supplyDebt unjudgeable (no completion-sufficient panel).";
+    }
     await writeOutputs(out);
     return out;
   }

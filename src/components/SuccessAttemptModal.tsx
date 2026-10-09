@@ -1,20 +1,13 @@
 import { useLayoutEffect } from "react";
 import { useI18n } from "../i18n/locale";
-import type { MessageKey } from "../i18n/messages.ko";
-import type { Kit } from "../types";
 import type { SuccessAttemptModalState } from "../ui-types";
 import { AlignedText } from "./AlignedText";
+import { KIT_LABEL_KEYS } from "./kitPresentation";
 
 type SuccessAttemptModalProps = {
   modal: SuccessAttemptModalState;
   onSubmit: (successAttempt: number | null) => void;
   firstFocusRef: React.RefObject<HTMLButtonElement | null>;
-};
-
-const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
-  blue: "kit.blue",
-  purple: "kit.purple",
-  yellow: "kit.yellow",
 };
 
 const MODAL_TEXT = {

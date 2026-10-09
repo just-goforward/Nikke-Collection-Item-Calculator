@@ -261,15 +261,10 @@ function soloGainWithin(period: ParsedPeriod, from: number, until: number): Supp
   const result = zeroGain();
   for (let day = firstDay, dayNumber = 1; day < activeUntil; day += DAY_MS, dayNumber += 1) {
     if (day < from || day > until) continue;
-    addScaled(
-      result,
-      dayNumber === 1
-        ? SOLO_DAILY_EXPECTED_GAIN.day1
-        : dayNumber === 2
-          ? SOLO_DAILY_EXPECTED_GAIN.day2
-          : SOLO_DAILY_EXPECTED_GAIN.day3AndLater,
-      1,
-    );
+    let gain: SupplyGain = SOLO_DAILY_EXPECTED_GAIN.day3AndLater;
+    if (dayNumber === 1) gain = SOLO_DAILY_EXPECTED_GAIN.day1;
+    else if (dayNumber === 2) gain = SOLO_DAILY_EXPECTED_GAIN.day2;
+    addScaled(result, gain, 1);
   }
   return result;
 }

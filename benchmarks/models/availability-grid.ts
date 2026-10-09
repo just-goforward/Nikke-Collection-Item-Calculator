@@ -53,19 +53,21 @@ export function buildAvailabilityGridCandidates(
           horizonFactor === BASELINE_AVAILABILITY_CANDIDATE.horizonFactor &&
           normPower === BASELINE_AVAILABILITY_CANDIDATE.normPower;
         const isProbe = normPower !== 3;
+        let role: AvailabilitySliderCandidate["role"] = "grid";
+        if (isBaseline) {
+          role = "baseline";
+        } else if (isProbe && normPower === 2) {
+          role = "sensitivity-probe";
+        } else if (isProbe) {
+          role = "preservation-probe";
+        }
         candidates.push({
           id: availabilityCandidateId(tolerance, horizonFactor, normPower),
           tolerance,
           horizonFactor,
           horizonDays: horizonFactor * 28,
           normPower,
-          role: isBaseline
-            ? "baseline"
-            : isProbe && normPower === 2
-              ? "sensitivity-probe"
-              : isProbe
-                ? "preservation-probe"
-                : "grid",
+          role,
         });
       }
     }

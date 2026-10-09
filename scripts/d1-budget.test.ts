@@ -473,54 +473,28 @@ describe("Cloudflare Paid GraphQL completeness", () => {
     ).rejects.toThrow("cloudflare_d1_list_page_limit_reached");
   });
 
-  it("fails closed when an analytics group reaches the query limit", async () => {
-    const knownDatabases = Object.values(D1_DATABASE_IDS).map((uuid) => ({ uuid, name: uuid }));
-    const fetchImpl: typeof fetch = async (input) => {
-      const url = String(input);
-      if (url.endsWith("/subscriptions")) {
-        return Response.json({
-          success: true,
-          result: [
-            {
-              id: "subscription-1",
-              state: "Paid",
-              frequency: "monthly",
-              current_period_start: "2026-08-15T00:00:00Z",
-              current_period_end: "2026-09-15T00:00:00Z",
-              rate_plan: { id: "workers-paid", public_name: "Workers Paid" },
-            },
-          ],
-        });
-      }
-      if (url.includes("/d1/database")) {
-        return Response.json({
-          success: true,
-          result: knownDatabases,
-          result_info: {
-            count: knownDatabases.length,
-            page: 1,
-            per_page: 100,
-            total_count: knownDatabases.length,
+  it.each([
+    ["workersInvocationsAdaptive", "cloudflare_paid_graphql_worker_groups_limit_reached"],
+    ["workerRuntime", "cloudflare_paid_graphql_worker_runtime_groups_limit_reached"],
+  ])("fails closed when the %s group reaches the query limit", async (group, expectedError) => {
+    const fallback = paidApiFetch();
+    const fetchImpl: typeof fetch = async (input, init) => {
+      if (!String(input).endsWith("/graphql")) return fallback(input, init);
+      return Response.json({
+        data: {
+          viewer: {
+            accounts: [
+              {
+                d1AnalyticsAdaptiveGroups: [],
+                d1StorageAdaptiveGroups: [],
+                workersInvocationsAdaptive: [],
+                workerRuntime: [],
+                [group]: Array.from({ length: 10_000 }, () => ({})),
+              },
+            ],
           },
-        });
-      }
-      if (url.endsWith("/graphql")) {
-        return Response.json({
-          data: {
-            viewer: {
-              accounts: [
-                {
-                  d1AnalyticsAdaptiveGroups: [],
-                  d1StorageAdaptiveGroups: [],
-                  workersInvocationsAdaptive: Array.from({ length: 10_000 }, () => ({})),
-                  workerRuntime: [],
-                },
-              ],
-            },
-          },
-        });
-      }
-      return new Response(null, { status: 404 });
+        },
+      });
     };
 
     await expect(
@@ -531,68 +505,7 @@ describe("Cloudflare Paid GraphQL completeness", () => {
         nowMs: BASELINE_AT,
         fetchImpl,
       }),
-    ).rejects.toThrow("cloudflare_paid_graphql_worker_groups_limit_reached");
-  });
-
-  it("fails closed when the rolling Worker runtime group reaches the query limit", async () => {
-    const knownDatabases = Object.values(D1_DATABASE_IDS).map((uuid) => ({ uuid, name: uuid }));
-    const fetchImpl: typeof fetch = async (input) => {
-      const url = String(input);
-      if (url.endsWith("/subscriptions")) {
-        return Response.json({
-          success: true,
-          result: [
-            {
-              id: "subscription-1",
-              state: "Paid",
-              frequency: "monthly",
-              current_period_start: "2026-08-15T00:00:00Z",
-              current_period_end: "2026-09-15T00:00:00Z",
-              rate_plan: { id: "workers-paid", public_name: "Workers Paid" },
-            },
-          ],
-        });
-      }
-      if (url.includes("/d1/database")) {
-        return Response.json({
-          success: true,
-          result: knownDatabases,
-          result_info: {
-            count: knownDatabases.length,
-            page: 1,
-            per_page: 100,
-            total_count: knownDatabases.length,
-          },
-        });
-      }
-      if (url.endsWith("/graphql")) {
-        return Response.json({
-          data: {
-            viewer: {
-              accounts: [
-                {
-                  d1AnalyticsAdaptiveGroups: [],
-                  d1StorageAdaptiveGroups: [],
-                  workersInvocationsAdaptive: [],
-                  workerRuntime: Array.from({ length: 10_000 }, () => ({})),
-                },
-              ],
-            },
-          },
-        });
-      }
-      return new Response(null, { status: 404 });
-    };
-
-    await expect(
-      fetchD1UsageSnapshot({
-        accountId: "a".repeat(32),
-        analyticsToken: "analytics-token",
-        billingToken: "billing-token",
-        nowMs: BASELINE_AT,
-        fetchImpl,
-      }),
-    ).rejects.toThrow("cloudflare_paid_graphql_worker_runtime_groups_limit_reached");
+    ).rejects.toThrow(expectedError);
   });
 });
 

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { describe, expect, it } from "vitest";
 import {
   cmp,
@@ -30,16 +31,21 @@ function equivalent(
 ) {
   expect(compareValue(actual, reference)).toBe(0);
   expect(
-    actual.consumed.every((value, color) => cmp(value, reference.consumed[color]!) === 0),
+    actual.consumed.every((value, color) => {
+      const expected = reference.consumed[color];
+      assert(expected, "Expected reference consumption coordinate");
+      return cmp(value, expected) === 0;
+    }),
   ).toBe(true);
   const kit = ["blue", "purple", "yellow"];
   expect(actual.chosen < 0 ? "DONE" : kit[actual.chosen]).toBe(reference.action);
   expect(actual.mask).toBe(
-    reference.ties.reduce(
-      (mask, action) =>
-        mask | (action === "blue" ? 1 : action === "purple" ? 2 : action === "yellow" ? 4 : 0),
-      0,
-    ),
+    reference.ties.reduce((mask, action) => {
+      if (action === "blue") return mask | 1;
+      if (action === "purple") return mask | 2;
+      if (action === "yellow") return mask | 4;
+      return mask;
+    }, 0),
   );
 }
 describe("independent public-DAG finite-layer retirement", () => {
@@ -57,17 +63,19 @@ describe("independent public-DAG finite-layer retirement", () => {
         [0, 1],
         [1, 0],
         [1, 1],
-      ]) {
+      ] as const) {
         const input = {
           ...request(),
           prices,
-          beforeStock: [40, purple! * 10, yellow! * 10] as const,
-          afterStock: [40, (purple! + 1) * 10, yellow! * 10] as const,
+          beforeStock: [40, purple * 10, yellow * 10] as const,
+          afterStock: [40, (purple + 1) * 10, yellow * 10] as const,
         };
         const actual = evaluatePublicLayeredRelaxationPair(input);
         expect(actual.status).toBe("PASS");
         for (const endpoint of ["before", "after"] as const) {
-          equivalent(actual[endpoint]!, oracle({ ...input, stock: input[`${endpoint}Stock`] }));
+          const value = actual[endpoint];
+          assert(value, "Expected exact layered endpoint");
+          equivalent(value, oracle({ ...input, stock: input[`${endpoint}Stock`] }));
           checks++;
         }
       }
@@ -86,14 +94,19 @@ describe("independent public-DAG finite-layer retirement", () => {
       const old = evaluatePublicPathRelaxationPair(input);
       expect(actual.status).toBe("PASS");
       for (const endpoint of ["before", "after"] as const) {
-        expect(compareValue(actual[endpoint]!, old[endpoint]!)).toBe(0);
+        const value = actual[endpoint];
+        const reference = old[endpoint];
+        assert(value && reference, "Expected matching relaxed endpoints");
+        expect(compareValue(value, reference)).toBe(0);
         expect(
-          actual[endpoint]!.consumed.every(
-            (value, color) => cmp(value, old[endpoint]!.consumed[color]!) === 0,
-          ),
+          value.consumed.every((amount, color) => {
+            const expected = reference.consumed[color];
+            assert(expected, "Expected reference consumption coordinate");
+            return cmp(amount, expected) === 0;
+          }),
         ).toBe(true);
-        expect(actual[endpoint]!.mask).toBe(old[endpoint]!.mask);
-        expect(actual[endpoint]!.chosen).toBe(old[endpoint]!.chosen);
+        expect(value.mask).toBe(reference.mask);
+        expect(value.chosen).toBe(reference.chosen);
       }
     }
   });
@@ -126,8 +139,10 @@ describe("independent public-DAG finite-layer retirement", () => {
     const result = evaluatePublicLayeredRelaxationPair(input);
     expect(result.status).toBe("PASS");
     const oracle = createOracleEvaluator(input.prices);
-    equivalent(result.before!, oracle({ ...input, stock: input.beforeStock }));
-    equivalent(result.after!, oracle({ ...input, stock: input.afterStock }));
+    const { before, after } = result;
+    assert(before && after, "Expected both layered roots");
+    equivalent(before, oracle({ ...input, stock: input.beforeStock }));
+    equivalent(after, oracle({ ...input, stock: input.afterStock }));
     expect(result.strictOrder).toBe(-1);
   });
   it("separates136752 cumulative grid rows from9768 live rows before any table", () => {
@@ -154,8 +169,10 @@ describe("independent public-DAG finite-layer retirement", () => {
     };
     const actual = evaluatePublicLayeredRelaxationPair(input);
     expect(actual.status).toBe("PASS");
-    expect(actual.diagnostics.cumulativeRows).toBe(actual.plan!.cumulativeRows);
-    expect(actual.diagnostics.peakLiveRows).toBe(actual.plan!.maximumLiveRows);
+    const plan = actual.plan;
+    assert(plan, "Expected admitted layer plan");
+    expect(actual.diagnostics.cumulativeRows).toBe(plan.cumulativeRows);
+    expect(actual.diagnostics.peakLiveRows).toBe(plan.maximumLiveRows);
     expect(actual.diagnostics.cumulativeRows).toBeGreaterThan(actual.diagnostics.peakLiveRows);
   });
 });
@@ -218,7 +235,9 @@ describe("independent layered admission and exact boundary controls", () => {
       afterStock: [40, 10, 10],
     });
     expect(result.status).toBe("PASS");
-    expect(cmp(result.before!.B, q(10n, 1n << 5000n))).toBe(0);
+    const before = result.before;
+    assert(before, "Expected exact-price endpoint");
+    expect(cmp(before.B, q(10n, 1n << 5000n))).toBe(0);
   });
   it("returns exact terminal values without inventory rows", () => {
     const result = evaluatePublicLayeredRelaxationPair({
@@ -229,7 +248,9 @@ describe("independent layered admission and exact boundary controls", () => {
       afterStock: [0, 0, 0],
     });
     expect(result.status).toBe("PASS");
-    expect(cmp(result.before!.P, q(1))).toBe(0);
+    const before = result.before;
+    assert(before, "Expected terminal endpoint");
+    expect(cmp(before.P, q(1))).toBe(0);
     expect(result.before?.mask).toBe(0);
     expect(result.diagnostics.cumulativeRows).toBe(0);
   });

@@ -3,10 +3,9 @@ import {
   independentFailure,
   independentProbability,
   independentSuccess,
-  makeTriple,
-  mapTriple,
   type Triple,
 } from "./certified-staging-oracle.ts";
+import { makeTriple, mapTriple } from "./certified-staging-oracle-tuples.ts";
 
 type State = ReturnType<typeof canonicalState>;
 /** Public-game DAG bound over ALL actions and positive-probability outcomes.
@@ -34,7 +33,7 @@ export function createIndependentPublicCaps() {
           ? bounds(independentFailure(state.grade, state.level, state.exp, action))
           : ([0, 0, 0] as const);
       maximum = mapTriple(maximum, (prior, color) =>
-        Math.max(prior, (action === color ? 1 : 0) + Math.max(good[color]!, normal[color]!)),
+        Math.max(prior, (action === color ? 1 : 0) + Math.max(good[color], normal[color])),
       );
     }
     memo.set(key, maximum);
@@ -44,7 +43,7 @@ export function createIndependentPublicCaps() {
     bounds,
     canonicalStock(state: State, stock: Triple): Triple {
       const maximum = bounds(state);
-      return makeTriple((color) => Math.min(stock[color]!, maximum[color]!));
+      return makeTriple((color) => Math.min(stock[color], maximum[color]));
     },
     stateCount: () => memo.size,
   };

@@ -121,6 +121,24 @@ export type AppHandlers = {
   onOutcome: (outcome: "success" | "fail") => Promise<void>;
 };
 
+function stagingForecastWindowText(
+  forecastWindow: ReturnType<typeof formatStagingForecastKstWindow> | null,
+  scheduleStatus: string,
+  t: ReturnType<typeof useI18n>["t"],
+) {
+  if (forecastWindow?.until) {
+    return t("staging.forecastWindow", {
+      from: forecastWindow.from,
+      until: forecastWindow.until,
+      status: scheduleStatus,
+    });
+  }
+  return t("staging.forecastWindowOpenEnded", {
+    from: forecastWindow?.from ?? "-",
+    status: scheduleStatus,
+  });
+}
+
 function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
   const { formatNumber, locale, t } = useI18n();
   const [forecastTimestamp, setForecastTimestamp] = useState(Date.now);
@@ -139,13 +157,11 @@ function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
   const forecastWindow = isStagingForecast
     ? formatStagingForecastKstWindow(runtimeForecast.profile, locale)
     : null;
-  const scheduleStatus = isStagingForecast
-    ? t(
-        runtimeForecast.profile.scheduleStatus === "confirmed"
-          ? "staging.forecastStatusConfirmed"
-          : "staging.forecastStatusEstimated",
-      )
-    : "";
+  const scheduleStatusKey =
+    runtimeForecast.profile.scheduleStatus === "confirmed"
+      ? "staging.forecastStatusConfirmed"
+      : "staging.forecastStatusEstimated";
+  const scheduleStatus = isStagingForecast ? t(scheduleStatusKey) : "";
   const forecastDetails = isStagingForecast ? (
     <span
       className={classes.stagingForecast}
@@ -157,16 +173,7 @@ function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
       })}
     >
       <span className={classes.stagingForecastPeriod}>
-        {forecastWindow?.until
-          ? t("staging.forecastWindow", {
-              from: forecastWindow.from,
-              until: forecastWindow.until,
-              status: scheduleStatus,
-            })
-          : t("staging.forecastWindowOpenEnded", {
-              from: forecastWindow?.from ?? "-",
-              status: scheduleStatus,
-            })}
+        {stagingForecastWindowText(forecastWindow, scheduleStatus, t)}
       </span>
       <span className={classes.stagingForecastGain}>
         {t("staging.forecastGain", {

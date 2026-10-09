@@ -46,13 +46,13 @@ export class StagingForecastEligibilityError extends Error {
   readonly errorCode: string;
 
   constructor(errorCode: string) {
-    super(
-      errorCode === "registry_approved_forecast_changed"
-        ? "Staging may select only the inactive approved forecast."
-        : errorCode === "registry_forecast_already_active"
-          ? "Forecast is already active in production; staging selection is unnecessary."
-          : errorCode,
-    );
+    let message = errorCode;
+    if (errorCode === "registry_approved_forecast_changed") {
+      message = "Staging may select only the inactive approved forecast.";
+    } else if (errorCode === "registry_forecast_already_active") {
+      message = "Forecast is already active in production; staging selection is unnecessary.";
+    }
+    super(message);
     this.errorCode = errorCode;
     this.name = "StagingForecastEligibilityError";
   }

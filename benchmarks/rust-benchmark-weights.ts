@@ -47,26 +47,18 @@ function profileWeight(scenario: RustBenchmarkScenarioLike, profile: RustBenchma
   if (profile === "usage-proxy-v1") {
     // This is not D1 telemetry. It is a transparent stand-in that gives product-like traffic more
     // influence than stress-only probes until private aggregate weights are wired in.
-    const sourceWeight =
-      scenario.source === "product-observed"
-        ? 1.6
-        : scenario.source === "product-observed-high-stock"
-          ? 0.35
-          : scenario.source === "fixed-grid"
-            ? 0.85
-            : 0.3;
+    let sourceWeight = 0.3;
+    if (scenario.source === "product-observed") sourceWeight = 1.6;
+    else if (scenario.source === "product-observed-high-stock") sourceWeight = 0.35;
+    else if (scenario.source === "fixed-grid") sourceWeight = 0.85;
     const groupWeight = scenario.group === "balanced" ? 1.25 : 0.85;
     return sourceWeight * groupWeight * stageWeight(scenario.start);
   }
 
-  const sourceWeight =
-    scenario.source === "product-observed"
-      ? 1.2
-      : scenario.source === "product-observed-high-stock"
-        ? 0.6
-        : scenario.source === "fixed-grid"
-          ? 1
-          : 0.7;
+  let sourceWeight = 0.7;
+  if (scenario.source === "product-observed") sourceWeight = 1.2;
+  else if (scenario.source === "product-observed-high-stock") sourceWeight = 0.6;
+  else if (scenario.source === "fixed-grid") sourceWeight = 1;
   const groupWeight = scenario.group === "scarcity" ? 1.6 : 1;
   const lateJourneyWeight = scenario.start.level >= 10 ? 1.2 : 1;
   return sourceWeight * groupWeight * lateJourneyWeight;

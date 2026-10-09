@@ -118,17 +118,20 @@ export function buildCandidate(
     journey && Number.isFinite(Number(journey.maxPanelSupplyDebtCvar90))
       ? Number(journey.maxPanelSupplyDebtCvar90)
       : null;
+  let worstExactLoss: number | null = null;
+  let worstRelativeLoss: number | null = null;
+  if (modelId === AVAILABILITY_BASELINE_ID) {
+    worstExactLoss = 0;
+    worstRelativeLoss = 0;
+  } else {
+    if (losses.length) worstExactLoss = Math.max(...losses);
+    if (relativeLosses.length) worstRelativeLoss = Math.max(...relativeLosses);
+  }
 
   return {
     modelId,
-    worstExactLoss:
-      modelId === AVAILABILITY_BASELINE_ID ? 0 : losses.length ? Math.max(...losses) : null,
-    worstRelativeLoss:
-      modelId === AVAILABILITY_BASELINE_ID
-        ? 0
-        : relativeLosses.length
-          ? Math.max(...relativeLosses)
-          : null,
+    worstExactLoss,
+    worstRelativeLoss,
     gateComplete,
     gateJudgedCount: judgedScenarioIds.size,
     gateTotal: gateScenarioIds.length,

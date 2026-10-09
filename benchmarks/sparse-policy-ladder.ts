@@ -2,14 +2,13 @@ import type { SolverInput } from "../src/types";
 import { rustCoreExportsFromInstance } from "../src/wasm/rustLoader";
 import { createRustMinEfSolver } from "../src/wasm/rustMinEfCore";
 import { normalizeRustProductInput } from "../src/wasm/rustProductInput";
-import { buildRecommendedRunForKit } from "../src/wasm/rustProductView";
 import {
   RUST_STATUS_BUDGET_EXCEEDED,
   RUST_STATUS_MEMO_FULL,
   RustSolveError,
 } from "../src/wasm/rustStatus";
-import type { RustMinEfPolicyHandle } from "../src/wasm/rustTypes";
 import type { ExactPolicySolverResult } from "./evaluator/exact-replan-types";
+import { decisionFromRootPolicy } from "./policy-decision";
 import {
   createSparsePolicyIterationSolver,
   type SparsePolicyIterationDecision,
@@ -21,26 +20,6 @@ export type SparseFallbackTrace = {
   sparseOutcome: SparsePolicyIterationDecision["result"]["outcome"] | "not_run";
   selectedBackend: "rust-min-ef" | "sparse-policy-iteration" | null;
 };
-
-function minEfDecision(input: SolverInput, policy: RustMinEfPolicyHandle): ExactPolicySolverResult {
-  const root = policy.root;
-  if (!root.firstAction) return { possible: false, best: null };
-  const normalized = normalizeRustProductInput(input);
-  const run = buildRecommendedRunForKit(
-    normalized,
-    (state, stockUses) => policy.actionAt(state, stockUses),
-    root.firstAction,
-  );
-  if (!run) return { possible: false, best: null };
-  return {
-    possible: true,
-    best: {
-      firstAction: root.firstAction,
-      probabilityGap: Math.max(0, root.maxSuccessProbability - root.successProbability),
-      run: { count: run.count },
-    },
-  };
-}
 
 function classifyMinEfError(error: unknown): SparseFallbackTrace["minEfOutcome"] {
   if (error instanceof RustSolveError) {
@@ -78,7 +57,7 @@ export function createSparseFallbackLadderSession(
         sparseOutcome: "not_run",
         selectedBackend: "rust-min-ef",
       });
-      return minEfDecision(input, policy);
+      return decisionFromRootPolicy(input, policy);
     } catch (error) {
       const minEfOutcome = classifyMinEfError(error);
       if (minEfOutcome !== "memo_full" && minEfOutcome !== "budget_exceeded") {

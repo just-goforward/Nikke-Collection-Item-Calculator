@@ -2,6 +2,7 @@ import { reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import schemaSql from "../schema.sql?raw";
+import { pollNaverSource } from "./source-queue";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
 import worker from "./worker";
@@ -98,6 +99,89 @@ describe("forecast collector route dispatch boundary", () => {
       { token: "expected-token", path, method: "POST", body: "{}", environment: "production" },
     );
     expect(response.status).toBe(404);
+  });
+});
+
+describe("forecast collector boundary recovery", () => {
+  it("keeps boundary recovery behind production admin authentication and rate limiting", async () => {
+    const responseFor = (ids: readonly number[]) =>
+      Response.json({
+        code: 200,
+        content: {
+          feeds: ids.map((feedId) => ({
+            feed: {
+              feedId,
+              loungeId: "nikke",
+              title: `공지 ${feedId}`,
+              createdDate: "20260824120000",
+            },
+            user: { userRoleCode: "game_manager" },
+            board: { boardId: 48 },
+          })),
+        },
+      });
+    await pollNaverSource(
+      testEnv.FORECAST_DB,
+      48,
+      vi.fn<typeof fetch>().mockResolvedValue(responseFor([100])),
+      "production",
+    );
+    await expect(
+      pollNaverSource(
+        testEnv.FORECAST_DB,
+        48,
+        vi.fn<typeof fetch>().mockResolvedValue(responseFor([110])),
+        "production",
+      ),
+    ).rejects.toThrow("naver_scan_boundary_missing");
+    const options = {
+      path: "/admin/source-queue/process",
+      method: "POST",
+      environment: "production" as const,
+      body: JSON.stringify({
+        mode: "recover-boundary",
+        environment: "production",
+        source: "naver-board-48",
+        expectedCommittedItemId: "100",
+      }),
+    };
+    const limit = vi.fn().mockResolvedValue({ success: true });
+    const bindings = {
+      ADMIN_RATE_LIMITER: { limit } as unknown as RateLimit,
+      ADMIN_TOKEN: "expected-token",
+    };
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => responseFor([141, 100]));
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      expect((await invokeAdmin(bindings, options)).status).toBe(401);
+      limit.mockResolvedValueOnce({ success: true }).mockResolvedValueOnce({ success: false });
+      expect((await invokeAdmin(bindings, { ...options, token: "expected-token" })).status).toBe(
+        429,
+      );
+      expect(fetcher).not.toHaveBeenCalled();
+      limit.mockClear();
+      const response = await invokeAdmin(bindings, { ...options, token: "expected-token" });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        recovered: true,
+        source: "naver-board-48",
+        queuedItems: 1,
+      });
+      expect(limit.mock.calls).toEqual([
+        [{ key: "admin-unauth:unknown" }],
+        [{ key: "admin-auth:POST:source-queue" }],
+      ]);
+      const state = await testEnv.FORECAST_DB.prepare(
+        "SELECT committed_item_id, next_offset FROM source_poll_state WHERE source = 'naver-board-48'",
+      ).first();
+      expect(state).toEqual({ committed_item_id: "141", next_offset: 0 });
+      const hold = await testEnv.FORECAST_DB.prepare(
+        "SELECT state FROM forecast_ops_alerts WHERE alert_key = 'naver-boundary:production:48'",
+      ).first();
+      expect(hold).toEqual({ state: "resolved" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

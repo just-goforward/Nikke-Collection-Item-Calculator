@@ -156,12 +156,17 @@ function accountRuntimeSummary(evidence: D1QuotaEvidence, environment: Environme
     ...missingWorkers.map((scriptName) => `missing:${scriptName}`),
     ...workers.filter((worker) => !worker.passed).map((worker) => `runtime:${worker.scriptName}`),
   ];
+  let status = "passed";
+  if (missingWorkers.length > 0) {
+    status = "incomplete";
+  } else if (failureCodes.length > 0) {
+    status = "failed";
+  }
   return {
     workers,
     missingWorkers,
     failureCodes,
-    status:
-      missingWorkers.length > 0 ? "incomplete" : failureCodes.length > 0 ? "failed" : "passed",
+    status,
   };
 }
 

@@ -170,30 +170,7 @@ async function main() {
       );
     }
 
-    const complete = records.every((record) => record.candidate.status === "completed");
-    const resourceQualityGatePassed = records.every(
-      (record) => record.quality.grade === "scenario_pass",
-    );
-    const manualEntryReductionObserved = records.every(
-      (record) =>
-        record.deltas.expectedManualEntries !== null &&
-        record.deltas.expectedManualEntries < -1e-12,
-    );
-    const classification = !complete
-      ? "verification_incomplete"
-      : resourceQualityGatePassed && manualEntryReductionObserved
-        ? "interaction_policy_tradeoff"
-        : "rejected";
-    const blockers = [
-      ...records.flatMap((record) =>
-        record.quality.grade === "scenario_pass"
-          ? []
-          : [
-              `${record.scenarioId}: ${record.quality.grade} (${record.quality.reasons.join(", ")})`,
-            ],
-      ),
-      "Expected user confirmation/recalculation workload is not measured by the exact evaluator.",
-    ];
+    const decision = summarizeBatchingDecision(records);
     const report: Report = {
       kind: "single-use-batching-study",
       version: 1,
@@ -203,20 +180,45 @@ async function main() {
       productWasm,
       contract: studyContract,
       records,
-      decision: {
-        resourceQualityGatePassed,
-        manualEntryReductionObserved,
-        interactionWorkloadMeasured: false,
-        classification,
-        productAdoptionAuthorized: false,
-        blockers,
-      },
+      decision,
     };
     await writeFile(OUTPUT_URL, `${JSON.stringify(report, null, 2)}\n`, "utf8");
     console.log(JSON.stringify(report.decision));
   } finally {
     await server.close();
   }
+}
+
+function summarizeBatchingDecision(records: Report["records"]): Report["decision"] {
+  const complete = records.every((record) => record.candidate.status === "completed");
+  const resourceQualityGatePassed = records.every(
+    (record) => record.quality.grade === "scenario_pass",
+  );
+  const manualEntryReductionObserved = records.every(
+    (record) =>
+      record.deltas.expectedManualEntries !== null && record.deltas.expectedManualEntries < -1e-12,
+  );
+  let classification: Report["decision"]["classification"] = "rejected";
+  if (!complete) classification = "verification_incomplete";
+  else if (resourceQualityGatePassed && manualEntryReductionObserved) {
+    classification = "interaction_policy_tradeoff";
+  }
+  const blockers = [
+    ...records.flatMap((record) =>
+      record.quality.grade === "scenario_pass"
+        ? []
+        : [`${record.scenarioId}: ${record.quality.grade} (${record.quality.reasons.join(", ")})`],
+    ),
+    "Expected user confirmation/recalculation workload is not measured by the exact evaluator.",
+  ];
+  return {
+    resourceQualityGatePassed,
+    manualEntryReductionObserved,
+    interactionWorkloadMeasured: false,
+    classification,
+    productAdoptionAuthorized: false,
+    blockers,
+  };
 }
 
 function contract(baselineReportSha256: string) {

@@ -113,14 +113,11 @@ async function run(): Promise<AndroidFrontierResult> {
 
 function classify(error: unknown): AndroidFrontierResult {
   const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
-  return {
-    outcome: message.includes("device_lost")
-      ? "device_lost"
-      : message.includes("device_unavailable")
-        ? "device_unavailable"
-        : "failure",
-    error: message,
-  };
+  if (message.includes("device_lost")) return { outcome: "device_lost", error: message };
+  if (message.includes("device_unavailable")) {
+    return { outcome: "device_unavailable", error: message };
+  }
+  return { outcome: "failure", error: message };
 }
 
 const result = await run().catch(classify);

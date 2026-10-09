@@ -2,15 +2,9 @@ import type { CSSProperties, FocusEvent, MouseEvent, PointerEvent } from "react"
 import { createPortal } from "react-dom";
 
 import { useI18n } from "../i18n/locale";
-import type { MessageKey } from "../i18n/messages.ko";
 import type { Kit } from "../types";
-import { classes, INTERVAL_TOOLTIP_ID, joinClasses, kitDotClass } from "./statsPanelStyles";
-
-const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
-  blue: "kit.blue",
-  purple: "kit.purple",
-  yellow: "kit.yellow",
-};
+import { KIT_LABEL_KEYS, kitDotClass } from "./kitPresentation";
+import { classes, INTERVAL_TOOLTIP_ID, joinClasses } from "./statsPanelStyles";
 
 export type UsageTooltipItem = {
   kit: Kit;
@@ -130,18 +124,18 @@ function UsageTooltipContent({ items }: { items: UsageTooltipItem[] }) {
   );
 }
 
+function intervalClippedKey(data: IntervalTooltipData) {
+  if (data.clippedLow && data.clippedHigh) return "stats.intervalClippedBoth" as const;
+  if (data.clippedLow) return "stats.intervalClippedLow" as const;
+  if (data.clippedHigh) return "stats.intervalClippedHigh" as const;
+  return null;
+}
+
 function IntervalTooltipContent({ data }: { data: IntervalTooltipData | null }) {
   const { formatInteger, formatPercent, t } = useI18n();
   if (!data) return null;
 
-  const clippedKey =
-    data.clippedLow && data.clippedHigh
-      ? "stats.intervalClippedBoth"
-      : data.clippedLow
-        ? "stats.intervalClippedLow"
-        : data.clippedHigh
-          ? "stats.intervalClippedHigh"
-          : null;
+  const clippedKey = intervalClippedKey(data);
 
   return (
     <>

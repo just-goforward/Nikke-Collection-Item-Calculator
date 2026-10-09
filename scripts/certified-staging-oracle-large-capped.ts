@@ -4,14 +4,13 @@ import {
   independentFailure,
   independentProbability,
   independentSuccess,
-  makeTriple,
-  mapTriple,
   type OracleInput,
   type OracleResult,
   q,
   type Triple,
 } from "./certified-staging-oracle.ts";
 import { createIndependentPublicCaps } from "./certified-staging-oracle-public-caps.ts";
+import { makeTriple, mapTriple } from "./certified-staging-oracle-tuples.ts";
 import { createIndependentUnlimited } from "./certified-staging-oracle-witness.ts";
 
 type State = ReturnType<typeof canonicalState>;
@@ -43,7 +42,8 @@ function compare(a: Value, b: Value, prices: readonly bigint[]) {
   if (aa !== bb) return aa < bb ? 1 : -1;
   const first = a.consumed.reduce((total, pieces) => total + pieces, 0n);
   const second = b.consumed.reduce((total, pieces) => total + pieces, 0n);
-  return first === second ? 0 : first < second ? 1 : -1;
+  if (first === second) return 0;
+  return first < second ? 1 : -1;
 }
 function lifted(
   state: State,
@@ -87,8 +87,8 @@ function action(state: State, stock: Triple, color: number, context: Context, so
     p: good * success.p + bad * normal.p,
     consumed: makeTriple(
       (index) =>
-        good * success.consumed[index]! +
-        bad * normal.consumed[index]! +
+        good * success.consumed[index] +
+        bad * normal.consumed[index] +
         (index === color ? 10n * context.powers[exponent + 1]! : 0n),
     ),
     mask: 1 << color,
@@ -173,7 +173,11 @@ export function independentLargeCappedOracle(
   if (!Number.isSafeInteger(960 * bases[0] * bases[1] * bases[2]))
     throw new Error("independent_public_cap_key_admission_invalid");
   const powers = [1n];
-  for (let index = 1; index <= sum(units); index++) powers.push(powers[index - 1]! * 1000n);
+  let power = 1n;
+  for (let index = 1; index <= sum(units); index++) {
+    power *= 1000n;
+    powers.push(power);
+  }
   const common = input.prices.reduce(
     (denominator, price) => (denominator / gcd(denominator, price.d)) * price.d,
     1n,
@@ -208,6 +212,7 @@ export function independentLargeCappedOracle(
   const denominator = powers[sum(units)]!;
   const terminal = initialState.grade === "SR" && initialState.level === 15;
   const ties = COLORS.filter((_color, index) => (value.mask & (1 << index)) !== 0);
+  const inactiveAction = terminal ? "DONE" : "STOP";
   return {
     P: q(value.p, denominator),
     B: q(burden(value, prices), denominator * common),
@@ -216,8 +221,8 @@ export function independentLargeCappedOracle(
       denominator,
     ),
     consumed: mapTriple(value.consumed, (pieces) => q(pieces, denominator)),
-    action: ties[0] ?? (terminal ? "DONE" : "STOP"),
-    ties: ties.length ? ties : [terminal ? "DONE" : "STOP"],
+    action: ties[0] ?? inactiveAction,
+    ties: ties.length ? ties : [inactiveAction],
     candidates: new Map(),
     nodes: memo.size,
   };

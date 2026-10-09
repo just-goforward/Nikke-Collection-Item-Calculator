@@ -3,13 +3,13 @@ import {
   cmp,
   compareValue,
   fromWire,
-  mapTriple,
   type OracleValue,
   type QTriple,
   q,
   type Triple,
 } from "./certified-staging-oracle.ts";
 import { independentFiniteWitnessInteger } from "./certified-staging-oracle-endpoints-integer.ts";
+import { mapTriple } from "./certified-staging-oracle-tuples.ts";
 import {
   createIndependentUnlimited,
   independentBoxMass,
@@ -25,7 +25,8 @@ export type CertificateCheck = {
   finiteAfterParity?: boolean;
   probabilityIntervalValidity?: "PASS" | "NOTRUN";
 };
-type Receipt = NonNullable<CertifiedOutput["waiting"]["strictBoundaryWitness"]>["receipts"][number];
+type Witness = NonNullable<CertifiedOutput["waiting"]["strictBoundaryWitness"]>;
+type Receipt = Witness["receipts"][number];
 const massCache = new Map<string, ReturnType<typeof q>>();
 function exactOutputValue(value: CertifiedValue): OracleValue {
   return {
@@ -52,7 +53,7 @@ function physicalMass(input: CertifiedInput, receipt: Receipt) {
   const descriptor = input.snapshot.laws?.find((entry) => entry.id === ref.lawId);
   if (descriptor?.kind === "finite")
     throw new Error("independent_law_not_supported:finite_override");
-  const key = ref.lawId + ":" + ref.count + ":" + receipt.pieces.join(",");
+  const key = `${ref.lawId}:${ref.count}:${receipt.pieces.join(",")}`;
   const cached = massCache.get(key);
   if (cached) return cached;
   let mass: ReturnType<typeof q>;
@@ -60,13 +61,13 @@ function physicalMass(input: CertifiedInput, receipt: Receipt) {
     mass = independentDispatchZeroMass(receipt.pieces);
   else if (ref.lawId === "regular-box-v1" || ref.lawId === "box-ii-v1")
     mass = independentBoxMass(ref.lawId, ref.count, receipt.pieces);
-  else throw new Error("independent_law_not_supported:" + ref.lawId);
+  else throw new Error(`independent_law_not_supported:${ref.lawId}`);
   massCache.set(key, mass);
   return mass;
 }
 function dateOffset(current: string, date: string): number {
   return Math.round(
-    (Date.parse(date + "T00:00:00Z") - Date.parse(current + "T00:00:00Z")) / 86400000,
+    (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${current}T00:00:00Z`)) / 86400000,
   );
 }
 function futureRefs(input: CertifiedInput) {
@@ -79,14 +80,13 @@ function futureRefs(input: CertifiedInput) {
     })
     .flatMap((event) => event.refs.map((_ref, index) => ({ event, index })));
 }
-function reconstruct(input: CertifiedInput, output: CertifiedOutput): CertificateCheck {
-  const witness = output.waiting.strictBoundaryWitness!;
+function reconstruct(input: CertifiedInput, witness: Witness): CertificateCheck {
   if (witness.cohort !== 0)
     return { status: "NOTRUN", reason: "independent_refresh_cohort_PMF_not_implemented" };
   const prior = input.cohortWeights ? fromWire(input.cohortWeights[0]) : q(1, 3);
   if (cmp(prior, q(0)) <= 0) return { status: "FAIL", reason: "witness_zero_cohort_prior" };
   const receipts = new Map(
-    witness.receipts.map((receipt) => [receipt.eventId + ":" + receipt.refIndex, receipt]),
+    witness.receipts.map((receipt) => [`${receipt.eventId}:${receipt.refIndex}`, receipt]),
   );
   if (receipts.size !== witness.receipts.length)
     return { status: "FAIL", reason: "duplicate_witness_receipt" };
@@ -94,14 +94,14 @@ function reconstruct(input: CertifiedInput, output: CertifiedOutput): Certificat
   let after: Triple = input.stock;
   let count = 0;
   for (const { event, index } of futureRefs(input)) {
-    const receipt = receipts.get(event.id + ":" + index);
+    const receipt = receipts.get(`${event.id}:${index}`);
     if (!receipt) return { status: "FAIL", reason: "missing_modeled_future_receipt" };
     const mass = physicalMass(input, receipt);
     if (cmp(mass, q(0)) <= 0 || cmp(mass, fromWire(receipt.mass)) !== 0)
       return { status: "FAIL", reason: "witness_mass_not_independently_matched" };
-    after = mapTriple(after, (pieces, color) => pieces + receipt.pieces[color]!);
+    after = mapTriple(after, (pieces, color) => pieces + receipt.pieces[color]);
     if (dateOffset(input.snapshot.coverage.currentDay, event.gameDate) <= 55)
-      before = mapTriple(before, (pieces, color) => pieces + receipt.pieces[color]!);
+      before = mapTriple(before, (pieces, color) => pieces + receipt.pieces[color]);
     count++;
   }
   const stocksMatch =
@@ -167,12 +167,7 @@ function N0Envelope(output: CertifiedOutput): CertificateCheck {
     probabilityIntervalValidity: "PASS",
   };
 }
-function endpoints(
-  input: CertifiedInput,
-  output: CertifiedOutput,
-  prices: QTriple,
-): CertificateCheck {
-  const witness = output.waiting.strictBoundaryWitness!;
+function endpoints(input: CertifiedInput, witness: Witness, prices: QTriple): CertificateCheck {
   const budget = { maxMemoEntries: 10000, deadlineAt: performance.now() + 5000 };
   const before = independentFiniteWitnessInteger(
     { ...input, stock: witness.beforeStock, prices },
@@ -225,7 +220,7 @@ export function verifyActualWaiting(
   currentVerified: boolean,
 ): CertificateCheck {
   if (output.waiting.status !== "certified")
-    return { status: "NOTRUN", reason: "API_waiting_not_certified:" + output.waiting.status };
+    return { status: "NOTRUN", reason: `API_waiting_not_certified:${output.waiting.status}` };
   if (output.waiting.recommendedDays === 0) return N0(input, output, prices, currentVerified);
   if (
     !input.snapshot.coverage.future.complete ||
@@ -243,9 +238,9 @@ export function verifyActualWaiting(
   try {
     const envelope = boundaryEnvelope(output);
     if (envelope) return envelope;
-    const path = reconstruct(input, output);
+    const path = reconstruct(input, output.waiting.strictBoundaryWitness);
     if (path.status !== "PASS") return path;
-    const proof = endpoints(input, output, prices);
+    const proof = endpoints(input, output.waiting.strictBoundaryWitness, prices);
     return {
       ...proof,
       ...(path.receiptCount === undefined ? {} : { receiptCount: path.receiptCount }),

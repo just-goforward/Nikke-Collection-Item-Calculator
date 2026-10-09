@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, type Page, type Route } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
-import { test } from "./test";
+import { closePreviewServer, test } from "./test";
 
 const PORT = 4293;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
@@ -60,10 +60,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  if (!server) return;
-  await new Promise<void>((resolve, reject) => {
-    server?.httpServer.close((error) => (error ? reject(error) : resolve()));
-  });
+  await closePreviewServer(server);
   server = null;
 });
 

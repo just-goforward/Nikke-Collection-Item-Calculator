@@ -272,17 +272,12 @@ function comparePriorityModes(
         candidate.successInvariantChecks > 0 &&
         candidate.successInvariantMaxGap <= EPSILON,
     ) && Math.abs(initialCostDelta) <= EPSILON;
-  const verdict = !valid
-    ? "invalid"
-    : successDelta < -EPSILON
-      ? "discovery_order"
-      : successDelta > EPSILON
-        ? "max_path_probability"
-        : costDelta < -EPSILON
-          ? "max_path_probability"
-          : costDelta > EPSILON
-            ? "discovery_order"
-            : "tie";
+  let verdict = "tie";
+  if (!valid) verdict = "invalid";
+  else if (successDelta < -EPSILON) verdict = "discovery_order";
+  else if (successDelta > EPSILON) verdict = "max_path_probability";
+  else if (costDelta < -EPSILON) verdict = "max_path_probability";
+  else if (costDelta > EPSILON) verdict = "discovery_order";
   return {
     valid,
     initialCostDelta,

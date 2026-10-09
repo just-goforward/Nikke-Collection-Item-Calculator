@@ -194,6 +194,18 @@ const provenance = collectResearchProvenance({
 });
 const existing = readOptionalResearchReport(OUTPUT);
 assertResearchReportCanBeWritten(existing, provenance);
+let grade = "rejected";
+let reason =
+  "Android WebGPU availability, parity, or deterministic capacity-stop verification failed.";
+if (typedResult.outcome === "completed" && typedResult.exactSetMatch && capacityReproduced) {
+  grade = "verification_incomplete";
+  reason =
+    "Android integer-frontier parity and capacity stop passed; the full exact candidate remains blocked by the registered state budget.";
+} else if (typedResult.outcome === "device_unavailable") {
+  grade = "verification_incomplete";
+  reason =
+    "Chrome is installed as a package but has no resolvable VIEW activity for Android user 0; Android Chrome WebGPU remains unverified.";
+}
 const report = {
   kind: CONTRACT.kind,
   version: CONTRACT.version,
@@ -203,20 +215,7 @@ const report = {
   launchResult,
   result,
   checks: { capacityReproduced },
-  adoption: {
-    grade:
-      typedResult.outcome === "completed" && typedResult.exactSetMatch && capacityReproduced
-        ? "verification_incomplete"
-        : typedResult.outcome === "device_unavailable"
-          ? "verification_incomplete"
-          : "rejected",
-    reason:
-      typedResult.outcome === "completed" && typedResult.exactSetMatch && capacityReproduced
-        ? "Android integer-frontier parity and capacity stop passed; the full exact candidate remains blocked by the registered state budget."
-        : typedResult.outcome === "device_unavailable"
-          ? "Chrome is installed as a package but has no resolvable VIEW activity for Android user 0; Android Chrome WebGPU remains unverified."
-          : "Android WebGPU availability, parity, or deterministic capacity-stop verification failed.",
-  },
+  adoption: { grade, reason },
 };
 writeFileSync(OUTPUT, `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify({ output: OUTPUT, device, result, adoption: report.adoption }, null, 2));

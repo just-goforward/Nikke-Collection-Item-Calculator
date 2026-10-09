@@ -26,6 +26,24 @@ const classes = {
     "validation-chart-spinner size-5 animate-spin rounded-full border-[3px] border-primary-soft border-t-primary motion-reduce:animate-none",
 } as const;
 
+type StageReachPoint = ValidationStageReachView["points"][number];
+
+function stagePointKind(point: StageReachPoint) {
+  if (point.aggregateBelow) return "below" as const;
+  if (point.aggregateAbove) return "above" as const;
+  return "exact" as const;
+}
+
+function stagePointLabel(
+  kind: ReturnType<typeof stagePointKind>,
+  stateLabel: string,
+  t: ReturnType<typeof useI18n>["t"],
+) {
+  if (kind === "below") return t("validation.phaseBelow", { state: stateLabel });
+  if (kind === "above") return t("validation.phaseAbove", { state: stateLabel });
+  return stateLabel;
+}
+
 function StageReachBars({ chart }: { chart: ValidationStageReachView }) {
   const { formatPercent, t } = useI18n();
   return (
@@ -33,17 +51,14 @@ function StageReachBars({ chart }: { chart: ValidationStageReachView }) {
       {chart.points.map((point, index) => {
         const isTarget = index === chart.points.length - 1;
         const percent = Math.max(0, Math.min(100, point.probability * 100));
+        const kind = stagePointKind(point);
         return (
           <li
             className={`${classes.row} ${isTarget ? classes.targetRow : ""}`}
-            key={`${point.stateLabel}-${point.aggregateBelow ? "below" : point.aggregateAbove ? "above" : "exact"}`}
+            key={`${point.stateLabel}-${kind}`}
           >
             <span className={`${classes.label} ${isTarget ? classes.targetLabel : ""}`}>
-              {point.aggregateBelow
-                ? t("validation.phaseBelow", { state: point.stateLabel })
-                : point.aggregateAbove
-                  ? t("validation.phaseAbove", { state: point.stateLabel })
-                  : point.stateLabel}
+              {stagePointLabel(kind, point.stateLabel, t)}
             </span>
             <span className={classes.track} aria-hidden="true">
               <span

@@ -1,13 +1,4 @@
-import type { Kit } from "../types";
 import { classes as shellClasses } from "./statsPanelShellStyles";
-
-export const KIT_ORDER: Kit[] = ["blue", "purple", "yellow"];
-
-export const kitDotClass: Record<Kit, string> = {
-  blue: "bg-blue-kit",
-  purple: "bg-purple-kit",
-  yellow: "bg-yellow-kit",
-};
 
 export const INTERVAL_TOOLTIP_ID = "difficultyIntervalTooltip";
 

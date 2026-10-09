@@ -91,10 +91,12 @@ function checkCurrent(output: CertifiedOutput, session: CertifiedSession, fixedP
     independent.action === "STOP" || independent.action === "DONE" ? null : independent.action,
   );
   expect(current.optimalActionMask).toBe(
-    independent.ties.reduce(
-      (mask, kit) => mask | (kit === "blue" ? 1 : kit === "purple" ? 2 : kit === "yellow" ? 4 : 0),
-      0,
-    ),
+    independent.ties.reduce((mask, kit) => {
+      if (kit === "blue") return mask | 1;
+      if (kit === "purple") return mask | 2;
+      if (kit === "yellow") return mask | 4;
+      return mask;
+    }, 0),
   );
   expect(pricing.recurringRate).toEqual(mapTriple(rates, wire));
   expect(pricing.weights).toEqual(mapTriple(fixedPrices, wire));

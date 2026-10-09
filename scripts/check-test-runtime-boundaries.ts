@@ -4,7 +4,7 @@ import { dirname, parse, resolve } from "node:path";
 
 const ROOT_VITEST_VERSION = "5.0.3";
 const WORKER_VITEST_VERSION = "4.1.11";
-const CLOUDFLARE_PLUGIN_VERSION = "1.3.4";
+const CLOUDFLARE_PLUGIN_VERSION = "1.4.0";
 const WORKER_WORKSPACES = [
   "cloudflare",
   "forecast-collector",
@@ -74,6 +74,11 @@ if (!lock.packages) {
 
 requireLockedVersion(lock.packages, "node_modules/vitest", ROOT_VITEST_VERSION);
 requireLockedVersion(lock.packages, "node_modules/@vitest/coverage-v8", ROOT_VITEST_VERSION);
+requireLockedVersion(
+  lock.packages,
+  "node_modules/@cloudflare/vitest-plugin",
+  CLOUDFLARE_PLUGIN_VERSION,
+);
 requireResolvedVersion(resolve(repositoryRoot, "vitest.config.ts"), "vitest", ROOT_VITEST_VERSION);
 requireResolvedVersion(
   resolve(repositoryRoot, "vitest.config.ts"),
@@ -87,11 +92,6 @@ for (const workspace of WORKER_WORKSPACES) {
     lock.packages,
     `${workspace}/node_modules/@vitest/coverage-v8`,
     WORKER_VITEST_VERSION,
-  );
-  requireLockedVersion(
-    lock.packages,
-    `${workspace}/node_modules/@cloudflare/vitest-plugin`,
-    CLOUDFLARE_PLUGIN_VERSION,
   );
   const configPath = resolve(repositoryRoot, workspace, "vitest.config.ts");
   requireResolvedVersion(configPath, "vitest", WORKER_VITEST_VERSION);

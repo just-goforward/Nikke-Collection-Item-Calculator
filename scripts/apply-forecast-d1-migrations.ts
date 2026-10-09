@@ -170,8 +170,9 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
     });
     if (result.error || result.signal || result.status !== 0) {
       const detail = (result.stderr || result.stdout || "").trim().slice(-4_000);
+      const detailSuffix = detail ? `\n${detail}` : "";
       throw new Error(
-        `Wrangler D1 ${input} failed (${result.error?.message ?? result.signal ?? result.status}): ${value}${detail ? `\n${detail}` : ""}`,
+        `Wrangler D1 ${input} failed (${result.error?.message ?? result.signal ?? result.status}): ${value}${detailSuffix}`,
       );
     }
     let payload: unknown;

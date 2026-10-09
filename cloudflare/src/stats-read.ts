@@ -72,7 +72,7 @@ export async function handleStats(request: Request, env: StatsReadEnv) {
   const levelKitStats = buildLevelKitStats(rows);
   const segmentStats = buildSegmentStats(rows);
   const mostUsedKit = mostUsedKitFromStats(byKit);
-  const cumulativeMostUsedKit = mostUsedKitFromStats(cumulativeByKit);
+  const cumulativeMostUsedKit = mostUsedKit;
 
   return jsonResponse(
     request,
@@ -290,7 +290,12 @@ function segmentForState(grade: Grade, level: number) {
 
 function segmentForKey(key: string) {
   const [grade, start] = key.split(":");
-  const end = start === "0" ? "5" : start === "5" ? "10" : "15";
+  let end = "15";
+  if (start === "0") {
+    end = "5";
+  } else if (start === "5") {
+    end = "10";
+  }
   return { key, label: `${grade} ${start}→${end}`, rows: [] };
 }
 

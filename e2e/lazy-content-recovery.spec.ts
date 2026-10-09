@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
-import { test as base, waitForSignal } from "./test";
+import { test as base, closePreviewServer, createGate, waitForSignal } from "./test";
 
 const PORT = 4294;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
@@ -40,10 +40,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  if (!server) return;
-  await new Promise<void>((resolve, reject) => {
-    server?.httpServer.close((error) => (error ? reject(error) : resolve()));
-  });
+  await closePreviewServer(server);
   server = null;
 });
 
@@ -97,18 +94,12 @@ function expectRetryUrls(requests: string[], generations: (string | null)[]) {
 
 test("recommendation loading is deferred and reset cancels a late completion", async ({ page }) => {
   let requests = 0;
-  let release = () => {};
-  let received = () => {};
-  const paused = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const started = new Promise<void>((resolve) => {
-    received = resolve;
-  });
+  const paused = createGate();
+  const started = createGate();
   await page.route("**/assets/RecommendationContent-*.js*", async (route) => {
     requests += 1;
-    received();
-    await paused;
+    started.release();
+    await paused.promise;
     await route.continue();
   });
   try {
@@ -116,7 +107,7 @@ test("recommendation loading is deferred and reset cancels a late completion", a
     expect(requests).toBe(0);
     await page.getByLabel("초심자용 키트").fill("20");
     await page.getByRole("button", { name: "계산", exact: true }).click();
-    await waitForSignal(started, "recommendation lazy chunk");
+    await waitForSignal(started.promise, "recommendation lazy chunk");
     await expect(page.locator(".result-panel").getByRole("status")).toHaveText(
       "추천 화면 준비 중.",
     );
@@ -124,14 +115,14 @@ test("recommendation loading is deferred and reset cancels a late completion", a
     await page.getByRole("button", { name: "초기화", exact: true }).click();
     await expect(page.locator(".empty-result")).toBeVisible();
     const response = page.waitForResponse(/\/assets\/RecommendationContent-.*\.js$/);
-    release();
+    paused.release();
     await response;
     await expect(page.locator(".next-action")).toHaveCount(0);
     await expect(page.locator(".empty-result")).toBeVisible();
     await expect(page.getByLabel("초심자용 키트")).toHaveValue("");
     expect(requests).toBe(1);
   } finally {
-    release();
+    paused.release();
   }
 });
 
@@ -231,25 +222,19 @@ test("pending modal cancellation releases focus and late completion cannot reope
   page,
 }) => {
   let requests = 0;
-  let release = () => {};
-  let received = () => {};
-  const paused = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const started = new Promise<void>((resolve) => {
-    received = resolve;
-  });
+  const paused = createGate();
+  const started = createGate();
   await page.route("**/assets/SuccessAttemptModal-*.js*", async (route) => {
     requests += 1;
-    received();
-    await paused;
+    started.release();
+    await paused.promise;
     await route.continue();
   });
   try {
     await prepareModal(page);
     expect(requests).toBe(0);
     await openModal(page);
-    await waitForSignal(started, "on-demand modal chunk");
+    await waitForSignal(started.promise, "on-demand modal chunk");
     const dialog = page.getByRole("dialog");
     const cancel = dialog.getByRole("button", { name: "취소", exact: true });
     await expect(dialog.getByRole("status")).toHaveText("남은 키트 선택 준비 중.");
@@ -263,14 +248,14 @@ test("pending modal cancellation releases focus and late completion cannot reope
     await page.keyboard.press("Escape");
     await expectReleasedFocus(page);
     const response = page.waitForResponse(/\/assets\/SuccessAttemptModal-.*\.js$/);
-    release();
+    paused.release();
     await response;
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.locator(".current-state-strip")).toContainText("15단계");
     await expect(page.getByLabel("초심자용 키트")).toHaveValue("100");
     expect(requests).toBe(1);
   } finally {
-    release();
+    paused.release();
   }
 });
 

@@ -71,20 +71,20 @@ function buildWindow(input: CertifiedSupplyBuildInput): BuildWindow {
 
 function refreshRoundState(state: RoundState) {
   state.known = [...state.confirmed.values()].sort((a, b) => a.round - b.round);
-  state.anchor = state.known.at(-1)!;
   let prefixLength = state.known.length;
   state.historyGaps = [];
-  for (let index = 1; index < state.known.length; index += 1) {
-    const previous = state.known[index - 1]!;
-    const current = state.known[index]!;
-    if (current.round === previous.round + 1) continue;
-    prefixLength = Math.min(prefixLength, index);
-    const missing =
-      current.round === previous.round + 2
-        ? `r${previous.round + 1}`
-        : `r${previous.round + 1}-r${current.round - 1}`;
-    state.historyGaps.push(`confirmed_solo_history_gap:${missing}`);
-  }
+  // The confirmed map retains the seeded history; reduction always has an anchor.
+  state.anchor = state.known.reduce((previous, current, index) => {
+    if (current.round !== previous.round + 1) {
+      prefixLength = Math.min(prefixLength, index);
+      const missing =
+        current.round === previous.round + 2
+          ? `r${previous.round + 1}`
+          : `r${previous.round + 1}-r${current.round - 1}`;
+      state.historyGaps.push(`confirmed_solo_history_gap:${missing}`);
+    }
+    return current;
+  });
   state.cadence = deriveExactSoloRaidCadence(state.known.slice(0, prefixLength));
 }
 
@@ -146,7 +146,7 @@ function confirmedRoundState(input: CertifiedSupplyBuildInput): RoundState {
     confirmed,
     known,
     cadence: deriveExactSoloRaidCadence(),
-    anchor: known.at(-1)!,
+    anchor: known.reduce((_, current) => current),
     associations: new Map(),
     historyGaps: [],
   };
@@ -219,13 +219,15 @@ function buildRules(input: CertifiedSupplyBuildInput, today: number): CertifiedS
     JSON.stringify(input.rules ?? [createCertifiedSupplyRule(start)]),
   ) as CertifiedSupplyRule[];
   rules.sort((a, b) => timestamp(a.effectiveFrom) - timestamp(b.effectiveFrom));
-  for (let i = 1; i < rules.length; i += 1) {
-    const previous = rules[i - 1]!;
-    if (
-      previous.effectiveUntil === null ||
-      timestamp(previous.effectiveUntil) > timestamp(rules[i]!.effectiveFrom)
-    )
-      throw new Error("certified_supply_rules_overlap");
+  if (rules.length > 1) {
+    rules.reduce((previous, current) => {
+      if (
+        previous.effectiveUntil === null ||
+        timestamp(previous.effectiveUntil) > timestamp(current.effectiveFrom)
+      )
+        throw new Error("certified_supply_rules_overlap");
+      return current;
+    });
   }
   return rules;
 }

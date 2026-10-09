@@ -3,6 +3,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { STATE_FEEDBACK_VISIBLE_MS } from "../components/stateFeedbackAnimations";
 import type { StateChangeFeedback } from "../ui-types";
 
+function stateFeedbackType(
+  from: StateChangeFeedback["from"],
+  to: StateChangeFeedback["to"],
+): StateChangeFeedback["type"] {
+  if (from.grade !== to.grade) return "grade";
+  if (Math.floor(from.level / 5) !== Math.floor(to.level / 5)) return "segment";
+  return "level";
+}
+
 export function useStateFeedbackNotifier() {
   const [stateFeedback, setStateFeedback] = useState<StateChangeFeedback | null>(null);
   const stateFeedbackIdRef = useRef(0);
@@ -18,12 +27,9 @@ export function useStateFeedbackNotifier() {
       if (from.grade === to.grade && from.level === to.level) return;
       const nextId = stateFeedbackIdRef.current + 1;
       stateFeedbackIdRef.current = nextId;
-      const crossesSegment = Math.floor(from.level / 5) !== Math.floor(to.level / 5);
-      const type: StateChangeFeedback["type"] =
-        from.grade !== to.grade ? "grade" : crossesSegment ? "segment" : "level";
       setStateFeedback({
         id: nextId,
-        type,
+        type: stateFeedbackType(from, to),
         from: { ...from },
         to: { ...to },
       });

@@ -53,8 +53,10 @@ describe("canary report v10 storage and start contract", () => {
   it("uses covering indexes for the recurring latest-invocation queries", async () => {
     const collectorPlan = await testEnv.FORECAST_DB.prepare(
       `EXPLAIN QUERY PLAN
-       SELECT status, next_retry_at FROM collector_invocations
-       WHERE status <> 'running' ORDER BY scheduled_at DESC LIMIT 12`,
+       SELECT status, next_retry_at, error_code FROM collector_invocations
+       WHERE status IN ('failure', 'completed')
+         AND (error_code IS NULL OR error_code <> 'naver_boundary_held_only')
+       ORDER BY scheduled_at DESC LIMIT 12`,
     ).all<{ detail: string }>();
     const dispatcherPlan = await testEnv.FORECAST_DB.prepare(
       `EXPLAIN QUERY PLAN

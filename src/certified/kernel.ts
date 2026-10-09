@@ -1,6 +1,15 @@
 import { add, div, gcd, mul, type Q, q } from "../../shared/certifiedRational";
 import { rationalPayload, type WorkBudget } from "./budget";
-import { assertPositiveGreatProbabilities, capUnits, EDGES, TERMINAL, type Units } from "./game";
+import {
+  assertPositiveGreatProbabilities,
+  capUnits,
+  EDGES,
+  KIT_INDICES,
+  type KitIndex,
+  type StateId,
+  TERMINAL,
+  type Units,
+} from "./game";
 import { GuidedFiniteTable } from "./guidedTable";
 import { IntegerFiniteTable } from "./integerTable";
 import type { Triple } from "./types";
@@ -61,19 +70,19 @@ export class FiniteKernel {
     return { ...value, b: div(value.b, this.burdenScale) };
   }
 
-  private action(sid: number, kit: number, child: (s: number) => ExactValue): ExactValue {
+  private action(sid: number, kit: KitIndex, child: (s: number) => ExactValue): ExactValue {
     this.budget.tick();
     this.budget.exactTransitions++;
-    const [perMille, great, normal] = EDGES[sid]![kit]!;
+    const [perMille, great, normal] = EDGES[sid as StateId][kit];
     const p = q(perMille, 1000);
     const g = perMille ? child(great) : FAILED;
     const n = perMille < 1000 ? child(normal) : FAILED;
-    const consumed = [0, 1, 2].map((k) =>
-      add(combine(p, g.consumed[k]!, n.consumed[k]!), q(k === kit ? 10 : 0)),
-    ) as [Q, Q, Q];
+    const consumption = (k: KitIndex): Q =>
+      add(combine(p, g.consumed[k], n.consumed[k]), q(k === kit ? 10 : 0));
+    const consumed: [Q, Q, Q] = [consumption(0), consumption(1), consumption(2)];
     return {
       p: combine(p, g.p, n.p),
-      b: add(mul(q(10), this.integerWeights[kit]!), combine(p, g.b, n.b)),
+      b: add(mul(q(10), this.integerWeights[kit]), combine(p, g.b, n.b)),
       c: add(q(10), combine(p, g.c, n.c)),
       consumed,
       mask: 1 << kit,
@@ -85,9 +94,9 @@ export class FiniteKernel {
     const cached = this.unlimitedMemo.get(sid);
     if (cached) return cached;
     let best = FAILED;
-    let chosen = -1;
+    let chosen: KitIndex | null = null;
     const actions: ExactValue[] = [];
-    for (let k = 0; k < 3; k++) {
+    for (const k of KIT_INDICES) {
       const action = this.action(sid, k, (s) => this.unlimited(s).value);
       actions.push(action);
       const order = compareValue(action, best);
@@ -96,11 +105,15 @@ export class FiniteKernel {
         chosen = k;
       } else if (order === 0) best = { ...best, mask: best.mask | (1 << k) };
     }
-    if (chosen < 0) throw new Error("unlimited_success_invariant");
-    const [p, great, normal] = EDGES[sid]![chosen]!;
-    const gb = p ? this.unlimited(great).bound : [0, 0, 0];
-    const nb = p < 1000 ? this.unlimited(normal).bound : [0, 0, 0];
-    const bound = [0, 1, 2].map((k) => Math.max(gb[k]!, nb[k]!) + (chosen === k ? 1 : 0)) as Units;
+    if (chosen === null) throw new Error("unlimited_success_invariant");
+    const [p, great, normal] = EDGES[sid as StateId][chosen];
+    const gb: Units = p ? this.unlimited(great).bound : [0, 0, 0];
+    const nb: Units = p < 1000 ? this.unlimited(normal).bound : [0, 0, 0];
+    const bound: Units = [
+      Math.max(gb[0], nb[0]) + (chosen === 0 ? 1 : 0),
+      Math.max(gb[1], nb[1]) + (chosen === 1 ? 1 : 0),
+      Math.max(gb[2], nb[2]) + (chosen === 2 ? 1 : 0),
+    ];
     const result = { value: best, bound, actions };
     this.unlimitedMemo.set(sid, result);
     this.budget.reserve(
@@ -111,19 +124,19 @@ export class FiniteKernel {
 
   supportsUnlimited(sid: number, units: Triple): boolean {
     const bound = this.unlimited(sid).bound;
-    return bound.every((required, k) => units[k]! >= required);
+    return KIT_INDICES.every((k) => units[k] >= bound[k]);
   }
 
   value(sid: number, rawUnits: Triple, enumerateRootActions = false): ExactValue {
     if (sid < TERMINAL && (this.guidedTable || rawUnits[0] + rawUnits[1] + rawUnits[2] > 36)) {
       const relaxation = this.unlimited(sid);
-      if (!relaxation.bound.every((required, k) => rawUnits[k]! >= required)) {
+      if (!KIT_INDICES.every((k) => rawUnits[k] >= relaxation.bound[k])) {
         this.guidedTable ??= new GuidedFiniteTable(
           this.integerWeights.map((price) => price.n) as [bigint, bigint, bigint],
           this.budget,
           (s) => this.unlimited(s),
         );
-        const value = this.guidedTable.value(sid, [...rawUnits] as Units, enumerateRootActions);
+        const value = this.guidedTable.value(sid, [...rawUnits], enumerateRootActions);
         if (value) return value;
       }
     }

@@ -39,6 +39,17 @@ function createModal() {
   });
 }
 
+function fallbackMessageKey(
+  reloadFailed: boolean | undefined,
+  hasReload: boolean,
+  hasRetry: boolean,
+) {
+  if (reloadFailed) return "error.reloadInputsUnavailable" as const;
+  if (hasReload) return "error.reloadInputsDetail" as const;
+  if (hasRetry) return "error.sectionDetail" as const;
+  return "modal.preparing" as const;
+}
+
 function ModalFallback({
   firstFocusRef,
   onDismiss,
@@ -56,6 +67,7 @@ function ModalFallback({
   useLayoutEffect(() => {
     firstFocusRef.current?.focus();
   }, [firstFocusRef]);
+  const actionLabelKey = onReload ? "error.reload" : "error.retrySection";
   return (
     <div
       className="modal-cover"
@@ -71,20 +83,12 @@ function ModalFallback({
           {t("result.outcomeTitle")}
         </h3>
         <p role={onRetry || onReload ? "alert" : "status"}>
-          {t(
-            reloadFailed
-              ? "error.reloadInputsUnavailable"
-              : onReload
-                ? "error.reloadInputsDetail"
-                : onRetry
-                  ? "error.sectionDetail"
-                  : "modal.preparing",
-          )}
+          {t(fallbackMessageKey(reloadFailed, Boolean(onReload), Boolean(onRetry)))}
         </p>
         <div className="flex justify-end gap-3">
           {onRetry || onReload ? (
             <button type="button" onClick={onReload ?? onRetry}>
-              {t(onReload ? "error.reload" : "error.retrySection")}
+              {t(actionLabelKey)}
             </button>
           ) : null}
           <button ref={firstFocusRef} type="button" onClick={onDismiss}>

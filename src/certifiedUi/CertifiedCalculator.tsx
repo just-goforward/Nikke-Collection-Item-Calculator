@@ -32,6 +32,8 @@ import { useCertifiedRun } from "./useCertifiedRun";
 import "./certified.css";
 
 type Words = (typeof certifiedMessages)[keyof typeof certifiedMessages];
+/** Positions shared by KIT_ORDER and every engine triple, typed so tuple reads stay defined. */
+const KIT_INDICES = [0, 1, 2] as const;
 function wireNumber(value: WireQ) {
   return toNumber(fromWire(value));
 }
@@ -145,11 +147,11 @@ function InputPanel({
           value={session.cohortWeights.findIndex((w) => w.numerator === w.denominator)}
           onChange={(e) => {
             const cohort = Number(e.target.value);
-            const weights = [0, 1, 2].map((i) => ({
-              numerator: cohort < 0 ? "1" : i === cohort ? "1" : "0",
+            const weight = (i: number) => ({
+              numerator: cohort < 0 || i === cohort ? "1" : "0",
               denominator: cohort < 0 ? "3" : "1",
-            }));
-            update({ ...session, cohortWeights: [weights[0]!, weights[1]!, weights[2]!] });
+            });
+            update({ ...session, cohortWeights: [weight(0), weight(1), weight(2)] });
           }}
         >
           <option value="-1">{words.mixture}</option>
@@ -186,6 +188,12 @@ export function ResultPanels(props: ResultPanelsProps) {
   );
 }
 
+const RUN_FAILURE_WORDS = {
+  background: "backgroundInterrupted",
+  limit: "limit",
+  error: "error",
+} as const satisfies Record<"background" | "limit" | "error", keyof Words>;
+
 function RunFailureNotice({
   error,
   words,
@@ -194,12 +202,7 @@ function RunFailureNotice({
   words: Words;
 }) {
   if (!error) return null;
-  const message =
-    error === "background"
-      ? words.backgroundInterrupted
-      : error === "limit"
-        ? words.limit
-        : words.error;
+  const message = words[RUN_FAILURE_WORDS[error]];
   return (
     <p role="alert" className="cert-notice" data-testid="certified-run-notice">
       {message}
@@ -207,10 +210,41 @@ function RunFailureNotice({
   );
 }
 
+function currentKitAction(
+  current: NonNullable<CertifiedOutput["current"]>,
+  recommendedKit: Kit | null | undefined,
+  conversionRequired: boolean,
+  words: Words,
+  record: (kit: Kit, outcome: "normal" | "great") => void,
+) {
+  if (conversionRequired) return null;
+  if (!recommendedKit) {
+    return <p>{current.status === "complete" ? words.complete : words.preserve}</p>;
+  }
+  return (
+    <>
+      <p className={`cert-recommendation cert-kit-${recommendedKit}`}>
+        {words.use}: {words[recommendedKit]} · {current.uses}
+        {words.uses}
+      </p>
+      <div className="cert-actions">
+        <button type="button" onClick={() => record(recommendedKit, "normal")}>
+          {words.normal}
+        </button>
+        <button type="button" onClick={() => record(recommendedKit, "great")}>
+          {words.great}
+        </button>
+      </div>
+    </>
+  );
+}
+
 function CurrentResult({ output, words, session, update }: ResultPanelsProps) {
   const { formatNumber, formatPercent } = useI18n();
   const current = output?.current;
+  const recommendedKit = current?.kit;
   const conversionRequired = session.state.grade === "R" && session.state.level === 15;
+  const missingMessage = output?.refusal ? words.error : words.restart;
   const record = (kit: Kit, outcome: "normal" | "great") =>
     update(recordCertifiedOutcome(session, kit, outcome, new Date().toISOString()));
   return (
@@ -237,24 +271,7 @@ function CurrentResult({ output, words, session, update }: ResultPanelsProps) {
               <dd>{formatNumber(current.value.display.expectedTotalConsumptionC, 3)}</dd>
             </div>
           </dl>
-          {current.kit && !conversionRequired ? (
-            <>
-              <p className={`cert-recommendation cert-kit-${current.kit}`}>
-                {words.use}: {words[current.kit]} · {current.uses}
-                {words.uses}
-              </p>
-              <div className="cert-actions">
-                <button type="button" onClick={() => record(current.kit!, "normal")}>
-                  {words.normal}
-                </button>
-                <button type="button" onClick={() => record(current.kit!, "great")}>
-                  {words.great}
-                </button>
-              </div>
-            </>
-          ) : conversionRequired ? null : (
-            <p>{current.status === "complete" ? words.complete : words.preserve}</p>
-          )}
+          {currentKitAction(current, recommendedKit, conversionRequired, words, record)}
           {conversionRequired && (
             <button type="button" onClick={() => update(convertCertifiedSession(session))}>
               {words.convert}
@@ -262,23 +279,27 @@ function CurrentResult({ output, words, session, update }: ResultPanelsProps) {
           )}
         </>
       ) : (
-        <p className="cert-muted">{output?.refusal ? words.error : words.restart}</p>
+        <p className="cert-muted">{missingMessage}</p>
       )}
     </section>
   );
 }
 
+function waitDayText(days: number, words: Words) {
+  if (days === 0) return words.now;
+  return `${days} ${words.days}`;
+}
+
 function WaitingResult({ output, busy, words }: ResultPanelsProps) {
   const { formatNumber, formatPercent } = useI18n();
   const wait = output?.waiting;
+  const pricing = output?.pricing;
   return (
     <section className="cert-card" data-testid="certified-waiting">
       <h2>{words.recommend}</h2>
       {wait?.status === "certified" && wait.recommendedDays !== null ? (
         <>
-          <p className="cert-wait-day">
-            {wait.recommendedDays === 0 ? words.now : `${wait.recommendedDays} ${words.days}`}
-          </p>
+          <p className="cert-wait-day">{waitDayText(wait.recommendedDays, words)}</p>
           {wait.rangeBoundary && <p className="cert-notice">{words.boundary}</p>}
           {wait.successImprovementUpperBound && (
             <p>
@@ -291,14 +312,14 @@ function WaitingResult({ output, busy, words }: ResultPanelsProps) {
       )}
       <p className="cert-muted">{words.estimates}</p>
       <p className="cert-muted">{words.magnitudeUncomputed}</p>
-      {output?.pricing && (
+      {pricing && (
         <>
           <h3>{words.rates}</h3>
           <dl className="cert-metrics">
-            {KIT_ORDER.map((kit, i) => (
-              <div key={kit}>
-                <dt>{words[kit]}</dt>
-                <dd>{formatNumber(wireNumber(output.pricing!.recurringRate[i]!), 3)}</dd>
+            {KIT_INDICES.map((i) => (
+              <div key={KIT_ORDER[i]}>
+                <dt>{words[KIT_ORDER[i]]}</dt>
+                <dd>{formatNumber(wireNumber(pricing.recurringRate[i]), 3)}</dd>
               </div>
             ))}
           </dl>
@@ -429,29 +450,34 @@ function SupplyComparison({
             </tr>
           </thead>
           <tbody>
-            {KIT_ORDER.map((kit, i) => (
-              <tr key={kit}>
-                <th scope="row">{words[kit]}</th>
-                <td>
-                  {formatNumber(wireNumber(comparison.past.total[i]!), 2)}
-                  <small>
-                    {words.daily}: {formatNumber(wireNumber(comparison.past.dailyAverage[i]!), 3)}
-                  </small>
-                </td>
-                <td>
-                  {formatNumber(wireNumber(comparison.future.total[i]!), 2)}
-                  <small>
-                    {words.daily}: {formatNumber(wireNumber(comparison.future.dailyAverage[i]!), 3)}
-                  </small>
-                </td>
-                <td>
-                  {comparison.percentChange[i] === null
-                    ? words.NA
-                    : `${formatNumber(wireNumber(comparison.percentChange[i]!), 2)}%`}
-                </td>
-                <td>{formatNumber(wireNumber(comparison.currentDay.expectedGain[i]!), 2)}</td>
-              </tr>
-            ))}
+            {KIT_INDICES.map((i) => {
+              const kit = KIT_ORDER[i];
+              const percentChange = comparison.percentChange[i];
+              return (
+                <tr key={kit}>
+                  <th scope="row">{words[kit]}</th>
+                  <td>
+                    {formatNumber(wireNumber(comparison.past.total[i]), 2)}
+                    <small>
+                      {words.daily}: {formatNumber(wireNumber(comparison.past.dailyAverage[i]), 3)}
+                    </small>
+                  </td>
+                  <td>
+                    {formatNumber(wireNumber(comparison.future.total[i]), 2)}
+                    <small>
+                      {words.daily}:{" "}
+                      {formatNumber(wireNumber(comparison.future.dailyAverage[i]), 3)}
+                    </small>
+                  </td>
+                  <td>
+                    {percentChange === null
+                      ? words.NA
+                      : `${formatNumber(wireNumber(percentChange), 2)}%`}
+                  </td>
+                  <td>{formatNumber(wireNumber(comparison.currentDay.expectedGain[i]), 2)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

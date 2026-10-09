@@ -18,11 +18,10 @@ const directPoll = process.env["FORECAST_DIRECT_NAVER_POLL"] === "true";
 const bootstrap = process.env["FORECAST_BOOTSTRAP_SOLO_HISTORY"] === "true";
 const queueResponse =
   directPoll || bootstrap ? null : await request("/admin/source-queue?limit=20");
-const queue = bootstrap
-  ? await bootstrapItems()
-  : directPoll
-    ? await directItems()
-    : parseQueue(queueResponse);
+let queue: ReturnType<typeof parseQueue>;
+if (bootstrap) queue = await bootstrapItems();
+else if (directPoll) queue = await directItems();
+else queue = parseQueue(queueResponse);
 
 if (queue.length === 0) {
   await outputs({ queue_found: "false", candidate_created: "false" });
@@ -221,12 +220,10 @@ function hasUnresolvedScheduleChange(events: readonly ScheduleEvent[]) {
 async function outputs(values: Record<string, string>) {
   const path = process.env["GITHUB_OUTPUT"];
   if (!path) return;
-  await appendFile(
-    path,
-    `${Object.entries(values)
-      .map(([key, value]) => `${key}=${value.replace(/[\r\n]/g, " ")}`)
-      .join("\n")}\n`,
-  );
+  const content = Object.entries(values)
+    .map(([key, value]) => `${key}=${value.replace(/[\r\n]/g, " ")}`)
+    .join("\n");
+  await appendFile(path, `${content}\n`);
 }
 
 function sanitizeErrorCode(error: unknown) {

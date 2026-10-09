@@ -1,9 +1,11 @@
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import type { CertifiedInput, CertifiedOutput } from "../src/certified/types.ts";
-import { makeTriple, q, wire } from "./certified-staging-oracle.ts";
+import { q, wire } from "./certified-staging-oracle.ts";
 import { verifyActualWaiting } from "./certified-staging-oracle-certificates.ts";
 import { independentPhysicalRecurringRates } from "./certified-staging-oracle-physical-supply.ts";
+import { makeTriple } from "./certified-staging-oracle-tuples.ts";
 
 type Artifact = { input: CertifiedInput; records: readonly { output: CertifiedOutput }[] };
 function fixture() {
@@ -20,10 +22,12 @@ function fixture() {
       futureLawSemantics: "independent_given_cohort-v1" as const,
     },
   };
-  const output = structuredClone(artifact.records[0]!.output);
+  const record = artifact.records[0];
+  assert(record, "Expected historical witness record");
+  const output = structuredClone(record.output);
   const rates = independentPhysicalRecurringRates();
   const prices = makeTriple((color) =>
-    q(rates[color]!.d, BigInt(input.stock[color]!) * rates[color]!.d + rates[color]!.n),
+    q(rates[color].d, BigInt(input.stock[color]) * rates[color].d + rates[color].n),
   );
   return { input, output, prices };
 }
@@ -38,7 +42,8 @@ it("independently validates historical physical witness masses, stocks and both 
 });
 it("rejects missing receipts and independently false physical masses", () => {
   const { input, output, prices } = fixture();
-  const witness = output.waiting.strictBoundaryWitness!;
+  const witness = output.waiting.strictBoundaryWitness;
+  assert(witness, "Expected strict boundary witness");
   output.waiting.strictBoundaryWitness = { ...witness, receipts: witness.receipts.slice(1) };
   expect(verifyActualWaiting(input, output, prices, false).status).toBe("FAIL");
   output.waiting.strictBoundaryWitness = {
@@ -51,7 +56,8 @@ it("rejects missing receipts and independently false physical masses", () => {
 });
 it("rejects an endpoint value changed by one exact numerator unit", () => {
   const { input, output, prices } = fixture();
-  const witness = output.waiting.strictBoundaryWitness!;
+  const witness = output.waiting.strictBoundaryWitness;
+  assert(witness, "Expected strict boundary witness");
   const B = witness.beforeValue.weightedExpectedConsumptionB;
   output.waiting.strictBoundaryWitness = {
     ...witness,
@@ -64,7 +70,9 @@ it("rejects an endpoint value changed by one exact numerator unit", () => {
 });
 it("reports unsupported cohort replay as NOTRUN and never converts it into a passed certificate", () => {
   const { input, output, prices } = fixture();
-  output.waiting.strictBoundaryWitness = { ...output.waiting.strictBoundaryWitness!, cohort: 1 };
+  const witness = output.waiting.strictBoundaryWitness;
+  assert(witness, "Expected strict boundary witness");
+  output.waiting.strictBoundaryWitness = { ...witness, cohort: 1 };
   expect(verifyActualWaiting(input, output, prices, false).status).toBe("NOTRUN");
 });
 it("rejects a declared boundary certificate without complete model coverage", () => {
@@ -98,8 +106,10 @@ it("checks N0 against the independent unrestricted optimum and detects a false t
   const terminal: CertifiedInput = { ...input, grade: "SR", level: 15, exp: 0 };
   const zero = wire(q(0)),
     one = wire(q(1));
+  const current = output.current;
+  assert(current, "Expected current optimum");
   output.current = {
-    ...output.current!,
+    ...current,
     status: "complete",
     kit: null,
     uses: 0,

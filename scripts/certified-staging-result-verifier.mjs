@@ -109,15 +109,19 @@ function expectedProfile() {
   const generated = readFileSync("shared/generated/certifiedEngineBuild.ts", "utf8");
   const codeHash = /CERTIFIED_ENGINE_CODE_HASH = "([a-f0-9]{64})"/.exec(generated)?.[1];
   assertHash(codeHash, "generated engine code hash missing");
+  const wasmGenerated = readFileSync("shared/generated/certifiedWasmBuild.ts", "utf8");
+  const wasmHash = /CERTIFIED_WASM_HASH = "([a-f0-9]{64})"/.exec(wasmGenerated)?.[1];
+  assertHash(wasmHash, "generated WASM hash missing");
+  assert.equal(fileDigest("public/certified_solver.wasm"), wasmHash, "pinned WASM hash drift");
   // This reviewed contract deliberately fails if the product profile evolves.
   return {
     id: "certified-staging-v1",
     environment: "staging",
     schemaVersion: "certified-daily-v1",
     priceVersion: "stock-plus-recurring-day-v1",
-    solverVersion: "certified-exact-js-v1",
+    solverVersion: "certified-exact-rust-wasm-v1",
     lawVersion: "documented-physical-supply-v1",
-    wasmHash: null,
+    wasmHash,
     codeHash,
     cacheNamespace: `certified-staging-v1:${codeHash}`,
     sessionNamespace: "collection-certified-staging-v1",

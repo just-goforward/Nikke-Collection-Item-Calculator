@@ -6,7 +6,7 @@ import {
   createLatencyMeasurementProtocol,
   summarizeLatencySamples,
 } from "./latency-report.ts";
-import { envValue } from "./runner-utils.ts";
+import { envValue, parseList, parsePositiveInteger } from "./runner-utils.ts";
 import type { SolverScenario } from "./scenarios/fixed-grid";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
@@ -15,31 +15,16 @@ const WASM_URL = new URL("../public/solver_rs.wasm", import.meta.url);
 const DEFAULT_SCENARIOS = ["R14e900-yellow30", "SR14e2900-observedPurpleHigh"] as const;
 const POLICY_IDS = ["phase2_baseline", "phase2_mc_rerank", "phase2_exact_rerank"] as const;
 
-function parseList(value: string | undefined, fallback: readonly string[]) {
-  const parsed = String(value || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return parsed.length > 0 ? parsed : [...fallback];
-}
-
-function parsePositiveInteger(value: string | undefined, fallback: number) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
-}
-
 function failureOutcome(error: unknown) {
   const status =
     typeof error === "object" && error !== null && "status" in error
       ? Number((error as { status?: unknown }).status)
       : null;
+  let outcome: "budget_exceeded" | "memo_full" | "failure" = "failure";
+  if (status === 1) outcome = "budget_exceeded";
+  else if (status === 2) outcome = "memo_full";
   return {
-    outcome:
-      status === 1
-        ? ("budget_exceeded" as const)
-        : status === 2
-          ? ("memo_full" as const)
-          : ("failure" as const),
+    outcome,
     error: error instanceof Error ? error.message : String(error),
   };
 }

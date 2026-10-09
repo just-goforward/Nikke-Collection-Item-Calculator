@@ -1,5 +1,11 @@
+import { STATS_DELIVERY_EVENT_KINDS } from "../../shared/solverRecoveryContract";
 import { ignoreExpectedError } from "./errorHandling";
-import { makeStatsEventId, statsSourceHost, statsSubmissionConfig } from "./statsRuntime";
+import {
+  makeStatsEventId,
+  type StatsSubmissionConfig,
+  statsSourceHost,
+  statsSubmissionConfig,
+} from "./statsRuntime";
 import {
   type StatsSubmissionEnvelope,
   StatsSubmissionError,
@@ -9,11 +15,6 @@ import { type TurnstileApi, TurnstileTokenProvider } from "./turnstileTokenProvi
 
 type MutableValue<T> = {
   current: T;
-};
-
-type SubmissionConfig = {
-  endpoint: string;
-  turnstileSiteKey: string;
 };
 
 function turnstileContainer(kind: StatsSubmissionEvent["kind"]): HTMLElement {
@@ -53,7 +54,7 @@ export function statsSubmissionProvider(
 }
 
 async function postStatsEnvelope(
-  config: SubmissionConfig,
+  config: StatsSubmissionConfig,
   envelope: StatsSubmissionEnvelope,
   turnstileToken: string,
 ): Promise<Response> {
@@ -115,12 +116,7 @@ export function cleanupStatsSubmissionDom(
 ) {
   providerRef.current?.dispose();
   providerRef.current = null;
-  for (const kind of [
-    "kit_result",
-    "runtime_invariant",
-    "solver_diagnostic",
-    "solver_recovery",
-  ] as const) {
+  for (const kind of STATS_DELIVERY_EVENT_KINDS) {
     document.getElementById(`turnstileContainer-${kind}`)?.remove();
   }
 }

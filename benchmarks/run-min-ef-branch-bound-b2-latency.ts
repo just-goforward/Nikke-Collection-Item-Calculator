@@ -187,10 +187,12 @@ async function runParent() {
     const candidateSamples = selectSamples(samples, "candidate", scenario.id);
     const product = summarize(productSamples);
     const candidate = summarize(candidateSamples);
+    const productSemantics = semanticSet(productSamples);
+    const candidateSemantics = semanticSet(candidateSamples);
     const semanticParity =
-      semanticSet(productSamples).size === 1 &&
-      semanticSet(candidateSamples).size === 1 &&
-      [...semanticSet(productSamples)][0] === [...semanticSet(candidateSamples)][0];
+      productSemantics.size === 1 &&
+      candidateSemantics.size === 1 &&
+      [...productSemantics][0] === [...candidateSemantics][0];
     const p95LimitMs = Math.max(
       product.p95Ms * CONTRACT.latencyGate.relativeFactor,
       product.p95Ms + CONTRACT.latencyGate.absoluteMarginMs,

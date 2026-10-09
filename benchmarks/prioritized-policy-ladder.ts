@@ -9,8 +9,8 @@ import {
   RUST_STATUS_MEMO_FULL,
   RustSolveError,
 } from "../src/wasm/rustStatus";
-import type { RustMinEfPolicyHandle } from "../src/wasm/rustTypes";
 import type { ExactPolicySolverResult } from "./evaluator/exact-replan-types";
+import { decisionFromRootPolicy } from "./policy-decision";
 import {
   prioritizedSparsePiActionAtUses,
   type RustPrioritizedSparsePiOptions,
@@ -70,7 +70,7 @@ export function createPrioritizedFallbackLadderSession(
         options.tolerance ?? 0,
       );
       summary.minEfOutcomes.completed += 1;
-      return minEfDecision(input, policy);
+      return decisionFromRootPolicy(input, policy);
     } catch (error) {
       const minEfOutcome = classifyMinEfError(error);
       summary.minEfOutcomes[minEfOutcome] += 1;
@@ -131,26 +131,6 @@ export function createPrioritizedFallbackLadderSession(
       prioritizedExports.releasePhase2Memo?.();
     },
     summary: () => structuredClone(summary),
-  };
-}
-
-function minEfDecision(input: SolverInput, policy: RustMinEfPolicyHandle): ExactPolicySolverResult {
-  const root = policy.root;
-  if (!root.firstAction) return { possible: false, best: null };
-  const normalized = normalizeRustProductInput(input);
-  const run = buildRecommendedRunForKit(
-    normalized,
-    (state, stockUses) => policy.actionAt(state, stockUses),
-    root.firstAction,
-  );
-  if (!run) return { possible: false, best: null };
-  return {
-    possible: true,
-    best: {
-      firstAction: root.firstAction,
-      probabilityGap: Math.max(0, root.maxSuccessProbability - root.successProbability),
-      run: { count: run.count },
-    },
   };
 }
 

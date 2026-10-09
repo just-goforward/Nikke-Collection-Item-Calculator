@@ -7,6 +7,18 @@ export async function maxBackgroundChannel(locator: Locator): Promise<number> {
   });
 }
 
+export async function confirmOutcome(
+  page: Page,
+  locator: Locator,
+  outcome: "대성공 O" | "대성공 X",
+) {
+  await locator.click();
+  await page
+    .getByRole("button", { name: `${outcome} 확정`, exact: true })
+    .first()
+    .click();
+}
+
 export async function serveStagingDocument(
   page: Page,
   staging?: { endpoint: string; turnstileSiteKey: string },

@@ -31,7 +31,8 @@ function systemPrefersDark() {
 }
 
 function resolvedTheme(mode: ThemeMode) {
-  return mode === "system" ? (systemPrefersDark() ? "dark" : "light") : mode;
+  if (mode !== "system") return mode;
+  return systemPrefersDark() ? "dark" : "light";
 }
 
 function applyTheme(mode: ThemeMode) {

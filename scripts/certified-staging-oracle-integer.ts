@@ -3,13 +3,12 @@ import {
   independentFailure,
   independentProbability,
   independentSuccess,
-  makeTriple,
-  mapTriple,
   type OracleInput,
   type OracleResult,
   q,
   type Triple,
 } from "./certified-staging-oracle.ts";
+import { makeTriple, mapTriple } from "./certified-staging-oracle-tuples.ts";
 
 /** Independent uncapped inventory DP derived from public probabilities. No candidate imports. */
 type State = ReturnType<typeof canonicalState>;
@@ -44,7 +43,7 @@ function compare(candidate: Value, best: Value): number {
 function actionValue(
   state: State,
   stock: Triple,
-  color: number,
+  color: 0 | 1 | 2,
   denominator: bigint,
   prices: readonly bigint[],
   solve: Recurse,
@@ -59,8 +58,8 @@ function actionValue(
   const n = failureWeight ? solve(normal.grade, normal.level, normal.exp, nextStock) : empty();
   const consumed = makeTriple(
     (index) =>
-      successWeight * g.consumed[index]! +
-      failureWeight * n.consumed[index]! +
+      successWeight * g.consumed[index] +
+      failureWeight * n.consumed[index] +
       (index === color ? 10n * denominator : 0n),
   );
   return {
@@ -68,8 +67,8 @@ function actionValue(
     consumed,
     burden: consumed.reduce((sum, amount, index) => sum + amount * prices[index]!, 0n),
     total: consumed.reduce((sum, amount) => sum + amount, 0n),
-    action: colors[color]!,
-    ties: [colors[color]!],
+    action: colors[color],
+    ties: [colors[color]],
   };
 }
 function bestActions(
@@ -80,12 +79,12 @@ function bestActions(
   solve: Recurse,
 ): Value {
   let best = empty();
-  for (let color = 0; color < 3; color += 1) {
+  for (const color of [0, 1, 2] as const) {
     if (!stock[color]) continue;
     const candidate = actionValue(state, stock, color, denominator, prices, solve);
     const comparison = compare(candidate, best);
     if (comparison > 0) best = candidate;
-    else if (comparison === 0) best = { ...best, ties: [...best.ties, colors[color]!] };
+    else if (comparison === 0) best = { ...best, ties: [...best.ties, colors[color]] };
   }
   return best;
 }
@@ -94,7 +93,11 @@ export function solveIntegerOracle(input: OracleInput): OracleResult {
   const totalUnits = units.reduce((sum, count) => sum + count, 0);
   if (totalUnits > 30) throw new Error("Original uncapped oracle contract permits at most30 uses");
   const powers = [1n];
-  for (let index = 1; index <= totalUnits; index += 1) powers.push(powers[index - 1]! * 1000n);
+  let power = 1n;
+  for (let index = 1; index <= totalUnits; index += 1) {
+    power *= 1000n;
+    powers.push(power);
+  }
   const common = input.prices.reduce(
     (denominator, price) => (denominator / gcd(denominator, price.d)) * price.d,
     1n,

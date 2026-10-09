@@ -45,12 +45,10 @@ export function renderSelectionReport(out: SelectionOutput): string {
     );
     lines.push("|---|---|---|---|---|---|---|");
     for (const stage of out.stages) {
-      const tail =
-        stage.tailSignificantImprovement === null
-          ? "-"
-          : stage.tailSignificantImprovement
-            ? "yes"
-            : "no";
+      let tail = "-";
+      if (stage.tailSignificantImprovement !== null) {
+        tail = stage.tailSignificantImprovement ? "yes" : "no";
+      }
       lines.push(
         `| ${stage.stage} | \`${stage.modelId}\` | ${fmt(stage.worstExactLoss)} | ${fmt(stage.worstRelativeLoss)} | ${fmt(stage.supplyDebtCvar90, 3)} | ${tail} | ${stage.guardrailDegraded ? `yes (${stage.guardrailDegradations.join("; ")})` : "no"} |`,
       );

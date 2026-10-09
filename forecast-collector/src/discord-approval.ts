@@ -372,14 +372,16 @@ async function completeDiscordStagingAdoption(
       configuration.approverUserId,
       nowMs,
     );
-    const data =
-      result.outcome === "approved" || result.outcome === "already_approved"
-        ? stagingApprovedData(result.approval, customId)
-        : unavailableApprovalData(
-            result.outcome === "expired"
-              ? "staging 승인 버튼이 만료되었습니다. 새 승인 카드를 요청하십시오."
-              : "staging 승인 대상을 확인할 수 없습니다. 새 승인 카드를 요청하십시오.",
-          );
+    let data: Record<string, unknown>;
+    if (result.outcome === "approved" || result.outcome === "already_approved") {
+      data = stagingApprovedData(result.approval, customId);
+    } else {
+      const content =
+        result.outcome === "expired"
+          ? "staging 승인 버튼이 만료되었습니다. 새 승인 카드를 요청하십시오."
+          : "staging 승인 대상을 확인할 수 없습니다. 새 승인 카드를 요청하십시오.";
+      data = unavailableApprovalData(content);
+    }
     console.log(
       JSON.stringify({
         event: "discord_staging_approval_completed",
@@ -416,14 +418,16 @@ async function completeDiscordTestApproval(
       configuration.approverUserId,
       nowMs,
     );
-    const data =
-      result.outcome === "approved" || result.outcome === "already_approved"
-        ? approvedData(result.approval, customId)
-        : unavailableApprovalData(
-            result.outcome === "expired"
-              ? "테스트 승인 버튼이 만료되었습니다."
-              : "테스트 승인 대상을 찾을 수 없습니다.",
-          );
+    let data: Record<string, unknown>;
+    if (result.outcome === "approved" || result.outcome === "already_approved") {
+      data = approvedData(result.approval, customId);
+    } else {
+      const content =
+        result.outcome === "expired"
+          ? "테스트 승인 버튼이 만료되었습니다."
+          : "테스트 승인 대상을 찾을 수 없습니다.";
+      data = unavailableApprovalData(content);
+    }
     console.log(
       JSON.stringify({
         event: "discord_test_approval_completed",

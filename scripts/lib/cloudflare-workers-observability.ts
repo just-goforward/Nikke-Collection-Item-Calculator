@@ -269,14 +269,13 @@ function readRuntimeEvent(events: Record<string, unknown>[], expectedScriptName:
   }
   const runtime = parseRuntimeShape(workers);
   const version = readScriptVersion(events, expectedScriptName);
+  let identitySource: ForecastRuntimeSample["identitySource"] = "marker";
+  if (version.scriptVersionTag) identitySource = "tag";
+  else if (version.scriptVersionId) identitySource = "version_id";
   return {
     ...runtime,
     ...version,
-    identitySource: version.scriptVersionTag
-      ? ("tag" as const)
-      : version.scriptVersionId
-        ? ("version_id" as const)
-        : ("marker" as const),
+    identitySource,
   };
 }
 

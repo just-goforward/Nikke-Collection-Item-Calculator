@@ -82,6 +82,12 @@ function makeAppHandlers({
   };
 }
 
+function mobileTabForView(next: TopViewTab, current: MobileTab): MobileTab {
+  if (next === "stats") return "stats";
+  if (current === "stats") return "input";
+  return current;
+}
+
 export default function App() {
   const [mobileTab, setMobileTab] = useState<MobileTab>("input");
   const [pendingOutcome, setPendingOutcome] = useState<"success" | "fail" | null>(null);
@@ -95,9 +101,7 @@ export default function App() {
     const syncFromHash = () => {
       const next = viewTabFromHash();
       setViewTabState(next);
-      setMobileTab((current) =>
-        next === "stats" ? "stats" : current === "stats" ? "input" : current,
-      );
+      setMobileTab((current) => mobileTabForView(next, current));
     };
     syncFromHash();
     window.addEventListener("hashchange", syncFromHash);

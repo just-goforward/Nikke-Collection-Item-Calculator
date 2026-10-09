@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import {
   assertCertifiedForecastIdentity,
   certifiedForecastIdentityWorkspaceBound,
@@ -32,7 +32,8 @@ describe("certified request content identity", () => {
   it("includes semantic arrival dates, asOf, and coverage even when source identity is unchanged", async () => {
     const snapshot = fixture();
     const original = await createCertifiedForecastIdentity(snapshot);
-    const event = snapshot.events[0]!;
+    const event = snapshot.events[0];
+    assert(event, "the identity fixture must contain a supply event");
     const changed = [
       { ...snapshot, asOf: "2026-08-20T09:31:00+09:00" },
       {

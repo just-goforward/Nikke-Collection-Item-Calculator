@@ -1,13 +1,14 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { freemem } from "node:os";
 import type { CertifiedInput, CertifiedOutput } from "../src/certified/types.ts";
-import { makeTriple, type QTriple, q } from "./certified-staging-oracle.ts";
+import { type QTriple, q } from "./certified-staging-oracle.ts";
 import type { CertificateCheck } from "./certified-staging-oracle-certificates.ts";
 import { independentPhysicalRecurringRates } from "./certified-staging-oracle-physical-supply.ts";
 import {
   evidenceHash,
   RELAXATION_POPULATION,
 } from "./certified-staging-oracle-relaxation-population.ts";
+import { makeTriple } from "./certified-staging-oracle-tuples.ts";
 import {
   type WaitingProofCacheDocument,
   type WaitingProofEntry,
@@ -40,7 +41,7 @@ type Expanded = {
 function load(record: WaitingProofSource): string {
   const bytes = readFileSync(record.path);
   if (evidenceHash(bytes) !== record.sha256)
-    throw new Error("Frozen proof source drift: " + record.path);
+    throw new Error(`Frozen proof source drift: ${record.path}`);
   return bytes.toString("utf8");
 }
 function assertOriginal(original: Original): void {
@@ -59,7 +60,7 @@ function assertOriginal(original: Original): void {
       if (source.sha256 !== "79a7563059171121b0331687fc2caab8563f03a6cb64060b475d1fe7d8a96850")
         throw new Error("Historical game/cache-key anchor drift");
     } else if (original.sources.find((old) => old.path === source.path)?.sha256 !== source.sha256)
-      throw new Error("Waiting cache historical mathematical source mismatch: " + source.path);
+      throw new Error(`Waiting cache historical mathematical source mismatch: ${source.path}`);
   }
 }
 function fixedPrices(row: Row, rates: QTriple): QTriple {
@@ -67,7 +68,7 @@ function fixedPrices(row: Row, rates: QTriple): QTriple {
   if (row.input.cohortWeights !== undefined)
     throw new Error("Historical physical cache requires its original default equal cohort prior");
   return makeTriple((color) =>
-    q(rates[color]!.d, BigInt(basis[color]!) * rates[color]!.d + rates[color]!.n),
+    q(rates[color].d, BigInt(basis[color]) * rates[color].d + rates[color].n),
   );
 }
 function entry(
@@ -125,7 +126,7 @@ function expandedEntries(original: Original, rows: Map<string, Row>, rates: QTri
         signature.inputSha256 !== proof.inputSha256 ||
         signature.witnessSha256 !== proof.witnessSha256
       )
-        throw new Error("Expanded full input/witness same-case join mismatch: " + proof.id);
+        throw new Error(`Expanded full input/witness same-case join mismatch: ${proof.id}`);
       if (proof.status !== "PASS") continue;
       entries.push(
         entry(
@@ -194,27 +195,26 @@ function main(): void {
   };
   const output = argument(
     "--out",
-    "benchmarks/results/certified-staging-validation-waiting-proof-cache-" + Date.now() + ".json",
+    `benchmarks/results/certified-staging-validation-waiting-proof-cache-${Date.now()}.json`,
   );
   if (existsSync(output)) throw new Error("Immutable waiting cache already exists");
-  const bytes =
-    JSON.stringify(
-      {
-        ...document,
-        generatedAt: new Date().toISOString(),
-        signatureContract:
-          "SHA256 recursively key-sorted canonical JSON of full original input, snapshot, exact fixed prices, entire current value, entire waiting envelope including all witness fields; no product-code hash in mathematical key, old-to-new lineage explicit in consumer report",
-        preparation: {
-          processPeakRssBytes: process.resourceUsage().maxRSS * 1024,
-          minimumFreeHostBytes,
-          oracleEvaluations: 0,
-        },
-        historicalGameSourceGap:
-          "The original manual actual-run source list omitted transitive shared/game.ts. Its unchanged SHA256 is anchored by the preserved original current-oracle cache key/manifest; this does not retroactively claim an original explicit start/end game check.",
+  const bytes = `${JSON.stringify(
+    {
+      ...document,
+      generatedAt: new Date().toISOString(),
+      signatureContract:
+        "SHA256 recursively key-sorted canonical JSON of full original input, snapshot, exact fixed prices, entire current value, entire waiting envelope including all witness fields; no product-code hash in mathematical key, old-to-new lineage explicit in consumer report",
+      preparation: {
+        processPeakRssBytes: process.resourceUsage().maxRSS * 1024,
+        minimumFreeHostBytes,
+        oracleEvaluations: 0,
       },
-      null,
-      2,
-    ) + "\n";
+      historicalGameSourceGap:
+        "The original manual actual-run source list omitted transitive shared/game.ts. Its unchanged SHA256 is anchored by the preserved original current-oracle cache key/manifest; this does not retroactively claim an original explicit start/end game check.",
+    },
+    null,
+    2,
+  )}\n`;
   if (!document.sourcesCurrentAtEnd || process.resourceUsage().maxRSS * 1024 > 896 * 1024 * 1024)
     throw new Error("Waiting cache preparation source/resource guard NOTRUN");
   writeFileSync(output, bytes);

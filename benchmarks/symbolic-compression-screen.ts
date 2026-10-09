@@ -25,13 +25,13 @@ export function screenExactSymbolicCompression(
       success: partitionByKey.get(edge.successKey),
       failure: partitionByKey.get(edge.failureKey),
     }));
+    const valueSignatureText = valueSignature(value);
     const partition = digest({
       sid: node.sid,
       terminal: node.terminal,
       edges: edgeSignature,
-      value: valueSignature(value),
+      value: valueSignatureText,
     });
-    const valueSignatureText = valueSignature(value);
     const existing = valueByPartition.get(partition);
     if (existing !== undefined && existing !== valueSignatureText) exactValueMismatches += 1;
     valueByPartition.set(partition, valueSignatureText);

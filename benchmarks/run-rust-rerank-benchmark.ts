@@ -356,16 +356,14 @@ try {
       );
       const a2GatePass = a2.deltaVsBaseline === null ? null : a2.deltaVsBaseline < -STRICT_EPSILON;
       const a2GateIntervened = rawIntervened && a2GatePass === true;
-      const a2GateEvaluationDeltaVsBaseline =
-        a2GatePass === null ? null : a2GateIntervened ? evaluation.meanDelta : 0;
-      const a2GateFalsePositive =
-        a2GatePass === null ? null : a2GateIntervened ? evaluationSelectedWorsens : false;
-      const a2GateFalseNegative =
-        a2GatePass === null
-          ? null
-          : rawIntervened && !a2GatePass
-            ? evaluationSelectedImproves
-            : false;
+      let a2GateEvaluationDeltaVsBaseline: number | null = null;
+      let a2GateFalsePositive: boolean | null = null;
+      let a2GateFalseNegative: boolean | null = null;
+      if (a2GatePass !== null) {
+        a2GateEvaluationDeltaVsBaseline = a2GateIntervened ? evaluation.meanDelta : 0;
+        a2GateFalsePositive = a2GateIntervened ? evaluationSelectedWorsens : false;
+        a2GateFalseNegative = rawIntervened && !a2GatePass ? evaluationSelectedImproves : false;
+      }
 
       records.push({
         ...common,

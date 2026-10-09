@@ -5,12 +5,12 @@ export function interruptedCertifiedWaiting<O extends CertifiedOutput>(
   interruption: "aborted" | "deadline" | "worker",
 ): O {
   const output = structuredClone(partial);
-  const reason =
-    interruption === "deadline"
-      ? "worker_total_deadline"
-      : interruption === "aborted"
-        ? "worker_abort"
-        : "worker_execution_failure";
+  let reason = "worker_execution_failure";
+  if (interruption === "deadline") {
+    reason = "worker_total_deadline";
+  } else if (interruption === "aborted") {
+    reason = "worker_abort";
+  }
   output.status = "partial";
   output.waiting = {
     ...output.waiting,

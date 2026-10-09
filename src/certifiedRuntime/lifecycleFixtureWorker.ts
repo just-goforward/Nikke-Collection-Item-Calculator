@@ -36,6 +36,12 @@ export function installLifecycleFixture(
         );
         return;
       }
+      const computeBinding: Pick<typeof message, "forecastIdentity"> = {};
+      if (message.forecastIdentity && !message.input.omitComputeIdentity) {
+        computeBinding.forecastIdentity = message.input.computeIdentityMutation
+          ? { ...message.forecastIdentity, snapshotHash: "b".repeat(64) }
+          : message.forecastIdentity;
+      }
       post({
         type: "computeStarted",
         generation: message.generation,
@@ -43,13 +49,7 @@ export function installLifecycleFixture(
         engineProfile: message.input.computeProfileMutation
           ? { ...message.engineProfile, codeHash: "b".repeat(64) }
           : message.engineProfile,
-        ...(message.forecastIdentity && !message.input.omitComputeIdentity
-          ? {
-              forecastIdentity: message.input.computeIdentityMutation
-                ? { ...message.forecastIdentity, snapshotHash: "b".repeat(64) }
-                : message.forecastIdentity,
-            }
-          : {}),
+        ...computeBinding,
       });
       if (message.input.partial)
         post({
@@ -60,41 +60,43 @@ export function installLifecycleFixture(
           engineProfile: message.engineProfile,
           ...(message.forecastIdentity ? { forecastIdentity: message.forecastIdentity } : {}),
         });
-      const finish = () =>
-        post({
-          ...(message.input.failureCode
-            ? {
-                type: "error" as const,
-                code: message.input.failureCode,
-                message: "Fixture Worker failure after exact current.",
-                engineProfile: message.input.errorProfileMutation
-                  ? { ...message.engineProfile, codeHash: "b".repeat(64) }
-                  : message.engineProfile,
-                ...(message.forecastIdentity && !message.input.omitErrorIdentity
-                  ? {
-                      forecastIdentity: message.input.errorIdentityMutation
-                        ? { ...message.forecastIdentity, snapshotHash: "b".repeat(64) }
-                        : message.forecastIdentity,
-                    }
-                  : {}),
-              }
-            : {
-                type: "result" as const,
-                output: message.input.value,
-                engineProfile: message.input.resultProfileMutation
-                  ? { ...message.engineProfile, codeHash: "b".repeat(64) }
-                  : message.engineProfile,
-                ...(message.forecastIdentity
-                  ? {
-                      forecastIdentity: message.input.resultIdentityMutation
-                        ? { ...message.forecastIdentity, forecastId: "fixture-mismatch" }
-                        : message.forecastIdentity,
-                    }
-                  : {}),
-              }),
+      const finish = () => {
+        if (message.input.failureCode) {
+          const errorBinding: Pick<typeof message, "forecastIdentity"> = {};
+          if (message.forecastIdentity && !message.input.omitErrorIdentity) {
+            errorBinding.forecastIdentity = message.input.errorIdentityMutation
+              ? { ...message.forecastIdentity, snapshotHash: "b".repeat(64) }
+              : message.forecastIdentity;
+          }
+          return post({
+            type: "error",
+            code: message.input.failureCode,
+            message: "Fixture Worker failure after exact current.",
+            engineProfile: message.input.errorProfileMutation
+              ? { ...message.engineProfile, codeHash: "b".repeat(64) }
+              : message.engineProfile,
+            ...errorBinding,
+            generation: message.generation,
+            id: message.id,
+          });
+        }
+        const resultBinding: Pick<typeof message, "forecastIdentity"> = {};
+        if (message.forecastIdentity) {
+          resultBinding.forecastIdentity = message.input.resultIdentityMutation
+            ? { ...message.forecastIdentity, forecastId: "fixture-mismatch" }
+            : message.forecastIdentity;
+        }
+        return post({
+          type: "result",
+          output: message.input.value,
+          engineProfile: message.input.resultProfileMutation
+            ? { ...message.engineProfile, codeHash: "b".repeat(64) }
+            : message.engineProfile,
+          ...resultBinding,
           generation: message.generation,
           id: message.id,
         });
+      };
       if (message.input.errorAtDeadline) {
         setTimeout(finish, Math.max(0, message.deadlineAt - Date.now()));
         return;

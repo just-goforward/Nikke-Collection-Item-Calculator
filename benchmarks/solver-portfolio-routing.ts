@@ -3,7 +3,6 @@ import { rustCoreExportsFromInstance } from "../src/wasm/rustLoader";
 import { createRustMinEfSolver } from "../src/wasm/rustMinEfCore";
 import { createRustPhase2Solver } from "../src/wasm/rustPhase2Core";
 import { normalizeRustProductInput } from "../src/wasm/rustProductInput";
-import { buildRecommendedRunForKit } from "../src/wasm/rustProductView";
 import {
   RUST_STATUS_BUDGET_EXCEEDED,
   RUST_STATUS_MEMO_FULL,
@@ -15,6 +14,7 @@ import type {
   RustPhase2Policy,
 } from "../src/wasm/rustTypes";
 import type { ExactPolicySolverResult } from "./evaluator/exact-replan-types";
+import { decisionFromRootPolicy } from "./policy-decision";
 import {
   conditionalExactRescueEligible,
   SOLVER_PORTFOLIO_ROUTING_CONTRACT,
@@ -201,7 +201,7 @@ export function createSolverPortfolioLadderSession(
     trace.selectedBackend = selectedBackend;
     trace.semantic = semanticFromPolicy(policy);
     trace.totalElapsedMs = sumElapsed(trace);
-    const decision = decisionFromPolicy(input, policy);
+    const decision = decisionFromRootPolicy(input, policy);
     traces.push(trace);
     return { decision, trace };
   }
@@ -217,29 +217,6 @@ export function createSolverPortfolioLadderSession(
     },
     solve,
     traces: () => traces,
-  };
-}
-
-function decisionFromPolicy(
-  input: SolverInput,
-  policy: RustMinEfPolicyHandle | RustPhase2Policy,
-): ExactPolicySolverResult {
-  const root = policy.root;
-  if (!root.firstAction) return { possible: false, best: null };
-  const normalized = normalizeRustProductInput(input);
-  const run = buildRecommendedRunForKit(
-    normalized,
-    (state, stockUses) => policy.actionAt(state, stockUses),
-    root.firstAction,
-  );
-  if (!run) return { possible: false, best: null };
-  return {
-    possible: true,
-    best: {
-      firstAction: root.firstAction,
-      probabilityGap: Math.max(0, root.maxSuccessProbability - root.successProbability),
-      run: { count: run.count },
-    },
   };
 }
 

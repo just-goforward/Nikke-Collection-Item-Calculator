@@ -1,7 +1,5 @@
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef } from "react";
 import { useI18n } from "../i18n/locale";
-import type { MessageKey } from "../i18n/messages.ko";
-import type { Kit } from "../types";
 import type {
   OutcomePreview,
   RecommendationActionTransition,
@@ -10,27 +8,8 @@ import type {
 } from "../ui-types";
 import { presentOutcomePreview } from "../view-models/outcomePresentation";
 import { AlignedText } from "./AlignedText";
+import { KIT_PANEL_LABEL_KEYS, RESULT_KIT_KEYS, resultKitDotClass } from "./kitPresentation";
 import { STATE_FEEDBACK_VISIBLE_MS } from "./stateFeedbackAnimations";
-
-const RESULT_KIT_KEYS: Record<ResultKit, MessageKey> = {
-  blue: "kit.blue",
-  purple: "kit.purple",
-  yellow: "kit.yellow",
-  convert: "common.convertToSr",
-};
-
-const RESULT_KIT_PANEL_KEYS: Record<Kit, MessageKey> = {
-  blue: "kit.bluePanel",
-  purple: "kit.purplePanel",
-  yellow: "kit.yellowPanel",
-};
-
-const resultKitDotClass: Record<ResultKit, string> = {
-  blue: "bg-blue-kit",
-  purple: "bg-purple-kit",
-  yellow: "bg-yellow-kit",
-  convert: "bg-primary",
-};
 
 const classes = {
   recommendation:
@@ -140,7 +119,7 @@ function ActionChip({
       <span className={classes.actionChipText}>
         <span className={classes.actionChipName}>
           <span className={classes.actionChipNameFull}>{kitLabel}</span>
-          <span className={classes.actionChipNameMobile}>{t(RESULT_KIT_PANEL_KEYS[kit])}</span>
+          <span className={classes.actionChipNameMobile}>{t(KIT_PANEL_LABEL_KEYS[kit])}</span>
         </span>
         <span className={classes.actionChipQuantity}>
           <span className={classes.actionChipSeparator}>{"\u00a0×\u00a0"}</span>

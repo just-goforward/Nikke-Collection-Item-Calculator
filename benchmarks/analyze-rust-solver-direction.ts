@@ -101,22 +101,25 @@ function verdict(runtime: RuntimeResult, rerank: RerankResult) {
   const adaptiveFalsePositive = adaptive90?.falsePositiveCount ?? null;
   const pairedWeightedDelta = finite(paired95?.weightedSumDelta);
   const pairedFalsePositive = paired95?.falsePositiveCount ?? null;
+  let rustPhase2Rerank = "keep_staging_until_quality_or_latency_is_clear";
+  if (
+    adaptiveWeightedDelta !== null &&
+    adaptiveWeightedDelta < 0 &&
+    adaptiveFalsePositive === 0 &&
+    rerankMeanDelta !== null &&
+    rerankMeanDelta < 50
+  ) {
+    rustPhase2Rerank = "staging_candidate_with_low_observed_added_latency";
+  } else if (pairedWeightedDelta !== null && pairedWeightedDelta < 0 && pairedFalsePositive === 0) {
+    rustPhase2Rerank = "paired95_quality_ok_but_product_adaptive_or_latency_needs_work";
+  }
 
   return {
     rustPhase2:
       phase2MeanDelta !== null && phase2MeanDelta < 0
         ? "strong_candidate_for_default_backend"
         : "needs_more_runtime_evidence",
-    rustPhase2Rerank:
-      adaptiveWeightedDelta !== null &&
-      adaptiveWeightedDelta < 0 &&
-      adaptiveFalsePositive === 0 &&
-      rerankMeanDelta !== null &&
-      rerankMeanDelta < 50
-        ? "staging_candidate_with_low_observed_added_latency"
-        : pairedWeightedDelta !== null && pairedWeightedDelta < 0 && pairedFalsePositive === 0
-          ? "paired95_quality_ok_but_product_adaptive_or_latency_needs_work"
-          : "keep_staging_until_quality_or_latency_is_clear",
+    rustPhase2Rerank,
     a2:
       (rerank.a2Summary?.comparableCount ?? 0) > 0
         ? "deterministic_surrogate_research_track"

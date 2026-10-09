@@ -184,15 +184,21 @@ export function planSuccessAttempt(
   const reachesConvertState = terminalKind === 1;
   const reachesFinalTarget = terminalKind === 2;
   const needsStockEdit = !reachesConvertState && !reachesFinalTarget;
-  const pendingEvent = reachesFinalTarget
-    ? null
-    : {
-        start: context.startSnapshot,
-        kit: context.best.firstAction,
-        recommendedUses: context.run.count,
-        stockBefore: context.stockBeforeSnapshot,
-        resultState: reachesConvertState ? convertState() : { ...nextState },
-      };
+  if (reachesFinalTarget) {
+    return {
+      reachesConvertState,
+      reachesFinalTarget,
+      needsStockEdit,
+      pendingEvent: null,
+    };
+  }
+  const pendingEvent = {
+    start: context.startSnapshot,
+    kit: context.best.firstAction,
+    recommendedUses: context.run.count,
+    stockBefore: context.stockBeforeSnapshot,
+    resultState: reachesConvertState ? convertState() : { ...nextState },
+  };
   return {
     reachesConvertState,
     reachesFinalTarget,

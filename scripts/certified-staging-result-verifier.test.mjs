@@ -804,10 +804,13 @@ test("freeze CLI enforces required source membership in actual Git repositories"
   const root = mkdtempSync(join(realpathSync(parent), "freeze-"));
   const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const sources = new Map(
-    [...sourcePaths, verifierPath, generatedPath].map((path) => [
-      path,
-      readFileSync(resolve(sourceRoot, path)),
-    ]),
+    [
+      ...sourcePaths,
+      verifierPath,
+      generatedPath,
+      "shared/generated/certifiedWasmBuild.ts",
+      "public/certified_solver.wasm",
+    ].map((path) => [path, readFileSync(resolve(sourceRoot, path))]),
   );
   const suite = { root, sourceRoot, sources, git, inheritedPath };
 
@@ -824,6 +827,11 @@ test("freeze CLI enforces required source membership in actual Git repositories"
     const expectedBytes = readFileSync(result.expected);
     assert.equal(frozen.sha256, digest(expectedBytes));
     const expected = JSON.parse(expectedBytes.toString("utf8"));
+    assert.equal(expected.engineProfile.solverVersion, "certified-exact-rust-wasm-v1");
+    assert.equal(
+      expected.engineProfile.wasmHash,
+      digest(sources.get("public/certified_solver.wasm")),
+    );
     assert.equal(expected.source.commit, fixture.commit);
     assert.deepEqual(
       expected.source.files.map(({ path }) => path),

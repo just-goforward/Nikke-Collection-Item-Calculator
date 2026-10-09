@@ -869,9 +869,9 @@ function requiredString(value: unknown) {
 }
 
 function requiredTimestamp(value: unknown) {
-  const timestamp = requiredString(value);
-  if (!Number.isFinite(Date.parse(timestamp))) throw new Error("cloudflare_timestamp_invalid");
-  return new Date(Date.parse(timestamp)).toISOString();
+  const timestampMs = Date.parse(requiredString(value));
+  if (!Number.isFinite(timestampMs)) throw new Error("cloudflare_timestamp_invalid");
+  return new Date(timestampMs).toISOString();
 }
 
 function requiredFinite(value: unknown) {

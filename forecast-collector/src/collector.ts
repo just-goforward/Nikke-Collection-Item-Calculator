@@ -3,7 +3,9 @@ import { resolveOpsAlertsByPrefix, upsertOpsAlert } from "./ops";
 import {
   finishInvocation,
   invocationCircuitState,
+  NaverBoundaryHeldError,
   NaverPartialSchemaError,
+  NaverScanBoundaryError,
   pollNaverSource,
   sourcesForInvocation,
   startInvocation,
@@ -30,17 +32,22 @@ export async function runCollection(
   }
 
   const boards = sourcesForInvocation(env.POLL_MODE, nowMs);
-  try {
-    let queuedItems = 0;
-    for (const boardId of boards) {
+  let queuedItems = 0;
+  let errorCode: string | null = null;
+  let holdCode: string | null = null;
+  let successfulSources = 0;
+  for (const boardId of boards) {
+    try {
       try {
-        queuedItems += await pollNaverSource(env.FORECAST_DB, boardId);
+        queuedItems += await pollNaverSource(env.FORECAST_DB, boardId, fetch, opsEnvironment(env));
         await resolveOpsAlertsByPrefix(
           env.FORECAST_DB,
           `naver-schema:${opsEnvironment(env)}:${boardId}:`,
           nowMs,
         );
+        successfulSources += 1;
       } catch (error) {
+        if (error instanceof NaverScanBoundaryError) queuedItems += error.queuedItems;
         if (error instanceof NaverPartialSchemaError) {
           const first = error.rejected[0];
           await upsertOpsAlert(env.FORECAST_DB, {
@@ -62,19 +69,51 @@ export async function runCollection(
         }
         throw error;
       }
+    } catch (error) {
+      if (isBoundaryHoldError(error)) {
+        holdCode ??= sanitizeErrorCode(error);
+      } else {
+        errorCode ??= sanitizeErrorCode(error);
+      }
     }
-    await finishInvocation(env.FORECAST_DB, invocationId, "completed", queuedItems, null, null);
-    return { outcome: "completed", polledSources: boards.length, queuedItems };
-  } catch (error) {
-    const errorCode = sanitizeErrorCode(error);
-    const nextRetryAt = nextNaverRetryAt(nowMs, circuit.failures + 1);
-    await finishInvocation(env.FORECAST_DB, invocationId, "failure", 0, errorCode, nextRetryAt);
-    return { outcome: "failure", polledSources: boards.length, queuedItems: 0 };
   }
+  if (errorCode !== null) {
+    const nextRetryAt = nextNaverRetryAt(nowMs, circuit.failures + 1);
+    await finishInvocation(
+      env.FORECAST_DB,
+      invocationId,
+      "failure",
+      queuedItems,
+      errorCode,
+      nextRetryAt,
+    );
+    return { outcome: "failure", polledSources: boards.length, queuedItems };
+  }
+  if (holdCode !== null) {
+    await finishInvocation(
+      env.FORECAST_DB,
+      invocationId,
+      "failure",
+      queuedItems,
+      heldInvocationCode(holdCode, successfulSources),
+      null,
+    );
+    return { outcome: "held", polledSources: boards.length, queuedItems };
+  }
+  await finishInvocation(env.FORECAST_DB, invocationId, "completed", queuedItems, null, null);
+  return { outcome: "completed", polledSources: boards.length, queuedItems };
 }
 
 function opsEnvironment(env: CollectorEnv) {
   return env.ENVIRONMENT === "production" ? "production" : "staging";
+}
+
+function isBoundaryHoldError(error: unknown) {
+  return error instanceof NaverScanBoundaryError || error instanceof NaverBoundaryHeldError;
+}
+
+function heldInvocationCode(holdCode: string, successfulSources: number) {
+  return successfulSources > 0 ? holdCode : "naver_boundary_held_only";
 }
 
 function sanitizeErrorCode(error: unknown) {

@@ -19,6 +19,25 @@ type TerminalSuccessAttemptOptions = Pick<
   renderOutcomeApplied: (args: OutcomeRenderArgs) => void;
 };
 
+function successAttemptMessages(plan: { needsStockEdit: boolean; reachesConvertState: boolean }) {
+  if (plan.reachesConvertState) {
+    return {
+      stockMessage: message("result.convertThenEdit"),
+      detailMessage: message("result.convertThenEditDetail"),
+    };
+  }
+  if (plan.needsStockEdit) {
+    return {
+      stockMessage: message("result.successUnknownEdit"),
+      detailMessage: message("result.editStockToContinue"),
+    };
+  }
+  return {
+    stockMessage: message("result.successUnknownStats"),
+    detailMessage: message("detail.finalTarget"),
+  };
+}
+
 function applySuccessAttempt(
   context: TerminalSuccessContext,
   successAttempt: number | null,
@@ -73,16 +92,7 @@ function applySuccessAttempt(
     run,
     nextState,
     outcome: "success",
-    stockMessage: plan.reachesConvertState
-      ? message("result.convertThenEdit")
-      : plan.needsStockEdit
-        ? message("result.successUnknownEdit")
-        : message("result.successUnknownStats"),
-    detailMessage: plan.reachesConvertState
-      ? message("result.convertThenEditDetail")
-      : plan.needsStockEdit
-        ? message("result.editStockToContinue")
-        : message("detail.finalTarget"),
+    ...successAttemptMessages(plan),
     preserveExistingResult: plan.needsStockEdit,
   });
   return null;

@@ -1,7 +1,11 @@
 import { expect, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
-import { mockStagingStatsEndpoints, serveStagingDocument } from "./smoke.helpers";
-import { test } from "./test";
+import {
+  installTurnstileStub,
+  mockStagingStatsEndpoints,
+  serveStagingDocument,
+} from "./smoke.helpers";
+import { closePreviewServer, test } from "./test";
 
 const PORT = 4175;
 const ORIGIN = `http://127.0.0.1:${PORT}`;
@@ -28,13 +32,7 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  if (!previewServer) return;
-  await new Promise<void>((resolve, reject) => {
-    previewServer?.httpServer.close((error) => {
-      if (error) reject(error);
-      else resolve();
-    });
-  });
+  await closePreviewServer(previewServer);
   previewServer = null;
 });
 
@@ -122,31 +120,6 @@ async function installWorkerProbe(page: Page, delayValidationMs = 0) {
     },
     { validationDelay: delayValidationMs },
   );
-}
-
-async function installTurnstileStub(page: Page) {
-  await page.addInitScript(() => {
-    const widgets = new Map<string, Record<string, unknown>>();
-    let nextId = 0;
-    Reflect.set(window, "turnstile", {
-      execute(widgetId: string) {
-        const callback = widgets.get(widgetId)?.["callback"];
-        if (typeof callback === "function") {
-          window.setTimeout(() => callback("valid-turnstile-token-for-e2e"), 0);
-        }
-      },
-      remove(widgetId: string) {
-        widgets.delete(widgetId);
-      },
-      render(_container: HTMLElement, options: Record<string, unknown>) {
-        nextId += 1;
-        const widgetId = `widget-${nextId}`;
-        widgets.set(widgetId, options);
-        return widgetId;
-      },
-      reset() {},
-    });
-  });
 }
 
 async function workerProbe(page: Page): Promise<WorkerProbe> {

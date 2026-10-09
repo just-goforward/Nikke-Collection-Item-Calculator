@@ -6,7 +6,10 @@ import { possibleActions, weightedBound } from "./directedBounds";
 import {
   assertPositiveGreatProbabilities,
   EDGES,
+  KIT_INDICES,
+  type KitIndex,
   minPositiveUses,
+  type StateId,
   TERMINAL,
   type Units,
 } from "./game";
@@ -35,10 +38,10 @@ export class PrimaryGuidance {
   private failed(sid: number, units: Units): boolean {
     return units[0] + units[1] + units[2] < minPositiveUses(sid);
   }
-  private failureAction(sid: number, kit: number, units: Units): Interval {
-    const [p, great, normal] = EDGES[sid]![kit]!;
+  private failureAction(sid: number, kit: KitIndex, units: Units): Interval {
+    const [p, great, normal] = EDGES[sid as StateId][kit];
     const remaining: Units = [...units];
-    remaining[kit]!--;
+    remaining[kit]--;
     return weightedBound(
       p,
       p > 0 ? this.failure(great, remaining) : ZERO_BOUND,
@@ -63,7 +66,7 @@ export class PrimaryGuidance {
     return value;
   }
   private failureActions(sid: number, units: Units): (Interval | null)[] {
-    return [0, 1, 2].map((k) => (units[k]! > 0 ? this.failureAction(sid, k, units) : null));
+    return KIT_INDICES.map((k) => (units[k] > 0 ? this.failureAction(sid, k, units) : null));
   }
   mask(sid: number, state: GuidedState): number {
     if (this.failed(sid, state.units)) return 0;
@@ -74,11 +77,11 @@ export class PrimaryGuidance {
     if ((candidates & (candidates - 1)) === 0) return candidates;
     return this.get(sid, state.units).mask;
   }
-  private action(sid: number, kit: number, units: Units, exponent: number): bigint {
+  private action(sid: number, kit: KitIndex, units: Units, exponent: number): bigint {
     this.budget.exactTransitions++;
-    const [p, great, normal] = EDGES[sid]![kit]!;
+    const [p, great, normal] = EDGES[sid as StateId][kit];
     const remaining: Units = [...units];
-    remaining[kit]!--;
+    remaining[kit]--;
     const g = p > 0 ? this.get(great, remaining) : EMPTY_PRIMARY;
     const n = p < 1000 ? this.get(normal, remaining) : EMPTY_PRIMARY;
     const gm = p > 0 ? BigInt(p) * this.arithmetic.power(exponent - 1 - g.exponent) : 0n;
@@ -88,7 +91,7 @@ export class PrimaryGuidance {
   private select(sid: number, state: GuidedState, candidates: number): PrimaryRow {
     let p = 0n,
       mask = 0;
-    for (let kit = 0; kit < 3; kit++) {
+    for (const kit of KIT_INDICES) {
       if (!(candidates & (1 << kit))) continue;
       const candidate = this.action(sid, kit, state.units, state.exponent);
       if (candidate > p) {

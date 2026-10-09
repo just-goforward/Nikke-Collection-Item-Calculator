@@ -57,7 +57,7 @@ export function evidenceHash(bytes: string | Uint8Array): string {
 function checkedBytes(record: Source): string {
   const bytes = readFileSync(record.path);
   if (evidenceHash(bytes) !== record.sha256)
-    throw new Error("Frozen evidence drift: " + record.path);
+    throw new Error(`Frozen evidence drift: ${record.path}`);
   return bytes.toString("utf8");
 }
 function checkReportIdentity(original: OriginalReport, remaining: RemainingReport): void {
@@ -88,7 +88,7 @@ function joinCase(original: SavedRow, remaining: RemainingRow): RelaxationCase {
   const inputSha256 = evidenceHash(JSON.stringify(original.input));
   const witnessSha256 = evidenceHash(JSON.stringify(witness));
   if (inputSha256 !== remaining.inputSha256 || witnessSha256 !== remaining.witnessSha256)
-    throw new Error("Same-case input or witness hash mismatch: " + original.id);
+    throw new Error(`Same-case input or witness hash mismatch: ${original.id}`);
   return {
     ...original,
     inputSha256,
@@ -114,7 +114,7 @@ export function loadRelaxationPopulation(): RelaxationCase[] {
     throw new Error("Frozen remaining population is not exactly84 distinct original cases");
   return remaining.notRun.map((record) => {
     const row = rows.get(record.id);
-    if (!row) throw new Error("Original case missing: " + record.id);
+    if (!row) throw new Error(`Original case missing: ${record.id}`);
     return joinCase(row, record);
   });
 }

@@ -1,14 +1,7 @@
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import type { CollectionState, Kit, Stock } from "../types";
+import type { StockCorrectionInvalidReason } from "../ui-types";
 import { KIT_KEYS, makeStatsEvent, type PendingStatsEvent, sameState } from "./calculatorShared";
-
-type StockCorrectionInvalidReason =
-  | "unchanged"
-  | "state_changed"
-  | "other_kit_changed"
-  | "selected_kit_increased"
-  | "invalid_delta"
-  | "too_many_attempts";
 
 type StockCorrectionBase = {
   allowedMaximum: number;

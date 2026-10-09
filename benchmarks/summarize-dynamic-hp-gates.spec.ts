@@ -238,8 +238,9 @@ describe("dynamic H/p exact gate certificate bundle", () => {
 
 function fixtureReport(): HpStudyReport {
   const candidate = (id: string): HpCandidate => {
-    const horizonFactor =
-      id === "H1-p3" ? (1 as const) : id === "H0.5-p3" ? (0.5 as const) : (0.75 as const);
+    let horizonFactor: HpCandidate["horizonFactor"] = 0.75;
+    if (id === "H1-p3") horizonFactor = 1;
+    else if (id === "H0.5-p3") horizonFactor = 0.5;
     return {
       id,
       horizonFactor,

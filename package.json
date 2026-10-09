@@ -19,7 +19,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --configLoader native",
-    "prebuild": "npm run generate:certified-engine-build && npm run build:solver-wasm",
+    "prebuild": "npm run build:certified-wasm && npm run check:certified-engine-build && npm run build:solver-wasm",
+    "build:certified-wasm": "node scripts/build-certified-wasm.ts",
+    "rebuild:certified-wasm": "node scripts/build-certified-wasm.ts --rebuild && npm run generate:certified-engine-build",
     "build": "vite build --configLoader native",
     "prebuild:solver-wasm": "npm run generate:supply-forecast",
     "build:solver-wasm": "node scripts/build-solver-wasm.ts",
@@ -167,37 +169,38 @@
     "clean:artifacts:dry-run": "node scripts/clean-artifacts.ts",
     "clean:research-artifacts": "node scripts/clean-artifacts.ts --research --apply",
     "clean:research-artifacts:dry-run": "node scripts/clean-artifacts.ts --research",
-    "pretest": "node scripts/prepare-certified-staging-oracle-cache.ts",
+    "pretest": "npm run build:certified-wasm && node scripts/prepare-certified-staging-oracle-cache.ts",
     "pretest:certified-endpoints": "node scripts/prepare-certified-staging-oracle-cache.ts",
     "test:certified-endpoints": "vitest run --configLoader runner scripts/certified-staging-oracle-endpoints-integer.spec.ts --maxWorkers=1",
+    "pretest:certified-runtime": "npm run build:certified-wasm",
     "test:certified-runtime": "node --test src/certifiedRuntime/nodeRuntime.test.mjs",
     "test:certified-ui": "playwright test e2e/certified-ui.spec.ts",
     "generate:certified-engine-build": "node scripts/certified-engine-build.ts",
     "check:certified-engine-build": "node scripts/certified-engine-build.ts --check",
-    "pretest:coverage": "node scripts/prepare-certified-staging-oracle-cache.ts"
+    "pretest:coverage": "npm run build:certified-wasm && node scripts/prepare-certified-staging-oracle-cache.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@biomejs/biome": "^2.5.15",
-    "@playwright/test": "1.63.0",
+    "@playwright/test": "1.64.0",
     "@stryker-mutator/api": "^10.0.0",
     "@stryker-mutator/core": "^10.0.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^24.19.0",
+    "@types/node": "^24.19.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.1.1",
+    "@vitejs/plugin-react": "^6.1.2",
     "@vitest/coverage-v8": "^5.0.3",
     "esbuild": "^0.28.2",
     "fast-check": "^4.10.2",
-    "knip": "^6.39.0",
+    "knip": "^6.41.0",
     "oxc-parser": "^0.152.0",
     "sharp": "0.35.5",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.3.1",
+    "vite": "^8.3.4",
     "vitest": "^5.0.3",
-    "wrangler": "^4.145.0"
+    "wrangler": "^4.149.0"
   },
   "dependencies": {
     "react": "^19.3.0",
@@ -205,14 +208,13 @@
     "zod": "4.6.5"
   },
   "overrides": {
-    "fast-uri": "3.1.7",
+    "fast-uri": "3.1.8",
     "qs": "6.16.0",
-    "undici": "7.29.0"
+    "undici": "7.30.0"
   },
   "allowScripts": {
     "esbuild@0.28.1": true,
     "esbuild@0.28.2": true,
-    "workerd@1.20260903.1": true,
-    "workerd@1.20260930.2": true
+    "workerd@1.20261006.1": true
   }
 }

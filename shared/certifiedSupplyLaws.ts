@@ -46,7 +46,7 @@ type DispatchClass = {
   keep: boolean;
   raw: readonly [number, number, number, number, number];
 };
-export const DISPATCH_CLASSES: readonly DispatchClass[] = [
+const dispatchClasses = [
   { weight: 15, keep: false, raw: [2, 0, 0, 0, 0] },
   { weight: 15, keep: false, raw: [3, 0, 0, 0, 0] },
   { weight: 6, keep: true, raw: [0, 2, 0, 0, 0] },
@@ -61,16 +61,40 @@ export const DISPATCH_CLASSES: readonly DispatchClass[] = [
   { weight: 7, keep: false, raw: [0, 0, 0, 0, 0] },
   { weight: 7, keep: false, raw: [0, 0, 0, 0, 0] },
   { weight: 3, keep: false, raw: [0, 0, 0, 0, 0] },
+] as const satisfies readonly DispatchClass[];
+export const DISPATCH_CLASSES: readonly DispatchClass[] = dispatchClasses;
+const dispatchIndices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] as const;
+type DispatchCounts = [
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
 ];
+type BoardSize = 0 | 1 | 2 | 3 | 4;
+type RawPieces = [number, number, number, number, number];
 export type DispatchRaw = { raw: readonly [number, number, number, number, number]; mass: Q };
-type Board = { counts: number[]; mass: Q };
+type Board<Counts extends number[] = DispatchCounts> = { counts: Counts; mass: Q };
 const rawCache = new Map<DispatchCohort, readonly DispatchRaw[]>();
 const distributionCache = new Map<string, readonly ExactSupplyOutcome[]>();
 const expectedCache = new Map<DispatchCohort, readonly [Q, Q, Q]>(
-  [0, 1, 2].map((cohort) => [cohort as DispatchCohort, DISPATCH_EXPECTED_PIECES[cohort]!]),
+  DISPATCH_EXPECTED_PIECES.map((gain, cohort) => [cohort as DispatchCohort, gain]),
 );
 
-function mergeBoard(map: Map<string, Board>, counts: number[], mass: Q) {
+function mergeBoard<Counts extends number[]>(
+  map: Map<string, Board<Counts>>,
+  counts: Counts,
+  mass: Q,
+) {
   const key = counts.join(",");
   const old = map.get(key);
   if (old) old.mass = add(old.mass, mass);
@@ -79,12 +103,13 @@ function mergeBoard(map: Map<string, Board>, counts: number[], mass: Q) {
 
 function drawPartialBoard(row: Board, nextBucket: Map<string, Board>) {
   let total = 0;
-  for (const [i, klass] of DISPATCH_CLASSES.entries()) total += (4 - row.counts[i]!) * klass.weight;
-  for (const [i, klass] of DISPATCH_CLASSES.entries()) {
-    const available = 4 - row.counts[i]!;
+  for (const i of dispatchIndices) total += (4 - row.counts[i]) * dispatchClasses[i].weight;
+  for (const i of dispatchIndices) {
+    const klass = dispatchClasses[i];
+    const available = 4 - row.counts[i];
     if (available === 0) continue;
-    const counts = row.counts.slice();
-    counts[i] = counts[i]! + 1;
+    const counts: DispatchCounts = [...row.counts];
+    counts[i] = counts[i] + 1;
     mergeBoard(nextBucket, counts, mul(row.mass, q(available * klass.weight, total)));
   }
 }
@@ -93,16 +118,26 @@ function fillDispatchBoard(
   kept: Map<string, Board>,
   progress: { work: number; checkBudget: (() => void) | undefined },
 ) {
-  const buckets = Array.from({ length: 5 }, () => new Map<string, Board>());
-  for (const row of kept.values())
-    mergeBoard(buckets[row.counts.reduce((a, b) => a + b, 0)]!, row.counts, row.mass);
-  for (let size = 0; size < 4; size += 1) {
-    for (const row of buckets[size]!.values()) {
+  const buckets = [
+    new Map<string, Board>(),
+    new Map<string, Board>(),
+    new Map<string, Board>(),
+    new Map<string, Board>(),
+    new Map<string, Board>(),
+  ] as const;
+  const nextBuckets = [buckets[1], buckets[2], buckets[3], buckets[4]] as const;
+  for (const row of kept.values()) {
+    // Keeping can only reduce a four-slot board; filling adds one slot at a time.
+    const size = row.counts.reduce((a, b) => a + b, 0) as BoardSize;
+    mergeBoard(buckets[size], row.counts, row.mass);
+  }
+  for (const size of [0, 1, 2, 3] as const) {
+    for (const row of buckets[size].values()) {
       if ((progress.work++ & 127) === 0) progress.checkBudget?.();
-      drawPartialBoard(row, buckets[size + 1]!);
+      drawPartialBoard(row, nextBuckets[size]);
     }
   }
-  return buckets[4]!;
+  return buckets[4];
 }
 
 function keptBoards(boards: Map<string, Board>) {
@@ -110,26 +145,28 @@ function keptBoards(boards: Map<string, Board>) {
   for (const row of boards.values())
     mergeBoard(
       kept,
-      row.counts.map((count, i) => (DISPATCH_CLASSES[i]!.keep ? count : 0)),
+      // Mapping the fixed class indices preserves the fourteen-class count tuple.
+      dispatchIndices.map((i) => (dispatchClasses[i].keep ? row.counts[i] : 0)) as DispatchCounts,
       row.mass,
     );
   return kept;
 }
 
-function boardRawPieces(row: Board): DispatchRaw["raw"] {
-  const gain: [number, number, number, number, number] = [0, 0, 0, 0, 0];
-  for (const [i, klass] of DISPATCH_CLASSES.entries()) {
-    for (let j = 0; j < 5; j += 1) gain[j] = gain[j]! + row.counts[i]! * klass.raw[j]!;
+function boardRawPieces(row: Board): RawPieces {
+  const gain: RawPieces = [0, 0, 0, 0, 0];
+  for (const i of dispatchIndices) {
+    const klass = dispatchClasses[i];
+    for (const j of [0, 1, 2, 3, 4] as const) gain[j] = gain[j] + row.counts[i] * klass.raw[j];
   }
   return gain;
 }
 
 function finalDispatchRows(boards: Map<string, Board>): DispatchRaw[] {
-  const raw = new Map<string, Board>();
+  const raw = new Map<string, Board<RawPieces>>();
   for (const row of boards.values()) mergeBoard(raw, [...boardRawPieces(row)], row.mass);
   const rows = [...raw.values()].map(
     (row): DispatchRaw => ({
-      raw: [row.counts[0]!, row.counts[1]!, row.counts[2]!, row.counts[3]!, row.counts[4]!],
+      raw: [row.counts[0], row.counts[1], row.counts[2], row.counts[3], row.counts[4]],
       mass: row.mass,
     }),
   );
@@ -148,7 +185,7 @@ export function dispatchLaw(
   if (cached) return cached;
   if (![0, 1, 2].includes(cohort)) throw new Error("certified_dispatch_cohort_invalid");
   let kept = new Map<string, Board>();
-  mergeBoard(kept, Array<number>(DISPATCH_CLASSES.length).fill(0), ONE);
+  mergeBoard(kept, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], ONE);
   const progress = { work: 0, checkBudget };
   for (let reroll = 0; reroll <= cohort; reroll += 1) {
     const boards = fillDispatchBoard(kept, progress);
@@ -309,7 +346,7 @@ function finiteExpectedPieces(
 ): readonly [Q, Q, Q] {
   const gain: [Q, Q, Q] = [ZERO, ZERO, ZERO];
   for (const row of singleLaw(lawId, cohort, options)) {
-    for (let k = 0; k < 3; k += 1) gain[k] = add(gain[k]!, mul(row.mass, q(row.pieces[k]!)));
+    for (const k of [0, 1, 2] as const) gain[k] = add(gain[k], mul(row.mass, q(row.pieces[k])));
   }
   return gain;
 }

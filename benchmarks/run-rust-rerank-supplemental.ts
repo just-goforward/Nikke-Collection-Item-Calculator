@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "vite";
-import { envValue } from "./runner-utils";
-import type { SolverScenario } from "./scenarios/fixed-grid";
+import { csvEscape, envValue, parseList, parsePositiveInteger } from "./runner-utils";
+import { stateLabel } from "./rust-rerank-benchmark-utils";
 
 const RESULTS_DIRECTORY = new URL("./results/", import.meta.url);
 const JSON_OUTPUT_FILE = new URL("./results/rust-rerank-supplemental.json", import.meta.url);
@@ -44,29 +44,6 @@ type ScenarioRecord = {
   heldOutStrictImproved: boolean | null;
   elapsedMs: number;
 };
-
-function parsePositiveInteger(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
-}
-
-function parseList(value: string | undefined, fallback: readonly string[]): string[] {
-  const parsed = String(value || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return parsed.length > 0 ? parsed : [...fallback];
-}
-
-function csvEscape(value: unknown): string {
-  const text = String(value ?? "");
-  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
-
-function stateLabel(scenario: SolverScenario) {
-  const exp = scenario.start.exp ? `e${scenario.start.exp}` : "";
-  return `${scenario.start.grade}${scenario.start.level}${exp}`;
-}
 
 function mean(values: number[]) {
   return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null;

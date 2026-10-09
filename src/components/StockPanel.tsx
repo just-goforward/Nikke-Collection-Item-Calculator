@@ -8,6 +8,8 @@ import type { LegacyRecoveryNotice } from "../lib/legacyInputRecovery";
 import type { Kit, Stock } from "../types";
 import type { StockCorrectionView } from "../ui-types";
 import { AlignedText } from "./AlignedText";
+import { commitFocusedInput } from "./focusedInput";
+import { KIT_PANEL_LABEL_KEYS, kitDotClass } from "./kitPresentation";
 
 type StockPanelProps = {
   stock: Stock;
@@ -53,12 +55,6 @@ const KIT_INPUTS: KitInputDefinition[] = [
   },
 ];
 
-const KIT_LABEL_KEYS: Record<Kit, MessageKey> = {
-  blue: "kit.bluePanel",
-  purple: "kit.purplePanel",
-  yellow: "kit.yellowPanel",
-};
-
 const classes = {
   panel:
     "flex h-full min-w-0 flex-col rounded-card border border-border bg-surface shadow-panel [contain:layout_paint] transition-[background-color,border-color,box-shadow] duration-[220ms]",
@@ -100,12 +96,6 @@ const classes = {
   spinner:
     "inline-block size-[13px] animate-spin rounded-full border-2 border-[color-mix(in_srgb,var(--ice)_32%,transparent)] border-t-ice [body.theme-dark_&]:border-[rgba(42,12,18,0.24)] [body.theme-dark_&]:border-t-[#2a0c12]",
 } as const;
-
-const kitDotClass: Record<Kit, string> = {
-  blue: "bg-blue-kit",
-  purple: "bg-purple-kit",
-  yellow: "bg-yellow-kit",
-};
 
 function stockValueToText(value: number) {
   return value > 0 ? String(value) : "";
@@ -254,20 +244,24 @@ function KitInput({
   );
 }
 
-function commitFocusedInput() {
-  const activeElement = document.activeElement;
-  if (
-    activeElement instanceof HTMLInputElement ||
-    activeElement instanceof HTMLSelectElement ||
-    activeElement instanceof HTMLTextAreaElement
-  ) {
-    activeElement.blur();
-  }
+function stockPanelClassName(needsStockEdit: boolean, stockStale: boolean) {
+  return `${classes.panel} ${stockPanelStateClass(needsStockEdit, stockStale)}`;
 }
 
-function stockPanelClassName(needsStockEdit: boolean, stockStale: boolean) {
-  const stateClass = needsStockEdit ? classes.panelNeedsEdit : stockStale ? classes.panelStale : "";
-  return `${classes.panel} ${stateClass}`;
+function stockPanelStateClass(needsStockEdit: boolean, stockStale: boolean) {
+  if (needsStockEdit) return classes.panelNeedsEdit;
+  if (stockStale) return classes.panelStale;
+  return "";
+}
+
+function calculateButtonStateClass(
+  needsStockEdit: boolean,
+  canCalculate: boolean | undefined,
+  isStale: boolean,
+) {
+  if (needsStockEdit && !canCalculate) return classes.primaryButtonLocked;
+  if (isStale) return classes.primaryButtonStale;
+  return "";
 }
 
 function correctionMessage(
@@ -275,7 +269,7 @@ function correctionMessage(
   t: ReturnType<typeof useI18n>["t"],
   formatInteger: ReturnType<typeof useI18n>["formatInteger"],
 ) {
-  const kit = t(KIT_LABEL_KEYS[correction.kit]);
+  const kit = t(KIT_PANEL_LABEL_KEYS[correction.kit]);
   if (correction.status === "valid") {
     return t("stock.correctionValid", {
       attempt: correction.successAttempt ?? 1,
@@ -303,6 +297,20 @@ function correctionMessage(
   });
 }
 
+function stockNoticeText(
+  correction: StockCorrectionView | null,
+  notice: LocalizedMessage | LegacyRecoveryNotice,
+  {
+    formatInteger,
+    locale,
+    t,
+    text,
+  }: Pick<ReturnType<typeof useI18n>, "formatInteger" | "locale" | "t" | "text">,
+) {
+  if (correction) return correctionMessage(correction, t, formatInteger);
+  return "key" in notice ? text(notice) : notice[locale];
+}
+
 function StockCorrectionNotice({
   correction,
   needsStockEdit,
@@ -322,11 +330,7 @@ function StockCorrectionNotice({
       aria-live="polite"
     >
       <p className={classes.editNoticeText}>
-        {correction
-          ? correctionMessage(correction, t, formatInteger)
-          : "key" in notice
-            ? text(notice)
-            : notice[locale]}
+        {stockNoticeText(correction, notice, { formatInteger, locale, t, text })}
       </p>
       {correction?.status === "invalid" && correction.canCalculate ? (
         <p className={`${classes.editNoticeText} mt-1`}>{t("stock.correctionUntracked")}</p>
@@ -448,13 +452,11 @@ export default function StockPanel({
         </button>
         <button
           id="calculateButton"
-          className={`${classes.primaryButton} ${
-            needsStockEdit && !correction?.canCalculate
-              ? classes.primaryButtonLocked
-              : isStale
-                ? classes.primaryButtonStale
-                : ""
-          }`}
+          className={`${classes.primaryButton} ${calculateButtonStateClass(
+            needsStockEdit,
+            correction?.canCalculate,
+            isStale,
+          )}`}
           type="button"
           disabled={calculateDisabled || loading || disabled}
           aria-describedby="strategyDescription"

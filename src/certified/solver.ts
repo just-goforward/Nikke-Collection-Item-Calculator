@@ -9,7 +9,7 @@ import type { CertifiedInput, CertifiedOptions, CertifiedOutput } from "./types"
 import { validate } from "./validation";
 import { completeWaiting } from "./waitingResult";
 
-/** Isolated staging entry. The repeated graph shares one total 15s deadline. */
+/** Independent JavaScript test oracle. The Worker uses wasmSolver, never this backend. */
 export function solveCertified(
   input: CertifiedInput,
   options: CertifiedOptions = {},
@@ -43,12 +43,9 @@ export function solveCertified(
     if (output.waiting.status === "unresolved")
       output.refusal = { reason: output.waiting.reason ?? "waiting_unresolved", phase: "waiting" };
   } catch (error) {
-    const reason =
-      error instanceof CertifiedLimit
-        ? error.reason
-        : error instanceof Error
-          ? error.message
-          : "internal_solver_error";
+    let reason = "internal_solver_error";
+    if (error instanceof CertifiedLimit) reason = error.reason;
+    else if (error instanceof Error) reason = error.message;
     output.refusal = { reason, phase };
     output.status = output.current ? "partial" : "refused";
     output.waiting = {

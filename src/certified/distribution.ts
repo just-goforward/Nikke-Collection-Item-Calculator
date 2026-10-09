@@ -1,7 +1,7 @@
 import { add, mul, type Q, q } from "../../shared/certifiedRational";
 import type { ExactSupplyOutcome } from "../../shared/certifiedSupplyLaws";
 import { rationalPayload, type WorkBudget } from "./budget";
-import { capUnits } from "./game";
+import { capUnits, KIT_INDICES } from "./game";
 import type { FiniteKernel } from "./kernel";
 import type { Triple } from "./types";
 import type { ExactValue } from "./value";
@@ -29,9 +29,11 @@ export function convolve(
       for (const outcome of outcomes) {
         budget.tick();
         if (outcome.mass.n === 0n) continue;
-        const pieces = [0, 1, 2].map((k) =>
-          Math.min(caps[k]!, row.pieces[k]! + outcome.pieces[k]!),
-        ) as [number, number, number];
+        const pieces: Triple = [
+          Math.min(caps[0], row.pieces[0] + outcome.pieces[0]),
+          Math.min(caps[1], row.pieces[1] + outcome.pieces[1]),
+          Math.min(caps[2], row.pieces[2] + outcome.pieces[2]),
+        ];
         const key = pieces.join(",");
         const mass = mul(row.mass, outcome.mass);
         const old = next.rows.get(key);
@@ -66,16 +68,18 @@ export function expectation(
     b = ZERO,
     c = ZERO;
   const consumed: [Q, Q, Q] = [ZERO, ZERO, ZERO];
-  for (let cohort = 0; cohort < 3; cohort++) {
-    if (priors[cohort]!.n === 0n) continue;
-    for (const row of supports[cohort]!.rows.values()) {
+  for (const cohort of KIT_INDICES) {
+    const prior = priors[cohort];
+    if (prior.n === 0n) continue;
+    const support = supports[cohort]!;
+    for (const row of support.rows.values()) {
       kernel.budget.tick();
       const value = kernel.value(sid, capUnits(sid, row.pieces));
-      const mass = mul(priors[cohort]!, row.mass);
+      const mass = mul(prior, row.mass);
       p = add(p, mul(mass, value.p));
       b = add(b, mul(mass, value.b));
       c = add(c, mul(mass, value.c));
-      for (let k = 0; k < 3; k++) consumed[k] = add(consumed[k]!, mul(mass, value.consumed[k]!));
+      for (const k of KIT_INDICES) consumed[k] = add(consumed[k], mul(mass, value.consumed[k]));
     }
   }
   return { p, b, c, consumed, mask: 0 };

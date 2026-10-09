@@ -64,16 +64,14 @@ console.log(
 );
 
 async function request(path: string, authenticated: boolean, method = "GET", body?: unknown) {
+  let headers: Record<string, string> | undefined;
+  if (authenticated) {
+    headers = { authorization: `Bearer ${token}` };
+    if (body !== undefined) headers["content-type"] = "application/json";
+  }
   const response = await fetch(`${baseUrl}${path}`, {
     method,
-    ...(authenticated
-      ? {
-          headers: {
-            authorization: `Bearer ${token}`,
-            ...(body === undefined ? {} : { "content-type": "application/json" }),
-          },
-        }
-      : {}),
+    ...(headers === undefined ? {} : { headers }),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(20_000),
   });
@@ -96,7 +94,8 @@ function stableJson(value: unknown): string {
     const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
       left.localeCompare(right),
     );
-    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(",")}}`;
+    const members = entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`);
+    return `{${members.join(",")}}`;
   }
   return JSON.stringify(value);
 }

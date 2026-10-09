@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -11,6 +12,10 @@ import {
   writeCertifiedEngineBuild,
 } from "./certified-engine-build.ts";
 import { assertPinnedCertifiedForecastFiles } from "./certified-forecast-pins.ts";
+import {
+  assertCertifiedWasmBuild,
+  certifiedWasmBuildInputs,
+} from "./certified-wasm-build-inputs.ts";
 
 function fixture() {
   const base = join(process.cwd(), ".tmp", "certified-build-pin-fixtures");
@@ -63,6 +68,52 @@ function refreshPins(manifestPath: string) {
 }
 
 describe("approved notice bytes and code freshness", () => {
+  it("uses supplied WASM without Cargo and rejects artifact or Rust source drift", async () => {
+    const item = fixture();
+    const put = (path: string, contents: string | Buffer) => {
+      mkdirSync(join(item.directory, path, ".."), { recursive: true });
+      writeFileSync(join(item.directory, path), contents);
+    };
+    for (const path of [
+      "scripts/build-certified-wasm.ts",
+      "scripts/certified-wasm-build-inputs.ts",
+    ])
+      put(path, readFileSync(path));
+    put("rust/certified/src/lib.rs", "// fixture Rust input\n");
+    const bytes = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    const inputs = certifiedWasmBuildInputs(item.root);
+    put("public/certified_solver.wasm", bytes);
+    put(
+      "shared/generated/certifiedWasmBuild.ts",
+      `export const CERTIFIED_WASM_HASH = "${hash}";\nexport const CERTIFIED_WASM_SOURCE_HASH = "${inputs.hash}";\n`,
+    );
+    put(
+      "src/certifiedRuntime/browserWorker.ts",
+      'export { CERTIFIED_WASM_HASH } from "../../shared/generated/certifiedWasmBuild.ts";\n',
+    );
+    const initial = await writeCertifiedEngineBuild(item.root);
+    const checked = spawnSync(
+      process.execPath,
+      [join(item.directory, "scripts/build-certified-wasm.ts")],
+      { cwd: item.directory, env: { ...process.env, PATH: "" }, encoding: "utf8" },
+    );
+    expect(checked.error).toBeUndefined();
+    expect(checked.status).toBe(0);
+    expect(checked.stdout).toContain(hash);
+    expect(assertCertifiedWasmBuild(item.root).hash).toBe(hash);
+    expect(await assertCertifiedEngineBuild(item.root)).toEqual(initial);
+    put("public/certified_solver.wasm", Buffer.from("changed bytes"));
+    await expect(deriveCertifiedEngineBuild(item.root)).rejects.toThrow(
+      "certified_wasm_hash_stale",
+    );
+    put("public/certified_solver.wasm", bytes);
+    put("rust/certified/src/lib.rs", "// edited Rust input\n");
+    await expect(deriveCertifiedEngineBuild(item.root)).rejects.toThrow(
+      "certified_wasm_source_stale",
+    );
+  });
+
   it("pins every registry byte while omitting only unused legacy profiles", async () => {
     const item = fixture();
     const initial = await writeCertifiedEngineBuild(item.root);

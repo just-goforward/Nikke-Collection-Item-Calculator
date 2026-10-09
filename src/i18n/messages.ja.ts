@@ -3,7 +3,6 @@ import type { koMessages } from "./messages.ko";
 
 export const jaMessages = {
   "app.title": SITE_LOCALES.ja.title,
-  "app.description": SITE_LOCALES.ja.description,
   "boot.title": "計算機を読み込めませんでした。",
   "boot.detail": "ページを再読み込みして、もう一度お試しください。",
   "error.renderTitle": "画面を表示できませんでした。",
@@ -28,8 +27,6 @@ export const jaMessages = {
   "common.phase": "{phase}段階",
   "common.reach": "到達",
   "common.stay": "維持",
-  "common.selectionArrow": "選択時 →",
-  "common.confirmArrow": "確定時 →",
   "common.superSuccessYes": "大成功 O",
   "common.superSuccessNo": "大成功 X",
   "common.superSuccessYesConfirm": "大成功 O 確定",
@@ -72,7 +69,6 @@ export const jaMessages = {
   "state.expAdjustedStep": "経験値は100単位で入力するため、{value}に調整しました。",
   "state.expAdjustedMax": "現在の等級で入力できる上限は{max}のため、{value}に調整しました。",
   "state.requiredExp": "次の段階に必要な経験値",
-  "state.feedbackSegment": "区間移動 Lv {from} → {to}",
   "stock.title": "所持キット",
   "stock.changed": "所持キットが変更されました。計算ボタンで結果を更新してください。",
   "stock.notice": "所持キットを修正してから計算ボタンを押してください。",
@@ -104,9 +100,6 @@ export const jaMessages = {
   "kit.blueShort": "初心者用",
   "kit.purpleShort": "中級者用",
   "kit.yellowShort": "上級者用",
-  "kit.blueColor": "青",
-  "kit.purpleColor": "紫",
-  "kit.yellowColor": "黄",
   "result.title": "結果",
   "result.preparing": "おすすめ画面を準備中。",
   "result.initial": "コレクションの状態とキット所持数を入力して計算してください。",
@@ -143,10 +136,8 @@ export const jaMessages = {
   "result.loadingFinalize": "結果をまとめています。",
   "result.loadingApplyFailure": "大成功Xを反映し、次のおすすめを計算しています。",
   "result.loadingApplySuccess": "大成功Oを反映し、次のおすすめを計算しています。",
-  "result.converted": "SRへ交換しました。現在は{state}です。",
   "result.convertedToSr5": "SRへ交換しました。現在はSR 5段階です。",
   "result.calculateChanged": "変更後の状態でもう一度計算してください。",
-  "result.stockAfterUse": "{kit}の所持数が{before}個から{after}個になりました。",
   "result.stockAfterUseBlue":
     "初心者用お手入れキットの所持数が{before}個から{after}個になりました。",
   "result.stockAfterUsePurple":
@@ -156,7 +147,6 @@ export const jaMessages = {
   "result.convertThenEdit": "SR5段階へ交換した後、所持キットを修正してください。",
   "result.convertThenEditDetail":
     "SR5段階へ交換した後、ゲーム内の実際の所持数に合わせて修正してください。",
-  "result.finalReached": "最終段階に到達しました。",
   "result.editStockToContinue": "実際の結果に合わせて所持キットを修正すると、計算を再開できます。",
   "result.successRecorded": "大成功した回数を記録しました。",
   "result.successUnknownEdit":
@@ -244,11 +234,6 @@ export const jaMessages = {
   "stats.intervalClippedBoth": "実際の範囲はグラフの両側を超えています。",
   "stats.expectedLabel": "期待値 {value}",
   "stats.actualLabel": "実測 {value}",
-  "stats.awaiting": "集計待ち",
-  "stats.smallSample": "試行不足",
-  "stats.aboveExpected": "期待値より高い",
-  "stats.belowExpected": "期待値より低い",
-  "stats.withinExpected": "期待範囲内",
   "stats.sampleHelp1": "試行数が少ない場合、偶然により結果が高くなったり低くなったりします。",
   "stats.sampleHelp2":
     "試行ごとの理論確率が異なっても範囲を狭めず、観測された大成功率の不確実性を保守的に示します。",

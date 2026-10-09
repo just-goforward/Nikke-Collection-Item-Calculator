@@ -158,12 +158,9 @@ function runChild(arm: PortfolioArm, scenario: SolverPortfolioScenario): Portfol
 }
 
 async function runChildProcess(arm: PortfolioArm, scenario: SolverPortfolioScenario) {
-  const wasmPath =
-    arm === "branch-bound-b2-tier22"
-      ? BRANCH_BOUND_WASM_PATH
-      : arm === "bounded-prioritized-phase2"
-        ? PRIORITIZED_WASM_PATH
-        : PRODUCT_WASM_PATH;
+  let wasmPath = PRODUCT_WASM_PATH;
+  if (arm === "branch-bound-b2-tier22") wasmPath = BRANCH_BOUND_WASM_PATH;
+  else if (arm === "bounded-prioritized-phase2") wasmPath = PRIORITIZED_WASM_PATH;
   const bytes = await readFile(resolve(REPO_ROOT, wasmPath));
   const instantiated = await WebAssembly.instantiate(bytes);
   const instance =

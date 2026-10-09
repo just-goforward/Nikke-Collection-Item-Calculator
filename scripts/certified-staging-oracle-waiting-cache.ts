@@ -27,14 +27,14 @@ export type WaitingProofCacheDocument = {
   sourcesCurrentAtEnd: boolean;
 };
 function canonical(value: unknown): string {
-  if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value !== null && typeof value === "object") {
     const record = value as Record<string, unknown>;
     const members = Object.keys(record)
       .filter((key) => record[key] !== undefined)
       .sort()
-      .map((key) => JSON.stringify(key) + ":" + canonical(record[key]));
-    return "{" + members.join(",") + "}";
+      .map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`);
+    return `{${members.join(",")}}`;
   }
   const result = JSON.stringify(value);
   if (result === undefined) throw new Error("Unsupported proof signature value");
@@ -68,6 +68,7 @@ export function waitingProofSignature(
 export function waitingProofMathSources(): WaitingProofSource[] {
   return [
     "scripts/certified-staging-oracle.ts",
+    "scripts/certified-staging-oracle-tuples.ts",
     "scripts/certified-staging-oracle-certificates.ts",
     "scripts/certified-staging-oracle-endpoints-integer.ts",
     "scripts/certified-staging-oracle-witness.ts",
@@ -100,10 +101,9 @@ export type LoadedWaitingProofCache = {
   ) => WaitingProofEntry | null;
 };
 function verifiedPrices(output: CertifiedOutput, prices: QTriple): boolean {
-  return (
-    output.pricing !== null &&
-    output.pricing.weights.every((price, color) => cmp(fromWire(price), prices[color]!) === 0)
-  );
+  const pricing = output.pricing;
+  if (pricing === null) return false;
+  return pricing.weights.every((price, color) => cmp(fromWire(price), prices[color]!) === 0);
 }
 export function loadWaitingProofCache(path: string, sha256: string): LoadedWaitingProofCache {
   const bytes = readFileSync(path);

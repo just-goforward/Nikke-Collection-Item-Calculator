@@ -166,7 +166,7 @@ function LanguageSelector({
         <span aria-hidden="true">▾</span>
         <span className={classes.langText}>{t("top.language")}</span>
       </button>
-      {langOpen ? (
+      {langOpen && (
         <div className={classes.langMenu} role="menu" aria-labelledby="language-menu-trigger">
           {LANG_OPTIONS.map((option, index) => (
             <a
@@ -202,7 +202,7 @@ function LanguageSelector({
             </a>
           ))}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -272,7 +272,7 @@ function ThemeControl({
             <span aria-hidden="true">▾</span>
           </AlignedText>
         </button>
-        {themeOpen ? (
+        {themeOpen && (
           <div className={classes.langMenu} role="menu" aria-labelledby="theme-menu-trigger">
             {THEME_MODES.map((mode, index) => (
               <button
@@ -295,7 +295,7 @@ function ThemeControl({
               </button>
             ))}
           </div>
-        ) : null}
+        )}
       </div>
     </>
   );

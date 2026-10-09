@@ -1,6 +1,15 @@
 import type { RustPairedExpectedCostEstimate } from "../src/wasm/rustTypes";
+import {
+  csvEscape as runnerCsvEscape,
+  parseList as runnerParseList,
+  parsePositiveInteger as runnerParsePositiveInteger,
+} from "./runner-utils.ts";
 import type { ScenarioSource } from "./rust-rerank-summary-model.ts";
 import type { SolverScenario } from "./scenarios/fixed-grid";
+
+export const csvEscape = runnerCsvEscape;
+export const parseList = runnerParseList;
+export const parsePositiveInteger = runnerParsePositiveInteger;
 
 export const HORIZON_FACTOR = 0.75;
 export const NORM_POWER = 3;
@@ -41,19 +50,6 @@ export type Adaptive90Decision = {
   gateCorrelation: number | null;
 };
 
-export function parsePositiveInteger(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
-}
-
-export function parseList(value: string | undefined, fallback: readonly string[]): string[] {
-  const parsed = String(value || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return parsed.length > 0 ? parsed : [...fallback];
-}
-
 export function parseIntegerList(value: string | undefined, fallback: readonly number[]): number[] {
   const parsed = String(value || "")
     .split(",")
@@ -86,11 +82,6 @@ export function parseSources(value: string | undefined): Set<ScenarioSource> {
         source === "product-observed-high-stock",
     ),
   );
-}
-
-export function csvEscape(value: unknown): string {
-  const text = String(value ?? "");
-  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
 export function stateLabel(scenario: SolverScenario) {

@@ -117,7 +117,8 @@ describe("certified physical waiting", () => {
     expect(result.waiting.status).toBe("certified");
     expect(result.waiting.recommendedDays).toBe(56);
     expect(result.waiting.value).toBeNull();
-    const witness = result.waiting.strictBoundaryWitness!;
+    const witness = result.waiting.strictBoundaryWitness;
+    if (!witness) throw new Error("missing strict boundary witness");
     expect(witness.beforeValue.successP).toEqual(toWire(q(1)));
     expect(witness.afterValue.successP).toEqual(toWire(q(1)));
     expect(

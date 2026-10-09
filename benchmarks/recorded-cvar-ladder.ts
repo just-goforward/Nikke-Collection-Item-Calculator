@@ -3,14 +3,13 @@ import { rustCoreExportsFromInstance } from "../src/wasm/rustLoader";
 import { createRustMinEfSolver } from "../src/wasm/rustMinEfCore";
 import { createRustPhase2Solver } from "../src/wasm/rustPhase2Core";
 import { normalizeRustProductInput } from "../src/wasm/rustProductInput";
-import { buildRecommendedRunForKit } from "../src/wasm/rustProductView";
 import {
   RUST_STATUS_BUDGET_EXCEEDED,
   RUST_STATUS_MEMO_FULL,
   RustSolveError,
 } from "../src/wasm/rustStatus";
-import type { RustMinEfPolicyHandle, RustPhase2Policy } from "../src/wasm/rustTypes";
 import type { ExactPolicySolverResult } from "./evaluator/exact-replan-types";
+import { decisionFromRootPolicy } from "./policy-decision";
 import {
   createRecordedCvarPolicySolver,
   RECORDED_CVAR_OPTIONS,
@@ -50,7 +49,7 @@ export function createRecordedCvarFallbackLadderSession(
     try {
       const policy = minEf.solveRootWithCandidates(normalized.start, normalized.stock, 0.75, 3, 0);
       summary.minEfOutcomes.completed += 1;
-      return decisionFromPolicy(input, policy);
+      return decisionFromRootPolicy(input, policy);
     } catch (error) {
       const outcome = classifyMinEfError(error);
       summary.minEfOutcomes[outcome] += 1;
@@ -77,7 +76,7 @@ export function createRecordedCvarFallbackLadderSession(
 
     summary.phase2Fallbacks += 1;
     const policy = phase2.buildPolicy(normalized.start, normalized.stock, 0.75, 3, 0);
-    return decisionFromPolicy(input, policy);
+    return decisionFromRootPolicy(input, policy);
   }
 
   return {
@@ -88,29 +87,6 @@ export function createRecordedCvarFallbackLadderSession(
       phase2.releaseMemo();
     },
     summary: () => structuredClone(summary),
-  };
-}
-
-function decisionFromPolicy(
-  input: SolverInput,
-  policy: RustMinEfPolicyHandle | RustPhase2Policy,
-): ExactPolicySolverResult {
-  const root = policy.root;
-  if (!root.firstAction) return { possible: false, best: null };
-  const normalized = normalizeRustProductInput(input);
-  const run = buildRecommendedRunForKit(
-    normalized,
-    (state, stockUses) => policy.actionAt(state, stockUses),
-    root.firstAction,
-  );
-  if (!run) return { possible: false, best: null };
-  return {
-    possible: true,
-    best: {
-      firstAction: root.firstAction,
-      probabilityGap: Math.max(0, root.maxSuccessProbability - root.successProbability),
-      run: { count: run.count },
-    },
   };
 }
 

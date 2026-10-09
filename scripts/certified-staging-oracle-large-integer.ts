@@ -3,13 +3,12 @@ import {
   independentFailure,
   independentProbability,
   independentSuccess,
-  makeTriple,
-  mapTriple,
   type OracleInput,
   type OracleResult,
   q,
   type Triple,
 } from "./certified-staging-oracle.ts";
+import { makeTriple, mapTriple } from "./certified-staging-oracle-tuples.ts";
 
 type State = ReturnType<typeof canonicalState>;
 type Value = { p: bigint; consumed: readonly [bigint, bigint, bigint]; mask: number };
@@ -33,7 +32,8 @@ function compare(a: Value, b: Value, prices: readonly bigint[]): number {
   if (first !== second) return first < second ? 1 : -1;
   const aa = total(a),
     bb = total(b);
-  return aa === bb ? 0 : aa < bb ? 1 : -1;
+  if (aa === bb) return 0;
+  return aa < bb ? 1 : -1;
 }
 type Solve = (state: State, stock: Triple) => Value;
 function action(
@@ -59,8 +59,8 @@ function action(
     p: good * success.p + bad * normal.p,
     consumed: makeTriple(
       (index) =>
-        good * success.consumed[index]! +
-        bad * normal.consumed[index]! +
+        good * success.consumed[index] +
+        bad * normal.consumed[index] +
         (index === color ? 10n * denominator : 0n),
     ),
     mask: 1 << color,
@@ -75,7 +75,7 @@ function best(
 ): Value {
   let value = ZERO;
   for (let color = 0; color < 3; color++) {
-    if (stock[color]! === 0) continue;
+    if (stock[color] === 0) continue;
     const candidate = action(state, stock, color, denominator, solve);
     const comparison = compare(candidate, value, prices);
     if (comparison > 0) value = candidate;
@@ -95,7 +95,11 @@ export function independentLargeIntegerOracle(input: OracleInput, limits: Limits
   if (!Number.isSafeInteger(960 * bases[0] * bases[1] * bases[2]))
     throw new Error("large_oracle_noninjective_numeric_key_admission");
   const powers = [1n];
-  for (let exponent = 1; exponent <= sum; exponent++) powers.push(powers[exponent - 1]! * 1000n);
+  let power = 1n;
+  for (let exponent = 1; exponent <= sum; exponent++) {
+    power *= 1000n;
+    powers.push(power);
+  }
   const common = input.prices.reduce((d, price) => (d / gcd(d, price.d)) * price.d, 1n);
   const prices = mapTriple(input.prices, (price) => price.n * (common / price.d));
   const memo = new Map<number, Value>();
@@ -119,13 +123,14 @@ export function independentLargeIntegerOracle(input: OracleInput, limits: Limits
   const denominator = powers[sum]!;
   const terminal = input.grade === "SR" && input.level === 15;
   const ties = COLORS.filter((_color, index) => (value.mask & (1 << index)) !== 0);
+  const inactiveAction = terminal ? "DONE" : "STOP";
   return {
     P: q(value.p, denominator),
     B: q(burden(value, prices), denominator * common),
     C: q(total(value), denominator),
     consumed: mapTriple(value.consumed, (pieces) => q(pieces, denominator)),
-    action: ties[0] ?? (terminal ? "DONE" : "STOP"),
-    ties: ties.length ? ties : [terminal ? "DONE" : "STOP"],
+    action: ties[0] ?? inactiveAction,
+    ties: ties.length ? ties : [inactiveAction],
     candidates: new Map(),
     nodes: memo.size,
   };

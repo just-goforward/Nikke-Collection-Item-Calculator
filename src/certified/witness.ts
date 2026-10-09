@@ -2,6 +2,7 @@ import { q, sub, toWire } from "../../shared/certifiedRational";
 import type { CertifiedSupplyEvent } from "../../shared/certifiedSupply";
 import type { ExactSupplyOutcome } from "../../shared/certifiedSupplyLaws";
 import { eventOffset, law, waitingBase } from "./events";
+import { KIT_INDICES, type KitIndex } from "./game";
 import { nearBoundWitness } from "./nearBoundWitness";
 import type { CertifiedWaiting } from "./types";
 import { compareValue, type ExactValue } from "./value";
@@ -16,14 +17,14 @@ type FinalCandidate = {
 };
 function scarceOutcome(
   outcomes: readonly ExactSupplyOutcome[],
-  scarce: number,
+  scarce: KitIndex,
 ): ExactSupplyOutcome {
   let chosen: ExactSupplyOutcome | undefined;
   for (const outcome of outcomes) {
     if (outcome.mass.n <= 0n) continue;
     if (
       !chosen ||
-      outcome.pieces[scarce]! < chosen.pieces[scarce]! ||
+      outcome.pieces[scarce] < chosen.pieces[scarce] ||
       (outcome.pieces[scarce] === chosen.pieces[scarce] &&
         outcome.pieces.reduce((a, b) => a + b, 0) < chosen.pieces.reduce((a, b) => a + b, 0))
     )
@@ -120,7 +121,7 @@ export function boundaryWitness(
     );
   for (const cohort of [0, 1, 2] as const) {
     if (context.priors[cohort].n === 0n) continue;
-    for (const scarce of [0, 1, 2]) {
+    for (const scarce of KIT_INDICES) {
       const before = trajectory(
         context,
         prior,

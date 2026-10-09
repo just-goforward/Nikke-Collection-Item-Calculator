@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { eq, q } from "../../shared/certifiedRational";
 import { WorkBudget } from "./budget";
-import { CAPS, encode } from "./game";
+import { CAPS, encode, KIT_INDICES, type StateId } from "./game";
 import { FiniteKernel } from "./kernel";
 
 function kernel(weights = [q(1), q(1), q(1)] as const): FiniteKernel {
@@ -40,10 +40,11 @@ describe("certified exact finite-inventory objectives", () => {
   it("caps stock only after fixing prices and preserves the exact vector", () => {
     const sid = encode("SR", 14, 0);
     const candidate = kernel([q(1, 100), q(1, 20), q(1, 10)]);
-    const cap = CAPS[sid]!.map((n) => n * 10) as [number, number, number];
+    const uses = CAPS[sid as StateId];
+    const cap: [number, number, number] = [uses[0] * 10, uses[1] * 10, uses[2] * 10];
     const a = candidate.solve(sid, cap);
     const b = candidate.solve(sid, [100_000, 100_000, 100_000]);
     expect(eq(a.p, b.p) && eq(a.b, b.b) && eq(a.c, b.c)).toBe(true);
-    expect(a.consumed.every((v, k) => eq(v, b.consumed[k]!))).toBe(true);
+    expect(KIT_INDICES.every((k) => eq(a.consumed[k], b.consumed[k]))).toBe(true);
   });
 });

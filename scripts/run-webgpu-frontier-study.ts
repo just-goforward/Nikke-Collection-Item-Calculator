@@ -131,12 +131,11 @@ try {
   }
 } catch (error) {
   const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  let outcome: "device_lost" | "device_unavailable" | "failure" = "failure";
+  if (message.includes("device_lost")) outcome = "device_lost";
+  else if (message.includes("device_unavailable")) outcome = "device_unavailable";
   measurement = {
-    outcome: message.includes("device_lost")
-      ? "device_lost"
-      : message.includes("device_unavailable")
-        ? "device_unavailable"
-        : "failure",
+    outcome,
     error: message,
   };
 } finally {

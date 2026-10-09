@@ -13,6 +13,7 @@ import { solveIntegerOracle } from "./certified-staging-oracle-integer.ts";
 const SOURCES = [
   "scripts/certified-staging-oracle-integer.ts",
   "scripts/certified-staging-oracle.ts",
+  "scripts/certified-staging-oracle-tuples.ts",
   "shared/game.ts",
 ];
 export const oracleSourceHashes = SOURCES.map((path) => ({

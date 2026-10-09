@@ -48,6 +48,7 @@ type BundleKind =
   | "certified-worker"
   | "css"
   | "wasm"
+  | "certified-wasm"
   | "asset";
 
 type BundleEntry = {
@@ -237,6 +238,7 @@ function kindFor(path: string, classifications: Map<string, BundleKind>): Bundle
   const classified = classifications.get(path);
   if (classified) return classified;
   if (extname(path) === ".css") return "css";
+  if (path === "certified_solver.wasm") return "certified-wasm";
   if (extname(path) === ".wasm") return "wasm";
   if (extname(path) === ".js") throw new Error(`JavaScript asset is not classified: ${path}`);
   return "asset";

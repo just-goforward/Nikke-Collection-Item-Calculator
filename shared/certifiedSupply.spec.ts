@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { add, fromWire, q, toNumber } from "./certifiedRational.ts";
+import { add, fromWire, type Q, q, toNumber } from "./certifiedRational.ts";
 import {
   assertCertifiedSupplySnapshot,
   buildCertifiedSupplySnapshot,
@@ -40,7 +40,7 @@ describe("certified daily supply contract", () => {
       untilGameDate: "2026-08-20",
     });
     const rounds = estimateCertifiedSoloRounds({
-      anchor: SOLO_RAID_ROUND_HISTORY[39]!,
+      anchor: SOLO_RAID_ROUND_HISTORY[39],
       cadence,
       count: 3,
     });
@@ -256,27 +256,33 @@ describe("certified supply legacy reference parity", () => {
       let from = currentDay;
       let until: number;
       if (activeIndex >= 0) {
-        const active = periods[activeIndex]!;
+        const active = periods[activeIndex];
+        if (!active) throw new Error("legacy_reference_active_period_missing");
         const dayNumber =
           Math.floor((currentDay - gameDayStartMs(Date.parse(active.effectiveFrom))) / dayMs) + 1;
         if (dayNumber <= 2) {
-          from = gameDayStartMs(Date.parse(periods[activeIndex - 1]!.effectiveFrom)) + 2 * dayMs;
+          const previous = periods[activeIndex - 1];
+          if (!previous) throw new Error("legacy_reference_previous_period_missing");
+          from = gameDayStartMs(Date.parse(previous.effectiveFrom)) + 2 * dayMs;
           until = currentDay;
-        } else until = gameDayStartMs(Date.parse(periods[activeIndex + 1]!.effectiveFrom)) + dayMs;
-      } else
-        until =
-          gameDayStartMs(
-            Date.parse(
-              periods.find((period) => gameDayStartMs(Date.parse(period.effectiveFrom)) > at)!
-                .effectiveFrom,
-            ),
-          ) + dayMs;
+        } else {
+          const next = periods[activeIndex + 1];
+          if (!next) throw new Error("legacy_reference_next_period_missing");
+          until = gameDayStartMs(Date.parse(next.effectiveFrom)) + dayMs;
+        }
+      } else {
+        const next = periods.find(
+          (period) => gameDayStartMs(Date.parse(period.effectiveFrom)) > at,
+        );
+        if (!next) throw new Error("legacy_reference_next_period_missing");
+        until = gameDayStartMs(Date.parse(next.effectiveFrom)) + dayMs;
+      }
       const daily = deriveCertifiedDailySupply(
         viewCertifiedSupplySnapshot(accepted, profile.effectiveFrom),
       ).filter((day) => Date.parse(day.at) >= from && Date.parse(day.at) <= until);
-      const gain = [q(0), q(0), q(0)];
+      const gain: [Q, Q, Q] = [q(0), q(0), q(0)];
       for (const day of daily)
-        for (const k of [0, 1, 2] as const) gain[k] = add(gain[k]!, fromWire(day.expectedGain[k]));
+        for (const k of [0, 1, 2] as const) gain[k] = add(gain[k], fromWire(day.expectedGain[k]));
       expect(gain.map((value) => Number(toNumber(value).toFixed(9)))).toEqual([
         profile.expectedGain.blue,
         profile.expectedGain.purple,

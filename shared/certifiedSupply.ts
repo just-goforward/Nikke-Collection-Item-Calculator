@@ -249,18 +249,17 @@ export function deriveCertifiedDailySupply(
       expectationCache.set(key, gain);
     }
     const offset = (at - current) / DAY_MS;
+    let complete: boolean;
+    if (offset < 0) complete = snapshot.coverage.past.complete;
+    else if (offset > 0) complete = snapshot.coverage.future.complete;
+    else complete = Boolean(ruleAt(snapshot.rules, at));
     days.push({
       gameDate: gameDayKey(at),
       at: iso(at),
       offset,
       events,
       expectedGain: gain.map(toWire) as [WireQ, WireQ, WireQ],
-      complete:
-        offset < 0
-          ? snapshot.coverage.past.complete
-          : offset > 0
-            ? snapshot.coverage.future.complete
-            : Boolean(ruleAt(snapshot.rules, at)),
+      complete,
       estimated: events.some((event) => event.status === "estimated"),
     });
   }
@@ -312,16 +311,19 @@ export function compareCertifiedSupplyPeriods(
   };
   const past = period(snapshot.coverage.past);
   const future = period(snapshot.coverage.future);
-  const percentChange = past.total.map((wire, k) => {
+  const percentChange = ([0, 1, 2] as const).map((k) => {
+    const wire = past.total[k];
     const before = fromWire(wire);
     return before.n === 0n
       ? null
-      : toWire(mul(div(sub(fromWire(future.total[k]!), before), before), q(100)));
+      : toWire(mul(div(sub(fromWire(future.total[k]), before), before), q(100)));
   }) as [WireQ | null, WireQ | null, WireQ | null];
+  // Daily derivation emits offsets -56 through 56 exactly once, including day zero.
+  const [currentDay] = daily.filter((day) => day.offset === 0) as [CertifiedDailySupply];
   return {
     past,
     future,
-    currentDay: daily.find((day) => day.offset === 0)!,
+    currentDay,
     percentChange,
     comparisonBasis: "modeled_available_rewards",
     partial: !past.complete || !future.complete,
@@ -341,8 +343,8 @@ export function certifiedRecurringRate(
   const shop = expectedRefs(rule.normalShop, personal, lawOptions);
   const solo = expectedRefs(rule.soloDays.flat(), personal, lawOptions);
   const mean = q(snapshot.cadence.numerator, snapshot.cadence.denominator);
-  const rate = dispatch.map((value, k) =>
-    add(add(value, div(shop[k]!, q(7))), div(solo[k]!, mean)),
+  const rate = ([0, 1, 2] as const).map((k) =>
+    add(add(dispatch[k], div(shop[k], q(7))), div(solo[k], mean)),
   ) as [Q, Q, Q];
   if (rate.some((value) => value.n < 0n)) throw new Error("negative_recurring_rate");
   return rate;
@@ -357,8 +359,8 @@ export function certifiedFixedPriceWeights(
   if (initialRaw.length !== 3 || initialRaw.some((raw) => !Number.isSafeInteger(raw) || raw < 0))
     throw new Error("certified_initial_raw_pieces_invalid");
   const rate = certifiedRecurringRate(snapshot, weights, options);
-  return rate.map((value, k) => {
-    const denominator = add(q(initialRaw[k]!), value);
+  return ([0, 1, 2] as const).map((k) => {
+    const denominator = add(q(initialRaw[k]), rate[k]);
     if (denominator.n === 0n) throw new Error("zero_price_denominator");
     return div(ONE, denominator);
   }) as [Q, Q, Q];

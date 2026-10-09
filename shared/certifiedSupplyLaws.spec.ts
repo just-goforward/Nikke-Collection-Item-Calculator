@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { add, mul, q, sum, toNumber, toWire, ZERO } from "./certifiedRational.ts";
+import { add, mul, type Q, q, sum, toNumber, toWire, ZERO } from "./certifiedRational.ts";
 import {
   type CertifiedSupplyLaw,
   dispatchLaw,
@@ -11,16 +11,16 @@ import { DISPATCH_COHORT_EXPECTED_GAIN } from "./supplyForecastModel.ts";
 describe("exact documented physical supply laws", () => {
   it("matches precomputed dispatch expectations to exact raw-board enumeration", () => {
     for (const cohort of [0, 1, 2] as const) {
-      const expected = [ZERO, ZERO, ZERO];
+      const expected: [Q, Q, Q] = [ZERO, ZERO, ZERO];
       for (const board of dispatchLaw(cohort)) {
         const [blue, purple, yellow, regular, boxII] = board.raw;
-        const gain = [
+        const gain: [Q, Q, Q] = [
           add(q(blue), add(mul(q(regular), q(12, 5)), mul(q(boxII), q(7, 2)))),
           add(q(purple), add(mul(q(regular), q(1, 5)), mul(q(boxII), q(2, 5)))),
           add(q(yellow), mul(q(boxII), q(1, 5))),
         ];
-        for (let color = 0; color < 3; color += 1)
-          expected[color] = add(expected[color]!, mul(board.mass, gain[color]!));
+        for (const color of [0, 1, 2] as const)
+          expected[color] = add(expected[color], mul(board.mass, gain[color]));
       }
       expect(getCertifiedLawExpectedGain({ lawId: "dispatch-board-v1", count: 1 }, cohort)).toEqual(
         expected,
@@ -39,7 +39,8 @@ describe("exact documented physical supply laws", () => {
         DISPATCH_COHORT_EXPECTED_GAIN.noReroll,
         DISPATCH_COHORT_EXPECTED_GAIN.oneReroll,
         DISPATCH_COHORT_EXPECTED_GAIN.twoRerolls,
-      ][cohort]!;
+      ][cohort];
+      if (!legacy) throw new Error("legacy_dispatch_cohort_missing");
       expect(expected[0]).toBeCloseTo(legacy.blue, 11);
       expect(expected[1]).toBeCloseTo(legacy.purple, 11);
       expect(expected[2]).toBeCloseTo(legacy.yellow, 11);

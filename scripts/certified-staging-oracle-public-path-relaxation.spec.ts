@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { describe, expect, it } from "vitest";
 import {
   cmp,
@@ -55,7 +56,11 @@ describe("independent public-game semi-infinite recurrence", () => {
           });
           expect(compareValue(actual, reference)).toBe(0);
           expect(
-            actual.consumed.every((value, color) => cmp(value, reference.consumed[color]!) === 0),
+            actual.consumed.every((value, color) => {
+              const expected = reference.consumed[color];
+              assert(expected, "Expected reference consumption coordinate");
+              return cmp(value, expected) === 0;
+            }),
           ).toBe(true);
           checks++;
         }
@@ -85,8 +90,10 @@ describe("independent public-game semi-infinite recurrence", () => {
     const before = oracle({ ...request, stock: request.beforeStock });
     const after = oracle({ ...request, stock: request.afterStock });
     expect(compareValue(after, before)).toBe(1);
-    expect(cmp(result.before!.P, before.P)).toBe(1);
-    expect(compareValue(result.after!, after)).toBe(0);
+    const { before: relaxedBefore, after: relaxedAfter } = result;
+    assert(relaxedBefore && relaxedAfter, "Expected both relaxed endpoints");
+    expect(cmp(relaxedBefore.P, before.P)).toBe(1);
+    expect(compareValue(relaxedAfter, after)).toBe(0);
   });
   it("returns UNKNOWN when selected unlimited-color demand exceeds actual after stock", () => {
     const result = evaluatePublicPathRelaxationPair({
@@ -121,8 +128,10 @@ describe("independent public-game semi-infinite recurrence", () => {
     const cTie = evaluatePublicPathRelaxationPair(request);
     expect(cTie.before?.chosen).toBe(2);
     expect(cTie.before?.mask).toBe(4);
-    expect(cmp(cTie.before!.B, q(10))).toBe(0);
-    expect(cmp(cTie.before!.C, q(10))).toBe(0);
+    const before = cTie.before;
+    assert(before, "Expected tie-breaking endpoint");
+    expect(cmp(before.B, q(10))).toBe(0);
+    expect(cmp(before.C, q(10))).toBe(0);
     const allTies = evaluatePublicPathRelaxationPair({
       ...request,
       exp: 2900,
@@ -183,7 +192,9 @@ describe("independent public-game pre-allocation admission", () => {
       prices: [tiny, q(1), q(2)],
     });
     expect(result.before?.chosen).toBe(0);
-    expect(cmp(result.before!.B, q(10n, 1n << 5000n))).toBe(0);
+    const before = result.before;
+    assert(before, "Expected exact-price endpoint");
+    expect(cmp(before.B, q(10n, 1n << 5000n))).toBe(0);
   });
   it("records an expired deadline and an unsafe index domain as NOTRUN", () => {
     const timed = evaluatePublicPathRelaxationPair(input(), { deadlineAt: performance.now() - 1 });

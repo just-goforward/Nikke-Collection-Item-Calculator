@@ -9,6 +9,7 @@ import {
   writeCertifiedForecastAuthority,
 } from "./certified-forecast-authority.ts";
 import { assertPinnedCertifiedForecastFiles } from "./certified-forecast-pins.ts";
+import { assertCertifiedWasmBuild } from "./certified-wasm-build-inputs.ts";
 
 const projectRoot = new URL("../", import.meta.url);
 const fixtureManifests = [
@@ -49,6 +50,11 @@ export async function deriveCertifiedEngineBuild(root = projectRoot): Promise<En
     ),
   );
   const provenancePaths = new Set<string>();
+  if (paths.has("shared/generated/certifiedWasmBuild.ts")) {
+    const { inputs } = assertCertifiedWasmBuild(root);
+    paths.add("public/certified_solver.wasm");
+    for (const source of inputs.sources) paths.add(source.path);
+  }
   // The runtime projection omits unused legacy profiles, while the trust anchor
   // includes the entire original registry, including every omitted profile.
   paths.add("shared/supplyForecasts.json");

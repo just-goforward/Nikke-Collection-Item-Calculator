@@ -212,12 +212,13 @@ export function transitionCertifiedSoloDelay(input: {
       : 0;
   if (!Number.isSafeInteger(offsetDays) || offsetDays < 0 || offsetDays % 7 !== 0)
     throw new Error("certified_solo_delay_invalid");
-  const first = estimateCertifiedSoloRounds({
+  // The estimator uses Array.from with this validated count, so the result is a singleton.
+  const [first] = estimateCertifiedSoloRounds({
     anchor: input.anchor,
     cadence: input.cadence,
     count: 1,
     offsetDays,
-  })[0]!;
+  }) as [ReturnType<typeof estimateCertifiedSoloRounds>[number]];
   const now = timestamp(input.asOf);
   if (input.sourceStatus === "healthy" && dateStart(first.startGameDate) <= now) {
     let future = gameDayStartMs(now);

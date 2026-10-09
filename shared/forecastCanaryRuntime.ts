@@ -808,9 +808,9 @@ function optionalVersionId(value: unknown) {
 }
 
 function requiredTimestamp(value: unknown, code: string) {
-  const timestamp = requiredString(value, code);
-  if (!Number.isFinite(Date.parse(timestamp))) throw new Error(code);
-  return new Date(Date.parse(timestamp)).toISOString();
+  const timestampMs = Date.parse(requiredString(value, code));
+  if (!Number.isFinite(timestampMs)) throw new Error(code);
+  return new Date(timestampMs).toISOString();
 }
 
 function requiredFinite(value: unknown, code: string) {

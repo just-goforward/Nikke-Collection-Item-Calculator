@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import type { CertifiedInput, CertifiedOutput } from "../src/certified/types.ts";
@@ -16,18 +17,20 @@ it("checks documented physical prices independently and detects altered rates ev
   const { input, output } = fixture();
   expect(verifyPhysicalPricing(output, input.stock).status).toBe("PASS");
   const zero = wire(q(0));
-  output.current!.value = {
+  const { current, pricing } = output;
+  assert(current && pricing, "Expected current optimum and physical pricing");
+  current.value = {
     successP: zero,
     weightedExpectedConsumptionB: zero,
     expectedTotalConsumptionC: zero,
     expectedConsumed: [zero, zero, zero],
     display: { successP: 0, weightedExpectedConsumptionB: 0, expectedTotalConsumptionC: 0 },
   };
-  const rate = output.pricing!.recurringRate[0];
-  output.pricing!.recurringRate = [
+  const rate = pricing.recurringRate[0];
+  pricing.recurringRate = [
     { ...rate, numerator: String(BigInt(rate.numerator) + 1n) },
-    output.pricing!.recurringRate[1],
-    output.pricing!.recurringRate[2],
+    pricing.recurringRate[1],
+    pricing.recurringRate[2],
   ];
   expect(verifyPhysicalPricing(output, input.stock)).toEqual({
     status: "FAIL",
