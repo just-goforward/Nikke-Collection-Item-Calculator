@@ -19,6 +19,8 @@ on:
       - "shared/supplyForecastCandidate.ts"
       - "shared/supplyForecastModel.ts"
       - "scripts/smoke-forecast-collector.ts"
+      - "scripts/recover-forecast-boundary.ts"
+      - "scripts/recover-forecast-boundary.spec.ts"
       - "scripts/smoke-forecast-dispatcher.ts"
       - "scripts/smoke-forecast-interactions.ts"
       - "scripts/send-forecast-router-test.ts"
@@ -55,6 +57,20 @@ on:
         required: true
         default: false
         type: boolean
+      recovery_source:
+        description: Explicit staging proven-boundary recovery before smoke (never reanchors)
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - "48"
+          - "56"
+      expected_committed_item_id:
+        description: Exact existing committed item ID for the selected recovery source
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -134,6 +150,13 @@ jobs:
           [[ "$DISCORD_FORECAST_APPROVER_USER_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_APPROVER_USER_ID variable." >&2; exit 1; }
           [[ "$DISCORD_FORECAST_APPLICATION_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_APPLICATION_ID variable." >&2; exit 1; }
           [[ "$DISCORD_FORECAST_PUBLIC_KEY" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_PUBLIC_KEY variable." >&2; exit 1; }
+
+      - name: Validate boundary recovery inputs before mutations
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RECOVERY_SOURCE: ${{ inputs.recovery_source || 'none' }}
+          EXPECTED_COMMITTED_ITEM_ID: ${{ inputs.expected_committed_item_id }}
+        run: node scripts/recover-forecast-boundary.ts --validate
 
       - name: Prepare npm 12.2.0 with pinned integrity
         shell: bash
@@ -311,7 +334,7 @@ jobs:
           npx wrangler deploy --dry-run --config forecast-interactions/wrangler.toml
 
       - name: Verify Forecast migration runner
-        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/forecast-dispatcher-workflow.spec.ts
+        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/forecast-dispatcher-workflow.spec.ts scripts/recover-forecast-boundary.spec.ts
 
       - name: Apply staging Forecast D1 migrations
         env:
@@ -521,6 +544,17 @@ jobs:
           --var DISCORD_INTERACTION_OWNER:$DISCORD_INTERACTION_OWNER
           --tag "${{ github.sha }}-$POLL_MODE-disabled"
           --message "Forecast collector staging disabled ${{ github.sha }} ($POLL_MODE)"
+
+      - name: Recover explicitly selected staging boundary
+        if: github.event_name == 'workflow_dispatch' && inputs.recovery_source != 'none' && inputs.recovery_source != ''
+        timeout-minutes: 2
+        env:
+          RECOVERY_SOURCE: ${{ inputs.recovery_source }}
+          EXPECTED_COMMITTED_ITEM_ID: ${{ inputs.expected_committed_item_id }}
+          FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          FORECAST_EXPECTED_DEPLOY_SHA: ${{ github.sha }}
+        run: node scripts/recover-forecast-boundary.ts --apply
 
       - name: Live staging queue round-trip smoke
         env:

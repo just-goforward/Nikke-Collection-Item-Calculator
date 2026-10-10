@@ -12,6 +12,14 @@ import {
 } from "./db";
 import { ensureManualReviewStatement } from "./manual-review";
 import { type FetchLike, fetchNaverFeedMetadata, fetchNaverItemIdentity } from "./naver";
+import {
+  coveredBoundaryTail,
+  NAVER_PAGE_SIZE,
+  NAVER_RECOVERY_PAGES,
+  NAVER_SCAN_PAGES,
+  orderedOfficialBoundaryItems,
+  samePublicationTime,
+} from "./naver-boundary-proof";
 import { type OpsEnvironment, upsertOpsAlertStatement } from "./ops";
 import type {
   CandidateBuildResult,
@@ -23,8 +31,8 @@ import type {
   SourceQueueItem,
 } from "./types";
 
-const PAGE_SIZE = 10;
-const PAGE_STEP = 8;
+const PAGE_SIZE = NAVER_PAGE_SIZE;
+const PAGE_STEP = 1;
 const timestampSchema = z.string().check(z.iso.datetime({ offset: true }));
 const sourceSchema = z.enum(["naver-board-48", "naver-board-56"]);
 const itemSchema = z.object({
@@ -202,6 +210,10 @@ export async function pollNaverSource(
     return recoverMovedNaverBoundary(db, boardId, state, environment, fetcher);
   }
   const offset = Number(state?.next_offset ?? 0);
+  // Legacy row-index offsets (8, 16, ... 104) are not page cursors.
+  if (!Number.isInteger(offset) || offset < 0 || offset >= NAVER_SCAN_PAGES) {
+    throw new Error("source_cursor_recovery_required");
+  }
   const metadataPage = await fetchNaverFeedMetadata(boardId, offset, fetcher);
   if (metadataPage.unknownRejected.length > 0) {
     throw new NaverPartialSchemaError(boardId, offset, metadataPage.unknownRejected);
@@ -215,7 +227,8 @@ export async function pollNaverSource(
     state?.committed_item_id && committedIndex >= 0 ? page.slice(0, committedIndex) : page;
   const scanHead = offset === 0 ? page[0] : ((state && scanHeadFromState(state)) ?? page[0]);
   const scanComplete = committedIndex >= 0 || (!state?.committed_item_id && scanHead !== undefined);
-  const scanEnded = scanComplete || metadataPage.rawFeedCount < PAGE_SIZE;
+  const scanEnded =
+    scanComplete || metadataPage.rawFeedCount < PAGE_SIZE || offset + 1 >= NAVER_SCAN_PAGES;
   const boundaryMissing = !scanComplete && scanEnded;
   const nowIso = new Date().toISOString();
   const statements = queueStatements(db, toQueue, nowIso);
@@ -295,14 +308,18 @@ export async function recoverNaverBoundary(
   ) {
     throw new Error("naver_boundary_marker_conflict");
   }
-  const page = await fetchNaverFeedMetadata(boardId, 0, fetcher);
-  if (page.unknownRejected.length > 0) {
-    throw new NaverPartialSchemaError(boardId, 0, page.unknownRejected);
-  }
-  const scanHead = page.items[0];
+  if (!movedIdentity) assertRecoverySnapshotProof(state, proof);
+  const items = await readBoundaryRecoveryPages(
+    db,
+    boardId,
+    state,
+    fetcher,
+    Boolean(movedIdentity),
+  );
+  const scanHead = items[0];
   if (!scanHead) throw new NaverScanBoundaryError(0);
   const toQueue = boundaryRecoveryItems(
-    page.items,
+    items,
     state,
     request.expectedCommittedItemId,
     boardId,
@@ -363,6 +380,64 @@ export async function recoverNaverBoundary(
   ]);
   if (results[0]?.meta.changes !== 1) throw new Error("naver_boundary_recovery_conflict");
   return { recovered: true, source: request.source, queuedItems: toQueue.length };
+}
+
+function assertRecoverySnapshotProof(state: PollStateRow, proof: BoundaryHoldProof) {
+  if (
+    !samePublicationTime(proof.committedPublishedAt, state.committed_published_at) ||
+    proof.scanHeadItemId !== state.scan_head_item_id ||
+    proof.scanHeadPublishedAt !== state.scan_head_published_at
+  )
+    throw new Error("naver_boundary_marker_conflict");
+}
+
+async function readBoundaryRecoveryPages(
+  db: D1Database,
+  boardId: 48 | 56,
+  state: PollStateRow,
+  fetcher: FetchLike,
+  moved: boolean,
+) {
+  const source = `naver-board-${boardId}` as NaverSourceKind;
+  const items: NaverFeedMetadata[] = [];
+  const deadline = AbortSignal.timeout(40_000);
+  const boundedFetch: FetchLike = (input, init) =>
+    fetcher(input, {
+      ...init,
+      signal: AbortSignal.any([deadline, ...(init?.signal ? [init.signal] : [])]),
+    });
+  try {
+    for (let offset = 0; offset < (moved ? 1 : NAVER_RECOVERY_PAGES); offset += PAGE_STEP) {
+      const page = await fetchNaverFeedMetadata(boardId, offset, boundedFetch);
+      if (page.unknownRejected.length > 0)
+        throw new NaverPartialSchemaError(boardId, offset, page.unknownRejected);
+      if (page.rawFeedCount > PAGE_SIZE) throw new NaverScanBoundaryError(0);
+      items.push(...page.items);
+      if (moved) return items;
+      if (!orderedOfficialBoundaryItems(items, source, Date.now()))
+        throw new NaverScanBoundaryError(0);
+      const marker = items.find((item) => item.itemId === state.committed_item_id);
+      if (marker && !samePublicationTime(marker.publishedAt, state.committed_published_at))
+        throw new NaverScanBoundaryError(0);
+      if (marker) {
+        const knownTail = await db
+          .prepare("SELECT 1 FROM source_queue WHERE source = ? AND item_id = ?")
+          .bind(source, page.items.at(-1)?.itemId ?? "")
+          .first();
+        if (
+          coveredBoundaryTail(page.items, page.rawFeedCount, marker.publishedAt, Boolean(knownTail))
+        ) {
+          deadline.throwIfAborted();
+          return items;
+        }
+      }
+      if (page.rawFeedCount < PAGE_SIZE) break;
+    }
+  } catch (error) {
+    if (deadline.aborted) throw new Error("naver_timeout");
+    throw error;
+  }
+  throw new NaverScanBoundaryError(0);
 }
 
 async function recoverMovedNaverBoundary(
@@ -461,8 +536,19 @@ function boundaryRecoveryItems(
         item.publishedAt === state.scan_head_published_at,
     );
   }
-  if (index < 0) throw new NaverScanBoundaryError(0);
-  return items.slice(0, index);
+  if (
+    index < 0 ||
+    (!movedIdentity &&
+      !samePublicationTime(items[index]?.publishedAt ?? null, state.committed_published_at))
+  )
+    throw new NaverScanBoundaryError(0);
+  if (movedIdentity) return items.slice(0, index);
+  // Retain unseen members of the marker's equal-date cohort as well.
+  return items.filter(
+    (item, position) =>
+      position < index ||
+      (position > index && samePublicationTime(item.publishedAt, state.committed_published_at)),
+  );
 }
 
 export async function listSourceQueue(db: D1Database, limit: number) {

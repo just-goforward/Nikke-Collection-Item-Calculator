@@ -105,7 +105,7 @@ describe("Naver scan recovery", () => {
       await testEnv.FORECAST_DB.prepare(
         `UPDATE source_poll_state
          SET scan_head_item_id = '140', scan_head_published_at = committed_published_at,
-             next_offset = 24 WHERE source = 'naver-board-48'`,
+             next_offset = 2 WHERE source = 'naver-board-48'`,
       ).run();
       let response: Response;
       if (tail === "recognized-only") {
@@ -118,13 +118,15 @@ describe("Naver scan recovery", () => {
         message: "naver_scan_boundary_missing",
         queuedItems: tail === "short" ? 1 : 0,
       });
-      expect(new URL(String(fetcher.mock.calls[0]?.[0])).searchParams.get("offset")).toBe("24");
+      expect(new URL(String(fetcher.mock.calls[0]?.[0])).searchParams.get("offset")).toBe("2");
       expect(await pollState("naver-board-48")).toEqual({
         committed_item_id: "100",
         scan_head_item_id: "140",
         next_offset: 0,
       });
-      const reanchor = vi.fn<typeof fetch>().mockResolvedValue(feedResponse(["141", "100"]));
+      const reanchor = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(feedResponse(["141", "100"], { createdDate: "20260824120000" }));
       await expect(pollNaverSource(testEnv.FORECAST_DB, 48, reanchor)).rejects.toThrow(
         "naver_boundary_held",
       );
@@ -152,7 +154,7 @@ describe("Naver scan recovery", () => {
       expect(JSON.parse(hold?.context_json ?? "{}")).toMatchObject({
         committedItemId: "100",
         scanHeadItemId: "140",
-        terminalOffset: 24,
+        terminalOffset: 2,
         recoveredHeadItemId: "141",
       });
     },
@@ -191,7 +193,7 @@ describe("Naver scan recovery", () => {
       expect(await pollState("naver-board-48")).toEqual({
         committed_item_id: "100",
         scan_head_item_id: kind === "mixed" ? "110" : null,
-        next_offset: 8,
+        next_offset: 1,
       });
       await expect(
         pollNaverSource(
@@ -219,7 +221,7 @@ describe("Naver scan recovery", () => {
       await testEnv.FORECAST_DB.prepare(
         `UPDATE source_poll_state
          SET scan_head_item_id = '140', scan_head_published_at = committed_published_at,
-             next_offset = 24 WHERE source = 'naver-board-48'`,
+             next_offset = 2 WHERE source = 'naver-board-48'`,
       ).run();
       const fetcher = vi.fn<typeof fetch>();
       if (kind === "schema") {
@@ -233,7 +235,7 @@ describe("Naver scan recovery", () => {
       expect(await pollState("naver-board-48")).toEqual({
         committed_item_id: "100",
         scan_head_item_id: "140",
-        next_offset: 24,
+        next_offset: 2,
       });
     },
   );
@@ -395,7 +397,7 @@ describe("Naver boundary recovery", () => {
             "UPDATE source_poll_state SET committed_item_id = '999' WHERE source = 'naver-board-48'",
           ).run();
         }
-        return feedResponse(["141", "100"]);
+        return feedResponse(["141", "100"], { createdDate: "20260824120000" });
       });
       if (kind === "write") {
         await testEnv.FORECAST_DB.prepare(
@@ -676,7 +678,7 @@ describe("lightweight Naver queue processing", () => {
     expect(scanning).toMatchObject({
       committed_item_id: "100",
       scan_head_item_id: "111",
-      next_offset: 8,
+      next_offset: 1,
     });
 
     await expect(pollNaverSource(testEnv.FORECAST_DB, 48, fetcher)).resolves.toBe(1);
@@ -686,7 +688,7 @@ describe("lightweight Naver queue processing", () => {
       scan_head_item_id: null,
       next_offset: 0,
     });
-    expect(new URL(String(fetcher.mock.calls[1]?.[0])).searchParams.get("offset")).toBe("8");
+    expect(new URL(String(fetcher.mock.calls[1]?.[0])).searchParams.get("offset")).toBe("1");
   });
 
   it("keeps retries pending and moves the third failure to manual review", async () => {

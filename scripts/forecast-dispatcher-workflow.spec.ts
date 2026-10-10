@@ -20,6 +20,45 @@ const pages = readFileSync(".github/workflows/pages.yml", "utf8");
 const githubApp = readFileSync("forecast-dispatcher/src/github-app.ts", "utf8");
 const naverAction = readFileSync("scripts/forecast-naver-action.ts", "utf8");
 
+describe("Staging boundary recovery workflow contract", () => {
+  it("makes proven-boundary recovery a validated staging dispatch opt-in before smoke", () => {
+    const inputs = stagingDeploy.slice(
+      stagingDeploy.indexOf("      recovery_source:"),
+      stagingDeploy.indexOf("\npermissions:"),
+    );
+    expect(inputs).toContain("default: none");
+    expect(inputs).toContain('          - "48"');
+    expect(inputs).toContain('          - "56"');
+    expect(inputs).toContain("expected_committed_item_id:");
+    const validation = stagingDeploy.indexOf(
+      "- name: Validate boundary recovery inputs before mutations",
+    );
+    expect(validation).toBeGreaterThan(stagingDeploy.indexOf("- name: Setup Node"));
+    expect(validation).toBeLessThan(stagingDeploy.indexOf("- name: Apply usage guard D1 schema"));
+    const recovery = stagingDeploy.indexOf("- name: Recover explicitly selected staging boundary");
+    expect(recovery).toBeGreaterThan(stagingDeploy.indexOf("- name: Deploy staging collector"));
+    expect(recovery).toBeLessThan(
+      stagingDeploy.indexOf("- name: Live staging queue round-trip smoke"),
+    );
+    const step = stagingDeploy.slice(
+      recovery,
+      stagingDeploy.indexOf("- name: Live staging queue round-trip smoke"),
+    );
+    expect(step).toContain(
+      "if: github.event_name == 'workflow_dispatch' && inputs.recovery_source != 'none' && inputs.recovery_source != ''",
+    );
+    expect(step).toContain(
+      `FORECAST_COLLECTOR_STAGING_URL: \${{ vars.FORECAST_COLLECTOR_STAGING_URL }}`,
+    );
+    expect(step).toContain(
+      `FORECAST_COLLECTOR_ADMIN_TOKEN: \${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}`,
+    );
+    expect(step).toContain("run: node scripts/recover-forecast-boundary.ts --apply");
+    expect(step).not.toMatch(/run:.*(?:\$\{\{|TOKEN)/);
+    expect(productionPromote).not.toContain("recover-forecast-boundary");
+  });
+});
+
 describe("Forecast dispatcher workflow contract", () => {
   it("keeps the proposal schedule as a thirty-minute watchdog", () => {
     expect(proposal).toContain('cron: "17,47 * * * *"');
