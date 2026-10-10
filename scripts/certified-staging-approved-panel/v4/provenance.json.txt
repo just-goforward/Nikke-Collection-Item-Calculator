@@ -1,0 +1,155 @@
+{
+  "version": "approved24-independent-evidence-v4",
+  "generation": {
+    "sources": [
+      {
+        "path": "scripts/certified-staging-oracle-physical-supply.ts",
+        "sha256": "cf34c38f825859c6a80372a16c5a0d50e3168536c7e81deaa8b69a28bcf2f532"
+      },
+      {
+        "path": "scripts/certified-staging-oracle.ts",
+        "sha256": "44169b169bb1487ce952ba6026b697654f541a234384fed4964fe1aa9f43a69f"
+      },
+      {
+        "path": "shared/game.ts",
+        "sha256": "79a7563059171121b0331687fc2caab8563f03a6cb64060b475d1fe7d8a96850"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v4/evidence.ts",
+        "sha256": "540b0ee2a2a0e76f6f64292a84309af9a5cd528ee94cb84d0677b05b4f7fdfb6"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v4/history.ts",
+        "sha256": "618ffabd2a045e651d5f24b6b7f520ff5a24beaa9998f5421f293d22ec89f8ad"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-tuples.ts",
+        "sha256": "d20f932934a9de5ec416a22b1d1b04097f279e32373431880db353546f4a0f39"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-fixtures.ts",
+        "sha256": "3ed6ed7e76a2b087685433e1ba5d08cf3edd2d3cf4218fed6154c05c76a71852"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel.ts",
+        "sha256": "2cd1e8dd45f7e8af3419cc7f04879e4ac02d4dda4edb1873be1751bddbb6dcb1"
+      },
+      {
+        "path": "scripts/generate-certified-staging-approved-panel.ts",
+        "sha256": "0596309c4c5e2dd336f2646fe83f530fe7ae8b5030059ff51f7f4076eb43d156"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v4/generate.ts",
+        "sha256": "24c9c00abb91c1e296efc0de8a1a9a46c4cfddb0f5dd52503774da1775179e12"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v4/calculate.ts",
+        "sha256": "76d0c15f94828aa97d3cb46c11abf3795260cf82ebcb2bed56d67f999156244e"
+      },
+      {
+        "path": "biome.json",
+        "sha256": "f4a25e061da7d907da21784f046db5a05a49bfbefd2da78b9cedf2287d325bd7"
+      },
+      {
+        "path": "package-lock.json",
+        "sha256": "0e03da5c8ea9adbebaaf8107521003c9b9a74cb3d01d168ece72965f4ff69643"
+      }
+    ],
+    "sourceHash": "13346d3e8b4ade8fed00d6a44e4c59af6eb3e387209f2b45a45ef4cbb0c7c4c9",
+    "isolatedCacheEmpty": true,
+    "physicalEnumeration": "full-ordered",
+    "oracleRows": 24,
+    "independentWaiting": "UNVERIFIED_NOT_REGENERATED"
+  },
+  "historical": {
+    "sources": [
+      {
+        "path": "scripts/certified-staging-oracle-physical-supply.ts",
+        "archivePath": "scripts/certified-staging-approved-panel/v2/historical/certified-staging-oracle-physical-supply.ts.txt",
+        "sha256": "68686624ac22ab517283347c3cce7abb9a04d269eb2acb8b9ad3a63e8d5f13b5"
+      },
+      {
+        "path": "scripts/certified-staging-oracle.ts",
+        "archivePath": "scripts/certified-staging-approved-panel/v2/historical/certified-staging-oracle.ts.txt",
+        "sha256": "b92f50315a31d6b0f5e04054f5d220cf3103ef76b1d4a7c4d557da0a7964823b"
+      },
+      {
+        "path": "shared/game.ts",
+        "archivePath": "scripts/certified-staging-approved-panel/v2/historical/shared-game.ts.txt",
+        "sha256": "79a7563059171121b0331687fc2caab8563f03a6cb64060b475d1fe7d8a96850"
+      }
+    ],
+    "files": [
+      {
+        "path": "scripts/certified-staging-approved-panel/independent-physical-cohorts.json",
+        "sha256": "fed3faab0a2b032deb65f9b892684cb9518c38a67596f8ba066f8e9cc7d8be0a"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/panel.json",
+        "sha256": "7e3474617cc19ef63d7e2e8a3e84933d28453cb72cbe3e1784379f996f2fc776"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/provenance.json",
+        "sha256": "6cbf971ecdcbfe1e728a543a1a76adfa87ebbf694ae1722de5a2c6380b29d94a"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/snapshot.json",
+        "sha256": "5dd4017b6f74bda406bbd93daa0037e720329d0d64eca05a442c59d6dd170e6d"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/pilot-endpoints.json",
+        "sha256": "301483c331d467a0d8c53568f271c5a893d941340a8bb0238012af9821f10b45"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/pilot-endpoints-provenance.json",
+        "sha256": "4c5286593cff0000b6e8b5ef7cf5fe51fd39bdd4e11a3bbf1c77198649e46f42"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-fixtures/large-current-R600.json.txt",
+        "sha256": "01ba9e5a1a45f21c4f17f9c90c6b1c60955494a72658118f5fda528113788aae"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-fixtures/large-current-R1000.json.txt",
+        "sha256": "5b478ab1a16a4f8774a82ffeaba662cbcf168b8453d83ade08bcf18b280bddb4"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-fixtures/large-current-SR800.json.txt",
+        "sha256": "d510c7aa03eca56532220cc1629f1cd7aedf0b4f3a5ce6cdfcecd49899e929d4"
+      }
+    ],
+    "firstPinsSha256": "3d78bc4d36feb6e1cbc6236baaa756619d3356af25ae32e846ea5d7d5a69ab65",
+    "previousPinsSha256": "3ee39edc4a5e966af56d048ff244c898e22eec98d9acdf4ede3ce0032bcffc65"
+  },
+  "physicalEnumeration": {
+    "path": "scripts/certified-staging-approved-panel/v4/independent-physical-cohorts.json",
+    "cachePath": "benchmarks/results/certified-staging-validation-independent-physical-rates-v4.json",
+    "sha256": "36dadf4e1184beabc79fcf4101de3d00a0dcd6fce9843717484d78c84d6bad1b",
+    "sources": [
+      {
+        "path": "scripts/certified-staging-oracle-physical-supply.ts",
+        "sha256": "cf34c38f825859c6a80372a16c5a0d50e3168536c7e81deaa8b69a28bcf2f532"
+      },
+      {
+        "path": "scripts/certified-staging-oracle.ts",
+        "sha256": "44169b169bb1487ce952ba6026b697654f541a234384fed4964fe1aa9f43a69f"
+      },
+      {
+        "path": "shared/game.ts",
+        "sha256": "79a7563059171121b0331687fc2caab8563f03a6cb64060b475d1fe7d8a96850"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v4/evidence.ts",
+        "sha256": "540b0ee2a2a0e76f6f64292a84309af9a5cd528ee94cb84d0677b05b4f7fdfb6"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v4/history.ts",
+        "sha256": "618ffabd2a045e651d5f24b6b7f520ff5a24beaa9998f5421f293d22ec89f8ad"
+      }
+    ],
+    "sourceHash": "0e9ac23bea108eb8933d7638974223e335aa4834bbeee15350d6087fb89ca8dd"
+  },
+  "panel": {
+    "path": "scripts/certified-staging-approved-panel/v4/panel.json",
+    "sha256": "7b925ebc578c45dec1c76ccd79c22372dc99d855e19d6ad034cccb007bda0929"
+  }
+}

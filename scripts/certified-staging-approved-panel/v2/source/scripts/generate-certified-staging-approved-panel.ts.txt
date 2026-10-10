@@ -1,0 +1,4 @@
+import { generateVersionedEvidence } from "./certified-staging-approved-panel/v2/generate.ts";
+
+// Explicit version transition only: never replace any historical or v2 evidence.
+console.log(JSON.stringify(generateVersionedEvidence(), null, 2));

@@ -34,6 +34,22 @@ if (!Number.isSafeInteger(INTEGER_MEMO_MAX_KEY) || INTEGER_MEMO_MAX_KEY > Number
 // than its radix, sid<600, and the greatest key is below 2^53. Raw stock is
 // validated integral, divided into integral uses, then capped before encoding.
 
+// The seeded private cache is never shortened, so its last slot always exists.
+type NonemptyPowers = [bigint, ...bigint[]] & { at(index: -1): bigint };
+
+// A malformed exponent can miss the cache. multiplyPower's factor comes from
+// BigInt(perMille) or 10n, so a missing RHS throws in that reachable BigInt
+// operation. Keep the original operators (including undefined % undefined's
+// NaN when a malformed rational also misses d), reads and invariant error.
+const multiplyPower = ((factor: bigint, power: bigint) => factor * power) as (
+  factor: bigint,
+  power: bigint | undefined,
+) => bigint;
+const liftWithPower = ((denominator: bigint, value: Q): bigint => {
+  if (denominator % value.d !== 0n) throw new Error("certified_integer_denominator_invariant");
+  return value.n * (denominator / value.d);
+}) as (denominator: bigint | undefined, value: Q) => bigint;
+
 /**
  * D(u)=1000^(sum u). All path probabilities divide this common denominator.
  * If child c has a lower exponent after exact stock caps, its action term is
@@ -43,28 +59,25 @@ if (!Number.isSafeInteger(INTEGER_MEMO_MAX_KEY) || INTEGER_MEMO_MAX_KEY > Number
  */
 export class IntegerFiniteTable {
   private readonly memo = new Map<number, IntegerValue>();
-  private readonly powers: bigint[] = [1n];
+  private readonly powers = [1n] as NonemptyPowers;
   constructor(
     private readonly prices: readonly [bigint, bigint, bigint],
     private readonly budget: WorkBudget,
     private readonly relaxed: (sid: number) => Relaxation,
   ) {}
 
-  private power(exponent: number): bigint {
+  private power(exponent: number): bigint | undefined {
     while (this.powers.length <= exponent) {
-      const previous = this.powers.at(-1)!;
+      const previous = this.powers.at(-1);
       const next = previous * 1000n;
       this.powers.push(next);
       this.budget.reserve(24 + Math.ceil(next.toString(2).length / 8));
     }
-    return this.powers[exponent]!;
+    return this.powers[exponent];
   }
   private fromRelaxed(value: ExactValue, exponent: number): IntegerValue {
     const denominator = this.power(exponent);
-    const lift = (value: Q): bigint => {
-      if (denominator % value.d !== 0n) throw new Error("certified_integer_denominator_invariant");
-      return value.n * (denominator / value.d);
-    };
+    const lift = (value: Q): bigint => liftWithPower(denominator, value);
     return {
       p: lift(value.p),
       consumed: value.consumed.map(lift) as [bigint, bigint, bigint],
@@ -103,10 +116,14 @@ export class IntegerFiniteTable {
     remaining[kit]--;
     const g = perMille ? this.get(great, remaining) : FAILED;
     const n = perMille < 1000 ? this.get(normal, remaining) : FAILED;
-    const gm = perMille ? BigInt(perMille) * this.power(exponent - 1 - g.exponent) : 0n;
+    const gm = perMille
+      ? multiplyPower(BigInt(perMille), this.power(exponent - 1 - g.exponent))
+      : 0n;
     const nm =
-      perMille < 1000 ? BigInt(1000 - perMille) * this.power(exponent - 1 - n.exponent) : 0n;
-    const immediate = 10n * this.power(exponent);
+      perMille < 1000
+        ? multiplyPower(BigInt(1000 - perMille), this.power(exponent - 1 - n.exponent))
+        : 0n;
+    const immediate = multiplyPower(10n, this.power(exponent));
     const consumption = (k: KitIndex): bigint =>
       gm * g.consumed[k] + nm * n.consumed[k] + (kit === k ? immediate : 0n);
     return {

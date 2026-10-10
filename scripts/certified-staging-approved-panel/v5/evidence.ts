@@ -1,0 +1,201 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fromWire, wire } from "../../certified-staging-oracle.ts";
+import {
+  ARCHIVED_SOURCES,
+  FIRST_ARCHIVE_FILES,
+  FIRST_PINS_SHA,
+  HISTORICAL_FILES,
+  HISTORICAL_ROOT,
+  PREVIOUS_ARCHIVE_FILES,
+  PREVIOUS_PINS_SHA,
+  pinnedBytes,
+  readFirstPublication,
+  readHistorical,
+  readPreviousPublication,
+  readV4Publication,
+  type SourceIdentity,
+  sourceIdentity,
+  V4_ARCHIVE_FILES,
+  V4_PINS_SHA,
+} from "./history.ts";
+
+export const V5_ROOT = `${HISTORICAL_ROOT}/v5`;
+export const PHYSICAL_CACHE =
+  "benchmarks/results/certified-staging-validation-independent-physical-rates-v5.json";
+export const PHYSICAL_VERSION = "independent-ordered-physical-supply-rates-v5";
+export const EVIDENCE_VERSION = "approved24-independent-evidence-v5";
+export const PUBLICATION_FILES = [
+  "pins.json",
+  "provenance.json",
+  "independent-physical-cohorts.json",
+  "panel.json",
+].map((name) => `${V5_ROOT}/${name}`);
+export const PHYSICAL_SOURCES = [
+  "scripts/certified-staging-oracle-physical-supply.ts",
+  "scripts/certified-staging-oracle.ts",
+  "shared/game.ts",
+  `${V5_ROOT}/evidence.ts`,
+  `${V5_ROOT}/history.ts`,
+] as const;
+export const GENERATION_SOURCES = [
+  ...PHYSICAL_SOURCES,
+  "scripts/certified-staging-oracle-tuples.ts",
+  "scripts/certified-staging-oracle-fixtures.ts",
+  "scripts/certified-staging-approved-panel.ts",
+  "scripts/generate-certified-staging-approved-panel.ts",
+  `${V5_ROOT}/generate.ts`,
+  `${V5_ROOT}/calculate.ts`,
+  "biome.json",
+  "package-lock.json",
+] as const;
+export const EVIDENCE_FILES = [
+  ...HISTORICAL_FILES.map(({ path }) => path),
+  ...ARCHIVED_SOURCES.map(({ archivePath }) => archivePath),
+  ...FIRST_ARCHIVE_FILES,
+  ...PREVIOUS_ARCHIVE_FILES,
+  ...V4_ARCHIVE_FILES,
+  ...PUBLICATION_FILES,
+  ...GENERATION_SOURCES,
+];
+type Wire = ReturnType<typeof wire>;
+type WireTriple = readonly [Wire, Wire, Wire];
+export type PhysicalEvidence = {
+  version: string;
+  generatedAt: string;
+  computeMs: number;
+  sources: SourceIdentity[];
+  sourceHash: string;
+  cohorts: readonly [WireTriple, WireTriple, WireTriple];
+  rate: WireTriple;
+};
+export type EvidenceProvenance = {
+  version: string;
+  generation: {
+    sources: SourceIdentity[];
+    sourceHash: string;
+    isolatedCacheEmpty: true;
+    physicalEnumeration: "full-ordered";
+    oracleRows: 24;
+    independentWaiting: "UNVERIFIED_NOT_REGENERATED";
+  };
+  historical: {
+    sources: typeof ARCHIVED_SOURCES;
+    files: typeof HISTORICAL_FILES;
+    firstPinsSha256: string;
+    previousPinsSha256: string;
+    v4PinsSha256: string;
+  };
+  physicalEnumeration: SourceIdentity & {
+    cachePath: string;
+    sources: SourceIdentity[];
+    sourceHash: string;
+  };
+  panel: SourceIdentity;
+};
+export function normalizeExact(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeExact);
+  if (value !== null && typeof value === "object") {
+    if ("numerator" in value && "denominator" in value) {
+      assert.equal(typeof value.numerator, "string");
+      assert.equal(typeof value.denominator, "string");
+      assert.deepEqual(Object.keys(value).sort(), ["denominator", "numerator"]);
+      return wire(fromWire(value as Wire));
+    }
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, normalizeExact(item)]),
+    );
+  }
+  return value;
+}
+export function validatePhysicalEvidence(physical: PhysicalEvidence, root = process.cwd()) {
+  const identity = sourceIdentity(PHYSICAL_SOURCES, root);
+  assert.equal(physical.version, PHYSICAL_VERSION, "Independent physical source identity drift");
+  assert.deepEqual(
+    physical.sources,
+    identity.sources,
+    "Independent physical source identity drift",
+  );
+  assert.equal(
+    physical.sourceHash,
+    identity.sourceHash,
+    "Independent physical source identity drift",
+  );
+  assert.equal(physical.cohorts.length, 3, "Independent physical exact rate identity drift");
+  for (const triple of [physical.rate, ...physical.cohorts]) {
+    assert.equal(triple.length, 3, "Independent physical exact rate identity drift");
+    for (const value of triple) {
+      const exact = fromWire(value);
+      assert.ok(exact.n >= 0n && exact.d > 0n, "Independent physical exact rate identity drift");
+      assert.deepEqual(wire(exact), value, "Independent physical exact rate identity drift");
+    }
+  }
+  assert.ok(Number.isFinite(physical.computeMs) && physical.computeMs > 0);
+  assert.ok(Number.isFinite(Date.parse(physical.generatedAt)));
+  return identity;
+}
+export function validateEquivalence(
+  physical: PhysicalEvidence,
+  panel: unknown[],
+  root = process.cwd(),
+) {
+  const historical = readHistorical(root);
+  const first = readFirstPublication(root);
+  const previous = readPreviousPublication(root);
+  const v4 = readV4Publication(root);
+  assert.equal(panel.length, 24);
+  for (const expected of [historical, first, previous, v4]) {
+    assert.deepEqual(normalizeExact(physical.cohorts), normalizeExact(expected.physical.cohorts));
+    assert.deepEqual(normalizeExact(physical.rate), normalizeExact(expected.physical.rate));
+    assert.deepEqual(
+      normalizeExact(panel),
+      normalizeExact(expected.panel),
+      "Approved24 historical exact equivalence drift",
+    );
+  }
+}
+/** Authenticate buffers once and parse those same buffers. Pins are the reviewed
+ * trust anchor; checkout/filesystem mutation by an adversarial writer is excluded. */
+export function readV5Evidence(root = process.cwd()) {
+  const pins = JSON.parse(readFileSync(resolve(root, `${V5_ROOT}/pins.json`), "utf8")) as {
+    version: string;
+    provenance: SourceIdentity;
+  };
+  assert.equal(pins.version, EVIDENCE_VERSION, "Independent physical pin identity drift");
+  assert.equal(pins.provenance.path, `${V5_ROOT}/provenance.json`);
+  const provenance = JSON.parse(
+    pinnedBytes(pins.provenance, root).toString(),
+  ) as EvidenceProvenance;
+  assert.equal(provenance.version, EVIDENCE_VERSION);
+  assert.deepEqual(provenance.historical, {
+    sources: ARCHIVED_SOURCES,
+    files: HISTORICAL_FILES,
+    firstPinsSha256: FIRST_PINS_SHA,
+    previousPinsSha256: PREVIOUS_PINS_SHA,
+    v4PinsSha256: V4_PINS_SHA,
+  });
+  assert.deepEqual(
+    provenance.generation,
+    {
+      ...sourceIdentity(GENERATION_SOURCES, root),
+      isolatedCacheEmpty: true,
+      physicalEnumeration: "full-ordered",
+      oracleRows: 24,
+      independentWaiting: "UNVERIFIED_NOT_REGENERATED",
+    },
+    "Independent physical generation source identity drift",
+  );
+  assert.equal(provenance.physicalEnumeration.path, `${V5_ROOT}/independent-physical-cohorts.json`);
+  assert.equal(provenance.physicalEnumeration.cachePath, PHYSICAL_CACHE);
+  assert.equal(provenance.panel.path, `${V5_ROOT}/panel.json`);
+  const physicalBytes = pinnedBytes(provenance.physicalEnumeration, root);
+  const panelBytes = pinnedBytes(provenance.panel, root);
+  const physical = JSON.parse(physicalBytes.toString()) as PhysicalEvidence;
+  const panel = JSON.parse(panelBytes.toString()) as unknown[];
+  const identity = validatePhysicalEvidence(physical, root);
+  assert.deepEqual(provenance.physicalEnumeration.sources, identity.sources);
+  assert.equal(provenance.physicalEnumeration.sourceHash, identity.sourceHash);
+  validateEquivalence(physical, panel, root);
+  return { physical, physicalBytes, panel, panelBytes, provenance };
+}

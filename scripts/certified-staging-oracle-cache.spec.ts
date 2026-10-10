@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -12,41 +13,55 @@ import {
 import { stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { runInNewContext } from "node:vm";
 import { afterEach, expect, it } from "vitest";
 import {
-  frozenApprovedSnapshot,
-  independentApprovedPricing,
-} from "./certified-staging-approved-panel.ts";
+  EVIDENCE_FILES,
+  normalizeExact,
+  PHYSICAL_CACHE,
+  PHYSICAL_SOURCES,
+  PHYSICAL_VERSION,
+  PUBLICATION_FILES,
+  readV5Evidence,
+  V5_ROOT,
+} from "./certified-staging-approved-panel/v5/evidence.ts";
 import { add, fromWire, makeTriple, mapTriple, mul, q, wire } from "./certified-staging-oracle.ts";
 import { prepareIndependentPhysicalRatesCache } from "./certified-staging-oracle-cache.ts";
 
-const fixturePath = "scripts/certified-staging-approved-panel/independent-physical-cohorts.json";
-const provenancePath = "scripts/certified-staging-approved-panel/provenance.json";
-const cachePath = "benchmarks/results/certified-staging-validation-independent-physical-rates.json";
-const sourcePaths = [
-  "scripts/certified-staging-oracle-physical-supply.ts",
-  "scripts/certified-staging-oracle.ts",
-] as const;
+const fixturePath = `${V5_ROOT}/independent-physical-cohorts.json`;
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-
-function cleanFixtureRoot() {
-  const root = mkdtempSync(join(tmpdir(), "review13-physical-rates-"));
+function fixtureRoot() {
+  const root = mkdtempSync(join(tmpdir(), "independent-cache-v5-"));
   roots.push(root);
-  for (const path of [fixturePath, provenancePath, ...sourcePaths]) {
+  for (const path of EVIDENCE_FILES) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     copyFileSync(path, join(root, path));
   }
   return root;
 }
-
-/** Execute the actual frozen helper body. Only its expensive enumeration is replaced
- * with a bounded stub; all filesystem calls and independent exact arithmetic remain real. */
-function physicalHelper(root: string) {
-  const source = readFileSync(sourcePaths[0], "utf8");
+function direct(root: string, body: string, timeout = 10_000) {
+  return execFileSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+    import assert from "node:assert/strict";
+    import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
+    import { independentPhysicalRecurringRates as rates } from "./scripts/certified-staging-oracle-physical-supply.ts";
+    const path = ${JSON.stringify(PHYSICAL_CACHE)};
+    ${body}
+  `,
+    ],
+    { cwd: root, encoding: "utf8", timeout, stdio: "pipe" },
+  );
+}
+/** Only the expensive enumeration is stubbed for cold failure/memo guards.
+ * Real cold enumeration/equivalence is covered by the sealed source suite. */
+function boundedColdHelper(root: string) {
+  const source = readFileSync(PHYSICAL_SOURCES[0], "utf8");
   const body = stripTypeScriptTypes(
     source
       .slice(source.indexOf("function sourceIdentity()"), source.indexOf("\nif (process.argv[1]"))
@@ -55,19 +70,29 @@ function physicalHelper(root: string) {
         "function independentPhysicalRecurringRates",
       ),
   );
-  let enumerationCalls = 0;
-  const rates = runInNewContext(`${body}\nindependentPhysicalRecurringRates;`, {
+  let calls = 0;
+  const context = {
+    assert,
     createHash,
-    readFileSync: (path: string, encoding?: BufferEncoding) =>
-      encoding ? readFileSync(resolve(root, path), encoding) : readFileSync(resolve(root, path)),
+    PHYSICAL_SOURCES,
+    PHYSICAL_VERSION,
+    PUBLICATION_FILES,
+    normalizeExact,
+    dirname,
+    readFileSync: (path: string) => readFileSync(resolve(root, path)),
     existsSync: (path: string) => existsSync(resolve(root, path)),
-    writeFileSync: (path: string, data: string) => writeFileSync(resolve(root, path), data),
+    mkdirSync: (path: string, options: { recursive: boolean }) =>
+      mkdirSync(resolve(root, path), options),
+    writeFileSync: (path: string, bytes: Buffer | string, options: { flag: string }) =>
+      writeFileSync(resolve(root, path), bytes, options),
+    readV5Evidence: () => readV5Evidence(root),
     independentDispatchExpectations: () => {
-      enumerationCalls++;
+      calls++;
       return [makeTriple(() => q(1)), makeTriple(() => q(2)), makeTriple(() => q(3))];
     },
-    path: cachePath,
+    path: PHYSICAL_CACHE,
     memoizedRates: null,
+    memoizedIdentity: null,
     performance,
     add,
     fromWire,
@@ -76,109 +101,179 @@ function physicalHelper(root: string) {
     mul,
     q,
     wire,
-  }) as () => ReturnType<typeof independentApprovedPricing>;
-  return { rates, enumerationCalls: () => enumerationCalls };
+  };
+  const rates = new Function(
+    ...Object.keys(context),
+    `${body}\nreturn independentPhysicalRecurringRates;`,
+  )(...Object.values(context)) as () => ReturnType<typeof makeTriple<ReturnType<typeof q>>>;
+  return { rates, calls: () => calls };
 }
-
-it("reproduces the frozen cache-miss ENOENT with bounded enumeration, not a full recomputation", () => {
-  const root = cleanFixtureRoot();
-  expect(existsSync(join(root, "benchmarks"))).toBe(false);
-  const helper = physicalHelper(root);
+it("retains cold ENOENT on a missing cache directory without requiring a published seal", () => {
+  const root = fixtureRoot();
+  for (const path of PUBLICATION_FILES) rmSync(join(root, path));
+  const helper = boundedColdHelper(root);
   expect(helper.rates).toThrow(/ENOENT/);
-  expect(helper.enumerationCalls()).toBe(1);
-  expect(existsSync(join(root, cachePath))).toBe(false);
+  expect(helper.calls()).toBe(1);
+  expect(existsSync(join(root, PHYSICAL_CACHE))).toBe(false);
 });
-
-it("prepares a clean CI cache byte-for-byte and the unchanged helper uses exact rates and prices without enumeration", () => {
-  const root = cleanFixtureRoot();
-  const prepared = prepareIndependentPhysicalRatesCache(root);
-  expect(prepared.cacheHit).toBe(false);
-  expect(readFileSync(join(root, cachePath))).toEqual(readFileSync(fixturePath));
-  expect(prepared.sha256).toBe("fed3faab0a2b032deb65f9b892684cb9518c38a67596f8ba066f8e9cc7d8be0a");
-  const helper = physicalHelper(root);
-  const rates = helper.rates();
-  expect(helper.enumerationCalls()).toBe(0);
-  const expected = independentApprovedPricing(
-    frozenApprovedSnapshot(),
-    makeTriple(() => q(1, 3)),
-  );
-  expect(rates).toEqual(expected);
-  for (const stock of [
-    [0, 0, 0],
-    [600, 100, 40],
-    [1000, 200, 100],
-    [800, 150, 60],
-  ]) {
-    const prices = (values: typeof rates) =>
-      mapTriple(values, (rate, color) => {
-        const raw = stock[color];
-        if (raw === undefined) throw new Error("Missing test stock color");
-        return q(rate.d, BigInt(raw) * rate.d + rate.n);
-      });
-    expect(prices(rates)).toEqual(prices(expected));
-  }
-});
-
-it("runs the actual unchanged physical module against the prepared clean directory, with no enumeration mock", () => {
-  const root = cleanFixtureRoot();
-  mkdirSync(join(root, "shared"));
-  copyFileSync("shared/game.ts", join(root, "shared/game.ts"));
-  prepareIndependentPhysicalRatesCache(root);
-  const output = execFileSync(process.execPath, [sourcePaths[0]], {
-    cwd: root,
-    encoding: "utf8",
-    timeout: 5_000,
-  });
-  const reported = JSON.parse(output) as { report: string; approximateRates: number[] };
-  expect(reported.report).toBe(cachePath);
-  expect(reported.approximateRates).toHaveLength(3);
-  expect(readFileSync(join(root, cachePath))).toEqual(readFileSync(fixturePath));
-});
-
-it("accepts an identical existing cache without writing it", () => {
-  const root = cleanFixtureRoot();
-  prepareIndependentPhysicalRatesCache(root);
-  expect(prepareIndependentPhysicalRatesCache(root).cacheHit).toBe(true);
-  expect(readFileSync(join(root, cachePath))).toEqual(readFileSync(fixturePath));
-});
-
-it.each(["wrong-rate", "wrong-source", "unparseable", "different-metadata"])(
-  "rejects and preserves existing %s cache bytes",
+it.each(["cache", "source", "missing"])(
+  "a freshly computed unpublished memo rejects %s drift without another enumeration",
   (kind) => {
-    const root = cleanFixtureRoot();
+    const root = fixtureRoot();
+    for (const path of PUBLICATION_FILES) rmSync(join(root, path));
+    mkdirSync(dirname(join(root, PHYSICAL_CACHE)), { recursive: true });
+    const helper = boundedColdHelper(root);
+    const rates = helper.rates();
+    expect(helper.rates()).toBe(rates);
+    expect(helper.calls()).toBe(1);
+    let target = join(root, PHYSICAL_CACHE);
+    if (kind === "source") target = join(root, "shared/game.ts");
+    if (kind === "missing") rmSync(target);
+    else writeFileSync(target, Buffer.concat([readFileSync(target), Buffer.from("\n")]));
+    expect(helper.rates).toThrow(/cache\/source changed after memoization/);
+    expect(helper.calls()).toBe(1);
+  },
+);
+it("prepares authenticated v5 bytes and direct warm/memoized calls agree without writes", () => {
+  const root = fixtureRoot();
+  const first = prepareIndependentPhysicalRatesCache(root);
+  expect(first.cacheHit).toBe(false);
+  expect(first.sha256).toBe(readV5Evidence().provenance.physicalEnumeration.sha256);
+  expect(prepareIndependentPhysicalRatesCache(root).cacheHit).toBe(true);
+  expect(readFileSync(join(root, PHYSICAL_CACHE))).toEqual(readFileSync(fixturePath));
+  direct(
+    root,
+    `
+    const before = readFileSync(path);
+    const first = rates();
+    assert.equal(rates(), first);
+    assert.deepEqual(readFileSync(path), before);
+  `,
+  );
+});
+it("a clean checkout genuinely computes cold, then a second process and preparer accept canonical bytes", () => {
+  const root = fixtureRoot();
+  expect(existsSync(join(root, "benchmarks"))).toBe(false);
+  direct(
+    root,
+    `
+    const first = rates();
+    assert.equal(rates(), first);
+    assert.deepEqual(readFileSync(path), readFileSync(${JSON.stringify(fixturePath)}));
+    // Cold memoization must retain published-evidence authentication.
+    const evidencePath = ${JSON.stringify(`${V5_ROOT}/panel.json`)};
+    const evidence = readFileSync(evidencePath);
+    writeFileSync(evidencePath, Buffer.concat([evidence, Buffer.from("\\n")]));
+    assert.throws(rates);
+    assert.deepEqual(readFileSync(evidencePath), Buffer.concat([evidence, Buffer.from("\\n")]));
+    writeFileSync(evidencePath, evidence);
+  `,
+    120_000,
+  );
+  const bytes = readFileSync(join(root, PHYSICAL_CACHE));
+  expect(bytes).toEqual(readFileSync(fixturePath));
+  // This process has no producer memo and a bounded warm-only deadline.
+  direct(
+    root,
+    `rates(); assert.deepEqual(readFileSync(path), readFileSync(${JSON.stringify(fixturePath)}));`,
+  );
+  expect(prepareIndependentPhysicalRatesCache(root).cacheHit).toBe(true);
+  expect(readFileSync(join(root, PHYSICAL_CACHE))).toEqual(bytes);
+}, 150_000);
+it.each(PUBLICATION_FILES)(
+  "a cold call rejects partial publication missing %s before enumeration",
+  (path) => {
+    const root = fixtureRoot();
+    rmSync(join(root, path));
+    const helper = boundedColdHelper(root);
+    expect(helper.rates).toThrow();
+    expect(helper.calls()).toBe(0);
+    expect(existsSync(join(root, "benchmarks"))).toBe(false);
+  },
+);
+it("a cold call rejects invalid publication without falling back to producer output", () => {
+  const root = fixtureRoot();
+  writeFileSync(join(root, fixturePath), "invalid physical publication");
+  const helper = boundedColdHelper(root);
+  expect(helper.rates).toThrow(/hash drift/);
+  expect(helper.calls()).toBe(0);
+  expect(readFileSync(join(root, fixturePath), "utf8")).toBe("invalid physical publication");
+  expect(existsSync(join(root, "benchmarks"))).toBe(false);
+});
+it("a published cold calculation must match authenticated values before any cache write", () => {
+  const root = fixtureRoot();
+  const helper = boundedColdHelper(root);
+  expect(helper.rates).toThrow(/Fresh physical cohorts differ/);
+  expect(helper.calls()).toBe(1);
+  expect(existsSync(join(root, "benchmarks"))).toBe(false);
+});
+it.each(["wrong-rate", "wrong-source", "version", "unparseable", "metadata", "sourceHash-only"])(
+  "both preparation and direct calls reject and preserve %s cache bytes",
+  (kind) => {
+    const root = fixtureRoot();
     const physical = JSON.parse(readFileSync(fixturePath, "utf8"));
-    if (kind === "wrong-rate") physical.rate[0].numerator = "1";
+    if (kind === "wrong-rate" || kind === "sourceHash-only") physical.rate[0].numerator = "1";
     if (kind === "wrong-source") physical.sourceHash = "0".repeat(64);
-    if (kind === "different-metadata") physical.computeMs++;
-    const bytes =
-      kind === "unparseable" ? "unparsed existing research evidence\n" : JSON.stringify(physical);
-    mkdirSync(dirname(join(root, cachePath)), { recursive: true });
-    writeFileSync(join(root, cachePath), bytes);
+    if (kind === "version") physical.version = "independent-ordered-physical-supply-rates-v4";
+    if (kind === "metadata") physical.computeMs++;
+    let bytes = JSON.stringify(physical);
+    if (kind === "unparseable") bytes = "unparsed research evidence\n";
+    if (kind === "sourceHash-only")
+      bytes = JSON.stringify({ sourceHash: physical.sourceHash, rate: physical.rate });
+    mkdirSync(dirname(join(root, PHYSICAL_CACHE)), { recursive: true });
+    writeFileSync(join(root, PHYSICAL_CACHE), bytes);
     expect(() => prepareIndependentPhysicalRatesCache(root)).toThrow(
       /existing independent physical cache differs/i,
     );
-    expect(readFileSync(join(root, cachePath), "utf8")).toBe(bytes);
+    direct(root, `assert.throws(rates, /Existing independent physical cache differs/);`);
+    expect(readFileSync(join(root, PHYSICAL_CACHE), "utf8")).toBe(bytes);
   },
 );
-
-it.each([fixturePath, provenancePath, ...sourcePaths])(
-  "rejects tampering in %s before creating any cache",
-  (path) => {
-    const root = cleanFixtureRoot();
-    writeFileSync(join(root, path), `${readFileSync(join(root, path), "utf8")}\n`);
-    expect(() => prepareIndependentPhysicalRatesCache(root)).toThrow(
-      /independent physical.*(hash|identity)/i,
+it.each(["cache", "source", "missing-cache", "evidence", "missing-evidence"])(
+  "rejects %s mutation after memoization without replacement",
+  (kind) => {
+    const root = fixtureRoot();
+    prepareIndependentPhysicalRatesCache(root);
+    let target = PHYSICAL_CACHE;
+    if (kind === "source") target = "shared/game.ts";
+    else if (kind.includes("evidence")) target = `${V5_ROOT}/panel.json`;
+    direct(
+      root,
+      `
+      rates();
+      const target = ${JSON.stringify(target)};
+      if (${JSON.stringify(kind)}.startsWith("missing")) unlinkSync(target);
+      else writeFileSync(target, Buffer.concat([readFileSync(target), Buffer.from("\\n")]));
+      assert.throws(rates);
+    `,
     );
-    expect(existsSync(join(root, "benchmarks"))).toBe(false);
   },
 );
-
-it.each([fixturePath, provenancePath, ...sourcePaths])(
-  "fails closed for missing tracked %s without running enumeration or writing a cache",
+it.each(EVIDENCE_FILES)(
+  "rejects missing %s before cache creation and during a direct warm call",
   (path) => {
-    const root = cleanFixtureRoot();
+    const root = fixtureRoot();
+    prepareIndependentPhysicalRatesCache(root);
+    const bytes = readFileSync(join(root, PHYSICAL_CACHE));
     rmSync(join(root, path));
+    expect(() => direct(root, "rates();")).toThrow();
+    expect(readFileSync(join(root, PHYSICAL_CACHE))).toEqual(bytes);
+    rmSync(join(root, PHYSICAL_CACHE));
     expect(() => prepareIndependentPhysicalRatesCache(root)).toThrow(/ENOENT/);
-    expect(existsSync(join(root, "benchmarks"))).toBe(false);
+    expect(existsSync(join(root, PHYSICAL_CACHE))).toBe(false);
   },
 );
+it.each(EVIDENCE_FILES)("rejects tampered %s without creating a cache", (path) => {
+  const root = fixtureRoot();
+  if (path === `${V5_ROOT}/pins.json`) {
+    const pins = JSON.parse(readFileSync(join(root, path), "utf8"));
+    pins.provenance.sha256 = "0".repeat(64);
+    writeFileSync(join(root, path), JSON.stringify(pins));
+  } else
+    writeFileSync(
+      join(root, path),
+      Buffer.concat([readFileSync(join(root, path)), Buffer.from("\n")]),
+    );
+  expect(() => prepareIndependentPhysicalRatesCache(root)).toThrow();
+  expect(existsSync(join(root, "benchmarks"))).toBe(false);
+});

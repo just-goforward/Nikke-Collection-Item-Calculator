@@ -20,7 +20,22 @@ type State = Pick<OracleInput, "grade" | "level" | "exp">;
 type PolicyValue = { B: ExactQ; C: ExactQ; consumed: QTriple };
 type RelaxedAction = PolicyValue & { worst: Triple };
 type UnlimitedValue = RelaxedAction & { actions: readonly RelaxedAction[] };
+type ActionTriple = readonly [RelaxedAction, RelaxedAction, RelaxedAction];
+export type IndependentNonterminalValue = RelaxedAction & { actions: ActionTriple };
+// Internal construction has exactly two shapes: SR15's empty tuple and the dense
+// three-color tuple. Keep the established public solver signature above broad.
+type ProducedUnlimitedValue =
+  | (RelaxedAction & { actions: readonly [] })
+  | IndependentNonterminalValue;
 const ZERO = q(0);
+
+// Public every callbacks may visit sparse or extended input arrays. A missing
+// worst coordinate participates in the original numeric operation (NaN/false),
+// rather than being asserted to exist or replaced with a default.
+export const coversWorstCoordinate = ((pieces: number, worst: number) => pieces >= worst * 10) as (
+  pieces: number,
+  worst: number | undefined,
+) => boolean;
 
 function mixed(probability: ExactQ, success: PolicyValue, normal: PolicyValue): PolicyValue {
   const other = q(probability.d - probability.n, probability.d);
@@ -67,9 +82,12 @@ function actionValue(
 }
 
 /** No inventory caps or candidate transitions: finite game-state DAG with unlimited stock. */
-export function createIndependentUnlimited(prices: QTriple) {
-  const memo = new Map<string, UnlimitedValue>();
-  const solve = (raw: State): UnlimitedValue => {
+export function createIndependentUnlimited(prices: QTriple): {
+  solve: (raw: State) => UnlimitedValue;
+  nodes: () => number;
+} {
+  const memo = new Map<string, ProducedUnlimitedValue>();
+  const solve = (raw: State): ProducedUnlimitedValue => {
     const state = canonicalState(raw.grade, raw.level, raw.exp);
     const key = stateKey(state);
     const cached = memo.get(key);
@@ -149,7 +167,7 @@ function finiteAction(
   };
 }
 function feasibleRelaxation(stock: Triple, value: UnlimitedValue): boolean {
-  return stock.every((pieces, color) => pieces >= value.worst[color]! * 10);
+  return stock.every((pieces, color) => coversWorstCoordinate(pieces, value.worst[color]));
 }
 /** Independent uncapped Bellman inventory DP for the one-shortage witness.
  * A feasible relaxation requires its complete worst-path stock bound.
@@ -172,18 +190,19 @@ export function independentFiniteWitness(
     if (cached) return cached;
     if (state.grade === "SR" && state.level === 15)
       return { P: q(1), B: ZERO, C: ZERO, consumed: [ZERO, ZERO, ZERO] };
-    const relaxed = unlimited.solve(state);
+    // Single producer boundary: SR15 returned above. Recanonicalizing this plain
+    // state cannot turn a nonterminal into SR15 (R promotion becomes SR5).
+    // The producer's other branch constructs ActionTriple with makeTriple; it
+    // never memoizes the empty terminal result. Keep the public solve type broad.
+    const relaxed = unlimited.solve(state) as IndependentNonterminalValue;
     if (feasibleRelaxation(stock, relaxed)) return { ...relaxed, P: q(1) };
     let best: FiniteValue = { P: ZERO, B: ZERO, C: ZERO, consumed: [ZERO, ZERO, ZERO] };
     let selected = 3;
     const colors = ([0, 1, 2] as const)
       .filter((color) => stock[color] >= 10)
-      .sort((a, b) => cmp(relaxed.actions[a]!.B, relaxed.actions[b]!.B) || a - b);
+      .sort((a, b) => cmp(relaxed.actions[a].B, relaxed.actions[b].B) || a - b);
     for (const color of colors) {
-      if (
-        cmp(best.P, q(1)) === 0 &&
-        compareValue({ ...relaxed.actions[color]!, P: q(1) }, best) < 0
-      )
+      if (cmp(best.P, q(1)) === 0 && compareValue({ ...relaxed.actions[color], P: q(1) }, best) < 0)
         continue;
       const value = finiteAction(state, stock, color, input.prices, solve);
       const comparison = compareValue(value, best);
@@ -232,12 +251,17 @@ export function independentBoxMass(
 
 // Four physical cards per class, four draws; cohort0 never refreshes.
 const WEIGHTS = [15, 15, 6, 3, 4, 2, 15, 8, 8, 4, 3, 7, 7, 3] as const;
-type Board = { counts: readonly number[]; mass: ExactQ };
+// Mapping this dense tuple preserves its fourteen coordinates. Board indices
+// originate only in WEIGHTS.reduce or the bounded loop below.
+type NumberCoordinates<T extends readonly unknown[]> = { -readonly [K in keyof T]: number };
+type BoardCounts = NumberCoordinates<typeof WEIGHTS>;
+type BoardIndex = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
+type Board = { counts: Readonly<BoardCounts>; mass: ExactQ };
 let boards: readonly Board[] | null = null;
 function independentZeroCohortBoards(): readonly Board[] {
   if (boards) return boards;
   const distribution = new Map<string, Board>();
-  const counts = WEIGHTS.map(() => 0);
+  const counts = WEIGHTS.map(() => 0) as BoardCounts;
   const draw = (remaining: number, mass: ExactQ) => {
     if (remaining === 0) {
       const key = counts.join(",");
@@ -248,30 +272,29 @@ function independentZeroCohortBoards(): readonly Board[] {
       });
       return;
     }
-    const total = WEIGHTS.reduce((sum, weight, index) => sum + (4 - counts[index]!) * weight, 0);
+    const total = WEIGHTS.reduce(
+      (sum, weight, index) => sum + (4 - counts[index as BoardIndex]) * weight,
+      0,
+    );
     for (let index = 0; index < WEIGHTS.length; index++) {
-      const weight = (4 - counts[index]!) * WEIGHTS[index]!;
+      const weight = (4 - counts[index as BoardIndex]) * WEIGHTS[index as BoardIndex];
       if (weight === 0) continue;
-      counts[index] = counts[index]! + 1;
+      counts[index as BoardIndex] = counts[index as BoardIndex] + 1;
       draw(remaining - 1, mul(mass, q(weight, total)));
-      counts[index] = counts[index]! - 1;
+      counts[index as BoardIndex] = counts[index as BoardIndex] - 1;
     }
   };
   draw(4, q(1));
   boards = [...distribution.values()];
   return boards;
 }
-function boardDirect(counts: readonly number[]): Triple {
-  return [
-    counts[0]! * 2 + counts[1]! * 3,
-    counts[2]! * 2 + counts[3]! * 3,
-    counts[4]! + counts[5]! * 2,
-  ];
+function boardDirect(counts: Readonly<BoardCounts>): Triple {
+  return [counts[0] * 2 + counts[1] * 3, counts[2] * 2 + counts[3] * 3, counts[4] + counts[5] * 2];
 }
-function conditionalBoardMass(counts: readonly number[], target: Triple): ExactQ {
+function conditionalBoardMass(counts: Readonly<BoardCounts>, target: Triple): ExactQ {
   const direct = boardDirect(counts);
-  const regular = counts[6]! + counts[7]! * 2;
-  const second = counts[8]! + counts[9]! * 2;
+  const regular = counts[6] + counts[7] * 2;
+  const second = counts[8] + counts[9] * 2;
   let mass = ZERO;
   for (let blue = 0; blue <= regular; blue++) {
     const first: Triple = [blue * 3, regular - blue, 0];

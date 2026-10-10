@@ -17,23 +17,29 @@ export type Relaxation = {
 export const EMPTY_VECTOR: VectorRow = { consumed: [0n, 0n, 0n], exponent: 0, mask: 0 };
 export const EMPTY_PRIMARY: PrimaryRow = { p: 0n, exponent: 0, mask: 0 };
 
+// The seeded private cache is never shortened, so its last slot always exists.
+type NonemptyPowers = [bigint, ...bigint[]] & { at(index: -1): bigint };
+
 /** D=1000^min(sum capped uses,max positive path length). Every child exponent
  * is <=parent-1 by both bounds, so all lift exponents are nonnegative. */
 export class GuidanceArithmetic {
-  private readonly powers: bigint[] = [1n];
+  private readonly powers = [1n] as NonemptyPowers;
   constructor(
     readonly prices: readonly [bigint, bigint, bigint],
     private readonly budget: WorkBudget,
   ) {}
-  power(exponent: number): bigint {
+  power(exponent: number): bigint;
+  power(exponent: number): bigint | undefined {
     if (!Number.isInteger(exponent) || exponent < 0) throw new Error("certified_guidance_lift");
     while (this.powers.length <= exponent) {
-      const previous = this.powers.at(-1)!;
+      const previous = this.powers.at(-1);
       const next = previous * 1000n;
       this.powers.push(next);
       this.budget.reserve(24 + Math.ceil(next.toString(2).length / 8));
     }
-    return this.powers[exponent]!;
+    // The guard and completed push loop prove the public bigint overload.
+    // The implementation still models the indexed-read type honestly.
+    return this.powers[exponent];
   }
   burden(value: VectorRow): bigint {
     return KIT_INDICES.reduce((total, k) => total + value.consumed[k] * this.prices[k], 0n);

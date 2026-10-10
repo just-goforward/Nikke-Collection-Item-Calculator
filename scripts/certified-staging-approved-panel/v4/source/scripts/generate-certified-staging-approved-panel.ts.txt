@@ -1,0 +1,22 @@
+import { calculateFresh } from "./certified-staging-approved-panel/v4/calculate.ts";
+import {
+  prepareGeneration,
+  preparePins,
+  prepareProvenance,
+  publishGeneration,
+} from "./certified-staging-approved-panel/v4/generate.ts";
+
+// Separate draft/format/seal phases: tidy formats new bytes before their hashes
+// become evidence. No command ever reformats or replaces an existing seal.
+const [command = "--prepare", directory] = process.argv.slice(2);
+let result: unknown;
+if (command === "--calculate") result = calculateFresh();
+else if (command === "--prepare") result = prepareGeneration();
+else {
+  if (!directory) throw new Error("An explicit draft directory is required");
+  if (command === "--provenance") result = prepareProvenance(directory);
+  else if (command === "--pins") result = preparePins(directory);
+  else if (command === "--publish") result = publishGeneration(directory);
+  else throw new Error(`Unknown evidence phase: ${command}`);
+}
+console.log(JSON.stringify(result, null, 2));

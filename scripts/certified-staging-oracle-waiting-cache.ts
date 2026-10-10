@@ -100,10 +100,22 @@ export type LoadedWaitingProofCache = {
     currentVerified: boolean,
   ) => WaitingProofEntry | null;
 };
+// Preserve cmp's identity and right-coordinate native read, including a fourth
+// pricing callback whose matching fixed-price coordinate is absent.
+const compareVerifiedPrice = cmp as {
+  (left: ReturnType<typeof fromWire>, right: undefined): never;
+  (left: ReturnType<typeof fromWire>, right: ReturnType<typeof fromWire>): ReturnType<typeof cmp>;
+  (
+    left: ReturnType<typeof fromWire>,
+    right: ReturnType<typeof fromWire> | undefined,
+  ): ReturnType<typeof cmp>;
+};
 function verifiedPrices(output: CertifiedOutput, prices: QTriple): boolean {
   const pricing = output.pricing;
   if (pricing === null) return false;
-  return pricing.weights.every((price, color) => cmp(fromWire(price), prices[color]!) === 0);
+  return pricing.weights.every(
+    (price, color) => compareVerifiedPrice(fromWire(price), prices[color]) === 0,
+  );
 }
 export function loadWaitingProofCache(path: string, sha256: string): LoadedWaitingProofCache {
   const bytes = readFileSync(path);

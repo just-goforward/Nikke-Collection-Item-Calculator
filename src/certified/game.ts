@@ -96,12 +96,15 @@ for (let s = TERMINAL - 1; s >= 0; s--) {
     }
   }
 }
+// Raw stock normally comes from a Triple producer. A short/sparse compatibility
+// input still divides undefined by 10 (NaN); BigInt/Symbol keep native errors.
+const pieceQuotient = ((pieces: number) => pieces / 10) as (pieces: number | undefined) => number;
 export function capUnits(sid: number, raw: readonly number[]): Units {
   const caps = CAPS[sid as StateId];
   return [
-    Math.min(caps[0], Math.floor(raw[0]! / 10)),
-    Math.min(caps[1], Math.floor(raw[1]! / 10)),
-    Math.min(caps[2], Math.floor(raw[2]! / 10)),
+    Math.min(caps[0], Math.floor(pieceQuotient(raw[0]))),
+    Math.min(caps[1], Math.floor(pieceQuotient(raw[1]))),
+    Math.min(caps[2], Math.floor(pieceQuotient(raw[2]))),
   ];
 }
 export function minPositiveUses(sid: number): number {

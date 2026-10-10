@@ -38,8 +38,28 @@ export function law(
   cohort: 0 | 1 | 2,
   budget: WorkBudget,
 ): readonly ExactSupplyOutcome[] {
+  // Production callers enumerate refs.length. For a missing reference, the
+  // existing decoder's native property read throws; the operation boundary
+  // accepts that input without asserting a reference exists.
+  type LawLookup = {
+    (
+      ref: undefined,
+      cohort: Parameters<typeof getCertifiedLawDistribution>[1],
+      options: Parameters<typeof getCertifiedLawDistribution>[2],
+    ): never;
+    (
+      ref: Parameters<typeof getCertifiedLawDistribution>[0],
+      cohort: Parameters<typeof getCertifiedLawDistribution>[1],
+      options: Parameters<typeof getCertifiedLawDistribution>[2],
+    ): ReturnType<typeof getCertifiedLawDistribution>;
+    (
+      ref: Parameters<typeof getCertifiedLawDistribution>[0] | undefined,
+      cohort: Parameters<typeof getCertifiedLawDistribution>[1],
+      options: Parameters<typeof getCertifiedLawDistribution>[2],
+    ): ReturnType<typeof getCertifiedLawDistribution>;
+  };
   budget.check();
-  const outcomes = getCertifiedLawDistribution(event.refs[refIndex]!, cohort, {
+  const outcomes = (getCertifiedLawDistribution as LawLookup)(event.refs[refIndex], cohort, {
     laws: input.snapshot.laws,
     checkBudget: budget.check,
   });

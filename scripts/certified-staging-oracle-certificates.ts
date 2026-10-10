@@ -11,6 +11,7 @@ import {
 import { independentFiniteWitnessInteger } from "./certified-staging-oracle-endpoints-integer.ts";
 import { mapTriple } from "./certified-staging-oracle-tuples.ts";
 import {
+  coversWorstCoordinate,
   createIndependentUnlimited,
   independentBoxMass,
   independentDispatchZeroMass,
@@ -28,6 +29,13 @@ export type CertificateCheck = {
 type Witness = NonNullable<CertifiedOutput["waiting"]["strictBoundaryWitness"]>;
 type Receipt = Witness["receipts"][number];
 const massCache = new Map<string, ReturnType<typeof q>>();
+// cmp reads the right coordinate's denominator first; undefined must keep that
+// exact native property-read failure after decoding the left coordinate.
+const compareConsumed = cmp as {
+  (left: ReturnType<typeof q>, right: undefined): never;
+  (left: ReturnType<typeof q>, right: ReturnType<typeof q>): ReturnType<typeof cmp>;
+  (left: ReturnType<typeof q>, right: ReturnType<typeof q> | undefined): ReturnType<typeof cmp>;
+};
 function exactOutputValue(value: CertifiedValue): OracleValue {
   return {
     P: fromWire(value.successP),
@@ -42,7 +50,7 @@ function identical(
   return (
     compareValue(exactOutputValue(actual), independent) === 0 &&
     actual.expectedConsumed.every(
-      (value, color) => cmp(fromWire(value), independent.consumed[color]!) === 0,
+      (value, color) => compareConsumed(fromWire(value), independent.consumed[color]) === 0,
     )
   );
 }
@@ -122,7 +130,9 @@ function N0(
   currentVerified: boolean,
 ): CertificateCheck {
   const unlimited = createIndependentUnlimited(prices).solve(input);
-  const feasible = input.stock.every((pieces, color) => pieces >= unlimited.worst[color]! * 10);
+  const feasible = input.stock.every((pieces, color) =>
+    coversWorstCoordinate(pieces, unlimited.worst[color]),
+  );
   if (!currentVerified && !feasible)
     return { status: "NOTRUN", reason: "N0_current_exact_parity_not_established" };
   if (

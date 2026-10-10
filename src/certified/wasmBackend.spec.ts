@@ -215,7 +215,7 @@ describe("Rust/WASM execution limits", () => {
       const isolatedModule = new WebAssembly.Module(bytes);
       const release = vi.fn();
       // WebAssembly.Instance is called with new; an arrow implementation is not constructable.
-      const instance = vi.spyOn(WebAssembly, "Instance").mockImplementation(function () {
+      function createInstance(): WebAssembly.Instance {
         return {
           exports: {
             memory: new WebAssembly.Memory({ initial: 2 }),
@@ -230,17 +230,28 @@ describe("Rust/WASM execution limits", () => {
               throw new RangeError("simulated WASM stack exhaustion");
             },
           },
-        } as WebAssembly.Instance;
-      });
+        };
+      }
+      const instance = vi.spyOn(WebAssembly, "Instance").mockImplementation(createInstance);
       try {
         const broken = new WasmKernel(isolatedModule, new WorkBudget({}, performance.now()));
-        expect(() => broken.initialize([q(1), q(1), q(1)])).toThrow(RangeError);
+        let thrown: unknown;
+        try {
+          broken.initialize([q(1), q(1), q(1)]);
+        } catch (error) {
+          thrown = error;
+        }
+        expect(thrown).toBeInstanceOf(RangeError);
+        expect(thrown).toHaveProperty("message", "simulated WASM stack exhaustion");
+        expect(instance.mock.results[0]?.value.exports).toBe(broken.exports);
         broken.dispose();
         expect(release).not.toHaveBeenCalled();
         const replacement = new WasmKernel(isolatedModule, new WorkBudget({}, performance.now()));
         expect(replacement.exports).not.toBe(broken.exports);
+        expect(instance.mock.results[1]?.value.exports).toBe(replacement.exports);
         expect(instance).toHaveBeenCalledTimes(2);
         replacement.dispose();
+        expect(release).toHaveBeenCalledTimes(1);
       } finally {
         instance.mockRestore();
       }

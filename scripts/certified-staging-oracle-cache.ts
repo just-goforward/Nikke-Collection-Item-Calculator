@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { PHYSICAL_CACHE, readV5Evidence } from "./certified-staging-approved-panel/v5/evidence.ts";
 import {
   fromWire,
   mapTriple,
@@ -24,79 +25,11 @@ export const oracleSourceHash = createHash("sha256")
   .update(JSON.stringify(oracleSourceHashes))
   .digest("hex");
 type Wire = ReturnType<typeof wire>;
-const PHYSICAL_FIXTURE =
-  "scripts/certified-staging-approved-panel/independent-physical-cohorts.json";
-const PHYSICAL_PROVENANCE = "scripts/certified-staging-approved-panel/provenance.json";
-const PHYSICAL_CACHE =
-  "benchmarks/results/certified-staging-validation-independent-physical-rates.json";
-const PHYSICAL_FIXTURE_SHA = "fed3faab0a2b032deb65f9b892684cb9518c38a67596f8ba066f8e9cc7d8be0a";
-const PHYSICAL_PROVENANCE_SHA = "6cbf971ecdcbfe1e728a543a1a76adfa87ebbf694ae1722de5a2c6380b29d94a";
-const physicalSourcePaths = [
-  "scripts/certified-staging-oracle-physical-supply.ts",
-  "scripts/certified-staging-oracle.ts",
-];
-const sha256 = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
-
-/** Restore only the authenticated independent enumeration bytes for the unchanged
- * physical helper. No product oracle is imported and no enumeration is rerun. */
+/** Restore authenticated v5 enumeration only. A failed v5 identity never falls
+ * back to v1 rates, overwrites a cache or invokes an expensive enumeration. */
 export function prepareIndependentPhysicalRatesCache(rootDirectory = process.cwd()) {
-  const pinnedFile = (path: string, expected: string) => {
-    const bytes = readFileSync(resolve(rootDirectory, path));
-    if (sha256(bytes) !== expected) throw new Error(`Independent physical hash drift: ${path}`);
-    return bytes;
-  };
-  const provenance = JSON.parse(
-    pinnedFile(PHYSICAL_PROVENANCE, PHYSICAL_PROVENANCE_SHA).toString(),
-  ) as {
-    physicalEnumeration: {
-      path: string;
-      sha256: string;
-      sourceHash: string;
-      sources: { path: string; sha256: string }[];
-    };
-  };
-  const bytes = pinnedFile(PHYSICAL_FIXTURE, PHYSICAL_FIXTURE_SHA);
-  const physical = JSON.parse(bytes.toString()) as {
-    version: string;
-    sourceHash: string;
-    sources: { path: string; sha256: string }[];
-    cohorts: readonly [
-      readonly [Wire, Wire, Wire],
-      readonly [Wire, Wire, Wire],
-      readonly [Wire, Wire, Wire],
-    ];
-    rate: readonly [Wire, Wire, Wire];
-  };
-  const sources = physicalSourcePaths.map((path) => ({
-    path,
-    sha256: sha256(readFileSync(resolve(rootDirectory, path))),
-  }));
-  const sourceHash = sha256(JSON.stringify(sources));
-  const origin = provenance.physicalEnumeration;
-  if (
-    physical.version !== "independent-ordered-physical-supply-rates-v1" ||
-    origin.path !== PHYSICAL_CACHE ||
-    origin.sha256 !== PHYSICAL_FIXTURE_SHA ||
-    physical.sourceHash !== sourceHash ||
-    origin.sourceHash !== sourceHash ||
-    JSON.stringify(physical.sources) !== JSON.stringify(sources) ||
-    JSON.stringify(origin.sources) !== JSON.stringify(sources)
-  )
-    throw new Error("Independent physical source identity drift");
-  if (
-    physical.cohorts.length !== 3 ||
-    [physical.rate, ...physical.cohorts].some(
-      (triple) =>
-        triple.length !== 3 ||
-        triple.some((value) => {
-          const exact = fromWire(value);
-          return (
-            exact.n < 0n || exact.d <= 0n || JSON.stringify(wire(exact)) !== JSON.stringify(value)
-          );
-        }),
-    )
-  )
-    throw new Error("Independent physical exact rate identity drift");
+  const { physical, physicalBytes: bytes, provenance } = readV5Evidence(rootDirectory);
+  const { sourceHash, sources } = physical;
 
   const path = resolve(rootDirectory, PHYSICAL_CACHE);
   const verifyExisting = () => {
@@ -117,7 +50,7 @@ export function prepareIndependentPhysicalRatesCache(rootDirectory = process.cwd
       cacheHit = true;
     }
   }
-  return { path, cacheHit, sha256: PHYSICAL_FIXTURE_SHA, sourceHash, sources };
+  return { path, cacheHit, sha256: provenance.physicalEnumeration.sha256, sourceHash, sources };
 }
 
 type Stored = {

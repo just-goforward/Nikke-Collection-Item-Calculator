@@ -2,6 +2,21 @@ import type { WorkBudget } from "./budget";
 import { EDGES, KIT_INDICES, type KitIndex, type StateId, TERMINAL, type Units } from "./game";
 import { GUIDE_DIMENSIONS } from "./guidanceDomain";
 
+// The constructor allocates every state/p/y cell, and fill's loop/branch
+// bounds address that domain. Keep missing reads honest at the native
+// arithmetic/comparison boundaries instead of claiming arbitrary keys exist.
+const successorNeed = ((minimum: number) => 1 + minimum) as (minimum: number | undefined) => number;
+type MinimumWithMissingSuccessor = (need: number, successor: number | undefined) => number;
+const meetsMinimum = ((available: number, minimum: number) => available >= minimum) as (
+  available: number,
+  minimum: number | undefined,
+) => boolean;
+// mask supplies KitIndex, but actionHas retains its wider compatibility input.
+// Native postfix decrement also defines the existing missing-key NaN write.
+const consumeKit = ((units: Units, kit: KitIndex): void => {
+  units[kit]--;
+}) as (units: Units, kit: number) => void;
+
 function worstSuccessor(sid: number, kit: KitIndex): number {
   const [p, great, normal] = EDGES[sid as StateId][kit];
   return p === 1000 ? great : normal;
@@ -50,21 +65,32 @@ export class CertainCompletion {
       for (let y = 0; y < this.yellow; y++) {
         budget.tick();
         const offset = p * this.yellow + y;
-        let need = 1 + this.minimumBlue[blue + offset]!;
-        if (p > 0) need = Math.min(need, this.minimumBlue[purple + offset - this.yellow]!);
-        if (y > 0) need = Math.min(need, this.minimumBlue[yellow + offset - 1]!);
+        let need = successorNeed(this.minimumBlue[blue + offset]);
+        if (p > 0)
+          need = (Math.min as MinimumWithMissingSuccessor)(
+            need,
+            this.minimumBlue[purple + offset - this.yellow],
+          );
+        if (y > 0)
+          need = (Math.min as MinimumWithMissingSuccessor)(
+            need,
+            this.minimumBlue[yellow + offset - 1],
+          );
         if (need > 65535) throw new Error("certified_completion_uint16_overflow");
         this.minimumBlue[sid * this.stride + offset] = need;
       }
     }
   }
   has(sid: number, units: Units): boolean {
-    return units[0] >= this.minimumBlue[sid * this.stride + units[1] * this.yellow + units[2]]!;
+    return meetsMinimum(
+      units[0],
+      this.minimumBlue[sid * this.stride + units[1] * this.yellow + units[2]],
+    );
   }
   actionHas(sid: number, kit: number, units: Units): boolean {
     if (units[kit] === 0) return false;
     const remaining: Units = [...units];
-    remaining[kit]!--;
+    consumeKit(remaining, kit);
     return this.has(worstSuccessor(sid, kit as KitIndex), remaining);
   }
   mask(sid: number, units: Units): number {

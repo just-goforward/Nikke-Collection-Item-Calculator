@@ -21,6 +21,13 @@ type WitnessPair = {
   afterValue: ExactValue;
 };
 const ENTRY_BYTES = 64;
+// suffixRange fills entries.length + 1 cells; entries() only selects those
+// suffixes. Model a missing coordinate at subtraction, retaining native NaN
+// propagation/coercion rather than promising all numeric indices exist.
+const subtractSuffix = ((remaining: number, suffix: number) => remaining - suffix) as (
+  remaining: number,
+  suffix: number | undefined,
+) => number;
 function colorRange(
   outcomes: readonly ExactSupplyOutcome[],
   color: KitIndex,
@@ -119,13 +126,13 @@ function targetTrajectory(
     if (needed < range.min[0] || needed > range.max[0]) return null;
     let remaining = needed;
     for (const [i, entry] of entries.entries()) {
-      const suffixMin = range.min[i + 1]!;
-      const suffixMax = range.max[i + 1]!;
+      const suffixMin = range.min[i + 1];
+      const suffixMax = range.max[i + 1];
       const selected = selectedInRange(
         law(context.input, entry.event, entry.index, cohort, context.kernel.budget),
         color,
-        remaining - suffixMax,
-        remaining - suffixMin,
+        subtractSuffix(remaining, suffixMax),
+        subtractSuffix(remaining, suffixMin),
         otherColors,
       );
       if (!selected) return null;

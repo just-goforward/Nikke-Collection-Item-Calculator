@@ -3,6 +3,16 @@ import { cmp, compareValue, fromWire } from "./certified-staging-oracle.ts";
 import type { PublicPathRelaxationResult } from "./certified-staging-oracle-public-path-relaxation.ts";
 
 type EndpointWitness = { beforeValue: CertifiedValue; afterValue: CertifiedValue };
+type Wire = Parameters<typeof fromWire>[0];
+type Decoded = ReturnType<typeof fromWire>;
+// Native .every may skip holes or visit indices beyond the public tuple.
+// fromWire's first property read throws on undefined, so the decoder boundary
+// accepts missing coordinates without claiming they yield a decoded value.
+const decodeConsumed = fromWire as {
+  (value: undefined): never;
+  (value: Wire): Decoded;
+  (value: Wire | undefined): Decoded;
+};
 function endpointParity(
   value: PublicPathRelaxationResult["before"],
   fits: boolean,
@@ -17,7 +27,7 @@ function endpointParity(
       C: fromWire(saved.expectedTotalConsumptionC),
     }) === 0 &&
     value.consumed.every(
-      (consumed, color) => cmp(consumed, fromWire(saved.expectedConsumed[color]!)) === 0,
+      (consumed, color) => cmp(consumed, decodeConsumed(saved.expectedConsumed[color])) === 0,
     )
   );
 }

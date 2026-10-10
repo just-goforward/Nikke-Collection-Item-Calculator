@@ -18,7 +18,8 @@ import {
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { EVIDENCE_FILES } from "./certified-staging-approved-panel/v5/evidence.ts";
 import { digest, ENGINES, verifyApproved24 } from "./certified-staging-result-verifier.mjs";
 
 // Pure report tests are followed by real Git repositories and child freeze CLI tests.
@@ -27,18 +28,9 @@ import { digest, ENGINES, verifyApproved24 } from "./certified-staging-result-ve
 // These tests never import or execute the panel generator and never launch a browser.
 const hash = digest("fixture");
 const sourcePaths = [
-  ...["snapshot.json", "independent-physical-cohorts.json", "provenance.json", "panel.json"].map(
-    (name) => `scripts/certified-staging-approved-panel/${name}`,
-  ),
-  "scripts/certified-staging-approved-panel.ts",
-  "scripts/generate-certified-staging-approved-panel.ts",
-  "scripts/certified-staging-oracle.ts",
-  "scripts/certified-staging-oracle-fixtures.ts",
-  "scripts/certified-staging-oracle-physical-supply.ts",
+  ...EVIDENCE_FILES,
   "scripts/certified-staging-dist-validation.ts",
-  "shared/game.ts",
   "e2e/certified-staging-api.spec.ts",
-  "package-lock.json",
 ];
 
 const verifierPath = "scripts/certified-staging-result-verifier.mjs";
@@ -332,9 +324,10 @@ function addPositiveFreezeStubs(fixture) {
   );
 }
 
-function runFreeze(fixture) {
+function runFreeze(fixture, nodeArgs = []) {
   const expected = join(fixture.root, "expected-output", "expected.json");
   const result = recordedCommand(fixture, "freeze", process.execPath, [
+    ...nodeArgs,
     resolve(fixture.repo, verifierPath),
     "freeze",
     "--commit",
@@ -797,7 +790,11 @@ for (const [name, corrupt] of corruptions) {
 
 test("freeze CLI enforces required source membership in actual Git repositories", async (t) => {
   assert.equal(process.version, "v24.21.0", "freeze CLI fixtures require Node v24.21.0");
-  assert.equal(sourcePaths.length, 13, "all 13 required sources must have omission coverage");
+  assert.equal(
+    sourcePaths.length,
+    79,
+    "all versioned required sources must have omission coverage",
+  );
   const { git, inheritedPath } = resolveFixtureGit();
   const parent = resolve(process.env.CERTIFIED_FREEZE_FIXTURE_ROOT ?? tmpdir());
   mkdirSync(parent, { recursive: true });
@@ -814,7 +811,7 @@ test("freeze CLI enforces required source membership in actual Git repositories"
   );
   const suite = { root, sourceRoot, sources, git, inheritedPath };
 
-  await t.test("freezes all 13 actual required sources with metadata-only browser stubs", () => {
+  await t.test("freezes all versioned required sources with metadata-only browser stubs", () => {
     const fixture = createGitFixture(suite, "positive");
     addPositiveFreezeStubs(fixture);
     const result = runFreeze(fixture);
@@ -910,6 +907,63 @@ test("freeze CLI enforces required source membership in actual Git repositories"
       sources.get(generatorPath),
     );
   });
+
+  await t.test(
+    "rejects changed bytes read after the clean gate even when immediately restored",
+    () => {
+      const fixture = createGitFixture(suite, "read-race");
+      const preload = join(fixture.root, "replace-during-read.mjs");
+      const marker = join(fixture.root, "read-race-observed.json");
+      writeFileSync(
+        preload,
+        `import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { resolve } from "node:path";
+const target = resolve(${JSON.stringify(generatorPath)});
+const originalRead = fs.readFileSync;
+let replaced = false;
+fs.readFileSync = function(path, ...args) {
+  if (!replaced && resolve(String(path)) === target) {
+    replaced = true;
+    const original = originalRead(path);
+    fs.writeFileSync(path, Buffer.concat([original, Buffer.from("\\n// Concurrently changed source.\\n")]));
+    try {
+      const result = originalRead(path, ...args);
+      fs.writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ originalSha256: ${JSON.stringify(
+        digest(sources.get(generatorPath)),
+      )}, observedChangedBytes: true }));
+      return result;
+    } finally {
+      fs.writeFileSync(path, original);
+    }
+  }
+  return originalRead(path, ...args);
+};
+syncBuiltinESMExports();
+`,
+        { flag: "wx" },
+      );
+      const result = runFreeze(fixture, ["--import", pathToFileURL(preload).href]);
+      assertNegativeFreeze(fixture, result);
+      assert.ok(
+        result.stderr.includes(
+          `tracked bytes differ from approved candidate commit: ${generatorPath}`,
+        ),
+        "the committed-byte check must reject the actual changed read",
+      );
+      assert.deepEqual(JSON.parse(readFileSync(marker, "utf8")), {
+        originalSha256: digest(sources.get(generatorPath)),
+        observedChangedBytes: true,
+      });
+      assert.deepEqual(
+        readFileSync(resolve(fixture.repo, generatorPath)),
+        sources.get(generatorPath),
+      );
+      const clean = fixtureGit(fixture, "git-diff-restored", diffArgs);
+      assert.equal(clean.stdout, "");
+      assert.equal(clean.stderr, "");
+    },
+  );
 
   await t.test("rejects a tracked file absent from disk while preserving its bytes", () => {
     const fixture = createGitFixture(suite, "disk-absence");

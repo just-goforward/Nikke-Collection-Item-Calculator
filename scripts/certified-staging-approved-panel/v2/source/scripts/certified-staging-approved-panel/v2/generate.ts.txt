@@ -1,0 +1,127 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import {
+  constants,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, resolve } from "node:path";
+import {
+  ARCHIVED_SOURCES,
+  authenticateHistoricalArchive,
+  EVIDENCE_VERSION,
+  type EvidenceProvenance,
+  GENERATION_SOURCES,
+  HISTORICAL_FILES,
+  HISTORICAL_ROOT,
+  normalizeExact,
+  PHYSICAL_CACHE,
+  type PhysicalEvidence,
+  pinnedBytes,
+  sha256,
+  sourceIdentity,
+  V2_ROOT,
+  validatePhysicalEvidence,
+} from "./evidence.ts";
+
+/** Source bytes are historical data, not executable legacy modules. */
+export function archiveHistoricalSources(baseline: string, root = process.cwd()) {
+  for (const entry of ARCHIVED_SOURCES) {
+    const bytes = pinnedBytes(entry, baseline);
+    const destination = resolve(root, entry.archivePath);
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(destination, bytes, { flag: "wx" });
+    assert.deepEqual(readFileSync(destination), bytes);
+  }
+}
+
+export function generateVersionedEvidence(root = process.cwd()) {
+  const outputs = [
+    "independent-physical-cohorts.json",
+    "panel.json",
+    "provenance.json",
+    "pins.json",
+  ];
+  for (const name of outputs)
+    assert.equal(existsSync(resolve(root, V2_ROOT, name)), false, `Refusing to replace v2 ${name}`);
+  const historical = authenticateHistoricalArchive(root);
+  const before = sourceIdentity(GENERATION_SOURCES, root);
+  // A unique workspace is retained, including on failure, for inspection. Its
+  // only data input is the pinned snapshot. No cache or historical answers enter it.
+  const workspace = mkdtempSync(resolve(tmpdir(), "approved24-v2-fresh-"));
+  for (const path of [...GENERATION_SOURCES, `${HISTORICAL_ROOT}/snapshot.json`]) {
+    const destination = resolve(workspace, path);
+    mkdirSync(dirname(destination), { recursive: true });
+    copyFileSync(resolve(root, path), destination, constants.COPYFILE_EXCL);
+  }
+  mkdirSync(resolve(workspace, "benchmarks/results"), { recursive: true });
+  assert.deepEqual(sourceIdentity(GENERATION_SOURCES, workspace), before);
+  const calculation = execFileSync(process.execPath, [`${V2_ROOT}/calculate.ts`], {
+    cwd: workspace,
+    encoding: "utf8",
+    timeout: 300_000,
+    maxBuffer: 1024 * 1024,
+  });
+  const physicalBytes = readFileSync(resolve(workspace, PHYSICAL_CACHE));
+  const physical = JSON.parse(physicalBytes.toString()) as PhysicalEvidence;
+  const physicalIdentity = validatePhysicalEvidence(physical, root);
+  const panelBytes = readFileSync(resolve(workspace, "approved24.json"));
+  const panel = JSON.parse(panelBytes.toString()) as unknown[];
+  assert.equal(panel.length, 24);
+  assert.deepEqual(normalizeExact(physical.cohorts), normalizeExact(historical.cohorts));
+  assert.deepEqual(normalizeExact(physical.rate), normalizeExact(historical.rate));
+  assert.deepEqual(
+    normalizeExact(panel),
+    normalizeExact(
+      JSON.parse(readFileSync(resolve(root, `${HISTORICAL_ROOT}/panel.json`), "utf8")),
+    ),
+    "Fresh oracle calculation differs from the independently frozen approved24",
+  );
+  assert.deepEqual(sourceIdentity(GENERATION_SOURCES, root), before, "Active source drift");
+  assert.deepEqual(sourceIdentity(GENERATION_SOURCES, workspace), before, "Workspace source drift");
+  authenticateHistoricalArchive(root);
+  const provenance: EvidenceProvenance = {
+    version: EVIDENCE_VERSION,
+    generation: {
+      ...before,
+      isolatedCacheEmpty: true,
+      physicalEnumeration: "full-ordered",
+      oracleRows: 24,
+      independentWaiting: "UNVERIFIED_NOT_REGENERATED",
+    },
+    historical: { sources: ARCHIVED_SOURCES, files: HISTORICAL_FILES },
+    physicalEnumeration: {
+      path: `${V2_ROOT}/independent-physical-cohorts.json`,
+      cachePath: PHYSICAL_CACHE,
+      sha256: sha256(physicalBytes),
+      ...physicalIdentity,
+    },
+    panel: { path: `${V2_ROOT}/panel.json`, sha256: sha256(panelBytes) },
+  };
+  const provenanceBytes = `${JSON.stringify(provenance, null, 2)}\n`;
+  const pins = {
+    version: EVIDENCE_VERSION,
+    provenance: { path: `${V2_ROOT}/provenance.json`, sha256: sha256(provenanceBytes) },
+  };
+  for (const [name, bytes] of [
+    ["independent-physical-cohorts.json", physicalBytes],
+    ["panel.json", panelBytes],
+    ["provenance.json", provenanceBytes],
+    ["pins.json", `${JSON.stringify(pins, null, 2)}\n`],
+  ] as const) {
+    writeFileSync(resolve(root, V2_ROOT, name), bytes, { flag: "wx" });
+  }
+  authenticateHistoricalArchive(root);
+  assert.deepEqual(sourceIdentity(GENERATION_SOURCES, root), before, "Publication source drift");
+  return {
+    workspace,
+    calculation: JSON.parse(calculation),
+    pins,
+    independentWaiting: "UNVERIFIED_NOT_REGENERATED",
+  };
+}

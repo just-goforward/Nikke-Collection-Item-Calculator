@@ -12,6 +12,22 @@ import { makeTriple, mapTriple } from "./certified-staging-oracle-tuples.ts";
 
 type State = ReturnType<typeof canonicalState>;
 type Edge = { good: bigint; bad: bigint; success: number; normal: number };
+type EdgeRow = readonly Edge[];
+// Both array coordinates may be missing. Only the native property access
+// on a missing outer row throws here; an absent inner edge stays undefined.
+const edgeAt = ((row: EdgeRow, color: number) => row[color]) as {
+  (row: undefined, color: number): never;
+  (row: EdgeRow | undefined, color: number): Edge | undefined;
+};
+const edgeProperty = ((edge: Partial<Edge>, key: keyof Edge) => edge[key]) as {
+  (edge: undefined, key: keyof Edge): never;
+  (edge: Edge | undefined, key: "good" | "bad"): bigint;
+  (edge: Edge | undefined, key: "success" | "normal"): number;
+};
+const multiplyPrice = ((pieces: bigint, price: bigint) => pieces * price) as {
+  (pieces: bigint, price: undefined): never;
+  (pieces: bigint, price: bigint | undefined): bigint;
+};
 type Value = {
   p: bigint;
   consumed: readonly [bigint, bigint, bigint];
@@ -115,29 +131,42 @@ function child(id: number, stock: Triple, context: Context): Value {
     ? context.terminal
     : (context.previous.get(id * context.box + stockIndex(stock, context.bases)) ?? ZERO);
 }
-function consider(best: Value, edge: Edge, stock: Triple, color: number, context: Context): Value {
+function consider(
+  best: Value,
+  edge: Edge | undefined,
+  stock: Triple,
+  color: number,
+  context: Context,
+): Value {
   const remaining = mapTriple(stock, (units, index) => units - (index === color ? 1 : 0));
-  const good = edge.good ? child(edge.success, remaining, context) : ZERO;
-  const bad = edge.bad ? child(edge.normal, remaining, context) : ZERO;
-  const p = edge.good * good.p + edge.bad * bad.p;
+  const good = edgeProperty(edge, "good")
+    ? child(edgeProperty(edge, "success"), remaining, context)
+    : ZERO;
+  const bad = edgeProperty(edge, "bad")
+    ? child(edgeProperty(edge, "normal"), remaining, context)
+    : ZERO;
+  const p = edgeProperty(edge, "good") * good.p + edgeProperty(edge, "bad") * bad.p;
   if (p < best.p || p === 0n) return best;
   const consumed = makeTriple(
     (index) =>
-      edge.good * good.consumed[index] +
-      edge.bad * bad.consumed[index] +
+      edgeProperty(edge, "good") * good.consumed[index] +
+      edgeProperty(edge, "bad") * bad.consumed[index] +
       (index === color ? 10n * context.denominator : 0n),
   );
-  const B = consumed.reduce((total, pieces, index) => total + pieces * context.prices[index]!, 0n);
+  const B = consumed.reduce(
+    (total, pieces, index) => total + multiplyPrice(pieces, context.prices[index]),
+    0n,
+  );
   const C = consumed.reduce((total, pieces) => total + pieces, 0n);
   if (p === best.p && (B > best.B || (B === best.B && C > best.C))) return best;
   if (p === best.p && B === best.B && C === best.C)
     return { ...best, mask: best.mask | (1 << color) };
   return { p, consumed, B, C, mask: 1 << color };
 }
-function evaluate(edges: readonly Edge[], stock: Triple, context: Context): Value {
+function evaluate(edges: EdgeRow | undefined, stock: Triple, context: Context): Value {
   let value = ZERO;
   for (let color = 0; color < 3; color++)
-    if (stock[color]) value = consider(value, edges[color]!, stock, color, context);
+    if (stock[color]) value = consider(value, edgeAt(edges, color), stock, color, context);
   return value;
 }
 function evaluateLayers(
@@ -167,7 +196,7 @@ function evaluateLayers(
       const index = stockIndex(stock, bases);
       for (let state = 0; state < game.edges.length; state++) {
         if ((cumulative++ & 4095) === 0) limits.check(previous.size + current.size, cumulative);
-        const value = evaluate(game.edges[state]!, stock, context);
+        const value = evaluate(game.edges[state], stock, context);
         if (value.p !== 0n) current.set(state * box + index, value);
       }
     }

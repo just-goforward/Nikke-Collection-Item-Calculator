@@ -13,6 +13,13 @@ type Page = { lower: Float64Array; width: Float32Array; status: Uint8Array };
 const LAYOUT_BYTES = (TERMINAL + 1) * 8 + 24;
 const PAGE_CELLS = 4096;
 const EXACT_HEADROOM = 16 * 1024 * 1024;
+// Allocation gives lower/width/status the same dense domain. A present status
+// admits both reads; missing numeric coordinates still follow the original
+// addition and outward-widening path (NaN -> Infinity -> UNKNOWN_BOUND).
+const storedInterval = ((lo: number, width: number): Interval => {
+  const hi = positiveUp(lo + width);
+  return Number.isFinite(hi) ? { lo, hi } : UNKNOWN_BOUND;
+}) as (lo: number | undefined, width: number | undefined) => Interval;
 function fits(value: number, upper: number): boolean {
   return Number.isInteger(value) && value >= 0 && value <= upper;
 }
@@ -97,10 +104,9 @@ export class BoundArena {
     const page = this.pages(kind).get(Math.floor(i / PAGE_CELLS));
     const row = i % PAGE_CELLS;
     if (!page?.status[row]) return null;
-    const lo = page.lower[row]!;
-    const width = page.width[row]!;
-    const hi = positiveUp(lo + width);
-    return Number.isFinite(hi) ? { lo, hi } : UNKNOWN_BOUND;
+    const lo = page.lower[row];
+    const width = page.width[row];
+    return storedInterval(lo, width);
   }
   put(kind: "failure" | "cost", sid: number, units: Units, value: Interval): void {
     const width = outwardWidth(value.lo, value.hi);

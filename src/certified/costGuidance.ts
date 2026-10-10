@@ -21,6 +21,13 @@ import { type GuidedState, guidedState } from "./guidanceDomain";
 import type { PrimaryGuidance } from "./primaryGuidance";
 
 const ZERO_BOUND: Interval = { lo: 0, hi: 0 };
+// Native bound.every can skip holes or visit keys beyond the stock tuple.
+// Relational comparison with a missing stock coordinate remains false; do not
+// restrict callback indices or assert the coordinate exists.
+const meetsRequirement = ((available: number, required: number) => available >= required) as (
+  available: number | undefined,
+  required: number,
+) => boolean;
 export class CostGuidance {
   private readonly memo = new Map<number, VectorRow>();
   private readonly priceBounds: readonly [Interval, Interval, Interval];
@@ -45,7 +52,7 @@ export class CostGuidance {
     return this.memo.get(guidedState(sid, raw).key);
   }
   private supportsRelaxation(state: GuidedState, relaxation: Relaxation): boolean {
-    return relaxation.bound.every((required, k) => state.units[k]! >= required);
+    return relaxation.bound.every((required, k) => meetsRequirement(state.units[k], required));
   }
   private relaxedBound(sid: number, relaxation: Relaxation): Interval {
     const previous = this.relaxedBounds[sid];

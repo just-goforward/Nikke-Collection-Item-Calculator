@@ -76,6 +76,34 @@ export type PublicPathRelaxationResult = {
 };
 type Edge = { probability: number; great: number; ordinary: number };
 type Node = { state: State; depth: number; edges: Edge[] };
+// Array reads remain possibly missing. These named-property boundaries
+// preserve the original native property reads (including undefined errors);
+// no numeric index is claimed to be total or refined by a cast.
+const graphProperty = ((value: Partial<Node & Edge>, key: keyof (Node & Edge)) => value[key]) as {
+  (value: undefined, key: keyof (Node & Edge)): never;
+  (value: Node | undefined, key: "depth"): number;
+  (value: Node | undefined, key: "edges"): Edge[];
+  (value: Edge | undefined, key: "probability" | "great" | "ordinary"): number;
+};
+const multiplyPower = ((left: bigint, right: bigint) => left * right) as {
+  (left: bigint, right: bigint | undefined): bigint;
+  (left: bigint | undefined, right: bigint): bigint;
+};
+// Native price .map preserves holes, so a coordinate can be undefined.
+// These operator boundaries describe JS's existing NaN propagation without
+// densifying the map or changing coercion order: addition still runs before
+// reading the denominator coordinate, and subtraction still runs last.
+const addPriceScale = ((numerator: number, scale: number) => numerator + scale) as (
+  numerator: number | undefined,
+  scale: number,
+) => number;
+const subtractPriceDenominator = ((lifted: number, denominator: number) =>
+  lifted - denominator) as (lifted: number, denominator: number | undefined) => number;
+const reachesWidth = ((units: number, width: number) => units >= width) as (
+  units: number,
+  width: number | undefined,
+) => boolean;
+const dividePieces = ((pieces: number) => pieces / 10) as (pieces: number | undefined) => number;
 type Row = {
   consumed: QTripleNumerators;
   burden: bigint;
@@ -182,7 +210,7 @@ class PublicDag {
     const key = `${state.grade}:${state.level}:${state.exp}`;
     const previous = this.ids.get(key);
     if (previous !== undefined) {
-      if (this.nodes[previous]!.depth < 0)
+      if (graphProperty(this.nodes[previous], "depth") < 0)
         throw new Error("independent_public_relaxation_graph_cycle");
       return previous;
     }
@@ -200,8 +228,8 @@ class PublicDag {
       1 +
       Math.max(
         ...node.edges.flatMap((edge) => [
-          this.nodes[edge.great]!.depth,
-          edge.probability < 1000 ? this.nodes[edge.ordinary]!.depth : 0,
+          graphProperty(this.nodes[edge.great], "depth"),
+          edge.probability < 1000 ? graphProperty(this.nodes[edge.ordinary], "depth") : 0,
         ]),
       );
     return id;
@@ -220,15 +248,18 @@ function planFor(
       : 1,
   );
   const widthProduct = widths.reduce((product, width) => product * width, 1);
-  const rootDepth = dag.nodes[dag.root]!.depth;
+  const rootDepth = graphProperty(dag.nodes[dag.root], "depth");
   const maxRows = rootDepth === 0 ? 0 : dag.nodes.length * widthProduct;
   if (!Number.isSafeInteger(widthProduct) || !Number.isSafeInteger(maxRows))
     throw new Error("independent_public_relaxation_numeric_key_domain");
   const numeratorBits = input.prices.map((price) => price.n.toString(2).length);
   const denominatorBits = input.prices.map((price) => price.d.toString(2).length);
   const scaleBits = denominatorBits.reduce((sum, bits) => sum + bits, 0);
-  const integralPriceBits = makeTriple(
-    (color) => numeratorBits[color]! + scaleBits - denominatorBits[color]!,
+  const integralPriceBits = makeTriple((color) =>
+    subtractPriceDenominator(
+      addPriceScale(numeratorBits[color], scaleBits),
+      denominatorBits[color],
+    ),
   );
   const consumedBits = 10 * rootDepth + Math.max(1, (10 * rootDepth).toString(2).length) + 1;
   const burdenBits = consumedBits + Math.max(...integralPriceBits) + 2;
@@ -347,7 +378,10 @@ class RelaxationTable {
   }
   private key(id: number, units: Triple): number {
     if (
-      units.some((n, color) => !Number.isInteger(n) || n < 0 || n >= this.plan.finiteWidths[color]!)
+      units.some(
+        (n, color) =>
+          !Number.isInteger(n) || n < 0 || reachesWidth(n, this.plan.finiteWidths[color]),
+      )
     )
       throw new Error("independent_public_relaxation_outside_domain");
     return (
@@ -356,29 +390,40 @@ class RelaxationTable {
       units[2]
     );
   }
-  private action(node: Node, kit: Color, units: Triple): Row {
+  private action(node: Node | undefined, kit: Color, units: Triple): Row {
     this.actions++;
-    const edge = node.edges[kit]!,
-      p = edge.probability;
+    const edge = graphProperty(node, "edges")[kit],
+      p = graphProperty(edge, "probability");
     const remaining = makeTriple(
       (color) => units[color] - (this.finite[kit] && color === kit ? 1 : 0),
     );
-    const great = this.get(edge.great, remaining),
-      ordinary = p < 1000 ? this.get(edge.ordinary, remaining) : EMPTY;
-    const gd = node.depth - 1 - this.dag.nodes[edge.great]!.depth;
-    const nd = p < 1000 ? node.depth - 1 - this.dag.nodes[edge.ordinary]!.depth : 0;
+    const great = this.get(graphProperty(edge, "great"), remaining),
+      ordinary = p < 1000 ? this.get(graphProperty(edge, "ordinary"), remaining) : EMPTY;
+    const gd =
+      graphProperty(node, "depth") -
+      1 -
+      graphProperty(this.dag.nodes[graphProperty(edge, "great")], "depth");
+    const nd =
+      p < 1000
+        ? graphProperty(node, "depth") -
+          1 -
+          graphProperty(this.dag.nodes[graphProperty(edge, "ordinary")], "depth")
+        : 0;
     if (gd < 0 || nd < 0) throw new Error("independent_public_relaxation_denominator_lift");
-    const gm = BigInt(p) * this.powers[gd]!,
-      nm = p < 1000 ? BigInt(1000 - p) * this.powers[nd]! : 0n;
-    const denominator = this.powers[node.depth]!;
+    const gm = multiplyPower(BigInt(p), this.powers[gd]),
+      nm = p < 1000 ? multiplyPower(BigInt(1000 - p), this.powers[nd]) : 0n;
+    const denominator = this.powers[graphProperty(node, "depth")];
     return {
       consumed: makeTriple(
         (color) =>
           gm * great.consumed[color] +
           nm * ordinary.consumed[color] +
-          (color === kit ? 10n * denominator : 0n),
+          (color === kit ? multiplyPower(10n, denominator) : 0n),
       ),
-      burden: gm * great.burden + nm * ordinary.burden + 10n * this.prices[kit] * denominator,
+      burden:
+        gm * great.burden +
+        nm * ordinary.burden +
+        multiplyPower(10n * this.prices[kit], denominator),
       worst: makeTriple(
         (color) =>
           Math.max(great.worst[color], p < 1000 ? ordinary.worst[color] : 0) +
@@ -404,8 +449,8 @@ class RelaxationTable {
   }
   private get(id: number, units: Triple): Row {
     this.budget.check();
-    const node = this.dag.nodes[id]!;
-    if (node.depth === 0) return EMPTY;
+    const node = this.dag.nodes[id];
+    if (graphProperty(node, "depth") === 0) return EMPTY;
     const key = this.key(id, units),
       previous = this.memo.get(key);
     if (previous) return previous;
@@ -421,10 +466,10 @@ class RelaxationTable {
   evaluate(stock: Triple): RelaxedValue {
     const units = makeTriple((color) => (this.finite[color] ? Math.floor(stock[color] / 10) : 0));
     const row = this.get(this.dag.root, units),
-      denominator = this.powers[this.plan.rootDepth]!;
+      denominator = this.powers[this.plan.rootDepth];
     return {
       P: q(1),
-      B: q(row.burden, denominator * this.scale),
+      B: q(row.burden, multiplyPower(denominator, this.scale)),
       C: q(row.consumed[0] + row.consumed[1] + row.consumed[2], denominator),
       consumed: makeTriple((color) => q(row.consumed[color], denominator)),
       worst: row.worst,
@@ -435,7 +480,7 @@ class RelaxationTable {
 }
 
 function fits(value: RelaxedValue, stock: Triple): boolean {
-  return value.worst.every((uses, color) => uses <= Math.floor(stock[color]! / 10));
+  return value.worst.every((uses, color) => uses <= Math.floor(dividePieces(stock[color])));
 }
 function classify(result: PublicPathRelaxationResult): void {
   if (!result.afterFits) {

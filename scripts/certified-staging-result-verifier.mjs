@@ -9,23 +9,99 @@ import { pathToFileURL } from "node:url";
 export const ENGINES = ["chromium", "firefox", "webkit"];
 const RESULT_VERSION = "certified-staging-independent-dist-worker-v1";
 const EXPECTED_VERSION = "certified-staging-approved24-expected-v1";
-const PANEL_ROOT = "scripts/certified-staging-approved-panel";
+const HISTORICAL_PANEL_ROOT = "scripts/certified-staging-approved-panel";
+const PANEL_ROOT = `${HISTORICAL_PANEL_ROOT}/v5`;
+const ARCHIVE_ROOT = `${HISTORICAL_PANEL_ROOT}/v2`;
+const PREVIOUS_ROOT = `${HISTORICAL_PANEL_ROOT}/v3`;
+const V4_ROOT = `${HISTORICAL_PANEL_ROOT}/v4`;
 const PANEL_INDICES = [
   0, 1, 3, 4, 8, 15, 17, 21, 26, 29, 30, 31, 61, 73, 99, 137, 211, 313, 517, 731, 991, 1237, 1619,
   1999,
 ];
 const REQUIRED_SOURCES = [
-  ...["snapshot.json", "independent-physical-cohorts.json", "provenance.json", "panel.json"].map(
+  ...["pins.json", "independent-physical-cohorts.json", "provenance.json", "panel.json"].map(
+    (name) => `${PANEL_ROOT}/${name}`,
+  ),
+  ...[
+    "snapshot.json",
+    "independent-physical-cohorts.json",
+    "provenance.json",
+    "panel.json",
+    "pilot-endpoints.json",
+    "pilot-endpoints-provenance.json",
+  ].map((name) => `${HISTORICAL_PANEL_ROOT}/${name}`),
+  ...["R600", "R1000", "SR800"].map(
+    (name) => `scripts/certified-staging-oracle-fixtures/large-current-${name}.json.txt`,
+  ),
+  ...[
+    "certified-staging-oracle-physical-supply.ts.txt",
+    "certified-staging-oracle.ts.txt",
+    "shared-game.ts.txt",
+  ].map((name) => `${ARCHIVE_ROOT}/historical/${name}`),
+  ...[
+    "scripts/certified-staging-oracle-physical-supply.ts",
+    "scripts/certified-staging-oracle.ts",
+    "shared/game.ts",
+    "scripts/certified-staging-oracle-tuples.ts",
+    "scripts/certified-staging-oracle-fixtures.ts",
+    "scripts/certified-staging-approved-panel.ts",
+    "scripts/generate-certified-staging-approved-panel.ts",
+    `${ARCHIVE_ROOT}/evidence.ts`,
+    `${ARCHIVE_ROOT}/generate.ts`,
+    `${ARCHIVE_ROOT}/calculate.ts`,
+  ].map((path) => `${ARCHIVE_ROOT}/source/${path}.txt`),
+  ...["pins.json", "provenance.json", "independent-physical-cohorts.json", "panel.json"].map(
+    (name) => `${ARCHIVE_ROOT}/${name}.txt`,
+  ),
+  ...[
+    "scripts/certified-staging-oracle-physical-supply.ts",
+    "scripts/certified-staging-oracle.ts",
+    "shared/game.ts",
+    `${PREVIOUS_ROOT}/evidence.ts`,
+    `${PREVIOUS_ROOT}/history.ts`,
+    "scripts/certified-staging-oracle-tuples.ts",
+    "scripts/certified-staging-oracle-fixtures.ts",
+    "scripts/certified-staging-approved-panel.ts",
+    "scripts/generate-certified-staging-approved-panel.ts",
+    `${PREVIOUS_ROOT}/generate.ts`,
+    `${PREVIOUS_ROOT}/calculate.ts`,
+    "biome.json",
+    "package-lock.json",
+  ].map((path) => `${PREVIOUS_ROOT}/source/${path}.txt`),
+  ...["pins.json", "provenance.json", "independent-physical-cohorts.json", "panel.json"].map(
+    (name) => `${PREVIOUS_ROOT}/${name}.txt`,
+  ),
+  ...[
+    "scripts/certified-staging-oracle-physical-supply.ts",
+    "scripts/certified-staging-oracle.ts",
+    "shared/game.ts",
+    `${V4_ROOT}/evidence.ts`,
+    `${V4_ROOT}/history.ts`,
+    "scripts/certified-staging-oracle-tuples.ts",
+    "scripts/certified-staging-oracle-fixtures.ts",
+    "scripts/certified-staging-approved-panel.ts",
+    "scripts/generate-certified-staging-approved-panel.ts",
+    `${V4_ROOT}/generate.ts`,
+    `${V4_ROOT}/calculate.ts`,
+    "biome.json",
+    "package-lock.json",
+  ].map((path) => `${V4_ROOT}/source/${path}.txt`),
+  ...["pins.json", "provenance.json", "independent-physical-cohorts.json", "panel.json"].map(
+    (name) => `${V4_ROOT}/${name}.txt`,
+  ),
+  ...["evidence.ts", "history.ts", "generate.ts", "calculate.ts"].map(
     (name) => `${PANEL_ROOT}/${name}`,
   ),
   "scripts/certified-staging-approved-panel.ts",
   "scripts/generate-certified-staging-approved-panel.ts",
   "scripts/certified-staging-oracle.ts",
+  "scripts/certified-staging-oracle-tuples.ts",
   "scripts/certified-staging-oracle-fixtures.ts",
   "scripts/certified-staging-oracle-physical-supply.ts",
   "scripts/certified-staging-dist-validation.ts",
   "shared/game.ts",
   "e2e/certified-staging-api.spec.ts",
+  "biome.json",
   "package-lock.json",
 ];
 export const digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -40,6 +116,54 @@ const assertNonempty = (value, label) =>
 function writeNewJson(path, value) {
   mkdirSync(dirname(resolve(path)), { recursive: true });
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx" });
+}
+
+function committedInventory(commit, files, git) {
+  const tree = git(["ls-tree", "-r", "-z", "--full-tree", commit]);
+  const entries = new Map(
+    tree
+      .split("\0")
+      .filter(Boolean)
+      .map((entry) => {
+        const match = /^([0-9]{6}) blob ([a-f0-9]{40})\t([\s\S]+)$/.exec(entry);
+        assert.ok(match, "committed source is not a blob");
+        assert.ok(
+          ["100644", "100755"].includes(match[1]),
+          "committed source is not a regular file",
+        );
+        return [match[3], match[2]];
+      }),
+  );
+  assert.deepEqual(
+    [...entries.keys()].sort(),
+    files.map(({ path }) => path),
+  );
+  const objects = files.map(({ path }) => entries.get(path));
+  const output = execFileSync("git", ["--no-optional-locks", "cat-file", "--batch"], {
+    input: `${objects.join("\n")}\n`,
+    // Blob contents must fit the bytes already read from this checkout. Each
+    // SHA-1 blob header plus its separator is shorter than 128 bytes.
+    maxBuffer: files.reduce((total, { bytes }) => total + bytes + 128, 0),
+  });
+  let offset = 0;
+  const inventory = files.map(({ path }, index) => {
+    const headerEnd = output.indexOf(10, offset);
+    assert.ok(headerEnd >= offset, `missing committed blob header: ${path}`);
+    const header = /^([a-f0-9]{40}) blob ([0-9]+)$/.exec(
+      output.toString("ascii", offset, headerEnd),
+    );
+    assert.ok(header, `invalid committed blob header: ${path}`);
+    assert.equal(header[1], objects[index], `committed blob order drift: ${path}`);
+    const size = Number(header[2]);
+    assert.ok(Number.isSafeInteger(size) && size >= 0, `invalid committed blob size: ${path}`);
+    const start = headerEnd + 1;
+    offset = start + size + 1;
+    assert.equal(output[offset - 1], 10, `truncated committed blob: ${path}`);
+    const bytes = output.subarray(start, offset - 1);
+    return { path, bytes: bytes.length, sha256: digest(bytes) };
+  });
+  assert.equal(offset, output.length, "unexpected committed blob output");
+  return inventory;
 }
 
 function sourceSnapshot(commit) {
@@ -61,12 +185,28 @@ function sourceSnapshot(commit) {
     return { path, bytes: bytes.length, sha256: digest(bytes) };
   });
   assert.ok(files.length > 0, "empty source inventory");
-  return { commit, files, sha256: jsonDigest(files), lockSha256: fileDigest("package-lock.json") };
+  const committed = committedInventory(commit, files, git);
+  for (const [index, file] of files.entries())
+    assert.deepEqual(
+      file,
+      committed[index],
+      `tracked bytes differ from approved candidate commit: ${file.path}`,
+    );
+  git(["diff", "--no-ext-diff", "--no-textconv", "--exit-code", "--name-only", "HEAD", "--"]);
+  assert.equal(
+    git(["rev-parse", "HEAD"]).trim(),
+    commit,
+    "candidate HEAD changed during inventory",
+  );
+  const lock = committed.find(({ path }) => path === "package-lock.json");
+  assert.ok(lock, "missing committed package lock");
+  return { commit, files: committed, sha256: jsonDigest(committed), lockSha256: lock.sha256 };
 }
 
 function distSnapshot() {
   const root = resolve("dist");
   const assets = [];
+  let manifestBytes;
   const walk = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = resolve(directory, entry.name);
@@ -75,6 +215,7 @@ function distSnapshot() {
       else {
         assert.ok(entry.isFile(), `dist is not a regular file: ${path}`);
         const bytes = readFileSync(path);
+        if (path === resolve(root, ".vite/manifest.json")) manifestBytes = bytes;
         assets.push({
           urlPath: `/${slash(relative(root, path))}`,
           bytes: bytes.length,
@@ -85,7 +226,8 @@ function distSnapshot() {
   };
   walk(root);
   assets.sort((first, second) => first.urlPath.localeCompare(second.urlPath));
-  const manifest = readJson("dist/.vite/manifest.json");
+  assert.ok(Buffer.isBuffer(manifestBytes), "dist manifest missing from inventory");
+  const manifest = JSON.parse(manifestBytes.toString("utf8"));
   const client = manifest["src/certifiedUi/CertifiedCalculator.tsx"];
   assert.ok(client, "certified client missing from dist manifest");
   const workers =
@@ -99,7 +241,7 @@ function distSnapshot() {
   return {
     assets,
     inventorySha256: jsonDigest(assets),
-    manifestSha256: fileDigest("dist/.vite/manifest.json"),
+    manifestSha256: digest(manifestBytes),
     worker: asset(workers[0]),
     shippedClient: asset(client.file),
   };
@@ -132,14 +274,20 @@ function expectedProfile() {
 
 export async function freezeExpected(commit) {
   const source = sourceSnapshot(commit);
-  const panel = readJson(`${PANEL_ROOT}/panel.json`);
+  const { readV5Evidence } = await import("./certified-staging-approved-panel/v5/evidence.ts");
+  const { panel } = readV5Evidence();
   assert.deepEqual(
     panel.map((row) => row.originalIndex),
     PANEL_INDICES,
     "approved24 panel changed",
   );
   assert.equal(new Set(panel.map((row) => row.id)).size, 24, "approved24 IDs must be unique");
-  const snapshot = readJson(`${PANEL_ROOT}/snapshot.json`);
+  const snapshotPath = `${HISTORICAL_PANEL_ROOT}/snapshot.json`;
+  const snapshotBytes = readFileSync(snapshotPath);
+  const snapshotSource = source.files.find(({ path }) => path === snapshotPath);
+  assert.ok(snapshotSource, "snapshot missing from committed inventory");
+  assert.equal(digest(snapshotBytes), snapshotSource.sha256, "committed snapshot bytes changed");
+  const snapshot = JSON.parse(snapshotBytes.toString("utf8"));
   const scenarios = panel.map((row) => ({ ...row, input: { ...row.input, snapshot } }));
   const require = createRequire(import.meta.url);
   const coreRoot = dirname(require.resolve("playwright-core/package.json"));
@@ -417,7 +565,10 @@ function collectReports(root) {
     }
   };
   walk(resolve(root));
-  return files.sort().map((path) => ({ path, sha256: fileDigest(path), report: readJson(path) }));
+  return files.sort().map((path) => {
+    const bytes = readFileSync(path);
+    return { path, sha256: digest(bytes), report: JSON.parse(bytes.toString("utf8")) };
+  });
 }
 
 function verifyFrozenInputs(expected) {
@@ -464,8 +615,9 @@ async function main(args) {
   let records = [];
   let verdict;
   try {
-    const expected = readJson(options["--expected"]);
-    const manifestSha256 = fileDigest(options["--expected"]);
+    const expectedBytes = readFileSync(options["--expected"]);
+    const expected = JSON.parse(expectedBytes.toString("utf8"));
+    const manifestSha256 = digest(expectedBytes);
     records = collectReports(options["--results"]);
     verifyFrozenInputs(expected);
     verdict = verifyApproved24(

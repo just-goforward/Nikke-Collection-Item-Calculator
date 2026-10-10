@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import type { CertifiedValue } from "../src/certified/types.ts";
 import {
+  approvedFixtureProvenance,
   frozenApprovedSnapshot,
   independentApprovedPricing,
 } from "./certified-staging-approved-panel.ts";
@@ -182,16 +183,11 @@ it("replays the six preserved pilot NOTRUN endpoints under the unchanged paired5
   const sourcePaths = [
     "scripts/certified-staging-oracle-endpoints-integer.ts",
     "scripts/certified-staging-oracle-endpoints-integer.spec.ts",
-    "scripts/certified-staging-oracle.ts",
-    "scripts/certified-staging-oracle-tuples.ts",
     "scripts/certified-staging-oracle-witness.ts",
-    "scripts/certified-staging-approved-panel.ts",
-    "scripts/certified-staging-approved-panel/snapshot.json",
-    "scripts/certified-staging-approved-panel/independent-physical-cohorts.json",
     "scripts/certified-staging-pilot-endpoint-fixture.ts",
     pilot.provenance.fixture.path,
     pilot.provenancePath,
-    "shared/game.ts",
+    ...approvedFixtureProvenance().map(({ path }) => path),
   ];
   const report = {
     generatedAt: new Date().toISOString(),

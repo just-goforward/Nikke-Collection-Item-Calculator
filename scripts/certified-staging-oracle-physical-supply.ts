@@ -1,5 +1,15 @@
+import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import {
+  normalizeExact,
+  PHYSICAL_CACHE,
+  PHYSICAL_SOURCES,
+  PHYSICAL_VERSION,
+  PUBLICATION_FILES,
+  readV5Evidence,
+} from "./certified-staging-approved-panel/v5/evidence.ts";
 import {
   add,
   cmp,
@@ -32,7 +42,36 @@ const CLASSES = [
   { weight: 3, keep: false, gain: [q(0), q(0), q(0)] },
 ] as const;
 type Board = { counts: readonly number[]; mass: ExactQ };
-export function independentDispatchExpectations(): readonly [QTriple, QTriple, QTriple] {
+type DispatchClass = (typeof CLASSES)[number];
+type OptionalMul = (left: ExactQ | undefined, right: ExactQ | undefined) => ExactQ;
+type OptionalAdd = (left: ExactQ | undefined, right: ExactQ) => ExactQ;
+type DecodeCount = (count: number | undefined) => ExactQ;
+// These native operation boundaries retain missing-count NaN/coercion and
+// missing-class property errors without claiming that indexed values exist.
+const subtractCount = ((left: number, right: number) => left - right) as (
+  left: number | undefined,
+  right: number | undefined,
+) => number;
+const addCount = ((left: number, right: number) => left + right) as (
+  left: number | undefined,
+  right: number,
+) => number;
+const classGain = ((klass: DispatchClass, color: number) => klass.gain[color]) as (
+  klass: DispatchClass | undefined,
+  color: number,
+) => ExactQ | undefined;
+const classKeep = ((klass: DispatchClass) => klass.keep) as (
+  klass: DispatchClass | undefined,
+) => boolean;
+const classWeight = ((klass: DispatchClass) => klass.weight) as (
+  klass: DispatchClass | undefined,
+) => number;
+export function independentDispatchExpectations(): readonly [QTriple, QTriple, QTriple];
+export function independentDispatchExpectations(): readonly [
+  QTriple | undefined,
+  QTriple | undefined,
+  QTriple | undefined,
+] {
   let retained: Board[] = [{ counts: CLASSES.map(() => 0), mass: q(1) }];
   const result: QTriple[] = [];
   for (let round = 0; round <= 2; round += 1) {
@@ -48,10 +87,19 @@ export function independentDispatchExpectations(): readonly [QTriple, QTriple, Q
           for (let color = 0; color < 3; color += 1) {
             let conditional = q(0);
             for (let klass = 0; klass < CLASSES.length; klass += 1)
-              conditional = add(conditional, mul(q(counts[klass]!), CLASSES[klass]!.gain[color]!));
-            expectation[color] = add(expectation[color]!, mul(probability, conditional));
+              conditional = add(
+                conditional,
+                (mul as OptionalMul)(
+                  (q as DecodeCount)(counts[klass]),
+                  classGain(CLASSES[klass], color),
+                ),
+              );
+            expectation[color] = (add as OptionalAdd)(
+              expectation[color],
+              mul(probability, conditional),
+            );
           }
-          const kept = counts.map((count, klass) => (CLASSES[klass]!.keep ? count : 0));
+          const kept = counts.map((count, klass) => (classKeep(CLASSES[klass]) ? count : 0));
           const key = kept.join(",");
           const previous = next.get(key);
           next.set(key, {
@@ -61,15 +109,15 @@ export function independentDispatchExpectations(): readonly [QTriple, QTriple, Q
           return;
         }
         const totalWeight = CLASSES.reduce(
-          (sum, klass, index) => sum + (4 - counts[index]!) * klass.weight,
+          (sum, klass, index) => sum + subtractCount(4, counts[index]) * klass.weight,
           0,
         );
         for (let klass = 0; klass < CLASSES.length; klass += 1) {
-          const weight = (4 - counts[klass]!) * CLASSES[klass]!.weight;
+          const weight = subtractCount(4, counts[klass]) * classWeight(CLASSES[klass]);
           if (weight === 0) continue;
-          counts[klass] = counts[klass]! + 1;
+          counts[klass] = addCount(counts[klass], 1);
           ordered(remaining - 1, mul(probability, q(weight, totalWeight)));
-          counts[klass] = counts[klass]! - 1;
+          counts[klass] = subtractCount(counts[klass], 1);
         }
       };
       ordered(drawCount, prior.mass);
@@ -79,46 +127,131 @@ export function independentDispatchExpectations(): readonly [QTriple, QTriple, Q
     result.push(expectation);
     retained = [...next.values()];
   }
-  return [result[0]!, result[1]!, result[2]!];
+  return [result[0], result[1], result[2]];
 }
-const path = "benchmarks/results/certified-staging-validation-independent-physical-rates.json";
+const path = PHYSICAL_CACHE;
 let memoizedRates: QTriple | null = null;
+let memoizedIdentity: { sourceHash: string; cacheHash: string; authenticated: boolean } | null =
+  null;
 function sourceIdentity() {
-  const sources = [
-    "scripts/certified-staging-oracle-physical-supply.ts",
-    "scripts/certified-staging-oracle.ts",
-  ].map((source) => ({
+  const sources = PHYSICAL_SOURCES.map((source) => ({
     path: source,
     sha256: createHash("sha256").update(readFileSync(source)).digest("hex"),
   }));
   return { sources, hash: createHash("sha256").update(JSON.stringify(sources)).digest("hex") };
 }
-export function independentPhysicalRecurringRates(): QTriple {
-  if (memoizedRates) return memoizedRates;
-  const identity = sourceIdentity();
-  if (existsSync(path)) {
-    const cached = JSON.parse(readFileSync(path, "utf8")) as {
-      sourceHash: string;
-      rate: readonly [ReturnType<typeof wire>, ReturnType<typeof wire>, ReturnType<typeof wire>];
-    };
-    if (cached.sourceHash === identity.hash) {
-      memoizedRates = mapTriple(cached.rate, fromWire);
-      return memoizedRates;
-    }
+function publicationPresent() {
+  // A partial publication is not an empty producer: authentication must fail.
+  return PUBLICATION_FILES.some((file) => existsSync(file));
+}
+function writeCalculatedCache(
+  bytes: Buffer | string,
+  published: ReturnType<typeof readV5Evidence> | null,
+) {
+  try {
+    writeFileSync(path, bytes, { flag: "wx" });
+  } catch (error) {
+    if (!published || !(error instanceof Error) || !("code" in error) || error.code !== "EEXIST")
+      throw error;
+    const after = readV5Evidence();
+    assert.deepEqual(
+      after.physicalBytes,
+      published.physicalBytes,
+      "Physical publication changed during cache race",
+    );
+    if (!readFileSync(path).equals(published.physicalBytes))
+      throw new Error(
+        `Existing independent physical cache differs from pinned fixture; preserved: ${path}`,
+      );
   }
+}
+export function independentPhysicalRecurringRates(): QTriple {
+  const identity = sourceIdentity();
+  if (memoizedIdentity) {
+    if (identity.hash !== memoizedIdentity.sourceHash || !existsSync(path))
+      throw new Error("Independent physical cache/source changed after memoization; preserved");
+    const bytes = readFileSync(path);
+    if (createHash("sha256").update(bytes).digest("hex") !== memoizedIdentity.cacheHash)
+      throw new Error("Independent physical cache/source changed after memoization; preserved");
+    if (memoizedIdentity.authenticated || publicationPresent()) {
+      const authenticated = readV5Evidence();
+      assert.ok(
+        bytes.equals(authenticated.physicalBytes),
+        "Memoized physical cache differs from publication; preserved",
+      );
+      memoizedIdentity.authenticated = true;
+    }
+    if (memoizedRates) return memoizedRates;
+  }
+  if (existsSync(path)) {
+    const bytes = readFileSync(path);
+    const authenticated = readV5Evidence();
+    if (!bytes.equals(authenticated.physicalBytes))
+      throw new Error(
+        `Existing independent physical cache differs from pinned fixture; preserved: ${path}`,
+      );
+    memoizedRates = mapTriple(authenticated.physical.rate, fromWire);
+    memoizedIdentity = {
+      sourceHash: identity.hash,
+      cacheHash: createHash("sha256").update(bytes).digest("hex"),
+      authenticated: true,
+    };
+    return memoizedRates;
+  }
+  const published = publicationPresent() ? readV5Evidence() : null;
   const started = performance.now();
   const cohorts = independentDispatchExpectations();
   // Normal weekly shop:5 boxII. Seven raid days:16 regular +68 boxII.
   const shop = [q(35, 2), q(2), q(1)] as const;
   const solo = [q(1382, 5), q(152, 5), q(68, 5)] as const;
   const rate = makeTriple((color) => {
-    const dispatch = cohorts.reduce((sum, cohort) => add(sum, mul(q(1, 3), cohort[color]!)), q(0));
-    return add(add(dispatch, mul(shop[color]!, q(1, 7))), mul(solo[color]!, q(39, 1197)));
+    const dispatch = cohorts.reduce(
+      (sum, cohort) => add(sum, (mul as OptionalMul)(q(1, 3), cohort[color])),
+      q(0),
+    );
+    return add(
+      add(dispatch, (mul as OptionalMul)(shop[color], q(1, 7))),
+      (mul as OptionalMul)(solo[color], q(39, 1197)),
+    );
   });
-  writeFileSync(
-    path,
-    `${JSON.stringify({ version: "independent-ordered-physical-supply-rates-v1", generatedAt: new Date().toISOString(), sourceHash: identity.hash, sources: identity.sources, interpretation: "documented modeled physical odds; exhaustive ordered weighted-without-replacement card draws, fixed latent0/1/2-reroll cohort, regular/II box exactmeans, weekly5II, raid7days/1197-over39", cohorts: cohorts.map((cohort) => cohort.map(wire)), rate: rate.map(wire), computeMs: performance.now() - started }, null, 2)}\n`,
-  );
+  if (sourceIdentity().hash !== identity.hash)
+    throw new Error("Independent physical source changed during enumeration");
+  let bytes: Buffer | string;
+  if (published) {
+    assert.deepEqual(published.physical.sources, identity.sources);
+    assert.equal(published.physical.sourceHash, identity.hash);
+    assert.deepEqual(
+      normalizeExact(cohorts.map((cohort) => cohort.map(wire))),
+      normalizeExact(published.physical.cohorts),
+      "Fresh physical cohorts differ from publication",
+    );
+    assert.deepEqual(
+      normalizeExact(rate.map(wire)),
+      normalizeExact(published.physical.rate),
+      "Fresh physical rates differ from publication",
+    );
+    const after = readV5Evidence();
+    assert.deepEqual(
+      after.physicalBytes,
+      published.physicalBytes,
+      "Physical publication changed during enumeration",
+    );
+    bytes = published.physicalBytes;
+    mkdirSync(dirname(path), { recursive: true });
+  } else {
+    assert.equal(
+      publicationPresent(),
+      false,
+      "Physical publication appeared during isolated enumeration",
+    );
+    bytes = `${JSON.stringify({ version: PHYSICAL_VERSION, generatedAt: new Date().toISOString(), sourceHash: identity.hash, sources: identity.sources, interpretation: "documented modeled physical odds; exhaustive ordered weighted-without-replacement card draws, fixed latent0/1/2-reroll cohort, regular/II box exactmeans, weekly5II, raid7days/1197-over39", cohorts: cohorts.map((cohort) => cohort.map(wire)), rate: rate.map(wire), computeMs: performance.now() - started }, null, 2)}\n`;
+  }
+  writeCalculatedCache(bytes, published);
+  memoizedIdentity = {
+    sourceHash: identity.hash,
+    cacheHash: createHash("sha256").update(bytes).digest("hex"),
+    authenticated: published !== null,
+  };
   memoizedRates = rate;
   return rate;
 }

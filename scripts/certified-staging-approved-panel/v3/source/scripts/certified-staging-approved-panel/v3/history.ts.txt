@@ -1,0 +1,166 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+export const HISTORICAL_ROOT = "scripts/certified-staging-approved-panel";
+export const V2_ROOT = `${HISTORICAL_ROOT}/v2`;
+export type SourceIdentity = { path: string; sha256: string };
+export const sha256 = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
+export function pinnedBytes(identity: SourceIdentity, root = process.cwd()) {
+  const bytes = readFileSync(resolve(root, identity.path));
+  assert.equal(sha256(bytes), identity.sha256, `Independent physical hash drift: ${identity.path}`);
+  return bytes;
+}
+export function sourceIdentity(paths: readonly string[], root = process.cwd()) {
+  const sources = paths.map((path) => ({
+    path,
+    sha256: sha256(readFileSync(resolve(root, path))),
+  }));
+  return { sources, sourceHash: sha256(JSON.stringify(sources)) };
+}
+export const ARCHIVED_SOURCES = [
+  {
+    path: "scripts/certified-staging-oracle-physical-supply.ts",
+    archivePath: `${V2_ROOT}/historical/certified-staging-oracle-physical-supply.ts.txt`,
+    sha256: "68686624ac22ab517283347c3cce7abb9a04d269eb2acb8b9ad3a63e8d5f13b5",
+  },
+  {
+    path: "scripts/certified-staging-oracle.ts",
+    archivePath: `${V2_ROOT}/historical/certified-staging-oracle.ts.txt`,
+    sha256: "b92f50315a31d6b0f5e04054f5d220cf3103ef76b1d4a7c4d557da0a7964823b",
+  },
+  {
+    path: "shared/game.ts",
+    archivePath: `${V2_ROOT}/historical/shared-game.ts.txt`,
+    sha256: "79a7563059171121b0331687fc2caab8563f03a6cb64060b475d1fe7d8a96850",
+  },
+] as const;
+export const HISTORICAL_FILES = [
+  {
+    path: `${HISTORICAL_ROOT}/independent-physical-cohorts.json`,
+    sha256: "fed3faab0a2b032deb65f9b892684cb9518c38a67596f8ba066f8e9cc7d8be0a",
+  },
+  {
+    path: `${HISTORICAL_ROOT}/panel.json`,
+    sha256: "7e3474617cc19ef63d7e2e8a3e84933d28453cb72cbe3e1784379f996f2fc776",
+  },
+  {
+    path: `${HISTORICAL_ROOT}/provenance.json`,
+    sha256: "6cbf971ecdcbfe1e728a543a1a76adfa87ebbf694ae1722de5a2c6380b29d94a",
+  },
+  {
+    path: `${HISTORICAL_ROOT}/snapshot.json`,
+    sha256: "5dd4017b6f74bda406bbd93daa0037e720329d0d64eca05a442c59d6dd170e6d",
+  },
+  {
+    path: `${HISTORICAL_ROOT}/pilot-endpoints.json`,
+    sha256: "301483c331d467a0d8c53568f271c5a893d941340a8bb0238012af9821f10b45",
+  },
+  {
+    path: `${HISTORICAL_ROOT}/pilot-endpoints-provenance.json`,
+    sha256: "4c5286593cff0000b6e8b5ef7cf5fe51fd39bdd4e11a3bbf1c77198649e46f42",
+  },
+  {
+    path: "scripts/certified-staging-oracle-fixtures/large-current-R600.json.txt",
+    sha256: "01ba9e5a1a45f21c4f17f9c90c6b1c60955494a72658118f5fda528113788aae",
+  },
+  {
+    path: "scripts/certified-staging-oracle-fixtures/large-current-R1000.json.txt",
+    sha256: "5b478ab1a16a4f8774a82ffeaba662cbcf168b8453d83ade08bcf18b280bddb4",
+  },
+  {
+    path: "scripts/certified-staging-oracle-fixtures/large-current-SR800.json.txt",
+    sha256: "d510c7aa03eca56532220cc1629f1cd7aedf0b4f3a5ce6cdfcecd49899e929d4",
+  },
+] as const;
+type HistoricalPhysical = {
+  version: string;
+  sources: SourceIdentity[];
+  sourceHash: string;
+  cohorts: unknown;
+  rate: unknown;
+};
+export function readHistorical(root = process.cwd()) {
+  const files = new Map<string, Buffer>(
+    HISTORICAL_FILES.map((entry) => [entry.path, pinnedBytes(entry, root)]),
+  );
+  for (const entry of ARCHIVED_SOURCES)
+    pinnedBytes({ path: entry.archivePath, sha256: entry.sha256 }, root);
+  const bytes = (path: string) => {
+    const value = files.get(path);
+    assert.ok(value, `Missing authenticated historical input: ${path}`);
+    return value;
+  };
+  const physical = JSON.parse(
+    bytes(`${HISTORICAL_ROOT}/independent-physical-cohorts.json`).toString(),
+  ) as HistoricalPhysical;
+  // The original seal recorded two sources. The recovered game dependency is
+  // authenticated separately; it is not retroactively claimed as an original pin.
+  const sources = ARCHIVED_SOURCES.slice(0, 2).map(({ path, sha256 }) => ({ path, sha256 }));
+  assert.equal(physical.version, "independent-ordered-physical-supply-rates-v1");
+  assert.deepEqual(physical.sources, sources);
+  assert.equal(physical.sourceHash, sha256(JSON.stringify(sources)));
+  return {
+    physical,
+    panel: JSON.parse(bytes(`${HISTORICAL_ROOT}/panel.json`).toString()) as unknown[],
+    snapshotBytes: bytes(`${HISTORICAL_ROOT}/snapshot.json`),
+  };
+}
+export const FIRST_SOURCE_PATHS = [
+  "scripts/certified-staging-oracle-physical-supply.ts",
+  "scripts/certified-staging-oracle.ts",
+  "shared/game.ts",
+  "scripts/certified-staging-oracle-tuples.ts",
+  "scripts/certified-staging-oracle-fixtures.ts",
+  "scripts/certified-staging-approved-panel.ts",
+  "scripts/generate-certified-staging-approved-panel.ts",
+  `${V2_ROOT}/evidence.ts`,
+  `${V2_ROOT}/generate.ts`,
+  `${V2_ROOT}/calculate.ts`,
+] as const;
+export const FIRST_ARCHIVE_FILES = [
+  ...FIRST_SOURCE_PATHS.map((path) => `${V2_ROOT}/source/${path}.txt`),
+  ...["pins.json", "provenance.json", "independent-physical-cohorts.json", "panel.json"].map(
+    (name) => `${V2_ROOT}/${name}.txt`,
+  ),
+];
+export const FIRST_PINS_SHA = "3d78bc4d36feb6e1cbc6236baaa756619d3356af25ae32e846ea5d7d5a69ab65";
+export function readFirstPublication(root = process.cwd()) {
+  const pinsBytes = pinnedBytes({ path: `${V2_ROOT}/pins.json.txt`, sha256: FIRST_PINS_SHA }, root);
+  const pins = JSON.parse(pinsBytes.toString()) as { version: string; provenance: SourceIdentity };
+  assert.equal(pins.version, "approved24-independent-evidence-v2");
+  assert.equal(pins.provenance.path, `${V2_ROOT}/provenance.json`);
+  const provenance = JSON.parse(
+    pinnedBytes({ ...pins.provenance, path: `${pins.provenance.path}.txt` }, root).toString(),
+  ) as {
+    generation: { sources: SourceIdentity[]; sourceHash: string; independentWaiting: string };
+    physicalEnumeration: SourceIdentity;
+    panel: SourceIdentity;
+  };
+  assert.deepEqual(
+    provenance.generation.sources.map(({ path }) => path),
+    FIRST_SOURCE_PATHS,
+  );
+  assert.equal(
+    provenance.generation.sourceHash,
+    sha256(JSON.stringify(provenance.generation.sources)),
+  );
+  for (const source of provenance.generation.sources)
+    pinnedBytes({ ...source, path: `${V2_ROOT}/source/${source.path}.txt` }, root);
+  assert.equal(provenance.physicalEnumeration.path, `${V2_ROOT}/independent-physical-cohorts.json`);
+  assert.equal(provenance.panel.path, `${V2_ROOT}/panel.json`);
+  assert.equal(provenance.generation.independentWaiting, "UNVERIFIED_NOT_REGENERATED");
+  const physicalBytes = pinnedBytes(
+    { ...provenance.physicalEnumeration, path: `${provenance.physicalEnumeration.path}.txt` },
+    root,
+  );
+  return {
+    provenance,
+    physical: JSON.parse(physicalBytes.toString()) as HistoricalPhysical,
+    physicalBytes,
+    panel: JSON.parse(
+      pinnedBytes({ ...provenance.panel, path: `${provenance.panel.path}.txt` }, root).toString(),
+    ) as unknown[],
+  };
+}

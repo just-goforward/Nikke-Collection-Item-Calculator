@@ -61,6 +61,21 @@ export type PublicFeasibilityResult = {
 };
 type Edge = { p: number; great: number; ordinary: number };
 type Node = { state: State; depth: number; edges: Edge[] };
+// Array reads remain possibly missing. These named-property boundaries
+// preserve the original native property reads (including undefined errors);
+// no numeric index is claimed to be total or refined by a cast.
+const graphProperty = ((value: Partial<Node & Edge>, key: keyof (Node & Edge)) => value[key]) as {
+  (value: undefined, key: keyof (Node & Edge)): never;
+  (value: Node | undefined, key: "depth"): number;
+  (value: Node | undefined, key: "edges"): Edge[];
+  (value: Edge | undefined, key: "p" | "great" | "ordinary"): number;
+};
+// A missing power is an operand of the original bigint multiplication, not
+// a successful table read. Native multiplication preserves its TypeError.
+const multiplyPower = ((left: bigint, right: bigint) => left * right) as {
+  (left: bigint, right: bigint | undefined): bigint;
+  (left: bigint | undefined, right: bigint): bigint;
+};
 type Row = {
   consumed: readonly [bigint, bigint, bigint];
   burden: bigint;
@@ -167,7 +182,9 @@ class PublicGraph {
     this.budget.graphOrder(this.nodes.length);
     this.order = this.nodes
       .map((_node, id) => id)
-      .sort((a, b) => this.nodes[a]!.depth - this.nodes[b]!.depth);
+      .sort(
+        (a, b) => graphProperty(this.nodes[a], "depth") - graphProperty(this.nodes[b], "depth"),
+      );
   }
   private edge(state: State, color: number): Edge {
     const probability = independentProbability(state.grade, state.level, color);
@@ -188,7 +205,8 @@ class PublicGraph {
     const key = `${state.grade}:${state.level}:${state.exp}`;
     const previous = this.ids.get(key);
     if (previous !== undefined) {
-      if (this.nodes[previous]!.depth < 0) throw new Error("public_feasibility_public_graph_cycle");
+      if (graphProperty(this.nodes[previous], "depth") < 0)
+        throw new Error("public_feasibility_public_graph_cycle");
       return previous;
     }
     this.budget.graphNode();
@@ -203,8 +221,8 @@ class PublicGraph {
         1 +
         Math.max(
           ...node.edges.flatMap((edge) => [
-            this.nodes[edge.great]!.depth,
-            this.nodes[edge.ordinary]!.depth,
+            graphProperty(this.nodes[edge.great], "depth"),
+            graphProperty(this.nodes[edge.ordinary], "depth"),
           ]),
         );
     }
@@ -231,7 +249,7 @@ function planFor(
   budget: Budget,
 ): PublicFeasibilityPlan {
   const finiteColors = [...input.finiteColors].sort((a, b) => a - b);
-  const rootDepth = graph.nodes[graph.root]!.depth;
+  const rootDepth = graphProperty(graph.nodes[graph.root], "depth");
   const proof = feasibility(input, finiteColors);
   const units = makeTriple((color) =>
     finiteColors.includes(color as Color) ? proof.actualUses[color] : 0,
@@ -383,33 +401,50 @@ class LayerTable {
     );
   }
   private child(id: number, units: Triple, table: ReadonlyMap<number, Row>): Row {
-    if (this.graph.nodes[id]!.depth === 0) return EMPTY;
+    if (graphProperty(this.graph.nodes[id], "depth") === 0) return EMPTY;
     const value = table.get(this.key(id, units));
     if (!value) throw new Error("public_feasibility_missing_positive_child");
     return value;
   }
-  private action(node: Node, units: Triple, color: Color): Row {
+  private action(node: Node | undefined, units: Triple, color: Color): Row {
     const remaining = makeTriple(
       (index) => units[index] - (this.finite[color] && index === color ? 1 : 0),
     );
     const table = this.finite[color] ? this.previous : this.current;
-    const edge = node.edges[color]!;
-    const great = this.child(edge.great, remaining, table);
-    const ordinary = edge.p < 1000 ? this.child(edge.ordinary, remaining, table) : EMPTY;
-    const gd = node.depth - 1 - this.graph.nodes[edge.great]!.depth;
-    const nd = edge.p < 1000 ? node.depth - 1 - this.graph.nodes[edge.ordinary]!.depth : 0;
+    const edge = graphProperty(node, "edges")[color];
+    const great = this.child(graphProperty(edge, "great"), remaining, table);
+    const ordinary =
+      graphProperty(edge, "p") < 1000
+        ? this.child(graphProperty(edge, "ordinary"), remaining, table)
+        : EMPTY;
+    const gd =
+      graphProperty(node, "depth") -
+      1 -
+      graphProperty(this.graph.nodes[graphProperty(edge, "great")], "depth");
+    const nd =
+      graphProperty(edge, "p") < 1000
+        ? graphProperty(node, "depth") -
+          1 -
+          graphProperty(this.graph.nodes[graphProperty(edge, "ordinary")], "depth")
+        : 0;
     if (gd < 0 || nd < 0) throw new Error("public_feasibility_denominator_lift");
-    const gm = BigInt(edge.p) * this.powers[gd]!;
-    const nm = edge.p < 1000 ? BigInt(1000 - edge.p) * this.powers[nd]! : 0n;
-    const denominator = this.powers[node.depth]!;
+    const gm = multiplyPower(BigInt(graphProperty(edge, "p")), this.powers[gd]);
+    const nm =
+      graphProperty(edge, "p") < 1000
+        ? multiplyPower(BigInt(1000 - graphProperty(edge, "p")), this.powers[nd])
+        : 0n;
+    const denominator = this.powers[graphProperty(node, "depth")];
     return {
       consumed: makeTriple(
         (index) =>
           gm * great.consumed[index] +
           nm * ordinary.consumed[index] +
-          (index === color ? 10n * denominator : 0n),
+          (index === color ? multiplyPower(10n, denominator) : 0n),
       ),
-      burden: gm * great.burden + nm * ordinary.burden + 10n * this.prices[color] * denominator,
+      burden:
+        gm * great.burden +
+        nm * ordinary.burden +
+        multiplyPower(10n * this.prices[color], denominator),
       mask: 1 << color,
       worstAll: makeTriple(
         (index) =>
@@ -417,7 +452,7 @@ class LayerTable {
       ),
     };
   }
-  private row(node: Node, units: Triple): Row {
+  private row(node: Node | undefined, units: Triple): Row {
     let best: Row | null = null;
     for (const color of [0, 1, 2] as const) {
       if (this.finite[color] && units[color] === 0) continue;
@@ -431,14 +466,15 @@ class LayerTable {
     const live = this.previous.size + this.current.size + 1;
     if (live > this.plan.maximumLiveRows || live > this.budget.maxLiveRows)
       throw new Error("public_feasibility_runtime_live_admission");
-    const value = this.row(this.graph.nodes[id]!, units);
+    const value = this.row(this.graph.nodes[id], units);
     const limb = (n: bigint) => Math.ceil(n.toString(2).length / 8);
     const bytes = 128 + value.consumed.reduce((a, n) => a + limb(n), 0) + limb(value.burden);
     if (bytes > this.plan.maximumRowBytes)
       throw new Error("public_feasibility_runtime_limb_admission");
     if (
       !value.worstAll.every(
-        (n) => Number.isSafeInteger(n) && n >= 0 && n <= this.graph.nodes[id]!.depth,
+        (n) =>
+          Number.isSafeInteger(n) && n >= 0 && n <= graphProperty(this.graph.nodes[id], "depth"),
       )
     )
       throw new Error("public_feasibility_runtime_worst_use_invariant");
@@ -447,10 +483,10 @@ class LayerTable {
     this.cumulativeRows++;
   }
   private view(row: Row): RelaxedEndpoint {
-    const denominator = this.powers[this.plan.rootDepth]!;
+    const denominator = this.powers[this.plan.rootDepth];
     return {
       P: q(1),
-      B: q(row.burden, denominator * this.scale),
+      B: q(row.burden, multiplyPower(denominator, this.scale)),
       C: q(row.consumed[0] + row.consumed[1] + row.consumed[2], denominator),
       consumed: makeTriple((color) => q(row.consumed[color], denominator)),
       mask: row.mask,
@@ -467,9 +503,9 @@ class LayerTable {
       this.budget.check();
       for (const units of tuples(layer, this.plan.finiteColors, this.plan.finiteWidths)) {
         for (const id of this.graph.order)
-          if (this.graph.nodes[id]!.depth > 0) this.record(id, units);
+          if (graphProperty(this.graph.nodes[id], "depth") > 0) this.record(id, units);
         const root =
-          this.graph.nodes[this.graph.root]!.depth === 0
+          graphProperty(this.graph.nodes[this.graph.root], "depth") === 0
             ? EMPTY
             : this.current.get(this.key(this.graph.root, units));
         if (!root) throw new Error("public_feasibility_missing_root");

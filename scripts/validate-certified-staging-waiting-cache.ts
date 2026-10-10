@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { freemem } from "node:os";
 import type { CertifiedInput, CertifiedOutput } from "../src/certified/types.ts";
-import { type QTriple, q } from "./certified-staging-oracle.ts";
+import { readV5Evidence } from "./certified-staging-approved-panel/v5/evidence.ts";
+import { fromWire, mapTriple, type QTriple, q } from "./certified-staging-oracle.ts";
 import type { CertificateCheck } from "./certified-staging-oracle-certificates.ts";
-import { independentPhysicalRecurringRates } from "./certified-staging-oracle-physical-supply.ts";
 import {
   evidenceHash,
   RELAXATION_POPULATION,
@@ -37,6 +37,14 @@ type Expanded = {
   snapshotSha256: string;
   originalSourceClosureSha256: string;
   rows: { id: string; status: string; inputSha256: string; witnessSha256: string }[];
+};
+type StrictWitness = NonNullable<CertifiedOutput["waiting"]["strictBoundaryWitness"]>;
+// Keep the optional witness until the exact native receipts read. This does
+// not coalesce null, alter signature hashing, or move the subsequent length read.
+const readWitnessReceipts = ((witness: StrictWitness) => witness.receipts) as {
+  (witness: null | undefined): never;
+  (witness: StrictWitness): StrictWitness["receipts"];
+  (witness: StrictWitness | null | undefined): StrictWitness["receipts"];
 };
 function load(record: WaitingProofSource): string {
   const bytes = readFileSync(record.path);
@@ -137,7 +145,7 @@ function expandedEntries(original: Original, rows: Map<string, Row>, rates: QTri
             finiteBeforeParity: true,
             finiteAfterParity: true,
             probabilityIntervalValidity: "PASS",
-            receiptCount: row.output.waiting.strictBoundaryWitness!.receipts.length,
+            receiptCount: readWitnessReceipts(row.output.waiting.strictBoundaryWitness).length,
           },
           source,
           rates,
@@ -164,7 +172,9 @@ function main(): void {
   const rows = original.reports.flatMap((report) => report.rows);
   if (rows.length !== 2000 || new Set(rows.map((row) => row.id)).size !== 2000)
     throw new Error("Waiting cache original population is not exactly2000");
-  const rates = independentPhysicalRecurringRates();
+  // Historical reports still have to pass their original source checks above.
+  // A current physical calculation is not permission to relabel waiting proofs.
+  const rates = mapTriple(readV5Evidence().physical.rate, fromWire);
   const defaults = rows
     .filter((row) => row.waitingCertificate.status === "PASS")
     .map((row) => entry(row, row.waitingCertificate, RELAXATION_POPULATION.original, rates));

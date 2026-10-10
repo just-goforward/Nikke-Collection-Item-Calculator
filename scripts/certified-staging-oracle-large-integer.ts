@@ -11,21 +11,39 @@ import {
 import { makeTriple, mapTriple } from "./certified-staging-oracle-tuples.ts";
 
 type State = ReturnType<typeof canonicalState>;
-type Value = { p: bigint; consumed: readonly [bigint, bigint, bigint]; mask: number };
+type Numerators = { p: bigint; consumed: readonly [bigint, bigint, bigint]; mask: number };
+type Value = Omit<Numerators, "p"> & { p: bigint | undefined };
 type Limits = { maxMemoEntries: number; check: (entries: number) => void };
-const ZERO: Value = { p: 0n, consumed: [0n, 0n, 0n], mask: 0 };
+// Keep missing demand-bounded power coordinates optional until consumed by
+// native arithmetic/decoding, with no lookup check, fallback or conversion.
+// At least one operand is a definite bigint at every call site.
+const multiplyPower = ((left: bigint, right: bigint) => left * right) as {
+  (left: bigint, right: bigint | undefined): bigint;
+  (left: bigint | undefined, right: bigint): bigint;
+};
+const decodeProbability = q as {
+  (numerator: undefined, denominator: bigint | undefined): never;
+  (numerator: bigint | undefined, denominator: bigint | undefined): ReturnType<typeof q>;
+};
+const ZERO: Numerators = { p: 0n, consumed: [0n, 0n, 0n], mask: 0 };
 const COLORS = ["blue", "purple", "yellow"] as const;
 function gcd(a: bigint, b: bigint): bigint {
   while (b) [a, b] = [b, a % b];
   return a;
 }
-function burden(value: Value, prices: readonly bigint[]): bigint {
-  return value.consumed.reduce((sum, pieces, color) => sum + pieces * BigInt(prices[color]!), 0n);
+function burden(
+  value: Pick<Numerators, "consumed">,
+  prices: readonly [bigint, bigint, bigint],
+): bigint {
+  return value.consumed.reduce(
+    (sum, pieces, color) => sum + pieces * BigInt(prices[color as 0 | 1 | 2]),
+    0n,
+  );
 }
-function total(value: Value): bigint {
+function total(value: Pick<Numerators, "consumed">): bigint {
   return value.consumed[0] + value.consumed[1] + value.consumed[2];
 }
-function compare(a: Value, b: Value, prices: readonly bigint[]): number {
+function compare(a: Numerators, b: Numerators, prices: readonly [bigint, bigint, bigint]): number {
   if (a.p !== b.p) return a.p > b.p ? 1 : -1;
   const first = burden(a, prices),
     second = burden(b, prices);
@@ -40,9 +58,9 @@ function action(
   state: State,
   stock: Triple,
   color: number,
-  denominator: bigint,
+  denominator: bigint | undefined,
   solve: Solve,
-): Value {
+): Numerators {
   const remaining = mapTriple(stock, (count, index) => count - (index === color ? 1 : 0));
   const probability = independentProbability(state.grade, state.level, color);
   if (1000n % probability.d !== 0n)
@@ -56,12 +74,12 @@ function action(
       ? ZERO
       : solve(independentFailure(state.grade, state.level, state.exp, color), remaining);
   return {
-    p: good * success.p + bad * normal.p,
+    p: multiplyPower(good, success.p) + multiplyPower(bad, normal.p),
     consumed: makeTriple(
       (index) =>
         good * success.consumed[index] +
         bad * normal.consumed[index] +
-        (index === color ? 10n * denominator : 0n),
+        (index === color ? multiplyPower(10n, denominator) : 0n),
     ),
     mask: 1 << color,
   };
@@ -69,10 +87,10 @@ function action(
 function best(
   state: State,
   stock: Triple,
-  denominator: bigint,
-  prices: readonly bigint[],
+  denominator: bigint | undefined,
+  prices: readonly [bigint, bigint, bigint],
   solve: Solve,
-): Value {
+): Numerators {
   let value = ZERO;
   for (let color = 0; color < 3; color++) {
     if (stock[color] === 0) continue;
@@ -102,7 +120,7 @@ export function independentLargeIntegerOracle(input: OracleInput, limits: Limits
   }
   const common = input.prices.reduce((d, price) => (d / gcd(d, price.d)) * price.d, 1n);
   const prices = mapTriple(input.prices, (price) => price.n * (common / price.d));
-  const memo = new Map<number, Value>();
+  const memo = new Map<number, Numerators>();
   let calls = 0;
   const solve: Solve = (raw, stock) => {
     const state = canonicalState(raw.grade, raw.level, raw.exp);
@@ -110,7 +128,7 @@ export function independentLargeIntegerOracle(input: OracleInput, limits: Limits
     const key = ((sid * bases[0] + stock[0]) * bases[1] + stock[1]) * bases[2] + stock[2];
     const found = memo.get(key);
     if (found) return found;
-    const denominator = powers[stock[0] + stock[1] + stock[2]]!;
+    const denominator = powers[stock[0] + stock[1] + stock[2]];
     if (state.grade === "SR" && state.level === 15) return { ...ZERO, p: denominator };
     if (memo.size >= limits.maxMemoEntries) throw new Error("large_oracle_memo_admission_limit");
     if ((calls++ & 4095) === 0) limits.check(memo.size);
@@ -120,13 +138,13 @@ export function independentLargeIntegerOracle(input: OracleInput, limits: Limits
   };
   const value = solve(canonicalState(input.grade, input.level, input.exp), units);
   limits.check(memo.size);
-  const denominator = powers[sum]!;
+  const denominator = powers[sum];
   const terminal = input.grade === "SR" && input.level === 15;
   const ties = COLORS.filter((_color, index) => (value.mask & (1 << index)) !== 0);
   const inactiveAction = terminal ? "DONE" : "STOP";
   return {
-    P: q(value.p, denominator),
-    B: q(burden(value, prices), denominator * common),
+    P: decodeProbability(value.p, denominator),
+    B: q(burden(value, prices), multiplyPower(denominator, common)),
     C: q(total(value), denominator),
     consumed: mapTriple(value.consumed, (pieces) => q(pieces, denominator)),
     action: ties[0] ?? inactiveAction,

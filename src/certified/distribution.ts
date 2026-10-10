@@ -11,6 +11,13 @@ const ONE = q(1);
 
 type SupportRow = { pieces: Triple; mass: Q };
 export type Support = { rows: Map<string, SupportRow>; bytes: number };
+// exhaustiveDates constructs three supports, but the compatibility signature
+// permits missing cohorts. Preserve the native .rows exception for a nonzero
+// prior instead of manufacturing an empty support.
+const supportRows = ((support: Support) => support.rows) as {
+  (support: undefined): never;
+  (support: Support | undefined): Support["rows"];
+};
 export function singleton(stock: Triple, budget: WorkBudget): Support {
   const row = { pieces: stock, mass: ONE };
   const bytes = 80 + rationalPayload(ONE);
@@ -71,8 +78,8 @@ export function expectation(
   for (const cohort of KIT_INDICES) {
     const prior = priors[cohort];
     if (prior.n === 0n) continue;
-    const support = supports[cohort]!;
-    for (const row of support.rows.values()) {
+    const support = supports[cohort];
+    for (const row of supportRows(support).values()) {
       kernel.budget.tick();
       const value = kernel.value(sid, capUnits(sid, row.pieces));
       const mass = mul(prior, row.mass);

@@ -1,0 +1,7 @@
+{
+  "version": "approved24-independent-evidence-v4",
+  "provenance": {
+    "path": "scripts/certified-staging-approved-panel/v4/provenance.json",
+    "sha256": "c84e1000a58cd3f9c9cdfeca02ebf797bb9b74ccfd76738cf6c59adb5def08d8"
+  }
+}

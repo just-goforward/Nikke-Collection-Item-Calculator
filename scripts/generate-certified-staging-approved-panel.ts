@@ -1,13 +1,24 @@
-import { writeFileSync } from "node:fs";
+import { calculateFresh } from "./certified-staging-approved-panel/v5/calculate.ts";
 import {
-  APPROVED_PANEL_PATH,
-  generateIndependentApprovedPanel,
-} from "./certified-staging-approved-panel.ts";
+  prepareGeneration,
+  preparePins,
+  prepareProvenance,
+  publishGeneration,
+  verifyGeneration,
+} from "./certified-staging-approved-panel/v5/generate.ts";
 
-// Frozen input/physical enumeration hashes and the enumeration source identity
-// must match before this independent generator can replace expected values.
-const rows = generateIndependentApprovedPanel();
-writeFileSync(APPROVED_PANEL_PATH, `${JSON.stringify(rows, null, 2)}\n`);
-console.log(
-  JSON.stringify({ path: APPROVED_PANEL_PATH, cases: rows.length, independentWaiting: "NOTRUN" }),
-);
+// Separate draft/format/seal phases: tidy formats new bytes before their hashes
+// become evidence. No command ever reformats or replaces an existing seal.
+const [command = "--prepare", directory] = process.argv.slice(2);
+let result: unknown;
+if (command === "--calculate") result = calculateFresh();
+else if (command === "--prepare") result = prepareGeneration();
+else {
+  if (!directory) throw new Error("An explicit draft directory is required");
+  if (command === "--provenance") result = prepareProvenance(directory);
+  else if (command === "--pins") result = preparePins(directory);
+  else if (command === "--verify") result = verifyGeneration(directory);
+  else if (command === "--publish") result = publishGeneration(directory);
+  else throw new Error(`Unknown evidence phase: ${command}`);
+}
+console.log(JSON.stringify(result, null, 2));

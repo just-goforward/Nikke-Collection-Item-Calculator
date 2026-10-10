@@ -20,7 +20,7 @@ type Recorded = {
     level: number;
     exp: number;
     stock: readonly number[];
-    prices: readonly Wire[];
+    prices: readonly [Wire, Wire, Wire];
   };
   result: {
     P: Wire;
@@ -52,7 +52,9 @@ function sameInput(first: Recorded["input"], second: OracleInput) {
     first.level === second.level &&
     first.exp === second.exp &&
     first.stock.every((pieces, color) => pieces === second.stock[color]) &&
-    first.prices.every((price, color) => cmp(fromWire(price), second.prices[color]!) === 0)
+    first.prices.every(
+      (price, color) => cmp(fromWire(price), second.prices[color as 0 | 1 | 2]) === 0,
+    )
   );
 }
 function recordedProof(input: OracleInput): OracleResult | null {
@@ -77,20 +79,25 @@ function recordedProof(input: OracleInput): OracleResult | null {
   }
   return null;
 }
+// Public stock.every can visit a fourth coordinate or skip holes. Preserve
+// native 10 * undefined => NaN instead of claiming a triple-bounded index.
+const scaleWorstUnits = ((units: number) => 10 * units) as (units: number | undefined) => number;
 function feasibleUnrestricted(input: OracleInput): OracleResult | null {
   const value = createIndependentUnlimited(input.prices).solve(input);
   const terminal = input.grade === "SR" && input.level === 15;
   const colors = ["blue", "purple", "yellow"] as const;
   const ties = value.actions
-    .map((action, color) => ({ action, color }))
+    // The unrestricted solver's action array is empty at DONE and otherwise
+    // constructed by makeTriple in blue/purple/yellow order.
+    .map((action, color) => ({ action, color: color as 0 | 1 | 2 }))
     .filter(({ action }) => cmp(action.B, value.B) === 0 && cmp(action.C, value.C) === 0);
   if (
     !ties.every(({ action }) =>
-      input.stock.every((pieces, color) => pieces >= 10 * action.worst[color]!),
+      input.stock.every((pieces, color) => pieces >= scaleWorstUnits(action.worst[color])),
     )
   )
     return null;
-  const kits = ties.map(({ color }) => colors[color]!);
+  const kits = ties.map(({ color }) => colors[color]);
   return {
     P: q(1),
     B: value.B,
