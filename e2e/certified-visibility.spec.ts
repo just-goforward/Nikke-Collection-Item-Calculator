@@ -222,8 +222,9 @@ test.beforeEach(async () => {
     sessionStorage.clear();
   });
   await page.reload();
-  await selectEnglish();
+  // The cover tab owns the foreground on CI; restore real visibility before UI gestures.
   await bringVisible();
+  await selectEnglish();
   await expect(calculateButton()).toBeEnabled();
 });
 
@@ -402,8 +403,8 @@ async function bringVisible() {
 
 test("actual hidden cancellation during forecast preparation discards the late snapshot and requires manual recompute", async () => {
   await page.goto(`http://127.0.0.1:${visibilityPort}/?statsEnv=staging&engine=certified`);
-  await selectEnglish();
   await bringVisible();
+  await selectEnglish();
   await setCertifiedInput("SR", 14, 2900, { blue: 19, purple: 0, yellow: 0 });
   await page.evaluate(() => {
     window.__holdCertifiedPreparation = true;
@@ -486,8 +487,8 @@ test("actual hidden cancellation during forecast preparation discards the late s
 
 test("actual hidden cancellation discards stale work and requires a new foreground request", async () => {
   await page.goto(`http://127.0.0.1:${visibilityPort}/?statsEnv=staging&engine=certified`);
-  await selectEnglish();
   await bringVisible();
+  await selectEnglish();
   await page.locator("#resetButton").click();
   await expectCertifiedInput("R", 0, "");
   await setCertifiedInput("R", 0, 0, { blue: 300, purple: 200, yellow: 100 });
