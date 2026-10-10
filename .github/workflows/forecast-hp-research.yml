@@ -192,7 +192,7 @@ jobs:
           node --input-type=module - <<'NODE'
           import { appendFileSync, readFileSync } from "node:fs";
           const registry = JSON.parse(readFileSync("shared/supplyForecasts.json", "utf8"));
-          const enabled = registry.version === 2 &&
+          const enabled = registry.version === 3 &&
             registry.approvedForecastId !== registry.activeForecastId;
           appendFileSync(process.env.GITHUB_OUTPUT, `enabled=${enabled}\n`);
           const approved = registry.forecasts.find((entry) => entry.id === registry.approvedForecastId);
