@@ -5,32 +5,37 @@ import { certifiedMessages } from "../src/certifiedUi/messages";
 import { enMessages } from "../src/i18n/messages.en";
 import { jaMessages } from "../src/i18n/messages.ja";
 import { koMessages } from "../src/i18n/messages.ko";
+import {
+  expectApprovedReviewHealthAttempts,
+  isReviewCollector,
+  type ReviewHealthAttempt,
+  type ReviewHealthMode,
+  reviewHealthUrl,
+  serveReviewHealth,
+} from "./reviewHealth";
 import { closePreviewServer } from "./test";
 
 let server: PreviewServer | null = null;
-const reviewHealthOrigin = "https://collection-kit-forecast-collector-staging.tbvj159.workers.dev";
-const healthAttempts = new WeakMap<Page, string[]>();
+let reviewHealthMode: ReviewHealthMode = "blocked";
+const healthAttempts = new WeakMap<Page, ReviewHealthAttempt[]>();
 const externalAttempts = new WeakMap<Page, string[]>();
-function isReviewHealth(url: URL) {
-  return url.origin === reviewHealthOrigin && url.pathname.replace(/\/+$/, "") === "/health";
-}
 test.beforeEach(async ({ page, context }) => {
-  const attempts: string[] = [];
+  reviewHealthMode = "blocked";
+  const attempts: ReviewHealthAttempt[] = [];
   healthAttempts.set(page, attempts);
   const external: string[] = [];
   externalAttempts.set(page, external);
   context.on("request", (request) => {
     const url = new URL(request.url());
-    if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))
+    if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) && !isReviewCollector(url))
       external.push(`${request.method()} ${url.origin}${url.pathname}`);
-    if (isReviewHealth(url)) attempts.push(`${request.method()} ${request.url()}`);
   });
-  // Keep browser verification local, including accidental external metadata requests.
+  // Keep browser verification local; only the approved metadata GET is answered by a local mock.
   await context.route(
     (url) => !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname),
     (route) => route.abort("blockedbyclient"),
   );
-  await context.route(isReviewHealth, (route) => route.abort("blockedbyclient"));
+  await serveReviewHealth(context, () => reviewHealthMode, attempts);
 });
 test.afterEach(async ({ page }, testInfo) => {
   const attempts = healthAttempts.get(page) ?? [];
@@ -42,7 +47,7 @@ test.afterEach(async ({ page }, testInfo) => {
     body: JSON.stringify(externalAttempts.get(page) ?? []),
     contentType: "application/json",
   });
-  expect(attempts, "review metadata must not be requested").toEqual([]);
+  expectApprovedReviewHealthAttempts(attempts, "only the credential-free approved GET may run");
 });
 test.beforeAll(async () => {
   server = await preview({
@@ -125,6 +130,7 @@ test("staging uses one profile and renders all three supported languages", async
     page.getByText("Historical records are incomplete.", { exact: false }),
   ).toBeVisible();
   await expect(page.locator(".cert-supply table")).toContainText("N/A");
+  expect(healthAttempts.get(page)?.map(({ mode }) => mode)).toEqual(["blocked"]);
 });
 
 for (const locale of ["en", "ja"] as const) {
@@ -154,6 +160,7 @@ for (const locale of ["en", "ja"] as const) {
 test("offline review notice preserves approved calculation and uncertain supply policy", async ({
   page,
 }) => {
+  reviewHealthMode = "failed";
   await openStaging(page);
   const notice = page.locator("[data-forecast-review='unknown']");
   await expect(notice).toHaveText(certifiedMessages.en.reviewUnknown);
@@ -169,12 +176,41 @@ test("offline review notice preserves approved calculation and uncertain supply 
   );
   await expect(notice).toHaveText(certifiedMessages.en.reviewUnknown);
   await expect(page.getByText(certifiedMessages.en.uncertain, { exact: true })).toBeVisible();
-  expect(healthAttempts.get(page)).toEqual([]);
+  expect(healthAttempts.get(page)?.map(({ mode }) => mode)).toEqual(["failed"]);
   await page.reload();
   await page.locator("header select").selectOption("en");
   await expect(notice).toHaveText(certifiedMessages.en.reviewUnknown);
   await expect(page.getByText(certifiedMessages.en.uncertain, { exact: true })).toBeVisible();
-  expect(healthAttempts.get(page)).toEqual([]);
+  expect(healthAttempts.get(page)?.map(({ mode }) => mode)).toEqual(["failed", "failed"]);
+});
+
+test("approved review metadata shows pending, hides current, and keeps the approved calculation", async ({
+  page,
+}) => {
+  const words = certifiedMessages.en;
+  reviewHealthMode = "pending";
+  await openStaging(page);
+  await expect(page.locator("[data-forecast-review='review_pending']")).toHaveText(
+    words.reviewPending,
+  );
+  await expect(page.locator("[data-forecast-review='unknown']")).toHaveCount(0);
+  await expect(page.getByText(words.uncertain, { exact: true })).toBeVisible();
+  await setAlmostComplete(page);
+  await calculate(page);
+  await expect(page.getByTestId("certified-current")).toContainText("100");
+  await expect(page.getByTestId("certified-waiting")).toContainText(words.magnitudeUncomputed);
+  reviewHealthMode = "current";
+  const current = page.waitForResponse((response) => response.url() === reviewHealthUrl);
+  await page.reload();
+  await (await current).finished();
+  await page.locator("header select").selectOption("en");
+  await setAlmostComplete(page);
+  await calculate(page);
+  await expect(page.getByTestId("certified-current")).toContainText("100");
+  await expect(page.getByTestId("certified-waiting")).toContainText(words.magnitudeUncomputed);
+  await expect(page.locator("[data-forecast-review]")).toHaveCount(0);
+  await expect(page.getByText(words.uncertain, { exact: true })).toBeVisible();
+  expect(healthAttempts.get(page)?.map(({ mode }) => mode)).toEqual(["pending", "current"]);
 });
 
 test("real Worker computes, records one outcome, and preserves raw remainders after reload", async ({
@@ -298,6 +334,7 @@ for (const path of [
     await page.waitForLoadState("networkidle");
     page.off("request", record);
     expect(requests.filter((url) => forbidden.has(new URL(url).pathname.slice(1)))).toEqual([]);
+    expect(healthAttempts.get(page)).toEqual([]);
   });
 }
 
@@ -331,5 +368,6 @@ for (const [locale, path, words] of [
     ).toBeVisible();
     await expect(page.locator("main[data-engine-profile]")).toHaveCount(0);
     expect(requested.filter((url) => forbidden.has(new URL(url).pathname.slice(1)))).toEqual([]);
+    expect(healthAttempts.get(page)).toEqual([]);
   });
 }

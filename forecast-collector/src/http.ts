@@ -10,6 +10,7 @@ import {
   opsEnvironment,
 } from "./http-shared";
 import { readOperationsHealth } from "./ops";
+import { readSourceReviewStatus } from "./source-review-status";
 import type { CollectorEnv } from "./types";
 
 export async function handleHttpRequest(
@@ -20,11 +21,15 @@ export async function handleHttpRequest(
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/health") {
     const quotaResponse = await enforceUsageGuard(env, "admin_read");
-    if (quotaResponse) return quotaResponse;
-    return json({
+    if (quotaResponse) return publicHealthResponse(quotaResponse, request, env);
+    const response = json({
       ...(await readHealth(env.FORECAST_DB)),
       operations: await readOperationsHealth(env.FORECAST_DB, opsEnvironment(env)),
+      ...(env.ENVIRONMENT === "staging"
+        ? { sourceReview: await readSourceReviewStatus(env.FORECAST_DB) }
+        : {}),
     });
+    return publicHealthResponse(response, request, env);
   }
   if (request.method === "POST" && url.pathname === "/discord/interactions") {
     const quotaResponse = await enforceUsageGuard(env, automationOperation(env));
@@ -48,6 +53,15 @@ export async function handleHttpRequest(
   );
   if (quotaResponse) return quotaResponse;
   return handleAdminRoute({ request, url, env, executionContext });
+}
+
+function publicHealthResponse(response: Response, request: Request, env: CollectorEnv) {
+  if (env.ENVIRONMENT !== "staging") return response;
+  response.headers.append("vary", "Origin");
+  if (request.headers.get("origin") === "https://nikkecollection.com") {
+    response.headers.set("access-control-allow-origin", "https://nikkecollection.com");
+  }
+  return response;
 }
 
 async function enforceDiscordRateLimit(request: Request, env: CollectorEnv) {

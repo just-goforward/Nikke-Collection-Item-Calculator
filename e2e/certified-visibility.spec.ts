@@ -4,6 +4,12 @@ import { join, resolve } from "node:path";
 import { type Browser, chromium, expect, type Page, test } from "@playwright/test";
 import { build, type PreviewServer, preview } from "vite";
 import { certifiedMessages } from "../src/certifiedUi/messages";
+import {
+  expectApprovedReviewHealthAttempts,
+  isReviewCollector,
+  type ReviewHealthAttempt,
+  serveReviewHealth,
+} from "./reviewHealth";
 
 type VisibilityTraceEntry = {
   phase: string;
@@ -32,12 +38,8 @@ if (!["native", "tab"].includes(visibilityAdapter))
   throw new Error("Unknown certified visibility adapter");
 if (visibilityAdapter === "native" && process.platform !== "win32")
   throw new Error("Native certified visibility adapter requires Windows");
-const healthAttempts: string[] = [];
+const healthAttempts: ReviewHealthAttempt[] = [];
 const blockedRequests: string[] = [];
-const reviewHealthOrigin = "https://collection-kit-forecast-collector-staging.tbvj159.workers.dev";
-function isReviewHealth(url: URL) {
-  return url.origin === reviewHealthOrigin && url.pathname.replace(/\/+$/, "") === "/health";
-}
 const directory = resolve("benchmarks/results", `certified-visibility-ui-${Date.now()}`);
 let child: ChildProcess | undefined;
 let browser: Browser | undefined;
@@ -124,15 +126,15 @@ test.beforeAll(async () => {
   if (!context) throw new Error("Owned browser context missing");
   context.on("request", (request) => {
     const url = new URL(request.url());
-    if (!isLoopback(url)) blockedRequests.push(`${request.method()} ${url.origin}${url.pathname}`);
-    if (isReviewHealth(url)) healthAttempts.push(`${request.method()} ${request.url()}`);
+    if (!isLoopback(url) && !isReviewCollector(url))
+      blockedRequests.push(`${request.method()} ${url.origin}${url.pathname}`);
   });
-  // Keep browser verification local, including accidental external metadata requests.
+  // Keep browser verification local; only the approved metadata GET is answered by a local mock.
   await context.route(
     (url) => !isLoopback(url),
     (route) => route.abort("blockedbyclient"),
   );
-  await context.route(isReviewHealth, (route) => route.abort("blockedbyclient"));
+  await serveReviewHealth(context, () => "blocked", healthAttempts);
   await context.addInitScript(() => {
     const trace: unknown[] = [];
     Object.assign(globalThis, { __visibilityTrace: trace });
@@ -235,8 +237,9 @@ test.afterEach(async ({ browserName }, testInfo) => {
       browserName,
       trace: await page.evaluate(() => window.__visibilityTrace),
     });
-  expect(healthAttempts, "review metadata must not be requested during visibility flows").toEqual(
-    [],
+  expectApprovedReviewHealthAttempts(
+    healthAttempts,
+    "visibility flows may only use the credential-free approved GET",
   );
 });
 
@@ -265,7 +268,8 @@ test.afterAll(async () => {
     `${JSON.stringify(observations, null, 2)}\n`,
   );
   console.log(`VISIBILITY_EVIDENCE ${directory}`);
-  expect(healthAttempts).toEqual([]);
+  expect(healthAttempts.map(({ mode }) => mode)).toContain("blocked");
+  expectApprovedReviewHealthAttempts(healthAttempts, "visibility metadata attempts");
 });
 
 function isLoopback(url: URL) {
