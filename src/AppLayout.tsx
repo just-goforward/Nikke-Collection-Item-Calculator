@@ -1,6 +1,8 @@
 import {
+  type ComponentProps,
   type CSSProperties,
   lazy,
+  type ReactNode,
   Suspense,
   useCallback,
   useEffect,
@@ -28,6 +30,13 @@ import { useI18n } from "./i18n/locale";
 import type { StatsRuntimeMode } from "./lib/statsRuntime";
 import { formatStagingForecastKstWindow } from "./lib/supplyForecastPresentation";
 import { resolveRuntimeSupplyForecast } from "./lib/supplyForecastRuntime";
+import type {
+  StateChangeFeedback,
+  StatePanelModel,
+  StatsView,
+  SuccessAttemptModalState,
+  ThemeMode,
+} from "./ui-types";
 
 type DetailPanelModule = typeof import("./components/DetailPanel");
 
@@ -112,6 +121,19 @@ type CalculatorApp = CalculatorAppModel;
 type ResetToastView = {
   secondsLeft: number;
   onUndo: () => void;
+};
+
+/** Shared input column: every engine renders the same state and stock panels. */
+type AppShellInputPanels = {
+  state: ComponentProps<typeof StatePanel>;
+  stock: ComponentProps<typeof StockPanel>;
+  /** Engine-specific inputs rendered below the shared panels. */
+  extra?: ReactNode;
+};
+
+type AppShellStats = {
+  view: StatsView;
+  onRetry: () => void;
 };
 
 export type AppHandlers = {
@@ -211,10 +233,16 @@ function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
   );
 }
 
-function MobileHeader({ calculator }: { calculator: CalculatorApp }) {
+function MobileHeader({
+  feedback,
+  state,
+}: {
+  feedback: StateChangeFeedback | null;
+  state: StatePanelModel;
+}) {
   return (
     <div className={classes.mobileHeader}>
-      <MobileStatusStrip feedback={calculator.stateFeedback} state={calculator.statePanel} />
+      <MobileStatusStrip feedback={feedback} state={state} />
     </div>
   );
 }
@@ -320,23 +348,20 @@ function DetailPanelRegion({
 }
 
 function Workspace({
-  calculator,
-  handlers,
+  inputPanels,
   mobileTab,
-  onPendingOutcomeChange,
-  pendingOutcome,
-  showSolverBackend,
+  onWorkspaceInteraction,
+  result,
+  stats,
   viewTab,
 }: {
-  calculator: CalculatorApp;
-  handlers: AppHandlers;
+  inputPanels: AppShellInputPanels;
   mobileTab: MobileTab;
-  pendingOutcome: "success" | "fail" | null;
-  showSolverBackend: boolean;
+  onWorkspaceInteraction: (() => void) | undefined;
+  result: ReactNode;
+  stats: AppShellStats;
   viewTab: TopViewTab;
-  onPendingOutcomeChange: (outcome: "success" | "fail" | null) => void;
 }) {
-  const { actions } = calculator;
   const isMobile = useMobileLayout();
   const calcDesktopVisibility = viewTab === "stats" ? "min-[661px]:hidden" : "";
   const statsDesktopVisibility = viewTab === "stats" ? "" : "min-[661px]:hidden";
@@ -351,59 +376,23 @@ function Workspace({
       <div
         id="calculatorWorkspace"
         className={`${classes.calculatorWorkspace} ${calcDesktopVisibility} ${calcMobileVisibility}`}
-        onFocusCapture={preloadDetailPanel}
-        onPointerDownCapture={preloadDetailPanel}
+        onFocusCapture={onWorkspaceInteraction}
+        onPointerDownCapture={onWorkspaceInteraction}
         {...desktopCalculatorTabPanelProps}
       >
         <div
           className={`${classes.inputColumn} ${tabPanelClass(mobileTab, "input")}`}
           {...mobileTabPanelProps("input", isMobile)}
         >
-          <StatePanel
-            disabled={calculator.inputLocked || calculator.stockPanel.needsStockEdit}
-            state={calculator.statePanel}
-            onGradeChange={actions.setGrade}
-            onLevelChange={actions.setLevel}
-            onExpChange={actions.setExp}
-          />
-          <StockPanel
-            stock={calculator.stockPanel.stock}
-            needsStockEdit={calculator.stockPanel.needsStockEdit}
-            correction={calculator.stockPanel.correction}
-            isStale={calculator.stockPanel.isStale}
-            stockStale={calculator.stockPanel.stockStale}
-            notice={calculator.stockPanel.notice}
-            onStockChange={actions.setStock}
-            description={calculator.solvePanel.description}
-            calculateDisabled={calculator.solvePanel.calculateDisabled}
-            loading={calculator.loading.active}
-            disabled={calculator.inputLocked}
-            onCalculate={handlers.onCalculate}
-            onReset={handlers.onReset}
-          />
+          <StatePanel {...inputPanels.state} />
+          <StockPanel {...inputPanels.stock} />
+          {inputPanels.extra}
         </div>
         <div
           className={`${classes.resultColumn} ${tabPanelClass(mobileTab, "result")}`}
           {...mobileTabPanelProps("result", isMobile)}
         >
-          <ResultPanel
-            feedback={calculator.stateFeedback}
-            needsStockEdit={calculator.stockPanel.needsStockEdit}
-            isStale={calculator.stockPanel.isStale}
-            staleSource={calculator.stockPanel.staleSource}
-            stockEditNotice={calculator.stockPanel.notice}
-            state={calculator.statePanel}
-            view={calculator.resultView}
-            loading={calculator.loading}
-            outcomeDisabled={calculator.loading.active}
-            pendingOutcome={pendingOutcome}
-            onActionTransitionComplete={actions.clearActionTransition}
-            onConvert={handlers.onConvert}
-            onOutcome={handlers.onOutcome}
-            onRetryCalculation={handlers.onCalculate}
-            onPendingOutcomeChange={onPendingOutcomeChange}
-          />
-          <DetailPanelRegion calculator={calculator} showSolverBackend={showSolverBackend} />
+          {result}
         </div>
       </div>
       <div
@@ -412,33 +401,25 @@ function Workspace({
         role="tabpanel"
         aria-labelledby={isMobile ? "mobile-tab-stats" : "desktop-tab-stats"}
       >
-        <StatsPanel
-          onRetry={actions.retryStats}
-          renderContent={renderStatsContent}
-          view={calculator.statsView}
-        />
+        <StatsPanel onRetry={stats.onRetry} renderContent={renderStatsContent} view={stats.view} />
       </div>
     </section>
   );
 }
 
 function MobileBottomBar({
-  calculator,
+  actions,
   hasResult,
-  handlers,
   mobileTab,
-  pendingOutcome,
+  needsStockEdit,
   onTabChange,
-  onPendingOutcomeChange,
   onHeightChange,
 }: {
-  calculator: CalculatorApp;
+  actions: ReactNode;
   hasResult: boolean;
-  handlers: AppHandlers;
   mobileTab: MobileTab;
-  pendingOutcome: "success" | "fail" | null;
+  needsStockEdit: boolean;
   onTabChange: (tab: MobileTab) => void;
-  onPendingOutcomeChange: (outcome: "success" | "fail" | null) => void;
   onHeightChange: (height: number) => void;
 }) {
   const bottomBarRef = useRef<HTMLDivElement>(null);
@@ -459,29 +440,102 @@ function MobileBottomBar({
 
   return (
     <div className={classes.mobileBottom} ref={bottomBarRef}>
-      {mobileTab === "stats" ? null : (
-        <MobileActionBar
-          view={calculator.resultView}
-          loading={calculator.loading}
-          calculateDisabled={calculator.solvePanel.calculateDisabled}
-          correction={calculator.stockPanel.correction}
-          isStale={calculator.stockPanel.isStale}
-          needsStockEdit={calculator.stockPanel.needsStockEdit}
-          onCalculate={handlers.onCalculate}
-          onReset={handlers.onReset}
-          onConvert={handlers.onConvert}
-          onOutcome={handlers.onOutcome}
-          pendingOutcome={pendingOutcome}
-          onPendingOutcomeChange={onPendingOutcomeChange}
-        />
-      )}
+      {mobileTab === "stats" ? null : actions}
       <MobileTabs
         active={mobileTab}
         hasResult={hasResult}
-        needsStockEdit={calculator.stockPanel.needsStockEdit}
+        needsStockEdit={needsStockEdit}
         onChange={onTabChange}
       />
     </div>
+  );
+}
+
+type AppShellProps = {
+  /** Route notices rendered above the shared top bar. */
+  banner: ReactNode;
+  /** Marks the engine profile that owns the calculation; omitted for the legacy engine. */
+  engineProfile?: string;
+  hasResult: boolean;
+  inputPanels: AppShellInputPanels;
+  /** Mobile action toolbar; must render an element with the `mobile-action-bar` class. */
+  mobileActions: ReactNode;
+  mobileTab: MobileTab;
+  modal: SuccessAttemptModalState;
+  onSubmitSuccessAttempt: (successAttempt: number | null) => void;
+  onTabChange: (tab: MobileTab) => void;
+  onThemeModeChange: (themeMode: ThemeMode) => void;
+  onViewTabChange: (viewTab: TopViewTab) => void;
+  onWorkspaceInteraction?: () => void;
+  resetToast: ResetToastView | null;
+  result: ReactNode;
+  stateFeedback: StateChangeFeedback | null;
+  stats: AppShellStats;
+  themeMode: ThemeMode;
+  viewTab: TopViewTab;
+};
+
+/** Engine-neutral calculator frame: top bar, panels, navigation, footer, reset undo and modal. */
+export function AppShell({
+  banner,
+  engineProfile,
+  hasResult,
+  inputPanels,
+  mobileActions,
+  mobileTab,
+  modal,
+  onSubmitSuccessAttempt,
+  onTabChange,
+  onThemeModeChange,
+  onViewTabChange,
+  onWorkspaceInteraction,
+  resetToast,
+  result,
+  stateFeedback,
+  stats,
+  themeMode,
+  viewTab,
+}: AppShellProps) {
+  const [mobileBottomHeight, setMobileBottomHeight] = useState(116);
+
+  return (
+    <>
+      <div
+        className={classes.shell}
+        data-mobile-tab={mobileTab}
+        style={{ "--mobile-bottom-height": `${mobileBottomHeight}px` } as CSSProperties}
+      >
+        <main className={classes.content} data-engine-profile={engineProfile}>
+          {banner}
+          <TopBar
+            themeMode={themeMode}
+            viewTab={viewTab}
+            onThemeModeChange={onThemeModeChange}
+            onViewTabChange={onViewTabChange}
+          />
+          <MobileHeader feedback={stateFeedback} state={inputPanels.state.state} />
+          <Workspace
+            inputPanels={inputPanels}
+            mobileTab={mobileTab}
+            onWorkspaceInteraction={onWorkspaceInteraction}
+            result={result}
+            stats={stats}
+            viewTab={viewTab}
+          />
+        </main>
+        <PrivacyFooter />
+      </div>
+      <MobileBottomBar
+        actions={mobileActions}
+        hasResult={hasResult}
+        mobileTab={mobileTab}
+        needsStockEdit={inputPanels.stock.needsStockEdit}
+        onTabChange={onTabChange}
+        onHeightChange={setMobileBottomHeight}
+      />
+      <ResetToast toast={resetToast} />
+      <LazySuccessAttemptModal modal={modal} onSubmit={onSubmitSuccessAttempt} />
+    </>
   );
 }
 
@@ -508,52 +562,86 @@ export function AppLayout({
   statsMode: StatsRuntimeMode;
   viewTab: TopViewTab;
 }) {
-  const [mobileBottomHeight, setMobileBottomHeight] = useState(116);
-  const hasResult = calculator.resultView.type !== "empty";
+  const { actions } = calculator;
 
   return (
-    <>
-      <div
-        className={classes.shell}
-        data-mobile-tab={mobileTab}
-        style={{ "--mobile-bottom-height": `${mobileBottomHeight}px` } as CSSProperties}
-      >
-        <main className={classes.content}>
-          <StagingBanners statsMode={statsMode} />
-          <TopBar
-            themeMode={calculator.themeMode}
-            viewTab={viewTab}
-            onThemeModeChange={calculator.actions.setThemeMode}
-            onViewTabChange={onViewTabChange}
-          />
-          <MobileHeader calculator={calculator} />
-          <Workspace
-            calculator={calculator}
-            handlers={handlers}
-            mobileTab={mobileTab}
+    <AppShell
+      banner={<StagingBanners statsMode={statsMode} />}
+      hasResult={calculator.resultView.type !== "empty"}
+      inputPanels={{
+        state: {
+          disabled: calculator.inputLocked || calculator.stockPanel.needsStockEdit,
+          state: calculator.statePanel,
+          onGradeChange: actions.setGrade,
+          onLevelChange: actions.setLevel,
+          onExpChange: actions.setExp,
+        },
+        stock: {
+          stock: calculator.stockPanel.stock,
+          needsStockEdit: calculator.stockPanel.needsStockEdit,
+          correction: calculator.stockPanel.correction,
+          isStale: calculator.stockPanel.isStale,
+          stockStale: calculator.stockPanel.stockStale,
+          notice: calculator.stockPanel.notice,
+          onStockChange: actions.setStock,
+          description: calculator.solvePanel.description,
+          calculateDisabled: calculator.solvePanel.calculateDisabled,
+          loading: calculator.loading.active,
+          disabled: calculator.inputLocked,
+          onCalculate: handlers.onCalculate,
+          onReset: handlers.onReset,
+        },
+      }}
+      mobileActions={
+        <MobileActionBar
+          view={calculator.resultView}
+          loading={calculator.loading}
+          calculateDisabled={calculator.solvePanel.calculateDisabled}
+          correction={calculator.stockPanel.correction}
+          isStale={calculator.stockPanel.isStale}
+          needsStockEdit={calculator.stockPanel.needsStockEdit}
+          onCalculate={handlers.onCalculate}
+          onReset={handlers.onReset}
+          onConvert={handlers.onConvert}
+          onOutcome={handlers.onOutcome}
+          pendingOutcome={pendingOutcome}
+          onPendingOutcomeChange={onPendingOutcomeChange}
+        />
+      }
+      mobileTab={mobileTab}
+      modal={calculator.modal}
+      onSubmitSuccessAttempt={actions.submitSuccessAttempt}
+      onTabChange={onTabChange}
+      onThemeModeChange={actions.setThemeMode}
+      onViewTabChange={onViewTabChange}
+      onWorkspaceInteraction={preloadDetailPanel}
+      resetToast={resetToast}
+      result={
+        <>
+          <ResultPanel
+            feedback={calculator.stateFeedback}
+            needsStockEdit={calculator.stockPanel.needsStockEdit}
+            isStale={calculator.stockPanel.isStale}
+            staleSource={calculator.stockPanel.staleSource}
+            stockEditNotice={calculator.stockPanel.notice}
+            state={calculator.statePanel}
+            view={calculator.resultView}
+            loading={calculator.loading}
+            outcomeDisabled={calculator.loading.active}
             pendingOutcome={pendingOutcome}
+            onActionTransitionComplete={actions.clearActionTransition}
+            onConvert={handlers.onConvert}
+            onOutcome={handlers.onOutcome}
+            onRetryCalculation={handlers.onCalculate}
             onPendingOutcomeChange={onPendingOutcomeChange}
-            showSolverBackend={statsMode === "staging"}
-            viewTab={viewTab}
           />
-        </main>
-        <PrivacyFooter />
-      </div>
-      <MobileBottomBar
-        calculator={calculator}
-        hasResult={hasResult}
-        handlers={handlers}
-        mobileTab={mobileTab}
-        pendingOutcome={pendingOutcome}
-        onTabChange={onTabChange}
-        onPendingOutcomeChange={onPendingOutcomeChange}
-        onHeightChange={setMobileBottomHeight}
-      />
-      <ResetToast toast={resetToast} />
-      <LazySuccessAttemptModal
-        modal={calculator.modal}
-        onSubmit={calculator.actions.submitSuccessAttempt}
-      />
-    </>
+          <DetailPanelRegion calculator={calculator} showSolverBackend={statsMode === "staging"} />
+        </>
+      }
+      stateFeedback={calculator.stateFeedback}
+      stats={{ view: calculator.statsView, onRetry: actions.retryStats }}
+      themeMode={calculator.themeMode}
+      viewTab={viewTab}
+    />
   );
 }

@@ -5,9 +5,8 @@ import { buildCertifiedSupplySnapshot } from "../../shared/certifiedSupply";
 import { solveCertified } from "../certified/solver";
 import type { CertifiedOutput } from "../certified/types";
 import { I18nProvider } from "../i18n/locale";
-import { ResultPanels } from "./CertifiedCalculator";
+import { ResultPanels } from "./CertifiedResultPanels";
 import { certifiedMessages } from "./messages";
-import { createCertifiedSession } from "./session";
 
 const snapshot = buildCertifiedSupplySnapshot({
   asOf: "2026-09-30T03:00:00Z",
@@ -34,8 +33,10 @@ function render(output: CertifiedOutput) {
         output,
         busy: false,
         words: certifiedMessages.en,
-        session: createCertifiedSession(snapshot.revision, input, input.stock),
-        update: () => {},
+        conversionRequired: false,
+        actionsDisabled: false,
+        onOutcome: () => {},
+        onConvert: () => {},
       }),
     ),
   );

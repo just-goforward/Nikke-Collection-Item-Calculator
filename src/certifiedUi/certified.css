@@ -1,26 +1,50 @@
-.cert-page { max-width: 1040px; margin: 0 auto; padding: 32px 20px 48px; }
-.cert-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 28px; }
-.cert-header h1 { margin: 12px 0 8px; font-size: clamp(25px, 4vw, 36px); }
-.cert-header p { line-height: 1.7; }
-.cert-badge { display: inline-block; border-radius: 8px; padding: 8px 12px; color: #087857; background: #e4f5eb; font-size: 12px; font-weight: 700; }
-.cert-card { min-width: 0; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 24px; margin-bottom: 20px; }
-.cert-card h2 { margin: 0 0 20px; font-size: 19px; }.cert-card h3 { font-size: 14px; margin: 20px 0 12px; }
-.cert-state-fields, .cert-stock-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.cert-page label { display: grid; gap: 8px; font-size: 13px; font-weight: 650; }
-.cert-page :is(input, select, button) { min-height: 46px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font: inherit; }
-.cert-page input, .cert-page select { width: 100%; background: var(--input-bg); padding: 8px 12px; font-size: 16px; }
-.cert-page :focus-visible { outline: 3px solid #16875b70; outline-offset: 2px; }
-.cert-page button { cursor: pointer; background: var(--button-bg); padding: 10px 16px; font-weight: 650; }
-.cert-page button:disabled { cursor: wait; opacity: .55; }.cert-page .cert-primary { background: #087857; border-color: #087857; color: #fff; }
-.cert-cohort { margin-top: 20px; max-width: 360px; }.cert-controls, .cert-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
-.cert-result-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-.cert-probability, .cert-wait-day { font-size: 36px; font-weight: 700; margin: 18px 0; }.cert-probability { color: #087857; }
-.cert-header p, .cert-muted, .cert-metrics dt, .cert-supply small, .cert-page footer { color: var(--muted); }
-.cert-muted { font-size: 13px; line-height: 1.7; }.cert-meter { display: block; width: 100%; height: 12px; margin: 20px 0; accent-color: #087857; }
-.cert-metrics { display: flex; flex-wrap: wrap; gap: 20px; margin: 18px 0; }.cert-metrics dt { font-size: 12px; }.cert-metrics dd { margin: 5px 0 0; font-size: 19px; font-weight: 700; }
-.cert-kit-blue { color: #2873aa; }.cert-kit-purple { color: #8550ae; }.cert-kit-yellow { color: #987519; }
-.cert-notice { padding: 12px 14px; background: #fff8e8; color: #68511e; border-radius: 8px; font-size: 13px; line-height: 1.7; }.cert-claim { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 18px; }.cert-claim strong { display: block; margin-bottom: 14px; }
-.cert-table-scroll { overflow-x: auto; }.cert-supply table { width: 100%; border-collapse: collapse; font-size: 14px; }.cert-supply th, .cert-supply td { padding: 14px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }.cert-supply th:first-child { text-align: left; }.cert-supply small { display: block; margin-top: 8px; font-size: 12px; font-weight: 400; }
-.cert-page footer { margin-top: 28px; display: flex; justify-content: space-between; gap: 14px; font-size: 12px; }.cert-page footer a { color: #087857; }
-.cert-table-hint { display: none; }
-@media (max-width: 640px) { .cert-table-hint { display: block; }.cert-page { padding: 20px 14px 36px; }.cert-header { flex-direction: column; gap: 10px; }.cert-header label { width: 150px; }.cert-card { padding: 18px; }.cert-result-grid { grid-template-columns: 1fr; gap: 0; }.cert-state-fields, .cert-stock-fields { gap: 10px; }.cert-page input, .cert-page select { padding: 8px; }.cert-controls .cert-primary { width: 100%; } }
+/* Certified content inside the shared calculator shell. Frame, panels and navigation come from AppShell. */
+.cert-banner-stack { display: grid; gap: 8px; margin-bottom: 12px; }
+.cert-banner { display: grid; gap: 2px; border: 1px solid var(--warn); border-radius: 14px; background: var(--warn-soft); padding: 10px 14px; color: var(--text-soft); font-size: 13px; line-height: 1.45; }
+.cert-banner strong { color: var(--warn); }
+.cert-notice { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--warn-soft); color: var(--text-strong); font-size: 13px; font-weight: 600; line-height: 1.55; }
+.cert-notice-danger { background: var(--danger-soft); color: var(--danger); }
+.cert-muted { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.cert-result-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.cert-card { min-width: 0; overflow-wrap: anywhere; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-strong); padding: 16px; }
+.cert-card h3 { margin: 0 0 8px; font-size: 15px; color: var(--text-strong); }
+.cert-card h4 { margin: 14px 0 6px; font-size: 13px; color: var(--text-strong); }
+.cert-card > p:not(.cert-notice) { margin: 6px 0; }
+.cert-probability, .cert-wait-day { margin: 10px 0 4px !important; font-size: 32px; font-weight: 700; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.cert-meter { display: block; width: 100%; height: 10px; margin: 12px 0; }
+.cert-metrics { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0; }
+.cert-metrics dt { color: var(--muted); font-size: 12px; }
+.cert-metrics dd { margin: 4px 0 0; font-size: 17px; font-weight: 700; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.cert-recommendation { font-weight: 700; }
+.cert-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.cert-button { min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--button-bg); padding: 8px 14px; color: var(--ink); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.cert-button-primary { border-color: transparent; background: var(--action-bg); color: var(--ice); }
+.cert-button:disabled { cursor: not-allowed; opacity: .55; }
+.cert-mobile-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: .5rem; margin: 0; min-width: 0; border: 0; padding: .625rem .75rem; }
+fieldset.cert-mobile-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cert-mobile-button { display: inline-flex; height: 3rem; min-height: 3rem; align-items: center; justify-content: center; border: 1px solid var(--yellow); border-radius: 8px; background: var(--button-bg); padding: 0 .5rem; color: var(--ink); text-align: center; font-size: 15px; font-weight: 700; line-height: 1.25; }
+.cert-mobile-primary { border: 0; background: var(--action-bg); color: var(--ice); }
+.cert-field { display: grid; gap: 6px; min-width: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+.cert-field :is(input, select) { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--input-bg); padding: 6px 10px; color: var(--ink); font: inherit; font-size: 15px; }
+.cert-field :is(input, select):disabled { opacity: .6; }
+.cert-kit-label { display: inline-flex; align-items: center; gap: 6px; }
+.cert-kit-dot { display: inline-block; width: 10px; height: 10px; border-radius: 999px; }
+.cert-claim { display: grid; gap: 10px; min-width: 0; margin: 0; border: 0; border-top: 1px solid var(--line); padding: 12px 0 0; }
+.cert-claim legend { float: left; width: 100%; padding: 0; color: var(--text-strong); font-size: 13px; font-weight: 700; }
+.cert-claim-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.cert-supply table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.cert-supply th, .cert-supply td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.cert-supply th:first-child { text-align: left; }
+.cert-supply small { display: block; margin-top: 4px; color: var(--muted); font-size: 11.5px; font-weight: 400; }
+.cert-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 0 4px; color: var(--muted); font-size: 12px; }
+.cert-meta p { margin: 0; }
+.cert-meta a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 980px) { .cert-result-grid { grid-template-columns: 1fr; } }
+@media (width < 380px) { .cert-mobile-button { font-size: 13px; } }
+@media (max-width: 660px) {
+  .cert-inline-actions { display: none; }
+  .cert-supply table { font-size: 12px; }
+  .cert-supply th, .cert-supply td { padding: 8px 4px; }
+  .cert-probability, .cert-wait-day { font-size: 26px; }
+  .cert-card { padding: 12px; }
+}

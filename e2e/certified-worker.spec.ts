@@ -22,14 +22,8 @@ test.beforeAll(async () => {
     server: {
       host: "127.0.0.1",
       port: 0,
-      watch: {
-        ignored: [
-          "**/.tmp/**",
-          "**/.certified-*/**",
-          "**/benchmarks/results/**",
-          "**/test-results/**",
-        ],
-      },
+      // This fixture serves fixed inputs; watching preserved research assets blocks test setup.
+      watch: null,
     },
   });
   await server.listen();

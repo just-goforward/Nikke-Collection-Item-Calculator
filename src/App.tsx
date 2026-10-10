@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { type AppHandlers, AppLayout, preloadDetailPanel } from "./AppLayout";
 import type { MobileTab } from "./components/MobileChrome";
-import type { TopViewTab } from "./components/TopBar";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
+import { useAppShellNavigation } from "./hooks/useAppShellNavigation";
 import { useCalculatorApp } from "./hooks/useCalculatorApp";
 import { statsRuntimeMode } from "./lib/statsRuntime";
 import type { Grade, Stock } from "./types";
@@ -15,32 +15,12 @@ type InputSnapshot = {
   stock: Stock;
 };
 
-type ResetToast = {
-  snapshot: InputSnapshot;
-  secondsLeft: number;
-};
-
 type AppHandlerOptions = {
   calculator: CalculatorAppModel;
   resetWithUndo: () => void;
   setMobileViewTab: (next: MobileTab, focus?: boolean) => void;
   setPendingOutcome: (outcome: "success" | "fail" | null) => void;
 };
-
-const RESET_UNDO_SECONDS = 5;
-
-function viewTabFromHash(): TopViewTab {
-  if (typeof window === "undefined") return "calc";
-  return window.location.hash === "#stats" ? "stats" : "calc";
-}
-
-function replaceHashForView(viewTab: TopViewTab) {
-  if (typeof window === "undefined") return;
-  const nextUrl = `${window.location.pathname}${window.location.search}${
-    viewTab === "stats" ? "#stats" : ""
-  }`;
-  window.history.replaceState(null, "", nextUrl);
-}
 
 function makeAppHandlers({
   calculator,
@@ -82,65 +62,13 @@ function makeAppHandlers({
   };
 }
 
-function mobileTabForView(next: TopViewTab, current: MobileTab): MobileTab {
-  if (next === "stats") return "stats";
-  if (current === "stats") return "input";
-  return current;
-}
-
 export default function App() {
-  const [mobileTab, setMobileTab] = useState<MobileTab>("input");
   const [pendingOutcome, setPendingOutcome] = useState<"success" | "fail" | null>(null);
-  const [viewTab, setViewTabState] = useState<TopViewTab>(viewTabFromHash);
-  const [resetToast, setResetToast] = useState<ResetToast | null>(null);
-  const calculator = useCalculatorApp(viewTab === "stats" || mobileTab === "stats");
+  const shell = useAppShellNavigation<InputSnapshot>();
+  const { mobileTab, setMobileViewTab, viewTab } = shell;
+  const calculator = useCalculatorApp(shell.statsVisible);
   const { actions } = calculator;
   const statsMode = statsRuntimeMode();
-
-  useEffect(() => {
-    const syncFromHash = () => {
-      const next = viewTabFromHash();
-      setViewTabState(next);
-      setMobileTab((current) => mobileTabForView(next, current));
-    };
-    syncFromHash();
-    window.addEventListener("hashchange", syncFromHash);
-    return () => window.removeEventListener("hashchange", syncFromHash);
-  }, []);
-
-  const setViewTab = (next: TopViewTab) => {
-    setViewTabState(next);
-    replaceHashForView(next);
-    if (next === "stats") {
-      setMobileTab("stats");
-      return;
-    }
-    setMobileTab((current) => (current === "stats" ? "input" : current));
-  };
-
-  const setMobileViewTab = (next: MobileTab, focus = false) => {
-    setMobileTab(next);
-    const nextViewTab = next === "stats" ? "stats" : "calc";
-    setViewTabState(nextViewTab);
-    replaceHashForView(nextViewTab);
-    if (focus && window.matchMedia("(max-width: 660px)").matches) {
-      window.requestAnimationFrame(() => document.getElementById(`mobile-tab-${next}`)?.focus());
-    }
-  };
-
-  useEffect(() => {
-    if (!resetToast) return undefined;
-    if (resetToast.secondsLeft <= 0) {
-      setResetToast(null);
-      return undefined;
-    }
-    const timer = window.setTimeout(() => {
-      setResetToast((current) =>
-        current ? { ...current, secondsLeft: current.secondsLeft - 1 } : null,
-      );
-    }, 1000);
-    return () => window.clearTimeout(timer);
-  }, [resetToast]);
 
   const rememberInputSnapshot = (): InputSnapshot => ({
     grade: calculator.statePanel.grade,
@@ -152,7 +80,7 @@ export default function App() {
   const restoreInputSnapshot = (snapshot: InputSnapshot) => {
     actions.restoreInputSnapshot(snapshot);
     setMobileViewTab("input", true);
-    setResetToast(null);
+    shell.clearResetToast();
   };
 
   const resetWithUndo = () => {
@@ -160,8 +88,9 @@ export default function App() {
     setPendingOutcome(null);
     actions.reset();
     setMobileViewTab("input", true);
-    setResetToast({ snapshot, secondsLeft: RESET_UNDO_SECONDS });
+    shell.showResetToast(snapshot);
   };
+  const resetToast = shell.resetToast;
 
   const handlers = makeAppHandlers({
     calculator,
@@ -178,12 +107,12 @@ export default function App() {
       pendingOutcome={pendingOutcome}
       onTabChange={(tab) => setMobileViewTab(tab)}
       onPendingOutcomeChange={setPendingOutcome}
-      onViewTabChange={setViewTab}
+      onViewTabChange={shell.setViewTab}
       resetToast={
         resetToast
           ? {
               secondsLeft: resetToast.secondsLeft,
-              onUndo: () => restoreInputSnapshot(resetToast.snapshot),
+              onUndo: () => restoreInputSnapshot(resetToast.payload),
             }
           : null
       }

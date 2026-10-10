@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
+import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
 import { certifiedMessages } from "../src/certifiedUi/messages";
@@ -82,29 +83,168 @@ function certifiedAssetPaths() {
 }
 
 const SESSION_KEY = "collection-certified-staging-v1:session";
+const APP_WORDS = { ko: koMessages, en: enMessages, ja: jaMessages } as const;
+const LOCALE_LABELS = { ko: "한국어", en: "English", ja: "日本語" } as const;
+const en = enMessages;
+type Locale = keyof typeof APP_WORDS;
+type KitName = "blue" | "purple" | "yellow";
+
+/** The certified route uses the shared top bar language menu. */
+async function selectLocale(page: Page, locale: Locale) {
+  await page.locator("#language-menu-trigger").click();
+  await page.getByRole("menuitemradio", { name: LOCALE_LABELS[locale], exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("lang", locale);
+}
 async function openStaging(page: Page) {
   await page.goto("/?statsEnv=staging&engine=certified");
   await expect(page.locator("main[data-engine-profile='certified-staging-v1']")).toBeVisible();
-  await page.locator("header select").selectOption("en");
+  await selectLocale(page, "en");
+  await expect(page.locator("#calculateButton")).toBeEnabled();
+}
+async function reopen(page: Page) {
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(page.locator("main[data-engine-profile='certified-staging-v1']")).toBeVisible();
+}
+function stockInput(page: Page, kit: KitName) {
+  return page.locator(`#${kit}Stock`);
+}
+function levelButton(page: Page, level: number, words: (typeof APP_WORDS)[Locale] = en) {
+  return page.getByRole("button", {
+    name: words["common.phase"].replace("{phase}", String(level)),
+    exact: true,
+  });
+}
+async function setCollectionState(
+  page: Page,
+  grade: "R" | "SR",
+  level: number,
+  exp: number,
+  words: (typeof APP_WORDS)[Locale] = en,
+) {
+  await page
+    .getByRole("group", { name: words["state.gradeAria"] })
+    .getByRole("button", { name: grade, exact: true })
+    .click();
+  await levelButton(page, level, words).click();
+  if (level === 15) return;
+  await page.locator("#currentExp").fill(exp ? String(exp) : "");
+  await page.locator("#currentExp").blur();
+}
+async function setStock(page: Page, stock: Partial<Record<KitName, number>>) {
+  for (const [kit, pieces] of Object.entries(stock) as [KitName, number][])
+    await stockInput(page, kit).fill(pieces ? String(pieces) : "");
+}
+async function expectCollectionState(page: Page, grade: "R" | "SR", level: number, exp: string) {
   await expect(
-    page.getByRole("button", { name: "Calculate current stock and recommended day" }),
-  ).toBeEnabled();
+    page
+      .getByRole("group", { name: en["state.gradeAria"] })
+      .getByRole("button", { name: grade, exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(levelButton(page, level)).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#currentExp")).toHaveValue(exp);
 }
 async function setAlmostComplete(page: Page, pieces = 19) {
-  await page.getByLabel("R / SR", { exact: true }).selectOption("SR");
-  await page.getByLabel("Level", { exact: true }).fill("14");
-  await page.getByLabel("Experience", { exact: true }).fill("2900");
-  await page.getByLabel("Pieces in stock Blue", { exact: true }).fill(String(pieces));
+  await setCollectionState(page, "SR", 14, 2900);
+  await setStock(page, { blue: pieces });
+}
+async function accessibilityViolations(page: Page) {
+  const result = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+    .analyze();
+  return result.violations;
 }
 async function calculate(page: Page) {
-  await page
-    .getByRole("button", { name: "Calculate current stock and recommended day", exact: true })
-    .click();
+  await page.locator("#calculateButton").click();
   await expect(page.locator(".cert-probability")).toBeVisible({ timeout: 15_000 });
-  await expect(
-    page.getByRole("button", { name: "Calculate current stock and recommended day", exact: true }),
-  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("#calculateButton")).toHaveText(en["common.calculate"], {
+    timeout: 15_000,
+  });
 }
+
+test("certified route renders inside the shared calculator shell", async ({ page }) => {
+  await openStaging(page);
+  await expect(page.locator(".app-shell")).toHaveCount(1);
+  await expect(page.locator("h1")).toHaveText(en["app.title"]);
+  await expect(page.locator("#calculatorWorkspace")).toBeVisible();
+  await expect(page.getByRole("tab", { name: en["top.calculator"] })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.getByRole("group", { name: en["state.gradeAria"] })).toBeVisible();
+  for (const kit of ["blue", "purple", "yellow"] as const)
+    await expect(stockInput(page, kit)).toBeVisible();
+  await expect(page.locator("#resetButton")).toBeVisible();
+  await expect(page.getByTestId("certified-result")).toBeVisible();
+  await expect(page.locator("footer.privacy-footer")).toBeVisible();
+  await expect(page.locator("[data-forecast-review]")).toHaveCount(1);
+  expect(await accessibilityViolations(page)).toEqual([]);
+  await page.locator("button[data-theme-mode='dark']").first().click();
+  await expect(page.locator("body")).toHaveClass(/theme-dark/);
+  expect(await accessibilityViolations(page)).toEqual([]);
+  await page.getByRole("tab", { name: en["top.stats"] }).click();
+  await expect(page).toHaveURL(/statsEnv=staging&engine=certified#stats$/);
+  await expect(page.locator("#statsWorkspace")).toBeVisible();
+  await expect(page.locator("#calculatorWorkspace")).toBeHidden();
+  await page.getByRole("tab", { name: en["top.calculator"] }).click();
+  await expect(page.locator("#calculatorWorkspace")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v1']")).toBeVisible();
+});
+
+test("malformed saved data blocks calculation and offers explicit reset recovery", async ({
+  page,
+}) => {
+  await openStaging(page);
+  await page.evaluate((key) => localStorage.setItem(key, '{"kind":"broken"}'), SESSION_KEY);
+  await reopen(page);
+  await expect(page.locator("#calculateButton")).toBeDisabled();
+  await expect(page.locator("#resetButton")).toBeDisabled();
+  // Malformed storage is not a stock correction: no stock-edit prompt, only global recovery.
+  await expect(page.locator("#stockEditNotice")).toBeHidden();
+  await expect(page.getByTestId("certified-correction-pending")).toHaveCount(0);
+  const recovery = page.getByRole("alert").getByRole("button", {
+    name: en["common.reset"],
+    exact: true,
+  });
+  await expect(recovery).toBeEnabled();
+  await recovery.click();
+  await expect(page.locator("#calculateButton")).toBeEnabled();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await reopen(page);
+  await expect(page.locator("#calculateButton")).toBeEnabled();
+  await setAlmostComplete(page);
+  await calculate(page);
+  await expect(page.getByTestId("certified-current")).toContainText("100");
+});
+
+test("mobile malformed-storage recovery stays global on the input tab", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openStaging(page);
+  await page.evaluate((key) => localStorage.setItem(key, '{"kind":"broken"}'), SESSION_KEY);
+  await reopen(page);
+  const inputTab = page.getByRole("tab", { name: en["tab.input"], exact: true });
+  await expect(inputTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#mobile-panel-input")).toBeVisible();
+  await expect(page.locator("#stockEditNotice")).toBeHidden();
+  await expect(inputTab.locator(".mobile-tab-dot")).toHaveCount(0);
+  const bar = page.locator(".mobile-action-bar");
+  await expect(bar).not.toHaveClass(/needs-stock-edit/);
+  await expect(
+    bar.getByRole("button", { name: en["common.stockEditRequired"], exact: true }),
+  ).toHaveCount(0);
+  const calculateLong = bar.getByRole("button", { name: en["common.calculateLong"], exact: true });
+  await expect(calculateLong).toBeDisabled();
+  const recovery = page.getByRole("alert").getByRole("button", {
+    name: en["common.reset"],
+    exact: true,
+  });
+  await expect(recovery).toBeVisible();
+  await expect(recovery).toBeEnabled();
+  await recovery.click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(calculateLong).toBeEnabled();
+  await expect(inputTab).toHaveAttribute("aria-selected", "true");
+});
 
 test("staging uses one profile and renders all three supported languages", async ({ page }) => {
   await openStaging(page);
@@ -112,9 +252,12 @@ test("staging uses one profile and renders all three supported languages", async
     page.getByRole("heading", { name: "Past and future expected supply" }),
   ).toBeVisible();
   for (const locale of ["ko", "ja", "en"] as const) {
-    await page.locator("header select").selectOption(locale);
-    await expect(page.locator("html")).toHaveAttribute("lang", locale);
-    await expect(page.locator("h1")).not.toBeEmpty();
+    await selectLocale(page, locale);
+    await expect(page.locator("h1")).toHaveText(APP_WORDS[locale]["app.title"]);
+    await expect(page.locator("#calculateButton")).toHaveText(
+      APP_WORDS[locale]["common.calculate"],
+    );
+    await expect(page.locator("[data-forecast-review]")).toHaveCount(1);
     await expect(page.locator("[data-forecast-review='unknown']")).toHaveText(
       certifiedMessages[locale].reviewUnknown,
     );
@@ -138,15 +281,19 @@ for (const locale of ["en", "ja"] as const) {
     page,
   }) => {
     const words = certifiedMessages[locale];
+    const appWords = APP_WORDS[locale];
     await page.goto(`/${locale}/?statsEnv=staging&engine=certified`);
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
     await expect(page.locator("main[data-engine-profile='certified-staging-v1']")).toBeVisible();
-    await expect(page.getByRole("button", { name: words.calculate, exact: true })).toBeEnabled();
-    await page.getByLabel("R / SR", { exact: true }).selectOption("SR");
-    await page.getByLabel(words.level, { exact: true }).fill("14");
-    await page.getByLabel(words.exp, { exact: true }).fill("2900");
-    await page.getByLabel(`${words.stock} ${words.blue}`, { exact: true }).fill("19");
-    await page.getByRole("button", { name: words.calculate, exact: true }).click();
+    await expect(page.locator("h1")).toHaveText(appWords["app.title"]);
+    const calculateButton = page.getByRole("button", {
+      name: appWords["common.calculate"],
+      exact: true,
+    });
+    await expect(calculateButton).toBeEnabled();
+    await setCollectionState(page, "SR", 14, 2900, appWords);
+    await setStock(page, { blue: 19 });
+    await calculateButton.click();
     await expect(page.locator(".cert-probability")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("certified-current")).toContainText("100");
     await expect(page.getByTestId("certified-waiting")).toContainText(words.magnitudeUncomputed);
@@ -177,8 +324,7 @@ test("offline review notice preserves approved calculation and uncertain supply 
   await expect(notice).toHaveText(certifiedMessages.en.reviewUnknown);
   await expect(page.getByText(certifiedMessages.en.uncertain, { exact: true })).toBeVisible();
   expect(healthAttempts.get(page)?.map(({ mode }) => mode)).toEqual(["failed"]);
-  await page.reload();
-  await page.locator("header select").selectOption("en");
+  await reopen(page);
   await expect(notice).toHaveText(certifiedMessages.en.reviewUnknown);
   await expect(page.getByText(certifiedMessages.en.uncertain, { exact: true })).toBeVisible();
   expect(healthAttempts.get(page)?.map(({ mode }) => mode)).toEqual(["failed", "failed"]);
@@ -201,9 +347,8 @@ test("approved review metadata shows pending, hides current, and keeps the appro
   await expect(page.getByTestId("certified-waiting")).toContainText(words.magnitudeUncomputed);
   reviewHealthMode = "current";
   const current = page.waitForResponse((response) => response.url() === reviewHealthUrl);
-  await page.reload();
+  await reopen(page);
   await (await current).finished();
-  await page.locator("header select").selectOption("en");
   await setAlmostComplete(page);
   await calculate(page);
   await expect(page.getByTestId("certified-current")).toContainText("100");
@@ -221,11 +366,11 @@ test("real Worker computes, records one outcome, and preserves raw remainders af
   await calculate(page);
   await expect(page.getByTestId("certified-current")).toContainText("100");
   await page.getByRole("button", { name: "Record normal result", exact: true }).click();
-  await expect(page.getByLabel("Pieces in stock Blue", { exact: true })).toHaveValue("9");
-  await expect(page.getByLabel("Level", { exact: true })).toHaveValue("15");
-  await page.reload();
-  await page.locator("header select").selectOption("en");
-  await expect(page.getByLabel("Pieces in stock Blue", { exact: true })).toHaveValue("9");
+  await expect(stockInput(page, "blue")).toHaveValue("9");
+  await expect(levelButton(page, 15)).toHaveAttribute("aria-pressed", "true");
+  await reopen(page);
+  await expect(stockInput(page, "blue")).toHaveValue("9");
+  await expect(levelButton(page, 15)).toHaveAttribute("aria-pressed", "true");
   await calculate(page);
   await expect(page.getByTestId("certified-current")).toContainText("SR 15 is complete.");
   const unreceived = page.getByRole("button", {
@@ -245,13 +390,13 @@ test("a claim already included in stock records an identity without adding or in
   page,
 }) => {
   await openStaging(page);
-  await page.getByLabel("Pieces in stock Blue", { exact: true }).fill("40");
+  await setStock(page, { blue: 40 });
   const first = page.locator(".cert-claim").first();
   await expect(first).toBeVisible();
   await first
     .getByRole("button", { name: "Already included in entered stock", exact: true })
     .click();
-  await expect(page.getByLabel("Pieces in stock Blue", { exact: true })).toHaveValue("40");
+  await expect(stockInput(page, "blue")).toHaveValue("40");
   const ledger = await page.evaluate(
     (key) => JSON.parse(localStorage.getItem(key) ?? "null"),
     SESSION_KEY,
@@ -269,41 +414,106 @@ test("a claim already included in stock records an identity without adding or in
 
 test("R 15 requires conversion before recording another kit use", async ({ page }) => {
   await openStaging(page);
-  await page.getByLabel("Level", { exact: true }).fill("15");
-  await page.getByLabel("Pieces in stock Blue", { exact: true }).fill("29");
+  await setCollectionState(page, "R", 15, 0);
+  await setStock(page, { blue: 29 });
   await calculate(page);
   await expect(page.getByRole("button", { name: "Record normal result", exact: true })).toHaveCount(
     0,
   );
   await page.getByRole("button", { name: /^Convert R 15/ }).click();
-  await expect(page.getByLabel("R / SR", { exact: true })).toHaveValue("SR");
-  await expect(page.getByLabel("Level", { exact: true })).toHaveValue("5");
-  await expect(page.getByLabel("Experience", { exact: true })).toHaveValue("0");
-  await expect(page.getByLabel("Pieces in stock Blue", { exact: true })).toHaveValue("29");
+  await expectCollectionState(page, "SR", 5, "");
+  await expect(stockInput(page, "blue")).toHaveValue("29");
   await calculate(page);
+  const recommendation = page.locator(".cert-recommendation");
+  await expect(recommendation).toHaveAttribute("data-kit", "blue");
+  // A normal result records the whole recommended batch: 10 pieces and 200 EXP per blue use.
+  const uses = Number(await recommendation.getAttribute("data-uses"));
+  expect([1, 2]).toContain(uses);
   await page.getByRole("button", { name: "Record normal result", exact: true }).click();
-  await expect(page.getByLabel("Pieces in stock Blue", { exact: true })).toHaveValue("19");
-  await expect(page.getByLabel("Experience", { exact: true })).toHaveValue("200");
+  await expect(stockInput(page, "blue")).toHaveValue(String(29 - 10 * uses));
+  await expect(page.locator("#currentExp")).toHaveValue(String(200 * uses));
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-test("editing a running input supersedes its request and renders the newer current result", async ({
+test("a running calculation locks inputs and actions, cancels distinctly, and recomputes the newer input", async ({
   page,
 }) => {
   await openStaging(page);
-  await page.getByLabel("Pieces in stock Blue", { exact: true }).fill("300");
-  await page.getByLabel("Pieces in stock Purple", { exact: true }).fill("50");
-  await page.getByLabel("Pieces in stock Yellow", { exact: true }).fill("20");
-  await page
-    .getByRole("button", { name: "Calculate current stock and recommended day", exact: true })
-    .click();
-  await expect(page.getByRole("button", { name: "Calculating…", exact: true })).toBeVisible();
+  await setStock(page, { blue: 300, purple: 50, yellow: 20 });
+  await page.locator("#calculateButton").click();
+  await expect(page.locator("#calculateButton")).toHaveText(en["common.calculating"]);
+  await expect(page.locator("#calculateButton")).toBeDisabled();
+  await expect(stockInput(page, "blue")).toBeDisabled();
+  await expect(levelButton(page, 14)).toBeDisabled();
+  await expect(page.locator("#resetButton")).toBeDisabled();
+  await expect(page.getByTestId("certified-result")).toHaveAttribute("aria-busy", "true");
+  await page.getByRole("button", { name: certifiedMessages.en.cancel, exact: true }).click();
+  await expect(page.getByTestId("certified-run-cancelled")).toHaveText(
+    certifiedMessages.en.cancelled,
+  );
+  await expect(page.getByTestId("certified-run-notice")).toHaveCount(0);
+  await expect(page.locator("#calculateButton")).toHaveText(en["common.calculate"]);
+  await expect(stockInput(page, "blue")).toBeEnabled();
   await setAlmostComplete(page);
-  await page.getByLabel("Pieces in stock Purple", { exact: true }).fill("0");
-  await page.getByLabel("Pieces in stock Yellow", { exact: true }).fill("0");
+  await setStock(page, { purple: 0, yellow: 0 });
+  await expect(page.getByTestId("certified-run-cancelled")).toHaveCount(0);
   await calculate(page);
   await expect(page.getByTestId("certified-current")).toContainText("100");
   await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("reset clears the whole certified session and undo restores it", async ({ page }) => {
+  await openStaging(page);
+  await setAlmostComplete(page);
+  await page.locator("#resetButton").click();
+  await expectCollectionState(page, "R", 0, "");
+  await expect(stockInput(page, "blue")).toHaveValue("");
+  await expect(page.getByRole("status").filter({ hasText: en["reset.done"] })).toBeVisible();
+  await page.getByRole("button", { name: en["reset.undoAction"], exact: true }).click();
+  await expectCollectionState(page, "SR", 14, "2900");
+  await expect(stockInput(page, "blue")).toHaveValue("19");
+  await calculate(page);
+  await expect(page.getByTestId("certified-current")).toContainText("100");
+});
+
+test("mobile certified route uses the shared input, result and stats navigation", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openStaging(page);
+  const inputTab = page.getByRole("tab", { name: en["tab.input"], exact: true });
+  const resultTab = page.getByRole("tab", { name: en["tab.result"], exact: true });
+  const statsTab = page.getByRole("tab", { name: en["tab.stats"], exact: true });
+  await expect(inputTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#mobile-panel-input")).toBeVisible();
+  await expect(page.locator("#mobile-panel-result")).toBeHidden();
+  await setAlmostComplete(page);
+  await page
+    .locator(".mobile-action-bar")
+    .getByRole("button", { name: en["common.calculateLong"], exact: true })
+    .click();
+  await expect(resultTab).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".cert-probability")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("certified-current")).toContainText("100");
+  await expect(page.locator(".cert-inline-actions").first()).toBeHidden();
+  expect(await accessibilityViolations(page)).toEqual([]);
+  const record = page.getByRole("button", { name: "Record normal result", exact: true });
+  await expect(record).toHaveCount(1);
+  await expect(
+    page.locator(".mobile-action-bar").getByRole("button", { name: "Record normal result" }),
+  ).toBeVisible();
+  await record.click();
+  await inputTab.click();
+  await expect(page.locator("#mobile-panel-input")).toBeVisible();
+  await expect(stockInput(page, "blue")).toHaveValue("9");
+  await statsTab.click();
+  await expect(page).toHaveURL(/#stats$/);
+  await expect(page.locator("#statsWorkspace")).toBeVisible();
+  await expect(page.locator("#mobile-panel-input")).toBeHidden();
+  await expect(page.locator("[data-forecast-review='unknown']")).toBeVisible();
+  await resultTab.click();
+  await expect(page.locator("#mobile-panel-result")).toBeVisible();
+  await expect(page.getByTestId("certified-result")).toBeVisible();
 });
 
 for (const path of [

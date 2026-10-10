@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { type Browser, chromium, expect, type Page, test } from "@playwright/test";
 import { build, type PreviewServer, preview } from "vite";
 import { certifiedMessages } from "../src/certifiedUi/messages";
+import { enMessages } from "../src/i18n/messages.en";
 import {
   expectApprovedReviewHealthAttempts,
   isReviewCollector,
@@ -221,11 +222,9 @@ test.beforeEach(async () => {
     sessionStorage.clear();
   });
   await page.reload();
-  await page.locator("header select").selectOption("en");
+  await selectEnglish();
   await bringVisible();
-  await expect(
-    page.getByRole("button", { name: certifiedMessages.en.calculate, exact: true }),
-  ).toBeEnabled();
+  await expect(calculateButton()).toBeEnabled();
 });
 
 test.afterEach(async ({ browserName }, testInfo) => {
@@ -274,6 +273,57 @@ test.afterAll(async () => {
 
 function isLoopback(url: URL) {
   return ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
+}
+
+function calculateButton() {
+  return page.locator("#calculateButton");
+}
+
+/** The certified route uses the shared top bar language menu. */
+async function selectEnglish() {
+  await page.locator("#language-menu-trigger").click();
+  await page.getByRole("menuitemradio", { name: "English", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+}
+
+/** Fill the shared StatePanel and StockPanel controls. */
+async function setCertifiedInput(
+  grade: "R" | "SR",
+  level: number,
+  exp: number,
+  stock: Record<"blue" | "purple" | "yellow", number>,
+) {
+  await page
+    .getByRole("group", { name: enMessages["state.gradeAria"] })
+    .getByRole("button", { name: grade, exact: true })
+    .click();
+  await page
+    .getByRole("button", {
+      name: enMessages["common.phase"].replace("{phase}", String(level)),
+      exact: true,
+    })
+    .click();
+  if (level !== 15) {
+    await page.locator("#currentExp").fill(exp ? String(exp) : "");
+    await page.locator("#currentExp").blur();
+  }
+  for (const [kit, pieces] of Object.entries(stock))
+    await page.locator(`#${kit}Stock`).fill(pieces ? String(pieces) : "");
+}
+
+async function expectCertifiedInput(grade: "R" | "SR", level: number, exp: string) {
+  await expect(
+    page
+      .getByRole("group", { name: enMessages["state.gradeAria"] })
+      .getByRole("button", { name: grade, exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("button", {
+      name: enMessages["common.phase"].replace("{phase}", String(level)),
+      exact: true,
+    }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#currentExp")).toHaveValue(exp);
 }
 
 async function hide() {
@@ -352,18 +402,13 @@ async function bringVisible() {
 
 test("actual hidden cancellation during forecast preparation discards the late snapshot and requires manual recompute", async () => {
   await page.goto(`http://127.0.0.1:${visibilityPort}/?statsEnv=staging&engine=certified`);
-  await page.locator("header select").selectOption("en");
+  await selectEnglish();
   await bringVisible();
-  await page.getByLabel("R / SR", { exact: true }).selectOption("SR");
-  await page.getByLabel("Level", { exact: true }).fill("14");
-  await page.getByLabel("Experience", { exact: true }).fill("2900");
-  await page.getByLabel("Pieces in stock Blue", { exact: true }).fill("19");
-  await page.getByLabel("Pieces in stock Purple", { exact: true }).fill("0");
-  await page.getByLabel("Pieces in stock Yellow", { exact: true }).fill("0");
+  await setCertifiedInput("SR", 14, 2900, { blue: 19, purple: 0, yellow: 0 });
   await page.evaluate(() => {
     window.__holdCertifiedPreparation = true;
   });
-  await page.getByRole("button", { name: certifiedMessages.en.calculate, exact: true }).click();
+  await calculateButton().click();
   await expect
     .poll(() => page.evaluate(() => Boolean(window.__releaseCertifiedPreparation)))
     .toBe(true);
@@ -418,7 +463,7 @@ test("actual hidden cancellation during forecast preparation discards the late s
   await expect(page.getByTestId("certified-run-notice")).toHaveText(
     certifiedMessages.en.backgroundInterrupted,
   );
-  await page.getByRole("button", { name: certifiedMessages.en.calculate, exact: true }).click();
+  await calculateButton().click();
   await expect(page.getByTestId("certified-current")).toContainText("100", { timeout: 15000 });
   await expect(page.getByTestId("certified-run-notice")).toHaveCount(0);
   const recomputed = await page.evaluate(() => window.__visibilityTrace);
@@ -441,16 +486,12 @@ test("actual hidden cancellation during forecast preparation discards the late s
 
 test("actual hidden cancellation discards stale work and requires a new foreground request", async () => {
   await page.goto(`http://127.0.0.1:${visibilityPort}/?statsEnv=staging&engine=certified`);
-  await page.locator("header select").selectOption("en");
+  await selectEnglish();
   await bringVisible();
-  await page.getByRole("button", { name: certifiedMessages.en.reset, exact: true }).click();
-  await expect(page.getByLabel("R / SR", { exact: true })).toHaveValue("R");
-  await expect(page.getByLabel("Level", { exact: true })).toHaveValue("0");
-  await expect(page.getByLabel("Experience", { exact: true })).toHaveValue("0");
-  await page.getByLabel("Pieces in stock Blue", { exact: true }).fill("300");
-  await page.getByLabel("Pieces in stock Purple", { exact: true }).fill("200");
-  await page.getByLabel("Pieces in stock Yellow", { exact: true }).fill("100");
-  await page.getByRole("button", { name: certifiedMessages.en.calculate, exact: true }).click();
+  await page.locator("#resetButton").click();
+  await expectCertifiedInput("R", 0, "");
+  await setCertifiedInput("R", 0, 0, { blue: 300, purple: 200, yellow: 100 });
+  await calculateButton().click();
   await expect
     .poll(() =>
       page.evaluate(
@@ -494,13 +535,8 @@ test("actual hidden cancellation discards stale work and requires a new foregrou
       ).length,
   );
   expect(requestsBeforeRecompute).toBe(1);
-  await page.getByLabel("R / SR", { exact: true }).selectOption("SR");
-  await page.getByLabel("Level", { exact: true }).fill("14");
-  await page.getByLabel("Experience", { exact: true }).fill("2900");
-  await page.getByLabel("Pieces in stock Blue", { exact: true }).fill("19");
-  await page.getByLabel("Pieces in stock Purple", { exact: true }).fill("0");
-  await page.getByLabel("Pieces in stock Yellow", { exact: true }).fill("0");
-  await page.getByRole("button", { name: certifiedMessages.en.calculate, exact: true }).click();
+  await setCertifiedInput("SR", 14, 2900, { blue: 19, purple: 0, yellow: 0 });
+  await calculateButton().click();
   await expect(page.locator(".cert-probability")).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId("certified-run-notice")).toHaveCount(0);
   await expect(page.getByTestId("certified-current")).toContainText("100");
@@ -520,12 +556,7 @@ test("actual hidden cancellation discards stale work and requires a new foregrou
 });
 
 test("actual visibility abort during waiting retains the completed current panel", async () => {
-  await page.getByLabel("R / SR", { exact: true }).selectOption("R");
-  await page.getByLabel("Level", { exact: true }).fill("0");
-  await page.getByLabel("Experience", { exact: true }).fill("0");
-  await page.getByLabel("Pieces in stock Blue", { exact: true }).fill("0");
-  await page.getByLabel("Pieces in stock Purple", { exact: true }).fill("0");
-  await page.getByLabel("Pieces in stock Yellow", { exact: true }).fill("0");
+  await setCertifiedInput("R", 0, 0, { blue: 0, purple: 0, yellow: 0 });
   const acknowledge = page.getByRole("button", { name: certifiedMessages.en.already, exact: true });
   while (await acknowledge.count()) await acknowledge.first().click();
   await page.exposeBinding("__currentVisibility", async () => {
@@ -533,7 +564,7 @@ test("actual visibility abort during waiting retains the completed current panel
     await bringVisible();
   });
   await page.evaluate(() => Object.assign(globalThis, { __hideOnCurrent: true }));
-  await page.getByRole("button", { name: certifiedMessages.en.calculate, exact: true }).click();
+  await calculateButton().click();
   await expect(page.getByTestId("certified-run-notice")).toHaveText(
     certifiedMessages.en.backgroundInterrupted,
   );

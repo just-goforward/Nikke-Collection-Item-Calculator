@@ -4,20 +4,18 @@ export const certifiedMessages = {
     reviewPending: "변경된 정보가 검토 중입니다. 마지막으로 승인된 공급 예측을 사용합니다.",
     reviewUnknown:
       "정보 검토 상태를 확인하지 못했습니다. 마지막으로 승인된 공급 예측을 계속 사용합니다.",
-    title: "소장품 레벨업 계산기",
     staging: "새 계산 · staging",
     intro: "현재 재고의 정확한 결과와 앞으로 56일 범위의 권장일을 함께 확인합니다.",
-    state: "소장품",
-    level: "레벨",
-    exp: "경험치",
     stock: "보유 조각",
-    blue: "파랑",
-    purple: "보라",
-    yellow: "노랑",
-    calculate: "현재 재고와 권장일 계산",
     calculating: "계산 중…",
-    cancel: "취소",
-    reset: "새 세션",
+    cancel: "계산 취소",
+    cancelled: "계산을 취소했습니다. 입력과 수령 기록은 그대로입니다. 준비되면 다시 계산하세요.",
+    actionError:
+      "이 기록을 적용하지 못했습니다. 저장된 세션은 바뀌지 않았습니다. 다시 계산한 뒤 시도하세요.",
+    storageBlocked:
+      "저장된 계산 상태를 확인할 수 없어 계산을 중단했습니다. 초기화하면 새 세션을 시작합니다.",
+    correctionPending:
+      "실제 남은 조각 수를 입력한 뒤 계산을 눌러 확인하세요. 확인 전에는 사용 이력을 확정하지 않습니다.",
     current: "현재 재고",
     probability: "SR 15 도달 확률",
     burden: "기대 부담",
@@ -46,11 +44,9 @@ export const certifiedMessages = {
     already: "입력 재고에 이미 반영",
     claimExplain: "실제로 받은 조각을 입력하세요. 같은 보상은 한 번만 기록합니다.",
     comparison: "과거와 미래의 수급 기댓값",
-    scrollTable: "표를 좌우로 움직여 전체 값을 확인하세요.",
     past: "과거 56일 · 확정 일정",
     future: "미래 56일 · 확정 + 추정",
     today: "오늘 · 별도",
-    total: "총량",
     daily: "하루 평균",
     change: "증감률",
     incomplete:
@@ -72,7 +68,6 @@ export const certifiedMessages = {
     uses: "회까지 · 일반 결과가 이어지는 동안, 대성공·레벨 변경에서 중단",
     elapsed: "전체 소요",
     NA: "N/A",
-    language: "언어",
   },
   en: {
     backgroundInterrupted:
@@ -80,21 +75,20 @@ export const certifiedMessages = {
     reviewPending: "Changes are under review. Using the last approved supply forecast.",
     reviewUnknown:
       "Could not retrieve the source review status. Continuing with the last approved supply forecast.",
-    title: "Collection Item Calculator",
     staging: "New calculator · staging",
     intro:
       "See the exact result for your current stock and a recommended day within the next 56 days.",
-    state: "Collection item",
-    level: "Level",
-    exp: "Experience",
     stock: "Pieces in stock",
-    blue: "Blue",
-    purple: "Purple",
-    yellow: "Yellow",
-    calculate: "Calculate current stock and recommended day",
     calculating: "Calculating…",
-    cancel: "Cancel",
-    reset: "New session",
+    cancel: "Cancel calculation",
+    cancelled:
+      "Calculation cancelled. Your input and receipt records are unchanged. Calculate again when ready.",
+    actionError:
+      "This action could not be applied. Your saved session is unchanged. Recalculate and try again.",
+    storageBlocked:
+      "The saved calculation state could not be validated. Reset explicitly to start a new session.",
+    correctionPending:
+      "Enter the pieces you actually have left, then press Calculate to confirm. No use history is committed before confirmation.",
     current: "Current stock",
     probability: "Chance of reaching SR 15",
     burden: "Expected burden",
@@ -123,11 +117,9 @@ export const certifiedMessages = {
     already: "Already included in entered stock",
     claimExplain: "Enter the pieces you actually received. Each reward is recorded once.",
     comparison: "Past and future expected supply",
-    scrollTable: "Scroll the table sideways to see every value.",
     past: "Past 56 days · confirmed schedules",
     future: "Next 56 days · confirmed + estimated",
     today: "Today · separate",
-    total: "Total",
     daily: "Daily average",
     change: "Change",
     incomplete:
@@ -151,27 +143,25 @@ export const certifiedMessages = {
     uses: "uses while normal results continue; stop at a great success or level change",
     elapsed: "Total time",
     NA: "N/A",
-    language: "Language",
   },
   ja: {
     backgroundInterrupted: "画面を離れたため計算が中断されました。もう一度計算してください。",
     reviewPending: "変更された情報は審査中です。最後に承認された供給予測を使用しています。",
     reviewUnknown:
       "情報の審査状況を確認できませんでした。最後に承認された供給予測を引き続き使用します。",
-    title: "コレクションアイテム計算機",
     staging: "新しい計算 · staging",
     intro: "現在の在庫の正確な結果と、今後56日間の推奨日を確認できます。",
-    state: "コレクション",
-    level: "レベル",
-    exp: "経験値",
     stock: "所持ピース",
-    blue: "青",
-    purple: "紫",
-    yellow: "黄",
-    calculate: "現在の在庫と推奨日を計算",
     calculating: "計算中…",
-    cancel: "取消",
-    reset: "新しいセッション",
+    cancel: "計算を取消",
+    cancelled:
+      "計算を取り消しました。入力と受取記録はそのままです。準備ができたら再計算してください。",
+    actionError:
+      "この操作を適用できませんでした。保存されたセッションは変更されていません。再計算してから再度お試しください。",
+    storageBlocked:
+      "保存された計算状態を確認できないため、計算を停止しました。リセットすると新しいセッションを開始します。",
+    correctionPending:
+      "実際に残っているピース数を入力し、計算を押して確認してください。確認前に使用履歴を確定することはありません。",
     current: "現在の在庫",
     probability: "SR 15到達確率",
     burden: "期待負担",
@@ -200,11 +190,9 @@ export const certifiedMessages = {
     already: "入力在庫に反映済み",
     claimExplain: "実際に受け取ったピースを入力してください。同じ報酬は一度だけ記録します。",
     comparison: "過去と未来の供給期待値",
-    scrollTable: "表を左右に動かすと、すべての値を確認できます。",
     past: "過去56日 · 確定日程",
     future: "未来56日 · 確定＋推定",
     today: "今日 · 別表示",
-    total: "合計",
     daily: "1日平均",
     change: "増減率",
     incomplete:
@@ -226,6 +214,7 @@ export const certifiedMessages = {
     uses: "回まで · 通常結果が続く間、大成功・レベル変更で停止",
     elapsed: "全体所要時間",
     NA: "N/A",
-    language: "言語",
   },
 } as const;
+
+export type CertifiedWords = (typeof certifiedMessages)[keyof typeof certifiedMessages];
