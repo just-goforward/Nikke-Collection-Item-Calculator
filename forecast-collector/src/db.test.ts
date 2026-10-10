@@ -1,6 +1,7 @@
-import { createExecutionContext, reset } from "cloudflare:test";
+import { applyD1Migrations, createExecutionContext, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
+import { executeTestSql } from "../../shared/testD1Sql";
 import schemaSql from "../schema.sql?raw";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
 import { sha256Hex } from "./crypto";
@@ -25,16 +26,33 @@ type WorkerRequest = Parameters<WorkerFetch>[0];
 
 beforeEach(async () => {
   await reset();
-  for (const statement of schemaSql
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter(Boolean)) {
-    await testEnv.FORECAST_DB.prepare(statement).run();
-  }
+  await executeTestSql(testEnv.FORECAST_DB, schemaSql, applyD1Migrations);
   await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB);
 });
 
 describe("forecast collector D1 contract", () => {
+  it("enforces the restored source evidence immutability trigger", async () => {
+    await testEnv.FORECAST_DB.prepare(
+      `INSERT INTO source_notice_revisions (
+         source, item_id, source_revision, body_hash, revision_hash, semantic_hash,
+         item_json, events_json, observed_at
+       ) VALUES ('naver-board-56', 'trigger-test', 1, ?, ?, ?, '{}', '[]', ?)`,
+    )
+      .bind("a".repeat(64), "b".repeat(64), "c".repeat(64), new Date().toISOString())
+      .run();
+
+    await expect(
+      testEnv.FORECAST_DB.prepare(
+        "DELETE FROM source_notice_revisions WHERE item_id = 'trigger-test'",
+      ).run(),
+    ).rejects.toThrow("source_evidence_immutable");
+    expect(
+      await testEnv.FORECAST_DB.prepare(
+        "SELECT source_revision FROM source_notice_revisions WHERE item_id = 'trigger-test'",
+      ).first(),
+    ).toEqual({ source_revision: 1 });
+  });
+
   it("stores one idempotent candidate and advances only through allowed states", async () => {
     const item = sourceItem();
     const event = soloEvent(item);

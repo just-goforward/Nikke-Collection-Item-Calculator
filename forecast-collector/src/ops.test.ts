@@ -1,6 +1,7 @@
-import { createExecutionContext, reset } from "cloudflare:test";
+import { applyD1Migrations, createExecutionContext, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
+import { executeTestSql } from "../../shared/testD1Sql";
 import schemaSql from "../schema.sql?raw";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
@@ -21,12 +22,7 @@ type WorkerRequest = Parameters<WorkerFetch>[0];
 
 beforeEach(async () => {
   await reset();
-  for (const statement of schemaSql
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter(Boolean)) {
-    await testEnv.FORECAST_DB.prepare(statement).run();
-  }
+  await executeTestSql(testEnv.FORECAST_DB, schemaSql, applyD1Migrations);
   await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB);
 });
 

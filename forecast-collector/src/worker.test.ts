@@ -1,6 +1,7 @@
-import { reset } from "cloudflare:test";
+import { applyD1Migrations, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { executeTestSql } from "../../shared/testD1Sql";
 import schemaSql from "../schema.sql?raw";
 import { pollNaverSource } from "./source-queue";
 import { seedNormalUsageGuard } from "./test-usage-guard";
@@ -11,12 +12,7 @@ const testEnv = env as unknown as CollectorEnv;
 
 beforeEach(async () => {
   await reset();
-  for (const statement of schemaSql
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter(Boolean)) {
-    await testEnv.FORECAST_DB.prepare(statement).run();
-  }
+  await executeTestSql(testEnv.FORECAST_DB, schemaSql, applyD1Migrations);
   await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB);
 });
 

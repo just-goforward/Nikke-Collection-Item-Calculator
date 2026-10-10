@@ -1,4 +1,4 @@
-import { reset } from "cloudflare:test";
+import { applyD1Migrations, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -8,6 +8,7 @@ import {
   D1_DATABASE_IDS,
   type D1QuotaEvidence,
 } from "../../shared/d1QuotaEvidence";
+import { executeTestSql } from "../../shared/testD1Sql";
 import schemaSql from "../schema.sql?raw";
 import { readCanaryReport, readCanaryWindow, startCanaryDeployment } from "./canary";
 import type { CollectorEnv } from "./types";
@@ -29,12 +30,7 @@ const END = START + 8 * 60 * 60 * 1_000;
 
 beforeEach(async () => {
   await reset();
-  for (const statement of schemaSql
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter(Boolean)) {
-    await testEnv.FORECAST_DB.prepare(statement).run();
-  }
+  await executeTestSql(testEnv.FORECAST_DB, schemaSql, applyD1Migrations);
   await startCanaryDeployment(testEnv.FORECAST_DB, {
     environment: "staging",
     canaryId: CANARY_ID,

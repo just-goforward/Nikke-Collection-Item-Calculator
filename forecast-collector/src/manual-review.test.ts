@@ -1,6 +1,7 @@
-import { reset } from "cloudflare:test";
+import { applyD1Migrations, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
+import { executeTestSql } from "../../shared/testD1Sql";
 import migrationSql from "../migrations/0008_manual_reviews_interactions_canary.sql?raw";
 import schemaSql from "../schema.sql?raw";
 import { decideManualReview, ensureManualReviewStatement, readManualReview } from "./manual-review";
@@ -18,12 +19,7 @@ const testEnv: CollectorEnv = {
 
 beforeEach(async () => {
   await reset();
-  for (const statement of schemaSql
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter(Boolean)) {
-    await testEnv.FORECAST_DB.prepare(statement).run();
-  }
+  await executeTestSql(testEnv.FORECAST_DB, schemaSql, applyD1Migrations);
 });
 
 describe("manual review decisions", () => {
@@ -47,12 +43,7 @@ describe("manual review decisions", () => {
          'schedule_ambiguous', '2026-08-31T00:00:00.000Z', '2026-08-31T00:00:00.000Z'
        )`,
     ).run();
-    for (const statement of migrationSql
-      .split(";")
-      .map((entry) => entry.trim())
-      .filter(Boolean)) {
-      await testEnv.FORECAST_DB.prepare(statement).run();
-    }
+    await executeTestSql(testEnv.FORECAST_DB, migrationSql, applyD1Migrations);
 
     const row = await testEnv.FORECAST_DB.prepare(
       `SELECT generation, state, expires_at FROM source_manual_reviews

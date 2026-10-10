@@ -658,7 +658,7 @@ describe("Forecast migration production and fault recovery", () => {
   });
 });
 
-describe("Forecast migration fail-closed checks", () => {
+describe("Forecast migration fail-closed ledger checks", () => {
   it("refuses duplicate v10 candidate revisions before writes and preserves both rows", () => {
     const db = legacyDatabase(10);
     const insert = db.prepare(`INSERT INTO forecast_candidates VALUES
@@ -757,7 +757,9 @@ describe("Forecast migration fail-closed checks", () => {
     expect(() => runner.run()).toThrow();
     expect(runner.files()).toEqual([]);
   });
+});
 
+describe("Forecast migration fail-closed Wrangler checks", () => {
   it.each([
     "not json",
     "{}",
@@ -784,7 +786,9 @@ describe("Forecast migration fail-closed checks", () => {
     expect(() => applyForecastD1Migrations(localStaging, { spawn })).toThrow(/Wrangler D1/);
     expect(spawn).toHaveBeenCalledTimes(1);
   });
+});
 
+describe("Forecast migration fail-closed post-apply checks", () => {
   it("does not trust a zero exit code when the applied version is missing from the reread", () => {
     const runner = sqliteRunner(legacyDatabase(5));
     const normal = runner.spawn.getMockImplementation() as Spawn;

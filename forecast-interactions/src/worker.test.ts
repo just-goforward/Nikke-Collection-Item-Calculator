@@ -1,7 +1,13 @@
-import { createExecutionContext, reset, waitOnExecutionContext } from "cloudflare:test";
+import {
+  applyD1Migrations,
+  createExecutionContext,
+  reset,
+  waitOnExecutionContext,
+} from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import schemaSql from "../../forecast-collector/schema.sql?raw";
+import { executeTestSql } from "../../shared/testD1Sql";
 import usageGuardSchemaSql from "../../usage-guard/schema.sql?raw";
 import type { InteractionRouterEnv } from "./types";
 import worker from "./worker";
@@ -16,19 +22,9 @@ beforeEach(async () => {
   await reset();
   vi.setSystemTime(nowMs);
   for (const db of [testEnv.STAGING_FORECAST_DB, testEnv.PRODUCTION_FORECAST_DB]) {
-    for (const statement of schemaSql
-      .split(";")
-      .map((entry) => entry.trim())
-      .filter(Boolean)) {
-      await db.prepare(statement).run();
-    }
+    await executeTestSql(db, schemaSql, applyD1Migrations);
   }
-  for (const statement of usageGuardSchemaSql
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter(Boolean)) {
-    await testEnv.USAGE_GUARD_DB.prepare(statement).run();
-  }
+  await executeTestSql(testEnv.USAGE_GUARD_DB, usageGuardSchemaSql, applyD1Migrations);
   await testEnv.USAGE_GUARD_DB.prepare(
     `INSERT INTO usage_guard_state (
        singleton_id, action, observed_at, period_start, period_end,

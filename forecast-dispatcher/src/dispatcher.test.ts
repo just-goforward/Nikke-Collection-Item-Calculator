@@ -1,8 +1,9 @@
-import { reset } from "cloudflare:test";
+import { applyD1Migrations, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import schemaSql from "../../forecast-collector/schema.sql?raw";
 import { recordWorkflowDispatchStatus } from "../../forecast-collector/src/ops";
+import { executeTestSql } from "../../shared/testD1Sql";
 import { runDispatcher } from "./dispatcher";
 import type { DispatcherEnv } from "./types";
 
@@ -10,12 +11,7 @@ const testEnv = env as unknown as DispatcherEnv;
 
 beforeEach(async () => {
   await reset();
-  for (const statement of schemaSql
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter(Boolean)) {
-    await testEnv.FORECAST_DB.prepare(statement).run();
-  }
+  await executeTestSql(testEnv.FORECAST_DB, schemaSql, applyD1Migrations);
 });
 
 afterEach(() => {

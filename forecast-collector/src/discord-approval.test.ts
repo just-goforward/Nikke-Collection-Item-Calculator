@@ -1,6 +1,12 @@
-import { createExecutionContext, reset, waitOnExecutionContext } from "cloudflare:test";
+import {
+  applyD1Migrations,
+  createExecutionContext,
+  reset,
+  waitOnExecutionContext,
+} from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { executeTestSql } from "../../shared/testD1Sql";
 import discordApprovalMigrationSql from "../migrations/0004_discord_approval_tests.sql?raw";
 import discordStagingAdoptionMigrationSql from "../migrations/0005_discord_staging_adoptions.sql?raw";
 import discordStagingMessageMigrationSql from "../migrations/0006_discord_staging_message_identity.sql?raw";
@@ -567,10 +573,5 @@ function bytesHex(value: ArrayBuffer) {
 }
 
 async function executeSql(sql: string) {
-  for (const statement of sql
-    .split(";")
-    .map((entry) => entry.trim())
-    .filter(Boolean)) {
-    await testEnv.FORECAST_DB.prepare(statement).run();
-  }
+  await executeTestSql(testEnv.FORECAST_DB, sql, applyD1Migrations);
 }
