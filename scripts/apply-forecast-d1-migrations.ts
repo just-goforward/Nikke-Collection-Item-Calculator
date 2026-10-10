@@ -3,7 +3,7 @@ import {
   type SpawnSyncReturns,
   spawnSync,
 } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -11,7 +11,7 @@ import { z } from "zod";
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "..");
 // schema.sql is a bootstrap snapshot, not migration 0001. Never replay it on an upgrade.
-const BOOTSTRAP_VERSION = 10;
+const BOOTSTRAP_VERSION = 21;
 const PRODUCTION_OPTIONAL_VERSIONS = new Set([4, 5, 6]);
 const CATALOG_QUERY = `SELECT name, type FROM sqlite_master
 WHERE type IN ('table', 'view') AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*'
@@ -221,6 +221,15 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
   for (const migration of migrations) {
     if (!isRequired(migration.version, options.environment) || versions.includes(migration.version))
       continue;
+    if (migration.version === 11) {
+      const query = readFileSync(resolve(root, "forecast-collector/preflight-0011.sql"), "utf8");
+      const duplicates = execute("--command", query);
+      if (duplicates.length) {
+        throw new Error(
+          `duplicate_candidate_revision_preflight: ${JSON.stringify(duplicates)}; preserve rows and reconcile before migration 0011.`,
+        );
+      }
+    }
     log(`Applying Forecast migration ${migration.version} (${options.environment}).`);
     execute("--file", migration.file);
     const verified = readLedger();
