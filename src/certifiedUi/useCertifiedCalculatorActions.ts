@@ -9,12 +9,7 @@ import {
   unresolvedCertifiedSuccess,
 } from "./calculatorSessionActions";
 import { showCertifiedRunResults } from "./runStatus";
-import {
-  CERTIFIED_SESSION_STORAGE_KEY,
-  type CertifiedSession,
-  convertCertifiedSession,
-  createCertifiedSession,
-} from "./session";
+import { type CertifiedSession, convertCertifiedSession, createCertifiedSession } from "./session";
 import type { CertifiedSnapshotState } from "./useCertifiedCalculatorPreparation";
 import type { CertifiedRunOwnership } from "./useCertifiedCalculatorRun";
 import {
@@ -22,6 +17,7 @@ import {
   CLOSED_CERTIFIED_MODAL,
   settledCertifiedBridge,
   validatedCertifiedSession,
+  writeCertifiedSessionStorage,
 } from "./useCertifiedCalculatorSession";
 
 type Commit = (next: CertifiedSession, autoCalculate?: boolean) => void;
@@ -29,10 +25,11 @@ type SessionActions = Pick<CertifiedSessionStore, "latest" | "publish" | "fail">
   commit: Commit;
   retire: () => void;
 };
-type ActionContext = SessionActions & {
-  ownership: CertifiedRunOwnership;
-  snapshotRef: CertifiedSnapshotState["snapshotRef"];
-};
+type ActionContext = SessionActions &
+  Pick<CertifiedSessionStore, "setSaveFailed"> & {
+    ownership: CertifiedRunOwnership;
+    snapshotRef: CertifiedSnapshotState["snapshotRef"];
+  };
 type CalculationContext = Pick<SessionActions, "latest" | "commit" | "fail"> &
   Pick<CertifiedRunOwnership, "canStart" | "calculateNative"> & {
     snapshotRef: CertifiedSnapshotState["snapshotRef"];
@@ -199,7 +196,9 @@ function convertCertifiedCollection(context: SessionActions) {
   }
 }
 
-function resetCertifiedCollection(context: SessionActions & Pick<ActionContext, "snapshotRef">) {
+function resetCertifiedCollection(
+  context: SessionActions & Pick<ActionContext, "snapshotRef" | "setSaveFailed">,
+) {
   const previous = context.latest.current;
   context.commit(
     createCertifiedSession(
@@ -212,14 +211,8 @@ function resetCertifiedCollection(context: SessionActions & Pick<ActionContext, 
     context.retire();
     context.publish(previous);
     // Restore quarantined bytes verbatim; they remain untrusted on the next reload.
-    if (previous.storageBlocked && previous.blockedStorageText !== null) {
-      try {
-        localStorage.setItem(CERTIFIED_SESSION_STORAGE_KEY, previous.blockedStorageText);
-      } catch (failure) {
-        if (!(failure instanceof DOMException)) throw failure;
-        context.fail(failure);
-      }
-    }
+    if (previous.storageBlocked && previous.blockedStorageText !== null)
+      writeCertifiedSessionStorage(previous.blockedStorageText, context.setSaveFailed);
   };
 }
 
@@ -228,7 +221,7 @@ export function useCertifiedCalculatorActions(
   ownership: CertifiedRunOwnership,
   snapshotRef: CertifiedSnapshotState["snapshotRef"],
 ) {
-  const { latest, publish, fail } = store;
+  const { latest, publish, fail, setSaveFailed } = store;
   const { retire, recompute, canStart, calculateNative } = ownership;
   const commit = useCallback(
     (next: CertifiedSession, autoCalculate = false) => {
@@ -261,6 +254,7 @@ export function useCertifiedCalculatorActions(
     fail,
     commit,
     retire,
+    setSaveFailed,
     ownership,
     snapshotRef,
   };

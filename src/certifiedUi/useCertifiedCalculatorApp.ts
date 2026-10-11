@@ -33,7 +33,7 @@ export function useCertifiedCalculatorApp(): CertifiedCalculatorController {
     preparation.snapshotRef,
   );
   // Keep native binding, persistence, preparation, and committed recomputation effects in order.
-  useCertifiedSessionPersistence(store.bridge);
+  useCertifiedSessionPersistence(store.bridge, store.setSaveFailed);
   useCertifiedCalculatorPreparation(preparation, store.latest, ownership.retire, updateSession);
   useCertifiedActionRecomputation(
     store.bridge.session,
@@ -88,6 +88,7 @@ export function useCertifiedCalculatorApp(): CertifiedCalculatorController {
       bridge.storageBlocked,
     inputLocked: run.busy || bridge.modal.open || bridge.storageBlocked,
     storageBlocked: bridge.storageBlocked,
+    sessionSaveFailed: store.saveFailed,
     stockCorrectionRequired: !!bridge.correction || bridge.storageBlocked,
     stockCorrection: correction,
     modal: bridge.modal,

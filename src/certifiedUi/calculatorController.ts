@@ -22,6 +22,8 @@ export type CertifiedCalculatorController = {
   calculateDisabled: boolean;
   inputLocked: boolean;
   storageBlocked: boolean;
+  /** The latest session write was refused by the browser; cleared by the next successful write. */
+  sessionSaveFailed: boolean;
   stockCorrectionRequired: boolean;
   stockCorrection: StockCorrectionView | null;
   modal: SuccessAttemptModalState;

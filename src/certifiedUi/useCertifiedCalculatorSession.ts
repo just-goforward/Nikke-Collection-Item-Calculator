@@ -65,8 +65,24 @@ export function validatedCertifiedSession(next: CertifiedSession) {
   return validated;
 }
 
+/** Browser refusals of a session write are reported for the UI; other failures still propagate. */
+export function writeCertifiedSessionStorage(
+  text: string,
+  setSaveFailed: (failed: boolean) => void,
+) {
+  try {
+    localStorage.setItem(CERTIFIED_SESSION_STORAGE_KEY, text);
+    setSaveFailed(false);
+  } catch (failure) {
+    if (!(failure instanceof DOMException)) throw failure;
+    setSaveFailed(true);
+  }
+}
+
 export function useCertifiedCalculatorSession() {
   const [bridge, setBridge] = useState<CertifiedBridgeState>(initialBridge);
+  // Kept outside the bridge: commits settle the bridge, but only a later successful write clears this.
+  const [saveFailed, setSaveFailed] = useState(false);
   const latest = useRef(bridge);
   const publish = useCallback((next: CertifiedBridgeState) => {
     latest.current = next;
@@ -81,20 +97,21 @@ export function useCertifiedCalculatorSession() {
     },
     [publish],
   );
-  return { bridge, latest, publish, fail };
+  return { bridge, latest, publish, fail, saveFailed, setSaveFailed };
 }
 
 export type CertifiedSessionStore = ReturnType<typeof useCertifiedCalculatorSession>;
 
 /** Pending state and its pre-outcome ledger are persisted together; rejected bytes stay quarantined. */
-export function useCertifiedSessionPersistence(bridge: CertifiedBridgeState) {
+export function useCertifiedSessionPersistence(
+  bridge: CertifiedBridgeState,
+  setSaveFailed: CertifiedSessionStore["setSaveFailed"],
+) {
   useEffect(() => {
     if (bridge.storageBlocked) return;
-    const text = serializeCertifiedCalculatorSession(bridge.session, bridge.correction);
-    try {
-      localStorage.setItem(CERTIFIED_SESSION_STORAGE_KEY, text);
-    } catch (failure) {
-      if (!(failure instanceof DOMException)) throw failure;
-    }
-  }, [bridge.session, bridge.correction, bridge.storageBlocked]);
+    writeCertifiedSessionStorage(
+      serializeCertifiedCalculatorSession(bridge.session, bridge.correction),
+      setSaveFailed,
+    );
+  }, [bridge.session, bridge.correction, bridge.storageBlocked, setSaveFailed]);
 }

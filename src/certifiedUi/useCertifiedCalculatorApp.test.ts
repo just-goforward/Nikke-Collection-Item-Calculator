@@ -27,6 +27,8 @@ const driver = vi.hoisted(() => ({
   result: null as CertifiedOutput | null,
   busy: false,
   stored: new Map<string, string>(),
+  readFailure: null as unknown,
+  writeFailure: null as unknown,
 }));
 
 // A dependency-aware hook dispatcher tests this bridge, not the runtime or presentation.
@@ -174,6 +176,8 @@ beforeEach(async () => {
   driver.slots = [];
   driver.setters = [];
   driver.stored.clear();
+  driver.readFailure = null;
+  driver.writeFailure = null;
   driver.result = null;
   driver.busy = false;
   vi.resetAllMocks();
@@ -181,8 +185,14 @@ beforeEach(async () => {
   driver.calculate.mockResolvedValue(undefined);
   driver.stored.set(CERTIFIED_SESSION_STORAGE_KEY, JSON.stringify(sessionFixture()));
   vi.stubGlobal("localStorage", {
-    getItem: (key: string) => driver.stored.get(key) ?? null,
-    setItem: (key: string, value: string) => driver.stored.set(key, value),
+    getItem: (key: string) => {
+      if (driver.readFailure) throw driver.readFailure;
+      return driver.stored.get(key) ?? null;
+    },
+    setItem: (key: string, value: string) => {
+      if (driver.writeFailure) throw driver.writeFailure;
+      driver.stored.set(key, value);
+    },
   });
   vi.stubGlobal("window", { setInterval: vi.fn(() => 1), clearInterval: vi.fn() });
   visibility = { visibilityState: "visible" };
@@ -652,6 +662,7 @@ describe("certified malformed storage recovery", () => {
       expect(driver.stored.get(CERTIFIED_SESSION_STORAGE_KEY)).toBe(text);
       await flush();
       expect(app.storageBlocked).toBe(true);
+      expect(app.sessionSaveFailed).toBe(false);
       expect(app.session).toEqual(blocked);
       expect(app.actionError).toBe("invalid_certified_calculator_storage");
       expect(app.calculateDisabled).toBe(true);
@@ -667,4 +678,139 @@ describe("certified malformed storage recovery", () => {
       expect(driver.calculate).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("certified session save failure", () => {
+  const refused = () => new DOMException("storage full", "QuotaExceededError");
+
+  it("keeps working in memory, reports refused writes, and clears after a later successful save", async () => {
+    const persisted = storedSessionText();
+    expect(app.sessionSaveFailed).toBe(false);
+    driver.writeFailure = refused();
+    app.actions.setStock({ blue: 78, purple: 13, yellow: 7 });
+    await flush();
+    expect(app.session.stock).toEqual([78, 13, 7]);
+    expect(app.sessionSaveFailed).toBe(true);
+    expect(app.storageBlocked).toBe(false);
+    expect(app.actionError).toBeNull();
+    expect(app.inputLocked).toBe(false);
+    expect(app.calculateDisabled).toBe(false);
+    expect(storedSessionText()).toBe(persisted);
+
+    // Calculation and result recording stay available while only the device copy is stale.
+    await authorize();
+    app.actions.applyOutcome("normal");
+    await flush();
+    expect(app.session.stock).toEqual([38, 13, 7]);
+    expect(app.session.outcomes).toHaveLength(4);
+    expect(app.sessionSaveFailed).toBe(true);
+    expect(storedSessionText()).toBe(persisted);
+
+    const inMemory = app.session;
+    await reload();
+    expect(app.session).toEqual(JSON.parse(persisted));
+    expect(app.session).not.toEqual(inMemory);
+    expect(app.sessionSaveFailed).toBe(true);
+
+    driver.writeFailure = null;
+    app.actions.setExp(100);
+    await flush();
+    expect(app.sessionSaveFailed).toBe(false);
+    expect(JSON.parse(storedSessionText())).toEqual(app.session);
+  });
+
+  it("reloads the last saved pending correction when later corrections were refused", async () => {
+    await authorize();
+    app.actions.applyOutcome("great");
+    render();
+    app.actions.submitSuccessAttempt(null);
+    await flush();
+    const pending = app.session;
+    const persisted = storedSessionText();
+    expect(app.sessionSaveFailed).toBe(false);
+    driver.writeFailure = refused();
+    app.actions.setStock({ blue: 49, purple: 13, yellow: 7 });
+    await flush();
+    expect(app.sessionSaveFailed).toBe(true);
+    expect(app.stockCorrection).toMatchObject({ status: "valid", successAttempt: 3 });
+    expect(storedSessionText()).toBe(persisted);
+
+    driver.writeFailure = null;
+    await reload();
+    expect(app.session).toEqual(pending);
+    expect(app.stockCorrectionRequired).toBe(true);
+    expect(app.stockCorrection).toMatchObject({ status: "invalid", reason: "unchanged" });
+    expect(app.sessionSaveFailed).toBe(false);
+    expect(restoreCertifiedCalculatorSession(storedSessionText())).toMatchObject({
+      session: pending,
+    });
+  });
+
+  it("reports a refused undo restore of quarantined bytes without a raw action error", async () => {
+    driver.stored.set(CERTIFIED_SESSION_STORAGE_KEY, '{"kind":"broken"}');
+    await reload();
+    const blocked = app.session;
+    expect(app.storageBlocked).toBe(true);
+    expect(app.sessionSaveFailed).toBe(false);
+    const undo = app.actions.reset();
+    await flush();
+    const fresh = storedSessionText();
+    expect(JSON.parse(fresh)).toEqual(app.session);
+    expect(app.sessionSaveFailed).toBe(false);
+
+    driver.writeFailure = refused();
+    undo();
+    await flush();
+    expect(app.storageBlocked).toBe(true);
+    expect(app.session).toEqual(blocked);
+    expect(app.actionError).toBe("invalid_certified_calculator_storage");
+    expect(app.sessionSaveFailed).toBe(true);
+    expect(storedSessionText()).toBe(fresh);
+
+    // A blocked session writes nothing, so the warning stays until a later write succeeds.
+    driver.writeFailure = null;
+    await flush();
+    expect(app.sessionSaveFailed).toBe(true);
+    app.actions.reset();
+    await flush();
+    expect(app.storageBlocked).toBe(false);
+    expect(app.sessionSaveFailed).toBe(false);
+    expect(JSON.parse(storedSessionText())).toEqual(app.session);
+  });
+
+  it("keeps unreadable storage blocked as before and reports writes refused after reset", async () => {
+    const persisted = storedSessionText();
+    driver.readFailure = new DOMException("denied", "SecurityError");
+    driver.writeFailure = new DOMException("denied", "SecurityError");
+    await reload();
+    expect(app.storageBlocked).toBe(true);
+    expect(app.actionError).toBe("invalid_certified_calculator_storage");
+    expect(app.calculateDisabled).toBe(true);
+    expect(app.sessionSaveFailed).toBe(false);
+
+    const undo = app.actions.reset();
+    await flush();
+    expect(app.storageBlocked).toBe(false);
+    expect(app.calculateDisabled).toBe(false);
+    expect(app.sessionSaveFailed).toBe(true);
+    undo();
+    await flush();
+    expect(app.storageBlocked).toBe(true);
+    expect(app.sessionSaveFailed).toBe(true);
+    expect(storedSessionText()).toBe(persisted);
+  });
+
+  it("keeps propagating non-storage write failures from persistence and undo", async () => {
+    driver.writeFailure = new TypeError("storage_bug");
+    app.actions.setStock({ blue: 78, purple: 13, yellow: 7 });
+    expect(() => render()).toThrow("storage_bug");
+
+    driver.writeFailure = null;
+    driver.stored.set(CERTIFIED_SESSION_STORAGE_KEY, '{"kind":"broken"}');
+    await reload();
+    const undo = app.actions.reset();
+    await flush();
+    driver.writeFailure = new TypeError("storage_bug");
+    expect(() => undo()).toThrow("storage_bug");
+  });
 });

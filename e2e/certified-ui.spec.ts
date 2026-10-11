@@ -197,8 +197,10 @@ test("malformed saved data blocks calculation and offers explicit reset recovery
   await openStaging(page);
   await page.evaluate((key) => localStorage.setItem(key, '{"kind":"broken"}'), SESSION_KEY);
   await reopen(page);
+  const savedNotice = page.getByText(certifiedMessages.en.sessionNotice, { exact: true });
   await expect(page.locator("#calculateButton")).toBeDisabled();
   await expect(page.locator("#resetButton")).toBeDisabled();
+  await expect(savedNotice).toHaveCount(0);
   // Malformed storage is not a stock correction: no stock-edit prompt, only global recovery.
   await expect(page.locator("#stockEditNotice")).toBeHidden();
   await expect(page.getByTestId("certified-correction-pending")).toHaveCount(0);
@@ -210,6 +212,7 @@ test("malformed saved data blocks calculation and offers explicit reset recovery
   await recovery.click();
   await expect(page.locator("#calculateButton")).toBeEnabled();
   await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(savedNotice).toBeVisible();
   await reopen(page);
   await expect(page.locator("#calculateButton")).toBeEnabled();
   await setAlmostComplete(page);
@@ -244,6 +247,49 @@ test("mobile malformed-storage recovery stays global on the input tab", async ({
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(calculateLong).toBeEnabled();
   await expect(inputTab).toHaveAttribute("aria-selected", "true");
+});
+
+test("a refused session save warns only while failing and keeps the edit and focus", async ({
+  page,
+}) => {
+  // The browser refuses only certified session writes while the page-level switch is on.
+  await page.addInitScript((key) => {
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (this: Storage, name: string, value: string) {
+      if (name === key && Reflect.get(globalThis, "__refuseCertifiedSave") === true)
+        throw new DOMException("refused", "QuotaExceededError");
+      setItem.call(this, name, value);
+    };
+  }, SESSION_KEY);
+  await openStaging(page);
+  const failure = page.getByTestId("certified-session-save-failed");
+  const savedNotice = page.getByText(certifiedMessages.en.sessionNotice, { exact: true });
+  await expect(savedNotice).toBeVisible();
+  await expect(failure).toHaveCount(0);
+  const before = await page.evaluate((key) => localStorage.getItem(key), SESSION_KEY);
+  expect(before).not.toBeNull();
+
+  await page.evaluate(() => Reflect.set(globalThis, "__refuseCertifiedSave", true));
+  await setStock(page, { blue: 40 });
+  await expect(failure).toHaveText(certifiedMessages.en.sessionSaveFailed);
+  await expect(page.getByRole("alert")).toHaveText(certifiedMessages.en.sessionSaveFailed);
+  await expect(savedNotice).toHaveCount(0);
+  await expect(stockInput(page, "blue")).toHaveValue("40");
+  await expect(stockInput(page, "blue")).toBeFocused();
+  await expect(page.locator("#calculateButton")).toBeEnabled();
+  expect(await page.evaluate((key) => localStorage.getItem(key), SESSION_KEY)).toBe(before);
+
+  await page.evaluate(() => Reflect.set(globalThis, "__refuseCertifiedSave", false));
+  await setStock(page, { blue: 41 });
+  await expect(failure).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(savedNotice).toBeVisible();
+  await expect(stockInput(page, "blue")).toBeFocused();
+  const saved = await page.evaluate(
+    (key) => JSON.parse(localStorage.getItem(key) ?? "null"),
+    SESSION_KEY,
+  );
+  expect(saved.stock).toEqual([41, 0, 0]);
 });
 
 test("staging uses one profile and renders all three supported languages", async ({ page }) => {

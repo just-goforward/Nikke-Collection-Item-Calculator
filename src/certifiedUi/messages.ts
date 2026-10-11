@@ -64,6 +64,8 @@ export const certifiedMessages = {
     limit: "계산 한도를 초과했습니다.",
     modelMismatch: "입력한 수령량이 이 보상의 수급 법칙과 맞지 않습니다. 조각 수를 확인하세요.",
     sessionNotice: "staging 전용 세션에 저장됩니다.",
+    sessionSaveFailed:
+      "변경 사항을 기기에 저장하지 못했습니다. 새로고침하거나 페이지를 닫으면 최근 변경 사항이 사라질 수 있습니다.",
     ready: "수급 일정을 준비하는 중…",
     uses: "회까지 · 일반 결과가 이어지는 동안, 대성공·레벨 변경에서 중단",
     elapsed: "전체 소요",
@@ -139,6 +141,8 @@ export const certifiedMessages = {
     limit: "The calculation limit was exceeded.",
     modelMismatch: "This receipt does not match the reward's supply law. Check the piece counts.",
     sessionNotice: "Saved in a separate staging session.",
+    sessionSaveFailed:
+      "Your changes couldn't be saved on this device. If you refresh or close the page, your recent changes may be lost.",
     ready: "Preparing the supply schedule…",
     uses: "uses while normal results continue; stop at a great success or level change",
     elapsed: "Total time",
@@ -210,6 +214,8 @@ export const certifiedMessages = {
     limit: "計算上限を超えました。",
     modelMismatch: "入力した受取量が報酬の供給規則と一致しません。ピース数を確認してください。",
     sessionNotice: "staging専用セッションに保存されます。",
+    sessionSaveFailed:
+      "変更内容を端末に保存できませんでした。再読み込みするかページを閉じると、最近の変更内容が失われる可能性があります。",
     ready: "供給日程を準備しています…",
     uses: "回まで · 通常結果が続く間、大成功・レベル変更で停止",
     elapsed: "全体所要時間",

@@ -22,7 +22,9 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
       <aside className="cert-banner" aria-label={t("staging.label")}>
         <strong>{words.staging}</strong>
         <span>{words.intro}</span>
-        <span className="cert-muted">{words.sessionNotice}</span>
+        {!controller.storageBlocked && !controller.sessionSaveFailed && (
+          <span className="cert-muted">{words.sessionNotice}</span>
+        )}
       </aside>
       <ForecastReviewNotice />
       {controller.storageBlocked && (
@@ -35,6 +37,15 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
           <button type="button" className="cert-button" onClick={ui.onReset}>
             {t("common.reset")}
           </button>
+        </p>
+      )}
+      {controller.sessionSaveFailed && (
+        <p
+          role="alert"
+          className="cert-notice cert-notice-danger"
+          data-testid="certified-session-save-failed"
+        >
+          {words.sessionSaveFailed}
         </p>
       )}
       {controller.snapshot?.sourceStatus === "uncertain" && (
