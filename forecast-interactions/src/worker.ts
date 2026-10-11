@@ -216,6 +216,9 @@ function authorizeAction(interaction: DiscordInteraction, env: InteractionRouter
   }
 
   if (customId.startsWith(STAGING_CUSTOM_ID_PREFIX)) {
+    if (env.DISCORD_APPROVAL_MODE !== "staging_adoption") {
+      return ephemeral("현재 staging 승인 기능은 비활성 상태입니다.");
+    }
     if (interaction.channel_id !== env.DISCORD_APPROVAL_CHANNEL_ID) {
       return ephemeral("수급량 승인 채널에서만 처리할 수 있습니다.");
     }

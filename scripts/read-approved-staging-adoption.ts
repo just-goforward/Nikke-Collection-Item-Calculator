@@ -1,6 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { readBoundedJson } from "../shared/boundedHttp.ts";
+import { assertStagingAdoptionEnabled } from "./staging-adoption-eligibility.ts";
 
 const DEFAULT_ATTEMPTS = 12;
 const DEFAULT_DELAY_MS = 5_000;
@@ -37,6 +38,7 @@ export async function fetchApprovedStagingAdoption({
   fetchImpl = fetch,
   sleep = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
 }: FetchApprovedAdoptionOptions): Promise<ApprovedStagingAdoption | null> {
+  assertStagingAdoptionEnabled();
   assertOptions(collectorUrl, adminToken, attempts, delayMs, requestTimeoutMs);
   const endpoint = `${collectorUrl.replace(/\/$/, "")}/admin/discord-staging-adoptions?limit=1`;
   let lastFailure = "unknown";
@@ -165,6 +167,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 async function main() {
+  assertStagingAdoptionEnabled();
   writeOutputs(
     await fetchApprovedStagingAdoption({
       collectorUrl: requiredEnvironment("FORECAST_COLLECTOR_URL"),

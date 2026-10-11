@@ -1,7 +1,13 @@
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { isBuiltin } from "node:module";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
 const proposal = readFileSync(".github/workflows/forecast-proposal.yml", "utf8");
+const xProbe = readFileSync(".github/workflows/forecast-x-probe.yml", "utf8");
 const stagingDeploy = readFileSync(".github/workflows/forecast-collector-deploy.yml", "utf8");
 const productionPromote = readFileSync(".github/workflows/forecast-collector-promote.yml", "utf8");
 const d1BudgetWatch = readFileSync(".github/workflows/forecast-d1-budget-watch.yml", "utf8");
@@ -19,6 +25,57 @@ const stagingAdoption = readFileSync(
 const pages = readFileSync(".github/workflows/pages.yml", "utf8");
 const githubApp = readFileSync("forecast-dispatcher/src/github-app.ts", "utf8");
 const naverAction = readFileSync("scripts/forecast-naver-action.ts", "utf8");
+const ROUTER_DEPLOY_PATTERN =
+  /wrangler deploy (?:--env="" )?--config forecast-interactions\/wrangler.toml(?!.*--dry-run)/;
+
+function workflowStep(source: string, name: string) {
+  const step = source.split(`      - name: ${name}\n`)[1]?.split("\n      - name: ")[0];
+  if (!step) throw new Error(`missing_workflow_step:${name}`);
+  return step;
+}
+
+function recoveryDecision(step: string, verified: string, attempted: string, cancelled = false) {
+  const condition = step.match(/^ {8}if: (.+)$/m)?.[1];
+  if (!condition) throw new Error("missing_recovery_condition");
+  const attempt = { outputs: { attempted } };
+  return runInNewContext(condition, {
+    always: () => true,
+    failure: () => !cancelled,
+    cancelled: () => cancelled,
+    steps: {
+      operational_verification: { outputs: { verified } },
+      router_deploy: attempt,
+      collector_deploy: attempt,
+      dispatcher_deploy: attempt,
+      collector_activation: attempt,
+      dispatcher_activation: attempt,
+      router_restore: { outcome: "failure" },
+    },
+  }) as boolean;
+}
+
+function artifactPaths(source: string) {
+  return [...source.matchAll(/^ {10}path: (?:\|\n((?: {12}.+\n)+)|(.+)\n)/gm)].flatMap((match) =>
+    (match[1] ?? match[2] ?? "")
+      .trim()
+      .split("\n")
+      .map((path) => path.trim()),
+  );
+}
+
+describe("Paid X token isolation from advisory producer subprocesses", () => {
+  it("does not expose the bearer token through proposal or probe step, job or workflow wiring", () => {
+    for (const [source, name, command] of [
+      [proposal, "Fetch, verify, and apply one candidate", "npm run propose:supply-forecast"],
+      [xProbe, "Probe exact X status URLs", "node scripts/probe-forecast-x-sources.ts"],
+    ] as const) {
+      const step = workflowStep(source, name);
+      expect(step).toContain(command);
+      expect(step).not.toContain("X_API_BEARER_TOKEN");
+      expect(source).not.toContain("X_API_BEARER_TOKEN");
+    }
+  });
+});
 
 describe("Staging boundary recovery workflow contract", () => {
   it("makes proven-boundary recovery a validated staging dispatch opt-in before smoke", () => {
@@ -120,7 +177,7 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(productionPromote).toContain("environment: cloudflare-production");
     expect(productionPromote).toContain("Determine coupled production rollout");
     expect(stagingDeploy).toContain("Probe GitHub App installation and fixed workflow");
-    expect(stagingDeploy).toContain("Fail-closed rollback when pre-canary validation fails");
+    expect(stagingDeploy).toContain("Fail-closed rollback when staging validation fails");
     expect(stagingDeploy).toContain("Verify live Workers Observability contract before burn-in");
     expect(stagingDeploy).toContain("FORECAST_COLLECTOR_SCRIPT_VERSION_ID");
     expect(stagingDeploy).toContain("FORECAST_DISPATCHER_SCRIPT_VERSION_ID");
@@ -179,7 +236,9 @@ describe("Forecast dispatcher workflow contract", () => {
       expect(workflow).toContain("does not match the repository variable");
     }
   });
+});
 
+describe("Forecast production review and migration workflow contract", () => {
   it("keeps manual review resolution read-only and approval-gated in production", () => {
     expect(manualReview).toContain("permissions:\n  contents: read");
     expect(manualReview).toContain("environment: cloudflare-production");
@@ -193,7 +252,7 @@ describe("Forecast dispatcher workflow contract", () => {
     const canaryJob = productionPromote.slice(0, productionPromote.indexOf("\n  promote:\n"));
     expect(promoteJob).toContain("needs: canary");
     expect(promoteJob).toContain(
-      "if: needs.canary.outputs.canary_promotable == 'true' && !inputs.canary_only",
+      "if: github.ref == 'refs/heads/main' && needs.canary.outputs.canary_promotable == 'true' && !inputs.canary_only",
     );
     expect(promoteJob).toContain("environment: cloudflare-production");
     expect(canaryJob).not.toContain("apply-forecast-d1-migrations.ts");
@@ -231,5 +290,347 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(readFileSync("scripts/check-forecast-canary.ts", "utf8")).toContain(
       'from "../shared/d1QuotaEvidence.ts"',
     );
+  });
+});
+
+describe("Forecast deployment identity and restore workflow contract", () => {
+  it("rejects privileged manual refs and deploys the exact certified snapshot", () => {
+    for (const workflow of [stagingDeploy, proposal, productionPromote]) {
+      expect(workflow).toContain("github.ref == 'refs/heads/main'");
+      expect(workflow).not.toContain("ref: refs/heads/main");
+    }
+    expect(stagingDeploy).toContain(`ref: \${{ github.sha }}`);
+    expect(proposal).toContain(`ref: \${{ github.sha }}`);
+    expect(productionPromote).toContain(`ref: \${{ needs.canary.outputs.deployment_sha }}`);
+    expect(productionPromote).toContain(
+      'git merge-base --is-ancestor "$CANARY_SHA" "$TRUSTED_SHA"',
+    );
+    expect(productionPromote.indexOf("Select the exact trusted canary snapshot")).toBeLessThan(
+      productionPromote.indexOf("Install exact canary dependencies"),
+    );
+    expect(productionPromote).not.toContain("git diff --quiet");
+    expect(productionPromote).not.toContain(":(exclude)forecast-collector/src/candidate");
+    expect(productionPromote).toContain("Bind the certificate to the selected snapshot and window");
+  });
+
+  it("keeps shared Router writes production-owned and rejects missing Router staging setup", () => {
+    const routerGuard = stagingDeploy.indexOf(
+      "Require the production-owned Router before staging mutations",
+    );
+    expect(routerGuard).toBeGreaterThan(stagingDeploy.indexOf("Install dependencies"));
+    expect(routerGuard).toBeLessThan(stagingDeploy.indexOf("Apply usage guard D1 schema"));
+    expect(stagingDeploy).not.toMatch(ROUTER_DEPLOY_PATTERN);
+    expect(stagingDeploy).not.toContain("--var PRODUCTION_MUTATIONS_ENABLED:");
+    expect(stagingDeploy).toContain(
+      `FORECAST_EXPECTED_DEPLOY_SHA: \${{ steps.router.outputs.deployment_sha }}`,
+    );
+    const protectedJob = productionPromote.slice(productionPromote.indexOf("\n  promote:\n"));
+    expect(protectedJob).toContain("environment: cloudflare-production");
+    expect(protectedJob).toContain("--var PRODUCTION_MUTATIONS_ENABLED:false");
+    expect(protectedJob).toContain("--var PRODUCTION_MUTATIONS_ENABLED:true");
+  });
+
+  it("captures all restorepoints before production mutation and restores each attempted Worker independently", () => {
+    const protectedJob = productionPromote.slice(productionPromote.indexOf("\n  promote:\n"));
+    expect(protectedJob.indexOf("Capture validated production restorepoints")).toBeLessThan(
+      protectedJob.indexOf("Refresh Paid usage guard before production changes"),
+    );
+    expect(protectedJob.indexOf("Capture validated production restorepoints")).toBeLessThan(
+      protectedJob.indexOf("Apply production Forecast D1 migrations"),
+    );
+    expect(protectedJob).toContain("for component in collector dispatcher router;");
+    expect(protectedJob).not.toContain("wrangler versions list");
+    expect(protectedJob).not.toContain("worker_exists");
+    for (const component of ["collector", "dispatcher", "router"]) {
+      const step = protectedJob.match(
+        new RegExp(
+          `      - name: Restore production ${component[0]?.toUpperCase()}${component.slice(1)} after any rollout failure[\\s\\S]*?(?=\\n      - name:)`,
+        ),
+      )?.[0];
+      expect(step).toBeDefined();
+      expect(step).toContain("if: always() && (failure() || cancelled())");
+      expect(step).toContain(`steps.${component}_deploy.outputs.attempted == 'true'`);
+      expect(step).toContain(`steps.prior.outputs.${component}_version`);
+      expect(step).toContain('versions deploy "$PREVIOUS_VERSION@100%"');
+      expect(step).toContain("--active-version");
+      expect(step).not.toContain("continue-on-error");
+    }
+    expect(protectedJob).toContain("Retain production rollout and independent restore evidence");
+    expect(protectedJob).toContain("Verify final production deployment identities");
+    const artifact = protectedJob.slice(
+      protectedJob.indexOf(
+        "      - name: Retain production rollout and independent restore evidence",
+      ),
+    );
+    expect(artifact).toContain("production-rollout-dispositions.json");
+    expect(artifact).not.toContain("/production-*-before.json");
+    expect(artifact).not.toContain("/production-*-after.json");
+    expect(artifact).not.toContain("-version-before.json");
+    expect(artifact).not.toContain("-version-after.json");
+    expect(protectedJob).not.toContain("continue-on-error");
+    expect(
+      protectedJob.indexOf("Verify proposal workflow targets production collector"),
+    ).toBeLessThan(protectedJob.indexOf("Restore production Dispatcher"));
+    expect(protectedJob.indexOf("Retain successful rollout evidence")).toBeLessThan(
+      protectedJob.indexOf("Restore production Dispatcher"),
+    );
+    expect(stagingDeploy.indexOf("Retain successful staging identity")).toBeLessThan(
+      stagingDeploy.indexOf("Fail-closed rollback when staging validation fails - Dispatcher"),
+    );
+  });
+
+  it("uses structured staging versions and includes every known shared runtime input", () => {
+    expect(stagingDeploy).not.toContain("version_id=$(grep");
+    expect(stagingDeploy).toContain("WRANGLER_OUTPUT_FILE_PATH:");
+    expect(stagingDeploy).toContain("--deployment-version");
+    for (const path of [
+      "shared/soloRaidCadence.ts",
+      "shared/discordInteraction.ts",
+      "shared/runtimeEnvironment.ts",
+      "shared/cloudflareWorkerRuntimeWindow.ts",
+      "shared/certifiedRational.ts",
+      "shared/certifiedDispatchExpectations.ts",
+      "shared/certifiedSupply.ts",
+      "shared/certifiedSupplyBuild.ts",
+      "shared/certifiedSupplyLaws.ts",
+      "shared/certifiedSupplyModel.ts",
+      "shared/certifiedSupplyValidation.ts",
+      "scripts/check-workflow-hardening.ts",
+      "scripts/lib/cloudflare-workers-observability.ts",
+      ".github/workflows/forecast-collector-promote.yml",
+    ])
+      expect(stagingDeploy).toContain(`- "${path}"`);
+  });
+
+  it("generates, checks and commits the complete certified registry identity", () => {
+    const generate = proposal.indexOf("npm run generate:certified-engine-build");
+    expect(generate).toBeGreaterThan(proposal.indexOf("npm run generate:supply-forecast"));
+    expect(proposal.indexOf("npm run check:certified-engine-build")).toBeGreaterThan(generate);
+    const add = proposal.match(/^\s*git add .+$/m)?.[0];
+    for (const path of [
+      "shared/supplyForecasts.json",
+      "shared/generated/supplyForecast.ts",
+      "shared/generated/supplyForecastRuntime.ts",
+      "shared/generated/certifiedForecastAuthority.ts",
+      "shared/generated/certifiedEngineBuild.ts",
+    ])
+      expect(add).toContain(path);
+  });
+});
+
+describe("Verified rollout recovery and artifact boundaries", () => {
+  it("does not roll back verified Workers on upload-only failure, but still recovers failed or cancelled operations", () => {
+    const steps = [
+      ...["Router", "Collector", "Dispatcher"].map((component) =>
+        workflowStep(
+          productionPromote,
+          `Restore production ${component} after any rollout failure`,
+        ),
+      ),
+      ...["Collector", "Dispatcher"].map((component) =>
+        workflowStep(
+          stagingDeploy,
+          `Fail-closed rollback when staging validation fails - ${component}`,
+        ),
+      ),
+    ];
+    for (const step of steps) {
+      expect(recoveryDecision(step, "true", "true")).toBe(false);
+      expect(recoveryDecision(step, "", "true")).toBe(true);
+      expect(recoveryDecision(step, "", "true", true)).toBe(true);
+      expect(recoveryDecision(step, "", "")).toBe(false);
+    }
+    expect(workflowStep(productionPromote, "Fail after independent restore attempts")).toContain(
+      "if: always() && (failure() || cancelled())",
+    );
+    for (const source of [stagingDeploy, productionPromote]) {
+      expect(source.indexOf("id: operational_verification")).toBeLessThan(
+        source.indexOf(
+          source === stagingDeploy
+            ? "      - name: Retain successful staging identity"
+            : "      - name: Retain successful rollout evidence",
+        ),
+      );
+    }
+  });
+  it("restores Router first and keeps Collector and Dispatcher independent of Router recovery success", () => {
+    const router = productionPromote.indexOf("      - name: Restore production Router");
+    const collector = productionPromote.indexOf("      - name: Restore production Collector");
+    const dispatcher = productionPromote.indexOf("      - name: Restore production Dispatcher");
+    expect(router).toBeLessThan(collector);
+    expect(collector).toBeLessThan(dispatcher);
+    for (const component of ["Collector", "Dispatcher"]) {
+      const step = workflowStep(
+        productionPromote,
+        `Restore production ${component} after any rollout failure`,
+      );
+      expect(recoveryDecision(step, "", "true")).toBe(true);
+      expect(step).not.toContain("steps.router_restore");
+    }
+  });
+  it("uploads only the explicit sanitized identity, certification, CPU and quota allowlist", () => {
+    const allowlist = new Set([
+      "router-identity-before-staging.evidence.json",
+      "router-health-before-staging.evidence.json",
+      "*-active-identity.evidence.json",
+      "*-validation-stop-identity.evidence.json",
+      "canary-start-identity.evidence.json",
+      "forecast-canary-identity.evidence.json",
+      "forecast-canary-summary.ko.md",
+      "forecast-canary-report.evidence.json",
+      "forecast-canary-runtime.evidence.json",
+      "canary-final-quota.evidence.json",
+      "forecast-canary-baseline-bootstrap.evidence.json",
+      "forecast-observability-live-probe.evidence.json",
+      "forecast-observability-preflight.evidence.json",
+      "d1-budget-preflight.evidence.json",
+      "d1-budget-baseline.evidence.json",
+      "d1-budget-evaluation.evidence.json",
+      "d1-budget-production-preflight.evidence.json",
+      "collector-active-identity.evidence.json",
+      "dispatcher-active-identity.evidence.json",
+      "production-*-identity-before.evidence.json",
+      "production-*-identity-after.evidence.json",
+      "production-dispatcher-disabled-identity.evidence.json",
+      "production-*-restored.evidence.json",
+      "production-*-readiness.evidence.json",
+      "production-router-restored-health.evidence.json",
+      "production-certified-canary-identity.evidence.json",
+      "production-rollout-dispositions.json",
+    ]);
+    const paths = artifactPaths(stagingDeploy + "\n" + productionPromote);
+    expect(paths.length).toBeGreaterThan(0);
+    for (const path of paths)
+      expect(allowlist.has(path.replace(/\$\{\{ runner\.temp \}\}\//, "")), path).toBe(true);
+    const projections = workflowStep(
+      productionPromote,
+      "Project privacy-safe certification CPU and quota evidence",
+    );
+    expect(projections).toContain('peer=("$RUNNER_TEMP/forecast-canary-report.json")');
+    expect(projections).toContain(`--retain-evidence "$source" "$kind" "\${peer[@]}"`);
+    expect(projections).toContain("candidate forecast-canary-baseline-bootstrap");
+    const staging = workflowStep(
+      stagingDeploy,
+      "Project privacy-safe staging burn-in and quota evidence",
+    );
+    expect(staging).toContain("baseline d1-budget-baseline");
+    expect(staging).toContain("runtime forecast-observability-preflight");
+  });
+});
+
+describe("Router configuration and identity summaries", () => {
+  it("validates the required Router URL unconditionally before mutations in both workflows", () => {
+    for (const [source, name] of [
+      [stagingDeploy, "Validate required Router origin after dependency installation"],
+      [productionPromote, "Validate production configuration"],
+    ]) {
+      const step = workflowStep(source ?? "", name ?? "");
+      expect(step).toContain('--router-origin "$FORECAST_INTERACTIONS_URL"');
+      expect(step).not.toContain("inputs.router_endpoint_ready");
+    }
+  });
+  it("publishes certified rather than triggering-main identities through the tested summary renderer", () => {
+    const step = workflowStep(
+      productionPromote,
+      "Write exact certified promotion identities to step summary",
+    );
+    expect(step).toContain(`CERTIFIED_SHA: \${{ needs.canary.outputs.deployment_sha }}`);
+    expect(step).not.toContain("github.sha");
+    expect(step).toContain("--identity-summary");
+    expect(step).toContain('>> "$GITHUB_STEP_SUMMARY"');
+    expect(workflowStep(stagingDeploy, "Record shadow start")).toContain("--identity-summary");
+    expect(workflowStep(productionPromote, "Write Korean v10 certification summary")).toContain(
+      '>> "$GITHUB_STEP_SUMMARY"',
+    );
+  });
+  it("recognizes shared Router writes with either absent or explicit empty production environment", () => {
+    for (const command of [
+      "npx wrangler deploy --config forecast-interactions/wrangler.toml",
+      'npx wrangler deploy --env="" --config forecast-interactions/wrangler.toml',
+    ])
+      expect(command).toMatch(ROUTER_DEPLOY_PATTERN);
+    expect(
+      "npx wrangler deploy --dry-run --config forecast-interactions/wrangler.toml",
+    ).not.toMatch(ROUTER_DEPLOY_PATTERN);
+  });
+});
+
+describe("Clean-checkout staging validation ordering", () => {
+  it("keeps dependency-bearing Router validation after npm ci and before Router reads or mutations", () => {
+    const install = stagingDeploy.indexOf("      - name: Install dependencies");
+    const validate = stagingDeploy.indexOf(
+      "      - name: Validate required Router origin after dependency installation",
+    );
+    const early = workflowStep(stagingDeploy, "Validate configuration");
+    expect(early).not.toContain("node scripts/check-workflow-hardening.ts");
+    expect(early).toContain("Missing CLOUDFLARE_API_TOKEN secret.");
+    expect(early).toContain("Missing or invalid FORECAST_GITHUB_APP_INSTALLATION_ID variable.");
+    expect(stagingDeploy.indexOf("      - name: Verify trusted checkout identity")).toBeLessThan(
+      install,
+    );
+    expect(stagingDeploy).toContain("if: github.ref == 'refs/heads/main'");
+    expect(workflowStep(stagingDeploy, "Install dependencies").trim()).toBe("run: npm ci");
+    expect(validate).toBeGreaterThan(install);
+    expect(validate).toBeLessThan(
+      stagingDeploy.indexOf(
+        "      - name: Require the production-owned Router before staging mutations",
+      ),
+    );
+    expect(validate).toBeLessThan(
+      stagingDeploy.indexOf("      - name: Apply usage guard D1 schema"),
+    );
+    const production = productionPromote.slice(productionPromote.indexOf("\n  promote:"));
+    expect(production.indexOf("      - name: Install dependencies")).toBeLessThan(
+      production.indexOf("      - name: Validate production configuration"),
+    );
+  });
+
+  it("executes the complete preinstall project dependency closure in a sparse checkout without node_modules", () => {
+    const beforeInstall = stagingDeploy.slice(
+      0,
+      stagingDeploy.indexOf("      - name: Install dependencies"),
+    );
+    const commands = [
+      ...beforeInstall.matchAll(/^\s*(?:run: )?node (scripts\/\S+\.ts)([^\n]*)$/gm),
+    ];
+    expect(commands.map((command) => command.slice(1))).toEqual([
+      ["scripts/recover-forecast-boundary.ts", " --validate"],
+    ]);
+    const files = ["scripts/recover-forecast-boundary.ts", "shared/boundedHttp.ts"];
+    const closure = new Set(files.map((file) => resolve(file)));
+    const root = mkdtempSync(join(tmpdir(), "forecast-preinstall-"));
+    try {
+      for (const file of files) {
+        const source = readFileSync(file, "utf8");
+        for (const match of source.matchAll(/(?:from\s*|import\s*)["']([^"']+)["']/g)) {
+          const specifier = match[1] ?? "";
+          if (!isBuiltin(specifier))
+            expect(closure.has(resolve(dirname(file), specifier)), specifier).toBe(true);
+        }
+        const target = join(root, file);
+        mkdirSync(dirname(target), { recursive: true });
+        copyFileSync(file, target);
+      }
+      expect(existsSync(join(root, "node_modules"))).toBe(false);
+      const output = execFileSync(
+        process.execPath,
+        ["scripts/recover-forecast-boundary.ts", "--validate"],
+        {
+          cwd: root,
+          timeout: 10_000,
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            NODE_PATH: "",
+            NODE_OPTIONS: "",
+            RECOVERY_SOURCE: "none",
+            EXPECTED_COMMITTED_ITEM_ID: "",
+          },
+        },
+      );
+      expect(output).toBe("");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

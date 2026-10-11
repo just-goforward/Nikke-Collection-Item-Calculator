@@ -79,7 +79,7 @@ ENVIRONMENT = "staging"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
 COLLECT_ENABLED = "true"
-DISCORD_APPROVAL_MODE = "staging_adoption"
+DISCORD_APPROVAL_MODE = "disabled"
 DISCORD_INTERACTION_OWNER = "collector"
 
 [env.staging.secrets]

@@ -92,8 +92,6 @@ jobs:
         run: npm ci
 
       - name: Probe exact X status URLs
-        env:
-          X_API_BEARER_TOKEN: ${{ secrets.X_API_BEARER_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail

@@ -40,6 +40,71 @@ afterEach(() => {
 });
 
 describe("Discord forecast approval test boundary", () => {
+  it.each([undefined, "disabled", "test", "staging_adoption "])(
+    "withholds adoption admin routes and consent mutation in mode %s",
+    async (mode) => {
+      const registration = await createStagingAdoption();
+      const target = configuredEnv();
+      if (mode === undefined) delete target.DISCORD_APPROVAL_MODE;
+      else
+        target.DISCORD_APPROVAL_MODE = mode as NonNullable<CollectorEnv["DISCORD_APPROVAL_MODE"]>;
+      for (const [method, path] of [
+        ["GET", "/admin/discord-staging-adoptions"],
+        ["POST", "/admin/discord-staging-adoptions"],
+        ["POST", `/admin/discord-staging-adoptions/${registration.approvalId}/message`],
+        ["POST", `/admin/discord-staging-adoptions/${registration.approvalId}/adoption-pr`],
+      ] as const) {
+        const response = await invoke(
+          new Request(`https://collector.test${path}`, {
+            method,
+            headers: {
+              authorization: "Bearer test-forecast-admin-token",
+              "content-type": "application/json",
+            },
+            ...(method === "POST" ? { body: "{}" } : {}),
+          }),
+          target,
+        );
+        expect(response.status).toBe(404);
+      }
+      const response = await signedInteraction(
+        componentInteraction(registration.customId, "987654321", "2103"),
+        nowMs,
+        target,
+      );
+      if (mode === "test") {
+        expect(await response.json()).toMatchObject({
+          type: 4,
+          data: { content: "현재 staging 승인 기능은 비활성 상태입니다.", flags: 64 },
+        });
+      } else expect(response.status).toBe(404);
+      expect(await stagingAdoptionState(registration.approvalId)).toBe("pending");
+      expect(discordEditFetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("never grants production adoption through explicit adoption mode", async () => {
+    const registration = await createStagingAdoption();
+    const target = configuredEnv({
+      ENVIRONMENT: "production",
+      DISCORD_APPROVAL_MODE: "staging_adoption",
+    });
+    const admin = await invoke(
+      new Request("https://collector.test/admin/discord-staging-adoptions", {
+        headers: { authorization: "Bearer test-forecast-admin-token" },
+      }),
+      target,
+    );
+    const interaction = await signedInteraction(
+      componentInteraction(registration.customId, "987654321", "2104"),
+      nowMs,
+      target,
+    );
+    expect(admin.status).toBe(404);
+    expect(interaction.status).toBe(404);
+    expect(await stagingAdoptionState(registration.approvalId)).toBe("pending");
+  });
+
   it("applies migration 0004 to an existing collector database", async () => {
     await testEnv.FORECAST_DB.prepare("DROP TABLE discord_approval_tests").run();
     await testEnv.FORECAST_DB.prepare("DELETE FROM schema_migrations WHERE version = 4").run();

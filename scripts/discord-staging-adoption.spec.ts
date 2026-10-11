@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   assertResearchCertificateForecastCoverage,
   buildDiscordStagingAdoptionMessage,
@@ -6,6 +7,13 @@ import {
   parseResearchCertificate,
   sendDiscordStagingAdoption,
 } from "./discord-staging-adoption";
+
+beforeEach(() => {
+  vi.stubEnv("DISCORD_APPROVAL_MODE", "staging_adoption");
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 const review = {
   version: 1 as const,
@@ -34,6 +42,37 @@ const research = {
 };
 
 describe("Discord staging forecast adoption", () => {
+  it.each([undefined, "disabled", "test", "staging_adoption "])(
+    "withholds registration and Discord delivery in mode %s",
+    async (mode) => {
+      vi.stubEnv("DISCORD_APPROVAL_MODE", mode);
+      const fetcher = vi.fn<typeof fetch>();
+      await expect(sendDiscordStagingAdoption(input(), fetcher)).rejects.toThrow(
+        "staging_adoption_disabled",
+      );
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it("imports adoption entrypoints through native Node without invoking their CLIs or fetch", () => {
+    execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `globalThis.fetch = () => { throw new Error("unexpected_fetch"); };
+         await import("./scripts/discord-staging-adoption.ts");
+         await import("./scripts/read-approved-staging-adoption.ts");
+         await import("./scripts/staging-adoption-eligibility.ts");`,
+      ],
+      {
+        cwd: process.cwd(),
+        timeout: 10_000,
+        env: { ...process.env, DISCORD_APPROVAL_MODE: "disabled" },
+      },
+    );
+  });
+
   it("uses a formal staging-only message and does not imply production approval", () => {
     const message = buildDiscordStagingAdoptionMessage(
       {

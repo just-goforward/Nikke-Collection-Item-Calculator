@@ -50,7 +50,105 @@ beforeEach(async () => {
   vi.stubGlobal("fetch", webhookFetch);
 });
 
-describe("Discord interaction router", () => {
+describe("Discord staging adoption gating", () => {
+  it.each([undefined, "disabled", "test", "staging_adoption "])(
+    "withholds staging adoption without audit or delivery in mode %s",
+    async (mode) => {
+      const approval = await stagingAdoption();
+      const overrides: Partial<InteractionRouterEnv> = {};
+      if (mode !== undefined)
+        overrides.DISCORD_APPROVAL_MODE = mode as NonNullable<
+          InteractionRouterEnv["DISCORD_APPROVAL_MODE"]
+        >;
+      const response = await signedInteraction(
+        componentInteraction(approval.customId, "987654321", "333333333", "1011"),
+        overrides,
+      );
+      expect(await response.json()).toMatchObject({
+        type: 4,
+        data: { content: "현재 staging 승인 기능은 비활성 상태입니다.", flags: 64 },
+      });
+      expect(
+        await testEnv.STAGING_FORECAST_DB.prepare(
+          "SELECT state FROM discord_staging_adoptions WHERE approval_id = ?",
+        )
+          .bind(approval.approvalId)
+          .first(),
+      ).toEqual({ state: "pending" });
+      expect(
+        await testEnv.STAGING_FORECAST_DB.prepare(
+          "SELECT COUNT(*) AS count FROM discord_interaction_audit",
+        ).first(),
+      ).toEqual({ count: 0 });
+      expect(webhookFetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects withheld adoption before quota and target reads", async () => {
+    await testEnv.USAGE_GUARD_DB.prepare("DELETE FROM usage_guard_state").run();
+    await testEnv.STAGING_FORECAST_DB.prepare("DROP TABLE discord_staging_adoptions").run();
+    const response = await signedInteraction(
+      componentInteraction(
+        `forecast_staging_approve:discord-staging-${"a".repeat(36)}`,
+        "987654321",
+        "333333333",
+        "1012",
+      ),
+      { DISCORD_APPROVAL_MODE: "disabled" },
+    );
+    expect(await response.json()).toMatchObject({
+      type: 4,
+      data: { content: "현재 staging 승인 기능은 비활성 상태입니다.", flags: 64 },
+    });
+    expect(webhookFetch).not.toHaveBeenCalled();
+  });
+
+  it("allows explicit staging adoption without enabling production mutations", async () => {
+    const approval = await stagingAdoption();
+    const response = await signedInteraction(
+      componentInteraction(approval.customId, "987654321", "333333333", "1013"),
+      { DISCORD_APPROVAL_MODE: "staging_adoption" },
+    );
+    expect(await response.json()).toEqual({ type: 6 });
+    expect(
+      await testEnv.STAGING_FORECAST_DB.prepare(
+        "SELECT state FROM discord_staging_adoptions WHERE approval_id = ?",
+      )
+        .bind(approval.approvalId)
+        .first(),
+    ).toEqual({ state: "approved" });
+    expect(
+      await testEnv.PRODUCTION_FORECAST_DB.prepare(
+        "SELECT COUNT(*) AS count FROM discord_staging_adoptions",
+      ).first(),
+    ).toEqual({ count: 0 });
+    expect(webhookFetch).toHaveBeenCalledOnce();
+  });
+
+  it("retains the quota guard before reading an explicitly enabled adoption target", async () => {
+    await testEnv.USAGE_GUARD_DB.prepare("DELETE FROM usage_guard_state").run();
+    await testEnv.STAGING_FORECAST_DB.prepare("DROP TABLE discord_staging_adoptions").run();
+    const response = await signedInteraction(
+      componentInteraction(
+        `forecast_staging_approve:discord-staging-${"a".repeat(36)}`,
+        "987654321",
+        "333333333",
+        "1014",
+      ),
+      { DISCORD_APPROVAL_MODE: "staging_adoption" },
+    );
+    expect(await response.json()).toMatchObject({
+      type: 4,
+      data: {
+        content: "Cloudflare 월간 예산 보호 상태(hard_stop)로 Forecast 변경이 중단되었습니다.",
+        flags: 64,
+      },
+    });
+    expect(webhookFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("Discord interaction router authorization and quota", () => {
   it("answers signed ping and rejects invalid signatures", async () => {
     const ping = await signedInteraction({ type: 1, application_id: "123456789" });
     const invalid = await invoke(
@@ -162,7 +260,9 @@ describe("Discord interaction router", () => {
       },
     });
   });
+});
 
+describe("Discord manual review isolation and repair", () => {
   it("cannot use a staging custom ID to mutate the production database", async () => {
     const reviewId = await insertManualReview(testEnv.PRODUCTION_FORECAST_DB, "201");
     const stagingAttempt = await signedInteraction(
@@ -225,6 +325,36 @@ describe("Discord interaction router", () => {
     expect(audit?.result).toBe("completed");
   });
 });
+
+async function stagingAdoption() {
+  const approvalId = "discord-staging-00000000-0000-4000-8000-000000000000";
+  await testEnv.STAGING_FORECAST_DB.prepare(
+    `INSERT INTO discord_staging_adoptions (
+       approval_id, request_key, forecast_id, payload_hash,
+       source_pull_request_number, source_pull_request_url, source_head_sha,
+       registry_sha, research_run_id, research_run_url,
+       research_artifact_name, research_artifact_digest, state, created_at, expires_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+  )
+    .bind(
+      approvalId,
+      "d".repeat(64),
+      "supply-2026-08-28-v1",
+      "e".repeat(64),
+      13,
+      "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/13",
+      "f".repeat(40),
+      "a".repeat(40),
+      123,
+      "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/123",
+      "dynamic-hp-exact-gate-summary-123",
+      "b".repeat(64),
+      new Date(nowMs).toISOString(),
+      "2026-09-02T03:00:00.000Z",
+    )
+    .run();
+  return { approvalId, customId: `forecast_staging_approve:${approvalId}` };
+}
 
 async function insertManualReview(db: D1Database, itemId: string) {
   const now = new Date(nowMs).toISOString();

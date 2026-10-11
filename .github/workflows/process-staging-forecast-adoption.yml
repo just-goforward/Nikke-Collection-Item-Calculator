@@ -12,6 +12,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DISCORD_APPROVAL_MODE: ${{ vars.DISCORD_APPROVAL_MODE }}
 
 concurrency:
   group: process-staging-forecast-adoption
@@ -19,9 +20,18 @@ concurrency:
 
 jobs:
   process:
+    if: ${{ vars.DISCORD_APPROVAL_MODE == 'staging_adoption' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Require exact staging adoption mode
+        shell: bash
+        run: |
+          [ "${DISCORD_APPROVAL_MODE:-}" = "staging_adoption" ] || {
+            echo "staging_adoption_disabled" >&2
+            exit 1
+          }
+
       - name: Checkout trusted main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

@@ -9,6 +9,7 @@ export type InteractionRouterEnv = {
   DISCORD_APPROVAL_CHANNEL_ID: string;
   DISCORD_ALERT_CHANNEL_ID: string;
   DISCORD_ACTIVITY_CHANNEL_ID: string;
+  DISCORD_APPROVAL_MODE?: "disabled" | "test" | "staging_adoption";
   DEPLOY_SHA: string;
   PRODUCTION_MUTATIONS_ENABLED: string;
 };

@@ -13,6 +13,18 @@ on:
       - "shared/cloudflareD1Catalog.ts"
       - "shared/cloudflarePaidUsage.ts"
       - "shared/cloudflarePaidUsageQuery.ts"
+      - "shared/cloudflareWorkerRuntimeWindow.ts"
+      - "shared/discordInteraction.ts"
+      - "shared/runtimeEnvironment.ts"
+      - "shared/soloRaidCadence.ts"
+      - "shared/certifiedRational.ts"
+      - "shared/certifiedDispatchExpectations.ts"
+      - "shared/certifiedSupply.ts"
+      - "shared/certifiedSupplyBuild.ts"
+      - "shared/certifiedSupplyLaws.ts"
+      - "shared/certifiedSupplyModel.ts"
+      - "shared/certifiedSupplyValidation.ts"
+      - "shared/testD1Sql.ts"
       - "shared/d1QuotaEvidence.ts"
       - "shared/forecastCanaryRuntime.ts"
       - "shared/usageGuard.ts"
@@ -28,6 +40,22 @@ on:
       - "scripts/cloudflare-cron-capacity.ts"
       - "scripts/cloudflare-d1-budget.ts"
       - "scripts/check-forecast-canary.ts"
+      - "scripts/cloudflare-workers-observability.ts"
+      - "scripts/lib/cloudflare-workers-observability.ts"
+      - "scripts/process-forecast-source-queue.ts"
+      - "scripts/process-forecast-source-queue-main.ts"
+      - "scripts/forecast-naver-action.ts"
+      - "scripts/forecast-x-advisory.ts"
+      - "scripts/propose-supply-forecast.ts"
+      - "scripts/peek-supply-forecast.ts"
+      - "scripts/probe-forecast-x-sources.ts"
+      - "scripts/supply-forecast-proposal.ts"
+      - "scripts/supply-forecast-codegen.ts"
+      - "scripts/certified-forecast-registry.ts"
+      - "scripts/certified-forecast-authority.ts"
+      - "scripts/certified-engine-build.ts"
+      - "scripts/check-workflow-hardening.ts"
+      - "scripts/check-workflow-hardening.spec.ts"
       - "scripts/apply-forecast-d1-migrations.ts"
       - "scripts/apply-forecast-d1-migrations.spec.ts"
       - "scripts/probe-forecast-github-app.ts"
@@ -37,6 +65,7 @@ on:
       - "forecast-interactions/vitest.config.ts"
       - "usage-guard/vitest.config.ts"
       - ".github/workflows/forecast-collector-deploy.yml"
+      - ".github/workflows/forecast-collector-promote.yml"
       - ".github/workflows/forecast-d1-budget-watch.yml"
       - ".github/workflows/forecast-proposal.yml"
       - ".github/workflows/resolve-forecast-manual-review.yml"
@@ -84,13 +113,21 @@ concurrency:
 
 jobs:
   deploy-staging:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - name: Checkout trusted main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: refs/heads/main
+          ref: ${{ github.sha }}
+
+      - name: Verify trusted checkout identity
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -131,12 +168,6 @@ jobs:
           [[ "$CLOUDFLARE_USAGE_GUARD_URL" =~ ^https://[^/]+$ ]] || { echo "Missing or invalid CLOUDFLARE_USAGE_GUARD_URL variable." >&2; exit 1; }
           test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" || { echo "Missing FORECAST_COLLECTOR_ADMIN_TOKEN secret." >&2; exit 1; }
           test -n "$FORECAST_COLLECTOR_STAGING_URL" || { echo "Missing FORECAST_COLLECTOR_STAGING_URL variable." >&2; exit 1; }
-          if [[ "${{ github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready }}" == "true" ]]; then
-            test -n "$FORECAST_INTERACTIONS_URL" || {
-              echo "FORECAST_INTERACTIONS_URL is required when router_endpoint_ready=true." >&2
-              exit 1
-            }
-          fi
           [[ "$FORECAST_GITHUB_APP_ID" =~ ^[0-9]{1,20}$ ]] || { echo "Missing or invalid FORECAST_GITHUB_APP_ID variable." >&2; exit 1; }
           [[ "$FORECAST_GITHUB_APP_INSTALLATION_ID" =~ ^[0-9]{1,20}$ ]] || { echo "Missing or invalid FORECAST_GITHUB_APP_INSTALLATION_ID variable." >&2; exit 1; }
           test -n "$FORECAST_GITHUB_APP_PRIVATE_KEY" || { echo "Missing FORECAST_GITHUB_APP_PRIVATE_KEY secret." >&2; exit 1; }
@@ -223,6 +254,44 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate required Router origin after dependency installation
+        env:
+          FORECAST_INTERACTIONS_URL: ${{ vars.FORECAST_INTERACTIONS_URL }}
+        run: node scripts/check-workflow-hardening.ts --router-origin "$FORECAST_INTERACTIONS_URL"
+
+      - name: Require the production-owned Router before staging mutations
+        id: router
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FORECAST_INTERACTIONS_URL: ${{ vars.FORECAST_INTERACTIONS_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deployments status --env="" --config forecast-interactions/wrangler.toml \
+            --json > "$RUNNER_TEMP/router-before-staging.json"
+          version=$(node scripts/check-workflow-hardening.ts --active-version "$RUNNER_TEMP/router-before-staging.json")
+          npx wrangler versions view "$version" --env="" --config forecast-interactions/wrangler.toml \
+            --json > "$RUNNER_TEMP/router-version-before-staging.json"
+          node scripts/check-workflow-hardening.ts --version-identity \
+            "$RUNNER_TEMP/router-version-before-staging.json" "$version" > "$RUNNER_TEMP/router-identity-before-staging.json"
+          node scripts/check-workflow-hardening.ts --sanitize-identity \
+            "$RUNNER_TEMP/router-identity-before-staging.json" > "$RUNNER_TEMP/router-identity-before-staging.evidence.json"
+          jq -e '.tag == (.deploymentSha + "-production-enabled") or .tag == (.deploymentSha + "-production-disabled")' \
+            "$RUNNER_TEMP/router-identity-before-staging.json" >/dev/null
+          jq -e '.vars.PRODUCTION_MUTATIONS_ENABLED == "true" or .vars.PRODUCTION_MUTATIONS_ENABLED == "false"' \
+            "$RUNNER_TEMP/router-identity-before-staging.json" >/dev/null
+          sha=$(jq -r '.deploymentSha' "$RUNNER_TEMP/router-identity-before-staging.json")
+          echo "deployment_sha=$sha" >> "$GITHUB_OUTPUT"
+          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+            "$FORECAST_INTERACTIONS_URL/health" > "$RUNNER_TEMP/router-health-before-staging.json"
+          jq -e --arg sha "$sha" --slurpfile identity "$RUNNER_TEMP/router-identity-before-staging.json" \
+            '.status == "ok" and .deploymentSha == $sha and
+             .productionMutationsEnabled == ($identity[0].vars.PRODUCTION_MUTATIONS_ENABLED == "true")' \
+            "$RUNNER_TEMP/router-health-before-staging.json" >/dev/null
+          node scripts/check-workflow-hardening.ts --sanitize-readiness \
+            "$RUNNER_TEMP/router-health-before-staging.json" > "$RUNNER_TEMP/router-health-before-staging.evidence.json"
 
       - name: Verify Paid usage guard
         run: |
@@ -334,7 +403,7 @@ jobs:
           npx wrangler deploy --dry-run --config forecast-interactions/wrangler.toml
 
       - name: Verify Forecast migration runner
-        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/forecast-dispatcher-workflow.spec.ts scripts/recover-forecast-boundary.spec.ts
+        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/forecast-dispatcher-workflow.spec.ts scripts/recover-forecast-boundary.spec.ts scripts/check-workflow-hardening.spec.ts
 
       - name: Apply staging Forecast D1 migrations
         env:
@@ -485,48 +554,11 @@ jobs:
           );
           NODE
 
-      - name: Deploy dedicated Discord interaction Router
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          DISCORD_FORECAST_GUILD_ID: ${{ vars.DISCORD_FORECAST_GUILD_ID }}
-          DISCORD_FORECAST_APPROVER_USER_ID: ${{ vars.DISCORD_FORECAST_APPROVER_USER_ID }}
-          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
-          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
-          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          application="$RUNNER_TEMP/discord-bot-application.json"
-          application_id=$(jq -r '.id' "$application")
-          public_key=$(jq -r '.verify_key' "$application")
-          npx wrangler deploy --config forecast-interactions/wrangler.toml \
-            --var DEPLOY_SHA:${{ github.sha }} \
-            --var DISCORD_APPLICATION_ID:$application_id \
-            --var DISCORD_PUBLIC_KEY:$public_key \
-            --var DISCORD_GUILD_ID:$DISCORD_FORECAST_GUILD_ID \
-            --var DISCORD_APPROVER_USER_ID:$DISCORD_FORECAST_APPROVER_USER_ID \
-            --var DISCORD_APPROVAL_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
-            --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
-            --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID \
-            --var PRODUCTION_MUTATIONS_ENABLED:false \
-            --tag "${{ github.sha }}-staging" \
-            --message "Forecast interaction Router staging ${{ github.sha }}"
-
       - name: Verify dedicated Router readiness
-        if: vars.FORECAST_INTERACTIONS_URL != ''
         env:
-          FORECAST_EXPECTED_DEPLOY_SHA: ${{ github.sha }}
+          FORECAST_EXPECTED_DEPLOY_SHA: ${{ steps.router.outputs.deployment_sha }}
           FORECAST_INTERACTIONS_URL: ${{ vars.FORECAST_INTERACTIONS_URL }}
         run: npm run smoke:forecast-interactions -- "$FORECAST_INTERACTIONS_URL"
-
-      - name: Report Router bootstrap URL requirement
-        if: vars.FORECAST_INTERACTIONS_URL == ''
-        run: |
-          {
-            echo "::warning::The dedicated Router was deployed, but FORECAST_INTERACTIONS_URL is not configured."
-            echo "Set FORECAST_INTERACTIONS_URL to the deployed Router origin, update the Discord Interaction Endpoint, then rerun this workflow with router_endpoint_ready=true."
-          }
 
       - name: Deploy staging collector
         env:
@@ -595,9 +627,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
           POLL_MODE: ${{ inputs.poll_mode || 'both' }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/collector-active-deploy.ndjson
         shell: bash
         run: |
           set -euo pipefail
+          echo "attempted=true" >> "$GITHUB_OUTPUT"
           npx wrangler deploy --env staging --config forecast-collector/wrangler.toml \
             --secrets-file "$RUNNER_TEMP/forecast-secrets.json" \
             --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
@@ -607,12 +641,21 @@ jobs:
             --tag "${{ github.sha }}-$POLL_MODE-v10" \
             --message "Forecast collector staging live probe ${{ github.sha }} ($POLL_MODE)" \
             2>&1 | tee "$RUNNER_TEMP/collector-active-deploy.log"
-          version_id=$(grep -Eo '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' \
-            "$RUNNER_TEMP/collector-active-deploy.log" | tail -1 | tr '[:upper:]' '[:lower:]')
-          [[ "$version_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || {
-            echo "Wrangler did not return a Collector Version ID." >&2
-            exit 1
-          }
+          version_id=$(node scripts/check-workflow-hardening.ts --deployment-version \
+            "$WRANGLER_OUTPUT_FILE_PATH" collection-kit-forecast-collector-staging staging)
+          npx wrangler deployments status --env staging --config forecast-collector/wrangler.toml \
+            --json > "$RUNNER_TEMP/collector-active-status.json"
+          test "$(node scripts/check-workflow-hardening.ts --active-version "$RUNNER_TEMP/collector-active-status.json")" = "$version_id"
+          npx wrangler versions view "$version_id" --env staging --config forecast-collector/wrangler.toml \
+            --json > "$RUNNER_TEMP/collector-active-version.json"
+          node scripts/check-workflow-hardening.ts --version-identity "$RUNNER_TEMP/collector-active-version.json" "$version_id" \
+            > "$RUNNER_TEMP/collector-active-identity.json"
+          jq -e --arg sha "${{ github.sha }}" --arg mode "$POLL_MODE" \
+            '.deploymentSha == $sha and .tag == ($sha + "-" + $mode + "-v10") and
+             .vars.ENVIRONMENT == "staging" and .vars.POLL_MODE == $mode and .vars.COLLECT_ENABLED == "true"' \
+            "$RUNNER_TEMP/collector-active-identity.json" >/dev/null
+          node scripts/check-workflow-hardening.ts --sanitize-identity \
+            "$RUNNER_TEMP/collector-active-identity.json" > "$RUNNER_TEMP/collector-active-identity.evidence.json"
           echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
 
       - name: Activate staging dispatcher after collector readiness
@@ -627,9 +670,11 @@ jobs:
           DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
           DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
           DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/dispatcher-active-deploy.ndjson
         shell: bash
         run: |
           set -euo pipefail
+          echo "attempted=true" >> "$GITHUB_OUTPUT"
           npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml \
             --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
             --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} \
@@ -643,18 +688,26 @@ jobs:
             --tag "${{ github.sha }}-v10" \
             --message "Forecast dispatcher staging live probe ${{ github.sha }}" \
             2>&1 | tee "$RUNNER_TEMP/dispatcher-active-deploy.log"
-          version_id=$(grep -Eo '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' \
-            "$RUNNER_TEMP/dispatcher-active-deploy.log" | tail -1 | tr '[:upper:]' '[:lower:]')
-          [[ "$version_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || {
-            echo "Wrangler did not return a Dispatcher Version ID." >&2
-            exit 1
-          }
+          version_id=$(node scripts/check-workflow-hardening.ts --deployment-version \
+            "$WRANGLER_OUTPUT_FILE_PATH" collection-kit-forecast-dispatcher-staging staging)
+          npx wrangler deployments status --env staging --config forecast-dispatcher/wrangler.toml \
+            --json > "$RUNNER_TEMP/dispatcher-active-status.json"
+          test "$(node scripts/check-workflow-hardening.ts --active-version "$RUNNER_TEMP/dispatcher-active-status.json")" = "$version_id"
+          npx wrangler versions view "$version_id" --env staging --config forecast-dispatcher/wrangler.toml \
+            --json > "$RUNNER_TEMP/dispatcher-active-version.json"
+          node scripts/check-workflow-hardening.ts --version-identity "$RUNNER_TEMP/dispatcher-active-version.json" "$version_id" \
+            > "$RUNNER_TEMP/dispatcher-active-identity.json"
+          jq -e --arg sha "${{ github.sha }}" \
+            '.deploymentSha == $sha and .tag == ($sha + "-v10") and
+             .vars.ENVIRONMENT == "staging" and .vars.DISPATCH_ENABLED == "true"' \
+            "$RUNNER_TEMP/dispatcher-active-identity.json" >/dev/null
+          node scripts/check-workflow-hardening.ts --sanitize-identity \
+            "$RUNNER_TEMP/dispatcher-active-identity.json" > "$RUNNER_TEMP/dispatcher-active-identity.evidence.json"
           echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
 
       - name: Live staging dispatcher callback and Discord smoke
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
         id: dispatcher_smoke
-        continue-on-error: true
         env:
           FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
@@ -688,12 +741,28 @@ jobs:
           export FORECAST_CANARY_ENDED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
           npm run preflight:forecast-runtime
 
+      - name: Project privacy-safe live Observability contract evidence
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.live_probe_window.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source="$RUNNER_TEMP/forecast-observability-live-probe.json"
+          if [[ -f "$source" ]]; then
+            node scripts/check-workflow-hardening.ts --retain-evidence "$source" runtime \
+              > "$RUNNER_TEMP/forecast-observability-live-probe.evidence.pending"
+            mv "$RUNNER_TEMP/forecast-observability-live-probe.evidence.pending" \
+              "$RUNNER_TEMP/forecast-observability-live-probe.evidence.json"
+          fi
+
       - name: Upload live Observability contract evidence
         if: always() && github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.live_probe_window.outcome == 'success'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: forecast-observability-v10-live-probe-${{ github.run_id }}
-          path: ${{ runner.temp }}/forecast-observability-live-probe.json
+          path: |
+            ${{ runner.temp }}/collector-active-identity.evidence.json
+            ${{ runner.temp }}/dispatcher-active-identity.evidence.json
+            ${{ runner.temp }}/forecast-observability-live-probe.evidence.json
           if-no-files-found: warn
           retention-days: 30
 
@@ -723,7 +792,6 @@ jobs:
       - name: Evaluate account-wide D1 budget
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.dispatcher_smoke.outcome == 'success'
         id: d1_budget
-        continue-on-error: true
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN }}
@@ -837,44 +905,12 @@ jobs:
             '.canary.canaryId == $canaryId and .canary.deploymentSha == $sha and .canary.collectorCron == "*/3 * * * *" and .canary.dispatcherCron == "1-59/3 * * * *" and .canary.collectorVersionId == $collectorVersionId and .canary.dispatcherVersionId == $dispatcherVersionId' \
             "$RUNNER_TEMP/canary-start.json" >/dev/null
           echo "canary_id=$canary_id" >> "$GITHUB_OUTPUT"
+          echo "started_at=$(jq -r '.canary.startedAt' "$RUNNER_TEMP/canary-start.json")" >> "$GITHUB_OUTPUT"
           echo "ends_at=$(jq -r '.canary.endsAt' "$RUNNER_TEMP/canary-start.json")" >> "$GITHUB_OUTPUT"
-
-      - name: Fail-closed rollback when pre-canary validation fails
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.live_probe_window.outcome == 'success' && steps.canary_start.outcome != 'success'
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
-          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
-          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
-          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
-          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
-          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
-          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
-          POLL_MODE: ${{ inputs.poll_mode || 'both' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml \
-            --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
-            --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} \
-            --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID \
-            --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID \
-            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID \
-            --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID \
-            --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
-            --var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID \
-            --var DISPATCH_ENABLED:false \
-            --tag "${{ github.sha }}-v10-pre-canary-stop" \
-            --message "Disable forecast dispatcher after v10 pre-canary failure"
-          npx wrangler deploy --env staging --config forecast-collector/wrangler.toml \
-            --secrets-file "$RUNNER_TEMP/forecast-secrets.json" \
-            --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
-            --var COLLECT_ENABLED:false \
-            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
-            --var DISCORD_INTERACTION_OWNER:router \
-            --tag "${{ github.sha }}-$POLL_MODE-v10-pre-canary-stop" \
-            --message "Disable forecast collector after v10 pre-canary failure"
+          jq --arg mode "${{ inputs.poll_mode || 'both' }}" \
+            '.canary + {pollMode:$mode}' "$RUNNER_TEMP/canary-start.json" > "$RUNNER_TEMP/canary-start-identity.json"
+          node scripts/check-workflow-hardening.ts --sanitize-canary \
+            "$RUNNER_TEMP/canary-start-identity.json" > "$RUNNER_TEMP/canary-start-identity.evidence.json"
 
       - name: Record dispatcher smoke inside the canary window
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.canary_start.outputs.canary_id != ''
@@ -903,18 +939,154 @@ jobs:
             echo "- Dispatcher Cron: minute 1, then every 3 minutes"
             if [[ "${{ github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready }}" == "true" ]]; then
               echo "- Canary: fresh v10 fixed eight-hour window started after live-contract probe and D1 burn-in"
-              echo "- Canary ID: `${{ steps.canary_start.outputs.canary_id }}`"
-              echo "- Canary end: `${{ steps.canary_start.outputs.ends_at }}`"
+              node scripts/check-workflow-hardening.ts --identity-summary "$RUNNER_TEMP/canary-start-identity.evidence.json"
               echo "- Quota policy: all account Workers and D1 databases included; project automation fails closed at 50%"
               echo "- Required action: click the Router response test card during this canary window"
               echo "- Promotion: blocked until the authenticated v10 certificate and final Paid quota check pass"
             else
               echo "- Dispatcher: remains disabled"
               echo "- Canary: not started"
-              if [[ -n "${{ vars.FORECAST_INTERACTIONS_URL }}" ]]; then
-                echo "- Required action: set the Discord Interaction Endpoint to `${{ vars.FORECAST_INTERACTIONS_URL }}/discord/interactions`, then dispatch this workflow with router_endpoint_ready=true"
-              else
-                echo "- Required action: read the dedicated Router URL from the Wrangler deployment output, set FORECAST_INTERACTIONS_URL to that origin, update the Discord Interaction Endpoint, then dispatch this workflow with router_endpoint_ready=true"
-              fi
+              echo "- Required action: verify the production-owned Discord Interaction Endpoint, then dispatch this workflow with router_endpoint_ready=true"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mark staging operational verification complete
+        id: operational_verification
+        run: echo "verified=true" >> "$GITHUB_OUTPUT"
+
+      - name: Project privacy-safe staging burn-in and quota evidence
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          failed=0
+          while read -r kind stem; do
+            source="$RUNNER_TEMP/$stem.json"
+            [[ -f "$source" ]] || continue
+            if node scripts/check-workflow-hardening.ts --retain-evidence "$source" "$kind" \
+              > "$RUNNER_TEMP/$stem.evidence.pending"; then
+              mv "$RUNNER_TEMP/$stem.evidence.pending" "$RUNNER_TEMP/$stem.evidence.json"
+            else
+              failed=1
+            fi
+          done <<'EVIDENCE'
+          runtime forecast-observability-live-probe
+          runtime forecast-observability-preflight
+          quota d1-budget-preflight
+          baseline d1-budget-baseline
+          quota d1-budget-evaluation
+          EVIDENCE
+          exit "$failed"
+
+      - name: Retain successful staging identity before leaving the stop boundary
+        if: success()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: forecast-staging-identity-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/router-identity-before-staging.evidence.json
+            ${{ runner.temp }}/router-health-before-staging.evidence.json
+            ${{ runner.temp }}/*-active-identity.evidence.json
+            ${{ runner.temp }}/canary-start-identity.evidence.json
+            ${{ runner.temp }}/forecast-observability-live-probe.evidence.json
+            ${{ runner.temp }}/forecast-observability-preflight.evidence.json
+            ${{ runner.temp }}/d1-budget-preflight.evidence.json
+            ${{ runner.temp }}/d1-budget-baseline.evidence.json
+            ${{ runner.temp }}/d1-budget-evaluation.evidence.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Fail-closed rollback when staging validation fails - Dispatcher
+        if: always() && (failure() || cancelled()) && steps.operational_verification.outputs.verified != 'true' && steps.dispatcher_activation.outputs.attempted == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
+          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
+          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/dispatcher-validation-stop.ndjson
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml \
+            --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
+            --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} \
+            --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID \
+            --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID \
+            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID \
+            --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID \
+            --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
+            --var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID \
+            --var DISPATCH_ENABLED:false \
+            --tag "${{ github.sha }}-v10-validation-stop" \
+            --message "Disable forecast dispatcher after staging validation failure"
+          version=$(node scripts/check-workflow-hardening.ts --deployment-version \
+            "$WRANGLER_OUTPUT_FILE_PATH" collection-kit-forecast-dispatcher-staging staging)
+          npx wrangler deployments status --env staging --config forecast-dispatcher/wrangler.toml \
+            --json > "$RUNNER_TEMP/dispatcher-validation-stopped.json"
+          test "$(node scripts/check-workflow-hardening.ts --active-version "$RUNNER_TEMP/dispatcher-validation-stopped.json")" = "$version"
+          npx wrangler versions view "$version" --env staging --config forecast-dispatcher/wrangler.toml \
+            --json > "$RUNNER_TEMP/dispatcher-validation-stop-version.json"
+          node scripts/check-workflow-hardening.ts --version-identity "$RUNNER_TEMP/dispatcher-validation-stop-version.json" "$version" \
+            > "$RUNNER_TEMP/dispatcher-validation-stop-identity.json"
+          jq -e --arg sha "${{ github.sha }}" \
+            '.deploymentSha == $sha and .vars.DISPATCH_ENABLED == "false"' \
+            "$RUNNER_TEMP/dispatcher-validation-stop-identity.json" >/dev/null
+          node scripts/check-workflow-hardening.ts --sanitize-identity \
+            "$RUNNER_TEMP/dispatcher-validation-stop-identity.json" > "$RUNNER_TEMP/dispatcher-validation-stop-identity.evidence.json"
+
+      - name: Fail-closed rollback when staging validation fails - Collector
+        if: always() && (failure() || cancelled()) && steps.operational_verification.outputs.verified != 'true' && steps.collector_activation.outputs.attempted == 'true'
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
+          POLL_MODE: ${{ inputs.poll_mode || 'both' }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/collector-validation-stop.ndjson
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --env staging --config forecast-collector/wrangler.toml \
+            --secrets-file "$RUNNER_TEMP/forecast-secrets.json" \
+            --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
+            --var COLLECT_ENABLED:false \
+            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
+            --var DISCORD_INTERACTION_OWNER:router \
+            --tag "${{ github.sha }}-$POLL_MODE-v10-validation-stop" \
+            --message "Disable forecast collector after staging validation failure"
+          version=$(node scripts/check-workflow-hardening.ts --deployment-version \
+            "$WRANGLER_OUTPUT_FILE_PATH" collection-kit-forecast-collector-staging staging)
+          npx wrangler deployments status --env staging --config forecast-collector/wrangler.toml \
+            --json > "$RUNNER_TEMP/collector-validation-stopped.json"
+          test "$(node scripts/check-workflow-hardening.ts --active-version "$RUNNER_TEMP/collector-validation-stopped.json")" = "$version"
+          npx wrangler versions view "$version" --env staging --config forecast-collector/wrangler.toml \
+            --json > "$RUNNER_TEMP/collector-validation-stop-version.json"
+          node scripts/check-workflow-hardening.ts --version-identity "$RUNNER_TEMP/collector-validation-stop-version.json" "$version" \
+            > "$RUNNER_TEMP/collector-validation-stop-identity.json"
+          jq -e --arg sha "${{ github.sha }}" \
+            '.deploymentSha == $sha and .vars.COLLECT_ENABLED == "false"' \
+            "$RUNNER_TEMP/collector-validation-stop-identity.json" >/dev/null
+          node scripts/check-workflow-hardening.ts --sanitize-identity \
+            "$RUNNER_TEMP/collector-validation-stop-identity.json" > "$RUNNER_TEMP/collector-validation-stop-identity.evidence.json"
+
+      - name: Retain staging identity and canary start evidence
+        if: always() && (failure() || cancelled())
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: forecast-staging-stop-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/router-identity-before-staging.evidence.json
+            ${{ runner.temp }}/router-health-before-staging.evidence.json
+            ${{ runner.temp }}/*-active-identity.evidence.json
+            ${{ runner.temp }}/*-validation-stop-identity.evidence.json
+            ${{ runner.temp }}/canary-start-identity.evidence.json
+            ${{ runner.temp }}/forecast-observability-live-probe.evidence.json
+            ${{ runner.temp }}/forecast-observability-preflight.evidence.json
+            ${{ runner.temp }}/d1-budget-preflight.evidence.json
+            ${{ runner.temp }}/d1-budget-baseline.evidence.json
+            ${{ runner.temp }}/d1-budget-evaluation.evidence.json
+          if-no-files-found: warn
+          retention-days: 30

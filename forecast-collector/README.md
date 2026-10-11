@@ -269,7 +269,13 @@ is clicked. Neither workflow can merge the PR or authorize production adoption.
   or 95% of the configured limit is a warning while `exceededCpu` remains zero.
 - The first v10 certificate is a `baseline_bootstrap`. Its generated candidate is an Actions artifact,
   not an automatic policy change. A later baseline can only be adopted by a separate review that adds
-  `forecast-collector/runtime-baseline.json`. With an approved baseline, CPU regression is hard only when full-window p95 and
+  `forecast-collector/runtime-baseline.json`. The retained
+  `forecast-canary-baseline-bootstrap.evidence.json` is a projection wrapper: adopt the reviewed
+  `.data`, not the whole wrapper, after checking `projectionHash` with the same canonical hashing
+  convention and separately reviewing the certified run, SHA and canary-window provenance. The
+  projection hash proves internal consistency, not authenticity; the original `sourceHash` cannot
+  be recomputed from redacted data. Existing review and certification gates remain mandatory.
+  With an approved baseline, CPU regression is hard only when full-window p95 and
   average both exceed their thresholds and both independent four-hour halves regress in the same
   direction. The exact eight-hour invocation query is split into bounded 30-minute windows and merged
   by hashed request identity so one oversized response cannot separate a custom marker from its

@@ -19,6 +19,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DISCORD_APPROVAL_MODE: ${{ vars.DISCORD_APPROVAL_MODE }}
 
 concurrency:
   group: request-staging-forecast-adoption
@@ -26,9 +27,18 @@ concurrency:
 
 jobs:
   send:
+    if: ${{ vars.DISCORD_APPROVAL_MODE == 'staging_adoption' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Require exact staging adoption mode
+        shell: bash
+        run: |
+          [ "${DISCORD_APPROVAL_MODE:-}" = "staging_adoption" ] || {
+            echo "staging_adoption_disabled" >&2
+            exit 1
+          }
+
       - name: Validate external configuration
         env:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}

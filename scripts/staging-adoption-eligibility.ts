@@ -7,6 +7,10 @@ import { isCertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
 type EligibilityApproval = { forecastId: string; registrySha: string };
 type EligibilityResult = { state: "valid" | "failed_permanent"; errorCode?: string };
 
+export function assertStagingAdoptionEnabled(mode = process.env["DISCORD_APPROVAL_MODE"]) {
+  if (mode !== "staging_adoption") throw new Error("staging_adoption_disabled");
+}
+
 export function validateStagingRegistry(
   approval: EligibilityApproval,
   value: unknown,
@@ -63,6 +67,7 @@ export async function recordSelectionDisposition(
   error: StagingForecastEligibilityError,
   fetchImpl: typeof fetch = fetch,
 ) {
+  assertStagingAdoptionEnabled();
   const baseUrl = process.env["FORECAST_COLLECTOR_URL"],
     token = process.env["FORECAST_COLLECTOR_ADMIN_TOKEN"];
   if (!baseUrl || !token || !/^discord-staging-[a-f0-9-]{36}$/.test(approvalId))

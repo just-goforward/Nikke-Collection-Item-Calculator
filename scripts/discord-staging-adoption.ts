@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { STAGING_FORECAST_REVIEW_URL } from "../shared/runtimeEnvironment";
+import { STAGING_FORECAST_REVIEW_URL } from "../shared/runtimeEnvironment.ts";
+import { assertStagingAdoptionEnabled } from "./staging-adoption-eligibility.ts";
 import {
   type ForecastReviewMetadata,
   formatForecastReviewForDiscord,
@@ -367,6 +368,7 @@ function assertBaselineResult(baseline: unknown, evaluatedProfileCount: number) 
 }
 
 async function main() {
+  assertStagingAdoptionEnabled();
   const target = parsePullRequestTarget(
     JSON.parse(await readFile(requiredEnvironment("DISCORD_SOURCE_PR_METADATA_FILE"), "utf8")),
   );
@@ -395,6 +397,7 @@ async function main() {
 }
 
 function validateInput(input: DiscordStagingAdoptionInput) {
+  assertStagingAdoptionEnabled();
   if (!/^https:\/\//.test(input.collectorUrl)) throw new Error("Invalid collector URL.");
   if (!/^\d{1,24}$/.test(input.discordChannelId)) throw new Error("Invalid Discord channel ID.");
   validateSourceInput(input);

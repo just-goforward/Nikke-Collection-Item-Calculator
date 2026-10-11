@@ -207,6 +207,11 @@ window의 unexpected invocation으로 잘못 세는 경계 오류를 막는다. 
 첫 v10은 이전 v8 GraphQL 집계를 hard baseline으로 사용하지 않고 scheduled-only 기준선을 만드는
 `baseline_bootstrap`이다. 생성된 기준선 후보는 Actions artifact일 뿐 자동 적용되지 않는다. 별도
 검토 PR로 `forecast-collector/runtime-baseline.json`을 추가한 뒤에만 이후 v10이 이를 소비한다.
+보관된 `forecast-canary-baseline-bootstrap.evidence.json`은 projection wrapper이므로 파일 전체가
+아니라 검토한 `.data`를 기준선 파일로 채택한다. 먼저 동일한 canonical hashing 방식으로
+`projectionHash`와 `.data`의 일치를 확인하고, 인증된 실행·SHA·canary window의 출처를 별도로
+검토한다. 이 해시는 내부 일관성 검사일 뿐 출처 인증이 아니다. `sourceHash`는 원본을 가리키며,
+정제된 `.data`만으로 원본 해시를 재계산할 수 없다. 기존 검토 PR·인증 관문은 그대로 유지한다.
 승인된 기준선이 있는 경우에만 전체 p95와 평균, 독립 4시간 구간 두
 개의 회귀가 모두 같은 방향으로 확인될 때 성능 hard failure로 판정한다. 종료 시 telemetry가
 늦으면 5분 간격으로 최대 30분 재조회하며, 그래도 부족하면 immutable 8시간 window를

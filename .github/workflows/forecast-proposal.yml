@@ -47,8 +47,9 @@ concurrency:
 jobs:
   propose:
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.target_environment == 'staging' && vars.FORECAST_COLLECTOR_STAGING_URL != '') ||
-      ((github.event_name != 'workflow_dispatch' || inputs.target_environment == 'production') && vars.FORECAST_COLLECTOR_URL != '')
+      github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.target_environment == 'staging' && vars.FORECAST_COLLECTOR_STAGING_URL != '') ||
+      ((github.event_name != 'workflow_dispatch' || inputs.target_environment == 'production') && vars.FORECAST_COLLECTOR_URL != ''))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -231,8 +232,16 @@ jobs:
         if: env.FORECAST_DISPATCH_MODE == 'work' && steps.preflight.outputs.has_work == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: refs/heads/main
+          ref: ${{ github.sha }}
           fetch-depth: 0
+
+      - name: Verify trusted checkout identity
+        if: env.FORECAST_DISPATCH_MODE == 'work' && steps.preflight.outputs.has_work == 'true'
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
       - name: Setup Node
         if: env.FORECAST_DISPATCH_MODE == 'work' && steps.preflight.outputs.has_work == 'true'
@@ -356,14 +365,15 @@ jobs:
           FORECAST_COLLECTOR_URL: ${{ env.FORECAST_TARGET_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_PROPOSAL_OUTPUT: ${{ runner.temp }}/forecast-proposal.md
-          X_API_BEARER_TOKEN: ${{ secrets.X_API_BEARER_TOKEN }}
         run: npm run propose:supply-forecast
 
       - name: Verify generated registry and focused tests
         if: steps.candidate.outputs.has_candidate == 'true'
         run: |
           npm run generate:supply-forecast
+          npm run generate:certified-engine-build
           npm run check:supply-forecast
+          npm run check:certified-engine-build
           npx vitest run src/solver/supplyForecast.test.ts src/solver/supplyForecastModel.test.ts --configLoader runner
 
       - name: Create or update candidate branch
@@ -379,7 +389,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$BRANCH"
-          git add shared/supplyForecasts.json shared/generated/supplyForecast.ts
+          git add shared/supplyForecasts.json shared/generated/supplyForecast.ts shared/generated/supplyForecastRuntime.ts shared/generated/certifiedForecastAuthority.ts shared/generated/certifiedEngineBuild.ts
           git commit -m "$TITLE"
           git push --force-with-lease origin "$BRANCH"
           existing=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
