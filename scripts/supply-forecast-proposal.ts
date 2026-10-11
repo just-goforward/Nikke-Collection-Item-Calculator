@@ -38,6 +38,18 @@ type ProposalRegistry = {
   }>;
 };
 
+export function forecastProposalDisposition(forecastId: string, result: XAdvisoryResult) {
+  return {
+    draft: result.status !== "matching",
+    title:
+      result.status === "conflict"
+        ? `[X 일정 충돌 검토] ${forecastId}`
+        : result.status === "unavailable"
+          ? `[X 수동 확인 대기] ${forecastId}`
+          : `수급 Forecast 후보 ${forecastId}`,
+  };
+}
+
 export function renderSupplyForecastProposal(
   envelope: SupplyForecastCandidateEnvelope,
   xAdvisory: XAdvisoryResult,
@@ -134,6 +146,7 @@ function parseXReviewMetadata(value: unknown): ForecastReviewMetadata["x"] {
     value["source"] === null
       ? null
       : oneOf(value["source"], [
+          "fxtwitter",
           "x-api",
           "profile-html",
           "syndication",
@@ -142,6 +155,7 @@ function parseXReviewMetadata(value: unknown): ForecastReviewMetadata["x"] {
           "jina",
         ] as const);
   const reason = oneOf(value["reason"], [
+    "author_identity_unverified",
     "matched_schedule",
     "schedule_conflict",
     "schedule_not_verified",
@@ -285,17 +299,14 @@ function encodeForecastReviewMetadata(metadata: ForecastReviewMetadata) {
 function renderXChecklist(result: XAdvisoryResult) {
   if (result.status === "matching") {
     const link = result.statusUrl ? ` ([status](${result.statusUrl}))` : "";
-    if (result.source === "jina") {
-      return `- [ ] Jina Reader가 일정과 일치하는 X status를 찾았습니다. 관리자가 X 원문을 확인해야 합니다.${link}`;
-    }
-    return `- [x] X \`@NIKKE_kr\` 공개 게시물과 일정이 일치했습니다.${link}`;
+    return `- [ ] 일정과 일치하는 보조 결과입니다. 공식 X 확인이 아니며 관리자가 X 원문을 확인해야 합니다.${link}`;
   }
   if (result.status === "conflict") {
     const link = result.statusUrl ? ` ([status](${result.statusUrl}))` : "";
-    return `- [ ] X 공개 게시물과 Naver 일정이 충돌합니다. 관리자 검토가 필요합니다.${link}`;
+    return `- [ ] X 보조 확인 결과와 Naver 일정이 충돌합니다. Draft 수동 검토 대기입니다.${link}`;
   }
   const link = result.statusUrl ? ` ([확인 후보](${result.statusUrl}))` : "";
-  return `- [ ] X \`@NIKKE_kr\` 공개 게시물을 관리자가 수동 확인했습니다. 자동 확인 사유: \`${result.reason}\`${link}`;
+  return `- [ ] X \`@NIKKE_kr\` 원문을 관리자가 수동 확인해야 합니다. Draft 수동 검토 대기 사유: \`${result.reason}\`${link}`;
 }
 
 function formatGain(gain: { blue: number; purple: number; yellow: number } | undefined) {

@@ -7,7 +7,10 @@ import {
   supplyForecastCandidateEnvelopeSchema,
 } from "../shared/supplyForecastCandidate.ts";
 import { probeXAdvisory } from "./forecast-x-advisory.ts";
-import { renderSupplyForecastProposal } from "./supply-forecast-proposal.ts";
+import {
+  forecastProposalDisposition,
+  renderSupplyForecastProposal,
+} from "./supply-forecast-proposal.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const registryPath = resolve(root, "shared", "supplyForecasts.json");
@@ -60,17 +63,14 @@ await writeFile(
   renderSupplyForecastProposal(envelope, xAdvisory, registry),
   "utf8",
 );
-const title =
-  xAdvisory.status === "conflict"
-    ? `[X 일정 충돌 검토] ${envelope.candidate.forecastId}`
-    : `수급 Forecast 후보 ${envelope.candidate.forecastId}`;
+const disposition = forecastProposalDisposition(envelope.candidate.forecastId, xAdvisory);
 await writeOutputs({
   has_candidate: "true",
   candidate_id: envelope.candidate.candidateId,
   forecast_id: envelope.candidate.forecastId,
   branch: `automation/supply-forecast/${envelope.candidate.candidateId}`,
-  title,
-  draft: String(xAdvisory.status === "conflict"),
+  title: disposition.title,
+  draft: String(disposition.draft),
 });
 
 async function writeOutputs(values: Record<string, string>) {

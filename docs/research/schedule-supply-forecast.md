@@ -38,40 +38,54 @@ Naver Lounge boards 56 and 48 are the primary automatic evidence. The Free Worke
 shallow feed metadata every three minutes. An offset three-minute Dispatcher requests the proposal
 workflow when D1 contains actionable work; the `17,47` Actions schedule is only a thirty-minute
 watchdog. Actions fetches structured SmartEditor JSON and performs schedule resolution and candidate
-generation. X is checked only for
-an existing candidate. When `X_API_BEARER_TOKEN` is configured, the official recent-search API is
-the primary discovery path, restricted to Solo Raid, collaboration, Co-op Operation, and Kit Box
-keywords from `@NIKKE_kr` and at most ten results. Author expansions must verify the official
-account. Solo and collaboration dates are compared automatically; Co-op and Kit Box posts are kept
-only as manual-review URLs. Without the token, or after a transient
-API failure, Actions extracts status IDs from the server-rendered public profile and verifies every
-ID, author, body, and timestamp through X's structured `tweet-result` embed response. It then tries
-profile syndication `__NEXT_DATA__` and Jina Reader. An unavailable timeline requires manual
-confirmation; a verified conflicting schedule produces an isolated draft pull request.
+generation. X advisory checks apply only to an existing candidate. The replacement uses the
+[FxTwitter v2 timeline](https://docs.fxembed.com/api/twitter/operations/2profilehandlestatuses/)
+once with `count=10`, and at most ten detail requests shared across timeline and fallback IDs.
+One public X profile HTML request may discover fallback IDs only; HTML never supplies schedule
+evidence. The maximum is twelve HTTP requests, without retries, pagination, or redirects.
+Responses have whole-body timeouts and streamed byte guards. Fx JSON requires numeric `code=200`,
+the trusted numeric author ID and handle, matching post IDs, valid creation time, and original text.
+Conflict takes precedence over matching. Conflict or incomplete checks produce a draft/manual
+review hold; matching is third-party advisory and never checks official X confirmation.
+The request path is currently inactive: no authoritative public source has established the
+numeric `NIKKE_kr` author ID. It fails closed as `author_identity_unverified` without requests.
+The current `VERIFIED_NIKKE_AUTHOR_ID` trust anchor is `null`: the advisory result is
+`unavailable` with source `fxtwitter` and `statusUrl: null`; an inactive probe provides no verified URL.
 
 [Defuddle](https://github.com/kepano/defuddle) can normalize a known URL or accessible DOM to
 Markdown, but it cannot reliably retain current status URLs from a profile; its optional X fallback
 also uses FxTwitter. In a 2026-08-28 live check it read a known status and displayed profile text,
 but the known-status output included adjacent timeline content and its profile Markdown omitted all
 five status URLs present in the source. It is therefore not part of discovery or machine verification
-and is not added as a second lossy representation of text already returned structurally by X API or
-X embed data. [Jina
-Reader](https://jina.ai/reader/) remains the last third-party advisory fallback. Status Snowflake
-time is checked, a Jina match still requires manual source verification, and Jina alone cannot
-create a conflict.
+and is not added as a second lossy representation of structured text.
+Paid-X bearer consumption, tweet-result, syndication, and Jina runtime branches have been replaced.
+Existing secrets are not deleted, and rollback must not restore paid-X calls.
+`npm run probe:forecast-x` uses the same inactive trust gate and prints only bounded diagnostics.
+Zero requests are expected while this gate is inactive; an inactive probe cannot establish provider
+availability, response status, or contract compatibility. Activation still requires authoritative
+evidence for the official numeric author ID, the actual provider's v2 response shape and repost, pinned-post,
+and conversation semantics, and public profile HTML behavior with the configured User-Agent.
+These are activation prerequisites, not evidence supplied by the current zero-request result.
 
-The documented primary discovery path requires the `X_API_BEARER_TOKEN` GitHub repository secret.
-The X Developer Console app should be read-only, prepaid with a small spending limit and alert, and
-must not receive post-write, DM, or account-management permissions. Missing credentials do not stop
-the verified public-profile path, but rate limits or format changes in undocumented fallbacks
-downgrade the result to the Discord/PR manual check. `npm run probe:forecast-x` prints only redacted
-provider diagnostics.
+### Rollback compatibility and manual review
+
+Review finding `R1-RB2`: reverting the metadata parser rejects stored PR metadata containing
+`fxtwitter` and `author_identity_unverified`. Use a forward fix or a manual, free fallback instead
+of reverting that parser. Any rollback must retain both these new parser enum values and all
+historical parser enum values so existing PR metadata remains readable; it must not restore paid-X
+calls. Keep automatic X requests inactive and preserve the metadata for manual review. Existing
+secrets are retained; deleting secrets is not part of this rollback.
+
+While the request path is inactive, an administrator must manually review the official X evidence
+and record the official confirmation, then explicitly mark the proposal **Ready for review** before
+any H/p or Discord test. Re-proposal can make the PR draft again, requiring that review and explicit
+readiness step again. Neither re-proposal nor a third-party advisory match automatically confirms
+official X evidence.
 
 - `[confirmed]` A 2026-08-28 live probe extracted five status IDs from the public profile HTML and
   verified all five `NIKKE_kr` authors, bodies, and timestamps through `tweet-result`. Timeline
-  syndication and Jina were rate-limited during the same probe. The credential-free path therefore
-  prioritizes profile IDs plus per-status structured verification and treats the other sources as
-  isolated fallbacks.
+  syndication and Jina were rate-limited during the same probe. This is historical evidence for
+  the replaced implementation, not validation or author-ID authority for the FxTwitter path.
 
 - `[confirmed]` A live contract check on 2026-08-25 found that the latest manager posts on boards 48
   and 56, including the Solo Raid notice, return SmartEditor HTML rather than SmartEditor JSON. The
@@ -101,7 +115,8 @@ After the canary passes, staging replays the official schedule ledger and create
 forecast pull request. The H/p workflow does not check out or execute pull-request code. It verifies
 that the PR is a non-draft GitHub Actions bot proposal changing only the two registry files, then
 extracts `shared/supplyForecasts.json` by immutable commit SHA. Exact interactive and H/p research
-can therefore run before the administrator merges the proposal. After the exact-gate certificate
+can therefore run before the administrator merges the proposal, but while X checks are inactive
+only after manual X review and the explicit **Ready for review** step above. After the exact-gate certificate
 is complete, the Discord button records a staging-only approval. A separate workflow verifies the
 certificate again and creates a staging adoption PR without merging it or changing the product
 `activeForecastId`. After the administrator merges that PR and the Pages deployment completes,

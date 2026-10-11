@@ -26,49 +26,45 @@ statistics and cannot modify the repository or activate a product forecast.
   removes comments and script/style/template contents before normalizing text into the same
   structured input consumed by the schedule parser. Arbitrary HTML, empty content, and ambiguous
   schedules still require manual review. The Worker Cron does not perform this body conversion.
-- X is advisory only and runs in GitHub Actions only when a candidate exists. The primary discovery
-  path is the official recent-search API with the optional `X_API_BEARER_TOKEN` repository secret.
-  Its query is restricted to Solo Raid, collaboration, Co-op Operation, and Kit Box keywords from
-  `@NIKKE_kr`, requests at most ten results, and accepts a post only when the response expansion
-  verifies the official author ID and username. Solo and collaboration dates can be compared with the
-  candidate; Co-op and Kit Box posts are retained only as manual-review URLs.
-- Without that secret, or after a transient API failure, the workflow extracts status IDs from the
-  server-rendered public profile and verifies each ID through X's structured `tweet-result` embed
-  response. It then tries the profile syndication document and Jina Reader. Every structured path
-  requires the returned author to be `NIKKE_kr`; Jina is a last advisory fallback, derives
-  publication time from the status Snowflake ID, and can never create a conflict by itself.
+- X is advisory only and runs in GitHub Actions only when a candidate exists. The FxTwitter path is
+  currently withheld: the official numeric author ID and provider response contract must be verified
+  before activation. It returns `author_identity_unverified` with zero requests while withheld.
+- Once independently cleared, the bounded adapter allows one ten-entry timeline, at most one public
+  X profile HTML request for status-ID discovery only, and at most ten detail requests shared across
+  both paths: at most twelve requests total, without retries or redirects. Responses must satisfy
+  author, ID, timestamp, raw-text, timeout and body-size guards.
 - [Defuddle](https://github.com/kepano/defuddle) is not used for discovery because it converts an
   already known URL or accessible DOM to clean content. Its async X extractor also calls FxTwitter.
   It can read a known status after discovery, but the live result also included adjacent timeline
   content and its profile Markdown did not retain current status URLs. It would therefore add a
-  second lossy representation of text already returned structurally by X API or X embed data.
-- An unavailable X page leaves a manual checklist on a normal PR. A matching post adds its status
-  link. A conflicting schedule creates a draft `[X 일정 충돌 검토]` PR that cannot be merged until
-  a person reviews it.
+  second lossy representation rather than an independent official confirmation.
+- Incomplete evidence creates a draft `[X 수동 확인 대기]` PR; conflicts take precedence over matches
+  and create a draft `[X 일정 충돌 검토]` PR. A third-party match does not mark the official X
+  checklist complete. A person must perform the manual X review and explicitly mark the PR ready
+  before H/p research or the Discord approval test; re-proposing can return the PR to draft.
 
-Configure `X_API_BEARER_TOKEN` as a GitHub Actions repository secret to enable the deterministic
-primary path. The token needs read-only access to recent post search; it must not receive post-write,
-DM, account-management, or repository permissions. X currently bills the API per resource and has no
-monthly minimum, so configure a small prepaid balance and spending alert in the X Developer Console.
-The workflow does not fail when the secret is absent, but URL discovery then depends on rate-limited,
-undocumented public fallbacks and may require the Discord/PR manual check. Run the redacted source
-diagnostic with:
+Do not restore paid recent-search calls as a rollback. Use a forward fix or manual, non-paid review,
+and retain parsing support for both historical metadata and the new `fxtwitter` /
+`author_identity_unverified` values already stored in PRs. This change does not delete repository
+secrets or authorize provider activation. Run the local diagnostic with:
 
 ```powershell
-$env:X_API_BEARER_TOKEN = "<temporary local token>"
 npm run probe:forecast-x
-Remove-Item Env:X_API_BEARER_TOKEN
 ```
 
-The diagnostic prints only source, result count, reason, first status URL, and publication time. It
-never prints the token or response bodies.
+While withheld, the diagnostic cannot supply a verified status URL; the workflow's status-URL check
+therefore fails as expected. It is not evidence of a live provider outage or a successful probe.
 
-`[confirmed]` A 2026-08-28 live probe found five exact status IDs in the public profile HTML and
+The diagnostic prints only source, result count, reason, first status URL, and publication time. It
+does not use a paid-X token or print response bodies.
+
+`[historical]` A 2026-08-28 live probe found five exact status IDs in the public profile HTML and
 verified all five through `tweet-result`, including author, text, and publication time. During the
 same probe, the timeline syndication document and Jina were rate-limited. Defuddle 0.18.1 could read
 a known status and display profile text, but the known-status output included adjacent timeline
-content and its profile Markdown omitted the five status URLs. This is why raw profile ID discovery
-plus structured per-status verification precedes those fallbacks.
+content and its profile Markdown omitted the five status URLs. Those tweet-result, syndication and
+Jina fallback paths have since been replaced; this probe does not validate the current FxTwitter
+provider contract or current profile-HTML behavior.
 
 The Naver cursor walks one overlapping page per invocation when more than ten posts arrived between
 polls. Queue insertion and cursor advancement share one D1 batch, and `(source, itemId)` is unique.
@@ -158,7 +154,7 @@ GitHub authentication or dispatch errors, workflow failures, Collector circuit-o
 pending work, manual review transitions, invalid callbacks, and unsent critical alerts. Mentions are
 always disabled. The same alert fingerprint sends at most once per thirty minutes unless a new
 occurrence arrives; one green recovery notice is sent after a previously reported alert resolves.
-X/Jina unavailability remains advisory and does not create an independent operations incident.
+X/FxTwitter unavailability remains advisory and does not create an independent operations incident.
 
 After a verified production collector and an approved inactive forecast exist, the dynamic H/p
 workflow runs only by explicit dispatch. It records `productAdoptionAuthorized: false`; merging an

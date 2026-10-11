@@ -1,6 +1,7 @@
 import type { SupplyForecastCandidate } from "../shared/supplyForecastCandidate.ts";
 
 export type XAdvisorySource =
+  | "fxtwitter"
   | "x-api"
   | "profile-html"
   | "syndication"
@@ -10,6 +11,7 @@ export type XAdvisorySource =
   | null;
 
 export type XAdvisoryReason =
+  | "author_identity_unverified"
   | "matched_schedule"
   | "schedule_conflict"
   | "schedule_not_verified"
@@ -35,121 +37,111 @@ const EVENT_KEYWORDS = {
   coop: ["협동 작전", "협동작전", "협작"],
   kit: ["관리 키트 상자", "키트 상자"],
 } as const;
-const X_API_RECENT_SEARCH_URL = "https://api.x.com/2/tweets/search/recent";
-const X_API_QUERY =
-  '("솔로 레이드" OR 솔로레이드 OR 솔레 OR 콜라보 OR "협동 작전" OR 협동작전 OR 협작 OR "관리 키트 상자") from:NIKKE_kr -is:retweet';
+// Activation requires an authoritative public handle-to-numeric-ID source.
+// Test fixtures and provider responses cannot establish this trust anchor.
+const VERIFIED_NIKKE_AUTHOR_ID: string | null = null;
+const FX_TIMELINE_URL = "https://api.fxtwitter.com/2/profile/NIKKE_kr/statuses?count=10";
+const FX_STATUS_URL = "https://api.fxtwitter.com/2/status/";
 const X_PROFILE_URL = "https://x.com/NIKKE_kr";
-const X_TWEET_RESULT_URL = "https://cdn.syndication.twimg.com/tweet-result";
-const SYNDICATION_URL = "https://syndication.twitter.com/srv/timeline-profile/screen-name/NIKKE_kr";
-const JINA_READER_URL = "https://r.jina.ai/https://x.com/NIKKE_kr";
 const X_RESPONSE_MAX_BYTES = 1024 * 1024;
-const JINA_MAX_BYTES = 128 * 1024;
+const DETAIL_MAX_BYTES = 128 * 1024;
 const X_SNOWFLAKE_EPOCH_MS = 1_288_834_974_657n;
 
-export async function probeXAdvisory(candidate: SupplyForecastCandidate): Promise<XAdvisoryResult> {
-  const bearerToken = process.env["X_API_BEARER_TOKEN"]?.trim();
-  let apiFailure: XAdvisoryResult | null = null;
-  if (bearerToken) {
-    const apiDecision = classifyXAdvisory(await fetchXApiPayload(bearerToken), candidate, "x-api");
-    if (apiDecision.status !== "unavailable" || apiDecision.statusUrl) return apiDecision;
-    apiFailure = apiDecision;
-  }
-
-  const profileDecision = classifyXAdvisory(await fetchProfilePayload(), candidate, "profile-html");
-  if (profileDecision.status !== "unavailable" || profileDecision.statusUrl) {
-    return profileDecision;
-  }
-
-  const syndicationDecision = classifyXAdvisory(
-    await fetchSyndicationPayload(),
-    candidate,
-    "syndication",
-  );
-  if (syndicationDecision.status !== "unavailable" || syndicationDecision.statusUrl) {
-    return syndicationDecision;
-  }
-
-  const jinaDecision = classifyXAdvisory(await fetchJinaPayload(), candidate, "jina");
-  if (jinaDecision.status !== "unavailable" || jinaDecision.statusUrl) return jinaDecision;
-  if (apiFailure) return apiFailure;
-  if (profileDecision.reason !== "empty_timeline") return profileDecision;
-  return syndicationDecision.reason !== "empty_timeline" ? syndicationDecision : jinaDecision;
-}
-
-export async function fetchXApiPayload(
-  bearerToken: string,
+export async function probeXAdvisory(
+  candidate: SupplyForecastCandidate,
   fetcher: typeof fetch = fetch,
+): Promise<XAdvisoryResult> {
+  return classifyXAdvisory(await fetchXAdvisoryPayload(fetcher), candidate, "fxtwitter");
+}
+
+export async function fetchXAdvisoryPayload(fetcher: typeof fetch = fetch): Promise<ProbePayload> {
+  if (VERIFIED_NIKKE_AUTHOR_ID === null) {
+    return { posts: [], reason: "author_identity_unverified" };
+  }
+  return fetchVerifiedFxPayload(VERIFIED_NIKKE_AUTHOR_ID, fetcher);
+}
+
+// Explicit injection keeps offline fixtures separate from the production trust gate.
+export async function fetchVerifiedFxPayload(
+  expectedAuthorId: string,
+  fetcher: typeof fetch,
 ): Promise<ProbePayload> {
-  const url = new URL(X_API_RECENT_SEARCH_URL);
-  url.searchParams.set("query", X_API_QUERY);
-  url.searchParams.set("max_results", "10");
-  url.searchParams.set("tweet.fields", "author_id,created_at");
-  url.searchParams.set("expansions", "author_id");
-  url.searchParams.set("user.fields", "username");
-
-  try {
-    const response = await fetcher(url, {
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${bearerToken}`,
-      },
-      signal: AbortSignal.timeout(12_000),
-    });
-    const body = await readLimitedText(response, X_RESPONSE_MAX_BYTES);
-    if (response.status === 401 || response.status === 403) {
-      return { posts: [], reason: "authentication_failed" };
-    }
-    if (response.status === 429) return { posts: [], reason: "rate_limited" };
-    if (!response.ok) return { posts: [], reason: "navigation_error" };
-    return parseXApiPayload(JSON.parse(body) as unknown);
-  } catch (error) {
-    return { posts: [], reason: classifyFetchError(error) };
-  }
-}
-
-export function parseXApiPayload(value: unknown): ProbePayload {
-  if (!isRecord(value)) return { posts: [], reason: "invalid_response" };
-  const data = value["data"];
-  if (data === undefined) return { posts: [], reason: "empty_timeline" };
-  if (!Array.isArray(data) || data.length > 100) {
-    return { posts: [], reason: "invalid_response" };
-  }
-
-  const officialAuthorIds = readOfficialAuthorIds(value["includes"]);
-  if (!officialAuthorIds) return { posts: [], reason: "invalid_response" };
-
+  if (!readDigits(expectedAuthorId)) return { posts: [], reason: "invalid_response" };
+  const attempted = new Set<string>();
   const posts: ProbePost[] = [];
-  for (const item of data) {
-    const post = parseOfficialXApiPost(item, officialAuthorIds);
-    if (!post) return { posts: [], reason: "invalid_response" };
-    posts.push(post);
+  let failure: ProbeFailureReason | null = null;
+  let ids: string[] = [];
+  try {
+    const body = await fetchLimitedText(
+      FX_TIMELINE_URL,
+      fetcher,
+      X_RESPONSE_MAX_BYTES,
+      12_000,
+      "application/json",
+    );
+    const timeline = parseFxTimeline(JSON.parse(body) as unknown, expectedAuthorId);
+    ids = timeline.ids;
+    failure = timeline.reason;
+  } catch (error) {
+    failure = classifyFetchError(error);
   }
-  return { posts: sortPosts(posts), reason: posts.length === 0 ? "empty_timeline" : null };
+
+  async function fetchDetails(discovered: string[]) {
+    const selected = [...new Set(discovered)]
+      .filter((id) => !attempted.has(id))
+      .slice(0, 10 - attempted.size);
+    for (const id of selected) attempted.add(id); // Reserve before dispatch; failures consume budget.
+    const results = await Promise.all(
+      selected.map((id) => fetchFxStatusPayload(id, expectedAuthorId, fetcher)),
+    );
+    for (const result of results) {
+      posts.push(...result.posts);
+      failure ??= result.reason;
+    }
+  }
+  await fetchDetails(ids);
+  if ((posts.length === 0 || failure !== null) && attempted.size < 10) {
+    try {
+      const body = await fetchLimitedText(
+        X_PROFILE_URL,
+        fetcher,
+        X_RESPONSE_MAX_BYTES,
+        12_000,
+        "text/html,application/xhtml+xml",
+      );
+      // HTML supplies IDs only. Its body can never become schedule evidence.
+      ids = extractProfileStatusIds(body);
+      await fetchDetails(ids);
+    } catch (error) {
+      failure ??= classifyFetchError(error);
+    }
+  }
+  return { posts: sortPosts(posts), reason: failure ?? (posts.length ? null : "empty_timeline") };
 }
 
-export async function fetchProfilePayload(fetcher: typeof fetch = fetch): Promise<ProbePayload> {
-  try {
-    const response = await fetcher(X_PROFILE_URL, {
-      headers: {
-        accept: "text/html,application/xhtml+xml",
-        "user-agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/147 Safari/537.36",
-      },
-      signal: AbortSignal.timeout(12_000),
-    });
-    const body = await readLimitedText(response, X_RESPONSE_MAX_BYTES);
-    if (response.status === 429) return { posts: [], reason: "rate_limited" };
-    if (!response.ok) return { posts: [], reason: "navigation_error" };
-    const ids = extractProfileStatusIds(body).slice(0, 10);
-    if (ids.length === 0) return { posts: [], reason: "empty_timeline" };
-
-    const results = await Promise.all(ids.map((id) => fetchTweetResultPayload(id, fetcher)));
-    const posts = sortPosts(results.flatMap((result) => result.posts));
-    const failure = results.find((result) => result.reason && result.reason !== "empty_timeline");
-    return { posts, reason: posts.length === 0 ? (failure?.reason ?? "empty_timeline") : null };
-  } catch (error) {
-    return { posts: [], reason: classifyFetchError(error) };
+function parseFxTimeline(
+  value: unknown,
+  expectedAuthorId: string,
+): { ids: string[]; reason: ProbeFailureReason | null } {
+  if (
+    !isRecord(value) ||
+    value["code"] !== 200 ||
+    !Array.isArray(value["results"]) ||
+    value["results"].length > 10
+  ) {
+    return { ids: [], reason: "invalid_response" };
   }
+  const ids: string[] = [];
+  let reason: ProbeFailureReason | null = null;
+  for (const item of value["results"]) {
+    const id = isRecord(item) ? readDigits(item["id"]) : null;
+    if (!id || !parseFxStatus(item, id, expectedAuthorId)) {
+      reason = "invalid_response";
+      continue;
+    }
+    ids.push(id);
+  }
+  return { ids, reason };
 }
 
 export function extractProfileStatusIds(body: string) {
@@ -161,205 +153,153 @@ export function extractProfileStatusIds(body: string) {
   return [...ids].sort((left, right) => (BigInt(left) > BigInt(right) ? -1 : 1));
 }
 
-export async function fetchTweetResultPayload(
+export async function fetchFxStatusPayload(
   id: string,
-  fetcher: typeof fetch = fetch,
+  expectedAuthorId: string,
+  fetcher: typeof fetch,
 ): Promise<ProbePayload> {
-  if (!readDigits(id)) return { posts: [], reason: "invalid_response" };
-  const url = new URL(X_TWEET_RESULT_URL);
-  url.searchParams.set("id", id);
-  url.searchParams.set("token", "0");
+  if (!/^\d{2,20}$/.test(id) || !readDigits(expectedAuthorId)) {
+    return { posts: [], reason: "invalid_response" };
+  }
   try {
-    const response = await fetcher(url, {
-      headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(8_000),
-    });
-    const body = await readLimitedText(response, JINA_MAX_BYTES);
-    if (response.status === 429) return { posts: [], reason: "rate_limited" };
-    if (!response.ok) return { posts: [], reason: "navigation_error" };
-    const post = parseTweetResult(JSON.parse(body) as unknown, id);
+    const body = await fetchLimitedText(
+      `${FX_STATUS_URL}${id}`,
+      fetcher,
+      DETAIL_MAX_BYTES,
+      8_000,
+      "application/json",
+    );
+    const value: unknown = JSON.parse(body);
+    const post =
+      isRecord(value) && value["code"] === 200
+        ? parseFxStatus(value["status"], id, expectedAuthorId)
+        : null;
     return post ? { posts: [post], reason: null } : { posts: [], reason: "invalid_response" };
   } catch (error) {
     return { posts: [], reason: classifyFetchError(error) };
   }
 }
 
-export function parseTweetResult(value: unknown, expectedId: string): ProbePost | null {
-  if (!isRecord(value)) return null;
-  const id = readDigits(value["id_str"]);
-  const text = readString(value["text"], 4_000);
-  const user = value["user"];
-  const username = isRecord(user) ? readString(user["screen_name"], 15) : null;
-  if (id !== expectedId || !text || username?.toLowerCase() !== "nikke_kr") return null;
-  const publishedAt = readTimestamp(value["created_at"]) ?? snowflakeTimestamp(id);
-  return publishedAt
-    ? {
-        text: normalize(text).slice(0, 600),
-        url: `https://x.com/NIKKE_kr/status/${id}`,
-        publishedAt,
-      }
-    : null;
-}
-
-export async function fetchSyndicationPayload(
-  fetcher: typeof fetch = fetch,
-): Promise<ProbePayload> {
-  try {
-    const response = await fetcher(SYNDICATION_URL, {
-      headers: {
-        accept: "text/html,application/xhtml+xml",
-        "user-agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/147 Safari/537.36",
-      },
-      signal: AbortSignal.timeout(12_000),
-    });
-    const body = await readLimitedText(response, X_RESPONSE_MAX_BYTES);
-    if (response.status === 429) return { posts: [], reason: "rate_limited" };
-    if (!response.ok) return { posts: [], reason: "navigation_error" };
-    return parseSyndicationPayload(body);
-  } catch (error) {
-    return { posts: [], reason: classifyFetchError(error) };
-  }
-}
-
-export function parseSyndicationPayload(body: string): ProbePayload {
-  const entries = readSyndicationEntries(body);
-  if (!entries) return { posts: [], reason: "invalid_response" };
-
-  const posts: ProbePost[] = [];
-  for (const entry of entries) {
-    const post = parseSyndicationEntry(entry);
-    if (post) posts.push(post);
-  }
-  return {
-    posts: sortPosts(posts).slice(0, 100),
-    reason: posts.length === 0 ? "empty_timeline" : null,
-  };
-}
-
-function readOfficialAuthorIds(value: unknown) {
-  if (!isRecord(value) || !Array.isArray(value["users"])) return null;
-  const officialAuthorIds = new Set<string>();
-  for (const user of value["users"]) {
-    if (!isRecord(user)) continue;
-    const id = readDigits(user["id"]);
-    const username = readString(user["username"], 15);
-    if (id && username?.toLowerCase() === "nikke_kr") officialAuthorIds.add(id);
-  }
-  return officialAuthorIds.size > 0 ? officialAuthorIds : null;
-}
-
-function parseOfficialXApiPost(value: unknown, officialAuthorIds: ReadonlySet<string>) {
-  if (!isRecord(value)) return null;
+export function parseFxStatus(
+  value: unknown,
+  expectedId: string,
+  expectedAuthorId: string,
+): ProbePost | null {
+  if (!isRecord(value) || value["type"] !== "status") return null;
   const id = readDigits(value["id"]);
-  const authorId = readDigits(value["author_id"]);
-  const text = readString(value["text"], 4_000);
-  if (!id || !authorId || !officialAuthorIds.has(authorId) || !text) return null;
-  const publishedAt = readTimestamp(value["created_at"]) ?? snowflakeTimestamp(id);
-  return publishedAt
-    ? {
-        text: normalize(text).slice(0, 600),
-        url: `https://x.com/NIKKE_kr/status/${id}`,
-        publishedAt,
-      }
-    : null;
-}
-
-function readSyndicationEntries(body: string) {
-  const match = body.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
-  if (!match?.[1]) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(match[1]) as unknown;
-  } catch {
+  const author = value["author"];
+  const rawText = value["raw_text"];
+  const text = isRecord(rawText) ? readString(rawText["text"], X_RESPONSE_MAX_BYTES) : null;
+  const url = readString(value["url"], 512);
+  const publishedAt = readFxCreationTime(value, id);
+  if (
+    !id ||
+    !/^\d{2,20}$/.test(id) ||
+    id !== expectedId ||
+    !hasExpectedFxAuthor(author, expectedAuthorId) ||
+    !text ||
+    !normalize(text) ||
+    !url ||
+    normalizeNikStatusUrl(url) !== `https://x.com/NIKKE_kr/status/${id}` ||
+    !publishedAt
+  )
     return null;
-  }
-  if (!isRecord(parsed)) return null;
-  const props = parsed["props"];
-  const pageProps = isRecord(props) ? props["pageProps"] : undefined;
-  const timeline = isRecord(pageProps) ? pageProps["timeline"] : undefined;
-  const entries = isRecord(timeline) ? timeline["entries"] : undefined;
-  return Array.isArray(entries) && entries.length <= 500 ? entries : null;
+  return { text: normalize(text), url: `https://x.com/NIKKE_kr/status/${id}`, publishedAt };
 }
 
-function parseSyndicationEntry(value: unknown) {
-  if (!isRecord(value) || value["type"] !== "tweet") return null;
-  const content = value["content"];
-  const tweet = isRecord(content) ? content["tweet"] : undefined;
-  if (!isRecord(tweet)) return null;
-  const user = tweet["user"];
-  const username = isRecord(user) ? readString(user["screen_name"], 15) : null;
-  if (username?.toLowerCase() !== "nikke_kr") return null;
-  const id = readDigits(tweet["id_str"]);
-  const text = readString(tweet["full_text"], 4_000) ?? readString(tweet["text"], 4_000);
-  if (!id || !text) return null;
-  const publishedAt = readTimestamp(tweet["created_at"]) ?? snowflakeTimestamp(id);
-  return publishedAt
-    ? {
-        text: normalize(text).slice(0, 600),
-        url: `https://x.com/NIKKE_kr/status/${id}`,
-        publishedAt,
-      }
-    : null;
+function hasExpectedFxAuthor(author: unknown, expectedAuthorId: string) {
+  if (!readDigits(expectedAuthorId) || !isRecord(author)) return false;
+  return (
+    readDigits(author["id"]) === expectedAuthorId &&
+    readString(author["screen_name"], 15)?.toLowerCase() === "nikke_kr"
+  );
 }
 
-export async function fetchJinaPayload(fetcher: typeof fetch = fetch): Promise<ProbePayload> {
-  try {
-    const response = await fetcher(JINA_READER_URL, {
-      headers: { accept: "text/plain", "x-cache-tolerance": "300" },
-      signal: AbortSignal.timeout(12_000),
-    });
-    const declaredLength = Number(response.headers.get("content-length"));
-    if (Number.isFinite(declaredLength) && declaredLength > JINA_MAX_BYTES) {
-      return { posts: [], reason: "navigation_error" };
-    }
-    const body = await readLimitedText(response, JINA_MAX_BYTES);
-    if (response.status === 429 || /abusealleviation|rate limit|too many requests/i.test(body)) {
-      return { posts: [], reason: "rate_limited" };
-    }
-    if (!response.ok) return { posts: [], reason: "navigation_error" };
-    return parseJinaPayload(body);
-  } catch (error) {
-    return { posts: [], reason: classifyFetchError(error) };
+function readFxCreationTime(value: Record<string, unknown>, id: string | null) {
+  const publishedAt = readTimestamp(value["created_at"]);
+  const timestamp = value["created_timestamp"];
+  if (
+    !id ||
+    !publishedAt ||
+    typeof timestamp !== "number" ||
+    !Number.isSafeInteger(timestamp) ||
+    Math.floor(Date.parse(publishedAt) / 1_000) !== timestamp
+  )
+    return null;
+  const snowflakeAt = snowflakeTimestamp(id);
+  if (!snowflakeAt || Math.floor(Date.parse(snowflakeAt) / 1_000) !== timestamp) return null;
+  return publishedAt;
+}
+
+class ProbeRequestError extends Error {
+  constructor(readonly reason: ProbeFailureReason) {
+    super(reason);
   }
 }
 
-export function parseJinaPayload(body: string): ProbePayload {
-  const matches = [...body.matchAll(/https:\/\/(?:x\.com|twitter\.com)\/NIKKE_kr\/status\/(\d+)/g)];
-  const posts = matches.slice(0, 30).map((match, index) => {
-    const id = match[1] ?? "";
-    const url = `https://x.com/NIKKE_kr/status/${id}`;
-    const at = match.index ?? 0;
-    const previousEnd = index === 0 ? 0 : (matches[index - 1]?.index ?? 0) + 1;
-    const nextStart = matches[index + 1]?.index ?? body.length;
-    return {
-      text: normalize(
-        body.slice(Math.max(previousEnd, at - 600), Math.min(nextStart, at + 1_200)),
-      ).slice(0, 600),
-      url,
-      publishedAt: snowflakeTimestamp(id),
-    };
+async function fetchLimitedText(
+  url: string,
+  fetcher: typeof fetch,
+  maxBytes: number,
+  timeoutMs: number,
+  accept: string,
+) {
+  const controller = new AbortController();
+  let rejectTimeout: (reason: unknown) => void = () => {};
+  const timeout = new Promise<never>((_, reject) => {
+    rejectTimeout = reject;
   });
-  return { posts, reason: posts.length === 0 ? "empty_timeline" : null };
+  const timer = setTimeout(() => {
+    const error = new DOMException("Whole response timed out", "TimeoutError");
+    controller.abort(error);
+    rejectTimeout(error);
+  }, timeoutMs);
+  const operation = async () => {
+    const response = await fetcher(url, {
+      headers: { accept, "user-agent": "Nikke-Collection-Item-Calculator/X-advisory" },
+      redirect: "error",
+      signal: controller.signal,
+    });
+    if (response.status !== 200) {
+      await response.body?.cancel();
+      throw new ProbeRequestError(response.status === 429 ? "rate_limited" : "navigation_error");
+    }
+    const declaredLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+      await response.body?.cancel();
+      throw new ProbeRequestError("invalid_response");
+    }
+    return readLimitedText(response, maxBytes, timeout);
+  };
+  try {
+    return await Promise.race([operation(), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-async function readLimitedText(response: Response, maxBytes: number) {
-  if (!response.body) return "";
+async function readLimitedText(response: Response, maxBytes: number, timeout: Promise<never>) {
+  if (!response.body) throw new ProbeRequestError("invalid_response");
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let total = 0;
   let text = "";
-  while (true) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    total += chunk.value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      throw new Error("x_response_too_large");
+  try {
+    while (true) {
+      const chunk = await Promise.race([reader.read(), timeout]);
+      if (chunk.done) break;
+      total += chunk.value.byteLength;
+      if (total > maxBytes) throw new ProbeRequestError("invalid_response");
+      text += decoder.decode(chunk.value, { stream: true });
     }
-    text += decoder.decode(chunk.value, { stream: true });
+    return text + decoder.decode();
+  } finally {
+    try {
+      await reader.cancel();
+    } finally {
+      reader.releaseLock();
+    }
   }
-  return text + decoder.decode();
 }
 
 export function classifyXAdvisory(
@@ -376,6 +316,25 @@ export function classifyXAdvisory(
     return unavailable(source, payload.reason ?? "empty_timeline");
   }
   const contemporaneous = relevant.filter((post) => isContemporaneous(post, candidate));
+  const conflict = contemporaneous.find((post) => postConflictsWithCandidate(post, candidate));
+  if (conflict) {
+    return {
+      status: "conflict",
+      source,
+      reason: "schedule_conflict",
+      statusUrl: normalizeNikStatusUrl(conflict.url),
+      excerpt: conflict.text.slice(0, 600),
+    };
+  }
+  // Partial success cannot hide a failed request, even when another post matches.
+  if (payload.reason !== null) {
+    const manual = contemporaneous[0];
+    return {
+      ...unavailable(source, payload.reason),
+      statusUrl: manual ? normalizeNikStatusUrl(manual.url) : null,
+      excerpt: manual?.text.slice(0, 600) ?? null,
+    };
+  }
   const exact = contemporaneous.find((post) => postMatchesCandidate(post, candidate));
   if (exact) {
     return {
@@ -384,19 +343,6 @@ export function classifyXAdvisory(
       reason: "matched_schedule",
       statusUrl: normalizeNikStatusUrl(exact.url),
       excerpt: exact.text.slice(0, 600),
-    };
-  }
-  const conflict =
-    source === "jina"
-      ? undefined
-      : contemporaneous.find((post) => postConflictsWithCandidate(post, candidate));
-  if (conflict) {
-    return {
-      status: "conflict",
-      source,
-      reason: "schedule_conflict",
-      statusUrl: normalizeNikStatusUrl(conflict.url),
-      excerpt: conflict.text.slice(0, 600),
     };
   }
   const manual = contemporaneous[0];
@@ -522,6 +468,8 @@ function sortPosts(posts: ProbePost[]) {
 }
 
 function classifyFetchError(error: unknown): ProbeFailureReason {
+  if (error instanceof ProbeRequestError) return error.reason;
+  if (error instanceof SyntaxError) return "invalid_response";
   const message = error instanceof Error ? `${error.name} ${error.message}`.toLowerCase() : "";
   return /timeout|abort/.test(message) ? "timeout" : "navigation_error";
 }

@@ -45,40 +45,54 @@ Naver 라운지 56·48번 게시판이 자동 판정의 주 출처다. Free Work
 처리하지 않고 얕은 feed 메타데이터만 D1 queue에 넣는다. 3분 offset Dispatcher가 actionable
 work를 발견하면 proposal workflow를 요청하며, `17,47` Actions schedule은 30분 watchdog으로만
 남는다. Actions가 구조화된 SmartEditor JSON을 다시 받아 일정 해석과 후보 생성을 수행한다.
-X 검증은 후보가 있을 때만
-Actions에서 실행한다. `X_API_BEARER_TOKEN`이 있으면 공식 recent search를 1차로 사용하고,
-`from:NIKKE_kr`·솔로 레이드/콜라보/협동작전/키트 상자 키워드·최대 10건으로 범위를
-제한한다. 응답의 author expansion이 `NIKKE_kr`임을 확인한 게시물만 사용한다. 솔로 레이드와
-콜라보는 후보 일정과 자동 비교하고, 협동작전·키트 상자는 정확한 URL을 수동 확인 후보로만
-전달한다. API가 없거나 실패하면 공개 프로필 원본에서
-status ID를 찾고 X의 구조화된 `tweet-result` 응답으로 ID·작성자·본문·시각을 재검증한다.
-그다음 profile syndication의 `__NEXT_DATA__`, 마지막으로 Jina Reader를 확인한다. X를 읽을 수
-없으면 관리자 확인 체크를 남기고, 공식 API 또는 X 구조화 응답에서 확인한 일정이 충돌하면
-draft PR로 격리한다.
+X 보조 확인은 후보가 있을 때만 수행한다. 교체 경로는
+[FxTwitter v2 timeline](https://docs.fxembed.com/api/twitter/operations/2profilehandlestatuses/)을
+`count=10`으로 한 페이지만 읽고, 1차·fallback ID를 합쳐 최대 10회 상세 요청을 사용한다.
+공개 X 프로필 HTML은 최대 1회 ID 발견에만 사용하며 일정 증거로 사용하지 않는다.
+총 HTTP 요청은 최대 12회이며 재시도·추가 페이지·redirect는 허용하지 않는다.
+응답 본문 전체 timeout과 streaming byte guard를 적용한다. Fx JSON은 숫자 `code=200`,
+신뢰할 수 있는 작성자 숫자 ID·handle, 게시물 ID 일치, 유효 시각·원문을 요구한다.
+충돌이 일치보다 우선하며 충돌 또는 불완전 결과는 draft/수동 검토 대기로 처리한다.
+일치는 제3자 보조 결과일 뿐 공식 X 확인 체크를 자동으로 채우지 않는다.
+현재 `NIKKE_kr` 숫자 작성자 ID를 입증하는 권위 있는 공개 출처가 없어 요청 경로는
+비활성 상태다. 요청 없이 `author_identity_unverified`로 fail closed 한다.
+현재 `VERIFIED_NIKKE_AUTHOR_ID` trust anchor는 `null`이다. 보조 결과는 source `fxtwitter`,
+상태 `unavailable`, `statusUrl: null`이며 비활성 probe는 검증된 URL을 제공하지 않는다.
 
 [Defuddle](https://github.com/kepano/defuddle)은 이미 알고 있는 URL이나 접근 가능한 DOM을
 Markdown으로 정리하는 데는 쓸 수 있지만, 차단되거나 불완전한 프로필에서 최신 status URL을
 안정적으로 발견하지는 못한다. 선택적 X fallback도 FxTwitter를 사용한다. 2026-08-28 live
 검사에서도 알려진 개별 status와 프로필 본문은 읽었지만, 개별 status 결과에 주변 timeline
 본문이 섞였고 프로필 Markdown에서는 원본에 있던 status URL 5개를 보존하지 못했다. 따라서
-발견·기계 검증 단계에는 넣지 않으며, 공식 API/구조화 응답이 이미 제공하는 본문을 다시 손실
-변환하는 용도로도 추가하지 않는다. [Jina
-Reader](https://jina.ai/reader/)는 제3자 fetch/cache 중계이므로 마지막 보조
-경로로만 사용한다. status Snowflake로 최신성을 검사하고, Jina 일치는 수동 원문 확인을
-요구하며 Jina만으로 충돌을 만들지 않는다.
+발견·기계 검증 단계에는 넣지 않으며 구조화된 본문을 다시 손실 변환하지 않는다.
+유료 X bearer 사용과 tweet-result·syndication·Jina runtime 분기는 교체했다.
+기존 secret은 삭제하지 않으며 rollback으로 유료 X 호출을 복원하지 않는다.
+`npm run probe:forecast-x`도 같은 비활성 trust gate를 사용하고 제한된 진단 정보만 출력한다.
+gate가 비활성이면 요청 0건이 예상 결과이며, 비활성 probe로 공급자 가용성·응답 상태·계약
+호환성을 입증할 수 없다. 활성화 전에는 공식 계정의 숫자 작성자 ID를 입증하는 권위 있는
+증거, 실제 공급자 v2 응답 구조와 repost·고정 게시물·conversation 의미론에 대한 증거, 설정된
+User-Agent에서 공개 프로필 HTML이 어떻게 동작하는지에 대한 증거가 여전히 필요하다.
+이는 활성화 전제 조건이며 현재의 요청 0건 결과가 제공하는 증거가 아니다.
 
-문서화된 API 계약에 기반한 1차 URL 발견에는 GitHub repository secret
-`X_API_BEARER_TOKEN`이 필요하다. X
-Developer Console에서는 recent search 읽기만 가능한 앱과 소액 prepaid 한도·알림을 사용하고,
-게시·DM·계정 관리 권한은 주지 않는다. secret이 없어도 검증된 공개 프로필 경로로 자동
-발견을 시도하지만, 비문서화 경로의 rate limit이나 형식 변경 시 Discord/PR 수동 확인으로
-강등된다. `npm run
-probe:forecast-x`는 token이나 원문을 출력하지 않고 공급자별 건수·사유·첫 URL·시각만 점검한다.
+### Rollback 호환성과 수동 검토
+
+검토 지적 `R1-RB2`: 메타데이터 파서를 되돌리면 `fxtwitter`와
+`author_identity_unverified`가 포함된 저장된 PR 메타데이터를 거부한다. 해당 파서를
+되돌리는 대신 forward fix 또는 수동 무료 fallback을 사용한다. 어떤 rollback이든 기존 PR
+메타데이터를 계속 읽을 수 있도록 이 새 parser enum 값과 모든 과거 parser enum 값을
+유지해야 하며, 유료 X 호출을 복원해서는 안 된다. 자동 X 요청은 비활성으로 유지하고
+메타데이터는 수동 검토를 위해 보존한다. 기존 secret을 유지하며 secret 삭제는 이 rollback에
+포함되지 않는다.
+
+요청 경로가 비활성인 동안에는 관리자가 공식 X 증거를 수동 검토하고 공식 확인을 기록한
+뒤, 명시적으로 **Ready for review**로 전환해야 H/p 또는 Discord 테스트를 진행할 수 있다.
+재제안은 PR을 다시 draft로 만들 수 있으므로 이 검토와 명시적 준비 전환을 다시 수행해야
+한다. 재제안이나 제3자 보조 결과의 일치가 공식 X 증거를 자동 확인하지는 않는다.
 
 - `[확인]` 2026-08-28 live probe에서 공개 프로필 HTML의 status ID 5개를 찾았고,
   `tweet-result`로 5개 모두의 `NIKKE_kr` 작성자·본문·시각을 검증했다. 같은 시각 timeline
-  syndication과 Jina는 rate limit이었다. 따라서 무자격증명 경로는 프로필 ID + 개별 구조화
-  검증을 우선하고, 나머지는 장애 격리용 fallback으로 둔다.
+  syndication과 Jina는 rate limit이었다. 이는 교체된 구현의 과거 증거이며 FxTwitter 경로의
+  현재 검증이나 숫자 작성자 ID의 권위 있는 출처가 아니다.
 
 - `[확인]` 2026-08-25 live contract 검사에서 48·56번 최신 관리자 글과 솔로 레이드 공지는
   SmartEditor JSON이 아니라 SmartEditor HTML을 반환했다. 현재 JSON-only 경계는 이를
@@ -109,7 +123,8 @@ Canary가 통과하면 staging의 공식 일정 원장을 다시 처리해 inact
 H/p Actions는 그 PR의 코드를 checkout하거나 실행하지 않고, GitHub Actions bot이 만든 비-draft
 PR인지와 변경 파일이 registry 2개뿐인지 확인한 뒤 `shared/supplyForecasts.json`만 commit SHA로
 추출한다. 따라서 관리자가 PR을 병합하기 전에도 후보 수급 profile의 exact interactive gate와
-H/p 연구를 시작할 수 있다. 완료된 exact-gate 인증서가 있으면 Discord 버튼은 staging 적용
+H/p 연구를 시작할 수 있지만, X 확인이 비활성이면 위의 수동 X 검토와 명시적인
+**Ready for review** 전환이 선행되어야 한다. 완료된 exact-gate 인증서가 있으면 Discord 버튼은 staging 적용
 승인만 기록한다. 별도 Actions가 인증서를 다시 확인해 staging adoption PR을 만들지만, PR을
 병합하거나 제품 `activeForecastId`를 변경하지 않는다. 관리자가 Adoption PR을 병합하고 Pages
 배포가 끝나면 registry v3의 `stagingForecastId`와 전용 경량 runtime 모듈이 갱신된다. 따라서
