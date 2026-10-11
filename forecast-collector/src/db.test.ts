@@ -429,6 +429,7 @@ describe("forecast collector D1 contract", () => {
 
 async function completedInvocation(deploymentSha: string, scheduledTime: number) {
   const id = await startInvocation(testEnv.FORECAST_DB, deploymentSha, scheduledTime, "both");
+  if (id === null) throw new Error("Expected a new test invocation");
   await finishInvocation(testEnv.FORECAST_DB, id, "completed", 0, null, null);
   await testEnv.FORECAST_DB.prepare(
     `INSERT OR IGNORE INTO dispatcher_invocations (

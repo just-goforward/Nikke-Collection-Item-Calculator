@@ -18,6 +18,7 @@ export async function runCollection(
 ): Promise<CollectionSummary> {
   const nowMs = options.nowMs ?? Date.now();
   const invocationId = await startInvocation(env.FORECAST_DB, env.DEPLOY_SHA, nowMs, env.POLL_MODE);
+  if (invocationId === null) return { outcome: "completed", polledSources: 0, queuedItems: 0 };
   const circuit = await invocationCircuitState(env.FORECAST_DB, nowMs);
   if (circuit.open) {
     await finishInvocation(
@@ -36,40 +37,23 @@ export async function runCollection(
   let errorCode: string | null = null;
   let holdCode: string | null = null;
   let successfulSources = 0;
+  let staleSources = 0;
   for (const boardId of boards) {
     try {
-      try {
-        queuedItems += await pollNaverSource(env.FORECAST_DB, boardId, fetch, opsEnvironment(env));
-        await resolveOpsAlertsByPrefix(
-          env.FORECAST_DB,
-          `naver-schema:${opsEnvironment(env)}:${boardId}:`,
-          nowMs,
-        );
-        successfulSources += 1;
-      } catch (error) {
-        if (error instanceof NaverScanBoundaryError) queuedItems += error.queuedItems;
-        if (error instanceof NaverPartialSchemaError) {
-          const first = error.rejected[0];
-          await upsertOpsAlert(env.FORECAST_DB, {
-            alertKey: `naver-schema:${opsEnvironment(env)}:${boardId}:${first?.shapeHash ?? "unknown"}`,
-            environment: opsEnvironment(env),
-            severity: "critical",
-            component: "naver-metadata",
-            errorCode: "naver_partial_schema_drift",
-            context: {
-              board: boardId,
-              offset: error.offset,
-              rowIndex: first?.index ?? -1,
-              topLevelKeys: (first?.topLevelKeys ?? []).join(",").slice(0, 300),
-              shapeHash: first?.shapeHash ?? null,
-              rejectedCount: error.rejected.length,
-            },
-            nowMs,
-          });
-        }
-        throw error;
+      const queued = await pollCollectionSource(env, boardId, nowMs);
+      if (queued === null) {
+        staleSources += 1;
+        continue;
       }
+      queuedItems += queued;
+      await resolveOpsAlertsByPrefix(
+        env.FORECAST_DB,
+        `naver-schema:${opsEnvironment(env)}:${boardId}:`,
+        nowMs,
+      );
+      successfulSources += 1;
     } catch (error) {
+      if (error instanceof NaverScanBoundaryError) queuedItems += error.queuedItems;
       if (isBoundaryHoldError(error)) {
         holdCode ??= sanitizeErrorCode(error);
       } else {
@@ -100,8 +84,42 @@ export async function runCollection(
     );
     return { outcome: "held", polledSources: boards.length, queuedItems };
   }
-  await finishInvocation(env.FORECAST_DB, invocationId, "completed", queuedItems, null, null);
+  await finishInvocation(
+    env.FORECAST_DB,
+    invocationId,
+    "completed",
+    queuedItems,
+    staleSources === boards.length ? "naver_stale_poll_only" : null,
+    null,
+  );
   return { outcome: "completed", polledSources: boards.length, queuedItems };
+}
+
+async function pollCollectionSource(env: CollectorEnv, boardId: 48 | 56, nowMs: number) {
+  try {
+    return await pollNaverSource(env.FORECAST_DB, boardId, fetch, opsEnvironment(env));
+  } catch (error) {
+    if (error instanceof NaverPartialSchemaError) {
+      const first = error.rejected[0];
+      await upsertOpsAlert(env.FORECAST_DB, {
+        alertKey: `naver-schema:${opsEnvironment(env)}:${boardId}:${first?.shapeHash ?? "unknown"}`,
+        environment: opsEnvironment(env),
+        severity: "critical",
+        component: "naver-metadata",
+        errorCode: "naver_partial_schema_drift",
+        context: {
+          board: boardId,
+          offset: error.offset,
+          rowIndex: first?.index ?? -1,
+          topLevelKeys: (first?.topLevelKeys ?? []).join(",").slice(0, 300),
+          shapeHash: first?.shapeHash ?? null,
+          rejectedCount: error.rejected.length,
+        },
+        nowMs,
+      });
+    }
+    throw error;
+  }
 }
 
 function opsEnvironment(env: CollectorEnv) {

@@ -88,6 +88,11 @@ const recoveryGuardSql = `EXISTS (
   WHERE alert_key = ? AND environment = ? AND state = 'resolved'
     AND json_extract(context_json, '$.recoveryId') = ?
 )`;
+const nextCursorVersionSql = `CASE
+  WHEN ? <= source_poll_state.updated_at
+    THEN strftime('%Y-%m-%dT%H:%M:%fZ', source_poll_state.updated_at, '+0.001 seconds')
+  ELSE ?
+END`;
 
 type BoundaryHoldProof = {
   board: number;
@@ -137,7 +142,7 @@ export async function startInvocation(
 ) {
   const scheduledAt = new Date(scheduledTime).toISOString();
   const invocationId = `${deploymentSha}:${scheduledTime}`;
-  await db
+  const result = await db
     .prepare(
       `INSERT OR IGNORE INTO collector_invocations (
          invocation_id, deployment_sha, scheduled_at, started_at, status, poll_mode
@@ -145,7 +150,7 @@ export async function startInvocation(
     )
     .bind(invocationId, deploymentSha, scheduledAt, new Date().toISOString(), pollMode)
     .run();
-  return invocationId;
+  return result.meta.changes === 1 ? invocationId : null;
 }
 
 export async function finishInvocation(
@@ -171,7 +176,9 @@ export async function invocationCircuitState(db: D1Database, nowMs: number) {
     .prepare(
       `SELECT status, next_retry_at, error_code FROM collector_invocations
        WHERE status IN ('failure', 'completed')
-         AND (error_code IS NULL OR error_code <> 'naver_boundary_held_only')
+         AND (error_code IS NULL OR error_code NOT IN (
+           'naver_boundary_held_only', 'naver_stale_poll_only'
+         ))
        ORDER BY scheduled_at DESC LIMIT 12`,
     )
     .all<{ status: string; next_retry_at: string | null; error_code: string | null }>();
@@ -231,21 +238,48 @@ export async function pollNaverSource(
     scanComplete || metadataPage.rawFeedCount < PAGE_SIZE || offset + 1 >= NAVER_SCAN_PAGES;
   const boundaryMissing = !scanComplete && scanEnded;
   const nowIso = new Date().toISOString();
-  const statements = queueStatements(db, toQueue, nowIso);
+  const guard = {
+    sql: state
+      ? `EXISTS (
+          SELECT 1 FROM source_poll_state
+          WHERE source = ? AND committed_item_id IS ? AND committed_published_at IS ?
+            AND scan_head_item_id IS ? AND scan_head_published_at IS ?
+            AND next_offset = ? AND updated_at = ?
+        )`
+      : "NOT EXISTS (SELECT 1 FROM source_poll_state WHERE source = ?)",
+    bindings: state
+      ? [
+          source,
+          state.committed_item_id,
+          state.committed_published_at,
+          state.scan_head_item_id,
+          state.scan_head_published_at,
+          state.next_offset,
+          state.updated_at,
+        ]
+      : [source],
+  };
+  guard.sql += ` AND NOT EXISTS (
+    SELECT 1 FROM forecast_ops_alerts
+    WHERE alert_key = ? AND environment = ? AND state = 'open'
+  )`;
+  guard.bindings.push(boundaryHoldKey(boardId, environment), environment);
+  const statements = queueStatements(db, toQueue, nowIso, guard);
+  const cursorStatementIndex = statements.length;
   statements.push(
     db
       .prepare(
         `INSERT INTO source_poll_state (
            source, committed_item_id, committed_published_at, scan_head_item_id,
            scan_head_published_at, next_offset, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ) SELECT ?, ?, ?, ?, ?, ?, ? WHERE ${guard.sql}
          ON CONFLICT(source) DO UPDATE SET
            committed_item_id = excluded.committed_item_id,
            committed_published_at = excluded.committed_published_at,
            scan_head_item_id = excluded.scan_head_item_id,
            scan_head_published_at = excluded.scan_head_published_at,
            next_offset = excluded.next_offset,
-           updated_at = excluded.updated_at`,
+           updated_at = ${nextCursorVersionSql}`,
       )
       .bind(
         source,
@@ -259,6 +293,9 @@ export async function pollNaverSource(
         scanComplete ? null : (scanHead?.publishedAt ?? null),
         scanEnded ? 0 : offset + PAGE_STEP,
         nowIso,
+        ...guard.bindings,
+        nowIso,
+        nowIso,
       ),
   );
   if (boundaryMissing) {
@@ -269,6 +306,8 @@ export async function pollNaverSource(
         severity: "critical",
         component: "naver-metadata",
         errorCode: "naver_scan_boundary_missing",
+        // Immediately follows the guarded cursor statement in the same transaction.
+        guard: { sql: "changes() = 1", bindings: [] },
         context: {
           board: boardId,
           committedItemId: state?.committed_item_id ?? null,
@@ -282,7 +321,8 @@ export async function pollNaverSource(
       }),
     );
   }
-  await db.batch(statements);
+  const results = await db.batch(statements);
+  if (results[cursorStatementIndex]?.meta.changes !== 1) return null;
   if (boundaryMissing) throw new NaverScanBoundaryError(toQueue.length);
   return toQueue.length;
 }
@@ -368,15 +408,22 @@ export async function recoverNaverBoundary(
         state.next_offset,
         state.updated_at,
       ),
-    ...queueStatements(db, toQueue, nowIso, recovery),
+    ...queueStatements(db, toQueue, nowIso, { sql: recoveryGuardSql, bindings: guardBindings }),
     db
       .prepare(
         `UPDATE source_poll_state
          SET committed_item_id = ?, committed_published_at = ?, scan_head_item_id = NULL,
-             scan_head_published_at = NULL, next_offset = 0, updated_at = ?
+             scan_head_published_at = NULL, next_offset = 0, updated_at = ${nextCursorVersionSql}
          WHERE source = ? AND ${recoveryGuardSql}`,
       )
-      .bind(scanHead.itemId, scanHead.publishedAt, nowIso, request.source, ...guardBindings),
+      .bind(
+        scanHead.itemId,
+        scanHead.publishedAt,
+        nowIso,
+        nowIso,
+        request.source,
+        ...guardBindings,
+      ),
   ]);
   if (results[0]?.meta.changes !== 1) throw new Error("naver_boundary_recovery_conflict");
   return { recovered: true, source: request.source, queuedItems: toQueue.length };
@@ -664,7 +711,7 @@ function queueStatements(
   db: D1Database,
   items: readonly NaverFeedMetadata[],
   nowIso: string,
-  recovery?: { alertKey: string; environment: OpsEnvironment; recoveryId: string },
+  guard?: { sql: string; bindings: (string | number | null)[] },
 ) {
   return items.map((item) =>
     db
@@ -673,7 +720,7 @@ function queueStatements(
            source, item_id, url, title, published_at, official, status,
            attempts, first_seen_at, updated_at
          ) SELECT ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?
-         WHERE ${recovery ? recoveryGuardSql : "1"}
+         WHERE ${guard?.sql ?? "1"}
          ON CONFLICT(source, item_id) DO UPDATE SET
            url = excluded.url, title = excluded.title, published_at = excluded.published_at,
            official = excluded.official, updated_at = excluded.updated_at`,
@@ -687,7 +734,7 @@ function queueStatements(
         item.official ? 1 : 0,
         nowIso,
         nowIso,
-        ...(recovery ? [recovery.alertKey, recovery.environment, recovery.recoveryId] : []),
+        ...(guard?.bindings ?? []),
       ),
   );
 }

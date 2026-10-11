@@ -3,9 +3,25 @@ import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { executeTestSql } from "../../shared/testD1Sql";
 import schemaSql from "../schema.sql?raw";
-import { pollNaverSource, recoverNaverBoundary } from "./source-queue";
+import { runCollection } from "./collector";
+import { upsertOpsAlert } from "./ops";
+import {
+  finishInvocation,
+  invocationCircuitState,
+  pollNaverSource,
+  recoverNaverBoundary,
+  startInvocation,
+} from "./source-queue";
+import type { CollectorEnv } from "./types";
 
 const db = env["FORECAST_DB"] as D1Database;
+const testEnv: CollectorEnv = {
+  FORECAST_DB: db,
+  ADMIN_TOKEN: "test-forecast-admin-token",
+  ENVIRONMENT: "test",
+  DEPLOY_SHA: "test-deploy-sha",
+  POLL_MODE: "both",
+};
 const source = "naver-board-56";
 const marker = "8143799";
 const request = {
@@ -21,11 +37,11 @@ beforeEach(async () => {
   await executeTestSql(db, schemaSql, applyD1Migrations);
 });
 
-function row(id: string, date: string) {
+function row(id: string, date: string, boardId: 48 | 56 = 56) {
   return {
     feed: { feedId: Number(id), loungeId: "nikke", title: `Official ${id}`, createdDate: date },
     user: { userRoleCode: "game_manager" },
-    board: { boardId: 56 },
+    board: { boardId },
     feedLink: { pc: `https://game.naver.com/lounge/nikke/board/detail/${id}` },
   };
 }
@@ -128,6 +144,395 @@ describe("page-number collection", () => {
       );
       expect(fetcher).not.toHaveBeenCalled();
       expect(await snapshot()).toEqual(before);
+    },
+  );
+});
+
+describe("collector invocation ownership", () => {
+  it("leaves a running winner untouched and suppresses duplicate work before and after completion", async () => {
+    const nowMs = Date.parse("2026-10-09T05:10:00Z");
+    let arrive = () => {};
+    let release = () => {};
+    const arrived = new Promise<void>((resolve) => {
+      arrive = resolve;
+    });
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const boardId = Number(new URL(String(input)).searchParams.get("boardId")) as 48 | 56;
+      if (boardId === 48) {
+        arrive();
+        await barrier;
+      }
+      return response([row("200", "20260925120049", boardId)]);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      const winner = runCollection(testEnv, { nowMs });
+      await arrived;
+      const before = await db
+        .prepare("SELECT * FROM collector_invocations WHERE invocation_id = ?")
+        .bind(`${testEnv.DEPLOY_SHA}:${nowMs}`)
+        .first();
+      expect(before).toMatchObject({ status: "running", finished_at: null });
+      const prepare = vi.spyOn(db, "prepare");
+      try {
+        await expect(runCollection(testEnv, { nowMs })).resolves.toEqual({
+          outcome: "completed",
+          polledSources: 0,
+          queuedItems: 0,
+        });
+        expect(prepare).toHaveBeenCalledTimes(1);
+        expect(prepare.mock.calls[0]?.[0]).toContain("INSERT OR IGNORE INTO collector_invocations");
+      } finally {
+        prepare.mockRestore();
+      }
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(await db.prepare("SELECT * FROM collector_invocations").first()).toEqual(before);
+      release();
+      await expect(winner).resolves.toEqual({
+        outcome: "completed",
+        polledSources: 2,
+        queuedItems: 2,
+      });
+      const completed = await db.prepare("SELECT * FROM collector_invocations").first();
+      await expect(runCollection(testEnv, { nowMs })).resolves.toEqual({
+        outcome: "completed",
+        polledSources: 0,
+        queuedItems: 0,
+      });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(await db.prepare("SELECT * FROM collector_invocations").first()).toEqual(completed);
+    } finally {
+      release();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("claims distinct deployment and scheduled-time identities independently", async () => {
+    const nowMs = Date.parse("2026-10-09T05:10:00Z");
+    await expect(startInvocation(db, "first", nowMs, "both")).resolves.toBe(`first:${nowMs}`);
+    await expect(startInvocation(db, "first", nowMs, "both")).resolves.toBeNull();
+    await expect(startInvocation(db, "second", nowMs, "both")).resolves.toBe(`second:${nowMs}`);
+    await expect(startInvocation(db, "first", nowMs + 1, "both")).resolves.toBe(
+      `first:${nowMs + 1}`,
+    );
+  });
+
+  it.each(["both", "alternating"] as const)(
+    "skips stale %s polls without resolving schema alerts or adding circuit failures",
+    async (mode) => {
+      const nowMs = Math.floor(Date.parse("2026-10-09T05:10:00Z") / 360_000) * 360_000;
+      await pollNaverSource(db, 48, async () => response([row("100", "20260903180521", 48)]));
+      await upsertOpsAlert(db, {
+        alertKey: "naver-schema:staging:48:existing",
+        environment: "staging",
+        severity: "critical",
+        component: "naver-metadata",
+        errorCode: "naver_partial_schema_drift",
+        nowMs,
+      });
+      const id = await startInvocation(db, "prior", nowMs - 60_000, mode);
+      if (id === null) throw new Error("Expected a new test invocation");
+      await finishInvocation(
+        db,
+        id,
+        "failure",
+        0,
+        "naver_network",
+        new Date(nowMs + 60_000).toISOString(),
+      );
+      const fetcher = vi.fn<typeof fetch>(async (input) => {
+        const boardId = Number(new URL(String(input)).searchParams.get("boardId")) as 48 | 56;
+        if (boardId === 48) {
+          await pollNaverSource(db, 48, async () =>
+            response([row("200", "20260925120049", 48), row("100", "20260903180521", 48)]),
+          );
+          return response([row("110", "20260912120000", 48), row("100", "20260903180521", 48)]);
+        }
+        return response([row("300", "20260925120049", boardId)]);
+      });
+      vi.stubGlobal("fetch", fetcher);
+      try {
+        await expect(runCollection({ ...testEnv, POLL_MODE: mode }, { nowMs })).resolves.toEqual({
+          outcome: "completed",
+          polledSources: mode === "both" ? 2 : 1,
+          queuedItems: mode === "both" ? 1 : 0,
+        });
+        expect(fetcher).toHaveBeenCalledTimes(mode === "both" ? 2 : 1);
+        expect(
+          await db
+            .prepare(
+              "SELECT committed_item_id FROM source_poll_state WHERE source='naver-board-48'",
+            )
+            .first(),
+        ).toEqual({ committed_item_id: "200" });
+        expect(
+          await db.prepare("SELECT 1 FROM source_queue WHERE item_id = '110'").first(),
+        ).toBeNull();
+        expect(
+          await db
+            .prepare(
+              "SELECT state FROM forecast_ops_alerts WHERE alert_key = 'naver-schema:staging:48:existing'",
+            )
+            .first(),
+        ).toEqual({ state: "open" });
+        expect(await invocationCircuitState(db, nowMs)).toMatchObject({
+          failures: mode === "both" ? 0 : 1,
+          open: false,
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+});
+
+describe("ordinary poll snapshot ownership", () => {
+  it.each([
+    "committed-id",
+    "committed-date",
+    "head-id",
+    "head-date",
+    "offset",
+    "updated-at",
+    "deleted",
+    "hold",
+  ] as const)("rejects all poll writes after a concurrent %s change", async (kind) => {
+    await seedMarker();
+    await acceptedEvidence();
+    await db
+      .prepare(
+        `UPDATE source_poll_state SET scan_head_item_id='8239880',
+         scan_head_published_at='2026-09-25T03:00:49.000Z', next_offset=1 WHERE source=?`,
+      )
+      .bind(source)
+      .run();
+    let raced: Awaited<ReturnType<typeof snapshot>> | undefined;
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      if (kind === "hold") {
+        await upsertOpsAlert(db, {
+          alertKey: holdKey,
+          environment: "staging",
+          severity: "critical",
+          component: "naver-metadata",
+          errorCode: "naver_scan_boundary_missing",
+          context: { board: 56, committedItemId: marker },
+        });
+      } else {
+        const updates = {
+          "committed-id": "UPDATE source_poll_state SET committed_item_id='8143800' WHERE source=?",
+          "committed-date":
+            "UPDATE source_poll_state SET committed_published_at='2026-09-04T09:05:21.000Z' WHERE source=?",
+          "head-id": "UPDATE source_poll_state SET scan_head_item_id='8239881' WHERE source=?",
+          "head-date":
+            "UPDATE source_poll_state SET scan_head_published_at='2026-09-24T03:00:49.000Z' WHERE source=?",
+          offset: "UPDATE source_poll_state SET next_offset=2 WHERE source=?",
+          "updated-at": "UPDATE source_poll_state SET updated_at='concurrent' WHERE source=?",
+          deleted: "DELETE FROM source_poll_state WHERE source=?",
+        };
+        await db.prepare(updates[kind]).bind(source).run();
+      }
+      raced = await snapshot();
+      return response([row("9004", "20260925120049"), row("9000", "20260925120049")]);
+    });
+    await expect(pollNaverSource(db, 56, fetcher)).resolves.toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(await snapshot()).toEqual(raced);
+  });
+
+  it.each([false, true])(
+    "keeps the first winning snapshot when a late poll began with existing-state=%s",
+    async (existingState) => {
+      if (existingState) await seedMarker();
+      await acceptedEvidence();
+      let arrive = () => {};
+      let release = () => {};
+      const arrived = new Promise<void>((resolve) => {
+        arrive = resolve;
+      });
+      const barrier = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const older = vi.fn<typeof fetch>(async () => {
+        arrive();
+        await barrier;
+        return response([
+          row("9004", "20260912120000"),
+          row("9001", "20260912120000"),
+          ...(existingState ? [row(marker, "20260903180521")] : []),
+        ]);
+      });
+      const loser = pollNaverSource(db, 56, older);
+      await arrived;
+      try {
+        await expect(
+          pollNaverSource(db, 56, async () =>
+            response([
+              row("9004", "20260925120049"),
+              row("9000", "20260925120049"),
+              ...(existingState ? [row(marker, "20260903180521")] : []),
+            ]),
+          ),
+        ).resolves.toBe(2);
+        const won = await snapshot();
+        release();
+        await expect(loser).resolves.toBeNull();
+        expect(older).toHaveBeenCalledTimes(1);
+        expect(await snapshot()).toEqual(won);
+      } finally {
+        release();
+      }
+    },
+  );
+
+  it("has one winner even when the cursor values and wall-clock millisecond are unchanged", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      await seedMarker();
+      let arrive = () => {};
+      let release = () => {};
+      const arrived = new Promise<void>((resolve) => {
+        arrive = resolve;
+      });
+      const barrier = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const loser = pollNaverSource(db, 56, async () => {
+        arrive();
+        await barrier;
+        return response([row(marker, "20260903180521")]);
+      });
+      await arrived;
+      try {
+        await expect(
+          pollNaverSource(db, 56, async () => response([row(marker, "20260903180521")])),
+        ).resolves.toBe(0);
+        const won = await snapshot();
+        release();
+        await expect(loser).resolves.toBeNull();
+        expect(await snapshot()).toEqual(won);
+      } finally {
+        release();
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["cursor", "hold"] as const)(
+    "rolls back all metadata and cursor writes if the %s statement fails",
+    async (kind) => {
+      await seedMarker();
+      await acceptedEvidence();
+      const before = await snapshot();
+      await db
+        .prepare(
+          kind === "cursor"
+            ? `CREATE TRIGGER reject_poll_cursor BEFORE UPDATE ON source_poll_state
+               BEGIN SELECT RAISE(ABORT,'poll_write_failed'); END`
+            : `CREATE TRIGGER reject_poll_hold BEFORE INSERT ON forecast_ops_alerts
+               BEGIN SELECT RAISE(ABORT,'poll_write_failed'); END`,
+        )
+        .run();
+      await expect(
+        pollNaverSource(db, 56, async () =>
+          response([row("9004", "20260925120049"), row("9000", "20260925120049")]),
+        ),
+      ).rejects.toThrow("poll_write_failed");
+      expect(await snapshot()).toEqual(before);
+    },
+  );
+});
+
+describe("Naver null cursor ownership", () => {
+  it("rejects a late bootstrap from an existing all-null cursor snapshot", async () => {
+    await pollNaverSource(db, 56, async () =>
+      response(Array.from({ length: 10 }, () => ({ type: "banner" }))),
+    );
+    expect((await snapshot()).poll).toMatchObject({
+      committed_item_id: null,
+      committed_published_at: null,
+      scan_head_item_id: null,
+      scan_head_published_at: null,
+      next_offset: 1,
+    });
+    let won: Awaited<ReturnType<typeof snapshot>> | undefined;
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      await expect(
+        pollNaverSource(db, 56, async () => response([row("9000", "20260925120049")])),
+      ).resolves.toBe(1);
+      won = await snapshot();
+      return response([row("9004", "20260912120000")]);
+    });
+    await expect(pollNaverSource(db, 56, fetcher)).resolves.toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(await snapshot()).toEqual(won);
+  });
+});
+
+describe("Naver recovery cursor generation", () => {
+  it.each(["unchanged", "backward"] as const)(
+    "rejects a delayed poll after hold recovery restores its cursor under %s wall time",
+    async (clock) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const initialTime = Date.parse("2026-10-09T05:10:00Z");
+      vi.setSystemTime(initialTime);
+      let release = () => {};
+      try {
+        await seedMarker();
+        await acceptedEvidence();
+        const initial = await snapshot();
+        expect(initial.poll).toMatchObject({ updated_at: new Date(initialTime).toISOString() });
+        let arrive = () => {};
+        const arrived = new Promise<void>((resolve) => {
+          arrive = resolve;
+        });
+        const barrier = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const delayedFetcher = vi.fn<typeof fetch>(async () => {
+          arrive();
+          await barrier;
+          return response([row("9004", "20260925120049"), row(marker, "20260903180521")]);
+        });
+        const delayed = pollNaverSource(db, 56, delayedFetcher);
+        await arrived;
+        if (clock === "backward") vi.setSystemTime(initialTime + 60_000);
+        await expect(
+          pollNaverSource(db, 56, async () => response([row("8239880", "20260925120049")])),
+        ).rejects.toThrow("naver_scan_boundary_missing");
+        const heldTime = initialTime + (clock === "backward" ? 60_000 : 1);
+        const held = await snapshot();
+        expect(held.poll).toMatchObject({ updated_at: new Date(heldTime).toISOString() });
+        expect(held.hold).toMatchObject({ state: "open" });
+        vi.setSystemTime(initialTime);
+        const recoveryFetcher = vi.fn<typeof fetch>(async () =>
+          response([row(marker, "20260903180521")]),
+        );
+        await expect(
+          recoverNaverBoundary(db, "staging", request, recoveryFetcher),
+        ).resolves.toEqual({
+          recovered: true,
+          source,
+          queuedItems: 0,
+        });
+        expect(recoveryFetcher).toHaveBeenCalledTimes(1);
+        const recovered = await snapshot();
+        expect(recovered.poll).toEqual({
+          ...initial.poll,
+          updated_at: new Date(heldTime + 1).toISOString(),
+        });
+        expect(recovered.hold).toMatchObject({ state: "resolved" });
+        release();
+        await expect(delayed).resolves.toBeNull();
+        expect(delayedFetcher).toHaveBeenCalledTimes(1);
+        expect(await snapshot()).toEqual(recovered);
+      } finally {
+        release();
+        vi.useRealTimers();
+      }
     },
   );
 });

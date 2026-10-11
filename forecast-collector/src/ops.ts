@@ -32,6 +32,7 @@ export function upsertOpsAlertStatement(
     context?: Record<string, string | number | boolean | null>;
     notifyAfterCount?: number;
     nowMs?: number;
+    guard?: { sql: string; bindings: (string | number | null)[] };
   },
 ) {
   const nowMs = input.nowMs ?? Date.now();
@@ -42,7 +43,11 @@ export function upsertOpsAlertStatement(
       `INSERT INTO forecast_ops_alerts (
          alert_key, environment, severity, component, error_code, state, context_json,
          notify_after_count, occurrence_count, first_seen_at, last_seen_at, next_send_at
-       ) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, 1, ?, ?, ?)
+       ) ${
+         input.guard
+           ? `SELECT ?, ?, ?, ?, ?, 'open', ?, ?, 1, ?, ?, ? WHERE ${input.guard.sql}`
+           : "VALUES (?, ?, ?, ?, ?, 'open', ?, ?, 1, ?, ?, ?)"
+       }
        ON CONFLICT(alert_key) DO UPDATE SET
          environment = excluded.environment,
          severity = excluded.severity,
@@ -93,6 +98,7 @@ export function upsertOpsAlertStatement(
       now,
       now,
       nextSendAt,
+      ...(input.guard?.bindings ?? []),
     );
 }
 

@@ -601,6 +601,7 @@ describe("Naver circuit recovery", () => {
         nowMs - (3 - index) * 60_000,
         "both",
       );
+      if (id === null) throw new Error("Expected a new test invocation");
       await finishInvocation(testEnv.FORECAST_DB, id, "failure", 0, "naver_empty_feed", retryAt);
     }
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) =>
