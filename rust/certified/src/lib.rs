@@ -50,7 +50,6 @@ impl Value {
     fn zero() -> Self { Self { p: BigUint::zero(), c: std::array::from_fn(|_| BigUint::zero()), exponent: 0, mask: 0 } }
     fn complete() -> Self { Self { p: BigUint::one(), ..Self::zero() } }
 }
-#[derive(Clone)]
 struct Relaxed { value: Value, bound: Units, actions: [Value; 3] }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -140,7 +139,7 @@ impl Engine {
             }
         }
         Ok(Self { edges: input.edges, caps: input.caps, depth, powers, prices,
-            scale: common.to_biguint().unwrap(), relaxed: vec![None; 601], memo: HashMap::new(),
+            scale: common.to_biguint().unwrap(), relaxed: (0..601).map(|_| None).collect(), memo: HashMap::new(),
             deadline: input.deadline_at, max_memo: input.max_memo_entries, max_support: input.max_support_points,
             ticks: 0, transitions: 0, support_peak: 0, current_root: None, kernel_calls: 0,
             completion, completion_p, completion_y, arena:None, primary:HashMap::new(), guidance_scale,
@@ -179,16 +178,23 @@ impl Engine {
         c[k] += &self.powers[exponent] * 10u32;
         Ok(Value { p: &g.p * gm + &n.p * nm, c, exponent, mask: 1 << k })
     }
-    fn unlimited(&mut self, s: usize) -> Result<Relaxed> {
-        if s == TERMINAL { return Ok(Relaxed { value: Value::complete(), bound: [0;3], actions: std::array::from_fn(|_| Value::zero()) }); }
-        if let Some(v) = &self.relaxed[s] { return Ok(v.clone()); }
+    fn ensure_relaxed(&mut self, s: usize) -> Result<()> {
+        if self.relaxed[s].is_some() { return Ok(()); }
+        if s == TERMINAL {
+            self.relaxed[s] = Some(Relaxed { value: Value::complete(), bound: [0;3], actions: std::array::from_fn(|_| Value::zero()) });
+            return Ok(());
+        }
         let mut best = Value::zero();
         let mut chosen = 0;
         let mut actions = std::array::from_fn(|_| Value::zero());
         for k in 0..3 {
             let [p, g, n] = self.edges[s][k];
-            let gv = self.unlimited(g)?.value;
-            let nv = if p < 1000 { self.unlimited(n)?.value } else { Value::zero() };
+            self.ensure_relaxed(g)?;
+            let gv = self.relaxed[g].as_ref().unwrap().value.clone();
+            let nv = if p < 1000 {
+                self.ensure_relaxed(n)?;
+                self.relaxed[n].as_ref().unwrap().value.clone()
+            } else { Value::zero() };
             let v = self.combine(p, &gv, &nv, self.depth[s], k)?;
             match self.compare(&v, &best) {
                 Ordering::Greater => { best = v.clone(); chosen = k; }
@@ -198,12 +204,11 @@ impl Engine {
             actions[k] = v;
         }
         let [p, g, n] = self.edges[s][chosen];
-        let gb = self.unlimited(g)?.bound;
-        let nb = if p < 1000 { self.unlimited(n)?.bound } else { [0;3] };
+        let gb = self.relaxed[g].as_ref().unwrap().bound;
+        let nb = if p < 1000 { self.relaxed[n].as_ref().unwrap().bound } else { [0;3] };
         let bound = std::array::from_fn(|k| gb[k].max(nb[k]) + usize::from(chosen == k));
-        let result = Relaxed { value: best, bound, actions };
-        self.relaxed[s] = Some(result.clone());
-        Ok(result)
+        self.relaxed[s] = Some(Relaxed { value: best, bound, actions });
+        Ok(())
     }
     fn get(&mut self, s: usize, raw: Units, root: bool) -> Result<Value> {
         self.check()?;
@@ -215,11 +220,14 @@ impl Engine {
         if total < min_uses { return Ok(Value::zero()); }
         if let Some(v) = self.memo.get(&(s, u)) { return Ok(v.clone()); }
         let exponent = total.min(self.depth[s]);
-        let relaxed = self.unlimited(s)?;
-        if !root && (0..3).all(|k| u[k] >= relaxed.bound[k]) { return Ok(self.lift(&relaxed.value, exponent)); }
+        self.ensure_relaxed(s)?;
         let mut order = [0, 1, 2];
-        order.sort_by(|&a, &b| self.burden(&relaxed.actions[a]).cmp(&self.burden(&relaxed.actions[b]))
-            .then_with(|| Self::total(&relaxed.actions[a]).cmp(&Self::total(&relaxed.actions[b]))).then(a.cmp(&b)));
+        {
+            let relaxed = self.relaxed[s].as_ref().unwrap();
+            if !root && (0..3).all(|k| u[k] >= relaxed.bound[k]) { return Ok(self.lift(&relaxed.value, exponent)); }
+            order.sort_by(|&a, &b| self.burden(&relaxed.actions[a]).cmp(&self.burden(&relaxed.actions[b]))
+                .then_with(|| Self::total(&relaxed.actions[a]).cmp(&Self::total(&relaxed.actions[b]))).then(a.cmp(&b)));
+        }
         let mut best = Value::zero();
         let mut chosen = 3;
         let certain = self.certain(s,u);
@@ -233,7 +241,7 @@ impl Engine {
             }
             // Unlimited action is an exact lower cost bound when P=1.
             if best.p == self.powers[exponent] {
-                let bound = &relaxed.actions[k];
+                let bound = &self.relaxed[s].as_ref().unwrap().actions[k];
                 let left = self.burden(bound) * &self.powers[exponent];
                 let right = self.burden(&best) * &self.powers[bound.exponent];
                 if left > right || (left == right &&
@@ -315,7 +323,8 @@ fn execute(engine: &mut Option<Engine>, supply: &mut Option<supply::Supply>, com
         }
         Command::Unlimited { sid } => {
             if sid > TERMINAL { return Err("invalid_state"); }
-            let r = e.unlimited(sid)?;
+            e.ensure_relaxed(sid)?;
+            let r = e.relaxed[sid].as_ref().unwrap();
             Ok(json!({ "value": e.view(&r.value), "bound": r.bound }))
         }
         _ => Err("invalid_command"),
@@ -363,6 +372,105 @@ pub unsafe extern "C" fn certified_call() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn branching_relaxed_engine() -> Engine {
+        let mut edges: Vec<_> = (0..=600).map(|s| [[1000,600,(s+1).min(600)];3]).collect();
+        edges[598] = [[500,600,599],[1000,599,600],[1000,599,600]];
+        edges[597] = [[500,600,598],[1000,599,600],[1000,599,600]];
+        Engine::new(Init { edges, caps:vec![[3;3];601],
+            weights:std::array::from_fn(|_| wire(&Q::one())), deadline_at:f64::MAX,
+            max_memo_entries:250000,max_support_points:25000 }).unwrap()
+    }
+    #[test]
+    fn cached_unlimited_preserves_terminal_and_branching_wire_values() {
+        let mut engine = Some(branching_relaxed_engine());
+        let mut supply = None;
+        let terminal = json!({"value":{
+            "p":{"numerator":"1","denominator":"1"},
+            "b":{"numerator":"0","denominator":"1"},
+            "c":{"numerator":"0","denominator":"1"},
+            "consumed":[{"numerator":"0","denominator":"1"},{"numerator":"0","denominator":"1"},{"numerator":"0","denominator":"1"}],
+            "mask":0},"bound":[0,0,0]});
+        for _ in 0..2 {
+            assert_eq!(execute(&mut engine,&mut supply,Command::Unlimited {sid:TERMINAL}).unwrap(),terminal);
+        }
+        let e = engine.as_ref().unwrap();
+        let r = e.relaxed[TERMINAL].as_ref().unwrap();
+        assert_eq!(r.value.exponent,0);
+        for action in &r.actions {
+            assert!(action.p.is_zero() && action.c.iter().all(|c| c.is_zero()));
+            assert_eq!((action.exponent,action.mask),(0,0));
+        }
+        assert_eq!((e.ticks,e.transitions),(0,0));
+        // Blue costs 10 at 599, 10 + (1/2)*10 = 15 at 598, and
+        // 10 + (1/2)*15 = 35/2 at 597. Other actions cost 20.
+        let expected = json!({"value":{
+            "p":{"numerator":"1","denominator":"1"},
+            "b":{"numerator":"35","denominator":"2"},
+            "c":{"numerator":"35","denominator":"2"},
+            "consumed":[{"numerator":"35","denominator":"2"},{"numerator":"0","denominator":"1"},{"numerator":"0","denominator":"1"}],
+            "mask":1},"bound":[3,0,0]});
+        assert_eq!(execute(&mut engine,&mut supply,Command::Unlimited {sid:597}).unwrap(),expected);
+        let e = engine.as_ref().unwrap();
+        let work = (e.ticks,e.transitions);
+        assert_eq!(execute(&mut engine,&mut supply,Command::Unlimited {sid:597}).unwrap(),expected);
+        let e = engine.as_ref().unwrap();
+        assert_eq!((e.ticks,e.transitions),work);
+        assert!(e.memo.is_empty() && e.primary.is_empty());
+    }
+    #[test]
+    fn cached_relaxed_preserves_finite_consumption_and_root_masks() {
+        let mut engine = branching_relaxed_engine();
+        // A value-only feasible relaxation keeps all unlimited ties; a root
+        // response must restrict its action mask to available inventory.
+        let value = engine.get(599,[1,0,0],false).unwrap();
+        assert_eq!(value.mask,7);
+        let root = engine.get(599,[1,0,0],true).unwrap();
+        assert_eq!(root.mask,1);
+        for v in [&value,&root] {
+            let view = engine.view(v);
+            assert_eq!(json!(view.p),json!({"numerator":"1","denominator":"1"}));
+            assert_eq!(json!(view.b),json!({"numerator":"10","denominator":"1"}));
+            assert_eq!(json!(view.c),json!({"numerator":"10","denominator":"1"}));
+            assert_eq!(json!(view.consumed),json!([
+                {"numerator":"10","denominator":"1"},{"numerator":"0","denominator":"1"},{"numerator":"0","denominator":"1"}]));
+        }
+        // With one of each kit at 597, every first action has P=1, B=C=20.
+        // The representative blue action uses the other two kits only on its
+        // half-probability normal branch; all three lexicographic ties remain.
+        let expected = json!({
+            "p":{"numerator":"1","denominator":"1"},
+            "b":{"numerator":"20","denominator":"1"},
+            "c":{"numerator":"20","denominator":"1"},
+            "consumed":[{"numerator":"10","denominator":"1"},{"numerator":"5","denominator":"1"},{"numerator":"5","denominator":"1"}],
+            "mask":7});
+        for _ in 0..2 {
+            let value = engine.get(597,[1,1,1],true).unwrap();
+            assert_eq!(json!(engine.view(&value)),expected);
+        }
+    }
+    #[test]
+    fn relaxed_population_preserves_deadline_failure_and_retry() {
+        let mut engine = branching_relaxed_engine();
+        engine.ensure_relaxed(599).unwrap();
+        engine.deadline = -1.0;
+        engine.ticks = 31;
+        engine.ensure_relaxed(599).unwrap();
+        engine.ensure_relaxed(TERMINAL).unwrap();
+        assert_eq!(engine.ticks,31);
+        assert_eq!(engine.ensure_relaxed(598),Err("request_budget_exhausted"));
+        assert!(engine.relaxed[598].is_none());
+        assert_eq!(engine.transitions,3);
+        engine.deadline = f64::MAX;
+        engine.ensure_relaxed(598).unwrap();
+        let r = engine.relaxed[598].as_ref().unwrap();
+        assert_eq!(r.bound,[2,0,0]);
+        assert_eq!(json!(engine.view(&r.value)),json!({
+            "p":{"numerator":"1","denominator":"1"},
+            "b":{"numerator":"15","denominator":"1"},
+            "c":{"numerator":"15","denominator":"1"},
+            "consumed":[{"numerator":"15","denominator":"1"},{"numerator":"0","denominator":"1"},{"numerator":"0","denominator":"1"}],
+            "mask":1}));
+    }
     #[test]
     fn exact_ladder_and_action_ties() {
         let edges = (0..=600).map(|s| [[1000,600,(s+1).min(600)];3]).collect();

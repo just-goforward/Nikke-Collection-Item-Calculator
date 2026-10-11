@@ -180,7 +180,7 @@ impl Engine {
         let u=self.canonical(s,raw);
         if self.insufficient(s,u) {return Ok(ZERO);}
         if let Some(v)=self.arena.as_ref().unwrap().get(true,s,u) {return Ok(v);}
-        if self.relaxed[s].is_none() {self.unlimited(s)?;}
+        self.ensure_relaxed(s)?;
         let relaxed=self.relaxed[s].as_ref().unwrap();
         if (0..3).all(|k| u[k]>=relaxed.bound[k]) {
             if let Some(v)=self.relaxed_cost[s] {return Ok(v);}

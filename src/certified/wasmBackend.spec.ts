@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { q, toWire } from "../../shared/certifiedRational";
+import { ONE, type Q, q, sub, sum, toWire, ZERO } from "../../shared/certifiedRational";
 import {
   buildCertifiedSupplySnapshot,
   type CertifiedSupplyEvent,
@@ -9,7 +9,7 @@ import { WorkBudget } from "./budget";
 import { encode } from "./game";
 import { FiniteKernel } from "./kernel";
 import { solveCertified } from "./solver";
-import type { CertifiedInput, CertifiedOutput } from "./types";
+import type { CertifiedInput, CertifiedOutput, CertifiedValue } from "./types";
 import { loadCertifiedWasm, WasmKernel } from "./wasmBackend";
 import { solveCertifiedWasm } from "./wasmSolver";
 
@@ -240,6 +240,240 @@ describe("real Rust/WASM certified computation", () => {
       priceBasisStock: [100, 200, 300] as const,
     };
     parity(input);
+  });
+});
+
+// Hand-derived oracle for the default fixture state SR14 exp0 (no JS/WASM output is an
+// expectation). Caps are [15, 6, 1] uses = [150, 60, 10] physical pieces; great per mille is
+// blue 100, purple 450, yellow 1000 and blue/purple normals (+200/+500 exp) stay at level 14.
+// priceBasisStock 0 with the fixture's recurring dispatch 1,1,1 fixes every weight to 1, so
+// B = C = sum(consumed pieces). Endpoint values by capped whole-use units (blue,purple,yellow):
+//   V(0,0,0) = P 0, consumed 0.
+//   V(1,0,0) = P 1/10, consumed [10,0,0].
+//   V(2,0,0) = P 1 - (9/10)^2 = 19/100, consumed [10 + 9, 0, 0].
+//   V(1,1,0): both orders give P = 1/10 + 9/10*45/100 = 45/100 + 55/100*1/10 = 101/200;
+//     purple first has B = 10 + 55/100*10 = 31/2 < 19, so consumed [11/2, 10, 0].
+//   V(b,p,1) = P 1, consumed [0,0,10] (the only P=1 policy costing exactly one use).
+type Row = readonly [blue: number, purple: number, yellow: number, n: number, d: number];
+type Exact = readonly [Q, Q, Q];
+const ALL_DAYS = Array.from({ length: 57 }, (_, day) => day);
+const rows = (list: readonly Row[]) =>
+  list.map(([blue, purple, yellow, n, d]) => ({
+    pieces: [blue, purple, yellow] as [number, number, number],
+    mass: toWire(q(n, d)),
+  }));
+function grouped(
+  events: CertifiedSupplyEvent[],
+  laws: CertifiedInput["snapshot"]["laws"],
+  stock: CertifiedInput["stock"] = [0, 0, 0],
+): CertifiedInput {
+  const input = { ...fixture(events), stock, priceBasisStock: [0, 0, 0] as const };
+  input.snapshot.laws = laws;
+  return input;
+}
+function expectValue(value: CertifiedValue | null | undefined, p: Q, consumed: Exact) {
+  const total = sum(consumed);
+  expect(
+    value && {
+      successP: value.successP,
+      weightedExpectedConsumptionB: value.weightedExpectedConsumptionB,
+      expectedTotalConsumptionC: value.expectedTotalConsumptionC,
+      expectedConsumed: value.expectedConsumed,
+    },
+  ).toEqual({
+    successP: toWire(p),
+    weightedExpectedConsumptionB: toWire(total),
+    expectedTotalConsumptionC: toWire(total),
+    expectedConsumed: consumed.map(toWire),
+  });
+}
+function expectCertifiedDay(result: CertifiedOutput, day: number, p: Q, consumed: Exact) {
+  expect({
+    status: result.status,
+    refusal: result.refusal,
+    weights: result.pricing?.weights,
+  }).toEqual({ status: "completed", refusal: null, weights: [ONE, ONE, ONE].map(toWire) });
+  const { waiting } = result;
+  expect({
+    status: waiting.status,
+    reason: waiting.reason,
+    recommendedDays: waiting.recommendedDays,
+    bestDayRange: waiting.bestDayRange,
+    rangeBoundary: waiting.rangeBoundary,
+    evaluatedDays: waiting.evaluatedDays,
+    interval: waiting.successProbabilityInterval,
+    gap: waiting.successImprovementUpperBound,
+  }).toEqual({
+    status: "certified",
+    reason: null,
+    recommendedDays: day,
+    bestDayRange: [day, day],
+    rangeBoundary: false,
+    evaluatedDays: ALL_DAYS,
+    interval: { lower: toWire(p), upper: toWire(p) },
+    gap: toWire(sub(ONE, p)),
+  });
+  expect(waiting.evidence).toContain("exact_rational_all_57_date_expectations");
+  expectValue(waiting.value, p, consumed);
+}
+describe("Rust/WASM exact date expectations over physical supports", () => {
+  it("groups distinct physical pieces by all capped units and keeps remainders for the next event", () => {
+    // Stock [10,0,0]. Day 1 adds purple 0/10/14/6 or yellow 10; 10 and 14 purple are both one
+    // purple use (cap 60 pieces, not premerged), 0 and 6 are zero uses. Day 2 adds 4 purple:
+    // 6 -> 10 crosses into a use, 14 -> 18 stays one use, 0 -> 4 stays zero uses.
+    const laws: CertifiedInput["snapshot"]["laws"] = [
+      {
+        id: "mixed-remainders",
+        kind: "finite",
+        modelVersion: "grouping-v1",
+        outcomes: rows([
+          [0, 0, 0, 1, 4],
+          [0, 10, 0, 1, 8],
+          [0, 14, 0, 1, 8],
+          [0, 0, 10, 1, 4],
+          [0, 6, 0, 1, 4],
+        ]),
+      },
+    ];
+    const first = solveCertifiedWasm(
+      module,
+      grouped([event(1, "mixed-remainders")], laws, [10, 0, 0]),
+    );
+    expect(first.current).toMatchObject({
+      status: "use_certified",
+      kit: "blue",
+      optimalActionMask: 1,
+      uses: 1,
+      pieces: 10,
+    });
+    expectValue(first.current?.value, q(1, 10), [q(10), ZERO, ZERO]);
+    // Day 1 units: (1,0,0) mass 1/2, (1,1,0) mass 1/4, (1,0,1) mass 1/4.
+    // P = 1/2*1/10 + 1/4*101/200 + 1/4 = 341/800; blue 5 + 11/8; purple 5/2; yellow 5/2.
+    expectCertifiedDay(first, 1, q(341, 800), [q(51, 8), q(5, 2), q(5, 2)]);
+    const second = solveCertifiedWasm(
+      module,
+      grouped([event(1, "mixed-remainders"), event(2, "deterministic:0,4,0")], laws, [10, 0, 0]),
+    );
+    // Day 2 units: (1,0,0) mass 1/4, (1,1,0) mass 1/8+1/8+1/4 = 1/2, (1,0,1) mass 1/4.
+    // P = 1/40 + 101/400 + 1/4 = 211/400; blue 5/2 + 11/4 = 21/4; purple 5; yellow 5/2.
+    // Flooring day-1 supports to whole uses would leave (1,0,0) at mass 1/2 instead.
+    expectCertifiedDay(second, 2, q(211, 400), [q(21, 4), q(5), q(5, 2)]);
+    expect(second.diagnostics.supportPeakPoints).toBe(5);
+  });
+  it("keeps each positive-prior latent cohort's own law and skips a zero-prior cohort", () => {
+    // Priors [1/2, 0, 1/2]. Cohort 0 always +5 blue; cohort 1 (zero prior) has three purple
+    // points that would exceed maxSupportPoints 3 after two events; cohort 2 is 0 or +10 blue.
+    const laws: CertifiedInput["snapshot"]["laws"] = [
+      {
+        id: "latent",
+        kind: "finite",
+        modelVersion: "grouping-v1",
+        outcomesByCohort: [
+          rows([[5, 0, 0, 1, 1]]),
+          rows([
+            [0, 1, 0, 1, 3],
+            [0, 2, 0, 1, 3],
+            [0, 3, 0, 1, 3],
+          ]),
+          rows([
+            [0, 0, 0, 1, 2],
+            [10, 0, 0, 1, 2],
+          ]),
+        ],
+      },
+    ];
+    const priors = [toWire(q(1, 2)), toWire(ZERO), toWire(q(1, 2))] as const;
+    const options = { maxSupportPoints: 3 };
+    const first = solveCertifiedWasm(
+      module,
+      { ...grouped([event(1, "latent")], laws), cohortWeights: priors },
+      options,
+    );
+    expect(first.current).toMatchObject({ status: "preserve", kit: null, optimalActionMask: 0 });
+    expect(first.pricing?.cohortWeights).toEqual(priors);
+    // Day 1: cohort 0 at 5 pieces = V(0,0,0); cohort 2 at 0/10 -> P 1/20, blue 5.
+    expectCertifiedDay(first, 1, q(1, 40), [q(5, 2), ZERO, ZERO]);
+    expect(first.diagnostics.supportPeakPoints).toBe(2);
+    const second = solveCertifiedWasm(
+      module,
+      { ...grouped([event(1, "latent"), event(2, "latent")], laws), cohortWeights: priors },
+      options,
+    );
+    // Day 2: cohort 0 at 10 -> V(1,0,0); cohort 2 at 0/10/20 with 1/4,1/2,1/4 ->
+    // P 1/20 + 19/400 = 39/400, blue 5 + 19/4 = 39/4. Mixed: P 79/800, blue 79/8.
+    // A prior-averaged per-event law would give P 119/1600 instead.
+    expectCertifiedDay(second, 2, q(79, 800), [q(79, 8), ZERO, ZERO]);
+    expect(second.diagnostics.supportPeakPoints).toBe(3);
+  });
+  it("clamps physical pieces to state caps before counting support points", () => {
+    // Blue 150/155/170 clamp to cap 150 and yellow 10/11/12 clamp to cap 10: one physical point.
+    const laws: CertifiedInput["snapshot"]["laws"] = [
+      {
+        id: "over-cap",
+        kind: "finite",
+        modelVersion: "grouping-v1",
+        outcomes: rows([
+          [150, 0, 10, 1, 3],
+          [155, 0, 11, 1, 3],
+          [170, 0, 12, 1, 3],
+        ]),
+      },
+    ];
+    const result = solveCertifiedWasm(module, grouped([event(1, "over-cap")], laws), {
+      maxSupportPoints: 1,
+    });
+    // Capped units (15,0,1): V = P 1 with one yellow use.
+    expectCertifiedDay(result, 1, ONE, [ZERO, ZERO, q(10)]);
+    expect(result.diagnostics.supportPeakPoints).toBe(1);
+  });
+  it("enforces the physical support limit even when every point maps to one whole use", () => {
+    // Day 1: blue 10..13 (four points, one blue use). Day 2: +0/+1 blue -> 10..14 (five points,
+    // masses 1/8,1/4,1/4,1/4,1/8, all one blue use) so every completed date equals V(1,0,0).
+    const laws: CertifiedInput["snapshot"]["laws"] = [
+      {
+        id: "spread",
+        kind: "finite",
+        modelVersion: "grouping-v1",
+        outcomes: rows([
+          [10, 0, 0, 1, 4],
+          [11, 0, 0, 1, 4],
+          [12, 0, 0, 1, 4],
+          [13, 0, 0, 1, 4],
+        ]),
+      },
+      {
+        id: "coin",
+        kind: "finite",
+        modelVersion: "grouping-v1",
+        outcomes: rows([
+          [0, 0, 0, 1, 2],
+          [1, 0, 0, 1, 2],
+        ]),
+      },
+    ];
+    const first = solveCertifiedWasm(module, grouped([event(1, "spread")], laws), {
+      maxSupportPoints: 4,
+    });
+    expectCertifiedDay(first, 1, q(1, 10), [q(10), ZERO, ZERO]);
+    expect(first.diagnostics.supportPeakPoints).toBe(4);
+    const both = grouped([event(1, "spread"), event(2, "coin")], laws);
+    const refused = solveCertifiedWasm(module, both, { maxSupportPoints: 4 });
+    expect(refused.status).toBe("partial");
+    expect(refused.refusal).toEqual({ reason: "exact_support_limit", phase: "waiting" });
+    expect(refused.current).toMatchObject({ status: "preserve", optimalActionMask: 0 });
+    expect(refused.waiting).toMatchObject({
+      status: "unresolved",
+      reason: "exact_support_limit",
+      recommendedDays: null,
+      value: null,
+      bestDayRange: [0, 56],
+      evaluatedDays: [0, 1],
+      successProbabilityInterval: { lower: toWire(q(1, 10)), upper: toWire(ONE) },
+      successImprovementUpperBound: toWire(q(9, 10)),
+    });
+    const allowed = solveCertifiedWasm(module, both, { maxSupportPoints: 5 });
+    expectCertifiedDay(allowed, 1, q(1, 10), [q(10), ZERO, ZERO]);
+    expect(allowed.diagnostics.supportPeakPoints).toBe(5);
   });
 });
 
