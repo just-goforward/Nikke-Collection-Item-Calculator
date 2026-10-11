@@ -60,11 +60,11 @@ export async function verifyTurnstile(
     }
 
     if (result.success) {
-      if (result.action && result.action !== eventKind) {
+      if (result.action !== eventKind) {
         logWarn("turnstile_action_mismatch", {
           eventKind,
           expectedAction: eventKind,
-          returnedAction: result.action,
+          returnedAction: result.action ?? null,
           internallyRetried,
         });
         throw new HttpError(403, "turnstile_action_mismatch", false);

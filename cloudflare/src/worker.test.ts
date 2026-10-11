@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SUPPLY_FORECAST_REGISTRY } from "../../shared/generated/supplyForecast";
 import { cleanupExpiredStatistics } from "./rate-limit";
-import { kitResultEvent, solverDiagnosticEvent, TEST_TURNSTILE_TOKEN } from "./worker.test-events";
+import {
+  kitResultEvent,
+  runtimeInvariantEvent,
+  solverDiagnosticEvent,
+  solverRecoveryEvent,
+  TEST_TURNSTILE_TOKEN,
+} from "./worker.test-events";
 import { WorkerTestHarness } from "./worker.test-harness";
 import type { AdminDiagnosticsBody } from "./worker.test-types";
 
@@ -643,6 +649,132 @@ describe("admin supply forecast registry", () => {
 });
 
 describe("Turnstile verification response handling", () => {
+  const eventCases = [
+    {
+      action: "kit_result",
+      mismatchedAction: "solver_diagnostic",
+      payload: () => kitResultEvent("turnstile-exact-kit-001"),
+    },
+    {
+      action: "runtime_invariant",
+      mismatchedAction: "solver_recovery",
+      payload: () => runtimeInvariantEvent("turnstile-exact-invariant1"),
+    },
+    {
+      action: "solver_diagnostic",
+      mismatchedAction: "kit_result",
+      payload: () => solverDiagnosticEvent("turnstile-exact-diagnostic"),
+    },
+    {
+      action: "solver_recovery",
+      mismatchedAction: "runtime_invariant",
+      payload: () => solverRecoveryEvent("turnstile-exact-recovery01"),
+    },
+  ] as const;
+
+  it.each(eventCases)("accepts the exact $action action", async ({ action, payload }) => {
+    mockSiteverify({ body: { success: true, action } });
+
+    const response = await submit(payload());
+
+    expect(response.status).toBe(200);
+    expect(harness.siteverifyForms).toHaveLength(1);
+  });
+
+  it.each(eventCases)(
+    "rejects a successful $action response with a mismatched action before quota or event writes",
+    async ({ action, mismatchedAction, payload }) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      await setGuardAction("disable_statistics_writes");
+      mockSiteverify({ body: { success: true, action: mismatchedAction } });
+
+      const response = await submit(payload());
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        error: "turnstile_action_mismatch",
+        retryable: false,
+      });
+      expect(harness.siteverifyForms).toHaveLength(1);
+      await expect(countRows("event_ids")).resolves.toBe(0);
+      const warnings = warning.mock.calls.map(([line]) => JSON.parse(String(line)));
+      expect(warnings).toContainEqual(
+        expect.objectContaining({
+          event: "turnstile_action_mismatch",
+          expectedAction: action,
+          returnedAction: mismatchedAction,
+          internallyRetried: false,
+        }),
+      );
+    },
+  );
+
+  it.each([
+    { label: "missing", body: { success: true }, returnedAction: null },
+    { label: "empty", body: { success: true, action: "" }, returnedAction: "" },
+    { label: "non-string", body: { success: true, action: 42 }, returnedAction: 42 },
+  ])(
+    "rejects a successful response with a $label action without retrying or writing",
+    async ({ body, returnedAction }) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      await setGuardAction("disable_statistics_writes");
+      mockSiteverify({ body });
+
+      const response = await submit(kitResultEvent("turnstile-invalid-action1"));
+
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({
+        error: "turnstile_action_mismatch",
+        retryable: false,
+      });
+      expect(harness.siteverifyForms).toHaveLength(1);
+      await expect(countRows("event_ids")).resolves.toBe(0);
+      const warnings = warning.mock.calls.map(([line]) => JSON.parse(String(line)));
+      expect(warnings).toContainEqual(
+        expect.objectContaining({
+          event: "turnstile_action_mismatch",
+          expectedAction: "kit_result",
+          returnedAction,
+          internallyRetried: false,
+        }),
+      );
+    },
+  );
+
+  it("rejects a schema-invalid security envelope with a mismatched action before rejection writes", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warningCallCount = warning.mock.calls.length;
+    const payload = solverRecoveryEvent("turnstile-schema-rejected1");
+    payload.event.recoveryVersion = 99;
+    await setGuardAction("disable_statistics_writes");
+    mockSiteverify({ body: { success: true, action: "runtime_invariant" } });
+
+    const response = await submit(payload);
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "turnstile_action_mismatch",
+      retryable: false,
+    });
+    expect(harness.siteverifyForms).toHaveLength(1);
+    await expect(countRows("event_ids")).resolves.toBe(0);
+    await expect(countRows("stats_rejection_event_ids")).resolves.toBe(0);
+    await expect(countRows("stats_submission_rejection_aggregates_game_day")).resolves.toBe(0);
+    const currentWarnings = warning.mock.calls
+      .slice(warningCallCount)
+      .map(([line]) => JSON.parse(String(line)));
+    expect(currentWarnings).toEqual([
+      expect.objectContaining({
+        event: "turnstile_action_mismatch",
+        expectedAction: "solver_recovery",
+        returnedAction: "runtime_invariant",
+        internallyRetried: false,
+      }),
+    ]);
+  });
+});
+
+describe("Turnstile verification failures and retries", () => {
   it("returns a retryable JSON error for duplicate or expired tokens", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     mockSiteverify({
@@ -700,20 +832,6 @@ describe("Turnstile verification response handling", () => {
       "application/x-www-form-urlencoded",
       "application/x-www-form-urlencoded",
     ]);
-  });
-
-  it("rejects a successful Turnstile response for a different action", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    mockSiteverify({ body: { success: true, action: "solver_diagnostic" } });
-
-    const response = await submit(kitResultEvent("turnstile-action-0001"));
-
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({
-      error: "turnstile_action_mismatch",
-      retryable: false,
-    });
-    await expect(countRows("event_ids")).resolves.toBe(0);
   });
 
   it("returns retryable unavailable responses for transient Siteverify transport failures", async () => {

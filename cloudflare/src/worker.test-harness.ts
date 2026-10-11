@@ -23,6 +23,7 @@ export class WorkerTestHarness {
 
   #database: D1Database | null = null;
   #guardDatabase: D1Database | null = null;
+  #submittedEventKind: string | null = null;
 
   get database() {
     if (!this.#database) throw new Error("Worker test database is not initialized.");
@@ -39,7 +40,7 @@ export class WorkerTestHarness {
     this.env.ALLOWED_ORIGINS = "https://test.example";
     await this.applySchema();
     await this.applyGuardState();
-    this.mockSiteverify({ body: { success: true } });
+    this.mockSiteverify();
   }
 
   async teardown() {
@@ -62,9 +63,16 @@ export class WorkerTestHarness {
       },
       body: JSON.stringify(payload),
     }) as WorkerRequest;
-    const response = await worker.fetch(request, this.workerEnv(), ctx);
-    await waitOnExecutionContext(ctx);
-    return response;
+    const event = Reflect.get(payload, "event");
+    const kind = event && typeof event === "object" ? Reflect.get(event, "kind") : null;
+    this.#submittedEventKind = typeof kind === "string" ? kind : null;
+    try {
+      const response = await worker.fetch(request, this.workerEnv(), ctx);
+      await waitOnExecutionContext(ctx);
+      return response;
+    } finally {
+      this.#submittedEventKind = null;
+    }
   }
 
   async fetchStats(origin: string | null = "https://test.example", extraHeaders?: HeadersInit) {
@@ -156,7 +164,11 @@ export class WorkerTestHarness {
         const outcome = outcomes[Math.min(index, outcomes.length - 1)];
         index += 1;
         if (outcome instanceof Error) throw outcome;
-        return new Response(JSON.stringify(outcome?.body || { success: true }), {
+        const defaultBody = {
+          success: true,
+          ...(this.#submittedEventKind ? { action: this.#submittedEventKind } : {}),
+        };
+        return new Response(JSON.stringify(outcome?.body ?? defaultBody), {
           status: outcome?.status || 200,
         });
       }),
