@@ -109,7 +109,13 @@ function feasibleUnrestricted(input: OracleInput): OracleResult | null {
     candidates: new Map(),
   };
 }
-export function independentCurrentCoverage(input: OracleInput): {
+/** `small` evaluates the original <=30-use uncapped DP. The default keeps the
+ * established cached caller; a write-free caller may pass solveIntegerOracle,
+ * the same calculation without the cache file. */
+export function independentCurrentCoverage(
+  input: OracleInput,
+  small: (input: OracleInput) => OracleResult = (value) => cachedOriginalOracle(value).result,
+): {
   result?: OracleResult;
   basis: string;
 } {
@@ -118,7 +124,7 @@ export function independentCurrentCoverage(input: OracleInput): {
     return { result: recorded, basis: "immutable_uncapped_expanded_layered_exact_proof" };
   if (input.stock.reduce((uses, pieces) => uses + Math.floor(pieces / 10), 0) <= 30)
     return {
-      result: cachedOriginalOracle(input).result,
+      result: small(input),
       basis: "original_guard_le30_exact_uncapped_inventory_DP",
     };
   const unrestricted = feasibleUnrestricted(input);
