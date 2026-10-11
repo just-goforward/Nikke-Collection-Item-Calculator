@@ -1,18 +1,20 @@
 import { applyD1Migrations, createExecutionContext, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeTestSql } from "../../shared/testD1Sql";
 import schemaSql from "../schema.sql?raw";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
 import { sha256Hex } from "./crypto";
 import {
   candidateExists,
+  candidateStatements,
   listProposalCandidates,
   markCandidateProposed,
   nextNaverRetryAt,
   persistCandidate,
   persistSourceItemsAndEvents,
   readCanaryReport,
+  sourceItemAndEventStatements,
   supersedeIncompatibleCandidates,
 } from "./db";
 import { finishInvocation, startInvocation } from "./source-queue";
@@ -24,13 +26,126 @@ const testEnv = env as unknown as CollectorEnv;
 type WorkerFetch = NonNullable<typeof worker.fetch>;
 type WorkerRequest = Parameters<WorkerFetch>[0];
 
+const deniedFetch = vi.fn(async () => {
+  throw new Error("Unexpected outbound fetch in collector D1 tests.");
+});
+
 beforeEach(async () => {
+  deniedFetch.mockClear();
+  vi.stubGlobal("fetch", deniedFetch);
   await reset();
   await executeTestSql(testEnv.FORECAST_DB, schemaSql, applyD1Migrations);
   await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB);
 });
 
+afterEach(() => {
+  try {
+    expect(deniedFetch).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 describe("forecast collector D1 contract", () => {
+  it("preserves changes() across D1 batch statements and clears it after a zero-row write", async () => {
+    const db = testEnv.FORECAST_DB;
+    const item = sourceItem();
+    await persistSourceItemsAndEvents(db, [item], [], "2026-08-24T00:00:00.000Z");
+    const results = await db.batch([
+      db
+        .prepare("UPDATE source_items SET title = 'claimed' WHERE source = ? AND item_id = ?")
+        .bind(item.source, item.itemId),
+      db
+        .prepare(
+          "UPDATE source_items SET excerpt = 'winner' WHERE source = ? AND item_id = ? AND changes() = 1",
+        )
+        .bind(item.source, item.itemId),
+      db.prepare("SELECT changes() AS affected"),
+      db.prepare("UPDATE source_items SET title = 'absent' WHERE item_id = 'missing'"),
+      db
+        .prepare(
+          "UPDATE source_items SET excerpt = 'loser' WHERE source = ? AND item_id = ? AND changes() = 1",
+        )
+        .bind(item.source, item.itemId),
+      db.prepare("SELECT changes() AS affected"),
+    ]);
+    expect(results[0]?.meta.changes).toBe(1);
+    expect(results[1]?.meta.changes).toBe(1);
+    expect(results[2]?.results).toEqual([{ affected: 1 }]);
+    expect(results[3]?.meta.changes).toBe(0);
+    expect(results[4]?.meta.changes).toBe(0);
+    expect(results[5]?.results).toEqual([{ affected: 0 }]);
+    expect(
+      await db
+        .prepare("SELECT title, excerpt FROM source_items WHERE source = ? AND item_id = ?")
+        .bind(item.source, item.itemId)
+        .first(),
+    ).toEqual({ title: "claimed", excerpt: "winner" });
+  });
+
+  it("does not insert or update existing source and candidate rows when the write condition is false", async () => {
+    const db = testEnv.FORECAST_DB;
+    const item = sourceItem();
+    const event = soloEvent(item);
+    const nowMs = Date.parse("2026-08-24T00:00:00.000Z");
+    const now = new Date(nowMs).toISOString();
+    await persistSourceItemsAndEvents(db, [item], [event], now);
+    const resolved = resolveSoloSchedule([event], nowMs);
+    if (!resolved) throw new Error("Expected a resolved schedule.");
+    const candidate = await buildForecastCandidate(
+      resolved,
+      [],
+      { status: "x_unavailable", sourceItem: null, reason: "test" },
+      nowMs,
+      1,
+    );
+    await persistCandidate(db, candidate, event.eventId, "2026-08-24", 1);
+    await db
+      .prepare("DELETE FROM candidate_sources WHERE candidate_id = ?")
+      .bind(candidate.candidate.candidateId)
+      .run();
+    const selects = [
+      "SELECT * FROM source_items ORDER BY source, item_id",
+      "SELECT * FROM schedule_events ORDER BY event_id",
+      "SELECT * FROM source_watermarks ORDER BY source",
+      "SELECT * FROM forecast_candidates ORDER BY candidate_id",
+      "SELECT * FROM candidate_sources ORDER BY candidate_id, source, source_item_id",
+    ];
+    const condition = { sql: "0", bindings: [] };
+    for (const state of ["observed", "parsed"]) {
+      await db
+        .prepare("UPDATE forecast_candidates SET state = ? WHERE candidate_id = ?")
+        .bind(state, candidate.candidate.candidateId)
+        .run();
+      const before = (await db.batch(selects.map((sql) => db.prepare(sql)))).map(
+        (result) => result.results,
+      );
+      const results = await db.batch([
+        ...sourceItemAndEventStatements(
+          db,
+          [{ ...item, title: "loser", publishedAt: "2026-08-25T00:00:00.000Z" }],
+          [{ ...event, endsAt: "2026-08-27T19:59:00.000Z" }],
+          "2026-08-25T00:00:00.000Z",
+          condition,
+        ),
+        ...candidateStatements(
+          db,
+          candidate,
+          event.eventId,
+          "2026-08-24",
+          1,
+          "2026-08-25T00:00:00.000Z",
+          condition,
+        ),
+      ]);
+      expect(results.every((result) => result.meta.changes === 0)).toBe(true);
+      const after = (await db.batch(selects.map((sql) => db.prepare(sql)))).map(
+        (result) => result.results,
+      );
+      expect(after).toEqual(before);
+    }
+  });
+
   it("enforces the restored source evidence immutability trigger", async () => {
     await testEnv.FORECAST_DB.prepare(
       `INSERT INTO source_notice_revisions (

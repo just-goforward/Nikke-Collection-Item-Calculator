@@ -8,6 +8,15 @@ import { SUPPLY_RULES_VERSION } from "../../shared/supplyForecastModel";
 import { sha256Hex, stableJson } from "./crypto";
 import type { CandidateBuildResult, NormalizedSourceItem, ScheduleEvent } from "./types";
 
+export type StatementWriteCondition = {
+  sql: string;
+  bindings: readonly (string | number | null)[];
+};
+
+function insertValuesSql(values: string, condition?: StatementWriteCondition) {
+  return condition ? `SELECT ${values} WHERE (${condition.sql})` : `VALUES (${values})`;
+}
+
 export async function persistSourceItemsAndEvents(
   db: D1Database,
   items: readonly NormalizedSourceItem[],
@@ -23,6 +32,7 @@ export function sourceItemAndEventStatements(
   items: readonly NormalizedSourceItem[],
   events: readonly ScheduleEvent[],
   nowIso: string,
+  condition?: StatementWriteCondition,
 ) {
   const statements: D1PreparedStatement[] = [];
   for (const item of items) {
@@ -32,7 +42,7 @@ export function sourceItemAndEventStatements(
           `INSERT INTO source_items (
              source, item_id, url, title, excerpt, published_at, content_hash,
              structured, official, first_seen_at, last_seen_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ) ${insertValuesSql("?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?", condition)}
            ON CONFLICT(source, item_id) DO UPDATE SET
              url = excluded.url,
              title = excluded.title,
@@ -55,6 +65,7 @@ export function sourceItemAndEventStatements(
           item.official ? 1 : 0,
           nowIso,
           nowIso,
+          ...(condition?.bindings ?? []),
         ),
     );
   }
@@ -65,7 +76,7 @@ export function sourceItemAndEventStatements(
           `INSERT INTO schedule_events (
              event_id, event_type, source, source_item_id, starts_at, ends_at,
              schedule_status, manual_review, reason, observed_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ) ${insertValuesSql("?, ?, ?, ?, ?, ?, ?, ?, ?, ?", condition)}
            ON CONFLICT(event_id) DO UPDATE SET
              starts_at = excluded.starts_at,
              ends_at = excluded.ends_at,
@@ -84,6 +95,7 @@ export function sourceItemAndEventStatements(
           event.manualReview ? 1 : 0,
           event.reason,
           nowIso,
+          ...(condition?.bindings ?? []),
         ),
     );
   }
@@ -104,7 +116,7 @@ export function sourceItemAndEventStatements(
         .prepare(
           `INSERT INTO source_watermarks (
              source, item_id, published_at, content_hash, updated_at
-           ) VALUES (?, ?, ?, ?, ?)
+           ) ${insertValuesSql("?, ?, ?, ?, ?", condition)}
            ON CONFLICT(source) DO UPDATE SET
              item_id = excluded.item_id,
              published_at = excluded.published_at,
@@ -114,7 +126,14 @@ export function sourceItemAndEventStatements(
               OR (excluded.published_at = source_watermarks.published_at
                   AND excluded.item_id > source_watermarks.item_id)`,
         )
-        .bind(item.source, item.itemId, item.publishedAt, item.contentHash, nowIso),
+        .bind(
+          item.source,
+          item.itemId,
+          item.publishedAt,
+          item.contentHash,
+          nowIso,
+          ...(condition?.bindings ?? []),
+        ),
     );
   }
   return statements;
@@ -178,6 +197,7 @@ export function candidateStatements(
   gameDay: string,
   revision: number,
   now = new Date().toISOString(),
+  condition?: StatementWriteCondition,
 ) {
   const { candidate, payloadHash } = result;
   const targetState = candidate.sourceStatus;
@@ -187,7 +207,7 @@ export function candidateStatements(
         `INSERT INTO forecast_candidates (
            candidate_id, forecast_id, schedule_event_id, game_day, revision,
            source_status, state, payload_json, payload_hash, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, 'observed', ?, ?, ?, ?)
+         ) ${insertValuesSql("?, ?, ?, ?, ?, ?, 'observed', ?, ?, ?, ?", condition)}
          ON CONFLICT(candidate_id) DO NOTHING`,
       )
       .bind(
@@ -201,24 +221,29 @@ export function candidateStatements(
         payloadHash,
         now,
         now,
+        ...(condition?.bindings ?? []),
       ),
     db
       .prepare(
-        "UPDATE forecast_candidates SET state = 'parsed', updated_at = ? WHERE candidate_id = ? AND state = 'observed'",
+        `UPDATE forecast_candidates SET state = 'parsed', updated_at = ?
+         WHERE candidate_id = ? AND state = 'observed'
+         ${condition ? `AND (${condition.sql})` : ""}`,
       )
-      .bind(now, candidate.candidateId),
+      .bind(now, candidate.candidateId, ...(condition?.bindings ?? [])),
     db
       .prepare(
-        "UPDATE forecast_candidates SET state = ?, updated_at = ? WHERE candidate_id = ? AND state = 'parsed'",
+        `UPDATE forecast_candidates SET state = ?, updated_at = ?
+         WHERE candidate_id = ? AND state = 'parsed'
+         ${condition ? `AND (${condition.sql})` : ""}`,
       )
-      .bind(targetState, now, candidate.candidateId),
+      .bind(targetState, now, candidate.candidateId, ...(condition?.bindings ?? [])),
     ...candidate.sourceEvidence.map((source) =>
       db
         .prepare(
           `INSERT OR IGNORE INTO candidate_sources (candidate_id, source, source_item_id)
-           VALUES (?, ?, ?)`,
+           ${insertValuesSql("?, ?, ?", condition)}`,
         )
-        .bind(candidate.candidateId, source.source, source.itemId),
+        .bind(candidate.candidateId, source.source, source.itemId, ...(condition?.bindings ?? [])),
     ),
   ];
   return statements;

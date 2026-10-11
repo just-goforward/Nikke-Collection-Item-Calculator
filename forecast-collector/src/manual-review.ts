@@ -5,6 +5,7 @@ import {
   candidateStatements,
   loadScheduleEvents,
   nextForecastRevision,
+  type StatementWriteCondition,
   sourceItemAndEventStatements,
 } from "./db";
 import type { NaverSourceKind, NormalizedSourceItem, ScheduleEvent } from "./types";
@@ -151,7 +152,7 @@ export async function decideManualReview(
       `UPDATE source_manual_reviews
          SET state = 'resolved', decision = ?, actor = ?, reason = ?, request_id = ?,
              request_payload_hash = ?, event_payload_hash = ?, resolved_at = ?
-         WHERE review_id = ? AND state = 'pending'`,
+         WHERE review_id = ? AND state = 'pending' AND changes() = 1`,
     )
     .bind(
       input.decision,
@@ -167,9 +168,23 @@ export async function decideManualReview(
     .prepare(
       `UPDATE forecast_ops_alerts
          SET state = 'resolved', resolved_at = ?, next_send_at = ?
-         WHERE alert_key = ? AND state = 'open'`,
+         WHERE alert_key = ? AND state = 'open' AND changes() = 1
+           AND EXISTS (
+             SELECT 1 FROM source_manual_reviews
+             WHERE review_id = ? AND state = 'resolved'
+               AND request_id = ? AND request_payload_hash = ?
+           )`,
     )
-    .bind(now, now, manualReviewAlertKey(environment, review.source, review.item_id));
+    .bind(
+      now,
+      now,
+      manualReviewAlertKey(environment, review.source, review.item_id),
+      reviewId,
+      input.requestId,
+      payloadHash,
+    );
+  // Keep queue, review, and alert adjacent: changes() gates each on this batch's
+  // immediately preceding decision write, not a historical matching request.
   const statements = [
     ...prepared.priorStatements,
     prepared.queueStatement,
@@ -253,7 +268,8 @@ async function prepareManualEventDecision(
 ): Promise<PreparedManualReviewDecision> {
   const sourceItem = await loadManualSourceItem(db, review.source, review.item_id);
   const event = await manualScheduleEvent(sourceItem, eventInput);
-  const priorStatements = sourceItemAndEventStatements(db, [sourceItem], [event], now);
+  const condition = manualReviewWriteCondition(review);
+  const priorStatements = sourceItemAndEventStatements(db, [sourceItem], [event], now, condition);
   const scheduleEvents = [...(await loadScheduleEvents(db)), event];
   const resolved = resolveSoloSchedule(scheduleEvents, nowMs);
   if (resolved) {
@@ -267,7 +283,7 @@ async function prepareManualEventDecision(
       revision,
     );
     priorStatements.push(
-      ...candidateStatements(db, candidate, event.eventId, gameDay, revision, now),
+      ...candidateStatements(db, candidate, event.eventId, gameDay, revision, now, condition),
     );
   }
   return {
@@ -278,29 +294,43 @@ async function prepareManualEventDecision(
   };
 }
 
+function manualReviewWriteCondition(review: ManualReviewRow): StatementWriteCondition {
+  return {
+    sql: `EXISTS (
+      SELECT 1 FROM source_manual_reviews r
+      JOIN source_queue q ON q.source = r.source AND q.item_id = r.item_id
+      WHERE r.review_id = ? AND r.source = ? AND r.item_id = ? AND r.generation = ?
+        AND r.state = 'pending' AND q.status = 'manual_review'
+        AND q.review_generation = r.generation
+    )`,
+    bindings: [review.review_id, review.source, review.item_id, review.generation],
+  };
+}
+
 function queueDecisionStatement(
   db: D1Database,
   review: ManualReviewRow,
   target: "pending" | "ignored" | "processed",
   now: string,
 ) {
+  const condition = manualReviewWriteCondition(review);
   if (target === "pending") {
     return db
       .prepare(
         `UPDATE source_queue SET status = 'pending', attempts = 0, error_code = NULL,
            review_generation = review_generation + 1, updated_at = ?
          WHERE source = ? AND item_id = ? AND status = 'manual_review'
-           AND review_generation = ?`,
+           AND review_generation = ? AND (${condition.sql})`,
       )
-      .bind(now, review.source, review.item_id, review.generation);
+      .bind(now, review.source, review.item_id, review.generation, ...condition.bindings);
   }
   return db
     .prepare(
       `UPDATE source_queue SET status = ?, updated_at = ?
        WHERE source = ? AND item_id = ? AND status = 'manual_review'
-         AND review_generation = ?`,
+         AND review_generation = ? AND (${condition.sql})`,
     )
-    .bind(target, now, review.source, review.item_id, review.generation);
+    .bind(target, now, review.source, review.item_id, review.generation, ...condition.bindings);
 }
 
 export async function decideManualReviewFromDiscord(
