@@ -44,4 +44,6 @@ export type OpsAlertRow = {
   context: Record<string, string | number | boolean | null>;
   occurrenceCount: number;
   lastSentOccurrenceCount: number;
+  firstSeenAt: string;
+  resolvedAt: string | null;
 };

@@ -57,7 +57,21 @@ export function upsertOpsAlertStatement(
          END,
          first_seen_at = CASE
            WHEN forecast_ops_alerts.state = 'open' THEN forecast_ops_alerts.first_seen_at
+           WHEN excluded.first_seen_at <= forecast_ops_alerts.first_seen_at
+             THEN strftime('%Y-%m-%dT%H:%M:%fZ', forecast_ops_alerts.first_seen_at, '+0.001 seconds')
            ELSE excluded.first_seen_at
+         END,
+         last_sent_at = CASE
+           WHEN forecast_ops_alerts.state = 'open' THEN forecast_ops_alerts.last_sent_at
+           ELSE NULL
+         END,
+         last_sent_occurrence_count = CASE
+           WHEN forecast_ops_alerts.state = 'open' THEN forecast_ops_alerts.last_sent_occurrence_count
+           ELSE 0
+         END,
+         discord_message_id = CASE
+           WHEN forecast_ops_alerts.state = 'open' THEN forecast_ops_alerts.discord_message_id
+           ELSE NULL
          END,
          last_seen_at = excluded.last_seen_at,
          next_send_at = CASE

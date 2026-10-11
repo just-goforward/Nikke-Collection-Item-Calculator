@@ -1,4 +1,5 @@
 import { readBoundedBytes } from "../../shared/boundedHttp.ts";
+import { sha256Hex } from "./crypto";
 import type { DispatcherEnv, DispatchReservation, OpsAlertRow } from "./types";
 
 const DISCORD_API = "https://discord.com/api/v10";
@@ -58,15 +59,16 @@ export function dispatchAcceptedMessage(env: DispatcherEnv, reservation: Dispatc
   };
 }
 
-export function opsAlertMessage(alert: OpsAlertRow) {
-  const manualReview = manualReviewMessage(alert);
+export async function opsAlertMessage(alert: OpsAlertRow) {
+  const nonce = await alertNonce(alert, "alert");
+  const manualReview = manualReviewMessage(alert, nonce);
   if (manualReview) return manualReview;
   const context = Object.entries(alert.context)
     .slice(0, 6)
     .map(([key, value]) => `${cleanText(key, 40)}: ${cleanText(String(value), 180)}`)
     .join("\n");
   return {
-    nonce: alertNonce(alert.alertKey, alert.occurrenceCount),
+    nonce,
     enforce_nonce: true,
     allowed_mentions: { parse: [] as string[] },
     embeds: [
@@ -88,7 +90,7 @@ export function opsAlertMessage(alert: OpsAlertRow) {
   };
 }
 
-function manualReviewMessage(alert: OpsAlertRow) {
+function manualReviewMessage(alert: OpsAlertRow, nonce: string) {
   if (!alert.alertKey.startsWith("manual-review:")) return null;
   const reviewId = typeof alert.context["reviewId"] === "string" ? alert.context["reviewId"] : "";
   const sourceUrl = typeof alert.context["url"] === "string" ? alert.context["url"] : "";
@@ -97,7 +99,7 @@ function manualReviewMessage(alert: OpsAlertRow) {
   const reason = cleanText(String(alert.context["reason"] ?? alert.errorCode), 80);
   const title = cleanText(String(alert.context["title"] ?? "Naver 일정 게시물"), 120);
   return {
-    nonce: alertNonce(alert.alertKey, alert.occurrenceCount),
+    nonce,
     enforce_nonce: true,
     allowed_mentions: { parse: [] as string[] },
     embeds: [
@@ -142,9 +144,9 @@ function manualReviewMessage(alert: OpsAlertRow) {
   };
 }
 
-export function opsRecoveryMessage(alert: OpsAlertRow) {
+export async function opsRecoveryMessage(alert: OpsAlertRow) {
   return {
-    nonce: alertNonce(`recovery:${alert.alertKey}`, alert.occurrenceCount),
+    nonce: await alertNonce(alert, "recovery"),
     enforce_nonce: true,
     allowed_mentions: { parse: [] as string[] },
     embeds: [
@@ -276,10 +278,17 @@ function escapeMarkdown(value: string) {
   return value.replace(/[\\`*_{}[\]()#+\-.!|>@]/g, "\\$&");
 }
 
-function alertNonce(key: string, count: number) {
-  return (
-    `${key.replace(/[^a-zA-Z0-9]/g, "").slice(0, 18)}${count}`.slice(0, 25) || `forecast${count}`
-  );
+async function alertNonce(alert: OpsAlertRow, kind: "alert" | "recovery") {
+  const identity = JSON.stringify([
+    "forecast-ops-v1",
+    alert.environment,
+    alert.alertKey,
+    alert.firstSeenAt,
+    kind,
+    alert.occurrenceCount,
+    kind === "recovery" ? alert.resolvedAt : null,
+  ]);
+  return (await sha256Hex(identity)).slice(0, 25);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

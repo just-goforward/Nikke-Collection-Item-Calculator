@@ -2,23 +2,152 @@ import { applyD1Migrations, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import schemaSql from "../../forecast-collector/schema.sql?raw";
-import { recordWorkflowDispatchStatus } from "../../forecast-collector/src/ops";
+import { recordWorkflowDispatchStatus, upsertOpsAlert } from "../../forecast-collector/src/ops";
 import { executeTestSql } from "../../shared/testD1Sql";
+import {
+  listDueAlerts,
+  markAlertSendFailed,
+  markAlertSent,
+  raiseOpsAlert,
+  resolveOpsAlert,
+} from "./db";
 import { runDispatcher } from "./dispatcher";
 import type { DispatcherEnv } from "./types";
 
 const testEnv = env as unknown as DispatcherEnv;
 
+const deniedFetch = vi.fn(async () => {
+  throw new Error("Unexpected outbound fetch in dispatcher orchestration tests.");
+});
+
 beforeEach(async () => {
+  deniedFetch.mockClear();
+  vi.stubGlobal("fetch", deniedFetch);
   await reset();
   await executeTestSql(testEnv.FORECAST_DB, schemaSql, applyD1Migrations);
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  try {
+    expect(deniedFetch).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  }
 });
 
 describe("forecast dispatcher orchestration", () => {
+  it("records only the occurrence sent when a new observation arrives during Discord fetch", async () => {
+    const now = Date.parse("2026-09-01T00:00:00.000Z");
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const input = {
+      alertKey: "send-race:staging",
+      environment: "staging" as const,
+      severity: "critical" as const,
+      component: "dispatcher",
+      errorCode: "test_failure",
+      nowMs: now,
+    };
+    await raiseOpsAlert(testEnv.FORECAST_DB, input);
+    const fetchMock = vi.fn(async (request: RequestInfo | URL, init?: RequestInit) => {
+      if (String(request) !== "https://discord.com/api/v10/channels/333333333333333333/messages") {
+        throw new Error(`Unexpected request ${String(request)}`);
+      }
+      const payload = JSON.parse(String(init?.body)) as {
+        nonce: string;
+        enforce_nonce: boolean;
+        allowed_mentions: { parse: string[] };
+        embeds: Array<{ description: string }>;
+      };
+      expect(payload).toMatchObject({
+        enforce_nonce: true,
+        allowed_mentions: { parse: [] },
+      });
+      expect(payload.nonce).toMatch(/^[0-9a-f]{25}$/);
+      expect(payload.embeds[0]?.description).toContain("1회");
+      await raiseOpsAlert(testEnv.FORECAST_DB, { ...input, nowMs: now + 1 });
+      return Response.json({ id: "987654321098765432" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await runDispatcher(
+      {
+        ...testEnv,
+        DISCORD_ALERT_CHANNEL_ID: "333333333333333333",
+      },
+      { scheduledTime: now },
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(
+      await testEnv.FORECAST_DB.prepare(
+        `SELECT occurrence_count, last_sent_occurrence_count, discord_message_id, next_send_at
+         FROM forecast_ops_alerts WHERE alert_key = ?`,
+      )
+        .bind(input.alertKey)
+        .first(),
+    ).toEqual({
+      occurrence_count: 2,
+      last_sent_occurrence_count: 1,
+      discord_message_id: "987654321098765432",
+      next_send_at: new Date(now + 30 * 60 * 1_000).toISOString(),
+    });
+  });
+
+  it.each(["success", "failure"] as const)(
+    "does not apply %s from an in-flight Discord request to a reopened recurrence",
+    async (outcome) => {
+      const now = Date.parse("2026-09-01T00:00:00.000Z");
+      vi.spyOn(Date, "now").mockReturnValue(now);
+      const input = {
+        alertKey: "send-race:staging",
+        environment: "staging" as const,
+        severity: "critical" as const,
+        component: "dispatcher",
+        errorCode: "test_failure",
+        nowMs: now,
+      };
+      await raiseOpsAlert(testEnv.FORECAST_DB, input);
+      const fetchMock = vi.fn(async (request: RequestInfo | URL) => {
+        if (
+          String(request) !== "https://discord.com/api/v10/channels/333333333333333333/messages"
+        ) {
+          throw new Error(`Unexpected request ${String(request)}`);
+        }
+        await resolveOpsAlert(testEnv.FORECAST_DB, input.alertKey, now);
+        await raiseOpsAlert(testEnv.FORECAST_DB, input);
+        return outcome === "success"
+          ? Response.json({ id: "987654321098765432" })
+          : Response.json({ retry_after: 65 }, { status: 429 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      await runDispatcher(
+        {
+          ...testEnv,
+          DISCORD_ALERT_CHANNEL_ID: "333333333333333333",
+        },
+        { scheduledTime: now },
+      );
+
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(
+        await testEnv.FORECAST_DB.prepare(
+          `SELECT first_seen_at, last_sent_at, last_sent_occurrence_count,
+                  discord_message_id, next_send_at, last_send_error
+           FROM forecast_ops_alerts WHERE alert_key = ?`,
+        )
+          .bind(input.alertKey)
+          .first(),
+      ).toEqual({
+        first_seen_at: new Date(now + 1).toISOString(),
+        last_sent_at: null,
+        last_sent_occurrence_count: 0,
+        discord_message_id: null,
+        next_send_at: new Date(now).toISOString(),
+        last_send_error: null,
+      });
+    },
+  );
+
   it("records one accepted workflow request and one Discord notification", async () => {
     const now = Date.now();
     const nowIso = new Date(now).toISOString();
@@ -254,6 +383,122 @@ describe("forecast dispatcher orchestration", () => {
       discord_message_id: "987654321098765434",
     });
   });
+});
+
+describe("collector and dispatcher alert recurrence integration", () => {
+  const now = Date.parse("2026-09-01T23:59:59.999Z");
+  const input = {
+    alertKey: "recurrence:staging",
+    environment: "staging" as const,
+    severity: "critical" as const,
+    component: "dispatcher",
+    errorCode: "test_failure",
+  };
+  const firstMessage = "123456789012345678";
+  const newerMessage = "123456789012345679";
+
+  it.each([
+    ["dispatcher", raiseOpsAlert],
+    ["collector", upsertOpsAlert],
+  ] as const)(
+    "%s reopen increases identity and clears prior delivery metadata",
+    async (_name, raise) => {
+      await raise(testEnv.FORECAST_DB, { ...input, nowMs: now });
+      const original = await dueAlert(now);
+      await markAlertSent(testEnv.FORECAST_DB, original, firstMessage, now);
+      await resolveOpsAlert(testEnv.FORECAST_DB, input.alertKey, now);
+      await markAlertSent(testEnv.FORECAST_DB, await dueAlert(now), newerMessage, now);
+
+      for (const reopenAt of [now, now - 1_000, now + 10_000]) {
+        await raise(testEnv.FORECAST_DB, { ...input, nowMs: reopenAt });
+        const row = await deliveryState(input.alertKey);
+        expect(row).toMatchObject({
+          state: "open",
+          occurrence_count: 1,
+          last_sent_at: null,
+          last_sent_occurrence_count: 0,
+          discord_message_id: null,
+          resolved_at: null,
+          recovery_sent_at: null,
+          last_send_error: null,
+          next_send_at: new Date(reopenAt).toISOString(),
+        });
+        const expectedIdentity =
+          reopenAt === now + 10_000 ? reopenAt : now + (reopenAt === now ? 1 : 2);
+        expect(row?.first_seen_at).toBe(new Date(expectedIdentity).toISOString());
+        expect(await dueAlert(now + 10_000)).toMatchObject({
+          occurrenceCount: 1,
+          lastSentOccurrenceCount: 0,
+          firstSeenAt: new Date(expectedIdentity).toISOString(),
+        });
+        await resolveOpsAlert(testEnv.FORECAST_DB, input.alertKey, reopenAt);
+        expect(await listDueAlerts(testEnv.FORECAST_DB, "staging", now + 10_000)).toEqual([]);
+      }
+    },
+  );
+
+  it.each([
+    ["dispatcher", raiseOpsAlert],
+    ["collector", upsertOpsAlert],
+  ] as const)(
+    "%s reopen rejects old open and recovery completions, including after re-resolution",
+    async (_name, raise) => {
+      await raise(testEnv.FORECAST_DB, { ...input, nowMs: now });
+      const oldOpen = await dueAlert(now);
+      await markAlertSent(testEnv.FORECAST_DB, oldOpen, firstMessage, now);
+      await resolveOpsAlert(testEnv.FORECAST_DB, input.alertKey, now);
+      const oldRecovery = await dueAlert(now);
+      await raise(testEnv.FORECAST_DB, { ...input, nowMs: now });
+      const reopened = await deliveryState(input.alertKey);
+      await markAlertSent(testEnv.FORECAST_DB, oldOpen, firstMessage, now + 1);
+      await markAlertSendFailed(testEnv.FORECAST_DB, oldOpen, "old_open_failure", now + 2);
+      await markAlertSent(testEnv.FORECAST_DB, oldRecovery, firstMessage, now + 3);
+      await markAlertSendFailed(testEnv.FORECAST_DB, oldRecovery, "old_recovery_failure", now + 4);
+      expect(await deliveryState(input.alertKey)).toEqual(reopened);
+
+      await markAlertSent(testEnv.FORECAST_DB, await dueAlert(now), newerMessage, now + 5);
+      await resolveOpsAlert(testEnv.FORECAST_DB, input.alertKey, now);
+      const resolvedAgain = await deliveryState(input.alertKey);
+      await markAlertSent(testEnv.FORECAST_DB, oldRecovery, firstMessage, now + 6);
+      await markAlertSendFailed(testEnv.FORECAST_DB, oldRecovery, "old_recovery_failure", now + 7);
+      expect(await deliveryState(input.alertKey)).toEqual(resolvedAgain);
+      const recovery = await dueAlert(now);
+      expect(recovery.firstSeenAt).not.toBe(oldRecovery.firstSeenAt);
+      await markAlertSent(testEnv.FORECAST_DB, recovery, newerMessage, now + 8);
+      const completed = await deliveryState(input.alertKey);
+      await markAlertSent(testEnv.FORECAST_DB, recovery, firstMessage, now + 9);
+      await markAlertSendFailed(testEnv.FORECAST_DB, recovery, "duplicate_failure", now + 10);
+      expect(await deliveryState(input.alertKey)).toEqual(completed);
+    },
+  );
+
+  async function dueAlert(nowMs: number) {
+    const alerts = await listDueAlerts(testEnv.FORECAST_DB, "staging", nowMs);
+    const alert = alerts[0];
+    if (!alert) throw new Error("Expected a due alert.");
+    return alert;
+  }
+
+  async function deliveryState(alertKey: string) {
+    return testEnv.FORECAST_DB.prepare(
+      `SELECT state, occurrence_count, first_seen_at, last_sent_at, last_sent_occurrence_count,
+              next_send_at, discord_message_id, resolved_at, recovery_sent_at, last_send_error
+       FROM forecast_ops_alerts WHERE alert_key = ?`,
+    )
+      .bind(alertKey)
+      .first<{
+        state: string;
+        occurrence_count: number;
+        first_seen_at: string;
+        last_sent_at: string | null;
+        last_sent_occurrence_count: number;
+        next_send_at: string | null;
+        discord_message_id: string | null;
+        resolved_at: string | null;
+        recovery_sent_at: string | null;
+        last_send_error: string | null;
+      }>();
+  }
 });
 
 async function generatePrivateKeyPem() {

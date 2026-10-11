@@ -1,8 +1,98 @@
-import { describe, expect, it, vi } from "vitest";
-import { dispatchAcceptedMessage, resolveDiscordChannelId, sendDiscordMessage } from "./discord";
-import type { DispatcherEnv } from "./types";
+import { createHash } from "node:crypto";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  dispatchAcceptedMessage,
+  opsAlertMessage,
+  opsRecoveryMessage,
+  resolveDiscordChannelId,
+  sendDiscordMessage,
+} from "./discord";
+import type { DispatcherEnv, OpsAlertRow } from "./types";
+
+const deniedFetch = vi.fn(async () => {
+  throw new Error("Unexpected outbound fetch in Discord message tests.");
+});
+
+beforeEach(() => {
+  deniedFetch.mockClear();
+  vi.stubGlobal("fetch", deniedFetch);
+});
+
+afterEach(() => {
+  try {
+    expect(deniedFetch).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 
 describe("Discord forecast operations messages", () => {
+  it("uses the complete alert identity instead of a shared sanitized prefix", async () => {
+    const alert = alertRow();
+    const first = await opsAlertMessage(alert);
+    const otherKey = await opsAlertMessage({
+      ...alert,
+      alertKey: "dispatch-stale:staging:fd-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    });
+    const punctuation = await opsAlertMessage({
+      ...alert,
+      alertKey: alert.alertKey.replaceAll(":", "-"),
+    });
+
+    expect(first.nonce).toMatch(/^[0-9a-f]{25}$/);
+    expect(first.nonce).toBe(
+      createHash("sha256")
+        .update(
+          JSON.stringify([
+            "forecast-ops-v1",
+            "staging",
+            "dispatch-stale:staging:fd-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "2026-09-01T00:00:00.000Z",
+            "alert",
+            1,
+            null,
+          ]),
+        )
+        .digest("hex")
+        .slice(0, 25),
+    );
+    expect(otherKey.nonce).not.toBe(first.nonce);
+    expect(punctuation.nonce).not.toBe(first.nonce);
+    expect((await opsAlertMessage(alert)).nonce).toBe(first.nonce);
+    expect(first).toMatchObject({
+      enforce_nonce: true,
+      allowed_mentions: { parse: [] },
+    });
+  });
+
+  it("separates environments, recurrence identities, occurrence counts, and recoveries", async () => {
+    const alert = alertRow();
+    const first = await opsAlertMessage(alert);
+    const variants = [
+      { ...alert, environment: "production" as const },
+      { ...alert, firstSeenAt: "2026-09-01T00:00:00.001Z" },
+      { ...alert, occurrenceCount: 2 },
+    ];
+    for (const variant of variants) {
+      expect((await opsAlertMessage(variant)).nonce).not.toBe(first.nonce);
+    }
+    const resolved = {
+      ...alert,
+      state: "resolved" as const,
+      resolvedAt: "2026-09-01T00:01:00.000Z",
+    };
+    const recovery = await opsRecoveryMessage(resolved);
+    expect(recovery.nonce).not.toBe(first.nonce);
+    expect((await opsRecoveryMessage(resolved)).nonce).toBe(recovery.nonce);
+    expect(
+      (await opsRecoveryMessage({ ...resolved, resolvedAt: "2026-09-01T00:02:00.000Z" })).nonce,
+    ).not.toBe(recovery.nonce);
+    expect(recovery).toMatchObject({
+      enforce_nonce: true,
+      allowed_mentions: { parse: [] },
+    });
+  });
+
   it("returns the rate-limit delay without sleeping or retrying", async () => {
     const fetchImpl = vi
       .fn()
@@ -89,6 +179,22 @@ describe("Discord forecast operations messages", () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 });
+
+function alertRow(): OpsAlertRow {
+  return {
+    alertKey: "dispatch-stale:staging:fd-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    environment: "staging",
+    severity: "critical",
+    component: "github-workflow",
+    errorCode: "dispatch_work_remaining_20_minutes",
+    state: "open",
+    context: {},
+    occurrenceCount: 1,
+    lastSentOccurrenceCount: 0,
+    firstSeenAt: "2026-09-01T00:00:00.000Z",
+    resolvedAt: null,
+  };
+}
 
 function env() {
   return {

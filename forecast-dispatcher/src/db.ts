@@ -372,7 +372,21 @@ export async function raiseOpsAlert(
          END,
          first_seen_at = CASE
            WHEN forecast_ops_alerts.state = 'open' THEN forecast_ops_alerts.first_seen_at
+           WHEN excluded.first_seen_at <= forecast_ops_alerts.first_seen_at
+             THEN strftime('%Y-%m-%dT%H:%M:%fZ', forecast_ops_alerts.first_seen_at, '+0.001 seconds')
            ELSE excluded.first_seen_at
+         END,
+         last_sent_at = CASE
+           WHEN forecast_ops_alerts.state = 'open' THEN forecast_ops_alerts.last_sent_at
+           ELSE NULL
+         END,
+         last_sent_occurrence_count = CASE
+           WHEN forecast_ops_alerts.state = 'open' THEN forecast_ops_alerts.last_sent_occurrence_count
+           ELSE 0
+         END,
+         discord_message_id = CASE
+           WHEN forecast_ops_alerts.state = 'open' THEN forecast_ops_alerts.discord_message_id
+           ELSE NULL
          END,
          last_seen_at = excluded.last_seen_at,
          next_send_at = CASE
@@ -552,19 +566,20 @@ export async function listDueAlerts(
   const result = await db
     .prepare(
       `SELECT alert_key, environment, severity, component, error_code, state, context_json,
-              occurrence_count, last_sent_occurrence_count
+              occurrence_count, last_sent_occurrence_count, first_seen_at, resolved_at
        FROM forecast_ops_alerts
        WHERE environment = ? AND (
          (state = 'open' AND occurrence_count >= notify_after_count
           AND occurrence_count > last_sent_occurrence_count
           AND (next_send_at IS NULL OR next_send_at <= ?))
          OR
-         (state = 'resolved' AND last_sent_at IS NOT NULL AND recovery_sent_at IS NULL)
+         (state = 'resolved' AND last_sent_at IS NOT NULL AND recovery_sent_at IS NULL
+          AND (next_send_at IS NULL OR next_send_at <= ?))
        )
        ORDER BY CASE severity WHEN 'critical' THEN 0 ELSE 1 END, first_seen_at
        LIMIT ?`,
     )
-    .bind(environment, now, Math.max(1, Math.min(20, Math.trunc(limit))))
+    .bind(environment, now, now, Math.max(1, Math.min(20, Math.trunc(limit))))
     .all<{
       alert_key: string;
       environment: DispatcherEnvironment;
@@ -575,6 +590,8 @@ export async function listDueAlerts(
       context_json: string;
       occurrence_count: number;
       last_sent_occurrence_count: number;
+      first_seen_at: string;
+      resolved_at: string | null;
     }>();
   return result.results.map((row) => ({
     alertKey: row.alert_key,
@@ -586,6 +603,8 @@ export async function listDueAlerts(
     context: parseContext(row.context_json),
     occurrenceCount: Number(row.occurrence_count),
     lastSentOccurrenceCount: Number(row.last_sent_occurrence_count),
+    firstSeenAt: row.first_seen_at,
+    resolvedAt: row.resolved_at,
   }));
 }
 
@@ -600,38 +619,61 @@ export async function markAlertSent(
     await db
       .prepare(
         `UPDATE forecast_ops_alerts SET recovery_sent_at = ?, discord_message_id = ?, last_send_error = NULL
-         WHERE alert_key = ? AND state = 'resolved' AND recovery_sent_at IS NULL`,
+         WHERE alert_key = ? AND first_seen_at = ? AND state = 'resolved'
+           AND resolved_at = ? AND recovery_sent_at IS NULL`,
       )
-      .bind(now, messageId, alert.alertKey)
+      .bind(now, messageId, alert.alertKey, alert.firstSeenAt, alert.resolvedAt)
       .run();
     return;
   }
   await db
     .prepare(
       `UPDATE forecast_ops_alerts
-       SET last_sent_at = ?, last_sent_occurrence_count = occurrence_count,
+       SET last_sent_at = ?, last_sent_occurrence_count = ?,
            next_send_at = ?, discord_message_id = ?, last_send_error = NULL
-       WHERE alert_key = ? AND state = 'open'`,
+       WHERE alert_key = ? AND first_seen_at = ? AND state = 'open'
+         AND occurrence_count >= ? AND last_sent_occurrence_count < ?`,
     )
-    .bind(now, new Date(nowMs + ALERT_SUPPRESSION_MS).toISOString(), messageId, alert.alertKey)
+    .bind(
+      now,
+      alert.occurrenceCount,
+      new Date(nowMs + ALERT_SUPPRESSION_MS).toISOString(),
+      messageId,
+      alert.alertKey,
+      alert.firstSeenAt,
+      alert.occurrenceCount,
+      alert.occurrenceCount,
+    )
     .run();
 }
 
 export async function markAlertSendFailed(
   db: D1Database,
-  alertKey: string,
+  alert: OpsAlertRow,
   errorCode: string,
   nowMs: number,
   retryAfterMs = 5 * 60 * 1_000,
 ) {
   await db
     .prepare(
-      `UPDATE forecast_ops_alerts SET last_send_error = ?, next_send_at = ? WHERE alert_key = ?`,
+      `UPDATE forecast_ops_alerts SET last_send_error = ?, next_send_at = ?
+       WHERE alert_key = ? AND first_seen_at = ? AND state = ?
+         AND last_sent_occurrence_count = ? AND (
+           (state = 'open' AND occurrence_count >= ? AND last_sent_occurrence_count < ?)
+           OR
+           (state = 'resolved' AND resolved_at = ? AND recovery_sent_at IS NULL)
+         )`,
     )
     .bind(
       sanitizeErrorCode(errorCode),
       new Date(nowMs + Math.min(Math.max(retryAfterMs, 250), 60 * 60 * 1_000)).toISOString(),
-      alertKey,
+      alert.alertKey,
+      alert.firstSeenAt,
+      alert.state,
+      alert.lastSentOccurrenceCount,
+      alert.occurrenceCount,
+      alert.occurrenceCount,
+      alert.resolvedAt,
     )
     .run();
 }

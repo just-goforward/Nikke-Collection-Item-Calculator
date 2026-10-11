@@ -198,13 +198,13 @@ async function flushDiscordAlerts(env: DispatcherEnv) {
   for (const alert of alerts) {
     try {
       const payload =
-        alert.state === "resolved" ? opsRecoveryMessage(alert) : opsAlertMessage(alert);
+        alert.state === "resolved" ? await opsRecoveryMessage(alert) : await opsAlertMessage(alert);
       const sent = await sendDiscordMessage(env, "alert", payload);
       await markAlertSent(env.FORECAST_DB, alert, sent.messageId, Date.now());
     } catch (error) {
       await markAlertSendFailed(
         env.FORECAST_DB,
-        alert.alertKey,
+        alert,
         dispatcherErrorCode(error),
         Date.now(),
         error instanceof DiscordMessageError && error.retryAfterMs !== null
