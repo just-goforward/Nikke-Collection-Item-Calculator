@@ -83,13 +83,11 @@ export async function initializeBaseline(
   await env.OBSERVER_DB.batch(statements);
 }
 
-export async function sourceCursor(env: StatsObserverEnv, sourceKind: string, rowHash: string) {
-  return await env.OBSERVER_DB.prepare(
+export function sourceCursorStatement(env: StatsObserverEnv, sourceKind: string, rowHash: string) {
+  return env.OBSERVER_DB.prepare(
     `SELECT last_events FROM observer_source_cursors
      WHERE source_kind = ? AND row_hash = ?`,
-  )
-    .bind(sourceKind, rowHash)
-    .first<{ last_events?: number }>();
+  ).bind(sourceKind, rowHash);
 }
 
 export function updateSourceCursorStatement(
@@ -111,20 +109,22 @@ export function updateSourceCursorStatement(
   ).bind(sourceKind, rowHash, events, lastSeen, now);
 }
 
-export async function recordDeltaStatement(
+export function alertStateStatement(env: StatsObserverEnv, fingerprint: string) {
+  return env.OBSERVER_DB.prepare(
+    `SELECT severity, window_started_at, window_count, total_count,
+            last_sent_at, last_sent_severity, discord_message_id
+     FROM observer_alerts WHERE fingerprint = ?`,
+  ).bind(fingerprint);
+}
+
+export function recordDeltaStatement(
   env: StatsObserverEnv,
   observation: SourceObservation,
   fingerprint: string,
   delta: number,
   now: string,
+  current: Record<string, unknown> | null,
 ) {
-  const current = await env.OBSERVER_DB.prepare(
-    `SELECT severity, window_started_at, window_count, total_count,
-            last_sent_at, last_sent_severity, discord_message_id
-     FROM observer_alerts WHERE fingerprint = ?`,
-  )
-    .bind(fingerprint)
-    .first<Record<string, unknown>>();
   const nowMs = Date.parse(now);
   const currentWindowStart = Date.parse(String(current?.["window_started_at"] ?? ""));
   const sameWindow =

@@ -129,7 +129,8 @@ describe("stats observer D1 integration", () => {
       .fn<typeof fetch>()
       .mockResolvedValue(Response.json({ id: "987654321098765432" }));
 
-    await runObserver(observerEnv(), NOW + 60_000, {
+    const tracked = trackedEnv();
+    await runObserver(tracked.env, NOW + 60_000, {
       fetchImpl,
       now: () => NOW + 60_000,
     });
@@ -146,6 +147,7 @@ describe("stats observer D1 integration", () => {
       "SELECT last_events FROM observer_source_cursors WHERE source_kind='solver_failure'",
     ).first<{ last_events: number }>();
     expect(cursor?.last_events).toBe(0);
+    expect(tracked.observer.calls.filter((call) => call.kind === "batch")[0]?.sql.length).toBe(2);
   });
 
   it("rebaselines a decreased count and alerts without blocking the poll", async () => {
@@ -301,6 +303,313 @@ describe("stats observer D1 integration", () => {
     ).first<Record<string, unknown>>();
     expect(alert).toMatchObject({ state: "resolved", send_status: "sent" });
   });
+
+  it("associates missing and existing cursors and alert states across source kinds", async () => {
+    const seconds = Math.floor(NOW / 1_000);
+    const existingRevision = "b".repeat(40);
+    const missingRevision = "a".repeat(40);
+    await env.STATS_DB.batch([
+      ...sourceStatements(existingRevision, 7, seconds),
+      failureStatement(2, seconds, "d".repeat(40)),
+    ]);
+    await runObserver(observerEnv(), NOW, { now: () => NOW });
+    const existingFingerprint = await failureFingerprint(existingRevision);
+    const now = new Date(NOW).toISOString();
+    await env.OBSERVER_DB.prepare(
+      `INSERT INTO observer_alerts
+       (fingerprint, source_kind, severity, error_code, context_json, first_seen,
+        last_seen, window_started_at, window_count, total_count, updated_at)
+       VALUES (?, 'solver_failure', 'critical', 'memo_full', '{}', ?, ?, ?, 4, 4, ?)`,
+    )
+      .bind(existingFingerprint, now, now, now, now)
+      .run();
+    const later = seconds + 60;
+    await env.STATS_DB.batch([
+      failureStatement(1, seconds, missingRevision),
+      sourceStatements(missingRevision, 2, seconds)[1],
+      env.STATS_DB.prepare(
+        "UPDATE solver_failure_aggregates_game_day SET events=10,last_seen=? WHERE app_revision=?",
+      ).bind(later, existingRevision),
+      env.STATS_DB.prepare(
+        "UPDATE stats_delivery_health_aggregates_game_day SET events=9,last_seen=? WHERE app_revision=?",
+      ).bind(later, existingRevision),
+    ]);
+    const tracked = trackedEnv();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => Response.json({ id: "987654321098765432" }));
+    const result = await runObserver(tracked.env, NOW + 60_000, {
+      fetchImpl,
+      now: () => NOW + 60_000,
+    });
+
+    expect(result).toEqual({ rows: 8, deltas: 8, alerts: 4 });
+    expect(
+      await env.OBSERVER_DB.prepare(
+        "SELECT total_count,window_count,severity FROM observer_alerts WHERE fingerprint=?",
+      )
+        .bind(existingFingerprint)
+        .first(),
+    ).toEqual({ total_count: 7, window_count: 7, severity: "critical" });
+    expect(
+      await env.OBSERVER_DB.prepare("SELECT total_count FROM observer_alerts WHERE fingerprint=?")
+        .bind(await failureFingerprint(missingRevision))
+        .first(),
+    ).toEqual({ total_count: 1 });
+    const otherAlerts = await env.OBSERVER_DB.prepare(
+      `SELECT source_kind,total_count FROM observer_alerts
+       WHERE source_kind != 'solver_failure' ORDER BY source_kind`,
+    ).all();
+    expect(otherAlerts.results).toEqual([
+      { source_kind: "delivery_health", total_count: 2 },
+      { source_kind: "submission_rejection", total_count: 2 },
+    ]);
+    const cursorCounts = await env.OBSERVER_DB.prepare(
+      "SELECT last_events FROM observer_source_cursors ORDER BY last_events",
+    ).all<{ last_events: number }>();
+    expect(cursorCounts.results.map((row) => row.last_events)).toEqual([0, 0, 1, 2, 2, 7, 9, 10]);
+    expect(tracked.calls().length).toBe(10 + 1 + 1 + 4);
+    expect(
+      tracked.observer.calls.filter((call) => call.kind === "batch").map((call) => call.sql.length),
+    ).toEqual([8, 4, 13]);
+  });
+
+  it("preserves the entire 1502-row domain and counts binding calls separately from statements", async () => {
+    const seconds = Math.floor(NOW / 1_000);
+    await seedSources(500, 7, seconds);
+    const baseline = trackedEnv();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => Response.json({ id: "987654321098765432" }));
+    expect(await runObserver(baseline.env, NOW, { fetchImpl, now: () => NOW })).toEqual({
+      baselineInitialized: true,
+      rows: 1502,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(baseline.calls().length).toBe(9);
+    expect(baseline.statements()).toBe(9 + 1502);
+    expect(baseline.observer.calls.filter((call) => call.kind === "batch")[0]?.sql.length).toBe(
+      1503,
+    );
+    expect(
+      await env.OBSERVER_DB.prepare(
+        "SELECT COUNT(*) AS count FROM observer_source_cursors",
+      ).first(),
+    ).toEqual({ count: 1502 });
+
+    await updateSources(10, seconds + 60);
+    await seedGuard(env.GUARD_DB, NOW + 60_000, 1, 1);
+    const delta = trackedEnv();
+    expect(
+      await runObserver(delta.env, NOW + 60_000, {
+        fetchImpl,
+        now: () => NOW + 60_000,
+      }),
+    ).toEqual({ rows: 1502, deltas: 4502, alerts: 20 });
+    // C=1502 cursor reads, P=1502 pending states, R=0 recoveries, A=20 deliveries.
+    // Binding calls: 10 + I(C>0) + I(P>0) + A + S + X.
+    expect(delta.guard.calls.length).toBe(2);
+    expect(delta.stats.calls.length).toBe(3);
+    expect(delta.calls().length).toBe(10 + 1 + 1 + 20);
+    // SQL statements are unchanged: 10 + C + 2P + R + N + A + S + X.
+    expect(delta.statements()).toBe(10 + 1502 + 2 * 1502 + 1502 + 20);
+    expect(
+      delta.observer.calls.filter((call) => call.kind === "batch").map((call) => call.sql.length),
+    ).toEqual([1502, 1502, 3005]);
+    expect(fetchImpl).toHaveBeenCalledTimes(20);
+    const totals = await env.OBSERVER_DB.prepare(
+      "SELECT source_kind,SUM(total_count) AS total FROM observer_alerts GROUP BY source_kind ORDER BY source_kind",
+    ).all();
+    expect(totals.results).toEqual([
+      { source_kind: "delivery_health", total: 1500 },
+      { source_kind: "solver_failure", total: 1500 },
+      { source_kind: "submission_rejection", total: 1500 },
+      { source_kind: "worker_runtime", total: 2 },
+    ]);
+
+    await env.OBSERVER_DB.prepare(
+      `CREATE TRIGGER fail_sent_marker BEFORE UPDATE ON observer_alerts
+       WHEN NEW.send_status='sent'
+       BEGIN SELECT RAISE(ABORT, 'forced marker failure'); END;`,
+    ).run();
+    await env.OBSERVER_DB.prepare(
+      `CREATE TRIGGER fail_completed_run BEFORE UPDATE ON observer_runs
+       WHEN NEW.status='completed'
+       BEGIN SELECT RAISE(ABORT, 'forced completion failure'); END;`,
+    ).run();
+    await updateSources(13, seconds + 120);
+    await seedGuard(env.GUARD_DB, NOW + 120_000, 2, 1);
+    fetchImpl.mockClear();
+    const failure = trackedEnv();
+    await expect(
+      runObserver(failure.env, NOW + 120_000, {
+        fetchImpl,
+        now: () => NOW + 120_000,
+      }),
+    ).rejects.toThrow();
+    // All 20 success markers fail, each gets a retry marker; finish fails, then failRun runs.
+    expect(failure.calls().length).toBe(10 + 1 + 1 + 20 + 20 + 1);
+    expect(failure.statements()).toBe(10 + 1502 + 2 * 1501 + 1502 + 20 + 20 + 1);
+    expect(fetchImpl).toHaveBeenCalledTimes(20);
+    expect(failure.calls().length + fetchImpl.mock.calls.length).toBe(73);
+    expect(
+      await env.OBSERVER_DB.prepare("SELECT status FROM observer_runs WHERE scheduled_at=?")
+        .bind(new Date(NOW + 120_000).toISOString())
+        .first(),
+    ).toEqual({ status: "failure" });
+  });
+
+  it("rolls back a failed baseline transaction and retries silently in a later run", async () => {
+    await insertFailure(7, Math.floor(NOW / 1_000));
+    await env.OBSERVER_DB.prepare(
+      `CREATE TRIGGER fail_baseline BEFORE UPDATE ON observer_state
+       WHEN NEW.baseline_initialized=1
+       BEGIN SELECT RAISE(ABORT, 'forced baseline failure'); END;`,
+    ).run();
+    const tracked = trackedEnv();
+    const fetchImpl = vi.fn<typeof fetch>();
+    await expect(runObserver(tracked.env, NOW, { fetchImpl, now: () => NOW })).rejects.toThrow();
+    expect(tracked.calls().length).toBe(9);
+    expect(
+      await env.OBSERVER_DB.prepare(
+        "SELECT COUNT(*) AS count FROM observer_source_cursors",
+      ).first(),
+    ).toEqual({ count: 0 });
+    expect(
+      await env.OBSERVER_DB.prepare("SELECT baseline_initialized FROM observer_state").first(),
+    ).toEqual({ baseline_initialized: 0 });
+    await env.OBSERVER_DB.exec("DROP TRIGGER fail_baseline;");
+    expect(
+      await runObserver(observerEnv(), NOW + 60_000, {
+        fetchImpl,
+        now: () => NOW + 60_000,
+      }),
+    ).toEqual({ baselineInitialized: true, rows: 3 });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rolls back alerts, recovery and cursors together when the final poll write fails", async () => {
+    await insertFailure(7, Math.floor(NOW / 1_000));
+    await runObserver(observerEnv(), NOW, { now: () => NOW });
+    await seedGuard(env.GUARD_DB, NOW + 60_000, 1);
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => Response.json({ id: "987654321098765432" }));
+    await runObserver(observerEnv(), NOW + 60_000, {
+      fetchImpl,
+      now: () => NOW + 60_000,
+    });
+    await env.STATS_DB.prepare(
+      "UPDATE solver_failure_aggregates_game_day SET events=10,last_seen=?",
+    )
+      .bind(Math.floor((NOW + 120_000) / 1_000))
+      .run();
+    await seedGuard(env.GUARD_DB, NOW + 120_000, 0);
+    await env.OBSERVER_DB.prepare(
+      `CREATE TRIGGER fail_poll BEFORE UPDATE ON observer_state
+       BEGIN SELECT RAISE(ABORT, 'forced poll failure'); END;`,
+    ).run();
+    const tracked = trackedEnv();
+    await expect(
+      runObserver(tracked.env, NOW + 120_000, {
+        fetchImpl,
+        now: () => NOW + 120_000,
+      }),
+    ).rejects.toThrow();
+    expect(tracked.calls().length).toBe(11);
+    expect(tracked.observer.calls.filter((call) => call.kind === "batch")[2]?.sql.length).toBe(6);
+    const cursors = await env.OBSERVER_DB.prepare(
+      "SELECT source_kind,last_events FROM observer_source_cursors ORDER BY source_kind,last_events",
+    ).all();
+    expect(cursors.results).toEqual([
+      { source_kind: "solver_failure", last_events: 7 },
+      { source_kind: "worker_runtime", last_events: 0 },
+      { source_kind: "worker_runtime", last_events: 1 },
+    ]);
+    const alerts = await env.OBSERVER_DB.prepare(
+      "SELECT source_kind,state,send_status,total_count FROM observer_alerts",
+    ).all();
+    expect(alerts.results).toEqual([
+      { source_kind: "worker_runtime", state: "open", send_status: "sent", total_count: 1 },
+    ]);
+    await env.OBSERVER_DB.exec("DROP TRIGGER fail_poll;");
+    fetchImpl.mockClear();
+    expect(
+      await runObserver(observerEnv(), NOW + 180_000, {
+        fetchImpl,
+        now: () => NOW + 180_000,
+      }),
+    ).toEqual({ rows: 3, deltas: 3, alerts: 2 });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    [0, false],
+    [1, false],
+    [2, false],
+    [0, true],
+    [1, true],
+    [2, true],
+  ] as const)("fails closed on source %i overflow with baseline=%s", async (source, baseline) => {
+    if (baseline) await runObserver(observerEnv(), NOW, { now: () => NOW });
+    const seconds = Math.floor(NOW / 1_000);
+    await seedSources(500, 1, seconds);
+    await sourceStatements("f".repeat(40), 1, seconds)[source].run();
+    const tracked = trackedEnv();
+    const fetchImpl = vi.fn<typeof fetch>();
+    await expect(
+      runObserver(tracked.env, NOW + 60_000, {
+        fetchImpl,
+        now: () => NOW + 60_000,
+      }),
+    ).rejects.toThrow("observer_source_overflow");
+    expect(tracked.calls().length).toBe(8);
+    expect(tracked.observer.calls.some((call) => call.kind === "batch")).toBe(false);
+    expect(
+      await env.OBSERVER_DB.prepare(
+        "SELECT COUNT(*) AS count FROM observer_source_cursors",
+      ).first(),
+    ).toEqual({ count: baseline ? 2 : 0 });
+    expect(
+      await env.OBSERVER_DB.prepare("SELECT COUNT(*) AS count FROM observer_alerts").first(),
+    ).toEqual({ count: 0 });
+    expect(
+      await env.OBSERVER_DB.prepare("SELECT baseline_initialized FROM observer_state").first(),
+    ).toEqual({ baseline_initialized: baseline ? 1 : 0 });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each(["hard_stop", "stale", "hash_mismatch", "invalid_evidence"])(
+    "keeps negative guard evidence %s ahead of all optional reads and writes",
+    async (condition) => {
+      if (condition === "hard_stop") {
+        await env.GUARD_DB.prepare("UPDATE usage_guard_state SET action='hard_stop'").run();
+      } else if (condition === "stale") {
+        await seedGuard(env.GUARD_DB, NOW - 45 * 60_000);
+      } else if (condition === "hash_mismatch") {
+        await env.GUARD_DB.prepare("UPDATE usage_guard_state SET evidence_hash=?")
+          .bind("f".repeat(64))
+          .run();
+      } else {
+        const json = JSON.stringify({ ...quotaEvidence(NOW), version: 1 });
+        await env.GUARD_DB.prepare("UPDATE usage_guard_state SET evidence_json=?,evidence_hash=?")
+          .bind(json, await sha256(json))
+          .run();
+      }
+      const tracked = trackedEnv();
+      const fetchImpl = vi.fn<typeof fetch>();
+      await expect(runObserver(tracked.env, NOW, { fetchImpl, now: () => NOW })).rejects.toThrow();
+      expect(tracked.stats.calls).toEqual([]);
+      expect(tracked.observer.calls.map((call) => call.kind)).toEqual(["run", "run"]);
+      expect(tracked.guard.calls.length).toBe(
+        condition === "hard_stop" || condition === "stale" ? 1 : 2,
+      );
+      expect(await env.OBSERVER_DB.prepare("SELECT status FROM observer_runs").first()).toEqual({
+        status: "failure",
+      });
+      expect(fetchImpl).not.toHaveBeenCalled();
+    },
+  );
 });
 
 function observerEnv(): StatsObserverEnv {
@@ -316,7 +625,11 @@ function observerEnv(): StatsObserverEnv {
 }
 
 async function insertFailure(events: number, now: number) {
-  await env.STATS_DB.prepare(
+  await failureStatement(events, now).run();
+}
+
+function failureStatement(events: number, now: number, revision = "a".repeat(40)) {
+  return env.STATS_DB.prepare(
     `INSERT INTO solver_failure_aggregates_game_day
       (date_key, recovery_version, policy_version, app_revision, ingest_revision,
        forecast_id, forecast_profile_id, rust_min_ef_solver_version,
@@ -328,9 +641,127 @@ async function insertFailure(events: number, now: number) {
        'rust-min', 'rust-phase2', 'js-phase2', 'rust-min-ef', 'memo_full',
        'not_attempted', 'not_attempted', 'none', 'R', 0, 0, '500_plus',
        '300_349', '150_199', 'Chrome', '140', 'Android', '17', 'mobile', ?, ?, ?)`,
-  )
-    .bind("a".repeat(40), "b".repeat(40), events, now, now)
-    .run();
+  ).bind(revision, "b".repeat(40), events, now, now);
+}
+
+function sourceStatements(revision: string, events: number, now: number) {
+  return [
+    failureStatement(events, now, revision),
+    env.STATS_DB.prepare(
+      `INSERT INTO stats_submission_rejection_aggregates_game_day
+       (date_key,rejection_code,event_kind,recovery_version,policy_version,app_revision,
+        events,first_seen,last_seen)
+       VALUES ('2026-09-02','invalid_contract','solver_recovery','2','ladder_v2',?,?,?,?)`,
+    ).bind(revision, events, now, now),
+    env.STATS_DB.prepare(
+      `INSERT INTO stats_delivery_health_aggregates_game_day
+       (date_key,outcome,event_kind,attempts_bucket,age_bucket,last_failure_class,
+        app_revision,events,first_seen,last_seen)
+       VALUES ('2026-09-02','retried_success','solver_recovery','3_5','5m_15m',
+        'network',?,?,?,?)`,
+    ).bind(revision, events, now, now),
+  ] as const;
+}
+
+async function seedSources(count: number, events: number, now: number) {
+  await env.STATS_DB.batch(
+    Array.from({ length: count }, (_, index) =>
+      sourceStatements(index.toString(16).padStart(40, "0"), events, now),
+    ).flat(),
+  );
+}
+
+async function updateSources(events: number, now: number) {
+  await env.STATS_DB.batch(
+    [
+      "solver_failure_aggregates_game_day",
+      "stats_submission_rejection_aggregates_game_day",
+      "stats_delivery_health_aggregates_game_day",
+    ].map((table) =>
+      env.STATS_DB.prepare(`UPDATE ${table} SET events=?,last_seen=?`).bind(events, now),
+    ),
+  );
+}
+
+function failureFingerprint(revision: string) {
+  return sha256(
+    JSON.stringify({
+      appRevision: revision,
+      environment: "staging",
+      exitChain: "memo_full>not_attempted>not_attempted",
+      forecastId: "supply-test",
+      policyVersion: "ladder_v2",
+      requestedBackend: "rust-min-ef",
+      source: "solver_failure",
+      terminalBackend: "none",
+    }),
+  );
+}
+
+type DatabaseCall = { kind: "first" | "all" | "run" | "batch"; sql: string[] };
+
+function trackDatabase(database: D1Database) {
+  const calls: DatabaseCall[] = [];
+  const sqlByStatement = new WeakMap<D1PreparedStatement, string>();
+  const wrap = (statement: D1PreparedStatement, sql: string): D1PreparedStatement => {
+    const proxy = new Proxy(statement, {
+      get(target, key) {
+        if (key === "bind") {
+          return (...values: Parameters<D1PreparedStatement["bind"]>) =>
+            wrap(target.bind(...values), sql);
+        }
+        if (key === "first" || key === "all" || key === "run") {
+          return (...args: unknown[]) => {
+            calls.push({ kind: key, sql: [sql] });
+            return Reflect.apply(Reflect.get(target, key), target, args);
+          };
+        }
+        return Reflect.get(target, key, target);
+      },
+    });
+    sqlByStatement.set(proxy, sql);
+    return proxy;
+  };
+  const db = new Proxy(database, {
+    get(target, key) {
+      if (key === "prepare") return (sql: string) => wrap(target.prepare(sql), sql);
+      if (key === "batch") {
+        return (statements: D1PreparedStatement[]) => {
+          calls.push({
+            kind: "batch",
+            sql: statements.map((statement) => {
+              const sql = sqlByStatement.get(statement);
+              if (sql === undefined) throw new Error("untracked_test_statement");
+              return sql;
+            }),
+          });
+          return target.batch(statements);
+        };
+      }
+      return Reflect.get(target, key, target);
+    },
+  });
+  return { db, calls };
+}
+
+function trackedEnv() {
+  const stats = trackDatabase(env.STATS_DB);
+  const observer = trackDatabase(env.OBSERVER_DB);
+  const guard = trackDatabase(env.GUARD_DB);
+  const calls = () => [...stats.calls, ...observer.calls, ...guard.calls];
+  return {
+    env: {
+      ...observerEnv(),
+      STATS_DB: stats.db,
+      OBSERVER_DB: observer.db,
+      GUARD_DB: guard.db,
+    },
+    stats,
+    observer,
+    guard,
+    calls,
+    statements: () => calls().reduce((count, call) => count + call.sql.length, 0),
+  };
 }
 
 async function applySql(db: D1Database, sql: string) {
@@ -342,7 +773,7 @@ async function applySql(db: D1Database, sql: string) {
   }
 }
 
-async function seedGuard(db: D1Database, nowMs: number, runtimeErrors = 0) {
+async function seedGuard(db: D1Database, nowMs: number, runtimeErrors = 0, exceededCpu = 0) {
   await db
     .prepare(
       `CREATE TABLE IF NOT EXISTS usage_guard_state (
@@ -352,7 +783,7 @@ async function seedGuard(db: D1Database, nowMs: number, runtimeErrors = 0) {
      )`,
     )
     .run();
-  const evidence = quotaEvidence(nowMs, runtimeErrors);
+  const evidence = quotaEvidence(nowMs, runtimeErrors, exceededCpu);
   const json = JSON.stringify(evidence);
   const hash = await sha256(json);
   await db
@@ -369,7 +800,7 @@ async function seedGuard(db: D1Database, nowMs: number, runtimeErrors = 0) {
     .run();
 }
 
-function quotaEvidence(nowMs: number, runtimeErrors = 0): D1QuotaEvidence {
+function quotaEvidence(nowMs: number, runtimeErrors = 0, exceededCpu = 0): D1QuotaEvidence {
   const databases = Object.values(D1_DATABASE_IDS).map((databaseId, index) => ({
     databaseId,
     databaseName: `database-${index}`,
@@ -383,7 +814,7 @@ function quotaEvidence(nowMs: number, runtimeErrors = 0): D1QuotaEvidence {
       requestsObserved: 1,
       cpuMsObserved: 1,
       errorsObserved: runtimeErrors,
-      exceededCpuObserved: 0,
+      exceededCpuObserved: exceededCpu,
       cpuTimeAverageMs: 1,
       cpuTimeP95Ms: 1,
       cpuTimeP99Ms: 1,

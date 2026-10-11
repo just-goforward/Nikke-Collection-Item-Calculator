@@ -4,6 +4,7 @@ import {
   UsageGuardError,
 } from "../../shared/usageGuard";
 import {
+  alertStateStatement,
   beginRun,
   dueAlerts,
   failRun,
@@ -14,7 +15,7 @@ import {
   markAlertSent,
   recordDeltaStatement,
   resolveProvenAlertStatement,
-  sourceCursor,
+  sourceCursorStatement,
   touchPollStatement,
   updateSourceCursorStatement,
 } from "./db";
@@ -95,6 +96,22 @@ export async function runObserver(
     const cursorStatements: D1PreparedStatement[] = [];
     const collisionKeys = identityCollisionKeys(hashed);
     const handledCollisions = new Set<string>();
+    const cursorItems = hashed.filter(
+      ({ observation, rowHash }) =>
+        !collisionKeys.has(`${observation.sourceKind}:${rowHash}`) &&
+        nonnegativeCount(observation.events) !== null,
+    );
+    const cursorResults =
+      cursorItems.length === 0
+        ? []
+        : await env.OBSERVER_DB.batch<{ last_events?: number }>(
+            cursorItems.map(({ observation, rowHash }) =>
+              sourceCursorStatement(env, observation.sourceKind, rowHash),
+            ),
+          );
+    const cursors = new Map(
+      cursorResults.map((result, index) => [cursorItems[index], result.results[0] ?? null]),
+    );
     let deltas = 0;
     for (const item of hashed) {
       const { observation, rowHash, fingerprint } = item;
@@ -138,7 +155,7 @@ export async function runObserver(
         deltas += 1;
         continue;
       }
-      const cursor = await sourceCursor(env, observation.sourceKind, rowHash);
+      const cursor = cursors.get(item) ?? null;
       const previous = cursor ? validCount(cursor.last_events) : 0;
       const delta = events - previous;
       if (delta < 0 && observation.sourceKind !== "worker_runtime") {
@@ -173,7 +190,14 @@ export async function runObserver(
     }
 
     const deltaStatements: D1PreparedStatement[] = [];
-    for (const item of pending.values()) {
+    const pendingItems = [...pending.values()];
+    const alertStates =
+      pendingItems.length === 0
+        ? []
+        : await env.OBSERVER_DB.batch<Record<string, unknown>>(
+            pendingItems.map((item) => alertStateStatement(env, item.fingerprint)),
+          );
+    for (const [index, item] of pendingItems.entries()) {
       const commonContext = Object.fromEntries(
         Object.entries(item.observation.context).filter(
           ([key]) => !["stateBucket", "stockBuckets", "client"].includes(key),
@@ -186,7 +210,14 @@ export async function runObserver(
         ),
       };
       deltaStatements.push(
-        await recordDeltaStatement(env, item.observation, item.fingerprint, item.delta, now),
+        recordDeltaStatement(
+          env,
+          item.observation,
+          item.fingerprint,
+          item.delta,
+          now,
+          alertStates[index]?.results[0] ?? null,
+        ),
       );
     }
     const recoveryStatements = [...provenRecoveries].map((fingerprint) =>
