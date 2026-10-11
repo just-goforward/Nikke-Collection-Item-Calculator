@@ -128,24 +128,20 @@ export async function runUsageGuard(env: UsageGuardEnv, scheduledTime: number) {
   }
 }
 
-async function recordSuccessfulEvaluation(
+export async function recordSuccessfulEvaluation(
   env: UsageGuardEnv,
   snapshot: CloudflarePaidUsageSnapshot,
   evaluation: D1BudgetEvaluation,
   evidence: D1QuotaEvidence,
   runId: string,
 ) {
-  const previous = await readState(env.GUARD_DB);
-  const transition = transitionAction(previous, evidence);
   const evidenceJson = stableJson(evidence);
   const evidenceHash = await sha256Hex(evidenceJson);
   const snapshotJson = stableJson(snapshot);
   const snapshotHash = await sha256Hex(snapshotJson);
   const snapshotId = await sha256Hex(`${snapshot.plan.periodStart}\n${snapshot.capturedAt}`);
   const finishedAt = new Date().toISOString();
-  const alertRequired = actionAlertRequired(previous, transition.action);
-
-  await env.GUARD_DB.batch([
+  const results = await env.GUARD_DB.batch([
     env.GUARD_DB.prepare(
       `INSERT INTO usage_guard_snapshots (
          snapshot_id, captured_at, period_start, period_end,
@@ -161,12 +157,150 @@ async function recordSuccessfulEvaluation(
       snapshotHash,
       finishedAt,
     ),
-    env.GUARD_DB.prepare(
+    prepareRunDecision(env.GUARD_DB, evaluation, evidence, evidenceHash, finishedAt, runId),
+    prepareAcceptedGuardState(
+      env.GUARD_DB,
+      evaluation,
+      evidence,
+      evidenceJson,
+      evidenceHash,
+      finishedAt,
+      runId,
+    ),
+    env.GUARD_DB.prepare(`DELETE FROM usage_guard_snapshots WHERE captured_at < ?`).bind(
+      new Date(Date.now() - 8 * 60 * 60 * 1_000).toISOString(),
+    ),
+  ]);
+
+  // The run decision and state transition share one transaction and the same current row.
+  const decision = results[1]?.results[0] as
+    | { status: string; effective_action: CloudflareQuotaAction; alert_status: string }
+    | undefined;
+  if (decision?.status !== "completed" || decision.alert_status !== "pending") return;
+  const effectiveAction = decision.effective_action;
+  const alertStatus = await sendQuotaAlert(env, evidence, effectiveAction);
+  await env.GUARD_DB.prepare(`UPDATE usage_guard_runs SET alert_status = ? WHERE run_id = ?`)
+    .bind(alertStatus, runId)
+    .run();
+  if (alertStatus === "sent") {
+    await env.GUARD_DB.prepare(
+      `UPDATE usage_guard_state
+       SET last_alert_action = ?, updated_at = ?
+       WHERE singleton_id = 1 AND action = ? AND observed_at = ?
+         AND period_start = ? AND period_end = ? AND evidence_hash = ?`,
+    )
+      .bind(
+        effectiveAction,
+        new Date().toISOString(),
+        effectiveAction,
+        evidence.observedAt,
+        evidence.plan.periodStart,
+        evidence.plan.periodEnd,
+        evidenceHash,
+      )
+      .run();
+  }
+}
+
+function prepareRunDecision(
+  db: D1Database,
+  evaluation: D1BudgetEvaluation,
+  evidence: D1QuotaEvidence,
+  evidenceHash: string,
+  finishedAt: string,
+  runId: string,
+) {
+  return db
+    .prepare(
+      `WITH current_state AS (
+         SELECT *, CASE action
+           WHEN 'normal' THEN 0
+           WHEN 'warning' THEN 1
+           WHEN 'disable_staging' THEN 2
+           WHEN 'disable_forecast_production' THEN 3
+           WHEN 'disable_statistics_writes' THEN 4
+           ELSE 5
+         END AS action_rank
+         FROM usage_guard_state WHERE singleton_id = 1
+       ), transition AS (
+         SELECT current_state.*,
+           CASE
+             WHEN singleton_id IS NULL THEN ?2
+             WHEN period_start = ?4 AND release_pending = 1
+               AND ?2 = 'normal' AND normal_streak >= 1 THEN 'normal'
+             WHEN period_start <> ?4 AND ?2 = 'normal' THEN action
+             WHEN CASE ?2
+               WHEN 'normal' THEN 0
+               WHEN 'warning' THEN 1
+               WHEN 'disable_staging' THEN 2
+               WHEN 'disable_forecast_production' THEN 3
+               WHEN 'disable_statistics_writes' THEN 4
+               ELSE 5
+             END > action_rank THEN ?2
+             ELSE action
+           END AS next_action,
+           CASE
+             WHEN singleton_id IS NULL THEN 'accepted'
+             WHEN ?3 < observed_at OR ?4 < period_start
+               OR (period_start = ?4 AND period_end <> ?5) THEN 'rejected'
+             WHEN ?3 = observed_at THEN
+               CASE WHEN period_start = ?4 AND period_end = ?5 AND evidence_hash = ?6
+                 THEN 'duplicate' ELSE 'rejected' END
+             ELSE 'accepted'
+           END AS disposition
+         FROM (SELECT 1) LEFT JOIN current_state ON 1 = 1
+       )
+       UPDATE usage_guard_runs
+       SET finished_at = ?1,
+           status = CASE WHEN (SELECT disposition FROM transition) = 'rejected'
+             THEN 'failure' ELSE 'completed' END,
+           evaluated_action = ?2,
+           effective_action = (
+             SELECT CASE WHEN disposition = 'accepted' THEN next_action ELSE action END
+             FROM transition
+           ),
+           error_code = CASE WHEN (SELECT disposition FROM transition) = 'rejected'
+             THEN 'usage_guard_evidence_rejected' ELSE NULL END,
+           alert_status = (
+             SELECT CASE WHEN disposition = 'accepted' AND
+               CASE WHEN singleton_id IS NULL THEN next_action <> 'normal'
+                 ELSE last_alert_action IS NOT next_action END
+               THEN 'pending' ELSE 'unchanged' END
+             FROM transition
+           )
+       WHERE run_id = ?7
+       RETURNING status, effective_action, alert_status`,
+    )
+    .bind(
+      finishedAt,
+      evaluation.action,
+      evidence.observedAt,
+      evidence.plan.periodStart,
+      evidence.plan.periodEnd,
+      evidenceHash,
+      runId,
+    );
+}
+
+function prepareAcceptedGuardState(
+  db: D1Database,
+  evaluation: D1BudgetEvaluation,
+  evidence: D1QuotaEvidence,
+  evidenceJson: string,
+  evidenceHash: string,
+  finishedAt: string,
+  runId: string,
+) {
+  return db
+    .prepare(
       `INSERT INTO usage_guard_state (
          singleton_id, action, observed_at, period_start, period_end,
          evidence_json, evidence_hash, current_percent, projected_percent,
          governing_metric, normal_streak, release_pending, last_alert_action, updated_at
-       ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       )
+       SELECT 1, effective_action, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
+         CASE WHEN ?9 = 'normal' THEN 1 ELSE 0 END, 0, NULL, ?10
+       FROM usage_guard_runs WHERE run_id = ?11 AND status = 'completed'
        ON CONFLICT(singleton_id) DO UPDATE SET
          action = excluded.action,
          observed_at = excluded.observed_at,
@@ -177,12 +311,30 @@ async function recordSuccessfulEvaluation(
          current_percent = excluded.current_percent,
          projected_percent = excluded.projected_percent,
          governing_metric = excluded.governing_metric,
-         normal_streak = excluded.normal_streak,
-         release_pending = excluded.release_pending,
-         last_alert_action = excluded.last_alert_action,
-         updated_at = excluded.updated_at`,
-    ).bind(
-      transition.action,
+         normal_streak = CASE
+           WHEN usage_guard_state.period_start = excluded.period_start THEN
+             CASE
+               WHEN usage_guard_state.release_pending = 1 AND ?9 = 'normal' THEN
+                 CASE WHEN usage_guard_state.normal_streak < 1 THEN 1 ELSE 2 END
+               WHEN ?9 = 'normal' THEN usage_guard_state.normal_streak + 1
+               ELSE 0
+             END
+           ELSE excluded.normal_streak
+         END,
+         release_pending = CASE
+           WHEN usage_guard_state.period_start = excluded.period_start THEN
+             CASE WHEN usage_guard_state.release_pending = 1 AND ?9 = 'normal'
+               AND usage_guard_state.normal_streak >= 1 THEN 0
+               ELSE usage_guard_state.release_pending END
+           ELSE CASE WHEN excluded.action <> 'normal' THEN 1 ELSE 0 END
+         END,
+         updated_at = excluded.updated_at
+       WHERE excluded.observed_at > usage_guard_state.observed_at
+         AND excluded.period_start >= usage_guard_state.period_start
+         AND (excluded.period_start <> usage_guard_state.period_start
+           OR excluded.period_end = usage_guard_state.period_end)`,
+    )
+    .bind(
       evidence.observedAt,
       evidence.plan.periodStart,
       evidence.plan.periodEnd,
@@ -191,47 +343,10 @@ async function recordSuccessfulEvaluation(
       evidence.utilization.currentPercent,
       evidence.utilization.projectedPercent,
       evidence.utilization.governingMetric,
-      transition.normalStreak,
-      transition.releasePending ? 1 : 0,
-      previous?.last_alert_action ?? null,
-      finishedAt,
-    ),
-    env.GUARD_DB.prepare(
-      `UPDATE usage_guard_runs
-       SET finished_at = ?, status = 'completed', evaluated_action = ?,
-           effective_action = ?, alert_status = ?
-       WHERE run_id = ?`,
-    ).bind(
-      finishedAt,
       evaluation.action,
-      transition.action,
-      alertRequired ? "pending" : "unchanged",
+      finishedAt,
       runId,
-    ),
-    env.GUARD_DB.prepare(`DELETE FROM usage_guard_snapshots WHERE captured_at < ?`).bind(
-      new Date(Date.now() - 8 * 60 * 60 * 1_000).toISOString(),
-    ),
-  ]);
-
-  if (!alertRequired) return;
-  const alertStatus = await sendQuotaAlert(
-    env,
-    evidence,
-    transition.action,
-    previous?.action ?? null,
-  );
-  await env.GUARD_DB.prepare(`UPDATE usage_guard_runs SET alert_status = ? WHERE run_id = ?`)
-    .bind(alertStatus, runId)
-    .run();
-  if (alertStatus === "sent") {
-    await env.GUARD_DB.prepare(
-      `UPDATE usage_guard_state
-       SET last_alert_action = ?, updated_at = ?
-       WHERE singleton_id = 1 AND action = ?`,
-    )
-      .bind(transition.action, new Date().toISOString(), transition.action)
-      .run();
-  }
+    );
 }
 
 export function transitionAction(
@@ -323,10 +438,10 @@ async function sendQuotaAlert(
   env: UsageGuardEnv,
   evidence: D1QuotaEvidence,
   effectiveAction: CloudflareQuotaAction,
-  previousAction: string | null,
 ) {
   if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_ALERT_CHANNEL_ID) return "not_configured";
-  const recovering = effectiveAction === "normal" && previousAction !== null;
+  // An initial normal observation never has a pending alert.
+  const recovering = effectiveAction === "normal";
   let color = 0xe74c3c;
   if (recovering) {
     color = 0x2ecc71;
