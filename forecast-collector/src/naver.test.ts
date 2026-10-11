@@ -3,6 +3,7 @@ import changeFixture from "../fixtures/naver-board-48-change.json?raw";
 import soloFixture from "../fixtures/naver-board-56-solo.json?raw";
 import {
   fetchNaverBoard,
+  fetchNaverFeedMetadata,
   fetchNaverSoloHistory,
   fetchNaverStructuredItem,
   parseKoreanDateRange,
@@ -241,5 +242,149 @@ describe("Naver Lounge parser", () => {
 
     await expect(fetchNaverBoard(56, fetcher)).rejects.toThrow("naver_http_429");
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Naver request deadline", () => {
+  it("keeps the original attempt deadline through a stalled body without another HTTP request", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | null | undefined;
+    const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
+      signal = init?.signal;
+      await new Promise<void>((resolve) => setTimeout(resolve, 4_000));
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            signal?.addEventListener("abort", () => controller.error(new Error("body_stalled")));
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    try {
+      const assertion = expect(fetchNaverFeedMetadata(56, 0, fetcher)).rejects.toThrow(
+        "naver_timeout",
+      );
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await assertion;
+      expect(signal?.aborted).toBe(true);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still retries a timeout before headers with the existing two-attempt ceiling", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn<typeof fetch>(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("headers_stalled", "AbortError")),
+          );
+        }),
+    );
+    try {
+      const assertion = expect(fetchNaverFeedMetadata(56, 0, fetcher)).rejects.toThrow(
+        "naver_timeout",
+      );
+      await vi.advanceTimersByTimeAsync(20_000);
+      await assertion;
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the attempt timer after a deferred successful body", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | null | undefined;
+    let complete = () => {};
+    const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
+      signal = init?.signal;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            complete = () => {
+              controller.enqueue(new TextEncoder().encode(soloFixture));
+              controller.close();
+            };
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    });
+    try {
+      const result = fetchNaverBoard(56, fetcher);
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(signal?.aborted).toBe(false);
+      complete();
+      await expect(result).resolves.toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(signal?.aborted).toBe(false);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["status", "naver_http_400"],
+    ["content-type", "naver_content_type"],
+    ["declared-size", "naver_response_oversize"],
+    ["stream-size", "naver_response_oversize"],
+    ["json", "naver_malformed_json"],
+    ["stream-error", "body_failed"],
+  ] as const)("clears the timer without retrying a %s failure", async (kind, errorCode) => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | null | undefined;
+    const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
+      signal = init?.signal;
+      switch (kind) {
+        case "status":
+          return new Response("bad request", { status: 400 });
+        case "content-type":
+          return new Response("{}", { headers: { "content-type": "text/plain" } });
+        case "declared-size":
+          return new Response("{}", {
+            headers: { "content-type": "application/json", "content-length": "2000001" },
+          });
+        case "stream-size":
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new Uint8Array(2_000_001));
+                controller.close();
+              },
+            }),
+            { headers: { "content-type": "application/json" } },
+          );
+        case "json":
+          return new Response("{", { headers: { "content-type": "application/json" } });
+        case "stream-error":
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.error(new Error("body_failed"));
+              },
+            }),
+            { headers: { "content-type": "application/json" } },
+          );
+      }
+    });
+    try {
+      await expect(fetchNaverFeedMetadata(56, 0, fetcher)).rejects.toThrow(errorCode);
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(signal?.aborted).toBe(false);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

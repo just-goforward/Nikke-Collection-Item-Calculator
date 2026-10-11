@@ -56,14 +56,12 @@ export async function fetchNaverFeedMetadata(
     offset: String(offset),
     order: "NEW",
   }).toString();
-  return parseNaverFeedMetadata(await readGuardedJson(await fetchWithRetry(url, fetcher)), boardId);
+  return parseNaverFeedMetadata(await fetchWithRetry(url, fetcher), boardId);
 }
 
 export async function fetchNaverItemIdentity(itemId: string, fetcher: FetchLike = fetch) {
   if (!/^\d{1,20}$/.test(itemId)) throw new Error("naver_item_id");
-  const payload = await readGuardedJson(
-    await fetchWithRetry(new URL(`${NAVER_FEED_URL}/${itemId}`), fetcher),
-  );
+  const payload = await fetchWithRetry(new URL(`${NAVER_FEED_URL}/${itemId}`), fetcher);
   if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_detail_schema_code");
   const content = payload["content"];
   if (
@@ -138,9 +136,7 @@ export async function fetchNaverStructuredItem(
   fetcher: FetchLike = fetch,
 ) {
   if (!/^\d{1,20}$/.test(itemId)) throw new Error("naver_item_id");
-  const payload = await readGuardedJson(
-    await fetchWithRetry(new URL(`${NAVER_FEED_URL}/${itemId}`), fetcher),
-  );
+  const payload = await fetchWithRetry(new URL(`${NAVER_FEED_URL}/${itemId}`), fetcher);
   return parseNaverDetail(payload, boardId, true);
 }
 
@@ -156,8 +152,7 @@ export async function fetchNaverBoard(
     offset: "0",
     order: "NEW",
   }).toString();
-  const response = await fetchWithRetry(url, fetcher);
-  const payload = await readGuardedJson(response);
+  const payload = await fetchWithRetry(url, fetcher);
   return parseNaverFeed(payload, boardId);
 }
 
@@ -175,7 +170,7 @@ export async function fetchNaverSoloHistory(
       orderType: "LATEST",
       searchOption: "COMMUNITY_FEED_TITLE",
     }).toString();
-    for (const row of searchRows(await readGuardedJson(await fetchWithRetry(url, fetcher)))) {
+    for (const row of searchRows(await fetchWithRetry(url, fetcher))) {
       if (!isOfficialSoloOpening(row)) continue;
       const feedId = String(row["feedId"] ?? "");
       if (feedId) candidates.set(feedId, row);
@@ -185,7 +180,7 @@ export async function fetchNaverSoloHistory(
   const items: NormalizedSourceItem[] = [];
   for (const feedId of [...candidates.keys()].slice(0, 8)) {
     const url = new URL(`${NAVER_FEED_URL}/${feedId}`);
-    const payload = await readGuardedJson(await fetchWithRetry(url, fetcher));
+    const payload = await fetchWithRetry(url, fetcher);
     const item = await parseNaverDetail(payload, 56, true);
     if (item) items.push(item);
   }
@@ -394,29 +389,41 @@ async function fetchWithRetry(url: URL, fetcher: FetchLike) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetcher(url, {
-        headers: {
-          accept: "application/json",
-          origin: "https://game.naver.com",
-          referer: "https://game.naver.com/",
-          "user-agent": "collection-kit-forecast-collector/1.0",
-        },
-        signal: controller.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetcher(url, {
+          headers: {
+            accept: "application/json",
+            origin: "https://game.naver.com",
+            referer: "https://game.naver.com/",
+            "user-agent": "collection-kit-forecast-collector/1.0",
+          },
+          signal: controller.signal,
+        });
+      } catch (error) {
+        const code = isTimeoutError(error) ? "naver_timeout" : "naver_network";
+        lastError = new Error(code);
+        if (attempt === 1) throw lastError;
+        continue;
+      }
       if ((response.status === 429 || response.status >= 500) && attempt === 0) continue;
-      return response;
-    } catch (error) {
-      const code =
-        error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")
-          ? "naver_timeout"
-          : "naver_network";
-      lastError = new Error(code);
-      if (attempt === 1) throw lastError;
+      try {
+        return await readGuardedJson(response);
+      } catch (error) {
+        if (controller.signal.aborted || isTimeoutError(error)) {
+          throw new Error("naver_timeout");
+        }
+        throw error;
+      }
     } finally {
       clearTimeout(timeout);
     }
   }
   throw lastError instanceof Error ? lastError : new Error("naver_fetch_failed");
+}
+
+function isTimeoutError(error: unknown) {
+  return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
 }
 
 async function readGuardedJson(response: Response): Promise<unknown> {
