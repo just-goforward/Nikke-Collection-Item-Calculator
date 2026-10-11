@@ -155,26 +155,23 @@ impl Supply {
         }
         Err("certified_dispatch_not_terminated")
     }
+    fn finite_law(&self, id: &str) -> Option<&Law> {
+        self.model.laws.iter().find(|law| law.id == id && law.kind == "finite")
+    }
     pub fn law(&mut self, reference: &LawRef, cohort: usize) -> Result<Dist> {
         self.check()?;
         let key = (reference.law_id.clone(), reference.count, cohort);
         if let Some(v) = self.cache.get(&key) { return Ok(v.clone()); }
         let id = reference.law_id.as_str();
         let result = if reference.count == 0 { Rc::new(Self::singleton([0;3])) }
-        else if id == "regular-box-v1" { self.boxes(reference.count,0)? }
-        else if id == "box-ii-v1" { self.boxes(0,reference.count)? }
+        else if id == "regular-box-v1" && self.finite_law(id).is_none() { self.boxes(reference.count,0)? }
+        else if id == "box-ii-v1" && self.finite_law(id).is_none() { self.boxes(0,reference.count)? }
         else if reference.count > 1 {
             let single = self.law(&LawRef { law_id: id.to_string(), count: 1 }, cohort)?;
             let mut rows = Self::singleton([0;3]);
             for _ in 0..reference.count { rows = self.convolve(&rows, &single, [u64::MAX;3], 25000).map_err(law_limit)?; }
             Rc::new(rows)
-        } else if id == "dispatch-board-v1" { self.dispatch(cohort)? }
-        else if let Some(raw) = id.strip_prefix("deterministic:") {
-            let pieces = raw.split(',').map(|s| s.parse::<u64>().map_err(|_| "certified_law_raw_pieces_invalid")).collect::<Result<Vec<_>>>()?;
-            if pieces.iter().any(|&n| n > MAX_SAFE_PIECES) { return Err("certified_law_raw_pieces_invalid"); }
-            Rc::new(Self::singleton(pieces.try_into().map_err(|_| "certified_law_raw_pieces_invalid")?))
-        } else {
-            let law = self.model.laws.iter().find(|l| l.id == id && l.kind == "finite").ok_or("certified_law_unknown")?;
+        } else if let Some(law) = self.finite_law(id) {
             let rows = law.outcomes_by_cohort.as_ref().map(|a| &a[cohort]).or(law.outcomes.as_ref()).ok_or("certified_law_unknown")?;
             if rows.len() > 25000 { return Err("certified_supply_support_limit"); }
             let mut result = Vec::new();
@@ -188,7 +185,12 @@ impl Supply {
             }
             if total != Q::one() { return Err("certified_law_mass_not_one"); }
             Rc::new(result)
-        };
+        } else if id == "dispatch-board-v1" { self.dispatch(cohort)? }
+        else if let Some(raw) = id.strip_prefix("deterministic:") {
+            let pieces = raw.split(',').map(|s| s.parse::<u64>().map_err(|_| "certified_law_raw_pieces_invalid")).collect::<Result<Vec<_>>>()?;
+            if pieces.iter().any(|&n| n > MAX_SAFE_PIECES) { return Err("certified_law_raw_pieces_invalid"); }
+            Rc::new(Self::singleton(pieces.try_into().map_err(|_| "certified_law_raw_pieces_invalid")?))
+        } else { return Err("certified_law_unknown"); };
         self.cache.insert(key,result.clone());
         Ok(result)
     }
@@ -199,7 +201,7 @@ impl Supply {
             for cohort in 0..3 {
                 self.check()?;
                 if self.priors[cohort].is_zero() { continue; }
-                let values = if r.law_id == "dispatch-board-v1" {
+                let values = if r.law_id == "dispatch-board-v1" && self.finite_law(&r.law_id).is_none() {
                     let row = &self.model.dispatch_expected[cohort];
                     [row[0].rational()?, row[1].rational()?, row[2].rational()?]
                 } else {
@@ -246,4 +248,118 @@ impl Supply {
 }
 fn law_limit(reason: &'static str) -> &'static str {
     if reason == "exact_support_limit" {"certified_supply_support_limit"} else {reason}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const IDS: [&str; 6] = ["regular-box-v1", "box-ii-v1", "dispatch-board-v1",
+        "deterministic:1,2,3", "deterministic:custom", "custom"];
+
+    fn source(laws: Json) -> Supply {
+        let model = serde_json::from_value(json!({
+            "events": [], "laws": laws,
+            "priors": vec![wire(&Q::new(1.into(),3.into())); 3],
+            "dispatch": [], "shop": [], "solo": [],
+            "cadence": wire(&Q::from_integer(30.into())),
+            "dispatchExpected": vec![vec![wire(&Q::one());3];3],
+            "classes": []
+        })).unwrap();
+        Supply::new(model, f64::MAX).unwrap()
+    }
+    fn row(pieces: Pieces, numerator: i64, denominator: i64) -> Json {
+        json!({"pieces":pieces,"mass":{"numerator":numerator.to_string(),"denominator":denominator.to_string()}})
+    }
+    fn reference(id: &str, count: usize) -> LawRef {
+        LawRef { law_id: id.to_string(), count }
+    }
+    fn assert_rows(rows: Dist, expected: &[(Pieces, i64, i64)]) {
+        assert_eq!(rows.len(), expected.len());
+        for (actual, &(pieces,n,d)) in rows.iter().zip(expected) {
+            assert_eq!(actual.pieces, pieces);
+            assert_eq!(actual.mass, Q::new(n.into(),d.into()));
+        }
+    }
+
+    #[test]
+    fn finite_ids_override_builtins_and_deterministic_in_support_and_pricing() {
+        for id in IDS {
+            let mut supply = source(json!([{"id":id,"kind":"finite","outcomes":[row([99,0,0],2,2)]}]));
+            for cohort in 0..3 {
+                assert_rows(supply.law(&reference(id,1),cohort).unwrap(), &[([99,0,0],1,1)]);
+                assert_rows(supply.law(&reference(id,0),cohort).unwrap(), &[([0,0,0],1,1)]);
+            }
+            assert_eq!(supply.expected(&[reference(id,1)]).unwrap(),
+                [Q::from_integer(99.into()),Q::zero(),Q::zero()]);
+            supply.model.dispatch = vec![reference(id,1)];
+            let (rates,weights) = supply.pricing([1;3],[0;3],TERMINAL).unwrap();
+            assert_eq!(rates,[Q::from_integer(99.into()),Q::zero(),Q::zero()]);
+            assert_eq!(weights,[Q::new(1.into(),100.into()),Q::one(),Q::one()]);
+        }
+    }
+
+    #[test]
+    fn finite_cohorts_order_zero_mass_and_independent_repetition_are_preserved() {
+        for id in IDS {
+            let mut supply = source(json!([{
+                "id":id,"kind":"finite","outcomes":[row([99,0,0],1,1)],
+                "outcomesByCohort":[
+                    [row([9,0,0],0,1),row([2,0,0],1,2),row([0,0,0],1,2)],
+                    [row([0,3,0],1,1)], [row([0,0,6],1,1)]
+                ]
+            }]));
+            assert_rows(supply.law(&reference(id,1),0).unwrap(), &[([2,0,0],1,2),([0,0,0],1,2)]);
+            if id != "dispatch-board-v1" {
+                assert_rows(supply.law(&reference(id,2),0).unwrap(),
+                    &[([4,0,0],1,4),([2,0,0],1,2),([0,0,0],1,4)]);
+            }
+            assert_rows(supply.law(&reference(id,1),1).unwrap(), &[([0,3,0],1,1)]);
+            assert_rows(supply.law(&reference(id,1),2).unwrap(), &[([0,0,6],1,1)]);
+            assert_eq!(supply.expected(&[reference(id,1)]).unwrap(),
+                [Q::new(1.into(),3.into()),Q::one(),Q::from_integer(2.into())]);
+        }
+    }
+
+    #[test]
+    fn canonical_boxes_and_absent_finite_deterministic_keep_exact_values() {
+        let mut supply = source(json!([
+            {"id":"regular-box-v1","kind":"box"},
+            {"id":"box-ii-v1","kind":"box"},
+            {"id":"dispatch-board-v1","kind":"dispatch"}
+        ]));
+        for _ in 0..2 {
+            assert_rows(supply.law(&reference("regular-box-v1",1),0).unwrap(),
+                &[([3,0,0],4,5),([0,1,0],1,5)]);
+            assert_rows(supply.law(&reference("box-ii-v1",1),0).unwrap(),
+                &[([5,0,0],7,10),([0,2,0],1,5),([0,0,2],1,10)]);
+            assert_rows(supply.law(&reference("deterministic:1,2,3",1),0).unwrap(),
+                &[([1,2,3],1,1)]);
+        }
+        assert_eq!(supply.expected(&[reference("regular-box-v1",1)]).unwrap(),
+            [Q::new(12.into(),5.into()),Q::new(1.into(),5.into()),Q::zero()]);
+        assert_eq!(supply.expected(&[reference("box-ii-v1",1)]).unwrap(),
+            [Q::new(7.into(),2.into()),Q::new(2.into(),5.into()),Q::new(1.into(),5.into())]);
+        assert_eq!(supply.expected(&[reference("dispatch-board-v1",1)]).unwrap(),
+            [Q::one(),Q::one(),Q::one()]);
+    }
+
+    #[test]
+    fn overrides_keep_finite_probability_piece_and_support_guards() {
+        for (outcomes, error) in [
+            (json!([row([1,0,0],-1,1)]), "certified_law_negative_mass"),
+            (json!([row([1,0,0],1,2)]), "certified_law_mass_not_one"),
+            (json!([row([MAX_SAFE_PIECES+1,0,0],1,1)]), "certified_law_raw_pieces_invalid"),
+            (json!([row([1,0,0],1,0)]), "invalid_rational"),
+            (json!(vec![row([0,0,0],0,1);25001]), "certified_supply_support_limit")
+        ] {
+            let mut supply = source(json!([{"id":"regular-box-v1","kind":"finite","outcomes":outcomes}]));
+            assert_rows(supply.law(&reference("regular-box-v1",0),0).unwrap(), &[([0,0,0],1,1)]);
+            assert_eq!(supply.law(&reference("regular-box-v1",1),0).err(),Some(error));
+        }
+        let mut supply = source(json!([{"id":"deterministic:custom","kind":"finite",
+            "outcomes":[row([MAX_SAFE_PIECES,0,0],1,1)]}]));
+        assert_rows(supply.law(&reference("deterministic:custom",1),0).unwrap(),
+            &[([MAX_SAFE_PIECES,0,0],1,1)]);
+    }
 }

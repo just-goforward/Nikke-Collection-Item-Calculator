@@ -247,11 +247,38 @@ function boxDistribution(
   return rows;
 }
 
+function findFiniteLaw(lawId: string, options: CertifiedLawOptions) {
+  return options.laws?.find((law) => law.id === lawId && law.kind === "finite");
+}
+
+function finiteDistribution(
+  finite: CertifiedSupplyLaw,
+  cohort: DispatchCohort,
+  options: CertifiedLawOptions,
+): readonly ExactSupplyOutcome[] {
+  const outcomes = finite.outcomesByCohort?.[cohort] ?? finite.outcomes;
+  if (!outcomes?.length) throw new Error(`certified_law_unknown:${finite.id}`);
+  let total = ZERO;
+  if (outcomes.length > 25000) throw new Error("certified_supply_support_limit");
+  const rows = outcomes.map((row, index) => {
+    if ((index & 127) === 0) options.checkBudget?.();
+    assertPieces(row.pieces);
+    const mass = fromWire(row.mass);
+    if (mass.n < 0n) throw new Error("certified_law_negative_mass");
+    total = add(total, mass);
+    return { pieces: row.pieces, mass };
+  });
+  if (!eq(total, ONE)) throw new Error("certified_law_mass_not_one");
+  return rows.filter((row) => row.mass.n !== 0n);
+}
+
 function singleLaw(
   lawId: string,
   cohort: DispatchCohort,
   options: CertifiedLawOptions,
 ): readonly ExactSupplyOutcome[] {
+  const finite = findFiniteLaw(lawId, options);
+  if (finite) return finiteDistribution(finite, cohort, options);
   if (lawId === "regular-box-v1") return BOX_LAWS.regular;
   if (lawId === "box-ii-v1") return BOX_LAWS.boxII;
   const deterministic = /^deterministic:(\d+),(\d+),(\d+)$/.exec(lawId);
@@ -287,22 +314,7 @@ function singleLaw(
     distributionCache.set(key, rows);
     return rows;
   }
-  const finite = options.laws?.find((law) => law.id === lawId);
-  const outcomes = finite?.outcomesByCohort?.[cohort] ?? finite?.outcomes;
-  if (finite?.kind !== "finite" || !outcomes?.length)
-    throw new Error(`certified_law_unknown:${lawId}`);
-  let total = ZERO;
-  if (outcomes.length > 25000) throw new Error("certified_supply_support_limit");
-  const rows = outcomes.map((row, index) => {
-    if ((index & 127) === 0) options.checkBudget?.();
-    assertPieces(row.pieces);
-    const mass = fromWire(row.mass);
-    if (mass.n < 0n) throw new Error("certified_law_negative_mass");
-    total = add(total, mass);
-    return { pieces: row.pieces, mass };
-  });
-  if (!eq(total, ONE)) throw new Error("certified_law_mass_not_one");
-  return rows.filter((row) => row.mass.n !== 0n);
+  throw new Error(`certified_law_unknown:${lawId}`);
 }
 
 function assertPieces(pieces: Triple) {
@@ -318,8 +330,10 @@ export function getCertifiedLawDistribution(
   options.checkBudget?.();
   if (!Number.isSafeInteger(ref.count) || ref.count < 0)
     throw new Error("certified_law_count_invalid");
-  if (ref.lawId === "regular-box-v1") return boxDistribution(ref.count, 0, options.checkBudget);
-  if (ref.lawId === "box-ii-v1") return boxDistribution(0, ref.count, options.checkBudget);
+  if (!findFiniteLaw(ref.lawId, options)) {
+    if (ref.lawId === "regular-box-v1") return boxDistribution(ref.count, 0, options.checkBudget);
+    if (ref.lawId === "box-ii-v1") return boxDistribution(0, ref.count, options.checkBudget);
+  }
   let rows: readonly ExactSupplyOutcome[] = [{ pieces: [0, 0, 0], mass: ONE }];
   if (ref.count === 0) return rows;
   const one = singleLaw(ref.lawId, cohort, options);
@@ -356,6 +370,7 @@ function singleExpectedPieces(
   cohort: DispatchCohort,
   options: CertifiedLawOptions,
 ): readonly [Q, Q, Q] {
+  if (findFiniteLaw(lawId, options)) return finiteExpectedPieces(lawId, cohort, options);
   if (lawId === "regular-box-v1") return [q(12, 5), q(1, 5), ZERO];
   if (lawId === "box-ii-v1") return [q(7, 2), q(2, 5), q(1, 5)];
   if (lawId === "dispatch-board-v1") return dispatchExpectedPieces(cohort, options);

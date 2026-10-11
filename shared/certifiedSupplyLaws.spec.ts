@@ -1,12 +1,170 @@
 import { describe, expect, it } from "vitest";
 import { add, mul, type Q, q, sum, toNumber, toWire, ZERO } from "./certifiedRational.ts";
+import { buildCertifiedSupplySnapshot } from "./certifiedSupply.ts";
 import {
+  CERTIFIED_SUPPLY_LAWS,
+  type CertifiedLawOptions,
   type CertifiedSupplyLaw,
   dispatchLaw,
   getCertifiedLawDistribution,
   getCertifiedLawExpectedGain,
 } from "./certifiedSupplyLaws.ts";
 import { DISPATCH_COHORT_EXPECTED_GAIN } from "./supplyForecastModel.ts";
+
+const finiteIds = [
+  "regular-box-v1",
+  "box-ii-v1",
+  "dispatch-board-v1",
+  "deterministic:1,2,3",
+  "deterministic:custom",
+  "custom",
+];
+
+describe("explicit finite supply-law authority", () => {
+  it.each(finiteIds)("honors validated finite %s over synthesized laws", (id) => {
+    const finite: CertifiedSupplyLaw = {
+      id,
+      kind: "finite",
+      modelVersion: "fixture-v1",
+      outcomes: [{ pieces: [99, 0, 0], mass: { numerator: "2", denominator: "2" } }],
+    };
+    const laws = [finite, ...CERTIFIED_SUPPLY_LAWS.filter((law) => law.id !== id)];
+    const snapshot = buildCertifiedSupplySnapshot({
+      asOf: "2026-09-30T08:00:00.000Z",
+      revision: "finite-override",
+      sourceHash: "a".repeat(64),
+      soloPeriods: [],
+      collaborationPeriods: [],
+      laws,
+    });
+    expect(snapshot.laws).toEqual(laws);
+    for (const cohort of [0, 1, 2] as const) {
+      expect(getCertifiedLawDistribution({ lawId: id, count: 1 }, cohort, { laws })).toEqual([
+        { pieces: [99, 0, 0], mass: q(1) },
+      ]);
+      expect(getCertifiedLawExpectedGain({ lawId: id, count: 1 }, cohort, { laws })).toEqual([
+        q(99),
+        q(0),
+        q(0),
+      ]);
+      expect(getCertifiedLawDistribution({ lawId: id, count: 0 }, cohort, { laws })).toEqual([
+        { pieces: [0, 0, 0], mass: q(1) },
+      ]);
+      expect(getCertifiedLawExpectedGain({ lawId: id, count: 0 }, cohort, { laws })).toEqual([
+        q(0),
+        q(0),
+        q(0),
+      ]);
+    }
+  });
+
+  it.each(finiteIds)("preserves finite cohort precedence and ordered support for %s", (id) => {
+    const laws: readonly CertifiedSupplyLaw[] = [
+      {
+        id,
+        kind: "finite",
+        modelVersion: "fixture-v1",
+        outcomes: [{ pieces: [99, 0, 0], mass: toWire(q(1)) }],
+        outcomesByCohort: [
+          [
+            { pieces: [9, 0, 0], mass: toWire(q(0)) },
+            { pieces: [2, 0, 0], mass: toWire(q(1, 2)) },
+            { pieces: [0, 0, 0], mass: toWire(q(1, 2)) },
+          ],
+          [{ pieces: [0, 3, 0], mass: toWire(q(1)) }],
+          [{ pieces: [0, 0, 6], mass: toWire(q(1)) }],
+        ],
+      },
+    ];
+    expect(getCertifiedLawDistribution({ lawId: id, count: 1 }, 0, { laws })).toEqual([
+      { pieces: [2, 0, 0], mass: q(1, 2) },
+      { pieces: [0, 0, 0], mass: q(1, 2) },
+    ]);
+    if (id !== "dispatch-board-v1") {
+      expect(getCertifiedLawDistribution({ lawId: id, count: 2 }, 0, { laws })).toEqual([
+        { pieces: [4, 0, 0], mass: q(1, 4) },
+        { pieces: [2, 0, 0], mass: q(1, 2) },
+        { pieces: [0, 0, 0], mass: q(1, 4) },
+      ]);
+    }
+    expect(getCertifiedLawDistribution({ lawId: id, count: 1 }, 1, { laws })).toEqual([
+      { pieces: [0, 3, 0], mass: q(1) },
+    ]);
+    expect(getCertifiedLawDistribution({ lawId: id, count: 1 }, 2, { laws })).toEqual([
+      { pieces: [0, 0, 6], mass: q(1) },
+    ]);
+    expect(getCertifiedLawExpectedGain({ lawId: id, count: 1 }, 0, { laws })).toEqual([
+      q(1),
+      q(0),
+      q(0),
+    ]);
+  });
+});
+
+describe("canonical supply laws and finite boundaries", () => {
+  it("keeps canonical constants and synthesized deterministic laws isolated from finite overrides", () => {
+    const configurations: readonly CertifiedLawOptions[] = [{}, { laws: CERTIFIED_SUPPLY_LAWS }];
+    for (const options of configurations) {
+      expect(
+        getCertifiedLawDistribution({ lawId: "regular-box-v1", count: 1 }, 0, options),
+      ).toEqual([
+        { pieces: [3, 0, 0], mass: q(4, 5) },
+        { pieces: [0, 1, 0], mass: q(1, 5) },
+      ]);
+      expect(
+        getCertifiedLawExpectedGain({ lawId: "regular-box-v1", count: 1 }, 0, options),
+      ).toEqual([q(12, 5), q(1, 5), q(0)]);
+      expect(getCertifiedLawDistribution({ lawId: "box-ii-v1", count: 1 }, 0, options)).toEqual([
+        { pieces: [5, 0, 0], mass: q(7, 10) },
+        { pieces: [0, 2, 0], mass: q(1, 5) },
+        { pieces: [0, 0, 2], mass: q(1, 10) },
+      ]);
+      expect(getCertifiedLawExpectedGain({ lawId: "box-ii-v1", count: 1 }, 0, options)).toEqual([
+        q(7, 2),
+        q(2, 5),
+        q(1, 5),
+      ]);
+      expect(
+        getCertifiedLawDistribution({ lawId: "deterministic:1,2,3", count: 1 }, 0, options),
+      ).toEqual([{ pieces: [1, 2, 3], mass: q(1) }]);
+    }
+  });
+
+  it("applies finite boundary guards even when the ID normally selects a built-in", () => {
+    const finite = (
+      outcomes: NonNullable<CertifiedSupplyLaw["outcomes"]>,
+    ): readonly CertifiedSupplyLaw[] => [
+      { id: "regular-box-v1", kind: "finite", modelVersion: "fixture-v1", outcomes },
+    ];
+    const cases: readonly [NonNullable<CertifiedSupplyLaw["outcomes"]>, string][] = [
+      [[{ pieces: [1, 0, 0], mass: toWire(q(-1)) }], "negative_mass"],
+      [[{ pieces: [1, 0, 0], mass: toWire(q(1, 2)) }], "mass_not_one"],
+      [[{ pieces: [Number.MAX_SAFE_INTEGER + 1, 0, 0], mass: toWire(q(1)) }], "raw_pieces"],
+      [
+        Array.from({ length: 25001 }, () => ({ pieces: [0, 0, 0], mass: toWire(q(0)) })),
+        "support_limit",
+      ],
+    ];
+    for (const [outcomes, reason] of cases) {
+      const laws = finite(outcomes);
+      expect(() =>
+        getCertifiedLawDistribution({ lawId: "regular-box-v1", count: 1 }, 0, { laws }),
+      ).toThrow(reason);
+    }
+    const laws = finite([{ pieces: [Number.MAX_SAFE_INTEGER, 0, 0], mass: toWire(q(1)) }]);
+    expect(getCertifiedLawDistribution({ lawId: "regular-box-v1", count: 1 }, 0, { laws })).toEqual(
+      [{ pieces: [Number.MAX_SAFE_INTEGER, 0, 0], mass: q(1) }],
+    );
+    expect(() =>
+      getCertifiedLawDistribution({ lawId: "regular-box-v1", count: 1 }, 0, {
+        laws,
+        checkBudget: () => {
+          throw new Error("caller_budget");
+        },
+      }),
+    ).toThrow("caller_budget");
+  });
+});
 
 describe("exact documented physical supply laws", () => {
   it("matches precomputed dispatch expectations to exact raw-board enumeration", () => {

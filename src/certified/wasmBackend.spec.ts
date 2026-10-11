@@ -77,6 +77,41 @@ function parity(input: CertifiedInput) {
   return actual;
 }
 describe("real Rust/WASM certified computation", () => {
+  it.each([
+    "regular-box-v1",
+    "box-ii-v1",
+    "dispatch-board-v1",
+    "deterministic:1,2,3",
+    "deterministic:custom",
+    "custom",
+  ])("prices explicit finite %s in the direct kernel without a JS result oracle", (id) => {
+    const input = fixture();
+    input.priceBasisStock = [1, 1, 1];
+    input.snapshot.laws = [
+      {
+        id,
+        kind: "finite",
+        modelVersion: "fixture-v1",
+        outcomes: [{ pieces: [99, 0, 0], mass: toWire(q(1)) }],
+      },
+    ];
+    input.snapshot.rules = input.snapshot.rules.map((rule) => ({
+      ...rule,
+      dispatch: [{ lawId: id, count: 1 }],
+    }));
+    const kernel = new WasmKernel(module, new WorkBudget({}, performance.now()));
+    try {
+      expect(kernel.prepare(input, encode("SR", 14, 0), [q(1, 3), q(1, 3), q(1, 3)])).toEqual({
+        basisStock: [1, 1, 1],
+        recurringRate: [toWire(q(99)), toWire(q(0)), toWire(q(0))],
+        weights: [toWire(q(1, 100)), toWire(q(1)), toWire(q(1))],
+        cohortWeights: [toWire(q(1, 3)), toWire(q(1, 3)), toWire(q(1, 3))],
+      });
+    } finally {
+      kernel.dispose();
+    }
+  });
+
   it("rejects substituted artifacts before instantiation and imports no host math", async () => {
     const bytes = await readFile("public/certified_solver.wasm");
     const last = bytes.at(-1);
