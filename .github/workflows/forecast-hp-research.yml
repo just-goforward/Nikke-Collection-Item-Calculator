@@ -244,7 +244,7 @@ jobs:
 
       - name: Upload profile evidence matrix
         if: steps.contract.outputs.enabled == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: hp-profile-matrix-${{ github.run_id }}
           path: benchmarks/results/dynamic-hp-profile-matrix.json
@@ -259,7 +259,7 @@ jobs:
 
       - name: Upload verified WASM
         if: steps.contract.outputs.enabled == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: dynamic-hp-wasm-${{ github.run_id }}
           path: public/solver_rs.wasm
@@ -441,7 +441,7 @@ jobs:
 
       - name: Upload profile report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: dynamic-hp-${{ matrix.profile.id }}-${{ github.run_id }}
           path: benchmarks/results/dynamic/${{ matrix.profile.id }}.json
@@ -590,7 +590,7 @@ jobs:
 
       - name: Upload exact-gate certificate
         if: steps.contract.outputs.complete == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: dynamic-hp-exact-gate-summary-${{ github.run_id }}
           path: ${{ runner.temp }}/dynamic-hp-certificate
@@ -646,7 +646,7 @@ jobs:
 
       - name: Upload bounded-incomplete diagnostic certificate
         if: steps.continuation.outputs.exhausted == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: dynamic-hp-bounded-incomplete-${{ github.run_id }}
           path: ${{ runner.temp }}/dynamic-hp-bounded-incomplete-certificate

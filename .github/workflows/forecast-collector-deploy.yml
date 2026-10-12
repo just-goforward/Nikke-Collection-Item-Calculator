@@ -690,7 +690,7 @@ jobs:
 
       - name: Upload live Observability contract evidence
         if: always() && github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.live_probe_window.outcome == 'success'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: forecast-observability-v10-live-probe-${{ github.run_id }}
           path: ${{ runner.temp }}/forecast-observability-live-probe.json
