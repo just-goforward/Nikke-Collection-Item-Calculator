@@ -1,0 +1,260 @@
+[
+  {
+    "id": "real-r-pure0",
+    "status": 0,
+    "signal": null,
+    "stderr": "(node:42580) ExperimentalWarning: Transform Types is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
+    "data": {
+      "id": "real-r-pure0",
+      "wallMs": 1760.5615,
+      "currentAtMs": 1524.3183000000001,
+      "currentDiagnostics": {
+        "elapsedMs": 1523.9287,
+        "memoEntries": 181535,
+        "exactTransitions": 480520,
+        "supportPeakPoints": 0,
+        "managedPayloadBytes": 42568424,
+        "managedPayloadDefinition": "owned host numerical payload plus peak Rust heap including transient allocations; WASM linear memory separately measured",
+        "unmeasuredMemory": [
+          "host JS allocator metadata and compiler cache",
+          "Worker native stack",
+          "WASM compiled code",
+          "host supply-law transient work tables"
+        ],
+        "wasmMemoryBytes": 47513600,
+        "kernelCalls": 1
+      },
+      "waitingAndFinalizeMs": 236.2554,
+      "diagnostics": {
+        "elapsedMs": 1731.5483,
+        "memoEntries": 181573,
+        "exactTransitions": 480558,
+        "supportPeakPoints": 0,
+        "managedPayloadBytes": 75200313,
+        "managedPayloadDefinition": "owned host numerical payload plus peak Rust heap including transient allocations; WASM linear memory separately measured",
+        "unmeasuredMemory": [
+          "host JS allocator metadata and compiler cache",
+          "Worker native stack",
+          "WASM compiled code",
+          "host supply-law transient work tables"
+        ],
+        "wasmMemoryBytes": 82444288,
+        "kernelCalls": 3
+      },
+      "evaluatedDays": [
+        0
+      ],
+      "waiting": "certified",
+      "recommendedDays": 56,
+      "evidence": [
+        "fixed_prices_all_dates",
+        "nonnegative_nonexpiring_inventory_coupling",
+        "single_latent_cohort_positive_prior",
+        "positive_mass_receipt_witness_strict_lex_day55_to56",
+        "all_prior_dates_bounded_by_day55",
+        "PH_lower_bound_from_exact_current_P_and_inventory_coupling",
+        "range_only_no_global_or_deadline_claim",
+        "modeled_forecast_source_uncertain_no_automatic_delay"
+      ],
+      "refusal": null,
+      "memory": {
+        "rss": 155578368,
+        "heapTotal": 13148160,
+        "heapUsed": 6774176,
+        "external": 92118931,
+        "arrayBuffers": 143627
+      },
+      "resource": {
+        "userCPUTime": 2000000,
+        "systemCPUTime": 312000,
+        "maxRSS": 152320,
+        "sharedMemorySize": 0,
+        "unsharedDataSize": 0,
+        "unsharedStackSize": 0,
+        "minorPageFault": 0,
+        "majorPageFault": 71511,
+        "swappedOut": 0,
+        "fsRead": 30,
+        "fsWrite": 2,
+        "ipcSent": 0,
+        "ipcReceived": 0,
+        "signalsCount": 0,
+        "voluntaryContextSwitches": 0,
+        "involuntaryContextSwitches": 0
+      },
+      "inputSha256": "7063f9de39163f35f5bece82f8cb6e7da54608ff88196f55054d02934a5847a5"
+    }
+  },
+  {
+    "id": "real-r-pure2",
+    "status": 0,
+    "signal": null,
+    "stderr": "(node:34484) ExperimentalWarning: Transform Types is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
+    "data": {
+      "id": "real-r-pure2",
+      "wallMs": 2954.4566,
+      "currentAtMs": 2496.3397,
+      "currentDiagnostics": {
+        "elapsedMs": 2495.964,
+        "memoEntries": 181539,
+        "exactTransitions": 480525,
+        "supportPeakPoints": 0,
+        "managedPayloadBytes": 42570274,
+        "managedPayloadDefinition": "owned host numerical payload plus peak Rust heap including transient allocations; WASM linear memory separately measured",
+        "unmeasuredMemory": [
+          "host JS allocator metadata and compiler cache",
+          "Worker native stack",
+          "WASM compiled code",
+          "host supply-law transient work tables"
+        ],
+        "wasmMemoryBytes": 47513600,
+        "kernelCalls": 1
+      },
+      "waitingAndFinalizeMs": 458.1331,
+      "diagnostics": {
+        "elapsedMs": 2919.3282,
+        "memoEntries": 181577,
+        "exactTransitions": 480563,
+        "supportPeakPoints": 0,
+        "managedPayloadBytes": 75277383,
+        "managedPayloadDefinition": "owned host numerical payload plus peak Rust heap including transient allocations; WASM linear memory separately measured",
+        "unmeasuredMemory": [
+          "host JS allocator metadata and compiler cache",
+          "Worker native stack",
+          "WASM compiled code",
+          "host supply-law transient work tables"
+        ],
+        "wasmMemoryBytes": 82509824,
+        "kernelCalls": 3
+      },
+      "evaluatedDays": [
+        0
+      ],
+      "waiting": "certified",
+      "recommendedDays": 56,
+      "evidence": [
+        "fixed_prices_all_dates",
+        "nonnegative_nonexpiring_inventory_coupling",
+        "single_latent_cohort_positive_prior",
+        "positive_mass_receipt_witness_strict_lex_day55_to56",
+        "all_prior_dates_bounded_by_day55",
+        "PH_lower_bound_from_exact_current_P_and_inventory_coupling",
+        "range_only_no_global_or_deadline_claim",
+        "modeled_forecast_source_uncertain_no_automatic_delay"
+      ],
+      "refusal": null,
+      "memory": {
+        "rss": 155930624,
+        "heapTotal": 11051008,
+        "heapUsed": 6980200,
+        "external": 92184467,
+        "arrayBuffers": 143627
+      },
+      "resource": {
+        "userCPUTime": 3234000,
+        "systemCPUTime": 453000,
+        "maxRSS": 152612,
+        "sharedMemorySize": 0,
+        "unsharedDataSize": 0,
+        "unsharedStackSize": 0,
+        "minorPageFault": 0,
+        "majorPageFault": 70413,
+        "swappedOut": 0,
+        "fsRead": 30,
+        "fsWrite": 2,
+        "ipcSent": 0,
+        "ipcReceived": 0,
+        "signalsCount": 0,
+        "voluntaryContextSwitches": 0,
+        "involuntaryContextSwitches": 0
+      },
+      "inputSha256": "48a21dbfd509a2ad16914517f24f20d61b9da27dd96f8e8d85f31708e3841b8e"
+    }
+  },
+  {
+    "id": "real-sr-pure2",
+    "status": 0,
+    "signal": null,
+    "stderr": "(node:9092) ExperimentalWarning: Transform Types is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
+    "data": {
+      "id": "real-sr-pure2",
+      "wallMs": 2677.5851,
+      "currentAtMs": 2177.7924,
+      "currentDiagnostics": {
+        "elapsedMs": 2177.3885999999998,
+        "memoEntries": 162269,
+        "exactTransitions": 419944,
+        "supportPeakPoints": 0,
+        "managedPayloadBytes": 42703705,
+        "managedPayloadDefinition": "owned host numerical payload plus peak Rust heap including transient allocations; WASM linear memory separately measured",
+        "unmeasuredMemory": [
+          "host JS allocator metadata and compiler cache",
+          "Worker native stack",
+          "WASM compiled code",
+          "host supply-law transient work tables"
+        ],
+        "wasmMemoryBytes": 47644672,
+        "kernelCalls": 1
+      },
+      "waitingAndFinalizeMs": 499.80470000000014,
+      "diagnostics": {
+        "elapsedMs": 2651.8756999999996,
+        "memoEntries": 162315,
+        "exactTransitions": 419990,
+        "supportPeakPoints": 0,
+        "managedPayloadBytes": 93169347,
+        "managedPayloadDefinition": "owned host numerical payload plus peak Rust heap including transient allocations; WASM linear memory separately measured",
+        "unmeasuredMemory": [
+          "host JS allocator metadata and compiler cache",
+          "Worker native stack",
+          "WASM compiled code",
+          "host supply-law transient work tables"
+        ],
+        "wasmMemoryBytes": 100466688,
+        "kernelCalls": 3
+      },
+      "evaluatedDays": [
+        0
+      ],
+      "waiting": "certified",
+      "recommendedDays": 56,
+      "evidence": [
+        "fixed_prices_all_dates",
+        "nonnegative_nonexpiring_inventory_coupling",
+        "single_latent_cohort_positive_prior",
+        "positive_mass_receipt_witness_strict_lex_day55_to56",
+        "all_prior_dates_bounded_by_day55",
+        "PH_lower_bound_from_exact_current_P_and_inventory_coupling",
+        "range_only_no_global_or_deadline_claim",
+        "modeled_forecast_source_uncertain_no_automatic_delay"
+      ],
+      "refusal": null,
+      "memory": {
+        "rss": 174444544,
+        "heapTotal": 11051008,
+        "heapUsed": 7142376,
+        "external": 110141333,
+        "arrayBuffers": 143627
+      },
+      "resource": {
+        "userCPUTime": 3015000,
+        "systemCPUTime": 406000,
+        "maxRSS": 170904,
+        "sharedMemorySize": 0,
+        "unsharedDataSize": 0,
+        "unsharedStackSize": 0,
+        "minorPageFault": 0,
+        "majorPageFault": 76729,
+        "swappedOut": 0,
+        "fsRead": 30,
+        "fsWrite": 2,
+        "ipcSent": 0,
+        "ipcReceived": 0,
+        "signalsCount": 0,
+        "voluntaryContextSwitches": 0,
+        "involuntaryContextSwitches": 0
+      },
+      "inputSha256": "ee532a11b01962159f1c985fac147f80f81f44ea71587f4b4cd6453c46a640f8"
+    }
+  }
+]

@@ -1,0 +1,247 @@
+{
+  "label": "SAMPLED EVIDENCE ONLY - not a proof of correctness over the domain",
+  "seed": 1595747387,
+  "prng": "mulberry32",
+  "perStratum": 150,
+  "planned": 1500,
+  "statusDefinition": "PASS = lane verifyCurrent (exact P,B,C,consumed,mask,kit,status,pieces) PASS for WASM and JS backends, verifyBatch PASS, and the supplementary solveOracle cross-check PASS when admitted (<=24 uses; its non-admission does not downgrade); any FAIL => FAIL; otherwise any other NOTRUN => NOTRUN. endpoint_* = current endpoint checks (WASM+JS) only",
+  "original": {
+    "executed": 920,
+    "totals": {
+      "PASS": 768,
+      "FAIL": 0,
+      "NOTRUN": 152,
+      "ERROR": 0
+    },
+    "sha256": {
+      "results": "0f38ea4bd58bb12874afedb9a9ea1b80eb92c25a2b55a59e0e5d1c76e70d9e25",
+      "summary": "736a6116339a7fb14426b359a1a788b86656f0ef0a5b4fb84f14c573063db2e5"
+    }
+  },
+  "resume": {
+    "caseIds": [
+      920,
+      1499
+    ],
+    "cases": 580,
+    "executed": 580,
+    "stopReason": null,
+    "workers": 3,
+    "workerHeapMb": 3072,
+    "mainHeapMb": 512,
+    "caseTimeoutMs": 30000,
+    "wallMs": 134867,
+    "node": "v24.21.0",
+    "totals": {
+      "PASS": 489,
+      "FAIL": 0,
+      "NOTRUN": 91,
+      "ERROR": 0
+    },
+    "resultsJsonl": {
+      "path": "D:\\vibe coding\\Nikke-Collection-Item-Calculator\\.tmp\\sv1-d8b7a5c6850c\\sv1-resume-results.jsonl",
+      "sha256": "b51d036be7675ba840414402e0f1290508ad4d14100e71f470634dcb9560b472"
+    },
+    "failRepro": null
+  },
+  "combinedTotals": {
+    "PASS": 1257,
+    "FAIL": 0,
+    "NOTRUN": 243,
+    "ERROR": 0
+  },
+  "counts": {
+    "small_random": {
+      "PASS": 150,
+      "endpoint_PASS": 150,
+      "currentWasm_PASS": 150,
+      "batchWasm_PASS": 150,
+      "solveOracleWasm_PASS": 118,
+      "currentJs_PASS": 150,
+      "batchJs_PASS": 150,
+      "solveOracleJs_PASS": 118,
+      "solveOracleWasm_NOTRUN": 32,
+      "solveOracleJs_NOTRUN": 32
+    },
+    "nonmultiple_stock": {
+      "PASS": 149,
+      "endpoint_PASS": 149,
+      "currentWasm_PASS": 149,
+      "batchWasm_PASS": 149,
+      "solveOracleWasm_PASS": 124,
+      "currentJs_PASS": 149,
+      "batchJs_PASS": 149,
+      "solveOracleJs_PASS": 124,
+      "solveOracleWasm_NOTRUN": 26,
+      "solveOracleJs_NOTRUN": 26,
+      "NOTRUN": 1,
+      "endpoint_NOTRUN": 1,
+      "currentWasm_NOTRUN": 1,
+      "batchWasm_NOTRUN": 1,
+      "currentJs_NOTRUN": 1
+    },
+    "near_saturation_caps": {
+      "PASS": 91,
+      "endpoint_PASS": 91,
+      "currentWasm_PASS": 91,
+      "batchWasm_PASS": 91,
+      "solveOracleWasm_NOTRUN": 135,
+      "currentJs_PASS": 91,
+      "batchJs_PASS": 91,
+      "solveOracleJs_NOTRUN": 135,
+      "NOTRUN": 59,
+      "endpoint_NOTRUN": 59,
+      "currentWasm_NOTRUN": 59,
+      "batchWasm_NOTRUN": 59,
+      "currentJs_NOTRUN": 59,
+      "solveOracleWasm_PASS": 15,
+      "solveOracleJs_PASS": 15
+    },
+    "large_stock_le100000": {
+      "NOTRUN": 58,
+      "endpoint_NOTRUN": 58,
+      "currentWasm_NOTRUN": 58,
+      "batchWasm_NOTRUN": 58,
+      "solveOracleWasm_NOTRUN": 128,
+      "currentJs_NOTRUN": 58,
+      "solveOracleJs_NOTRUN": 128,
+      "PASS": 92,
+      "endpoint_PASS": 92,
+      "currentWasm_PASS": 92,
+      "batchWasm_PASS": 92,
+      "currentJs_PASS": 92,
+      "batchJs_PASS": 92,
+      "solveOracleWasm_PASS": 22,
+      "solveOracleJs_PASS": 22
+    },
+    "stage_boundary_4_9_14": {
+      "PASS": 130,
+      "endpoint_PASS": 130,
+      "currentWasm_PASS": 130,
+      "batchWasm_PASS": 130,
+      "solveOracleWasm_NOTRUN": 62,
+      "currentJs_PASS": 130,
+      "batchJs_PASS": 130,
+      "solveOracleJs_NOTRUN": 62,
+      "NOTRUN": 20,
+      "endpoint_NOTRUN": 20,
+      "currentWasm_NOTRUN": 20,
+      "batchWasm_NOTRUN": 20,
+      "currentJs_NOTRUN": 20,
+      "solveOracleWasm_PASS": 88,
+      "solveOracleJs_PASS": 88
+    },
+    "R15_promotion": {
+      "NOTRUN": 46,
+      "endpoint_NOTRUN": 46,
+      "currentWasm_NOTRUN": 46,
+      "batchWasm_NOTRUN": 46,
+      "solveOracleWasm_NOTRUN": 101,
+      "currentJs_NOTRUN": 46,
+      "solveOracleJs_NOTRUN": 101,
+      "PASS": 104,
+      "endpoint_PASS": 104,
+      "currentWasm_PASS": 104,
+      "batchWasm_PASS": 104,
+      "currentJs_PASS": 104,
+      "batchJs_PASS": 104,
+      "solveOracleWasm_PASS": 49,
+      "solveOracleJs_PASS": 49
+    },
+    "SR15_terminal": {
+      "PASS": 150,
+      "endpoint_PASS": 150,
+      "currentWasm_PASS": 150,
+      "batchWasm_PASS": 150,
+      "solveOracleWasm_PASS": 95,
+      "currentJs_PASS": 150,
+      "batchJs_PASS": 150,
+      "solveOracleJs_PASS": 95,
+      "solveOracleWasm_NOTRUN": 55,
+      "solveOracleJs_NOTRUN": 55
+    },
+    "p1000_actions": {
+      "PASS": 128,
+      "endpoint_PASS": 128,
+      "currentWasm_PASS": 128,
+      "batchWasm_PASS": 128,
+      "solveOracleWasm_PASS": 94,
+      "currentJs_PASS": 128,
+      "batchJs_PASS": 128,
+      "solveOracleJs_PASS": 94,
+      "NOTRUN": 22,
+      "endpoint_NOTRUN": 22,
+      "currentWasm_NOTRUN": 22,
+      "batchWasm_NOTRUN": 22,
+      "solveOracleWasm_NOTRUN": 56,
+      "currentJs_NOTRUN": 22,
+      "solveOracleJs_NOTRUN": 56
+    },
+    "ties": {
+      "PASS": 150,
+      "endpoint_PASS": 150,
+      "currentWasm_PASS": 150,
+      "batchWasm_PASS": 150,
+      "solveOracleWasm_PASS": 150,
+      "currentJs_PASS": 150,
+      "batchJs_PASS": 150,
+      "solveOracleJs_PASS": 150
+    },
+    "price_extremes": {
+      "NOTRUN": 37,
+      "endpoint_NOTRUN": 37,
+      "currentWasm_NOTRUN": 36,
+      "batchWasm_NOTRUN": 35,
+      "solveOracleWasm_NOTRUN": 99,
+      "currentJs_NOTRUN": 36,
+      "solveOracleJs_NOTRUN": 99,
+      "PASS": 113,
+      "endpoint_PASS": 113,
+      "currentWasm_PASS": 113,
+      "batchWasm_PASS": 113,
+      "currentJs_PASS": 113,
+      "batchJs_PASS": 113,
+      "solveOracleWasm_PASS": 49,
+      "solveOracleJs_PASS": 49,
+      "harness_NOTRUN": 1
+    }
+  },
+  "nonPassReasons": {
+    "solveOracleWasm_NOTRUN": {
+      "solveOracle_not_admitted_uses_#_gt_#": 694
+    },
+    "solveOracleJs_NOTRUN": {
+      "solveOracle_not_admitted_uses_#_gt_#": 694
+    },
+    "currentWasm_NOTRUN": {
+      "independent_current_not_computed:NOTRUN_expanded_stock_without_independent_feasible_unrestricted_or_recorded_finite_proof;large_oracle_admission_max#_initial_uses;independent_public_cap_admission_max#_initial_uses;independent_layered_input_admission_invalid": 235,
+      "independent_current_not_computed:NOTRUN_expanded_stock_without_independent_feasible_unrestricted_or_recorded_finite_proof;large_oracle_memo_admission_limit;independent_public_cap_memo_admission_limit;independent_layered_state_box_admission_limit": 6,
+      "product_wasm_refused:request_budget_exhausted": 1
+    },
+    "batchWasm_NOTRUN": {
+      "batch_requires_independent_current": 241
+    },
+    "currentJs_NOTRUN": {
+      "independent_current_not_computed:NOTRUN_expanded_stock_without_independent_feasible_unrestricted_or_recorded_finite_proof;large_oracle_admission_max#_initial_uses;independent_public_cap_admission_max#_initial_uses;independent_layered_input_admission_invalid": 235,
+      "independent_current_not_computed:NOTRUN_expanded_stock_without_independent_feasible_unrestricted_or_recorded_finite_proof;large_oracle_memo_admission_limit;independent_public_cap_memo_admission_limit;independent_layered_state_box_admission_limit": 6,
+      "product_js_refused:request_budget_exhausted": 1
+    },
+    "harness_NOTRUN": {
+      "case_timeout_#ms": 1
+    }
+  },
+  "inputSha256": {
+    "public/certified_solver.wasm": "8e48c7d1a806b9cf9fe05ccb4cc2ae4c9cc87d97b2443f96dd0c180d1c134238",
+    "scripts/certified-staging-oracle.ts": "44169b169bb1487ce952ba6026b697654f541a234384fed4964fe1aa9f43a69f",
+    "scripts/certified-staging-oracle-lane.ts": "9f705b9b3be0beffda260b97de8b4ada421b5f15f92e5a8e80c092098bfcd887",
+    "src/certified/wasmBackend.ts": "c91f6356f4758adede7cc3a610d2ef8e5a65b423e13381cff6bec758007f831c",
+    "src/certified/kernel.ts": "101f876bfe67dd8c597365c05ee41afbde0ac3732eb7be90970262794dbd4db6",
+    "src/certified/current.ts": "4fb48388e6210ca838d8f14c4edeb275093881232f5f469281f562f507fe64b9",
+    "harness_main": "5c703a01861a79670e5580dd473c00fbcd9c7613865c7d7f66edead23afbb946",
+    "harness_worker": "58fed6318c7d2b896f7315f329ca180620c59ef405dbe7d46a8ad189d5737ff0",
+    "harness_hooks": "25711f1f5532e88b1092e3ec63dc45c304aaaa2ed599d3080d3cf85d4f8c49fc",
+    "harness_resume": "c5926867c09b546ece9b726a0b18d4859a9a9d77d55178dce951aa00ab947339"
+  },
+  "inputsUnchangedSinceOriginal": true,
+  "harnessUnchangedSinceOriginal": true
+}
