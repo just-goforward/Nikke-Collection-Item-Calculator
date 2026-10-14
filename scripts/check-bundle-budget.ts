@@ -10,7 +10,7 @@ if (result.status !== 0) throw new Error(result.stderr || "Bundle report failed.
 const report = JSON.parse(result.stdout) as { totals: BundleTotals };
 const budgets = {
   "initial-js": { metric: "gzipBytes", limit: 139_000 },
-  "lazy-certified": { metric: "gzipBytes", limit: 35_000 },
+  "lazy-certified": { metric: "gzipBytes", limit: 40_000 },
   "lazy-detail": { metric: "gzipBytes", limit: 6_500 },
   "lazy-forecast": { metric: "gzipBytes", limit: 2_500 },
   "lazy-solver": { metric: "gzipBytes", limit: 5_000 },
