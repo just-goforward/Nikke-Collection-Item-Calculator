@@ -30,7 +30,7 @@ import {
 } from "./account.helpers";
 import { closePreviewServer, test } from "./test";
 
-// Defaults to the regular build; a separate output directory can be supplied for isolated runs.
+// playwright.account.config.ts builds an isolated output per run; the default config serves `dist`.
 const OUT_DIR = process.env["ACCOUNT_E2E_DIST"] ?? "dist";
 let server: PreviewServer | null = null;
 

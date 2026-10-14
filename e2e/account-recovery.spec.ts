@@ -24,7 +24,7 @@ import {
 } from "./account.helpers";
 import { closePreviewServer, test } from "./test";
 
-// Same build and port as e2e/account.spec.ts; Playwright runs the spec files one after another.
+// playwright.account.config.ts builds an isolated output per run; the default config serves `dist`.
 const OUT_DIR = process.env["ACCOUNT_E2E_DIST"] ?? "dist";
 let server: PreviewServer | null = null;
 
@@ -91,6 +91,90 @@ test("saved guest inputs are restored at the bound whether the account chunk or 
   release();
   await expect(loginButton(page)).toBeEnabled();
   await expect(beginnerKit(page)).toHaveValue("31");
+});
+
+test("entering an account from 'account not loaded' never makes guest inputs editable as its data", async ({
+  page,
+  context,
+}) => {
+  const api = signedInApi(40);
+  api.failWorkspaceReads = 1;
+  await api.install(context);
+  await enableAccountFlag(page);
+  await openApp(page);
+  const retry = page.getByRole("button", { name: "계정 데이터를 불러오지 못했습니다. 다시 시도" });
+  await expect(retry).toBeVisible();
+  await setBeginnerKit(page, "45");
+
+  // Every DOM state in which the signed-in account is shown with editable non-account inputs.
+  const kit = await beginnerKit(page).elementHandle();
+  await page.evaluate((input) => {
+    const violations: string[] = [];
+    const check = () => {
+      const signedIn = document.querySelector("[data-account-trigger][aria-haspopup]") !== null;
+      if (signedIn && input instanceof HTMLInputElement && !input.disabled && input.value !== "40")
+        violations.push(input.value);
+    };
+    new MutationObserver(check).observe(document.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true,
+    });
+    Object.assign(window, { lockViolations: violations });
+  }, kit);
+
+  let releaseWorkspace: () => void = () => undefined;
+  api.holdWorkspace = new Promise<void>((resolve) => {
+    releaseWorkspace = resolve;
+  });
+  const workspaceReads = () =>
+    api.requests.filter((entry) => entry.method === "GET" && entry.path === "/v1/workspace");
+  await retry.click();
+  await expect.poll(() => workspaceReads().length).toBe(2);
+  // Let the entry's own guest read finish, then hold the device's guest store (the restore-flag
+  // clearing reads it) from another tab with a long-running readwrite transaction.
+  await page.waitForTimeout(500);
+  const holder = await context.newPage();
+  await holder.goto(`${ORIGIN}/`);
+  await holder.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open("collection-kit-account");
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const store = request.result
+            .transaction("guest-workspace", "readwrite")
+            .objectStore("guest-workspace");
+          let first = true;
+          const spin = () => {
+            if (first) resolve();
+            first = false;
+            if (Reflect.get(window, "releaseHold") !== true) store.get("guest").onsuccess = spin;
+          };
+          store.get("guest").onsuccess = spin;
+        };
+      }),
+  );
+  api.holdWorkspace = null;
+  releaseWorkspace();
+
+  await expect(accountTrigger(page)).toHaveAccessibleName("계정 · 동기화됨");
+  await expect(beginnerKit(page)).toHaveValue("40");
+  await expect(beginnerKit(page)).toBeEnabled();
+  expect(await page.evaluate(() => Reflect.get(window, "lockViolations"))).toEqual([]);
+
+  await holder.evaluate(() => Object.assign(window, { releaseHold: true }));
+  await holder.close();
+  await page.waitForTimeout(500);
+  expect(api.puts()).toEqual([]);
+  await accountTrigger(page).click();
+  await page
+    .getByRole("dialog", { name: "계정", exact: true })
+    .getByRole("button", { name: "로그아웃", exact: true })
+    .click();
+  // The guest edit made while the account was not loaded is kept as guest data.
+  await expect(beginnerKit(page)).toHaveValue("45");
 });
 
 test("two tabs opening at once adopt a closed tab's unsynced draft only once", async ({
