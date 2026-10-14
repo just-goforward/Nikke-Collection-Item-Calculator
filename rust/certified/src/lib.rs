@@ -42,6 +42,14 @@ struct WireQ {
 }
 impl WireQ {
     fn rational(&self) -> Result<Q> {
+        let numerator = self.numerator.strip_prefix('-').unwrap_or(&self.numerator);
+        if numerator.is_empty()
+            || !numerator.bytes().all(|byte| byte.is_ascii_digit())
+            || self.denominator.is_empty()
+            || !self.denominator.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err("invalid_rational");
+        }
         let n: BigInt = self.numerator.parse().map_err(|_| "invalid_rational")?;
         let d: BigInt = self.denominator.parse().map_err(|_| "invalid_rational")?;
         if d <= BigInt::zero() {
@@ -633,6 +641,50 @@ pub unsafe extern "C" fn certified_call() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wire_rationals_match_the_javascript_ascii_integer_grammar() {
+        for (numerator, denominator) in [
+            ("+5", "7"),
+            ("1_0", "7"),
+            ("5", "+7"),
+            ("5", "7_0"),
+            ("", "7"),
+            ("-", "7"),
+            ("--5", "7"),
+            (" 5", "7"),
+            ("5\n", "7"),
+            ("٥", "7"),
+            ("5", "-7"),
+            ("5", "0"),
+            ("5", ""),
+        ] {
+            assert_eq!(
+                WireQ {
+                    numerator: numerator.into(),
+                    denominator: denominator.into(),
+                }
+                .rational(),
+                Err("invalid_rational"),
+                "{numerator}/{denominator}",
+            );
+        }
+        for (numerator, denominator, expected) in [
+            ("0005", "0007", Q::new(5.into(), 7.into())),
+            ("-0005", "0007", Q::new((-5).into(), 7.into())),
+            ("-0", "007", Q::zero()),
+        ] {
+            assert_eq!(
+                WireQ {
+                    numerator: numerator.into(),
+                    denominator: denominator.into(),
+                }
+                .rational(),
+                Ok(expected),
+            );
+        }
+    }
+
     fn branching_relaxed_engine() -> Engine {
         let mut edges: Vec<_> = (0..=600)
             .map(|s| [[1000, 600, (s + 1).min(600)]; 3])
