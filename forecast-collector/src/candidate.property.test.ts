@@ -136,7 +136,9 @@ describe("P8 candidateId duplicate-evidence behavior", () => {
       build([], { status: "crosschecked", sourceItem: changedSolo, reason: null }),
     ).rejects.toThrow(/^candidate_source_content_hash_conflict$/);
   });
+});
 
+describe("P8 candidateId canonical identity", () => {
   it(
     "identical duplicates collapse to one evidence item and candidateId ignores order",
     async () => {

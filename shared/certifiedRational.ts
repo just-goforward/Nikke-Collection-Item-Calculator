@@ -73,6 +73,18 @@ export function parse(s: string): Q {
   return q(BigInt(m.input.slice(0, separator)), BigInt(m.input.slice(separator + 1)));
 }
 
+/** Round a scaled positive ratio to the nearest integer, ties-to-even. */
+function roundedMantissa(n: bigint, d: bigint, shift: number): bigint {
+  const numerator = shift >= 0 ? n << BigInt(shift) : n;
+  const denominator = shift >= 0 ? d : d << BigInt(-shift);
+  let mantissa = numerator / denominator;
+  const twiceRemainder = 2n * (numerator % denominator);
+  if (twiceRemainder > denominator || (twiceRemainder === denominator && (mantissa & 1n) !== 0n)) {
+    mantissa += 1n;
+  }
+  return mantissa;
+}
+
 /** Correctly rounded binary64 of an exact rational (nearest, ties-to-even). */
 export function toNumber(a: Q): number {
   if (a.n === 0n) return 0;
@@ -89,14 +101,7 @@ export function toNumber(a: Q): number {
   // Subnormals use the fixed quantum 2^-1074, not a normal significand
   // rounded first and scaled later. Retain the entire exact remainder.
   exponent = Math.max(exponent, -1022);
-  const shift = 52 - exponent;
-  const numerator = shift >= 0 ? n << BigInt(shift) : n;
-  const denominator = shift >= 0 ? a.d : a.d << BigInt(-shift);
-  let mantissa = numerator / denominator;
-  const twiceRemainder = 2n * (numerator % denominator);
-  if (twiceRemainder > denominator || (twiceRemainder === denominator && (mantissa & 1n) !== 0n)) {
-    mantissa += 1n;
-  }
+  let mantissa = roundedMantissa(n, a.d, 52 - exponent);
   if (mantissa === 1n << 53n) {
     mantissa >>= 1n;
     exponent += 1;
