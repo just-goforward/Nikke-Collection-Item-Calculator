@@ -27,6 +27,39 @@ describe("makeStatsSubmissionEnvelope", () => {
   });
 });
 
+describe("statistics transport credentials", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.doUnmock("./statsRuntime");
+    vi.resetModules();
+  });
+
+  it("never sends cookies or other credentials with event submissions", async () => {
+    vi.resetModules();
+    vi.doMock("./statsRuntime", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("./statsRuntime")>()),
+      statsSubmissionConfig: () => ({
+        endpoint: "https://stats.example",
+        turnstileSiteKey: "site-key",
+      }),
+    }));
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 202 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { submitStatsEnvelope } = await import("./statsSubmitClient");
+    const provider = { issueToken: vi.fn(async () => "token"), reset: vi.fn() };
+
+    await submitStatsEnvelope(
+      { eventId: "event-1", event: { kind: "solver_diagnostic" } } as never,
+      provider as never,
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ credentials: "omit" });
+  });
+});
+
 describe("statistics response retry policy", () => {
   it("retries 429 responses even when the response body omits retryable", async () => {
     const error = await readStatsError(

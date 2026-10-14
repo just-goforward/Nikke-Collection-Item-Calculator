@@ -208,6 +208,7 @@ describe("stats response and retry contracts", () => {
     await expectEvents(7);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.map((call) => call[1]?.cache)).toEqual(["default", "no-store"]);
+    expect(fetchMock.mock.calls.map((call) => call[1]?.credentials)).toEqual(["omit", "omit"]);
     expect(fetchMock.mock.calls[1]?.[1]?.headers).toEqual({ Accept: "application/json" });
   });
 

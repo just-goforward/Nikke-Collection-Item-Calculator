@@ -80,6 +80,7 @@ export function useStatsQuery(queryEnabled: boolean) {
     try {
       const response = await fetch(`${base}/api/stats`, {
         cache: fresh ? "no-store" : "default",
+        credentials: "omit",
         headers: { Accept: "application/json" },
         signal: controller.signal,
       });

@@ -61,6 +61,7 @@ async function postStatsEnvelope(
   try {
     return await fetch(`${config.endpoint}/api/events`, {
       method: "POST",
+      credentials: "omit",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         version: 1,
