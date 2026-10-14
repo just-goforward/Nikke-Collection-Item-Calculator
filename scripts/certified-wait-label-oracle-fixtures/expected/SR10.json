@@ -1,7 +1,7 @@
 {
-  "version": "certified-wait-label-oracle-v1",
+  "version": "certified-wait-label-oracle-v2",
   "fixtureFileSha256": "43dcdf764a2129b4087e8d42eacd7da2974fa66a6e7aa1b54ba9aa2ebbfbf37f",
-  "oracleSourceSha256": "892581b1ca689e364699fe6feaaad1fe843267f9382ad7deb521f816601f1810",
+  "oracleSourceSha256": "e4616a6921e6fa895f04d47233d1c13e248462896539a4884bb735d30a72b964",
   "result": {
     "status": "EXACT",
     "id": "SR10",
@@ -53,7 +53,7 @@
         ],
         "crossing": false,
         "crossingUnits": [],
-        "probabilityCrossingUnits": []
+        "bCrossingUnits": []
       },
       {
         "day": 2,
@@ -99,7 +99,7 @@
         ],
         "crossing": false,
         "crossingUnits": [],
-        "probabilityCrossingUnits": []
+        "bCrossingUnits": []
       },
       {
         "day": 3,
@@ -200,7 +200,7 @@
         ],
         "crossing": true,
         "crossingUnits": [[5, 4, 1], [10, 2, 1], [11, 2, 1], [13, 1, 1], [14, 1, 1]],
-        "probabilityCrossingUnits": [[5, 4, 1], [10, 2, 1], [11, 2, 1], [13, 1, 1], [14, 1, 1]]
+        "bCrossingUnits": [[5, 4, 1], [10, 2, 1], [11, 2, 1], [13, 1, 1], [14, 1, 1]]
       },
       {
         "day": 4,
@@ -430,7 +430,7 @@
           [17, 1, 1],
           [18, 1, 1]
         ],
-        "probabilityCrossingUnits": [
+        "bCrossingUnits": [
           [5, 4, 1],
           [5, 4, 2],
           [5, 5, 1],
@@ -867,7 +867,7 @@
           [21, 1, 1],
           [22, 1, 1]
         ],
-        "probabilityCrossingUnits": [
+        "bCrossingUnits": [
           [5, 4, 1],
           [5, 4, 2],
           [5, 5, 1],
@@ -1573,7 +1573,7 @@
           [25, 1, 1],
           [26, 1, 1]
         ],
-        "probabilityCrossingUnits": [
+        "bCrossingUnits": [
           [5, 4, 1],
           [5, 4, 2],
           [5, 5, 1],
@@ -2972,7 +2972,7 @@
           [31, 1, 1],
           [32, 1, 1]
         ],
-        "probabilityCrossingUnits": [
+        "bCrossingUnits": [
           [2, 12, 1],
           [2, 12, 2],
           [2, 13, 1],

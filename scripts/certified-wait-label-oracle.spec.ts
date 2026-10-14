@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { assertProperty } from "../shared/propertyHarness.ts";
 import {
   add,
   compareValue,
@@ -10,6 +11,7 @@ import {
   q,
   type Triple,
 } from "./certified-staging-oracle.ts";
+import { makeTriple, mapTriple } from "./certified-staging-oracle-tuples.ts";
 import {
   independentBoxMass,
   independentDispatchZeroMass,
@@ -18,52 +20,39 @@ import * as O from "./certified-wait-label-oracle.ts";
 
 const SPEC = "scripts/certified-wait-label-oracle.spec.ts";
 const ORACLE = "scripts/certified-wait-label-oracle.ts";
-const SEED = 20_261_014;
+/** Shared fixed-seed runner (fast-check 4.10.2, interruptAfterTimeLimit with
+ * failOnInterrupt); failures carry seed, path, version and source hashes. */
 const property = (name: string, numRuns: number, timeLimitMs: number) => ({
   name,
   numRuns,
   timeLimitMs,
+  identity: {
+    file: SPEC,
+    generatorSource: readFileSync(SPEC, "utf8"),
+    sources: { [ORACLE]: readFileSync(ORACLE, "utf8") },
+  },
 });
-/** Fixed seed, capped runs, fast-check 4.10.2 interrupt plugin with failOnInterrupt.
- * A failure throws the replay record (seed, path, fast-check version, generator and
- * oracle source hashes, minimized counterexample) to be kept as a named regression. */
-async function assertProperty<T>(
-  check: fc.IRawProperty<T>,
-  options: ReturnType<typeof property>,
-): Promise<void> {
-  const details = await fc.check(check, {
-    seed: SEED,
-    numRuns: options.numRuns,
-    plugins: [fc.interruptAfterTimeLimit(options.timeLimitMs, { failOnInterrupt: true })],
-  });
-  if (!details.failed && !details.interrupted) return;
-  throw new Error(
-    `property_failed ${JSON.stringify({
-      property: options.name,
-      seed: details.seed,
-      path: details.counterexamplePath,
-      numRuns: details.numRuns,
-      interrupted: details.interrupted,
-      counterexample: details.counterexample === null ? null : fc.stringify(details.counterexample),
-      error: details.errorInstance === null ? null : String(details.errorInstance),
-      fastCheckVersion: fc.__version,
-      generatorSourceSha256: O.sha256(readFileSync(SPEC)),
-      oracleSourceSha256: O.sha256(readFileSync(ORACLE)),
-    })}`,
-  );
+function positiveBoxPoints(law: "regular-box-v1" | "box-ii-v1", count: number): Triple[] {
+  const positive: Triple[] = [];
+  for (let b = 0; b <= 5 * count; b++)
+    for (let p = 0; p <= 2 * count; p++)
+      for (let y = 0; y <= 2 * count; y++)
+        if (independentBoxMass(law, count, [b, p, y]).n > 0n) positive.push([b, p, y]);
+  return positive;
 }
 
 /** Pre-registered before any product comparison: sha256 of the committed bytes. */
 const PINS: Record<string, string> = {
   "fixtures.json": "43dcdf764a2129b4087e8d42eacd7da2974fa66a6e7aa1b54ba9aa2ebbfbf37f",
-  "expected/R0.json": "d8c6dfa638951aa2909d40ddb7879a788a6105cc8610ff4e694cb0b9f3731831",
-  "expected/R10.json": "521b42a5a8b939d67c350105b04051687167f50b753a10cc681e6029bc828f34",
-  "expected/R14.json": "edf2fcb99d7b1cc15e3000c7da4a780deb92e00e063c44614aae647ff10c4e23",
-  "expected/SR5.json": "ac53cd569a568bdfdcb0a6df12eb193f4777e5c5fb7a395316e6a203503bf2aa",
-  "expected/SR10.json": "54186f81f916698dfb294f76130ef5d3381a043c9ab34ed5728ca8d279efd259",
-  "expected/SR13.json": "ae3575b90c97794cf9c5c35d7d9bd11e465718aabf80afaccad80c9667a1dd54",
+  "expected/R0.json": "0fbae392d9222af45dbdc035b03648382aa072b09489dd1d55dcb016bf1aae84",
+  "expected/R10.json": "400e0399255d9e4470be792f555a69f0022ba7f49e690a2ee2288666dd97eecb",
+  "expected/R14.json": "5737ab4c5af2ac5a007faab4b6e94842c531f7801ae172d8a8472a878a788118",
+  "expected/SR5.json": "d654768a0ba3b5cdd75597698326b825abc6c1d32094ea6ae8dd9b02160bd046",
+  "expected/SR10.json": "08708b38cb43d0f311fd22d52fd3dd6817c042b636541fb640b9743435223c38",
+  "expected/SR13.json": "ed3404ed3a4982d2449f8ce16427f88605d27e0cf4ed04d664d008fcf8d76326",
 };
-/** Human-readable copy of the pre-registered results (kit, uses, label, per-day crossing counts). */
+/** Human-readable copy of the pre-registered results (kit, uses, label, per-day P crossing
+ * counts). In all six fixtures the informational P/B/C crossing sets equal the P sets. */
 const SUMMARY: Record<string, readonly [string, number, number | "7+", readonly number[]]> = {
   R0: ["blue", 2, "7+", [0, 0, 0, 0, 0, 0, 0]],
   R10: ["blue", 2, "7+", [0, 0, 0, 0, 0, 0, 0]],
@@ -96,7 +85,9 @@ describe("pre-registered wait-label fixtures", () => {
         label,
         perDay.map((d) => d.crossingUnits.length),
       ]).toEqual(SUMMARY[id]);
+      expect(perDay.map((d) => d.bCrossingUnits)).toEqual(perDay.map((d) => d.crossingUnits));
       expect(perDay.map((d) => d.supportUnitCount)).toEqual([9, 37, 92, 190, 335, 535, 1022]);
+      expect(document.result.certificateConsistent).toBe(true);
     }
   });
 
@@ -135,15 +126,10 @@ describe("independent supply laws", () => {
     ] as const;
     for (const [law, box] of laws)
       for (let count = 0; count <= 4; count++) {
-        const positive: Triple[] = [];
-        for (let b = 0; b <= 5 * count; b++)
-          for (let p = 0; p <= 2 * count; p++)
-            for (let y = 0; y <= 2 * count; y++)
-              if (independentBoxMass(law, count, [b, p, y]).n > 0n) positive.push([b, p, y]);
         const support = [...O.boxSupport(box, count)].sort(
           (a, c) => a[0] - c[0] || a[1] - c[1] || a[2] - c[2],
         );
-        expect([law, count, support]).toEqual([law, count, positive]);
+        expect([law, count, support]).toEqual([law, count, positiveBoxPoints(law, count)]);
       }
   });
 
@@ -251,7 +237,10 @@ describe("wait-label properties", () => {
           const unionThenProject = new Set(
             [
               ...new Set(pieceSets.flatMap((sets) => (sets[index] ?? []).map((t) => t.join(",")))),
-            ].map((key) => unit(key.split(",").map(Number) as unknown as Triple)),
+            ].map((key) => {
+              const [b = 0, p = 0, y = 0] = key.split(",").map(Number);
+              return unit([b, p, y]);
+            }),
           );
           expect([...projectThenUnion].sort()).toEqual([...unionThenProject].sort());
           expect([...(actual[index] ?? [])].sort()).toEqual([...projectThenUnion].sort());
@@ -285,12 +274,10 @@ describe("wait-label properties", () => {
     });
     await assertProperty(
       fc.property(scenario, ({ state, units, remainder, prices }) => {
-        const unitStock = units as unknown as Triple;
-        const pieces = unitStock.map(
-          (u, j) => 10 * u + (remainder[j] as number),
-        ) as unknown as Triple;
-        const reference = createOracleEvaluator(prices as QTriple)({ ...state, stock: pieces });
-        const engine = O.createWaitLabelEngine(prices as QTriple, units[0] + units[1] + units[2]);
+        const unitStock: Triple = units;
+        const pieces = mapTriple(unitStock, (u, j) => 10 * u + remainder[j]);
+        const reference = createOracleEvaluator(prices)({ ...state, stock: pieces });
+        const engine = O.createWaitLabelEngine(prices, units[0] + units[1] + units[2]);
         const root = engine.value(state, unitStock);
         const exact = engine.toExact(root);
         expect(compareValue(exact, reference)).toBe(0);
@@ -301,8 +288,9 @@ describe("wait-label properties", () => {
           0,
         );
         expect(root.ties).toBe(mask);
-        O.KITS.forEach((kit, color) => {
-          if ((units[color] as number) < 1) return;
+        ([0, 1, 2] as const).forEach((color) => {
+          const kit = O.KITS[color];
+          if (units[color] < 1) return;
           const single = reference.candidates.get(kit);
           if (!single) throw new Error(`reference candidate ${kit} missing`);
           expect(
@@ -324,22 +312,21 @@ describe("wait-label properties", () => {
     });
     await assertProperty(
       fc.property(scenario, ({ state, stock, extra, surplus, prices }) => {
-        const x = stock as unknown as Triple;
-        const u = x.map((value, j) => value + (extra[j] as number)) as unknown as Triple;
-        const bound = u.reduce((sum, value) => sum + value, 0) + 10 + 3;
-        const engine = O.createWaitLabelEngine(prices as QTriple, bound);
+        const x: Triple = stock;
+        const u = mapTriple(x, (value, j) => value + extra[j]);
+        const bound = u[0] + u[1] + u[2] + 10 + 3;
+        const engine = O.createWaitLabelEngine(prices, bound);
         const batch = O.recommendBatch(engine, state, x, 10);
         if (!batch) return;
         // Compensation with m_k >= n (certificate holds) and arbitrary other kits.
-        const m = surplus.map((value, j) =>
-          j === batch.kit ? batch.uses + value : value,
-        ) as unknown as Triple;
+        const m = makeTriple((j) => (j === batch.kit ? batch.uses : 0) + surplus[j]);
         const now = engine.batch(
           state,
-          u.map((value, j) => value + (m[j] as number)) as unknown as Triple,
+          mapTriple(u, (value, j) => value + m[j]),
           batch.kit,
           batch.uses,
         );
+        // P-only contract: the certificate excludes a P crossing at every support unit.
         expect(engine.value(state, u).P <= now.P).toBe(true);
       }),
       property("certificate-probability-soundness", 300, 120_000),
@@ -348,16 +335,16 @@ describe("wait-label properties", () => {
 });
 
 describe("named regressions", () => {
-  /** REG-WL-1 certificate-lex-burden-crossing. Found by property
-   * "certificate-never-crosses" (lexicographic form): seed 20261014, path
+  /** REG-WL-1 certificate-lex-burden-crossing. Found by the earlier lexicographic
+   * property "certificate-never-crosses" (own runner, seed 20261014, path
    * 27:8:9:5:5:5:7:6:7:10:11:10:12:10:10:10:14:10:10:10:10:10, fast-check 4.10.2,
    * generator-source sha256 9890e62a0db8b526226c6852c150c28d14e5a1c6c743e90d0e500101e79faf66,
-   * oracle sha256 0923edf23623a5dd9bce1d5cf8f80f570204a63febf531906bdb3f59c402c368.
+   * oracle sha256 0923edf23623a5dd9bce1d5cf8f80f570204a63febf531906bdb3f59c402c368).
    * Minimized input: SR13/EXP1300, stock units [1,1,0], support units [1,1,2],
-   * prices [1,1,1]. Under the lexicographic P/B/C contract the certificate holds
-   * (purple x1, m_purple = 1) yet waiting is strictly better through burden B at
-   * equal P = 1, so the certificate is not a sound "7+" shortcut in general. */
-  it("REG-WL-1: certificate holds but waiting is strictly better through B at equal P", () => {
+   * prices [1,1,1]; batch purple x1, compensation m = [0,1,0] so the certificate
+   * holds. Contract (P-only): no crossing, since P is equal (1 = 1). Informational:
+   * the P/B/C comparison of the same pair prefers waiting through burden B. */
+  it("REG-WL-1: certificate implies no P crossing; a B-only crossing exists there", () => {
     const prices: QTriple = [q(1), q(1), q(1)];
     const state = { grade: "SR" as const, level: 13, exp: 1300 };
     const engine = O.createWaitLabelEngine(prices, 8);
@@ -369,10 +356,14 @@ describe("named regressions", () => {
     const wait = evaluate({ ...state, stock: [10, 10, 20] });
     const now = evaluate({ ...state, stock: [10, 20, 20] }).candidates.get("purple");
     if (!now) throw new Error("purple candidate missing");
+    expect(O.certificateApplies(q(1), q(10), 1)).toBe(true);
+    // Contract: equal P, hence no P crossing (independent oracle and this engine).
     expect([wait.P, now.P]).toEqual([q(1), q(1)]);
+    const engineWait = engine.value(state, [1, 1, 2]);
+    const engineNow = engine.batch(state, [1, 2, 2], 1, 1);
+    expect(engineWait.P > engineNow.P).toBe(false);
+    // Informational bCrossing: P/B/C prefers waiting through B.
     expect(compareValue(wait, now)).toBe(1);
-    expect(
-      engine.compare(engine.value(state, [1, 1, 2]), engine.batch(state, [1, 2, 2], 1, 1)),
-    ).toBe(1);
+    expect(engine.compare(engineWait, engineNow)).toBe(1);
   });
 });

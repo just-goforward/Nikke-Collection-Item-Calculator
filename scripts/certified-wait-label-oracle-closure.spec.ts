@@ -59,7 +59,9 @@ function references(file: string, source: string) {
       else if (Array.isArray(value)) for (const child of value) if (isAst(child)) walk(child);
     }
   };
-  walk(parsed.program as unknown as Ast);
+  const program: unknown = parsed.program;
+  if (!isAst(program)) throw new Error(`no program for ${file}`);
+  walk(program);
   return { modules, data };
 }
 const relative = (file: string, specifier: string) =>

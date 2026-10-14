@@ -26,8 +26,10 @@ import {
   independentFourthCohort,
   independentVersionedPricing,
 } from "./certified-staging-oracle-four-cohort-pricing.ts";
+import { makeTriple, mapTriple } from "./certified-staging-oracle-tuples.ts";
 
-/** Engine-independent oracle for the certified "minimum wait" label.
+/** Engine-independent oracle for the certified "minimum wait" label
+ * (approved design: endpoint-only P-only classifier).
  *
  * Contract (one recommended batch of kit k used n times, fixed prices):
  * - supply: for day d in 1..H, every receipt vector with positive mass under some
@@ -36,12 +38,15 @@ import {
  *   units u = floor((stock + receipts) / 10) per kit, uncapped;
  * - compensation: theta days of mixed average supply settled in whole 10-piece
  *   uses, m_j = floor(theta * rate_j / 10);
- * - u crosses when V*(s, u) is strictly lexicographically better (P max, B min,
- *   C min) than the batch-now value Q_k,n(s, u + m); exact ties never cross;
+ * - u crosses iff the optimal success probability P*(s, u) is strictly greater
+ *   than the batch-now probability P of Q_k,n(s, u + m); B and C never create a
+ *   crossing. Values are still solved lexicographically (P max, B min, C min) so
+ *   the recommendation and its tie rule are exact; the P/B/C comparison of the
+ *   same pair is reported as informational bCrossingUnits;
  * - day d crosses when some support unit crosses; label = first crossing day,
  *   "7+" when no day in 1..H crosses, "unknown" when the computation is NOTRUN;
- * - certificate: theta * rate_k >= 10 n (reported and checked, never used as a
- *   shortcut).
+ * - certificate: theta * rate_k >= 10 n implies "7+" (reported and checked,
+ *   never used as a shortcut here).
  * Arithmetic, game transitions, dispatch/box laws and pricing come only from the
  * independent BigInt staging stack; candidate solver code is never imported. */
 
@@ -177,30 +182,29 @@ export function dispatchBoards(rerolls: number): Board[] {
   return boardRounds[rerolls] as Board[];
 }
 function boxMean(box: readonly Outcome[]): QTriple {
-  return [0, 1, 2].map((j) =>
-    box.reduce((sum, o) => add(sum, mul(o.mass, q(o.pieces[j] ?? 0))), ZERO),
-  ) as unknown as QTriple;
+  return makeTriple((j) => box.reduce((sum, o) => add(sum, mul(o.mass, q(o.pieces[j]))), ZERO));
+}
+function classGain(klass: DispatchClass, regular: QTriple, second: QTriple): QTriple {
+  return makeTriple((j) =>
+    add(
+      q(klass.direct[j]),
+      add(mul(q(klass.regular), regular[j]), mul(q(klass.second), second[j])),
+    ),
+  );
 }
 /** Exact expected dispatch pieces of one reroll cohort. */
 export function dispatchExpectation(rerolls: number): QTriple {
   const regular = boxMean(REGULAR_BOX);
   const second = boxMean(BOX_II);
-  const totals = [ZERO, ZERO, ZERO];
+  const gains = DISPATCH_CLASSES.map((klass) => classGain(klass, regular, second));
+  let totals: QTriple = [ZERO, ZERO, ZERO];
   for (const board of dispatchBoards(rerolls))
     board.counts.forEach((n, i) => {
-      const klass = DISPATCH_CLASSES[i] as DispatchClass;
-      for (let j = 0; j < 3; j++) {
-        const gain = add(
-          q(klass.direct[j] ?? 0),
-          add(
-            mul(q(klass.regular), regular[j] as ExactQ),
-            mul(q(klass.second), second[j] as ExactQ),
-          ),
-        );
-        totals[j] = add(totals[j] as ExactQ, mul(board.mass, mul(q(n), gain)));
-      }
+      const gain = gains[i];
+      if (n === 0 || !gain) return;
+      totals = mapTriple(totals, (total, j) => add(total, mul(board.mass, mul(q(n), gain[j]))));
     });
-  return totals as unknown as QTriple;
+  return totals;
 }
 /** Guard: the dispatch law used for supports reproduces the independent stack's
  * frozen cohort 0..2 expectations and the separately pinned cohort-3 fixture. */
@@ -210,9 +214,9 @@ export function verifyDispatchLaw(): void {
   const frozen = [...frozenIndependentCohorts(), independentFourthCohort()];
   frozen.forEach((expected, rerolls) => {
     const actual = dispatchExpectation(rerolls);
-    for (let j = 0; j < 3; j++)
+    for (const j of [0, 1, 2] as const)
       assert.equal(
-        cmp(actual[j] as ExactQ, expected[j] as ExactQ),
+        cmp(actual[j], expected[j]),
         0,
         `dispatch_law_expectation_mismatch:cohort${rerolls}:kit${j}`,
       );
@@ -311,33 +315,49 @@ export class PieceSet {
       else groups.set(key, [b]);
     }
     const out = new PieceSet(this.max);
-    const { words, data } = this;
     for (let p = 0; p <= this.max[1]; p++)
       for (let y = 0; y <= this.max[2]; y++) {
         const source = this.row(p, y);
-        let top = -1;
-        for (let w = words - 1; w >= 0 && top < 0; w--)
-          if (data[source + w]) top = w * 32 + 31 - Math.clz32(data[source + w] as number);
+        const top = this.topBit(source);
         if (top < 0) continue;
-        for (const [key, shifts] of groups) {
-          const dp = Math.floor(key / 65536);
-          const dy = key % 65536;
-          if (p + dp > this.max[1] || y + dy > this.max[2]) throw new Error("piece_bound");
-          const target = out.row(p + dp, y + dy);
-          for (const shift of shifts) {
-            if (top + shift > this.max[0]) throw new Error("piece_bound");
-            const ws = shift >>> 5;
-            const bs = shift & 31;
-            for (let w = words - 1; w >= ws; w--) {
-              let value = (data[source + w - ws] as number) << bs;
-              if (bs !== 0 && w - ws - 1 >= 0)
-                value |= (data[source + w - ws - 1] as number) >>> (32 - bs);
-              out.data[target + w] = (out.data[target + w] as number) | value;
-            }
-          }
-        }
+        for (const [key, shifts] of groups)
+          this.shiftInto(
+            out,
+            source,
+            top,
+            [p + Math.floor(key / 65536), y + (key % 65536)],
+            shifts,
+          );
       }
     return out;
+  }
+  private topBit(source: number): number {
+    for (let w = this.words - 1; w >= 0; w--) {
+      const value = this.data[source + w] as number;
+      if (value !== 0) return w * 32 + 31 - Math.clz32(value);
+    }
+    return -1;
+  }
+  private shiftInto(
+    out: PieceSet,
+    source: number,
+    top: number,
+    [p, y]: readonly [number, number],
+    shifts: readonly number[],
+  ) {
+    if (p > this.max[1] || y > this.max[2]) throw new Error("piece_bound");
+    const target = out.row(p, y);
+    for (const shift of shifts) {
+      if (top + shift > this.max[0]) throw new Error("piece_bound");
+      const ws = shift >>> 5;
+      const bs = shift & 31;
+      for (let w = this.words - 1; w >= ws; w--) {
+        let value = (this.data[source + w - ws] as number) << bs;
+        if (bs !== 0 && w - ws - 1 >= 0)
+          value |= (this.data[source + w - ws - 1] as number) >>> (32 - bs);
+        out.data[target + w] = (out.data[target + w] as number) | value;
+      }
+    }
   }
   forEach(visit: (b: number, p: number, y: number) => void) {
     for (let p = 0; p <= this.max[1]; p++)
@@ -413,6 +433,64 @@ function gcd(a: bigint, b: bigint): bigint {
   while (y !== 0n) [x, y] = [y, x % y];
   return x;
 }
+type Color = 0 | 1 | 2;
+const COLORS = [0, 1, 2] as const;
+const terminal = (state: State) => state.grade === "SR" && state.level >= 15;
+function permille(state: State, color: Color): bigint {
+  const p = independentProbability(state.grade, state.level, color);
+  assert.equal((1000n * p.n) % p.d, 0n);
+  return (1000n * p.n) / p.d;
+}
+function take(units: Triple, color: Color): Triple {
+  assert.ok(units[color] >= 1, "kit_unavailable");
+  return makeTriple((j) => units[j] - (j === color ? 1 : 0));
+}
+function memoKey(state: State, units: Triple, maxTotalUnits: number): number {
+  assert.ok(state.exp % 100 === 0 && state.exp < 3000, "exp_grid");
+  assert.ok(
+    units.every((u) => Number.isSafeInteger(u) && u >= 0 && u < 256),
+    "unit_range",
+  );
+  assert.ok(units[0] + units[1] + units[2] <= maxTotalUnits, "unit_scale");
+  const stateId = ((state.grade === "SR" ? 1 : 0) * 16 + state.level) * 30 + state.exp / 100;
+  return (stateId * 256 + units[0]) * 65536 + units[1] * 256 + units[2];
+}
+function checkBudget(budget: Budget, nodes: number) {
+  if (budget.maxNodes !== undefined && nodes >= budget.maxNodes)
+    throw new Error("wait_label_oracle_budget:nodes");
+  if (budget.deadlineAt !== undefined && performance.now() >= budget.deadlineAt)
+    throw new Error("wait_label_oracle_budget:time");
+}
+/** Lexicographic order: P max, then B = 10*sum(price_j*c_j) min, then C min. */
+function lexicographic(prices: QTriple) {
+  const lcm = prices.reduce((l, price) => (l / gcd(l, price.d)) * price.d, 1n);
+  const weights = mapTriple(prices, (price) => price.n * (lcm / price.d));
+  return (a: EngineValue, b: EngineValue): -1 | 0 | 1 => {
+    if (a.P !== b.P) return a.P > b.P ? 1 : -1;
+    const d = makeTriple((j) => a.c[j] - b.c[j]);
+    const burden = weights[0] * d[0] + weights[1] * d[1] + weights[2] * d[2];
+    if (burden !== 0n) return burden < 0n ? 1 : -1;
+    const count = d[0] + d[1] + d[2];
+    if (count !== 0n) return count < 0n ? 1 : -1;
+    return 0;
+  };
+}
+/** p * success + (1 - p) * normal over the fixed scale, plus one use of `color`. */
+function mixer(scale: bigint) {
+  const exact = (value: bigint) => {
+    assert.equal(value % 1000n, 0n, "wait_label_scale_not_exact");
+    return value / 1000n;
+  };
+  return (m: bigint, success: EngineValue | null, normal: EngineValue | null, color: Color) => {
+    const part = (s: bigint | undefined, n: bigint | undefined) =>
+      exact(m * (s ?? 0n) + (1000n - m) * (n ?? 0n));
+    return {
+      P: part(success?.P, normal?.P),
+      c: makeTriple((j) => part(success?.c[j], normal?.c[j]) + (j === color ? scale : 0n)),
+      ties: 0,
+    };
+  };
+}
 /** Exact lexicographic (P max, B min, C min) Bellman engine over unit stocks.
  * Values are integers over the fixed scale 1000^maxTotalUnits: every outcome
  * probability is a multiple of 1/1000 and a node with R units has at most R
@@ -420,90 +498,36 @@ function gcd(a: bigint, b: bigint): bigint {
  * consumed per kit; B = 10 * sum(price_j * c_j), C = 10 * sum(c_j). */
 export function createWaitLabelEngine(prices: QTriple, maxTotalUnits: number, budget: Budget = {}) {
   const scale = 1000n ** BigInt(maxTotalUnits);
-  const lcm = prices.reduce((l, price) => (l / gcd(l, price.d)) * price.d, 1n);
-  const weights = prices.map((price) => price.n * (lcm / price.d));
+  const compare = lexicographic(prices);
+  const mix = mixer(scale);
   const memo = new Map<number, EngineValue>();
   const stop: EngineValue = { P: 0n, c: [0n, 0n, 0n], ties: STOP_BIT };
   const done: EngineValue = { P: scale, c: [0n, 0n, 0n], ties: 0 };
-  const compare = (a: EngineValue, b: EngineValue): -1 | 0 | 1 => {
-    if (a.P !== b.P) return a.P > b.P ? 1 : -1;
-    const d = [a.c[0] - b.c[0], a.c[1] - b.c[1], a.c[2] - b.c[2]] as const;
-    const burden =
-      (weights[0] as bigint) * d[0] + (weights[1] as bigint) * d[1] + (weights[2] as bigint) * d[2];
-    if (burden !== 0n) return burden < 0n ? 1 : -1;
-    const count = d[0] + d[1] + d[2];
-    if (count !== 0n) return count < 0n ? 1 : -1;
-    return 0;
-  };
-  const exact = (value: bigint) => {
-    assert.equal(value % 1000n, 0n, "wait_label_scale_not_exact");
-    return value / 1000n;
-  };
-  const permille = (state: State, color: number) => {
-    const p = independentProbability(state.grade, state.level, color);
-    assert.equal((1000n * p.n) % p.d, 0n);
-    return (1000n * p.n) / p.d;
-  };
-  const terminal = (state: State) => state.grade === "SR" && state.level >= 15;
-  const take = (units: Triple, color: number): Triple => {
-    assert.ok((units[color] ?? 0) >= 1, "kit_unavailable");
-    return [
-      units[0] - (color === 0 ? 1 : 0),
-      units[1] - (color === 1 ? 1 : 0),
-      units[2] - (color === 2 ? 1 : 0),
-    ];
-  };
-  const mix = (
-    m: bigint,
-    success: EngineValue | null,
-    normal: EngineValue | null,
-    color: number,
-  ): EngineValue => {
-    const part = (s: bigint | undefined, n: bigint | undefined) =>
-      exact(m * (s ?? 0n) + (1000n - m) * (n ?? 0n));
-    return {
-      P: part(success?.P, normal?.P),
-      c: [0, 1, 2].map(
-        (j) => part(success?.c[j], normal?.c[j]) + (j === color ? scale : 0n),
-      ) as unknown as readonly [bigint, bigint, bigint],
-      ties: 0,
-    };
+  type Continue = (state: State, units: Triple) => EngineValue;
+  const use = (state: State, units: Triple, color: Color, normal: Continue): EngineValue => {
+    const next = take(units, color);
+    const m = permille(state, color);
+    return mix(
+      m,
+      m > 0n ? value(independentSuccess(state.grade, state.level), next) : null,
+      m < 1000n
+        ? normal(independentFailure(state.grade, state.level, state.exp, color), next)
+        : null,
+      color,
+    );
   };
   const value = (raw: State, units: Triple): EngineValue => {
     const state = canonicalState(raw.grade, raw.level, raw.exp);
     if (terminal(state)) return done;
-    assert.ok(state.exp % 100 === 0 && state.exp < 3000, "exp_grid");
-    assert.ok(
-      units.every((u) => Number.isSafeInteger(u) && u >= 0 && u < 256),
-      "unit_range",
-    );
-    assert.ok(units[0] + units[1] + units[2] <= maxTotalUnits, "unit_scale");
-    const key =
-      ((((state.grade === "SR" ? 1 : 0) * 16 + state.level) * 30 + state.exp / 100) * 256 +
-        units[0]) *
-        65536 +
-      units[1] * 256 +
-      units[2];
+    const key = memoKey(state, units, maxTotalUnits);
     const cached = memo.get(key);
     if (cached) return cached;
-    if (budget.maxNodes !== undefined && memo.size >= budget.maxNodes)
-      throw new Error("wait_label_oracle_budget:nodes");
-    if (budget.deadlineAt !== undefined && performance.now() >= budget.deadlineAt)
-      throw new Error("wait_label_oracle_budget:time");
+    checkBudget(budget, memo.size);
     let best = stop;
     let ties = STOP_BIT;
-    for (let color = 0; color < 3; color++) {
-      if ((units[color] ?? 0) < 1) continue;
-      const next = take(units, color);
-      const m = permille(state, color);
-      const candidate = mix(
-        m,
-        m > 0n ? value(independentSuccess(state.grade, state.level), next) : null,
-        m < 1000n
-          ? value(independentFailure(state.grade, state.level, state.exp, color), next)
-          : null,
-        color,
-      );
+    for (const color of COLORS) {
+      if (units[color] < 1) continue;
+      const candidate = use(state, units, color, value);
       const order = compare(candidate, best);
       if (order > 0) [best, ties] = [candidate, 1 << color];
       else if (order === 0) ties |= 1 << color;
@@ -514,26 +538,20 @@ export function createWaitLabelEngine(prices: QTriple, maxTotalUnits: number, bu
   };
   /** n uses of `kit` along the normal path, ending early on a great success,
    * then optimal play. */
-  const batch = (raw: State, units: Triple, kit: number, uses: number): EngineValue => {
+  const batch = (raw: State, units: Triple, kit: Color, uses: number): EngineValue => {
     const state = canonicalState(raw.grade, raw.level, raw.exp);
     if (uses === 0 || terminal(state)) return value(state, units);
-    const next = take(units, kit);
-    const m = permille(state, kit);
-    return mix(
-      m,
-      m > 0n ? value(independentSuccess(state.grade, state.level), next) : null,
-      m < 1000n
-        ? batch(independentFailure(state.grade, state.level, state.exp, kit), next, kit, uses - 1)
-        : null,
-      kit,
-    );
+    return use(state, units, kit, (next, rest) => batch(next, rest, kit, uses - 1));
   };
   const toExact = (node: EngineValue) => {
-    const consumed = node.c.map((c) => q(10n * c, scale));
+    const consumed = mapTriple(node.c, (c) => q(10n * c, scale));
     return {
       P: q(node.P, scale),
-      B: consumed.reduce((sum, c, j) => add(sum, mul(prices[j] as ExactQ, c)), ZERO),
-      C: consumed.reduce((sum, c) => add(sum, c), ZERO),
+      B: add(
+        add(mul(prices[0], consumed[0]), mul(prices[1], consumed[1])),
+        mul(prices[2], consumed[2]),
+      ),
+      C: add(add(consumed[0], consumed[1]), consumed[2]),
       consumed,
     };
   };
@@ -550,11 +568,11 @@ export function recommendBatch(
   raw: State,
   units: Triple,
   batchLimit: number,
-): { kit: number; uses: number } | null {
+): { kit: Color; uses: number } | null {
   const start = canonicalState(raw.grade, raw.level, raw.exp);
-  if (start.grade === "SR" && start.level >= 15) return null;
+  if (terminal(start)) return null;
   const root = engine.value(start, units);
-  const kit = [0, 1, 2].find((color) => root.ties & (1 << color));
+  const kit = COLORS.find((color) => root.ties & (1 << color));
   if (kit === undefined) return null;
   let state = start;
   let stock = units;
@@ -562,11 +580,7 @@ export function recommendBatch(
   while (uses < batchLimit) {
     if (uses > 0 && !(engine.value(state, stock).ties & (1 << kit))) break;
     uses++;
-    stock = [
-      stock[0] - (kit === 0 ? 1 : 0),
-      stock[1] - (kit === 1 ? 1 : 0),
-      stock[2] - (kit === 2 ? 1 : 0),
-    ];
+    stock = take(stock, kit);
     if (cmp(independentProbability(state.grade, state.level, kit), ONE) === 0) break;
     state = independentFailure(state.grade, state.level, state.exp, kit);
     if (
@@ -583,27 +597,18 @@ export function recommendBatch(
 export function independentRates(
   fixture: Pick<WaitLabelCase, "pricing" | "cohortWeights">,
 ): QTriple {
-  const priors = fixture.cohortWeights.map(fromWire) as unknown as readonly [
-    ExactQ,
-    ExactQ,
-    ExactQ,
-    ExactQ,
-  ];
-  return independentVersionedPricing(
-    fixture.pricing as unknown as Parameters<typeof independentVersionedPricing>[0],
-    priors,
-  );
+  const [w0, w1, w2, w3] = fixture.cohortWeights;
+  const priors = [fromWire(w0), fromWire(w1), fromWire(w2), fromWire(w3)] as const;
+  // Only version, cadence and the single rule's refs are read by the pricing stack.
+  const snapshot = fixture.pricing as Parameters<typeof independentVersionedPricing>[0];
+  return independentVersionedPricing(snapshot, priors);
 }
 export function independentPrices(rates: QTriple, basis: Triple): QTriple {
-  return rates.map((rate, j) =>
-    q(rate.d, BigInt(basis[j] ?? 0) * rate.d + rate.n),
-  ) as unknown as QTriple;
+  return mapTriple(rates, (rate, j) => q(rate.d, BigInt(basis[j]) * rate.d + rate.n));
 }
 /** m_j = floor(theta * rate_j / 10): whole 10-piece uses of theta days of supply. */
 export function compensationUnits(theta: ExactQ, rates: QTriple): Triple {
-  return rates.map((rate) =>
-    Number((theta.n * rate.n) / (theta.d * rate.d * 10n)),
-  ) as unknown as Triple;
+  return mapTriple(rates, (rate) => Number((theta.n * rate.n) / (theta.d * rate.d * 10n)));
 }
 /** theta * rate_k >= 10 n, exactly in BigInt. */
 export function certificateApplies(theta: ExactQ, rate: ExactQ, uses: number): boolean {
@@ -613,9 +618,11 @@ export type DayResult = {
   day: number;
   supportUnitCount: number;
   supportUnits: Triple[];
+  /** Contract: some support unit has P*(wait) > P(batch now with compensation). */
   crossing: boolean;
   crossingUnits: Triple[];
-  probabilityCrossingUnits: Triple[];
+  /** Informational: the same pair compared on P, then B, then C (never a label input). */
+  bCrossingUnits: Triple[];
 };
 export type WaitLabelResult =
   | {
@@ -658,7 +665,7 @@ function computeExact(
   const prices = independentPrices(rates, fixture.priceBasisStock);
   const theta = fromWire(fixture.theta);
   const m = compensationUnits(theta, rates);
-  const x = fixture.stock.map((pieces) => Math.floor(pieces / 10)) as unknown as Triple;
+  const x = mapTriple(fixture.stock, (pieces) => Math.floor(pieces / 10));
   const cohorts = fixture.cohortWeights.flatMap((w, c) => (fromWire(w).n > 0n ? [c] : []));
   const days = reachableUnits(fixture.stock, fixture.schedule, fixture.horizonDays, cohorts);
   const total = (u: Triple) => u[0] + u[1] + u[2];
@@ -668,43 +675,40 @@ function computeExact(
   const recommendation = recommendBatch(engine, state, x, fixture.batchLimit);
   if (!recommendation) throw new Error("wait_label_no_recommended_batch");
   const { kit, uses } = recommendation;
-  const classified = new Map<number, { lex: boolean; probability: boolean }>();
+  const classified = new Map<number, { probability: boolean; lex: boolean }>();
+  const classify = (u: Triple) => {
+    const cached = classified.get(unitKey(u));
+    if (cached) return cached;
+    assert.ok(
+      u.every((value, j) => value >= (x[j] ?? 0)),
+      "support_below_stock",
+    );
+    const wait = engine.value(state, u);
+    const now = engine.batch(state, plus(u, m), kit, uses);
+    const verdict = { probability: wait.P > now.P, lex: engine.compare(wait, now) > 0 };
+    classified.set(unitKey(u), verdict);
+    return verdict;
+  };
   const perDay = days.map((units, index) => {
-    const crossingUnits: Triple[] = [];
-    const probabilityCrossingUnits: Triple[] = [];
-    for (const u of units) {
-      let verdict = classified.get(unitKey(u));
-      if (!verdict) {
-        assert.ok(
-          u.every((value, j) => value >= (x[j] ?? 0)),
-          "support_below_stock",
-        );
-        const wait = engine.value(state, u);
-        const now = engine.batch(state, plus(u, m), kit, uses);
-        verdict = { lex: engine.compare(wait, now) > 0, probability: wait.P > now.P };
-        classified.set(unitKey(u), verdict);
-      }
-      if (verdict.lex) crossingUnits.push(u);
-      if (verdict.probability) probabilityCrossingUnits.push(u);
-    }
+    const crossingUnits = units.filter((u) => classify(u).probability);
     return {
       day: index + 1,
       supportUnitCount: units.length,
       supportUnits: units,
       crossing: crossingUnits.length > 0,
       crossingUnits,
-      probabilityCrossingUnits,
+      bCrossingUnits: units.filter((u) => classify(u).lex),
     };
   });
   const first = perDay.find((day) => day.crossing);
   const label = first ? first.day : ("7+" as const);
-  const certificate = certificateApplies(theta, rates[kit] as ExactQ, uses);
+  const certificate = certificateApplies(theta, rates[kit], uses);
   const current = engine.toExact(engine.value(state, x));
   return {
     status: "EXACT",
     id: fixture.id,
     recommendation: {
-      kit: KITS[kit] as (typeof KITS)[number],
+      kit: KITS[kit],
       uses,
       value: {
         successP: wire(current.P),
@@ -768,7 +772,7 @@ function main([command, id, deadline]: string[]) {
     assert.equal(result.status, "EXACT", "only complete results are pre-registered");
     mkdirSync(resolve(FIXTURE_DIRECTORY, "expected"), { recursive: true });
     const document = {
-      version: "certified-wait-label-oracle-v1",
+      version: "certified-wait-label-oracle-v2",
       fixtureFileSha256: sha256(readFileSync(resolve(FIXTURE_DIRECTORY, "fixtures.json"))),
       oracleSourceSha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
       result,
@@ -783,9 +787,7 @@ function main([command, id, deadline]: string[]) {
           label: result.label,
           certificateApplies: result.certificateApplies,
           crossingCounts: result.perDay.map((day) => day.crossingUnits.length),
-          probabilityCrossingCounts: result.perDay.map(
-            (day) => day.probabilityCrossingUnits.length,
-          ),
+          bCrossingCounts: result.perDay.map((day) => day.bCrossingUnits.length),
           supportCounts: result.perDay.map((day) => day.supportUnitCount),
           engineNodes: result.engineNodes,
         }
