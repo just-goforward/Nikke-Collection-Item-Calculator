@@ -98,6 +98,7 @@ export interface PublicStatistics {
   weekStart: string;
   fenceGeneration: number;
   cells: PublicCell[];
+  policy?: { k: number; metric: "post_signup_income"; binWidth: number; clampMax: number; countQuantum: number };
 }
 export interface SelfPercentile {
   releaseId: string;

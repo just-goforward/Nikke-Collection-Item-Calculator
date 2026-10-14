@@ -418,7 +418,7 @@ describe("cross-database privacy fence and restore safety", () => {
     await dbs.PUBLIC_AGGREGATE_DB.batch([
       dbs.PUBLIC_AGGREGATE_DB.prepare("UPDATE privacy_fence SET blocked = 0"),
       dbs.PUBLIC_AGGREGATE_DB.prepare(
-        "INSERT INTO weekly_releases VALUES ('r1', '2026-08-31', 0, '{\"cells\":[]}', ?)",
+        "INSERT INTO weekly_releases (release_id, week_start, fence_generation, payload, published_at) VALUES ('r1', '2026-08-31', 0, '{\"cells\":[]}', ?)",
       ).bind(NOW),
       dbs.PUBLIC_AGGREGATE_DB.prepare(
         "INSERT INTO disclosure_history VALUES ('r1', '2026-08-31', 0, 'beta-v1', ?, NULL)",
@@ -453,7 +453,7 @@ describe("cross-database privacy fence and restore safety", () => {
     ).toBe(NOW + 1);
     await expect(
       dbs.PUBLIC_AGGREGATE_DB.prepare(
-        "INSERT INTO weekly_releases VALUES ('late', '2026-08-31', 0, '{}', ?)",
+        "INSERT INTO weekly_releases (release_id, week_start, fence_generation, payload, published_at) VALUES ('late', '2026-08-31', 0, '{}', ?)",
       )
         .bind(NOW)
         .run(),

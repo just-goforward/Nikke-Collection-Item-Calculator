@@ -15,9 +15,10 @@ invocation_logs = false
 [vars]
 SITE_ORIGIN = "https://app.example"
 GOOGLE_CLIENT_ID = "configure-google-client-id"
+PUBLICATION_ENABLED = "false"
 # GOOGLE_CLIENT_SECRET must be supplied separately; no credential is committed.
 
-# Expiry cleanup and bounded job recovery; no inactivity deletion or publication.
+# Expiry, bounded recovery/inactivity deletion; publication is opt-in via the flag above.
 [triggers]
 crons = ["*/10 * * * *"]
 

@@ -1,4 +1,4 @@
-# Personal-data Worker — M0 / M1 / M3 (local only)
+# Personal-data Worker — M0 / M1 / M3 / M7 / M8 (local only)
 
 This directory owns a separate Google OIDC/session Worker and three local D1
 stores. No production binding, cron, publication, deployment, or UI integration
@@ -58,7 +58,7 @@ Self-percentiles are immutable per release, not a live ranking.
   Never overwrite this authority with an older personal-data backup.
 * `PUBLIC_AGGREGATE_DB`: identifier-free weekly payloads, disclosure history,
   monotonic fence and current pointer. Initial state is blocked. Public payload
-  validation and release construction are not implemented.
+  M8 implements gated release construction; publication is disabled by default.
 
 Admission is an atomic SELECT-conditioned INSERT inside a **single PERSONAL_DB
 batch**, with a database trigger enforcing 150 active accounts even on a bypass.
@@ -92,7 +92,7 @@ Sessions store only SHA-256 token hashes; random raw tokens belong only in a
 expiry is 30 days, absolute expiry 90 days, with atomic touch refusing an expired
 token. Session touches do not refresh the two-year inactivity clock. Only login
 and successful saves update `last_active_at` monotonically. Scheduling deletion
-after two calendar years without either is deferred; use the same fenced deletion path.
+after two calendar years without either uses the same fenced deletion path (M7).
 OAuth transactions atomically consume once, bound to a browser hash and expiry;
 M3 implements PKCE/state creation, callback validation and login-time expiry cleanup.
 
@@ -118,11 +118,10 @@ gate and generation reconciliation with privacy tombstones; never restore its
 old fence/current pointer directly into service. An out-of-band database restore
 cannot be made monotonic by a SQL trigger alone.
 
-M1 deliberately offers no unblock/publisher. The next milestone needs a reviewed,
-serialized coordinator/maintenance gate that proves all pending privacy changes
-and restored tombstones are applied, rebuilds eligible aggregates and publishes
-under the same generation. Checking two databases then unblocking is unsafe
-(TOCTOU). Public reads must validate pointer/release/current fence atomically.
+M1 deliberately offered no unblock/publisher. M8 adds a serialized coordinator
+with durable PUBLIC admission markers/versioning before any cross-store privacy
+write (described below). Checking two databases then unblocking alone is unsafe
+(TOCTOU). Public reads validate pointer/release/current fence atomically.
 Disclosure history retains only release policy metadata, no user IDs. Privacy
 tombstones persist; re-opt-in semantics after withdrawal require a new authorized
 decision generation, not tombstone removal.
@@ -285,8 +284,8 @@ Physical cleanup depends on cron execution;
 missed cleanup must be monitored before production. Restored old user IDs stay
 denied/re-deleted by durable user-ID tombstones; fresh rejoin IDs are unaffected.
 Consent re-opt-in uses a later fence generation; old withdrawal tombstones are
-retained but do not override a newer authoritative opt-in. Public publication
-still has no unblock path, and frozen ranks are served only for eligible,
+retained but do not override a newer authoritative opt-in. M8 publication
+is disabled by default, and frozen ranks are served only for eligible,
 unfenced releases.
 
 ### Evidence, integration and remaining launch gates
@@ -314,7 +313,7 @@ approval. No site-worker edits or remote actions are included here.
 
 Remaining gates: independent Security review, browser bridge/UI tests, Google
 real-provider acceptance including canonical issuer policy, operational rate/
-quota budgets, inactivity scheduler, release/unblocking coordinator, and
+quota budgets, M7/M8 production review and explicit publication enablement, and
 maintenance gating/reconciliation for any database restore. D1 tests simulate
 personal restore; they do not establish correctness of a live multi-database
 restore. Cross-store privacy is deliberately fail-closed, not transactional.
@@ -376,9 +375,11 @@ Multibyte quota tests use CJK, accented text and supplementary Unicode.
 ## Pre-release migration and recovery policy (R2-03)
 
 **Chosen: keep numbered migrations, do not squash.** `0001` is the M1 baseline;
-`0002` adds auth/consent; `0003` replaces permanent identity bans with expiring
+PERSONAL/PRIVACY `0002` add auth/consent; `0003` replaces permanent identity bans with expiring
 flow-generation fences and adds scoped consent reservations; `0004` adds bounded
-job retry indexes and resumable consent attempt leases. Upgrade tests seed
+job retry indexes and resumable consent attempt leases. PERSONAL `0005` adds
+the inactivity index; PUBLIC `0002` adds publication intents, staging and
+conditional-activation triggers without discarding existing releases. Upgrade tests seed
 populated M1 and populated `0002` records, apply later migrations using
 the migration ledger, and compare all protected fields before/after. Identities,
 active and expired hashed sessions with their original idle/absolute deadlines,
@@ -418,5 +419,90 @@ consent decisions do not. The deletion batch rechecks the selected activity
 timestamp, so a concurrent login/save wins before account blocking. Writes after
 blocking are refused. No pre-deletion warning was required by the agreed contract
 and none is implemented. M7 is local-tested, not deployed.
-Publication/unblocking, real Google
-legacy-issuer support and browser integration remain separate launch gates.
+Explicit publication enablement, real Google legacy-issuer support and browser
+integration remain separate launch gates.
+
+## M8 weekly publication (local only; disabled by default)
+
+`PUBLICATION_ENABLED = "false"` in `wrangler.toml` gates both the coordinator
+and public/rank display. Only the exact string `"true"` enables it; no HTTP
+endpoint enables publication. The existing 10-minute cron attempts a UTC Monday
+weekly build only when that week's release is absent/invalidated. Two publishers
+cannot acquire the same durable PUBLIC publisher slot. Withdrawal/deletion
+invalidates every retrievable release immediately, then an enabled later cron
+rebuilds within the same week from current authoritative consent. History records
+policy/version, release/week/fence and invalidation timestamps, without identities.
+
+The beta metric is **post-signup lifetime income**, summed across an account's
+items per stage (`lifetimeIncome - preSignupIncome`). One account contributes
+once per stage/cohort, not once per item. Opt-in is read from PRIVACY at build
+time, never inferred from the PERSONAL participation mirror. Deleted/blocked
+accounts are excluded. Manual flags combine with OR; verification flags with AND.
+Cohorts label verification as **self-reported**, not a server attestation; manual
+and unverified observations never enter another cohort. Nonparticipants retain
+private ranks and all other personal functionality but never add to public counts.
+
+**k = 10 distinct accounts** per disclosed stage/cohort and per nonzero band:
+conservative for the 150-account beta and more protective than single-digit
+cells, but not a differential-privacy/anonymity proof. Ten fixed 100-income bands
+cover [0,1000]; income at/above 1000 is clamped into the final band. Counts round
+down to multiples of 10; counts below 10 are zero, and cells without any disclosed
+band are suppressed (no ranks). No exact sample total, minimum, maximum, user ID,
+subject, account metadata, item ID or raw income is published. Top/bottom bands
+are censored tails, not assertions that the actual extremes are 0/1000.
+Private percentile intervals use only this rounded published distribution, not
+hidden exact ranks, and are immutable for each release even after a personal edit.
+Ranks accumulate as quota-counted personal rows; only new archiving is quota-blocked.
+Stage names follow the M0 stage identifier contract; a reviewed public stage
+taxonomy and disclosure/differencing analysis remain production review concerns.
+
+### Ordering argument and crash recovery
+
+Cloudflare D1 docs, retrieved read-only for M8:
+<https://developers.cloudflare.com/d1/worker-api/d1-database/> states that a batch
+executes sequentially as a transaction and rolls back the sequence on failure;
+without Sessions API queries stay on primary. The three stores are separate
+bindings: **no batch spans them**. Local tests use Wrangler 4.150.0 / workerd via
+`@cloudflare/vitest-plugin` 1.4.1; no account API or remote query was used.
+
+1. Every privacy writer first increments PUBLIC `pending_intents` and monotonic
+   `intent_version`. Public display requires zero pending intents. This admission
+   barrier precedes consent reservations/deletion account-blocking, closing the
+   gap between a private preflight and its PUBLIC fence write. Stale/replayed
+   consent requests do not increment `generation` or invalidate a release.
+2. Accepted changes retain the PUBLIC-first generation block/payload invalidation,
+   then PRIVACY decision/tombstone, PERSONAL application and completion. Only a
+   known successful completion or controlled 4xx rejection decrements its intent.
+   Unknown transport failures/process death retain the intent even if a retry
+   later completes the private job. There is **no automatic intent expiry**.
+3. Publisher atomically acquires a token and blocks PUBLIC at `(generation,
+   intent_version)` with no pending intents. It reads authoritative consent and
+   pending queues, then one PERSONAL batch for summaries/blocked accounts/jobs.
+   The PRIVACY pending-reservation/operation and PERSONAL deletion-job counts
+   must all be zero. Later privacy admission changes the captured version even
+   when the change completes before the publisher next checks.
+4. Stage the identifier-free release under that exact token/version/generation;
+   insert private frozen ranks while PUBLIC remains blocked. Then a **single
+   PUBLIC batch** conditionally clears the block, marks the release published,
+   updates the current pointer and inserts disclosure history only when token,
+   generation, intent version and zero pending intents still match. Triggers
+   additionally enforce release/pointer eligibility. Activation is the publication
+   linearization point: a privacy admission after it blocks public reads first.
+5. A known invalidated attempt removes only its own staged release/ranks and
+   releases its slot **without clearing the block**. An unknown exception/crash
+   retains block/token/intent. The default cron never clears orphan markers.
+   Recovery requires the existing quiescent maintenance gate: stop all privacy
+   writers/publishers, reconcile jobs/reservations and current tombstones against
+   PERSONAL, advance/invalidate the PUBLIC fence, remove unpublished projections
+   and reconcile orphan markers under that gate, then permit a fresh build.
+   Never restore an older privacy authority or PUBLIC generation/pointer.
+
+Thus a privacy change is either before activation (version/pending checks prevent
+activation), or after it (admission immediately blocks reads). A crash cannot
+perform an unproven unblock. This prioritizes privacy over availability: orphan
+markers require explicitly authorized maintenance rather than guessing expiry.
+Let S be stored stage summaries, P distinct account/stage points (P <= S),
+A accounts (at most 150), and C fixed-width stage/cohort cells. In-memory build
+work is O(S + A + C log C + P*C): rank construction looks up a cell per point;
+SQL also orders S rows. Heap storage is O(S + A + C). This is static reasoning,
+not a remote cost, wall-time measurement or production benchmark.

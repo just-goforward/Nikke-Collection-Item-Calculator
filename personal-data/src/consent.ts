@@ -1,7 +1,9 @@
 import { FLOW_TTL_MS, identityHash, type SessionAccount, sha256 } from "./auth";
 import type { ConsentGet, ConsentPut, PrivacyAccepted } from "./contracts";
 import { exactKeys, HttpError, validId } from "./http";
-import { blockPublication, reapplyUserTombstones, recordPrivacyChange } from "./privacy";
+import {
+  blockPublication, reapplyUserTombstones, recordPrivacyChange, withPrivacyIntent,
+} from "./privacy";
 import type { PersonalEnv } from "./types";
 
 export function consentBody(value: Record<string, unknown>): ConsentPut {
@@ -52,6 +54,12 @@ export async function putConsent(
   account: SessionAccount,
   input: ConsentPut,
   now: number,
+): Promise<ConsentGet> {
+  return withPrivacyIntent(env, () => putConsentCore(env, account, input, now));
+}
+
+async function putConsentCore(
+  env: PersonalEnv, account: SessionAccount, input: ConsentPut, now: number,
 ): Promise<ConsentGet> {
   const hash = await sha256(JSON.stringify([input.baseDecisionVersion, input.participation]));
   const nonce = crypto.randomUUID();
@@ -185,7 +193,7 @@ async function recoverConsentChange(env: PersonalEnv, userId: string, now: numbe
   )
     .bind(userId)
     .first<Reservation>();
-  if (row) await completeConsent(env, row, now);
+  if (row) await withPrivacyIntent(env, () => completeConsent(env, row, now));
 }
 
 export async function queueDeletion(
@@ -194,6 +202,14 @@ export async function queueDeletion(
   opId: string,
   now: number,
   expectedLastActive: number | null = null,
+): Promise<PrivacyAccepted | null> {
+  return withPrivacyIntent(env, () =>
+    queueDeletionCore(env, account, opId, now, expectedLastActive));
+}
+
+async function queueDeletionCore(
+  env: PersonalEnv, account: Pick<SessionAccount, "userId" | "identity">,
+  opId: string, now: number, expectedLastActive: number | null,
 ): Promise<PrivacyAccepted | null> {
   const generation = await blockPublication(env, now);
   const results = await env.PERSONAL_DB.batch([
@@ -261,7 +277,7 @@ export async function resumeDeletion(env: PersonalEnv, userId: string): Promise<
     .first();
   if (!job) return true;
   try {
-    await finishDeletion(env, userId);
+    await withPrivacyIntent(env, () => finishDeletion(env, userId));
     return true;
   } catch {
     return false;

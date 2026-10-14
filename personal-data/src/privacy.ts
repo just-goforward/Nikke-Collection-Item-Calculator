@@ -1,4 +1,36 @@
 import type { PersonalEnv } from "./types";
+import { HttpError } from "./http";
+
+/**
+ * A durable, identifier-free PUBLIC admission barrier precedes every privacy writer.
+ * Unknown failures retain their marker. Only a quiescent, explicitly gated maintenance
+ * procedure may reconcile an orphan; normal publication never expires/clears it.
+ */
+export async function withPrivacyIntent<T>(
+  env: PersonalEnv, operation: () => Promise<T>,
+): Promise<T> {
+  const entered = await env.PUBLIC_AGGREGATE_DB.prepare(
+    `UPDATE privacy_fence SET pending_intents = pending_intents + 1,
+     intent_version = intent_version + 1 WHERE singleton = 1 RETURNING intent_version`,
+  ).first();
+  if (!entered) throw new HttpError(503, "service_unavailable");
+  let completed = false;
+  try {
+    const result = await operation();
+    completed = true;
+    return result;
+  } catch (error) {
+    // Controlled rejection follows completed DB reads/batches, not an ambiguous transport error.
+    if (error instanceof HttpError && error.status < 500) completed = true;
+    throw error;
+  } finally {
+    if (completed) {
+      await env.PUBLIC_AGGREGATE_DB.prepare(
+        "UPDATE privacy_fence SET pending_intents = pending_intents - 1 WHERE singleton = 1 AND pending_intents > 0",
+      ).run();
+    }
+  }
+}
 
 export interface PrivacyChange {
   opId: string;
@@ -104,6 +136,12 @@ export async function applyPrivacyChange(
   env: PersonalEnv,
   change: PrivacyChange,
   now: number,
+): Promise<{ fenceGeneration: number; status: "complete" }> {
+  return withPrivacyIntent(env, () => applyPrivacyChangeCore(env, change, now));
+}
+
+async function applyPrivacyChangeCore(
+  env: PersonalEnv, change: PrivacyChange, now: number,
 ): Promise<{ fenceGeneration: number; status: "complete" }> {
   const fenceGeneration = await blockPublication(env, now);
   await recordPrivacyChange(env, change, fenceGeneration, now);

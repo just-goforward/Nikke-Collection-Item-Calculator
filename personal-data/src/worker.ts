@@ -37,6 +37,7 @@ import {
 } from "./http";
 import { reapplyUserTombstones } from "./privacy";
 import { runInactivityDeletion } from "./inactivity";
+import { publishWeekly } from "./publication";
 import {
   getWorkspace,
   provisioningStatements,
@@ -325,10 +326,12 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
         if (path === "/auth/callback/google") return await callback(request, env);
         const effective = aliases[path] ?? path;
         if (effective === "/v1/statistics") {
+          if (env.PUBLICATION_ENABLED !== "true") return response({ error: "privacy_fenced" }, 503);
           const release = await env.PUBLIC_AGGREGATE_DB.prepare(
             `SELECT r.payload FROM privacy_fence f JOIN current_release p ON p.singleton = f.singleton
              JOIN weekly_releases r ON r.release_id = p.release_id
-             WHERE f.singleton = 1 AND f.blocked = 0 AND p.fence_generation = f.generation
+             WHERE f.singleton = 1 AND f.blocked = 0 AND f.pending_intents = 0 AND r.state = 'published'
+             AND p.fence_generation = f.generation
              AND r.fence_generation = f.generation`,
           ).first<{ payload: string }>();
           return release
@@ -393,17 +396,17 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
           return response(result, result.status === "archive_quota_reached" ? 422 : 409);
         }
         if (effective === "/v1/self-percentile") {
-          const consent = await getConsent(env, account.userId);
           const releases = await env.PUBLIC_AGGREGATE_DB.batch([
             env.PUBLIC_AGGREGATE_DB.prepare(
               `SELECT r.release_id FROM weekly_releases r JOIN privacy_fence f
-               ON r.fence_generation = f.generation WHERE f.singleton = 1 AND f.blocked = 0`,
+               ON r.fence_generation = f.generation WHERE f.singleton = 1 AND f.blocked = 0
+               AND f.pending_intents = 0 AND r.state = 'published'`,
             ),
           ]);
           const validReleases = (releases[0]?.results ?? []).map((row) =>
             String(row["release_id"]),
           );
-          const ranks = consent.participation
+          const ranks = env.PUBLICATION_ENABLED === "true"
             ? await env.PERSONAL_DB.batch([
                 env.PERSONAL_DB.prepare(
                   "SELECT payload FROM self_percentiles WHERE user_id = ? AND release_id IN (SELECT value FROM json_each(?))",
@@ -497,6 +500,11 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
       }
       try {
         await runPrivacyMaintenance(env, time);
+      } catch {
+        failed = true;
+      }
+      try {
+        await publishWeekly(env, time);
       } catch {
         failed = true;
       }

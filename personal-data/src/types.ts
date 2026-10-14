@@ -21,4 +21,5 @@ export interface PersonalEnv {
   SITE_ORIGIN?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  PUBLICATION_ENABLED?: string;
 }
