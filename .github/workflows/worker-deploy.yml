@@ -329,7 +329,21 @@ jobs:
         if: steps.commit.outputs.current == 'true' && steps.changes.outputs.should_deploy == 'true'
         id: staging_smoke
         continue-on-error: true
-        run: npm run smoke:stats-worker -- "$STAGING_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const config = fs.readFileSync("cloudflare/wrangler.toml", "utf8");
+            const section = config.split("[env.staging.vars]")[1]?.split(/^\[/m)[0] ?? "";
+            const matches = [...section.matchAll(/^ALLOWED_ORIGINS\s*=\s*"([^"]+)"\r?$/gm)];
+            if (matches.length !== 1) {
+              throw new Error("Expected exactly one ALLOWED_ORIGINS entry in [env.staging.vars].");
+            }
+            const origins = matches[0][1].split(",");
+            if (!origins.includes(process.env.STATS_ALLOWED_ORIGIN)) {
+              throw new Error(`STATS_ALLOWED_ORIGIN must be one of the TOML staging origins: ${origins.join(", ")}`);
+            }
+          '
+          npm run smoke:stats-worker -- "$STAGING_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
 
       - name: Restore staging after smoke failure
         if: steps.staging_smoke.outcome == 'failure' && steps.staging_previous.outputs.version_id != ''
