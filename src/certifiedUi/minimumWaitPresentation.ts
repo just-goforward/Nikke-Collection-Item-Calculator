@@ -34,29 +34,26 @@ export function minimumWaitText(
   return words.minimumWaitUnknown;
 }
 
+const reasonWordKeys = new Map<string, keyof CertifiedWords>([
+  ["current_claimable_unreceived", "claimRequired"],
+  ["request_budget_exhausted", "minimumWaitBudget"],
+  ["worker_total_deadline", "minimumWaitBudget"],
+  ["exact_memo_limit", "minimumWaitGuard"],
+  ["exact_support_limit", "minimumWaitGuard"],
+  ["managed_payload_ceiling", "minimumWaitGuard"],
+  ["minimum_wait_bound_cache_unavailable", "minimumWaitGuard"],
+  ["minimum_wait_grid_overflow", "minimumWaitGuard"],
+  ["minimum_wait_future_coverage_incomplete", "minimumWaitCoverage"],
+  ["worker_abort", "minimumWaitInterrupted"],
+]);
+
 export function minimumWaitReason(
   value: CertifiedMinimumWait | undefined,
   words: CertifiedWords,
   busy: boolean,
 ): string | null {
   if (value?.status !== "unknown" || minimumWaitCalculating(value, busy)) return null;
-  switch (value.reason) {
-    case "current_claimable_unreceived":
-      return words.claimRequired;
-    case "request_budget_exhausted":
-    case "worker_total_deadline":
-      return words.minimumWaitBudget;
-    case "exact_memo_limit":
-    case "exact_support_limit":
-    case "managed_payload_ceiling":
-    case "minimum_wait_bound_cache_unavailable":
-    case "minimum_wait_grid_overflow":
-      return words.minimumWaitGuard;
-    case "minimum_wait_future_coverage_incomplete":
-      return words.minimumWaitCoverage;
-    case "worker_abort":
-      return words.minimumWaitInterrupted;
-    default:
-      return `${words.minimumWaitUnconfirmed}: ${value.reason ?? words.NA}`;
-  }
+  const key = reasonWordKeys.get(value.reason ?? "");
+  if (key !== undefined) return words[key];
+  return `${words.minimumWaitUnconfirmed}: ${value.reason ?? words.NA}`;
 }
