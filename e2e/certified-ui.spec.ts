@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Page, test } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
@@ -18,6 +19,12 @@ import { closePreviewServer } from "./test";
 
 let server: PreviewServer | null = null;
 let reviewHealthMode: ReviewHealthMode = "blocked";
+// playwright.account.config.ts builds an isolated output and picks a free port per run; the
+// default config serves `dist` on E2E_SMOKE_PORT (4273).
+const OUT_DIR = process.env["ACCOUNT_E2E_DIST"] ?? "dist";
+const PORT = Number(process.env["ACCOUNT_E2E_PORT"] ?? process.env["E2E_SMOKE_PORT"] ?? 4273);
+test.use({ baseURL: `http://127.0.0.1:${PORT}` });
+
 const healthAttempts = new WeakMap<Page, ReviewHealthAttempt[]>();
 const externalAttempts = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page, context }) => {
@@ -57,9 +64,10 @@ test.beforeAll(async () => {
       ? { cacheDir: process.env["SOLVER_A_VITE_CACHE_DIR"] }
       : {}),
     root: process.cwd(),
+    build: { outDir: OUT_DIR },
     preview: {
       host: "127.0.0.1",
-      port: Number(process.env["E2E_SMOKE_PORT"] ?? 4273),
+      port: PORT,
       strictPort: true,
     },
   });
@@ -70,13 +78,15 @@ test.afterAll(async () => {
 });
 
 function certifiedAssetPaths() {
-  const boundary = JSON.parse(readFileSync("dist/.vite/certified-boundary.json", "utf8")) as {
+  const boundary = JSON.parse(
+    readFileSync(join(OUT_DIR, ".vite/certified-boundary.json"), "utf8"),
+  ) as {
     certifiedFiles: string[];
   };
   return new Set([
     ...boundary.certifiedFiles,
     "certified_solver.wasm",
-    ...readdirSync("dist/assets")
+    ...readdirSync(join(OUT_DIR, "assets"))
       .filter((file) => /^browserWorker-.*\.js$/.test(file))
       .map((file) => `assets/${file}`),
   ]);

@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * Account e2e (e2e/account*.spec.ts) on an isolated build: every run gets its own directory for
+ * Account and certified UI e2e (e2e/account*.spec.ts, e2e/certified-ui.spec.ts) on an isolated build: every run gets its own directory for
  * the build output, test results and traces, and playwright.account-setup.config.ts builds into it and
  * picks a free port. Concurrent `dist` rebuilds or other Playwright runs cannot affect it.
  * The directory is allocated once in the main process; workers inherit it through the environment.
@@ -16,7 +16,7 @@ process.env["ACCOUNT_E2E_DIST"] = join(run, "dist");
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: /account(-recovery)?\.spec\.ts$/,
+  testMatch: /(account(-recovery)?|certified-ui)\.spec\.ts$/,
   globalSetup: "./playwright.account-setup.config.ts",
   outputDir: join(run, "test-results"),
   fullyParallel: false,
