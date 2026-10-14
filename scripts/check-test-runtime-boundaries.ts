@@ -10,6 +10,7 @@ const WORKER_WORKSPACES = [
   "forecast-collector",
   "forecast-dispatcher",
   "forecast-interactions",
+  "personal-data",
   "stats-observer",
   "usage-guard",
 ] as const;

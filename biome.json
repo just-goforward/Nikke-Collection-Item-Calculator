@@ -19,6 +19,8 @@
       "!usage-guard/worker-configuration.d.ts",
       "stats-observer/**/*.{ts,json}",
       "!stats-observer/worker-configuration.d.ts",
+      "personal-data/**/*.{ts,json}",
+      "!personal-data/worker-configuration.d.ts",
       "site-worker/**/*.{ts,json}",
       "e2e/**/*.ts",
       "benchmarks/**/*.{ts,tsx,js,jsx,json,md}",
