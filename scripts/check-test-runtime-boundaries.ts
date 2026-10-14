@@ -4,7 +4,7 @@ import { dirname, parse, resolve } from "node:path";
 
 const ROOT_VITEST_VERSION = "5.0.4";
 const WORKER_VITEST_VERSION = "4.1.11";
-const CLOUDFLARE_PLUGIN_VERSION = "1.4.0";
+const CLOUDFLARE_PLUGIN_VERSION = "1.4.1";
 const WORKER_WORKSPACES = [
   "cloudflare",
   "forecast-collector",
