@@ -65,9 +65,15 @@ export interface PrivacyAccepted {
   /** Public releases are inaccessible before this acknowledgement. */
   fenceGeneration: number;
 }
-export interface DeleteAccountRequest { opId: string }
-export interface RevokeAllRequest { opId: string }
-export interface RevokeAllResult { revoked: true }
+export interface DeleteAccountRequest {
+  opId: string;
+}
+export interface RevokeAllRequest {
+  opId: string;
+}
+export interface RevokeAllResult {
+  revoked: true;
+}
 
 export interface PersonalExport {
   schemaVersion: 1;
@@ -103,25 +109,51 @@ export interface SelfPercentile {
 }
 
 export type ApiErrorCode =
-  | "unauthenticated" | "beta_full" | "revision_conflict" | "op_id_conflict"
-  | "archive_quota_reached" | "invalid_request" | "privacy_fenced" | "not_implemented"
-  | "origin_rejected" | "auth_failed" | "rate_limited" | "request_too_large"
-  | "service_unavailable" | "not_found" | "method_not_allowed"
-  | "google_issuer_unsupported" | "account_switch_requires_logout"
-  | "account_context_required" | "account_context_changed" | "consent_change_pending" | "archive_id_conflict";
-export interface ApiError { error: ApiErrorCode }
+  | "unauthenticated"
+  | "beta_full"
+  | "revision_conflict"
+  | "op_id_conflict"
+  | "archive_quota_reached"
+  | "invalid_request"
+  | "privacy_fenced"
+  | "not_implemented"
+  | "origin_rejected"
+  | "auth_failed"
+  | "rate_limited"
+  | "request_too_large"
+  | "service_unavailable"
+  | "not_found"
+  | "method_not_allowed"
+  | "google_issuer_unsupported"
+  | "account_switch_requires_logout"
+  | "account_context_required"
+  | "account_context_changed"
+  | "consent_change_pending"
+  | "archive_id_conflict";
+export interface ApiError {
+  error: ApiErrorCode;
+}
 
 /** Contract map, not a claim these routes are enabled in M1. */
 export interface Api {
-  "POST /auth/login/google": { request: Record<string, never>; response: { authorizationUrl: string } };
+  "POST /auth/login/google": {
+    request: Record<string, never>;
+    response: { authorizationUrl: string };
+  };
   "POST /auth/callback/google": { request: { parameters: string }; response: { redirect: "/" } };
-  "GET /v1/account": { response: {
-    authenticated: true; account: { userId: string; generation: number }; consent: ConsentGet;
-  } };
+  "GET /v1/account": {
+    response: {
+      authenticated: true;
+      account: { userId: string; generation: number };
+      consent: ConsentGet;
+    };
+  };
   "POST /auth/logout": { response: { loggedOut: true } };
   "GET /v1/workspace": { response: WorkspaceGet };
   "PUT /v1/workspace": {
-    headers: { "If-Account-Match": string }; request: WorkspacePut; response: WorkspacePutResult;
+    headers: { "If-Account-Match": string };
+    request: WorkspacePut;
+    response: WorkspacePutResult;
   };
   "GET /v1/export": { response: PersonalExport };
   "GET /v1/consent": { response: ConsentGet };

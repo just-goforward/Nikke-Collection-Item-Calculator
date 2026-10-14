@@ -1,6 +1,6 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import worker, { type SiteEnv } from "../site-worker/src/worker";
-import { readFile } from "node:fs/promises";
 
 const personalRoutes = [
   ["/auth/login/google", ["POST"]],
@@ -76,7 +76,11 @@ describe("staging site gateway", () => {
     const env = environment();
     const response = await worker.fetch(
       request("/v1/statistics", {
-        headers: { Cookie: "session=1", Authorization: "Bearer private", "Proxy-Authorization": "private" },
+        headers: {
+          Cookie: "session=1",
+          Authorization: "Bearer private",
+          "Proxy-Authorization": "private",
+        },
       }),
       env,
     );
@@ -91,13 +95,23 @@ describe("staging site gateway", () => {
   it("preserves the callback bridge body and upstream CSP without applying the asset policy", async () => {
     const env = environment();
     const html = '<script nonce="upstream">fetch("/auth/callback/google",{method:"POST"})</script>';
-    const csp = "default-src 'none'; script-src 'nonce-upstream'; connect-src 'self'; frame-ancestors 'none'";
-    env.PERSONAL_DATA.fetch.mockResolvedValueOnce(new Response(html, {
-      headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": csp, "Cache-Control": "public, max-age=3600" },
-    }));
-    const response = await worker.fetch(request("/auth/callback/google?code=fixture&state=fixture", {
-      headers: { "Sec-Fetch-Site": "cross-site", Cookie: "flow=fixture" },
-    }), env);
+    const csp =
+      "default-src 'none'; script-src 'nonce-upstream'; connect-src 'self'; frame-ancestors 'none'";
+    env.PERSONAL_DATA.fetch.mockResolvedValueOnce(
+      new Response(html, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": csp,
+          "Cache-Control": "public, max-age=3600",
+        },
+      }),
+    );
+    const response = await worker.fetch(
+      request("/auth/callback/google?code=fixture&state=fixture", {
+        headers: { "Sec-Fetch-Site": "cross-site", Cookie: "flow=fixture" },
+      }),
+      env,
+    );
     expect(await response.text()).toBe(html);
     expect(response.headers.get("Content-Security-Policy")).toBe(csp);
     expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
@@ -115,9 +129,14 @@ describe("staging site gateway", () => {
     { Origin: "https://staging.nikkecollection.com", "Sec-Fetch-Site": "cross-site" },
   ])("rejects callback POST outside the same-origin bridge: %j", async (headers) => {
     const env = environment();
-    const response = await worker.fetch(request("/auth/callback/google", {
-      method: "POST", headers, body: '{"parameters":"?code=fixture"}',
-    }), env);
+    const response = await worker.fetch(
+      request("/auth/callback/google", {
+        method: "POST",
+        headers,
+        body: '{"parameters":"?code=fixture"}',
+      }),
+      env,
+    );
     expect(response.status).toBe(403);
     expect(response.headers.get("Referrer-Policy")).toBe("no-referrer");
     expect(response.headers.get("Cache-Control")).toBe("no-store");
@@ -126,17 +145,26 @@ describe("staging site gateway", () => {
 
   it("accepts callback POST with exact Origin when Sec-Fetch-Site is absent", async () => {
     const env = environment();
-    expect((await worker.fetch(request("/auth/callback/google", {
-      method: "POST", headers: { Origin: "https://staging.nikkecollection.com" },
-      body: '{"parameters":"?code=fixture"}',
-    }), env)).status).toBe(200);
+    expect(
+      (
+        await worker.fetch(
+          request("/auth/callback/google", {
+            method: "POST",
+            headers: { Origin: "https://staging.nikkecollection.com" },
+            body: '{"parameters":"?code=fixture"}',
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(200);
   });
 
   it("completes login, callback bridge, session and workspace GET/PUT through a fake binding", async () => {
     const env = environment();
     const origin = "https://staging.nikkecollection.com";
     const parameters = "?code=fake-code&state=fake-state";
-    const bridge = '<script nonce="fixture">fetch("/auth/callback/google",{method:"POST"})</script>';
+    const bridge =
+      '<script nonce="fixture">fetch("/auth/callback/google",{method:"POST"})</script>';
     const csp = "default-src 'none'; script-src 'nonce-fixture'; connect-src 'self'";
     const PERSONAL_DATA = {
       fetch: vi.fn(async (input: Request) => {
@@ -144,14 +172,19 @@ describe("staging site gateway", () => {
         if (path === "/auth/login/google") {
           expect(input.method).toBe("POST");
           expect(await input.json()).toEqual({});
-          return Response.json({ authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=fake-state" }, {
-            headers: { "Set-Cookie": "flow=fake-flow; Secure; HttpOnly; SameSite=Lax; Path=/" },
-          });
+          return Response.json(
+            { authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=fake-state" },
+            {
+              headers: { "Set-Cookie": "flow=fake-flow; Secure; HttpOnly; SameSite=Lax; Path=/" },
+            },
+          );
         }
         if (path === "/auth/callback/google" && input.method === "GET") {
           expect(new URL(input.url).search).toBe(parameters);
           expect(input.headers.get("Cookie")).toBe("flow=fake-flow");
-          return new Response(bridge, { headers: { "Content-Type": "text/html", "Content-Security-Policy": csp } });
+          return new Response(bridge, {
+            headers: { "Content-Type": "text/html", "Content-Security-Policy": csp },
+          });
         }
         if (path === "/auth/callback/google") {
           expect(input.method).toBe("POST");
@@ -159,14 +192,24 @@ describe("staging site gateway", () => {
           expect(input.headers.get("Sec-Fetch-Site")).toBe("same-origin");
           expect(input.headers.get("Cookie")).toBe("flow=fake-flow");
           expect(await input.json()).toEqual({ parameters });
-          return Response.json({ redirect: "/" }, {
-            headers: { "Set-Cookie": "session=fake-session; Secure; HttpOnly; SameSite=Lax; Path=/" },
-          });
+          return Response.json(
+            { redirect: "/" },
+            {
+              headers: {
+                "Set-Cookie": "session=fake-session; Secure; HttpOnly; SameSite=Lax; Path=/",
+              },
+            },
+          );
         }
         expect(path).toBe("/v1/workspace");
         expect(input.headers.get("Cookie")).toBe("session=fake-session");
         if (input.method === "PUT") {
-          expect(await input.json()).toEqual({ opId: "fixture-save", baseRevision: 0, document: { items: [] }, action: "save" });
+          expect(await input.json()).toEqual({
+            opId: "fixture-save",
+            baseRevision: 0,
+            document: { items: [] },
+            action: "save",
+          });
           return Response.json({ status: "saved", revision: 1 });
         }
         expect(input.method).toBe("GET");
@@ -174,30 +217,61 @@ describe("staging site gateway", () => {
       }),
     };
     const gatewayEnv = { ...env, PERSONAL_DATA };
-    const postHeaders = { Origin: origin, "Sec-Fetch-Site": "same-origin", "Content-Type": "application/json" };
-    const login = await worker.fetch(request("/auth/login/google", {
-      method: "POST", headers: postHeaders, body: "{}",
-    }), gatewayEnv);
-    expect(await login.json()).toEqual({ authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=fake-state" });
+    const postHeaders = {
+      Origin: origin,
+      "Sec-Fetch-Site": "same-origin",
+      "Content-Type": "application/json",
+    };
+    const login = await worker.fetch(
+      request("/auth/login/google", {
+        method: "POST",
+        headers: postHeaders,
+        body: "{}",
+      }),
+      gatewayEnv,
+    );
+    expect(await login.json()).toEqual({
+      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=fake-state",
+    });
     const flowCookie = login.headers.get("Set-Cookie")?.split(";")[0] ?? "";
-    const getBridge = await worker.fetch(request(`/auth/callback/google${parameters}`, {
-      headers: { Cookie: flowCookie, "Sec-Fetch-Site": "cross-site" },
-    }), gatewayEnv);
+    const getBridge = await worker.fetch(
+      request(`/auth/callback/google${parameters}`, {
+        headers: { Cookie: flowCookie, "Sec-Fetch-Site": "cross-site" },
+      }),
+      gatewayEnv,
+    );
     expect(await getBridge.text()).toBe(bridge);
     expect(getBridge.headers.get("Content-Security-Policy")).toBe(csp);
     expect(getBridge.headers.get("Referrer-Policy")).toBe("no-referrer");
-    const complete = await worker.fetch(request("/auth/callback/google", {
-      method: "POST", headers: { ...postHeaders, Cookie: flowCookie }, body: JSON.stringify({ parameters }),
-    }), gatewayEnv);
+    const complete = await worker.fetch(
+      request("/auth/callback/google", {
+        method: "POST",
+        headers: { ...postHeaders, Cookie: flowCookie },
+        body: JSON.stringify({ parameters }),
+      }),
+      gatewayEnv,
+    );
     expect(await complete.json()).toEqual({ redirect: "/" });
     const sessionCookie = complete.headers.get("Set-Cookie")?.split(";")[0] ?? "";
     expect(sessionCookie).toBe("session=fake-session");
-    const workspace = await worker.fetch(request("/v1/workspace", { headers: { Cookie: sessionCookie } }), gatewayEnv);
+    const workspace = await worker.fetch(
+      request("/v1/workspace", { headers: { Cookie: sessionCookie } }),
+      gatewayEnv,
+    );
     expect(await workspace.json()).toEqual({ revision: 0, document: { items: [] } });
-    const saved = await worker.fetch(request("/v1/workspace", {
-      method: "PUT", headers: { ...postHeaders, Cookie: sessionCookie },
-      body: JSON.stringify({ opId: "fixture-save", baseRevision: 0, document: { items: [] }, action: "save" }),
-    }), gatewayEnv);
+    const saved = await worker.fetch(
+      request("/v1/workspace", {
+        method: "PUT",
+        headers: { ...postHeaders, Cookie: sessionCookie },
+        body: JSON.stringify({
+          opId: "fixture-save",
+          baseRevision: 0,
+          document: { items: [] },
+          action: "save",
+        }),
+      }),
+      gatewayEnv,
+    );
     expect(await saved.json()).toEqual({ status: "saved", revision: 1 });
     for (const response of [login, getBridge, complete, workspace, saved])
       expect(response.headers.get("Cache-Control")).toBe("no-store");
@@ -209,9 +283,13 @@ describe("staging site gateway", () => {
   it("fails closed for all personal routes without a binding and for upstream failures", async () => {
     const env = environment();
     for (const [path, methods] of personalRoutes) {
-      const response = await worker.fetch(request(path, {
-        method: methods[0], headers: { Origin: "https://staging.nikkecollection.com" },
-      }), { ASSETS: env.ASSETS });
+      const response = await worker.fetch(
+        request(path, {
+          method: methods[0],
+          headers: { Origin: "https://staging.nikkecollection.com" },
+        }),
+        { ASSETS: env.ASSETS },
+      );
       expect(response.status).toBe(503);
       expect(response.headers.get("Cache-Control")).toBe("no-store");
     }
@@ -227,7 +305,9 @@ describe("staging site gateway", () => {
     const rules = [...config.matchAll(/^run_worker_first = (.+)$/gm)];
     expect(rules).toHaveLength(2);
     for (const rule of rules) {
-      expect(JSON.parse(rule[1] ?? "[]")).toEqual(expect.arrayContaining(["/v1", "/v1/*", "/auth", "/auth/*"]));
+      expect(JSON.parse(rule[1] ?? "[]")).toEqual(
+        expect.arrayContaining(["/v1", "/v1/*", "/auth", "/auth/*"]),
+      );
     }
   });
 

@@ -26,7 +26,10 @@ export async function blockPublication(env: PersonalEnv, now: number): Promise<n
 }
 
 export async function recordPrivacyChange(
-  env: PersonalEnv, change: PrivacyChange, fenceGeneration: number, now: number,
+  env: PersonalEnv,
+  change: PrivacyChange,
+  fenceGeneration: number,
+  now: number,
 ): Promise<void> {
   const fence = await env.PUBLIC_AGGREGATE_DB.prepare(
     "SELECT generation, blocked FROM privacy_fence WHERE singleton = 1",
@@ -52,9 +55,9 @@ export async function recordPrivacyChange(
        ON CONFLICT(user_id) DO UPDATE SET participation = 0,
        decision_version = decision_version + 1, decided_at = excluded.decided_at`,
     ).bind(change.userId, now),
-    env.PRIVACY_CONTROL_DB.prepare(
-      "DELETE FROM consent_reservations WHERE user_id = ?",
-    ).bind(change.userId),
+    env.PRIVACY_CONTROL_DB.prepare("DELETE FROM consent_reservations WHERE user_id = ?").bind(
+      change.userId,
+    ),
   ]);
 }
 
@@ -71,7 +74,9 @@ export async function reapplyUserTombstones(env: PersonalEnv, userId: string): P
     await env.PERSONAL_DB.prepare("DELETE FROM accounts WHERE user_id = ?").bind(userId).run();
   } else if (rows[0]?.results.some((row) => row["kind"] === "withdrawal")) {
     await env.PERSONAL_DB.batch([
-      env.PERSONAL_DB.prepare("UPDATE accounts SET public_participation = 0 WHERE user_id = ?").bind(userId),
+      env.PERSONAL_DB.prepare(
+        "UPDATE accounts SET public_participation = 0 WHERE user_id = ?",
+      ).bind(userId),
       env.PERSONAL_DB.prepare("DELETE FROM self_percentiles WHERE user_id = ?").bind(userId),
     ]);
   }
@@ -96,13 +101,17 @@ export async function reapplyTombstones(env: PersonalEnv): Promise<void> {
 }
 
 export async function applyPrivacyChange(
-  env: PersonalEnv, change: PrivacyChange, now: number,
+  env: PersonalEnv,
+  change: PrivacyChange,
+  now: number,
 ): Promise<{ fenceGeneration: number; status: "complete" }> {
   const fenceGeneration = await blockPublication(env, now);
   await recordPrivacyChange(env, change, fenceGeneration, now);
   await reapplyUserTombstones(env, change.userId);
   await env.PRIVACY_CONTROL_DB.prepare(
     "UPDATE privacy_operations SET state = 'complete' WHERE op_id = ? AND user_id = ? AND kind = ?",
-  ).bind(change.opId, change.userId, change.kind).run();
+  )
+    .bind(change.opId, change.userId, change.kind)
+    .run();
   return { fenceGeneration, status: "complete" };
 }
