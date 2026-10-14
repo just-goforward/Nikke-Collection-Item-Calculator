@@ -15,7 +15,9 @@ import {
   sha256,
   touchSession,
 } from "./auth";
-import { consentBody, getConsent, putConsent, queueDeletion, resumeDeletion } from "./consent";
+import {
+  consentBody, getConsent, putConsent, queueDeletion, resumeDeletion, runPrivacyMaintenance,
+} from "./consent";
 import type { Archive, PersonalExport, SelfPercentile, StageSummary } from "./contracts";
 import { googleProvider, settings } from "./google";
 import {
@@ -37,6 +39,7 @@ import {
   workspaceResult,
 } from "./store";
 import type { PersonalEnv } from "./types";
+import { reapplyUserTombstones } from "./privacy";
 
 const routes: Record<string, readonly string[]> = {
   "/auth/login/google": ["POST"],
@@ -185,6 +188,12 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
       )
         .bind(identity.issuer, identity.sub)
         .first<{ user_id: string; blocked: number }>();
+      if (existing) {
+        const deleted = await env.PRIVACY_CONTROL_DB.prepare(
+          "SELECT 1 AS deleted FROM tombstones WHERE user_id = ? AND kind = 'deletion'",
+        ).bind(existing.user_id).first();
+        if (deleted) await reapplyUserTombstones(env, existing.user_id);
+      }
       if (existing?.blocked && !(await resumeDeletion(env, existing.user_id))) {
         throw new HttpError(503, "service_unavailable");
       }
@@ -468,6 +477,7 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
             "DELETE FROM sessions WHERE idle_expires_at <= ? OR max_expires_at <= ?",
           ).bind(time, time),
         ]);
+        await runPrivacyMaintenance(env, time);
       } catch {
         throw new Error("maintenance_failed");
       }

@@ -346,11 +346,24 @@ any PUBLIC mutation. Reservation does not change participation. Only its owner
 fences PUBLIC, then commits decision/history/tombstone and removes the reservation
 atomically in PRIVACY. Stale requests, changed-op collisions and completed
 replays never bump the fence. Concurrent contenders cannot both reserve.
-An unfinished reservation returns 409 `consent_change_pending` without affecting
-personal features or other accounts. Maintenance `recoverConsentChange` can
-finish one specified user's stored request; serialize it with that user's
-consent changes. A crash can leave publication blocked and a reservation pending,
-never silently unblock it. Deletion clears that old account's reservation.
+An unfinished reservation with the same opId and matching request hash resumes
+idempotently; changed hashes return 409 `op_id_conflict`. A different pending op
+or a live attempt lease returns 409 `consent_change_pending`. Attempt leases last
+60 seconds, release immediately on an observed failure, and guard every private
+decision write. They do not change JWT/session deadlines. Recovery reuses a saved
+PUBLIC fence; a crash between PUBLIC commit and saving its generation can safely
+re-block/increment it again, never unblock it. Completed replays never increment
+the fence. Deletion clears that old account's reservation.
+
+The prepared scheduled handler independently drains at most five oldest-ready
+deletion jobs and five stale consent reservations per tick, in addition to expiry
+cleanup. Each failed job is isolated. Indexed retry-due/creation ordering and a
+one-minute scheduled retry delay prevent a stuck prefix from monopolizing later
+jobs; matching consent requests do not wait for that scheduled backoff. Cron and
+request retries acquire the same attempt lease. Pending deletion finishes without
+a new login, deletes that user's records and frees the beta slot. HTTP paths stay
+user-scoped. On callback, the existing account's deletion tombstone is applied
+before provisioning so a restored old user ID cannot trap a fresh rejoin.
 
 Archive ID reuse with a new opId is an atomic 409 `archive_id_conflict`, not
 a raw UNIQUE-error 503. Export reads a single PERSONAL snapshot containing the
@@ -363,8 +376,9 @@ Multibyte quota tests use CJK, accented text and supplementary Unicode.
 
 **Chosen: keep numbered migrations, do not squash.** `0001` is the M1 baseline;
 `0002` adds auth/consent; `0003` replaces permanent identity bans with expiring
-flow-generation fences and adds scoped consent reservations. Upgrade tests seed
-populated M1 records in all three local D1 stores, apply later migrations using
+flow-generation fences and adds scoped consent reservations; `0004` adds bounded
+job retry indexes and resumable consent attempt leases. Upgrade tests seed
+populated M1 and populated `0002` records, apply later migrations using
 the migration ledger, and compare all protected fields before/after. Identities,
 active and expired hashed sessions with their original idle/absolute deadlines,
 workspace revision/document/last-op, operation hashes, stages, archives, ranks,
@@ -398,5 +412,6 @@ For a future separately approved upgrade:
 **Production gate:** two-calendar-year inactivity deletion is still deferred
 for this milestone; its scheduler/reconciliation must be implemented and reviewed
 before production. It must use this same fenced deletion/rejoin path. The expiry
-cron does not implement inactivity deletion. Publication/unblocking, real Google
+cron performs expiry and bounded recovery, not inactivity deletion.
+Publication/unblocking, real Google
 legacy-issuer support and browser integration remain separate launch gates.

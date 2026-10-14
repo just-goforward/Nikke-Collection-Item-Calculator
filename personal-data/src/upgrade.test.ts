@@ -167,8 +167,86 @@ it("upgrades populated M1 stores without losing personal records, session policy
   expect(columns.some((row) => row["name"] === "identity_hash")).toBe(false);
   expect(
     (await rows(dbs.PRIVACY_CONTROL_DB, ["SELECT count(*) AS n FROM d1_migrations"]))[0]?.[0],
-  ).toEqual({ n: 3 });
+  ).toEqual({ n: 4 });
   expect(
     (await rows(dbs.PERSONAL_DB, ["SELECT count(*) AS n FROM d1_migrations"]))[0]?.[0],
-  ).toEqual({ n: 3 });
+  ).toEqual({ n: 4 });
+});
+
+it("upgrades populated 0002 through 0003 and 0004 without losing records or pending deletion work", async () => {
+  await resetFixture({
+    ...dbs,
+    PERSONAL_MIGRATIONS: dbs.PERSONAL_MIGRATIONS.slice(0, 2),
+    PRIVACY_MIGRATIONS: dbs.PRIVACY_MIGRATIONS.slice(0, 2),
+  });
+  const raw = "ef".repeat(32);
+  const tokenHash = await sha256(raw);
+  const legacyHash = await sha256("legacy-v2-deletion");
+  await dbs.PERSONAL_DB.batch([
+    dbs.PERSONAL_DB.prepare(
+      "INSERT INTO accounts (user_id, created_at, last_active_at) VALUES ('active-v2', ?, ?)",
+    ).bind(NOW, NOW),
+    dbs.PERSONAL_DB.prepare(
+      "INSERT INTO accounts (user_id, created_at, last_active_at, auth_epoch, blocked) VALUES ('deleted-v2', ?, ?, 1, 1)",
+    ).bind(NOW, NOW),
+    dbs.PERSONAL_DB.prepare("INSERT INTO identities VALUES ('https://accounts.google.com', 'active-v2', 'active-v2')"),
+    dbs.PERSONAL_DB.prepare("INSERT INTO identities VALUES ('https://accounts.google.com', 'gone-v2', 'deleted-v2')"),
+    dbs.PERSONAL_DB.prepare("INSERT INTO sessions VALUES (?, 'active-v2', ?, ?, ?, 0)")
+      .bind(tokenHash, NOW, NOW + SESSION_IDLE_MS, NOW + SESSION_MAX_MS),
+    dbs.PERSONAL_DB.prepare(
+      `INSERT INTO workspaces VALUES ('active-v2', 2, 'op-v2', 'write-v2',
+       '{"schemaVersion":1,"items":["一😀"],"lifetimeStages":[]}')`,
+    ),
+    dbs.PERSONAL_DB.prepare(
+      "INSERT INTO operations VALUES ('active-v2', 'op-v2', ?, 2, 'save', ?)",
+    ).bind(await sha256("request-v2"), NOW),
+    dbs.PERSONAL_DB.prepare("INSERT INTO blocked_identities VALUES (?, ?)").bind(legacyHash, NOW),
+    dbs.PERSONAL_DB.prepare("INSERT INTO deletion_jobs VALUES ('deleted-v2', 'del-v2', ?, ?, 5)")
+      .bind(legacyHash, NOW),
+    dbs.PERSONAL_DB.prepare(
+      "INSERT INTO oauth_transactions VALUES (?, ?, 'verifier-v2', '/', ?, ?, 'nonce-v2', 1)",
+    ).bind("a".repeat(64), "b".repeat(64), NOW, NOW + 600_000),
+    dbs.PERSONAL_DB.prepare("UPDATE auth_control SET epoch = 1"),
+  ]);
+  await dbs.PRIVACY_CONTROL_DB.batch([
+    dbs.PRIVACY_CONTROL_DB.prepare(
+      "INSERT INTO consent_decisions VALUES ('active-v2', 1, 2, ?, 5, 'consent-v2')",
+    ).bind(NOW),
+    dbs.PRIVACY_CONTROL_DB.prepare(
+      "INSERT INTO consent_operations VALUES ('active-v2', 'consent-v2', ?, 2, 5)",
+    ).bind(await sha256("consent-v2")),
+    dbs.PRIVACY_CONTROL_DB.prepare(
+      "INSERT INTO tombstones VALUES ('historical-v2', 'deletion', ?, ?, 5)",
+    ).bind(legacyHash, NOW),
+    dbs.PRIVACY_CONTROL_DB.prepare(
+      "INSERT INTO privacy_operations VALUES ('del-v2', 'deleted-v2', 'deletion', 5, 'pending', ?)",
+    ).bind(NOW),
+  ]);
+  await dbs.PUBLIC_AGGREGATE_DB.prepare("UPDATE privacy_fence SET generation = 5").run();
+  const personal = [
+    "SELECT * FROM accounts ORDER BY user_id", "SELECT * FROM identities ORDER BY user_id",
+    "SELECT * FROM sessions", "SELECT * FROM workspaces", "SELECT * FROM operations",
+    "SELECT user_id, op_id, created_at, fence_generation FROM deletion_jobs", "SELECT * FROM auth_control",
+  ];
+  const privacy = [
+    "SELECT * FROM consent_decisions", "SELECT * FROM consent_operations",
+    "SELECT user_id, kind, created_at, fence_generation FROM tombstones",
+    "SELECT * FROM privacy_operations",
+  ];
+  const publicQueries = ["SELECT * FROM privacy_fence", "SELECT * FROM current_release"];
+  const before = await Promise.all([
+    rows(dbs.PERSONAL_DB, personal), rows(dbs.PRIVACY_CONTROL_DB, privacy),
+    rows(dbs.PUBLIC_AGGREGATE_DB, publicQueries),
+  ]);
+  await migrateFixture(dbs.PRIVACY_CONTROL_DB, dbs.PRIVACY_MIGRATIONS);
+  await migrateFixture(dbs.PERSONAL_DB, dbs.PERSONAL_MIGRATIONS);
+  expect(await Promise.all([
+    rows(dbs.PERSONAL_DB, personal), rows(dbs.PRIVACY_CONTROL_DB, privacy),
+    rows(dbs.PUBLIC_AGGREGATE_DB, publicQueries),
+  ])).toEqual(before);
+  expect(await readSession(dbs.PERSONAL_DB, raw, NOW)).toMatchObject({ userId: "active-v2", authEpoch: 0 });
+  expect((await rows(dbs.PERSONAL_DB, ["SELECT count(*) AS n FROM oauth_transactions"]))[0]?.[0])
+    .toEqual({ n: 0 });
+  expect((await rows(dbs.PERSONAL_DB, ["SELECT retry_after FROM deletion_jobs"]))[0]?.[0])
+    .toEqual({ retry_after: 0 });
 });

@@ -17,7 +17,7 @@ SITE_ORIGIN = "https://app.example"
 GOOGLE_CLIENT_ID = "configure-google-client-id"
 # GOOGLE_CLIENT_SECRET must be supplied separately; no credential is committed.
 
-# Expiry cleanup only; no inactivity deletion or publication.
+# Expiry cleanup and bounded job recovery; no inactivity deletion or publication.
 [triggers]
 crons = ["*/10 * * * *"]
 

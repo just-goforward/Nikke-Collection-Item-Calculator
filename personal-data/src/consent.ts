@@ -37,7 +37,14 @@ interface Reservation {
   write_nonce: string;
   created_at: number;
   fence_generation: number | null;
+  attempt_nonce: string | null;
+  busy_until: number;
+  maintenance_after: number;
 }
+
+const CONSENT_LEASE_MS = 60_000;
+const MAINTENANCE_RETRY_MS = 60_000;
+const MAINTENANCE_BATCH = 5;
 
 /** Preflight AND atomic per-account reservation precede the first PUBLIC write. */
 export async function putConsent(
@@ -82,9 +89,9 @@ export async function putConsent(
     return getConsent(env, account.userId);
   }
   const reserved = result[2]?.results[0] as unknown as Reservation | undefined;
-  if (reserved?.write_nonce !== nonce) {
-    throw new HttpError(409, reserved ? "consent_change_pending" : "revision_conflict");
-  }
+  if (!reserved) throw new HttpError(409, "revision_conflict");
+  if (reserved.op_id !== input.opId) throw new HttpError(409, "consent_change_pending");
+  if (reserved.request_hash !== hash) throw new HttpError(409, "op_id_conflict");
   return completeConsent(env, reserved, now);
 }
 
@@ -93,62 +100,80 @@ async function completeConsent(
   reservation: Reservation,
   now: number,
 ): Promise<ConsentGet> {
-  const { user_id: userId, write_nonce: nonce, base_revision: base } = reservation;
-  let generation = reservation.fence_generation;
-  if (generation === null) {
-    generation = await blockPublication(env, now);
-    await env.PRIVACY_CONTROL_DB.prepare(
-      "UPDATE consent_reservations SET fence_generation = ? WHERE user_id = ? AND write_nonce = ?",
-    )
-      .bind(generation, userId, nonce)
-      .run();
-  }
-  const fence = await env.PUBLIC_AGGREGATE_DB.prepare(
-    "SELECT generation, blocked FROM privacy_fence WHERE singleton = 1",
-  ).first<{ generation: number; blocked: number }>();
-  if (!fence?.blocked || fence.generation < generation)
-    throw new HttpError(503, "service_unavailable");
-  const results = await env.PRIVACY_CONTROL_DB.batch([
+  const attempt = crypto.randomUUID();
+  const claimed = await env.PRIVACY_CONTROL_DB.prepare(
+    `UPDATE consent_reservations SET attempt_nonce = ?, busy_until = ?
+     WHERE user_id = ? AND write_nonce = ? AND busy_until <= ? RETURNING *`,
+  ).bind(attempt, now + CONSENT_LEASE_MS, reservation.user_id, reservation.write_nonce, now)
+    .first<Reservation>();
+  if (!claimed) throw new HttpError(409, "consent_change_pending");
+  const { user_id: userId, write_nonce: nonce, base_revision: base } = claimed;
+  const owner = "SELECT 1 FROM consent_reservations WHERE user_id = ? AND write_nonce = ? AND attempt_nonce = ?";
+  const ownerArgs = [userId, nonce, attempt];
+  try {
+    let generation = claimed.fence_generation;
+    if (generation === null) {
+      generation = await blockPublication(env, now);
+      const saved = await env.PRIVACY_CONTROL_DB.prepare(
+        "UPDATE consent_reservations SET fence_generation = ? WHERE user_id = ? AND write_nonce = ? AND attempt_nonce = ?",
+      ).bind(generation, ...ownerArgs).run();
+      if (saved.meta.changes !== 1) throw new HttpError(409, "consent_change_pending");
+    }
+    const fence = await env.PUBLIC_AGGREGATE_DB.prepare(
+      "SELECT generation, blocked FROM privacy_fence WHERE singleton = 1",
+    ).first<{ generation: number; blocked: number }>();
+    if (!fence?.blocked || fence.generation < generation)
+      throw new HttpError(503, "service_unavailable");
+    const results = await env.PRIVACY_CONTROL_DB.batch([
     env.PRIVACY_CONTROL_DB.prepare(
       `INSERT INTO consent_decisions
        (user_id, participation, decision_version, decided_at, fence_generation, last_write_nonce)
        SELECT ?, ?, 1, ?, ?, ? WHERE ? = 0
-       AND EXISTS (SELECT 1 FROM consent_reservations WHERE user_id = ? AND write_nonce = ?)
+       AND EXISTS (${owner})
        ON CONFLICT(user_id) DO NOTHING`,
-    ).bind(userId, reservation.participation, now, generation, nonce, base, userId, nonce),
+    ).bind(userId, claimed.participation, now, generation, nonce, base, ...ownerArgs),
     env.PRIVACY_CONTROL_DB.prepare(
       `UPDATE consent_decisions SET participation = ?, decision_version = decision_version + 1,
        decided_at = ?, fence_generation = ?, last_write_nonce = ?
        WHERE user_id = ? AND decision_version = ? AND last_write_nonce IS NOT ?
-       AND EXISTS (SELECT 1 FROM consent_reservations WHERE user_id = ? AND write_nonce = ?)`,
-    ).bind(reservation.participation, now, generation, nonce, userId, base, nonce, userId, nonce),
+       AND EXISTS (${owner})`,
+    ).bind(claimed.participation, now, generation, nonce, userId, base, nonce, ...ownerArgs),
     env.PRIVACY_CONTROL_DB.prepare(
       `INSERT INTO consent_operations (user_id, op_id, request_hash, decision_version, fence_generation)
        SELECT user_id, ?, ?, decision_version, fence_generation FROM consent_decisions
        WHERE user_id = ? AND decision_version = ? AND last_write_nonce = ?
+       AND EXISTS (${owner})
        ON CONFLICT(user_id, op_id) DO NOTHING`,
-    ).bind(reservation.op_id, reservation.request_hash, userId, base + 1, nonce),
+    ).bind(claimed.op_id, claimed.request_hash, userId, base + 1, nonce, ...ownerArgs),
     env.PRIVACY_CONTROL_DB.prepare(
       `INSERT INTO tombstones (user_id, kind, created_at, fence_generation)
        SELECT user_id, 'withdrawal', ?, fence_generation FROM consent_decisions
        WHERE user_id = ? AND participation = 0 AND last_write_nonce = ?
+       AND EXISTS (${owner})
        ON CONFLICT(user_id, kind) DO UPDATE SET created_at = excluded.created_at,
        fence_generation = max(fence_generation, excluded.fence_generation)`,
-    ).bind(now, userId, nonce),
+    ).bind(now, userId, nonce, ...ownerArgs),
     env.PRIVACY_CONTROL_DB.prepare(
       "SELECT request_hash FROM consent_operations WHERE user_id = ? AND op_id = ?",
-    ).bind(userId, reservation.op_id),
+    ).bind(userId, claimed.op_id),
     env.PRIVACY_CONTROL_DB.prepare(
-      "DELETE FROM consent_reservations WHERE user_id = ? AND write_nonce = ?",
-    ).bind(userId, nonce),
-  ]);
-  if (!results[4]?.results[0]) throw new HttpError(409, "revision_conflict");
-  await reapplyUserTombstones(env, userId);
-  return getConsent(env, userId);
+      "DELETE FROM consent_reservations WHERE user_id = ? AND write_nonce = ? AND attempt_nonce = ?",
+    ).bind(...ownerArgs),
+    ]);
+    if (!results[4]?.results[0]) throw new HttpError(409, "revision_conflict");
+    await reapplyUserTombstones(env, userId);
+    return getConsent(env, userId);
+  } catch (error) {
+    // An observed failure releases this attempt immediately; process death expires its lease.
+    await env.PRIVACY_CONTROL_DB.prepare(
+      "UPDATE consent_reservations SET attempt_nonce = NULL, busy_until = 0 WHERE user_id = ? AND write_nonce = ? AND attempt_nonce = ?",
+    ).bind(...ownerArgs).run();
+    throw error;
+  }
 }
 
-/** Explicit, single-user maintenance recovery; serialize it with that user's consent changes. */
-export async function recoverConsentChange(
+/** Both request retries and scheduled recovery acquire the same per-account attempt lease. */
+async function recoverConsentChange(
   env: PersonalEnv,
   userId: string,
   now: number,
@@ -180,7 +205,9 @@ export async function queueDeletion(
        ON CONFLICT(identity_hash) DO UPDATE SET deleted_epoch = excluded.deleted_epoch,
        expires_at = excluded.expires_at`,
     ).bind(await identityHash(account.identity), now + FLOW_TTL_MS),
-    env.PERSONAL_DB.prepare("INSERT OR IGNORE INTO deletion_jobs VALUES (?, ?, ?, ?)").bind(
+    env.PERSONAL_DB.prepare(
+      "INSERT OR IGNORE INTO deletion_jobs (user_id, op_id, created_at, fence_generation) VALUES (?, ?, ?, ?)",
+    ).bind(
       account.userId,
       opId,
       now,
@@ -232,5 +259,54 @@ export async function resumeDeletion(env: PersonalEnv, userId: string): Promise<
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Bounded, indexed oldest-ready queues; one failed job cannot stop the remaining jobs. */
+export async function runPrivacyMaintenance(env: PersonalEnv, now: number): Promise<void> {
+  const deletions = await env.PERSONAL_DB.batch([
+    env.PERSONAL_DB.prepare(
+      `SELECT user_id FROM deletion_jobs WHERE retry_after <= ?
+       ORDER BY retry_after, created_at, user_id LIMIT ?`,
+    ).bind(now, MAINTENANCE_BATCH),
+  ]);
+  for (const row of deletions[0]?.results ?? []) {
+    const userId = String(row["user_id"]);
+    let completed = false;
+    try {
+      completed = await resumeDeletion(env, userId);
+    } catch {
+      completed = false;
+    }
+    if (!completed) {
+      try {
+        await env.PERSONAL_DB.prepare(
+          "UPDATE deletion_jobs SET retry_after = ? WHERE user_id = ?",
+        ).bind(now + MAINTENANCE_RETRY_MS, userId).run();
+      } catch {
+        continue;
+      }
+    }
+  }
+  const reservations = await env.PRIVACY_CONTROL_DB.batch([
+    env.PRIVACY_CONTROL_DB.prepare(
+      `SELECT user_id FROM consent_reservations WHERE busy_until <= ? AND maintenance_after <= ?
+       ORDER BY maintenance_after, created_at, user_id LIMIT ?`,
+    ).bind(now, now, MAINTENANCE_BATCH),
+  ]);
+  for (const row of reservations[0]?.results ?? []) {
+    const userId = String(row["user_id"]);
+    try {
+      await recoverConsentChange(env, userId, now);
+    } catch {
+      // This delays only scheduled retries; a matching client retry can resume immediately.
+      try {
+        await env.PRIVACY_CONTROL_DB.prepare(
+          "UPDATE consent_reservations SET maintenance_after = ? WHERE user_id = ? AND busy_until = 0",
+        ).bind(now + MAINTENANCE_RETRY_MS, userId).run();
+      } catch {
+        continue;
+      }
+    }
   }
 }
