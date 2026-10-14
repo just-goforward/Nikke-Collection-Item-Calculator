@@ -63,7 +63,7 @@ namespace_id = "419102"
 simple = { limit = 120, period = 60 }
 
 [env.staging.vars]
-ALLOWED_ORIGINS = "https://nikkecollection.com"
+ALLOWED_ORIGINS = "https://nikkecollection.com,https://staging.nikkecollection.com"
 DEPLOYMENT_SHA = "local"
 
 [env.staging.secrets]
