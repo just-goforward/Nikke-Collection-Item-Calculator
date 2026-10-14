@@ -127,7 +127,7 @@ export type ApiErrorCode =
   | "google_issuer_unsupported"
   | "account_switch_requires_logout"
   | "account_context_required"
-  | "account_context_changed"
+  | "account_context_stale"
   | "consent_change_pending"
   | "archive_id_conflict";
 export interface ApiError {
@@ -157,9 +157,21 @@ export interface Api {
   };
   "GET /v1/export": { response: PersonalExport };
   "GET /v1/consent": { response: ConsentGet };
-  "PUT /v1/consent": { request: ConsentPut; response: ConsentGet | PrivacyAccepted };
-  "DELETE /v1/account": { request: DeleteAccountRequest; response: PrivacyAccepted };
-  "POST /v1/sessions/revoke-all": { request: RevokeAllRequest; response: RevokeAllResult };
+  "PUT /v1/consent": {
+    headers: { "If-Account-Match": string };
+    request: ConsentPut;
+    response: ConsentGet | PrivacyAccepted;
+  };
+  "DELETE /v1/account": {
+    headers: { "If-Account-Match": string };
+    request: DeleteAccountRequest;
+    response: PrivacyAccepted;
+  };
+  "POST /v1/sessions/revoke-all": {
+    headers: { "If-Account-Match": string };
+    request: RevokeAllRequest;
+    response: RevokeAllResult;
+  };
   "GET /v1/statistics": { response: PublicStatistics };
   "GET /v1/self-percentile": { response: { results: SelfPercentile[] } };
 }

@@ -326,10 +326,15 @@ replacement session cookie. The callback bridge tells the user to log out first.
 Same-identity login can refresh normally. GET account also returns
 `account.generation` (the account's revocation epoch). Frontends retain the
 displayed `account.userId` and MUST send `If-Account-Match: "<userId>"` on every
-workspace PUT. Missing context is 428 `account_context_required`; different,
-weak or wildcard context is 409 `account_context_changed`. This header is a
+workspace PUT, consent PUT (including the settings alias), account DELETE and
+revoke-all POST. Missing context is 428 `account_context_required`; different,
+weak or wildcard context is 409 `account_context_stale`. This header is a
 precondition only, never an ownership selector. The session remains authoritative.
 After a context mismatch, discard/refetch account/workspace state before saving.
+Logout deliberately remains unconditional with respect to account context:
+it only revokes the session cookie currently presented and still requires the
+same-origin mutation checks. DELETE `/api/auth/session` is current-session logout,
+not account deletion, and follows that choice.
 
 Privacy HTTP paths reapply only the affected user's at-most-two tombstones.
 Full `reapplyTombstones` is restore/maintenance-only, paged by 150 user IDs:

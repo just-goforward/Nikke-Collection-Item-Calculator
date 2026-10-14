@@ -18,7 +18,16 @@ import {
 import { consentBody, getConsent, putConsent, queueDeletion, resumeDeletion } from "./consent";
 import type { Archive, PersonalExport, SelfPercentile, StageSummary } from "./contracts";
 import { googleProvider, settings } from "./google";
-import { body, exactKeys, HttpError, opBody, response, sameOrigin, workspaceBody } from "./http";
+import {
+  body,
+  exactKeys,
+  HttpError,
+  opBody,
+  requireAccountContext,
+  response,
+  sameOrigin,
+  workspaceBody,
+} from "./http";
 import {
   getWorkspace,
   provisioningStatements,
@@ -325,6 +334,14 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
           });
         }
         const account = await authorize(request, env);
+        if (
+          (effective === "/v1/account" && request.method === "DELETE") ||
+          (effective === "/v1/consent" && request.method === "PUT") ||
+          (effective === "/v1/workspace" && request.method === "PUT") ||
+          effective === "/v1/sessions/revoke-all"
+        ) {
+          requireAccountContext(request, account.userId);
+        }
         if (effective === "/v1/account" && request.method === "GET") {
           return response({
             authenticated: true,
@@ -352,10 +369,6 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
         if (effective === "/v1/workspace") {
           if (request.method === "GET")
             return response(await getWorkspace(env.PERSONAL_DB, account.userId));
-          const context = request.headers.get("If-Account-Match");
-          if (context === null) throw new HttpError(428, "account_context_required");
-          if (context !== `"${account.userId}"`)
-            throw new HttpError(409, "account_context_changed");
           const input = workspaceBody(await body(request));
           const result = await putWorkspace(env.PERSONAL_DB, account.userId, input, now());
           if (result.status === "saved") return activity(request, env, response(result));

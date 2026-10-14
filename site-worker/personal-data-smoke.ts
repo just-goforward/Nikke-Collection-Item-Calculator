@@ -87,6 +87,7 @@ const mf = new Miniflare({
               if (path === "/v1/workspace") {
                 assert.equal(request.headers.get("Cookie"), "fixture-session=1");
                 if (request.method === "PUT") {
+                  assert.equal(request.headers.get("If-Account-Match"), '"fixture-account"');
                   assert.deepEqual(JSON.parse(body), {
                     opId: "fixture-save",
                     baseRevision: 0,
@@ -178,7 +179,7 @@ try {
   assert.deepEqual(await workspace.json(), { revision: 0, document: { items: [] } });
   const saved = await mf.dispatchFetch(`${origin}/v1/workspace`, {
     method: "PUT",
-    headers: { ...postHeaders, Cookie: sessionCookie },
+    headers: { ...postHeaders, Cookie: sessionCookie, "If-Account-Match": '"fixture-account"' },
     body: JSON.stringify({
       opId: "fixture-save",
       baseRevision: 0,

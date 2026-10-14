@@ -28,6 +28,7 @@
     "check:site-staging": "node scripts/build-site-staging.ts --check",
     "typecheck:site-staging": "tsc --noEmit -p site-worker/tsconfig.json",
     "smoke:site-staging": "playwright test --config site-worker/playwright.config.ts",
+    "smoke:site-personal-data": "node site-worker/personal-data-smoke.ts",
     "prebuild:solver-wasm": "npm run generate:supply-forecast",
     "build:solver-wasm": "node scripts/build-solver-wasm.ts",
     "build:solver-wasm:branch-bound": "node scripts/build-solver-wasm-branch-bound.ts",

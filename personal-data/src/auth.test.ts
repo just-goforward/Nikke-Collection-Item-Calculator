@@ -65,7 +65,11 @@ async function harness() {
         "Sec-Fetch-Site": "same-origin",
         "Content-Type": "application/json",
         Cookie: session,
-        ...(path === "/v1/workspace" && method === "PUT" && accountIds.has(session)
+        ...(((["/v1/workspace", "/v1/consent", "/api/personal/settings"].includes(path) &&
+          method === "PUT") ||
+          (path === "/v1/account" && method === "DELETE") ||
+          (path === "/v1/sessions/revoke-all" && method === "POST")) &&
+        accountIds.has(session)
           ? { "If-Account-Match": `"${accountIds.get(session)}"` }
           : {}),
       },
@@ -366,7 +370,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
         body: JSON.stringify(put()),
       });
     expect(await (await write(`"${h.accountId(alice.cookie)}"`)).json()).toEqual({
-      error: "account_context_changed",
+      error: "account_context_stale",
     });
     expect((await write("*")).status).toBe(409);
     expect((await write()).status).toBe(428);
@@ -411,6 +415,59 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect(await generation()).toBe(1);
   });
 
+  it("deletion, consent and revoke-all require the displayed account before any mutation", async () => {
+    const h = await harness();
+    const alice = await h.login();
+    await h.mutate("/auth/logout", {}, alice.cookie);
+    let bob = await h.login({ claims: { sub: "bob" } });
+    const bobId = h.accountId(bob.cookie);
+    const attempts = [
+      { path: "/v1/account", method: "DELETE", input: { opId: "delete" } },
+      { path: "/v1/consent", method: "PUT",
+        input: { opId: "consent", baseDecisionVersion: 0, participation: true } },
+      { path: "/api/personal/settings", method: "PUT",
+        input: { opId: "settings", baseDecisionVersion: 0, participation: true } },
+      { path: "/v1/sessions/revoke-all", method: "POST", input: { opId: "revoke" } },
+    ];
+    for (const attempt of attempts) {
+      for (const context of [undefined, `"${h.accountId(alice.cookie)}"`, "*", `W/"${bobId}"`]) {
+        const result = await h.request(attempt.path, {
+          method: attempt.method,
+          headers: {
+            Origin: TEST_ORIGIN, Cookie: bob.cookie, "Content-Type": "application/json",
+            ...(context === undefined ? {} : { "If-Account-Match": context }),
+          },
+          body: JSON.stringify(attempt.input),
+        });
+        expect(result.status).toBe(context === undefined ? 428 : 409);
+        expect(await result.json()).toEqual({
+          error: context === undefined ? "account_context_required" : "account_context_stale",
+        });
+        expect(result.headers.get("Cache-Control")).toBe("no-store");
+      }
+    }
+    expect(await count("accounts")).toBe(2);
+    expect(await count("sessions")).toBe(1);
+    expect(await count("deletion_jobs")).toBe(0);
+    expect((await databases.PUBLIC_AGGREGATE_DB.prepare("SELECT generation FROM privacy_fence")
+      .first<{ generation: number }>())?.generation).toBe(0);
+    expect((await databases.PERSONAL_DB.prepare("SELECT epoch FROM auth_control")
+      .first<{ epoch: number }>())?.epoch).toBe(0);
+    expect((await databases.PRIVACY_CONTROL_DB.prepare("SELECT count(*) AS n FROM consent_reservations")
+      .first<{ n: number }>())?.n).toBe(0);
+    expect((await h.mutate("/v1/consent", attempts[1]?.input, bob.cookie, "PUT")).status).toBe(200);
+    expect((await h.mutate("/v1/sessions/revoke-all", { opId: "matching-revoke" }, bob.cookie)).status)
+      .toBe(200);
+    expect((await h.account(bob.cookie)).status).toBe(401);
+    bob = await h.login({ claims: { sub: "bob" } });
+    expect(h.accountId(bob.cookie)).toBe(bobId);
+    expect((await h.mutate("/v1/account", { opId: "matching-delete" }, bob.cookie, "DELETE")).status)
+      .toBe(202);
+    expect(await count("accounts")).toBe(1);
+    expect((await databases.PERSONAL_DB.prepare("SELECT user_id FROM accounts")
+      .first<{ user_id: string }>())?.user_id).toBe(h.accountId(alice.cookie));
+  });
+
   it("failed reserved consent is isolated and recoverable with explicit single-user maintenance", async () => {
     const h = await harness();
     const alice = await h.login();
@@ -431,7 +488,12 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     const failed = await h.worker.fetch(
       new Request(`${TEST_ORIGIN}/v1/consent`, {
         method: "PUT",
-        headers: { Origin: TEST_ORIGIN, Cookie: alice.cookie, "Content-Type": "application/json" },
+        headers: {
+          Origin: TEST_ORIGIN,
+          Cookie: alice.cookie,
+          "Content-Type": "application/json",
+          "If-Account-Match": `"${h.accountId(alice.cookie)}"`,
+        },
         body: JSON.stringify(input),
       }),
       unavailable,
@@ -775,7 +837,12 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     const result = await h.worker.fetch(
       new Request(`${TEST_ORIGIN}/v1/account`, {
         method: "DELETE",
-        headers: { Origin: TEST_ORIGIN, Cookie: login.cookie, "Content-Type": "application/json" },
+        headers: {
+          Origin: TEST_ORIGIN,
+          Cookie: login.cookie,
+          "Content-Type": "application/json",
+          "If-Account-Match": `"${h.accountId(login.cookie)}"`,
+        },
         body: JSON.stringify({ opId: "delete-failure" }),
       }),
       unavailable,

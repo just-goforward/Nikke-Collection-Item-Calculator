@@ -17,7 +17,7 @@ export type Reason =
   | "google_issuer_unsupported"
   | "account_switch_requires_logout"
   | "account_context_required"
-  | "account_context_changed"
+  | "account_context_stale"
   | "consent_change_pending";
 
 export class HttpError extends Error {
@@ -27,6 +27,13 @@ export class HttpError extends Error {
   ) {
     super(reason);
   }
+}
+
+/** Displayed-account precondition only: ownership still comes exclusively from the session. */
+export function requireAccountContext(request: Request, userId: string): void {
+  const context = request.headers.get("If-Account-Match");
+  if (context === null) throw new HttpError(428, "account_context_required");
+  if (context !== `"${userId}"`) throw new HttpError(409, "account_context_stale");
 }
 
 export function response(body: unknown, status = 200, extra?: HeadersInit): Response {
