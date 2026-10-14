@@ -1,17 +1,14 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import {
-  assertProperty,
-  expectDefectProperty,
-  type PropertyIdentity,
-} from "../../shared/propertyHarness.ts";
+import { assertProperty, type PropertyIdentity } from "../../shared/propertyHarness.ts";
 import { buildForecastCandidate, type ResolvedSchedule, resolveSoloSchedule } from "./candidate";
 import generatorSource from "./candidate.property.test.ts?raw";
 import candidateSource from "./candidate.ts?raw";
+import { sha256Hex, stableJson } from "./crypto";
 import type { NormalizedSourceItem, ScheduleEvent, XProbeResult } from "./types";
 
 /* S1/P8. Expectations are metamorphic (input order and repeated identical evidence
- * must not change candidateId) or plain characterization of observed behavior;
+ * must not change candidateId), the decided conflict policy, or the legacy identity;
  * none is recomputed with the candidate code. Time is frozen by the injected
  * nowMs, from which buildForecastCandidate derives gameDayStart. */
 
@@ -119,29 +116,25 @@ const poolArbitrary = fc
   );
 
 describe("P8 candidateId duplicate-evidence behavior", () => {
-  it("CURRENT BEHAVIOR (policy pending): a conflicting duplicate keeps the first key position and the last payload", async () => {
+  it("rejects conflicting duplicate evidence with an explicit reason code in either order", async () => {
     const first = item({ board: 48, id: 7, hashSeed: 1 });
     const second = item({ board: 48, id: 7, hashSeed: 2 });
-    const forward = await build([
-      collaboration(first, PERIOD, 0),
-      collaboration(second, PERIOD, 1),
-    ]);
-    const backward = await build([
-      collaboration(second, PERIOD, 1),
-      collaboration(first, PERIOD, 0),
-    ]);
-    const key = (evidence: { source: string; itemId: string }) =>
-      `${evidence.source}:${evidence.itemId}`;
-    const forwardDuplicate = forward.candidate.sourceEvidence.filter(
-      (evidence) => key(evidence) === "naver-board-48:9000007",
+    await expect(
+      build([collaboration(first, PERIOD, 0), collaboration(second, PERIOD, 1)]),
+    ).rejects.toThrow(/^candidate_source_content_hash_conflict$/);
+    await expect(
+      build([collaboration(second, PERIOD, 1), collaboration(first, PERIOD, 0)]),
+    ).rejects.toThrow(/^candidate_source_content_hash_conflict$/);
+  });
+
+  it("rejects a conflict with resolved Solo Raid evidence or the X probe", async () => {
+    const changedSolo = { ...soloItem, contentHash: "b".repeat(64) };
+    await expect(build([collaboration(changedSolo, PERIOD, 0)])).rejects.toThrow(
+      /^candidate_source_content_hash_conflict$/,
     );
-    const backwardDuplicate = backward.candidate.sourceEvidence.filter(
-      (evidence) => key(evidence) === "naver-board-48:9000007",
-    );
-    expect(forwardDuplicate.map((evidence) => evidence.contentHash)).toEqual([second.contentHash]);
-    expect(backwardDuplicate.map((evidence) => evidence.contentHash)).toEqual([first.contentHash]);
-    // Observed: the identity therefore depends on input order for conflicting duplicates.
-    expect(forward.candidate.candidateId).not.toBe(backward.candidate.candidateId);
+    await expect(
+      build([], { status: "crosschecked", sourceItem: changedSolo, reason: null }),
+    ).rejects.toThrow(/^candidate_source_content_hash_conflict$/);
   });
 
   it(
@@ -185,13 +178,10 @@ describe("P8 candidateId duplicate-evidence behavior", () => {
     HARD_DEADLINE_MS,
   );
 
-  // collaborationPeriods enter the identity in input order (uniquePeriod keeps the
-  // first occurrence, nothing sorts them); loadScheduleEvents orders only by start,
-  // so equal-start rows have no defined order. Reported, not fixed here.
-  it.fails(
+  it(
     "DEFECT-P8-02 candidateId ignores the order of collaboration events with distinct periods",
     async () => {
-      await expectDefectProperty(
+      await assertProperty(
         fc.asyncProperty(
           poolArbitrary,
           fc.array(periodArbitrary, { minLength: 4, maxLength: 4 }),
@@ -212,7 +202,7 @@ describe("P8 candidateId duplicate-evidence behavior", () => {
   );
 
   // Shrunk witness of P8.periods (seed 20260720): equal start, 1-day vs 2-day period.
-  it.fails("DEFECT-P8-02 witness: two equal-start periods in either order", async () => {
+  it("DEFECT-P8-02 witness: two equal-start periods in either order", async () => {
     const one = collaboration(item({ board: 48, id: 1, hashSeed: 0 }), { startDay: 0, days: 1 }, 0);
     const two = collaboration(item({ board: 48, id: 2, hashSeed: 0 }), { startDay: 0, days: 2 }, 1);
     const forward = await build([one, two]);
@@ -221,18 +211,21 @@ describe("P8 candidateId duplicate-evidence behavior", () => {
   });
 
   // Shrunk witness of P8.conflicting (seed 20260720): one key, hashes "1…" and "2…".
-  it.fails("PENDING-P8-CONFLICT witness: one key with two content hashes in either order", async () => {
+  it("P8-CONFLICT witness: one key with two content hashes is rejected in either order", async () => {
     const first = collaboration(item({ board: 48, id: 1, hashSeed: 0 }), PERIOD, 0);
     const second = collaboration(item({ board: 48, id: 1, hashSeed: 1 }), PERIOD, 1);
-    const forward = await build([first, second]);
-    const backward = await build([second, first]);
-    expect(backward.candidate.candidateId).toBe(forward.candidate.candidateId);
+    await expect(build([first, second])).rejects.toThrow(
+      /^candidate_source_content_hash_conflict$/,
+    );
+    await expect(build([second, first])).rejects.toThrow(
+      /^candidate_source_content_hash_conflict$/,
+    );
   });
 
-  it.fails(
-    "PENDING-P8-CONFLICT candidateId ignores order of conflicting duplicates (policy undecided)",
+  it(
+    "P8-CONFLICT rejects conflicting duplicates regardless of order",
     async () => {
-      await expectDefectProperty(
+      await assertProperty(
         fc.asyncProperty(
           poolArbitrary,
           fc.nat({ max: 3 }),
@@ -247,9 +240,11 @@ describe("P8 candidateId duplicate-evidence behavior", () => {
             const events = [...items, variant].map((source, index) =>
               collaboration(source, PERIOD, index),
             );
-            const forward = await build(events);
-            const shuffled = await build(permute(events, keys));
-            return forward.candidate.candidateId === shuffled.candidate.candidateId;
+            await expect(build(events)).rejects.toThrow(/^candidate_source_content_hash_conflict$/);
+            await expect(build(permute(events, keys))).rejects.toThrow(
+              /^candidate_source_content_hash_conflict$/,
+            );
+            return true;
           },
         ),
         {
@@ -262,4 +257,49 @@ describe("P8 candidateId duplicate-evidence behavior", () => {
     },
     HARD_DEADLINE_MS,
   );
+
+  it("preserves the legacy candidateId for already-canonical periods, including no periods", async () => {
+    const one = collaboration(item({ board: 48, id: 1, hashSeed: 0 }), { startDay: 0, days: 1 }, 0);
+    const two = collaboration(item({ board: 48, id: 2, hashSeed: 1 }), { startDay: 0, days: 2 }, 1);
+    const three = collaboration(
+      item({ board: 56, id: 3, hashSeed: 2 }),
+      { startDay: 1, days: 1 },
+      2,
+    );
+    const solo = resolved();
+    for (const events of [[], [one], [one, two, three]]) {
+      // Pre-fix identity contract: periods in input order, sorted source hashes.
+      // The fixture order is explicitly canonical, so its legacy ID must survive.
+      const legacyIdentity = stableJson({
+        forecastDate: "2026-08-24",
+        schedule: {
+          status: solo.scheduleStatus,
+          cadenceDays: solo.cadenceDays,
+          soloStart: solo.event.startsAt,
+          soloEnd: solo.event.endsAt,
+          soloPeriods: solo.soloEvents.map((event) => ({
+            effectiveFrom: event.startsAt,
+            effectiveUntil: event.endsAt,
+            scheduleStatus: event.scheduleStatus,
+          })),
+          collaborationPeriods: events.map((event) => ({
+            effectiveFrom: event.startsAt,
+            effectiveUntil: event.endsAt,
+          })),
+        },
+        sourceStatus: "x_unavailable",
+        sourceHashes: [
+          soloItem.contentHash,
+          ...events.map((event) => event.sourceItem.contentHash),
+        ].sort(),
+      });
+      const result = await build(events);
+      expect(result.candidate.candidateId).toBe(
+        `forecast-${(await sha256Hex(legacyIdentity)).slice(0, 24)}`,
+      );
+      expect(result.candidate.schedule.collaborationPeriods).toEqual(
+        events.map((event) => ({ effectiveFrom: event.startsAt, effectiveUntil: event.endsAt })),
+      );
+    }
+  });
 });

@@ -13,7 +13,12 @@ import {
   SUPPLY_RULES_VERSION,
 } from "../../shared/supplyForecastModel";
 import { sha256Hex, stableJson } from "./crypto";
-import type { CandidateBuildResult, ScheduleEvent, XProbeResult } from "./types";
+import type {
+  CandidateBuildResult,
+  NormalizedSourceItem,
+  ScheduleEvent,
+  XProbeResult,
+} from "./types";
 
 const DAY_MS = 86_400_000;
 type ConcreteScheduleEvent = ScheduleEvent & { startsAt: string; endsAt: string };
@@ -151,9 +156,16 @@ export async function buildForecastCandidate(
     ...relevantCollaborationEvents.map((event) => event.sourceItem),
   ];
   if (xProbe.sourceItem) sourceEvidence.push(xProbe.sourceItem);
-  const deduplicatedEvidence = [
-    ...new Map(sourceEvidence.map((item) => [`${item.source}:${item.itemId}`, item])).values(),
-  ].map((item) => ({
+  const evidenceByKey = new Map<string, NormalizedSourceItem>();
+  for (const item of sourceEvidence) {
+    const key = `${item.source}:${item.itemId}`;
+    const previous = evidenceByKey.get(key);
+    if (previous && previous.contentHash !== item.contentHash) {
+      throw new Error("candidate_source_content_hash_conflict");
+    }
+    evidenceByKey.set(key, item);
+  }
+  const deduplicatedEvidence = [...evidenceByKey.values()].map((item) => ({
     source: item.source,
     itemId: item.itemId,
     url: item.url,
@@ -163,7 +175,14 @@ export async function buildForecastCandidate(
   }));
   const collaborationPeriods = relevantCollaborationEvents
     .map((event) => ({ effectiveFrom: event.startsAt, effectiveUntil: event.endsAt }))
-    .filter(uniquePeriod);
+    .filter(uniquePeriod)
+    // These periods contain only start and end; there are no remaining fields.
+    // Do not depend on loadScheduleEvents' descending, start-only SQL ordering.
+    .sort(
+      (left, right) =>
+        left.effectiveFrom.localeCompare(right.effectiveFrom) ||
+        left.effectiveUntil.localeCompare(right.effectiveUntil),
+    );
   const profiles = buildScheduleForecastProfiles({
     forecastId,
     effectiveFrom: generatedAt,
