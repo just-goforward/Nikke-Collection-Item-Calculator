@@ -18,5 +18,6 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["worker-configuration.d.ts", "src/**/*.ts", "../shared/**/*.ts"]
+  "include": ["worker-configuration.d.ts", "src/**/*.ts", "../shared/**/*.ts"],
+  "exclude": ["../shared/**/*.property.spec.ts"]
 }
