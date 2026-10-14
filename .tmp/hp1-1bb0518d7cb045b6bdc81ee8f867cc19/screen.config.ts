@@ -1,3 +1,0 @@
-import {defineConfig,devices} from "@playwright/test";
-import base from "../../playwright.config.ts";
-export default defineConfig({...base,testDir:".",testMatch:"screen.spec.ts",testIgnore:[],timeout:90000,retries:0,workers:1,outputDir:"./screen-output",reporter:[["list"],["json",{outputFile:".tmp/hp1-1bb0518d7cb045b6bdc81ee8f867cc19/screen-report.json"}]],use:{...base.use,trace:"off",baseURL:"http://127.0.0.1:4273"},projects:[{name:"desktop",use:{...devices["Desktop Chrome"]}},{name:"mobile4",use:{...devices["Pixel 5"],defaultBrowserType:"chromium"}},{name:"mobile6",use:{...devices["Pixel 5"],defaultBrowserType:"chromium"}}]});
