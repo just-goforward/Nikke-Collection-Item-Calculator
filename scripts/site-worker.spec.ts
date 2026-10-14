@@ -37,7 +37,7 @@ function environment() {
 const request = (path: string, init?: RequestInit) =>
   new Request(`https://staging.nikkecollection.com${path}`, init);
 
-describe("staging site gateway", () => {
+describe("staging site gateway: personal routing and callback security", () => {
   it.each(personalRoutes)("routes exactly the documented methods for %s", async (path, methods) => {
     for (const method of ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
       const env = environment();
@@ -159,6 +159,9 @@ describe("staging site gateway", () => {
     ).toBe(200);
   });
 
+});
+
+describe("staging site gateway: account flow", () => {
   it("completes login, callback bridge, session and workspace GET/PUT through a fake binding", async () => {
     const env = environment();
     const origin = "https://staging.nikkecollection.com";
@@ -280,6 +283,9 @@ describe("staging site gateway", () => {
     expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
 
+});
+
+describe("staging site gateway: binding isolation and assets", () => {
   it("fails closed for all personal routes without a binding and for upstream failures", async () => {
     const env = environment();
     for (const [path, methods] of personalRoutes) {
