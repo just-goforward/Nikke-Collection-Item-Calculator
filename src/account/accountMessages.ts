@@ -23,6 +23,10 @@ const ko = {
     "이 Google 로그인 응답은 아직 지원되지 않습니다. 잠시 후 다시 시도하세요. 게스트로 모든 기능을 계속 사용할 수 있습니다.",
   "notice.login_flow_expired": "로그인 시간이 만료되었습니다. 다시 로그인하세요.",
   "notice.login_error_unknown": "로그인을 완료하지 못했습니다. 다시 시도하세요.",
+  "notice.account_check_timeout":
+    "계정 확인이 지연되어 게스트 데이터로 계속합니다. 계정 데이터를 쓰려면 잠시 후 새로고침하세요.",
+  "stale.account_check_late":
+    "계정 확인이 늦게 완료되었습니다. 새로고침하면 계정 데이터를 사용할 수 있습니다.",
   login: "로그인",
   loginLabel: "Google 계정으로 로그인",
   loginBusy: "Google 로그인으로 이동 중…",
@@ -153,6 +157,9 @@ const en: Record<AccountMessageKey, string> = {
     "This Google sign-in response is not supported yet. Try again later; every feature keeps working as a guest.",
   "notice.login_flow_expired": "The sign-in expired. Please sign in again.",
   "notice.login_error_unknown": "Sign-in could not be completed. Please try again.",
+  "notice.account_check_timeout":
+    "Checking your account is taking too long, so you're continuing with guest data. Reload later to use your account data.",
+  "stale.account_check_late": "The account check finished late. Reload to use your account data.",
   login: "Sign in",
   loginLabel: "Sign in with Google",
   loginBusy: "Opening Google sign-in…",
@@ -283,6 +290,10 @@ const ja: Record<AccountMessageKey, string> = {
     "このGoogleログインの応答にはまだ対応していません。しばらくしてから再試行してください。ゲストとしてすべての機能を引き続き使えます。",
   "notice.login_flow_expired": "ログインの有効期限が切れました。もう一度ログインしてください。",
   "notice.login_error_unknown": "ログインを完了できませんでした。もう一度お試しください。",
+  "notice.account_check_timeout":
+    "アカウントの確認に時間がかかっているため、ゲストデータで続行します。アカウントのデータを使うには、しばらくしてから再読み込みしてください。",
+  "stale.account_check_late":
+    "アカウントの確認が遅れて完了しました。再読み込みするとアカウントのデータを使えます。",
   login: "ログイン",
   loginLabel: "Googleアカウントでログイン",
   loginBusy: "Googleのログインに移動中…",

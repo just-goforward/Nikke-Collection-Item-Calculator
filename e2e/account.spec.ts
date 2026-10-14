@@ -45,6 +45,8 @@ class MockAccountApi {
   };
   nextPutError: { status: number; error: string } | null = null;
   failPuts = false;
+  /** Holds GET /v1/account (a slow account check) until the promise settles. */
+  holdAccount: Promise<void> | null = null;
   readonly requests: Recorded[] = [];
 
   async install(context: BrowserContext) {
@@ -75,6 +77,9 @@ class MockAccountApi {
       body: raw ? JSON.parse(raw) : null,
     };
     this.requests.push(recorded);
+    if (recorded.method === "GET" && path === "/v1/account" && this.holdAccount) {
+      await this.holdAccount;
+    }
     const [status, json] = this.respond(recorded);
     await route.fulfill({
       status,
@@ -235,6 +240,8 @@ test("account UI and its chunk stay off without the staging flag", async ({ page
   });
   await openApp(page);
   await expect(page.locator("[data-account-trigger]")).toHaveCount(0);
+  await expect(page.locator("[data-account-checking]")).toHaveCount(0);
+  await expect(beginnerKit(page)).toBeEnabled();
   await openCertified(page);
   await expect(page.locator("[data-account-trigger]")).toHaveCount(0);
   expect(api.requests).toEqual([]);
@@ -717,4 +724,106 @@ test("certified tabs follow each other's saves", async ({ context }) => {
   await setCertifiedBlue(first, "12");
   await expect(certifiedBlue(second)).toHaveValue("12");
   expect(api.puts()).toHaveLength(1);
+});
+
+// ---- page-load account check ----
+
+function holdAccountCheck(api: MockAccountApi) {
+  let release: () => void = () => undefined;
+  api.holdAccount = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return () => release();
+}
+
+const checkingIndicator = (page: Page) =>
+  page.getByRole("status").filter({ hasText: "계정 확인 중…" });
+
+test("inputs stay read-only until the account check resolves on the production engine", async ({
+  page,
+  context,
+}) => {
+  const api = signedInApi(10);
+  const release = holdAccountCheck(api);
+  await api.install(context);
+  await enableAccountFlag(page);
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto(`${ORIGIN}/`);
+  await expect(checkingIndicator(page)).toBeVisible();
+  await expect(beginnerKit(page)).toBeDisabled();
+  await expect(page.getByRole("button", { name: "초기화", exact: true })).toBeDisabled();
+  release();
+  await expect(checkingIndicator(page)).toBeHidden();
+  await expect(beginnerKit(page)).toBeEnabled();
+  await expect(beginnerKit(page)).toHaveValue("10");
+});
+
+test("a slow account check falls back to guest data after 5 s; a late sign-in asks for a reload", async ({
+  page,
+  context,
+}) => {
+  const api = signedInApi(10);
+  const release = holdAccountCheck(api);
+  await api.install(context);
+  await enableAccountFlag(page);
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto(`${ORIGIN}/`);
+  await expect(beginnerKit(page)).toBeDisabled();
+  await expect(beginnerKit(page)).toBeEnabled({ timeout: 8_000 });
+  await expect(checkingIndicator(page)).toBeHidden();
+  await expect(page.getByRole("status").filter({ hasText: "계정 확인이 지연되어" })).toBeVisible();
+  await setBeginnerKit(page, "33");
+  release();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "계정 확인이 늦게 완료되었습니다" }),
+  ).toBeVisible();
+  await expect(beginnerKit(page)).toHaveValue("33");
+  expect(api.puts()).toEqual([]);
+});
+
+test("certified inputs stay read-only until the account check resolves", async ({
+  page,
+  context,
+}) => {
+  const api = await certifiedApi(context);
+  api.userId = "user-a";
+  api.document = {
+    schemaVersion: 1,
+    items: [],
+    lifetimeStages: [],
+  };
+  const release = holdAccountCheck(api);
+  await enableAccountFlag(page);
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto(`${ORIGIN}${CERTIFIED_PATH}`);
+  await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toBeVisible();
+  await expect(checkingIndicator(page)).toBeVisible();
+  await expect(certifiedBlue(page)).toBeDisabled();
+  await expect(page.locator("#calculateButton")).toBeDisabled();
+  release();
+  await expect(checkingIndicator(page)).toBeHidden();
+  await expect(certifiedBlue(page)).toBeEnabled();
+  await expect(accountTrigger(page)).toHaveAccessibleName("계정 · 동기화됨");
+});
+
+test("switching between account and guest data clears the reset undo on the production engine", async ({
+  page,
+  context,
+}) => {
+  const api = signedInApi(10);
+  await api.install(context);
+  await enableAccountFlag(page);
+  await openApp(page);
+  await expect(beginnerKit(page)).toHaveValue("10");
+  await page.getByRole("button", { name: "초기화", exact: true }).click();
+  const undo = page.getByRole("button", { name: /되돌리기/ });
+  await expect(undo).toBeVisible();
+  await accountTrigger(page).click();
+  await page
+    .getByRole("dialog", { name: "계정", exact: true })
+    .getByRole("button", { name: "로그아웃", exact: true })
+    .click();
+  await expect(loginButton(page)).toBeVisible();
+  await expect(undo).toBeHidden();
+  await expect(beginnerKit(page)).not.toHaveValue("10");
 });

@@ -32,6 +32,8 @@ export type FakeServer = {
   overrides: Partial<Record<keyof AccountApi, Array<ApiResult<unknown>>>>;
   /** Runs inside putWorkspace before the server answers (e.g. to edit during a save). */
   beforePut?: (() => void) | undefined;
+  /** Holds a method's answer until the promise settles (a slow server). */
+  hold?: Partial<Record<keyof AccountApi, Promise<void>>>;
 };
 
 export function createFakeServer(overrides: Partial<FakeServer> = {}): FakeServer {
@@ -75,7 +77,9 @@ function fakeApi(server: FakeServer): AccountApi {
   ) {
     server.calls.push({ method, ...(userId === undefined ? {} : { userId }), body });
     const queued = server.overrides[method]?.shift();
-    return Promise.resolve(queued ? (queued as ApiResult<T>) : run());
+    const answer = () => (queued ? (queued as ApiResult<T>) : run());
+    const held = server.hold?.[method];
+    return held ? held.then(answer) : Promise.resolve(answer());
   }
   function put(userId: string, body: WorkspacePut): ApiResult<WorkspacePutResult> {
     const rejected = contextFailure(server, userId);

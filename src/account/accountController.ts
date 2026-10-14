@@ -43,6 +43,8 @@ export class AccountController<T> extends AccountControllerBase<T> {
   private pendingConsent: { participation: boolean; base: number; opId: string } | null = null;
   private pendingDeleteOpId: string | null = null;
   private consentDismissed = false;
+  /** The page-level account check timed out while loading; a late result must not apply. */
+  private bootAbandoned = false;
   private readonly unsubscribe: () => void;
 
   constructor(deps: AccountControllerDeps<T>) {
@@ -109,6 +111,13 @@ export class AccountController<T> extends AccountControllerBase<T> {
   cancelSignOut() {
     this.patchSignedIn({ signOutChoice: null, busy: null });
   }
+  /** Page-level timeout: continue with guest data now; a late sign-in only asks for a reload. */
+  bootTimedOut() {
+    if (this.snapshot.view.phase !== "loading") return;
+    this.bootAbandoned = true;
+    this.setView({ phase: "guest", busy: null });
+    this.notify("account_check_timeout");
+  }
   dismissConsentPrompt() {
     this.consentDismissed = true;
     this.patchSignedIn({ consentPrompt: false });
@@ -143,12 +152,21 @@ export class AccountController<T> extends AccountControllerBase<T> {
   private async load() {
     await this.ensureStore();
     const result = await this.deps.api.getAccount();
+    if (this.bootAbandoned) {
+      this.abandonedBootResult(result.ok);
+      return;
+    }
     if (result.ok) {
       await this.enterAccount(result.value.account.userId, result.value.consent);
       return;
     }
     await this.enterGuest("boot");
     if (!isHttpFailure(result.failure, 401)) this.notify(noticeFor(result.failure));
+  }
+
+  private abandonedBootResult(signedIn: boolean) {
+    this.bootAbandoned = false;
+    if (signedIn) this.markStale("account_check_late");
   }
 
   /** "boot" restores guest inputs only after an abandoned sign-in; "restore" always does. */
@@ -198,6 +216,10 @@ export class AccountController<T> extends AccountControllerBase<T> {
       this.storage((store) => store.readAccount(userId), null),
       this.readGuestValue(),
     ]);
+    if (this.bootAbandoned) {
+      this.abandonedBootResult(true);
+      return;
+    }
     if (!workspace.ok) {
       await this.workspaceUnavailable(userId, consent, workspace.failure);
       return;

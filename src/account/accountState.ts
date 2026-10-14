@@ -33,13 +33,15 @@ export type AccountNotice =
   | "google_issuer_unsupported"
   | "login_flow_expired"
   | "login_error_unknown"
+  | "account_check_timeout"
   | "unexpected";
 
 export type StaleReason =
   | "account_changed"
   | "context_stale"
   | "context_required"
-  | "signed_in_elsewhere";
+  | "signed_in_elsewhere"
+  | "account_check_late";
 export type SyncStatus =
   | "synced"
   | "pending"

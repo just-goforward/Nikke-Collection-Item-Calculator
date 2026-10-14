@@ -2,6 +2,7 @@ import type { ComponentProps } from "react";
 import { CERTIFIED_STAGING_ENGINE_PROFILE } from "../../shared/certifiedEngineProfile";
 import { AppShell } from "../AppLayout";
 import { AccountControl } from "../account/AccountControl";
+import { useAccountBootLocked } from "../account/bootGate";
 import { useAppShellNavigation } from "../hooks/useAppShellNavigation";
 import { useStatsQuery } from "../hooks/useStatsQuery";
 import { useTheme } from "../hooks/useTheme";
@@ -75,14 +76,24 @@ function certifiedInputPanels(
   };
 }
 
+/** While the optional account check runs, every session-changing action is inert. */
+function readOnlyInteractions(ui: CertifiedShellInteractions): CertifiedShellInteractions {
+  const idle = () => undefined;
+  return { ...ui, onCalculate: idle, onReset: idle, onConvert: idle, onOutcome: idle };
+}
+
 export default function CertifiedCalculator() {
   const { locale } = useI18n();
   const words = certifiedMessages[locale];
-  const controller = useCertifiedCalculatorApp();
+  const app = useCertifiedCalculatorApp();
+  const accountChecking = useAccountBootLocked();
+  // The account binding keeps the engine's own lock; only the shown inputs are read-only.
+  const controller = accountChecking ? { ...app, inputLocked: true, calculateDisabled: true } : app;
   const shell = useAppShellNavigation<() => void>();
   const theme = useTheme(controller.statePanel.grade);
   const stats = useStatsQuery(shell.statsVisible);
-  const ui = useCertifiedShellInteractions(controller, shell);
+  const interactions = useCertifiedShellInteractions(controller, shell);
+  const ui = accountChecking ? readOnlyInteractions(interactions) : interactions;
   const chrome = { controller, ui, words };
 
   return (
@@ -90,9 +101,9 @@ export default function CertifiedCalculator() {
       accountControl={
         <AccountControl
           kind="certified-session"
-          changeToken={controller.accountToken}
-          inputLocked={controller.run.busy || controller.modal.open}
-          port={controller.accountPort}
+          changeToken={app.accountToken}
+          inputLocked={app.run.busy || app.modal.open}
+          port={app.accountPort}
           onSwitched={shell.clearResetToast}
         />
       }

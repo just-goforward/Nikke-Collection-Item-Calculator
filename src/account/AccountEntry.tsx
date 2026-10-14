@@ -18,6 +18,7 @@ import type {
   SyncStatus,
 } from "./accountState";
 import { createAccountApi } from "./api";
+import { accountBootGate, useAccountBootStatus } from "./bootGate";
 import { createCertifiedSessionCodec } from "./certifiedSessionItem";
 import { createCrossTabChannel } from "./crossTab";
 import { takeAccountError } from "./loginError";
@@ -32,6 +33,8 @@ type CalculatorInputBinding = {
   /** While the calculator is busy, server/guest inputs are applied once it is idle again. */
   inputLocked: boolean;
   onApplyInput: (input: CalculatorInput) => void;
+  /** Runs after the shown inputs switched between account and guest data. */
+  onSwitched?: () => void;
 };
 
 /** Certified engine: the certified session is the item; its guest copy stays in its own key. */
@@ -143,11 +146,24 @@ function createEntryController(
 function performSwitch(props: AccountEntryProps, next: EngineSwitch) {
   if (props.kind === "calculator-input") {
     if (next.kind === "input") props.onApplyInput(next.value);
-    return;
-  }
-  if (next.kind === "session") props.port.applyAccount(next.text);
+  } else if (next.kind === "session") props.port.applyAccount(next.text);
   else if (next.kind === "guest") props.port.showGuest();
+  // An undo snapshot from before the switch belongs to the other data set.
   props.onSwitched?.();
+}
+
+/** Releases the page-load input lock once the resolved data is shown; reports a timeout. */
+function useBootGate(controller: AccountUi, switchPending: boolean) {
+  const status = useAccountBootStatus();
+  const phase = useSyncExternalStore(controller.subscribe, controller.getSnapshot).view.phase;
+  useEffect(() => {
+    if (status === "timed-out") controller.bootTimedOut();
+  }, [controller, status]);
+  useEffect(() => {
+    if (status === "checking" && phase !== "loading" && !switchPending) {
+      accountBootGate().release();
+    }
+  }, [phase, status, switchPending]);
 }
 
 function useBrowserSignals(controller: AccountUi) {
@@ -203,6 +219,7 @@ function useAccountController(props: AccountEntryProps) {
     entry.notifyChange();
   }, [changeToken, entry, pending]);
   useBrowserSignals(controller);
+  useBootGate(controller, pending !== null);
   return controller;
 }
 

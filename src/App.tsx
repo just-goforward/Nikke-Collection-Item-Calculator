@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { type AppHandlers, AppLayout, preloadDetailPanel } from "./AppLayout";
 import { AccountControl } from "./account/AccountControl";
+import { useAccountBootLocked } from "./account/bootGate";
 import type { MobileTab } from "./components/MobileChrome";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
 import { useAppShellNavigation } from "./hooks/useAppShellNavigation";
@@ -16,6 +17,8 @@ type InputSnapshot = {
 };
 
 type AppHandlerOptions = {
+  /** Inputs are read-only while the optional account check runs (never with the flag off). */
+  accountChecking: boolean;
   calculator: CalculatorAppModel;
   resetWithUndo: () => void;
   setMobileViewTab: (next: MobileTab, focus?: boolean) => void;
@@ -23,14 +26,14 @@ type AppHandlerOptions = {
 };
 
 function makeAppHandlers({
+  accountChecking,
   calculator,
   resetWithUndo,
   setMobileViewTab,
   setPendingOutcome,
 }: AppHandlerOptions): AppHandlers {
   const { actions } = calculator;
-
-  return {
+  const handlers: AppHandlers = {
     onCalculate: async () => {
       preloadDetailPanel();
       setPendingOutcome(null);
@@ -60,13 +63,19 @@ function makeAppHandlers({
       setMobileViewTab(applied?.needsStockEdit ? "input" : "result", true);
     },
   };
+  if (!accountChecking) return handlers;
+  const idle = async () => undefined;
+  return { onCalculate: idle, onReset: () => undefined, onConvert: idle, onOutcome: idle };
 }
 
 export default function App() {
   const [pendingOutcome, setPendingOutcome] = useState<"success" | "fail" | null>(null);
   const shell = useAppShellNavigation<InputSnapshot>();
   const { mobileTab, setMobileViewTab, viewTab } = shell;
-  const calculator = useCalculatorApp(shell.statsVisible);
+  const model = useCalculatorApp(shell.statsVisible);
+  const accountChecking = useAccountBootLocked();
+  // The account binding below keeps the model's own lock; only the shown inputs are read-only.
+  const calculator = accountChecking ? { ...model, inputLocked: true } : model;
   const { actions } = calculator;
   const statsMode = statsRuntimeMode();
 
@@ -93,6 +102,7 @@ export default function App() {
   const resetToast = shell.resetToast;
 
   const handlers = makeAppHandlers({
+    accountChecking,
     calculator,
     resetWithUndo,
     setMobileViewTab,
@@ -105,8 +115,9 @@ export default function App() {
         <AccountControl
           kind="calculator-input"
           input={rememberInputSnapshot()}
-          inputLocked={calculator.inputLocked}
+          inputLocked={model.inputLocked}
           onApplyInput={actions.restoreInputSnapshot}
+          onSwitched={shell.clearResetToast}
         />
       }
       calculator={calculator}
