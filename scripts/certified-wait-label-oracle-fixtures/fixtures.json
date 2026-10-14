@@ -1,0 +1,157 @@
+{
+  "version": "certified-wait-label-fixtures-v1",
+  "source": {
+    "directory": "D:/nikke-label-measure-f83pnvx3/s4b-verify-tfzufpa8",
+    "note": "State, stock and schedule copied from the research state inputs; their snapshot was certified-daily-v1 with four cohort weights (experimental build). The oracle prices them with the v2 four-prior semantics of scripts/certified-staging-oracle-four-cohort-pricing.ts."
+  },
+  "common": {
+    "currentDay": "2026-10-13",
+    "receivedEventIds": ["dispatch:2026-10-13", "shop:2026-10-13"],
+    "cohortWeights": [
+      { "numerator": "1", "denominator": "7" },
+      { "numerator": "2", "denominator": "7" },
+      { "numerator": "3", "denominator": "7" },
+      { "numerator": "1", "denominator": "7" }
+    ],
+    "batchLimit": 10,
+    "theta": { "numerator": "1", "denominator": "1" },
+    "horizonDays": 7,
+    "pricing": {
+      "version": "certified-daily-v2",
+      "cadence": { "numerator": 1197, "denominator": 39 },
+      "rules": [
+        {
+          "dispatch": [{ "lawId": "dispatch-board-v1", "count": 1 }],
+          "normalShop": [{ "lawId": "box-ii-v1", "count": 5 }],
+          "soloDays": [
+            [{ "lawId": "regular-box-v1", "count": 12 }],
+            [{ "lawId": "regular-box-v1", "count": 4 }, { "lawId": "box-ii-v1", "count": 8 }],
+            [{ "lawId": "box-ii-v1", "count": 12 }],
+            [{ "lawId": "box-ii-v1", "count": 12 }],
+            [{ "lawId": "box-ii-v1", "count": 12 }],
+            [{ "lawId": "box-ii-v1", "count": 12 }],
+            [{ "lawId": "box-ii-v1", "count": 12 }]
+          ]
+        }
+      ]
+    },
+    "schedule": [
+      {
+        "id": "dispatch:2026-10-14",
+        "day": 1,
+        "refs": [{ "lawId": "dispatch-board-v1", "count": 1 }]
+      },
+      {
+        "id": "dispatch:2026-10-15",
+        "day": 2,
+        "refs": [{ "lawId": "dispatch-board-v1", "count": 1 }]
+      },
+      {
+        "id": "dispatch:2026-10-16",
+        "day": 3,
+        "refs": [{ "lawId": "dispatch-board-v1", "count": 1 }]
+      },
+      {
+        "id": "dispatch:2026-10-17",
+        "day": 4,
+        "refs": [{ "lawId": "dispatch-board-v1", "count": 1 }]
+      },
+      {
+        "id": "dispatch:2026-10-18",
+        "day": 5,
+        "refs": [{ "lawId": "dispatch-board-v1", "count": 1 }]
+      },
+      {
+        "id": "dispatch:2026-10-19",
+        "day": 6,
+        "refs": [{ "lawId": "dispatch-board-v1", "count": 1 }]
+      },
+      {
+        "id": "dispatch:2026-10-20",
+        "day": 7,
+        "refs": [{ "lawId": "dispatch-board-v1", "count": 1 }]
+      },
+      { "id": "shop:2026-10-20", "day": 7, "refs": [{ "lawId": "box-ii-v1", "count": 5 }] }
+    ]
+  },
+  "fixtures": [
+    {
+      "id": "R0",
+      "grade": "R",
+      "level": 0,
+      "exp": 0,
+      "stock": [30, 20, 10],
+      "priceBasisStock": [30, 20, 10],
+      "asOf": "2026-10-13T04:38:49.399Z",
+      "source": {
+        "file": "R0-state.json",
+        "sha256": "18de5cffa17a9f3c0324aadbd7ba21bd6ffd99b994573b404b88850e712cd9e0"
+      }
+    },
+    {
+      "id": "R10",
+      "grade": "R",
+      "level": 10,
+      "exp": 0,
+      "stock": [20, 20, 10],
+      "priceBasisStock": [20, 20, 10],
+      "asOf": "2026-10-13T04:38:49.399Z",
+      "source": {
+        "file": "R10-state.json",
+        "sha256": "15262fa14a5c87173fc32735b21b1dd949e3aa4f7b0c551324fd7a6fe6cd3019"
+      }
+    },
+    {
+      "id": "R14",
+      "grade": "R",
+      "level": 14,
+      "exp": 0,
+      "stock": [10, 10, 20],
+      "priceBasisStock": [10, 10, 20],
+      "asOf": "2026-10-13T04:38:52.874Z",
+      "source": {
+        "file": "pilot-R14-state.json",
+        "sha256": "39655e22d4974df068ea7c72e86bcba549d03e68c35d79a0c42e370ee4547ec3"
+      }
+    },
+    {
+      "id": "SR5",
+      "grade": "SR",
+      "level": 5,
+      "exp": 0,
+      "stock": [20, 20, 10],
+      "priceBasisStock": [20, 20, 10],
+      "asOf": "2026-10-13T04:38:49.399Z",
+      "source": {
+        "file": "SR5-state.json",
+        "sha256": "d613d621e93bdc92214edaec51fbc647bab5863b9b3b49ed3e87fd7879271980"
+      }
+    },
+    {
+      "id": "SR10",
+      "grade": "SR",
+      "level": 10,
+      "exp": 0,
+      "stock": [20, 10, 10],
+      "priceBasisStock": [20, 10, 10],
+      "asOf": "2026-10-13T04:38:49.399Z",
+      "source": {
+        "file": "SR10-state.json",
+        "sha256": "eaa5c31ddd1a667262dd22ce2153f0f4a5d41c310c729a21bcd88819a3437caf"
+      }
+    },
+    {
+      "id": "SR13",
+      "grade": "SR",
+      "level": 13,
+      "exp": 0,
+      "stock": [10, 10, 0],
+      "priceBasisStock": [10, 10, 0],
+      "asOf": "2026-10-13T04:38:49.399Z",
+      "source": {
+        "file": "pilot-SR13-state.json",
+        "sha256": "b73bc9aca0b36804dd3fa59e217d0febfc5358655872399fe99a8b107faac6f9"
+      }
+    }
+  ]
+}
