@@ -189,10 +189,18 @@ it("upgrades populated 0002 through 0003 and 0004 without losing records or pend
     dbs.PERSONAL_DB.prepare(
       "INSERT INTO accounts (user_id, created_at, last_active_at, auth_epoch, blocked) VALUES ('deleted-v2', ?, ?, 1, 1)",
     ).bind(NOW, NOW),
-    dbs.PERSONAL_DB.prepare("INSERT INTO identities VALUES ('https://accounts.google.com', 'active-v2', 'active-v2')"),
-    dbs.PERSONAL_DB.prepare("INSERT INTO identities VALUES ('https://accounts.google.com', 'gone-v2', 'deleted-v2')"),
-    dbs.PERSONAL_DB.prepare("INSERT INTO sessions VALUES (?, 'active-v2', ?, ?, ?, 0)")
-      .bind(tokenHash, NOW, NOW + SESSION_IDLE_MS, NOW + SESSION_MAX_MS),
+    dbs.PERSONAL_DB.prepare(
+      "INSERT INTO identities VALUES ('https://accounts.google.com', 'active-v2', 'active-v2')",
+    ),
+    dbs.PERSONAL_DB.prepare(
+      "INSERT INTO identities VALUES ('https://accounts.google.com', 'gone-v2', 'deleted-v2')",
+    ),
+    dbs.PERSONAL_DB.prepare("INSERT INTO sessions VALUES (?, 'active-v2', ?, ?, ?, 0)").bind(
+      tokenHash,
+      NOW,
+      NOW + SESSION_IDLE_MS,
+      NOW + SESSION_MAX_MS,
+    ),
     dbs.PERSONAL_DB.prepare(
       `INSERT INTO workspaces VALUES ('active-v2', 2, 'op-v2', 'write-v2',
        '{"schemaVersion":1,"items":["一😀"],"lifetimeStages":[]}')`,
@@ -201,8 +209,9 @@ it("upgrades populated 0002 through 0003 and 0004 without losing records or pend
       "INSERT INTO operations VALUES ('active-v2', 'op-v2', ?, 2, 'save', ?)",
     ).bind(await sha256("request-v2"), NOW),
     dbs.PERSONAL_DB.prepare("INSERT INTO blocked_identities VALUES (?, ?)").bind(legacyHash, NOW),
-    dbs.PERSONAL_DB.prepare("INSERT INTO deletion_jobs VALUES ('deleted-v2', 'del-v2', ?, ?, 5)")
-      .bind(legacyHash, NOW),
+    dbs.PERSONAL_DB.prepare(
+      "INSERT INTO deletion_jobs VALUES ('deleted-v2', 'del-v2', ?, ?, 5)",
+    ).bind(legacyHash, NOW),
     dbs.PERSONAL_DB.prepare(
       "INSERT INTO oauth_transactions VALUES (?, ?, 'verifier-v2', '/', ?, ?, 'nonce-v2', 1)",
     ).bind("a".repeat(64), "b".repeat(64), NOW, NOW + 600_000),
@@ -224,29 +233,43 @@ it("upgrades populated 0002 through 0003 and 0004 without losing records or pend
   ]);
   await dbs.PUBLIC_AGGREGATE_DB.prepare("UPDATE privacy_fence SET generation = 5").run();
   const personal = [
-    "SELECT * FROM accounts ORDER BY user_id", "SELECT * FROM identities ORDER BY user_id",
-    "SELECT * FROM sessions", "SELECT * FROM workspaces", "SELECT * FROM operations",
-    "SELECT user_id, op_id, created_at, fence_generation FROM deletion_jobs", "SELECT * FROM auth_control",
+    "SELECT * FROM accounts ORDER BY user_id",
+    "SELECT * FROM identities ORDER BY user_id",
+    "SELECT * FROM sessions",
+    "SELECT * FROM workspaces",
+    "SELECT * FROM operations",
+    "SELECT user_id, op_id, created_at, fence_generation FROM deletion_jobs",
+    "SELECT * FROM auth_control",
   ];
   const privacy = [
-    "SELECT * FROM consent_decisions", "SELECT * FROM consent_operations",
+    "SELECT * FROM consent_decisions",
+    "SELECT * FROM consent_operations",
     "SELECT user_id, kind, created_at, fence_generation FROM tombstones",
     "SELECT * FROM privacy_operations",
   ];
   const publicQueries = ["SELECT * FROM privacy_fence", "SELECT * FROM current_release"];
   const before = await Promise.all([
-    rows(dbs.PERSONAL_DB, personal), rows(dbs.PRIVACY_CONTROL_DB, privacy),
+    rows(dbs.PERSONAL_DB, personal),
+    rows(dbs.PRIVACY_CONTROL_DB, privacy),
     rows(dbs.PUBLIC_AGGREGATE_DB, publicQueries),
   ]);
   await migrateFixture(dbs.PRIVACY_CONTROL_DB, dbs.PRIVACY_MIGRATIONS);
   await migrateFixture(dbs.PERSONAL_DB, dbs.PERSONAL_MIGRATIONS);
-  expect(await Promise.all([
-    rows(dbs.PERSONAL_DB, personal), rows(dbs.PRIVACY_CONTROL_DB, privacy),
-    rows(dbs.PUBLIC_AGGREGATE_DB, publicQueries),
-  ])).toEqual(before);
-  expect(await readSession(dbs.PERSONAL_DB, raw, NOW)).toMatchObject({ userId: "active-v2", authEpoch: 0 });
-  expect((await rows(dbs.PERSONAL_DB, ["SELECT count(*) AS n FROM oauth_transactions"]))[0]?.[0])
-    .toEqual({ n: 0 });
-  expect((await rows(dbs.PERSONAL_DB, ["SELECT retry_after FROM deletion_jobs"]))[0]?.[0])
-    .toEqual({ retry_after: 0 });
+  expect(
+    await Promise.all([
+      rows(dbs.PERSONAL_DB, personal),
+      rows(dbs.PRIVACY_CONTROL_DB, privacy),
+      rows(dbs.PUBLIC_AGGREGATE_DB, publicQueries),
+    ]),
+  ).toEqual(before);
+  expect(await readSession(dbs.PERSONAL_DB, raw, NOW)).toMatchObject({
+    userId: "active-v2",
+    authEpoch: 0,
+  });
+  expect(
+    (await rows(dbs.PERSONAL_DB, ["SELECT count(*) AS n FROM oauth_transactions"]))[0]?.[0],
+  ).toEqual({ n: 0 });
+  expect((await rows(dbs.PERSONAL_DB, ["SELECT retry_after FROM deletion_jobs"]))[0]?.[0]).toEqual({
+    retry_after: 0,
+  });
 });

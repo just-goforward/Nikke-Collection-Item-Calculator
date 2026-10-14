@@ -422,10 +422,16 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     const bobId = h.accountId(bob.cookie);
     const attempts = [
       { path: "/v1/account", method: "DELETE", input: { opId: "delete" } },
-      { path: "/v1/consent", method: "PUT",
-        input: { opId: "consent", baseDecisionVersion: 0, participation: true } },
-      { path: "/api/personal/settings", method: "PUT",
-        input: { opId: "settings", baseDecisionVersion: 0, participation: true } },
+      {
+        path: "/v1/consent",
+        method: "PUT",
+        input: { opId: "consent", baseDecisionVersion: 0, participation: true },
+      },
+      {
+        path: "/api/personal/settings",
+        method: "PUT",
+        input: { opId: "settings", baseDecisionVersion: 0, participation: true },
+      },
       { path: "/v1/sessions/revoke-all", method: "POST", input: { opId: "revoke" } },
     ];
     for (const attempt of attempts) {
@@ -433,7 +439,9 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
         const result = await h.request(attempt.path, {
           method: attempt.method,
           headers: {
-            Origin: TEST_ORIGIN, Cookie: bob.cookie, "Content-Type": "application/json",
+            Origin: TEST_ORIGIN,
+            Cookie: bob.cookie,
+            "Content-Type": "application/json",
             ...(context === undefined ? {} : { "If-Account-Match": context }),
           },
           body: JSON.stringify(attempt.input),
@@ -448,23 +456,45 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect(await count("accounts")).toBe(2);
     expect(await count("sessions")).toBe(1);
     expect(await count("deletion_jobs")).toBe(0);
-    expect((await databases.PUBLIC_AGGREGATE_DB.prepare("SELECT generation FROM privacy_fence")
-      .first<{ generation: number }>())?.generation).toBe(0);
-    expect((await databases.PERSONAL_DB.prepare("SELECT epoch FROM auth_control")
-      .first<{ epoch: number }>())?.epoch).toBe(0);
-    expect((await databases.PRIVACY_CONTROL_DB.prepare("SELECT count(*) AS n FROM consent_reservations")
-      .first<{ n: number }>())?.n).toBe(0);
+    expect(
+      (
+        await databases.PUBLIC_AGGREGATE_DB.prepare("SELECT generation FROM privacy_fence").first<{
+          generation: number;
+        }>()
+      )?.generation,
+    ).toBe(0);
+    expect(
+      (
+        await databases.PERSONAL_DB.prepare("SELECT epoch FROM auth_control").first<{
+          epoch: number;
+        }>()
+      )?.epoch,
+    ).toBe(0);
+    expect(
+      (
+        await databases.PRIVACY_CONTROL_DB.prepare(
+          "SELECT count(*) AS n FROM consent_reservations",
+        ).first<{ n: number }>()
+      )?.n,
+    ).toBe(0);
     expect((await h.mutate("/v1/consent", attempts[1]?.input, bob.cookie, "PUT")).status).toBe(200);
-    expect((await h.mutate("/v1/sessions/revoke-all", { opId: "matching-revoke" }, bob.cookie)).status)
-      .toBe(200);
+    expect(
+      (await h.mutate("/v1/sessions/revoke-all", { opId: "matching-revoke" }, bob.cookie)).status,
+    ).toBe(200);
     expect((await h.account(bob.cookie)).status).toBe(401);
     bob = await h.login({ claims: { sub: "bob" } });
     expect(h.accountId(bob.cookie)).toBe(bobId);
-    expect((await h.mutate("/v1/account", { opId: "matching-delete" }, bob.cookie, "DELETE")).status)
-      .toBe(202);
+    expect(
+      (await h.mutate("/v1/account", { opId: "matching-delete" }, bob.cookie, "DELETE")).status,
+    ).toBe(202);
     expect(await count("accounts")).toBe(1);
-    expect((await databases.PERSONAL_DB.prepare("SELECT user_id FROM accounts")
-      .first<{ user_id: string }>())?.user_id).toBe(h.accountId(alice.cookie));
+    expect(
+      (
+        await databases.PERSONAL_DB.prepare("SELECT user_id FROM accounts").first<{
+          user_id: string;
+        }>()
+      )?.user_id,
+    ).toBe(h.accountId(alice.cookie));
   });
 
   it("failed reserved consent is isolated and a matching retry resumes it idempotently", async () => {
@@ -884,20 +914,30 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       ),
     ]);
     const privacy = databases.PRIVACY_CONTROL_DB;
-    const unavailable: PersonalEnv = { ...databases, PRIVACY_CONTROL_DB: {
-      prepare(sql) {
-        if (sql.startsWith("INSERT INTO privacy_operations")) throw new Error("local_transient");
-        return privacy.prepare(sql);
+    const unavailable: PersonalEnv = {
+      ...databases,
+      PRIVACY_CONTROL_DB: {
+        prepare(sql) {
+          if (sql.startsWith("INSERT INTO privacy_operations")) throw new Error("local_transient");
+          return privacy.prepare(sql);
+        },
+        batch: (statements) => privacy.batch(statements),
+        exec: (sql) => privacy.exec(sql),
       },
-      batch: (statements) => privacy.batch(statements),
-      exec: (sql) => privacy.exec(sql),
-    } };
-    const failed = await h.worker.fetch(new Request(`${TEST_ORIGIN}/v1/account`, {
-      method: "DELETE", headers: {
-        Origin: TEST_ORIGIN, Cookie: login.cookie, "Content-Type": "application/json",
-        "If-Account-Match": `"${userId}"`,
-      }, body: JSON.stringify({ opId: "cron-delete" }),
-    }), unavailable);
+    };
+    const failed = await h.worker.fetch(
+      new Request(`${TEST_ORIGIN}/v1/account`, {
+        method: "DELETE",
+        headers: {
+          Origin: TEST_ORIGIN,
+          Cookie: login.cookie,
+          "Content-Type": "application/json",
+          "If-Account-Match": `"${userId}"`,
+        },
+        body: JSON.stringify({ opId: "cron-delete" }),
+      }),
+      unavailable,
+    );
     expect(failed.status).toBe(503);
     expect((await h.account(login.cookie)).status).toBe(401);
     expect(await count("accounts")).toBe(150);
@@ -905,11 +945,25 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     await h.worker.scheduled({ scheduledTime: h.time() }, databases);
     expect(await count("accounts")).toBe(149);
     expect(await count("deletion_jobs")).toBe(0);
-    for (const table of ["accounts", "identities", "workspaces", "operations", "sessions",
-      "stage_summaries", "pending_archives", "self_percentiles"]) {
-      expect((await databases.PERSONAL_DB.prepare(
-        `SELECT count(*) AS n FROM ${table} WHERE user_id = ?`,
-      ).bind(userId).first<{ n: number }>())?.n).toBe(0);
+    for (const table of [
+      "accounts",
+      "identities",
+      "workspaces",
+      "operations",
+      "sessions",
+      "stage_summaries",
+      "pending_archives",
+      "self_percentiles",
+    ]) {
+      expect(
+        (
+          await databases.PERSONAL_DB.prepare(
+            `SELECT count(*) AS n FROM ${table} WHERE user_id = ?`,
+          )
+            .bind(userId)
+            .first<{ n: number }>()
+        )?.n,
+      ).toBe(0);
     }
     expect((await h.login({ claims: { sub: "waiting-user" } })).result.status).toBe(200);
     expect(await count("accounts")).toBe(150);
@@ -929,32 +983,46 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       ]);
     }
     const privacy = databases.PRIVACY_CONTROL_DB;
-    const unavailable: PersonalEnv = { ...databases, PRIVACY_CONTROL_DB: {
-      prepare(sql) {
-        const statement = privacy.prepare(sql);
-        return {
-          bind(...values: (string | number | null)[]) {
-            if (sql.startsWith("INSERT INTO privacy_operations") && values[0] === "delete-job-0") {
-              throw new Error("one_stuck_job");
-            }
-            return statement.bind(...values);
-          },
-          run: <T>() => statement.run<T>(),
-          first: <T>() => statement.first<T>(),
-        };
+    const unavailable: PersonalEnv = {
+      ...databases,
+      PRIVACY_CONTROL_DB: {
+        prepare(sql) {
+          const statement = privacy.prepare(sql);
+          return {
+            bind(...values: (string | number | null)[]) {
+              if (
+                sql.startsWith("INSERT INTO privacy_operations") &&
+                values[0] === "delete-job-0"
+              ) {
+                throw new Error("one_stuck_job");
+              }
+              return statement.bind(...values);
+            },
+            run: <T>() => statement.run<T>(),
+            first: <T>() => statement.first<T>(),
+          };
+        },
+        batch: (statements) => privacy.batch(statements),
+        exec: (sql) => privacy.exec(sql),
       },
-      batch: (statements) => privacy.batch(statements),
-      exec: (sql) => privacy.exec(sql),
-    } };
+    };
     await h.worker.scheduled({ scheduledTime: h.time() }, unavailable);
     expect(await count("accounts")).toBe(2);
     expect(await count("deletion_jobs")).toBe(2);
-    expect((await databases.PERSONAL_DB.prepare(
-      "SELECT retry_after FROM deletion_jobs WHERE user_id = 'job-0'",
-    ).first<{ retry_after: number }>())?.retry_after).toBeGreaterThan(h.time());
-    expect((await databases.PERSONAL_DB.prepare(
-      "SELECT user_id FROM deletion_jobs WHERE user_id = 'job-5'",
-    ).first<{ user_id: string }>())?.user_id).toBe("job-5");
+    expect(
+      (
+        await databases.PERSONAL_DB.prepare(
+          "SELECT retry_after FROM deletion_jobs WHERE user_id = 'job-0'",
+        ).first<{ retry_after: number }>()
+      )?.retry_after,
+    ).toBeGreaterThan(h.time());
+    expect(
+      (
+        await databases.PERSONAL_DB.prepare(
+          "SELECT user_id FROM deletion_jobs WHERE user_id = 'job-5'",
+        ).first<{ user_id: string }>()
+      )?.user_id,
+    ).toBe("job-5");
     await h.worker.scheduled({ scheduledTime: h.time() }, unavailable);
     expect(await count("accounts")).toBe(1);
     expect(await count("deletion_jobs")).toBe(1);
@@ -966,29 +1034,52 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     for (let i = 0; i < 7; i++) {
       await databases.PERSONAL_DB.prepare(
         "INSERT INTO accounts (user_id, created_at, last_active_at) VALUES (?, ?, ?)",
-      ).bind(`consent-job-${i}`, h.time(), h.time()).run();
+      )
+        .bind(`consent-job-${i}`, h.time(), h.time())
+        .run();
       await databases.PRIVACY_CONTROL_DB.prepare(
         `INSERT INTO consent_reservations
          (user_id, op_id, request_hash, base_revision, participation, write_nonce, created_at, attempt_nonce, busy_until)
          VALUES (?, ?, ?, 0, 1, ?, ?, ?, ?)`,
-      ).bind(`consent-job-${i}`, `op-${i}`, hash, `write-${i}`, h.time() + i,
-        i === 6 ? "live-attempt" : null, i === 6 ? h.time() + 60_000 : 0).run();
+      )
+        .bind(
+          `consent-job-${i}`,
+          `op-${i}`,
+          hash,
+          `write-${i}`,
+          h.time() + i,
+          i === 6 ? "live-attempt" : null,
+          i === 6 ? h.time() + 60_000 : 0,
+        )
+        .run();
     }
     await h.worker.scheduled({ scheduledTime: h.time() }, databases);
-    expect((await databases.PRIVACY_CONTROL_DB.prepare(
-      "SELECT count(*) AS n FROM consent_decisions",
-    ).first<{ n: number }>())?.n).toBe(5);
-    expect((await databases.PRIVACY_CONTROL_DB.prepare(
-      "SELECT count(*) AS n FROM consent_reservations",
-    ).first<{ n: number }>())?.n).toBe(2);
+    expect(
+      (
+        await databases.PRIVACY_CONTROL_DB.prepare(
+          "SELECT count(*) AS n FROM consent_decisions",
+        ).first<{ n: number }>()
+      )?.n,
+    ).toBe(5);
+    expect(
+      (
+        await databases.PRIVACY_CONTROL_DB.prepare(
+          "SELECT count(*) AS n FROM consent_reservations",
+        ).first<{ n: number }>()
+      )?.n,
+    ).toBe(2);
     const live = await databases.PRIVACY_CONTROL_DB.prepare(
       "SELECT attempt_nonce FROM consent_reservations WHERE user_id = 'consent-job-6'",
     ).first<{ attempt_nonce: string }>();
     expect(live?.attempt_nonce).toBe("live-attempt");
     await h.worker.scheduled({ scheduledTime: h.time() }, databases);
-    expect((await databases.PRIVACY_CONTROL_DB.prepare(
-      "SELECT count(*) AS n FROM consent_decisions",
-    ).first<{ n: number }>())?.n).toBe(6);
+    expect(
+      (
+        await databases.PRIVACY_CONTROL_DB.prepare(
+          "SELECT count(*) AS n FROM consent_decisions",
+        ).first<{ n: number }>()
+      )?.n,
+    ).toBe(6);
   });
 
   it("matching consent retries reuse the saved fence after a private commit failure", async () => {
@@ -996,33 +1087,63 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     const login = await h.login();
     const input = { opId: "resumable", baseDecisionVersion: 0, participation: true };
     const privacy = databases.PRIVACY_CONTROL_DB;
-    const unavailable: PersonalEnv = { ...databases, PRIVACY_CONTROL_DB: {
-      prepare(sql) {
-        if (sql.startsWith("INSERT INTO consent_decisions")) throw new Error("commit_unavailable");
-        return privacy.prepare(sql);
+    const unavailable: PersonalEnv = {
+      ...databases,
+      PRIVACY_CONTROL_DB: {
+        prepare(sql) {
+          if (sql.startsWith("INSERT INTO consent_decisions"))
+            throw new Error("commit_unavailable");
+          return privacy.prepare(sql);
+        },
+        batch: (statements) => privacy.batch(statements),
+        exec: (sql) => privacy.exec(sql),
       },
-      batch: (statements) => privacy.batch(statements),
-      exec: (sql) => privacy.exec(sql),
-    } };
-    const failed = await h.worker.fetch(new Request(`${TEST_ORIGIN}/v1/consent`, {
-      method: "PUT", headers: {
-        Origin: TEST_ORIGIN, Cookie: login.cookie, "Content-Type": "application/json",
-        "If-Account-Match": `"${h.accountId(login.cookie)}"`,
-      }, body: JSON.stringify(input),
-    }), unavailable);
+    };
+    const failed = await h.worker.fetch(
+      new Request(`${TEST_ORIGIN}/v1/consent`, {
+        method: "PUT",
+        headers: {
+          Origin: TEST_ORIGIN,
+          Cookie: login.cookie,
+          "Content-Type": "application/json",
+          "If-Account-Match": `"${h.accountId(login.cookie)}"`,
+        },
+        body: JSON.stringify(input),
+      }),
+      unavailable,
+    );
     expect(failed.status).toBe(503);
-    expect((await databases.PUBLIC_AGGREGATE_DB.prepare("SELECT generation FROM privacy_fence")
-      .first<{ generation: number }>())?.generation).toBe(1);
-    const collision = await h.mutate("/v1/consent",
-      { ...input, participation: false }, login.cookie, "PUT");
+    expect(
+      (
+        await databases.PUBLIC_AGGREGATE_DB.prepare("SELECT generation FROM privacy_fence").first<{
+          generation: number;
+        }>()
+      )?.generation,
+    ).toBe(1);
+    const collision = await h.mutate(
+      "/v1/consent",
+      { ...input, participation: false },
+      login.cookie,
+      "PUT",
+    );
     expect(collision.status).toBe(409);
     expect(await collision.json()).toEqual({ error: "op_id_conflict" });
     expect((await h.mutate("/v1/consent", input, login.cookie, "PUT")).status).toBe(200);
     expect((await h.mutate("/v1/consent", input, login.cookie, "PUT")).status).toBe(200);
-    expect((await databases.PUBLIC_AGGREGATE_DB.prepare("SELECT generation FROM privacy_fence")
-      .first<{ generation: number }>())?.generation).toBe(1);
-    expect((await databases.PRIVACY_CONTROL_DB.prepare("SELECT decision_version FROM consent_decisions")
-      .first<{ decision_version: number }>())?.decision_version).toBe(1);
+    expect(
+      (
+        await databases.PUBLIC_AGGREGATE_DB.prepare("SELECT generation FROM privacy_fence").first<{
+          generation: number;
+        }>()
+      )?.generation,
+    ).toBe(1);
+    expect(
+      (
+        await databases.PRIVACY_CONTROL_DB.prepare(
+          "SELECT decision_version FROM consent_decisions",
+        ).first<{ decision_version: number }>()
+      )?.decision_version,
+    ).toBe(1);
   });
 
   it("callback removes a deleted account restored into PERSONAL before provisioning a fresh rejoin", async () => {
@@ -1034,20 +1155,27 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       databases.PERSONAL_DB.prepare(
         "INSERT INTO accounts (user_id, created_at, last_active_at) VALUES (?, ?, ?)",
       ).bind(oldId, h.time(), h.time()),
-      databases.PERSONAL_DB.prepare("INSERT INTO identities VALUES ('https://accounts.google.com', 'alice', ?)")
-        .bind(oldId),
       databases.PERSONAL_DB.prepare(
-        "INSERT INTO workspaces (user_id, document) VALUES (?, '{\"schemaVersion\":1,\"items\":[\"restored-old-data\"],\"lifetimeStages\":[]}')",
+        "INSERT INTO identities VALUES ('https://accounts.google.com', 'alice', ?)",
+      ).bind(oldId),
+      databases.PERSONAL_DB.prepare(
+        'INSERT INTO workspaces (user_id, document) VALUES (?, \'{"schemaVersion":1,"items":["restored-old-data"],"lifetimeStages":[]}\')',
       ).bind(oldId),
     ]);
     const fresh = await h.login();
     expect(fresh.result.status).toBe(200);
     expect(h.accountId(fresh.cookie)).not.toBe(oldId);
     expect((await h.account(fresh.cookie)).status).toBe(200);
-    expect((await databases.PERSONAL_DB.prepare(
-      "SELECT count(*) AS n FROM accounts WHERE user_id = ?",
-    ).bind(oldId).first<{ n: number }>())?.n).toBe(0);
-    const workspace = await (await h.request("/v1/workspace", { headers: { Cookie: fresh.cookie } })).json();
+    expect(
+      (
+        await databases.PERSONAL_DB.prepare("SELECT count(*) AS n FROM accounts WHERE user_id = ?")
+          .bind(oldId)
+          .first<{ n: number }>()
+      )?.n,
+    ).toBe(0);
+    const workspace = await (
+      await h.request("/v1/workspace", { headers: { Cookie: fresh.cookie } })
+    ).json();
     expect(workspace).toMatchObject({ revision: 0, document: { items: [] } });
   });
 

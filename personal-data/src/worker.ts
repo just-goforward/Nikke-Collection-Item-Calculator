@@ -16,7 +16,12 @@ import {
   touchSession,
 } from "./auth";
 import {
-  consentBody, getConsent, putConsent, queueDeletion, resumeDeletion, runPrivacyMaintenance,
+  consentBody,
+  getConsent,
+  putConsent,
+  queueDeletion,
+  resumeDeletion,
+  runPrivacyMaintenance,
 } from "./consent";
 import type { Archive, PersonalExport, SelfPercentile, StageSummary } from "./contracts";
 import { googleProvider, settings } from "./google";
@@ -30,6 +35,7 @@ import {
   sameOrigin,
   workspaceBody,
 } from "./http";
+import { reapplyUserTombstones } from "./privacy";
 import {
   getWorkspace,
   provisioningStatements,
@@ -39,7 +45,6 @@ import {
   workspaceResult,
 } from "./store";
 import type { PersonalEnv } from "./types";
-import { reapplyUserTombstones } from "./privacy";
 
 const routes: Record<string, readonly string[]> = {
   "/auth/login/google": ["POST"],
@@ -191,7 +196,9 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
       if (existing) {
         const deleted = await env.PRIVACY_CONTROL_DB.prepare(
           "SELECT 1 AS deleted FROM tombstones WHERE user_id = ? AND kind = 'deletion'",
-        ).bind(existing.user_id).first();
+        )
+          .bind(existing.user_id)
+          .first();
         if (deleted) await reapplyUserTombstones(env, existing.user_id);
       }
       if (existing?.blocked && !(await resumeDeletion(env, existing.user_id))) {
