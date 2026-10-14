@@ -237,7 +237,9 @@ describe("server session and OAuth transaction primitives (no OAuth provider)", 
     expect(await consumeOAuthTransaction(dbs.PERSONAL_DB, state, browser, NOW + 10_000)).toBeNull();
     const consumed = await Promise.all(Array.from({ length: 5 }, () =>
       consumeOAuthTransaction(dbs.PERSONAL_DB, state, browser, NOW)));
-    expect(consumed.filter(Boolean)).toEqual([{ verifier: "pkce-verifier", return_path: "/" }]);
+    expect(consumed.filter(Boolean)).toEqual([{
+      verifier: "pkce-verifier", return_path: "/", nonce: "", started_epoch: 0,
+    }]);
   });
 });
 
@@ -343,12 +345,14 @@ describe("cross-database privacy fence and restore safety", () => {
       .first<{ generation: number; blocked: number }>())).toEqual({ generation: 3, blocked: 1 });
   });
 
-  it("HTTP scaffold is fail-closed, no-store, cookie-free and public data fenced", async () => {
-    const privateResponse = await worker.fetch(new Request("https://local/v1/workspace"), dbs);
-    expect(privateResponse.status).toBe(501);
+  it("HTTP middleware is fail-closed, no-store, cookie-free for guests and public data fenced", async () => {
+    const local = { ...dbs, SITE_ORIGIN: "https://local", GOOGLE_CLIENT_ID: "local",
+      GOOGLE_CLIENT_SECRET: "local-only-test-value" };
+    const privateResponse = await worker.fetch(new Request("https://local/v1/workspace"), local);
+    expect(privateResponse.status).toBe(401);
     expect(privateResponse.headers.get("Cache-Control")).toBe("no-store");
     expect(privateResponse.headers.get("Set-Cookie")).toBeNull();
-    const publicResponse = await worker.fetch(new Request("https://local/v1/statistics"), dbs);
+    const publicResponse = await worker.fetch(new Request("https://local/v1/statistics"), local);
     expect(publicResponse.status).toBe(503);
     expect(await publicResponse.json()).toEqual({ error: "privacy_fenced" });
     expect(publicResponse.headers.get("Cache-Control")).toBe("no-store");

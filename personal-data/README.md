@@ -1,19 +1,19 @@
-# Personal-data Worker — M0 / M1 (local only)
+# Personal-data Worker — M0 / M1 / M3 (local only)
 
-This directory owns a separate, **disabled HTTP scaffold** and three local D1
-stores. No Google OAuth, production binding, cron, publication, deployment, or
-UI integration is enabled. Existing anonymous statistics remain separate and
-cookie-free. Guests retain all calculator functionality. Auth-library selection
-is pending the separate Better Auth 1.7.7 / maintained OIDC-library spike.
-`src/auth.ts:AuthAdapter` is the integration boundary, not an OAuth implementation.
+This directory owns a separate Google OIDC/session Worker and three local D1
+stores. No production binding, cron, publication, deployment, or UI integration
+is provisioned. Existing anonymous statistics remain separate and cookie-free.
+Guests retain all calculator functionality. M3 pins `openid-client` **6.8.8**
+with app-owned D1 sessions. Better Auth was rejected by the approved spike /
+Advisor decision; it does not meet this application's identity/session contract.
 
 ## M0 contracts
 
 `src/contracts.ts:Api` is the TypeScript wire-contract map. All timestamps are
 Unix milliseconds. Private routes require an authenticated account, origin/CSRF
-validation for mutations, and `Cache-Control: no-store`; these controls must be
-implemented before enabling routes. M1 responds with 501 (public statistics:
-503 while fenced) and no cookies. No routes currently disclose private data.
+validation for mutations, and `Cache-Control: no-store`. M3 implements these
+controls; missing configuration fails closed. Public statistics remain 503 while
+fenced. Private ownership is derived only from the authenticated session.
 
 | Route | Request / response |
 | --- | --- |
@@ -36,7 +36,7 @@ there is no indefinite replay promise.
 One account has exactly one workspace and one Google `(issuer, sub)` identity.
 Email is neither stored nor used to link accounts. Consent is asked once at first
 login (`null` = not decided, default exclusion), editable in settings, never a
-prerequisite for personal functionality. Consent API plumbing is M2.
+prerequisite for personal functionality. Consent API uses CAS and operation hashes.
 
 Stage summaries are lifetime, per-item/per-stage, editable in beta. Manual-entry
 and verification flags travel with them. Pre-signup income stays personal and
@@ -91,7 +91,7 @@ token. Session touches do not refresh the two-year inactivity clock. Only login
 and successful saves update `last_active_at` monotonically. Scheduling deletion
 after two calendar years without either is deferred; use the same fenced deletion path.
 OAuth transactions atomically consume once, bound to a browser hash and expiry;
-PKCE/state creation, callback validation and expiry cleanup are deferred.
+M3 implements PKCE/state creation, callback validation and login-time expiry cleanup.
 
 ## Cross-store fence ordering and restore safety
 
@@ -129,6 +129,8 @@ decision generation, not tombstone removal.
 Matches `stats-observer/` tooling: installed `@cloudflare/vitest-plugin` 1.4.1,
 Vitest 5.0.4, Wrangler 4.150.0, TypeScript 7.0.2, compatibility 2026-08-22.
 Tests run actual local Miniflare/workerd D1 bindings, not SQLite mocks.
+Test files serialize their storage reset/migration lanes; race cases explicitly
+use concurrent requests within each fixture.
 The existing plugin brings Miniflare `5.20261006.2-beta` transitively; this is
 existing project tooling, not a new direct prerelease selection.
 
@@ -147,10 +149,9 @@ npx --no-install wrangler d1 migrations apply PRIVACY_CONTROL_DB --local --confi
 npx --no-install wrangler d1 migrations apply PUBLIC_AGGREGATE_DB --local --config personal-data/wrangler.toml
 ```
 
-No install or root manifest/lockfile change is needed for these local checks.
-Future integration requires adding `personal-data` to root workspaces and
-updating its lockfile and worker-test/typecheck scripts, with separate approval;
-no `.github/workflows` changes are made here.
+M3 registers `personal-data` as a root npm workspace, adds `test:personal-data`
+to `test:workers` and adds its typecheck to the root typecheck chain. Its exact
+dependency and workspace records are in the root lockfile. No workflow changes.
 
 ## Documentation evidence
 
@@ -174,3 +175,116 @@ Read-only official Cloudflare documentation retrieved for M1 on 2026-10-14 UTC:
   used to parse the real three migration directories for these tests.
 
 No account metadata, remote SQL, secrets or Cloudflare account APIs were read.
+
+## M3 HTTP, trust boundaries and activity
+
+New auth contracts: POST `/auth/login/google` with `{}` returns
+`{authorizationUrl}` and an HttpOnly flow cookie. The caller navigates to that
+fixed Google URL. GET `/auth/callback/google` returns an **inert database-wise**
+nonce-CSP HTML bridge; it removes the query from browser history and POSTs
+`{parameters: originalQueryString}` to the same path. Only the same-origin POST
+consumes the flow and returns `{redirect:"/"}` plus the session cookie. This
+deliberately avoids a state-changing cross-site GET: **every mutating endpoint,
+including callback POST, checks exact Origin and rejects Sec-Fetch-Site values
+other than absent or same-origin**. All callback responses are no-store and
+no-referrer. The bridge has no externally hosted scripts, raw-query interpolation
+or logging. Browser/UI verification remains a separate integration stage.
+
+GET `/v1/account` returns authenticated account ID and consent; POST
+`/auth/logout` revokes the current session. Existing site allowlist aliases are
+supported unchanged: GET `/api/auth/session`, DELETE `/api/auth/session`
+(current-session logout, **not account deletion**), POST `/api/auth/logout`,
+GET/PUT `/api/personal/settings` (consent contract). M0 workspace/export/consent/
+DELETE account/revoke-all/public/self-percentile paths are implemented as above.
+
+Config is server-owned: HTTPS `SITE_ORIGIN`, `GOOGLE_CLIENT_ID`, separately
+supplied `GOOGLE_CLIENT_SECRET`; redirect is exactly
+`SITE_ORIGIN + "/auth/callback/google"`. No request can choose provider, issuer,
+client, redirect, scope, account or workspace ID. Discovery, authorization,
+token and JWKS endpoints are exact allowlisted Google URLs; outgoing redirects
+are forbidden. Scope is only `openid`; no userinfo/refresh request is made and
+no ID/access/refresh token is persisted.
+
+Issuer policy is **canonical-only**: signed tokens must have
+`iss=https://accounts.google.com`; the legacy `iss=accounts.google.com` is
+explicitly rejected, not rewritten before signature verification and not
+provisioned as a second identity. This conservative interoperability choice is
+covered by tests and must be considered in Security/product review. Supporting
+the legacy alias later requires a documented library-compatible validation
+design, not mutation of signed claims.
+
+`enableNonRepudiationChecks` is mandatory; library checks require signature,
+iss, aud, exp, iat and nonce. App additionally rejects unexpected azp even for
+a single audience. JWT clock tolerance is explicitly **30 seconds**; session
+idle/absolute deadlines use strict `>` with **zero tolerance**. Only successful
+user PUT saves/consent decisions refresh session idle expiry and cookie; GETs,
+background polling and failed mutations never do. Login and winning saves update
+the separate account inactivity timestamp; session activity does not postpone
+the two-calendar-year login/save policy.
+
+Flow TTL is 10 minutes. Expired flows and sessions are cleaned at login; callbacks
+DELETE…RETURNING state/verifier/nonce/epoch atomically **before** exchange.
+Any exchange/validation failure requires a fresh login. Limits are 10 login
+attempts/minute/hashed trusted ingress IP, 100/minute globally, and 300 pending
+flows; missing ingress IP shares one bucket. Rate buckets expire at the next
+minute cleanup; no raw IP is stored. Ingress must preserve trusted CF headers
+and direct public access must remain disabled. POST/PUT/DELETE JSON body limit
+is 2,000,000 streamed bytes, IDs are ASCII 1–128 characters, workspace JSON
+nesting is at most 32, and duplicate stage keys/unknown ownership fields fail.
+This is a security request envelope, not a replacement for archive quota.
+Fixed per-request outbound timeout is 5 seconds. Configuration discovery is
+single-flight per isolate and reused; its library JWKS cache is reused, with
+in-flight discovery/JWKS GET coalescing. oauth4webapi 3.8.8 refreshes cached keys
+after 300 seconds and an unknown kid after a 60-second cooldown. During that
+cooldown a legitimate newly rotated kid may fail closed and require restart.
+There is no unbounded retry or global cache/lock spanning isolates.
+
+Revocation guarantee: a PERSONAL_DB batch advances a monotonic global login
+epoch, writes that epoch to the account and deletes all its sessions. Each flow
+captures the global epoch when created (even anonymous flows). Callback's
+atomic provisioning/session batch requires account epoch <= flow start epoch.
+Thus either callback commits first and revoke deletes it, or revoke commits
+first and callback cannot mint the session. Other accounts are unaffected.
+Future authorization checks see revocation immediately on primary D1.
+Requests authorized before revocation may complete; revoke-all does not retract
+already returned data or cancel an already authorized save/consent operation.
+
+DELETE account first commits the PUBLIC fence, then blocks the identity/account
+and invalidates sessions in PERSONAL, then commits the PRIVACY tombstone.
+A local deletion outbox survives a crash and is retried on subsequent requests;
+the blocked identity survives account cascade so a delayed callback cannot
+recreate it. Restored identities are also denied by PRIVACY deletion tombstones.
+Consent re-opt-in uses a later fence generation; old withdrawal tombstones are
+retained but do not override a newer authoritative opt-in. Public publication
+still has no unblock path, and frozen ranks are served only for eligible,
+unfenced releases.
+
+### Evidence, integration and remaining launch gates
+
+Context7 `/panva/openid-client/v6.8.8`: discovery customFetch/timeout,
+authorizationCodeGrant nonce/state/PKCE checks, enableNonRepudiationChecks and
+clockTolerance. Installed dependency source confirms mandatory iss/aud/exp/iat,
+the azp single-audience gap (closed by the app), and JWKS refresh/cooldown behavior.
+Installed transitive versions: oauth4webapi 3.8.8, jose 6.2.12.
+Cloudflare read-only docs:
+<https://developers.cloudflare.com/d1/best-practices/read-replication/> states
+that without the Sessions API all queries go to primary. Authorization uses
+direct binding queries, never withSession; first-primary alone would not keep
+subsequent queries on primary. Observability and invocation logs remain disabled,
+with no console/error/request logging; responses contain only allowlisted codes.
+
+DevOps owns `site-worker/`. Its existing three exact allowlist paths work with
+this Worker, but new routes require these explicit additions (no wildcard):
+POST `/auth/login/google`; GET/POST `/auth/callback/google`; POST `/auth/logout`;
+GET/DELETE `/v1/account`; GET/PUT `/v1/workspace`; GET `/v1/export`;
+GET/PUT `/v1/consent`; POST `/v1/sessions/revoke-all`;
+GET `/v1/statistics`; GET `/v1/self-percentile`.
+Provision the service binding/config/credential only under separate deployment
+approval. No site-worker edits or remote actions are included here.
+
+Remaining gates: independent Security review, browser bridge/UI tests, Google
+real-provider acceptance including canonical issuer policy, operational rate/
+quota budgets, inactivity scheduler, release/unblocking coordinator, and
+maintenance gating/reconciliation for any database restore. D1 tests simulate
+personal restore; they do not establish correctness of a live multi-database
+restore. Cross-store privacy is deliberately fail-closed, not transactional.

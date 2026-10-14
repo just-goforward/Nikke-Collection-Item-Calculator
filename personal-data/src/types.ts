@@ -18,4 +18,7 @@ export interface PersonalEnv {
   PERSONAL_DB: SqlDatabase;
   PRIVACY_CONTROL_DB: SqlDatabase;
   PUBLIC_AGGREGATE_DB: SqlDatabase;
+  SITE_ORIGIN?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
 }

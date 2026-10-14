@@ -6,6 +6,9 @@
     "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc --project tsconfig.json"
   },
+  "dependencies": {
+    "openid-client": "6.8.8"
+  },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.4.1",
     "typescript": "7.0.2",

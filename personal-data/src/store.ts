@@ -1,4 +1,4 @@
-import { sha256, type GoogleIdentity } from "./auth";
+import { identityHash, sha256, type GoogleIdentity } from "./auth";
 import type { Json, WorkspaceDocument, WorkspaceGet, WorkspacePut, WorkspacePutResult } from "./contracts";
 import type { SqlDatabase, SqlStatement } from "./types";
 
@@ -21,12 +21,22 @@ const usedBytes = `(length(CAST(w.document AS BLOB))
 export async function admitAccount(
   db: SqlDatabase, identity: GoogleIdentity, candidateUserId: string, now: number,
 ): Promise<{ userId: string } | { error: "beta_full" }> {
-  const results = await db.batch([
+  const results = await db.batch(await provisioningStatements(db, identity, candidateUserId, now));
+  const row = results[results.length - 1]?.results[0] as { user_id: string } | undefined;
+  return row ? { userId: row.user_id } : { error: "beta_full" };
+}
+
+/** Shared by admission tests and callback's atomic provision-plus-session batch. */
+export async function provisioningStatements(
+  db: SqlDatabase, identity: GoogleIdentity, candidateUserId: string, now: number,
+): Promise<SqlStatement[]> {
+  return [
     db.prepare(
       `INSERT INTO accounts (user_id, created_at, last_active_at)
        SELECT ?, ?, ? WHERE (SELECT count(*) FROM accounts) < 150
+       AND NOT EXISTS (SELECT 1 FROM blocked_identities WHERE identity_hash = ?)
        AND NOT EXISTS (SELECT 1 FROM identities WHERE issuer = ? AND subject = ?)`,
-    ).bind(candidateUserId, now, now, identity.issuer, identity.sub),
+    ).bind(candidateUserId, now, now, await identityHash(identity), identity.issuer, identity.sub),
     db.prepare(
       `INSERT INTO identities (issuer, subject, user_id)
        SELECT ?, ?, user_id FROM accounts WHERE user_id = ?
@@ -44,23 +54,34 @@ export async function admitAccount(
     db.prepare(
       "SELECT user_id FROM identities WHERE issuer = ? AND subject = ?",
     ).bind(identity.issuer, identity.sub),
-  ]);
-  const row = results[results.length - 1]?.results[0] as { user_id: string } | undefined;
-  return row ? { userId: row.user_id } : { error: "beta_full" };
+  ];
 }
 
-export async function getWorkspace(db: SqlDatabase, userId: string): Promise<WorkspaceGet | null> {
-  const row = await db.prepare(
+export interface WorkspaceRow {
+  revision: number;
+  last_op_id: string | null;
+  document: string;
+  quota_bytes: number;
+  bytes: number;
+}
+
+export function workspaceRead(db: SqlDatabase, userId: string): SqlStatement {
+  return db.prepare(
     `SELECT w.*, a.quota_bytes, ${usedBytes} AS bytes FROM workspaces w
      JOIN accounts a USING (user_id) WHERE w.user_id = ?`,
-  ).bind(userId).first<{
-    revision: number; last_op_id: string | null; document: string; quota_bytes: number; bytes: number;
-  }>();
+  ).bind(userId);
+}
+
+export function workspaceResult(row: WorkspaceRow | null): WorkspaceGet | null {
   return row && {
     revision: row.revision, lastOpId: row.last_op_id,
     document: JSON.parse(row.document) as WorkspaceDocument,
     quota: { bytes: row.bytes, limitBytes: row.quota_bytes, newArchivingBlocked: row.bytes >= row.quota_bytes },
   };
+}
+
+export async function getWorkspace(db: SqlDatabase, userId: string): Promise<WorkspaceGet | null> {
+  return workspaceResult(await workspaceRead(db, userId).first<WorkspaceRow>());
 }
 
 export async function putWorkspace(
@@ -105,12 +126,11 @@ export async function putWorkspace(
   statements.push(db.prepare(
     `DELETE FROM stage_summaries WHERE user_id = ? AND EXISTS (${winner})`,
   ).bind(userId, ...winnerArgs));
-  for (const stage of stages) {
-    statements.push(db.prepare(
+  statements.push(db.prepare(
       `INSERT INTO stage_summaries (user_id, item_id, stage, summary)
-       SELECT ?, ?, ?, ? WHERE EXISTS (${winner})`,
-    ).bind(userId, stage.itemId, stage.stage, canonical(stage as unknown as Json), ...winnerArgs));
-  }
+       SELECT ?, json_extract(value, '$.itemId'), json_extract(value, '$.stage'), value
+       FROM json_each(?) WHERE EXISTS (${winner})`,
+    ).bind(userId, canonical(stages as unknown as Json), ...winnerArgs));
   if (archive) {
     statements.push(
       db.prepare(

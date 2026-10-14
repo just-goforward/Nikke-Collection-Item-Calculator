@@ -12,6 +12,11 @@ enabled = false
 enabled = false
 invocation_logs = false
 
+[vars]
+SITE_ORIGIN = "https://app.example"
+GOOGLE_CLIENT_ID = "configure-google-client-id"
+# GOOGLE_CLIENT_SECRET must be supplied separately; no credential is committed.
+
 [[d1_databases]]
 binding = "PERSONAL_DB"
 database_name = "personal-data-local"

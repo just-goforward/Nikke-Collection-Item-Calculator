@@ -18,6 +18,8 @@ export default defineConfig({
     }),
   ],
   test: {
+    // Serialize fixture reset/migration lanes; intentional concurrency is exercised inside tests.
+    fileParallelism: false,
     // Same existing workaround as stats-observer: workers-sdk#16163.
     fsModuleCache: false,
     include: ["src/**/*.test.ts"],

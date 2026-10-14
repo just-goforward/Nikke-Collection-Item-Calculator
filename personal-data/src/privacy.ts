@@ -67,9 +67,11 @@ export async function reapplyTombstones(env: PersonalEnv): Promise<void> {
   for (;;) {
     const result = await env.PRIVACY_CONTROL_DB.batch([
       env.PRIVACY_CONTROL_DB.prepare(
-        `SELECT user_id, kind FROM tombstones
-         WHERE user_id > ? OR (user_id = ? AND kind > ?)
-         ORDER BY user_id, kind LIMIT 150`,
+        `SELECT t.user_id, t.kind FROM tombstones t
+         LEFT JOIN consent_decisions c ON c.user_id = t.user_id
+         WHERE (t.user_id > ? OR (t.user_id = ? AND t.kind > ?))
+         AND (t.kind = 'deletion' OR c.participation IS NOT 1 OR c.fence_generation <= t.fence_generation)
+         ORDER BY t.user_id, t.kind LIMIT 150`,
       ).bind(cursorUser, cursorUser, cursorKind),
     ]);
     const rows = result[0]?.results ?? [];

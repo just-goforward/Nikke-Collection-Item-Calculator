@@ -102,11 +102,19 @@ export interface SelfPercentile {
 
 export type ApiErrorCode =
   | "unauthenticated" | "beta_full" | "revision_conflict" | "op_id_conflict"
-  | "archive_quota_reached" | "invalid_request" | "privacy_fenced" | "not_implemented";
+  | "archive_quota_reached" | "invalid_request" | "privacy_fenced" | "not_implemented"
+  | "origin_rejected" | "auth_failed" | "rate_limited" | "request_too_large"
+  | "service_unavailable" | "not_found" | "method_not_allowed";
 export interface ApiError { error: ApiErrorCode }
 
 /** Contract map, not a claim these routes are enabled in M1. */
 export interface Api {
+  "POST /auth/login/google": { request: Record<string, never>; response: { authorizationUrl: string } };
+  "POST /auth/callback/google": { request: { parameters: string }; response: { redirect: "/" } };
+  "GET /v1/account": { response: {
+    authenticated: true; account: { userId: string }; consent: ConsentGet;
+  } };
+  "POST /auth/logout": { response: { loggedOut: true } };
   "GET /v1/workspace": { response: WorkspaceGet };
   "PUT /v1/workspace": { request: WorkspacePut; response: WorkspacePutResult };
   "GET /v1/export": { response: PersonalExport };
