@@ -1,8 +1,6 @@
 import * as z from "zod/mini";
 import type {
   ApiErrorCode,
-  ConsentGet,
-  ConsentPut,
   DeleteAccountRequest,
   PrivacyAccepted,
   RevokeAllRequest,
@@ -27,7 +25,6 @@ export type ApiResult<T> =
 type AccountInfo = {
   authenticated: true;
   account: { userId: string; generation: number };
-  consent: ConsentGet;
 };
 
 export type AccountApi = {
@@ -40,8 +37,6 @@ export type AccountApi = {
    */
   getWorkspace(userId: string): Promise<ApiResult<WorkspaceGet>>;
   putWorkspace(userId: string, body: WorkspacePut): Promise<ApiResult<WorkspacePutResult>>;
-  getConsent(userId: string): Promise<ApiResult<ConsentGet>>;
-  putConsent(userId: string, body: ConsentPut): Promise<ApiResult<ConsentGet | PrivacyAccepted>>;
   deleteAccount(userId: string, body: DeleteAccountRequest): Promise<ApiResult<PrivacyAccepted>>;
   revokeAll(userId: string, body: RevokeAllRequest): Promise<ApiResult<RevokeAllResult>>;
   exportData(userId: string): Promise<ApiResult<Record<string, unknown>>>;
@@ -49,16 +44,9 @@ export type AccountApi = {
 
 const COUNT = z.int().check(z.minimum(0));
 const USER_ID = z.string().check(z.regex(/^[A-Za-z0-9_-]{1,128}$/));
-const ConsentSchema = z.object({ participation: z.nullable(z.boolean()), decisionVersion: COUNT });
 const AccountSchema = z.object({
   authenticated: z.literal(true),
   account: z.object({ userId: USER_ID, generation: COUNT }),
-  consent: ConsentSchema,
-});
-const ConsentReadSchema = z.object({
-  userId: USER_ID,
-  participation: z.nullable(z.boolean()),
-  decisionVersion: COUNT,
 });
 const WorkspaceSchema = z.object({
   userId: USER_ID,
@@ -101,10 +89,6 @@ export function isHttpFailure(failure: ApiFailure, status: number, code?: ApiErr
     failure.status === status &&
     (code === undefined || failure.code === code)
   );
-}
-
-export function failureCode(failure: ApiFailure): string | null {
-  return failure.kind === "http" ? failure.code : null;
 }
 
 /** The server builds the authorization URL; only Google's fixed authorization origin is followed. */
@@ -195,26 +179,6 @@ export function createAccountApi(
         await send("PUT", "/v1/workspace", { body, accountId: userId }),
         PutResultSchema,
         [200, 409, 422],
-      ),
-    getConsent: async (userId) => {
-      const result = owned(
-        interpret(
-          await send("GET", "/v1/consent", { accountId: userId }),
-          ConsentReadSchema,
-          [200],
-        ),
-        userId,
-        (value) => [value.userId],
-      );
-      if (!result.ok) return result;
-      const { participation, decisionVersion } = result.value;
-      return { ...result, value: { participation, decisionVersion } };
-    },
-    putConsent: async (userId, body) =>
-      interpret(
-        await send("PUT", "/v1/consent", { body, accountId: userId }),
-        z.union([ConsentSchema, PrivacyAcceptedSchema]),
-        [200, 202],
       ),
     deleteAccount: async (userId, body) =>
       interpret(

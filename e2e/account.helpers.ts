@@ -26,16 +26,14 @@ export function calculatorDocument(blue: number) {
   };
 }
 
-/** Same-origin mock of the personal-data contract (CAS, account context, consent, privacy). */
+/** Same-origin mock of the personal-data contract (CAS, account context, privacy). */
 export class MockAccountApi {
   userId: string | null = null;
   revision = 0;
   document: unknown = { schemaVersion: 1, items: [], lifetimeStages: [] };
   quota = { bytes: 2_048, limitBytes: 1_500_000, newArchivingBlocked: false };
-  consent: { participation: boolean | null; decisionVersion: number } = {
-    participation: null,
-    decisionVersion: 0,
-  };
+  /** GET /v1/account still reports an undecided consent; the beta UI never asks or sends it. */
+  readonly consent = { participation: null, decisionVersion: 0 };
   nextPutError: { status: number; error: string } | null = null;
   failPuts = false;
   /** Answers the next N workspace reads with 503. */
@@ -110,14 +108,6 @@ export class MockAccountApi {
     if (route === "GET /v1/account") return this.account();
     if (route === "GET /v1/workspace") return this.workspace();
     if (route === "PUT /v1/workspace") return this.put(body as PutBody);
-    if (route === "PUT /v1/consent") {
-      this.consent = {
-        participation: body?.["participation"] === true,
-        decisionVersion: this.consent.decisionVersion + 1,
-      };
-      return [200, this.consent];
-    }
-    if (route === "GET /v1/consent") return [200, { ...this.consent, userId: this.userId }];
     if (route === "GET /v1/export") {
       return [
         200,
@@ -213,7 +203,6 @@ export async function deviceStores(page: Page) {
 export function signedInApi(blue: number, revision = 1) {
   const api = new MockAccountApi();
   api.userId = "user-a";
-  api.consent = { participation: false, decisionVersion: 1 };
   api.revision = revision;
   api.document = calculatorDocument(blue);
   return api;
@@ -285,7 +274,6 @@ export async function openCertifiedAccount(page: Page) {
 
 export async function certifiedApi(context: BrowserContext) {
   const api = new MockAccountApi();
-  api.consent = { participation: false, decisionVersion: 1 };
   await blockExternalRequests(context);
   await api.install(context);
   return api;

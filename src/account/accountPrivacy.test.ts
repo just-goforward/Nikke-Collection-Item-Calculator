@@ -4,7 +4,6 @@ import { exportFileName } from "./accountState";
 import {
   createFakeServer,
   createHarness,
-  failure,
   input,
   networkFailure,
   recordingChannel,
@@ -17,62 +16,20 @@ function signedIn(view: ReturnType<ReturnType<typeof createHarness>["view"]>): S
   return view;
 }
 
-describe("consent", () => {
-  it("asks once at first login and saves the explicit answer with CAS and account context", async () => {
-    const server = createFakeServer({ consent: { participation: null, decisionVersion: 0 } });
-    const harness = createHarness(server);
-    await harness.controller.start();
-    expect(signedIn(harness.view()).consentPrompt).toBe(true);
-    await harness.controller.setConsent(false);
-    const call = server.calls.find((entry) => entry.method === "putConsent");
-    expect(call).toMatchObject({
-      userId: "user-a",
-      body: { participation: false, baseDecisionVersion: 0, opId: "op-1" },
-    });
-    expect(signedIn(harness.view())).toMatchObject({
-      consentPrompt: false,
-      consent: { participation: false, decisionVersion: 1 },
-      busy: null,
-    });
-    expect(harness.notice()).toBe("consent_saved");
-  });
-
-  it("deciding later leaves the decision open without blocking personal features", async () => {
-    const server = createFakeServer({ consent: { participation: null, decisionVersion: 0 } });
-    const harness = createHarness(server);
-    await harness.controller.start();
-    harness.controller.dismissConsentPrompt();
-    expect(signedIn(harness.view()).consentPrompt).toBe(false);
-    harness.edit(input(3));
-    await harness.runTimers();
-    expect(signedIn(harness.view()).sync).toBe("synced");
-    expect(server.calls.some((entry) => entry.method === "putConsent")).toBe(false);
-  });
-
-  it("a stale decision version refetches the current consent", async () => {
-    const server = createFakeServer({ consent: { participation: false, decisionVersion: 1 } });
-    const harness = createHarness(server);
-    await harness.controller.start();
-    server.consent = { participation: true, decisionVersion: 2 };
-    await harness.controller.setConsent(true);
-    expect(signedIn(harness.view()).consent).toEqual({ participation: true, decisionVersion: 2 });
-    expect(harness.notice()).toBe("consent_conflict");
-  });
-
-  it("retries a pending consent change with the same opId", async () => {
+describe("public statistics during the beta", () => {
+  it("never asks or requests consent; personal features work as for everyone", async () => {
     const server = createFakeServer();
     const harness = createHarness(server);
     await harness.controller.start();
-    server.overrides.putConsent = [failure(409, "consent_change_pending"), networkFailure];
-    await harness.controller.setConsent(true);
-    expect(harness.notice()).toBe("consent_pending");
-    await harness.controller.setConsent(true);
-    await harness.controller.setConsent(true);
-    const opIds = server.calls
-      .filter((entry) => entry.method === "putConsent")
-      .map((entry) => (entry.body as { opId: string }).opId);
-    expect(opIds).toEqual(["op-1", "op-1", "op-1"]);
-    expect(signedIn(harness.view()).consent.participation).toBe(true);
+    harness.edit(input(3));
+    await harness.runTimers();
+    expect(signedIn(harness.view())).toMatchObject({ sync: "synced", busy: null });
+    expect(signedIn(harness.view())).not.toHaveProperty("consent");
+    expect([...new Set(server.calls.map((entry) => entry.method))]).toEqual([
+      "getAccount",
+      "getWorkspace",
+      "putWorkspace",
+    ]);
   });
 });
 

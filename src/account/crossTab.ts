@@ -3,7 +3,6 @@ export type CrossTabMessage =
   | { type: "account"; userId: string }
   | { type: "logged-out"; userId: string }
   | { type: "deleted"; userId: string }
-  | { type: "consent"; userId: string }
   | { type: "revision"; userId: string; revision: number };
 
 export type CrossTabChannel = {
@@ -13,7 +12,7 @@ export type CrossTabChannel = {
 };
 
 const ACCOUNT_CHANNEL_NAME = "collection-kit-account-v1";
-const USER_MESSAGE_TYPES = new Set(["account", "logged-out", "deleted", "consent"]);
+const USER_MESSAGE_TYPES = new Set(["account", "logged-out", "deleted"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

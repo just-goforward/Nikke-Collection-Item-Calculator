@@ -196,51 +196,15 @@ function StorageSection({ view }: { view: SignedInView }) {
   );
 }
 
-function consentStatusKey(participation: boolean | null): AccountMessageKey {
-  if (participation === null) return "consentCurrentUnset";
-  return participation ? "consentCurrentYes" : "consentCurrentNo";
-}
-
-function ConsentSettings({ controller, view }: { controller: AccountUi; view: SignedInView }) {
+/** Public statistics are not offered during the beta: no question, setting or request. */
+function PublicStatsNote() {
   const text = useAccountText();
-  const current = view.consent.participation;
-  const [choice, setChoice] = useState<boolean | null>(current);
-  useEffect(() => setChoice(current), [current]);
-  const busy = view.busy === "consent";
   return (
-    <section className={accountClasses.section} aria-labelledby="account-consent-heading">
-      <h3 id="account-consent-heading" className={accountClasses.heading}>
-        {text("consentHeading")}
+    <section className={accountClasses.section} aria-labelledby="account-public-stats-heading">
+      <h3 id="account-public-stats-heading" className={accountClasses.heading}>
+        {text("publicStatsHeading")}
       </h3>
-      <p className={accountClasses.text}>{text(consentStatusKey(current))}</p>
-      <fieldset className="m-0 grid gap-1 border-0 p-0">
-        <legend className={accountClasses.text}>{text("consentQuestion")}</legend>
-        {[true, false].map((value) => (
-          <label className={accountClasses.choice} key={String(value)}>
-            <input
-              type="radio"
-              name="account-consent"
-              checked={choice === value}
-              onChange={() => setChoice(value)}
-            />
-            {text(value ? "consentYes" : "consentNo")}
-          </label>
-        ))}
-      </fieldset>
-      <p className={accountClasses.text}>{text("consentDetail")}</p>
-      <div className={accountClasses.row}>
-        <button
-          className={accountClasses.button}
-          type="button"
-          aria-busy={busy}
-          disabled={busy || choice === null || choice === current}
-          onClick={() => {
-            if (choice !== null) void controller.setConsent(choice);
-          }}
-        >
-          {text("consentSave")}
-        </button>
-      </div>
+      <p className={accountClasses.text}>{text("publicStatsNote")}</p>
     </section>
   );
 }
@@ -414,67 +378,8 @@ export function AccountPanel({
       </p>
       <SyncSection controller={controller} persistent={persistent} view={view} />
       <StorageSection view={view} />
-      <ConsentSettings controller={controller} view={view} />
+      <PublicStatsNote />
       <SessionSections controller={controller} view={view} />
-    </ModalDialog>
-  );
-}
-
-/** First-login question with equal-weight answers; focus starts on the question, not a choice. */
-export function ConsentDialog({
-  busy,
-  onChoose,
-  onLater,
-  open,
-}: {
-  busy: boolean;
-  onChoose: (participation: boolean) => void;
-  onLater: () => void;
-  open: boolean;
-}) {
-  const text = useAccountText();
-  return (
-    <ModalDialog
-      open={open}
-      titleId="account-consent-title"
-      descriptionId="account-consent-detail"
-      onCancel={onLater}
-    >
-      <h2
-        id="account-consent-title"
-        className={accountClasses.title}
-        tabIndex={-1}
-        data-initial-focus
-      >
-        {text("consentHeading")}
-      </h2>
-      <p className={`${accountClasses.text} mt-2 font-semibold text-text`}>
-        {text("consentQuestion")}
-      </p>
-      <p id="account-consent-detail" className={`${accountClasses.text} mt-2`}>
-        {text("consentDetail")}
-      </p>
-      <div className={`${accountClasses.row} mt-4`}>
-        <button
-          className={accountClasses.button}
-          type="button"
-          disabled={busy}
-          onClick={() => onChoose(true)}
-        >
-          {text("consentYes")}
-        </button>
-        <button
-          className={accountClasses.button}
-          type="button"
-          disabled={busy}
-          onClick={() => onChoose(false)}
-        >
-          {text("consentNo")}
-        </button>
-        <button className={accountClasses.button} type="button" onClick={onLater}>
-          {text("consentLater")}
-        </button>
-      </div>
     </ModalDialog>
   );
 }

@@ -1,6 +1,4 @@
 import type {
-  ConsentGet,
-  ConsentPut,
   PrivacyAccepted,
   WorkspaceDocument,
   WorkspaceGet,
@@ -33,7 +31,6 @@ export type FakeServer = {
   quota: WorkspaceGet["quota"];
   /** The next N saves commit, but their answer is lost (a network failure after the commit). */
   loseAcks: number;
-  consent: ConsentGet;
   authorizationUrl: string;
   deletionStatus: PrivacyAccepted["status"];
   calls: Array<{ method: keyof AccountApi; userId?: string; body?: unknown }>;
@@ -55,7 +52,6 @@ export function createFakeServer(overrides: Partial<FakeServer> = {}): FakeServe
     loseAcks: 0,
     document: EMPTY_WORKSPACE_DOCUMENT,
     quota: { bytes: 120, limitBytes: 1_500_000, newArchivingBlocked: false },
-    consent: { participation: false, decisionVersion: 1 },
     authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth?client_id=test",
     deletionStatus: "complete",
     calls: [],
@@ -111,23 +107,6 @@ function fakePut(
   return ok({ status: "saved" as const, revision: server.revision, replayed: false });
 }
 
-function fakeConsentPut(
-  server: FakeServer,
-  userId: string,
-  body: ConsentPut,
-): ApiResult<ConsentGet> {
-  const rejected = contextFailure(server, userId);
-  if (rejected) return rejected;
-  if (body.baseDecisionVersion !== server.consent.decisionVersion) {
-    return failure(409, "revision_conflict");
-  }
-  server.consent = {
-    participation: body.participation,
-    decisionVersion: server.consent.decisionVersion + 1,
-  };
-  return ok(server.consent);
-}
-
 function fakeApi(server: FakeServer): AccountApi {
   const replays: Replays = new Map();
   function call<T>(
@@ -152,7 +131,6 @@ function fakeApi(server: FakeServer): AccountApi {
         signedIn(() => ({
           authenticated: true as const,
           account: { userId: server.userId ?? "", generation: 1 },
-          consent: server.consent,
         })),
       ),
     startLogin: () =>
@@ -183,9 +161,6 @@ function fakeApi(server: FakeServer): AccountApi {
       server.beforePut?.();
       return call("putWorkspace", () => fakePut(server, replays, userId, body), userId, body);
     },
-    getConsent: (userId) => call("getConsent", () => bound(userId, () => server.consent), userId),
-    putConsent: (userId, body) =>
-      call("putConsent", () => fakeConsentPut(server, userId, body), userId, body),
     deleteAccount: (userId, body) =>
       call(
         "deleteAccount",

@@ -106,22 +106,15 @@ describe("account API client", () => {
     });
     const { api, fetchImpl } = stub(
       jsonResponse(200, { ...workspace, userId: "user-a" }),
-      jsonResponse(200, { participation: true, decisionVersion: 3, userId: "user-a" }),
       jsonResponse(200, exported("user-a", "user-a")),
       // A server or proxy answering for another account (the cookie switched meanwhile).
       jsonResponse(200, { ...workspace, userId: "user-b" }),
-      jsonResponse(200, { participation: true, decisionVersion: 3, userId: "user-b" }),
       jsonResponse(200, exported("user-a", "user-b")),
       jsonResponse(409, { error: "account_context_stale" }),
     );
     expect(await api.getWorkspace("user-a")).toMatchObject({
       ok: true,
       value: { userId: "user-a" },
-    });
-    expect(await api.getConsent("user-a")).toEqual({
-      ok: true,
-      status: 200,
-      value: { participation: true, decisionVersion: 3 },
     });
     expect(await api.exportData("user-a")).toMatchObject({
       ok: true,
@@ -132,37 +125,32 @@ describe("account API client", () => {
       failure: { kind: "http", status: 409, code: "account_context_stale" },
     };
     expect(await api.getWorkspace("user-a")).toEqual(stale);
-    expect(await api.getConsent("user-a")).toEqual(stale);
     expect(await api.exportData("user-a")).toEqual(stale);
     expect(await api.getWorkspace("user-a")).toEqual(stale);
-    for (const index of [0, 1, 2, 3, 4, 5, 6]) {
+    for (const index of [0, 1, 2, 3, 4]) {
       const { headers, init } = requestAt(fetchImpl, index);
       expect(init).toMatchObject({ method: "GET", credentials: "same-origin" });
       expect(headers.get("If-Account-Match")).toBe('"user-a"');
     }
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       "/v1/workspace",
-      "/v1/consent",
       "/v1/export",
       "/v1/workspace",
-      "/v1/consent",
       "/v1/export",
       "/v1/workspace",
     ]);
   });
 
-  it("uses the contract bodies for login, logout, consent, deletion and revoke-all", async () => {
+  it("uses the contract bodies for login, logout, deletion and revoke-all", async () => {
     const accepted = { operationId: "p", status: "pending", fenceGeneration: 1 };
     const { api, fetchImpl } = stub(
       jsonResponse(200, { authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth" }),
       jsonResponse(200, { loggedOut: true }),
       jsonResponse(202, accepted),
-      jsonResponse(202, accepted),
       jsonResponse(200, { revoked: true }),
     );
     await api.startLogin();
     await api.logout();
-    await api.putConsent("u", { participation: false, baseDecisionVersion: 2, opId: "c" });
     expect(await api.deleteAccount("u", { opId: "d" })).toMatchObject({ ok: true, status: 202 });
     await api.revokeAll("u", { opId: "r" });
     const sent = fetchImpl.mock.calls.map(([url, init]) => [
@@ -174,7 +162,6 @@ describe("account API client", () => {
     expect(sent).toEqual([
       ["POST", "/auth/login/google", "{}", null],
       ["POST", "/auth/logout", null, null],
-      ["PUT", "/v1/consent", '{"participation":false,"baseDecisionVersion":2,"opId":"c"}', '"u"'],
       ["DELETE", "/v1/account", '{"opId":"d"}', '"u"'],
       ["POST", "/v1/sessions/revoke-all", '{"opId":"r"}', '"u"'],
     ]);

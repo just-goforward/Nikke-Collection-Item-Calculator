@@ -3,7 +3,6 @@ import {
   AccountPanel,
   accountClasses,
   ConflictDialog,
-  ConsentDialog,
   InputSummary,
   SignOutDialog,
   useAccountText,
@@ -403,12 +402,6 @@ function AccountEntryReady(props: AccountEntryProps) {
             persistent={snapshot.persistent}
             view={signedIn}
             onClose={() => setPanelOpen(false)}
-          />
-          <ConsentDialog
-            open={signedIn.consentPrompt && !panelOpen && signedIn.conflict === null}
-            busy={signedIn.busy === "consent"}
-            onChoose={(participation) => void controller.setConsent(participation)}
-            onLater={() => controller.dismissConsentPrompt()}
           />
           <ConflictDialog
             conflict={signedIn.conflict}

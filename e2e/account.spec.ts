@@ -81,7 +81,7 @@ test("account UI and its chunk stay off without the staging flag", async ({ page
   expect(traces.locks.filter((name) => name?.startsWith("collection-kit-account"))).toEqual([]);
 });
 
-test("guest sign-in, first-login consent, synced edits and logout keep data separate", async ({
+test("guest sign-in without a statistics question, synced edits and logout keep data separate", async ({
   page,
   context,
 }) => {
@@ -100,16 +100,9 @@ test("guest sign-in, first-login consent, synced edits and logout keep data sepa
   // The callback bridge has completed; the HttpOnly session now belongs to user-a.
   api.userId = "user-a";
   await openApp(page);
-  const consent = page.getByRole("dialog", { name: "공개 주간 통계 참여" });
-  await expect(consent).toBeVisible();
-  await expect(consent.getByRole("heading", { name: "공개 주간 통계 참여" })).toBeFocused();
-  await consent.getByRole("button", { name: "참여하지 않기" }).click();
-  await expect(consent).toBeHidden();
-  const consentPut = api.requests.find(
-    (entry) => entry.method === "PUT" && entry.path === "/v1/consent",
-  );
-  expect(consentPut?.headers["if-account-match"]).toBe('"user-a"');
-  expect(consentPut?.body).toMatchObject({ participation: false, baseDecisionVersion: 0 });
+  // Public statistics are not offered during the beta: no question, even while undecided.
+  await expect(accountTrigger(page)).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 
   await expect(beginnerKit(page)).not.toHaveValue("73");
   await setBeginnerKit(page, "41");
@@ -131,6 +124,9 @@ test("guest sign-in, first-login consent, synced edits and logout keep data sepa
   await page.keyboard.press("Enter");
   const panel = page.getByRole("dialog", { name: "계정", exact: true });
   await expect(panel.getByRole("button", { name: "닫기" })).toBeFocused();
+  await expect(panel.getByRole("heading", { name: "공개 통계" })).toBeVisible();
+  await expect(panel.getByText("공개 주간 통계는 베타가 끝난 뒤 제공할 예정입니다.")).toBeVisible();
+  await expect(panel.getByRole("radio")).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(panel).toBeHidden();
   await expect(accountTrigger(page)).toBeFocused();
@@ -148,6 +144,7 @@ test("guest sign-in, first-login consent, synced edits and logout keep data sepa
     (entry) => entry.method === "GET" && entry.path === "/v1/workspace",
   );
   expect(workspaceRead?.headers["if-account-match"]).toBe('"user-a"');
+  expect(api.requests.filter((entry) => /consent|percentile/.test(entry.path))).toEqual([]);
 });
 
 test("revision conflicts offer cancel, overwrite and keep-server choices", async ({
@@ -264,17 +261,13 @@ test("export downloads JSON and deletion needs explicit confirmation", async ({
   expect((await deviceStores(page)).accounts).toEqual([]);
 });
 
-test("consent and account dialogs have no WCAG A/AA violations", async ({ page, context }) => {
+test("the account dialog has no WCAG A/AA violations", async ({ page, context }) => {
   const api = signedInApi(10);
-  api.consent = { participation: null, decisionVersion: 0 };
   await api.install(context);
   await enableAccountFlag(page);
   await openApp(page);
   const axe = () =>
     new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
-  await expect(page.getByRole("dialog", { name: "공개 주간 통계 참여" })).toBeVisible();
-  expect((await axe()).violations).toEqual([]);
-  await page.getByRole("button", { name: "나중에 결정" }).click();
   await accountTrigger(page).click();
   await expect(page.getByRole("dialog", { name: "계정", exact: true })).toBeVisible();
   expect((await axe()).violations).toEqual([]);
@@ -307,7 +300,6 @@ test("tabs follow each other's saves and sign-out", async ({ context }) => {
 
 test("an empty account offers an explicit copy of the guest inputs", async ({ page, context }) => {
   const api = new MockAccountApi();
-  api.consent = { participation: false, decisionVersion: 1 };
   await api.install(context);
   await enableAccountFlag(page);
   await openApp(page);

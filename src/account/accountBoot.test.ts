@@ -164,7 +164,6 @@ describe("workspace unavailable after the account check", () => {
     expect(harness.view()).toEqual({
       phase: "unavailable",
       userId: "user-a",
-      consent: server.consent,
     });
     expect(harness.notice()).toBe("account_unavailable");
     // The redirect's guest inputs are shown; nothing account-related is.

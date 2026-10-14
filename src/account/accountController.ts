@@ -1,4 +1,3 @@
-import type { ConsentGet } from "../../personal-data/src/contracts";
 import { type Session, UNKNOWN_BASE_KEY } from "./accountControllerBase";
 import {
   type AccountControllerDeps,
@@ -12,7 +11,7 @@ import {
   staleReasonFor,
 } from "./accountState";
 import { AccountSync, nextBackoff } from "./accountSync";
-import { type ApiFailure, failureCode, isGoogleAuthorizationUrl, isHttpFailure } from "./api";
+import { type ApiFailure, isGoogleAuthorizationUrl, isHttpFailure } from "./api";
 import type { CrossTabMessage } from "./crossTab";
 import { EMPTY_WORKSPACE_DOCUMENT } from "./workspaceDocument";
 
@@ -31,9 +30,7 @@ function sameIdentity(a: AccountView, b: AccountView): boolean {
 export type AccountUi = Omit<AccountController<unknown>, "notifyLocalChange">;
 
 export class AccountController<T> extends AccountSync<T> {
-  private pendingConsent: { participation: boolean; base: number; opId: string } | null = null;
   private pendingDeleteOpId: string | null = null;
-  private consentDismissed = false;
   /** The page-level account check timed out while loading; a late result must not apply. */
   private bootAbandoned = false;
   /** The one restore of guest inputs saved before a sign-in redirect (boot and timeout share it). */
@@ -78,9 +75,6 @@ export class AccountController<T> extends AccountSync<T> {
   exportData() {
     return this.enqueue(() => this.downloadExport());
   }
-  setConsent(participation: boolean) {
-    return this.enqueue(() => this.saveConsent(participation));
-  }
   resolveConflict(choice: ConflictChoice) {
     return this.enqueue(() => this.applyConflictChoice(choice));
   }
@@ -124,10 +118,6 @@ export class AccountController<T> extends AccountSync<T> {
     this.notify("account_check_timeout");
     if (restore) await this.restoreGuestAfterRedirect();
   }
-  dismissConsentPrompt() {
-    this.consentDismissed = true;
-    this.patchSignedIn({ consentPrompt: false });
-  }
 
   protected override markStale(reason: StaleReason) {
     this.cancelEntryRetry();
@@ -148,7 +138,7 @@ export class AccountController<T> extends AccountSync<T> {
       return;
     }
     if (result.ok) {
-      await this.enterAccount(result.value.account.userId, result.value.consent, true);
+      await this.enterAccount(result.value.account.userId, true);
       return;
     }
     await this.enterGuest("boot");
@@ -230,7 +220,7 @@ export class AccountController<T> extends AccountSync<T> {
   }
 
   /** `boot`: the page-load check, whose result no longer applies once the check timed out. */
-  private async enterAccount(userId: string, consent: ConsentGet, boot: boolean) {
+  private async enterAccount(userId: string, boot: boolean) {
     const [workspace, drafts, guestValue] = await Promise.all([
       this.deps.api.getWorkspace(userId),
       this.recoverableDrafts(userId),
@@ -241,7 +231,7 @@ export class AccountController<T> extends AccountSync<T> {
       return;
     }
     if (!workspace.ok) {
-      await this.workspaceUnavailable(userId, consent, workspace.failure);
+      await this.workspaceUnavailable(userId, workspace.failure);
       return;
     }
     this.cancelEntryRetry();
@@ -281,8 +271,7 @@ export class AccountController<T> extends AccountSync<T> {
     };
     this.session = session;
     this.setView(
-      this.signedInView(userId, consent, {
-        consentPrompt: consent.participation === null && !this.consentDismissed,
+      this.signedInView(userId, {
         revision: session.revision,
         quota: workspace.value.quota,
         archivingBlocked: workspace.value.quota.newArchivingBlocked,
@@ -315,7 +304,7 @@ export class AccountController<T> extends AccountSync<T> {
    * Signed in, but without the workspace nothing can be shown or saved: guest data stays shown,
    * clearly marked as "account not loaded", while entry is retried with backoff and on `online`.
    */
-  private async workspaceUnavailable(userId: string, consent: ConsentGet, failure: ApiFailure) {
+  private async workspaceUnavailable(userId: string, failure: ApiFailure) {
     const stale = staleReasonFor(failure);
     if (stale) {
       this.markStale(stale);
@@ -330,7 +319,7 @@ export class AccountController<T> extends AccountSync<T> {
       this.cancelEntryRetry();
       return;
     }
-    this.setView({ phase: "unavailable", userId, consent });
+    this.setView({ phase: "unavailable", userId });
     this.notify("account_unavailable");
     this.scheduleEntryRetry();
   }
@@ -371,19 +360,16 @@ export class AccountController<T> extends AccountSync<T> {
       this.markStale("account_changed");
       return;
     }
-    await this.enterAccount(view.userId, result.value.consent, false);
+    await this.enterAccount(view.userId, false);
   }
 
   private signedInView(
     userId: string,
-    consent: ConsentGet,
-    fields: Partial<Omit<SignedInView, "phase" | "userId" | "consent">>,
+    fields: Partial<Omit<SignedInView, "phase" | "userId">>,
   ): SignedInView {
     return {
       phase: "signed-in",
       userId,
-      consent,
-      consentPrompt: false,
       sync: "synced",
       revision: 0,
       quota: null,
@@ -436,20 +422,15 @@ export class AccountController<T> extends AccountSync<T> {
       if (message.type === "account") this.markStale("account_changed");
       return;
     }
-    await this.ownAccountMessage(view.phase === "unavailable", view.userId, message);
+    await this.ownAccountMessage(view.phase === "unavailable", message);
   }
 
-  private async ownAccountMessage(
-    unavailable: boolean,
-    userId: string,
-    message: CrossTabMessage,
-  ): Promise<void> {
+  private async ownAccountMessage(unavailable: boolean, message: CrossTabMessage): Promise<void> {
     if (message.type === "logged-out") return this.leave("logged_out_elsewhere", null, "keep");
     if (message.type === "deleted") return this.leave("deleted", null, "account");
     // Another tab reached the server: try entering the account again.
     if (unavailable) return this.retryEntry();
     if (message.type === "revision") return this.remoteRevision(message.revision);
-    if (message.type === "consent") return this.refreshConsent(userId, null, null);
   }
 
   /** Detects sign-in changes that happened while this tab was hidden or its broadcast was missed. */
@@ -474,12 +455,7 @@ export class AccountController<T> extends AccountSync<T> {
     }
     if (result.value.account.userId !== view.userId) {
       this.markStale("account_changed");
-      return;
     }
-    this.patchSignedIn({
-      consent: result.value.consent,
-      consentPrompt: result.value.consent.participation === null && !this.consentDismissed,
-    });
   }
 
   // ---- login, logout, revoke, deletion, export ----
@@ -639,75 +615,5 @@ export class AccountController<T> extends AccountSync<T> {
       `${JSON.stringify(result.value, null, 2)}\n`,
     );
     this.notify("export_ready");
-  }
-
-  // ---- consent ----
-
-  private async saveConsent(participation: boolean) {
-    const view = this.signedIn();
-    if (!view) return;
-    const base = view.consent.decisionVersion;
-    const pending = this.pendingConsent;
-    // Retrying the same decision reuses its opId so an unfinished reservation resumes.
-    const op =
-      pending?.participation === participation && pending.base === base
-        ? pending
-        : { participation, base, opId: this.deps.newOpId() };
-    this.pendingConsent = op;
-    this.patchSignedIn({ busy: "consent" });
-    const result = await this.deps.api.putConsent(view.userId, {
-      participation,
-      baseDecisionVersion: base,
-      opId: op.opId,
-    });
-    if (this.signedIn()?.userId !== view.userId) return;
-    if (result.ok) {
-      this.pendingConsent = null;
-      const known = "participation" in result.value ? result.value : null;
-      await this.refreshConsent(view.userId, known, "consent_saved");
-      this.deps.channel.post({ type: "consent", userId: view.userId });
-      return;
-    }
-    await this.consentFailure(view.userId, result.failure);
-  }
-
-  private async consentFailure(userId: string, failure: ApiFailure) {
-    const code = failureCode(failure);
-    if (code === "revision_conflict" || code === "op_id_conflict") this.pendingConsent = null;
-    if (code === "revision_conflict") {
-      await this.refreshConsent(userId, null, "consent_conflict");
-      return;
-    }
-    await this.privateFailure(failure, () => {
-      this.patchSignedIn({ busy: null });
-      this.notify(noticeFor(failure));
-    });
-  }
-
-  private async refreshConsent(
-    userId: string,
-    known: ConsentGet | null,
-    notice: AccountNotice | null,
-  ) {
-    let consent = known;
-    if (!consent) {
-      const fresh = await this.deps.api.getConsent(userId);
-      if (this.signedIn()?.userId !== userId) return;
-      if (!fresh.ok) {
-        await this.privateFailure(fresh.failure, () => {
-          this.patchSignedIn({ busy: null });
-          this.notify(notice ?? noticeFor(fresh.failure));
-        });
-        return;
-      }
-      consent = fresh.value;
-    }
-    if (this.signedIn()?.userId !== userId) return;
-    this.patchSignedIn({
-      consent,
-      consentPrompt: consent.participation === null && !this.consentDismissed,
-      busy: null,
-    });
-    if (notice) this.notify(notice);
   }
 }

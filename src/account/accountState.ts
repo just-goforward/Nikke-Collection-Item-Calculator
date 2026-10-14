@@ -1,4 +1,4 @@
-import type { ConsentGet, WorkspaceGet } from "../../personal-data/src/contracts";
+import type { WorkspaceGet } from "../../personal-data/src/contracts";
 import { type AccountApi, type ApiFailure, isHttpFailure } from "./api";
 import type { CrossTabChannel } from "./crossTab";
 import type { TabIdentity } from "./tabIdentity";
@@ -19,9 +19,6 @@ export type AccountNotice =
   | "revoked"
   | "deleted"
   | "deletion_pending"
-  | "consent_saved"
-  | "consent_conflict"
-  | "consent_pending"
   | "export_ready"
   | "export_failed"
   | "request_too_large"
@@ -55,7 +52,7 @@ export type SyncStatus =
   | "conflict"
   | "paused"
   | "error";
-type AccountBusy = "login" | "logout" | "revoke" | "delete" | "export" | "consent" | null;
+type AccountBusy = "login" | "logout" | "revoke" | "delete" | "export" | null;
 export type ConflictChoice = "server" | "local" | "cancel";
 
 export type WorkspaceConflict = {
@@ -75,9 +72,6 @@ export const MAX_REQUEST_BYTES = 2_000_000;
 export type SignedInView = {
   phase: "signed-in";
   userId: string;
-  consent: ConsentGet;
-  /** One-time first-login question: shown while undecided unless dismissed in this tab. */
-  consentPrompt: boolean;
   sync: SyncStatus;
   revision: number;
   quota: WorkspaceGet["quota"] | null;
@@ -99,7 +93,7 @@ export type AccountView =
   | { phase: "guest"; busy: AccountBusy }
   | SignedInView
   /** Signed in, but the workspace could not be loaded: guest data is shown while entry retries. */
-  | { phase: "unavailable"; userId: string; consent: ConsentGet }
+  | { phase: "unavailable"; userId: string }
   | { phase: "stale"; reason: StaleReason };
 
 export type AccountSnapshot = {
@@ -151,8 +145,6 @@ export function noticeFor(failure: ApiFailure): AccountNotice {
     case "account_switch_requires_logout":
     case "request_too_large":
       return failure.code;
-    case "consent_change_pending":
-      return "consent_pending";
     case "unauthenticated":
       return "session_expired";
     default:
