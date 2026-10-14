@@ -236,7 +236,7 @@ describe("real Rust/WASM certified computation", () => {
     const refused = solveCertifiedWasm(module, input, { maxMemoEntries: 1 });
     expect(refused.refusal?.reason).toBe("exact_memo_limit");
   });
-  it("matches JS waiting failure output after a post-current deadline", () => {
+  it("retains the exact current result when the shared post-current budget expires", () => {
     let now = 0;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
     const options = {
@@ -252,7 +252,15 @@ describe("real Rust/WASM certified computation", () => {
       const actual = solveCertifiedWasm(module, input, options);
       expect(expected.refusal).toEqual({ reason: "request_budget_exhausted", phase: "waiting" });
       expect(expected.current).not.toBeNull();
-      expect(behavior(actual)).toEqual(behavior(expected));
+      expect(actual.refusal).toEqual({ reason: "request_budget_exhausted", phase: "minimum_wait" });
+      expect(actual.minimumWait).toMatchObject({
+        status: "unknown",
+        reason: "request_budget_exhausted",
+      });
+      expect(behavior(actual)).toEqual({
+        ...behavior(expected),
+        refusal: { reason: "request_budget_exhausted", phase: "minimum_wait" },
+      });
     } finally {
       clock.mockRestore();
     }

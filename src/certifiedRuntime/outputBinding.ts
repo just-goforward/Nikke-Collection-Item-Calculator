@@ -8,6 +8,7 @@ import {
   type CertifiedForecastIdentity,
   sameCertifiedForecastIdentity,
 } from "../../shared/certifiedForecastIdentity.ts";
+import { assertMinimumWaitBinding } from "../certified/minimumWait.ts";
 import type { CertifiedOutput } from "../certified/types.ts";
 
 export type CertifiedRuntimeOutput = CertifiedOutput & {
@@ -24,6 +25,8 @@ function assertSolverProvenance(output: CertifiedOutput, identity: CertifiedFore
   ) {
     throw new Error("Certified output provenance does not match the submitted snapshot.");
   }
+  if (output.minimumWait !== undefined)
+    assertMinimumWaitBinding(output.minimumWait, output.current);
 }
 
 /** Only the trusted worker binds standalone solver content after verifying provenance. */

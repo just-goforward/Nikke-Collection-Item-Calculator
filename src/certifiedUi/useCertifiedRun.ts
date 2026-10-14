@@ -86,6 +86,7 @@ export function useCertifiedRun(
           cohortWeights: session.cohortWeights,
           receivedEventIds: session.receipts.map((r) => r.eventId),
           computeWaiting: true,
+          computeMinimumWait: true,
           batchLimit: 10,
         },
         {

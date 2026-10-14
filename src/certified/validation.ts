@@ -27,6 +27,10 @@ export function validate(input: CertifiedInput, checkBudget?: () => void): Cohor
       (Number.isSafeInteger(input.batchLimit) && input.batchLimit >= 1 && input.batchLimit <= 1000),
     "invalid_batch_limit",
   );
+  requireInput(
+    input.computeMinimumWait === undefined || typeof input.computeMinimumWait === "boolean",
+    "invalid_minimum_wait_option",
+  );
   try {
     return certifiedCohortWeights(input.cohortWeights, input.snapshot.version);
   } catch {

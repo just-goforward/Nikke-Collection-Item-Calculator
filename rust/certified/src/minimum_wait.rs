@@ -394,6 +394,20 @@ mod tests {
     }
 
     #[test]
+    fn primary_queries_reuse_known_exact_probabilities_without_extra_memo_admission() {
+        let mut e = engine([q(1, 1), q(1, 1), q(1, 1)]);
+        let value = e.get(597, [0, 0, 1], true).unwrap();
+        assert!(!e.memo.is_empty());
+        assert!(e.primary.is_empty());
+        e.max_memo = e.memo.len();
+        assert_eq!(
+            e.primary_probability(597, [0, 0, 1]).unwrap(),
+            rational(&value.p, &e.powers[value.exponent])
+        );
+        assert!(e.primary.is_empty());
+    }
+
+    #[test]
     fn certificate_accounts_for_every_ten_piece_settlement_in_the_batch() {
         let mut batch = Batch {
             kit: 0,

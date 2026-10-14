@@ -6,9 +6,12 @@ import { CERTIFIED_WASM_HASH } from "../../shared/generated/certifiedWasmBuild";
 import { CertifiedLimit, type WorkBudget } from "./budget";
 import { eventOffset, futureEvents } from "./events";
 import { CAPS, capUnits, EDGES } from "./game";
+import { assertMinimumWaitBinding, assertMinimumWaitTie, minimumWaitBase } from "./minimumWait";
 import type {
   CertifiedCurrent,
   CertifiedInput,
+  CertifiedMinimumWait,
+  CertifiedMinimumWaitProbe,
   CertifiedOutput,
   CertifiedWaiting,
   Triple,
@@ -224,6 +227,65 @@ export class WasmKernel {
       batch: input.batchLimit ?? 10,
     });
     return { ...result, value: certifiedValueView(valueFromWire(result.value)) };
+  }
+  minimumWait(
+    sid: number,
+    input: CertifiedInput,
+    previous: CertifiedCurrent,
+  ): { current: CertifiedCurrent; minimumWait: CertifiedMinimumWait } {
+    const result = this.call<{ current: BackendCurrent; minimumWait: unknown }>({
+      op: "minimumWait",
+      sid,
+      stock: input.stock,
+      complete: input.snapshot.coverage.future.complete,
+    });
+    const current = {
+      ...result.current,
+      value: certifiedValueView(valueFromWire(result.current.value)),
+    };
+    assertMinimumWaitTie(previous, current, input);
+    assertMinimumWaitBinding(result.minimumWait, current);
+    return { current, minimumWait: result.minimumWait };
+  }
+  minimumWaitProbe(
+    sid: number,
+    input: CertifiedInput,
+    current: CertifiedCurrent,
+  ): CertifiedMinimumWaitProbe {
+    const caps = CAPS[sid];
+    if (!caps) throw new CertifiedLimit("invalid_state");
+    if (current.kit === null) {
+      return {
+        version: "certified-minimum-wait-probe-v1",
+        status: "NOTRUN",
+        recommendation: { kit: null, uses: 0 },
+        label: "unknown",
+        certificateApplies: false,
+        certificateShortcutUsed: false,
+        classifierCaps: caps,
+        supportUnitsCapped: false,
+        reason: "no_recommended_batch",
+        complete: false,
+        perDay: [],
+        minimumWait: minimumWaitBase(current, "not_applicable", "no_recommended_batch"),
+      };
+    }
+    const result = this.call<CertifiedMinimumWaitProbe>({
+      op: "minimumWaitProbe",
+      sid,
+      stock: input.stock,
+      kit: ["blue", "purple", "yellow"].indexOf(current.kit),
+      uses: current.uses,
+      complete: input.snapshot.coverage.future.complete,
+    });
+    if (
+      result.version !== "certified-minimum-wait-probe-v1" ||
+      result.recommendation.kit !== current.kit ||
+      result.recommendation.uses !== current.uses
+    )
+      throw new CertifiedLimit("minimum_wait_binding_mismatch");
+    assertMinimumWaitBinding(result.minimumWait, current);
+    return result;
   }
   waiting(sid: number, input: CertifiedInput): CertifiedWaiting {
     const result = this.call<BackendWaiting>({

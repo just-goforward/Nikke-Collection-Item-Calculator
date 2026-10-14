@@ -12,6 +12,9 @@ export function interruptedCertifiedWaiting<O extends CertifiedOutput>(
     reason = "worker_abort";
   }
   output.status = "partial";
+  const minimumPending = output.minimumWait?.reason === "minimum_wait_in_progress";
+  if (minimumPending && output.minimumWait)
+    output.minimumWait = { ...output.minimumWait, status: "unknown", reason };
   output.waiting = {
     ...output.waiting,
     status: "unresolved",
@@ -20,6 +23,6 @@ export function interruptedCertifiedWaiting<O extends CertifiedOutput>(
     reason,
     evidence: [...output.waiting.evidence, "exact_current_retained_after_waiting_interruption"],
   };
-  output.refusal = { phase: "waiting", reason };
+  output.refusal = { phase: minimumPending ? "minimum_wait" : "waiting", reason };
   return output;
 }

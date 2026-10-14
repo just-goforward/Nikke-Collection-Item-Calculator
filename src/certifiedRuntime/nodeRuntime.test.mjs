@@ -385,10 +385,11 @@ test("actual certified Node Worker solves sequentially under the 15s all-phase c
   const client = createNodeCertifiedClient(pathToFileURL(join(directory, "src/certifiedRuntime/nodeWorker.js")));
   try {
     let current = 0;
+    const minimumStages = [];
     for (let repeat = 0; repeat < 3; repeat++) {
       const waiting = repeat % 2 === 1;
       const result = await client.request(await certifiedWorkerFixture(waiting), { sessionId: "actual-solver", engineProfile,
-        onCurrent: () => current++ });
+        onCurrent: partial => { current++; minimumStages.push(partial.minimumWait?.status); } });
       assert.equal(result.output.status, "completed");
       assert.equal(result.output.current.kit, "blue");
       assert.equal(result.output.current.value.display.successP, 1);
@@ -400,7 +401,8 @@ test("actual certified Node Worker solves sequentially under the 15s all-phase c
       assert.ok(result.memory.workerPayloadBytes > 0);
       assert.equal(client.memory().totalPayloadBytes, 0);
     }
-    assert.equal(current, 3);
+    assert.equal(current, 6);
+    assert.deepEqual(minimumStages, ["unknown", "beyond_horizon", "unknown", "beyond_horizon", "unknown", "beyond_horizon"]);
     const controller = new AbortController();
     const interrupted = await client.request(await certifiedWorkerFixture(true), { sessionId: "interrupt-waiting", engineProfile,
       signal: controller.signal, onCurrent: () => controller.abort() });

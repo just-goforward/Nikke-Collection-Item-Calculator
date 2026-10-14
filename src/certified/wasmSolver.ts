@@ -3,17 +3,58 @@ import { isCertifiedEventClaimable } from "../../shared/certifiedSupply";
 import { CertifiedLimit, WorkBudget } from "./budget";
 import { waitingBase } from "./events";
 import { encode } from "./game";
+import { minimumWaitBase } from "./minimumWait";
 import { createOutput, updateDiagnostics } from "./output";
 import type { CertifiedInput, CertifiedOptions, CertifiedOutput } from "./types";
 import { validate } from "./validation";
 import { WasmKernel } from "./wasmBackend";
+
+function claimRequired(
+  output: CertifiedOutput,
+  input: CertifiedInput,
+  minimumEnabled: boolean,
+): boolean {
+  const received = new Set(input.receivedEventIds ?? []);
+  const claimable = input.snapshot.events.filter(
+    (event) =>
+      isCertifiedEventClaimable(input.snapshot, event, input.asOf) && !received.has(event.id),
+  );
+  if (!claimable.length) return false;
+  output.claimNotice = {
+    eventIds: claimable.map((event) => event.id),
+    message: "Claim the currently available rewards, update stock, then calculate again.",
+  };
+  if (minimumEnabled)
+    output.minimumWait = minimumWaitBase(output.current, "unknown", "current_claimable_unreceived");
+  return true;
+}
+function failedRequest(
+  output: CertifiedOutput,
+  error: unknown,
+  phase: NonNullable<CertifiedOutput["refusal"]>["phase"],
+  minimumEnabled: boolean,
+  kernel: WasmKernel | null,
+): void {
+  let reason = "internal_solver_error";
+  if (error instanceof CertifiedLimit) reason = error.reason;
+  else if (error instanceof Error) reason = error.message;
+  output.refusal = { reason, phase };
+  if (phase !== "waiting" && minimumEnabled)
+    output.minimumWait = minimumWaitBase(output.current, "unknown", reason);
+  output.status = output.current ? "partial" : "refused";
+  output.waiting = {
+    ...waitingBase("unresolved", reason),
+    bestDayRange: output.current ? [0, 56] : null,
+  };
+  applyTrapWaitingBounds(output, kernel, phase);
+}
 
 function applyTrapWaitingBounds(
   output: CertifiedOutput,
   kernel: WasmKernel | null,
   phase: NonNullable<CertifiedOutput["refusal"]>["phase"],
 ): void {
-  if (phase !== "waiting" || !kernel?.hasFailed || !output.current) return;
+  if (!["waiting", "minimum_wait"].includes(phase) || !kernel?.hasFailed || !output.current) return;
   // A trap loses all unpublished Rust progress. Only D0 is established;
   // nonnegative inventory coupling still gives this conservative H56 bound.
   const lower = output.current.value.successP;
@@ -38,6 +79,13 @@ export function solveCertifiedWasm(
   let kernel: WasmKernel | null = null;
   let phase: NonNullable<CertifiedOutput["refusal"]>["phase"] = "input";
   const output = createOutput(input);
+  const minimumEnabled =
+    input.computeMinimumWait !== false && input.snapshot?.version === "certified-daily-v2";
+  output.minimumWait = minimumWaitBase(
+    null,
+    minimumEnabled ? "unknown" : "not_requested",
+    minimumEnabled ? "current_not_completed" : null,
+  );
   output.provenance.solverVersion = "certified-exact-rust-wasm-v1";
   const diagnostics = () => {
     updateDiagnostics(output, started, budget);
@@ -65,21 +113,28 @@ export function solveCertifiedWasm(
     phase = "current";
     kernel.initialize(weights);
     output.current = kernel.current(sid, input);
+    output.minimumWait = minimumWaitBase(
+      output.current,
+      minimumEnabled ? "unknown" : "not_requested",
+      minimumEnabled ? "minimum_wait_in_progress" : null,
+    );
     output.status = "partial";
     output.waiting = { ...waitingBase("unresolved", "waiting_in_progress"), bestDayRange: [0, 56] };
     diagnostics();
     options.onCurrent?.(structuredClone(output));
+    const mustClaim = claimRequired(output, input, minimumEnabled);
+    if (!mustClaim && minimumEnabled) {
+      phase = "minimum_wait";
+      const selected = kernel.minimumWait(sid, input, output.current);
+      output.current = selected.current;
+      output.minimumWait = selected.minimumWait;
+      diagnostics();
+      // Publish the bound label/tie choice before H56 can exhaust the remaining
+      // shared request budget. A later interruption retains this certificate.
+      options.onCurrent?.(structuredClone(output));
+    }
     phase = "waiting";
-    const received = new Set(input.receivedEventIds ?? []);
-    const claimable = input.snapshot.events.filter(
-      (event) =>
-        isCertifiedEventClaimable(input.snapshot, event, input.asOf) && !received.has(event.id),
-    );
-    if (claimable.length) {
-      output.claimNotice = {
-        eventIds: claimable.map((event) => event.id),
-        message: "Claim the currently available rewards, update stock, then calculate again.",
-      };
+    if (mustClaim) {
       output.waiting = waitingBase("claim_required", "current_claimable_unreceived");
     } else if (input.computeWaiting === false) output.waiting = waitingBase("not_requested", null);
     else output.waiting = kernel.waiting(sid, input);
@@ -92,16 +147,7 @@ export function solveCertifiedWasm(
     if (output.waiting.status === "unresolved")
       output.refusal = { reason: output.waiting.reason ?? "waiting_unresolved", phase: "waiting" };
   } catch (error) {
-    let reason = "internal_solver_error";
-    if (error instanceof CertifiedLimit) reason = error.reason;
-    else if (error instanceof Error) reason = error.message;
-    output.refusal = { reason, phase };
-    output.status = output.current ? "partial" : "refused";
-    output.waiting = {
-      ...waitingBase("unresolved", reason),
-      bestDayRange: output.current ? [0, 56] : null,
-    };
-    applyTrapWaitingBounds(output, kernel, phase);
+    failedRequest(output, error, phase, minimumEnabled, kernel);
   }
   diagnostics();
   kernel?.dispose();

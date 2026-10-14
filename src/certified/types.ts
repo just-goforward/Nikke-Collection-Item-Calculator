@@ -18,6 +18,8 @@ export interface CertifiedInput {
   /** Original raw stock for fixed prices across a closed-loop execution. */
   priceBasisStock?: Triple;
   computeWaiting?: boolean;
+  /** Independent seven-day batch label; enabled by default for v2 Rust requests. */
+  computeMinimumWait?: boolean;
   batchLimit?: number;
 }
 
@@ -29,6 +31,7 @@ export interface CertifiedOptions {
   maxSupportPoints?: number;
   /** Standalone ceiling 192 MiB; managed workers reserve separate boundary headroom. */
   maxManagedPayloadBytes?: number;
+  /** Current first, then a bound minimum-wait/tie update before H56 work. */
   onCurrent?: (partial: CertifiedOutput) => void;
 }
 
@@ -78,11 +81,53 @@ export interface CertifiedWaiting {
   evidence: readonly string[];
 }
 
+export interface CertifiedMinimumWait {
+  version: "certified-minimum-wait-v1";
+  status: "certified" | "beyond_horizon" | "unknown" | "not_applicable" | "not_requested";
+  kit: CertifiedCurrent["kit"];
+  uses: number;
+  pieces: number;
+  thresholdDays: WireQ;
+  horizonDays: 7;
+  minimumDays: number | null;
+  earliestPossibleDay: number | null;
+  latestPossibleDay: number | null;
+  evaluatedDays: readonly number[];
+  mixedDailyRate: ExactTriple | null;
+  reason: string | null;
+  evidence: readonly string[];
+}
+
+export interface CertifiedMinimumWaitProbe {
+  version: "certified-minimum-wait-probe-v1";
+  status: "EXACT" | "NOTRUN";
+  recommendation: { kit: CertifiedCurrent["kit"]; uses: number };
+  label: number | "7+" | "unknown";
+  certificateApplies: boolean;
+  certificateShortcutUsed: boolean;
+  classifierCaps: Triple;
+  supportUnitsCapped: false;
+  reason: string | null;
+  complete: boolean;
+  perDay: readonly {
+    day: number;
+    crossing: boolean;
+    crossingUnits: readonly Triple[];
+    supportUnits: readonly Triple[];
+  }[];
+  minimumWait?: CertifiedMinimumWait;
+}
+
 export interface CertifiedOutput {
   status: "completed" | "partial" | "refused";
   current: CertifiedCurrent | null;
   waiting: CertifiedWaiting;
-  refusal: { reason: string; phase: "input" | "pricing" | "current" | "waiting" } | null;
+  /** Optional for historical/reference outputs; never inferred from the H56 result. */
+  minimumWait?: CertifiedMinimumWait;
+  refusal: {
+    reason: string;
+    phase: "input" | "pricing" | "current" | "minimum_wait" | "waiting";
+  } | null;
   claimNotice: { eventIds: readonly string[]; message: string } | null;
   pricing: {
     basisStock: Triple;

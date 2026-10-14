@@ -171,9 +171,9 @@ impl Arena {
             })
         }
     }
-    fn put(&mut self, cost: bool, s: usize, u: Units, value: Interval) {
+    fn put(&mut self, cost: bool, s: usize, u: Units, value: Interval) -> bool {
         if !value.hi.is_finite() || value.lo < 0.0 || value.hi < value.lo {
-            return;
+            return false;
         }
         let i = self.index(s, u);
         let pages = if cost {
@@ -184,7 +184,7 @@ impl Arena {
         if !pages.contains_key(&(i / PAGE)) {
             #[cfg(target_arch = "wasm32")]
             if !crate::allocation::can_admit(PAGE * 13 + 16 * 1024 * 1024) {
-                return;
+                return false;
             }
             pages.insert(
                 i / PAGE,
@@ -203,11 +203,12 @@ impl Arena {
             packed = f32::from_bits(packed.to_bits() + 1);
         }
         if !packed.is_finite() {
-            return;
+            return false;
         }
         page.lower[row] = value.lo;
         page.width[row] = packed;
         page.status[row] = 1;
+        true
     }
 }
 #[derive(Clone)]
@@ -221,8 +222,20 @@ impl Engine {
     pub(super) fn primary_probability(&mut self, s: usize, raw: Units) -> Result<Q> {
         self.kernel_calls += 1;
         self.ensure_guidance(s, raw);
-        let value = self.primary_get(s, raw)?;
-        Ok(rational(&value.p, &self.powers[value.exponent]))
+        let (p, exponent) = self.primary_components(s, raw)?;
+        Ok(rational(&p, &self.powers[exponent]))
+    }
+
+    fn primary_components(&mut self, s: usize, raw: Units) -> Result<(BigUint, usize)> {
+        self.check()?;
+        let u = self.canonical(s, raw);
+        // A completed P/B/C memo entry already contains exact P*. Reuse only
+        // its probability, not its narrower P/B/C action mask as a P-only mask.
+        if let Some(value) = self.memo.get(&(s, u)) {
+            return Ok((value.p.clone(), value.exponent));
+        }
+        let value = self.primary_get(s, u)?;
+        Ok((value.p, value.exponent))
     }
 
     pub fn ensure_guidance(&mut self, s: usize, raw: Units) {
@@ -293,7 +306,14 @@ impl Engine {
             return Ok(v);
         }
         let v = minimum(&self.failure_actions(s, u)?);
-        self.arena.as_mut().unwrap().put(false, s, u, v);
+        let cached = self.arena.as_mut().unwrap().put(false, s, u, v);
+        // The label is an optional bounded stage. If its bound-cache admission
+        // fails, return UNKNOWN instead of spending the remaining H56 budget
+        // repeatedly expanding uncached bounds. The existing page/headroom
+        // guard is unchanged; ordinary P/B/C solving keeps its prior fallback.
+        if !cached && self.minimum_stage {
+            return Err("minimum_wait_bound_cache_unavailable");
+        }
         Ok(v)
     }
     fn primary_get(&mut self, s: usize, raw: Units) -> Result<Primary> {
@@ -335,11 +355,11 @@ impl Engine {
             let [p, g, n] = self.edges[s][k];
             let mut rem = u;
             rem[k] -= 1;
-            let gv = self.primary_get(g, rem)?;
-            let mut value = gv.p * &self.powers[exponent - 1 - gv.exponent] * p;
+            let (gp, ge) = self.primary_components(g, rem)?;
+            let mut value = gp * &self.powers[exponent - 1 - ge] * p;
             if p < 1000 {
-                let nv = self.primary_get(n, rem)?;
-                value += nv.p * &self.powers[exponent - 1 - nv.exponent] * (1000 - p);
+                let (np, ne) = self.primary_components(n, rem)?;
+                value += np * &self.powers[exponent - 1 - ne] * (1000 - p);
             }
             if value > best {
                 best = value;

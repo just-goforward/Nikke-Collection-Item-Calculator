@@ -140,6 +140,7 @@ struct Engine {
     current_root: Option<Value>,
     current_request: Option<(usize, Units, usize)>,
     current_choice: Option<minimum_wait::Batch>,
+    minimum_stage: bool,
     kernel_calls: usize,
     completion: Vec<u16>,
     completion_p: usize,
@@ -245,6 +246,7 @@ impl Engine {
             current_root: None,
             current_request: None,
             current_choice: None,
+            minimum_stage: false,
             kernel_calls: 0,
             completion,
             completion_p,
@@ -595,12 +597,18 @@ fn execute(
             if sid > TERMINAL {
                 return Err("invalid_state");
             }
-            e.minimum_wait(
+            e.minimum_stage = true;
+            let result = e.minimum_wait(
                 supply.as_mut().ok_or("supply_not_initialized")?,
                 sid,
                 stock,
                 complete,
-            )
+            );
+            // Bound pages are shaped for the label's seven-day support box.
+            // H56 owns a different box; retain exact memos, not this scratch.
+            e.arena = None;
+            e.minimum_stage = false;
+            result
         }
         Command::MinimumWaitProbe {
             sid,
@@ -612,14 +620,18 @@ fn execute(
             if sid > TERMINAL || kit >= 3 || uses == 0 || uses > 1000 {
                 return Err("invalid_wasm_request");
             }
-            e.minimum_wait_probe(
+            e.minimum_stage = true;
+            let result = e.minimum_wait_probe(
                 supply.as_mut().ok_or("supply_not_initialized")?,
                 sid,
                 stock,
                 kit,
                 uses,
                 complete,
-            )
+            );
+            e.arena = None;
+            e.minimum_stage = false;
+            result
         }
         Command::Value { sid, units, root } => {
             if sid > TERMINAL {
