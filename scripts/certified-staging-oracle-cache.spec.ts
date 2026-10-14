@@ -21,19 +21,19 @@ import {
   PHYSICAL_SOURCES,
   PHYSICAL_VERSION,
   PUBLICATION_FILES,
-  readV5Evidence,
-  V5_ROOT,
-} from "./certified-staging-approved-panel/v5/evidence.ts";
+  readV6Evidence,
+  V6_ROOT,
+} from "./certified-staging-approved-panel/v6/evidence.ts";
 import { add, fromWire, makeTriple, mapTriple, mul, q, wire } from "./certified-staging-oracle.ts";
 import { prepareIndependentPhysicalRatesCache } from "./certified-staging-oracle-cache.ts";
 
-const fixturePath = `${V5_ROOT}/independent-physical-cohorts.json`;
+const fixturePath = `${V6_ROOT}/independent-physical-cohorts.json`;
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function fixtureRoot() {
-  const root = mkdtempSync(join(tmpdir(), "independent-cache-v5-"));
+  const root = mkdtempSync(join(tmpdir(), "independent-cache-v6-"));
   roots.push(root);
   for (const path of EVIDENCE_FILES) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -85,7 +85,7 @@ function boundedColdHelper(root: string) {
       mkdirSync(resolve(root, path), options),
     writeFileSync: (path: string, bytes: Buffer | string, options: { flag: string }) =>
       writeFileSync(resolve(root, path), bytes, options),
-    readV5Evidence: () => readV5Evidence(root),
+    readV6Evidence: () => readV6Evidence(root),
     independentDispatchExpectations: () => {
       calls++;
       return [makeTriple(() => q(1)), makeTriple(() => q(2)), makeTriple(() => q(3))];
@@ -134,11 +134,11 @@ it.each(["cache", "source", "missing"])(
     expect(helper.calls()).toBe(1);
   },
 );
-it("prepares authenticated v5 bytes and direct warm/memoized calls agree without writes", () => {
+it("prepares authenticated v6 bytes and direct warm/memoized calls agree without writes", () => {
   const root = fixtureRoot();
   const first = prepareIndependentPhysicalRatesCache(root);
   expect(first.cacheHit).toBe(false);
-  expect(first.sha256).toBe(readV5Evidence().provenance.physicalEnumeration.sha256);
+  expect(first.sha256).toBe(readV6Evidence().provenance.physicalEnumeration.sha256);
   expect(prepareIndependentPhysicalRatesCache(root).cacheHit).toBe(true);
   expect(readFileSync(join(root, PHYSICAL_CACHE))).toEqual(readFileSync(fixturePath));
   direct(
@@ -161,7 +161,7 @@ it("a clean checkout genuinely computes cold, then a second process and preparer
     assert.equal(rates(), first);
     assert.deepEqual(readFileSync(path), readFileSync(${JSON.stringify(fixturePath)}));
     // Cold memoization must retain published-evidence authentication.
-    const evidencePath = ${JSON.stringify(`${V5_ROOT}/panel.json`)};
+    const evidencePath = ${JSON.stringify(`${V6_ROOT}/panel.json`)};
     const evidence = readFileSync(evidencePath);
     writeFileSync(evidencePath, Buffer.concat([evidence, Buffer.from("\\n")]));
     assert.throws(rates);
@@ -236,7 +236,7 @@ it.each(["cache", "source", "missing-cache", "evidence", "missing-evidence"])(
     prepareIndependentPhysicalRatesCache(root);
     let target = PHYSICAL_CACHE;
     if (kind === "source") target = "shared/game.ts";
-    else if (kind.includes("evidence")) target = `${V5_ROOT}/panel.json`;
+    else if (kind.includes("evidence")) target = `${V6_ROOT}/panel.json`;
     direct(
       root,
       `
@@ -265,7 +265,7 @@ it.each(EVIDENCE_FILES)(
 );
 it.each(EVIDENCE_FILES)("rejects tampered %s without creating a cache", (path) => {
   const root = fixtureRoot();
-  if (path === `${V5_ROOT}/pins.json`) {
+  if (path === `${V6_ROOT}/pins.json`) {
     const pins = JSON.parse(readFileSync(join(root, path), "utf8"));
     pins.provenance.sha256 = "0".repeat(64);
     writeFileSync(join(root, path), JSON.stringify(pins));
@@ -277,3 +277,27 @@ it.each(EVIDENCE_FILES)("rejects tampered %s without creating a cache", (path) =
   expect(() => prepareIndependentPhysicalRatesCache(root)).toThrow();
   expect(existsSync(join(root, "benchmarks"))).toBe(false);
 });
+it.each(["package-lock.json", "biome.json"])(
+  "%s drift does not stale the public panel, cache preparation or memoized rates",
+  (environmentPath) => {
+    const root = fixtureRoot();
+    copyFileSync(environmentPath, join(root, environmentPath));
+    prepareIndependentPhysicalRatesCache(root);
+    direct(
+      root,
+      `
+      import { loadIndependentApprovedPanel } from "./scripts/certified-staging-approved-panel.ts";
+      import { readV6Evidence } from "./scripts/certified-staging-approved-panel/v6/evidence.ts";
+      const panel = loadIndependentApprovedPanel();
+      const environment = readV6Evidence().provenance.generationEnvironment;
+      const first = rates();
+      const target = ${JSON.stringify(environmentPath)};
+      writeFileSync(target, Buffer.concat([readFileSync(target), Buffer.from("\\n")]));
+      assert.deepEqual(loadIndependentApprovedPanel(), panel);
+      assert.deepEqual(readV6Evidence().provenance.generationEnvironment, environment);
+      assert.equal(rates(), first);
+    `,
+    );
+    expect(prepareIndependentPhysicalRatesCache(root).cacheHit).toBe(true);
+  },
+);

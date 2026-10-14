@@ -8,8 +8,8 @@ import {
   PHYSICAL_SOURCES,
   PHYSICAL_VERSION,
   PUBLICATION_FILES,
-  readV5Evidence,
-} from "./certified-staging-approved-panel/v5/evidence.ts";
+  readV6Evidence,
+} from "./certified-staging-approved-panel/v6/evidence.ts";
 import {
   add,
   cmp,
@@ -146,14 +146,14 @@ function publicationPresent() {
 }
 function writeCalculatedCache(
   bytes: Buffer | string,
-  published: ReturnType<typeof readV5Evidence> | null,
+  published: ReturnType<typeof readV6Evidence> | null,
 ) {
   try {
     writeFileSync(path, bytes, { flag: "wx" });
   } catch (error) {
     if (!published || !(error instanceof Error) || !("code" in error) || error.code !== "EEXIST")
       throw error;
-    const after = readV5Evidence();
+    const after = readV6Evidence();
     assert.deepEqual(
       after.physicalBytes,
       published.physicalBytes,
@@ -174,7 +174,7 @@ export function independentPhysicalRecurringRates(): QTriple {
     if (createHash("sha256").update(bytes).digest("hex") !== memoizedIdentity.cacheHash)
       throw new Error("Independent physical cache/source changed after memoization; preserved");
     if (memoizedIdentity.authenticated || publicationPresent()) {
-      const authenticated = readV5Evidence();
+      const authenticated = readV6Evidence();
       assert.ok(
         bytes.equals(authenticated.physicalBytes),
         "Memoized physical cache differs from publication; preserved",
@@ -185,7 +185,7 @@ export function independentPhysicalRecurringRates(): QTriple {
   }
   if (existsSync(path)) {
     const bytes = readFileSync(path);
-    const authenticated = readV5Evidence();
+    const authenticated = readV6Evidence();
     if (!bytes.equals(authenticated.physicalBytes))
       throw new Error(
         `Existing independent physical cache differs from pinned fixture; preserved: ${path}`,
@@ -198,7 +198,7 @@ export function independentPhysicalRecurringRates(): QTriple {
     };
     return memoizedRates;
   }
-  const published = publicationPresent() ? readV5Evidence() : null;
+  const published = publicationPresent() ? readV6Evidence() : null;
   const started = performance.now();
   const cohorts = independentDispatchExpectations();
   // Normal weekly shop:5 boxII. Seven raid days:16 regular +68 boxII.
@@ -230,7 +230,7 @@ export function independentPhysicalRecurringRates(): QTriple {
       normalizeExact(published.physical.rate),
       "Fresh physical rates differ from publication",
     );
-    const after = readV5Evidence();
+    const after = readV6Evidence();
     assert.deepEqual(
       after.physicalBytes,
       published.physicalBytes,

@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { EVIDENCE_FILES } from "./certified-staging-approved-panel/v5/evidence.ts";
+import { EVIDENCE_FILES } from "./certified-staging-approved-panel/v6/evidence.ts";
 import { digest, ENGINES, verifyApproved24 } from "./certified-staging-result-verifier.mjs";
 
 // Pure report tests are followed by real Git repositories and child freeze CLI tests.
@@ -29,6 +29,8 @@ import { digest, ENGINES, verifyApproved24 } from "./certified-staging-result-ve
 const hash = digest("fixture");
 const sourcePaths = [
   ...EVIDENCE_FILES,
+  "biome.json",
+  "package-lock.json",
   "scripts/certified-staging-dist-validation.ts",
   "e2e/certified-staging-api.spec.ts",
 ];
@@ -792,7 +794,7 @@ test("freeze CLI enforces required source membership in actual Git repositories"
   assert.equal(process.version, "v24.21.0", "freeze CLI fixtures require Node v24.21.0");
   assert.equal(
     sourcePaths.length,
-    79,
+    96,
     "all versioned required sources must have omission coverage",
   );
   const { git, inheritedPath } = resolveFixtureGit();

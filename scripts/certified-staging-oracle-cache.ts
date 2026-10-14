@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { PHYSICAL_CACHE, readV5Evidence } from "./certified-staging-approved-panel/v5/evidence.ts";
+import { PHYSICAL_CACHE, readV6Evidence } from "./certified-staging-approved-panel/v6/evidence.ts";
 import {
   fromWire,
   mapTriple,
@@ -25,10 +25,10 @@ export const oracleSourceHash = createHash("sha256")
   .update(JSON.stringify(oracleSourceHashes))
   .digest("hex");
 type Wire = ReturnType<typeof wire>;
-/** Restore authenticated v5 enumeration only. A failed v5 identity never falls
+/** Restore authenticated v6 enumeration only. A failed v6 identity never falls
  * back to v1 rates, overwrites a cache or invokes an expensive enumeration. */
 export function prepareIndependentPhysicalRatesCache(rootDirectory = process.cwd()) {
-  const { physical, physicalBytes: bytes, provenance } = readV5Evidence(rootDirectory);
+  const { physical, physicalBytes: bytes, provenance } = readV6Evidence(rootDirectory);
   const { sourceHash, sources } = physical;
 
   const path = resolve(rootDirectory, PHYSICAL_CACHE);

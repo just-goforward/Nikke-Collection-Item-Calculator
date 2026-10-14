@@ -34,18 +34,19 @@ import {
   PHYSICAL_VERSION,
   type PhysicalEvidence,
   PUBLICATION_FILES,
-  readV5Evidence,
-  V5_ROOT,
+  readV6Evidence,
+  V6_ROOT,
 } from "./evidence.ts";
 import {
   ARCHIVED_SOURCES,
   FIRST_PINS_SHA,
   HISTORICAL_FILES,
   PREVIOUS_PINS_SHA,
-  readV4Publication,
+  readV5Publication,
   sha256,
   sourceIdentity,
   V4_PINS_SHA,
+  V5_PINS_SHA,
 } from "./history.ts";
 
 const roots: string[] = [];
@@ -53,15 +54,15 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 /** Synthetic unit-test publication, never proposed migration evidence. Values
- * come from authenticated v4 data; the expensive enumerator alone is bounded. */
+ * come from authenticated v5 data; the expensive enumerator alone is bounded. */
 function fixture() {
-  const root = mkdtempSync(resolve(tmpdir(), "v5-cache-race-"));
+  const root = mkdtempSync(resolve(tmpdir(), "v6-cache-race-"));
   roots.push(root);
   for (const path of EVIDENCE_FILES.filter((path) => !PUBLICATION_FILES.includes(path))) {
     mkdirSync(dirname(resolve(root, path)), { recursive: true });
     copyFileSync(path, resolve(root, path));
   }
-  const previous = readV4Publication(root);
+  const previous = readV5Publication(root);
   const physical: PhysicalEvidence = {
     ...JSON.parse(previous.physicalBytes.toString()),
     version: PHYSICAL_VERSION,
@@ -71,6 +72,7 @@ function fixture() {
   const panelBytes = Buffer.from(`${JSON.stringify(previous.panel, null, 2)}\n`);
   const provenance: EvidenceProvenance = {
     version: EVIDENCE_VERSION,
+    generationEnvironment: readV6Evidence().provenance.generationEnvironment,
     generation: {
       ...sourceIdentity(GENERATION_SOURCES, root),
       isolatedCacheEmpty: true,
@@ -84,15 +86,16 @@ function fixture() {
       firstPinsSha256: FIRST_PINS_SHA,
       previousPinsSha256: PREVIOUS_PINS_SHA,
       v4PinsSha256: V4_PINS_SHA,
+      v5PinsSha256: V5_PINS_SHA,
     },
     physicalEnumeration: {
-      path: `${V5_ROOT}/independent-physical-cohorts.json`,
+      path: `${V6_ROOT}/independent-physical-cohorts.json`,
       cachePath: PHYSICAL_CACHE,
       sha256: sha256(physicalBytes),
       sources: physical.sources,
       sourceHash: physical.sourceHash,
     },
-    panel: { path: `${V5_ROOT}/panel.json`, sha256: sha256(panelBytes) },
+    panel: { path: `${V6_ROOT}/panel.json`, sha256: sha256(panelBytes) },
   };
   const provenanceBytes = Buffer.from(`${JSON.stringify(provenance, null, 2)}\n`);
   for (const [name, bytes] of [
@@ -104,13 +107,13 @@ function fixture() {
       Buffer.from(
         JSON.stringify({
           version: EVIDENCE_VERSION,
-          provenance: { path: `${V5_ROOT}/provenance.json`, sha256: sha256(provenanceBytes) },
+          provenance: { path: `${V6_ROOT}/provenance.json`, sha256: sha256(provenanceBytes) },
         }),
       ),
     ],
   ] as const)
-    writeFileSync(resolve(root, V5_ROOT, name), bytes, { flag: "wx" });
-  const authenticated = readV5Evidence(root);
+    writeFileSync(resolve(root, V6_ROOT, name), bytes, { flag: "wx" });
+  const authenticated = readV6Evidence(root);
   return { root, authenticated };
 }
 function controlledHelper(
@@ -154,7 +157,7 @@ function controlledHelper(
       beforeWrite(bytes);
       writeFileSync(resolve(root, path), bytes, options);
     },
-    readV5Evidence: () => readV5Evidence(root),
+    readV6Evidence: () => readV6Evidence(root),
     independentDispatchExpectations: () => {
       enumerationCalls++;
       return mapTriple(physical.cohorts, (cohort) => mapTriple(cohort, fromWire));
@@ -203,7 +206,7 @@ it("reauthenticates publication after EEXIST and preserves an identical winner o
   const { root, authenticated } = fixture();
   const helper = controlledHelper(root, authenticated.physical, () => {
     writeFileSync(resolve(root, PHYSICAL_CACHE), authenticated.physicalBytes, { flag: "wx" });
-    const panel = resolve(root, V5_ROOT, "panel.json");
+    const panel = resolve(root, V6_ROOT, "panel.json");
     writeFileSync(panel, Buffer.concat([readFileSync(panel), Buffer.from("\n")]));
   });
   expect(helper.rates).toThrow(/hash drift/);

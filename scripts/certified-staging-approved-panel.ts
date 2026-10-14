@@ -6,10 +6,10 @@ import type { CertifiedInput } from "../src/certified/types.ts";
 import {
   EVIDENCE_FILES,
   normalizeExact,
-  readV5Evidence,
-  V5_ROOT,
-} from "./certified-staging-approved-panel/v5/evidence.ts";
-import { HISTORICAL_FILES, pinnedBytes } from "./certified-staging-approved-panel/v5/history.ts";
+  readV6Evidence,
+  V6_ROOT,
+} from "./certified-staging-approved-panel/v6/evidence.ts";
+import { HISTORICAL_FILES, pinnedBytes } from "./certified-staging-approved-panel/v6/history.ts";
 import {
   add,
   compareValue,
@@ -25,7 +25,7 @@ import {
 import { generateValidationCases } from "./certified-staging-oracle-fixtures.ts";
 
 export const APPROVED_PANEL_DIRECTORY = "scripts/certified-staging-approved-panel";
-export const APPROVED_PANEL_PATH = `${V5_ROOT}/panel.json`;
+export const APPROVED_PANEL_PATH = `${V6_ROOT}/panel.json`;
 export const APPROVED_PANEL_INDICES = [
   0, 1, 3, 4, 8, 15, 17, 21, 26, 29, 30, 31, 61, 73, 99, 137, 211, 313, 517, 731, 991, 1237, 1619,
   1999,
@@ -39,7 +39,7 @@ function at<T>(values: readonly T[], index: number): T {
   return value;
 }
 export function approvedFixtureProvenance() {
-  readV5Evidence();
+  readV6Evidence();
   return EVIDENCE_FILES.map((path) => ({ path, sha256: fileSha256(path) }));
 }
 export function frozenApprovedSnapshot(): CertifiedSupplySnapshot {
@@ -51,7 +51,7 @@ export function frozenApprovedSnapshot(): CertifiedSupplySnapshot {
   return snapshot;
 }
 export function frozenIndependentCohorts(): readonly [QTriple, QTriple, QTriple] {
-  return mapTriple(readV5Evidence().physical.cohorts, (cohort) => mapTriple(cohort, fromWire));
+  return mapTriple(readV6Evidence().physical.cohorts, (cohort) => mapTriple(cohort, fromWire));
 }
 export function independentApprovedPricing(snapshot: CertifiedSupplySnapshot, priors: QTriple) {
   return priceIndependentCohorts(snapshot, priors, frozenIndependentCohorts());
@@ -148,7 +148,7 @@ export function calculateIndependentApprovedPanel(cohorts: readonly [QTriple, QT
 }
 export type ApprovedPanelRow = ReturnType<typeof generateIndependentApprovedPanel>[number];
 export function loadIndependentApprovedPanel() {
-  const stored = readV5Evidence().panel as ApprovedPanelRow[];
+  const stored = readV6Evidence().panel as ApprovedPanelRow[];
   assert.deepEqual(
     normalizeExact(stored),
     normalizeExact(generateIndependentApprovedPanel()),

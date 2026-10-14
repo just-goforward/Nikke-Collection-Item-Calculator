@@ -241,8 +241,8 @@ function expandedFixture(sourcePath: string, scenario: ExpandedScenario) {
       },
     },
     "node:os": {},
-    "./certified-staging-approved-panel/v5/evidence.ts": {
-      readV5Evidence() {
+    "./certified-staging-approved-panel/v6/evidence.ts": {
+      readV6Evidence() {
         throw new Error("Synthetic expanded-entry controls must not load published evidence");
       },
     },

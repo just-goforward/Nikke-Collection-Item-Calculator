@@ -9,7 +9,7 @@ import type {
   CertifiedValue,
   CertifiedWaiting,
 } from "../src/certified/types.ts";
-import { readV5Evidence } from "./certified-staging-approved-panel/v5/evidence.ts";
+import { readV6Evidence } from "./certified-staging-approved-panel/v6/evidence.ts";
 import {
   type ApprovedPanelRow,
   frozenApprovedSnapshot,
@@ -41,7 +41,7 @@ import {
 import { independentLargeIntegerOracle } from "./certified-staging-oracle-large-integer.ts";
 import { mapTriple } from "./certified-staging-oracle-tuples.ts";
 
-// Static closure of the lane (lane, approved-panel, v5 evidence/history, fixtures,
+// Static closure of the lane (lane, approved-panel, v6 evidence/history, fixtures,
 // oracle, certificates, current-coverage, cache, integer, large-*, layered,
 // public-caps, witness, endpoints-integer, tuples; shared certifiedSupply*,
 // certifiedRational, certifiedDispatchExpectations, soloRaidCadence,
@@ -135,7 +135,7 @@ afterAll(() => {
 });
 
 const snapshot = frozenApprovedSnapshot();
-const panel = readV5Evidence().panel as ApprovedPanelRow[];
+const panel = readV6Evidence().panel as ApprovedPanelRow[];
 const ZERO3: QTriple = [q(0), q(0), q(0)];
 const TENTH: QTriple = [q(1, 10), q(1, 10), q(1, 10)];
 const NOT_REQUESTED: CertifiedWaiting = {
@@ -285,7 +285,7 @@ it("uses default one-third priors and non-default priors with the declared price
     {
       input: { ...withoutPriors, snapshot, priceBasisStock: basis },
       // Independently published default-prior physical rate.
-      rates: mapTriple(readV5Evidence().physical.rate, fromWire),
+      rates: mapTriple(readV6Evidence().physical.rate, fromWire),
       priors: [third, third, third],
     },
     {
@@ -531,7 +531,7 @@ it("propagates an authenticated-evidence identity failure instead of NOTRUN", as
   const entry = row(0);
   const real = await vi.importActual<typeof import("node:fs")>("node:fs");
   const tampered = ((path: Parameters<typeof readFileSync>[0], options?: unknown) =>
-    String(path).replace(/\\/g, "/").endsWith("/v5/pins.json")
+    String(path).replace(/\\/g, "/").endsWith("/v6/pins.json")
       ? JSON.stringify({ version: "tampered" })
       : real.readFileSync(path, options as never)) as typeof readFileSync;
   vi.mocked(readFileSync).mockImplementation(tampered);
@@ -816,7 +816,7 @@ it("delegates later days unchanged: interior and unresolved stay NOTRUN, cohort-
   const record = artifact.records[0];
   assert(record);
   // Default-prior rate from authenticated tracked evidence; the rates cache is not read.
-  const rates = mapTriple(readV5Evidence().physical.rate, fromWire);
+  const rates = mapTriple(readV6Evidence().physical.rate, fromWire);
   const prices = mapTriple(rates, (rate, color) =>
     q(rate.d, BigInt(historical.stock[color]) * rate.d + rate.n),
   );

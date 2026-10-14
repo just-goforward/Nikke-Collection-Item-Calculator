@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import * as nodePath from "node:path";
 import { transformSync } from "esbuild";
 import { describe, expect, it } from "vitest";
-import { PHYSICAL_SOURCES } from "./certified-staging-approved-panel/v5/evidence.ts";
+import { PHYSICAL_SOURCES } from "./certified-staging-approved-panel/v6/evidence.ts";
 import type * as Oracle from "./certified-staging-oracle.ts";
 import type * as Physical from "./certified-staging-oracle-physical-supply.ts";
 
@@ -14,7 +14,7 @@ const physicalPath = "scripts/certified-staging-oracle-physical-supply.ts";
 const gamePath = "shared/game.ts";
 const oldCache = "benchmarks/results/certified-staging-validation-independent-physical-rates.json";
 const newCache =
-  "benchmarks/results/certified-staging-validation-independent-physical-rates-v5.json";
+  "benchmarks/results/certified-staging-validation-independent-physical-rates-v6.json";
 const oldSentinel = JSON.stringify({ sourceHash: "unrelated-historical-source", rate: [] });
 
 function sourceText(root: string, path: string) {
@@ -63,9 +63,9 @@ function environment(root: string, cache = new Map([[oldCache, oldSentinel]])) {
       if (specifier === "./certified-staging-oracle.ts") return load(oraclePath);
       if (specifier === "../../certified-staging-oracle.ts") return load(oraclePath);
       if (specifier === "./history.ts")
-        return load("scripts/certified-staging-approved-panel/v5/history.ts");
-      if (specifier === "./certified-staging-approved-panel/v5/evidence.ts")
-        return load("scripts/certified-staging-approved-panel/v5/evidence.ts");
+        return load("scripts/certified-staging-approved-panel/v6/history.ts");
+      if (specifier === "./certified-staging-approved-panel/v6/evidence.ts")
+        return load("scripts/certified-staging-approved-panel/v6/evidence.ts");
       throw new Error(`Unexpected isolated import: ${specifier}`);
     };
     const code = transformSync(source, { loader: "ts", format: "cjs", target: "es2022" }).code;

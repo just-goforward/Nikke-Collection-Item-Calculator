@@ -4,7 +4,8 @@ const timeBudgetTestFiles = [
   "shared/certifiedSupply.spec.ts",
   "scripts/certified-staging-oracle-certificates.spec.ts",
   "src/certified/nearBoundWitness.spec.ts",
-  "scripts/certified-staging-approved-panel/v5/evidence.spec.ts",
+  "scripts/certified-staging-approved-panel/v6/evidence.spec.ts",
+  "scripts/certified-staging-oracle-lane.spec.ts",
 ];
 
 export default defineConfig({

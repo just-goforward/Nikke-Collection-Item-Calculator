@@ -79,7 +79,11 @@
   },
   "overrides": [
     {
-      "includes": ["scripts/certified-staging-approved-panel/*.json"],
+      "includes": [
+        "scripts/certified-staging-approved-panel/*.json",
+        "scripts/certified-staging-approved-panel/v5/**/*.json",
+        "scripts/certified-staging-approved-panel/v6/*.json"
+      ],
       "formatter": {
         "enabled": false
       }

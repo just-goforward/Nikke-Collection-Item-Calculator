@@ -1,0 +1,154 @@
+{
+  "version": "approved24-independent-evidence-v6",
+  "generationEnvironment": {
+    "packageLockSha256": "0e03da5c8ea9adbebaaf8107521003c9b9a74cb3d01d168ece72965f4ff69643",
+    "biomeSha256": "df38d6377bc134e5c4a15a3f8d7b50ca5da8d11b043e57292e3117ff8b182a87",
+    "nodeVersion": "v24.21.0"
+  },
+  "generation": {
+    "sources": [
+      {
+        "path": "scripts/certified-staging-oracle-physical-supply.ts",
+        "sha256": "02bc4e9de191d5f0b938193865e1b85c6a8f9ed83fe7c3c4d34b487aecb1a4c3"
+      },
+      {
+        "path": "scripts/certified-staging-oracle.ts",
+        "sha256": "44169b169bb1487ce952ba6026b697654f541a234384fed4964fe1aa9f43a69f"
+      },
+      {
+        "path": "shared/game.ts",
+        "sha256": "79a7563059171121b0331687fc2caab8563f03a6cb64060b475d1fe7d8a96850"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v6/evidence.ts",
+        "sha256": "ae8b908fed9f7e08a9122fc34c263a4333763a8530c894ff7aaac21de995da54"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v6/history.ts",
+        "sha256": "958d05a7f562deb889b06384cd8056ad0035b45a37a11e0e46aadb80e06b4c90"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-tuples.ts",
+        "sha256": "d20f932934a9de5ec416a22b1d1b04097f279e32373431880db353546f4a0f39"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-fixtures.ts",
+        "sha256": "3ed6ed7e76a2b087685433e1ba5d08cf3edd2d3cf4218fed6154c05c76a71852"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel.ts",
+        "sha256": "3d0ef4057a91e6efa0377efc79b93a3284c3b26b83b5c7f906999b0f84a99106"
+      },
+      {
+        "path": "scripts/generate-certified-staging-approved-panel.ts",
+        "sha256": "e79c7cd2888904112fed3190d52e705a27b7b89daa09dcd56711e83b80c8e285"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v6/generate.ts",
+        "sha256": "5455f1ead1b01a0f0777eff0ba37afc7532097afe03329da80185fee68280180"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v6/calculate.ts",
+        "sha256": "04837ce4d98e57d24bd8a05cc9e8d8e5c100ab99e68660b1afef3670b409c92f"
+      }
+    ],
+    "sourceHash": "61dccefc6b39c55240308b520a1c759e125b4d962665b59044b81c9d259a0d81",
+    "isolatedCacheEmpty": true,
+    "physicalEnumeration": "full-ordered",
+    "oracleRows": 24,
+    "independentWaiting": "UNVERIFIED_NOT_REGENERATED"
+  },
+  "historical": {
+    "sources": [
+      {
+        "path": "scripts/certified-staging-oracle-physical-supply.ts",
+        "archivePath": "scripts/certified-staging-approved-panel/v2/historical/certified-staging-oracle-physical-supply.ts.txt",
+        "sha256": "68686624ac22ab517283347c3cce7abb9a04d269eb2acb8b9ad3a63e8d5f13b5"
+      },
+      {
+        "path": "scripts/certified-staging-oracle.ts",
+        "archivePath": "scripts/certified-staging-approved-panel/v2/historical/certified-staging-oracle.ts.txt",
+        "sha256": "b92f50315a31d6b0f5e04054f5d220cf3103ef76b1d4a7c4d557da0a7964823b"
+      },
+      {
+        "path": "shared/game.ts",
+        "archivePath": "scripts/certified-staging-approved-panel/v2/historical/shared-game.ts.txt",
+        "sha256": "79a7563059171121b0331687fc2caab8563f03a6cb64060b475d1fe7d8a96850"
+      }
+    ],
+    "files": [
+      {
+        "path": "scripts/certified-staging-approved-panel/independent-physical-cohorts.json",
+        "sha256": "fed3faab0a2b032deb65f9b892684cb9518c38a67596f8ba066f8e9cc7d8be0a"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/panel.json",
+        "sha256": "7e3474617cc19ef63d7e2e8a3e84933d28453cb72cbe3e1784379f996f2fc776"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/provenance.json",
+        "sha256": "6cbf971ecdcbfe1e728a543a1a76adfa87ebbf694ae1722de5a2c6380b29d94a"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/snapshot.json",
+        "sha256": "5dd4017b6f74bda406bbd93daa0037e720329d0d64eca05a442c59d6dd170e6d"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/pilot-endpoints.json",
+        "sha256": "301483c331d467a0d8c53568f271c5a893d941340a8bb0238012af9821f10b45"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/pilot-endpoints-provenance.json",
+        "sha256": "4c5286593cff0000b6e8b5ef7cf5fe51fd39bdd4e11a3bbf1c77198649e46f42"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-fixtures/large-current-R600.json.txt",
+        "sha256": "01ba9e5a1a45f21c4f17f9c90c6b1c60955494a72658118f5fda528113788aae"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-fixtures/large-current-R1000.json.txt",
+        "sha256": "5b478ab1a16a4f8774a82ffeaba662cbcf168b8453d83ade08bcf18b280bddb4"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-fixtures/large-current-SR800.json.txt",
+        "sha256": "d510c7aa03eca56532220cc1629f1cd7aedf0b4f3a5ce6cdfcecd49899e929d4"
+      }
+    ],
+    "firstPinsSha256": "3d78bc4d36feb6e1cbc6236baaa756619d3356af25ae32e846ea5d7d5a69ab65",
+    "previousPinsSha256": "3ee39edc4a5e966af56d048ff244c898e22eec98d9acdf4ede3ce0032bcffc65",
+    "v4PinsSha256": "eac06533c50ca981f7a6a2c306d45b82fa601161a0cb5ed970d1fed795cc8e55",
+    "v5PinsSha256": "6c5c61081ea92d0046347d794a580e866bba210d04e529c3c898955cbe3a9e07"
+  },
+  "physicalEnumeration": {
+    "path": "scripts/certified-staging-approved-panel/v6/independent-physical-cohorts.json",
+    "cachePath": "benchmarks/results/certified-staging-validation-independent-physical-rates-v6.json",
+    "sha256": "a28708e259ffb5d1ea955bc379270e494dfe3e5e71fc0b63f20ccd9b3fd1fa55",
+    "sources": [
+      {
+        "path": "scripts/certified-staging-oracle-physical-supply.ts",
+        "sha256": "02bc4e9de191d5f0b938193865e1b85c6a8f9ed83fe7c3c4d34b487aecb1a4c3"
+      },
+      {
+        "path": "scripts/certified-staging-oracle.ts",
+        "sha256": "44169b169bb1487ce952ba6026b697654f541a234384fed4964fe1aa9f43a69f"
+      },
+      {
+        "path": "shared/game.ts",
+        "sha256": "79a7563059171121b0331687fc2caab8563f03a6cb64060b475d1fe7d8a96850"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v6/evidence.ts",
+        "sha256": "ae8b908fed9f7e08a9122fc34c263a4333763a8530c894ff7aaac21de995da54"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v6/history.ts",
+        "sha256": "958d05a7f562deb889b06384cd8056ad0035b45a37a11e0e46aadb80e06b4c90"
+      }
+    ],
+    "sourceHash": "b87607ca13894bd7a1882646021c493161c462766121a3da9739448e3f399167"
+  },
+  "panel": {
+    "path": "scripts/certified-staging-approved-panel/v6/panel.json",
+    "sha256": "7b925ebc578c45dec1c76ccd79c22372dc99d855e19d6ad034cccb007bda0929"
+  }
+}

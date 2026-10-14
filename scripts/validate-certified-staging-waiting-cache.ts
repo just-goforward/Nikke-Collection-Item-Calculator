@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { freemem } from "node:os";
 import type { CertifiedInput, CertifiedOutput } from "../src/certified/types.ts";
-import { readV5Evidence } from "./certified-staging-approved-panel/v5/evidence.ts";
+import { readV6Evidence } from "./certified-staging-approved-panel/v6/evidence.ts";
 import { fromWire, mapTriple, type QTriple, q } from "./certified-staging-oracle.ts";
 import type { CertificateCheck } from "./certified-staging-oracle-certificates.ts";
 import {
@@ -174,7 +174,7 @@ function main(): void {
     throw new Error("Waiting cache original population is not exactly2000");
   // Historical reports still have to pass their original source checks above.
   // A current physical calculation is not permission to relabel waiting proofs.
-  const rates = mapTriple(readV5Evidence().physical.rate, fromWire);
+  const rates = mapTriple(readV6Evidence().physical.rate, fromWire);
   const defaults = rows
     .filter((row) => row.waitingCertificate.status === "PASS")
     .map((row) => entry(row, row.waitingCertificate, RELAXATION_POPULATION.original, rates));

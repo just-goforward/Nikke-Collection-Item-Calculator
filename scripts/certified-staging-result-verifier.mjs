@@ -10,10 +10,11 @@ export const ENGINES = ["chromium", "firefox", "webkit"];
 const RESULT_VERSION = "certified-staging-independent-dist-worker-v1";
 const EXPECTED_VERSION = "certified-staging-approved24-expected-v1";
 const HISTORICAL_PANEL_ROOT = "scripts/certified-staging-approved-panel";
-const PANEL_ROOT = `${HISTORICAL_PANEL_ROOT}/v5`;
+const PANEL_ROOT = `${HISTORICAL_PANEL_ROOT}/v6`;
 const ARCHIVE_ROOT = `${HISTORICAL_PANEL_ROOT}/v2`;
 const PREVIOUS_ROOT = `${HISTORICAL_PANEL_ROOT}/v3`;
 const V4_ROOT = `${HISTORICAL_PANEL_ROOT}/v4`;
+const V5_ROOT = `${HISTORICAL_PANEL_ROOT}/v5`;
 const PANEL_INDICES = [
   0, 1, 3, 4, 8, 15, 17, 21, 26, 29, 30, 31, 61, 73, 99, 137, 211, 313, 517, 731, 991, 1237, 1619,
   1999,
@@ -88,6 +89,24 @@ const REQUIRED_SOURCES = [
   ].map((path) => `${V4_ROOT}/source/${path}.txt`),
   ...["pins.json", "provenance.json", "independent-physical-cohorts.json", "panel.json"].map(
     (name) => `${V4_ROOT}/${name}.txt`,
+  ),
+  ...[
+    "scripts/certified-staging-oracle-physical-supply.ts",
+    "scripts/certified-staging-oracle.ts",
+    "shared/game.ts",
+    `${V5_ROOT}/evidence.ts`,
+    `${V5_ROOT}/history.ts`,
+    "scripts/certified-staging-oracle-tuples.ts",
+    "scripts/certified-staging-oracle-fixtures.ts",
+    "scripts/certified-staging-approved-panel.ts",
+    "scripts/generate-certified-staging-approved-panel.ts",
+    `${V5_ROOT}/generate.ts`,
+    `${V5_ROOT}/calculate.ts`,
+    "biome.json",
+    "package-lock.json",
+  ].map((path) => `${V5_ROOT}/source/${path}.txt`),
+  ...["pins.json", "provenance.json", "independent-physical-cohorts.json", "panel.json"].map(
+    (name) => `${V5_ROOT}/${name}.txt`,
   ),
   ...["evidence.ts", "history.ts", "generate.ts", "calculate.ts"].map(
     (name) => `${PANEL_ROOT}/${name}`,
@@ -274,8 +293,8 @@ function expectedProfile() {
 
 export async function freezeExpected(commit) {
   const source = sourceSnapshot(commit);
-  const { readV5Evidence } = await import("./certified-staging-approved-panel/v5/evidence.ts");
-  const { panel } = readV5Evidence();
+  const { readV6Evidence } = await import("./certified-staging-approved-panel/v6/evidence.ts");
+  const { panel } = readV6Evidence();
   assert.deepEqual(
     panel.map((row) => row.originalIndex),
     PANEL_INDICES,

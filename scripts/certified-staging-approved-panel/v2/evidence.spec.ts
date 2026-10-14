@@ -7,7 +7,7 @@ import {
   readHistorical,
   sha256,
   V2_ROOT,
-} from "../v5/history.ts";
+} from "../v6/history.ts";
 import { authenticateHistoricalArchive, readV2Evidence } from "./evidence.ts";
 
 it("preserves first v2 pins, complete generation sources and original historical bytes as data", () => {
