@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { accountCheckRemainingMs } from "./accountCheck";
 import type { AccountUi } from "./accountController";
 import type { AccountView } from "./accountState";
@@ -36,6 +36,8 @@ export function useAccountLock(
     return () => window.clearTimeout(timer);
   }, [boot, controller, phase]);
   const locked = boot !== "done" || switchPending || phase === "stale";
-  useEffect(() => onLockChange(locked), [locked, onLockChange]);
+  // Layout effect: the shell's lock lands in the same synchronous commit as the view or switch
+  // that requires it, before any input event can reach the newly shown (or not yet replaced) data.
+  useLayoutEffect(() => onLockChange(locked), [locked, onLockChange]);
   return boot !== "done";
 }

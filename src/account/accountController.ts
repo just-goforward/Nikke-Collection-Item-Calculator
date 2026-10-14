@@ -242,8 +242,6 @@ export class AccountController<T> extends AccountSync<T> {
     const shown = calculator.ownGuest ? null : calculator.capture();
     if (shown !== null && this.snapshot.view.phase === "unavailable") this.preserveGuest(shown);
     const server = codec.read(workspace.value.document);
-    const offerGuest =
-      server.status === "absent" && guestValue !== null && !codec.isEmpty(guestValue);
     let initial: T;
     if (server.status === "value") initial = server.value;
     // Engines with their own guest data must not show it as this account's data.
@@ -260,16 +258,17 @@ export class AccountController<T> extends AccountSync<T> {
       announcedRevision: workspace.value.revision,
       conflict: null,
       serverUnreadable: server.status === "unreadable",
-      guestOffer:
-        offerGuest && guestValue !== null
-          ? { value: guestValue, summary: codec.summary(guestValue) }
-          : null,
+      guestOffer: server.status === "absent" ? this.guestOffer(guestValue) : null,
       retryMs: 0,
       cancelTimer: null,
       recovering: drafts,
       closed: false,
     };
     this.session = session;
+    // The engine switch is requested before the signed-in view is shown, in the same synchronous
+    // step: the engine keeps inputs locked until the account data is displayed, so guest inputs
+    // are never editable as this account's (R2-13 / N-A11).
+    if (server.status === "value" || calculator.ownGuest) calculator.apply(initial);
     this.setView(
       this.signedInView(userId, {
         revision: session.revision,
@@ -279,10 +278,17 @@ export class AccountController<T> extends AccountSync<T> {
       }),
     );
     this.deps.channel.post({ type: "account", userId });
-    // The redirect's guest inputs stay stored as guest data; they need no restore any more. Only
-    // after the switch: a timeout firing now finds the check settled and changes nothing.
-    await this.clearRestoreFlag();
-    await this.reconcile(session, server.status === "value");
+    // The redirect's guest inputs stay stored as guest data; they need no restore any more. On
+    // the device queue, never awaited here: a timeout firing now finds the check settled.
+    void this.deviceWrite(() => this.clearRestoreFlag());
+    await this.reconcile(session);
+  }
+
+  /** Stored guest inputs offered for an explicit copy into an account without inputs. */
+  private guestOffer(guestValue: T | null): Session<T>["guestOffer"] {
+    const { codec } = this.deps;
+    if (guestValue === null || codec.isEmpty(guestValue)) return null;
+    return { value: guestValue, summary: codec.summary(guestValue) };
   }
 
   private async clearRestoreFlag() {
@@ -398,8 +404,7 @@ export class AccountController<T> extends AccountSync<T> {
   }
 
   /** Shows the account data, then recovers unsynced drafts; none silently replaces server data. */
-  private async reconcile(session: Session<T>, serverHasValue: boolean) {
-    if (serverHasValue || this.deps.calculator.ownGuest) this.applyInput(session, session.local);
+  private async reconcile(session: Session<T>) {
     await this.recoverNext(session);
     if (this.session !== session || session.dirty) return;
     void this.persist(session);
@@ -511,7 +516,7 @@ export class AccountController<T> extends AccountSync<T> {
     } else if (userId && removal === "discard") {
       // Only what the prompt covered: this tab's edits, including drafts it adopted and showed.
       // Closed tabs' drafts it has not shown yet stay for the next sign-in.
-      await this.storage((store) => store.removeDrafts(userId, [this.deps.tab.id]), undefined);
+      await this.storage((store) => store.removeDrafts(userId, [this.draftId]), undefined);
     }
     if (userId && broadcast) this.deps.channel.post({ type: broadcast, userId });
     // While the account was not loaded, guest data is what is shown already.

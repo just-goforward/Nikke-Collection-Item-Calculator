@@ -67,8 +67,17 @@ export abstract class AccountControllerBase<T> {
   /** Device writes have their own queue: no request in flight can delay them. */
   private persistTail: Promise<void> = Promise.resolve();
   private storeReady: Promise<WorkspaceStore> | null = null;
+  /**
+   * Device key of this tab's draft: the tab ID, or `<tab ID>/<n>` after a refused move-back left
+   * an adopted draft under the previous key (see `claimDraft`). Every key starts with the tab ID,
+   * so its Web Lock keeps all of them from being recovered by other tabs while it is open.
+   */
+  protected draftId: string;
+  private draftGeneration = 0;
 
-  constructor(protected readonly deps: AccountControllerDeps<T>) {}
+  constructor(protected readonly deps: AccountControllerDeps<T>) {
+    this.draftId = deps.tab.id;
+  }
 
   readonly subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -215,31 +224,45 @@ export abstract class AccountControllerBase<T> {
    * workspaceStore.ts), queued with this tab's other device writes. "failed": the device refused
    * the write and the source draft is untouched; the refusal is reported. "busy": `intervened`
    * reported an edit (or a left session) while claiming; the draft is moved back, again in one
-   * atomic step, before the edit's own queued write replaces this tab's draft.
+   * atomic step, before the edit's own queued write replaces this tab's draft. "held": that
+   * move-back was refused, so the adopted copy stays under `record.draftId` and this tab's later
+   * writes move to a fresh key in the same device step: neither value overwrites the other.
    */
   protected async claimDraft(
     source: DraftRecord,
     record: DraftRecord,
     intervened: () => boolean,
-  ): Promise<"claimed" | "gone" | "busy" | "failed"> {
+  ): Promise<"claimed" | "gone" | "busy" | "held" | "failed"> {
     const outcome = await this.deviceWrite(() =>
       this.storage(async (store) => {
         if (intervened()) return "busy" as const;
         if (!(await store.claimDraft(record.userId, source.draftId, record)))
           return "gone" as const;
         if (!intervened()) return "claimed" as const;
-        await store.claimDraft(record.userId, record.draftId, source);
-        return "busy" as const;
+        try {
+          await store.claimDraft(record.userId, record.draftId, source);
+          return "busy" as const;
+        } catch (error) {
+          if (!(error instanceof DOMException)) throw error;
+          this.draftGeneration += 1;
+          this.draftId = `${this.deps.tab.id}/${this.draftGeneration}`;
+          return "held" as const;
+        }
       }, "failed" as const),
     );
     return outcome ?? "failed";
+  }
+
+  /** The tab that wrote a draft: draft keys are the tab ID, optionally followed by `/<n>`. */
+  protected draftOwner(draftId: string): string {
+    return draftId.split("/")[0] ?? draftId;
   }
 
   /** This tab's draft of the session's unsynced edits. */
   protected draftRecord(session: Session<T>): DraftRecord {
     return {
       userId: session.userId,
-      draftId: this.deps.tab.id,
+      draftId: this.draftId,
       baseRevision: session.revision,
       baseKey: session.syncedKey === UNKNOWN_BASE_KEY ? null : session.syncedKey,
       document: this.deps.codec.write(session.serverDocument, session.local),
@@ -254,9 +277,9 @@ export abstract class AccountControllerBase<T> {
 
   private async writeDraft(session: Session<T>) {
     if (session.closed) return;
-    const { tab } = this.deps;
     if (!session.dirty) {
-      await this.storage((store) => store.removeDrafts(session.userId, [tab.id]), undefined);
+      const draftId = this.draftId;
+      await this.storage((store) => store.removeDrafts(session.userId, [draftId]), undefined);
       return;
     }
     const record = this.draftRecord(session);

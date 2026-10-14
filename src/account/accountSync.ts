@@ -219,7 +219,9 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
   }
 
   private async conflictFromServer(session: Session<T>) {
+    // The save was refused, so it never committed: only unanswered saves still count (N-A10).
     session.pendingOp = null;
+    session.dirty = this.localKey(session) !== session.syncedKey || session.unacked.length > 0;
     const fresh = await this.deps.api.getWorkspace(session.userId);
     if (this.session !== session) return;
     if (!fresh.ok) {
@@ -411,7 +413,10 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
       this.storage((store) => store.readDrafts(userId), []),
       tab.liveIds(),
     ]);
-    return drafts.filter((draft) => draft.draftId === tab.id || !live.has(draft.draftId));
+    return drafts.filter((draft) => {
+      const owner = this.draftOwner(draft.draftId);
+      return owner === tab.id || !live.has(owner);
+    });
   }
 
   private canRecover(session: Session<T>) {
@@ -441,7 +446,7 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
     const { codec, tab } = this.deps;
     const stored = this.readValue(draft.document);
     if (stored === null || codec.key(stored) === session.syncedKey) {
-      if (draft.draftId !== tab.id) {
+      if (draft.draftId !== this.draftId) {
         await this.storage(
           (store) => store.removeDrafts(session.userId, [draft.draftId]),
           undefined,
@@ -474,6 +479,13 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
       session.recovering.unshift(draft);
       return true;
     }
+    if (claim === "held") {
+      // The move-back was refused: the adopted copy stays under its key, the edit is written
+      // under this tab's fresh key, and the copy is recovered against the saved edit later.
+      session.recovering.unshift(record);
+      this.notify("draft_recovery_failed");
+      return true;
+    }
     if (claim === "failed") {
       // Left on the device untouched; retried once the session settles again.
       session.recovering.unshift(draft);
@@ -484,7 +496,7 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
     session.syncedKey = base.syncedKey;
     session.dirty = true;
     this.applyInput(session, stored);
-    if (draft.draftId !== tab.id) this.notify("draft_recovered");
+    if (this.draftOwner(draft.draftId) !== tab.id) this.notify("draft_recovered");
     if (!knownBase) {
       this.enterConflict(session, serverRevision, session.serverDocument, false);
       return true;

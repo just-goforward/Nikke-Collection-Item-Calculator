@@ -376,16 +376,122 @@ describe("account entry and recovery never overwrite newer edits (R2-12, R2-13, 
     const harness = createHarness(server, { store, displayed: input(0) });
     const started = harness.controller.start();
     await writing.promise;
+    // The account data is requested before the flag clearing finishes (R2-13 / N-A11): the
+    // signed-in view never shows guest inputs as the account's.
+    expect(signedIn(harness.view()).userId).toBe("user-a");
+    expect(harness.displayed).toEqual(input(40));
     await harness.controller.bootTimedOut(true);
-    harness.edit(input(22));
+    expect(harness.displayed).toEqual(input(40));
     gate.resolve();
     await started;
     await harness.controller.whenIdle();
-    expect(harness.displayed).toEqual(input(22));
-    expect(signedIn(harness.view()).userId).toBe("user-a");
     await harness.runTimers();
-    expect(readCalculatorInput(server.document)).toEqual(input(22));
+    expect(putBodies(server)).toEqual([]);
+    expect(readCalculatorInput(server.document)).toEqual(input(40));
     expect(await memory.readGuest()).toMatchObject({ document: doc(21), restoreOnReturn: false });
+  });
+});
+
+describe("handoff and compensation edge cases (R2-13 / N-A11, N-A12, N-A10)", () => {
+  it("retrying an unloaded account switches to its data before any device step", async () => {
+    const server = createFakeServer({ revision: 2, document: doc(40) });
+    server.overrides.getWorkspace = [failure(503, "service_unavailable")];
+    const memory = createMemoryWorkspaceStore();
+    const held = deferred();
+    const gate = deferred();
+    let holdFrom = Number.POSITIVE_INFINITY;
+    let reads = 0;
+    const store: WorkspaceStore = {
+      ...memory,
+      readGuest: async () => {
+        reads += 1;
+        // The first read is the entry's own; the next is the restore-flag clearing.
+        if (reads === holdFrom + 1) {
+          held.resolve();
+          await gate.promise;
+        }
+        return memory.readGuest();
+      },
+    };
+    const harness = createHarness(server, { store, displayed: input(1) });
+    await harness.controller.start();
+    expect(harness.view()).toMatchObject({ phase: "unavailable" });
+    harness.edit(input(45));
+    holdFrom = reads + 1;
+    const retried = harness.controller.retryAccount();
+    await held.promise;
+    expect(signedIn(harness.view()).userId).toBe("user-a");
+    expect(harness.displayed).toEqual(input(40));
+    gate.resolve();
+    await retried;
+    await harness.controller.whenIdle();
+    await harness.runTimers();
+    expect(putBodies(server)).toEqual([]);
+    expect(readCalculatorInput((await memory.readGuest())?.document ?? doc(0))).toEqual(input(45));
+  });
+
+  it("a refused move-back keeps both the adopted draft and the newer edit (N-A12)", async () => {
+    const server = createFakeServer({ revision: 1, document: doc(1) });
+    const memory = createMemoryWorkspaceStore();
+    await memory.writeDraft(abandonedDraft("closed-tab", 7));
+    const claiming = deferred();
+    const gate = deferred();
+    let claims = 0;
+    const store: WorkspaceStore = {
+      ...memory,
+      claimDraft: async (userId, sourceId, record) => {
+        claims += 1;
+        if (claims === 1) {
+          claiming.resolve();
+          await gate.promise;
+        }
+        // Only the compensating move-back is refused; later writes succeed.
+        if (claims === 2)
+          throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+        return memory.claimDraft(userId, sourceId, record);
+      },
+    };
+    const harness = createHarness(server, { store });
+    const started = harness.controller.start();
+    await claiming.promise;
+    harness.edit(input(9));
+    gate.resolve();
+    await started;
+    await harness.controller.whenIdle();
+    expect(harness.displayed).toEqual(input(9));
+    const values = (await memory.readDrafts("user-a")).map((draft) =>
+      readCalculatorInput(draft.document),
+    );
+    expect(values).toEqual(expect.arrayContaining([input(7), input(9)]));
+    await harness.runTimers();
+    await harness.controller.whenIdle();
+    expect(readCalculatorInput(server.document)).toEqual(input(9));
+    expect(signedIn(harness.view())).toMatchObject({
+      sync: "conflict",
+      conflict: { server: input(9), local: input(7) },
+    });
+    expect(draftValues(await memory.readDrafts("user-a")).map(([, value]) => value)).toEqual([
+      input(7),
+    ]);
+  });
+
+  it("a revert during a save refused with revision_conflict is no edit (N-A10)", async () => {
+    const server = createFakeServer({ revision: 1, document: doc(10) });
+    const harness = createHarness(server);
+    await harness.controller.start();
+    server.beforePut = () => {
+      server.beforePut = undefined;
+      // Another device saved first; the user reverts while this save is on its way.
+      server.revision = 2;
+      server.lastOpId = "other-device";
+      server.document = doc(12);
+      harness.edit(input(10));
+    };
+    harness.edit(input(11));
+    await harness.runTimers();
+    expect(signedIn(harness.view())).toMatchObject({ sync: "synced", revision: 2, conflict: null });
+    expect(harness.displayed).toEqual(input(12));
+    expect(await harness.draft()).toBeNull();
   });
 
   it.each([

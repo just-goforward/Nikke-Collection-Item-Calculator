@@ -79,7 +79,7 @@ const ko = {
   deleteOpen: "계정 삭제…",
   deleteTitle: "계정을 영구 삭제할까요?",
   deleteDetail:
-    "이 계정의 작업 공간, 기록과 통계 참여 정보가 서버에서 삭제되며 되돌릴 수 없습니다. 이 기기의 게스트 데이터는 유지됩니다.",
+    "이 계정의 작업 공간과 기록이 서버에서 삭제되며 되돌릴 수 없습니다. 이 기기의 게스트 데이터는 유지됩니다.",
   deleteConfirmCheck: "되돌릴 수 없다는 것을 이해했습니다",
   deleteConfirm: "계정 영구 삭제",
   conflictTitle: "작업 공간이 다른 곳에서 변경되었습니다",
@@ -211,7 +211,7 @@ const en: Record<AccountMessageKey, string> = {
   deleteOpen: "Delete account…",
   deleteTitle: "Permanently delete your account?",
   deleteDetail:
-    "This account's workspace, records and statistics participation are deleted from the server. This cannot be undone. Guest data on this device is kept.",
+    "This account's workspace and records are deleted from the server. This cannot be undone. Guest data on this device is kept.",
   deleteConfirmCheck: "I understand this cannot be undone",
   deleteConfirm: "Delete permanently",
   conflictTitle: "Your workspace changed somewhere else",
@@ -342,7 +342,7 @@ const ja: Record<AccountMessageKey, string> = {
   deleteOpen: "アカウントを削除…",
   deleteTitle: "アカウントを完全に削除しますか？",
   deleteDetail:
-    "このアカウントのワークスペース、記録、統計参加情報がサーバーから削除され、元に戻せません。この端末のゲストデータは保持されます。",
+    "このアカウントのワークスペースと記録がサーバーから削除され、元に戻せません。この端末のゲストデータは保持されます。",
   deleteConfirmCheck: "元に戻せないことを理解しました",
   deleteConfirm: "完全に削除",
   conflictTitle: "ワークスペースが別の場所で変更されました",

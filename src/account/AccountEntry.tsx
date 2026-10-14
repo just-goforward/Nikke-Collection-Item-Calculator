@@ -44,6 +44,29 @@ type EntryController = {
   perform(next: EngineSwitch): void;
 };
 
+/**
+ * The pending display switch, read with useSyncExternalStore like the controller snapshot: a
+ * switch requested in the same step as a view change is always rendered together with it (a
+ * separate useState update could render after it, leaving the new view over the old inputs).
+ */
+function createSwitchStore() {
+  let current: EngineSwitch | null = null;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => current,
+    set: (next: EngineSwitch | null) => {
+      current = next;
+      for (const listener of listeners) listener();
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
 const SAVE_DELAY_MS = 1_500;
 const SESSION_RECHECK_MS = 30_000;
 
@@ -176,8 +199,9 @@ function useAccountController(props: AccountEntryProps) {
   useEffect(() => {
     binding.current = props;
   });
-  const [pending, setPending] = useState<EngineSwitch | null>(null);
-  const [entry] = useState(() => createEntryController(binding, setPending));
+  const [switches] = useState(createSwitchStore);
+  const pending = useSyncExternalStore(switches.subscribe, switches.get);
+  const [entry] = useState(() => createEntryController(binding, switches.set));
   const controller = entry.ui;
   useEffect(() => {
     void controller.start();
@@ -191,11 +215,11 @@ function useAccountController(props: AccountEntryProps) {
   const { inputLocked } = props;
   useEffect(() => {
     if (!pending || inputLocked) return;
-    setPending(null);
+    switches.set(null);
     entry.perform(pending);
     // An undo snapshot from before the switch belongs to the other data set.
     binding.current.onSwitched?.();
-  }, [entry, inputLocked, pending]);
+  }, [entry, inputLocked, pending, switches]);
   const changeToken =
     props.kind === "calculator-input" ? calculatorInputKey(props.input) : props.changeToken;
   const notified = useRef<unknown>(null);
