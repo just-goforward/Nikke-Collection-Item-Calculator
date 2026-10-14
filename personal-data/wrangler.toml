@@ -1,0 +1,31 @@
+# Local scaffold only. These are deliberately invalid remote resource IDs.
+name = "collection-kit-personal-data-local"
+main = "src/worker.ts"
+compatibility_date = "2026-08-22"
+workers_dev = false
+upload_source_maps = false
+
+[observability]
+enabled = false
+
+[observability.logs]
+enabled = false
+invocation_logs = false
+
+[[d1_databases]]
+binding = "PERSONAL_DB"
+database_name = "personal-data-local"
+database_id = "local-personal-only"
+migrations_dir = "migrations/personal"
+
+[[d1_databases]]
+binding = "PRIVACY_CONTROL_DB"
+database_name = "privacy-control-local"
+database_id = "local-privacy-only"
+migrations_dir = "migrations/privacy"
+
+[[d1_databases]]
+binding = "PUBLIC_AGGREGATE_DB"
+database_name = "public-aggregate-local"
+database_id = "local-public-only"
+migrations_dir = "migrations/public"
