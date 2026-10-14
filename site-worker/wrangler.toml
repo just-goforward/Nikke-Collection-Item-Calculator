@@ -15,7 +15,7 @@ directory = "../dist"
 binding = "ASSETS"
 not_found_handling = "404-page"
 # Asset-first HTML preserves _headers and avoids billed gateway invocations.
-run_worker_first = ["/api", "/api/*", "/auth", "/auth/*", "/account", "/account/*", "/admin", "/admin/*", "/robots.txt"]
+run_worker_first = ["/api", "/api/*", "/auth", "/auth/*", "/v1", "/v1/*", "/account", "/account/*", "/admin", "/admin/*", "/robots.txt"]
 
 [observability]
 enabled = false
@@ -33,7 +33,7 @@ preview_urls = false
 directory = "../dist"
 binding = "ASSETS"
 not_found_handling = "404-page"
-run_worker_first = ["/api", "/api/*", "/auth", "/auth/*", "/account", "/account/*", "/admin", "/admin/*", "/robots.txt"]
+run_worker_first = ["/api", "/api/*", "/auth", "/auth/*", "/v1", "/v1/*", "/account", "/account/*", "/admin", "/admin/*", "/robots.txt"]
 
 [env.staging.observability]
 enabled = false
@@ -47,7 +47,7 @@ binding = "STATS"
 # Existing staging service name from cloudflare/wrangler.toml; verify before provisioning.
 service = "collection-kit-stats-staging"
 
-# Future binding PLACEHOLDER: enable only after its API/security contract is approved.
+# Binding remains unprovisioned: enable only under separate deployment approval.
 # [[env.staging.services]]
 # binding = "PERSONAL_DATA"
 # service = "collection-kit-personal-data-staging"

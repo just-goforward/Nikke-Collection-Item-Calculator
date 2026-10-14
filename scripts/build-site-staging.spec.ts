@@ -29,6 +29,11 @@ describe("staging build headers", () => {
     expect(headers).toContain("https://cdn.jsdelivr.net");
     expect(headers).toContain("frame-ancestors 'none'");
     expect(headers).not.toContain("'unsafe-eval'");
+    const scriptPolicy = headers.match(/script-src ([^;]+)/)?.[1];
+    expect(scriptPolicy).not.toContain("'unsafe-inline'");
+    expect(scriptPolicy).not.toContain("'nonce-");
+    expect(headers).toContain("connect-src 'self'");
+    expect(headers).toContain("/v1/*\n  Cache-Control: no-store");
     expect(headers.split("\n").every((line) => line.length <= 2000)).toBe(true);
     expect(documents[0]).toContain("endpoint: window.location.origin");
     expect(documents[0]).not.toContain("production.invalid");

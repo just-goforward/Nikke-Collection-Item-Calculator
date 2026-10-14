@@ -90,6 +90,8 @@ export function stagingHeaders(htmlDocuments: readonly string[]): string {
     "  Cache-Control: no-store",
     "/auth/*",
     "  Cache-Control: no-store",
+    "/v1/*",
+    "  Cache-Control: no-store",
     "/account/*",
     "  Cache-Control: no-store",
     "",
