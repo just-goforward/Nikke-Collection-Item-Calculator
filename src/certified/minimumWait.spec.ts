@@ -2,8 +2,12 @@ import { readFile } from "node:fs/promises";
 import { beforeAll, describe, expect, it } from "vitest";
 import { q, toWire } from "../../shared/certifiedRational";
 import { buildCertifiedSupplySnapshot } from "../../shared/certifiedSupply";
+import {
+  assertMinimumWaitBinding,
+  assertMinimumWaitTie,
+  minimumWaitBase,
+} from "../certifiedRuntime/minimumWait";
 import { interruptedCertifiedWaiting } from "../certifiedRuntime/partial";
-import { assertMinimumWaitBinding, assertMinimumWaitTie, minimumWaitBase } from "./minimumWait";
 import type { CertifiedInput, CertifiedMinimumWait, CertifiedOutput, Triple } from "./types";
 import { loadCertifiedWasm } from "./wasmBackend";
 import { solveCertifiedWasm } from "./wasmSolver";

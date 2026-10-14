@@ -1,8 +1,7 @@
 import { cmp, eq, fromWire, ONE, q, toWire } from "../../shared/certifiedRational";
-import { CertifiedLimit } from "./budget";
-import type { CertifiedCurrent, CertifiedInput, CertifiedMinimumWait } from "./types";
+import type { CertifiedCurrent, CertifiedInput, CertifiedMinimumWait } from "../certified/types";
 
-export const MINIMUM_WAIT_VERSION = "certified-minimum-wait-v1" as const;
+const MINIMUM_WAIT_VERSION = "certified-minimum-wait-v1" as const;
 type PendingStatus = "unknown" | "not_applicable" | "not_requested";
 
 export function minimumWaitBase(
@@ -29,7 +28,7 @@ export function minimumWaitBase(
 }
 
 function invalid(): never {
-  throw new CertifiedLimit("minimum_wait_binding_mismatch");
+  throw new Error("minimum_wait_binding_mismatch");
 }
 function day(value: unknown, maximum = 7): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= maximum;

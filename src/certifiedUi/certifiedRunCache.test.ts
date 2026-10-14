@@ -9,6 +9,7 @@ it("reuses only same-day actual-stock requests with all model and receipt inputs
     asOf,
     revision: "cache",
     sourceHash: "a".repeat(64),
+    sourceStatus: "uncertain",
     soloPeriods: [],
     collaborationPeriods: [],
   });
@@ -33,7 +34,7 @@ it("reuses only same-day actual-stock requests with all model and receipt inputs
   for (const changed of [
     { ...snapshot, coverage: { ...snapshot.coverage, currentDay: "2026-10-01" } },
     { ...snapshot, sourceHash: "b".repeat(64) },
-    { ...snapshot, sourceStatus: "uncertain" as const },
+    { ...snapshot, sourceStatus: "healthy" as const },
   ])
     expect(certifiedRunCacheKey(session, changed, asOf)).not.toBe(key);
 });

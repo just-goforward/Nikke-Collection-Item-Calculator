@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { minimumWaitBase } from "../certified/minimumWait";
+import { minimumWaitBase } from "../certifiedRuntime/minimumWait";
 import { certifiedMessages } from "./messages";
 import { minimumWaitText } from "./minimumWaitPresentation";
 

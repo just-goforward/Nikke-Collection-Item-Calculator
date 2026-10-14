@@ -8,8 +8,8 @@ import {
   type CertifiedForecastIdentity,
   sameCertifiedForecastIdentity,
 } from "../../shared/certifiedForecastIdentity.ts";
-import { assertMinimumWaitBinding } from "../certified/minimumWait.ts";
 import type { CertifiedOutput } from "../certified/types.ts";
+import { assertMinimumWaitBinding } from "./minimumWait.ts";
 
 export type CertifiedRuntimeOutput = CertifiedOutput & {
   runtimeBinding: {

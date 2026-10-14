@@ -1,9 +1,9 @@
 import { fromWire, type Q, q, sub, toWire } from "../../shared/certifiedRational";
 import { isCertifiedEventClaimable } from "../../shared/certifiedSupply";
+import { minimumWaitBase } from "../certifiedRuntime/minimumWait";
 import { CertifiedLimit, WorkBudget } from "./budget";
 import { waitingBase } from "./events";
 import { encode } from "./game";
-import { minimumWaitBase } from "./minimumWait";
 import { createOutput, updateDiagnostics } from "./output";
 import type { CertifiedInput, CertifiedOptions, CertifiedOutput } from "./types";
 import { validate } from "./validation";

@@ -3,10 +3,14 @@ import { div, fromWire, type Q, q, toWire, type WireQ } from "../../shared/certi
 import { DISPATCH_CLASSES } from "../../shared/certifiedSupplyLaws";
 import { dateStart, ruleAt } from "../../shared/certifiedSupplyModel";
 import { CERTIFIED_WASM_HASH } from "../../shared/generated/certifiedWasmBuild";
+import {
+  assertMinimumWaitBinding,
+  assertMinimumWaitTie,
+  minimumWaitBase,
+} from "../certifiedRuntime/minimumWait";
 import { CertifiedLimit, type WorkBudget } from "./budget";
 import { eventOffset, futureEvents } from "./events";
 import { CAPS, capUnits, EDGES } from "./game";
-import { assertMinimumWaitBinding, assertMinimumWaitTie, minimumWaitBase } from "./minimumWait";
 import type {
   CertifiedCurrent,
   CertifiedInput,

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Certified minimum-wait full-request timing</title>
+  </head>
+  <body>
+    <h1>Certified minimum-wait timing</h1>
+    <p>Local diagnostic only. No session data is read or changed. Six fixed research inputs,
+      a fresh worker per input, 15-second full-request target. Keep this page visible.</p>
+    <p>Galaxy S20 FE: connect to this PC's local development server, open this page in Chrome,
+      disable battery saver, close other heavy apps, and press Measure. Copy the JSON below;
+      note the phone model, Android/Chrome versions, power mode and whether the device was warm.
+      Do not treat a desktop result or emulated viewport as a phone measurement.</p>
+    <button id="measure" type="button" style="min-height: 44px; max-width: 100%; padding: 0.5rem">Measure R0 / R10 / R14 / SR5 / SR10 / SR13</button>
+    <pre id="results" style="white-space: pre-wrap; overflow-wrap: anywhere" aria-live="polite"></pre>
+    <script type="module" src="/src/certifiedRuntime/minimumWaitTimingPage.ts"></script>
+  </body>
+</html>
