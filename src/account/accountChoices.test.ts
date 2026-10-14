@@ -148,6 +148,7 @@ describe("sign-out with unsynced edits", () => {
       userId: "user-a",
       draftId: "certified-tab",
       baseRevision: 1,
+      baseKey: null,
       document: EMPTY_WORKSPACE_DOCUMENT,
       updatedAt: 1,
     };

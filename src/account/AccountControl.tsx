@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
 import { LazySectionErrorBoundary } from "../components/LazySectionErrorBoundary";
 import type { AccountControlProps } from "./accountBinding";
-import { accountCheckRemainingMs, CheckingIndicator } from "./accountCheck";
+import { accountCheckRemainingMs, CheckingIndicator, redirectRestorePending } from "./accountCheck";
 
 /**
  * Feature-flagged app-shell slot. With accountCheck.tsx and config.ts it is the only account code
@@ -13,7 +13,12 @@ import { accountCheckRemainingMs, CheckingIndicator } from "./accountCheck";
 const loadEntry = () => lazy(() => import("./AccountEntry"));
 let entry: ReturnType<typeof loadEntry> | null = null;
 
-/** Until the chunk loads; past the bound it releases the inputs on its own. */
+/**
+ * Until the chunk loads; past the bound it releases the inputs on its own, unless guest inputs
+ * saved before a sign-in redirect await restoring: only the chunk can restore them, so the inputs
+ * stay read-only until it has loaded (it restores, then releases) or failed (released at once).
+ * Releasing first would let the late restore replace edits made since, or lose the saved inputs.
+ */
 function LoadingFallback({ onTimeout }: { onTimeout: () => void }) {
   useEffect(() => {
     const timer = window.setTimeout(onTimeout, accountCheckRemainingMs());
@@ -43,6 +48,7 @@ export function AccountControl(props: AccountControlProps) {
         fallback={
           <LoadingFallback
             onTimeout={() => {
+              if (redirectRestorePending()) return;
               fellBack.current = true;
               onLockChange(false);
             }}

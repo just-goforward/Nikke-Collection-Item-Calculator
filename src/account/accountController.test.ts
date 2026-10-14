@@ -226,6 +226,7 @@ describe("workspace sync", () => {
       userId: "user-a",
       draftId: "closed-tab",
       baseRevision: 4,
+      baseKey: null,
       document: serverDocument(44),
       updatedAt: 1,
     });
@@ -243,6 +244,7 @@ describe("workspace sync", () => {
       userId: "user-a",
       draftId: "closed-tab",
       baseRevision: 4,
+      baseKey: null,
       document: serverDocument(44),
       updatedAt: 1,
     });

@@ -256,6 +256,8 @@ type HarnessOptions<T> = {
   displayed?: T;
   /** Engines with their own guest storage (certified): `value` is that stored guest data. */
   ownGuest?: { value: T | null };
+  /** Opening the device store reports a blocked upgrade first. */
+  blockedOpen?: boolean;
 };
 
 export function createHarness(server: FakeServer, options: HarnessOptions<CalculatorInput> = {}) {
@@ -277,6 +279,7 @@ export function createItemHarness<T>(
   const applied: T[] = [];
   const navigations: string[] = [];
   const downloads: Array<{ fileName: string; text: string }> = [];
+  const redirectMarks: boolean[] = [];
   const timers: Timer[] = [];
   let displayed = options.displayed ?? initial;
   let opCount = 0;
@@ -305,10 +308,14 @@ export function createItemHarness<T>(
           }
         : {}),
     },
-    openStore: async () => ({ store, persistent: true }),
+    openStore: async (onBlocked) => {
+      if (options.blockedOpen) onBlocked();
+      return { store, persistent: true };
+    },
     tab,
     newOpId: () => `op-${++opCount}`,
     navigate: (url) => navigations.push(url),
+    markRedirectRestore: (pending) => redirectMarks.push(pending),
     download: (fileName, text) => downloads.push({ fileName, text }),
     // Advances on every read so drafts written later are newer.
     now: () => (clock += 1),
@@ -339,6 +346,8 @@ export function createItemHarness<T>(
     applied,
     navigations,
     downloads,
+    /** Values given to the per-tab "restore pending" marker, in order. */
+    redirectMarks,
     get displayed() {
       return displayed;
     },

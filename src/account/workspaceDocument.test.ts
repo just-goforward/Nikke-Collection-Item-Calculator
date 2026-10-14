@@ -111,6 +111,7 @@ describe("device workspace store", () => {
       userId: "a",
       draftId,
       baseRevision: 2,
+      baseKey: null,
       document,
       updatedAt,
     });
@@ -129,10 +130,29 @@ describe("device workspace store", () => {
     expect(await store.readGuest()).toMatchObject({ restoreOnReturn: false });
   });
 
+  it("claims a draft for one tab only, moving it in one step", async () => {
+    const store = createMemoryWorkspaceStore();
+    const document = writeCalculatorInput(EMPTY_WORKSPACE_DOCUMENT, INPUT);
+    const left = {
+      userId: "a",
+      draftId: "closed",
+      baseRevision: 2,
+      baseKey: null,
+      document,
+      updatedAt: 1,
+    };
+    await store.writeDraft(left);
+    const claim = (draftId: string) =>
+      store.claimDraft("a", "closed", { ...left, draftId, updatedAt: 2 });
+    expect(await Promise.all([claim("tab-1"), claim("tab-2")])).toEqual([true, false]);
+    expect((await store.readDrafts("a")).map((entry) => entry.draftId)).toEqual(["tab-1"]);
+  });
+
   it("refuses malformed or mismatched records", () => {
     const document = EMPTY_WORKSPACE_DOCUMENT;
     const record = { userId: "a", draftId: "t", baseRevision: 0, document, updatedAt: 1 };
-    expect(parseDraftRecord(record, "a")).toEqual(record);
+    expect(parseDraftRecord(record, "a")).toEqual({ ...record, baseKey: null });
+    expect(parseDraftRecord({ ...record, baseKey: "k" }, "a")).toMatchObject({ baseKey: "k" });
     expect(parseDraftRecord(record, "b")).toBeNull();
     expect(parseDraftRecord({ ...record, baseRevision: -1 }, "a")).toBeNull();
     expect(parseDraftRecord({ ...record, draftId: 1 }, "a")).toBeNull();

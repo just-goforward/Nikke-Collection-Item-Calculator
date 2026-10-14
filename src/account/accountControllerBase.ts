@@ -143,12 +143,14 @@ export abstract class AccountControllerBase<T> {
   }
 
   protected ensureStore(): Promise<WorkspaceStore> {
-    this.storeReady ??= this.deps.openStore().then((opened) => {
-      if (!opened.persistent) {
-        this.emit({ ...this.snapshot, persistent: false, notice: "storage_unavailable" });
-      }
-      return opened.store;
-    });
+    this.storeReady ??= this.deps
+      .openStore(() => this.notify("storage_blocked"))
+      .then((opened) => {
+        if (!opened.persistent) {
+          this.emit({ ...this.snapshot, persistent: false, notice: "storage_unavailable" });
+        }
+        return opened.store;
+      });
     return this.storeReady;
   }
 
@@ -192,12 +194,51 @@ export abstract class AccountControllerBase<T> {
    * Unsynced edits are this tab's draft; a synced session keeps no device copy.
    */
   protected persist(session: Session<T>): Promise<void> {
-    const run = this.persistTail.then(() => this.writeDraft(session));
-    this.persistTail = run.catch((error: unknown) => {
-      console.error("Account device write failed.", error);
-      this.notify("unexpected");
-    });
-    return this.persistTail;
+    return this.deviceWrite(() => this.writeDraft(session)).then(() => undefined);
+  }
+
+  /** Runs a device write after every device write queued so far; its failures are reported. */
+  protected deviceWrite<R>(task: () => Promise<R>): Promise<R | undefined> {
+    const run = this.persistTail.then(task);
+    this.persistTail = run.then(
+      () => undefined,
+      (error: unknown) => {
+        console.error("Account device write failed.", error);
+        this.notify("unexpected");
+      },
+    );
+    return run.catch(() => undefined);
+  }
+
+  /**
+   * Adopts another draft as this tab's draft in one atomic device step (see `claimDraft` in
+   * workspaceStore.ts), queued with this tab's other device writes. "failed": the device refused
+   * the write and the source draft is untouched; the refusal is reported.
+   */
+  protected async claimDraft(
+    sourceId: string,
+    record: DraftRecord,
+  ): Promise<"claimed" | "gone" | "failed"> {
+    const outcome = await this.deviceWrite(() =>
+      this.storage(
+        async (store) =>
+          (await store.claimDraft(record.userId, sourceId, record)) ? "claimed" : "gone",
+        "failed" as const,
+      ),
+    );
+    return outcome ?? "failed";
+  }
+
+  /** This tab's draft of the session's unsynced edits. */
+  protected draftRecord(session: Session<T>): DraftRecord {
+    return {
+      userId: session.userId,
+      draftId: this.deps.tab.id,
+      baseRevision: session.revision,
+      baseKey: session.syncedKey === UNKNOWN_BASE_KEY ? null : session.syncedKey,
+      document: this.deps.codec.write(session.serverDocument, session.local),
+      updatedAt: this.deps.now(),
+    };
   }
 
   /** Resolves after every device write queued so far. */
@@ -207,22 +248,13 @@ export abstract class AccountControllerBase<T> {
 
   private async writeDraft(session: Session<T>) {
     if (session.closed) return;
-    const { codec, tab } = this.deps;
+    const { tab } = this.deps;
     if (!session.dirty) {
       await this.storage((store) => store.removeDrafts(session.userId, [tab.id]), undefined);
       return;
     }
-    await this.storage(
-      (store) =>
-        store.writeDraft({
-          userId: session.userId,
-          draftId: tab.id,
-          baseRevision: session.revision,
-          document: codec.write(session.serverDocument, session.local),
-          updatedAt: this.deps.now(),
-        }),
-      undefined,
-    );
+    const record = this.draftRecord(session);
+    await this.storage((store) => store.writeDraft(record), undefined);
   }
 
   protected readValue(document: WorkspaceDocument): T | null {

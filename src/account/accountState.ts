@@ -37,6 +37,8 @@ export type AccountNotice =
   | "account_check_timeout"
   | "account_unavailable"
   | "draft_recovered"
+  | "draft_recovery_failed"
+  | "storage_blocked"
   | "unexpected";
 
 export type StaleReason =
@@ -124,10 +126,16 @@ export type AccountControllerDeps<T> = {
   channel: CrossTabChannel;
   codec: WorkspaceItemCodec<T>;
   calculator: CalculatorBridge<T>;
-  openStore(): Promise<{ store: WorkspaceStore; persistent: boolean }>;
+  /** `onBlocked`: another open tab keeps an older device-store version from upgrading. */
+  openStore(onBlocked: () => void): Promise<{ store: WorkspaceStore; persistent: boolean }>;
   tab: TabIdentity;
   newOpId(): string;
   navigate(url: string): void;
+  /**
+   * Mirrors "guest inputs saved before the sign-in redirect await restoring" into a per-tab
+   * marker the main-bundle slot can read before this chunk has loaded (see accountCheck.tsx).
+   */
+  markRedirectRestore(pending: boolean): void;
   download(fileName: string, text: string): void;
   now(): number;
   /** Returns a cancel function. */

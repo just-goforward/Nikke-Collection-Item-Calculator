@@ -41,7 +41,9 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
     const key = codec.key(value);
     if (key === codec.key(session.local)) return;
     session.local = value;
-    session.dirty = key !== session.syncedKey;
+    // A sent save without an answer may have committed another value: reverting to the synced
+    // value is still an edit until that operation is reconciled.
+    session.dirty = key !== session.syncedKey || session.unacked.length > 0;
     // Durable at once, independent of any request in flight.
     void this.persist(session);
     const view = this.signedIn();
@@ -119,6 +121,10 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
   private async afterPut(session: Session<T>, op: PendingOp, result: WorkspacePutResult) {
     switch (result.status) {
       case "saved":
+        // A replay reports the original revision; saves from other devices may have followed.
+        if (result.replayed) {
+          session.announcedRevision = Math.max(session.announcedRevision, result.revision + 1);
+        }
         this.acknowledged(session, op, result.revision, op.document);
         this.patchSignedIn({ tooLarge: false });
         return;
@@ -251,6 +257,11 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
       this.acknowledged(session, acked, fresh.revision, fresh.document);
       return;
     }
+    if (session.unacked.length > 0) {
+      // None of the unanswered operations is the server's latest: the server state decides.
+      session.unacked = [];
+      session.dirty = this.localKey(session) !== session.syncedKey;
+    }
     const server = this.deps.codec.read(fresh.document);
     if (session.dirty || server.status === "unreadable") {
       this.enterConflict(session, fresh.revision, fresh.document, true);
@@ -290,6 +301,7 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
       session.syncedKey = serverKey;
       session.serverUnreadable = false;
       session.dirty = false;
+      session.unacked = [];
       session.conflict = null;
       void this.persist(session);
       this.patchSignedIn({ revision, conflict: null });
@@ -407,45 +419,53 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
   protected async recoverNext(session: Session<T>) {
     while (session.recovering.length > 0) {
       if (!this.canRecover(session)) return;
-      const drafts = await this.storage((store) => store.readDrafts(session.userId), []);
       const next = session.recovering.shift();
-      if (!this.canRecover(session) || !next) {
-        if (next) session.recovering.unshift(next);
-        return;
-      }
-      // Another tab may have recovered it meanwhile.
-      const draft = drafts.find((entry) => entry.draftId === next.draftId);
-      if (draft && (await this.recoverDraft(session, draft))) return;
+      if (next && (await this.recoverDraft(session, next))) return;
     }
   }
 
-  /** Applies a draft's edits; false when there was nothing to recover. */
+  /**
+   * Adopts a draft's edits: first moved atomically into this tab's draft on the device (another
+   * tab can never adopt it too, and a refused write leaves it where it was), then shown and saved.
+   * False when there was nothing to recover.
+   */
   private async recoverDraft(session: Session<T>, draft: DraftRecord): Promise<boolean> {
     const { codec, tab } = this.deps;
     const stored = this.readValue(draft.document);
-    const foreign = draft.draftId !== tab.id;
-    const removeForeign = () =>
-      foreign
-        ? this.storage((store) => store.removeDrafts(session.userId, [draft.draftId]), undefined)
-        : Promise.resolve();
     if (stored === null || codec.key(stored) === session.syncedKey) {
-      await removeForeign();
+      if (draft.draftId !== tab.id) {
+        await this.storage(
+          (store) => store.removeDrafts(session.userId, [draft.draftId]),
+          undefined,
+        );
+      }
       return false;
     }
-    this.applyInput(session, stored);
-    session.dirty = true;
     const serverRevision = session.revision;
-    const knownBase = draft.baseRevision === serverRevision && !session.serverUnreadable;
-    if (!knownBase) {
-      // The edits were made on another revision whose contents are unknown here: keep that base
-      // so a save can only conflict, never overwrite newer server data without a choice.
-      session.revision = draft.baseRevision;
-      session.syncedKey = UNKNOWN_BASE_KEY;
+    const sameItem = draft.baseKey !== null && draft.baseKey === session.syncedKey;
+    const knownBase =
+      !session.serverUnreadable && (draft.baseRevision === serverRevision || sameItem);
+    // Unknown base: the edits were made on another revision whose item is unknown here. Keep that
+    // base so a save can only conflict, never overwrite newer server data without a choice.
+    const base = knownBase
+      ? { revision: serverRevision, syncedKey: session.syncedKey }
+      : { revision: draft.baseRevision, syncedKey: UNKNOWN_BASE_KEY };
+    const record = this.draftRecord({ ...session, ...base, local: stored });
+    const claim = await this.claimDraft(draft.draftId, record);
+    // Gone: another tab adopted it first. A session left meanwhile keeps the claimed draft.
+    if (claim === "gone") return false;
+    if (this.session !== session) return true;
+    if (claim === "failed") {
+      // Left on the device untouched; retried once the session settles again.
+      session.recovering.unshift(draft);
+      this.notify("draft_recovery_failed");
+      return true;
     }
-    // Stored as this tab's draft before the recovered one is removed: never without a copy.
-    await this.persist(session);
-    await removeForeign();
-    if (foreign) this.notify("draft_recovered");
+    session.revision = base.revision;
+    session.syncedKey = base.syncedKey;
+    session.dirty = true;
+    this.applyInput(session, stored);
+    if (draft.draftId !== tab.id) this.notify("draft_recovered");
     if (!knownBase) {
       this.enterConflict(session, serverRevision, session.serverDocument, false);
       return true;

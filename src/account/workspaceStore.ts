@@ -21,6 +21,11 @@ export type DraftRecord = {
   draftId: string;
   /** Server revision the unsynced edits are based on. */
   baseRevision: number;
+  /**
+   * Key of this item in that revision; null when unknown (older drafts). A later revision with
+   * the same item key changed other items only, so the edits rebase without a conflict.
+   */
+  baseKey: string | null;
   document: WorkspaceDocument;
   updatedAt: number;
 };
@@ -31,6 +36,12 @@ export type WorkspaceStore = {
   /** This engine's drafts of the account, newest first. */
   readDrafts(userId: string): Promise<DraftRecord[]>;
   writeDraft(record: DraftRecord): Promise<void>;
+  /**
+   * Moves the draft `sourceId` to `record` (this tab's draft) in one atomic step: the destination
+   * is written and the source removed together, or neither (a refused write throws and leaves the
+   * source untouched). False when the source is gone: another tab claimed it first.
+   */
+  claimDraft(userId: string, sourceId: string, record: DraftRecord): Promise<boolean>;
   /** Removes the listed drafts of this engine only. */
   removeDrafts(userId: string, draftIds: readonly string[]): Promise<void>;
   /** Removes every engine's drafts of the account (account deletion). */
@@ -73,11 +84,18 @@ export function parseGuestRecord(value: unknown): GuestRecord | null {
 export function parseDraftRecord(value: unknown, userId: string): DraftRecord | null {
   if (!isRecord(value) || value["userId"] !== userId) return null;
   const document = parseWorkspaceDocument(value["document"]);
-  const { draftId, baseRevision, updatedAt } = value;
+  const { draftId, baseRevision, baseKey, updatedAt } = value;
   if (!document || typeof draftId !== "string" || !isCount(baseRevision) || !isCount(updatedAt)) {
     return null;
   }
-  return { userId, draftId, baseRevision, document, updatedAt };
+  return {
+    userId,
+    draftId,
+    baseRevision,
+    baseKey: typeof baseKey === "string" ? baseKey : null,
+    document,
+    updatedAt,
+  };
 }
 
 function newestFirst(drafts: DraftRecord[]): DraftRecord[] {
@@ -113,6 +131,13 @@ export function createMemoryWorkspaceStore(
       ),
     writeDraft: async (record) => {
       drafts(item).set(key(record.userId, record.draftId), structuredClone(record));
+    },
+    claimDraft: async (userId, sourceId, record) => {
+      const source = key(userId, sourceId);
+      if (!drafts(item).has(source)) return false;
+      drafts(item).delete(source);
+      drafts(item).set(key(record.userId, record.draftId), structuredClone(record));
+      return true;
     },
     removeDrafts: async (userId, draftIds) => {
       for (const draftId of draftIds) drafts(item).delete(key(userId, draftId));
@@ -193,9 +218,12 @@ function upgrade(request: IDBOpenDBRequest) {
 async function openIndexedDbWorkspaceStore(
   factory: IDBFactory,
   item: WorkspaceItemType,
+  onBlocked: () => void,
 ): Promise<WorkspaceStore> {
   const request = factory.open(ACCOUNT_DB_NAME, ACCOUNT_DB_VERSION);
   request.onupgradeneeded = () => upgrade(request);
+  // An open tab of an older version holds the database: the upgrade waits until it closes.
+  request.onblocked = onBlocked;
   const draftStore = DRAFT_STORES[item];
   const db = await requestResult(request);
   // Let a future schema upgrade in another tab proceed instead of blocking on this connection.
@@ -229,6 +257,23 @@ async function openIndexedDbWorkspaceStore(
         transaction.objectStore(draftStore).put(record),
       );
     },
+    claimDraft: async (userId, sourceId, record) => {
+      // One readwrite transaction: IndexedDB serializes it against every other tab's claim, and
+      // a refused put aborts it, which also undoes the delete.
+      const claim = await transact(db, draftStore, "readwrite", (transaction) => {
+        const store = transaction.objectStore(draftStore);
+        const outcome = { claimed: false };
+        const source = store.getKey([userId, sourceId]);
+        source.onsuccess = () => {
+          if (source.result === undefined) return;
+          outcome.claimed = true;
+          store.delete([userId, sourceId]);
+          store.put(record);
+        };
+        return outcome;
+      });
+      return claim.claimed;
+    },
     removeDrafts: async (userId, draftIds) => {
       await transact(db, draftStore, "readwrite", (transaction) => {
         const store = transaction.objectStore(draftStore);
@@ -244,13 +289,22 @@ async function openIndexedDbWorkspaceStore(
   };
 }
 
-/** IndexedDB when the browser allows it; otherwise an in-memory store and `persistent: false`. */
-export async function openWorkspaceStore(item: WorkspaceItemType): Promise<{
+/**
+ * IndexedDB when the browser allows it; otherwise an in-memory store and `persistent: false`.
+ * `onBlocked` runs while another open tab keeps an older database version from upgrading.
+ */
+export async function openWorkspaceStore(
+  item: WorkspaceItemType,
+  onBlocked: () => void,
+): Promise<{
   store: WorkspaceStore;
   persistent: boolean;
 }> {
   try {
-    return { store: await openIndexedDbWorkspaceStore(indexedDB, item), persistent: true };
+    return {
+      store: await openIndexedDbWorkspaceStore(indexedDB, item, onBlocked),
+      persistent: true,
+    };
   } catch (error) {
     if (!(error instanceof DOMException)) throw error;
     return { store: createMemoryWorkspaceStore(item), persistent: false };

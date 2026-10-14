@@ -36,6 +36,8 @@ export class AccountController<T> extends AccountSync<T> {
   private consentDismissed = false;
   /** The page-level account check timed out while loading; a late result must not apply. */
   private bootAbandoned = false;
+  /** The one restore of guest inputs saved before a sign-in redirect (boot and timeout share it). */
+  private redirectRestore: Promise<void> | null = null;
   /** Retries account entry while the workspace cannot be loaded. */
   private entryRetry: { ms: number; cancel: (() => void) | null } = { ms: 0, cancel: null };
   private readonly unsubscribe: () => void;
@@ -146,7 +148,7 @@ export class AccountController<T> extends AccountSync<T> {
       return;
     }
     if (result.ok) {
-      await this.enterAccount(result.value.account.userId, result.value.consent);
+      await this.enterAccount(result.value.account.userId, result.value.consent, true);
       return;
     }
     await this.enterGuest("boot");
@@ -166,17 +168,27 @@ export class AccountController<T> extends AccountSync<T> {
     this.setView({ phase: "guest", busy: null });
   }
 
-  private async restoreGuestAfterRedirect() {
+  /** Shared, so a timeout during the boot's own restore never applies the inputs twice. */
+  private restoreGuestAfterRedirect() {
+    this.redirectRestore ??= this.restoreRedirectGuest();
+    return this.redirectRestore;
+  }
+
+  private async restoreRedirectGuest() {
     // Engines with their own guest data already show it.
     if (this.deps.calculator.ownGuest) return;
     const guest = await this.storage((store) => store.readGuest(), null);
-    if (!guest?.restoreOnReturn) return;
+    if (!guest?.restoreOnReturn) {
+      this.deps.markRedirectRestore(false);
+      return;
+    }
     const value = this.readValue(guest.document);
     if (value !== null) this.deps.calculator.apply(value);
     await this.storage(
       (store) => store.writeGuest({ ...guest, restoreOnReturn: false }),
       undefined,
     );
+    this.deps.markRedirectRestore(false);
   }
 
   private async showStoredGuest() {
@@ -197,24 +209,30 @@ export class AccountController<T> extends AccountSync<T> {
     return guest ? this.readValue(guest.document) : null;
   }
 
-  /** Keeps the shown guest inputs as guest data before account data replaces them. */
-  private async preserveGuest() {
-    const { calculator, codec } = this.deps;
-    if (calculator.ownGuest) return;
-    const document = codec.write(EMPTY_WORKSPACE_DOCUMENT, calculator.capture());
-    await this.storage(
-      (store) => store.writeGuest({ document, restoreOnReturn: false, updatedAt: this.deps.now() }),
-      undefined,
+  /**
+   * Keeps guest inputs shown while the account was not loaded as guest data. Called with the value
+   * captured in the same synchronous step that hands the inputs to the account (the engine locks
+   * them until the switch is shown), so no guest edit falls between the copy and the switch.
+   */
+  private preserveGuest(value: T) {
+    const document = this.deps.codec.write(EMPTY_WORKSPACE_DOCUMENT, value);
+    const updatedAt = this.deps.now();
+    void this.deviceWrite(() =>
+      this.storage(
+        (store) => store.writeGuest({ document, restoreOnReturn: false, updatedAt }),
+        undefined,
+      ),
     );
   }
 
-  private async enterAccount(userId: string, consent: ConsentGet) {
+  /** `boot`: the page-load check, whose result no longer applies once the check timed out. */
+  private async enterAccount(userId: string, consent: ConsentGet, boot: boolean) {
     const [workspace, drafts, guestValue] = await Promise.all([
       this.deps.api.getWorkspace(userId),
       this.recoverableDrafts(userId),
       this.readGuestValue(),
     ]);
-    if (this.bootAbandoned) {
+    if (boot && this.bootAbandoned) {
       this.abandonedBootResult(true);
       return;
     }
@@ -226,13 +244,17 @@ export class AccountController<T> extends AccountSync<T> {
     // The redirect's guest inputs stay stored as guest data; they need no restore any more.
     await this.clearRestoreFlag();
     const { calculator, codec } = this.deps;
+    // From here until the switch is requested nothing awaits: the guest inputs captured now are
+    // exactly those the account data replaces.
+    const shown = calculator.ownGuest ? null : calculator.capture();
+    if (shown !== null && this.snapshot.view.phase === "unavailable") this.preserveGuest(shown);
     const server = codec.read(workspace.value.document);
     const offerGuest =
       server.status === "absent" && guestValue !== null && !codec.isEmpty(guestValue);
     let initial: T;
     if (server.status === "value") initial = server.value;
     // Engines with their own guest data must not show it as this account's data.
-    else initial = calculator.ownGuest ? codec.empty() : calculator.capture();
+    else initial = shown ?? codec.empty();
     const session: Session<T> = {
       userId,
       serverDocument: workspace.value.document,
@@ -277,6 +299,7 @@ export class AccountController<T> extends AccountSync<T> {
         undefined,
       );
     }
+    this.deps.markRedirectRestore(false);
   }
 
   /**
@@ -291,6 +314,8 @@ export class AccountController<T> extends AccountSync<T> {
     }
     if (this.snapshot.view.phase === "loading" || isHttpFailure(failure, 401)) {
       await this.enterGuest("boot");
+      // The boot has settled on guest data; a timeout during it leaves nothing late to apply.
+      this.bootAbandoned = false;
     }
     if (isHttpFailure(failure, 401)) {
       this.cancelEntryRetry();
@@ -320,8 +345,7 @@ export class AccountController<T> extends AccountSync<T> {
     if (view.phase !== "unavailable") return;
     this.entryRetry.cancel?.();
     this.entryRetry.cancel = null;
-    // Edits made to the guest data meanwhile stay guest data; nothing is discarded.
-    await this.preserveGuest();
+    // Guest edits made meanwhile are kept as guest data at the switch (see `enterAccount`).
     const result = await this.deps.api.getAccount();
     if (this.snapshot.view !== view) return;
     if (!result.ok) {
@@ -338,7 +362,7 @@ export class AccountController<T> extends AccountSync<T> {
       this.markStale("account_changed");
       return;
     }
-    await this.enterAccount(view.userId, result.value.consent);
+    await this.enterAccount(view.userId, result.value.consent, false);
   }
 
   private signedInView(
@@ -460,13 +484,14 @@ export class AccountController<T> extends AccountSync<T> {
       ? null
       : codec.write(EMPTY_WORKSPACE_DOCUMENT, calculator.capture());
     const updatedAt = this.deps.now();
-    const remember = (restoreOnReturn: boolean) =>
-      document
-        ? this.storage(
-            (store) => store.writeGuest({ document, restoreOnReturn, updatedAt }),
-            undefined,
-          )
-        : Promise.resolve();
+    const remember = async (restoreOnReturn: boolean) => {
+      if (!document) return;
+      await this.storage(
+        (store) => store.writeGuest({ document, restoreOnReturn, updatedAt }),
+        undefined,
+      );
+      this.deps.markRedirectRestore(restoreOnReturn);
+    };
     await remember(true);
     const result = await this.deps.api.startLogin();
     if (result.ok && isGoogleAuthorizationUrl(result.value.authorizationUrl)) {
@@ -498,9 +523,10 @@ export class AccountController<T> extends AccountSync<T> {
     if (session) session.closed = true;
     if (userId && removal === "account") {
       await this.storage((store) => store.removeAccount(userId), undefined);
-    } else if (userId && removal === "discard" && session) {
-      const draftIds = [this.deps.tab.id, ...session.recovering.map((draft) => draft.draftId)];
-      await this.storage((store) => store.removeDrafts(userId, draftIds), undefined);
+    } else if (userId && removal === "discard") {
+      // Only what the prompt covered: this tab's edits, including drafts it adopted and showed.
+      // Closed tabs' drafts it has not shown yet stay for the next sign-in.
+      await this.storage((store) => store.removeDrafts(userId, [this.deps.tab.id]), undefined);
     }
     if (userId && broadcast) this.deps.channel.post({ type: broadcast, userId });
     // While the account was not loaded, guest data is what is shown already.

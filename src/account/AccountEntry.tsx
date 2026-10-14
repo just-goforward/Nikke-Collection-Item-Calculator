@@ -13,7 +13,7 @@ import type {
   CalculatorInputBinding,
   CertifiedSessionBinding,
 } from "./accountBinding";
-import { CheckingIndicator } from "./accountCheck";
+import { CheckingIndicator, REDIRECT_RESTORE_KEY } from "./accountCheck";
 import { AccountController, type AccountUi } from "./accountController";
 import type {
   AccountNotice,
@@ -80,16 +80,27 @@ function downloadJson(fileName: string, text: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+/** With storage disabled the slot never waits for a restore (see accountCheck.tsx). */
+function markRedirectRestore(pending: boolean) {
+  try {
+    if (pending) sessionStorage.setItem(REDIRECT_RESTORE_KEY, "1");
+    else sessionStorage.removeItem(REDIRECT_RESTORE_KEY);
+  } catch (error) {
+    if (!(error instanceof DOMException)) throw error;
+  }
+}
+
 function createBrowserController<T>(codec: WorkspaceItemCodec<T>, calculator: CalculatorBridge<T>) {
   return new AccountController<T>({
     api: createAccountApi(),
     channel: createCrossTabChannel(),
     codec,
     calculator,
-    openStore: () => openWorkspaceStore(codec.type),
+    openStore: (onBlocked) => openWorkspaceStore(codec.type, onBlocked),
     tab: createTabIdentity(),
     newOpId: () => crypto.randomUUID(),
     navigate: (url) => window.location.assign(url),
+    markRedirectRestore,
     download: downloadJson,
     now: Date.now,
     schedule: (callback, delayMs) => {
@@ -345,8 +356,24 @@ function NoticeRegion({
   );
 }
 
+/** Without Web Locks drafts of open and closed tabs cannot be told apart: no account sync here. */
+function SyncUnsupported({ onLockChange }: { onLockChange: (locked: boolean) => void }) {
+  const text = useAccountText();
+  useEffect(() => onLockChange(false), [onLockChange]);
+  return (
+    <div className={entryClasses.notice} role="status" data-account-unsupported>
+      <span className="min-w-0 flex-1">{text("syncUnsupported")}</span>
+    </div>
+  );
+}
+
 /** Lazy account entry point: guests keep every feature; nothing here gates the calculator. */
 export default function AccountEntry(props: AccountEntryProps) {
+  if (!("locks" in navigator)) return <SyncUnsupported onLockChange={props.onLockChange} />;
+  return <AccountEntryReady {...props} />;
+}
+
+function AccountEntryReady(props: AccountEntryProps) {
   const { controller, switchPending } = useAccountController(props);
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [panelOpen, setPanelOpen] = useState(false);

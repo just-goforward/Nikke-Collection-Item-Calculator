@@ -32,6 +32,12 @@ const ko = {
   "notice.account_unavailable":
     "계정 데이터를 불러오지 못해 이 탭은 게스트 데이터를 표시합니다. 자동으로 다시 시도하며, 지금 입력한 내용은 게스트 데이터로 보관됩니다.",
   "notice.draft_recovered": "다른 탭에서 저장되지 않은 변경 사항을 이 탭으로 복구했습니다.",
+  "notice.draft_recovery_failed":
+    "기기 저장소가 쓰기를 거부해 다른 탭의 저장되지 않은 변경 사항을 이 탭으로 옮기지 못했습니다. 변경 사항은 이 기기에 그대로 남아 있습니다.",
+  "notice.storage_blocked":
+    "이 사이트의 다른 탭이 이전 버전의 기기 저장소를 사용하고 있습니다. 계정 데이터를 불러오려면 다른 탭을 닫으세요.",
+  syncUnsupported:
+    "이 브라우저에서는 계정 동기화를 사용할 수 없습니다. 게스트로 모든 기능을 계속 사용할 수 있습니다.",
   login: "로그인",
   loginLabel: "Google 계정으로 로그인",
   loginBusy: "Google 로그인으로 이동 중…",
@@ -170,6 +176,12 @@ const en: Record<AccountMessageKey, string> = {
   "notice.account_unavailable":
     "Your account data could not be loaded, so this tab shows guest data. Retrying automatically; anything you enter now is kept as guest data.",
   "notice.draft_recovered": "Recovered unsynced changes from another tab into this tab.",
+  "notice.draft_recovery_failed":
+    "Device storage refused the write, so unsynced changes from another tab could not be moved into this tab. They are still kept on this device.",
+  "notice.storage_blocked":
+    "Another tab of this site is using an older version of device storage. Close the other tabs to load your account data.",
+  syncUnsupported:
+    "Account sync is unavailable in this browser. You can keep using every feature as a guest.",
   login: "Sign in",
   loginLabel: "Sign in with Google",
   loginBusy: "Opening Google sign-in…",
@@ -309,6 +321,12 @@ const ja: Record<AccountMessageKey, string> = {
   "notice.account_unavailable":
     "アカウントのデータを読み込めないため、このタブはゲストデータを表示しています。自動で再試行し、今の入力はゲストデータとして保持されます。",
   "notice.draft_recovered": "別のタブの未同期の変更をこのタブに復元しました。",
+  "notice.draft_recovery_failed":
+    "端末の保存領域が書き込みを拒否したため、別のタブの未同期の変更をこのタブに移せませんでした。変更はこの端末にそのまま残っています。",
+  "notice.storage_blocked":
+    "このサイトの別のタブが古いバージョンの端末保存領域を使用しています。アカウントのデータを読み込むには、ほかのタブを閉じてください。",
+  syncUnsupported:
+    "このブラウザーではアカウントの同期を利用できません。ゲストとしてすべての機能を引き続き利用できます。",
   login: "ログイン",
   loginLabel: "Googleアカウントでログイン",
   loginBusy: "Googleのログインに移動中…",
