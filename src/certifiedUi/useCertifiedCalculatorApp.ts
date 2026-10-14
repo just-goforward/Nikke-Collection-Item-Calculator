@@ -21,6 +21,7 @@ import {
   useCertifiedCalculatorSession,
   useCertifiedSessionPersistence,
 } from "./useCertifiedCalculatorSession";
+import { useCertifiedDailyRecompute } from "./useCertifiedDailyRecompute";
 
 /** The native session is the only calculator input; no legacy solver or stats flow is started. */
 export function useCertifiedCalculatorApp(): CertifiedCalculatorController {
@@ -39,6 +40,14 @@ export function useCertifiedCalculatorApp(): CertifiedCalculatorController {
     store.bridge.session,
     store.latest,
     ownership.recompute,
+    actions.calculate,
+  );
+  useCertifiedDailyRecompute(
+    preparation.snapshot?.coverage.currentDay ?? null,
+    !!store.bridge.correction ||
+      store.bridge.storageBlocked ||
+      store.bridge.modal.open ||
+      ownership.nativeRef.current.busy,
     actions.calculate,
   );
 

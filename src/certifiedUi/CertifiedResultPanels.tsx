@@ -4,6 +4,7 @@ import { kitDotClass } from "../components/kitPresentation";
 import { useI18n } from "../i18n/locale";
 import { KIT_INDICES, useKitLabel, wireNumber } from "./CertifiedSupplyPanels";
 import type { CertifiedWords } from "./messages";
+import { minimumWaitText } from "./minimumWaitPresentation";
 import { certifiedCurrentRefusal } from "./runStatus";
 
 export type CertifiedOutcome = "normal" | "great";
@@ -121,6 +122,16 @@ function CurrentValue(props: CurrentProps) {
         </div>
       </dl>
       <CurrentAction {...props} />
+      {current.kit && (
+        <div
+          data-testid="certified-minimum-wait"
+          data-status={props.output?.minimumWait?.status ?? "unknown"}
+        >
+          <h4>{words.minimumWait}</h4>
+          <p>{minimumWaitText(props.output?.minimumWait, words)}</p>
+          <p className="cert-muted">{words.minimumWaitExplain}</p>
+        </div>
+      )}
       <ConvertAction {...props} />
     </>
   );

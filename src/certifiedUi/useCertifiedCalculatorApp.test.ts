@@ -116,7 +116,7 @@ const snapshot = buildCertifiedSupplySnapshot({
   collaborationPeriods: [],
 });
 let app: CertifiedCalculatorController;
-let visibility: { visibilityState: DocumentVisibilityState };
+let visibility: EventTarget & { visibilityState: DocumentVisibilityState };
 function CalculatorHarness() {
   driver.cursor = 0;
   driver.effects = [];
@@ -212,7 +212,9 @@ beforeEach(async () => {
     },
   });
   vi.stubGlobal("window", { setInterval: vi.fn(() => 1), clearInterval: vi.fn() });
-  visibility = { visibilityState: "visible" };
+  visibility = Object.assign(new EventTarget(), {
+    visibilityState: "visible" as DocumentVisibilityState,
+  });
   vi.stubGlobal("document", visibility);
   render();
   await flush();
@@ -225,6 +227,28 @@ afterEach(() => {
 });
 
 describe("certified inputs and action authorization", () => {
+  it("recomputes once on the next game day after visibility resumes, without adding forecast stock", async () => {
+    const actualStock = [...app.session.stock];
+    const tick = vi.mocked(window.setInterval).mock.calls[0]?.[0];
+    if (typeof tick !== "function") throw new Error("missing preparation tick");
+    visibility.visibilityState = "hidden";
+    driver.prepare.mockResolvedValue({
+      ...snapshot,
+      coverage: { ...snapshot.coverage, currentDay: "2026-10-01" },
+    });
+    tick();
+    await flush();
+    expect(driver.calculate).not.toHaveBeenCalled();
+    visibility.visibilityState = "visible";
+    visibility.dispatchEvent(new Event("visibilitychange"));
+    await flush();
+    expect(driver.calculate).toHaveBeenCalledOnce();
+    expect(driver.calculate.mock.calls[0]?.[0].stock).toEqual(actualStock);
+    expect(app.session.stock).toEqual(actualStock);
+    tick();
+    await flush();
+    expect(driver.calculate).toHaveBeenCalledOnce();
+  });
   it("rejects an adopted v1 authority without rendering a three/four-cohort mismatch", async () => {
     const actual = await vi.importActual<typeof import("../lib/certifiedForecast")>(
       "../lib/certifiedForecast",

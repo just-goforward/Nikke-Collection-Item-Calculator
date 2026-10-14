@@ -258,6 +258,23 @@ describe("submit deadline during preparation", () => {
 });
 
 describe("preparation retirement and retained current results", () => {
+  it("reuses an exact same-day result but recomputes after actual stock changes", async () => {
+    const output = {
+      status: "completed",
+      minimumWait: { status: "beyond_horizon" },
+      refusal: null,
+      waiting: { status: "certified" },
+    };
+    driver.prepare.mockResolvedValue(snapshot);
+    driver.request.mockResolvedValue({ output, timing: {}, memory: {} });
+    await RunHarness().calculate();
+    await RunHarness().calculate();
+    expect(driver.prepare).toHaveBeenCalledTimes(2);
+    expect(driver.request).toHaveBeenCalledOnce();
+    await RunHarness({ ...session, stock: [11, 0, 0] }).calculate();
+    expect(driver.request).toHaveBeenCalledTimes(2);
+    expect(driver.request.mock.calls[1]?.[0].stock).toEqual([11, 0, 0]);
+  });
   it("keeps manual preparation cancellation silent and observes a late failure", async () => {
     const pending = deferred<CertifiedSupplySnapshot>();
     driver.prepare.mockReturnValueOnce(pending.promise);

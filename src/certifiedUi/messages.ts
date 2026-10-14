@@ -17,6 +17,14 @@ export const certifiedMessages = {
     correctionPending:
       "실제 남은 조각 수를 입력한 뒤 계산을 눌러 확인하세요. 확인 전에는 사용 이력을 확정하지 않습니다.",
     current: "현재 재고",
+    minimumWait: "추천 묶음 전체의 최소 대기",
+    minimumWaitDays: "최소 {n}일 대기",
+    minimumWaitBeyond: "7일 이상",
+    minimumWaitUnknown: "최소 대기일 미확인",
+    minimumWaitInterval: "최소 대기 {from}–{to}일 · 구간만 확인",
+    minimumWaitLower: "{n}일 이전은 제외 · 이후 미확인",
+    minimumWaitExplain:
+      "현재 재고 기준 · 하루 평균 수급(1:2:3:1) 손실 한도 · 모든 수급 가능성을 고려한 7일 검증입니다. 56일 권장일과는 다릅니다.",
     probability: "SR 15 도달 확률",
     burden: "기대 부담",
     consumption: "기대 총 소비",
@@ -103,6 +111,14 @@ export const certifiedMessages = {
     correctionPending:
       "Enter the pieces you actually have left, then press Calculate to confirm. No use history is committed before confirmation.",
     current: "Current stock",
+    minimumWait: "Minimum wait for the whole recommended batch",
+    minimumWaitDays: "Wait at least {n} day(s)",
+    minimumWaitBeyond: "7+ days",
+    minimumWaitUnknown: "Minimum wait unknown",
+    minimumWaitInterval: "Minimum wait {from}–{to} days · interval only",
+    minimumWaitLower: "Before day {n} excluded · later days unconfirmed",
+    minimumWaitExplain:
+      "Current stock only · loss threshold: one average supply day (1:2:3:1) · all supply possibilities checked over 7 days. Separate from the 56-day recommendation.",
     probability: "Chance of reaching SR 15",
     burden: "Expected burden",
     consumption: "Expected total consumption",
@@ -189,6 +205,14 @@ export const certifiedMessages = {
     correctionPending:
       "実際に残っているピース数を入力し、計算を押して確認してください。確認前に使用履歴を確定することはありません。",
     current: "現在の在庫",
+    minimumWait: "推奨セット全体の最小待機",
+    minimumWaitDays: "最低{n}日待機",
+    minimumWaitBeyond: "7日以上",
+    minimumWaitUnknown: "最小待機日数は未確認",
+    minimumWaitInterval: "最小待機{from}–{to}日 · 区間のみ確認",
+    minimumWaitLower: "{n}日未満は除外 · 以降は未確認",
+    minimumWaitExplain:
+      "現在の在庫のみ · 損失上限は平均供給1日分（1:2:3:1）· すべての供給可能性を7日間検証します。56日間の推奨日とは別です。",
     probability: "SR 15到達確率",
     burden: "期待負担",
     consumption: "期待総消費",

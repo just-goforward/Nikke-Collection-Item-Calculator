@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CERTIFIED_STAGING_ENGINE_PROFILE } from "../../shared/certifiedEngineProfile";
 import type { CertifiedSupplySnapshot } from "../../shared/certifiedSupply";
-import type { CertifiedOutput } from "../certified/types";
+import type { CertifiedInput, CertifiedOutput } from "../certified/types";
 import { createBrowserCertifiedClient } from "../certifiedRuntime/browserClient";
 import type { CertifiedMemory, CertifiedTiming } from "../certifiedRuntime/protocol";
 import { prepareCertifiedForecast } from "../lib/certifiedForecast";
+import { certifiedRunCacheKey } from "./certifiedRunCache";
 import {
   certifiedBackgroundPartial,
   certifiedRunError,
@@ -14,6 +15,31 @@ import { awaitCertifiedRunPreparation, cancelCertifiedRunWhenHidden } from "./ru
 import type { CertifiedSession } from "./session";
 
 type FinishedRun = { output: CertifiedOutput; timing: CertifiedTiming; memory: CertifiedMemory };
+
+function cacheable(output: CertifiedOutput): boolean {
+  return (
+    output.status === "completed" &&
+    ["certified", "beyond_horizon"].includes(output.minimumWait?.status ?? "")
+  );
+}
+
+function requestInput(
+  session: CertifiedSession,
+  snapshot: CertifiedSupplySnapshot,
+  asOf: string,
+): CertifiedInput {
+  return {
+    ...session.state,
+    stock: session.stock,
+    asOf,
+    snapshot,
+    cohortWeights: session.cohortWeights,
+    receivedEventIds: session.receipts.map((r) => r.eventId),
+    computeWaiting: true,
+    computeMinimumWait: true,
+    batchLimit: 10,
+  };
+}
 
 export function useCertifiedRun(
   session: CertifiedSession,
@@ -28,6 +54,7 @@ export function useCertifiedRun(
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<false | "limit" | "error" | "background">(false);
   const previousSession = useRef(session);
+  const cached = useRef<{ key: string; run: FinishedRun } | null>(null);
   useEffect(() => {
     if (previousSession.current === session) return;
     previousSession.current = session;
@@ -76,30 +103,24 @@ export function useCertifiedRun(
       onSnapshot(currentSnapshot);
       const remaining = 15_000 - (performance.now() - submitted);
       if (remaining <= 0) throw new Error("certified_total_deadline");
+      const cacheKey = certifiedRunCacheKey(session, currentSnapshot, asOf);
+      if (cached.current?.key === cacheKey) {
+        setResult(cached.current.run.output);
+        setFinished(cached.current.run);
+        return;
+      }
       client.current ??= createBrowserCertifiedClient();
-      const run = await client.current.request(
-        {
-          ...session.state,
-          stock: session.stock,
-          asOf,
-          snapshot: currentSnapshot,
-          cohortWeights: session.cohortWeights,
-          receivedEventIds: session.receipts.map((r) => r.eventId),
-          computeWaiting: true,
-          computeMinimumWait: true,
-          batchLimit: 10,
+      const run = await client.current.request(requestInput(session, currentSnapshot, asOf), {
+        engineProfile: CERTIFIED_STAGING_ENGINE_PROFILE,
+        sessionId: session.id,
+        signal: controller.signal,
+        totalDeadlineMs: remaining,
+        onCurrent: (partial) => {
+          if (ticket === sequence.current && !controller.signal.aborted) setResult(partial);
         },
-        {
-          engineProfile: CERTIFIED_STAGING_ENGINE_PROFILE,
-          sessionId: session.id,
-          signal: controller.signal,
-          totalDeadlineMs: remaining,
-          onCurrent: (partial) => {
-            if (ticket === sequence.current && !controller.signal.aborted) setResult(partial);
-          },
-        },
-      );
+      });
       if (ticket !== sequence.current) return;
+      if (cacheable(run.output)) cached.current = { key: cacheKey, run };
       setResult(run.output);
       if (
         certifiedBackgroundPartial(run.output, {

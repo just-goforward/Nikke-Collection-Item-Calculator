@@ -31,7 +31,9 @@ export function useCertifiedCalculatorPreparation(
         const previous = snapshotRef.current;
         if (
           previous &&
-          (previous.revision !== next.revision || previous.sourceHash !== next.sourceHash)
+          (previous.revision !== next.revision ||
+            previous.sourceHash !== next.sourceHash ||
+            previous.coverage.currentDay !== next.coverage.currentDay)
         )
           retire();
         snapshotRef.current = next;
