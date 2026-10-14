@@ -983,7 +983,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect(await count("accounts")).toBe(150);
   });
 
-  it("cron processes only five oldest ready deletions and isolates a stuck first job", async () => {
+  it("cron processes one oldest ready deletion per invocation and isolates a stuck first job", async () => {
     const h = await harness();
     await databases.PUBLIC_AGGREGATE_DB.prepare("UPDATE privacy_fence SET generation = 1").run();
     for (let i = 0; i < 6; i++) {
@@ -1021,6 +1021,9 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       },
     };
     await h.worker.scheduled({ scheduledTime: h.time() }, unavailable);
+    for (let i = 0; i < 4; i++) {
+      await h.worker.scheduled({ scheduledTime: h.time() }, unavailable);
+    }
     expect(await count("accounts")).toBe(2);
     expect(await count("deletion_jobs")).toBe(2);
     expect(
@@ -1087,7 +1090,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     ).toEqual({ state: "complete" });
   });
 
-  it("cron resumes only five stale consent reservations and leaves a live attempt leased", async () => {
+  it("cron resumes one stale consent reservation per invocation and leaves a live attempt leased", async () => {
     const h = await harness();
     const hash = await sha256(JSON.stringify([0, true]));
     for (let i = 0; i < 7; i++) {
@@ -1112,7 +1115,9 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
         )
         .run();
     }
-    await h.worker.scheduled({ scheduledTime: h.time() }, databases);
+    for (let i = 0; i < 5; i++) {
+      await h.worker.scheduled({ scheduledTime: h.time(), cron: "1-59/10 * * * *" }, databases);
+    }
     expect(
       (
         await databases.PRIVACY_CONTROL_DB.prepare(
@@ -1131,7 +1136,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       "SELECT attempt_nonce FROM consent_reservations WHERE user_id = 'consent-job-6'",
     ).first<{ attempt_nonce: string }>();
     expect(live?.attempt_nonce).toBe("live-attempt");
-    await h.worker.scheduled({ scheduledTime: h.time() }, databases);
+    await h.worker.scheduled({ scheduledTime: h.time(), cron: "1-59/10 * * * *" }, databases);
     expect(
       (
         await databases.PRIVACY_CONTROL_DB.prepare(

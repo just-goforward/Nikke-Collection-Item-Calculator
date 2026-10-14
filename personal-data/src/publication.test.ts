@@ -224,15 +224,46 @@ it("publisher crashes retain the block/token and staged data is never served", a
   expect(await publishWeekly(enabled, NOW + 1)).toBe("blocked");
 });
 
-it("an unknown privacy failure retains its admission marker and blocks later publication", async () => {
+it("a failure after a possible durable write retains its admission marker and blocks later publication", async () => {
   await seed();
   await expect(
-    withPrivacyIntent(dbs, async () => {
+    withPrivacyIntent(dbs, async (intent) => {
+      intent.beforeWrite();
       throw new Error("unknown_failure");
     }),
   ).rejects.toThrow("unknown_failure");
   expect((await fence())?.pending_intents).toBe(1);
   expect(await publishWeekly(enabled, NOW)).toBe("blocked");
+});
+
+it("skips an entire corrupt account/stage including 1e308 restored items without stranding the publisher", async () => {
+  await seed();
+  await seed(1, true, "invalid");
+  const corrupt = {
+    itemId: "huge-1",
+    stage: "R",
+    lifetimeAttempts: 1,
+    lifetimeIncome: 1e308,
+    preSignupIncome: 0,
+    manualEntry: false,
+    verified: false,
+  };
+  await dbs.PERSONAL_DB.batch([
+    dbs.PERSONAL_DB.prepare(
+      "INSERT INTO stage_summaries VALUES ('invalid-0', 'huge-1', 'R', ?)",
+    ).bind(JSON.stringify(corrupt)),
+    dbs.PERSONAL_DB.prepare(
+      "INSERT INTO stage_summaries VALUES ('invalid-0', 'huge-2', 'R', ?)",
+    ).bind(JSON.stringify({ ...corrupt, itemId: "huge-2" })),
+  ]);
+  expect(await publishWeekly(enabled, NOW)).toBe("published");
+  expect((await fence())?.publisher_token).toBeNull();
+  expect((await release())?.cells[0]?.bands[1]?.count).toBe(10);
+  expect(
+    await dbs.PERSONAL_DB.prepare(
+      "SELECT count(*) AS n FROM self_percentiles WHERE user_id = 'invalid-0'",
+    ).first(),
+  ).toEqual({ n: 0 });
 });
 
 it("private pending reservations and deletion jobs prevent publication without clearing the block", async () => {

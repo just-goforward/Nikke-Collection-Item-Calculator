@@ -170,7 +170,7 @@ it("upgrades populated M1 stores without losing personal records, session policy
   ).toEqual({ n: 4 });
   expect(
     (await rows(dbs.PERSONAL_DB, ["SELECT count(*) AS n FROM d1_migrations"]))[0]?.[0],
-  ).toEqual({ n: 5 });
+  ).toEqual({ n: 6 });
 });
 
 it("upgrades populated 0002 through 0003 and 0004 without losing records or pending deletion work", async () => {
@@ -275,4 +275,63 @@ it("upgrades populated 0002 through 0003 and 0004 without losing records or pend
   expect((await rows(dbs.PERSONAL_DB, ["SELECT retry_after FROM deletion_jobs"]))[0]?.[0]).toEqual({
     retry_after: 0,
   });
+});
+
+it("PUBLIC 0002 preserves populated releases with eligible defaults and enforces its new triggers", async () => {
+  await resetFixture({ ...dbs, PUBLIC_MIGRATIONS: dbs.PUBLIC_MIGRATIONS.slice(0, 1) });
+  await dbs.PUBLIC_AGGREGATE_DB.batch([
+    dbs.PUBLIC_AGGREGATE_DB.prepare("UPDATE privacy_fence SET blocked = 0, generation = 8"),
+    dbs.PUBLIC_AGGREGATE_DB.prepare(
+      `INSERT INTO weekly_releases VALUES ('populated-public', '2026-08-31', 8, '{"cells":[]}', ?)`,
+    ).bind(NOW),
+    dbs.PUBLIC_AGGREGATE_DB.prepare(
+      "UPDATE current_release SET release_id = 'populated-public', fence_generation = 8",
+    ),
+    dbs.PUBLIC_AGGREGATE_DB.prepare(
+      "INSERT INTO disclosure_history VALUES ('populated-public', '2026-08-31', 8, 'old', ?, NULL)",
+    ).bind(NOW),
+  ]);
+  await migrateFixture(dbs.PUBLIC_AGGREGATE_DB, dbs.PUBLIC_MIGRATIONS.slice(0, 2));
+  expect(
+    await dbs.PUBLIC_AGGREGATE_DB.prepare(
+      "SELECT state, intent_version, payload FROM weekly_releases WHERE release_id = 'populated-public'",
+    ).first(),
+  ).toEqual({ state: "published", intent_version: 0, payload: '{"cells":[]}' });
+  expect(
+    await dbs.PUBLIC_AGGREGATE_DB.prepare(
+      "SELECT pending_intents, intent_version, publisher_token, activated_token FROM privacy_fence",
+    ).first(),
+  ).toEqual({
+    pending_intents: 0,
+    intent_version: 0,
+    publisher_token: null,
+    activated_token: null,
+  });
+  expect(
+    await dbs.PUBLIC_AGGREGATE_DB.prepare(
+      "SELECT release_id, fence_generation FROM current_release",
+    ).first(),
+  ).toEqual({ release_id: "populated-public", fence_generation: 8 });
+  expect(
+    await dbs.PUBLIC_AGGREGATE_DB.prepare("SELECT invalidated_at FROM disclosure_history").first(),
+  ).toEqual({ invalidated_at: null });
+  await dbs.PUBLIC_AGGREGATE_DB.prepare(
+    "UPDATE privacy_fence SET pending_intents = 1, intent_version = 1",
+  ).run();
+  await expect(
+    dbs.PUBLIC_AGGREGATE_DB.prepare(
+      `INSERT INTO weekly_releases (release_id, week_start, fence_generation, payload, published_at)
+     VALUES ('forbidden', '2026-09-07', 8, '{}', ?)`,
+    )
+      .bind(NOW)
+      .run(),
+  ).rejects.toThrow("privacy_fenced");
+  await expect(
+    dbs.PUBLIC_AGGREGATE_DB.prepare(
+      "UPDATE current_release SET release_id = 'populated-public'",
+    ).run(),
+  ).rejects.toThrow("privacy_fenced");
+  await expect(
+    dbs.PUBLIC_AGGREGATE_DB.prepare("UPDATE privacy_fence SET intent_version = 0").run(),
+  ).rejects.toThrow("intent_regression");
 });

@@ -115,7 +115,10 @@ export function opBody(value: Record<string, unknown>): string {
   if (!validId(value["opId"])) throw new HttpError(400, "invalid_request");
   return value["opId"];
 }
-function stage(value: unknown): value is StageSummary {
+/** Exact arithmetic ceiling for each item and for each lifetime stage total. */
+export const MAX_LIFETIME_VALUE = Number.MAX_SAFE_INTEGER;
+
+export function stageSummary(value: unknown): value is StageSummary {
   if (!isObject(value)) return false;
   exactKeys(value, [
     "itemId",
@@ -133,12 +136,15 @@ function stage(value: unknown): value is StageSummary {
     validId(value["stage"]) &&
     Number.isSafeInteger(value["lifetimeAttempts"]) &&
     Number(value["lifetimeAttempts"]) >= 0 &&
+    Number(value["lifetimeAttempts"]) <= MAX_LIFETIME_VALUE &&
     typeof income === "number" &&
-    Number.isFinite(income) &&
+    Number.isSafeInteger(income) &&
     income >= 0 &&
+    income <= MAX_LIFETIME_VALUE &&
     typeof previous === "number" &&
-    Number.isFinite(previous) &&
+    Number.isSafeInteger(previous) &&
     previous >= 0 &&
+    previous <= MAX_LIFETIME_VALUE &&
     previous <= income &&
     typeof value["manualEntry"] === "boolean" &&
     typeof value["verified"] === "boolean"
@@ -170,10 +176,25 @@ export function workspaceBody(value: Record<string, unknown>): WorkspacePut {
     !Array.isArray(document["items"]) ||
     !boundedJson(document["items"]) ||
     !Array.isArray(document["lifetimeStages"]) ||
-    !document["lifetimeStages"].every(stage)
+    !document["lifetimeStages"].every(stageSummary)
   )
     throw new HttpError(400, "invalid_request");
   const stages = document["lifetimeStages"] as StageSummary[];
+  const totals = new Map<string, { income: number; previous: number; attempts: number }>();
+  for (const summary of stages) {
+    const total = totals.get(summary.stage) ?? { income: 0, previous: 0, attempts: 0 };
+    if (
+      summary.lifetimeIncome > MAX_LIFETIME_VALUE - total.income ||
+      summary.preSignupIncome > MAX_LIFETIME_VALUE - total.previous ||
+      summary.lifetimeAttempts > MAX_LIFETIME_VALUE - total.attempts
+    ) {
+      throw new HttpError(400, "invalid_request");
+    }
+    total.income += summary.lifetimeIncome;
+    total.previous += summary.preSignupIncome;
+    total.attempts += summary.lifetimeAttempts;
+    totals.set(summary.stage, total);
+  }
   if (
     new Set(stages.map((entry) => JSON.stringify([entry.itemId, entry.stage]))).size !==
     stages.length
@@ -188,7 +209,7 @@ export function workspaceBody(value: Record<string, unknown>): WorkspacePut {
     exactKeys(archive, ["archiveId", "summary", "startedAt", "completedAt"]);
     if (
       !validId(archive["archiveId"]) ||
-      !stage(archive["summary"]) ||
+      !stageSummary(archive["summary"]) ||
       !Number.isSafeInteger(archive["startedAt"]) ||
       Number(archive["startedAt"]) < 0 ||
       !Number.isSafeInteger(archive["completedAt"]) ||

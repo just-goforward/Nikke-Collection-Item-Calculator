@@ -3,7 +3,7 @@ import { beforeEach, expect, it } from "vitest";
 import { inactivityDeadline, runInactivityDeletion } from "./inactivity";
 import { admitAccount } from "./store";
 import { type FixtureEnv, resetFixture } from "./test-fixture";
-import type { PersonalEnv } from "./types";
+import type { PersonalEnv, SqlStatement } from "./types";
 
 const dbs = env as unknown as FixtureEnv;
 const LAST = Date.UTC(2024, 2, 1, 12);
@@ -50,7 +50,7 @@ it("clips a leap-day anniversary to February 28 while preserving UTC time", asyn
   expect(await accounts()).toBe(0);
 });
 
-it("isolates failed candidates, limits work to five and preserves an active account", async () => {
+it("isolates failed candidates, limits work to one and preserves an active account", async () => {
   for (let i = 0; i < 6; i++) await seed(`due-${i}`, LAST - i);
   await seed("active", DUE);
   const privacy = dbs.PRIVACY_CONTROL_DB;
@@ -72,7 +72,7 @@ it("isolates failed candidates, limits work to five and preserves an active acco
         n: number;
       }>()
     )?.n,
-  ).toBe(5);
+  ).toBe(1);
   expect(
     (
       await dbs.PERSONAL_DB.prepare("SELECT blocked FROM accounts WHERE user_id = 'active'").first<{
@@ -84,20 +84,33 @@ it("isolates failed candidates, limits work to five and preserves an active acco
 
 it("a login/save activity update after selection wins the atomic deletion guard", async () => {
   await seed("race");
-  const publicDb = dbs.PUBLIC_AGGREGATE_DB;
+  await dbs.PUBLIC_AGGREGATE_DB.batch([
+    dbs.PUBLIC_AGGREGATE_DB.prepare("UPDATE privacy_fence SET blocked = 0"),
+    dbs.PUBLIC_AGGREGATE_DB.prepare(
+      `INSERT INTO weekly_releases (release_id, week_start, fence_generation, payload, published_at)
+       VALUES ('keep-release', '2026-02-23', 0, '{"cells":[]}', ?)`,
+    ).bind(DUE),
+    dbs.PUBLIC_AGGREGATE_DB.prepare("UPDATE current_release SET release_id = 'keep-release'"),
+  ]);
+  const personalDb = dbs.PERSONAL_DB;
+  let selection = true;
   const raced: PersonalEnv = {
     ...dbs,
-    PUBLIC_AGGREGATE_DB: {
-      prepare: (sql) => publicDb.prepare(sql),
-      async batch(statements) {
-        await dbs.PERSONAL_DB.prepare(
-          "UPDATE accounts SET last_active_at = ? WHERE user_id = 'race'",
-        )
-          .bind(DUE)
-          .run();
-        return publicDb.batch(statements);
+    PERSONAL_DB: {
+      prepare: (sql) => personalDb.prepare(sql),
+      async batch<T>(statements: SqlStatement[]) {
+        const result = await personalDb.batch<T>(statements);
+        if (selection) {
+          selection = false;
+          await dbs.PERSONAL_DB.prepare(
+            "UPDATE accounts SET last_active_at = ? WHERE user_id = 'race'",
+          )
+            .bind(DUE)
+            .run();
+        }
+        return result;
       },
-      exec: (sql) => publicDb.exec(sql),
+      exec: (sql) => personalDb.exec(sql),
     },
   };
   await runInactivityDeletion(raced, DUE);
@@ -109,4 +122,12 @@ it("a login/save activity update after selection wins the atomic deletion guard"
       }>()
     )?.n,
   ).toBe(0);
+  expect(
+    await dbs.PUBLIC_AGGREGATE_DB.prepare(
+      "SELECT generation, blocked, pending_intents FROM privacy_fence",
+    ).first(),
+  ).toEqual({ generation: 0, blocked: 0, pending_intents: 0 });
+  expect(
+    await dbs.PUBLIC_AGGREGATE_DB.prepare("SELECT release_id FROM current_release").first(),
+  ).toEqual({ release_id: "keep-release" });
 });

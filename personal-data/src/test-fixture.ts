@@ -62,7 +62,13 @@ export async function resetFixture(env: FixtureEnv): Promise<void> {
   );
   await rebuild(
     env.PUBLIC_AGGREGATE_DB,
-    ["current_release", "weekly_releases", "disclosure_history", "privacy_fence"],
+    [
+      "privacy_intents",
+      "current_release",
+      "weekly_releases",
+      "disclosure_history",
+      "privacy_fence",
+    ],
     env.PUBLIC_MIGRATIONS,
   );
 }

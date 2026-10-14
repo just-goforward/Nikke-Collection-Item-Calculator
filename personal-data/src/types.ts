@@ -22,4 +22,5 @@ export interface PersonalEnv {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   PUBLICATION_ENABLED?: string;
+  PRIVACY_RECONCILE_QUIESCENT?: string;
 }

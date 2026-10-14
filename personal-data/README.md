@@ -59,6 +59,15 @@ Stage summaries are lifetime, per-item/per-stage, editable in beta. Manual-entry
 and verification flags travel with them. Pre-signup income stays personal and
 must be subtracted from public contributions. Publication must validate
 nonnegative values and exclude pre-signup income; M1 does not aggregate anything.
+Write validation now requires nonnegative **safe integers**, at most
+`Number.MAX_SAFE_INTEGER` (9,007,199,254,740,991) per item, for lifetime income,
+pre-signup income and lifetime attempts/consumption. Each of these three sums
+across the items of a stage must also stay at/below that exact arithmetic ceiling;
+pre-signup income may not exceed lifetime income. No fractional/1e308 values
+are accepted. Aggregation uses the same validator and flags/skips the entire
+account/stage when restored rows are malformed, inconsistent or overflow the sum.
+It neither publishes partial corrupt contributions nor throws after acquiring
+the publisher merely because an input summary is invalid.
 Weekly releases suppress small cells and disclose no exact extremes.
 Self-percentiles are immutable per release, not a live ranking.
 
@@ -369,8 +378,8 @@ PUBLIC fence; a crash between PUBLIC commit and saving its generation can safely
 re-block/increment it again, never unblock it. Completed replays never increment
 the fence. Deletion clears that old account's reservation.
 
-The prepared scheduled handler independently drains at most five oldest-ready
-deletion jobs and five stale consent reservations per tick, in addition to expiry
+The prepared scheduled handler drains at most one oldest-ready deletion OR one
+stale consent reservation in its corresponding lane, in addition to expiry
 cleanup. Each failed job is isolated. Indexed retry-due/creation ordering and a
 one-minute scheduled retry delay prevent a stuck prefix from monopolizing later
 jobs; matching consent requests do not wait for that scheduled backoff. Cron and
@@ -425,13 +434,17 @@ For a future separately approved upgrade:
    never restore an old PUBLIC fence/pointer into service. Migration tests are
    local preservation evidence, not proof of a live distributed restore.
 
-M7 implements inactivity deletion in five-account cron batches, using the same
+M7 implements inactivity deletion in one-account cron batches, using the same
 fenced deletion/outbox/rejoin path. Eligibility is exactly two UTC calendar years
 after `last_active_at`; February 29 clips to February 28 in a non-leap anniversary
 year. Login and winning saves refresh activity; polling, session touches and
 consent decisions do not. The deletion batch rechecks the selected activity
 timestamp, so a concurrent login/save wins before account blocking. Writes after
-blocking are refused. No pre-deletion warning was required by the agreed contract
+blocking are refused. The PUBLIC intent hides public reads before the guarded
+PERSONAL claim. Only a winning claim creates an unready deletion outbox; its
+finisher then invalidates PUBLIC and saves the generation before PRIVACY changes.
+A lost activity race releases its intent without changing generation, pointer or
+release payload. Legacy jobs default to already fenced. No pre-deletion warning was required by the agreed contract
 and none is implemented. M7 is local-tested, not deployed.
 Explicit publication enablement, real Google legacy-issuer support and browser
 integration remain separate launch gates.
@@ -440,7 +453,7 @@ integration remain separate launch gates.
 
 `PUBLICATION_ENABLED = "false"` in `wrangler.toml` gates both the coordinator
 and public/rank display. Only the exact string `"true"` enables it; no HTTP
-endpoint enables publication. The existing 10-minute cron attempts a UTC Monday
+endpoint enables publication. The publication cron lane attempts a UTC Monday
 weekly build only when that week's release is absent/invalidated. Two publishers
 cannot acquire the same durable PUBLIC publisher slot. Withdrawal/deletion
 invalidates every retrievable release immediately, then an enabled later cron
@@ -486,9 +499,10 @@ bindings: **no batch spans them**. Local tests use Wrangler 4.150.0 / workerd vi
    consent requests do not increment `generation` or invalidate a release.
 2. Accepted changes retain the PUBLIC-first generation block/payload invalidation,
    then PRIVACY decision/tombstone, PERSONAL application and completion. Only a
-   known successful completion or controlled 4xx rejection decrements its intent.
-   Unknown transport failures/process death retain the intent even if a retry
-   later completes the private job. There is **no automatic intent expiry**.
+   known successful completion, controlled 4xx rejection or exception before
+   attempting a durable write releases its intent. Ambiguous write failures and
+   process death retain an individually identified, ten-minute lease even if a
+   retry later completes the private job. Expiry alone never deletes that lease.
 3. Publisher atomically acquires a token and blocks PUBLIC at `(generation,
    intent_version)` with no pending intents. It reads authoritative consent and
    pending queues, then one PERSONAL batch for summaries/blocked accounts/jobs.
@@ -520,3 +534,75 @@ A accounts (at most 150), and C fixed-width stage/cohort cells. In-memory build
 work is O(S + A + C log C + P*C): rank construction looks up a cell per point;
 SQL also orders S rows. Heap storage is O(S + A + C). This is static reasoning,
 not a remote cost, wall-time measurement or production benchmark.
+
+## Review round 1: gated intent recovery and invocation budgets
+
+PUBLIC `0003` adds identified intent leases and an admission gate, preserving
+legacy `pending_intents` for reconciliation. PERSONAL `0006` gives existing
+deletion jobs `fence_ready = 1`; new guarded claims start at zero. A crash after
+a winning claim but before PUBLIC invalidation leaves both an intent and an
+unready job. Recovery finishes the fence before recording the privacy authority.
+The populated PUBLIC `0001` → `0002` fixture additionally asserts
+`state = 'published'`, `intent_version = 0`, zero pending/version counters, null
+publisher/activation tokens, preserved pointer/history and rejection by the new
+release, pointer and monotonic-version triggers.
+
+### Explicit recovery entry and required quiescence
+
+`PRIVACY_RECONCILE_QUIESCENT = "false"` by default. To enter the prepared
+maintenance mode under separate operational authorization:
+
+1. Disable publication and stop/drain ordinary invocations of every deployed
+   version, including outstanding D1 writes. Only then assert this flag as
+   `"true"`. The flag is an **operator assertion**, not a distributed proof
+   that older isolates/ambiguous D1 writes have stopped. All HTTP requests in
+   this mode refuse work; only the bounded cron recovery lanes run.
+2. The publication lane now calls `reconcilePrivacyIntents`, not the publisher.
+   It closes PUBLIC admission and keeps publication blocked, checks that all
+   PERSONAL deletion jobs and PRIVACY reservations/pending operations are gone,
+   and refuses to reconcile while any intent has an unexpired ten-minute lease.
+   Failures/outages leave the gate/block and retry on a later lane invocation.
+3. Under that quiescence, one PUBLIC transaction deletes expired orphan leases
+   and recomputes `pending_intents` from remaining lease rows. It requires the
+   same captured `intent_version`, so a concurrent recovery admission invalidates
+   the decision. It then reopens admission, **never clears `blocked`**, never
+   resets generation, and never removes a publisher token or unfinished privacy
+   record. Unknown publisher recovery remains deferred to the publication review.
+4. Verify current tombstone replay/restore gates and completed jobs, then exit
+   maintenance mode. Enabling publication is a separate explicit decision.
+
+A failure before any durable write attempt releases its lease immediately,
+regardless of exception type. Preparation failures are distinguishable from an
+ambiguous D1 write/transport failure: the latter retains a lease even if a later
+read currently sees no row, since an outstanding write might still commit.
+A PUBLIC failure during lease release also leaves an orphan for this gate.
+This is intentional fail-closed uncertainty, not an inferred rollback.
+Inactivity remains measured by successful **login + save only**; neither consent,
+polling, recovery, session touches nor publication changes `last_active_at`.
+
+### Four separate local cron lanes
+
+Each invocation performs expiry cleanup (three statements) and only one lane:
+
+| Cron | Lane | Conservative maximum application statements including cleanup |
+| --- | --- | --- |
+| `0-59/10 * * * *` | One oldest ready deletion job | 24 |
+| `1-59/10 * * * *` | One stale consent reservation | 27 |
+| `2-59/10 * * * *` | One inactivity candidate | 27 |
+| `3-59/10 * * * *` | Publication, or gated reconciliation | 19, or 8 |
+
+The ceilings include known failure cleanup/backoff paths and count **each batch
+statement**, not just one D1 round-trip. There is no recursive drain in an
+invocation. Local metered tests assert every ready-work lane uses fewer than 40
+statements. These are bounded call/query counts, not a guarantee about rows
+scanned, CPU, billing or repeated platform invocations. Four crons are prepared
+locally only; account-wide cron availability must be checked before deployment.
+
+Official docs retrieved read-only for this review:
+<https://developers.cloudflare.com/workers/platform/limits/#subrequests> defines
+D1 service calls as subrequests. Workers Free allows 50 external and 1,000
+internal-service subrequests; Paid defaults to 10,000.
+<https://developers.cloudflare.com/d1/platform/limits/> separately lists **50
+D1 queries per invocation on Free / 1,000 on Paid**. Use the stricter D1 query
+budget, conservatively treating every submitted batch statement as a query;
+batching does not justify treating many statements as free.

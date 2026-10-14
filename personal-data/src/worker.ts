@@ -42,7 +42,7 @@ import {
   workspaceBody,
 } from "./http";
 import { runInactivityDeletion } from "./inactivity";
-import { reapplyUserTombstones } from "./privacy";
+import { reapplyUserTombstones, reconcilePrivacyIntents } from "./privacy";
 import { publishWeekly } from "./publication";
 import {
   getWorkspace,
@@ -291,6 +291,9 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
     async fetch(request: Request, env: PersonalEnv): Promise<Response> {
       const path = new URL(request.url).pathname;
       try {
+        if (env.PRIVACY_RECONCILE_QUIESCENT === "true") {
+          throw new HttpError(503, "service_unavailable");
+        }
         const allowed = routes[path];
         if (!allowed) throw new HttpError(404, "not_found");
         if (!allowed.includes(request.method)) throw new HttpError(405, "method_not_allowed");
@@ -509,7 +512,10 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
         return result;
       }
     },
-    async scheduled(controller: { scheduledTime: number }, env: PersonalEnv): Promise<void> {
+    async scheduled(
+      controller: { scheduledTime: number; cron?: string },
+      env: PersonalEnv,
+    ): Promise<void> {
       const time = controller.scheduledTime;
       let failed = false;
       try {
@@ -528,17 +534,23 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
         failed = true;
       }
       try {
-        await runInactivityDeletion(env, time);
+        if (controller.cron === "2-59/10 * * * *") await runInactivityDeletion(env, time);
       } catch {
         failed = true;
       }
       try {
-        await runPrivacyMaintenance(env, time);
+        if (controller.cron === "1-59/10 * * * *")
+          await runPrivacyMaintenance(env, time, "consent");
+        else if (!controller.cron || controller.cron === "0-59/10 * * * *")
+          await runPrivacyMaintenance(env, time, "deletion");
       } catch {
         failed = true;
       }
       try {
-        await publishWeekly(env, time);
+        if (controller.cron === "3-59/10 * * * *") {
+          if (env.PRIVACY_RECONCILE_QUIESCENT === "true") await reconcilePrivacyIntents(env, time);
+          else await publishWeekly(env, time);
+        }
       } catch {
         failed = true;
       }

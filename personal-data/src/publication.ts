@@ -1,4 +1,5 @@
 import type { PublicCell, PublicStatistics, SelfPercentile, StageSummary } from "./contracts";
+import { MAX_LIFETIME_VALUE, stageSummary } from "./http";
 import type { PersonalEnv } from "./types";
 
 const K = 10;
@@ -39,27 +40,44 @@ function bin(income: number): number {
 
 function points(rows: Record<string, unknown>[]): Point[] {
   const result = new Map<string, Point>();
+  const invalid = new Set<string>();
+  const totals = new Map<string, { income: number; previous: number; attempts: number }>();
   for (const row of rows) {
-    const summary = JSON.parse(String(row["summary"])) as StageSummary;
-    if (
-      summary.itemId !== row["item_id"] ||
-      summary.stage !== row["stage"] ||
-      typeof summary.manualEntry !== "boolean" ||
-      typeof summary.verified !== "boolean" ||
-      typeof summary.lifetimeIncome !== "number" ||
-      !Number.isFinite(summary.lifetimeIncome) ||
-      typeof summary.preSignupIncome !== "number" ||
-      !Number.isFinite(summary.preSignupIncome) ||
-      summary.preSignupIncome < 0 ||
-      summary.lifetimeIncome < summary.preSignupIncome
-    ) {
-      throw new Error("invalid_summary");
-    }
     const userId = String(row["user_id"]);
-    const key = JSON.stringify([userId, summary.stage]);
+    const key = JSON.stringify([userId, row["stage"]]);
+    if (invalid.has(key)) continue;
+    let summary: StageSummary;
+    try {
+      const parsed: unknown = JSON.parse(String(row["summary"]));
+      if (
+        !stageSummary(parsed) ||
+        parsed.itemId !== row["item_id"] ||
+        parsed.stage !== row["stage"]
+      ) {
+        throw new Error("invalid_summary");
+      }
+      summary = parsed;
+    } catch {
+      invalid.add(key);
+      result.delete(key);
+      continue;
+    }
+    const total = totals.get(key) ?? { income: 0, previous: 0, attempts: 0 };
+    if (
+      summary.lifetimeIncome > MAX_LIFETIME_VALUE - total.income ||
+      summary.preSignupIncome > MAX_LIFETIME_VALUE - total.previous ||
+      summary.lifetimeAttempts > MAX_LIFETIME_VALUE - total.attempts
+    ) {
+      invalid.add(key);
+      result.delete(key);
+      continue;
+    }
+    total.income += summary.lifetimeIncome;
+    total.previous += summary.preSignupIncome;
+    total.attempts += summary.lifetimeAttempts;
+    totals.set(key, total);
     const previous = result.get(key);
-    const income = (previous?.income ?? 0) + summary.lifetimeIncome - summary.preSignupIncome;
-    if (!Number.isFinite(income)) throw new Error("invalid_summary");
+    const income = total.income - total.previous;
     result.set(key, {
       userId,
       stage: summary.stage,

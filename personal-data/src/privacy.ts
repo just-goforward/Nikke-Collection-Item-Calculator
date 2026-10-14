@@ -3,34 +3,79 @@ import type { PersonalEnv } from "./types";
 
 /**
  * A durable, identifier-free PUBLIC admission barrier precedes every privacy writer.
- * Unknown failures retain their marker. Only a quiescent, explicitly gated maintenance
- * procedure may reconcile an orphan; normal publication never expires/clears it.
+ * No-write failures release their lease; ambiguous writes retain it for gated recovery.
  */
 export async function withPrivacyIntent<T>(
   env: PersonalEnv,
-  operation: () => Promise<T>,
+  operation: (intent: PrivacyIntent) => Promise<T>,
 ): Promise<T> {
+  const id = crypto.randomUUID();
   const entered = await env.PUBLIC_AGGREGATE_DB.prepare(
-    `UPDATE privacy_fence SET pending_intents = pending_intents + 1,
-     intent_version = intent_version + 1 WHERE singleton = 1 RETURNING intent_version`,
-  ).first();
+    `INSERT INTO privacy_intents (intent_id, expires_at)
+     SELECT ?, ? FROM privacy_fence WHERE singleton = 1
+     AND (reconciliation_gate = 0 OR ? = 1) RETURNING intent_id`,
+  )
+    .bind(id, Date.now() + INTENT_LEASE_MS, Number(env.PRIVACY_RECONCILE_QUIESCENT === "true"))
+    .first();
   if (!entered) throw new HttpError(503, "service_unavailable");
+  let writeStarted = false;
   let completed = false;
   try {
-    const result = await operation();
+    const result = await operation({
+      beforeWrite() {
+        writeStarted = true;
+      },
+    });
     completed = true;
     return result;
   } catch (error) {
-    // Controlled rejection follows completed DB reads/batches, not an ambiguous transport error.
-    if (error instanceof HttpError && error.status < 500) completed = true;
+    if (!writeStarted || (error instanceof HttpError && error.status < 500)) completed = true;
     throw error;
   } finally {
     if (completed) {
-      await env.PUBLIC_AGGREGATE_DB.prepare(
-        "UPDATE privacy_fence SET pending_intents = pending_intents - 1 WHERE singleton = 1 AND pending_intents > 0",
-      ).run();
+      await env.PUBLIC_AGGREGATE_DB.prepare("DELETE FROM privacy_intents WHERE intent_id = ?")
+        .bind(id)
+        .run();
     }
   }
+}
+
+export interface PrivacyIntent {
+  beforeWrite(): void;
+}
+const INTENT_LEASE_MS = 10 * 60_000;
+
+/** Explicit operator quiescence assertion, NOT automatic expiry-based proof of quiescence. */
+export async function reconcilePrivacyIntents(env: PersonalEnv, now: number): Promise<boolean> {
+  if (env.PRIVACY_RECONCILE_QUIESCENT !== "true" || env.PUBLICATION_ENABLED === "true")
+    return false;
+  const gate = await env.PUBLIC_AGGREGATE_DB.prepare(
+    `UPDATE privacy_fence SET reconciliation_gate = 1, blocked = 1 WHERE singleton = 1
+     RETURNING intent_version`,
+  ).first<{ intent_version: number }>();
+  if (!gate) return false;
+  const privacy = await env.PRIVACY_CONTROL_DB.prepare(
+    `SELECT (SELECT count(*) FROM consent_reservations) +
+     (SELECT count(*) FROM privacy_operations WHERE state = 'pending') AS n`,
+  ).first<{ n: number }>();
+  const jobs = await env.PERSONAL_DB.prepare("SELECT count(*) AS n FROM deletion_jobs").first<{
+    n: number;
+  }>();
+  if (!privacy || !jobs || privacy.n || jobs.n) return false;
+  const result = await env.PUBLIC_AGGREGATE_DB.batch([
+    env.PUBLIC_AGGREGATE_DB.prepare(
+      `DELETE FROM privacy_intents WHERE expires_at <= ?
+       AND EXISTS (SELECT 1 FROM privacy_fence WHERE reconciliation_gate = 1 AND intent_version = ?)
+       AND NOT EXISTS (SELECT 1 FROM privacy_intents WHERE expires_at > ?)`,
+    ).bind(now, gate.intent_version, now),
+    env.PUBLIC_AGGREGATE_DB.prepare(
+      `UPDATE privacy_fence SET pending_intents = (SELECT count(*) FROM privacy_intents),
+       reconciliation_gate = 0
+       WHERE singleton = 1 AND reconciliation_gate = 1 AND intent_version = ?
+       AND NOT EXISTS (SELECT 1 FROM privacy_intents WHERE expires_at > ?)`,
+    ).bind(gate.intent_version, now),
+  ]);
+  return result[1]?.meta.changes === 1;
 }
 
 export interface PrivacyChange {
@@ -39,8 +84,12 @@ export interface PrivacyChange {
   kind: "withdrawal" | "deletion";
 }
 
-export async function blockPublication(env: PersonalEnv, now: number): Promise<number> {
-  const result = await env.PUBLIC_AGGREGATE_DB.batch([
+export async function blockPublication(
+  env: PersonalEnv,
+  now: number,
+  intent?: PrivacyIntent,
+): Promise<number> {
+  const statements = [
     env.PUBLIC_AGGREGATE_DB.prepare(
       "UPDATE privacy_fence SET generation = generation + 1, blocked = 1 WHERE singleton = 1 RETURNING generation",
     ),
@@ -52,7 +101,9 @@ export async function blockPublication(env: PersonalEnv, now: number): Promise<n
       "UPDATE disclosure_history SET invalidated_at = ? WHERE invalidated_at IS NULL",
     ).bind(now),
     env.PUBLIC_AGGREGATE_DB.prepare("DELETE FROM weekly_releases"),
-  ]);
+  ];
+  intent?.beforeWrite();
+  const result = await env.PUBLIC_AGGREGATE_DB.batch(statements);
   const row = result[0]?.results[0] as { generation: number } | undefined;
   if (!row) throw new Error("missing_privacy_fence");
   return row.generation;
@@ -138,15 +189,16 @@ export async function applyPrivacyChange(
   change: PrivacyChange,
   now: number,
 ): Promise<{ fenceGeneration: number; status: "complete" }> {
-  return withPrivacyIntent(env, () => applyPrivacyChangeCore(env, change, now));
+  return withPrivacyIntent(env, (intent) => applyPrivacyChangeCore(env, change, now, intent));
 }
 
 async function applyPrivacyChangeCore(
   env: PersonalEnv,
   change: PrivacyChange,
   now: number,
+  intent: PrivacyIntent,
 ): Promise<{ fenceGeneration: number; status: "complete" }> {
-  const fenceGeneration = await blockPublication(env, now);
+  const fenceGeneration = await blockPublication(env, now, intent);
   await recordPrivacyChange(env, change, fenceGeneration, now);
   await reapplyUserTombstones(env, change.userId);
   await env.PRIVACY_CONTROL_DB.prepare(

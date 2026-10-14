@@ -36,7 +36,7 @@ export async function runInactivityDeletion(env: PersonalEnv, now: number): Prom
       `SELECT a.user_id, a.last_active_at, i.issuer, i.subject
        FROM accounts a JOIN identities i USING(user_id)
        WHERE a.blocked = 0 AND a.last_active_at <= ?
-       ORDER BY a.last_active_at, a.user_id LIMIT 5`,
+       ORDER BY a.last_active_at, a.user_id LIMIT 1`,
     ).bind(candidateCutoff),
   ]);
   for (const raw of result[0]?.results ?? []) {

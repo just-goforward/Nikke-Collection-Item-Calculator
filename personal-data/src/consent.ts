@@ -3,6 +3,7 @@ import type { ConsentGet, ConsentPut, PrivacyAccepted } from "./contracts";
 import { exactKeys, HttpError, validId } from "./http";
 import {
   blockPublication,
+  type PrivacyIntent,
   reapplyUserTombstones,
   recordPrivacyChange,
   withPrivacyIntent,
@@ -49,7 +50,7 @@ interface Reservation {
 
 const CONSENT_LEASE_MS = 60_000;
 const MAINTENANCE_RETRY_MS = 60_000;
-const MAINTENANCE_BATCH = 5;
+const MAINTENANCE_BATCH = 1;
 
 /** Preflight AND atomic per-account reservation precede the first PUBLIC write. */
 export async function putConsent(
@@ -58,7 +59,7 @@ export async function putConsent(
   input: ConsentPut,
   now: number,
 ): Promise<ConsentGet> {
-  return withPrivacyIntent(env, () => putConsentCore(env, account, input, now));
+  return withPrivacyIntent(env, (intent) => putConsentCore(env, account, input, now, intent));
 }
 
 async function putConsentCore(
@@ -66,10 +67,11 @@ async function putConsentCore(
   account: SessionAccount,
   input: ConsentPut,
   now: number,
+  intent: PrivacyIntent,
 ): Promise<ConsentGet> {
   const hash = await sha256(JSON.stringify([input.baseDecisionVersion, input.participation]));
   const nonce = crypto.randomUUID();
-  const result = await env.PRIVACY_CONTROL_DB.batch([
+  const statements = [
     env.PRIVACY_CONTROL_DB.prepare(
       "SELECT request_hash FROM consent_operations WHERE user_id = ? AND op_id = ?",
     ).bind(account.userId, input.opId),
@@ -96,7 +98,9 @@ async function putConsentCore(
     env.PRIVACY_CONTROL_DB.prepare("SELECT * FROM consent_reservations WHERE user_id = ?").bind(
       account.userId,
     ),
-  ]);
+  ];
+  intent.beforeWrite();
+  const result = await env.PRIVACY_CONTROL_DB.batch(statements);
   const operation = result[0]?.results[0] as { request_hash: string } | undefined;
   if (operation) {
     if (operation.request_hash !== hash) throw new HttpError(409, "op_id_conflict");
@@ -199,7 +203,11 @@ async function recoverConsentChange(env: PersonalEnv, userId: string, now: numbe
   )
     .bind(userId)
     .first<Reservation>();
-  if (row) await withPrivacyIntent(env, () => completeConsent(env, row, now));
+  if (row)
+    await withPrivacyIntent(env, (intent) => {
+      intent.beforeWrite();
+      return completeConsent(env, row, now);
+    });
 }
 
 export async function queueDeletion(
@@ -209,8 +217,8 @@ export async function queueDeletion(
   now: number,
   expectedLastActive: number | null = null,
 ): Promise<PrivacyAccepted | null> {
-  return withPrivacyIntent(env, () =>
-    queueDeletionCore(env, account, opId, now, expectedLastActive),
+  return withPrivacyIntent(env, (intent) =>
+    queueDeletionCore(env, account, opId, now, expectedLastActive, intent),
   );
 }
 
@@ -220,9 +228,9 @@ async function queueDeletionCore(
   opId: string,
   now: number,
   expectedLastActive: number | null,
+  intent: PrivacyIntent,
 ): Promise<PrivacyAccepted | null> {
-  const generation = await blockPublication(env, now);
-  const results = await env.PERSONAL_DB.batch([
+  const statements = [
     env.PERSONAL_DB.prepare("UPDATE auth_control SET epoch = epoch + 1 WHERE singleton = 1"),
     env.PERSONAL_DB.prepare(
       `UPDATE accounts SET blocked = 1, auth_epoch = (SELECT epoch FROM auth_control WHERE singleton = 1)
@@ -236,16 +244,18 @@ async function queueDeletionCore(
        expires_at = excluded.expires_at`,
     ).bind(await identityHash(account.identity), now + FLOW_TTL_MS, account.userId),
     env.PERSONAL_DB.prepare(
-      `INSERT OR IGNORE INTO deletion_jobs (user_id, op_id, created_at, fence_generation)
-       SELECT user_id, ?, ?, ? FROM accounts WHERE user_id = ? AND blocked = 1
+      `INSERT OR IGNORE INTO deletion_jobs (user_id, op_id, created_at, fence_generation, fence_ready)
+       SELECT user_id, ?, ?, 0, 0 FROM accounts WHERE user_id = ? AND blocked = 1
        AND auth_epoch = (SELECT epoch FROM auth_control WHERE singleton = 1)`,
-    ).bind(opId, now, generation, account.userId),
+    ).bind(opId, now, account.userId),
     env.PERSONAL_DB.prepare(
       `DELETE FROM sessions WHERE user_id = ? AND EXISTS
        (SELECT 1 FROM accounts a WHERE a.user_id = sessions.user_id AND a.blocked = 1
         AND a.auth_epoch = (SELECT epoch FROM auth_control WHERE singleton = 1))`,
     ).bind(account.userId),
-  ]);
+  ];
+  intent.beforeWrite();
+  const results = await env.PERSONAL_DB.batch(statements);
   if (results[1]?.meta.changes !== 1) return null;
   return { operationId: opId, ...(await finishDeletion(env, account.userId)) };
 }
@@ -255,11 +265,19 @@ async function finishDeletion(
   userId: string,
 ): Promise<{ fenceGeneration: number; status: "complete" }> {
   const job = await env.PERSONAL_DB.prepare(
-    "SELECT op_id, created_at, fence_generation FROM deletion_jobs WHERE user_id = ?",
+    "SELECT op_id, created_at, fence_generation, fence_ready FROM deletion_jobs WHERE user_id = ?",
   )
     .bind(userId)
-    .first<{ op_id: string; created_at: number; fence_generation: number }>();
+    .first<{ op_id: string; created_at: number; fence_generation: number; fence_ready: number }>();
   if (!job) throw new HttpError(503, "service_unavailable");
+  if (!job.fence_ready) {
+    job.fence_generation = await blockPublication(env, job.created_at);
+    await env.PERSONAL_DB.prepare(
+      "UPDATE deletion_jobs SET fence_generation = ?, fence_ready = 1 WHERE user_id = ?",
+    )
+      .bind(job.fence_generation, userId)
+      .run();
+  }
   await recordPrivacyChange(
     env,
     {
@@ -287,7 +305,10 @@ export async function resumeDeletion(env: PersonalEnv, userId: string): Promise<
     .first();
   if (!job) return true;
   try {
-    await withPrivacyIntent(env, () => finishDeletion(env, userId));
+    await withPrivacyIntent(env, (intent) => {
+      intent.beforeWrite();
+      return finishDeletion(env, userId);
+    });
     return true;
   } catch {
     return false;
@@ -295,28 +316,37 @@ export async function resumeDeletion(env: PersonalEnv, userId: string): Promise<
 }
 
 /** Bounded, indexed oldest-ready queues; one failed job cannot stop the remaining jobs. */
-export async function runPrivacyMaintenance(env: PersonalEnv, now: number): Promise<void> {
-  const deletions = await env.PERSONAL_DB.batch([
-    env.PERSONAL_DB.prepare(
-      `SELECT user_id FROM deletion_jobs WHERE retry_after <= ?
+export async function runPrivacyMaintenance(
+  env: PersonalEnv,
+  now: number,
+  lane: "deletion" | "consent" = "deletion",
+): Promise<void> {
+  if (lane === "deletion") {
+    const deletions = await env.PERSONAL_DB.batch([
+      env.PERSONAL_DB.prepare(
+        `SELECT user_id FROM deletion_jobs WHERE retry_after <= ?
        ORDER BY retry_after, created_at, user_id LIMIT ?`,
-    ).bind(now, MAINTENANCE_BATCH),
-  ]);
-  for (const row of deletions[0]?.results ?? []) {
-    const userId = String(row["user_id"]);
-    let completed = false;
-    try {
-      completed = await resumeDeletion(env, userId);
-    } catch {
-      completed = false;
-    }
-    if (!completed) {
+      ).bind(now, MAINTENANCE_BATCH),
+    ]);
+    for (const row of deletions[0]?.results ?? []) {
+      const userId = String(row["user_id"]);
+      let completed = false;
       try {
-        await env.PERSONAL_DB.prepare("UPDATE deletion_jobs SET retry_after = ? WHERE user_id = ?")
-          .bind(now + MAINTENANCE_RETRY_MS, userId)
-          .run();
-      } catch {}
+        completed = await resumeDeletion(env, userId);
+      } catch {
+        completed = false;
+      }
+      if (!completed) {
+        try {
+          await env.PERSONAL_DB.prepare(
+            "UPDATE deletion_jobs SET retry_after = ? WHERE user_id = ?",
+          )
+            .bind(now + MAINTENANCE_RETRY_MS, userId)
+            .run();
+        } catch {}
+      }
     }
+    return;
   }
   const reservations = await env.PRIVACY_CONTROL_DB.batch([
     env.PRIVACY_CONTROL_DB.prepare(
