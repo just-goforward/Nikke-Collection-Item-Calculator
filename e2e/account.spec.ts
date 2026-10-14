@@ -1,165 +1,21 @@
 import { readFile } from "node:fs/promises";
 import AxeBuilder from "@axe-core/playwright";
-import { type BrowserContext, expect, type Page, type Route } from "@playwright/test";
+import { type BrowserContext, expect, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
+import {
+  calculatorDocument,
+  deviceStores,
+  enableAccountFlag,
+  MockAccountApi,
+  ORIGIN,
+  PORT,
+  signedInApi,
+} from "./account.helpers";
 import { closePreviewServer, test } from "./test";
 
-const PORT = 4297;
-const ORIGIN = `http://127.0.0.1:${PORT}`;
-const GOOGLE_URL = "https://accounts.google.com/o/oauth2/v2/auth?client_id=e2e";
 // Defaults to the regular build; a separate output directory can be supplied for isolated runs.
 const OUT_DIR = process.env["ACCOUNT_E2E_DIST"] ?? "dist";
 let server: PreviewServer | null = null;
-
-type Recorded = {
-  method: string;
-  path: string;
-  headers: Record<string, string>;
-  body: Record<string, unknown> | null;
-};
-type PutBody = { opId: string; baseRevision: number; document: unknown };
-
-function calculatorDocument(blue: number) {
-  return {
-    schemaVersion: 1,
-    items: [
-      {
-        type: "calculator-input",
-        version: 1,
-        input: { grade: "R", level: 0, exp: 0, stock: { blue, purple: 0, yellow: 0 } },
-      },
-    ],
-    lifetimeStages: [],
-  };
-}
-
-/** Same-origin mock of the personal-data contract (CAS, account context, consent, privacy). */
-class MockAccountApi {
-  userId: string | null = null;
-  revision = 0;
-  document: unknown = { schemaVersion: 1, items: [], lifetimeStages: [] };
-  quota = { bytes: 2_048, limitBytes: 1_500_000, newArchivingBlocked: false };
-  consent: { participation: boolean | null; decisionVersion: number } = {
-    participation: null,
-    decisionVersion: 0,
-  };
-  nextPutError: { status: number; error: string } | null = null;
-  failPuts = false;
-  /** Holds GET /v1/account (a slow account check) until the promise settles. */
-  holdAccount: Promise<void> | null = null;
-  readonly requests: Recorded[] = [];
-
-  async install(context: BrowserContext) {
-    await context.route(`${ORIGIN}/v1/**`, (route) => this.handle(route));
-    await context.route(`${ORIGIN}/auth/**`, (route) => this.handle(route));
-    await context.route("https://accounts.google.com/**", (route) =>
-      route.fulfill({ status: 200, contentType: "text/html", body: "<title>Google</title>" }),
-    );
-    await context.route("https://cdn.jsdelivr.net/**", (route) =>
-      route.fulfill({ status: 200, contentType: "text/css", body: "" }),
-    );
-  }
-
-  puts() {
-    return this.requests.filter(
-      (entry) => entry.method === "PUT" && entry.path === "/v1/workspace",
-    );
-  }
-
-  private async handle(route: Route) {
-    const request = route.request();
-    const path = new URL(request.url()).pathname;
-    const raw = request.postData();
-    const recorded: Recorded = {
-      method: request.method(),
-      path,
-      headers: await request.allHeaders(),
-      body: raw ? JSON.parse(raw) : null,
-    };
-    this.requests.push(recorded);
-    if (recorded.method === "GET" && path === "/v1/account" && this.holdAccount) {
-      await this.holdAccount;
-    }
-    const [status, json] = this.respond(recorded);
-    await route.fulfill({
-      status,
-      contentType: "application/json",
-      headers: { "Cache-Control": "no-store" },
-      body: JSON.stringify(json),
-    });
-  }
-
-  private respond({ method, path, headers, body }: Recorded): [number, unknown] {
-    const route = `${method} ${path}`;
-    if (route === "POST /auth/login/google") return [200, { authorizationUrl: GOOGLE_URL }];
-    if (route === "POST /auth/logout") {
-      this.userId = null;
-      return [200, { loggedOut: true }];
-    }
-    if (!this.userId) return [401, { error: "unauthenticated" }];
-    if (method !== "GET") {
-      const context = headers["if-account-match"];
-      if (context === undefined) return [428, { error: "account_context_required" }];
-      if (context !== `"${this.userId}"`) return [409, { error: "account_context_stale" }];
-    }
-    if (route === "GET /v1/account") {
-      return [
-        200,
-        {
-          authenticated: true,
-          account: { userId: this.userId, generation: 1 },
-          consent: this.consent,
-        },
-      ];
-    }
-    if (route === "GET /v1/workspace") {
-      return [
-        200,
-        { revision: this.revision, lastOpId: null, document: this.document, quota: this.quota },
-      ];
-    }
-    if (route === "PUT /v1/workspace") return this.put(body as PutBody);
-    if (route === "PUT /v1/consent") {
-      this.consent = {
-        participation: body?.["participation"] === true,
-        decisionVersion: this.consent.decisionVersion + 1,
-      };
-      return [200, this.consent];
-    }
-    if (route === "GET /v1/consent") return [200, this.consent];
-    if (route === "GET /v1/export") {
-      return [200, { schemaVersion: 1, exportedAt: 1, workspace: { revision: this.revision } }];
-    }
-    if (route === "DELETE /v1/account" || route === "POST /v1/sessions/revoke-all") {
-      this.userId = null;
-      return route.startsWith("DELETE")
-        ? [202, { operationId: "privacy-op", status: "complete", fenceGeneration: 3 }]
-        : [200, { revoked: true }];
-    }
-    return [404, { error: "not_found" }];
-  }
-
-  private put(body: PutBody): [number, unknown] {
-    if (this.failPuts) return [503, { error: "service_unavailable" }];
-    const injected = this.nextPutError;
-    if (injected) {
-      this.nextPutError = null;
-      return [injected.status, { error: injected.error }];
-    }
-    if (body.baseRevision !== this.revision) {
-      return [409, { status: "revision_conflict", revision: this.revision }];
-    }
-    this.revision += 1;
-    this.document = body.document;
-    return [200, { status: "saved", revision: this.revision, replayed: false }];
-  }
-}
-
-async function enableAccountFlag(target: Page | BrowserContext) {
-  await target.addInitScript(() => {
-    Object.assign(window, { COLLECTION_ACCOUNT_CONFIG: { enabled: true } });
-  });
-}
 
 async function openApp(page: Page) {
   await page.setViewportSize({ width: 1365, height: 900 });
@@ -181,38 +37,6 @@ const loginButton = (page: Page) => page.getByRole("button", { name: "Google 계
 async function setBeginnerKit(page: Page, value: string) {
   await beginnerKit(page).fill(value);
   await beginnerKit(page).press("Tab");
-}
-
-async function deviceStores(page: Page) {
-  return page.evaluate(async () => {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("collection-kit-account");
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    const all = (name: string) =>
-      new Promise<unknown[]>((resolve, reject) => {
-        const request = db.transaction(name).objectStore(name).getAll();
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-      });
-    const stores = {
-      guest: await all("guest-workspace"),
-      accounts: await all("account-workspaces"),
-      certified: await all("account-certified-sessions"),
-    };
-    db.close();
-    return stores;
-  });
-}
-
-function signedInApi(blue: number, revision = 1) {
-  const api = new MockAccountApi();
-  api.userId = "user-a";
-  api.consent = { participation: false, decisionVersion: 1 };
-  api.revision = revision;
-  api.document = calculatorDocument(blue);
-  return api;
 }
 
 test.beforeAll(async () => {
@@ -246,6 +70,13 @@ test("account UI and its chunk stay off without the staging flag", async ({ page
   await expect(page.locator("[data-account-trigger]")).toHaveCount(0);
   expect(api.requests).toEqual([]);
   expect(chunks).toEqual([]);
+  // No account code ran: no device database was opened and no tab lock was taken.
+  const traces = await page.evaluate(async () => ({
+    databases: (await indexedDB.databases()).map((entry) => entry.name),
+    locks: ((await navigator.locks.query()).held ?? []).map((lock) => lock.name),
+  }));
+  expect(traces.databases).not.toContain("collection-kit-account");
+  expect(traces.locks.filter((name) => name?.startsWith("collection-kit-account"))).toEqual([]);
 });
 
 test("guest sign-in, first-login consent, synced edits and logout keep data separate", async ({
@@ -311,6 +142,10 @@ test("guest sign-in, first-login consent, synced edits and logout keep data sepa
   expect(stores.guest).toHaveLength(1);
   expect(stores.accounts).toEqual([]);
   for (const entry of api.requests) expect(entry.headers["cookie"]).toContain("e2e_session=opaque");
+  const workspaceRead = api.requests.find(
+    (entry) => entry.method === "GET" && entry.path === "/v1/workspace",
+  );
+  expect(workspaceRead?.headers["if-account-match"]).toBe('"user-a"');
 });
 
 test("revision conflicts offer cancel, overwrite and keep-server choices", async ({
@@ -374,14 +209,18 @@ test("quota, archiving-blocked, stale and missing account context are explained"
   const alert = page.getByRole("alert").filter({ hasText: "현재 로그인된 계정과 다릅니다" });
   await expect(alert).toBeVisible();
   await expect(alert.getByRole("button", { name: "새로고침" })).toBeVisible();
-  await setBeginnerKit(page, "12");
+  // A stale tab is read-only: no edit can be made that would be stored nowhere.
+  await expect(beginnerKit(page)).toBeDisabled();
   await page.waitForTimeout(2_000);
   expect(api.puts()).toHaveLength(1);
 
-  await page.reload();
+  // After a reload the edit made before the tab went stale is recovered from the device and sent.
   api.nextPutError = { status: 428, error: "account_context_required" };
-  await setBeginnerKit(page, "13");
+  await page.reload();
   await expect(page.getByRole("alert").filter({ hasText: "계정 확인 정보가 없어" })).toBeVisible();
+  await expect(beginnerKit(page)).toHaveValue("11");
+  await expect(beginnerKit(page)).toBeDisabled();
+  expect(api.puts().at(-1)?.body).toMatchObject({ baseRevision: 1 });
 });
 
 test("export downloads JSON and deletion needs explicit confirmation", async ({
@@ -402,9 +241,12 @@ test("export downloads JSON and deletion needs explicit confirmation", async ({
   );
   expect(JSON.parse(await readFile(await download.path(), "utf8"))).toEqual({
     schemaVersion: 1,
+    account: { userId: "user-a" },
     exportedAt: 1,
-    workspace: { revision: 1 },
+    workspace: { userId: "user-a", revision: 1 },
   });
+  const exportRead = api.requests.find((entry) => entry.path === "/v1/export");
+  expect(exportRead?.headers["if-account-match"]).toBe('"user-a"');
 
   await panel.getByRole("button", { name: "계정 삭제…" }).click();
   const confirm = page.getByRole("dialog", { name: "계정을 영구 삭제할까요?" });
@@ -525,7 +367,7 @@ test("signing out with unsynced edits asks to keep (default) or delete them", as
     page.getByRole("status").filter({ hasText: "다음 로그인까지 이 기기에 보관됩니다" }),
   ).toBeVisible();
   const kept = (await deviceStores(page)).accounts;
-  expect(kept).toEqual([expect.objectContaining({ userId: "user-a", dirty: true })]);
+  expect(kept).toEqual([expect.objectContaining({ userId: "user-a", baseRevision: 1 })]);
 
   api.userId = "user-a";
   await openApp(page);
@@ -649,9 +491,8 @@ test("certified engine: the guest session keeps its key and the account session 
   expect(certifiedItems(api.document)[0]?.session.stock).toEqual([60, 0, 0]);
   // Account edits never reach the guest storage key.
   expect(await guestCertifiedBlue(page)).toBe(70);
-  expect((await deviceStores(page)).certified).toEqual([
-    expect.objectContaining({ userId: "user-a", dirty: false }),
-  ]);
+  // Synced: no device copy of the account session is kept.
+  expect((await deviceStores(page)).certified).toEqual([]);
 
   await accountTrigger(page).click();
   const panel = page.getByRole("dialog", { name: "계정", exact: true });
@@ -826,4 +667,138 @@ test("switching between account and guest data clears the reset undo on the prod
   await expect(loginButton(page)).toBeVisible();
   await expect(undo).toBeHidden();
   await expect(beginnerKit(page)).not.toHaveValue("10");
+});
+
+// ---- review fixes: bound reads, unavailable workspace, per-tab drafts ----
+
+const contextStaleAlert = (page: Page) =>
+  page.getByRole("alert").filter({ hasText: "현재 로그인된 계정과 다릅니다" });
+
+test("a session switched between the account and workspace reads shows nothing and locks both engines", async ({
+  page,
+  context,
+}) => {
+  const api = signedInApi(10);
+  api.switchAfterAccount = "user-b";
+  await blockExternalRequests(context);
+  await api.install(context);
+  await enableAccountFlag(page);
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto(`${ORIGIN}/`);
+  await expect(contextStaleAlert(page)).toBeVisible();
+  await expect(beginnerKit(page)).toBeDisabled();
+  await expect(beginnerKit(page)).not.toHaveValue("10");
+  const read = api.requests.find(
+    (entry) => entry.method === "GET" && entry.path === "/v1/workspace",
+  );
+  expect(read?.headers["if-account-match"]).toBe('"user-a"');
+  expect((await deviceStores(page)).accounts).toEqual([]);
+
+  api.userId = "user-a";
+  api.switchAfterAccount = "user-b";
+  await page.goto(`${ORIGIN}${CERTIFIED_PATH}`);
+  await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toBeVisible();
+  await expect(contextStaleAlert(page)).toBeVisible();
+  await expect(certifiedBlue(page)).toBeDisabled();
+  await expect(page.locator("#calculateButton")).toBeDisabled();
+});
+
+test("a workspace that cannot load shows guest data as 'account not loaded' and retries", async ({
+  page,
+  context,
+}) => {
+  const api = signedInApi(10);
+  api.failWorkspaceReads = 1;
+  await api.install(context);
+  await enableAccountFlag(page);
+  await openApp(page);
+  const retry = page.getByRole("button", {
+    name: "계정 데이터를 불러오지 못했습니다. 다시 시도",
+  });
+  await expect(retry).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: "계정 데이터를 불러오지 못해" }),
+  ).toBeVisible();
+  await expect(beginnerKit(page)).toBeEnabled();
+  await expect(beginnerKit(page)).not.toHaveValue("10");
+  await setBeginnerKit(page, "44");
+  await retry.click();
+  await expect(accountTrigger(page)).toHaveAccessibleName("계정 · 동기화됨");
+  await expect(beginnerKit(page)).toHaveValue("10");
+  expect(api.puts()).toEqual([]);
+  // The edit made while the account was not loaded stayed guest data.
+  await accountTrigger(page).click();
+  await page
+    .getByRole("dialog", { name: "계정", exact: true })
+    .getByRole("button", { name: "로그아웃", exact: true })
+    .click();
+  await expect(beginnerKit(page)).toHaveValue("44");
+});
+
+type StoredDraft = {
+  userId: string;
+  document: { items: Array<{ input: { stock: { blue: number } } }> };
+};
+
+async function draftBlues(page: Page) {
+  const drafts = (await deviceStores(page)).accounts as StoredDraft[];
+  return drafts.map((draft) => draft.document.items[0]?.input.stock.blue).sort();
+}
+
+test("divergent unsynced edits in two tabs survive a reload", async ({ context }) => {
+  const api = signedInApi(10);
+  api.failPuts = true;
+  await api.install(context);
+  await enableAccountFlag(context);
+  const first = await context.newPage();
+  const second = await context.newPage();
+  await openApp(first);
+  await openApp(second);
+  await setBeginnerKit(first, "11");
+  await setBeginnerKit(second, "22");
+  await expect(accountTrigger(first)).toHaveAccessibleName(/^계정 · 연결 대기 중/);
+  await expect(accountTrigger(second)).toHaveAccessibleName(/^계정 · 연결 대기 중/);
+  await expect.poll(() => draftBlues(first)).toEqual([11, 22]);
+
+  await first.reload();
+  await expect(beginnerKit(first)).toHaveValue("11");
+  await expect(beginnerKit(second)).toHaveValue("22");
+  await expect.poll(() => draftBlues(first)).toEqual([11, 22]);
+});
+
+test("unsynced copies from the previous device store version are recovered", async ({
+  page,
+  context,
+}) => {
+  const api = signedInApi(10);
+  api.failPuts = true;
+  await api.install(context);
+  await openApp(page);
+  await page.evaluate(async (document) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("collection-kit-account", 2);
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore("guest-workspace");
+        request.result.createObjectStore("account-workspaces", { keyPath: "userId" });
+        request.result.createObjectStore("account-certified-sessions", { keyPath: "userId" });
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction("account-workspaces", "readwrite");
+      const store = transaction.objectStore("account-workspaces");
+      store.put({ userId: "user-a", baseRevision: 1, document, dirty: true, updatedAt: 1 });
+      store.put({ userId: "user-b", baseRevision: 1, document, dirty: false, updatedAt: 1 });
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    db.close();
+  }, calculatorDocument(19));
+  await enableAccountFlag(page);
+  await openApp(page);
+  await expect(beginnerKit(page)).toHaveValue("19");
+  await expect
+    .poll(async () => (await deviceStores(page)).accounts)
+    .toEqual([expect.objectContaining({ userId: "user-a", baseRevision: 1 })]);
 });
