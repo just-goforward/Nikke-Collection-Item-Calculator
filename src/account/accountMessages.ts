@@ -2,6 +2,27 @@ import type { AppLocale } from "../i18n/locale";
 
 /** Account-module strings, kept in the lazy account chunk instead of the shared catalogs. */
 const ko = {
+  guestImportTitle: "이 계정에는 아직 저장된 입력이 없습니다",
+  guestImportDetail:
+    "이 기기의 게스트 입력을 이 계정으로 복사할 수 있습니다. 복사해도 게스트 데이터는 그대로 남습니다.",
+  guestImportSummary: "게스트 입력",
+  guestImportCopy: "내 게스트 입력을 이 계정으로 복사",
+  guestImportLater: "나중에",
+  signOutTitle: "저장되지 않은 변경 사항이 있습니다",
+  signOutDetail:
+    "이 계정의 일부 변경 사항이 아직 서버에 저장되지 않았습니다. 이 기기에서 어떻게 할지 선택하세요.",
+  signOutLegend: "저장되지 않은 변경 사항",
+  signOutKeep: "다음 로그인까지 이 기기에 보관 (기본)",
+  signOutDelete: "이 기기에서 삭제",
+  "notice.guest_imported": "게스트 입력을 이 계정으로 복사했습니다.",
+  "notice.logged_out_kept":
+    "로그아웃했습니다. 저장되지 않은 변경 사항은 다음 로그인까지 이 기기에 보관됩니다.",
+  "notice.logged_out_discarded":
+    "로그아웃했습니다. 저장되지 않은 변경 사항을 이 기기에서 삭제했습니다.",
+  "notice.google_issuer_unsupported":
+    "이 Google 로그인 응답은 아직 지원되지 않습니다. 잠시 후 다시 시도하세요. 게스트로 모든 기능을 계속 사용할 수 있습니다.",
+  "notice.login_flow_expired": "로그인 시간이 만료되었습니다. 다시 로그인하세요.",
+  "notice.login_error_unknown": "로그인을 완료하지 못했습니다. 다시 시도하세요.",
   login: "로그인",
   loginLabel: "Google 계정으로 로그인",
   loginBusy: "Google 로그인으로 이동 중…",
@@ -106,6 +127,26 @@ const ko = {
 export type AccountMessageKey = keyof typeof ko;
 
 const en: Record<AccountMessageKey, string> = {
+  guestImportTitle: "This account has no saved inputs yet",
+  guestImportDetail:
+    "You can copy this device's guest inputs into this account. Your guest data stays as it is.",
+  guestImportSummary: "Guest inputs",
+  guestImportCopy: "Copy my guest inputs into this account",
+  guestImportLater: "Not now",
+  signOutTitle: "You have unsynced changes",
+  signOutDetail:
+    "Some changes to this account have not been saved to the server yet. Choose what happens to them on this device.",
+  signOutLegend: "Unsynced changes",
+  signOutKeep: "Keep on this device until next sign-in (default)",
+  signOutDelete: "Delete from this device",
+  "notice.guest_imported": "Copied your guest inputs into this account.",
+  "notice.logged_out_kept":
+    "Signed out. Unsynced changes stay on this device until your next sign-in.",
+  "notice.logged_out_discarded": "Signed out. Unsynced changes were deleted from this device.",
+  "notice.google_issuer_unsupported":
+    "This Google sign-in response is not supported yet. Try again later; every feature keeps working as a guest.",
+  "notice.login_flow_expired": "The sign-in expired. Please sign in again.",
+  "notice.login_error_unknown": "Sign-in could not be completed. Please try again.",
   login: "Sign in",
   loginLabel: "Sign in with Google",
   loginBusy: "Opening Google sign-in…",
@@ -210,6 +251,26 @@ const en: Record<AccountMessageKey, string> = {
 };
 
 const ja: Record<AccountMessageKey, string> = {
+  guestImportTitle: "このアカウントにはまだ保存された入力がありません",
+  guestImportDetail:
+    "この端末のゲスト入力をこのアカウントにコピーできます。コピーしてもゲストデータはそのまま残ります。",
+  guestImportSummary: "ゲスト入力",
+  guestImportCopy: "ゲスト入力をこのアカウントにコピー",
+  guestImportLater: "後で",
+  signOutTitle: "未同期の変更があります",
+  signOutDetail:
+    "このアカウントの一部の変更はまだサーバーに保存されていません。この端末での扱いを選んでください。",
+  signOutLegend: "未同期の変更",
+  signOutKeep: "次回ログインまでこの端末に保持（既定）",
+  signOutDelete: "この端末から削除",
+  "notice.guest_imported": "ゲスト入力をこのアカウントにコピーしました。",
+  "notice.logged_out_kept":
+    "ログアウトしました。未同期の変更は次回ログインまでこの端末に保持されます。",
+  "notice.logged_out_discarded": "ログアウトしました。未同期の変更をこの端末から削除しました。",
+  "notice.google_issuer_unsupported":
+    "このGoogleログインの応答にはまだ対応していません。しばらくしてから再試行してください。ゲストとしてすべての機能を引き続き使えます。",
+  "notice.login_flow_expired": "ログインの有効期限が切れました。もう一度ログインしてください。",
+  "notice.login_error_unknown": "ログインを完了できませんでした。もう一度お試しください。",
   login: "ログイン",
   loginLabel: "Googleアカウントでログイン",
   loginBusy: "Googleのログインに移動中…",

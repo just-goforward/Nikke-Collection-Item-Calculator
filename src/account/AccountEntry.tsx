@@ -4,6 +4,8 @@ import {
   accountClasses,
   ConflictDialog,
   ConsentDialog,
+  InputSummary,
+  SignOutDialog,
   useAccountText,
 } from "./AccountDialogs";
 import { AccountController } from "./accountController";
@@ -16,6 +18,7 @@ import type {
 } from "./accountState";
 import { createAccountApi } from "./api";
 import { createCrossTabChannel } from "./crossTab";
+import { takeAccountError } from "./loginError";
 import type { CalculatorInput } from "./workspaceDocument";
 import { openWorkspaceStore } from "./workspaceStore";
 
@@ -44,6 +47,8 @@ const entryClasses = {
   dot: "inline-block size-2 shrink-0 rounded-full",
   notice:
     "fixed bottom-5 left-5 z-40 flex max-w-[min(380px,calc(100%-40px))] items-start gap-3 rounded-card border border-border bg-surface px-4 py-3 text-[12.5px] font-semibold leading-[1.5] text-text shadow-panel empty:border-0 empty:p-0 empty:shadow-none max-mobile:bottom-[calc(var(--mobile-bottom-height,0px)+12px)] max-mobile:left-2.5",
+  offer:
+    "fixed right-5 bottom-5 z-40 grid w-[min(380px,calc(100%-40px))] gap-2 rounded-card border border-primary bg-surface p-4 shadow-panel max-mobile:inset-x-2.5 max-mobile:bottom-[calc(var(--mobile-bottom-height,0px)+12px)] max-mobile:w-auto",
   stale:
     "fixed inset-x-3 top-3 z-50 mx-auto flex max-w-[640px] flex-wrap items-center gap-3 rounded-card border border-warning bg-warning-soft px-4 py-3 text-[13px] font-semibold leading-[1.5] text-warning shadow-panel",
 } as const;
@@ -107,6 +112,11 @@ function useAccountController({ input, inputLocked, onApplyInput }: AccountEntry
   );
   useEffect(() => {
     void controller.start();
+    const loginError = takeAccountError(window.location.href);
+    if (loginError) {
+      window.history.replaceState(window.history.state, "", loginError.url);
+      void controller.showNotice(loginError.notice);
+    }
     return () => controller.dispose();
   }, [controller]);
   useEffect(() => {
@@ -185,6 +195,35 @@ function AccountTrigger({
   );
 }
 
+function GuestImportCard({
+  input,
+  onCopy,
+  onLater,
+}: {
+  input: CalculatorInput;
+  onCopy: () => void;
+  onLater: () => void;
+}) {
+  const text = useAccountText();
+  return (
+    <section className={entryClasses.offer} aria-labelledby="account-guest-import-title">
+      <h2 id="account-guest-import-title" className={accountClasses.heading}>
+        {text("guestImportTitle")}
+      </h2>
+      <p className={accountClasses.text}>{text("guestImportDetail")}</p>
+      <InputSummary input={input} title={text("guestImportSummary")} />
+      <div className={accountClasses.row}>
+        <button className={accountClasses.primary} type="button" onClick={onCopy}>
+          {text("guestImportCopy")}
+        </button>
+        <button className={accountClasses.button} type="button" onClick={onLater}>
+          {text("guestImportLater")}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function StaleAlert({ reason }: { reason: StaleReason }) {
   const text = useAccountText();
   return (
@@ -259,6 +298,18 @@ export default function AccountEntry(props: AccountEntryProps) {
             conflict={signedIn.conflict}
             onChoose={(choice) => void controller.resolveConflict(choice)}
           />
+          <SignOutDialog
+            kind={signedIn.signOutChoice}
+            onCancel={() => controller.cancelSignOut()}
+            onConfirm={(keepUnsynced) => void controller.confirmSignOut(keepUnsynced)}
+          />
+          {signedIn.guestImport ? (
+            <GuestImportCard
+              input={signedIn.guestImport}
+              onCopy={() => void controller.copyGuestInputs()}
+              onLater={() => controller.dismissGuestImport()}
+            />
+          ) : null}
         </>
       ) : null}
       {view.phase === "stale" ? <StaleAlert reason={view.reason} /> : null}

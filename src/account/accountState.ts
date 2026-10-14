@@ -26,6 +26,12 @@ export type AccountNotice =
   | "archive_quota_reached"
   | "storage_unavailable"
   | "updated_elsewhere"
+  | "guest_imported"
+  | "logged_out_kept"
+  | "logged_out_discarded"
+  | "google_issuer_unsupported"
+  | "login_flow_expired"
+  | "login_error_unknown"
   | "unexpected";
 
 export type StaleReason =
@@ -61,6 +67,10 @@ export type SignedInView = {
   quota: WorkspaceGet["quota"] | null;
   archivingBlocked: boolean;
   conflict: WorkspaceConflict | null;
+  /** Guest inputs offered for an explicit copy while the account has no inputs of its own. */
+  guestImport: CalculatorInput | null;
+  /** Sign-out waiting for the user's choice about unsynced edits on this device. */
+  signOutChoice: "logout" | "revoke" | null;
   busy: AccountBusy;
 };
 

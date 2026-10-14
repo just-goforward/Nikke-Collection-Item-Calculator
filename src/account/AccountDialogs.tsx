@@ -21,7 +21,7 @@ export const accountClasses = {
   button:
     "inline-flex min-h-9 items-center justify-center rounded-control border border-border bg-button px-3.5 text-[12.5px] font-bold text-text-soft hover:border-grade-active hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active disabled:cursor-not-allowed disabled:opacity-60",
   primary:
-    "inline-flex min-h-9 items-center justify-center rounded-control border border-primary bg-primary px-3.5 text-[12.5px] font-bold text-ice hover:bg-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active disabled:cursor-not-allowed disabled:opacity-60",
+    "inline-flex min-h-9 items-center justify-center rounded-control border border-action bg-action px-3.5 text-[12.5px] font-bold text-ice enabled:hover:brightness-[1.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-grade-active disabled:cursor-not-allowed disabled:opacity-60",
   danger:
     "inline-flex min-h-9 items-center justify-center rounded-control border border-danger bg-danger-soft px-3.5 text-[12.5px] font-bold text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:cursor-not-allowed disabled:opacity-60",
   warning:
@@ -106,6 +106,15 @@ function SyncSection({
         {text(`sync.${view.sync}`)} · {text("syncRevision", { revision: view.revision })}
       </p>
       <div className={accountClasses.row}>
+        {view.guestImport ? (
+          <button
+            className={accountClasses.primary}
+            type="button"
+            onClick={() => void controller.copyGuestInputs()}
+          >
+            {text("guestImportCopy")}
+          </button>
+        ) : null}
         {view.sync === "paused" ? (
           <button
             className={accountClasses.primary}
@@ -461,7 +470,7 @@ export function ConsentDialog({
   );
 }
 
-function InputSummary({ input, title }: { input: CalculatorInput | null; title: string }) {
+export function InputSummary({ input, title }: { input: CalculatorInput | null; title: string }) {
   const text = useAccountText();
   const { formatInteger, t } = useI18n();
   return (
@@ -549,6 +558,72 @@ export function ConflictDialog({
           </div>
         </>
       ) : null}
+    </ModalDialog>
+  );
+}
+
+/** Sign-out with unsynced edits: keeping them on this device is preselected and focused. */
+export function SignOutDialog({
+  kind,
+  onCancel,
+  onConfirm,
+}: {
+  kind: "logout" | "revoke" | null;
+  onCancel: () => void;
+  onConfirm: (keepUnsynced: boolean) => void;
+}) {
+  const text = useAccountText();
+  const [keep, setKeep] = useState(true);
+  useEffect(() => {
+    if (kind) setKeep(true);
+  }, [kind]);
+  return (
+    <ModalDialog
+      open={kind !== null}
+      titleId="account-signout-title"
+      descriptionId="account-signout-detail"
+      onCancel={onCancel}
+    >
+      <h2 id="account-signout-title" className={accountClasses.title}>
+        {text("signOutTitle")}
+      </h2>
+      <p id="account-signout-detail" className={`${accountClasses.text} mt-2`}>
+        {text("signOutDetail")}
+      </p>
+      <fieldset className="m-0 mt-3 grid gap-1 border-0 p-0">
+        <legend className={accountClasses.heading}>{text("signOutLegend")}</legend>
+        <label className={accountClasses.choice}>
+          <input
+            type="radio"
+            name="account-signout"
+            data-initial-focus
+            checked={keep}
+            onChange={() => setKeep(true)}
+          />
+          {text("signOutKeep")}
+        </label>
+        <label className={accountClasses.choice}>
+          <input
+            type="radio"
+            name="account-signout"
+            checked={!keep}
+            onChange={() => setKeep(false)}
+          />
+          {text("signOutDelete")}
+        </label>
+      </fieldset>
+      <div className={`${accountClasses.row} mt-4 justify-end`}>
+        <button className={accountClasses.button} type="button" onClick={onCancel}>
+          {text("cancel")}
+        </button>
+        <button
+          className={keep ? accountClasses.primary : accountClasses.danger}
+          type="button"
+          onClick={() => onConfirm(keep)}
+        >
+          {text(kind === "revoke" ? "revokeAll" : "logout")}
+        </button>
+      </div>
     </ModalDialog>
   );
 }

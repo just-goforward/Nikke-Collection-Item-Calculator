@@ -3,17 +3,16 @@ import type {
   WorkspaceDocument,
   WorkspacePutResult,
 } from "../../personal-data/src/contracts";
+import { AccountControllerBase, type PendingOp, type Session } from "./accountControllerBase";
 import {
   type AccountControllerDeps,
   type AccountNotice,
-  type AccountSnapshot,
   type AccountView,
   type ConflictChoice,
   exportFileName,
   isRetryable,
   noticeFor,
   type SignedInView,
-  type StaleReason,
   staleReasonFor,
 } from "./accountState";
 import { type ApiFailure, failureCode, isGoogleAuthorizationUrl, isHttpFailure } from "./api";
@@ -28,27 +27,6 @@ import {
 } from "./workspaceDocument";
 import type { WorkspaceStore } from "./workspaceStore";
 
-type PendingOp = {
-  opId: string;
-  key: string;
-  baseRevision: number;
-  document: WorkspaceDocument;
-};
-
-type Session = {
-  userId: string;
-  /** Latest known server document: source of foreign items and lifetime stages. */
-  serverDocument: WorkspaceDocument;
-  revision: number;
-  syncedKey: string;
-  local: CalculatorInput;
-  dirty: boolean;
-  pendingOp: PendingOp | null;
-  conflict: { revision: number; document: WorkspaceDocument } | null;
-  retryMs: number;
-  cancelTimer: (() => void) | null;
-};
-
 const MIN_RETRY_MS = 2_000;
 const MAX_RETRY_MS = 60_000;
 
@@ -57,36 +35,18 @@ function sameIdentity(a: AccountView, b: AccountView): boolean {
   return a.phase !== "signed-in" || (b.phase === "signed-in" && a.userId === b.userId);
 }
 
-export class AccountController {
-  private snapshot: AccountSnapshot = {
-    view: { phase: "loading" },
-    notice: null,
-    persistent: true,
-  };
-  private readonly listeners = new Set<() => void>();
-  private tail: Promise<void> = Promise.resolve();
-  private store: WorkspaceStore | null = null;
-  private session: Session | null = null;
+export class AccountController extends AccountControllerBase {
   private pendingConsent: { participation: boolean; base: number; opId: string } | null = null;
   private pendingDeleteOpId: string | null = null;
   private consentDismissed = false;
-  private disposed = false;
   private readonly unsubscribe: () => void;
 
-  constructor(private readonly deps: AccountControllerDeps) {
+  constructor(deps: AccountControllerDeps) {
+    super(deps);
     this.unsubscribe = deps.channel.subscribe((message) => {
       void this.enqueue(() => this.handleMessage(message));
     });
   }
-
-  readonly subscribe = (listener: () => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
-
-  readonly getSnapshot = () => this.snapshot;
 
   dispose() {
     this.disposed = true;
@@ -130,16 +90,24 @@ export class AccountController {
     if (this.session) this.cancelTimer(this.session);
     return this.enqueue(() => this.save());
   }
+  /** Explicit, never automatic: copies the stored guest inputs into an account without inputs. */
+  copyGuestInputs() {
+    return this.enqueue(() => this.importGuestInputs());
+  }
+  dismissGuestImport() {
+    if (this.session) this.session.guestOffer = null;
+    this.patchSignedIn({});
+  }
+  /** Completes a sign-out that found unsynced edits; keeping them is the default choice. */
+  confirmSignOut(keepUnsynced: boolean) {
+    return this.enqueue(() => this.finishSignOut(keepUnsynced));
+  }
+  cancelSignOut() {
+    this.patchSignedIn({ signOutChoice: null, busy: null });
+  }
   dismissConsentPrompt() {
     this.consentDismissed = true;
     this.patchSignedIn({ consentPrompt: false });
-  }
-  dismissNotice() {
-    this.emit({ ...this.snapshot, notice: null });
-  }
-  /** Resolves after every operation queued so far has finished. */
-  whenIdle() {
-    return this.enqueue(async () => undefined);
   }
 
   /** Called with the calculator's current input after every change. */
@@ -160,106 +128,6 @@ export class AccountController {
     }
     this.patchSignedIn({ sync: "pending" });
     this.scheduleSave(session, this.deps.saveDelayMs);
-  }
-
-  // ---- state plumbing ----
-
-  private emit(next: AccountSnapshot) {
-    this.snapshot = next;
-    for (const listener of this.listeners) listener();
-  }
-
-  private setView(view: AccountView) {
-    this.emit({ ...this.snapshot, view });
-  }
-
-  private notify(notice: AccountNotice) {
-    this.emit({ ...this.snapshot, notice });
-  }
-
-  private signedIn(): SignedInView | null {
-    const view = this.snapshot.view;
-    return view.phase === "signed-in" ? view : null;
-  }
-
-  private patchSignedIn(patch: Partial<Omit<SignedInView, "phase" | "userId">>) {
-    const view = this.signedIn();
-    if (view) this.setView({ ...view, ...patch });
-  }
-
-  private enqueue(task: () => Promise<void>): Promise<void> {
-    const run = this.tail.then(async () => {
-      if (!this.disposed) await task();
-    });
-    this.tail = run.catch((error: unknown) => {
-      console.error("Account operation failed.", error);
-      this.notify("unexpected");
-    });
-    return this.tail;
-  }
-
-  private async ensureStore(): Promise<WorkspaceStore> {
-    if (this.store) return this.store;
-    const opened = await this.deps.openStore();
-    this.store = opened.store;
-    if (!opened.persistent) {
-      this.emit({ ...this.snapshot, persistent: false, notice: "storage_unavailable" });
-    }
-    return opened.store;
-  }
-
-  /** Device storage refusals degrade to tab-only data with a visible notice; nothing else is hidden. */
-  private async storage<T>(action: (store: WorkspaceStore) => Promise<T>, fallback: T): Promise<T> {
-    const store = await this.ensureStore();
-    try {
-      return await action(store);
-    } catch (error) {
-      if (!(error instanceof DOMException)) throw error;
-      this.emit({ ...this.snapshot, persistent: false, notice: "storage_unavailable" });
-      return fallback;
-    }
-  }
-
-  private cancelTimer(session: Session) {
-    session.cancelTimer?.();
-    session.cancelTimer = null;
-  }
-
-  private scheduleSave(session: Session, delayMs: number) {
-    this.cancelTimer(session);
-    session.cancelTimer = this.deps.schedule(() => {
-      session.cancelTimer = null;
-      void this.enqueue(() => this.save());
-    }, delayMs);
-  }
-
-  private applyInput(session: Session, input: CalculatorInput) {
-    session.local = input;
-    this.deps.calculator.apply(input);
-  }
-
-  private async persistAccount(session: Session) {
-    if (this.session !== session) return;
-    const document = session.dirty
-      ? writeCalculatorInput(session.serverDocument, session.local)
-      : session.serverDocument;
-    await this.storage(
-      (store) =>
-        store.writeAccount({
-          userId: session.userId,
-          baseRevision: session.revision,
-          document,
-          dirty: session.dirty,
-          updatedAt: this.deps.now(),
-        }),
-      undefined,
-    );
-  }
-
-  private markStale(reason: StaleReason) {
-    if (this.session) this.cancelTimer(this.session);
-    this.session = null;
-    this.setView({ phase: "stale", reason });
   }
 
   // ---- boot, guest and account entry ----
@@ -308,6 +176,11 @@ export class AccountController {
       return;
     }
     const serverInput = readCalculatorInput(workspace.value.document);
+    const guestInput = guest ? readCalculatorInput(guest.document) : null;
+    const offerGuest =
+      serverInput === null &&
+      guestInput !== null &&
+      calculatorInputKey(guestInput) !== calculatorInputKey(DEFAULT_CALCULATOR_INPUT);
     const session: Session = {
       userId,
       serverDocument: workspace.value.document,
@@ -317,22 +190,19 @@ export class AccountController {
       dirty: false,
       pendingOp: null,
       conflict: null,
+      guestOffer: offerGuest ? guestInput : null,
       retryMs: 0,
       cancelTimer: null,
     };
     this.session = session;
-    this.setView({
-      phase: "signed-in",
-      userId,
-      consent,
-      consentPrompt: consent.participation === null && !this.consentDismissed,
-      sync: "synced",
-      revision: session.revision,
-      quota: workspace.value.quota,
-      archivingBlocked: workspace.value.quota.newArchivingBlocked,
-      conflict: null,
-      busy: null,
-    });
+    this.setView(
+      this.signedInView(userId, consent, {
+        consentPrompt: consent.participation === null && !this.consentDismissed,
+        revision: session.revision,
+        quota: workspace.value.quota,
+        archivingBlocked: workspace.value.quota.newArchivingBlocked,
+      }),
+    );
     this.deps.channel.post({ type: "account", userId });
     await this.reconcile(session, serverInput, local);
   }
@@ -343,19 +213,43 @@ export class AccountController {
       return;
     }
     // Signed in, but without a server base revision nothing may be saved; recheck retries entry.
-    this.setView({
+    this.setView(this.signedInView(userId, consent, { sync: "error" }));
+    this.notify(noticeFor(failure));
+  }
+
+  private signedInView(
+    userId: string,
+    consent: ConsentGet,
+    fields: Partial<Omit<SignedInView, "phase" | "userId" | "consent">>,
+  ): SignedInView {
+    return {
       phase: "signed-in",
       userId,
       consent,
       consentPrompt: false,
-      sync: "error",
+      sync: "synced",
       revision: 0,
       quota: null,
       archivingBlocked: false,
       conflict: null,
+      guestImport: this.guestImport(),
+      signOutChoice: null,
       busy: null,
-    });
-    this.notify(noticeFor(failure));
+      ...fields,
+    };
+  }
+
+  private async importGuestInputs() {
+    const session = this.session;
+    const offer = this.guestImport();
+    if (!session || !offer) return;
+    session.guestOffer = null;
+    this.applyInput(session, offer);
+    session.dirty = calculatorInputKey(offer) !== session.syncedKey;
+    await this.persistAccount(session);
+    this.patchSignedIn({ sync: "pending" });
+    this.notify("guest_imported");
+    await this.save();
   }
 
   /** Unsynced edits from an earlier visit survive, but never silently replace newer server data. */
@@ -383,7 +277,7 @@ export class AccountController {
 
   // ---- workspace sync ----
 
-  private async save() {
+  protected async save() {
     const session = this.session;
     const view = this.signedIn();
     if (!session || !view || !session.dirty || view.sync === "conflict" || view.sync === "paused") {
@@ -676,6 +570,25 @@ export class AccountController {
       await this.save();
       if (this.signedIn()?.userId !== view.userId) return;
     }
+    if (this.session?.dirty) {
+      this.patchSignedIn({ busy: null, signOutChoice: kind });
+      return;
+    }
+    await this.signOut(kind, null);
+  }
+
+  private async finishSignOut(keepUnsynced: boolean) {
+    const kind = this.signedIn()?.signOutChoice;
+    if (!kind) return;
+    this.patchSignedIn({ signOutChoice: null, busy: kind });
+    await this.signOut(kind, keepUnsynced);
+  }
+
+  /** `keepUnsynced` is null when no choice was needed; a retry may also have synced meanwhile. */
+  private async signOut(kind: "logout" | "revoke", keepUnsynced: boolean | null) {
+    const view = this.signedIn();
+    if (!view) return;
+    const choice = this.session?.dirty ? keepUnsynced : null;
     const result =
       kind === "logout"
         ? await this.deps.api.logout()
@@ -690,7 +603,9 @@ export class AccountController {
       this.notify(noticeFor(result.failure));
       return;
     }
-    await this.leave(kind === "logout" ? "logged_out" : "revoked", "logged-out", false);
+    const plain = kind === "logout" ? "logged_out" : "revoked";
+    const notice = choice === null ? plain : choice ? "logged_out_kept" : "logged_out_discarded";
+    await this.leave(notice, "logged-out", choice === false);
   }
 
   private async removeAccount() {

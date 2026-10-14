@@ -44,6 +44,7 @@ class MockAccountApi {
     decisionVersion: 0,
   };
   nextPutError: { status: number; error: string } | null = null;
+  failPuts = false;
   readonly requests: Recorded[] = [];
 
   async install(context: BrowserContext) {
@@ -134,6 +135,7 @@ class MockAccountApi {
   }
 
   private put(body: PutBody): [number, unknown] {
+    if (this.failPuts) return [503, { error: "service_unavailable" }];
     const injected = this.nextPutError;
     if (injected) {
       this.nextPutError = null;
@@ -158,6 +160,13 @@ async function openApp(page: Page) {
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.goto(`${ORIGIN}/`);
   await expect(page.getByRole("button", { name: "0단계", exact: true })).toBeVisible();
+}
+
+async function axeViolations(page: Page) {
+  const result = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+    .analyze();
+  return result.violations;
 }
 
 const beginnerKit = (page: Page) => page.getByLabel("초심자용 키트");
@@ -439,4 +448,106 @@ test("tabs follow each other's saves and sign-out", async ({ context }) => {
     second.getByRole("status").filter({ hasText: "다른 탭이나 기기에서 로그아웃" }),
   ).toBeVisible();
   await expect(beginnerKit(second)).not.toHaveValue("12");
+});
+
+test("an empty account offers an explicit copy of the guest inputs", async ({ page, context }) => {
+  const api = new MockAccountApi();
+  api.consent = { participation: false, decisionVersion: 1 };
+  await api.install(context);
+  await enableAccountFlag(page);
+  await openApp(page);
+  await setBeginnerKit(page, "73");
+  await loginButton(page).click();
+  await page.waitForURL(/^https:\/\/accounts\.google\.com\//);
+  api.userId = "user-a";
+  await openApp(page);
+
+  const offer = page.getByRole("region", { name: "이 계정에는 아직 저장된 입력이 없습니다" });
+  await expect(offer.getByRole("region", { name: "게스트 입력" })).toContainText("73");
+  await expect(beginnerKit(page)).not.toHaveValue("73");
+  expect(await axeViolations(page)).toEqual([]);
+  await page.waitForTimeout(2_000);
+  expect(api.puts()).toEqual([]);
+
+  await offer.getByRole("button", { name: "내 게스트 입력을 이 계정으로 복사" }).click();
+  await expect(offer).toBeHidden();
+  await expect(beginnerKit(page)).toHaveValue("73");
+  await expect.poll(() => api.puts().length).toBe(1);
+  expect(api.document).toEqual(calculatorDocument(73));
+  await expect(
+    page.getByRole("status").filter({ hasText: "게스트 입력을 이 계정으로 복사했습니다." }),
+  ).toBeVisible();
+  expect((await deviceStores(page)).guest).toHaveLength(1);
+});
+
+test("signing out with unsynced edits asks to keep (default) or delete them", async ({
+  page,
+  context,
+}) => {
+  const api = signedInApi(10);
+  api.failPuts = true;
+  await api.install(context);
+  await enableAccountFlag(page);
+  await openApp(page);
+  await expect(beginnerKit(page)).toHaveValue("10");
+  await setBeginnerKit(page, "19");
+  await expect(accountTrigger(page)).toHaveAccessibleName(/^계정 · 연결 대기 중/);
+
+  const signOut = async (keep: boolean) => {
+    await accountTrigger(page).click();
+    await page
+      .getByRole("dialog", { name: "계정", exact: true })
+      .getByRole("button", { name: "로그아웃", exact: true })
+      .click();
+    const choice = page.getByRole("dialog", { name: "저장되지 않은 변경 사항이 있습니다" });
+    const keepOption = choice.getByLabel("다음 로그인까지 이 기기에 보관 (기본)");
+    await expect(keepOption).toBeChecked();
+    await expect(keepOption).toBeFocused();
+    if (keep) expect(await axeViolations(page)).toEqual([]);
+    else await choice.getByLabel("이 기기에서 삭제").check();
+    await choice.getByRole("button", { name: "로그아웃", exact: true }).click();
+    await expect(loginButton(page)).toBeVisible();
+  };
+
+  await signOut(true);
+  await expect(
+    page.getByRole("status").filter({ hasText: "다음 로그인까지 이 기기에 보관됩니다" }),
+  ).toBeVisible();
+  const kept = (await deviceStores(page)).accounts;
+  expect(kept).toEqual([expect.objectContaining({ userId: "user-a", dirty: true })]);
+
+  api.userId = "user-a";
+  await openApp(page);
+  await expect(beginnerKit(page)).toHaveValue("19");
+  await signOut(false);
+  await expect(
+    page.getByRole("status").filter({ hasText: "이 기기에서 삭제했습니다" }),
+  ).toBeVisible();
+  expect((await deviceStores(page)).accounts).toEqual([]);
+});
+
+test("?account_error=<code> shows the localized message and is removed from the URL", async ({
+  page,
+  context,
+}) => {
+  const api = new MockAccountApi();
+  await api.install(context);
+  await enableAccountFlag(page);
+  await page.goto(`${ORIGIN}/?account_error=admission_full&keep=1`);
+  await expect(
+    page.getByRole("status").filter({ hasText: "베타 정원이 가득 찼습니다." }),
+  ).toBeVisible();
+  await expect.poll(() => page.url()).toBe(`${ORIGIN}/?keep=1`);
+  await expect(loginButton(page)).toBeVisible();
+
+  await page.goto(`${ORIGIN}/en/?account_error=login_flow_expired`);
+  await expect(
+    page.getByRole("status").filter({ hasText: "The sign-in expired. Please sign in again." }),
+  ).toBeVisible();
+  await expect.poll(() => page.url()).toBe(`${ORIGIN}/en/`);
+
+  await page.goto(`${ORIGIN}/ja/?account_error=something_new`);
+  await expect(
+    page.getByRole("status").filter({ hasText: "ログインを完了できませんでした。" }),
+  ).toBeVisible();
 });
