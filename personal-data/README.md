@@ -32,8 +32,10 @@ approval to publish. Any future publication must **re-collect explicit consent
 bound to the reviewed publication policy version**; beta-era decisions never
 count as consent to that policy and must never be migrated into eligibility.
 Additional re-enable gates remain **R2-PD-02** (the week check must be part of
-atomic publisher admission), **R1-03**, **R1-05**, **R1-06**, and **N-PD-1**.
-Export may then include only ranks bound to the **currently published,
+atomic publisher admission), **R1-03**, **R1-04** (rank rows must not grow
+without bound or count toward user quota), **R1-05**, **R1-06**, **N-PD-1**, and
+**R2-PD-01** (enabled-path export). Export may then include only ranks bound to
+the **currently published,
 non-invalidated release**, respecting the current privacy fence; the retained
 enabled prototype's export is not approved for post-beta use.
 
