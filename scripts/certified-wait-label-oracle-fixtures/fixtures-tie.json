@@ -1,0 +1,199 @@
+{
+  "version": "certified-wait-label-fixtures-v1",
+  "source": {
+    "note": "Tie-path fixture. Common block copied verbatim from fixtures.json. State and stock found by the oracle tie census (all 600 grid states, unit stocks [0..4]^3, priceBasisStock = stock): blue and purple are exactly tied on P, B and C at the root. optimalKits is the oracle root tie set, pinned here and rechecked by the oracle spec."
+  },
+  "common": {
+    "currentDay": "2026-10-13",
+    "receivedEventIds": ["dispatch:2026-10-13", "shop:2026-10-13"],
+    "cohortWeights": [
+      {
+        "numerator": "1",
+        "denominator": "7"
+      },
+      {
+        "numerator": "2",
+        "denominator": "7"
+      },
+      {
+        "numerator": "3",
+        "denominator": "7"
+      },
+      {
+        "numerator": "1",
+        "denominator": "7"
+      }
+    ],
+    "batchLimit": 10,
+    "theta": {
+      "numerator": "1",
+      "denominator": "1"
+    },
+    "horizonDays": 7,
+    "pricing": {
+      "version": "certified-daily-v2",
+      "cadence": {
+        "numerator": 1197,
+        "denominator": 39
+      },
+      "rules": [
+        {
+          "dispatch": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "normalShop": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 5
+            }
+          ],
+          "soloDays": [
+            [
+              {
+                "lawId": "regular-box-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "regular-box-v1",
+                "count": 4
+              },
+              {
+                "lawId": "box-ii-v1",
+                "count": 8
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ]
+          ]
+        }
+      ]
+    },
+    "schedule": [
+      {
+        "id": "dispatch:2026-10-14",
+        "day": 1,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "dispatch:2026-10-15",
+        "day": 2,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "dispatch:2026-10-16",
+        "day": 3,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "dispatch:2026-10-17",
+        "day": 4,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "dispatch:2026-10-18",
+        "day": 5,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "dispatch:2026-10-19",
+        "day": 6,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "dispatch:2026-10-20",
+        "day": 7,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "shop:2026-10-20",
+        "day": 7,
+        "refs": [
+          {
+            "lawId": "box-ii-v1",
+            "count": 5
+          }
+        ]
+      }
+    ]
+  },
+  "fixtures": [
+    {
+      "id": "TIE-R5",
+      "grade": "R",
+      "level": 5,
+      "exp": 0,
+      "stock": [10, 10, 30],
+      "priceBasisStock": [10, 10, 30],
+      "asOf": "2026-10-13T04:38:49.399Z",
+      "optimalKits": ["blue", "purple"]
+    }
+  ]
+}

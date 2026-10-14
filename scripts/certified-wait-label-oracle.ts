@@ -614,6 +614,20 @@ export function compensationUnits(theta: ExactQ, rates: QTriple): Triple {
 export function certificateApplies(theta: ExactQ, rate: ExactQ, uses: number): boolean {
   return theta.n * rate.n >= 10n * BigInt(uses) * theta.d * rate.d;
 }
+/** One support unit u: waiting is optimal play from u; batch-now is the batch at
+ * the single joint point u + m (every compensation component added at once).
+ * probability: the contract (strictly greater P); lex: informational P/B/C. */
+export function classifyWait(
+  engine: WaitLabelEngine,
+  state: State,
+  u: Triple,
+  m: Triple,
+  batch: { kit: Color; uses: number },
+): { probability: boolean; lex: boolean } {
+  const wait = engine.value(state, u);
+  const now = engine.batch(state, plus(u, m), batch.kit, batch.uses);
+  return { probability: wait.P > now.P, lex: engine.compare(wait, now) > 0 };
+}
 export type DayResult = {
   day: number;
   supportUnitCount: number;
@@ -683,9 +697,7 @@ function computeExact(
       u.every((value, j) => value >= (x[j] ?? 0)),
       "support_below_stock",
     );
-    const wait = engine.value(state, u);
-    const now = engine.batch(state, plus(u, m), kit, uses);
-    const verdict = { probability: wait.P > now.P, lex: engine.compare(wait, now) > 0 };
+    const verdict = classifyWait(engine, state, u, m, recommendation);
     classified.set(unitKey(u), verdict);
     return verdict;
   };
@@ -736,9 +748,9 @@ type FixtureFile = {
   fixtures: (Pick<WaitLabelCase, "id" | "grade" | "level" | "exp" | "stock" | "priceBasisStock"> &
     Record<string, unknown>)[];
 };
-export function loadWaitLabelFixtures(): WaitLabelCase[] {
+export function loadWaitLabelFixtures(fixtureFile = "fixtures.json"): WaitLabelCase[] {
   const file = JSON.parse(
-    readFileSync(resolve(FIXTURE_DIRECTORY, "fixtures.json"), "utf8"),
+    readFileSync(resolve(FIXTURE_DIRECTORY, fixtureFile), "utf8"),
   ) as FixtureFile;
   return file.fixtures.map(({ id, grade, level, exp, stock, priceBasisStock }) => ({
     ...file.common,
@@ -754,14 +766,15 @@ export const sha256 = (bytes: string | Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
 export const expectedFile = (id: string) => resolve(FIXTURE_DIRECTORY, "expected", `${id}.json`);
 
-/** CLI: `node scripts/certified-wait-label-oracle.ts run|record <fixtureId> [deadlineMs]`.
- * `record` writes the pre-registered expectation; measurements go to stdout only. */
-function main([command, id, deadline]: string[]) {
+/** CLI: `node scripts/certified-wait-label-oracle.ts run|record <fixtureId> [deadlineMs]
+ * [fixtureFile]` (default fixtures.json). `record` writes the pre-registered
+ * expectation; measurements go to stdout only. */
+function main([command, id, deadline, fixtureFile = "fixtures.json"]: string[]) {
   assert.ok(
     command === "run" || command === "record",
-    "usage: run|record <fixtureId> [deadlineMs]",
+    "usage: run|record <fixtureId> [deadlineMs] [fixtureFile]",
   );
-  const fixture = loadWaitLabelFixtures().find((entry) => entry.id === id);
+  const fixture = loadWaitLabelFixtures(fixtureFile).find((entry) => entry.id === id);
   assert.ok(fixture, `unknown fixture ${id}`);
   const started = performance.now();
   const result = computeWaitLabel(fixture, {
@@ -773,7 +786,7 @@ function main([command, id, deadline]: string[]) {
     mkdirSync(resolve(FIXTURE_DIRECTORY, "expected"), { recursive: true });
     const document = {
       version: "certified-wait-label-oracle-v2",
-      fixtureFileSha256: sha256(readFileSync(resolve(FIXTURE_DIRECTORY, "fixtures.json"))),
+      fixtureFileSha256: sha256(readFileSync(resolve(FIXTURE_DIRECTORY, fixtureFile))),
       oracleSourceSha256: sha256(readFileSync(fileURLToPath(import.meta.url))),
       result,
     };

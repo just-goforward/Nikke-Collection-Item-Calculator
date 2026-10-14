@@ -13,6 +13,7 @@ import { expect, it } from "vitest";
 const ENTRY = "scripts/certified-wait-label-oracle.ts";
 const FORBIDDEN = [
   /^src\/certified\//,
+  /^src\/certifiedRuntime\//,
   /^shared\/certifiedRational\.ts$/,
   /^shared\/certifiedSupply/,
   /\.wasm$/i,

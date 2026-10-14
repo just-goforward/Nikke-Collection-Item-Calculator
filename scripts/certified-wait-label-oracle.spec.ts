@@ -5,8 +5,11 @@ import { describe, expect, it } from "vitest";
 import { assertProperty } from "../shared/propertyHarness.ts";
 import {
   add,
+  canonicalState,
   compareValue,
   createOracleEvaluator,
+  independentFailure,
+  independentSuccess,
   type QTriple,
   q,
   type Triple,
@@ -50,6 +53,8 @@ const PINS: Record<string, string> = {
   "expected/SR5.json": "d654768a0ba3b5cdd75597698326b825abc6c1d32094ea6ae8dd9b02160bd046",
   "expected/SR10.json": "08708b38cb43d0f311fd22d52fd3dd6817c042b636541fb640b9743435223c38",
   "expected/SR13.json": "ed3404ed3a4982d2449f8ce16427f88605d27e0cf4ed04d664d008fcf8d76326",
+  "fixtures-tie.json": "fb09cfc419912a5e36ce16d21be15b44472771655809f175696845ce323d29bf",
+  "expected/TIE-R5.json": "c6d015947923184ea4226b03630326c9a58bae4869eca2205192c49c68de8d43",
 };
 /** Human-readable copy of the pre-registered results (kit, uses, label, per-day P crossing
  * counts). In all six fixtures the informational P/B/C crossing sets equal the P sets. */
@@ -302,20 +307,33 @@ describe("wait-label properties", () => {
     );
   }, 180_000);
 
+  /** Why the certificate theta*rate_k >= 10n (so m_k >= n) excludes a P crossing:
+   * (i) P*(s, .) is nondecreasing in the unit stock: extra units may stay unused.
+   * (ii) P*(., u) is nondecreasing along every transition: for each kit, both the
+   *      great-success and the normal successor s' of s satisfy P*(s', u) >= P*(s, u)
+   *      (a use never moves the game backwards).
+   * (iii) The batch at the joint point u + m spends at most n units of kit k, all
+   *      covered by m_k >= n, so every batch path ends in a state s' reached from s
+   *      by transitions, followed by optimal play from a stock r >= u (componentwise).
+   *      By (ii) iterated and (i), P*(s', r) >= P*(s', u) >= P*(s, u); the batch P is
+   *      a convex combination of such endpoint values, hence P_batch(s, u + m) >=
+   *      P*(s, u). Equality is possible (REG-WL-1), so ties never cross.
+   * The property below checks the conclusion together with lemmas (i) and (ii) on
+   * the sampled state and stock; stocks up to 6 units per kit give batches of up to
+   * 6 uses and support units up to 11 per kit. */
   it("certificate theta*rate_k >= 10n: waiting never has strictly higher P", async () => {
     const scenario = fc.record({
       state: stateArb,
-      stock: fc.tuple(fc.nat({ max: 3 }), fc.nat({ max: 3 }), fc.nat({ max: 3 })),
-      extra: fc.tuple(fc.nat({ max: 2 }), fc.nat({ max: 2 }), fc.nat({ max: 2 })),
-      surplus: fc.tuple(fc.nat({ max: 1 }), fc.nat({ max: 1 }), fc.nat({ max: 1 })),
+      stock: fc.tuple(fc.nat({ max: 6 }), fc.nat({ max: 6 }), fc.nat({ max: 6 })),
+      extra: fc.tuple(fc.nat({ max: 5 }), fc.nat({ max: 5 }), fc.nat({ max: 5 })),
+      surplus: fc.tuple(fc.nat({ max: 2 }), fc.nat({ max: 2 }), fc.nat({ max: 2 })),
       prices: fc.tuple(priceArb, priceArb, priceArb),
     });
     await assertProperty(
       fc.property(scenario, ({ state, stock, extra, surplus, prices }) => {
         const x: Triple = stock;
         const u = mapTriple(x, (value, j) => value + extra[j]);
-        const bound = u[0] + u[1] + u[2] + 10 + 3;
-        const engine = O.createWaitLabelEngine(prices, bound);
+        const engine = O.createWaitLabelEngine(prices, u[0] + u[1] + u[2] + 6 + 6 + 1);
         const batch = O.recommendBatch(engine, state, x, 10);
         if (!batch) return;
         // Compensation with m_k >= n (certificate holds) and arbitrary other kits.
@@ -326,12 +344,31 @@ describe("wait-label properties", () => {
           batch.kit,
           batch.uses,
         );
+        const wait = engine.value(state, u).P;
         // P-only contract: the certificate excludes a P crossing at every support unit.
-        expect(engine.value(state, u).P <= now.P).toBe(true);
+        expect(wait <= now.P).toBe(true);
+        for (const j of [0, 1, 2] as const) {
+          // Lemma (i).
+          expect(
+            wait <=
+              engine.value(
+                state,
+                makeTriple((i) => u[i] + (i === j ? 1 : 0)),
+              ).P,
+          ).toBe(true);
+          // Lemma (ii): both successors of one use of kit j, with the same units.
+          const canonical = canonicalState(state.grade, state.level, state.exp);
+          if (canonical.grade === "SR" && canonical.level >= 15) continue;
+          for (const next of [
+            independentSuccess(canonical.grade, canonical.level),
+            independentFailure(canonical.grade, canonical.level, canonical.exp, j),
+          ])
+            expect(wait <= engine.value(next, u).P).toBe(true);
+        }
       }),
-      property("certificate-probability-soundness", 300, 120_000),
+      property("certificate-probability-soundness", 300, 240_000),
     );
-  }, 180_000);
+  }, 300_000);
 });
 
 describe("named regressions", () => {
@@ -366,4 +403,115 @@ describe("named regressions", () => {
     expect(compareValue(wait, now)).toBe(1);
     expect(engine.compare(engineWait, engineNow)).toBe(1);
   });
+
+  /** REG-WL-2 joint compensation point. Reviewer witness with two nonzero
+   * compensation components, obtained by a test-only rate override (the
+   * product-derived purple rate ~3.59 is replaced by exactly 10, so m_purple = 1).
+   * SR11/EXP200, stock units x = [2,0,3], price basis [20,0,30], support unit
+   * u = [4,3,3], m = [2,1,0]; recommended batch yellow x3 (no certificate). Contract:
+   * batch-now is evaluated once at the joint point u + m = [6,4,3]; its P exceeds
+   * waiting, so u does not cross. Evaluating each compensation axis separately
+   * ([6,3,3] or [4,4,3]) would report a crossing at both endpoints. */
+  it("REG-WL-2: compensation is added jointly (u + m), not per axis", () => {
+    const fixture = fixtures.find((entry) => entry.id === "SR10");
+    if (!fixture) throw new Error("missing SR10");
+    const product = O.independentRates(fixture);
+    const rates: QTriple = [product[0], q(10), product[2]];
+    const m = O.compensationUnits(q(1), rates);
+    expect(m).toEqual([2, 1, 0]);
+    const prices = O.independentPrices(rates, [20, 0, 30]);
+    const state = { grade: "SR" as const, level: 11, exp: 200 };
+    const engine = O.createWaitLabelEngine(prices, 16);
+    const batch = O.recommendBatch(engine, state, [2, 0, 3], 10);
+    expect(batch).toEqual({ kit: 2, uses: 3 });
+    if (!batch) throw new Error("missing batch");
+    expect(O.certificateApplies(q(1), rates[2], 3)).toBe(false);
+    const u: Triple = [4, 3, 3];
+    const P = (value: O.EngineValue) => engine.toExact(value).P;
+    // Waiting value cross-checked against the independent single-use Bellman oracle.
+    expect(P(engine.value(state, u))).toEqual(q(6516188709953095252193n, 7812500000000000000000n));
+    expect(createOracleEvaluator(prices)({ ...state, stock: [40, 30, 30] }).P).toEqual(
+      P(engine.value(state, u)),
+    );
+    const at = (point: Triple) => P(engine.batch(state, point, 2, 3));
+    expect(at([6, 4, 3])).toEqual(
+      q(13065176545936002589963287643579n, 15625000000000000000000000000000n),
+    );
+    expect(at([6, 3, 3])).toEqual(
+      q(100266362634124788949928272913n, 125000000000000000000000000000n),
+    );
+    expect(at([4, 4, 3])).toEqual(q(12806459934812364323589931n, 15625000000000000000000000n));
+    expect(O.classifyWait(engine, state, u, m, batch).probability).toBe(false);
+    // The per-axis reading would cross at both single-axis endpoints.
+    for (const axis of [
+      [2, 0, 0],
+      [0, 1, 0],
+    ] as const)
+      expect(O.classifyWait(engine, state, u, axis, batch).probability).toBe(true);
+  });
+});
+
+describe("tie path", () => {
+  /** Census: all 600 grid states, unit stocks [0..4]^3, priceBasisStock = 10 * units,
+   * product-derived rates. Every root with two or more exactly tied kits ties blue
+   * with purple, and the first tied kit (blue) has a batch of at most 2 uses, so
+   * theta * rate_blue (~20.8) >= 10 n: the certificate settles the base kit and a
+   * switch to a later tied kit cannot be reached in this domain. (An exploratory
+   * random search over 1041 piece stocks in [0, 69]^3 found 968 tied roots, all of
+   * the same kind.) TIE-R5 in fixtures-tie.json is one such reachable tie. */
+  it("every tied root in the census ties blue first with a certified batch", () => {
+    const fixture = fixtures.find((entry) => entry.id === "SR10");
+    if (!fixture) throw new Error("missing SR10");
+    const rates = O.independentRates(fixture);
+    const grid: { grade: "R" | "SR"; level: number; exp: number }[] = [];
+    for (const grade of ["R", "SR"] as const)
+      for (let level = 0; level <= 14; level++)
+        for (let step = 0; step < (grade === "SR" ? 30 : 10); step++)
+          grid.push({ grade, level, exp: 100 * step });
+    const masks = new Map<number, number>();
+    for (let b = 0; b <= 4; b++)
+      for (let p = 0; p <= 4; p++)
+        for (let y = 0; y <= 4; y++) {
+          const units: Triple = [b, p, y];
+          const prices = O.independentPrices(rates, [10 * b, 10 * p, 10 * y]);
+          const engine = O.createWaitLabelEngine(prices, b + p + y);
+          for (const state of grid) {
+            const canonical = canonicalState(state.grade, state.level, state.exp);
+            if (canonical.grade === "SR" && canonical.level >= 15) continue;
+            const kits = engine.value(canonical, units).ties & 7;
+            if ((kits & (kits - 1)) === 0) continue;
+            masks.set(kits, (masks.get(kits) ?? 0) + 1);
+            const batch = O.recommendBatch(engine, canonical, units, 10);
+            expect(batch?.kit).toBe(0);
+            expect(O.certificateApplies(q(1), rates[0], batch?.uses ?? 0)).toBe(true);
+          }
+        }
+    expect([...masks]).toEqual([[3, 240]]);
+  }, 120_000);
+
+  it("pins TIE-R5 (root tie blue/purple) and recomputes it exactly", () => {
+    const tieFixtures = O.loadWaitLabelFixtures("fixtures-tie.json");
+    const raw = JSON.parse(
+      readFileSync(resolve(O.FIXTURE_DIRECTORY, "fixtures-tie.json"), "utf8"),
+    ) as {
+      common: unknown;
+      fixtures: { id: string; optimalKits: string[] }[];
+    };
+    const main = JSON.parse(
+      readFileSync(resolve(O.FIXTURE_DIRECTORY, "fixtures.json"), "utf8"),
+    ) as { common: unknown };
+    expect(raw.common).toEqual(main.common);
+    const fixture = tieFixtures.find((entry) => entry.id === "TIE-R5");
+    if (!fixture) throw new Error("missing TIE-R5");
+    const document = expectedDocument("TIE-R5");
+    expect(document.fixtureFileSha256).toBe(PINS["fixtures-tie.json"]);
+    const rates = O.independentRates(fixture);
+    const prices = O.independentPrices(rates, fixture.priceBasisStock);
+    const units = mapTriple(fixture.stock, (pieces) => Math.floor(pieces / 10));
+    const engine = O.createWaitLabelEngine(prices, units[0] + units[1] + units[2]);
+    const ties = engine.value(fixture, units).ties;
+    expect(O.KITS.filter((_, color) => ties & (1 << color))).toEqual(raw.fixtures[0]?.optimalKits);
+    const actual = O.computeWaitLabel(fixture, { deadlineAt: performance.now() + 600_000 });
+    expect(JSON.parse(JSON.stringify(actual))).toEqual(document.result);
+  }, 900_000);
 });
