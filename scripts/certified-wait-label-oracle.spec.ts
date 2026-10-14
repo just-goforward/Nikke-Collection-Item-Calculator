@@ -254,22 +254,24 @@ describe("wait-label properties", () => {
       property("cohort-union-commutation", 200, 120_000),
     );
   }, 180_000);
+});
 
-  const stateArb = fc
-    .record({
-      sr: fc.boolean(),
-      level: fc.integer({ min: 0, max: 14 }),
-      expStep: fc.integer({ min: 0, max: 29 }),
-    })
-    .map(({ sr, level, expStep }) => ({
-      grade: sr ? ("SR" as const) : ("R" as const),
-      level,
-      exp: 100 * (sr ? expStep : expStep % 10),
-    }));
-  const priceArb = fc
-    .tuple(fc.integer({ min: 1, max: 20 }), fc.integer({ min: 1, max: 20 }))
-    .map(([n, d]) => q(n, d));
+const stateArb = fc
+  .record({
+    sr: fc.boolean(),
+    level: fc.integer({ min: 0, max: 14 }),
+    expStep: fc.integer({ min: 0, max: 29 }),
+  })
+  .map(({ sr, level, expStep }) => ({
+    grade: sr ? ("SR" as const) : ("R" as const),
+    level,
+    exp: 100 * (sr ? expStep : expStep % 10),
+  }));
+const priceArb = fc
+  .tuple(fc.integer({ min: 1, max: 20 }), fc.integer({ min: 1, max: 20 }))
+  .map(([n, d]) => q(n, d));
 
+describe("wait-label engine properties", () => {
   it("matches n=1 batches and V* to the independent single-use Bellman oracle", async () => {
     const scenario = fc.record({
       state: stateArb,
