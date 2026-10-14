@@ -7,6 +7,7 @@ export type Reason =
   | "origin_rejected"
   | "unauthenticated"
   | "auth_failed"
+  | "login_flow_expired"
   | "rate_limited"
   | "beta_full"
   | "op_id_conflict"

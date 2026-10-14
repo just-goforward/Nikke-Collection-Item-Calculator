@@ -23,7 +23,7 @@ import {
   resumeDeletion,
   runPrivacyMaintenance,
 } from "./consent";
-import type { Archive, PersonalExport, SelfPercentile, StageSummary } from "./contracts";
+import type { AccountCallbackError, Archive, PersonalExport, SelfPercentile, StageSummary } from "./contracts";
 import { googleProvider, settings } from "./google";
 import {
   body,
@@ -169,7 +169,7 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
       await sha256(browser),
       now(),
     );
-    if (!pending) throw new HttpError(400, "auth_failed");
+    if (!pending) throw new HttpError(400, "login_flow_expired");
     try {
       const codes = url.searchParams.getAll("code");
       const issuers = url.searchParams.getAll("iss");
@@ -305,11 +305,17 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({parameters})
     });
+    if (r.redirected) {
+      const code = new URL(r.url).searchParams.get("account_error");
+      const allowed = ["account_switch_requires_logout", "google_issuer_unsupported",
+        "admission_full", "rate_limited", "login_flow_expired", "service_unavailable", "unknown"];
+      location.replace("/?account_error=" + (allowed.includes(code) ? code : "unknown"));
+      return;
+    }
     const data = await r.json();
     if (r.ok && data.redirect === "/") location.replace("/");
-    else document.body.textContent = data.error === "account_switch_requires_logout"
-      ? "Log out before signing in to a different account." : "Login failed. Start again.";
-  } catch { document.body.textContent = "Login failed. Start again."; }
+    else location.replace("/?account_error=unknown");
+  } catch { location.replace("/?account_error=service_unavailable"); }
 })();
 </script>`;
           return new Response(html, {
@@ -466,12 +472,32 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
         throw new HttpError(404, "not_found");
       } catch (error) {
         // No exception, headers, callback URL, query, code, IP, token or user data logging.
+        if (path === "/auth/callback/google") {
+          const reasons: Partial<Record<HttpError["reason"], AccountCallbackError>> = {
+            account_switch_requires_logout: "account_switch_requires_logout",
+            google_issuer_unsupported: "google_issuer_unsupported",
+            beta_full: "admission_full",
+            rate_limited: "rate_limited",
+            login_flow_expired: "login_flow_expired",
+            service_unavailable: "service_unavailable",
+          };
+          const code = error instanceof HttpError
+            ? reasons[error.reason] ?? "unknown"
+            : "service_unavailable";
+          return new Response(null, {
+            status: 303,
+            headers: {
+              Location: `/?account_error=${code}`,
+              "Cache-Control": "no-store",
+              "Referrer-Policy": "no-referrer",
+              "Set-Cookie": cookie(FLOW_COOKIE, "", 0),
+            },
+          });
+        }
         const result =
           error instanceof HttpError
             ? response({ error: error.reason }, error.status)
             : response({ error: "service_unavailable" }, 503);
-        if (path === "/auth/callback/google")
-          result.headers.append("Set-Cookie", cookie(FLOW_COOKIE, "", 0));
         return result;
       }
     },

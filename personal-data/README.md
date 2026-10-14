@@ -18,6 +18,20 @@ validation for mutations, and `Cache-Control: no-store`. M3 implements these
 controls; missing configuration fails closed. Public statistics remain 503 while
 fenced. Private ownership is derived only from the authenticated session.
 
+Callback failures return **303** to `/?account_error=<code>` with no-store,
+`Referrer-Policy: no-referrer`, an empty body and expiry of only the pending-flow
+cookie (not the current account session). The entire redirect vocabulary is
+`account_switch_requires_logout`, `google_issuer_unsupported`, `admission_full`,
+`rate_limited`, `login_flow_expired`, `service_unavailable`, `unknown`.
+`beta_full` maps to `admission_full`; an absent/expired/consumed pending flow maps
+to `login_flow_expired`; generic validation/authentication failures map to
+`unknown`; unexpected storage failures map to `service_unavailable`. No provider
+error text, authorization code or state is copied to the redirect. The inert GET
+bridge follows the POST redirect, then navigates to the app root using only the
+same allowlist so the frontend can localize the message; a bridge network failure
+navigates with `service_unavailable`. Login initiation and non-callback endpoints
+retain their existing JSON status/error contracts.
+
 | Route | Request / response |
 | --- | --- |
 | GET `/v1/workspace` | revision, lastOpId, document, measured content quota |

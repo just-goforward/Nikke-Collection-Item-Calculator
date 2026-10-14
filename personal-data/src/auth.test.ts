@@ -11,7 +11,8 @@ import {
 } from "./auth";
 import { fakeIssuer, TEST_CLIENT, TEST_ORIGIN, TEST_SECRET } from "./fake-issuer";
 import { googleProvider } from "./google";
-import { MAX_BODY_BYTES } from "./http";
+import { HttpError, MAX_BODY_BYTES } from "./http";
+import type { AccountCallbackError } from "./contracts";
 import { resetFixture } from "./test-fixture";
 import type { PersonalEnv } from "./types";
 import { createWorker } from "./worker";
@@ -39,6 +40,13 @@ function cookieHeader(result: Response): string {
     .map((value) => value.split(";")[0])
     .filter((value) => value && !value.endsWith("="))
     .join("; ");
+}
+async function accountError(result: Response, code: AccountCallbackError) {
+  expect(result.status).toBe(303);
+  expect(result.headers.get("Location")).toBe(`/?account_error=${code}`);
+  expect(result.headers.get("Cache-Control")).toBe("no-store");
+  expect(result.headers.get("Referrer-Policy")).toBe("no-referrer");
+  expect(await result.text()).toBe("");
 }
 async function count(table: string): Promise<number> {
   const result = await databases.PERSONAL_DB.prepare(`SELECT count(*) AS n FROM ${table}`).first<{
@@ -203,11 +211,11 @@ describe("Google OIDC through real local D1 HTTP endpoints", () => {
     expect(results.filter((result) => result.status === 200)).toHaveLength(1);
     expect(h.issuer.counts.token).toBe(1);
     expect(await count("oauth_transactions")).toBe(0);
-    expect((await h.callback(url, flow.cookie)).status).toBe(400);
+    await accountError(await h.callback(url, flow.cookie), "login_flow_expired");
     const failed = await h.login({ failExchange: true });
-    expect(failed.result.status).toBe(401);
+    await accountError(failed.result, "unknown");
     const previous = h.issuer.counts.token;
-    expect((await h.callback(failed.url, failed.flow.cookie)).status).toBe(400);
+    await accountError(await h.callback(failed.url, failed.flow.cookie), "login_flow_expired");
     expect(h.issuer.counts.token).toBe(previous);
   });
 
@@ -228,8 +236,8 @@ describe("Google OIDC through real local D1 HTTP endpoints", () => {
       // Distinct trusted ingress addresses isolate the separate login-rate policy.
       h.advance(60_000);
       const login = await h.login(options);
-      expect(login.result.status).toBe(401);
-      expect((await h.callback(login.url, login.flow.cookie)).status).toBe(400);
+      await accountError(login.result, "unknown");
+      await accountError(await h.callback(login.url, login.flow.cookie), "login_flow_expired");
     }
     expect(await count("accounts")).toBe(0);
     expect(await count("sessions")).toBe(0);
@@ -239,9 +247,8 @@ describe("Google OIDC through real local D1 HTTP endpoints", () => {
     const h = await harness();
     expect((await h.login()).result.status).toBe(200);
     const bare = await h.login({ claims: { iss: "accounts.google.com" } });
-    expect(bare.result.status).toBe(401);
-    expect(await bare.result.json()).toEqual({ error: "google_issuer_unsupported" });
-    expect((await h.login({ claims: { iss: "https://wrong.example" } })).result.status).toBe(401);
+    await accountError(bare.result, "google_issuer_unsupported");
+    await accountError((await h.login({ claims: { iss: "https://wrong.example" } })).result, "unknown");
     expect((await h.login()).result.status).toBe(200);
     expect(await count("identities")).toBe(1);
   });
@@ -250,7 +257,7 @@ describe("Google OIDC through real local D1 HTTP endpoints", () => {
     const h = await harness();
     const seconds = Math.floor(Date.now() / 1_000);
     expect((await h.login({ claims: { exp: seconds - 20 } })).result.status).toBe(200);
-    expect((await h.login({ claims: { exp: seconds - 40 } })).result.status).toBe(401);
+    await accountError((await h.login({ claims: { exp: seconds - 40 } })).result, "unknown");
     const valid = await h.login();
     h.advance(1);
     await databases.PERSONAL_DB.prepare("UPDATE sessions SET idle_expires_at = ?")
@@ -293,13 +300,13 @@ describe("Google OIDC through real local D1 HTTP endpoints", () => {
     const h = await harness();
     expect((await h.login()).result.status).toBe(200);
     h.issuer.rotate();
-    expect((await h.login()).result.status).toBe(401);
+    await accountError((await h.login()).result, "unknown");
     expect(h.issuer.counts.jwks).toBe(1);
     const time = Date.now();
     vi.spyOn(Date, "now").mockReturnValue(time + 61_000);
     expect((await h.login()).result.status).toBe(200);
     expect(h.issuer.counts.jwks).toBe(2);
-    expect((await h.login({ kid: "unpublished-key" })).result.status).toBe(401);
+    await accountError((await h.login({ kid: "unpublished-key" })).result, "unknown");
   });
 
   it("discovery and JWKS outages expose no exceptions and consumed callbacks require a new login", async () => {
@@ -311,8 +318,8 @@ describe("Google OIDC through real local D1 HTTP endpoints", () => {
     expect(await count("oauth_transactions")).toBe(0);
     h.issuer.outage("jwks");
     const login = await h.login();
-    expect(login.result.status).toBe(401);
-    expect((await h.callback(login.url, login.flow.cookie)).status).toBe(400);
+    await accountError(login.result, "unknown");
+    await accountError(await h.callback(login.url, login.flow.cookie), "login_flow_expired");
     h.issuer.outage(null);
     expect((await h.login()).result.status).toBe(200);
   });
@@ -334,8 +341,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     const h = await harness();
     const alice = await h.login();
     const other = await h.login({ claims: { sub: "bob" } }, alice.cookie);
-    expect(other.result.status).toBe(409);
-    expect(await other.result.json()).toEqual({ error: "account_switch_requires_logout" });
+    await accountError(other.result, "account_switch_requires_logout");
     expect(
       other.result.headers.getSetCookie().some((value) => value.startsWith(`${SESSION_COOKIE}=`)),
     ).toBe(false);
@@ -650,7 +656,9 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       ),
     );
     expect(results.filter((result) => result.status === 200)).toHaveLength(150);
-    expect(results.filter((result) => result.status === 403)).toHaveLength(10);
+    const rejected = results.filter((result) => result.status === 303);
+    expect(rejected).toHaveLength(10);
+    for (const result of rejected) await accountError(result, "admission_full");
     for (const table of ["accounts", "identities", "workspaces", "sessions"])
       expect(await count(table)).toBe(150);
   }, 30_000);
@@ -796,7 +804,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       (await h.mutate("/v1/sessions/revoke-all", { opId: "revoke" }, current.cookie)).status,
     ).toBe(200);
     gate.release();
-    expect((await callback).status).toBe(401);
+    await accountError(await callback, "unknown");
     expect(await count("sessions")).toBe(0);
     expect(
       (
@@ -837,7 +845,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       (await h.mutate("/v1/account", { opId: "delete" }, current.cookie, "DELETE")).status,
     ).toBe(202);
     gate.release();
-    expect((await callback).status).toBe(401);
+    await accountError(await callback, "unknown");
     expect(await count("accounts")).toBe(0);
     const rejoined = await h.login();
     expect(rejoined.result.status).toBe(200);
@@ -941,7 +949,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect(failed.status).toBe(503);
     expect((await h.account(login.cookie)).status).toBe(401);
     expect(await count("accounts")).toBe(150);
-    expect((await h.login({ claims: { sub: "waiting-user" } })).result.status).toBe(403);
+    await accountError((await h.login({ claims: { sub: "waiting-user" } })).result, "admission_full");
     await h.worker.scheduled({ scheduledTime: h.time() }, databases);
     expect(await count("accounts")).toBe(149);
     expect(await count("deletion_jobs")).toBe(0);
@@ -1244,7 +1252,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       ),
     ]);
     expect(await count("accounts")).toBe(150);
-    expect((await h.login({ claims: { sub: "over-cap" } })).result.status).toBe(403);
+    await accountError((await h.login({ claims: { sub: "over-cap" } })).result, "admission_full");
     expect((await h.login()).result.status).toBe(200); // Existing identity is not refused.
     expect(await count("accounts")).toBe(150);
     await databases.PERSONAL_DB.prepare("UPDATE accounts SET quota_bytes = 1").run();
@@ -1340,7 +1348,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
               body: "{}",
             })
           ).status,
-        ).toBe(403);
+        ).toBe(path === "/auth/callback/google" ? 303 : 403);
       }
     }
     const tooLarge = await h.request("/v1/workspace", {
@@ -1373,7 +1381,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     const h = await harness();
     const flow = await h.begin();
     h.advance(FLOW_TTL_MS);
-    expect((await h.callback(h.issuer.authorize(flow.location), flow.cookie)).status).toBe(400);
+    await accountError(await h.callback(h.issuer.authorize(flow.location), flow.cookie), "login_flow_expired");
     const flows = await Promise.all(
       Array.from({ length: 11 }, () => h.mutate("/auth/login/google", {})),
     );
@@ -1394,8 +1402,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     const result = await h.mutate("/auth/callback/google", {
       parameters: "?state=CODE_CANARY&code=TOKEN_CANARY",
     });
-    expect(result.status).toBe(400);
-    expect(await result.json()).toEqual({ error: "auth_failed" });
+    await accountError(result, "unknown");
     for (const path of [
       "/v1/account",
       "/v1/workspace",
@@ -1408,5 +1415,49 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect(log).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
+  });
+
+  it("redirects every callback failure using only the app error vocabulary and no provider input", async () => {
+    const h = await harness();
+    const flow = await h.begin();
+    const parameters = new URL(h.issuer.authorize(flow.location)).search;
+    const cases = [
+      [new HttpError(409, "account_switch_requires_logout"), "account_switch_requires_logout"],
+      [new HttpError(401, "google_issuer_unsupported"), "google_issuer_unsupported"],
+      [new HttpError(403, "beta_full"), "admission_full"],
+      [new HttpError(429, "rate_limited"), "rate_limited"],
+      [new HttpError(400, "login_flow_expired"), "login_flow_expired"],
+      [new HttpError(503, "service_unavailable"), "service_unavailable"],
+      [new HttpError(401, "auth_failed"), "unknown"],
+      [new Error("PROVIDER_RAW_ERROR_CANARY"), "service_unavailable"],
+    ] as const;
+    for (const [failure, code] of cases) {
+      const personal = databases.PERSONAL_DB;
+      const unavailable: PersonalEnv = {
+        ...databases,
+        PERSONAL_DB: {
+          prepare(sql) {
+            if (sql.startsWith("DELETE FROM oauth_transactions")) throw failure;
+            return personal.prepare(sql);
+          },
+          batch: (statements) => personal.batch(statements),
+          exec: (sql) => personal.exec(sql),
+        },
+      };
+      const result = await h.worker.fetch(new Request(`${TEST_ORIGIN}/auth/callback/google`, {
+        method: "POST",
+        headers: { Origin: TEST_ORIGIN, "Content-Type": "application/json", Cookie: flow.cookie },
+        body: JSON.stringify({ parameters }),
+      }), unavailable);
+      await accountError(result, code);
+      expect(result.headers.get("Location")).not.toMatch(/CANARY|state|code=/);
+      expect(result.headers.getSetCookie().some((value) => value.startsWith(`${SESSION_COOKIE}=`)))
+        .toBe(false);
+    }
+    const denied = new URL(flow.location);
+    const denial = `?state=${denied.searchParams.get("state")}&error=ACCESS_DENIED_CANARY&error_description=PROVIDER_CANARY`;
+    await accountError(await h.mutate("/auth/callback/google", { parameters: denial }, flow.cookie), "unknown");
+    expect(h.issuer.counts.token).toBe(0);
+    expect(await count("accounts")).toBe(0);
   });
 });

@@ -100,6 +100,15 @@ export interface PublicStatistics {
   cells: PublicCell[];
   policy?: { k: number; metric: "post_signup_income"; binWidth: number; clampMax: number; countQuantum: number };
 }
+/** Callback redirect vocabulary only; never provider errors, authorization codes or state. */
+export type AccountCallbackError =
+  | "account_switch_requires_logout"
+  | "google_issuer_unsupported"
+  | "admission_full"
+  | "rate_limited"
+  | "login_flow_expired"
+  | "service_unavailable"
+  | "unknown";
 export interface SelfPercentile {
   releaseId: string;
   stage: string;
