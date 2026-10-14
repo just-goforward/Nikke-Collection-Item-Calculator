@@ -217,6 +217,14 @@ pub struct Primary {
     mask: u8,
 }
 impl Engine {
+    /// Exact primary objective only; never populates the P/B/C value memo.
+    pub(super) fn primary_probability(&mut self, s: usize, raw: Units) -> Result<Q> {
+        self.kernel_calls += 1;
+        self.ensure_guidance(s, raw);
+        let value = self.primary_get(s, raw)?;
+        Ok(rational(&value.p, &self.powers[value.exponent]))
+    }
+
     pub fn ensure_guidance(&mut self, s: usize, raw: Units) {
         if s == TERMINAL {
             return;

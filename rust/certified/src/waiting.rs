@@ -27,53 +27,227 @@ impl Engine {
         );
         view
     }
-    pub fn current(&mut self, sid: usize, stock: Units, batch: usize) -> Result<Json> {
+    fn batch_for_kit(
+        &mut self,
+        sid: usize,
+        stock: Units,
+        limit: usize,
+        kit: usize,
+        root: &Value,
+    ) -> minimum_wait::Batch {
+        let mut batch = minimum_wait::Batch {
+            kit,
+            path: Vec::new(),
+            guard: None,
+        };
+        let mut s = sid;
+        let mut raw = stock;
+        while batch.uses() < limit {
+            let value = if batch.path.is_empty() {
+                root.clone()
+            } else {
+                match self.get(s, std::array::from_fn(|j| raw[j] / 10), true) {
+                    Ok(value) => value,
+                    Err(reason) => {
+                        batch.guard = Some(reason);
+                        break;
+                    }
+                }
+            };
+            if value.mask & (1 << kit) == 0 {
+                break;
+            }
+            if raw[kit] < 10 {
+                batch.guard = Some("minimum_wait_batch_infeasible");
+                break;
+            }
+            let edge = self.edges[s][kit];
+            batch.path.push((s, edge));
+            raw[kit] -= 10;
+            let [per, _, normal] = edge;
+            s = normal;
+            let level = |state| {
+                if state < 150 {
+                    (0, state / 10)
+                } else {
+                    (1, (state - 150) / 30)
+                }
+            };
+            if per == 1000 || s == TERMINAL || level(s) != level(sid) {
+                break;
+            }
+        }
+        batch
+    }
+
+    fn current_json(&self, sid: usize, root: &Value, batch: Option<&minimum_wait::Batch>) -> Json {
+        let kit = batch.map(|batch| batch.kit);
+        let uses = batch.map_or(0, |batch| batch.uses());
+        json!({ "status": if sid == TERMINAL {"complete"} else if kit.is_some() {"use_certified"} else {"preserve"},
+            "value": self.actual_view(root), "kit":kit.map(|k| ["blue","purple","yellow"][k]),
+            "optimalActionMask":root.mask, "uses":uses, "pieces":uses*10,
+            "certification":"exact_rational_finite_inventory_v1" })
+    }
+
+    pub fn current(&mut self, sid: usize, stock: Units, limit: usize) -> Result<Json> {
+        self.current_root = None;
+        self.current_request = None;
+        self.current_choice = None;
         let units = std::array::from_fn(|k| stock[k] / 10);
         if units.iter().sum::<usize>() > 36 {
             self.ensure_guidance(sid, units);
         }
-        let root = self.get(sid, std::array::from_fn(|k| stock[k] / 10), true)?;
-        self.current_root = Some(root.clone());
+        let root = self.get(sid, units, true)?;
         let kit = (0..3).find(|k| root.mask & (1 << k) != 0);
-        let mut uses = 0;
-        if let Some(k) = kit {
-            let mut s = sid;
-            let mut raw = stock;
-            while uses < batch {
-                let v = if uses == 0 {
-                    root.clone()
-                } else {
-                    match self.get(s, std::array::from_fn(|j| raw[j] / 10), true) {
-                        Ok(v) => v,
-                        Err(_) => break,
-                    }
-                };
-                if v.mask & (1 << k) == 0 {
-                    break;
+        let batch = kit.map(|kit| self.batch_for_kit(sid, stock, limit, kit, &root));
+        self.current_request = Some((sid, stock, limit));
+        self.current_root = Some(root.clone());
+        self.current_choice = batch.clone();
+        self.arena = None;
+        Ok(self.current_json(sid, &root, batch.as_ref()))
+    }
+
+    fn minimum_binding(
+        &self,
+        sid: usize,
+        stock: Units,
+    ) -> Result<(Value, Option<minimum_wait::Batch>, usize)> {
+        let (state, previous, limit) = self
+            .current_request
+            .ok_or("minimum_wait_requires_current")?;
+        if state != sid || previous != stock {
+            return Err("minimum_wait_current_binding_mismatch");
+        }
+        Ok((
+            self.current_root
+                .clone()
+                .ok_or("minimum_wait_requires_current")?,
+            self.current_choice.clone(),
+            limit,
+        ))
+    }
+
+    fn minimum_response(
+        &self,
+        sid: usize,
+        root: &Value,
+        assessment: &minimum_wait::Assessment,
+    ) -> Json {
+        json!({"current":self.current_json(sid, root, Some(&assessment.batch)),
+            "minimumWait":assessment.json()})
+    }
+
+    pub fn minimum_wait(
+        &mut self,
+        supply: &mut Supply,
+        sid: usize,
+        stock: Units,
+        complete: bool,
+    ) -> Result<Json> {
+        let (root, base, limit) = self.minimum_binding(sid, stock)?;
+        let Some(base) = base else {
+            return Ok(json!({"current":self.current_json(sid, &root, None),
+                "minimumWait":minimum_wait::inactive()}));
+        };
+        let selected = (|| -> Result<minimum_wait::Assessment> {
+            if let Some(reason) = base.guard {
+                return Err(reason);
+            }
+            let rates = supply.minimum_wait_rates()?;
+            let mut candidates = Vec::new();
+            // Candidates are the existing maximal optimal normal-prefix batches,
+            // not arbitrary shortened batches manufactured to obtain a label.
+            for kit in 0..3 {
+                if root.mask & (1 << kit) == 0 {
+                    continue;
                 }
-                uses += 1;
-                raw[k] -= 10;
-                let [p, _, n] = self.edges[s][k];
-                s = n;
-                let state = |s| {
-                    if s < 150 {
-                        (0, s / 10)
-                    } else {
-                        (1, (s - 150) / 30)
-                    }
+                let batch = if kit == base.kit {
+                    base.clone()
+                } else {
+                    self.batch_for_kit(sid, stock, limit, kit, &root)
                 };
-                if p == 1000 || s == TERMINAL || state(s) != state(sid) {
-                    break;
+                if let Some(reason) = batch.guard {
+                    return Err(reason);
+                }
+                if minimum_wait::settlement_certificate(&batch, &rates) {
+                    let assessment = self.assess_batch(supply, sid, stock, batch, complete, false);
+                    if let Some(reason) = assessment.reason {
+                        return Err(reason);
+                    }
+                    return Ok(assessment);
+                }
+                candidates.push(batch);
+            }
+            let mut best: Option<minimum_wait::Assessment> = None;
+            for batch in candidates {
+                let assessment = self.assess_batch(supply, sid, stock, batch, complete, false);
+                if let Some(reason) = assessment.reason {
+                    if assessment.batch.kit == base.kit {
+                        return Ok(assessment);
+                    }
+                    return Err(reason);
+                }
+                if assessment.beyond {
+                    return Ok(assessment);
+                }
+                if best
+                    .as_ref()
+                    .is_none_or(|old| assessment.rank() < old.rank())
+                {
+                    best = Some(assessment);
                 }
             }
+            best.ok_or("minimum_wait_no_candidate")
+        })();
+        let assessment = match selected {
+            Ok(assessment) => assessment,
+            Err(reason) => minimum_wait::Assessment::unknown(base.clone(), reason),
+        };
+        if assessment.rank().is_none()
+            || (assessment.batch.kit == base.kit && assessment.batch.uses() == base.uses())
+        {
+            return Ok(self.minimum_response(sid, &root, &assessment));
         }
-        self.arena = None;
-        Ok(
-            json!({ "status": if sid == TERMINAL {"complete"} else if kit.is_some() {"use_certified"} else {"preserve"},
-            "value": self.actual_view(&root), "kit":kit.map(|k| ["blue","purple","yellow"][k]),
-            "optimalActionMask":root.mask, "uses":uses, "pieces":uses*10,
-            "certification":"exact_rational_finite_inventory_v1" }),
-        )
+        let choice = self.forced_batch_value(&assessment.batch, stock.map(|pieces| pieces / 10));
+        match choice {
+            Ok(mut value) if self.compare_exact(&value, &root) == Ordering::Equal => {
+                value.mask = root.mask;
+                self.current_root = Some(value.clone());
+                self.current_choice = Some(assessment.batch.clone());
+                Ok(self.minimum_response(sid, &value, &assessment))
+            }
+            outcome => {
+                let reason = outcome.err().unwrap_or("minimum_wait_batch_not_exact_tie");
+                let unknown = minimum_wait::Assessment::unknown(base, reason);
+                Ok(self.minimum_response(sid, &root, &unknown))
+            }
+        }
+    }
+
+    pub fn minimum_wait_probe(
+        &mut self,
+        supply: &mut Supply,
+        sid: usize,
+        stock: Units,
+        kit: usize,
+        uses: usize,
+        complete: bool,
+    ) -> Result<Json> {
+        let (root, _, limit) = self.minimum_binding(sid, stock)?;
+        if root.mask & (1 << kit) == 0 {
+            return Err("minimum_wait_batch_not_optimal");
+        }
+        let mut batch = self.batch_for_kit(sid, stock, limit, kit, &root);
+        if let Some(reason) = batch.guard {
+            return Ok(minimum_wait::Assessment::unknown(batch, reason).probe_json(self.caps[sid]));
+        }
+        if uses == 0 || uses > batch.uses() {
+            return Err("minimum_wait_batch_invalid");
+        }
+        batch.path.truncate(uses);
+        Ok(self
+            .assess_batch(supply, sid, stock, batch, complete, true)
+            .probe_json(self.caps[sid]))
     }
     fn endpoint(&mut self, sid: usize, stock: Pieces) -> Result<Value> {
         self.kernel_calls += 1;

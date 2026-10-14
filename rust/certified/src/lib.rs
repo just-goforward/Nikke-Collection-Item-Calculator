@@ -4,6 +4,8 @@
 #[cfg(target_arch = "wasm32")]
 mod allocation;
 mod guidance;
+mod minimum_wait;
+mod reachability;
 mod supply;
 mod waiting;
 use num_bigint::{BigInt, BigUint};
@@ -136,6 +138,8 @@ struct Engine {
     transitions: usize,
     support_peak: usize,
     current_root: Option<Value>,
+    current_request: Option<(usize, Units, usize)>,
+    current_choice: Option<minimum_wait::Batch>,
     kernel_calls: usize,
     completion: Vec<u16>,
     completion_p: usize,
@@ -239,6 +243,8 @@ impl Engine {
             transitions: 0,
             support_peak: 0,
             current_root: None,
+            current_request: None,
+            current_choice: None,
             kernel_calls: 0,
             completion,
             completion_p,
@@ -506,6 +512,18 @@ enum Command {
         stock: Units,
         complete: bool,
     },
+    MinimumWait {
+        sid: usize,
+        stock: Units,
+        complete: bool,
+    },
+    MinimumWaitProbe {
+        sid: usize,
+        stock: Units,
+        kit: usize,
+        uses: usize,
+        complete: bool,
+    },
     Value {
         sid: usize,
         units: Units,
@@ -566,6 +584,40 @@ fn execute(
                 supply.as_mut().ok_or("supply_not_initialized")?,
                 sid,
                 stock,
+                complete,
+            )
+        }
+        Command::MinimumWait {
+            sid,
+            stock,
+            complete,
+        } => {
+            if sid > TERMINAL {
+                return Err("invalid_state");
+            }
+            e.minimum_wait(
+                supply.as_mut().ok_or("supply_not_initialized")?,
+                sid,
+                stock,
+                complete,
+            )
+        }
+        Command::MinimumWaitProbe {
+            sid,
+            stock,
+            kit,
+            uses,
+            complete,
+        } => {
+            if sid > TERMINAL || kit >= 3 || uses == 0 || uses > 1000 {
+                return Err("invalid_wasm_request");
+            }
+            e.minimum_wait_probe(
+                supply.as_mut().ok_or("supply_not_initialized")?,
+                sid,
+                stock,
+                kit,
+                uses,
                 complete,
             )
         }

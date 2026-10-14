@@ -57,11 +57,13 @@ pub struct Outcome {
     pub mass: Q,
 }
 pub type Dist = Rc<Vec<Outcome>>;
+pub(super) type CohortSupports = [Vec<Pieces>; 4];
 pub struct Supply {
     pub model: Model,
     pub priors: Vec<Q>,
     cache: HashMap<(String, usize, usize), Dist>,
     boxes: HashMap<(usize, usize), Dist>,
+    support_cache: HashMap<(String, usize), Rc<CohortSupports>>,
     deadline: f64,
     ticks: usize,
 }
@@ -93,6 +95,7 @@ impl Supply {
             priors,
             cache: HashMap::new(),
             boxes: HashMap::new(),
+            support_cache: HashMap::new(),
             deadline,
             ticks: 0,
         })
@@ -386,15 +389,43 @@ impl Supply {
         self.cache.insert(key, result.clone());
         Ok(result)
     }
-    fn expected(&mut self, refs: &[LawRef]) -> Result<[Q; 3]> {
+    pub fn supports(&mut self, reference: &LawRef) -> Result<Rc<CohortSupports>> {
+        self.check()?;
+        if self.priors.len() != 4 {
+            return Err("minimum_wait_requires_four_cohorts");
+        }
+        let key = (reference.law_id.clone(), reference.count);
+        if let Some(rows) = self.support_cache.get(&key) {
+            return Ok(Rc::clone(rows));
+        }
+        let mut supports: CohortSupports = std::array::from_fn(|_| Vec::new());
+        for (cohort, rows) in supports.iter_mut().enumerate() {
+            let law = self.law(reference, cohort)?;
+            *rows = law
+                .iter()
+                .filter(|row| row.mass > Q::zero())
+                .map(|row| row.pieces)
+                .collect();
+            rows.sort_unstable();
+            rows.dedup();
+            if rows.is_empty() {
+                return Err("minimum_wait_empty_support");
+            }
+        }
+        let supports = Rc::new(supports);
+        self.support_cache.insert(key, Rc::clone(&supports));
+        Ok(supports)
+    }
+
+    fn expected(&mut self, refs: &[LawRef], priors: &[Q]) -> Result<[Q; 3]> {
         let mut gain = std::array::from_fn(|_| Q::zero());
         for r in refs {
             if r.count == 0 {
                 continue;
             }
-            for cohort in 0..self.priors.len() {
+            for (cohort, prior) in priors.iter().enumerate() {
                 self.check()?;
-                if self.priors[cohort].is_zero() {
+                if prior.is_zero() {
                     continue;
                 }
                 let values =
@@ -416,23 +447,35 @@ impl Supply {
                         })
                     };
                 for k in 0..3 {
-                    gain[k] += &self.priors[cohort] * &values[k] * Q::from_integer(r.count.into());
+                    gain[k] += prior * &values[k] * Q::from_integer(r.count.into());
                 }
             }
         }
         Ok(gain)
     }
-    pub fn pricing(&mut self, basis: Units, stock: Units, sid: usize) -> Result<([Q; 3], [Q; 3])> {
-        let dispatch = self.expected(&self.model.dispatch.clone())?;
-        let shop = self.expected(&self.model.shop.clone())?;
-        let solo = self.expected(&self.model.solo.clone())?;
+    fn recurring_rates(&mut self, priors: &[Q]) -> Result<[Q; 3]> {
+        let dispatch = self.expected(&self.model.dispatch.clone(), priors)?;
+        let shop = self.expected(&self.model.shop.clone(), priors)?;
+        let solo = self.expected(&self.model.solo.clone(), priors)?;
         let cadence = self.model.cadence.rational()?;
         if cadence <= Q::zero() {
             return Err("invalid_cadence");
         }
-        let rates: [Q; 3] = std::array::from_fn(|k| {
+        Ok(std::array::from_fn(|k| {
             &dispatch[k] + &shop[k] / Q::from_integer(7.into()) + &solo[k] / &cadence
-        });
+        }))
+    }
+
+    pub fn minimum_wait_rates(&mut self) -> Result<[Q; 3]> {
+        if self.priors.len() != 4 {
+            return Err("minimum_wait_requires_four_cohorts");
+        }
+        let priors = [1, 2, 3, 1].map(|n| Q::new(n.into(), 7.into()));
+        self.recurring_rates(&priors)
+    }
+
+    pub fn pricing(&mut self, basis: Units, stock: Units, sid: usize) -> Result<([Q; 3], [Q; 3])> {
+        let rates = self.recurring_rates(&self.priors.clone())?;
         let mut weights = std::array::from_fn(|_| Q::zero());
         for k in 0..3 {
             let denominator = &rates[k] + Q::from_integer(basis[k].into());
@@ -555,7 +598,9 @@ mod tests {
             &[([4, 5, 6], 1, 1)],
         );
         assert_eq!(
-            supply.expected(&[reference("four", 1)]).unwrap(),
+            supply
+                .expected(&[reference("four", 1)], &supply.priors.clone())
+                .unwrap(),
             [
                 Q::new(5.into(), 7.into()),
                 Q::new(9.into(), 7.into()),
@@ -589,7 +634,9 @@ mod tests {
                 );
             }
             assert_eq!(
-                supply.expected(&[reference(id, 1)]).unwrap(),
+                supply
+                    .expected(&[reference(id, 1)], &supply.priors.clone())
+                    .unwrap(),
                 [Q::from_integer(99.into()), Q::zero(), Q::zero()]
             );
             supply.model.dispatch = vec![reference(id, 1)];
@@ -628,7 +675,9 @@ mod tests {
                 &[([0, 0, 6], 1, 1)],
             );
             assert_eq!(
-                supply.expected(&[reference(id, 1)]).unwrap(),
+                supply
+                    .expected(&[reference(id, 1)], &supply.priors.clone())
+                    .unwrap(),
                 [
                     Q::new(1.into(), 3.into()),
                     Q::one(),
@@ -660,7 +709,9 @@ mod tests {
             );
         }
         assert_eq!(
-            supply.expected(&[reference("regular-box-v1", 1)]).unwrap(),
+            supply
+                .expected(&[reference("regular-box-v1", 1)], &supply.priors.clone())
+                .unwrap(),
             [
                 Q::new(12.into(), 5.into()),
                 Q::new(1.into(), 5.into()),
@@ -668,7 +719,9 @@ mod tests {
             ]
         );
         assert_eq!(
-            supply.expected(&[reference("box-ii-v1", 1)]).unwrap(),
+            supply
+                .expected(&[reference("box-ii-v1", 1)], &supply.priors.clone())
+                .unwrap(),
             [
                 Q::new(7.into(), 2.into()),
                 Q::new(2.into(), 5.into()),
@@ -677,7 +730,7 @@ mod tests {
         );
         assert_eq!(
             supply
-                .expected(&[reference("dispatch-board-v1", 1)])
+                .expected(&[reference("dispatch-board-v1", 1)], &supply.priors.clone())
                 .unwrap(),
             [Q::one(), Q::one(), Q::one()]
         );
