@@ -1028,6 +1028,51 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect(await count("deletion_jobs")).toBe(1);
   });
 
+  it("cron still completes privacy recovery when its expiry cleanup batch fails", async () => {
+    const h = await harness();
+    const login = await h.login();
+    const userId = h.accountId(login.cookie) ?? "";
+    await databases.PUBLIC_AGGREGATE_DB.prepare("UPDATE privacy_fence SET generation = 1").run();
+    await databases.PERSONAL_DB.batch([
+      databases.PERSONAL_DB.prepare("UPDATE accounts SET blocked = 1 WHERE user_id = ?").bind(
+        userId,
+      ),
+      databases.PERSONAL_DB.prepare(
+        "INSERT INTO deletion_jobs (user_id, op_id, created_at, fence_generation) VALUES (?, 'cleanup-failure-delete', ?, 1)",
+      ).bind(userId, h.time()),
+      databases.PERSONAL_DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(userId),
+    ]);
+    const personal = databases.PERSONAL_DB;
+    let failCleanup = true;
+    const unavailable: PersonalEnv = {
+      ...databases,
+      PERSONAL_DB: {
+        prepare: (sql) => personal.prepare(sql),
+        batch: (statements) => {
+          if (failCleanup) {
+            failCleanup = false;
+            return Promise.reject(new Error("expiry_cleanup_failure_canary"));
+          }
+          return personal.batch(statements);
+        },
+        exec: (sql) => personal.exec(sql),
+      },
+    };
+    await expect(
+      h.worker.scheduled({ scheduledTime: h.time() }, unavailable),
+    ).rejects.toThrow("maintenance_failed");
+    expect(await count("deletion_jobs")).toBe(0);
+    expect(await count("accounts")).toBe(0);
+    expect(await count("workspaces")).toBe(0);
+    expect(
+      await databases.PRIVACY_CONTROL_DB.prepare(
+        "SELECT state FROM privacy_operations WHERE user_id = ?",
+      )
+        .bind(userId)
+        .first<{ state: string }>(),
+    ).toEqual({ state: "complete" });
+  });
+
   it("cron resumes only five stale consent reservations and leaves a live attempt leased", async () => {
     const h = await harness();
     const hash = await sha256(JSON.stringify([0, true]));

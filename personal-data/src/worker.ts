@@ -472,6 +472,7 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
     },
     async scheduled(controller: { scheduledTime: number }, env: PersonalEnv): Promise<void> {
       const time = controller.scheduledTime;
+      let failed = false;
       try {
         await env.PERSONAL_DB.batch([
           env.PERSONAL_DB.prepare(
@@ -484,10 +485,15 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
             "DELETE FROM sessions WHERE idle_expires_at <= ? OR max_expires_at <= ?",
           ).bind(time, time),
         ]);
+      } catch {
+        failed = true;
+      }
+      try {
         await runPrivacyMaintenance(env, time);
       } catch {
-        throw new Error("maintenance_failed");
+        failed = true;
       }
+      if (failed) throw new Error("maintenance_failed");
     },
   };
 }

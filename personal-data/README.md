@@ -280,7 +280,8 @@ hash fence lasts the 10-minute flow TTL: older flow epochs cannot recreate a
 deleted account, while a fresh login creates a new account ID. Identity hashes
 are no longer kept in privacy tombstones or deletion jobs. Expired temporary
 fences, flows and sessions are cleaned at login and by the prepared 10-minute
-expiry-only cron (not deployed). Physical cleanup depends on cron execution;
+cron for expiry cleanup and bounded privacy recovery (not deployed).
+Physical cleanup depends on cron execution;
 missed cleanup must be monitored before production. Restored old user IDs stay
 denied/re-deleted by durable user-ID tombstones; fresh rejoin IDs are unaffected.
 Consent re-opt-in uses a later fence generation; old withdrawal tombstones are
