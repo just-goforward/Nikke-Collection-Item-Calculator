@@ -21,7 +21,7 @@ PRIVACY_RECONCILE_QUIESCENT = "false"
 
 # Expiry, bounded recovery/inactivity deletion; publication stays disabled throughout beta.
 [triggers]
-crons = ["0-59/10 * * * *", "1-59/10 * * * *", "2-59/10 * * * *", "3-59/10 * * * *"]
+crons = ["*/10 * * * *"]
 
 [[d1_databases]]
 binding = "PERSONAL_DB"

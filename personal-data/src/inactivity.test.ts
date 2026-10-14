@@ -131,3 +131,58 @@ it("a login/save activity update after selection wins the atomic deletion guard"
     await dbs.PUBLIC_AGGREGATE_DB.prepare("SELECT release_id FROM current_release").first(),
   ).toEqual({ release_id: "keep-release" });
 });
+
+it("backs off an unblocked failing candidate and processes other candidates even after retry becomes due", async () => {
+  await seed("first", LAST - 1);
+  await seed("second");
+  const publicDb = dbs.PUBLIC_AGGREGATE_DB;
+  const unavailable: PersonalEnv = {
+    ...dbs,
+    PUBLIC_AGGREGATE_DB: {
+      prepare(sql) {
+        if (sql.startsWith("INSERT INTO privacy_intents")) throw new Error("admission_outage");
+        return publicDb.prepare(sql);
+      },
+      batch: (statements) => publicDb.batch(statements),
+      exec: (sql) => publicDb.exec(sql),
+    },
+  };
+  await runInactivityDeletion(unavailable, DUE);
+  expect(
+    await dbs.PERSONAL_DB.prepare(
+      "SELECT blocked, inactivity_retry_after FROM accounts WHERE user_id = 'first'",
+    ).first(),
+  ).toEqual({ blocked: 0, inactivity_retry_after: DUE + 60_000 });
+  expect(await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM deletion_jobs").first()).toEqual({
+    n: 0,
+  });
+  // At the next hourly lane, both are due: never-attempted second still goes first.
+  await runInactivityDeletion(dbs, DUE + 3_600_000);
+  expect(await dbs.PERSONAL_DB.prepare("SELECT user_id FROM accounts").first()).toEqual({
+    user_id: "first",
+  });
+  await runInactivityDeletion(dbs, DUE + 3_600_000);
+  expect(await accounts()).toBe(0);
+});
+
+it("does not retry a lone failed candidate before its backoff expires", async () => {
+  await seed("retry");
+  const publicDb = dbs.PUBLIC_AGGREGATE_DB;
+  await runInactivityDeletion(
+    {
+      ...dbs,
+      PUBLIC_AGGREGATE_DB: {
+        prepare() {
+          throw new Error("pre_block_outage");
+        },
+        batch: (statements) => publicDb.batch(statements),
+        exec: (sql) => publicDb.exec(sql),
+      },
+    },
+    DUE,
+  );
+  await runInactivityDeletion(dbs, DUE + 59_999);
+  expect(await accounts()).toBe(1);
+  await runInactivityDeletion(dbs, DUE + 60_000);
+  expect(await accounts()).toBe(0);
+});

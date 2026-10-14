@@ -168,6 +168,8 @@ export async function reapplyUserTombstones(env: PersonalEnv, userId: string): P
 
 /** Restore/maintenance only. Never called automatically from an HTTP request. O(T) tombstones. */
 export async function reapplyTombstones(env: PersonalEnv): Promise<void> {
+  if (env.PUBLICATION_ENABLED !== "true")
+    await env.PERSONAL_DB.prepare("DELETE FROM self_percentiles").run();
   let cursor = "";
   for (;;) {
     const result = await env.PRIVACY_CONTROL_DB.batch([

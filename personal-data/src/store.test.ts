@@ -81,6 +81,25 @@ async function setQuota(bytes: number): Promise<void> {
     .run();
 }
 
+it("restored beta ranks are not user quota and restore maintenance purges them without a tombstone", async () => {
+  await signup();
+  const before = await getWorkspace(dbs.PERSONAL_DB, "u1");
+  await dbs.PERSONAL_DB.prepare(
+    "INSERT INTO self_percentiles VALUES ('u1', 'restored-unavailable', 'R', ?)",
+  )
+    .bind(JSON.stringify({ restoredDerivedPayload: "x".repeat(20_000) }))
+    .run();
+  expect((await getWorkspace(dbs.PERSONAL_DB, "u1"))?.quota).toEqual(before?.quota);
+  // Rank bytes cannot reject new user-authored archive content.
+  await setQuota(10_000);
+  expect((await putWorkspace(dbs.PERSONAL_DB, "u1", archiveSave(), NOW)).status).toBe("saved");
+  const saved = await getWorkspace(dbs.PERSONAL_DB, "u1");
+  await reapplyTombstones(dbs);
+  expect(await count(dbs.PERSONAL_DB, "self_percentiles")).toBe(0);
+  expect(await getWorkspace(dbs.PERSONAL_DB, "u1")).toEqual(saved);
+  expect(await count(dbs.PERSONAL_DB, "accounts")).toBe(1);
+});
+
 beforeEach(async () => {
   await resetFixture(dbs);
 });

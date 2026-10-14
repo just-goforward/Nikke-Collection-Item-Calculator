@@ -27,8 +27,7 @@ function canonical(value: Json): string {
 
 const usedBytes = `(length(CAST(w.document AS BLOB))
   + COALESCE((SELECT sum(length(CAST(summary AS BLOB))) FROM stage_summaries WHERE user_id = w.user_id), 0)
-  + COALESCE((SELECT sum(length(CAST(payload AS BLOB))) FROM pending_archives WHERE user_id = w.user_id), 0)
-  + COALESCE((SELECT sum(length(CAST(payload AS BLOB))) FROM self_percentiles WHERE user_id = w.user_id), 0))`;
+  + COALESCE((SELECT sum(length(CAST(payload AS BLOB))) FROM pending_archives WHERE user_id = w.user_id), 0))`;
 
 /** Internal post-OIDC-verification port, not an exposed signup API. */
 export async function admitAccount(
@@ -166,7 +165,6 @@ export async function putWorkspace(
     + ?
     + COALESCE((SELECT sum(length(CAST(payload AS BLOB))) FROM pending_archives WHERE user_id = w.user_id), 0)
     + length(CAST(? AS BLOB))
-    + COALESCE((SELECT sum(length(CAST(payload AS BLOB))) FROM self_percentiles WHERE user_id = w.user_id), 0)
   ) <= (SELECT quota_bytes FROM accounts WHERE user_id = w.user_id)`
     : "";
   const archiveGuard = archive

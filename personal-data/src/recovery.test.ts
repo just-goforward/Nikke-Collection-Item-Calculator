@@ -6,7 +6,7 @@ import { reconcilePrivacyIntents, withPrivacyIntent } from "./privacy";
 import { admitAccount } from "./store";
 import { type FixtureEnv, resetFixture } from "./test-fixture";
 import type { PersonalEnv, SqlDatabase, SqlStatement } from "./types";
-import worker from "./worker";
+import worker, { scheduledLane } from "./worker";
 
 const dbs = env as unknown as FixtureEnv;
 const NOW = Date.UTC(2026, 8, 2);
@@ -210,27 +210,36 @@ it("a recovery admission after the cross-store snapshot prevents clearing orphan
 });
 
 /** Conservatively count each batch statement, not just one binding round-trip. */
-function metered(db: SqlDatabase, add: (n: number) => void): SqlDatabase {
+function metered(
+  db: SqlDatabase,
+  add: (n: number) => void,
+  before: (sql: string) => void = () => undefined,
+): SqlDatabase {
   const originals = new WeakMap<SqlStatement, SqlStatement>();
-  const wrap = (statement: SqlStatement): SqlStatement => {
+  const queries = new WeakMap<SqlStatement, string>();
+  const wrap = (statement: SqlStatement, sql: string): SqlStatement => {
     const wrapped: SqlStatement = {
-      bind: (...values) => wrap(statement.bind(...values)),
+      bind: (...values) => wrap(statement.bind(...values), sql),
       run<T>() {
         add(1);
+        before(sql);
         return statement.run<T>();
       },
       first<T>() {
         add(1);
+        before(sql);
         return statement.first<T>();
       },
     };
     originals.set(wrapped, statement);
+    queries.set(wrapped, sql);
     return wrapped;
   };
   return {
-    prepare: (sql) => wrap(db.prepare(sql)),
+    prepare: (sql) => wrap(db.prepare(sql), sql),
     batch(statements) {
       add(statements.length);
+      for (const statement of statements) before(queries.get(statement) ?? "");
       return db.batch(statements.map((statement) => originals.get(statement) ?? statement));
     },
     exec(sql) {
@@ -239,7 +248,7 @@ function metered(db: SqlDatabase, add: (n: number) => void): SqlDatabase {
     },
   };
 }
-it("each cron lane stays below 40 statements, even with ready work in every lane", async () => {
+async function readyWork() {
   await admitAccount(
     dbs.PERSONAL_DB,
     { issuer: "https://accounts.google.com", sub: "due" },
@@ -269,20 +278,140 @@ it("each cron lane stays below 40 statements, even with ready work in every lane
   )
     .bind(NOW)
     .run();
-  for (const cron of ["0-59/10 * * * *", "1-59/10 * * * *", "2-59/10 * * * *", "3-59/10 * * * *"]) {
-    let count = 0;
-    const add = (n: number) => {
-      count += n;
-    };
-    const measured: PersonalEnv = {
+}
+
+const ceilings = [3, 24, 27, 27, 19, 8] as const;
+function laneTime(lane: number) {
+  return NOW + lane * 10 * 60_000;
+}
+function measure(flags: Partial<PersonalEnv> = {}, failure = "") {
+  let count = 0;
+  let failed = false;
+  const add = (n: number) => {
+    count += n;
+  };
+  const before = (sql: string) => {
+    if (!failed && failure && sql.startsWith(failure)) {
+      failed = true;
+      throw new Error("injected_statement_outage");
+    }
+  };
+  return {
+    count: () => count,
+    failed: () => failed,
+    env: {
       ...dbs,
       PUBLICATION_ENABLED: "true",
-      PERSONAL_DB: metered(dbs.PERSONAL_DB, add),
-      PRIVACY_CONTROL_DB: metered(dbs.PRIVACY_CONTROL_DB, add),
-      PUBLIC_AGGREGATE_DB: metered(dbs.PUBLIC_AGGREGATE_DB, add),
-    };
-    await worker.scheduled({ scheduledTime: NOW, cron }, measured);
-    expect(count).toBeLessThan(40);
-    expect(count).toBeGreaterThan(3);
+      ...flags,
+      PERSONAL_DB: metered(dbs.PERSONAL_DB, add, before),
+      PRIVACY_CONTROL_DB: metered(dbs.PRIVACY_CONTROL_DB, add, before),
+      PUBLIC_AGGREGATE_DB: metered(dbs.PUBLIC_AGGREGATE_DB, add, before),
+    } satisfies PersonalEnv,
+  };
+}
+
+it("selects all six UTC lanes from scheduledTime across hour/day boundaries, not delivery time", () => {
+  for (const hour of [NOW, NOW + 23 * 3_600_000, NOW + 24 * 3_600_000]) {
+    for (let lane = 0; lane < 6; lane++) {
+      expect(scheduledLane(hour + lane * 600_000)).toBe(lane);
+      expect(scheduledLane(hour + (lane + 1) * 600_000 - 1)).toBe(lane);
+    }
+  }
+});
+
+it.each([0, 1, 2, 3, 4, 5])(
+  "lane %i respects its documented ceiling and isolates other ready queues",
+  async (lane) => {
+    await readyWork();
+    const measured = measure();
+    await worker.scheduled({ scheduledTime: laneTime(lane), cron: "*/10 * * * *" }, measured.env);
+    expect(measured.count()).toBeLessThanOrEqual(ceilings[lane]!);
+    expect(measured.count()).toBeGreaterThanOrEqual(3);
+    expect(
+      await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM deletion_jobs").first(),
+    ).toEqual({ n: lane === 1 ? 0 : 1 });
+    expect(
+      await dbs.PRIVACY_CONTROL_DB.prepare(
+        "SELECT count(*) AS n FROM consent_reservations",
+      ).first(),
+    ).toEqual({ n: lane === 2 ? 0 : 1 });
+    expect(
+      await dbs.PERSONAL_DB.prepare(
+        "SELECT count(*) AS n FROM accounts WHERE user_id = 'due'",
+      ).first(),
+    ).toEqual({ n: lane === 3 ? 0 : 1 });
+  },
+);
+
+it("full publication and gated reconciliation obey their own ceilings", async () => {
+  const publication = measure();
+  await worker.scheduled({ scheduledTime: laneTime(4) }, publication.env);
+  expect(publication.count()).toBeLessThanOrEqual(ceilings[4]);
+  expect(
+    await dbs.PUBLIC_AGGREGATE_DB.prepare(
+      "SELECT count(*) AS n FROM weekly_releases WHERE state = 'published'",
+    ).first(),
+  ).toEqual({ n: 1 });
+  const recovery = measure(maintenance);
+  await worker.scheduled({ scheduledTime: laneTime(5) }, recovery.env);
+  expect(recovery.count()).toBeLessThanOrEqual(ceilings[5]);
+  expect(
+    await dbs.PUBLIC_AGGREGATE_DB.prepare("SELECT reconciliation_gate FROM privacy_fence").first(),
+  ).toEqual({ reconciliation_gate: 0 });
+});
+
+it.each([
+  { lane: 1, failure: "INSERT INTO privacy_operations", backoff: "deletion" },
+  { lane: 1, failure: "DELETE FROM privacy_intents", backoff: "deletion" },
+  { lane: 2, failure: "INSERT INTO consent_decisions", backoff: "consent" },
+  { lane: 2, failure: "SELECT participation", backoff: "consent" },
+  { lane: 3, failure: "INSERT INTO privacy_intents", backoff: "inactivity" },
+  { lane: 3, failure: "INSERT INTO privacy_operations", backoff: "" },
+])(
+  "lane $lane stays within its ceiling on $failure and isolates failure/backoff",
+  async ({ lane, failure, backoff }) => {
+    await readyWork();
+    const measured = measure({}, failure);
+    await worker.scheduled({ scheduledTime: laneTime(lane) }, measured.env);
+    expect(measured.failed()).toBe(true);
+    expect(measured.count()).toBeLessThanOrEqual(ceilings[lane]!);
+    const time = laneTime(lane) + 60_000;
+    if (backoff === "deletion") {
+      // A failed release after completed deletion has no surviving job to back off.
+      const row = await dbs.PERSONAL_DB.prepare(
+        "SELECT retry_after FROM deletion_jobs WHERE user_id = 'deleting'",
+      ).first();
+      expect(row).toEqual(failure === "DELETE FROM privacy_intents" ? null : { retry_after: time });
+    } else if (backoff === "consent") {
+      const row = await dbs.PRIVACY_CONTROL_DB.prepare(
+        "SELECT maintenance_after FROM consent_reservations WHERE user_id = 'consent'",
+      ).first();
+      expect(row).toEqual(failure === "SELECT participation" ? null : { maintenance_after: time });
+    } else if (backoff === "inactivity") {
+      expect(
+        await dbs.PERSONAL_DB.prepare(
+          "SELECT inactivity_retry_after, blocked FROM accounts WHERE user_id = 'due'",
+        ).first(),
+      ).toEqual({ inactivity_retry_after: time, blocked: 0 });
+    }
+  },
+);
+
+it.each([
+  { lane: 1, failure: "DELETE FROM identity_deletion_fences" },
+  { lane: 4, failure: "INSERT INTO weekly_releases" },
+  { lane: 5, failure: "DELETE FROM privacy_intents" },
+])("lane $lane reports $failure without exceeding its ceiling", async ({ lane, failure }) => {
+  if (lane === 1) await readyWork();
+  const measured = measure(lane === 5 ? maintenance : {}, failure);
+  await expect(worker.scheduled({ scheduledTime: laneTime(lane) }, measured.env)).rejects.toThrow(
+    "maintenance_failed",
+  );
+  expect(measured.failed()).toBe(true);
+  expect(measured.count()).toBeLessThanOrEqual(ceilings[lane]!);
+  if (lane === 1) {
+    expect(
+      await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM deletion_jobs").first(),
+    ).toEqual({ n: 0 });
   }
 });

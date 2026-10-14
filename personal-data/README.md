@@ -16,8 +16,11 @@ prototype, not an approved beta or production publication design.
 `{"error":"feature_unavailable"}` with no-store while disabled, without reading
 publication/rank stores or requiring a session. The disabled coordinator neither
 reads contributions nor computes or stores self ranks, including on its cron lane.
-Consent storage and GET/PUT APIs remain available, but consent has **no publication
-or population-ranking effect** while disabled; it cannot enable this feature.
+Consent GET remains available for historical decisions; `PUT /v1/consent` and
+`PUT /api/personal/settings` return the same **404 feature_unavailable** during
+beta, without session or consent-store access. The retained write implementation
+is only exercised in explicitly enabled local prototype tests.
+Beta-era decisions have **no publication or population-ranking effect**.
 Existing privacy withdrawal/deletion safeguards remain active.
 
 **Production gate — revisit, do not enable:** public statistics and population
@@ -25,7 +28,24 @@ ranks are deferred until **after the beta** and require a redesigned,
 independently reviewed publication policy with **user-level differential privacy,
 fixed taxonomy, monthly cadence, and withdrawal takedown**. The weekly k-suppressed
 prototype below does not satisfy that gate. Changing the flag is not sufficient
-approval to publish.
+approval to publish. Any future publication must **re-collect explicit consent
+bound to the reviewed publication policy version**; beta-era decisions never
+count as consent to that policy and must never be migrated into eligibility.
+Additional re-enable gates remain **R2-PD-02** (the week check must be part of
+atomic publisher admission), **R1-03**, **R1-05**, **R1-06**, and **N-PD-1**.
+Export may then include only ranks bound to the **currently published,
+non-invalidated release**, respecting the current privacy fence; the retained
+enabled prototype's export is not approved for post-beta use.
+
+During beta, no ranks are offered, including through export: disabled export
+returns `selfPercentiles: []` even for pre-existing/restored rows. Ranks are
+derived data, not user content, and are excluded from measured content quota and
+new-archive quota checks. PERSONAL migration `0008` deletes all prototype rank
+rows as a **beta reset of derived data** (nothing is deployed yet); personal
+documents, stages, archives, sessions and privacy authority are preserved.
+Restore maintenance (`reapplyTombstones`, before gated reconciliation) purges restored
+rank rows before service resumes. Re-running the migration ledger alone is not
+enough after a restore that has already applied `0008`.
 
 Inactivity is measured by successful **login + save only**. Consent, polling and
 session touches do not refresh it. The shared-device frontend default is to keep
@@ -61,8 +81,8 @@ retain their existing JSON status/error contracts.
 | --- | --- |
 | GET `/v1/workspace` | userId, revision, lastOpId, document, measured content quota |
 | PUT `/v1/workspace` | `{opId, baseRevision, document, action}`; saved/replay, revision conflict, reused-op conflict, archive-quota result |
-| GET `/v1/export` | versioned personal document, stages, pending archives, consent, frozen self-percentiles |
-| GET/PUT `/v1/consent` | GET includes userId and nullable initial decision; PUT uses explicit boolean, decision-version CAS, opId |
+| GET `/v1/export` | versioned personal document, stages, pending archives, historical consent; empty selfPercentiles during beta |
+| GET/PUT `/v1/consent` | GET includes userId and historical nullable decision; PUT (including settings alias) returns 404 feature-unavailable during beta |
 | DELETE `/v1/account` | opId; fenced privacy operation acknowledgement |
 | POST `/v1/sessions/revoke-all` | opId; revoke all server sessions including current |
 | GET `/v1/statistics` | 404 feature-unavailable during beta; disabled weekly prototype retained locally |
@@ -77,9 +97,10 @@ newer document with a replay acknowledgement. Unknown/expired opIds use CAS;
 there is no indefinite replay promise.
 
 One account has exactly one workspace and one Google `(issuer, sub)` identity.
-Email is neither stored nor used to link accounts. Consent is asked once at first
-login (`null` = not decided, default exclusion), editable in settings, never a
-prerequisite for personal functionality. Consent API uses CAS and operation hashes.
+Email is neither stored nor used to link accounts. During beta consent is not
+collected or editable; `null` and historical decisions remain excluded. Consent
+is never a prerequisite for personal functionality. The retained local prototype
+write API uses CAS and operation hashes, not policy-version-bound consent.
 
 Stage summaries are lifetime, per-item/per-stage, editable in beta. Manual-entry
 and verification flags travel with them. Pre-signup income stays personal and
@@ -125,7 +146,8 @@ any constraint failure rolls back document and success record. Hash history is
 kept for 30 days and pruned only after a winning save.
 
 The beta's nominal quota is **1,500,000 logical UTF-8 content bytes**, including
-workspace, stage-summary JSON, pending-archive JSON and self-percentile JSON.
+workspace, stage-summary JSON and pending-archive JSON. Derived self-percentiles
+are excluded, including any restored prototype rows.
 These are not physical SQLite/database bytes; indexes, row metadata, identity,
 sessions and op hashes are excluded. New archives are atomically rejected if
 their resulting content total exceeds quota. A trigger also protects direct
@@ -334,8 +356,8 @@ missed cleanup must be monitored before production. Restored old user IDs stay
 denied/re-deleted by durable user-ID tombstones; fresh rejoin IDs are unaffected.
 Consent re-opt-in uses a later fence generation; old withdrawal tombstones are
 retained but do not override a newer authoritative opt-in. M8 publication
-is disabled by default, and frozen ranks are served only for eligible,
-unfenced releases.
+is disabled by default; no frozen ranks are served during beta. Future rank
+serving requires the reviewed export/current-release gates stated above.
 
 ### Evidence, integration and remaining launch gates
 
@@ -430,7 +452,7 @@ before provisioning so a restored old user ID cannot trap a fresh rejoin.
 
 Archive ID reuse with a new opId is an atomic 409 `archive_id_conflict`, not
 a raw UNIQUE-error 503. Export reads a single PERSONAL snapshot containing the
-workspace, every stage/archive/self-percentile row counted toward logical quota,
+workspace and every stage/archive row counted toward logical quota,
 and account `createdAt`/`lastActiveAt`, regardless of consent or publication.
 The separate self-percentile display endpoint still filters unavailable releases.
 Multibyte quota tests use CJK, accented text and supplementary Unicode.
@@ -441,12 +463,16 @@ Multibyte quota tests use CJK, accented text and supplementary Unicode.
 PERSONAL/PRIVACY `0002` add auth/consent; `0003` replaces permanent identity bans with expiring
 flow-generation fences and adds scoped consent reservations; `0004` adds bounded
 job retry indexes and resumable consent attempt leases. PERSONAL `0005` adds
-the inactivity index; PUBLIC `0002` adds publication intents, staging and
+the inactivity index; PERSONAL `0007` adds a default-zero per-candidate inactivity
+retry timestamp and replaces that index without changing existing account data.
+PERSONAL `0008` resets derived ranks for beta, deliberately preserving no
+prototype self-percentiles; ranks are no longer user-content quota.
+PUBLIC `0002` adds publication intents, staging and
 conditional-activation triggers without discarding existing releases. Upgrade tests seed
 populated M1 and populated `0002` records, apply later migrations using
 the migration ledger, and compare all protected fields before/after. Identities,
 active and expired hashed sessions with their original idle/absolute deadlines,
-workspace revision/document/last-op, operation hashes, stages, archives, ranks,
+workspace revision/document/last-op, operation hashes, stages, archives,
 account timestamps, consent, tombstones, public fence/pointer/releases and
 disclosure history are preserved. Old pending/consumed OAuth transactions are
 deliberately discarded: those browser flows must restart. `0003` also discards
@@ -520,7 +546,8 @@ subject, account metadata, item ID or raw income is published. Top/bottom bands
 are censored tails, not assertions that the actual extremes are 0/1000.
 Private percentile intervals use only this rounded published distribution, not
 hidden exact ranks, and are immutable for each release even after a personal edit.
-Ranks accumulate as quota-counted personal rows; only new archiving is quota-blocked.
+Prototype rank rows are derived, not quota-counted user content; beta reset and
+restore maintenance delete them. Only new archiving is quota-blocked.
 Stage names follow the M0 stage identifier contract; a reviewed public stage
 taxonomy and disclosure/differencing analysis remain production review concerns.
 
@@ -598,7 +625,8 @@ maintenance mode under separate operational authorization:
    `"true"`. The flag is an **operator assertion**, not a distributed proof
    that older isolates/ambiguous D1 writes have stopped. All HTTP requests in
    this mode refuse work; only the bounded cron recovery lanes run.
-2. The publication lane now calls `reconcilePrivacyIntents`, not the publisher.
+2. The dedicated reconciliation lane calls `reconcilePrivacyIntents`; the
+   publication lane refuses to publish in maintenance mode.
    It closes PUBLIC admission and keeps publication blocked, checks that all
    PERSONAL deletion jobs and PRIVACY reservations/pending operations are gone,
    and refuses to reconcile while any intent has an unexpired ten-minute lease.
@@ -609,8 +637,18 @@ maintenance mode under separate operational authorization:
    the decision. It then reopens admission, **never clears `blocked`**, never
    resets generation, and never removes a publisher token or unfinished privacy
    record. Unknown publisher recovery remains deferred to the publication review.
-4. Verify current tombstone replay/restore gates and completed jobs, then exit
-   maintenance mode. Enabling publication is a separate explicit decision.
+4. Verify current tombstone replay/restore gates and completed jobs. Before
+   turning `PRIVACY_RECONCILE_QUIESCENT` off, confirm **`reconciliation_gate = 0`**
+   on the PUBLIC database for the exact authorized environment:
+   `SELECT reconciliation_gate, pending_intents, blocked FROM privacy_fence WHERE singleton = 1;`.
+   In a local scaffold, use
+   `npx wrangler d1 execute public-aggregate-local --local --config personal-data/wrangler.toml --command "SELECT reconciliation_gate, pending_intents, blocked FROM privacy_fence WHERE singleton = 1;"`.
+   A deployed check requires separate operational authorization and the actual
+   environment/database, never the local placeholder or a guessed target.
+   Missing rows, errors or `reconciliation_gate = 1` are **not** permission to exit:
+   keep maintenance on, finish recovery and recheck. Successful recovery leaves
+   `pending_intents = 0` and `blocked = 1`. Only then exit maintenance mode.
+   Enabling publication is a separate explicit decision.
 
 A failure before any durable write attempt releases its lease immediately,
 regardless of exception type. Preparation failures are distinguishable from an
@@ -621,23 +659,34 @@ This is intentional fail-closed uncertainty, not an inferred rollback.
 Inactivity remains measured by successful **login + save only**; neither consent,
 polling, recovery, session touches nor publication changes `last_active_at`.
 
-### Four separate local cron lanes
+### One local cron trigger, six isolated lanes
 
-Each invocation performs expiry cleanup (three statements) and only one lane:
+The single `*/10 * * * *` trigger selects
+`floor(UTC minute of scheduledTime / 10) % 6`, not wall-clock delivery time or
+the cron string. Each invocation performs expiry cleanup (three statements) and
+only the selected lane; no failed lane dispatches another. Every lane runs once
+per hour. Slot zero is cleanup only. Publication and reconciliation are separate;
+reconciliation is inert without the explicit maintenance flag.
 
-| Cron | Lane | Conservative maximum application statements including cleanup |
+| UTC minute / slot | Lane | Conservative maximum application statements including cleanup |
 | --- | --- | --- |
-| `0-59/10 * * * *` | One oldest ready deletion job | 24 |
-| `1-59/10 * * * *` | One stale consent reservation | 27 |
-| `2-59/10 * * * *` | One inactivity candidate | 27 |
-| `3-59/10 * * * *` | Publication, or gated reconciliation | 19, or 8 |
+| 00 / 0 | Cleanup only | 3 |
+| 10 / 1 | One oldest ready deletion job | 24 |
+| 20 / 2 | One stale consent reservation | 27 |
+| 30 / 3 | One inactivity candidate | 27 |
+| 40 / 4 | Publication (disabled during beta) | 19 |
+| 50 / 5 | Gated reconciliation | 8 |
 
 The ceilings include known failure cleanup/backoff paths and count **each batch
 statement**, not just one D1 round-trip. There is no recursive drain in an
-invocation. Local metered tests assert every ready-work lane uses fewer than 40
-statements. These are bounded call/query counts, not a guarantee about rows
-scanned, CPU, billing or repeated platform invocations. Four crons are prepared
-locally only; account-wide cron availability must be checked before deployment.
+invocation. Local metered tests assert these per-lane ceilings for ready work
+and failure/backoff paths. Before an inactivity candidate is blocked, failures
+set that candidate's retry timestamp one minute ahead. Due candidates are ordered
+by retry timestamp then activity/user ID, so fresh candidates precede a failing
+prefix even at the next hourly invocation. After blocking, deletion-job recovery
+owns retries. These are bounded call/query counts, not a guarantee about rows
+scanned, CPU, billing or repeated platform invocations. One cron is prepared
+locally only; deployment still requires separate authorization.
 
 Official docs retrieved read-only for this review:
 <https://developers.cloudflare.com/workers/platform/limits/#subrequests> defines

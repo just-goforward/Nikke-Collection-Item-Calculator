@@ -62,7 +62,10 @@ async function harness() {
   const request = (path: string, init: RequestInit = {}) =>
     worker.fetch(
       new Request(path.startsWith("https:") ? path : `${TEST_ORIGIN}${path}`, init),
-      databases,
+      // Explicitly enabled local prototype coverage; beta refusal is tested separately.
+      init.method === "PUT" && ["/v1/consent", "/api/personal/settings"].includes(path)
+        ? { ...databases, PUBLICATION_ENABLED: "true" }
+        : databases,
     );
   const mutate = (path: string, value: unknown, session = "", method = "POST") =>
     request(path, {
@@ -123,6 +126,10 @@ async function harness() {
       time += milliseconds;
     },
     time: () => time,
+    alignLane(lane: number) {
+      const minute = new Date(time).getUTCMinutes();
+      time += ((60 + lane * 10 - minute) % 60) * 60_000;
+    },
     accountId: (cookie: string) => accountIds.get(cookie),
   };
 }
@@ -599,6 +606,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     const publicDb = databases.PUBLIC_AGGREGATE_DB;
     const unavailable: PersonalEnv = {
       ...databases,
+      PUBLICATION_ENABLED: "true",
       PUBLIC_AGGREGATE_DB: {
         prepare(sql) {
           if (sql.startsWith("UPDATE privacy_fence")) throw new Error("PRIVATE_FAILURE_CANARY");
@@ -694,7 +702,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     const exported = await (
       await h.request("/v1/export", { headers: { Cookie: login.cookie } })
     ).json();
-    const bytes = [document, summary, archive, rank].reduce(
+    const bytes = [document, summary, archive].reduce(
       (total, value) => total + new TextEncoder().encode(JSON.stringify(value)).byteLength,
       0,
     );
@@ -703,7 +711,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       workspace: { revision: 1, document, quota: { bytes } },
       stages: [summary],
       pendingArchives: [archive],
-      selfPercentiles: [rank],
+      selfPercentiles: [],
       consent: { participation: false, decisionVersion: 1 },
     });
     expect(
@@ -1035,6 +1043,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
 
   it("a failed deletion completes by cron without login, removes owned rows and frees an admission slot", async () => {
     const h = await harness();
+    h.alignLane(1);
     const login = await h.login();
     const userId = h.accountId(login.cookie) ?? "";
     await h.mutate("/v1/workspace", put(), login.cookie, "PUT");
@@ -1114,6 +1123,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
 
   it("cron processes one oldest ready deletion per invocation and isolates a stuck first job", async () => {
     const h = await harness();
+    h.alignLane(1);
     await databases.PUBLIC_AGGREGATE_DB.prepare("UPDATE privacy_fence SET generation = 1").run();
     for (let i = 0; i < 6; i++) {
       await databases.PERSONAL_DB.batch([
@@ -1176,6 +1186,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
 
   it("cron still completes privacy recovery when its expiry cleanup batch fails", async () => {
     const h = await harness();
+    h.alignLane(1);
     const login = await h.login();
     const userId = h.accountId(login.cookie) ?? "";
     await databases.PUBLIC_AGGREGATE_DB.prepare("UPDATE privacy_fence SET generation = 1").run();
@@ -1221,6 +1232,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
 
   it("cron resumes one stale consent reservation per invocation and leaves a live attempt leased", async () => {
     const h = await harness();
+    h.alignLane(2);
     const hash = await sha256(JSON.stringify([0, true]));
     for (let i = 0; i < 7; i++) {
       await databases.PERSONAL_DB.prepare(
@@ -1245,7 +1257,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
         .run();
     }
     for (let i = 0; i < 5; i++) {
-      await h.worker.scheduled({ scheduledTime: h.time(), cron: "1-59/10 * * * *" }, databases);
+      await h.worker.scheduled({ scheduledTime: h.time(), cron: "*/10 * * * *" }, databases);
     }
     expect(
       (
@@ -1265,7 +1277,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       "SELECT attempt_nonce FROM consent_reservations WHERE user_id = 'consent-job-6'",
     ).first<{ attempt_nonce: string }>();
     expect(live?.attempt_nonce).toBe("live-attempt");
-    await h.worker.scheduled({ scheduledTime: h.time(), cron: "1-59/10 * * * *" }, databases);
+    await h.worker.scheduled({ scheduledTime: h.time(), cron: "*/10 * * * *" }, databases);
     expect(
       (
         await databases.PRIVACY_CONTROL_DB.prepare(
@@ -1282,6 +1294,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     const privacy = databases.PRIVACY_CONTROL_DB;
     const unavailable: PersonalEnv = {
       ...databases,
+      PUBLICATION_ENABLED: "true",
       PRIVACY_CONTROL_DB: {
         prepare(sql) {
           if (sql.startsWith("INSERT INTO consent_decisions"))
@@ -1424,7 +1437,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect(await count("pending_archives")).toBe(0);
   });
 
-  it("disabled public and self-percentile endpoints return feature-unavailable without accessing any store", async () => {
+  it("disabled statistics, ranks and consent writes return feature-unavailable without accessing any store", async () => {
     const h = await harness();
     const login = await h.login();
     const unavailable = () => {
@@ -1432,10 +1445,19 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     };
     const db = { prepare: unavailable, batch: unavailable, exec: unavailable };
     for (const flag of ["false", "", "TRUE"]) {
-      for (const path of ["/v1/statistics", "/v1/self-percentile"]) {
+      for (const path of [
+        "/v1/statistics",
+        "/v1/self-percentile",
+        "/v1/consent",
+        "/api/personal/settings",
+      ]) {
         for (const cookie of ["", login.cookie]) {
           const result = await h.worker.fetch(
-            new Request(`${TEST_ORIGIN}${path}`, { headers: { Cookie: cookie } }),
+            new Request(`${TEST_ORIGIN}${path}`, {
+              method: path.includes("consent") || path.includes("settings") ? "PUT" : "GET",
+              headers: { Cookie: cookie, Origin: TEST_ORIGIN },
+              // No body/account context: disabled writes must not try to parse or authorize.
+            }),
             {
               ...databases,
               PUBLICATION_ENABLED: flag,

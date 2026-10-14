@@ -82,7 +82,7 @@ it("publication is disabled by default: opted-in accounts produce no releases or
   await seed();
   expect(await publishWeekly(dbs, NOW)).toBe("disabled");
   await worker.scheduled(
-    { scheduledTime: NOW, cron: "3-59/10 * * * *" },
+    { scheduledTime: NOW + 40 * 60_000, cron: "*/10 * * * *" },
     { ...enabled, PUBLICATION_ENABLED: "false" },
   );
   expect(

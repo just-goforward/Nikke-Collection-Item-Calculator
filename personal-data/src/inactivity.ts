@@ -35,9 +35,9 @@ export async function runInactivityDeletion(env: PersonalEnv, now: number): Prom
     env.PERSONAL_DB.prepare(
       `SELECT a.user_id, a.last_active_at, i.issuer, i.subject
        FROM accounts a JOIN identities i USING(user_id)
-       WHERE a.blocked = 0 AND a.last_active_at <= ?
-       ORDER BY a.last_active_at, a.user_id LIMIT 1`,
-    ).bind(candidateCutoff),
+       WHERE a.blocked = 0 AND a.inactivity_retry_after <= ? AND a.last_active_at <= ?
+       ORDER BY a.inactivity_retry_after, a.last_active_at, a.user_id LIMIT 1`,
+    ).bind(now, candidateCutoff),
   ]);
   for (const raw of result[0]?.results ?? []) {
     const row = raw as {
@@ -58,6 +58,15 @@ export async function runInactivityDeletion(env: PersonalEnv, now: number): Prom
         now,
         row.last_active_at,
       );
-    } catch {}
+    } catch {
+      // Before blocking there is no deletion job to back off. Keep this candidate from
+      // monopolizing selection, without delaying a concurrently refreshed account.
+      await env.PERSONAL_DB.prepare(
+        `UPDATE accounts SET inactivity_retry_after = ?
+         WHERE user_id = ? AND blocked = 0 AND last_active_at = ?`,
+      )
+        .bind(now + 60_000, row.user_id, row.last_active_at)
+        .run();
+    }
   }
 }

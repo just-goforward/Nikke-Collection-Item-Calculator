@@ -76,6 +76,11 @@ const aliases: Record<string, string> = {
   "/api/personal/settings": "/v1/consent",
 };
 
+/** One UTC ten-minute slot per lane; delayed delivery must not change the selected lane. */
+export function scheduledLane(scheduledTime: number): number {
+  return Math.floor(new Date(scheduledTime).getUTCMinutes() / 10) % 6;
+}
+
 export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number = Date.now) {
   const provider = googleProvider(fetchImpl);
 
@@ -342,7 +347,9 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
         const effective = aliases[path] ?? path;
         if (
           env.PUBLICATION_ENABLED !== "true" &&
-          (effective === "/v1/statistics" || effective === "/v1/self-percentile")
+          (effective === "/v1/statistics" ||
+            effective === "/v1/self-percentile" ||
+            (effective === "/v1/consent" && request.method === "PUT"))
         ) {
           return response({ error: "feature_unavailable" }, 404);
         }
@@ -454,7 +461,7 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
               account.userId,
             ),
             env.PERSONAL_DB.prepare("SELECT payload FROM self_percentiles WHERE user_id = ?").bind(
-              account.userId,
+              env.PUBLICATION_ENABLED === "true" ? account.userId : null,
             ),
             env.PERSONAL_DB.prepare(
               "SELECT created_at, last_active_at FROM accounts WHERE user_id = ?",
@@ -526,6 +533,7 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
       env: PersonalEnv,
     ): Promise<void> {
       const time = controller.scheduledTime;
+      const lane = scheduledLane(time);
       let failed = false;
       try {
         await env.PERSONAL_DB.batch([
@@ -543,23 +551,20 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
         failed = true;
       }
       try {
-        if (controller.cron === "2-59/10 * * * *") await runInactivityDeletion(env, time);
+        if (lane === 3) await runInactivityDeletion(env, time);
       } catch {
         failed = true;
       }
       try {
-        if (controller.cron === "1-59/10 * * * *")
-          await runPrivacyMaintenance(env, time, "consent");
-        else if (!controller.cron || controller.cron === "0-59/10 * * * *")
-          await runPrivacyMaintenance(env, time, "deletion");
+        if (lane === 2) await runPrivacyMaintenance(env, time, "consent");
+        else if (lane === 1) await runPrivacyMaintenance(env, time, "deletion");
       } catch {
         failed = true;
       }
       try {
-        if (controller.cron === "3-59/10 * * * *") {
-          if (env.PRIVACY_RECONCILE_QUIESCENT === "true") await reconcilePrivacyIntents(env, time);
-          else await publishWeekly(env, time);
-        }
+        if (lane === 4 && env.PRIVACY_RECONCILE_QUIESCENT !== "true")
+          await publishWeekly(env, time);
+        else if (lane === 5) await reconcilePrivacyIntents(env, time);
       } catch {
         failed = true;
       }

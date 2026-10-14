@@ -12,7 +12,7 @@ async function rows(db: SqlDatabase, queries: string[]) {
   return (await db.batch(queries.map((sql) => db.prepare(sql)))).map((result) => result.results);
 }
 
-it("upgrades populated M1 stores without losing personal records, session policy or privacy authority", async () => {
+it("upgrades populated M1 stores preserving user content and authority while resetting beta derived ranks", async () => {
   await resetFixture({
     ...dbs,
     PERSONAL_MIGRATIONS: dbs.PERSONAL_MIGRATIONS.slice(0, 1),
@@ -118,7 +118,6 @@ it("upgrades populated M1 stores without losing personal records, session policy
     "SELECT * FROM operations",
     "SELECT * FROM stage_summaries",
     "SELECT * FROM pending_archives",
-    "SELECT * FROM self_percentiles",
   ];
   const privacy = [
     "SELECT user_id, participation, decision_version, decided_at FROM consent_decisions",
@@ -147,6 +146,14 @@ it("upgrades populated M1 stores without losing personal records, session policy
       rows(dbs.PUBLIC_AGGREGATE_DB, publicQueries),
     ]),
   ).toEqual(before);
+  expect(
+    await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM self_percentiles").first(),
+  ).toEqual({ n: 0 });
+  expect(
+    await dbs.PERSONAL_DB.prepare(
+      "SELECT inactivity_retry_after FROM accounts WHERE user_id = 'upgrade-user'",
+    ).first(),
+  ).toEqual({ inactivity_retry_after: 0 });
   expect(await readSession(dbs.PERSONAL_DB, rawActive, NOW)).toMatchObject({
     userId: "upgrade-user",
     authEpoch: 0,
@@ -170,7 +177,7 @@ it("upgrades populated M1 stores without losing personal records, session policy
   ).toEqual({ n: 4 });
   expect(
     (await rows(dbs.PERSONAL_DB, ["SELECT count(*) AS n FROM d1_migrations"]))[0]?.[0],
-  ).toEqual({ n: 6 });
+  ).toEqual({ n: 8 });
 });
 
 it("upgrades populated 0002 through 0003 and 0004 without losing records or pending deletion work", async () => {
@@ -233,7 +240,7 @@ it("upgrades populated 0002 through 0003 and 0004 without losing records or pend
   ]);
   await dbs.PUBLIC_AGGREGATE_DB.prepare("UPDATE privacy_fence SET generation = 5").run();
   const personal = [
-    "SELECT * FROM accounts ORDER BY user_id",
+    "SELECT user_id, created_at, last_active_at, quota_bytes, public_participation, auth_epoch, blocked FROM accounts ORDER BY user_id",
     "SELECT * FROM identities ORDER BY user_id",
     "SELECT * FROM sessions",
     "SELECT * FROM workspaces",
