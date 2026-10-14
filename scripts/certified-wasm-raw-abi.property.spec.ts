@@ -155,7 +155,7 @@ describe("P4 raw-ABI WireQ grammar of the committed WASM", () => {
     expect(echo(numerator, denominator)).toEqual({ error: "invalid_rational" });
   });
 
-  it.fails.each([
+  it.each([
     ["+5", "1"],
     ["1_0", "1"],
     ["1", "+7"],
@@ -197,7 +197,7 @@ describe("P4 raw-ABI WireQ grammar of the committed WASM", () => {
     HARD_DEADLINE_MS,
   );
 
-  it.fails(
+  it(
     "DEFECT-P4-01 accepts exactly the plan grammar over a mixed alphabet",
     async () => {
       const noisy = fc
