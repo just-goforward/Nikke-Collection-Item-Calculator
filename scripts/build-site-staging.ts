@@ -23,6 +23,7 @@ window.COLLECTION_STATS_CONFIG = {
     turnstileSiteKey: "0x4AAAAAADW5XM4osvVaOofe"
   }
 };
+window.COLLECTION_ACCOUNT_CONFIG = { enabled: true };
 </script>`;
 
 async function htmlPaths(directory: string): Promise<string[]> {

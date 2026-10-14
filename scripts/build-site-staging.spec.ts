@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { build } from "vite";
 import { describe, expect, it } from "vitest";
 import { buildSiteStaging, stagingHeaders, stagingHtml } from "./build-site-staging";
 
@@ -37,7 +38,31 @@ describe("staging build headers", () => {
     expect(headers.split("\n").every((line) => line.length <= 2000)).toBe(true);
     expect(documents[0]).toContain("endpoint: window.location.origin");
     expect(documents[0]).not.toContain("production.invalid");
+    for (const document of documents) {
+      expect(document).toContain("window.COLLECTION_ACCOUNT_CONFIG = { enabled: true };");
+    }
   });
+
+  it("keeps the account config out of production dist HTML in every locale", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "site-production-"));
+    try {
+      await build({
+        configFile: "vite.config.ts",
+        configLoader: "native",
+        build: { outDir: directory },
+      });
+      for (const path of ["index.html", "en/index.html", "ja/index.html"]) {
+        const emitted = await readFile(join(directory, path), "utf8");
+        expect(emitted).not.toContain("COLLECTION_ACCOUNT_CONFIG");
+        expect(emitted).not.toContain('data-site-staging="true"');
+        expect(stagingHtml(emitted)).toContain(
+          "window.COLLECTION_ACCOUNT_CONFIG = { enabled: true };",
+        );
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it("fails closed for missing HTML, missing config and oversized headers", () => {
     expect(() => stagingHeaders([])).toThrow("No emitted HTML");

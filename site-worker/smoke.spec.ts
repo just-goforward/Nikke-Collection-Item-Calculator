@@ -36,6 +36,9 @@ for (const [path, messages] of [
       const response = await page.goto(
         `${path}?${certified ? "engine=certified" : "statsEnv=disabled"}`,
       );
+      expect(await page.evaluate(() => Reflect.get(window, "COLLECTION_ACCOUNT_CONFIG"))).toEqual({
+        enabled: true,
+      });
       expect(response?.headers()["content-security-policy"]).toContain("'wasm-unsafe-eval'");
       expect(response?.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
       expect(response?.headers()["x-robots-tag"]).toContain("noindex");
