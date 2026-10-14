@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, parse, resolve } from "node:path";
 
-const ROOT_VITEST_VERSION = "5.0.3";
+const ROOT_VITEST_VERSION = "5.0.4";
 const WORKER_VITEST_VERSION = "4.1.11";
 const CLOUDFLARE_PLUGIN_VERSION = "1.4.0";
 const WORKER_WORKSPACES = [

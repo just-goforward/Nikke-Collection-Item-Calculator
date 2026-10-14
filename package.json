@@ -186,11 +186,11 @@
     "@stryker-mutator/api": "^10.0.0",
     "@stryker-mutator/core": "^10.0.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^24.19.1",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
-    "@vitest/coverage-v8": "^5.0.3",
+    "@vitest/coverage-v8": "^5.0.4",
     "esbuild": "^0.28.2",
     "fast-check": "^4.10.2",
     "knip": "^6.41.0",
@@ -199,13 +199,13 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
-    "vitest": "^5.0.3",
+    "vitest": "^5.0.4",
     "wrangler": "^4.149.0"
   },
   "dependencies": {
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   },
   "overrides": {
     "fast-uri": "3.1.8",
