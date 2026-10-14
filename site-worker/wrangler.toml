@@ -1,0 +1,58 @@
+# Staging only. Production remains GitHub Pages; no production route exists here.
+name = "collection-kit-site-local"
+main = "src/worker.ts"
+compatibility_date = "2026-10-13"
+workers_dev = false
+preview_urls = false
+upload_source_maps = false
+
+# PLACEHOLDER: account_id = "<STAGING_CLOUDFLARE_ACCOUNT_ID>"
+# Supply the verified account through CLOUDFLARE_ACCOUNT_ID at deployment time.
+# PLACEHOLDER: zone_id = "<NIKKECOLLECTION_COM_ZONE_ID>" (not needed for Custom Domains).
+
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+not_found_handling = "404-page"
+# Asset-first HTML preserves _headers and avoids billed gateway invocations.
+run_worker_first = ["/api", "/api/*", "/auth", "/auth/*", "/account", "/account/*", "/admin", "/admin/*", "/robots.txt"]
+
+[observability]
+enabled = false
+
+[observability.logs]
+enabled = false
+invocation_logs = false
+
+[env.staging]
+name = "collection-kit-site-staging"
+workers_dev = false
+preview_urls = false
+
+[env.staging.assets]
+directory = "../dist"
+binding = "ASSETS"
+not_found_handling = "404-page"
+run_worker_first = ["/api", "/api/*", "/auth", "/auth/*", "/account", "/account/*", "/admin", "/admin/*", "/robots.txt"]
+
+[env.staging.observability]
+enabled = false
+
+[env.staging.observability.logs]
+enabled = false
+invocation_logs = false
+
+[[env.staging.services]]
+binding = "STATS"
+# Existing staging service name from cloudflare/wrangler.toml; verify before provisioning.
+service = "collection-kit-stats-staging"
+
+# Future binding PLACEHOLDER: enable only after its API/security contract is approved.
+# [[env.staging.services]]
+# binding = "PERSONAL_DATA"
+# service = "collection-kit-personal-data-staging"
+
+# Provision separately after explicit domain/DNS approval, then enable this route.
+# [[env.staging.routes]]
+# pattern = "staging.nikkecollection.com"
+# custom_domain = true

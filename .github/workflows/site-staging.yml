@@ -1,0 +1,97 @@
+name: Deploy Cloudflare Site Staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  WRANGLER_SEND_METRICS: "false"
+
+concurrency:
+  group: cloudflare-site-staging
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/next'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+      - name: Install locked dependencies
+        run: |
+          npm install --global npm@12.2.0
+          npm ci
+      - name: Verify without deployment credentials
+        run: |
+          npm run lint
+          npm run typecheck
+          npx tsc --noEmit -p site-worker/tsconfig.json
+          npx vitest run --configLoader runner scripts/build-site-staging.spec.ts scripts/site-worker.spec.ts
+          npm run build
+          node scripts/build-site-staging.ts
+          node scripts/build-site-staging.ts --check
+          npx playwright install --with-deps chromium
+          npx playwright test --config site-worker/playwright.config.ts
+      - name: Upload verified staging assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site-staging-${{ github.sha }}
+          path: dist
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+
+  deploy:
+    needs: verify
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/next'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: staging
+      url: https://staging.nikkecollection.com
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+      - name: Install locked deployment tools
+        run: |
+          npm install --global npm@12.2.0
+          npm ci
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site-staging-${{ github.sha }}
+          path: dist
+      - name: Check exact artifact and explicit provisioning gate
+        env:
+          SITE_STAGING_PROVISIONED: ${{ vars.SITE_STAGING_PROVISIONED }}
+        run: |
+          test "$SITE_STAGING_PROVISIONED" = "true"
+          node scripts/build-site-staging.ts --check
+      - name: Deploy staging only (manual approval required)
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.SITE_STAGING_CLOUDFLARE_API_TOKEN }}
+        run: |
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test -n "$CLOUDFLARE_API_TOKEN"
+          npx wrangler deploy --config site-worker/wrangler.toml --env staging --tag "$GITHUB_SHA" --message "Site staging $GITHUB_SHA"
