@@ -26,12 +26,6 @@ export interface PendingFlow {
   started_epoch: number;
 }
 
-export interface AuthAdapter {
-  authenticate(request: Request): Promise<AuthenticatedAccount | null>;
-  beginGoogleLogin(request: Request): Promise<Response>;
-  completeGoogleLogin(request: Request): Promise<Response>;
-}
-
 export function randomToken(): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)),
     (byte) => byte.toString(16).padStart(2, "0")).join("");

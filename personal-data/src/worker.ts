@@ -3,7 +3,7 @@ import {
   randomToken, readSession, revokeAll, SESSION_COOKIE, SESSION_IDLE_MS, SESSION_MAX_MS,
   sha256, touchSession, type SessionAccount,
 } from "./auth";
-import { consentBody, getConsent, putConsent, queueDeletion, resumeDeletions } from "./consent";
+import { consentBody, getConsent, putConsent, queueDeletion, resumeDeletion } from "./consent";
 import type { Archive, PersonalExport, SelfPercentile, StageSummary } from "./contracts";
 import { googleProvider, settings } from "./google";
 import { body, exactKeys, HttpError, opBody, response, sameOrigin, workspaceBody } from "./http";
@@ -37,14 +37,20 @@ const aliases: Record<string, string> = {
 export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number = Date.now) {
   const provider = googleProvider(fetchImpl);
 
-  async function authorize(request: Request, env: PersonalEnv): Promise<SessionAccount> {
+  async function optionalAccount(request: Request, env: PersonalEnv): Promise<SessionAccount | null> {
     const raw = cookieValue(request, SESSION_COOKIE);
     const account = raw && await readSession(env.PERSONAL_DB, raw, now());
-    if (!account) throw new HttpError(401, "unauthenticated");
+    if (!account) return null;
     const tombstone = await env.PRIVACY_CONTROL_DB.prepare(
-      "SELECT 1 AS denied FROM tombstones WHERE kind = 'deletion' AND (user_id = ? OR identity_hash = ?) LIMIT 1",
-    ).bind(account.userId, await identityHash(account.identity)).first();
-    if (tombstone) throw new HttpError(401, "unauthenticated");
+      "SELECT 1 AS denied FROM tombstones WHERE kind = 'deletion' AND user_id = ? LIMIT 1",
+    ).bind(account.userId).first();
+    if (tombstone) return null;
+    return account;
+  }
+
+  async function authorize(request: Request, env: PersonalEnv): Promise<SessionAccount> {
+    const account = await optionalAccount(request, env);
+    if (!account) throw new HttpError(401, "unauthenticated");
     return account;
   }
 
@@ -56,6 +62,7 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
     const rate = await env.PERSONAL_DB.batch([
       env.PERSONAL_DB.prepare("DELETE FROM oauth_transactions WHERE expires_at <= ?").bind(time),
       env.PERSONAL_DB.prepare("DELETE FROM sessions WHERE idle_expires_at <= ? OR max_expires_at <= ?").bind(time, time),
+      env.PERSONAL_DB.prepare("DELETE FROM identity_deletion_fences WHERE expires_at <= ?").bind(time),
       env.PERSONAL_DB.prepare("DELETE FROM login_rates WHERE bucket < ?").bind(bucket),
       ...[rateKey, "global"].map((key) => env.PERSONAL_DB.prepare(
         `INSERT INTO login_rates VALUES (?, ?, 1)
@@ -105,15 +112,23 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
         throw new HttpError(400, "auth_failed");
       }
       const identity = await provider.exchange(env, url, state, pending);
+      const current = await optionalAccount(request, env);
+      if (current && (current.identity.issuer !== identity.issuer || current.identity.sub !== identity.sub)) {
+        throw new HttpError(409, "account_switch_requires_logout");
+      }
       const hash = await identityHash(identity);
-      const tombstone = await env.PRIVACY_CONTROL_DB.prepare(
-        "SELECT 1 AS denied FROM tombstones WHERE identity_hash = ? AND kind = 'deletion' LIMIT 1",
-      ).bind(hash).first();
-      if (tombstone) throw new HttpError(401, "auth_failed");
+      const existing = await env.PERSONAL_DB.prepare(
+        "SELECT i.user_id, a.blocked FROM identities i JOIN accounts a USING(user_id) WHERE i.issuer = ? AND i.subject = ?",
+      ).bind(identity.issuer, identity.sub).first<{ user_id: string; blocked: number }>();
+      if (existing?.blocked && !await resumeDeletion(env, existing.user_id)) {
+        throw new HttpError(503, "service_unavailable");
+      }
       const raw = randomToken();
       const tokenHash = await sha256(raw);
       const time = now();
-      const provisioning = await provisioningStatements(env.PERSONAL_DB, identity, crypto.randomUUID(), time, false);
+      const provisioning = await provisioningStatements(
+        env.PERSONAL_DB, identity, crypto.randomUUID(), time, false, pending.started_epoch,
+      );
       const results = await env.PERSONAL_DB.batch([
         ...provisioning,
         env.PERSONAL_DB.prepare(
@@ -121,9 +136,10 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
            (token_hash, user_id, created_at, idle_expires_at, max_expires_at, auth_epoch)
            SELECT ?, a.user_id, ?, ?, ?, a.auth_epoch FROM accounts a JOIN identities i USING(user_id)
            WHERE i.issuer = ? AND i.subject = ? AND a.blocked = 0 AND a.auth_epoch <= ?
-           AND NOT EXISTS (SELECT 1 FROM blocked_identities WHERE identity_hash = ?)`,
+           AND NOT EXISTS (SELECT 1 FROM identity_deletion_fences
+                           WHERE identity_hash = ? AND deleted_epoch > ? AND expires_at > ?)`,
         ).bind(tokenHash, time, time + SESSION_IDLE_MS, time + SESSION_MAX_MS,
-          identity.issuer, identity.sub, pending.started_epoch, hash),
+          identity.issuer, identity.sub, pending.started_epoch, hash, pending.started_epoch, time),
         env.PERSONAL_DB.prepare(
           `UPDATE accounts SET last_active_at = max(last_active_at, ?)
            WHERE user_id = (SELECT user_id FROM sessions WHERE token_hash = ?)`,
@@ -180,7 +196,8 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
     });
     const data = await r.json();
     if (r.ok && data.redirect === "/") location.replace("/");
-    else document.body.textContent = "Login failed. Start again.";
+    else document.body.textContent = data.error === "account_switch_requires_logout"
+      ? "Log out before signing in to a different account." : "Login failed. Start again.";
   } catch { document.body.textContent = "Login failed. Start again."; }
 })();
 </script>`;
@@ -190,7 +207,6 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
             "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
           } });
         }
-        await resumeDeletions(env);
         if (path === "/auth/login/google") return await login(request, env);
         if (path === "/auth/callback/google") return await callback(request, env);
         const effective = aliases[path] ?? path;
@@ -212,7 +228,7 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
         }
         const account = await authorize(request, env);
         if (effective === "/v1/account" && request.method === "GET") {
-          return response({ authenticated: true, account: { userId: account.userId },
+          return response({ authenticated: true, account: { userId: account.userId, generation: account.authEpoch },
             consent: await getConsent(env, account.userId) });
         }
         if (effective === "/v1/account" && request.method === "DELETE") {
@@ -231,12 +247,15 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
         }
         if (effective === "/v1/workspace") {
           if (request.method === "GET") return response(await getWorkspace(env.PERSONAL_DB, account.userId));
+          const context = request.headers.get("If-Account-Match");
+          if (context === null) throw new HttpError(428, "account_context_required");
+          if (context !== `"${account.userId}"`) throw new HttpError(409, "account_context_changed");
           const input = workspaceBody(await body(request));
           const result = await putWorkspace(env.PERSONAL_DB, account.userId, input, now());
           if (result.status === "saved") return activity(request, env, response(result));
           return response(result, result.status === "archive_quota_reached" ? 422 : 409);
         }
-        if (effective === "/v1/export" || effective === "/v1/self-percentile") {
+        if (effective === "/v1/self-percentile") {
           const consent = await getConsent(env, account.userId);
           const releases = await env.PUBLIC_AGGREGATE_DB.batch([
             env.PUBLIC_AGGREGATE_DB.prepare(
@@ -251,16 +270,26 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
             ).bind(account.userId, JSON.stringify(validReleases)),
           ]) : [];
           const percentiles = (ranks[0]?.results ?? []).map((row) => JSON.parse(String(row["payload"])) as SelfPercentile);
-          if (effective === "/v1/self-percentile") return response({ results: percentiles });
+          return response({ results: percentiles });
+        }
+        if (effective === "/v1/export") {
+          const consent = await getConsent(env, account.userId);
           const data = await env.PERSONAL_DB.batch([
             workspaceRead(env.PERSONAL_DB, account.userId),
             env.PERSONAL_DB.prepare("SELECT summary FROM stage_summaries WHERE user_id = ?").bind(account.userId),
             env.PERSONAL_DB.prepare("SELECT payload FROM pending_archives WHERE user_id = ?").bind(account.userId),
+            env.PERSONAL_DB.prepare("SELECT payload FROM self_percentiles WHERE user_id = ?").bind(account.userId),
+            env.PERSONAL_DB.prepare(
+              "SELECT created_at, last_active_at FROM accounts WHERE user_id = ?",
+            ).bind(account.userId),
           ]);
           const workspace = workspaceResult((data[0]?.results[0] as unknown as WorkspaceRow | undefined) ?? null);
-          if (!workspace) throw new HttpError(401, "unauthenticated");
+          const metadata = data[4]?.results[0] as { created_at: number; last_active_at: number } | undefined;
+          if (!workspace || !metadata) throw new HttpError(401, "unauthenticated");
           return response({
-            schemaVersion: 1, exportedAt: now(), workspace, consent, selfPercentiles: percentiles,
+            schemaVersion: 1, exportedAt: now(), workspace, consent,
+            account: { userId: account.userId, createdAt: metadata.created_at, lastActiveAt: metadata.last_active_at },
+            selfPercentiles: (data[3]?.results ?? []).map((row) => JSON.parse(String(row["payload"])) as SelfPercentile),
             stages: (data[1]?.results ?? []).map((row) => JSON.parse(String(row["summary"])) as StageSummary),
             pendingArchives: (data[2]?.results ?? []).map((row) => JSON.parse(String(row["payload"])) as Archive),
           } satisfies PersonalExport);
@@ -273,6 +302,20 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
           : response({ error: "service_unavailable" }, 503);
         if (path === "/auth/callback/google") result.headers.append("Set-Cookie", cookie(FLOW_COOKIE, "", 0));
         return result;
+      }
+    },
+    async scheduled(controller: { scheduledTime: number }, env: PersonalEnv): Promise<void> {
+      const time = controller.scheduledTime;
+      try {
+        await env.PERSONAL_DB.batch([
+          env.PERSONAL_DB.prepare("DELETE FROM identity_deletion_fences WHERE expires_at <= ?").bind(time),
+          env.PERSONAL_DB.prepare("DELETE FROM oauth_transactions WHERE expires_at <= ?").bind(time),
+          env.PERSONAL_DB.prepare(
+            "DELETE FROM sessions WHERE idle_expires_at <= ? OR max_expires_at <= ?",
+          ).bind(time, time),
+        ]);
+      } catch {
+        throw new Error("maintenance_failed");
       }
     },
   };

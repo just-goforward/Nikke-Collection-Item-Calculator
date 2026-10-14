@@ -17,6 +17,10 @@ SITE_ORIGIN = "https://app.example"
 GOOGLE_CLIENT_ID = "configure-google-client-id"
 # GOOGLE_CLIENT_SECRET must be supplied separately; no credential is committed.
 
+# Expiry cleanup only; no inactivity deletion or publication.
+[triggers]
+crons = ["*/10 * * * *"]
+
 [[d1_databases]]
 binding = "PERSONAL_DB"
 database_name = "personal-data-local"

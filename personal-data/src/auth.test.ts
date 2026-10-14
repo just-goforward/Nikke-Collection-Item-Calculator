@@ -1,5 +1,4 @@
 import type { D1Migration } from "@cloudflare/vitest-plugin";
-import { reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FLOW_COOKIE, FLOW_TTL_MS, SESSION_COOKIE, SESSION_IDLE_MS, SESSION_MAX_MS, sha256 } from "./auth";
@@ -8,6 +7,8 @@ import { MAX_BODY_BYTES } from "./http";
 import { googleProvider } from "./google";
 import { createWorker } from "./worker";
 import type { PersonalEnv } from "./types";
+import { resetFixture } from "./test-fixture";
+import { recoverConsentChange } from "./consent";
 
 const bindings = env as unknown as PersonalEnv & {
   PERSONAL_MIGRATIONS: D1Migration[];
@@ -33,12 +34,16 @@ async function harness() {
   const issuer = await fakeIssuer();
   let time = Date.now();
   const worker = createWorker(issuer.fetch, () => time);
+  const accountIds = new Map<string, string>();
   const request = (path: string, init: RequestInit = {}) => worker.fetch(
     new Request(path.startsWith("https:") ? path : `${TEST_ORIGIN}${path}`, init), databases,
   );
   const mutate = (path: string, value: unknown, session = "", method = "POST") => request(path, {
     method, headers: { Origin: TEST_ORIGIN, "Sec-Fetch-Site": "same-origin",
-      "Content-Type": "application/json", Cookie: session }, body: JSON.stringify(value),
+      "Content-Type": "application/json", Cookie: session,
+      ...(path === "/v1/workspace" && method === "PUT" && accountIds.has(session)
+        ? { "If-Account-Match": `"${accountIds.get(session)}"` } : {}),
+    }, body: JSON.stringify(value),
   });
   const begin = async () => {
     const result = await mutate("/auth/login/google", {});
@@ -46,33 +51,34 @@ async function harness() {
     const payload = await result.json() as { authorizationUrl: string };
     return { location: payload.authorizationUrl, cookie: cookieHeader(result), result };
   };
-  const callback = async (url: string, cookie: string) => mutate(
-    "/auth/callback/google", { parameters: new URL(url).search }, cookie,
+  const callback = async (url: string, cookie: string, session = "") => mutate(
+    "/auth/callback/google", { parameters: new URL(url).search }, [cookie, session].filter(Boolean).join("; "),
   );
-  const login = async (options: Parameters<typeof issuer.authorize>[1] = {}) => {
+  const login = async (options: Parameters<typeof issuer.authorize>[1] = {}, session = "") => {
     const flow = await begin();
     const url = issuer.authorize(flow.location, options);
-    const result = await callback(url, flow.cookie);
-    return { flow, url, result, cookie: cookieHeader(result) };
+    const result = await callback(url, flow.cookie, session);
+    const cookie = cookieHeader(result);
+    if (result.ok && cookie) {
+      const data = await (await request("/v1/account", { headers: { Cookie: cookie } })).json() as {
+        account: { userId: string };
+      };
+      accountIds.set(cookie, data.account.userId);
+    }
+    return { flow, url, result, cookie };
   };
   const account = (cookie: string) => request("/api/auth/session", { headers: { Cookie: cookie } });
   return {
     issuer, worker, request, mutate, begin, callback, login, account,
     advance(milliseconds: number) { time += milliseconds; },
     time: () => time,
+    accountId: (cookie: string) => accountIds.get(cookie),
   };
 }
 
 beforeEach(async () => {
   vi.restoreAllMocks();
-  await reset();
-  for (const [db, migrations] of [
-    [databases.PERSONAL_DB, bindings.PERSONAL_MIGRATIONS],
-    [databases.PRIVACY_CONTROL_DB, bindings.PRIVACY_MIGRATIONS],
-    [databases.PUBLIC_AGGREGATE_DB, bindings.PUBLIC_MIGRATIONS],
-  ] as const) {
-    for (const migration of migrations) await db.batch(migration.queries.map((sql) => db.prepare(sql)));
-  }
+  await resetFixture({ ...databases, ...bindings });
 });
 
 describe("Google OIDC through real local D1 HTTP endpoints", () => {
@@ -172,7 +178,10 @@ describe("Google OIDC through real local D1 HTTP endpoints", () => {
   it("accepts only canonical Google issuer; bare accounts.google.com is rejected, never a second identity", async () => {
     const h = await harness();
     expect((await h.login()).result.status).toBe(200);
-    expect((await h.login({ claims: { iss: "accounts.google.com" } })).result.status).toBe(401);
+    const bare = await h.login({ claims: { iss: "accounts.google.com" } });
+    expect(bare.result.status).toBe(401);
+    expect(await bare.result.json()).toEqual({ error: "google_issuer_unsupported" });
+    expect((await h.login({ claims: { iss: "https://wrong.example" } })).result.status).toBe(401);
     expect((await h.login()).result.status).toBe(200);
     expect(await count("identities")).toBe(1);
   });
@@ -249,6 +258,169 @@ describe("Google OIDC through real local D1 HTTP endpoints", () => {
 });
 
 describe("authorization, ownership, session activity and revocation HTTP contracts", () => {
+  it("refuses a different identity without replacing the current session; same identity can refresh", async () => {
+    const h = await harness();
+    const alice = await h.login();
+    const other = await h.login({ claims: { sub: "bob" } }, alice.cookie);
+    expect(other.result.status).toBe(409);
+    expect(await other.result.json()).toEqual({ error: "account_switch_requires_logout" });
+    expect(other.result.headers.getSetCookie().some((value) => value.startsWith(`${SESSION_COOKIE}=`))).toBe(false);
+    expect((await h.account(alice.cookie)).status).toBe(200);
+    expect(await count("accounts")).toBe(1);
+    expect(await count("sessions")).toBe(1);
+    const refreshed = await h.login({}, alice.cookie);
+    expect(refreshed.result.status).toBe(200);
+    expect(h.accountId(refreshed.cookie)).toBe(h.accountId(alice.cookie));
+    expect(await count("accounts")).toBe(1);
+  });
+
+  it("cross-tab account preconditions reject stale or absent identity context, never choose ownership", async () => {
+    const h = await harness();
+    const alice = await h.login();
+    await h.mutate("/auth/logout", {}, alice.cookie);
+    const bob = await h.login({ claims: { sub: "bob" } });
+    const state = await (await h.account(bob.cookie)).json() as {
+      account: { userId: string; generation: number };
+    };
+    expect(state.account).toEqual({ userId: h.accountId(bob.cookie), generation: 0 });
+    const write = (context?: string) => h.request("/v1/workspace", {
+      method: "PUT", headers: { Origin: TEST_ORIGIN, Cookie: bob.cookie,
+        "Content-Type": "application/json", ...(context ? { "If-Account-Match": context } : {}) },
+      body: JSON.stringify(put()),
+    });
+    expect(await (await write(`"${h.accountId(alice.cookie)}"`)).json())
+      .toEqual({ error: "account_context_changed" });
+    expect((await write("*")).status).toBe(409);
+    expect((await write()).status).toBe(428);
+    expect((await h.request("/v1/workspace", { headers: { Cookie: bob.cookie } })).status).toBe(200);
+    expect((await databases.PERSONAL_DB.prepare("SELECT max(revision) AS n FROM workspaces")
+      .first<{ n: number }>())?.n).toBe(0);
+    expect((await write(`"${state.account.userId}"`)).status).toBe(200);
+  });
+
+  it("stale, colliding and replayed consent PUTs do not bump the fence", async () => {
+    const h = await harness();
+    const login = await h.login();
+    const input = { opId: "first-consent", baseDecisionVersion: 0, participation: true };
+    expect((await h.mutate("/v1/consent", input, login.cookie, "PUT")).status).toBe(200);
+    const generation = async () => (await databases.PUBLIC_AGGREGATE_DB.prepare(
+      "SELECT generation FROM privacy_fence",
+    ).first<{ generation: number }>())?.generation;
+    expect(await generation()).toBe(1);
+    expect((await h.mutate("/v1/consent", input, login.cookie, "PUT")).status).toBe(200);
+    expect(await generation()).toBe(1);
+    const stale = await h.mutate("/v1/consent", { ...input, opId: "stale" }, login.cookie, "PUT");
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toEqual({ error: "revision_conflict" });
+    const collision = await h.mutate("/v1/consent", { ...input, participation: false }, login.cookie, "PUT");
+    expect(collision.status).toBe(409);
+    expect(await collision.json()).toEqual({ error: "op_id_conflict" });
+    expect(await generation()).toBe(1);
+  });
+
+  it("failed reserved consent is isolated and recoverable with explicit single-user maintenance", async () => {
+    const h = await harness();
+    const alice = await h.login();
+    const bob = await h.login({ claims: { sub: "bob" } });
+    const publicDb = databases.PUBLIC_AGGREGATE_DB;
+    const unavailable: PersonalEnv = { ...databases, PUBLIC_AGGREGATE_DB: {
+      prepare(sql) {
+        if (sql.startsWith("UPDATE privacy_fence")) throw new Error("PRIVATE_FAILURE_CANARY");
+        return publicDb.prepare(sql);
+      },
+      batch: (statements) => publicDb.batch(statements),
+      exec: (sql) => publicDb.exec(sql),
+    } };
+    const input = { opId: "reserved", baseDecisionVersion: 0, participation: true };
+    const failed = await h.worker.fetch(new Request(`${TEST_ORIGIN}/v1/consent`, {
+      method: "PUT", headers: { Origin: TEST_ORIGIN, Cookie: alice.cookie,
+        "Content-Type": "application/json" }, body: JSON.stringify(input),
+    }), unavailable);
+    expect(failed.status).toBe(503);
+    expect(await (await h.request("/v1/consent", { headers: { Cookie: alice.cookie } })).json())
+      .toEqual({ participation: null, decisionVersion: 0 });
+    expect((await h.account(bob.cookie)).status).toBe(200);
+    expect((await h.mutate("/v1/consent", input, alice.cookie, "PUT")).status).toBe(409);
+    await recoverConsentChange(databases, h.accountId(alice.cookie) ?? "", h.time());
+    expect((await h.mutate("/v1/consent", input, alice.cookie, "PUT")).status).toBe(200);
+    expect((await databases.PUBLIC_AGGREGATE_DB.prepare("SELECT generation FROM privacy_fence")
+      .first<{ generation: number }>())?.generation).toBe(1);
+  });
+
+  it("export includes every quota-counted owned row and account timestamps even with consent off", async () => {
+    const h = await harness();
+    const login = await h.login();
+    const created = h.time();
+    h.advance(1);
+    const summary = { itemId: "item", stage: "R", lifetimeAttempts: 1, lifetimeIncome: 2,
+      preSignupIncome: 1, manualEntry: true, verified: false };
+    const archive = { archiveId: "archive", summary, startedAt: created, completedAt: h.time() };
+    const document = { schemaVersion: 1, items: ["一😀é"], lifetimeStages: [summary] };
+    const input = { opId: "archive-op", baseRevision: 0, document, action: { kind: "archive", archive } };
+    expect((await h.mutate("/v1/workspace", input, login.cookie, "PUT")).status).toBe(200);
+    const duplicate = await h.mutate("/v1/workspace",
+      { ...input, opId: "another-op", baseRevision: 1 }, login.cookie, "PUT");
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toEqual({ status: "archive_id_conflict" });
+    await h.mutate("/v1/consent", {
+      opId: "exclude", baseDecisionVersion: 0, participation: false,
+    }, login.cookie, "PUT");
+    const rank = { releaseId: "unavailable", stage: "R", percentileBand: { lower: 40, upper: 50 },
+      manualEntry: true, verified: false };
+    await databases.PERSONAL_DB.prepare("INSERT INTO self_percentiles VALUES (?, 'unavailable', 'R', ?)")
+      .bind(h.accountId(login.cookie) ?? "", JSON.stringify(rank)).run();
+    const exported = await (await h.request("/v1/export", { headers: { Cookie: login.cookie } })).json();
+    const bytes = [document, summary, archive, rank].reduce((total, value) =>
+      total + new TextEncoder().encode(JSON.stringify(value)).byteLength, 0);
+    expect(exported).toMatchObject({
+      account: { userId: h.accountId(login.cookie), createdAt: created, lastActiveAt: h.time() },
+      workspace: { revision: 1, document, quota: { bytes } },
+      stages: [summary], pendingArchives: [archive], selfPercentiles: [rank],
+      consent: { participation: false, decisionVersion: 1 },
+    });
+    expect(await (await h.request("/v1/self-percentile", { headers: { Cookie: login.cookie } })).json())
+      .toEqual({ results: [] });
+  });
+
+  it("concurrent HTTP callbacks admit exactly 150 of 160 distinct identities without orphan rows", async () => {
+    const h = await harness();
+    const flows: { location: string; cookie: string; sub: string }[] = [];
+    for (const base of [0, 80]) {
+      const chunk = await Promise.all(Array.from({ length: 80 }, async (_, offset) => {
+        const index = base + offset;
+        const result = await h.request("/auth/login/google", {
+          method: "POST", headers: { Origin: TEST_ORIGIN, "Content-Type": "application/json",
+            "CF-Connecting-IP": `198.51.100.${index}` }, body: "{}",
+        });
+        expect(result.status).toBe(200);
+        const data = await result.json() as { authorizationUrl: string };
+        return { location: data.authorizationUrl, cookie: cookieHeader(result), sub: `http-${index}` };
+      }));
+      flows.push(...chunk);
+      h.advance(60_000);
+    }
+    const results = await Promise.all(flows.map((flow) => h.callback(
+      h.issuer.authorize(flow.location, { claims: { sub: flow.sub } }), flow.cookie,
+    )));
+    expect(results.filter((result) => result.status === 200)).toHaveLength(150);
+    expect(results.filter((result) => result.status === 403)).toHaveLength(10);
+    for (const table of ["accounts", "identities", "workspaces", "sessions"]) expect(await count(table)).toBe(150);
+  }, 30_000);
+
+  it("expiry maintenance removes temporary identity hashes without deleting accounts or privacy tombstones", async () => {
+    const h = await harness();
+    const old = await h.login();
+    await h.mutate("/v1/account", { opId: "delete" }, old.cookie, "DELETE");
+    const fresh = await h.login();
+    expect(fresh.result.status).toBe(200);
+    h.advance(FLOW_TTL_MS);
+    await h.worker.scheduled({ scheduledTime: h.time() }, databases);
+    expect(await count("identity_deletion_fences")).toBe(0);
+    expect(await count("accounts")).toBe(1);
+    expect((await databases.PRIVACY_CONTROL_DB.prepare("SELECT count(*) AS n FROM tombstones")
+      .first<{ n: number }>())?.n).toBe(1);
+  });
+
   it("workspace CAS/replay, export, consent and existing site aliases all derive ownership from session", async () => {
     const h = await harness();
     const alice = await h.login();
@@ -358,9 +530,11 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     gate.release();
     expect((await callback).status).toBe(401);
     expect(await count("accounts")).toBe(0);
-    expect((await h.login()).result.status).toBe(401);
-    expect(await count("accounts")).toBe(0);
-    expect(await count("blocked_identities")).toBe(1);
+    const rejoined = await h.login();
+    expect(rejoined.result.status).toBe(200);
+    expect(await count("accounts")).toBe(1);
+    expect(h.accountId(rejoined.cookie)).not.toBe(h.accountId(current.cookie));
+    expect(await count("identity_deletion_fences")).toBe(1);
   });
 
   it("a deletion privacy-write failure keeps the public fence and durable deny/outbox until retry", async () => {
@@ -389,7 +563,8 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect((await databases.PUBLIC_AGGREGATE_DB.prepare("SELECT blocked FROM privacy_fence")
       .first<{ blocked: number }>())?.blocked).toBe(1);
     expect((await h.request("/v1/statistics")).status).toBe(503);
-    expect(await count("accounts")).toBe(0);
+    expect(await count("deletion_jobs")).toBe(1); // Public/unrelated requests do not drain the outbox.
+    expect((await h.login()).result.status).toBe(200); // Only this identity retries its one job.
     expect(await count("deletion_jobs")).toBe(0);
     expect((await h.account(login.cookie)).status).toBe(401);
   });
@@ -443,6 +618,8 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     }, login.cookie, "PUT")));
     expect(results.filter((result) => result.status === 200)).toHaveLength(1);
     expect(results.filter((result) => result.status === 409)).toHaveLength(1);
+    expect((await databases.PUBLIC_AGGREGATE_DB.prepare("SELECT generation FROM privacy_fence")
+      .first<{ generation: number }>())?.generation).toBe(1);
     await databases.PERSONAL_DB.prepare(
       `INSERT INTO self_percentiles SELECT user_id, 'stale-release', 'R',
        '{"releaseId":"stale-release","stage":"R","percentileBand":{"lower":40,"upper":50},"manualEntry":true,"verified":false}'
@@ -472,7 +649,8 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       }
     }
     const tooLarge = await h.request("/v1/workspace", {
-      method: "PUT", headers: { Origin: TEST_ORIGIN, Cookie: login.cookie, "Content-Type": "application/json" },
+      method: "PUT", headers: { Origin: TEST_ORIGIN, Cookie: login.cookie, "Content-Type": "application/json",
+        "If-Account-Match": `"${h.accountId(login.cookie)}"` },
       body: `"${"x".repeat(MAX_BODY_BYTES)}"`,
     });
     expect(tooLarge.status).toBe(413);

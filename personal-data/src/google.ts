@@ -1,10 +1,11 @@
 import * as oidc from "openid-client";
 import type { GoogleIdentity, PendingFlow } from "./auth";
 import type { PersonalEnv } from "./types";
+import { HttpError } from "./http";
 
-export const GOOGLE_ISSUER = "https://accounts.google.com";
-export const JWT_CLOCK_TOLERANCE_SECONDS = 30;
-export const OUTBOUND_TIMEOUT_SECONDS = 5;
+const GOOGLE_ISSUER = "https://accounts.google.com";
+const JWT_CLOCK_TOLERANCE_SECONDS = 30;
+const OUTBOUND_TIMEOUT_SECONDS = 5;
 const DISCOVERY = `${GOOGLE_ISSUER}/.well-known/openid-configuration`;
 const TOKEN = "https://oauth2.googleapis.com/token";
 const JWKS = "https://www.googleapis.com/oauth2/v3/certs";
@@ -110,6 +111,20 @@ export function googleProvider(fetchImpl: typeof fetch = fetch) {
           throw new Error("identity_rejected");
         }
         return { issuer: GOOGLE_ISSUER, sub: claims.sub };
+      } catch (error) {
+        // 6.8.8's canonical discovery configuration rejects a bare issuer before JWS checks.
+        // Classify the known compatibility failure only; never accept or rewrite its claims.
+        if (error instanceof oidc.ClientError && error.code === "OAUTH_JWT_CLAIM_COMPARISON_FAILED"
+          && error.cause instanceof Error) {
+          const details = error.cause.cause as {
+            claim?: unknown; expected?: unknown; claims?: { iss?: unknown };
+          } | undefined;
+          if (details?.claim === "iss" && details.expected === GOOGLE_ISSUER
+            && details.claims?.iss === "accounts.google.com") {
+            throw new HttpError(401, "google_issuer_unsupported");
+          }
+        }
+        throw error;
       } finally {
         getFlights.delete(JWKS);
       }

@@ -46,6 +46,7 @@ export type WorkspacePutResult =
   | { status: "saved"; revision: number; replayed: boolean }
   | { status: "revision_conflict"; revision: number }
   | { status: "op_id_conflict" }
+  | { status: "archive_id_conflict" }
   | { status: "archive_quota_reached"; revision: number };
 
 export interface ConsentGet {
@@ -70,6 +71,7 @@ export interface RevokeAllResult { revoked: true }
 
 export interface PersonalExport {
   schemaVersion: 1;
+  account: { userId: string; createdAt: number; lastActiveAt: number };
   exportedAt: number;
   workspace: WorkspaceGet;
   stages: StageSummary[];
@@ -104,7 +106,9 @@ export type ApiErrorCode =
   | "unauthenticated" | "beta_full" | "revision_conflict" | "op_id_conflict"
   | "archive_quota_reached" | "invalid_request" | "privacy_fenced" | "not_implemented"
   | "origin_rejected" | "auth_failed" | "rate_limited" | "request_too_large"
-  | "service_unavailable" | "not_found" | "method_not_allowed";
+  | "service_unavailable" | "not_found" | "method_not_allowed"
+  | "google_issuer_unsupported" | "account_switch_requires_logout"
+  | "account_context_required" | "account_context_changed" | "consent_change_pending" | "archive_id_conflict";
 export interface ApiError { error: ApiErrorCode }
 
 /** Contract map, not a claim these routes are enabled in M1. */
@@ -112,11 +116,13 @@ export interface Api {
   "POST /auth/login/google": { request: Record<string, never>; response: { authorizationUrl: string } };
   "POST /auth/callback/google": { request: { parameters: string }; response: { redirect: "/" } };
   "GET /v1/account": { response: {
-    authenticated: true; account: { userId: string }; consent: ConsentGet;
+    authenticated: true; account: { userId: string; generation: number }; consent: ConsentGet;
   } };
   "POST /auth/logout": { response: { loggedOut: true } };
   "GET /v1/workspace": { response: WorkspaceGet };
-  "PUT /v1/workspace": { request: WorkspacePut; response: WorkspacePutResult };
+  "PUT /v1/workspace": {
+    headers: { "If-Account-Match": string }; request: WorkspacePut; response: WorkspacePutResult;
+  };
   "GET /v1/export": { response: PersonalExport };
   "GET /v1/consent": { response: ConsentGet };
   "PUT /v1/consent": { request: ConsentPut; response: ConsentGet | PrivacyAccepted };

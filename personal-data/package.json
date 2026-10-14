@@ -2,8 +2,12 @@
   "name": "@collection-kit/personal-data",
   "private": true,
   "type": "module",
+  "exports": {
+    "./contracts": "./src/contracts.ts"
+  },
   "scripts": {
     "test": "vitest run --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage",
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
@@ -11,8 +15,8 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.4.1",
+    "@vitest/coverage-v8": "5.0.4",
     "typescript": "7.0.2",
-    "vitest": "5.0.4",
-    "wrangler": "4.150.0"
+    "vitest": "5.0.4"
   }
 }

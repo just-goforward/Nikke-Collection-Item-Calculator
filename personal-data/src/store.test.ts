@@ -1,15 +1,17 @@
 import type { D1Migration } from "@cloudflare/vitest-plugin";
-import { reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   consumeOAuthTransaction, createSession, revokeAll, sha256, SESSION_IDLE_MS, SESSION_MAX_MS, touchSession,
 } from "./auth";
 import type { Archive, StageSummary, WorkspacePut } from "./contracts";
-import { applyPrivacyChange, blockPublication, reapplyTombstones, recordPrivacyChange } from "./privacy";
+import {
+  applyPrivacyChange, blockPublication, reapplyTombstones, reapplyUserTombstones, recordPrivacyChange,
+} from "./privacy";
 import { admitAccount, EMPTY_DOCUMENT, getWorkspace, OP_RETENTION_MS, putWorkspace } from "./store";
 import type { PersonalEnv, SqlDatabase } from "./types";
 import worker from "./worker";
+import { resetFixture } from "./test-fixture";
 
 const dbs = env as unknown as PersonalEnv & {
   PERSONAL_MIGRATIONS: D1Migration[];
@@ -23,9 +25,6 @@ const summary: StageSummary = {
 };
 const archive: Archive = { archiveId: "archive-1", summary, startedAt: NOW - 1_000, completedAt: NOW };
 
-async function migrate(db: SqlDatabase, migrations: D1Migration[]): Promise<void> {
-  for (const migration of migrations) await db.batch(migration.queries.map((sql) => db.prepare(sql)));
-}
 async function signup(id = "u1"): Promise<void> {
   expect(await admitAccount(dbs.PERSONAL_DB,
     { issuer: "https://accounts.google.com", sub: `subject-${id}` }, id, NOW)).toEqual({ userId: id });
@@ -48,13 +47,36 @@ async function setQuota(bytes: number): Promise<void> {
 }
 
 beforeEach(async () => {
-  await reset();
-  await migrate(dbs.PERSONAL_DB, dbs.PERSONAL_MIGRATIONS);
-  await migrate(dbs.PRIVACY_CONTROL_DB, dbs.PRIVACY_MIGRATIONS);
-  await migrate(dbs.PUBLIC_AGGREGATE_DB, dbs.PUBLIC_MIGRATIONS);
+  await resetFixture(dbs);
 });
 
 describe("PERSONAL_DB atomic admission and workspace operations", () => {
+  it("explicit fixture reset is idempotent and clears populated schema/data in all three stores", async () => {
+    await signup();
+    await putWorkspace(dbs.PERSONAL_DB, "u1", archiveSave(), NOW);
+    await applyPrivacyChange(dbs, { userId: "u1", kind: "withdrawal", opId: "reset-test" }, NOW);
+    await resetFixture(dbs);
+    await resetFixture(dbs);
+    expect(await count(dbs.PERSONAL_DB, "accounts")).toBe(0);
+    expect(await count(dbs.PERSONAL_DB, "operations")).toBe(0);
+    expect(await count(dbs.PRIVACY_CONTROL_DB, "tombstones")).toBe(0);
+    expect(await dbs.PUBLIC_AGGREGATE_DB.prepare("SELECT generation, blocked FROM privacy_fence").first())
+      .toEqual({ generation: 0, blocked: 1 });
+  });
+
+  it("a late batch failure still rolls back all save and archive effects", async () => {
+    await signup();
+    await dbs.PERSONAL_DB.prepare(
+      `CREATE TRIGGER late_failure BEFORE INSERT ON operations
+       BEGIN SELECT RAISE(ABORT, 'test_late_failure'); END`,
+    ).run();
+    const before = await getWorkspace(dbs.PERSONAL_DB, "u1");
+    await expect(putWorkspace(dbs.PERSONAL_DB, "u1", archiveSave(), NOW)).rejects.toThrow("test_late_failure");
+    expect(await getWorkspace(dbs.PERSONAL_DB, "u1")).toEqual(before);
+    for (const table of ["operations", "stage_summaries", "pending_archives"]) {
+      expect(await count(dbs.PERSONAL_DB, table)).toBe(0);
+    }
+  });
   it("admits exactly 150 of 160 concurrent identities without orphans", async () => {
     const results = await Promise.all(Array.from({ length: 160 }, (_, i) =>
       admitAccount(dbs.PERSONAL_DB,
@@ -137,12 +159,12 @@ describe("PERSONAL_DB atomic admission and workspace operations", () => {
     expect(await count(dbs.PERSONAL_DB, "operations")).toBe(1);
   });
 
-  it("a late constraint failure rolls back workspace, stage, archive and success history", async () => {
+  it("archive ID reuse conflicts without changing workspace, stage, archive or success history", async () => {
     await signup();
     await putWorkspace(dbs.PERSONAL_DB, "u1", archiveSave(), NOW);
     const before = await getWorkspace(dbs.PERSONAL_DB, "u1");
-    await expect(putWorkspace(dbs.PERSONAL_DB, "u1", archiveSave("duplicate-archive", 1), NOW + 1))
-      .rejects.toThrow("UNIQUE");
+    expect(await putWorkspace(dbs.PERSONAL_DB, "u1", archiveSave("duplicate-archive", 1), NOW + 1))
+      .toEqual({ status: "archive_id_conflict" });
     expect(await getWorkspace(dbs.PERSONAL_DB, "u1")).toEqual(before);
     expect(await count(dbs.PERSONAL_DB, "operations")).toBe(1);
     expect(await count(dbs.PERSONAL_DB, "stage_summaries")).toBe(1);
@@ -194,6 +216,9 @@ describe("PERSONAL_DB atomic admission and workspace operations", () => {
   it("accepts an archive at the exact content boundary and rejects one byte below", async () => {
     await signup();
     const request = archiveSave();
+    request.document.items = ["一", "😀", "é"];
+    expect(new TextEncoder().encode(JSON.stringify(request.document)).byteLength)
+      .toBeGreaterThan(JSON.stringify(request.document).length);
     const bytes = [request.document, summary, archive].reduce(
       (n, value) => n + new TextEncoder().encode(JSON.stringify(value)).byteLength, 0);
     await setQuota(bytes - 1);
@@ -244,6 +269,19 @@ describe("server session and OAuth transaction primitives (no OAuth provider)", 
 });
 
 describe("cross-database privacy fence and restore safety", () => {
+  it("request-scoped replay does not apply another user's tombstone; maintenance replay does", async () => {
+    await signup();
+    await signup("u2");
+    await dbs.PRIVACY_CONTROL_DB.prepare(
+      "INSERT INTO tombstones (user_id, kind, created_at, fence_generation) VALUES ('u2', 'deletion', ?, 1)",
+    ).bind(NOW).run();
+    await reapplyUserTombstones(dbs, "u1");
+    expect(await count(dbs.PERSONAL_DB, "accounts")).toBe(2);
+    await applyPrivacyChange(dbs, { userId: "u1", kind: "withdrawal", opId: "own" }, NOW);
+    expect(await count(dbs.PERSONAL_DB, "accounts")).toBe(2);
+    await reapplyTombstones(dbs);
+    expect(await count(dbs.PERSONAL_DB, "accounts")).toBe(1);
+  });
   async function seedPublishedRelease(): Promise<void> {
     // Test-only bootstrap of a previously published generation. No production unblock API.
     await dbs.PUBLIC_AGGREGATE_DB.batch([

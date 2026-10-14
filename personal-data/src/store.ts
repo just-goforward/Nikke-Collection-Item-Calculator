@@ -30,14 +30,16 @@ export async function admitAccount(
 export async function provisioningStatements(
   db: SqlDatabase, identity: GoogleIdentity, candidateUserId: string, now: number,
   recordActivity = true,
+  flowEpoch: number | null = null,
 ): Promise<SqlStatement[]> {
   return [
     db.prepare(
       `INSERT INTO accounts (user_id, created_at, last_active_at)
        SELECT ?, ?, ? WHERE (SELECT count(*) FROM accounts) < 150
-       AND NOT EXISTS (SELECT 1 FROM blocked_identities WHERE identity_hash = ?)
+       AND NOT EXISTS (SELECT 1 FROM identity_deletion_fences
+                       WHERE identity_hash = ? AND deleted_epoch > ? AND expires_at > ?)
        AND NOT EXISTS (SELECT 1 FROM identities WHERE issuer = ? AND subject = ?)`,
-    ).bind(candidateUserId, now, now, await identityHash(identity), identity.issuer, identity.sub),
+    ).bind(candidateUserId, now, now, await identityHash(identity), flowEpoch, now, identity.issuer, identity.sub),
     db.prepare(
       `INSERT INTO identities (issuer, subject, user_id)
        SELECT ?, ?, user_id FROM accounts WHERE user_id = ?
@@ -107,17 +109,20 @@ export async function putWorkspace(
     + length(CAST(? AS BLOB))
     + COALESCE((SELECT sum(length(CAST(payload AS BLOB))) FROM self_percentiles WHERE user_id = w.user_id), 0)
   ) <= (SELECT quota_bytes FROM accounts WHERE user_id = w.user_id)` : "";
+  const archiveGuard = archive
+    ? "AND NOT EXISTS (SELECT 1 FROM pending_archives WHERE user_id = w.user_id AND archive_id = ?)"
+    : "";
   const update = db.prepare(
     `UPDATE workspaces AS w SET document = ?, revision = revision + 1,
      last_op_id = ?, last_write_nonce = ?
      WHERE user_id = ? AND revision = ?
      AND NOT EXISTS (SELECT 1 FROM operations WHERE user_id = w.user_id AND op_id = ?)
-     ${costGuard}`,
+     ${costGuard} ${archiveGuard}`,
   );
   const args: (string | number | null)[] = [
     document, request.opId, nonce, userId, request.baseRevision, request.opId,
   ];
-  if (archive) args.push(document, stageBytes, payload);
+  if (archive) args.push(document, stageBytes, payload, archive.archiveId);
   const statements: SqlStatement[] = [update.bind(...args)];
   // The nonce proves this invocation won, even when the previous winning opId is identical.
   const winner = `SELECT 1 FROM workspaces WHERE user_id = ? AND revision = ?
@@ -153,7 +158,10 @@ export async function putWorkspace(
     ).bind(userId, now - OP_RETENTION_MS, ...winnerArgs),
     db.prepare("SELECT request_hash, revision FROM operations WHERE user_id = ? AND op_id = ?")
       .bind(userId, request.opId),
-    db.prepare("SELECT revision FROM workspaces WHERE user_id = ?").bind(userId),
+    db.prepare(
+      `SELECT revision, EXISTS (SELECT 1 FROM pending_archives
+       WHERE user_id = ? AND archive_id = ?) AS archive_exists FROM workspaces WHERE user_id = ?`,
+    ).bind(userId, archive?.archiveId ?? null, userId),
   );
   const results = await db.batch(statements);
   const operation = results[results.length - 2]?.results[0] as
@@ -163,8 +171,9 @@ export async function putWorkspace(
       ? { status: "saved", revision: operation.revision, replayed: results[0]?.meta.changes === 0 }
       : { status: "op_id_conflict" };
   }
-  const current = results[results.length - 1]?.results[0] as { revision: number } | undefined;
+  const current = results[results.length - 1]?.results[0] as { revision: number; archive_exists: number } | undefined;
   if (!current) throw new Error("account_not_found");
+  if (archive && current.archive_exists) return { status: "archive_id_conflict" };
   return {
     status: archive && current.revision === request.baseRevision ? "archive_quota_reached" : "revision_conflict",
     revision: current.revision,

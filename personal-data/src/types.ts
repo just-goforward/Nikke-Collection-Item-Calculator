@@ -1,5 +1,5 @@
 /** Structural subset of the D1 binding, also usable by the local test runtime. */
-export interface SqlResult<T = Record<string, unknown>> {
+interface SqlResult<T = Record<string, unknown>> {
   results: T[];
   meta: { changes: number };
   success: boolean;

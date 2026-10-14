@@ -4,7 +4,9 @@ export const MAX_BODY_BYTES = 2_000_000;
 export type Reason =
   | "invalid_request" | "request_too_large" | "origin_rejected" | "unauthenticated"
   | "auth_failed" | "rate_limited" | "beta_full" | "op_id_conflict"
-  | "revision_conflict" | "service_unavailable" | "not_found" | "method_not_allowed";
+  | "revision_conflict" | "service_unavailable" | "not_found" | "method_not_allowed"
+  | "google_issuer_unsupported" | "account_switch_requires_logout"
+  | "account_context_required" | "account_context_changed" | "consent_change_pending";
 
 export class HttpError extends Error {
   constructor(public readonly status: number, public readonly reason: Reason) {

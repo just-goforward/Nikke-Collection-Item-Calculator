@@ -9,7 +9,10 @@ Advisor decision; it does not meet this application's identity/session contract.
 
 ## M0 contracts
 
-`src/contracts.ts:Api` is the TypeScript wire-contract map. All timestamps are
+`src/contracts.ts:Api` is the TypeScript wire-contract map. The contracts are
+available as type-only imports from `@collection-kit/personal-data/contracts`.
+This package entry intentionally preserves the public M0 type contract; backend
+implementation helpers are not public package exports. All timestamps are
 Unix milliseconds. Private routes require an authenticated account, origin/CSRF
 validation for mutations, and `Cache-Control: no-store`. M3 implements these
 controls; missing configuration fails closed. Public statistics remain 503 while
@@ -51,7 +54,7 @@ Self-percentiles are immutable per release, not a live ranking.
   transactions, workspace revision/last-op/attempt nonce, `(user_id, op_id)`
   request-hash history, stage summaries, pending archives, frozen self ranks.
 * `PRIVACY_CONTROL_DB`: authoritative consent decisions, durable withdrawal /
-  deletion tombstones (identity hash, not email), restartable privacy operations.
+  deletion tombstones keyed by user ID, consent reservations and restartable privacy operations.
   Never overwrite this authority with an older personal-data backup.
 * `PUBLIC_AGGREGATE_DB`: identifier-free weekly payloads, disclosure history,
   monotonic fence and current pointer. Initial state is blocked. Public payload
@@ -60,9 +63,9 @@ Self-percentiles are immutable per release, not a live ranking.
 Admission is an atomic SELECT-conditioned INSERT inside a **single PERSONAL_DB
 batch**, with a database trigger enforcing 150 active accounts even on a bypass.
 Concurrent logins for the same identity converge on the same account. Deletion
-frees an active-account slot. The auth integration must check deletion tombstones
-before admission/serving restored state; the internal admission primitive is
-not independently a full cross-store login policy.
+frees an active-account slot. Authorization checks deletion tombstones by user ID
+when serving restored state. A new post-deletion login may rejoin with a fresh
+account ID; a temporary identity fence rejects only pre-deletion flows.
 
 Save CAS and hash history commit in one PERSONAL_DB batch. An operation-success
 row is inserted only if **both** resulting revision and last opId match and the
@@ -129,8 +132,11 @@ decision generation, not tombstone removal.
 Matches `stats-observer/` tooling: installed `@cloudflare/vitest-plugin` 1.4.1,
 Vitest 5.0.4, Wrangler 4.150.0, TypeScript 7.0.2, compatibility 2026-08-22.
 Tests run actual local Miniflare/workerd D1 bindings, not SQLite mocks.
-Test files serialize their storage reset/migration lanes; race cases explicitly
-use concurrent requests within each fixture.
+Test files serialize their storage lanes. Each test explicitly drops the exact
+local fixture tables (children first) and migration ledger, then applies real
+migrations with `applyD1Migrations`; fixture reset is idempotent and does not rely
+on the flaky generic `reset()` storage lifecycle. Race cases use concurrent HTTP
+requests inside one isolated fixture.
 The existing plugin brings Miniflare `5.20261006.2-beta` transitively; this is
 existing project tooling, not a new direct prerelease selection.
 
@@ -205,13 +211,29 @@ token and JWKS endpoints are exact allowlisted Google URLs; outgoing redirects
 are forbidden. Scope is only `openid`; no userinfo/refresh request is made and
 no ID/access/refresh token is persisted.
 
-Issuer policy is **canonical-only**: signed tokens must have
-`iss=https://accounts.google.com`; the legacy `iss=accounts.google.com` is
-explicitly rejected, not rewritten before signature verification and not
-provisioned as a second identity. This conservative interoperability choice is
-covered by tests and must be considered in Security/product review. Supporting
-the legacy alias later requires a documented library-compatible validation
-design, not mutation of signed claims.
+Issuer compatibility fallback remains **fail-closed** for the pinned public
+discovery/authorizationCodeGrant flow. HTTPS issuer tokens are fully validated;
+bare `accounts.google.com` tokens return `google_issuer_unsupported`, never a
+second account and never rewritten claims. The review correctly identifies both
+forms as valid Google issuers. Version-specific evidence: oauth4webapi 3.8.8
+`node_modules/oauth4webapi/build/index.js:1321` compares the token issuer exactly
+to server metadata; `:1393` requires issuer/audience/expiry/subject before that
+comparison. openid-client 6.8.8 `node_modules/openid-client/build/index.js:492`
+clones/freezes metadata and installs the private issuer override only for Entra
+ID; its public authorizationCodeGrant API has no Google alias override.
+`node_modules/openid-client/build/index.js:139` wraps that comparison error.
+The app recognizes only the known bare-issuer compatibility failure. This reason
+is not a claim that the rejected token's signature was verified: the library
+rejects its issuer before non-repudiation checks. Signature/issuer checks are
+never bypassed. Tests cover HTTPS, bare and wrong issuers and same-sub absence
+of duplicate accounts. Supporting both in a new validation flow remains a
+separate reviewed library/API decision.
+
+Versioned API evidence:
+<https://github.com/panva/openid-client/blob/v6.8.8/docs/functions/authorizationCodeGrant.md>
+and `enableNonRepudiationChecks.md` (Context7 `/panva/openid-client/v6.8.8`).
+Retrieving <https://developers.google.com/identity/openid-connect> returned HTTP
+404 in this session; that is not evidence against the review's Google contract.
 
 `enableNonRepudiationChecks` is mandatory; library checks require signature,
 iss, aud, exp, iat and nonce. App additionally rejects unexpected azp even for
@@ -249,11 +271,18 @@ Future authorization checks see revocation immediately on primary D1.
 Requests authorized before revocation may complete; revoke-all does not retract
 already returned data or cancel an already authorized save/consent operation.
 
-DELETE account first commits the PUBLIC fence, then blocks the identity/account
-and invalidates sessions in PERSONAL, then commits the PRIVACY tombstone.
-A local deletion outbox survives a crash and is retried on subsequent requests;
-the blocked identity survives account cascade so a delayed callback cannot
-recreate it. Restored identities are also denied by PRIVACY deletion tombstones.
+DELETE account first commits the PUBLIC fence, then blocks the old account and
+invalidates sessions in PERSONAL, then commits the PRIVACY user-ID tombstone.
+A local deletion outbox survives a crash. A callback for that identity retries
+at most its one affected job; unrelated requests never drain or depend on the
+outbox. Explicit maintenance can retry a specified user. The temporary identity
+hash fence lasts the 10-minute flow TTL: older flow epochs cannot recreate a
+deleted account, while a fresh login creates a new account ID. Identity hashes
+are no longer kept in privacy tombstones or deletion jobs. Expired temporary
+fences, flows and sessions are cleaned at login and by the prepared 10-minute
+expiry-only cron (not deployed). Physical cleanup depends on cron execution;
+missed cleanup must be monitored before production. Restored old user IDs stay
+denied/re-deleted by durable user-ID tombstones; fresh rejoin IDs are unaffected.
 Consent re-opt-in uses a later fence generation; old withdrawal tombstones are
 retained but do not override a newer authoritative opt-in. Public publication
 still has no unblock path, and frozen ranks are served only for eligible,
@@ -288,3 +317,81 @@ quota budgets, inactivity scheduler, release/unblocking coordinator, and
 maintenance gating/reconciliation for any database restore. D1 tests simulate
 personal restore; they do not establish correctness of a live multi-database
 restore. Cross-store privacy is deliberately fail-closed, not transactional.
+
+## Review fixes: bounded work, account context and export
+
+Callback refuses to replace a valid session belonging to a different identity:
+409 `account_switch_requires_logout`, with no new account/session and no
+replacement session cookie. The callback bridge tells the user to log out first.
+Same-identity login can refresh normally. GET account also returns
+`account.generation` (the account's revocation epoch). Frontends retain the
+displayed `account.userId` and MUST send `If-Account-Match: "<userId>"` on every
+workspace PUT. Missing context is 428 `account_context_required`; different,
+weak or wildcard context is 409 `account_context_changed`. This header is a
+precondition only, never an ownership selector. The session remains authoritative.
+After a context mismatch, discard/refetch account/workspace state before saving.
+
+Privacy HTTP paths reapply only the affected user's at-most-two tombstones.
+Full `reapplyTombstones` is restore/maintenance-only, paged by 150 user IDs:
+O(T) historical tombstones, not request-time work. `resumeDeletion` retries
+one specified job and isolates its failure. No all-job retry precedes routes.
+
+Consent preflight hashes/CAS plus an atomic per-user reservation happen before
+any PUBLIC mutation. Reservation does not change participation. Only its owner
+fences PUBLIC, then commits decision/history/tombstone and removes the reservation
+atomically in PRIVACY. Stale requests, changed-op collisions and completed
+replays never bump the fence. Concurrent contenders cannot both reserve.
+An unfinished reservation returns 409 `consent_change_pending` without affecting
+personal features or other accounts. Maintenance `recoverConsentChange` can
+finish one specified user's stored request; serialize it with that user's
+consent changes. A crash can leave publication blocked and a reservation pending,
+never silently unblock it. Deletion clears that old account's reservation.
+
+Archive ID reuse with a new opId is an atomic 409 `archive_id_conflict`, not
+a raw UNIQUE-error 503. Export reads a single PERSONAL snapshot containing the
+workspace, every stage/archive/self-percentile row counted toward logical quota,
+and account `createdAt`/`lastActiveAt`, regardless of consent or publication.
+The separate self-percentile display endpoint still filters unavailable releases.
+Multibyte quota tests use CJK, accented text and supplementary Unicode.
+
+## Pre-release migration and recovery policy (R2-03)
+
+**Chosen: keep numbered migrations, do not squash.** `0001` is the M1 baseline;
+`0002` adds auth/consent; `0003` replaces permanent identity bans with expiring
+flow-generation fences and adds scoped consent reservations. Upgrade tests seed
+populated M1 records in all three local D1 stores, apply later migrations using
+the migration ledger, and compare all protected fields before/after. Identities,
+active and expired hashed sessions with their original idle/absolute deadlines,
+workspace revision/document/last-op, operation hashes, stages, archives, ranks,
+account timestamps, consent, tombstones, public fence/pointer/releases and
+disclosure history are preserved. Old pending/consumed OAuth transactions are
+deliberately discarded: those browser flows must restart. `0003` also discards
+pre-change ephemeral flows so none can bypass the new deletion semantics.
+Identity-hash removal from privacy tombstones is intentional, not data loss of
+their authoritative user-ID deletion/withdrawal decisions.
+
+For a future separately approved upgrade:
+
+1. Close login/mutation/restore-serving gates and keep PUBLIC publication blocked;
+   preserve a recovery copy of PERSONAL and migration metadata. Do not reset or
+   roll back the current privacy authority or monotonic public generation.
+2. Apply PRIVACY forward migrations first (preserving decisions/tombstones),
+   then PERSONAL, then PUBLIC if it has new migrations. Batches cannot span DBs;
+   interrupted stages stay gated and restart from their migration ledgers.
+3. Deploy only code compatible with the forward schema. Reapply all current
+   user-ID tombstones to any recovered/restored PERSONAL data, reconcile pending
+   per-user operations, and reconcile the public fence under the maintenance gate.
+   Restart expired/discarded OAuth flows; revoke recovered sessions if their
+   revocation/deletion epoch cannot be proven current.
+4. Prefer **forward-fix** migrations/code. No downgrade to M1/M3 code expecting
+   `consumed_at`, permanent identity bans or identity-hash tombstones is supported.
+   A PERSONAL-only recovery copy must be forward-migrated and reconciled before
+   service resumes. Never restore an older PRIVACY_CONTROL_DB as recovery, and
+   never restore an old PUBLIC fence/pointer into service. Migration tests are
+   local preservation evidence, not proof of a live distributed restore.
+
+**Production gate:** two-calendar-year inactivity deletion is still deferred
+for this milestone; its scheduler/reconciliation must be implemented and reviewed
+before production. It must use this same fenced deletion/rejoin path. The expiry
+cron does not implement inactivity deletion. Publication/unblocking, real Google
+legacy-issuer support and browser integration remain separate launch gates.
