@@ -314,16 +314,20 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
   it("revoke-all rejects a callback paused before session creation, including an anonymous pre-revocation flow", async () => {
     const h = await harness();
     const current = await h.login();
+    const lastLogin = h.time();
     const pending = await h.begin();
     const url = h.issuer.authorize(pending.location);
     const gate = h.issuer.pauseNextExchange();
     const callback = h.callback(url, pending.cookie);
     await gate.entered;
+    h.advance(60_000);
     expect(await count("oauth_transactions")).toBe(0);
     expect((await h.mutate("/v1/sessions/revoke-all", { opId: "revoke" }, current.cookie)).status).toBe(200);
     gate.release();
     expect((await callback).status).toBe(401);
     expect(await count("sessions")).toBe(0);
+    expect((await databases.PERSONAL_DB.prepare("SELECT last_active_at FROM accounts")
+      .first<{ last_active_at: number }>())?.last_active_at).toBe(lastLogin);
     expect((await h.account(current.cookie)).status).toBe(401);
     expect((await h.login()).result.status).toBe(200); // Only a fresh flow is admitted.
   });

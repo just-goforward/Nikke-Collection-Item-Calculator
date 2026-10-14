@@ -113,8 +113,9 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
       const raw = randomToken();
       const tokenHash = await sha256(raw);
       const time = now();
+      const provisioning = await provisioningStatements(env.PERSONAL_DB, identity, crypto.randomUUID(), time, false);
       const results = await env.PERSONAL_DB.batch([
-        ...await provisioningStatements(env.PERSONAL_DB, identity, crypto.randomUUID(), time),
+        ...provisioning,
         env.PERSONAL_DB.prepare(
           `INSERT INTO sessions
            (token_hash, user_id, created_at, idle_expires_at, max_expires_at, auth_epoch)
@@ -123,12 +124,16 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
            AND NOT EXISTS (SELECT 1 FROM blocked_identities WHERE identity_hash = ?)`,
         ).bind(tokenHash, time, time + SESSION_IDLE_MS, time + SESSION_MAX_MS,
           identity.issuer, identity.sub, pending.started_epoch, hash),
+        env.PERSONAL_DB.prepare(
+          `UPDATE accounts SET last_active_at = max(last_active_at, ?)
+           WHERE user_id = (SELECT user_id FROM sessions WHERE token_hash = ?)`,
+        ).bind(time, tokenHash),
         env.PERSONAL_DB.prepare("SELECT user_id FROM sessions WHERE token_hash = ?").bind(tokenHash),
         env.PERSONAL_DB.prepare("SELECT count(*) AS n FROM accounts"),
       ]);
       if (!results[results.length - 2]?.results[0]) {
         if (Number(results[results.length - 1]?.results[0]?.["n"]) >= 150
-          && !results[results.length - 4]?.results[0]) throw new HttpError(403, "beta_full");
+          && !results[provisioning.length - 1]?.results[0]) throw new HttpError(403, "beta_full");
         throw new HttpError(401, "auth_failed");
       }
       const headers = new Headers();

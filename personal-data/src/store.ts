@@ -29,6 +29,7 @@ export async function admitAccount(
 /** Shared by admission tests and callback's atomic provision-plus-session batch. */
 export async function provisioningStatements(
   db: SqlDatabase, identity: GoogleIdentity, candidateUserId: string, now: number,
+  recordActivity = true,
 ): Promise<SqlStatement[]> {
   return [
     db.prepare(
@@ -49,8 +50,8 @@ export async function provisioningStatements(
     ).bind(JSON.stringify(EMPTY_DOCUMENT), candidateUserId, candidateUserId),
     db.prepare(
       `UPDATE accounts SET last_active_at = max(last_active_at, ?)
-       WHERE user_id = (SELECT user_id FROM identities WHERE issuer = ? AND subject = ?)`,
-    ).bind(now, identity.issuer, identity.sub),
+       WHERE user_id = (SELECT user_id FROM identities WHERE issuer = ? AND subject = ?) AND ? = 1`,
+    ).bind(now, identity.issuer, identity.sub, Number(recordActivity)),
     db.prepare(
       "SELECT user_id FROM identities WHERE issuer = ? AND subject = ?",
     ).bind(identity.issuer, identity.sub),
