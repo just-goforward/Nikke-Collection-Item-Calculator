@@ -158,7 +158,6 @@ describe("staging site gateway: personal routing and callback security", () => {
       ).status,
     ).toBe(200);
   });
-
 });
 
 describe("staging site gateway: account flow", () => {
@@ -282,7 +281,6 @@ describe("staging site gateway: account flow", () => {
     expect(env.STATS.fetch).not.toHaveBeenCalled();
     expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
-
 });
 
 describe("staging site gateway: binding isolation and assets", () => {
