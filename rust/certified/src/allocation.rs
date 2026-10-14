@@ -34,17 +34,27 @@ unsafe impl GlobalAlloc for Accounted {
 #[global_allocator]
 static ALLOCATOR: Accounted = Accounted;
 #[no_mangle]
-pub extern "C" fn certified_heap_live() -> usize { LIVE.load(Relaxed) }
+pub extern "C" fn certified_heap_live() -> usize {
+    LIVE.load(Relaxed)
+}
 #[no_mangle]
-pub extern "C" fn certified_heap_peak() -> usize { PEAK.load(Relaxed) }
+pub extern "C" fn certified_heap_peak() -> usize {
+    PEAK.load(Relaxed)
+}
 #[no_mangle]
-pub extern "C" fn certified_allocation_denied() -> bool { DENIED.load(Relaxed) }
+pub extern "C" fn certified_allocation_denied() -> bool {
+    DENIED.load(Relaxed)
+}
 #[no_mangle]
-pub extern "C" fn certified_heap_limit(bytes: usize) { LIMIT.store(bytes.min(192 * 1024 * 1024), Relaxed); }
-pub fn can_admit(bytes: usize) -> bool { LIVE.load(Relaxed).saturating_add(bytes) <= LIMIT.load(Relaxed) }
+pub extern "C" fn certified_heap_limit(bytes: usize) {
+    LIMIT.store(bytes.min(192 * 1024 * 1024), Relaxed);
+}
+pub fn can_admit(bytes: usize) -> bool {
+    LIVE.load(Relaxed).saturating_add(bytes) <= LIMIT.load(Relaxed)
+}
 #[no_mangle]
 pub extern "C" fn certified_reset_heap_peak() {
-    PEAK.store(LIVE.load(Relaxed),Relaxed);
-    DENIED.store(false,Relaxed);
-    LIMIT.store(192*1024*1024,Relaxed);
+    PEAK.store(LIVE.load(Relaxed), Relaxed);
+    DENIED.store(false, Relaxed);
+    LIMIT.store(192 * 1024 * 1024, Relaxed);
 }
