@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { type Q, q, qInterval, toNumber } from "./certifiedRational.ts";
-import { assertProperty, expectDefectProperty, type PropertyIdentity } from "./propertyHarness.ts";
+import { assertProperty, type PropertyIdentity } from "./propertyHarness.ts";
 
 /* S1/P2. Expected doubles come only from IEEE-754 bit patterns decoded with
  * DataView (anchored below on literals parsed by the JS engine) and from exact
@@ -166,10 +166,10 @@ describe("P2 toNumber against the bit-pattern reference", () => {
     HARD_DEADLINE_MS,
   );
 
-  it.fails(
+  it(
     "DEFECT-P2-01 is correctly rounded (nearest, ties-to-even) on interior and tie cases",
     async () => {
-      await expectDefectProperty(
+      await assertProperty(
         fc.property(anyCase, (c) => Object.is(toNumber(asQ(c.r)), c.expected)),
         {
           name: "P2.correctly-rounded",
@@ -218,17 +218,17 @@ describe("P2 toNumber against the bit-pattern reference", () => {
   });
 
   // Minimized witnesses of DEFECT-P2-01 (missing sticky bit / double rounding).
-  it.fails("DEFECT-P2-01 witness (2^65+2^12+1)/2^65 rounds to nextUp(1)", () => {
+  it("DEFECT-P2-01 witness (2^65+2^12+1)/2^65 rounds to nextUp(1)", () => {
     expect(toNumber(q((1n << 65n) + (1n << 12n) + 1n, 1n << 65n))).toBe(
       fromBits(0x3ff0_0000_0000_0001n),
     );
   });
-  it.fails("DEFECT-P2-01 witness 2^-1075 + 2^-2000 rounds to MIN_VALUE", () => {
+  it("DEFECT-P2-01 witness 2^-1075 + 2^-2000 rounds to MIN_VALUE", () => {
     expect(toNumber(q((1n << 925n) + 1n, 1n << 2000n))).toBe(Number.MIN_VALUE);
   });
   // Shrunk by fast-check (seed 20260720, P2.correctly-rounded): one numerator unit
   // above the lower midpoint of 0.7206766710631841, rounded down to its predecessor.
-  it.fails("DEFECT-P2-01 shrunk witness just above a lower midpoint keeps the nearest double", () => {
+  it("DEFECT-P2-01 shrunk witness just above a lower midpoint keeps the nearest double", () => {
     const r = q(116936475474397122161549626048513n, 162259276829213363391578010288128n);
     expect(toNumber(r)).toBe(0.7206766710631841);
   });

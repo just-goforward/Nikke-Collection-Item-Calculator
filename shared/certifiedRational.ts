@@ -73,26 +73,44 @@ export function parse(s: string): Q {
   return q(BigInt(m.input.slice(0, separator)), BigInt(m.input.slice(separator + 1)));
 }
 
-/** Nearest double of a rational (round-to-nearest, via BigInt scaling). */
+/** Correctly rounded binary64 of an exact rational (nearest, ties-to-even). */
 export function toNumber(a: Q): number {
   if (a.n === 0n) return 0;
   const neg = a.n < 0n;
   const n = neg ? -a.n : a.n;
-  // Scale so the integer quotient carries ~64 significant bits, convert, then undo the scale in safe steps.
-  const shift = 64 - (n.toString(2).length - a.d.toString(2).length);
-  const scaled = shift >= 0 ? (n << BigInt(shift)) / a.d : n / (a.d << BigInt(-shift));
-  let value = Number(scaled);
-  let k = -shift;
-  while (k > 1000) {
-    value *= 2 ** 1000;
-    k -= 1000;
+  // The bit-length difference is floor(log2(n/d)) or one above it.
+  let exponent = n.toString(2).length - a.d.toString(2).length;
+  if (exponent > 1024) return neg ? -Infinity : Infinity;
+  if (exponent < -1075) return neg ? -0 : 0;
+  if (exponent >= 0 ? n < a.d << BigInt(exponent) : n << BigInt(-exponent) < a.d) {
+    exponent -= 1;
   }
-  while (k < -1000) {
-    value *= 2 ** -1000;
-    k += 1000;
+  if (exponent > 1023) return neg ? -Infinity : Infinity;
+  // Subnormals use the fixed quantum 2^-1074, not a normal significand
+  // rounded first and scaled later. Retain the entire exact remainder.
+  exponent = Math.max(exponent, -1022);
+  const shift = 52 - exponent;
+  const numerator = shift >= 0 ? n << BigInt(shift) : n;
+  const denominator = shift >= 0 ? a.d : a.d << BigInt(-shift);
+  let mantissa = numerator / denominator;
+  const twiceRemainder = 2n * (numerator % denominator);
+  if (twiceRemainder > denominator || (twiceRemainder === denominator && (mantissa & 1n) !== 0n)) {
+    mantissa += 1n;
   }
-  value *= 2 ** k;
-  return neg ? -value : value;
+  if (mantissa === 1n << 53n) {
+    mantissa >>= 1n;
+    exponent += 1;
+  }
+  // Construct the bits directly: no floating-point scaling or second rounding.
+  const hiddenBit = 1n << 52n;
+  const magnitude =
+    exponent > 1023
+      ? 0x7ff0_0000_0000_0000n
+      : mantissa < hiddenBit
+        ? mantissa
+        : (BigInt(exponent + 1023) << 52n) | (mantissa - hiddenBit);
+  scratch.setBigUint64(0, magnitude | (neg ? 1n << 63n : 0n));
+  return scratch.getFloat64(0);
 }
 
 // ---------------------------------------------------------------- binary64
