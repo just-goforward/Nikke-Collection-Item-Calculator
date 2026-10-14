@@ -186,3 +186,39 @@ it("does not retry a lone failed candidate before its backoff expires", async ()
   await runInactivityDeletion(dbs, DUE + 60_000);
   expect(await accounts()).toBe(0);
 });
+
+it.each([
+  { now: DUE, future: LAST + 12 * 3_600_000, overdue: LAST - 1 },
+  {
+    now: Date.UTC(2026, 1, 28, 12),
+    future: Date.UTC(2024, 1, 28, 18),
+    overdue: Date.UTC(2024, 1, 29, 11),
+  },
+])(
+  "an ineligible never-attempted candidate cannot obstruct an eligible expired retry at $now",
+  async ({ now, future, overdue }) => {
+    await seed("never-attempted", future);
+    await seed("expired-retry", overdue);
+    await dbs.PERSONAL_DB.prepare(
+      "UPDATE accounts SET inactivity_retry_after = ? WHERE user_id = 'expired-retry'",
+    )
+      .bind(now - 1)
+      .run();
+    expect(inactivityDeadline(future)).toBeGreaterThan(now);
+    expect(inactivityDeadline(overdue)).toBeLessThan(now);
+    await runInactivityDeletion(dbs, now);
+    expect(await dbs.PERSONAL_DB.prepare("SELECT user_id, blocked FROM accounts").first()).toEqual({
+      user_id: "never-attempted",
+      blocked: 0,
+    });
+  },
+);
+
+it("on a leap-day now includes the entire due source February 28, not just its current UTC time", async () => {
+  const now = Date.UTC(2028, 1, 29);
+  const active = Date.UTC(2026, 1, 28, 23, 59, 59, 999);
+  await seed("due-yesterday", active);
+  expect(inactivityDeadline(active)).toBe(Date.UTC(2028, 1, 28, 23, 59, 59, 999));
+  await runInactivityDeletion(dbs, now);
+  expect(await accounts()).toBe(0);
+});
