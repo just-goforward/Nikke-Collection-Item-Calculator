@@ -44,7 +44,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.21.0
           cache: npm
@@ -308,7 +308,7 @@ jobs:
 
       - name: Upload immutable v10 evidence
         if: always() && steps.window.outputs.eligible == 'true'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: forecast-canary-v10-${{ steps.window.outputs.canary_id }}
           path: |
@@ -385,7 +385,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$CERTIFIED_SHA"
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.21.0
           cache: npm
@@ -1030,7 +1030,7 @@ jobs:
 
       - name: Retain successful rollout evidence before leaving the restore boundary
         if: success()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: forecast-production-rollout-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -1145,7 +1145,7 @@ jobs:
 
       - name: Retain production rollout and independent restore evidence
         if: always() && (failure() || cancelled())
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: forecast-production-restore-${{ github.run_id }}-${{ github.run_attempt }}
           path: |

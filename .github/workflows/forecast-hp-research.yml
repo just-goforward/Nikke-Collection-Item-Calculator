@@ -68,7 +68,7 @@ jobs:
           ref: refs/heads/main
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.21.0
           cache: npm
@@ -244,7 +244,7 @@ jobs:
 
       - name: Upload profile evidence matrix
         if: steps.contract.outputs.enabled == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hp-profile-matrix-${{ github.run_id }}
           path: benchmarks/results/dynamic-hp-profile-matrix.json
@@ -259,7 +259,7 @@ jobs:
 
       - name: Upload verified WASM
         if: steps.contract.outputs.enabled == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dynamic-hp-wasm-${{ github.run_id }}
           path: public/solver_rs.wasm
@@ -289,7 +289,7 @@ jobs:
           ref: refs/heads/main
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.21.0
           cache: npm
@@ -361,7 +361,7 @@ jobs:
         run: npm ci
 
       - name: Download verified WASM
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dynamic-hp-wasm-${{ github.run_id }}
           path: public
@@ -441,7 +441,7 @@ jobs:
 
       - name: Upload profile report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dynamic-hp-${{ matrix.profile.id }}-${{ github.run_id }}
           path: benchmarks/results/dynamic/${{ matrix.profile.id }}.json
@@ -464,7 +464,7 @@ jobs:
           ref: refs/heads/main
 
       - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.21.0
           cache: npm
@@ -536,14 +536,14 @@ jobs:
         run: npm ci
 
       - name: Download this run's profile reports
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: dynamic-hp-*-${{ github.run_id }}
           path: collected
           merge-multiple: true
 
       - name: Download profile evidence matrix
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: hp-profile-matrix-${{ github.run_id }}
           path: profile-matrix
@@ -590,7 +590,7 @@ jobs:
 
       - name: Upload exact-gate certificate
         if: steps.contract.outputs.complete == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dynamic-hp-exact-gate-summary-${{ github.run_id }}
           path: ${{ runner.temp }}/dynamic-hp-certificate
@@ -646,7 +646,7 @@ jobs:
 
       - name: Upload bounded-incomplete diagnostic certificate
         if: steps.continuation.outputs.exhausted == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dynamic-hp-bounded-incomplete-${{ github.run_id }}
           path: ${{ runner.temp }}/dynamic-hp-bounded-incomplete-certificate

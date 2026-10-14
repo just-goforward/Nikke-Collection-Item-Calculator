@@ -41,3 +41,16 @@ updates:
       time: "10:00"
       timezone: "Asia/Seoul"
     open-pull-requests-limit: 3
+
+  # Certified Cargo PRs need a local WASM rebuild before validation.
+  - package-ecosystem: "cargo"
+    directory: "/rust/certified"
+    schedule:
+      interval: "monthly"
+      time: "10:30"
+      timezone: "Asia/Seoul"
+    open-pull-requests-limit: 3
+    ignore:
+      # num-rational 0.4.2 requires num-bigint ^0.4.
+      - dependency-name: "num-bigint"
+        versions: [">=0.5"]
