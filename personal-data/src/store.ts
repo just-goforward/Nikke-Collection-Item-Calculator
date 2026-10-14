@@ -174,6 +174,7 @@ export async function putWorkspace(
     `UPDATE workspaces AS w SET document = ?, revision = revision + 1,
      last_op_id = ?, last_write_nonce = ?
      WHERE user_id = ? AND revision = ?
+     AND EXISTS (SELECT 1 FROM accounts a WHERE a.user_id = w.user_id AND a.blocked = 0)
      AND NOT EXISTS (SELECT 1 FROM operations WHERE user_id = w.user_id AND op_id = ?)
      ${costGuard} ${archiveGuard}`,
   );

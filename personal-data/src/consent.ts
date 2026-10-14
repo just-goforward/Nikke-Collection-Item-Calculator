@@ -190,28 +190,37 @@ async function recoverConsentChange(env: PersonalEnv, userId: string, now: numbe
 
 export async function queueDeletion(
   env: PersonalEnv,
-  account: SessionAccount,
+  account: Pick<SessionAccount, "userId" | "identity">,
   opId: string,
   now: number,
-): Promise<PrivacyAccepted> {
+  expectedLastActive: number | null = null,
+): Promise<PrivacyAccepted | null> {
   const generation = await blockPublication(env, now);
-  await env.PERSONAL_DB.batch([
+  const results = await env.PERSONAL_DB.batch([
     env.PERSONAL_DB.prepare("UPDATE auth_control SET epoch = epoch + 1 WHERE singleton = 1"),
     env.PERSONAL_DB.prepare(
       `UPDATE accounts SET blocked = 1, auth_epoch = (SELECT epoch FROM auth_control WHERE singleton = 1)
-       WHERE user_id = ?`,
-    ).bind(account.userId),
+       WHERE user_id = ? AND blocked = 0 AND (? IS NULL OR last_active_at = ?)`,
+    ).bind(account.userId, expectedLastActive, expectedLastActive),
     env.PERSONAL_DB.prepare(
       `INSERT INTO identity_deletion_fences
-       SELECT ?, epoch, ? FROM auth_control WHERE singleton = 1
+       SELECT ?, c.epoch, ? FROM auth_control c JOIN accounts a ON a.user_id = ?
+       WHERE c.singleton = 1 AND a.blocked = 1 AND a.auth_epoch = c.epoch
        ON CONFLICT(identity_hash) DO UPDATE SET deleted_epoch = excluded.deleted_epoch,
        expires_at = excluded.expires_at`,
-    ).bind(await identityHash(account.identity), now + FLOW_TTL_MS),
+    ).bind(await identityHash(account.identity), now + FLOW_TTL_MS, account.userId),
     env.PERSONAL_DB.prepare(
-      "INSERT OR IGNORE INTO deletion_jobs (user_id, op_id, created_at, fence_generation) VALUES (?, ?, ?, ?)",
-    ).bind(account.userId, opId, now, generation),
-    env.PERSONAL_DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(account.userId),
+      `INSERT OR IGNORE INTO deletion_jobs (user_id, op_id, created_at, fence_generation)
+       SELECT user_id, ?, ?, ? FROM accounts WHERE user_id = ? AND blocked = 1
+       AND auth_epoch = (SELECT epoch FROM auth_control WHERE singleton = 1)`,
+    ).bind(opId, now, generation, account.userId),
+    env.PERSONAL_DB.prepare(
+      `DELETE FROM sessions WHERE user_id = ? AND EXISTS
+       (SELECT 1 FROM accounts a WHERE a.user_id = sessions.user_id AND a.blocked = 1
+        AND a.auth_epoch = (SELECT epoch FROM auth_control WHERE singleton = 1))`,
+    ).bind(account.userId),
   ]);
+  if (results[1]?.meta.changes !== 1) return null;
   return { operationId: opId, ...(await finishDeletion(env, account.userId)) };
 }
 

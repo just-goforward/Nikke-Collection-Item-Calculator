@@ -410,9 +410,13 @@ For a future separately approved upgrade:
    never restore an old PUBLIC fence/pointer into service. Migration tests are
    local preservation evidence, not proof of a live distributed restore.
 
-**Production gate:** two-calendar-year inactivity deletion is still deferred
-for this milestone; its scheduler/reconciliation must be implemented and reviewed
-before production. It must use this same fenced deletion/rejoin path. The expiry
-cron performs expiry and bounded recovery, not inactivity deletion.
+M7 implements inactivity deletion in five-account cron batches, using the same
+fenced deletion/outbox/rejoin path. Eligibility is exactly two UTC calendar years
+after `last_active_at`; February 29 clips to February 28 in a non-leap anniversary
+year. Login and winning saves refresh activity; polling, session touches and
+consent decisions do not. The deletion batch rechecks the selected activity
+timestamp, so a concurrent login/save wins before account blocking. Writes after
+blocking are refused. No pre-deletion warning was required by the agreed contract
+and none is implemented. M7 is local-tested, not deployed.
 Publication/unblocking, real Google
 legacy-issuer support and browser integration remain separate launch gates.

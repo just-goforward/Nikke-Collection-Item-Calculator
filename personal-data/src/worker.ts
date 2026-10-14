@@ -36,6 +36,7 @@ import {
   workspaceBody,
 } from "./http";
 import { reapplyUserTombstones } from "./privacy";
+import { runInactivityDeletion } from "./inactivity";
 import {
   getWorkspace,
   provisioningStatements,
@@ -367,6 +368,7 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
         }
         if (effective === "/v1/account" && request.method === "DELETE") {
           const result = await queueDeletion(env, account, opBody(await body(request)), now());
+          if (!result) throw new HttpError(409, "account_context_stale");
           return response(result, 202, { "Set-Cookie": cookie(SESSION_COOKIE, "", 0) });
         }
         if (effective === "/v1/sessions/revoke-all") {
@@ -485,6 +487,11 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
             "DELETE FROM sessions WHERE idle_expires_at <= ? OR max_expires_at <= ?",
           ).bind(time, time),
         ]);
+      } catch {
+        failed = true;
+      }
+      try {
+        await runInactivityDeletion(env, time);
       } catch {
         failed = true;
       }
