@@ -168,7 +168,7 @@ describe("canonical supply laws and finite boundaries", () => {
 
 describe("exact documented physical supply laws", () => {
   it("matches precomputed dispatch expectations to exact raw-board enumeration", () => {
-    for (const cohort of [0, 1, 2] as const) {
+    for (const cohort of [0, 1, 2, 3] as const) {
       const expected: [Q, Q, Q] = [ZERO, ZERO, ZERO];
       for (const board of dispatchLaw(cohort)) {
         const [blue, purple, yellow, regular, boxII] = board.raw;

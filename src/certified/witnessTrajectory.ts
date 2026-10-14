@@ -6,7 +6,7 @@ import { law } from "./events";
 import type { Triple } from "./types";
 import type { WaitingContext } from "./waitingContext";
 
-export type Cohort = 0 | 1 | 2;
+export type Cohort = 0 | 1 | 2 | 3;
 type Receipt = {
   eventId: string;
   refIndex: number;

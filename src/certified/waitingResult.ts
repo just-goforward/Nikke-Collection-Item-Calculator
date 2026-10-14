@@ -12,7 +12,7 @@ export function completeWaiting(
   sid: number,
   root: ExactValue,
   kernel: FiniteKernel,
-  priors: readonly [Q, Q, Q],
+  priors: readonly Q[],
 ): void {
   const received = new Set(input.receivedEventIds ?? []);
   const claimable = input.snapshot.events.filter(

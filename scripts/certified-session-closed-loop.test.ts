@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { DISPATCH_EXPECTED_PIECES } from "../shared/certifiedDispatchExpectations";
 import type { CertifiedSupplySnapshot } from "../shared/certifiedSupply";
 import type { CollectionState, Kit } from "../shared/game";
 import { solveCertified } from "../src/certified/solver";
@@ -11,7 +12,9 @@ import {
   restoreCertifiedSession,
 } from "../src/certifiedUi/session";
 import { prepareCertifiedForecast } from "../src/lib/certifiedForecast";
+import { frozenIndependentCohorts } from "./certified-staging-approved-panel.ts";
 import {
+  add,
   cmp,
   compareValue,
   createOracleEvaluator,
@@ -20,11 +23,11 @@ import {
   independentSuccess,
   makeTriple,
   mapTriple,
+  mul,
   type QTriple,
   q,
   wire,
 } from "./certified-staging-oracle.ts";
-import { independentPhysicalRecurringRates } from "./certified-staging-oracle-physical-supply.ts";
 
 const AS_OF = "2026-09-30T08:00:00.000Z";
 const KITS = ["blue", "purple", "yellow"] as const;
@@ -33,7 +36,22 @@ let rates: QTriple;
 
 beforeAll(async () => {
   snapshot = await prepareCertifiedForecast(AS_OF);
-  rates = independentPhysicalRecurringRates();
+  // V6 remains an immutable three-cohort oracle. The fourth constant is checked
+  // against raw joint laws in certifiedSupplyLaws.spec.ts, not derived from a
+  // solver result. Mix and price independently here using the documented terms.
+  const fourth = DISPATCH_EXPECTED_PIECES[3];
+  if (!fourth) throw new Error("fourth_dispatch_expectation_missing");
+  const cohorts = [...frozenIndependentCohorts(), fourth] as const;
+  const weights = [q(1, 7), q(2, 7), q(3, 7), q(1, 7)] as const;
+  const shop = [q(5, 2), q(2, 7), q(1, 7)] as const;
+  const solo = [q(17966, 1995), q(104, 105), q(884, 1995)] as const;
+  rates = makeTriple((color) => {
+    const k = color as 0 | 1 | 2;
+    let dispatch = q(0);
+    for (const cohort of [0, 1, 2, 3] as const)
+      dispatch = add(dispatch, mul(cohorts[cohort][k], weights[cohort]));
+    return add(add(dispatch, shop[k]), solo[k]);
+  });
 });
 
 function initial(

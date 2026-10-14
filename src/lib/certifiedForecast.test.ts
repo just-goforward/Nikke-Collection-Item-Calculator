@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { certifiedForecastIdentityWorkspaceBound } from "../../shared/certifiedForecastIdentity";
 import { CERTIFIED_FORECAST_SEED_PROVENANCE_HASH } from "../../shared/generated/certifiedEngineBuild";
 import { SOLO_RAID_ROUND_HISTORY } from "../../shared/soloRaidCadence";
 import registry from "../../shared/supplyForecasts.json";
-import { prepareCertifiedForecast } from "./certifiedForecast";
+import {
+  certifiedForecastBuildWorkspaceBound,
+  prepareCertifiedForecast,
+} from "./certifiedForecast";
 
 describe("approved forecast seed identity", () => {
   it("binds sourced raid and collaboration semantic periods and the raw-source manifest", async () => {
@@ -22,7 +26,7 @@ describe("approved forecast seed identity", () => {
           adopted: projection,
           fullApprovedRegistryHash,
           rounds: SOLO_RAID_ROUND_HISTORY,
-          modelVersion: "documented-physical-supply-v1",
+          modelVersion: "documented-physical-supply-v2",
           soloPeriods: [
             {
               round: 40,
@@ -42,6 +46,10 @@ describe("approved forecast seed identity", () => {
       )
       .digest("hex");
     expect(snapshot.sourceHash).toBe(expected);
+    expect(snapshot.version).toBe("certified-daily-v2");
+    expect(certifiedForecastIdentityWorkspaceBound(snapshot)).toBeLessThan(
+      certifiedForecastBuildWorkspaceBound(),
+    );
     expect(snapshot.revision).toBe(`${adopted?.id}:${expected.slice(0, 16)}`);
     expect(snapshot.provenance).toContain(
       `official_source_manifest:${CERTIFIED_FORECAST_SEED_PROVENANCE_HASH}`,

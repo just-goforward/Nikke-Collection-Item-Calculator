@@ -3,6 +3,7 @@ import {
   CERTIFIED_SUPPLY_LAWS,
   type CertifiedLawRef,
   type CertifiedSupplyLaw,
+  LEGACY_CERTIFIED_SUPPLY_LAWS,
 } from "./certifiedSupplyLaws.ts";
 import {
   CERTIFIED_SUPPLY_VERSION,
@@ -69,7 +70,7 @@ function validateMetadata(snapshot: CertifiedSupplySnapshot) {
     throw new Error("certified_snapshot_provenance_list_invalid");
   JSON.stringify(snapshot);
   if (
-    snapshot.version !== CERTIFIED_SUPPLY_VERSION ||
+    (snapshot.version !== CERTIFIED_SUPPLY_VERSION && snapshot.version !== "certified-daily-v1") ||
     !snapshot.revision ||
     !/^[a-f0-9]{64}$/.test(snapshot.sourceHash)
   )
@@ -257,10 +258,10 @@ function validateFiniteOutcomes(
   if (!eq(mass, ONE)) throw new Error("certified_snapshot_law_mass_not_one");
 }
 
-function validateFiniteLaw(law: CertifiedSupplyLaw, checkBudget?: () => void) {
+function validateFiniteLaw(law: CertifiedSupplyLaw, cohortCount: 3 | 4, checkBudget?: () => void) {
   if (
     law.outcomesByCohort !== undefined &&
-    (!Array.isArray(law.outcomesByCohort) || law.outcomesByCohort.length !== 3)
+    (!Array.isArray(law.outcomesByCohort) || law.outcomesByCohort.length !== cohortCount)
   )
     throw new Error("certified_snapshot_cohort_law_invalid");
   if (law.outcomesByCohort !== undefined) knownArrayFields(law.outcomesByCohort);
@@ -274,7 +275,7 @@ function validateFiniteLaw(law: CertifiedSupplyLaw, checkBudget?: () => void) {
   for (const outcomes of groups) validateFiniteOutcomes(outcomes, checkBudget);
 }
 
-function validateLaw(law: CertifiedSupplyLaw, checkBudget?: () => void) {
+function validateLaw(law: CertifiedSupplyLaw, cohortCount: 3 | 4, checkBudget?: () => void) {
   knownFields(law, "id kind modelVersion outcomes outcomesByCohort");
   if (
     typeof law.id !== "string" ||
@@ -285,12 +286,12 @@ function validateLaw(law: CertifiedSupplyLaw, checkBudget?: () => void) {
   )
     throw new Error("certified_snapshot_law_invalid");
   if (law.kind === "finite") {
-    validateFiniteLaw(law, checkBudget);
+    validateFiniteLaw(law, cohortCount, checkBudget);
     return;
   }
-  const known = CERTIFIED_SUPPLY_LAWS.some(
+  const known = (cohortCount === 3 ? LEGACY_CERTIFIED_SUPPLY_LAWS : CERTIFIED_SUPPLY_LAWS).some(
     (model) =>
-      model.id === law.id && model.kind === law.kind && model.modelVersion === law.modelVersion,
+      model.id === law.id && model.kind === law.kind && law.modelVersion === model.modelVersion,
   );
   if (!known || law.outcomes !== undefined || law.outcomesByCohort !== undefined)
     throw new Error("certified_snapshot_builtin_law_version_invalid");
@@ -459,7 +460,7 @@ export function validateSnapshot(
     throw new Error("certified_snapshot_authority_identity_duplicate");
   for (const law of snapshot.laws) {
     checkBudget?.();
-    validateLaw(law, checkBudget);
+    validateLaw(law, snapshot.version === "certified-daily-v1" ? 3 : 4, checkBudget);
   }
   validateRules(snapshot, lawIds, checkBudget);
   const rounds = new Set<number>();

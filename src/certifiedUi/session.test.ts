@@ -30,6 +30,7 @@ const laws: readonly CertifiedSupplyLaw[] = [
       [{ pieces: [3, 0, 0], mass: { numerator: "1", denominator: "1" } }],
       [{ pieces: [0, 2, 0], mass: { numerator: "1", denominator: "1" } }],
       [{ pieces: [0, 0, 1], mass: { numerator: "1", denominator: "1" } }],
+      [{ pieces: [0, 0, 2], mass: { numerator: "1", denominator: "1" } }],
     ],
   },
 ];
@@ -192,6 +193,7 @@ describe("certified receipt observations", () => {
     expect(observed.cohortWeights).toEqual([
       { numerator: "0", denominator: "1" },
       { numerator: "1", denominator: "1" },
+      { numerator: "0", denominator: "1" },
       { numerator: "0", denominator: "1" },
     ]);
     expect(() =>

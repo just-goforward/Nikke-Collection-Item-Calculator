@@ -35,7 +35,7 @@ export function law(
   input: CertifiedInput,
   event: CertifiedSupplyEvent,
   refIndex: number,
-  cohort: 0 | 1 | 2,
+  cohort: 0 | 1 | 2 | 3,
   budget: WorkBudget,
 ): readonly ExactSupplyOutcome[] {
   // Production callers enumerate refs.length. For a missing reference, the

@@ -12,9 +12,12 @@ import {
 } from "../../shared/generated/certifiedForecastAuthority";
 import { SOLO_RAID_ROUND_HISTORY } from "../../shared/soloRaidCadence";
 
-/** Fixed seed: 113 game days, three cohorts and the pinned 40-round history.
- * Reserve construction, hashing and temporary copies before rebuilding it.
- * A future adopted ledger also reserves its measured structural upper bound.
+/** Fixed seed: 113 game days and the pinned 40-round history.
+ * Moving to four cohorts does not multiply this ledger: the seed stores three
+ * builtin law descriptors, not per-cohort boards, priors or expectation tables.
+ * Thus its existing 4 MiB construction/hash/copy reservation is unchanged.
+ * Adopted finite laws are different: the structural bound visits every outcome
+ * in all four groups (or all three for a historical v1 ledger), without padding.
  */
 export function certifiedForecastBuildWorkspaceBound(): number {
   const adopted = CERTIFIED_APPROVED_FORECAST;
@@ -62,7 +65,7 @@ export async function prepareCertifiedForecast(
         adopted,
         fullApprovedRegistryHash: CERTIFIED_APPROVED_REGISTRY_HASH,
         rounds: SOLO_RAID_ROUND_HISTORY,
-        modelVersion: "documented-physical-supply-v1",
+        modelVersion: "documented-physical-supply-v2",
         soloPeriods,
         collaborationPeriods,
         seedProvenanceHash: CERTIFIED_FORECAST_SEED_PROVENANCE_HASH,

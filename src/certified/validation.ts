@@ -1,11 +1,13 @@
-import { eq, fromWire, type Q, q, sum, toWire } from "../../shared/certifiedRational";
-import { assertCertifiedSupplySnapshot } from "../../shared/certifiedSupply";
+import type { Q } from "../../shared/certifiedRational";
+import {
+  assertCertifiedSupplySnapshot,
+  certifiedCohortWeights,
+} from "../../shared/certifiedSupply";
+import type { CohortTuple } from "../../shared/certifiedSupplyLaws";
 import { CertifiedLimit } from "./budget";
 import { eventOffset } from "./events";
 import type { CertifiedInput, Triple } from "./types";
 
-const ONE = q(1);
-const DEFAULT_PRIORS = [toWire(q(1, 3)), toWire(q(1, 3)), toWire(q(1, 3))] as const;
 export function requireInput(condition: boolean, reason: string): asserts condition {
   if (!condition) throw new CertifiedLimit(reason);
 }
@@ -17,7 +19,7 @@ function validateTriple(stock: Triple, name: string): void {
     name,
   );
 }
-export function validate(input: CertifiedInput, checkBudget?: () => void): readonly [Q, Q, Q] {
+export function validate(input: CertifiedInput, checkBudget?: () => void): CohortTuple<Q> {
   validateState(input);
   validateSnapshot(input, checkBudget);
   requireInput(
@@ -25,12 +27,11 @@ export function validate(input: CertifiedInput, checkBudget?: () => void): reado
       (Number.isSafeInteger(input.batchLimit) && input.batchLimit >= 1 && input.batchLimit <= 1000),
     "invalid_batch_limit",
   );
-  const priors = (input.cohortWeights ?? DEFAULT_PRIORS).map(fromWire) as [Q, Q, Q];
-  requireInput(
-    priors.length === 3 && priors.every((p) => p.n >= 0n) && eq(sum(priors), ONE),
-    "invalid_cohort_weights",
-  );
-  return priors;
+  try {
+    return certifiedCohortWeights(input.cohortWeights, input.snapshot.version);
+  } catch {
+    throw new CertifiedLimit("invalid_cohort_weights");
+  }
 }
 function validateState(input: CertifiedInput): void {
   requireInput(input.grade === "R" || input.grade === "SR", "invalid_grade");
@@ -53,8 +54,7 @@ function validateState(input: CertifiedInput): void {
 function validateSnapshot(input: CertifiedInput, checkBudget?: () => void): void {
   assertCertifiedSupplySnapshot(input.snapshot, checkBudget);
   requireInput(
-    input.snapshot?.version === "certified-daily-v1" &&
-      Date.parse(input.snapshot.asOf) === Date.parse(input.asOf),
+    Date.parse(input.snapshot.asOf) === Date.parse(input.asOf),
     "snapshot_asof_mismatch",
   );
   requireInput(

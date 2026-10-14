@@ -8,6 +8,7 @@ import {
   type Q,
   q,
   sub,
+  sum,
   toWire,
   type WireQ,
   ZERO,
@@ -16,6 +17,7 @@ import { buildSnapshot } from "./certifiedSupplyBuild.ts";
 import {
   type CertifiedLawOptions,
   type CertifiedLawRef,
+  type CohortTuple,
   convolveCertifiedDistributions,
   type DispatchCohort,
   type ExactSupplyOutcome,
@@ -31,6 +33,7 @@ import {
   dateStart,
   freezeJson,
   iso,
+  LEGACY_PERSONAL_COHORT_WEIGHTS,
   linkCertifiedSoloAnnouncement as linkAnnouncement,
   ruleAt,
   CERTIFIED_SUPPLY_VERSION as SUPPLY_VERSION,
@@ -43,6 +46,7 @@ import { gameDayKey, gameDayStartMs } from "./supplyForecastModel.ts";
 export const CERTIFIED_SUPPLY_VERSION = SUPPLY_VERSION;
 export const DEFAULT_PERSONAL_COHORT_WEIGHTS = DEFAULT_COHORT_WEIGHTS;
 export type PersonalCohortWeights = Model.PersonalCohortWeights;
+export type SnapshotCohortWeights = Model.SnapshotCohortWeights;
 export type CertifiedSourceStatus = Model.CertifiedSourceStatus;
 export type CertifiedSoloRound = Model.CertifiedSoloRound;
 export type CertifiedSoloDelayState = Model.CertifiedSoloDelayState;
@@ -202,26 +206,31 @@ export function viewCertifiedSupplySnapshot(
 }
 
 export function certifiedCohortWeights(
-  weights: PersonalCohortWeights = DEFAULT_PERSONAL_COHORT_WEIGHTS,
-): readonly [Q, Q, Q] {
-  if (weights.length !== 3) throw new Error("certified_cohort_weights_invalid");
-  const values = weights.map(fromWire) as [Q, Q, Q];
-  if (values.some((weight) => weight.n < 0n) || !eq(add(add(values[0], values[1]), values[2]), ONE))
+  weights?: SnapshotCohortWeights,
+  version: Model.CertifiedSupplyVersion = CERTIFIED_SUPPLY_VERSION,
+): CohortTuple<Q> {
+  const legacy = version === "certified-daily-v1";
+  const selected =
+    weights ?? (legacy ? LEGACY_PERSONAL_COHORT_WEIGHTS : DEFAULT_PERSONAL_COHORT_WEIGHTS);
+  if (selected.length !== (legacy ? 3 : 4)) throw new Error("certified_cohort_weights_invalid");
+  const values = selected.map(fromWire) as [Q, Q, Q] | [Q, Q, Q, Q];
+  if (values.some((weight) => weight.n < 0n) || !eq(sum(values), ONE))
     throw new Error("certified_cohort_weights_invalid");
   return values;
 }
 
 function expectedRefs(
   refs: readonly CertifiedLawRef[],
-  weights: readonly [Q, Q, Q],
+  weights: CohortTuple<Q>,
   options: CertifiedLawOptions,
 ): [Q, Q, Q] {
   const result: [Q, Q, Q] = [ZERO, ZERO, ZERO];
-  for (const cohort of [0, 1, 2] as const) {
-    if (weights[cohort].n === 0n) continue;
+  for (const cohort of [0, 1, 2, 3] as const) {
+    const weight = weights[cohort];
+    if (!weight || weight.n === 0n) continue;
     for (const ref of refs) {
       const gain = getCertifiedLawExpectedGain(ref, cohort, options);
-      for (const k of [0, 1, 2] as const) result[k] = add(result[k], mul(weights[cohort], gain[k]));
+      for (const k of [0, 1, 2] as const) result[k] = add(result[k], mul(weight, gain[k]));
     }
   }
   return result;
@@ -229,10 +238,10 @@ function expectedRefs(
 
 export function deriveCertifiedDailySupply(
   snapshot: CertifiedSupplySnapshot,
-  weights?: PersonalCohortWeights,
+  weights?: SnapshotCohortWeights,
   options: CertifiedLawOptions = {},
 ): CertifiedDailySupply[] {
-  const personal = certifiedCohortWeights(weights);
+  const personal = certifiedCohortWeights(weights, snapshot.version);
   const current = dateStart(snapshot.coverage.currentDay);
   const days: CertifiedDailySupply[] = [];
   const expectationCache = new Map<string, readonly [Q, Q, Q]>();
@@ -268,7 +277,7 @@ export function deriveCertifiedDailySupply(
 
 export function compareCertifiedSupplyPeriods(
   snapshot: CertifiedSupplySnapshot,
-  weights?: PersonalCohortWeights,
+  weights?: SnapshotCohortWeights,
 ): CertifiedSupplyComparison {
   const daily = deriveCertifiedDailySupply(snapshot, weights);
   const period = (window: CertifiedSupplyCoverageWindow): CertifiedSupplyPeriod => {
@@ -332,10 +341,10 @@ export function compareCertifiedSupplyPeriods(
 export const comparePeriods = compareCertifiedSupplyPeriods;
 export function certifiedRecurringRate(
   snapshot: CertifiedSupplySnapshot,
-  weights?: PersonalCohortWeights,
+  weights?: SnapshotCohortWeights,
   options: CertifiedLawOptions = {},
 ): readonly [Q, Q, Q] {
-  const personal = certifiedCohortWeights(weights);
+  const personal = certifiedCohortWeights(weights, snapshot.version);
   const rule = ruleAt(snapshot.rules, dateStart(snapshot.coverage.currentDay));
   if (!rule) throw new Error("certified_current_supply_rule_missing");
   const lawOptions = { ...options, laws: snapshot.laws };
@@ -352,7 +361,7 @@ export function certifiedRecurringRate(
 export const recurringRates = certifiedRecurringRate;
 export function certifiedFixedPriceWeights(
   snapshot: CertifiedSupplySnapshot,
-  weights: PersonalCohortWeights | undefined,
+  weights: SnapshotCohortWeights | undefined,
   initialRaw: Triple,
   options: CertifiedLawOptions = {},
 ): readonly [Q, Q, Q] {

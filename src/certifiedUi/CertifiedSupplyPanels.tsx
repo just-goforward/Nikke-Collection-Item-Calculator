@@ -1,9 +1,10 @@
 import { type ReactNode, useState } from "react";
 import { fromWire, toNumber, type WireQ } from "../../shared/certifiedRational";
-import type {
-  CertifiedSupplyComparison,
-  CertifiedSupplyEvent,
-  CertifiedSupplySnapshot,
+import {
+  type CertifiedSupplyComparison,
+  type CertifiedSupplyEvent,
+  type CertifiedSupplySnapshot,
+  DEFAULT_PERSONAL_COHORT_WEIGHTS,
 } from "../../shared/certifiedSupply";
 import { KIT_ORDER, type Kit, MAX_STOCK_PIECES } from "../../shared/game";
 import { gameDayKey } from "../../shared/supplyForecastModel";
@@ -95,12 +96,15 @@ export function CohortPanel({
           onChange={(e) => {
             const cohort = Number(e.target.value);
             const weight = (i: number) => ({
-              numerator: cohort < 0 || i === cohort ? "1" : "0",
-              denominator: cohort < 0 ? "3" : "1",
+              numerator: i === cohort ? "1" : "0",
+              denominator: "1",
             });
             onUpdate((current) => ({
               ...current,
-              cohortWeights: [weight(0), weight(1), weight(2)],
+              cohortWeights:
+                cohort < 0
+                  ? DEFAULT_PERSONAL_COHORT_WEIGHTS
+                  : [weight(0), weight(1), weight(2), weight(3)],
             }));
           }}
         >
@@ -108,6 +112,7 @@ export function CohortPanel({
           <option value="0">{words.reroll0}</option>
           <option value="1">{words.reroll1}</option>
           <option value="2">{words.reroll2}</option>
+          <option value="3">{words.reroll3}</option>
         </select>
       </div>
     </CertifiedPanel>

@@ -76,6 +76,27 @@ function parity(input: CertifiedInput) {
   expect(actual.provenance.solverVersion).toBe("certified-exact-rust-wasm-v1");
   return actual;
 }
+describe("four-cohort Rust/WASM certified computation", () => {
+  it("carries a positive fourth cohort through pricing and repeated future receipts", () => {
+    const input = fixture([event(1, "fourth"), event(2, "fourth")]);
+    const point = (yellow: number) => [{ pieces: [0, 0, yellow] as const, mass: toWire(q(1)) }];
+    input.snapshot.laws = [
+      {
+        id: "fourth",
+        kind: "finite",
+        modelVersion: "four-cohort-test",
+        outcomesByCohort: [point(0), point(0), point(0), point(5)],
+      },
+    ];
+    input.cohortWeights = [toWire(q(0)), toWire(q(0)), toWire(q(0)), toWire(q(1))];
+    const result = parity(input);
+    expect(result.waiting.recommendedDays).toBe(2);
+    expect(result.waiting.value?.successP).toEqual(toWire(q(1)));
+    expect(result.pricing?.cohortWeights).toEqual(input.cohortWeights);
+    expect(result.pricing?.weights).toHaveLength(3);
+  });
+});
+
 describe("real Rust/WASM certified computation", () => {
   it.each([
     "regular-box-v1",
@@ -101,11 +122,13 @@ describe("real Rust/WASM certified computation", () => {
     }));
     const kernel = new WasmKernel(module, new WorkBudget({}, performance.now()));
     try {
-      expect(kernel.prepare(input, encode("SR", 14, 0), [q(1, 3), q(1, 3), q(1, 3)])).toEqual({
+      expect(
+        kernel.prepare(input, encode("SR", 14, 0), [q(1, 7), q(2, 7), q(3, 7), q(1, 7)]),
+      ).toEqual({
         basisStock: [1, 1, 1],
         recurringRate: [toWire(q(99)), toWire(q(0)), toWire(q(0))],
         weights: [toWire(q(1, 100)), toWire(q(1)), toWire(q(1))],
-        cohortWeights: [toWire(q(1, 3)), toWire(q(1, 3)), toWire(q(1, 3))],
+        cohortWeights: [toWire(q(1, 7)), toWire(q(2, 7)), toWire(q(3, 7)), toWire(q(1, 7))],
       });
     } finally {
       kernel.dispose();
@@ -173,10 +196,11 @@ describe("real Rust/WASM certified computation", () => {
           [{ pieces: [0, 0, 5], mass: toWire(q(1)) }],
           [{ pieces: [5, 0, 0], mass: toWire(q(1)) }],
           [{ pieces: [0, 0, 0], mass: toWire(q(1)) }],
+          [{ pieces: [0, 5, 0], mass: toWire(q(1)) }],
         ],
       },
     ];
-    input.cohortWeights = [toWire(q(1, 2)), toWire(q(1, 2)), toWire(q(0))];
+    input.cohortWeights = [toWire(q(1, 2)), toWire(q(1, 2)), toWire(q(0)), toWire(q(0))];
     expect(parity(input).waiting.value?.successP).toEqual(toWire(q(11, 20)));
     input.snapshot.laws = [
       {
@@ -361,7 +385,7 @@ describe("Rust/WASM exact date expectations over physical supports", () => {
     expect(second.diagnostics.supportPeakPoints).toBe(5);
   });
   it("keeps each positive-prior latent cohort's own law and skips a zero-prior cohort", () => {
-    // Priors [1/2, 0, 1/2]. Cohort 0 always +5 blue; cohort 1 (zero prior) has three purple
+    // Priors [1/2, 0, 1/2, 0]. Cohort 0 always +5 blue; cohort 1 (zero prior) has three purple
     // points that would exceed maxSupportPoints 3 after two events; cohort 2 is 0 or +10 blue.
     const laws: CertifiedInput["snapshot"]["laws"] = [
       {
@@ -379,10 +403,11 @@ describe("Rust/WASM exact date expectations over physical supports", () => {
             [0, 0, 0, 1, 2],
             [10, 0, 0, 1, 2],
           ]),
+          rows([[0, 0, 10, 1, 1]]),
         ],
       },
     ];
-    const priors = [toWire(q(1, 2)), toWire(ZERO), toWire(q(1, 2))] as const;
+    const priors = [toWire(q(1, 2)), toWire(ZERO), toWire(q(1, 2)), toWire(ZERO)] as const;
     const options = { maxSupportPoints: 3 };
     const first = solveCertifiedWasm(
       module,

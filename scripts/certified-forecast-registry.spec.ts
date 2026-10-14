@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildCertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
+import { LEGACY_CERTIFIED_SUPPLY_LAWS } from "../shared/certifiedSupplyLaws.ts";
 import type { SupplyForecastCandidate } from "../shared/supplyForecastCandidate.ts";
 import { forecastRegistryEntry } from "./certified-forecast-registry.ts";
 import { selectForecastForStagingRuntime } from "./select-staging-forecast.ts";
@@ -29,6 +30,20 @@ const base = {
   approvedForecastId: candidate.forecastId,
 };
 describe("approved staging registry carries the certified daily contract", () => {
+  it("preserves a historical three-cohort ledger without upgrading or padding it", () => {
+    const legacy = {
+      ...snapshot,
+      version: "certified-daily-v1" as const,
+      laws: LEGACY_CERTIFIED_SUPPLY_LAWS,
+    };
+    const entry = forecastRegistryEntry({ ...candidate, certifiedSnapshot: legacy });
+    const selected = selectForecastForStagingRuntime(
+      { ...base, forecasts: [entry] },
+      candidate.forecastId,
+    );
+    expect(selected.forecasts[0]?.certifiedSnapshot).toEqual(legacy);
+    expect(JSON.stringify(selected.forecasts[0]?.certifiedSnapshot)).toBe(JSON.stringify(legacy));
+  });
   it("preserves semantic dates, receipt IDs, exact cadence and coverage through selection", () => {
     const entry = forecastRegistryEntry(candidate);
     const selected = selectForecastForStagingRuntime(

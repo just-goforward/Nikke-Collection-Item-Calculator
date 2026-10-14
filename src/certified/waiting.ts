@@ -28,7 +28,7 @@ export function solveWaiting(
   sid: number,
   current: ExactValue,
   kernel: FiniteKernel,
-  priors: readonly [Q, Q, Q],
+  priors: readonly Q[],
   view: (value: ExactValue) => CertifiedValue,
 ): CertifiedWaiting {
   const context: WaitingContext = { input, sid, current, kernel, priors, view };

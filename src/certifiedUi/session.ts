@@ -13,8 +13,12 @@ import {
   ZERO,
 } from "../../shared/certifiedRational";
 import {
+  assertCertifiedSupplySnapshot,
   type CertifiedSupplyEvent,
+  type CertifiedSupplySnapshot,
+  DEFAULT_PERSONAL_COHORT_WEIGHTS,
   getCertifiedEventDistribution,
+  type PersonalCohortWeights,
 } from "../../shared/certifiedSupply";
 import type { CertifiedLawOptions, Triple } from "../../shared/certifiedSupplyLaws";
 import {
@@ -42,23 +46,20 @@ type CertifiedOutcome = {
   after: CollectionState;
 };
 export type CertifiedSession = {
-  version: 1;
+  version: 2;
   id: string;
-  profileId: "certified-staging-v1";
+  profileId: "certified-staging-v2";
   snapshotRevision: string;
   state: CollectionState;
   stock: Triple;
-  cohortWeights: readonly [WireQ, WireQ, WireQ];
+  cohortWeights: PersonalCohortWeights;
   receipts: readonly CertifiedReceipt[];
   retiredReceiptIds: readonly string[];
   outcomes: readonly CertifiedOutcome[];
+  migrationNotice?: "cohort_prior_reset" | "cohort_posterior_replayed";
 };
 export const CERTIFIED_SESSION_STORAGE_KEY = `${CERTIFIED_STAGING_ENGINE_PROFILE.sessionNamespace}:session`;
-const EQUAL_WEIGHTS = [
-  { numerator: "1", denominator: "3" },
-  { numerator: "1", denominator: "3" },
-  { numerator: "1", denominator: "3" },
-] as const;
+export const LEGACY_CERTIFIED_SESSION_STORAGE_KEY = "collection-certified-staging-v1:session";
 
 function validStock(value: unknown): value is [number, number, number] {
   return (
@@ -112,36 +113,56 @@ export function createCertifiedSession(
   if (!validState(state) || !validStock(stock))
     throw new RangeError("invalid_certified_session_input");
   return {
-    version: 1,
+    version: 2,
     id: crypto.randomUUID(),
-    profileId: "certified-staging-v1",
+    profileId: "certified-staging-v2",
     snapshotRevision,
     state: { ...state },
     stock: [...stock],
-    cohortWeights: EQUAL_WEIGHTS,
+    cohortWeights: DEFAULT_PERSONAL_COHORT_WEIGHTS,
     receipts: [],
     retiredReceiptIds: [],
     outcomes: [],
   };
 }
 
-/** Untrusted browser storage is parsed before it can reach the engine. Other namespaces are never read. */
-export function restoreCertifiedSession(text: string | null): CertifiedSession | null {
+/** Only the two certified namespaces are eligible; production sessions are never migrated.
+ * An original snapshot must match the saved revision and contain every informative
+ * event, including retired events. A current/replacement definition is not evidence.
+ */
+export function restoreCertifiedSession(
+  text: string | null,
+  originalSnapshot?: CertifiedSupplySnapshot,
+): CertifiedSession | null {
   if (!text || text.length > 2_000_000) return null;
   try {
     const value: unknown = JSON.parse(text);
     if (!isRecord(value)) return null;
     const core = restoreSessionCore(value);
-    const weights = restoreCohortWeights(value["cohortWeights"]);
+    const legacy = value["version"] === 1;
+    const weights = restoreCohortWeights(value["cohortWeights"], legacy);
     const receipts = restoreReceipts(value["receipts"]);
     const outcomes = restoreLedgerEntries(value["outcomes"], restoreOutcome);
     const retired = restoreRetiredReceiptIds(value["retiredReceiptIds"]);
     if (!core || !weights || !receipts || !outcomes || !retired) return null;
+    const notice = value["migrationNotice"];
+    if (
+      notice !== undefined &&
+      notice !== "cohort_prior_reset" &&
+      notice !== "cohort_posterior_replayed"
+    )
+      return null;
+    const migrated: Pick<CertifiedSession, "cohortWeights" | "migrationNotice"> = legacy
+      ? migrateCohortWeights(core.snapshotRevision, receipts, originalSnapshot)
+      : {
+          cohortWeights: weights as PersonalCohortWeights,
+          ...(notice ? { migrationNotice: notice } : {}),
+        };
     return {
-      version: 1,
-      profileId: "certified-staging-v1",
+      version: 2,
+      profileId: "certified-staging-v2",
       ...core,
-      cohortWeights: weights,
+      ...migrated,
       receipts,
       outcomes,
       retiredReceiptIds: retired,
@@ -155,8 +176,10 @@ function restoreSessionCore(
   value: Record<string, unknown>,
 ): Pick<CertifiedSession, "id" | "snapshotRevision" | "state" | "stock"> | null {
   if (
-    value["version"] !== 1 ||
-    value["profileId"] !== "certified-staging-v1" ||
+    !(
+      (value["version"] === 1 && value["profileId"] === "certified-staging-v1") ||
+      (value["version"] === 2 && value["profileId"] === "certified-staging-v2")
+    ) ||
     typeof value["id"] !== "string" ||
     typeof value["snapshotRevision"] !== "string" ||
     !validStock(value["stock"]) ||
@@ -171,12 +194,44 @@ function restoreSessionCore(
   };
 }
 
-function restoreCohortWeights(value: unknown): [WireQ, WireQ, WireQ] | null {
-  if (!Array.isArray(value) || value.length !== 3) return null;
-  const weights: [WireQ, WireQ, WireQ] = [wire(value[0]), wire(value[1]), wire(value[2])];
+function restoreCohortWeights(value: unknown, legacy: boolean): readonly WireQ[] | null {
+  if (!Array.isArray(value) || value.length !== (legacy ? 3 : 4)) return null;
+  const weights = value.map(wire);
   if (weights.some((w) => cmp(fromWire(w), ZERO) < 0) || cmp(sum(weights.map(fromWire)), ONE) !== 0)
     return null;
   return weights;
+}
+
+function migrateCohortWeights(
+  revision: string,
+  receipts: readonly CertifiedReceipt[],
+  original?: CertifiedSupplySnapshot,
+): Pick<CertifiedSession, "cohortWeights" | "migrationNotice"> {
+  const reset = {
+    cohortWeights: DEFAULT_PERSONAL_COHORT_WEIGHTS,
+    migrationNotice: "cohort_prior_reset" as const,
+  };
+  const informative = receipts.filter((receipt) => receipt.pieces !== null);
+  if (
+    informative.length &&
+    (original?.version !== "certified-daily-v1" || original.revision !== revision)
+  )
+    return reset;
+  let weights = DEFAULT_PERSONAL_COHORT_WEIGHTS;
+  // A missing fourth finite-law cohort, impossible observation, or invalid source
+  // cannot be repaired by padding or by substituting today's law.
+  try {
+    if (original) assertCertifiedSupplySnapshot(original);
+    for (const receipt of informative) {
+      if (!original) return reset;
+      const event = original.events.find((candidate) => candidate.id === receipt.eventId);
+      if (!event || !receipt.pieces) return reset;
+      weights = receiptPosterior(weights, event, receipt.pieces, { laws: original.laws });
+    }
+  } catch {
+    return reset;
+  }
+  return { cohortWeights: weights, migrationNotice: "cohort_posterior_replayed" };
 }
 
 function restoreLedgerEntries<T>(
@@ -329,23 +384,7 @@ export function recordCertifiedReceipt(
   if (!validStock(pieces) || !isoTime(at)) throw new Error("invalid_receipt");
   if (!certifiedClaimableEvents([event], session, Date.parse(at)).length)
     throw new Error("receipt_not_claimable");
-  const posteriorMass = (cohort: 0 | 1 | 2) => {
-    let likelihood = ZERO;
-    for (const outcome of getCertifiedEventDistribution(event, cohort, lawOptions)) {
-      if (outcome.pieces.every((n, i) => n === pieces[i]))
-        likelihood = add(likelihood, outcome.mass);
-    }
-    return mul(fromWire(session.cohortWeights[cohort]), likelihood);
-  };
-  const unnormalized: [Q, Q, Q] = [posteriorMass(0), posteriorMass(1), posteriorMass(2)];
-  const normalizer = sum(unnormalized);
-  if (cmp(normalizer, ZERO) === 0) throw new Error("receipt_outside_supply_model");
-  const posterior = (mass: Q) => toWire(div(mass, normalizer));
-  const weights: [WireQ, WireQ, WireQ] = [
-    posterior(unnormalized[0]),
-    posterior(unnormalized[1]),
-    posterior(unnormalized[2]),
-  ];
+  const weights = receiptPosterior(session.cohortWeights, event, pieces, lawOptions);
   const stock: [number, number, number] = [0, 1, 2].map(
     (i) => (session.stock[i] ?? 0) + (alreadyInStock ? 0 : (pieces[i] ?? 0)),
   ) as [number, number, number];
@@ -356,4 +395,35 @@ export function recordCertifiedReceipt(
     cohortWeights: weights,
     receipts: [...session.receipts, { eventId: event.id, at, pieces: [...pieces], alreadyInStock }],
   };
+}
+
+function receiptPosterior(
+  prior: PersonalCohortWeights,
+  event: CertifiedSupplyEvent,
+  pieces: Triple,
+  lawOptions: CertifiedLawOptions,
+): PersonalCohortWeights {
+  const posteriorMass = (cohort: 0 | 1 | 2 | 3) => {
+    let likelihood = ZERO;
+    for (const outcome of getCertifiedEventDistribution(event, cohort, lawOptions)) {
+      if (outcome.pieces.every((n, i) => n === pieces[i]))
+        likelihood = add(likelihood, outcome.mass);
+    }
+    return mul(fromWire(prior[cohort]), likelihood);
+  };
+  const unnormalized = [
+    posteriorMass(0),
+    posteriorMass(1),
+    posteriorMass(2),
+    posteriorMass(3),
+  ] as const;
+  const normalizer = sum(unnormalized);
+  if (cmp(normalizer, ZERO) === 0) throw new Error("receipt_outside_supply_model");
+  const posterior = (mass: Q) => toWire(div(mass, normalizer));
+  return [
+    posterior(unnormalized[0]),
+    posterior(unnormalized[1]),
+    posterior(unnormalized[2]),
+    posterior(unnormalized[3]),
+  ];
 }

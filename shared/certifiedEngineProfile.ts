@@ -3,31 +3,31 @@ import { CERTIFIED_WASM_HASH } from "./generated/certifiedWasmBuild";
 
 /** A single, serialized contract identifies every part of the staging engine. */
 export type CertifiedEngineProfile = {
-  id: "certified-staging-v1";
+  id: "certified-staging-v2";
   environment: "staging";
-  schemaVersion: "certified-daily-v1";
+  schemaVersion: "certified-daily-v2";
   priceVersion: "stock-plus-recurring-day-v1";
   solverVersion: "certified-exact-rust-wasm-v1";
-  lawVersion: "documented-physical-supply-v1";
+  lawVersion: "documented-physical-supply-v2";
   wasmHash: string;
   codeHash: string;
   cacheNamespace: string;
-  sessionNamespace: "collection-certified-staging-v1";
+  sessionNamespace: "collection-certified-staging-v2";
   diagnosticsEnvironment: "staging";
   recoveryEnvironment: "staging";
 };
 
 export const CERTIFIED_STAGING_ENGINE_PROFILE: Readonly<CertifiedEngineProfile> = Object.freeze({
-  id: "certified-staging-v1",
+  id: "certified-staging-v2",
   environment: "staging",
-  schemaVersion: "certified-daily-v1",
+  schemaVersion: "certified-daily-v2",
   priceVersion: "stock-plus-recurring-day-v1",
   solverVersion: "certified-exact-rust-wasm-v1",
-  lawVersion: "documented-physical-supply-v1",
+  lawVersion: "documented-physical-supply-v2",
   wasmHash: CERTIFIED_WASM_HASH,
   codeHash: CERTIFIED_ENGINE_CODE_HASH,
-  cacheNamespace: `certified-staging-v1:${CERTIFIED_ENGINE_CODE_HASH}`,
-  sessionNamespace: "collection-certified-staging-v1",
+  cacheNamespace: `certified-staging-v2:${CERTIFIED_ENGINE_CODE_HASH}`,
+  sessionNamespace: "collection-certified-staging-v2",
   diagnosticsEnvironment: "staging",
   recoveryEnvironment: "staging",
 });

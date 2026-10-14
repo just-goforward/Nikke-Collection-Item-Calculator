@@ -184,7 +184,7 @@ export class WasmKernel {
   prepare(
     input: CertifiedInput,
     sid: number,
-    priors: readonly [Q, Q, Q],
+    priors: readonly Q[],
   ): NonNullable<CertifiedOutput["pricing"]> {
     const rule = ruleAt(input.snapshot.rules, dateStart(input.snapshot.coverage.currentDay));
     if (!rule) throw new Error("certified_current_supply_rule_missing");
@@ -209,7 +209,9 @@ export class WasmKernel {
           numerator: String(input.snapshot.cadence.numerator),
           denominator: String(input.snapshot.cadence.denominator),
         },
-        dispatchExpected: DISPATCH_EXPECTED_PIECES.map((row) => row.map(toWire)),
+        dispatchExpected: DISPATCH_EXPECTED_PIECES.slice(0, priors.length).map((row) =>
+          row.map(toWire),
+        ),
         classes: DISPATCH_CLASSES,
       },
     });

@@ -8,6 +8,6 @@ export interface WaitingContext {
   sid: number;
   current: ExactValue;
   kernel: FiniteKernel;
-  priors: readonly [Q, Q, Q];
+  priors: readonly Q[];
   view: (value: ExactValue) => CertifiedValue;
 }

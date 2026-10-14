@@ -94,7 +94,9 @@ describe("mixed-color physical boundary witness", () => {
       expect(strictOrder(witness.afterValue, witness.beforeValue)).toBe(1);
       const pricing = result.pricing;
       assert(pricing);
-      const cohortMass = fromWire(pricing.cohortWeights[witness.cohort]);
+      const cohortWeight = pricing.cohortWeights[witness.cohort];
+      assert(cohortWeight);
+      const cohortMass = fromWire(cohortWeight);
       expect(cohortMass.n).toBeGreaterThan(0n);
       let before: Triple = request.stock;
       let after: Triple = request.stock;

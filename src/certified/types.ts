@@ -1,5 +1,6 @@
 import type { WireQ } from "../../shared/certifiedRational";
 import type { CertifiedSupplySnapshot } from "../../shared/certifiedSupply";
+import type { CohortTuple, DispatchCohort } from "../../shared/certifiedSupplyLaws";
 
 export type Triple = readonly [number, number, number];
 export type ExactTriple = readonly [WireQ, WireQ, WireQ];
@@ -12,7 +13,7 @@ export interface CertifiedInput {
   stock: Triple;
   asOf: string;
   snapshot: CertifiedSupplySnapshot;
-  cohortWeights?: ExactTriple;
+  cohortWeights?: CohortTuple<WireQ>;
   receivedEventIds?: readonly string[];
   /** Original raw stock for fixed prices across a closed-loop execution. */
   priceBasisStock?: Triple;
@@ -66,7 +67,7 @@ export interface CertifiedWaiting {
   successImprovementUpperBound: WireQ | null;
   successProbabilityInterval: { lower: WireQ; upper: WireQ } | null;
   strictBoundaryWitness?: {
-    cohort: 0 | 1 | 2;
+    cohort: DispatchCohort;
     receipts: readonly { eventId: string; refIndex: number; pieces: Triple; mass: WireQ }[];
     beforeStock: Triple;
     afterStock: Triple;
@@ -87,7 +88,7 @@ export interface CertifiedOutput {
     basisStock: Triple;
     recurringRate: ExactTriple;
     weights: ExactTriple;
-    cohortWeights: ExactTriple;
+    cohortWeights: CohortTuple<WireQ>;
   } | null;
   provenance: {
     solverVersion: "certified-exact-js-v1" | "certified-exact-rust-wasm-v1";

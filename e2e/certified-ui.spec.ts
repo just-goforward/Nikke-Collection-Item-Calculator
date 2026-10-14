@@ -82,7 +82,7 @@ function certifiedAssetPaths() {
   ]);
 }
 
-const SESSION_KEY = "collection-certified-staging-v1:session";
+const SESSION_KEY = "collection-certified-staging-v2:session";
 const APP_WORDS = { ko: koMessages, en: enMessages, ja: jaMessages } as const;
 const LOCALE_LABELS = { ko: "한국어", en: "English", ja: "日本語" } as const;
 const en = enMessages;
@@ -97,14 +97,14 @@ async function selectLocale(page: Page, locale: Locale) {
 }
 async function openStaging(page: Page) {
   await page.goto("/?statsEnv=staging&engine=certified");
-  await expect(page.locator("main[data-engine-profile='certified-staging-v1']")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toBeVisible();
   await selectLocale(page, "en");
   await expect(page.locator("#calculateButton")).toBeEnabled();
 }
 async function reopen(page: Page) {
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(page.locator("main[data-engine-profile='certified-staging-v1']")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toBeVisible();
 }
 function stockInput(page: Page, kit: KitName) {
   return page.locator(`#${kit}Stock`);
@@ -148,6 +148,84 @@ async function setAlmostComplete(page: Page, pieces = 19) {
   await setCollectionState(page, "SR", 14, 2900);
   await setStock(page, { blue: pieces });
 }
+test("offers four reroll cohorts and the 1:2:3:1 mixture", async ({ page }) => {
+  await openStaging(page);
+  const select = page.getByRole("combobox", { name: certifiedMessages.en.cohort, exact: true });
+  await expect(select.locator("option")).toHaveCount(5);
+  await select.selectOption("3");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (key) => JSON.parse(localStorage.getItem(key) ?? "{}").cohortWeights,
+        SESSION_KEY,
+      ),
+    )
+    .toEqual([
+      { numerator: "0", denominator: "1" },
+      { numerator: "0", denominator: "1" },
+      { numerator: "0", denominator: "1" },
+      { numerator: "1", denominator: "1" },
+    ]);
+  await select.selectOption("-1");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (key) => JSON.parse(localStorage.getItem(key) ?? "{}").cohortWeights,
+        SESSION_KEY,
+      ),
+    )
+    .toEqual([
+      { numerator: "1", denominator: "7" },
+      { numerator: "2", denominator: "7" },
+      { numerator: "3", denominator: "7" },
+      { numerator: "1", denominator: "7" },
+    ]);
+});
+
+test("migrates old certified storage with an explicit posterior-only reset notice", async ({
+  page,
+}) => {
+  await openStaging(page);
+  await setStock(page, { blue: 79, purple: 13, yellow: 7 });
+  await expect
+    .poll(() =>
+      page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "{}").stock, SESSION_KEY),
+    )
+    .toEqual([79, 13, 7]);
+  await page.evaluate((key) => {
+    const saved = JSON.parse(localStorage.getItem(key) ?? "{}");
+    saved.version = 1;
+    saved.profileId = "certified-staging-v1";
+    saved.cohortWeights = Array.from({ length: 3 }, () => ({ numerator: "1", denominator: "3" }));
+    saved.receipts = [
+      {
+        eventId: "retired-original",
+        at: "2026-09-30T04:00:00Z",
+        pieces: [3, 0, 0],
+        alreadyInStock: true,
+      },
+    ];
+    saved.retiredReceiptIds = ["retired-original"];
+    localStorage.setItem("collection-certified-staging-v1:session", JSON.stringify(saved));
+    localStorage.removeItem(key);
+  }, SESSION_KEY);
+  await reopen(page);
+  await expect(page.getByTestId("certified-cohort-migration")).toHaveText(
+    certifiedMessages.en.cohort_prior_reset,
+  );
+  await expect(stockInput(page, "blue")).toHaveValue("79");
+  await expect(stockInput(page, "purple")).toHaveValue("13");
+  await expect(stockInput(page, "yellow")).toHaveValue("7");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (key) => JSON.parse(localStorage.getItem(key) ?? "{}").receipts?.length,
+        SESSION_KEY,
+      ),
+    )
+    .toBe(1);
+});
+
 async function accessibilityViolations(page: Page) {
   const result = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
@@ -188,7 +266,7 @@ test("certified route renders inside the shared calculator shell", async ({ page
   await expect(page.locator("#calculatorWorkspace")).toBeHidden();
   await page.getByRole("tab", { name: en["top.calculator"] }).click();
   await expect(page.locator("#calculatorWorkspace")).toBeVisible();
-  await expect(page.locator("main[data-engine-profile='certified-staging-v1']")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toBeVisible();
 });
 
 test("malformed saved data blocks calculation and offers explicit reset recovery", async ({
@@ -330,7 +408,7 @@ for (const locale of ["en", "ja"] as const) {
     const appWords = APP_WORDS[locale];
     await page.goto(`/${locale}/?statsEnv=staging&engine=certified`);
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
-    await expect(page.locator("main[data-engine-profile='certified-staging-v1']")).toBeVisible();
+    await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toBeVisible();
     await expect(page.locator("h1")).toHaveText(appWords["app.title"]);
     const calculateButton = page.getByRole("button", {
       name: appWords["common.calculate"],

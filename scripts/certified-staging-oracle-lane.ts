@@ -168,6 +168,13 @@ function pricingFormatDefect(pricing: NonNullable<CertifiedOutput["pricing"]>): 
   return null;
 }
 
+function historicalPricingPriors(input: CertifiedInput): QTriple | null {
+  if (input.snapshot.version !== "certified-daily-v1") return null;
+  const weights = input.cohortWeights;
+  if (weights && weights.length !== 3) return null;
+  return weights ? mapTriple(weights, fromWire) : DEFAULT_PRIORS;
+}
+
 /** Fixed prices from public rules and authenticated tracked cohort evidence. */
 export function verifyPublicPricing(
   input: CertifiedInput,
@@ -191,7 +198,8 @@ export function verifyPublicPricing(
     )
   )
     return { check: notrun("independent_pricing_solo_law_not_supported") };
-  const priors = input.cohortWeights ? mapTriple(input.cohortWeights, fromWire) : DEFAULT_PRIORS;
+  const priors = historicalPricingPriors(input);
+  if (!priors) return { check: notrun("independent_pricing_historical_three_cohort_only") };
   // Authenticate first: tracked evidence identity failures propagate, never NOTRUN.
   frozenIndependentCohorts();
   let rates: QTriple;

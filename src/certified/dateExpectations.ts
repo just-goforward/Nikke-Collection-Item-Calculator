@@ -12,20 +12,23 @@ const ONE = q(1);
 
 function advanceSupports(
   context: WaitingContext,
-  supports: [Support, Support, Support],
+  supports: Support[],
   arrivals: readonly CertifiedSupplyEvent[],
   caps: Triple,
 ): void {
-  for (const cohort of [0, 1, 2] as const) {
-    if (context.priors[cohort].n === 0n) continue;
+  for (const cohort of [0, 1, 2, 3] as const) {
+    if (!context.priors[cohort]?.n) continue;
+    let support = supports[cohort];
+    if (!support) throw new Error("certified_cohort_support_missing");
     for (const event of arrivals) {
       for (let i = 0; i < event.refs.length; i++) {
-        supports[cohort] = convolve(
-          supports[cohort],
+        support = convolve(
+          support,
           law(context.input, event, i, cohort, context.kernel.budget),
           caps,
           context.kernel.budget,
         );
+        supports[cohort] = support;
       }
     }
   }
@@ -90,11 +93,7 @@ export function exhaustiveDates(
     Math.min(context.input.stock[1], caps[1]),
     Math.min(context.input.stock[2], caps[2]),
   ];
-  const supports: [Support, Support, Support] = [
-    singleton(initial, context.kernel.budget),
-    singleton(initial, context.kernel.budget),
-    singleton(initial, context.kernel.budget),
-  ];
+  const supports = context.priors.map(() => singleton(initial, context.kernel.budget));
   const values: [ExactValue, ...ExactValue[]] = [context.current];
   const evaluatedDays = [0];
   let lastCompleted = context.current;

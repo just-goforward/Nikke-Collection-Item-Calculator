@@ -9,6 +9,7 @@ import {
   CERTIFIED_SESSION_STORAGE_KEY,
   type CertifiedSession,
   createCertifiedSession,
+  LEGACY_CERTIFIED_SESSION_STORAGE_KEY,
   restoreCertifiedSession,
 } from "./session";
 
@@ -45,7 +46,9 @@ function initialBridge(): CertifiedBridgeState {
     createCertifiedSession("initial", { grade: "R", level: 0, exp: 0 }, [0, 0, 0]);
   let storedText: string | null = null;
   try {
-    storedText = localStorage.getItem(CERTIFIED_SESSION_STORAGE_KEY);
+    storedText =
+      localStorage.getItem(CERTIFIED_SESSION_STORAGE_KEY) ??
+      localStorage.getItem(LEGACY_CERTIFIED_SESSION_STORAGE_KEY);
     const restored = restoreCertifiedCalculatorSession(storedText);
     if (!restored) return settledCertifiedBridge(emptySession());
     return { ...settledCertifiedBridge(restored.session), correction: restored.correction };

@@ -119,8 +119,8 @@ export function boundaryWitness(
       near.beforeValue,
       near.afterValue,
     );
-  for (const cohort of [0, 1, 2] as const) {
-    if (context.priors[cohort].n === 0n) continue;
+  for (const cohort of [0, 1, 2, 3] as const) {
+    if (!context.priors[cohort]?.n) continue;
     for (const scarce of KIT_INDICES) {
       const before = trajectory(
         context,

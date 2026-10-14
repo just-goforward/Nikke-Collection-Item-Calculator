@@ -438,7 +438,7 @@ export function buildSnapshot(input: CertifiedSupplyBuildInput): CertifiedSupply
     provenance: [
       ...(input.provenance ?? []),
       "schedule-kit-v2",
-      "documented-physical-supply-v1",
+      "documented-physical-supply-v2",
       ...state.cadence.sourceUrls,
     ],
   };

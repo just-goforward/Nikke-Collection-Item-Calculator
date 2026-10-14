@@ -178,16 +178,38 @@ describe("certified range-only waiting", () => {
           [{ pieces: [0, 0, 5], mass: toWire(q(1)) }],
           [{ pieces: [5, 0, 0], mass: toWire(q(1)) }],
           [{ pieces: [0, 0, 0], mass: toWire(q(1)) }],
+          [{ pieces: [0, 5, 0], mass: toWire(q(1)) }],
         ],
       },
     ];
     const result = solveCertified({
       ...input(supply),
-      cohortWeights: [toWire(q(1, 2)), toWire(q(1, 2)), toWire(q(0))],
+      cohortWeights: [toWire(q(1, 2)), toWire(q(1, 2)), toWire(q(0)), toWire(q(0))],
     });
     expect(result.waiting.status).toBe("certified");
     expect(result.waiting.recommendedDays).toBe(2);
     expect(result.waiting.value?.successP).toEqual(toWire(q(11, 20)));
+  });
+  it("uses cohort 3 alone across repeated dates without turning cohorts into colors", () => {
+    const supply = snapshot([event(1, "fourth"), event(2, "fourth")]);
+    const point = (yellow: number) => [{ pieces: [0, 0, yellow] as const, mass: toWire(q(1)) }];
+    supply.laws = [
+      {
+        id: "fourth",
+        kind: "finite",
+        modelVersion: "four-cohort-test",
+        outcomesByCohort: [point(0), point(0), point(0), point(5)],
+      },
+    ];
+    const result = solveCertified({
+      ...input(supply),
+      cohortWeights: [toWire(q(0)), toWire(q(0)), toWire(q(0)), toWire(q(1))],
+    });
+    expect(result.waiting.status).toBe("certified");
+    expect(result.waiting.recommendedDays).toBe(2);
+    expect(result.waiting.value?.successP).toEqual(toWire(q(1)));
+    expect(result.pricing?.cohortWeights).toHaveLength(4);
+    expect(result.pricing?.weights).toHaveLength(3);
   });
   it("retains current results and marks UNKNOWN when exact support admission fails", () => {
     const supply = snapshot([event(1, "support-test")]);

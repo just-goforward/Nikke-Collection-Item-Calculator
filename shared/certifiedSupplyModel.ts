@@ -1,13 +1,15 @@
 import { q, toWire, type WireQ } from "./certifiedRational.ts";
-import type { CertifiedLawRef, CertifiedSupplyLaw } from "./certifiedSupplyLaws.ts";
+import type { CertifiedLawRef, CertifiedSupplyLaw, CohortTuple } from "./certifiedSupplyLaws.ts";
 import {
   type ExactSoloRaidCadence,
   estimateCertifiedSoloRounds,
   type SoloRaidRound,
 } from "./soloRaidCadence.ts";
 import { gameDayKey, gameDayStartMs } from "./supplyForecastModel.ts";
-export const CERTIFIED_SUPPLY_VERSION = "certified-daily-v1" as const;
-export type PersonalCohortWeights = readonly [WireQ, WireQ, WireQ];
+export const CERTIFIED_SUPPLY_VERSION = "certified-daily-v2" as const;
+export type CertifiedSupplyVersion = "certified-daily-v1" | typeof CERTIFIED_SUPPLY_VERSION;
+export type PersonalCohortWeights = readonly [WireQ, WireQ, WireQ, WireQ];
+export type SnapshotCohortWeights = CohortTuple<WireQ>;
 export type CertifiedSourceStatus = "healthy" | "uncertain";
 export type CertifiedSoloRound = {
   round: number;
@@ -61,7 +63,7 @@ export type CertifiedSupplyCoverageWindow = {
   missing: readonly string[];
 };
 export type CertifiedSupplySnapshot = {
-  version: typeof CERTIFIED_SUPPLY_VERSION;
+  version: CertifiedSupplyVersion;
   futureLawSemantics: "independent_given_cohort-v1";
   revision: string;
   sourceHash: string;
@@ -136,10 +138,16 @@ export type CertifiedSupplyComparison = {
 
 export const DAY_MS = 86_400_000;
 export const DEFAULT_PERSONAL_COHORT_WEIGHTS: PersonalCohortWeights = [
-  toWire(q(1, 3)),
-  toWire(q(1, 3)),
-  toWire(q(1, 3)),
+  toWire(q(1, 7)),
+  toWire(q(2, 7)),
+  toWire(q(3, 7)),
+  toWire(q(1, 7)),
 ];
+export const LEGACY_PERSONAL_COHORT_WEIGHTS = [
+  toWire(q(1, 3)),
+  toWire(q(1, 3)),
+  toWire(q(1, 3)),
+] as const;
 
 export function timestamp(value: string): number {
   if (!/(?:Z|[+-]\d{2}:\d{2})$/.test(value)) throw new Error("certified_timestamp_offset_required");
@@ -164,7 +172,7 @@ export function createCertifiedSupplyRule(
   effectiveUntil: string | null = null,
 ): CertifiedSupplyRule {
   return {
-    id: "schedule-kit-v2:documented-physical-supply-v1",
+    id: "schedule-kit-v2:documented-physical-supply-v2",
     effectiveFrom,
     effectiveUntil,
     dispatch: [{ lawId: "dispatch-board-v1", count: 1 }],

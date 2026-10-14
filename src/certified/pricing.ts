@@ -1,6 +1,7 @@
-import { add, div, type Q, q } from "../../shared/certifiedRational";
+import { add, div, type Q, q, toWire } from "../../shared/certifiedRational";
 import { certifiedRecurringRate } from "../../shared/certifiedSupply";
 import {
+  type CohortTuple,
   certifiedSupplyLawPayloadBytes,
   getCertifiedLawDistribution,
 } from "../../shared/certifiedSupplyLaws";
@@ -18,14 +19,14 @@ const KITS = ["blue", "purple", "yellow"] as const;
 function futureUsable(
   input: CertifiedInput,
   color: KitIndex,
-  priors: readonly [Q, Q, Q],
+  priors: readonly Q[],
   budget: WorkBudget,
 ): boolean {
   // A completed item has no feasible maintenance action, regardless of arrivals.
   if (input.grade === "SR" && input.level === 15) return false;
   if (input.stock[color] >= 10) return true;
-  for (const cohort of [0, 1, 2] as const) {
-    if (!priors[cohort].n) continue;
+  for (const cohort of [0, 1, 2, 3] as const) {
+    if (!priors[cohort]?.n) continue;
     let reachable = input.stock[color];
     for (const event of futureEvents(input))
       for (const ref of event.refs) {
@@ -44,7 +45,7 @@ function futureUsable(
 }
 export function calculatePricing(
   input: CertifiedInput,
-  priors: readonly [Q, Q, Q],
+  priors: CohortTuple<Q>,
   budget: WorkBudget,
 ): { weights: readonly [Q, Q, Q]; pricing: NonNullable<CertifiedOutput["pricing"]> } {
   const basis = input.priceBasisStock ?? input.stock;
@@ -68,7 +69,10 @@ export function calculatePricing(
     basisStock: basis,
     recurringRate: wireTriple(rates),
     weights: wireTriple(weights),
-    cohortWeights: wireTriple(priors),
+    cohortWeights:
+      priors.length === 3
+        ? ([toWire(priors[0]), toWire(priors[1]), toWire(priors[2])] as const)
+        : ([toWire(priors[0]), toWire(priors[1]), toWire(priors[2]), toWire(priors[3])] as const),
   };
   return { weights, pricing };
 }

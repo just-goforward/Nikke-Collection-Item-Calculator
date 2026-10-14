@@ -148,6 +148,7 @@ function sessionFixture() {
       { numerator: "1", denominator: "2" },
       { numerator: "1", denominator: "3" },
       { numerator: "1", denominator: "6" },
+      { numerator: "0", denominator: "1" },
     ] as const,
     receipts: [
       {

@@ -27,6 +27,11 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
         )}
       </aside>
       <ForecastReviewNotice />
+      {controller.session.migrationNotice && (
+        <p role="status" className="cert-notice" data-testid="certified-cohort-migration">
+          {words[controller.session.migrationNotice]}
+        </p>
+      )}
       {controller.storageBlocked && (
         <p
           role="alert"

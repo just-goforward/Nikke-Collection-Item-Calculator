@@ -2,7 +2,9 @@ import { DISPATCH_EXPECTED_PIECES } from "./certifiedDispatchExpectations.ts";
 import { add, eq, fromWire, mul, ONE, type Q, q, type WireQ, ZERO } from "./certifiedRational.ts";
 
 export type Triple = readonly [number, number, number];
-export type DispatchCohort = 0 | 1 | 2;
+export type DispatchCohort = 0 | 1 | 2 | 3;
+/** Three entries belong exclusively to the historical v1 snapshot contract. */
+export type CohortTuple<T> = readonly [T, T, T] | readonly [T, T, T, T];
 export type CertifiedLawRef = { lawId: string; count: number };
 export type ExactSupplyOutcome = { pieces: Triple; mass: Q };
 export type CertifiedSupplyLaw = {
@@ -10,18 +12,19 @@ export type CertifiedSupplyLaw = {
   kind: "dispatch" | "box" | "finite";
   modelVersion: string;
   outcomes?: readonly { pieces: Triple; mass: WireQ }[];
-  outcomesByCohort?: readonly [
-    readonly { pieces: Triple; mass: WireQ }[],
-    readonly { pieces: Triple; mass: WireQ }[],
-    readonly { pieces: Triple; mass: WireQ }[],
-  ];
+  outcomesByCohort?: CohortTuple<readonly { pieces: Triple; mass: WireQ }[]>;
 };
 export type CertifiedLawOptions = {
   checkBudget?: () => void;
   laws?: readonly CertifiedSupplyLaw[];
 };
 
-export const CERTIFIED_PHYSICAL_LAW_VERSION = "documented-physical-supply-v1";
+export const CERTIFIED_PHYSICAL_LAW_VERSION = "documented-physical-supply-v2";
+export const LEGACY_CERTIFIED_SUPPLY_LAWS: readonly CertifiedSupplyLaw[] = [
+  { id: "dispatch-board-v1", kind: "dispatch", modelVersion: "documented-physical-supply-v1" },
+  { id: "regular-box-v1", kind: "box", modelVersion: "documented-physical-supply-v1" },
+  { id: "box-ii-v1", kind: "box", modelVersion: "documented-physical-supply-v1" },
+];
 export const CERTIFIED_SUPPLY_LAWS: readonly CertifiedSupplyLaw[] = [
   { id: "dispatch-board-v1", kind: "dispatch", modelVersion: CERTIFIED_PHYSICAL_LAW_VERSION },
   { id: "regular-box-v1", kind: "box", modelVersion: CERTIFIED_PHYSICAL_LAW_VERSION },
@@ -183,7 +186,7 @@ export function dispatchLaw(
   checkBudget?.();
   const cached = rawCache.get(cohort);
   if (cached) return cached;
-  if (![0, 1, 2].includes(cohort)) throw new Error("certified_dispatch_cohort_invalid");
+  if (![0, 1, 2, 3].includes(cohort)) throw new Error("certified_dispatch_cohort_invalid");
   let kept = new Map<string, Board>();
   mergeBoard(kept, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], ONE);
   const progress = { work: 0, checkBudget };
@@ -256,7 +259,7 @@ function finiteDistribution(
   cohort: DispatchCohort,
   options: CertifiedLawOptions,
 ): readonly ExactSupplyOutcome[] {
-  const outcomes = finite.outcomesByCohort?.[cohort] ?? finite.outcomes;
+  const outcomes = finite.outcomesByCohort ? finite.outcomesByCohort[cohort] : finite.outcomes;
   if (!outcomes?.length) throw new Error(`certified_law_unknown:${finite.id}`);
   let total = ZERO;
   if (outcomes.length > 25000) throw new Error("certified_supply_support_limit");

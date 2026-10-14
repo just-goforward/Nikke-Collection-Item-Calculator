@@ -8,6 +8,7 @@ import {
   deriveCertifiedDailySupply,
   viewCertifiedSupplySnapshot,
 } from "./certifiedSupply.ts";
+import { LEGACY_CERTIFIED_SUPPLY_LAWS } from "./certifiedSupplyLaws.ts";
 import {
   deriveExactSoloRaidCadence,
   estimateCertifiedSoloRounds,
@@ -86,9 +87,9 @@ describe("certified daily supply contract", () => {
     const rates = certifiedRecurringRate(snapshot);
     expect(rates.map(toNumber)).toEqual(
       expect.arrayContaining([
-        expect.closeTo(20.452913466875, 8),
-        expect.closeTo(3.290737299774, 8),
-        expect.closeTo(1.300173072026, 8),
+        expect.closeTo(20.80345338533608, 8),
+        expect.closeTo(3.588725433322643, 8),
+        expect.closeTo(1.4174693115540526, 8),
       ]),
     );
     const comparison = compareCertifiedSupplyPeriods(snapshot);
@@ -224,7 +225,7 @@ describe("certified supply legacy reference parity", () => {
     const collaborationPeriods = [
       { effectiveFrom: "2026-09-08T05:00:00+09:00", effectiveUntil: "2026-09-23T05:00:00+09:00" },
     ];
-    const accepted = buildCertifiedSupplySnapshot({
+    const built = buildCertifiedSupplySnapshot({
       ...base,
       asOf: "2026-09-01T05:00:00+09:00",
       horizonDays: 112,
@@ -238,6 +239,12 @@ describe("certified supply legacy reference parity", () => {
         rewardRules: true,
       },
     });
+    // Reference profiles retain the historical three-cohort model.
+    const accepted = {
+      ...built,
+      version: "certified-daily-v1" as const,
+      laws: LEGACY_CERTIFIED_SUPPLY_LAWS,
+    };
     const profiles = buildScheduleForecastProfiles({
       forecastId: "supply-2026-09-01-v1",
       effectiveFrom: "2026-09-01T05:00:00+09:00",

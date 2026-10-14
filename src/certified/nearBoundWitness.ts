@@ -201,8 +201,8 @@ export function nearBoundWitness(
   for (const color of colors) {
     const otherColors = colors.filter((other) => other !== color);
     const target = bound[color] * 10 - 10;
-    for (const cohort of [0, 1, 2] as const) {
-      if (context.priors[cohort].n === 0n) continue;
+    for (const cohort of [0, 1, 2, 3] as const) {
+      if (!context.priors[cohort]?.n) continue;
       const before = targetTrajectory(context, prior, cohort, color, target, otherColors);
       if (!before) continue;
       const pair = exactPair(context, last, cohort, color, before);
