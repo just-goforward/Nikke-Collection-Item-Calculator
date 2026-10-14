@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, parse, resolve } from "node:path";
+import { dirname, parse, relative, resolve } from "node:path";
 
 const ROOT_VITEST_VERSION = "5.0.4";
-const WORKER_VITEST_VERSION = "4.1.11";
+const WORKER_VITEST_VERSION = "5.0.4";
 const CLOUDFLARE_PLUGIN_VERSION = "1.4.1";
 const WORKER_WORKSPACES = [
   "cloudflare",
@@ -33,7 +33,7 @@ function requireLockedVersion(
   }
 }
 
-function requireResolvedVersion(importer: string, packageName: string, expected: string): void {
+function requireResolvedVersion(importer: string, packageName: string, expected: string): string {
   let directory: string;
   try {
     directory = dirname(createRequire(importer).resolve(packageName));
@@ -64,6 +64,7 @@ function requireResolvedVersion(importer: string, packageName: string, expected:
       `Expected ${packageName} imported from ${importer} at ${expected}, received ${actual ?? "missing"}.`,
     );
   }
+  return dirname(packagePath);
 }
 
 const repositoryRoot = process.cwd();
@@ -87,17 +88,7 @@ requireResolvedVersion(
 );
 
 for (const workspace of WORKER_WORKSPACES) {
-  requireLockedVersion(lock.packages, `${workspace}/node_modules/vitest`, WORKER_VITEST_VERSION);
-  requireLockedVersion(
-    lock.packages,
-    `${workspace}/node_modules/@vitest/coverage-v8`,
-    WORKER_VITEST_VERSION,
-  );
   const configPath = resolve(repositoryRoot, workspace, "vitest.config.ts");
-  requireResolvedVersion(configPath, "vitest", WORKER_VITEST_VERSION);
-  requireResolvedVersion(configPath, "@vitest/coverage-v8", WORKER_VITEST_VERSION);
-  requireResolvedVersion(configPath, "@cloudflare/vitest-plugin", CLOUDFLARE_PLUGIN_VERSION);
-
   const manifest = readJson<{
     devDependencies?: Record<string, string>;
   }>(resolve(repositoryRoot, workspace, "package.json"));
@@ -113,6 +104,12 @@ for (const workspace of WORKER_WORKSPACES) {
         `${workspace}/package.json must pin ${name} to ${expected}; received ${actual ?? "missing"}.`,
       );
     }
+    const packageDirectory = requireResolvedVersion(configPath, name, expected);
+    requireLockedVersion(
+      lock.packages,
+      relative(repositoryRoot, packageDirectory).replaceAll("\\", "/"),
+      expected,
+    );
   }
 }
 

@@ -24,6 +24,8 @@ export default defineConfig({
     }),
   ],
   test: {
+    // Temporary: workerd cannot read Vitest 5 fsModuleCache entries; remove when cloudflare/workers-sdk#16163 ships
+    fsModuleCache: false,
     clearMocks: false,
     deps: {
       optimizer: {

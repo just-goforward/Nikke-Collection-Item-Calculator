@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-14
+
+### Worker test runtime alignment
+
+- Upgrade Vitest and Coverage V8 from 4.1.11 to 5.0.4 in all six Worker workspaces.
+- Cloudflare's `@cloudflare/vitest-plugin` 1.4.1 supports Vitest `^4.1.0 || ^5.0.0`;
+  this supersedes the temporary Worker Vitest 4 isolation described on 2026-09-05.
+- Runtime boundary checks still enforce exact workspace pins, installed resolution,
+  and the corresponding lockfile entry, including shared hoisted dependencies.
+- Temporarily disable `test.fsModuleCache` only in the six workerd Vitest configs:
+  workerd cannot read Vitest 5's host-filesystem cache entries. Remove the workaround
+  when `cloudflare/workers-sdk#16163` ships; the root Vitest config is unchanged.
+- Historical entries and staging evidence remain unchanged.
+
 ## Isolated tooling baseline — validation pending
 
 - Node24.21.0/npm12.2.0/Rust1.98.1; preserve the reviewed dependency lock and exact install-script policy.
