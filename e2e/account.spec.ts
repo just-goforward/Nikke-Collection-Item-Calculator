@@ -1,14 +1,31 @@
 import { readFile } from "node:fs/promises";
 import AxeBuilder from "@axe-core/playwright";
-import { type BrowserContext, expect, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
 import {
+  accountTrigger,
+  beginnerKit,
+  blockExternalRequests,
+  CERTIFIED_PATH,
+  type CertifiedItem,
   calculatorDocument,
+  certifiedApi,
+  certifiedBlue,
+  certifiedItems,
+  checkingIndicator,
   deviceStores,
   enableAccountFlag,
+  guestCertifiedBlue,
+  holdAccountCheck,
+  loginButton,
   MockAccountApi,
   ORIGIN,
+  openApp,
+  openCertified,
+  openCertifiedAccount,
   PORT,
+  setBeginnerKit,
+  setCertifiedBlue,
   signedInApi,
 } from "./account.helpers";
 import { closePreviewServer, test } from "./test";
@@ -17,26 +34,11 @@ import { closePreviewServer, test } from "./test";
 const OUT_DIR = process.env["ACCOUNT_E2E_DIST"] ?? "dist";
 let server: PreviewServer | null = null;
 
-async function openApp(page: Page) {
-  await page.setViewportSize({ width: 1365, height: 900 });
-  await page.goto(`${ORIGIN}/`);
-  await expect(page.getByRole("button", { name: "0단계", exact: true })).toBeVisible();
-}
-
 async function axeViolations(page: Page) {
   const result = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
     .analyze();
   return result.violations;
-}
-
-const beginnerKit = (page: Page) => page.getByLabel("초심자용 키트");
-const accountTrigger = (page: Page) => page.getByRole("button", { name: /^계정 · / });
-const loginButton = (page: Page) => page.getByRole("button", { name: "Google 계정으로 로그인" });
-
-async function setBeginnerKit(page: Page, value: string) {
-  await beginnerKit(page).fill(value);
-  await beginnerKit(page).press("Tab");
 }
 
 test.beforeAll(async () => {
@@ -407,56 +409,6 @@ test("?account_error=<code> shows the localized message and is removed from the 
 
 // ---- certified engine ----
 
-const CERTIFIED_PATH = "/?statsEnv=staging&engine=certified";
-const CERTIFIED_GUEST_KEY = "collection-certified-staging-v2:session";
-type CertifiedItem = { type: string; version: number; session: { stock: number[] } };
-
-async function blockExternalRequests(context: BrowserContext) {
-  // Registered before the API mock so its Google/CDN routes still take precedence.
-  await context.route(
-    (url) => !["127.0.0.1", "localhost"].includes(url.hostname),
-    (route) => route.abort("blockedbyclient"),
-  );
-}
-
-async function openCertified(page: Page) {
-  await page.setViewportSize({ width: 1365, height: 900 });
-  await page.goto(`${ORIGIN}${CERTIFIED_PATH}`);
-  await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toBeVisible();
-  await expect(page.locator("#calculateButton")).toBeEnabled();
-}
-
-const certifiedBlue = (page: Page) => page.locator("#blueStock");
-
-async function setCertifiedBlue(page: Page, value: string) {
-  await certifiedBlue(page).fill(value);
-  await certifiedBlue(page).press("Tab");
-}
-
-function certifiedItems(document: unknown): CertifiedItem[] {
-  const items = (document as { items: CertifiedItem[] }).items;
-  return items.filter((item) => item.type === "certified-session");
-}
-
-async function guestCertifiedBlue(page: Page) {
-  const text = await page.evaluate((key) => localStorage.getItem(key), CERTIFIED_GUEST_KEY);
-  return text === null ? null : (JSON.parse(text) as { stock: number[] }).stock[0];
-}
-
-/** Until the account is confirmed the engine shows (and stores) guest data. */
-async function openCertifiedAccount(page: Page) {
-  await openCertified(page);
-  await expect(accountTrigger(page)).toHaveAccessibleName("계정 · 동기화됨");
-}
-
-async function certifiedApi(context: BrowserContext) {
-  const api = new MockAccountApi();
-  api.consent = { participation: false, decisionVersion: 1 };
-  await blockExternalRequests(context);
-  await api.install(context);
-  return api;
-}
-
 test("certified engine: the guest session keeps its key and the account session syncs as an item", async ({
   page,
   context,
@@ -568,17 +520,6 @@ test("certified tabs follow each other's saves", async ({ context }) => {
 });
 
 // ---- page-load account check ----
-
-function holdAccountCheck(api: MockAccountApi) {
-  let release: () => void = () => undefined;
-  api.holdAccount = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  return () => release();
-}
-
-const checkingIndicator = (page: Page) =>
-  page.getByRole("status").filter({ hasText: "계정 확인 중…" });
 
 test("inputs stay read-only until the account check resolves on the production engine", async ({
   page,
