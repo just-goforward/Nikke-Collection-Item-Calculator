@@ -23,6 +23,8 @@ const REQUIRED_LAZY_ROOTS = {
   "src/schemas.ts": "lazy-stats",
   "src/components/SuccessAttemptModal.tsx": "lazy-interaction",
   "src/components/RecommendationContent.tsx": "lazy-interaction",
+  // Feature-flagged account UI: must stay out of the initial graph (no budget assigned yet).
+  "src/account/AccountEntry.tsx": "lazy-account",
 } as const;
 const OPTIONAL_LAZY_ROOTS = {
   "src/components/DetailPanel.tsx": "lazy-detail",
@@ -44,6 +46,7 @@ type BundleKind =
   | "lazy-solver"
   | "lazy-stats"
   | "lazy-interaction"
+  | "lazy-account"
   | "worker"
   | "certified-worker"
   | "css"

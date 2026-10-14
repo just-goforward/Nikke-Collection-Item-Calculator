@@ -452,6 +452,8 @@ function MobileBottomBar({
 }
 
 type AppShellProps = {
+  /** Feature-flagged account control rendered in the top bar; engines may omit it. */
+  accountControl?: ReactNode;
   /** Route notices rendered above the shared top bar. */
   banner: ReactNode;
   /** Marks the engine profile that owns the calculation; omitted for the legacy engine. */
@@ -477,6 +479,7 @@ type AppShellProps = {
 
 /** Engine-neutral calculator frame: top bar, panels, navigation, footer, reset undo and modal. */
 export function AppShell({
+  accountControl,
   banner,
   engineProfile,
   hasResult,
@@ -508,6 +511,7 @@ export function AppShell({
         <main className={classes.content} data-engine-profile={engineProfile}>
           {banner}
           <TopBar
+            accountControl={accountControl}
             themeMode={themeMode}
             viewTab={viewTab}
             onThemeModeChange={onThemeModeChange}
@@ -540,6 +544,7 @@ export function AppShell({
 }
 
 export function AppLayout({
+  accountControl,
   calculator,
   handlers,
   mobileTab,
@@ -551,6 +556,7 @@ export function AppLayout({
   statsMode,
   viewTab,
 }: {
+  accountControl?: ReactNode;
   calculator: CalculatorApp;
   handlers: AppHandlers;
   mobileTab: MobileTab;
@@ -566,6 +572,7 @@ export function AppLayout({
 
   return (
     <AppShell
+      accountControl={accountControl}
       banner={<StagingBanners statsMode={statsMode} />}
       hasResult={calculator.resultView.type !== "empty"}
       inputPanels={{

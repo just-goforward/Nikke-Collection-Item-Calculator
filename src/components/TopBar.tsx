@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEvent, RefObject } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { SITE_LOCALES } from "../../shared/siteLocales";
@@ -55,6 +55,8 @@ const classes = {
 } as const;
 
 type TopBarProps = {
+  /** Optional feature-flagged account control; omitted everywhere the flag is off. */
+  accountControl?: ReactNode;
   themeMode: ThemeMode;
   viewTab: TopViewTab;
   onThemeModeChange: (themeMode: ThemeMode) => void;
@@ -370,6 +372,7 @@ function ViewTabs({
 }
 
 export default function TopBar({
+  accountControl,
   themeMode,
   viewTab,
   onThemeModeChange,
@@ -423,6 +426,7 @@ export default function TopBar({
         <ViewTabs active={viewTab} onChange={onViewTabChange} />
       </div>
       <div className={classes.utilities}>
+        {accountControl}
         <LanguageSelector
           lang={locale}
           langOpen={langOpen}

@@ -1,6 +1,6 @@
 import { useState } from "react";
-
 import { type AppHandlers, AppLayout, preloadDetailPanel } from "./AppLayout";
+import { AccountControl } from "./account/AccountControl";
 import type { MobileTab } from "./components/MobileChrome";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
 import { useAppShellNavigation } from "./hooks/useAppShellNavigation";
@@ -101,6 +101,13 @@ export default function App() {
 
   return (
     <AppLayout
+      accountControl={
+        <AccountControl
+          input={rememberInputSnapshot()}
+          inputLocked={calculator.inputLocked}
+          onApplyInput={actions.restoreInputSnapshot}
+        />
+      }
       calculator={calculator}
       handlers={handlers}
       mobileTab={mobileTab}
