@@ -7,6 +7,30 @@ Guests retain all calculator functionality. M3 pins `openid-client` **6.8.8**
 with app-owned D1 sessions. Better Auth was rejected by the approved spike /
 Advisor decision; it does not meet this application's identity/session contract.
 
+## Beta decision and post-beta production gate
+
+**Public statistics and population ranks are not offered during the beta.**
+Keep `PUBLICATION_ENABLED = "false"`; the retained M8 code is a disabled local
+prototype, not an approved beta or production publication design.
+`GET /v1/statistics` and `GET /v1/self-percentile` return **404**
+`{"error":"feature_unavailable"}` with no-store while disabled, without reading
+publication/rank stores or requiring a session. The disabled coordinator neither
+reads contributions nor computes or stores self ranks, including on its cron lane.
+Consent storage and GET/PUT APIs remain available, but consent has **no publication
+or population-ranking effect** while disabled; it cannot enable this feature.
+Existing privacy withdrawal/deletion safeguards remain active.
+
+**Production gate — revisit, do not enable:** public statistics and population
+ranks are deferred until **after the beta** and require a redesigned,
+independently reviewed publication policy with **user-level differential privacy,
+fixed taxonomy, monthly cadence, and withdrawal takedown**. The weekly k-suppressed
+prototype below does not satisfy that gate. Changing the flag is not sufficient
+approval to publish.
+
+Inactivity is measured by successful **login + save only**. Consent, polling and
+session touches do not refresh it. The shared-device frontend default is to keep
+unsynced drafts on sign-out; frontend implementation is outside this directory.
+
 ## M0 contracts
 
 `src/contracts.ts:Api` is the TypeScript wire-contract map. The contracts are
@@ -15,8 +39,9 @@ This package entry intentionally preserves the public M0 type contract; backend
 implementation helpers are not public package exports. All timestamps are
 Unix milliseconds. Private routes require an authenticated account, origin/CSRF
 validation for mutations, and `Cache-Control: no-store`. M3 implements these
-controls; missing configuration fails closed. Public statistics remain 503 while
-fenced. Private ownership is derived only from the authenticated session.
+controls; missing configuration fails closed. Disabled statistics/rank routes
+return 404 feature-unavailable; enabled but privacy-fenced statistics return 503.
+Private ownership is derived only from the authenticated session.
 
 Callback failures return **303** to `/?account_error=<code>` with no-store,
 `Referrer-Policy: no-referrer`, an empty body and expiry of only the pending-flow
@@ -40,12 +65,13 @@ retain their existing JSON status/error contracts.
 | GET/PUT `/v1/consent` | GET includes userId and nullable initial decision; PUT uses explicit boolean, decision-version CAS, opId |
 | DELETE `/v1/account` | opId; fenced privacy operation acknowledgement |
 | POST `/v1/sessions/revoke-all` | opId; revoke all server sessions including current |
-| GET `/v1/statistics` | identifier-free weekly release and binned/suppressed cells |
-| GET `/v1/self-percentile` | userId and private, frozen percentile bands for a published release |
+| GET `/v1/statistics` | 404 feature-unavailable during beta; disabled weekly prototype retained locally |
+| GET `/v1/self-percentile` | 404 feature-unavailable during beta; no population ranks offered |
 
 Future HTTP mapping: malformed input 400, unauthenticated 401, beta full 403,
 CAS/op conflict 409, new archive quota 422, accepted privacy operation 202,
-unavailable/fenced public data 503. A saved operation always reports its original
+disabled publication/ranks 404, enabled but unavailable/fenced public data 503.
+A saved operation always reports its original
 revision, even when newer saves have occurred. Clients must not overwrite their
 newer document with a replay acknowledgement. Unknown/expired opIds use CAS;
 there is no indefinite replay promise.
@@ -336,7 +362,9 @@ approval. No site-worker edits or remote actions are included here.
 
 Remaining gates: independent Security review, browser bridge/UI tests, Google
 real-provider acceptance including canonical issuer policy, operational rate/
-quota budgets, M7/M8 production review and explicit publication enablement, and
+quota budgets, M7 production review, post-beta publication/rank redesign review
+(user-level differential privacy, fixed taxonomy, monthly cadence, withdrawal
+takedown; revisit, not enable), and
 maintenance gating/reconciliation for any database restore. D1 tests simulate
 personal restore; they do not establish correctness of a live multi-database
 restore. Cross-store privacy is deliberately fail-closed, not transactional.
@@ -458,21 +486,22 @@ finisher then invalidates PUBLIC and saves the generation before PRIVACY changes
 A lost activity race releases its intent without changing generation, pointer or
 release payload. Legacy jobs default to already fenced. No pre-deletion warning was required by the agreed contract
 and none is implemented. M7 is local-tested, not deployed.
-Explicit publication enablement, real Google legacy-issuer support and browser
-integration remain separate launch gates.
+Post-beta publication/rank redesign review, real Google legacy-issuer support and
+browser integration remain separate production gates; publication stays disabled.
 
-## M8 weekly publication (local only; disabled by default)
+## M8 weekly publication prototype (local only; disabled throughout beta)
 
 `PUBLICATION_ENABLED = "false"` in `wrangler.toml` gates both the coordinator
 and public/rank display. Only the exact string `"true"` enables it; no HTTP
-endpoint enables publication. The publication cron lane attempts a UTC Monday
+endpoint enables publication. The following describes only the retained prototype,
+not the approved post-beta design. When enabled in local tests, its cron lane attempts a UTC Monday
 weekly build only when that week's release is absent/invalidated. Two publishers
 cannot acquire the same durable PUBLIC publisher slot. Withdrawal/deletion
 invalidates every retrievable release immediately, then an enabled later cron
 rebuilds within the same week from current authoritative consent. History records
 policy/version, release/week/fence and invalidation timestamps, without identities.
 
-The beta metric is **post-signup lifetime income**, summed across an account's
+The prototype metric is **post-signup lifetime income**, summed across an account's
 items per stage (`lifetimeIncome - preSignupIncome`). One account contributes
 once per stage/cohort, not once per item. Opt-in is read from PRIVACY at build
 time, never inferred from the PERSONAL participation mirror. Deleted/blocked

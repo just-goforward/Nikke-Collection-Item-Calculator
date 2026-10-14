@@ -19,7 +19,7 @@ PUBLICATION_ENABLED = "false"
 PRIVACY_RECONCILE_QUIESCENT = "false"
 # GOOGLE_CLIENT_SECRET must be supplied separately; no credential is committed.
 
-# Expiry, bounded recovery/inactivity deletion; publication is opt-in via the flag above.
+# Expiry, bounded recovery/inactivity deletion; publication stays disabled throughout beta.
 [triggers]
 crons = ["0-59/10 * * * *", "1-59/10 * * * *", "2-59/10 * * * *", "3-59/10 * * * *"]
 

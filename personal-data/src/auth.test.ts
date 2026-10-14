@@ -708,7 +708,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     });
     expect(
       await (await h.request("/v1/self-percentile", { headers: { Cookie: login.cookie } })).json(),
-    ).toEqual({ userId: h.accountId(login.cookie), results: [] });
+    ).toEqual({ error: "feature_unavailable" });
   });
 
   it("concurrent HTTP callbacks admit exactly 150 of 160 distinct identities without orphan rows", async () => {
@@ -843,6 +843,45 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
       ).status,
     ).toBe(200);
     expect(await count("accounts")).toBe(2);
+  });
+
+  it("only successful login and winning saves refresh account inactivity, not polling, consent, replay or conflicts", async () => {
+    const h = await harness();
+    const login = await h.login();
+    const lastActive = async () =>
+      (
+        await databases.PERSONAL_DB.prepare("SELECT last_active_at FROM accounts").first<{
+          last_active_at: number;
+        }>()
+      )?.last_active_at;
+    const loggedInAt = h.time();
+    expect(await lastActive()).toBe(loggedInAt);
+    h.advance(60_000);
+    for (const path of ["/v1/account", "/v1/workspace", "/v1/export", "/v1/consent"]) {
+      expect((await h.request(path, { headers: { Cookie: login.cookie } })).status).toBe(200);
+    }
+    expect(
+      (
+        await h.mutate(
+          "/v1/consent",
+          { opId: "consent-activity", baseDecisionVersion: 0, participation: true },
+          login.cookie,
+          "PUT",
+        )
+      ).status,
+    ).toBe(200);
+    expect(await lastActive()).toBe(loggedInAt);
+    expect((await h.mutate("/v1/workspace", put(), login.cookie, "PUT")).status).toBe(200);
+    const savedAt = h.time();
+    expect(await lastActive()).toBe(savedAt);
+    h.advance(60_000);
+    expect((await h.mutate("/v1/workspace", put(), login.cookie, "PUT")).status).toBe(200);
+    expect(
+      (await h.mutate("/v1/workspace", put("conflicting-save"), login.cookie, "PUT")).status,
+    ).toBe(409);
+    expect(await lastActive()).toBe(savedAt);
+    expect((await h.login({}, login.cookie)).result.status).toBe(200);
+    expect(await lastActive()).toBe(h.time());
   });
 
   it("background reads do not refresh; successful user saves refresh idle/cookie only up to absolute max", async () => {
@@ -987,7 +1026,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
         }>()
       )?.blocked,
     ).toBe(1);
-    expect((await h.request("/v1/statistics")).status).toBe(503);
+    expect((await h.request("/v1/statistics")).status).toBe(404);
     expect(await count("deletion_jobs")).toBe(1); // Public/unrelated requests do not drain the outbox.
     expect((await h.login()).result.status).toBe(200); // Only this identity retries its one job.
     expect(await count("deletion_jobs")).toBe(0);
@@ -1385,7 +1424,35 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect(await count("pending_archives")).toBe(0);
   });
 
-  it("consent CAS has one winner and fenced public/self-percentile endpoints disclose no ranks", async () => {
+  it("disabled public and self-percentile endpoints return feature-unavailable without accessing any store", async () => {
+    const h = await harness();
+    const login = await h.login();
+    const unavailable = () => {
+      throw new Error("disabled_feature_must_not_access_storage");
+    };
+    const db = { prepare: unavailable, batch: unavailable, exec: unavailable };
+    for (const flag of ["false", "", "TRUE"]) {
+      for (const path of ["/v1/statistics", "/v1/self-percentile"]) {
+        for (const cookie of ["", login.cookie]) {
+          const result = await h.worker.fetch(
+            new Request(`${TEST_ORIGIN}${path}`, { headers: { Cookie: cookie } }),
+            {
+              ...databases,
+              PUBLICATION_ENABLED: flag,
+              PERSONAL_DB: db,
+              PRIVACY_CONTROL_DB: db,
+              PUBLIC_AGGREGATE_DB: db,
+            },
+          );
+          expect(result.status).toBe(404);
+          expect(await result.json()).toEqual({ error: "feature_unavailable" });
+          expect(result.headers.get("Cache-Control")).toBe("no-store");
+        }
+      }
+    }
+  });
+
+  it("consent CAS has one winner but disabled public/self-percentile endpoints disclose no ranks", async () => {
     const h = await harness();
     const login = await h.login();
     const results = await Promise.all(
@@ -1405,6 +1472,9 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect(results.filter((result) => result.status === 200)).toHaveLength(1);
     expect(results.filter((result) => result.status === 409)).toHaveLength(1);
     expect(
+      await (await h.request("/v1/consent", { headers: { Cookie: login.cookie } })).json(),
+    ).toMatchObject({ participation: true, decisionVersion: 1 });
+    expect(
       (
         await databases.PUBLIC_AGGREGATE_DB.prepare("SELECT generation FROM privacy_fence").first<{
           generation: number;
@@ -1416,10 +1486,11 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
        '{"releaseId":"stale-release","stage":"R","percentileBand":{"lower":40,"upper":50},"manualEntry":true,"verified":false}'
        FROM accounts`,
     ).run();
-    expect(
-      await (await h.request("/v1/self-percentile", { headers: { Cookie: login.cookie } })).json(),
-    ).toEqual({ userId: h.accountId(login.cookie), results: [] });
-    expect((await h.request("/v1/statistics")).status).toBe(503);
+    for (const path of ["/v1/statistics", "/v1/self-percentile"]) {
+      const result = await h.request(path, { headers: { Cookie: login.cookie } });
+      expect(result.status).toBe(404);
+      expect(await result.json()).toEqual({ error: "feature_unavailable" });
+    }
   });
 
   it("every mutation enforces Origin and Sec-Fetch-Site; rejects malformed/large bodies and ambiguous cookies", async () => {

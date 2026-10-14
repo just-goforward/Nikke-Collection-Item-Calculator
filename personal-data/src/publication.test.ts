@@ -78,11 +78,45 @@ async function fence() {
   }>();
 }
 
-it("publication is disabled by default and does not acquire or clear the fence", async () => {
+it("publication is disabled by default: opted-in accounts produce no releases or self ranks, including cron", async () => {
   await seed();
   expect(await publishWeekly(dbs, NOW)).toBe("disabled");
+  await worker.scheduled(
+    { scheduledTime: NOW, cron: "3-59/10 * * * *" },
+    { ...enabled, PUBLICATION_ENABLED: "false" },
+  );
+  expect(
+    await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM self_percentiles").first(),
+  ).toEqual({ n: 0 });
+  for (const table of ["weekly_releases", "disclosure_history"]) {
+    expect(
+      await dbs.PUBLIC_AGGREGATE_DB.prepare(`SELECT count(*) AS n FROM ${table}`).first(),
+    ).toEqual({ n: 0 });
+  }
   expect((await fence())?.blocked).toBe(1);
   expect((await fence())?.publisher_token).toBeNull();
+});
+
+it("disabled publication never reads source summaries, computes ranks or writes to any store", async () => {
+  const unavailable = () => {
+    throw new Error("disabled_publication_must_not_access_storage");
+  };
+  const db = { prepare: unavailable, batch: unavailable, exec: unavailable };
+  for (const flag of ["false", "", "TRUE"]) {
+    expect(
+      await publishWeekly(
+        {
+          ...enabled,
+          PUBLICATION_ENABLED: flag,
+          PERSONAL_DB: db,
+          PRIVACY_CONTROL_DB: db,
+          PUBLIC_AGGREGATE_DB: db,
+        },
+        NOW,
+        { afterSnapshot: unavailable, afterPrepare: unavailable, afterSelfRanks: unavailable },
+      ),
+    ).toBe("disabled");
+  }
 });
 
 it("publishes opted-in unique accounts only, excludes pre-signup income and freezes private ranks", async () => {

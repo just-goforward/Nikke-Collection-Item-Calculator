@@ -340,8 +340,13 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
         if (path === "/auth/login/google") return await login(request, env);
         if (path === "/auth/callback/google") return await callback(request, env);
         const effective = aliases[path] ?? path;
+        if (
+          env.PUBLICATION_ENABLED !== "true" &&
+          (effective === "/v1/statistics" || effective === "/v1/self-percentile")
+        ) {
+          return response({ error: "feature_unavailable" }, 404);
+        }
         if (effective === "/v1/statistics") {
-          if (env.PUBLICATION_ENABLED !== "true") return response({ error: "privacy_fenced" }, 503);
           const release = await env.PUBLIC_AGGREGATE_DB.prepare(
             `SELECT r.payload FROM privacy_fence f JOIN current_release p ON p.singleton = f.singleton
              JOIN weekly_releases r ON r.release_id = p.release_id
@@ -428,14 +433,11 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
           const validReleases = (releases[0]?.results ?? []).map((row) =>
             String(row["release_id"]),
           );
-          const ranks =
-            env.PUBLICATION_ENABLED === "true"
-              ? await env.PERSONAL_DB.batch([
-                  env.PERSONAL_DB.prepare(
-                    "SELECT payload FROM self_percentiles WHERE user_id = ? AND release_id IN (SELECT value FROM json_each(?))",
-                  ).bind(account.userId, JSON.stringify(validReleases)),
-                ])
-              : [];
+          const ranks = await env.PERSONAL_DB.batch([
+            env.PERSONAL_DB.prepare(
+              "SELECT payload FROM self_percentiles WHERE user_id = ? AND release_id IN (SELECT value FROM json_each(?))",
+            ).bind(account.userId, JSON.stringify(validReleases)),
+          ]);
           const percentiles = (ranks[0]?.results ?? []).map(
             (row) => JSON.parse(String(row["payload"])) as SelfPercentile,
           );

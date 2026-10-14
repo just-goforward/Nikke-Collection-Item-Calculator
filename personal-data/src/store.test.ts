@@ -564,6 +564,7 @@ describe("cross-database privacy fence and restore safety", () => {
   it("HTTP middleware is fail-closed, no-store, cookie-free for guests and public data fenced", async () => {
     const local = {
       ...dbs,
+      PUBLICATION_ENABLED: "true",
       SITE_ORIGIN: "https://local",
       GOOGLE_CLIENT_ID: "local",
       GOOGLE_CLIENT_SECRET: "local-only-test-value",
