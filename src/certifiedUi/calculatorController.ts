@@ -13,7 +13,7 @@ export type CertifiedCalculatorController = {
   session: CertifiedSession;
   updateSession: Dispatch<SetStateAction<CertifiedSession>>;
   snapshot: CertifiedSupplySnapshot | null;
-  prepareError: boolean;
+  prepareError: "unsupported_forecast_version" | "preparation_failed" | null;
   comparison: CertifiedSupplyComparison | null;
   claims: readonly CertifiedSupplyEvent[];
   run: ReturnType<typeof useCertifiedRun>;

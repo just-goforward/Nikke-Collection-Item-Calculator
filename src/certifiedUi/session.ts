@@ -56,7 +56,7 @@ export type CertifiedSession = {
   receipts: readonly CertifiedReceipt[];
   retiredReceiptIds: readonly string[];
   outcomes: readonly CertifiedOutcome[];
-  migrationNotice?: "cohort_prior_reset" | "cohort_posterior_replayed";
+  migrationNotice?: "cohort_prior_reset" | "cohort_posterior_replayed" | "cohort_selection_kept";
 };
 export const CERTIFIED_SESSION_STORAGE_KEY = `${CERTIFIED_STAGING_ENGINE_PROFILE.sessionNamespace}:session`;
 export const LEGACY_CERTIFIED_SESSION_STORAGE_KEY = "collection-certified-staging-v1:session";
@@ -94,6 +94,15 @@ function isoTime(value: unknown): value is string {
 }
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function validMigrationNotice(
+  value: unknown,
+): value is NonNullable<CertifiedSession["migrationNotice"]> {
+  return (
+    value === "cohort_prior_reset" ||
+    value === "cohort_posterior_replayed" ||
+    value === "cohort_selection_kept"
+  );
 }
 function wire(value: unknown): WireQ {
   if (
@@ -146,14 +155,9 @@ export function restoreCertifiedSession(
     const retired = restoreRetiredReceiptIds(value["retiredReceiptIds"]);
     if (!core || !weights || !receipts || !outcomes || !retired) return null;
     const notice = value["migrationNotice"];
-    if (
-      notice !== undefined &&
-      notice !== "cohort_prior_reset" &&
-      notice !== "cohort_posterior_replayed"
-    )
-      return null;
+    if (notice !== undefined && !validMigrationNotice(notice)) return null;
     const migrated: Pick<CertifiedSession, "cohortWeights" | "migrationNotice"> = legacy
-      ? migrateCohortWeights(core.snapshotRevision, receipts, originalSnapshot)
+      ? migrateCohortWeights(weights, core.snapshotRevision, receipts, originalSnapshot)
       : {
           cohortWeights: weights as PersonalCohortWeights,
           ...(notice ? { migrationNotice: notice } : {}),
@@ -203,18 +207,28 @@ function restoreCohortWeights(value: unknown, legacy: boolean): readonly WireQ[]
 }
 
 function migrateCohortWeights(
+  previous: readonly WireQ[],
   revision: string,
   receipts: readonly CertifiedReceipt[],
   original?: CertifiedSupplySnapshot,
 ): Pick<CertifiedSession, "cohortWeights" | "migrationNotice"> {
+  const selected = previous.findIndex((weight) => cmp(fromWire(weight), ONE) === 0);
+  if (selected >= 0) {
+    const weight = (cohort: number) => toWire(cohort === selected ? ONE : ZERO);
+    return {
+      cohortWeights: [weight(0), weight(1), weight(2), weight(3)],
+      migrationNotice: "cohort_selection_kept",
+    };
+  }
   const reset = {
     cohortWeights: DEFAULT_PERSONAL_COHORT_WEIGHTS,
     migrationNotice: "cohort_prior_reset" as const,
   };
   const informative = receipts.filter((receipt) => receipt.pieces !== null);
   if (
-    informative.length &&
-    (original?.version !== "certified-daily-v1" || original.revision !== revision)
+    !informative.length ||
+    original?.version !== "certified-daily-v1" ||
+    original.revision !== revision
   )
     return reset;
   let weights = DEFAULT_PERSONAL_COHORT_WEIGHTS;
@@ -232,6 +246,12 @@ function migrateCohortWeights(
     return reset;
   }
   return { cohortWeights: weights, migrationNotice: "cohort_posterior_replayed" };
+}
+
+export function dismissCertifiedMigrationNotice(session: CertifiedSession): CertifiedSession {
+  const next = { ...session };
+  delete next.migrationNotice;
+  return next;
 }
 
 function restoreLedgerEntries<T>(

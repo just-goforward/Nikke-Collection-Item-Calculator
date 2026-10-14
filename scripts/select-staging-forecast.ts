@@ -1,8 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { CertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
-import { registryCertifiedSnapshot } from "./certified-forecast-registry.ts";
+import {
+  assertCertifiedRuntimeSupplySnapshot,
+  type CertifiedSupplySnapshot,
+} from "../shared/certifiedSupply.ts";
 import {
   recordSelectionDisposition,
   StagingForecastEligibilityError,
@@ -56,7 +58,8 @@ function validatedStagingRegistry(value: unknown, forecastId: string): Registry 
   ) {
     throw new Error("Staging forecast does not satisfy the schedule-kit-v2 contract.");
   }
-  registryCertifiedSnapshot(forecast);
+  if (forecast["certifiedSnapshot"] !== undefined)
+    assertCertifiedRuntimeSupplySnapshot(forecast["certifiedSnapshot"]);
   return value as Registry;
 }
 

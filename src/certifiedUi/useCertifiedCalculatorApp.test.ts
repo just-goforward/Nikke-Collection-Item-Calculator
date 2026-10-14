@@ -1,6 +1,10 @@
 import type { EffectCallback } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildCertifiedSupplySnapshot } from "../../shared/certifiedSupply";
+import {
+  buildCertifiedSupplySnapshot,
+  type CertifiedSupplySnapshot,
+} from "../../shared/certifiedSupply";
+import { LEGACY_CERTIFIED_SUPPLY_LAWS } from "../../shared/certifiedSupplyLaws";
 import type { CertifiedOutput } from "../certified/types";
 import type { CertifiedCalculatorController } from "./calculatorController";
 import {
@@ -22,6 +26,7 @@ const driver = vi.hoisted(() => ({
   effects: [] as (() => void)[],
   dirty: false,
   prepare: vi.fn(),
+  adoptedSnapshot: undefined as CertifiedSupplySnapshot | undefined,
   calculate: vi.fn(),
   cancel: vi.fn(),
   result: null as CertifiedOutput | null,
@@ -82,6 +87,16 @@ vi.mock("react", () => ({
   },
 }));
 vi.mock("../lib/certifiedForecast", () => ({ prepareCertifiedForecast: driver.prepare }));
+vi.mock("../../shared/generated/certifiedForecastAuthority", () => ({
+  CERTIFIED_APPROVED_REGISTRY_HASH: "a".repeat(64),
+  CERTIFIED_APPROVED_FORECAST: {
+    id: "adopted-legacy",
+    sourceEvidence: [],
+    get certifiedSnapshot() {
+      return driver.adoptedSnapshot;
+    },
+  },
+}));
 vi.mock("./useCertifiedRun", () => ({
   useCertifiedRun: (session: CertifiedSession) => ({
     result: driver.result,
@@ -181,6 +196,7 @@ beforeEach(async () => {
   driver.writeFailure = null;
   driver.result = null;
   driver.busy = false;
+  driver.adoptedSnapshot = undefined;
   vi.resetAllMocks();
   driver.prepare.mockResolvedValue(snapshot);
   driver.calculate.mockResolvedValue(undefined);
@@ -209,6 +225,26 @@ afterEach(() => {
 });
 
 describe("certified inputs and action authorization", () => {
+  it("rejects an adopted v1 authority without rendering a three/four-cohort mismatch", async () => {
+    const actual = await vi.importActual<typeof import("../lib/certifiedForecast")>(
+      "../lib/certifiedForecast",
+    );
+    driver.adoptedSnapshot = {
+      ...snapshot,
+      version: "certified-daily-v1",
+      laws: LEGACY_CERTIFIED_SUPPLY_LAWS,
+    };
+    driver.prepare.mockImplementation(() => actual.prepareCertifiedForecast(snapshot.asOf));
+    const before = app.session;
+    await expect(reload()).resolves.toBeUndefined();
+    expect(app.prepareError).toBe("unsupported_forecast_version");
+    expect(app.snapshot).toBeNull();
+    expect(app.comparison).toBeNull();
+    expect(app.calculateDisabled).toBe(true);
+    expect(app.session.stock).toEqual(before.stock);
+    expect(app.session.cohortWeights).toEqual(before.cohortWeights);
+    expect(driver.calculate).not.toHaveBeenCalled();
+  });
   it("allows waiting calculations without usable stock and keeps raw remainders", async () => {
     app.actions.setStock({ blue: 9, purple: 3, yellow: 7 });
     await flush();

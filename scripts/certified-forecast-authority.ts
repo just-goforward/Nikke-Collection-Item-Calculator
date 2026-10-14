@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { assertCertifiedRuntimeSupplySnapshot } from "../shared/certifiedSupply.ts";
 
 type Registry = { stagingForecastId: string; forecasts: Record<string, unknown>[] };
 export function deriveCertifiedForecastAuthority(root: URL) {
@@ -9,6 +10,8 @@ export function deriveCertifiedForecastAuthority(root: URL) {
   const adopted = registry.forecasts.find((entry) => entry["id"] === registry.stagingForecastId);
   if (!adopted || !Array.isArray(adopted["sourceEvidence"]))
     throw new Error("approved_staging_forecast_missing");
+  if (adopted["certifiedSnapshot"] !== undefined)
+    assertCertifiedRuntimeSupplySnapshot(adopted["certifiedSnapshot"]);
   // The certified seed uses source evidence, not legacy rolling-window totals.
   // Keep all other approved fields, including an optional full certified ledger.
   const projection = Object.fromEntries(

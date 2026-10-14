@@ -396,6 +396,13 @@ export function assertCertifiedSupplySnapshot(
 ): CertifiedSupplySnapshot {
   return validateSnapshot(value, checkBudget);
 }
+/** Historical snapshots remain readable, but the current certified runtime is v2-only. */
+export function assertCertifiedRuntimeSupplySnapshot(value: unknown): CertifiedSupplySnapshot {
+  const snapshot = assertCertifiedSupplySnapshot(value);
+  if (snapshot.version !== CERTIFIED_SUPPLY_VERSION)
+    throw new Error("unsupported_forecast_version");
+  return snapshot;
+}
 export function isCertifiedSupplySnapshot(value: unknown): value is CertifiedSupplySnapshot {
   try {
     assertCertifiedSupplySnapshot(value);

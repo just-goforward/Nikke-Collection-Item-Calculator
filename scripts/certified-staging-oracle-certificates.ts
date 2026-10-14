@@ -91,7 +91,8 @@ function futureRefs(input: CertifiedInput) {
 function reconstruct(input: CertifiedInput, witness: Witness): CertificateCheck {
   if (witness.cohort !== 0)
     return { status: "NOTRUN", reason: "independent_refresh_cohort_PMF_not_implemented" };
-  const prior = input.cohortWeights ? fromWire(input.cohortWeights[0]) : q(1, 3);
+  const priorDenominator = input.snapshot.version === "certified-daily-v2" ? 7 : 3;
+  const prior = input.cohortWeights ? fromWire(input.cohortWeights[0]) : q(1, priorDenominator);
   if (cmp(prior, q(0)) <= 0) return { status: "FAIL", reason: "witness_zero_cohort_prior" };
   const receipts = new Map(
     witness.receipts.map((receipt) => [`${receipt.eventId}:${receipt.refIndex}`, receipt]),

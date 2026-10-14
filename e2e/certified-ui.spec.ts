@@ -210,12 +210,18 @@ test("migrates old certified storage with an explicit posterior-only reset notic
     localStorage.removeItem(key);
   }, SESSION_KEY);
   await reopen(page);
-  await expect(page.getByTestId("certified-cohort-migration")).toHaveText(
+  await expect(page.getByTestId("certified-cohort-migration")).toContainText(
     certifiedMessages.en.cohort_prior_reset,
   );
   await expect(stockInput(page, "blue")).toHaveValue("79");
   await expect(stockInput(page, "purple")).toHaveValue("13");
   await expect(stockInput(page, "yellow")).toHaveValue("7");
+  await page
+    .getByRole("button", { name: certifiedMessages.en.dismissMigrationNotice, exact: true })
+    .click();
+  await expect(page.getByTestId("certified-cohort-migration")).toHaveCount(0);
+  await reopen(page);
+  await expect(page.getByTestId("certified-cohort-migration")).toHaveCount(0);
   await expect
     .poll(() =>
       page.evaluate(

@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from "react";
-import { fromWire, toNumber, type WireQ } from "../../shared/certifiedRational";
+import { eq, fromWire, ONE, toNumber, type WireQ } from "../../shared/certifiedRational";
 import {
   type CertifiedSupplyComparison,
   type CertifiedSupplyEvent,
@@ -72,7 +72,12 @@ export function CertifiedPanel({
 }
 
 function cohortIndex(session: CertifiedSession) {
-  return session.cohortWeights.findIndex((w) => w.numerator === w.denominator);
+  const selected = session.cohortWeights.findIndex((weight) => eq(fromWire(weight), ONE));
+  if (selected >= 0) return selected;
+  const prior = ([0, 1, 2, 3] as const).every((cohort) =>
+    eq(fromWire(session.cohortWeights[cohort]), fromWire(DEFAULT_PERSONAL_COHORT_WEIGHTS[cohort])),
+  );
+  return prior ? -1 : -2;
 }
 
 export function CohortPanel({
@@ -86,15 +91,17 @@ export function CohortPanel({
   onUpdate: (update: (current: CertifiedSession) => CertifiedSession) => void;
   words: CertifiedWords;
 }) {
+  const selected = cohortIndex(session);
   return (
     <CertifiedPanel headingId="certified-cohort-title" title={words.cohort}>
       <div className="cert-field">
         <select
           aria-label={words.cohort}
           disabled={disabled}
-          value={cohortIndex(session)}
+          value={selected}
           onChange={(e) => {
             const cohort = Number(e.target.value);
+            if (cohort === -2) return;
             const weight = (i: number) => ({
               numerator: i === cohort ? "1" : "0",
               denominator: "1",
@@ -109,6 +116,11 @@ export function CohortPanel({
           }}
         >
           <option value="-1">{words.mixture}</option>
+          {selected === -2 && (
+            <option value="-2" disabled>
+              {words.learnedMixture}
+            </option>
+          )}
           <option value="0">{words.reroll0}</option>
           <option value="1">{words.reroll1}</option>
           <option value="2">{words.reroll2}</option>

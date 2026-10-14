@@ -6,7 +6,9 @@ import type { CertifiedSessionStore } from "./useCertifiedCalculatorSession";
 
 export function useCertifiedCalculatorSnapshot() {
   const [snapshot, setSnapshot] = useState<CertifiedSupplySnapshot | null>(null);
-  const [prepareError, setPrepareError] = useState(false);
+  const [prepareError, setPrepareError] = useState<
+    "unsupported_forecast_version" | "preparation_failed" | null
+  >(null);
   const snapshotRef = useRef(snapshot);
   return { snapshot, setSnapshot, prepareError, setPrepareError, snapshotRef };
 }
@@ -34,7 +36,7 @@ export function useCertifiedCalculatorPreparation(
           retire();
         snapshotRef.current = next;
         setSnapshot(next);
-        setPrepareError(false);
+        setPrepareError(null);
         const current = latest.current;
         if (
           !current.correction &&
@@ -49,8 +51,16 @@ export function useCertifiedCalculatorPreparation(
               next.events.map((e) => e.id),
             ),
           );
-      } catch {
-        if (active) setPrepareError(true);
+      } catch (failure) {
+        if (!active) return;
+        if (failure instanceof Error && failure.message === "unsupported_forecast_version") {
+          retire();
+          snapshotRef.current = null;
+          setSnapshot(null);
+          setPrepareError("unsupported_forecast_version");
+        } else {
+          setPrepareError("preparation_failed");
+        }
       }
     };
     void prepare();

@@ -6,6 +6,7 @@ import { solveCertified } from "../certified/solver";
 import type { CertifiedOutput } from "../certified/types";
 import { I18nProvider } from "../i18n/locale";
 import { ResultPanels } from "./CertifiedResultPanels";
+import { CertifiedPreparationNotice } from "./CertifiedShellChrome";
 import { certifiedMessages } from "./messages";
 
 const snapshot = buildCertifiedSupplySnapshot({
@@ -43,6 +44,17 @@ function render(output: CertifiedOutput) {
 }
 
 describe("certified result refusal and partial presentation", () => {
+  it("renders the explicit unsupported-forecast-version state as an alert", () => {
+    const html = renderToStaticMarkup(
+      createElement(CertifiedPreparationNotice, {
+        error: "unsupported_forecast_version",
+        words: certifiedMessages.en,
+      }),
+    );
+    expect(html).toContain(certifiedMessages.en.unsupportedForecastVersion);
+    expect(html).toContain('role="alert"');
+    expect(html).not.toContain(certifiedMessages.en.ready);
+  });
   it("shows only the capacity refusal without a recommendation or fallback result", () => {
     const output = solveCertified(input, { maxMemoEntries: 1 });
     expect(output.status).toBe("refused");

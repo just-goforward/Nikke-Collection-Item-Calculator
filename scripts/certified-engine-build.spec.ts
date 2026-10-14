@@ -5,12 +5,15 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "vite";
 import { describe, expect, it } from "vitest";
+import { buildCertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
+import { LEGACY_CERTIFIED_SUPPLY_LAWS } from "../shared/certifiedSupplyLaws.ts";
 import {
   assertCertifiedEngineBuild,
   certifiedEngineBuildGuardPlugin,
   deriveCertifiedEngineBuild,
   writeCertifiedEngineBuild,
 } from "./certified-engine-build.ts";
+import { deriveCertifiedForecastAuthority } from "./certified-forecast-authority.ts";
 import { assertPinnedCertifiedForecastFiles } from "./certified-forecast-pins.ts";
 import {
   assertCertifiedWasmBuild,
@@ -68,6 +71,34 @@ function refreshPins(manifestPath: string) {
 }
 
 describe("approved notice bytes and code freshness", () => {
+  it("refuses to generate v2 runtime authority from an adopted historical v1 ledger", () => {
+    const item = fixture();
+    const current = buildCertifiedSupplySnapshot({
+      asOf: "2026-09-30T04:00:00Z",
+      revision: "adopted-legacy",
+      sourceHash: "a".repeat(64),
+      soloPeriods: [],
+      collaborationPeriods: [],
+    });
+    const legacy = {
+      ...current,
+      version: "certified-daily-v1",
+      laws: LEGACY_CERTIFIED_SUPPLY_LAWS,
+    };
+    const registry = (certifiedSnapshot: unknown) =>
+      JSON.stringify({
+        stagingForecastId: "approved",
+        forecasts: [{ id: "approved", sourceEvidence: [], certifiedSnapshot }],
+      });
+    const path = join(item.directory, "shared/supplyForecasts.json");
+    writeFileSync(path, registry(legacy));
+    expect(() => deriveCertifiedForecastAuthority(item.root)).toThrow(
+      "unsupported_forecast_version",
+    );
+    expect(readFileSync(path, "utf8")).toBe(registry(legacy));
+    writeFileSync(path, registry(current));
+    expect(deriveCertifiedForecastAuthority(item.root).contents).toContain("certified-daily-v2");
+  });
   it("uses supplied WASM without Cargo and rejects artifact or Rust source drift", async () => {
     const item = fixture();
     const put = (path: string, contents: string | Buffer) => {
@@ -122,7 +153,13 @@ describe("approved notice bytes and code freshness", () => {
     const registryPath = join(item.directory, "shared/supplyForecasts.json");
     const registry = JSON.parse(readFileSync(registryPath, "utf8"));
     registry.forecasts[0].profiles[0].effectiveFrom = "2026-10-01";
-    registry.forecasts[0].certifiedSnapshot = { events: [{ at: "2026-10-02T03:00:00.000Z" }] };
+    registry.forecasts[0].certifiedSnapshot = buildCertifiedSupplySnapshot({
+      asOf: "2026-10-02T03:00:00.000Z",
+      revision: "adopted-current",
+      sourceHash: "a".repeat(64),
+      soloPeriods: [],
+      collaborationPeriods: [],
+    });
     writeFileSync(registryPath, JSON.stringify(registry));
     await expect(assertCertifiedEngineBuild(item.root)).rejects.toThrow(
       "certified_forecast_authority_stale",

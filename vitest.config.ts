@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config";
 const timeBudgetTestFiles = [
   "shared/certifiedSupply.spec.ts",
   "shared/certifiedSupplyLaws.spec.ts",
+  "src/certifiedUi/sessionMigration.test.ts",
   "scripts/certified-staging-oracle-certificates.spec.ts",
   "src/certified/nearBoundWitness.spec.ts",
   "scripts/certified-staging-approved-panel/v6/evidence.spec.ts",

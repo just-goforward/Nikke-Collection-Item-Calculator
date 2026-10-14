@@ -8,10 +8,7 @@ import type {
   CertifiedValue,
   CertifiedWaiting,
 } from "../src/certified/types.ts";
-import {
-  frozenIndependentCohorts,
-  independentApprovedPricing,
-} from "./certified-staging-approved-panel.ts";
+import { frozenIndependentCohorts } from "./certified-staging-approved-panel.ts";
 import {
   add,
   canonicalState,
@@ -34,6 +31,10 @@ import {
   verifyActualWaiting,
 } from "./certified-staging-oracle-certificates.ts";
 import { independentCurrentCoverage } from "./certified-staging-oracle-current-coverage.ts";
+import {
+  type IndependentPriors,
+  independentVersionedPricing,
+} from "./certified-staging-oracle-four-cohort-pricing.ts";
 import { solveIntegerOracle } from "./certified-staging-oracle-integer.ts";
 import { independentLargeCappedOracle } from "./certified-staging-oracle-large-capped.ts";
 import { independentLargeIntegerOracle } from "./certified-staging-oracle-large-integer.ts";
@@ -55,6 +56,7 @@ const notrun = (reason: string): LaneCheck => ({ status: "NOTRUN", reason });
 
 const KITS = ["blue", "purple", "yellow"] as const;
 const DEFAULT_PRIORS: QTriple = [q(1, 3), q(1, 3), q(1, 3)];
+const DEFAULT_FOUR_PRIORS = [q(1, 7), q(2, 7), q(3, 7), q(1, 7)] as const;
 // independentApprovedPricing models exactly these solo-day laws.
 const PRICED_SOLO_LAWS = new Set(["regular-box-v1", "box-ii-v1"]);
 type StateInput = Pick<CertifiedInput, "grade" | "level" | "exp" | "stock">;
@@ -98,6 +100,16 @@ function exactTriple(value: unknown): QTriple | null {
   if (!Array.isArray(value) || value.length !== 3) return null;
   const [first, second, third] = value.map(exactWire);
   return first && second && third ? [first, second, third] : null;
+}
+function exactPriors(value: unknown, count: 3 | 4): IndependentPriors | null {
+  if (count === 3) return exactTriple(value);
+  if (!Array.isArray(value) || value.length !== 4) return null;
+  const [first, second, third, fourth] = value.map(exactWire);
+  return first && second && third && fourth ? [first, second, third, fourth] : null;
+}
+function samePriors(actual: unknown, expected: IndependentPriors): boolean {
+  if (!Array.isArray(actual) || actual.length !== expected.length) return false;
+  return expected.every((prior, cohort) => sameValue(actual[cohort], prior));
 }
 function sameTriple(actual: unknown, expected: QTriple): boolean {
   const parsed = exactTriple(actual);
@@ -155,7 +167,10 @@ function pricingDomainRefusal(input: CertifiedInput): string | null {
     return "independent_law_not_supported:finite_override";
   return null;
 }
-function pricingFormatDefect(pricing: NonNullable<CertifiedOutput["pricing"]>): string | null {
+function pricingFormatDefect(
+  pricing: NonNullable<CertifiedOutput["pricing"]>,
+  cohortCount: 3 | 4,
+): string | null {
   const { basisStock } = pricing as { basisStock: unknown };
   if (
     !Array.isArray(basisStock) ||
@@ -163,16 +178,19 @@ function pricingFormatDefect(pricing: NonNullable<CertifiedOutput["pricing"]>): 
     ![0, 1, 2].every((color) => Number.isSafeInteger(basisStock[color]) && basisStock[color] >= 0)
   )
     return "basisStock";
-  for (const field of ["recurringRate", "weights", "cohortWeights"] as const)
+  for (const field of ["recurringRate", "weights"] as const)
     if (!exactTriple(pricing[field])) return field;
+  if (!exactPriors(pricing.cohortWeights, cohortCount)) return "cohortWeights";
   return null;
 }
 
-function historicalPricingPriors(input: CertifiedInput): QTriple | null {
-  if (input.snapshot.version !== "certified-daily-v1") return null;
+function pricingPriors(input: CertifiedInput): IndependentPriors | null {
   const weights = input.cohortWeights;
-  if (weights && weights.length !== 3) return null;
-  return weights ? mapTriple(weights, fromWire) : DEFAULT_PRIORS;
+  if (input.snapshot.version === "certified-daily-v1")
+    return weights ? exactPriors(weights, 3) : DEFAULT_PRIORS;
+  if (input.snapshot.version === "certified-daily-v2")
+    return weights ? exactPriors(weights, 4) : DEFAULT_FOUR_PRIORS;
+  return null;
 }
 
 /** Fixed prices from public rules and authenticated tracked cohort evidence. */
@@ -187,7 +205,9 @@ export function verifyPublicPricing(
         ? fail("API_pricing_missing_while_current_present")
         : notrun(`API_pricing_absent:${output.status}`),
     };
-  const defect = pricingFormatDefect(actual);
+  const priors = pricingPriors(input);
+  if (!priors) return { check: notrun("independent_pricing_rule_or_prior_shape_not_supported") };
+  const defect = pricingFormatDefect(actual, priors.length);
   if (defect) return { check: fail(`pricing_malformed:${defect}`) };
   const outsideDomain = pricingDomainRefusal(input);
   if (outsideDomain) return { check: notrun(outsideDomain) };
@@ -198,13 +218,11 @@ export function verifyPublicPricing(
     )
   )
     return { check: notrun("independent_pricing_solo_law_not_supported") };
-  const priors = historicalPricingPriors(input);
-  if (!priors) return { check: notrun("independent_pricing_historical_three_cohort_only") };
   // Authenticate first: tracked evidence identity failures propagate, never NOTRUN.
   frozenIndependentCohorts();
   let rates: QTriple;
   try {
-    rates = independentApprovedPricing(input.snapshot, priors);
+    rates = independentVersionedPricing(input.snapshot, priors);
   } catch (error) {
     if (error instanceof AssertionError)
       return { check: notrun("independent_pricing_rule_or_prior_shape_not_supported") };
@@ -220,7 +238,7 @@ export function verifyPublicPricing(
   if (!sameTriple(actual.recurringRate, rates))
     return { check: fail("pricing_recurring_rate_mismatch") };
   if (!sameTriple(actual.weights, prices)) return { check: fail("pricing_weight_mismatch") };
-  if (!sameTriple(actual.cohortWeights, priors))
+  if (!samePriors(actual.cohortWeights, priors))
     return { check: fail("pricing_cohort_weights_mismatch") };
   return { check: pass("pricing_exact_public_rules_authenticated_cohorts"), prices };
 }

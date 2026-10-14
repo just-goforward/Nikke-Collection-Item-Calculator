@@ -1,5 +1,6 @@
 import { certifiedForecastIdentityWorkspaceBound } from "../../shared/certifiedForecastIdentity";
 import {
+  assertCertifiedRuntimeSupplySnapshot,
   assertCertifiedSupplySnapshot,
   buildCertifiedSupplySnapshot,
   type CertifiedSupplySnapshot,
@@ -37,7 +38,7 @@ export async function prepareCertifiedForecast(
   const adopted = CERTIFIED_APPROVED_FORECAST;
   const rawSnapshot: unknown = Reflect.get(adopted, "certifiedSnapshot");
   if (rawSnapshot !== undefined)
-    return viewCertifiedSupplySnapshot(assertCertifiedSupplySnapshot(rawSnapshot), asOf);
+    return viewCertifiedSupplySnapshot(assertCertifiedRuntimeSupplySnapshot(rawSnapshot), asOf);
   const acceptedSourceIds = new Set(adopted.sourceEvidence.map((source) => source.itemId));
   // Dates below are quoted by the accepted source IDs, not matched to a nearest estimate.
   const soloPeriods = acceptedSourceIds.has("8060044")

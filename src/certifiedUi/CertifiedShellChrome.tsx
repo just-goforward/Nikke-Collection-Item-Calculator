@@ -6,6 +6,7 @@ import { CertifiedPanel, SupplyComparison } from "./CertifiedSupplyPanels";
 import type { CertifiedCalculatorController } from "./calculatorController";
 import { ForecastReviewNotice } from "./ForecastReviewNotice";
 import type { CertifiedWords } from "./messages";
+import { dismissCertifiedMigrationNotice } from "./session";
 import type { CertifiedShellInteractions } from "./useCertifiedShellInteractions";
 
 type ChromeProps = {
@@ -30,6 +31,14 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
       {controller.session.migrationNotice && (
         <p role="status" className="cert-notice" data-testid="certified-cohort-migration">
           {words[controller.session.migrationNotice]}
+          <button
+            type="button"
+            className="cert-button"
+            disabled={controller.inputLocked || controller.stockCorrectionRequired}
+            onClick={() => controller.updateSession(dismissCertifiedMigrationNotice)}
+          >
+            {words.dismissMigrationNotice}
+          </button>
         </p>
       )}
       {controller.storageBlocked && (
@@ -57,11 +66,26 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
         <p className="cert-notice">{words.uncertain}</p>
       )}
       {!controller.snapshot && (
-        <p role="status" className="cert-notice">
-          {controller.prepareError ? words.error : words.ready}
-        </p>
+        <CertifiedPreparationNotice error={controller.prepareError} words={words} />
       )}
     </div>
+  );
+}
+
+export function CertifiedPreparationNotice({
+  error,
+  words,
+}: {
+  error: CertifiedCalculatorController["prepareError"];
+  words: CertifiedWords;
+}) {
+  let message: string = words.ready;
+  if (error === "preparation_failed") message = words.error;
+  if (error === "unsupported_forecast_version") message = words.unsupportedForecastVersion;
+  return (
+    <p role={error ? "alert" : "status"} className="cert-notice">
+      {message}
+    </p>
   );
 }
 

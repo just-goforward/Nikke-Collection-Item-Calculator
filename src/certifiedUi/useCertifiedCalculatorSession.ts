@@ -49,6 +49,8 @@ function initialBridge(): CertifiedBridgeState {
     storedText =
       localStorage.getItem(CERTIFIED_SESSION_STORAGE_KEY) ??
       localStorage.getItem(LEGACY_CERTIFIED_SESSION_STORAGE_KEY);
+    // Live storage has no authenticated original snapshot: non-point legacy
+    // mixtures reset with a notice; fixed selections are preserved, not replayed.
     const restored = restoreCertifiedCalculatorSession(storedText);
     if (!restored) return settledCertifiedBridge(emptySession());
     return { ...settledCertifiedBridge(restored.session), correction: restored.correction };

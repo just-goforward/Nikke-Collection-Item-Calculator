@@ -30,19 +30,18 @@ const base = {
   approvedForecastId: candidate.forecastId,
 };
 describe("approved staging registry carries the certified daily contract", () => {
-  it("preserves a historical three-cohort ledger without upgrading or padding it", () => {
+  it("preserves historical v1 data but refuses to select it for the v2 runtime", () => {
     const legacy = {
       ...snapshot,
       version: "certified-daily-v1" as const,
       laws: LEGACY_CERTIFIED_SUPPLY_LAWS,
     };
     const entry = forecastRegistryEntry({ ...candidate, certifiedSnapshot: legacy });
-    const selected = selectForecastForStagingRuntime(
-      { ...base, forecasts: [entry] },
-      candidate.forecastId,
-    );
-    expect(selected.forecasts[0]?.certifiedSnapshot).toEqual(legacy);
-    expect(JSON.stringify(selected.forecasts[0]?.certifiedSnapshot)).toBe(JSON.stringify(legacy));
+    expect(() =>
+      selectForecastForStagingRuntime({ ...base, forecasts: [entry] }, candidate.forecastId),
+    ).toThrow("unsupported_forecast_version");
+    expect(entry.certifiedSnapshot).toEqual(legacy);
+    expect(JSON.stringify(entry.certifiedSnapshot)).toBe(JSON.stringify(legacy));
   });
   it("preserves semantic dates, receipt IDs, exact cadence and coverage through selection", () => {
     const entry = forecastRegistryEntry(candidate);
