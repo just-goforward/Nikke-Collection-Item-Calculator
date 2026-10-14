@@ -98,7 +98,13 @@ export interface PublicStatistics {
   weekStart: string;
   fenceGeneration: number;
   cells: PublicCell[];
-  policy?: { k: number; metric: "post_signup_income"; binWidth: number; clampMax: number; countQuantum: number };
+  policy?: {
+    k: number;
+    metric: "post_signup_income";
+    binWidth: number;
+    clampMax: number;
+    countQuantum: number;
+  };
 }
 /** Callback redirect vocabulary only; never provider errors, authorization codes or state. */
 export type AccountCallbackError =

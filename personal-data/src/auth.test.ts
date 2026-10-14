@@ -9,10 +9,10 @@ import {
   SESSION_MAX_MS,
   sha256,
 } from "./auth";
+import type { AccountCallbackError } from "./contracts";
 import { fakeIssuer, TEST_CLIENT, TEST_ORIGIN, TEST_SECRET } from "./fake-issuer";
 import { googleProvider } from "./google";
 import { HttpError, MAX_BODY_BYTES } from "./http";
-import type { AccountCallbackError } from "./contracts";
 import { resetFixture } from "./test-fixture";
 import type { PersonalEnv } from "./types";
 import { createWorker } from "./worker";
@@ -248,7 +248,10 @@ describe("Google OIDC through real local D1 HTTP endpoints", () => {
     expect((await h.login()).result.status).toBe(200);
     const bare = await h.login({ claims: { iss: "accounts.google.com" } });
     await accountError(bare.result, "google_issuer_unsupported");
-    await accountError((await h.login({ claims: { iss: "https://wrong.example" } })).result, "unknown");
+    await accountError(
+      (await h.login({ claims: { iss: "https://wrong.example" } })).result,
+      "unknown",
+    );
     expect((await h.login()).result.status).toBe(200);
     expect(await count("identities")).toBe(1);
   });
@@ -949,7 +952,10 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect(failed.status).toBe(503);
     expect((await h.account(login.cookie)).status).toBe(401);
     expect(await count("accounts")).toBe(150);
-    await accountError((await h.login({ claims: { sub: "waiting-user" } })).result, "admission_full");
+    await accountError(
+      (await h.login({ claims: { sub: "waiting-user" } })).result,
+      "admission_full",
+    );
     await h.worker.scheduled({ scheduledTime: h.time() }, databases);
     expect(await count("accounts")).toBe(149);
     expect(await count("deletion_jobs")).toBe(0);
@@ -1066,9 +1072,9 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
         exec: (sql) => personal.exec(sql),
       },
     };
-    await expect(
-      h.worker.scheduled({ scheduledTime: h.time() }, unavailable),
-    ).rejects.toThrow("maintenance_failed");
+    await expect(h.worker.scheduled({ scheduledTime: h.time() }, unavailable)).rejects.toThrow(
+      "maintenance_failed",
+    );
     expect(await count("deletion_jobs")).toBe(0);
     expect(await count("accounts")).toBe(0);
     expect(await count("workspaces")).toBe(0);
@@ -1381,7 +1387,10 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     const h = await harness();
     const flow = await h.begin();
     h.advance(FLOW_TTL_MS);
-    await accountError(await h.callback(h.issuer.authorize(flow.location), flow.cookie), "login_flow_expired");
+    await accountError(
+      await h.callback(h.issuer.authorize(flow.location), flow.cookie),
+      "login_flow_expired",
+    );
     const flows = await Promise.all(
       Array.from({ length: 11 }, () => h.mutate("/auth/login/google", {})),
     );
@@ -1444,19 +1453,26 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
           exec: (sql) => personal.exec(sql),
         },
       };
-      const result = await h.worker.fetch(new Request(`${TEST_ORIGIN}/auth/callback/google`, {
-        method: "POST",
-        headers: { Origin: TEST_ORIGIN, "Content-Type": "application/json", Cookie: flow.cookie },
-        body: JSON.stringify({ parameters }),
-      }), unavailable);
+      const result = await h.worker.fetch(
+        new Request(`${TEST_ORIGIN}/auth/callback/google`, {
+          method: "POST",
+          headers: { Origin: TEST_ORIGIN, "Content-Type": "application/json", Cookie: flow.cookie },
+          body: JSON.stringify({ parameters }),
+        }),
+        unavailable,
+      );
       await accountError(result, code);
       expect(result.headers.get("Location")).not.toMatch(/CANARY|state|code=/);
-      expect(result.headers.getSetCookie().some((value) => value.startsWith(`${SESSION_COOKIE}=`)))
-        .toBe(false);
+      expect(
+        result.headers.getSetCookie().some((value) => value.startsWith(`${SESSION_COOKIE}=`)),
+      ).toBe(false);
     }
     const denied = new URL(flow.location);
     const denial = `?state=${denied.searchParams.get("state")}&error=ACCESS_DENIED_CANARY&error_description=PROVIDER_CANARY`;
-    await accountError(await h.mutate("/auth/callback/google", { parameters: denial }, flow.cookie), "unknown");
+    await accountError(
+      await h.mutate("/auth/callback/google", { parameters: denial }, flow.cookie),
+      "unknown",
+    );
     expect(h.issuer.counts.token).toBe(0);
     expect(await count("accounts")).toBe(0);
   });

@@ -7,9 +7,16 @@ const CLAMP_MAX = 1_000;
 const POLICY = "post-signup-income-v1-k10-client-flags";
 
 interface Point {
-  userId: string; stage: string; income: number; manual: boolean; verified: boolean;
+  userId: string;
+  stage: string;
+  income: number;
+  manual: boolean;
+  verified: boolean;
 }
-interface Fence { generation: number; intent_version: number }
+interface Fence {
+  generation: number;
+  intent_version: number;
+}
 interface Hooks {
   afterSnapshot?: () => Promise<void>;
   afterPrepare?: () => Promise<void>;
@@ -34,11 +41,18 @@ function points(rows: Record<string, unknown>[]): Point[] {
   const result = new Map<string, Point>();
   for (const row of rows) {
     const summary = JSON.parse(String(row["summary"])) as StageSummary;
-    if (summary.itemId !== row["item_id"] || summary.stage !== row["stage"]
-      || typeof summary.manualEntry !== "boolean" || typeof summary.verified !== "boolean"
-      || typeof summary.lifetimeIncome !== "number" || !Number.isFinite(summary.lifetimeIncome)
-      || typeof summary.preSignupIncome !== "number" || !Number.isFinite(summary.preSignupIncome)
-      || summary.preSignupIncome < 0 || summary.lifetimeIncome < summary.preSignupIncome) {
+    if (
+      summary.itemId !== row["item_id"] ||
+      summary.stage !== row["stage"] ||
+      typeof summary.manualEntry !== "boolean" ||
+      typeof summary.verified !== "boolean" ||
+      typeof summary.lifetimeIncome !== "number" ||
+      !Number.isFinite(summary.lifetimeIncome) ||
+      typeof summary.preSignupIncome !== "number" ||
+      !Number.isFinite(summary.preSignupIncome) ||
+      summary.preSignupIncome < 0 ||
+      summary.lifetimeIncome < summary.preSignupIncome
+    ) {
       throw new Error("invalid_summary");
     }
     const userId = String(row["user_id"]);
@@ -47,7 +61,9 @@ function points(rows: Record<string, unknown>[]): Point[] {
     const income = (previous?.income ?? 0) + summary.lifetimeIncome - summary.preSignupIncome;
     if (!Number.isFinite(income)) throw new Error("invalid_summary");
     result.set(key, {
-      userId, stage: summary.stage, income,
+      userId,
+      stage: summary.stage,
+      income,
       manual: (previous?.manual ?? false) || summary.manualEntry,
       verified: (previous?.verified ?? true) && summary.verified,
     });
@@ -64,24 +80,34 @@ function cells(all: Point[], participants: Set<string>): PublicCell[] {
     group.push(point);
     grouped.set(key, group);
   }
-  return [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, group]) => {
-    const [stage, label] = JSON.parse(key) as [string, string];
-    const counts = Array.from({ length: CLAMP_MAX / BIN_WIDTH }, () => 0);
-    for (const point of group) counts[bin(point.income)] = (counts[bin(point.income)] ?? 0) + 1;
-    const disclosed = counts.map((count) => Math.floor(count / K) * K);
-    const suppressed = group.length < K || disclosed.every((count) => count === 0);
-    return {
-      stage, cohort: label, suppressed,
-      bands: suppressed ? [] : disclosed.map((count, index) => ({
-        lower: index * BIN_WIDTH, upper: (index + 1) * BIN_WIDTH, count,
-      })),
-    };
-  });
+  return [...grouped.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, group]) => {
+      const [stage, label] = JSON.parse(key) as [string, string];
+      const counts = Array.from({ length: CLAMP_MAX / BIN_WIDTH }, () => 0);
+      for (const point of group) counts[bin(point.income)] = (counts[bin(point.income)] ?? 0) + 1;
+      const disclosed = counts.map((count) => Math.floor(count / K) * K);
+      const suppressed = group.length < K || disclosed.every((count) => count === 0);
+      return {
+        stage,
+        cohort: label,
+        suppressed,
+        bands: suppressed
+          ? []
+          : disclosed.map((count, index) => ({
+              lower: index * BIN_WIDTH,
+              upper: (index + 1) * BIN_WIDTH,
+              count,
+            })),
+      };
+    });
 }
 
 /** Local hooks model interleavings/crash boundaries; no HTTP route exposes them. */
 export async function publishWeekly(
-  env: PersonalEnv, now: number, hooks: Hooks = {},
+  env: PersonalEnv,
+  now: number,
+  hooks: Hooks = {},
 ): Promise<"disabled" | "blocked" | "unchanged" | "published"> {
   if (env.PUBLICATION_ENABLED !== "true") return "disabled";
   const week = weekStart(now);
@@ -97,7 +123,9 @@ export async function publishWeekly(
     `UPDATE privacy_fence SET publisher_token = ?, blocked = 1
      WHERE singleton = 1 AND publisher_token IS NULL AND pending_intents = 0
      RETURNING generation, intent_version`,
-  ).bind(id).first<Fence>();
+  )
+    .bind(id)
+    .first<Fence>();
   if (!fence) return "blocked";
   // Unknown errors intentionally retain the publisher token/block, including process death.
   const privacy = await env.PRIVACY_CONTROL_DB.batch([
@@ -119,22 +147,36 @@ export async function publishWeekly(
   ]);
   async function abort(): Promise<"blocked"> {
     // Only unpublished projections of this attempt are removed.
-    await env.PERSONAL_DB.prepare("DELETE FROM self_percentiles WHERE release_id = ?").bind(id).run();
+    await env.PERSONAL_DB.prepare("DELETE FROM self_percentiles WHERE release_id = ?")
+      .bind(id)
+      .run();
     await env.PUBLIC_AGGREGATE_DB.batch([
-      env.PUBLIC_AGGREGATE_DB.prepare("DELETE FROM weekly_releases WHERE release_id = ? AND state = 'staged'").bind(id),
+      env.PUBLIC_AGGREGATE_DB.prepare(
+        "DELETE FROM weekly_releases WHERE release_id = ? AND state = 'staged'",
+      ).bind(id),
       env.PUBLIC_AGGREGATE_DB.prepare(
         "UPDATE privacy_fence SET publisher_token = NULL WHERE publisher_token = ?",
       ).bind(id),
     ]);
     return "blocked";
   }
-  if (Number(privacy[1]?.results[0]?.["n"]) || Number(personal[1]?.results[0]?.["n"])) return abort();
+  if (Number(privacy[1]?.results[0]?.["n"]) || Number(personal[1]?.results[0]?.["n"]))
+    return abort();
   const all = points(personal[0]?.results ?? []);
   const participants = new Set((privacy[0]?.results ?? []).map((row) => String(row["user_id"])));
   const publicCells = cells(all, participants);
   const release: PublicStatistics = {
-    releaseId: id, weekStart: week, fenceGeneration: fence.generation, cells: publicCells,
-    policy: { k: K, metric: "post_signup_income", binWidth: BIN_WIDTH, clampMax: CLAMP_MAX, countQuantum: K },
+    releaseId: id,
+    weekStart: week,
+    fenceGeneration: fence.generation,
+    cells: publicCells,
+    policy: {
+      k: K,
+      metric: "post_signup_income",
+      binWidth: BIN_WIDTH,
+      clampMax: CLAMP_MAX,
+      countQuantum: K,
+    },
   };
   await hooks.afterSnapshot?.();
   const prepared = await env.PUBLIC_AGGREGATE_DB.prepare(
@@ -143,31 +185,55 @@ export async function publishWeekly(
      SELECT ?, ?, ?, ?, ?, 'staged', ? FROM privacy_fence
      WHERE singleton = 1 AND publisher_token = ? AND pending_intents = 0
      AND generation = ? AND intent_version = ?`,
-  ).bind(id, week, fence.generation, JSON.stringify(release), now, fence.intent_version,
-    id, fence.generation, fence.intent_version).run();
+  )
+    .bind(
+      id,
+      week,
+      fence.generation,
+      JSON.stringify(release),
+      now,
+      fence.intent_version,
+      id,
+      fence.generation,
+      fence.intent_version,
+    )
+    .run();
   if (prepared.meta.changes !== 1) return abort();
   await hooks.afterPrepare?.();
   const ranks = all.map((point): SelfPercentile & { userId: string } => {
-    const cell = publicCells.find((value) => value.stage === point.stage && value.cohort === cohort(point));
+    const cell = publicCells.find(
+      (value) => value.stage === point.stage && value.cohort === cohort(point),
+    );
     const total = cell?.bands.reduce((sum, value) => sum + value.count, 0) ?? 0;
     const index = bin(point.income);
     const below = cell?.bands.slice(0, index).reduce((sum, value) => sum + value.count, 0) ?? 0;
     return {
-      userId: point.userId, releaseId: id, stage: point.stage,
-      percentileBand: total ? {
-        lower: Math.floor(100 * below / total),
-        upper: Math.ceil(100 * (below + (cell?.bands[index]?.count ?? 0)) / total),
-      } : null,
-      manualEntry: point.manual, verified: point.verified,
+      userId: point.userId,
+      releaseId: id,
+      stage: point.stage,
+      percentileBand: total
+        ? {
+            lower: Math.floor((100 * below) / total),
+            upper: Math.ceil((100 * (below + (cell?.bands[index]?.count ?? 0))) / total),
+          }
+        : null,
+      manualEntry: point.manual,
+      verified: point.verified,
     };
   });
-  const rankRows = ranks.map(({ userId, ...payload }) => ({ userId, stage: payload.stage, payload: JSON.stringify(payload) }));
+  const rankRows = ranks.map(({ userId, ...payload }) => ({
+    userId,
+    stage: payload.stage,
+    payload: JSON.stringify(payload),
+  }));
   await env.PERSONAL_DB.prepare(
     `INSERT INTO self_percentiles (user_id, release_id, stage, payload)
      SELECT json_extract(j.value, '$.userId'), ?, json_extract(j.value, '$.stage'),
      json_extract(j.value, '$.payload') FROM json_each(?) j JOIN accounts a
      ON a.user_id = json_extract(j.value, '$.userId') WHERE a.blocked = 0`,
-  ).bind(id, JSON.stringify(rankRows)).run();
+  )
+    .bind(id, JSON.stringify(rankRows))
+    .run();
   await hooks.afterSelfRanks?.();
   const activated = await env.PUBLIC_AGGREGATE_DB.batch([
     env.PUBLIC_AGGREGATE_DB.prepare(

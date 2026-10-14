@@ -23,7 +23,13 @@ import {
   resumeDeletion,
   runPrivacyMaintenance,
 } from "./consent";
-import type { AccountCallbackError, Archive, PersonalExport, SelfPercentile, StageSummary } from "./contracts";
+import type {
+  AccountCallbackError,
+  Archive,
+  PersonalExport,
+  SelfPercentile,
+  StageSummary,
+} from "./contracts";
 import { googleProvider, settings } from "./google";
 import {
   body,
@@ -35,8 +41,8 @@ import {
   sameOrigin,
   workspaceBody,
 } from "./http";
-import { reapplyUserTombstones } from "./privacy";
 import { runInactivityDeletion } from "./inactivity";
+import { reapplyUserTombstones } from "./privacy";
 import { publishWeekly } from "./publication";
 import {
   getWorkspace,
@@ -412,13 +418,14 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
           const validReleases = (releases[0]?.results ?? []).map((row) =>
             String(row["release_id"]),
           );
-          const ranks = env.PUBLICATION_ENABLED === "true"
-            ? await env.PERSONAL_DB.batch([
-                env.PERSONAL_DB.prepare(
-                  "SELECT payload FROM self_percentiles WHERE user_id = ? AND release_id IN (SELECT value FROM json_each(?))",
-                ).bind(account.userId, JSON.stringify(validReleases)),
-              ])
-            : [];
+          const ranks =
+            env.PUBLICATION_ENABLED === "true"
+              ? await env.PERSONAL_DB.batch([
+                  env.PERSONAL_DB.prepare(
+                    "SELECT payload FROM self_percentiles WHERE user_id = ? AND release_id IN (SELECT value FROM json_each(?))",
+                  ).bind(account.userId, JSON.stringify(validReleases)),
+                ])
+              : [];
           const percentiles = (ranks[0]?.results ?? []).map(
             (row) => JSON.parse(String(row["payload"])) as SelfPercentile,
           );
@@ -481,9 +488,10 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
             login_flow_expired: "login_flow_expired",
             service_unavailable: "service_unavailable",
           };
-          const code = error instanceof HttpError
-            ? reasons[error.reason] ?? "unknown"
-            : "service_unavailable";
+          const code =
+            error instanceof HttpError
+              ? (reasons[error.reason] ?? "unknown")
+              : "service_unavailable";
           return new Response(null, {
             status: 303,
             headers: {

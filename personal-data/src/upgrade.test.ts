@@ -247,7 +247,10 @@ it("upgrades populated 0002 through 0003 and 0004 without losing records or pend
     "SELECT user_id, kind, created_at, fence_generation FROM tombstones",
     "SELECT * FROM privacy_operations",
   ];
-  const publicQueries = ["SELECT singleton, generation, blocked FROM privacy_fence", "SELECT * FROM current_release"];
+  const publicQueries = [
+    "SELECT singleton, generation, blocked FROM privacy_fence",
+    "SELECT * FROM current_release",
+  ];
   const before = await Promise.all([
     rows(dbs.PERSONAL_DB, personal),
     rows(dbs.PRIVACY_CONTROL_DB, privacy),

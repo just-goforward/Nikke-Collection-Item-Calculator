@@ -1,5 +1,5 @@
-import type { PersonalEnv } from "./types";
 import { HttpError } from "./http";
+import type { PersonalEnv } from "./types";
 
 /**
  * A durable, identifier-free PUBLIC admission barrier precedes every privacy writer.
@@ -7,7 +7,8 @@ import { HttpError } from "./http";
  * procedure may reconcile an orphan; normal publication never expires/clears it.
  */
 export async function withPrivacyIntent<T>(
-  env: PersonalEnv, operation: () => Promise<T>,
+  env: PersonalEnv,
+  operation: () => Promise<T>,
 ): Promise<T> {
   const entered = await env.PUBLIC_AGGREGATE_DB.prepare(
     `UPDATE privacy_fence SET pending_intents = pending_intents + 1,
@@ -141,7 +142,9 @@ export async function applyPrivacyChange(
 }
 
 async function applyPrivacyChangeCore(
-  env: PersonalEnv, change: PrivacyChange, now: number,
+  env: PersonalEnv,
+  change: PrivacyChange,
+  now: number,
 ): Promise<{ fenceGeneration: number; status: "complete" }> {
   const fenceGeneration = await blockPublication(env, now);
   await recordPrivacyChange(env, change, fenceGeneration, now);

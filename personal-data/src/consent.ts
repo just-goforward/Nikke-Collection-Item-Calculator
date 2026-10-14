@@ -2,7 +2,10 @@ import { FLOW_TTL_MS, identityHash, type SessionAccount, sha256 } from "./auth";
 import type { ConsentGet, ConsentPut, PrivacyAccepted } from "./contracts";
 import { exactKeys, HttpError, validId } from "./http";
 import {
-  blockPublication, reapplyUserTombstones, recordPrivacyChange, withPrivacyIntent,
+  blockPublication,
+  reapplyUserTombstones,
+  recordPrivacyChange,
+  withPrivacyIntent,
 } from "./privacy";
 import type { PersonalEnv } from "./types";
 
@@ -59,7 +62,10 @@ export async function putConsent(
 }
 
 async function putConsentCore(
-  env: PersonalEnv, account: SessionAccount, input: ConsentPut, now: number,
+  env: PersonalEnv,
+  account: SessionAccount,
+  input: ConsentPut,
+  now: number,
 ): Promise<ConsentGet> {
   const hash = await sha256(JSON.stringify([input.baseDecisionVersion, input.participation]));
   const nonce = crypto.randomUUID();
@@ -204,12 +210,16 @@ export async function queueDeletion(
   expectedLastActive: number | null = null,
 ): Promise<PrivacyAccepted | null> {
   return withPrivacyIntent(env, () =>
-    queueDeletionCore(env, account, opId, now, expectedLastActive));
+    queueDeletionCore(env, account, opId, now, expectedLastActive),
+  );
 }
 
 async function queueDeletionCore(
-  env: PersonalEnv, account: Pick<SessionAccount, "userId" | "identity">,
-  opId: string, now: number, expectedLastActive: number | null,
+  env: PersonalEnv,
+  account: Pick<SessionAccount, "userId" | "identity">,
+  opId: string,
+  now: number,
+  expectedLastActive: number | null,
 ): Promise<PrivacyAccepted | null> {
   const generation = await blockPublication(env, now);
   const results = await env.PERSONAL_DB.batch([
