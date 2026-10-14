@@ -395,6 +395,92 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect((await write(`"${state.account.userId}"`)).status).toBe(200);
   });
 
+  it("private reads bind to displayed identity when supplied and identify the session otherwise", async () => {
+    const h = await harness();
+    const alice = await h.login();
+    expect((await h.mutate("/v1/workspace", put(), alice.cookie, "PUT")).status).toBe(200);
+    const displayed = (await (await h.account(alice.cookie)).json()) as {
+      account: { userId: string };
+    };
+    await h.mutate("/auth/logout", {}, alice.cookie);
+    const bob = await h.login({ claims: { sub: "bob" } });
+    const bobId = h.accountId(bob.cookie)!;
+    const document = { schemaVersion: 1, items: ["bob-private"], lifetimeStages: [] };
+    expect(
+      (await h.mutate("/v1/workspace", { ...put(), document }, bob.cookie, "PUT")).status,
+    ).toBe(200);
+    const rank = {
+      releaseId: "published",
+      stage: "R",
+      percentileBand: { lower: 40, upper: 50 },
+      manualEntry: true,
+      verified: false,
+    };
+    await databases.PUBLIC_AGGREGATE_DB.batch([
+      databases.PUBLIC_AGGREGATE_DB.prepare("UPDATE privacy_fence SET blocked = 0"),
+      databases.PUBLIC_AGGREGATE_DB.prepare(
+        `INSERT INTO weekly_releases (release_id, week_start, fence_generation, payload, published_at)
+         VALUES ('published', '2026-10-12', 0, '{}', ?)`,
+      ).bind(h.time()),
+    ]);
+    await databases.PERSONAL_DB.prepare(
+      "INSERT INTO self_percentiles VALUES (?, 'published', 'R', ?)",
+    )
+      .bind(bobId, JSON.stringify(rank))
+      .run();
+    const read = (path: string, headers: HeadersInit) =>
+      h.worker.fetch(new Request(`${TEST_ORIGIN}${path}`, { headers }), {
+        ...databases,
+        PUBLICATION_ENABLED: "true",
+      });
+    const expected = [
+      { path: "/v1/account", data: { account: { userId: bobId } } },
+      { path: "/api/auth/session", data: { account: { userId: bobId } } },
+      { path: "/v1/workspace", data: { userId: bobId, revision: 1, document } },
+      {
+        path: "/v1/export",
+        data: {
+          account: { userId: bobId },
+          workspace: { userId: bobId, document },
+          selfPercentiles: [rank],
+        },
+      },
+      {
+        path: "/v1/consent",
+        data: { userId: bobId, participation: null, decisionVersion: 0 },
+      },
+      {
+        path: "/api/personal/settings",
+        data: { userId: bobId, participation: null, decisionVersion: 0 },
+      },
+      { path: "/v1/self-percentile", data: { userId: bobId, results: [rank] } },
+    ];
+    for (const { path, data } of expected) {
+      for (const context of [
+        `"${displayed.account.userId}"`,
+        "*",
+        `W/"${bobId}"`,
+        bobId,
+        "",
+        `"${bobId}", "${displayed.account.userId}"`,
+      ]) {
+        const result = await read(path, { Cookie: bob.cookie, "If-Account-Match": context });
+        expect(result.status).toBe(409);
+        expect(await result.json()).toEqual({ error: "account_context_stale" });
+        expect(result.headers.get("Cache-Control")).toBe("no-store");
+      }
+      for (const context of [undefined, `"${bobId}"`]) {
+        const result = await read(path, {
+          Cookie: bob.cookie,
+          ...(context === undefined ? {} : { "If-Account-Match": context }),
+        });
+        expect(result.status).toBe(200);
+        expect(await result.json()).toMatchObject(data);
+        expect(result.headers.get("Cache-Control")).toBe("no-store");
+      }
+    }
+  });
+
   it("stale, colliding and replayed consent PUTs do not bump the fence", async () => {
     const h = await harness();
     const login = await h.login();
@@ -539,7 +625,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect(failed.status).toBe(503);
     expect(
       await (await h.request("/v1/consent", { headers: { Cookie: alice.cookie } })).json(),
-    ).toEqual({ participation: null, decisionVersion: 0 });
+    ).toEqual({ userId: h.accountId(alice.cookie), participation: null, decisionVersion: 0 });
     expect((await h.account(bob.cookie)).status).toBe(200);
     expect((await h.mutate("/v1/consent", input, alice.cookie, "PUT")).status).toBe(200);
     expect((await h.mutate("/v1/consent", input, alice.cookie, "PUT")).status).toBe(200);
@@ -622,7 +708,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     });
     expect(
       await (await h.request("/v1/self-percentile", { headers: { Cookie: login.cookie } })).json(),
-    ).toEqual({ results: [] });
+    ).toEqual({ userId: h.accountId(login.cookie), results: [] });
   });
 
   it("concurrent HTTP callbacks admit exactly 150 of 160 distinct identities without orphan rows", async () => {
@@ -694,7 +780,11 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     const consent = await h.request("/api/personal/settings", {
       headers: { Cookie: alice.cookie },
     });
-    expect(await consent.json()).toEqual({ participation: null, decisionVersion: 0 });
+    expect(await consent.json()).toEqual({
+      userId: h.accountId(alice.cookie),
+      participation: null,
+      decisionVersion: 0,
+    });
     const saved = await h.mutate("/v1/workspace", put(), alice.cookie, "PUT");
     expect(await saved.json()).toEqual({ status: "saved", revision: 1, replayed: false });
     expect((await h.mutate("/v1/workspace", put(), alice.cookie, "PUT")).status).toBe(200);
@@ -1328,7 +1418,7 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     ).run();
     expect(
       await (await h.request("/v1/self-percentile", { headers: { Cookie: login.cookie } })).json(),
-    ).toEqual({ results: [] });
+    ).toEqual({ userId: h.accountId(login.cookie), results: [] });
     expect((await h.request("/v1/statistics")).status).toBe(503);
   });
 

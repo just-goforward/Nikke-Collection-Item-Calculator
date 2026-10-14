@@ -31,9 +31,12 @@ export class HttpError extends Error {
 }
 
 /** Displayed-account precondition only: ownership still comes exclusively from the session. */
-export function requireAccountContext(request: Request, userId: string): void {
+export function requireAccountContext(request: Request, userId: string, required = true): void {
   const context = request.headers.get("If-Account-Match");
-  if (context === null) throw new HttpError(428, "account_context_required");
+  if (context === null) {
+    if (required) throw new HttpError(428, "account_context_required");
+    return;
+  }
   if (context !== `"${userId}"`) throw new HttpError(409, "account_context_stale");
 }
 

@@ -97,6 +97,7 @@ export async function provisioningStatements(
 }
 
 export interface WorkspaceRow {
+  user_id: string;
   revision: number;
   last_op_id: string | null;
   document: string;
@@ -116,6 +117,7 @@ export function workspaceRead(db: SqlDatabase, userId: string): SqlStatement {
 export function workspaceResult(row: WorkspaceRow | null): WorkspaceGet | null {
   return (
     row && {
+      userId: row.user_id,
       revision: row.revision,
       lastOpId: row.last_op_id,
       document: JSON.parse(row.document) as WorkspaceDocument,

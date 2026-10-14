@@ -369,6 +369,9 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
           });
         }
         const account = await authorize(request, env);
+        if (request.method === "GET") {
+          requireAccountContext(request, account.userId, false);
+        }
         if (
           (effective === "/v1/account" && request.method === "DELETE") ||
           (effective === "/v1/consent" && request.method === "PUT") ||
@@ -395,7 +398,8 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
           return response({ revoked: true }, 200, { "Set-Cookie": cookie(SESSION_COOKIE, "", 0) });
         }
         if (effective === "/v1/consent") {
-          if (request.method === "GET") return response(await getConsent(env, account.userId));
+          if (request.method === "GET")
+            return response({ ...(await getConsent(env, account.userId)), userId: account.userId });
           return activity(
             request,
             env,
@@ -403,8 +407,11 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
           );
         }
         if (effective === "/v1/workspace") {
-          if (request.method === "GET")
-            return response(await getWorkspace(env.PERSONAL_DB, account.userId));
+          if (request.method === "GET") {
+            const workspace = await getWorkspace(env.PERSONAL_DB, account.userId);
+            if (!workspace) throw new HttpError(401, "unauthenticated");
+            return response(workspace);
+          }
           const input = workspaceBody(await body(request));
           const result = await putWorkspace(env.PERSONAL_DB, account.userId, input, now());
           if (result.status === "saved") return activity(request, env, response(result));
@@ -432,7 +439,7 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
           const percentiles = (ranks[0]?.results ?? []).map(
             (row) => JSON.parse(String(row["payload"])) as SelfPercentile,
           );
-          return response({ results: percentiles });
+          return response({ userId: account.userId, results: percentiles });
         }
         if (effective === "/v1/export") {
           const consent = await getConsent(env, account.userId);

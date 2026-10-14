@@ -36,6 +36,8 @@ export interface WorkspacePut {
 }
 
 export interface WorkspaceGet {
+  /** Session-derived identity; clients must verify before displaying personal data. */
+  userId: string;
   revision: number;
   lastOpId: string | null;
   document: WorkspaceDocument;
@@ -150,7 +152,12 @@ export interface ApiError {
   error: ApiErrorCode;
 }
 
-/** Contract map, not a claim these routes are enabled in M1. */
+/**
+ * Contract map, not a claim these routes are enabled in M1.
+ * Private GETs accept an optional exact quoted If-Account-Match precondition:
+ * mismatch returns 409 account_context_stale with no personal data.
+ * With or without the header, successful reads identify the session owner.
+ */
 export interface Api {
   "POST /auth/login/google": {
     request: Record<string, never>;
@@ -158,6 +165,7 @@ export interface Api {
   };
   "POST /auth/callback/google": { request: { parameters: string }; response: { redirect: "/" } };
   "GET /v1/account": {
+    headers: { "If-Account-Match"?: string };
     response: {
       authenticated: true;
       account: { userId: string; generation: number };
@@ -165,14 +173,23 @@ export interface Api {
     };
   };
   "POST /auth/logout": { response: { loggedOut: true } };
-  "GET /v1/workspace": { response: WorkspaceGet };
+  "GET /v1/workspace": {
+    headers: { "If-Account-Match"?: string };
+    response: WorkspaceGet;
+  };
   "PUT /v1/workspace": {
     headers: { "If-Account-Match": string };
     request: WorkspacePut;
     response: WorkspacePutResult;
   };
-  "GET /v1/export": { response: PersonalExport };
-  "GET /v1/consent": { response: ConsentGet };
+  "GET /v1/export": {
+    headers: { "If-Account-Match"?: string };
+    response: PersonalExport;
+  };
+  "GET /v1/consent": {
+    headers: { "If-Account-Match"?: string };
+    response: ConsentGet & { userId: string };
+  };
   "PUT /v1/consent": {
     headers: { "If-Account-Match": string };
     request: ConsentPut;
@@ -189,5 +206,8 @@ export interface Api {
     response: RevokeAllResult;
   };
   "GET /v1/statistics": { response: PublicStatistics };
-  "GET /v1/self-percentile": { response: { results: SelfPercentile[] } };
+  "GET /v1/self-percentile": {
+    headers: { "If-Account-Match"?: string };
+    response: { userId: string; results: SelfPercentile[] };
+  };
 }

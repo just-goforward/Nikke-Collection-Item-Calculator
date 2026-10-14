@@ -34,14 +34,14 @@ retain their existing JSON status/error contracts.
 
 | Route | Request / response |
 | --- | --- |
-| GET `/v1/workspace` | revision, lastOpId, document, measured content quota |
+| GET `/v1/workspace` | userId, revision, lastOpId, document, measured content quota |
 | PUT `/v1/workspace` | `{opId, baseRevision, document, action}`; saved/replay, revision conflict, reused-op conflict, archive-quota result |
 | GET `/v1/export` | versioned personal document, stages, pending archives, consent, frozen self-percentiles |
-| GET/PUT `/v1/consent` | nullable initial decision; explicit boolean, decision-version CAS, opId |
+| GET/PUT `/v1/consent` | GET includes userId and nullable initial decision; PUT uses explicit boolean, decision-version CAS, opId |
 | DELETE `/v1/account` | opId; fenced privacy operation acknowledgement |
 | POST `/v1/sessions/revoke-all` | opId; revoke all server sessions including current |
 | GET `/v1/statistics` | identifier-free weekly release and binned/suppressed cells |
-| GET `/v1/self-percentile` | private, frozen percentile bands for a published release |
+| GET `/v1/self-percentile` | userId and private, frozen percentile bands for a published release |
 
 Future HTTP mapping: malformed input 400, unauthenticated 401, beta full 403,
 CAS/op conflict 409, new archive quota 422, accepted privacy operation 202,
@@ -354,6 +354,18 @@ revoke-all POST. Missing context is 428 `account_context_required`; different,
 weak or wildcard context is 409 `account_context_stale`. This header is a
 precondition only, never an ownership selector. The session remains authoritative.
 After a context mismatch, discard/refetch account/workspace state before saving.
+All authenticated account-sensitive GETs also honor `If-Account-Match`:
+account (including `/api/auth/session`), workspace, export, consent (including
+`/api/personal/settings`) and self-percentile. A supplied header must exactly
+match the quoted session user ID; mismatched, empty, unquoted, weak, wildcard
+or multiple contexts return 409 with only `{"error":"account_context_stale"}`,
+never personal response data. An absent header preserves compatibility (no 428).
+Every successful private read identifies its session owner: `userId` on workspace,
+consent and self-percentile, and `account.userId` on account and export (the exported
+workspace also includes `userId`). Clients MUST bind subsequent private reads
+to the displayed account with this header and verify the returned identity before
+using any data; on mismatch discard the response and refresh account context.
+Public statistics remain identifier-free and do not use this precondition.
 Logout deliberately remains unconditional with respect to account context:
 it only revokes the session cookie currently presented and still requires the
 same-origin mutation checks. DELETE `/api/auth/session` is current-session logout,
