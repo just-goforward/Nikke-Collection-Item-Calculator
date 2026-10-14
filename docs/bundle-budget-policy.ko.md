@@ -10,4 +10,6 @@
 
 다른 상한 10개는 유지합니다: lazy-certified gzip35,000, lazy-detail gzip6,500, lazy-forecast gzip2,500, lazy-solver gzip5,000, lazy-stats gzip90,000, lazy-interaction gzip10,000, worker raw450,000, certified-worker raw100,000, css gzip20,000, wasm raw115,000 B. 필수 chunk와 각 Worker graph의 완전한 계수 규칙도 유지합니다. 초기 파일을 누락하거나 분류를 바꾸어 초과를 숨기지 않습니다. 다른 종류의 초과도 실패로 보고하고 중단합니다.
 
+사용자 승인에 따라 선택적 계정 UI의 lazy-account 상한을 gzip 25,000 B로 추가합니다. `scripts/report-bundle.ts`의 필수 지연 로딩 분류와 `scripts/check-bundle-budget.ts`의 합계 검증에 적용합니다. lazy-certified의 gzip 35,000 B 상한은 올리지 않으며, 새 chunk 종류의 예산을 승인한 것은 아닙니다.
+
 기기·통신·캐시 조건, 전송·parse·실행 시간, 첫 추천·모달·통계 표시 지연과 복구 체감은 아직 이 상한을 인증하는 근거가 아닙니다. 그런 성능 정책이나 React/app 분리 예산은 추후 별도 승인 작업으로 정합니다.

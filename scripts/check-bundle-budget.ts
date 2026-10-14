@@ -16,6 +16,7 @@ const budgets = {
   "lazy-solver": { metric: "gzipBytes", limit: 5_000 },
   "lazy-stats": { metric: "gzipBytes", limit: 90_000 },
   "lazy-interaction": { metric: "gzipBytes", limit: 10_000 },
+  "lazy-account": { metric: "gzipBytes", limit: 25_000 },
   worker: { metric: "rawBytes", limit: 450_000 },
   "certified-worker": { metric: "rawBytes", limit: 100_000 },
   css: { metric: "gzipBytes", limit: 20_000 },

@@ -23,7 +23,7 @@ const REQUIRED_LAZY_ROOTS = {
   "src/schemas.ts": "lazy-stats",
   "src/components/SuccessAttemptModal.tsx": "lazy-interaction",
   "src/components/RecommendationContent.tsx": "lazy-interaction",
-  // Feature-flagged account UI: must stay out of the initial graph (no budget assigned yet).
+  // Feature-flagged account UI: stays out of the initial graph; gzip budget is 25,000 B.
   "src/account/AccountEntry.tsx": "lazy-account",
 } as const;
 const OPTIONAL_LAZY_ROOTS = {
