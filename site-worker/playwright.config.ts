@@ -16,8 +16,9 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
+    // Root config is binding-free: smoke never connects to provisioned staging services.
     command:
-      "npx wrangler dev --local --config site-worker/wrangler.toml --env staging --ip 127.0.0.1 --port 4289",
+      "npx wrangler dev --local --config site-worker/wrangler.toml --ip 127.0.0.1 --port 4289",
     cwd: "..",
     url: "http://127.0.0.1:4289",
     reuseExistingServer: false,

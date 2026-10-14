@@ -47,12 +47,12 @@ binding = "STATS"
 # Existing staging service name from cloudflare/wrangler.toml; verify before provisioning.
 service = "collection-kit-stats-staging"
 
-# Binding remains unprovisioned: enable only under separate deployment approval.
-# [[env.staging.services]]
-# binding = "PERSONAL_DATA"
-# service = "collection-kit-personal-data-staging"
+# Provision and migrate the backend before the local deploy script publishes this gateway.
+[[env.staging.services]]
+binding = "PERSONAL_DATA"
+service = "collection-kit-personal-data-staging"
 
-# Provision separately after explicit domain/DNS approval, then enable this route.
-# [[env.staging.routes]]
-# pattern = "staging.nikkecollection.com"
-# custom_domain = true
+# Remote changes are operator-only; deploy:site-staging requires the provisioning gate.
+[[env.staging.routes]]
+pattern = "staging.nikkecollection.com"
+custom_domain = true

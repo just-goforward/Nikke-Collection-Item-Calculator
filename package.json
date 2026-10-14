@@ -25,6 +25,7 @@
     "rebuild:certified-wasm": "node scripts/build-certified-wasm.ts --rebuild && npm run generate:certified-engine-build",
     "build": "vite build --configLoader native",
     "build:site-staging": "npm run build && node scripts/build-site-staging.ts",
+    "deploy:site-staging": "node scripts/deploy-site-staging.ts",
     "check:site-staging": "node scripts/build-site-staging.ts --check",
     "typecheck:site-staging": "tsc --noEmit -p site-worker/tsconfig.json",
     "smoke:site-staging": "playwright test --config site-worker/playwright.config.ts",
