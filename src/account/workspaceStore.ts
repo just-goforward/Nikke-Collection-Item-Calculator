@@ -1,5 +1,6 @@
 import type { WorkspaceDocument } from "../../personal-data/src/contracts";
 import { parseWorkspaceDocument } from "./workspaceDocument";
+import type { WorkspaceItemType } from "./workspaceItem";
 
 /**
  * Device-local workspace copies. Guest data and account data live in separate object stores;
@@ -27,13 +28,18 @@ export type WorkspaceStore = {
   writeGuest(record: GuestRecord): Promise<void>;
   readAccount(userId: string): Promise<AccountRecord | null>;
   writeAccount(record: AccountRecord): Promise<void>;
-  deleteAccount(userId: string): Promise<void>;
+  /** Removes this account's copies of every item; `keepUnsynced` keeps copies with unsynced edits. */
+  removeAccount(userId: string, keepUnsynced: boolean): Promise<void>;
 };
 
 const ACCOUNT_DB_NAME = "collection-kit-account";
-const ACCOUNT_DB_VERSION = 1;
+const ACCOUNT_DB_VERSION = 2;
 const GUEST_STORE = "guest-workspace";
-const ACCOUNT_STORE = "account-workspaces";
+/** One account store per item: each engine's unsynced flag and base revision stay its own. */
+const ACCOUNT_STORES: Record<WorkspaceItemType, string> = {
+  "calculator-input": "account-workspaces",
+  "certified-session": "account-certified-sessions",
+};
 const GUEST_KEY = "guest";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -77,8 +83,8 @@ export function createMemoryWorkspaceStore(): WorkspaceStore {
     writeAccount: async (record) => {
       accounts.set(record.userId, structuredClone(record));
     },
-    deleteAccount: async (userId) => {
-      accounts.delete(userId);
+    removeAccount: async (userId, keepUnsynced) => {
+      if (!keepUnsynced || !accounts.get(userId)?.dirty) accounts.delete(userId);
     },
   };
 }
@@ -107,15 +113,42 @@ function transact<T>(
   });
 }
 
-async function openIndexedDbWorkspaceStore(factory: IDBFactory): Promise<WorkspaceStore> {
+function removeAccountCopies(db: IDBDatabase, userId: string, keepUnsynced: boolean) {
+  return new Promise<void>((resolve, reject) => {
+    const names = Object.values(ACCOUNT_STORES);
+    const transaction = db.transaction(names, "readwrite");
+    for (const name of names) {
+      const store = transaction.objectStore(name);
+      if (!keepUnsynced) {
+        store.delete(userId);
+        continue;
+      }
+      const request = store.get(userId);
+      request.onsuccess = () => {
+        const value: unknown = request.result;
+        if (!isRecord(value) || value["dirty"] !== true) store.delete(userId);
+      };
+    }
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(transaction.error ?? new DOMException("Transaction aborted.", "AbortError"));
+  });
+}
+
+async function openIndexedDbWorkspaceStore(
+  factory: IDBFactory,
+  item: WorkspaceItemType,
+): Promise<WorkspaceStore> {
   const request = factory.open(ACCOUNT_DB_NAME, ACCOUNT_DB_VERSION);
   request.onupgradeneeded = () => {
     const db = request.result;
     if (!db.objectStoreNames.contains(GUEST_STORE)) db.createObjectStore(GUEST_STORE);
-    if (!db.objectStoreNames.contains(ACCOUNT_STORE)) {
-      db.createObjectStore(ACCOUNT_STORE, { keyPath: "userId" });
+    for (const name of Object.values(ACCOUNT_STORES)) {
+      if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: "userId" });
     }
   };
+  const accountStore = ACCOUNT_STORES[item];
   const db = await requestResult(request);
   // Let a future schema upgrade in another tab proceed instead of blocking on this connection.
   db.onversionchange = () => db.close();
@@ -129,25 +162,23 @@ async function openIndexedDbWorkspaceStore(factory: IDBFactory): Promise<Workspa
     },
     readAccount: async (userId) =>
       parseAccountRecord(
-        await transact(db, ACCOUNT_STORE, "readonly", (store) => store.get(userId)),
+        await transact(db, accountStore, "readonly", (store) => store.get(userId)),
         userId,
       ),
     writeAccount: async (record) => {
-      await transact(db, ACCOUNT_STORE, "readwrite", (store) => store.put(record));
+      await transact(db, accountStore, "readwrite", (store) => store.put(record));
     },
-    deleteAccount: async (userId) => {
-      await transact(db, ACCOUNT_STORE, "readwrite", (store) => store.delete(userId));
-    },
+    removeAccount: (userId, keepUnsynced) => removeAccountCopies(db, userId, keepUnsynced),
   };
 }
 
 /** IndexedDB when the browser allows it; otherwise an in-memory store and `persistent: false`. */
-export async function openWorkspaceStore(): Promise<{
+export async function openWorkspaceStore(item: WorkspaceItemType): Promise<{
   store: WorkspaceStore;
   persistent: boolean;
 }> {
   try {
-    return { store: await openIndexedDbWorkspaceStore(indexedDB), persistent: true };
+    return { store: await openIndexedDbWorkspaceStore(indexedDB, item), persistent: true };
   } catch (error) {
     if (!(error instanceof DOMException)) throw error;
     return { store: createMemoryWorkspaceStore(), persistent: false };

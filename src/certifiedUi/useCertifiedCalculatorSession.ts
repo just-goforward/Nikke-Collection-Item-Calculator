@@ -41,7 +41,8 @@ export function settledCertifiedBridge(session: CertifiedSession): CertifiedBrid
   };
 }
 
-function initialBridge(): CertifiedBridgeState {
+/** The guest session from its storage key; malformed bytes are quarantined, never partially used. */
+export function initialBridge(): CertifiedBridgeState {
   const emptySession = () =>
     createCertifiedSession("initial", { grade: "R", level: 0, exp: 0 }, [0, 0, 0]);
   let storedText: string | null = null;
@@ -88,6 +89,8 @@ export function useCertifiedCalculatorSession() {
   const [bridge, setBridge] = useState<CertifiedBridgeState>(initialBridge);
   // Kept outside the bridge: commits settle the bridge, but only a later successful write clears this.
   const [saveFailed, setSaveFailed] = useState(false);
+  // True while an account session is shown: it lives in the per-account device store instead.
+  const accountMode = useRef(false);
   const latest = useRef(bridge);
   const publish = useCallback((next: CertifiedBridgeState) => {
     latest.current = next;
@@ -102,21 +105,40 @@ export function useCertifiedCalculatorSession() {
     },
     [publish],
   );
-  return { bridge, latest, publish, fail, saveFailed, setSaveFailed };
+  return { bridge, latest, publish, fail, saveFailed, setSaveFailed, accountMode };
 }
 
 export type CertifiedSessionStore = ReturnType<typeof useCertifiedCalculatorSession>;
+
+/** Guest sessions only: an account session never touches the guest storage key. */
+export function persistCertifiedSession(
+  bridge: Pick<CertifiedBridgeState, "session" | "correction" | "storageBlocked">,
+  accountMode: boolean,
+  setSaveFailed: (failed: boolean) => void,
+) {
+  if (bridge.storageBlocked || accountMode) return;
+  writeCertifiedSessionStorage(
+    serializeCertifiedCalculatorSession(bridge.session, bridge.correction),
+    setSaveFailed,
+  );
+}
 
 /** Pending state and its pre-outcome ledger are persisted together; rejected bytes stay quarantined. */
 export function useCertifiedSessionPersistence(
   bridge: CertifiedBridgeState,
   setSaveFailed: CertifiedSessionStore["setSaveFailed"],
+  accountMode: CertifiedSessionStore["accountMode"],
 ) {
   useEffect(() => {
-    if (bridge.storageBlocked) return;
-    writeCertifiedSessionStorage(
-      serializeCertifiedCalculatorSession(bridge.session, bridge.correction),
+    // Every account/guest switch publishes a new bridge, so the mode is current here.
+    persistCertifiedSession(
+      {
+        session: bridge.session,
+        correction: bridge.correction,
+        storageBlocked: bridge.storageBlocked,
+      },
+      accountMode.current,
       setSaveFailed,
     );
-  }, [bridge.session, bridge.correction, bridge.storageBlocked, setSaveFailed]);
+  }, [bridge.session, bridge.correction, bridge.storageBlocked, setSaveFailed, accountMode]);
 }

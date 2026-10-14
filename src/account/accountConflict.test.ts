@@ -82,6 +82,9 @@ describe("409 revision_conflict", () => {
       serverRevision: 9,
       server: input(50),
       local: input(33),
+      serverBytes: null,
+      localBytes: null,
+      serverUnreadable: false,
     });
   });
 

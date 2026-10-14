@@ -3,7 +3,12 @@ import type {
   WorkspaceDocument,
   WorkspacePutResult,
 } from "../../personal-data/src/contracts";
-import { AccountControllerBase, type PendingOp, type Session } from "./accountControllerBase";
+import {
+  AccountControllerBase,
+  type PendingOp,
+  type Session,
+  UNKNOWN_BASE_KEY,
+} from "./accountControllerBase";
 import {
   type AccountControllerDeps,
   type AccountNotice,
@@ -11,21 +16,17 @@ import {
   type ConflictChoice,
   exportFileName,
   isRetryable,
+  MAX_REQUEST_BYTES,
   noticeFor,
   type SignedInView,
   staleReasonFor,
+  type WorkspaceConflict,
 } from "./accountState";
 import { type ApiFailure, failureCode, isGoogleAuthorizationUrl, isHttpFailure } from "./api";
 import type { CrossTabMessage } from "./crossTab";
-import {
-  type CalculatorInput,
-  calculatorInputKey,
-  DEFAULT_CALCULATOR_INPUT,
-  EMPTY_WORKSPACE_DOCUMENT,
-  readCalculatorInput,
-  writeCalculatorInput,
-} from "./workspaceDocument";
-import type { WorkspaceStore } from "./workspaceStore";
+import { EMPTY_WORKSPACE_DOCUMENT } from "./workspaceDocument";
+import { type ItemRead, utf8Bytes } from "./workspaceItem";
+import type { AccountRecord } from "./workspaceStore";
 
 const MIN_RETRY_MS = 2_000;
 const MAX_RETRY_MS = 60_000;
@@ -35,13 +36,16 @@ function sameIdentity(a: AccountView, b: AccountView): boolean {
   return a.phase !== "signed-in" || (b.phase === "signed-in" && a.userId === b.userId);
 }
 
-export class AccountController extends AccountControllerBase {
+/** What the account dialogs may call; independent of the engine's item type. */
+export type AccountUi = Omit<AccountController<unknown>, "notifyLocalChange">;
+
+export class AccountController<T> extends AccountControllerBase<T> {
   private pendingConsent: { participation: boolean; base: number; opId: string } | null = null;
   private pendingDeleteOpId: string | null = null;
   private consentDismissed = false;
   private readonly unsubscribe: () => void;
 
-  constructor(deps: AccountControllerDeps) {
+  constructor(deps: AccountControllerDeps<T>) {
     super(deps);
     this.unsubscribe = deps.channel.subscribe((message) => {
       void this.enqueue(() => this.handleMessage(message));
@@ -110,17 +114,21 @@ export class AccountController extends AccountControllerBase {
     this.patchSignedIn({ consentPrompt: false });
   }
 
-  /** Called with the calculator's current input after every change. */
-  notifyLocalChange(input: CalculatorInput) {
+  /** Called with the engine's current value after every change. */
+  notifyLocalChange(value: T) {
     const session = this.session;
-    if (!session || calculatorInputKey(input) === calculatorInputKey(session.local)) return;
-    session.local = input;
-    session.dirty = calculatorInputKey(input) !== session.syncedKey;
+    const { codec } = this.deps;
+    if (!session) return;
+    const key = codec.key(value);
+    if (key === codec.key(session.local)) return;
+    session.local = value;
+    session.dirty = key !== session.syncedKey;
     void this.enqueue(() => this.persistAccount(session));
     const view = this.signedIn();
-    if (!view || view.sync === "conflict" || view.sync === "paused" || view.sync === "saving") {
-      return;
-    }
+    if (!view) return;
+    const itemBytes = codec.bytes(value);
+    if (itemBytes !== view.itemBytes) this.patchSignedIn({ itemBytes });
+    if (view.sync === "conflict" || view.sync === "paused" || view.sync === "saving") return;
     if (!session.dirty) {
       this.cancelTimer(session);
       this.patchSignedIn({ sync: "synced" });
@@ -146,10 +154,17 @@ export class AccountController extends AccountControllerBase {
   /** "boot" restores guest inputs only after an abandoned sign-in; "restore" always does. */
   private async enterGuest(mode: "boot" | "restore") {
     this.session = null;
+    const { calculator, codec } = this.deps;
+    if (calculator.ownGuest) {
+      // The engine keeps its own guest data; at boot it is already shown.
+      if (mode === "restore") calculator.ownGuest.show();
+      this.setView({ phase: "guest", busy: null });
+      return;
+    }
     const guest = await this.storage((store) => store.readGuest(), null);
-    const input = guest ? readCalculatorInput(guest.document) : null;
-    if (mode === "restore") this.deps.calculator.apply(input ?? DEFAULT_CALCULATOR_INPUT);
-    else if (guest?.restoreOnReturn && input) this.deps.calculator.apply(input);
+    const value = guest ? this.readValue(guest.document) : null;
+    if (mode === "restore") calculator.apply(value ?? codec.empty());
+    else if (guest?.restoreOnReturn && value !== null) calculator.apply(value);
     if (guest?.restoreOnReturn) {
       await this.storage(
         (store) => store.writeGuest({ ...guest, restoreOnReturn: false }),
@@ -159,38 +174,56 @@ export class AccountController extends AccountControllerBase {
     this.setView({ phase: "guest", busy: null });
   }
 
-  private async enterAccount(userId: string, consent: ConsentGet) {
-    const [workspace, local, guest] = await Promise.all([
-      this.deps.api.getWorkspace(),
-      this.storage((store) => store.readAccount(userId), null),
-      this.storage((store) => store.readGuest(), null),
-    ]);
+  private readValue(document: WorkspaceDocument): T | null {
+    const read = this.deps.codec.read(document);
+    return read.status === "value" ? read.value : null;
+  }
+
+  private async readGuestValue(): Promise<T | null> {
+    const own = this.deps.calculator.ownGuest;
+    if (own) return own.read();
+    const guest = await this.storage((store) => store.readGuest(), null);
     if (guest?.restoreOnReturn) {
       await this.storage(
         (store) => store.writeGuest({ ...guest, restoreOnReturn: false }),
         undefined,
       );
     }
+    return guest ? this.readValue(guest.document) : null;
+  }
+
+  private async enterAccount(userId: string, consent: ConsentGet) {
+    const [workspace, local, guestValue] = await Promise.all([
+      this.deps.api.getWorkspace(),
+      this.storage((store) => store.readAccount(userId), null),
+      this.readGuestValue(),
+    ]);
     if (!workspace.ok) {
       await this.workspaceUnavailable(userId, consent, workspace.failure);
       return;
     }
-    const serverInput = readCalculatorInput(workspace.value.document);
-    const guestInput = guest ? readCalculatorInput(guest.document) : null;
+    const { calculator, codec } = this.deps;
+    const server = codec.read(workspace.value.document);
     const offerGuest =
-      serverInput === null &&
-      guestInput !== null &&
-      calculatorInputKey(guestInput) !== calculatorInputKey(DEFAULT_CALCULATOR_INPUT);
-    const session: Session = {
+      server.status === "absent" && guestValue !== null && !codec.isEmpty(guestValue);
+    let initial: T;
+    if (server.status === "value") initial = server.value;
+    // Engines with their own guest data must not show it as this account's data.
+    else initial = calculator.ownGuest ? codec.empty() : calculator.capture();
+    const session: Session<T> = {
       userId,
       serverDocument: workspace.value.document,
       revision: workspace.value.revision,
-      syncedKey: calculatorInputKey(serverInput),
-      local: serverInput ?? this.deps.calculator.capture(),
+      syncedKey: this.itemKey(server) ?? UNKNOWN_BASE_KEY,
+      local: initial,
       dirty: false,
       pendingOp: null,
       conflict: null,
-      guestOffer: offerGuest ? guestInput : null,
+      serverUnreadable: server.status === "unreadable",
+      guestOffer:
+        offerGuest && guestValue !== null
+          ? { value: guestValue, summary: codec.summary(guestValue) }
+          : null,
       retryMs: 0,
       cancelTimer: null,
     };
@@ -201,10 +234,11 @@ export class AccountController extends AccountControllerBase {
         revision: session.revision,
         quota: workspace.value.quota,
         archivingBlocked: workspace.value.quota.newArchivingBlocked,
+        itemBytes: codec.bytes(initial),
       }),
     );
     this.deps.channel.post({ type: "account", userId });
-    await this.reconcile(session, serverInput, local);
+    await this.reconcile(session, server.status === "value", local);
   }
 
   private async workspaceUnavailable(userId: string, consent: ConsentGet, failure: ApiFailure) {
@@ -231,6 +265,8 @@ export class AccountController extends AccountControllerBase {
       revision: 0,
       quota: null,
       archivingBlocked: false,
+      itemBytes: null,
+      tooLarge: false,
       conflict: null,
       guestImport: this.guestImport(),
       signOutChoice: null,
@@ -241,11 +277,11 @@ export class AccountController extends AccountControllerBase {
 
   private async importGuestInputs() {
     const session = this.session;
-    const offer = this.guestImport();
+    const offer = this.guestImport() === null ? null : session?.guestOffer;
     if (!session || !offer) return;
     session.guestOffer = null;
-    this.applyInput(session, offer);
-    session.dirty = calculatorInputKey(offer) !== session.syncedKey;
+    this.applyInput(session, offer.value);
+    session.dirty = this.deps.codec.key(offer.value) !== session.syncedKey;
     await this.persistAccount(session);
     this.patchSignedIn({ sync: "pending" });
     this.notify("guest_imported");
@@ -254,25 +290,35 @@ export class AccountController extends AccountControllerBase {
 
   /** Unsynced edits from an earlier visit survive, but never silently replace newer server data. */
   private async reconcile(
-    session: Session,
-    serverInput: CalculatorInput | null,
-    local: Awaited<ReturnType<WorkspaceStore["readAccount"]>>,
+    session: Session<T>,
+    serverHasValue: boolean,
+    local: AccountRecord | null,
   ) {
-    const localInput = local?.dirty ? readCalculatorInput(local.document) : null;
-    if (!local || !localInput || calculatorInputKey(localInput) === session.syncedKey) {
-      if (serverInput) this.applyInput(session, serverInput);
+    const { codec } = this.deps;
+    const stored = local?.dirty ? this.readValue(local.document) : null;
+    if (!local || stored === null || codec.key(stored) === session.syncedKey) {
+      if (serverHasValue || this.deps.calculator.ownGuest) this.applyInput(session, session.local);
       await this.persistAccount(session);
+      if (session.serverUnreadable) {
+        this.enterConflict(session, session.revision, session.serverDocument, false);
+      }
       return;
     }
-    this.applyInput(session, localInput);
+    this.applyInput(session, stored);
     session.dirty = true;
-    await this.persistAccount(session);
-    if (local.baseRevision === session.revision) {
+    if (local.baseRevision === session.revision && !session.serverUnreadable) {
+      await this.persistAccount(session);
       this.patchSignedIn({ sync: "pending" });
       await this.save();
       return;
     }
-    this.enterConflict(session, session.revision, session.serverDocument);
+    // The edits were made on an older revision whose contents are unknown here: keep that base so
+    // a save can only conflict, never overwrite the newer server data without a choice.
+    const serverRevision = session.revision;
+    session.revision = local.baseRevision;
+    session.syncedKey = UNKNOWN_BASE_KEY;
+    await this.persistAccount(session);
+    this.enterConflict(session, serverRevision, session.serverDocument, false);
   }
 
   // ---- workspace sync ----
@@ -284,7 +330,12 @@ export class AccountController extends AccountControllerBase {
       return;
     }
     this.cancelTimer(session);
-    const key = calculatorInputKey(session.local);
+    if (session.serverUnreadable) {
+      // Only the explicit overwrite choice may replace an unreadable server copy.
+      this.enterConflict(session, session.revision, session.serverDocument, false);
+      return;
+    }
+    const key = this.deps.codec.key(session.local);
     const reusable =
       session.pendingOp?.key === key && session.pendingOp.baseRevision === session.revision;
     const op: PendingOp =
@@ -294,22 +345,30 @@ export class AccountController extends AccountControllerBase {
             opId: this.deps.newOpId(),
             key,
             baseRevision: session.revision,
-            document: writeCalculatorInput(session.serverDocument, session.local),
+            document: this.deps.codec.write(session.serverDocument, session.local),
           };
-    session.pendingOp = op;
-    this.patchSignedIn({ sync: "saving" });
-    const result = await this.deps.api.putWorkspace(session.userId, {
+    const body = {
       opId: op.opId,
       baseRevision: op.baseRevision,
       document: op.document,
-      action: { kind: "save" },
-    });
+      action: { kind: "save" as const },
+    };
+    if (utf8Bytes(JSON.stringify(body)) > MAX_REQUEST_BYTES) {
+      // Never sent: the server would refuse it with 413. The edits stay on this device.
+      session.pendingOp = null;
+      this.patchSignedIn({ sync: "error", tooLarge: true });
+      this.notify("request_too_large");
+      return;
+    }
+    session.pendingOp = op;
+    this.patchSignedIn({ sync: "saving" });
+    const result = await this.deps.api.putWorkspace(session.userId, body);
     if (this.session !== session) return;
     if (result.ok) await this.afterPut(session, op, result.value);
     else await this.afterPutFailure(session, result.failure);
   }
 
-  private async afterPut(session: Session, op: PendingOp, result: WorkspacePutResult) {
+  private async afterPut(session: Session<T>, op: PendingOp, result: WorkspacePutResult) {
     switch (result.status) {
       case "saved":
         await this.saved(session, op, result.revision);
@@ -337,24 +396,29 @@ export class AccountController extends AccountControllerBase {
   }
 
   /** A replayed acknowledgement reports its original revision; local newer edits stay pending. */
-  private async saved(session: Session, op: PendingOp, revision: number) {
+  private async saved(session: Session<T>, op: PendingOp, revision: number) {
     session.pendingOp = null;
     session.retryMs = 0;
     session.serverDocument = op.document;
+    session.serverUnreadable = false;
     session.syncedKey = op.key;
     session.revision = Math.max(session.revision, revision);
-    session.dirty = calculatorInputKey(session.local) !== op.key;
+    session.dirty = this.deps.codec.key(session.local) !== op.key;
     await this.persistAccount(session);
     this.deps.channel.post({
       type: "revision",
       userId: session.userId,
       revision: session.revision,
     });
-    this.patchSignedIn({ revision: session.revision, sync: session.dirty ? "pending" : "synced" });
+    this.patchSignedIn({
+      revision: session.revision,
+      sync: session.dirty ? "pending" : "synced",
+      tooLarge: false,
+    });
     if (session.dirty) this.scheduleSave(session, this.deps.saveDelayMs);
   }
 
-  private async afterPutFailure(session: Session, failure: ApiFailure) {
+  private async afterPutFailure(session: Session<T>, failure: ApiFailure) {
     const stale = staleReasonFor(failure);
     if (stale) {
       this.markStale(stale);
@@ -372,11 +436,11 @@ export class AccountController extends AccountControllerBase {
       return;
     }
     session.pendingOp = null;
-    this.patchSignedIn({ sync: "error" });
+    this.patchSignedIn({ sync: "error", tooLarge: isHttpFailure(failure, 413) });
     this.notify(noticeFor(failure));
   }
 
-  private async conflictFromServer(session: Session) {
+  private async conflictFromServer(session: Session<T>) {
     session.pendingOp = null;
     const fresh = await this.deps.api.getWorkspace();
     if (this.session !== session) return;
@@ -388,32 +452,69 @@ export class AccountController extends AccountControllerBase {
       quota: fresh.value.quota,
       archivingBlocked: fresh.value.quota.newArchivingBlocked,
     });
-    this.enterConflict(session, fresh.value.revision, fresh.value.document);
+    this.enterConflict(session, fresh.value.revision, fresh.value.document, true);
   }
 
-  private enterConflict(session: Session, revision: number, document: WorkspaceDocument) {
-    const server = readCalculatorInput(document);
-    if (calculatorInputKey(server) === calculatorInputKey(session.local)) {
-      // Both sides already hold the same inputs: adopt the server revision, nothing to choose.
+  /** `rebase`: the local base is known, so a server change to other items only is not a conflict. */
+  private enterConflict(
+    session: Session<T>,
+    revision: number,
+    document: WorkspaceDocument,
+    rebase: boolean,
+  ) {
+    const server = this.deps.codec.read(document);
+    const serverKey = this.itemKey(server);
+    if (serverKey === this.deps.codec.key(session.local)) {
+      // Both sides already hold the same value: adopt the server revision, nothing to choose.
       session.serverDocument = document;
       session.revision = revision;
-      session.syncedKey = calculatorInputKey(server);
+      session.syncedKey = serverKey;
+      session.serverUnreadable = false;
       session.dirty = false;
       this.patchSignedIn({ revision, sync: "synced", conflict: null });
       void this.enqueue(() => this.persistAccount(session));
       return;
     }
+    if (rebase && serverKey !== null && serverKey === session.syncedKey) {
+      // Only other items (e.g. the other engine's) changed: this edit applies on top unchanged.
+      session.serverDocument = document;
+      session.revision = revision;
+      session.pendingOp = null;
+      this.patchSignedIn({ revision, sync: "pending" });
+      this.scheduleSave(session, 0);
+      return;
+    }
+    session.serverUnreadable = server.status === "unreadable";
     session.conflict = { revision, document };
     this.patchSignedIn({
       sync: "conflict",
-      conflict: { serverRevision: revision, server, local: session.local },
+      conflict: this.conflictView(session, revision, server),
     });
+  }
+
+  private conflictView(
+    session: Session<T>,
+    revision: number,
+    server: ItemRead<T>,
+  ): WorkspaceConflict {
+    const { codec } = this.deps;
+    return {
+      serverRevision: revision,
+      server: server.status === "value" ? codec.summary(server.value) : null,
+      local: codec.summary(session.local),
+      serverBytes: server.status === "value" ? codec.bytes(server.value) : null,
+      localBytes: codec.bytes(session.local),
+      serverUnreadable: server.status === "unreadable",
+    };
   }
 
   private async applyConflictChoice(choice: ConflictChoice) {
     const session = this.session;
     const conflict = session?.conflict;
     if (!session || !conflict) return;
+    const server = this.deps.codec.read(conflict.document);
+    // An unreadable server copy can only be overwritten or left alone.
+    if (choice === "server" && server.status === "unreadable") return;
     session.conflict = null;
     if (choice === "cancel") {
       this.patchSignedIn({ sync: "paused", conflict: null });
@@ -422,15 +523,16 @@ export class AccountController extends AccountControllerBase {
     session.serverDocument = conflict.document;
     session.revision = conflict.revision;
     session.pendingOp = null;
+    session.serverUnreadable = false;
+    session.syncedKey = this.itemKey(server) ?? UNKNOWN_BASE_KEY;
     if (choice === "server") {
-      const server = readCalculatorInput(conflict.document);
-      session.syncedKey = calculatorInputKey(server);
       session.dirty = false;
-      this.applyInput(session, server ?? DEFAULT_CALCULATOR_INPUT);
+      this.applyInput(session, server.status === "value" ? server.value : this.deps.codec.empty());
       await this.persistAccount(session);
       this.patchSignedIn({ sync: "synced", conflict: null, revision: session.revision });
       return;
     }
+    session.dirty = true;
     this.patchSignedIn({ sync: "pending", conflict: null, revision: session.revision });
     await this.save();
   }
@@ -455,11 +557,19 @@ export class AccountController extends AccountControllerBase {
       this.notify(fresh.ok ? "updated_elsewhere" : noticeFor(fresh.failure));
       return;
     }
-    const server = readCalculatorInput(fresh.value.document);
+    const { codec } = this.deps;
+    const server = codec.read(fresh.value.document);
+    if (server.status === "unreadable") {
+      this.enterConflict(session, fresh.value.revision, fresh.value.document, false);
+      return;
+    }
     session.serverDocument = fresh.value.document;
     session.revision = fresh.value.revision;
-    session.syncedKey = calculatorInputKey(server);
-    if (server) this.applyInput(session, server);
+    session.syncedKey = this.itemKey(server) ?? UNKNOWN_BASE_KEY;
+    // Another engine's save leaves this item unchanged; re-applying would discard its results.
+    if (server.status === "value" && codec.key(server.value) !== codec.key(session.local)) {
+      this.applyInput(session, server.value);
+    }
     await this.persistAccount(session);
     this.patchSignedIn({
       revision: session.revision,
@@ -523,21 +633,26 @@ export class AccountController extends AccountControllerBase {
   private async beginLogin() {
     if (this.snapshot.view.phase !== "guest") return;
     this.setView({ phase: "guest", busy: "login" });
-    const document = writeCalculatorInput(EMPTY_WORKSPACE_DOCUMENT, this.deps.calculator.capture());
+    // Engines with their own guest storage already keep the guest data across the redirect.
+    const { calculator, codec } = this.deps;
+    const document = calculator.ownGuest
+      ? null
+      : codec.write(EMPTY_WORKSPACE_DOCUMENT, calculator.capture());
     const updatedAt = this.deps.now();
-    await this.storage(
-      (store) => store.writeGuest({ document, restoreOnReturn: true, updatedAt }),
-      undefined,
-    );
+    const remember = (restoreOnReturn: boolean) =>
+      document
+        ? this.storage(
+            (store) => store.writeGuest({ document, restoreOnReturn, updatedAt }),
+            undefined,
+          )
+        : Promise.resolve();
+    await remember(true);
     const result = await this.deps.api.startLogin();
     if (result.ok && isGoogleAuthorizationUrl(result.value.authorizationUrl)) {
       this.deps.navigate(result.value.authorizationUrl);
       return;
     }
-    await this.storage(
-      (store) => store.writeGuest({ document, restoreOnReturn: false, updatedAt }),
-      undefined,
-    );
+    await remember(false);
     this.setView({ phase: "guest", busy: null });
     this.notify(result.ok ? "login_failed" : noticeFor(result.failure));
   }
@@ -553,9 +668,9 @@ export class AccountController extends AccountControllerBase {
     if (session) this.cancelTimer(session);
     this.session = null;
     const userId = view?.userId ?? session?.userId;
-    // Without a loaded session the stored copy was never inspected, so it is kept.
-    if (userId && (removeRecord || (session !== null && !session.dirty))) {
-      await this.storage((store) => store.deleteAccount(userId), undefined);
+    // Without a loaded session the stored copies were never inspected, so they are kept.
+    if (userId && (removeRecord || session !== null)) {
+      await this.storage((store) => store.removeAccount(userId, !removeRecord), undefined);
     }
     if (userId && broadcast) this.deps.channel.post({ type: broadcast, userId });
     await this.enterGuest("restore");

@@ -194,6 +194,7 @@ async function deviceStores(page: Page) {
     const stores = {
       guest: await all("guest-workspace"),
       accounts: await all("account-workspaces"),
+      certified: await all("account-certified-sessions"),
     };
     db.close();
     return stores;
@@ -226,12 +227,15 @@ test.afterAll(async () => {
 
 test("account UI and its chunk stay off without the staging flag", async ({ page, context }) => {
   const api = new MockAccountApi();
+  await blockExternalRequests(context);
   await api.install(context);
   const chunks: string[] = [];
   page.on("request", (request) => {
     if (request.url().includes("AccountEntry")) chunks.push(request.url());
   });
   await openApp(page);
+  await expect(page.locator("[data-account-trigger]")).toHaveCount(0);
+  await openCertified(page);
   await expect(page.locator("[data-account-trigger]")).toHaveCount(0);
   expect(api.requests).toEqual([]);
   expect(chunks).toEqual([]);
@@ -550,4 +554,167 @@ test("?account_error=<code> shows the localized message and is removed from the 
   await expect(
     page.getByRole("status").filter({ hasText: "ログインを完了できませんでした。" }),
   ).toBeVisible();
+});
+
+// ---- certified engine ----
+
+const CERTIFIED_PATH = "/?statsEnv=staging&engine=certified";
+const CERTIFIED_GUEST_KEY = "collection-certified-staging-v2:session";
+type CertifiedItem = { type: string; version: number; session: { stock: number[] } };
+
+async function blockExternalRequests(context: BrowserContext) {
+  // Registered before the API mock so its Google/CDN routes still take precedence.
+  await context.route(
+    (url) => !["127.0.0.1", "localhost"].includes(url.hostname),
+    (route) => route.abort("blockedbyclient"),
+  );
+}
+
+async function openCertified(page: Page) {
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.goto(`${ORIGIN}${CERTIFIED_PATH}`);
+  await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toBeVisible();
+  await expect(page.locator("#calculateButton")).toBeEnabled();
+}
+
+const certifiedBlue = (page: Page) => page.locator("#blueStock");
+
+async function setCertifiedBlue(page: Page, value: string) {
+  await certifiedBlue(page).fill(value);
+  await certifiedBlue(page).press("Tab");
+}
+
+function certifiedItems(document: unknown): CertifiedItem[] {
+  const items = (document as { items: CertifiedItem[] }).items;
+  return items.filter((item) => item.type === "certified-session");
+}
+
+async function guestCertifiedBlue(page: Page) {
+  const text = await page.evaluate((key) => localStorage.getItem(key), CERTIFIED_GUEST_KEY);
+  return text === null ? null : (JSON.parse(text) as { stock: number[] }).stock[0];
+}
+
+/** Until the account is confirmed the engine shows (and stores) guest data. */
+async function openCertifiedAccount(page: Page) {
+  await openCertified(page);
+  await expect(accountTrigger(page)).toHaveAccessibleName("계정 · 동기화됨");
+}
+
+async function certifiedApi(context: BrowserContext) {
+  const api = new MockAccountApi();
+  api.consent = { participation: false, decisionVersion: 1 };
+  await blockExternalRequests(context);
+  await api.install(context);
+  return api;
+}
+
+test("certified engine: the guest session keeps its key and the account session syncs as an item", async ({
+  page,
+  context,
+}) => {
+  const api = await certifiedApi(context);
+  await enableAccountFlag(page);
+  await openCertified(page);
+  await setCertifiedBlue(page, "70");
+  await expect.poll(() => guestCertifiedBlue(page)).toBe(70);
+  await loginButton(page).click();
+  await page.waitForURL(/^https:\/\/accounts\.google\.com\//);
+  api.userId = "user-a";
+  await openCertified(page);
+
+  const offer = page.getByRole("region", { name: "이 계정에는 아직 저장된 입력이 없습니다" });
+  await expect(offer.getByRole("region", { name: "게스트 입력" })).toContainText("70");
+  await expect(certifiedBlue(page)).toHaveValue("");
+  expect(api.puts()).toEqual([]);
+  await offer.getByRole("button", { name: "내 게스트 입력을 이 계정으로 복사" }).click();
+  await expect(certifiedBlue(page)).toHaveValue("70");
+  await expect.poll(() => api.puts().length).toBe(1);
+  expect(api.puts()[0]?.headers["if-account-match"]).toBe('"user-a"');
+  expect(certifiedItems(api.document)).toEqual([
+    expect.objectContaining({
+      version: 1,
+      session: expect.objectContaining({ stock: [70, 0, 0] }),
+    }),
+  ]);
+
+  await setCertifiedBlue(page, "60");
+  await expect.poll(() => api.puts().length).toBe(2);
+  expect(certifiedItems(api.document)[0]?.session.stock).toEqual([60, 0, 0]);
+  // Account edits never reach the guest storage key.
+  expect(await guestCertifiedBlue(page)).toBe(70);
+  expect((await deviceStores(page)).certified).toEqual([
+    expect.objectContaining({ userId: "user-a", dirty: false }),
+  ]);
+
+  await accountTrigger(page).click();
+  const panel = page.getByRole("dialog", { name: "계정", exact: true });
+  await expect(panel.getByTestId("account-item-size")).toHaveText(
+    /^인증 계산 세션 크기: \d\.\d\d MB$/,
+  );
+  await panel.getByRole("button", { name: "로그아웃", exact: true }).click();
+  await expect(loginButton(page)).toBeVisible();
+  await expect(certifiedBlue(page)).toHaveValue("70");
+  expect(await guestCertifiedBlue(page)).toBe(70);
+  expect((await deviceStores(page)).certified).toEqual([]);
+});
+
+test("certified conflicts show sizes and an unreadable server copy is never applied", async ({
+  page,
+  context,
+}) => {
+  const api = await certifiedApi(context);
+  api.userId = "user-a";
+  await enableAccountFlag(page);
+  await openCertifiedAccount(page);
+  await setCertifiedBlue(page, "20");
+  await expect.poll(() => api.puts().length).toBe(1);
+
+  const changed = structuredClone(api.document) as { items: CertifiedItem[] };
+  const serverItem = certifiedItems(changed)[0];
+  if (!serverItem) throw new Error("missing certified item");
+  serverItem.session.stock = [50, 0, 0];
+  api.document = changed;
+  api.revision += 1;
+  await setCertifiedBlue(page, "30");
+  const conflict = page.getByRole("dialog", { name: "작업 공간이 다른 곳에서 변경되었습니다" });
+  const server = conflict.getByRole("region", { name: /^서버 버전/ });
+  await expect(server).toContainText("50");
+  await expect(server).toContainText(/크기: \d\.\d\d MB/);
+  await expect(conflict.getByRole("region", { name: "이 기기의 버전" })).toContainText("30");
+  await conflict.getByRole("button", { name: "서버 버전 유지" }).click();
+  await expect(certifiedBlue(page)).toHaveValue("50");
+  await expect(accountTrigger(page)).toHaveAccessibleName("계정 · 동기화됨");
+
+  const putsBefore = api.puts().length;
+  api.document = {
+    schemaVersion: 1,
+    items: [{ type: "certified-session", version: 1, session: { stock: "bad" } }],
+    lifetimeStages: [],
+  };
+  api.revision += 1;
+  await openCertified(page);
+  await expect(conflict).toBeVisible();
+  await expect(conflict).toContainText("서버의 사본이 검증을 통과하지 못해 적용하지 않았습니다");
+  await expect(conflict.getByRole("button", { name: "서버 버전 유지" })).toBeDisabled();
+  await expect(certifiedBlue(page)).toHaveValue("");
+  expect(await axeViolations(page)).toEqual([]);
+  await page.waitForTimeout(2_000);
+  expect(api.puts()).toHaveLength(putsBefore);
+
+  await conflict.getByRole("button", { name: "이 기기 버전으로 덮어쓰기" }).click();
+  await expect.poll(() => api.puts().length).toBe(putsBefore + 1);
+  expect(certifiedItems(api.document)[0]?.session.stock).toEqual([0, 0, 0]);
+});
+
+test("certified tabs follow each other's saves", async ({ context }) => {
+  const api = await certifiedApi(context);
+  api.userId = "user-a";
+  await enableAccountFlag(context);
+  const first = await context.newPage();
+  const second = await context.newPage();
+  await openCertifiedAccount(first);
+  await openCertifiedAccount(second);
+  await setCertifiedBlue(first, "12");
+  await expect(certifiedBlue(second)).toHaveValue("12");
+  expect(api.puts()).toHaveLength(1);
 });

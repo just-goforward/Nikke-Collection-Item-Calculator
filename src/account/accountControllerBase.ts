@@ -7,7 +7,8 @@ import type {
   SignedInView,
   StaleReason,
 } from "./accountState";
-import { type CalculatorInput, writeCalculatorInput } from "./workspaceDocument";
+import type { CalculatorInput } from "./workspaceDocument";
+import type { ItemRead } from "./workspaceItem";
 import type { WorkspaceStore } from "./workspaceStore";
 
 export type PendingOp = {
@@ -17,18 +18,26 @@ export type PendingOp = {
   document: WorkspaceDocument;
 };
 
-export type Session = {
+/** Key of the item in a revision without one. */
+const NO_ITEM_KEY = "none";
+/** Key for a base the client cannot vouch for (unreadable, or edits from an older revision). */
+export const UNKNOWN_BASE_KEY = "unknown-base";
+
+export type Session<T> = {
   userId: string;
   /** Latest known server document: source of foreign items and lifetime stages. */
   serverDocument: WorkspaceDocument;
   revision: number;
+  /** Key of this item in the revision the local edits are based on. */
   syncedKey: string;
-  local: CalculatorInput;
+  local: T;
   dirty: boolean;
   pendingOp: PendingOp | null;
   conflict: { revision: number; document: WorkspaceDocument } | null;
-  /** Guest inputs that may be copied in explicitly while the account has none of its own. */
-  guestOffer: CalculatorInput | null;
+  /** The server copy failed validation: never applied; only an explicit overwrite replaces it. */
+  serverUnreadable: boolean;
+  /** Guest data that may be copied in explicitly while the account has none of its own. */
+  guestOffer: { value: T; summary: CalculatorInput } | null;
   retryMs: number;
   cancelTimer: (() => void) | null;
 };
@@ -37,19 +46,19 @@ export type Session = {
 type DerivedField = "phase" | "userId" | "guestImport";
 
 /** State, queue, timer and device-storage plumbing shared by the account controller. */
-export abstract class AccountControllerBase {
+export abstract class AccountControllerBase<T> {
   protected snapshot: AccountSnapshot = {
     view: { phase: "loading" },
     notice: null,
     persistent: true,
   };
-  protected session: Session | null = null;
+  protected session: Session<T> | null = null;
   protected disposed = false;
   private readonly listeners = new Set<() => void>();
   private tail: Promise<void> = Promise.resolve();
   private store: WorkspaceStore | null = null;
 
-  constructor(protected readonly deps: AccountControllerDeps) {}
+  constructor(protected readonly deps: AccountControllerDeps<T>) {}
 
   readonly subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -92,10 +101,18 @@ export abstract class AccountControllerBase {
     return view.phase === "signed-in" ? view : null;
   }
 
-  /** The copy offer only exists while the account still has no calculator inputs of its own. */
+  /** The copy offer only exists while the account still has no item of its own. */
   protected guestImport(): CalculatorInput | null {
     const session = this.session;
-    return session?.guestOffer && session.syncedKey === "none" ? session.guestOffer : null;
+    return session?.guestOffer && session.syncedKey === NO_ITEM_KEY
+      ? session.guestOffer.summary
+      : null;
+  }
+
+  /** Server item identity; null for an unreadable item, which matches nothing. */
+  protected itemKey(read: ItemRead<T>): string | null {
+    if (read.status === "absent") return NO_ITEM_KEY;
+    return read.status === "value" ? this.deps.codec.key(read.value) : null;
   }
 
   protected patchSignedIn(patch: Partial<Omit<SignedInView, DerivedField>>) {
@@ -139,12 +156,12 @@ export abstract class AccountControllerBase {
     }
   }
 
-  protected cancelTimer(session: Session) {
+  protected cancelTimer(session: Session<T>) {
     session.cancelTimer?.();
     session.cancelTimer = null;
   }
 
-  protected scheduleSave(session: Session, delayMs: number) {
+  protected scheduleSave(session: Session<T>, delayMs: number) {
     this.cancelTimer(session);
     session.cancelTimer = this.deps.schedule(() => {
       session.cancelTimer = null;
@@ -152,15 +169,16 @@ export abstract class AccountControllerBase {
     }, delayMs);
   }
 
-  protected applyInput(session: Session, input: CalculatorInput) {
-    session.local = input;
-    this.deps.calculator.apply(input);
+  protected applyInput(session: Session<T>, value: T) {
+    session.local = value;
+    this.deps.calculator.apply(value);
+    if (this.session === session) this.patchSignedIn({ itemBytes: this.deps.codec.bytes(value) });
   }
 
-  protected async persistAccount(session: Session) {
+  protected async persistAccount(session: Session<T>) {
     if (this.session !== session) return;
     const document = session.dirty
-      ? writeCalculatorInput(session.serverDocument, session.local)
+      ? this.deps.codec.write(session.serverDocument, session.local)
       : session.serverDocument;
     await this.storage(
       (store) =>

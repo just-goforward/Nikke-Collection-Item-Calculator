@@ -2,6 +2,7 @@ import type { ConsentGet, WorkspaceGet } from "../../personal-data/src/contracts
 import { type AccountApi, type ApiFailure, isHttpFailure } from "./api";
 import type { CrossTabChannel } from "./crossTab";
 import type { CalculatorInput } from "./workspaceDocument";
+import type { WorkspaceItemCodec } from "./workspaceItem";
 import type { WorkspaceStore } from "./workspaceStore";
 
 export type AccountNotice =
@@ -54,7 +55,15 @@ export type WorkspaceConflict = {
   serverRevision: number;
   server: CalculatorInput | null;
   local: CalculatorInput;
+  /** Item sizes for items that can grow large (the certified session); null otherwise. */
+  serverBytes: number | null;
+  localBytes: number | null;
+  /** The server copy failed validation: it cannot be kept here, only overwritten or left alone. */
+  serverUnreadable: boolean;
 };
+
+/** personal-data README: POST/PUT/DELETE JSON bodies are limited to 2,000,000 bytes (413). */
+export const MAX_REQUEST_BYTES = 2_000_000;
 
 export type SignedInView = {
   phase: "signed-in";
@@ -66,6 +75,10 @@ export type SignedInView = {
   revision: number;
   quota: WorkspaceGet["quota"] | null;
   archivingBlocked: boolean;
+  /** Size of this tab's item when the codec reports one (the certified session). */
+  itemBytes: number | null;
+  /** The last save was refused for size (locally or with 413); the edits stay on this device. */
+  tooLarge: boolean;
   conflict: WorkspaceConflict | null;
   /** Guest inputs offered for an explicit copy while the account has no inputs of its own. */
   guestImport: CalculatorInput | null;
@@ -87,16 +100,23 @@ export type AccountSnapshot = {
   persistent: boolean;
 };
 
-/** Read/write adapter for the calculator's existing inputs; internals stay untouched. */
-export type CalculatorBridge = {
-  capture(): CalculatorInput;
-  apply(input: CalculatorInput): void;
+/** Read/write adapter for an engine's existing inputs; internals stay untouched. */
+export type CalculatorBridge<T> = {
+  capture(): T;
+  apply(value: T): void;
+  /**
+   * Present when the engine keeps its own guest data (the certified guest session). The
+   * controller then never stores guest copies: the copy offer reads `read`, and leaving the
+   * account calls `show`, which reloads the engine's own guest data.
+   */
+  ownGuest?: { read(): T | null; show(): void };
 };
 
-export type AccountControllerDeps = {
+export type AccountControllerDeps<T> = {
   api: AccountApi;
   channel: CrossTabChannel;
-  calculator: CalculatorBridge;
+  codec: WorkspaceItemCodec<T>;
+  calculator: CalculatorBridge<T>;
   openStore(): Promise<{ store: WorkspaceStore; persistent: boolean }>;
   newOpId(): string;
   navigate(url: string): void;

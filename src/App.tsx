@@ -103,6 +103,7 @@ export default function App() {
     <AppLayout
       accountControl={
         <AccountControl
+          kind="calculator-input"
           input={rememberInputSnapshot()}
           inputLocked={calculator.inputLocked}
           onApplyInput={actions.restoreInputSnapshot}

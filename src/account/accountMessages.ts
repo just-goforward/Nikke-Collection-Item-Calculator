@@ -82,6 +82,12 @@ const ko = {
   conflictServer: "서버 버전 (버전 {revision})",
   conflictLocal: "이 기기의 버전",
   conflictEmpty: "저장된 입력 없음",
+  conflictUnreadable:
+    "서버의 사본이 검증을 통과하지 못해 적용하지 않았습니다. 덮어쓰기 전까지 서버에 그대로 남아 있습니다.",
+  conflictSize: "크기: {size}",
+  certifiedSessionSize: "인증 계산 세션 크기: {size}",
+  tooLarge:
+    "이 세션은 서버 요청 한도({limit})보다 커서 동기화할 수 없습니다. 이 기기에는 그대로 보관됩니다.",
   conflictKeepServer: "서버 버전 유지",
   conflictOverwrite: "이 기기 버전으로 덮어쓰기",
   conflictCancel: "취소 (동기화 일시 중지)",
@@ -207,6 +213,12 @@ const en: Record<AccountMessageKey, string> = {
   conflictServer: "Server version (revision {revision})",
   conflictLocal: "This device's version",
   conflictEmpty: "No saved inputs",
+  conflictUnreadable:
+    "The server copy failed validation and was not applied. It stays on the server unchanged until you overwrite it.",
+  conflictSize: "Size: {size}",
+  certifiedSessionSize: "Certified session size: {size}",
+  tooLarge:
+    "This session is larger than the server request limit ({limit}), so it can't be synced. It stays on this device.",
   conflictKeepServer: "Keep server version",
   conflictOverwrite: "Overwrite with this device's version",
   conflictCancel: "Cancel (pause sync)",
@@ -330,6 +342,12 @@ const ja: Record<AccountMessageKey, string> = {
   conflictServer: "サーバー版（版 {revision}）",
   conflictLocal: "この端末の版",
   conflictEmpty: "保存された入力なし",
+  conflictUnreadable:
+    "サーバーのコピーは検証に通らなかったため適用していません。上書きするまでサーバーにそのまま残ります。",
+  conflictSize: "サイズ: {size}",
+  certifiedSessionSize: "認証計算セッションのサイズ: {size}",
+  tooLarge:
+    "このセッションはサーバーのリクエスト上限（{limit}）を超えるため同期できません。この端末にはそのまま保存されています。",
   conflictKeepServer: "サーバー版を残す",
   conflictOverwrite: "この端末の版で上書き",
   conflictCancel: "キャンセル（同期を一時停止）",

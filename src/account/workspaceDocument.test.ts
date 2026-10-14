@@ -99,7 +99,7 @@ describe("device workspace store", () => {
     await store.writeGuest({ document, restoreOnReturn: false, updatedAt: 1 });
     await store.writeAccount({ userId: "a", baseRevision: 2, document, dirty: true, updatedAt: 1 });
     expect(await store.readAccount("b")).toBeNull();
-    await store.deleteAccount("a");
+    await store.removeAccount("a", false);
     expect(await store.readAccount("a")).toBeNull();
     expect(await store.readGuest()).toMatchObject({ restoreOnReturn: false });
   });

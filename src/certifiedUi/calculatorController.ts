@@ -6,10 +6,15 @@ import type {
 } from "../../shared/certifiedSupply";
 import type { Grade, Stock } from "../types";
 import type { StatePanelModel, StockCorrectionView, SuccessAttemptModalState } from "../ui-types";
+import type { CertifiedAccountPort } from "./accountSession";
 import type { CertifiedSession } from "./session";
 import type { useCertifiedRun } from "./useCertifiedRun";
 
 export type CertifiedCalculatorController = {
+  /** Read/apply API for the optional account control. */
+  accountPort: CertifiedAccountPort;
+  /** Changes identity whenever the persisted session (or pending correction) changes. */
+  accountToken: object;
   session: CertifiedSession;
   updateSession: Dispatch<SetStateAction<CertifiedSession>>;
   snapshot: CertifiedSupplySnapshot | null;

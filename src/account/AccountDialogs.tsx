@@ -2,9 +2,14 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { KIT_ORDER } from "../../shared/game";
 import { KIT_LABEL_KEYS } from "../components/kitPresentation";
 import { useI18n } from "../i18n/locale";
-import type { AccountController } from "./accountController";
+import type { AccountUi } from "./accountController";
 import { type AccountMessageKey, accountText } from "./accountMessages";
-import type { ConflictChoice, SignedInView, WorkspaceConflict } from "./accountState";
+import {
+  type ConflictChoice,
+  MAX_REQUEST_BYTES,
+  type SignedInView,
+  type WorkspaceConflict,
+} from "./accountState";
 import type { CalculatorInput } from "./workspaceDocument";
 
 export const accountClasses = {
@@ -87,12 +92,17 @@ function bytesText(formatNumber: (value: number, digits?: number) => string, byt
   return `${formatNumber(bytes / 1_000_000, 2)} MB`;
 }
 
+function useBytesText() {
+  const { formatNumber } = useI18n();
+  return (bytes: number) => bytesText(formatNumber, bytes);
+}
+
 function SyncSection({
   controller,
   persistent,
   view,
 }: {
-  controller: AccountController;
+  controller: AccountUi;
   persistent: boolean;
   view: SignedInView;
 }) {
@@ -142,6 +152,7 @@ function SyncSection({
 function StorageSection({ view }: { view: SignedInView }) {
   const text = useAccountText();
   const { formatNumber } = useI18n();
+  const size = useBytesText();
   const quota = view.quota;
   return (
     <section className={accountClasses.section} aria-labelledby="account-storage-heading">
@@ -168,6 +179,16 @@ function StorageSection({ view }: { view: SignedInView }) {
       ) : (
         <p className={accountClasses.text}>{text("storageUnknown")}</p>
       )}
+      {view.itemBytes === null ? null : (
+        <p className={accountClasses.text} data-testid="account-item-size">
+          {text("certifiedSessionSize", { size: size(view.itemBytes) })}
+        </p>
+      )}
+      {view.tooLarge ? (
+        <p className={accountClasses.warning}>
+          {text("tooLarge", { limit: size(MAX_REQUEST_BYTES) })}
+        </p>
+      ) : null}
       {view.archivingBlocked ? (
         <p className={accountClasses.warning}>{text("archivingBlocked")}</p>
       ) : null}
@@ -180,13 +201,7 @@ function consentStatusKey(participation: boolean | null): AccountMessageKey {
   return participation ? "consentCurrentYes" : "consentCurrentNo";
 }
 
-function ConsentSettings({
-  controller,
-  view,
-}: {
-  controller: AccountController;
-  view: SignedInView;
-}) {
+function ConsentSettings({ controller, view }: { controller: AccountUi; view: SignedInView }) {
   const text = useAccountText();
   const current = view.consent.participation;
   const [choice, setChoice] = useState<boolean | null>(current);
@@ -286,13 +301,7 @@ function DeleteAccountDialog({
   );
 }
 
-function SessionSections({
-  controller,
-  view,
-}: {
-  controller: AccountController;
-  view: SignedInView;
-}) {
+function SessionSections({ controller, view }: { controller: AccountUi; view: SignedInView }) {
   const text = useAccountText();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const busy = view.busy !== null;
@@ -373,7 +382,7 @@ export function AccountPanel({
   persistent,
   view,
 }: {
-  controller: AccountController;
+  controller: AccountUi;
   onClose: () => void;
   open: boolean;
   persistent: boolean;
@@ -470,8 +479,19 @@ export function ConsentDialog({
   );
 }
 
-export function InputSummary({ input, title }: { input: CalculatorInput | null; title: string }) {
+export function InputSummary({
+  bytes = null,
+  input,
+  title,
+  unreadable = false,
+}: {
+  bytes?: number | null;
+  input: CalculatorInput | null;
+  title: string;
+  unreadable?: boolean;
+}) {
   const text = useAccountText();
+  const size = useBytesText();
   const { formatInteger, t } = useI18n();
   return (
     <section className={accountClasses.summary} aria-label={title}>
@@ -492,7 +512,12 @@ export function InputSummary({ input, title }: { input: CalculatorInput | null; 
           ))}
         </dl>
       ) : (
-        <p className={accountClasses.text}>{text("conflictEmpty")}</p>
+        <p className={accountClasses.text}>
+          {text(unreadable ? "conflictUnreadable" : "conflictEmpty")}
+        </p>
+      )}
+      {bytes === null ? null : (
+        <p className={accountClasses.text}>{text("conflictSize", { size: size(bytes) })}</p>
       )}
     </section>
   );
@@ -528,15 +553,22 @@ export function ConflictDialog({
           </p>
           <div className="mt-3 grid grid-cols-2 gap-2 max-mobile:grid-cols-1">
             <InputSummary
+              bytes={conflict.serverBytes}
               input={conflict.server}
               title={text("conflictServer", { revision: conflict.serverRevision })}
+              unreadable={conflict.serverUnreadable}
             />
-            <InputSummary input={conflict.local} title={text("conflictLocal")} />
+            <InputSummary
+              bytes={conflict.localBytes}
+              input={conflict.local}
+              title={text("conflictLocal")}
+            />
           </div>
           <div className={`${accountClasses.row} mt-4`}>
             <button
               className={accountClasses.button}
               type="button"
+              disabled={conflict.serverUnreadable}
               onClick={() => onChoose("server")}
             >
               {text("conflictKeepServer")}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type { CertifiedAccountPort } from "../certifiedUi/accountSession";
 import {
   AccountPanel,
   accountClasses,
@@ -8,7 +9,7 @@ import {
   SignOutDialog,
   useAccountText,
 } from "./AccountDialogs";
-import { AccountController } from "./accountController";
+import { AccountController, type AccountUi } from "./accountController";
 import type {
   AccountNotice,
   AccountView,
@@ -17,17 +18,42 @@ import type {
   SyncStatus,
 } from "./accountState";
 import { createAccountApi } from "./api";
+import { createCertifiedSessionCodec } from "./certifiedSessionItem";
 import { createCrossTabChannel } from "./crossTab";
 import { takeAccountError } from "./loginError";
-import type { CalculatorInput } from "./workspaceDocument";
+import { type CalculatorInput, calculatorInputKey } from "./workspaceDocument";
+import { calculatorInputCodec, type WorkspaceItemCodec } from "./workspaceItem";
 import { openWorkspaceStore } from "./workspaceStore";
 
-export type AccountEntryProps = {
+/** Production engine: the calculator inputs are the workspace item. */
+type CalculatorInputBinding = {
+  kind: "calculator-input";
   input: CalculatorInput;
   /** While the calculator is busy, server/guest inputs are applied once it is idle again. */
   inputLocked: boolean;
   onApplyInput: (input: CalculatorInput) => void;
 };
+
+/** Certified engine: the certified session is the item; its guest copy stays in its own key. */
+type CertifiedSessionBinding = {
+  kind: "certified-session";
+  port: CertifiedAccountPort;
+  /** Changes identity whenever the certified session changes. */
+  changeToken: object;
+  inputLocked: boolean;
+  /** Runs after the shown session switched between account and guest data. */
+  onSwitched?: () => void;
+};
+
+export type AccountEntryProps = CalculatorInputBinding | CertifiedSessionBinding;
+
+/** A display switch the engine performs once it is idle. */
+type EngineSwitch =
+  | { kind: "input"; value: CalculatorInput }
+  | { kind: "session"; text: string }
+  | { kind: "guest" };
+
+type EntryController = { ui: AccountUi; notifyChange(): void };
 
 const SAVE_DELAY_MS = 1_500;
 const SESSION_RECHECK_MS = 30_000;
@@ -64,12 +90,13 @@ function downloadJson(fileName: string, text: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function createBrowserController(calculator: CalculatorBridge) {
-  return new AccountController({
+function createBrowserController<T>(codec: WorkspaceItemCodec<T>, calculator: CalculatorBridge<T>) {
+  return new AccountController<T>({
     api: createAccountApi(),
     channel: createCrossTabChannel(),
+    codec,
     calculator,
-    openStore: openWorkspaceStore,
+    openStore: () => openWorkspaceStore(codec.type),
     newOpId: () => crypto.randomUUID(),
     navigate: (url) => window.location.assign(url),
     download: downloadJson,
@@ -82,7 +109,48 @@ function createBrowserController(calculator: CalculatorBridge) {
   });
 }
 
-function useBrowserSignals(controller: AccountController) {
+/** The engine kind of a mounted entry never changes; the binding ref always holds that kind. */
+function createEntryController(
+  binding: { readonly current: AccountEntryProps },
+  queue: (next: EngineSwitch) => void,
+): EntryController {
+  const initial = binding.current;
+  if (initial.kind === "calculator-input") {
+    const input = () => (binding.current as CalculatorInputBinding).input;
+    const controller = createBrowserController(calculatorInputCodec, {
+      capture: input,
+      apply: (value) => queue({ kind: "input", value }),
+    });
+    return { ui: controller, notifyChange: () => controller.notifyLocalChange(input()) };
+  }
+  const { port } = initial;
+  const controller = createBrowserController(createCertifiedSessionCodec(port), {
+    capture: () => port.current(),
+    apply: (text) => queue({ kind: "session", text }),
+    ownGuest: { read: () => port.readGuest(), show: () => queue({ kind: "guest" }) },
+  });
+  return {
+    ui: controller,
+    notifyChange: () => {
+      // Serializing the session is only needed while an account is shown.
+      if (controller.getSnapshot().view.phase === "signed-in") {
+        controller.notifyLocalChange(port.current());
+      }
+    },
+  };
+}
+
+function performSwitch(props: AccountEntryProps, next: EngineSwitch) {
+  if (props.kind === "calculator-input") {
+    if (next.kind === "input") props.onApplyInput(next.value);
+    return;
+  }
+  if (next.kind === "session") props.port.applyAccount(next.text);
+  else if (next.kind === "guest") props.port.showGuest();
+  props.onSwitched?.();
+}
+
+function useBrowserSignals(controller: AccountUi) {
   useEffect(() => {
     let lastCheck = Date.now();
     const onVisibility = () => {
@@ -101,15 +169,14 @@ function useBrowserSignals(controller: AccountController) {
   }, [controller]);
 }
 
-function useAccountController({ input, inputLocked, onApplyInput }: AccountEntryProps) {
-  const latestInput = useRef(input);
+function useAccountController(props: AccountEntryProps) {
+  const binding = useRef(props);
   useEffect(() => {
-    latestInput.current = input;
+    binding.current = props;
   });
-  const [pendingApply, setPendingApply] = useState<CalculatorInput | null>(null);
-  const [controller] = useState(() =>
-    createBrowserController({ capture: () => latestInput.current, apply: setPendingApply }),
-  );
+  const [pending, setPending] = useState<EngineSwitch | null>(null);
+  const [entry] = useState(() => createEntryController(binding, setPending));
+  const controller = entry.ui;
   useEffect(() => {
     void controller.start();
     const loginError = takeAccountError(window.location.href);
@@ -119,16 +186,22 @@ function useAccountController({ input, inputLocked, onApplyInput }: AccountEntry
     }
     return () => controller.dispose();
   }, [controller]);
+  const { inputLocked } = props;
   useEffect(() => {
-    if (!pendingApply || inputLocked) return;
-    onApplyInput(pendingApply);
-    setPendingApply(null);
-  }, [inputLocked, onApplyInput, pendingApply]);
-  const { grade, level, exp } = input;
-  const { blue, purple, yellow } = input.stock;
+    if (!pending || inputLocked) return;
+    setPending(null);
+    performSwitch(binding.current, pending);
+  }, [inputLocked, pending]);
+  const changeToken =
+    props.kind === "calculator-input" ? calculatorInputKey(props.input) : props.changeToken;
+  const notified = useRef<unknown>(null);
   useEffect(() => {
-    controller.notifyLocalChange({ grade, level, exp, stock: { blue, purple, yellow } });
-  }, [blue, controller, exp, grade, level, purple, yellow]);
+    // While a switch is pending the shown data is about to be replaced: edits to it are not
+    // edits to the account (or guest) data the controller already moved to.
+    if (pending || notified.current === changeToken) return;
+    notified.current = changeToken;
+    entry.notifyChange();
+  }, [changeToken, entry, pending]);
   useBrowserSignals(controller);
   return controller;
 }

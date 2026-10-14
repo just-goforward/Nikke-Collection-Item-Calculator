@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
 import { CERTIFIED_STAGING_ENGINE_PROFILE } from "../../shared/certifiedEngineProfile";
 import { AppShell } from "../AppLayout";
+import { AccountControl } from "../account/AccountControl";
 import { useAppShellNavigation } from "../hooks/useAppShellNavigation";
 import { useStatsQuery } from "../hooks/useStatsQuery";
 import { useTheme } from "../hooks/useTheme";
@@ -86,6 +87,15 @@ export default function CertifiedCalculator() {
 
   return (
     <AppShell
+      accountControl={
+        <AccountControl
+          kind="certified-session"
+          changeToken={controller.accountToken}
+          inputLocked={controller.run.busy || controller.modal.open}
+          port={controller.accountPort}
+          onSwitched={shell.clearResetToast}
+        />
+      }
       banner={<CertifiedBanner {...chrome} />}
       engineProfile={CERTIFIED_STAGING_ENGINE_PROFILE.id}
       hasResult={ui.current !== null}

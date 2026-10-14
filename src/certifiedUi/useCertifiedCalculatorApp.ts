@@ -5,6 +5,7 @@ import {
 } from "../../shared/certifiedSupply";
 import { REQUIRED_EXP } from "../../shared/game";
 import type { Stock } from "../types";
+import { useCertifiedAccountPort } from "./accountSession";
 import type { CertifiedCalculatorController } from "./calculatorController";
 import { resolveCertifiedStockCorrection } from "./calculatorSessionActions";
 import { certifiedClaimableEvents } from "./session";
@@ -33,8 +34,16 @@ export function useCertifiedCalculatorApp(): CertifiedCalculatorController {
     ownership,
     preparation.snapshotRef,
   );
+  const accountPort = useCertifiedAccountPort({
+    latest: store.latest,
+    publish: store.publish,
+    accountMode: store.accountMode,
+    retire: ownership.retire,
+    snapshotRef: preparation.snapshotRef,
+    updateSession,
+  });
   // Keep native binding, persistence, preparation, and committed recomputation effects in order.
-  useCertifiedSessionPersistence(store.bridge, store.setSaveFailed);
+  useCertifiedSessionPersistence(store.bridge, store.setSaveFailed, store.accountMode);
   useCertifiedCalculatorPreparation(preparation, store.latest, ownership.retire, updateSession);
   useCertifiedActionRecomputation(
     store.bridge.session,
@@ -75,7 +84,13 @@ export function useCertifiedCalculatorApp(): CertifiedCalculatorController {
     ? resolveCertifiedStockCorrection(bridge.correction, bridge.session).view
     : null;
   const run = ownership.view(actions.calculate);
+  const accountToken = useMemo(
+    () => ({ session: bridge.session, correction: bridge.correction }),
+    [bridge.session, bridge.correction],
+  );
   return {
+    accountPort,
+    accountToken,
     session: bridge.session,
     updateSession,
     snapshot,

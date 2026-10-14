@@ -255,6 +255,18 @@ describe("workspace sync", () => {
       serverRevision: 6,
       server: input(20),
       local: input(44),
+      serverBytes: null,
+      localBytes: null,
+      serverUnreadable: false,
     });
+    // Cancelling and resuming, or reloading, still asks: the stored base revision is kept.
+    await harness.controller.resolveConflict("cancel");
+    await harness.controller.resumeSync();
+    expect(signedIn(harness.view()).sync).toBe("conflict");
+    expect(await store.readAccount("user-a")).toMatchObject({ baseRevision: 4, dirty: true });
+    const reloaded = createHarness(server, { store });
+    await reloaded.controller.start();
+    expect(signedIn(reloaded.view()).sync).toBe("conflict");
+    expect(readCalculatorInput(server.document)).toEqual(input(20));
   });
 });

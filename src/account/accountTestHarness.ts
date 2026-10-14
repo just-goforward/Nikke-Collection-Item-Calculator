@@ -15,6 +15,7 @@ import {
   DEFAULT_CALCULATOR_INPUT,
   EMPTY_WORKSPACE_DOCUMENT,
 } from "./workspaceDocument";
+import { calculatorInputCodec, type WorkspaceItemCodec } from "./workspaceItem";
 import { createMemoryWorkspaceStore, type WorkspaceStore } from "./workspaceStore";
 
 /** In-memory personal-data server for controller tests (CAS, op replay, account context). */
@@ -188,29 +189,56 @@ export function recordingChannel(): CrossTabChannel & { posted: CrossTabMessage[
 
 type Timer = { callback: () => void; delayMs: number; cancelled: boolean };
 
-export function createHarness(
+type HarnessOptions<T> = {
+  channel?: CrossTabChannel;
+  store?: WorkspaceStore;
+  displayed?: T;
+  /** Engines with their own guest storage (certified): `value` is that stored guest data. */
+  ownGuest?: { value: T | null };
+};
+
+export function createHarness(server: FakeServer, options: HarnessOptions<CalculatorInput> = {}) {
+  return createItemHarness(server, calculatorInputCodec, DEFAULT_CALCULATOR_INPUT, options);
+}
+
+export function createItemHarness<T>(
   server: FakeServer,
-  options: { channel?: CrossTabChannel; store?: WorkspaceStore; displayed?: CalculatorInput } = {},
+  codec: WorkspaceItemCodec<T>,
+  initial: T,
+  options: HarnessOptions<T> = {},
 ) {
   const store = options.store ?? createMemoryWorkspaceStore();
   const channel = options.channel ?? recordingChannel();
-  const applied: CalculatorInput[] = [];
+  const applied: T[] = [];
   const navigations: string[] = [];
   const downloads: Array<{ fileName: string; text: string }> = [];
   const timers: Timer[] = [];
-  let displayed = options.displayed ?? DEFAULT_CALCULATOR_INPUT;
+  let displayed = options.displayed ?? initial;
   let opCount = 0;
-  const controller: AccountController = new AccountController({
+  const show = (value: T) => {
+    displayed = value;
+    applied.push(value);
+    // React re-renders and reports the applied value back; it must not count as an edit.
+    queueMicrotask(() => controller.notifyLocalChange(value));
+  };
+  const ownGuest = options.ownGuest;
+  const controller: AccountController<T> = new AccountController<T>({
     api: fakeApi(server),
     channel,
+    codec,
     calculator: {
       capture: () => displayed,
-      apply: (input) => {
-        displayed = input;
-        applied.push(input);
-        // React re-renders and reports the applied input back; it must not count as an edit.
-        queueMicrotask(() => controller.notifyLocalChange(input));
-      },
+      apply: show,
+      ...(ownGuest
+        ? {
+            ownGuest: {
+              read: () => ownGuest.value,
+              show: () => {
+                displayed = ownGuest.value ?? codec.empty();
+              },
+            },
+          }
+        : {}),
     },
     openStore: async () => ({ store, persistent: true }),
     newOpId: () => `op-${++opCount}`,
@@ -239,9 +267,9 @@ export function createHarness(
     view: (): AccountView => controller.getSnapshot().view,
     notice: () => controller.getSnapshot().notice,
     pendingTimers: () => timers.filter((timer) => !timer.cancelled),
-    edit(input: CalculatorInput) {
-      displayed = input;
-      controller.notifyLocalChange(input);
+    edit(value: T) {
+      displayed = value;
+      controller.notifyLocalChange(value);
     },
     /** Fires every live timer (repeatedly, for timers scheduled by fired ones) and settles. */
     async runTimers(limit = 10) {
