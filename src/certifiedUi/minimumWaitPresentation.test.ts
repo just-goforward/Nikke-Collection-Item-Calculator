@@ -44,10 +44,34 @@ describe("localized minimum-wait label, independent of H56", () => {
         expect(minimumWaitText(unknown, words, true)).toBe(words.minimumWaitUnknown);
         expect(minimumWaitReason(unknown, words, true)).toBe(message);
       }
-      expect(minimumWaitReason({ ...pending, reason: "new_guard" }, words, false)).toContain(
-        "new_guard",
-      );
       expect(words.minimumWaitMeaning.length).toBeGreaterThan(0);
+    });
+    it(`${locale}: hides unmapped internal reasons behind the localized fallback`, () => {
+      for (const reason of [
+        "minimum_wait_batch_not_exact_tie",
+        "negative_recurring_rate",
+        "minimum_wait_compensation_invalid",
+        "new_guard",
+        "__proto__",
+        null,
+      ]) {
+        const unknown = minimumWaitBase(null, "unknown", reason);
+        for (const busy of [false, true]) {
+          const message = minimumWaitReason(unknown, words, busy);
+          expect(message).toBe(words.minimumWaitUnconfirmed);
+          if (reason !== null) expect(message).not.toContain(reason);
+        }
+      }
+    });
+    it(`${locale}: explains idle pending results as interrupted and asks to recalculate`, () => {
+      for (const reason of ["minimum_wait_in_progress", "current_not_completed"]) {
+        const pending = minimumWaitBase(null, "unknown", reason);
+        expect(minimumWaitText(pending, words, true)).toBe(words.minimumWaitCalculating);
+        expect(minimumWaitReason(pending, words, true)).toBeNull();
+        expect(minimumWaitCalculating(pending, false)).toBe(false);
+        expect(minimumWaitReason(pending, words, false)).toBe(words.minimumWaitInterrupted);
+        expect(minimumWaitReason(pending, words, false)).not.toContain(reason);
+      }
     });
   }
 });

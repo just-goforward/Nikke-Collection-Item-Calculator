@@ -25,8 +25,8 @@ export const certifiedMessages = {
     minimumWaitBudget: "시간 한도 안에 대기일을 확인하지 못했습니다.",
     minimumWaitGuard: "메모리·계산 안전 한도에 도달해 대기일을 확인하지 못했습니다.",
     minimumWaitCoverage: "미래 수급 자료가 불완전해 대기일을 확인하지 못했습니다.",
-    minimumWaitInterrupted: "계산이 중단되어 대기일을 확인하지 못했습니다.",
-    minimumWaitUnconfirmed: "대기일 미확인 사유",
+    minimumWaitInterrupted: "계산이 중단되어 대기일을 확인하지 못했습니다. 다시 계산해 주세요.",
+    minimumWaitUnconfirmed: "최소 대기일을 확인하지 못했습니다. 다시 계산해 주세요.",
     minimumWaitMeaning:
       "이 기준에서 표시된 날보다 짧은 대기는 더 나은 결과를 주지 못합니다. 그 전에는 지금 사용하는 것이 최선입니다.",
     minimumWaitInterval: "최소 대기 {from}–{to}일 · 구간만 확인",
@@ -127,8 +127,9 @@ export const certifiedMessages = {
     minimumWaitBudget: "The time budget expired before the wait could be confirmed.",
     minimumWaitGuard: "A memory or computation safety limit prevented confirmation.",
     minimumWaitCoverage: "Incomplete future supply coverage prevented confirmation.",
-    minimumWaitInterrupted: "The calculation was interrupted before confirmation.",
-    minimumWaitUnconfirmed: "Reason the wait is unconfirmed",
+    minimumWaitInterrupted:
+      "The calculation was interrupted before confirmation. Please calculate again.",
+    minimumWaitUnconfirmed: "Could not confirm the minimum wait. Please calculate again.",
     minimumWaitMeaning:
       "Under this threshold, waiting fewer than the displayed days cannot give a better result. Using now is best before that day.",
     minimumWaitInterval: "Minimum wait {from}–{to} days · interval only",
@@ -229,8 +230,9 @@ export const certifiedMessages = {
     minimumWaitBudget: "時間上限に達したため、待機日数を確認できませんでした。",
     minimumWaitGuard: "メモリ・計算の安全上限に達したため、確認できませんでした。",
     minimumWaitCoverage: "今後の供給資料が不完全なため、確認できませんでした。",
-    minimumWaitInterrupted: "計算が中断されたため、待機日数は未確認です。",
-    minimumWaitUnconfirmed: "待機日数を確認できない理由",
+    minimumWaitInterrupted:
+      "計算が中断されたため、待機日数は未確認です。もう一度計算してください。",
+    minimumWaitUnconfirmed: "最小待機日数を確認できませんでした。もう一度計算してください。",
     minimumWaitMeaning:
       "この基準では、表示日数未満の待機で今使うより良い結果は得られません。その日までは今使うのが最善です。",
     minimumWaitInterval: "最小待機{from}–{to}日 · 区間のみ確認",

@@ -44,6 +44,8 @@ const reasonWordKeys = new Map<string, keyof CertifiedWords>([
   ["minimum_wait_bound_cache_unavailable", "minimumWaitGuard"],
   ["minimum_wait_grid_overflow", "minimumWaitGuard"],
   ["minimum_wait_future_coverage_incomplete", "minimumWaitCoverage"],
+  ["minimum_wait_in_progress", "minimumWaitInterrupted"],
+  ["current_not_completed", "minimumWaitInterrupted"],
   ["worker_abort", "minimumWaitInterrupted"],
 ]);
 
@@ -55,5 +57,5 @@ export function minimumWaitReason(
   if (value?.status !== "unknown" || minimumWaitCalculating(value, busy)) return null;
   const key = reasonWordKeys.get(value.reason ?? "");
   if (key !== undefined) return words[key];
-  return `${words.minimumWaitUnconfirmed}: ${value.reason ?? words.NA}`;
+  return words.minimumWaitUnconfirmed;
 }
