@@ -14,6 +14,19 @@ fn base(status: &str, reason: Option<&str>) -> Json {
         "evaluatedDays":[0], "successImprovementUpperBound":null,
         "successProbabilityInterval":null, "reason":reason, "evidence":[] })
 }
+/// An optional tie candidate cannot invalidate an already completed base proof.
+fn keep_preferred_wait(
+    best: &mut (minimum_wait::Assessment, Value),
+    alternative: Result<(minimum_wait::Assessment, Value)>,
+) {
+    if let Ok(candidate) = alternative {
+        if let Some(rank) = candidate.0.rank() {
+            if best.0.rank().is_none_or(|old| rank < old) {
+                *best = candidate;
+            }
+        }
+    }
+}
 impl Engine {
     fn compare_exact(&self, a: &Value, b: &Value) -> Ordering {
         let exponent = a.exponent.max(b.exponent);
@@ -149,79 +162,39 @@ impl Engine {
             return Ok(json!({"current":self.current_json(sid, &root, None),
                 "minimumWait":minimum_wait::inactive()}));
         };
-        let selected = (|| -> Result<minimum_wait::Assessment> {
-            if let Some(reason) = base.guard {
-                return Err(reason);
+        let assessment = self.assess_batch(supply, sid, stock, base.clone(), complete, false);
+        let mut best = (assessment, root.clone());
+        for kit in 0..3 {
+            if best.0.beyond {
+                break;
             }
-            let rates = supply.minimum_wait_rates()?;
-            let mut candidates = Vec::new();
-            // Candidates are the existing maximal optimal normal-prefix batches,
-            // not arbitrary shortened batches manufactured to obtain a label.
-            for kit in 0..3 {
-                if root.mask & (1 << kit) == 0 {
-                    continue;
-                }
-                let batch = if kit == base.kit {
-                    base.clone()
-                } else {
-                    self.batch_for_kit(sid, stock, limit, kit, &root)
-                };
+            if kit == base.kit || root.mask & (1 << kit) == 0 {
+                continue;
+            }
+            let alternative = (|| {
+                // Only maximal exact-optimal batches, never shortened for a label.
+                let batch = self.batch_for_kit(sid, stock, limit, kit, &root);
                 if let Some(reason) = batch.guard {
                     return Err(reason);
                 }
-                if minimum_wait::settlement_certificate(&batch, &rates) {
-                    let assessment = self.assess_batch(supply, sid, stock, batch, complete, false);
-                    if let Some(reason) = assessment.reason {
-                        return Err(reason);
-                    }
-                    return Ok(assessment);
-                }
-                candidates.push(batch);
-            }
-            let mut best: Option<minimum_wait::Assessment> = None;
-            for batch in candidates {
                 let assessment = self.assess_batch(supply, sid, stock, batch, complete, false);
                 if let Some(reason) = assessment.reason {
-                    if assessment.batch.kit == base.kit {
-                        return Ok(assessment);
-                    }
                     return Err(reason);
                 }
-                if assessment.beyond {
-                    return Ok(assessment);
+                let mut value =
+                    self.forced_batch_value(&assessment.batch, stock.map(|pieces| pieces / 10))?;
+                if self.compare_exact(&value, &root) != Ordering::Equal {
+                    return Err("minimum_wait_batch_not_exact_tie");
                 }
-                if best
-                    .as_ref()
-                    .is_none_or(|old| assessment.rank() < old.rank())
-                {
-                    best = Some(assessment);
-                }
-            }
-            best.ok_or("minimum_wait_no_candidate")
-        })();
-        let assessment = match selected {
-            Ok(assessment) => assessment,
-            Err(reason) => minimum_wait::Assessment::unknown(base.clone(), reason),
-        };
-        if assessment.rank().is_none()
-            || (assessment.batch.kit == base.kit && assessment.batch.uses() == base.uses())
-        {
-            return Ok(self.minimum_response(sid, &root, &assessment));
-        }
-        let choice = self.forced_batch_value(&assessment.batch, stock.map(|pieces| pieces / 10));
-        match choice {
-            Ok(mut value) if self.compare_exact(&value, &root) == Ordering::Equal => {
                 value.mask = root.mask;
-                self.current_root = Some(value.clone());
-                self.current_choice = Some(assessment.batch.clone());
-                Ok(self.minimum_response(sid, &value, &assessment))
-            }
-            outcome => {
-                let reason = outcome.err().unwrap_or("minimum_wait_batch_not_exact_tie");
-                let unknown = minimum_wait::Assessment::unknown(base, reason);
-                Ok(self.minimum_response(sid, &root, &unknown))
-            }
+                Ok((assessment, value))
+            })();
+            keep_preferred_wait(&mut best, alternative);
         }
+        let (assessment, value) = best;
+        self.current_root = Some(value.clone());
+        self.current_choice = Some(assessment.batch.clone());
+        Ok(self.minimum_response(sid, &value, &assessment))
     }
 
     pub fn minimum_wait_probe(

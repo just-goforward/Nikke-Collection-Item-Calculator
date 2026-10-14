@@ -28,11 +28,17 @@ export async function measureNodeMinimumWait() {
   const { createNodeCertifiedClient }: typeof import("../src/certifiedRuntime/nodeClient.ts") =
     await import(pathToFileURL(join(directory, "src/certifiedRuntime/nodeClient.js")).href);
   const worker = pathToFileURL(join(directory, "src/certifiedRuntime/nodeWorker.js"));
-  const results = [];
-  for (const fixture of timing.MINIMUM_WAIT_TIMING_CASES)
-    results.push(
-      await timing.measureMinimumWaitRequest(fixture.id, () => createNodeCertifiedClient(worker)),
-    );
+  const results: (Awaited<ReturnType<typeof timing.measureMinimumWaitRequest>> & {
+    repeat: number;
+  })[] = [];
+  for (let repeat = 1; repeat <= timing.MINIMUM_WAIT_TIMING_REPEATS; repeat++)
+    for (const fixture of timing.MINIMUM_WAIT_TIMING_CASES)
+      results.push({
+        repeat,
+        ...(await timing.measureMinimumWaitRequest(fixture.id, () =>
+          createNodeCertifiedClient(worker),
+        )),
+      });
   return {
     environment: {
       runtime: process.version,
@@ -44,10 +50,11 @@ export async function measureNodeMinimumWait() {
     },
     bundleDirectory: directory,
     results,
+    summary: timing.summarizeMinimumWaitTimings(results),
   };
 }
 
-export async function measureChromiumMinimumWait() {
+export async function measureChromiumMinimumWait(cpuThrottlingRate: 1 | 4 = 1) {
   const server = await createServer({
     configFile: false,
     root: process.cwd(),
@@ -60,6 +67,8 @@ export async function measureChromiumMinimumWait() {
     const address = server.httpServer?.address();
     if (!address || typeof address === "string") throw new Error("missing_timing_server_address");
     const page = await browser.newPage();
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuThrottlingRate });
     await page.goto(`http://127.0.0.1:${address.port}/benchmarks/certified-minimum-wait.html`);
     const result = await page.evaluate(async () => {
       const { runMinimumWaitBrowserTiming } = await import(
@@ -67,7 +76,7 @@ export async function measureChromiumMinimumWait() {
       );
       return runMinimumWaitBrowserTiming();
     });
-    return { browserVersion: browser.version(), ...result };
+    return { browserVersion: browser.version(), cpuThrottlingRate, ...result };
   } finally {
     await browser.close();
     await server.close();
@@ -76,9 +85,13 @@ export async function measureChromiumMinimumWait() {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const mode = process.argv[2];
-  if (mode !== "node" && mode !== "chromium")
-    throw new Error("Use: node scripts/measure-certified-minimum-wait.ts node|chromium");
+  if (mode !== "node" && mode !== "chromium" && mode !== "chromium-4x")
+    throw new Error(
+      "Use: node scripts/measure-certified-minimum-wait.ts node|chromium|chromium-4x",
+    );
   const result =
-    mode === "node" ? await measureNodeMinimumWait() : await measureChromiumMinimumWait();
+    mode === "node"
+      ? await measureNodeMinimumWait()
+      : await measureChromiumMinimumWait(mode === "chromium-4x" ? 4 : 1);
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

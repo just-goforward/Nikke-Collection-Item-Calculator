@@ -21,6 +21,14 @@ export const certifiedMessages = {
     minimumWaitDays: "최소 {n}일 대기",
     minimumWaitBeyond: "7일 이상",
     minimumWaitUnknown: "최소 대기일 미확인",
+    minimumWaitCalculating: "최소 대기일 계산 중…",
+    minimumWaitBudget: "시간 한도 안에 대기일을 확인하지 못했습니다.",
+    minimumWaitGuard: "메모리·계산 안전 한도에 도달해 대기일을 확인하지 못했습니다.",
+    minimumWaitCoverage: "미래 수급 자료가 불완전해 대기일을 확인하지 못했습니다.",
+    minimumWaitInterrupted: "계산이 중단되어 대기일을 확인하지 못했습니다.",
+    minimumWaitUnconfirmed: "대기일 미확인 사유",
+    minimumWaitMeaning:
+      "이 기준에서 표시된 날보다 짧은 대기는 더 나은 결과를 주지 못합니다. 그 전에는 지금 사용하는 것이 최선입니다.",
     minimumWaitInterval: "최소 대기 {from}–{to}일 · 구간만 확인",
     minimumWaitLower: "{n}일 이전은 제외 · 이후 미확인",
     minimumWaitExplain:
@@ -115,6 +123,14 @@ export const certifiedMessages = {
     minimumWaitDays: "Wait at least {n} day(s)",
     minimumWaitBeyond: "7+ days",
     minimumWaitUnknown: "Minimum wait unknown",
+    minimumWaitCalculating: "Calculating minimum wait…",
+    minimumWaitBudget: "The time budget expired before the wait could be confirmed.",
+    minimumWaitGuard: "A memory or computation safety limit prevented confirmation.",
+    minimumWaitCoverage: "Incomplete future supply coverage prevented confirmation.",
+    minimumWaitInterrupted: "The calculation was interrupted before confirmation.",
+    minimumWaitUnconfirmed: "Reason the wait is unconfirmed",
+    minimumWaitMeaning:
+      "Under this threshold, waiting fewer than the displayed days cannot give a better result. Using now is best before that day.",
     minimumWaitInterval: "Minimum wait {from}–{to} days · interval only",
     minimumWaitLower: "Before day {n} excluded · later days unconfirmed",
     minimumWaitExplain:
@@ -209,6 +225,14 @@ export const certifiedMessages = {
     minimumWaitDays: "最低{n}日待機",
     minimumWaitBeyond: "7日以上",
     minimumWaitUnknown: "最小待機日数は未確認",
+    minimumWaitCalculating: "最小待機日数を計算中…",
+    minimumWaitBudget: "時間上限に達したため、待機日数を確認できませんでした。",
+    minimumWaitGuard: "メモリ・計算の安全上限に達したため、確認できませんでした。",
+    minimumWaitCoverage: "今後の供給資料が不完全なため、確認できませんでした。",
+    minimumWaitInterrupted: "計算が中断されたため、待機日数は未確認です。",
+    minimumWaitUnconfirmed: "待機日数を確認できない理由",
+    minimumWaitMeaning:
+      "この基準では、表示日数未満の待機で今使うより良い結果は得られません。その日までは今使うのが最善です。",
     minimumWaitInterval: "最小待機{from}–{to}日 · 区間のみ確認",
     minimumWaitLower: "{n}日未満は除外 · 以降は未確認",
     minimumWaitExplain:

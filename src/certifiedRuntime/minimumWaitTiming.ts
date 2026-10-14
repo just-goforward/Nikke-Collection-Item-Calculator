@@ -3,6 +3,8 @@ import type { CertifiedInput, CertifiedOutput, Triple } from "../certified/types
 import { prepareCertifiedForecast } from "../lib/certifiedForecast";
 import type { createBrowserCertifiedClient } from "./browserClient";
 
+export const MINIMUM_WAIT_TIMING_REPEATS = 5;
+
 /** Input coordinates from the M14 research experiment; no expected/oracle values. */
 export const MINIMUM_WAIT_TIMING_CASES: readonly {
   id: string;
@@ -17,6 +19,32 @@ export const MINIMUM_WAIT_TIMING_CASES: readonly {
   { id: "SR10", grade: "SR", level: 10, stock: [20, 10, 10] },
   { id: "SR13", grade: "SR", level: 13, stock: [10, 10, 0] },
 ];
+
+export function summarizeMinimumWaitTimings(
+  results: readonly { id: string; elapsedMs: number; targetMet: boolean; status: string }[],
+) {
+  return MINIMUM_WAIT_TIMING_CASES.map(({ id }) => {
+    const samples = results.filter((row) => row.id === id);
+    const times = samples.map((row) => row.elapsedMs).sort((a, b) => a - b);
+    const medianMs = times[2];
+    const maxMs = times[4];
+    if (
+      times.length !== MINIMUM_WAIT_TIMING_REPEATS ||
+      medianMs === undefined ||
+      maxMs === undefined
+    )
+      throw new Error("minimum_wait_timing_requires_five_samples");
+    return {
+      id,
+      samples: samples.length,
+      medianMs,
+      maxMs,
+      targetMs: 15_000,
+      withinBudget: samples.filter((row) => row.targetMet).length,
+      completed: samples.filter((row) => row.status === "completed").length,
+    };
+  });
+}
 
 export async function minimumWaitTimingInput(id: string): Promise<CertifiedInput> {
   const fixture = MINIMUM_WAIT_TIMING_CASES.find((entry) => entry.id === id);

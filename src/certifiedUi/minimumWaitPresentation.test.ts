@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { minimumWaitBase } from "../certifiedRuntime/minimumWait";
 import { certifiedMessages } from "./messages";
-import { minimumWaitText } from "./minimumWaitPresentation";
+import {
+  minimumWaitCalculating,
+  minimumWaitReason,
+  minimumWaitText,
+} from "./minimumWaitPresentation";
 
 describe("localized minimum-wait label, independent of H56", () => {
   for (const [locale, words] of Object.entries(certifiedMessages)) {
@@ -22,6 +26,28 @@ describe("localized minimum-wait label, independent of H56", () => {
       expect(
         minimumWaitText({ ...unknown, earliestPossibleDay: 3, latestPossibleDay: 6 }, words),
       ).toBe(words.minimumWaitInterval.replace("{from}", "3").replace("{to}", "6"));
+    });
+    it(`${locale}: separates computing from unknown and explains refusals`, () => {
+      const pending = minimumWaitBase(null, "unknown", "minimum_wait_in_progress");
+      expect(minimumWaitCalculating(pending, true)).toBe(true);
+      expect(minimumWaitText(pending, words, true)).toBe(words.minimumWaitCalculating);
+      expect(minimumWaitText(undefined, words, true)).toBe(words.minimumWaitCalculating);
+      expect(minimumWaitReason(pending, words, true)).toBeNull();
+      for (const [reason, message] of [
+        ["request_budget_exhausted", words.minimumWaitBudget],
+        ["exact_support_limit", words.minimumWaitGuard],
+        ["current_claimable_unreceived", words.claimRequired],
+        ["minimum_wait_future_coverage_incomplete", words.minimumWaitCoverage],
+      ] as const) {
+        const unknown = minimumWaitBase(null, "unknown", reason);
+        expect(minimumWaitCalculating(unknown, true)).toBe(false);
+        expect(minimumWaitText(unknown, words, true)).toBe(words.minimumWaitUnknown);
+        expect(minimumWaitReason(unknown, words, true)).toBe(message);
+      }
+      expect(minimumWaitReason({ ...pending, reason: "new_guard" }, words, false)).toContain(
+        "new_guard",
+      );
+      expect(words.minimumWaitMeaning.length).toBeGreaterThan(0);
     });
   }
 });

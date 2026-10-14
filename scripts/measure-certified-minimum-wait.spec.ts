@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MINIMUM_WAIT_TIMING_CASES,
   minimumWaitTimingInput,
+  summarizeMinimumWaitTimings,
 } from "../src/certifiedRuntime/minimumWaitTiming";
 import {
   measureChromiumMinimumWait,
@@ -9,6 +10,25 @@ import {
 } from "./measure-certified-minimum-wait";
 
 describe("reproducible full-request timing inputs", () => {
+  it("reports all five samples, their median and maximum without dropping failures", () => {
+    const rows = MINIMUM_WAIT_TIMING_CASES.flatMap(({ id }) =>
+      [3, 5, 1, 9, 7].map((elapsedMs) => ({
+        id,
+        elapsedMs,
+        targetMet: elapsedMs !== 9,
+        status: elapsedMs === 9 ? "partial" : "completed",
+      })),
+    );
+    for (const summary of summarizeMinimumWaitTimings(rows))
+      expect(summary).toMatchObject({
+        samples: 5,
+        medianMs: 5,
+        maxMs: 9,
+        withinBudget: 4,
+        completed: 4,
+      });
+    expect(() => summarizeMinimumWaitTimings(rows.slice(1))).toThrow("requires_five_samples");
+  });
   it("exposes both real-runtime harnesses without running benchmarks in the unit suite", () => {
     expect(typeof measureChromiumMinimumWait).toBe("function");
     expect(typeof measureNodeMinimumWait).toBe("function");

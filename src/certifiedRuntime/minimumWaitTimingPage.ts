@@ -1,11 +1,21 @@
 import { createBrowserCertifiedClient } from "./browserClient";
-import { MINIMUM_WAIT_TIMING_CASES, measureMinimumWaitRequest } from "./minimumWaitTiming";
+import {
+  MINIMUM_WAIT_TIMING_CASES,
+  MINIMUM_WAIT_TIMING_REPEATS,
+  measureMinimumWaitRequest,
+  summarizeMinimumWaitTimings,
+} from "./minimumWaitTiming";
 
 /** Standalone manual measurement page, not a calculator route or a saved session. */
 export async function runMinimumWaitBrowserTiming() {
-  const results = [];
-  for (const fixture of MINIMUM_WAIT_TIMING_CASES)
-    results.push(await measureMinimumWaitRequest(fixture.id, createBrowserCertifiedClient));
+  const results: (Awaited<ReturnType<typeof measureMinimumWaitRequest>> & { repeat: number })[] =
+    [];
+  for (let repeat = 1; repeat <= MINIMUM_WAIT_TIMING_REPEATS; repeat++)
+    for (const fixture of MINIMUM_WAIT_TIMING_CASES)
+      results.push({
+        repeat,
+        ...(await measureMinimumWaitRequest(fixture.id, createBrowserCertifiedClient)),
+      });
   return {
     environment: {
       userAgent: navigator.userAgent,
@@ -13,6 +23,7 @@ export async function runMinimumWaitBrowserTiming() {
       devicePixelRatio: window.devicePixelRatio,
     },
     results,
+    summary: summarizeMinimumWaitTimings(results),
   };
 }
 
@@ -21,7 +32,7 @@ const output = document.querySelector<HTMLPreElement>("#results");
 if (button && output) {
   button.addEventListener("click", async () => {
     button.disabled = true;
-    output.textContent = "Measuring six full requests. Keep this page visible…";
+    output.textContent = "Measuring five repeats of six full requests. Keep this page visible…";
     try {
       output.textContent = JSON.stringify(await runMinimumWaitBrowserTiming(), null, 2);
     } catch (error) {

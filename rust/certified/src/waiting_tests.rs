@@ -1,5 +1,50 @@
 use super::*;
 
+fn assessed(day: Option<usize>, kit: usize) -> minimum_wait::Assessment {
+    let batch = minimum_wait::Batch {
+        kit,
+        path: vec![(599, [1000, 600, 600])],
+        guard: None,
+    };
+    let mut assessment = minimum_wait::Assessment::unknown(batch, "test");
+    assessment.reason = None;
+    assessment.beyond = day.is_none();
+    assessment.first_day = day;
+    assessment.earliest = day.unwrap_or(8);
+    assessment
+}
+
+#[test]
+fn exact_wait_ties_prefer_beyond_then_descending_days_then_unknown() {
+    let mut best = (assessed(Some(1), 0), Value::zero());
+    for day in 2..=7 {
+        keep_preferred_wait(&mut best, Ok((assessed(Some(day), 1), Value::zero())));
+        assert_eq!(best.0.first_day, Some(day));
+        keep_preferred_wait(&mut best, Ok((assessed(Some(day - 1), 0), Value::zero())));
+        assert_eq!(best.0.first_day, Some(day));
+    }
+    keep_preferred_wait(&mut best, Ok((assessed(None, 2), Value::zero())));
+    assert!(best.0.beyond);
+    let mut unknown = assessed(Some(7), 0);
+    unknown.reason = Some("exact_support_limit");
+    keep_preferred_wait(&mut best, Ok((unknown, Value::zero())));
+    assert_eq!(best.0.batch.kit, 2);
+}
+
+#[test]
+fn optional_tie_errors_preserve_the_completed_base_label() {
+    let mut best = (assessed(Some(3), 0), Value::zero());
+    let completed = best.0.json();
+    for reason in [
+        "request_budget_exhausted",
+        "exact_memo_limit",
+        "minimum_wait_batch_not_exact_tie",
+    ] {
+        keep_preferred_wait(&mut best, Err(reason));
+        assert_eq!(best.0.json(), completed);
+    }
+}
+
 fn q(n: i64, d: i64) -> Q {
     Q::new(n.into(), d.into())
 }

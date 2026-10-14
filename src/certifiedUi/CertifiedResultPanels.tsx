@@ -4,7 +4,11 @@ import { kitDotClass } from "../components/kitPresentation";
 import { useI18n } from "../i18n/locale";
 import { KIT_INDICES, useKitLabel, wireNumber } from "./CertifiedSupplyPanels";
 import type { CertifiedWords } from "./messages";
-import { minimumWaitText } from "./minimumWaitPresentation";
+import {
+  minimumWaitCalculating,
+  minimumWaitReason,
+  minimumWaitText,
+} from "./minimumWaitPresentation";
 import { certifiedCurrentRefusal } from "./runStatus";
 
 export type CertifiedOutcome = "normal" | "great";
@@ -100,6 +104,8 @@ function ConvertAction({ actionsDisabled, conversionRequired, onConvert, words }
 function CurrentValue(props: CurrentProps) {
   const { formatNumber, formatPercent } = useI18n();
   const { current, words } = props;
+  const minimum = props.output?.minimumWait;
+  const reason = minimumWaitReason(minimum, words, props.busy);
   return (
     <>
       <p className="cert-probability">{formatPercent(current.value.display.successP, 3)}</p>
@@ -125,10 +131,18 @@ function CurrentValue(props: CurrentProps) {
       {current.kit && (
         <div
           data-testid="certified-minimum-wait"
-          data-status={props.output?.minimumWait?.status ?? "unknown"}
+          data-status={
+            minimumWaitCalculating(minimum, props.busy)
+              ? "calculating"
+              : (minimum?.status ?? "unknown")
+          }
         >
           <h4>{words.minimumWait}</h4>
-          <p>{minimumWaitText(props.output?.minimumWait, words)}</p>
+          <p>{minimumWaitText(minimum, words, props.busy)}</p>
+          {reason && <p className="cert-notice">{reason}</p>}
+          {(minimum?.status === "certified" || minimum?.status === "beyond_horizon") && (
+            <p className="cert-muted">{words.minimumWaitMeaning}</p>
+          )}
           <p className="cert-muted">{words.minimumWaitExplain}</p>
         </div>
       )}

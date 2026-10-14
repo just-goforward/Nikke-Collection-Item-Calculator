@@ -60,7 +60,7 @@ impl Assessment {
         }
     }
 
-    /// Proved 7+ is the preferred tie class; finite exact days follow ascending.
+    /// Proved 7+ is preferred, then finite days in descending order (7..1).
     /// UNKNOWN has no rank and must never win a tie by an assumed bound.
     pub fn rank(&self) -> Option<usize> {
         if self.reason.is_some() {
@@ -68,7 +68,7 @@ impl Assessment {
         } else if self.beyond {
             Some(0)
         } else {
-            self.first_day
+            self.first_day.map(|day| HORIZON + 1 - day)
         }
     }
 
@@ -192,22 +192,12 @@ impl Engine {
         compensation: Units,
     ) -> Result<bool> {
         let target = self.primary_probability(sid, units)?;
-        let mut endpoints = vec![units];
-        for (axis, amount) in compensation.into_iter().enumerate() {
-            let mut endpoint = units;
-            endpoint[axis] = endpoint[axis]
-                .saturating_add(amount)
-                .min(self.caps[sid][axis]);
-            if !endpoints.contains(&endpoint) {
-                endpoints.push(endpoint);
-            }
-        }
-        for endpoint in endpoints {
-            if self.batch_probability(batch, endpoint)? >= target {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        let compensated = std::array::from_fn(|axis| {
+            units[axis]
+                .saturating_add(compensation[axis])
+                .min(self.caps[sid][axis])
+        });
+        Ok(self.batch_probability(batch, compensated)? < target)
     }
 
     pub(super) fn assess_batch(
@@ -394,6 +384,76 @@ mod tests {
     }
 
     #[test]
+    fn joint_compensation_rejects_the_sr11_separate_endpoint_false_crossing() {
+        // SR10..14 transitions from the documented game table (not oracle output).
+        let probabilities = [
+            [12, 22, 31, 47, 100],
+            [54, 99, 144, 216, 450],
+            [150, 275, 400, 600, 1000],
+        ];
+        let mut edges: Vec<[Edge; 3]> = vec![[[1000, 600, 600]; 3]; 601];
+        for (sid, row) in edges.iter_mut().enumerate().take(600).skip(450) {
+            for (kit, edge) in row.iter_mut().enumerate() {
+                *edge = [
+                    probabilities[kit][(sid - 450) / 30],
+                    600,
+                    (sid + [2, 5, 10][kit]).min(600),
+                ];
+            }
+        }
+        let mut caps = vec![[0; 3]; 601];
+        for sid in (0..600).rev() {
+            for (kit, &[per, great, normal]) in edges[sid].iter().enumerate() {
+                for (mass, child) in [(per, great), (1000 - per, normal)] {
+                    if mass == 0 {
+                        continue;
+                    }
+                    let next = caps[child];
+                    for (axis, cap) in caps[sid].iter_mut().enumerate() {
+                        *cap = (*cap).max(next[axis] + usize::from(axis == kit));
+                    }
+                }
+            }
+        }
+        let mut e = Engine::new(Init {
+            edges,
+            caps,
+            weights: [q(1, 1), q(1, 1), q(1, 1)].map(|value| wire(&value)),
+            deadline_at: f64::MAX,
+            max_memo_entries: 250_000,
+            max_support_points: 25_000,
+        })
+        .unwrap();
+        let batch = Batch {
+            kit: 2,
+            path: [482, 492, 502].map(|sid| (sid, e.edges[sid][2])).to_vec(),
+            guard: None,
+        };
+        assert_eq!(e.batch_units(&batch, [2, 0, 3]).unwrap().len(), 3);
+        let target = e.primary_probability(482, [4, 3, 3]).unwrap();
+        // All old separate-axis tests crossed; the single joint point does not.
+        for separate in [[4, 3, 3], [6, 3, 3], [4, 4, 3]] {
+            assert!(e.batch_probability(&batch, separate).unwrap() < target);
+        }
+        assert!(e.batch_probability(&batch, [6, 4, 3]).unwrap() >= target);
+        assert!(!e.crossing(482, &batch, [4, 3, 3], [2, 1, 0]).unwrap());
+        // Test-level recurring law: purple is exactly ten pieces/day; blue and
+        // yellow remain in the same compensation bins (two and zero uses).
+        // The actual assessor must derive m=[2,1,0], not take a supplied m.
+        let mut supply = source(
+            "deterministic:20,10,1",
+            arrival(1, "deterministic:20,30,0"),
+            json!([]),
+        );
+        let assessed = e.assess_batch(&mut supply, 482, [20, 0, 30], batch, true, true);
+        assert_eq!(assessed.rates.as_ref().unwrap()[1], q(10, 1));
+        assert!(assessed.reason.is_none());
+        assert!(!assessed.certificate);
+        assert!(assessed.beyond);
+        assert!(assessed.days.iter().all(|day| day.crossing.is_empty()));
+    }
+
+    #[test]
     fn primary_queries_reuse_known_exact_probabilities_without_extra_memo_admission() {
         let mut e = engine([q(1, 1), q(1, 1), q(1, 1)]);
         let value = e.get(597, [0, 0, 1], true).unwrap();
@@ -543,17 +603,17 @@ mod tests {
     }
 
     #[test]
-    fn wait_tie_selection_requires_exact_p_b_c_and_updates_the_selected_vector() {
+    fn equally_proved_beyond_horizon_ties_keep_the_base_selection() {
         let mut e = engine([q(1, 1), q(1, 1), q(1, 1)]);
         let before = e.current(599, [10, 10, 0], 10).unwrap();
         assert_eq!(before["kit"], "blue");
         assert_eq!(before["optimalActionMask"], 3);
         let mut s = source("deterministic:0,10,0", json!([]), json!([]));
         let after = e.minimum_wait(&mut s, 599, [10, 10, 0], true).unwrap();
-        assert_eq!(after["current"]["kit"], "purple");
+        assert_eq!(after["current"]["kit"], "blue");
         assert_eq!(after["minimumWait"]["status"], "beyond_horizon");
         assert_eq!(
-            after["current"]["value"]["consumed"][1],
+            after["current"]["value"]["consumed"][0],
             json!(wire(&q(10, 1)))
         );
         for field in ["p", "b", "c"] {
@@ -565,6 +625,47 @@ mod tests {
             .minimum_wait(&mut s, 599, [10, 10, 0], true)
             .unwrap();
         assert_eq!(chosen["current"]["kit"], "blue");
+    }
+
+    #[test]
+    fn a_better_wait_class_switches_only_an_exact_p_b_c_tie() {
+        let original = engine([q(1, 1), q(1, 1), q(1, 1)]);
+        let mut edges = original.edges;
+        edges[590] = [[500, 600, 591], [500, 600, 592], [500, 600, 592]];
+        edges[591] = [[1000, 600, 600], [1, 600, 593], [1, 600, 593]];
+        edges[592] = [[1, 600, 593], [1000, 600, 600], [1, 600, 593]];
+        edges[593] = [[1, 600, 594]; 3];
+        edges[594] = [[1, 600, 595]; 3];
+        edges[595] = [[1000, 600, 600]; 3];
+        let mut e = Engine::new(Init {
+            edges,
+            caps: vec![[10; 3]; 601],
+            weights: [q(1, 1), q(1, 1), q(1, 1)].map(|value| wire(&value)),
+            deadline_at: f64::MAX,
+            max_memo_entries: 10_000,
+            max_support_points: 25_000,
+        })
+        .unwrap();
+        let before = e.current(590, [10, 10, 0], 10).unwrap();
+        assert_eq!(before["kit"], "blue");
+        assert_eq!(before["optimalActionMask"], 3);
+        let mut supply = source(
+            "deterministic:0,10,0",
+            arrival(3, "deterministic:0,10,0"),
+            json!([]),
+        );
+        let base = e.current_choice.clone().unwrap();
+        assert_eq!(
+            e.assess_batch(&mut supply, 590, [10, 10, 0], base, true, false)
+                .first_day,
+            Some(3)
+        );
+        let after = e.minimum_wait(&mut supply, 590, [10, 10, 0], true).unwrap();
+        assert_eq!(after["current"]["kit"], "purple");
+        assert_eq!(after["minimumWait"]["status"], "beyond_horizon");
+        for field in ["p", "b", "c"] {
+            assert_eq!(after["current"]["value"][field], before["value"][field]);
+        }
     }
 
     #[test]
