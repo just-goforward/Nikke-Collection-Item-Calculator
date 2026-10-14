@@ -1,5 +1,6 @@
 import type {
   ConsentGet,
+  ConsentPut,
   PrivacyAccepted,
   WorkspaceDocument,
   WorkspaceGet,
@@ -10,20 +11,28 @@ import { AccountController } from "./accountController";
 import type { AccountView } from "./accountState";
 import type { AccountApi, ApiFailure, ApiResult } from "./api";
 import type { CrossTabChannel, CrossTabMessage } from "./crossTab";
+import type { TabIdentity } from "./tabIdentity";
 import {
   type CalculatorInput,
   DEFAULT_CALCULATOR_INPUT,
   EMPTY_WORKSPACE_DOCUMENT,
 } from "./workspaceDocument";
 import { calculatorInputCodec, type WorkspaceItemCodec } from "./workspaceItem";
-import { createMemoryWorkspaceStore, type WorkspaceStore } from "./workspaceStore";
+import {
+  createMemoryWorkspaceStore,
+  type DraftRecord,
+  type WorkspaceStore,
+} from "./workspaceStore";
 
 /** In-memory personal-data server for controller tests (CAS, op replay, account context). */
 export type FakeServer = {
   userId: string | null;
   revision: number;
+  lastOpId: string | null;
   document: WorkspaceDocument;
   quota: WorkspaceGet["quota"];
+  /** The next N saves commit, but their answer is lost (a network failure after the commit). */
+  loseAcks: number;
   consent: ConsentGet;
   authorizationUrl: string;
   deletionStatus: PrivacyAccepted["status"];
@@ -32,6 +41,8 @@ export type FakeServer = {
   overrides: Partial<Record<keyof AccountApi, Array<ApiResult<unknown>>>>;
   /** Runs inside putWorkspace before the server answers (e.g. to edit during a save). */
   beforePut?: (() => void) | undefined;
+  /** Runs once when the next workspace read arrives (e.g. the session cookie switches). */
+  beforeWorkspace?: (() => void) | undefined;
   /** Holds a method's answer until the promise settles (a slow server). */
   hold?: Partial<Record<keyof AccountApi, Promise<void>>>;
 };
@@ -40,6 +51,8 @@ export function createFakeServer(overrides: Partial<FakeServer> = {}): FakeServe
   return {
     userId: "user-a",
     revision: 0,
+    lastOpId: null,
+    loseAcks: 0,
     document: EMPTY_WORKSPACE_DOCUMENT,
     quota: { bytes: 120, limitBytes: 1_500_000, newArchivingBlocked: false },
     consent: { participation: false, decisionVersion: 1 },
@@ -67,8 +80,56 @@ function contextFailure(server: FakeServer, userId: string): ApiResult<never> | 
   return userId === server.userId ? null : failure(409, "account_context_stale");
 }
 
+type Replays = Map<string, { revision: number; body: string }>;
+
+/** CAS save with opId replay; `loseAcks` commits but answers with a network failure. */
+function fakePut(
+  server: FakeServer,
+  replays: Replays,
+  userId: string,
+  body: WorkspacePut,
+): ApiResult<WorkspacePutResult> {
+  const rejected = contextFailure(server, userId);
+  if (rejected) return rejected;
+  const replay = replays.get(body.opId);
+  if (replay) {
+    return replay.body === JSON.stringify(body)
+      ? ok({ status: "saved" as const, revision: replay.revision, replayed: true })
+      : ok({ status: "op_id_conflict" as const }, 409);
+  }
+  if (body.baseRevision !== server.revision) {
+    return ok({ status: "revision_conflict" as const, revision: server.revision }, 409);
+  }
+  server.revision += 1;
+  server.lastOpId = body.opId;
+  server.document = structuredClone(body.document);
+  replays.set(body.opId, { revision: server.revision, body: JSON.stringify(body) });
+  if (server.loseAcks > 0) {
+    server.loseAcks -= 1;
+    return networkFailure;
+  }
+  return ok({ status: "saved" as const, revision: server.revision, replayed: false });
+}
+
+function fakeConsentPut(
+  server: FakeServer,
+  userId: string,
+  body: ConsentPut,
+): ApiResult<ConsentGet> {
+  const rejected = contextFailure(server, userId);
+  if (rejected) return rejected;
+  if (body.baseDecisionVersion !== server.consent.decisionVersion) {
+    return failure(409, "revision_conflict");
+  }
+  server.consent = {
+    participation: body.participation,
+    decisionVersion: server.consent.decisionVersion + 1,
+  };
+  return ok(server.consent);
+}
+
 function fakeApi(server: FakeServer): AccountApi {
-  const replays = new Map<string, { revision: number; body: string }>();
+  const replays: Replays = new Map();
   function call<T>(
     method: keyof AccountApi,
     run: () => ApiResult<T>,
@@ -81,24 +142,10 @@ function fakeApi(server: FakeServer): AccountApi {
     const held = server.hold?.[method];
     return held ? held.then(answer) : Promise.resolve(answer());
   }
-  function put(userId: string, body: WorkspacePut): ApiResult<WorkspacePutResult> {
-    const rejected = contextFailure(server, userId);
-    if (rejected) return rejected;
-    const replay = replays.get(body.opId);
-    if (replay) {
-      return replay.body === JSON.stringify(body)
-        ? ok({ status: "saved" as const, revision: replay.revision, replayed: true })
-        : ok({ status: "op_id_conflict" as const }, 409);
-    }
-    if (body.baseRevision !== server.revision) {
-      return ok({ status: "revision_conflict" as const, revision: server.revision }, 409);
-    }
-    server.revision += 1;
-    server.document = structuredClone(body.document);
-    replays.set(body.opId, { revision: server.revision, body: JSON.stringify(body) });
-    return ok({ status: "saved" as const, revision: server.revision, replayed: false });
-  }
   const signedIn = <T>(value: () => T) => (server.userId ? ok(value()) : unauthenticated);
+  /** Private reads honor If-Account-Match like the server: another account's data never leaves. */
+  const bound = <T>(userId: string, value: (owner: string) => T) =>
+    contextFailure(server, userId) ?? ok(value(userId));
   return {
     getAccount: () =>
       call("getAccount", () =>
@@ -115,38 +162,30 @@ function fakeApi(server: FakeServer): AccountApi {
         server.userId = null;
         return ok({ loggedOut: true as const });
       }),
-    getWorkspace: () =>
-      call("getWorkspace", () =>
-        signedIn(() => ({
-          revision: server.revision,
-          lastOpId: null,
-          document: structuredClone(server.document),
-          quota: server.quota,
-        })),
-      ),
+    getWorkspace: (userId) => {
+      const before = server.beforeWorkspace;
+      server.beforeWorkspace = undefined;
+      before?.();
+      return call(
+        "getWorkspace",
+        () =>
+          bound(userId, (owner) => ({
+            userId: owner,
+            revision: server.revision,
+            lastOpId: server.lastOpId,
+            document: structuredClone(server.document),
+            quota: server.quota,
+          })),
+        userId,
+      );
+    },
     putWorkspace: (userId, body) => {
       server.beforePut?.();
-      return call("putWorkspace", () => put(userId, body), userId, body);
+      return call("putWorkspace", () => fakePut(server, replays, userId, body), userId, body);
     },
-    getConsent: () => call("getConsent", () => signedIn(() => server.consent)),
+    getConsent: (userId) => call("getConsent", () => bound(userId, () => server.consent), userId),
     putConsent: (userId, body) =>
-      call(
-        "putConsent",
-        () => {
-          const rejected = contextFailure(server, userId);
-          if (rejected) return rejected;
-          if (body.baseDecisionVersion !== server.consent.decisionVersion) {
-            return failure(409, "revision_conflict");
-          }
-          server.consent = {
-            participation: body.participation,
-            decisionVersion: server.consent.decisionVersion + 1,
-          };
-          return ok(server.consent);
-        },
-        userId,
-        body,
-      ),
+      call("putConsent", () => fakeConsentPut(server, userId, body), userId, body),
     deleteAccount: (userId, body) =>
       call(
         "deleteAccount",
@@ -174,9 +213,16 @@ function fakeApi(server: FakeServer): AccountApi {
         userId,
         body,
       ),
-    exportData: () =>
-      call("exportData", () =>
-        signedIn(() => ({ schemaVersion: 1 as const, workspace: { revision: server.revision } })),
+    exportData: (userId) =>
+      call(
+        "exportData",
+        () =>
+          bound(userId, (owner) => ({
+            schemaVersion: 1 as const,
+            account: { userId: owner },
+            workspace: { userId: owner, revision: server.revision },
+          })),
+        userId,
       ),
   };
 }
@@ -193,9 +239,20 @@ export function recordingChannel(): CrossTabChannel & { posted: CrossTabMessage[
 
 type Timer = { callback: () => void; delayMs: number; cancelled: boolean };
 
+/** One clock for every simulated tab: a later device write is always newer. */
+let clock = 1_760_000_000_000;
+
+/** Open tabs of one simulated browser: drafts of tabs not in `live` count as closed. */
+export type TabRegistry = { live: Set<string>; next: number };
+
+export function createTabRegistry(): TabRegistry {
+  return { live: new Set(), next: 0 };
+}
+
 type HarnessOptions<T> = {
   channel?: CrossTabChannel;
   store?: WorkspaceStore;
+  tabs?: TabRegistry;
   displayed?: T;
   /** Engines with their own guest storage (certified): `value` is that stored guest data. */
   ownGuest?: { value: T | null };
@@ -211,7 +268,11 @@ export function createItemHarness<T>(
   initial: T,
   options: HarnessOptions<T> = {},
 ) {
-  const store = options.store ?? createMemoryWorkspaceStore();
+  const store = options.store ?? createMemoryWorkspaceStore(codec.type);
+  const tabs = options.tabs ?? createTabRegistry();
+  tabs.next += 1;
+  const tab: TabIdentity = { id: `tab-${tabs.next}`, liveIds: async () => new Set(tabs.live) };
+  tabs.live.add(tab.id);
   const channel = options.channel ?? recordingChannel();
   const applied: T[] = [];
   const navigations: string[] = [];
@@ -245,10 +306,12 @@ export function createItemHarness<T>(
         : {}),
     },
     openStore: async () => ({ store, persistent: true }),
+    tab,
     newOpId: () => `op-${++opCount}`,
     navigate: (url) => navigations.push(url),
     download: (fileName, text) => downloads.push({ fileName, text }),
-    now: () => 1_760_000_000_000,
+    // Advances on every read so drafts written later are newer.
+    now: () => (clock += 1),
     schedule: (callback, delayMs) => {
       const timer = { callback, delayMs, cancelled: false };
       timers.push(timer);
@@ -261,6 +324,17 @@ export function createItemHarness<T>(
   return {
     controller,
     store,
+    tab,
+    /** The tab closes: its controller stops and its drafts count as left behind. */
+    close() {
+      controller.dispose();
+      tabs.live.delete(tab.id);
+    },
+    /** This tab's unsynced draft of the account, if any. */
+    async draft(userId = "user-a"): Promise<DraftRecord | null> {
+      await controller.whenIdle();
+      return (await store.readDrafts(userId)).find((draft) => draft.draftId === tab.id) ?? null;
+    },
     channel,
     applied,
     navigations,

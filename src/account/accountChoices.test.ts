@@ -13,7 +13,7 @@ import {
   readCalculatorInput,
   writeCalculatorInput,
 } from "./workspaceDocument";
-import { createMemoryWorkspaceStore } from "./workspaceStore";
+import { createMemoryDevice, createMemoryWorkspaceStore } from "./workspaceStore";
 
 function signedIn(view: ReturnType<ReturnType<typeof createHarness>["view"]>): SignedInView {
   if (view.phase !== "signed-in") throw new Error(`Expected signed-in view, got ${view.phase}.`);
@@ -92,9 +92,8 @@ describe("copy guest inputs into an empty account", () => {
 });
 
 /** Signed in with an edit the server never acknowledged (every save fails on the network). */
-async function withUnsyncedEdit() {
+async function withUnsyncedEdit(store = createMemoryWorkspaceStore()) {
   const server = createFakeServer({ revision: 1 });
-  const store = createMemoryWorkspaceStore();
   const channel = recordingChannel();
   const harness = createHarness(server, { store, channel });
   await harness.controller.start();
@@ -121,9 +120,8 @@ describe("sign-out with unsynced edits", () => {
     await harness.controller.confirmSignOut(true);
     expect(harness.view()).toEqual({ phase: "guest", busy: null });
     expect(server.userId).toBeNull();
-    const kept = await store.readAccount("user-a");
-    expect(kept?.dirty).toBe(true);
-    expect(kept && readCalculatorInput(kept.document)).toEqual(input(9));
+    const kept = await store.readDrafts("user-a");
+    expect(kept.map((draft) => readCalculatorInput(draft.document))).toEqual([input(9)]);
     expect(harness.notice()).toBe("logged_out_kept");
 
     server.userId = "user-a";
@@ -138,9 +136,29 @@ describe("sign-out with unsynced edits", () => {
     expect(signedIn(harness.view()).signOutChoice).toBe("revoke");
     await harness.controller.confirmSignOut(false);
     expect(harness.view()).toEqual({ phase: "guest", busy: null });
-    expect(await store.readAccount("user-a")).toBeNull();
+    expect(await store.readDrafts("user-a")).toEqual([]);
     expect(channel.posted).toContainEqual({ type: "logged-out", userId: "user-a" });
     expect(harness.notice()).toBe("logged_out_discarded");
+  });
+
+  it("delete only removes this engine's unsynced copy; the other engine's stays", async () => {
+    const device = createMemoryDevice();
+    const certified = createMemoryWorkspaceStore("certified-session", device);
+    const certifiedDraft = {
+      userId: "user-a",
+      draftId: "certified-tab",
+      baseRevision: 1,
+      document: EMPTY_WORKSPACE_DOCUMENT,
+      updatedAt: 1,
+    };
+    await certified.writeDraft(certifiedDraft);
+    const { store, harness } = await withUnsyncedEdit(
+      createMemoryWorkspaceStore("calculator-input", device),
+    );
+    await harness.controller.logout();
+    await harness.controller.confirmSignOut(false);
+    expect(await store.readDrafts("user-a")).toEqual([]);
+    expect(await certified.readDrafts("user-a")).toEqual([certifiedDraft]);
   });
 
   it("does not ask when the final flush saves everything", async () => {

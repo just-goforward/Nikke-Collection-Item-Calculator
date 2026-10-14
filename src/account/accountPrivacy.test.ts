@@ -105,13 +105,29 @@ describe("sessions, export and deletion", () => {
     const harness = createHarness(server);
     await harness.controller.start();
     await harness.controller.exportData();
+    const exported = {
+      schemaVersion: 1,
+      account: { userId: "user-a" },
+      workspace: { userId: "user-a", revision: 3 },
+    };
     expect(harness.downloads).toEqual([
       {
-        fileName: exportFileName(1_760_000_000_000),
-        text: `${JSON.stringify({ schemaVersion: 1, workspace: { revision: 3 } }, null, 2)}\n`,
+        fileName: "collection-kit-account-export-2025-10-09.json",
+        text: `${JSON.stringify(exported, null, 2)}\n`,
       },
     ]);
     expect(exportFileName(1_760_000_000_000)).toBe("collection-kit-account-export-2025-10-09.json");
+    expect(server.calls.find((entry) => entry.method === "exportData")?.userId).toBe("user-a");
+  });
+
+  it("never downloads an export after the session switched to another account", async () => {
+    const server = createFakeServer({ revision: 3 });
+    const harness = createHarness(server);
+    await harness.controller.start();
+    server.userId = "user-b";
+    await harness.controller.exportData();
+    expect(harness.downloads).toEqual([]);
+    expect(harness.view()).toEqual({ phase: "stale", reason: "context_stale" });
   });
 
   it("deletes the account with context and opId, removes even unsynced copies, keeps guest data", async () => {
@@ -133,7 +149,7 @@ describe("sessions, export and deletion", () => {
       userId: "user-a",
       body: { opId: "op-2" },
     });
-    expect(await store.readAccount("user-a")).toBeNull();
+    expect(await store.readDrafts("user-a")).toEqual([]);
     expect(harness.displayed).toEqual(input(73));
     expect(channel.posted).toContainEqual({ type: "deleted", userId: "user-a" });
     expect(harness.notice()).toBe("deletion_pending");

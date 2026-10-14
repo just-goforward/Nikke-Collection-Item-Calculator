@@ -7,9 +7,15 @@ import {
   parseCalculatorInput,
   parseWorkspaceDocument,
   readCalculatorInput,
+  readCalculatorInputItem,
   writeCalculatorInput,
 } from "./workspaceDocument";
-import { createMemoryWorkspaceStore, parseAccountRecord, parseGuestRecord } from "./workspaceStore";
+import {
+  createMemoryDevice,
+  createMemoryWorkspaceStore,
+  parseDraftRecord,
+  parseGuestRecord,
+} from "./workspaceStore";
 
 const INPUT = {
   grade: "SR" as const,
@@ -67,6 +73,9 @@ describe("workspace document adapter", () => {
       lifetimeStages: [],
     };
     expect(readCalculatorInput(broken)).toBeNull();
+    // Present but invalid is not "absent": it is a conflict, never silently overwritten.
+    expect(readCalculatorInputItem(broken)).toEqual({ status: "unreadable" });
+    expect(readCalculatorInputItem(EMPTY_WORKSPACE_DOCUMENT)).toEqual({ status: "absent" });
   });
 
   it("validates whole documents from storage or the network", () => {
@@ -93,23 +102,40 @@ describe("workspace document adapter", () => {
 });
 
 describe("device workspace store", () => {
-  it("keeps guest and per-account copies apart", async () => {
-    const store = createMemoryWorkspaceStore();
+  it("keeps guest data, accounts, tabs and engines apart", async () => {
+    const device = createMemoryDevice();
+    const store = createMemoryWorkspaceStore("calculator-input", device);
+    const certified = createMemoryWorkspaceStore("certified-session", device);
     const document = writeCalculatorInput(EMPTY_WORKSPACE_DOCUMENT, INPUT);
+    const draft = (draftId: string, updatedAt: number) => ({
+      userId: "a",
+      draftId,
+      baseRevision: 2,
+      document,
+      updatedAt,
+    });
     await store.writeGuest({ document, restoreOnReturn: false, updatedAt: 1 });
-    await store.writeAccount({ userId: "a", baseRevision: 2, document, dirty: true, updatedAt: 1 });
-    expect(await store.readAccount("b")).toBeNull();
-    await store.removeAccount("a", false);
-    expect(await store.readAccount("a")).toBeNull();
+    await store.writeDraft(draft("tab-1", 1));
+    await store.writeDraft(draft("tab-2", 2));
+    await certified.writeDraft(draft("tab-3", 3));
+    expect(await store.readDrafts("b")).toEqual([]);
+    expect((await store.readDrafts("a")).map((entry) => entry.draftId)).toEqual(["tab-2", "tab-1"]);
+    await store.removeDrafts("a", ["tab-2"]);
+    expect((await store.readDrafts("a")).map((entry) => entry.draftId)).toEqual(["tab-1"]);
+    expect(await certified.readDrafts("a")).toHaveLength(1);
+    await store.removeAccount("a");
+    expect(await store.readDrafts("a")).toEqual([]);
+    expect(await certified.readDrafts("a")).toEqual([]);
     expect(await store.readGuest()).toMatchObject({ restoreOnReturn: false });
   });
 
   it("refuses malformed or mismatched records", () => {
     const document = EMPTY_WORKSPACE_DOCUMENT;
-    const record = { userId: "a", baseRevision: 0, document, dirty: false, updatedAt: 1 };
-    expect(parseAccountRecord(record, "a")).toEqual(record);
-    expect(parseAccountRecord(record, "b")).toBeNull();
-    expect(parseAccountRecord({ ...record, baseRevision: -1 }, "a")).toBeNull();
+    const record = { userId: "a", draftId: "t", baseRevision: 0, document, updatedAt: 1 };
+    expect(parseDraftRecord(record, "a")).toEqual(record);
+    expect(parseDraftRecord(record, "b")).toBeNull();
+    expect(parseDraftRecord({ ...record, baseRevision: -1 }, "a")).toBeNull();
+    expect(parseDraftRecord({ ...record, draftId: 1 }, "a")).toBeNull();
     expect(parseGuestRecord({ document, restoreOnReturn: "yes", updatedAt: 1 })).toBeNull();
   });
 });

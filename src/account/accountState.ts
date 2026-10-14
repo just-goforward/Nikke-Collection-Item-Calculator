@@ -1,6 +1,7 @@
 import type { ConsentGet, WorkspaceGet } from "../../personal-data/src/contracts";
 import { type AccountApi, type ApiFailure, isHttpFailure } from "./api";
 import type { CrossTabChannel } from "./crossTab";
+import type { TabIdentity } from "./tabIdentity";
 import type { CalculatorInput } from "./workspaceDocument";
 import type { WorkspaceItemCodec } from "./workspaceItem";
 import type { WorkspaceStore } from "./workspaceStore";
@@ -34,6 +35,8 @@ export type AccountNotice =
   | "login_flow_expired"
   | "login_error_unknown"
   | "account_check_timeout"
+  | "account_unavailable"
+  | "draft_recovered"
   | "unexpected";
 
 export type StaleReason =
@@ -93,6 +96,8 @@ export type AccountView =
   | { phase: "loading" }
   | { phase: "guest"; busy: AccountBusy }
   | SignedInView
+  /** Signed in, but the workspace could not be loaded: guest data is shown while entry retries. */
+  | { phase: "unavailable"; userId: string; consent: ConsentGet }
   | { phase: "stale"; reason: StaleReason };
 
 export type AccountSnapshot = {
@@ -120,6 +125,7 @@ export type AccountControllerDeps<T> = {
   codec: WorkspaceItemCodec<T>;
   calculator: CalculatorBridge<T>;
   openStore(): Promise<{ store: WorkspaceStore; persistent: boolean }>;
+  tab: TabIdentity;
   newOpId(): string;
   navigate(url: string): void;
   download(fileName: string, text: string): void;

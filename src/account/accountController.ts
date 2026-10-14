@@ -1,50 +1,43 @@
-import type {
-  ConsentGet,
-  WorkspaceDocument,
-  WorkspacePutResult,
-} from "../../personal-data/src/contracts";
-import {
-  AccountControllerBase,
-  type PendingOp,
-  type Session,
-  UNKNOWN_BASE_KEY,
-} from "./accountControllerBase";
+import type { ConsentGet } from "../../personal-data/src/contracts";
+import { type Session, UNKNOWN_BASE_KEY } from "./accountControllerBase";
 import {
   type AccountControllerDeps,
   type AccountNotice,
   type AccountView,
   type ConflictChoice,
   exportFileName,
-  isRetryable,
-  MAX_REQUEST_BYTES,
   noticeFor,
   type SignedInView,
+  type StaleReason,
   staleReasonFor,
-  type WorkspaceConflict,
 } from "./accountState";
+import { AccountSync, nextBackoff } from "./accountSync";
 import { type ApiFailure, failureCode, isGoogleAuthorizationUrl, isHttpFailure } from "./api";
 import type { CrossTabMessage } from "./crossTab";
 import { EMPTY_WORKSPACE_DOCUMENT } from "./workspaceDocument";
-import { type ItemRead, utf8Bytes } from "./workspaceItem";
-import type { AccountRecord } from "./workspaceStore";
 
-const MIN_RETRY_MS = 2_000;
-const MAX_RETRY_MS = 60_000;
+/** What leaving the account removes from this device. */
+type DraftRemoval = "keep" | "discard" | "account";
 
 function sameIdentity(a: AccountView, b: AccountView): boolean {
   if (a.phase !== b.phase) return false;
-  return a.phase !== "signed-in" || (b.phase === "signed-in" && a.userId === b.userId);
+  if (a.phase === "signed-in" || a.phase === "unavailable") {
+    return (b.phase === "signed-in" || b.phase === "unavailable") && a.userId === b.userId;
+  }
+  return true;
 }
 
 /** What the account dialogs may call; independent of the engine's item type. */
 export type AccountUi = Omit<AccountController<unknown>, "notifyLocalChange">;
 
-export class AccountController<T> extends AccountControllerBase<T> {
+export class AccountController<T> extends AccountSync<T> {
   private pendingConsent: { participation: boolean; base: number; opId: string } | null = null;
   private pendingDeleteOpId: string | null = null;
   private consentDismissed = false;
   /** The page-level account check timed out while loading; a late result must not apply. */
   private bootAbandoned = false;
+  /** Retries account entry while the workspace cannot be loaded. */
+  private entryRetry: { ms: number; cancel: (() => void) | null } = { ms: 0, cancel: null };
   private readonly unsubscribe: () => void;
 
   constructor(deps: AccountControllerDeps<T>) {
@@ -57,6 +50,7 @@ export class AccountController<T> extends AccountControllerBase<T> {
   dispose() {
     this.disposed = true;
     if (this.session) this.cancelTimer(this.session);
+    this.cancelEntryRetry();
     this.unsubscribe();
     this.deps.channel.close();
   }
@@ -91,10 +85,15 @@ export class AccountController<T> extends AccountControllerBase<T> {
   resumeSync() {
     return this.enqueue(() => this.resume());
   }
-  /** Runs a scheduled save immediately (also used by "Sync now" and the online event). */
+  /** "Sync now" and the online event; while the account is not loaded, retries entering it. */
   syncNow() {
     if (this.session) this.cancelTimer(this.session);
-    return this.enqueue(() => this.save());
+    return this.enqueue(() =>
+      this.snapshot.view.phase === "unavailable" ? this.retryEntry() : this.sync(),
+    );
+  }
+  retryAccount() {
+    return this.enqueue(() => this.retryEntry());
   }
   /** Explicit, never automatic: copies the stored guest inputs into an account without inputs. */
   copyGuestInputs() {
@@ -111,40 +110,30 @@ export class AccountController<T> extends AccountControllerBase<T> {
   cancelSignOut() {
     this.patchSignedIn({ signOutChoice: null, busy: null });
   }
-  /** Page-level timeout: continue with guest data now; a late sign-in only asks for a reload. */
-  bootTimedOut() {
+  /**
+   * Page-level timeout: continue with guest data now (not queued behind the hanging check).
+   * `restore` brings back inputs saved before a sign-in redirect; it is false once inputs were
+   * already released, so no edit made since is replaced. A late sign-in only asks for a reload.
+   */
+  async bootTimedOut(restore: boolean) {
     if (this.snapshot.view.phase !== "loading") return;
     this.bootAbandoned = true;
     this.setView({ phase: "guest", busy: null });
     this.notify("account_check_timeout");
+    if (restore) await this.restoreGuestAfterRedirect();
   }
   dismissConsentPrompt() {
     this.consentDismissed = true;
     this.patchSignedIn({ consentPrompt: false });
   }
 
-  /** Called with the engine's current value after every change. */
-  notifyLocalChange(value: T) {
-    const session = this.session;
-    const { codec } = this.deps;
-    if (!session) return;
-    const key = codec.key(value);
-    if (key === codec.key(session.local)) return;
-    session.local = value;
-    session.dirty = key !== session.syncedKey;
-    void this.enqueue(() => this.persistAccount(session));
-    const view = this.signedIn();
-    if (!view) return;
-    const itemBytes = codec.bytes(value);
-    if (itemBytes !== view.itemBytes) this.patchSignedIn({ itemBytes });
-    if (view.sync === "conflict" || view.sync === "paused" || view.sync === "saving") return;
-    if (!session.dirty) {
-      this.cancelTimer(session);
-      this.patchSignedIn({ sync: "synced" });
-      return;
-    }
-    this.patchSignedIn({ sync: "pending" });
-    this.scheduleSave(session, this.deps.saveDelayMs);
+  protected override markStale(reason: StaleReason) {
+    this.cancelEntryRetry();
+    super.markStale(reason);
+  }
+
+  protected expire() {
+    return this.leave("session_expired", null, "keep");
   }
 
   // ---- boot, guest and account entry ----
@@ -172,48 +161,57 @@ export class AccountController<T> extends AccountControllerBase<T> {
   /** "boot" restores guest inputs only after an abandoned sign-in; "restore" always does. */
   private async enterGuest(mode: "boot" | "restore") {
     this.session = null;
-    const { calculator, codec } = this.deps;
-    if (calculator.ownGuest) {
-      // The engine keeps its own guest data; at boot it is already shown.
-      if (mode === "restore") calculator.ownGuest.show();
-      this.setView({ phase: "guest", busy: null });
-      return;
-    }
-    const guest = await this.storage((store) => store.readGuest(), null);
-    const value = guest ? this.readValue(guest.document) : null;
-    if (mode === "restore") calculator.apply(value ?? codec.empty());
-    else if (guest?.restoreOnReturn && value !== null) calculator.apply(value);
-    if (guest?.restoreOnReturn) {
-      await this.storage(
-        (store) => store.writeGuest({ ...guest, restoreOnReturn: false }),
-        undefined,
-      );
-    }
+    if (mode === "boot") await this.restoreGuestAfterRedirect();
+    else await this.showStoredGuest();
     this.setView({ phase: "guest", busy: null });
   }
 
-  private readValue(document: WorkspaceDocument): T | null {
-    const read = this.deps.codec.read(document);
-    return read.status === "value" ? read.value : null;
+  private async restoreGuestAfterRedirect() {
+    // Engines with their own guest data already show it.
+    if (this.deps.calculator.ownGuest) return;
+    const guest = await this.storage((store) => store.readGuest(), null);
+    if (!guest?.restoreOnReturn) return;
+    const value = this.readValue(guest.document);
+    if (value !== null) this.deps.calculator.apply(value);
+    await this.storage(
+      (store) => store.writeGuest({ ...guest, restoreOnReturn: false }),
+      undefined,
+    );
+  }
+
+  private async showStoredGuest() {
+    const { calculator, codec } = this.deps;
+    if (calculator.ownGuest) {
+      calculator.ownGuest.show();
+      return;
+    }
+    const guest = await this.storage((store) => store.readGuest(), null);
+    calculator.apply((guest && this.readValue(guest.document)) ?? codec.empty());
+    await this.clearRestoreFlag();
   }
 
   private async readGuestValue(): Promise<T | null> {
     const own = this.deps.calculator.ownGuest;
     if (own) return own.read();
     const guest = await this.storage((store) => store.readGuest(), null);
-    if (guest?.restoreOnReturn) {
-      await this.storage(
-        (store) => store.writeGuest({ ...guest, restoreOnReturn: false }),
-        undefined,
-      );
-    }
     return guest ? this.readValue(guest.document) : null;
   }
 
+  /** Keeps the shown guest inputs as guest data before account data replaces them. */
+  private async preserveGuest() {
+    const { calculator, codec } = this.deps;
+    if (calculator.ownGuest) return;
+    const document = codec.write(EMPTY_WORKSPACE_DOCUMENT, calculator.capture());
+    await this.storage(
+      (store) => store.writeGuest({ document, restoreOnReturn: false, updatedAt: this.deps.now() }),
+      undefined,
+    );
+  }
+
   private async enterAccount(userId: string, consent: ConsentGet) {
-    const [workspace, local, guestValue] = await Promise.all([
-      this.deps.api.getWorkspace(),
-      this.storage((store) => store.readAccount(userId), null),
+    const [workspace, drafts, guestValue] = await Promise.all([
+      this.deps.api.getWorkspace(userId),
+      this.recoverableDrafts(userId),
       this.readGuestValue(),
     ]);
     if (this.bootAbandoned) {
@@ -224,6 +222,9 @@ export class AccountController<T> extends AccountControllerBase<T> {
       await this.workspaceUnavailable(userId, consent, workspace.failure);
       return;
     }
+    this.cancelEntryRetry();
+    // The redirect's guest inputs stay stored as guest data; they need no restore any more.
+    await this.clearRestoreFlag();
     const { calculator, codec } = this.deps;
     const server = codec.read(workspace.value.document);
     const offerGuest =
@@ -240,6 +241,8 @@ export class AccountController<T> extends AccountControllerBase<T> {
       local: initial,
       dirty: false,
       pendingOp: null,
+      unacked: [],
+      announcedRevision: workspace.value.revision,
       conflict: null,
       serverUnreadable: server.status === "unreadable",
       guestOffer:
@@ -248,6 +251,8 @@ export class AccountController<T> extends AccountControllerBase<T> {
           : null,
       retryMs: 0,
       cancelTimer: null,
+      recovering: drafts,
+      closed: false,
     };
     this.session = session;
     this.setView(
@@ -260,17 +265,80 @@ export class AccountController<T> extends AccountControllerBase<T> {
       }),
     );
     this.deps.channel.post({ type: "account", userId });
-    await this.reconcile(session, server.status === "value", local);
+    await this.reconcile(session, server.status === "value");
   }
 
+  private async clearRestoreFlag() {
+    if (this.deps.calculator.ownGuest) return;
+    const guest = await this.storage((store) => store.readGuest(), null);
+    if (guest?.restoreOnReturn) {
+      await this.storage(
+        (store) => store.writeGuest({ ...guest, restoreOnReturn: false }),
+        undefined,
+      );
+    }
+  }
+
+  /**
+   * Signed in, but without the workspace nothing can be shown or saved: guest data stays shown,
+   * clearly marked as "account not loaded", while entry is retried with backoff and on `online`.
+   */
   private async workspaceUnavailable(userId: string, consent: ConsentGet, failure: ApiFailure) {
-    if (isHttpFailure(failure, 401)) {
-      await this.enterGuest("boot");
+    const stale = staleReasonFor(failure);
+    if (stale) {
+      this.markStale(stale);
       return;
     }
-    // Signed in, but without a server base revision nothing may be saved; recheck retries entry.
-    this.setView(this.signedInView(userId, consent, { sync: "error" }));
-    this.notify(noticeFor(failure));
+    if (this.snapshot.view.phase === "loading" || isHttpFailure(failure, 401)) {
+      await this.enterGuest("boot");
+    }
+    if (isHttpFailure(failure, 401)) {
+      this.cancelEntryRetry();
+      return;
+    }
+    this.setView({ phase: "unavailable", userId, consent });
+    this.notify("account_unavailable");
+    this.scheduleEntryRetry();
+  }
+
+  private scheduleEntryRetry() {
+    this.entryRetry.cancel?.();
+    this.entryRetry.ms = nextBackoff(this.entryRetry.ms);
+    this.entryRetry.cancel = this.deps.schedule(() => {
+      this.entryRetry.cancel = null;
+      void this.enqueue(() => this.retryEntry());
+    }, this.entryRetry.ms);
+  }
+
+  private cancelEntryRetry() {
+    this.entryRetry.cancel?.();
+    this.entryRetry = { ms: 0, cancel: null };
+  }
+
+  private async retryEntry() {
+    const view = this.snapshot.view;
+    if (view.phase !== "unavailable") return;
+    this.entryRetry.cancel?.();
+    this.entryRetry.cancel = null;
+    // Edits made to the guest data meanwhile stay guest data; nothing is discarded.
+    await this.preserveGuest();
+    const result = await this.deps.api.getAccount();
+    if (this.snapshot.view !== view) return;
+    if (!result.ok) {
+      if (!isHttpFailure(result.failure, 401)) {
+        this.scheduleEntryRetry();
+        return;
+      }
+      this.cancelEntryRetry();
+      this.setView({ phase: "guest", busy: null });
+      this.notify("session_expired");
+      return;
+    }
+    if (result.value.account.userId !== view.userId) {
+      this.markStale("account_changed");
+      return;
+    }
+    await this.enterAccount(view.userId, result.value.consent);
   }
 
   private signedInView(
@@ -304,301 +372,21 @@ export class AccountController<T> extends AccountControllerBase<T> {
     session.guestOffer = null;
     this.applyInput(session, offer.value);
     session.dirty = this.deps.codec.key(offer.value) !== session.syncedKey;
-    await this.persistAccount(session);
+    void this.persist(session);
     this.patchSignedIn({ sync: "pending" });
     this.notify("guest_imported");
     await this.save();
   }
 
-  /** Unsynced edits from an earlier visit survive, but never silently replace newer server data. */
-  private async reconcile(
-    session: Session<T>,
-    serverHasValue: boolean,
-    local: AccountRecord | null,
-  ) {
-    const { codec } = this.deps;
-    const stored = local?.dirty ? this.readValue(local.document) : null;
-    if (!local || stored === null || codec.key(stored) === session.syncedKey) {
-      if (serverHasValue || this.deps.calculator.ownGuest) this.applyInput(session, session.local);
-      await this.persistAccount(session);
-      if (session.serverUnreadable) {
-        this.enterConflict(session, session.revision, session.serverDocument, false);
-      }
-      return;
-    }
-    this.applyInput(session, stored);
-    session.dirty = true;
-    if (local.baseRevision === session.revision && !session.serverUnreadable) {
-      await this.persistAccount(session);
-      this.patchSignedIn({ sync: "pending" });
-      await this.save();
-      return;
-    }
-    // The edits were made on an older revision whose contents are unknown here: keep that base so
-    // a save can only conflict, never overwrite the newer server data without a choice.
-    const serverRevision = session.revision;
-    session.revision = local.baseRevision;
-    session.syncedKey = UNKNOWN_BASE_KEY;
-    await this.persistAccount(session);
-    this.enterConflict(session, serverRevision, session.serverDocument, false);
-  }
-
-  // ---- workspace sync ----
-
-  protected async save() {
-    const session = this.session;
-    const view = this.signedIn();
-    if (!session || !view || !session.dirty || view.sync === "conflict" || view.sync === "paused") {
-      return;
-    }
-    this.cancelTimer(session);
-    if (session.serverUnreadable) {
-      // Only the explicit overwrite choice may replace an unreadable server copy.
+  /** Shows the account data, then recovers unsynced drafts; none silently replaces server data. */
+  private async reconcile(session: Session<T>, serverHasValue: boolean) {
+    if (serverHasValue || this.deps.calculator.ownGuest) this.applyInput(session, session.local);
+    await this.recoverNext(session);
+    if (this.session !== session || session.dirty) return;
+    void this.persist(session);
+    if (session.serverUnreadable && session.conflict === null) {
       this.enterConflict(session, session.revision, session.serverDocument, false);
-      return;
     }
-    const key = this.deps.codec.key(session.local);
-    const reusable =
-      session.pendingOp?.key === key && session.pendingOp.baseRevision === session.revision;
-    const op: PendingOp =
-      reusable && session.pendingOp
-        ? session.pendingOp
-        : {
-            opId: this.deps.newOpId(),
-            key,
-            baseRevision: session.revision,
-            document: this.deps.codec.write(session.serverDocument, session.local),
-          };
-    const body = {
-      opId: op.opId,
-      baseRevision: op.baseRevision,
-      document: op.document,
-      action: { kind: "save" as const },
-    };
-    if (utf8Bytes(JSON.stringify(body)) > MAX_REQUEST_BYTES) {
-      // Never sent: the server would refuse it with 413. The edits stay on this device.
-      session.pendingOp = null;
-      this.patchSignedIn({ sync: "error", tooLarge: true });
-      this.notify("request_too_large");
-      return;
-    }
-    session.pendingOp = op;
-    this.patchSignedIn({ sync: "saving" });
-    const result = await this.deps.api.putWorkspace(session.userId, body);
-    if (this.session !== session) return;
-    if (result.ok) await this.afterPut(session, op, result.value);
-    else await this.afterPutFailure(session, result.failure);
-  }
-
-  private async afterPut(session: Session<T>, op: PendingOp, result: WorkspacePutResult) {
-    switch (result.status) {
-      case "saved":
-        await this.saved(session, op, result.revision);
-        return;
-      case "revision_conflict":
-        await this.conflictFromServer(session);
-        return;
-      case "op_id_conflict":
-        session.pendingOp = null;
-        this.patchSignedIn({ sync: "pending" });
-        this.scheduleSave(session, 0);
-        return;
-      case "archive_quota_reached":
-        session.pendingOp = null;
-        session.revision = Math.max(session.revision, result.revision);
-        this.patchSignedIn({ archivingBlocked: true, sync: "error" });
-        this.notify("archive_quota_reached");
-        return;
-      case "archive_id_conflict":
-        session.pendingOp = null;
-        this.patchSignedIn({ sync: "error" });
-        this.notify("unexpected");
-        return;
-    }
-  }
-
-  /** A replayed acknowledgement reports its original revision; local newer edits stay pending. */
-  private async saved(session: Session<T>, op: PendingOp, revision: number) {
-    session.pendingOp = null;
-    session.retryMs = 0;
-    session.serverDocument = op.document;
-    session.serverUnreadable = false;
-    session.syncedKey = op.key;
-    session.revision = Math.max(session.revision, revision);
-    session.dirty = this.deps.codec.key(session.local) !== op.key;
-    await this.persistAccount(session);
-    this.deps.channel.post({
-      type: "revision",
-      userId: session.userId,
-      revision: session.revision,
-    });
-    this.patchSignedIn({
-      revision: session.revision,
-      sync: session.dirty ? "pending" : "synced",
-      tooLarge: false,
-    });
-    if (session.dirty) this.scheduleSave(session, this.deps.saveDelayMs);
-  }
-
-  private async afterPutFailure(session: Session<T>, failure: ApiFailure) {
-    const stale = staleReasonFor(failure);
-    if (stale) {
-      this.markStale(stale);
-      return;
-    }
-    if (isHttpFailure(failure, 401)) {
-      await this.leave("session_expired", null, false);
-      return;
-    }
-    if (isRetryable(failure)) {
-      // The same opId and body are retried so a lost acknowledgement replays instead of duplicating.
-      session.retryMs = Math.min(MAX_RETRY_MS, Math.max(MIN_RETRY_MS, session.retryMs * 2));
-      this.patchSignedIn({ sync: "offline" });
-      this.scheduleSave(session, session.retryMs);
-      return;
-    }
-    session.pendingOp = null;
-    this.patchSignedIn({ sync: "error", tooLarge: isHttpFailure(failure, 413) });
-    this.notify(noticeFor(failure));
-  }
-
-  private async conflictFromServer(session: Session<T>) {
-    session.pendingOp = null;
-    const fresh = await this.deps.api.getWorkspace();
-    if (this.session !== session) return;
-    if (!fresh.ok) {
-      await this.afterPutFailure(session, fresh.failure);
-      return;
-    }
-    this.patchSignedIn({
-      quota: fresh.value.quota,
-      archivingBlocked: fresh.value.quota.newArchivingBlocked,
-    });
-    this.enterConflict(session, fresh.value.revision, fresh.value.document, true);
-  }
-
-  /** `rebase`: the local base is known, so a server change to other items only is not a conflict. */
-  private enterConflict(
-    session: Session<T>,
-    revision: number,
-    document: WorkspaceDocument,
-    rebase: boolean,
-  ) {
-    const server = this.deps.codec.read(document);
-    const serverKey = this.itemKey(server);
-    if (serverKey === this.deps.codec.key(session.local)) {
-      // Both sides already hold the same value: adopt the server revision, nothing to choose.
-      session.serverDocument = document;
-      session.revision = revision;
-      session.syncedKey = serverKey;
-      session.serverUnreadable = false;
-      session.dirty = false;
-      this.patchSignedIn({ revision, sync: "synced", conflict: null });
-      void this.enqueue(() => this.persistAccount(session));
-      return;
-    }
-    if (rebase && serverKey !== null && serverKey === session.syncedKey) {
-      // Only other items (e.g. the other engine's) changed: this edit applies on top unchanged.
-      session.serverDocument = document;
-      session.revision = revision;
-      session.pendingOp = null;
-      this.patchSignedIn({ revision, sync: "pending" });
-      this.scheduleSave(session, 0);
-      return;
-    }
-    session.serverUnreadable = server.status === "unreadable";
-    session.conflict = { revision, document };
-    this.patchSignedIn({
-      sync: "conflict",
-      conflict: this.conflictView(session, revision, server),
-    });
-  }
-
-  private conflictView(
-    session: Session<T>,
-    revision: number,
-    server: ItemRead<T>,
-  ): WorkspaceConflict {
-    const { codec } = this.deps;
-    return {
-      serverRevision: revision,
-      server: server.status === "value" ? codec.summary(server.value) : null,
-      local: codec.summary(session.local),
-      serverBytes: server.status === "value" ? codec.bytes(server.value) : null,
-      localBytes: codec.bytes(session.local),
-      serverUnreadable: server.status === "unreadable",
-    };
-  }
-
-  private async applyConflictChoice(choice: ConflictChoice) {
-    const session = this.session;
-    const conflict = session?.conflict;
-    if (!session || !conflict) return;
-    const server = this.deps.codec.read(conflict.document);
-    // An unreadable server copy can only be overwritten or left alone.
-    if (choice === "server" && server.status === "unreadable") return;
-    session.conflict = null;
-    if (choice === "cancel") {
-      this.patchSignedIn({ sync: "paused", conflict: null });
-      return;
-    }
-    session.serverDocument = conflict.document;
-    session.revision = conflict.revision;
-    session.pendingOp = null;
-    session.serverUnreadable = false;
-    session.syncedKey = this.itemKey(server) ?? UNKNOWN_BASE_KEY;
-    if (choice === "server") {
-      session.dirty = false;
-      this.applyInput(session, server.status === "value" ? server.value : this.deps.codec.empty());
-      await this.persistAccount(session);
-      this.patchSignedIn({ sync: "synced", conflict: null, revision: session.revision });
-      return;
-    }
-    session.dirty = true;
-    this.patchSignedIn({ sync: "pending", conflict: null, revision: session.revision });
-    await this.save();
-  }
-
-  private async resume() {
-    if (this.signedIn()?.sync !== "paused" || !this.session) return;
-    this.patchSignedIn({ sync: "pending" });
-    await this.save();
-  }
-
-  private async remoteRevision(revision: number) {
-    const session = this.session;
-    const view = this.signedIn();
-    if (!session || !view || revision <= session.revision) return;
-    if (session.dirty || view.sync !== "synced") {
-      this.notify("updated_elsewhere");
-      return;
-    }
-    const fresh = await this.deps.api.getWorkspace();
-    if (this.session !== session) return;
-    if (!fresh.ok || session.dirty) {
-      this.notify(fresh.ok ? "updated_elsewhere" : noticeFor(fresh.failure));
-      return;
-    }
-    const { codec } = this.deps;
-    const server = codec.read(fresh.value.document);
-    if (server.status === "unreadable") {
-      this.enterConflict(session, fresh.value.revision, fresh.value.document, false);
-      return;
-    }
-    session.serverDocument = fresh.value.document;
-    session.revision = fresh.value.revision;
-    session.syncedKey = this.itemKey(server) ?? UNKNOWN_BASE_KEY;
-    // Another engine's save leaves this item unchanged; re-applying would discard its results.
-    if (server.status === "value" && codec.key(server.value) !== codec.key(session.local)) {
-      this.applyInput(session, server.value);
-    }
-    await this.persistAccount(session);
-    this.patchSignedIn({
-      revision: session.revision,
-      quota: fresh.value.quota,
-      archivingBlocked: fresh.value.quota.newArchivingBlocked,
-      sync: "synced",
-    });
   }
 
   // ---- cross-tab and stale-tab handling ----
@@ -615,10 +403,20 @@ export class AccountController<T> extends AccountControllerBase<T> {
       if (message.type === "account") this.markStale("account_changed");
       return;
     }
-    if (message.type === "logged-out") await this.leave("logged_out_elsewhere", null, false);
-    else if (message.type === "deleted") await this.leave("deleted", null, true);
-    else if (message.type === "revision") await this.remoteRevision(message.revision);
-    else if (message.type === "consent") await this.refreshConsent(view.userId, null, null);
+    await this.ownAccountMessage(view.phase === "unavailable", view.userId, message);
+  }
+
+  private async ownAccountMessage(
+    unavailable: boolean,
+    userId: string,
+    message: CrossTabMessage,
+  ): Promise<void> {
+    if (message.type === "logged-out") return this.leave("logged_out_elsewhere", null, "keep");
+    if (message.type === "deleted") return this.leave("deleted", null, "account");
+    // Another tab reached the server: try entering the account again.
+    if (unavailable) return this.retryEntry();
+    if (message.type === "revision") return this.remoteRevision(message.revision);
+    if (message.type === "consent") return this.refreshConsent(userId, null, null);
   }
 
   /** Detects sign-in changes that happened while this tab was hidden or its broadcast was missed. */
@@ -626,6 +424,10 @@ export class AccountController<T> extends AccountControllerBase<T> {
     const view = this.snapshot.view;
     if (view.phase === "loading" || view.phase === "stale") return;
     if (view.phase === "guest" && view.busy === "login") return;
+    if (view.phase === "unavailable") {
+      await this.retryEntry();
+      return;
+    }
     const result = await this.deps.api.getAccount();
     if (!sameIdentity(view, this.snapshot.view)) return;
     if (view.phase === "guest") {
@@ -633,15 +435,12 @@ export class AccountController<T> extends AccountControllerBase<T> {
       return;
     }
     if (!result.ok) {
-      if (isHttpFailure(result.failure, 401)) await this.leave("logged_out_elsewhere", null, false);
+      if (isHttpFailure(result.failure, 401))
+        await this.leave("logged_out_elsewhere", null, "keep");
       return;
     }
     if (result.value.account.userId !== view.userId) {
       this.markStale("account_changed");
-      return;
-    }
-    if (!this.session) {
-      await this.enterAccount(view.userId, result.value.consent);
       return;
     }
     this.patchSignedIn({
@@ -679,23 +478,34 @@ export class AccountController<T> extends AccountControllerBase<T> {
     this.notify(result.ok ? "login_failed" : noticeFor(result.failure));
   }
 
-  /** Leaves the account: clean copies are removed, unsynced ones stay keyed by account ID. */
+  /**
+   * Leaves the account for guest data. The latest edits reach the device first; unsynced drafts
+   * are kept unless the user chose to discard them (this engine only) or the account is deleted.
+   */
   private async leave(
     notice: AccountNotice,
     broadcast: "logged-out" | "deleted" | null,
-    removeRecord: boolean,
+    removal: DraftRemoval,
   ) {
-    const view = this.signedIn();
+    const view = this.snapshot.view;
     const session = this.session;
     if (session) this.cancelTimer(session);
+    this.cancelEntryRetry();
     this.session = null;
-    const userId = view?.userId ?? session?.userId;
-    // Without a loaded session the stored copies were never inspected, so they are kept.
-    if (userId && (removeRecord || session !== null)) {
-      await this.storage((store) => store.removeAccount(userId, !removeRecord), undefined);
+    const userId =
+      view.phase === "signed-in" || view.phase === "unavailable" ? view.userId : session?.userId;
+    await this.flushPersist();
+    if (session) session.closed = true;
+    if (userId && removal === "account") {
+      await this.storage((store) => store.removeAccount(userId), undefined);
+    } else if (userId && removal === "discard" && session) {
+      const draftIds = [this.deps.tab.id, ...session.recovering.map((draft) => draft.draftId)];
+      await this.storage((store) => store.removeDrafts(userId, draftIds), undefined);
     }
     if (userId && broadcast) this.deps.channel.post({ type: broadcast, userId });
-    await this.enterGuest("restore");
+    // While the account was not loaded, guest data is what is shown already.
+    if (view.phase === "unavailable") this.setView({ phase: "guest", busy: null });
+    else await this.enterGuest("restore");
     this.notify(notice);
   }
 
@@ -742,7 +552,7 @@ export class AccountController<T> extends AccountControllerBase<T> {
     }
     const plain = kind === "logout" ? "logged_out" : "revoked";
     const notice = choice === null ? plain : choice ? "logged_out_kept" : "logged_out_discarded";
-    await this.leave(notice, "logged-out", choice === false);
+    await this.leave(notice, "logged-out", choice === false ? "discard" : "keep");
   }
 
   private async removeAccount() {
@@ -755,31 +565,38 @@ export class AccountController<T> extends AccountControllerBase<T> {
       opId: this.pendingDeleteOpId,
     });
     if (!result.ok) {
-      const stale = staleReasonFor(result.failure);
-      if (stale) this.markStale(stale);
-      else if (isHttpFailure(result.failure, 401)) await this.leave("session_expired", null, false);
-      else {
+      await this.privateFailure(result.failure, () => {
         this.patchSignedIn({ busy: null });
         this.notify(noticeFor(result.failure));
-      }
+      });
       return;
     }
     this.pendingDeleteOpId = null;
     await this.leave(
       result.value.status === "complete" ? "deleted" : "deletion_pending",
       "deleted",
-      true,
+      "account",
     );
   }
 
+  /** Stale context stops the tab, 401 leaves for guest data, anything else is reported. */
+  private async privateFailure(failure: ApiFailure, otherwise: () => void) {
+    const stale = staleReasonFor(failure);
+    if (stale) this.markStale(stale);
+    else if (isHttpFailure(failure, 401)) await this.expire();
+    else otherwise();
+  }
+
+  /** The export is verified to belong to the shown account before any download is created. */
   private async downloadExport() {
-    if (!this.signedIn()) return;
+    const view = this.signedIn();
+    if (!view) return;
     this.patchSignedIn({ busy: "export" });
-    const result = await this.deps.api.exportData();
+    const result = await this.deps.api.exportData(view.userId);
+    if (this.signedIn()?.userId !== view.userId) return;
     this.patchSignedIn({ busy: null });
     if (!result.ok) {
-      if (isHttpFailure(result.failure, 401)) await this.leave("session_expired", null, false);
-      else this.notify("export_failed");
+      await this.privateFailure(result.failure, () => this.notify("export_failed"));
       return;
     }
     this.deps.download(
@@ -820,23 +637,16 @@ export class AccountController<T> extends AccountControllerBase<T> {
   }
 
   private async consentFailure(userId: string, failure: ApiFailure) {
-    const stale = staleReasonFor(failure);
-    if (stale) {
-      this.markStale(stale);
-      return;
-    }
-    if (isHttpFailure(failure, 401)) {
-      await this.leave("session_expired", null, false);
-      return;
-    }
     const code = failureCode(failure);
     if (code === "revision_conflict" || code === "op_id_conflict") this.pendingConsent = null;
     if (code === "revision_conflict") {
       await this.refreshConsent(userId, null, "consent_conflict");
       return;
     }
-    this.patchSignedIn({ busy: null });
-    this.notify(noticeFor(failure));
+    await this.privateFailure(failure, () => {
+      this.patchSignedIn({ busy: null });
+      this.notify(noticeFor(failure));
+    });
   }
 
   private async refreshConsent(
@@ -846,18 +656,23 @@ export class AccountController<T> extends AccountControllerBase<T> {
   ) {
     let consent = known;
     if (!consent) {
-      const fresh = await this.deps.api.getConsent();
-      if (fresh.ok) consent = fresh.value;
-      else if (!notice) notice = noticeFor(fresh.failure);
+      const fresh = await this.deps.api.getConsent(userId);
+      if (this.signedIn()?.userId !== userId) return;
+      if (!fresh.ok) {
+        await this.privateFailure(fresh.failure, () => {
+          this.patchSignedIn({ busy: null });
+          this.notify(notice ?? noticeFor(fresh.failure));
+        });
+        return;
+      }
+      consent = fresh.value;
     }
     if (this.signedIn()?.userId !== userId) return;
-    if (consent) {
-      this.patchSignedIn({
-        consent,
-        consentPrompt: consent.participation === null && !this.consentDismissed,
-      });
-    }
-    this.patchSignedIn({ busy: null });
+    this.patchSignedIn({
+      consent,
+      consentPrompt: consent.participation === null && !this.consentDismissed,
+      busy: null,
+    });
     if (notice) this.notify(notice);
   }
 }

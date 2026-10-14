@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import type { CertifiedSupplySnapshot } from "../../shared/certifiedSupply";
 import type { Grade, Stock } from "../types";
 import {
@@ -109,6 +109,7 @@ export type CertifiedAccountDeps = Pick<
   updateSession: Dispatch<SetStateAction<CertifiedSession>>;
 };
 
+/** Created by the account control only when the account flag is on; `deps` reads the latest store. */
 export function createCertifiedAccountPort(deps: () => CertifiedAccountDeps): CertifiedAccountPort {
   return {
     validate: validateCertifiedSessionText,
@@ -158,14 +159,4 @@ export function createCertifiedAccountPort(deps: () => CertifiedAccountDeps): Ce
       publish(initialBridge());
     },
   };
-}
-
-/** Stable port for the account control; it always acts on the latest session store. */
-export function useCertifiedAccountPort(deps: CertifiedAccountDeps): CertifiedAccountPort {
-  const latest = useRef(deps);
-  useEffect(() => {
-    latest.current = deps;
-  });
-  const [port] = useState(() => createCertifiedAccountPort(() => latest.current));
-  return port;
 }

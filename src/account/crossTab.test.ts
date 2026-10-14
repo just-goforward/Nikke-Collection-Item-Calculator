@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createFakeServer, createHarness, input } from "./accountTestHarness";
+import { createFakeServer, createHarness, createTabRegistry, input } from "./accountTestHarness";
 import { type CrossTabChannel, createCrossTabChannel, parseCrossTabMessage } from "./crossTab";
 import { EMPTY_WORKSPACE_DOCUMENT, writeCalculatorInput } from "./workspaceDocument";
 import { createMemoryWorkspaceStore } from "./workspaceStore";
@@ -20,8 +20,9 @@ async function twoTabs(server = createFakeServer({ revision: 1 })) {
     restoreOnReturn: false,
     updatedAt: 1,
   });
+  const tabs = createTabRegistry();
   const tab = (channel: CrossTabChannel) => {
-    const harness = createHarness(server, { store, channel });
+    const harness = createHarness(server, { store, channel, tabs });
     opened.push(harness.controller);
     return harness;
   };

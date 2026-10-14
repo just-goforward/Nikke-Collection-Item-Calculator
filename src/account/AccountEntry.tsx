@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { CertifiedAccountPort } from "../certifiedUi/accountSession";
 import {
   AccountPanel,
   accountClasses,
@@ -9,6 +8,12 @@ import {
   SignOutDialog,
   useAccountText,
 } from "./AccountDialogs";
+import type {
+  AccountEntryProps,
+  CalculatorInputBinding,
+  CertifiedSessionBinding,
+} from "./accountBinding";
+import { CheckingIndicator } from "./accountCheck";
 import { AccountController, type AccountUi } from "./accountController";
 import type {
   AccountNotice,
@@ -18,37 +23,14 @@ import type {
   SyncStatus,
 } from "./accountState";
 import { createAccountApi } from "./api";
-import { accountBootGate, useAccountBootStatus } from "./bootGate";
+import { useAccountLock } from "./bootGate";
 import { createCertifiedSessionCodec } from "./certifiedSessionItem";
 import { createCrossTabChannel } from "./crossTab";
 import { takeAccountError } from "./loginError";
+import { createTabIdentity } from "./tabIdentity";
 import { type CalculatorInput, calculatorInputKey } from "./workspaceDocument";
 import { calculatorInputCodec, type WorkspaceItemCodec } from "./workspaceItem";
 import { openWorkspaceStore } from "./workspaceStore";
-
-/** Production engine: the calculator inputs are the workspace item. */
-type CalculatorInputBinding = {
-  kind: "calculator-input";
-  input: CalculatorInput;
-  /** While the calculator is busy, server/guest inputs are applied once it is idle again. */
-  inputLocked: boolean;
-  onApplyInput: (input: CalculatorInput) => void;
-  /** Runs after the shown inputs switched between account and guest data. */
-  onSwitched?: () => void;
-};
-
-/** Certified engine: the certified session is the item; its guest copy stays in its own key. */
-type CertifiedSessionBinding = {
-  kind: "certified-session";
-  port: CertifiedAccountPort;
-  /** Changes identity whenever the certified session changes. */
-  changeToken: object;
-  inputLocked: boolean;
-  /** Runs after the shown session switched between account and guest data. */
-  onSwitched?: () => void;
-};
-
-export type AccountEntryProps = CalculatorInputBinding | CertifiedSessionBinding;
 
 /** A display switch the engine performs once it is idle. */
 type EngineSwitch =
@@ -56,7 +38,12 @@ type EngineSwitch =
   | { kind: "session"; text: string }
   | { kind: "guest" };
 
-type EntryController = { ui: AccountUi; notifyChange(): void };
+type EntryController = {
+  ui: AccountUi;
+  notifyChange(): void;
+  /** Shows switched data in the engine once it is idle. */
+  perform(next: EngineSwitch): void;
+};
 
 const SAVE_DELAY_MS = 1_500;
 const SESSION_RECHECK_MS = 30_000;
@@ -100,6 +87,7 @@ function createBrowserController<T>(codec: WorkspaceItemCodec<T>, calculator: Ca
     codec,
     calculator,
     openStore: () => openWorkspaceStore(codec.type),
+    tab: createTabIdentity(),
     newOpId: () => crypto.randomUUID(),
     navigate: (url) => window.location.assign(url),
     download: downloadJson,
@@ -124,9 +112,16 @@ function createEntryController(
       capture: input,
       apply: (value) => queue({ kind: "input", value }),
     });
-    return { ui: controller, notifyChange: () => controller.notifyLocalChange(input()) };
+    return {
+      ui: controller,
+      notifyChange: () => controller.notifyLocalChange(input()),
+      perform: (next) => {
+        if (next.kind === "input")
+          (binding.current as CalculatorInputBinding).onApplyInput(next.value);
+      },
+    };
   }
-  const { port } = initial;
+  const port = initial.createPort(() => (binding.current as CertifiedSessionBinding).deps);
   const controller = createBrowserController(createCertifiedSessionCodec(port), {
     capture: () => port.current(),
     apply: (text) => queue({ kind: "session", text }),
@@ -140,30 +135,11 @@ function createEntryController(
         controller.notifyLocalChange(port.current());
       }
     },
+    perform: (next) => {
+      if (next.kind === "session") port.applyAccount(next.text);
+      else if (next.kind === "guest") port.showGuest();
+    },
   };
-}
-
-function performSwitch(props: AccountEntryProps, next: EngineSwitch) {
-  if (props.kind === "calculator-input") {
-    if (next.kind === "input") props.onApplyInput(next.value);
-  } else if (next.kind === "session") props.port.applyAccount(next.text);
-  else if (next.kind === "guest") props.port.showGuest();
-  // An undo snapshot from before the switch belongs to the other data set.
-  props.onSwitched?.();
-}
-
-/** Releases the page-load input lock once the resolved data is shown; reports a timeout. */
-function useBootGate(controller: AccountUi, switchPending: boolean) {
-  const status = useAccountBootStatus();
-  const phase = useSyncExternalStore(controller.subscribe, controller.getSnapshot).view.phase;
-  useEffect(() => {
-    if (status === "timed-out") controller.bootTimedOut();
-  }, [controller, status]);
-  useEffect(() => {
-    if (status === "checking" && phase !== "loading" && !switchPending) {
-      accountBootGate().release();
-    }
-  }, [phase, status, switchPending]);
 }
 
 function useBrowserSignals(controller: AccountUi) {
@@ -206,8 +182,10 @@ function useAccountController(props: AccountEntryProps) {
   useEffect(() => {
     if (!pending || inputLocked) return;
     setPending(null);
-    performSwitch(binding.current, pending);
-  }, [inputLocked, pending]);
+    entry.perform(pending);
+    // An undo snapshot from before the switch belongs to the other data set.
+    binding.current.onSwitched?.();
+  }, [entry, inputLocked, pending]);
   const changeToken =
     props.kind === "calculator-input" ? calculatorInputKey(props.input) : props.changeToken;
   const notified = useRef<unknown>(null);
@@ -219,8 +197,7 @@ function useAccountController(props: AccountEntryProps) {
     entry.notifyChange();
   }, [changeToken, entry, pending]);
   useBrowserSignals(controller);
-  useBootGate(controller, pending !== null);
-  return controller;
+  return { controller, switchPending: pending !== null };
 }
 
 function GoogleMark() {
@@ -246,10 +223,12 @@ function GoogleMark() {
 function AccountTrigger({
   onLogin,
   onOpen,
+  onRetry,
   view,
 }: {
   onLogin: () => void;
   onOpen: () => void;
+  onRetry: () => void;
   view: AccountView;
 }) {
   const text = useAccountText();
@@ -265,6 +244,20 @@ function AccountTrigger({
       >
         <span className={`${entryClasses.dot} ${SYNC_DOT_CLASSES[view.sync]}`} aria-hidden="true" />
         <span>{text("account")}</span>
+      </button>
+    );
+  }
+  if (view.phase === "unavailable") {
+    return (
+      <button
+        className={accountClasses.trigger}
+        type="button"
+        data-account-trigger
+        aria-label={text("unavailableLabel")}
+        onClick={onRetry}
+      >
+        <span className={`${entryClasses.dot} bg-warning`} aria-hidden="true" />
+        <span>{text("unavailable")}</span>
       </button>
     );
   }
@@ -354,20 +347,26 @@ function NoticeRegion({
 
 /** Lazy account entry point: guests keep every feature; nothing here gates the calculator. */
 export default function AccountEntry(props: AccountEntryProps) {
-  const controller = useAccountController(props);
+  const { controller, switchPending } = useAccountController(props);
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [panelOpen, setPanelOpen] = useState(false);
   const view = snapshot.view;
+  const checking = useAccountLock(controller, view.phase, switchPending, {
+    fellBack: props.bootFellBack.current,
+    onLockChange: props.onLockChange,
+  });
   const signedIn = view.phase === "signed-in" ? view : null;
   useEffect(() => {
     if (!signedIn) setPanelOpen(false);
   }, [signedIn]);
   return (
     <div className={entryClasses.root}>
+      {checking ? <CheckingIndicator /> : null}
       <AccountTrigger
         view={view}
         onLogin={() => void controller.login()}
         onOpen={() => setPanelOpen(true)}
+        onRetry={() => void controller.retryAccount()}
       />
       {signedIn ? (
         <>

@@ -1,53 +1,56 @@
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { LazySectionErrorBoundary } from "../components/LazySectionErrorBoundary";
-import { useI18n } from "../i18n/locale";
-import type { AccountEntryProps } from "./AccountEntry";
-import { accountBootGate, useAccountBootLocked } from "./bootGate";
-import { accountFeatureEnabled } from "./config";
+import type { AccountControlProps } from "./accountBinding";
+import { accountCheckRemainingMs, CheckingIndicator } from "./accountCheck";
 
-const AccountEntry = lazy(() => import("./AccountEntry"));
+/**
+ * Feature-flagged app-shell slot. With accountCheck.tsx and config.ts it is the only account code
+ * in the main bundle. Shells render it only when `accountFeatureEnabled()` is true; with the flag
+ * off nothing here runs and the account chunk (controller, lock, dialogs, certified adapter) is
+ * never requested.
+ */
 
-// Shown before the lazy account chunk (and its catalog) has loaded.
-const CHECKING_TEXT = { ko: "계정 확인 중…", en: "Checking account…", ja: "アカウントを確認中…" };
+const loadEntry = () => lazy(() => import("./AccountEntry"));
+let entry: ReturnType<typeof loadEntry> | null = null;
 
-function CheckingIndicator() {
-  const { locale } = useI18n();
-  return (
-    <span
-      className="mr-2 inline-flex min-h-[34px] items-center text-[11.5px] font-bold text-text-soft"
-      role="status"
-      data-account-checking
-    >
-      {CHECKING_TEXT[locale]}
-    </span>
-  );
+/** Until the chunk loads; past the bound it releases the inputs on its own. */
+function LoadingFallback({ onTimeout }: { onTimeout: () => void }) {
+  useEffect(() => {
+    const timer = window.setTimeout(onTimeout, accountCheckRemainingMs());
+    return () => window.clearTimeout(timer);
+  }, [onTimeout]);
+  return <CheckingIndicator />;
 }
 
 /** Without the account chunk nothing can resolve the check: guest data unlocks at once. */
-function ReleaseOnFailure() {
-  useEffect(() => accountBootGate().release(), []);
+function ReleaseOnFailure({ onLockChange }: { onLockChange: (locked: boolean) => void }) {
+  useEffect(() => onLockChange(false), [onLockChange]);
   return null;
 }
 
-/**
- * Feature-flagged app-shell entry. When the flag is off nothing renders and the account chunk is
- * never requested; a failed chunk load leaves the calculator untouched (the boundary logs it).
- */
-export function AccountControl(props: AccountEntryProps) {
-  const checking = useAccountBootLocked();
-  if (!accountFeatureEnabled()) return null;
+export function AccountControl(props: AccountControlProps) {
+  const fellBack = useRef(false);
+  const { onLockChange } = props;
+  entry ??= loadEntry();
+  const Entry = entry;
   return (
-    <>
-      {checking ? <CheckingIndicator /> : null}
-      <LazySectionErrorBoundary
-        name="AccountEntry"
-        onRetry={() => undefined}
-        fallback={() => <ReleaseOnFailure />}
+    <LazySectionErrorBoundary
+      name="AccountEntry"
+      onRetry={() => undefined}
+      fallback={() => <ReleaseOnFailure onLockChange={onLockChange} />}
+    >
+      <Suspense
+        fallback={
+          <LoadingFallback
+            onTimeout={() => {
+              fellBack.current = true;
+              onLockChange(false);
+            }}
+          />
+        }
       >
-        <Suspense fallback={null}>
-          <AccountEntry {...props} />
-        </Suspense>
-      </LazySectionErrorBoundary>
-    </>
+        <Entry {...props} bootFellBack={fellBack} />
+      </Suspense>
+    </LazySectionErrorBoundary>
   );
 }

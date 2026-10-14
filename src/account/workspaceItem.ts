@@ -4,7 +4,7 @@ import {
   type CalculatorInput,
   calculatorInputKey,
   DEFAULT_CALCULATOR_INPUT,
-  readCalculatorInput,
+  readCalculatorInputItem,
   writeCalculatorInput,
 } from "./workspaceDocument";
 
@@ -40,13 +40,10 @@ export function utf8Bytes(text: string): number {
   return new TextEncoder().encode(text).length;
 }
 
-/** Unreadable calculator items count as absent and are replaced on the next save (as before). */
+/** An unreadable v1 calculator item is a conflict: only an explicit overwrite replaces it. */
 export const calculatorInputCodec: WorkspaceItemCodec<CalculatorInput> = {
   type: CALCULATOR_INPUT_ITEM_TYPE,
-  read: (document) => {
-    const input = readCalculatorInput(document);
-    return input ? { status: "value", value: input } : { status: "absent" };
-  },
+  read: readCalculatorInputItem,
   write: writeCalculatorInput,
   key: calculatorInputKey,
   summary: (input) => input,

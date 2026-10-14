@@ -12,8 +12,10 @@ import {
   createFakeServer,
   createHarness,
   createItemHarness,
+  createTabRegistry,
   type FakeServer,
   input,
+  type TabRegistry,
 } from "./accountTestHarness";
 import { CERTIFIED_SESSION_ITEM_TYPE, createCertifiedSessionCodec } from "./certifiedSessionItem";
 import { createCrossTabChannel } from "./crossTab";
@@ -57,10 +59,12 @@ function certifiedHarness(
     guest?: string | null;
     store?: WorkspaceStore;
     channel?: ReturnType<typeof createCrossTabChannel>;
+    tabs?: TabRegistry;
   } = {},
 ) {
   return createItemHarness(server, codec, sessionText([7, 7, 7], "guest-shown"), {
     ...(options.store ? { store: options.store } : {}),
+    ...(options.tabs ? { tabs: options.tabs } : {}),
     ...(options.channel ? { channel: options.channel } : {}),
     ownGuest: { value: options.guest ?? null },
   });
@@ -133,7 +137,8 @@ describe("certified session sync", () => {
     expect(codec.read(server.document)).toEqual({ status: "value", value: guest });
     // Guest data stays in the engine's own storage; the shared guest store is never written.
     expect(await store.readGuest()).toBeNull();
-    expect(await store.readAccount("user-a")).toMatchObject({ dirty: false, baseRevision: 2 });
+    // Synced: no device copy is kept.
+    expect(await harness.draft()).toBeNull();
   });
 
   it("syncs edits next to the production item and returns to the guest session on logout", async () => {
@@ -187,6 +192,32 @@ describe("certified session sync", () => {
     expect(signedIn(harness.view())).toMatchObject({ sync: "synced", revision: 3 });
   });
 
+  it("'Resolve conflict' after cancelling an unreadable copy re-reads the server and asks again", async () => {
+    const corrupt = { type: CERTIFIED_SESSION_ITEM_TYPE, version: 1, session: { stock: "bad" } };
+    const server = createFakeServer({ revision: 2, document: documentWith(corrupt) });
+    const harness = certifiedHarness(server);
+    await harness.controller.start();
+    await harness.controller.resolveConflict("cancel");
+    expect(signedIn(harness.view())).toMatchObject({ sync: "paused", conflict: null });
+    const reads = () => server.calls.filter((call) => call.method === "getWorkspace").length;
+    const before = reads();
+    // Nothing was edited: the dialog must still come back, from a fresh server read.
+    await harness.controller.resumeSync();
+    expect(reads()).toBe(before + 1);
+    expect(signedIn(harness.view())).toMatchObject({
+      sync: "conflict",
+      conflict: { serverUnreadable: true },
+    });
+    // Fixed elsewhere meanwhile: the readable copy is followed without a question.
+    await harness.controller.resolveConflict("cancel");
+    server.revision = 3;
+    server.document = codec.write(EMPTY_WORKSPACE_DOCUMENT, sessionText([4, 0, 0]));
+    await harness.controller.resumeSync();
+    expect(harness.displayed).toBe(sessionText([4, 0, 0]));
+    expect(signedIn(harness.view())).toMatchObject({ sync: "synced", revision: 3, conflict: null });
+    expect(putBodies(server)).toEqual([]);
+  });
+
   it("shows both sizes in a conflict", async () => {
     const server = createFakeServer({
       revision: 1,
@@ -229,7 +260,7 @@ describe("certified session sync", () => {
     expect(signedIn(harness.view())).toMatchObject({ sync: "error", tooLarge: true });
     expect(signedIn(harness.view()).itemBytes).toBe(utf8Bytes(huge));
     expect(harness.notice()).toBe("request_too_large");
-    expect(await store.readAccount("user-a")).toMatchObject({ dirty: true });
+    expect(await harness.draft()).toMatchObject({ baseRevision: 1 });
 
     harness.edit(JSON.stringify({ size: 2 }));
     await harness.runTimers();
@@ -253,8 +284,9 @@ describe("certified cross-tab and cross-engine sync", () => {
     count += 1;
     const server = createFakeServer({ revision: 1 });
     const store = createMemoryWorkspaceStore();
-    const first = certifiedHarness(server, { store, channel: channel() });
-    const second = certifiedHarness(server, { store, channel: channel() });
+    const tabs = createTabRegistry();
+    const first = certifiedHarness(server, { store, channel: channel(), tabs });
+    const second = certifiedHarness(server, { store, channel: channel(), tabs });
     opened.push(first.controller, second.controller);
     await Promise.all([first.controller.start(), second.controller.start()]);
     first.edit(sessionText([12, 0, 0]));

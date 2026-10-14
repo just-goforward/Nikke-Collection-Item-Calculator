@@ -96,7 +96,8 @@ describe("account boot and guest separation", () => {
     const guest = await store.readGuest();
     expect(guest && readCalculatorInput(guest.document)).toEqual(input(73));
     expect(guest?.restoreOnReturn).toBe(false);
-    expect(await store.readAccount("user-a")).toMatchObject({ baseRevision: 4, dirty: false });
+    // A synced account keeps no device copy.
+    expect(await harness.draft()).toBeNull();
   });
 
   it("returns to guest inputs on logout, drops the clean account copy and tells other tabs", async () => {
@@ -113,7 +114,7 @@ describe("account boot and guest separation", () => {
     await harness.controller.logout();
     expect(harness.view()).toEqual({ phase: "guest", busy: null });
     expect(harness.displayed).toEqual(input(73));
-    expect(await store.readAccount("user-a")).toBeNull();
+    expect(await store.readDrafts("user-a")).toEqual([]);
     expect(channel.posted).toContainEqual({ type: "logged-out", userId: "user-a" });
     expect(harness.notice()).toBe("logged_out");
   });
@@ -146,10 +147,7 @@ describe("workspace sync", () => {
     expect(body.document.lifetimeStages).toEqual([STAGE]);
     expect(readCalculatorInput(body.document)).toEqual(input(31));
     expect(signedIn(harness.view())).toMatchObject({ sync: "synced", revision: 5 });
-    expect(await harness.store.readAccount("user-a")).toMatchObject({
-      baseRevision: 5,
-      dirty: false,
-    });
+    expect(await harness.draft()).toBeNull();
   });
 
   it("keeps an edit made during a save pending and sends it next on the new revision", async () => {
@@ -224,11 +222,11 @@ describe("workspace sync", () => {
   it("pushes unsynced edits from an earlier visit when the server has not moved", async () => {
     const server = createFakeServer({ revision: 4, document: serverDocument(20) });
     const store = createMemoryWorkspaceStore();
-    await store.writeAccount({
+    await store.writeDraft({
       userId: "user-a",
+      draftId: "closed-tab",
       baseRevision: 4,
       document: serverDocument(44),
-      dirty: true,
       updatedAt: 1,
     });
     const harness = createHarness(server, { store });
@@ -241,11 +239,11 @@ describe("workspace sync", () => {
   it("asks before replacing newer server data with unsynced edits from an earlier visit", async () => {
     const server = createFakeServer({ revision: 6, document: serverDocument(20) });
     const store = createMemoryWorkspaceStore();
-    await store.writeAccount({
+    await store.writeDraft({
       userId: "user-a",
+      draftId: "closed-tab",
       baseRevision: 4,
       document: serverDocument(44),
-      dirty: true,
       updatedAt: 1,
     });
     const harness = createHarness(server, { store });
@@ -263,7 +261,10 @@ describe("workspace sync", () => {
     await harness.controller.resolveConflict("cancel");
     await harness.controller.resumeSync();
     expect(signedIn(harness.view()).sync).toBe("conflict");
-    expect(await store.readAccount("user-a")).toMatchObject({ baseRevision: 4, dirty: true });
+    // Recovered into this tab's draft, still on its original base revision.
+    expect(await store.readDrafts("user-a")).toEqual([
+      expect.objectContaining({ draftId: harness.tab.id, baseRevision: 4 }),
+    ]);
     const reloaded = createHarness(server, { store });
     await reloaded.controller.start();
     expect(signedIn(reloaded.view()).sync).toBe("conflict");

@@ -89,7 +89,66 @@ describe("account API client", () => {
 
   it("does not hide programming errors as network failures", async () => {
     const { api } = stub(new RangeError("bug"));
-    await expect(api.getWorkspace()).rejects.toThrow("bug");
+    await expect(api.getWorkspace("u")).rejects.toThrow("bug");
+  });
+
+  it("binds private reads to the shown account and verifies the owner before returning data", async () => {
+    const workspace = {
+      revision: 2,
+      lastOpId: null,
+      document: EMPTY_WORKSPACE_DOCUMENT,
+      quota: { bytes: 1, limitBytes: 2, newArchivingBlocked: false },
+    };
+    const exported = (account: string, workspaceOwner: string) => ({
+      schemaVersion: 1,
+      account: { userId: account, createdAt: 1, lastActiveAt: 1 },
+      workspace: { ...workspace, userId: workspaceOwner },
+    });
+    const { api, fetchImpl } = stub(
+      jsonResponse(200, { ...workspace, userId: "user-a" }),
+      jsonResponse(200, { participation: true, decisionVersion: 3, userId: "user-a" }),
+      jsonResponse(200, exported("user-a", "user-a")),
+      // A server or proxy answering for another account (the cookie switched meanwhile).
+      jsonResponse(200, { ...workspace, userId: "user-b" }),
+      jsonResponse(200, { participation: true, decisionVersion: 3, userId: "user-b" }),
+      jsonResponse(200, exported("user-a", "user-b")),
+      jsonResponse(409, { error: "account_context_stale" }),
+    );
+    expect(await api.getWorkspace("user-a")).toMatchObject({
+      ok: true,
+      value: { userId: "user-a" },
+    });
+    expect(await api.getConsent("user-a")).toEqual({
+      ok: true,
+      status: 200,
+      value: { participation: true, decisionVersion: 3 },
+    });
+    expect(await api.exportData("user-a")).toMatchObject({
+      ok: true,
+      value: { account: { userId: "user-a" } },
+    });
+    const stale = {
+      ok: false,
+      failure: { kind: "http", status: 409, code: "account_context_stale" },
+    };
+    expect(await api.getWorkspace("user-a")).toEqual(stale);
+    expect(await api.getConsent("user-a")).toEqual(stale);
+    expect(await api.exportData("user-a")).toEqual(stale);
+    expect(await api.getWorkspace("user-a")).toEqual(stale);
+    for (const index of [0, 1, 2, 3, 4, 5, 6]) {
+      const { headers, init } = requestAt(fetchImpl, index);
+      expect(init).toMatchObject({ method: "GET", credentials: "same-origin" });
+      expect(headers.get("If-Account-Match")).toBe('"user-a"');
+    }
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      "/v1/workspace",
+      "/v1/consent",
+      "/v1/export",
+      "/v1/workspace",
+      "/v1/consent",
+      "/v1/export",
+      "/v1/workspace",
+    ]);
   });
 
   it("uses the contract bodies for login, logout, consent, deletion and revoke-all", async () => {

@@ -1,12 +1,14 @@
 import type { ComponentProps } from "react";
+import { useState } from "react";
 import { CERTIFIED_STAGING_ENGINE_PROFILE } from "../../shared/certifiedEngineProfile";
 import { AppShell } from "../AppLayout";
 import { AccountControl } from "../account/AccountControl";
-import { useAccountBootLocked } from "../account/bootGate";
+import { accountFeatureEnabled } from "../account/config";
 import { useAppShellNavigation } from "../hooks/useAppShellNavigation";
 import { useStatsQuery } from "../hooks/useStatsQuery";
 import { useTheme } from "../hooks/useTheme";
 import { useI18n } from "../i18n/locale";
+import { createCertifiedAccountPort } from "./accountSession";
 import {
   CertifiedBanner,
   CertifiedMobileActions,
@@ -76,7 +78,7 @@ function certifiedInputPanels(
   };
 }
 
-/** While the optional account check runs, every session-changing action is inert. */
+/** While the optional account control locks inputs, every session-changing action is inert. */
 function readOnlyInteractions(ui: CertifiedShellInteractions): CertifiedShellInteractions {
   const idle = () => undefined;
   return { ...ui, onCalculate: idle, onReset: idle, onConvert: idle, onOutcome: idle };
@@ -86,26 +88,31 @@ export default function CertifiedCalculator() {
   const { locale } = useI18n();
   const words = certifiedMessages[locale];
   const app = useCertifiedCalculatorApp();
-  const accountChecking = useAccountBootLocked();
+  // With the flag off this stays false and no account code runs (only the constant flag check).
+  const [accountLocked, setAccountLocked] = useState(accountFeatureEnabled);
   // The account binding keeps the engine's own lock; only the shown inputs are read-only.
-  const controller = accountChecking ? { ...app, inputLocked: true, calculateDisabled: true } : app;
+  const controller = accountLocked ? { ...app, inputLocked: true, calculateDisabled: true } : app;
   const shell = useAppShellNavigation<() => void>();
   const theme = useTheme(controller.statePanel.grade);
   const stats = useStatsQuery(shell.statsVisible);
   const interactions = useCertifiedShellInteractions(controller, shell);
-  const ui = accountChecking ? readOnlyInteractions(interactions) : interactions;
+  const ui = accountLocked ? readOnlyInteractions(interactions) : interactions;
   const chrome = { controller, ui, words };
 
   return (
     <AppShell
       accountControl={
-        <AccountControl
-          kind="certified-session"
-          changeToken={app.accountToken}
-          inputLocked={app.run.busy || app.modal.open}
-          port={app.accountPort}
-          onSwitched={shell.clearResetToast}
-        />
+        accountFeatureEnabled() ? (
+          <AccountControl
+            kind="certified-session"
+            changeToken={app.accountToken}
+            createPort={createCertifiedAccountPort}
+            deps={app.accountDeps}
+            inputLocked={app.run.busy || app.modal.open}
+            onLockChange={setAccountLocked}
+            onSwitched={shell.clearResetToast}
+          />
+        ) : null
       }
       banner={<CertifiedBanner {...chrome} />}
       engineProfile={CERTIFIED_STAGING_ENGINE_PROFILE.id}

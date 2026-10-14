@@ -27,6 +27,11 @@ const ko = {
     "계정 확인이 지연되어 게스트 데이터로 계속합니다. 계정 데이터를 쓰려면 잠시 후 새로고침하세요.",
   "stale.account_check_late":
     "계정 확인이 늦게 완료되었습니다. 새로고침하면 계정 데이터를 사용할 수 있습니다.",
+  unavailable: "계정 불러오기 실패",
+  unavailableLabel: "계정 데이터를 불러오지 못했습니다. 다시 시도",
+  "notice.account_unavailable":
+    "계정 데이터를 불러오지 못해 이 탭은 게스트 데이터를 표시합니다. 자동으로 다시 시도하며, 지금 입력한 내용은 게스트 데이터로 보관됩니다.",
+  "notice.draft_recovered": "다른 탭에서 저장되지 않은 변경 사항을 이 탭으로 복구했습니다.",
   login: "로그인",
   loginLabel: "Google 계정으로 로그인",
   loginBusy: "Google 로그인으로 이동 중…",
@@ -160,6 +165,11 @@ const en: Record<AccountMessageKey, string> = {
   "notice.account_check_timeout":
     "Checking your account is taking too long, so you're continuing with guest data. Reload later to use your account data.",
   "stale.account_check_late": "The account check finished late. Reload to use your account data.",
+  unavailable: "Account not loaded",
+  unavailableLabel: "Your account data could not be loaded. Retry",
+  "notice.account_unavailable":
+    "Your account data could not be loaded, so this tab shows guest data. Retrying automatically; anything you enter now is kept as guest data.",
+  "notice.draft_recovered": "Recovered unsynced changes from another tab into this tab.",
   login: "Sign in",
   loginLabel: "Sign in with Google",
   loginBusy: "Opening Google sign-in…",
@@ -294,6 +304,11 @@ const ja: Record<AccountMessageKey, string> = {
     "アカウントの確認に時間がかかっているため、ゲストデータで続行します。アカウントのデータを使うには、しばらくしてから再読み込みしてください。",
   "stale.account_check_late":
     "アカウントの確認が遅れて完了しました。再読み込みするとアカウントのデータを使えます。",
+  unavailable: "アカウント未読み込み",
+  unavailableLabel: "アカウントのデータを読み込めませんでした。再試行",
+  "notice.account_unavailable":
+    "アカウントのデータを読み込めないため、このタブはゲストデータを表示しています。自動で再試行し、今の入力はゲストデータとして保持されます。",
+  "notice.draft_recovered": "別のタブの未同期の変更をこのタブに復元しました。",
   login: "ログイン",
   loginLabel: "Googleアカウントでログイン",
   loginBusy: "Googleのログインに移動中…",

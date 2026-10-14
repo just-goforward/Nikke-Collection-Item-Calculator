@@ -87,10 +87,20 @@ export function parseCalculatorInput(value: unknown): CalculatorInput | null {
   };
 }
 
+/** The owned v1 item: absent, valid, or present but failing validation (never applied). */
+export function readCalculatorInputItem(
+  document: WorkspaceDocument,
+): { status: "absent" } | { status: "value"; value: CalculatorInput } | { status: "unreadable" } {
+  const item = document.items.find(isOwnedItem);
+  if (item === undefined) return { status: "absent" };
+  const input = isRecord(item) ? parseCalculatorInput(item["input"]) : null;
+  return input ? { status: "value", value: input } : { status: "unreadable" };
+}
+
 /** The calculator input stored in a document, or null when absent/unreadable. */
 export function readCalculatorInput(document: WorkspaceDocument): CalculatorInput | null {
-  const item = document.items.find(isOwnedItem);
-  return item !== undefined && isRecord(item) ? parseCalculatorInput(item["input"]) : null;
+  const read = readCalculatorInputItem(document);
+  return read.status === "value" ? read.value : null;
 }
 
 /** Replaces only this client's item; foreign items and lifetime stages are kept as they were. */

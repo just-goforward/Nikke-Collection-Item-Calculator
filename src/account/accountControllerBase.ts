@@ -9,7 +9,7 @@ import type {
 } from "./accountState";
 import type { CalculatorInput } from "./workspaceDocument";
 import type { ItemRead } from "./workspaceItem";
-import type { WorkspaceStore } from "./workspaceStore";
+import type { DraftRecord, WorkspaceStore } from "./workspaceStore";
 
 export type PendingOp = {
   opId: string;
@@ -33,6 +33,10 @@ export type Session<T> = {
   local: T;
   dirty: boolean;
   pendingOp: PendingOp | null;
+  /** Sent operations without an answer: a matching `lastOpId` acknowledges one after a loss. */
+  unacked: PendingOp[];
+  /** Highest server revision announced by other tabs or conflict answers. */
+  announcedRevision: number;
   conflict: { revision: number; document: WorkspaceDocument } | null;
   /** The server copy failed validation: never applied; only an explicit overwrite replaces it. */
   serverUnreadable: boolean;
@@ -40,6 +44,10 @@ export type Session<T> = {
   guestOffer: { value: T; summary: CalculatorInput } | null;
   retryMs: number;
   cancelTimer: (() => void) | null;
+  /** This tab's earlier and closed tabs' drafts, recovered one at a time once settled. */
+  recovering: DraftRecord[];
+  /** Set once the session was left: queued device writes for it no longer run. */
+  closed: boolean;
 };
 
 /** Signed-in fields the controller derives itself instead of accepting through a patch. */
@@ -56,7 +64,9 @@ export abstract class AccountControllerBase<T> {
   protected disposed = false;
   private readonly listeners = new Set<() => void>();
   private tail: Promise<void> = Promise.resolve();
-  private store: WorkspaceStore | null = null;
+  /** Device writes have their own queue: no request in flight can delay them. */
+  private persistTail: Promise<void> = Promise.resolve();
+  private storeReady: Promise<WorkspaceStore> | null = null;
 
   constructor(protected readonly deps: AccountControllerDeps<T>) {}
 
@@ -76,9 +86,10 @@ export abstract class AccountControllerBase<T> {
   showNotice(notice: AccountNotice) {
     return this.enqueue(async () => this.notify(notice));
   }
-  /** Resolves after every operation queued so far has finished. */
-  whenIdle() {
-    return this.enqueue(async () => undefined);
+  /** Resolves after every operation and device write queued so far has finished. */
+  async whenIdle() {
+    await this.enqueue(async () => undefined);
+    await this.persistTail;
   }
 
   protected abstract save(): Promise<void>;
@@ -131,14 +142,14 @@ export abstract class AccountControllerBase<T> {
     return this.tail;
   }
 
-  protected async ensureStore(): Promise<WorkspaceStore> {
-    if (this.store) return this.store;
-    const opened = await this.deps.openStore();
-    this.store = opened.store;
-    if (!opened.persistent) {
-      this.emit({ ...this.snapshot, persistent: false, notice: "storage_unavailable" });
-    }
-    return opened.store;
+  protected ensureStore(): Promise<WorkspaceStore> {
+    this.storeReady ??= this.deps.openStore().then((opened) => {
+      if (!opened.persistent) {
+        this.emit({ ...this.snapshot, persistent: false, notice: "storage_unavailable" });
+      }
+      return opened.store;
+    });
+    return this.storeReady;
   }
 
   /** Device storage refusals degrade to tab-only data with a visible notice; nothing else is hidden. */
@@ -175,22 +186,48 @@ export abstract class AccountControllerBase<T> {
     if (this.session === session) this.patchSignedIn({ itemBytes: this.deps.codec.bytes(value) });
   }
 
-  protected async persistAccount(session: Session<T>) {
-    if (this.session !== session) return;
-    const document = session.dirty
-      ? this.deps.codec.write(session.serverDocument, session.local)
-      : session.serverDocument;
+  /**
+   * Queues a device write of the session's state at the time it runs, so the latest edit always
+   * wins. It also runs after the session lost ownership (401, stale) unless the session was left.
+   * Unsynced edits are this tab's draft; a synced session keeps no device copy.
+   */
+  protected persist(session: Session<T>): Promise<void> {
+    const run = this.persistTail.then(() => this.writeDraft(session));
+    this.persistTail = run.catch((error: unknown) => {
+      console.error("Account device write failed.", error);
+      this.notify("unexpected");
+    });
+    return this.persistTail;
+  }
+
+  /** Resolves after every device write queued so far. */
+  protected flushPersist(): Promise<void> {
+    return this.persistTail;
+  }
+
+  private async writeDraft(session: Session<T>) {
+    if (session.closed) return;
+    const { codec, tab } = this.deps;
+    if (!session.dirty) {
+      await this.storage((store) => store.removeDrafts(session.userId, [tab.id]), undefined);
+      return;
+    }
     await this.storage(
       (store) =>
-        store.writeAccount({
+        store.writeDraft({
           userId: session.userId,
+          draftId: tab.id,
           baseRevision: session.revision,
-          document,
-          dirty: session.dirty,
+          document: codec.write(session.serverDocument, session.local),
           updatedAt: this.deps.now(),
         }),
       undefined,
     );
+  }
+
+  protected readValue(document: WorkspaceDocument): T | null {
+    const read = this.deps.codec.read(document);
+    return read.status === "value" ? read.value : null;
   }
 
   protected markStale(reason: StaleReason) {

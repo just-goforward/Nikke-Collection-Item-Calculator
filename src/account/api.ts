@@ -34,13 +34,17 @@ export type AccountApi = {
   getAccount(): Promise<ApiResult<AccountInfo>>;
   startLogin(): Promise<ApiResult<{ authorizationUrl: string }>>;
   logout(): Promise<ApiResult<{ loggedOut: true }>>;
-  getWorkspace(): Promise<ApiResult<WorkspaceGet>>;
+  /**
+   * Private reads after GET /v1/account carry the displayed account as If-Account-Match and are
+   * answered only for that account: a response for anyone else becomes `account_context_stale`.
+   */
+  getWorkspace(userId: string): Promise<ApiResult<WorkspaceGet>>;
   putWorkspace(userId: string, body: WorkspacePut): Promise<ApiResult<WorkspacePutResult>>;
-  getConsent(): Promise<ApiResult<ConsentGet>>;
+  getConsent(userId: string): Promise<ApiResult<ConsentGet>>;
   putConsent(userId: string, body: ConsentPut): Promise<ApiResult<ConsentGet | PrivacyAccepted>>;
   deleteAccount(userId: string, body: DeleteAccountRequest): Promise<ApiResult<PrivacyAccepted>>;
   revokeAll(userId: string, body: RevokeAllRequest): Promise<ApiResult<RevokeAllResult>>;
-  exportData(): Promise<ApiResult<Record<string, unknown>>>;
+  exportData(userId: string): Promise<ApiResult<Record<string, unknown>>>;
 };
 
 const COUNT = z.int().check(z.minimum(0));
@@ -51,7 +55,13 @@ const AccountSchema = z.object({
   account: z.object({ userId: USER_ID, generation: COUNT }),
   consent: ConsentSchema,
 });
+const ConsentReadSchema = z.object({
+  userId: USER_ID,
+  participation: z.nullable(z.boolean()),
+  decisionVersion: COUNT,
+});
 const WorkspaceSchema = z.object({
+  userId: USER_ID,
   revision: COUNT,
   lastOpId: z.nullable(z.string()),
   document: WorkspaceDocumentSchema,
@@ -69,7 +79,17 @@ const PrivacyAcceptedSchema = z.object({
   status: z.enum(["pending", "complete"]),
   fenceGeneration: COUNT,
 });
+const ExportSchema = z.looseObject({
+  schemaVersion: z.literal(1),
+  account: z.looseObject({ userId: USER_ID }),
+  workspace: z.looseObject({ userId: USER_ID }),
+});
 const ErrorSchema = z.object({ error: z.string() });
+/** A private read answered for another account is handled exactly like the server's 409. */
+const STALE_CONTEXT: ApiResult<never> = {
+  ok: false,
+  failure: { kind: "http", status: 409, code: "account_context_stale" },
+};
 
 type Parser<T> = { safeParse(value: unknown): { success: true; data: T } | { success: false } };
 type Outcome = { status: number; json: unknown } | null;
@@ -90,6 +110,17 @@ export function failureCode(failure: ApiFailure): string | null {
 /** The server builds the authorization URL; only Google's fixed authorization origin is followed. */
 export function isGoogleAuthorizationUrl(value: string): boolean {
   return URL.parse(value)?.origin === "https://accounts.google.com";
+}
+
+/** Verifies the session owner a private read reports before anything may use the data. */
+function owned<T>(
+  result: ApiResult<T>,
+  userId: string,
+  owners: (value: T) => readonly string[],
+): ApiResult<T> {
+  return result.ok && owners(result.value).some((owner) => owner !== userId)
+    ? STALE_CONTEXT
+    : result;
 }
 
 function interpret<T>(outcome: Outcome, parser: Parser<T>, okStatuses: number[]): ApiResult<T> {
@@ -149,14 +180,36 @@ export function createAccountApi(
         z.object({ loggedOut: z.literal(true) }),
         [200],
       ),
-    getWorkspace: async () => interpret(await send("GET", "/v1/workspace"), WorkspaceSchema, [200]),
+    getWorkspace: async (userId) =>
+      owned(
+        interpret(
+          await send("GET", "/v1/workspace", { accountId: userId }),
+          WorkspaceSchema,
+          [200],
+        ),
+        userId,
+        (value) => [value.userId],
+      ),
     putWorkspace: async (userId, body) =>
       interpret(
         await send("PUT", "/v1/workspace", { body, accountId: userId }),
         PutResultSchema,
         [200, 409, 422],
       ),
-    getConsent: async () => interpret(await send("GET", "/v1/consent"), ConsentSchema, [200]),
+    getConsent: async (userId) => {
+      const result = owned(
+        interpret(
+          await send("GET", "/v1/consent", { accountId: userId }),
+          ConsentReadSchema,
+          [200],
+        ),
+        userId,
+        (value) => [value.userId],
+      );
+      if (!result.ok) return result;
+      const { participation, decisionVersion } = result.value;
+      return { ...result, value: { participation, decisionVersion } };
+    },
     putConsent: async (userId, body) =>
       interpret(
         await send("PUT", "/v1/consent", { body, accountId: userId }),
@@ -175,11 +228,11 @@ export function createAccountApi(
         z.object({ revoked: z.literal(true) }),
         [200],
       ),
-    exportData: async () =>
-      interpret(
-        await send("GET", "/v1/export"),
-        z.looseObject({ schemaVersion: z.literal(1) }),
-        [200],
+    exportData: async (userId) =>
+      owned(
+        interpret(await send("GET", "/v1/export", { accountId: userId }), ExportSchema, [200]),
+        userId,
+        (value) => [value.account.userId, value.workspace.userId],
       ),
   };
 }

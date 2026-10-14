@@ -53,10 +53,7 @@ describe("409 revision_conflict", () => {
     expect(harness.displayed).toEqual(input(50));
     expect(signedIn(harness.view())).toMatchObject({ sync: "synced", revision: 9, conflict: null });
     expect(putBodies(server)).toHaveLength(1);
-    expect(await harness.store.readAccount("user-a")).toMatchObject({
-      baseRevision: 9,
-      dirty: false,
-    });
+    expect(await harness.draft()).toBeNull();
   });
 
   it("overwrite: saves this device's inputs on top of the server revision with a new opId", async () => {
@@ -73,7 +70,7 @@ describe("409 revision_conflict", () => {
     const { server, harness } = await conflicted();
     await harness.controller.resolveConflict("cancel");
     expect(signedIn(harness.view())).toMatchObject({ sync: "paused", conflict: null });
-    expect(await harness.store.readAccount("user-a")).toMatchObject({ dirty: true });
+    expect(await harness.draft()).toMatchObject({ baseRevision: 4 });
     harness.edit(input(33));
     await harness.runTimers();
     expect(putBodies(server)).toHaveLength(1);
@@ -112,7 +109,9 @@ describe("account context failures", () => {
     harness.edit(input(8));
     await harness.runTimers();
     expect(putBodies(server)).toHaveLength(1);
-    expect(await harness.store.readAccount("user-a")).toMatchObject({ dirty: true });
+    // The edit made before the tab went stale is on the device; later edits are locked out.
+    const draft = await harness.draft();
+    expect(draft && readCalculatorInput(draft.document)).toEqual(input(7));
   });
 
   it("428 account_context_required is reported as a stale tab, not retried", async () => {
@@ -135,8 +134,7 @@ describe("account context failures", () => {
     await harness.runTimers();
     expect(harness.view()).toEqual({ phase: "guest", busy: null });
     expect(harness.notice()).toBe("session_expired");
-    const kept = await harness.store.readAccount("user-a");
-    expect(kept?.dirty).toBe(true);
+    const kept = await harness.draft();
     expect(kept && readCalculatorInput(kept.document)).toEqual(input(7));
   });
 });

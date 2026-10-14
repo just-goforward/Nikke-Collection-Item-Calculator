@@ -5,7 +5,6 @@ import {
 } from "../../shared/certifiedSupply";
 import { REQUIRED_EXP } from "../../shared/game";
 import type { Stock } from "../types";
-import { useCertifiedAccountPort } from "./accountSession";
 import type { CertifiedCalculatorController } from "./calculatorController";
 import { resolveCertifiedStockCorrection } from "./calculatorSessionActions";
 import { certifiedClaimableEvents } from "./session";
@@ -34,14 +33,6 @@ export function useCertifiedCalculatorApp(): CertifiedCalculatorController {
     ownership,
     preparation.snapshotRef,
   );
-  const accountPort = useCertifiedAccountPort({
-    latest: store.latest,
-    publish: store.publish,
-    accountMode: store.accountMode,
-    retire: ownership.retire,
-    snapshotRef: preparation.snapshotRef,
-    updateSession,
-  });
   // Keep native binding, persistence, preparation, and committed recomputation effects in order.
   useCertifiedSessionPersistence(store.bridge, store.setSaveFailed, store.accountMode);
   useCertifiedCalculatorPreparation(preparation, store.latest, ownership.retire, updateSession);
@@ -89,7 +80,15 @@ export function useCertifiedCalculatorApp(): CertifiedCalculatorController {
     [bridge.session, bridge.correction],
   );
   return {
-    accountPort,
+    // Plain references for the optional account control; no account code runs here.
+    accountDeps: {
+      latest: store.latest,
+      publish: store.publish,
+      accountMode: store.accountMode,
+      retire: ownership.retire,
+      snapshotRef: preparation.snapshotRef,
+      updateSession,
+    },
     accountToken,
     session: bridge.session,
     updateSession,
