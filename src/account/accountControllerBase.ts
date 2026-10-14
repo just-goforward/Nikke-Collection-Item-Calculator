@@ -213,18 +213,24 @@ export abstract class AccountControllerBase<T> {
   /**
    * Adopts another draft as this tab's draft in one atomic device step (see `claimDraft` in
    * workspaceStore.ts), queued with this tab's other device writes. "failed": the device refused
-   * the write and the source draft is untouched; the refusal is reported.
+   * the write and the source draft is untouched; the refusal is reported. "busy": `intervened`
+   * reported an edit (or a left session) while claiming; the draft is moved back, again in one
+   * atomic step, before the edit's own queued write replaces this tab's draft.
    */
   protected async claimDraft(
-    sourceId: string,
+    source: DraftRecord,
     record: DraftRecord,
-  ): Promise<"claimed" | "gone" | "failed"> {
+    intervened: () => boolean,
+  ): Promise<"claimed" | "gone" | "busy" | "failed"> {
     const outcome = await this.deviceWrite(() =>
-      this.storage(
-        async (store) =>
-          (await store.claimDraft(record.userId, sourceId, record)) ? "claimed" : "gone",
-        "failed" as const,
-      ),
+      this.storage(async (store) => {
+        if (intervened()) return "busy" as const;
+        if (!(await store.claimDraft(record.userId, source.draftId, record)))
+          return "gone" as const;
+        if (!intervened()) return "claimed" as const;
+        await store.claimDraft(record.userId, record.draftId, source);
+        return "busy" as const;
+      }, "failed" as const),
     );
     return outcome ?? "failed";
   }

@@ -261,6 +261,144 @@ describe("guest data around account entry (R2-10, N-A5)", () => {
   });
 });
 
+describe("unanswered operations keep the user's intent (R2-9, N-A7)", () => {
+  it("a revert made while a committed save is in flight still reaches the server", async () => {
+    const server = createFakeServer({ revision: 1, document: doc(10) });
+    const harness = createHarness(server);
+    await harness.controller.start();
+    server.loseAcks = 1;
+    server.beforePut = () => {
+      server.beforePut = undefined;
+      // The user reverts while the save of 11 is on its way; it commits, its answer is lost.
+      harness.edit(input(10));
+    };
+    harness.edit(input(11));
+    await harness.runTimers(1);
+    expect(server.revision).toBe(2);
+    expect(signedIn(harness.view()).sync).not.toBe("synced");
+    expect(readCalculatorInput((await harness.draft())?.document ?? doc(0))).toEqual(input(10));
+    await harness.runTimers();
+    expect(readCalculatorInput(server.document)).toEqual(input(10));
+    expect(signedIn(harness.view())).toMatchObject({ sync: "synced", revision: 3 });
+    expect(await harness.draft()).toBeNull();
+  });
+
+  it.each([
+    ["keeps the lost save", 11],
+    ["saves another value on top", 12],
+  ])("a revert after a lost acknowledgement asks when another device %s", async (_, blue) => {
+    const server = createFakeServer({ revision: 1, document: doc(10) });
+    const harness = createHarness(server);
+    await harness.controller.start();
+    server.loseAcks = 1;
+    harness.edit(input(11));
+    await harness.runTimers(1);
+    harness.edit(input(10));
+    // Another engine or device saves revision 3 after the lost one.
+    server.revision = 3;
+    server.lastOpId = "other-device";
+    server.document = doc(blue);
+    await harness.runTimers();
+    expect(signedIn(harness.view())).toMatchObject({
+      sync: "conflict",
+      conflict: { serverRevision: 3, server: input(blue), local: input(10) },
+    });
+    expect(harness.displayed).toEqual(input(10));
+    expect(readCalculatorInput(server.document)).toEqual(input(blue));
+    await harness.controller.resolveConflict("local");
+    expect(readCalculatorInput(server.document)).toEqual(input(10));
+    expect(signedIn(harness.view())).toMatchObject({ sync: "synced", revision: 4 });
+  });
+});
+
+describe("account entry and recovery never overwrite newer edits (R2-12, R2-13, N-A8)", () => {
+  it("an edit made while a draft is being claimed wins; the draft comes back as a conflict", async () => {
+    const server = createFakeServer({ revision: 1, document: doc(1) });
+    const memory = createMemoryWorkspaceStore();
+    await memory.writeDraft(abandonedDraft("closed-tab", 7));
+    const claiming = deferred();
+    const gate = deferred();
+    let claims = 0;
+    const store: WorkspaceStore = {
+      ...memory,
+      claimDraft: async (userId, sourceId, record) => {
+        claims += 1;
+        if (claims === 1) {
+          claiming.resolve();
+          await gate.promise;
+        }
+        return memory.claimDraft(userId, sourceId, record);
+      },
+    };
+    const harness = createHarness(server, { store });
+    const started = harness.controller.start();
+    await claiming.promise;
+    harness.edit(input(9));
+    gate.resolve();
+    await started;
+    await harness.controller.whenIdle();
+    expect(harness.displayed).toEqual(input(9));
+    const drafts = draftValues(await memory.readDrafts("user-a"));
+    expect(drafts).toContainEqual(["closed-tab", input(7)]);
+    await harness.runTimers();
+    // The save's acknowledgement queues the recovery after the timers settle.
+    await harness.controller.whenIdle();
+    expect(readCalculatorInput(server.document)).toEqual(input(9));
+    const carrying7 = putBodies(server).filter(
+      (body) => JSON.stringify(readCalculatorInput(body.document)) === JSON.stringify(input(7)),
+    );
+    expect(carrying7).toEqual([]);
+    expect(signedIn(harness.view())).toMatchObject({
+      sync: "conflict",
+      conflict: { server: input(9), local: input(7) },
+    });
+    expect(draftValues(await memory.readDrafts("user-a"))).toEqual([[harness.tab.id, input(7)]]);
+  });
+
+  it("a timeout while the restore flag is cleared never releases the inputs before the account", async () => {
+    const server = createFakeServer({ revision: 2, document: doc(40) });
+    const memory = createMemoryWorkspaceStore();
+    await memory.writeGuest({ document: doc(21), restoreOnReturn: true, updatedAt: 1 });
+    const writing = deferred();
+    const gate = deferred();
+    let writes = 0;
+    const store: WorkspaceStore = {
+      ...memory,
+      writeGuest: async (record) => {
+        writes += 1;
+        if (writes === 1) {
+          writing.resolve();
+          await gate.promise;
+        }
+        await memory.writeGuest(record);
+      },
+    };
+    const harness = createHarness(server, { store, displayed: input(0) });
+    const started = harness.controller.start();
+    await writing.promise;
+    await harness.controller.bootTimedOut(true);
+    harness.edit(input(22));
+    gate.resolve();
+    await started;
+    await harness.controller.whenIdle();
+    expect(harness.displayed).toEqual(input(22));
+    expect(signedIn(harness.view()).userId).toBe("user-a");
+    await harness.runTimers();
+    expect(readCalculatorInput(server.document)).toEqual(input(22));
+    expect(await memory.readGuest()).toMatchObject({ document: doc(21), restoreOnReturn: false });
+  });
+
+  it.each([
+    ["signed out", null],
+    ["signed in", "user-a"],
+  ])("an engine with its own guest data clears the restore marker when %s", async (_, userId) => {
+    const harness = createHarness(createFakeServer({ userId }), { ownGuest: { value: null } });
+    await harness.controller.start();
+    await harness.controller.whenIdle();
+    expect(harness.redirectMarks).toEqual([false]);
+  });
+});
+
 describe("redirect restore marker and blocked upgrades (R2-6, N-A6)", () => {
   it("marks a pending restore before the sign-in redirect and clears it once restored", async () => {
     const server = createFakeServer({ userId: null });

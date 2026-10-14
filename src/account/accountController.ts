@@ -175,8 +175,12 @@ export class AccountController<T> extends AccountSync<T> {
   }
 
   private async restoreRedirectGuest() {
-    // Engines with their own guest data already show it.
-    if (this.deps.calculator.ownGuest) return;
+    // Engines with their own guest data already show it; a marker set by the other engine's
+    // sign-in in this tab is cleared all the same.
+    if (this.deps.calculator.ownGuest) {
+      this.deps.markRedirectRestore(false);
+      return;
+    }
     const guest = await this.storage((store) => store.readGuest(), null);
     if (!guest?.restoreOnReturn) {
       this.deps.markRedirectRestore(false);
@@ -241,11 +245,10 @@ export class AccountController<T> extends AccountSync<T> {
       return;
     }
     this.cancelEntryRetry();
-    // The redirect's guest inputs stay stored as guest data; they need no restore any more.
-    await this.clearRestoreFlag();
     const { calculator, codec } = this.deps;
-    // From here until the switch is requested nothing awaits: the guest inputs captured now are
-    // exactly those the account data replaces.
+    // From the boot check above until the switch is requested nothing awaits: a timeout cannot
+    // release the inputs in between, and the guest inputs captured now are exactly those the
+    // account data replaces.
     const shown = calculator.ownGuest ? null : calculator.capture();
     if (shown !== null && this.snapshot.view.phase === "unavailable") this.preserveGuest(shown);
     const server = codec.read(workspace.value.document);
@@ -287,11 +290,17 @@ export class AccountController<T> extends AccountSync<T> {
       }),
     );
     this.deps.channel.post({ type: "account", userId });
+    // The redirect's guest inputs stay stored as guest data; they need no restore any more. Only
+    // after the switch: a timeout firing now finds the check settled and changes nothing.
+    await this.clearRestoreFlag();
     await this.reconcile(session, server.status === "value");
   }
 
   private async clearRestoreFlag() {
-    if (this.deps.calculator.ownGuest) return;
+    if (this.deps.calculator.ownGuest) {
+      this.deps.markRedirectRestore(false);
+      return;
+    }
     const guest = await this.storage((store) => store.readGuest(), null);
     if (guest?.restoreOnReturn) {
       await this.storage(

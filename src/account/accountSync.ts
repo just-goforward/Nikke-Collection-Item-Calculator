@@ -41,9 +41,9 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
     const key = codec.key(value);
     if (key === codec.key(session.local)) return;
     session.local = value;
-    // A sent save without an answer may have committed another value: reverting to the synced
-    // value is still an edit until that operation is reconciled.
-    session.dirty = key !== session.syncedKey || session.unacked.length > 0;
+    // A sent save without an answer (in flight or unanswered) may have committed another value:
+    // reverting to the synced value is still an edit until that operation is reconciled.
+    session.dirty = key !== session.syncedKey || this.unresolved(session);
     // Durable at once, independent of any request in flight.
     void this.persist(session);
     const view = this.signedIn();
@@ -257,10 +257,13 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
       this.acknowledged(session, acked, fresh.revision, fresh.document);
       return;
     }
-    if (session.unacked.length > 0) {
-      // None of the unanswered operations is the server's latest: the server state decides.
+    if (this.unresolved(session)) {
+      // None of the unanswered operations is the server's latest, but one may have committed
+      // before the server moved on: a revert to the old base is then still an edit, which the
+      // conflict check adopts only when the server holds the same value and otherwise asks.
       session.unacked = [];
-      session.dirty = this.localKey(session) !== session.syncedKey;
+      session.dirty =
+        this.localKey(session) !== session.syncedKey || fresh.revision > session.revision;
     }
     const server = this.deps.codec.read(fresh.document);
     if (session.dirty || server.status === "unreadable") {
@@ -279,6 +282,11 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
     void this.persist(session);
     this.patchSignedIn({ revision: session.revision, conflict: null });
     this.markClean(session);
+  }
+
+  /** A save was sent and its outcome is unknown: in flight, or its answer was lost. */
+  private unresolved(session: Session<T>) {
+    return session.pendingOp !== null || session.unacked.length > 0;
   }
 
   private localKey(session: Session<T>) {
@@ -451,10 +459,21 @@ export abstract class AccountSync<T> extends AccountControllerBase<T> {
       ? { revision: serverRevision, syncedKey: session.syncedKey }
       : { revision: draft.baseRevision, syncedKey: UNKNOWN_BASE_KEY };
     const record = this.draftRecord({ ...session, ...base, local: stored });
-    const claim = await this.claimDraft(draft.draftId, record);
-    // Gone: another tab adopted it first. A session left meanwhile keeps the claimed draft.
+    const shown = this.localKey(session);
+    const claim = await this.claimDraft(
+      draft,
+      record,
+      () => this.session !== session || session.dirty || this.localKey(session) !== shown,
+    );
+    // Gone: another tab adopted it first.
     if (claim === "gone") return false;
     if (this.session !== session) return true;
+    if (claim === "busy") {
+      // An edit arrived while claiming: it is newer and stays. The draft is back where it was and
+      // is recovered once the edit is saved, against it: a conflict, never an overwrite.
+      session.recovering.unshift(draft);
+      return true;
+    }
     if (claim === "failed") {
       // Left on the device untouched; retried once the session settles again.
       session.recovering.unshift(draft);

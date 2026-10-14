@@ -166,11 +166,19 @@ function transact<T>(
   mode: IDBTransactionMode,
   action: (transaction: IDBTransaction) => T,
 ): Promise<T> {
+  const transaction = db.transaction(storeNames, mode);
+  return transactionDone(transaction, action(transaction));
+}
+
+/** Settles with `result` once the transaction commits; rejects with the error that aborted it. */
+export function transactionDone<T>(
+  transaction: Pick<IDBTransaction, "error" | "oncomplete" | "onerror" | "onabort">,
+  result: T,
+): Promise<T> {
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(storeNames, mode);
-    const result = action(transaction);
     transaction.oncomplete = () => resolve(result);
-    transaction.onerror = () => reject(transaction.error);
+    // A failed request's error event arrives before `transaction.error` is set; the abort that
+    // follows carries it, so only the abort settles the failure.
     transaction.onabort = () =>
       reject(transaction.error ?? new DOMException("Transaction aborted.", "AbortError"));
   });
