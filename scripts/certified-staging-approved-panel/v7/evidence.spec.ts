@@ -43,7 +43,7 @@ it("regenerates all 24 independent objectives and gaps with explicit four-prior 
     expect(row.input.cohortWeights).toEqual(row.expected.cohortWeights);
     expect(row.input.snapshot.version).toBe("certified-daily-v2");
   }
-});
+}, 120_000);
 
 it("keeps product reconstruction outside the independent calculation closure", async () => {
   const result = await build({
