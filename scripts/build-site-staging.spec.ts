@@ -83,6 +83,7 @@ describe("staging build headers", () => {
       expect(await readFile(join(directory, "robots.txt"), "utf8")).toBe(
         "User-agent: *\nDisallow: /\n",
       );
+      expect(await readFile(join(directory, ".assetsignore"), "utf8")).toBe("/.vite/\n");
       const emitted = await readFile(join(directory, "en/index.html"), "utf8");
       await writeFile(
         join(directory, "en/index.html"),
@@ -93,4 +94,22 @@ describe("staging build headers", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it.each([null, "", "/.vite/manifest.json\n", "/.vite/\n!/.vite/manifest.json\n"])(
+    "rejects missing or incomplete metadata exclusions in check mode: %j",
+    async (contents) => {
+      const directory = await mkdtemp(join(tmpdir(), "site-staging-"));
+      try {
+        await writeFile(join(directory, "index.html"), html("ko"));
+        await buildSiteStaging(directory);
+        await buildSiteStaging(directory, true);
+        const path = join(directory, ".assetsignore");
+        if (contents === null) await rm(path);
+        else await writeFile(path, contents);
+        await expect(buildSiteStaging(directory, true)).rejects.toThrow();
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
 });

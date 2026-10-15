@@ -80,6 +80,17 @@ for (const [path, messages] of [
   }
 }
 
+test("local staging build metadata is not publicly served", async ({ request }) => {
+  for (const path of [
+    "/.vite/manifest.json",
+    "/.vite/certified-boundary.json",
+    "/.vite/worker-boundary/src_worker.ts.json",
+    "/.vite/worker-boundary/src_certifiedRuntime_browserWorker.ts.json",
+  ]) {
+    expect((await request.get(path)).status(), path).toBe(404);
+  }
+});
+
 test("local staging robots and API boundaries", async ({ request }) => {
   const robots = await request.get("/robots.txt");
   expect(await robots.text()).toBe("User-agent: *\nDisallow: /\n");

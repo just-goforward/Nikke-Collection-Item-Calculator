@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 const STATS_SCRIPT = /<script\b[^>]*>[\s\S]*?window\.COLLECTION_STATS_CONFIG\s*=[\s\S]*?<\/script>/;
 const STAGING_MARKER = 'data-site-staging="true"';
 const ROBOTS = "User-agent: *\nDisallow: /\n";
+const ASSETS_IGNORE = "/.vite/\n";
 const STAGING_CONFIG = `<script ${STAGING_MARKER}>
 // The staging host selects staging data by default; explicit demo/disabled flags survive.
 (() => {
@@ -118,11 +119,15 @@ export async function buildSiteStaging(directory: string, check = false): Promis
     if ((await readFile(join(directory, "robots.txt"), "utf8")) !== ROBOTS) {
       throw new Error("Staging robots.txt is missing or stale.");
     }
+    if ((await readFile(join(directory, ".assetsignore"), "utf8")) !== ASSETS_IGNORE) {
+      throw new Error("Staging .assetsignore must exclude all .vite build metadata.");
+    }
     return;
   }
   await Promise.all(paths.map((path, index) => writeFile(path, documents[index] ?? "", "utf8")));
   await writeFile(join(directory, "_headers"), headers, "utf8");
   await writeFile(join(directory, "robots.txt"), ROBOTS, "utf8");
+  await writeFile(join(directory, ".assetsignore"), ASSETS_IGNORE, "utf8");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
