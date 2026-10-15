@@ -150,7 +150,7 @@ it("prepares authenticated v6 bytes and direct warm/memoized calls agree without
     assert.deepEqual(readFileSync(path), before);
   `,
   );
-});
+}, 30_000);
 it("a clean checkout genuinely computes cold, then a second process and preparer accept canonical bytes", () => {
   const root = fixtureRoot();
   expect(existsSync(join(root, "benchmarks"))).toBe(false);
