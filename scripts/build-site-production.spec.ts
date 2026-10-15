@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,6 +62,42 @@ async function fixture() {
 }
 
 describe("production site packaging", () => {
+  it("excludes the complete build-metadata directory and binds .assetsignore into the receipt", async () => {
+    const directory = await fixture();
+    try {
+      await buildSiteProduction(directory);
+      expect(await readFile(join(directory, ".assetsignore"), "utf8")).toBe("/.vite/\n");
+      const receipt = JSON.parse(
+        await readFile(join(directory, ".vite/site-production.json"), "utf8"),
+      );
+      expect(receipt.files[".assetsignore"]).toBe(
+        createHash("sha256").update("/.vite/\n").digest("hex"),
+      );
+      await buildSiteProduction(directory, true);
+      receipt.files[".assetsignore"] = "0".repeat(64);
+      await writeFile(join(directory, ".vite/site-production.json"), JSON.stringify(receipt));
+      await expect(buildSiteProduction(directory, true)).rejects.toThrow("content changed");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([null, "", "/.vite/manifest.json\n", "/.vite/\n!/.vite/site-production.json\n"])(
+    "rejects missing or incomplete metadata exclusions in check mode: %j",
+    async (contents) => {
+      const directory = await fixture();
+      try {
+        await buildSiteProduction(directory);
+        const path = join(directory, ".assetsignore");
+        if (contents === null) await rm(path);
+        else await writeFile(path, contents);
+        await expect(buildSiteProduction(directory, true)).rejects.toThrow();
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("grants immutable only to metadata-owned fingerprinted JS/CSS, never public or unknown files", () => {
     const headers = productionHeaders(manifest, boundary, assets, ["assets/public-Abc12345.js"]);
     expect(headers.match(/immutable/g)).toHaveLength(3);

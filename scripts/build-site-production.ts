@@ -8,6 +8,7 @@ import type { CertifiedBundleBoundary } from "./certified-bundle-boundary.ts";
 import { localizedSeoBlock, renderSitemap } from "./localized-pages.ts";
 
 const RECEIPT = ".vite/site-production.json";
+const ASSETS_IGNORE = "/.vite/\n";
 const ROOT = resolve(import.meta.dirname, "..");
 const IMMUTABLE = "Cache-Control: public, max-age=31536000, immutable";
 
@@ -88,6 +89,15 @@ export function productionHeaders(
   return headers;
 }
 
+async function productionAssetExclusions(directory: string, check: boolean): Promise<void> {
+  const path = join(directory, ".assetsignore");
+  if (!check) {
+    await writeFile(path, ASSETS_IGNORE);
+  } else if ((await readFile(path, "utf8")) !== ASSETS_IGNORE) {
+    throw new Error("Production .assetsignore must exclude all .vite build metadata");
+  }
+}
+
 export async function buildSiteProduction(directory: string, check = false): Promise<void> {
   const files = await filesIn(directory);
   const source = await readFile(join(ROOT, "index.html"), "utf8");
@@ -122,8 +132,9 @@ export async function buildSiteProduction(directory: string, check = false): Pro
     throw new Error("Production _headers is missing");
   }
   if (!check) await writeFile(join(directory, "_headers"), headers);
+  await productionAssetExclusions(directory, check);
   const hashes = await Promise.all(
-    [...new Set([...files, "_headers"])]
+    [...new Set([...files, "_headers", ".assetsignore"])]
       .filter((file) => file !== RECEIPT)
       .sort()
       .map(async (file) => [

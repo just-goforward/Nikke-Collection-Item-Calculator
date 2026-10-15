@@ -125,6 +125,18 @@ test("production robots, sitemap, HTML aliases and static cache behavior", async
   expect((await request.get("/_headers")).status()).toBe(404);
 });
 
+test("production build metadata is not publicly served", async ({ request }) => {
+  for (const path of [
+    "/.vite/manifest.json",
+    "/.vite/certified-boundary.json",
+    "/.vite/worker-boundary/src_worker.ts.json",
+    "/.vite/worker-boundary/src_certifiedRuntime_browserWorker.ts.json",
+    "/.vite/site-production.json",
+  ]) {
+    expect((await request.get(path)).status(), path).toBe(404);
+  }
+});
+
 test("unbound production gateway never falls back to HTML and keeps health unavailable", async ({
   request,
 }) => {
