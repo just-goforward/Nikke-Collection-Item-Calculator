@@ -1,17 +1,7 @@
-const pageUrl = process.argv[2];
-const expectedRevision = process.argv[3];
+import { pathToFileURL } from "node:url";
+import { pagesPublicationPolicy } from "./site-hosting-policy.ts";
 
-if (!pageUrl || !expectedRevision) {
-  throw new Error("Usage: npm run smoke:pages -- <page-url> <expected-commit-sha>");
-}
-if (!/^[0-9a-f]{40}$/.test(expectedRevision)) {
-  throw new Error("Expected revision must be a full lowercase Git commit SHA.");
-}
-
-const baseUrl = new URL(pageUrl);
-const retryCount = 10;
-const retryDelayMs = 6_000;
-const localePages = [
+export const localePages = [
   {
     canonical: "https://nikkecollection.com/",
     lang: "ko",
@@ -34,25 +24,57 @@ const localePages = [
 const canonicalUrls = localePages.map(({ canonical }) => canonical);
 const ogImagePaths = localePages.map(({ lang }) => `og/collection-calculator-${lang}.png`);
 
-function assert(condition, message) {
+export function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function checkedFetch(url, expectedType) {
+/** Zero redirects: even an otherwise approved host must be explicitly supplied by the caller. */
+export async function checkedFetch(url, expectedType, options) {
+  const {
+    origin,
+    revision,
+    fetchImpl = fetch,
+    hostingTarget = process.env.SITE_HOSTING_TARGET,
+    siteWorker = false,
+    method = "GET",
+    status = 200,
+    signal = AbortSignal.timeout(15_000),
+  } = options;
+  if (!siteWorker) {
+    assert(pagesPublicationPolicy(hostingTarget).smokePages, "Pages smoke refuses Worker hosting");
+  }
   const requestUrl = new URL(url);
-  requestUrl.searchParams.set("deployment-smoke", expectedRevision);
-  const response = await fetch(requestUrl, { cache: "no-store" });
-  assert(response.status === 200, `${url}: expected 200, received ${response.status}`);
+  assert(requestUrl.origin === origin, `${url}: unapproved host`);
+  assert(
+    requestUrl.protocol === "https:" && !requestUrl.username && !requestUrl.password,
+    "HTTPS origin required",
+  );
+  if (!siteWorker)
+    assert(!requestUrl.hostname.endsWith(".workers.dev"), "Pages smoke refuses Worker host");
+  requestUrl.searchParams.set("deployment-smoke", revision);
+  const response = await fetchImpl(requestUrl, {
+    cache: "no-store",
+    redirect: "manual",
+    credentials: "omit",
+    method,
+    signal,
+  });
+  assert(
+    !response.redirected && !(response.status >= 300 && response.status < 400),
+    `${url}: unexpected redirect`,
+  );
+  assert(
+    !response.url || new URL(response.url).origin === origin,
+    `${url}: unapproved response host`,
+  );
+  assert(response.status === status, `${url}: expected ${status}, received ${response.status}`);
   const contentType = response.headers.get("content-type") ?? "";
-  assert(contentType.includes(expectedType), `${url}: unexpected Content-Type ${contentType}`);
+  if (expectedType)
+    assert(contentType.includes(expectedType), `${url}: unexpected Content-Type ${contentType}`);
   return response;
 }
 
-function assetUrlsFromHtml(html, documentUrl) {
+export function assetUrlsFromHtml(html, documentUrl) {
   const urls = new Set();
   for (const match of html.matchAll(/<(script|link)\b[^>]*>/gi)) {
     const tag = match[0];
@@ -60,14 +82,14 @@ function assetUrlsFromHtml(html, documentUrl) {
     if (tagName === "link" && !/\brel=["'][^"']*stylesheet[^"']*["']/i.test(tag)) continue;
     const attribute = tagName === "script" ? "src" : "href";
     const value = tag.match(new RegExp(`\\b${attribute}=["']([^"']+)["']`, "i"))?.[1];
-    if (value && !value.startsWith("http") && !value.startsWith("data:")) {
+    if (value) {
       urls.add(new URL(value, documentUrl));
     }
   }
   return [...urls];
 }
 
-function verifyLocalizedHtml(html, locale) {
+export function verifyLocalizedHtml(html, locale) {
   assert(html.includes('id="app"'), `${locale.path || "/"}: React application root is missing`);
   assert(
     html.includes(`<html lang="${locale.lang}" data-locale="${locale.lang}"`),
@@ -94,12 +116,24 @@ function verifyLocalizedHtml(html, locale) {
   );
 }
 
-async function smokeOnce() {
+export async function smokePages(pageUrl, expectedRevision, fetchImpl = fetch) {
+  assert(/^[0-9a-f]{40}$/.test(expectedRevision), "Expected a full lowercase Git commit SHA");
+  const baseUrl = new URL(pageUrl);
+  const get = (url, type) =>
+    checkedFetch(url, type, {
+      origin: baseUrl.origin,
+      revision: expectedRevision,
+      fetchImpl,
+    });
   const allAssetUrls = new Map();
   for (const locale of localePages) {
     const documentUrl = new URL(locale.path, baseUrl);
-    const response = await checkedFetch(documentUrl, "text/html");
+    const response = await get(documentUrl, "text/html");
     const html = await response.text();
+    assert(
+      !html.includes('data-site-production="true"'),
+      "Pages smoke refuses Worker-directed HTML",
+    );
     verifyLocalizedHtml(html, locale);
 
     const assetUrls = assetUrlsFromHtml(html, documentUrl);
@@ -110,7 +144,7 @@ async function smokeOnce() {
   let revisionFound = false;
   for (const assetUrl of allAssetUrls.values()) {
     const isScript = assetUrl.pathname.endsWith(".js");
-    const response = await checkedFetch(assetUrl, isScript ? "javascript" : "text/css");
+    const response = await get(assetUrl, isScript ? "javascript" : "text/css");
     const body = await response.text();
     assert(body.length > 0, `${assetUrl}: asset is empty`);
     if (isScript && body.includes(expectedRevision)) revisionFound = true;
@@ -118,7 +152,7 @@ async function smokeOnce() {
   assert(revisionFound, `entry assets do not contain deployed revision ${expectedRevision}`);
 
   const wasmUrl = new URL("solver_rs.wasm", baseUrl);
-  const wasmResponse = await checkedFetch(wasmUrl, "application/wasm");
+  const wasmResponse = await get(wasmUrl, "application/wasm");
   const wasm = new Uint8Array(await wasmResponse.arrayBuffer());
   assert(wasm.length > 8, "solver WASM is empty");
   assert(
@@ -126,14 +160,14 @@ async function smokeOnce() {
     "solver WASM has an invalid magic header",
   );
 
-  const robotsResponse = await checkedFetch(new URL("robots.txt", baseUrl), "text/plain");
+  const robotsResponse = await get(new URL("robots.txt", baseUrl), "text/plain");
   const robots = await robotsResponse.text();
   assert(
     robots.includes("Sitemap: https://nikkecollection.com/sitemap.xml"),
     "robots.txt does not advertise the canonical sitemap",
   );
 
-  const sitemapResponse = await checkedFetch(new URL("sitemap.xml", baseUrl), "xml");
+  const sitemapResponse = await get(new URL("sitemap.xml", baseUrl), "xml");
   const sitemap = await sitemapResponse.text();
   const sitemapLocations = [...sitemap.matchAll(/<loc>(.*?)<\/loc>/g)].map((match) => match[1]);
   assert(
@@ -142,7 +176,7 @@ async function smokeOnce() {
   );
 
   for (const imagePath of ogImagePaths) {
-    const imageResponse = await checkedFetch(new URL(imagePath, baseUrl), "image/png");
+    const imageResponse = await get(new URL(imagePath, baseUrl), "image/png");
     const image = new Uint8Array(await imageResponse.arrayBuffer());
     assert(image.length > 5_000, `${imagePath}: OG image is unexpectedly small`);
   }
@@ -156,17 +190,8 @@ async function smokeOnce() {
   };
 }
 
-let lastError;
-for (let attempt = 1; attempt <= retryCount; attempt += 1) {
-  try {
-    console.log(JSON.stringify(await smokeOnce()));
-    process.exit(0);
-  } catch (error) {
-    lastError = error;
-    if (attempt === retryCount) break;
-    console.warn(`Pages smoke attempt ${attempt}/${retryCount} failed; retrying.`, error);
-    await sleep(retryDelayMs);
-  }
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const [pageUrl, revision] = process.argv.slice(2);
+  if (!pageUrl || !revision) throw new Error("Usage: npm run smoke:pages -- <page-url> <sha>");
+  console.log(JSON.stringify(await smokePages(pageUrl, revision)));
 }
-
-throw lastError;

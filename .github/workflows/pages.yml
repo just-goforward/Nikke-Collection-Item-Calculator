@@ -26,6 +26,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    outputs:
+      publish_pages: ${{ steps.hosting.outputs.publish_pages }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -43,6 +45,12 @@ jobs:
         env:
           EXPECTED_CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || inputs.candidate_sha || github.sha }}
         run: node scripts/ci/assert-candidate-checkout.mjs
+
+      - name: Validate hosting publication policy before publication
+        id: hosting
+        env:
+          SITE_HOSTING_TARGET: ${{ vars.SITE_HOSTING_TARGET }}
+        run: node scripts/site-hosting-policy.ts
 
       - name: Setup Rust
         run: |
@@ -243,13 +251,25 @@ jobs:
           retention-days: 14
 
       - name: Upload Pages artifact
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.hosting.outputs.publish_pages == 'true'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: ./dist
 
+      - name: Retain SHA-identified Pages hosting rollback artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pages-rollback-${{ github.sha }}
+          path: |
+            dist/
+            ci-evidence/checkout-source.json
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+
   deploy:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && needs.verify.outputs.publish_pages == 'true'
     needs: verify
     permissions:
       contents: read
@@ -268,7 +288,7 @@ jobs:
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
 
   post-deploy-smoke:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && needs.verify.outputs.publish_pages == 'true'
     needs:
       - verify
       - deploy
@@ -291,4 +311,5 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.sha }}
           PAGES_URL: ${{ needs.deploy.outputs.page_url }}
+          SITE_HOSTING_TARGET: ${{ vars.SITE_HOSTING_TARGET }}
         run: npm run smoke:pages -- "$PAGES_URL" "$EXPECTED_SHA"

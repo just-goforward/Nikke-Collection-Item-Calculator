@@ -41,7 +41,7 @@ jobs:
           ref: refs/heads/main
           fetch-depth: 0
 
-      - name: Verify Pages-tested commit is current
+      - name: Verify Pages-workflow-verified commit is current (publication is independent)
         id: commit
         shell: bash
         env:
@@ -61,7 +61,7 @@ jobs:
 
           echo "deploy_sha=$deploy_sha" >> "$GITHUB_OUTPUT"
           if [[ "$deploy_sha" != "$EXPECTED_SHA" ]]; then
-            echo "main advanced from Pages-tested commit $EXPECTED_SHA to $deploy_sha; skipping this stale deployment."
+            echo "main advanced from workflow-verified commit $EXPECTED_SHA to $deploy_sha; skipping this stale deployment (verification does not imply Pages publication)."
             echo "current=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

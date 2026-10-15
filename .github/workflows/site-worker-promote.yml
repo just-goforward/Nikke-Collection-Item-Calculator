@@ -1,0 +1,169 @@
+name: Promote production site Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: Approved full lowercase 40-hex commit SHA in main history
+        required: true
+        type: string
+      mode:
+        description: Bootstrap creates only the domain-free Worker; publish updates an existing Worker
+        required: true
+        type: choice
+        options:
+          - bootstrap
+          - publish
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  WRANGLER_SEND_METRICS: "false"
+
+concurrency:
+  group: cloudflare-site-production
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      deploy_sha: ${{ steps.candidate.outputs.deploy_sha }}
+    steps:
+      - name: Checkout trusted workflow history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+      - name: Validate candidate and trusted workflow before approval
+        id: candidate
+        env:
+          DEPLOY_SHA: ${{ inputs.deploy_sha }}
+          SITE_DEPLOY_MODE: ${{ inputs.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_WORKFLOW_REF" == "$GITHUB_REPOSITORY/.github/workflows/site-worker-promote.yml@refs/heads/main" ]]
+          git merge-base --is-ancestor "$DEPLOY_SHA" refs/remotes/origin/main
+          git checkout --detach "$DEPLOY_SHA"
+          node scripts/site-production-deployment.ts verify
+
+  promote:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment:
+      name: cloudflare-site-production
+    env:
+      DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+      SITE_DEPLOY_MODE: ${{ inputs.mode }}
+      SITE_URL: ${{ vars.CLOUDFLARE_SITE_PRODUCTION_URL }}
+    steps:
+      - name: Checkout exact candidate after protected-environment approval
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.deploy_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+      - name: Recheck exact candidate and main ancestry after approval
+        run: node scripts/site-production-deployment.ts verify
+      - name: Setup Rust
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --target wasm32-unknown-unknown
+          rustup default 1.98.1
+      - name: Prepare npm 12.2.0 with pinned integrity
+        shell: bash
+        timeout-minutes: 5
+        env:
+          NPM_CONFIG_CACHE: ${{ runner.temp }}/npm-bootstrap-cache
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          import { existsSync, mkdtempSync, writeFileSync, appendFileSync } from 'node:fs';
+          import { dirname, join, resolve } from 'node:path';
+          import { execFileSync } from 'node:child_process';
+          const version = '12.2.0';
+          const sri = 'sha512-ZsJjKpTnlmSXOLLXiU1xDCzC4Wlok4IwZmh/aw2KUuXytU7q6qMv/cUT7MoeSf95Slwuw/lRXYefGzGCspHPNQ==';
+          if (process.version !== 'v24.21.0') throw new Error('Unexpected Node version');
+          const nodeDir = dirname(process.execPath);
+          const sourceCli = [join(nodeDir, 'node_modules/npm/bin/npm-cli.js'), resolve(nodeDir, '../lib/node_modules/npm/bin/npm-cli.js')].find(existsSync);
+          if (!sourceCli) throw new Error('Bundled npm CLI not found');
+          const cleanEnv = Object.fromEntries(['PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'TMPDIR', 'APPDATA', 'LOCALAPPDATA'].filter(k => process.env[k] !== undefined).map(k => [k, process.env[k]]));
+          const root = mkdtempSync(join(process.env.RUNNER_TEMP, 'npm-12.2.0-'));
+          const prefix = join(root, 'prefix');
+          const userConfig = join(root, 'user.npmrc');
+          const globalConfig = join(root, 'global.npmrc');
+          writeFileSync(userConfig, '', { flag: 'wx' });
+          writeFileSync(globalConfig, '', { flag: 'wx' });
+          const response = await fetch('https://registry.npmjs.org/npm/-/npm-12.2.0.tgz', { redirect: 'error', signal: AbortSignal.timeout(30000) });
+          if (!response.ok) throw new Error(`npm tarball HTTP ${response.status}`);
+          const chunks = []; let size = 0;
+          for await (const chunk of response.body) {
+            size += chunk.length;
+            if (size > 8 * 1024 * 1024) throw new Error('npm tarball size limit exceeded');
+            chunks.push(chunk);
+          }
+          const bytes = Buffer.concat(chunks);
+          if ('sha512-' + createHash('sha512').update(bytes).digest('base64') !== sri) throw new Error('npm tarball integrity mismatch');
+          const tgz = join(root, 'npm-12.2.0.tgz');
+          writeFileSync(tgz, bytes, { flag: 'wx' });
+          const options = { cwd: root, env: cleanEnv, timeout: 120000 };
+          execFileSync(process.execPath, [sourceCli, 'install', '--global', '--prefix', prefix, tgz, '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--no-update-notifier', '--cache', process.env.NPM_CONFIG_CACHE, '--userconfig', userConfig, '--globalconfig', globalConfig], { ...options, stdio: 'inherit' });
+          const targetCli = join(prefix, 'lib/node_modules/npm/bin/npm-cli.js');
+          if (execFileSync(process.execPath, [targetCli, '--version', '--no-update-notifier', '--userconfig', userConfig, '--globalconfig', globalConfig], options).toString().trim() !== version) throw new Error('Installed npm version mismatch');
+          appendFileSync(process.env.GITHUB_PATH, join(prefix, 'bin') + '\n');
+          NODE
+      - name: Install dependencies without deployment credentials
+        run: npm ci
+      - name: Build exact candidate production assets without deployment credentials
+        env:
+          GITHUB_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        run: npm run build:site-production
+      - name: Verify production site without deployment credentials
+        env:
+          GITHUB_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+        run: |
+          npm run check:site-production
+          npx playwright install --with-deps chromium
+          npm run smoke:site-production
+          npm run check:bundle-budget
+          node --test scripts/smoke-pages-deployment.test.mjs scripts/smoke-site-production.test.mjs
+      - name: Upload verified candidate artifact
+        id: artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site-production-${{ needs.preflight.outputs.deploy_sha }}
+          path: |
+            dist/
+            site-worker/production.wrangler.toml
+            site-worker/src/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 30
+      - name: Deploy only the production site Worker
+        env:
+          GITHUB_SHA: ${{ needs.preflight.outputs.deploy_sha }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_SITE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_SITE_ACCOUNT_ID }}
+          SITE_ARTIFACT_DIGEST: ${{ steps.artifact.outputs.artifact-digest }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/site-deployment.ndjson
+        run: node scripts/site-production-deployment.ts deploy
+      - name: Smoke published site (never bootstrap)
+        if: inputs.mode == 'publish'
+        run: npm run smoke:site-production-deployed -- "$SITE_URL" "$DEPLOY_SHA"
