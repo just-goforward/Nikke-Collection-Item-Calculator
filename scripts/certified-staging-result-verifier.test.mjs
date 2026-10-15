@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { EVIDENCE_FILES } from "./certified-staging-approved-panel/v6/evidence.ts";
+import { EVIDENCE_FILES, readV7Evidence } from "./certified-staging-approved-panel/v7/evidence.ts";
 import { digest, ENGINES, verifyApproved24 } from "./certified-staging-result-verifier.mjs";
 
 // Pure report tests are followed by real Git repositories and child freeze CLI tests.
@@ -34,6 +34,7 @@ const sourcePaths = [
   "scripts/certified-staging-dist-validation.ts",
   "e2e/certified-staging-api.spec.ts",
 ];
+const snapshotSources = readV7Evidence().provenance.snapshot.sources.map(({ path }) => path);
 
 const verifierPath = "scripts/certified-staging-result-verifier.mjs";
 const generatedPath = "shared/generated/certifiedEngineBuild.ts";
@@ -794,7 +795,7 @@ test("freeze CLI enforces required source membership in actual Git repositories"
   assert.equal(process.version, "v24.21.0", "freeze CLI fixtures require Node v24.21.0");
   assert.equal(
     sourcePaths.length,
-    96,
+    107,
     "all versioned required sources must have omission coverage",
   );
   const { git, inheritedPath } = resolveFixtureGit();
@@ -804,11 +805,14 @@ test("freeze CLI enforces required source membership in actual Git repositories"
   const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const sources = new Map(
     [
-      ...sourcePaths,
-      verifierPath,
-      generatedPath,
-      "shared/generated/certifiedWasmBuild.ts",
-      "public/certified_solver.wasm",
+      ...new Set([
+        ...sourcePaths,
+        ...snapshotSources,
+        verifierPath,
+        generatedPath,
+        "shared/generated/certifiedWasmBuild.ts",
+        "public/certified_solver.wasm",
+      ]),
     ].map((path) => [path, readFileSync(resolve(sourceRoot, path))]),
   );
   const suite = { root, sourceRoot, sources, git, inheritedPath };

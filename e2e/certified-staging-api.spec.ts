@@ -5,9 +5,9 @@ import { isDeepStrictEqual } from "node:util";
 import { chromium, expect, firefox, test, webkit } from "@playwright/test";
 import {
   approvedFixtureProvenance,
-  fileSha256,
   loadIndependentApprovedPanel,
-} from "../scripts/certified-staging-approved-panel.ts";
+} from "../scripts/certified-staging-approved-panel/v7/panel.ts";
+import { fileSha256 } from "../scripts/certified-staging-approved-panel.ts";
 import {
   assertDistStable,
   buildCandidateWaitingReference,

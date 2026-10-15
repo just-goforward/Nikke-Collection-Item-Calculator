@@ -11,6 +11,7 @@ const RESULT_VERSION = "certified-staging-independent-dist-worker-v1";
 const EXPECTED_VERSION = "certified-staging-approved24-expected-v1";
 const HISTORICAL_PANEL_ROOT = "scripts/certified-staging-approved-panel";
 const PANEL_ROOT = `${HISTORICAL_PANEL_ROOT}/v6`;
+const CURRENT_PANEL_ROOT = `${HISTORICAL_PANEL_ROOT}/v7`;
 const ARCHIVE_ROOT = `${HISTORICAL_PANEL_ROOT}/v2`;
 const PREVIOUS_ROOT = `${HISTORICAL_PANEL_ROOT}/v3`;
 const V4_ROOT = `${HISTORICAL_PANEL_ROOT}/v4`;
@@ -20,6 +21,19 @@ const PANEL_INDICES = [
   1999,
 ];
 const REQUIRED_SOURCES = [
+  ...[
+    "pins.json",
+    "snapshot.json",
+    "independent-physical-cohorts.json",
+    "provenance.json",
+    "panel.json",
+    "history.ts",
+    "evidence.ts",
+    "calculate.ts",
+    "panel.ts",
+    "snapshot.ts",
+    "generate.ts",
+  ].map((name) => `${CURRENT_PANEL_ROOT}/${name}`),
   ...["pins.json", "independent-physical-cohorts.json", "provenance.json", "panel.json"].map(
     (name) => `${PANEL_ROOT}/${name}`,
   ),
@@ -293,15 +307,15 @@ function expectedProfile() {
 
 export async function freezeExpected(commit) {
   const source = sourceSnapshot(commit);
-  const { readV6Evidence } = await import("./certified-staging-approved-panel/v6/evidence.ts");
-  const { panel } = readV6Evidence();
+  const { readV7Evidence } = await import("./certified-staging-approved-panel/v7/evidence.ts");
+  const { panel } = readV7Evidence();
   assert.deepEqual(
     panel.map((row) => row.originalIndex),
     PANEL_INDICES,
     "approved24 panel changed",
   );
   assert.equal(new Set(panel.map((row) => row.id)).size, 24, "approved24 IDs must be unique");
-  const snapshotPath = `${HISTORICAL_PANEL_ROOT}/snapshot.json`;
+  const snapshotPath = `${CURRENT_PANEL_ROOT}/snapshot.json`;
   const snapshotBytes = readFileSync(snapshotPath);
   const snapshotSource = source.files.find(({ path }) => path === snapshotPath);
   assert.ok(snapshotSource, "snapshot missing from committed inventory");
