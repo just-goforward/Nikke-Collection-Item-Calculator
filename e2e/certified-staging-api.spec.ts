@@ -62,6 +62,7 @@ test.beforeAll(async () => {
       path: "scripts/certified-staging-dist-validation.ts",
       sha256: fileSha256("scripts/certified-staging-dist-validation.ts"),
     },
+    { path: "biome.json", sha256: fileSha256("biome.json") },
     { path: "package-lock.json", sha256: fileSha256("package-lock.json") },
   ].filter((row, index, rows) => rows.findIndex((other) => other.path === row.path) === index);
   scenarioSha256 = createHash("sha256").update(JSON.stringify(panel)).digest("hex");
