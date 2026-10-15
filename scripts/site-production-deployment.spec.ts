@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { validateWorkflowSource } from "./check-workflow-hardening";
 import {
+  assertBuiltRevision,
   assertVerificationCredentialsAbsent,
   productionCandidate,
   run,
@@ -49,7 +50,10 @@ function harness(mode = "bootstrap", state = "[]") {
         "index.html": { file: "assets/index-abcdefgh.js", isEntry: true },
       }),
     ),
-    "dist/assets/index-abcdefgh.js": Buffer.from(`const revision="${sha}";`),
+    // Shape observed in dist/assets/index-gmPbWxVi.js from the real minified build.
+    "dist/assets/index-abcdefgh.js": Buffer.from(
+      `document.documentElement.dataset.buildRevision=\`${sha}\`,Se()`,
+    ),
     ndjson: Buffer.from(
       JSON.stringify({
         type: "deploy",
@@ -157,7 +161,9 @@ describe("production site promotion", () => {
   });
   it("refuses an incorrectly stamped built entry before upload/seal", async () => {
     const h = harness();
-    h.files["dist/assets/index-abcdefgh.js"] = Buffer.from(`"${"b".repeat(40)}"`);
+    h.files["dist/assets/index-abcdefgh.js"] = Buffer.from(
+      `document.documentElement.dataset.buildRevision=\`${"b".repeat(40)}\`,Se()`,
+    );
     await expect(run("build", h)).rejects.toThrow("Built entry revision");
     await expect(run("seal", h)).rejects.toThrow("Built entry revision");
     expect(h.append).not.toHaveBeenCalled();
@@ -249,4 +255,58 @@ describe("production site promotion", () => {
     expect(deploy.match(/secrets\./g)).toHaveLength(1);
     expect(deploy).toContain("if: inputs.mode == 'publish'");
   });
+});
+
+describe("minified build revision tokens", () => {
+  it.each(['"', "'", "`"])("accepts a whole revision token with %s quotes", (quote) => {
+    const h = harness();
+    h.files["dist/assets/index-abcdefgh.js"] = Buffer.from(
+      `document.documentElement.dataset.buildRevision=${quote}${sha}${quote},Se()`,
+    );
+    expect(() => assertBuiltRevision(sha, h.read)).not.toThrow();
+  });
+  it.each([`f${sha}`, `${sha}0`])("rejects a revision inside a longer hex run: %s", (value) => {
+    const h = harness();
+    h.files["dist/assets/index-abcdefgh.js"] = Buffer.from(
+      `document.documentElement.dataset.buildRevision=\`${value}\`,Se()`,
+    );
+    expect(() => assertBuiltRevision(sha, h.read)).toThrow("Built entry revision");
+  });
+});
+
+describe("workflow job environment contexts", () => {
+  it.each([
+    `    env:\n      OUTPUT: \${{ runner.temp }}`,
+    `    env: { OUTPUT: \${{ runner.temp }} }`,
+    `    env:\n      OUTPUT: \${{\n        runner.temp\n      }}`,
+  ])("rejects runner expressions in job-level env: %s", (environment) => {
+    const workflow = `jobs:\n  build:\n    timeout-minutes: 1\n${environment}\n    steps:\n      - run: echo ok`;
+    expect(validateWorkflowSource(workflow)).toEqual([
+      {
+        line: expect.any(Number),
+        message: expect.stringContaining("env cannot use runner context"),
+      },
+    ]);
+  });
+
+  it("permits runner expressions in step env and runner text without an expression", () => {
+    const workflow = `jobs:
+  build:
+    timeout-minutes: 1
+    env:
+      LITERAL: runner.temp
+      # COMMENT: \${{ runner.temp }}
+    steps:
+      - run: echo ok
+        env:
+          OUTPUT: \${{ runner.temp }}`;
+    expect(validateWorkflowSource(workflow)).toEqual([]);
+  });
+
+  it.each(["pages.yml", "site-worker-promote.yml"])(
+    "audits all runner expressions in %s",
+    (file) => {
+      expect(validateWorkflowSource(readFileSync(`.github/workflows/${file}`, "utf8"))).toEqual([]);
+    },
+  );
 });

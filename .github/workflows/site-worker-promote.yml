@@ -171,7 +171,6 @@ jobs:
       DEPLOY_SHA: ${{ needs.preflight.outputs.deploy_sha }}
       SITE_DEPLOY_MODE: ${{ inputs.mode }}
       SITE_URL: ${{ vars.CLOUDFLARE_SITE_PRODUCTION_URL }}
-      SITE_ARTIFACT_PATH: ${{ runner.temp }}/site-artifact/site-production.tar
       SITE_PAYLOAD_DIGEST: ${{ needs.verify.outputs.payload_digest }}
     steps:
       - name: Checkout exact candidate after protected-environment approval
@@ -194,6 +193,8 @@ jobs:
           path: ${{ runner.temp }}/site-artifact
           merge-multiple: true
       - name: Verify payload digest before extraction
+        env:
+          SITE_ARTIFACT_PATH: ${{ runner.temp }}/site-artifact/site-production.tar
         run: |
           node scripts/site-production-deployment.ts verify-artifact
           tar -xf "$SITE_ARTIFACT_PATH"
@@ -246,6 +247,7 @@ jobs:
         run: npm run check:site-production
       - name: Deploy only the production site Worker
         env:
+          SITE_ARTIFACT_PATH: ${{ runner.temp }}/site-artifact/site-production.tar
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_SITE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_SITE_ACCOUNT_ID }}
           SITE_ARTIFACT_DIGEST: ${{ needs.verify.outputs.artifact_digest }}

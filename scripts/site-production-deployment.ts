@@ -166,7 +166,7 @@ export function assertBuiltRevision(sha: string, read: (path: string) => Buffer)
   for (const entry of entries) {
     if (!/^assets\/[^/]+\.js$/.test(entry.file)) throw new Error("Invalid built entry path.");
     const js = read(`dist/${entry.file}`).toString();
-    if (!js.includes(`"${sha}"`) && !js.includes(`'${sha}'`)) {
+    if (!new RegExp(`(?<![0-9a-fA-F])${sha}(?![0-9a-fA-F])`).test(js)) {
       throw new Error("Built entry revision does not match candidate.");
     }
   }

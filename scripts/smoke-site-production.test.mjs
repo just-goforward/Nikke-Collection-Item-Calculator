@@ -47,7 +47,8 @@ function fixture(change = () => {}) {
           "Content-Type": "text/javascript",
           "Cache-Control": "public, max-age=31536000, immutable",
         };
-        result.body = `const revision="${revision}";`;
+        // Real minified entry shape: document.documentElement.dataset.buildRevision=`local`,Se().
+        result.body = `document.documentElement.dataset.buildRevision=\`${revision}\`,Se()`;
       } else if (path.endsWith(".css")) {
         result.headers = {
           "Content-Type": "text/css",
@@ -96,6 +97,17 @@ test("rejects wrong SHA and wrong host without networking outside the supplied o
     }),
     /production origin/,
   );
+});
+
+test("rejects an expected revision embedded in a longer hexadecimal run", async () => {
+  for (const value of [`f${revision}`, `${revision}0`]) {
+    const source = fixture((path, result) => {
+      if (path.endsWith(".js")) {
+        result.body = `document.documentElement.dataset.buildRevision=\`${value}\`,Se()`;
+      }
+    });
+    await assert.rejects(smokeSiteProduction(origin, revision, source), /revision does not match/);
+  }
 });
 
 for (const [name, change, error] of [

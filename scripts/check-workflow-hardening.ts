@@ -633,7 +633,24 @@ type WorkflowJob = {
   line: number;
   hasTimeout: boolean;
   callsReusableWorkflow: boolean;
+  environmentSource: string;
+  environmentReported: boolean;
 };
+
+function jobEnvironmentIssue(line: string, job: WorkflowJob): string | undefined {
+  if (line.trimStart().startsWith("#")) return undefined;
+  if (/^ {4}\S/.test(line)) {
+    job.environmentSource = /^ {4}env:/.test(line) ? line : "";
+    job.environmentReported = false;
+  } else if (job.environmentSource) {
+    job.environmentSource += `\n${line}`;
+  }
+  if (!job.environmentReported && /\$\{\{[^}]*\brunner\s*\./.test(job.environmentSource)) {
+    job.environmentReported = true;
+    return `job "${job.id}" env cannot use runner context; move it to step-level env`;
+  }
+  return undefined;
+}
 
 function usesReference(line: string): string | undefined {
   const match = line.match(/^\s*(?:-\s+)?uses:\s*(.*?)\s*$/);
@@ -717,11 +734,15 @@ export function validateWorkflowSource(source: string): WorkflowHardeningIssue[]
         line: lineNumber,
         hasTimeout: false,
         callsReusableWorkflow: false,
+        environmentSource: "",
+        environmentReported: false,
       };
       continue;
     }
     if (!currentJob) continue;
 
+    const environmentIssue = jobEnvironmentIssue(line, currentJob);
+    if (environmentIssue) issues.push({ line: lineNumber, message: environmentIssue });
     if (/^ {4}timeout-minutes:\s*[^#\s]/.test(line)) currentJob.hasTimeout = true;
     if (/^ {4}uses:\s*[^#\s]/.test(line)) currentJob.callsReusableWorkflow = true;
   }

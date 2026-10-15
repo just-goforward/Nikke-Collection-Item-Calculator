@@ -124,7 +124,7 @@ export async function smokeSiteProduction(origin, revision, { fetchImpl = fetch 
       if (type === "javascript") {
         if (entryScripts.has(asset.href)) {
           assert(
-            text.includes(`"${revision}"`) || text.includes(`'${revision}'`),
+            new RegExp(`(?<![0-9a-fA-F])${revision}(?![0-9a-fA-F])`).test(text),
             `${asset.pathname}: frontend revision does not match ${revision}`,
           );
         }
