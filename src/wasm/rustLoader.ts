@@ -1,7 +1,13 @@
 import { ignoreExpectedError } from "../lib/errorHandling";
+import { activeSupplyForecastContext } from "./rustCoreShared";
 import { createRustMinEfSolver } from "./rustMinEfCore";
 import { createRustPhase2Solver } from "./rustPhase2Core";
-import type { RustCoreExports, RustMinEfSolver, RustPhase2ProductSolver } from "./rustTypes";
+import type {
+  RustCoreExports,
+  RustMinEfSolver,
+  RustPhase2ProductSolver,
+  SupplyForecastContext,
+} from "./rustTypes";
 
 export function rustCoreExportsFromInstance(instance: WebAssembly.Instance): RustCoreExports {
   return instance.exports as unknown as RustCoreExports;
@@ -9,12 +15,16 @@ export function rustCoreExportsFromInstance(instance: WebAssembly.Instance): Rus
 
 function createRustPhase2SolverFromInstance(
   instance: WebAssembly.Instance,
+  supplyForecast: SupplyForecastContext,
 ): RustPhase2ProductSolver {
-  return createRustPhase2Solver(rustCoreExportsFromInstance(instance));
+  return createRustPhase2Solver(rustCoreExportsFromInstance(instance), supplyForecast);
 }
 
-function createRustMinEfSolverFromInstance(instance: WebAssembly.Instance): RustMinEfSolver {
-  return createRustMinEfSolver(rustCoreExportsFromInstance(instance));
+function createRustMinEfSolverFromInstance(
+  instance: WebAssembly.Instance,
+  supplyForecast: SupplyForecastContext,
+): RustMinEfSolver {
+  return createRustMinEfSolver(rustCoreExportsFromInstance(instance), supplyForecast);
 }
 
 export async function instantiateRustWasmFromUrl(url: string): Promise<WebAssembly.Instance> {
@@ -32,12 +42,18 @@ export async function instantiateRustWasmFromUrl(url: string): Promise<WebAssemb
   }
 }
 
-export async function loadRustMinEfSolver(url: string): Promise<RustMinEfSolver> {
+export async function loadRustMinEfSolver(
+  url: string,
+  supplyForecast = activeSupplyForecastContext(),
+): Promise<RustMinEfSolver> {
   const instance = await instantiateRustWasmFromUrl(url);
-  return createRustMinEfSolverFromInstance(instance);
+  return createRustMinEfSolverFromInstance(instance, supplyForecast);
 }
 
-export async function loadRustPhase2Solver(url: string): Promise<RustPhase2ProductSolver> {
+export async function loadRustPhase2Solver(
+  url: string,
+  supplyForecast = activeSupplyForecastContext(),
+): Promise<RustPhase2ProductSolver> {
   const instance = await instantiateRustWasmFromUrl(url);
-  return createRustPhase2SolverFromInstance(instance);
+  return createRustPhase2SolverFromInstance(instance, supplyForecast);
 }

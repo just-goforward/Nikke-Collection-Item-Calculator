@@ -50,6 +50,8 @@ export const jaMessages = {
   "tab.stats": "統計",
   "staging.label": "ステージング環境",
   "staging.missing": "STAGING設定がありません。統計送信を停止しました。",
+  "staging.supplyUnavailable":
+    "補給量を計算できません。承認済み台帳に参照期間全体のデータがありません。",
   "staging.notice": "STAGING - テスト記録は本番統計に反映されません",
   "staging.forecastWindow": "一時予想獲得量 · 適用期間 {from} ～ {until} KST · {status}",
   "staging.forecastWindowOpenEnded": "一時予想獲得量 · {from} KST以降 · {status}",

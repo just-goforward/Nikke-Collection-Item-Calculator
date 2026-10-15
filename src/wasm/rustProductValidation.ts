@@ -51,7 +51,7 @@ export async function validateRustMinEf(
   }
 
   try {
-    const solver = await getRustMinEfSolver(wasmUrl);
+    const solver = await getRustMinEfSolver(wasmUrl, supplyForecast);
     solver.setSupplyForecast(supplyForecast);
     const policy = solver.solveRootWithCandidates(
       normalizedInput.start,
@@ -69,7 +69,7 @@ export async function validateRustMinEf(
     if (!isMemoFull(error)) throw error;
     await releaseRustMinEfSolverCache();
     return {
-      ...(await validateRustPhase2(input, wasmUrl, runs, seed)),
+      ...(await validateRustPhase2(input, wasmUrl, runs, seed, supplyForecast)),
       validationPolicyCache: "miss" as const,
     };
   }
@@ -80,10 +80,10 @@ export async function validateRustPhase2(
   wasmUrl: string,
   runs: number,
   seed = 20260505,
+  supplyForecast = activeSupplyForecastContext(),
 ) {
   const normalizedInput = normalizeRustProductInput(input);
-  const supplyForecast = activeSupplyForecastContext();
-  const solver = await getRustPhase2Solver(wasmUrl);
+  const solver = await getRustPhase2Solver(wasmUrl, supplyForecast);
   solver.setSupplyForecast(supplyForecast);
   solver.configureMemoTier(RUST_PHASE2_DEFAULT_MEMO_TIER);
   solver.configureSegmentedOverflow(false);

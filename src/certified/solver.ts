@@ -34,7 +34,7 @@ export function solveCertified(
     output.current = currentView(sid, input, root, kernel);
     kernel.releaseTemporaryBounds();
     output.status = "partial";
-    output.waiting = { ...waitingBase("unresolved", "waiting_in_progress"), bestDayRange: [0, 56] };
+    output.waiting = { ...waitingBase("unresolved", "waiting_in_progress"), bestDayRange: [0, 14] };
     updateDiagnostics(output, started, budget);
     options.onCurrent?.(structuredClone(output));
     phase = "waiting";
@@ -50,7 +50,7 @@ export function solveCertified(
     output.status = output.current ? "partial" : "refused";
     output.waiting = {
       ...waitingBase("unresolved", reason),
-      bestDayRange: output.current ? [0, 56] : null,
+      bestDayRange: output.current ? [0, 14] : null,
     };
   }
   updateDiagnostics(output, started, budget);

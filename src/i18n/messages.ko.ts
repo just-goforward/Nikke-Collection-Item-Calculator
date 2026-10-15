@@ -49,6 +49,7 @@ export const koMessages = {
   "tab.stats": "통계",
   "staging.label": "스테이징 환경",
   "staging.missing": "STAGING 설정 누락 - 통계 제출이 중지됨",
+  "staging.supplyUnavailable": "수급 계산 불가: 승인된 원장이 기준 기간 전체를 포함하지 않습니다.",
   "staging.notice": "STAGING - 테스트 기록은 운영 통계에 반영되지 않음",
   "staging.forecastWindow": "임시 예상 수급 · 적용 기간 {from} ~ {until} KST · {status}",
   "staging.forecastWindowOpenEnded": "임시 예상 수급 · {from} KST 이후 · {status}",

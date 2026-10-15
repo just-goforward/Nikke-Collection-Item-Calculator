@@ -30,7 +30,7 @@ import {
   MAX_STOCK_PIECES,
   REQUIRED_EXP,
 } from "../../shared/game";
-import { gameDayKey } from "../../shared/supplyForecastModel";
+import { gameDayKey } from "../../shared/gameDay";
 
 type CertifiedReceipt = {
   eventId: string;

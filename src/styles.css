@@ -1098,9 +1098,9 @@ html[data-locale="ko"] .outcome-action-group {
 @media (max-width: 660px) {
   .table-wrap {
     --candidate-col-width: 19%;
-    --action-col-width: 34%;
+    --action-col-width: 38%;
     --probability-col-width: 17%;
-    --consumption-col-width: 30%;
+    --consumption-col-width: 26%;
   }
 
   .candidate-rank-cell {
@@ -1109,9 +1109,9 @@ html[data-locale="ko"] .outcome-action-group {
 
   html[data-locale="ja"] .table-wrap {
     --candidate-col-width: 20%;
-    --action-col-width: 35%;
+    --action-col-width: 39%;
     --probability-col-width: 17%;
-    --consumption-col-width: 28%;
+    --consumption-col-width: 24%;
   }
 
   html[data-locale="en"] .table-wrap {

@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { EventSubmissionSchema } from "../cloudflare/src/schemas";
+import {
+  ACTIVE_SUPPLY_FORECAST_BASE_PROFILE,
+  ACTIVE_SUPPLY_FORECAST_ID,
+} from "../shared/generated/supplyForecast";
 import { makeSolverRecoveryEvent } from "../src/hooks/calculatorDiagnostics";
 import { makeSolverRecoveryEventV2 } from "../src/hooks/calculatorDiagnosticsV2";
+
+const forecast = {
+  forecastId: ACTIVE_SUPPLY_FORECAST_ID,
+  forecastProfileId: ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.id,
+  expectedGain: ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.expectedGain,
+};
 
 describe("solver recovery client and Worker contract", () => {
   it("accepts the event produced by the current client builder", () => {
@@ -20,9 +30,14 @@ describe("solver recovery client and Worker contract", () => {
         terminalBackend: "rust-phase2",
         terminalOutcome: "success",
       },
+      forecast,
     );
 
     expect(event).not.toBeNull();
+    expect(event).toMatchObject({
+      forecastId: forecast.forecastId,
+      forecastProfileId: forecast.forecastProfileId,
+    });
     expect(
       EventSubmissionSchema.safeParse({
         version: 1,
@@ -49,9 +64,12 @@ describe("solver recovery client and Worker contract", () => {
         terminalBackend: "rust-phase2",
         terminalOutcome: "success",
       },
+      forecast,
     );
 
     expect(event).toMatchObject({
+      forecastId: forecast.forecastId,
+      forecastProfileId: forecast.forecastProfileId,
       recoveryVersion: 2,
       appRevision: "unknown",
       solverVersions: {

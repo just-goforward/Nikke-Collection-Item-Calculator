@@ -1,3 +1,4 @@
+import { selectedSupplyGain } from "../solver/domain";
 import type { Kit } from "../types";
 import { availabilityForKit, RUST_KITS, requireExport } from "./rustCoreShared";
 import type { RustCoreExports, Stock } from "./rustTypes";
@@ -26,9 +27,10 @@ export function availabilityCost(
   stock: Stock,
   horizonFactor: number,
   p: number,
+  expectedGain: Stock = selectedSupplyGain(),
 ) {
   const ratios = RUST_KITS.map((kit) => {
-    const availability = availabilityForKit(stock, kit, horizonFactor);
+    const availability = availabilityForKit(stock, kit, horizonFactor, expectedGain);
     if (availability > 0) return vector[kit] / availability;
     return vector[kit] > 1e-12 ? Number.POSITIVE_INFINITY : 0;
   });
@@ -41,9 +43,12 @@ export function availabilityHessian(
   stock: Stock,
   horizonFactor: number,
   p: number,
+  expectedGain: Stock = selectedSupplyGain(),
 ) {
   if (!Number.isFinite(p) || p <= 1) return [0, 0, 0, 0, 0, 0] as const;
-  const availability = RUST_KITS.map((kit) => availabilityForKit(stock, kit, horizonFactor));
+  const availability = RUST_KITS.map((kit) =>
+    availabilityForKit(stock, kit, horizonFactor, expectedGain),
+  );
   if (availability.some((value) => value <= 0)) return [0, 0, 0, 0, 0, 0] as const;
   const c = RUST_KITS.map((kit) => Math.max(0, mean[kit]));
   const w = availability.map((value) => value ** -p);

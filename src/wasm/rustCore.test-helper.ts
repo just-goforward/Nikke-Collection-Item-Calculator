@@ -1,5 +1,14 @@
 import { vi } from "vitest";
+import { installSupplyForecastFixtureClock } from "../solver/supplyForecast.test-helper";
 import type { RustCoreExports } from "./rustTypes";
+
+installSupplyForecastFixtureClock();
+
+export const HISTORICAL_SUPPLY_FORECAST = {
+  forecastId: "supply-2026-08-21-v1",
+  forecastProfileId: "supply-2026-08-21-v1@fixed",
+  expectedGain: { blue: 473.912, purple: 55.808, yellow: 24.736 },
+};
 
 export function makeRustCoreExports(overrides: Partial<RustCoreExports> = {}): RustCoreExports {
   return {

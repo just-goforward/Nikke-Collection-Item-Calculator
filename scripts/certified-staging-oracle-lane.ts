@@ -1,6 +1,6 @@
 import { AssertionError } from "node:assert";
 import { dateStart, ruleAt } from "../shared/certifiedSupplyModel.ts";
-import { gameDayKey } from "../shared/supplyForecastModel.ts";
+import { gameDayKey } from "../shared/gameDay.ts";
 import type {
   CertifiedCurrent,
   CertifiedInput,
@@ -188,7 +188,10 @@ function pricingPriors(input: CertifiedInput): IndependentPriors | null {
   const weights = input.cohortWeights;
   if (input.snapshot.version === "certified-daily-v1")
     return weights ? exactPriors(weights, 3) : DEFAULT_PRIORS;
-  if (input.snapshot.version === "certified-daily-v2")
+  if (
+    input.snapshot.version === "certified-daily-v2" ||
+    input.snapshot.version === "certified-daily-v3"
+  )
     return weights ? exactPriors(weights, 4) : DEFAULT_FOUR_PRIORS;
   return null;
 }

@@ -257,6 +257,8 @@ describe("certified inputs and action authorization", () => {
       ...snapshot,
       version: "certified-daily-v1",
       laws: LEGACY_CERTIFIED_SUPPLY_LAWS,
+      rules: snapshot.rules.map(({ weeklyFixed: _weeklyFixed, ...rule }) => rule),
+      events: snapshot.events.filter((event) => event.kind !== "weekly-kits"),
     };
     driver.prepare.mockImplementation(() => actual.prepareCertifiedForecast(snapshot.asOf));
     const before = app.session;

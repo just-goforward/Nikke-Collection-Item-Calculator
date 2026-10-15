@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { ACTIVE_SUPPLY_FORECAST_ID } from "../../shared/generated/supplyForecast";
+import { installSupplyForecastFixtureClock } from "../solver/supplyForecast.test-helper";
 import { WorkerTaskCancelled, WorkerTaskError } from "./solverWorkerClient";
 import { makeSolveCacheKey, readSolveCache, resolveWorkerOrFallback } from "./useSolverWorker";
+
+installSupplyForecastFixtureClock();
 
 describe("resolveWorkerOrFallback", () => {
   it("uses the fallback for an eligible worker error", async () => {
@@ -112,7 +116,7 @@ describe("readSolveCache", () => {
     const result = { possible: true };
     const cache = new Map([[rustKey, result]]);
 
-    expect(rustKey).toContain("supply-2026-08-21-v1|");
+    expect(rustKey).toContain(`${ACTIVE_SUPPLY_FORECAST_ID}|`);
     expect(phase2Key).not.toBe(rustKey);
     expect(readSolveCache(cache, phase2Key, "rust-phase2")).toBeNull();
     expect(readSolveCache(cache, rustKey, "rust-min-ef")?.result).toBe(result);

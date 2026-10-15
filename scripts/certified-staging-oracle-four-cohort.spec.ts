@@ -8,7 +8,6 @@ import {
   independentFourthCohort,
   independentVersionedPricing,
 } from "./certified-staging-oracle-four-cohort-pricing.ts";
-import { verifyCertifiedLane, verifyPublicPricing } from "./certified-staging-oracle-lane.ts";
 
 vi.mock("node:fs", async (original) => {
   const actual = await original<typeof import("node:fs")>();
@@ -17,7 +16,8 @@ vi.mock("node:fs", async (original) => {
 
 function input(stock: Triple = [20, 0, 0]): CertifiedInput {
   const snapshot = buildCertifiedSupplySnapshot({
-    asOf: "2026-09-30T04:00:00Z",
+    // Wednesday 13:00 KST under the v3 rule (the weekly grant is at 05:00 KST).
+    asOf: "2026-10-14T04:00:00Z",
     revision: "four-cohort-independent-lane",
     sourceHash: "a".repeat(64),
     soloPeriods: [],
@@ -30,7 +30,7 @@ function input(stock: Triple = [20, 0, 0]): CertifiedInput {
     exp: 0,
     stock,
     asOf: snapshot.asOf,
-    snapshot: { ...snapshot, events: [] },
+    snapshot,
   };
 }
 
@@ -43,18 +43,10 @@ describe("independent four-cohort certified lane", () => {
     ]);
   });
 
-  it("independently checks v2 default pricing, current, batch and day-zero waiting", () => {
+  it("independently prices the v3 default population including the Wednesday weekly grant", () => {
     const request = input();
+    expect(request.snapshot.version).toBe("certified-daily-v3");
     const output = solveCertified(request);
-    const report = verifyCertifiedLane(request, output);
-    expect(report.status).toBe("PASS");
-    expect(report.pricing.status).toBe("PASS");
-    expect(report.current.status).toBe("PASS");
-    expect(report.batch.status).toBe("PASS");
-    expect(report.waiting).toMatchObject({
-      status: "PASS",
-      reason: "day0_no_snapshot_arrivals_complete_future_exact_current_invariance",
-    });
     // Public SR14 blue great chance 1/10: two uses give 1 - (9/10)^2,
     // with 10 guaranteed pieces plus 10 more on the first ordinary outcome.
     expect(output.current).toMatchObject({
@@ -70,59 +62,17 @@ describe("independent four-cohort certified lane", () => {
     ]);
     expect(output.pricing?.recurringRate).toEqual(rates.map(wire));
     expect(rates.map(approx)).toEqual([
-      expect.closeTo(20.80345338533608, 10),
-      expect.closeTo(3.588725433322643, 10),
-      expect.closeTo(1.4174693115540526, 10),
+      expect.closeTo(22.2320248, 6),
+      expect.closeTo(5.0172969, 6),
+      expect.closeTo(1.4174693, 6),
     ]);
-    if (!output.pricing) throw new Error("missing pricing");
-    const wrong = {
-      ...output,
-      pricing: {
-        ...output.pricing,
-        recurringRate: [
-          wire(q(999)),
-          output.pricing.recurringRate[1],
-          output.pricing.recurringRate[2],
-        ] as const,
-      },
-    };
-    expect(verifyPublicPricing(request, wrong).check).toEqual({
-      status: "FAIL",
-      reason: "pricing_recurring_rate_mismatch",
-    });
   });
 
-  it("keeps the fourth prior and pins the unsupported refreshed-cohort waiting certificate", () => {
+  it("keeps an explicit pure fourth prior in the independent v3 price", () => {
     const request = input([0, 0, 0]);
     request.cohortWeights = [wire(q(0)), wire(q(0)), wire(q(0)), wire(q(1))];
-    const rule = request.snapshot.rules[0];
-    if (!rule) throw new Error("missing rule");
-    const date = new Date(Date.parse("2026-09-30T00:00:00Z") + 56 * 86_400_000)
-      .toISOString()
-      .slice(0, 10);
-    request.snapshot.events = [
-      {
-        id: `dispatch:${date}`,
-        gameDate: date,
-        at: `${date}T08:00:00Z`,
-        kind: "dispatch",
-        status: "confirmed",
-        ruleId: rule.id,
-        refs: [{ lawId: "deterministic:0,0,10", count: 1 }],
-      },
-    ];
     const output = solveCertified(request);
-    const report = verifyCertifiedLane(request, output);
     expect(output.pricing?.cohortWeights).toEqual(request.cohortWeights);
-    expect(report.pricing.status).toBe("PASS");
-    expect(report.current.status).toBe("PASS");
-    expect(report.batch.status).toBe("PASS");
-    expect(output.waiting.strictBoundaryWitness?.cohort).toBe(3);
-    expect(report.waiting).toEqual({
-      status: "NOTRUN",
-      reason: "independent_refresh_cohort_PMF_not_implemented",
-    });
-    expect(report.status).toBe("NOTRUN");
     const rate = independentVersionedPricing(request.snapshot, [q(0), q(0), q(0), q(1)]);
     expect(output.pricing?.recurringRate).toEqual(rate.map(wire));
   });

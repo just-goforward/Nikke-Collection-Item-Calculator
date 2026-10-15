@@ -35,6 +35,7 @@ function snapshot(events: CertifiedSupplyEvent[] = [], zeroRate = false): Certif
   });
   return {
     ...result,
+    version: "certified-daily-v2",
     events,
     rules: [
       {
@@ -82,7 +83,7 @@ describe("certified physical waiting", () => {
     expect(result.waiting.recommendedDays).toBeNull();
   });
 
-  it("certifies the physical R0 day56 boundary under the unchanged work ceilings", () => {
+  it("certifies the physical R0 day14 boundary under the unchanged work ceilings", () => {
     const asOf = "2026-09-30T08:00:00.000Z";
     const supply = buildCertifiedSupplySnapshot({
       asOf,
@@ -115,24 +116,24 @@ describe("certified physical waiting", () => {
     expect(result.current?.optimalActionMask).toBe(1);
     expect(result.status).toBe("completed");
     expect(result.waiting.status).toBe("certified");
-    expect(result.waiting.recommendedDays).toBe(56);
+    expect(result.waiting.recommendedDays).toBe(14);
     expect(result.waiting.value).toBeNull();
     const witness = result.waiting.strictBoundaryWitness;
     if (!witness) throw new Error("missing strict boundary witness");
-    expect(witness.beforeValue.successP).toEqual(toWire(q(1)));
-    expect(witness.afterValue.successP).toEqual(toWire(q(1)));
-    expect(
-      cmp(
-        fromWire(witness.afterValue.weightedExpectedConsumptionB),
-        fromWire(witness.beforeValue.weightedExpectedConsumptionB),
-      ),
-    ).toBe(-1);
-    expect(
-      cmp(
-        fromWire(witness.afterValue.expectedTotalConsumptionC),
-        fromWire(witness.beforeValue.expectedTotalConsumptionC),
-      ),
-    ).toBe(1);
+    // The shorter range need not attain P=1; its certificate must still be strictly lexicographic.
+    const probability = cmp(
+      fromWire(witness.afterValue.successP),
+      fromWire(witness.beforeValue.successP),
+    );
+    const burden = cmp(
+      fromWire(witness.beforeValue.weightedExpectedConsumptionB),
+      fromWire(witness.afterValue.weightedExpectedConsumptionB),
+    );
+    const consumption = cmp(
+      fromWire(witness.beforeValue.expectedTotalConsumptionC),
+      fromWire(witness.afterValue.expectedTotalConsumptionC),
+    );
+    expect(probability || burden || consumption).toBe(1);
     expect(result.diagnostics.memoEntries).toBeLessThan(100_000);
     expect(result.diagnostics.elapsedMs).toBeLessThan(15_000);
   }, 20_000);
@@ -164,7 +165,7 @@ describe("certified range-only waiting", () => {
     expect(result.waiting.status).toBe("certified");
     expect(result.waiting.recommendedDays).toBe(1);
     expect(result.waiting.value?.successP).toEqual(toWire(q(1)));
-    expect(result.waiting.evaluatedDays).toHaveLength(57);
+    expect(result.waiting.evaluatedDays).toHaveLength(15);
     expect(result.waiting.evidence).toContain("exact_previous_day_strict_lex_inequality");
   });
   it("keeps the single latent cohort across repeated dates", () => {

@@ -3,6 +3,9 @@
 //! board draws/rerolls and cohort expectation arithmetic stay inside WASM.
 use super::*;
 use std::rc::Rc;
+mod rates;
+mod v3_gate;
+
 pub type Pieces = [u64; 3];
 const MAX_SAFE_PIECES: u64 = 9_007_199_254_740_991;
 fn checked_pieces_sum(a: u64, b: u64) -> Result<u64> {
@@ -29,6 +32,8 @@ pub struct Event {
 pub struct Law {
     id: String,
     kind: String,
+    // Legacy versions ignored this metadata; only v3 constrains its value.
+    model_version: Option<Json>,
     outcomes: Option<Vec<Row>>,
     outcomes_by_cohort: Option<Vec<Vec<Row>>>,
 }
@@ -41,9 +46,12 @@ pub struct Class {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Model {
+    #[serde(default)]
+    snapshot_version: String,
     pub events: Vec<Event>,
     laws: Vec<Law>,
     pub priors: Vec<WireQ>,
+    population_prior: Vec<WireQ>,
     dispatch: Vec<LawRef>,
     shop: Vec<LawRef>,
     solo: Vec<LawRef>,
@@ -61,6 +69,7 @@ pub(super) type CohortSupports = [Vec<Pieces>; 4];
 pub struct Supply {
     pub model: Model,
     pub priors: Vec<Q>,
+    population_prior: Vec<Q>,
     cache: HashMap<(String, usize, usize), Dist>,
     boxes: HashMap<(usize, usize), Dist>,
     support_cache: HashMap<(String, usize), Rc<CohortSupports>>,
@@ -69,6 +78,21 @@ pub struct Supply {
 }
 impl Supply {
     pub fn new(model: Model, deadline: f64) -> Result<Self> {
+        v3_gate::validate_laws(&model)?;
+        if model.population_prior.len() != 4 {
+            return Err("invalid_population_prior");
+        }
+        let population_prior = model
+            .population_prior
+            .iter()
+            .map(WireQ::rational)
+            .collect::<Result<Vec<_>>>()?;
+        if population_prior.iter().any(|q| q < &Q::zero())
+            || population_prior.iter().sum::<Q>() != Q::one()
+            || !v3_gate::population_prior_is_allowed(&model.snapshot_version, &population_prior)
+        {
+            return Err("invalid_population_prior");
+        }
         // Three priors are the historical profile, four the new profile. Never pad.
         if !matches!(model.priors.len(), 3 | 4)
             || model.dispatch_expected.len() != model.priors.len()
@@ -93,6 +117,7 @@ impl Supply {
         Ok(Self {
             model,
             priors,
+            population_prior,
             cache: HashMap::new(),
             boxes: HashMap::new(),
             support_cache: HashMap::new(),
@@ -416,114 +441,6 @@ impl Supply {
         self.support_cache.insert(key, Rc::clone(&supports));
         Ok(supports)
     }
-
-    fn expected(&mut self, refs: &[LawRef], priors: &[Q]) -> Result<[Q; 3]> {
-        let mut gain = std::array::from_fn(|_| Q::zero());
-        for r in refs {
-            if r.count == 0 {
-                continue;
-            }
-            for (cohort, prior) in priors.iter().enumerate() {
-                self.check()?;
-                if prior.is_zero() {
-                    continue;
-                }
-                let values =
-                    if r.law_id == "dispatch-board-v1" && self.finite_law(&r.law_id).is_none() {
-                        let row = &self.model.dispatch_expected[cohort];
-                        [row[0].rational()?, row[1].rational()?, row[2].rational()?]
-                    } else {
-                        let rows = self.law(
-                            &LawRef {
-                                law_id: r.law_id.clone(),
-                                count: 1,
-                            },
-                            cohort,
-                        )?;
-                        std::array::from_fn(|k| {
-                            rows.iter()
-                                .map(|o| &o.mass * Q::from_integer(o.pieces[k].into()))
-                                .sum()
-                        })
-                    };
-                for k in 0..3 {
-                    gain[k] += prior * &values[k] * Q::from_integer(r.count.into());
-                }
-            }
-        }
-        Ok(gain)
-    }
-    fn recurring_rates(&mut self, priors: &[Q]) -> Result<[Q; 3]> {
-        let dispatch = self.expected(&self.model.dispatch.clone(), priors)?;
-        let shop = self.expected(&self.model.shop.clone(), priors)?;
-        let solo = self.expected(&self.model.solo.clone(), priors)?;
-        let cadence = self.model.cadence.rational()?;
-        if cadence <= Q::zero() {
-            return Err("invalid_cadence");
-        }
-        Ok(std::array::from_fn(|k| {
-            &dispatch[k] + &shop[k] / Q::from_integer(7.into()) + &solo[k] / &cadence
-        }))
-    }
-
-    pub fn minimum_wait_rates(&mut self) -> Result<[Q; 3]> {
-        if self.priors.len() != 4 {
-            return Err("minimum_wait_requires_four_cohorts");
-        }
-        let priors = [1, 2, 3, 1].map(|n| Q::new(n.into(), 7.into()));
-        self.recurring_rates(&priors)
-    }
-
-    pub fn pricing(&mut self, basis: Units, stock: Units, sid: usize) -> Result<([Q; 3], [Q; 3])> {
-        let rates = self.recurring_rates(&self.priors.clone())?;
-        let mut weights = std::array::from_fn(|_| Q::zero());
-        for k in 0..3 {
-            let denominator = &rates[k] + Q::from_integer(basis[k].into());
-            if denominator.is_zero() {
-                let mut usable = sid < TERMINAL && stock[k] >= 10;
-                if sid < TERMINAL && !usable {
-                    for cohort in 0..self.priors.len() {
-                        if self.priors[cohort].is_zero() {
-                            continue;
-                        }
-                        let mut reachable = stock[k] as u64;
-                        for event in self.model.events.clone() {
-                            for r in event.refs {
-                                let law = self.law(&r, cohort)?;
-                                reachable = reachable.saturating_add(
-                                    law.iter()
-                                        .filter(|r| r.mass > Q::zero())
-                                        .map(|r| r.pieces[k])
-                                        .max()
-                                        .unwrap_or(0),
-                                );
-                                if reachable >= 10 {
-                                    usable = true;
-                                    break;
-                                }
-                            }
-                            if usable {
-                                break;
-                            }
-                        }
-                        if usable {
-                            break;
-                        }
-                    }
-                }
-                if usable {
-                    return Err([
-                        "zero_basis_future_usable_blue",
-                        "zero_basis_future_usable_purple",
-                        "zero_basis_future_usable_yellow",
-                    ][k]);
-                }
-            } else {
-                weights[k] = denominator.recip();
-            }
-        }
-        Ok((rates, weights))
-    }
 }
 fn law_limit(reason: &'static str) -> &'static str {
     if reason == "exact_support_limit" {
@@ -546,10 +463,11 @@ mod tests {
         "custom",
     ];
 
-    fn source(laws: Json) -> Supply {
+    pub(super) fn source(laws: Json) -> Supply {
         let model = serde_json::from_value(json!({
             "events": [], "laws": laws,
             "priors": vec![wire(&Q::new(1.into(),3.into())); 3],
+            "populationPrior": ([1, 2, 3, 1].map(|n| wire(&Q::new(n.into(), 7.into())))),
             "dispatch": [], "shop": [], "solo": [],
             "cadence": wire(&Q::from_integer(30.into())),
             "dispatchExpected": vec![vec![wire(&Q::one());3];3],
@@ -558,10 +476,10 @@ mod tests {
         .unwrap();
         Supply::new(model, f64::MAX).unwrap()
     }
-    fn row(pieces: Pieces, numerator: i64, denominator: i64) -> Json {
+    pub(super) fn row(pieces: Pieces, numerator: i64, denominator: i64) -> Json {
         json!({"pieces":pieces,"mass":{"numerator":numerator.to_string(),"denominator":denominator.to_string()}})
     }
-    fn reference(id: &str, count: usize) -> LawRef {
+    pub(super) fn reference(id: &str, count: usize) -> LawRef {
         LawRef {
             law_id: id.to_string(),
             count,

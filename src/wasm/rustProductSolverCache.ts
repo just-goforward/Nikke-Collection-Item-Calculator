@@ -24,13 +24,13 @@ type MinEfPolicyCacheEntry = {
 
 let lastMinEfPolicy: MinEfPolicyCacheEntry | null = null;
 
-export async function getRustMinEfSolver(wasmUrl: string) {
-  minEfSolverPromise ??= loadRustMinEfSolver(wasmUrl);
+export async function getRustMinEfSolver(wasmUrl: string, supplyForecast?: SupplyForecastContext) {
+  minEfSolverPromise ??= loadRustMinEfSolver(wasmUrl, supplyForecast);
   return minEfSolverPromise;
 }
 
-export async function getRustPhase2Solver(wasmUrl: string) {
-  phase2SolverPromise ??= loadRustPhase2Solver(wasmUrl);
+export async function getRustPhase2Solver(wasmUrl: string, supplyForecast?: SupplyForecastContext) {
+  phase2SolverPromise ??= loadRustPhase2Solver(wasmUrl, supplyForecast);
   return phase2SolverPromise;
 }
 

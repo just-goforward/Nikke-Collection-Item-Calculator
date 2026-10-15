@@ -8,7 +8,7 @@ import { sha256Hex, stableJson } from "./crypto";
 import type { NormalizedSourceItem, ScheduleEvent, XProbeResult } from "./types";
 
 /* S1/P8. Expectations are metamorphic (input order and repeated identical evidence
- * must not change candidateId), the decided conflict policy, or the legacy identity;
+ * must not change candidateId), the decided conflict policy, or the versioned identity;
  * none is recomputed with the candidate code. Time is frozen by the injected
  * nowMs, from which buildForecastCandidate derives gameDayStart. */
 
@@ -260,7 +260,7 @@ describe("P8 candidateId canonical identity", () => {
     HARD_DEADLINE_MS,
   );
 
-  it("preserves the legacy candidateId for already-canonical periods, including no periods", async () => {
+  it("binds v3 identity to the rules and ledger, distinct from the legacy candidateId", async () => {
     const one = collaboration(item({ board: 48, id: 1, hashSeed: 0 }), { startDay: 0, days: 1 }, 0);
     const two = collaboration(item({ board: 48, id: 2, hashSeed: 1 }), { startDay: 0, days: 2 }, 1);
     const three = collaboration(
@@ -270,8 +270,7 @@ describe("P8 candidateId canonical identity", () => {
     );
     const solo = resolved();
     for (const events of [[], [one], [one, two, three]]) {
-      // Pre-fix identity contract: periods in input order, sorted source hashes.
-      // The fixture order is explicitly canonical, so its legacy ID must survive.
+      // Canonical schedule/source identity remains the ledger's provenance hash.
       const legacyIdentity = stableJson({
         forecastDate: "2026-08-24",
         schedule: {
@@ -296,8 +295,16 @@ describe("P8 candidateId canonical identity", () => {
         ].sort(),
       });
       const result = await build(events);
-      expect(result.candidate.candidateId).toBe(
+      expect(result.candidate.candidateId).not.toBe(
         `forecast-${(await sha256Hex(legacyIdentity)).slice(0, 24)}`,
+      );
+      const sourceHash = await sha256Hex(legacyIdentity);
+      const ledgerHash = await sha256Hex(stableJson(result.candidate.certifiedSnapshot));
+      expect(result.candidate.certifiedSnapshot?.sourceHash).toBe(sourceHash);
+      expect(result.candidate.candidateId).toBe(
+        `forecast-${(
+          await sha256Hex(stableJson({ rulesVersion: "schedule-kit-v3", sourceHash, ledgerHash }))
+        ).slice(0, 24)}`,
       );
       expect(result.candidate.schedule.collaborationPeriods).toEqual(
         events.map((event) => ({ effectiveFrom: event.startsAt, effectiveUntil: event.endsAt })),

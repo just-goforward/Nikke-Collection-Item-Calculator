@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SUPPLY_FORECAST_REGISTRY } from "../../shared/generated/supplyForecast";
+import {
+  ACTIVE_SUPPLY_FORECAST_ID,
+  SUPPLY_FORECAST_REGISTRY,
+} from "../../shared/generated/supplyForecast";
 import { cleanupExpiredStatistics } from "./rate-limit";
 import {
+  FORECAST_COMPATIBILITY_CASES,
   kitResultEvent,
   runtimeInvariantEvent,
   solverDiagnosticEvent,
@@ -305,7 +309,7 @@ describe("solver_diagnostic event commit", () => {
         phase2_memo_retried: string;
       }>();
     expect(runtime).toMatchObject({
-      forecast_id: "supply-2026-08-21-v1",
+      forecast_id: ACTIVE_SUPPLY_FORECAST_ID,
       memory_strategy: "balanced-v1",
       min_ef_memo_tier: "21",
       phase2_memo_tier: "22",
@@ -500,7 +504,7 @@ describe("admin solver diagnostic aggregates", () => {
     expect(body.allTime).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          forecastId: "supply-2026-08-21-v1",
+          forecastId: ACTIVE_SUPPLY_FORECAST_ID,
           solverVersion: "phase3_rust_min_ef",
           solverPhase: "phase3",
           events: 2,
@@ -525,7 +529,7 @@ describe("admin solver diagnostic aggregates", () => {
       expect.arrayContaining([
         expect.objectContaining({
           diagnosticVersion: 8,
-          forecastId: "supply-2026-08-21-v1",
+          forecastId: ACTIVE_SUPPLY_FORECAST_ID,
           requestedBackend: "rust-min-ef",
           terminalBackend: "rust-min-ef",
           executionKind: "executed",
@@ -553,7 +557,7 @@ describe("admin solver diagnostic aggregates", () => {
     expect(body.runtime).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          forecastId: "supply-2026-08-21-v1",
+          forecastId: ACTIVE_SUPPLY_FORECAST_ID,
           solverVersion: "phase3_rust_min_ef",
           solverPhase: "phase3",
           solverBackend: "rust-min-ef",
@@ -587,7 +591,7 @@ describe("admin solver diagnostic aggregates", () => {
     expect(body.latencies).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          forecastId: "supply-2026-08-21-v1",
+          forecastId: ACTIVE_SUPPLY_FORECAST_ID,
           solverVersion: "phase3_rust_min_ef",
           solverBackend: "rust-min-ef",
           solveMsBucket: "0_50",
@@ -643,8 +647,19 @@ describe("admin supply forecast registry", () => {
     const body = (await (await fetchAdminSolverDiagnostics()).json()) as AdminDiagnosticsBody;
 
     expect(body.supplyForecastRegistry).toEqual(SUPPLY_FORECAST_REGISTRY);
+    expect(body.supplyForecastRegistry?.activeForecastId).toBe(ACTIVE_SUPPLY_FORECAST_ID);
     expect(body.supplyForecastRegistry?.activeForecastId).toBe("supply-2026-08-21-v1");
-    expect(body.supplyForecastRegistry?.stagingForecastId).toBe("supply-2026-08-28-v1");
+    expect(body.supplyForecastRegistry?.stagingForecastId).toBe("supply-2026-10-15-v3");
+    expect(body.supplyForecastRegistry?.approvedForecastId).toBe("supply-2026-10-15-v3");
+    for (const identity of FORECAST_COMPATIBILITY_CASES) {
+      const forecast = body.supplyForecastRegistry?.forecasts.find(
+        (entry) => entry.id === identity.forecastId,
+      );
+      expect(forecast).toMatchObject({ rulesVersion: identity.rulesVersion });
+      expect(forecast?.profiles).toContainEqual(
+        expect.objectContaining({ id: identity.forecastProfileId }),
+      );
+    }
   });
 });
 

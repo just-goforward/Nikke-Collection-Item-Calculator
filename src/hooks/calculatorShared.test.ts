@@ -1,13 +1,59 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { STAGING_RUNTIME_SEARCH } from "../../shared/runtimeEnvironment";
+import {
+  prepareRuntimeSupplyForecast,
+  resolveRuntimeSupplyForecast,
+} from "../lib/supplyForecastRuntime";
+import { solve } from "../solver/solve";
+import { installSupplyForecastFixtureClock } from "../solver/supplyForecast.test-helper";
 import {
   makeRuntimeInvariantEvent,
   makeSolverDiagnosticEvent,
   makeSolverRecoveryEvent,
 } from "./calculatorDiagnostics";
 import { clampStock, readCache, rememberCache, type SolverResult } from "./calculatorShared";
+import { queueOutcomeDiagnostics } from "./calculatorSolveFlow";
+
+installSupplyForecastFixtureClock();
+afterEach(() => vi.unstubAllGlobals());
 
 describe("makeSolverDiagnosticEvent", () => {
+  it("uses the solved forecast after coverage expires and isolates optional telemetry failures", async () => {
+    vi.stubGlobal("location", new URL(`https://example.test/${STAGING_RUNTIME_SEARCH}`));
+    vi.setSystemTime(new Date("2026-10-15T00:00:00Z"));
+    await prepareRuntimeSupplyForecast(STAGING_RUNTIME_SEARCH);
+    const result = solve({
+      start: { grade: "SR", level: 14, exp: 2900 },
+      stock: { blue: 19, purple: 0, yellow: 0 },
+      strategy: "supply",
+    }) as SolverResult;
+    const captured = result.stats?.supplyForecast;
+    if (!captured) throw new Error("solved_forecast_fixture_missing");
+    vi.setSystemTime(new Date("2026-12-11T00:00:00Z"));
+    const outcome = {
+      result,
+      executionKind: "executed" as const,
+      requestedBackend: "js-phase2" as const,
+    };
+    expect(makeSolverDiagnosticEvent(outcome, "en")).toMatchObject({
+      forecastId: captured.forecastId,
+      forecastProfileId: captured.forecastProfileId,
+    });
+    const delivery = vi.fn(() => {
+      throw new Error("telemetry_unavailable");
+    });
+    expect(
+      queueOutcomeDiagnostics({ calculationLocale: "en", queueStatsEvent: delivery }, outcome),
+    ).toBe(false);
+    expect(delivery).toHaveBeenCalledOnce();
+    const { supplyForecast: _captured, ...oldStats } = result.stats ?? {};
+    expect(
+      makeSolverDiagnosticEvent({ ...outcome, result: { ...result, stats: oldStats } }, "en"),
+    ).toBeNull();
+    expect(result.possible).toBe(true);
+  });
+
   it("creates a low-cardinality runtime invariant event", () => {
     expect(makeRuntimeInvariantEvent("worker_idle_pending", "worker_client", "validation")).toEqual(
       {
@@ -21,6 +67,7 @@ describe("makeSolverDiagnosticEvent", () => {
   });
 
   it("uses solver version and phase from result stats", () => {
+    const forecast = resolveRuntimeSupplyForecast();
     const result: SolverResult = {
       possible: true,
       input: {
@@ -72,8 +119,8 @@ describe("makeSolverDiagnosticEvent", () => {
       ),
     ).toMatchObject({
       diagnosticVersion: 8,
-      forecastId: "supply-2026-08-21-v1",
-      forecastProfileId: "supply-2026-08-21-v1@fixed",
+      forecastId: forecast.forecastId,
+      forecastProfileId: forecast.profile.id,
       locale: "ja",
       executionKind: "executed",
       requestedBackend: "rust-min-ef",

@@ -3,11 +3,7 @@ import type { RustCoreExports as RawRustCoreExports } from "./rustCoreExports";
 
 export type State = { grade: string; level: number; exp?: number };
 export type Stock = { blue: number; purple: number; yellow: number };
-export type SupplyForecastContext = {
-  forecastId: string;
-  forecastProfileId: string;
-  expectedGain: Stock;
-};
+export type SupplyForecastContext = ForecastContext;
 
 export type RustCoreExports = RawRustCoreExports;
 
@@ -266,3 +262,5 @@ export type RustPhase2ResearchSolver = RustPhase2ProductSolver & {
     tolerance?: number,
   ) => RustExactRerankResult | null;
 };
+
+import type { SupplyForecastContext as ForecastContext } from "../lib/supplyForecastRuntime";

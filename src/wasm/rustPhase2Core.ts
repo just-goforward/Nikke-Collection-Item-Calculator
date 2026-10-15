@@ -59,7 +59,10 @@ function buildPolicy(
   };
 }
 
-export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2ProductSolver {
+export function createRustPhase2Solver(
+  exports: RustCoreExports,
+  supplyForecast = activeSupplyForecastContext(),
+): RustPhase2ProductSolver {
   exports.configurePhase2Overflow?.(0);
   const state: Phase2FactoryState = {
     buildGeneration: 0,
@@ -67,7 +70,7 @@ export function createRustPhase2Solver(exports: RustCoreExports): RustPhase2Prod
     exports,
     memoTier: RUST_PHASE2_DEFAULT_MEMO_TIER,
     segmentedOverflow: false,
-    supplyForecast: activeSupplyForecastContext(),
+    supplyForecast: validateSupplyForecastContext(supplyForecast),
   };
   configureMemoTier(state, RUST_PHASE2_DEFAULT_MEMO_TIER);
   exports.configureNodeBudget?.(0);

@@ -7,7 +7,7 @@ import {
   DEFAULT_PERSONAL_COHORT_WEIGHTS,
 } from "../../shared/certifiedSupply";
 import { KIT_ORDER, type Kit, MAX_STOCK_PIECES } from "../../shared/game";
-import { gameDayKey } from "../../shared/supplyForecastModel";
+import { gameDayKey } from "../../shared/gameDay";
 import { KIT_PANEL_LABEL_KEYS, kitDotClass } from "../components/kitPresentation";
 import { useI18n } from "../i18n/locale";
 import type { CertifiedWords } from "./messages";
@@ -132,9 +132,9 @@ export function CohortPanel({
 }
 
 const EVENT_NAMES = {
-  ko: { dispatch: "파견", shop: "상점", solo: "솔로 레이드" },
-  en: { dispatch: "Dispatch", shop: "Shop", solo: "Solo Raid" },
-  ja: { dispatch: "派遣", shop: "ショップ", solo: "ソロレイド" },
+  ko: { dispatch: "파견", shop: "상점", solo: "솔로 레이드", "weekly-kits": "수요일 키트" },
+  en: { dispatch: "Dispatch", shop: "Shop", solo: "Solo Raid", "weekly-kits": "Wednesday kits" },
+  ja: { dispatch: "派遣", shop: "ショップ", solo: "ソロレイド", "weekly-kits": "水曜日のキット" },
 } as const;
 
 function ClaimEditor({

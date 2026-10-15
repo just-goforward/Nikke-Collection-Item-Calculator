@@ -1,7 +1,9 @@
 import { type Dispatch, type SetStateAction, useCallback, useRef } from "react";
 import { message, useI18n } from "../i18n/locale";
 import type { LocalizedMessage } from "../i18n/messages.ko";
+import { ignoreExpectedError } from "../lib/errorHandling";
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
+import { SUPPLY_UNAVAILABLE_MESSAGE } from "../lib/supplyForecastRuntime";
 import type { SolverInput } from "../types";
 import type { DetailView, LoadingView, RecommendationAction, ResultView } from "../ui-types";
 import { makeSolverDiagnosticEvent, makeSolverRecoveryEvent } from "./calculatorDiagnostics";
@@ -132,6 +134,9 @@ export function solveFailurePresentation(
   error: unknown,
   failureContext?: SolveAndRenderOptions["failureContext"],
 ) {
+  if (!failureContext && error instanceof Error && error.message === SUPPLY_UNAVAILABLE_MESSAGE) {
+    return { reason: "solver_failure" as const, message: message("staging.supplyUnavailable") };
+  }
   const capacityFailure = isPrecisionCapacityFailure(error);
   if (failureContext === "outcome") {
     return {
@@ -177,7 +182,7 @@ function handleSolveFailure({
     return { result: false, restorePreviousViews: false, skipUiCleanup: true };
   }
   if (error instanceof SolverRecoveryFailure) {
-    const recoveryEvent = makeSolverRecoveryEvent(input, error.trace);
+    const recoveryEvent = makeSolverRecoveryEvent(input, error.trace, error.supplyForecast);
     if (recoveryEvent) queueStatsEvent(recoveryEvent);
     if (preservesExistingResult(error, latestResultRef.current, input)) {
       return { result: false, restorePreviousViews: true, skipUiCleanup: false };
@@ -247,10 +252,7 @@ async function executeSolveAndRender(
     }
     const result = outcome.result;
     completedResult = result;
-    const diagnosticEvent = makeSolverDiagnosticEvent(outcome, context.calculationLocale);
-    if (diagnosticEvent) context.queueStatsEvent(diagnosticEvent);
-    const recoveryEvent = makeSolverRecoveryEvent(result.input, outcome.recoveryTrace);
-    if (recoveryEvent) context.queueStatsEvent(recoveryEvent);
+    queueOutcomeDiagnostics(context, outcome);
     return true;
   } catch (error) {
     const failure = handleSolveFailure({
@@ -280,6 +282,27 @@ async function executeSolveAndRender(
       context.setLoading({ active: false, text: DEFAULT_LOADING_TEXT });
     }
     context.busyRef.current = false;
+  }
+}
+
+export function queueOutcomeDiagnostics(
+  context: Pick<ExecuteSolveOptions, "calculationLocale" | "queueStatsEvent">,
+  outcome: SolveOutcome,
+) {
+  try {
+    const diagnostic = makeSolverDiagnosticEvent(outcome, context.calculationLocale);
+    if (diagnostic) context.queueStatsEvent(diagnostic);
+    const recovery = makeSolverRecoveryEvent(
+      outcome.result.input,
+      outcome.recoveryTrace,
+      outcome.result.stats?.supplyForecast ?? outcome.supplyForecast,
+    );
+    if (recovery) context.queueStatsEvent(recovery);
+    return true;
+  } catch (error) {
+    // Telemetry delivery cannot revoke an already completed solve.
+    ignoreExpectedError("Optional diagnostics could not be emitted; calculation retained", error);
+    return false;
   }
 }
 

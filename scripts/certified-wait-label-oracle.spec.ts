@@ -119,6 +119,110 @@ describe("pre-registered wait-label fixtures", () => {
   }, 120_000);
 });
 
+/** Supply rules v3 (certified-daily-v3): the same states with the public Wednesday
+ * grant. Pre-registered by `record <id> 900000 fixtures-v3.json`. */
+const V3_PINS: Record<string, string> = {
+  "fixtures-v3.json": "24706763038f89fafeb52dc2f02b4650e9d0070023ff1bec54a9190ed2d9a818",
+  "expected/V3-R0.json": "e5a47c45379ab6a172148c8eb830347ef7efb7f6afc042fd53513a287b3701bc",
+  "expected/V3-R10.json": "58bbd61ef460e136f9cd073ef0cea985c21b3acb9631a15d3dee82ae7ab6ac06",
+  "expected/V3-R14.json": "ee85a38fdbbd1c02448dfc26595bd32d0b1135fca41b44c20104d56691844249",
+  "expected/V3-SR5.json": "a4856040fbb6c4a161902dc74671cbeb86f02b6f17e9a7cf53c361d3e3ff1a3e",
+  "expected/V3-SR10.json": "727c9124f5a8d8e5f453be7694ef9710358d99d60d072251b128570169eee49a",
+  "expected/V3-SR13.json": "dd0eaeaf0b23bfcf5dcc5bfae3bf2a34f377f99ed0f5d583ba9f3b8fabee74ee",
+};
+const V3_SUMMARY: Record<string, readonly [string, number, number | "7+", readonly number[]]> = {
+  "V3-R0": ["blue", 2, "7+", [0, 0, 0, 0, 0, 0, 0]],
+  "V3-R10": ["blue", 2, "7+", [0, 0, 0, 0, 0, 0, 0]],
+  "V3-R14": ["blue", 1, "7+", [0, 0, 0, 0, 0, 0, 0]],
+  "V3-SR5": ["blue", 2, "7+", [0, 0, 0, 0, 0, 0, 0]],
+  "V3-SR10": ["yellow", 1, 2, [0, 3, 19, 40, 64, 122, 316]],
+  "V3-SR13": ["purple", 1, 4, [0, 0, 0, 5, 16, 18, 18]],
+};
+const v3Fixtures = O.loadWaitLabelFixtures("fixtures-v3.json");
+
+describe("pre-registered v3 wait-label fixtures", () => {
+  it("derives the v3 fixtures from fixtures.json and the public weekly rule only", () => {
+    type File = {
+      common: { schedule: O.ScheduledEvent[]; pricing: O.PricingRules } & Record<string, unknown>;
+      fixtures: Record<string, unknown>[];
+    };
+    const read = (name: string) =>
+      JSON.parse(readFileSync(resolve(O.FIXTURE_DIRECTORY, name), "utf8")) as File;
+    const v2 = read("fixtures.json");
+    const v3 = read("fixtures-v3.json");
+    const { schedule: s2, pricing: p2, ...rest2 } = v2.common;
+    const { schedule: s3, pricing: p3, ...rest3 } = v3.common;
+    expect(rest3).toEqual(rest2);
+    // Schedule: exactly one added event, the Wednesday 2026-10-14 grant on day 1.
+    expect(s3.filter((event) => !s2.some((old) => old.id === event.id))).toEqual([
+      { id: "weekly-kits:2026-10-14", day: 1, refs: [{ lawId: O.WEEKLY_FIXED_LAW, count: 1 }] },
+    ]);
+    expect(s3.filter((event) => s2.some((old) => old.id === event.id))).toEqual(s2);
+    expect(new Date("2026-10-14T00:00:00Z").getUTCDay()).toBe(3);
+    // Pricing: same public terms plus the weekly grant, the v3 rule id and catalog.
+    const { weeklyFixed, id, ...rule3 } = p3.rules[0] ?? {
+      dispatch: [],
+      normalShop: [],
+      soloDays: [],
+    };
+    expect([p3.version, id, weeklyFixed]).toEqual([
+      "certified-daily-v3",
+      "schedule-kit-v3:documented-physical-supply-v2",
+      [{ lawId: O.WEEKLY_FIXED_LAW, count: 1 }],
+    ]);
+    expect(rule3).toEqual(p2.rules[0]);
+    expect(p3.cadence).toEqual(p2.cadence);
+    const states = (file: File) =>
+      file.fixtures.map(({ id, source: _source, ...state }) => ({
+        id: String(id).replace(/^V3-/, ""),
+        ...state,
+      }));
+    expect(states(v3)).toEqual(states(v2));
+    // The weekly grant adds exactly (10, 10, 0) / 7 per day to the recurring rate.
+    const [first] = fixtures;
+    const [firstV3] = v3Fixtures;
+    if (!first || !firstV3) throw new Error("missing fixtures");
+    const delta = mapTriple(O.independentRates(firstV3), (rate, j) =>
+      add(rate, q(-O.independentRates(first)[j].n, O.independentRates(first)[j].d)),
+    );
+    expect(delta).toEqual([q(10, 7), q(10, 7), q(0)]);
+    expect(O.lawSupport({ lawId: O.WEEKLY_FIXED_LAW, count: 2 }, 3)).toEqual([[20, 20, 0]]);
+  });
+
+  it("pins v3 fixture definitions and expectations by sha256", () => {
+    for (const [path, sha] of Object.entries(V3_PINS))
+      expect([path, O.sha256(readFileSync(resolve(O.FIXTURE_DIRECTORY, path)))]).toEqual([
+        path,
+        sha,
+      ]);
+    for (const id of Object.keys(V3_SUMMARY)) {
+      const document = expectedDocument(id);
+      expect(document.fixtureFileSha256).toBe(V3_PINS["fixtures-v3.json"]);
+      const { recommendation, label, perDay } = document.result;
+      expect([
+        recommendation.kit,
+        recommendation.uses,
+        label,
+        perDay.map((d) => d.crossingUnits.length),
+      ]).toEqual(V3_SUMMARY[id]);
+      expect(perDay.map((d) => d.bCrossingUnits)).toEqual(perDay.map((d) => d.crossingUnits));
+      expect(perDay.map((d) => d.supportUnitCount)).toEqual([9, 37, 92, 190, 335, 535, 1022]);
+      expect(document.result.certificateConsistent).toBe(true);
+    }
+  });
+
+  it.each(Object.keys(V3_SUMMARY))(
+    "recomputes %s exactly as pre-registered",
+    (id) => {
+      const fixture = v3Fixtures.find((entry) => entry.id === id);
+      if (!fixture) throw new Error(`missing fixture ${id}`);
+      const actual = O.computeWaitLabel(fixture, { deadlineAt: performance.now() + 600_000 });
+      expect(JSON.parse(JSON.stringify(actual))).toEqual(expectedDocument(id).result);
+    },
+    900_000,
+  );
+});
+
 describe("independent supply laws", () => {
   it("reproduces the frozen cohort 0..2 and pinned cohort-3 dispatch expectations", () => {
     expect(() => O.verifyDispatchLaw()).not.toThrow();
@@ -453,6 +557,49 @@ describe("named regressions", () => {
   });
 });
 
+/** All 600 canonical grid states (R/SR, levels 0..14, 100-exp steps), SR15+ removed. */
+function tieCensusGrid() {
+  const grid: ReturnType<typeof canonicalState>[] = [];
+  for (const grade of ["R", "SR"] as const)
+    for (let level = 0; level <= 14; level++)
+      for (let step = 0; step < (grade === "SR" ? 30 : 10); step++) {
+        const canonical = canonicalState(grade, level, 100 * step);
+        if (!(canonical.grade === "SR" && canonical.level >= 15)) grid.push(canonical);
+      }
+  return grid;
+}
+
+/** Unit stocks [0..4]^3 with priceBasisStock = 10 * units. */
+function tieCensusStocks() {
+  const stocks: Triple[] = [];
+  for (let b = 0; b <= 4; b++)
+    for (let p = 0; p <= 4; p++) for (let y = 0; y <= 4; y++) stocks.push([b, p, y]);
+  return stocks;
+}
+
+/** Runs the tie census under `rates`: every tied root must tie blue first with a
+ * certified batch. Returns the tied-kit mask counts. */
+function tieCensus(rates: ReturnType<typeof O.independentRates>) {
+  const grid = tieCensusGrid();
+  const masks = new Map<number, number>();
+  for (const units of tieCensusStocks()) {
+    const prices = O.independentPrices(
+      rates,
+      mapTriple(units, (unit) => 10 * unit),
+    );
+    const engine = O.createWaitLabelEngine(prices, units[0] + units[1] + units[2]);
+    for (const canonical of grid) {
+      const kits = engine.value(canonical, units).ties & 7;
+      if ((kits & (kits - 1)) === 0) continue;
+      masks.set(kits, (masks.get(kits) ?? 0) + 1);
+      const batch = O.recommendBatch(engine, canonical, units, 10);
+      expect(batch?.kit).toBe(0);
+      expect(O.certificateApplies(q(1), rates[0], batch?.uses ?? 0)).toBe(true);
+    }
+  }
+  return masks;
+}
+
 describe("tie path", () => {
   /** Census: all 600 grid states, unit stocks [0..4]^3, priceBasisStock = 10 * units,
    * product-derived rates. Every root with two or more exactly tied kits ties blue
@@ -464,31 +611,9 @@ describe("tie path", () => {
   it("every tied root in the census ties blue first with a certified batch", () => {
     const fixture = fixtures.find((entry) => entry.id === "SR10");
     if (!fixture) throw new Error("missing SR10");
-    const rates = O.independentRates(fixture);
-    const grid: { grade: "R" | "SR"; level: number; exp: number }[] = [];
-    for (const grade of ["R", "SR"] as const)
-      for (let level = 0; level <= 14; level++)
-        for (let step = 0; step < (grade === "SR" ? 30 : 10); step++)
-          grid.push({ grade, level, exp: 100 * step });
-    const masks = new Map<number, number>();
-    for (let b = 0; b <= 4; b++)
-      for (let p = 0; p <= 4; p++)
-        for (let y = 0; y <= 4; y++) {
-          const units: Triple = [b, p, y];
-          const prices = O.independentPrices(rates, [10 * b, 10 * p, 10 * y]);
-          const engine = O.createWaitLabelEngine(prices, b + p + y);
-          for (const state of grid) {
-            const canonical = canonicalState(state.grade, state.level, state.exp);
-            if (canonical.grade === "SR" && canonical.level >= 15) continue;
-            const kits = engine.value(canonical, units).ties & 7;
-            if ((kits & (kits - 1)) === 0) continue;
-            masks.set(kits, (masks.get(kits) ?? 0) + 1);
-            const batch = O.recommendBatch(engine, canonical, units, 10);
-            expect(batch?.kit).toBe(0);
-            expect(O.certificateApplies(q(1), rates[0], batch?.uses ?? 0)).toBe(true);
-          }
-        }
-    expect([...masks]).toEqual([[3, 240]]);
+    expect(tieCensusGrid()).toHaveLength(600);
+    expect(tieCensusStocks()).toHaveLength(125);
+    expect([...tieCensus(O.independentRates(fixture))]).toEqual([[3, 240]]);
   }, 120_000);
 
   it("pins TIE-R5 (root tie blue/purple) and recomputes it exactly", () => {
@@ -508,6 +633,50 @@ describe("tie path", () => {
     const document = expectedDocument("TIE-R5");
     expect(document.fixtureFileSha256).toBe(PINS["fixtures-tie.json"]);
     const rates = O.independentRates(fixture);
+    const prices = O.independentPrices(rates, fixture.priceBasisStock);
+    const units = mapTriple(fixture.stock, (pieces) => Math.floor(pieces / 10));
+    const engine = O.createWaitLabelEngine(prices, units[0] + units[1] + units[2]);
+    const ties = engine.value(fixture, units).ties;
+    expect(O.KITS.filter((_, color) => ties & (1 << color))).toEqual(raw.fixtures[0]?.optimalKits);
+    const actual = O.computeWaitLabel(fixture, { deadlineAt: performance.now() + 600_000 });
+    expect(JSON.parse(JSON.stringify(actual))).toEqual(document.result);
+  }, 900_000);
+
+  /** Supply rules v3: the same census under the v3 rates again finds only blue/purple
+   * root ties (240 roots), TIE-R5's state among them. Pre-registered by
+   * `record V3-TIE-R5 900000 fixtures-v3-tie.json`. */
+  it("pins V3-TIE-R5 (v3 root tie blue/purple), its v3 census and recomputes it exactly", () => {
+    const pins = {
+      "fixtures-v3-tie.json": "445f6c648cb500eada2f0f48b23369baaafb94804e068d497e294da64f02730f",
+      "expected/V3-TIE-R5.json": "3d9ee840d9a3c565cab5644bda36a53e8bdf7ec6b4fb75f556adeda3ce32a4ec",
+    };
+    for (const [path, sha] of Object.entries(pins))
+      expect([path, O.sha256(readFileSync(resolve(O.FIXTURE_DIRECTORY, path)))]).toEqual([
+        path,
+        sha,
+      ]);
+    type Raw = {
+      common: unknown;
+      fixtures: ({ id: string; optimalKits: string[] } & Record<string, unknown>)[];
+    };
+    const read = (name: string) =>
+      JSON.parse(readFileSync(resolve(O.FIXTURE_DIRECTORY, name), "utf8")) as Raw;
+    const raw = read("fixtures-v3-tie.json");
+    expect(raw.common).toEqual(read("fixtures-v3.json").common);
+    // Same state as the historical v2 tie; only the contract (common block) differs.
+    const { id: _v2Id, ...v2State } = read("fixtures-tie.json").fixtures[0] ?? { id: "" };
+    const { id, ...v3State } = raw.fixtures[0] ?? { id: "" };
+    expect([id, v3State]).toEqual(["V3-TIE-R5", v2State]);
+    const fixture = O.loadWaitLabelFixtures("fixtures-v3-tie.json").find(
+      (entry) => entry.id === "V3-TIE-R5",
+    );
+    if (!fixture) throw new Error("missing V3-TIE-R5");
+    const document = expectedDocument("V3-TIE-R5");
+    expect(document.fixtureFileSha256).toBe(pins["fixtures-v3-tie.json"]);
+    expect(document.result.certificateConsistent).toBe(true);
+    const rates = O.independentRates(fixture);
+    // Census under the v3 rates: blue/purple are the only tied kit pairs.
+    expect([...tieCensus(rates)]).toEqual([[3, 240]]);
     const prices = O.independentPrices(rates, fixture.priceBasisStock);
     const units = mapTriple(fixture.stock, (pieces) => Math.floor(pieces / 10));
     const engine = O.createWaitLabelEngine(prices, units[0] + units[1] + units[2]);

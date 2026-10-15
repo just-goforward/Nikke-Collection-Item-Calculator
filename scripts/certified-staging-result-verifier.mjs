@@ -11,7 +11,8 @@ const RESULT_VERSION = "certified-staging-independent-dist-worker-v1";
 const EXPECTED_VERSION = "certified-staging-approved24-expected-v1";
 const HISTORICAL_PANEL_ROOT = "scripts/certified-staging-approved-panel";
 const PANEL_ROOT = `${HISTORICAL_PANEL_ROOT}/v6`;
-const CURRENT_PANEL_ROOT = `${HISTORICAL_PANEL_ROOT}/v7`;
+const V7_ROOT = `${HISTORICAL_PANEL_ROOT}/v7`;
+const CURRENT_PANEL_ROOT = `${HISTORICAL_PANEL_ROOT}/v8`;
 const ARCHIVE_ROOT = `${HISTORICAL_PANEL_ROOT}/v2`;
 const PREVIOUS_ROOT = `${HISTORICAL_PANEL_ROOT}/v3`;
 const V4_ROOT = `${HISTORICAL_PANEL_ROOT}/v4`;
@@ -27,13 +28,55 @@ const REQUIRED_SOURCES = [
     "independent-physical-cohorts.json",
     "provenance.json",
     "panel.json",
-    "history.ts",
+    "anchor.ts",
+    "physical.ts",
     "evidence.ts",
     "calculate.ts",
     "panel.ts",
     "snapshot.ts",
     "generate.ts",
   ].map((name) => `${CURRENT_PANEL_ROOT}/${name}`),
+  "scripts/certified-staging-oracle-four-cohort-pricing.ts",
+  "scripts/certified-staging-oracle-fixtures/cohort3-dispatch-v1.json",
+  // v7 is sealed history authenticated from its preserved source archive.
+  ...[
+    "pins.json",
+    "snapshot.json",
+    "independent-physical-cohorts.json",
+    "provenance.json",
+    "panel.json",
+    "history.ts",
+    "evidence.ts",
+  ].map((name) => `${V7_ROOT}/${name}`),
+  ...[
+    "scripts/certified-staging-oracle-physical-supply.ts",
+    "scripts/certified-staging-oracle.ts",
+    "shared/game.ts",
+    `${PANEL_ROOT}/evidence.ts`,
+    `${PANEL_ROOT}/history.ts`,
+    "scripts/certified-staging-oracle-tuples.ts",
+    "scripts/certified-staging-oracle-fixtures.ts",
+    "scripts/certified-staging-approved-panel.ts",
+    "scripts/generate-certified-staging-approved-panel.ts",
+    `${PANEL_ROOT}/generate.ts`,
+    `${PANEL_ROOT}/calculate.ts`,
+    ...["history.ts", "evidence.ts", "calculate.ts", "panel.ts", "snapshot.ts", "generate.ts"].map(
+      (name) => `${V7_ROOT}/${name}`,
+    ),
+    "shared/certifiedDispatchExpectations.ts",
+    "shared/certifiedForecastIdentity.ts",
+    "shared/certifiedRational.ts",
+    "shared/certifiedSupply.ts",
+    "shared/certifiedSupplyBuild.ts",
+    "shared/certifiedSupplyLaws.ts",
+    "shared/certifiedSupplyModel.ts",
+    "shared/certifiedSupplyValidation.ts",
+    "shared/generated/certifiedEngineBuild.ts",
+    "shared/generated/certifiedForecastAuthority.ts",
+    "shared/soloRaidCadence.ts",
+    "shared/supplyForecastModel.ts",
+    "src/lib/certifiedForecast.ts",
+  ].map((path) => `${V7_ROOT}/source/${path}.txt`),
   ...["pins.json", "independent-physical-cohorts.json", "provenance.json", "panel.json"].map(
     (name) => `${PANEL_ROOT}/${name}`,
   ),
@@ -292,7 +335,8 @@ function expectedProfile() {
   return {
     id: "certified-staging-v2",
     environment: "staging",
-    schemaVersion: "certified-daily-v2",
+    schemaVersion: "certified-daily-v3",
+    recommendedHorizonDays: 14,
     priceVersion: "stock-plus-recurring-day-v1",
     solverVersion: "certified-exact-rust-wasm-v1",
     lawVersion: "documented-physical-supply-v2",
@@ -307,8 +351,8 @@ function expectedProfile() {
 
 export async function freezeExpected(commit) {
   const source = sourceSnapshot(commit);
-  const { readV7Evidence } = await import("./certified-staging-approved-panel/v7/evidence.ts");
-  const { panel } = readV7Evidence();
+  const { readV8Evidence } = await import("./certified-staging-approved-panel/v8/evidence.ts");
+  const { panel } = readV8Evidence();
   assert.deepEqual(
     panel.map((row) => row.originalIndex),
     PANEL_INDICES,

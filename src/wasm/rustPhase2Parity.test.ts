@@ -1,7 +1,10 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { resolveSupplyForecastProfile } from "../../shared/generated/supplyForecast";
+import * as forecastRuntime from "../lib/supplyForecastRuntime";
 
-import { EXPECTED_28_DAY_GAIN } from "../solver/domain";
+import { selectedSupplyGain } from "../solver/domain";
 import { solveWithResearchCostModel } from "../solver/solve";
+import { HISTORICAL_SUPPLY_FORECAST } from "./rustCore.test-helper";
 import { solveRustMinEfProduct } from "./rustMinEfSolver";
 import { solveRustPhase2 } from "./rustPhase2ProductSolver";
 import { createRustPhase2ResearchSolver } from "./rustPhase2ResearchCore";
@@ -79,6 +82,30 @@ function f64Bits(value: number) {
   return view.getBigUint64(0, false);
 }
 
+/** Preserve semantic goldens with their original approved input, not a new supply regime. */
+async function withHistoricalForecast<T>(run: () => Promise<T>): Promise<T> {
+  const forecastId = "supply-2026-08-21-v1";
+  const profile = resolveSupplyForecastProfile(forecastId, Date.parse("2026-08-21T00:00:00Z"));
+  if (!profile) throw new Error("historical_supply_fixture_missing");
+  const spy = vi.spyOn(forecastRuntime, "resolveRuntimeSupplyForecast").mockReturnValue({
+    environment: "production",
+    forecastId,
+    profile,
+  });
+  const captured = vi.spyOn(forecastRuntime, "captureSupplyForecastContext").mockReturnValue({
+    forecastId,
+    forecastProfileId: profile.id,
+    expectedGain: profile.expectedGain,
+    referenceDays: profile.referenceDays ?? 28,
+  });
+  try {
+    return await run();
+  } finally {
+    captured.mockRestore();
+    spy.mockRestore();
+  }
+}
+
 describe("rust phase2 wasm parity", () => {
   let solver: RustPhase2ResearchSolver;
   let wasm: Uint8Array;
@@ -97,35 +124,39 @@ describe("rust phase2 wasm parity", () => {
   });
 
   it("keeps the min-E[f] policy when a dominance cap would erase absolute inventory cost", async () => {
-    const instantiated = (await WebAssembly.instantiate(wasm)) as
-      | WebAssembly.Instance
-      | { instance: WebAssembly.Instance };
-    const instance =
-      instantiated instanceof WebAssembly.Instance ? instantiated : instantiated.instance;
-    const exports = instance.exports as unknown as RustCoreExports;
-    if (!exports.configureMinEfMemo || !exports.minEfAction || !exports.minEfExpectedCost) {
-      throw new Error("min-E[f] root exports are required for the dominance-cap regression test.");
-    }
+    return withHistoricalForecast(async () => {
+      const instantiated = (await WebAssembly.instantiate(wasm)) as
+        | WebAssembly.Instance
+        | { instance: WebAssembly.Instance };
+      const instance =
+        instantiated instanceof WebAssembly.Instance ? instantiated : instantiated.instance;
+      const exports = instance.exports as unknown as RustCoreExports;
+      if (!exports.configureMinEfMemo || !exports.minEfAction || !exports.minEfExpectedCost) {
+        throw new Error(
+          "min-E[f] root exports are required for the dominance-cap regression test.",
+        );
+      }
 
-    exports.configureMinEfMemo(21);
-    exports.solveMinEf(
-      0,
-      60,
-      120,
-      900,
-      EXPECTED_28_DAY_GAIN.blue,
-      EXPECTED_28_DAY_GAIN.purple,
-      EXPECTED_28_DAY_GAIN.yellow,
-      HORIZON_FACTOR,
-      NORM_POWER,
-      TOLERANCE,
-    );
+      exports.configureMinEfMemo(21);
+      exports.solveMinEf(
+        0,
+        60,
+        120,
+        900,
+        selectedSupplyGain().blue,
+        selectedSupplyGain().purple,
+        selectedSupplyGain().yellow,
+        HORIZON_FACTOR,
+        NORM_POWER,
+        TOLERANCE,
+      );
 
-    expect(exports.getSolveStatus?.()).toBe(0);
-    expect(["blue", "purple", "yellow"][exports.minEfAction()]).toBe("blue");
-    // Semantic golden for absolute-inventory handling. Do not refresh expected values solely
-    // because this assertion fails. Revalidate the tau gate and dominance-cap distinction first.
-    expect(f64Bits(exports.minEfExpectedCost())).toBe(0x3fbf64e435ab1f1en);
+      expect(exports.getSolveStatus?.()).toBe(0);
+      expect(["blue", "purple", "yellow"][exports.minEfAction()]).toBe("blue");
+      // Semantic golden for absolute-inventory handling. Do not refresh expected values solely
+      // because this assertion fails. Revalidate the tau gate and dominance-cap distinction first.
+      expect(f64Bits(exports.minEfExpectedCost())).toBe(0x3fbf64e435ab1f1en);
+    });
   });
 
   it("keeps the min-E[f] probe-order node count invariant", async () => {
@@ -148,9 +179,9 @@ describe("rust phase2 wasm parity", () => {
       100,
       100,
       100,
-      EXPECTED_28_DAY_GAIN.blue,
-      EXPECTED_28_DAY_GAIN.purple,
-      EXPECTED_28_DAY_GAIN.yellow,
+      selectedSupplyGain().blue,
+      selectedSupplyGain().purple,
+      selectedSupplyGain().yellow,
       HORIZON_FACTOR,
       NORM_POWER,
       TOLERANCE,
@@ -180,7 +211,12 @@ describe("rust phase2 wasm parity", () => {
     const stock = { blue: 880, purple: 439, yellow: 111 };
     const js = solveWithResearchCostModel(
       { start, stock, strategy: "supply" },
-      { kind: "availability-pnorm", horizonFactor: HORIZON_FACTOR, normPower: NORM_POWER },
+      {
+        kind: "availability-pnorm",
+        horizonFactor: HORIZON_FACTOR,
+        normPower: NORM_POWER,
+        expectedGain: HISTORICAL_SUPPLY_FORECAST.expectedGain,
+      },
       undefined,
       { toleranceOverride: TOLERANCE },
     ) as {
@@ -190,7 +226,12 @@ describe("rust phase2 wasm parity", () => {
         vector: { blue: number; purple: number; yellow: number };
       };
     };
-    const rust = (await solveRustPhase2({ start, stock, strategy: "supply" }, wasmDataUrl)) as {
+    const rust = (await solveRustPhase2(
+      { start, stock, strategy: "supply" },
+      wasmDataUrl,
+      undefined,
+      { supplyForecast: HISTORICAL_SUPPLY_FORECAST },
+    )) as {
       best: {
         availabilityCost: number;
         firstAction: string | null;
@@ -229,9 +270,9 @@ describe("rust phase2 wasm parity", () => {
         2_260,
         890,
         450,
-        EXPECTED_28_DAY_GAIN.blue,
-        EXPECTED_28_DAY_GAIN.purple,
-        EXPECTED_28_DAY_GAIN.yellow,
+        selectedSupplyGain().blue,
+        selectedSupplyGain().purple,
+        selectedSupplyGain().yellow,
         HORIZON_FACTOR,
         NORM_POWER,
         TOLERANCE,
@@ -507,54 +548,56 @@ describe("rust phase2 wasm parity", () => {
   it.each(HIGH_STOCK_FALLBACK_CASES)(
     "completes $name through segmented rust phase2 instead of JS",
     async ({ stock, firstAction, vectorBits, states, overflowSegments, memoSlots }) => {
-      const minef = (await solveRustMinEfProduct(
-        {
-          start: { grade: "R", level: 0, exp: 0 },
-          stock,
-          strategy: "supply",
-          monteCarloRuns: 0,
-        },
-        wasmDataUrl,
-      )) as {
-        best: {
-          firstAction: string | null;
-          vector: { blue: number; purple: number; yellow: number };
+      return withHistoricalForecast(async () => {
+        const minef = (await solveRustMinEfProduct(
+          {
+            start: { grade: "R", level: 0, exp: 0 },
+            stock,
+            strategy: "supply",
+            monteCarloRuns: 0,
+          },
+          wasmDataUrl,
+        )) as {
+          best: {
+            firstAction: string | null;
+            vector: { blue: number; purple: number; yellow: number };
+          };
+          possible: boolean;
+          stats?: {
+            fallbackFrom?: string;
+            fallbackReason?: string;
+            memoryStrategy?: string;
+            minEfMemoTier?: number;
+            phase2MemoRetried?: boolean;
+            phase2MemoSlots?: number;
+            phase2MemoLogicalBytes?: number;
+            phase2MemoryClass?: string;
+            phase2OverflowSegments?: number;
+            phase2MemoTier?: number;
+            solverBackend?: string;
+            states?: number;
+          };
         };
-        possible: boolean;
-        stats?: {
-          fallbackFrom?: string;
-          fallbackReason?: string;
-          memoryStrategy?: string;
-          minEfMemoTier?: number;
-          phase2MemoRetried?: boolean;
-          phase2MemoSlots?: number;
-          phase2MemoLogicalBytes?: number;
-          phase2MemoryClass?: string;
-          phase2OverflowSegments?: number;
-          phase2MemoTier?: number;
-          solverBackend?: string;
-          states?: number;
-        };
-      };
 
-      expect(minef.possible).toBe(true);
-      expect(minef.best.firstAction).toBe(firstAction);
-      expect(f64Bits(minef.best.vector.blue)).toBe(vectorBits[0]);
-      expect(f64Bits(minef.best.vector.purple)).toBe(vectorBits[1]);
-      expect(f64Bits(minef.best.vector.yellow)).toBe(vectorBits[2]);
-      expect(minef.stats).toMatchObject({
-        fallbackFrom: "rust-min-ef",
-        fallbackReason: "memo_full",
-        memoryStrategy: "balanced-v1",
-        minEfMemoTier: 21,
-        phase2MemoRetried: false,
-        phase2MemoTier: 22,
-        phase2MemoSlots: memoSlots,
-        phase2MemoLogicalBytes: memoSlots * 49,
-        phase2MemoryClass: "segmented",
-        phase2OverflowSegments: overflowSegments,
-        solverBackend: "rust-phase2",
-        states,
+        expect(minef.possible).toBe(true);
+        expect(minef.best.firstAction).toBe(firstAction);
+        expect(f64Bits(minef.best.vector.blue)).toBe(vectorBits[0]);
+        expect(f64Bits(minef.best.vector.purple)).toBe(vectorBits[1]);
+        expect(f64Bits(minef.best.vector.yellow)).toBe(vectorBits[2]);
+        expect(minef.stats).toMatchObject({
+          fallbackFrom: "rust-min-ef",
+          fallbackReason: "memo_full",
+          memoryStrategy: "balanced-v1",
+          minEfMemoTier: 21,
+          phase2MemoRetried: false,
+          phase2MemoTier: 22,
+          phase2MemoSlots: memoSlots,
+          phase2MemoLogicalBytes: memoSlots * 49,
+          phase2MemoryClass: "segmented",
+          phase2OverflowSegments: overflowSegments,
+          solverBackend: "rust-phase2",
+          states,
+        });
       });
     },
     20_000,

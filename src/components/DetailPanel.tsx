@@ -64,7 +64,7 @@ const classes = {
   chipDot:
     "inline-block aspect-square size-4 flex-none rounded-full shadow-[0_0_0_3px_rgba(255,255,255,0.18)] max-mobile:size-3 max-mobile:shadow-none",
   chipText:
-    "action-chip-text grid min-w-0 grid-cols-[minmax(0,var(--action-name-track-width))_auto_max-content] items-baseline justify-start whitespace-nowrap max-mobile:text-[10px]",
+    "action-chip-text grid min-w-0 grid-cols-[var(--action-name-track-width)_auto_max-content] items-baseline justify-start whitespace-nowrap max-mobile:text-[10px]",
   chipName: "action-chip-name min-w-0 justify-self-start whitespace-nowrap",
   chipNameFull: "action-chip-name-full",
   chipNamePanel: "action-chip-name-panel",
@@ -429,6 +429,17 @@ function DetailMetricGrid({ view }: { view: MetricsDetailView }) {
   );
 }
 
+function candidateActionFits(chip: HTMLElement) {
+  if (chip.scrollWidth > chip.clientWidth + 1) return false;
+  const parts = Array.from(chip.children).filter(
+    (part) => getComputedStyle(part).display !== "none",
+  );
+  return parts.every((part, index) => {
+    const next = parts[index + 1];
+    return !next || part.getBoundingClientRect().right <= next.getBoundingClientRect().left + 1;
+  });
+}
+
 function useResponsiveCandidateTable(
   tableWrapRef: RefObject<HTMLDivElement | null>,
   layoutRevision: string,
@@ -455,7 +466,7 @@ function useResponsiveCandidateTable(
       alignVisibleActionNames();
       const labelsFit = Array.from(
         tableWrap.querySelectorAll<HTMLElement>(".action-chip-text"),
-      ).every((chip) => chip.scrollWidth <= chip.clientWidth + 1);
+      ).every(candidateActionFits);
       const countStarts = Array.from(
         tableWrap.querySelectorAll<HTMLElement>(".action-chip-count"),
         (count) => count.getBoundingClientRect().left,

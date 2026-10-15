@@ -8,17 +8,14 @@ import {
   deriveCertifiedDailySupply,
   viewCertifiedSupplySnapshot,
 } from "./certifiedSupply.ts";
-import { LEGACY_CERTIFIED_SUPPLY_LAWS } from "./certifiedSupplyLaws.ts";
+import { CERTIFIED_SUPPLY_HISTORY_DAYS } from "./certifiedSupplyModel.ts";
+import { gameDayStartCeilMs, gameDayStartMs } from "./gameDay.ts";
 import {
   deriveExactSoloRaidCadence,
   estimateCertifiedSoloRounds,
   SOLO_RAID_ROUND_HISTORY,
 } from "./soloRaidCadence.ts";
-import {
-  buildScheduleForecastProfiles,
-  gameDayStartCeilMs,
-  gameDayStartMs,
-} from "./supplyForecastModel.ts";
+import { buildScheduleForecastProfiles } from "./supplyForecastProjection.ts";
 
 const cadence = deriveExactSoloRaidCadence();
 const base = {
@@ -55,7 +52,9 @@ describe("certified daily supply contract", () => {
     expect(snapshot.coverage.past.missing).toContain("raid_durations");
     const daily = deriveCertifiedDailySupply(snapshot);
     expect(daily.filter((d) => d.offset >= 1 && d.offset <= 56)).toHaveLength(56);
-    expect(daily.filter((d) => d.offset >= -56 && d.offset <= -1)).toHaveLength(56);
+    expect(daily.filter((d) => d.offset >= -56 && d.offset <= -1)).toHaveLength(
+      CERTIFIED_SUPPLY_HISTORY_DAYS,
+    );
     expect(daily.filter((d) => d.offset === 0)).toHaveLength(1);
     expect(() => JSON.stringify(snapshot)).not.toThrow();
   });
@@ -87,15 +86,15 @@ describe("certified daily supply contract", () => {
     const rates = certifiedRecurringRate(snapshot);
     expect(rates.map(toNumber)).toEqual(
       expect.arrayContaining([
-        expect.closeTo(20.80345338533608, 8),
-        expect.closeTo(3.588725433322643, 8),
+        expect.closeTo(22.23202481390751, 8),
+        expect.closeTo(5.017296861894071, 8),
         expect.closeTo(1.4174693115540526, 8),
       ]),
     );
     const comparison = compareCertifiedSupplyPeriods(snapshot);
-    expect(comparison.past.days).toBe(56);
+    expect(comparison.past.days).toBe(CERTIFIED_SUPPLY_HISTORY_DAYS);
     expect(comparison.future.days).toBe(56);
-    expect(comparison.past.shopDays).toBe(8);
+    expect(comparison.past.shopDays).toBe(1);
     expect(comparison.future.shopDays).toBe(8);
     expect(comparison.partial).toBe(true);
     expect(comparison.past.missing).toContain("raid_durations");
@@ -239,15 +238,11 @@ describe("certified supply legacy reference parity", () => {
         rewardRules: true,
       },
     });
-    // Reference profiles retain the historical three-cohort model.
-    const accepted = {
-      ...built,
-      version: "certified-daily-v1" as const,
-      laws: LEGACY_CERTIFIED_SUPPLY_LAWS,
-    };
+    const accepted = built;
     const profiles = buildScheduleForecastProfiles({
       forecastId: "supply-2026-09-01-v1",
       effectiveFrom: "2026-09-01T05:00:00+09:00",
+      certifiedSnapshot: accepted,
       soloPeriods: periods,
       collaborationPeriods,
     });
@@ -290,7 +285,7 @@ describe("certified supply legacy reference parity", () => {
       const gain: [Q, Q, Q] = [q(0), q(0), q(0)];
       for (const day of daily)
         for (const k of [0, 1, 2] as const) gain[k] = add(gain[k], fromWire(day.expectedGain[k]));
-      expect(gain.map((value) => Number(toNumber(value).toFixed(9)))).toEqual([
+      expect(gain.map(toNumber)).toEqual([
         profile.expectedGain.blue,
         profile.expectedGain.purple,
         profile.expectedGain.yellow,

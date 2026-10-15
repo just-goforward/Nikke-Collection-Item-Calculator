@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { assertCertifiedEngineProfile } from "../../shared/certifiedEngineProfile";
 import { buildCertifiedSupplySnapshot } from "../../shared/certifiedSupply";
 import { certifiedRunCacheKey } from "./certifiedRunCache";
 import { createCertifiedSession } from "./session";
@@ -19,6 +20,14 @@ it("reuses only same-day actual-stock requests with all model and receipt inputs
     [31, 4, 9],
   );
   const key = certifiedRunCacheKey(session, snapshot, asOf);
+  const identity = JSON.parse(key).engine;
+  expect(identity.recommendedHorizonDays).toBe(14);
+  expect(() => assertCertifiedEngineProfile({ ...identity, recommendedHorizonDays: 56 })).toThrow(
+    "certified_engine_profile_mismatch",
+  );
+  expect(
+    JSON.stringify({ ...JSON.parse(key), engine: { ...identity, recommendedHorizonDays: 56 } }),
+  ).not.toBe(key);
   expect(certifiedRunCacheKey(session, { ...snapshot, asOf: "2026-09-30T08:01:00Z" }, asOf)).toBe(
     key,
   );

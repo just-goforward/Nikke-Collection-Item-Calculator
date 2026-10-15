@@ -70,8 +70,8 @@ function refreshPins(manifestPath: string) {
   writeFileSync(manifestPath, JSON.stringify({ requested: 1, acquired: 1, files }));
 }
 
-describe("approved notice bytes and code freshness", () => {
-  it("refuses to generate v2 runtime authority from an adopted historical v1 ledger", () => {
+describe("approved forecast version admission", () => {
+  it("refuses to generate v3 runtime authority from an adopted historical v1 ledger", () => {
     const item = fixture();
     const current = buildCertifiedSupplySnapshot({
       asOf: "2026-09-30T04:00:00Z",
@@ -84,6 +84,8 @@ describe("approved notice bytes and code freshness", () => {
       ...current,
       version: "certified-daily-v1",
       laws: LEGACY_CERTIFIED_SUPPLY_LAWS,
+      rules: current.rules.map(({ weeklyFixed: _weeklyFixed, ...rule }) => rule),
+      events: current.events.filter((event) => event.kind !== "weekly-kits"),
     };
     const registry = (certifiedSnapshot: unknown) =>
       JSON.stringify({
@@ -97,8 +99,33 @@ describe("approved notice bytes and code freshness", () => {
     );
     expect(readFileSync(path, "utf8")).toBe(registry(legacy));
     writeFileSync(path, registry(current));
-    expect(deriveCertifiedForecastAuthority(item.root).contents).toContain("certified-daily-v2");
+    expect(deriveCertifiedForecastAuthority(item.root).contents).toContain("certified-daily-v3");
   });
+});
+
+describe("generated certified engine module", () => {
+  it("exports only the runtime code hash while retaining provenance in the build record", async () => {
+    const item = fixture();
+    const result = await writeCertifiedEngineBuild(item.root);
+    const moduleUrl = new URL("shared/generated/certifiedEngineBuild.ts", item.root);
+    const loaded = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `import * as emitted from ${JSON.stringify(moduleUrl.href)}; console.log(JSON.stringify(emitted));`,
+      ],
+      { encoding: "utf8", timeout: 5_000 },
+    );
+    expect(loaded.error).toBeUndefined();
+    expect(loaded.status, loaded.stderr).toBe(0);
+    expect(JSON.parse(loaded.stdout)).toEqual({ CERTIFIED_ENGINE_CODE_HASH: result.codeHash });
+    expect(result.seedProvenanceHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(await assertCertifiedEngineBuild(item.root)).toEqual(result);
+  });
+});
+
+describe("approved notice bytes and code freshness", () => {
   it("uses supplied WASM without Cargo and rejects artifact or Rust source drift", async () => {
     const item = fixture();
     const put = (path: string, contents: string | Buffer) => {
@@ -145,7 +172,7 @@ describe("approved notice bytes and code freshness", () => {
     );
   });
 
-  it("pins every registry byte while omitting only unused legacy profiles", async () => {
+  it("pins every registry byte while omitting unused profiles and adopted-ledger excerpts", async () => {
     const item = fixture();
     const initial = await writeCertifiedEngineBuild(item.root);
     const generatedPath = join(item.directory, "shared/generated/certifiedForecastAuthority.ts");
@@ -153,6 +180,9 @@ describe("approved notice bytes and code freshness", () => {
     const registryPath = join(item.directory, "shared/supplyForecasts.json");
     const registry = JSON.parse(readFileSync(registryPath, "utf8"));
     registry.forecasts[0].profiles[0].effectiveFrom = "2026-10-01";
+    registry.forecasts[0].sourceEvidence = [
+      { itemId: "quoted-source", excerpt: "UNUSED_SOURCE_PAYLOAD" },
+    ];
     registry.forecasts[0].certifiedSnapshot = buildCertifiedSupplySnapshot({
       asOf: "2026-10-02T03:00:00.000Z",
       revision: "adopted-current",
@@ -169,7 +199,16 @@ describe("approved notice bytes and code freshness", () => {
     expect(updated.seedProvenanceHash).not.toBe(initial.seedProvenanceHash);
     expect(readFileSync(generatedPath, "utf8")).toContain('"certifiedSnapshot"');
     expect(readFileSync(generatedPath, "utf8")).toContain("2026-10-02T03:00:00.000Z");
+    expect(readFileSync(generatedPath, "utf8")).not.toContain("UNUSED_SOURCE_PAYLOAD");
     expect(await assertCertifiedEngineBuild(item.root)).toEqual(updated);
+    registry.forecasts[0].sourceEvidence[0].excerpt = "CHANGED_SOURCE_PAYLOAD";
+    writeFileSync(registryPath, JSON.stringify(registry));
+    await expect(assertCertifiedEngineBuild(item.root)).rejects.toThrow(
+      "certified_forecast_authority_stale",
+    );
+    const changed = await writeCertifiedEngineBuild(item.root);
+    expect(changed.seedProvenanceHash).not.toBe(updated.seedProvenanceHash);
+    expect(readFileSync(generatedPath, "utf8")).not.toContain("CHANGED_SOURCE_PAYLOAD");
   });
   it("binds all retained raw/normalized files and rejects body edits with unchanged metadata", async () => {
     const item = fixture();

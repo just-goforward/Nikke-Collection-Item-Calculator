@@ -56,9 +56,15 @@ export type ScheduledEvent = { id: string; day: number; refs: readonly LawRef[] 
 export type PricingRules = {
   version: string;
   cadence: { numerator: number; denominator: number };
+  /** v3 only: the documented law catalog (finite laws are forbidden there). */
+  laws?: readonly { id: string; kind: string; modelVersion: string }[];
   rules: readonly {
+    /** v3 only: the public rule id checked by the four-cohort pricing. */
+    id?: string;
     dispatch: readonly LawRef[];
     normalShop: readonly LawRef[];
+    /** v3 only: the Wednesday 05:00 KST fixed grant. */
+    weeklyFixed?: readonly LawRef[];
     soloDays: readonly (readonly LawRef[])[];
   }[];
 };
@@ -273,10 +279,15 @@ export function dispatchSupport(rerolls: number): Triple[] {
   dispatchSupports.set(rerolls, points);
   return points;
 }
+/** Public v3 weekly grant: exactly 10 blue, 10 purple and 0 yellow pieces per
+ * grant, for every cohort (the only deterministic law v3 admits). */
+export const WEEKLY_FIXED_LAW = "deterministic:10,10,0";
+export const WEEKLY_FIXED_PIECES: Triple = [10, 10, 0];
 export function lawSupport(ref: LawRef, rerolls: number): Triple[] {
   assert.ok(Number.isSafeInteger(ref.count) && ref.count >= 0, "law_count");
   let unit: Triple[];
-  if (ref.lawId === "dispatch-board-v1") unit = dispatchSupport(rerolls);
+  if (ref.lawId === WEEKLY_FIXED_LAW) unit = [WEEKLY_FIXED_PIECES];
+  else if (ref.lawId === "dispatch-board-v1") unit = dispatchSupport(rerolls);
   else if (ref.lawId === "regular-box-v1") return boxSupport(REGULAR_BOX, ref.count);
   else if (ref.lawId === "box-ii-v1") return boxSupport(BOX_II, ref.count);
   else throw new Error(`wait_label_law_not_supported:${ref.lawId}`);
@@ -599,7 +610,8 @@ export function independentRates(
 ): QTriple {
   const [w0, w1, w2, w3] = fixture.cohortWeights;
   const priors = [fromWire(w0), fromWire(w1), fromWire(w2), fromWire(w3)] as const;
-  // Only version, cadence and the single rule's refs are read by the pricing stack.
+  // Only version, cadence and the single rule's refs (v3: also the rule id, weekly
+  // grant and law catalog) are read by the pricing stack.
   const snapshot = fixture.pricing as Parameters<typeof independentVersionedPricing>[0];
   return independentVersionedPricing(snapshot, priors);
 }

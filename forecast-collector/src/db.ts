@@ -4,7 +4,7 @@ import {
   SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION,
   supplyForecastCandidateSchema,
 } from "../../shared/supplyForecastCandidate";
-import { SUPPLY_RULES_VERSION } from "../../shared/supplyForecastModel";
+import { SUPPLY_RULES_VERSION } from "../../shared/supplyForecastProjection";
 import { sha256Hex, stableJson } from "./crypto";
 import type { CandidateBuildResult, NormalizedSourceItem, ScheduleEvent } from "./types";
 

@@ -1,3 +1,4 @@
+import { CERTIFIED_STAGING_ENGINE_PROFILE } from "../../shared/certifiedEngineProfile";
 import {
   type CertifiedSupplySnapshot,
   isCertifiedEventClaimable,
@@ -13,6 +14,7 @@ export function certifiedRunCacheKey(
   asOf: string,
 ): string {
   return JSON.stringify({
+    engine: CERTIFIED_STAGING_ENGINE_PROFILE,
     id: session.id,
     state: session.state,
     stock: session.stock,

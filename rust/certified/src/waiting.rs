@@ -1,7 +1,9 @@
-//! H56 range-only certificates. Same ordered receipt selectors, exact endpoint
+//! H14 range-only certificates. Same ordered receipt selectors, exact endpoint
 //! proofs and exhaustive-date/gap semantics as the independent TS oracle.
 use super::*;
 use crate::supply::{Dist, Event, Outcome, Pieces, Supply};
+
+const WAITING_HORIZON: usize = 14;
 
 #[derive(Clone)]
 struct Trajectory {
@@ -9,7 +11,7 @@ struct Trajectory {
     receipts: Vec<Json>,
 }
 fn base(status: &str, reason: Option<&str>) -> Json {
-    json!({ "status": status, "horizonDays":56, "recommendedDays":null,
+    json!({ "status": status, "horizonDays":WAITING_HORIZON, "recommendedDays":null,
         "rangeBoundary":false, "bestDayRange":null, "value":null,
         "evaluatedDays":[0], "successImprovementUpperBound":null,
         "successProbabilityInterval":null, "reason":reason, "evidence":[] })
@@ -344,27 +346,33 @@ impl Engine {
         }
         if !complete {
             let mut result = base("unresolved", Some("future_coverage_incomplete"));
-            result["bestDayRange"] = json!([0, 56]);
+            result["bestDayRange"] = json!([0, WAITING_HORIZON]);
             return Ok(result);
         }
-        let events = supply.model.events.clone();
-        let prior: Vec<_> = events.iter().filter(|e| e.day != 56).cloned().collect();
-        let last: Vec<_> = events.iter().filter(|e| e.day == 56).cloned().collect();
+        let events: Vec<_> = supply
+            .model
+            .events
+            .iter()
+            .filter(|event| event.day <= WAITING_HORIZON)
+            .cloned()
+            .collect();
+        let prior: Vec<_> = events.iter().filter(|e| e.day < WAITING_HORIZON).cloned().collect();
+        let last: Vec<_> = events.iter().filter(|e| e.day == WAITING_HORIZON).cloned().collect();
         if !last.is_empty() {
             if let Some((cohort, before, after, bv, av)) =
                 self.boundary(supply, sid, stock, &prior, &last)?
             {
                 let mut result = base("certified", None);
-                result["recommendedDays"] = json!(56);
+                result["recommendedDays"] = json!(WAITING_HORIZON);
                 result["rangeBoundary"] = json!(true);
-                result["bestDayRange"] = json!([56, 56]);
+                result["bestDayRange"] = json!([WAITING_HORIZON, WAITING_HORIZON]);
                 Self::gap(&mut result, &p);
                 result["evidence"] = json!([
                     "fixed_prices_all_dates",
                     "nonnegative_nonexpiring_inventory_coupling",
                     "single_latent_cohort_positive_prior",
-                    "positive_mass_receipt_witness_strict_lex_day55_to56",
-                    "all_prior_dates_bounded_by_day55",
+                    "positive_mass_receipt_witness_strict_lex_day13_to14",
+                    "all_prior_dates_bounded_by_day13",
                     "PH_lower_bound_from_exact_current_P_and_inventory_coupling",
                     "range_only_no_global_or_deadline_claim"
                 ]);
@@ -393,7 +401,7 @@ impl Engine {
         let mut values = vec![first];
         let mut evaluated = vec![0];
         let evaluation = (|| -> Result<()> {
-            for day in 1..=56 {
+            for day in 1..=WAITING_HORIZON {
                 if now() >= self.deadline {
                     return Err("request_budget_exhausted");
                 }
@@ -441,7 +449,7 @@ impl Engine {
             }
             let mut result = base("unresolved", Some(reason));
             result["evaluatedDays"] = json!(evaluated);
-            result["bestDayRange"] = json!([0, 56]);
+            result["bestDayRange"] = json!([0, WAITING_HORIZON]);
             Self::gap(&mut result, &values.last().unwrap()[0]);
             result["evidence"] = json!([
                 "PH_lower_bound_from_last_exact_completed_date_and_nonnegative_inventory_coupling",
@@ -456,7 +464,7 @@ impl Engine {
             .unwrap();
         let mut result = base("certified", None);
         result["recommendedDays"] = json!(earliest);
-        result["rangeBoundary"] = json!(earliest == 56);
+        result["rangeBoundary"] = json!(earliest == WAITING_HORIZON);
         result["bestDayRange"] = json!([earliest, earliest]);
         result["value"] = json!(self.qview(h));
         result["evaluatedDays"] = json!(evaluated);
@@ -464,7 +472,7 @@ impl Engine {
         result["successImprovementUpperBound"] = json!(wire(&(Q::one() - &h[0])));
         result["evidence"] = json!([
             "exact_cohort_conditional_distributions_single_latent_cohort",
-            "exact_rational_all_57_date_expectations",
+            "exact_rational_all_15_date_expectations",
             "fixed_prices_all_dates",
             "nonnegative_nonexpiring_inventory_coupling",
             if earliest == 0 {

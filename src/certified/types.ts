@@ -31,7 +31,7 @@ export interface CertifiedOptions {
   maxSupportPoints?: number;
   /** Standalone ceiling 192 MiB; managed workers reserve separate boundary headroom. */
   maxManagedPayloadBytes?: number;
-  /** Current first, then a bound minimum-wait/tie update before H56 work. */
+  /** Current first, then a bound minimum-wait/tie update before H14 work. */
   onCurrent?: (partial: CertifiedOutput) => void;
 }
 
@@ -60,7 +60,7 @@ export interface CertifiedCurrent {
 
 export interface CertifiedWaiting {
   status: "certified" | "unresolved" | "claim_required" | "not_requested";
-  horizonDays: 56;
+  horizonDays: 14;
   recommendedDays: number | null;
   rangeBoundary: boolean;
   bestDayRange: readonly [number, number] | null;
@@ -122,7 +122,7 @@ export interface CertifiedOutput {
   status: "completed" | "partial" | "refused";
   current: CertifiedCurrent | null;
   waiting: CertifiedWaiting;
-  /** Optional for historical/reference outputs; never inferred from the H56 result. */
+  /** Optional for historical/reference outputs; never inferred from the H14 result. */
   minimumWait?: CertifiedMinimumWait;
   refusal: {
     reason: string;

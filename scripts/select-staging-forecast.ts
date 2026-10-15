@@ -54,9 +54,9 @@ function validatedStagingRegistry(value: unknown, forecastId: string): Registry 
   if (
     !isRecord(forecast) ||
     forecast["kind"] !== "schedule" ||
-    forecast["rulesVersion"] !== "schedule-kit-v2"
+    !["schedule-kit-v2", "schedule-kit-v3"].includes(String(forecast["rulesVersion"]))
   ) {
-    throw new Error("Staging forecast does not satisfy the schedule-kit-v2 contract.");
+    throw new Error("Staging forecast does not satisfy a supported schedule contract.");
   }
   if (forecast["certifiedSnapshot"] !== undefined)
     assertCertifiedRuntimeSupplySnapshot(forecast["certifiedSnapshot"]);

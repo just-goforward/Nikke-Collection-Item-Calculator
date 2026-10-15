@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildScheduleForecastProfiles, gameDayStartMs } from "../shared/supplyForecastModel.ts";
+import { gameDayStartMs } from "../shared/gameDay.ts";
+import { buildScheduleForecastProfiles } from "../shared/supplyForecastProjection.ts";
 import type { SupplyForecastContext } from "../src/wasm/rustTypes.ts";
 
 export type Registry = {

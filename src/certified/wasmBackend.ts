@@ -1,7 +1,11 @@
 import { DISPATCH_EXPECTED_PIECES } from "../../shared/certifiedDispatchExpectations";
 import { div, fromWire, type Q, q, toWire, type WireQ } from "../../shared/certifiedRational";
 import { DISPATCH_CLASSES } from "../../shared/certifiedSupplyLaws";
-import { dateStart, ruleAt } from "../../shared/certifiedSupplyModel";
+import {
+  DEFAULT_PERSONAL_COHORT_WEIGHTS,
+  dateStart,
+  ruleAt,
+} from "../../shared/certifiedSupplyModel";
 import { CERTIFIED_WASM_HASH } from "../../shared/generated/certifiedWasmBuild";
 import {
   assertMinimumWaitBinding,
@@ -202,6 +206,7 @@ export class WasmKernel {
       sid,
       deadline: this.budget.deadlineAt,
       model: {
+        snapshotVersion: input.snapshot.version,
         events: futureEvents(input).map((event) => ({
           id: event.id,
           day: eventOffset(input, event),
@@ -209,8 +214,9 @@ export class WasmKernel {
         })),
         laws: input.snapshot.laws,
         priors: priors.map(toWire),
+        populationPrior: DEFAULT_PERSONAL_COHORT_WEIGHTS,
         dispatch: rule.dispatch,
-        shop: rule.normalShop,
+        shop: [...rule.normalShop, ...(rule.weeklyFixed ?? [])],
         solo: rule.soloDays.flat(),
         cadence: {
           numerator: String(input.snapshot.cadence.numerator),

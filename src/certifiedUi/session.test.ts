@@ -35,6 +35,59 @@ const laws: readonly CertifiedSupplyLaw[] = [
   },
 ];
 
+describe("Wednesday fixed-kit receipts", () => {
+  const weekly: CertifiedSupplyEvent = {
+    id: "weekly-kits:2026-09-30",
+    kind: "weekly-kits",
+    gameDate: "2026-09-30",
+    at: "2026-09-29T20:00:00Z",
+    expiresAt: "2026-10-05T20:00:00Z",
+    status: "confirmed",
+    ruleId: "schedule-kit-v3:documented-physical-supply-v2",
+    refs: [{ lawId: "deterministic:10,10,0", count: 1 }],
+  };
+  it("accepts only the fixed pieces and preserves the posterior and saved session on reconciliation", () => {
+    const session = createCertifiedSession(
+      "old-forecast",
+      { grade: "R", level: 0, exp: 0 },
+      [20, 30, 40],
+    );
+    for (const pieces of [
+      [10, 0, 0],
+      [0, 10, 0],
+      [10, 10, 1],
+    ] as const)
+      expect(() => recordCertifiedReceipt(session, weekly, pieces, weekly.at)).toThrow(
+        "receipt_outside_supply_model",
+      );
+    const claimed = recordCertifiedReceipt(session, weekly, [10, 10, 0], weekly.at);
+    expect(claimed.cohortWeights).toEqual(session.cohortWeights);
+    expect(claimed.stock).toEqual([30, 40, 40]);
+    const next = reconcileCertifiedSession(claimed, "new-forecast", [weekly.id]);
+    expect(next.version).toBe(2);
+    expect(next.receipts).toEqual(claimed.receipts);
+    expect(next.stock).toEqual(claimed.stock);
+    expect(next.cohortWeights).toEqual(claimed.cohortWeights);
+    expect(restoreCertifiedSession(JSON.stringify(next))).toEqual(next);
+    expect(reconcileCertifiedSession(session, "new-forecast", [weekly.id]).stock).toEqual(
+      session.stock,
+    );
+  });
+  it("permits prior-day claims until next Tuesday 05:00 exclusively", () => {
+    const session = createCertifiedSession("forecast", { grade: "R", level: 0, exp: 0 }, [0, 0, 0]);
+    expect(
+      certifiedClaimableEvents([weekly], session, Date.parse("2026-09-30T04:59:59+09:00")),
+    ).toEqual([]);
+    expect(certifiedClaimableEvents([weekly], session, Date.parse(weekly.at))).toEqual([weekly]);
+    expect(
+      certifiedClaimableEvents([weekly], session, Date.parse("2026-10-06T04:59:59+09:00")),
+    ).toEqual([weekly]);
+    expect(
+      certifiedClaimableEvents([weekly], session, Date.parse("2026-10-06T05:00:00+09:00")),
+    ).toEqual([]);
+  });
+});
+
 describe("certified personal ledger", () => {
   it("does not invent a historical claim backlog from unknown expiry", () => {
     const session = createCertifiedSession("review6", { grade: "R", level: 0, exp: 0 }, [0, 0, 0]);

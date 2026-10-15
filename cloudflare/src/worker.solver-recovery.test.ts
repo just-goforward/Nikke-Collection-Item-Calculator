@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID,
+  ACTIVE_SUPPLY_FORECAST_ID,
+} from "../../shared/generated/supplyForecast";
 import { SOLVER_RECOVERY_SOLVER_VERSIONS } from "../../shared/solverRecoveryContract";
 import { solverRecoveryEvent } from "./worker.test-events";
 import { WorkerTestHarness } from "./worker.test-harness";
@@ -42,7 +46,7 @@ describe("solver_recovery event commit", () => {
         device_type: string;
       }>();
     expect(terminal).toEqual({
-      forecast_id: "supply-2026-08-21-v1",
+      forecast_id: ACTIVE_SUPPLY_FORECAST_ID,
       policy_version: "ladder_v1",
       requested_backend: "rust-min-ef",
       min_ef_exit: "memo_full",
@@ -56,7 +60,7 @@ describe("solver_recovery event commit", () => {
     expect(admin.recoveryRungs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          forecastId: "supply-2026-08-21-v1",
+          forecastId: ACTIVE_SUPPLY_FORECAST_ID,
           policyVersion: "ladder_v1",
           rungBackend: "rust-min-ef",
           rungExit: "memo_full",
@@ -66,7 +70,7 @@ describe("solver_recovery event commit", () => {
     );
     expect(admin.recoveryTerminals).toEqual([
       expect.objectContaining({
-        forecastId: "supply-2026-08-21-v1",
+        forecastId: ACTIVE_SUPPLY_FORECAST_ID,
         policyVersion: "ladder_v1",
         terminalBackend: "rust-phase2",
         terminalOutcome: "success",
@@ -102,7 +106,7 @@ describe("solver_recovery event commit", () => {
     expect(row).toMatchObject({
       app_revision: "a".repeat(40),
       ingest_revision: "unknown",
-      forecast_profile_id: "supply-2026-08-21-v1@fixed",
+      forecast_profile_id: ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID,
       rust_min_ef_solver_version: SOLVER_RECOVERY_SOLVER_VERSIONS.rustMinEf,
       rust_phase2_solver_version: SOLVER_RECOVERY_SOLVER_VERSIONS.rustPhase2,
       js_phase2_solver_version: SOLVER_RECOVERY_SOLVER_VERSIONS.jsPhase2,

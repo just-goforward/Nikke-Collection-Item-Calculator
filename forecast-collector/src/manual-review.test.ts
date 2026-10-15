@@ -406,6 +406,9 @@ async function expectManualEventWinner(
   const [candidates, evidence, watermarks] = await testEnv.FORECAST_DB.batch([
     testEnv.FORECAST_DB.prepare(
       `SELECT c.state, c.source_status, c.revision, c.forecast_id, c.schedule_event_id,
+              json_extract(c.payload_json, '$.rulesVersion') AS rules_version,
+              json_extract(c.payload_json, '$.payloadVersion') AS payload_version,
+              json_extract(c.payload_json, '$.certifiedSnapshot.version') AS ledger_version,
               e.event_type, e.source, e.source_item_id,
               e.starts_at, e.ends_at, e.schedule_status, e.manual_review
        FROM forecast_candidates c
@@ -431,6 +434,9 @@ async function expectManualEventWinner(
       revision: 1,
       forecast_id: forecastId,
       schedule_event_id: eventId,
+      rules_version: "schedule-kit-v3",
+      payload_version: 4,
+      ledger_version: "certified-daily-v3",
       event_type: "solo",
       source,
       source_item_id: itemId,

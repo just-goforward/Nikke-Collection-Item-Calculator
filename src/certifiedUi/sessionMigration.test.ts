@@ -50,6 +50,7 @@ function fixture() {
     ...built,
     version: "certified-daily-v1" as const,
     laws: LEGACY_CERTIFIED_SUPPLY_LAWS,
+    rules: built.rules.map(({ weeklyFixed: _weeklyFixed, ...rule }) => rule),
     events: [event],
   };
   const session = recordCertifiedOutcome(

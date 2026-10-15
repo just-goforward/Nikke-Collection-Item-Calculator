@@ -321,9 +321,11 @@ test("actual browser client and Worker independently reject unapproved snapshots
   if (result.rejection.type !== "error") throw new Error("Expected trusted anchor rejection.");
   expect(result.rejection.code).toBe("forecast_identity_mismatch");
   expect(result.rejection.forecastIdentity).toEqual(result.alteredIdentity);
-  // v2 inputs enable the minimum-wait stage, which publishes a second current
-  // carrying the bound minimum-wait certificate before the H56 waiting stage.
-  expect(result.snapshotVersion).toBe("certified-daily-v2");
+  // The bundled approved forecast is v3 only (v2 snapshots are not approved and would be
+  // rejected like the altered one above). v3 inputs enable the minimum-wait stage, which
+  // publishes a second current carrying the bound minimum-wait certificate before the H14
+  // waiting stage.
+  expect(result.snapshotVersion).toBe("certified-daily-v3");
   expect(result.responses.map((response) => response.type)).toEqual([
     "computeStarted",
     "current",

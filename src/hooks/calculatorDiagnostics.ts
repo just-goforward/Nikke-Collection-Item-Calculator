@@ -20,7 +20,11 @@ import {
   SOLVER_DIAGNOSTIC_VERSION,
   type StatsLocale,
 } from "../../shared/statsContract";
-import { resolveRuntimeSupplyForecast } from "../lib/supplyForecastRuntime";
+import { ignoreExpectedError } from "../lib/errorHandling";
+import {
+  captureSupplyForecastContext,
+  type SupplyForecastContext,
+} from "../lib/supplyForecastRuntime";
 import type { Kit, Strategy } from "../types";
 import { RUST_MIN_EF_MEMO_TIER, RUST_PHASE2_FALLBACK_MEMO_TIER } from "../wasm/rustProductConfig";
 import { KIT_KEYS, type SolveOutcome } from "./calculatorShared";
@@ -74,13 +78,14 @@ function diagnosticCostMetrics(
   input: NonNullable<DiagnosticResult["input"]>,
   best: DiagnosticBest,
   expectedGain: Record<Kit, number>,
+  referenceDays: number,
 ) {
   const vector = best.vector || {};
   const vectorTotal = KIT_KEYS.reduce((sum, kit) => sum + vectorValue(vector, kit), 0);
   const totalExpectedCost = Number(best.totalKits) || vectorTotal;
   const blueShare = vectorValue(vector, "blue") / totalExpectedCost;
   const minAutonomyDays = KIT_KEYS.reduce((minimum, kit) => {
-    const dailyGain = expectedGain[kit] / 28;
+    const dailyGain = expectedGain[kit] / referenceDays;
     const remainingDays = (Number(input.stock[kit] || 0) - vectorValue(vector, kit)) / dailyGain;
     return Math.min(minimum, remainingDays);
   }, Number.POSITIVE_INFINITY);
@@ -113,25 +118,49 @@ function diagnosticCandidateCount(result: DiagnosticResult) {
   return result.candidateCount || result.topCandidates?.length || 0;
 }
 
+function diagnosticForecast(captured?: SupplyForecastContext) {
+  if (captured) return captured;
+  try {
+    return captureSupplyForecastContext();
+  } catch (error) {
+    // Optional telemetry must not invalidate a successful calculation when coverage expires.
+    ignoreExpectedError("Supply forecast is unavailable for optional diagnostics", error);
+    return null;
+  }
+}
+
+function forecastForDiagnosticResult(outcome: SolveOutcome) {
+  const stats = outcome.result.stats;
+  const forecast = diagnosticForecast(stats?.supplyForecast ?? outcome.supplyForecast);
+  if (!forecast) return null;
+  if (
+    (stats?.forecastId && stats.forecastId !== forecast.forecastId) ||
+    (stats?.forecastProfileId && stats.forecastProfileId !== forecast.forecastProfileId)
+  )
+    return null;
+  return forecast;
+}
+
 export function makeSolverDiagnosticEvent(outcome: SolveOutcome, locale: StatsLocale) {
   const { executionKind, requestedBackend, result } = outcome;
   if (!result.possible || !result.input || !result.best) return null;
   const input = result.input;
   const best = result.best;
-  const runtimeForecast = resolveRuntimeSupplyForecast();
+  const forecast = forecastForDiagnosticResult(outcome);
+  if (!forecast) return null;
   const runCount = Math.max(1, Math.trunc(Number(best.run?.count || 1)));
   const { blueShare, minAutonomyDays, totalExpectedCost } = diagnosticCostMetrics(
     input,
     best,
-    runtimeForecast.profile.expectedGain,
+    forecast.expectedGain,
+    forecast.referenceDays ?? 28,
   );
   if (!Number.isFinite(totalExpectedCost) || totalExpectedCost <= 0) return null;
   const probabilityGap = diagnosticProbabilityGap(result, best);
   // This field is kept for diagnostic schema compatibility. It is no longer a user choice.
   const strategy: Strategy = "supply";
   const { solverBackend, solverPhase, solverVersion, stats } = diagnosticSolverIdentity(result);
-  const forecastProfileId = diagnosticToken(stats.forecastProfileId, runtimeForecast.profile.id);
-  const forecastId = diagnosticToken(stats.forecastId, runtimeForecast.forecastId);
+  const { forecastId, forecastProfileId } = forecast;
 
   return {
     kind: "solver_diagnostic" as const,
@@ -180,14 +209,16 @@ export function makeSolverDiagnosticEvent(outcome: SolveOutcome, locale: StatsLo
 export function makeSolverRecoveryEvent(
   input: SolveOutcome["result"]["input"],
   trace: SolverRecoveryTrace | undefined,
+  captured?: SupplyForecastContext,
 ) {
   if (!input || !trace || !hasRecoverySignal(trace)) return null;
-  const runtimeForecast = resolveRuntimeSupplyForecast();
+  const forecast = diagnosticForecast(captured);
+  if (!forecast) return null;
   return {
     kind: "solver_recovery" as const,
     recoveryVersion: SOLVER_RECOVERY_EMIT_VERSION,
-    forecastId: runtimeForecast.forecastId,
-    forecastProfileId: runtimeForecast.profile.id,
+    forecastId: forecast.forecastId,
+    forecastProfileId: forecast.forecastProfileId,
     policyVersion: trace.policyVersion,
     requestedBackend: trace.requestedBackend,
     minEfExit: trace.minEfExit,

@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { STAGING_RUNTIME_SEARCH } from "../../shared/runtimeEnvironment";
+import { installSupplyForecastFixtureClock } from "../solver/supplyForecast.test-helper";
+
+installSupplyForecastFixtureClock();
 
 const EMPTY_WASM = Uint8Array.of(0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00);
 
@@ -8,9 +12,32 @@ function wasmResponse(contentType = "application/wasm") {
 
 describe("Rust WASM loader", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.resetModules();
   });
+
+  it.each(["loadRustMinEfSolver", "loadRustPhase2Solver"] as const)(
+    "%s captures the forecast before asynchronous loading crosses its validity boundary",
+    async (name) => {
+      const runtime = await import("../lib/supplyForecastRuntime");
+      vi.stubGlobal("location", new URL(`https://example.test/${STAGING_RUNTIME_SEARCH}`));
+      vi.setSystemTime(new Date("2026-10-15T00:00:00Z"));
+      await runtime.prepareRuntimeSupplyForecast(STAGING_RUNTIME_SEARCH);
+      const selected = vi.spyOn(runtime, "captureSupplyForecastContext");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          vi.setSystemTime(new Date("2026-12-11T00:00:00Z"));
+          return wasmResponse();
+        }),
+      );
+      const loader = await import("./rustLoader");
+      const solver = await loader[name]("/solver.wasm");
+      expect(solver.setSupplyForecast).toBeTypeOf("function");
+      expect(selected).toHaveBeenCalledOnce();
+    },
+  );
 
   it("uses one fetch when streaming instantiation succeeds", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(wasmResponse()));

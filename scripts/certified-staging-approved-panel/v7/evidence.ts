@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { CertifiedSupplySnapshot } from "../../../shared/certifiedSupply.ts";
 import {
@@ -9,10 +9,34 @@ import {
   type PhysicalEvidence,
   validateGenerationEnvironment,
 } from "../v6/evidence.ts";
-import { pinnedBytes, type SourceIdentity, sourceIdentity } from "../v6/history.ts";
+import { pinnedBytes, type SourceIdentity, sha256 } from "../v6/history.ts";
 import { readHistoricalPublication, V6_PINS_SHA } from "./history.ts";
 
 export const V7_ROOT = "scripts/certified-staging-approved-panel/v7";
+/** Reviewed trust anchor: v7 is sealed history and its pins never change. */
+export const V7_PINS_SHA = "6eb88521323872b3f19474fa5b2bcd8b03620f42c6e01c829d37c5b5155ccd57";
+/** Byte-exact copies of the v7 generation and snapshot sources as sealed in its
+ * provenance (recovered from the publication commit). The working tree moved on to
+ * supply rules v3, so v7 authenticates these preserved bytes instead. */
+export const V7_ARCHIVE_ROOT = `${V7_ROOT}/source`;
+export const SNAPSHOT_SOURCES = [
+  "shared/certifiedDispatchExpectations.ts",
+  "shared/certifiedForecastIdentity.ts",
+  "shared/certifiedRational.ts",
+  "shared/certifiedSupply.ts",
+  "shared/certifiedSupplyBuild.ts",
+  "shared/certifiedSupplyLaws.ts",
+  "shared/certifiedSupplyModel.ts",
+  "shared/certifiedSupplyValidation.ts",
+  "shared/generated/certifiedEngineBuild.ts",
+  "shared/generated/certifiedForecastAuthority.ts",
+  "shared/soloRaidCadence.ts",
+  "shared/supplyForecastModel.ts",
+  "src/lib/certifiedForecast.ts",
+] as const;
+const archivePath = (path: string) => `${V7_ARCHIVE_ROOT}/${path}.txt`;
+const archivedBytes = (identity: SourceIdentity, root: string) =>
+  pinnedBytes({ path: archivePath(identity.path), sha256: identity.sha256 }, root);
 export const EVIDENCE_VERSION = "approved24-independent-evidence-v7";
 export const PHYSICAL_VERSION = "independent-ordered-physical-supply-rates-v7";
 export const PUBLICATION_FILES = [
@@ -28,8 +52,9 @@ export const GENERATION_SOURCES = [
     (name) => `${V7_ROOT}/${name}`,
   ),
 ];
+export const ARCHIVE_FILES = [...GENERATION_SOURCES, ...SNAPSHOT_SOURCES].map(archivePath);
 export const EVIDENCE_FILES = [
-  ...new Set([...HISTORICAL_EVIDENCE_FILES, ...GENERATION_SOURCES, ...PUBLICATION_FILES]),
+  ...new Set([...HISTORICAL_EVIDENCE_FILES, ...ARCHIVE_FILES, ...PUBLICATION_FILES]),
 ];
 export type EvidenceProvenance = {
   version: string;
@@ -38,7 +63,7 @@ export type EvidenceProvenance = {
     packageLockSha256: string;
     biomeSha256: string;
   };
-  generation: ReturnType<typeof sourceIdentity> & {
+  generation: { sources: SourceIdentity[]; sourceHash: string } & {
     isolatedCacheEmpty: true;
     physicalEnumeration: "full-ordered";
     oracleRows: 24;
@@ -53,8 +78,21 @@ export type EvidenceProvenance = {
   panel: SourceIdentity;
 };
 
+function archiveInventory(root: string) {
+  const files = (directory: string): string[] =>
+    readdirSync(resolve(root, directory), { withFileTypes: true }).flatMap((entry) => {
+      const path = `${directory}/${entry.name}`;
+      if (entry.isDirectory()) return files(path);
+      assert.ok(entry.isFile(), `Archive must contain regular files: ${path}`);
+      return [path];
+    });
+  assert.deepEqual(files(V7_ARCHIVE_ROOT).sort(), [...ARCHIVE_FILES].sort(), "v7 archive drift");
+}
+
 export function readV7Evidence(root = process.cwd()) {
-  const pins = JSON.parse(readFileSync(resolve(root, V7_ROOT, "pins.json"), "utf8")) as {
+  const pins = JSON.parse(
+    pinnedBytes({ path: `${V7_ROOT}/pins.json`, sha256: V7_PINS_SHA }, root).toString(),
+  ) as {
     version: string;
     provenance: SourceIdentity;
   };
@@ -70,8 +108,17 @@ export function readV7Evidence(root = process.cwd()) {
     cohortMigration: "append-zero-fourth-prior",
   });
   const historical = readHistoricalPublication(root);
+  archiveInventory(root);
+  const { sources, sourceHash } = provenance.generation;
+  assert.deepEqual(
+    sources.map(({ path }) => path),
+    GENERATION_SOURCES,
+  );
+  assert.equal(sourceHash, sha256(JSON.stringify(sources)));
+  for (const source of sources) archivedBytes(source, root);
   assert.deepEqual(provenance.generation, {
-    ...sourceIdentity(GENERATION_SOURCES, root),
+    sources,
+    sourceHash,
     isolatedCacheEmpty: true,
     physicalEnumeration: "full-ordered",
     oracleRows: 24,
@@ -82,8 +129,11 @@ export function readV7Evidence(root = process.cwd()) {
     provenance.snapshot.meaning,
     "approved forecast input only; not an expected solver output",
   );
-  assert.ok(provenance.snapshot.sources.length > 0);
-  for (const source of provenance.snapshot.sources) pinnedBytes(source, root);
+  assert.deepEqual(
+    provenance.snapshot.sources.map(({ path }) => path),
+    SNAPSHOT_SOURCES,
+  );
+  for (const source of provenance.snapshot.sources) archivedBytes(source, root);
   const snapshot = JSON.parse(
     pinnedBytes(provenance.snapshot, root).toString(),
   ) as CertifiedSupplySnapshot;

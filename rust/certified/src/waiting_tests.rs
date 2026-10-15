@@ -73,6 +73,7 @@ fn source(events: Json, laws: Json) -> Supply {
     let model = serde_json::from_value(json!({
         "events":events, "laws":laws,
         "priors":[wire(&q(1,1)),wire(&q(0,1)),wire(&q(0,1))],
+        "populationPrior": ([1, 2, 3, 1].map(|n| wire(&q(n, 7)))),
         "dispatch":[], "shop":[], "solo":[], "cadence":wire(&q(30,1)),
         "dispatchExpected":vec![vec![wire(&q(1,1));3];3], "classes":[]
     }))
@@ -218,7 +219,8 @@ fn waiting_keeps_exact_dates_values_and_physical_support_peak() {
     assert_eq!(result["status"], json!("certified"));
     assert_eq!(result["recommendedDays"], json!(2));
     assert_eq!(result["bestDayRange"], json!([2, 2]));
-    assert_eq!(result["evaluatedDays"], json!((0..=56).collect::<Vec<_>>()));
+    assert_eq!(result["horizonDays"], json!(14));
+    assert_eq!(result["evaluatedDays"], json!((0..=14).collect::<Vec<_>>()));
     assert_eq!(
         result["value"],
         json!({
@@ -248,7 +250,7 @@ fn grouped_expectation_does_not_relax_physical_support_or_raw_addition_guards() 
     assert_eq!(result["reason"], json!("exact_support_limit"));
     assert_eq!(result["evaluatedDays"], json!([0]));
     assert_eq!(result["value"], Json::Null);
-    assert_eq!(result["bestDayRange"], json!([0, 56]));
+    assert_eq!(result["bestDayRange"], json!([0, 14]));
     assert_eq!(
         result["successProbabilityInterval"],
         json!({"lower":wire(&q(0,1)),"upper":wire(&q(1,1))})
@@ -285,7 +287,7 @@ fn incomplete_grouped_date_keeps_the_last_completed_lower_bound() {
     assert_eq!(result["evaluatedDays"], json!([0, 1]));
     assert_eq!(result["recommendedDays"], Json::Null);
     assert_eq!(result["value"], Json::Null);
-    assert_eq!(result["bestDayRange"], json!([0, 56]));
+    assert_eq!(result["bestDayRange"], json!([0, 14]));
     assert_eq!(
         result["successProbabilityInterval"],
         json!({"lower":wire(&q(1,2)),"upper":wire(&q(1,1))})
@@ -320,6 +322,54 @@ fn grouped_evaluation_keeps_first_seen_memo_admission_order() {
     assert_eq!(rational(&first.c[1], &e.powers[first.exponent]), q(10, 1));
     assert_eq!(first.c[2], BigUint::zero());
     assert_eq!(e.get(598, [1, 0, 0], false).err(), Some("exact_memo_limit"));
+}
+
+#[test]
+fn waiting_does_not_evaluate_receipts_after_day_fourteen() {
+    let mut e = engine([2; 3]);
+    let mut supply = source(
+        json!([
+            {"id":"outside-15","day":15,"refs":[{"lawId":"unknown","count":1}]},
+            {"id":"outside-56","day":56,"refs":[{"lawId":"unknown","count":1}]}
+        ]),
+        json!([]),
+    );
+    e.current(598, [0; 3], 1).unwrap();
+    let result = e.waiting(&mut supply, 598, [0; 3], true).unwrap();
+    assert_eq!(result["status"], json!("certified"));
+    assert_eq!(result["horizonDays"], json!(14));
+    assert_eq!(result["recommendedDays"], json!(0));
+    assert_eq!(result["bestDayRange"], json!([0, 0]));
+    assert_eq!(result["evaluatedDays"], json!((0..=14).collect::<Vec<_>>()));
+    assert_eq!(result["value"]["p"], json!(wire(&q(0, 1))));
+}
+
+#[test]
+fn day_fourteen_boundary_witness_excludes_later_forecast_receipts() {
+    let mut e = engine([2; 3]);
+    let mut supply = source(
+        json!([
+            {"id":"boundary","day":14,"refs":[{"lawId":"deterministic:10,0,0","count":1}]},
+            {"id":"outside-15","day":15,"refs":[{"lawId":"unknown","count":1}]},
+            {"id":"outside-56","day":56,"refs":[{"lawId":"unknown","count":1}]}
+        ]),
+        json!([]),
+    );
+    e.current(598, [0; 3], 1).unwrap();
+    let result = e.waiting(&mut supply, 598, [0; 3], true).unwrap();
+    assert_eq!(result["horizonDays"], json!(14));
+    assert_eq!(result["recommendedDays"], json!(14));
+    assert_eq!(result["bestDayRange"], json!([14, 14]));
+    assert_eq!(result["rangeBoundary"], json!(true));
+    assert_eq!(result["strictBoundaryWitness"]["beforeStock"], json!([0, 0, 0]));
+    assert_eq!(result["strictBoundaryWitness"]["afterStock"], json!([10, 0, 0]));
+    assert_eq!(
+        result["strictBoundaryWitness"]["receipts"].as_array().unwrap().len(),
+        1
+    );
+    assert!(result["evidence"].as_array().unwrap().contains(
+        &json!("positive_mass_receipt_witness_strict_lex_day13_to14")
+    ));
 }
 
 #[test]

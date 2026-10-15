@@ -1,4 +1,5 @@
 import type { WorkerSolverBackend } from "../../shared/workerProtocol";
+import type { SupplyForecastContext } from "../lib/supplyForecastRuntime";
 import type { ProgressEvent, SolverInput } from "../types";
 import { RUST_PHASE2_FALLBACK_MEMO_TIER } from "../wasm/rustProductConfig";
 import type { SolverResult } from "./calculatorShared";
@@ -33,6 +34,7 @@ export type RecoveredSolve = {
 };
 
 export class SolverRecoveryFailure extends Error {
+  supplyForecast?: SupplyForecastContext;
   readonly trace: SolverRecoveryTrace;
   readonly workerError: WorkerTaskError;
 

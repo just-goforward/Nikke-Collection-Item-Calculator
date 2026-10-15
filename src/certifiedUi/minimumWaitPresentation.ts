@@ -13,7 +13,7 @@ export function minimumWaitCalculating(
   );
 }
 
-/** H56 dates and incomplete label proofs are deliberately never substituted. */
+/** H14 dates and incomplete label proofs are deliberately never substituted. */
 export function minimumWaitText(
   value: CertifiedMinimumWait | undefined,
   words: CertifiedWords,

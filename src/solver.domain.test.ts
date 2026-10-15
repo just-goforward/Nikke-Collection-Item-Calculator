@@ -8,6 +8,9 @@ import {
   transition,
 } from "./solver/domain";
 import { solve } from "./solver/solve";
+import { installSupplyForecastFixtureClock } from "./solver/supplyForecast.test-helper";
+
+installSupplyForecastFixtureClock();
 
 describe("solver transitions", () => {
   it("keeps level 0 as a valid starting state", () => {

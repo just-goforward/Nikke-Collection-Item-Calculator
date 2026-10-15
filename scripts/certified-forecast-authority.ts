@@ -12,10 +12,15 @@ export function deriveCertifiedForecastAuthority(root: URL) {
     throw new Error("approved_staging_forecast_missing");
   if (adopted["certifiedSnapshot"] !== undefined)
     assertCertifiedRuntimeSupplySnapshot(adopted["certifiedSnapshot"]);
-  // The certified seed uses source evidence, not legacy rolling-window totals.
-  // Keep all other approved fields, including an optional full certified ledger.
+  // Legacy seeds need notice excerpts. An adopted ledger already contains its
+  // modeled provenance; keep unused excerpts out of both browser and Worker.
+  // The hash below still pins every byte of the full approved registry.
   const projection = Object.fromEntries(
-    Object.entries(adopted).filter(([key]) => key !== "profiles"),
+    Object.entries(adopted).filter(
+      ([key]) =>
+        key !== "profiles" &&
+        (key !== "sourceEvidence" || adopted["certifiedSnapshot"] === undefined),
+    ),
   );
   const registryHash = createHash("sha256").update(bytes).digest("hex");
   return {

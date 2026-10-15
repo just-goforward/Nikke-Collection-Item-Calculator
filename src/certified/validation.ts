@@ -1,5 +1,6 @@
 import type { Q } from "../../shared/certifiedRational";
 import {
+  assertCertifiedRuntimeSupplySnapshot,
   assertCertifiedSupplySnapshot,
   certifiedCohortWeights,
 } from "../../shared/certifiedSupply";
@@ -57,6 +58,8 @@ function validateState(input: CertifiedInput): void {
 }
 function validateSnapshot(input: CertifiedInput, checkBudget?: () => void): void {
   assertCertifiedSupplySnapshot(input.snapshot, checkBudget);
+  if (input.snapshot.version === "certified-daily-v3")
+    assertCertifiedRuntimeSupplySnapshot(input.snapshot);
   requireInput(
     Date.parse(input.snapshot.asOf) === Date.parse(input.asOf),
     "snapshot_asof_mismatch",

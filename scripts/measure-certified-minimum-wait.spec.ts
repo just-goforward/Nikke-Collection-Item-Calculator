@@ -41,8 +41,9 @@ describe("reproducible full-request timing inputs", () => {
       "SR13",
     ]);
   });
-  it("uses v2, a whole recommendation and the seven research dispatch days plus normal shop", async () => {
+  it("uses v3, a whole recommendation and the seven research dispatch days plus normal shop and the Wednesday grant", async () => {
     const input = await minimumWaitTimingInput("SR10");
+    // The timing input is the adopted product forecast, certified-daily-v3 since 2026-10-07T20:00Z.
     expect(input).toMatchObject({
       grade: "SR",
       level: 10,
@@ -50,7 +51,7 @@ describe("reproducible full-request timing inputs", () => {
       batchLimit: 10,
       computeMinimumWait: true,
       computeWaiting: true,
-      snapshot: { version: "certified-daily-v2" },
+      snapshot: { version: "certified-daily-v3" },
     });
     const events = input.snapshot.events.filter(
       (event) => event.gameDate > "2026-10-13" && event.gameDate <= "2026-10-20",
@@ -62,6 +63,13 @@ describe("reproducible full-request timing inputs", () => {
         refs: [{ lawId: "box-ii-v1", count: 5 }],
       },
     ]);
+    expect(events.filter((event) => event.kind === "weekly-kits")).toMatchObject([
+      {
+        gameDate: "2026-10-14",
+        refs: [{ lawId: "deterministic:10,10,0", count: 1 }],
+      },
+    ]);
     expect(events.filter((event) => event.kind === "solo")).toHaveLength(0);
+    expect(events).toHaveLength(9);
   });
 });

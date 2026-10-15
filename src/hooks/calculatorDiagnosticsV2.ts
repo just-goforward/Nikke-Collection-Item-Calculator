@@ -2,6 +2,7 @@ import {
   SOLVER_RECOVERY_APP_REVISION_PATTERN,
   SOLVER_RECOVERY_SOLVER_VERSIONS,
 } from "../../shared/solverRecoveryContract";
+import type { SupplyForecastContext } from "../lib/supplyForecastRuntime";
 import { makeSolverRecoveryEvent } from "./calculatorDiagnostics";
 import type { SolveOutcome } from "./calculatorShared";
 import type { SolverRecoveryTrace } from "./solverRecoveryPolicy";
@@ -9,8 +10,9 @@ import type { SolverRecoveryTrace } from "./solverRecoveryPolicy";
 export function makeSolverRecoveryEventV2(
   input: SolveOutcome["result"]["input"],
   trace: SolverRecoveryTrace | undefined,
+  captured?: SupplyForecastContext,
 ) {
-  const event = makeSolverRecoveryEvent(input, trace);
+  const event = makeSolverRecoveryEvent(input, trace, captured);
   if (!event) return null;
   const revision = typeof __APP_REVISION__ === "string" ? __APP_REVISION__ : "unknown";
   return {

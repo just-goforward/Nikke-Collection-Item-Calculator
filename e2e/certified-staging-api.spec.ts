@@ -6,7 +6,7 @@ import { chromium, expect, firefox, test, webkit } from "@playwright/test";
 import {
   approvedFixtureProvenance,
   loadIndependentApprovedPanel,
-} from "../scripts/certified-staging-approved-panel/v7/panel.ts";
+} from "../scripts/certified-staging-approved-panel/v8/panel.ts";
 import { fileSha256 } from "../scripts/certified-staging-approved-panel.ts";
 import {
   assertDistStable,
@@ -312,7 +312,7 @@ for (const [name, browserType] of [
             workerUrls,
             arithmetic: "independent_reduced_bigint_rational",
             pricingMeaning:
-              "independent ordered physical dispatch cohort expectations, exact box means and cadence; original priors and raw stock preserved",
+              "independent four-cohort (0-3 rerolls) physical dispatch expectations, exact box means, cadence and the fixed Wednesday weekly grant; original priors and raw stock preserved",
             gapMeaning:
               "independent current action P/B/C lexicographic gap certificates; Worker API does not expose action-gap fields. Independent waiting/gap proof NOTRUN.",
             waitingMeaning: reference.meaning,

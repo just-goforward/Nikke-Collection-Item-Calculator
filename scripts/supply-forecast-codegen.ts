@@ -1,23 +1,27 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  BUNDLED_V3_AS_OF,
+  BUNDLED_V3_FORECAST_ID,
+  buildBundledV3Forecast,
+} from "../shared/bundledSupplyForecast.ts";
 import type { CertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
+import { SOLO_RAID_ROUND_HISTORY } from "../shared/soloRaidCadence.ts";
+import {
+  buildScheduleForecastProfiles,
+  type SupplyForecastProfile as Profile,
+} from "../shared/supplyForecastProjection.ts";
 import { registryCertifiedSnapshot } from "./certified-forecast-registry.ts";
 
-type Gain = { blue: number; purple: number; yellow: number };
-type Profile = {
-  id: string;
-  effectiveFrom: string;
-  effectiveUntil: string | null;
-  scheduleStatus: "confirmed" | "estimated";
-  expectedGain: Gain;
-};
 type Forecast = {
   id: string;
   kind: "fixed" | "schedule";
   rulesVersion: string;
   effectiveFrom: string;
-  sourceEvidence: unknown[];
+  sourceEvidence: readonly unknown[];
   profiles: Profile[];
   certifiedSnapshot?: CertifiedSupplySnapshot;
 };
@@ -35,7 +39,50 @@ const tsPath = resolve(root, "shared", "generated", "supplyForecast.ts");
 const runtimeTsPath = resolve(root, "shared", "generated", "supplyForecastRuntime.ts");
 const checkOnly = process.argv.includes("--check");
 
-const registry = validateRegistry(JSON.parse(await readFile(sourcePath, "utf8")));
+const sourceText = await readFile(sourcePath, "utf8");
+const sourceRegistry = JSON.parse(sourceText) as Registry;
+const addFallback = process.argv.includes("--add-v3-fallback");
+if (addFallback) {
+  if (checkOnly || sourceRegistry.forecasts.some((entry) => entry.id === BUNDLED_V3_FORECAST_ID))
+    throw new Error("v3_fallback_already_exists_or_check_only");
+  const approved = sourceRegistry.forecasts.find(
+    (entry) => entry.id === sourceRegistry.approvedForecastId,
+  );
+  if (!approved) throw new Error("approved_forecast_missing");
+  const sourceEvidence = approved.sourceEvidence as { itemId: string; url: string }[];
+  const sourceHash = createHash("sha256")
+    .update(
+      JSON.stringify({
+        rulesVersion: "schedule-kit-v3",
+        asOf: BUNDLED_V3_AS_OF,
+        sourceEvidence,
+        rounds: SOLO_RAID_ROUND_HISTORY,
+        weeklyFixed: { lawId: "deterministic:10,10,0", count: 1 },
+      }),
+    )
+    .digest("hex");
+  sourceRegistry.forecasts.push(buildBundledV3Forecast(sourceEvidence, sourceHash));
+  sourceRegistry.activeForecastId = BUNDLED_V3_FORECAST_ID;
+  sourceRegistry.stagingForecastId = BUNDLED_V3_FORECAST_ID;
+  sourceRegistry.approvedForecastId = BUNDLED_V3_FORECAST_ID;
+}
+if (addFallback || process.argv.includes("--format-registry")) {
+  if (checkOnly) throw new Error("cannot_format_registry_in_check_mode");
+  const formatted = execFileSync(
+    process.execPath,
+    [
+      resolve(root, "node_modules/@biomejs/biome/bin/biome"),
+      "format",
+      `--stdin-file-path=${sourcePath}`,
+    ],
+    {
+      input: addFallback ? `${JSON.stringify(sourceRegistry, null, 2)}\n` : sourceText,
+      encoding: "utf8",
+    },
+  );
+  await writeFile(sourcePath, formatted, "utf8");
+}
+const registry = validateRegistry(sourceRegistry);
 const activeIndex = registry.forecasts.findIndex(
   (forecast) => forecast.id === registry.activeForecastId,
 );
@@ -100,6 +147,14 @@ function validateRegistry(value: unknown): Registry {
   return { version: 3, activeForecastId, stagingForecastId, approvedForecastId, forecasts };
 }
 
+function assertForecastId(id: unknown, ids: Set<string>): asserts id is string {
+  if (typeof id !== "string" || !/^supply-\d{4}-\d{2}-\d{2}-v\d+$/.test(id)) {
+    throw new Error(`Invalid supply forecast ID: ${String(id)}`);
+  }
+  if (ids.has(id)) throw new Error(`Duplicate supply forecast ID: ${id}`);
+  ids.add(id);
+}
+
 function validateForecast(value: unknown, ids: Set<string>, profileIds: Set<string>): Forecast {
   if (!isRecord(value)) throw new Error("Supply forecast entry must be an object.");
   const id = value["id"];
@@ -108,11 +163,7 @@ function validateForecast(value: unknown, ids: Set<string>, profileIds: Set<stri
   const effectiveFrom = value["effectiveFrom"];
   const sourceEvidence = value["sourceEvidence"];
   const rawProfiles = value["profiles"];
-  if (typeof id !== "string" || !/^supply-\d{4}-\d{2}-\d{2}-v\d+$/.test(id)) {
-    throw new Error(`Invalid supply forecast ID: ${String(id)}`);
-  }
-  if (ids.has(id)) throw new Error(`Duplicate supply forecast ID: ${id}`);
-  ids.add(id);
+  assertForecastId(id, ids);
   if (kind !== "fixed" && kind !== "schedule") throw new Error(`${id} has an invalid kind.`);
   if (typeof rulesVersion !== "string" || !/^[a-z0-9-]+-v\d+$/.test(rulesVersion)) {
     throw new Error(`${id} has an invalid rules version.`);
@@ -121,11 +172,14 @@ function validateForecast(value: unknown, ids: Set<string>, profileIds: Set<stri
     throw new Error(`${id} has an invalid effective date.`);
   }
   if (!Array.isArray(sourceEvidence)) throw new Error(`${id} has invalid source evidence.`);
-  if (!Array.isArray(rawProfiles) || rawProfiles.length === 0) {
+  if (
+    !Array.isArray(rawProfiles) ||
+    (rawProfiles.length === 0 && rulesVersion !== "schedule-kit-v3")
+  ) {
     throw new Error(`${id} must contain at least one profile.`);
   }
   const profiles = rawProfiles.map((raw) => validateProfile(raw, id, profileIds));
-  validateProfileSequence(id, profiles);
+  validateProfileSequence(id, profiles, rulesVersion === "schedule-kit-v3");
   const certifiedSnapshot = registryCertifiedSnapshot(value);
   return {
     id,
@@ -168,18 +222,27 @@ function validateProfile(value: unknown, forecastId: string, ids: Set<string>): 
     effectiveUntil: until === null ? null : new Date(until).toISOString(),
     scheduleStatus,
     expectedGain: gain,
+    ...(typeof value["referenceFrom"] === "string"
+      ? { referenceFrom: value["referenceFrom"] }
+      : {}),
+    ...(typeof value["referenceUntil"] === "string"
+      ? { referenceUntil: value["referenceUntil"] }
+      : {}),
+    ...(typeof value["referenceDays"] === "number"
+      ? { referenceDays: value["referenceDays"] }
+      : {}),
   };
 }
 
-function validateProfileSequence(forecastId: string, profiles: readonly Profile[]) {
+function validateProfileSequence(forecastId: string, profiles: readonly Profile[], ledger = false) {
   for (let index = 0; index < profiles.length; index += 1) {
     const current = profiles[index];
     if (!current) continue;
     const next = profiles[index + 1];
-    if (next && current.effectiveUntil !== next.effectiveFrom) {
+    if (next && !ledger && current.effectiveUntil !== next.effectiveFrom) {
       throw new Error(`${forecastId} profiles must be contiguous and ordered.`);
     }
-    if (!next && current.effectiveUntil !== null) {
+    if (!next && !ledger && current.effectiveUntil !== null) {
       throw new Error(`${forecastId} final profile must be open-ended.`);
     }
   }
@@ -205,12 +268,34 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function precomputedLegacyForecast(forecast: Forecast) {
+  const { certifiedSnapshot, ...legacy } = forecast;
+  if (forecast.rulesVersion !== "schedule-kit-v3") return legacy;
+  if (!certifiedSnapshot) throw new Error("certified_snapshot_required");
+  return {
+    ...legacy,
+    profiles: buildScheduleForecastProfiles({
+      forecastId: forecast.id,
+      effectiveFrom: certifiedSnapshot.asOf,
+      certifiedSnapshot,
+    }),
+  };
+}
+
 function renderTypeScript(registry: Registry, active: Forecast) {
-  const serialized = JSON.stringify(registry, null, 2)
+  // Ledger validation and exact projection run here, never in the legacy browser graph.
+  const projectedActive = precomputedLegacyForecast(active);
+  if (projectedActive.profiles.length === 0)
+    throw new Error(`active_supply_forecast_unavailable:${active.id}`);
+  const serialized = JSON.stringify(
+    { ...registry, forecasts: registry.forecasts.map(precomputedLegacyForecast) },
+    null,
+    2,
+  )
     .split("\n")
     .map((line) => `  ${line}`)
     .join("\n");
-  const serializedActive = JSON.stringify(active, null, 2)
+  const serializedActive = JSON.stringify(projectedActive, null, 2)
     .split("\n")
     .map((line) => `  ${line}`)
     .join("\n");
@@ -228,6 +313,9 @@ function renderTypeScript(registry: Registry, active: Forecast) {
     `  effectiveUntil: string | null;\n` +
     `  scheduleStatus: "confirmed" | "estimated";\n` +
     `  expectedGain: { blue: number; purple: number; yellow: number };\n` +
+    `  referenceFrom?: string | undefined;\n` +
+    `  referenceUntil?: string | undefined;\n` +
+    `  referenceDays?: number | undefined;\n` +
     `};\n\n` +
     `export function isSupplyForecastId(value: unknown): value is SupplyForecastId {\n` +
     `  return (SUPPLY_FORECAST_REGISTRY.forecasts as readonly { id: string }[]).some(\n` +
@@ -275,8 +363,7 @@ function renderRuntimeTypeScript(staging: Forecast) {
   const serializedStaging = JSON.stringify(
     {
       id: staging.id,
-      profiles: staging.profiles,
-      ...(staging.certifiedSnapshot ? { certifiedSnapshot: staging.certifiedSnapshot } : {}),
+      profiles: precomputedLegacyForecast(staging).profiles,
     },
     null,
     2,

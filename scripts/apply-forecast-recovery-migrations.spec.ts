@@ -27,6 +27,11 @@ import {
 } from "./forecast-recovery-migration-fixtures.ts";
 import "./forecast-poll-recovery-migration-suite.ts";
 
+function databaseNow(db: DatabaseSync) {
+  const row = db.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS now").get();
+  return Date.parse(String(row?.["now"]));
+}
+
 describe("REVIEW12 explicit recovery storage upgrades", () => {
   it.each(["staging", "production"] as const)(
     "anchors an unknown pre-v15 outage at migration time in %s and preserves accepted facts",
@@ -37,7 +42,7 @@ describe("REVIEW12 explicit recovery storage upgrades", () => {
         (singleton_id,state,attempts,first_failed_at,error_code,updated_at)
         VALUES(1,'blocked',8,'2026-09-01T00:00:00Z','staging_adoption_github_authorization_unavailable','2026-09-30T00:00:00Z');`);
       const circuit = db.prepare("SELECT * FROM staging_adoption_infrastructure_circuit").all();
-      const before = Date.now();
+      const before = databaseNow(db);
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
         15, 16, 17, 18, 19, 20, 21,
@@ -58,7 +63,7 @@ describe("REVIEW12 explicit recovery storage upgrades", () => {
       });
       const anchored = Date.parse(String(episode?.["held_at"]));
       expect(anchored).toBeGreaterThanOrEqual(before - 1_000);
-      expect(anchored).toBeLessThanOrEqual(Date.now() + 1_000);
+      expect(anchored).toBeLessThanOrEqual(databaseNow(db) + 1_000);
       expect(control?.["updated_at"]).toBe(episode?.["held_at"]);
       expect(db.prepare("SELECT * FROM staging_adoption_infrastructure_circuit").all()).toEqual(
         circuit,

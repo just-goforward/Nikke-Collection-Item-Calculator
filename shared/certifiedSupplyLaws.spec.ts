@@ -9,7 +9,6 @@ import {
   getCertifiedLawDistribution,
   getCertifiedLawExpectedGain,
 } from "./certifiedSupplyLaws.ts";
-import { DISPATCH_COHORT_EXPECTED_GAIN } from "./supplyForecastModel.ts";
 
 const finiteIds = [
   "regular-box-v1",
@@ -186,22 +185,24 @@ describe("exact documented physical supply laws", () => {
     }
   });
   it("enumerates each dispatch cohort independently with exact unit mass", () => {
-    for (const cohort of [0, 1, 2] as const) {
+    const independent = [
+      [8.175245784822762, 1.36454659174132, 0.459024458516156],
+      [9.05704314456469, 2.102280174069004, 0.748168058537295],
+      [9.609910117853358, 2.576813704937052, 0.935431962184824],
+      [9.966514778612282, 2.888196645234681, 1.058874332768239],
+    ];
+    for (const cohort of [0, 1, 2, 3] as const) {
       const raw = dispatchLaw(cohort);
       expect(sum(raw.map((row) => row.mass))).toEqual(q(1));
       const expected = getCertifiedLawExpectedGain(
         { lawId: "dispatch-board-v1", count: 1 },
         cohort,
       ).map(toNumber);
-      const legacy = [
-        DISPATCH_COHORT_EXPECTED_GAIN.noReroll,
-        DISPATCH_COHORT_EXPECTED_GAIN.oneReroll,
-        DISPATCH_COHORT_EXPECTED_GAIN.twoRerolls,
-      ][cohort];
+      const legacy = independent[cohort];
       if (!legacy) throw new Error("legacy_dispatch_cohort_missing");
-      expect(expected[0]).toBeCloseTo(legacy.blue, 11);
-      expect(expected[1]).toBeCloseTo(legacy.purple, 11);
-      expect(expected[2]).toBeCloseTo(legacy.yellow, 11);
+      expect(expected[0]).toBeCloseTo(legacy[0] ?? 0, 11);
+      expect(expected[1]).toBeCloseTo(legacy[1] ?? 0, 11);
+      expect(expected[2]).toBeCloseTo(legacy[2] ?? 0, 11);
     }
   });
   it("keeps integer raw pieces and exact joint color probabilities", () => {

@@ -20,7 +20,7 @@ describe("shipped approved forecast anchor", () => {
   it("rejects a self-consistent changed schedule retaining the declared source hash and revision", async () => {
     const snapshot = await prepareCertifiedForecast("2026-09-30T03:00:00.000Z");
     const forged = structuredClone(snapshot);
-    const event = forged.events.find((candidate) => candidate.gameDate === "2026-10-01");
+    const event = forged.events.find((candidate) => candidate.kind === "dispatch");
     if (!event) throw new Error("missing trusted future fixture");
     event.at = new Date(Date.parse(event.at) + 60_000).toISOString();
     expect(forged.sourceHash).toBe(snapshot.sourceHash);

@@ -7,7 +7,7 @@ import {
   minimumWaitText,
 } from "./minimumWaitPresentation";
 
-describe("localized minimum-wait label, independent of H56", () => {
+describe("localized minimum-wait label, independent of H14", () => {
   for (const [locale, words] of Object.entries(certifiedMessages)) {
     it(`${locale}: distinguishes proof, unknown and partial interval`, () => {
       const unknown = minimumWaitBase(null, "unknown", "exact_support_limit");

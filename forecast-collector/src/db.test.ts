@@ -197,7 +197,15 @@ describe("forecast collector D1 contract", () => {
       1,
     );
     await persistCandidate(testEnv.FORECAST_DB, candidate, event.eventId, "2026-08-24", 1);
-    await persistCandidate(testEnv.FORECAST_DB, candidate, event.eventId, "2026-08-24", 1);
+    const replay = await buildForecastCandidate(
+      resolved,
+      [],
+      { status: "x_unavailable", sourceItem: null, reason: "test" },
+      Date.parse("2026-08-24T00:00:01Z"),
+      2,
+    );
+    expect(replay.candidate.candidateId).toBe(candidate.candidate.candidateId);
+    await persistCandidate(testEnv.FORECAST_DB, replay, event.eventId, "2026-08-24", 2);
 
     expect(
       await candidateExists(testEnv.FORECAST_DB, event.eventId, "2026-08-24", "x_unavailable"),

@@ -27,7 +27,10 @@ type MinEfFactoryState = {
   supplyForecast: SupplyForecastContext;
 };
 
-export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver {
+export function createRustMinEfSolver(
+  exports: RustCoreExports,
+  supplyForecast = activeSupplyForecastContext(),
+): RustMinEfSolver {
   exports.configureMemo?.(21);
   exports.configureMinEfMemo?.(RUST_MIN_EF_MEMO_TIER);
   exports.configureNodeBudget?.(RUST_MIN_EF_NODE_BUDGET);
@@ -35,7 +38,7 @@ export function createRustMinEfSolver(exports: RustCoreExports): RustMinEfSolver
     buildGeneration: 0,
     exports,
     memoTier: RUST_MIN_EF_MEMO_TIER,
-    supplyForecast: activeSupplyForecastContext(),
+    supplyForecast: validateSupplyForecastContext(supplyForecast),
   };
   return {
     setSupplyForecast: (context) => setSupplyForecast(state, context),

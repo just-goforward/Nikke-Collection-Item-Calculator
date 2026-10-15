@@ -6,7 +6,6 @@ import type {
   CertifiedCurrent,
   CertifiedInput,
   CertifiedOutput,
-  CertifiedValue,
   CertifiedWaiting,
 } from "../src/certified/types.ts";
 import { readV6Evidence } from "./certified-staging-approved-panel/v6/evidence.ts";
@@ -14,16 +13,7 @@ import {
   type ApprovedPanelRow,
   frozenApprovedSnapshot,
 } from "./certified-staging-approved-panel.ts";
-import {
-  approx,
-  cmp,
-  type ExactQ,
-  fromWire,
-  type QTriple,
-  q,
-  type Triple,
-  wire,
-} from "./certified-staging-oracle.ts";
+import { cmp, fromWire, type QTriple, q, type Triple, wire } from "./certified-staging-oracle.ts";
 import {
   cachedOriginalOracle,
   prepareIndependentPhysicalRatesCache,
@@ -38,6 +28,15 @@ import {
   verifyPublicPricing,
   verifyWaitingLane,
 } from "./certified-staging-oracle-lane.ts";
+import {
+  bump,
+  certifiedValue,
+  current,
+  fail,
+  NOT_REQUESTED,
+  output,
+  statusOf,
+} from "./certified-staging-oracle-lane-test-fixtures.ts";
 import { independentLargeIntegerOracle } from "./certified-staging-oracle-large-integer.ts";
 import { mapTriple } from "./certified-staging-oracle-tuples.ts";
 
@@ -138,20 +137,6 @@ const snapshot = frozenApprovedSnapshot();
 const panel = readV6Evidence().panel as ApprovedPanelRow[];
 const ZERO3: QTriple = [q(0), q(0), q(0)];
 const TENTH: QTriple = [q(1, 10), q(1, 10), q(1, 10)];
-const NOT_REQUESTED: CertifiedWaiting = {
-  status: "not_requested",
-  horizonDays: 56,
-  recommendedDays: null,
-  rangeBoundary: false,
-  bestDayRange: null,
-  value: null,
-  evaluatedDays: [],
-  successImprovementUpperBound: null,
-  successProbabilityInterval: null,
-  reason: null,
-  evidence: [],
-};
-
 function row(index: number): ApprovedPanelRow {
   const value = panel[index];
   assert(value, `approved panel row ${index}`);
@@ -168,81 +153,6 @@ function rowPricing(entry: ApprovedPanelRow): NonNullable<CertifiedOutput["prici
     cohortWeights: entry.expected.cohortWeights,
   };
 }
-function certifiedValue(P: ExactQ, B: ExactQ, C: ExactQ, consumed: QTriple): CertifiedValue {
-  return {
-    successP: wire(P),
-    weightedExpectedConsumptionB: wire(B),
-    expectedTotalConsumptionC: wire(C),
-    expectedConsumed: mapTriple(consumed, wire),
-    display: {
-      successP: approx(P),
-      weightedExpectedConsumptionB: approx(B),
-      expectedTotalConsumptionC: approx(C),
-    },
-  };
-}
-// Contract mapping from src/certified/types.ts, not from candidate output.
-function statusOf(
-  input: Pick<CertifiedInput, "grade" | "level">,
-  kit: CertifiedCurrent["kit"],
-): CertifiedCurrent["status"] {
-  if (input.grade === "SR" && input.level === 15) return "complete";
-  return kit ? "use_certified" : "preserve";
-}
-function current(
-  value: CertifiedValue,
-  mask: number,
-  kit: CertifiedCurrent["kit"],
-  status: CertifiedCurrent["status"],
-  uses = 0,
-): CertifiedCurrent {
-  return {
-    status,
-    value,
-    kit,
-    optimalActionMask: mask,
-    uses,
-    pieces: uses * 10,
-    certification: "exact_rational_finite_inventory_v1",
-  };
-}
-function output(patch: Partial<CertifiedOutput>): CertifiedOutput {
-  return {
-    status: "completed",
-    current: null,
-    waiting: NOT_REQUESTED,
-    refusal: null,
-    claimNotice: null,
-    pricing: null,
-    provenance: {
-      solverVersion: "certified-exact-js-v1",
-      arithmetic: "exact_bigint_ladder_reduced_public_rationals",
-      calculationGraph: "repeated_exact_date_expectations_shared_finite_memo",
-      requestBudgetMs: 15000,
-      horizonMeaning: "range_only_no_deadline",
-      snapshotRevision: "lane-test",
-      snapshotSourceHash: "lane-test",
-      objective: "max_P_min_B_min_C_exact_earliest_date",
-    },
-    diagnostics: {
-      elapsedMs: 0,
-      memoEntries: 0,
-      exactTransitions: 0,
-      supportPeakPoints: 0,
-      managedPayloadBytes: 0,
-      managedPayloadDefinition: "lane-test",
-      unmeasuredMemory: [],
-      wasmMemoryBytes: 0,
-      kernelCalls: 0,
-    },
-    ...patch,
-  };
-}
-const fail = (reason: string) => ({ status: "FAIL", reason });
-const bump = (value: { numerator: string; denominator: string }) => ({
-  ...value,
-  numerator: String(BigInt(value.numerator) + 1n),
-});
 
 it("prices approved rows from public rules and authenticated cohorts, across exact representations", () => {
   for (const index of [0, 1, 2, 3, 4]) {
@@ -794,7 +704,7 @@ it("keeps the existing N0 route for a verified terminal unrestricted optimum", (
   expect(verifyWaitingLane(input, candidate, TENTH, verified).status).toBe("PASS");
 });
 
-it("delegates later days unchanged: interior and unresolved stay NOTRUN, cohort-0 H56 witness PASS", () => {
+it("delegates later days unchanged: interior and unresolved stay NOTRUN, a retired H56 witness is outside the live 14-day horizon", () => {
   const input = sr14Input(snapshot);
   const certified = (patch: Partial<CertifiedWaiting>) =>
     verifyWaitingLane(input, output({ waiting: day0(patch) }), TENTH, undefined).reason;
@@ -821,16 +731,29 @@ it("delegates later days unchanged: interior and unresolved stay NOTRUN, cohort-
     q(rate.d, BigInt(historical.stock[color]) * rate.d + rate.n),
   );
   const witnessOutput = structuredClone(record.output);
-  // Without a verified current the interval validity stays NOTRUN in the metadata.
-  expect(verifyWaitingLane(historical, witnessOutput, prices, undefined)).toMatchObject({
-    status: "PASS",
-    receiptCount: 80,
-    probabilityIntervalValidity: "NOTRUN",
+  expect(witnessOutput.waiting.recommendedDays).toBe(56);
+  // The live lane uses the engine's 14-day horizon for every snapshot version: a
+  // day-56 recommendation is never certified there (its H56 replay, with the
+  // historical horizon passed explicitly, is covered in the certificates spec;
+  // live H14 witnesses PASS in the WASM oracle property spec).
+  expect(verifyWaitingLane(historical, witnessOutput, prices, undefined)).toEqual({
+    status: "NOTRUN",
+    reason: "independent_full_expectation_for_interior_day_not_computed",
+  });
+  // Relabelled as an H14 boundary, the H56 receipt set is not the complete H14 set.
+  witnessOutput.waiting.recommendedDays = 14;
+  witnessOutput.waiting.bestDayRange = [14, 14];
+  expect(verifyWaitingLane(historical, witnessOutput, prices, undefined)).toEqual({
+    status: "FAIL",
+    reason: "witness_stock_or_complete_receipt_set_mismatch",
   });
   const witness = witnessOutput.waiting.strictBoundaryWitness;
   assert(witness);
   witnessOutput.waiting.strictBoundaryWitness = { ...witness, cohort: 1 };
-  expect(verifyWaitingLane(historical, witnessOutput, prices, undefined).status).toBe("NOTRUN");
+  expect(verifyWaitingLane(historical, witnessOutput, prices, undefined)).toEqual({
+    status: "NOTRUN",
+    reason: "independent_refresh_cohort_PMF_not_implemented",
+  });
 });
 
 it("gates PASS only on completed pricing, current, batch and requested certified waiting", () => {

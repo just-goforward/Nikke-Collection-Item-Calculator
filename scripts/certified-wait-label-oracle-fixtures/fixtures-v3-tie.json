@@ -1,0 +1,233 @@
+{
+  "version": "certified-wait-label-fixtures-v1",
+  "source": {
+    "note": "Supply rules v3 tie-path fixture. Common block copied verbatim from fixtures-v3.json. State, stock, priceBasisStock and asOf copied from TIE-R5 in fixtures-tie.json (id prefixed V3-). The oracle tie census under the v3 rates (all 600 grid states, unit stocks [0..4]^3, priceBasisStock = 10 * units) again finds only blue/purple root ties (240 roots); this state is one of them. optimalKits is the oracle root tie set, pinned here and rechecked by the oracle spec."
+  },
+  "common": {
+    "currentDay": "2026-10-13",
+    "receivedEventIds": ["dispatch:2026-10-13", "shop:2026-10-13"],
+    "cohortWeights": [
+      {
+        "numerator": "1",
+        "denominator": "7"
+      },
+      {
+        "numerator": "2",
+        "denominator": "7"
+      },
+      {
+        "numerator": "3",
+        "denominator": "7"
+      },
+      {
+        "numerator": "1",
+        "denominator": "7"
+      }
+    ],
+    "batchLimit": 10,
+    "theta": {
+      "numerator": "1",
+      "denominator": "1"
+    },
+    "horizonDays": 7,
+    "pricing": {
+      "version": "certified-daily-v3",
+      "cadence": {
+        "numerator": 1197,
+        "denominator": 39
+      },
+      "laws": [
+        {
+          "id": "dispatch-board-v1",
+          "kind": "dispatch",
+          "modelVersion": "documented-physical-supply-v2"
+        },
+        {
+          "id": "regular-box-v1",
+          "kind": "box",
+          "modelVersion": "documented-physical-supply-v2"
+        },
+        {
+          "id": "box-ii-v1",
+          "kind": "box",
+          "modelVersion": "documented-physical-supply-v2"
+        }
+      ],
+      "rules": [
+        {
+          "id": "schedule-kit-v3:documented-physical-supply-v2",
+          "dispatch": [
+            {
+              "lawId": "dispatch-board-v1",
+              "count": 1
+            }
+          ],
+          "normalShop": [
+            {
+              "lawId": "box-ii-v1",
+              "count": 5
+            }
+          ],
+          "weeklyFixed": [
+            {
+              "lawId": "deterministic:10,10,0",
+              "count": 1
+            }
+          ],
+          "soloDays": [
+            [
+              {
+                "lawId": "regular-box-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "regular-box-v1",
+                "count": 4
+              },
+              {
+                "lawId": "box-ii-v1",
+                "count": 8
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ],
+            [
+              {
+                "lawId": "box-ii-v1",
+                "count": 12
+              }
+            ]
+          ]
+        }
+      ]
+    },
+    "schedule": [
+      {
+        "id": "dispatch:2026-10-14",
+        "day": 1,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "weekly-kits:2026-10-14",
+        "day": 1,
+        "refs": [
+          {
+            "lawId": "deterministic:10,10,0",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "dispatch:2026-10-15",
+        "day": 2,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "dispatch:2026-10-16",
+        "day": 3,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "dispatch:2026-10-17",
+        "day": 4,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "dispatch:2026-10-18",
+        "day": 5,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "dispatch:2026-10-19",
+        "day": 6,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "dispatch:2026-10-20",
+        "day": 7,
+        "refs": [
+          {
+            "lawId": "dispatch-board-v1",
+            "count": 1
+          }
+        ]
+      },
+      {
+        "id": "shop:2026-10-20",
+        "day": 7,
+        "refs": [
+          {
+            "lawId": "box-ii-v1",
+            "count": 5
+          }
+        ]
+      }
+    ]
+  },
+  "fixtures": [
+    {
+      "id": "V3-TIE-R5",
+      "grade": "R",
+      "level": 5,
+      "exp": 0,
+      "stock": [10, 10, 30],
+      "priceBasisStock": [10, 10, 30],
+      "asOf": "2026-10-13T04:38:49.399Z",
+      "optimalKits": ["blue", "purple"]
+    }
+  ]
+}

@@ -54,13 +54,25 @@ function identical(
     )
   );
 }
-function physicalMass(input: CertifiedInput, receipt: Receipt) {
+export function physicalMass(input: CertifiedInput, receipt: Receipt) {
   const event = input.snapshot.events.find((entry) => entry.id === receipt.eventId);
   const ref = event?.refs[receipt.refIndex];
   if (!ref) throw new Error("witness_event_or_ref_missing");
   const descriptor = input.snapshot.laws?.find((entry) => entry.id === ref.lawId);
   if (descriptor?.kind === "finite")
     throw new Error("independent_law_not_supported:finite_override");
+  // v3 deterministic laws (e.g. weekly 10,10,0): count copies give one outcome of mass 1.
+  const deterministic =
+    input.snapshot.version === "certified-daily-v3"
+      ? /^deterministic:(\d+),(\d+),(\d+)$/.exec(ref.lawId)
+      : null;
+  if (deterministic)
+    return receipt.pieces.length === 3 &&
+      receipt.pieces.every(
+        (pieces, color) => pieces === Number(deterministic[color + 1]) * ref.count,
+      )
+      ? q(1)
+      : q(0);
   const key = `${ref.lawId}:${ref.count}:${receipt.pieces.join(",")}`;
   const cached = massCache.get(key);
   if (cached) return cached;
@@ -78,20 +90,26 @@ function dateOffset(current: string, date: string): number {
     (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${current}T00:00:00Z`)) / 86400000,
   );
 }
-function futureRefs(input: CertifiedInput) {
+/** Recommended-day horizon of the certified engine: days 0..14 for every snapshot
+ * version (an engine contract, not a snapshot property). Forecast coverage (≥56
+ * future days) is independent of it. */
+export const ENGINE_RECOMMENDATION_HORIZON = 14;
+/** Horizon of the retired H56 engine. Only for replaying preserved H56 evidence. */
+export const HISTORICAL_H56_RECOMMENDATION_HORIZON = 56;
+function futureRefs(input: CertifiedInput, horizon: number) {
   const received = new Set(input.receivedEventIds);
   return input.snapshot.events
     .filter((event) => {
       const offset = dateOffset(input.snapshot.coverage.currentDay, event.gameDate);
       const laterToday = offset === 0 && Date.parse(event.at) > Date.parse(input.asOf);
-      return !received.has(event.id) && (offset > 0 || laterToday) && offset <= 56;
+      return !received.has(event.id) && (offset > 0 || laterToday) && offset <= horizon;
     })
     .flatMap((event) => event.refs.map((_ref, index) => ({ event, index })));
 }
-function reconstruct(input: CertifiedInput, witness: Witness): CertificateCheck {
+function reconstruct(input: CertifiedInput, witness: Witness, horizon: number): CertificateCheck {
   if (witness.cohort !== 0)
     return { status: "NOTRUN", reason: "independent_refresh_cohort_PMF_not_implemented" };
-  const priorDenominator = input.snapshot.version === "certified-daily-v2" ? 7 : 3;
+  const priorDenominator = input.snapshot.version === "certified-daily-v1" ? 3 : 7;
   const prior = input.cohortWeights ? fromWire(input.cohortWeights[0]) : q(1, priorDenominator);
   if (cmp(prior, q(0)) <= 0) return { status: "FAIL", reason: "witness_zero_cohort_prior" };
   const receipts = new Map(
@@ -102,14 +120,14 @@ function reconstruct(input: CertifiedInput, witness: Witness): CertificateCheck 
   let before: Triple = input.stock;
   let after: Triple = input.stock;
   let count = 0;
-  for (const { event, index } of futureRefs(input)) {
+  for (const { event, index } of futureRefs(input, horizon)) {
     const receipt = receipts.get(`${event.id}:${index}`);
     if (!receipt) return { status: "FAIL", reason: "missing_modeled_future_receipt" };
     const mass = physicalMass(input, receipt);
     if (cmp(mass, q(0)) <= 0 || cmp(mass, fromWire(receipt.mass)) !== 0)
       return { status: "FAIL", reason: "witness_mass_not_independently_matched" };
     after = mapTriple(after, (pieces, color) => pieces + receipt.pieces[color]);
-    if (dateOffset(input.snapshot.coverage.currentDay, event.gameDate) <= 55)
+    if (dateOffset(input.snapshot.coverage.currentDay, event.gameDate) < horizon)
       before = mapTriple(before, (pieces, color) => pieces + receipt.pieces[color]);
     count++;
   }
@@ -205,12 +223,17 @@ function endpoints(input: CertifiedInput, witness: Witness, prices: QTriple): Ce
     finiteAfterParity,
   };
 }
-function boundaryEnvelope(output: CertifiedOutput): CertificateCheck | null {
+function boundaryEnvelope(output: CertifiedOutput, horizon: number): CertificateCheck | null {
   const waiting = output.waiting;
   const interval = waiting.successProbabilityInterval;
   const current = output.current;
   const range = waiting.bestDayRange;
-  if (!waiting.rangeBoundary || range?.[0] !== 56 || range[1] !== 56 || waiting.value !== null)
+  if (
+    !waiting.rangeBoundary ||
+    range?.[0] !== horizon ||
+    range[1] !== horizon ||
+    waiting.value !== null
+  )
     return { status: "FAIL", reason: "boundary_range_or_unknown_expected_value_misreported" };
   if (!current || !interval || !waiting.successImprovementUpperBound)
     return { status: "FAIL", reason: "boundary_probability_coupling_fields_missing" };
@@ -229,6 +252,7 @@ export function verifyActualWaiting(
   output: CertifiedOutput,
   prices: QTriple,
   currentVerified: boolean,
+  horizon: number = ENGINE_RECOMMENDATION_HORIZON,
 ): CertificateCheck {
   if (output.waiting.status !== "certified")
     return { status: "NOTRUN", reason: `API_waiting_not_certified:${output.waiting.status}` };
@@ -241,15 +265,15 @@ export function verifyActualWaiting(
       status: "FAIL",
       reason: "waiting_certificate_missing_declared_complete_independent_model",
     };
-  if (output.waiting.recommendedDays !== 56 || !output.waiting.strictBoundaryWitness)
+  if (output.waiting.recommendedDays !== horizon || !output.waiting.strictBoundaryWitness)
     return {
       status: "NOTRUN",
       reason: "independent_full_expectation_for_interior_day_not_computed",
     };
   try {
-    const envelope = boundaryEnvelope(output);
+    const envelope = boundaryEnvelope(output, horizon);
     if (envelope) return envelope;
-    const path = reconstruct(input, output.waiting.strictBoundaryWitness);
+    const path = reconstruct(input, output.waiting.strictBoundaryWitness, horizon);
     if (path.status !== "PASS") return path;
     const proof = endpoints(input, output.waiting.strictBoundaryWitness, prices);
     return {

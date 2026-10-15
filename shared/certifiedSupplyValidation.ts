@@ -6,7 +6,9 @@ import {
   LEGACY_CERTIFIED_SUPPLY_LAWS,
 } from "./certifiedSupplyLaws.ts";
 import {
+  CERTIFIED_SUPPLY_HISTORY_DAYS,
   CERTIFIED_SUPPLY_VERSION,
+  CERTIFIED_WEEKLY_FIXED_LAW_ID,
   type CertifiedSoloRound,
   type CertifiedSupplyCoverageWindow,
   type CertifiedSupplyEvent,
@@ -17,8 +19,8 @@ import {
   ruleAt,
   timestamp,
 } from "./certifiedSupplyModel.ts";
+import { gameDayKey, gameDayStartMs } from "./gameDay.ts";
 import type { ExactSoloRaidCadence } from "./soloRaidCadence.ts";
-import { gameDayKey, gameDayStartMs } from "./supplyForecastModel.ts";
 
 function textList(list: unknown) {
   if (!Array.isArray(list)) return false;
@@ -70,7 +72,9 @@ function validateMetadata(snapshot: CertifiedSupplySnapshot) {
     throw new Error("certified_snapshot_provenance_list_invalid");
   JSON.stringify(snapshot);
   if (
-    (snapshot.version !== CERTIFIED_SUPPLY_VERSION && snapshot.version !== "certified-daily-v1") ||
+    ![CERTIFIED_SUPPLY_VERSION, "certified-daily-v2", "certified-daily-v1"].includes(
+      snapshot.version,
+    ) ||
     !snapshot.revision ||
     !/^[a-f0-9]{64}$/.test(snapshot.sourceHash)
   )
@@ -106,7 +110,7 @@ function validateQueryWindow(
 ) {
   knownFields(window, "from until days complete missing");
   if (
-    window?.days !== 56 ||
+    window?.days !== (expectedUntil - expectedFrom) / DAY_MS ||
     timestamp(window.from) !== expectedFrom ||
     timestamp(window.until) !== expectedUntil ||
     typeof window.complete !== "boolean" ||
@@ -130,7 +134,12 @@ function validateCoverage(snapshot: CertifiedSupplySnapshot) {
     gameDayKey(timestamp(snapshot.asOf)) !== snapshot.coverage.currentDay
   )
     throw new Error("certified_snapshot_coverage_invalid");
-  validateQueryWindow(snapshot.coverage.past, today - 56 * DAY_MS, today, from, until);
+  // Archived query windows remain readable; new history queries cover seven days.
+  const pastDays =
+    snapshot.coverage.past.days === CERTIFIED_SUPPLY_HISTORY_DAYS
+      ? CERTIFIED_SUPPLY_HISTORY_DAYS
+      : 56;
+  validateQueryWindow(snapshot.coverage.past, today - pastDays * DAY_MS, today, from, until);
   validateQueryWindow(snapshot.coverage.future, today + DAY_MS, today + 57 * DAY_MS, from, until);
 }
 
@@ -297,10 +306,13 @@ function validateLaw(law: CertifiedSupplyLaw, cohortCount: 3 | 4, checkBudget?: 
     throw new Error("certified_snapshot_builtin_law_version_invalid");
 }
 
-function validateRuleHeader(rule: CertifiedSupplyRule) {
+function validateRuleHeader(
+  rule: CertifiedSupplyRule,
+  version: CertifiedSupplySnapshot["version"],
+) {
   knownFields(
     rule,
-    "id effectiveFrom effectiveUntil dispatch normalShop collaborationShop soloDays provenance",
+    `id effectiveFrom effectiveUntil dispatch normalShop collaborationShop soloDays provenance${version === "certified-daily-v3" ? " weeklyFixed" : ""}`,
   );
   if (
     typeof rule.id !== "string" ||
@@ -328,7 +340,7 @@ function validateRules(
   );
   for (const [index, rule] of rules.entries()) {
     checkBudget?.();
-    validateRuleHeader(rule);
+    validateRuleHeader(rule, snapshot.version);
     const at = timestamp(rule.effectiveFrom);
     const previous = rules[index - 1];
     if (previous && (previous.effectiveUntil === null || timestamp(previous.effectiveUntil) > at))
@@ -337,6 +349,7 @@ function validateRules(
       checkBudget?.();
       validateRefs(refs, lawIds);
     }
+    if (snapshot.version === "certified-daily-v3") validateRefs(rule.weeklyFixed ?? [], lawIds);
   }
 }
 
@@ -362,6 +375,7 @@ function validateEventIdentity(
   event: CertifiedSupplyEvent,
   ids: Set<string>,
   ruleIds: Set<string>,
+  version: CertifiedSupplySnapshot["version"],
 ) {
   knownFields(
     event,
@@ -373,7 +387,12 @@ function validateEventIdentity(
     typeof event.id !== "string" ||
     !event.id ||
     !ruleIds.has(event.ruleId) ||
-    !["dispatch", "shop", "solo"].includes(event.kind) ||
+    ![
+      "dispatch",
+      "shop",
+      "solo",
+      ...(version === "certified-daily-v3" ? ["weekly-kits"] : []),
+    ].includes(event.kind) ||
     !["confirmed", "estimated"].includes(event.status)
   )
     throw new Error("certified_snapshot_event_identity_invalid");
@@ -432,7 +451,7 @@ function validateEvents(
   const ids = new Set<string>();
   for (const event of snapshot.events) {
     checkBudget?.();
-    validateEventIdentity(event, ids, ruleIds);
+    validateEventIdentity(event, ids, ruleIds, snapshot.version);
     validateEventDates(event, snapshot);
     validateStableEventId(event);
     validateRefs(event.refs, lawIds);
@@ -470,4 +489,78 @@ export function validateSnapshot(
   }
   validateEvents(snapshot, lawIds, ruleIds, checkBudget);
   return snapshot;
+}
+
+function isV3WeeklyFixedRefs(refs: readonly CertifiedLawRef[] | undefined) {
+  return (
+    refs?.length === 1 && refs[0]?.lawId === CERTIFIED_WEEKLY_FIXED_LAW_ID && refs[0].count === 1
+  );
+}
+
+function assertV3WeeklyEvent(event: CertifiedSupplyEvent): void {
+  if (event.kind !== "weekly-kits") return;
+  const at = timestamp(event.at);
+  if (
+    new Date(at + 9 * 3_600_000).getUTCDay() !== 3 ||
+    at !== gameDayStartMs(at) ||
+    event.status !== "confirmed" ||
+    event.cancelled ||
+    !isV3WeeklyFixedRefs(event.refs) ||
+    !event.expiresAt ||
+    timestamp(event.expiresAt) !== at + 6 * DAY_MS
+  )
+    throw new Error("certified_v3_weekly_event_invalid");
+}
+
+/** FRP-v3.1 runtime authority: fixture finite laws remain historical/testing contracts. */
+export function assertV3RuntimeLaws(snapshot: CertifiedSupplySnapshot): void {
+  if (
+    snapshot.laws.length !== CERTIFIED_SUPPLY_LAWS.length ||
+    !CERTIFIED_SUPPLY_LAWS.every((builtin) =>
+      snapshot.laws.some(
+        (law) =>
+          law.id === builtin.id &&
+          law.kind === builtin.kind &&
+          law.modelVersion === builtin.modelVersion &&
+          law.outcomes === undefined &&
+          law.outcomesByCohort === undefined,
+      ),
+    )
+  )
+    throw new Error("certified_v3_builtin_laws_required");
+  const allowed = new Set([
+    ...CERTIFIED_SUPPLY_LAWS.map((law) => law.id),
+    CERTIFIED_WEEKLY_FIXED_LAW_ID,
+  ]);
+  for (const rule of snapshot.rules) {
+    if (!isV3WeeklyFixedRefs(rule.weeklyFixed)) throw new Error("certified_v3_weekly_rule_invalid");
+    for (const ref of [
+      rule.dispatch,
+      rule.normalShop,
+      rule.collaborationShop,
+      rule.weeklyFixed ?? [],
+      ...rule.soloDays,
+    ].flat())
+      if (!allowed.has(ref.lawId)) throw new Error("certified_v3_law_reference_invalid");
+  }
+  for (const event of snapshot.events) {
+    if (event.refs.some((ref) => !allowed.has(ref.lawId)))
+      throw new Error("certified_v3_law_reference_invalid");
+    assertV3WeeklyEvent(event);
+  }
+  const weekly = new Set(
+    snapshot.events.filter((event) => event.kind === "weekly-kits").map((event) => event.gameDate),
+  );
+  for (
+    let at = timestamp(snapshot.coverage.from);
+    at < timestamp(snapshot.coverage.until);
+    at += DAY_MS
+  ) {
+    if (
+      new Date(at + 9 * 3_600_000).getUTCDay() === 3 &&
+      ruleAt(snapshot.rules, at) &&
+      !weekly.has(gameDayKey(at))
+    )
+      throw new Error("certified_v3_weekly_event_missing");
+  }
 }

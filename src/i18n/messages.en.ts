@@ -50,6 +50,8 @@ export const enMessages = {
   "tab.stats": "Stats",
   "staging.label": "Staging environment",
   "staging.missing": "STAGING configuration is missing. Stats submission is disabled.",
+  "staging.supplyUnavailable":
+    "Supply calculation unavailable: the approved ledger does not cover the complete reference window.",
   "staging.notice": "STAGING - test records are excluded from production stats",
   "staging.forecastWindow": "Temporary expected gains · active {from} to {until} KST · {status}",
   "staging.forecastWindowOpenEnded":

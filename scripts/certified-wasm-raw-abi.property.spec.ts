@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import fc from "fast-check";
 import { beforeAll, describe, expect, it } from "vitest";
+import type { WireQ } from "../shared/certifiedRational.ts";
+import {
+  CERTIFIED_PHYSICAL_LAW_VERSION,
+  CERTIFIED_SUPPLY_LAWS,
+} from "../shared/certifiedSupplyLaws.ts";
+import { DEFAULT_PERSONAL_COHORT_WEIGHTS } from "../shared/certifiedSupplyModel.ts";
 import { CERTIFIED_WASM_HASH } from "../shared/generated/certifiedWasmBuild.ts";
 import {
   assertProperty,
@@ -25,6 +31,10 @@ const IDENTITY: PropertyIdentity = {
   sources: {
     "rust/certified/src/lib.rs": readFileSync("rust/certified/src/lib.rs", "utf8"),
     "rust/certified/src/supply.rs": readFileSync("rust/certified/src/supply.rs", "utf8"),
+    "rust/certified/src/supply/v3_gate.rs": readFileSync(
+      "rust/certified/src/supply/v3_gate.rs",
+      "utf8",
+    ),
   },
   extra: { certifiedWasmSha256: CERTIFIED_WASM_HASH },
 };
@@ -63,7 +73,16 @@ function rawCall(text: string): { value?: unknown; error?: string } {
 const zero = { numerator: "0", denominator: "1" };
 const one = { numerator: "1", denominator: "1" };
 /** Rust's parsed value of a WireQ, or its error code. */
-function echo(numerator: string, denominator: string): { value?: string; error?: string } {
+function echo(
+  numerator: string,
+  denominator: string,
+  supply: {
+    /** Absent and undefined both omit the field from the serialized model. */
+    snapshotVersion?: string | undefined;
+    laws?: readonly unknown[];
+    populationPrior?: readonly WireQ[];
+  } = {},
+): { value?: string; error?: string } {
   const basis = 2_000_000_000; // keeps rate + basis positive for every probed value
   const text = JSON.stringify({
     op: "configureSupply",
@@ -72,9 +91,11 @@ function echo(numerator: string, denominator: string): { value?: string; error?:
     sid: 0,
     deadline: performance.now() + 60_000,
     model: {
+      snapshotVersion: supply.snapshotVersion,
       events: [],
-      laws: [],
+      laws: supply.laws ?? [],
       priors: [one, zero, zero, zero],
+      populationPrior: supply.populationPrior ?? DEFAULT_PERSONAL_COHORT_WEIGHTS,
       dispatch: [{ lawId: "dispatch-board-v1", count: 1 }],
       shop: [],
       solo: [],
@@ -115,6 +136,183 @@ function agrees(numerator: string, denominator: string): boolean {
   const actual = echo(numerator, denominator);
   return plan === null ? actual.error === "invalid_rational" : actual.value === plan;
 }
+
+describe("v3 raw-ABI declared law allowlist", () => {
+  it.each([
+    { id: "unapproved-v3-law", kind: "box" },
+    {
+      id: "unapproved-v3-law",
+      kind: "box",
+      modelVersion: CERTIFIED_PHYSICAL_LAW_VERSION,
+    },
+    {
+      id: "deterministic:10,10,0",
+      kind: "box",
+      modelVersion: CERTIFIED_PHYSICAL_LAW_VERSION,
+    },
+    ...CERTIFIED_SUPPLY_LAWS.map((law) => ({
+      ...law,
+      kind: law.kind === "dispatch" ? "box" : "dispatch",
+    })),
+    ...[undefined, null, "documented-physical-supply-v1", 2, {}].map((modelVersion) => ({
+      id: "regular-box-v1",
+      kind: "box",
+      modelVersion,
+    })),
+    ...["outcomes", "outcomesByCohort"].map((field) => ({
+      id: "regular-box-v1",
+      kind: "box",
+      modelVersion: CERTIFIED_PHYSICAL_LAW_VERSION,
+      [field]:
+        field === "outcomes"
+          ? [{ pieces: [99, 0, 0], mass: one }]
+          : Array.from({ length: 4 }, () => [{ pieces: [99, 0, 0], mass: one }]),
+    })),
+  ])("rejects declaration %j in v3 but preserves legacy acceptance", (law) => {
+    const laws = [...CERTIFIED_SUPPLY_LAWS.filter((builtin) => builtin.id !== law.id), law];
+    expect(echo("35", "70", { snapshotVersion: "certified-daily-v3", laws })).toEqual({
+      error: "certified_v3_law_not_allowlisted",
+    });
+    for (const snapshotVersion of [undefined, "certified-daily-v1", "certified-daily-v2"]) {
+      expect(echo("35", "70", { snapshotVersion, laws })).toEqual({ value: "1/2" });
+    }
+  });
+
+  it("accepts the full documented physical law allowlist", () => {
+    expect(
+      echo("35", "70", {
+        snapshotVersion: "certified-daily-v3",
+        laws: CERTIFIED_SUPPLY_LAWS,
+      }),
+    ).toEqual({ value: "1/2" });
+  });
+
+  it.each([
+    { name: "empty", laws: [] },
+    ...CERTIFIED_SUPPLY_LAWS.flatMap((law, index) => [
+      {
+        name: `missing ${law.id}`,
+        laws: CERTIFIED_SUPPLY_LAWS.filter((builtin) => builtin.id !== law.id),
+      },
+      {
+        name: `duplicate ${law.id} replacing another descriptor`,
+        laws: CERTIFIED_SUPPLY_LAWS.map((builtin, other) =>
+          other === (index + 1) % CERTIFIED_SUPPLY_LAWS.length ? law : builtin,
+        ),
+      },
+      { name: `extra duplicate ${law.id}`, laws: [...CERTIFIED_SUPPLY_LAWS, law] },
+    ]),
+  ])("rejects $name only in v3", ({ laws }) => {
+    expect(echo("35", "70", { snapshotVersion: "certified-daily-v3", laws })).toEqual({
+      error: "certified_v3_law_not_allowlisted",
+    });
+    for (const snapshotVersion of [undefined, "certified-daily-v1", "certified-daily-v2"]) {
+      expect(echo("35", "70", { snapshotVersion, laws })).toEqual({ value: "1/2" });
+    }
+  });
+
+  it(
+    "checks every declaration's id, kind and model version through the raw ABI",
+    async () => {
+      const declaration = fc.record({
+        id: fc.oneof(
+          fc.constantFrom(...CERTIFIED_SUPPLY_LAWS.map((law) => law.id)),
+          fc.string({ maxLength: 40 }),
+        ),
+        kind: fc.constantFrom("dispatch", "box", "unknown"),
+        modelVersion: fc.option(
+          fc.constantFrom(CERTIFIED_PHYSICAL_LAW_VERSION, "documented-physical-supply-v1"),
+          { nil: undefined },
+        ),
+      });
+      await assertProperty(
+        fc.property(declaration, (law) => {
+          const allowed = CERTIFIED_SUPPLY_LAWS.some(
+            (builtin) =>
+              law.id === builtin.id &&
+              law.kind === builtin.kind &&
+              law.modelVersion === builtin.modelVersion,
+          );
+          const result = echo("35", "70", {
+            snapshotVersion: "certified-daily-v3",
+            laws: [...CERTIFIED_SUPPLY_LAWS.filter((builtin) => builtin.id !== law.id), law],
+          });
+          return allowed
+            ? result.value === "1/2"
+            : result.error === "certified_v3_law_not_allowlisted";
+        }),
+        {
+          name: "R2-01.v3-declared-law-allowlist",
+          numRuns: NUM_RUNS,
+          timeLimitMs: TIME_LIMIT_MS,
+          identity: IDENTITY,
+        },
+      );
+    },
+    HARD_DEADLINE_MS,
+  );
+
+  it(
+    "requires set equality rather than accepting missing or duplicate built-ins",
+    async () => {
+      await assertProperty(
+        fc.property(
+          fc.array(fc.constantFrom(...CERTIFIED_SUPPLY_LAWS), { maxLength: 5 }),
+          (laws) => {
+            const allowed =
+              laws.length === CERTIFIED_SUPPLY_LAWS.length &&
+              CERTIFIED_SUPPLY_LAWS.every((builtin) => laws.some((law) => law.id === builtin.id));
+            const result = echo("35", "70", { snapshotVersion: "certified-daily-v3", laws });
+            return allowed
+              ? result.value === "1/2"
+              : result.error === "certified_v3_law_not_allowlisted";
+          },
+        ),
+        {
+          name: "R1-08.v3-builtin-descriptor-set",
+          numRuns: NUM_RUNS,
+          timeLimitMs: TIME_LIMIT_MS,
+          identity: IDENTITY,
+        },
+      );
+    },
+    HARD_DEADLINE_MS,
+  );
+});
+
+describe("v3 raw-ABI population prior contract", () => {
+  it.each(
+    [
+      [one, zero, zero, zero],
+      [zero, zero, zero, one],
+      [1, 1, 1, 1].map((n) => ({ numerator: String(n), denominator: "4" })),
+      [1, 3, 2, 1].map((n) => ({ numerator: String(n), denominator: "7" })),
+    ].map((populationPrior) => ({ populationPrior })),
+  )("rejects noncontract population prior $populationPrior only in v3", ({ populationPrior }) => {
+    const laws = CERTIFIED_SUPPLY_LAWS;
+    expect(
+      echo("35", "70", { snapshotVersion: "certified-daily-v3", laws, populationPrior }),
+    ).toEqual({ error: "invalid_population_prior" });
+    for (const snapshotVersion of [undefined, "certified-daily-v1", "certified-daily-v2"]) {
+      expect(echo("35", "70", { snapshotVersion, laws, populationPrior })).toEqual({
+        value: "1/2",
+      });
+    }
+  });
+
+  it("accepts equivalent rational priors and reordered built-in descriptors", () => {
+    expect(
+      echo("35", "70", {
+        snapshotVersion: "certified-daily-v3",
+        laws: [...CERTIFIED_SUPPLY_LAWS].reverse(),
+        populationPrior: [2, 4, 6, 2].map((n) => ({
+          numerator: String(n),
+          denominator: "14",
+        })),
+      }),
+    ).toEqual({ value: "1/2" });
+  });
+});
 
 describe("P4 raw-ABI WireQ grammar of the committed WASM", () => {
   it("probes the echo channel with canonical values", () => {

@@ -1,6 +1,7 @@
 //! Batch-valued endpoint classifier. The loss unit is one day of the fixed
 //! 1:2:3:1 mixed recurring supply, not the user's posterior or initial stock.
-//! Only exact primary success probabilities enter this classifier.
+//! Directed enclosures prove separated primary comparisons; overlapping bounds
+//! always fall back to exact rational probabilities, never approximate ties.
 use super::reachability::Reachability;
 use super::supply::Supply;
 use super::*;
@@ -158,6 +159,29 @@ impl Engine {
         tail.ok_or("minimum_wait_empty_batch")
     }
 
+    fn batch_failure_bound(
+        &mut self,
+        batch: &Batch,
+        units: Units,
+    ) -> Result<guidance::Interval> {
+        let remaining = self.batch_units(batch, units)?;
+        let mut tail = None;
+        for ((_, [per, great, normal]), rest) in batch.path.iter().zip(remaining).rev() {
+            self.check()?;
+            let great = self.failure_bound(*great, rest)?;
+            tail = Some(if *per == 1000 {
+                great
+            } else {
+                let normal = match tail {
+                    Some(value) => value,
+                    None => self.failure_bound(*normal, rest)?,
+                };
+                guidance::weighted(*per, great, normal)
+            });
+        }
+        tail.ok_or("minimum_wait_empty_batch")
+    }
+
     pub(super) fn forced_batch_value(&mut self, batch: &Batch, mut units: Units) -> Result<Value> {
         let remaining = self.batch_units(batch, units)?;
         let mut exponents = Vec::with_capacity(batch.uses());
@@ -191,12 +215,24 @@ impl Engine {
         units: Units,
         compensation: Units,
     ) -> Result<bool> {
-        let target = self.primary_probability(sid, units)?;
         let compensated = std::array::from_fn(|axis| {
             units[axis]
                 .saturating_add(compensation[axis])
                 .min(self.caps[sid][axis])
         });
+        self.ensure_guidance(sid, compensated);
+        // F = 1 - P. Crossing is exactly F_batch > F_optimal.
+        // failure_bound encloses the optimal failure probability; composing
+        // forced steps uses the same outward-rounded, nonnegative weighted
+        // sums. Disjoint enclosures therefore prove the comparison without
+        // admitting exact P-only memo rows. Overlap (including possible
+        // equality) must still use the original exact-rational comparison.
+        let target_failure = self.failure_bound(sid, units)?;
+        let batch_failure = self.batch_failure_bound(batch, compensated)?;
+        if let Some(crossing) = batch_failure.greater_than(target_failure) {
+            return Ok(crossing);
+        }
+        let target = self.primary_probability(sid, units)?;
         Ok(self.batch_probability(batch, compensated)? < target)
     }
 
@@ -358,6 +394,7 @@ mod tests {
         let model = serde_json::from_value(json!({
             "events":events,"laws":laws,
             "priors":[wire(&q(1,1)),wire(&q(0,1)),wire(&q(0,1)),wire(&q(0,1))],
+            "populationPrior": ([1, 2, 3, 1].map(|n| wire(&q(n, 7)))),
             "dispatch":[{"lawId":dispatch,"count":1}],"shop":[],"solo":[],
             "cadence":wire(&q(30,1)),
             "dispatchExpected":vec![vec![wire(&q(0,1));3];4],"classes":[],
@@ -381,6 +418,55 @@ mod tests {
         assert_eq!(e.primary.len(), size);
         let value = e.get(597, [0, 0, 1], true).unwrap();
         assert_eq!(rational(&value.p, &e.powers[value.exponent]), q(1, 2));
+    }
+
+    #[test]
+    fn enclosed_batch_comparisons_match_exact_rationals_on_a_multidimensional_grid() {
+        let mut bounded = engine([q(1, 1), q(1, 1), q(1, 1)]);
+        let mut exact = engine([q(1, 1), q(1, 1), q(1, 1)]);
+        let mut outcomes = [0; 2];
+        for sid in [597, 598] {
+            for kit in 0..3 {
+                for uses in 1..=2 {
+                    let mut state = sid;
+                    let mut path = Vec::new();
+                    for _ in 0..uses {
+                        if state == TERMINAL {
+                            break;
+                        }
+                        let edge = exact.edges[state][kit];
+                        path.push((state, edge));
+                        state = edge[2];
+                    }
+                    let batch = Batch { kit, path, guard: None };
+                    for blue in 0..=3 {
+                        for purple in 0..=3 {
+                            for yellow in 0..=3 {
+                                let units = [blue, purple, yellow];
+                                if units[kit] < batch.uses() {
+                                    continue;
+                                }
+                                for compensation in [[0, 0, 0], [1, 0, 0], [0, 1, 1], [2, 2, 2]] {
+                                    let compensated = std::array::from_fn(|k| {
+                                        (units[k] + compensation[k]).min(exact.caps[sid][k])
+                                    });
+                                    let target = exact.primary_probability(sid, units).unwrap();
+                                    let forced = exact.batch_probability(&batch, compensated).unwrap();
+                                    let expected = forced < target;
+                                    outcomes[usize::from(expected)] += 1;
+                                    assert_eq!(
+                                        bounded.crossing(sid, &batch, units, compensation).unwrap(),
+                                        expected,
+                                        "sid={sid} kit={kit} units={units:?} compensation={compensation:?}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(outcomes.iter().all(|&count| count > 0));
     }
 
     #[test]

@@ -15,6 +15,7 @@ export function estimateA2SurrogateFromBuiltPolicy(
   firstAction: Kit,
   horizonFactor: number,
   normPower: number,
+  expectedGain: Stock,
 ): RustA2MomentEstimate {
   runMomentVector(exports, start, stock, firstAction);
   const mean = {
@@ -23,8 +24,14 @@ export function estimateA2SurrogateFromBuiltPolicy(
     yellow: requireExport(exports, "momentMeanYUses")() * 10,
   };
   const covariance = readMomentCovariance(exports, mean);
-  const baseCost = availabilityCost(mean, stock, horizonFactor, normPower);
-  const [hBB, hPP, hYY, hBP, hBY, hPY] = availabilityHessian(mean, stock, horizonFactor, normPower);
+  const baseCost = availabilityCost(mean, stock, horizonFactor, normPower, expectedGain);
+  const [hBB, hPP, hYY, hBP, hBY, hPY] = availabilityHessian(
+    mean,
+    stock,
+    horizonFactor,
+    normPower,
+    expectedGain,
+  );
   const secondOrderCorrection =
     0.5 *
     (hBB * covariance.blueBlue +

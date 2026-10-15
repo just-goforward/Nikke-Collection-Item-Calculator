@@ -1,66 +1,35 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { certifiedForecastIdentityWorkspaceBound } from "../../shared/certifiedForecastIdentity";
-import { CERTIFIED_FORECAST_SEED_PROVENANCE_HASH } from "../../shared/generated/certifiedEngineBuild";
-import { SOLO_RAID_ROUND_HISTORY } from "../../shared/soloRaidCadence";
-import registry from "../../shared/supplyForecasts.json";
+import { CERTIFIED_APPROVED_FORECAST } from "../../shared/generated/certifiedForecastAuthority";
 import {
   certifiedForecastBuildWorkspaceBound,
   prepareCertifiedForecast,
 } from "./certifiedForecast";
 
-describe("approved forecast seed identity", () => {
-  it("binds sourced raid and collaboration semantic periods and the raw-source manifest", async () => {
-    const adopted = registry.forecasts.find((entry) => entry.id === registry.stagingForecastId);
-    const snapshot = await prepareCertifiedForecast("2026-08-20T09:30:00+09:00");
-    const fullApprovedRegistryHash = createHash("sha256")
-      .update(readFileSync(new URL("../../shared/supplyForecasts.json", import.meta.url)))
-      .digest("hex");
-    const projection = Object.fromEntries(
-      Object.entries(adopted ?? {}).filter(([key]) => key !== "profiles"),
-    );
-    const expected = createHash("sha256")
-      .update(
-        JSON.stringify({
-          adopted: projection,
-          fullApprovedRegistryHash,
-          rounds: SOLO_RAID_ROUND_HISTORY,
-          modelVersion: "documented-physical-supply-v2",
-          soloPeriods: [
-            {
-              round: 40,
-              effectiveFrom: "2026-08-20T03:00:00.000Z",
-              effectiveUntil: "2026-08-26T19:59:00.000Z",
-              scheduleStatus: "confirmed",
-            },
-          ],
-          collaborationPeriods: [
-            {
-              effectiveFrom: "2026-08-19T20:00:00.000Z",
-              effectiveUntil: "2026-09-09T19:59:00.000Z",
-            },
-          ],
-          seedProvenanceHash: CERTIFIED_FORECAST_SEED_PROVENANCE_HASH,
-        }),
-      )
-      .digest("hex");
-    expect(snapshot.sourceHash).toBe(expected);
-    expect(snapshot.version).toBe("certified-daily-v2");
+describe("bundled approved v3 authority", () => {
+  it("uses the bundled ledger instead of reconstructing a new historical authority", async () => {
+    expect(CERTIFIED_APPROVED_FORECAST.id).toBe("supply-2026-10-15-v3");
+    expect(CERTIFIED_APPROVED_FORECAST.rulesVersion).toBe("schedule-kit-v3");
+    const snapshot = await prepareCertifiedForecast("2026-10-15T05:00:00+09:00");
+    const original = CERTIFIED_APPROVED_FORECAST.certifiedSnapshot;
+    expect(snapshot.version).toBe("certified-daily-v3");
+    expect(snapshot.revision).toBe(original.revision);
+    expect(snapshot.sourceHash).toBe(original.sourceHash);
+    expect(snapshot.events).toEqual(original.events);
+    expect(snapshot.coverage.from).toBe(original.coverage.from);
+    expect(snapshot.coverage.past.complete).toBe(false);
     expect(certifiedForecastIdentityWorkspaceBound(snapshot)).toBeLessThan(
       certifiedForecastBuildWorkspaceBound(),
     );
-    expect(snapshot.revision).toBe(`${adopted?.id}:${expected.slice(0, 16)}`);
-    expect(snapshot.provenance).toContain(
-      `official_source_manifest:${CERTIFIED_FORECAST_SEED_PROVENANCE_HASH}`,
-    );
   });
 
-  it("keeps source revision stable across view generation while semantic snapshots differ", async () => {
-    const a = await prepareCertifiedForecast("2026-08-20T09:30:00+09:00");
-    const b = await prepareCertifiedForecast("2026-08-21T09:30:00+09:00");
+  it("retains source identity across views without extending the approved authority", async () => {
+    const a = await prepareCertifiedForecast("2026-10-15T05:00:00+09:00");
+    const b = await prepareCertifiedForecast("2027-01-01T05:00:00+09:00");
     expect(a.sourceHash).toBe(b.sourceHash);
     expect(a.revision).toBe(b.revision);
-    expect(a.coverage.currentDay).not.toBe(b.coverage.currentDay);
+    expect(a.events).toEqual(b.events);
+    expect(b.coverage.future.complete).toBe(false);
+    expect(b.coverage.future.missing).toContain("authority_coverage");
   });
 });

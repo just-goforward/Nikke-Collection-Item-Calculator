@@ -44,7 +44,7 @@ export function solveWaiting(
     ]);
   }
   if (!input.snapshot.coverage.future.complete)
-    return { ...waitingBase("unresolved", "future_coverage_incomplete"), bestDayRange: [0, 56] };
+    return { ...waitingBase("unresolved", "future_coverage_incomplete"), bestDayRange: [0, 14] };
   if (events.every((event) => event.refs.every((ref) => ref.count === 0))) {
     return invariantResult(context, [
       "no_random_and_no_deterministic_arrivals_in_complete_future_snapshot",

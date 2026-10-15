@@ -33,6 +33,9 @@ type ResearchShadowDiagnostics = {
 };
 
 type SolverStats = {
+  forecastId?: string;
+  forecastProfileId?: string;
+  supplyForecast?: SupplyForecastContext;
   states: number;
   exact: boolean;
   tolerance: number;
@@ -111,3 +114,5 @@ export type ResearchSolverResult = Omit<SolverResult, "best" | "stats" | "topCan
   };
   topCandidates: SolverTopCandidate[];
 };
+
+import type { SupplyForecastContext } from "../lib/supplyForecastRuntime";

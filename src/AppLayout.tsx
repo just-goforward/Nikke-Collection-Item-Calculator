@@ -29,7 +29,11 @@ import { useMobileLayout } from "./hooks/useMobileLayout";
 import { useI18n } from "./i18n/locale";
 import type { StatsRuntimeMode } from "./lib/statsRuntime";
 import { formatStagingForecastKstWindow } from "./lib/supplyForecastPresentation";
-import { resolveRuntimeSupplyForecast } from "./lib/supplyForecastRuntime";
+import {
+  resolveRuntimeSupplyForecast,
+  SUPPLY_UNAVAILABLE_MESSAGE,
+  supplyForecastEnvironment,
+} from "./lib/supplyForecastRuntime";
 import type {
   StateChangeFeedback,
   StatePanelModel,
@@ -161,12 +165,21 @@ function stagingForecastWindowText(
   });
 }
 
+function resolveAvailableRuntimeSupplyForecast(at: number) {
+  try {
+    return resolveRuntimeSupplyForecast(at);
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== SUPPLY_UNAVAILABLE_MESSAGE) throw error;
+    return null;
+  }
+}
+
 function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
   const { formatNumber, locale, t } = useI18n();
   const [forecastTimestamp, setForecastTimestamp] = useState(Date.now);
-  const runtimeForecast = resolveRuntimeSupplyForecast(forecastTimestamp);
-  const isStagingForecast = runtimeForecast.environment === "staging";
-  const profileUntil = runtimeForecast.profile.effectiveUntil;
+  const runtimeForecast = resolveAvailableRuntimeSupplyForecast(forecastTimestamp);
+  const isStagingForecast = supplyForecastEnvironment() === "staging";
+  const profileUntil = runtimeForecast?.profile.effectiveUntil ?? null;
   useEffect(() => {
     if (!isStagingForecast || profileUntil === null) return;
     const boundaryMs = Date.parse(profileUntil);
@@ -176,41 +189,46 @@ function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
     return () => window.clearTimeout(timer);
   }, [isStagingForecast, profileUntil]);
 
-  const forecastWindow = isStagingForecast
-    ? formatStagingForecastKstWindow(runtimeForecast.profile, locale)
-    : null;
+  const forecastWindow =
+    isStagingForecast && runtimeForecast
+      ? formatStagingForecastKstWindow(runtimeForecast.profile, locale)
+      : null;
   const scheduleStatusKey =
-    runtimeForecast.profile.scheduleStatus === "confirmed"
+    runtimeForecast?.profile.scheduleStatus === "confirmed"
       ? "staging.forecastStatusConfirmed"
       : "staging.forecastStatusEstimated";
   const scheduleStatus = isStagingForecast ? t(scheduleStatusKey) : "";
-  const forecastDetails = isStagingForecast ? (
-    <span
-      className={classes.stagingForecast}
-      data-testid="staging-forecast-details"
-      data-forecast-profile-id={runtimeForecast.profile.id}
-      title={t("staging.forecastAudit", {
-        forecastId: runtimeForecast.forecastId,
-        profileId: runtimeForecast.profile.id,
-      })}
-    >
-      <span className={classes.stagingForecastPeriod}>
-        {stagingForecastWindowText(forecastWindow, scheduleStatus, t)}
-      </span>
-      <span className={classes.stagingForecastGain}>
-        {t("staging.forecastGain", {
-          blue: formatNumber(runtimeForecast.profile.expectedGain.blue, 2),
-          purple: formatNumber(runtimeForecast.profile.expectedGain.purple, 2),
-          yellow: formatNumber(runtimeForecast.profile.expectedGain.yellow, 2),
-        })}
-      </span>
-    </span>
+  let forecastDetails = isStagingForecast ? (
+    <span role="alert">{t("staging.supplyUnavailable")}</span>
   ) : null;
+  if (isStagingForecast && runtimeForecast)
+    forecastDetails = (
+      <span
+        className={classes.stagingForecast}
+        data-testid="staging-forecast-details"
+        data-forecast-profile-id={runtimeForecast.profile.id}
+        title={t("staging.forecastAudit", {
+          forecastId: runtimeForecast.forecastId,
+          profileId: runtimeForecast.profile.id,
+        })}
+      >
+        <span className={classes.stagingForecastPeriod}>
+          {stagingForecastWindowText(forecastWindow, scheduleStatus, t)}
+        </span>
+        <span className={classes.stagingForecastGain}>
+          {t("staging.forecastGain", {
+            blue: formatNumber(runtimeForecast.profile.expectedGain.blue, 2),
+            purple: formatNumber(runtimeForecast.profile.expectedGain.purple, 2),
+            yellow: formatNumber(runtimeForecast.profile.expectedGain.yellow, 2),
+          })}
+        </span>
+      </span>
+    );
   if (statsMode === "staging-misconfigured") {
     return (
       <aside
         className={`${classes.stagingBanner} ${classes.stagingErrorBanner}`}
-        data-forecast-id={isStagingForecast ? runtimeForecast.forecastId : undefined}
+        data-forecast-id={isStagingForecast ? runtimeForecast?.forecastId : undefined}
         aria-label={t("staging.label")}
         role="alert"
       >
@@ -224,7 +242,7 @@ function StagingBanners({ statsMode }: { statsMode: StatsRuntimeMode }) {
   return (
     <aside
       className={classes.stagingBanner}
-      data-forecast-id={isStagingForecast ? runtimeForecast.forecastId : undefined}
+      data-forecast-id={isStagingForecast ? runtimeForecast?.forecastId : undefined}
       aria-label={t("staging.label")}
     >
       {t("staging.notice")}

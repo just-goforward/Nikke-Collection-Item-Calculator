@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SUPPLY_UNAVAILABLE_MESSAGE } from "../lib/supplyForecastRuntime";
 
 import type { PendingStatsEvent } from "./calculatorShared";
 import { consumePendingStockCorrection, solveFailurePresentation } from "./calculatorSolveFlow";
@@ -81,6 +82,13 @@ describe("consumePendingStockCorrection", () => {
 });
 
 describe("solveFailurePresentation", () => {
+  it("reports unavailable supply explicitly using the localized route message", () => {
+    expect(solveFailurePresentation(new Error(SUPPLY_UNAVAILABLE_MESSAGE))).toEqual({
+      reason: "solver_failure",
+      message: { key: "staging.supplyUnavailable" },
+    });
+  });
+
   it("explains a terminal phase2 capacity limit instead of showing a generic error", () => {
     const error = new SolverRecoveryFailure(
       new WorkerTaskError({

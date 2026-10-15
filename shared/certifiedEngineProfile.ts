@@ -1,3 +1,4 @@
+import { CERTIFIED_RECOMMENDED_HORIZON_DAYS } from "./certifiedHorizon";
 import { CERTIFIED_ENGINE_CODE_HASH } from "./generated/certifiedEngineBuild";
 import { CERTIFIED_WASM_HASH } from "./generated/certifiedWasmBuild";
 
@@ -5,7 +6,8 @@ import { CERTIFIED_WASM_HASH } from "./generated/certifiedWasmBuild";
 export type CertifiedEngineProfile = {
   id: "certified-staging-v2";
   environment: "staging";
-  schemaVersion: "certified-daily-v2";
+  schemaVersion: "certified-daily-v3";
+  recommendedHorizonDays: 14;
   priceVersion: "stock-plus-recurring-day-v1";
   solverVersion: "certified-exact-rust-wasm-v1";
   lawVersion: "documented-physical-supply-v2";
@@ -20,7 +22,8 @@ export type CertifiedEngineProfile = {
 export const CERTIFIED_STAGING_ENGINE_PROFILE: Readonly<CertifiedEngineProfile> = Object.freeze({
   id: "certified-staging-v2",
   environment: "staging",
-  schemaVersion: "certified-daily-v2",
+  schemaVersion: "certified-daily-v3",
+  recommendedHorizonDays: CERTIFIED_RECOMMENDED_HORIZON_DAYS,
   priceVersion: "stock-plus-recurring-day-v1",
   solverVersion: "certified-exact-rust-wasm-v1",
   lawVersion: "documented-physical-supply-v2",

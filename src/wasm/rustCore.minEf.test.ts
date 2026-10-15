@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { makeRustCoreExports as makeExports } from "./rustCore.test-helper";
+import {
+  HISTORICAL_SUPPLY_FORECAST,
+  makeRustCoreExports as makeExports,
+} from "./rustCore.test-helper";
 import { createRustMinEfSolver } from "./rustMinEfCore";
 import { isMemoFull } from "./rustStatus";
 
@@ -179,6 +182,7 @@ describe("rust min-E[f] memo-key boundary", () => {
   it("passes raw pieces to min-E[f] solve and caps only memo-key lookups", () => {
     const exports = makeExports();
     const solver = createRustMinEfSolver(exports);
+    solver.setSupplyForecast(HISTORICAL_SUPPLY_FORECAST);
     const policy = solver.solveRootWithCandidates(
       { grade: "SR", level: 1, exp: 0 },
       { blue: 61, purple: 121, yellow: 901 },

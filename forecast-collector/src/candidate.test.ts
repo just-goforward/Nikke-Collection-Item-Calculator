@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { DISPATCH_EXPECTED_PIECES } from "../../shared/certifiedDispatchExpectations";
+import { add, div, mul, q, ZERO } from "../../shared/certifiedRational";
+import { assertCertifiedRuntimeSupplySnapshot } from "../../shared/certifiedSupply";
 import {
-  DISPATCH_COHORT_EXPECTED_GAIN,
-  DISPATCH_DAILY_EXPECTED_GAIN,
-  enumerateDispatchExpectedGain,
-} from "../../shared/supplyForecastModel";
+  assertLedgerForecastProfiles,
+  projectSupplyReference,
+} from "../../shared/supplyForecastProjection";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
 import type { NormalizedSourceItem, ScheduleEvent } from "./types";
 
@@ -32,13 +34,37 @@ const soloEvent: ScheduleEvent = {
 };
 
 describe("forecast candidate model", () => {
-  it("independently enumerates the 0/1/2 reroll dispatch cohorts", () => {
-    expect(enumerateDispatchExpectedGain(0)).toEqual(DISPATCH_COHORT_EXPECTED_GAIN.noReroll);
-    expect(enumerateDispatchExpectedGain(1)).toEqual(DISPATCH_COHORT_EXPECTED_GAIN.oneReroll);
-    expect(enumerateDispatchExpectedGain(2)).toEqual(DISPATCH_COHORT_EXPECTED_GAIN.twoRerolls);
-    expect(DISPATCH_DAILY_EXPECTED_GAIN.blue).toBeCloseTo(8.947399682, 9);
-    expect(DISPATCH_DAILY_EXPECTED_GAIN.purple).toBeCloseTo(2.014546824, 9);
-    expect(DISPATCH_DAILY_EXPECTED_GAIN.yellow).toBeCloseTo(0.71420816, 9);
+  it("projects the exact 1:2:3:1 dispatch mix plus Tuesday boxes and Wednesday kits", async () => {
+    const now = Date.parse("2026-08-28T00:00:00Z");
+    const resolved = resolveSoloSchedule([soloEvent], now);
+    if (!resolved) throw new Error("Expected a resolved schedule.");
+    const result = await buildForecastCandidate(
+      resolved,
+      [],
+      { status: "x_unavailable", sourceItem: null, reason: "test" },
+      now,
+      1,
+    );
+    const snapshot = assertCertifiedRuntimeSupplySnapshot(result.candidate.certifiedSnapshot);
+    const from = Date.parse(snapshot.asOf);
+    const projection = projectSupplyReference(snapshot, {
+      from,
+      until: from + 7 * 86_400_000,
+      scheduleStatus: "confirmed",
+    });
+    if (!projection.available) throw new Error(projection.reason);
+    const daily = [0, 1, 2].map((color) =>
+      div(
+        DISPATCH_EXPECTED_PIECES.reduce(
+          (total, row, cohort) => add(total, mul(row[color] ?? ZERO, q([1, 2, 3, 1][cohort] ?? 0))),
+          ZERO,
+        ),
+        q(7),
+      ),
+    );
+    expect(projection.expected).toEqual(
+      daily.map((value, color) => add(mul(value, q(7)), [q(55, 2), q(12), q(1)][color] ?? ZERO)),
+    );
   });
 
   it("keeps an active Solo Raid after day 3 and supplies later estimated cycles", async () => {
@@ -57,9 +83,14 @@ describe("forecast candidate model", () => {
 
     expect(result.payloadHash).toMatch(/^[a-f0-9]{64}$/);
     expect(result.candidate.forecastId).toBe("supply-2026-08-24-v1");
-    expect(result.candidate.profiles.at(-1)?.effectiveUntil).toBeNull();
-    expect(result.candidate.rulesVersion).toBe("schedule-kit-v2");
-    expect(result.candidate.payloadVersion).toBe(3);
+    expect(result.candidate.profiles.at(-1)?.effectiveUntil).not.toBeNull();
+    expect(result.candidate.rulesVersion).toBe("schedule-kit-v3");
+    expect(result.candidate.payloadVersion).toBe(4);
+    const ledger = assertCertifiedRuntimeSupplySnapshot(result.candidate.certifiedSnapshot);
+    expect(ledger.version).toBe("certified-daily-v3");
+    expect(() =>
+      assertLedgerForecastProfiles(result.candidate.forecastId, ledger, result.candidate.profiles),
+    ).not.toThrow();
     expect(result.candidate.schedule.soloPeriods).toHaveLength(resolved.soloEvents.length);
     expect(result.candidate.warnings).toContain(
       "X is advisory and is evaluated during proposal review.",
@@ -134,6 +165,30 @@ describe("forecast candidate model", () => {
     );
 
     expect(first.candidate.candidateId).not.toBe(nextDay.candidate.candidateId);
+  });
+
+  it("keeps same-content identity across revision allocation and changes it for new evidence", async () => {
+    const now = Date.parse("2026-08-24T00:00:00Z");
+    const resolved = resolveSoloSchedule([soloEvent], now);
+    if (!resolved) throw new Error("Expected a resolved schedule.");
+    const probe = { status: "x_unavailable" as const, sourceItem: null, reason: "test" };
+    const first = await buildForecastCandidate(resolved, [], probe, now, 1);
+    const replay = await buildForecastCandidate(resolved, [], probe, now + 1000, 2);
+    expect(replay.candidate.candidateId).toBe(first.candidate.candidateId);
+    expect(replay.candidate.certifiedSnapshot).toEqual(first.candidate.certifiedSnapshot);
+    const changed = await buildForecastCandidate(
+      {
+        ...resolved,
+        evidenceEvents: [
+          { ...soloEvent, sourceItem: { ...sourceItem, contentHash: "b".repeat(64) } },
+        ],
+      },
+      [],
+      probe,
+      now,
+      2,
+    );
+    expect(changed.candidate.candidateId).not.toBe(first.candidate.candidateId);
   });
 
   it("ignores regular Co-op dates and doubles only confirmed collaboration Tuesdays", async () => {

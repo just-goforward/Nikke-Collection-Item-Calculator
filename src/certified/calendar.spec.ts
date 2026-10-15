@@ -4,6 +4,7 @@ import {
   buildCertifiedSupplySnapshot,
   type CertifiedSupplyEvent,
 } from "../../shared/certifiedSupply";
+import { eventOffset, futureEvents } from "./events";
 import { solveCertified } from "./solver";
 import type { CertifiedInput } from "./types";
 
@@ -34,6 +35,7 @@ function request(events: CertifiedSupplyEvent[], receivedEventIds: string[] = []
   });
   const snapshot = {
     ...base,
+    version: "certified-daily-v2" as const,
     events,
     rules: [
       {
@@ -59,6 +61,17 @@ function request(events: CertifiedSupplyEvent[], receivedEventIds: string[] = []
   };
 }
 describe("certified availability timing", () => {
+  it("evaluates only days 0 through 14 and never consumes day 15 or later arrivals", () => {
+    const input = request([event(1), event(15), event(56)]);
+    expect(futureEvents(input).map((arrival) => eventOffset(input, arrival))).toEqual([1]);
+    const result = solveCertified(input);
+    expect(result.waiting.horizonDays).toBe(14);
+    expect(result.waiting.evaluatedDays).toEqual(Array.from({ length: 15 }, (_, day) => day));
+    expect(result.waiting.recommendedDays).toBe(1);
+    const laterOnly = solveCertified(request([event(15), event(56)]));
+    expect(laterOnly.waiting.recommendedDays).toBe(0);
+    expect(laterOnly.waiting.value?.successP).toEqual(toWire(q(0)));
+  });
   it("puts a later current-day reward at waiting day1 while D0 uses input stock", () => {
     const result = solveCertified(request([event(0, "2026-08-20T10:00:00.000Z")]));
     expect(result.current?.value.successP).toEqual(toWire(q(0)));

@@ -1,5 +1,10 @@
 import { z } from "zod/mini";
 import { type CertifiedSupplySnapshot, isCertifiedSupplySnapshot } from "./certifiedSupply.ts";
+import {
+  assertLedgerForecastProfiles,
+  buildScheduleForecastProfiles,
+  SUPPLY_RULES_VERSION,
+} from "./supplyForecastProjection.ts";
 
 const gainSchema = z.object({
   blue: z.number().check(z.minimum(0)),
@@ -22,13 +27,13 @@ const scheduledPeriodSchema = z.object({
   scheduleStatus: z.enum(["confirmed", "estimated"]),
 });
 
-export const SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION = 3 as const;
+export const SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION = 4 as const;
 
-export const supplyForecastCandidateSchema = z.object({
-  payloadVersion: z.literal(SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION),
+const candidateSchema = z.object({
+  payloadVersion: z.union([z.literal(3), z.literal(SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION)]),
   candidateId: z.string().check(z.regex(/^forecast-[a-z0-9-]{8,120}$/)),
   forecastId: z.string().check(z.regex(/^supply-\d{4}-\d{2}-\d{2}-v\d+$/)),
-  rulesVersion: z.literal("schedule-kit-v2"),
+  rulesVersion: z.enum(["schedule-kit-v2", "schedule-kit-v3"]),
   dispatchPolicyId: z.literal("dispatch-policy-v1"),
   generatedAt: offsetTimestampSchema,
   sourceStatus: z.enum(["crosschecked", "x_unavailable", "conflict"]),
@@ -60,12 +65,33 @@ export const supplyForecastCandidateSchema = z.object({
         effectiveUntil: z.nullable(offsetTimestampSchema),
         scheduleStatus: z.enum(["confirmed", "estimated"]),
         expectedGain: gainSchema,
+        referenceFrom: z.optional(offsetTimestampSchema),
+        referenceUntil: z.optional(offsetTimestampSchema),
+        referenceDays: z.optional(z.number().check(z.minimum(1))),
       }),
     )
-    .check(z.minLength(1), z.maxLength(80)),
+    .check(z.maxLength(80)),
   warnings: z.array(z.string().check(z.minLength(1), z.maxLength(300))).check(z.maxLength(20)),
   certifiedSnapshot: z.optional(z.custom<CertifiedSupplySnapshot>(isCertifiedSupplySnapshot)),
 });
+
+export const supplyForecastCandidateSchema = candidateSchema.check(
+  z.refine((candidate) => {
+    if (candidate.payloadVersion === 3)
+      return candidate.rulesVersion === "schedule-kit-v2" && candidate.profiles.length > 0;
+    if (candidate.rulesVersion !== "schedule-kit-v3" || !candidate.certifiedSnapshot) return false;
+    try {
+      assertLedgerForecastProfiles(
+        candidate.forecastId,
+        candidate.certifiedSnapshot,
+        candidate.profiles,
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }),
+);
 
 export type SupplyForecastCandidate = z.infer<typeof supplyForecastCandidateSchema>;
 
@@ -78,7 +104,42 @@ export type SupplyForecastCandidateEnvelope = z.infer<typeof supplyForecastCandi
 
 export const FORECAST_SOURCE_HOSTS = new Set(["game.naver.com", "x.com"]);
 
+/** Construct profiles inside the trust boundary, rather than recomputing them to admit them. */
+export function buildV3SupplyForecastCandidate(
+  input: Record<string, unknown> & {
+    forecastId: string;
+    certifiedSnapshot: CertifiedSupplySnapshot;
+  },
+): SupplyForecastCandidate {
+  const profiles = buildScheduleForecastProfiles({
+    forecastId: input.forecastId,
+    effectiveFrom: input.certifiedSnapshot.asOf,
+    certifiedSnapshot: input.certifiedSnapshot,
+  });
+  const candidate = candidateSchema.parse({
+    ...input,
+    payloadVersion: SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION,
+    rulesVersion: SUPPLY_RULES_VERSION,
+    profiles,
+  });
+  assertCandidateContent(candidate);
+  return candidate;
+}
+
 export function assertForecastCandidateInvariants(candidate: SupplyForecastCandidate) {
+  if (candidate.rulesVersion === "schedule-kit-v3") {
+    if (candidate.payloadVersion !== 4 || !candidate.certifiedSnapshot)
+      throw new Error("v3_forecast_requires_certified_snapshot");
+    assertLedgerForecastProfiles(
+      candidate.forecastId,
+      candidate.certifiedSnapshot,
+      candidate.profiles,
+    );
+  }
+  assertCandidateContent(candidate);
+}
+
+function assertCandidateContent(candidate: SupplyForecastCandidate) {
   const soloStart = Date.parse(candidate.schedule.soloStart);
   const soloEnd = Date.parse(candidate.schedule.soloEnd);
   if (!(soloEnd > soloStart)) throw new Error("Solo Raid schedule is inverted.");
@@ -143,10 +204,14 @@ function assertProfileSequence(candidate: SupplyForecastCandidate) {
       throw new Error(`Profile does not belong to ${candidate.forecastId}.`);
     }
     const next = candidate.profiles[index + 1];
-    if (next && current.effectiveUntil !== next.effectiveFrom) {
+    if (
+      next &&
+      candidate.rulesVersion === "schedule-kit-v2" &&
+      current.effectiveUntil !== next.effectiveFrom
+    ) {
       throw new Error("Forecast profiles are not contiguous.");
     }
-    if (!next && current.effectiveUntil !== null) {
+    if (!next && candidate.rulesVersion === "schedule-kit-v2" && current.effectiveUntil !== null) {
       throw new Error("Final forecast profile must be open-ended.");
     }
     for (const kit of ["blue", "purple", "yellow"] as const) {

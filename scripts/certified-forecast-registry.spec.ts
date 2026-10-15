@@ -35,6 +35,8 @@ describe("approved staging registry carries the certified daily contract", () =>
       ...snapshot,
       version: "certified-daily-v1" as const,
       laws: LEGACY_CERTIFIED_SUPPLY_LAWS,
+      rules: snapshot.rules.map(({ weeklyFixed: _weeklyFixed, ...rule }) => rule),
+      events: snapshot.events.filter((event) => event.kind !== "weekly-kits"),
     };
     const entry = forecastRegistryEntry({ ...candidate, certifiedSnapshot: legacy });
     expect(() =>

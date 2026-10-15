@@ -1,17 +1,12 @@
+import { gameDayStartCeilMs, gameDayStartMs } from "../../shared/gameDay";
 import { deriveSoloRaidCadenceDays, SOLO_RAID_CADENCE_SUMMARY } from "../../shared/soloRaidCadence";
+import { buildScheduleForecastSnapshot } from "../../shared/supplyForecastBuild";
+import { buildV3SupplyForecastCandidate } from "../../shared/supplyForecastCandidate";
 import {
-  assertForecastCandidateInvariants,
-  SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION,
-  supplyForecastCandidateSchema,
-} from "../../shared/supplyForecastCandidate";
-import {
-  buildScheduleForecastProfiles,
   DISPATCH_POLICY_ID,
-  gameDayStartCeilMs,
-  gameDayStartMs,
   SUPPLY_PROFILE_HORIZON_DAYS,
   SUPPLY_RULES_VERSION,
-} from "../../shared/supplyForecastModel";
+} from "../../shared/supplyForecastProjection";
 import { sha256Hex, stableJson } from "./crypto";
 import type {
   CandidateBuildResult,
@@ -156,23 +151,7 @@ export async function buildForecastCandidate(
     ...relevantCollaborationEvents.map((event) => event.sourceItem),
   ];
   if (xProbe.sourceItem) sourceEvidence.push(xProbe.sourceItem);
-  const evidenceByKey = new Map<string, NormalizedSourceItem>();
-  for (const item of sourceEvidence) {
-    const key = `${item.source}:${item.itemId}`;
-    const previous = evidenceByKey.get(key);
-    if (previous && previous.contentHash !== item.contentHash) {
-      throw new Error("candidate_source_content_hash_conflict");
-    }
-    evidenceByKey.set(key, item);
-  }
-  const deduplicatedEvidence = [...evidenceByKey.values()].map((item) => ({
-    source: item.source,
-    itemId: item.itemId,
-    url: item.url,
-    publishedAt: item.publishedAt,
-    excerpt: item.excerpt,
-    contentHash: item.contentHash,
-  }));
+  const deduplicatedEvidence = candidateEvidence(sourceEvidence);
   const collaborationPeriods = relevantCollaborationEvents
     .map((event) => ({ effectiveFrom: event.startsAt, effectiveUntil: event.endsAt }))
     .filter(uniquePeriod)
@@ -183,12 +162,6 @@ export async function buildForecastCandidate(
         left.effectiveFrom.localeCompare(right.effectiveFrom) ||
         left.effectiveUntil.localeCompare(right.effectiveUntil),
     );
-  const profiles = buildScheduleForecastProfiles({
-    forecastId,
-    effectiveFrom: generatedAt,
-    soloPeriods,
-    collaborationPeriods,
-  });
   const identity = stableJson({
     forecastDate,
     schedule: {
@@ -202,12 +175,23 @@ export async function buildForecastCandidate(
     sourceStatus: xProbe.status,
     sourceHashes: deduplicatedEvidence.map((evidence) => evidence.contentHash).sort(),
   });
-  const candidateId = `forecast-${(await sha256Hex(identity)).slice(0, 24)}`;
-  const candidate = supplyForecastCandidateSchema.parse({
-    payloadVersion: SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION,
+  const sourceHash = await sha256Hex(identity);
+  const certifiedSnapshot = buildScheduleForecastSnapshot({
+    asOf: generatedAt,
+    revision: sourceHash,
+    sourceHash,
+    sourceStatus: "uncertain",
+    soloPeriods,
+    collaborationPeriods,
+    provenance: deduplicatedEvidence.map((evidence) => evidence.url).sort(),
+  });
+  const ledgerHash = await sha256Hex(stableJson(certifiedSnapshot));
+  const candidateId = `forecast-${(
+    await sha256Hex(stableJson({ rulesVersion: SUPPLY_RULES_VERSION, sourceHash, ledgerHash }))
+  ).slice(0, 24)}`;
+  const candidate = buildV3SupplyForecastCandidate({
     candidateId,
     forecastId,
-    rulesVersion: SUPPLY_RULES_VERSION,
     dispatchPolicyId: DISPATCH_POLICY_ID,
     generatedAt,
     sourceStatus: xProbe.status,
@@ -220,7 +204,7 @@ export async function buildForecastCandidate(
       collaborationPeriods,
     },
     sourceEvidence: deduplicatedEvidence,
-    profiles,
+    certifiedSnapshot,
     warnings: [
       ...(soloPeriods.some((period) => period.scheduleStatus === "estimated")
         ? ["Some Solo Raid reference windows use cadence estimates."]
@@ -234,8 +218,27 @@ export async function buildForecastCandidate(
       ...(xProbe.status === "conflict" ? ["Official sources report conflicting schedules."] : []),
     ],
   });
-  assertForecastCandidateInvariants(candidate);
   return { candidate, payloadHash: await sha256Hex(stableJson(candidate)) };
+}
+
+function candidateEvidence(sourceEvidence: readonly NormalizedSourceItem[]) {
+  const evidenceByKey = new Map<string, NormalizedSourceItem>();
+  for (const item of sourceEvidence) {
+    const key = `${item.source}:${item.itemId}`;
+    const previous = evidenceByKey.get(key);
+    if (previous && previous.contentHash !== item.contentHash) {
+      throw new Error("candidate_source_content_hash_conflict");
+    }
+    evidenceByKey.set(key, item);
+  }
+  return [...evidenceByKey.values()].map((item) => ({
+    source: item.source,
+    itemId: item.itemId,
+    url: item.url,
+    publishedAt: item.publishedAt,
+    excerpt: item.excerpt,
+    contentHash: item.contentHash,
+  }));
 }
 
 function estimatedSoloEvent(

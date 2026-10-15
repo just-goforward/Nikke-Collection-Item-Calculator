@@ -52,8 +52,8 @@ export async function solveRustPhase2(
   const earlyResult = buildRustEarlyResult(normalizedInput, RUST_PHASE2_SOLVER_VERSION);
   if (earlyResult) return earlyResult;
 
-  const solver = await getRustPhase2Solver(wasmUrl);
   const supplyForecast = options.supplyForecast ?? activeSupplyForecastContext();
+  const solver = await getRustPhase2Solver(wasmUrl, supplyForecast);
   solver.setSupplyForecast(supplyForecast);
   const { policy, retried } = buildPolicyWithMemoRetry(solver, normalizedInput, options);
   const root = policy.root;
@@ -111,6 +111,7 @@ export async function solveRustPhase2(
       memoryStrategy: RUST_MEMORY_STRATEGY,
       forecastId: supplyForecast.forecastId,
       forecastProfileId: supplyForecast.forecastProfileId,
+      supplyForecast,
       phase2MemoRetried: retried,
       phase2MemoTier: solver.memoTier(),
       phase2MemoSlots: solver.memoCapacity(),

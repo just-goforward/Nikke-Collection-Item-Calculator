@@ -4,6 +4,7 @@ import {
   type CertifiedSupplyLaw,
 } from "./certifiedSupplyLaws.ts";
 import {
+  CERTIFIED_SUPPLY_HISTORY_DAYS,
   CERTIFIED_SUPPLY_VERSION,
   type CertifiedSoloRound,
   type CertifiedSourceStatus,
@@ -22,6 +23,7 @@ import {
   transitionCertifiedSoloDelay,
 } from "./certifiedSupplyModel.ts";
 import { validateSnapshot } from "./certifiedSupplyValidation.ts";
+import { gameDayKey, gameDayStartCeilMs, gameDayStartMs } from "./gameDay.ts";
 import {
   deriveExactSoloRaidCadence,
   type ExactSoloRaidCadence,
@@ -30,7 +32,6 @@ import {
   type SoloRaidRound,
   soloRaidSourceUrl,
 } from "./soloRaidCadence.ts";
-import { gameDayKey, gameDayStartCeilMs, gameDayStartMs } from "./supplyForecastModel.ts";
 
 type Period = CertifiedSupplyBuildInput["soloPeriods"][number];
 type BuildWindow = {
@@ -62,7 +63,7 @@ function buildWindow(input: CertifiedSupplyBuildInput): BuildWindow {
   return {
     now,
     today,
-    from: today - 56 * DAY_MS,
+    from: today - CERTIFIED_SUPPLY_HISTORY_DAYS * DAY_MS,
     until: today + (horizon + 1) * DAY_MS,
     sourceStatus: input.sourceStatus ?? "uncertain",
     warnings: [],
@@ -214,7 +215,7 @@ function soloLedger(input: CertifiedSupplyBuildInput, window: BuildWindow, state
 }
 
 function buildRules(input: CertifiedSupplyBuildInput, today: number): CertifiedSupplyRule[] {
-  const start = input.historyCoverage?.rewardRules ? input.historyCoverage.from : iso(today);
+  const start = iso(today - CERTIFIED_SUPPLY_HISTORY_DAYS * DAY_MS);
   const rules = JSON.parse(
     JSON.stringify(input.rules ?? [createCertifiedSupplyRule(start)]),
   ) as CertifiedSupplyRule[];
@@ -243,7 +244,7 @@ function collaborationWindows(input: CertifiedSupplyBuildInput): Collaboration[]
 }
 
 function recurringEvent(
-  kind: "dispatch" | "shop",
+  kind: "dispatch" | "shop" | "weekly-kits",
   at: number,
   refs: readonly CertifiedLawRef[],
   rule: CertifiedSupplyRule,
@@ -257,7 +258,7 @@ function recurringEvent(
     status: "confirmed",
     refs,
     ruleId: rule.id,
-    expiresAt: null,
+    expiresAt: kind === "weekly-kits" ? iso(at + 6 * DAY_MS) : null,
     sourceIds: rule.provenance,
   };
 }
@@ -278,11 +279,15 @@ function recurringEvents(
       continue;
     }
     events.push(recurringEvent("dispatch", at, rule.dispatch, rule));
-    if (new Date(at + 9 * 3_600_000).getUTCDay() !== 2) continue;
-    const collaboration = collaborations.some((period) => at >= period.start && at < period.end);
-    events.push(
-      recurringEvent("shop", at, collaboration ? rule.collaborationShop : rule.normalShop, rule),
-    );
+    const weekday = new Date(at + 9 * 3_600_000).getUTCDay();
+    if (weekday === 2) {
+      const collaboration = collaborations.some((period) => at >= period.start && at < period.end);
+      events.push(
+        recurringEvent("shop", at, collaboration ? rule.collaborationShop : rule.normalShop, rule),
+      );
+    }
+    if (weekday === 3 && rule.weeklyFixed)
+      events.push(recurringEvent("weekly-kits", at, rule.weeklyFixed, rule));
   }
   return { events, missingPastRules, missingFutureRules };
 }
@@ -422,7 +427,7 @@ export function buildSnapshot(input: CertifiedSupplyBuildInput): CertifiedSupply
       past: {
         from: iso(window.from),
         until: iso(window.today),
-        days: 56,
+        days: CERTIFIED_SUPPLY_HISTORY_DAYS,
         complete: missing.length === 0,
         missing,
       },
@@ -437,7 +442,7 @@ export function buildSnapshot(input: CertifiedSupplyBuildInput): CertifiedSupply
     warnings: [...new Set(window.warnings)],
     provenance: [
       ...(input.provenance ?? []),
-      "schedule-kit-v2",
+      "schedule-kit-v3",
       "documented-physical-supply-v2",
       ...state.cadence.sourceUrls,
     ],

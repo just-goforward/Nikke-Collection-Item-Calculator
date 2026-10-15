@@ -35,25 +35,67 @@ export function independentFourthCohort(): QTriple {
   return mapTriple(fixture.expectedPieces, fromWire);
 }
 
+type Snapshot = Parameters<typeof independentApprovedPricing>[0];
+type FourPriors = readonly [ExactQ, ExactQ, ExactQ, ExactQ];
+type FourCohorts = readonly [QTriple, QTriple, QTriple, QTriple];
+/** Public v3 rule: every Wednesday 05:00 KST grants exactly 10 blue, 10 purple and
+ * 0 yellow pieces, independent of reroll cohort and collaboration periods. */
+export const V3_WEEKLY_FIXED: QTriple = [q(10), q(10), q(0)];
+const V3_RULE_ID = "schedule-kit-v3:documented-physical-supply-v2";
+const PHYSICAL_LAW_VERSION = "documented-physical-supply-v2";
+
+function weeklySupply(snapshot: Snapshot): QTriple {
+  const rule = snapshot.rules[0];
+  assert.ok(rule);
+  if (snapshot.version === "certified-daily-v2") {
+    assert.equal(rule.weeklyFixed, undefined);
+    return [q(0), q(0), q(0)];
+  }
+  assert.equal(snapshot.version, "certified-daily-v3");
+  assert.equal(rule.id, V3_RULE_ID);
+  // v3 forbids finite (override) laws; only the documented physical laws remain.
+  assert.ok(snapshot.laws.length > 0);
+  for (const law of snapshot.laws) {
+    assert.notEqual(law.kind, "finite");
+    assert.equal(law.modelVersion, PHYSICAL_LAW_VERSION);
+  }
+  assert.deepEqual(rule.weeklyFixed, [{ lawId: "deterministic:10,10,0", count: 1 }]);
+  return V3_WEEKLY_FIXED;
+}
+
+/** Four-prior recurring rate for v2 or v3 with explicitly supplied cohort expectations.
+ * The weekly fixed grant enters the shop term: (normal shop + weekly) / 7. */
+export function priceFourCohortSupply(
+  snapshot: Snapshot,
+  priors: FourPriors,
+  cohorts: FourCohorts,
+): QTriple {
+  const weekly = weeklySupply(snapshot);
+  assert.ok(priors.every((prior) => cmp(prior, q(0)) >= 0));
+  assert.equal(cmp(priors.reduce(add, q(0)), q(1)), 0);
+  // Reuse the historical public-rule checks and exact shop/solo terms. Removing
+  // cohort-0 dispatch from its rate leaves the cohort-independent common supply.
+  const frozen0 = frozenIndependentCohorts()[0];
+  const rate0 = independentApprovedPricing(snapshot, [q(1), q(0), q(0)]);
+  return makeTriple((color) => {
+    let rate = add(rate0[color], q(-frozen0[color].n, frozen0[color].d));
+    rate = add(rate, mul(weekly[color], q(1, 7)));
+    for (const cohort of [0, 1, 2, 3] as const)
+      rate = add(rate, mul(priors[cohort], cohorts[cohort][color]));
+    return rate;
+  });
+}
+
 export function independentVersionedPricing(
-  snapshot: Parameters<typeof independentApprovedPricing>[0],
+  snapshot: Snapshot,
   priors: IndependentPriors,
 ): QTriple {
   if (priors.length === 3) {
     assert.equal(snapshot.version, "certified-daily-v1");
     return independentApprovedPricing(snapshot, priors);
   }
-  assert.equal(snapshot.version, "certified-daily-v2");
-  const cohorts = [...frozenIndependentCohorts(), independentFourthCohort()] as const;
-  assert.ok(priors.every((prior) => cmp(prior, q(0)) >= 0));
-  assert.equal(cmp(priors.reduce(add, q(0)), q(1)), 0);
-  // Reuse the historical public-rule checks and exact shop/solo terms. Removing
-  // cohort-0 dispatch from its rate leaves the cohort-independent common supply.
-  const rate0 = independentApprovedPricing(snapshot, [q(1), q(0), q(0)]);
-  return makeTriple((color) => {
-    let rate = add(rate0[color], q(-cohorts[0][color].n, cohorts[0][color].d));
-    for (const cohort of [0, 1, 2, 3] as const)
-      rate = add(rate, mul(priors[cohort], cohorts[cohort][color]));
-    return rate;
-  });
+  return priceFourCohortSupply(snapshot, priors, [
+    ...frozenIndependentCohorts(),
+    independentFourthCohort(),
+  ]);
 }

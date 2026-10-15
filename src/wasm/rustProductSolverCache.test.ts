@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ACTIVE_SUPPLY_FORECAST_ID } from "../../shared/generated/supplyForecast";
 import { makeRustCoreExports as makeExports } from "./rustCore.test-helper";
 import { createRustMinEfSolver } from "./rustMinEfCore";
 import { normalizeRustProductInput } from "./rustProductInput";
@@ -28,7 +29,7 @@ describe("rust product solver cache", () => {
       tolerance: 0,
     });
 
-    expect(key).toMatch(/^supply-2026-08-21-v1\|/);
+    expect(key.split("|")[0]).toBe(ACTIVE_SUPPLY_FORECAST_ID);
     rememberLastMinEfPolicy(key, policy);
 
     expect(readLastMinEfPolicy(key)).toBe(policy);

@@ -9,6 +9,14 @@ import type { CertifiedInput, CertifiedOptions, CertifiedOutput } from "./types"
 import { validate } from "./validation";
 import { WasmKernel } from "./wasmBackend";
 
+function isMinimumWaitEnabled(input: CertifiedInput): boolean {
+  return (
+    input.computeMinimumWait !== false &&
+    (input.snapshot?.version === "certified-daily-v2" ||
+      input.snapshot?.version === "certified-daily-v3")
+  );
+}
+
 function claimRequired(
   output: CertifiedOutput,
   input: CertifiedInput,
@@ -44,7 +52,7 @@ function failedRequest(
   output.status = output.current ? "partial" : "refused";
   output.waiting = {
     ...waitingBase("unresolved", reason),
-    bestDayRange: output.current ? [0, 56] : null,
+    bestDayRange: output.current ? [0, 14] : null,
   };
   applyTrapWaitingBounds(output, kernel, phase);
 }
@@ -56,7 +64,7 @@ function applyTrapWaitingBounds(
 ): void {
   if (!["waiting", "minimum_wait"].includes(phase) || !kernel?.hasFailed || !output.current) return;
   // A trap loses all unpublished Rust progress. Only D0 is established;
-  // nonnegative inventory coupling still gives this conservative H56 bound.
+  // nonnegative inventory coupling still gives this conservative H14 bound.
   const lower = output.current.value.successP;
   output.waiting.evaluatedDays = [0];
   output.waiting.successProbabilityInterval = { lower, upper: toWire(q(1)) };
@@ -68,7 +76,7 @@ function applyTrapWaitingBounds(
 }
 
 /** Host owns validation, trust and calendar normalization. Pricing, physical
- * laws, current policy and H56 certificates are computed entirely in Rust. */
+ * laws, current policy and H14 certificates are computed entirely in Rust. */
 export function solveCertifiedWasm(
   module: WebAssembly.Module,
   input: CertifiedInput,
@@ -79,8 +87,7 @@ export function solveCertifiedWasm(
   let kernel: WasmKernel | null = null;
   let phase: NonNullable<CertifiedOutput["refusal"]>["phase"] = "input";
   const output = createOutput(input);
-  const minimumEnabled =
-    input.computeMinimumWait !== false && input.snapshot?.version === "certified-daily-v2";
+  const minimumEnabled = isMinimumWaitEnabled(input);
   output.minimumWait = minimumWaitBase(
     null,
     minimumEnabled ? "unknown" : "not_requested",
@@ -119,7 +126,7 @@ export function solveCertifiedWasm(
       minimumEnabled ? "minimum_wait_in_progress" : null,
     );
     output.status = "partial";
-    output.waiting = { ...waitingBase("unresolved", "waiting_in_progress"), bestDayRange: [0, 56] };
+    output.waiting = { ...waitingBase("unresolved", "waiting_in_progress"), bestDayRange: [0, 14] };
     diagnostics();
     options.onCurrent?.(structuredClone(output));
     const mustClaim = claimRequired(output, input, minimumEnabled);
@@ -129,7 +136,7 @@ export function solveCertifiedWasm(
       output.current = selected.current;
       output.minimumWait = selected.minimumWait;
       diagnostics();
-      // Publish the bound label/tie choice before H56 can exhaust the remaining
+      // Publish the bound label/tie choice before H14 can exhaust the remaining
       // shared request budget. A later interruption retains this certificate.
       options.onCurrent?.(structuredClone(output));
     }

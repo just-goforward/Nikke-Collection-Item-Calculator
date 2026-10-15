@@ -5,6 +5,27 @@ import {
 
 export const TEST_TURNSTILE_TOKEN = "valid-turnstile-token-for-tests";
 
+type ForecastIdentity = { forecastId: string; forecastProfileId: string };
+const activeForecastIdentity: ForecastIdentity = {
+  forecastId: ACTIVE_SUPPLY_FORECAST_ID,
+  forecastProfileId: ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID,
+};
+
+export const FORECAST_COMPATIBILITY_CASES = [
+  {
+    name: "historical",
+    forecastId: "supply-2026-08-21-v1",
+    forecastProfileId: "supply-2026-08-21-v1@fixed",
+    rulesVersion: "legacy-28-day-v1",
+  },
+  {
+    name: "v3",
+    forecastId: "supply-2026-10-15-v3",
+    forecastProfileId: "supply-2026-10-15-v3@2026-10-14T20:00:00.000Z",
+    rulesVersion: "schedule-kit-v3",
+  },
+] as const;
+
 export function kitResultEvent(eventId: string) {
   return {
     version: 1,
@@ -26,7 +47,10 @@ export function kitResultEvent(eventId: string) {
   };
 }
 
-export function solverDiagnosticEvent(eventId: string) {
+export function solverDiagnosticEvent(
+  eventId: string,
+  identity: ForecastIdentity = activeForecastIdentity,
+) {
   return {
     version: 1,
     eventId,
@@ -35,8 +59,8 @@ export function solverDiagnosticEvent(eventId: string) {
     event: {
       kind: "solver_diagnostic",
       diagnosticVersion: 8,
-      forecastId: ACTIVE_SUPPLY_FORECAST_ID,
-      forecastProfileId: ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID,
+      forecastId: identity.forecastId,
+      forecastProfileId: identity.forecastProfileId,
       locale: "ko",
       solverVersion: "phase1",
       solverPhase: "phase1",
@@ -72,7 +96,10 @@ export function solverDiagnosticEvent(eventId: string) {
   };
 }
 
-export function solverRecoveryEvent(eventId: string) {
+export function solverRecoveryEvent(
+  eventId: string,
+  identity: ForecastIdentity = activeForecastIdentity,
+) {
   return {
     version: 1,
     eventId,
@@ -81,8 +108,8 @@ export function solverRecoveryEvent(eventId: string) {
     event: {
       kind: "solver_recovery",
       recoveryVersion: 1,
-      forecastId: ACTIVE_SUPPLY_FORECAST_ID,
-      forecastProfileId: ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID,
+      forecastId: identity.forecastId,
+      forecastProfileId: identity.forecastProfileId,
       policyVersion: "ladder_v1",
       requestedBackend: "rust-min-ef",
       minEfExit: "memo_full",

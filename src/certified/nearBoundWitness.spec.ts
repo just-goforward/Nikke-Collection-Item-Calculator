@@ -31,7 +31,7 @@ function physicalInput(grade: "R" | "SR", blue: number): CertifiedInput {
     priceBasisStock: [blue, 200, 100],
     asOf: AS_OF,
     snapshot,
-    receivedEventIds: ["dispatch:2026-09-30"],
+    receivedEventIds: ["dispatch:2026-09-30", "weekly-kits:2026-09-30"],
   };
 }
 
@@ -60,7 +60,8 @@ describe("mixed-color physical boundary witness", () => {
     "certifies %s0 [%i,200,100] within its shared request budget",
     (grade, blue) => {
       const request = physicalInput(grade, blue);
-      expect(request.snapshot.events).toHaveLength(79);
+      // 64 dispatches, 9 Tuesdays, 10 Wednesdays and 14 future Solo days.
+      expect(request.snapshot.events).toHaveLength(97);
       const started = performance.now();
       const budgetMs = grade === "R" && blue === 300 ? 5_000 : 15_000;
       let currentAvailableMs = 0;
@@ -87,7 +88,7 @@ describe("mixed-color physical boundary witness", () => {
       expect(result.current).not.toBeNull();
       expect(result.status).toBe("completed");
       expect(result.waiting.status).toBe("certified");
-      expect(result.waiting.recommendedDays).toBe(56);
+      expect(result.waiting.recommendedDays).toBe(14);
       expect(result.waiting.value).toBeNull();
       const witness = result.waiting.strictBoundaryWitness;
       assert(witness);
@@ -109,7 +110,7 @@ describe("mixed-color physical boundary witness", () => {
           after[1] + receipt.pieces[1],
           after[2] + receipt.pieces[2],
         ];
-        if (eventOffset(request, event) !== 56)
+        if (eventOffset(request, event) !== 14)
           before = [
             before[0] + receipt.pieces[0],
             before[1] + receipt.pieces[1],
@@ -158,12 +159,12 @@ describe("unsuccessful boundary selection stays UNKNOWN", () => {
   });
   it("does not treat an exact P/B/C endpoint tie as a strict witness", () => {
     const context = tinyContext();
-    expect(nearBoundWitness(context, [], [tinyEvent(56, "deterministic:5,0,0")])).toBeNull();
+    expect(nearBoundWitness(context, [], [tinyEvent(14, "deterministic:5,0,0")])).toBeNull();
   });
   it("skips a zero-prior cohort even when only that cohort can improve", () => {
     const context = tinyContext();
     context.priors = [q(0), q(1), q(0)];
-    const event = tinyEvent(56, "cohort-test");
+    const event = tinyEvent(14, "cohort-test");
     const outcome = (blue: number) => [{ pieces: [blue, 0, 0] as const, mass: toWire(q(1)) }];
     context.input = {
       ...context.input,

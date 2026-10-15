@@ -1,4 +1,7 @@
-import { resolveRuntimeSupplyForecast } from "../lib/supplyForecastRuntime";
+import {
+  captureSupplyForecastContext,
+  type SupplyForecastContext,
+} from "../lib/supplyForecastRuntime";
 import type { KitVector, ProgressCallback, ResearchCostModel } from "./domain";
 import {
   convertState,
@@ -219,14 +222,28 @@ function solveInternal(
   return result;
 }
 
+function bindSupplyForecast(result: SolverResult, supplyForecast: SupplyForecastContext | null) {
+  if (!supplyForecast || !result.stats) return result;
+  return {
+    ...result,
+    stats: {
+      ...result.stats,
+      forecastId: supplyForecast.forecastId,
+      forecastProfileId: supplyForecast.forecastProfileId,
+      supplyForecast,
+    },
+  };
+}
+
 function solve(input: RawSolverInput, progress?: ProgressCallback): SolverResult {
-  const { profile } = resolveRuntimeSupplyForecast();
-  return solveInternal(input, progress, {
+  const supplyForecast = captureSupplyForecastContext();
+  const result = solveInternal(input, progress, {
     researchCostModel: {
       kind: "availability-pnorm",
-      expectedGain: { ...profile.expectedGain },
+      expectedGain: supplyForecast.expectedGain,
     },
   });
+  return bindSupplyForecast(result, supplyForecast);
 }
 
 function solveWithResearchCostModel(
@@ -235,13 +252,21 @@ function solveWithResearchCostModel(
   progress?: ProgressCallback,
   options: Omit<SolveExecutionOptions, "researchCostModel"> = {},
 ): ResearchSolverResult {
-  return solveInternal(input, progress, {
-    researchCostModel: model,
+  const supplyForecast =
+    model.kind === "availability-pnorm" && model.expectedGain === undefined
+      ? captureSupplyForecastContext()
+      : null;
+  const result = solveInternal(input, progress, {
+    researchCostModel:
+      supplyForecast && model.kind === "availability-pnorm"
+        ? { ...model, expectedGain: supplyForecast.expectedGain }
+        : model,
     collectGateAudit: options.collectGateAudit ?? true,
     ...(options.toleranceOverride !== undefined
       ? { toleranceOverride: options.toleranceOverride }
       : {}),
-  }) as ResearchSolverResult;
+  });
+  return bindSupplyForecast(result, supplyForecast) as ResearchSolverResult;
 }
 
 export { solve, solveWithResearchCostModel };

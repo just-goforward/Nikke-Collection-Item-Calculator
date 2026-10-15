@@ -29,13 +29,17 @@ import {
   wire,
 } from "./certified-staging-oracle.ts";
 
-const AS_OF = "2026-09-30T08:00:00.000Z";
+/** Wednesday 17:00 KST under supply rules v3 (certified-daily-v3): today's dispatch
+ * and the Wednesday 05:00 KST weekly grant are both already claimable. */
+const AS_OF = "2026-10-14T08:00:00.000Z";
+const TODAY_EVENT_IDS = ["dispatch:2026-10-14", "weekly-kits:2026-10-14"] as const;
 const KITS = ["blue", "purple", "yellow"] as const;
 let snapshot: CertifiedSupplySnapshot;
 let rates: QTriple;
 
 beforeAll(async () => {
   snapshot = await prepareCertifiedForecast(AS_OF);
+  expect(snapshot.version).toBe("certified-daily-v3");
   // V6 remains an immutable three-cohort oracle. The fourth constant is checked
   // against raw joint laws in certifiedSupplyLaws.spec.ts, not derived from a
   // solver result. Mix and price independently here using the documented terms.
@@ -45,12 +49,14 @@ beforeAll(async () => {
   const weights = [q(1, 7), q(2, 7), q(3, 7), q(1, 7)] as const;
   const shop = [q(5, 2), q(2, 7), q(1, 7)] as const;
   const solo = [q(17966, 1995), q(104, 105), q(884, 1995)] as const;
+  // v3 public rule: one deterministic (10, 10, 0) grant every Wednesday, i.e. /7 per day.
+  const weekly = [q(10, 7), q(10, 7), q(0)] as const;
   rates = makeTriple((color) => {
     const k = color as 0 | 1 | 2;
     let dispatch = q(0);
     for (const cohort of [0, 1, 2, 3] as const)
       dispatch = add(dispatch, mul(cohorts[cohort][k], weights[cohort]));
-    return add(add(dispatch, shop[k]), solo[k]);
+    return add(add(add(dispatch, shop[k]), solo[k]), weekly[k]);
   });
 });
 
@@ -58,10 +64,13 @@ function initial(
   state: CollectionState = { grade: "SR", level: 14, exp: 0 },
   stock: Triple = [45, 0, 0],
 ) {
-  const session = createCertifiedSession(snapshot.revision, state, stock);
-  const today = snapshot.events.find((event) => event.id === "dispatch:2026-09-30");
-  if (!today) throw new Error("approved_today_dispatch_missing");
-  return acknowledgeCertifiedReceipt(session, today, AS_OF);
+  let session = createCertifiedSession(snapshot.revision, state, stock);
+  for (const id of TODAY_EVENT_IDS) {
+    const today = snapshot.events.find((event) => event.id === id);
+    if (!today) throw new Error(`approved_today_event_missing:${id}`);
+    session = acknowledgeCertifiedReceipt(session, today, AS_OF);
+  }
+  return session;
 }
 
 function request(

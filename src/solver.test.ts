@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { EXPECTED_28_DAY_GAIN, SUPPLY_AVAILABILITY_PARAMS } from "./solver/domain";
+import { resolveSupplyForecastProfile } from "../shared/generated/supplyForecast";
+import * as forecastRuntime from "./lib/supplyForecastRuntime";
+import { SUPPLY_AVAILABILITY_PARAMS, selectedSupplyGain } from "./solver/domain";
 import { solve, solveWithResearchCostModel } from "./solver/solve";
+import { installSupplyForecastFixtureClock } from "./solver/supplyForecast.test-helper";
+
+installSupplyForecastFixtureClock();
 
 const KITS = ["blue", "purple", "yellow"] as const;
 type CandidateResult = {
@@ -18,7 +23,7 @@ function expectedAvailabilityCost(
   const horizonFactor = options.horizonFactor ?? SUPPLY_AVAILABILITY_PARAMS.horizon;
   const normPower = options.normPower ?? SUPPLY_AVAILABILITY_PARAMS.normPower;
   const ratios = KITS.map((kit) => {
-    const availability = stock[kit] + horizonFactor * EXPECTED_28_DAY_GAIN[kit];
+    const availability = stock[kit] + horizonFactor * selectedSupplyGain()[kit];
     if (availability <= 0) return vector[kit] > 1e-12 ? Number.POSITIVE_INFINITY : 0;
     return vector[kit] / availability;
   });
@@ -186,6 +191,45 @@ describe("solver policy", () => {
     expect(gateAudit.fixedToleranceViolationCount).toBe(0);
     expect(gateAudit.firstViolationWitness).toBeNull();
     expect(gateAudit.firstFixedToleranceViolationWitness).toBeNull();
+  });
+
+  it("resolves research gains once and leaves explicit historical gains independent of the active forecast", () => {
+    const forecastId = "supply-2026-08-21-v1";
+    const profile = resolveSupplyForecastProfile(forecastId, Date.parse("2026-08-21T00:00:00Z"));
+    if (!profile) throw new Error("historical_supply_fixture_missing");
+    const input = {
+      start: { grade: "SR" as const, level: 13, exp: 0 },
+      stock: { blue: 40, purple: 30, yellow: 20 },
+      strategy: "supply" as const,
+    };
+    const selected = vi.spyOn(forecastRuntime, "captureSupplyForecastContext").mockReturnValue({
+      forecastId,
+      forecastProfileId: profile.id,
+      expectedGain: profile.expectedGain,
+      referenceDays: profile.referenceDays ?? 28,
+    });
+    try {
+      const historical = solveWithResearchCostModel(input, { kind: "availability-pnorm" });
+      expect(selected).toHaveBeenCalledOnce();
+      const {
+        forecastId: _forecastId,
+        forecastProfileId: _forecastProfileId,
+        supplyForecast: _supplyForecast,
+        ...researchStats
+      } = historical.stats;
+      selected.mockClear().mockImplementation(() => {
+        throw new Error("explicit_gain_must_not_resolve_active_forecast");
+      });
+      expect(
+        solveWithResearchCostModel(input, {
+          kind: "availability-pnorm",
+          expectedGain: profile.expectedGain,
+        }),
+      ).toEqual({ ...historical, stats: researchStats });
+      expect(selected).not.toHaveBeenCalled();
+    } finally {
+      selected.mockRestore();
+    }
   });
 
   it("supports research-only horizon and minimax availability parameters", () => {

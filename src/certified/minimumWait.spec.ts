@@ -17,7 +17,12 @@ let module: WebAssembly.Module;
 beforeAll(async () => {
   module = await loadCertifiedWasm(() => readFile("public/certified_solver.wasm"));
 });
-function request(level = 14, exp = 2900, stock: Triple = [19, 0, 0]): CertifiedInput {
+function request(
+  level = 14,
+  exp = 2900,
+  stock: Triple = [19, 0, 0],
+  version: "certified-daily-v2" | "certified-daily-v3" = "certified-daily-v2",
+): CertifiedInput {
   const snapshot = buildCertifiedSupplySnapshot({
     asOf: AS_OF,
     revision: "minimum-wait-unit",
@@ -31,7 +36,15 @@ function request(level = 14, exp = 2900, stock: Triple = [19, 0, 0]): CertifiedI
     exp,
     stock,
     asOf: AS_OF,
-    snapshot,
+    snapshot:
+      version === "certified-daily-v3"
+        ? snapshot
+        : {
+            ...snapshot,
+            version: "certified-daily-v2",
+            rules: snapshot.rules.map(({ weeklyFixed: _weeklyFixed, ...rule }) => rule),
+            events: snapshot.events.filter((event) => event.kind !== "weekly-kits"),
+          },
     receivedEventIds: snapshot.events
       .filter((event) => Date.parse(event.at) <= Date.parse(AS_OF))
       .map((event) => event.id),
@@ -42,7 +55,19 @@ function request(level = 14, exp = 2900, stock: Triple = [19, 0, 0]): CertifiedI
 }
 
 describe("versioned batch-bound minimum-wait stage", () => {
-  it("publishes current first and its label before the separate H56 stage", () => {
+  it.each(["certified-daily-v2", "certified-daily-v3"] as const)(
+    "runs minimum-wait for %s",
+    (version) => {
+      const input = request(14, 2900, [19, 0, 0], version);
+      const result = solveCertifiedWasm(module, input);
+      expect(result.current).not.toBeNull();
+      expect(result.minimumWait?.status).not.toBe("not_requested");
+      expect(result.minimumWait?.status).not.toBe("unknown");
+      expect(result.status).toBe("completed");
+    },
+  );
+
+  it("publishes current first and its label before the separate H14 stage", () => {
     const partials: CertifiedOutput[] = [];
     const result = solveCertifiedWasm(module, request(), {
       onCurrent: (value) => partials.push(value),

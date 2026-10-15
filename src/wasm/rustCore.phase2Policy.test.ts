@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { makeRustCoreExports as makeExports } from "./rustCore.test-helper";
+import {
+  HISTORICAL_SUPPLY_FORECAST,
+  makeRustCoreExports as makeExports,
+} from "./rustCore.test-helper";
 import {
   createRustPhase2ResearchSolver as createRustPhase2Solver,
   selectExactRerankCandidate,
@@ -53,6 +56,7 @@ describe("rust phase2 policy wrapper", () => {
   it("passes raw pieces to phase2 solve and caps only memo-key lookups", () => {
     const exports = makeExports();
     const solver = createRustPhase2Solver(exports);
+    solver.setSupplyForecast(HISTORICAL_SUPPLY_FORECAST);
     const policy = solver.buildPolicy(
       { grade: "SR", level: 1, exp: 0 },
       { blue: 2_211, purple: 891, yellow: 451 },
@@ -307,6 +311,7 @@ describe("rust phase2 policy wrapper", () => {
   it("wraps current-policy exact E[f] behind the current build guard", () => {
     const exports = makeExports();
     const solver = createRustPhase2Solver(exports);
+    solver.setSupplyForecast(HISTORICAL_SUPPLY_FORECAST);
 
     solver.solveRoot({ grade: "SR", level: 1, exp: 0 }, { blue: 61, purple: 121, yellow: 901 });
     const result = solver.estimateExactExpectedCostAfterFirstActionFromCurrent(

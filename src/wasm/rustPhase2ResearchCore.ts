@@ -98,7 +98,10 @@ function rootCandidates(
   return readRootCandidates(state.exports, tolerance);
 }
 
-export function createRustPhase2ResearchSolver(exports: RustCoreExports): RustPhase2ResearchSolver {
+export function createRustPhase2ResearchSolver(
+  exports: RustCoreExports,
+  supplyForecast = activeSupplyForecastContext(),
+): RustPhase2ResearchSolver {
   exports.configureMemo?.(21);
   exports.configurePhase2Overflow?.(0);
   exports.configureNodeBudget?.(0);
@@ -108,7 +111,7 @@ export function createRustPhase2ResearchSolver(exports: RustCoreExports): RustPh
     exports,
     memoTier: 21,
     segmentedOverflow: false,
-    supplyForecast: activeSupplyForecastContext(),
+    supplyForecast: validateSupplyForecastContext(supplyForecast),
   };
   return {
     setSupplyForecast(context) {

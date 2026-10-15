@@ -22,11 +22,19 @@ const current = () =>
     collaborationPeriods: [],
   });
 const point = (blue: number) => [{ pieces: [blue, 0, 0] as const, mass: toWire(q(1)) }];
+const historical = () => {
+  const snapshot = current();
+  return {
+    ...snapshot,
+    rules: snapshot.rules.map(({ weeklyFixed: _weeklyFixed, ...rule }) => rule),
+    events: snapshot.events.filter((event) => event.kind !== "weekly-kits"),
+  };
+};
 
 describe("versioned certified cohort contracts", () => {
   it("uses the four-cohort prior, keeping three colors", () => {
     const snapshot = current();
-    expect(snapshot.version).toBe("certified-daily-v2");
+    expect(snapshot.version).toBe("certified-daily-v3");
     expect(DEFAULT_PERSONAL_COHORT_WEIGHTS).toEqual(
       [q(1, 7), q(2, 7), q(3, 7), q(1, 7)].map(toWire),
     );
@@ -34,14 +42,14 @@ describe("versioned certified cohort contracts", () => {
     const rates = certifiedRecurringRate(snapshot).map(toNumber);
     expect(rates).toHaveLength(3);
     for (const [k, expected] of [
-      20.80345338533608, 3.588725433322643, 1.4174693115540526,
+      22.23202481390751, 5.017296861894071, 1.4174693115540526,
     ].entries())
       expect(rates[k]).toBeCloseTo(expected, 10);
   });
 
   it("reads historical snapshots with their original equal three-cohort semantics", () => {
     const legacy = {
-      ...current(),
+      ...historical(),
       version: "certified-daily-v1" as const,
       laws: LEGACY_CERTIFIED_SUPPLY_LAWS,
     };
@@ -68,7 +76,7 @@ describe("versioned certified cohort contracts", () => {
       outcomesByCohort: [point(1), point(2), point(3)],
     };
     const legacy = {
-      ...current(),
+      ...historical(),
       version: "certified-daily-v1" as const,
       laws: [...LEGACY_CERTIFIED_SUPPLY_LAWS, finite],
     };

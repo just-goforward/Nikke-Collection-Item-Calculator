@@ -8,6 +8,18 @@ pub struct Interval {
     lo: f64,
     hi: f64,
 }
+impl Interval {
+    /// A proved strict order, or no decision when the enclosures overlap.
+    pub(super) fn greater_than(self, other: Self) -> Option<bool> {
+        if self.lo > other.hi {
+            Some(true)
+        } else if self.hi <= other.lo {
+            Some(false)
+        } else {
+            None
+        }
+    }
+}
 const ZERO: Interval = Interval { lo: 0.0, hi: 0.0 };
 const ONE: Interval = Interval { lo: 1.0, hi: 1.0 };
 fn up(x: f64) -> f64 {
@@ -24,7 +36,7 @@ fn down(x: f64) -> f64 {
         f64::from_bits(x.to_bits() - 1)
     }
 }
-fn weighted(p: usize, g: Interval, n: Interval) -> Interval {
+pub(super) fn weighted(p: usize, g: Interval, n: Interval) -> Interval {
     if p == 1000 {
         return g;
     }
@@ -290,7 +302,7 @@ impl Engine {
         }
         Ok(actions)
     }
-    fn failure_bound(&mut self, s: usize, raw: Units) -> Result<Interval> {
+    pub(super) fn failure_bound(&mut self, s: usize, raw: Units) -> Result<Interval> {
         self.check()?;
         if s == TERMINAL {
             return Ok(ZERO);

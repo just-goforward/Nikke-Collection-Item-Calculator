@@ -49,7 +49,7 @@ export async function solveRustMinEfProduct(
   if (earlyResult) return earlyResult;
   const supplyForecast = activeSupplyForecastContext();
   try {
-    const solver = await getRustMinEfSolver(wasmUrl);
+    const solver = await getRustMinEfSolver(wasmUrl, supplyForecast);
     solver.setSupplyForecast(supplyForecast);
     const policy = solver.solveRootWithCandidates(
       normalizedInput.start,
@@ -125,6 +125,7 @@ export async function solveRustMinEfProduct(
         minEfMemoTier: RUST_MIN_EF_MEMO_TIER,
         forecastId: supplyForecast.forecastId,
         forecastProfileId: supplyForecast.forecastProfileId,
+        supplyForecast,
         solveMs: elapsedMs(startedAt),
       },
     });

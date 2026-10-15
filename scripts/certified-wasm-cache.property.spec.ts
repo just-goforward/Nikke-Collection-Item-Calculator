@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import fc from "fast-check";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { type Q, q } from "../shared/certifiedRational.ts";
-import { buildCertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
+import {
+  buildCertifiedSupplySnapshot,
+  isCertifiedEventClaimable,
+} from "../shared/certifiedSupply.ts";
 import { dispatchLaw } from "../shared/certifiedSupplyLaws.ts";
 import { CERTIFIED_WASM_HASH } from "../shared/generated/certifiedWasmBuild.ts";
 import { assertProperty, type PropertyIdentity } from "../shared/propertyHarness.ts";
@@ -146,22 +149,27 @@ function input(spec: Spec): CertifiedInput {
   const snapshot = structuredClone(baseSnapshot);
   const rule = snapshot.rules[0];
   if (!rule) throw new Error("snapshot_rule_missing");
-  const date = new Date(Date.parse("2026-09-30T00:00:00Z") + 56 * 86_400_000)
+  // Supply rules v3: the Wednesday weekly grants stay in every snapshot; an arrival
+  // adds one dispatch on the H14 recommended-day boundary.
+  const date = new Date(Date.parse("2026-09-30T00:00:00Z") + 14 * 86_400_000)
     .toISOString()
     .slice(0, 10);
-  snapshot.events = spec.arrival
-    ? [
-        {
-          id: `dispatch:${date}`,
-          gameDate: date,
-          at: `${date}T08:00:00.000Z`,
-          kind: "dispatch",
-          status: "confirmed",
-          ruleId: rule.id,
-          refs: [{ lawId: "dispatch-board-v1", count: 1 }],
-        },
-      ]
-    : [];
+  snapshot.events = [
+    ...snapshot.events.filter((event) => event.kind === "weekly-kits"),
+    ...(spec.arrival
+      ? [
+          {
+            id: `dispatch:${date}`,
+            gameDate: date,
+            at: `${date}T08:00:00.000Z`,
+            kind: "dispatch" as const,
+            status: "confirmed" as const,
+            ruleId: rule.id,
+            refs: [{ lawId: "dispatch-board-v1", count: 1 }],
+          },
+        ]
+      : []),
+  ];
   return {
     grade: spec.grade,
     level: spec.level,
@@ -169,6 +177,9 @@ function input(spec: Spec): CertifiedInput {
     stock: spec.stock,
     asOf: AS_OF,
     snapshot,
+    receivedEventIds: snapshot.events
+      .filter((event) => isCertifiedEventClaimable(snapshot, event, AS_OF))
+      .map((event) => event.id),
   };
 }
 const behavior = (output: CertifiedOutput) =>

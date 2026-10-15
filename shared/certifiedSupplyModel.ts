@@ -1,13 +1,18 @@
 import { q, toWire, type WireQ } from "./certifiedRational.ts";
 import type { CertifiedLawRef, CertifiedSupplyLaw, CohortTuple } from "./certifiedSupplyLaws.ts";
+import { gameDayKey, gameDayStartMs } from "./gameDay.ts";
 import {
   type ExactSoloRaidCadence,
   estimateCertifiedSoloRounds,
   type SoloRaidRound,
 } from "./soloRaidCadence.ts";
-import { gameDayKey, gameDayStartMs } from "./supplyForecastModel.ts";
-export const CERTIFIED_SUPPLY_VERSION = "certified-daily-v2" as const;
-export type CertifiedSupplyVersion = "certified-daily-v1" | typeof CERTIFIED_SUPPLY_VERSION;
+export const CERTIFIED_SUPPLY_VERSION = "certified-daily-v3" as const;
+export const CERTIFIED_SUPPLY_HISTORY_DAYS = 7;
+export const CERTIFIED_WEEKLY_FIXED_LAW_ID = "deterministic:10,10,0";
+export type CertifiedSupplyVersion =
+  | "certified-daily-v1"
+  | "certified-daily-v2"
+  | typeof CERTIFIED_SUPPLY_VERSION;
 export type PersonalCohortWeights = readonly [WireQ, WireQ, WireQ, WireQ];
 export type SnapshotCohortWeights = CohortTuple<WireQ>;
 export type CertifiedSourceStatus = "healthy" | "uncertain";
@@ -27,7 +32,7 @@ export type CertifiedSupplyEvent = {
   id: string;
   gameDate: string;
   at: string;
-  kind: "dispatch" | "shop" | "solo";
+  kind: "dispatch" | "shop" | "solo" | "weekly-kits";
   status: "confirmed" | "estimated";
   refs: readonly CertifiedLawRef[];
   ruleId: string;
@@ -45,6 +50,8 @@ export type CertifiedSupplyRule = {
   dispatch: readonly CertifiedLawRef[];
   normalShop: readonly CertifiedLawRef[];
   collaborationShop: readonly CertifiedLawRef[];
+  /** Absent only in historical v1/v2 rules. */
+  weeklyFixed?: readonly CertifiedLawRef[];
   soloDays: readonly (readonly CertifiedLawRef[])[];
   provenance: readonly string[];
 };
@@ -172,14 +179,15 @@ export function createCertifiedSupplyRule(
   effectiveUntil: string | null = null,
 ): CertifiedSupplyRule {
   return {
-    id: "schedule-kit-v2:documented-physical-supply-v2",
+    id: "schedule-kit-v3:documented-physical-supply-v2",
     effectiveFrom,
     effectiveUntil,
     dispatch: [{ lawId: "dispatch-board-v1", count: 1 }],
     normalShop: refs(0, 5),
     collaborationShop: refs(0, 10),
+    weeklyFixed: [{ lawId: CERTIFIED_WEEKLY_FIXED_LAW_ID, count: 1 }],
     soloDays: [refs(12, 0), refs(4, 8), ...Array.from({ length: 5 }, () => refs(0, 12))],
-    provenance: ["shared/supplyForecastModel.ts", "docs/research/kit-expected-gain.ko.md"],
+    provenance: ["shared/certifiedSupplyModel.ts", "docs/research/kit-expected-gain.ko.md"],
   };
 }
 

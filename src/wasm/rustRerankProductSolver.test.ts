@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { installSupplyForecastFixtureClock } from "../solver/supplyForecast.test-helper";
 import type { Kit } from "../types";
 import type { State, Stock } from "./rustTypes";
 
@@ -7,6 +8,8 @@ vi.mock("./rustResearchSolverCache", () => ({ getRustPhase2ResearchSolver: mocks
 vi.mock("./rustRerankDecision", () => ({ selectAdaptiveRerankDecision: mocks.decision }));
 
 import { solveRustPhase2Rerank } from "./rustRerankProductSolver";
+
+installSupplyForecastFixtureClock();
 
 const input = {
   start: { grade: "SR" as const, level: 14, exp: 2900 },
