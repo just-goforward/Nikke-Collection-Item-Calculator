@@ -196,28 +196,39 @@ interface ReplayCheckpoint {
   jobs: number;
 }
 
-/**
- * Scheduled restore entry. Reopening the gate starts a new version, even with no
- * privacy admissions, so a later restore cannot reuse a completed replay.
- */
+/** Scheduled restore entry. A matching completed checkpoint leaves an open gate alone. */
 export async function runRestoreMaintenance(env: PersonalEnv, now: number): Promise<void> {
   if (env.PRIVACY_RECONCILE_QUIESCENT !== "true" || env.PUBLICATION_ENABLED === "true") return;
   const gate = await env.PUBLIC_AGGREGATE_DB.prepare(
-    `UPDATE privacy_fence SET blocked = 1,
-     intent_version = intent_version + CASE WHEN reconciliation_gate = 0 THEN 1 ELSE 0 END,
-     reconciliation_gate = 1 WHERE singleton = 1 RETURNING intent_version`,
-  ).first<{ intent_version: number }>();
+    "SELECT intent_version, reconciliation_gate FROM privacy_fence WHERE singleton = 1",
+  ).first<{ intent_version: number; reconciliation_gate: number }>();
   if (!gate) throw new Error("missing_privacy_fence");
-  const replay = await reapplyTombstones(env, gate.intent_version);
-  if (replay?.complete) await reconcilePrivacyIntents(env, now, { ...gate, jobs: replay.jobs });
-}
-
-/** One durable phase per invocation; at most four statements after closing PUBLIC admission. */
-async function reapplyTombstonePage(env: PersonalEnv, version: number): Promise<ReplayResult> {
   const checkpoint = await env.PERSONAL_DB.prepare(
     `SELECT intent_version, cursor, page, complete,
      (SELECT count(*) FROM deletion_jobs) AS jobs FROM restore_replay WHERE singleton = 1`,
   ).first<ReplayCheckpoint>();
+  if (gate.reconciliation_gate === 0) {
+    if (checkpoint?.complete && checkpoint.intent_version === gate.intent_version) return;
+    const closed = await env.PUBLIC_AGGREGATE_DB.prepare(
+      `UPDATE privacy_fence SET blocked = 1, intent_version = intent_version + 1,
+       reconciliation_gate = 1 WHERE singleton = 1 AND reconciliation_gate = 0
+       AND intent_version = ? RETURNING intent_version`,
+    )
+      .bind(gate.intent_version)
+      .first<{ intent_version: number }>();
+    if (!closed) return;
+    gate.intent_version = closed.intent_version;
+  }
+  const replay = await reapplyTombstones(env, { intentVersion: gate.intent_version, checkpoint });
+  if (replay?.complete) await reconcilePrivacyIntents(env, now, { ...gate, jobs: replay.jobs });
+}
+
+/** One durable phase per invocation, reusing the entry's checkpoint read to stay within budget. */
+async function reapplyTombstonePage(
+  env: PersonalEnv,
+  version: number,
+  checkpoint: ReplayCheckpoint | null,
+): Promise<ReplayResult> {
   if (!checkpoint || checkpoint.intent_version !== version) {
     await env.PERSONAL_DB.batch([
       env.PERSONAL_DB.prepare("DELETE FROM self_percentiles"),
@@ -291,9 +302,9 @@ async function reapplyTombstonePage(env: PersonalEnv, version: number): Promise<
  */
 export async function reapplyTombstones(
   env: PersonalEnv,
-  intentVersion?: number,
+  replay?: { intentVersion: number; checkpoint: ReplayCheckpoint | null },
 ): Promise<ReplayResult | undefined> {
-  if (intentVersion !== undefined) return reapplyTombstonePage(env, intentVersion);
+  if (replay) return reapplyTombstonePage(env, replay.intentVersion, replay.checkpoint);
   if (env.PUBLICATION_ENABLED !== "true")
     await env.PERSONAL_DB.prepare("DELETE FROM self_percentiles").run();
   let cursor = "";

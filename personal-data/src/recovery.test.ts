@@ -500,7 +500,7 @@ it("maintenance :50 replays a restored deletion and purges ranks before reopenin
     });
   }
   for (let slot = 0; slot < 4; slot++) {
-    expect(await restoreStep(slot)).toBe([7, 7, 8, 8][slot]);
+    expect(await restoreStep(slot)).toBe([8, 7, 8, 8][slot]);
     expect(await restoreGate()).toEqual({
       reconciliation_gate: Number(slot < 3),
       pending_intents: 0,
@@ -522,15 +522,65 @@ it("maintenance :50 replays a restored deletion and purges ranks before reopenin
       "SELECT kind FROM tombstones WHERE user_id = 'restored'",
     ).first(),
   ).toEqual({ kind: "deletion" });
+});
 
-  // A second PERSONAL restore must not reuse the previous completed checkpoint.
+it("repeated maintenance :50 runs preserve the reconciled open gate and current version", async () => {
+  await deletedSnapshot();
+  for (let slot = 0; slot < 4; slot++) await restoreStep(slot);
+  const before = await dbs.PUBLIC_AGGREGATE_DB.prepare("SELECT * FROM privacy_fence").first();
+  const checkpoint = await dbs.PERSONAL_DB.prepare("SELECT * FROM restore_replay").first();
+  for (let slot = 4; slot < 7; slot++) {
+    expect(await restoreStep(slot)).toBe(5);
+    expect(await dbs.PUBLIC_AGGREGATE_DB.prepare("SELECT * FROM privacy_fence").first()).toEqual(
+      before,
+    );
+    expect(await dbs.PERSONAL_DB.prepare("SELECT * FROM restore_replay").first()).toEqual(
+      checkpoint,
+    );
+    expect(await restoreGate()).toEqual({ reconciliation_gate: 0, pending_intents: 0, blocked: 1 });
+  }
+});
+
+it("an older completed PERSONAL checkpoint restarts replay and keeps reconciliation gated", async () => {
+  await deletedSnapshot();
+  for (let slot = 0; slot < 4; slot++) await restoreStep(slot);
+  const current = await dbs.PUBLIC_AGGREGATE_DB.prepare(
+    "SELECT intent_version FROM privacy_fence",
+  ).first<{ intent_version: number }>();
+  expect(current).not.toBeNull();
+  const olderVersion = current!.intent_version - 1;
+  // Actually roll back the completed checkpoint, not just restore the deleted account.
+  await dbs.PERSONAL_DB.prepare(
+    "UPDATE restore_replay SET intent_version = ?, cursor = 'older', page = NULL, complete = 1",
+  )
+    .bind(olderVersion)
+    .run();
+  expect(
+    await dbs.PERSONAL_DB.prepare("SELECT intent_version, complete FROM restore_replay").first(),
+  ).toEqual({ intent_version: olderVersion, complete: 1 });
   await admitAccount(
     dbs.PERSONAL_DB,
     { issuer: "https://accounts.google.com", sub: "restored" },
     "restored",
     NOW,
   );
-  for (let slot = 4; slot < 8; slot++) await restoreStep(slot);
+  await dbs.PERSONAL_DB.prepare(
+    "INSERT INTO self_percentiles VALUES ('restored', 'restored-again', 'R', '{}')",
+  ).run();
+  for (let slot = 4; slot < 8; slot++) {
+    await restoreStep(slot);
+    expect(await restoreGate()).toEqual({
+      reconciliation_gate: Number(slot < 7),
+      pending_intents: 0,
+      blocked: 1,
+    });
+    expect(
+      await dbs.PUBLIC_AGGREGATE_DB.prepare("SELECT intent_version FROM privacy_fence").first(),
+    ).toEqual({ intent_version: olderVersion + 2 });
+    expect(
+      await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM self_percentiles").first(),
+    ).toEqual({ n: 0 });
+  }
   expect(await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM accounts").first()).toEqual({
     n: 0,
   });
@@ -635,28 +685,31 @@ it("a failed replay batch keeps its checkpoint and gate closed for the next :50 
   expect(await restoreGate()).toEqual({ reconciliation_gate: 0, pending_intents: 0, blocked: 1 });
 });
 
-it("a recovery admission after replay completion restarts replay before reconciliation", async () => {
-  await deletedSnapshot();
-  for (let slot = 0; slot < 3; slot++) await restoreStep(slot);
-  await applyPrivacyChange(
-    maintenance,
-    { userId: "earlier", opId: "late-delete", kind: "deletion" },
-    NOW,
-  );
-  await admitAccount(
-    dbs.PERSONAL_DB,
-    { issuer: "https://accounts.google.com", sub: "earlier" },
-    "earlier",
-    NOW,
-  );
-  await restoreStep(3);
-  expect(await restoreGate()).toEqual({ reconciliation_gate: 1, pending_intents: 0, blocked: 1 });
-  expect(
-    await dbs.PERSONAL_DB.prepare("SELECT cursor, complete FROM restore_replay").first(),
-  ).toEqual({ cursor: "", complete: 0 });
-  for (let slot = 4; slot < 7; slot++) await restoreStep(slot);
-  expect(await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM accounts").first()).toEqual({
-    n: 0,
-  });
-  expect(await restoreGate()).toEqual({ reconciliation_gate: 0, pending_intents: 0, blocked: 1 });
-});
+it.each([3, 4])(
+  "a recovery admission after %i restore slots restarts completed replay",
+  async (slots) => {
+    await deletedSnapshot();
+    for (let slot = 0; slot < slots; slot++) await restoreStep(slot);
+    await applyPrivacyChange(
+      maintenance,
+      { userId: "earlier", opId: "late-delete", kind: "deletion" },
+      NOW,
+    );
+    await admitAccount(
+      dbs.PERSONAL_DB,
+      { issuer: "https://accounts.google.com", sub: "earlier" },
+      "earlier",
+      NOW,
+    );
+    await restoreStep(slots);
+    expect(await restoreGate()).toEqual({ reconciliation_gate: 1, pending_intents: 0, blocked: 1 });
+    expect(
+      await dbs.PERSONAL_DB.prepare("SELECT cursor, complete FROM restore_replay").first(),
+    ).toEqual({ cursor: "", complete: 0 });
+    for (let slot = slots + 1; slot < slots + 4; slot++) await restoreStep(slot);
+    expect(await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM accounts").first()).toEqual({
+      n: 0,
+    });
+    expect(await restoreGate()).toEqual({ reconciliation_gate: 0, pending_intents: 0, blocked: 1 });
+  },
+);

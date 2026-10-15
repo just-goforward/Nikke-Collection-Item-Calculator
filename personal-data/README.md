@@ -642,14 +642,18 @@ authorization:
    All personal-worker HTTP requests now refuse work (normally JSON 503;
    callback failures redirect with `account_error=service_unavailable`).
    Publication refuses to run; bounded deletion/consent/inactivity lanes and
-   expiry cleanup remain active.
+   expiry cleanup remain active. In particular, deletion lane `:10` and
+   inactivity lane `:30` can still admit privacy work during maintenance.
+   Each admission changes `intent_version` and restarts replay, failing closed;
+   consider gating `:30` before production to avoid repeated replay restarts.
 2. Restore **PERSONAL_DB only**, using the independently recorded pre-deletion
    bookmark. Never restore PRIVACY_CONTROL_DB or PUBLIC_AGGREGATE_DB as part of
    this procedure. If the snapshot predates PERSONAL migration `0009`, apply
    pending PERSONAL migrations while HTTP remains gated, before waiting for
    replay. A missing checkpoint table fails closed; cron does not apply migrations.
-   Do not restore another snapshot during an in-progress replay; complete recovery
-   first. Do not replace checkpoints or purge accounts/ranks manually.
+   After replay of the restored snapshot has started, do not restore another
+   snapshot until recovery completes. Do not replace checkpoints or purge
+   accounts/ranks manually.
 3. Wait for subsequent UTC `:50` invocations **after the restore**, keeping the
    maintenance deployment active. `runRestoreMaintenance` first closes PUBLIC
    admission and awaits `reapplyTombstones`. It initializes the private
@@ -660,7 +664,7 @@ authorization:
    newer re-opt-in generations. Identifiers/page payloads never enter PUBLIC.
    Replay and intent reconciliation occur in separate invocations to preserve
    lane 5's **eight-statement ceiling including three expiry statements**:
-   initialization/fetch use at most seven, apply/reconcile at most eight.
+   initialization uses at most eight, fetch seven, and apply/reconcile eight.
    A single nonempty page normally takes four hourly slots; multiple pages take
    longer. Empty replay takes three; a full final page needs an additional empty
    fetch. Failures retry the same phase without advancing its checkpoint.
@@ -671,18 +675,22 @@ authorization:
    leases and recomputes `pending_intents`, guarded by the captured `intent_version`.
    A recovery admission changes that version and restarts replay, including
    IDs earlier than the previous cursor. Starting a new replay from an open gate
-   also advances this identifier-free version, so a subsequent restore does not
-   reuse an old completed checkpoint. Successful reconciliation reopens admission
+   also advances this identifier-free version when the checkpoint is missing,
+   incomplete or for an older/different version. Successful reconciliation reopens admission
    but **never clears `blocked`**, resets generation, or removes unfinished
-   privacy records/publisher tokens.
+   privacy records/publisher tokens. Subsequent `:50` runs leave the gate open,
+   without bumping the version or purging/replaying again, while the completed
+   PERSONAL checkpoint matches the current PUBLIC `intent_version`. A restored
+   older checkpoint or a new admission invalidates that match and restarts recovery.
 5. After those post-restore invocations, verify on the exact environment:
 
    ```powershell
-   npx --no-install wrangler d1 execute PUBLIC_AGGREGATE_DB --remote --config site-worker/personal-data-staging.wrangler.json --env staging --command "SELECT reconciliation_gate, pending_intents, blocked FROM privacy_fence WHERE singleton = 1;"
+   npx --no-install wrangler d1 execute PUBLIC_AGGREGATE_DB --remote --config site-worker/personal-data-staging.wrangler.json --env staging --command "SELECT intent_version, reconciliation_gate, pending_intents, blocked FROM privacy_fence WHERE singleton = 1;"
    npx --no-install wrangler d1 execute PERSONAL_DB --remote --config site-worker/personal-data-staging.wrangler.json --env staging --command "SELECT intent_version, complete FROM restore_replay WHERE singleton = 1;"
    ```
 
-   Require a completed checkpoint (`complete=1`), **`reconciliation_gate=0`,
+   Require a completed checkpoint (`complete=1`) matching PUBLIC `intent_version`,
+   **`reconciliation_gate=0`,
    `pending_intents=0`, `blocked=1`**, no unfinished recovery jobs, retained
    deletion tombstones in PRIVACY, and absence of the deleted account and its
    owned rows in PERSONAL. The initial gate value before cron is **not** evidence
