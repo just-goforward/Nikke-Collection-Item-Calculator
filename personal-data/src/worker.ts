@@ -106,6 +106,28 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
     return account;
   }
 
+  /**
+   * Logout takes no input. Deployed runtimes deliver a bodiless browser request as an
+   * empty stream (POST with Content-Length: 0, DELETE without it), so emptiness is decided
+   * by the bytes actually received; any byte without a JSON type is rejected at once.
+   */
+  async function emptyOrNoKeys(request: Request): Promise<void> {
+    if (!request.body) return;
+    if (request.headers.get("Content-Type") !== null) {
+      exactKeys(await body(request), []);
+      return;
+    }
+    const reader = request.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      if (value.byteLength > 0) {
+        await reader.cancel();
+        throw new HttpError(400, "invalid_request");
+      }
+    }
+  }
+
   async function login(request: Request, env: PersonalEnv): Promise<Response> {
     exactKeys(await body(request), []);
     const time = now();
@@ -370,7 +392,7 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
           effective === "/auth/logout" ||
           (path === "/api/auth/session" && request.method === "DELETE")
         ) {
-          if (request.body) exactKeys(await body(request), []);
+          await emptyOrNoKeys(request);
           const raw = cookieValue(request, SESSION_COOKIE);
           if (raw)
             await env.PERSONAL_DB.prepare("DELETE FROM sessions WHERE token_hash = ?")

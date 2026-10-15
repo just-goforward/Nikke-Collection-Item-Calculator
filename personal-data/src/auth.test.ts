@@ -973,6 +973,53 @@ describe("authorization, ownership, session activity and revocation HTTP contrac
     expect(await count("accounts")).toBe(1);
   });
 
+  it("logout accepts the browser's bodiless request as an empty stream, with or without Content-Length", async () => {
+    const h = await harness();
+    for (const [path, method, length] of [
+      ["/auth/logout", "POST", { "Content-Length": "0" }],
+      ["/api/auth/logout", "POST", { "Content-Length": "0" }],
+      ["/api/auth/session", "DELETE", {}],
+    ] as const) {
+      const session = await h.login();
+      const result = await h.worker.fetch(
+        new Request(`${TEST_ORIGIN}${path}`, {
+          method,
+          headers: {
+            Origin: TEST_ORIGIN,
+            "Sec-Fetch-Site": "same-origin",
+            Accept: "application/json",
+            ...length,
+            Cookie: session.cookie,
+          },
+          body: new Uint8Array(0),
+        }),
+        databases,
+      );
+      expect(result.status).toBe(200);
+      expect(await result.json()).toEqual({ loggedOut: true });
+      expect(result.headers.get("Set-Cookie")).toMatch(/Max-Age=0/);
+      expect((await h.account(session.cookie)).status).toBe(401);
+    }
+    const kept = await h.login();
+    for (const headers of [{}, { "Content-Length": "0" }]) {
+      const nonEmpty = await h.worker.fetch(
+        new Request(`${TEST_ORIGIN}/auth/logout`, {
+          method: "POST",
+          headers: {
+            Origin: TEST_ORIGIN,
+            "Sec-Fetch-Site": "same-origin",
+            Cookie: kept.cookie,
+            ...headers,
+          },
+          body: new TextEncoder().encode("x"),
+        }),
+        databases,
+      );
+      expect(nonEmpty.status).toBe(400);
+    }
+    expect((await h.account(kept.cookie)).status).toBe(200);
+  });
+
   it("deletion blocks pre-deletion callbacks while a fresh login rejoins with a new account", async () => {
     const h = await harness();
     const current = await h.login();
