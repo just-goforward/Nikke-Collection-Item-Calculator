@@ -70,6 +70,38 @@ GitHub App은 이 저장소 하나에만 설치하고 `Actions: write`, `Metadat
 등록한다. 배포 workflow는 Bot token으로 Discord API를 조회한 값과 두 변수를 대조하고,
 불일치하면 Router 배포 전에 중단한다.
 
+## Production Router disabled bootstrap 승인
+
+기존 Router가 `<sha>-staging` tag라서 staging 소유권 검사에서 중단되면
+`.github/workflows/forecast-router-bootstrap.yml`만 별도로 승인한다.
+기존 staging·production promotion guard는 변경하거나 우회하지 않는다.
+
+1. 사용자는 대상 계정, `collection-kit-forecast-interactions`의 현재 version ID/tag,
+   rollback 대상, 검토한 main 이력의 소문자 40자리 SHA와 Discord application/public key·
+   guild·approver·approval/alert/activity channel 변수를 확인한다. 이 workflow는 Bot token이나
+   Discord API를 사용하지 않으므로 Developer Portal 값의 대조는 승인자가 수행한다.
+2. 배포를 별도로 승인한 뒤 Lead가 main ref에서 다음과 같이 요청하고, 사용자가
+   `cloudflare-production` environment의 필수 reviewer 승인을 수행한다.
+   해당 environment의 보호 규칙을 먼저 확인해야 한다.
+
+   ```sh
+   gh workflow run forecast-router-bootstrap.yml --ref main \
+     -f deploy_sha=<검토한-40자리-SHA> -f confirm_router_only=true
+   ```
+
+3. workflow는 dispatch 시점 main의 ancestor만 허용하고, 현재 Router가
+   `-production-enabled` tag이거나 production mutation flag가 false가 아니면 중단한다.
+   disabled 또는 legacy staging version을 원래 tag 그대로 summary/artifact에 기록한 뒤,
+   Router만 `<sha>-production-disabled`, `PRODUCTION_MUTATIONS_ENABLED=false`로 배포한다.
+4. active version/tag/flag와 읽기 전용 `/health`의 SHA·false 상태를 확인한다.
+   배포 또는 검증 실패 시 캡처한 version을 100%로 복원하고 원래 identity/health를 확인하되,
+   workflow 결과는 실패로 유지한다. 복원 실패·강제 취소 시 수동 대응을 별도로 승인한다.
+5. D1 migration, Collector/Dispatcher 배포·flag 변경, Usage Guard refresh, Discord 메시지,
+   쓰기 smoke는 없다. `/health`는 양쪽 Forecast D1을 읽으므로 무비용을 보장하지 않는다.
+   기존 Collector/Dispatcher의 활성 상태도 바꾸지 않는다.
+6. 성공 후 Discord endpoint와 Router identity를 확인하고 staging 재배포를 별도로 승인한다.
+   production 전체 migration·수집·dispatch 활성화는 별도의 canary/promotion 승인 대상이다.
+
 ## Staging 배포와 Router 전환
 
 1. 실행 중인 canary가 있으면 먼저 해당 SHA의 `canary_only=true` 결과를 보존한다.
