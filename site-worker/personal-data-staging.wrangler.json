@@ -30,19 +30,19 @@
         {
           "binding": "PERSONAL_DB",
           "database_name": "collection-kit-personal-data-staging",
-          "database_id": "REPLACE_WITH_STAGING_PERSONAL_DB_ID",
+          "database_id": "ac5ecc1c-6c6b-43e8-b5c9-82af4e25f989",
           "migrations_dir": "../personal-data/migrations/personal"
         },
         {
           "binding": "PRIVACY_CONTROL_DB",
           "database_name": "collection-kit-privacy-control-staging",
-          "database_id": "REPLACE_WITH_STAGING_PRIVACY_CONTROL_DB_ID",
+          "database_id": "dcee0896-ee5c-4e0f-b5c8-e4632963e2e1",
           "migrations_dir": "../personal-data/migrations/privacy"
         },
         {
           "binding": "PUBLIC_AGGREGATE_DB",
           "database_name": "collection-kit-public-aggregate-staging",
-          "database_id": "REPLACE_WITH_STAGING_PUBLIC_AGGREGATE_DB_ID",
+          "database_id": "343d3046-4da4-4836-ae72-d914dc9a6349",
           "migrations_dir": "../personal-data/migrations/public"
         }
       ]
