@@ -764,6 +764,30 @@ describe("validateWorkflowSource", () => {
     ]);
   });
 
+  it("rejects a step that merges run and uses after a lost list marker", () => {
+    const source = `jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Summarize
+        run: |
+          echo done
+          run: not-a-key-inside-the-script
+          - markdown list inside the script
+
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 1
+      - run: npm test
+`;
+
+    expect(validateWorkflowSource(source)).toEqual([
+      { line: 12, message: 'job "audit" has a step with both run and uses' },
+    ]);
+  });
+
   it("does not require unsupported timeouts on reusable workflow call jobs", () => {
     const source = `jobs:
   delegated:

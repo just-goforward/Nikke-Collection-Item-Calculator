@@ -635,7 +635,33 @@ type WorkflowJob = {
   callsReusableWorkflow: boolean;
   environmentSource: string;
   environmentReported: boolean;
+  step?: { keyIndent: number; keys: Set<string> } | undefined;
 };
+
+// A step that both runs a script and uses an action is rejected by GitHub as an invalid workflow,
+// e.g. when a `- uses:` list marker is lost and the action merges into the preceding `run:` step.
+function stepActionIssue(line: string, job: WorkflowJob): string | undefined {
+  const start = line.match(/^( +)- +(?:(run|uses):)?/);
+  const startIndent = start?.[1]?.length;
+  // Deeper "- " lines belong to the current step's values, e.g. Markdown in a run block.
+  if (startIndent !== undefined && startIndent >= 6 && startIndent < (job.step?.keyIndent ?? 99)) {
+    job.step = { keyIndent: startIndent + 2, keys: new Set(start?.[2] ? [start[2]] : []) };
+    return undefined;
+  }
+  const step = job.step;
+  if (!step || line.trim() === "") return undefined;
+  const indent = line.length - line.trimStart().length;
+  if (indent < step.keyIndent) {
+    job.step = undefined;
+    return undefined;
+  }
+  const key = indent === step.keyIndent ? line.match(/^ +(run|uses):/)?.[1] : undefined;
+  if (key === undefined) return undefined;
+  step.keys.add(key);
+  return step.keys.has("run") && step.keys.has("uses")
+    ? `job "${job.id}" has a step with both run and uses`
+    : undefined;
+}
 
 function jobEnvironmentIssue(line: string, job: WorkflowJob): string | undefined {
   if (line.trimStart().startsWith("#")) return undefined;
@@ -741,6 +767,8 @@ export function validateWorkflowSource(source: string): WorkflowHardeningIssue[]
     }
     if (!currentJob) continue;
 
+    const stepIssue = stepActionIssue(line, currentJob);
+    if (stepIssue) issues.push({ line: lineNumber, message: stepIssue });
     const environmentIssue = jobEnvironmentIssue(line, currentJob);
     if (environmentIssue) issues.push({ line: lineNumber, message: environmentIssue });
     if (/^ {4}timeout-minutes:\s*[^#\s]/.test(line)) currentJob.hasTimeout = true;
