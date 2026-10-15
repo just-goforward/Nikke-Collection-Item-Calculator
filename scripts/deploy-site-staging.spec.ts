@@ -71,6 +71,22 @@ function fixture(
 }
 
 describe("local staging deployment", () => {
+  it("cannot select production configuration, name or domain", () => {
+    const { calls, dependencies } = fixture();
+    for (const args of [
+      ["--config", "site-worker/production.wrangler.toml"],
+      ["--name", "collection-kit-site-production"],
+      ["--domain", "nikkecollection.com"],
+    ]) {
+      expect(() => deploySiteStaging(args, dependencies)).toThrow("Usage");
+    }
+    expect(calls).toHaveLength(0);
+    deploySiteStaging(["--dry-run"], dependencies);
+    for (const call of calls) {
+      expect(call.args).not.toContain("site-worker/production.wrangler.toml");
+      expect(call.args).not.toContain("collection-kit-site-production");
+    }
+  });
   it.each(["main", "", "feature"])("rejects branch %j before verification", (branch) => {
     const { calls, dependencies } = fixture({ branch });
     expect(() => deploySiteStaging(["--dry-run"], dependencies)).toThrow("branch next");

@@ -2,6 +2,7 @@ type FetchBinding = { fetch(request: Request): Promise<Response> };
 
 export type SiteEnv = {
   ASSETS: FetchBinding;
+  SITE_ENV?: string;
   STATS?: FetchBinding;
   PERSONAL_DATA?: FetchBinding;
 };
@@ -28,7 +29,7 @@ const PERSONAL_METHODS: Record<string, readonly string[]> = {
   "/api/personal/settings": ["GET", "PUT"],
 };
 
-function stagingResponse(response: Response, noStore = false): Response {
+function privateResponse(response: Response, noStore = false): Response {
   const headers = new Headers(response.headers);
   headers.set("X-Robots-Tag", "noindex, nofollow");
   headers.set("X-Content-Type-Options", "nosniff");
@@ -42,7 +43,7 @@ function stagingResponse(response: Response, noStore = false): Response {
 }
 
 function errorResponse(status: number, error: string): Response {
-  return stagingResponse(Response.json({ error }, { status }), true);
+  return privateResponse(Response.json({ error }, { status }), true);
 }
 
 async function proxy(
@@ -60,7 +61,7 @@ async function proxy(
   }
   try {
     const response = await binding.fetch(new Request(request, { headers, redirect: "manual" }));
-    const forwarded = stagingResponse(response, noStore);
+    const forwarded = privateResponse(response, noStore);
     if (!credentials) forwarded.headers.delete("Set-Cookie");
     return forwarded;
   } catch {
@@ -73,8 +74,18 @@ export default {
   async fetch(request: Request, env: SiteEnv): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (path === "/robots.txt") {
-      return stagingResponse(
-        new Response("User-agent: *\nDisallow: /\n", {
+      if (env.SITE_ENV === "production") {
+        const response = await env.ASSETS.fetch(request);
+        const headers = new Headers(response.headers);
+        headers.set("Cache-Control", "public, max-age=0, must-revalidate");
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        });
+      }
+      return privateResponse(
+        new Response(request.method === "HEAD" ? null : "User-agent: *\nDisallow: /\n", {
           headers: { "Content-Type": "text/plain; charset=utf-8" },
         }),
       );
@@ -103,6 +114,7 @@ export default {
     if (/^\/(?:api|auth|account|admin|v1)(?:\/|$)/.test(path)) {
       return errorResponse(404, "not_found");
     }
-    return stagingResponse(await env.ASSETS.fetch(request));
+    const response = await env.ASSETS.fetch(request);
+    return env.SITE_ENV === "production" ? response : privateResponse(response);
   },
 };

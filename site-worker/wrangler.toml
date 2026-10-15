@@ -1,10 +1,13 @@
-# Staging only. Production remains GitHub Pages; no production route exists here.
+# Staging only. Production uses the separate production.wrangler.toml.
 name = "collection-kit-site-local"
 main = "src/worker.ts"
 compatibility_date = "2026-10-13"
 workers_dev = false
 preview_urls = false
 upload_source_maps = false
+
+[vars]
+SITE_ENV = "staging"
 
 # PLACEHOLDER: account_id = "<STAGING_CLOUDFLARE_ACCOUNT_ID>"
 # Supply the verified account through CLOUDFLARE_ACCOUNT_ID at deployment time.
@@ -28,6 +31,9 @@ invocation_logs = false
 name = "collection-kit-site-staging"
 workers_dev = false
 preview_urls = false
+
+[env.staging.vars]
+SITE_ENV = "staging"
 
 [env.staging.assets]
 directory = "../dist"

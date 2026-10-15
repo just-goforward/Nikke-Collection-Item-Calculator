@@ -425,3 +425,80 @@ describe("staging site gateway: binding isolation and assets", () => {
     expect(env.PERSONAL_DATA.fetch).not.toHaveBeenCalled();
   });
 });
+
+describe("production site indexing and unbound gateway", () => {
+  it.each(["GET", "HEAD"])(
+    "serves the public robots asset for %s with revalidation",
+    async (method) => {
+      const env = { ...environment(), SITE_ENV: "production" };
+      const body = "User-agent: *\nAllow: /\nSitemap: https://nikkecollection.com/sitemap.xml\n";
+      env.ASSETS.fetch.mockResolvedValueOnce(
+        new Response(method === "HEAD" ? null : body, {
+          headers: { "Content-Type": "text/plain", ETag: '"robots"' },
+        }),
+      );
+      const input = request("/robots.txt", { method });
+      const response = await worker.fetch(input, env);
+      expect(env.ASSETS.fetch).toHaveBeenCalledWith(input);
+      expect(await response.text()).toBe(method === "HEAD" ? "" : body);
+      expect(response.headers.get("ETag")).toBe('"robots"');
+      expect(response.headers.get("Cache-Control")).toBe("public, max-age=0, must-revalidate");
+      expect(response.headers.has("X-Robots-Tag")).toBe(false);
+    },
+  );
+
+  it.each([undefined, "", "staging", "Production", "unknown"])(
+    "keeps unspecified and non-production environments staging-safe: %s",
+    async (value) => {
+      const env: SiteEnv = {
+        ...environment(),
+        ...(value === undefined ? {} : { SITE_ENV: value }),
+      };
+      const robots = await worker.fetch(request("/robots.txt"), env);
+      expect(await robots.text()).toBe("User-agent: *\nDisallow: /\n");
+      expect(robots.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+      const html = await worker.fetch(request("/en/"), env);
+      expect(html.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    },
+  );
+
+  it("preserves production asset status and headers without injecting staging headers or CSP", async () => {
+    const env = { ...environment(), SITE_ENV: "production" };
+    const asset = new Response("not found", { status: 404, headers: { ETag: '"asset"' } });
+    env.ASSETS.fetch.mockResolvedValueOnce(asset);
+    const response = await worker.fetch(request("/unknown"), env);
+    expect(response).toBe(asset);
+    expect(response.status).toBe(404);
+    expect(response.headers.get("ETag")).toBe('"asset"');
+    expect(response.headers.has("X-Robots-Tag")).toBe(false);
+    expect(response.headers.has("Content-Security-Policy")).toBe(false);
+  });
+
+  it.each([
+    ["/api/stats", "GET", 503, "service_not_configured"],
+    ["/api/events", "POST", 503, "service_not_configured"],
+    ...personalRoutes.map(([path, methods]) => [path, methods[0], 503, "service_not_configured"]),
+    ["/api/stats", "POST", 405, "method_not_allowed"],
+    ...[
+      "/api",
+      "/auth",
+      "/v1",
+      "/account",
+      "/admin",
+      "/api/health",
+      "/v1/health",
+      "/api/unknown",
+    ].map((path) => [path, "GET", 404, "not_found"]),
+  ])("preserves the unbound contract for %s %s", async (path, method, status, error) => {
+    const ASSETS = environment().ASSETS;
+    const response = await worker.fetch(request(String(path), { method: String(method) }), {
+      ASSETS,
+      SITE_ENV: "production",
+    });
+    expect(response.status).toBe(status);
+    expect(await response.json()).toEqual({ error });
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    expect(ASSETS.fetch).not.toHaveBeenCalled();
+  });
+});
