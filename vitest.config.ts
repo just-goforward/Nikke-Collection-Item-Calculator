@@ -7,6 +7,7 @@ const timeBudgetTestFiles = [
   "scripts/certified-staging-oracle-certificates.spec.ts",
   "src/certified/nearBoundWitness.spec.ts",
   "scripts/certified-staging-approved-panel/v6/evidence.spec.ts",
+  "scripts/certified-staging-approved-panel/v7/evidence.spec.ts",
   "scripts/certified-staging-oracle-lane.spec.ts",
   "scripts/certified-wasm-oracle.property.spec.ts",
   "scripts/certified-wasm-cache.property.spec.ts",
