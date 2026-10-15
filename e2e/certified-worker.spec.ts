@@ -302,7 +302,15 @@ test("actual browser client and Worker independently reject unapproved snapshots
           deadlineAt: Date.now() + 15000,
         });
       });
-      return { clientRejected, rejection, alteredIdentity, identity, engineProfile, responses };
+      return {
+        clientRejected,
+        rejection,
+        alteredIdentity,
+        identity,
+        engineProfile,
+        responses,
+        snapshotVersion: approved.snapshot.version,
+      };
     } finally {
       worker.terminate();
     }
@@ -313,11 +321,19 @@ test("actual browser client and Worker independently reject unapproved snapshots
   if (result.rejection.type !== "error") throw new Error("Expected trusted anchor rejection.");
   expect(result.rejection.code).toBe("forecast_identity_mismatch");
   expect(result.rejection.forecastIdentity).toEqual(result.alteredIdentity);
+  // v2 inputs enable the minimum-wait stage, which publishes a second current
+  // carrying the bound minimum-wait certificate before the H56 waiting stage.
+  expect(result.snapshotVersion).toBe("certified-daily-v2");
   expect(result.responses.map((response) => response.type)).toEqual([
     "computeStarted",
     "current",
+    "current",
     "result",
   ]);
+  const minimumWaitCurrent = result.responses[2];
+  if (minimumWaitCurrent?.type !== "current") throw new Error("Expected minimum-wait current.");
+  expect(minimumWaitCurrent.output.minimumWait).toBeDefined();
+  expect(minimumWaitCurrent.output.minimumWait?.status).not.toBe("unknown");
   for (const response of result.responses) {
     expect(response.engineProfile).toEqual(result.engineProfile);
     if (response.type === "initComplete") throw new Error("Unexpected repeated init.");
