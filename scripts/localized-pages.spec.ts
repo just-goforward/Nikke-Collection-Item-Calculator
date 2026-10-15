@@ -10,7 +10,7 @@ import {
   siteLocaleFromPathname,
   siteLocaleUrl,
 } from "../shared/siteLocales";
-import { renderLocalizedPage, renderSitemap } from "./localized-pages";
+import { localizedPagesPlugin, renderLocalizedPage, renderSitemap } from "./localized-pages";
 
 const HTML_FIXTURE = `<!doctype html>
 <html lang="ko" data-locale="ko" data-site-locale-root>
@@ -73,6 +73,27 @@ describe("localized pages", () => {
     expect(() =>
       renderLocalizedPage(HTML_FIXTURE.replace("<!-- localized-seo:start -->", ""), "ko"),
     ).toThrowError("Localized SEO block marker is missing");
+  });
+
+  it("localizes only the app shell and serves diagnostic pages unchanged", () => {
+    const plugin = localizedPagesPlugin();
+    const root = resolve("project-root");
+    (plugin.configResolved as (config: unknown) => void)({ root });
+    const transform = plugin.transformIndexHtml as (
+      html: string,
+      context: { path: string; filename: string },
+    ) => string;
+    const benchmark = '<!doctype html><html lang="en"><head></head><body></body></html>';
+
+    expect(
+      transform(benchmark, {
+        path: "/benchmarks/certified-minimum-wait.html",
+        filename: resolve(root, "benchmarks/certified-minimum-wait.html"),
+      }),
+    ).toBe(benchmark);
+    expect(
+      transform(HTML_FIXTURE, { path: "/en/", filename: resolve(root, "index.html") }),
+    ).toContain(`<html lang="${SITE_LOCALES.en.htmlLang}" data-locale="en"`);
   });
 
   it("lists exactly the three canonical locale URLs in the sitemap", () => {

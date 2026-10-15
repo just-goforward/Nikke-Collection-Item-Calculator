@@ -133,6 +133,9 @@ export function localizedPagesPlugin(): Plugin {
       resolvedConfig = config;
     },
     transformIndexHtml(html, context) {
+      // Only the app shell is localized; diagnostic pages such as benchmarks/ stay as authored.
+      const root = resolvedConfig?.root ?? process.cwd();
+      if (resolve(context.filename) !== resolve(root, "index.html")) return html;
       const locale = siteLocaleFromPathname(context.path);
       return renderLocalizedPage(html, locale);
     },
