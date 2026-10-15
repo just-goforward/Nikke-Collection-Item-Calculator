@@ -11,6 +11,7 @@ import {
   deploymentVersionId,
   renderForecastCertificationSummary,
   renderForecastIdentitySummary,
+  routerBootstrapPrior,
   sanitizedBaselineCandidate,
   sanitizedCanaryIdentity,
   sanitizedCertificationEvidence,
@@ -25,6 +26,97 @@ import {
 
 const PINNED_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 const VERSION = "12345678-1234-1234-1234-123456789abc";
+
+function routerBootstrapFixture(tag = "staging", flag = "false") {
+  const discord = {
+    APPLICATION_ID: "111111",
+    PUBLIC_KEY: "ab".repeat(32),
+    GUILD_ID: "222222",
+    APPROVER_USER_ID: "333333",
+    APPROVAL_CHANNEL_ID: "444444",
+    ALERT_CHANNEL_ID: "555555",
+    ACTIVITY_CHANNEL_ID: "666666",
+  };
+  return {
+    value: {
+      id: VERSION,
+      annotations: { "workers/tag": `${PINNED_SHA}-${tag}` },
+      resources: {
+        bindings: [
+          { name: "DEPLOY_SHA", type: "plain_text", text: PINNED_SHA },
+          { name: "PRODUCTION_MUTATIONS_ENABLED", type: "plain_text", text: flag },
+          ...Object.entries(discord).map(([suffix, text]) => ({
+            name: `DISCORD_${suffix}`,
+            type: "plain_text",
+            text,
+          })),
+        ],
+      },
+    },
+    expected: {
+      ...Object.fromEntries(
+        Object.entries(discord).map(([suffix, text]) => [`DISCORD_FORECAST_${suffix}`, text]),
+      ),
+      ROUTER_BOOTSTRAP_ANCESTRY: "0",
+    } as Record<string, string>,
+  };
+}
+
+describe("Offline Router bootstrap gates", () => {
+  it.each(["staging", "production-disabled"])("accepts disabled %s without relabelling", (tag) => {
+    const { value, expected } = routerBootstrapFixture(tag);
+    expected["DISCORD_FORECAST_PUBLIC_KEY"] =
+      expected["DISCORD_FORECAST_PUBLIC_KEY"]?.toUpperCase() ?? "";
+    expect(() => routerBootstrapPrior(value, VERSION, expected)).not.toThrow();
+    expect(workerVersionIdentity(value, VERSION)).toMatchObject({
+      versionId: VERSION,
+      deploymentSha: PINNED_SHA,
+      tag: `${PINNED_SHA}-${tag}`,
+      vars: { PRODUCTION_MUTATIONS_ENABLED: "false" },
+    });
+  });
+
+  it.each([
+    ["production-enabled", "true"],
+    ["production-enabled", "false"],
+    ["production-disabled", "true"],
+    ["staging", "true"],
+    ["staging", "FALSE"],
+    ["unknown", "false"],
+  ])("rejects tag=%s flag=%s", (tag, flag) => {
+    const { value, expected } = routerBootstrapFixture(tag, flag);
+    expect(() => routerBootstrapPrior(value, VERSION, expected)).toThrow(
+      "forecast_router_bootstrap_prior_not_disabled",
+    );
+  });
+
+  it.each([
+    "APPLICATION_ID",
+    "PUBLIC_KEY",
+    "GUILD_ID",
+    "APPROVER_USER_ID",
+    "APPROVAL_CHANNEL_ID",
+    "ALERT_CHANNEL_ID",
+    "ACTIVITY_CHANNEL_ID",
+  ])("rejects changed Discord %s without disclosing values", (suffix) => {
+    const { value, expected } = routerBootstrapFixture();
+    expected[`DISCORD_FORECAST_${suffix}`] = suffix === "PUBLIC_KEY" ? "cd".repeat(32) : "999999";
+    expect(() => routerBootstrapPrior(value, VERSION, expected)).toThrow(
+      `forecast_router_bootstrap_discord_mismatch:DISCORD_${suffix}`,
+    );
+  });
+
+  it("permits only a successful live-SHA ancestry result, rejecting divergence and Git errors", () => {
+    const { value, expected } = routerBootstrapFixture();
+    expect(() => routerBootstrapPrior(value, VERSION, expected)).not.toThrow();
+    for (const status of ["1", "128", "", "false"]) {
+      expected["ROUTER_BOOTSTRAP_ANCESTRY"] = status;
+      expect(() => routerBootstrapPrior(value, VERSION, expected)).toThrow(
+        "forecast_router_bootstrap_not_descendant",
+      );
+    }
+  });
+});
 
 const privateMetadata = {
   author_email: "private-person@example.test",

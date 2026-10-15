@@ -80,25 +80,37 @@ GitHub App은 이 저장소 하나에만 설치하고 `Actions: write`, `Metadat
    rollback 대상, 검토한 main 이력의 소문자 40자리 SHA와 Discord application/public key·
    guild·approver·approval/alert/activity channel 변수를 확인한다. 이 workflow는 Bot token이나
    Discord API를 사용하지 않으므로 Developer Portal 값의 대조는 승인자가 수행한다.
+   배포 전 live Router의 일곱 Discord plain-text binding과 repository 변수를 대조하며,
+   public key의 대소문자만 무시한다. 불일치하면 배포하지 않는다.
 2. 배포를 별도로 승인한 뒤 Lead가 main ref에서 다음과 같이 요청하고, 사용자가
    `cloudflare-production` environment의 필수 reviewer 승인을 수행한다.
-   해당 environment의 보호 규칙을 먼저 확인해야 한다.
+   해당 environment의 보호 규칙을 먼저 확인해야 한다. production promotion과 concurrency
+   group을 공유하므로 실행 중인 작업뿐 아니라 pending promotion도 없는지 확인한다.
+   `cancel-in-progress: false`여도 bootstrap dispatch가 기존 pending promotion을 대체할 수
+   있고 반대 방향도 같다. `confirm_router_only=false`이면 job이 skip되어 성공으로 보일 수
+   있으므로 성공 표시만으로 배포 완료를 판단하지 않는다.
 
    ```sh
    gh workflow run forecast-router-bootstrap.yml --ref main \
      -f deploy_sha=<검토한-40자리-SHA> -f confirm_router_only=true
    ```
 
-3. workflow는 dispatch 시점 main의 ancestor만 허용하고, 현재 Router가
+3. workflow는 dispatch 시점 main의 ancestor이면서 live Router SHA의 descendant(같은 SHA 포함)인
+   commit만 허용한다. 현재 Router가
    `-production-enabled` tag이거나 production mutation flag가 false가 아니면 중단한다.
-   disabled 또는 legacy staging version을 원래 tag 그대로 summary/artifact에 기록한 뒤,
+   disabled 또는 legacy staging version의 원래 tag는 run summary에 보존한다.
+   identity artifact에는 version ID와 deployment SHA만 남기며 tag는 포함하지 않는다.
    Router만 `<sha>-production-disabled`, `PRODUCTION_MUTATIONS_ENABLED=false`로 배포한다.
 4. active version/tag/flag와 읽기 전용 `/health`의 SHA·false 상태를 확인한다.
+   정상 disabled 응답의 SHA만 아직 이전 값이면 최대 6회, 10초 간격으로 확인한다.
+   각 HTTP 요청은 최대 20초이며, 마지막 SHA 불일치 또는 잘못된 응답은 검증 실패다.
    배포 또는 검증 실패 시 캡처한 version을 100%로 복원하고 원래 identity/health를 확인하되,
    workflow 결과는 실패로 유지한다. 복원 실패·강제 취소 시 수동 대응을 별도로 승인한다.
 5. D1 migration, Collector/Dispatcher 배포·flag 변경, Usage Guard refresh, Discord 메시지,
    쓰기 smoke는 없다. `/health`는 양쪽 Forecast D1을 읽으므로 무비용을 보장하지 않는다.
    기존 Collector/Dispatcher의 활성 상태도 바꾸지 않는다.
+   `DISCORD_APPROVAL_MODE=staging_adoption`도 활성화하지 않는다. 따라서 기존과 동일하게
+   Discord staging-adoption 승인은 거부되고 일반 test approval 동작은 유지된다.
 6. 성공 후 Discord endpoint와 Router identity를 확인하고 staging 재배포를 별도로 승인한다.
    production 전체 migration·수집·dispatch 활성화는 별도의 canary/promotion 승인 대상이다.
 

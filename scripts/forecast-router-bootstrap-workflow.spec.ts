@@ -29,8 +29,19 @@ describe("Protected disabled production Router bootstrap", () => {
     expect(validation).toContain('"$DEPLOY_SHA" =~ ^[0-9a-f]{40}$');
     expect(validation).toContain('git merge-base --is-ancestor "$DEPLOY_SHA" "$TRUSTED_SHA"');
     expect(validation).toContain('git checkout --detach "$DEPLOY_SHA"');
-    expect(validation.split("run: |")[1]).not.toContain(`\${{`);
+    expect(validation).toContain(
+      'git show "$TRUSTED_SHA:scripts/check-workflow-hardening.ts" > scripts/check-workflow-hardening.ts',
+    );
     expect(validateWorkflowSource(workflow)).toEqual([]);
+  });
+
+  it("never interpolates Actions expressions into any run block", () => {
+    const runs = workflow
+      .split("      - name: ")
+      .slice(1)
+      .flatMap((source) => source.split(/^ {8}run: /m).slice(1));
+    expect(runs.length).toBeGreaterThan(0);
+    for (const run of runs) expect(run).not.toContain(`\${{`);
   });
 
   it("uses the complete existing disabled Router deploy command and only Router configurations", () => {
@@ -52,12 +63,11 @@ describe("Protected disabled production Router bootstrap", () => {
 
   it("captures a disabled or legacy restorepoint before deployment and rejects enabled production", () => {
     const deploy = step("Capture restorepoint and deploy disabled Router");
-    expect(deploy).toContain('(.tag | endswith("-production-enabled") | not)');
-    expect(deploy).toContain('.vars.PRODUCTION_MUTATIONS_ENABLED == "false"');
-    expect(deploy).toContain(
-      '(.tag == (.deploymentSha + "-staging") or .tag == (.deploymentSha + "-production-disabled"))',
+    expect(deploy).toContain("--router-bootstrap-prior");
+    expect(deploy).toContain('git merge-base --is-ancestor "$prior_sha" "$DEPLOY_SHA"');
+    expect(deploy.indexOf("--router-bootstrap-prior")).toBeLessThan(
+      deploy.indexOf("attempted=true"),
     );
-    expect(deploy.indexOf("endswith")).toBeLessThan(deploy.indexOf("attempted=true"));
     expect(deploy.indexOf("previous_version=$previous")).toBeLessThan(
       deploy.indexOf("attempted=true"),
     );

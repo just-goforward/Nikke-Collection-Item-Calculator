@@ -50,6 +50,8 @@ jobs:
           git merge-base --is-ancestor "$DEPLOY_SHA" "$TRUSTED_SHA"
           git checkout --detach "$DEPLOY_SHA"
           test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
+          # Keep bootstrap validation tooling from the trusted workflow revision, not an older target.
+          git show "$TRUSTED_SHA:scripts/check-workflow-hardening.ts" > scripts/check-workflow-hardening.ts
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -169,11 +171,12 @@ jobs:
             --json > "$RUNNER_TEMP/router-version-before.json"
           node scripts/check-workflow-hardening.ts --version-identity \
             "$RUNNER_TEMP/router-version-before.json" "$previous" > "$RUNNER_TEMP/router-identity-before.json"
-          # Never downgrade production, even if its tag and control flag disagree.
-          jq -e '(.tag | endswith("-production-enabled") | not) and
-            .vars.PRODUCTION_MUTATIONS_ENABLED == "false" and
-            (.tag == (.deploymentSha + "-staging") or .tag == (.deploymentSha + "-production-disabled"))' \
-            "$RUNNER_TEMP/router-identity-before.json" >/dev/null
+          prior_sha=$(jq -r '.deploymentSha' "$RUNNER_TEMP/router-identity-before.json")
+          ancestry_status=0
+          git merge-base --is-ancestor "$prior_sha" "$DEPLOY_SHA" || ancestry_status=$?
+          env -u CLOUDFLARE_API_TOKEN ROUTER_BOOTSTRAP_ANCESTRY="$ancestry_status" \
+            node scripts/check-workflow-hardening.ts --router-bootstrap-prior \
+            "$RUNNER_TEMP/router-version-before.json" "$previous"
           node scripts/check-workflow-hardening.ts --sanitize-identity \
             "$RUNNER_TEMP/router-identity-before.json" > "$RUNNER_TEMP/router-before.evidence.json"
           echo "previous_version=$previous" >> "$GITHUB_OUTPUT"
@@ -220,8 +223,16 @@ jobs:
           jq -e --arg sha "$DEPLOY_SHA" \
             '.deploymentSha == $sha and .tag == ($sha + "-production-disabled") and
              .vars.PRODUCTION_MUTATIONS_ENABLED == "false"' "$RUNNER_TEMP/router-identity-after.json" >/dev/null
-          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
-            "$FORECAST_INTERACTIONS_URL/health" > "$RUNNER_TEMP/router-health.json"
+          for attempt in 1 2 3 4 5 6; do
+            curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+              "$FORECAST_INTERACTIONS_URL/health" > "$RUNNER_TEMP/router-health.json"
+            jq -e '.status == "ok" and .productionMutationsEnabled == false and
+              (.deploymentSha | type == "string" and test("^[0-9a-f]{40}$"))' \
+              "$RUNNER_TEMP/router-health.json" >/dev/null
+            if jq -e --arg sha "$DEPLOY_SHA" '.deploymentSha == $sha' "$RUNNER_TEMP/router-health.json" >/dev/null; then break; fi
+            (( attempt < 6 )) || { echo "Router health identity did not converge." >&2; exit 1; }
+            sleep 10
+          done
           jq -e --arg sha "$DEPLOY_SHA" --slurpfile identity "$RUNNER_TEMP/router-identity-after.json" \
             '.status == "ok" and .deploymentSha == $sha and .productionMutationsEnabled == false and
              .productionMutationsEnabled == ($identity[0].vars.PRODUCTION_MUTATIONS_ENABLED == "true")' \

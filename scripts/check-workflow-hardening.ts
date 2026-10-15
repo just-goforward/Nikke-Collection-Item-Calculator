@@ -97,6 +97,49 @@ export function workerVersionIdentity(value: unknown, versionId: string) {
   return { versionId, deploymentSha, tag: annotations["workers/tag"], vars };
 }
 
+export function routerBootstrapPrior(
+  value: unknown,
+  versionId: string,
+  expected: Record<string, string | undefined>,
+) {
+  if (expected["ROUTER_BOOTSTRAP_ANCESTRY"] !== "0")
+    throw new Error("forecast_router_bootstrap_not_descendant");
+  const identity = workerVersionIdentity(value, versionId);
+  if (
+    identity.vars["PRODUCTION_MUTATIONS_ENABLED"] !== "false" ||
+    ![
+      `${identity.deploymentSha}-staging`,
+      `${identity.deploymentSha}-production-disabled`,
+    ].includes(identity.tag)
+  )
+    throw new Error("forecast_router_bootstrap_prior_not_disabled");
+  const bindings = (value as { resources: { bindings: unknown[] } }).resources.bindings;
+  for (const suffix of [
+    "APPLICATION_ID",
+    "PUBLIC_KEY",
+    "GUILD_ID",
+    "APPROVER_USER_ID",
+    "APPROVAL_CHANNEL_ID",
+    "ALERT_CHANNEL_ID",
+    "ACTIVITY_CHANNEL_ID",
+  ]) {
+    const name = `DISCORD_${suffix}`;
+    const matches = bindings.filter((binding) => isRecord(binding) && binding["name"] === name);
+    const actual = z
+      .object({ type: z.literal("plain_text"), text: z.string().min(1) })
+      .safeParse(matches.length === 1 ? matches[0] : null);
+    const wanted = expected[`DISCORD_FORECAST_${suffix}`];
+    if (
+      !actual.success ||
+      !wanted ||
+      (suffix === "PUBLIC_KEY"
+        ? actual.data.text.toLowerCase() !== wanted.toLowerCase()
+        : actual.data.text !== wanted)
+    )
+      throw new Error(`forecast_router_bootstrap_discord_mismatch:${name}`);
+  }
+}
+
 export function assertRouterOrigin(value: string) {
   if (!/^https:\/\/[^/]+$/.test(value))
     throw new Error(
@@ -814,6 +857,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         workerVersionIdentity(JSON.parse(readFileSync(file, "utf8")), workerOrVersion),
       ),
     );
+  } else if (mode === "--router-bootstrap-prior" && file && workerOrVersion) {
+    routerBootstrapPrior(JSON.parse(readFileSync(file, "utf8")), workerOrVersion, process.env);
   } else if (mode === "--router-origin" && file !== undefined) {
     assertRouterOrigin(file);
   } else if (mode === "--sanitize-identity" && file) {
