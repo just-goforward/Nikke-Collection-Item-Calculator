@@ -177,7 +177,7 @@ it("upgrades populated M1 stores preserving user content and authority while res
   ).toEqual({ n: 4 });
   expect(
     (await rows(dbs.PERSONAL_DB, ["SELECT count(*) AS n FROM d1_migrations"]))[0]?.[0],
-  ).toEqual({ n: 8 });
+  ).toEqual({ n: 9 });
 });
 
 it("upgrades populated 0002 through 0003 and 0004 without losing records or pending deletion work", async () => {

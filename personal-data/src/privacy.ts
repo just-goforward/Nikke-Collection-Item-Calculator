@@ -45,22 +45,35 @@ export interface PrivacyIntent {
 }
 const INTENT_LEASE_MS = 10 * 60_000;
 
+interface ReconciliationSnapshot {
+  intent_version: number;
+  jobs: number;
+}
+
 /** Explicit operator quiescence assertion, NOT automatic expiry-based proof of quiescence. */
-export async function reconcilePrivacyIntents(env: PersonalEnv, now: number): Promise<boolean> {
+export async function reconcilePrivacyIntents(
+  env: PersonalEnv,
+  now: number,
+  snapshot?: ReconciliationSnapshot,
+): Promise<boolean> {
   if (env.PRIVACY_RECONCILE_QUIESCENT !== "true" || env.PUBLICATION_ENABLED === "true")
     return false;
-  const gate = await env.PUBLIC_AGGREGATE_DB.prepare(
-    `UPDATE privacy_fence SET reconciliation_gate = 1, blocked = 1 WHERE singleton = 1
+  const gate =
+    snapshot ??
+    (await env.PUBLIC_AGGREGATE_DB.prepare(
+      `UPDATE privacy_fence SET reconciliation_gate = 1, blocked = 1 WHERE singleton = 1
      RETURNING intent_version`,
-  ).first<{ intent_version: number }>();
+    ).first<{ intent_version: number }>());
   if (!gate) return false;
   const privacy = await env.PRIVACY_CONTROL_DB.prepare(
     `SELECT (SELECT count(*) FROM consent_reservations) +
      (SELECT count(*) FROM privacy_operations WHERE state = 'pending') AS n`,
   ).first<{ n: number }>();
-  const jobs = await env.PERSONAL_DB.prepare("SELECT count(*) AS n FROM deletion_jobs").first<{
-    n: number;
-  }>();
+  const jobs = snapshot
+    ? { n: snapshot.jobs }
+    : await env.PERSONAL_DB.prepare("SELECT count(*) AS n FROM deletion_jobs").first<{
+        n: number;
+      }>();
   if (!privacy || !jobs || privacy.n || jobs.n) return false;
   const result = await env.PUBLIC_AGGREGATE_DB.batch([
     env.PUBLIC_AGGREGATE_DB.prepare(
@@ -166,8 +179,121 @@ export async function reapplyUserTombstones(env: PersonalEnv, userId: string): P
   }
 }
 
-/** Restore/maintenance only. Never called automatically from an HTTP request. O(T) tombstones. */
-export async function reapplyTombstones(env: PersonalEnv): Promise<void> {
+interface ReplayResult {
+  complete: boolean;
+  jobs: number;
+}
+interface ReplayUser {
+  user_id: string;
+  deletion: number;
+  withdrawal: number;
+}
+interface ReplayCheckpoint {
+  intent_version: number;
+  cursor: string;
+  page: string | null;
+  complete: number;
+  jobs: number;
+}
+
+/**
+ * Scheduled restore entry. Reopening the gate starts a new version, even with no
+ * privacy admissions, so a later restore cannot reuse a completed replay.
+ */
+export async function runRestoreMaintenance(env: PersonalEnv, now: number): Promise<void> {
+  if (env.PRIVACY_RECONCILE_QUIESCENT !== "true" || env.PUBLICATION_ENABLED === "true") return;
+  const gate = await env.PUBLIC_AGGREGATE_DB.prepare(
+    `UPDATE privacy_fence SET blocked = 1,
+     intent_version = intent_version + CASE WHEN reconciliation_gate = 0 THEN 1 ELSE 0 END,
+     reconciliation_gate = 1 WHERE singleton = 1 RETURNING intent_version`,
+  ).first<{ intent_version: number }>();
+  if (!gate) throw new Error("missing_privacy_fence");
+  const replay = await reapplyTombstones(env, gate.intent_version);
+  if (replay?.complete) await reconcilePrivacyIntents(env, now, { ...gate, jobs: replay.jobs });
+}
+
+/** One durable phase per invocation; at most four statements after closing PUBLIC admission. */
+async function reapplyTombstonePage(env: PersonalEnv, version: number): Promise<ReplayResult> {
+  const checkpoint = await env.PERSONAL_DB.prepare(
+    `SELECT intent_version, cursor, page, complete,
+     (SELECT count(*) FROM deletion_jobs) AS jobs FROM restore_replay WHERE singleton = 1`,
+  ).first<ReplayCheckpoint>();
+  if (!checkpoint || checkpoint.intent_version !== version) {
+    await env.PERSONAL_DB.batch([
+      env.PERSONAL_DB.prepare("DELETE FROM self_percentiles"),
+      env.PERSONAL_DB.prepare(
+        `INSERT INTO restore_replay VALUES (1, ?, '', NULL, 0)
+         ON CONFLICT(singleton) DO UPDATE SET intent_version = excluded.intent_version,
+         cursor = '', page = NULL, complete = 0
+         WHERE restore_replay.intent_version <= excluded.intent_version`,
+      ).bind(version),
+    ]);
+    return { complete: false, jobs: 0 };
+  }
+  if (checkpoint.complete) return { complete: true, jobs: checkpoint.jobs };
+  if (checkpoint.page !== null) {
+    const page = JSON.parse(checkpoint.page) as ReplayUser[];
+    const current = `EXISTS (SELECT 1 FROM restore_replay WHERE singleton = 1
+      AND intent_version = ? AND cursor = ? AND page = ?)`;
+    await env.PERSONAL_DB.batch([
+      env.PERSONAL_DB.prepare(
+        `DELETE FROM accounts WHERE user_id IN
+         (SELECT json_extract(value, '$.user_id') FROM json_each(?)
+          WHERE json_extract(value, '$.deletion') = 1) AND ${current}`,
+      ).bind(checkpoint.page, version, checkpoint.cursor, checkpoint.page),
+      env.PERSONAL_DB.prepare(
+        `UPDATE accounts SET public_participation = 0 WHERE user_id IN
+         (SELECT json_extract(value, '$.user_id') FROM json_each(?)
+          WHERE json_extract(value, '$.withdrawal') = 1) AND ${current}`,
+      ).bind(checkpoint.page, version, checkpoint.cursor, checkpoint.page),
+      env.PERSONAL_DB.prepare(
+        `UPDATE restore_replay SET cursor = ?, page = NULL, complete = ?
+         WHERE singleton = 1 AND intent_version = ? AND cursor = ? AND page = ?`,
+      ).bind(
+        page[page.length - 1]!.user_id,
+        Number(page.length < 150),
+        version,
+        checkpoint.cursor,
+        checkpoint.page,
+      ),
+    ]);
+    return { complete: false, jobs: checkpoint.jobs };
+  }
+  const result = await env.PRIVACY_CONTROL_DB.batch<ReplayUser>([
+    env.PRIVACY_CONTROL_DB.prepare(
+      `SELECT t.user_id, max(t.kind = 'deletion') AS deletion,
+       max(t.kind = 'withdrawal' AND
+         (c.participation IS NOT 1 OR c.fence_generation <= t.fence_generation)) AS withdrawal
+       FROM tombstones t LEFT JOIN consent_decisions c ON c.user_id = t.user_id
+       WHERE t.user_id IN
+         (SELECT DISTINCT user_id FROM tombstones WHERE user_id > ? ORDER BY user_id LIMIT 150)
+       GROUP BY t.user_id ORDER BY t.user_id`,
+    ).bind(checkpoint.cursor),
+  ]);
+  const page = result[0]!.results;
+  await env.PERSONAL_DB.prepare(
+    `UPDATE restore_replay SET page = ?, complete = ?
+     WHERE singleton = 1 AND intent_version = ? AND cursor = ? AND page IS NULL AND complete = 0`,
+  )
+    .bind(
+      page.length ? JSON.stringify(page) : null,
+      Number(!page.length),
+      version,
+      checkpoint.cursor,
+    )
+    .run();
+  return { complete: false, jobs: checkpoint.jobs };
+}
+
+/**
+ * Restore only, never HTTP. A scheduled version resumes one bounded phase;
+ * explicit in-process callers may still await the entire O(T) replay.
+ */
+export async function reapplyTombstones(
+  env: PersonalEnv,
+  intentVersion?: number,
+): Promise<ReplayResult | undefined> {
+  if (intentVersion !== undefined) return reapplyTombstonePage(env, intentVersion);
   if (env.PUBLICATION_ENABLED !== "true")
     await env.PERSONAL_DB.prepare("DELETE FROM self_percentiles").run();
   let cursor = "";

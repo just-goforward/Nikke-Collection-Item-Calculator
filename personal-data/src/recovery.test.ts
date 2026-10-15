@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
 import { beforeEach, expect, it, vi } from "vitest";
+import { createSession } from "./auth";
 import { putConsent } from "./consent";
 import { workspaceBody } from "./http";
-import { reconcilePrivacyIntents, withPrivacyIntent } from "./privacy";
-import { admitAccount } from "./store";
+import { applyPrivacyChange, reconcilePrivacyIntents, withPrivacyIntent } from "./privacy";
+import { admitAccount, EMPTY_DOCUMENT, putWorkspace } from "./store";
 import { type FixtureEnv, resetFixture } from "./test-fixture";
 import type { PersonalEnv, SqlDatabase, SqlStatement } from "./types";
 import worker, { scheduledLane } from "./worker";
@@ -352,9 +353,17 @@ it("full publication and gated reconciliation obey their own ceilings", async ()
       "SELECT count(*) AS n FROM weekly_releases WHERE state = 'published'",
     ).first(),
   ).toEqual({ n: 1 });
-  const recovery = measure(maintenance);
-  await worker.scheduled({ scheduledTime: laneTime(5) }, recovery.env);
-  expect(recovery.count()).toBeLessThanOrEqual(ceilings[5]);
+  // Empty replay still initializes/purges, scans, then reconciles in separate slots.
+  for (let slot = 0; slot < 3; slot++) {
+    const recovery = measure(maintenance);
+    await worker.scheduled({ scheduledTime: laneTime(5) + slot * 3_600_000 }, recovery.env);
+    expect(recovery.count()).toBeLessThanOrEqual(ceilings[5]);
+    expect(
+      await dbs.PUBLIC_AGGREGATE_DB.prepare(
+        "SELECT reconciliation_gate FROM privacy_fence",
+      ).first(),
+    ).toEqual({ reconciliation_gate: Number(slot < 2) });
+  }
   expect(
     await dbs.PUBLIC_AGGREGATE_DB.prepare("SELECT reconciliation_gate FROM privacy_fence").first(),
   ).toEqual({ reconciliation_gate: 0 });
@@ -403,6 +412,10 @@ it.each([
   { lane: 5, failure: "DELETE FROM privacy_intents" },
 ])("lane $lane reports $failure without exceeding its ceiling", async ({ lane, failure }) => {
   if (lane === 1) await readyWork();
+  if (lane === 5) {
+    await worker.scheduled({ scheduledTime: laneTime(5) }, maintenance);
+    await worker.scheduled({ scheduledTime: laneTime(5) + 3_600_000 }, maintenance);
+  }
   const measured = measure(lane === 5 ? maintenance : {}, failure);
   await expect(worker.scheduled({ scheduledTime: laneTime(lane) }, measured.env)).rejects.toThrow(
     "maintenance_failed",
@@ -414,4 +427,236 @@ it.each([
       await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM deletion_jobs").first(),
     ).toEqual({ n: 0 });
   }
+});
+
+async function restoreStep(slot: number, failure = "") {
+  const measured = measure(maintenance, failure);
+  const result = worker.scheduled({ scheduledTime: laneTime(5) + slot * 3_600_000 }, measured.env);
+  if (failure) await expect(result).rejects.toThrow("maintenance_failed");
+  else await result;
+  expect(measured.count()).toBeLessThanOrEqual(ceilings[5]);
+  expect(measured.failed()).toBe(Boolean(failure));
+  return measured.count();
+}
+
+async function restoreGate() {
+  return dbs.PUBLIC_AGGREGATE_DB.prepare(
+    "SELECT reconciliation_gate, pending_intents, blocked FROM privacy_fence",
+  ).first();
+}
+
+async function deletedSnapshot() {
+  await applyPrivacyChange(
+    dbs,
+    { userId: "restored", opId: "delete-restored", kind: "deletion" },
+    NOW,
+  );
+  await admitAccount(
+    dbs.PERSONAL_DB,
+    { issuer: "https://accounts.google.com", sub: "restored" },
+    "restored",
+    NOW,
+  );
+  await createSession(dbs.PERSONAL_DB, "restored", NOW);
+  await putWorkspace(
+    dbs.PERSONAL_DB,
+    "restored",
+    {
+      opId: "restored-save",
+      baseRevision: 0,
+      document: { ...EMPTY_DOCUMENT, lifetimeStages: [summary] },
+      action: {
+        kind: "archive",
+        archive: {
+          archiveId: "restored-archive",
+          summary,
+          startedAt: NOW - 1000,
+          completedAt: NOW,
+        },
+      },
+    },
+    NOW,
+  );
+  await dbs.PERSONAL_DB.prepare(
+    "INSERT INTO self_percentiles VALUES ('restored', 'restored-release', 'R', '{}')",
+  ).run();
+}
+
+it("maintenance :50 replays a restored deletion and purges ranks before reopening reconciliation", async () => {
+  await deletedSnapshot();
+  const tables = [
+    "accounts",
+    "identities",
+    "sessions",
+    "workspaces",
+    "operations",
+    "stage_summaries",
+    "pending_archives",
+    "self_percentiles",
+  ];
+  for (const table of tables) {
+    expect(await dbs.PERSONAL_DB.prepare(`SELECT count(*) AS n FROM ${table}`).first()).toEqual({
+      n: 1,
+    });
+  }
+  for (let slot = 0; slot < 4; slot++) {
+    expect(await restoreStep(slot)).toBe([7, 7, 8, 8][slot]);
+    expect(await restoreGate()).toEqual({
+      reconciliation_gate: Number(slot < 3),
+      pending_intents: 0,
+      blocked: 1,
+    });
+    if (slot === 0) {
+      expect(
+        await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM self_percentiles").first(),
+      ).toEqual({ n: 0 });
+    }
+  }
+  for (const table of tables) {
+    expect(await dbs.PERSONAL_DB.prepare(`SELECT count(*) AS n FROM ${table}`).first()).toEqual({
+      n: 0,
+    });
+  }
+  expect(
+    await dbs.PRIVACY_CONTROL_DB.prepare(
+      "SELECT kind FROM tombstones WHERE user_id = 'restored'",
+    ).first(),
+  ).toEqual({ kind: "deletion" });
+
+  // A second PERSONAL restore must not reuse the previous completed checkpoint.
+  await admitAccount(
+    dbs.PERSONAL_DB,
+    { issuer: "https://accounts.google.com", sub: "restored" },
+    "restored",
+    NOW,
+  );
+  for (let slot = 4; slot < 8; slot++) await restoreStep(slot);
+  expect(await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM accounts").first()).toEqual({
+    n: 0,
+  });
+  expect(await restoreGate()).toEqual({ reconciliation_gate: 0, pending_intents: 0, blocked: 1 });
+});
+
+it.each([
+  { PRIVACY_RECONCILE_QUIESCENT: "false", PUBLICATION_ENABLED: "false" },
+  { PRIVACY_RECONCILE_QUIESCENT: "true", PUBLICATION_ENABLED: "true" },
+])("lane 5 does not replay outside disabled-publication maintenance: %j", async (flags) => {
+  await deletedSnapshot();
+  const measured = measure(flags);
+  await worker.scheduled({ scheduledTime: laneTime(5) }, measured.env);
+  expect(measured.count()).toBe(3);
+  expect(await restoreGate()).toEqual({ reconciliation_gate: 0, pending_intents: 0, blocked: 1 });
+  for (const table of ["accounts", "self_percentiles"]) {
+    expect(await dbs.PERSONAL_DB.prepare(`SELECT count(*) AS n FROM ${table}`).first()).toEqual({
+      n: 1,
+    });
+  }
+  expect(await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM restore_replay").first()).toEqual(
+    { n: 0 },
+  );
+});
+
+it("multi-page restore replay resumes across :50 invocations and preserves newer withdrawal consent", async () => {
+  for (const userId of ["u000", "u001", "u150"]) {
+    await admitAccount(
+      dbs.PERSONAL_DB,
+      { issuer: "https://accounts.google.com", sub: userId },
+      userId,
+      NOW,
+    );
+  }
+  await dbs.PERSONAL_DB.prepare("UPDATE accounts SET public_participation = 1").run();
+  await dbs.PERSONAL_DB.prepare(
+    "INSERT INTO self_percentiles VALUES ('u001', 'restored', 'R', '{}')",
+  ).run();
+  await dbs.PRIVACY_CONTROL_DB.batch(
+    Array.from({ length: 151 }, (_, index) =>
+      dbs.PRIVACY_CONTROL_DB.prepare(
+        "INSERT INTO tombstones (user_id, kind, created_at, fence_generation) VALUES (?, ?, ?, 1)",
+      ).bind(`u${String(index).padStart(3, "0")}`, index < 2 ? "withdrawal" : "deletion", NOW),
+    ),
+  );
+  await dbs.PRIVACY_CONTROL_DB.prepare(
+    `INSERT INTO consent_decisions
+     (user_id, participation, decision_version, decided_at, fence_generation)
+     VALUES ('u001', 1, 2, ?, 2)`,
+  )
+    .bind(NOW)
+    .run();
+  for (let slot = 0; slot < 6; slot++) {
+    await restoreStep(slot);
+    expect(await restoreGate()).toEqual({
+      reconciliation_gate: Number(slot < 5),
+      pending_intents: 0,
+      blocked: 1,
+    });
+    if (slot === 2) {
+      expect(
+        await dbs.PERSONAL_DB.prepare("SELECT cursor, page, complete FROM restore_replay").first(),
+      ).toEqual({ cursor: "u149", page: null, complete: 0 });
+      expect(
+        await dbs.PERSONAL_DB.prepare(
+          "SELECT user_id FROM accounts WHERE user_id = 'u150'",
+        ).first(),
+      ).toEqual({ user_id: "u150" });
+    }
+  }
+  expect(
+    (
+      await dbs.PERSONAL_DB.batch([
+        dbs.PERSONAL_DB.prepare(
+          "SELECT user_id, public_participation FROM accounts ORDER BY user_id",
+        ),
+      ])
+    )[0]?.results,
+  ).toEqual([
+    { user_id: "u000", public_participation: 0 },
+    { user_id: "u001", public_participation: 1 },
+  ]);
+  expect(
+    await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM self_percentiles").first(),
+  ).toEqual({ n: 0 });
+});
+
+it("a failed replay batch keeps its checkpoint and gate closed for the next :50 retry", async () => {
+  await deletedSnapshot();
+  await restoreStep(0);
+  await restoreStep(1);
+  await restoreStep(2, "UPDATE accounts SET public_participation");
+  expect(await restoreGate()).toEqual({ reconciliation_gate: 1, pending_intents: 0, blocked: 1 });
+  expect(
+    await dbs.PERSONAL_DB.prepare("SELECT cursor, complete FROM restore_replay").first(),
+  ).toEqual({ cursor: "", complete: 0 });
+  expect(await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM accounts").first()).toEqual({
+    n: 1,
+  });
+  await restoreStep(3);
+  await restoreStep(4);
+  expect(await restoreGate()).toEqual({ reconciliation_gate: 0, pending_intents: 0, blocked: 1 });
+});
+
+it("a recovery admission after replay completion restarts replay before reconciliation", async () => {
+  await deletedSnapshot();
+  for (let slot = 0; slot < 3; slot++) await restoreStep(slot);
+  await applyPrivacyChange(
+    maintenance,
+    { userId: "earlier", opId: "late-delete", kind: "deletion" },
+    NOW,
+  );
+  await admitAccount(
+    dbs.PERSONAL_DB,
+    { issuer: "https://accounts.google.com", sub: "earlier" },
+    "earlier",
+    NOW,
+  );
+  await restoreStep(3);
+  expect(await restoreGate()).toEqual({ reconciliation_gate: 1, pending_intents: 0, blocked: 1 });
+  expect(
+    await dbs.PERSONAL_DB.prepare("SELECT cursor, complete FROM restore_replay").first(),
+  ).toEqual({ cursor: "", complete: 0 });
+  for (let slot = 4; slot < 7; slot++) await restoreStep(slot);
+  expect(await dbs.PERSONAL_DB.prepare("SELECT count(*) AS n FROM accounts").first()).toEqual({
+    n: 0,
+  });
+  expect(await restoreGate()).toEqual({ reconciliation_gate: 0, pending_intents: 0, blocked: 1 });
 });

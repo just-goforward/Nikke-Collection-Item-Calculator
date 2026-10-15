@@ -42,7 +42,7 @@ import {
   workspaceBody,
 } from "./http";
 import { runInactivityDeletion } from "./inactivity";
-import { reapplyUserTombstones, reconcilePrivacyIntents } from "./privacy";
+import { reapplyUserTombstones, runRestoreMaintenance } from "./privacy";
 import { publishWeekly } from "./publication";
 import {
   getWorkspace,
@@ -586,7 +586,7 @@ export function createWorker(fetchImpl: typeof fetch = fetch, now: () => number 
       try {
         if (lane === 4 && env.PRIVACY_RECONCILE_QUIESCENT !== "true")
           await publishWeekly(env, time);
-        else if (lane === 5) await reconcilePrivacyIntents(env, time);
+        else if (lane === 5) await runRestoreMaintenance(env, time);
       } catch {
         failed = true;
       }

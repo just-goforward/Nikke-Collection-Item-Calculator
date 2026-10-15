@@ -32,6 +32,7 @@ export async function resetFixture(env: FixtureEnv): Promise<void> {
   await rebuild(
     env.PERSONAL_DB,
     [
+      "restore_replay",
       "self_percentiles",
       "pending_archives",
       "stage_summaries",

@@ -425,7 +425,10 @@ not account deletion, and follows that choice.
 
 Privacy HTTP paths reapply only the affected user's at-most-two tombstones.
 Full `reapplyTombstones` is restore/maintenance-only, paged by 150 user IDs:
-O(T) historical tombstones, not request-time work. `resumeDeletion` retries
+O(T) historical tombstones, not request-time work. In disabled-publication
+maintenance, scheduled lane 5 awaits its bounded, checkpointed phases before
+allowing intent reconciliation; no HTTP/admin endpoint or manual SQL replay is
+needed. `resumeDeletion` retries
 one specified job and isolates its failure. No all-job retry precedes routes.
 
 Consent preflight hashes/CAS plus an atomic per-user reservation happen before
@@ -619,38 +622,79 @@ release, pointer and monotonic-version triggers.
 
 ### Explicit recovery entry and required quiescence
 
-`PRIVACY_RECONCILE_QUIESCENT = "false"` by default. To enter the prepared
-maintenance mode under separate operational authorization:
+`PRIVACY_RECONCILE_QUIESCENT = "false"` by default. The supported restore path is
+scheduled lane 5 (UTC `:50`), not an HTTP/admin endpoint. Under separate operational
+authorization:
 
-1. Disable publication and stop/drain ordinary invocations of every deployed
-   version, including outstanding D1 writes. Only then assert this flag as
-   `"true"`. The flag is an **operator assertion**, not a distributed proof
-   that older isolates/ambiguous D1 writes have stopped. All HTTP requests in
-   this mode refuse work; only the bounded cron recovery lanes run.
-2. The dedicated reconciliation lane calls `reconcilePrivacyIntents`; the
-   publication lane refuses to publish in maintenance mode.
-   It closes PUBLIC admission and keeps publication blocked, checks that all
-   PERSONAL deletion jobs and PRIVACY reservations/pending operations are gone,
-   and refuses to reconcile while any intent has an unexpired ten-minute lease.
-   Failures/outages leave the gate/block and retry on a later lane invocation.
-3. Under that quiescence, one PUBLIC transaction deletes expired orphan leases
-   and recomputes `pending_intents` from remaining lease rows. It requires the
-   same captured `intent_version`, so a concurrent recovery admission invalidates
-   the decision. It then reopens admission, **never clears `blocked`**, never
-   resets generation, and never removes a publisher token or unfinished privacy
-   record. Unknown publisher recovery remains deferred to the publication review.
-4. Verify current tombstone replay/restore gates and completed jobs. Before
-   turning `PRIVACY_RECONCILE_QUIESCENT` off, confirm **`reconciliation_gate = 0`**
-   on the PUBLIC database for the exact authorized environment:
-   `SELECT reconciliation_gate, pending_intents, blocked FROM privacy_fence WHERE singleton = 1;`.
-   In a local scaffold, use
-   `npx wrangler d1 execute public-aggregate-local --local --config personal-data/wrangler.toml --command "SELECT reconciliation_gate, pending_intents, blocked FROM privacy_fence WHERE singleton = 1;"`.
-   A deployed check requires separate operational authorization and the actual
-   environment/database, never the local placeholder or a guessed target.
-   Missing rows, errors or `reconciliation_gate = 1` are **not** permission to exit:
-   keep maintenance on, finish recovery and recheck. Successful recovery leaves
-   `pending_intents = 0` and `blocked = 1`. Only then exit maintenance mode.
-   Enabling publication is a separate explicit decision.
+1. Install PERSONAL migration `0009_restore_replay.sql` before using this code.
+   Disable publication and stop/drain ordinary invocations of every deployed
+   version, including outstanding D1 writes. The flag is an **operator assertion**,
+   not a distributed proof that older isolates/ambiguous writes stopped; this
+   repository has no drain acknowledgement. Only after establishing quiescence,
+   redeploy with `PUBLICATION_ENABLED="false"` and
+   `PRIVACY_RECONCILE_QUIESCENT="true"`. For the separately provisioned staging
+   environment, from the project root in PowerShell:
+
+   ```powershell
+   npx --no-install wrangler deploy --config site-worker/personal-data-staging.wrangler.json --env staging --var "PUBLICATION_ENABLED:false" --var "PRIVACY_RECONCILE_QUIESCENT:true"
+   ```
+
+   All personal-worker HTTP requests now refuse work (normally JSON 503;
+   callback failures redirect with `account_error=service_unavailable`).
+   Publication refuses to run; bounded deletion/consent/inactivity lanes and
+   expiry cleanup remain active.
+2. Restore **PERSONAL_DB only**, using the independently recorded pre-deletion
+   bookmark. Never restore PRIVACY_CONTROL_DB or PUBLIC_AGGREGATE_DB as part of
+   this procedure. If the snapshot predates PERSONAL migration `0009`, apply
+   pending PERSONAL migrations while HTTP remains gated, before waiting for
+   replay. A missing checkpoint table fails closed; cron does not apply migrations.
+   Do not restore another snapshot during an in-progress replay; complete recovery
+   first. Do not replace checkpoints or purge accounts/ranks manually.
+3. Wait for subsequent UTC `:50` invocations **after the restore**, keeping the
+   maintenance deployment active. `runRestoreMaintenance` first closes PUBLIC
+   admission and awaits `reapplyTombstones`. It initializes the private
+   `PERSONAL.restore_replay` singleton and purges **all** restored `self_percentiles`.
+   Later invocations alternate fetching at most 150 tombstone user IDs and
+   atomically applying that page with its cursor checkpoint. Deletions cascade
+   account-owned rows; applicable withdrawals clear participation, respecting
+   newer re-opt-in generations. Identifiers/page payloads never enter PUBLIC.
+   Replay and intent reconciliation occur in separate invocations to preserve
+   lane 5's **eight-statement ceiling including three expiry statements**:
+   initialization/fetch use at most seven, apply/reconcile at most eight.
+   A single nonempty page normally takes four hourly slots; multiple pages take
+   longer. Empty replay takes three; a full final page needs an additional empty
+   fetch. Failures retry the same phase without advancing its checkpoint.
+4. Only after a complete replay does the lane call `reconcilePrivacyIntents`.
+   It checks that PERSONAL deletion jobs and PRIVACY reservations/pending
+   operations are gone and refuses reconciliation while any intent has an
+   unexpired ten-minute lease. One PUBLIC transaction removes expired orphan
+   leases and recomputes `pending_intents`, guarded by the captured `intent_version`.
+   A recovery admission changes that version and restarts replay, including
+   IDs earlier than the previous cursor. Starting a new replay from an open gate
+   also advances this identifier-free version, so a subsequent restore does not
+   reuse an old completed checkpoint. Successful reconciliation reopens admission
+   but **never clears `blocked`**, resets generation, or removes unfinished
+   privacy records/publisher tokens.
+5. After those post-restore invocations, verify on the exact environment:
+
+   ```powershell
+   npx --no-install wrangler d1 execute PUBLIC_AGGREGATE_DB --remote --config site-worker/personal-data-staging.wrangler.json --env staging --command "SELECT reconciliation_gate, pending_intents, blocked FROM privacy_fence WHERE singleton = 1;"
+   npx --no-install wrangler d1 execute PERSONAL_DB --remote --config site-worker/personal-data-staging.wrangler.json --env staging --command "SELECT intent_version, complete FROM restore_replay WHERE singleton = 1;"
+   ```
+
+   Require a completed checkpoint (`complete=1`), **`reconciliation_gate=0`,
+   `pending_intents=0`, `blocked=1`**, no unfinished recovery jobs, retained
+   deletion tombstones in PRIVACY, and absence of the deleted account and its
+   owned rows in PERSONAL. The initial gate value before cron is **not** evidence
+   of replay completion. Missing rows, errors or a closed gate are not permission
+   to exit: keep maintenance on and wait for recovery/recheck. Then redeploy:
+
+   ```powershell
+   npx --no-install wrangler deploy --config site-worker/personal-data-staging.wrangler.json --env staging --var "PUBLICATION_ENABLED:false" --var "PRIVACY_RECONCILE_QUIESCENT:false"
+   ```
+
+   Verify the old session returns 401 and a fresh Google login receives a new
+   account ID. Keep publication disabled; enabling it is a separate decision.
 
 A failure before any durable write attempt releases its lease immediately,
 regardless of exception type. Preparation failures are distinguishable from an
@@ -677,7 +721,7 @@ reconciliation is inert without the explicit maintenance flag.
 | 20 / 2 | One stale consent reservation | 27 |
 | 30 / 3 | One inactivity candidate | 27 |
 | 40 / 4 | Publication (disabled during beta) | 19 |
-| 50 / 5 | Gated reconciliation | 8 |
+| 50 / 5 | Checkpointed restore replay, then gated reconciliation | 8 |
 
 The ceilings include known failure cleanup/backoff paths and count **each batch
 statement**, not just one D1 round-trip. There is no recursive drain in an
