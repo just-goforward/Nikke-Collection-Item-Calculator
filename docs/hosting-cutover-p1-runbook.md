@@ -15,6 +15,8 @@
 
 1. 전체 소문자 40자리 후보 SHA가 `main` 이력에 있는지 확인한다. dispatch ref도 `main`이다.
    `Deploy GitHub Pages` 성공은 **검증 성공**이지 Pages 게시를 뜻하지 않는다.
+   **dispatch 전 체크리스트:** 해당 후보 SHA의 `Deploy GitHub Pages` 검증 실행이 성공했는지
+   확인하고 실행 URL을 승인 기록에 연결한다. 다른 SHA의 성공으로 대체하지 않는다.
 2. `SITE_HOSTING_TARGET` 저장소 변수:
    - `pages` 또는 미설정/빈 값: 기존 Pages 게시 + 공개 Pages smoke.
    - `worker`: 검증 및 `pages-rollback-<SHA>` 아티팩트 보존; Pages 게시와 Pages 공개 smoke 생략.
@@ -40,14 +42,26 @@
 **승인 게이트 B — Worker 생성/버전 배포:** 정확한 후보 SHA와 계정/Worker를 승인한 후,
 `Promote production site Worker`를 `main`, `deploy_sha=<SHA>`, `mode=bootstrap`으로 dispatch한다.
 보호 환경 승인을 별도로 완료한다.
+동시 실행 그룹의 `cancel-in-progress: false`는 실행 중인 배포의 취소를 막지만,
+새 dispatch가 이미 대기 중인 실행을 교체할 수 있다. FIFO 큐를 가정하지 말고
+승인 직전에 살아 있는 실행 ID와 후보 SHA를 다시 확인한다.
 
 - 승인 전 main 이력 검증, 승인 후 정확한 SHA 재checkout 및 재검증.
-- Node 24.21.0 / npm 12.2.0 / Rust 1.98.1; 빌드의 `GITHUB_SHA`는 dispatch SHA가 아니라 후보 SHA.
+- Node 24.21.0 / npm 12.2.0 / Rust 1.98.1; 자식 빌드 프로세스의 `GITHUB_SHA`는 후보 SHA이다.
+  GitHub 예약 환경변수의 step-level 재정의에 의존하지 않는다. 업로드 전에 실제 entry JS의
+  후보 SHA를 검사한다.
 - 빌드, `check:site-production`, 로컬 `smoke:site-production`, bundle budget, 아티팩트 업로드에는
   배포 토큰이 없다. 토큰은 마지막 배포 단계에만 전달한다.
+- 검증/빌드 job은 보호 환경과 분리된 runner에서 실행된다. 보호된 deploy job은 그 실행의
+  아티팩트를 내려받고 tar payload SHA-256을 job output과 비교한 후 추출한다.
+  GitHub 아티팩트 digest와 payload digest는 별개이며 둘 다 보존한다.
+  의존성은 lockfile에서 `npm ci --ignore-scripts`로 설치하고, 내려받은 dist에
+  `check:site-production`을 통과한 뒤에만 배포한다.
 - `site-worker/production.wrangler.toml`만 배포한다. tag/message는 후보 SHA.
 - 실행 summary의 Worker version ID와 아티팩트 digest를 승인 기록과 연결한다.
 - bootstrap은 도메인을 붙이지 않으며 공개 smoke를 수행하지 않는다. 공개 접속 불가가 정상이다.
+- bootstrap은 대상 Worker가 없거나 배포 목록이 비어 있을 때만 허용한다. 기존 배포,
+  인증/권한 오류 또는 알 수 없는 응답은 중단하며 기존 운영 Worker를 덮어쓰지 않는다.
 - 실패 시 중단한다. 자동 재시도/자동 복구/권한 확장은 하지 않는다.
 
 ## 3. 호스팅 Switch (수동, 각 변경 별도 승인)
@@ -85,7 +99,8 @@ npm run smoke:site-production-deployed -- https://nikkecollection.com <full-cand
   리다이렉트는 따라가지 않는다. apex를 명시해야 한다.
 - `/`, `/en/`, `/ja/` 언어/제목/canonical/hreflang, 정확한 프런트엔드 SHA, sitemap,
   `robots.txt`의 Allow와 Sitemap, JS/CSS/WASM, 계정 off, 직접 stats URL을 검사한다.
-- HTML은 재검증; immutable은 해시 자산만 허용. 고정명 `solver_rs.wasm`은 immutable 금지.
+- HTML 및 고정명 `solver_rs.wasm`/`certified_solver.wasm`은 명시적 재검증이 필요하다
+  (`no-cache` 또는 `max-age=0, must-revalidate`). immutable은 해시 자산만 허용한다.
   공개 HTML에 CSP/noindex/쿠키가 없어야 한다.
 - `/api/stats`, 공개 `/v1/statistics`는 503, 알 수 없는 `/api`, `/auth`, `/v1` 경로는 404,
   허용되지 않은 HEAD는 405, `/api/health`는 404여야 한다.
@@ -115,7 +130,12 @@ npm run smoke:site-production-deployed -- https://nikkecollection.com <full-cand
 3. **승인 게이트 R4:** 필요하면 GitHub Pages custom domain을 다시 추가한다.
    Pages TLS 인증서 재발급/HTTPS 활성화가 필요할 수 있다. GitHub 검증 TXT는 계속 유지한다.
 4. Pages TLS가 정상이고 DNS가 관측된 뒤 Pages smoke를 복구 SHA로 실행한다.
-   Worker로 향하는 URL/리다이렉트는 Pages smoke가 거절한다.
+   Pages smoke는 `SITE_HOSTING_TARGET=worker` 및 직접적인 workers.dev 주소를 거절한다.
+   apex 입력은 리다이렉트를 금지하고, legacy Pages URL은 리다이렉트를 허용하되 최종 호스트를
+   원래 호스트 또는 HTTPS apex로 제한한다. CLI는 최대 10번, 실패 사이 6초 간격으로 재시도한다.
+   **한계:** 같은 apex에서 같은 HTML을 제공하는 Pages와 Worker를 콘텐츠 smoke만으로 구별할
+   수 없다. 실제 Pages 복구는 별도의 DNS/Custom Domain/Pages 설정 확인으로 증명해야 한다.
+   알려진 외부 font stylesheet와 data URL은 요청하지 않으며 앱 자산은 승인된 origin만 검사한다.
 
 DNS 캐시, 도메인 충돌 해소, 인증서 발급 때문에 **즉시 롤백을 보장하지 않는다**.
 훈련에서만 측정하며 아직 숫자를 약속하지 않는다:

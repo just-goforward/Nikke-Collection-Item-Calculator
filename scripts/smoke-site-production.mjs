@@ -16,13 +16,13 @@ export function verifyCacheHeaders(response, path) {
   if (/immutable/i.test(cache)) {
     assert(HASHED_ASSET.test(path), `${path}: only hashed assets may be immutable`);
   }
-  if (path === "/" || path === "/en/" || path === "/ja/") {
+  if (["/", "/en/", "/ja/", "/solver_rs.wasm", "/certified_solver.wasm"].includes(path)) {
     assert(
       /\bno-cache\b/i.test(cache) ||
         (/\bmax-age\s*=\s*0\b/i.test(cache) && /\bmust-revalidate\b/i.test(cache)),
-      `${path}: HTML must revalidate`,
+      `${path}: HTML/fixed WASM must revalidate`,
     );
-    assert(!/\b(?:s-maxage|max-age)\s*=\s*[1-9]/i.test(cache), `${path}: HTML cache is stale`);
+    assert(!/\b(?:s-maxage|max-age)\s*=\s*[1-9]/i.test(cache), `${path}: cache is stale`);
   }
 }
 

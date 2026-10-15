@@ -1,21 +1,21 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { renderLocalizedPage } from "./localized-pages.ts";
 import { localePages } from "./smoke-pages-deployment.mjs";
-import { smokeSiteProduction } from "./smoke-site-production.mjs";
+import { smokeSiteProduction, verifyCacheHeaders } from "./smoke-site-production.mjs";
 
 const origin = "https://nikkecollection.com";
 const revision = "a".repeat(40);
 
 function html(locale) {
-  return `<html lang="${locale.lang}" data-locale="${locale.lang}">
-<title>${locale.title}</title><div id="app"></div>
-<link rel="canonical" href="${locale.canonical}" />
-${localePages.map((entry) => `<link rel="alternate" href="${entry.canonical}" />`).join("\n")}
-<link rel="alternate" hreflang="x-default" href="${origin}/" />
-<script id="site-structured-data">{"@type":"SoftwareApplication"}</script>
-<script>window.COLLECTION_STATS_CONFIG = { endpoint: "https://collection-kit-stats.tbvj159.workers.dev" };</script>
-<script src="/assets/index-abcdefgh.js"></script>
-<link rel="stylesheet" href="/assets/index-abcdefgh.css" /></html>`;
+  const source = readFileSync(new URL("../index.html", import.meta.url), "utf8").replace(
+    '<script type="module" src="/src/main.tsx"></script>',
+    '<script src="/assets/index-abcdefgh.js"></script><link rel="stylesheet" href="/assets/index-abcdefgh.css" />',
+  );
+  const rendered = renderLocalizedPage(source, locale.lang);
+  assert.ok(rendered.includes("<noscript>") && rendered.includes("https://cdn.jsdelivr.net"));
+  return rendered;
 }
 
 function fixture(change = () => {}) {
@@ -56,6 +56,7 @@ function fixture(change = () => {}) {
         result.body = "body{color:black}";
       } else if (path.endsWith(".wasm")) {
         result.headers["Content-Type"] = "application/wasm";
+        result.headers["Cache-Control"] = "public, max-age=0, must-revalidate";
         result.body = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]);
       } else if (path === "/robots.txt") {
         result.headers["Content-Type"] = "text/plain";
@@ -135,7 +136,7 @@ for (const [name, change, error] of [
     (path, value) => {
       if (path === "/") value.headers["Cache-Control"] = "public, max-age=3600";
     },
-    /HTML must revalidate/,
+    /must revalidate/,
   ],
   [
     "immutable fixed WASM",
@@ -178,3 +179,17 @@ for (const [name, change, error] of [
     await assert.rejects(smokeSiteProduction(origin, revision, fixture(change)), error);
   });
 }
+
+test("both fixed WASM files require positive revalidation, not merely absence of immutable", () => {
+  for (const path of ["/solver_rs.wasm", "/certified_solver.wasm"]) {
+    for (const cache of [null, "public, max-age=3600", "public, max-age=0"]) {
+      const headers = cache ? { "Cache-Control": cache } : {};
+      assert.throws(() => verifyCacheHeaders(new Response("", { headers }), path), /revalidate/);
+    }
+    for (const cache of ["no-cache", "public, max-age=0, must-revalidate"]) {
+      assert.doesNotThrow(() =>
+        verifyCacheHeaders(new Response("", { headers: { "Cache-Control": cache } }), path),
+      );
+    }
+  }
+});

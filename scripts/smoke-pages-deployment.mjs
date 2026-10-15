@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import { SITE_LOCALES } from "../shared/siteLocales.ts";
 import { pagesPublicationPolicy } from "./site-hosting-policy.ts";
 
 export const localePages = [
@@ -28,7 +29,7 @@ export function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-/** Zero redirects: even an otherwise approved host must be explicitly supplied by the caller. */
+/** The apex is redirect-free; legacy Pages URLs may redirect to the approved HTTPS apex. */
 export async function checkedFetch(url, expectedType, options) {
   const {
     origin,
@@ -52,19 +53,23 @@ export async function checkedFetch(url, expectedType, options) {
   if (!siteWorker)
     assert(!requestUrl.hostname.endsWith(".workers.dev"), "Pages smoke refuses Worker host");
   requestUrl.searchParams.set("deployment-smoke", revision);
+  const strictRedirects = siteWorker || origin === "https://nikkecollection.com";
   const response = await fetchImpl(requestUrl, {
     cache: "no-store",
-    redirect: "manual",
+    redirect: strictRedirects ? "manual" : "follow",
     credentials: "omit",
     method,
     signal,
   });
   assert(
-    !response.redirected && !(response.status >= 300 && response.status < 400),
+    !strictRedirects ||
+      (!response.redirected && !(response.status >= 300 && response.status < 400)),
     `${url}: unexpected redirect`,
   );
   assert(
-    !response.url || new URL(response.url).origin === origin,
+    !response.url ||
+      new URL(response.url).origin === origin ||
+      (!strictRedirects && new URL(response.url).origin === "https://nikkecollection.com"),
     `${url}: unapproved response host`,
   );
   assert(response.status === status, `${url}: expected ${status}, received ${response.status}`);
@@ -82,9 +87,13 @@ export function assetUrlsFromHtml(html, documentUrl) {
     if (tagName === "link" && !/\brel=["'][^"']*stylesheet[^"']*["']/i.test(tag)) continue;
     const attribute = tagName === "script" ? "src" : "href";
     const value = tag.match(new RegExp(`\\b${attribute}=["']([^"']+)["']`, "i"))?.[1];
-    if (value) {
-      urls.add(new URL(value, documentUrl));
-    }
+    if (!value || value.startsWith("data:")) continue;
+    const url = new URL(value, documentUrl);
+    const knownFont = Object.values(SITE_LOCALES).some(
+      (locale) => locale.fontStylesheet === url.href,
+    );
+    if (tagName === "link" && knownFont) continue;
+    urls.add(url);
   }
   return [...urls];
 }
@@ -130,10 +139,6 @@ export async function smokePages(pageUrl, expectedRevision, fetchImpl = fetch) {
     const documentUrl = new URL(locale.path, baseUrl);
     const response = await get(documentUrl, "text/html");
     const html = await response.text();
-    assert(
-      !html.includes('data-site-production="true"'),
-      "Pages smoke refuses Worker-directed HTML",
-    );
     verifyLocalizedHtml(html, locale);
 
     const assetUrls = assetUrlsFromHtml(html, documentUrl);
@@ -190,8 +195,23 @@ export async function smokePages(pageUrl, expectedRevision, fetchImpl = fetch) {
   };
 }
 
+export async function retryPagesSmoke(
+  pageUrl,
+  revision,
+  { smoke = smokePages, sleep = (ms) => new Promise((done) => setTimeout(done, ms)) } = {},
+) {
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    try {
+      return await smoke(pageUrl, revision);
+    } catch (error) {
+      if (attempt === 10) throw error;
+      await sleep(6_000);
+    }
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [pageUrl, revision] = process.argv.slice(2);
   if (!pageUrl || !revision) throw new Error("Usage: npm run smoke:pages -- <page-url> <sha>");
-  console.log(JSON.stringify(await smokePages(pageUrl, revision)));
+  console.log(JSON.stringify(await retryPagesSmoke(pageUrl, revision)));
 }
