@@ -178,10 +178,36 @@ export async function smokeSiteProduction(origin, revision, { fetchImpl = fetch 
   };
 }
 
+/**
+ * Edge propagation after `wrangler deploy` can briefly serve the previous frontend.
+ * Only a revision mismatch is retried; every other failure is final.
+ */
+export async function smokeSiteProductionAfterDeploy(
+  origin,
+  revision,
+  {
+    attempts = 6,
+    delayMs = 10_000,
+    smoke = smokeSiteProduction,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  } = {},
+) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await smoke(origin, revision);
+    } catch (error) {
+      const stale =
+        error instanceof Error && /frontend revision does not match/.test(error.message);
+      if (!stale || attempt >= attempts) throw error;
+      await sleep(delayMs);
+    }
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [origin, revision] = process.argv.slice(2);
   if (!origin || !revision) {
     throw new Error("Usage: npm run smoke:site-production-deployed -- <origin> <candidate-sha>");
   }
-  console.log(JSON.stringify(await smokeSiteProduction(origin, revision)));
+  console.log(JSON.stringify(await smokeSiteProductionAfterDeploy(origin, revision)));
 }
