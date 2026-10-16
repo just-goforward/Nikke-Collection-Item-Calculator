@@ -1,5 +1,6 @@
 import { readBoundedText } from "../../shared/boundedHttp";
 import { type FetchLike, parseNaverFeed } from "./naver";
+import type { ProfileCounts } from "./profile";
 
 const DETAIL_URL = "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/";
 export const NOTICE_MAX_BYTES = 2_000_000;
@@ -7,7 +8,12 @@ export const NOTICE_TIMEOUT_MS = 10_000;
 
 // One reservation buys exactly one request. Retries belong to the durable queue,
 // not this transport; redirects must not spend unaccounted requests.
-export async function fetchNotice(board: 48 | 56, itemId: string, fetcher: FetchLike = fetch) {
+export async function fetchNotice(
+  board: 48 | 56,
+  itemId: string,
+  fetcher: FetchLike = fetch,
+  counts?: ProfileCounts,
+) {
   if (!/^\d{1,20}$/.test(itemId)) throw new Error("naver_item_id");
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -50,6 +56,7 @@ export async function fetchNotice(board: 48 | 56, itemId: string, fetcher: Fetch
         }
         // Keep the fetch's abort signal live through streaming and parsing.
         const text = await readBoundedText(response, NOTICE_MAX_BYTES, "naver_response_too_large");
+        if (counts) counts.bodyBytes += new TextEncoder().encode(text).byteLength;
         let payload: unknown;
         try {
           payload = JSON.parse(text);

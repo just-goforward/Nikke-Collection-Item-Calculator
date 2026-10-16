@@ -3,6 +3,7 @@ import { sha256Hex, stableJson } from "./crypto";
 import { automationOperation, requireGuardDb } from "./http-shared";
 import type { FetchLike } from "./naver";
 import { buildNoticeCandidate, noticeErrorCode, processNotice } from "./notice-processing";
+import type { ProfileCounts } from "./profile";
 import { loadRuntimeEvents } from "./runtime-events";
 import {
   type IngestionEntry,
@@ -21,7 +22,12 @@ export function runtimeIngestionEnabled(env: CollectorEnv) {
 
 export async function runRuntimeIngestion(
   env: CollectorEnv,
-  options: { fetcher?: FetchLike; candidateNowMs?: number } = {},
+  options: {
+    fetcher?: FetchLike;
+    candidateNowMs?: number;
+    counts?: ProfileCounts;
+    requireProfileAdmission?: boolean;
+  } = {},
 ) {
   if (!runtimeIngestionEnabled(env))
     return { outcome: "disabled" as const, processed: 0, candidateCreated: false };
@@ -31,10 +37,10 @@ export async function runRuntimeIngestion(
   if (!Number.isInteger(limit) || limit < 0 || limit > 20)
     throw new Error("runtime_notice_daily_limit");
   const db = env.FORECAST_DB;
-  const token = await startIngestion(db);
+  const token = await startIngestion(db, options.requireProfileAdmission);
   if (!token) return { outcome: "held" as const, processed: 0, candidateCreated: false };
   try {
-    const entries = await collectNotices(env, token, limit, options.fetcher);
+    const entries = await collectNotices(env, token, limit, options.fetcher, options.counts);
     const results: SourceQueueResult[] = entries.map((entry) => entry.result);
     const candidate = await prepareNoticeCandidate(db, results, options.candidateNowMs);
     await assertUsageAllowed(requireGuardDb(env), automationOperation(env));
@@ -65,6 +71,7 @@ async function collectNotices(
   token: string,
   limit: number,
   fetcher: FetchLike | undefined,
+  counts?: ProfileCounts,
 ) {
   const db = env.FORECAST_DB;
   const entries: IngestionEntry[] = [];
@@ -72,7 +79,8 @@ async function collectNotices(
     await assertUsageAllowed(requireGuardDb(env), automationOperation(env));
     const requestId = row.official === 1 ? await reserveNotice(db, token, row, limit) : null;
     if (row.official === 1 && requestId === null) break;
-    const result = await processNotice(queueItem(row), fetcher ?? fetch);
+    if (requestId && counts) counts.noticesReserved += 1;
+    const result = await processNotice(queueItem(row), fetcher ?? fetch, counts);
     entries.push({ row, result, requestId });
   }
   return entries;

@@ -1,10 +1,35 @@
 # Schedule forecast collector
 
+[D1 Time Travel recovery runbook (Korean)](../docs/d1-time-travel-recovery-runbook.md)
+
 `collection-kit-forecast-collector` is an isolated Cloudflare Worker that observes official NIKKE
 schedule notices and proposes supply-forecast registry updates. It does not serve calculator
 statistics and cannot modify the repository or activate a product forecast.
 
 ## Sources and cadence
+
+### Staging CPU profiling
+
+`COLLECTOR_PROFILE_PHASE` defaults to `off` and is ignored outside staging.
+Use `alternate`, `poll-only`, `board-48`, `board-56`, or `ingest-only` to isolate scheduled
+work for invocation-level tail `cpuTime`; timers are not CPU measurements.
+Ingestion requires the latest non-board collection to have completed within six
+minutes, with no ingestion run started at or after its finish;
+partial-board profiling cannot admit ingestion. Guards, leases and quotas remain
+active. Restore `off` after profiling. Profile logs contain counts, not notice content.
+Body bytes count UTF-8 bytes of successfully read detail responses, not rejected
+or incomplete bodies; counting adds profiling-only CPU overhead.
+
+Never profile during an active staging canary window. Profiling invocation IDs
+are excluded from canary evidence; health still reports the real deployment SHA.
+Prefer one staging deployment with `--var COLLECTOR_PROFILE_PHASE:alternate`:
+even three-minute slots poll, odd slots ingest subject to admission. This gives
+10 polling and up to 10 admitted ingestion samples/hour (240 each/day).
+The two/day notice reservation quota permits at most two body requests/day:
+usually one or two nonempty ingestion samples; remaining samples are empty or
+skipped, and failures may consume reservations. Do not raise the quota for profiling.
+The phase is a manual `--var` override reverted by automated redeploys. Restore
+`--var COLLECTOR_PROFILE_PHASE:off` explicitly when finished.
 
 - Every three minutes the Collector Worker reads only ten shallow feed records from Naver Lounge
   boards 56 and 48. It queues IDs, titles, timestamps, manager roles, and URLs; it does not parse or

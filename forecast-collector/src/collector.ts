@@ -1,5 +1,6 @@
 import { nextNaverRetryAt } from "./db";
 import { resolveOpsAlertsByPrefix, upsertOpsAlert } from "./ops";
+import type { ProfileCounts } from "./profile";
 import {
   finishInvocation,
   invocationCircuitState,
@@ -14,10 +15,16 @@ import type { CollectionSummary, CollectorEnv } from "./types";
 
 export async function runCollection(
   env: CollectorEnv,
-  options: { nowMs?: number } = {},
+  options: { nowMs?: number; board?: 48 | 56; counts?: ProfileCounts } = {},
 ): Promise<CollectionSummary> {
   const nowMs = options.nowMs ?? Date.now();
-  const invocationId = await startInvocation(env.FORECAST_DB, env.DEPLOY_SHA, nowMs, env.POLL_MODE);
+  const invocationId = await startInvocation(
+    env.FORECAST_DB,
+    env.DEPLOY_SHA,
+    nowMs,
+    env.POLL_MODE,
+    options.board ? `profile-board-${options.board}:` : options.counts ? "profile-poll:" : "",
+  );
   if (invocationId === null) return { outcome: "completed", polledSources: 0, queuedItems: 0 };
   const circuit = await invocationCircuitState(env.FORECAST_DB, nowMs);
   if (circuit.open) {
@@ -32,7 +39,7 @@ export async function runCollection(
     return { outcome: "circuit_open", polledSources: 0, queuedItems: 0 };
   }
 
-  const boards = sourcesForInvocation(env.POLL_MODE, nowMs);
+  const boards = options.board ? [options.board] : sourcesForInvocation(env.POLL_MODE, nowMs);
   let queuedItems = 0;
   let errorCode: string | null = null;
   let holdCode: string | null = null;
@@ -40,7 +47,7 @@ export async function runCollection(
   let staleSources = 0;
   for (const boardId of boards) {
     try {
-      const queued = await pollCollectionSource(env, boardId, nowMs);
+      const queued = await pollCollectionSource(env, boardId, nowMs, options.counts);
       if (queued === null) {
         staleSources += 1;
         continue;
@@ -95,9 +102,14 @@ export async function runCollection(
   return { outcome: "completed", polledSources: boards.length, queuedItems };
 }
 
-async function pollCollectionSource(env: CollectorEnv, boardId: 48 | 56, nowMs: number) {
+async function pollCollectionSource(
+  env: CollectorEnv,
+  boardId: 48 | 56,
+  nowMs: number,
+  counts?: ProfileCounts,
+) {
   try {
-    return await pollNaverSource(env.FORECAST_DB, boardId, fetch, opsEnvironment(env));
+    return await pollNaverSource(env.FORECAST_DB, boardId, fetch, opsEnvironment(env), counts);
   } catch (error) {
     if (error instanceof NaverPartialSchemaError) {
       const first = error.rejected[0];

@@ -13,7 +13,9 @@ import publicationMigration from "../migrations/0023_forecast_runtime_publicatio
 import migration from "../migrations/0024_runtime_ingestion.sql?raw";
 import schema from "../schema.sql?raw";
 import { parseNoticeDetail } from "./notice";
+import { profileIngestionAdmitted } from "./profile";
 import { runRuntimeIngestion } from "./runtime-ingestion";
+import { startIngestion } from "./runtime-ingestion-db";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
 import worker from "./worker";
@@ -51,6 +53,42 @@ it("uses the started-at index without scanning or sorting the latest three inges
     "SEARCH runtime_ingestion_runs USING INDEX runtime_ingestion_runs_started_at",
   );
   expect(details).not.toMatch(/SCAN|TEMP B-TREE/);
+});
+
+async function seedProfileCollection(status = "completed", offset = 0) {
+  const time = new Date(Date.now() - 60_000 + offset).toISOString();
+  await testEnv.FORECAST_DB.prepare(
+    `INSERT INTO collector_invocations
+     (invocation_id,deployment_sha,scheduled_at,started_at,finished_at,status,poll_mode)
+     VALUES (?, 'profile-test', ?, ?, ?, ?, 'both')`,
+  )
+    .bind(`profile-poll:${status}`, time, time, time, status)
+    .run();
+}
+
+it("atomically claims collection eligibility once, even after the winning lease completes", async () => {
+  await seedProfileCollection();
+  const db = testEnv.FORECAST_DB;
+  expect(await profileIngestionAdmitted(db, Date.now())).toBe(true);
+  expect(await profileIngestionAdmitted(db, Date.now())).toBe(true);
+  const claims = await Promise.all([startIngestion(db, true), startIngestion(db, true)]);
+  expect(claims.filter(Boolean)).toHaveLength(1);
+  await db.prepare("UPDATE runtime_ingestion_runs SET status='completed'").run();
+  expect(await startIngestion(db, true)).toBeNull();
+  expect(
+    await db.prepare("SELECT COUNT(*) AS count FROM runtime_ingestion_runs").first("count"),
+  ).toBe(1);
+});
+
+it("rechecks newer failed collection at claim time after a successful precheck", async () => {
+  await seedProfileCollection();
+  const db = testEnv.FORECAST_DB;
+  expect(await profileIngestionAdmitted(db, Date.now())).toBe(true);
+  await seedProfileCollection("failure", 1_000);
+  expect(await startIngestion(db, true)).toBeNull();
+  expect(
+    await db.prepare("SELECT COUNT(*) AS count FROM runtime_ingestion_runs").first("count"),
+  ).toBe(0);
 });
 
 it("runs the scheduled metadata → full body → D1 v3 candidate path in workerd", async () => {

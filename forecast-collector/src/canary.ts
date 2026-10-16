@@ -283,6 +283,7 @@ async function readCanaryPollMode(
     .prepare(
       `SELECT poll_mode FROM collector_invocations
        WHERE deployment_sha = ? AND scheduled_at >= ? AND scheduled_at < ?
+         AND invocation_id NOT LIKE 'profile-%'
        ORDER BY scheduled_at DESC LIMIT 1`,
     )
     .bind(deploymentSha, startedAt, endsAt)
@@ -387,6 +388,7 @@ async function readInvocations(
     .prepare(
       `SELECT status, scheduled_at, started_at${extra} FROM ${table}
        WHERE deployment_sha = ? AND scheduled_at >= ? AND scheduled_at < ?
+         AND invocation_id NOT LIKE 'profile-%'
        ORDER BY scheduled_at`,
     )
     .bind(deploymentSha, startedAt, endsAt)

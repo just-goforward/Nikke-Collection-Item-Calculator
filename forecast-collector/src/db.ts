@@ -348,6 +348,7 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
       `SELECT status, poll_mode, scheduled_at, started_at, finished_at
        FROM collector_invocations
        WHERE scheduled_at >= ? AND deployment_sha = ?
+         AND invocation_id NOT LIKE 'profile-%'
        ORDER BY scheduled_at ASC`,
     )
     .bind(since, deploymentSha)
@@ -375,7 +376,8 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
   const first = await db
     .prepare(
       `SELECT scheduled_at AS started_at FROM collector_invocations
-       WHERE deployment_sha = ? ORDER BY scheduled_at ASC LIMIT 1`,
+       WHERE deployment_sha = ? AND invocation_id NOT LIKE 'profile-%'
+       ORDER BY scheduled_at ASC LIMIT 1`,
     )
     .bind(deploymentSha)
     .first<{ started_at: string }>();

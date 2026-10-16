@@ -14,6 +14,7 @@ import {
   persistCandidate,
   persistSourceItemsAndEvents,
   readCanaryReport,
+  readHealth,
   sourceItemAndEventStatements,
   supersedeIncompatibleCandidates,
 } from "./db";
@@ -24,6 +25,22 @@ import worker from "./worker";
 
 const testEnv = env as unknown as CollectorEnv;
 type WorkerFetch = NonNullable<typeof worker.fetch>;
+
+it("keeps the real profiling SHA in health but excludes profiling from canary evidence", async () => {
+  const now = Date.now();
+  const id = await startInvocation(
+    testEnv.FORECAST_DB,
+    "real-sha",
+    now,
+    "both",
+    "profile-board-48:",
+  );
+  expect(id).toBe(`profile-board-48:real-sha:${now}`);
+  expect((await readHealth(testEnv.FORECAST_DB)).collector.deploymentSha).toBe("real-sha");
+  expect((await readCanaryReport(testEnv.FORECAST_DB, now, "real-sha")).invocations.scheduled).toBe(
+    0,
+  );
+});
 type WorkerRequest = Parameters<WorkerFetch>[0];
 
 const deniedFetch = vi.fn(async () => {

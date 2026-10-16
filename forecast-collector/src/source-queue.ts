@@ -100,9 +100,10 @@ export async function startInvocation(
   deploymentSha: string,
   scheduledTime: number,
   pollMode: CollectorEnv["POLL_MODE"],
+  invocationPrefix = "",
 ) {
   const scheduledAt = new Date(scheduledTime).toISOString();
-  const invocationId = `${deploymentSha}:${scheduledTime}`;
+  const invocationId = `${invocationPrefix}${deploymentSha}:${scheduledTime}`;
   const result = await db
     .prepare(
       `INSERT OR IGNORE INTO collector_invocations (
@@ -171,11 +172,12 @@ export async function pollNaverSource(
   boardId: 48 | 56,
   fetcher: FetchLike = fetch,
   environment: OpsEnvironment = "staging",
+  counts?: { rowsPolled: number },
 ) {
   const source = `naver-board-${boardId}` as NaverSourceKind;
   const state = await readPollState(db, source);
   if (await readBoundaryHold(db, boardId, environment)) {
-    return recoverMovedNaverBoundary(db, boardId, state, environment, fetcher);
+    return recoverMovedNaverBoundary(db, boardId, state, environment, fetcher, counts);
   }
   const offset = Number(state?.next_offset ?? 0);
   // Legacy row-index offsets (8, 16, ... 104) are not page cursors.
@@ -183,6 +185,7 @@ export async function pollNaverSource(
     throw new Error("source_cursor_recovery_required");
   }
   const metadataPage = await fetchNaverFeedMetadata(boardId, offset, fetcher);
+  countPolledRows(counts, metadataPage.rawFeedCount);
   if (metadataPage.unknownRejected.length > 0) {
     throw new NaverPartialSchemaError(boardId, offset, metadataPage.unknownRejected);
   }
@@ -294,6 +297,7 @@ export async function recoverNaverBoundary(
   raw: unknown,
   fetcher: FetchLike = fetch,
   movedIdentity?: Awaited<ReturnType<typeof fetchNaverItemIdentity>>,
+  counts?: { rowsPolled: number },
 ) {
   const request = boundaryRecoverySchema.parse(raw);
   if (request.environment !== environment) throw new Error("naver_boundary_environment_mismatch");
@@ -316,6 +320,7 @@ export async function recoverNaverBoundary(
     state,
     fetcher,
     Boolean(movedIdentity),
+    counts,
   );
   const scanHead = items[0];
   if (!scanHead) throw new NaverScanBoundaryError(0);
@@ -405,6 +410,7 @@ async function readBoundaryRecoveryPages(
   state: PollStateRow,
   fetcher: FetchLike,
   moved: boolean,
+  counts?: { rowsPolled: number },
 ) {
   const source = `naver-board-${boardId}` as NaverSourceKind;
   const items: NaverFeedMetadata[] = [];
@@ -417,6 +423,7 @@ async function readBoundaryRecoveryPages(
   try {
     for (let offset = 0; offset < (moved ? 1 : NAVER_RECOVERY_PAGES); offset += PAGE_STEP) {
       const page = await fetchNaverFeedMetadata(boardId, offset, boundedFetch);
+      countPolledRows(counts, page.rawFeedCount);
       if (page.unknownRejected.length > 0)
         throw new NaverPartialSchemaError(boardId, offset, page.unknownRejected);
       if (page.rawFeedCount > PAGE_SIZE) throw new NaverScanBoundaryError(0);
@@ -454,6 +461,7 @@ async function recoverMovedNaverBoundary(
   state: PollStateRow | null,
   environment: OpsEnvironment,
   fetcher: FetchLike,
+  counts?: { rowsPolled: number },
 ) {
   if (
     !state?.committed_item_id ||
@@ -483,6 +491,7 @@ async function recoverMovedNaverBoundary(
       },
       fetcher,
       identity,
+      counts,
     );
     return recovered.queuedItems;
   } catch (error) {
@@ -498,6 +507,10 @@ async function recoverMovedNaverBoundary(
     }
     throw error;
   }
+}
+
+function countPolledRows(counts: { rowsPolled: number } | undefined, rows: number) {
+  if (counts) counts.rowsPolled += rows;
 }
 
 function isUnavailableIdentityProof(error: unknown) {

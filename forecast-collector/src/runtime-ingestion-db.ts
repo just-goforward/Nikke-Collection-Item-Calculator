@@ -1,5 +1,6 @@
 import { sha256Hex, stableJson } from "./crypto";
 import { ensureManualReviewStatement } from "./manual-review";
+import { PROFILE_INGESTION_ADMISSION_SQL } from "./profile";
 import type {
   NaverSourceKind,
   NormalizedSourceItem,
@@ -30,7 +31,7 @@ export type IngestionEntry = {
   requestId: string | null;
 };
 
-export async function startIngestion(db: D1Database) {
+export async function startIngestion(db: D1Database, requireProfileAdmission = false) {
   const now = new Date().toISOString();
   const token = crypto.randomUUID();
   const results = await db.batch([
@@ -47,12 +48,17 @@ export async function startIngestion(db: D1Database) {
           OR state IN ('held','verifying')
       ) AND (SELECT COUNT(*) FROM (
         SELECT status FROM runtime_ingestion_runs WHERE started_at>=? ORDER BY started_at DESC LIMIT 3
-      ) WHERE status IN ('failed','expired'))<3`)
+      ) WHERE status IN ('failed','expired'))<3${
+        requireProfileAdmission ? ` AND EXISTS (${PROFILE_INGESTION_ADMISSION_SQL})` : ""
+      }`)
       .bind(
         token,
         now,
         new Date(Date.now() + LEASE_MS).toISOString(),
         `${now.slice(0, 10)}T00:00:00.000Z`,
+        ...(requireProfileAdmission
+          ? [new Date(Date.parse(now) - 360_000).toISOString(), now]
+          : []),
       ),
   ]);
   return results[1]?.meta.changes === 1 ? token : null;

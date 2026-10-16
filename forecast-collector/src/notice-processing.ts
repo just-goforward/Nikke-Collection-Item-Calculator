@@ -3,6 +3,7 @@ import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
 import type { FetchLike } from "./naver";
 import { parseScheduleEvents } from "./naver";
 import { fetchNotice } from "./notice";
+import type { ProfileCounts } from "./profile";
 import type { ScheduleEvent, SourceQueueItem, SourceQueueResult } from "./types";
 
 const constructedCandidates = new WeakSet<object>();
@@ -17,6 +18,7 @@ export function isConstructedNoticeCandidate(value: unknown): value is Construct
 export async function processNotice(
   queued: SourceQueueItem,
   fetcher: FetchLike,
+  counts?: ProfileCounts,
 ): Promise<SourceQueueResult> {
   const base = { source: queued.source, itemId: queued.itemId };
   if (!queued.official) return { ...base, outcome: "ignored", errorCode: "not_official_manager" };
@@ -25,6 +27,7 @@ export async function processNotice(
       queued.source === "naver-board-48" ? 48 : 56,
       queued.itemId,
       fetcher,
+      counts,
     );
     if (!item) return { ...base, outcome: "ignored", errorCode: "no_relevant_keyword" };
     if (item.url !== queued.url) throw new Error("naver_detail_url_mismatch");

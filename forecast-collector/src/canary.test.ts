@@ -274,6 +274,21 @@ describe("canary report v10 lifecycle contract", () => {
 });
 
 describe("canary report v10 slot evidence", () => {
+  it("excludes profiling rows with the real deployment SHA", async () => {
+    await insertInvocationSlots("collector", slots(0));
+    await insertInvocationSlots("dispatcher", slots(1));
+    const before = await readFinalCanaryReport();
+    await testEnv.FORECAST_DB.prepare(
+      `INSERT INTO collector_invocations
+       (invocation_id,deployment_sha,scheduled_at,started_at,status,poll_mode)
+       VALUES ('profile-poll:sample',?,?,?,'running','alternating')`,
+    )
+      .bind(SHA, slots(0)[0], slots(0)[0])
+      .run();
+    const after = await readFinalCanaryReport();
+    expect(after.collector).toEqual(before.collector);
+    expect(after.certification).toEqual(before.certification);
+  });
   it("allows one missing slot but rejects two", async () => {
     const collector = slots(0);
     const dispatcher = slots(1);
@@ -442,7 +457,8 @@ async function insertSmokeAndRouterTest() {
 async function readFinalCanaryReport() {
   const [collectorRows, dispatcherRows] = await Promise.all([
     testEnv.FORECAST_DB.prepare(
-      "SELECT scheduled_at FROM collector_invocations WHERE deployment_sha = ? ORDER BY scheduled_at",
+      `SELECT scheduled_at FROM collector_invocations WHERE deployment_sha = ?
+       AND invocation_id NOT LIKE 'profile-%' ORDER BY scheduled_at`,
     )
       .bind(SHA)
       .all<{ scheduled_at: string }>(),
