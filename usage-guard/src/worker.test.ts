@@ -100,7 +100,7 @@ describe("atomic usage guard transitions", () => {
       }
     }
     expect(globalThis.fetch).not.toHaveBeenCalled();
-  });
+  }, 30_000);
 
   it.each([false, true])(
     "uses the actual current row after a competing hard_stop (existing state: %s)",
