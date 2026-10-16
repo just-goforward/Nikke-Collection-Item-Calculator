@@ -13,6 +13,8 @@ export type InteractionRouterEnv = {
   STAGING_PUBLICATION_MODE: "off" | "enabled";
   PRODUCTION_PUBLICATION_MODE: "off" | "enabled";
   FORECAST_PUBLICATION_SIGNING_KEY?: string;
+  // Secret; lets the router post the completion notice as a native reply.
+  DISCORD_BOT_TOKEN?: string;
   FORECAST_PUBLICATION_KEY_ID: string;
   DEPLOY_SHA: string;
   PRODUCTION_MUTATIONS_ENABLED: string;

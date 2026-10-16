@@ -38,8 +38,21 @@ export function manualReviewReason(code: string): string {
   return "자동 처리에 실패해 사람의 확인이 필요합니다.";
 }
 
-function escapeMarkdown(value: string) {
-  return value.replace(/[\\`*_{}[\]()#+\-.!|>@<~]/g, "\\$&");
+// Link text is rendered by Discord clients that may show backslash escapes
+// literally, so escape only inline formatting characters. Brackets survive only
+// as simple balanced pairs not followed by "(" (Discord's label grammar); any
+// other bracket becomes its full-width form so it cannot close the label or
+// start a nested link.
+function linkLabel(value: string) {
+  // "@" and "<" get an invisible zero-width space so "@everyone", "<@id>", "<#id>",
+  // "<t:…>" or custom emoji never form a mention or Discord token.
+  const formatted = value
+    .replace(/[\\`*_~|]/g, "\\$&")
+    .replaceAll("@", "@\u200b")
+    .replaceAll("<", "<\u200b");
+  return formatted.replace(/\[([^[\]]*)\](?!\()|[[\]]/g, (match, inner?: string) =>
+    inner === undefined ? (match === "[" ? "［" : "］") : `[${inner}]`,
+  );
 }
 
 function naverUrl(value: string) {
@@ -52,7 +65,7 @@ function naverUrl(value: string) {
 
 /** Markdown link for an already display-normalized, length-bounded title. */
 export function manualReviewPostLink(title: string, url: string) {
-  return `[${escapeMarkdown(title)}](${naverUrl(url)})`;
+  return `[${linkLabel(title)}](${naverUrl(url)})`;
 }
 
 type Button =

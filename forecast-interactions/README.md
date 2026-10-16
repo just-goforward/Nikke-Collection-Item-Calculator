@@ -60,6 +60,12 @@ not a private secret; its `unset` placeholder is not a provisioned signing ident
 Missing/invalid signing material fails closed. Provision any staging signing secret
 against this config only, never the shared router, and never put private keys in TOML.
 
+Optional secret `DISCORD_BOT_TOKEN` (the same bot token the dispatcher already uses; never
+reset it for this) makes the public manual-review completion notice a native reply to the
+review message. Without it, or if the reply is rejected, the notice is posted through the
+interaction webhook instead. Set it with
+`npx wrangler secret put DISCORD_BOT_TOKEN --config forecast-interactions/staging.wrangler.toml`.
+
 Local checks (no deployment):
 
 ```sh

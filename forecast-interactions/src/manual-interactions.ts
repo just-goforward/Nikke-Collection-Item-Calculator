@@ -97,6 +97,7 @@ export async function handleManualInteraction(
         actor,
         id,
         token,
+        messageId: action.messageId,
         alreadyResolved: review.state === "resolved",
         embeds: action.embeds,
       },
@@ -234,6 +235,7 @@ async function completeManualReview(
     actor: string;
     id: string;
     token: string;
+    messageId: string;
     alreadyResolved: boolean;
     embeds: Record<string, unknown>[];
   },
@@ -278,19 +280,43 @@ async function completeManualReview(
   }
   const { original, followUp } = await manualOutcome(db, input, { applied, failure }, backend);
   const webhook = `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${encodeURIComponent(input.token)}`;
+  // Interaction webhooks cannot reply; with a bot token the public completion
+  // notice becomes a native reply to the review message. Private (ephemeral)
+  // notices always use the interaction webhook.
+  const reply =
+    followUp && !("flags" in followUp) && env.DISCORD_BOT_TOKEN
+      ? {
+          url: `https://discord.com/api/v10/channels/${env.DISCORD_ALERT_CHANNEL_ID}/messages`,
+          headers: {
+            authorization: `Bot ${env.DISCORD_BOT_TOKEN}`,
+            "user-agent":
+              "DiscordBot (https://github.com/just-goforward/Nikke-Collection-Item-Calculator, 1.0)",
+          },
+          body: {
+            ...followUp,
+            message_reference: { message_id: input.messageId, fail_if_not_exists: false },
+          },
+        }
+      : null;
+  const record = (code: string | null) =>
+    code
+      ? db
+          .prepare("UPDATE discord_interaction_audit SET error_code=? WHERE interaction_id=?")
+          .bind(code, input.id)
+          .run()
+      : null;
   // Each call is attempted independently so a rejected edit still confirms the decision.
-  for (const [method, url, body] of [
-    ["PATCH", `${webhook}/messages/@original`, original],
-    ["POST", webhook, followUp],
-  ] as const) {
-    if (!body) continue;
-    const code = await sendWebhook(method, url, body);
-    if (code)
-      await db
-        .prepare("UPDATE discord_interaction_audit SET error_code=? WHERE interaction_id=?")
-        .bind(code, input.id)
-        .run();
+  await record(await sendDiscord("PATCH", `${webhook}/messages/@original`, original, {}));
+  if (!followUp) return;
+  if (reply) {
+    const code = await sendDiscord("POST", reply.url, reply.body, reply.headers);
+    if (!code) return;
+    // Only a definite rejection (3xx/4xx: permissions, revoked token, rate limit) falls
+    // back to the webhook; after a timeout or 5xx the reply may exist, so never post twice.
+    if (code !== "manual_review_discord_response_failed") return void (await record(code));
+    await record("manual_review_discord_reply_failed");
   }
+  await record(await sendDiscord("POST", webhook, followUp, {}));
 }
 
 // Render from the stored outcome: a concurrent confirm may have resolved it first.
@@ -306,7 +332,7 @@ async function manualOutcome(
   },
   { applied, failure }: { applied: boolean; failure: string | null },
   backend: ManualBackend,
-): Promise<{ original: object; followUp: object | null }> {
+): Promise<{ original: object; followUp: { content: string; flags?: number } | null }> {
   const review = await backend.readManualReview(db, input.reviewId);
   const resolved =
     review?.state === "resolved" && (review.decision === "requeue" || review.decision === "ignore")
@@ -332,16 +358,27 @@ async function manualOutcome(
       };
 }
 
-async function sendWebhook(method: "PATCH" | "POST", url: string, body: object) {
+async function sendDiscord(
+  method: "PATCH" | "POST",
+  url: string,
+  body: object,
+  headers: Record<string, string>,
+) {
   try {
     const response = await fetch(url, {
       method,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...body, allowed_mentions: { parse: [] } }),
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({ ...body, allowed_mentions: { parse: [], replied_user: false } }),
+      // Never follow a redirect with the bot token attached; Workers rejects
+      // redirect: "error", so a 3xx stays unfollowed and counts as a failure.
+      redirect: "manual",
       signal: AbortSignal.timeout(8_000),
     });
     await response.body?.cancel();
-    return response.ok ? null : "manual_review_discord_response_failed";
+    if (response.ok) return null;
+    return response.status >= 500
+      ? "manual_review_discord_server_failed"
+      : "manual_review_discord_response_failed";
   } catch {
     return "manual_review_discord_transport_failed";
   }

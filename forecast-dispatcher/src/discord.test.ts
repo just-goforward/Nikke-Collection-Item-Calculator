@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forecastDisplayText } from "../../shared/forecastDisplayText.ts";
-import { manualReviewReason } from "../../shared/forecastManualReview.ts";
+import { manualReviewPostLink, manualReviewReason } from "../../shared/forecastManualReview.ts";
 import {
   dispatchAcceptedMessage,
   opsAlertMessage,
@@ -44,7 +44,17 @@ describe("Discord forecast operations messages", () => {
     };
     const message = await opsAlertMessage(alert);
     expect(message.embeds[0]?.description).toContain(
-      "[📢 \\[일정\\] & 안내](https://game.naver.com/lounge/nikke/board/detail/123)",
+      "[📢 [일정] & 안내](https://game.naver.com/lounge/nikke/board/detail/123)",
+    );
+    const link = (value: string) =>
+      manualReviewPostLink(value, "https://game.naver.com/lounge/nikke/board/detail/1");
+    // Real board titles keep their brackets and parentheses without backslashes.
+    expect(link("[점검 완료][점검&업데이트] 8월 13일(목) 안내(8/20 내용 추가)")).toBe(
+      "[[점검 완료][점검&업데이트] 8월 13일(목) 안내(8/20 내용 추가)](https://game.naver.com/lounge/nikke/board/detail/1)",
+    );
+    // Unbalanced brackets or a nested-link attempt cannot close the label early.
+    expect(link("a] [b [c](https://evil.example) *d*")).toBe(
+      "[a］ ［b ［c］(https://evil.example) \\*d\\*](https://game.naver.com/lounge/nikke/board/detail/1)",
     );
     expect(JSON.stringify(message)).not.toContain("원문 열기");
     expect(JSON.stringify(message)).toContain("일정 직접 확정");
@@ -178,7 +188,7 @@ describe("Discord forecast operations message identity", () => {
       embeds: Array<{ description: string }>;
     };
     expect(sentBody.allowed_mentions).toEqual({ parse: [] });
-    expect(sentBody.embeds[0]?.description).toContain("\\@everyone");
+    expect(sentBody.embeds[0]?.description).toContain("@\u200beveryone");
     expect(String(fetchImpl.mock.calls[0]?.[0])).toContain("/channels/222222222222222222/messages");
   });
 
