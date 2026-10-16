@@ -23,6 +23,10 @@ export const localePages = [
   },
 ];
 const canonicalUrls = localePages.map(({ canonical }) => canonical);
+// Optional script Cloudflare Web Analytics may inject at the edge (documented or versioned form);
+// it is not a site asset.
+const WEB_ANALYTICS_BEACON =
+  /^https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js(?:\/v[A-Za-z0-9]{1,128})?$/;
 const ogImagePaths = localePages.map(({ lang }) => `og/collection-calculator-${lang}.png`);
 
 export function assert(condition, message) {
@@ -93,6 +97,7 @@ export function assetUrlsFromHtml(html, documentUrl) {
       (locale) => locale.fontStylesheet === url.href,
     );
     if (tagName === "link" && knownFont) continue;
+    if (tagName === "script" && WEB_ANALYTICS_BEACON.test(url.href)) continue;
     urls.add(url);
   }
   return [...urls];

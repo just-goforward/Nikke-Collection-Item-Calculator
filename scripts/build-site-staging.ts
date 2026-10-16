@@ -70,7 +70,7 @@ export function stagingHeaders(htmlDocuments: readonly string[]): string {
   }
   const csp = [
     "default-src 'self'",
-    `script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com ${[...hashes].sort().join(" ")}`,
+    `script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com https://static.cloudflareinsights.com/beacon.min.js https://static.cloudflareinsights.com/beacon.min.js/ ${[...hashes].sort().join(" ")}`,
     "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
     "font-src 'self' https://cdn.jsdelivr.net",
     "img-src 'self' data:",

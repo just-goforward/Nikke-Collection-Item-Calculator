@@ -89,6 +89,48 @@ test("production smoke verifies locales, assets, revision, SEO, cache and read-o
   );
 });
 
+const beaconTag = (src = "https://static.cloudflareinsights.com/beacon.min.js") =>
+  `<script defer src="${src}" integrity="sha512-x" data-cf-beacon='{"token":"t"}' crossorigin="anonymous"></script>`;
+
+test("production smoke passes with and without the injected Web Analytics beacon, never fetching it", async () => {
+  for (const inject of [
+    null,
+    "https://static.cloudflareinsights.com/beacon.min.js",
+    "https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015",
+  ]) {
+    const source = fixture((path, result) => {
+      if (inject && localePages.some((entry) => `/${entry.path}` === path)) {
+        result.body = result.body.replace("</body>", `${beaconTag(inject)}</body>`);
+        assert.ok(result.body.includes("cloudflareinsights"));
+      }
+    });
+    const result = await smokeSiteProduction(origin, revision, source);
+    assert.equal(result.assets, 4);
+    assert.ok(!source.calls.some(([path]) => path.includes("beacon")));
+  }
+});
+
+test("rejects any other off-origin script next to the beacon", async () => {
+  for (const src of [
+    "https://static.cloudflareinsights.com/other.js",
+    "https://static.cloudflareinsights.com/beacon.min.js?token=t",
+    "https://static.cloudflareinsights.com/beacon.min.js/v1/x",
+    "https://static.cloudflareinsights.com/beacon.min.js/v1?x=1",
+    "https://static.cloudflareinsights.com/beacon.min.jsX",
+    "https://other.example/beacon.min.js",
+    "https://other.example/beacon.min.js/v1",
+  ]) {
+    const source = fixture((path, result) => {
+      if (path === "/")
+        result.body = result.body.replace(
+          "</body>",
+          `${beaconTag()}<script src="${src}"></script></body>`,
+        );
+    });
+    await assert.rejects(smokeSiteProduction(origin, revision, source), /unapproved host/);
+  }
+});
+
 test("rejects wrong SHA and wrong host without networking outside the supplied origin", async () => {
   await assert.rejects(smokeSiteProduction(origin, "b".repeat(40), fixture()), /revision/);
   await assert.rejects(
