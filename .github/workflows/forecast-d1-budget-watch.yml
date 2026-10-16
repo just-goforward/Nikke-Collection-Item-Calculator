@@ -292,8 +292,16 @@ jobs:
             echo "- Active canary: \`${{ steps.canary.outputs.active || 'false' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # While disabled, staging stops rely on Usage Guard runtime gating.
+      # paid_quota_*, canary_runtime_invalid and stats_production_d1_unreadable
+      # are still reported, but are NOT enforced by a staging redeploy.
+      - name: Record staging redeploy suppression
+        if: always() && vars.FORECAST_STAGING_AUTO_REDEPLOY == 'disabled'
+        run: echo "Staging Collector/Dispatcher redeployment suppressed because FORECAST_STAGING_AUTO_REDEPLOY=disabled. Usage checks, alerting and protected production emergency-stop escalation remain active." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Disable staging Collector and Dispatcher on budget pressure
-        if: always() && steps.action.outputs.stop_staging == 'true'
+        id: staging_stop
+        if: always() && steps.action.outputs.stop_staging == 'true' && vars.FORECAST_STAGING_AUTO_REDEPLOY != 'disabled'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -388,12 +396,15 @@ jobs:
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
           DISCORD_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+          STAGING_REDEPLOY_POLICY: ${{ vars.FORECAST_STAGING_AUTO_REDEPLOY == 'disabled' && 'suppressed (FORECAST_STAGING_AUTO_REDEPLOY=disabled); staging stops rely on Usage Guard runtime gating' || 'enabled' }}
+          STAGING_STOP_OUTCOME: ${{ steps.staging_stop.outcome || 'not run' }}
+          GUARD_EFFECTIVE_ACTION: ${{ steps.guard.outputs.action || 'unavailable' }}
         shell: bash
         run: |
           set -euo pipefail
           reasons="${{ steps.action.outputs.reasons }}"
           payload=$(jq -n \
-            --arg content "Forecast staging automation was stopped by the D1 runtime budget guard. Reasons: $reasons. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg content "D1 runtime budget alert. Staging redeploy: $STAGING_REDEPLOY_POLICY. Redeploy step outcome: $STAGING_STOP_OUTCOME. Observed effective Usage Guard action: $GUARD_EFFECTIVE_ACTION. Reasons: $reasons. Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             '{content:$content,allowed_mentions:{parse:[]}}')
           curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
             -H "Authorization: Bot $DISCORD_BOT_TOKEN" \

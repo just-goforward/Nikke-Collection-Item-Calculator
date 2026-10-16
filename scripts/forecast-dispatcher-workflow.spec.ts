@@ -91,7 +91,9 @@ describe("Staging boundary recovery workflow contract", () => {
       "- name: Validate boundary recovery inputs before mutations",
     );
     expect(validation).toBeGreaterThan(stagingDeploy.indexOf("- name: Setup Node"));
-    expect(validation).toBeLessThan(stagingDeploy.indexOf("- name: Apply usage guard D1 schema"));
+    expect(validation).toBeLessThan(
+      stagingDeploy.indexOf("- name: Apply staging Forecast D1 migrations"),
+    );
     const recovery = stagingDeploy.indexOf("- name: Recover explicitly selected staging boundary");
     expect(recovery).toBeGreaterThan(stagingDeploy.indexOf("- name: Deploy staging collector"));
     expect(recovery).toBeLessThan(
@@ -318,7 +320,7 @@ describe("Forecast deployment identity and restore workflow contract", () => {
       "Require the production-owned Router before staging mutations",
     );
     expect(routerGuard).toBeGreaterThan(stagingDeploy.indexOf("Install dependencies"));
-    expect(routerGuard).toBeLessThan(stagingDeploy.indexOf("Apply usage guard D1 schema"));
+    expect(routerGuard).toBeLessThan(stagingDeploy.indexOf("Apply staging Forecast D1 migrations"));
     expect(stagingDeploy).not.toMatch(ROUTER_DEPLOY_PATTERN);
     expect(stagingDeploy).not.toContain("--var PRODUCTION_MUTATIONS_ENABLED:");
     expect(stagingDeploy).toContain(
@@ -577,7 +579,7 @@ describe("Clean-checkout staging validation ordering", () => {
       ),
     );
     expect(validate).toBeLessThan(
-      stagingDeploy.indexOf("      - name: Apply usage guard D1 schema"),
+      stagingDeploy.indexOf("      - name: Apply staging Forecast D1 migrations"),
     );
     const production = productionPromote.slice(productionPromote.indexOf("\n  promote:"));
     expect(production.indexOf("      - name: Install dependencies")).toBeLessThan(

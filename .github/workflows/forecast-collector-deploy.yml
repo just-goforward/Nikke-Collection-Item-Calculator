@@ -112,8 +112,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  staging-redeploy-disabled:
+    if: vars.FORECAST_STAGING_AUTO_REDEPLOY == 'disabled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Record staging redeploy suppression
+        run: echo "Staging deployment skipped because FORECAST_STAGING_AUTO_REDEPLOY=disabled. Production safety workflows remain active." >> "$GITHUB_STEP_SUMMARY"
+
   deploy-staging:
-    if: github.ref == 'refs/heads/main'
+    # Shared Usage Guard deployment is independent of the staging maintenance switch.
+    needs: deploy-usage-guard
+    if: github.ref == 'refs/heads/main' && vars.FORECAST_STAGING_AUTO_REDEPLOY != 'disabled'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -194,7 +204,7 @@ jobs:
         timeout-minutes: 5
         env:
           NPM_CONFIG_CACHE: ${{ runner.temp }}/npm-bootstrap-cache
-        run: |
+        run: &prepare_forecast_npm |
           set -euo pipefail
           node --input-type=module <<'NODE'
           import { createHash } from 'node:crypto';
@@ -292,83 +302,6 @@ jobs:
             "$RUNNER_TEMP/router-health-before-staging.json" >/dev/null
           node scripts/check-workflow-hardening.ts --sanitize-readiness \
             "$RUNNER_TEMP/router-health-before-staging.json" > "$RUNNER_TEMP/router-health-before-staging.evidence.json"
-
-      - name: Verify Paid usage guard
-        run: |
-          npm run usage-guard:types:check
-          npx tsc --noEmit -p usage-guard/tsconfig.json
-          npm run test:usage-guard
-          npx wrangler deploy --dry-run --config usage-guard/wrangler.toml
-
-      - name: Apply usage guard D1 schema
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: >-
-          npx wrangler d1 execute GUARD_DB --remote
-          --config usage-guard/wrangler.toml
-          --file usage-guard/schema.sql --yes
-
-      - name: Prepare usage guard secrets
-        env:
-          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN }}
-          CLOUDFLARE_BILLING_READ_TOKEN: ${{ secrets.CLOUDFLARE_BILLING_READ_TOKEN }}
-          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
-          ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          node --input-type=module - "$RUNNER_TEMP/usage-guard-secrets.json" <<'NODE'
-          import { writeFileSync } from "node:fs";
-          const names = [
-            "CLOUDFLARE_D1_ANALYTICS_TOKEN",
-            "CLOUDFLARE_BILLING_READ_TOKEN",
-            "DISCORD_BOT_TOKEN",
-            "ADMIN_TOKEN",
-          ];
-          const values = Object.fromEntries(names.map((name) => [name, process.env[name] ?? ""]));
-          if (Object.values(values).some((value) => !value)) throw new Error("Usage Guard secrets are incomplete.");
-          writeFileSync(process.argv[2], JSON.stringify(values), { mode: 0o600 });
-          NODE
-
-      - name: Deploy and initialize Paid usage guard
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_USAGE_GUARD_URL: ${{ vars.CLOUDFLARE_USAGE_GUARD_URL }}
-          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
-          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx wrangler deploy --config usage-guard/wrangler.toml \
-            --secrets-file "$RUNNER_TEMP/usage-guard-secrets.json" \
-            --var DEPLOY_SHA:${{ github.sha }} \
-            --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
-            --tag "${{ github.sha }}" --message "Paid quota guard ${{ github.sha }}"
-          ready=false
-          for attempt in {1..12}; do
-            health_status=$(curl --silent --show-error --connect-timeout 5 --max-time 10 \
-              --output "$RUNNER_TEMP/usage-guard-readiness.json" --write-out "%{http_code}" \
-              "$CLOUDFLARE_USAGE_GUARD_URL/health" || true)
-            if [[ "$health_status" == "200" ]] && \
-              jq -e --arg sha "${{ github.sha }}" '.deploymentSha == $sha' \
-                "$RUNNER_TEMP/usage-guard-readiness.json" >/dev/null 2>&1; then
-              ready=true
-              break
-            fi
-            if (( attempt < 12 )); then sleep 5; fi
-          done
-          [[ "$ready" == "true" ]] || {
-            echo "Usage Guard endpoint did not expose deployment ${{ github.sha }} within 60 seconds." >&2
-            exit 1
-          }
-          status=$(curl --silent --show-error --connect-timeout 5 --max-time 30 \
-            --output "$RUNNER_TEMP/usage-guard-refresh.json" --write-out "%{http_code}" \
-            -X POST -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
-            "$CLOUDFLARE_USAGE_GUARD_URL/admin/refresh")
-          [[ "$status" == "200" ]] || { echo "Usage Guard refresh returned HTTP $status." >&2; exit 1; }
-          jq -e '.ok == true and .state.action == "normal"' "$RUNNER_TEMP/usage-guard-refresh.json" >/dev/null
 
       - name: Verify statistics production D1 remains readable
         env:
@@ -1090,3 +1023,134 @@ jobs:
             ${{ runner.temp }}/d1-budget-evaluation.evidence.json
           if-no-files-found: warn
           retention-days: 30
+
+  # Account-wide production safety must not depend on FORECAST_STAGING_AUTO_REDEPLOY.
+  deploy-usage-guard:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout Guard deployment revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify Guard checkout identity
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Setup Guard Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+
+      - name: Validate Guard configuration
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN }}
+          CLOUDFLARE_BILLING_READ_TOKEN: ${{ secrets.CLOUDFLARE_BILLING_READ_TOKEN }}
+          CLOUDFLARE_USAGE_GUARD_URL: ${{ vars.CLOUDFLARE_USAGE_GUARD_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          DISCORD_FORECAST_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+        run: |
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID variable." >&2; exit 1; }
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN secret." >&2; exit 1; }
+          test -n "$CLOUDFLARE_D1_ANALYTICS_TOKEN" || { echo "Missing CLOUDFLARE_D1_ANALYTICS_TOKEN secret." >&2; exit 1; }
+          test -n "$CLOUDFLARE_BILLING_READ_TOKEN" || { echo "Missing CLOUDFLARE_BILLING_READ_TOKEN secret." >&2; exit 1; }
+          [[ "$CLOUDFLARE_USAGE_GUARD_URL" =~ ^https://[^/]+$ ]] || { echo "Missing or invalid CLOUDFLARE_USAGE_GUARD_URL variable." >&2; exit 1; }
+          test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" || { echo "Missing FORECAST_COLLECTOR_ADMIN_TOKEN secret." >&2; exit 1; }
+          test -n "$DISCORD_FORECAST_BOT_TOKEN" || { echo "Missing DISCORD_FORECAST_BOT_TOKEN secret." >&2; exit 1; }
+          [[ "$DISCORD_FORECAST_ALERT_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_ALERT_CHANNEL_ID variable." >&2; exit 1; }
+
+      - name: Prepare Guard npm 12.2.0 with pinned integrity
+        shell: bash
+        timeout-minutes: 5
+        env:
+          NPM_CONFIG_CACHE: ${{ runner.temp }}/npm-bootstrap-cache
+        run: *prepare_forecast_npm
+
+      - name: Install Guard dependencies
+        run: npm ci
+
+      - name: Verify Paid usage guard
+        run: |
+          npm run usage-guard:types:check
+          npx tsc --noEmit -p usage-guard/tsconfig.json
+          npm run test:usage-guard
+          npx wrangler deploy --dry-run --config usage-guard/wrangler.toml
+
+      - name: Apply usage guard D1 schema
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: >-
+          npx wrangler d1 execute GUARD_DB --remote
+          --config usage-guard/wrangler.toml
+          --file usage-guard/schema.sql --yes
+
+      - name: Prepare usage guard secrets
+        env:
+          CLOUDFLARE_D1_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_D1_ANALYTICS_TOKEN }}
+          CLOUDFLARE_BILLING_READ_TOKEN: ${{ secrets.CLOUDFLARE_BILLING_READ_TOKEN }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - "$RUNNER_TEMP/usage-guard-secrets.json" <<'NODE'
+          import { writeFileSync } from "node:fs";
+          const names = [
+            "CLOUDFLARE_D1_ANALYTICS_TOKEN",
+            "CLOUDFLARE_BILLING_READ_TOKEN",
+            "DISCORD_BOT_TOKEN",
+            "ADMIN_TOKEN",
+          ];
+          const values = Object.fromEntries(names.map((name) => [name, process.env[name] ?? ""]));
+          if (Object.values(values).some((value) => !value)) throw new Error("Usage Guard secrets are incomplete.");
+          writeFileSync(process.argv[2], JSON.stringify(values), { mode: 0o600 });
+          NODE
+
+      - name: Deploy and initialize Paid usage guard
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_USAGE_GUARD_URL: ${{ vars.CLOUDFLARE_USAGE_GUARD_URL }}
+          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --config usage-guard/wrangler.toml \
+            --secrets-file "$RUNNER_TEMP/usage-guard-secrets.json" \
+            --var DEPLOY_SHA:${{ github.sha }} \
+            --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
+            --tag "${{ github.sha }}" --message "Paid quota guard ${{ github.sha }}"
+          ready=false
+          for attempt in {1..12}; do
+            health_status=$(curl --silent --show-error --connect-timeout 5 --max-time 10 \
+              --output "$RUNNER_TEMP/usage-guard-readiness.json" --write-out "%{http_code}" \
+              "$CLOUDFLARE_USAGE_GUARD_URL/health" || true)
+            if [[ "$health_status" == "200" ]] && \
+              jq -e --arg sha "${{ github.sha }}" '.deploymentSha == $sha' \
+                "$RUNNER_TEMP/usage-guard-readiness.json" >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            if (( attempt < 12 )); then sleep 5; fi
+          done
+          [[ "$ready" == "true" ]] || {
+            echo "Usage Guard endpoint did not expose deployment ${{ github.sha }} within 60 seconds." >&2
+            exit 1
+          }
+          status=$(curl --silent --show-error --connect-timeout 5 --max-time 30 \
+            --output "$RUNNER_TEMP/usage-guard-refresh.json" --write-out "%{http_code}" \
+            -X POST -H "Authorization: Bearer $FORECAST_COLLECTOR_ADMIN_TOKEN" \
+            "$CLOUDFLARE_USAGE_GUARD_URL/admin/refresh")
+          [[ "$status" == "200" ]] || { echo "Usage Guard refresh returned HTTP $status." >&2; exit 1; }
+          jq -e '.ok == true and .state.action == "normal"' "$RUNNER_TEMP/usage-guard-refresh.json" >/dev/null
