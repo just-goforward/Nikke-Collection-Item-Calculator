@@ -136,6 +136,61 @@ test("off-origin application assets are retained for rejection, never silently s
   }
 });
 
+test("only the exact Web Analytics beacon script is skipped as a non-site asset", () => {
+  const app = '<script src="/assets/index-abcdefgh.js"></script>';
+  const beacon =
+    '<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon=\'{"token":"t"}\'></script>';
+  assert.deepEqual(assetUrlsFromHtml(app, options.origin).map(String), [
+    `${options.origin}/assets/index-abcdefgh.js`,
+  ]);
+  for (const version of [
+    "v1",
+    "vcd15cbe7772f49c399c6a5babf22c1241717689176015",
+    `v${"a".repeat(128)}`,
+  ]) {
+    assert.deepEqual(
+      assetUrlsFromHtml(
+        `${app}<script defer src="https://static.cloudflareinsights.com/beacon.min.js/${version}" integrity="sha512-x"></script>`,
+        options.origin,
+      ).map(String),
+      [`${options.origin}/assets/index-abcdefgh.js`],
+    );
+  }
+  assert.deepEqual(assetUrlsFromHtml(app + beacon, options.origin).map(String), [
+    `${options.origin}/assets/index-abcdefgh.js`,
+  ]);
+  for (const src of [
+    "https://static.cloudflareinsights.com/other.js",
+    "https://static.cloudflareinsights.com/beacon.min.js?token=t",
+    "https://static.cloudflareinsights.com/beacon.min.js/v1/x",
+    "https://static.cloudflareinsights.com/beacon.min.js/v1?x=1",
+    "https://static.cloudflareinsights.com/beacon.min.js/v1#x",
+    "https://static.cloudflareinsights.com/beacon.min.js/",
+    "https://static.cloudflareinsights.com/beacon.min.js/v",
+    "https://static.cloudflareinsights.com/beacon.min.js/x1",
+    "https://static.cloudflareinsights.com/beacon.min.js/v1-2",
+    `https://static.cloudflareinsights.com/beacon.min.js/v${"a".repeat(129)}`,
+    "https://static.cloudflareinsights.com/beacon.min.jsX",
+    "http://static.cloudflareinsights.com/beacon.min.js",
+    "https://cloudflareinsights.com/beacon.min.js",
+    "https://cloudflareinsights.com/beacon.min.js/v1",
+    "https://other.example/beacon.min.js",
+    "https://other.example/beacon.min.js/v1",
+  ]) {
+    assert.deepEqual(
+      assetUrlsFromHtml(`<script src="${src}"></script>`, options.origin).map(String),
+      [src],
+    );
+  }
+  assert.equal(
+    assetUrlsFromHtml(
+      '<link rel="stylesheet" href="https://static.cloudflareinsights.com/beacon.min.js">',
+      options.origin,
+    ).length,
+    1,
+  );
+});
+
 test("CLI retry succeeds after transient failures and stops after ten failed attempts", async () => {
   for (const failCount of [2, 10]) {
     let calls = 0;

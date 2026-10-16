@@ -33,6 +33,16 @@ describe("staging build headers", () => {
     const scriptPolicy = headers.match(/script-src ([^;]+)/)?.[1];
     expect(scriptPolicy).not.toContain("'unsafe-inline'");
     expect(scriptPolicy).not.toContain("'nonce-");
+    // Cloudflare Web Analytics automatic injection: the documented exact beacon plus a path-prefix
+    // source for the versioned beacon.min.js/v… form; beacons go to same-origin /cdn-cgi/rum.
+    const beaconSources = scriptPolicy
+      ?.split(" ")
+      .filter((source) => /cloudflareinsights/.test(source));
+    expect(beaconSources).toEqual([
+      "https://static.cloudflareinsights.com/beacon.min.js",
+      "https://static.cloudflareinsights.com/beacon.min.js/",
+    ]);
+    expect(headers.match(/cloudflareinsights/g)).toHaveLength(2);
     expect(headers).toContain("connect-src 'self'");
     expect(headers).toContain("/v1/*\n  Cache-Control: no-store");
     expect(headers.split("\n").every((line) => line.length <= 2000)).toBe(true);
