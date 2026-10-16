@@ -11,6 +11,45 @@
 - DNS, Custom Domain, 인증서, GitHub 환경 보호의 실제 운영 상태는 로컬 코드 검증으로
   증명되지 않는다. 이번 구현에서는 원격 조회나 변경을 수행하지 않았다.
 
+## Staging redeploy maintenance switch (separate backend scope)
+
+This switch does not authorize backend changes under the P1 site-only scope above.
+The owner sets the repository Actions variable `FORECAST_STAGING_AUTO_REDEPLOY`
+to `disabled` during a separately approved manual staging rollout. `enabled` or
+an unset variable retains the existing automatic deployment behavior. The workflow
+changes must be present on `main`; drain already-running deploy jobs separately.
+
+- `.github/workflows/forecast-collector-deploy.yml` skips its staging deployment
+  job, but its independent `deploy-usage-guard` job still verifies and deploys the
+  account-wide Usage Guard, applies its schema and refreshes persisted quota state.
+  That job retains the existing `main` restriction and credential handling; it is
+  not controlled by the staging switch. Staging deployment requires its success.
+- `.github/workflows/forecast-d1-budget-watch.yml` keeps usage checks, alerts and
+  protected production emergency-stop escalation active. Only staging
+  Collector/Dispatcher redeployment is suppressed.
+- **While disabled, staging stops rely on Usage Guard runtime gating.**
+  Watchdog reasons `paid_quota_*`, `canary_runtime_invalid` and
+  `stats_production_d1_unreadable` are still reported but are **not enforced by
+  staging redeploys**. A watchdog decision is not proof that persisted Guard state
+  has changed or that staging stopped. Inspect the alert's observed effective
+  Guard action and redeploy outcome; missing evidence is `unavailable`.
+  `/health` returns the effective action in both `effectiveAction` and
+  `state.action`; it does not expose the underlying persisted action. Stale
+  persisted `normal` can therefore appear as an escalated effective action.
+  An effective `normal` action can leave staging running despite these watchdog findings.
+  The owner must assess and authorize a manual staging stop where needed; do not
+  disable the shared Guard or protected production safety to manage staging.
+- `.github/workflows/worker-deploy.yml` skips automatic staging stats deployment.
+  Production stats promotion of a new `main` commit remains blocked by
+  `.github/workflows/worker-promote.yml` until that exact candidate is deployed
+  manually to staging and satisfies the existing promotion checks. The switch
+  neither bypasses promotion verification nor blocks promotion of an already
+  qualifying staging candidate.
+
+Set the variable back to `enabled` (or remove it) only when automatic staging
+deployment ownership can safely resume. Summary notices identify suppression;
+Discord alerts do not claim that a suppressed redeploy completed a stop.
+
 ## 1. 사전 확인 (읽기 전용, 별도 승인된 계정 범위)
 
 1. 전체 소문자 40자리 후보 SHA가 `main` 이력에 있는지 확인한다. dispatch ref도 `main`이다.

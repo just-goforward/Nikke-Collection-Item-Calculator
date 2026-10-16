@@ -21,14 +21,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  staging-redeploy-disabled:
+    if: vars.FORECAST_STAGING_AUTO_REDEPLOY == 'disabled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Record staging redeploy suppression
+        run: echo "Staging deployment skipped because FORECAST_STAGING_AUTO_REDEPLOY=disabled. Production safety workflows remain active." >> "$GITHUB_STEP_SUMMARY"
+
   staging:
+    # While disabled, production stats promotion of new main commits is blocked
+    # until the exact candidate is manually deployed to staging (worker-promote.yml).
     if: >-
-      (github.event_name == 'workflow_dispatch' &&
+      vars.FORECAST_STAGING_AUTO_REDEPLOY != 'disabled' &&
+      ((github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main') ||
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.head_repository.full_name == github.repository)
+      github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     outputs:
