@@ -10,7 +10,7 @@ import { executeTestSql } from "../../shared/testD1Sql";
 import discordApprovalMigrationSql from "../migrations/0004_discord_approval_tests.sql?raw";
 import discordStagingAdoptionMigrationSql from "../migrations/0005_discord_staging_adoptions.sql?raw";
 import discordStagingMessageMigrationSql from "../migrations/0006_discord_staging_message_identity.sql?raw";
-import schemaSql from "../schema.sql?raw";
+import schemaSql from "./test-schema";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
 import worker from "./worker";

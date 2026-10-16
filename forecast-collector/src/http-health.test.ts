@@ -2,10 +2,10 @@ import { applyD1Migrations, createExecutionContext, reset } from "cloudflare:tes
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { executeTestSql } from "../../shared/testD1Sql";
-import schemaSql from "../schema.sql?raw";
 import { readHealth } from "./db";
 import { handleHttpRequest } from "./http";
 import { readOperationsHealth } from "./ops";
+import schemaSql from "./test-schema";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
 
@@ -99,7 +99,7 @@ describe("staging public advisory health", () => {
       await testEnv.FORECAST_DB.prepare(
         "SELECT MAX(version) AS version FROM schema_migrations",
       ).first(),
-    ).toEqual({ version: 21 });
+    ).toEqual({ version: 25 });
     expect((await health()).status).toBe(200);
   });
 

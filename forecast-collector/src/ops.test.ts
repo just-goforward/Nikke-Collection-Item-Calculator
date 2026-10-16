@@ -2,8 +2,8 @@ import { applyD1Migrations, createExecutionContext, reset } from "cloudflare:tes
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeTestSql } from "../../shared/testD1Sql";
-import schemaSql from "../schema.sql?raw";
 import { resolveOpsAlertsByPrefix, upsertOpsAlert, upsertOpsAlertStatement } from "./ops";
+import schemaSql from "./test-schema";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
 import worker from "./worker";

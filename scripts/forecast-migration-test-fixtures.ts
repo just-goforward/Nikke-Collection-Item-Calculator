@@ -12,7 +12,7 @@ import {
 const root = resolve(import.meta.dirname, "..");
 const directory = resolve(root, "forecast-collector/migrations");
 const migrations = discoverForecastMigrations(directory);
-const currentVersions = Array.from({ length: 24 }, (_, index) => index + 1);
+const currentVersions = Array.from({ length: 25 }, (_, index) => index + 1);
 const localStaging = { environment: "staging", local: true } as const;
 const cleanup: Array<() => void> = [];
 type Spawn = NonNullable<NonNullable<Parameters<typeof applyForecastD1Migrations>[1]>["spawn"]>;

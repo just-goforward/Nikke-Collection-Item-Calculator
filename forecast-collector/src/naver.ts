@@ -47,12 +47,13 @@ export async function fetchNaverFeedMetadata(
   boardId: 48 | 56,
   offset = 0,
   fetcher: FetchLike = fetch,
+  pageSize = 10,
 ): Promise<NaverMetadataPage> {
   const url = new URL(NAVER_FEED_URL);
   url.search = new URLSearchParams({
     boardId: String(boardId),
     buffFilteringYN: "N",
-    limit: "10",
+    limit: String(boardId === 48 && pageSize === 5 ? 5 : 10),
     offset: String(offset),
     order: "NEW",
   }).toString();

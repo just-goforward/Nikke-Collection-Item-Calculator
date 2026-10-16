@@ -35,6 +35,7 @@ database_name = "collection-kit-usage-guard"
 database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
 
 [vars]
+NAVER_BOARD48_PAGE_SIZE = "10"
 ENVIRONMENT = "production"
 COLLECTION_SCHEDULE = "combined"
 DEPLOY_SHA = "local"
@@ -81,6 +82,7 @@ database_name = "collection-kit-usage-guard"
 database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
 
 [env.staging.vars]
+NAVER_BOARD48_PAGE_SIZE = "5"
 ENVIRONMENT = "staging"
 COLLECTION_SCHEDULE = "rotation"
 DEPLOY_SHA = "local"

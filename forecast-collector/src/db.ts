@@ -461,7 +461,7 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
   const cursors = await db
     .prepare(
       `SELECT source, committed_item_id, committed_published_at, scan_head_item_id,
-              scan_head_published_at, next_offset FROM source_poll_state`,
+              scan_head_published_at, next_offset, page_size FROM source_poll_state`,
     )
     .all<{
       source: string;
@@ -470,6 +470,7 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
       scan_head_item_id: string | null;
       scan_head_published_at: string | null;
       next_offset: number;
+      page_size: number;
     }>();
   let invalidCandidates = 0;
   for (const row of candidates.results) {
@@ -531,6 +532,10 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
     (row) =>
       !/^naver-board-(48|56)$/.test(row.source) ||
       row.next_offset < 0 ||
+      !Number.isInteger(row.next_offset) ||
+      ![5, 10].includes(row.page_size) ||
+      (row.source === "naver-board-56" && row.page_size !== 10) ||
+      row.next_offset >= 30 / row.page_size ||
       (row.next_offset > 0 && (!row.scan_head_item_id || !row.scan_head_published_at)) ||
       (row.next_offset === 0 &&
         (row.scan_head_item_id !== null || row.scan_head_published_at !== null)) ||

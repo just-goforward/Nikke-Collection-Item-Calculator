@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeTestSql } from "../../shared/testD1Sql";
 import migrationSql from "../migrations/0008_manual_reviews_interactions_canary.sql?raw";
 import runtimeMigrationSql from "../migrations/0024_runtime_ingestion.sql?raw";
-import schemaSql from "../schema.sql?raw";
 import {
   decideManualReview,
   ensureManualReviewStatement,
@@ -15,6 +14,7 @@ import {
 import { upsertOpsAlert } from "./ops";
 import { ingestionQueue } from "./runtime-ingestion-db";
 import { processSourceQueue } from "./source-queue";
+import schemaSql from "./test-schema";
 import type { CollectorEnv, NaverSourceKind } from "./types";
 
 const testEnv: CollectorEnv = {

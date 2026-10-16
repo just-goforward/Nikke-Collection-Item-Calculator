@@ -1,9 +1,12 @@
 import type { NaverFeedMetadata, NaverSourceKind } from "./types";
 
-export const NAVER_PAGE_SIZE = 10;
-export const NAVER_SCAN_PAGES = 3;
-// Recovery may need one adjacent page after a marker on page two.
-export const NAVER_RECOVERY_PAGES = NAVER_SCAN_PAGES + 1;
+const NAVER_PAGE_SIZE = 10;
+
+// Scans cover 30 rows; recovery covers 40 (one adjacent page after a marker on the last scan page).
+export function naverPagePolicy(board: 48 | 56, configured?: string) {
+  const pageSize = board === 48 && configured === "5" ? 5 : 10;
+  return { pageSize, scanPages: 30 / pageSize, recoveryPages: 40 / pageSize };
+}
 
 export function samePublicationTime(left: string | null, right: string | null) {
   return (
@@ -43,8 +46,9 @@ export function coveredBoundaryTail(
   rawCount: number,
   boundary: string,
   knownTail: boolean,
+  pageSize = NAVER_PAGE_SIZE,
 ) {
-  if (rawCount < NAVER_PAGE_SIZE) return true;
+  if (rawCount < pageSize) return true;
   const tail = page.at(-1);
   const date = Date.parse(boundary);
   // An already-known older tail can be a pin. Require an adjacent older page

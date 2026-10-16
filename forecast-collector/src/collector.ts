@@ -111,7 +111,14 @@ async function pollCollectionSource(
   counts?: ProfileCounts,
 ) {
   try {
-    return await pollNaverSource(env.FORECAST_DB, boardId, fetch, opsEnvironment(env), counts);
+    return await pollNaverSource(
+      env.FORECAST_DB,
+      boardId,
+      fetch,
+      opsEnvironment(env),
+      counts,
+      env.NAVER_BOARD48_PAGE_SIZE,
+    );
   } catch (error) {
     if (error instanceof NaverPartialSchemaError) {
       const first = error.rejected[0];

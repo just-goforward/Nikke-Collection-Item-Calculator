@@ -13,9 +13,7 @@ import { ensureManualReviewStatement } from "./manual-review";
 import { type FetchLike, fetchNaverFeedMetadata, fetchNaverItemIdentity } from "./naver";
 import {
   coveredBoundaryTail,
-  NAVER_PAGE_SIZE,
-  NAVER_RECOVERY_PAGES,
-  NAVER_SCAN_PAGES,
+  naverPagePolicy,
   orderedOfficialBoundaryItems,
   samePublicationTime,
 } from "./naver-boundary-proof";
@@ -36,7 +34,6 @@ import type {
   SourceQueueItem,
 } from "./types";
 
-const PAGE_SIZE = NAVER_PAGE_SIZE;
 const PAGE_STEP = 1;
 const sourceSchema = z.enum(["naver-board-48", "naver-board-56"]);
 const boundaryRecoverySchema = z.object({
@@ -57,6 +54,7 @@ const nextCursorVersionSql = `CASE
 END`;
 
 type BoundaryHoldProof = {
+  pageSize?: number;
   board: number;
   committedItemId: string | null;
   committedPublishedAt: string | null;
@@ -182,6 +180,7 @@ export async function pollNaverSource(
   fetcher: FetchLike = fetch,
   environment: OpsEnvironment = "staging",
   counts?: { rowsPolled: number },
+  configuredPageSize?: string,
 ) {
   const source = `naver-board-${boardId}` as NaverSourceKind;
   const state = await readPollState(db, source);
@@ -189,11 +188,17 @@ export async function pollNaverSource(
     return recoverMovedNaverBoundary(db, boardId, state, environment, fetcher, counts);
   }
   const offset = Number(state?.next_offset ?? 0);
+  const policy = naverPagePolicy(
+    boardId,
+    state && (offset !== 0 || state.scan_head_item_id !== null)
+      ? String(state.page_size)
+      : configuredPageSize,
+  );
   // Legacy row-index offsets (8, 16, ... 104) are not page cursors.
-  if (!Number.isInteger(offset) || offset < 0 || offset >= NAVER_SCAN_PAGES) {
+  if (!Number.isInteger(offset) || offset < 0 || offset >= policy.scanPages) {
     throw new Error("source_cursor_recovery_required");
   }
-  const metadataPage = await fetchNaverFeedMetadata(boardId, offset, fetcher);
+  const metadataPage = await fetchNaverFeedMetadata(boardId, offset, fetcher, policy.pageSize);
   countPolledRows(counts, metadataPage.rawFeedCount);
   if (metadataPage.unknownRejected.length > 0) {
     throw new NaverPartialSchemaError(boardId, offset, metadataPage.unknownRejected);
@@ -208,7 +213,7 @@ export async function pollNaverSource(
   const scanHead = offset === 0 ? page[0] : ((state && scanHeadFromState(state)) ?? page[0]);
   const scanComplete = committedIndex >= 0 || (!state?.committed_item_id && scanHead !== undefined);
   const scanEnded =
-    scanComplete || metadataPage.rawFeedCount < PAGE_SIZE || offset + 1 >= NAVER_SCAN_PAGES;
+    scanComplete || metadataPage.rawFeedCount < policy.pageSize || offset + 1 >= policy.scanPages;
   const boundaryMissing = !scanComplete && scanEnded;
   const nowIso = new Date().toISOString();
   const guard = {
@@ -217,7 +222,7 @@ export async function pollNaverSource(
           SELECT 1 FROM source_poll_state
           WHERE source = ? AND committed_item_id IS ? AND committed_published_at IS ?
             AND scan_head_item_id IS ? AND scan_head_published_at IS ?
-            AND next_offset = ? AND updated_at = ?
+            AND next_offset = ? AND updated_at = ? AND page_size = ?
         )`
       : "NOT EXISTS (SELECT 1 FROM source_poll_state WHERE source = ?)",
     bindings: state
@@ -229,6 +234,7 @@ export async function pollNaverSource(
           state.scan_head_published_at,
           state.next_offset,
           state.updated_at,
+          state.page_size,
         ]
       : [source],
   };
@@ -244,14 +250,15 @@ export async function pollNaverSource(
       .prepare(
         `INSERT INTO source_poll_state (
            source, committed_item_id, committed_published_at, scan_head_item_id,
-           scan_head_published_at, next_offset, updated_at
-         ) SELECT ?, ?, ?, ?, ?, ?, ? WHERE ${guard.sql}
+           scan_head_published_at, next_offset, updated_at, page_size
+         ) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE ${guard.sql}
          ON CONFLICT(source) DO UPDATE SET
            committed_item_id = excluded.committed_item_id,
            committed_published_at = excluded.committed_published_at,
            scan_head_item_id = excluded.scan_head_item_id,
            scan_head_published_at = excluded.scan_head_published_at,
            next_offset = excluded.next_offset,
+           page_size = excluded.page_size,
            updated_at = ${nextCursorVersionSql}`,
       )
       .bind(
@@ -266,6 +273,7 @@ export async function pollNaverSource(
         scanComplete ? null : (scanHead?.publishedAt ?? null),
         scanEnded ? 0 : offset + PAGE_STEP,
         nowIso,
+        policy.pageSize,
         ...guard.bindings,
         nowIso,
         nowIso,
@@ -283,6 +291,7 @@ export async function pollNaverSource(
         guard: { sql: "changes() = 1", bindings: [] },
         context: {
           board: boardId,
+          pageSize: policy.pageSize,
           committedItemId: state?.committed_item_id ?? null,
           committedPublishedAt: state?.committed_published_at ?? null,
           scanHeadItemId: scanHead?.itemId ?? null,
@@ -315,6 +324,9 @@ export async function recoverNaverBoundary(
   const hold = await readBoundaryHold(db, boardId, environment);
   if (!state || !hold) throw new Error("naver_boundary_not_held");
   const proof = JSON.parse(hold.context_json) as BoundaryHoldProof;
+  if ((proof.pageSize ?? 10) !== state.page_size) {
+    throw new Error("naver_boundary_marker_conflict");
+  }
   if (
     state.committed_item_id !== request.expectedCommittedItemId ||
     proof.committedItemId !== request.expectedCommittedItemId ||
@@ -362,7 +374,7 @@ export async function recoverNaverBoundary(
              SELECT 1 FROM source_poll_state
              WHERE source = ? AND committed_item_id = ? AND committed_published_at IS ?
                AND scan_head_item_id IS ? AND scan_head_published_at IS ?
-               AND next_offset = ? AND updated_at = ?
+               AND next_offset = ? AND updated_at = ? AND page_size = ?
            )`,
       )
       .bind(
@@ -382,6 +394,7 @@ export async function recoverNaverBoundary(
         state.scan_head_published_at,
         state.next_offset,
         state.updated_at,
+        state.page_size,
       ),
     ...queueStatements(db, toQueue, nowIso, { sql: recoveryGuardSql, bindings: guardBindings }),
     db
@@ -423,6 +436,8 @@ async function readBoundaryRecoveryPages(
 ) {
   const source = `naver-board-${boardId}` as NaverSourceKind;
   const items: NaverFeedMetadata[] = [];
+  const policy = naverPagePolicy(boardId, String(state.page_size));
+  const pageLimit = recoveryPageLimit(moved, policy.pageSize);
   const deadline = AbortSignal.timeout(40_000);
   const boundedFetch: FetchLike = (input, init) =>
     fetcher(input, {
@@ -430,14 +445,17 @@ async function readBoundaryRecoveryPages(
       signal: AbortSignal.any([deadline, ...(init?.signal ? [init.signal] : [])]),
     });
   try {
-    for (let offset = 0; offset < (moved ? 1 : NAVER_RECOVERY_PAGES); offset += PAGE_STEP) {
-      const page = await fetchNaverFeedMetadata(boardId, offset, boundedFetch);
+    for (let offset = 0; offset < pageLimit; offset += PAGE_STEP) {
+      const page = await fetchNaverFeedMetadata(boardId, offset, boundedFetch, policy.pageSize);
       countPolledRows(counts, page.rawFeedCount);
       if (page.unknownRejected.length > 0)
         throw new NaverPartialSchemaError(boardId, offset, page.unknownRejected);
-      if (page.rawFeedCount > PAGE_SIZE) throw new NaverScanBoundaryError(0);
+      if (page.rawFeedCount > policy.pageSize) throw new NaverScanBoundaryError(0);
       items.push(...page.items);
-      if (moved) return items;
+      if (moved) {
+        if (movedWindowComplete(page.rawFeedCount, policy.pageSize, offset)) return items;
+        continue;
+      }
       if (!orderedOfficialBoundaryItems(items, source, Date.now()))
         throw new NaverScanBoundaryError(0);
       const marker = items.find((item) => item.itemId === state.committed_item_id);
@@ -449,19 +467,33 @@ async function readBoundaryRecoveryPages(
           .bind(source, page.items.at(-1)?.itemId ?? "")
           .first();
         if (
-          coveredBoundaryTail(page.items, page.rawFeedCount, marker.publishedAt, Boolean(knownTail))
+          coveredBoundaryTail(
+            page.items,
+            page.rawFeedCount,
+            marker.publishedAt,
+            Boolean(knownTail),
+            policy.pageSize,
+          )
         ) {
           deadline.throwIfAborted();
           return items;
         }
       }
-      if (page.rawFeedCount < PAGE_SIZE) break;
+      if (page.rawFeedCount < policy.pageSize) break;
     }
   } catch (error) {
     if (deadline.aborted) throw new Error("naver_timeout");
     throw error;
   }
   throw new NaverScanBoundaryError(0);
+}
+
+function movedWindowComplete(rawCount: number, pageSize: number, offset: number) {
+  return rawCount < pageSize || offset + 1 >= 10 / pageSize;
+}
+
+function recoveryPageLimit(moved: boolean, pageSize: number) {
+  return (moved ? 10 : 40) / pageSize;
 }
 
 async function recoverMovedNaverBoundary(
@@ -788,7 +820,7 @@ function readPollState(db: D1Database, source: NaverSourceKind) {
   return db
     .prepare(
       `SELECT committed_item_id, committed_published_at, scan_head_item_id,
-              scan_head_published_at, next_offset, updated_at
+              scan_head_published_at, next_offset, updated_at, page_size
        FROM source_poll_state WHERE source = ?`,
     )
     .bind(source)
@@ -833,6 +865,7 @@ function gameDayKey(nowMs: number) {
 }
 
 type PollStateRow = {
+  page_size: number;
   committed_item_id: string | null;
   committed_published_at: string | null;
   scan_head_item_id: string | null;

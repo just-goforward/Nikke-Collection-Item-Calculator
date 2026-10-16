@@ -2,7 +2,6 @@ import { applyD1Migrations, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { executeTestSql } from "../../shared/testD1Sql";
-import schemaSql from "../schema.sql?raw";
 import { runCollection } from "./collector";
 import { upsertOpsAlert } from "./ops";
 import {
@@ -12,6 +11,7 @@ import {
   recoverNaverBoundary,
   startInvocation,
 } from "./source-queue";
+import schemaSql from "./test-schema";
 import type { CollectorEnv } from "./types";
 
 const db = env["FORECAST_DB"] as D1Database;

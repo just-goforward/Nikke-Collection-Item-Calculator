@@ -2,7 +2,6 @@ import { applyD1Migrations, createExecutionContext, reset } from "cloudflare:tes
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeTestSql } from "../../shared/testD1Sql";
-import schemaSql from "../schema.sql?raw";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
 import { sha256Hex } from "./crypto";
 import {
@@ -19,6 +18,7 @@ import {
   supersedeIncompatibleCandidates,
 } from "./db";
 import { finishInvocation, startInvocation } from "./source-queue";
+import schemaSql from "./test-schema";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv, NormalizedSourceItem, ScheduleEvent } from "./types";
 import worker from "./worker";

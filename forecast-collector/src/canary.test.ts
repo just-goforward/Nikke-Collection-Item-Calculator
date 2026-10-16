@@ -9,12 +9,12 @@ import {
   type D1QuotaEvidence,
 } from "../../shared/d1QuotaEvidence";
 import { executeTestSql } from "../../shared/testD1Sql";
-import schemaSql from "../schema.sql?raw";
 import { readCanaryReport, readCanaryWindow, startCanaryDeployment } from "./canary";
 import { rotationBoard, rotationInvocationId } from "./collection-schedule";
 import { readHealth } from "./db";
 import { runRotationIngestion } from "./rotation-ingestion";
 import * as ingestion from "./runtime-ingestion";
+import schemaSql from "./test-schema";
 import type { CollectorEnv } from "./types";
 
 const testEnv: CollectorEnv = {

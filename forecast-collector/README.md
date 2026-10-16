@@ -14,7 +14,24 @@ Staging uses `COLLECTION_SCHEDULE=rotation`; production remains `combined`.
 The unchanged three-minute cron rotates by `floor(scheduledTime / 180000) % 3`:
 board 48, board 56, then runtime ingestion. Each board is polled every nine
 minutes (normal scheduling latency ≤9 minutes, excluding outages and catch-up).
-Page size remains ten and cursor catch-up remains enabled.
+Board 48 uses `NAVER_BOARD48_PAGE_SIZE="5"` in staging and `"10"` in production;
+other values fall back to ten. Board 56 stays at ten. Cursor catch-up remains enabled.
+Five-row scans allow six pages (eight for recovery), preserving 30/40-row coverage.
+Moved-marker recovery reads ten rows across two pages. Migration 0025 records the
+page size in cursors and held alert snapshots. In-progress scans and holds retain
+their recorded size; configuration changes, including rollback to ten, take effect
+only at a clean scan boundary. The version-21 bootstrap remains unchanged.
+Row coverage is preserved, not catch-up time: at the nine-minute rotation cadence
+six five-row polls span about 54 minutes versus about 27 for three ten-row polls
+(including the initial wait, excluding outages), so a moving feed can shift farther
+during catch-up. Board 48 averages about 0.18 posts per day, so multi-page catch-up
+is rare.
+Rolling the code back below migration 0025 is not equivalent to a configuration
+rollback: older code ignores `page_size` and would read a five-row cursor as ten
+rows. First set `NAVER_BOARD48_PAGE_SIZE="10"`, wait until the board-48 row in
+`source_poll_state` is clean (`next_offset = 0`, `scan_head_item_id IS NULL`,
+`page_size = 10`), then deploy the older code. Roll out to a new environment by
+deploying with `"10"` first and switching to `"5"` afterwards.
 Ingestion requires both latest rotation attempts to have completed within ten
 minutes (nine minutes plus one minute scheduling margin), and consumes that
 pair atomically with its lease. Disabled ingestion logs without processing.
