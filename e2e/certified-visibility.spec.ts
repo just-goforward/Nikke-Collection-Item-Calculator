@@ -64,10 +64,15 @@ test.beforeAll(async () => {
         enforce: "pre",
         transform(code, id) {
           if (!id.endsWith("/useCertifiedRun.ts")) return;
+          // Gate the complete provider promise at the cancellation boundary:
+          // both runtime acquisition and bundled fallback precede snapshot binding.
+          const preparationCall = /awaitCertifiedRunPreparation\(\s*preparation,/g;
+          if (code.match(preparationCall)?.length !== 1)
+            throw new Error("Certified preparation observation anchor is missing or ambiguous.");
           return code
             .replace(
-              "prepareCertifiedForecast(asOf),",
-              "globalThis.__observeCertifiedPreparation(prepareCertifiedForecast(asOf)),",
+              preparationCall,
+              "awaitCertifiedRunPreparation(globalThis.__observeCertifiedPreparation(preparation),",
             )
             .replace(
               "onSnapshot(currentSnapshot);",

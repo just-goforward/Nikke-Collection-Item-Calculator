@@ -21,10 +21,14 @@ import {
 
 async function bindSnapshot(request: Extract<CertifiedRequest<CertifiedInput>, { type: "solve" }>) {
   const identity = assertCertifiedForecastIdentity(request.forecastIdentity);
-  const actual = await assertTrustedCertifiedForecast(request.input.snapshot, (bytes) => {
-    if (bytes > CERTIFIED_RUNTIME_PAYLOAD_CEILING)
-      throw new Error("Forecast hash workspace ceiling exceeded.");
-  });
+  const actual = await assertTrustedCertifiedForecast(
+    request.input.snapshot,
+    (bytes) => {
+      if (bytes > CERTIFIED_RUNTIME_PAYLOAD_CEILING)
+        throw new Error("Forecast hash workspace ceiling exceeded.");
+    },
+    request.input.forecastPublication,
+  );
   if (!sameCertifiedForecastIdentity(identity, actual))
     throw new Error("Worker input snapshot does not match requested forecast identity.");
   return identity;

@@ -44,6 +44,15 @@ const assets = [
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), "site-production-"));
   await mkdir(join(directory, ".vite"));
+  await writeFile(
+    join(directory, ".vite/forecast-runtime.json"),
+    JSON.stringify({
+      version: 1,
+      mode: "bundled",
+      keyId: "",
+      publicKeyBase64: "",
+    }),
+  );
   await mkdir(join(directory, "assets"));
   const source = await readFile("index.html", "utf8");
   for (const locale of ["ko", "en", "ja"] as const) {
@@ -62,6 +71,24 @@ async function fixture() {
 }
 
 describe("production site packaging", () => {
+  it("rejects a runtime-enabled artifact before production packaging or checking", async () => {
+    const directory = await fixture();
+    try {
+      await writeFile(
+        join(directory, ".vite/forecast-runtime.json"),
+        JSON.stringify({
+          version: 1,
+          mode: "staging",
+          keyId: "staging",
+          publicKeyBase64: "placeholder",
+        }),
+      );
+      await expect(buildSiteProduction(directory)).rejects.toThrow("runtime forecast build");
+      await expect(buildSiteProduction(directory, true)).rejects.toThrow("runtime forecast build");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it("excludes the complete build-metadata directory and binds .assetsignore into the receipt", async () => {
     const directory = await fixture();
     try {

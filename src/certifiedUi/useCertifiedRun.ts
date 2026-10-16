@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CERTIFIED_STAGING_ENGINE_PROFILE } from "../../shared/certifiedEngineProfile";
 import type { CertifiedSupplySnapshot } from "../../shared/certifiedSupply";
+import type { PublicationBytes } from "../../shared/forecastPublicationBytes";
 import type { CertifiedInput, CertifiedOutput } from "../certified/types";
 import { createBrowserCertifiedClient } from "../certifiedRuntime/browserClient";
 import type { CertifiedMemory, CertifiedTiming } from "../certifiedRuntime/protocol";
@@ -27,8 +28,10 @@ function requestInput(
   session: CertifiedSession,
   snapshot: CertifiedSupplySnapshot,
   asOf: string,
+  publication?: PublicationBytes,
 ): CertifiedInput {
   return {
+    ...(publication ? { forecastPublication: publication } : {}),
     ...session.state,
     stock: session.stock,
     asOf,
@@ -39,6 +42,17 @@ function requestInput(
     computeMinimumWait: true,
     batchLimit: 10,
   };
+}
+
+function prepareRunSnapshot(asOf: string, accept: (proof: PublicationBytes | undefined) => void) {
+  return import.meta.env.VITE_FORECAST_RUNTIME === "staging"
+    ? import("../lib/runtimeForecast")
+        .then((module) => module.runtimeForecast.acquire(asOf))
+        .then((runtime) => {
+          accept(runtime?.publication);
+          return runtime?.snapshot ?? prepareCertifiedForecast(asOf);
+        })
+    : prepareCertifiedForecast(asOf);
 }
 
 export function useCertifiedRun(
@@ -93,8 +107,12 @@ export function useCertifiedRun(
       );
       controller.signal.throwIfAborted();
       const asOf = new Date().toISOString();
+      let publication: PublicationBytes | undefined;
+      const preparation = prepareRunSnapshot(asOf, (value) => {
+        publication = value;
+      });
       const currentSnapshot = await awaitCertifiedRunPreparation(
-        prepareCertifiedForecast(asOf),
+        preparation,
         controller.signal,
         15_000 - (performance.now() - submitted),
       );
@@ -110,7 +128,8 @@ export function useCertifiedRun(
         return;
       }
       client.current ??= createBrowserCertifiedClient();
-      const run = await client.current.request(requestInput(session, currentSnapshot, asOf), {
+      const input = requestInput(session, currentSnapshot, asOf, publication);
+      const run = await client.current.request(input, {
         engineProfile: CERTIFIED_STAGING_ENGINE_PROFILE,
         sessionId: session.id,
         signal: controller.signal,

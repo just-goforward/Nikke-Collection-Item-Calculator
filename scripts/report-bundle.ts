@@ -27,6 +27,9 @@ const REQUIRED_LAZY_ROOTS = {
   "src/account/AccountEntry.tsx": "lazy-account",
 } as const;
 const OPTIONAL_LAZY_ROOTS = {
+  // Runtime gating must not move feature bytes outside the certified budget.
+  "src/lib/runtimeForecast.ts": "lazy-certified",
+  "src/certifiedUi/RuntimeForecastNotice.tsx": "lazy-certified",
   "src/components/DetailPanel.tsx": "lazy-detail",
   "src/lib/statsErrorResponse.ts": "lazy-stats",
   "src/lib/statsDeliveryHealth.ts": "lazy-stats",

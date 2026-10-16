@@ -35,7 +35,13 @@ export function useCertifiedCalculatorApp(): CertifiedCalculatorController {
   );
   // Keep native binding, persistence, preparation, and committed recomputation effects in order.
   useCertifiedSessionPersistence(store.bridge, store.setSaveFailed, store.accountMode);
-  useCertifiedCalculatorPreparation(preparation, store.latest, ownership.retire, updateSession);
+  useCertifiedCalculatorPreparation(
+    preparation,
+    store.latest,
+    ownership.retire,
+    updateSession,
+    ownership.calculating,
+  );
   useCertifiedActionRecomputation(
     store.bridge.session,
     store.latest,

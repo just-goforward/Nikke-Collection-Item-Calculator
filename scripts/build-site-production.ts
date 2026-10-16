@@ -99,6 +99,7 @@ async function productionAssetExclusions(directory: string, check: boolean): Pro
 }
 
 export async function buildSiteProduction(directory: string, check = false): Promise<void> {
+  await assertForecastBuild(directory, "bundled");
   const files = await filesIn(directory);
   const source = await readFile(join(ROOT, "index.html"), "utf8");
   const sourceConfig = statsScript(source);
@@ -161,3 +162,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   await buildSiteProduction(resolve("dist"), args[0] === "--check");
 }
+
+import { assertForecastBuild } from "./forecast-runtime-build.ts";

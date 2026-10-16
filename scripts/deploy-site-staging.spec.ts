@@ -1,6 +1,6 @@
 import type { SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { deploySiteStaging } from "./deploy-site-staging";
 
 const SHA = "a".repeat(40);
@@ -15,6 +15,15 @@ const credentials = {
   SITE_STAGING_PROVISIONED: "true",
 };
 
+let publicKey: string;
+beforeAll(async () => {
+  const keys = (await crypto.subtle.generateKey("Ed25519", true, [
+    "sign",
+    "verify",
+  ])) as CryptoKeyPair;
+  publicKey = Buffer.from(await crypto.subtle.exportKey("raw", keys.publicKey)).toString("base64");
+});
+
 function fixture(
   options: {
     branch?: string;
@@ -23,6 +32,7 @@ function fixture(
     changedHead?: boolean;
     dirtyAfterVerification?: boolean;
     ids?: string[];
+    forecastKey?: string;
   } = {},
 ) {
   const calls: { args: string[]; env: NodeJS.ProcessEnv | undefined }[] = [];
@@ -32,14 +42,18 @@ function fixture(
     calls,
     dependencies: {
       env: credentials,
-      read: () =>
-        JSON.stringify({
-          env: {
-            staging: {
-              d1_databases: (options.ids ?? UUIDS).map((database_id) => ({ database_id })),
-            },
-          },
-        }),
+      read: (path: string) =>
+        path.endsWith("forecast-runtime.json")
+          ? JSON.stringify({
+              publicKeyBase64: options.forecastKey ?? publicKey,
+            })
+          : JSON.stringify({
+              env: {
+                staging: {
+                  d1_databases: (options.ids ?? UUIDS).map((database_id) => ({ database_id })),
+                },
+              },
+            }),
       spawn: (
         _command: string,
         args: string[],
@@ -69,6 +83,35 @@ function fixture(
     },
   };
 }
+
+describe("staging forecast public-key admission", () => {
+  it.each([true, false])(
+    "R1-15 rejects the committed placeholder before verification or deployment; dry-run=%s",
+    (dryRun) => {
+      const placeholder = JSON.parse(
+        readFileSync("site-worker/forecast-runtime.json", "utf8"),
+      ).publicKeyBase64;
+      const { calls, dependencies } = fixture({ forecastKey: placeholder });
+      expect(() => deploySiteStaging(dryRun ? ["--dry-run"] : [], dependencies)).toThrow(
+        "Replace the placeholder public key in site-worker/forecast-runtime.json",
+      );
+      expect(
+        calls.every((call) => ["branch", "status", "rev-parse"].includes(call.args[0] ?? "")),
+      ).toBe(true);
+    },
+  );
+
+  it.each([
+    "",
+    "not-base64",
+    Buffer.alloc(31).toString("base64"),
+    Buffer.alloc(33).toString("base64"),
+  ])("rejects malformed or wrong-length forecast public keys: %j", (forecastKey) => {
+    const { calls, dependencies } = fixture({ forecastKey });
+    expect(() => deploySiteStaging(["--dry-run"], dependencies)).toThrow("raw 32-byte Ed25519");
+    expect(calls.some((call) => call.args[1] === "deploy")).toBe(false);
+  });
+});
 
 describe("local staging deployment", () => {
   it("cannot select production configuration, name or domain", () => {

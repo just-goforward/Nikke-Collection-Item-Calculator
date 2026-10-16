@@ -7,6 +7,7 @@ import {
   workerChunkGraphPlugin,
 } from "./scripts/certified-bundle-boundary.ts";
 import { certifiedEngineBuildGuardPlugin } from "./scripts/certified-engine-build.ts";
+import { forecastRuntimeBuildPlugin } from "./scripts/forecast-runtime-build.ts";
 
 import { localizedPagesPlugin } from "./scripts/localized-pages.ts";
 import { STATS_DELIVERY_HEALTH_EMIT_ENABLED } from "./shared/solverRecoveryContract.ts";
@@ -22,6 +23,7 @@ export default defineConfig({
   },
   plugins: [
     certifiedEngineBuildGuardPlugin(),
+    forecastRuntimeBuildPlugin(),
     localizedPagesPlugin(),
     react(),
     tailwindcss(),

@@ -1,6 +1,9 @@
+import { createForecastEndpoint, type ForecastEnv } from "./forecast";
+
+const forecastEndpoint = createForecastEndpoint();
 type FetchBinding = { fetch(request: Request): Promise<Response> };
 
-export type SiteEnv = {
+export type SiteEnv = ForecastEnv & {
   ASSETS: FetchBinding;
   SITE_ENV?: string;
   STATS?: FetchBinding;
@@ -73,6 +76,8 @@ async function proxy(
 export default {
   async fetch(request: Request, env: SiteEnv): Promise<Response> {
     const path = new URL(request.url).pathname;
+    if (path === "/api/forecast" || path === "/api/forecast/version")
+      return privateResponse(await forecastEndpoint(request, env), true);
     if (path === "/robots.txt") {
       if (env.SITE_ENV === "production") {
         const response = await env.ASSETS.fetch(request);

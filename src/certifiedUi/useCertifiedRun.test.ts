@@ -17,6 +17,7 @@ const driver = vi.hoisted(() => ({
   request: vi.fn(),
   dispose: vi.fn(),
   create: vi.fn(),
+  acquire: vi.fn(),
 }));
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
@@ -38,6 +39,7 @@ vi.mock("react", () => ({
   },
 }));
 vi.mock("../lib/certifiedForecast", () => ({ prepareCertifiedForecast: driver.prepare }));
+vi.mock("../lib/runtimeForecast", () => ({ runtimeForecast: { acquire: driver.acquire } }));
 vi.mock("../certifiedRuntime/browserClient", () => ({
   createBrowserCertifiedClient: driver.create,
 }));
@@ -78,6 +80,7 @@ function change(state: DocumentVisibilityState) {
 }
 beforeEach(() => {
   driver.slots = [];
+  vi.stubEnv("VITE_FORECAST_RUNTIME", "");
   vi.resetAllMocks();
   visibility = Object.assign(new EventTarget(), {
     visibilityState: "visible" as DocumentVisibilityState,
@@ -89,10 +92,36 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
 describe("submit-to-preparation visibility lifecycle", () => {
+  it("selects one runtime forecast immediately before submission and retains it throughout the run", async () => {
+    vi.stubEnv("VITE_FORECAST_RUNTIME", "staging");
+    const selected = { ...snapshot, revision: "runtime-selected" };
+    const publication = {
+      pointer: { statement: "signed-fixture", signature: "fixture" },
+      artifact: null,
+    };
+    driver.acquire.mockResolvedValue({ snapshot: selected, publication });
+    const pending = deferred<never>();
+    driver.request.mockReturnValue(pending.promise);
+    const run = RunHarness().calculate();
+    await import("../lib/runtimeForecast");
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(driver.acquire).toHaveBeenCalledTimes(1);
+    expect(driver.prepare).not.toHaveBeenCalled();
+    expect(onSnapshot).toHaveBeenCalledWith(selected);
+    const submitted = driver.request.mock.calls[0]?.[0];
+    expect(submitted).toMatchObject({ snapshot: selected, forecastPublication: publication });
+    driver.acquire.mockResolvedValue({ snapshot: { ...snapshot, revision: "later-approval" } });
+    expect(submitted.snapshot.revision).toBe("runtime-selected");
+    expect(onSnapshot).toHaveBeenCalledTimes(1);
+    pending.reject(new CertifiedRuntimeError("deadline", "deadline"));
+    await run;
+    expect(driver.acquire).toHaveBeenCalledTimes(1);
+  });
   it("cancels while preparation is unresolved, discards its late snapshot, and requires manual recompute", async () => {
     const pending = deferred<CertifiedSupplySnapshot>();
     driver.prepare.mockReturnValueOnce(pending.promise);

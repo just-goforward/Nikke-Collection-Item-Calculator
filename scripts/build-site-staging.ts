@@ -1,7 +1,9 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { assertForecastBuild, stagingForecastBuildEnv } from "./forecast-runtime-build.ts";
 
 const STATS_SCRIPT = /<script\b[^>]*>[\s\S]*?window\.COLLECTION_STATS_CONFIG\s*=[\s\S]*?<\/script>/;
 const STAGING_MARKER = 'data-site-staging="true"';
@@ -105,6 +107,7 @@ export function stagingHeaders(htmlDocuments: readonly string[]): string {
 }
 
 export async function buildSiteStaging(directory: string, check = false): Promise<void> {
+  await assertForecastBuild(directory, "staging");
   const paths = await htmlPaths(directory);
   const emitted = await Promise.all(paths.map((path) => readFile(path, "utf8")));
   const documents = emitted.map(stagingHtml);
@@ -131,8 +134,19 @@ export async function buildSiteStaging(directory: string, check = false): Promis
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  if (process.argv.slice(2).some((arg) => arg !== "--check")) {
-    throw new Error("Usage: node scripts/build-site-staging.ts [--check]");
+  const args = process.argv.slice(2);
+  if (args.length > 1 || args.some((arg) => !["--check", "--build"].includes(arg))) {
+    throw new Error("Usage: node scripts/build-site-staging.ts [--check|--build]");
+  }
+  if (args[0] === "--build") {
+    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    const result = spawnSync(npm, ["run", "build"], {
+      env: stagingForecastBuildEnv(process.env),
+      stdio: "inherit",
+      shell: process.platform === "win32",
+    });
+    if (result.error || result.signal || result.status !== 0)
+      throw new Error("Staging runtime forecast compilation failed.");
   }
   await buildSiteStaging(resolve("dist"), process.argv.includes("--check"));
 }

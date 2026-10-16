@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { MobileActionBar } from "../components/MobileChrome";
 import { useI18n } from "../i18n/locale";
 import type { LoadingView, ResultView } from "../ui-types";
@@ -15,6 +16,15 @@ type ChromeProps = {
   words: CertifiedWords;
 };
 
+const RuntimeForecastNotice =
+  import.meta.env.VITE_FORECAST_RUNTIME === "staging"
+    ? lazy(() =>
+        import("./RuntimeForecastNotice").then((module) => ({
+          default: module.RuntimeForecastNotice,
+        })),
+      )
+    : null;
+
 /** Route-wide notices above the shared top bar, including malformed-storage recovery. */
 export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
   const { t } = useI18n();
@@ -28,6 +38,11 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
         )}
       </aside>
       <ForecastReviewNotice />
+      {RuntimeForecastNotice && (
+        <Suspense fallback={null}>
+          <RuntimeForecastNotice />
+        </Suspense>
+      )}
       {controller.session.migrationNotice && (
         <p role="status" className="cert-notice" data-testid="certified-cohort-migration">
           {words[controller.session.migrationNotice]}

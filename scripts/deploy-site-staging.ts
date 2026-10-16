@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const PERSONAL_CONFIG = "site-worker/personal-data-staging.wrangler.json";
+const FORECAST_CONFIG = "site-worker/forecast-runtime.json";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Dependencies = {
@@ -22,6 +23,15 @@ type Dependencies = {
   read?: (path: string) => string;
 };
 
+function assertForecastKey(root: string, read: (path: string) => string) {
+  const key: unknown = JSON.parse(read(resolve(root, FORECAST_CONFIG))).publicKeyBase64;
+  const bytes = typeof key === "string" ? Buffer.from(key, "base64") : null;
+  if (!bytes || bytes.byteLength !== 32 || bytes.toString("base64") !== key)
+    throw new Error(
+      `Replace the placeholder public key in ${FORECAST_CONFIG} with a canonical base64-encoded raw 32-byte Ed25519 public key before deployment.`,
+    );
+}
+
 function assertProvisioning(
   env: NodeJS.ProcessEnv,
   dryRun: boolean,
@@ -31,6 +41,7 @@ function assertProvisioning(
   for (const key of ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]) {
     if (!env[key]?.trim()) throw new Error(`${key} must be supplied through the environment.`);
   }
+  assertForecastKey(root, read);
   if (dryRun) return;
   if (env["SITE_STAGING_PROVISIONED"] !== "true") {
     throw new Error(

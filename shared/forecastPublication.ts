@@ -1,31 +1,24 @@
 import { assertCertifiedRuntimeSupplySnapshot } from "./certifiedSupply.ts";
 import {
+  ARTIFACT_DOMAIN as BYTE_ARTIFACT_DOMAIN,
+  POINTER_DOMAIN as BYTE_POINTER_DOMAIN,
+  type ArtifactStatement as ByteArtifactStatement,
+  type PublicationEnvironment as ByteEnvironment,
+  type PointerStatement as BytePointerStatement,
+  decodePublicationBase64,
+  publicationBytesHash,
+  verifyPublicationSignature,
+} from "./forecastPublicationBytes.ts";
+import {
   buildV3SupplyForecastCandidate,
   type SupplyForecastCandidate,
 } from "./supplyForecastCandidate.ts";
 
-export type PublicationEnvironment = "staging" | "production";
-export const ARTIFACT_DOMAIN = "nikke.forecast.artifact.v1";
-export const POINTER_DOMAIN = "nikke.forecast.pointer.v1";
-
-export type ArtifactStatement = {
-  domain: typeof ARTIFACT_DOMAIN;
-  environment: PublicationEnvironment;
-  keyId: string;
-  candidateId: string;
-  contentHash: string;
-};
-export type PointerStatement = {
-  domain: typeof POINTER_DOMAIN;
-  environment: PublicationEnvironment;
-  keyId: string;
-  sequence: number;
-  mode: "active" | "off";
-  candidateId: string | null;
-  contentHash: string | null;
-  operationId: string;
-  issuedAt: number;
-};
+export type PublicationEnvironment = ByteEnvironment;
+export const ARTIFACT_DOMAIN = BYTE_ARTIFACT_DOMAIN;
+export const POINTER_DOMAIN = BYTE_POINTER_DOMAIN;
+export type ArtifactStatement = ByteArtifactStatement;
+export type PointerStatement = BytePointerStatement;
 export type Signed<T> = { statement: T; signature: string };
 export type PublicationEnvelope = {
   pointer: Signed<PointerStatement>;
@@ -51,8 +44,7 @@ export function canonicalPublicationJson(value: unknown): string {
 }
 
 export async function publicationHash(value: unknown): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes(canonicalPublicationJson(value)));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return publicationBytesHash(canonicalPublicationJson(value));
 }
 
 export function publicationCandidate(value: unknown): SupplyForecastCandidate {
@@ -78,7 +70,9 @@ export function publicationCandidate(value: unknown): SupplyForecastCandidate {
  * keyId is a public identifier, pinned with the raw public key by the consumer.
  */
 export function importPublicationSigningKey(pkcs8Base64: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey("pkcs8", decodeBase64(pkcs8Base64), "Ed25519", false, ["sign"]);
+  return crypto.subtle.importKey("pkcs8", decodePublicationBase64(pkcs8Base64), "Ed25519", false, [
+    "sign",
+  ]);
 }
 
 export async function signPublication<T extends ArtifactStatement | PointerStatement>(
@@ -128,7 +122,7 @@ export async function verifyPublication(
   ]);
   const publicKey = await crypto.subtle.importKey(
     "raw",
-    decodeBase64(trust.publicKeyBase64),
+    decodePublicationBase64(trust.publicKeyBase64),
     "Ed25519",
     false,
     ["verify"],
@@ -200,12 +194,6 @@ export function encodeBase64(value: Uint8Array): string {
   return btoa(Array.from(value, (byte) => String.fromCharCode(byte)).join(""));
 }
 
-function decodeBase64(value: string): Uint8Array<ArrayBuffer> {
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value) || !value)
-    throw new Error("publication_invalid_base64");
-  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
-}
-
 function bytes(value: string) {
   return new TextEncoder().encode(value);
 }
@@ -225,13 +213,8 @@ function signedObject(value: unknown) {
   return { statement: object(signed["statement"]), signature: signed["signature"] };
 }
 async function verifySignature(signed: { statement: object; signature: string }, key: CryptoKey) {
-  if (
-    !(await crypto.subtle.verify(
-      "Ed25519",
-      key,
-      decodeBase64(signed.signature),
-      bytes(canonicalPublicationJson(signed.statement)),
-    ))
-  )
-    throw new Error("publication_invalid_signature");
+  await verifyPublicationSignature(
+    { statement: canonicalPublicationJson(signed.statement), signature: signed.signature },
+    key,
+  );
 }

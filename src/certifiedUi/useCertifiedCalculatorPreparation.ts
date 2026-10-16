@@ -15,27 +15,35 @@ export function useCertifiedCalculatorSnapshot() {
 
 export type CertifiedSnapshotState = ReturnType<typeof useCertifiedCalculatorSnapshot>;
 
+function changedForecast(previous: CertifiedSupplySnapshot | null, next: CertifiedSupplySnapshot) {
+  return (
+    previous &&
+    (previous.revision !== next.revision ||
+      previous.sourceHash !== next.sourceHash ||
+      previous.coverage.currentDay !== next.coverage.currentDay)
+  );
+}
+
 export function useCertifiedCalculatorPreparation(
   preparation: CertifiedSnapshotState,
   latest: CertifiedSessionStore["latest"],
   retire: () => void,
   updateSession: Dispatch<SetStateAction<CertifiedSession>>,
+  calculating: { current: boolean },
 ) {
   const { snapshotRef, setSnapshot, setPrepareError } = preparation;
   useEffect(() => {
     let active = true;
+    let runtime: typeof import("../lib/runtimeForecast").runtimeForecast | undefined;
+    let unwatch: (() => void) | undefined;
     const prepare = async () => {
+      if (calculating.current) return;
       try {
-        const next = await prepareCertifiedForecast();
-        if (!active) return;
+        const asOf = new Date().toISOString();
+        const next = runtime?.peek(asOf)?.snapshot ?? (await prepareCertifiedForecast(asOf));
+        if (!active || calculating.current) return;
         const previous = snapshotRef.current;
-        if (
-          previous &&
-          (previous.revision !== next.revision ||
-            previous.sourceHash !== next.sourceHash ||
-            previous.coverage.currentDay !== next.coverage.currentDay)
-        )
-          retire();
+        if (changedForecast(previous, next)) retire();
         snapshotRef.current = next;
         setSnapshot(next);
         setPrepareError(null);
@@ -66,12 +74,21 @@ export function useCertifiedCalculatorPreparation(
       }
     };
     void prepare();
+    if (import.meta.env.VITE_FORECAST_RUNTIME === "staging")
+      void import("../lib/runtimeForecast").then((module) => {
+        if (!active) return;
+        runtime = module.runtimeForecast;
+        unwatch = runtime.watch(document, () => {
+          void prepare();
+        });
+      });
     const refresh = window.setInterval(() => {
       void prepare();
     }, 60_000);
     return () => {
       active = false;
+      unwatch?.();
       window.clearInterval(refresh);
     };
-  }, [latest, retire, setPrepareError, setSnapshot, snapshotRef, updateSession]);
+  }, [calculating, latest, retire, setPrepareError, setSnapshot, snapshotRef, updateSession]);
 }

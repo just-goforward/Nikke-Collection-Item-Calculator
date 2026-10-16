@@ -8,6 +8,7 @@ upload_source_maps = false
 
 [vars]
 SITE_ENV = "staging"
+FORECAST_RUNTIME_MODE = "off"
 
 # PLACEHOLDER: account_id = "<STAGING_CLOUDFLARE_ACCOUNT_ID>"
 # Supply the verified account through CLOUDFLARE_ACCOUNT_ID at deployment time.
@@ -34,6 +35,23 @@ preview_urls = false
 
 [env.staging.vars]
 SITE_ENV = "staging"
+FORECAST_RUNTIME_MODE = "enabled"
+
+[[env.staging.d1_databases]]
+binding = "FORECAST_DB"
+database_name = "collection-kit-forecast-collector-staging"
+database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
+
+[[env.staging.d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+# Dedicated site forecast namespace; validate allocation before any deployment.
+[[env.staging.ratelimits]]
+name = "FORECAST_RATE_LIMITER"
+namespace_id = "419107"
+simple = { limit = 60, period = 60 }
 
 [env.staging.assets]
 directory = "../dist"

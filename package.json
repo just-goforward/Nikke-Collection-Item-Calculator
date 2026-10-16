@@ -24,7 +24,7 @@
     "build:certified-wasm": "node scripts/build-certified-wasm.ts",
     "rebuild:certified-wasm": "node scripts/build-certified-wasm.ts --rebuild && npm run generate:certified-engine-build",
     "build": "vite build --configLoader native",
-    "build:site-staging": "npm run build && node scripts/build-site-staging.ts",
+    "build:site-staging": "node scripts/build-site-staging.ts --build",
     "build:site-production": "npm run build && node scripts/build-site-production.ts",
     "check:site-production": "node scripts/build-site-production.ts --check",
     "smoke:site-production": "playwright test --config site-worker/playwright.production.config.ts",
@@ -189,6 +189,7 @@
     "pretest:certified-runtime": "npm run build:certified-wasm",
     "test:certified-runtime": "node --test src/certifiedRuntime/nodeRuntime.test.mjs",
     "test:certified-ui": "playwright test e2e/certified-ui.spec.ts",
+    "test:forecast-runtime": "playwright test --config scripts/playwright-forecast.config.ts",
     "generate:certified-engine-build": "node scripts/certified-engine-build.ts",
     "check:certified-engine-build": "node scripts/certified-engine-build.ts --check",
     "pretest:coverage": "npm run build:certified-wasm && node scripts/prepare-certified-staging-oracle-cache.ts"

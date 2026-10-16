@@ -1,6 +1,7 @@
 import type { WireQ } from "../../shared/certifiedRational";
 import type { CertifiedSupplySnapshot } from "../../shared/certifiedSupply";
 import type { CohortTuple, DispatchCohort } from "../../shared/certifiedSupplyLaws";
+import type { PublicationBytes } from "../../shared/forecastPublicationBytes";
 
 export type Triple = readonly [number, number, number];
 export type ExactTriple = readonly [WireQ, WireQ, WireQ];
@@ -13,6 +14,7 @@ export interface CertifiedInput {
   stock: Triple;
   asOf: string;
   snapshot: CertifiedSupplySnapshot;
+  forecastPublication?: PublicationBytes;
   cohortWeights?: CohortTuple<WireQ>;
   receivedEventIds?: readonly string[];
   /** Original raw stock for fixed prices across a closed-loop execution. */
