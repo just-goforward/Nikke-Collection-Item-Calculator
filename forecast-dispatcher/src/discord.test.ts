@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { forecastDisplayText } from "../../shared/forecastDisplayText.ts";
+import { manualReviewReason } from "../../shared/forecastManualReview.ts";
 import {
   dispatchAcceptedMessage,
   opsAlertMessage,
@@ -27,6 +29,55 @@ afterEach(() => {
 });
 
 describe("Discord forecast operations messages", () => {
+  it("normalizes titles only for display and links the escaped title", async () => {
+    const title = "&#x1f4e2;\u200b [일정] &amp; 안내";
+    expect(forecastDisplayText(title)).toBe("📢 [일정] & 안내");
+    expect(forecastDisplayText("&#128226;&quot;&apos;&nbsp;&#x110000;")).toBe("📢\"' ");
+    const alert = {
+      ...alertRow(),
+      alertKey: "manual-review:example",
+      context: {
+        reviewId: `mr-${"a".repeat(32)}`,
+        title,
+        url: "https://game.naver.com/lounge/nikke/board/detail/123",
+      },
+    };
+    const message = await opsAlertMessage(alert);
+    expect(message.embeds[0]?.description).toContain(
+      "[📢 \\[일정\\] & 안내](https://game.naver.com/lounge/nikke/board/detail/123)",
+    );
+    expect(JSON.stringify(message)).not.toContain("원문 열기");
+    expect(JSON.stringify(message)).toContain("일정 직접 확정");
+    expect(alert.context.title).toBe(title);
+  });
+});
+
+describe("Discord manual-review reasons", () => {
+  it("explains manual-review reasons in plain Korean and keeps the code secondary", async () => {
+    const message = (await opsAlertMessage({
+      ...alertRow(),
+      alertKey: "manual-review:example",
+      context: {
+        reviewId: `mr-${"a".repeat(32)}`,
+        title: "공지",
+        url: "https://game.naver.com/lounge/nikke/board/detail/123",
+        reason: "ambiguous_schedule_change",
+      },
+    })) as { embeds: { description: string }[] };
+    const [, reason, meta] = message.embeds[0]!.description.split("\n");
+    expect(reason).toBe("사유: 공지에서 일정 변경 여부를 자동으로 판단하지 못했습니다.");
+    expect(meta).toContain("`ambiguous_schedule_change`");
+    expect(manualReviewReason("naver_http_404")).toContain("삭제·비공개");
+    expect(manualReviewReason("naver_detail_schema_code")).toContain("구조");
+    expect(manualReviewReason("naver_timeout")).toContain("반복해서 실패");
+    expect(manualReviewReason("naver_http_429")).toContain("반복해서 실패");
+    expect(manualReviewReason("something_new")).toBe(
+      "자동 처리에 실패해 사람의 확인이 필요합니다.",
+    );
+  });
+});
+
+describe("Discord forecast operations message identity", () => {
   it("uses the complete alert identity instead of a shared sanitized prefix", async () => {
     const alert = alertRow();
     const first = await opsAlertMessage(alert);

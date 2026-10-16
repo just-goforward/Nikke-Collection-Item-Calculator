@@ -40,7 +40,7 @@ export default {
     const customId = interaction.data?.custom_id;
     if (
       typeof customId === "string" &&
-      /^forecast_manual_(staging|production)_(requeue|ignore):mr-/.test(customId)
+      /^forecast_manual_(staging|production)_(requeue|ignore|cancel)(_confirm)?:mr-/.test(customId)
     )
       return handleManualInteraction(interaction, env, context, {
         sha256Hex,

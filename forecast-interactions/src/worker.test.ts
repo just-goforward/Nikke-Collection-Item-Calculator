@@ -18,6 +18,7 @@ import {
 import { encodeBase64 } from "../../shared/forecastPublication.ts";
 import { executeTestSql } from "../../shared/testD1Sql.ts";
 import usageSchema from "../../usage-guard/schema.sql?raw";
+import { handleManualInteraction } from "./manual-interactions.ts";
 import type { InteractionRouterEnv } from "./types.ts";
 import worker from "./worker.ts";
 
@@ -554,14 +555,14 @@ describe("retained D1-only manual-review controls", () => {
     expect(
       await (
         await request(
-          interaction(`forecast_manual_staging_ignore:${newReviewId}`, {
+          interaction(`forecast_manual_staging_ignore_confirm:${newReviewId}`, {
             id: "1009",
             channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
             message: { id: "888888888" },
           }),
         )
       ).json(),
-    ).toMatchObject({ type: 5 });
+    ).toEqual({ type: 6 });
     expect(await db.prepare("SELECT status FROM source_queue WHERE item_id='200'").first()).toEqual(
       { status: "ignored" },
     );
@@ -570,12 +571,12 @@ describe("retained D1-only manual-review controls", () => {
     const db = testEnv.PRODUCTION_FORECAST_DB;
     const { reviewId } = await seedManualReview(db, true, "production");
     const response = await request(
-      interaction(`forecast_manual_production_ignore:${reviewId}`, {
+      interaction(`forecast_manual_production_ignore_confirm:${reviewId}`, {
         channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
       }),
       { PRODUCTION_MUTATIONS_ENABLED: "true" },
     );
-    expect(await response.json()).toEqual({ type: 5, data: { flags: 64 } });
+    expect(await response.json()).toEqual({ type: 6 });
     expect(await db.prepare("SELECT state,decision FROM source_manual_reviews").first()).toEqual({
       state: "resolved",
       decision: "ignore",
@@ -592,10 +593,37 @@ describe("retained D1-only manual-review controls", () => {
       delete testEnv.FORECAST_PUBLICATION_SIGNING_KEY;
       testEnv.STAGING_PUBLICATION_MODE = "off";
       const { reviewId } = await seedManualReview(testEnv.STAGING_FORECAST_DB, true);
-      const value = interaction(`forecast_manual_staging_${decision}:${reviewId}`, {
+      const embed = {
+        title: "Forecast 수동 검토 필요",
+        description: "게시물: [📢 공지](https://game.naver.com/lounge/nikke/board/detail/200)",
+      };
+      const value = interaction(`forecast_manual_staging_${decision}_confirm:${reviewId}`, {
         channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
+        message: { id: "666666666", embeds: [embed] },
       });
-      expect(await (await request(value)).json()).toEqual({ type: 5, data: { flags: 64 } });
+      expect(await (await request(value)).json()).toEqual({ type: 6 });
+      const calls = webhook.mock.calls.map(([url, init]) => ({
+        url: String(url),
+        method: (init as RequestInit).method,
+        body: JSON.parse(String((init as RequestInit).body)),
+      }));
+      expect(calls.map((call) => [call.method, call.url.split("/test-token")[1]])).toEqual([
+        ["PATCH", "/messages/@original"],
+        ["POST", ""],
+      ]);
+      const label = decision === "requeue" ? "재처리" : "관련 없음";
+      expect(calls[0]?.body.components[0].components).toEqual([
+        expect.objectContaining({ disabled: true, label: `처리됨: ${label}` }),
+      ]);
+      expect(calls[0]?.body.embeds[0].description).toContain(`**처리됨: ${label}**`);
+      expect(calls[0]?.body.embeds[0].description).toContain(
+        `<@${testEnv.DISCORD_FORECAST_APPROVER_USER_ID}>`,
+      );
+      expect(calls[1]?.body).toMatchObject({
+        content: `✅ [Manual fixture](https://game.naver.com/lounge/nikke/board/detail/200) — ${label}${decision === "ignore" ? "으로" : "로"} 처리했습니다.`,
+        allowed_mentions: { parse: [] },
+      });
+      expect(calls[1]?.body.flags).toBeUndefined();
       expect(
         await testEnv.STAGING_FORECAST_DB.prepare(
           "SELECT status,review_generation FROM source_queue WHERE item_id='200'",
@@ -629,7 +657,7 @@ describe("retained D1-only manual-review controls", () => {
   );
   it("rejects unauthorized, unbound, production-disabled and quota-stopped manual decisions", async () => {
     const { reviewId } = await seedManualReview(testEnv.STAGING_FORECAST_DB, true);
-    const button = `forecast_manual_staging_requeue:${reviewId}`;
+    const button = `forecast_manual_staging_requeue_confirm:${reviewId}`;
     for (const overrides of [
       { member: { user: { id: "123" } } },
       { guild_id: "wrong" },
@@ -650,7 +678,7 @@ describe("retained D1-only manual-review controls", () => {
     expect(
       await (
         await request(
-          interaction(`forecast_manual_production_requeue:${reviewId}`, {
+          interaction(`forecast_manual_production_requeue_confirm:${reviewId}`, {
             channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
           }),
         )
@@ -671,5 +699,170 @@ describe("retained D1-only manual-review controls", () => {
       ).first(),
     ).toEqual({ n: 0 });
     expect(webhook).not.toHaveBeenCalled();
+  });
+});
+
+type ButtonUpdate = {
+  type: number;
+  data: {
+    embeds?: unknown;
+    allowed_mentions: unknown;
+    components: { components: { label: string; custom_id?: string; disabled?: boolean }[] }[];
+  };
+};
+
+describe("manual-review confirmation flow", () => {
+  it("asks for confirmation, restores on cancel, and never writes before confirm", async () => {
+    const db = testEnv.STAGING_FORECAST_DB;
+    const { reviewId } = await seedManualReview(db, true);
+    const click = (customId: string, overrides: object = {}) =>
+      request(
+        interaction(customId, { channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID, ...overrides }),
+      );
+    const prompt = (await (
+      await click(`forecast_manual_staging_ignore:${reviewId}`)
+    ).json()) as ButtonUpdate;
+    expect(prompt).toMatchObject({ type: 7, data: { allowed_mentions: { parse: [] } } });
+    expect(prompt.data.embeds).toBeUndefined();
+    expect(prompt.data.components[0]!.components.map((b: { label: string }) => b.label)).toEqual([
+      "확인: 관련 없음",
+      "취소",
+    ]);
+    expect(prompt.data.components[0]!.components[0]!.custom_id).toBe(
+      `forecast_manual_staging_ignore_confirm:${reviewId}`,
+    );
+    const cancel = (await (
+      await click(`forecast_manual_staging_cancel:${reviewId}`)
+    ).json()) as ButtonUpdate;
+    expect(cancel.data.components[0]!.components.map((b: { label: string }) => b.label)).toEqual([
+      "재처리",
+      "관련 없음",
+      "일정 직접 확정",
+    ]);
+    // Read-only steps keep the same authorization as the write.
+    expect(
+      await (
+        await click(`forecast_manual_staging_ignore:${reviewId}`, {
+          member: { user: { id: "123" } },
+        })
+      ).json(),
+    ).toMatchObject({ type: 4 });
+    expect(
+      await (
+        await click(`forecast_manual_staging_cancel:${reviewId}`, { message: { id: "999999999" } })
+      ).json(),
+    ).toMatchObject({ type: 4 });
+    expect(
+      await click(`forecast_manual_staging_cancel_confirm:${reviewId}`).then((r) => r.json()),
+    ).toMatchObject({ type: 4 });
+    expect(await db.prepare("SELECT state FROM source_manual_reviews").first()).toEqual({
+      state: "pending",
+    });
+    expect(await db.prepare("SELECT COUNT(*) n FROM discord_interaction_audit").first()).toEqual({
+      n: 0,
+    });
+    expect(webhook).not.toHaveBeenCalled();
+    // After a decision, stale prompt/cancel clicks only show a disabled notice.
+    expect(
+      await (await click(`forecast_manual_staging_ignore_confirm:${reviewId}`)).json(),
+    ).toEqual({ type: 6 });
+    const stale = (await (
+      await click(`forecast_manual_staging_requeue:${reviewId}`, { id: "1002" })
+    ).json()) as ButtonUpdate;
+    expect(stale.data.components[0]!.components).toEqual([
+      expect.objectContaining({ disabled: true, label: "이미 처리되었거나 만료된 검토입니다" }),
+    ]);
+    // A second confirm of the same decision is idempotent and announces nothing again;
+    // a different decision is refused.
+    const posts = () =>
+      webhook.mock.calls.filter(([, init]) => (init as RequestInit).method === "POST").length;
+    expect(posts()).toBe(1);
+    expect(
+      await (
+        await click(`forecast_manual_staging_ignore_confirm:${reviewId}`, { id: "1003" })
+      ).json(),
+    ).toEqual({ type: 6 });
+    expect(posts()).toBe(1);
+    expect(String(webhook.mock.calls.at(-1)?.[1]?.body)).toContain("처리됨: 관련 없음");
+    expect(
+      await (
+        await click(`forecast_manual_staging_requeue_confirm:${reviewId}`, { id: "1004" })
+      ).json(),
+    ).toMatchObject({ type: 4 });
+    expect(await db.prepare("SELECT state,decision FROM source_manual_reviews").first()).toEqual({
+      state: "resolved",
+      decision: "ignore",
+    });
+  });
+  it("keeps a source link visible when swapping buttons on a legacy message", async () => {
+    const { reviewId } = await seedManualReview(testEnv.STAGING_FORECAST_DB, true);
+    const prompt = (await (
+      await request(
+        interaction(`forecast_manual_staging_requeue:${reviewId}`, {
+          channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
+          message: {
+            id: "666666666",
+            embeds: [{ title: "Forecast 수동 검토 필요", description: "게시물: Manual fixture" }],
+          },
+        }),
+      )
+    ).json()) as { data: { embeds: { description: string }[] } };
+    expect(prompt.data.embeds[0]!.description).toBe(
+      "게시물: Manual fixture\n원문: [Manual fixture](https://game.naver.com/lounge/nikke/board/detail/200)",
+    );
+  });
+  it("announces nothing when a concurrent delivery of the same interaction was idempotent", async () => {
+    const db = testEnv.STAGING_FORECAST_DB;
+    const { reviewId } = await seedManualReview(db, true);
+    const pending: Promise<unknown>[] = [];
+    const response = await handleManualInteraction(
+      interaction(`forecast_manual_staging_ignore_confirm:${reviewId}`, {
+        channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
+      }) as never,
+      testEnv,
+      { waitUntil: (promise: Promise<unknown>) => pending.push(promise) } as never,
+      {
+        sha256Hex: async (value) => value.padEnd(64, "0").slice(0, 64),
+        // Pending when bound, already resolved by the twin delivery afterwards.
+        readManualReview: vi
+          .fn()
+          .mockResolvedValueOnce({ state: "pending", decision: null })
+          .mockResolvedValue({ state: "resolved", decision: "ignore" }),
+        decideManualReview: async () => ({ idempotent: true }),
+      },
+    );
+    expect(response.status).toBe(200);
+    await Promise.all(pending);
+    const methods = webhook.mock.calls.map(([, init]) => (init as RequestInit).method);
+    expect(methods).toEqual(["PATCH"]);
+  });
+  it("restores the buttons and explains privately when the decision fails", async () => {
+    const db = testEnv.STAGING_FORECAST_DB;
+    const { reviewId } = await seedManualReview(db, true);
+    await db.prepare("UPDATE source_queue SET status='pending'").run();
+    expect(
+      await (
+        await request(
+          interaction(`forecast_manual_staging_ignore_confirm:${reviewId}`, {
+            channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
+          }),
+        )
+      ).json(),
+    ).toEqual({ type: 6 });
+    const calls = webhook.mock.calls.map(([, init]) =>
+      JSON.parse(String((init as RequestInit).body)),
+    );
+    expect(calls[0].components[0].components.map((b: { label: string }) => b.label)).toEqual([
+      "재처리",
+      "관련 없음",
+      "일정 직접 확정",
+    ]);
+    expect(calls[1]).toMatchObject({
+      flags: 64,
+      content: expect.stringContaining("적용되지 않았습니다"),
+    });
+    expect(await db.prepare("SELECT result FROM discord_interaction_audit").first()).toEqual({
+      result: "failed",
+    });
   });
 });

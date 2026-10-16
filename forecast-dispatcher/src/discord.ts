@@ -1,12 +1,16 @@
 import { readBoundedBytes } from "../../shared/boundedHttp.ts";
+import { forecastDisplayText } from "../../shared/forecastDisplayText.ts";
+import {
+  manualReviewButtons,
+  manualReviewPostLink,
+  manualReviewReason,
+} from "../../shared/forecastManualReview.ts";
 import { sha256Hex } from "./crypto";
 import type { DispatcherEnv, DispatchReservation, OpsAlertRow } from "./types";
 
 const DISCORD_API = "https://discord.com/api/v10";
 const WORKFLOW_URL =
   "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/workflows/forecast-proposal.yml";
-const MANUAL_REVIEW_WORKFLOW_URL =
-  "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/workflows/resolve-forecast-manual-review.yml";
 const MAX_RESPONSE_BYTES = 16_384;
 
 type FetchLike = typeof fetch;
@@ -27,7 +31,7 @@ export class DiscordMessageError extends Error {
 export function dispatchAcceptedMessage(env: DispatcherEnv, reservation: DispatchReservation) {
   const links = reservation.links.slice(0, 3).map((item) => {
     const title = cleanText(item.title, 100);
-    return `- [${escapeMarkdown(title)}](${validatedNaverUrl(item.url)})`;
+    return `- ${manualReviewPostLink(title, item.url)}`;
   });
   const workSummary =
     reservation.mode === "smoke"
@@ -96,8 +100,11 @@ function manualReviewMessage(alert: OpsAlertRow, nonce: string) {
   const sourceUrl = typeof alert.context["url"] === "string" ? alert.context["url"] : "";
   if (!/^mr-[0-9a-f]{32}$/.test(reviewId)) return null;
   const environment = alert.environment;
-  const reason = cleanText(String(alert.context["reason"] ?? alert.errorCode), 80);
-  const title = cleanText(String(alert.context["title"] ?? "Naver 일정 게시물"), 120);
+  const code = cleanText(String(alert.context["reason"] ?? alert.errorCode), 80);
+  const title = cleanText(
+    forecastDisplayText(String(alert.context["title"] ?? "Naver 일정 게시물")),
+    120,
+  );
   return {
     nonce,
     enforce_nonce: true,
@@ -106,41 +113,15 @@ function manualReviewMessage(alert: OpsAlertRow, nonce: string) {
       {
         title: "Forecast 수동 검토 필요",
         description: [
-          `환경: **${environment}**`,
-          `게시물: ${escapeMarkdown(title)}`,
-          `사유: \`${reason}\``,
-          `검토 ID: \`${reviewId}\``,
+          `게시물: ${manualReviewPostLink(title, sourceUrl)}`,
+          `사유: ${manualReviewReason(code)}`,
+          `환경 ${environment} · 코드 \`${code}\` · 검토 \`${reviewId}\``,
         ].join("\n"),
         color: 0xf1c40f,
         timestamp: new Date().toISOString(),
       },
     ],
-    components: [
-      {
-        type: 1,
-        components: [
-          { type: 2, style: 5, label: "원문 열기", url: validatedNaverUrl(sourceUrl) },
-          {
-            type: 2,
-            style: 1,
-            custom_id: `forecast_manual_${environment}_requeue:${reviewId}`,
-            label: "재처리",
-          },
-          {
-            type: 2,
-            style: 2,
-            custom_id: `forecast_manual_${environment}_ignore:${reviewId}`,
-            label: "관련 없음",
-          },
-          {
-            type: 2,
-            style: 5,
-            label: "일정 직접 확정",
-            url: MANUAL_REVIEW_WORKFLOW_URL,
-          },
-        ],
-      },
-    ],
+    components: manualReviewButtons(environment, reviewId),
   };
 }
 
@@ -260,14 +241,6 @@ async function boundedResponseBytes(response: Response) {
   }
 }
 
-function validatedNaverUrl(value: string) {
-  const url = URL.parse(value);
-  if (url?.protocol !== "https:" || url.hostname !== "game.naver.com") {
-    return "https://game.naver.com/lounge/nikke/home";
-  }
-  return url.toString();
-}
-
 function cleanText(value: string, maxLength: number) {
   return Array.from(value, (character) => {
     const code = character.charCodeAt(0);
@@ -277,10 +250,6 @@ function cleanText(value: string, maxLength: number) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
-}
-
-function escapeMarkdown(value: string) {
-  return value.replace(/[\\`*_{}[\]()#+\-.!|>@]/g, "\\$&");
 }
 
 async function alertNonce(alert: OpsAlertRow, kind: "alert" | "recovery") {
