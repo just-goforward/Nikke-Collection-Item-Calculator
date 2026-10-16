@@ -7,14 +7,15 @@ const read = (path: string) => readFileSync(path, "utf8");
 describe("Cloudflare Paid quota configuration", () => {
   it.each([
     ["cloudflare/wrangler.toml", 10, [0.1, 0.1]],
-    ["forecast-collector/wrangler.toml", 50, [0.25, 1]],
+    // Production 50 ms; staging temporarily 100 ms during runtime-ingestion optimization.
+    ["forecast-collector/wrangler.toml", [50, 100], [0.25, 1]],
     ["forecast-dispatcher/wrangler.toml", 25, [0.25, 1]],
     ["forecast-interactions/wrangler.toml", 10, [0.25]],
     ["usage-guard/wrangler.toml", 25, [0.25]],
   ] as const)("pins CPU and log sampling for %s", (path, cpuMs, sampling) => {
     const config = read(path);
     expect([...config.matchAll(/^cpu_ms = (\d+)$/gm)].map((match) => Number(match[1]))).toEqual(
-      Array.from({ length: sampling.length }, () => cpuMs),
+      typeof cpuMs === "number" ? Array.from({ length: sampling.length }, () => cpuMs) : cpuMs,
     );
     expect(
       [...config.matchAll(/^head_sampling_rate = ([0-9.]+)$/gm)].map((match) => Number(match[1])),
@@ -102,7 +103,10 @@ describe("Cloudflare Paid quota configuration", () => {
   });
 
   it("waits for the deployed Usage Guard SHA before sending the mutating refresh", () => {
-    const deploy = read(".github/workflows/forecast-collector-deploy.yml");
+    const workflow = read(".github/workflows/forecast-collector-deploy.yml");
+    // The shared Guard deploy has its own job; the staging job's refresh is separate.
+    const deploy = workflow.slice(workflow.indexOf("\n  deploy-usage-guard:\n"));
+    expect(deploy.length).toBeLessThan(workflow.length);
     const readiness = deploy.indexOf('"$CLOUDFLARE_USAGE_GUARD_URL/health"');
     const deploymentIdentity = deploy.indexOf("'.deploymentSha == $sha'");
     const refresh = deploy.indexOf('"$CLOUDFLARE_USAGE_GUARD_URL/admin/refresh"');

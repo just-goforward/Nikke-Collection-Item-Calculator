@@ -52,7 +52,9 @@ name = "collection-kit-forecast-collector-staging"
 workers_dev = true
 
 [env.staging.limits]
-cpu_ms = 50
+# Temporary staging-only allowance (owner-approved 2026-10-16) while runtime ingestion
+# is optimized; measured 57-58 ms. Production stays at 50 ms and the 50 ms target stands.
+cpu_ms = 100
 
 [env.staging.observability.logs]
 enabled = true
