@@ -1,5 +1,5 @@
 {
   "environment": "staging",
-  "keyId": "staging-pending",
-  "publicKeyBase64": "REPLACE_WITH_RAW_32_BYTE_ED25519_PUBLIC_KEY_BASE64"
+  "keyId": "staging-v1",
+  "publicKeyBase64": "rHSES2RDzscDwXmSl3rPCOtSBoBviW31MIBeRw0isPo="
 }

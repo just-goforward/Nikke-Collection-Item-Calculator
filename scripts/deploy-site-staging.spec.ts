@@ -86,12 +86,11 @@ function fixture(
 
 describe("staging forecast public-key admission", () => {
   it.each([true, false])(
-    "R1-15 rejects the committed placeholder before verification or deployment; dry-run=%s",
+    "R1-15 rejects the placeholder before verification or deployment; dry-run=%s",
     (dryRun) => {
-      const placeholder = JSON.parse(
-        readFileSync("site-worker/forecast-runtime.json", "utf8"),
-      ).publicKeyBase64;
-      const { calls, dependencies } = fixture({ forecastKey: placeholder });
+      const { calls, dependencies } = fixture({
+        forecastKey: "REPLACE_WITH_RAW_32_BYTE_ED25519_PUBLIC_KEY_BASE64",
+      });
       expect(() => deploySiteStaging(dryRun ? ["--dry-run"] : [], dependencies)).toThrow(
         "Replace the placeholder public key in site-worker/forecast-runtime.json",
       );
@@ -110,6 +109,13 @@ describe("staging forecast public-key admission", () => {
     const { calls, dependencies } = fixture({ forecastKey });
     expect(() => deploySiteStaging(["--dry-run"], dependencies)).toThrow("raw 32-byte Ed25519");
     expect(calls.some((call) => call.args[1] === "deploy")).toBe(false);
+  });
+
+  it("admits the committed staging publication key", () => {
+    const committed = JSON.parse(readFileSync("site-worker/forecast-runtime.json", "utf8"));
+    expect(committed).toMatchObject({ environment: "staging", keyId: "staging-v1" });
+    const { dependencies } = fixture({ forecastKey: committed.publicKeyBase64 });
+    expect(() => deploySiteStaging(["--dry-run"], dependencies)).not.toThrow();
   });
 });
 
