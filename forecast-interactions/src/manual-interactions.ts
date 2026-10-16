@@ -38,6 +38,11 @@ export async function handleManualInteraction(
   const denied = authorizeManual(interaction, env, action, actor);
   if (denied) return denied;
   const { environment, decision, reviewId, id, token } = action;
+  const db = environment === "staging" ? env.STAGING_FORECAST_DB : env.PRODUCTION_FORECAST_DB;
+  if (!db)
+    return ephemeral(
+      `${environment} actions are disabled on this deployment. No changes were made.`,
+    );
   try {
     await assertUsageAllowed(
       env.USAGE_GUARD_DB,
@@ -47,7 +52,6 @@ export async function handleManualInteraction(
     if (!(error instanceof UsageGuardError)) throw error;
     return ephemeral("Manual-review changes are disabled by Usage Guard.");
   }
-  const db = environment === "staging" ? env.STAGING_FORECAST_DB : env.PRODUCTION_FORECAST_DB;
   const review = await boundManualReview(db, action, backend);
   if (!review)
     return ephemeral(

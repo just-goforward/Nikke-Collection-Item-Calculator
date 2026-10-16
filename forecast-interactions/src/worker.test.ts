@@ -5,7 +5,7 @@ import {
   waitOnExecutionContext,
 } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyPublicationCommand } from "../../shared/forecast-publication/store.ts";
 import {
   approvalReview,
@@ -20,13 +20,14 @@ import usageSchema from "../../usage-guard/schema.sql?raw";
 import type { InteractionRouterEnv } from "./types.ts";
 import worker from "./worker.ts";
 
-let testEnv: InteractionRouterEnv;
+type SharedRouterTestEnv = InteractionRouterEnv & { PRODUCTION_FORECAST_DB: D1Database };
+let testEnv: SharedRouterTestEnv;
 let discordKey: CryptoKeyPair;
 let webhook: ReturnType<typeof vi.fn>;
 beforeEach(async () => {
   await reset();
   vi.setSystemTime(TEST_NOW);
-  testEnv = { ...env } as unknown as InteractionRouterEnv;
+  testEnv = { ...env } as unknown as SharedRouterTestEnv;
   for (const db of [testEnv.STAGING_FORECAST_DB, testEnv.PRODUCTION_FORECAST_DB])
     await migratePublicationDb(db, applyD1Migrations);
   await executeTestSql(testEnv.USAGE_GUARD_DB, usageSchema, applyD1Migrations);
@@ -65,7 +66,11 @@ function interaction(customId: string, overrides: object = {}) {
     ...overrides,
   };
 }
-async function request(value: object, overrides: Partial<InteractionRouterEnv> = {}) {
+async function request(
+  value: object,
+  overrides: Partial<InteractionRouterEnv> = {},
+  routerEnv: InteractionRouterEnv = testEnv,
+) {
   const body = JSON.stringify(value);
   const timestamp = String(Math.floor(Date.now() / 1_000));
   const signature = await crypto.subtle.sign(
@@ -80,7 +85,7 @@ async function request(value: object, overrides: Partial<InteractionRouterEnv> =
       body,
       headers: { "x-signature-ed25519": hex(signature), "x-signature-timestamp": timestamp },
     }),
-    { ...testEnv, ...overrides },
+    { ...routerEnv, ...overrides },
     context,
   );
   await waitOnExecutionContext(context);
@@ -169,6 +174,93 @@ describe("new publication Router", () => {
     ).toMatchObject({ type: 4, data: { content: expect.stringContaining("disabled") } });
     expect(await count(testEnv.PRODUCTION_FORECAST_DB)).toEqual({ n: 0 });
     expect(await count()).toEqual({ n: 0 });
+  });
+});
+
+describe("isolated staging Router", () => {
+  let stagingEnv: InteractionRouterEnv;
+  beforeEach(() => {
+    stagingEnv = { ...testEnv };
+    delete stagingEnv.PRODUCTION_FORECAST_DB;
+    // A missing binding must fail closed independently of the configured flags.
+    stagingEnv.PRODUCTION_MUTATIONS_ENABLED = "true";
+    stagingEnv.PRODUCTION_PUBLICATION_MODE = "enabled";
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([
+    `forecast_publish:production:${"a".repeat(32)}`,
+    `forecast_manual_production_requeue:mr-${"a".repeat(32)}`,
+    `forecast_manual_production_ignore:mr-${"a".repeat(32)}`,
+  ])("rejects %s before database access or deferred work", async (customId) => {
+    const reads = [
+      stagingEnv.STAGING_FORECAST_DB,
+      testEnv.PRODUCTION_FORECAST_DB,
+      stagingEnv.USAGE_GUARD_DB,
+    ].map((db) => vi.spyOn(db, "prepare"));
+    const response = await request(
+      interaction(customId, {
+        channel_id: customId.startsWith("forecast_manual_")
+          ? stagingEnv.DISCORD_ALERT_CHANNEL_ID
+          : stagingEnv.DISCORD_APPROVAL_CHANNEL_ID,
+      }),
+      {},
+      stagingEnv,
+    );
+    expect(await response.json()).toEqual({
+      type: 4,
+      data: {
+        content: "production actions are disabled on this deployment. No changes were made.",
+        flags: 64,
+      },
+    });
+    for (const read of reads) expect(read).not.toHaveBeenCalled();
+    expect(webhook).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])(
+    "checks staging-only health with signing key available=%s",
+    async (keyAvailable) => {
+      if (!keyAvailable) delete stagingEnv.FORECAST_PUBLICATION_SIGNING_KEY;
+      const productionReads = vi.spyOn(testEnv.PRODUCTION_FORECAST_DB, "prepare");
+      const response = await worker.fetch(
+        new Request("https://router.test/health"),
+        stagingEnv,
+        createExecutionContext(),
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        status: "ok",
+        deploymentSha: "test-router-sha",
+        productionMutationsEnabled: false,
+        stagingPublication: keyAvailable,
+        productionPublication: false,
+        publicationError: keyAvailable ? null : "publication_signing_key_unavailable",
+        databases: { staging: { schemaVersion: 23, latestInteraction: null } },
+      });
+      expect(productionReads).not.toHaveBeenCalled();
+      expect(webhook).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps staging publication opt-in and usable without a production binding", async () => {
+    const { reviewId } = await approvalReview(stagingEnv.STAGING_FORECAST_DB);
+    expect(
+      await (
+        await request(
+          interaction(custom(reviewId)),
+          { STAGING_PUBLICATION_MODE: "off" },
+          stagingEnv,
+        )
+      ).json(),
+    ).toMatchObject({ type: 4, data: { content: expect.stringContaining("disabled") } });
+    expect(await count()).toEqual({ n: 0 });
+    expect(await (await request(interaction(custom(reviewId)), {}, stagingEnv)).json()).toEqual({
+      type: 5,
+      data: { flags: 0 },
+    });
+    expect(await count()).toEqual({ n: 1 });
+    expect(await count(testEnv.PRODUCTION_FORECAST_DB)).toEqual({ n: 0 });
   });
 });
 
@@ -439,6 +531,26 @@ describe("publication emergency controls and delivery recovery", () => {
 });
 
 describe("retained D1-only manual-review controls", () => {
+  it("keeps production manual reviews available on the shared deployment when authorized", async () => {
+    const db = testEnv.PRODUCTION_FORECAST_DB;
+    const { reviewId } = await seedManualReview(db, true, "production");
+    const response = await request(
+      interaction(`forecast_manual_production_ignore:${reviewId}`, {
+        channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
+      }),
+      { PRODUCTION_MUTATIONS_ENABLED: "true" },
+    );
+    expect(await response.json()).toEqual({ type: 5, data: { flags: 64 } });
+    expect(await db.prepare("SELECT state,decision FROM source_manual_reviews").first()).toEqual({
+      state: "resolved",
+      decision: "ignore",
+    });
+    expect(
+      await testEnv.STAGING_FORECAST_DB.prepare(
+        "SELECT COUNT(*) n FROM discord_interaction_audit",
+      ).first(),
+    ).toEqual({ n: 0 });
+  });
   it.each(["requeue", "ignore"] as const)(
     "handles %s with publication off and without a signing key",
     async (decision) => {

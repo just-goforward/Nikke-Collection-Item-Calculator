@@ -69,6 +69,11 @@ export default {
     )
       return ephemeral("Invalid publication button.");
     const environment = match[1] as "staging" | "production";
+    const db = environment === "staging" ? env.STAGING_FORECAST_DB : env.PRODUCTION_FORECAST_DB;
+    if (!db)
+      return ephemeral(
+        `${environment} actions are disabled on this deployment. No changes were made.`,
+      );
     if (
       environment === "production"
         ? env.PRODUCTION_PUBLICATION_MODE !== "enabled" ||
@@ -90,13 +95,17 @@ export default {
     };
     // Public deferred response: emergency confirmations survive client reloads in
     // the authenticated approval channel; the clicked review remains unchanged.
-    context.waitUntil(complete(env, input, interaction.token));
+    context.waitUntil(complete(env, db, input, interaction.token));
     return reply({ type: 5, data: { flags: 0 } });
   },
 } satisfies ExportedHandler<InteractionRouterEnv>;
 
-async function complete(env: InteractionRouterEnv, input: CommandInput, token: string) {
-  const db = input.environment === "staging" ? env.STAGING_FORECAST_DB : env.PRODUCTION_FORECAST_DB;
+async function complete(
+  env: InteractionRouterEnv,
+  db: D1Database,
+  input: CommandInput,
+  token: string,
+) {
   let message: PublicationResponse;
   try {
     message = await publicationResponse(env, db, input);
@@ -306,15 +315,17 @@ async function health(env: InteractionRouterEnv) {
   }
   const [staging, production] = await Promise.all([
     healthRow(env.STAGING_FORECAST_DB),
-    healthRow(env.PRODUCTION_FORECAST_DB),
+    env.PRODUCTION_FORECAST_DB ? healthRow(env.PRODUCTION_FORECAST_DB) : undefined,
   ]);
   const keyAvailable = await publicationKeyAvailable(env);
   return reply({
     status: "ok",
     deploymentSha: env.DEPLOY_SHA,
-    productionMutationsEnabled: env.PRODUCTION_MUTATIONS_ENABLED === "true",
+    productionMutationsEnabled:
+      !!env.PRODUCTION_FORECAST_DB && env.PRODUCTION_MUTATIONS_ENABLED === "true",
     stagingPublication: env.STAGING_PUBLICATION_MODE === "enabled" && keyAvailable,
     productionPublication:
+      !!env.PRODUCTION_FORECAST_DB &&
       env.PRODUCTION_PUBLICATION_MODE === "enabled" &&
       env.PRODUCTION_MUTATIONS_ENABLED === "true" &&
       keyAvailable,

@@ -24,6 +24,60 @@ message binding and Usage Guard protection. No Router GitHub calls exist.
   `forecast_runtime_active` singleton binds its environment permanently. Until sequence 1,
   no signed publication exists; M5 must use its bundled fallback.
 
+### Isolated staging deployment
+
+`forecast-interactions/staging.wrangler.toml` targets the separate Worker
+`collection-kit-forecast-interactions-staging`. It binds only
+`STAGING_FORECAST_DB` (`collection-kit-forecast-collector-staging`,
+`49b5dc06-37ae-4245-896c-daea98562ed8`) and the existing shared `USAGE_GUARD_DB`
+(`49b7f966-f4e8-4c2d-8453-279415737054`). The Router only reads Usage Guard state;
+this is an application-level restriction, not a read-only D1 binding permission.
+There is **no production forecast DB binding**. Production buttons cannot reach a
+database or queue background work, even if production flags are accidentally enabled.
+`/health` reports only the forecast databases bound to the deployment and reports
+production publication/mutations disabled when its binding is absent.
+The existing `forecast-interactions/wrangler.toml` and its shared-router deployment
+remain unchanged.
+
+Before any separately approved deployment, the owner must replace the staging
+config's `unset` values with those for a **separate staging Discord application**:
+
+| Variable | Owner-provided value |
+| --- | --- |
+| `DISCORD_PUBLIC_KEY` | Staging application's interaction verification public key |
+| `DISCORD_APPLICATION_ID` | Staging application's ID |
+| `DISCORD_GUILD_ID` | Guild hosting the staging application |
+| `DISCORD_FORECAST_APPROVER_USER_ID` | Single authorized guild member ID |
+| `DISCORD_APPROVAL_CHANNEL_ID` | Staging publication approval channel ID |
+| `DISCORD_ALERT_CHANNEL_ID` | Staging manual-review alert channel ID |
+| `DISCORD_ACTIVITY_CHANNEL_ID` | Staging activity channel ID |
+
+Keep `PRODUCTION_PUBLICATION_MODE=off` and `PRODUCTION_MUTATIONS_ENABLED=false`.
+`STAGING_PUBLICATION_MODE` defaults to `off`; enabling it is a separate owner decision.
+`FORECAST_PUBLICATION_SIGNING_KEY` is optional until publication is enabled.
+`FORECAST_PUBLICATION_KEY_ID` is the optional accompanying public key identifier,
+not a private secret; its `unset` placeholder is not a provisioned signing identity.
+Missing/invalid signing material fails closed. Provision any staging signing secret
+against this config only, never the shared router, and never put private keys in TOML.
+
+Local checks (no deployment):
+
+```sh
+npm run typecheck:interactions-staging
+```
+
+This runs Wrangler type generation for the staging config into the ignored
+`forecast-interactions/.wrangler/staging-worker-configuration.d.ts`, then compiles
+the Router against that deployment's runtime declarations. The normal `typecheck`
+script includes this check; no production declarations are used by this TS project.
+
+Only after separate deployment authorization, `npm run deploy:forecast-interactions-staging`
+uses the explicit staging config. Updating the staging application's interactions
+endpoint to that Worker's `/discord/interactions` URL also requires separate approval.
+Do not change the production Discord application's endpoint or credentials.
+No secrets, Discord configuration, remote resources, or deployed Workers are changed
+by adding this config or running the local checks.
+
 ## Exact signed format
 
 `shared/forecastPublication.ts` is the pure producer/consumer contract. Canonical JSON recursively

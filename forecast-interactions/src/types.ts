@@ -1,6 +1,6 @@
 export type InteractionRouterEnv = {
   STAGING_FORECAST_DB: D1Database;
-  PRODUCTION_FORECAST_DB: D1Database;
+  PRODUCTION_FORECAST_DB?: D1Database;
   USAGE_GUARD_DB: D1Database;
   DISCORD_PUBLIC_KEY: string;
   DISCORD_APPLICATION_ID: string;
