@@ -42,6 +42,22 @@ const ledgerRows = z
   .array(z.object({ version: z.number().int().positive(), applied_at: z.string().trim().min(1) }))
   .nonempty();
 
+// Wrangler 4.x writes non-interactive spinner lines (prefixed with ├, │ or └) to stdout
+// before the JSON result of `d1 execute --file --json`. Accept only that preamble.
+export function parseWranglerJson(stdout: string): unknown {
+  const start = stdout.search(/^[[{]/m);
+  if (start < 0) throw new Error("Wrangler returned invalid D1 JSON.");
+  const preamble = stdout.slice(0, start).split(/\r?\n/);
+  if (preamble.some((line) => line.trim() !== "" && !/^[├│└]/.test(line))) {
+    throw new Error("Wrangler returned invalid D1 JSON.");
+  }
+  try {
+    return JSON.parse(stdout.slice(start));
+  } catch {
+    throw new Error("Wrangler returned invalid D1 JSON.");
+  }
+}
+
 export function parseMigrationArguments(args: string[]): Options {
   const { values, tokens } = parseArgs({
     args,
@@ -175,12 +191,7 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
         `Wrangler D1 ${input} failed (${result.error?.message ?? result.signal ?? result.status}): ${value}${detailSuffix}`,
       );
     }
-    let payload: unknown;
-    try {
-      payload = JSON.parse(result.stdout);
-    } catch {
-      throw new Error("Wrangler returned invalid D1 JSON.");
-    }
+    const payload = parseWranglerJson(result.stdout);
     const parsed = commandResults.safeParse(payload);
     const first = parsed.success ? parsed.data[0] : undefined;
     if (!parsed.success || !first || (input === "--command" && parsed.data.length !== 1)) {

@@ -102,7 +102,10 @@ describe("Cloudflare Paid quota configuration", () => {
   });
 
   it("waits for the deployed Usage Guard SHA before sending the mutating refresh", () => {
-    const deploy = read(".github/workflows/forecast-collector-deploy.yml");
+    const workflow = read(".github/workflows/forecast-collector-deploy.yml");
+    // The shared Guard deploy has its own job; the staging job's refresh is separate.
+    const deploy = workflow.slice(workflow.indexOf("\n  deploy-usage-guard:\n"));
+    expect(deploy.length).toBeLessThan(workflow.length);
     const readiness = deploy.indexOf('"$CLOUDFLARE_USAGE_GUARD_URL/health"');
     const deploymentIdentity = deploy.indexOf("'.deploymentSha == $sha'");
     const refresh = deploy.indexOf('"$CLOUDFLARE_USAGE_GUARD_URL/admin/refresh"');
