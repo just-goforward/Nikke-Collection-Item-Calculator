@@ -83,6 +83,7 @@ async function prepareNoticeCandidate(
   results: SourceQueueResult[],
   candidateNowMs: number | undefined,
 ) {
+  if (results.length === 0) return undefined;
   const ledger = await readScheduleLedger(db, candidateNowMs ?? Date.now());
   const events = await loadRuntimeEvents(db, ledger.events);
   const unresolved = await db
@@ -97,15 +98,9 @@ async function prepareNoticeCandidate(
       JSON.stringify(results.map(({ source, itemId, outcome }) => ({ source, itemId, outcome }))),
     )
     .first();
-  const candidate =
-    results.length > 0 && !unresolved
-      ? await buildNoticeCandidate(
-          events,
-          results,
-          candidateNowMs ?? Date.now(),
-          ledger.nextRevision,
-        )
-      : undefined;
+  const candidate = !unresolved
+    ? await buildNoticeCandidate(events, results, candidateNowMs ?? Date.now(), ledger.nextRevision)
+    : undefined;
   if (candidate && (await candidateAlreadyStored(db, candidate))) return undefined;
   return candidate;
 }

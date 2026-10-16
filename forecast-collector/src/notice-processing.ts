@@ -83,26 +83,28 @@ export async function buildNoticeCandidate(
   )
     return undefined;
   // Contradictory overlapping official intervals must not be silently deduplicated.
-  const solos = events.filter(
-    (event) => event.eventType === "solo" && !event.manualReview && event.startsAt && event.endsAt,
-  );
-  if (
-    solos.some((event, index) =>
-      solos
-        .slice(index + 1)
-        .some(
-          (other) =>
-            event.startsAt !== null &&
-            event.endsAt !== null &&
-            other.startsAt !== null &&
-            other.endsAt !== null &&
-            Date.parse(event.startsAt) < Date.parse(other.endsAt) &&
-            Date.parse(other.startsAt) < Date.parse(event.endsAt) &&
-            (event.startsAt !== other.startsAt || event.endsAt !== other.endsAt),
-        ),
+  const solos = events
+    .filter(
+      (event) =>
+        event.eventType === "solo" && !event.manualReview && event.startsAt && event.endsAt,
     )
-  ) {
-    throw new Error("runtime_ingestion_source_conflict");
+    .map((event) => ({
+      event,
+      start: Date.parse(event.startsAt as string),
+      end: Date.parse(event.endsAt as string),
+    }));
+  for (const [index, left] of solos.entries()) {
+    for (let next = index + 1; next < solos.length; next++) {
+      const right = solos[next];
+      if (
+        right &&
+        left.start < right.end &&
+        right.start < left.end &&
+        (left.event.startsAt !== right.event.startsAt || left.event.endsAt !== right.event.endsAt)
+      ) {
+        throw new Error("runtime_ingestion_source_conflict");
+      }
+    }
   }
   const resolved = resolveSoloSchedule(events, nowMs);
   if (!resolved) return undefined;

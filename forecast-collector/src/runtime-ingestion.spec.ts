@@ -2,15 +2,24 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupplyForecastCandidate } from "../../shared/supplyForecastCandidate";
+import { assertUsageAllowed } from "../../shared/usageGuard";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
 import { sha256Hex, stableJson } from "./crypto";
 import { markCandidateProposed, supersedeIncompatibleCandidates } from "./db";
+import { automationOperation, requireGuardDb } from "./http-shared";
 import { parseScheduleEvents } from "./naver";
 import { fetchNotice, NOTICE_MAX_BYTES, NOTICE_TIMEOUT_MS, parseNoticeDetail } from "./notice";
 import { buildNoticeCandidate, isConstructedNoticeCandidate } from "./notice-processing";
+import { loadRuntimeEvents } from "./runtime-events";
 import { runRuntimeIngestion } from "./runtime-ingestion";
-import { INGESTION_BATCH_LIMIT, startIngestion } from "./runtime-ingestion-db";
-import { processSourceQueue } from "./source-queue";
+import {
+  INGESTION_BATCH_LIMIT,
+  ingestionQueue,
+  ingestionSettlement,
+  reserveNotice,
+  startIngestion,
+} from "./runtime-ingestion-db";
+import { processSourceQueue, readScheduleLedger } from "./source-queue";
 import { runtimeTestDb } from "./test-runtime-db";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
@@ -23,7 +32,7 @@ const now = Date.parse("2026-08-20T12:00:00Z");
 let sqlite: DatabaseSync;
 let env: CollectorEnv;
 
-beforeEach(async () => {
+async function initializeDatabase() {
   sqlite = new DatabaseSync(":memory:");
   sqlite.exec(readFileSync(new URL("schema.sql", root), "utf8"));
   for (const migration of [
@@ -44,7 +53,9 @@ beforeEach(async () => {
     RUNTIME_INGESTION_ENABLED: "true",
   };
   await seedNormalUsageGuard(db);
-});
+}
+
+beforeEach(initializeDatabase);
 
 afterEach(() => {
   vi.useRealTimers();
@@ -83,6 +94,123 @@ function run(
 ) {
   return runRuntimeIngestion(env, { fetcher, candidateNowMs: now });
 }
+
+// d336e9c's empty-results path, including the reads now skipped. Collection
+// still exercises queue selection and quota reservation before proving it empty.
+async function oldEmptyRun() {
+  const db = env.FORECAST_DB;
+  await assertUsageAllowed(requireGuardDb(env), automationOperation(env));
+  const limit = Number(env.RUNTIME_NOTICE_DAILY_LIMIT ?? "20");
+  if (!Number.isInteger(limit) || limit < 0 || limit > 20)
+    throw new Error("runtime_notice_daily_limit");
+  const token = await startIngestion(db);
+  if (!token) throw new Error("expected_empty_run_lease");
+  for (const row of await ingestionQueue(db)) {
+    await assertUsageAllowed(requireGuardDb(env), automationOperation(env));
+    const requestId = row.official === 1 ? await reserveNotice(db, token, row, limit) : null;
+    if (row.official === 1 && requestId === null) break;
+    throw new Error("reference_requires_empty_batch");
+  }
+  const ledger = await readScheduleLedger(db, now);
+  await loadRuntimeEvents(db, ledger.events);
+  await db
+    .prepare(`SELECT source,item_id FROM source_queue q
+      WHERE status IN ('pending','manual_review') AND NOT EXISTS (
+        SELECT 1 FROM json_each(?) r
+        WHERE json_extract(r.value,'$.source')=q.source
+          AND json_extract(r.value,'$.itemId')=q.item_id
+          AND json_extract(r.value,'$.outcome') IN ('processed','ignored')
+      ) LIMIT 1`)
+    .bind(JSON.stringify([]))
+    .first();
+  await assertUsageAllowed(requireGuardDb(env), automationOperation(env));
+  const transaction = await ingestionSettlement(db, token, [], null);
+  const result = await processSourceQueue(
+    db,
+    { mode: "bootstrap", results: [], candidate: undefined },
+    transaction,
+  );
+  return { outcome: "completed" as const, ...result };
+}
+
+function durableState() {
+  return rows("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").map((table) => {
+    const name = String(table["name"]);
+    return {
+      name,
+      rows: rows(`SELECT * FROM "${name.replaceAll('"', '""')}"`)
+        .map((row) => JSON.stringify(row))
+        .sort(),
+    };
+  });
+}
+
+it.each(["empty queue", "zero quota", "settled evidence"])(
+  "empty batch preserves every durable table and skips ledger/revision reads: %s",
+  async (scenario) => {
+    const wallNow = Date.now();
+    vi.useFakeTimers();
+    // SQLite's lease trigger uses its real clock, independently of JS timers.
+    vi.setSystemTime(wallNow);
+    let sequence = 0;
+    const uuid = vi
+      .spyOn(crypto, "randomUUID")
+      .mockImplementation(() => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`);
+    const prepareSpies: ReturnType<typeof vi.spyOn>[] = [];
+    try {
+      const setup = async () => {
+        sqlite.close();
+        sequence = 0;
+        await initializeDatabase();
+        // Equal initial migration metadata across the two fresh databases.
+        sqlite
+          .prepare("UPDATE schema_migrations SET applied_at=?")
+          .run(new Date(wallNow).toISOString());
+        if (scenario !== "empty queue") await enqueue();
+        if (scenario === "settled evidence") await run();
+        if (scenario === "zero quota") env.RUNTIME_NOTICE_DAILY_LIMIT = "0";
+      };
+      await setup();
+      const referenceReads: string[] = [];
+      const originalPrepare = env.FORECAST_DB.prepare.bind(env.FORECAST_DB);
+      const referenceSpy = vi.spyOn(env.FORECAST_DB, "prepare").mockImplementation((sql) => {
+        referenceReads.push(sql);
+        return originalPrepare(sql);
+      });
+      prepareSpies.push(referenceSpy);
+      const expected = await oldEmptyRun();
+      const expectedState = durableState();
+      referenceSpy.mockRestore();
+      const ledgerReads = referenceReads.filter(
+        (sql) =>
+          /^\s*SELECT/i.test(sql) &&
+          /forecast_candidates|schedule_events|source_notice_revisions|json_each/.test(sql),
+      );
+      expect(ledgerReads.length).toBeGreaterThanOrEqual(4);
+      await setup();
+      const actualPrepare = env.FORECAST_DB.prepare.bind(env.FORECAST_DB);
+      const actualReads: string[] = [];
+      prepareSpies.push(
+        vi.spyOn(env.FORECAST_DB, "prepare").mockImplementation((sql) => {
+          actualReads.push(sql);
+          // Also proves the documented failure difference: these reads would fail,
+          // but the empty run must not issue them.
+          if (ledgerReads.includes(sql)) throw new Error("ledger_read_unavailable");
+          return actualPrepare(sql);
+        }),
+      );
+      const fetcher = vi.fn<typeof fetch>();
+      expect(await run(fetcher)).toEqual(expected);
+      expect(expected).toEqual({ outcome: "completed", processed: 0, candidateCreated: false });
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(actualReads.filter((sql) => ledgerReads.includes(sql))).toEqual([]);
+      expect(durableState()).toEqual(expectedState);
+    } finally {
+      for (const spy of prepareSpies) spy.mockRestore();
+      uuid.mockRestore();
+    }
+  },
+);
 
 describe("fixture ingestion end to end and CPU measurement", () => {
   it("persists an identical v3 candidate to the Actions pipeline and measures one Node run", async () => {

@@ -190,7 +190,9 @@ export async function fetchNaverSoloHistory(
 export async function parseNaverFeed(
   payload: unknown,
   boardId: 48 | 56,
-  options: { structuredJsonOnly?: boolean } = {},
+  // parsedContents is the already-parsed contents of a single-article detail payload;
+  // it applies to every feed row, so pass it only for one-article detail responses.
+  options: { structuredJsonOnly?: boolean; parsedContents?: { value: unknown } } = {},
 ): Promise<NormalizedSourceItem[]> {
   if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_schema_code");
   const content = payload["content"];
@@ -207,6 +209,7 @@ export async function parseNaverFeed(
     const extracted = await extractSmartEditorText(
       rawContents,
       options.structuredJsonOnly === true,
+      options.parsedContents,
     );
     if (options.structuredJsonOnly === true && !extracted.structured) {
       throw new Error("naver_unstructured_body");
@@ -277,12 +280,13 @@ export async function parseScheduleEvents(
 async function extractSmartEditorText(
   rawContents: string,
   structuredJsonOnly = false,
+  parsedContents?: { value: unknown },
 ): Promise<{
   text: string;
   structured: boolean;
 }> {
   try {
-    const parsed: unknown = JSON.parse(rawContents);
+    const parsed: unknown = parsedContents ? parsedContents.value : JSON.parse(rawContents);
     const values: string[] = [];
     visit(parsed, values);
     if (values.length > 0) return { text: values.join("\n"), structured: true };

@@ -91,13 +91,14 @@ export async function parseNoticeDetail(
   if (typeof feed["contents"] !== "string") throw new Error("naver_detail_contents");
   const normalized = {
     ...content,
-    feed: { ...feed, contents: normalizeSmartEditorContents(feed["contents"]) },
+    feed,
     user: { ...user, role: user["userRoleCode"] },
   };
   return (
     (
       await parseNaverFeed({ code: 200, content: { feeds: [normalized] } }, boardId, {
         structuredJsonOnly: true,
+        parsedContents: { value: normalizeSmartEditorContents(feed["contents"]) },
       })
     )[0] ?? null
   );
@@ -105,8 +106,7 @@ export async function parseNoticeDetail(
 
 function normalizeSmartEditorContents(rawContents: string) {
   try {
-    JSON.parse(rawContents);
-    return rawContents;
+    return JSON.parse(rawContents) as unknown;
   } catch (error) {
     if (!(error instanceof SyntaxError)) throw error;
   }
@@ -127,7 +127,7 @@ function normalizeSmartEditorContents(rawContents: string) {
     .replace(/\s+/g, " ")
     .trim();
   if (!text) throw new Error("naver_unstructured_body");
-  return JSON.stringify({ document: { components: [{ "@ctype": "textNode", value: text }] } });
+  return { document: { components: [{ "@ctype": "textNode", value: text }] } };
 }
 
 function decodeHtmlEntities(value: string) {
