@@ -9,6 +9,7 @@ export type CollectorEnv = {
   DEPLOY_SHA: string;
   POLL_MODE: "both" | "alternating";
   COLLECT_ENABLED?: "true" | "false";
+  COLLECTION_SCHEDULE?: string;
   COLLECTOR_PROFILE_PHASE?: string;
   RUNTIME_INGESTION_ENABLED?: "true" | "false";
   RUNTIME_NOTICE_DAILY_LIMIT?: string;

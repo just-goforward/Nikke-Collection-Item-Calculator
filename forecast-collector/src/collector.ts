@@ -15,18 +15,20 @@ import type { CollectionSummary, CollectorEnv } from "./types";
 
 export async function runCollection(
   env: CollectorEnv,
-  options: { nowMs?: number; board?: 48 | 56; counts?: ProfileCounts } = {},
+  options: { nowMs?: number; board?: 48 | 56; counts?: ProfileCounts; rotation?: boolean } = {},
 ): Promise<CollectionSummary> {
   const nowMs = options.nowMs ?? Date.now();
+  const rotationBoard = options.rotation ? options.board : undefined;
   const invocationId = await startInvocation(
     env.FORECAST_DB,
     env.DEPLOY_SHA,
     nowMs,
     env.POLL_MODE,
-    options.board ? `profile-board-${options.board}:` : options.counts ? "profile-poll:" : "",
+    collectionPrefix(options.board, options.counts),
+    rotationBoard,
   );
   if (invocationId === null) return { outcome: "completed", polledSources: 0, queuedItems: 0 };
-  const circuit = await invocationCircuitState(env.FORECAST_DB, nowMs);
+  const circuit = await invocationCircuitState(env.FORECAST_DB, nowMs, rotationBoard);
   if (circuit.open) {
     await finishInvocation(
       env.FORECAST_DB,
@@ -132,6 +134,10 @@ async function pollCollectionSource(
     }
     throw error;
   }
+}
+
+function collectionPrefix(board?: 48 | 56, counts?: ProfileCounts) {
+  return board ? `profile-board-${board}:` : counts ? "profile-poll:" : "";
 }
 
 function opsEnvironment(env: CollectorEnv) {

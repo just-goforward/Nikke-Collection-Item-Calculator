@@ -36,6 +36,7 @@ database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
 
 [vars]
 ENVIRONMENT = "production"
+COLLECTION_SCHEDULE = "combined"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
 COLLECT_ENABLED = "true"
@@ -81,6 +82,7 @@ database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
 
 [env.staging.vars]
 ENVIRONMENT = "staging"
+COLLECTION_SCHEDULE = "rotation"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
 COLLECT_ENABLED = "true"

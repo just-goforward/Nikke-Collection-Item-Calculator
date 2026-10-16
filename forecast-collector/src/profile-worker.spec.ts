@@ -6,6 +6,10 @@ import type { CollectorEnv } from "./types";
 import worker from "./worker";
 
 vi.mock("./collector", () => ({ runCollection: vi.fn() }));
+vi.mock("./source-queue", () => ({
+  startInvocation: vi.fn().mockResolvedValue("rotation-ingestion:360000"),
+  finishInvocation: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("./runtime-ingestion", () => ({ runRuntimeIngestion: vi.fn() }));
 vi.mock("./http", () => ({ handleHttpRequest: vi.fn() }));
 vi.mock("./http-shared", () => ({
@@ -35,13 +39,19 @@ beforeEach(() => {
   });
 });
 
-async function invoke(phase?: string, environment = "staging", scheduledTime = 360_000) {
+async function invoke(
+  phase?: string,
+  environment = "staging",
+  scheduledTime = 360_000,
+  schedule = "combined",
+) {
   const pending: Promise<unknown>[] = [];
   await worker.scheduled(
     { scheduledTime } as ScheduledController,
     {
       ENVIRONMENT: environment,
       COLLECT_ENABLED: "true",
+      COLLECTION_SCHEDULE: schedule,
       ...(phase === undefined ? {} : { COLLECTOR_PROFILE_PHASE: phase }),
     } as CollectorEnv,
     {
@@ -54,6 +64,44 @@ async function invoke(phase?: string, environment = "staging", scheduledTime = 3
 }
 
 describe("scheduled profiling routing", () => {
+  it("labels a board boundary hold independently from ingestion admission", async () => {
+    vi.mocked(runCollection).mockResolvedValue({
+      outcome: "held",
+      polledSources: 1,
+      queuedItems: 0,
+    });
+    const log = vi.spyOn(console, "log");
+    try {
+      await invoke("off", "staging", 0, "rotation");
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('"outcome":"held","reason":"held"'));
+    } finally {
+      log.mockRestore();
+    }
+  });
+  it.each([0, 180_000, 360_000])("routes rotation %s", async (slot) => {
+    await invoke("off", "staging", slot, "rotation");
+    if (slot === 360_000) {
+      expect(runCollection).not.toHaveBeenCalled();
+      expect(runRuntimeIngestion).toHaveBeenCalledWith(expect.anything(), {
+        requireRotationAdmission: true,
+      });
+    } else {
+      expect(runRuntimeIngestion).not.toHaveBeenCalled();
+      expect(runCollection).toHaveBeenCalledWith(expect.anything(), {
+        nowMs: slot,
+        board: slot === 0 ? 48 : 56,
+        rotation: true,
+      });
+    }
+  });
+  it("profiling overrides rotation", async () => {
+    await invoke("board-56", "staging", 0, "rotation");
+    expect(runCollection).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ board: 56 }),
+    );
+    expect(vi.mocked(runCollection).mock.calls[0]?.[1]).not.toHaveProperty("rotation");
+  });
   it.each([360_000, 540_000])("alternates by cron slot: %s", async (slot) => {
     vi.mocked(profileIngestionAdmitted).mockResolvedValue(true);
     await invoke("alternate", "staging", slot);

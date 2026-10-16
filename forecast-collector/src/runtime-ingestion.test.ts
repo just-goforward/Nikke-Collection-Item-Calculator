@@ -12,8 +12,10 @@ import versionsMigration from "../migrations/0022_forecast_runtime_versions.sql?
 import publicationMigration from "../migrations/0023_forecast_runtime_publication.sql?raw";
 import migration from "../migrations/0024_runtime_ingestion.sql?raw";
 import schema from "../schema.sql?raw";
+import { readHealth } from "./db";
 import { parseNoticeDetail } from "./notice";
 import { profileIngestionAdmitted } from "./profile";
+import { runRotationIngestion } from "./rotation-ingestion";
 import { runRuntimeIngestion } from "./runtime-ingestion";
 import { startIngestion } from "./runtime-ingestion-db";
 import { seedNormalUsageGuard } from "./test-usage-guard";
@@ -65,6 +67,70 @@ async function seedProfileCollection(status = "completed", offset = 0) {
     .bind(`profile-poll:${status}`, time, time, time, status)
     .run();
 }
+
+it.each([true, false])(
+  "persists one ingestion slot without changing collection health: %s",
+  async (enabled) => {
+    const db = testEnv.FORECAST_DB;
+    const time = new Date(Date.now() - 60_000).toISOString();
+    for (const board of [48, 56]) {
+      await db
+        .prepare(`INSERT INTO collector_invocations
+      (invocation_id,deployment_sha,scheduled_at,started_at,finished_at,status,poll_mode)
+      VALUES (?, 'old-deployment', ?, ?, ?, 'completed', 'both')`)
+        .bind(`rotation-board-${board}:slot`, time, time, time)
+        .run();
+    }
+    const before = await readHealth(db);
+    const scheduledTime = Date.now();
+    const slotEnv: CollectorEnv = {
+      ...testEnv,
+      RUNTIME_INGESTION_ENABLED: enabled ? "true" : "false",
+    };
+    expect((await runRotationIngestion(slotEnv, scheduledTime)).outcome).toBe(
+      enabled ? "completed" : "disabled",
+    );
+    expect((await runRotationIngestion(slotEnv, scheduledTime)).outcome).toBe("duplicate");
+    expect(await readHealth(db)).toEqual(before);
+    expect(
+      await db.prepare("SELECT COUNT(*) AS count FROM runtime_ingestion_runs").first("count"),
+    ).toBe(enabled ? 1 : 0);
+  },
+);
+
+it("atomically consumes a rotation pair under simultaneous D1 claims", async () => {
+  const db = testEnv.FORECAST_DB;
+  const time = new Date(Date.now() - 60_000).toISOString();
+  for (const board of [48, 56]) {
+    await db
+      .prepare(`INSERT INTO collector_invocations
+      (invocation_id,deployment_sha,scheduled_at,started_at,finished_at,status,poll_mode)
+      VALUES (?, 'old-deployment', ?, ?, ?, 'completed', 'both')`)
+      .bind(`rotation-board-${board}:slot`, time, time, time)
+      .run();
+  }
+  const claims = await Promise.all([
+    startIngestion(db, false, true),
+    startIngestion(db, false, true),
+  ]);
+  expect(claims.filter(Boolean)).toHaveLength(1);
+  await db.prepare("UPDATE runtime_ingestion_runs SET status='completed'").run();
+  expect(await startIngestion(db, false, true)).toBeNull();
+});
+
+it("records admission-skipped ingestion without granting collection admission", async () => {
+  const db = testEnv.FORECAST_DB;
+  const now = Date.now();
+  expect((await runRotationIngestion(testEnv, now)).outcome).toBe("held");
+  expect(
+    await db
+      .prepare("SELECT status FROM collector_invocations WHERE invocation_id=?")
+      .bind(`rotation-ingestion:${now}`)
+      .first("status"),
+  ).toBe("completed");
+  expect(await profileIngestionAdmitted(db, Date.now())).toBe(false);
+  expect((await readHealth(db)).collector.status).toBe("missing");
+});
 
 it("atomically claims collection eligibility once, even after the winning lease completes", async () => {
   await seedProfileCollection();

@@ -57,6 +57,37 @@ async function initializeDatabase() {
 
 beforeEach(initializeDatabase);
 
+describe("rotation admission", () => {
+  async function seed(board: number, status = "completed", age = 60_000) {
+    const time = new Date(Date.now() - age).toISOString();
+    await env.FORECAST_DB.prepare(`INSERT INTO collector_invocations
+      (invocation_id,deployment_sha,scheduled_at,started_at,finished_at,status,poll_mode)
+      VALUES(?,?,?,?,?,?, 'both')`)
+      .bind(`rotation-board-${board}:${Date.now() - age}`, "old-sha", time, time, time, status)
+      .run();
+  }
+  it("admits both completed boards and rejects consumption", async () => {
+    await seed(48);
+    await seed(56);
+    expect(await startIngestion(env.FORECAST_DB, false, true)).not.toBeNull();
+    expect(await startIngestion(env.FORECAST_DB, false, true)).toBeNull();
+    sqlite.exec("UPDATE runtime_ingestion_runs SET status='completed'");
+    expect(await startIngestion(env.FORECAST_DB, false, true)).toBeNull();
+  });
+  it.each(["failure", "running", "circuit_open"])("rejects newer %s", async (status) => {
+    await seed(48);
+    await seed(56);
+    await seed(48, status, 30_000);
+    expect(await startIngestion(env.FORECAST_DB, false, true)).toBeNull();
+  });
+  it("rejects missing or stale boards", async () => {
+    await seed(48);
+    expect(await startIngestion(env.FORECAST_DB, false, true)).toBeNull();
+    await seed(56, "completed", 601_000);
+    expect(await startIngestion(env.FORECAST_DB, false, true)).toBeNull();
+  });
+});
+
 afterEach(() => {
   vi.useRealTimers();
   sqlite.close();

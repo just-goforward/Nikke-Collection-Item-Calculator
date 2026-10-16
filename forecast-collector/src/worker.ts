@@ -1,4 +1,5 @@
 import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard.ts";
+import { collectionSchedule, rotationBoard } from "./collection-schedule";
 import { runCollection } from "./collector";
 import { handleHttpRequest } from "./http";
 import { automationOperation, requireGuardDb } from "./http-shared";
@@ -8,6 +9,7 @@ import {
   profileIngestionAdmitted,
   profilePhase,
 } from "./profile";
+import { runRotationIngestion } from "./rotation-ingestion";
 import { runRuntimeIngestion } from "./runtime-ingestion";
 import type { CollectorEnv } from "./types";
 
@@ -56,10 +58,12 @@ export default {
     context.waitUntil(
       profilePhase(env) !== "off"
         ? runProfile(env, event.scheduledTime)
-        : runCollection(env, { nowMs: event.scheduledTime }).then(async (summary) => {
-            if (summary.outcome === "completed") await runRuntimeIngestion(env);
-            return summary;
-          }),
+        : collectionSchedule(env) === "rotation"
+          ? runRotation(env, event.scheduledTime)
+          : runCollection(env, { nowMs: event.scheduledTime }).then(async (summary) => {
+              if (summary.outcome === "completed") await runRuntimeIngestion(env);
+              return summary;
+            }),
     );
   },
 
@@ -67,6 +71,24 @@ export default {
     return handleHttpRequest(request, env, context);
   },
 } satisfies ExportedHandler<CollectorEnv>;
+
+async function runRotation(env: CollectorEnv, scheduledTime: number) {
+  const board = rotationBoard(scheduledTime);
+  const result =
+    board === null
+      ? await runRotationIngestion(env, scheduledTime)
+      : await runCollection(env, { nowMs: scheduledTime, board, rotation: true });
+  console.log(
+    JSON.stringify({
+      event: "forecast_rotation_slot",
+      slot: new Date(scheduledTime).toISOString(),
+      board,
+      outcome: result.outcome,
+      reason:
+        board === null && result.outcome === "held" ? "admission_or_lease_held" : result.outcome,
+    }),
+  );
+}
 
 async function runProfile(env: CollectorEnv, scheduledTime: number) {
   const phase = activeProfilePhase(env, scheduledTime);

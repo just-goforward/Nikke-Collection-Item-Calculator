@@ -26,6 +26,7 @@ export function activeProfilePhase(env: CollectorEnv, scheduledTime: number) {
 export const PROFILE_INGESTION_ADMISSION_SQL = `SELECT invocation_id FROM (
         SELECT invocation_id,status,finished_at FROM collector_invocations
         WHERE invocation_id NOT LIKE 'profile-board-%'
+          AND invocation_id NOT LIKE 'rotation-%'
         ORDER BY scheduled_at DESC, started_at DESC, invocation_id DESC LIMIT 1
       ) latest WHERE status='completed' AND finished_at>=? AND finished_at<=?
         AND NOT EXISTS (

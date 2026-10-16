@@ -15,6 +15,7 @@ import {
   CANARY_WINDOW_MODE,
   evaluateCanaryDecision,
   missingCanaryReport,
+  rotationCanaryIdentityMatches,
 } from "./canary-report";
 import { existingRunConflicts, validateCanaryStartInput } from "./canary-start-contract";
 import { sha256Hex, stableJson } from "./crypto";
@@ -37,6 +38,7 @@ type CanaryRunRow = {
 };
 
 type InvocationRow = {
+  invocation_id?: string;
   status: string;
   scheduled_at: string;
   started_at: string;
@@ -305,12 +307,20 @@ async function readInvocationEvidence(
     readInvocations(db, "collector_invocations", deploymentSha, run.started_at, observedUntil),
     readInvocations(db, "dispatcher_invocations", deploymentSha, run.started_at, observedUntil),
   ]);
+  const rotation = invocations.some((row) => row.invocation_id?.startsWith("rotation-"));
+  const collectorRows = rotation
+    ? invocations.filter((row) =>
+        rotationCanaryIdentityMatches(row.invocation_id ?? "", row.scheduled_at),
+      )
+    : invocations;
+  const collector = summarizeInvocations(collectorRows, collectorExpected, nowMs, observationEndMs);
+  collector.unexpectedInvocations += invocations.length - collectorRows.length;
   return {
     collectorExpected,
     dispatcherExpected,
     invocations,
     dispatcherInvocations,
-    collector: summarizeInvocations(invocations, collectorExpected, nowMs, observationEndMs),
+    collector,
     dispatcherInvocationSummary: summarizeInvocations(
       dispatcherInvocations,
       dispatcherExpected,
@@ -386,7 +396,7 @@ async function readInvocations(
   const extra = table === "collector_invocations" ? ", poll_mode, error_code" : "";
   const rows = await db
     .prepare(
-      `SELECT status, scheduled_at, started_at${extra} FROM ${table}
+      `SELECT invocation_id, status, scheduled_at, started_at${extra} FROM ${table}
        WHERE deployment_sha = ? AND scheduled_at >= ? AND scheduled_at < ?
          AND invocation_id NOT LIKE 'profile-%'
        ORDER BY scheduled_at`,

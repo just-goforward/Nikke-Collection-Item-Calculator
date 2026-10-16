@@ -27,6 +27,7 @@ export async function runRuntimeIngestion(
     candidateNowMs?: number;
     counts?: ProfileCounts;
     requireProfileAdmission?: boolean;
+    requireRotationAdmission?: boolean;
   } = {},
 ) {
   if (!runtimeIngestionEnabled(env))
@@ -37,7 +38,11 @@ export async function runRuntimeIngestion(
   if (!Number.isInteger(limit) || limit < 0 || limit > 20)
     throw new Error("runtime_notice_daily_limit");
   const db = env.FORECAST_DB;
-  const token = await startIngestion(db, options.requireProfileAdmission);
+  const token = await startIngestion(
+    db,
+    options.requireProfileAdmission,
+    options.requireRotationAdmission,
+  );
   if (!token) return { outcome: "held" as const, processed: 0, candidateCreated: false };
   try {
     const entries = await collectNotices(env, token, limit, options.fetcher, options.counts);

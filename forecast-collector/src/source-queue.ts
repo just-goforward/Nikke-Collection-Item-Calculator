@@ -1,5 +1,6 @@
 import { z } from "zod/mini";
 import { assertForecastCandidateInvariants } from "../../shared/supplyForecastCandidate";
+import { rotationInvocationId } from "./collection-schedule";
 import { sha256Hex, stableJson } from "./crypto";
 import {
   candidateStatements,
@@ -101,9 +102,15 @@ export async function startInvocation(
   scheduledTime: number,
   pollMode: CollectorEnv["POLL_MODE"],
   invocationPrefix = "",
+  rotationBoard?: 48 | 56 | null,
 ) {
   const scheduledAt = new Date(scheduledTime).toISOString();
-  const invocationId = `${invocationPrefix}${deploymentSha}:${scheduledTime}`;
+  const invocationId =
+    rotationBoard === null
+      ? `rotation-ingestion:${scheduledTime}`
+      : rotationBoard
+        ? rotationInvocationId(rotationBoard, scheduledTime)
+        : `${invocationPrefix}${deploymentSha}:${scheduledTime}`;
   const result = await db
     .prepare(
       `INSERT OR IGNORE INTO collector_invocations (
@@ -133,11 +140,13 @@ export async function finishInvocation(
     .run();
 }
 
-export async function invocationCircuitState(db: D1Database, nowMs: number) {
+export async function invocationCircuitState(db: D1Database, nowMs: number, board?: 48 | 56) {
   const rows = await db
     .prepare(
       `SELECT status, next_retry_at, error_code FROM collector_invocations
        WHERE status IN ('failure', 'completed')
+         AND invocation_id NOT LIKE 'rotation-ingestion:%'
+         ${board ? `AND invocation_id LIKE 'rotation-board-${board}:%'` : ""}
          AND (error_code IS NULL OR error_code NOT IN (
            'naver_boundary_held_only', 'naver_stale_poll_only'
          ))

@@ -8,6 +8,34 @@ statistics and cannot modify the repository or activate a product forecast.
 
 ## Sources and cadence
 
+### Rotation schedule
+
+Staging uses `COLLECTION_SCHEDULE=rotation`; production remains `combined`.
+The unchanged three-minute cron rotates by `floor(scheduledTime / 180000) % 3`:
+board 48, board 56, then runtime ingestion. Each board is polled every nine
+minutes (normal scheduling latency ≤9 minutes, excluding outages and catch-up).
+Page size remains ten and cursor catch-up remains enabled.
+Ingestion requires both latest rotation attempts to have completed within ten
+minutes (nine minutes plus one minute scheduling margin), and consumes that
+pair atomically with its lease. Disabled ingestion logs without processing.
+Staging profiling overrides rotation. Roll back with
+`COLLECTION_SCHEDULE=combined`; no cursor migration is needed.
+
+End-to-end post-to-ingestion latency can be up to approximately 15 minutes:
+up to nine minutes to the board poll, then up to six minutes to ingestion.
+At the nine-minute board cadence, the per-board circuit trips after the fourth
+consecutive failure: the third failure's six-minute backoff expires before the
+next poll. Existing thresholds and backoff remain unchanged.
+During combined↔rotation propagation, combined invocations still ingest under
+the old completed-collection gate. Cursor and ingestion leases keep this safe;
+a rotation pair may already have been consumed, or a cycle may be skipped.
+
+Rotation ingestion slots persist `rotation-ingestion:<scheduledTime>` rows,
+including disabled or admission-skipped slots. These rows certify scheduled
+delivery, not successful collection. V10 canary/runtime evidence counts all
+three slot kinds. Health, collection admission, circuits and the legacy V4
+collection report exclude ingestion rows; V4 retains board-only rotation counts.
+
 ### Staging CPU profiling
 
 `COLLECTOR_PROFILE_PHASE` defaults to `off` and is ignored outside staging.

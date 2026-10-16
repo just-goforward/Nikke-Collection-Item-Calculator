@@ -319,7 +319,9 @@ export async function readHealth(db: D1Database) {
   const latest = await db
     .prepare(
       `SELECT status, deployment_sha, COALESCE(finished_at, started_at) AS finished_at
-       FROM collector_invocations ORDER BY scheduled_at DESC LIMIT 1`,
+       FROM collector_invocations
+       WHERE invocation_id NOT LIKE 'rotation-ingestion:%'
+       ORDER BY scheduled_at DESC LIMIT 1`,
     )
     .first<{ status: string; deployment_sha: string; finished_at: string }>();
   const counts = await db
@@ -345,14 +347,16 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
   const since = new Date(nowMs - windowHours * 60 * 60 * 1000).toISOString();
   const invocations = await db
     .prepare(
-      `SELECT status, poll_mode, scheduled_at, started_at, finished_at
+      `SELECT invocation_id, status, poll_mode, scheduled_at, started_at, finished_at
        FROM collector_invocations
        WHERE scheduled_at >= ? AND deployment_sha = ?
          AND invocation_id NOT LIKE 'profile-%'
+         AND invocation_id NOT LIKE 'rotation-ingestion:%'
        ORDER BY scheduled_at ASC`,
     )
     .bind(since, deploymentSha)
     .all<{
+      invocation_id: string;
       status: string;
       poll_mode: "both" | "alternating";
       scheduled_at: string;
@@ -377,6 +381,7 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
     .prepare(
       `SELECT scheduled_at AS started_at FROM collector_invocations
        WHERE deployment_sha = ? AND invocation_id NOT LIKE 'profile-%'
+         AND invocation_id NOT LIKE 'rotation-ingestion:%'
        ORDER BY scheduled_at ASC LIMIT 1`,
     )
     .bind(deploymentSha)
@@ -581,9 +586,21 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
     invalidDispatchStates === 0 &&
     smokeCount >= 1 &&
     invalidSmoke === 0;
+  const rotation = invocations.results.some((row) =>
+    row.invocation_id.startsWith("rotation-board-"),
+  );
+  const missingRotationBoard =
+    rotation &&
+    [48, 56].some(
+      (board) =>
+        !invocations.results.some((row) =>
+          row.invocation_id.startsWith(`rotation-board-${board}:`),
+        ),
+    );
   const passed =
     eligible &&
-    effective.length >= minimumScheduled &&
+    effective.length >= (rotation ? Math.floor((minimumScheduled * 2) / 3) : minimumScheduled) &&
+    !missingRotationBoard &&
     successRate >= minimumCompletionRate &&
     latest?.status === "completed" &&
     abandoned === 0 &&

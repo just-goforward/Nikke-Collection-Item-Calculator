@@ -2,6 +2,13 @@ import {
   FORECAST_CANARY_POLICY_ID,
   type RuntimeEvaluation,
 } from "../../shared/forecastCanaryRuntime";
+import { rotationBoard } from "./collection-schedule";
+
+export function rotationCanaryIdentityMatches(id: string, scheduledAt: string) {
+  const board = rotationBoard(Date.parse(scheduledAt));
+  const prefix = board === null ? "rotation-ingestion" : `rotation-board-${board}`;
+  return id === `${prefix}:${Date.parse(scheduledAt)}`;
+}
 
 export const CANARY_WINDOW_MODE = "fixed_8_hours" as const;
 export const CANARY_MINIMUM_DELIVERY_RATE = 0.99;

@@ -37,6 +37,52 @@ beforeEach(async () => {
   await executeTestSql(db, schemaSql, applyD1Migrations);
 });
 
+it("does not let sibling board success reset rotation failures", async () => {
+  const now = Date.now();
+  for (let i = 0; i < 3; i++) {
+    const failure = await startInvocation(db, "sha", now + i * 2, "both", "", 48);
+    const success = await startInvocation(db, "sha", now + i * 2 + 1, "both", "", 56);
+    if (!failure || !success) throw new Error("missing_invocation");
+    await finishInvocation(
+      db,
+      failure,
+      "failure",
+      0,
+      "naver_http_503",
+      new Date(now + 600_000).toISOString(),
+    );
+    await finishInvocation(db, success, "completed", 0, null, null);
+  }
+  expect(await invocationCircuitState(db, now, 48)).toMatchObject({ failures: 3, open: true });
+  expect(await invocationCircuitState(db, now, 56)).toMatchObject({ failures: 0, open: false });
+});
+
+it("guards concurrent combined and rotation polling of the same board", async () => {
+  const originalFetch = globalThis.fetch;
+  let release!: () => void;
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let arrivals = 0;
+  globalThis.fetch = vi.fn<typeof fetch>(async () => {
+    arrivals++;
+    if (arrivals === 2) release();
+    await barrier;
+    return response([row("9000", "20260925120049")]);
+  });
+  try {
+    // Alternating combined mode selects board 56 at this slot.
+    await Promise.all([
+      runCollection({ ...testEnv, POLL_MODE: "alternating" }, { nowMs: 180_000 }),
+      runCollection(testEnv, { nowMs: 180_000, board: 56, rotation: true }),
+    ]);
+    expect((await db.prepare("SELECT * FROM source_queue").all()).results).toHaveLength(1);
+    expect((await db.prepare("SELECT * FROM source_poll_state").all()).results).toHaveLength(1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function row(id: string, date: string, boardId: 48 | 56 = 56) {
   return {
     feed: { feedId: Number(id), loungeId: "nikke", title: `Official ${id}`, createdDate: date },
