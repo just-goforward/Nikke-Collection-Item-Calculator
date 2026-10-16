@@ -574,7 +574,7 @@ jobs:
           jq -e '.ok == true and .state.action == "normal"' "$RUNNER_TEMP/usage-guard-production-refresh.json" >/dev/null
 
       - name: Verify Forecast migration runner
-        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/forecast-dispatcher-workflow.spec.ts scripts/check-workflow-hardening.spec.ts
+        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/apply-forecast-d1-migrations-json.spec.ts scripts/forecast-dispatcher-workflow.spec.ts scripts/check-workflow-hardening.spec.ts
 
       - name: Apply production Forecast D1 migrations
         env:

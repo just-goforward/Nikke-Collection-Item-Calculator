@@ -58,6 +58,7 @@ on:
       - "scripts/check-workflow-hardening.spec.ts"
       - "scripts/apply-forecast-d1-migrations.ts"
       - "scripts/apply-forecast-d1-migrations.spec.ts"
+      - "scripts/apply-forecast-d1-migrations-json.spec.ts"
       - "scripts/probe-forecast-github-app.ts"
       - "scripts/forecast-dispatcher-workflow.spec.ts"
       - "forecast-collector/vitest.config.ts"
@@ -336,7 +337,7 @@ jobs:
           npx wrangler deploy --dry-run --config forecast-interactions/wrangler.toml
 
       - name: Verify Forecast migration runner
-        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/forecast-dispatcher-workflow.spec.ts scripts/recover-forecast-boundary.spec.ts scripts/check-workflow-hardening.spec.ts
+        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/apply-forecast-d1-migrations-json.spec.ts scripts/forecast-dispatcher-workflow.spec.ts scripts/recover-forecast-boundary.spec.ts scripts/check-workflow-hardening.spec.ts
 
       - name: Apply staging Forecast D1 migrations
         env:

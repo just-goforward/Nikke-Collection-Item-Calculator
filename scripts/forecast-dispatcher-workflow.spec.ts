@@ -266,7 +266,7 @@ describe("Forecast production review and migration workflow contract", () => {
       expect(workflow).toContain(command);
       expect(workflow.split(command)).toHaveLength(2);
       expect(workflow).toContain(
-        "run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/forecast-dispatcher-workflow.spec.ts",
+        "run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/apply-forecast-d1-migrations-json.spec.ts scripts/forecast-dispatcher-workflow.spec.ts",
       );
       expect(workflow).not.toMatch(/--file forecast-collector\/migrations\//);
       expect(workflow).not.toContain(
@@ -281,6 +281,7 @@ describe("Forecast production review and migration workflow contract", () => {
     );
     expect(stagingDeploy).toContain('"scripts/apply-forecast-d1-migrations.ts"');
     expect(stagingDeploy).toContain('"scripts/apply-forecast-d1-migrations.spec.ts"');
+    expect(stagingDeploy).toContain('"scripts/apply-forecast-d1-migrations-json.spec.ts"');
   });
 
   it("keeps directly executed Node imports resolvable on Linux", () => {
