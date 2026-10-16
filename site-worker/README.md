@@ -9,7 +9,9 @@ separate operator approval. Production remains bundled-only.
 `npm run build:site-staging` compiles with the environment, key ID and raw 32-byte
 Ed25519 public key from `site-worker/forecast-runtime.json`, then packages staging HTML.
 The committed value is the staging publication public key `staging-v1`; it must match
-the staging router's `FORECAST_PUBLICATION_SIGNING_KEY`. No private key belongs here.
+the staging router's `FORECAST_PUBLICATION_SIGNING_KEY`, and `keyId` must equal its
+`FORECAST_PUBLICATION_KEY_ID` (`forecast-interactions/staging.wrangler.toml`). No private
+key belongs here.
 `deploy:site-staging`, including `--dry-run`, rejects the placeholder or malformed
 public keys before verification or upload.
 The deploy script calls this same build command; its repeated staging checks reject

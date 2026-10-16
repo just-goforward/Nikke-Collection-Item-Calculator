@@ -18,9 +18,28 @@ describe("isolated staging interactions configuration", () => {
     );
   });
 
-  it("changes only the deployment name and removes the production DB binding", () => {
+  it("changes only the deployment name, staging app identity and removes the production DB binding", () => {
+    // Public identifiers of the staging-only Discord app and the staging-v1 publication key
+    // trusted by site-worker/forecast-runtime.json. Secrets never belong in this file.
+    const stagingIdentity = {
+      DISCORD_PUBLIC_KEY: "ac93bf021478a9bb6f2c610f7b5402610633007d4728d449a5b109bcdbefb3ae",
+      DISCORD_APPLICATION_ID: "1542496100525805668",
+      DISCORD_GUILD_ID: "1542497533417496619",
+      DISCORD_FORECAST_APPROVER_USER_ID: "1539627186212839517",
+      DISCORD_APPROVAL_CHANNEL_ID: "1542497534373662802",
+      DISCORD_ALERT_CHANNEL_ID: "1542497534373662802",
+      DISCORD_ACTIVITY_CHANNEL_ID: "1542497534373662802",
+      FORECAST_PUBLICATION_KEY_ID: "staging-v1",
+    };
+    let expected = production;
+    for (const [name, value] of Object.entries(stagingIdentity)) {
+      expected = expected.replace(`${name} = "unset"`, `${name} = "${value}"`);
+    }
+    expect(JSON.parse(readFileSync("site-worker/forecast-runtime.json", "utf8")).keyId).toBe(
+      stagingIdentity.FORECAST_PUBLICATION_KEY_ID,
+    );
     expect(staging).toBe(
-      production
+      expected
         .replace(
           'name = "collection-kit-forecast-interactions"',
           'name = "collection-kit-forecast-interactions-staging"',
