@@ -5,6 +5,7 @@ export const FORECAST_RUNTIME_TELEMETRY_SOURCE =
 export const FORECAST_RUNTIME_WORKERS = {
   collector: {
     scriptName: "collection-kit-forecast-collector-staging",
+    // Evaluation target, not the temporary deployed staging CPU allowance.
     configuredLimitMs: 50,
   },
   dispatcher: {
@@ -504,6 +505,19 @@ function workerHardFailures(
     summary.unmatchedTelemetrySlots > 0 ? `runtime_slot_identity_conflict:${component}` : null,
     summary.unsuccessfulOutcomes > 0 ? `runtime_unsuccessful_outcome:${component}` : null,
     summary.exceededCpu > 0 ? `runtime_exceeded_cpu:${component}` : null,
+    component === "collector" &&
+    worker.samples.some(
+      (sample) =>
+        sample.cpuTimeMs !== null &&
+        sample.cpuTimeMs > contract.configuredLimitMs &&
+        sample.outcome !== null &&
+        isSuccessfulOutcome(sample.outcome),
+    )
+      ? "runtime_success_above_target:collector"
+      : null,
+    component === "collector" && summary.full.p99Ms > contract.configuredLimitMs
+      ? "runtime_p99_above_target:collector"
+      : null,
     inspection.invalidSamples > 0 ? `runtime_sample_invalid:${component}` : null,
   ].filter((value): value is string => value !== null);
 }
@@ -529,7 +543,7 @@ function workerWarnings(component: ForecastRuntimeComponent, summary: CpuPerform
     summary.versionIdOnlyIdentities > 0 ? `runtime_version_tag_unavailable:${component}` : null,
     summary.p99LimitRatio >= 0.8 ? `runtime_p99_headroom_low:${component}` : null,
     summary.p99LimitRatio >= 0.95 ? `runtime_p99_headroom_critical:${component}` : null,
-    summary.full.maxMs > summary.configuredLimitMs
+    component !== "collector" && summary.full.maxMs > summary.configuredLimitMs
       ? `runtime_success_above_configured_limit:${component}`
       : null,
   ].filter((value): value is string => value !== null);

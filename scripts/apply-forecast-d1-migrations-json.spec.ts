@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { parseWranglerJson } from "./apply-forecast-d1-migrations.ts";
-import { legacyDatabase, result, sqliteRunner } from "./forecast-migration-test-fixtures.ts";
+import {
+  legacyDatabase,
+  migrations,
+  result,
+  sqliteRunner,
+} from "./forecast-migration-test-fixtures.ts";
+
+const latest = migrations.at(-1)?.version ?? 0;
 
 describe("Wrangler D1 JSON output", () => {
   // Captured from wrangler 4.150.0 `d1 execute --remote --file --json` with piped stdout.
@@ -32,7 +39,7 @@ describe("Wrangler D1 JSON output", () => {
   });
 
   it("applies file migrations whose Wrangler output carries the spinner preamble", () => {
-    const db = legacyDatabase(23);
+    const db = legacyDatabase(latest - 1);
     const { spawn, run } = sqliteRunner(db);
     const base = spawn.getMockImplementation();
     spawn.mockImplementation((command, args, options) => {
@@ -42,6 +49,6 @@ describe("Wrangler D1 JSON output", () => {
     run();
     expect(
       db.prepare("SELECT max(version) AS version FROM schema_migrations").get()?.["version"],
-    ).toBe(24);
+    ).toBe(latest);
   });
 });

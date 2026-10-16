@@ -64,7 +64,7 @@ describe("forecast canary v10 runtime policy", () => {
     expect(result.performance.warnings).toContain("runtime_p99_headroom_critical:dispatcher");
   });
 
-  it("warns without failing when a successful invocation reports CPU above the configured limit", () => {
+  it("fails when a successful collector invocation exceeds the 50 ms target", () => {
     const input = fixture();
     const sample = runtimeWorker(input, "collector").samples.at(-1);
     if (!sample) throw new Error("missing_collector_sample");
@@ -72,9 +72,31 @@ describe("forecast canary v10 runtime policy", () => {
 
     const result = evaluateForecastRuntimeTelemetry(input);
 
+    expect(result.runtimeSafety.status).toBe("failed");
+    expect(result.runtimeSafety.failureCodes).toContain("runtime_success_above_target:collector");
+  });
+
+  it.each([49, 50])("keeps collector CPU at %s ms nonblocking", (cpuTimeMs) => {
+    const input = fixture();
+    for (const sample of runtimeWorker(input, "collector").samples) sample.cpuTimeMs = cpuTimeMs;
+    expect(evaluateForecastRuntimeTelemetry(input).runtimeSafety.status).toBe("passed");
+  });
+
+  it("fails collector p99 above target", () => {
+    const input = fixture();
+    for (const sample of runtimeWorker(input, "collector").samples) sample.cpuTimeMs = 51;
+    const result = evaluateForecastRuntimeTelemetry(input);
+    expect(result.runtimeSafety.status).toBe("failed");
+    expect(result.runtimeSafety.failureCodes).toContain("runtime_p99_above_target:collector");
+  });
+
+  it("keeps dispatcher CPU above its limit warning-only", () => {
+    const input = fixture();
+    for (const sample of runtimeWorker(input, "dispatcher").samples) sample.cpuTimeMs = 26;
+    const result = evaluateForecastRuntimeTelemetry(input);
     expect(result.runtimeSafety.status).toBe("passed");
     expect(result.performance.warnings).toContain(
-      "runtime_success_above_configured_limit:collector",
+      "runtime_success_above_configured_limit:dispatcher",
     );
   });
 
@@ -90,7 +112,9 @@ describe("forecast canary v10 runtime policy", () => {
     expect(result.runtimeSafety.failureCodes).toContain("runtime_exceeded_cpu:collector");
     expect(result.runtimeSafety.failureCodes).toContain("runtime_unsuccessful_outcome:collector");
   });
+});
 
+describe("forecast canary runtime coverage", () => {
   it("marks delayed telemetry as incomplete without manufacturing a failure", () => {
     const input = fixture();
     runtimeWorker(input, "collector").samples.splice(0, 2);

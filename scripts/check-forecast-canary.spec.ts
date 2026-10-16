@@ -53,6 +53,19 @@ describe("forecast canary v10 CLI", () => {
       stderr: expect.stringContaining("Failed canary has no hard failure evidence."),
     });
   });
+
+  it("refuses promotion for a collector CPU target failure", async () => {
+    const reason = "runtime_success_above_target:collector";
+    const report = {
+      ...inProgressReport(),
+      runtimeSafety: { status: "failed", failureCodes: [reason] },
+      certification: { status: "failed", hardFailures: [reason], warnings: [] },
+    };
+    const { outputPath } = await runCli(report);
+    const output = await readFile(outputPath, "utf8");
+    expect(output).toContain("canary_status=failed");
+    expect(output).toContain("canary_promotable=false");
+  });
 });
 
 async function runCli(report: unknown) {

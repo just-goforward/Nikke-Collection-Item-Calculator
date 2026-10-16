@@ -9,6 +9,7 @@ import { sha256Hex } from "./crypto";
 export const CANARY_WINDOW_MS = CLOUDFLARE_PAID_THRESHOLDS.canaryHours * 60 * 60 * 1_000;
 
 const QUOTA_EVIDENCE_MAX_AGE_MS = 20 * 60 * 1_000;
+// Canary evaluation targets; collector stays at 50 ms even with a higher deployed allowance.
 const WORKER_CPU_LIMITS_MS: Record<string, number> = {
   "collection-kit-stats": 10,
   "collection-kit-stats-staging": 10,
