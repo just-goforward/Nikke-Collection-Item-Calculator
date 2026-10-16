@@ -6,35 +6,6 @@ statistics and cannot modify the repository or activate a product forecast.
 
 ## Sources and cadence
 
-### Renew a manual review after a Discord channel migration
-
-This authenticated operation mutates only the selected unresolved review and its
-queue generation and alert. Obtain explicit environment-specific mutation and
-Discord-delivery approval first. Do not use it to override a resolved decision.
-The old review is retained as expired, with the renewal request ID and reason.
-The dispatcher discovers the new generation and reopens the retained alert with
-a fresh delivery identity; old message bindings are cleared immediately.
-
-```powershell
-$body = @{
-  environment = "staging"
-  expectedGeneration = 0
-  requestId = "mrq-" + [guid]::NewGuid().ToString("N")
-  reason = "Renew review for isolated staging alert channel"
-} | ConvertTo-Json
-Invoke-RestMethod -Method Post `
-  -Uri "$CollectorUrl/admin/manual-reviews/$ReviewId/renew" `
-  -Headers @{ Authorization = "Bearer $AdminToken" } `
-  -ContentType "application/json" -Body $body
-```
-
-Use the exact opaque review ID and current generation from inspection. For
-production, explicitly select the production collector URL, credentials and
-`environment = "production"`; never reuse staging targeting.
-Retain the same body/request ID for retries; changed payloads with that ID fail.
-No SQL or alert deletion is required. Renewal does not approve a schedule or
-create a candidate. Wait for delivery before clicking the replacement message.
-
 - Every three minutes the Collector Worker reads only ten shallow feed records from Naver Lounge
   boards 56 and 48. It queues IDs, titles, timestamps, manager roles, and URLs; it does not parse or
   hash post bodies on the Cron path.
@@ -426,3 +397,32 @@ manually after reviewing a v10 `passed` or `passed_with_warning` certificate and
 Promotion compares the canary commit with current `main` only across the collector deployment
 inputs covered by the staging workflow path filter. Unrelated application, solver, or documentation
 commits therefore neither restart nor invalidate a running canary; any collector-input change does.
+
+## Renew a manual review after a Discord channel migration
+
+This authenticated operation mutates only the selected unresolved review and its
+queue generation and alert. Obtain explicit environment-specific mutation and
+Discord-delivery approval first. Do not use it to override a resolved decision.
+The old review is retained as expired, with the renewal request ID and reason.
+The dispatcher discovers the new generation and reopens the retained alert with
+a fresh delivery identity; old message bindings are cleared immediately.
+
+```powershell
+$body = @{
+  environment = "staging"
+  expectedGeneration = 0
+  requestId = "mrq-" + [guid]::NewGuid().ToString("N")
+  reason = "Renew review for isolated staging alert channel"
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post `
+  -Uri "$CollectorUrl/admin/manual-reviews/$ReviewId/renew" `
+  -Headers @{ Authorization = "Bearer $AdminToken" } `
+  -ContentType "application/json" -Body $body
+```
+
+Use the exact opaque review ID and current generation from inspection. For
+production, explicitly select the production collector URL, credentials and
+`environment = "production"`; never reuse staging targeting.
+Retain the same body/request ID for retries; changed payloads with that ID fail.
+No SQL or alert deletion is required. Renewal does not approve a schedule or
+create a candidate. Wait for delivery before clicking the replacement message.
