@@ -627,6 +627,7 @@ async function loadInvariantRows(
          LEFT JOIN source_manual_reviews r
            ON r.source = q.source AND r.item_id = q.item_id
           AND r.generation = q.review_generation AND r.state = 'pending'
+          AND r.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
          LEFT JOIN forecast_ops_alerts a
            ON a.alert_key = 'manual-review:' || ? || ':' || q.source || ':' || q.item_id
           AND a.last_sent_at IS NOT NULL

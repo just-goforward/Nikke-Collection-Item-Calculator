@@ -3,11 +3,11 @@ import { sha256Hex, stableJson } from "./crypto";
 import { automationOperation, requireGuardDb } from "./http-shared";
 import type { FetchLike } from "./naver";
 import { buildNoticeCandidate, noticeErrorCode, processNotice } from "./notice-processing";
+import { loadRuntimeEvents } from "./runtime-events";
 import {
   type IngestionEntry,
   ingestionQueue,
   ingestionSettlement,
-  loadRuntimeEvents,
   queueItem,
   reserveNotice,
   startIngestion,

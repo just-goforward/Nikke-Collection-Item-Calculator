@@ -3,8 +3,17 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeTestSql } from "../../shared/testD1Sql";
 import migrationSql from "../migrations/0008_manual_reviews_interactions_canary.sql?raw";
+import runtimeMigrationSql from "../migrations/0024_runtime_ingestion.sql?raw";
 import schemaSql from "../schema.sql?raw";
-import { decideManualReview, ensureManualReviewStatement, readManualReview } from "./manual-review";
+import {
+  decideManualReview,
+  ensureManualReviewStatement,
+  listManualReviews,
+  readManualReview,
+  renewManualReview,
+} from "./manual-review";
+import { upsertOpsAlert } from "./ops";
+import { ingestionQueue } from "./runtime-ingestion-db";
 import { processSourceQueue } from "./source-queue";
 import type { CollectorEnv, NaverSourceKind } from "./types";
 
@@ -26,6 +35,7 @@ beforeEach(async () => {
   vi.stubGlobal("fetch", deniedFetch);
   await reset();
   await executeTestSql(testEnv.FORECAST_DB, schemaSql, applyD1Migrations);
+  await executeTestSql(testEnv.FORECAST_DB, runtimeMigrationSql, applyD1Migrations);
 });
 
 afterEach(() => {
@@ -36,7 +46,113 @@ afterEach(() => {
   }
 });
 
-describe("manual review decisions", () => {
+describe("manual review runtime candidate gates", () => {
+  it("rejects overlapping manual-event evidence through the runtime candidate gate", async () => {
+    const first = await insertManualReview("194");
+    const nowMs = Date.now();
+    await decideManualReview(
+      testEnv.FORECAST_DB,
+      "production",
+      first,
+      manualEventRequest("a", nowMs),
+      { nowMs },
+    );
+    const second = await insertManualReview("195");
+    await expect(
+      decideManualReview(
+        testEnv.FORECAST_DB,
+        "staging",
+        second,
+        manualEventRequest("b", nowMs, 2),
+        { nowMs, runtimeIngestion: true },
+      ),
+    ).rejects.toThrow("runtime_ingestion_source_conflict");
+    expect(await queue("195")).toMatchObject({ status: "manual_review" });
+  });
+  it.each([
+    ["staging", true, false],
+    ["staging", false, true],
+    ["production", true, true],
+  ] as const)(
+    "gates manual candidates for %s runtime=%s",
+    async (environment, runtimeIngestion, expected) => {
+      const reviewId = await insertManualReview("197");
+      await insertManualReview("196");
+      const nowMs = Date.now();
+      const result = await decideManualReview(
+        testEnv.FORECAST_DB,
+        environment,
+        reviewId,
+        manualEventRequest("c", nowMs),
+        { nowMs, runtimeIngestion },
+      );
+      expect(result.candidateCreated).toBe(expected);
+      expect(await queue("197")).toMatchObject({ status: "processed" });
+      expect(await queue("196")).toMatchObject({ status: "manual_review" });
+    },
+  );
+});
+
+describe("manual review renewal", () => {
+  it.each(["pending", "expired"] as const)(
+    "renews a %s review and rejects stale messages",
+    async (state) => {
+      const reviewId = await insertManualReview("199");
+      if (state === "expired")
+        await testEnv.FORECAST_DB.prepare(
+          "UPDATE source_manual_reviews SET state='expired',resolved_at=?,expires_at=? WHERE review_id=?",
+        )
+          .bind("2020-01-01", "2020-01-01", reviewId)
+          .run();
+      const input = {
+        environment: "staging",
+        expectedGeneration: 0,
+        requestId: `mrq-${"e".repeat(32)}`,
+        reason: "isolated channel",
+      };
+      const result = await renewManualReview(testEnv.FORECAST_DB, "staging", reviewId, input);
+      expect(result.review).toMatchObject({ state: "pending", generation: 1 });
+      expect(result.review?.reviewId).not.toBe(reviewId);
+      expect(await readManualReview(testEnv.FORECAST_DB, reviewId)).toMatchObject({
+        state: "expired",
+      });
+      expect(await queue("199")).toMatchObject({ status: "manual_review", review_generation: 1 });
+      expect(
+        await renewManualReview(testEnv.FORECAST_DB, "staging", reviewId, input),
+      ).toMatchObject({ idempotent: true, review: result.review });
+      await expect(
+        renewManualReview(testEnv.FORECAST_DB, "staging", reviewId, {
+          ...input,
+          reason: "changed",
+        }),
+      ).rejects.toThrow("manual_review_request_conflict");
+      await expect(
+        renewManualReview(testEnv.FORECAST_DB, "production", reviewId, input),
+      ).rejects.toThrow("manual_review_environment_conflict");
+      await expect(
+        renewManualReview(testEnv.FORECAST_DB, "staging", reviewId, {
+          ...input,
+          requestId: `mrq-${"f".repeat(32)}`,
+        }),
+      ).rejects.toThrow("manual_review_renewal_race");
+    },
+  );
+
+  it("does not renew a resolved review", async () => {
+    const reviewId = await insertManualReview("198");
+    await decideManualReview(testEnv.FORECAST_DB, "staging", reviewId, decision("ignore", "a"));
+    await expect(
+      renewManualReview(testEnv.FORECAST_DB, "staging", reviewId, {
+        environment: "staging",
+        expectedGeneration: 0,
+        requestId: `mrq-${"e".repeat(32)}`,
+        reason: "test",
+      }),
+    ).rejects.toThrow("manual_review_not_pending");
+  });
+});
+
+describe("manual review migration and requeue", () => {
   it("migrates a v7 manual-review queue row with an ISO expiry", async () => {
     await reset();
     await testEnv.FORECAST_DB.prepare(
@@ -120,7 +236,9 @@ describe("manual review decisions", () => {
       }),
     ).rejects.toThrow("manual_review_request_conflict");
   });
+});
 
+describe("manual review decisions and read-only expiry", () => {
   it("marks an ignored item and resolves its operations alert", async () => {
     const reviewId = await insertManualReview("101");
 
@@ -132,6 +250,9 @@ describe("manual review decisions", () => {
       decision: "ignore",
     });
     await expect(alertState("101")).resolves.toBe("resolved");
+    expect((await ingestionQueue(testEnv.FORECAST_DB)).some((row) => row.item_id === "101")).toBe(
+      false,
+    );
   });
 
   it("creates a verified manual event from official queue metadata when no body was stored", async () => {
@@ -149,6 +270,9 @@ describe("manual review decisions", () => {
 
     expect(result).toMatchObject({ idempotent: false, candidateCreated: false });
     await expect(queue("102")).resolves.toMatchObject({ status: "processed" });
+    expect((await ingestionQueue(testEnv.FORECAST_DB)).some((row) => row.item_id === "102")).toBe(
+      false,
+    );
     const item = await testEnv.FORECAST_DB.prepare(
       `SELECT structured, official, content_hash FROM source_items
        WHERE source = 'naver-board-56' AND item_id = '102'`,
@@ -185,9 +309,106 @@ describe("manual review decisions", () => {
       decision: null,
     });
     await expect(queue("103")).resolves.toMatchObject({ status: "manual_review" });
+    expect(await listManualReviews(testEnv.FORECAST_DB, { status: "pending", limit: 20 })).toEqual(
+      [],
+    );
+    expect(await listManualReviews(testEnv.FORECAST_DB, { status: "expired", limit: 20 })).toEqual([
+      expect.objectContaining({ reviewId, state: "expired" }),
+    ]);
+    expect(
+      await testEnv.FORECAST_DB.prepare(
+        "SELECT state, resolved_at FROM source_manual_reviews WHERE review_id=?",
+      )
+        .bind(reviewId)
+        .first(),
+    ).toEqual({ state: "pending", resolved_at: null });
     await expect(
       decideManualReview(testEnv.FORECAST_DB, "staging", reviewId, decision("ignore", "d")),
     ).rejects.toThrow("manual_review_not_pending");
+  });
+});
+
+describe("manual review renewal isolation", () => {
+  it("allows exactly one concurrent renewal of the current generation", async () => {
+    const db = testEnv.FORECAST_DB;
+    const reviewId = await insertManualReview("200");
+    let arrivals = 0;
+    let release: (() => void) | undefined;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const racingDb = interleavedDatabase(async () => {
+      arrivals += 1;
+      if (arrivals === 2) release?.();
+      await ready;
+    });
+    const results = await Promise.allSettled(
+      ["a", "b"].map((suffix) =>
+        renewManualReview(racingDb, "staging", reviewId, {
+          environment: "staging",
+          expectedGeneration: 0,
+          requestId: `mrq-${suffix.repeat(32)}`,
+          reason: "concurrent renewal",
+        }),
+      ),
+    );
+    expect(arrivals).toBe(2);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const failures = results.filter((result) => result.status === "rejected");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.reason).toEqual(new Error("manual_review_renewal_race"));
+    expect(await db.prepare("SELECT review_generation FROM source_queue").first()).toEqual({
+      review_generation: 1,
+    });
+    expect(
+      (
+        await db
+          .prepare("SELECT generation,state FROM source_manual_reviews ORDER BY generation")
+          .all()
+      ).results,
+    ).toEqual([
+      { generation: 0, state: "expired" },
+      { generation: 1, state: "pending" },
+    ]);
+    expect(await db.prepare("SELECT state FROM forecast_ops_alerts").all()).toMatchObject({
+      results: [{ state: "resolved" }],
+    });
+  });
+  it("preserves unrelated manual and non-manual alerts byte-for-byte", async () => {
+    const db = testEnv.FORECAST_DB;
+    const reviewId = await insertManualReview("190");
+    await insertManualReview("191");
+    await upsertOpsAlert(db, {
+      alertKey: "collector:staging:unrelated",
+      environment: "staging",
+      severity: "critical",
+      component: "collector",
+      errorCode: "unrelated_failure",
+      context: { sentinel: "retain these exact bytes" },
+    });
+    const key = "manual-review:staging:naver-board-56:190";
+    const snapshot = async () =>
+      JSON.stringify(
+        (
+          await db
+            .prepare("SELECT * FROM forecast_ops_alerts WHERE alert_key<>? ORDER BY alert_key")
+            .bind(key)
+            .all()
+        ).results,
+      );
+    const before = await snapshot();
+    expect(JSON.parse(before)).toHaveLength(2);
+    await renewManualReview(db, "staging", reviewId, {
+      environment: "staging",
+      expectedGeneration: 0,
+      requestId: `mrq-${"d".repeat(32)}`,
+      reason: "only this review",
+    });
+    expect(await snapshot()).toBe(before);
+    expect(await db.prepare("SELECT COUNT(*) n FROM forecast_ops_alerts").first()).toEqual({
+      n: 3,
+    });
+    expect(await alertState("190")).toBe("resolved");
   });
 });
 

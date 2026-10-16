@@ -10,7 +10,7 @@ import {
   json,
   opsEnvironment,
 } from "./http-shared";
-import { decideManualReview, listManualReviews } from "./manual-review";
+import { decideManualReview, listManualReviews, renewManualReview } from "./manual-review";
 import { sanitizeOpsError } from "./ops";
 import { runtimeIngestionEnabled } from "./runtime-ingestion";
 import {
@@ -52,6 +52,21 @@ async function handleSourceReadRoute({ request, url, env }: AdminRequestContext)
 }
 
 async function handleManualReviewRoute({ request, url, env }: AdminRequestContext) {
+  const renewal = /^\/admin\/manual-reviews\/(mr-[0-9a-f]{32})\/renew$/.exec(url.pathname);
+  if (request.method === "POST" && renewal?.[1]) {
+    try {
+      return json({
+        result: await renewManualReview(
+          env.FORECAST_DB,
+          opsEnvironment(env),
+          renewal[1],
+          await readBoundedJson(request, 8_192, "manual_review_body"),
+        ),
+      });
+    } catch (error) {
+      return json({ error: sanitizeOpsError(error) }, 409);
+    }
+  }
   if (request.method === "GET" && url.pathname === "/admin/manual-reviews") {
     return listReviews(url, env.FORECAST_DB);
   }
@@ -118,6 +133,7 @@ async function decideReview(request: Request, env: AdminRequestContext["env"], r
         opsEnvironment(env),
         reviewId,
         await readBoundedJson(request, 8_192, "manual_review_body"),
+        { runtimeIngestion: runtimeIngestionEnabled(env) },
       ),
     });
   } catch (error) {

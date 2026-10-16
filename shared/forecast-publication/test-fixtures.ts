@@ -60,6 +60,33 @@ const migrations = [
 ];
 export const TEST_NOW = Date.parse("2026-10-07T03:00:00.000Z");
 
+// Consumer tests start from the collector's committed renewal state. They test
+// delivery/binding, not a duplicate implementation of the renewal operation.
+export async function seedRenewedManualReview(db: PublicationDatabase) {
+  const { reviewId, alertKey } = await seedManualReview(db, true);
+  const newReviewId = `mr-${"b".repeat(32)}`;
+  const now = new Date(TEST_NOW).toISOString();
+  await db.batch([
+    db
+      .prepare("UPDATE source_manual_reviews SET state='expired',resolved_at=? WHERE review_id=?")
+      .bind(now, reviewId),
+    db.prepare(
+      "UPDATE source_queue SET review_generation=1 WHERE source='naver-board-56' AND item_id='200'",
+    ),
+    db
+      .prepare(`INSERT INTO source_manual_reviews
+      (review_id,source,item_id,generation,state,created_at,expires_at)
+      VALUES(?,'naver-board-56','200',1,'pending',?,?)`)
+      .bind(newReviewId, now, new Date(TEST_NOW + 14 * 24 * 60 * 60_000).toISOString()),
+    db
+      .prepare(`UPDATE forecast_ops_alerts SET state='resolved',resolved_at=?,
+      discord_message_id=NULL,last_sent_at=NULL,last_sent_occurrence_count=0,
+      next_send_at=NULL,recovery_sent_at=NULL,last_send_error=NULL WHERE alert_key=?`)
+      .bind(now, alertKey),
+  ]);
+  return { reviewId, newReviewId, alertKey };
+}
+
 export async function seedManualReview(
   db: PublicationDatabase,
   delivered = false,

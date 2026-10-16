@@ -13,6 +13,7 @@ import {
   migratePublicationDb,
   seedCandidate,
   seedManualReview,
+  seedRenewedManualReview,
   TEST_NOW,
 } from "../../shared/forecast-publication/test-fixtures.ts";
 import { encodeBase64 } from "../../shared/forecastPublication.ts";
@@ -37,7 +38,48 @@ beforeEach(async () => {
   vi.stubGlobal("fetch", outbound);
 });
 
+describe("manual-review renewal delivery", () => {
+  it("reopens exactly one retained alert after renewal", async () => {
+    const { flushOperations } = await import("./operations");
+    const db = testEnv.FORECAST_DB;
+    await seedRenewedManualReview(db);
+    expect(await db.prepare("SELECT review_generation FROM source_queue").first()).toEqual({
+      review_generation: 1,
+    });
+    expect(
+      (
+        await db
+          .prepare("SELECT generation,state FROM source_manual_reviews ORDER BY generation")
+          .all()
+      ).results,
+    ).toEqual([
+      { generation: 0, state: "expired" },
+      { generation: 1, state: "pending" },
+    ]);
+    expect(await flushOperations(testEnv)).toBe(1);
+    expect(
+      await db.prepare("SELECT state,occurrence_count FROM forecast_ops_alerts").all(),
+    ).toMatchObject({ results: [{ state: "open", occurrence_count: 1 }] });
+    expect(await flushOperations(testEnv)).toBe(0);
+    expect(outbound).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("D1 publication Discord dispatcher", () => {
+  it("redelivers a renewed review without deleting its alert", async () => {
+    const { flushOperations } = await import("./operations");
+    const db = testEnv.FORECAST_DB;
+    await seedRenewedManualReview(db);
+    const before = await db.prepare("SELECT COUNT(*) n FROM forecast_ops_alerts").first();
+    expect(await db.prepare("SELECT discord_message_id FROM forecast_ops_alerts").first()).toEqual({
+      discord_message_id: null,
+    });
+    expect(await flushOperations(testEnv)).toBe(1);
+    expect(await db.prepare("SELECT COUNT(*) n FROM forecast_ops_alerts").first()).toEqual(before);
+    expect(await db.prepare("SELECT discord_message_id FROM forecast_ops_alerts").first()).toEqual({
+      discord_message_id: "123456789012345678",
+    });
+  });
   it("advances beyond the first bounded candidate page instead of starving older reviews", async () => {
     for (let revision = 1; revision <= 6; revision += 1)
       await seedCandidate(testEnv.FORECAST_DB, revision);

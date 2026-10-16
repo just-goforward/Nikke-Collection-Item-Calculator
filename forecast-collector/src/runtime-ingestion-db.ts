@@ -64,6 +64,13 @@ export async function ingestionQueue(db: D1Database) {
       q.status,q.attempts,q.review_generation,COALESCE(i.failures,0) AS failures
     FROM source_queue q LEFT JOIN runtime_ingestion_items i ON i.source=q.source AND i.item_id=q.item_id
     WHERE q.status IN ('pending','processed','ignored')
+      AND NOT EXISTS (
+        SELECT 1 FROM source_manual_reviews r
+        WHERE r.source=q.source AND r.item_id=q.item_id
+          AND r.generation=q.review_generation AND r.state='resolved'
+          AND ((q.status='ignored' AND r.decision='ignore')
+            OR (q.status='processed' AND r.decision='manual_event'))
+      )
       AND (i.next_check_at IS NULL OR i.next_check_at<=?)
     ORDER BY CASE WHEN q.status='pending' THEN 0 ELSE 1 END,
       COALESCE(i.checked_at,''),q.published_at DESC,q.source,q.item_id
@@ -119,28 +126,6 @@ export async function reserveNotice(
     )
     .run();
   return reserved.meta.changes === 1 ? requestId : null;
-}
-
-export async function loadRuntimeEvents(db: D1Database, fallback: ScheduleEvent[]) {
-  // The legacy loader only has an excerpt. Restore full immutable notice text
-  // for runtime evidence, without changing historical/production semantics.
-  const rows = await db
-    .prepare(`SELECT b.event_id,r.item_json
-    FROM schedule_event_source_revisions b JOIN source_notice_revisions r
-      ON r.source=b.source AND r.item_id=b.item_id AND r.source_revision=b.source_revision
-    JOIN schedule_events e ON e.event_id=b.event_id
-    ORDER BY COALESCE(e.starts_at,e.observed_at) DESC LIMIT 240`)
-    .all<{ event_id: string; item_json: string }>();
-  const items = new Map(
-    rows.results.map((row) => [
-      row.event_id,
-      JSON.parse(row.item_json) as ScheduleEvent["sourceItem"],
-    ]),
-  );
-  return fallback.map((event) => ({
-    ...event,
-    sourceItem: items.get(event.eventId) ?? event.sourceItem,
-  }));
 }
 
 export async function ingestionSettlement(

@@ -8,6 +8,8 @@ import {
   type StatementWriteCondition,
   sourceItemAndEventStatements,
 } from "./db";
+import { buildNoticeCandidate } from "./notice-processing";
+import { loadRuntimeEvents } from "./runtime-events";
 import type { NaverSourceKind, NormalizedSourceItem, ScheduleEvent } from "./types";
 
 const REVIEW_TTL_MS = 14 * 24 * 60 * 60 * 1_000;
@@ -98,26 +100,129 @@ export async function listManualReviews(
   db: D1Database,
   options: { status: "pending" | "resolved" | "expired"; limit: number },
 ) {
-  await expireManualReviews(db, Date.now());
+  const now = new Date().toISOString();
   const limit = Math.max(1, Math.min(20, Math.trunc(options.limit)));
   const rows = await db
     .prepare(
-      `${reviewSelectSql()} WHERE r.state = ?
+      `${reviewSelectSql()} WHERE
+       CASE WHEN r.state = 'pending' AND r.expires_at <= ? THEN 'expired' ELSE r.state END = ?
        ORDER BY r.created_at, r.review_id LIMIT ?`,
     )
-    .bind(options.status, limit)
+    .bind(now, options.status, limit)
     .all<ManualReviewRow>();
-  return rows.results.map(publicManualReview);
+  return rows.results.map((row) => publicManualReview(effectiveManualReview(row, now)));
 }
 
 export async function readManualReview(db: D1Database, reviewId: string) {
   if (!reviewIdPattern.test(reviewId)) return null;
-  await expireManualReviews(db, Date.now());
   const row = await db
     .prepare(`${reviewSelectSql()} WHERE r.review_id = ?`)
     .bind(reviewId)
     .first<ManualReviewRow>();
-  return row ? publicManualReview(row) : null;
+  return row ? publicManualReview(effectiveManualReview(row, new Date().toISOString())) : null;
+}
+
+function effectiveManualReview(row: ManualReviewRow, now: string): ManualReviewRow {
+  return row.state === "pending" && row.expires_at <= now ? { ...row, state: "expired" } : row;
+}
+
+export async function renewManualReview(
+  db: D1Database,
+  environment: "staging" | "production",
+  reviewId: string,
+  raw: unknown,
+) {
+  const input = z
+    .object({
+      environment: z.enum(["staging", "production"]),
+      expectedGeneration: z.number().check(z.int(), z.minimum(0)),
+      requestId: z.string().check(z.regex(requestIdPattern)),
+      reason: z.string().check(z.minLength(1), z.maxLength(240)),
+    })
+    .parse(raw);
+  if (input.environment !== environment) throw new Error("manual_review_environment_conflict");
+  if (!reviewIdPattern.test(reviewId)) throw new Error("manual_review_id_invalid");
+  const hash = await sha256Hex(stableJson({ operation: "renew", reviewId, ...input }));
+  const newId = `mr-${(await sha256Hex(`renew:${environment}:${input.requestId}`)).slice(0, 32)}`;
+  const prior = await db
+    .prepare("SELECT review_id,request_payload_hash FROM source_manual_reviews WHERE request_id=?")
+    .bind(input.requestId)
+    .first<{ review_id: string; request_payload_hash: string }>();
+  if (prior) {
+    if (prior.review_id !== reviewId || prior.request_payload_hash !== hash) {
+      throw new Error("manual_review_request_conflict");
+    }
+    return { review: await readManualReview(db, newId), idempotent: true };
+  }
+  const review = await db
+    .prepare(`${reviewSelectSql()} WHERE r.review_id=?`)
+    .bind(reviewId)
+    .first<ManualReviewRow>();
+  if (!review) throw new Error("manual_review_not_found");
+  if (review.state === "resolved" || review.queue_status !== "manual_review") {
+    throw new Error("manual_review_not_pending");
+  }
+  if (review.generation !== input.expectedGeneration) {
+    throw new Error("manual_review_generation_conflict");
+  }
+  const now = new Date().toISOString();
+  const key = manualReviewAlertKey(environment, review.source, review.item_id);
+  const results = await db.batch([
+    db
+      .prepare(`UPDATE source_manual_reviews
+      SET state='expired',resolved_at=?,request_id=?,request_payload_hash=?,reason=?
+      WHERE review_id=? AND state IN ('pending','expired') AND request_id IS NULL
+        AND generation=? AND EXISTS (
+          SELECT 1 FROM source_queue q WHERE q.source=source_manual_reviews.source
+          AND q.item_id=source_manual_reviews.item_id AND q.status='manual_review'
+          AND q.review_generation=source_manual_reviews.generation)
+        AND NOT EXISTS (SELECT 1 FROM forecast_ops_alerts WHERE alert_key=? AND environment<>?)`)
+      .bind(
+        now,
+        input.requestId,
+        hash,
+        input.reason,
+        reviewId,
+        input.expectedGeneration,
+        key,
+        environment,
+      ),
+    db
+      .prepare(`UPDATE source_queue SET review_generation=review_generation+1,updated_at=?
+      WHERE source=? AND item_id=? AND status='manual_review' AND review_generation=? AND changes()=1`)
+      .bind(now, review.source, review.item_id, input.expectedGeneration),
+    db
+      .prepare(`INSERT INTO source_manual_reviews
+      (review_id,source,item_id,generation,state,created_at,expires_at)
+      SELECT ?,?,?,?,'pending',?,? WHERE changes()=1`)
+      .bind(
+        newId,
+        review.source,
+        review.item_id,
+        input.expectedGeneration + 1,
+        now,
+        new Date(Date.parse(now) + REVIEW_TTL_MS).toISOString(),
+      ),
+    db
+      .prepare(`UPDATE forecast_ops_alerts SET state='resolved',resolved_at=?,
+      discord_message_id=NULL,last_sent_at=NULL,last_sent_occurrence_count=0,
+      next_send_at=NULL,recovery_sent_at=NULL,last_send_error=NULL
+      WHERE alert_key=? AND environment=? AND changes()=1`)
+      .bind(now, key, environment),
+  ]);
+  if (Number(results[2]?.meta.changes) !== 1) {
+    const winner = await db
+      .prepare(
+        "SELECT request_id,request_payload_hash FROM source_manual_reviews WHERE review_id=?",
+      )
+      .bind(reviewId)
+      .first<{ request_id: string | null; request_payload_hash: string | null }>();
+    if (winner?.request_id === input.requestId && winner.request_payload_hash === hash) {
+      return { review: await readManualReview(db, newId), idempotent: true };
+    }
+    throw new Error("manual_review_renewal_race");
+  }
+  return { review: await readManualReview(db, newId), idempotent: false };
 }
 
 export async function decideManualReview(
@@ -125,7 +230,7 @@ export async function decideManualReview(
   environment: "staging" | "production",
   reviewId: string,
   raw: unknown,
-  options: { actor?: string; nowMs?: number } = {},
+  options: { actor?: string; nowMs?: number; runtimeIngestion?: boolean } = {},
 ) {
   if (!reviewIdPattern.test(reviewId)) throw new Error("manual_review_id_invalid");
   const input = parseDecisionInput(raw);
@@ -146,7 +251,14 @@ export async function decideManualReview(
   }
 
   const actor = boundedActor(options.actor ?? `github-actions:${input.runId}`);
-  const prepared = await prepareManualReviewDecision(db, review, input, now, nowMs);
+  const prepared = await prepareManualReviewDecision(
+    db,
+    review,
+    input,
+    now,
+    nowMs,
+    environment === "staging" && options.runtimeIngestion === true,
+  );
   const reviewStatement = db
     .prepare(
       `UPDATE source_manual_reviews
@@ -238,6 +350,7 @@ async function prepareManualReviewDecision(
   input: ManualReviewDecisionInput,
   now: string,
   nowMs: number,
+  runtimeIngestion: boolean,
 ): Promise<PreparedManualReviewDecision> {
   if (input.decision === "requeue") {
     return {
@@ -256,7 +369,7 @@ async function prepareManualReviewDecision(
     };
   }
   if (!input.event) throw new Error("manual_review_event_required");
-  return prepareManualEventDecision(db, review, input.event, now, nowMs);
+  return prepareManualEventDecision(db, review, input.event, now, nowMs, runtimeIngestion);
 }
 
 async function prepareManualEventDecision(
@@ -265,11 +378,55 @@ async function prepareManualEventDecision(
   eventInput: NonNullable<ManualReviewDecisionInput["event"]>,
   now: string,
   nowMs: number,
+  runtimeIngestion: boolean,
 ): Promise<PreparedManualReviewDecision> {
   const sourceItem = await loadManualSourceItem(db, review.source, review.item_id);
   const event = await manualScheduleEvent(sourceItem, eventInput);
   const condition = manualReviewWriteCondition(review);
   const priorStatements = sourceItemAndEventStatements(db, [sourceItem], [event], now, condition);
+  if (runtimeIngestion) {
+    const unresolved = await db
+      .prepare(`SELECT 1 FROM source_queue
+      WHERE status IN ('pending','manual_review') AND NOT (source=? AND item_id=?) LIMIT 1`)
+      .bind(review.source, review.item_id)
+      .first();
+    const gameDay = gameDayKey(nowMs);
+    const revision = await nextForecastRevision(db, gameDay);
+    const candidate = unresolved
+      ? undefined
+      : await buildNoticeCandidate(
+          await loadRuntimeEvents(db, await loadScheduleEvents(db)),
+          [
+            {
+              source: review.source,
+              itemId: review.item_id,
+              outcome: "processed",
+              item: sourceItem,
+              event,
+            },
+          ],
+          nowMs,
+          revision,
+        );
+    if (candidate)
+      priorStatements.push(
+        ...candidateStatements(
+          db,
+          candidate.envelope,
+          candidate.eventId,
+          gameDay,
+          revision,
+          now,
+          condition,
+        ),
+      );
+    return {
+      priorStatements,
+      queueStatement: queueDecisionStatement(db, review, "processed", now),
+      candidateCreated: Boolean(candidate),
+      eventPayloadHash: await sha256Hex(stableJson(eventInput)),
+    };
+  }
   const scheduleEvents = [...(await loadScheduleEvents(db)), event];
   const resolved = resolveSoloSchedule(scheduleEvents, nowMs);
   if (resolved) {
@@ -301,9 +458,16 @@ function manualReviewWriteCondition(review: ManualReviewRow): StatementWriteCond
       JOIN source_queue q ON q.source = r.source AND q.item_id = r.item_id
       WHERE r.review_id = ? AND r.source = ? AND r.item_id = ? AND r.generation = ?
         AND r.state = 'pending' AND q.status = 'manual_review'
+        AND r.expires_at = ?
         AND q.review_generation = r.generation
     )`,
-    bindings: [review.review_id, review.source, review.item_id, review.generation],
+    bindings: [
+      review.review_id,
+      review.source,
+      review.item_id,
+      review.generation,
+      review.expires_at,
+    ],
   };
 }
 

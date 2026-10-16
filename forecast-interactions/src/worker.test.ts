@@ -12,6 +12,7 @@ import {
   emergencyReview,
   migratePublicationDb,
   seedManualReview,
+  seedRenewedManualReview,
   TEST_NOW,
 } from "../../shared/forecast-publication/test-fixtures.ts";
 import { encodeBase64 } from "../../shared/forecastPublication.ts";
@@ -531,6 +532,40 @@ describe("publication emergency controls and delivery recovery", () => {
 });
 
 describe("retained D1-only manual-review controls", () => {
+  it("rejects the retired message and accepts the renewed delivered binding", async () => {
+    const db = testEnv.STAGING_FORECAST_DB;
+    const { reviewId, newReviewId } = await seedRenewedManualReview(db);
+    expect(
+      await (
+        await request(
+          interaction(`forecast_manual_staging_ignore:${reviewId}`, {
+            channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
+          }),
+        )
+      ).json(),
+    ).toMatchObject({ type: 4 });
+    // Dispatcher delivery is covered in its own workspace. Model its committed
+    // message binding here without importing another workspace's Env declaration.
+    await db
+      .prepare(`UPDATE forecast_ops_alerts SET discord_message_id='888888888',
+      context_json=json_set(context_json,'$.reviewId',?) WHERE environment='staging'`)
+      .bind(newReviewId)
+      .run();
+    expect(
+      await (
+        await request(
+          interaction(`forecast_manual_staging_ignore:${newReviewId}`, {
+            id: "1009",
+            channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
+            message: { id: "888888888" },
+          }),
+        )
+      ).json(),
+    ).toMatchObject({ type: 5 });
+    expect(await db.prepare("SELECT status FROM source_queue WHERE item_id='200'").first()).toEqual(
+      { status: "ignored" },
+    );
+  });
   it("keeps production manual reviews available on the shared deployment when authorized", async () => {
     const db = testEnv.PRODUCTION_FORECAST_DB;
     const { reviewId } = await seedManualReview(db, true, "production");
