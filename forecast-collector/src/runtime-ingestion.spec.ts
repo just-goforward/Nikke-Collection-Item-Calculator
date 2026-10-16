@@ -121,7 +121,7 @@ describe("fixture ingestion end to end and CPU measurement", () => {
     expect(expected.candidate.certifiedSnapshot).toBeDefined();
     expect(rows("SELECT * FROM source_notice_revisions")).toHaveLength(1);
     expect(rows("SELECT * FROM runtime_ingestion_commits")).toHaveLength(1);
-    expect(fetcher.mock.calls[0]?.[1]?.redirect).toBe("error");
+    expect(fetcher.mock.calls[0]?.[1]?.redirect).toBe("manual");
     expect(() => sqlite.exec("DELETE FROM runtime_notice_requests")).toThrow(
       "runtime_notice_budget_immutable",
     );
@@ -479,6 +479,19 @@ describe("bounds, ownership and recovery", () => {
 });
 
 describe("full notice transport bounds", () => {
+  it.each([301, 302, 307, 308])("refuses a %i redirect without following it", async (status) => {
+    const cancel = vi.fn();
+    const body = new ReadableStream({ cancel });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(body, { status, headers: { location: "https://example.com/" } }),
+      );
+    await expect(fetchNotice(56, "8060044", fetcher)).rejects.toThrow("naver_redirect");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0]?.[1]?.redirect).toBe("manual");
+    expect(cancel).toHaveBeenCalled();
+  });
   it.each(["declared", "streamed"])("rejects a %s oversize body", async (kind) => {
     const response = new Response("x".repeat(kind === "streamed" ? NOTICE_MAX_BYTES + 1 : 1), {
       headers: {

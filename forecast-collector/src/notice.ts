@@ -29,11 +29,16 @@ export async function fetchNotice(board: 48 | 56, itemId: string, fetcher: Fetch
               referer: "https://game.naver.com/",
               "user-agent": "collection-kit-forecast-collector/1.0",
             },
-            redirect: "error",
+            // workerd rejects redirect:"error" with a TypeError; refuse redirects manually.
+            redirect: "manual",
             signal: controller.signal,
           });
         } catch {
           throw new Error(controller.signal.aborted ? "naver_timeout" : "naver_network");
+        }
+        if (response.status >= 300 && response.status < 400) {
+          await response.body?.cancel();
+          throw new Error("naver_redirect");
         }
         if (!response.ok) {
           await response.body?.cancel();
