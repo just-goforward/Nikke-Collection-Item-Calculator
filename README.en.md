@@ -28,6 +28,8 @@ Calculations run in the browser. After an outcome is confirmed, the statistics s
 
 The public `/api/stats` response contains only aggregate Great Success and kit-usage statistics. Source hosts, client environments, solver diagnostics, and failure observations are excluded from the public response and retained only as private bucketed operational aggregates. Failure observation stores no exact inventory, IP address, user identifier, raw error, or stack trace. Event counts are not unique-user counts.
 
+Page views and page-performance metrics (path, referrer, country, and browser, OS, and device type) are measured with Cloudflare Web Analytics. Cloudflare Web Analytics uses no cookies or local storage, and it receives the IP address in transit but does not store it. Visitors connecting through data centers in the EU, EEA, UK, or Switzerland are excluded from Web Analytics measurement. This data is separate from the statistics database above and is not part of the public `/api/stats` response.
+
 For security issues, use the private reporting route in the [security policy](./SECURITY.md) instead of opening a public issue.
 
 ## Local Development

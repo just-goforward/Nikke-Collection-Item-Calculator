@@ -262,7 +262,7 @@ export const enMessages = {
   "stats.piecesUsedBreakdown": "View usage by kit: {pieces}",
   "modal.preparing": "Loading remaining kit choices.",
   "privacy.notice":
-    "To improve the service and aggregate Super Success stats, calculation conditions and results are stored only as ranges. Only successfully submitted events are included, and unique users are not counted. Names, emails, accounts, IP addresses, and other unique identifiers are not stored in the stats database.",
+    "To improve the service and aggregate Super Success stats, calculation conditions and results are stored only as ranges. Only successfully submitted events are included, and unique users are not counted. Names, emails, accounts, IP addresses, and other unique identifiers are not stored in the stats database. Page views and page-performance metrics (path, referrer, country, and browser, OS, and device type) are measured with Cloudflare Web Analytics, which uses no cookies or local storage. Cloudflare Web Analytics receives your IP address in transit but does not store it, and visitors connecting through data centers in the EU, EEA, UK, or Switzerland are excluded from Web Analytics measurement.",
   "rights.notice":
     "NIKKE and all related names, trademarks, and in-game assets are the property of their respective owners. This is an unofficial fan-made calculator and is not affiliated with, endorsed by, or sponsored by the game's developer or publisher.",
   "license.notice": "This program is provided without warranty under AGPL-3.0-or-later.",
