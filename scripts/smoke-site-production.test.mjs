@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { renderLocalizedPage } from "./localized-pages.ts";
 import { localePages } from "./smoke-pages-deployment.mjs";
-import { smokeSiteProduction, verifyCacheHeaders } from "./smoke-site-production.mjs";
+import {
+  smokeSiteProduction,
+  smokeSiteProductionAfterDeploy,
+  verifyCacheHeaders,
+} from "./smoke-site-production.mjs";
 
 const origin = "https://nikkecollection.com";
 const revision = "a".repeat(40);
@@ -139,6 +143,52 @@ test("rejects wrong SHA and wrong host without networking outside the supplied o
     }),
     /production origin/,
   );
+});
+
+test("post-deploy smoke retries only a stale frontend revision, within a bounded number of attempts", async () => {
+  const stale = new Error("/assets/index.js: frontend revision does not match x");
+  const sleeps = [];
+  const sleep = async (ms) => {
+    sleeps.push(ms);
+  };
+  let calls = 0;
+  const recovered = await smokeSiteProductionAfterDeploy(origin, revision, {
+    delayMs: 7,
+    sleep,
+    smoke: async () => {
+      if (++calls < 3) throw stale;
+      return "ok";
+    },
+  });
+  assert.equal(recovered, "ok");
+  assert.deepEqual(sleeps, [7, 7]);
+
+  calls = 0;
+  await assert.rejects(
+    smokeSiteProductionAfterDeploy(origin, revision, {
+      attempts: 4,
+      sleep,
+      smoke: async () => {
+        calls++;
+        throw stale;
+      },
+    }),
+    /revision does not match/,
+  );
+  assert.equal(calls, 4);
+
+  calls = 0;
+  await assert.rejects(
+    smokeSiteProductionAfterDeploy(origin, revision, {
+      sleep,
+      smoke: async () => {
+        calls++;
+        throw new Error("robots disallows production");
+      },
+    }),
+    /robots/,
+  );
+  assert.equal(calls, 1);
 });
 
 test("rejects an expected revision embedded in a longer hexadecimal run", async () => {
