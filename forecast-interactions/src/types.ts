@@ -5,13 +5,15 @@ export type InteractionRouterEnv = {
   DISCORD_PUBLIC_KEY: string;
   DISCORD_APPLICATION_ID: string;
   DISCORD_GUILD_ID: string;
-  DISCORD_APPROVER_USER_ID: string;
+  DISCORD_FORECAST_APPROVER_USER_ID: string;
+  DISCORD_APPROVER_USER_ID?: string;
   DISCORD_APPROVAL_CHANNEL_ID: string;
   DISCORD_ALERT_CHANNEL_ID: string;
   DISCORD_ACTIVITY_CHANNEL_ID: string;
-  DISCORD_APPROVAL_MODE?: "disabled" | "test" | "staging_adoption";
+  STAGING_PUBLICATION_MODE: "off" | "enabled";
+  PRODUCTION_PUBLICATION_MODE: "off" | "enabled";
+  FORECAST_PUBLICATION_SIGNING_KEY?: string;
+  FORECAST_PUBLICATION_KEY_ID: string;
   DEPLOY_SHA: string;
   PRODUCTION_MUTATIONS_ENABLED: string;
 };
-
-export type InteractionEnvironment = "staging" | "production";

@@ -12,6 +12,7 @@ import {
 } from "./http-shared";
 import { decideManualReview, listManualReviews } from "./manual-review";
 import { sanitizeOpsError } from "./ops";
+import { runtimeIngestionEnabled } from "./runtime-ingestion";
 import {
   listSourceQueue,
   processSourceQueue,
@@ -73,6 +74,9 @@ async function handleSourceMutationRoute({ request, url, env }: AdminRequestCont
       const body = await readBoundedJson(request, 1_000_000, "source_queue_body");
       if (isBoundaryRecoveryRequest(body)) {
         return json(await recoverNaverBoundary(env.FORECAST_DB, opsEnvironment(env), body));
+      }
+      if (runtimeIngestionEnabled(env)) {
+        return json({ error: "runtime_ingestion_owns_source_queue" }, 409);
       }
       return json(await processSourceQueue(env.FORECAST_DB, body));
     } catch (error) {

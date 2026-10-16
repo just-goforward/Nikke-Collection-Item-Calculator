@@ -6,6 +6,8 @@ export type DispatcherEnv = Omit<GeneratedForecastDispatcherEnv, "ENVIRONMENT"> 
   ENVIRONMENT: DispatcherEnvironment;
   DISPATCH_ENABLED: "true" | "false";
   USAGE_GUARD_DB: D1Database;
+  PUBLICATION_MODE: "off" | "enabled";
+  DISCORD_APPROVAL_CHANNEL_ID: string;
 };
 
 export type WorkLink = {

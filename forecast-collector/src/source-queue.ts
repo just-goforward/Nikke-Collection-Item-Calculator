@@ -1,14 +1,12 @@
 import { z } from "zod/mini";
-import {
-  assertForecastCandidateInvariants,
-  supplyForecastCandidateEnvelopeSchema,
-} from "../../shared/supplyForecastCandidate";
+import { assertForecastCandidateInvariants } from "../../shared/supplyForecastCandidate";
 import { sha256Hex, stableJson } from "./crypto";
 import {
   candidateStatements,
   loadScheduleEvents,
   nextForecastRevision,
   sourceItemAndEventStatements,
+  unapprovedCandidateCondition,
 } from "./db";
 import { ensureManualReviewStatement } from "./manual-review";
 import { type FetchLike, fetchNaverFeedMetadata, fetchNaverItemIdentity } from "./naver";
@@ -20,7 +18,13 @@ import {
   orderedOfficialBoundaryItems,
   samePublicationTime,
 } from "./naver-boundary-proof";
+import { isConstructedNoticeCandidate } from "./notice-processing";
 import { type OpsEnvironment, upsertOpsAlertStatement } from "./ops";
+import {
+  parseSourceQueueProcess,
+  type SourceQueueProcessResult,
+  validateSourceQueueResult,
+} from "./source-queue-validation";
 import type {
   CandidateBuildResult,
   CollectorEnv,
@@ -33,50 +37,7 @@ import type {
 
 const PAGE_SIZE = NAVER_PAGE_SIZE;
 const PAGE_STEP = 1;
-const timestampSchema = z.string().check(z.iso.datetime({ offset: true }));
 const sourceSchema = z.enum(["naver-board-48", "naver-board-56"]);
-const itemSchema = z.object({
-  source: sourceSchema,
-  itemId: z.string().check(z.regex(/^\d{1,20}$/)),
-  url: z.url(),
-  title: z.string().check(z.minLength(1), z.maxLength(300)),
-  excerpt: z.string().check(z.minLength(1), z.maxLength(600)),
-  normalizedText: z.string().check(z.minLength(1), z.maxLength(100_000)),
-  publishedAt: timestampSchema,
-  contentHash: z.string().check(z.regex(/^[a-f0-9]{64}$/)),
-  structured: z.literal(true),
-  official: z.boolean(),
-});
-const eventSchema = z.object({
-  eventId: z.string().check(z.minLength(1), z.maxLength(260)),
-  eventType: z.enum(["solo", "cooperation", "collaboration", "schedule_change", "reward"]),
-  sourceItem: itemSchema,
-  startsAt: z.nullable(timestampSchema),
-  endsAt: z.nullable(timestampSchema),
-  scheduleStatus: z.enum(["confirmed", "estimated"]),
-  manualReview: z.boolean(),
-  reason: z.nullable(z.string().check(z.maxLength(160))),
-});
-const resultSchema = z.object({
-  source: sourceSchema,
-  itemId: z.string().check(z.regex(/^\d{1,20}$/)),
-  outcome: z.enum(["processed", "ignored", "manual_review", "retry"]),
-  errorCode: z.optional(z.string().check(z.maxLength(80))),
-  item: z.optional(itemSchema),
-  event: z.optional(eventSchema),
-});
-const sourceQueueProcessSchema = z.object({
-  mode: z.enum(["queue", "bootstrap"]),
-  results: z.array(resultSchema).check(z.maxLength(40)),
-  candidate: z.optional(
-    z.object({
-      eventId: z.string().check(z.minLength(1), z.maxLength(260)),
-      gameDay: z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/)),
-      revision: z.number().check(z.int(), z.minimum(1)),
-      envelope: supplyForecastCandidateEnvelopeSchema,
-    }),
-  ),
-});
 const boundaryRecoverySchema = z.object({
   mode: z.literal("recover-boundary"),
   environment: z.enum(["staging", "production"]),
@@ -620,12 +581,19 @@ export async function readScheduleLedger(db: D1Database, nowMs: number) {
   };
 }
 
-export async function processSourceQueue(db: D1Database, raw: unknown) {
-  const request = sourceQueueProcessSchema.parse(raw);
+export async function processSourceQueue(
+  db: D1Database,
+  raw: unknown,
+  transaction: {
+    before?: D1PreparedStatement[];
+    after?: D1PreparedStatement[];
+  } = {},
+) {
+  const request = parseSourceQueueProcess(raw);
   const nowIso = new Date().toISOString();
   const statements: D1PreparedStatement[] = [];
   for (const result of request.results) {
-    await validateResult(result);
+    await validateSourceQueueResult(result);
     if (request.mode === "queue") {
       const queued = await db
         .prepare("SELECT status, url, official FROM source_queue WHERE source = ? AND item_id = ?")
@@ -663,7 +631,9 @@ export async function processSourceQueue(db: D1Database, raw: unknown) {
     if (expectedRevision !== request.candidate.revision)
       throw new Error("candidate_revision_conflict");
     const { envelope, eventId, gameDay, revision } = request.candidate;
-    assertForecastCandidateInvariants(envelope.candidate);
+    if (!isConstructedNoticeCandidate(request.candidate)) {
+      assertForecastCandidateInvariants(envelope.candidate);
+    }
     if (!envelope.candidate.forecastId.startsWith(`supply-${gameDay}-v`)) {
       throw new Error("candidate_game_day_mismatch");
     }
@@ -694,15 +664,21 @@ export async function processSourceQueue(db: D1Database, raw: unknown) {
         revision,
         nowIso,
       ),
+    );
+    const unapproved = await unapprovedCandidateCondition(db);
+    statements.push(
       db
         .prepare(
           `UPDATE forecast_candidates SET state = 'superseded', updated_at = ?
            WHERE schedule_event_id = ? AND game_day = ? AND candidate_id <> ?
-             AND state IN ('crosschecked', 'x_unavailable', 'conflict', 'proposed')`,
+             AND state IN ('crosschecked', 'x_unavailable', 'conflict', 'proposed')
+             AND (${unapproved})`,
         )
         .bind(nowIso, eventId, gameDay, envelope.candidate.candidateId),
     );
   }
+  statements.unshift(...(transaction.before ?? []));
+  statements.push(...(transaction.after ?? []));
   if (statements.length > 0) await db.batch(statements);
   return { processed: request.results.length, candidateCreated: Boolean(request.candidate) };
 }
@@ -739,11 +715,7 @@ function queueStatements(
   );
 }
 
-function queueResultStatement(
-  db: D1Database,
-  result: z.infer<typeof resultSchema>,
-  nowIso: string,
-) {
+function queueResultStatement(db: D1Database, result: SourceQueueProcessResult, nowIso: string) {
   if (result.outcome === "retry") {
     return db
       .prepare(
@@ -768,30 +740,6 @@ function queueResultStatement(
       result.source,
       result.itemId,
     );
-}
-
-async function validateResult(result: z.infer<typeof resultSchema>) {
-  if (
-    result.item &&
-    (result.item.source !== result.source || result.item.itemId !== result.itemId)
-  ) {
-    throw new Error("source_queue_item_mismatch");
-  }
-  if (result.event && (!result.item || result.event.sourceItem.itemId !== result.itemId)) {
-    throw new Error("source_queue_event_mismatch");
-  }
-  if (result.item) {
-    const url = new URL(result.item.url);
-    if (url.protocol !== "https:" || url.hostname !== "game.naver.com") {
-      throw new Error("source_queue_url_allowlist");
-    }
-    if ((await sha256Hex(result.item.normalizedText)) !== result.item.contentHash) {
-      throw new Error("source_queue_content_hash");
-    }
-  }
-  if (result.outcome === "processed" && (!result.item || !result.event)) {
-    throw new Error("source_queue_processed_payload");
-  }
 }
 
 async function currentRevision(db: D1Database, gameDay: string) {

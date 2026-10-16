@@ -14,6 +14,9 @@ export const WORKER_SOURCE_ROOTS = [
   "usage-guard/src",
 ] as const;
 
+// Shared D1/backend code is reusable by Workers, never by the browser or pure shared contracts.
+export const BACKEND_SHARED_ROOTS = ["shared/forecast-publication"] as const;
+
 export const APPLICATION_ENTRYPOINTS = [
   "src/main.tsx",
   "src/worker.ts",
@@ -216,13 +219,6 @@ export const EMPTY_CATCH_ALLOWLIST: DebtEntry[] = [
 ];
 
 export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
-  {
-    file: "forecast-dispatcher/src/db.ts",
-    function: "updateObservedAlerts",
-    owner: "worker",
-    reason: "Alert observation and monotonic D1 state updates share one transaction boundary.",
-    removalTarget: "Extract pure alert-delta classification from the D1 update loop.",
-  },
   {
     file: "forecast-dispatcher/src/dispatcher.test.ts",
     function: "<anonymous>",

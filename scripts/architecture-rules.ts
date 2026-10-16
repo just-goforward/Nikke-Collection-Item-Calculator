@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseSync } from "oxc-parser";
 import {
   APPLICATION_ENTRYPOINTS,
+  BACKEND_SHARED_ROOTS,
   BIOME_IGNORE_ALLOWLIST,
   COMPLEXITY_ALLOWLIST,
   DEFAULT_MAX_FILE_LINES,
@@ -243,6 +244,11 @@ function importsThenExportsLocalBinding(source: string) {
 }
 
 export function violatesModuleBoundary(file: string, dependency: string) {
+  const isBackend = (path: string) =>
+    BACKEND_SHARED_ROOTS.some((root) => path.startsWith(`${root}/`));
+  const backendViolation =
+    isBackend(dependency) &&
+    (file.startsWith("src/") || (file.startsWith("shared/") && !isBackend(file)));
   const appViolation =
     file.startsWith("src/") &&
     (WORKER_SOURCE_ROOTS.some((root) => dependency.startsWith(`${root}/`)) ||
@@ -254,7 +260,7 @@ export function violatesModuleBoundary(file: string, dependency: string) {
     workerRoot && !dependency.startsWith(`${workerRoot}/`) && !dependency.startsWith("shared/"),
   );
   const sharedViolation = file.startsWith("shared/") && !dependency.startsWith("shared/");
-  return appViolation || workerViolation || sharedViolation;
+  return appViolation || workerViolation || sharedViolation || backendViolation;
 }
 
 function findBoundaryViolations(graph: Map<string, Set<string>>) {

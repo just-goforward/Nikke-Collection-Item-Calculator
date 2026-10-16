@@ -1,470 +1,293 @@
-import { sha256Hex } from "../../forecast-collector/src/crypto";
+import { sha256Hex } from "../../forecast-collector/src/crypto.ts";
 import {
-  approveDiscordStagingAdoption,
-  approveDiscordTest,
-  readApprovalById,
-  readStagingAdoptionById,
-} from "../../forecast-collector/src/discord-approval";
-import {
-  decideManualReviewFromDiscord,
+  decideManualReview,
   readManualReview,
-} from "../../forecast-collector/src/manual-review";
-import { upsertOpsAlert } from "../../forecast-collector/src/ops";
+} from "../../forecast-collector/src/manual-review.ts";
+import { readBoundedText } from "../../shared/boundedHttp.ts";
 import {
-  approvedData,
-  CUSTOM_ID_PREFIX,
-  type DiscordInteraction,
   parseDiscordInteraction,
   readVerifiedDiscordBody,
-  STAGING_CUSTOM_ID_PREFIX,
-  stagingApprovedData,
-  unavailableApprovalData,
 } from "../../shared/discordInteraction.ts";
-import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard";
-import type { InteractionEnvironment, InteractionRouterEnv } from "./types";
-
-const DISCORD_API = "https://discord.com/api/v10";
-const MANUAL_CUSTOM_ID =
-  /^forecast_manual_(staging|production)_(requeue|ignore):(mr-[0-9a-f]{32})$/;
-const ROUTER_TEST_PREFIX = "forecast_router_test:";
-const MAX_INTERACTION_TOKEN_LENGTH = 512;
-
-type AuthorizedAction =
-  | {
-      kind: "manual_review";
-      environment: InteractionEnvironment;
-      decision: "requeue" | "ignore";
-      reviewId: string;
-      customId: string;
-      interactionId: string;
-      interactionToken: string;
-      actorUserId: string;
-      alreadyResolved: boolean;
-    }
-  | {
-      kind: "staging_adoption";
-      environment: "staging";
-      approvalId: string;
-      customId: string;
-      interactionId: string;
-      interactionToken: string;
-      actorUserId: string;
-    }
-  | {
-      kind: "test_approval";
-      environment: "staging";
-      approvalId: string;
-      customId: string;
-      interactionId: string;
-      interactionToken: string;
-      actorUserId: string;
-    }
-  | {
-      kind: "router_test";
-      environment: "staging";
-      customId: string;
-      interactionId: string;
-      interactionToken: string;
-      actorUserId: string;
-    };
+import {
+  applyPublicationCommand,
+  bindDirectReviewMessage,
+  type CommandInput,
+  createPreviousRollbackReview,
+  createReview,
+  publicationErrorCode,
+  type ReviewRow,
+  readActive,
+  readReview,
+} from "../../shared/forecast-publication/store.ts";
+import { importPublicationSigningKey } from "../../shared/forecastPublication.ts";
+import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard.ts";
+import { handleManualInteraction } from "./manual-interactions.ts";
+import type { InteractionRouterEnv } from "./types.ts";
 
 export default {
-  async fetch(request, env, context) {
+  async fetch(request: Request, env, context) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
       return health(env);
     }
-    if (request.method !== "POST" || url.pathname !== "/discord/interactions") {
+    if (request.method !== "POST" || url.pathname !== "/discord/interactions")
       return new Response("Not found", { status: 404 });
-    }
-    const receivedMs = Date.now();
-    const body = await readVerifiedDiscordBody(request, env.DISCORD_PUBLIC_KEY, receivedMs);
+    const body = await readVerifiedDiscordBody(request, env.DISCORD_PUBLIC_KEY, Date.now());
     if (body instanceof Response) return body;
     const interaction = parseDiscordInteraction(body, env.DISCORD_APPLICATION_ID);
     if (interaction instanceof Response) return interaction;
-    if (interaction.type === 1) return interactionJson({ type: 1 });
-    const parsedAction = authorizeAction(interaction, env);
-    if (parsedAction instanceof Response) return parsedAction;
-    try {
-      await assertUsageAllowed(
-        env.USAGE_GUARD_DB,
-        parsedAction.environment === "staging"
-          ? "staging_automation"
-          : "production_forecast_automation",
-      );
-    } catch (error) {
-      if (!(error instanceof UsageGuardError)) throw error;
+    if (interaction.type === 1) return reply({ type: 1 });
+    const customId = interaction.data?.custom_id;
+    if (
+      typeof customId === "string" &&
+      /^forecast_manual_(staging|production)_(requeue|ignore):mr-/.test(customId)
+    )
+      return handleManualInteraction(interaction, env, context, {
+        sha256Hex,
+        decideManualReview,
+        readManualReview,
+      });
+    if (typeof customId !== "string" || !customId.startsWith("forecast_publish:"))
+      return ephemeral("Legacy Forecast / GitHub-PR buttons are disabled. No changes were made.");
+    if (
+      interaction.guild_id !== env.DISCORD_GUILD_ID ||
+      interaction.member?.user?.id !== env.DISCORD_FORECAST_APPROVER_USER_ID
+    )
+      return ephemeral("You are not authorized to publish forecasts.");
+    if (interaction.channel_id !== env.DISCORD_APPROVAL_CHANNEL_ID)
+      return ephemeral("Use the configured forecast approval channel.");
+    const match = /^forecast_publish:(staging|production):([0-9a-f]{32})$/.exec(customId);
+    const message = Reflect.get(interaction, "message") as { id?: unknown } | undefined;
+    if (
+      !match ||
+      typeof interaction.id !== "string" ||
+      !/^\d{1,24}$/.test(interaction.id) ||
+      typeof message?.id !== "string" ||
+      !/^\d{6,24}$/.test(message.id) ||
+      typeof interaction.token !== "string" ||
+      !/^[A-Za-z0-9._-]{1,512}$/.test(interaction.token)
+    )
+      return ephemeral("Invalid publication button.");
+    const environment = match[1] as "staging" | "production";
+    if (
+      environment === "production"
+        ? env.PRODUCTION_PUBLICATION_MODE !== "enabled" ||
+          env.PRODUCTION_MUTATIONS_ENABLED !== "true"
+        : env.STAGING_PUBLICATION_MODE !== "enabled"
+    )
+      return ephemeral(`${environment} publication is disabled. No changes were made.`);
+    if (!(await publicationKeyAvailable(env)))
       return ephemeral(
-        `Cloudflare 월간 예산 보호 상태(${error.action})로 Forecast 변경이 중단되었습니다.`,
+        `${environment} publication is disabled: publication_signing_key_unavailable (missing or invalid key/key ID). No changes were made.`,
       );
-    }
-    const action = await validateActionTarget(parsedAction, env);
-    if (action instanceof Response) return action;
-
-    const db = databaseFor(env, action.environment);
-    const customIdHash = await sha256Hex(action.customId);
-    try {
-      const inserted = await db
-        .prepare(
-          `INSERT OR IGNORE INTO discord_interaction_audit (
-             interaction_id, environment, action, custom_id_hash, received_at
-           ) VALUES (?, ?, ?, ?, ?)`,
-        )
-        .bind(
-          action.interactionId,
-          action.environment,
-          action.kind,
-          customIdHash,
-          new Date(receivedMs).toISOString(),
-        )
-        .run();
-      if (Number(inserted.meta.changes ?? 0) !== 1) {
-        await db
-          .prepare(
-            `UPDATE discord_interaction_audit SET replay_count = replay_count + 1
-             WHERE interaction_id = ?`,
-          )
-          .bind(action.interactionId)
-          .run();
-        return ephemeral("이미 처리된 Discord interaction입니다.");
-      }
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          event: "discord_router_audit_insert_failed",
-          interactionId: action.interactionId,
-          environment: action.environment,
-          errorCode: errorCode(error),
-        }),
-      );
-      return new Response("Service unavailable", { status: 503 });
-    }
-
-    const initialResponseAt = Date.now();
-    const initialResponseMs = Math.max(0, initialResponseAt - receivedMs);
-    context.waitUntil(
-      recordInitialResponse(db, action.interactionId, initialResponseAt, initialResponseMs),
-    );
-    context.waitUntil(completeAction(env, action, receivedMs));
-    return interactionJson({ type: 6 });
+    const input: CommandInput = {
+      environment,
+      reviewId: match[2]!,
+      interactionId: interaction.id,
+      actorId: env.DISCORD_FORECAST_APPROVER_USER_ID,
+      channelId: env.DISCORD_APPROVAL_CHANNEL_ID,
+      messageId: message.id,
+    };
+    // Public deferred response: emergency confirmations survive client reloads in
+    // the authenticated approval channel; the clicked review remains unchanged.
+    context.waitUntil(complete(env, input, interaction.token));
+    return reply({ type: 5, data: { flags: 0 } });
   },
 } satisfies ExportedHandler<InteractionRouterEnv>;
 
-async function recordInitialResponse(
-  db: D1Database,
-  interactionId: string,
-  responseAtMs: number,
-  responseMs: number,
-) {
+async function complete(env: InteractionRouterEnv, input: CommandInput, token: string) {
+  const db = input.environment === "staging" ? env.STAGING_FORECAST_DB : env.PRODUCTION_FORECAST_DB;
+  let message: PublicationResponse;
   try {
-    await db
-      .prepare(
-        `UPDATE discord_interaction_audit
-         SET initial_response_at = ?, initial_response_ms = ?
-         WHERE interaction_id = ? AND initial_response_at IS NULL`,
-      )
-      .bind(new Date(responseAtMs).toISOString(), responseMs, interactionId)
-      .run();
+    message = await publicationResponse(env, db, input);
   } catch (error) {
-    console.error(
-      JSON.stringify({
-        event: "discord_router_initial_response_audit_failed",
-        interactionId,
-        errorCode: errorCode(error),
-      }),
-    );
+    message = {
+      content: `Publication not applied (${publicationErrorCode(error)}). The review is unchanged; retry this button. If stale/expired, use a fresh review.`,
+    };
   }
+  await deliverPublicationResponse(env, db, input, token, message);
 }
 
-function authorizeAction(interaction: DiscordInteraction, env: InteractionRouterEnv) {
-  if (interaction.guild_id !== env.DISCORD_GUILD_ID) {
-    return ephemeral("허용된 Discord 서버에서만 처리할 수 있습니다.");
-  }
-  const actorUserId = interaction.member?.user?.id ?? interaction.user?.id;
-  if (actorUserId !== env.DISCORD_APPROVER_USER_ID) {
-    return ephemeral("이 작업을 수행할 권한이 없습니다.");
-  }
-  const interactionId = matchingString(interaction.id, /^\d{1,24}$/);
-  const interactionToken = boundedString(interaction.token, MAX_INTERACTION_TOKEN_LENGTH);
-  const customId = boundedString(interaction.data?.custom_id, 100);
-  if (!interactionId || !interactionToken || !customId) {
-    return ephemeral("유효하지 않은 Discord 버튼입니다.");
-  }
+type PublicationResponse = { content: string; directReviewIds?: string[]; components?: object[] };
 
-  const manual = customId.match(MANUAL_CUSTOM_ID);
-  if (manual?.[1] && manual[2] && manual[3]) {
-    if (interaction.channel_id !== env.DISCORD_ALERT_CHANNEL_ID) {
-      return ephemeral("수급량 운영 경고 채널에서만 처리할 수 있습니다.");
-    }
-    const environment = manual[1] as InteractionEnvironment;
-    if (environment === "production" && env.PRODUCTION_MUTATIONS_ENABLED !== "true") {
-      return ephemeral("production Forecast 수동 처리는 아직 활성화되지 않았습니다.");
-    }
-    const decision = manual[2] as "requeue" | "ignore";
-    const reviewId = manual[3];
-    return {
-      kind: "manual_review" as const,
-      environment,
-      decision,
-      reviewId,
-      customId,
-      interactionId,
-      interactionToken,
-      actorUserId,
-      alreadyResolved: false,
-    };
-  }
-
-  if (customId.startsWith(STAGING_CUSTOM_ID_PREFIX)) {
-    if (env.DISCORD_APPROVAL_MODE !== "staging_adoption") {
-      return ephemeral("현재 staging 승인 기능은 비활성 상태입니다.");
-    }
-    if (interaction.channel_id !== env.DISCORD_APPROVAL_CHANNEL_ID) {
-      return ephemeral("수급량 승인 채널에서만 처리할 수 있습니다.");
-    }
-    const approvalId = customId.slice(STAGING_CUSTOM_ID_PREFIX.length);
-    return {
-      kind: "staging_adoption" as const,
-      environment: "staging" as const,
-      approvalId,
-      customId,
-      interactionId,
-      interactionToken,
-      actorUserId,
-    };
-  }
-
-  if (customId.startsWith(CUSTOM_ID_PREFIX)) {
-    if (interaction.channel_id !== env.DISCORD_APPROVAL_CHANNEL_ID) {
-      return ephemeral("수급량 승인 채널에서만 처리할 수 있습니다.");
-    }
-    const approvalId = customId.slice(CUSTOM_ID_PREFIX.length);
-    return {
-      kind: "test_approval" as const,
-      environment: "staging" as const,
-      approvalId,
-      customId,
-      interactionId,
-      interactionToken,
-      actorUserId,
-    };
-  }
-
-  if (customId.startsWith(ROUTER_TEST_PREFIX)) {
-    if (
-      interaction.channel_id !== env.DISCORD_ACTIVITY_CHANNEL_ID &&
-      interaction.channel_id !== env.DISCORD_APPROVAL_CHANNEL_ID
-    ) {
-      return ephemeral("수급량 활동 또는 승인 채널에서만 테스트할 수 있습니다.");
-    }
-    if (!/^forecast_router_test:[0-9a-f]{32}$/.test(customId)) {
-      return ephemeral("유효하지 않은 Router 테스트 버튼입니다.");
-    }
-    return {
-      kind: "router_test" as const,
-      environment: "staging" as const,
-      customId,
-      interactionId,
-      interactionToken,
-      actorUserId,
-    };
-  }
-  return ephemeral("지원하지 않는 Forecast 작업입니다.");
-}
-
-async function validateActionTarget(action: AuthorizedAction, env: InteractionRouterEnv) {
-  if (action.kind === "manual_review") {
-    const review = await readManualReview(databaseFor(env, action.environment), action.reviewId);
-    if (!review) return ephemeral("검토 항목이 만료되었거나 이미 처리되었습니다.");
-    const alreadyResolved = review.state === "resolved" && review.decision === action.decision;
-    if (review.state !== "pending" && !alreadyResolved) {
-      return ephemeral("검토 항목이 만료되었거나 이미 처리되었습니다.");
-    }
-    return { ...action, alreadyResolved };
-  }
-  if (action.kind === "staging_adoption") {
-    const row = await readStagingAdoptionById(env.STAGING_FORECAST_DB, action.approvalId);
-    if (!row || !["pending", "approved", "adoption_pr_created"].includes(row.state)) {
-      return ephemeral("staging 승인 대상이 만료되었거나 존재하지 않습니다.");
-    }
-  }
-  if (action.kind === "test_approval") {
-    const row = await readApprovalById(env.STAGING_FORECAST_DB, action.approvalId);
-    if (!row || !["pending", "test_approved"].includes(row.state)) {
-      return ephemeral("테스트 승인 대상이 만료되었거나 존재하지 않습니다.");
-    }
-  }
-  return action;
-}
-
-async function completeAction(
+async function publicationResponse(
   env: InteractionRouterEnv,
-  action: AuthorizedAction,
-  receivedMs: number,
-) {
-  const db = databaseFor(env, action.environment);
+  db: D1Database,
+  input: CommandInput,
+): Promise<PublicationResponse> {
+  const review = await readReview(db, input);
+  const now = Date.now();
+  let result: { sequence: number; duplicate: boolean };
   try {
-    const data = await actionResult(db, action);
-    await updateOriginalMessage(env.DISCORD_APPLICATION_ID, action.interactionToken, data);
-    await db
-      .prepare(
-        `UPDATE discord_interaction_audit
-         SET completed_at = ?, result = 'completed', error_code = NULL
-         WHERE interaction_id = ? AND completed_at IS NULL`,
-      )
-      .bind(new Date().toISOString(), action.interactionId)
-      .run();
-    console.log(
-      JSON.stringify({
-        event: "discord_router_action_completed",
-        environment: action.environment,
-        action: action.kind,
-        interactionId: action.interactionId,
-        totalMs: Date.now() - receivedMs,
-      }),
+    // Applied command lookup precedes expiry, quota and pointer checks: replay must return
+    // its original outcome even after a later publication or Usage Guard stop.
+    result = await applyPublicationCommand(
+      db,
+      input,
+      {
+        privateKey: env.FORECAST_PUBLICATION_SIGNING_KEY ?? "",
+        keyId: env.FORECAST_PUBLICATION_KEY_ID,
+      },
+      now,
+      () =>
+        assertUsageAllowed(
+          env.USAGE_GUARD_DB,
+          input.environment === "staging" ? "staging_automation" : "production_forecast_automation",
+        ),
     );
   } catch (error) {
-    const code = errorCode(error);
-    try {
-      await db
-        .prepare(
-          `UPDATE discord_interaction_audit
-           SET completed_at = ?, result = 'failed', error_code = ?
-           WHERE interaction_id = ? AND completed_at IS NULL`,
-        )
-        .bind(new Date().toISOString(), code, action.interactionId)
-        .run();
-      await upsertOpsAlert(db, {
-        alertKey: `discord-interaction:${action.environment}:${code}`,
-        environment: action.environment,
-        severity: "critical",
-        component: "discord-router",
-        errorCode: code,
-        context: { action: action.kind, interactionId: action.interactionId },
-      });
-    } catch (auditError) {
-      console.error(
-        JSON.stringify({
-          event: "discord_router_failure_audit_failed",
-          environment: action.environment,
-          action: action.kind,
-          interactionId: action.interactionId,
-          errorCode: code,
-          auditErrorCode: errorCode(auditError),
-        }),
-      );
-    }
+    if (
+      review.action === "approve" ||
+      ![
+        "publication_review_expired",
+        "publication_review_stale",
+        "runtime_activation_stale",
+      ].includes(publicationErrorCode(error))
+    )
+      throw error;
+    const active = await readActive(db, input.environment);
+    // Explicit second confirmation, never an automatic stale emergency mutation. This
+    // refresh is human-triggered and works even when Usage Guard has stopped the Cron.
+    const refreshedReviewId = await createReview(
+      db,
+      active,
+      review.action,
+      review.candidate_id,
+      review.payload_hash,
+      now,
+      input.interactionId,
+    );
+    return emergencyConfirmation(
+      db,
+      [refreshedReviewId],
+      `${input.environment}: the emergency review was stale/expired. Nothing was published.`,
+    );
   }
+  const content = `${input.environment}: ${review.action} ${result.duplicate ? "already applied" : "applied"} at sequence ${result.sequence}.\nActivation operation: ${input.interactionId}`;
+  // Every active result offers off immediately, including the first approval and
+  // a rollback. Off results offer rollback to their previous approved artifact.
+  try {
+    const active = await readActive(db, input.environment);
+    if (active.operation_id === input.interactionId && active.sequence === result.sequence) {
+      const ids: string[] = [];
+      const rollback = await createPreviousRollbackReview(db, active, now, input.interactionId);
+      if (rollback) ids.push(rollback);
+      if (active.candidate_id)
+        ids.push(await createReview(db, active, "off", null, null, now, input.interactionId));
+      if (ids.length) return await emergencyConfirmation(db, ids, content);
+    }
+  } catch (error) {
+    // The activation already committed; never report a failed publication or undo it.
+    return {
+      content: `${content}\nEmergency confirmation unavailable (${publicationErrorCode(error)}).`,
+    };
+  }
+  return { content };
 }
 
-async function actionResult(db: D1Database, action: AuthorizedAction) {
-  if (action.kind === "manual_review") {
-    if (action.alreadyResolved) {
-      return manualReviewCompletedData(
-        await readManualReview(db, action.reviewId),
-        action.environment,
-        action.decision,
-      );
-    }
-    const result = await decideManualReviewFromDiscord(
-      db,
-      action.environment,
-      action.reviewId,
-      action.decision,
-      action.actorUserId,
-      action.interactionId,
+async function emergencyConfirmation(
+  db: D1Database,
+  reviewIds: string[],
+  content: string,
+): Promise<PublicationResponse> {
+  const details: string[] = [];
+  const buttons: object[] = [];
+  for (const reviewId of reviewIds) {
+    const review = await db
+      .prepare("SELECT * FROM forecast_runtime_reviews WHERE review_id=?")
+      .bind(reviewId)
+      .first<ReviewRow>();
+    if (!review) throw new Error("publication_review_missing");
+    details.push(
+      `Confirm ${review.action} against CURRENT sequence ${review.expected_sequence}.` +
+        `\nCandidate: ${review.candidate_id ?? "off"}\nSHA-256: ${review.payload_hash ?? "none"}` +
+        `\nExpires: ${new Date(review.expires_at).toISOString()}`,
     );
-    return manualReviewCompletedData(result.review, action.environment, action.decision);
-  }
-  if (action.kind === "staging_adoption") {
-    const result = await approveDiscordStagingAdoption(
-      db,
-      action.approvalId,
-      action.interactionId,
-      action.actorUserId,
-      Date.now(),
-    );
-    if (result.outcome === "approved" || result.outcome === "already_approved") {
-      return stagingApprovedData(result.approval, action.customId);
-    }
-    return unavailableApprovalData("staging 승인 대상이 만료되었거나 존재하지 않습니다.");
-  }
-  if (action.kind === "test_approval") {
-    const result = await approveDiscordTest(
-      db,
-      action.approvalId,
-      action.interactionId,
-      action.actorUserId,
-      Date.now(),
-    );
-    if (result.outcome === "approved" || result.outcome === "already_approved") {
-      return approvedData(result.approval, action.customId);
-    }
-    return unavailableApprovalData("테스트 승인 대상이 만료되었거나 존재하지 않습니다.");
+    buttons.push({
+      type: 2,
+      style: 4,
+      label: `Confirm ${review.action} (${review.environment})`,
+      custom_id: `forecast_publish:${review.environment}:${reviewId}`,
+    });
   }
   return {
-    content:
-      "Forecast Discord Interaction Router 테스트가 완료되었습니다. Forecast와 PR은 변경되지 않았습니다.",
-    embeds: [],
-    components: [
-      {
-        type: 1,
-        components: [
-          {
-            type: 2,
-            style: 2,
-            custom_id: action.customId,
-            label: "Router 테스트 완료",
-            disabled: true,
-          },
-        ],
-      },
-    ],
-    allowed_mentions: { parse: [] },
+    directReviewIds: reviewIds,
+    content: `${content}\n${details.join("\n\n")}`,
+    components: [{ type: 1, components: buttons }],
   };
 }
 
-function manualReviewCompletedData(
-  review: Awaited<ReturnType<typeof readManualReview>>,
-  environment: InteractionEnvironment,
-  decision: "requeue" | "ignore",
+async function deliverPublicationResponse(
+  env: InteractionRouterEnv,
+  db: D1Database,
+  input: CommandInput,
+  token: string,
+  { content, directReviewIds, components }: PublicationResponse,
 ) {
-  if (!review) throw new Error("manual_review_missing_after_discord_decision");
-  const label = decision === "requeue" ? "재처리 대기" : "관련 없음 처리";
-  return {
-    content: `Manual review \`${review.reviewId}\`가 ${label} 상태로 처리되었습니다.`,
-    embeds: [],
-    components: [
+  try {
+    const response = await fetch(
+      `https://discord.com/api/v10/webhooks/${env.DISCORD_APPLICATION_ID}/${encodeURIComponent(token)}/messages/@original`,
       {
-        type: 1,
-        components: [
-          { type: 2, style: 5, label: "원문 열기", url: review.sourceItem.url },
-          {
-            type: 2,
-            style: decision === "requeue" ? 1 : 2,
-            custom_id: `forecast_manual_${environment}_${decision}:${review.reviewId}`,
-            label,
-            disabled: true,
-          },
-        ],
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          content,
+          components: components ?? [],
+          allowed_mentions: { parse: [] },
+        }),
+        signal: AbortSignal.timeout(8_000),
       },
-    ],
-    allowed_mentions: { parse: [] },
-  };
+    );
+    if (!response.ok) throw new Error("publication_discord_response_failed");
+    if (directReviewIds?.length) {
+      const message: unknown = JSON.parse(
+        await readBoundedText(response, 16_384, "publication_discord_response_too_large"),
+      );
+      const messageId = message && typeof message === "object" ? Reflect.get(message, "id") : null;
+      if (typeof messageId !== "string" || !/^\d{6,24}$/.test(messageId))
+        throw new Error("publication_message_id");
+      for (const reviewId of directReviewIds)
+        await bindDirectReviewMessage(db, {
+          reviewId,
+          interactionId: input.interactionId,
+          messageId,
+          channelId: input.channelId,
+        });
+    } else {
+      await response.body?.cancel();
+    }
+  } catch (error) {
+    // Never roll back a committed decision for a delivery failure. The atomic result outbox
+    // survives Worker restarts, and replay of the interaction returns its recorded outcome.
+    console.warn(
+      JSON.stringify({
+        event: "publication_discord_response_failed",
+        interactionId: input.interactionId,
+        code: publicationErrorCode(error),
+      }),
+    );
+  }
 }
 
-async function updateOriginalMessage(applicationId: string, token: string, data: object) {
-  const response = await fetch(
-    `${DISCORD_API}/webhooks/${applicationId}/${encodeURIComponent(token)}/messages/@original`,
-    {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(data),
-      signal: AbortSignal.timeout(8_000),
-    },
-  );
-  if (!response.ok) throw new Error(`discord_interaction_webhook_${response.status}`);
-  await response.body?.cancel();
+function reply(value: object) {
+  return Response.json(value, { headers: { "cache-control": "no-store" } });
+}
+function ephemeral(content: string) {
+  return reply({ type: 4, data: { content, flags: 64 } });
+}
+
+async function publicationKeyAvailable(env: InteractionRouterEnv) {
+  if (
+    !env.FORECAST_PUBLICATION_SIGNING_KEY ||
+    !/^[A-Za-z0-9_-]{1,64}$/.test(env.FORECAST_PUBLICATION_KEY_ID)
+  )
+    return false;
+  try {
+    await importPublicationSigningKey(env.FORECAST_PUBLICATION_SIGNING_KEY);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function health(env: InteractionRouterEnv) {
@@ -485,15 +308,19 @@ async function health(env: InteractionRouterEnv) {
     healthRow(env.STAGING_FORECAST_DB),
     healthRow(env.PRODUCTION_FORECAST_DB),
   ]);
-  return Response.json(
-    {
-      status: "ok",
-      deploymentSha: env.DEPLOY_SHA,
-      productionMutationsEnabled: env.PRODUCTION_MUTATIONS_ENABLED === "true",
-      databases: { staging, production },
-    },
-    { headers: { "cache-control": "no-store" } },
-  );
+  const keyAvailable = await publicationKeyAvailable(env);
+  return reply({
+    status: "ok",
+    deploymentSha: env.DEPLOY_SHA,
+    productionMutationsEnabled: env.PRODUCTION_MUTATIONS_ENABLED === "true",
+    stagingPublication: env.STAGING_PUBLICATION_MODE === "enabled" && keyAvailable,
+    productionPublication:
+      env.PRODUCTION_PUBLICATION_MODE === "enabled" &&
+      env.PRODUCTION_MUTATIONS_ENABLED === "true" &&
+      keyAvailable,
+    publicationError: keyAvailable ? null : "publication_signing_key_unavailable",
+    databases: { staging, production },
+  });
 }
 
 async function healthRow(db: D1Database) {
@@ -501,42 +328,22 @@ async function healthRow(db: D1Database) {
     .prepare("SELECT MAX(version) AS version FROM schema_migrations")
     .first<{ version: number | null }>();
   const version = Number(migration?.version ?? 0);
+  // Retain the existing readiness response shape; new databases report the runtime command log.
   const audit =
-    version >= 8
+    version >= 23
       ? await db
-          .prepare(
-            `SELECT result, received_at FROM discord_interaction_audit
-             ORDER BY received_at DESC LIMIT 1`,
-          )
-          .first<{ result: string | null; received_at: string }>()
-      : null;
+          .prepare(`SELECT state AS result,strftime('%Y-%m-%dT%H:%M:%fZ',created_at/1000.0,'unixepoch') AS received_at
+        FROM forecast_runtime_commands ORDER BY created_at DESC LIMIT 1`)
+          .first<{ result: string; received_at: string }>()
+      : version >= 8
+        ? await db
+            .prepare(
+              "SELECT result,received_at FROM discord_interaction_audit ORDER BY received_at DESC LIMIT 1",
+            )
+            .first<{ result: string | null; received_at: string }>()
+        : null;
   return {
     schemaVersion: version,
     latestInteraction: audit ? { result: audit.result, receivedAt: audit.received_at } : null,
   };
-}
-
-function databaseFor(env: InteractionRouterEnv, environment: InteractionEnvironment) {
-  return environment === "production" ? env.PRODUCTION_FORECAST_DB : env.STAGING_FORECAST_DB;
-}
-
-function matchingString(value: unknown, pattern: RegExp) {
-  return typeof value === "string" && pattern.test(value) ? value : null;
-}
-
-function boundedString(value: unknown, maxLength: number) {
-  return typeof value === "string" && value.length > 0 && value.length <= maxLength ? value : null;
-}
-
-function errorCode(error: unknown) {
-  const value = error instanceof Error ? error.message : "unknown";
-  return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "unknown";
-}
-
-function ephemeral(content: string) {
-  return interactionJson({ type: 4, data: { content, flags: 64 } });
-}
-
-function interactionJson(value: unknown) {
-  return Response.json(value, { headers: { "cache-control": "no-store" } });
 }

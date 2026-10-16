@@ -16,60 +16,6 @@ const EMPTY_WORK_FINGERPRINTS: Record<DispatcherEnvironment, string> = {
   production: "c5056c85d91b2c5f076950484107ac80d8b395c0706ba389e9f3dc0ce6382a62",
 };
 
-export async function startDispatcherInvocation(
-  db: D1Database,
-  input: {
-    environment: DispatcherEnvironment;
-    deploymentSha: string;
-    scheduledTime: number;
-  },
-) {
-  const scheduledAt = new Date(input.scheduledTime).toISOString();
-  const invocationId = `${input.environment}:${input.deploymentSha}:${input.scheduledTime}`;
-  const inserted = await db
-    .prepare(
-      `INSERT OR IGNORE INTO dispatcher_invocations (
-         invocation_id, deployment_sha, environment, scheduled_at, started_at, status
-       ) VALUES (?, ?, ?, ?, ?, 'running')`,
-    )
-    .bind(
-      invocationId,
-      input.deploymentSha,
-      input.environment,
-      scheduledAt,
-      new Date().toISOString(),
-    )
-    .run();
-  return Number(inserted.meta.changes ?? 0) === 1 ? invocationId : null;
-}
-
-export async function finishDispatcherInvocation(
-  db: D1Database,
-  invocationId: string,
-  input: {
-    status: "completed" | "failure";
-    actionableCount: number;
-    dispatchId?: string;
-    errorCode?: string;
-  },
-) {
-  await db
-    .prepare(
-      `UPDATE dispatcher_invocations
-       SET status = ?, finished_at = ?, actionable_count = ?, dispatch_id = ?, error_code = ?
-       WHERE invocation_id = ? AND status = 'running'`,
-    )
-    .bind(
-      input.status,
-      new Date().toISOString(),
-      Math.max(0, Math.trunc(input.actionableCount)),
-      input.dispatchId ?? null,
-      input.errorCode ? sanitizeErrorCode(input.errorCode) : null,
-      invocationId,
-    )
-    .run();
-}
-
 export async function readActionableWork(
   db: D1Database,
   environment: DispatcherEnvironment,
@@ -282,62 +228,6 @@ export async function markDispatchAccepted(
   if (Number(result.meta.changes ?? 0) !== 1) throw new Error("dispatch_reservation_lost");
 }
 
-export async function markDispatchFailed(
-  db: D1Database,
-  input: {
-    dispatchId: string;
-    invocationId: string;
-    errorCode: string;
-    httpStatus: number | null;
-    retryAtMs: number;
-    nowMs: number;
-  },
-) {
-  const updated = await db
-    .prepare(
-      `UPDATE workflow_dispatches
-       SET state = 'failed', finished_at = ?, github_http_status = ?, error_code = ?,
-           lease_until = NULL, next_attempt_at = ?
-       WHERE dispatch_id = ? AND state = 'reserved' AND reserved_by_invocation = ?`,
-    )
-    .bind(
-      new Date(input.nowMs).toISOString(),
-      input.httpStatus,
-      sanitizeErrorCode(input.errorCode),
-      new Date(input.retryAtMs).toISOString(),
-      input.dispatchId,
-      input.invocationId,
-    )
-    .run();
-  if (Number(updated.meta.changes ?? 0) === 1) return "failed" as const;
-  const current = await db
-    .prepare("SELECT state FROM workflow_dispatches WHERE dispatch_id = ?")
-    .bind(input.dispatchId)
-    .first<{ state: string }>();
-  if (
-    current &&
-    ["accepted", "running", "succeeded", "failed", "cancelled"].includes(current.state)
-  ) {
-    return "callback_owned" as const;
-  }
-  throw new Error("dispatch_reservation_lost");
-}
-
-export async function markDispatchDiscordSent(
-  db: D1Database,
-  dispatchId: string,
-  messageId: string,
-  nowMs: number,
-) {
-  await db
-    .prepare(
-      `UPDATE workflow_dispatches SET discord_message_id = ?, discord_sent_at = ?
-       WHERE dispatch_id = ? AND discord_sent_at IS NULL`,
-    )
-    .bind(messageId, new Date(nowMs).toISOString(), dispatchId)
-    .run();
-}
-
 export async function raiseOpsAlert(
   db: D1Database,
   input: {
@@ -420,139 +310,6 @@ export async function resolveOpsAlert(db: D1Database, alertKey: string, nowMs: n
        WHERE alert_key = ? AND state = 'open'`,
     )
     .bind(now, now, bounded(alertKey, 160))
-    .run();
-}
-
-export async function updateObservedAlerts(
-  db: D1Database,
-  environment: DispatcherEnvironment,
-  nowMs: number,
-  actionableCount: number,
-) {
-  const now = new Date(nowMs).toISOString();
-  const tenMinutesAgo = new Date(nowMs - 10 * 60 * 1_000).toISOString();
-  const twentyMinutesAgo = new Date(nowMs - 20 * 60 * 1_000).toISOString();
-  const oldest = await db
-    .prepare(
-      "SELECT MIN(first_seen_at) AS first_seen_at FROM source_queue WHERE status = 'pending'",
-    )
-    .first<{ first_seen_at: string | null }>();
-  const pendingKey = `pending-delay:${environment}`;
-  if (oldest?.first_seen_at && oldest.first_seen_at <= tenMinutesAgo) {
-    await raiseOpsAlert(db, {
-      alertKey: pendingKey,
-      environment,
-      severity: "warning",
-      component: "source-queue",
-      errorCode: "pending_over_10_minutes",
-      context: { oldestPendingAt: oldest.first_seen_at },
-      nowMs,
-    });
-  } else {
-    await resolveOpsAlert(db, pendingKey, nowMs);
-  }
-
-  const latestCollector = await db
-    .prepare(
-      `SELECT status, error_code FROM collector_invocations ORDER BY scheduled_at DESC LIMIT 1`,
-    )
-    .first<{ status: string; error_code: string | null }>();
-  const collectorKey = `collector-circuit:${environment}`;
-  if (latestCollector?.status === "circuit_open") {
-    await raiseOpsAlert(db, {
-      alertKey: collectorKey,
-      environment,
-      severity: "critical",
-      component: "collector",
-      errorCode: "collector_circuit_open",
-      context: { collectorError: latestCollector.error_code },
-      nowMs,
-    });
-  } else if (latestCollector?.status === "completed") {
-    await resolveOpsAlert(db, collectorKey, nowMs);
-  }
-
-  const stale =
-    actionableCount > 0
-      ? await db
-          .prepare(
-            `SELECT dispatch_id, state, work_fingerprint
-       FROM workflow_dispatches
-       WHERE environment = ? AND state IN ('accepted', 'running')
-         AND COALESCE(started_at, accepted_at, created_at) <= ?
-       ORDER BY created_at LIMIT 5`,
-          )
-          .bind(environment, twentyMinutesAgo)
-          .all<{ dispatch_id: string; state: string; work_fingerprint: string }>()
-      : { results: [] };
-  for (const row of stale.results) {
-    await raiseOpsAlert(db, {
-      alertKey: `dispatch-stale:${environment}:${row.dispatch_id}`,
-      environment,
-      severity: "critical",
-      component: "github-workflow",
-      errorCode: "dispatch_work_remaining_20_minutes",
-      context: { dispatchId: row.dispatch_id, state: row.state },
-      nowMs,
-    });
-  }
-  if (actionableCount === 0) {
-    await db
-      .prepare(
-        `UPDATE forecast_ops_alerts
-         SET state = 'resolved', resolved_at = ?, next_send_at = ?
-         WHERE environment = ? AND state = 'open' AND alert_key LIKE ?`,
-      )
-      .bind(now, now, environment, `dispatch-stale:${environment}:%`)
-      .run();
-  }
-
-  const manual = await db
-    .prepare(
-      `SELECT q.source, q.item_id, q.title, q.url, q.error_code, r.review_id
-       FROM source_queue q
-       JOIN source_manual_reviews r
-         ON r.source = q.source AND r.item_id = q.item_id
-        AND r.generation = q.review_generation AND r.state = 'pending'
-       LEFT JOIN forecast_ops_alerts a
-         ON a.alert_key = 'manual-review:' || ? || ':' || q.source || ':' || q.item_id
-       WHERE q.status = 'manual_review' AND a.alert_key IS NULL
-       ORDER BY q.updated_at LIMIT 10`,
-    )
-    .bind(environment)
-    .all<{
-      source: string;
-      item_id: string;
-      title: string;
-      url: string;
-      error_code: string | null;
-      review_id: string;
-    }>();
-  for (const row of manual.results) {
-    await raiseOpsAlert(db, {
-      alertKey: `manual-review:${environment}:${row.source}:${row.item_id}`,
-      environment,
-      severity: "warning",
-      component: "source-queue",
-      errorCode: "source_item_manual_review",
-      context: {
-        source: row.source,
-        itemId: row.item_id,
-        reviewId: row.review_id,
-        title: bounded(row.title, 120),
-        url: validatedNaverUrl(row.url),
-        reason: row.error_code,
-      },
-      nowMs,
-    });
-  }
-
-  await db
-    .prepare(
-      `UPDATE workflow_dispatches SET state = 'stale', finished_at = ?, error_code = 'reservation_abandoned'
-       WHERE environment = ? AND state = 'reserved' AND lease_until < ?`,
-    )
-    .bind(now, environment, now)
     .run();
 }
 
@@ -758,13 +515,6 @@ function parseContext(value: string) {
   return { invalidContext: true };
 }
 
-function validatedNaverUrl(value: string) {
-  const url = URL.parse(value);
-  return url?.protocol === "https:" && url.hostname === "game.naver.com"
-    ? url.toString()
-    : "https://game.naver.com/lounge/nikke/home";
-}
-
 function bounded(value: string, max: number) {
   const cleaned = replaceControlCharacters(value, "_").slice(0, max);
   if (!cleaned) throw new Error("empty_ops_value");
@@ -778,6 +528,6 @@ function replaceControlCharacters(value: string, replacement: string) {
   }).join("");
 }
 
-export function sanitizeErrorCode(value: string) {
+function sanitizeErrorCode(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "unknown";
 }

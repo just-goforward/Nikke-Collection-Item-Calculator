@@ -12,7 +12,7 @@ import {
 const root = resolve(import.meta.dirname, "..");
 const directory = resolve(root, "forecast-collector/migrations");
 const migrations = discoverForecastMigrations(directory);
-const currentVersions = Array.from({ length: 21 }, (_, index) => index + 1);
+const currentVersions = Array.from({ length: 24 }, (_, index) => index + 1);
 const localStaging = { environment: "staging", local: true } as const;
 const cleanup: Array<() => void> = [];
 type Spawn = NonNullable<NonNullable<Parameters<typeof applyForecastD1Migrations>[1]>["spawn"]>;
@@ -158,6 +158,57 @@ function assertLegacyBaseline(db: DatabaseSync, original: ReturnType<typeof acce
   return baseline;
 }
 
+function publicationProtectionSchema(table: string) {
+  const protections = [
+    [
+      "forecast_candidates",
+      "forecast_runtime_candidate_update",
+      "0022_forecast_runtime_versions.sql",
+    ],
+    [
+      "forecast_candidates",
+      "forecast_runtime_candidate_delete",
+      "0022_forecast_runtime_versions.sql",
+    ],
+    [
+      "forecast_candidates",
+      "forecast_runtime_candidate_replace",
+      "0022_forecast_runtime_versions.sql",
+    ],
+    [
+      "forecast_candidates",
+      "forecast_runtime_approved_candidate_update",
+      "0023_forecast_runtime_publication.sql",
+    ],
+    [
+      "candidate_sources",
+      "forecast_runtime_approved_source_update",
+      "0023_forecast_runtime_publication.sql",
+    ],
+    [
+      "candidate_sources",
+      "forecast_runtime_approved_source_delete",
+      "0023_forecast_runtime_publication.sql",
+    ],
+    [
+      "candidate_sources",
+      "forecast_runtime_approved_source_insert",
+      "0023_forecast_runtime_publication.sql",
+    ],
+  ] as const;
+  return protections
+    .filter(([target]) => target === table)
+    .map(([, name, file]) => {
+      const source = readFileSync(resolve(root, "forecast-collector/migrations", file), "utf8");
+      const declaration = source.match(
+        new RegExp(`CREATE TRIGGER IF NOT EXISTS ${name}\\b[\\s\\S]*?END;`),
+      )?.[0];
+      if (!declaration) throw new Error(`Expected publication protection missing: ${name}`);
+      // SQLite's catalog omits IF NOT EXISTS and the terminating delimiter.
+      return { type: "trigger", name, sql: declaration.replace(" IF NOT EXISTS", "").slice(0, -1) };
+    });
+}
+
 export type { Spawn };
 export {
   acceptedLegacyRows,
@@ -170,6 +221,7 @@ export {
   legacyDatabase,
   localStaging,
   migrations,
+  publicationProtectionSchema,
   result,
   root,
   sqliteRunner,

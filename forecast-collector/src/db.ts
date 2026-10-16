@@ -270,7 +270,22 @@ export async function listProposalCandidates(db: D1Database) {
   );
 }
 
+export async function unapprovedCandidateCondition(db: D1Database) {
+  // Legacy production/bootstrap schemas predate runtime approvals. Only reference
+  // the publication table once its migration is recorded; never cache this gate.
+  const publication = await db
+    .prepare("SELECT version FROM schema_migrations WHERE version = 23")
+    .first();
+  return publication
+    ? `NOT EXISTS (
+        SELECT 1 FROM forecast_runtime_approvals a
+        WHERE a.candidate_id = forecast_candidates.candidate_id
+      )`
+    : "1";
+}
+
 export async function supersedeIncompatibleCandidates(db: D1Database) {
+  const unapproved = await unapprovedCandidateCondition(db);
   const result = await db
     .prepare(
       `UPDATE forecast_candidates
@@ -279,7 +294,7 @@ export async function supersedeIncompatibleCandidates(db: D1Database) {
          AND (
            COALESCE(json_extract(payload_json, '$.payloadVersion'), -1) <> ?
            OR COALESCE(json_extract(payload_json, '$.rulesVersion'), '') <> ?
-         )`,
+         ) AND (${unapproved})`,
     )
     .bind(new Date().toISOString(), SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION, SUPPLY_RULES_VERSION)
     .run();
@@ -287,11 +302,13 @@ export async function supersedeIncompatibleCandidates(db: D1Database) {
 }
 
 export async function markCandidateProposed(db: D1Database, candidateId: string) {
+  const unapproved = await unapprovedCandidateCondition(db);
   const result = await db
     .prepare(
       `UPDATE forecast_candidates
        SET state = 'proposed', updated_at = ?
-       WHERE candidate_id = ? AND state IN ('crosschecked', 'x_unavailable')`,
+       WHERE candidate_id = ? AND state IN ('crosschecked', 'x_unavailable')
+         AND (${unapproved})`,
     )
     .bind(new Date().toISOString(), candidateId)
     .run();

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   database,
   legacyDatabase,
+  publicationProtectionSchema,
   result,
   root,
   type Spawn,
@@ -32,16 +33,19 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true })).toEqual({
         bootstrapped: false,
-        applied: [20, 21],
-        versions: Array.from({ length: 21 }, (_, index) => index + 1).filter(
+        applied: [20, 21, 22, 23, 24],
+        versions: Array.from({ length: 24 }, (_, index) => index + 1).filter(
           (version) => environment === "staging" || ![4, 5, 6].includes(version),
         ),
       });
       expect(runner.files()).toEqual([
         "0020_source_poll_recovery_audits.sql",
         "0021_source_poll_marker_recovery_audits.sql",
+        "0022_forecast_runtime_versions.sql",
+        "0023_forecast_runtime_publication.sql",
+        "0024_runtime_ingestion.sql",
       ]);
-      expect(legacyTableSnapshot(db, oldTables)).toEqual(before);
+      expect(legacyTableSnapshot(db, oldTables)).toEqual(withPublicationProtections(before));
       expect(pollRecoveryTables(db)).toEqual([...POLL_RECOVERY_TABLES].sort());
       for (const table of POLL_RECOVERY_TABLES)
         expect(db.prepare(`SELECT * FROM ${table}`).all()).toEqual([]);
@@ -52,7 +56,7 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
       for (let replay = 0; replay < 2; replay++)
         db.exec(readFileSync(POLL_RECOVERY_MIGRATION, "utf8"));
       expect(db.prepare("SELECT * FROM schema_migrations ORDER BY version").all()).toEqual(ledger);
-      expect(legacyTableSnapshot(db, oldTables)).toEqual(before);
+      expect(legacyTableSnapshot(db, oldTables)).toEqual(withPublicationProtections(before));
       expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       if (environment === "production") {
         expect(
@@ -88,12 +92,15 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
       });
       expect(legacyTableSnapshot(db, oldTables)).toEqual(before);
       runner.spawn.mockImplementation(normal).mockClear();
-      expect(runner.run({ environment, local: true }).applied).toEqual([20, 21]);
+      expect(runner.run({ environment, local: true }).applied).toEqual([20, 21, 22, 23, 24]);
       expect(runner.files()).toEqual([
         "0020_source_poll_recovery_audits.sql",
         "0021_source_poll_marker_recovery_audits.sql",
+        "0022_forecast_runtime_versions.sql",
+        "0023_forecast_runtime_publication.sql",
+        "0024_runtime_ingestion.sql",
       ]);
-      expect(legacyTableSnapshot(db, oldTables)).toEqual(before);
+      expect(legacyTableSnapshot(db, oldTables)).toEqual(withPublicationProtections(before));
     },
   );
 
@@ -119,24 +126,34 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
       expect(legacyTableSnapshot(db, oldTables)).toEqual(before);
       const ledger = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
       runner.spawn.mockImplementation(normal).mockClear();
-      expect(runner.run({ environment, local: true }).applied).toEqual([21]);
-      expect(runner.files()).toEqual(["0021_source_poll_marker_recovery_audits.sql"]);
+      expect(runner.run({ environment, local: true }).applied).toEqual([21, 22, 23, 24]);
+      expect(runner.files()).toEqual([
+        "0021_source_poll_marker_recovery_audits.sql",
+        "0022_forecast_runtime_versions.sql",
+        "0023_forecast_runtime_publication.sql",
+        "0024_runtime_ingestion.sql",
+      ]);
       expect(
         db.prepare("SELECT * FROM schema_migrations WHERE version<=20 ORDER BY version").all(),
       ).toEqual(ledger);
-      expect(legacyTableSnapshot(db, oldTables)).toEqual(before);
+      expect(legacyTableSnapshot(db, oldTables)).toEqual(withPublicationProtections(before));
     },
   );
 });
 
 describe("REVIEW19 source poll recovery schema and immutable evidence", () => {
-  it("keeps fresh v21 and incremental v21 poll recovery columns, keys, indexes and immutable triggers equal", () => {
+  it("keeps fresh v24 and incremental v24 poll recovery columns, keys, indexes and immutable triggers equal", () => {
     const upgraded = legacyDatabase(19);
     sqliteRunner(upgraded).run();
     const fresh = database();
     const runner = sqliteRunner(fresh);
     expect(runner.run().bootstrapped).toBe(true);
-    expect(runner.files()).toEqual(["schema.sql"]);
+    expect(runner.files()).toEqual([
+      "schema.sql",
+      "0022_forecast_runtime_versions.sql",
+      "0023_forecast_runtime_publication.sql",
+      "0024_runtime_ingestion.sql",
+    ]);
     for (const table of POLL_RECOVERY_TABLES) {
       for (const pragma of ["table_info", "foreign_key_list", "index_list"])
         expect(fresh.prepare(`PRAGMA ${pragma}(${table})`).all()).toEqual(
@@ -161,7 +178,7 @@ describe("REVIEW19 source poll recovery schema and immutable evidence", () => {
     ]);
     for (const db of [fresh, upgraded])
       expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 21,
+        version: 24,
       });
   });
 
@@ -189,7 +206,7 @@ describe("REVIEW19 source poll recovery schema and immutable evidence", () => {
         expect(
           POLL_RECOVERY_TABLES.map((table) => db.prepare(`SELECT * FROM ${table}`).all()),
         ).toEqual(evidence);
-        expect(legacyTableSnapshot(db, oldTables)).toEqual(before);
+        expect(legacyTableSnapshot(db, oldTables)).toEqual(withPublicationProtections(before));
         expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       }
     },
@@ -321,6 +338,19 @@ function pollRecoveryTables(db: DatabaseSync) {
     )
     .all()
     .map((row) => String(row["name"]));
+}
+
+function withPublicationProtections(snapshot: ReturnType<typeof legacyTableSnapshot>) {
+  return snapshot.map((entry) => ({
+    ...entry,
+    // Preserve every old table, index, trigger definition and row exactly; only append the
+    // seven explicitly named publication guards from the approved migration sources.
+    schema: [...entry.schema, ...publicationProtectionSchema(entry.table)].sort(
+      (left, right) =>
+        String(left["type"]).localeCompare(String(right["type"])) ||
+        String(left["name"]).localeCompare(String(right["name"])),
+    ),
+  }));
 }
 
 function seedPollRecoveryEvidence(db: DatabaseSync, environment: "staging" | "production") {

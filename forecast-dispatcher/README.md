@@ -1,98 +1,38 @@
-# Forecast workflow dispatcher
+# Forecast publication dispatcher (M4)
 
-`collection-kit-forecast-dispatcher` is a Cron-only Cloudflare Worker. It watches the shared
-Forecast D1 queue and asks one fixed GitHub Actions workflow to process actionable work. It has no
-public HTTP API, cannot edit repository contents itself, and cannot activate a Forecast.
+Cron reads validated D1 candidates and delivers durable Discord reviews/results. It never calls
+GitHub, consumes source-queue work, or publishes an artifact. Historical GitHub helper modules
+remain only for the existing explicitly invoked diagnostic script, not the Worker entry point.
+The Router is the only signer/publisher; see `forecast-interactions/README.md`.
 
-## Trust boundary
+Both environments default to `PUBLICATION_MODE=off` and `DISPATCH_ENABLED=false`. Enable both
+only with separate rollout approval. `FORECAST_DB` must match `ENVIRONMENT`; the singleton
+publication row permanently binds a database to its first configured environment.
+Set `DISCORD_APPROVAL_CHANNEL_ID` to the Router's approval channel; there is deliberately no
+fallback channel for publication reviews. The only required secret is `DISCORD_BOT_TOKEN`.
+The existing Usage Guard gates scheduled work before D1 candidate reads or Discord delivery.
 
-- Repository, workflow, and ref are hard-coded to
-  `just-goforward/Nikke-Collection-Item-Calculator`, `forecast-proposal.yml`, and `main`.
-- A repository-scoped GitHub App has only `Actions: write` and implicit `Metadata: read`. Each
-  installation token request narrows access again to this repository and `Actions: write`.
-- The App private key and Discord bot token are Worker secrets and are never written to D1, logs,
-  workflow inputs, or Discord.
-- Queue titles and URLs can appear only in a bounded Discord notification. They cannot select a
-  repository, workflow, ref, branch, shell argument, or path.
+Each Cron seals at most one candidate and handles five publication outbox deliveries plus five
+operational alerts/manual-review messages. Operational delivery works with publication off and
+never dispatches GitHub workflows. Sealed reads check canonical hashes without re-deriving profiles.
+Pending publication deliveries defer new sealing until an idle pass, so a run never combines
+new profile derivation with a backlog of five candidate-message hash checks.
+Reviews bind immutable
+candidate/hash, environment, expected pointer sequence/previous candidate. Normal approvals expire
+exactly 24 hours after creation, as do emergency controls. Clicking a stale/expired
+emergency control asks the Router for a fresh, explicitly confirmed review against the current
+pointer, without depending on Cron or Usage Guard. Rollback targets a previously approved artifact.
+Approvals are never
+inferred from candidate workflow state.
 
-## Scheduling and idempotency
+Delivery uses a one-minute lease, five attempts and a persisted retry deadline (minimum five
+minutes; Discord `retry_after` honored). Expired leases are reclaimable after restarts. Exhausted
+or permanent failures remain `dead` with evidence; they require explicit operator recovery.
+Discord nonce deduplication is bounded by Discord's retention, so delivery is **at least once**,
+not exactly once. A lost response can create a duplicate visible message later; only the saved
+message ID is authorized, and atomic command/review constraints prevent duplicate publication.
+Tokens, private keys and interaction webhook URLs are never persisted.
 
-The Dispatcher runs at `1-59/3 * * * *`, offset from the Collector's three-minute Cron. It hashes
-the ordered pending source-item and candidate IDs into a work fingerprint. A deterministic
-`environment + fingerprint + three-minute slot` ID and D1 unique constraints prevent concurrent
-Cron invocations from reserving the same dispatch. An accepted or running fingerprint is suppressed
-for 20 minutes; a stale five-minute lease or failed attempt can be reacquired.
-
-GitHub's dispatch endpoint has no end-to-end idempotency key. API version `2026-03-10` normally
-returns HTTP 200 with the created run identity, which the Dispatcher records immediately; the 204
-compatibility response leaves identity ownership to the callback. If a network failure occurs after
-GitHub accepts a request, a retry can still create another run. The callback contract therefore
-permits only one GitHub run identity to own a dispatch ID; a second run receives HTTP 409 and skips
-all queue and repository mutations.
-
-## Operations alerts
-
-Discord messages disable all mentions. Accepted dispatches go to the activity channel and are
-described as requests, not completed work, with at most three sanitized Naver titles and links.
-Warnings, critical errors, and their recovery messages go to the alert channel. Immediate authorization,
-invariant, callback, workflow-failure, and cancellation errors are recorded as critical alerts.
-Retryable GitHub/Discord failures alert after three occurrences. Pending age, stale dispatches,
-manual review, Collector circuit state, and the thirty-minute watchdog are monitored from D1.
-
-Manual-review alerts include only a validated Naver link, opaque review ID, requeue/ignore buttons,
-and a link to the structured GitHub workflow for a date-bearing manual event. The Discord
-interaction Router owns button verification and D1 mutation; the Dispatcher owns only message
-delivery.
-
-The same alert fingerprint is grouped for 30 minutes. Discord rate limits do not sleep inside the
-Worker: a validated `retry_after` of up to one hour is stored as `next_send_at`, and a later Cron
-retries the same durable alert. Final send failures remain visible in `/health`. Resolution produces
-one green recovery message. X/Jina unavailability remains advisory and is not an operations
-incident.
-
-## Workers Paid quota guard
-
-The Dispatcher checks the shared `USAGE_GUARD_DB` before reading actionable work or dispatching a
-workflow. A dedicated 15-minute Usage Guard verifies the Workers Paid subscription and billing
-period, aggregates all Workers and D1 databases in the account, and conservatively projects every
-monthly metric from the longest available recent window up to six hours. The project uses 50% of
-each included allowance as its software hard cap. A 25%
-warning does not stop work; staging stops at 35%, production Forecast automation at 40%, statistics
-writes at 45%, and optional D1/Cron work at 50%. Missing state is fail-closed, 45-minute-old evidence
-blocks production Forecast automation, and two-hour-old evidence hard-stops optional work.
-
-Before a staging canary starts, GitHub Actions records a baseline, runs Collector and Dispatcher for
-30 minutes, and requires both current and projected month-end utilization below 25%. `Watch Forecast
-D1 Budget` independently repeats account preflight and Guard health checks every 30 minutes. At the
-35% stage or above, it redeploys staging with both `DISPATCH_ENABLED=false` and
-`COLLECT_ENABLED=false`; the in-Worker guard enforces higher stages without waiting for a deployment.
-
-## Local verification
-
-```powershell
-npm run dispatcher:types:check
-npm run test:forecast-dispatcher
-npx wrangler deploy --dry-run --env staging --config forecast-dispatcher/wrangler.toml
-```
-
-`DISPATCH_ENABLED=false` is the deployment-safe default. Staging and production workflows deploy the
-Dispatcher disabled, migrate and deploy the Collector, then enable dispatch only after Collector
-readiness succeeds. Production remains protected by the `cloudflare-production` environment.
-
-Required bindings and secrets:
-
-```text
-GITHUB_APP_ID
-GITHUB_APP_INSTALLATION_ID
-GITHUB_APP_PRIVATE_KEY (secret, full PEM)
-DISCORD_ACTIVITY_CHANNEL_ID
-DISCORD_ALERT_CHANNEL_ID
-DISCORD_FALLBACK_CHANNEL_ID
-DISCORD_CHANNEL_ID (legacy fallback during migration)
-DISCORD_BOT_TOKEN (secret)
-FORECAST_DB
-USAGE_GUARD_DB
-ENVIRONMENT
-DEPLOY_SHA
-DISPATCH_ENABLED
-```
+Local checks: `npm run test:forecast-dispatcher`, `npm run test:forecast-interactions`.
+Live delivery, token/channel permissions, Cron resource budgets and nonce behavior still need an
+explicitly authorized staging check.

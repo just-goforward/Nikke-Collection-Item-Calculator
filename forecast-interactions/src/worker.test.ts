@@ -6,443 +6,523 @@ import {
 } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import schemaSql from "../../forecast-collector/schema.sql?raw";
-import { executeTestSql } from "../../shared/testD1Sql";
-import usageGuardSchemaSql from "../../usage-guard/schema.sql?raw";
-import type { InteractionRouterEnv } from "./types";
-import worker from "./worker";
+import { applyPublicationCommand } from "../../shared/forecast-publication/store.ts";
+import {
+  approvalReview,
+  emergencyReview,
+  migratePublicationDb,
+  seedManualReview,
+  TEST_NOW,
+} from "../../shared/forecast-publication/test-fixtures.ts";
+import { encodeBase64 } from "../../shared/forecastPublication.ts";
+import { executeTestSql } from "../../shared/testD1Sql.ts";
+import usageSchema from "../../usage-guard/schema.sql?raw";
+import type { InteractionRouterEnv } from "./types.ts";
+import worker from "./worker.ts";
 
-const testEnv = env as unknown as InteractionRouterEnv;
-const nowMs = Date.parse("2026-09-01T03:00:00.000Z");
-let keyPair: CryptoKeyPair;
-let publicKeyHex: string;
-let webhookFetch: ReturnType<typeof vi.fn>;
-
+let testEnv: InteractionRouterEnv;
+let discordKey: CryptoKeyPair;
+let webhook: ReturnType<typeof vi.fn>;
 beforeEach(async () => {
   await reset();
-  vi.setSystemTime(nowMs);
-  for (const db of [testEnv.STAGING_FORECAST_DB, testEnv.PRODUCTION_FORECAST_DB]) {
-    await executeTestSql(db, schemaSql, applyD1Migrations);
-  }
-  await executeTestSql(testEnv.USAGE_GUARD_DB, usageGuardSchemaSql, applyD1Migrations);
-  await testEnv.USAGE_GUARD_DB.prepare(
-    `INSERT INTO usage_guard_state (
-       singleton_id, action, observed_at, period_start, period_end,
-       evidence_json, evidence_hash, current_percent, projected_percent,
-       governing_metric, normal_streak, release_pending, updated_at
-     ) VALUES (1, 'normal', ?, ?, ?, '{}', ?, 0, 0,
-               'workerRequests', 2, 0, ?)`,
-  )
-    .bind(
-      new Date(nowMs).toISOString(),
-      "2026-08-15T00:00:00.000Z",
-      "2026-09-15T00:00:00.000Z",
-      "0".repeat(64),
-      new Date(nowMs).toISOString(),
-    )
+  vi.setSystemTime(TEST_NOW);
+  testEnv = { ...env } as unknown as InteractionRouterEnv;
+  for (const db of [testEnv.STAGING_FORECAST_DB, testEnv.PRODUCTION_FORECAST_DB])
+    await migratePublicationDb(db, applyD1Migrations);
+  await executeTestSql(testEnv.USAGE_GUARD_DB, usageSchema, applyD1Migrations);
+  await testEnv.USAGE_GUARD_DB.prepare(`INSERT INTO usage_guard_state
+    (singleton_id,action,observed_at,period_start,period_end,evidence_json,evidence_hash,
+    current_percent,projected_percent,governing_metric,normal_streak,release_pending,updated_at)
+    VALUES(1,'normal',?,'2026-10-01T00:00:00.000Z','2026-11-01T00:00:00.000Z','{}',?,0,0,'workerRequests',2,0,?)`)
+    .bind(new Date(TEST_NOW).toISOString(), "0".repeat(64), new Date(TEST_NOW).toISOString())
     .run();
-  keyPair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
+  discordKey = (await crypto.subtle.generateKey("Ed25519", true, [
     "sign",
     "verify",
   ])) as CryptoKeyPair;
-  publicKeyHex = bytesHex(await crypto.subtle.exportKey("raw", keyPair.publicKey));
-  webhookFetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-  vi.stubGlobal("fetch", webhookFetch);
-});
-
-describe("Discord staging adoption gating", () => {
-  it.each([undefined, "disabled", "test", "staging_adoption "])(
-    "withholds staging adoption without audit or delivery in mode %s",
-    async (mode) => {
-      const approval = await stagingAdoption();
-      const overrides: Partial<InteractionRouterEnv> = {};
-      if (mode !== undefined)
-        overrides.DISCORD_APPROVAL_MODE = mode as NonNullable<
-          InteractionRouterEnv["DISCORD_APPROVAL_MODE"]
-        >;
-      const response = await signedInteraction(
-        componentInteraction(approval.customId, "987654321", "333333333", "1011"),
-        overrides,
-      );
-      expect(await response.json()).toMatchObject({
-        type: 4,
-        data: { content: "현재 staging 승인 기능은 비활성 상태입니다.", flags: 64 },
-      });
-      expect(
-        await testEnv.STAGING_FORECAST_DB.prepare(
-          "SELECT state FROM discord_staging_adoptions WHERE approval_id = ?",
-        )
-          .bind(approval.approvalId)
-          .first(),
-      ).toEqual({ state: "pending" });
-      expect(
-        await testEnv.STAGING_FORECAST_DB.prepare(
-          "SELECT COUNT(*) AS count FROM discord_interaction_audit",
-        ).first(),
-      ).toEqual({ count: 0 });
-      expect(webhookFetch).not.toHaveBeenCalled();
-    },
+  testEnv.DISCORD_PUBLIC_KEY = hex(await crypto.subtle.exportKey("raw", discordKey.publicKey));
+  const signing = (await crypto.subtle.generateKey("Ed25519", true, [
+    "sign",
+    "verify",
+  ])) as CryptoKeyPair;
+  testEnv.FORECAST_PUBLICATION_SIGNING_KEY = encodeBase64(
+    new Uint8Array(await crypto.subtle.exportKey("pkcs8", signing.privateKey)),
   );
-
-  it("rejects withheld adoption before quota and target reads", async () => {
-    await testEnv.USAGE_GUARD_DB.prepare("DELETE FROM usage_guard_state").run();
-    await testEnv.STAGING_FORECAST_DB.prepare("DROP TABLE discord_staging_adoptions").run();
-    const response = await signedInteraction(
-      componentInteraction(
-        `forecast_staging_approve:discord-staging-${"a".repeat(36)}`,
-        "987654321",
-        "333333333",
-        "1012",
-      ),
-      { DISCORD_APPROVAL_MODE: "disabled" },
-    );
-    expect(await response.json()).toMatchObject({
-      type: 4,
-      data: { content: "현재 staging 승인 기능은 비활성 상태입니다.", flags: 64 },
-    });
-    expect(webhookFetch).not.toHaveBeenCalled();
-  });
-
-  it("allows explicit staging adoption without enabling production mutations", async () => {
-    const approval = await stagingAdoption();
-    const response = await signedInteraction(
-      componentInteraction(approval.customId, "987654321", "333333333", "1013"),
-      { DISCORD_APPROVAL_MODE: "staging_adoption" },
-    );
-    expect(await response.json()).toEqual({ type: 6 });
-    expect(
-      await testEnv.STAGING_FORECAST_DB.prepare(
-        "SELECT state FROM discord_staging_adoptions WHERE approval_id = ?",
-      )
-        .bind(approval.approvalId)
-        .first(),
-    ).toEqual({ state: "approved" });
-    expect(
-      await testEnv.PRODUCTION_FORECAST_DB.prepare(
-        "SELECT COUNT(*) AS count FROM discord_staging_adoptions",
-      ).first(),
-    ).toEqual({ count: 0 });
-    expect(webhookFetch).toHaveBeenCalledOnce();
-  });
-
-  it("retains the quota guard before reading an explicitly enabled adoption target", async () => {
-    await testEnv.USAGE_GUARD_DB.prepare("DELETE FROM usage_guard_state").run();
-    await testEnv.STAGING_FORECAST_DB.prepare("DROP TABLE discord_staging_adoptions").run();
-    const response = await signedInteraction(
-      componentInteraction(
-        `forecast_staging_approve:discord-staging-${"a".repeat(36)}`,
-        "987654321",
-        "333333333",
-        "1014",
-      ),
-      { DISCORD_APPROVAL_MODE: "staging_adoption" },
-    );
-    expect(await response.json()).toMatchObject({
-      type: 4,
-      data: {
-        content: "Cloudflare 월간 예산 보호 상태(hard_stop)로 Forecast 변경이 중단되었습니다.",
-        flags: 64,
-      },
-    });
-    expect(webhookFetch).not.toHaveBeenCalled();
-  });
+  webhook = vi.fn().mockImplementation(async () => Response.json({ id: "777777777" }));
+  vi.stubGlobal("fetch", webhook);
 });
-
-describe("Discord interaction router authorization and quota", () => {
-  it("answers signed ping and rejects invalid signatures", async () => {
-    const ping = await signedInteraction({ type: 1, application_id: "123456789" });
-    const invalid = await invoke(
-      new Request("https://router.test/discord/interactions", {
-        method: "POST",
-        headers: {
-          "x-signature-ed25519": "00".repeat(64),
-          "x-signature-timestamp": String(Math.floor(nowMs / 1_000)),
-        },
-        body: JSON.stringify({ type: 1, application_id: "123456789" }),
-      }),
-    );
-
-    expect(await ping.json()).toEqual({ type: 1 });
-    expect(invalid.status).toBe(401);
-  });
-
-  it("defers an authorized router smoke, audits timing, and rejects replay", async () => {
-    const interaction = componentInteraction(
-      `forecast_router_test:${"a".repeat(32)}`,
-      "987654321",
-      "555555555",
-      "1001",
-    );
-
-    const first = await signedInteraction(interaction);
-    const replay = await signedInteraction(interaction);
-
-    expect(await first.json()).toEqual({ type: 6 });
-    expect(await replay.json()).toMatchObject({ type: 4, data: { flags: 64 } });
-    expect(webhookFetch).toHaveBeenCalledOnce();
-    const audit = await testEnv.STAGING_FORECAST_DB.prepare(
-      `SELECT action, result, initial_response_ms, replay_count
-       FROM discord_interaction_audit WHERE interaction_id = '1001'`,
-    ).first<{
-      action: string;
-      result: string;
-      initial_response_ms: number;
-      replay_count: number;
-    }>();
-    expect(audit).toMatchObject({ action: "router_test", result: "completed", replay_count: 1 });
-    expect(audit?.initial_response_ms).toBeGreaterThanOrEqual(0);
-    expect(audit?.initial_response_ms).toBeLessThan(1_000);
-  });
-
-  it("enforces guild, user, and channel authorization before mutation", async () => {
-    const reviewId = await insertManualReview(testEnv.STAGING_FORECAST_DB, "200");
-    const base = componentInteraction(
-      `forecast_manual_staging_ignore:${reviewId}`,
-      "987654321",
-      "444444444",
-      "1002",
-    );
-    const wrongGuild = await signedInteraction({ ...base, guild_id: "999999999" });
-    const wrongUser = await signedInteraction({
-      ...base,
-      id: "1003",
-      member: { user: { id: "111111111" } },
-    });
-    const wrongChannel = await signedInteraction({ ...base, id: "1004", channel_id: "555555555" });
-
-    for (const response of [wrongGuild, wrongUser, wrongChannel]) {
-      expect(await response.json()).toMatchObject({ type: 4, data: { flags: 64 } });
-    }
-    const review = await testEnv.STAGING_FORECAST_DB.prepare(
-      "SELECT state FROM source_manual_reviews WHERE review_id = ?",
-    )
-      .bind(reviewId)
-      .first<{ state: string }>();
-    expect(review?.state).toBe("pending");
-  });
-
-  it("rejects an unauthorized guild before consulting quota state", async () => {
-    await testEnv.USAGE_GUARD_DB.prepare("DELETE FROM usage_guard_state").run();
-    const response = await signedInteraction({
-      ...componentInteraction(
-        `forecast_router_test:${"b".repeat(32)}`,
-        "987654321",
-        "555555555",
-        "1009",
-      ),
-      guild_id: "999999999",
-    });
-
-    expect(await response.json()).toMatchObject({
-      type: 4,
-      data: { content: "허용된 Discord 서버에서만 처리할 수 있습니다.", flags: 64 },
-    });
-  });
-
-  it("consults the quota guard before reading a protected Forecast target", async () => {
-    await testEnv.USAGE_GUARD_DB.prepare("DELETE FROM usage_guard_state").run();
-    await testEnv.STAGING_FORECAST_DB.prepare("DROP TABLE source_manual_reviews").run();
-
-    const response = await signedInteraction(
-      componentInteraction(
-        `forecast_manual_staging_ignore:mr-${"3".repeat(32)}`,
-        "987654321",
-        "444444444",
-        "1010",
-      ),
-    );
-
-    expect(await response.json()).toMatchObject({
-      type: 4,
-      data: {
-        content: "Cloudflare 월간 예산 보호 상태(hard_stop)로 Forecast 변경이 중단되었습니다.",
-        flags: 64,
-      },
-    });
-  });
-});
-
-describe("Discord manual review isolation and repair", () => {
-  it("cannot use a staging custom ID to mutate the production database", async () => {
-    const reviewId = await insertManualReview(testEnv.PRODUCTION_FORECAST_DB, "201");
-    const stagingAttempt = await signedInteraction(
-      componentInteraction(
-        `forecast_manual_staging_ignore:${reviewId}`,
-        "987654321",
-        "444444444",
-        "1005",
-      ),
-    );
-    expect(await stagingAttempt.json()).toMatchObject({ type: 4, data: { flags: 64 } });
-    await expect(reviewState(testEnv.PRODUCTION_FORECAST_DB, reviewId)).resolves.toBe("pending");
-
-    const disabledProductionAttempt = await signedInteraction(
-      componentInteraction(
-        `forecast_manual_production_ignore:${reviewId}`,
-        "987654321",
-        "444444444",
-        "1006",
-      ),
-    );
-    expect(await disabledProductionAttempt.json()).toMatchObject({ type: 4, data: { flags: 64 } });
-    await expect(reviewState(testEnv.PRODUCTION_FORECAST_DB, reviewId)).resolves.toBe("pending");
-
-    const productionAttempt = await signedInteraction(
-      componentInteraction(
-        `forecast_manual_production_ignore:${reviewId}`,
-        "987654321",
-        "444444444",
-        "1006",
-      ),
-      { PRODUCTION_MUTATIONS_ENABLED: "true" },
-    );
-    expect(await productionAttempt.json()).toEqual({ type: 6 });
-    await expect(reviewState(testEnv.PRODUCTION_FORECAST_DB, reviewId)).resolves.toBe("resolved");
-    await expect(reviewState(testEnv.STAGING_FORECAST_DB, reviewId)).resolves.toBeUndefined();
-  });
-
-  it("can repair a completed manual-review card after the first webhook update fails", async () => {
-    const reviewId = await insertManualReview(testEnv.STAGING_FORECAST_DB, "202");
-    const customId = `forecast_manual_staging_ignore:${reviewId}`;
-    webhookFetch
-      .mockResolvedValueOnce(new Response(null, { status: 500 }))
-      .mockResolvedValueOnce(new Response(null, { status: 200 }));
-
-    const first = await signedInteraction(
-      componentInteraction(customId, "987654321", "444444444", "1007"),
-    );
-    expect(await first.json()).toEqual({ type: 6 });
-    await expect(reviewState(testEnv.STAGING_FORECAST_DB, reviewId)).resolves.toBe("resolved");
-
-    const retry = await signedInteraction(
-      componentInteraction(customId, "987654321", "444444444", "1008"),
-    );
-    expect(await retry.json()).toEqual({ type: 6 });
-    expect(webhookFetch).toHaveBeenCalledTimes(2);
-    const audit = await testEnv.STAGING_FORECAST_DB.prepare(
-      "SELECT result FROM discord_interaction_audit WHERE interaction_id = '1008'",
-    ).first<{ result: string }>();
-    expect(audit?.result).toBe("completed");
-  });
-});
-
-async function stagingAdoption() {
-  const approvalId = "discord-staging-00000000-0000-4000-8000-000000000000";
-  await testEnv.STAGING_FORECAST_DB.prepare(
-    `INSERT INTO discord_staging_adoptions (
-       approval_id, request_key, forecast_id, payload_hash,
-       source_pull_request_number, source_pull_request_url, source_head_sha,
-       registry_sha, research_run_id, research_run_url,
-       research_artifact_name, research_artifact_digest, state, created_at, expires_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-  )
-    .bind(
-      approvalId,
-      "d".repeat(64),
-      "supply-2026-08-28-v1",
-      "e".repeat(64),
-      13,
-      "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/pull/13",
-      "f".repeat(40),
-      "a".repeat(40),
-      123,
-      "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/123",
-      "dynamic-hp-exact-gate-summary-123",
-      "b".repeat(64),
-      new Date(nowMs).toISOString(),
-      "2026-09-02T03:00:00.000Z",
-    )
-    .run();
-  return { approvalId, customId: `forecast_staging_approve:${approvalId}` };
-}
-
-async function insertManualReview(db: D1Database, itemId: string) {
-  const now = new Date(nowMs).toISOString();
-  const reviewId = `mr-${itemId.padStart(32, "0")}`;
-  await db
-    .prepare(
-      `INSERT INTO source_queue (
-       source, item_id, url, title, published_at, official, status, attempts,
-       review_generation, error_code, first_seen_at, updated_at
-     ) VALUES ('naver-board-56', ?, ?, ?, ?, 1, 'manual_review', 3, 0,
-       'schedule_ambiguous', ?, ?)`,
-    )
-    .bind(
-      itemId,
-      `https://game.naver.com/lounge/nikke/board/detail/${itemId}`,
-      `공지 ${itemId}`,
-      now,
-      now,
-      now,
-    )
-    .run();
-  await db
-    .prepare(
-      `INSERT INTO source_manual_reviews (
-       review_id, source, item_id, generation, state, created_at, expires_at
-     ) VALUES (?, 'naver-board-56', ?, 0, 'pending', ?, ?)`,
-    )
-    .bind(reviewId, itemId, now, new Date(nowMs + 24 * 60 * 60 * 1_000).toISOString())
-    .run();
-  return reviewId;
-}
-
-async function reviewState(db: D1Database, reviewId: string) {
-  const row = await db
-    .prepare("SELECT state FROM source_manual_reviews WHERE review_id = ?")
-    .bind(reviewId)
-    .first<{ state: string }>();
-  return row?.state;
-}
-
-async function signedInteraction(value: unknown, overrides: Partial<InteractionRouterEnv> = {}) {
-  const body = JSON.stringify(value);
-  const timestamp = String(Math.floor(nowMs / 1_000));
-  const signature = await crypto.subtle.sign(
-    { name: "Ed25519" },
-    keyPair.privateKey,
-    new TextEncoder().encode(`${timestamp}${body}`),
-  );
-  return invoke(
-    new Request("https://router.test/discord/interactions", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-signature-ed25519": bytesHex(signature),
-        "x-signature-timestamp": timestamp,
-      },
-      body,
-    }),
-    overrides,
-  );
-}
-
-function componentInteraction(customId: string, userId: string, channelId: string, id: string) {
+function interaction(customId: string, overrides: object = {}) {
   return {
-    id,
-    application_id: "123456789",
-    token: `interaction-token-${id}`,
+    id: "1001",
+    application_id: testEnv.DISCORD_APPLICATION_ID,
+    token: "test-token",
     type: 3,
-    guild_id: "222222222",
-    channel_id: channelId,
-    member: { user: { id: userId } },
+    guild_id: testEnv.DISCORD_GUILD_ID,
+    channel_id: testEnv.DISCORD_APPROVAL_CHANNEL_ID,
+    member: { user: { id: testEnv.DISCORD_FORECAST_APPROVER_USER_ID } },
+    message: { id: "666666666" },
     data: { custom_id: customId, component_type: 2 },
+    ...overrides,
   };
 }
-
-async function invoke(request: Request, overrides: Partial<InteractionRouterEnv> = {}) {
-  const handler = worker.fetch;
-  if (!handler) throw new Error("Missing Router fetch handler.");
+async function request(value: object, overrides: Partial<InteractionRouterEnv> = {}) {
+  const body = JSON.stringify(value);
+  const timestamp = String(Math.floor(Date.now() / 1_000));
+  const signature = await crypto.subtle.sign(
+    "Ed25519",
+    discordKey.privateKey,
+    new TextEncoder().encode(timestamp + body),
+  );
   const context = createExecutionContext();
-  const response = await handler(
-    request as Parameters<typeof handler>[0],
-    { ...testEnv, DISCORD_PUBLIC_KEY: publicKeyHex, ...overrides },
+  const response = await worker.fetch(
+    new Request("https://router.test/discord/interactions", {
+      method: "POST",
+      body,
+      headers: { "x-signature-ed25519": hex(signature), "x-signature-timestamp": timestamp },
+    }),
+    { ...testEnv, ...overrides },
     context,
   );
   await waitOnExecutionContext(context);
   return response;
 }
-
-function bytesHex(value: ArrayBuffer) {
-  return [...new Uint8Array(value)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+function hex(buffer: ArrayBuffer) {
+  return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
+function custom(reviewId: string, environment = "staging") {
+  return `forecast_publish:${environment}:${reviewId}`;
+}
+async function count(db = testEnv.STAGING_FORECAST_DB) {
+  return db.prepare("SELECT COUNT(*) n FROM forecast_runtime_activation_history").first();
+}
+
+describe("new publication Router", () => {
+  it("preserves the read-only health/readiness contract", async () => {
+    const context = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("https://router.test/health"),
+      testEnv,
+      context,
+    );
+    expect(await response.json()).toMatchObject({
+      status: "ok",
+      deploymentSha: "test-router-sha",
+      productionMutationsEnabled: false,
+      databases: { staging: { schemaVersion: 23 }, production: { schemaVersion: 23 } },
+    });
+    expect(webhook).not.toHaveBeenCalled();
+  });
+  it.each([
+    "forecast_test_approve:old",
+    "forecast_staging_approve:old",
+    "forecast_manual_staging_requeue:old",
+    "forecast_router_test:old",
+  ])("disables legacy %s without DB writes", async (id) => {
+    const response = await request(interaction(id));
+    expect(await response.json()).toMatchObject({
+      type: 4,
+      data: { content: expect.stringContaining("disabled") },
+    });
+    expect(await count()).toEqual({ n: 0 });
+    expect(
+      await testEnv.STAGING_FORECAST_DB.prepare(
+        "SELECT COUNT(*) n FROM forecast_runtime_commands",
+      ).first(),
+    ).toEqual({ n: 0 });
+    expect(webhook).not.toHaveBeenCalled();
+  });
+  it("authenticates the one guild approver, channel, application and signature", async () => {
+    const a = await approvalReview(testEnv.STAGING_FORECAST_DB);
+    for (const bad of [
+      { member: { user: { id: "123" } } },
+      { guild_id: "wrong" },
+      { channel_id: "wrong" },
+      { member: undefined, user: { id: testEnv.DISCORD_FORECAST_APPROVER_USER_ID } },
+    ]) {
+      expect(await (await request(interaction(custom(a.reviewId), bad))).json()).toMatchObject({
+        type: 4,
+      });
+    }
+    expect(
+      (await request(interaction(custom(a.reviewId), { application_id: "wrong" }))).status,
+    ).toBe(401);
+    const context = createExecutionContext();
+    expect(
+      (
+        await worker.fetch(
+          new Request("https://router.test/discord/interactions", { method: "POST", body: "{}" }),
+          testEnv,
+          context,
+        )
+      ).status,
+    ).toBe(401);
+    expect(await count()).toEqual({ n: 0 });
+  });
+  it("keeps production off even when the old mutations flag is enabled", async () => {
+    const a = await approvalReview(testEnv.STAGING_FORECAST_DB);
+    expect(
+      await (
+        await request(interaction(custom(a.reviewId, "production")), {
+          PRODUCTION_MUTATIONS_ENABLED: "true",
+        })
+      ).json(),
+    ).toMatchObject({ type: 4, data: { content: expect.stringContaining("disabled") } });
+    expect(await count(testEnv.PRODUCTION_FORECAST_DB)).toEqual({ n: 0 });
+    expect(await count()).toEqual({ n: 0 });
+  });
+});
+
+describe("human-triggered rollback confirmation", () => {
+  it("offers exact previous-target rollback on approval without Cron and confirms it during hard-stop", async () => {
+    const db = testEnv.STAGING_FORECAST_DB;
+    const a = await approvalReview(db);
+    await request(interaction(custom(a.reviewId), { id: "1101" }));
+    const b = await approvalReview(db, 2);
+    await request(interaction(custom(b.reviewId), { id: "1102" }));
+    await testEnv.USAGE_GUARD_DB.prepare("UPDATE usage_guard_state SET action='hard_stop'").run();
+    expect(await count()).toEqual({ n: 2 });
+    const response = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
+    expect(response.content).toContain("approve applied at sequence 2");
+    expect(response.content).toContain("Confirm rollback against CURRENT sequence 2");
+    expect(response.content).toContain(`Candidate: ${a.candidate.candidateId}`);
+    expect(response.content).toContain(`SHA-256: ${a.hash}`);
+    const rollbackCustomId = response.components[0].components[0].custom_id;
+    expect(response.components[0].components[0].label).toBe("Confirm rollback (staging)");
+    expect(response.components[0].components[1].label).toBe("Confirm off (staging)");
+    expect(
+      await db
+        .prepare(`SELECT r.action,r.candidate_id,r.payload_hash,r.expected_sequence,
+        r.previous_candidate_id,o.state,o.message_id FROM forecast_runtime_reviews r
+        JOIN forecast_runtime_outbox o ON o.review_id=r.review_id WHERE r.review_id=?`)
+        .bind(rollbackCustomId.split(":")[2])
+        .first(),
+    ).toEqual({
+      action: "rollback",
+      candidate_id: a.candidate.candidateId,
+      payload_hash: a.hash,
+      expected_sequence: 2,
+      previous_candidate_id: b.candidate.candidateId,
+      state: "sent",
+      message_id: "777777777",
+    });
+    // The control remains subject to the same approver and exact message binding.
+    expect(
+      await (
+        await request(
+          interaction(rollbackCustomId, {
+            id: "1103",
+            member: { user: { id: "123" } },
+            message: { id: "777777777" },
+          }),
+        )
+      ).json(),
+    ).toMatchObject({ type: 4 });
+    await request(interaction(rollbackCustomId, { id: "1104", message: { id: "888888888" } }));
+    expect(String(webhook.mock.calls.at(-1)?.[1]?.body)).toContain("publication_review_binding");
+    expect(await count()).toEqual({ n: 2 });
+    await request(interaction(rollbackCustomId, { id: "1105", message: { id: "777777777" } }));
+    expect(await count()).toEqual({ n: 3 });
+    const active = await db
+      .prepare("SELECT sequence,candidate_id,signed_pointer_json FROM forecast_runtime_active")
+      .first<{ sequence: number; candidate_id: string; signed_pointer_json: string }>();
+    expect(active).toMatchObject({ sequence: 3, candidate_id: a.candidate.candidateId });
+    expect(JSON.parse(active?.signed_pointer_json ?? "{}").statement).toMatchObject({
+      sequence: 3,
+      candidateId: a.candidate.candidateId,
+      contentHash: a.hash,
+    });
+    await request(interaction(rollbackCustomId, { id: "1105", message: { id: "777777777" } }));
+    expect(await count()).toEqual({ n: 3 });
+    expect(String(webhook.mock.calls.at(-1)?.[1]?.body)).toContain("already applied");
+    // Replaying approval B must not offer an inverse rollback for the now-current A.
+    await request(interaction(custom(b.reviewId), { id: "1102" }));
+    expect(JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body)).components).toEqual([]);
+    expect(await count()).toEqual({ n: 3 });
+  });
+});
+
+describe("durable emergency controls without Cron", () => {
+  it("keeps first-activation off and subsequent rollback confirmations public, bound and usable during hard-stop", async () => {
+    const db = testEnv.STAGING_FORECAST_DB;
+    const a = await approvalReview(db);
+    const activation = await request(interaction(custom(a.reviewId), { id: "1201" }));
+    expect(await activation.json()).toEqual({ type: 5, data: { flags: 0 } });
+    const firstMessage = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
+    expect(firstMessage.content).toContain("Activation operation: 1201");
+    expect(firstMessage.components[0].components).toHaveLength(1);
+    const offButton = firstMessage.components[0].components[0];
+    expect(offButton.label).toBe("Confirm off (staging)");
+    expect(
+      await db
+        .prepare(`SELECT r.expected_sequence,r.previous_candidate_id,r.review_key,
+      o.state,o.message_id,o.channel_id FROM forecast_runtime_reviews r
+      JOIN forecast_runtime_outbox o ON o.review_id=r.review_id WHERE r.review_id=?`)
+        .bind(offButton.custom_id.split(":")[2])
+        .first(),
+    ).toEqual({
+      expected_sequence: 1,
+      previous_candidate_id: a.candidate.candidateId,
+      review_key: expect.stringContaining(":1201"),
+      state: "sent",
+      message_id: "777777777",
+      channel_id: testEnv.DISCORD_APPROVAL_CHANNEL_ID,
+    });
+    await testEnv.USAGE_GUARD_DB.prepare("UPDATE usage_guard_state SET action='hard_stop'").run();
+    // A fresh signed request/context models a reloaded client: only persisted message
+    // and review identities are needed. No Cron or manually seeded emergency review.
+    const off = await request(
+      interaction(offButton.custom_id, {
+        id: "1202",
+        message: { id: "777777777" },
+      }),
+    );
+    expect(await off.json()).toEqual({ type: 5, data: { flags: 0 } });
+    expect(
+      await db.prepare("SELECT sequence,candidate_id FROM forecast_runtime_active").first(),
+    ).toEqual({ sequence: 2, candidate_id: null });
+    const offMessage = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
+    expect(offMessage.content).toContain("Activation operation: 1202");
+    expect(offMessage.content).toContain(`Candidate: ${a.candidate.candidateId}`);
+    expect(offMessage.content).toContain(`SHA-256: ${a.hash}`);
+    expect(offMessage.components[0].components).toHaveLength(1);
+    const rollbackButton = offMessage.components[0].components[0];
+    expect(rollbackButton.label).toBe("Confirm rollback (staging)");
+    await request(
+      interaction(rollbackButton.custom_id, {
+        id: "1203",
+        message: { id: "777777777" },
+      }),
+    );
+    expect(
+      await db.prepare("SELECT sequence,candidate_id FROM forecast_runtime_active").first(),
+    ).toEqual({ sequence: 3, candidate_id: a.candidate.candidateId });
+    const rollbackMessage = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
+    expect(rollbackMessage.content).toContain("Confirm off against CURRENT sequence 3");
+    expect(await count()).toEqual({ n: 3 });
+  });
+});
+
+describe("publication emergency controls and delivery recovery", () => {
+  it("blocks approval on stop but allows signed off and rollback", async () => {
+    const db = testEnv.STAGING_FORECAST_DB;
+    const a = await approvalReview(db);
+    const signing = {
+      privateKey: testEnv.FORECAST_PUBLICATION_SIGNING_KEY ?? "",
+      keyId: testEnv.FORECAST_PUBLICATION_KEY_ID,
+    };
+    await applyPublicationCommand(
+      db,
+      {
+        interactionId: "9001",
+        reviewId: a.reviewId,
+        environment: "staging",
+        actorId: testEnv.DISCORD_FORECAST_APPROVER_USER_ID,
+        messageId: "666666666",
+        channelId: "333333333",
+      },
+      signing,
+      TEST_NOW,
+    );
+    const b = await approvalReview(db, 2);
+    await testEnv.USAGE_GUARD_DB.prepare("UPDATE usage_guard_state SET action='hard_stop'").run();
+    await request(interaction(custom(b.reviewId)));
+    expect(await count()).toEqual({ n: 1 });
+    expect(
+      await db
+        .prepare("SELECT state FROM forecast_runtime_commands WHERE interaction_id='1001'")
+        .first(),
+    ).toEqual({ state: "failed" });
+    const off = await emergencyReview(db, "off");
+    vi.setSystemTime(TEST_NOW + 2 * 24 * 60 * 60_000);
+    await request(interaction(custom(off), { id: "1002" }));
+    expect(await count()).toEqual({ n: 1 });
+    const refreshedOff = await db
+      .prepare(`SELECT review_id FROM forecast_runtime_reviews
+      WHERE action='off' AND created_at=?`)
+      .bind(Date.now())
+      .first<{ review_id: string }>();
+    expect(refreshedOff).not.toBeNull();
+    await request(
+      interaction(custom(refreshedOff!.review_id), { id: "1004", message: { id: "777777777" } }),
+    );
+    expect(await count()).toEqual({ n: 2 });
+    const rollback = await emergencyReview(db, "rollback", a.candidate.candidateId);
+    await testEnv.USAGE_GUARD_DB.prepare("DELETE FROM usage_guard_state").run();
+    await request(interaction(custom(rollback), { id: "1003" }));
+    expect(await count()).toEqual({ n: 2 });
+    const refreshedRollback = await db
+      .prepare(`SELECT review_id FROM forecast_runtime_reviews
+      WHERE action='rollback' AND created_at=?`)
+      .bind(Date.now())
+      .first<{ review_id: string }>();
+    expect(refreshedRollback).not.toBeNull();
+    await request(
+      interaction(custom(refreshedRollback!.review_id), {
+        id: "1005",
+        message: { id: "777777777" },
+      }),
+    );
+    expect(await count()).toEqual({ n: 3 });
+    expect(
+      await db.prepare("SELECT sequence,candidate_id FROM forecast_runtime_active").first(),
+    ).toEqual({ sequence: 3, candidate_id: a.candidate.candidateId });
+  });
+  it("refreshes a stale emergency pointer without applying it, even when Cron is stopped", async () => {
+    const db = testEnv.STAGING_FORECAST_DB;
+    const a = await approvalReview(db);
+    const off = await emergencyReview(db, "off");
+    await request(interaction(custom(a.reviewId)));
+    await testEnv.USAGE_GUARD_DB.prepare("UPDATE usage_guard_state SET action='hard_stop'").run();
+    await request(interaction(custom(off), { id: "1002" }));
+    expect(await count()).toEqual({ n: 1 });
+    const next = await db
+      .prepare(
+        "SELECT review_id FROM forecast_runtime_reviews WHERE action='off' AND expected_sequence=1",
+      )
+      .first<{ review_id: string }>();
+    expect(next).not.toBeNull();
+    await request(
+      interaction(custom(next!.review_id), { id: "1003", message: { id: "777777777" } }),
+    );
+    expect(await count()).toEqual({ n: 2 });
+    const reviewsBeforeReplay = await db
+      .prepare("SELECT COUNT(*) n FROM forecast_runtime_reviews")
+      .first();
+    await request(
+      interaction(custom(next!.review_id), { id: "1003", message: { id: "777777777" } }),
+    );
+    expect(await db.prepare("SELECT COUNT(*) n FROM forecast_runtime_reviews").first()).toEqual(
+      reviewsBeforeReplay,
+    );
+    expect(String(webhook.mock.calls.at(-1)?.[1]?.body)).toContain("already applied");
+  });
+  it("retains committed outcome and durable result when Discord fails after DB commit", async () => {
+    const a = await approvalReview(testEnv.STAGING_FORECAST_DB);
+    webhook.mockRejectedValueOnce(new Error("connection lost"));
+    expect(await (await request(interaction(custom(a.reviewId)))).json()).toEqual({
+      type: 5,
+      data: { flags: 0 },
+    });
+    expect(await count()).toEqual({ n: 1 });
+    expect(
+      await testEnv.STAGING_FORECAST_DB.prepare(
+        "SELECT state FROM forecast_runtime_outbox WHERE kind='result'",
+      ).first(),
+    ).toEqual({ state: "pending" });
+    await request(interaction(custom(a.reviewId)));
+    expect(await count()).toEqual({ n: 1 });
+    expect(String(webhook.mock.calls.at(-1)?.[1]?.body)).toContain("already applied");
+  });
+  it("returns signing failure to Discord while leaving the original review retryable", async () => {
+    const a = await approvalReview(testEnv.STAGING_FORECAST_DB);
+    for (const key of ["", "invalid"]) {
+      const response = await request(interaction(custom(a.reviewId)), {
+        FORECAST_PUBLICATION_SIGNING_KEY: key,
+      });
+      expect(await response.json()).toMatchObject({
+        type: 4,
+        data: {
+          content: expect.stringContaining("publication_signing_key_unavailable"),
+        },
+      });
+      expect(await count()).toEqual({ n: 0 });
+      expect(
+        await testEnv.STAGING_FORECAST_DB.prepare(
+          "SELECT COUNT(*) n FROM forecast_runtime_commands",
+        ).first(),
+      ).toEqual({ n: 0 });
+    }
+    expect(webhook).not.toHaveBeenCalled();
+    await request(interaction(custom(a.reviewId)));
+    expect(await count()).toEqual({ n: 1 });
+  });
+});
+
+describe("retained D1-only manual-review controls", () => {
+  it.each(["requeue", "ignore"] as const)(
+    "handles %s with publication off and without a signing key",
+    async (decision) => {
+      delete testEnv.FORECAST_PUBLICATION_SIGNING_KEY;
+      testEnv.STAGING_PUBLICATION_MODE = "off";
+      const { reviewId } = await seedManualReview(testEnv.STAGING_FORECAST_DB, true);
+      const value = interaction(`forecast_manual_staging_${decision}:${reviewId}`, {
+        channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
+      });
+      expect(await (await request(value)).json()).toEqual({ type: 5, data: { flags: 64 } });
+      expect(
+        await testEnv.STAGING_FORECAST_DB.prepare(
+          "SELECT status,review_generation FROM source_queue WHERE item_id='200'",
+        ).first(),
+      ).toEqual({
+        status: decision === "requeue" ? "pending" : "ignored",
+        review_generation: decision === "requeue" ? 1 : 0,
+      });
+      expect(
+        await testEnv.STAGING_FORECAST_DB.prepare(
+          "SELECT state,decision,actor FROM source_manual_reviews",
+        ).first(),
+      ).toEqual({
+        state: "resolved",
+        decision,
+        actor: `discord:${testEnv.DISCORD_FORECAST_APPROVER_USER_ID}`,
+      });
+      expect(
+        await testEnv.STAGING_FORECAST_DB.prepare(
+          "SELECT result FROM discord_interaction_audit",
+        ).first(),
+      ).toEqual({ result: "completed" });
+      await request(value);
+      expect(
+        await testEnv.STAGING_FORECAST_DB.prepare(
+          "SELECT COUNT(*) n FROM discord_interaction_audit",
+        ).first(),
+      ).toEqual({ n: 1 });
+      expect(await count()).toEqual({ n: 0 });
+    },
+  );
+  it("rejects unauthorized, unbound, production-disabled and quota-stopped manual decisions", async () => {
+    const { reviewId } = await seedManualReview(testEnv.STAGING_FORECAST_DB, true);
+    const button = `forecast_manual_staging_requeue:${reviewId}`;
+    for (const overrides of [
+      { member: { user: { id: "123" } } },
+      { guild_id: "wrong" },
+      { channel_id: "wrong" },
+      { message: { id: "999999999" } },
+    ]) {
+      expect(
+        await (
+          await request(
+            interaction(button, {
+              channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
+              ...overrides,
+            }),
+          )
+        ).json(),
+      ).toMatchObject({ type: 4 });
+    }
+    expect(
+      await (
+        await request(
+          interaction(`forecast_manual_production_requeue:${reviewId}`, {
+            channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID,
+          }),
+        )
+      ).json(),
+    ).toMatchObject({ type: 4 });
+    await testEnv.USAGE_GUARD_DB.prepare("UPDATE usage_guard_state SET action='hard_stop'").run();
+    expect(
+      await (
+        await request(interaction(button, { channel_id: testEnv.DISCORD_ALERT_CHANNEL_ID }))
+      ).json(),
+    ).toMatchObject({ type: 4, data: { content: expect.stringContaining("Usage Guard") } });
+    expect(
+      await testEnv.STAGING_FORECAST_DB.prepare("SELECT state FROM source_manual_reviews").first(),
+    ).toEqual({ state: "pending" });
+    expect(
+      await testEnv.STAGING_FORECAST_DB.prepare(
+        "SELECT COUNT(*) n FROM discord_interaction_audit",
+      ).first(),
+    ).toEqual({ n: 0 });
+    expect(webhook).not.toHaveBeenCalled();
+  });
+});

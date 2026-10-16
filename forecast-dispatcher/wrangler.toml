@@ -29,8 +29,8 @@ database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
 [vars]
 ENVIRONMENT = "production"
 DEPLOY_SHA = "local"
-GITHUB_APP_ID = "unset"
-GITHUB_APP_INSTALLATION_ID = "unset"
+PUBLICATION_MODE = "off"
+DISCORD_APPROVAL_CHANNEL_ID = "unset"
 DISCORD_CHANNEL_ID = "unset"
 DISCORD_ACTIVITY_CHANNEL_ID = "unset"
 DISCORD_ALERT_CHANNEL_ID = "unset"
@@ -38,7 +38,7 @@ DISCORD_FALLBACK_CHANNEL_ID = "unset"
 DISPATCH_ENABLED = "false"
 
 [secrets]
-required = ["GITHUB_APP_PRIVATE_KEY", "DISCORD_BOT_TOKEN"]
+required = ["DISCORD_BOT_TOKEN"]
 
 [env.staging]
 name = "collection-kit-forecast-dispatcher-staging"
@@ -65,8 +65,8 @@ database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
 [env.staging.vars]
 ENVIRONMENT = "staging"
 DEPLOY_SHA = "local"
-GITHUB_APP_ID = "unset"
-GITHUB_APP_INSTALLATION_ID = "unset"
+PUBLICATION_MODE = "off"
+DISCORD_APPROVAL_CHANNEL_ID = "unset"
 DISCORD_CHANNEL_ID = "unset"
 DISCORD_ACTIVITY_CHANNEL_ID = "unset"
 DISCORD_ALERT_CHANNEL_ID = "unset"
@@ -74,4 +74,4 @@ DISCORD_FALLBACK_CHANNEL_ID = "unset"
 DISPATCH_ENABLED = "false"
 
 [env.staging.secrets]
-required = ["GITHUB_APP_PRIVATE_KEY", "DISCORD_BOT_TOKEN"]
+required = ["DISCORD_BOT_TOKEN"]

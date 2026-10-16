@@ -156,17 +156,36 @@ export const LEGACY_PERSONAL_COHORT_WEIGHTS = [
   toWire(q(1, 3)),
 ] as const;
 
+let dateCache: { timestamps: Map<string, number>; starts: Map<string, number> } | undefined;
+
+/** Reuse pure conversions during a synchronous ledger operation, never across requests. */
+export function withSupplyDateCache<T>(operation: () => T): T {
+  if (dateCache) return operation();
+  dateCache = { timestamps: new Map(), starts: new Map() };
+  try {
+    return operation();
+  } finally {
+    dateCache = undefined;
+  }
+}
+
 export function timestamp(value: string): number {
+  const cached = dateCache?.timestamps.get(value);
+  if (cached !== undefined) return cached;
   if (!/(?:Z|[+-]\d{2}:\d{2})$/.test(value)) throw new Error("certified_timestamp_offset_required");
   const epoch = Date.parse(value);
   if (!Number.isFinite(epoch)) throw new Error("certified_timestamp_invalid");
+  dateCache?.timestamps.set(value, epoch);
   return epoch;
 }
 export const iso = (epoch: number) => new Date(epoch).toISOString();
 export const dateStart = (date: string) => {
+  const cached = dateCache?.starts.get(date);
+  if (cached !== undefined) return cached;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("certified_game_date_invalid");
   const epoch = timestamp(`${date}T05:00:00+09:00`);
   if (gameDayKey(epoch) !== date) throw new Error("certified_game_date_invalid");
+  dateCache?.starts.set(date, epoch);
   return epoch;
 };
 const refs = (regularBoxes: number, boxII: number): readonly CertifiedLawRef[] => [
@@ -256,10 +275,14 @@ export function ruleAt(rules: readonly CertifiedSupplyRule[], at: number) {
   );
 }
 
+// Only this traversal establishes recursive freezing; Object.isFrozen alone
+// would incorrectly trust shallow-frozen caller objects. Weak keys do not retain ledgers.
+const deeplyFrozen = new WeakSet<object>();
 export function freezeJson<T>(value: T): T {
-  if (typeof value === "object" && value !== null) {
+  if (typeof value === "object" && value !== null && !deeplyFrozen.has(value)) {
     for (const child of Object.values(value)) freezeJson(child);
     Object.freeze(value);
+    deeplyFrozen.add(value);
   }
   return value;
 }

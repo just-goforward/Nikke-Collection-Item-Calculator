@@ -10,7 +10,7 @@ const MANUAL_REVIEW_WORKFLOW_URL =
 const MAX_RESPONSE_BYTES = 16_384;
 
 type FetchLike = typeof fetch;
-export type DiscordChannelKind = "activity" | "alert";
+export type DiscordChannelKind = "activity" | "alert" | "approval";
 
 export class DiscordMessageError extends Error {
   readonly retryable: boolean;
@@ -199,6 +199,11 @@ export async function sendDiscordMessage(
 }
 
 export function resolveDiscordChannelId(env: DispatcherEnv, kind: DiscordChannelKind) {
+  if (kind === "approval") {
+    if (!/^\d{6,24}$/.test(env.DISCORD_APPROVAL_CHANNEL_ID ?? ""))
+      throw new DiscordMessageError("discord_approval_channel_id_invalid", false);
+    return env.DISCORD_APPROVAL_CHANNEL_ID;
+  }
   const preferred =
     kind === "activity" ? env.DISCORD_ACTIVITY_CHANNEL_ID : env.DISCORD_ALERT_CHANNEL_ID;
   const candidates = [preferred, env.DISCORD_FALLBACK_CHANNEL_ID, env.DISCORD_CHANNEL_ID];

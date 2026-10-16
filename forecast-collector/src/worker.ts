@@ -2,6 +2,7 @@ import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard.ts"
 import { runCollection } from "./collector";
 import { handleHttpRequest } from "./http";
 import { automationOperation, requireGuardDb } from "./http-shared";
+import { runRuntimeIngestion } from "./runtime-ingestion";
 import type { CollectorEnv } from "./types";
 
 export default {
@@ -40,7 +41,12 @@ export default {
       }
       throw error;
     }
-    context.waitUntil(runCollection(env, { nowMs: event.scheduledTime }));
+    context.waitUntil(
+      runCollection(env, { nowMs: event.scheduledTime }).then(async (summary) => {
+        if (summary.outcome === "completed") await runRuntimeIngestion(env);
+        return summary;
+      }),
+    );
   },
 
   fetch(request, env, context) {

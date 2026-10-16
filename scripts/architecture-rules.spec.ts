@@ -93,6 +93,18 @@ function outer() {
     );
   });
 
+  it("keeps the shared publication backend inaccessible to browser and pure shared modules", () => {
+    const backend = "shared/forecast-publication/store.ts";
+    expect(violatesModuleBoundary("forecast-dispatcher/src/dispatcher.ts", backend)).toBe(false);
+    expect(violatesModuleBoundary("forecast-interactions/src/worker.ts", backend)).toBe(false);
+    expect(violatesModuleBoundary("src/app.ts", backend)).toBe(true);
+    expect(violatesModuleBoundary("shared/forecastPublication.ts", backend)).toBe(true);
+    expect(violatesModuleBoundary("shared/forecast-publication/test-fixtures.ts", backend)).toBe(
+      false,
+    );
+    expect(violatesModuleBoundary(backend, "shared/forecastPublication.ts")).toBe(false);
+  });
+
   it("formats pass and fail results for the CLI wrapper", () => {
     expect(formatArchitectureResult(["src/a.ts"], [])).toContain("Architecture lint passed");
     expect(

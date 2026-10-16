@@ -332,10 +332,13 @@ ordered incremental files and `schema_migrations`, applies only missing required
 re-reads the ledger after every applied file. Unknown or gapped histories stop deployment. It does
 not repair an out-of-band or partially applied schema change.
 
-`schema.sql` is the version-10 bootstrap snapshot, not migration 0001. The runner uses it only after
+`schema.sql` is the version-21 bootstrap snapshot, not migration 0001 or the complete latest schema.
+The runner uses it only after
 confirming the database contains no application tables or views. Never replay it over an existing
 database. Existing production histories may omit Discord-only versions 0004..0006; version 0006,
-when present, still requires 0005. A new bootstrap contains all ten versions.
+when present, still requires 0005. A fresh installation first records versions 1–21 from the snapshot,
+then applies migrations 0022–0024 in order. Runtime ingestion/publication tests must load those
+incremental migrations too; loading `schema.sql` alone does not install runtime publication guards.
 
 Migration 0003 adds invocation accounting, shallow cursors, and the source queue; 0004..0006 add
 Discord approval/test message identity; 0007 adds dispatch and operations ledgers; 0008 adds manual

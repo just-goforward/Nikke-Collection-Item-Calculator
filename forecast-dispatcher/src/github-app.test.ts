@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { createGithubAppJwt, dispatchProposalWorkflow, GithubDispatchError } from "./github-app";
-import type { DispatcherEnv } from "./types";
 
 describe("GitHub App workflow dispatch", () => {
   it("mints one installation token and dispatches only the fixed workflow and ref", async () => {
@@ -163,16 +162,13 @@ describe("GitHub App workflow dispatch", () => {
   });
 });
 
-function dispatcherEnv(privateKey: string) {
+function dispatcherEnv(privateKey: string): Parameters<typeof dispatchProposalWorkflow>[0] {
   return {
     ENVIRONMENT: "staging",
-    DEPLOY_SHA: "test-sha",
     GITHUB_APP_ID: "123456",
     GITHUB_APP_INSTALLATION_ID: "789012",
     GITHUB_APP_PRIVATE_KEY: privateKey,
-    DISCORD_BOT_TOKEN: "test-discord-token",
-    DISCORD_CHANNEL_ID: "123456789012345678",
-  } as DispatcherEnv;
+  };
 }
 
 async function generatePrivateKeyPem(format: "pkcs8" | "pkcs1" = "pkcs8") {

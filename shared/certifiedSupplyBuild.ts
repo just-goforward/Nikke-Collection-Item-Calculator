@@ -391,11 +391,21 @@ function historyMissing(
   return missing;
 }
 
-export function buildSnapshot(input: CertifiedSupplyBuildInput): CertifiedSupplySnapshot {
-  const window = buildWindow(input);
+export function buildSnapshot(
+  input: CertifiedSupplyBuildInput,
+  referenceHorizon?: (rounds: readonly CertifiedSoloRound[]) => number,
+): CertifiedSupplySnapshot {
+  let window = buildWindow(input);
   const state = confirmedRoundState(input);
   window.warnings.push(...state.historyGaps);
-  const { soloRounds, delayState } = soloLedger(input, window, state);
+  let ledger = soloLedger(input, window, state);
+  if (referenceHorizon) {
+    const horizonDays = referenceHorizon(ledger.soloRounds);
+    window = buildWindow({ ...input, horizonDays });
+    window.warnings.push(...state.historyGaps);
+    ledger = soloLedger(input, window, state);
+  }
+  const { soloRounds, delayState } = ledger;
   const rules = buildRules(input, window.today);
   const recurring = recurringEvents(window, rules, collaborationWindows(input));
   const events = [

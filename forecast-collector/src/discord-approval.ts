@@ -448,7 +448,7 @@ async function completeDiscordTestApproval(
   }
 }
 
-export async function approveDiscordTest(
+async function approveDiscordTest(
   db: D1Database,
   approvalId: string,
   interactionId: string,
@@ -489,7 +489,7 @@ export async function approveDiscordTest(
   return { outcome: "approved" as const, approval: publicApproval(approved) };
 }
 
-export async function approveDiscordStagingAdoption(
+async function approveDiscordStagingAdoption(
   db: D1Database,
   approvalId: string,
   interactionId: string,
@@ -537,7 +537,7 @@ async function readApprovalByRequestKey(db: D1Database, requestKey: string) {
     .first<DiscordApprovalTestRow>();
 }
 
-export async function readApprovalById(db: D1Database, approvalId: string) {
+async function readApprovalById(db: D1Database, approvalId: string) {
   return db
     .prepare("SELECT * FROM discord_approval_tests WHERE approval_id = ?")
     .bind(approvalId)
@@ -618,7 +618,7 @@ async function expirePendingStagingAdoptionsByIdentity(
     .run();
 }
 
-export async function readStagingAdoptionById(db: D1Database, approvalId: string) {
+async function readStagingAdoptionById(db: D1Database, approvalId: string) {
   return db
     .prepare("SELECT * FROM discord_staging_adoptions WHERE approval_id = ?")
     .bind(approvalId)

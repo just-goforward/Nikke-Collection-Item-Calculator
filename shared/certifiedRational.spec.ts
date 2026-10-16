@@ -4,6 +4,7 @@ import {
   cmp,
   fromBinary64,
   fromWire,
+  mul,
   q,
   qInterval,
   toNumber,
@@ -11,6 +12,25 @@ import {
 } from "./certifiedRational.ts";
 
 describe("certified rational arithmetic", () => {
+  it("cross-cancels reduced sums and products exactly, including signed and zero results", () => {
+    const fractions = [
+      q(0),
+      q(1),
+      q(-1),
+      q(2, 3),
+      q(-2, 3),
+      q(5, 9),
+      q(7, 11),
+      q(3, 2n ** 521n),
+      q(2n ** 521n, 3),
+      q(-7, 2n ** 521n),
+    ];
+    for (const a of fractions)
+      for (const b of fractions) {
+        expect(add(a, b)).toEqual(q(a.n * b.d + b.n * a.d, a.d * b.d));
+        expect(mul(a, b)).toEqual(q(a.n * b.n, a.d * b.d));
+      }
+  });
   it("reduces fractions and serializes without BigInt in JSON", () => {
     expect(q(1197, 39)).toEqual({ n: 399n, d: 13n });
     const wire = JSON.parse(JSON.stringify(toWire(q(-10, -20))));

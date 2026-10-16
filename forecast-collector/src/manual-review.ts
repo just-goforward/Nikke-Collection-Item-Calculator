@@ -333,31 +333,6 @@ function queueDecisionStatement(
     .bind(target, now, review.source, review.item_id, review.generation, ...condition.bindings);
 }
 
-export async function decideManualReviewFromDiscord(
-  db: D1Database,
-  environment: "staging" | "production",
-  reviewId: string,
-  decision: "requeue" | "ignore",
-  actorUserId: string,
-  interactionId: string,
-  nowMs = Date.now(),
-) {
-  const requestId = `mrq-${(await sha256Hex(`discord:${interactionId}`)).slice(0, 32)}`;
-  return decideManualReview(
-    db,
-    environment,
-    reviewId,
-    {
-      requestId,
-      decision,
-      reason: decision === "requeue" ? "Discord에서 재처리 승인" : "Discord에서 관련 없음 승인",
-      runId: numericAuditId(interactionId),
-      event: null,
-    },
-    { actor: `discord:${actorUserId}`, nowMs },
-  );
-}
-
 async function expireManualReviews(db: D1Database, nowMs: number) {
   const now = new Date(nowMs).toISOString();
   await db
@@ -532,9 +507,4 @@ function boundedActor(value: string) {
     .slice(0, 120);
   if (!normalized) throw new Error("manual_review_actor_invalid");
   return normalized;
-}
-
-function numericAuditId(value: string) {
-  const numeric = Number.parseInt(value.slice(-9), 10);
-  return Number.isSafeInteger(numeric) && numeric > 0 ? numeric : 1;
 }

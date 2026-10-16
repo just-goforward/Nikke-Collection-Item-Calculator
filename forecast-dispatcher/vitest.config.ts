@@ -18,6 +18,8 @@ export default defineConfig({
           DISCORD_BOT_TOKEN: "test-discord-token",
           DISCORD_CHANNEL_ID: "123456789012345678",
           DISPATCH_ENABLED: "true",
+          PUBLICATION_MODE: "enabled",
+          DISCORD_APPROVAL_CHANNEL_ID: "123456789012345678",
         },
         d1Databases: ["FORECAST_DB", "USAGE_GUARD_DB"],
       },

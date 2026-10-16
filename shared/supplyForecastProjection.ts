@@ -1,6 +1,7 @@
-import { gcd, type Q, q, toNumber } from "./certifiedRational.ts";
+import { add, mul, type Q, q, toNumber, ZERO } from "./certifiedRational.ts";
 import {
   assertCertifiedRuntimeSupplySnapshot,
+  type CertifiedSupplyEvent,
   type CertifiedSupplySnapshot,
   certifiedCohortWeights,
   expectedCertifiedRefs,
@@ -13,6 +14,7 @@ import {
   dateStart,
   ruleAt,
   timestamp,
+  withSupplyDateCache,
 } from "./certifiedSupplyModel.ts";
 import { GAME_DAY_MS, gameDayStartMs } from "./gameDay.ts";
 
@@ -47,13 +49,18 @@ export type SupplyReferenceWindow = {
 export type SupplyProjection =
   | { available: true; window: SupplyReferenceWindow; expected: readonly [Q, Q, Q] }
   | { available: false; reason: string };
+type ProjectionCache = {
+  gains: Map<string, readonly [Q, Q, Q]>;
+  weights?: ReturnType<typeof certifiedCohortWeights>;
+  events?: { event: CertifiedSupplyEvent; day: number; gain?: readonly [Q, Q, Q] }[];
+};
 
 export const SUPPLY_PROFILE_HORIZON_DAYS = 56;
 export const SUPPLY_RULES_VERSION = "schedule-kit-v3";
 export const DISPATCH_POLICY_ID = "dispatch-policy-v1";
 /** This selects dates only. Rewards always come from the approved event ledger. */
 export function supplyReferenceWindow(
-  snapshot: CertifiedSupplySnapshot,
+  snapshot: Pick<CertifiedSupplySnapshot, "soloRounds">,
   at: number,
 ): SupplyReferenceWindow | null {
   const today = gameDayStartMs(at);
@@ -133,21 +140,29 @@ function supplyReferenceUnavailableReason(
 function projectReference(
   snapshot: CertifiedSupplySnapshot,
   window: SupplyReferenceWindow,
-  cache: Map<string, readonly [Q, Q, Q]>,
+  cache: ProjectionCache,
 ): SupplyProjection {
   const { from, until } = window;
   const reason = supplyReferenceUnavailableReason(snapshot, from, until);
   if (reason !== null) return { available: false, reason };
-  const weights = certifiedCohortWeights(DEFAULT_PERSONAL_COHORT_WEIGHTS, "certified-daily-v3");
+  cache.weights ??= certifiedCohortWeights(DEFAULT_PERSONAL_COHORT_WEIGHTS, "certified-daily-v3");
+  cache.events ??= snapshot.events.map((event) => ({
+    event,
+    day: dateStart(event.gameDate),
+  }));
   const repetitions = new Map<readonly [Q, Q, Q], number>();
-  for (const event of snapshot.events) {
-    const day = dateStart(event.gameDate);
+  for (const row of cache.events) {
+    const { event, day } = row;
     if (day < from || day >= until || !isCertifiedEventModeled(snapshot, event)) continue;
-    const key = JSON.stringify(event.refs);
-    let gain = cache.get(key);
+    let gain = row.gain;
     if (!gain) {
-      gain = expectedCertifiedRefs(event.refs, weights, { laws: snapshot.laws });
-      cache.set(key, gain);
+      const key = JSON.stringify(event.refs);
+      gain = cache.gains.get(key);
+      if (!gain) {
+        gain = expectedCertifiedRefs(event.refs, cache.weights, { laws: snapshot.laws });
+        cache.gains.set(key, gain);
+      }
+      row.gain = gain;
     }
     repetitions.set(gain, (repetitions.get(gain) ?? 0) + 1);
   }
@@ -155,41 +170,32 @@ function projectReference(
 }
 
 function sumRepeatedGains(repetitions: ReadonlyMap<readonly [Q, Q, Q], number>): [Q, Q, Q] {
-  const numerators: [bigint, bigint, bigint] = [0n, 0n, 0n];
-  const denominators: [bigint, bigint, bigint] = [1n, 1n, 1n];
-  // Use the LCM of denominators; reduce large numerators only once per output color.
+  const total: [Q, Q, Q] = [ZERO, ZERO, ZERO];
+  // Cross-cancel the small repetition count before adding reduced expectations.
+  // A final normalization of the unreduced dispatch numerator is much costlier.
   for (const [gain, count] of repetitions) {
-    for (const color of [0, 1, 2] as const) {
-      const denominator = denominators[color];
-      const common = gcd(denominator, gain[color].d);
-      const left = gain[color].d / common;
-      const right = denominator / common;
-      numerators[color] = numerators[color] * left + gain[color].n * BigInt(count) * right;
-      denominators[color] = denominator * left;
-    }
+    const multiplier = q(count);
+    for (const color of [0, 1, 2] as const)
+      total[color] = add(total[color], mul(gain[color], multiplier));
   }
-  return [
-    q(numerators[0], denominators[0]),
-    q(numerators[1], denominators[1]),
-    q(numerators[2], denominators[2]),
-  ];
+  return total;
 }
 
 export function projectSupplyAt(snapshot: CertifiedSupplySnapshot, at: number): SupplyProjection {
-  return projectAt(snapshot, at, new Map());
+  return projectAt(snapshot, at, { gains: new Map() });
 }
 
 export function projectSupplyReference(
   snapshot: CertifiedSupplySnapshot,
   window: SupplyReferenceWindow,
 ): SupplyProjection {
-  return projectReference(snapshot, window, new Map());
+  return projectReference(snapshot, window, { gains: new Map() });
 }
 
 function projectAt(
   snapshot: CertifiedSupplySnapshot,
   at: number,
-  cache: Map<string, readonly [Q, Q, Q]>,
+  cache: ProjectionCache,
 ): SupplyProjection {
   const view = viewCertifiedSupplySnapshot(snapshot, new Date(at).toISOString());
   const window = supplyReferenceWindow(view, at);
@@ -202,12 +208,16 @@ function projectAt(
 export function buildScheduleForecastProfiles(
   input: ScheduleProfileInput,
 ): SupplyForecastProfile[] {
+  return withSupplyDateCache(() => buildProfiles(input));
+}
+
+function buildProfiles(input: ScheduleProfileInput): SupplyForecastProfile[] {
   if (!input.certifiedSnapshot) throw new Error("certified_snapshot_required");
   const snapshot = assertCertifiedRuntimeSupplySnapshot(input.certifiedSnapshot);
   const from = timestamp(input.effectiveFrom);
   const until = from + SUPPLY_PROFILE_HORIZON_DAYS * GAME_DAY_MS;
   const profiles: SupplyForecastProfile[] = [];
-  const cache = new Map<string, readonly [Q, Q, Q]>();
+  const cache: ProjectionCache = { gains: new Map() };
   for (let at = from; at < until; ) {
     const end = Math.min(gameDayStartMs(at) + GAME_DAY_MS, until);
     const result = projectAt(snapshot, at, cache);
