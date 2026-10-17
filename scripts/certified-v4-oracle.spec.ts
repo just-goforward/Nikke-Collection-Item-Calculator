@@ -58,6 +58,8 @@ const JUNE_23 = "2026-06-23T12:00:00.000Z";
 const JUNE_24 = "2026-06-24T00:00:00.000Z";
 // 2026-07-03 13:00 KST: one hour after the reopen.
 const JULY_3 = "2026-07-03T04:00:00.000Z";
+// 2026-07-02 13:00 KST: the game day before the reopen.
+const JULY_2 = "2026-07-02T04:00:00.000Z";
 
 // Collector grant settlement is typed against Cloudflare D1 globals, which the root TypeScript
 // program stubs (scripts/forecast-action-globals.d.ts). Load those two collector modules through a
@@ -277,6 +279,7 @@ let reopenFrom7877359: ScheduleEvent["segment"];
 let withGrant: SupplyForecastCandidate;
 let withoutGrant: SupplyForecastCandidate;
 let afterReopen: SupplyForecastCandidate;
+let beforeReopen: SupplyForecastCandidate;
 
 beforeAll(async () => {
   module = await loadCertifiedWasm(() => readFile(new URL("public/certified_solver.wasm", ROOT)));
@@ -320,6 +323,7 @@ beforeAll(async () => {
   withGrant = await candidateAt(events, JUNE_23, grants);
   withoutGrant = await candidateAt(events, JUNE_23, []);
   afterReopen = await candidateAt(events, JULY_3, grants);
+  beforeReopen = await candidateAt(events, JULY_2, grants);
 });
 
 function solve(
@@ -613,5 +617,68 @@ describe("certified-daily-v4 claim boundary through the Rust/WASM solver", () =>
       "solo:r38:segment2:day1",
       "weekly-kits:2026-07-01",
     ]);
+  });
+});
+
+/*
+ * H14 waiting across the reopen window, from 7/2 13:00 KST (day 0 = 7/2, day 14 = 7/16).
+ * SR level 14 exp 2900 is the last SR14 state: one use of any kit (10 pieces) reaches SR15,
+ * so with unlimited stock P = 1 and the optimum spends 10 pieces of the cheapest kit (blue,
+ * premise checked against the reported prices). Starting from stock 0 with all 7/2 rewards
+ * received, the H14 value is reached exactly on the first day that guarantees 10 blue pieces
+ * on every positive-mass path; before that day a blue-free path keeps P < 1 or B higher.
+ * Hand minimum blue per law: weekly fixed 10; 상자 0 (1 purple, 1/5); 상자 II 0 (2 purple or
+ * 2 yellow, 3/10); dispatch board 0 (the all-empty board has positive mass). So reopen days
+ * 7/3-7/7 (days 1-5) guarantee nothing, and the wait ends on 7/8 (day 6, weekly fixed kits).
+ * Scope: this holds for this state and pricing only; reopen kits still change the expected value.
+ */
+const MIN_BLUE: Record<string, number> = {
+  "deterministic:10,10,0": 10,
+  "regular-box-v1": 0,
+  "box-ii-v1": 0,
+  "dispatch-board-v1": 0,
+};
+const pow = (base: Fraction, exponent: number) =>
+  Array.from({ length: exponent }).reduce<Fraction>((total) => times(total, base), frac(1n));
+
+// The matching solver assertion (exp 2900, stock 0, receipts dispatch 7/2 + weekly 7/1,
+// computeWaiting) is not included: under the 15 s production budget the WASM H14 evaluation
+// returns unresolved/request_budget_exhausted after evaluating only days 0-1.
+describe("certified-daily-v4 H14 waiting oracle across the r38 reopen window", () => {
+  it("derives the first guaranteed-blue day (7/8) and the blue-free reopen mass by hand", () => {
+    const view = viewCertifiedSupplySnapshot(snapshotOf(beforeReopen), JULY_2);
+    const window = Array.from({ length: 15 }, (_, offset) => day(offset, "2026-07-02"));
+    const arrivals = view.events.filter(
+      (event) =>
+        window.includes(event.gameDate) && !event.cancelled && event.gameDate !== window[0],
+    );
+    // No original r38 day is revived; the only r38 rewards ahead are the five reopen days.
+    expect(
+      arrivals.filter((event) => event.kind === "solo" && event.round === 38).map((e) => e.id),
+    ).toEqual(EXPECTED_R38_EVENTS.slice(5).map(({ id }) => id));
+    let guaranteed = 0;
+    let firstGuaranteedDay: number | null = null;
+    for (const [index, date] of window.entries()) {
+      if (index === 0) continue;
+      for (const event of arrivals.filter((entry) => entry.gameDate === date))
+        for (const ref of event.refs) {
+          const minimum = MIN_BLUE[ref.lawId];
+          if (minimum === undefined) throw new Error(`unexpected_law:${ref.lawId}`);
+          guaranteed += minimum * ref.count;
+        }
+      if (firstGuaranteedDay === null && guaranteed >= 10) firstGuaranteedDay = index;
+    }
+    expect(firstGuaranteedDay).toBe(6);
+    expect(window[6]).toBe("2026-07-08");
+    // Blue-free mass of the box arrivals on days 1-5 (from the hand kit table: 7/3-7/7 bring
+    // 상자 12+4 = 16 and 상자 II 8+12+12+12+5 = 49): (1/5)^16 * (3/10)^49, strictly in (0, 1).
+    const boxes = window.slice(1, 6).map((date) => EXPECTED_KITS_BY_DATE[date]);
+    const regular = boxes.reduce((sum, row) => sum + (row?.[0] ?? 0), 0);
+    const boxII = boxes.reduce((sum, row) => sum + (row?.[1] ?? 0), 0);
+    expect([regular, boxII]).toEqual([16, 49]);
+    // Box factor only (dispatch boards excluded) of the blue-free probability.
+    const blueFree = times(pow(frac(1n, 5n), regular), pow(frac(3n, 10n), boxII));
+    expect(text(blueFree)).toBe(`${3n ** 49n}/${5n ** 16n * 10n ** 49n}`);
+    expect(blueFree.n > 0n && blueFree.n < blueFree.d).toBe(true);
   });
 });
