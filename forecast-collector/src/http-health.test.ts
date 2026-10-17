@@ -2,6 +2,7 @@ import { applyD1Migrations, createExecutionContext, reset } from "cloudflare:tes
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { executeTestSql } from "../../shared/testD1Sql";
+import schema10Sql from "../fixtures/schema-v10.sql?raw";
 import { readHealth } from "./db";
 import { handleHttpRequest } from "./http";
 import { readOperationsHealth } from "./ops";
@@ -94,12 +95,12 @@ async function expectReview(payload: unknown, sourceReview: PublicReview) {
 }
 
 describe("staging public advisory health", () => {
-  it("runs against the canonical staging schema21", async () => {
+  it("runs against the canonical staging schema27", async () => {
     expect(
       await testEnv.FORECAST_DB.prepare(
         "SELECT MAX(version) AS version FROM schema_migrations",
       ).first(),
-    ).toEqual({ version: 26 });
+    ).toEqual({ version: 27 });
     expect((await health()).status).toBe(200);
   });
 
@@ -366,12 +367,7 @@ describe("staging public metadata bounds and read-only access", () => {
 describe("unchanged production and protected routes", () => {
   it("leaves production schema10 health usable with no staging metadata or CORS", async () => {
     await reset();
-    // The canonical schema appends upgrades 11–21 after the schema10 tables.
-    await executeTestSql(
-      testEnv.FORECAST_DB,
-      schemaSql.slice(0, schemaSql.indexOf("CREATE TABLE IF NOT EXISTS source_processing_claims")),
-      applyD1Migrations,
-    );
+    await executeTestSql(testEnv.FORECAST_DB, schema10Sql, applyD1Migrations);
     await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB);
     expect(
       await testEnv.FORECAST_DB.prepare(

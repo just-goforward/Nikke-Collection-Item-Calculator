@@ -30,7 +30,18 @@ function input(stock: Triple = [20, 0, 0]): CertifiedInput {
     exp: 0,
     stock,
     asOf: snapshot.asOf,
-    snapshot,
+    snapshot: {
+      ...snapshot,
+      version: "certified-daily-v3",
+      rules: snapshot.rules.map((rule) => ({
+        ...rule,
+        id: "schedule-kit-v3:documented-physical-supply-v2",
+      })),
+      events: snapshot.events.map((event) => ({
+        ...event,
+        ruleId: "schedule-kit-v3:documented-physical-supply-v2",
+      })),
+    },
   };
 }
 

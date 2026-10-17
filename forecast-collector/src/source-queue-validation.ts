@@ -4,7 +4,7 @@ import { sha256Hex } from "./crypto";
 import { isConstructedNoticeCandidate } from "./notice-processing";
 
 const timestampSchema = z.string().check(z.iso.datetime({ offset: true }));
-const sourceSchema = z.enum(["naver-board-48", "naver-board-56"]);
+const sourceSchema = z.enum(["naver-board-11", "naver-board-48", "naver-board-56"]);
 const itemSchema = z.object({
   source: sourceSchema,
   itemId: z.string().check(z.regex(/^\d{1,20}$/)),
@@ -18,8 +18,17 @@ const itemSchema = z.object({
   official: z.boolean(),
 });
 const eventSchema = z.object({
+  segment: z.optional(
+    z.object({
+      round: z.number().check(z.int(), z.minimum(1)),
+      segment: z.number().check(z.int(), z.minimum(1)),
+      kind: z.enum(["initial", "suspend", "reopen"]),
+      effectiveFrom: timestampSchema,
+      effectiveUntil: timestampSchema,
+    }),
+  ),
   eventId: z.string().check(z.minLength(1), z.maxLength(260)),
-  eventType: z.enum(["solo", "cooperation", "collaboration", "schedule_change", "reward"]),
+  eventType: z.enum(["solo", "cooperation", "collaboration", "schedule_change", "reward", "grant"]),
   sourceItem: itemSchema,
   startsAt: z.nullable(timestampSchema),
   endsAt: z.nullable(timestampSchema),
@@ -67,6 +76,14 @@ export function parseSourceQueueProcess(raw: unknown) {
 }
 
 export async function validateSourceQueueResult(result: SourceQueueProcessResult) {
+  validateEventBindings(result);
+  await validateItemContent(result);
+  if (result.outcome === "processed" && (!result.item || !result.event)) {
+    throw new Error("source_queue_processed_payload");
+  }
+}
+
+function validateEventBindings(result: SourceQueueProcessResult) {
   for (const event of result.events ?? []) {
     if (
       !result.item ||
@@ -85,6 +102,9 @@ export async function validateSourceQueueResult(result: SourceQueueProcessResult
   if (result.event && (!result.item || result.event.sourceItem.itemId !== result.itemId)) {
     throw new Error("source_queue_event_mismatch");
   }
+}
+
+async function validateItemContent(result: SourceQueueProcessResult) {
   if (result.item) {
     const url = new URL(result.item.url);
     if (url.protocol !== "https:" || url.hostname !== "game.naver.com") {
@@ -93,8 +113,5 @@ export async function validateSourceQueueResult(result: SourceQueueProcessResult
     if ((await sha256Hex(result.item.normalizedText)) !== result.item.contentHash) {
       throw new Error("source_queue_content_hash");
     }
-  }
-  if (result.outcome === "processed" && (!result.item || !result.event)) {
-    throw new Error("source_queue_processed_payload");
   }
 }

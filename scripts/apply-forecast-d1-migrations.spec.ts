@@ -9,13 +9,11 @@ import {
   parseMigrationArguments,
 } from "./apply-forecast-d1-migrations.ts";
 import {
-  acceptedLegacyRows,
   assertLegacyBaseline,
   database,
   fixtureDirectory,
   json,
   ledgerRows,
-  legacyDatabase,
   localStaging,
   migrations,
   currentVersions as previousVersions,
@@ -24,8 +22,9 @@ import {
   type Spawn,
   sqliteRunner,
 } from "./forecast-migration-test-fixtures.ts";
+import { acceptedLegacyRows, legacyDatabase } from "./forecast-migration-v27-fixtures.ts";
 
-const currentVersions = [...previousVersions, 26];
+const currentVersions = [...previousVersions, 26, 27];
 
 function databaseSnapshot(db: DatabaseSync) {
   const catalog = db
@@ -55,7 +54,7 @@ it("records the v24 latest-ingestion-run index in the migration schema snapshot"
 });
 
 describe("Forecast migration discovery and CLI", () => {
-  it("discovers current incremental files 0002..0026 in numeric order", () => {
+  it("discovers current incremental files 0002..0027 in numeric order", () => {
     expect(migrations.map((migration) => migration.version)).toEqual(currentVersions.slice(1));
     expect(migrations.map((migration) => basename(migration.file))).toEqual([
       "0002_collector_deployment_sha.sql",
@@ -83,9 +82,10 @@ describe("Forecast migration discovery and CLI", () => {
       "0024_runtime_ingestion.sql",
       "0025_naver_page_policy.sql",
       "0026_source_judgment_evidence.sql",
+      "0027_board11_grants.sql",
     ]);
     expect(migrations.at(-1)?.file).toBe(
-      resolve(root, "forecast-collector/migrations/0026_source_judgment_evidence.sql"),
+      resolve(root, "forecast-collector/migrations/0027_board11_grants.sql"),
     );
   });
 
@@ -177,7 +177,7 @@ describe("Forecast migration SQL and restart behavior", () => {
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true })).toEqual({
         bootstrapped: true,
-        applied: [22, 23, 24, 25, 26],
+        applied: [22, 23, 24, 25, 26, 27],
         versions: currentVersions,
       });
       expect(runner.files()).toEqual([
@@ -187,6 +187,7 @@ describe("Forecast migration SQL and restart behavior", () => {
         "0024_runtime_ingestion.sql",
         "0025_naver_page_policy.sql",
         "0026_source_judgment_evidence.sql",
+        "0027_board11_grants.sql",
       ]);
       const columns = db.prepare("PRAGMA table_info(canary_runs)").all();
       expect(columns).toEqual(
@@ -248,7 +249,7 @@ describe("Forecast migration SQL and restart behavior", () => {
     const runner = sqliteRunner(db);
     expect(runner.run()).toEqual({
       bootstrapped: false,
-      applied: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
+      applied: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27],
       versions: currentVersions,
     });
     expect(runner.files()).toEqual(
@@ -259,8 +260,11 @@ describe("Forecast migration SQL and restart behavior", () => {
     const after = databaseSnapshot(db);
     for (const [table, rows] of Object.entries(before.rows)) {
       if (table === "schema_migrations") continue;
-      const expected =
-        table === "source_poll_state" ? rows.map((row) => ({ ...row, page_size: 10 })) : rows;
+      const addedColumns: Record<string, Record<string, unknown>> = {
+        source_poll_state: { page_size: 10 },
+        schedule_events: { segment_json: null },
+      };
+      const expected = rows.map((row) => ({ ...row, ...addedColumns[table] }));
       expect(after.rows[table]).toEqual(expected);
     }
     expect(
@@ -300,53 +304,6 @@ describe("Forecast migration SQL and restart behavior", () => {
     }
     expect(databaseSnapshot(db)).toEqual(completed);
   });
-
-  it("preserves v8 reviews and creates immutable v11 evidence bindings exactly once", () => {
-    const db = legacyDatabase(7);
-    db.exec(`INSERT INTO source_queue (source, item_id, url, title, published_at, official, status,
-      first_seen_at, updated_at) VALUES ('naver-board-56', '1', 'https://example.test/1', 'test',
-      '2026-09-01T00:00:00Z', 1, 'manual_review', '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z');`);
-    db.prepare(`INSERT INTO source_items VALUES ('naver-board-56', '1',
-      'https://example.test/1', 'test', 'retained official body', '2026-09-01T00:00:00Z',
-      ?, 0, 1, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run("a".repeat(64));
-    const runner = sqliteRunner(db);
-    expect(runner.run().applied).toEqual([
-      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-    ]);
-    const reviews = db.prepare("SELECT * FROM source_manual_reviews").all();
-    expect(reviews).toHaveLength(1);
-    expect(reviews[0]).toMatchObject({
-      generation: 0,
-      state: "pending",
-      expires_at: "2026-09-15T00:00:00.000Z",
-    });
-    const bindings = db.prepare("SELECT * FROM source_manual_review_bindings").all();
-    expect(bindings).toHaveLength(1);
-    expect(bindings[0]).toMatchObject({
-      review_id: reviews[0]?.["review_id"],
-      source_revision: 0,
-      body_hash: "a".repeat(64),
-      revision_hash: null,
-      semantic_hash: null,
-      generation: 0,
-      review_token: expect.stringMatching(/^[0-9a-f]{64}$/),
-      item_json: null,
-    });
-    expect(JSON.parse(String(bindings[0]?.["metadata_json"]))).toEqual({
-      source: "naver-board-56",
-      itemId: "1",
-      url: "https://example.test/1",
-      title: "test",
-      publishedAt: "2026-09-01T00:00:00Z",
-      official: 1,
-    });
-    expect(() => db.exec("UPDATE source_manual_review_bindings SET generation=1")).toThrow(
-      /source_evidence_immutable/,
-    );
-    runner.run();
-    expect(db.prepare("SELECT * FROM source_manual_reviews").all()).toEqual(reviews);
-    expect(db.prepare("SELECT * FROM source_manual_review_bindings").all()).toEqual(bindings);
-  });
 });
 
 describe("REVIEW11 create-only forecast storage upgrade", () => {
@@ -362,7 +319,7 @@ describe("REVIEW11 create-only forecast storage upgrade", () => {
       const polls = db.prepare("SELECT * FROM source_poll_state").all();
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+        13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
       ]);
       expect(runner.files()).toEqual([
         "0013_source_metadata_and_adoption_infrastructure.sql",
@@ -379,6 +336,7 @@ describe("REVIEW11 create-only forecast storage upgrade", () => {
         "0024_runtime_ingestion.sql",
         "0025_naver_page_policy.sql",
         "0026_source_judgment_evidence.sql",
+        "0027_board11_grants.sql",
       ]);
       for (const table of [
         "source_metadata_observations",
@@ -423,7 +381,7 @@ describe("REVIEW11 create-only forecast storage upgrade", () => {
       expect(db.prepare("SELECT * FROM staging_adoption_infrastructure_circuit").all()).toEqual(
         circuit,
       );
-      expect(runner.files()).toHaveLength(14);
+      expect(runner.files()).toHaveLength(15);
     },
   );
 });
@@ -443,7 +401,7 @@ describe("source-processor durable failure-budget storage", () => {
       const claims = db.prepare("SELECT * FROM source_processing_claims").all();
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+        14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
       ]);
       expect(runner.files()).toEqual([
         "0014_source_processor_failure_budget.sql",
@@ -459,6 +417,7 @@ describe("source-processor durable failure-budget storage", () => {
         "0024_runtime_ingestion.sql",
         "0025_naver_page_policy.sql",
         "0026_source_judgment_evidence.sql",
+        "0027_board11_grants.sql",
       ]);
       for (const table of [
         "source_processor_state",
@@ -507,7 +466,7 @@ describe("source-processor durable failure-budget storage", () => {
           (table) => db.prepare(`SELECT * FROM ${table}`).all(),
         ),
       ).toEqual(history);
-      expect(runner.files()).toHaveLength(13);
+      expect(runner.files()).toHaveLength(14);
     },
   );
 
@@ -542,7 +501,7 @@ describe("Forecast migration production and fault recovery", () => {
       const processing = db.prepare("SELECT * FROM staging_adoption_processing").all();
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+        12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
       ]);
       expect(runner.files()).toEqual([
         "0012_staging_adoption_attempt_leases.sql",
@@ -560,6 +519,7 @@ describe("Forecast migration production and fault recovery", () => {
         "0024_runtime_ingestion.sql",
         "0025_naver_page_policy.sql",
         "0026_source_judgment_evidence.sql",
+        "0027_board11_grants.sql",
       ]);
       expect(
         db
@@ -605,9 +565,9 @@ describe("Forecast migration production and fault recovery", () => {
     const runner = sqliteRunner(db);
     expect(runner.run({ environment: "production", local: false })).toEqual({
       bootstrapped: false,
-      applied: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
+      applied: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27],
       versions: [
-        1, 2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+        1, 2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
       ],
     });
     expect(runner.files()).toEqual(
@@ -664,9 +624,9 @@ describe("Forecast migration production and fault recovery", () => {
       }
       const runner = sqliteRunner(db);
       expect(runner.run({ environment: "production", local: true }).applied).toEqual([
-        8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+        8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
       ]);
-      expect(runner.files()).toHaveLength(19);
+      expect(runner.files()).toHaveLength(20);
     },
   );
 
@@ -682,7 +642,7 @@ describe("Forecast migration production and fault recovery", () => {
     expect(runner.files()).toEqual(["0006_discord_staging_message_identity.sql"]);
     runner.spawn.mockImplementation(normal);
     expect(runner.run().applied).toEqual([
-      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
     ]);
   });
 
@@ -699,7 +659,7 @@ describe("Forecast migration production and fault recovery", () => {
     expect(runner.files()).toEqual(["0006_discord_staging_message_identity.sql"]);
     runner.spawn.mockImplementation(normal).mockClear();
     expect(runner.run().applied).toEqual([
-      7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+      7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
     ]);
     expect(runner.files()).not.toContain("0006_discord_staging_message_identity.sql");
   });
@@ -721,14 +681,14 @@ describe("Forecast migration fail-closed ledger checks", () => {
   });
 
   it.each(["staging", "production"] as const)(
-    "rejects a contiguous unknown version 27 in %s before writes",
+    "rejects a contiguous unknown version 28 in %s before writes",
     (environment) => {
       const spawn = vi
         .fn<Spawn>()
         .mockReturnValueOnce(result(json([{ name: "schema_migrations", type: "table" }])))
-        .mockReturnValueOnce(result(json(ledgerRows([...currentVersions, 27]))));
+        .mockReturnValueOnce(result(json(ledgerRows([...currentVersions, 28]))));
       expect(() => applyForecastD1Migrations({ environment, local: true }, { spawn })).toThrow(
-        "Unknown schema_migrations version: 27",
+        "Unknown schema_migrations version: 28",
       );
       expect(spawn).toHaveBeenCalledTimes(2);
       expect(spawn.mock.calls.every(([, args]) => !args.includes("--file"))).toBe(true);

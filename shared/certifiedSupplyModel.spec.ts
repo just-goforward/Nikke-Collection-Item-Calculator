@@ -1,7 +1,66 @@
 import { describe, expect, it } from "vitest";
-import { dateStart, freezeJson, timestamp, withSupplyDateCache } from "./certifiedSupplyModel.ts";
+import {
+  dateStart,
+  freezeJson,
+  isDeeplyFrozen,
+  timestamp,
+  withSupplyDateCache,
+} from "./certifiedSupplyModel.ts";
 
 describe("recursive JSON freezing", () => {
+  it("accepts JSON-parsed graphs, arrays and null-prototype objects", () => {
+    const parsed = JSON.parse('{"rows":[{"count":1},[2,"x",null,true]],"nested":{"empty":{}}}');
+    const bare = Object.assign(Object.create(null), { values: [1, 2] });
+    for (const value of [parsed, bare, [parsed.rows, { bare }]]) {
+      expect(freezeJson(value)).toBe(value);
+      expect(isDeeplyFrozen(value)).toBe(true);
+    }
+    expect(isDeeplyFrozen(parsed.rows[0])).toBe(true);
+    expect(Object.isFrozen(bare.values)).toBe(true);
+  });
+
+  it("rejects accessor properties without invoking them", () => {
+    let reads = 0;
+    const child = { count: 1 };
+    const getter = {
+      child,
+      get mutable() {
+        reads += 1;
+        return { count: reads };
+      },
+    };
+    expect(() => freezeJson(getter)).toThrow("certified_json_graph_invalid");
+    expect(reads).toBe(0);
+    expect(isDeeplyFrozen(getter)).toBe(false);
+    expect(Object.isFrozen(getter)).toBe(false);
+    const setter = Object.defineProperty({}, "value", { set: () => undefined, enumerable: true });
+    const hidden = Object.defineProperty({}, "value", { get: () => 1, enumerable: false });
+    const nested = { rows: [{ ok: true }, getter] };
+    for (const value of [setter, hidden, nested]) {
+      expect(() => freezeJson(value)).toThrow("certified_json_graph_invalid");
+      expect(isDeeplyFrozen(value)).toBe(false);
+    }
+  });
+
+  it("rejects non-plain prototypes and functions", () => {
+    class Box {
+      count = 1;
+    }
+    const exotic = [
+      new Box(),
+      new Date(0),
+      new Map(),
+      Object.create({ inherited: 1 }),
+      Object.setPrototypeOf([1], null),
+      { callback: () => undefined },
+      [() => undefined],
+    ];
+    for (const value of exotic) {
+      expect(() => freezeJson(value)).toThrow("certified_json_graph_invalid");
+      expect(isDeeplyFrozen(value)).toBe(false);
+    }
+  });
+
   it("freezes shared descendants even when callers have frozen only their parent", () => {
     const child = { values: [{ count: 1 }] };
     const shallow = Object.freeze({ child });

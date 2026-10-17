@@ -46,7 +46,6 @@ pub struct Class {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Model {
-    #[serde(default)]
     snapshot_version: String,
     pub events: Vec<Event>,
     laws: Vec<Law>,
@@ -465,6 +464,7 @@ mod tests {
 
     pub(super) fn source(laws: Json) -> Supply {
         let model = serde_json::from_value(json!({
+            "snapshotVersion": "certified-daily-v1",
             "events": [], "laws": laws,
             "priors": vec![wire(&Q::new(1.into(),3.into())); 3],
             "populationPrior": ([1, 2, 3, 1].map(|n| wire(&Q::new(n.into(), 7.into())))),

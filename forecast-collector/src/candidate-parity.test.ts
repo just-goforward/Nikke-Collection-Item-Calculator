@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { assertForecastCandidateInvariants } from "../../shared/supplyForecastCandidate";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
-import { sha256Hex } from "./crypto";
+import { sha256Hex, stableJson } from "./crypto";
 import type { NormalizedSourceItem, ScheduleEvent } from "./types";
 
 const sourceItem: NormalizedSourceItem = {
@@ -90,23 +91,39 @@ const baseline = [
   },
 ];
 
-describe("candidate pre-optimization byte parity", () => {
-  it.each(baseline)("$label retains profiles, identity, hashes and payload bytes", async (row) => {
-    const now = Date.parse(row.at);
-    const resolved = resolveSoloSchedule([solo], now);
-    if (!resolved) throw new Error("resolved_schedule_fixture_missing");
-    const result = await buildForecastCandidate(
-      resolved,
-      row.label === "collaboration" ? [collaboration] : [],
-      { status: "x_unavailable", sourceItem: null, reason: "local-cpu-probe" },
-      now,
-      1,
-    );
-    const bytes = JSON.stringify(result);
-    expect(new TextEncoder().encode(bytes).length).toBe(row.bytes);
-    expect(await sha256Hex(bytes)).toBe(row.jsonSha256);
-    expect(result.candidate.candidateId).toBe(row.candidateId);
-    expect(result.payloadHash).toBe(row.payloadHash);
-    expect(result.candidate.profiles).toHaveLength(row.profiles);
-  });
+describe("candidate v5 migration from historical byte identities", () => {
+  it.each(baseline)(
+    "$label validates v5 profile coverage without reusing a historical identity",
+    async (row) => {
+      const now = Date.parse(row.at);
+      const resolved = resolveSoloSchedule([solo], now);
+      if (!resolved) throw new Error("resolved_schedule_fixture_missing");
+      const result = await buildForecastCandidate(
+        resolved,
+        row.label === "collaboration" ? [collaboration] : [],
+        { status: "x_unavailable", sourceItem: null, reason: "local-cpu-probe" },
+        now,
+        1,
+      );
+      const bytes = JSON.stringify(result);
+      expect(await sha256Hex(bytes)).not.toBe(row.jsonSha256);
+      expect(result.candidate.candidateId).not.toBe(row.candidateId);
+      expect(result.payloadHash).not.toBe(row.payloadHash);
+      expect(result.payloadHash).toBe(await sha256Hex(stableJson(result.candidate)));
+      expect(result.candidate).toMatchObject({
+        payloadVersion: 5,
+        rulesVersion: "schedule-kit-v4",
+        grants: [],
+      });
+      expect(() => assertForecastCandidateInvariants(result.candidate)).not.toThrow();
+      expect(result.candidate.profiles.length).toBeGreaterThan(0);
+      expect(
+        result.candidate.profiles.every(
+          (profile) =>
+            profile.effectiveUntil !== null &&
+            Date.parse(profile.effectiveUntil) - Date.parse(profile.effectiveFrom) === 86400000,
+        ),
+      ).toBe(true);
+    },
+  );
 });

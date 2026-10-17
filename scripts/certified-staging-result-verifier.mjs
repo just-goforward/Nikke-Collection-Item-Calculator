@@ -12,7 +12,8 @@ const EXPECTED_VERSION = "certified-staging-approved24-expected-v1";
 const HISTORICAL_PANEL_ROOT = "scripts/certified-staging-approved-panel";
 const PANEL_ROOT = `${HISTORICAL_PANEL_ROOT}/v6`;
 const V7_ROOT = `${HISTORICAL_PANEL_ROOT}/v7`;
-const CURRENT_PANEL_ROOT = `${HISTORICAL_PANEL_ROOT}/v8`;
+const V8_ROOT = `${HISTORICAL_PANEL_ROOT}/v8`;
+const CURRENT_PANEL_ROOT = `${HISTORICAL_PANEL_ROOT}/v9`;
 const ARCHIVE_ROOT = `${HISTORICAL_PANEL_ROOT}/v2`;
 const PREVIOUS_ROOT = `${HISTORICAL_PANEL_ROOT}/v3`;
 const V4_ROOT = `${HISTORICAL_PANEL_ROOT}/v4`;
@@ -29,15 +30,55 @@ const REQUIRED_SOURCES = [
     "provenance.json",
     "panel.json",
     "anchor.ts",
-    "physical.ts",
     "evidence.ts",
     "calculate.ts",
     "panel.ts",
-    "snapshot.ts",
     "generate.ts",
   ].map((name) => `${CURRENT_PANEL_ROOT}/${name}`),
   "scripts/certified-staging-oracle-four-cohort-pricing.ts",
   "scripts/certified-staging-oracle-fixtures/cohort3-dispatch-v1.json",
+  // v8 is sealed history authenticated from its preserved source archive; v9 reuses
+  // its unchanged physical enumeration, panel calculation and snapshot preparation.
+  ...[
+    "pins.json",
+    "snapshot.json",
+    "independent-physical-cohorts.json",
+    "provenance.json",
+    "panel.json",
+    "anchor.ts",
+    "physical.ts",
+    "evidence.ts",
+    "calculate.ts",
+    "snapshot.ts",
+  ].map((name) => `${V8_ROOT}/${name}`),
+  ...[
+    "scripts/certified-staging-oracle.ts",
+    "shared/game.ts",
+    "scripts/certified-staging-oracle-tuples.ts",
+    "scripts/certified-staging-oracle-fixtures.ts",
+    "scripts/certified-staging-approved-panel.ts",
+    "scripts/certified-staging-oracle-four-cohort-pricing.ts",
+    "scripts/certified-staging-oracle-fixtures/cohort3-dispatch-v1.json",
+    `${PANEL_ROOT}/evidence.ts`,
+    `${PANEL_ROOT}/history.ts`,
+    `${V7_ROOT}/evidence.ts`,
+    `${V7_ROOT}/history.ts`,
+    ...["physical.ts", "evidence.ts", "calculate.ts", "panel.ts", "snapshot.ts", "generate.ts"].map(
+      (name) => `${V8_ROOT}/${name}`,
+    ),
+    "shared/certifiedDispatchExpectations.ts",
+    "shared/certifiedForecastIdentity.ts",
+    "shared/certifiedRational.ts",
+    "shared/certifiedSupply.ts",
+    "shared/certifiedSupplyBuild.ts",
+    "shared/certifiedSupplyLaws.ts",
+    "shared/certifiedSupplyModel.ts",
+    "shared/certifiedSupplyValidation.ts",
+    "shared/gameDay.ts",
+    "shared/generated/certifiedForecastAuthority.ts",
+    "shared/soloRaidCadence.ts",
+    "src/lib/certifiedForecast.ts",
+  ].map((path) => `${V8_ROOT}/source/${path}.txt`),
   // v7 is sealed history authenticated from its preserved source archive.
   ...[
     "pins.json",
@@ -351,8 +392,8 @@ function expectedProfile() {
 
 export async function freezeExpected(commit) {
   const source = sourceSnapshot(commit);
-  const { readV8Evidence } = await import("./certified-staging-approved-panel/v8/evidence.ts");
-  const { panel } = readV8Evidence();
+  const { readV9Evidence } = await import("./certified-staging-approved-panel/v9/evidence.ts");
+  const { panel } = readV9Evidence();
   assert.deepEqual(
     panel.map((row) => row.originalIndex),
     PANEL_INDICES,

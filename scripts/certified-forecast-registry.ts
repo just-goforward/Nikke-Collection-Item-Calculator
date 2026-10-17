@@ -2,6 +2,7 @@ import {
   assertCertifiedSupplySnapshot,
   type CertifiedSupplySnapshot,
 } from "../shared/certifiedSupply.ts";
+import { usesLedgerForecast } from "../shared/certifiedVersionPolicy.ts";
 import type { SupplyForecastCandidate } from "../shared/supplyForecastCandidate.ts";
 import {
   assertLedgerForecastProfiles,
@@ -13,7 +14,7 @@ export function registryCertifiedSnapshot(entry: unknown): CertifiedSupplySnapsh
   if (typeof entry !== "object" || entry === null)
     throw new TypeError("invalid_forecast_registry_entry");
   const snapshot: unknown = Reflect.get(entry, "certifiedSnapshot");
-  if (Reflect.get(entry, "rulesVersion") === "schedule-kit-v3") {
+  if (usesLedgerForecast(Reflect.get(entry, "rulesVersion"))) {
     const parsed = assertCertifiedSupplySnapshot(snapshot);
     const id = Reflect.get(entry, "id") ?? Reflect.get(entry, "forecastId");
     const profiles: unknown = Reflect.get(entry, "profiles");

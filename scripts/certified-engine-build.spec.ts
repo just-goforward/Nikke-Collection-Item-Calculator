@@ -99,7 +99,7 @@ describe("approved forecast version admission", () => {
     );
     expect(readFileSync(path, "utf8")).toBe(registry(legacy));
     writeFileSync(path, registry(current));
-    expect(deriveCertifiedForecastAuthority(item.root).contents).toContain("certified-daily-v3");
+    expect(deriveCertifiedForecastAuthority(item.root).contents).toContain("certified-daily-v4");
   });
 });
 

@@ -273,7 +273,13 @@ describe("certified receipt observations", () => {
     expect(next.stock).toEqual(session.stock);
     expect(next.cohortWeights).toEqual(session.cohortWeights);
     expect(next.receipts).toEqual([
-      { eventId: event.id, at: "2026-09-30T04:00:00Z", pieces: null, alreadyInStock: true },
+      {
+        eventId: event.id,
+        gameDate: event.gameDate,
+        at: "2026-09-30T04:00:00Z",
+        pieces: null,
+        alreadyInStock: true,
+      },
     ]);
     expect(restoreCertifiedSession(JSON.stringify(next))).toEqual(next);
   });

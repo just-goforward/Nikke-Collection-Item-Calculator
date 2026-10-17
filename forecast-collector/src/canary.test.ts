@@ -71,7 +71,7 @@ describe("rotation canary evidence", () => {
           const time = Date.parse(slot);
           const board = rotationBoard(time);
           const id =
-            board === null ? `rotation-ingestion:${time}` : rotationInvocationId(board, time);
+            board === null ? `rotation-ingestion:${time}:v2` : rotationInvocationId(board, time);
           return testEnv.FORECAST_DB.prepare(`INSERT INTO collector_invocations
           (invocation_id,deployment_sha,scheduled_at,started_at,finished_at,status,poll_mode)
           VALUES(?,?,?,?,?,'completed','both')`).bind(id, SHA, slot, slot, slot);
@@ -106,7 +106,7 @@ describe("rotation canary evidence", () => {
     expect((await readHealth(testEnv.FORECAST_DB)).collector.status).toBe("missing");
     expect(
       await testEnv.FORECAST_DB.prepare(
-        "SELECT status FROM collector_invocations WHERE invocation_id='rotation-ingestion:360000'",
+        "SELECT status FROM collector_invocations WHERE invocation_id='rotation-ingestion:360000:v2'",
       ).first("status"),
     ).toBe("failure");
   });

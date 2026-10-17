@@ -1,4 +1,5 @@
 import { z } from "zod/mini";
+import { board11InvocationGate } from "./board11-policy";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
 import { sha256Hex, stableJson } from "./crypto";
 import {
@@ -10,6 +11,7 @@ import {
 } from "./db";
 import { buildNoticeCandidate } from "./notice-processing";
 import { loadRuntimeEvents } from "./runtime-events";
+import { prepareTypedResolution, typedBinding, typedResolutionSchema } from "./typed-resolutions";
 import type { NaverSourceKind, NormalizedSourceItem, ScheduleEvent } from "./types";
 
 const REVIEW_TTL_MS = 14 * 24 * 60 * 60 * 1_000;
@@ -30,6 +32,7 @@ const decisionInputSchema = z.object({
   reason: z.string().check(z.minLength(1), z.maxLength(240)),
   runId: z.number().check(z.int(), z.minimum(1)),
   event: z.nullable(eventInputSchema),
+  resolution: z.optional(typedResolutionSchema),
 });
 
 type ManualReviewDecisionInput = z.infer<typeof decisionInputSchema>;
@@ -55,6 +58,7 @@ type ManualReviewRow = {
   published_at: string;
   error_code: string | null;
   queue_status: string;
+  writeCondition?: StatementWriteCondition;
 };
 
 type SourceItemRow = {
@@ -91,7 +95,8 @@ export async function ensureManualReviewStatement(
        SELECT 'mr-' || lower(hex(randomblob(16))), source, item_id, review_generation,
               'pending', ?, ?
        FROM source_queue
-       WHERE source = ? AND item_id = ? AND status = 'manual_review'`,
+       WHERE source = ? AND item_id = ? AND status = 'manual_review'
+       AND (source<>'naver-board-11' OR EXISTS(SELECT 1 FROM schema_migrations WHERE version>=27))`,
     )
     .bind(nowIso, expiresAt, source, itemId);
 }
@@ -113,13 +118,22 @@ export async function listManualReviews(
   return rows.results.map((row) => publicManualReview(effectiveManualReview(row, now)));
 }
 
-export async function readManualReview(db: D1Database, reviewId: string) {
+export async function readManualReview(
+  db: D1Database,
+  reviewId: string,
+  schema27Allowed = board11InvocationGate(db),
+) {
   if (!reviewIdPattern.test(reviewId)) return null;
   const row = await db
     .prepare(`${reviewSelectSql()} WHERE r.review_id = ?`)
     .bind(reviewId)
     .first<ManualReviewRow>();
-  return row ? publicManualReview(effectiveManualReview(row, new Date().toISOString())) : null;
+  if (!row) return null;
+  const bound = (await schema27Allowed()) ? await typedBinding(db, reviewId) : null;
+  return {
+    ...publicManualReview(effectiveManualReview(row, new Date().toISOString())),
+    ...(bound ? { resolutionBinding: bound.binding } : {}),
+  };
 }
 
 function effectiveManualReview(row: ManualReviewRow, now: string): ManualReviewRow {
@@ -132,6 +146,7 @@ export async function renewManualReview(
   reviewId: string,
   raw: unknown,
 ) {
+  const schema27Allowed = board11InvocationGate(db);
   const input = z
     .object({
       environment: z.enum(["staging", "production"]),
@@ -152,13 +167,15 @@ export async function renewManualReview(
     if (prior.review_id !== reviewId || prior.request_payload_hash !== hash) {
       throw new Error("manual_review_request_conflict");
     }
-    return { review: await readManualReview(db, newId), idempotent: true };
+    return { review: await readManualReview(db, newId, schema27Allowed), idempotent: true };
   }
   const review = await db
     .prepare(`${reviewSelectSql()} WHERE r.review_id=?`)
     .bind(reviewId)
     .first<ManualReviewRow>();
   if (!review) throw new Error("manual_review_not_found");
+  if (review.source === "naver-board-11" && !(await schema27Allowed()))
+    throw new Error("board11_schema_required");
   if (review.state === "resolved" || review.queue_status !== "manual_review") {
     throw new Error("manual_review_not_pending");
   }
@@ -218,11 +235,11 @@ export async function renewManualReview(
       .bind(reviewId)
       .first<{ request_id: string | null; request_payload_hash: string | null }>();
     if (winner?.request_id === input.requestId && winner.request_payload_hash === hash) {
-      return { review: await readManualReview(db, newId), idempotent: true };
+      return { review: await readManualReview(db, newId, schema27Allowed), idempotent: true };
     }
     throw new Error("manual_review_renewal_race");
   }
-  return { review: await readManualReview(db, newId), idempotent: false };
+  return { review: await readManualReview(db, newId, schema27Allowed), idempotent: false };
 }
 
 export async function decideManualReview(
@@ -232,6 +249,7 @@ export async function decideManualReview(
   raw: unknown,
   options: { actor?: string; nowMs?: number; runtimeIngestion?: boolean } = {},
 ) {
+  const schema27Allowed = board11InvocationGate(db);
   if (!reviewIdPattern.test(reviewId)) throw new Error("manual_review_id_invalid");
   const input = parseDecisionInput(raw);
   const payloadHash = await sha256Hex(stableJson(input));
@@ -258,6 +276,7 @@ export async function decideManualReview(
     now,
     nowMs,
     environment === "staging" && options.runtimeIngestion === true,
+    schema27Allowed,
   );
   const reviewStatement = db
     .prepare(
@@ -307,17 +326,17 @@ export async function decideManualReview(
   const queueChanges = Number(results.at(-3)?.meta.changes ?? 0);
   const reviewChanges = Number(results.at(-2)?.meta.changes ?? 0);
   if (queueChanges !== 1 || reviewChanges !== 1) throw new Error("manual_review_decision_race");
-  const stored = await readManualReview(db, reviewId);
+  const stored = await readManualReview(db, reviewId, schema27Allowed);
   if (!stored) throw new Error("manual_review_missing_after_decision");
   return { review: stored, candidateCreated: prepared.candidateCreated, idempotent: false };
 }
 
 function parseDecisionInput(raw: unknown) {
   const input = decisionInputSchema.parse(raw);
-  if (input.decision === "manual_event" && input.event === null) {
+  if (input.decision === "manual_event" && input.event === null && !input.resolution) {
     throw new Error("manual_review_event_required");
   }
-  if (input.decision !== "manual_event" && input.event !== null) {
+  if (input.decision !== "manual_event" && (input.event !== null || input.resolution)) {
     throw new Error("manual_review_event_forbidden");
   }
   return input;
@@ -351,7 +370,28 @@ async function prepareManualReviewDecision(
   now: string,
   nowMs: number,
   runtimeIngestion: boolean,
+  schema27Allowed: () => Promise<boolean>,
 ): Promise<PreparedManualReviewDecision> {
+  if (review.source === "naver-board-11" || input.resolution) {
+    if (!(await schema27Allowed())) throw new Error("board11_schema_required");
+  }
+  if (input.resolution) {
+    const prepared = await prepareTypedResolution(
+      db,
+      review.review_id,
+      input.resolution,
+      manualReviewWriteCondition(review),
+      now,
+      schema27Allowed,
+    );
+    review.writeCondition = prepared.guard;
+    return {
+      priorStatements: prepared.statements,
+      queueStatement: queueDecisionStatement(db, review, "processed", now),
+      candidateCreated: false,
+      eventPayloadHash: await sha256Hex(stableJson(input.resolution)),
+    };
+  }
   if (input.decision === "requeue") {
     return {
       priorStatements: [],
@@ -452,6 +492,7 @@ async function prepareManualEventDecision(
 }
 
 function manualReviewWriteCondition(review: ManualReviewRow): StatementWriteCondition {
+  if (review.writeCondition) return review.writeCondition;
   return {
     sql: `EXISTS (
       SELECT 1 FROM source_manual_reviews r
@@ -502,7 +543,8 @@ async function expireManualReviews(db: D1Database, nowMs: number) {
   await db
     .prepare(
       `UPDATE source_manual_reviews SET state = 'expired', resolved_at = ?
-       WHERE state = 'pending' AND expires_at <= ?`,
+       WHERE state = 'pending' AND expires_at <= ?
+       AND (source<>'naver-board-11' OR EXISTS(SELECT 1 FROM schema_migrations WHERE version>=27))`,
     )
     .bind(now, now)
     .run();

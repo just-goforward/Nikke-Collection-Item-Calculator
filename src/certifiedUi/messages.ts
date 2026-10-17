@@ -53,6 +53,7 @@ export const certifiedMessages = {
     mixture: "기본 사전 확률 · 1:2:3:1",
     learnedMixture: "추정 혼합(수급 기록 반영)",
     dismissMigrationNotice: "알림 닫기",
+    receipts_hidden: "숨긴 수령 기록은 보존됩니다.",
     cohort_selection_kept:
       "선택한 파견 재추첨 유형을 그대로 유지했습니다. 재고, 성장 상태, 수령·사용 이력은 보존됩니다.",
     reroll0: "재추첨 없음",
@@ -156,6 +157,7 @@ export const certifiedMessages = {
     mixture: "Default prior · 1:2:3:1",
     learnedMixture: "Learned mixture (receipt history applied)",
     dismissMigrationNotice: "Dismiss notice",
+    receipts_hidden: "Hidden receipts are retained.",
     cohort_selection_kept:
       "Your selected dispatch reroll cohort was kept. Stock, progression, receipts and use history are preserved.",
     reroll0: "No rerolls",
@@ -259,6 +261,7 @@ export const certifiedMessages = {
     mixture: "既定の事前確率 · 1:2:3:1",
     learnedMixture: "推定混合（受取記録を反映）",
     dismissMigrationNotice: "通知を閉じる",
+    receipts_hidden: "非表示の受取記録は保持されます。",
     cohort_selection_kept:
       "選択した派遣の再抽選タイプを維持しました。在庫、育成状態、受取・使用履歴は保持しています。",
     reroll0: "再抽選なし",

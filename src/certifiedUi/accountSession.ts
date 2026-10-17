@@ -7,10 +7,9 @@ import {
   serializeCertifiedCalculatorSession,
 } from "./calculatorSessionPersistence";
 import {
-  CERTIFIED_SESSION_STORAGE_KEY,
   type CertifiedSession,
   createCertifiedSession,
-  LEGACY_CERTIFIED_SESSION_STORAGE_KEY,
+  readStoredCertifiedSession,
   reconcileCertifiedSession,
 } from "./session";
 import {
@@ -91,9 +90,7 @@ export function isEmptyCertifiedSession(text: string): boolean {
 export function readGuestCertifiedSessionText(): string | null {
   let text: string | null;
   try {
-    text =
-      localStorage.getItem(CERTIFIED_SESSION_STORAGE_KEY) ??
-      localStorage.getItem(LEGACY_CERTIFIED_SESSION_STORAGE_KEY);
+    text = readStoredCertifiedSession(localStorage);
   } catch {
     return null;
   }
@@ -143,13 +140,7 @@ export function createCertifiedAccountPort(deps: () => CertifiedAccountDeps): Ce
         !restored.correction &&
         restored.session.snapshotRevision !== snapshot.revision
       )
-        updateSession((old) =>
-          reconcileCertifiedSession(
-            old,
-            snapshot.revision,
-            snapshot.events.map((event) => event.id),
-          ),
-        );
+        updateSession((old) => reconcileCertifiedSession(old, snapshot.revision, snapshot.events));
       return true;
     },
     showGuest: () => {

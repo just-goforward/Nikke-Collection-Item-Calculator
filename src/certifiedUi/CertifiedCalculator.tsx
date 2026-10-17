@@ -1,5 +1,8 @@
 import type { ComponentProps } from "react";
 import { useState } from "react";
+// Chunk layout only: the pure-data authority is evaluated first so that it does not split
+// the calculator code across gzip windows (lazy-certified budget). It has no side effects.
+import "../../shared/generated/certifiedForecastAuthority";
 import { CERTIFIED_STAGING_ENGINE_PROFILE } from "../../shared/certifiedEngineProfile";
 import { AppShell } from "../AppLayout";
 import { AccountControl } from "../account/AccountControl";

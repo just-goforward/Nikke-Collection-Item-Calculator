@@ -1,27 +1,48 @@
 import { q, toWire, type WireQ } from "./certifiedRational.ts";
 import type { CertifiedLawRef, CertifiedSupplyLaw, CohortTuple } from "./certifiedSupplyLaws.ts";
+import {
+  type CertifiedSnapshotVersion,
+  CURRENT_CERTIFIED_SNAPSHOT_VERSION,
+  CURRENT_FORECAST_RULES_VERSION,
+} from "./certifiedVersionPolicy.ts";
 import { gameDayKey, gameDayStartMs } from "./gameDay.ts";
 import {
   type ExactSoloRaidCadence,
   estimateCertifiedSoloRounds,
   type SoloRaidRound,
 } from "./soloRaidCadence.ts";
-export const CERTIFIED_SUPPLY_VERSION = "certified-daily-v3" as const;
+export const CERTIFIED_SUPPLY_VERSION = CURRENT_CERTIFIED_SNAPSHOT_VERSION;
 export const CERTIFIED_SUPPLY_HISTORY_DAYS = 7;
 export const CERTIFIED_WEEKLY_FIXED_LAW_ID = "deterministic:10,10,0";
-export type CertifiedSupplyVersion =
-  | "certified-daily-v1"
-  | "certified-daily-v2"
-  | typeof CERTIFIED_SUPPLY_VERSION;
+export type CertifiedSupplyVersion = CertifiedSnapshotVersion;
 export type PersonalCohortWeights = readonly [WireQ, WireQ, WireQ, WireQ];
 export type SnapshotCohortWeights = CohortTuple<WireQ>;
 export type CertifiedSourceStatus = "healthy" | "uncertain";
+export type CertifiedSupplyGrant = {
+  id: string;
+  grantGameDate: string;
+  refs: readonly CertifiedLawRef[];
+  claimUntil?: string;
+  claimWindowAssumed: boolean;
+  sourceIds: readonly string[];
+  restatementOf: readonly string[];
+};
+export type CertifiedSoloSegment = {
+  segment: number;
+  kind: "initial" | "reopen";
+  effectiveFrom: string;
+  effectiveUntil: string;
+  rewardFromGameDate: string;
+  rewardUntilGameDate: string;
+  sourceIds: readonly string[];
+};
 export type CertifiedSoloRound = {
   round: number;
   startGameDate: string;
   endGameDate: string | null;
   status: "confirmed" | "estimated" | "unverified";
   sourceIds: readonly string[];
+  segments?: readonly CertifiedSoloSegment[];
 };
 export type CertifiedSoloDelayState = {
   anchorRound: number;
@@ -32,12 +53,15 @@ export type CertifiedSupplyEvent = {
   id: string;
   gameDate: string;
   at: string;
-  kind: "dispatch" | "shop" | "solo" | "weekly-kits";
+  kind: "dispatch" | "shop" | "solo" | "weekly-kits" | "grant";
   status: "confirmed" | "estimated";
   refs: readonly CertifiedLawRef[];
   ruleId: string;
   round?: number;
   dayNumber?: number;
+  segment?: number;
+  claimWindowAssumed?: boolean;
+  restatementOf?: readonly string[];
   /** Sourced exclusive claim deadline; null/omitted means the deadline is unknown. */
   expiresAt?: string | null;
   cancelled?: boolean;
@@ -93,14 +117,20 @@ export type CertifiedSupplySnapshot = {
   provenance: readonly string[];
 };
 export type CertifiedSupplyBuildInput = {
+  grants?: readonly CertifiedSupplyGrant[];
   asOf: string;
   revision: string;
   sourceHash: string;
+  soloRounds?: readonly {
+    round: number;
+    segments: readonly CertifiedSoloSegment[];
+  }[];
   soloPeriods: readonly {
     effectiveFrom: string;
     effectiveUntil: string;
     scheduleStatus: "confirmed" | "estimated";
     round?: number;
+    segments?: readonly CertifiedSoloSegment[];
   }[];
   collaborationPeriods: readonly { effectiveFrom: string; effectiveUntil: string }[];
   confirmedRounds?: readonly SoloRaidRound[];
@@ -198,7 +228,7 @@ export function createCertifiedSupplyRule(
   effectiveUntil: string | null = null,
 ): CertifiedSupplyRule {
   return {
-    id: "schedule-kit-v3:documented-physical-supply-v2",
+    id: `${CURRENT_FORECAST_RULES_VERSION}:documented-physical-supply-v2`,
     effectiveFrom,
     effectiveUntil,
     dispatch: [{ lawId: "dispatch-board-v1", count: 1 }],
@@ -278,11 +308,28 @@ export function ruleAt(rules: readonly CertifiedSupplyRule[], at: number) {
 // Only this traversal establishes recursive freezing; Object.isFrozen alone
 // would incorrectly trust shallow-frozen caller objects. Weak keys do not retain ledgers.
 const deeplyFrozen = new WeakSet<object>();
+// Only plain JSON data qualifies: functions, accessors and class instances are rejected.
+// Callers must pass JSON-origin graphs: a lying Proxy cannot be detected here.
 export function freezeJson<T>(value: T): T {
+  if (typeof value === "function") throw new Error("certified_json_graph_invalid");
   if (typeof value === "object" && value !== null && !deeplyFrozen.has(value)) {
-    for (const child of Object.values(value)) freezeJson(child);
+    const prototype = Object.getPrototypeOf(value);
+    // Arrays require Array.prototype; other objects Object.prototype or null.
+    if (prototype !== (Array.isArray(value) ? Array.prototype : prototype && Object.prototype))
+      throw new Error("certified_json_graph_invalid");
+    for (const key of Reflect.ownKeys(value)) {
+      // Descriptors are inspected so getters are never invoked.
+      const descriptor = Reflect.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !("value" in descriptor)) throw new Error("certified_json_graph_invalid");
+      freezeJson(descriptor.value);
+    }
     Object.freeze(value);
     deeplyFrozen.add(value);
   }
   return value;
+}
+
+/** Identity proof issued only after this module recursively freezes the graph. */
+export function isDeeplyFrozen(value: object): boolean {
+  return deeplyFrozen.has(value);
 }

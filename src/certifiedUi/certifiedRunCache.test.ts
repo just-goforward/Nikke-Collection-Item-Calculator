@@ -36,10 +36,28 @@ it("reuses only same-day actual-stock requests with all model and receipt inputs
     { ...session, state: { ...session.state, level: 11 } },
     {
       ...session,
-      receipts: [{ eventId: "claim", at: asOf, pieces: [1, 0, 0] as const, alreadyInStock: true }],
+      receipts: [
+        {
+          eventId: "dispatch:2026-09-30",
+          gameDate: "2026-09-30",
+          at: asOf,
+          pieces: [1, 0, 0] as const,
+          alreadyInStock: true,
+        },
+      ],
     },
   ])
     expect(certifiedRunCacheKey(changed, snapshot, asOf)).not.toBe(key);
+  expect(
+    certifiedRunCacheKey(
+      {
+        ...session,
+        receipts: [{ eventId: "hidden", at: asOf, pieces: null, alreadyInStock: true }],
+      },
+      snapshot,
+      asOf,
+    ),
+  ).toBe(key);
   for (const changed of [
     { ...snapshot, coverage: { ...snapshot.coverage, currentDay: "2026-10-01" } },
     { ...snapshot, sourceHash: "b".repeat(64) },

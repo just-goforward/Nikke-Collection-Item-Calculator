@@ -107,7 +107,7 @@ describe("four-cohort legacy certified-session migration", () => {
       const next = restoreCertifiedSession(JSON.stringify(legacy), source);
       expect(next).toMatchObject({
         version: 2,
-        profileId: "certified-staging-v2",
+        profileId: "certified-staging-v3",
         cohortWeights: DEFAULT_PERSONAL_COHORT_WEIGHTS,
         migrationNotice: "cohort_prior_reset",
         stock: legacy.stock,

@@ -84,14 +84,26 @@ describe("forecast candidate model", () => {
     expect(result.payloadHash).toMatch(/^[a-f0-9]{64}$/);
     expect(result.candidate.forecastId).toBe("supply-2026-08-24-v1");
     expect(result.candidate.profiles.at(-1)?.effectiveUntil).not.toBeNull();
-    expect(result.candidate.rulesVersion).toBe("schedule-kit-v3");
-    expect(result.candidate.payloadVersion).toBe(4);
+    expect(result.candidate.rulesVersion).toBe("schedule-kit-v4");
+    expect(result.candidate.payloadVersion).toBe(5);
     const ledger = assertCertifiedRuntimeSupplySnapshot(result.candidate.certifiedSnapshot);
-    expect(ledger.version).toBe("certified-daily-v3");
+    expect(ledger.version).toBe("certified-daily-v4");
     expect(() =>
       assertLedgerForecastProfiles(result.candidate.forecastId, ledger, result.candidate.profiles),
     ).not.toThrow();
-    expect(result.candidate.schedule.soloPeriods).toHaveLength(resolved.soloEvents.length);
+    expect(result.candidate.schedule.soloPeriods).toContainEqual({
+      round: 40,
+      segment: 1,
+      effectiveFrom: soloEvent.startsAt,
+      effectiveUntil: soloEvent.endsAt,
+      scheduleStatus: "confirmed",
+    });
+    expect(
+      result.candidate.schedule.soloPeriods.some(
+        (period) =>
+          (period.round ?? 0) > 40 && period.segment === 1 && period.scheduleStatus === "estimated",
+      ),
+    ).toBe(true);
     expect(result.candidate.warnings).toContain(
       "X is advisory and is evaluated during proposal review.",
     );

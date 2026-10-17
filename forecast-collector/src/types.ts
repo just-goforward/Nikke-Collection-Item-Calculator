@@ -23,7 +23,7 @@ export type CollectorEnv = {
   DISCORD_CHANNEL_ID?: string;
 };
 
-export type SourceKind = "naver-board-48" | "naver-board-56" | "x-nikke-kr";
+export type SourceKind = "naver-board-11" | "naver-board-48" | "naver-board-56" | "x-nikke-kr";
 export type NaverSourceKind = Extract<SourceKind, `naver-${string}`>;
 
 export type NaverFeedMetadata = {
@@ -50,16 +50,24 @@ export type NormalizedSourceItem = {
 
 export type ScheduleEvent = {
   eventId: string;
-  eventType: "solo" | "cooperation" | "collaboration" | "schedule_change" | "reward";
+  eventType: "solo" | "cooperation" | "collaboration" | "schedule_change" | "reward" | "grant";
   sourceItem: NormalizedSourceItem;
   startsAt: string | null;
   endsAt: string | null;
   scheduleStatus: "confirmed" | "estimated";
   manualReview: boolean;
   reason: string | null;
+  segment?: SoloSegment | undefined;
+  segments?: SoloSegment[];
 };
 
-export type { SoloReason as ScheduleJudgmentReason } from "./solo-judgment";
+export type SoloSegment = {
+  round: number;
+  segment: number;
+  kind: "initial" | "suspend" | "reopen";
+  effectiveFrom: string;
+  effectiveUntil: string;
+};
 
 export type XProbeResult = {
   status: "crosschecked" | "x_unavailable" | "conflict";

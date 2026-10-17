@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { isCertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
+import { isForecastRulesVersion, usesLedgerForecast } from "../shared/certifiedVersionPolicy.ts";
 import { registryCertifiedSnapshot } from "./certified-forecast-registry.ts";
 
 type EligibilityApproval = { forecastId: string; registrySha: string };
@@ -27,16 +28,15 @@ export function validateStagingRegistry(
   if (
     !isRecord(forecast) ||
     forecast["kind"] !== "schedule" ||
-    !["schedule-kit-v2", "schedule-kit-v3"].includes(String(forecast["rulesVersion"]))
+    !isForecastRulesVersion(forecast["rulesVersion"])
   )
     return { state: "failed_permanent", errorCode: "registry_forecast_ineligible" };
   if (
-    (forecast["rulesVersion"] === "schedule-kit-v3" ||
-      forecast["certifiedSnapshot"] !== undefined) &&
+    (usesLedgerForecast(forecast["rulesVersion"]) || forecast["certifiedSnapshot"] !== undefined) &&
     !isCertifiedSupplySnapshot(forecast["certifiedSnapshot"])
   )
     return { state: "failed_permanent", errorCode: "registry_certified_snapshot_invalid" };
-  if (forecast["rulesVersion"] === "schedule-kit-v3") {
+  if (usesLedgerForecast(forecast["rulesVersion"])) {
     try {
       registryCertifiedSnapshot(forecast);
     } catch {

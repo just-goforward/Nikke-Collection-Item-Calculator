@@ -170,7 +170,7 @@ describe("FRP-v3.1 exact supply rules", () => {
 
 describe("v3 runtime admission, separate from historical law readers", () => {
   it("accepts exactly the builtin law set and keeps v2 finite fixtures readable", () => {
-    expect(assertCertifiedRuntimeSupplySnapshot(snapshot()).version).toBe("certified-daily-v3");
+    expect(assertCertifiedRuntimeSupplySnapshot(snapshot()).version).toBe("certified-daily-v4");
     const legacy = historic();
     legacy.laws = [
       ...legacy.laws,

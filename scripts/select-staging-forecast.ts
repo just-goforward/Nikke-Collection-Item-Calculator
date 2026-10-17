@@ -5,6 +5,7 @@ import {
   assertCertifiedRuntimeSupplySnapshot,
   type CertifiedSupplySnapshot,
 } from "../shared/certifiedSupply.ts";
+import { isForecastRulesVersion } from "../shared/certifiedVersionPolicy.ts";
 import {
   recordSelectionDisposition,
   StagingForecastEligibilityError,
@@ -54,7 +55,7 @@ function validatedStagingRegistry(value: unknown, forecastId: string): Registry 
   if (
     !isRecord(forecast) ||
     forecast["kind"] !== "schedule" ||
-    !["schedule-kit-v2", "schedule-kit-v3"].includes(String(forecast["rulesVersion"]))
+    !isForecastRulesVersion(forecast["rulesVersion"])
   ) {
     throw new Error("Staging forecast does not satisfy a supported schedule contract.");
   }

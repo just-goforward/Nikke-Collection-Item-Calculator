@@ -1,6 +1,8 @@
 import { readBoundedText } from "../../shared/boundedHttp.ts";
+import { board11MetadataEligible } from "./board11-policy";
 import { sha256Hex, stableJson } from "./crypto";
-import { judgeSolo, judgments, type SoloContext } from "./solo-judgment";
+import type { SoloContext } from "./solo-contracts";
+import { judgeSolo, judgments } from "./solo-judgment";
 import { noticeTexts } from "./solo-sections";
 import type { NaverFeedMetadata, NormalizedSourceItem, ScheduleEvent, SourceKind } from "./types";
 
@@ -9,7 +11,8 @@ const NAVER_SEARCH_URL = "https://comm-api.game.naver.com/nng_main/v2/search/fee
 const MAX_RESPONSE_BYTES = 2_000_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 
-const BOARD_KEYWORDS: Record<48 | 56, readonly string[]> = {
+const BOARD_KEYWORDS: Record<11 | 48 | 56, readonly string[]> = {
+  11: ["솔로 레이드", "솔로레이드", "보상", "관리 키트 상자"],
   56: ["솔로 레이드", "솔로레이드", "솔레", "협동 작전", "협동작전", "협작", "콜라보"],
   48: [
     "솔로 레이드",
@@ -46,7 +49,7 @@ export type NaverMetadataPage = {
 };
 
 export async function fetchNaverFeedMetadata(
-  boardId: 48 | 56,
+  boardId: 11 | 48 | 56,
   offset = 0,
   fetcher: FetchLike = fetch,
   pageSize = 10,
@@ -96,7 +99,7 @@ export async function fetchNaverItemIdentity(itemId: string, fetcher: FetchLike 
 
 async function parseNaverFeedMetadata(
   payload: unknown,
-  boardId: 48 | 56,
+  boardId: 11 | 48 | 56,
 ): Promise<NaverMetadataPage> {
   if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_schema_code");
   const content = payload["content"];
@@ -134,7 +137,7 @@ async function parseNaverFeedMetadata(
 }
 
 export async function fetchNaverStructuredItem(
-  boardId: 48 | 56,
+  boardId: 11 | 48 | 56,
   itemId: string,
   fetcher: FetchLike = fetch,
 ) {
@@ -144,7 +147,7 @@ export async function fetchNaverStructuredItem(
 }
 
 export async function fetchNaverBoard(
-  boardId: 48 | 56,
+  boardId: 11 | 48 | 56,
   fetcher: FetchLike = fetch,
 ): Promise<NormalizedSourceItem[]> {
   const url = new URL(NAVER_FEED_URL);
@@ -192,7 +195,7 @@ export async function fetchNaverSoloHistory(
 
 export async function parseNaverFeed(
   payload: unknown,
-  boardId: 48 | 56,
+  boardId: 11 | 48 | 56,
   // parsedContents is the already-parsed contents of a single-article detail payload;
   // it applies to every feed row, so pass it only for one-article detail responses.
   options: { structuredJsonOnly?: boolean; parsedContents?: { value: unknown } } = {},
@@ -209,6 +212,14 @@ export async function parseNaverFeed(
     const itemId = String(feed["feedId"] ?? "");
     const title = typeof feed["title"] === "string" ? normalizeWhitespace(feed["title"]) : "";
     const rawContents = typeof feed["contents"] === "string" ? feed["contents"] : "";
+    if (
+      boardId === 11 &&
+      !board11MetadataEligible(
+        title,
+        user["role"] === "game_manager" || user["userRoleCode"] === "game_manager",
+      )
+    )
+      continue;
     const extracted = await extractSmartEditorText(
       rawContents,
       options.structuredJsonOnly === true,
@@ -266,16 +277,7 @@ export async function parseScheduleEvents(
       (/(중단|연장|재개|일정\s*변경)/.test(text) && schedule === null);
     if (!eventType) continue;
     const eventId = `${item.source}:${item.itemId}:${eventType}`;
-    let reason: ScheduleEvent["reason"] = null;
-    if (manualReview) {
-      if (!item.official) {
-        reason = "not_official_manager";
-      } else if (!item.structured) {
-        reason = "unstructured_body";
-      } else {
-        reason = "ambiguous_schedule_change";
-      }
-    }
+    const reason = scheduleReviewReason(item, manualReview);
     events.push({
       eventId,
       eventType,
@@ -288,6 +290,16 @@ export async function parseScheduleEvents(
     });
   }
   return events;
+}
+
+function scheduleReviewReason(
+  item: NormalizedSourceItem,
+  manualReview: boolean,
+): ScheduleEvent["reason"] {
+  if (!manualReview) return null;
+  if (!item.official) return "not_official_manager";
+  if (!item.structured) return "unstructured_body";
+  return "ambiguous_schedule_change";
 }
 
 async function extractSmartEditorText(
@@ -500,7 +512,7 @@ function isOfficialSoloOpening(row: Record<string, unknown>) {
   );
 }
 
-async function parseNaverDetail(payload: unknown, boardId: 48 | 56, structuredOnly = false) {
+async function parseNaverDetail(payload: unknown, boardId: 11 | 48 | 56, structuredOnly = false) {
   if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_detail_schema_code");
   const content = payload["content"];
   if (!isRecord(content) || !isRecord(content["user"])) {
@@ -565,7 +577,7 @@ function normalizeWhitespace(value: string) {
 
 function isValidFeedRow(
   value: unknown,
-  boardId: 48 | 56,
+  boardId: 11 | 48 | 56,
 ): value is Record<string, unknown> & {
   feed: Record<string, unknown>;
   user: Record<string, unknown>;

@@ -156,7 +156,7 @@ describe("v3 population prior and weekly supply wire contract", () => {
         expect.objectContaining({
           op: "configureSupply",
           model: expect.objectContaining({
-            snapshotVersion: "certified-daily-v3",
+            snapshotVersion: "certified-daily-v4",
             populationPrior: DEFAULT_PERSONAL_COHORT_WEIGHTS,
             priors: input.cohortWeights,
             shop: [

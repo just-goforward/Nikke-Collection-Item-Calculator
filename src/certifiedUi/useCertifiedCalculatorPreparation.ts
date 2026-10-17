@@ -54,13 +54,7 @@ export function useCertifiedCalculatorPreparation(
           !current.modalBatch &&
           current.session.snapshotRevision !== next.revision
         )
-          updateSession((old) =>
-            reconcileCertifiedSession(
-              old,
-              next.revision,
-              next.events.map((e) => e.id),
-            ),
-          );
+          updateSession((old) => reconcileCertifiedSession(old, next.revision, next.events));
       } catch (failure) {
         if (!active) return;
         if (failure instanceof Error && failure.message === "unsupported_forecast_version") {

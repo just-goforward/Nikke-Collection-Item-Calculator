@@ -32,6 +32,55 @@ const alert: OpsAlertRow = {
 };
 
 describe("manual review evidence cards", () => {
+  it("prioritizes actions and comparison over oversized quotations", async () => {
+    const evidence = {
+      ...row,
+      reason: "compensation_grant_date_missing",
+      question: "질문".repeat(1000),
+      block_excerpt: "인용".repeat(1000),
+      comparison_json: JSON.stringify({
+        blocking: false,
+        known: {
+          segments: [
+            { segment: 1, kind: "old", startKst: "a", endKst: "b", rewardDays: ["2026-10-01"] },
+          ],
+        },
+        segments: [
+          { segment: 2, kind: "new", startKst: "c", endKst: "d", rewardDays: ["2026-10-02"] },
+        ],
+        grant: {
+          grantGameDate: "2026-10-02",
+          kits: [
+            { law: "box-ii-v1", count: 3 },
+            { law: "regular-box-v1", count: 2 },
+          ],
+          claimUntilKst: null,
+          claimWindowAssumed: true,
+        },
+      }),
+    };
+    const message = await opsAlertMessage(alert, [evidence, evidence, evidence]);
+    const embed = message.embeds[0];
+    if (!embed || !("fields" in embed) || !("footer" in embed)) {
+      throw new Error("Missing evidence embed");
+    }
+    const fields = reviewEvidenceFields([evidence]);
+    expect(fields[4]?.value).toContain("[일정 직접 확정]으로 지급일·수량 입력");
+    expect(fields[3]?.value).toContain("기존 구간 → 제안 구간");
+    expect(fields[3]?.value).toContain("보상 날짜 추가: 2026-10-02");
+    expect(fields[3]?.value).toContain("보상 날짜 제거: 2026-10-01");
+    expect(fields[3]?.value).toContain("게시 차단 여부: 차단 안 함");
+    expect(fields[3]?.value).toContain("기한 미기재: 당일만 반영(보수적)");
+    expect(fields[3]?.value).toContain("관리 키트 상자 II: 3개");
+    expect(fields[3]?.value).toContain("관리 키트 상자: 2개");
+    expect(
+      embed.title.length +
+        embed.description.length +
+        embed.footer.text.length +
+        embed.fields.reduce((sum, field) => sum + field.name.length + field.value.length, 0),
+    ).toBeLessThanOrEqual(5500);
+    expect(fields[2]?.value).toContain("…(생략)");
+  });
   it("renders equal 8289927-like periods and complete KST footer without timestamp", async () => {
     const message = await opsAlertMessage(alert, [row]);
     expect(JSON.stringify(message)).toContain("✅ 같음");
@@ -57,6 +106,15 @@ describe("manual review evidence cards", () => {
   ])("gives concrete guidance for %s", (reason, expected) => {
     expect(reviewEvidenceFields([{ ...row, reason }])[4]?.value).toContain(expected);
     expect(reviewEvidenceFields([{ ...row, reason }])[4]?.value).not.toContain("[일정 직접 확정]");
+  });
+  it.each([
+    ["compensation_grant_date_ambiguous", "지급일의 연도"],
+    ["compensation_claim_deadline_ambiguous", "수령 기한"],
+  ])("explains grant date/deadline review %s with its code", (reason, expected) => {
+    const fields = reviewEvidenceFields([{ ...row, reason }]);
+    expect(fields[1]?.value).toContain(`-# 사유 코드: \`${reason}\``);
+    expect(fields[4]?.value).toContain(expected);
+    expect(fields[4]?.value).toContain("[일정 직접 확정]");
   });
   it("directs simple section schedule changes to direct confirmation", () => {
     expect(reviewEvidenceFields([{ ...row, reason: "schedule_change_in_section" }])[4]?.value).toBe(

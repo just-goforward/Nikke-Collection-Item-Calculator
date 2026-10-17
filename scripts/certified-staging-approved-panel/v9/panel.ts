@@ -1,0 +1,25 @@
+import assert from "node:assert/strict";
+import { fileSha256 } from "../../certified-staging-approved-panel.ts";
+import { normalizeExact } from "../v6/evidence.ts";
+import { calculatePanel } from "../v8/calculate.ts";
+import { cohortsFromWire } from "../v8/evidence.ts";
+import { EVIDENCE_FILES, readV9Evidence } from "./evidence.ts";
+
+export function approvedFixtureProvenance() {
+  const { provenance } = readV9Evidence();
+  return [
+    ...EVIDENCE_FILES.map((path) => ({ path, sha256: fileSha256(path) })),
+    ...provenance.snapshot.sources,
+  ].filter((row, index, rows) => rows.findIndex((other) => other.path === row.path) === index);
+}
+
+export function loadIndependentApprovedPanel() {
+  const { snapshot, physical, panel } = readV9Evidence();
+  const generated = calculatePanel(snapshot, cohortsFromWire(physical.cohorts));
+  assert.deepEqual(
+    normalizeExact(panel),
+    normalizeExact(generated),
+    "tracked v3 approved24 expectations differ from independent oracle; version new evidence explicitly",
+  );
+  return generated.map((row) => ({ ...row, input: { ...row.input, snapshot } }));
+}

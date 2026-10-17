@@ -10,6 +10,9 @@ import noticeFixture from "../../forecast-collector/fixtures/official-solo-histo
 import versionsMigration from "../../forecast-collector/migrations/0022_forecast_runtime_versions.sql?raw";
 import publicationMigration from "../../forecast-collector/migrations/0023_forecast_runtime_publication.sql?raw";
 import ingestionMigration from "../../forecast-collector/migrations/0024_runtime_ingestion.sql?raw";
+import pageMigration from "../../forecast-collector/migrations/0025_naver_page_policy.sql?raw";
+import evidenceMigration from "../../forecast-collector/migrations/0026_source_judgment_evidence.sql?raw";
+import grantsMigration from "../../forecast-collector/migrations/0027_board11_grants.sql?raw";
 import collectorSchema from "../../forecast-collector/schema.sql?raw";
 import { parseNoticeDetail } from "../../forecast-collector/src/notice.ts";
 import { runRuntimeIngestion } from "../../forecast-collector/src/runtime-ingestion.ts";
@@ -83,6 +86,9 @@ it("real ingestion A → delivered review → corrected ingestion B rejects A's 
   await executeTestSql(db, versionsMigration, applyD1Migrations);
   await executeTestSql(db, publicationMigration, applyD1Migrations);
   await executeTestSql(db, ingestionMigration, applyD1Migrations);
+  await executeTestSql(db, pageMigration, applyD1Migrations);
+  await executeTestSql(db, evidenceMigration, applyD1Migrations);
+  await executeTestSql(db, grantsMigration, applyD1Migrations);
   await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB);
   const discordKey = (await crypto.subtle.generateKey("Ed25519", true, [
     "sign",

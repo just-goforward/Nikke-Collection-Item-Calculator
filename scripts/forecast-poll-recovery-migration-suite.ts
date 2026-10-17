@@ -4,13 +4,12 @@ import type { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   database,
-  legacyDatabase,
-  publicationProtectionSchema,
   result,
   root,
   type Spawn,
   sqliteRunner,
 } from "./forecast-migration-test-fixtures.ts";
+import { legacyDatabase } from "./forecast-migration-v27-fixtures.ts";
 import {
   insertExceptionAudit,
   seedExceptionHistory,
@@ -23,7 +22,7 @@ const POLL_RECOVERY_MIGRATION = resolve(
 const POLL_RECOVERY_TABLES = ["source_poll_recovery_previews", "source_poll_recovery_audits"];
 
 function expectedMigrationVersions(environment: "staging" | "production") {
-  return Array.from({ length: 25 }, (_, index) => index + 1).filter(
+  return Array.from({ length: 27 }, (_, index) => index + 1).filter(
     (version) => environment === "staging" || ![4, 5, 6].includes(version),
   );
 }
@@ -39,7 +38,7 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true })).toEqual({
         bootstrapped: false,
-        applied: [20, 21, 22, 23, 24, 25],
+        applied: [20, 21, 22, 23, 24, 25, 26, 27],
         versions: expectedMigrationVersions(environment),
       });
       expect(runner.files()).toEqual([
@@ -49,6 +48,8 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
         "0023_forecast_runtime_publication.sql",
         "0024_runtime_ingestion.sql",
         "0025_naver_page_policy.sql",
+        "0026_source_judgment_evidence.sql",
+        "0027_board11_grants.sql",
       ]);
       expect(legacyTableSnapshot(db, oldTables)).toEqual(withPublicationProtections(before));
       expect(pollRecoveryTables(db)).toEqual([...POLL_RECOVERY_TABLES].sort());
@@ -73,7 +74,9 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
       }
     },
   );
+});
 
+describe("REVIEW19 source poll recovery migration restart behavior", () => {
   it.each(["staging", "production"] as const)(
     "stops before a failed migration20 in %s and then resumes from exact v19",
     (environment) => {
@@ -97,7 +100,9 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
       });
       expect(legacyTableSnapshot(db, oldTables)).toEqual(before);
       runner.spawn.mockImplementation(normal).mockClear();
-      expect(runner.run({ environment, local: true }).applied).toEqual([20, 21, 22, 23, 24, 25]);
+      expect(runner.run({ environment, local: true }).applied).toEqual([
+        20, 21, 22, 23, 24, 25, 26, 27,
+      ]);
       expect(runner.files()).toEqual([
         "0020_source_poll_recovery_audits.sql",
         "0021_source_poll_marker_recovery_audits.sql",
@@ -105,6 +110,8 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
         "0023_forecast_runtime_publication.sql",
         "0024_runtime_ingestion.sql",
         "0025_naver_page_policy.sql",
+        "0026_source_judgment_evidence.sql",
+        "0027_board11_grants.sql",
       ]);
       expect(legacyTableSnapshot(db, oldTables)).toEqual(withPublicationProtections(before));
     },
@@ -132,13 +139,17 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
       expect(legacyTableSnapshot(db, oldTables)).toEqual(before);
       const ledger = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
       runner.spawn.mockImplementation(normal).mockClear();
-      expect(runner.run({ environment, local: true }).applied).toEqual([21, 22, 23, 24, 25]);
+      expect(runner.run({ environment, local: true }).applied).toEqual([
+        21, 22, 23, 24, 25, 26, 27,
+      ]);
       expect(runner.files()).toEqual([
         "0021_source_poll_marker_recovery_audits.sql",
         "0022_forecast_runtime_versions.sql",
         "0023_forecast_runtime_publication.sql",
         "0024_runtime_ingestion.sql",
         "0025_naver_page_policy.sql",
+        "0026_source_judgment_evidence.sql",
+        "0027_board11_grants.sql",
       ]);
       expect(
         db.prepare("SELECT * FROM schema_migrations WHERE version<=20 ORDER BY version").all(),
@@ -149,7 +160,7 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
 });
 
 describe("REVIEW19 source poll recovery schema and immutable evidence", () => {
-  it("keeps fresh v25 and incremental v25 poll recovery columns, keys, indexes and immutable triggers equal", () => {
+  it("keeps fresh v27 and incremental v27 poll recovery columns, keys, indexes and immutable triggers equal", () => {
     const upgraded = legacyDatabase(19);
     sqliteRunner(upgraded).run();
     const fresh = database();
@@ -161,6 +172,8 @@ describe("REVIEW19 source poll recovery schema and immutable evidence", () => {
       "0023_forecast_runtime_publication.sql",
       "0024_runtime_ingestion.sql",
       "0025_naver_page_policy.sql",
+      "0026_source_judgment_evidence.sql",
+      "0027_board11_grants.sql",
     ]);
     for (const table of POLL_RECOVERY_TABLES) {
       for (const pragma of ["table_info", "foreign_key_list", "index_list"])
@@ -202,7 +215,7 @@ describe("REVIEW19 source poll recovery schema and immutable evidence", () => {
         pk: 0,
       });
       expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 25,
+        version: 27,
       });
     }
   });
@@ -379,12 +392,54 @@ function pollRecoveryTables(db: DatabaseSync) {
     .map((row) => String(row["name"]));
 }
 
+// Existing v19 tables rebuilt by 0027; everything else must retain its original
+// catalog, including legitimate bootstrap-versus-upgrade schema differences.
+const REBUILT_LEGACY_TABLES = new Set([
+  "source_watermarks",
+  "source_items",
+  "source_poll_state",
+  "source_queue",
+  "source_manual_reviews",
+  "source_collection_health",
+  "source_processor_state",
+  "source_processor_runs",
+  "schedule_events",
+  "forecast_candidates",
+  "candidate_sources",
+  "source_processing_claims",
+  "forecast_candidate_semantics",
+  "source_manual_resolution_evidence",
+  "source_manual_review_bindings",
+  "schedule_event_source_revisions",
+  "source_legacy_event_baselines",
+  "source_metadata_observations",
+  "source_poll_scan_status",
+  "source_processor_item_bindings",
+  "source_processor_incidents",
+  "source_processor_incident_heads",
+  "source_processor_detail_settlements",
+  "source_processor_recovery_receipts",
+  "source_processor_control_reservations",
+  "source_processor_control_results",
+  "source_processor_recovery_probes",
+  "source_processor_item_exceptions",
+  "source_processor_exception_resolutions",
+  "source_processor_proof_invalidations",
+  "source_processor_target_reservations",
+  "source_processor_exception_audits",
+]);
+
 function withPublicationProtections(snapshot: ReturnType<typeof legacyTableSnapshot>) {
+  const expected = database();
+  expected.exec(
+    readFileSync(resolve(root, "forecast-collector/fixtures/schema-v27-test.sql"), "utf8"),
+  );
   return snapshot.map((entry) => ({
     ...entry,
-    // Only migration 25's column/backfill and the approved publication guards may change.
+    // Preserve every old value; only the approved new nullable/defaulted columns and backfill differ.
     rows: entry.rows.map((row) => {
       if (entry.table === "source_poll_state") return { ...row, page_size: 10 };
+      if (entry.table === "schedule_events") return { ...row, segment_json: null };
       if (
         entry.table === "forecast_ops_alerts" &&
         ["naver-boundary:missing", "naver-boundary:null"].includes(String(row["alert_key"]))
@@ -398,24 +453,11 @@ function withPublicationProtections(snapshot: ReturnType<typeof legacyTableSnaps
         };
       return row;
     }),
-    schema: [
-      ...entry.schema.map((row) =>
-        entry.table === "source_poll_state" && row["type"] === "table"
-          ? {
-              ...row,
-              sql: String(row["sql"]).replace(
-                "updated_at TEXT NOT NULL,",
-                "updated_at TEXT NOT NULL, page_size INTEGER NOT NULL DEFAULT 10 CHECK (page_size IN (5, 10)),",
-              ),
-            }
-          : row,
-      ),
-      ...publicationProtectionSchema(entry.table),
-    ].sort(
-      (left, right) =>
-        String(left["type"]).localeCompare(String(right["type"])) ||
-        String(left["name"]).localeCompare(String(right["name"])),
-    ),
+    schema: REBUILT_LEGACY_TABLES.has(entry.table)
+      ? expected
+          .prepare("SELECT type,name,sql FROM sqlite_master WHERE tbl_name=? ORDER BY type,name")
+          .all(entry.table)
+      : entry.schema,
   }));
 }
 

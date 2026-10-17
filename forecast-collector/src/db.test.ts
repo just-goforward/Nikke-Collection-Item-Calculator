@@ -64,6 +64,34 @@ afterEach(() => {
 });
 
 describe("forecast collector D1 contract", () => {
+  it("does not persist v4 candidates before schema 27", async () => {
+    const db = testEnv.FORECAST_DB;
+    const item = sourceItem();
+    const event = soloEvent(item);
+    const now = Date.parse("2026-08-24T00:00:00.000Z");
+    await persistSourceItemsAndEvents(db, [item], [event], new Date(now).toISOString());
+    const resolved = resolveSoloSchedule([event], now);
+    if (!resolved) throw new Error("Expected a resolved schedule");
+    const candidate = await buildForecastCandidate(
+      resolved,
+      [],
+      {
+        status: "x_unavailable",
+        sourceItem: null,
+        reason: "test",
+      },
+      now,
+      1,
+    );
+    expect(candidate.candidate.certifiedSnapshot?.version).toBe("certified-daily-v4");
+    await db.prepare("DELETE FROM schema_migrations WHERE version >= 27").run();
+    const writes = await db.batch(
+      candidateStatements(db, candidate, event.eventId, "2026-08-24", 1),
+    );
+    expect(writes.every((result) => result.meta.changes === 0)).toBe(true);
+    expect((await db.prepare("SELECT * FROM forecast_candidates").all()).results).toEqual([]);
+    expect((await db.prepare("SELECT * FROM candidate_sources").all()).results).toEqual([]);
+  });
   it("preserves changes() across D1 batch statements and clears it after a zero-row write", async () => {
     const db = testEnv.FORECAST_DB;
     const item = sourceItem();

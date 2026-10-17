@@ -51,6 +51,10 @@ on:
         options:
           - confirmed
           - estimated
+      typed_resolution:
+        description: 'Optional JSON typed resolution: suspend, reopen, grant, or restatement; include resolutionBinding from the review API'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -146,6 +150,7 @@ jobs:
           FORECAST_MANUAL_STARTS_AT_KST: ${{ inputs.starts_at_kst }}
           FORECAST_MANUAL_ENDS_AT_KST: ${{ inputs.ends_at_kst }}
           FORECAST_MANUAL_SCHEDULE_STATUS: ${{ inputs.schedule_status }}
+          FORECAST_MANUAL_TYPED_RESOLUTION: ${{ inputs.typed_resolution }}
 
   production:
     if: inputs.target_environment == 'production'
@@ -234,3 +239,4 @@ jobs:
           FORECAST_MANUAL_STARTS_AT_KST: ${{ inputs.starts_at_kst }}
           FORECAST_MANUAL_ENDS_AT_KST: ${{ inputs.ends_at_kst }}
           FORECAST_MANUAL_SCHEDULE_STATUS: ${{ inputs.schedule_status }}
+          FORECAST_MANUAL_TYPED_RESOLUTION: ${{ inputs.typed_resolution }}

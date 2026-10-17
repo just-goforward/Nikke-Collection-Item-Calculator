@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import type { CertifiedSupplySnapshot } from "../../../shared/certifiedSupply.ts";
 import { fromWire, mapTriple, q, wire } from "../../certified-staging-oracle.ts";
-import {
-  independentFourthCohort,
-  priceFourCohortSupply,
-} from "../../certified-staging-oracle-four-cohort-pricing.ts";
+import { independentFourthCohort } from "../../certified-staging-oracle-four-cohort-pricing.ts";
 import { normalizeExact, validateGenerationEnvironment } from "../v6/evidence.ts";
-import { pinnedBytes, type SourceIdentity, sha256, sourceIdentity } from "../v6/history.ts";
+import { pinnedBytes, type SourceIdentity, sha256 } from "../v6/history.ts";
 import {
   EVIDENCE_FILES as HISTORICAL_EVIDENCE_FILES,
   readV7Evidence,
@@ -49,13 +48,30 @@ export const GENERATION_SOURCES = [
   ),
 ];
 export const ANCHOR_FILE = `${V8_ROOT}/anchor.ts`;
+/** Byte-exact copies of the v8 generation and snapshot sources as sealed in its
+ * provenance (recovered from the publication commit). The working tree moved on to
+ * the Phase-2 supply engine, so v8 authenticates these preserved bytes instead. */
+export const V8_ARCHIVE_ROOT = `${V8_ROOT}/source`;
+export const SNAPSHOT_SOURCES = [
+  "shared/certifiedDispatchExpectations.ts",
+  "shared/certifiedForecastIdentity.ts",
+  "shared/certifiedRational.ts",
+  "shared/certifiedSupply.ts",
+  "shared/certifiedSupplyBuild.ts",
+  "shared/certifiedSupplyLaws.ts",
+  "shared/certifiedSupplyModel.ts",
+  "shared/certifiedSupplyValidation.ts",
+  "shared/gameDay.ts",
+  "shared/generated/certifiedForecastAuthority.ts",
+  "shared/soloRaidCadence.ts",
+  "src/lib/certifiedForecast.ts",
+] as const;
+const archivePath = (path: string) => `${V8_ARCHIVE_ROOT}/${path}.txt`;
+const archivedBytes = (identity: SourceIdentity, root: string) =>
+  pinnedBytes({ path: archivePath(identity.path), sha256: identity.sha256 }, root);
+export const ARCHIVE_FILES = [...GENERATION_SOURCES, ...SNAPSHOT_SOURCES].map(archivePath);
 export const EVIDENCE_FILES = [
-  ...new Set([
-    ...HISTORICAL_EVIDENCE_FILES,
-    ...GENERATION_SOURCES,
-    ANCHOR_FILE,
-    ...PUBLICATION_FILES,
-  ]),
+  ...new Set([...HISTORICAL_EVIDENCE_FILES, ...ARCHIVE_FILES, ...PUBLICATION_FILES]),
 ];
 type Wire = ReturnType<typeof wire>;
 type WireTriple = readonly [Wire, Wire, Wire];
@@ -76,7 +92,7 @@ export type EvidenceProvenance = {
     packageLockSha256: string;
     biomeSha256: string;
   };
-  generation: ReturnType<typeof sourceIdentity> & {
+  generation: { sources: SourceIdentity[]; sourceHash: string } & {
     isolatedCacheEmpty: true;
     physicalEnumeration: "sequential-draw-state-merged";
     oracleRows: 24;
@@ -157,8 +173,20 @@ export function validateFourCohorts(cohorts: PhysicalEvidenceV8["cohorts"], root
   );
 }
 
-/** `pinsSha` defaults to the reviewed tracked anchor; disposable publications pass
- * the digest of the pins they just generated. */
+function archiveInventory(root: string) {
+  const files = (directory: string): string[] =>
+    readdirSync(resolve(root, directory), { withFileTypes: true }).flatMap((entry) => {
+      const path = `${directory}/${entry.name}`;
+      if (entry.isDirectory()) return files(path);
+      assert.ok(entry.isFile(), `Archive must contain regular files: ${path}`);
+      return [path];
+    });
+  assert.deepEqual(files(V8_ARCHIVE_ROOT).sort(), [...ARCHIVE_FILES].sort(), "v8 archive drift");
+}
+
+/** v8 is sealed history: its pins, publication and preserved source bytes are
+ * authenticated exactly; nothing is regenerated against current sources. `pinsSha`
+ * defaults to the reviewed tracked anchor. */
 export function readV8Evidence(root = process.cwd(), pinsSha = V8_PINS_SHA) {
   const pins = JSON.parse(
     pinnedBytes({ path: `${V8_ROOT}/pins.json`, sha256: pinsSha }, root).toString(),
@@ -178,8 +206,17 @@ export function readV8Evidence(root = process.cwd(), pinsSha = V8_PINS_SHA) {
     cohortMigration: COHORT_MIGRATION,
   });
   readV7Evidence(root);
+  archiveInventory(root);
+  const { sources, sourceHash } = provenance.generation;
+  assert.deepEqual(
+    sources.map(({ path }) => path),
+    GENERATION_SOURCES,
+  );
+  assert.equal(sourceHash, sha256(JSON.stringify(sources)));
+  for (const source of sources) archivedBytes(source, root);
   assert.deepEqual(provenance.generation, {
-    ...sourceIdentity(GENERATION_SOURCES, root),
+    sources,
+    sourceHash,
     isolatedCacheEmpty: true,
     physicalEnumeration: "sequential-draw-state-merged",
     oracleRows: 24,
@@ -190,8 +227,11 @@ export function readV8Evidence(root = process.cwd(), pinsSha = V8_PINS_SHA) {
     provenance.snapshot.meaning,
     "approved forecast input only; not an expected solver output",
   );
-  assert.ok(provenance.snapshot.sources.length > 0);
-  for (const source of provenance.snapshot.sources) pinnedBytes(source, root);
+  assert.deepEqual(
+    provenance.snapshot.sources.map(({ path }) => path),
+    SNAPSHOT_SOURCES,
+  );
+  for (const source of provenance.snapshot.sources) archivedBytes(source, root);
   const snapshot = JSON.parse(
     pinnedBytes(provenance.snapshot, root).toString(),
   ) as CertifiedSupplySnapshot;
@@ -206,12 +246,9 @@ export function readV8Evidence(root = process.cwd(), pinsSha = V8_PINS_SHA) {
   assert.equal(physical.sourceHash, sha256(JSON.stringify(physical.sources)));
   validateFourCohorts(physical.cohorts, root);
   assert.deepEqual(normalizeExact(physical.population), normalizeExact(POPULATION.map(wire)));
-  assert.deepEqual(
-    normalizeExact(physical.rate),
-    normalizeExact(
-      priceFourCohortSupply(snapshot, POPULATION, cohortsFromWire(physical.cohorts)).map(wire),
-    ),
-  );
+  // The sealed rate is authenticated by its pinned bytes, not repriced by current code.
+  assert.equal(physical.rate.length, 3);
+  for (const value of physical.rate) assert.deepEqual(wire(fromWire(value)), value);
   assert.ok(Number.isFinite(physical.computeMs) && physical.computeMs > 0);
   assert.ok(Number.isFinite(Date.parse(physical.generatedAt)));
   assert.equal(provenance.panel.path, `${V8_ROOT}/panel.json`);

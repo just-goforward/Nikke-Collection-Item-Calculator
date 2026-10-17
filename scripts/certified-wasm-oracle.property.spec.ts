@@ -47,14 +47,26 @@ let module: WebAssembly.Module;
 beforeAll(async () => {
   module = await loadCertifiedWasm(async () => readFileSync("public/certified_solver.wasm"));
 });
-const baseSnapshot = buildCertifiedSupplySnapshot({
-  asOf: AS_OF,
-  revision: "wasm-oracle-property",
-  sourceHash: "a".repeat(64),
-  soloPeriods: [],
-  collaborationPeriods: [],
-  sourceStatus: "healthy",
-});
+const baseSnapshot = structuredClone(
+  buildCertifiedSupplySnapshot({
+    asOf: AS_OF,
+    revision: "wasm-oracle-property",
+    sourceHash: "a".repeat(64),
+    soloPeriods: [],
+    collaborationPeriods: [],
+    sourceStatus: "healthy",
+  }),
+);
+// This lane is the historical v3 oracle, not the new-writer version oracle.
+baseSnapshot.version = "certified-daily-v3";
+baseSnapshot.rules = baseSnapshot.rules.map((rule) => ({
+  ...rule,
+  id: "schedule-kit-v3:documented-physical-supply-v2",
+}));
+baseSnapshot.events = baseSnapshot.events.map((event) => ({
+  ...event,
+  ruleId: "schedule-kit-v3:documented-physical-supply-v2",
+}));
 const weeklyEvents = baseSnapshot.events.filter((event) => event.kind === "weekly-kits");
 
 type Spec = {

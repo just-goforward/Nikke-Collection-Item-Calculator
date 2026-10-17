@@ -73,7 +73,7 @@ it.each([true, false])(
   async (enabled) => {
     const db = testEnv.FORECAST_DB;
     const time = new Date(Date.now() - 60_000).toISOString();
-    for (const board of [48, 56]) {
+    for (const board of [48, 56, 11]) {
       await db
         .prepare(`INSERT INTO collector_invocations
       (invocation_id,deployment_sha,scheduled_at,started_at,finished_at,status,poll_mode)
@@ -98,10 +98,10 @@ it.each([true, false])(
   },
 );
 
-it("atomically consumes a rotation pair under simultaneous D1 claims", async () => {
+it("atomically consumes three rotation polls under simultaneous D1 claims", async () => {
   const db = testEnv.FORECAST_DB;
   const time = new Date(Date.now() - 60_000).toISOString();
-  for (const board of [48, 56]) {
+  for (const board of [48, 56, 11]) {
     await db
       .prepare(`INSERT INTO collector_invocations
       (invocation_id,deployment_sha,scheduled_at,started_at,finished_at,status,poll_mode)
@@ -125,7 +125,7 @@ it("records admission-skipped ingestion without granting collection admission", 
   expect(
     await db
       .prepare("SELECT status FROM collector_invocations WHERE invocation_id=?")
-      .bind(`rotation-ingestion:${now}`)
+      .bind(`rotation-ingestion:${now}:v2`)
       .first("status"),
   ).toBe("completed");
   expect(await profileIngestionAdmitted(db, Date.now())).toBe(false);
@@ -192,8 +192,8 @@ it("runs the scheduled metadata → full body → D1 v3 candidate path in worker
       "SELECT payload_json FROM forecast_candidates",
     ).first<{ payload_json: string }>();
     expect(JSON.parse(row?.payload_json ?? "{}")).toMatchObject({
-      rulesVersion: "schedule-kit-v3",
-      certifiedSnapshot: { version: "certified-daily-v3" },
+      rulesVersion: "schedule-kit-v4",
+      certifiedSnapshot: { version: "certified-daily-v4" },
     });
     expect(fetcher.mock.calls.some(([input]) => String(input).endsWith("/8060044"))).toBe(true);
   } finally {

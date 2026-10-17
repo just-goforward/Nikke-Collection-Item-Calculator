@@ -34,10 +34,10 @@ fn v3_rejects_unused_non_allowlisted_and_wrong_kind_declarations_only_in_v3() {
         ("box-ii-v1", "dispatch"),
     ] {
         for version in [
-            "",
             "certified-daily-v1",
             "certified-daily-v2",
             "certified-daily-v3",
+            "certified-daily-v4",
         ] {
             let mut model = versioned_model(version);
             let index = model.laws.iter().position(|law| law.id == id).unwrap_or(0);
@@ -47,7 +47,7 @@ fn v3_rejects_unused_non_allowlisted_and_wrong_kind_declarations_only_in_v3() {
             .unwrap();
             assert_eq!(
                 Supply::new(model, f64::MAX).err(),
-                if version == "certified-daily-v3" {
+                if matches!(version, "certified-daily-v3" | "certified-daily-v4") {
                     Some("certified_v3_law_not_allowlisted")
                 } else {
                     None
@@ -68,10 +68,10 @@ fn v3_requires_declared_physical_model_version_without_changing_legacy_metadata(
         Some(json!({})),
     ] {
         for version in [
-            "",
             "certified-daily-v1",
             "certified-daily-v2",
             "certified-daily-v3",
+            "certified-daily-v4",
         ] {
             let mut law = json!({"id": "regular-box-v1", "kind": "box"});
             if let Some(value) = &metadata {
@@ -81,7 +81,7 @@ fn v3_requires_declared_physical_model_version_without_changing_legacy_metadata(
             model.laws[1] = serde_json::from_value(law).unwrap();
             assert_eq!(
                 Supply::new(model, f64::MAX).err(),
-                if version == "certified-daily-v3" {
+                if matches!(version, "certified-daily-v3" | "certified-daily-v4") {
                     Some("certified_v3_law_not_allowlisted")
                 } else {
                     None
@@ -130,16 +130,16 @@ fn v3_requires_exact_builtin_descriptor_set_without_changing_legacy_laws() {
     }
     for laws in cases {
         for version in [
-            "",
             "certified-daily-v1",
             "certified-daily-v2",
             "certified-daily-v3",
+            "certified-daily-v4",
         ] {
             let mut model = versioned_model(version);
             model.laws = laws.clone();
             assert_eq!(
                 Supply::new(model, f64::MAX).err(),
-                if version == "certified-daily-v3" {
+                if matches!(version, "certified-daily-v3" | "certified-daily-v4") {
                     Some("certified_v3_law_not_allowlisted")
                 } else {
                     None
@@ -261,7 +261,7 @@ fn v3_weekly_kits_add_exact_recurring_and_minimum_wait_rates_and_dated_support()
 
 #[test]
 fn legacy_versions_keep_finite_overrides_and_other_deterministic_tuples() {
-    for version in ["", "certified-daily-v1", "certified-daily-v2"] {
+    for version in ["certified-daily-v1", "certified-daily-v2"] {
         let mut model = versioned_model(version);
         model.laws = serde_json::from_value(json!([{
             "id": "dispatch-board-v1", "kind": "finite", "outcomes": [row([99,0,0],1,1)]
@@ -295,7 +295,7 @@ fn population_prior_is_versioned_and_distinct_from_personal_priors() {
         supply.minimum_wait_rates().unwrap(),
         [Q::from_integer(18.into()), Q::zero(), Q::zero()]
     );
-    for version in ["", "certified-daily-v1", "certified-daily-v2"] {
+    for version in ["certified-daily-v1", "certified-daily-v2"] {
         let mut model = versioned_model(version);
         model.population_prior = [0, 0, 0, 1]
             .map(|n| wire(&Q::from_integer(n.into())))
@@ -321,10 +321,10 @@ fn v3_rejects_valid_but_noncontract_population_priors_without_changing_legacy_pr
         ([1, 3, 2, 1], 7),
     ] {
         for version in [
-            "",
             "certified-daily-v1",
             "certified-daily-v2",
             "certified-daily-v3",
+            "certified-daily-v4",
         ] {
             let mut model = versioned_model(version);
             model.population_prior = numerators
@@ -332,7 +332,7 @@ fn v3_rejects_valid_but_noncontract_population_priors_without_changing_legacy_pr
                 .to_vec();
             assert_eq!(
                 Supply::new(model, f64::MAX).err(),
-                if version == "certified-daily-v3" {
+                if matches!(version, "certified-daily-v3" | "certified-daily-v4") {
                     Some("invalid_population_prior")
                 } else {
                     None
@@ -371,4 +371,37 @@ fn population_prior_rejects_wrong_arity_negative_mass_bad_sums_and_rationals() {
         };
         assert_eq!(Supply::new(model, f64::MAX).err(), Some("invalid_rational"));
     }
+}
+
+#[test]
+fn versions_are_required_and_unknown_versions_are_rejected() {
+    let missing = serde_json::from_value::<Model>(json!({
+        "events": [], "laws": [], "priors": [], "populationPrior": [],
+        "dispatch": [], "shop": [], "solo": [],
+        "cadence": {"numerator": "30", "denominator": "1"},
+        "dispatchExpected": [], "classes": []
+    }));
+    assert!(missing.err().unwrap().to_string().contains("snapshotVersion"));
+    for version in ["", "certified-daily-v0", "certified-daily-v5"] {
+        assert_eq!(
+            Supply::new(versioned_model(version), f64::MAX).err(),
+            Some("unsupported_snapshot_version")
+        );
+        assert!(!super::population_prior_is_allowed(version, &[]));
+    }
+    assert!(Supply::new(versioned_model("certified-daily-v4"), f64::MAX).is_ok());
+}
+
+#[test]
+fn v4_same_law_refs_compose_without_deduplicating_counts() {
+    let mut supply = Supply::new(versioned_model("certified-daily-v4"), f64::MAX).unwrap();
+    let half = supply.law(&reference("deterministic:10,10,0", 32), 0).unwrap();
+    let whole = supply.law(&reference("deterministic:10,10,0", 64), 0).unwrap();
+    let composed = supply.convolve(&half, &half, [u64::MAX; 3], 100).unwrap();
+    assert_eq!(composed.len(), whole.len());
+    for (actual, expected) in composed.iter().zip(whole.iter()) {
+        assert_eq!(actual.pieces, expected.pieces);
+        assert_eq!(actual.mass, expected.mass);
+    }
+    assert_eq!(whole[0].pieces, [640, 640, 0]);
 }

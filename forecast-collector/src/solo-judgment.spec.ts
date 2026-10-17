@@ -112,8 +112,8 @@ it.each([
   ["8289927", ["solo"]],
   ["7709605", ["solo"]],
   ["7699562", ["maintenance_missing"]],
-  ["7860406", ["reopen_unsupported", "solo"]],
-  ["7877359", ["reopen_unsupported"]],
+  ["7860406", ["reopen_without_suspension", "solo"]],
+  ["7877359", ["reopen_without_suspension"]],
 ])("extracts solo judgments from captured notice %s", async (id, expected) => {
   const payload = JSON.parse(
     readFileSync(new URL(`../fixtures/naver-detail-${id}.json`, import.meta.url), "utf8"),

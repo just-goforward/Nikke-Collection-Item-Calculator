@@ -1,4 +1,5 @@
 import { assertCertifiedRuntimeSupplySnapshot } from "./certifiedSupply.ts";
+import { isPublicationVersionPair } from "./certifiedVersionPolicy.ts";
 export const ARTIFACT_DOMAIN = "nikke.forecast.artifact.v1";
 export const POINTER_DOMAIN = "nikke.forecast.pointer.v1";
 export type PublicationEnvironment = "staging" | "production";
@@ -171,8 +172,7 @@ async function verifyArtifactBytes(
     throw new Error("publication_artifact_mismatch");
   const candidate = JSON.parse(bytes);
   if (
-    candidate.payloadVersion !== 4 ||
-    candidate.rulesVersion !== "schedule-kit-v3" ||
+    !isPublicationVersionPair(candidate.payloadVersion, candidate.rulesVersion) ||
     candidate.candidateId !== pointer.candidateId ||
     !["crosschecked", "x_unavailable"].includes(candidate.sourceStatus)
   )

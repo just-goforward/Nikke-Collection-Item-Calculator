@@ -13,7 +13,7 @@ import {
   certifiedSilentCancellation,
 } from "./runStatus";
 import { awaitCertifiedRunPreparation, cancelCertifiedRunWhenHidden } from "./runVisibility";
-import type { CertifiedSession } from "./session";
+import { activeCertifiedReceiptIds, type CertifiedSession } from "./session";
 
 type FinishedRun = { output: CertifiedOutput; timing: CertifiedTiming; memory: CertifiedMemory };
 
@@ -37,7 +37,7 @@ function requestInput(
     asOf,
     snapshot,
     cohortWeights: session.cohortWeights,
-    receivedEventIds: session.receipts.map((r) => r.eventId),
+    receivedEventIds: activeCertifiedReceiptIds(session, snapshot.events),
     computeWaiting: true,
     computeMinimumWait: true,
     batchLimit: 10,

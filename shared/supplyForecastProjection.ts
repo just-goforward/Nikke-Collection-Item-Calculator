@@ -8,14 +8,21 @@ import {
   isCertifiedEventModeled,
   viewCertifiedSupplySnapshot,
 } from "./certifiedSupply.ts";
+import { isCoherentSnapshot } from "./certifiedSupplyCoherence.ts";
 import {
   CERTIFIED_SUPPLY_HISTORY_DAYS,
   DEFAULT_PERSONAL_COHORT_WEIGHTS,
   dateStart,
+  isDeeplyFrozen,
   ruleAt,
   timestamp,
   withSupplyDateCache,
 } from "./certifiedSupplyModel.ts";
+import { assertV3RuntimeLaws } from "./certifiedSupplyValidation.ts";
+import {
+  CURRENT_FORECAST_RULES_VERSION,
+  certifiedVersionPolicy,
+} from "./certifiedVersionPolicy.ts";
 import { GAME_DAY_MS, gameDayStartMs } from "./gameDay.ts";
 
 export type SupplyGain = { blue: number; purple: number; yellow: number };
@@ -52,11 +59,11 @@ export type SupplyProjection =
 type ProjectionCache = {
   gains: Map<string, readonly [Q, Q, Q]>;
   weights?: ReturnType<typeof certifiedCohortWeights>;
-  events?: { event: CertifiedSupplyEvent; day: number; gain?: readonly [Q, Q, Q] }[];
+  events?: Map<number, { event: CertifiedSupplyEvent; gain?: readonly [Q, Q, Q] }[]>;
 };
 
 export const SUPPLY_PROFILE_HORIZON_DAYS = 56;
-export const SUPPLY_RULES_VERSION = "schedule-kit-v3";
+export const SUPPLY_RULES_VERSION = CURRENT_FORECAST_RULES_VERSION;
 export const DISPATCH_POLICY_ID = "dispatch-policy-v1";
 /** This selects dates only. Rewards always come from the approved event ledger. */
 export function supplyReferenceWindow(
@@ -64,6 +71,25 @@ export function supplyReferenceWindow(
   at: number,
 ): SupplyReferenceWindow | null {
   const today = gameDayStartMs(at);
+  const segmented = snapshot.soloRounds.find(
+    (round) =>
+      round.segments &&
+      at >= dateStart(round.startGameDate) &&
+      round.endGameDate &&
+      at < dateStart(round.endGameDate),
+  );
+  if (segmented) {
+    const segment = segmented.segments?.find(
+      (entry) => at >= timestamp(entry.effectiveFrom) && at < timestamp(entry.effectiveUntil),
+    );
+    return segment
+      ? {
+          from: dateStart(segment.rewardFromGameDate),
+          until: dateStart(segment.rewardUntilGameDate),
+          scheduleStatus: segmented.status === "confirmed" ? "confirmed" : "estimated",
+        }
+      : null;
+  }
   const rounds = snapshot.soloRounds
     .map((round) => {
       const start = dateStart(round.startGameDate);
@@ -146,25 +172,32 @@ function projectReference(
   const reason = supplyReferenceUnavailableReason(snapshot, from, until);
   if (reason !== null) return { available: false, reason };
   cache.weights ??= certifiedCohortWeights(DEFAULT_PERSONAL_COHORT_WEIGHTS, "certified-daily-v3");
-  cache.events ??= snapshot.events.map((event) => ({
-    event,
-    day: dateStart(event.gameDate),
-  }));
-  const repetitions = new Map<readonly [Q, Q, Q], number>();
-  for (const row of cache.events) {
-    const { event, day } = row;
-    if (day < from || day >= until || !isCertifiedEventModeled(snapshot, event)) continue;
-    let gain = row.gain;
-    if (!gain) {
-      const key = JSON.stringify(event.refs);
-      gain = cache.gains.get(key);
-      if (!gain) {
-        gain = expectedCertifiedRefs(event.refs, cache.weights, { laws: snapshot.laws });
-        cache.gains.set(key, gain);
-      }
-      row.gain = gain;
+  if (!cache.events) {
+    cache.events = new Map();
+    for (const event of snapshot.events) {
+      const day = dateStart(event.gameDate);
+      const rows = cache.events.get(day) ?? [];
+      rows.push({ event });
+      cache.events.set(day, rows);
     }
-    repetitions.set(gain, (repetitions.get(gain) ?? 0) + 1);
+  }
+  const repetitions = new Map<readonly [Q, Q, Q], number>();
+  for (let day = from; day < until; day += GAME_DAY_MS) {
+    for (const row of cache.events.get(day) ?? []) {
+      const { event } = row;
+      if (!isCertifiedEventModeled(snapshot, event)) continue;
+      let gain = row.gain;
+      if (!gain) {
+        const key = JSON.stringify(event.refs);
+        gain = cache.gains.get(key);
+        if (!gain) {
+          gain = expectedCertifiedRefs(event.refs, cache.weights, { laws: snapshot.laws });
+          cache.gains.set(key, gain);
+        }
+        row.gain = gain;
+      }
+      repetitions.set(gain, (repetitions.get(gain) ?? 0) + 1);
+    }
   }
   return { available: true, window, expected: sumRepeatedGains(repetitions) };
 }
@@ -208,12 +241,52 @@ function projectAt(
 export function buildScheduleForecastProfiles(
   input: ScheduleProfileInput,
 ): SupplyForecastProfile[] {
-  return withSupplyDateCache(() => buildProfiles(input));
+  const snapshot = input.certifiedSnapshot;
+  const key = JSON.stringify([input.forecastId, input.effectiveFrom]);
+  const entries =
+    projectionMemo && snapshot && isDeeplyFrozen(snapshot)
+      ? projectionMemo.get(snapshot)
+      : undefined;
+  const cached = entries?.get(key);
+  if (cached) return copyProfiles(cached);
+  const result = withSupplyDateCache(() => buildProfiles(input));
+  if (projectionMemo && snapshot && isDeeplyFrozen(snapshot)) {
+    const values = entries ?? new Map<string, SupplyForecastProfile[]>();
+    values.set(key, copyProfiles(result));
+    projectionMemo.set(snapshot, values);
+  }
+  return result;
+}
+
+let projectionMemo:
+  | WeakMap<CertifiedSupplySnapshot, Map<string, SupplyForecastProfile[]>>
+  | undefined;
+
+/** Synchronous construction scope; never retain authority across invocations. */
+export function withForecastProjectionCache<T>(operation: () => T): T {
+  if (projectionMemo) return operation();
+  projectionMemo = new WeakMap();
+  try {
+    return withSupplyDateCache(operation);
+  } finally {
+    projectionMemo = undefined;
+  }
+}
+
+function copyProfiles(profiles: readonly SupplyForecastProfile[]): SupplyForecastProfile[] {
+  return profiles.map((profile) => ({ ...profile, expectedGain: { ...profile.expectedGain } }));
 }
 
 function buildProfiles(input: ScheduleProfileInput): SupplyForecastProfile[] {
   if (!input.certifiedSnapshot) throw new Error("certified_snapshot_required");
-  const snapshot = assertCertifiedRuntimeSupplySnapshot(input.certifiedSnapshot);
+  const snapshot = isCoherentSnapshot(input.certifiedSnapshot)
+    ? input.certifiedSnapshot
+    : assertCertifiedRuntimeSupplySnapshot(input.certifiedSnapshot);
+  if (isCoherentSnapshot(snapshot)) {
+    if (!certifiedVersionPolicy(snapshot.version).physicalLaws)
+      throw new Error("unsupported_forecast_version");
+    assertV3RuntimeLaws(snapshot);
+  }
   const from = timestamp(input.effectiveFrom);
   const until = from + SUPPLY_PROFILE_HORIZON_DAYS * GAME_DAY_MS;
   const profiles: SupplyForecastProfile[] = [];

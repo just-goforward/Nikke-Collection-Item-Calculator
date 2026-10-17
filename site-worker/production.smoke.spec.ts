@@ -47,7 +47,7 @@ for (const [path, messages] of [
     expect(
       await page.evaluate(() => Reflect.get(window, "COLLECTION_STATS_CONFIG")?.endpoint),
     ).toBe(STATS);
-    await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toHaveCount(0);
+    await expect(page.locator("main[data-engine-profile^='certified-staging']")).toHaveCount(0);
     await page
       .getByRole("group", { name: messages["state.gradeAria"] })
       .getByRole("button", { name: "SR", exact: true })

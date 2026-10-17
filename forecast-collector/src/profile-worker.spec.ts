@@ -78,9 +78,9 @@ describe("scheduled profiling routing", () => {
       log.mockRestore();
     }
   });
-  it.each([0, 180_000, 360_000])("routes rotation %s", async (slot) => {
+  it.each([0, 180_000, 360_000, 540_000])("routes rotation %s", async (slot) => {
     await invoke("off", "staging", slot, "rotation");
-    if (slot === 360_000) {
+    if (slot === 540_000) {
       expect(runCollection).not.toHaveBeenCalled();
       expect(runRuntimeIngestion).toHaveBeenCalledWith(expect.anything(), {
         requireRotationAdmission: true,
@@ -89,7 +89,7 @@ describe("scheduled profiling routing", () => {
       expect(runRuntimeIngestion).not.toHaveBeenCalled();
       expect(runCollection).toHaveBeenCalledWith(expect.anything(), {
         nowMs: slot,
-        board: slot === 0 ? 48 : 56,
+        board: slot === 0 ? 48 : slot === 180_000 ? 56 : 11,
         rotation: true,
       });
     }

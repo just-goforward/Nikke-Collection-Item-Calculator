@@ -7,7 +7,6 @@ import {
 } from "./certifiedSupplyLaws.ts";
 import {
   CERTIFIED_SUPPLY_HISTORY_DAYS,
-  CERTIFIED_SUPPLY_VERSION,
   CERTIFIED_WEEKLY_FIXED_LAW_ID,
   type CertifiedSoloRound,
   type CertifiedSupplyCoverageWindow,
@@ -19,16 +18,17 @@ import {
   ruleAt,
   timestamp,
 } from "./certifiedSupplyModel.ts";
+import { certifiedVersionPolicy, isCertifiedSnapshotVersion } from "./certifiedVersionPolicy.ts";
 import { gameDayKey, gameDayStartMs } from "./gameDay.ts";
 import type { ExactSoloRaidCadence } from "./soloRaidCadence.ts";
 
-function textList(list: unknown) {
+export function textList(list: unknown) {
   if (!Array.isArray(list)) return false;
   knownArrayFields(list);
   return list.every((entry) => typeof entry === "string");
 }
 
-function knownArrayFields(value: readonly unknown[]) {
+export function knownArrayFields(value: readonly unknown[]) {
   const keys = Reflect.ownKeys(value);
   for (const key of keys) {
     if (key === "length") continue;
@@ -38,7 +38,7 @@ function knownArrayFields(value: readonly unknown[]) {
   if (keys.length !== value.length + 1) throw new Error("certified_snapshot_sparse_array_invalid");
 }
 
-function knownFields(value: unknown, keys: string) {
+export function knownFields(value: unknown, keys: string) {
   if (typeof value !== "object" || value === null || Array.isArray(value))
     throw new Error("certified_snapshot_object_required");
   const allowed = new Set(keys.split(" "));
@@ -72,9 +72,7 @@ function validateMetadata(snapshot: CertifiedSupplySnapshot) {
     throw new Error("certified_snapshot_provenance_list_invalid");
   JSON.stringify(snapshot);
   if (
-    ![CERTIFIED_SUPPLY_VERSION, "certified-daily-v2", "certified-daily-v1"].includes(
-      snapshot.version,
-    ) ||
+    !isCertifiedSnapshotVersion(snapshot.version) ||
     !snapshot.revision ||
     !/^[a-f0-9]{64}$/.test(snapshot.sourceHash)
   )
@@ -312,7 +310,7 @@ function validateRuleHeader(
 ) {
   knownFields(
     rule,
-    `id effectiveFrom effectiveUntil dispatch normalShop collaborationShop soloDays provenance${version === "certified-daily-v3" ? " weeklyFixed" : ""}`,
+    `id effectiveFrom effectiveUntil dispatch normalShop collaborationShop soloDays provenance${certifiedVersionPolicy(version).physicalLaws ? " weeklyFixed" : ""}`,
   );
   if (
     typeof rule.id !== "string" ||
@@ -349,12 +347,16 @@ function validateRules(
       checkBudget?.();
       validateRefs(refs, lawIds);
     }
-    if (snapshot.version === "certified-daily-v3") validateRefs(rule.weeklyFixed ?? [], lawIds);
+    if (certifiedVersionPolicy(snapshot.version).physicalLaws)
+      validateRefs(rule.weeklyFixed ?? [], lawIds);
   }
 }
 
-function validateRound(round: CertifiedSoloRound, roundIds: Set<number>) {
-  knownFields(round, "round startGameDate endGameDate status sourceIds");
+function validateRound(round: CertifiedSoloRound, roundIds: Set<number>, segmented: boolean) {
+  knownFields(
+    round,
+    `round startGameDate endGameDate status sourceIds${segmented ? " segments" : ""}`,
+  );
   if (
     !Number.isSafeInteger(round.round) ||
     round.round < 1 ||
@@ -379,7 +381,7 @@ function validateEventIdentity(
 ) {
   knownFields(
     event,
-    "id gameDate at kind status refs ruleId round dayNumber expiresAt cancelled sourceIds",
+    `id gameDate at kind status refs ruleId round dayNumber expiresAt cancelled sourceIds${certifiedVersionPolicy(version).segmentsAndGrants ? " segment claimWindowAssumed restatementOf" : ""}`,
   );
   if (
     !event ||
@@ -391,7 +393,8 @@ function validateEventIdentity(
       "dispatch",
       "shop",
       "solo",
-      ...(version === "certified-daily-v3" ? ["weekly-kits"] : []),
+      ...(certifiedVersionPolicy(version).physicalLaws ? ["weekly-kits"] : []),
+      ...(certifiedVersionPolicy(version).segmentsAndGrants ? ["grant"] : []),
     ].includes(event.kind) ||
     !["confirmed", "estimated"].includes(event.status)
   )
@@ -400,13 +403,21 @@ function validateEventIdentity(
 }
 
 function validateStableEventId(event: CertifiedSupplyEvent) {
+  if (event.kind === "grant") {
+    if (!/^grant:[a-z0-9-]+:[A-Za-z0-9_-]+:\d{4}-\d{2}-\d{2}:[1-9]\d*$/.test(event.id))
+      throw new Error("certified_grant_invalid");
+    return;
+  }
   if (event.kind !== "solo") {
     if (event.id !== `${event.kind}:${event.gameDate}`)
       throw new Error("certified_snapshot_recurring_identity_invalid");
     return;
   }
-  if (event.id !== `solo:r${event.round}:day${event.dayNumber}`)
-    throw new Error("certified_snapshot_solo_identity_invalid");
+  const expectedId =
+    event.segment !== undefined && event.segment > 1
+      ? `solo:r${event.round}:segment${event.segment}:day${event.dayNumber}`
+      : `solo:r${event.round}:day${event.dayNumber}`;
+  if (event.id !== expectedId) throw new Error("certified_snapshot_solo_identity_invalid");
   if (
     !Number.isSafeInteger(event.round) ||
     !Number.isSafeInteger(event.dayNumber) ||
@@ -456,6 +467,19 @@ function validateEvents(
     validateStableEventId(event);
     validateRefs(event.refs, lawIds);
     validateEventMetadata(event);
+    const segments = snapshot.soloRounds.find((round) => round.round === event.round)?.segments;
+    if (event.segment !== undefined && !segments)
+      throw new Error("certified_solo_event_segment_missing");
+    if (event.kind === "solo" && segments) {
+      const segment = segments.find((entry) => entry.segment === event.segment);
+      if (
+        !segment ||
+        !event.expiresAt ||
+        timestamp(event.at) < timestamp(segment.effectiveFrom) ||
+        timestamp(event.expiresAt) > timestamp(segment.effectiveUntil)
+      )
+        throw new Error("certified_solo_event_segment_invalid");
+    }
   }
 }
 
@@ -479,13 +503,13 @@ export function validateSnapshot(
     throw new Error("certified_snapshot_authority_identity_duplicate");
   for (const law of snapshot.laws) {
     checkBudget?.();
-    validateLaw(law, snapshot.version === "certified-daily-v1" ? 3 : 4, checkBudget);
+    validateLaw(law, certifiedVersionPolicy(snapshot.version).cohortCount, checkBudget);
   }
   validateRules(snapshot, lawIds, checkBudget);
   const rounds = new Set<number>();
   for (const round of snapshot.soloRounds) {
     checkBudget?.();
-    validateRound(round, rounds);
+    validateRound(round, rounds, certifiedVersionPolicy(snapshot.version).segmentsAndGrants);
   }
   validateEvents(snapshot, lawIds, ruleIds, checkBudget);
   return snapshot;

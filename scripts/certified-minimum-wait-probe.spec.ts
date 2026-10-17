@@ -33,7 +33,7 @@ it("exposes a JSON probe without importing oracle expectations and fails closed 
     soloPeriods: [],
     collaborationPeriods: [],
   });
-  expect(snapshot.version).toBe("certified-daily-v3");
+  expect(snapshot.version).toBe("certified-daily-v4");
   // A genuine v1 document: the v3-only weekly rule field and weekly events do not exist there.
   const historical = {
     ...snapshot,

@@ -392,6 +392,7 @@ mod tests {
 
     fn source(dispatch: &str, events: Json, laws: Json) -> Supply {
         let model = serde_json::from_value(json!({
+            "snapshotVersion": "certified-daily-v2",
             "events":events,"laws":laws,
             "priors":[wire(&q(1,1)),wire(&q(0,1)),wire(&q(0,1)),wire(&q(0,1))],
             "populationPrior": ([1, 2, 3, 1].map(|n| wire(&q(n, 7)))),

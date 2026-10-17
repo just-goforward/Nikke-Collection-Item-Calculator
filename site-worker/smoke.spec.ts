@@ -49,10 +49,10 @@ for (const [path, messages] of [
       if (certified) {
         await expect(page).toHaveURL(/statsEnv=staging/);
         await expect(
-          page.locator("main[data-engine-profile='certified-staging-v2']"),
+          page.locator("main[data-engine-profile='certified-staging-v3']"),
         ).toBeVisible();
       } else {
-        await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toHaveCount(
+        await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toHaveCount(
           0,
         );
       }

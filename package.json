@@ -168,6 +168,7 @@
     "personal-data:types": "wrangler types personal-data/worker-configuration.d.ts --config personal-data/wrangler.toml --env-interface GeneratedPersonalDataEnv --strict-vars false",
     "personal-data:types:check": "wrangler types personal-data/worker-configuration.d.ts --config personal-data/wrangler.toml --env-interface GeneratedPersonalDataEnv --strict-vars false --check",
     "typecheck": "npm run worker:types:check && npm run forecast:types:check && npm run dispatcher:types:check && npm run interactions:types:check && npm run typecheck:interactions-staging && npm run usage-guard:types:check && npm run stats-observer:types:check && npm run personal-data:types:check && tsc --noEmit && tsc --noEmit -p cloudflare/tsconfig.json && tsc --noEmit -p forecast-collector/tsconfig.json && tsc --noEmit -p forecast-dispatcher/tsconfig.json && tsc --noEmit -p forecast-interactions/tsconfig.json && tsc --noEmit -p usage-guard/tsconfig.json && tsc --noEmit -p stats-observer/tsconfig.json && npm run typecheck --workspace @collection-kit/personal-data && tsc --noEmit -p tsconfig.e2e.json",
+    "generate:forecast-test-schema": "node scripts/generate-forecast-v27-test-schema.ts",
     "generate:supply-forecast": "node scripts/supply-forecast-codegen.ts",
     "check:supply-forecast": "node scripts/supply-forecast-codegen.ts --check",
     "lint": "npm run check:certified-engine-build && npm run check:supply-forecast && npm run check:workflows && npm run check:test-runtimes && biome check --diagnostic-level=warn && npm run lint:architecture && npm run lint:unused",

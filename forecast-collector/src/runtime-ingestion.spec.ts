@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SupplyForecastCandidate } from "../../shared/supplyForecastCandidate";
 import { assertUsageAllowed } from "../../shared/usageGuard";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
@@ -24,146 +23,20 @@ import {
   reserveNotice,
   startIngestion,
 } from "./runtime-ingestion-db";
-import { processSourceQueue, readScheduleLedger } from "./source-queue";
-import { runtimeTestDb } from "./test-runtime-db";
-import { seedNormalUsageGuard } from "./test-usage-guard";
-import type { CollectorEnv } from "./types";
-
-const root = new URL("../", import.meta.url);
-const fixture = JSON.parse(
-  readFileSync(new URL("fixtures/official-solo-history/8060044.json", root), "utf8"),
-);
-const now = Date.parse("2026-08-20T12:00:00Z");
-let sqlite: DatabaseSync;
-let env: CollectorEnv;
-
-async function initializeDatabase() {
-  sqlite = new DatabaseSync(":memory:");
-  sqlite.exec(readFileSync(new URL("schema.sql", root), "utf8"));
-  for (const migration of [
-    "0022_forecast_runtime_versions.sql",
-    "0023_forecast_runtime_publication.sql",
-    "0024_runtime_ingestion.sql",
-    "0026_source_judgment_evidence.sql",
-  ]) {
-    sqlite.exec(readFileSync(new URL(`migrations/${migration}`, root), "utf8"));
-  }
-  const db = runtimeTestDb(sqlite);
-  env = {
-    FORECAST_DB: db,
-    USAGE_GUARD_DB: db,
-    ADMIN_TOKEN: "fixture",
-    ENVIRONMENT: "staging",
-    DEPLOY_SHA: "fixture",
-    POLL_MODE: "both",
-    RUNTIME_INGESTION_ENABLED: "true",
-  };
-  await seedNormalUsageGuard(db);
-}
-
-beforeEach(initializeDatabase);
-
-it("binds a reopen review generation to its immutable judgment evidence", async () => {
-  const payload = JSON.parse(
-    readFileSync(new URL("fixtures/naver-detail-7877359.json", root), "utf8"),
-  );
-  await enqueue(payload);
-  expect(
-    (await run(vi.fn<typeof fetch>().mockImplementation(async () => Response.json(payload))))
-      .candidateCreated,
-  ).toBe(false);
-  const joined = rows(`SELECT e.reason,e.content_hash,b.body_hash FROM source_manual_reviews r
-    JOIN source_manual_review_bindings b ON b.review_id=r.review_id AND b.generation=r.generation
-    JOIN source_judgment_evidence e ON e.source=r.source AND e.item_id=r.item_id AND e.content_hash=b.body_hash`);
-  expect(joined).toHaveLength(1);
-  expect(joined[0]).toMatchObject({
-    reason: "reopen_unsupported",
-    content_hash: joined[0]?.["body_hash"],
-  });
-});
-
-it("measures full ingestion CPU for captured update 8189601", async () => {
-  const payload = JSON.parse(
-    readFileSync(new URL("fixtures/naver-detail-8189601.json", root), "utf8"),
-  );
-  await enqueue(payload);
-  const sourceItem = await parseNoticeDetail(payload, 48, "8189601");
-  if (!sourceItem) throw new Error("missing CPU fixture");
-  await env.FORECAST_DB.batch(
-    sourceItemAndEventStatements(env.FORECAST_DB, [sourceItem], [], new Date().toISOString()),
-  );
-  const insert = sqlite.prepare(`INSERT INTO schedule_events
-    (event_id,event_type,source,source_item_id,starts_at,ends_at,schedule_status,manual_review,reason,observed_at)
-    VALUES(?,'solo','naver-board-48','8189601',?,?,'confirmed',0,NULL,?)`);
-  for (let index = 0; index < 240; index++) {
-    const start = new Date(Date.UTC(2000, 0, 1 + index * 28)).toISOString();
-    insert.run(
-      `cpu-history-${index}`,
-      start,
-      new Date(Date.parse(start) + 7 * 86400000).toISOString(),
-      start,
-    );
-  }
-  const revision = sqlite.prepare(`INSERT INTO source_notice_revisions
-    (source,item_id,source_revision,body_hash,revision_hash,semantic_hash,item_json,events_json,observed_at)
-    VALUES('naver-board-48',?,1,?,?,?,?,'[]',?)`);
-  for (let index = 0; index < 60; index++) {
-    revision.run(
-      `cpu-revision-${index}`,
-      "a".repeat(64),
-      "b".repeat(64),
-      "c".repeat(64),
-      JSON.stringify({ ...sourceItem, normalizedText: "점검 ".repeat(5500) }),
-      sourceItem.publishedAt,
-    );
-  }
-  // Vitest shares a process with its coordinator and other workers; process-wide
-  // CPU includes their startup/GC. Measure the ingestion worker's CPU instead.
-  const started = process.threadCpuUsage();
-  await run(vi.fn<typeof fetch>().mockImplementation(async () => Response.json(payload)));
-  const used = process.threadCpuUsage(started);
-  const cpuMs = (used.user + used.system) / 1000;
-  console.log(
-    JSON.stringify({
-      fixture: "8189601",
-      node: process.version,
-      platform: process.platform,
-      arch: process.arch,
-      cpuMs,
-      method:
-        "process.threadCpuUsage user+system; 240 schedule events + 60 board-48 revisions (~16k characters), local SQLite, mocked GET",
-    }),
-  );
-  expect(cpuMs).toBeLessThanOrEqual(50);
-});
-
-it.each(["5월8일", "05월8일", "5월08일", "05월08일"])(
-  "resolves stored maintenance with date syntax %s",
-  async (date) => {
-    const payload = structuredClone(fixture);
-    payload.content.feed.contents = `<!-- SE_DOC_HEADER_START --><div class="se-viewer">
-      <p>솔로 레이드</p><p>진행 기간 - 5/8 점검 완료 후 ~ 5/15 4:59</p></div>`;
-    sqlite
-      .prepare(`INSERT INTO source_notice_revisions
-      (source,item_id,source_revision,body_hash,revision_hash,semantic_hash,item_json,events_json,observed_at)
-      VALUES('naver-board-48','padded-maintenance',1,?,?,?,?,'[]',?)`)
-      .run(
-        "a".repeat(64),
-        "b".repeat(64),
-        "c".repeat(64),
-        JSON.stringify({
-          normalizedText: `점검 일시 - ${date}(금) 11:00:00 ~ 15:00:00`,
-          publishedAt: "2026-05-07T00:00:00Z",
-        }),
-        "2026-05-07T00:00:00Z",
-      );
-    await enqueue(payload);
-    await run(async () => Response.json(payload));
-    expect(rows("SELECT starts_at,manual_review FROM schedule_events")).toEqual([
-      { starts_at: "2026-05-08T06:00:00.000Z", manual_review: 0 },
-    ]);
-  },
-);
+import { readScheduleLedger } from "./schedule-ledger";
+import { processSourceQueue } from "./source-queue";
+import {
+  allowRecheck,
+  enqueue,
+  env,
+  fixture,
+  initializeDatabase,
+  now,
+  root,
+  rows,
+  run,
+  sqlite,
+} from "./test-ingestion-fixture";
 
 it("binds the newest review generation to context A after unchanged-body A → B → A", async () => {
   const payload = JSON.parse(
@@ -224,6 +97,10 @@ it("binds the newest review generation to context A after unchanged-body A → B
     ),
   );
   await reprocess("b");
+  const contextualEvent = (await readScheduleLedger(env.FORECAST_DB, now)).events.find(
+    (event) => event.eventId === "context-known",
+  );
+  expect(contextualEvent?.manualReview).toBe(false);
   const contextB = JSON.parse(String(bindings().at(-1)?.["metadata_json"])).contextHash;
   expect(contextB).not.toBe(contextA);
   // Withdraw the external confirmation; keep all source/review evidence immutable.
@@ -262,7 +139,9 @@ it("persists both section judgments and their revision links while holding the p
   ]);
   expect(rows("SELECT * FROM schedule_event_source_revisions")).toHaveLength(2);
   expect(rows("SELECT DISTINCT context_hash FROM source_judgment_evidence")).toHaveLength(1);
-  expect(rows("SELECT * FROM schedule_events WHERE manual_review=0")).toHaveLength(0);
+  expect(rows("SELECT starts_at FROM schedule_events WHERE manual_review=0")).toEqual([
+    { starts_at: "2026-07-16T03:00:00.000Z" },
+  ]);
   expect(rows("SELECT status FROM source_queue")[0]?.["status"]).toBe("manual_review");
 });
 
@@ -406,9 +285,10 @@ describe("rotation admission", () => {
       .bind(`rotation-board-${board}:${Date.now() - age}`, "old-sha", time, time, time, status)
       .run();
   }
-  it("admits both completed boards and rejects consumption", async () => {
+  it("admits all three completed boards and rejects consumption", async () => {
     await seed(48);
     await seed(56);
+    await seed(11);
     expect(await startIngestion(env.FORECAST_DB, false, true)).not.toBeNull();
     expect(await startIngestion(env.FORECAST_DB, false, true)).toBeNull();
     sqlite.exec("UPDATE runtime_ingestion_runs SET status='completed'");
@@ -417,56 +297,18 @@ describe("rotation admission", () => {
   it.each(["failure", "running", "circuit_open"])("rejects newer %s", async (status) => {
     await seed(48);
     await seed(56);
+    await seed(11);
     await seed(48, status, 30_000);
     expect(await startIngestion(env.FORECAST_DB, false, true)).toBeNull();
   });
   it("rejects missing or stale boards", async () => {
     await seed(48);
     expect(await startIngestion(env.FORECAST_DB, false, true)).toBeNull();
-    await seed(56, "completed", 601_000);
+    await seed(56, "completed", 781_000);
+    await seed(11);
     expect(await startIngestion(env.FORECAST_DB, false, true)).toBeNull();
   });
 });
-
-afterEach(() => {
-  vi.useRealTimers();
-  sqlite.close();
-});
-
-async function enqueue(payload = fixture) {
-  const board = payload.content.board.boardId as 48 | 56;
-  const id = String(payload.content.feed.feedId);
-  const item = await parseNoticeDetail(payload, board, id);
-  if (!item) throw new Error("fixture_missing_item");
-  sqlite
-    .prepare(`INSERT OR IGNORE INTO source_queue
-    (source,item_id,url,title,published_at,official,status,attempts,first_seen_at,updated_at)
-    VALUES(?,?,?,?,?,1,'pending',0,?,?)`)
-    .run(
-      item.source,
-      id,
-      item.url,
-      item.title,
-      item.publishedAt,
-      new Date().toISOString(),
-      new Date().toISOString(),
-    );
-  return item;
-}
-
-function rows(sql: string) {
-  return sqlite.prepare(sql).all();
-}
-function allowRecheck() {
-  sqlite.exec("UPDATE runtime_ingestion_items SET next_check_at='2000-01-01T00:00:00.000Z'");
-}
-function run(
-  fetcher: typeof fetch = vi
-    .fn<typeof fetch>()
-    .mockImplementation(async () => Response.json(fixture)),
-) {
-  return runRuntimeIngestion(env, { fetcher, candidateNowMs: now });
-}
 
 // d336e9c's empty-results path, including the reads now skipped. Collection
 // still exercises queue selection and quota reservation before proving it empty.
@@ -588,10 +430,15 @@ it.each(["empty queue", "zero quota", "settled evidence"])(
 describe("fixture ingestion end to end and CPU measurement", () => {
   it("persists an identical v3 candidate to the Actions pipeline and measures one Node run", async () => {
     const item = await enqueue();
+    const ledgerSpy = vi.spyOn(env.FORECAST_DB, "prepare");
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json(fixture));
     const cpu = process.cpuUsage();
     const start = performance.now();
     const result = await run(fetcher);
+    expect(
+      ledgerSpy.mock.calls.filter(([sql]) => sql.includes("FROM schedule_event_source_revisions")),
+    ).toHaveLength(1);
+    ledgerSpy.mockRestore();
     const elapsed = performance.now() - start;
     const used = process.cpuUsage(cpu);
     console.log(
@@ -618,7 +465,7 @@ describe("fixture ingestion end to end and CPU measurement", () => {
     expect(JSON.parse(String(stored?.["payload_json"]))).toEqual(expected.candidate);
     expect(stored?.["payload_json"]).toBe(JSON.stringify(expected.candidate));
     expect(stored?.["payload_hash"]).toBe(expected.payloadHash);
-    expect(expected.candidate.rulesVersion).toBe("schedule-kit-v3");
+    expect(expected.candidate.rulesVersion).toBe("schedule-kit-v4");
     expect(expected.candidate.certifiedSnapshot).toBeDefined();
     expect(rows("SELECT * FROM source_notice_revisions")).toHaveLength(1);
     expect(rows("SELECT status FROM source_queue")[0]?.["status"]).toBe("processed");
@@ -796,7 +643,7 @@ describe("runtime publication migration interoperability", () => {
     vi.resetModules();
     vi.doMock("../../shared/supplyForecastProjection", async (importOriginal) => ({
       ...(await importOriginal<typeof import("../../shared/supplyForecastProjection")>()),
-      SUPPLY_RULES_VERSION: "schedule-kit-v4",
+      SUPPLY_RULES_VERSION: "schedule-kit-v5",
     }));
     try {
       const future = await import("./db");

@@ -34,7 +34,7 @@ const historical = () => {
 describe("versioned certified cohort contracts", () => {
   it("uses the four-cohort prior, keeping three colors", () => {
     const snapshot = current();
-    expect(snapshot.version).toBe("certified-daily-v3");
+    expect(snapshot.version).toBe("certified-daily-v4");
     expect(DEFAULT_PERSONAL_COHORT_WEIGHTS).toEqual(
       [q(1, 7), q(2, 7), q(3, 7), q(1, 7)].map(toWire),
     );

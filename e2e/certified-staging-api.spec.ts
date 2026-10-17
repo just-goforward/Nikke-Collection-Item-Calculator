@@ -6,7 +6,7 @@ import { chromium, expect, firefox, test, webkit } from "@playwright/test";
 import {
   approvedFixtureProvenance,
   loadIndependentApprovedPanel,
-} from "../scripts/certified-staging-approved-panel/v8/panel.ts";
+} from "../scripts/certified-staging-approved-panel/v9/panel.ts";
 import { fileSha256 } from "../scripts/certified-staging-approved-panel.ts";
 import {
   assertDistStable,

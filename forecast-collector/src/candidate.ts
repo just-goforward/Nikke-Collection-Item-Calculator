@@ -1,13 +1,19 @@
+import { createCertifiedSupplyRule } from "../../shared/certifiedSupplyModel";
 import { gameDayStartCeilMs, gameDayStartMs } from "../../shared/gameDay";
 import { deriveSoloRaidCadenceDays, SOLO_RAID_CADENCE_SUMMARY } from "../../shared/soloRaidCadence";
 import { buildScheduleForecastSnapshot } from "../../shared/supplyForecastBuild";
-import { buildV3SupplyForecastCandidate } from "../../shared/supplyForecastCandidate";
+import {
+  buildSupplyForecastCandidate,
+  type SupplyForecastGrant,
+  type SupplyForecastV5SoloPeriod,
+} from "../../shared/supplyForecastCandidate";
 import {
   DISPATCH_POLICY_ID,
   SUPPLY_PROFILE_HORIZON_DAYS,
   SUPPLY_RULES_VERSION,
 } from "../../shared/supplyForecastProjection";
 import { sha256Hex, stableJson } from "./crypto";
+import { collapseSoloSegments, eventRound } from "./solo-interruptions";
 import type {
   CandidateBuildResult,
   NormalizedSourceItem,
@@ -30,7 +36,7 @@ export function resolveSoloSchedule(
   events: readonly ScheduleEvent[],
   nowMs: number,
 ): ResolvedSchedule | null {
-  const solo = events
+  const solo = collapseSoloSegments(events)
     .filter(
       (event) =>
         event.eventType === "solo" && event.scheduleStatus === "confirmed" && !event.manualReview,
@@ -112,7 +118,16 @@ export function resolveSoloSchedule(
     soloEvents,
     scheduleStatus: focus.scheduleStatus,
     cadenceDays: cadenceMs / DAY_MS,
-    evidenceEvents: uniqueStarts,
+    evidenceEvents: uniqueStarts.flatMap((event) =>
+      event.segments
+        ? events.filter(
+            (source) =>
+              source.eventType === "solo" &&
+              !source.manualReview &&
+              eventRound(source) === eventRound(event),
+          )
+        : [event],
+    ),
   };
 }
 
@@ -122,7 +137,9 @@ export async function buildForecastCandidate(
   xProbe: XProbeResult,
   nowMs: number,
   revision: number,
+  grants: readonly SupplyForecastGrant[] = [],
 ): Promise<CandidateBuildResult> {
+  const canonical = new WeakMap<object, string>();
   const gameDayStart = gameDayStartMs(nowMs);
   const generatedAt = new Date(gameDayStart).toISOString();
   const forecastDate = new Date(gameDayStart + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -163,6 +180,7 @@ export async function buildForecastCandidate(
         left.effectiveUntil.localeCompare(right.effectiveUntil),
     );
   const identity = stableJson({
+    grants,
     forecastDate,
     schedule: {
       status: resolved.scheduleStatus,
@@ -177,19 +195,36 @@ export async function buildForecastCandidate(
   });
   const sourceHash = await sha256Hex(identity);
   const certifiedSnapshot = buildScheduleForecastSnapshot({
+    grants: grants.map(({ claimUntil, ...grant }) => ({
+      ...grant,
+      ...(claimUntil === undefined ? {} : { claimUntil }),
+    })),
     asOf: generatedAt,
     revision: sourceHash,
     sourceHash,
     sourceStatus: "uncertain",
-    soloPeriods,
+    soloPeriods: resolved.soloEvents.filter(hasConcreteSchedule).map(snapshotSoloPeriod),
     collaborationPeriods,
     provenance: deduplicatedEvidence.map((evidence) => evidence.url).sort(),
   });
-  const ledgerHash = await sha256Hex(stableJson(certifiedSnapshot));
+  if (certifiedSnapshot.version !== "certified-daily-v4")
+    throw new Error("forecast_snapshot_version");
+  const ledgerPeriods = candidateLedgerPeriods(certifiedSnapshot);
+  const primary =
+    ledgerPeriods.find(
+      (period) =>
+        resolved.event.segments &&
+        period.round === eventRound(resolved.event) &&
+        Date.parse(period.effectiveUntil) > nowMs,
+    ) ??
+    ledgerPeriods.find((period) => period.effectiveFrom === resolved.event.startsAt) ??
+    ledgerPeriods.find((period) => Date.parse(period.effectiveUntil) > nowMs);
+  if (!primary) throw new Error("forecast_primary_period_missing");
+  const ledgerHash = await sha256Hex(stableJson(certifiedSnapshot, canonical));
   const candidateId = `forecast-${(
     await sha256Hex(stableJson({ rulesVersion: SUPPLY_RULES_VERSION, sourceHash, ledgerHash }))
   ).slice(0, 24)}`;
-  const candidate = buildV3SupplyForecastCandidate({
+  const candidate = buildSupplyForecastCandidate({
     candidateId,
     forecastId,
     dispatchPolicyId: DISPATCH_POLICY_ID,
@@ -198,27 +233,98 @@ export async function buildForecastCandidate(
     schedule: {
       status: resolved.scheduleStatus,
       cadenceDays: resolved.cadenceDays,
-      soloStart: resolved.event.startsAt,
-      soloEnd: resolved.event.endsAt,
-      soloPeriods,
+      soloStart: primary.effectiveFrom,
+      soloEnd: primary.effectiveUntil,
+      soloPeriods: ledgerPeriods,
       collaborationPeriods,
     },
     sourceEvidence: deduplicatedEvidence,
-    certifiedSnapshot,
-    warnings: [
-      ...(soloPeriods.some((period) => period.scheduleStatus === "estimated")
-        ? ["Some Solo Raid reference windows use cadence estimates."]
-        : []),
-      ...(resolved.cadenceDays === null
-        ? ["New-round cadence could not be derived from the available history."]
-        : []),
-      ...(xProbe.status === "x_unavailable"
-        ? ["X is advisory and is evaluated during proposal review."]
-        : []),
-      ...(xProbe.status === "conflict" ? ["Official sources report conflicting schedules."] : []),
-    ],
+    certifiedSnapshot: certifiedSnapshot as typeof certifiedSnapshot & {
+      version: "certified-daily-v4";
+    },
+    grants: [...grants],
+    warnings: candidateWarnings(soloPeriods, resolved.cadenceDays, xProbe.status),
   });
-  return { candidate, payloadHash: await sha256Hex(stableJson(candidate)) };
+  return { candidate, payloadHash: await sha256Hex(stableJson(candidate, canonical)) };
+}
+
+function candidateWarnings(
+  soloPeriods: ReturnType<typeof schedulePeriod>[],
+  cadenceDays: number | null,
+  status: XProbeResult["status"],
+) {
+  return [
+    ...(soloPeriods.some((period) => period.scheduleStatus === "estimated")
+      ? ["Some Solo Raid reference windows use cadence estimates."]
+      : []),
+    ...(cadenceDays === null
+      ? ["New-round cadence could not be derived from the available history."]
+      : []),
+    ...(status === "x_unavailable"
+      ? ["X is advisory and is evaluated during proposal review."]
+      : []),
+    ...(status === "conflict" ? ["Official sources report conflicting schedules."] : []),
+  ];
+}
+
+function snapshotSoloPeriod(event: ConcreteScheduleEvent) {
+  return {
+    ...schedulePeriod(event),
+    ...(event.segments?.[0] ? { round: event.segments[0].round } : {}),
+    segments: (
+      event.segments ?? [
+        {
+          segment: 1,
+          kind: "initial" as const,
+          effectiveFrom: event.startsAt,
+          effectiveUntil: event.endsAt,
+        },
+      ]
+    ).map((segment) => ({
+      segment: segment.segment,
+      kind: segment.kind === "suspend" ? ("initial" as const) : segment.kind,
+      effectiveFrom: segment.effectiveFrom,
+      effectiveUntil: segment.effectiveUntil,
+      rewardFromGameDate: new Date(gameDayStartMs(Date.parse(segment.effectiveFrom)) + 9 * 3600000)
+        .toISOString()
+        .slice(0, 10),
+      rewardUntilGameDate: new Date(
+        Math.min(
+          gameDayStartCeilMs(Date.parse(segment.effectiveUntil)),
+          gameDayStartMs(Date.parse(segment.effectiveFrom)) +
+            createCertifiedSupplyRule(segment.effectiveFrom).soloDays.length * DAY_MS,
+        ) +
+          9 * 3600000,
+      )
+        .toISOString()
+        .slice(0, 10),
+      sourceIds: [event.sourceItem.url],
+    })),
+  };
+}
+
+function candidateLedgerPeriods(snapshot: ReturnType<typeof buildScheduleForecastSnapshot>) {
+  return snapshot.soloRounds.flatMap((round): SupplyForecastV5SoloPeriod[] => {
+    if (round.segments)
+      return round.segments.map((segment) => ({
+        round: round.round,
+        segment: segment.segment,
+        effectiveFrom: segment.effectiveFrom,
+        effectiveUntil: segment.effectiveUntil,
+        scheduleStatus: "confirmed",
+      }));
+    if (round.status !== "estimated" || !round.endGameDate) return [];
+    const start = (date: string) => new Date(`${date}T05:00:00+09:00`).toISOString();
+    return [
+      {
+        round: round.round,
+        segment: 1,
+        effectiveFrom: start(round.startGameDate),
+        effectiveUntil: start(round.endGameDate),
+        scheduleStatus: "estimated",
+      },
+    ];
+  });
 }
 
 function candidateEvidence(sourceEvidence: readonly NormalizedSourceItem[]) {

@@ -1,3 +1,4 @@
+import { board11InvocationGate } from "./board11-policy";
 import { nextNaverRetryAt } from "./db";
 import { resolveOpsAlertsByPrefix, upsertOpsAlert } from "./ops";
 import type { ProfileCounts } from "./profile";
@@ -15,9 +16,17 @@ import type { CollectionSummary, CollectorEnv } from "./types";
 
 export async function runCollection(
   env: CollectorEnv,
-  options: { nowMs?: number; board?: 48 | 56; counts?: ProfileCounts; rotation?: boolean } = {},
+  options: {
+    nowMs?: number;
+    board?: 11 | 48 | 56;
+    counts?: ProfileCounts;
+    rotation?: boolean;
+  } = {},
 ): Promise<CollectionSummary> {
   const nowMs = options.nowMs ?? Date.now();
+  const board11Allowed = board11InvocationGate(env.FORECAST_DB);
+  if (options.board === 11 && !(await board11Allowed()))
+    return { outcome: "held", polledSources: 0, queuedItems: 0 };
   const rotationBoard = options.rotation ? options.board : undefined;
   const invocationId = await startInvocation(
     env.FORECAST_DB,
@@ -26,6 +35,7 @@ export async function runCollection(
     env.POLL_MODE,
     collectionPrefix(options.board, options.counts),
     rotationBoard,
+    board11Allowed,
   );
   if (invocationId === null) return { outcome: "completed", polledSources: 0, queuedItems: 0 };
   const circuit = await invocationCircuitState(env.FORECAST_DB, nowMs, rotationBoard);
@@ -41,7 +51,7 @@ export async function runCollection(
     return { outcome: "circuit_open", polledSources: 0, queuedItems: 0 };
   }
 
-  const boards = options.board ? [options.board] : sourcesForInvocation(env.POLL_MODE, nowMs);
+  const boards = collectionBoards(options.board, env.POLL_MODE, nowMs);
   let queuedItems = 0;
   let errorCode: string | null = null;
   let holdCode: string | null = null;
@@ -49,7 +59,13 @@ export async function runCollection(
   let staleSources = 0;
   for (const boardId of boards) {
     try {
-      const queued = await pollCollectionSource(env, boardId, nowMs, options.counts);
+      const queued = await pollCollectionSource(
+        env,
+        boardId,
+        nowMs,
+        options.counts,
+        board11Allowed,
+      );
       if (queued === null) {
         staleSources += 1;
         continue;
@@ -104,11 +120,20 @@ export async function runCollection(
   return { outcome: "completed", polledSources: boards.length, queuedItems };
 }
 
+function collectionBoards(
+  board: 11 | 48 | 56 | undefined,
+  mode: CollectorEnv["POLL_MODE"],
+  nowMs: number,
+) {
+  return board ? [board] : sourcesForInvocation(mode, nowMs);
+}
+
 async function pollCollectionSource(
   env: CollectorEnv,
-  boardId: 48 | 56,
+  boardId: 11 | 48 | 56,
   nowMs: number,
   counts?: ProfileCounts,
+  board11Allowed?: () => Promise<boolean>,
 ) {
   try {
     return await pollNaverSource(
@@ -118,6 +143,7 @@ async function pollCollectionSource(
       opsEnvironment(env),
       counts,
       env.NAVER_BOARD48_PAGE_SIZE,
+      board11Allowed,
     );
   } catch (error) {
     if (error instanceof NaverPartialSchemaError) {
@@ -143,7 +169,7 @@ async function pollCollectionSource(
   }
 }
 
-function collectionPrefix(board?: 48 | 56, counts?: ProfileCounts) {
+function collectionPrefix(board?: 11 | 48 | 56, counts?: ProfileCounts) {
   return board ? `profile-board-${board}:` : counts ? "profile-poll:" : "";
 }
 

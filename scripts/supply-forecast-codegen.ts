@@ -9,6 +9,7 @@ import {
   buildBundledV3Forecast,
 } from "../shared/bundledSupplyForecast.ts";
 import type { CertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
+import { usesLedgerForecast } from "../shared/certifiedVersionPolicy.ts";
 import { SOLO_RAID_ROUND_HISTORY } from "../shared/soloRaidCadence.ts";
 import {
   buildScheduleForecastProfiles,
@@ -174,12 +175,12 @@ function validateForecast(value: unknown, ids: Set<string>, profileIds: Set<stri
   if (!Array.isArray(sourceEvidence)) throw new Error(`${id} has invalid source evidence.`);
   if (
     !Array.isArray(rawProfiles) ||
-    (rawProfiles.length === 0 && rulesVersion !== "schedule-kit-v3")
+    (rawProfiles.length === 0 && !usesLedgerForecast(rulesVersion))
   ) {
     throw new Error(`${id} must contain at least one profile.`);
   }
   const profiles = rawProfiles.map((raw) => validateProfile(raw, id, profileIds));
-  validateProfileSequence(id, profiles, rulesVersion === "schedule-kit-v3");
+  validateProfileSequence(id, profiles, usesLedgerForecast(rulesVersion));
   const certifiedSnapshot = registryCertifiedSnapshot(value);
   return {
     id,
@@ -270,7 +271,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function precomputedLegacyForecast(forecast: Forecast) {
   const { certifiedSnapshot, ...legacy } = forecast;
-  if (forecast.rulesVersion !== "schedule-kit-v3") return legacy;
+  if (!usesLedgerForecast(forecast.rulesVersion)) return legacy;
   if (!certifiedSnapshot) throw new Error("certified_snapshot_required");
   return {
     ...legacy,

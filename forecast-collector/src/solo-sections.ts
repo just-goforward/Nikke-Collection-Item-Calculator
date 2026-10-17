@@ -9,6 +9,63 @@ export type NoticeText = {
 // Side-channel only: never mutate the frozen Actions-compatible item or its hash.
 export const noticeTexts = new WeakMap<NormalizedSourceItem, NoticeText>();
 
+function collectTextNodes(value: unknown, values: string[]) {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const child of value) collectTextNodes(child, values);
+  } else {
+    const record = value as Record<string, unknown>;
+    if (record["@ctype"] === "textNode" && typeof record["value"] === "string")
+      values.push(record["value"]);
+    else for (const child of Object.values(record)) collectTextNodes(child, values);
+  }
+}
+
+type TextState = {
+  effective: string[];
+  evidence: string[];
+  strike: number;
+  hidden: number;
+};
+
+function consumeTag(text: string, state: TextState) {
+  const tag = /^<\s*(\/?)\s*([\w-]+)/.exec(text);
+  if (!tag) return;
+  const closing = tag[1] === "/";
+  const name = tag[2]?.toLowerCase();
+  if (name && /^(script|style|template)$/.test(name)) {
+    state.hidden += closing ? -1 : 1;
+    return;
+  }
+  if (state.hidden) return;
+  if (name && /^(strike|s|del)$/.test(name)) {
+    consumeStrike(closing, state);
+  } else if (name === "br" || (closing && name && /^(p|div|li|h[1-6]|tr)$/.test(name))) {
+    state.effective.push("\n");
+    state.evidence.push("\n");
+  }
+}
+
+function consumeStrike(closing: boolean, state: TextState) {
+  if (!closing && state.strike++ === 0) state.evidence.push("~~");
+  if (closing && state.strike > 0 && --state.strike === 0) state.evidence.push("~~");
+}
+
+function consumeText(input: string) {
+  const state: TextState = { effective: [], evidence: [], strike: 0, hidden: 0 };
+  for (const token of input.matchAll(/<!--[\s\S]*?-->|<[^>]*>|[^<]+|</g)) {
+    const text = token[0];
+    if (text.startsWith("<!--")) continue;
+    if (text.startsWith("<") && text !== "<") consumeTag(text, state);
+    else if (!state.hidden) {
+      const decoded = decodeEntities(text);
+      state.evidence.push(decoded);
+      if (!state.strike) state.effective.push(decoded);
+    }
+  }
+  return state;
+}
+
 export function extractNoticeText(raw: string): NoticeText {
   let input = raw;
   let parsed: unknown;
@@ -19,52 +76,10 @@ export function extractNoticeText(raw: string): NoticeText {
   }
   if (parsed !== undefined) {
     const values: string[] = [];
-    const visit = (value: unknown) => {
-      if (!value || typeof value !== "object") return;
-      if (Array.isArray(value)) {
-        for (const child of value) visit(child);
-      } else {
-        const record = value as Record<string, unknown>;
-        if (record["@ctype"] === "textNode" && typeof record["value"] === "string")
-          values.push(record["value"]);
-        else for (const child of Object.values(record)) visit(child);
-      }
-    };
-    visit(parsed);
+    collectTextNodes(parsed, values);
     input = values.join("\n");
   }
-  const effective: string[] = [];
-  const evidence: string[] = [];
-  let strike = 0;
-  let hidden = 0;
-  for (const token of input.matchAll(/<!--[\s\S]*?-->|<[^>]*>|[^<]+|</g)) {
-    const text = token[0];
-    if (text.startsWith("<!--")) {
-      continue;
-    }
-    if (text.startsWith("<") && text !== "<") {
-      const tag = /^<\s*(\/?)\s*([\w-]+)/.exec(text);
-      if (!tag) continue;
-      const closing = tag[1] === "/";
-      const name = tag[2]?.toLowerCase();
-      if (name && /^(script|style|template)$/.test(name)) {
-        hidden += closing ? -1 : 1;
-        continue;
-      }
-      if (hidden) continue;
-      if (name && /^(strike|s|del)$/.test(name)) {
-        if (!closing && strike++ === 0) evidence.push("~~");
-        if (closing && strike > 0 && --strike === 0) evidence.push("~~");
-      } else if (name === "br" || (closing && name && /^(p|div|li|h[1-6]|tr)$/.test(name))) {
-        effective.push("\n");
-        evidence.push("\n");
-      }
-    } else if (!hidden) {
-      const decoded = decodeEntities(text);
-      evidence.push(decoded);
-      if (!strike) effective.push(decoded);
-    }
-  }
+  const { effective, evidence } = consumeText(input);
   const clean = (parts: string[]) =>
     parts
       .join("")

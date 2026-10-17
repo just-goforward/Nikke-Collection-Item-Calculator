@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { assertCertifiedRuntimeSupplySnapshot } from "./certifiedSupply.ts";
+import { freezeJson } from "./certifiedSupplyModel.ts";
+import { canonicalPublicationJson, publicationHash } from "./forecastPublication.ts";
+import { publicationBytesHash } from "./forecastPublicationBytes.ts";
 import {
   assertForecastCandidateInvariants,
+  buildSupplyForecastCandidate,
   buildV3SupplyForecastCandidate,
   supplyForecastCandidateSchema,
 } from "./supplyForecastCandidate.ts";
@@ -43,6 +47,43 @@ const candidate = {
 };
 
 describe("versioned forecast payload admission", () => {
+  it("preserves candidate bytes with frozen projection reuse and revalidates fresh bytes", () => {
+    const admitted = supplyForecastCandidateSchema.parse(candidate);
+    const mutable = structuredClone(snapshot);
+    const expected = buildV3SupplyForecastCandidate({ ...admitted, certifiedSnapshot: mutable });
+    const frozen = freezeJson(structuredClone(snapshot));
+    const actual = buildV3SupplyForecastCandidate({ ...admitted, certifiedSnapshot: frozen });
+    expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
+    const tampered = JSON.parse(JSON.stringify(actual));
+    tampered.profiles[0].expectedGain.blue += 1;
+    expect(supplyForecastCandidateSchema.safeParse(tampered).success).toBe(false);
+    const second = buildV3SupplyForecastCandidate({ ...admitted, certifiedSnapshot: frozen });
+    expect(JSON.stringify(second)).toBe(JSON.stringify(expected));
+  });
+  it("writes payload 5 for v4 while preserving payload 4 reconstruction", () => {
+    const historical = supplyForecastCandidateSchema.parse(candidate);
+    const current = buildSupplyForecastCandidate({
+      ...historical,
+      certifiedSnapshot: { ...snapshot, version: "certified-daily-v4" },
+      grants: [],
+      schedule: {
+        ...historical.schedule,
+        soloPeriods: historical.schedule.soloPeriods.map((period) => {
+          const round = snapshot.soloRounds.find(
+            (entry) => entry.startGameDate === period.effectiveFrom.slice(0, 10),
+          );
+          if (!round) throw new Error("fixture_round_missing");
+          return { ...period, round: round.round, segment: 1 };
+        }),
+      },
+    });
+    expect(current.payloadVersion).toBe(5);
+    expect(current.rulesVersion).toBe("schedule-kit-v4");
+    expect(current.certifiedSnapshot.version).toBe("certified-daily-v4");
+    expect(buildV3SupplyForecastCandidate({ ...historical, certifiedSnapshot: snapshot })).toEqual(
+      historical,
+    );
+  });
   it("constructs canonical v3 profiles internally while retaining metadata and runtime guards", () => {
     const admitted = supplyForecastCandidateSchema.parse(candidate);
     expect(buildV3SupplyForecastCandidate({ ...admitted, certifiedSnapshot: snapshot })).toEqual(
@@ -120,6 +161,51 @@ describe("versioned forecast payload admission", () => {
         },
       }).success,
     ).toBe(false);
+  });
+
+  it("rejects ledger grants and period round/segment fields before v4 snapshots", () => {
+    const historical = registry.forecasts.find(
+      (forecast) => forecast.rulesVersion === "schedule-kit-v2",
+    );
+    if (!historical) throw new Error("historical_fixture_missing");
+    const legacy = {
+      ...candidate,
+      payloadVersion: 3,
+      forecastId: historical.id,
+      rulesVersion: historical.rulesVersion,
+      profiles: historical.profiles,
+      certifiedSnapshot: undefined,
+    };
+    for (const base of [candidate, legacy]) {
+      expect(supplyForecastCandidateSchema.safeParse(base).success).toBe(true);
+      const withPeriods = (extra: object) => ({
+        ...base,
+        schedule: {
+          ...base.schedule,
+          soloPeriods: base.schedule.soloPeriods.map((period) => ({ ...period, ...extra })),
+        },
+      });
+      for (const rejected of [
+        { ...base, grants: [] },
+        withPeriods({ round: 1 }),
+        withPeriods({ segment: 1 }),
+        withPeriods({ round: 1, segment: 1 }),
+      ])
+        expect(supplyForecastCandidateSchema.safeParse(rejected).success).toBe(false);
+    }
+  });
+
+  it("parses historical v3 candidate bytes unchanged under the stricter schema", async () => {
+    expect(snapshot.version).toBe("certified-daily-v3");
+    const bytes = canonicalPublicationJson(
+      buildV3SupplyForecastCandidate({ ...candidate, certifiedSnapshot: snapshot }),
+    );
+    const parsed = supplyForecastCandidateSchema.parse(JSON.parse(bytes));
+    expect(parsed.payloadVersion).toBe(4);
+    expect(parsed.grants).toBeUndefined();
+    expect(canonicalPublicationJson(parsed)).toBe(bytes);
+    expect(await publicationHash(parsed)).toBe(await publicationBytesHash(bytes));
+    expect(() => assertForecastCandidateInvariants(parsed)).not.toThrow();
   });
 
   it("keeps historical payload-v3/schedule-v2 entries readable without a ledger", () => {

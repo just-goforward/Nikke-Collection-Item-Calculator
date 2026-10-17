@@ -1462,7 +1462,7 @@ test("개인정보 안내는 데스크톱 푸터와 모바일 통계 탭 푸터�
   await page.goto("/?demoStats=1");
   await expect(page.locator("footer:visible")).toHaveCount(1);
   await expect(page.locator("footer:visible")).toContainText(
-    "고유 식별 정보는 통계 DB에 저장하지 않습니다",
+    "재고·IP·사용자 ID는 저장하지 않습니다",
   );
   await expect(page.locator("footer:visible")).toContainText(
     "비공식 팬 제작 계산기이며, 게임 개발사 또는 퍼블리셔와 제휴하거나",

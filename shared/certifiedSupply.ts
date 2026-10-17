@@ -27,7 +27,6 @@ import {
 } from "./certifiedSupplyLaws.ts";
 import type * as Model from "./certifiedSupplyModel.ts";
 import {
-  CERTIFIED_SUPPLY_HISTORY_DAYS,
   createCertifiedSupplyRule as createRule,
   DAY_MS,
   DEFAULT_PERSONAL_COHORT_WEIGHTS as DEFAULT_COHORT_WEIGHTS,
@@ -46,6 +45,7 @@ import {
   assertV3RuntimeLaws,
   validateSnapshot,
 } from "./certifiedSupplyValidation.ts";
+import { certifiedVersionPolicy } from "./certifiedVersionPolicy.ts";
 import { gameDayKey, gameDayStartMs } from "./gameDay.ts";
 
 export const CERTIFIED_SUPPLY_VERSION = SUPPLY_VERSION;
@@ -61,6 +61,8 @@ export type CertifiedHistoryCoverage = Model.CertifiedHistoryCoverage;
 export type CertifiedSupplyCoverageWindow = Model.CertifiedSupplyCoverageWindow;
 export type CertifiedSupplySnapshot = Model.CertifiedSupplySnapshot;
 export type CertifiedSupplyBuildInput = Model.CertifiedSupplyBuildInput;
+export type CertifiedSupplyGrant = Model.CertifiedSupplyGrant;
+export type CertifiedSoloSegment = Model.CertifiedSoloSegment;
 export type CertifiedDailySupply = Model.CertifiedDailySupply;
 export type CertifiedSupplyPeriod = Model.CertifiedSupplyPeriod;
 export type CertifiedSupplyComparison = Model.CertifiedSupplyComparison;
@@ -176,7 +178,7 @@ export function viewCertifiedSupplySnapshot(
       missing,
     };
   };
-  const pastDays = snapshot.version === "certified-daily-v3" ? CERTIFIED_SUPPLY_HISTORY_DAYS : 56;
+  const pastDays = certifiedVersionPolicy(snapshot.version).historyDays;
   const past = rewindow(snapshot.coverage.past, today - pastDays * DAY_MS, today);
   const future = rewindow(snapshot.coverage.future, today + DAY_MS, today + 57 * DAY_MS);
   return freezeJson({
@@ -215,7 +217,7 @@ export function certifiedCohortWeights(
   weights?: SnapshotCohortWeights,
   version: Model.CertifiedSupplyVersion = CERTIFIED_SUPPLY_VERSION,
 ): CohortTuple<Q> {
-  const legacy = version === "certified-daily-v1";
+  const legacy = certifiedVersionPolicy(version).cohortCount === 3;
   const selected =
     weights ?? (legacy ? LEGACY_PERSONAL_COHORT_WEIGHTS : DEFAULT_PERSONAL_COHORT_WEIGHTS);
   if (selected.length !== (legacy ? 3 : 4)) throw new Error("certified_cohort_weights_invalid");
@@ -251,7 +253,7 @@ export function deriveCertifiedDailySupply(
   const current = dateStart(snapshot.coverage.currentDay);
   const days: CertifiedDailySupply[] = [];
   const expectationCache = new Map<string, readonly [Q, Q, Q]>();
-  const pastDays = snapshot.version === "certified-daily-v3" ? CERTIFIED_SUPPLY_HISTORY_DAYS : 56;
+  const pastDays = certifiedVersionPolicy(snapshot.version).historyDays;
   for (
     let at = Math.max(current - pastDays * DAY_MS, timestamp(snapshot.coverage.from));
     at <= current + 56 * DAY_MS && at < timestamp(snapshot.coverage.until);
@@ -419,7 +421,7 @@ export function assertCertifiedSupplySnapshot(
 /** Historical snapshots remain readable; new runtime authority uses the v3 allowlist. */
 export function assertCertifiedRuntimeSupplySnapshot(value: unknown): CertifiedSupplySnapshot {
   const snapshot = assertCertifiedSupplySnapshot(value);
-  if (snapshot.version !== CERTIFIED_SUPPLY_VERSION)
+  if (!certifiedVersionPolicy(snapshot.version).physicalLaws)
     throw new Error("unsupported_forecast_version");
   assertV3RuntimeLaws(snapshot);
   return snapshot;

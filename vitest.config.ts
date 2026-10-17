@@ -1,6 +1,8 @@
 import { defineConfig } from "vitest/config";
 
 const timeBudgetTestFiles = [
+  "src/certified/wasmBackend.spec.ts",
+  "scripts/certified-wait-label-oracle.spec.ts",
   "shared/certifiedSupply.spec.ts",
   "shared/certifiedSupplyLaws.spec.ts",
   "src/certifiedUi/sessionMigration.test.ts",
@@ -9,6 +11,7 @@ const timeBudgetTestFiles = [
   "scripts/certified-staging-approved-panel/v6/evidence.spec.ts",
   "scripts/certified-staging-approved-panel/v7/evidence.spec.ts",
   "scripts/certified-staging-approved-panel/v8/evidence.spec.ts",
+  "scripts/certified-staging-approved-panel/v9/evidence.spec.ts",
   "scripts/certified-staging-oracle-lane.spec.ts",
   "scripts/certified-wasm-oracle.property.spec.ts",
   "scripts/certified-wasm-cache.property.spec.ts",

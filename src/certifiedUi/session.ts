@@ -34,6 +34,7 @@ import { gameDayKey } from "../../shared/gameDay";
 
 type CertifiedReceipt = {
   eventId: string;
+  gameDate?: string;
   at: string;
   pieces: Triple | null;
   alreadyInStock: boolean;
@@ -48,7 +49,7 @@ type CertifiedOutcome = {
 export type CertifiedSession = {
   version: 2;
   id: string;
-  profileId: "certified-staging-v2";
+  profileId: typeof CERTIFIED_STAGING_ENGINE_PROFILE.id;
   snapshotRevision: string;
   state: CollectionState;
   stock: Triple;
@@ -56,10 +57,28 @@ export type CertifiedSession = {
   receipts: readonly CertifiedReceipt[];
   retiredReceiptIds: readonly string[];
   outcomes: readonly CertifiedOutcome[];
-  migrationNotice?: "cohort_prior_reset" | "cohort_posterior_replayed" | "cohort_selection_kept";
+  migrationNotice?:
+    | "cohort_prior_reset"
+    | "cohort_posterior_replayed"
+    | "cohort_selection_kept"
+    | "receipts_hidden";
 };
 export const CERTIFIED_SESSION_STORAGE_KEY = `${CERTIFIED_STAGING_ENGINE_PROFILE.sessionNamespace}:session`;
-export const LEGACY_CERTIFIED_SESSION_STORAGE_KEY = "collection-certified-staging-v1:session";
+const LEGACY_CERTIFIED_SESSION_STORAGE_KEY = "collection-certified-staging-v1:session";
+export const CERTIFIED_SESSION_READ_KEYS = [
+  CERTIFIED_SESSION_STORAGE_KEY,
+  "collection-certified-staging-v2:session",
+  LEGACY_CERTIFIED_SESSION_STORAGE_KEY,
+] as const;
+
+/** Preserve precedence and malformed current bytes; never silently select older stock. */
+export function readStoredCertifiedSession(storage: Pick<Storage, "getItem">): string | null {
+  for (const key of CERTIFIED_SESSION_READ_KEYS) {
+    const text = storage.getItem(key);
+    if (text !== null) return text;
+  }
+  return null;
+}
 
 function validStock(value: unknown): value is [number, number, number] {
   return (
@@ -101,7 +120,8 @@ function validMigrationNotice(
   return (
     value === "cohort_prior_reset" ||
     value === "cohort_posterior_replayed" ||
-    value === "cohort_selection_kept"
+    value === "cohort_selection_kept" ||
+    value === "receipts_hidden"
   );
 }
 function wire(value: unknown): WireQ {
@@ -124,7 +144,7 @@ export function createCertifiedSession(
   return {
     version: 2,
     id: crypto.randomUUID(),
-    profileId: "certified-staging-v2",
+    profileId: CERTIFIED_STAGING_ENGINE_PROFILE.id,
     snapshotRevision,
     state: { ...state },
     stock: [...stock],
@@ -164,7 +184,7 @@ export function restoreCertifiedSession(
         };
     return {
       version: 2,
-      profileId: "certified-staging-v2",
+      profileId: CERTIFIED_STAGING_ENGINE_PROFILE.id,
       ...core,
       ...migrated,
       receipts,
@@ -182,7 +202,9 @@ function restoreSessionCore(
   if (
     !(
       (value["version"] === 1 && value["profileId"] === "certified-staging-v1") ||
-      (value["version"] === 2 && value["profileId"] === "certified-staging-v2")
+      (value["version"] === 2 &&
+        (value["profileId"] === "certified-staging-v2" ||
+          value["profileId"] === CERTIFIED_STAGING_ENGINE_PROFILE.id))
     ) ||
     typeof value["id"] !== "string" ||
     typeof value["snapshotRevision"] !== "string" ||
@@ -270,7 +292,11 @@ function restoreLedgerEntries<T>(
 
 function restoreReceipts(value: unknown): CertifiedReceipt[] | null {
   const receipts = restoreLedgerEntries(value, restoreReceipt);
-  if (!receipts || new Set(receipts.map((r) => r.eventId)).size !== receipts.length) return null;
+  if (
+    !receipts ||
+    new Set(receipts.map((r) => `${r.eventId}|${r.gameDate ?? ""}`)).size !== receipts.length
+  )
+    return null;
   return receipts;
 }
 
@@ -278,6 +304,8 @@ function restoreReceipt(value: unknown): CertifiedReceipt | null {
   if (
     !isRecord(value) ||
     typeof value["eventId"] !== "string" ||
+    (value["gameDate"] !== undefined &&
+      (typeof value["gameDate"] !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value["gameDate"]))) ||
     !isoTime(value["at"]) ||
     typeof value["alreadyInStock"] !== "boolean" ||
     !(validStock(value["pieces"]) || (value["pieces"] === null && value["alreadyInStock"]))
@@ -286,6 +314,7 @@ function restoreReceipt(value: unknown): CertifiedReceipt | null {
   const pieces = value["pieces"];
   return {
     eventId: value["eventId"],
+    ...(typeof value["gameDate"] === "string" ? { gameDate: value["gameDate"] } : {}),
     at: value["at"],
     pieces: validStock(pieces) ? [...pieces] : null,
     alreadyInStock: value["alreadyInStock"],
@@ -320,14 +349,56 @@ function restoreRetiredReceiptIds(value: unknown): string[] | null {
 export function reconcileCertifiedSession(
   session: CertifiedSession,
   snapshotRevision: string,
-  activeIds: readonly string[],
+  activeEvents: readonly (string | Pick<CertifiedSupplyEvent, "id" | "gameDate">)[],
 ): CertifiedSession {
-  const active = new Set(activeIds);
+  const active = new Map(
+    activeEvents.map((event) =>
+      typeof event === "string" ? [event, undefined] : [event.id, event.gameDate],
+    ),
+  );
+  const receipts = session.receipts.map((receipt) => {
+    const gameDate = active.get(receipt.eventId);
+    return receipt.gameDate === undefined && gameDate !== undefined
+      ? { ...receipt, gameDate }
+      : receipt;
+  });
+  const retiredReceiptIds = receipts
+    .filter(
+      (receipt) =>
+        !active.has(receipt.eventId) ||
+        (active.get(receipt.eventId) !== undefined &&
+          receipt.gameDate !== active.get(receipt.eventId)),
+    )
+    .map((receipt) => receipt.eventId);
+  const { migrationNotice, ...previous } = session;
+  const notice =
+    retiredReceiptIds.length > 0
+      ? (migrationNotice ?? "receipts_hidden")
+      : migrationNotice === "receipts_hidden"
+        ? undefined
+        : migrationNotice;
   return {
-    ...session,
+    ...previous,
+    ...(notice ? { migrationNotice: notice } : {}),
     snapshotRevision,
-    retiredReceiptIds: session.receipts.filter((r) => !active.has(r.eventId)).map((r) => r.eventId),
+    receipts,
+    retiredReceiptIds,
   };
+}
+
+export function activeCertifiedReceiptIds(
+  session: CertifiedSession,
+  events: readonly Pick<CertifiedSupplyEvent, "id" | "gameDate">[],
+): string[] {
+  return events
+    .filter((event) =>
+      session.receipts.some(
+        (receipt) =>
+          receipt.eventId === event.id &&
+          (receipt.gameDate === undefined || receipt.gameDate === event.gameDate),
+      ),
+    )
+    .map((event) => event.id);
 }
 
 export function recordCertifiedOutcome(
@@ -363,7 +434,7 @@ export function certifiedClaimableEvents(
   session: CertifiedSession,
   nowMs: number,
 ) {
-  const received = new Set(session.receipts.map((r) => r.eventId));
+  const received = new Set(activeCertifiedReceiptIds(session, events));
   return events.filter(
     (event) =>
       !received.has(event.id) &&
@@ -388,7 +459,10 @@ export function acknowledgeCertifiedReceipt(
     throw new Error("receipt_not_claimable");
   return {
     ...session,
-    receipts: [...session.receipts, { eventId: event.id, at, pieces: null, alreadyInStock: true }],
+    receipts: [
+      ...session.receipts,
+      { eventId: event.id, gameDate: event.gameDate, at, pieces: null, alreadyInStock: true },
+    ],
   };
 }
 
@@ -413,7 +487,10 @@ export function recordCertifiedReceipt(
     ...session,
     stock,
     cohortWeights: weights,
-    receipts: [...session.receipts, { eventId: event.id, at, pieces: [...pieces], alreadyInStock }],
+    receipts: [
+      ...session.receipts,
+      { eventId: event.id, gameDate: event.gameDate, at, pieces: [...pieces], alreadyInStock },
+    ],
   };
 }
 

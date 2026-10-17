@@ -1,5 +1,6 @@
 import { fromWire, type Q, q, sub, toWire } from "../../shared/certifiedRational";
 import { isCertifiedEventClaimable } from "../../shared/certifiedSupply";
+import { certifiedVersionPolicy } from "../../shared/certifiedVersionPolicy";
 import { minimumWaitBase } from "../certifiedRuntime/minimumWait";
 import { CertifiedLimit, WorkBudget } from "./budget";
 import { waitingBase } from "./events";
@@ -12,8 +13,7 @@ import { WasmKernel } from "./wasmBackend";
 function isMinimumWaitEnabled(input: CertifiedInput): boolean {
   return (
     input.computeMinimumWait !== false &&
-    (input.snapshot?.version === "certified-daily-v2" ||
-      input.snapshot?.version === "certified-daily-v3")
+    certifiedVersionPolicy(input.snapshot?.version).minimumWait
   );
 }
 

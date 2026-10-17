@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseWranglerJson } from "./apply-forecast-d1-migrations.ts";
-import {
-  legacyDatabase,
-  migrations,
-  result,
-  sqliteRunner,
-} from "./forecast-migration-test-fixtures.ts";
+import { migrations, result, sqliteRunner } from "./forecast-migration-test-fixtures.ts";
+import { legacyDatabase } from "./forecast-migration-v27-fixtures.ts";
 
 const latest = migrations.at(-1)?.version ?? 0;
 

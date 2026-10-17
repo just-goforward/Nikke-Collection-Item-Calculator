@@ -5,6 +5,7 @@ import {
   certifiedCohortWeights,
 } from "../../shared/certifiedSupply";
 import type { CohortTuple } from "../../shared/certifiedSupplyLaws";
+import { certifiedVersionPolicy } from "../../shared/certifiedVersionPolicy";
 import { CertifiedLimit } from "./budget";
 import { eventOffset } from "./events";
 import type { CertifiedInput, Triple } from "./types";
@@ -58,7 +59,7 @@ function validateState(input: CertifiedInput): void {
 }
 function validateSnapshot(input: CertifiedInput, checkBudget?: () => void): void {
   assertCertifiedSupplySnapshot(input.snapshot, checkBudget);
-  if (input.snapshot.version === "certified-daily-v3")
+  if (certifiedVersionPolicy(input.snapshot.version).physicalLaws)
     assertCertifiedRuntimeSupplySnapshot(input.snapshot);
   requireInput(
     Date.parse(input.snapshot.asOf) === Date.parse(input.asOf),

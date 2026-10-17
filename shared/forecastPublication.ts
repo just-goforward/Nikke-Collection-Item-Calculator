@@ -1,4 +1,5 @@
 import { assertCertifiedRuntimeSupplySnapshot } from "./certifiedSupply.ts";
+import { isPublicationVersionPair } from "./certifiedVersionPolicy.ts";
 import {
   ARTIFACT_DOMAIN as BYTE_ARTIFACT_DOMAIN,
   POINTER_DOMAIN as BYTE_POINTER_DOMAIN,
@@ -49,7 +50,7 @@ export async function publicationHash(value: unknown): Promise<string> {
 
 export function publicationCandidate(value: unknown): SupplyForecastCandidate {
   const raw = object(value);
-  if (raw["payloadVersion"] !== 4 || raw["rulesVersion"] !== "schedule-kit-v3")
+  if (!isPublicationVersionPair(raw["payloadVersion"], raw["rulesVersion"]))
     throw new Error("publication_unsupported_rules");
   if (typeof raw["forecastId"] !== "string") throw new Error("publication_forecast_id");
   // Construct the ledger-derived profiles once, then compare the complete canonical

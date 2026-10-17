@@ -132,9 +132,27 @@ export function CohortPanel({
 }
 
 const EVENT_NAMES = {
-  ko: { dispatch: "파견", shop: "상점", solo: "솔로 레이드", "weekly-kits": "수요일 키트" },
-  en: { dispatch: "Dispatch", shop: "Shop", solo: "Solo Raid", "weekly-kits": "Wednesday kits" },
-  ja: { dispatch: "派遣", shop: "ショップ", solo: "ソロレイド", "weekly-kits": "水曜日のキット" },
+  ko: {
+    dispatch: "파견",
+    shop: "상점",
+    solo: "솔로 레이드",
+    "weekly-kits": "수요일 키트",
+    grant: "일회성 지급",
+  },
+  en: {
+    dispatch: "Dispatch",
+    shop: "Shop",
+    solo: "Solo Raid",
+    "weekly-kits": "Wednesday kits",
+    grant: "One-time grant",
+  },
+  ja: {
+    dispatch: "派遣",
+    shop: "ショップ",
+    solo: "ソロレイド",
+    "weekly-kits": "水曜日のキット",
+    grant: "一回限りの配布",
+  },
 } as const;
 
 function ClaimEditor({

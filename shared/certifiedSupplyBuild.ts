@@ -1,3 +1,4 @@
+import { freezeCoherentSnapshot } from "./certifiedSupplyCoherence.ts";
 import {
   CERTIFIED_SUPPLY_LAWS,
   type CertifiedLawRef,
@@ -15,14 +16,13 @@ import {
   createCertifiedSupplyRule,
   DAY_MS,
   dateStart,
-  freezeJson,
   iso,
   linkCertifiedSoloAnnouncement,
   ruleAt,
   timestamp,
   transitionCertifiedSoloDelay,
 } from "./certifiedSupplyModel.ts";
-import { validateSnapshot } from "./certifiedSupplyValidation.ts";
+import { forecastVersionsForSnapshot } from "./certifiedVersionPolicy.ts";
 import { gameDayKey, gameDayStartCeilMs, gameDayStartMs } from "./gameDay.ts";
 import {
   deriveExactSoloRaidCadence,
@@ -153,6 +153,17 @@ function confirmedRoundState(input: CertifiedSupplyBuildInput): RoundState {
   };
   refreshRoundState(state);
   for (const period of input.soloPeriods) applyConfirmedPeriod(state, input, period);
+  for (const round of input.soloRounds ?? []) {
+    const first = round.segments[0];
+    if (!first) throw new Error("certified_solo_segments_required");
+    applyConfirmedPeriod(state, input, {
+      round: round.round,
+      effectiveFrom: first.effectiveFrom,
+      effectiveUntil: first.effectiveUntil,
+      scheduleStatus: "confirmed",
+      segments: round.segments,
+    });
+  }
   return state;
 }
 
@@ -164,9 +175,12 @@ function confirmedLedgerRound(
   return {
     round: entry.round,
     startGameDate: entry.startGameDate,
-    endGameDate: period ? gameDayKey(gameDayStartCeilMs(timestamp(period.effectiveUntil))) : null,
+    endGameDate:
+      period?.segments?.at(-1)?.rewardUntilGameDate ??
+      (period ? gameDayKey(gameDayStartCeilMs(timestamp(period.effectiveUntil))) : null),
     status: "confirmed",
     sourceIds: entry.sourceFeedId > 0 ? [soloRaidSourceUrl(entry)] : ["accepted-period"],
+    ...(period?.segments ? { segments: period.segments } : {}),
   };
 }
 
@@ -324,6 +338,34 @@ function soloRoundEvents(
   window: BuildWindow,
 ): CertifiedSupplyEvent[] {
   if (round.status === "unverified" || round.endGameDate === null) return [];
+  if (round.segments) {
+    return round.segments.flatMap((segment) => {
+      const events: CertifiedSupplyEvent[] = [];
+      for (
+        let at = dateStart(segment.rewardFromGameDate), dayNumber = 1;
+        at < dateStart(segment.rewardUntilGameDate);
+        at += DAY_MS, dayNumber += 1
+      ) {
+        const available = Math.max(at, timestamp(segment.effectiveFrom));
+        if (available < window.from || available >= window.until) continue;
+        const rule = ruleAt(rules, at);
+        const refs = rule?.soloDays[dayNumber - 1];
+        if (!rule || !refs) throw new Error("certified_solo_segment_reward_rule_missing");
+        events.push({
+          ...soloDayEvent(round, period, at, dayNumber, rule, refs),
+          id:
+            segment.segment === 1
+              ? `solo:r${round.round}:day${dayNumber}`
+              : `solo:r${round.round}:segment${segment.segment}:day${dayNumber}`,
+          segment: segment.segment,
+          at: iso(available),
+          expiresAt: segment.effectiveUntil,
+          sourceIds: segment.sourceIds,
+        });
+      }
+      return events;
+    });
+  }
   const events: CertifiedSupplyEvent[] = [];
   const end = dateStart(round.endGameDate);
   for (
@@ -410,6 +452,27 @@ export function buildSnapshot(
   const recurring = recurringEvents(window, rules, collaborationWindows(input));
   const events = [
     ...recurring.events,
+    ...(input.grants ?? []).flatMap((grant): CertifiedSupplyEvent[] => {
+      const at = dateStart(grant.grantGameDate);
+      if (at < window.from || at >= window.until) return [];
+      const rule = ruleAt(rules, at);
+      if (!rule) throw new Error("certified_grant_rule_missing");
+      return [
+        {
+          id: grant.id,
+          gameDate: grant.grantGameDate,
+          at: iso(at),
+          kind: "grant",
+          status: "confirmed",
+          refs: grant.refs,
+          ruleId: rule.id,
+          claimWindowAssumed: grant.claimWindowAssumed,
+          sourceIds: grant.sourceIds,
+          restatementOf: grant.restatementOf,
+          ...(grant.claimUntil === undefined ? {} : { expiresAt: grant.claimUntil }),
+        },
+      ];
+    }),
     ...soloRounds.flatMap((round) =>
       soloRoundEvents(round, state.associations.get(round.round), rules, window),
     ),
@@ -452,11 +515,10 @@ export function buildSnapshot(
     warnings: [...new Set(window.warnings)],
     provenance: [
       ...(input.provenance ?? []),
-      "schedule-kit-v3",
+      forecastVersionsForSnapshot(CERTIFIED_SUPPLY_VERSION).rulesVersion,
       "documented-physical-supply-v2",
       ...state.cadence.sourceUrls,
     ],
   };
-  validateSnapshot(snapshot);
-  return freezeJson(snapshot);
+  return freezeCoherentSnapshot(snapshot);
 }

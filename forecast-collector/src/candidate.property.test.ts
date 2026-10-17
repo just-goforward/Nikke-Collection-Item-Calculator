@@ -260,7 +260,7 @@ describe("P8 candidateId canonical identity", () => {
     HARD_DEADLINE_MS,
   );
 
-  it("binds v3 identity to the rules and ledger, distinct from the legacy candidateId", async () => {
+  it("binds v5 identity to the rules, grants and ledger, distinct from the legacy candidateId", async () => {
     const one = collaboration(item({ board: 48, id: 1, hashSeed: 0 }), { startDay: 0, days: 1 }, 0);
     const two = collaboration(item({ board: 48, id: 2, hashSeed: 1 }), { startDay: 0, days: 2 }, 1);
     const three = collaboration(
@@ -298,12 +298,12 @@ describe("P8 candidateId canonical identity", () => {
       expect(result.candidate.candidateId).not.toBe(
         `forecast-${(await sha256Hex(legacyIdentity)).slice(0, 24)}`,
       );
-      const sourceHash = await sha256Hex(legacyIdentity);
+      const sourceHash = await sha256Hex(stableJson({ ...JSON.parse(legacyIdentity), grants: [] }));
       const ledgerHash = await sha256Hex(stableJson(result.candidate.certifiedSnapshot));
       expect(result.candidate.certifiedSnapshot?.sourceHash).toBe(sourceHash);
       expect(result.candidate.candidateId).toBe(
         `forecast-${(
-          await sha256Hex(stableJson({ rulesVersion: "schedule-kit-v3", sourceHash, ledgerHash }))
+          await sha256Hex(stableJson({ rulesVersion: "schedule-kit-v4", sourceHash, ledgerHash }))
         ).slice(0, 24)}`,
       );
       expect(result.candidate.schedule.collaborationPeriods).toEqual(

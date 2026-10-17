@@ -1,0 +1,172 @@
+{
+  "version": "approved24-independent-evidence-v9",
+  "generationEnvironment": {
+    "nodeVersion": "v24.21.0",
+    "packageLockSha256": "964efecaa1ff1edb829fd479fdc64fc827579631522d0f5c8d622048709b38fe",
+    "biomeSha256": "b51e5d7eeb91106bc5c6d59cf03ed97ee6f2fcbaa55b9a7a5fcdb9c617cc7795"
+  },
+  "generation": {
+    "sources": [
+      {
+        "path": "scripts/certified-staging-oracle.ts",
+        "sha256": "44169b169bb1487ce952ba6026b697654f541a234384fed4964fe1aa9f43a69f"
+      },
+      {
+        "path": "shared/game.ts",
+        "sha256": "79a7563059171121b0331687fc2caab8563f03a6cb64060b475d1fe7d8a96850"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-tuples.ts",
+        "sha256": "d20f932934a9de5ec416a22b1d1b04097f279e32373431880db353546f4a0f39"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-fixtures.ts",
+        "sha256": "3ed6ed7e76a2b087685433e1ba5d08cf3edd2d3cf4218fed6154c05c76a71852"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel.ts",
+        "sha256": "3d0ef4057a91e6efa0377efc79b93a3284c3b26b83b5c7f906999b0f84a99106"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-four-cohort-pricing.ts",
+        "sha256": "e8045f992ede012c8be715d69f4733163b4016fba910a2208058911b20d759e5"
+      },
+      {
+        "path": "scripts/certified-staging-oracle-fixtures/cohort3-dispatch-v1.json",
+        "sha256": "95e31e1b275ee966e49eb95ecccbc46df455d6dbdeaf50e550ed136c4f7615f3"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v6/evidence.ts",
+        "sha256": "ae8b908fed9f7e08a9122fc34c263a4333763a8530c894ff7aaac21de995da54"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v6/history.ts",
+        "sha256": "958d05a7f562deb889b06384cd8056ad0035b45a37a11e0e46aadb80e06b4c90"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v7/evidence.ts",
+        "sha256": "9e24f81ffa3adcf64b2aedc704901a6e59231d12d7f6944b3496cff11cddf72b"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v7/history.ts",
+        "sha256": "ab948a504166bb79a6927a1714269f3a33f730a432e5a4a49c66905e02f4aa56"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v8/anchor.ts",
+        "sha256": "e5a36ce1f7d221aa6abb9f8d854be2b3b4e88493c6b1d55df687572733a54f86"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v8/physical.ts",
+        "sha256": "2694937b250bf9543e2ab4b495c9b7073d97f51cf37901ca20116b3b4af26e13"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v8/evidence.ts",
+        "sha256": "605ed2aa59c84d37fe2ca3d2aa861471425f5c83bba2e26828f5d03bf6d12044"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v8/calculate.ts",
+        "sha256": "73824e42fcd3f73e47c7c53eecbcc2ec5284b42b98fa811668fecfe28daadc42"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v8/snapshot.ts",
+        "sha256": "9d5ff1ee10c8c5af440be8c467851aa7a1e8d1d8da73ed41790db6be3ceed15c"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v9/evidence.ts",
+        "sha256": "8dbdea6b3058d18a9d708f7376862d2dca316685852f3d602446e1eca079cbc6"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v9/calculate.ts",
+        "sha256": "5a563dec27597d8720ad3d38801b68c90f8e26d6b1c4267efc7d18e0dd2a4f7d"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v9/panel.ts",
+        "sha256": "565733c2086380e407b3b31be24d8ece05d5f43336202fabb4fcfb679def82ac"
+      },
+      {
+        "path": "scripts/certified-staging-approved-panel/v9/generate.ts",
+        "sha256": "c8d804b8e5802351f5dff526c960bf8b90faef1263de23357d8c8b9adaebb03c"
+      }
+    ],
+    "sourceHash": "69eeaa027a3b60a406c784c4ab10c5512d5b90e76f8206f8149d767969eb3726",
+    "isolatedCacheEmpty": true,
+    "physicalEnumeration": "sequential-draw-state-merged",
+    "oracleRows": 24,
+    "independentWaiting": "UNVERIFIED_NOT_REGENERATED"
+  },
+  "historical": {
+    "v8PinsSha256": "b4d3f4f72013a8ecac1038963a65ae319e46a0472eab65196665237a7acffc89",
+    "cohortMigration": "four-prior-positive-cohort3-population-v3"
+  },
+  "snapshot": {
+    "path": "scripts/certified-staging-approved-panel/v9/snapshot.json",
+    "sha256": "019d24a7a03f029206394f3bdd9f53bc11cf377ef841e8f0a3dd512a18c78489",
+    "meaning": "approved forecast input only; not an expected solver output",
+    "sources": [
+      {
+        "path": "shared/certifiedDispatchExpectations.ts",
+        "sha256": "fc07ef46bf385a6cbaf5476da95b486a4aa156e27789303cc6c9b9cf878ff8b4"
+      },
+      {
+        "path": "shared/certifiedForecastIdentity.ts",
+        "sha256": "b409290ce3971061379777040213e15b3263e12a4aa9d19c8e6cc17384f9d34f"
+      },
+      {
+        "path": "shared/certifiedRational.ts",
+        "sha256": "4643df30022a4abd5371db17a42307d44df2d378815780ec8a0622a9ab3414c6"
+      },
+      {
+        "path": "shared/certifiedSupply.ts",
+        "sha256": "0e30dc503e6ca102115c47c9a22fb855eb803481b376ec242a95bc35802a4097"
+      },
+      {
+        "path": "shared/certifiedSupplyBuild.ts",
+        "sha256": "7c5b5ebf9bf7af6193a42bc4d7d1a957a555c804677c9d15f15680e1a2f33a97"
+      },
+      {
+        "path": "shared/certifiedSupplyCoherence.ts",
+        "sha256": "9f89aa0331c4b71364dc0176109f4ce7fb4e535c5d21d01a76fd6391d4f25e57"
+      },
+      {
+        "path": "shared/certifiedSupplyLaws.ts",
+        "sha256": "cd1b86772b05a9049d37be2c647f6c1d02720f8aa2bf6a76527377b3cfcc08c4"
+      },
+      {
+        "path": "shared/certifiedSupplyModel.ts",
+        "sha256": "4c4d2f438dd85930146dbf6584b7267c3c775727014c86400422243520e5ad59"
+      },
+      {
+        "path": "shared/certifiedSupplyValidation.ts",
+        "sha256": "017fef912596343a9bed2b47c47419e61351aecdc4b747dc9cd9d2d1b8270cc1"
+      },
+      {
+        "path": "shared/certifiedVersionPolicy.ts",
+        "sha256": "5cd8e1e26ad364b7367ad6623f020e494bc4b0e09feb5233093add2b7131e12c"
+      },
+      {
+        "path": "shared/gameDay.ts",
+        "sha256": "483c0ca0d59280552052446b304a202b9141abbcfe8712a5b2b2e95dcf495997"
+      },
+      {
+        "path": "shared/generated/certifiedForecastAuthority.ts",
+        "sha256": "7cadd21b3a262770b89f3738f78e2fd7b29f0cff9b6f93a93b21230e45174575"
+      },
+      {
+        "path": "shared/soloRaidCadence.ts",
+        "sha256": "e84b7669ea0f4056f6d9de0c2a86393eb73f0374c69f74679cb9f97f2800a98a"
+      },
+      {
+        "path": "src/lib/certifiedForecast.ts",
+        "sha256": "032757f76ca85b842e0bb0d32e038e41979197d20e88dc9e3a21ae8862b009fe"
+      }
+    ]
+  },
+  "physicalEnumeration": {
+    "path": "scripts/certified-staging-approved-panel/v9/independent-physical-cohorts.json",
+    "sha256": "354288b28cbdeec1677f369d81c7a00f95cd12f2b81e0544853c11dbff923f42"
+  },
+  "panel": {
+    "path": "scripts/certified-staging-approved-panel/v9/panel.json",
+    "sha256": "df663fdb074237fe3188f9576dd4bb579e0ef9ad6844d02183682cf249eb1e13"
+  }
+}

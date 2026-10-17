@@ -34,7 +34,34 @@ export function sourceItemAndEventStatements(
   nowIso: string,
   condition?: StatementWriteCondition,
 ) {
+  if (
+    items.some((item) => item.source === "naver-board-11") ||
+    events.some(
+      (event) =>
+        event.sourceItem.source === "naver-board-11" ||
+        event.segment ||
+        event.eventType === "grant",
+    )
+  ) {
+    condition = {
+      sql: `(${condition?.sql ?? "1"}) AND EXISTS(SELECT 1 FROM schema_migrations WHERE version>=27)`,
+      bindings: condition?.bindings ?? [],
+    };
+  }
   const statements: D1PreparedStatement[] = [];
+  appendSourceItems(db, items, nowIso, condition, statements);
+  appendScheduleEvents(db, events, nowIso, condition, statements);
+  appendWatermarks(db, items, nowIso, condition, statements);
+  return statements;
+}
+
+function appendSourceItems(
+  db: D1Database,
+  items: readonly NormalizedSourceItem[],
+  nowIso: string,
+  condition: StatementWriteCondition | undefined,
+  statements: D1PreparedStatement[],
+) {
   for (const item of items) {
     statements.push(
       db
@@ -69,20 +96,29 @@ export function sourceItemAndEventStatements(
         ),
     );
   }
+}
+
+function appendScheduleEvents(
+  db: D1Database,
+  events: readonly ScheduleEvent[],
+  nowIso: string,
+  condition: StatementWriteCondition | undefined,
+  statements: D1PreparedStatement[],
+) {
   for (const event of events) {
     statements.push(
       db
         .prepare(
           `INSERT INTO schedule_events (
              event_id, event_type, source, source_item_id, starts_at, ends_at,
-             schedule_status, manual_review, reason, observed_at
-           ) ${insertValuesSql("?, ?, ?, ?, ?, ?, ?, ?, ?, ?", condition)}
+             schedule_status, manual_review, reason, observed_at${event.segment ? ", segment_json" : ""}
+           ) ${insertValuesSql(`?, ?, ?, ?, ?, ?, ?, ?, ?, ?${event.segment ? ", ?" : ""}`, condition)}
            ON CONFLICT(event_id) DO UPDATE SET
              starts_at = excluded.starts_at,
              ends_at = excluded.ends_at,
              schedule_status = excluded.schedule_status,
              manual_review = excluded.manual_review,
-             reason = excluded.reason`,
+             reason = excluded.reason${event.segment ? ", segment_json = excluded.segment_json" : ""}`,
         )
         .bind(
           event.eventId,
@@ -95,10 +131,20 @@ export function sourceItemAndEventStatements(
           event.manualReview ? 1 : 0,
           event.reason,
           nowIso,
+          ...(event.segment ? [JSON.stringify(event.segment)] : []),
           ...(condition?.bindings ?? []),
         ),
     );
   }
+}
+
+function appendWatermarks(
+  db: D1Database,
+  items: readonly NormalizedSourceItem[],
+  nowIso: string,
+  condition: StatementWriteCondition | undefined,
+  statements: D1PreparedStatement[],
+) {
   const latestBySource = new Map<NormalizedSourceItem["source"], NormalizedSourceItem>();
   for (const item of items) {
     const current = latestBySource.get(item.source);
@@ -136,14 +182,12 @@ export function sourceItemAndEventStatements(
         ),
     );
   }
-  return statements;
 }
 
 export async function loadScheduleEvents(db: D1Database): Promise<ScheduleEvent[]> {
   const result = await db
     .prepare(
-      `SELECT e.event_id, e.event_type, e.starts_at, e.ends_at, e.schedule_status,
-              e.manual_review, e.reason, s.source, s.item_id, s.url, s.title,
+      `SELECT e.*, s.source, s.item_id, s.url, s.title,
               s.excerpt, s.published_at, s.content_hash, s.structured, s.official
        FROM schedule_events e
        JOIN source_items s ON s.source = e.source AND s.item_id = e.source_item_id
@@ -200,6 +244,12 @@ export function candidateStatements(
   condition?: StatementWriteCondition,
 ) {
   const { candidate, payloadHash } = result;
+  if (candidate.certifiedSnapshot?.version === "certified-daily-v4") {
+    condition = {
+      sql: `EXISTS (SELECT 1 FROM schema_migrations WHERE version >= 27)${condition ? ` AND (${condition.sql})` : ""}`,
+      bindings: condition?.bindings ?? [],
+    };
+  }
   const targetState = candidate.sourceStatus;
   const statements = [
     db
@@ -520,7 +570,7 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
     return (
       !["pending", "processed", "ignored", "manual_review"].includes(row.status) ||
       row.attempts < 0 ||
-      !/^naver-board-(48|56)$/.test(row.source) ||
+      !/^naver-board-(11|48|56)$/.test(row.source) ||
       !/^\d{1,20}$/.test(row.item_id) ||
       !url ||
       url.protocol !== "https:" ||
@@ -530,11 +580,11 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
   }).length;
   const invalidCursors = cursors.results.filter(
     (row) =>
-      !/^naver-board-(48|56)$/.test(row.source) ||
+      !/^naver-board-(11|48|56)$/.test(row.source) ||
       row.next_offset < 0 ||
       !Number.isInteger(row.next_offset) ||
       ![5, 10].includes(row.page_size) ||
-      (row.source === "naver-board-56" && row.page_size !== 10) ||
+      (row.source !== "naver-board-48" && row.page_size !== 10) ||
       row.next_offset >= 30 / row.page_size ||
       (row.next_offset > 0 && (!row.scan_head_item_id || !row.scan_head_published_at)) ||
       (row.next_offset === 0 &&
@@ -594,9 +644,12 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
   const rotation = invocations.results.some((row) =>
     row.invocation_id.startsWith("rotation-board-"),
   );
+  const rotationV2 = invocations.results.some(
+    (row) => row.invocation_id.startsWith("rotation-board-") && row.invocation_id.endsWith(":v2"),
+  );
   const missingRotationBoard =
     rotation &&
-    [48, 56].some(
+    (rotationV2 ? [48, 56, 11] : [48, 56]).some(
       (board) =>
         !invocations.results.some((row) =>
           row.invocation_id.startsWith(`rotation-board-${board}:`),
@@ -604,7 +657,10 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
     );
   const passed =
     eligible &&
-    effective.length >= (rotation ? Math.floor((minimumScheduled * 2) / 3) : minimumScheduled) &&
+    effective.length >=
+      (rotation
+        ? Math.floor((minimumScheduled * (rotationV2 ? 3 : 2)) / (rotationV2 ? 4 : 3))
+        : minimumScheduled) &&
     !missingRotationBoard &&
     successRate >= minimumCompletionRate &&
     latest?.status === "completed" &&
@@ -725,6 +781,7 @@ export function nextNaverRetryAt(nowMs: number, consecutiveFailures: number) {
 }
 
 type ScheduleEventRow = {
+  segment_json?: string | null;
   event_id: string;
   event_type: ScheduleEvent["eventType"];
   starts_at: string | null;
@@ -765,5 +822,8 @@ function rowToScheduleEvent(row: ScheduleEventRow): ScheduleEvent {
     scheduleStatus: row.schedule_status,
     manualReview: row.manual_review === 1,
     reason: row.reason,
+    ...(row.segment_json
+      ? { segment: JSON.parse(row.segment_json) as ScheduleEvent["segment"] }
+      : {}),
   };
 }

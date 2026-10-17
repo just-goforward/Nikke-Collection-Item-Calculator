@@ -92,7 +92,7 @@ function certifiedAssetPaths() {
   ]);
 }
 
-const SESSION_KEY = "collection-certified-staging-v2:session";
+const SESSION_KEY = "collection-certified-staging-v3:session";
 const APP_WORDS = { ko: koMessages, en: enMessages, ja: jaMessages } as const;
 const LOCALE_LABELS = { ko: "한국어", en: "English", ja: "日本語" } as const;
 const en = enMessages;
@@ -107,14 +107,14 @@ async function selectLocale(page: Page, locale: Locale) {
 }
 async function openStaging(page: Page) {
   await page.goto("/?statsEnv=staging&engine=certified");
-  await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toBeVisible();
   await selectLocale(page, "en");
   await expect(page.locator("#calculateButton")).toBeEnabled();
 }
 async function reopen(page: Page) {
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toBeVisible();
 }
 function stockInput(page: Page, kit: KitName) {
   return page.locator(`#${kit}Stock`);
@@ -282,7 +282,7 @@ test("certified route renders inside the shared calculator shell", async ({ page
   await expect(page.locator("#calculatorWorkspace")).toBeHidden();
   await page.getByRole("tab", { name: en["top.calculator"] }).click();
   await expect(page.locator("#calculatorWorkspace")).toBeVisible();
-  await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toBeVisible();
 });
 
 test("malformed saved data blocks calculation and offers explicit reset recovery", async ({
@@ -424,7 +424,7 @@ for (const locale of ["en", "ja"] as const) {
     const appWords = APP_WORDS[locale];
     await page.goto(`/${locale}/?statsEnv=staging&engine=certified`);
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
-    await expect(page.locator("main[data-engine-profile='certified-staging-v2']")).toBeVisible();
+    await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toBeVisible();
     await expect(page.locator("h1")).toHaveText(appWords["app.title"]);
     const calculateButton = page.getByRole("button", {
       name: appWords["common.calculate"],

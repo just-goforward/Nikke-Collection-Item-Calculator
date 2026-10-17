@@ -1,4 +1,6 @@
-import { assert, describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
+import { build } from "esbuild";
+import { assert, beforeAll, describe, expect, it } from "vitest";
 import { cmp, fromWire, q, toWire } from "../../shared/certifiedRational";
 import {
   buildCertifiedSupplySnapshot,
@@ -9,10 +11,29 @@ import { eventOffset, futureEvents } from "./events";
 import { encode } from "./game";
 import { FiniteKernel } from "./kernel";
 import { nearBoundWitness } from "./nearBoundWitness";
-import { solveCertified } from "./solver";
 import type { CertifiedInput, CertifiedValue, Triple } from "./types";
 import { certifiedValueView } from "./views";
 import type { WaitingContext } from "./waitingContext";
+
+let solveCertified: typeof import("./solver").solveCertified;
+beforeAll(async () => {
+  // Measure the unchanged oracle without Vitest's per-module instrumentation.
+  // The same source-bundling route is used by the existing minimum-wait probe.
+  const bundled = await build({
+    entryPoints: [fileURLToPath(new URL("./solver.ts", import.meta.url))],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "node",
+    packages: "external",
+    logLevel: "silent",
+  });
+  const output = bundled.outputFiles[0];
+  if (!output) throw new Error("solver_test_bundle_missing");
+  ({ solveCertified } = await import(
+    `data:text/javascript;base64,${Buffer.from(output.contents).toString("base64")}`
+  ));
+});
 
 const AS_OF = "2026-09-30T03:00:00.000Z";
 function physicalInput(grade: "R" | "SR", blue: number): CertifiedInput {

@@ -10,7 +10,7 @@ export const NOTICE_TIMEOUT_MS = 10_000;
 // One reservation buys exactly one request. Retries belong to the durable queue,
 // not this transport; redirects must not spend unaccounted requests.
 export async function fetchNotice(
-  board: 48 | 56,
+  board: 11 | 48 | 56,
   itemId: string,
   fetcher: FetchLike = fetch,
   counts?: ProfileCounts,
@@ -77,7 +77,7 @@ export async function fetchNotice(
 // legacy file untouched; fixture tests compare both implementations byte-for-byte.
 export async function parseNoticeDetail(
   payload: unknown,
-  boardId: 48 | 56,
+  boardId: 11 | 48 | 56,
   expectedItemId: string,
 ) {
   if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_detail_schema_code");

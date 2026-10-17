@@ -2,7 +2,12 @@
 use super::*;
 
 pub(super) fn validate_laws(model: &Model) -> Result<()> {
-    if model.snapshot_version == "certified-daily-v3" {
+    let physical = match model.snapshot_version.as_str() {
+        "certified-daily-v1" | "certified-daily-v2" => false,
+        "certified-daily-v3" | "certified-daily-v4" => true,
+        _ => return Err("unsupported_snapshot_version"),
+    };
+    if physical {
         if model.laws.iter().any(|law| law.kind == "finite") {
             return Err("certified_v3_finite_law_forbidden");
         }
@@ -46,8 +51,13 @@ pub(super) fn validate_laws(model: &Model) -> Result<()> {
 }
 
 pub(super) fn population_prior_is_allowed(version: &str, population_prior: &[Q]) -> bool {
-    version != "certified-daily-v3"
-        || population_prior == [1, 2, 3, 1].map(|n| Q::new(n.into(), 7.into()))
+    match version {
+        "certified-daily-v1" | "certified-daily-v2" => true,
+        "certified-daily-v3" | "certified-daily-v4" => {
+            population_prior == [1, 2, 3, 1].map(|n| Q::new(n.into(), 7.into()))
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]

@@ -5,9 +5,18 @@ import {
 import { rotationBoard } from "./collection-schedule";
 
 export function rotationCanaryIdentityMatches(id: string, scheduledAt: string) {
-  const board = rotationBoard(Date.parse(scheduledAt));
+  const time = Date.parse(scheduledAt);
+  const version2 = id.endsWith(":v2");
+  const legacySlot = Math.floor(time / 180_000) % 3;
+  const board = version2
+    ? rotationBoard(time)
+    : legacySlot === 0
+      ? 48
+      : legacySlot === 1
+        ? 56
+        : null;
   const prefix = board === null ? "rotation-ingestion" : `rotation-board-${board}`;
-  return id === `${prefix}:${Date.parse(scheduledAt)}`;
+  return id === `${prefix}:${time}${version2 ? ":v2" : ""}`;
 }
 
 export const CANARY_WINDOW_MODE = "fixed_8_hours" as const;

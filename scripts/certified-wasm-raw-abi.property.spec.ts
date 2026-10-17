@@ -91,7 +91,9 @@ function echo(
     sid: 0,
     deadline: performance.now() + 60_000,
     model: {
-      snapshotVersion: supply.snapshotVersion,
+      snapshotVersion: Object.hasOwn(supply, "snapshotVersion")
+        ? supply.snapshotVersion
+        : "certified-daily-v2",
       events: [],
       laws: supply.laws ?? [],
       priors: [one, zero, zero, zero],
@@ -138,6 +140,11 @@ function agrees(numerator: string, denominator: string): boolean {
 }
 
 describe("v3 raw-ABI declared law allowlist", () => {
+  it("rejects an explicitly omitted snapshot version", () => {
+    expect(echo("35", "70", { snapshotVersion: undefined })).toEqual({
+      error: "invalid_wasm_request",
+    });
+  });
   it.each([
     { id: "unapproved-v3-law", kind: "box" },
     {
@@ -173,7 +180,7 @@ describe("v3 raw-ABI declared law allowlist", () => {
     expect(echo("35", "70", { snapshotVersion: "certified-daily-v3", laws })).toEqual({
       error: "certified_v3_law_not_allowlisted",
     });
-    for (const snapshotVersion of [undefined, "certified-daily-v1", "certified-daily-v2"]) {
+    for (const snapshotVersion of ["certified-daily-v1", "certified-daily-v2"]) {
       expect(echo("35", "70", { snapshotVersion, laws })).toEqual({ value: "1/2" });
     }
   });
@@ -206,7 +213,7 @@ describe("v3 raw-ABI declared law allowlist", () => {
     expect(echo("35", "70", { snapshotVersion: "certified-daily-v3", laws })).toEqual({
       error: "certified_v3_law_not_allowlisted",
     });
-    for (const snapshotVersion of [undefined, "certified-daily-v1", "certified-daily-v2"]) {
+    for (const snapshotVersion of ["certified-daily-v1", "certified-daily-v2"]) {
       expect(echo("35", "70", { snapshotVersion, laws })).toEqual({ value: "1/2" });
     }
   });
@@ -293,7 +300,7 @@ describe("v3 raw-ABI population prior contract", () => {
     expect(
       echo("35", "70", { snapshotVersion: "certified-daily-v3", laws, populationPrior }),
     ).toEqual({ error: "invalid_population_prior" });
-    for (const snapshotVersion of [undefined, "certified-daily-v1", "certified-daily-v2"]) {
+    for (const snapshotVersion of ["certified-daily-v1", "certified-daily-v2"]) {
       expect(echo("35", "70", { snapshotVersion, laws, populationPrior })).toEqual({
         value: "1/2",
       });

@@ -4,7 +4,7 @@ import { readBoundedJson } from "../shared/boundedHttp.ts";
 type RecoveryRequest = {
   mode: "recover-boundary";
   environment: "staging";
-  source: "naver-board-48" | "naver-board-56";
+  source: "naver-board-11" | "naver-board-48" | "naver-board-56";
   expectedCommittedItemId: string;
 };
 type RecoverySettings = { url: string; token: string; deploymentSha: string };
@@ -14,12 +14,13 @@ export function boundaryRecoveryRequest(
   expectedItemId: string,
 ): RecoveryRequest | null {
   if (source === "none" && expectedItemId === "") return null;
-  if (!["48", "56"].includes(source) || !/^[1-9]\d{0,19}$/.test(expectedItemId))
+  if (!["11", "48", "56"].includes(source) || !/^[1-9]\d{0,19}$/.test(expectedItemId))
     throw new Error("forecast_boundary_recovery_inputs_invalid");
   return {
     mode: "recover-boundary",
     environment: "staging",
-    source: source === "48" ? "naver-board-48" : "naver-board-56",
+    source:
+      source === "48" ? "naver-board-48" : source === "11" ? "naver-board-11" : "naver-board-56",
     expectedCommittedItemId: expectedItemId,
   };
 }

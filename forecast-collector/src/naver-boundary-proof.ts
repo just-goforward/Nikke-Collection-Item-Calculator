@@ -3,7 +3,7 @@ import type { NaverFeedMetadata, NaverSourceKind } from "./types";
 const NAVER_PAGE_SIZE = 10;
 
 // Scans cover 30 rows; recovery covers 40 (one adjacent page after a marker on the last scan page).
-export function naverPagePolicy(board: 48 | 56, configured?: string) {
+export function naverPagePolicy(board: 11 | 48 | 56, configured?: string) {
   const pageSize = board === 48 && configured === "5" ? 5 : 10;
   return { pageSize, scanPages: 30 / pageSize, recoveryPages: 40 / pageSize };
 }

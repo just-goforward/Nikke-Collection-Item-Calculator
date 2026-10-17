@@ -1,11 +1,10 @@
 import { z } from "zod/mini";
 import { assertForecastCandidateInvariants } from "../../shared/supplyForecastCandidate";
+import { board11InvocationGate, board11MetadataEligible } from "./board11-policy";
 import { rotationInvocationId } from "./collection-schedule";
 import { sha256Hex, stableJson } from "./crypto";
 import {
   candidateStatements,
-  loadScheduleEvents,
-  nextForecastRevision,
   sourceItemAndEventStatements,
   unapprovedCandidateCondition,
 } from "./db";
@@ -19,6 +18,7 @@ import {
 } from "./naver-boundary-proof";
 import { isConstructedNoticeCandidate } from "./notice-processing";
 import { type OpsEnvironment, upsertOpsAlertStatement } from "./ops";
+import type { PollStateRow, SourceQueueRow } from "./source-queue-rows";
 import {
   parseSourceQueueProcess,
   type SourceQueueProcessResult,
@@ -35,7 +35,7 @@ import type {
 } from "./types";
 
 const PAGE_STEP = 1;
-const sourceSchema = z.enum(["naver-board-48", "naver-board-56"]);
+const sourceSchema = z.enum(["naver-board-11", "naver-board-48", "naver-board-56"]);
 const boundaryRecoverySchema = z.object({
   mode: z.literal("recover-boundary"),
   environment: z.enum(["staging", "production"]),
@@ -63,12 +63,12 @@ type BoundaryHoldProof = {
 };
 
 export class NaverPartialSchemaError extends Error {
-  readonly boardId: 48 | 56;
+  readonly boardId: 11 | 48 | 56;
   readonly offset: number;
   readonly rejected: Awaited<ReturnType<typeof fetchNaverFeedMetadata>>["unknownRejected"];
 
   constructor(
-    boardId: 48 | 56,
+    boardId: 11 | 48 | 56,
     offset: number,
     rejected: Awaited<ReturnType<typeof fetchNaverFeedMetadata>>["unknownRejected"],
   ) {
@@ -100,12 +100,14 @@ export async function startInvocation(
   scheduledTime: number,
   pollMode: CollectorEnv["POLL_MODE"],
   invocationPrefix = "",
-  rotationBoard?: 48 | 56 | null,
+  rotationBoard?: 11 | 48 | 56 | null,
+  board11Allowed = board11InvocationGate(db),
 ) {
+  if (rotationBoard === 11 && !(await board11Allowed())) return null;
   const scheduledAt = new Date(scheduledTime).toISOString();
   const invocationId =
     rotationBoard === null
-      ? `rotation-ingestion:${scheduledTime}`
+      ? `rotation-ingestion:${scheduledTime}:v2`
       : rotationBoard
         ? rotationInvocationId(rotationBoard, scheduledTime)
         : `${invocationPrefix}${deploymentSha}:${scheduledTime}`;
@@ -138,7 +140,7 @@ export async function finishInvocation(
     .run();
 }
 
-export async function invocationCircuitState(db: D1Database, nowMs: number, board?: 48 | 56) {
+export async function invocationCircuitState(db: D1Database, nowMs: number, board?: 11 | 48 | 56) {
   const rows = await db
     .prepare(
       `SELECT status, next_retry_at, error_code FROM collector_invocations
@@ -176,16 +178,26 @@ export function sourcesForInvocation(mode: CollectorEnv["POLL_MODE"], scheduledT
 
 export async function pollNaverSource(
   db: D1Database,
-  boardId: 48 | 56,
+  boardId: 11 | 48 | 56,
   fetcher: FetchLike = fetch,
   environment: OpsEnvironment = "staging",
   counts?: { rowsPolled: number },
   configuredPageSize?: string,
+  board11Allowed = board11InvocationGate(db),
 ) {
+  if (boardId === 11 && !(await board11Allowed())) return null;
   const source = `naver-board-${boardId}` as NaverSourceKind;
   const state = await readPollState(db, source);
   if (await readBoundaryHold(db, boardId, environment)) {
-    return recoverMovedNaverBoundary(db, boardId, state, environment, fetcher, counts);
+    return recoverMovedNaverBoundary(
+      db,
+      boardId,
+      state,
+      environment,
+      fetcher,
+      counts,
+      board11Allowed,
+    );
   }
   const offset = Number(state?.next_offset ?? 0);
   const policy = naverPagePolicy(
@@ -305,8 +317,8 @@ export async function pollNaverSource(
   }
   const results = await db.batch(statements);
   if (results[cursorStatementIndex]?.meta.changes !== 1) return null;
-  if (boundaryMissing) throw new NaverScanBoundaryError(toQueue.length);
-  return toQueue.length;
+  if (boundaryMissing) throw new NaverScanBoundaryError(cursorStatementIndex);
+  return cursorStatementIndex;
 }
 
 export async function recoverNaverBoundary(
@@ -316,24 +328,18 @@ export async function recoverNaverBoundary(
   fetcher: FetchLike = fetch,
   movedIdentity?: Awaited<ReturnType<typeof fetchNaverItemIdentity>>,
   counts?: { rowsPolled: number },
+  board11Allowed = board11InvocationGate(db),
 ) {
   const request = boundaryRecoverySchema.parse(raw);
   if (request.environment !== environment) throw new Error("naver_boundary_environment_mismatch");
-  const boardId = request.source === "naver-board-48" ? 48 : 56;
+  const boardId =
+    request.source === "naver-board-48" ? 48 : request.source === "naver-board-11" ? 11 : 56;
+  if (boardId === 11 && !(await board11Allowed())) throw new Error("board11_schema_required");
   const state = await readPollState(db, request.source);
   const hold = await readBoundaryHold(db, boardId, environment);
   if (!state || !hold) throw new Error("naver_boundary_not_held");
   const proof = JSON.parse(hold.context_json) as BoundaryHoldProof;
-  if ((proof.pageSize ?? 10) !== state.page_size) {
-    throw new Error("naver_boundary_marker_conflict");
-  }
-  if (
-    state.committed_item_id !== request.expectedCommittedItemId ||
-    proof.committedItemId !== request.expectedCommittedItemId ||
-    proof.board !== boardId
-  ) {
-    throw new Error("naver_boundary_marker_conflict");
-  }
+  assertRecoveryMarker(state, proof, request.expectedCommittedItemId, boardId);
   if (!movedIdentity) assertRecoverySnapshotProof(state, proof);
   const items = await readBoundaryRecoveryPages(
     db,
@@ -426,9 +432,27 @@ function assertRecoverySnapshotProof(state: PollStateRow, proof: BoundaryHoldPro
     throw new Error("naver_boundary_marker_conflict");
 }
 
+function assertRecoveryMarker(
+  state: PollStateRow,
+  proof: BoundaryHoldProof,
+  expectedCommittedItemId: string,
+  boardId: number,
+) {
+  if ((proof.pageSize ?? 10) !== state.page_size) {
+    throw new Error("naver_boundary_marker_conflict");
+  }
+  if (
+    state.committed_item_id !== expectedCommittedItemId ||
+    proof.committedItemId !== expectedCommittedItemId ||
+    proof.board !== boardId
+  ) {
+    throw new Error("naver_boundary_marker_conflict");
+  }
+}
+
 async function readBoundaryRecoveryPages(
   db: D1Database,
-  boardId: 48 | 56,
+  boardId: 11 | 48 | 56,
   state: PollStateRow,
   fetcher: FetchLike,
   moved: boolean,
@@ -498,11 +522,12 @@ function recoveryPageLimit(moved: boolean, pageSize: number) {
 
 async function recoverMovedNaverBoundary(
   db: D1Database,
-  boardId: 48 | 56,
+  boardId: 11 | 48 | 56,
   state: PollStateRow | null,
   environment: OpsEnvironment,
   fetcher: FetchLike,
   counts?: { rowsPolled: number },
+  board11Allowed = board11InvocationGate(db),
 ) {
   if (
     !state?.committed_item_id ||
@@ -533,6 +558,7 @@ async function recoverMovedNaverBoundary(
       fetcher,
       identity,
       counts,
+      board11Allowed,
     );
     return recovered.queuedItems;
   } catch (error) {
@@ -574,7 +600,7 @@ function boundaryRecoveryItems(
   items: readonly NaverFeedMetadata[],
   state: PollStateRow,
   expectedItemId: string,
-  boardId: 48 | 56,
+  boardId: 11 | 48 | 56,
   proof: BoundaryHoldProof,
   movedIdentity?: Awaited<ReturnType<typeof fetchNaverItemIdentity>>,
 ) {
@@ -626,15 +652,6 @@ export async function listSourceQueue(db: D1Database, limit: number) {
   return rows.results.map(rowToQueueItem);
 }
 
-export async function readScheduleLedger(db: D1Database, nowMs: number) {
-  const gameDay = gameDayKey(nowMs);
-  return {
-    gameDay,
-    nextRevision: await nextForecastRevision(db, gameDay),
-    events: await loadScheduleEvents(db),
-  };
-}
-
 export async function processSourceQueue(
   db: D1Database,
   raw: unknown,
@@ -642,8 +659,14 @@ export async function processSourceQueue(
     before?: D1PreparedStatement[];
     after?: D1PreparedStatement[];
   } = {},
+  board11Allowed = board11InvocationGate(db),
 ) {
   const request = parseSourceQueueProcess(raw);
+  if (
+    request.results.some((result) => result.source === "naver-board-11") &&
+    !(await board11Allowed())
+  )
+    throw new Error("board11_schema_required");
   const nowIso = new Date().toISOString();
   const statements: D1PreparedStatement[] = [];
   for (const result of request.results) {
@@ -685,7 +708,8 @@ export async function processSourceQueue(
     if (expectedRevision !== request.candidate.revision)
       throw new Error("candidate_revision_conflict");
     const { envelope, eventId, gameDay, revision } = request.candidate;
-    if (!isConstructedNoticeCandidate(request.candidate)) {
+    const constructed = isConstructedNoticeCandidate(request.candidate);
+    if (!constructed) {
       assertForecastCandidateInvariants(envelope.candidate);
     }
     if (!envelope.candidate.forecastId.startsWith(`supply-${gameDay}-v`)) {
@@ -699,7 +723,12 @@ export async function processSourceQueue(
         throw new Error("candidate_source_url_allowlist");
       }
     }
-    if ((await sha256Hex(stableJson(envelope.candidate))) !== envelope.payloadHash) {
+    // The local constructor hashes these exact bytes before deep-freezing the
+    // envelope. Serialized admission never carries its object-identity proof.
+    if (
+      !constructed &&
+      (await sha256Hex(stableJson(envelope.candidate))) !== envelope.payloadHash
+    ) {
       throw new Error("candidate_payload_hash");
     }
     const eventKnown =
@@ -747,7 +776,11 @@ function queueStatements(
   nowIso: string,
   guard?: { sql: string; bindings: (string | number | null)[] },
 ) {
-  return items.map((item) =>
+  const eligible = items.filter(
+    (item) =>
+      item.source !== "naver-board-11" || board11MetadataEligible(item.title, item.official),
+  );
+  return eligible.map((item) =>
     db
       .prepare(
         `INSERT INTO source_queue (
@@ -831,11 +864,11 @@ function readPollState(db: D1Database, source: NaverSourceKind) {
     .first<PollStateRow>();
 }
 
-function boundaryHoldKey(boardId: 48 | 56, environment: OpsEnvironment) {
+function boundaryHoldKey(boardId: 11 | 48 | 56, environment: OpsEnvironment) {
   return `naver-boundary:${environment}:${boardId}`;
 }
 
-function readBoundaryHold(db: D1Database, boardId: 48 | 56, environment: OpsEnvironment) {
+function readBoundaryHold(db: D1Database, boardId: 11 | 48 | 56, environment: OpsEnvironment) {
   return db
     .prepare(
       `SELECT context_json FROM forecast_ops_alerts
@@ -863,29 +896,3 @@ function sanitizeErrorCode(value: string | undefined) {
   if (!value) return null;
   return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "unknown";
 }
-
-function gameDayKey(nowMs: number) {
-  return new Date(nowMs + 4 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
-type PollStateRow = {
-  page_size: number;
-  committed_item_id: string | null;
-  committed_published_at: string | null;
-  scan_head_item_id: string | null;
-  scan_head_published_at: string | null;
-  next_offset: number;
-  updated_at: string;
-};
-
-type SourceQueueRow = {
-  source: NaverSourceKind;
-  item_id: string;
-  url: string;
-  title: string;
-  published_at: string;
-  official: number;
-  status: SourceQueueItem["status"];
-  attempts: number;
-  error_code: string | null;
-};

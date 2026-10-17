@@ -9,7 +9,7 @@ import {
   CERTIFIED_SESSION_STORAGE_KEY,
   type CertifiedSession,
   createCertifiedSession,
-  LEGACY_CERTIFIED_SESSION_STORAGE_KEY,
+  readStoredCertifiedSession,
   restoreCertifiedSession,
 } from "./session";
 
@@ -47,9 +47,7 @@ export function initialBridge(): CertifiedBridgeState {
     createCertifiedSession("initial", { grade: "R", level: 0, exp: 0 }, [0, 0, 0]);
   let storedText: string | null = null;
   try {
-    storedText =
-      localStorage.getItem(CERTIFIED_SESSION_STORAGE_KEY) ??
-      localStorage.getItem(LEGACY_CERTIFIED_SESSION_STORAGE_KEY);
+    storedText = readStoredCertifiedSession(localStorage);
     // Live storage has no authenticated original snapshot: non-point legacy
     // mixtures reset with a notice; fixed selections are preserved, not replayed.
     const restored = restoreCertifiedCalculatorSession(storedText);

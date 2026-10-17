@@ -1,12 +1,13 @@
 import { CERTIFIED_RECOMMENDED_HORIZON_DAYS } from "./certifiedHorizon";
+import { CURRENT_CERTIFIED_SNAPSHOT_VERSION } from "./certifiedVersionPolicy";
 import { CERTIFIED_ENGINE_CODE_HASH } from "./generated/certifiedEngineBuild";
 import { CERTIFIED_WASM_HASH } from "./generated/certifiedWasmBuild";
 
 /** A single, serialized contract identifies every part of the staging engine. */
 export type CertifiedEngineProfile = {
-  id: "certified-staging-v2";
+  id: "certified-staging-v3";
   environment: "staging";
-  schemaVersion: "certified-daily-v3";
+  schemaVersion: typeof CURRENT_CERTIFIED_SNAPSHOT_VERSION;
   recommendedHorizonDays: 14;
   priceVersion: "stock-plus-recurring-day-v1";
   solverVersion: "certified-exact-rust-wasm-v1";
@@ -14,23 +15,23 @@ export type CertifiedEngineProfile = {
   wasmHash: string;
   codeHash: string;
   cacheNamespace: string;
-  sessionNamespace: "collection-certified-staging-v2";
+  sessionNamespace: "collection-certified-staging-v3";
   diagnosticsEnvironment: "staging";
   recoveryEnvironment: "staging";
 };
 
 export const CERTIFIED_STAGING_ENGINE_PROFILE: Readonly<CertifiedEngineProfile> = Object.freeze({
-  id: "certified-staging-v2",
+  id: "certified-staging-v3",
   environment: "staging",
-  schemaVersion: "certified-daily-v3",
+  schemaVersion: CURRENT_CERTIFIED_SNAPSHOT_VERSION,
   recommendedHorizonDays: CERTIFIED_RECOMMENDED_HORIZON_DAYS,
   priceVersion: "stock-plus-recurring-day-v1",
   solverVersion: "certified-exact-rust-wasm-v1",
   lawVersion: "documented-physical-supply-v2",
   wasmHash: CERTIFIED_WASM_HASH,
   codeHash: CERTIFIED_ENGINE_CODE_HASH,
-  cacheNamespace: `certified-staging-v2:${CERTIFIED_ENGINE_CODE_HASH}`,
-  sessionNamespace: "collection-certified-staging-v2",
+  cacheNamespace: `certified-staging-v3:${CERTIFIED_ENGINE_CODE_HASH}`,
+  sessionNamespace: "collection-certified-staging-v3",
   diagnosticsEnvironment: "staging",
   recoveryEnvironment: "staging",
 });

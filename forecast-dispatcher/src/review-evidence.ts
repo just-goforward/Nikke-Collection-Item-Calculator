@@ -16,6 +16,38 @@ const MAINTENANCE_ACTION =
 const UNSUPPORTED_ACTION =
   "재오픈/중단은 아직 자동 반영하지 않습니다. 공지 내용(기간·중단 시각)을 확인한 뒤, 예보에 반영할 필요가 없으면 [관련 없음], 공지가 수정됐으면 [재처리]를 누르세요.";
 const GUIDANCE: Record<string, [string, string]> = {
+  suspension_without_known_season: [
+    "중단 안내에 대응하는 기존 시즌을 찾지 못했습니다.",
+    "공지의 중단 시각과 대상 시즌을 확인하세요. 공지가 수정됐으면 [재처리], 반영 불필요면 [관련 없음].",
+  ],
+  reopen_without_suspension: [
+    "재오픈 안내에 대응하는 중단 구간을 찾지 못했습니다.",
+    "재오픈 대상 시즌과 기간 확인 후 공지가 수정됐으면 [재처리], 반영 불필요면 [관련 없음].",
+  ],
+  compensation_grant_date_missing: [
+    "보상 지급일을 확인하지 못했습니다.",
+    "보상 지급일 확인 후 [일정 직접 확정]으로 지급일·수량 입력, 반영 불필요면 [관련 없음].",
+  ],
+  compensation_grant_date_ambiguous: [
+    "연도 없이 적힌 보상 지급일이 공지 게시일보다 앞서 연도를 확정하지 못했습니다.",
+    "지급일의 연도(올해/내년, 지난 보상 재안내 여부)를 확인하세요. 새 지급이면 [일정 직접 확정]으로 지급일·수량 입력, 지난 보상 재안내·반영 불필요면 [관련 없음].",
+  ],
+  compensation_claim_deadline_ambiguous: [
+    "보상 수령 기한을 확정하지 못했습니다.",
+    "공지의 수령 기한(연도 포함)을 확인한 뒤 [일정 직접 확정]으로 지급일·수량 입력, 반영 불필요면 [관련 없음].",
+  ],
+  compensation_quantity_conflict: [
+    "보상 수량이 서로 충돌하여 지급 수량을 확정하지 못했습니다.",
+    "공지의 관리 키트 상자 II/상자 수량을 대조한 뒤 [일정 직접 확정]으로 지급일·수량 입력, 반영 불필요면 [관련 없음].",
+  ],
+  compensation_restatement_ambiguous: [
+    "같은 보상의 재안내인지 추가 지급인지 구분하지 못했습니다.",
+    "같은 보상의 재안내인지 확인하세요. 중복 안내면 [관련 없음], 별도 지급이면 [일정 직접 확정]으로 지급일·수량 입력.",
+  ],
+  grant_same_date_blocks_changed: [
+    "같은 날 보상 항목이 바뀌어 중복 지급 여부를 확인해야 합니다.",
+    "각 보상 수량을 확인하고 기존 보상과 변경된 블록을 대조하세요. [일정 직접 확정]으로 지급일·수량 입력, 중복·반영 불필요면 [관련 없음].",
+  ],
   ambiguous_schedule_change: [
     "공지의 기간이 기존 일정의 반복 안내인지 실제 변경인지 구분하지 못했습니다.",
     "위 기간이 맞고 솔로 레이드 중단·연장·재개 내용이 없다면 → [관련 없음]; 일정이 바뀌었다면 → [일정 직접 확정]",
@@ -60,6 +92,7 @@ const GUIDANCE: Record<string, [string, string]> = {
 
 export function truncateReview(value: string, limit: number) {
   const suffix = "…(생략)";
+  if (limit < suffix.length) return value.slice(0, limit);
   return value.length <= limit ? value : value.slice(0, limit - suffix.length) + suffix;
 }
 
@@ -89,7 +122,84 @@ type Schedule = {
   endsAt?: string | null;
   startKst?: string;
   endKst?: string;
+  segments?: Segment[];
 };
+
+type Segment = {
+  segment: string | number;
+  kind: string;
+  startKst: string;
+  endKst: string;
+  rewardDays: string[];
+};
+
+type Comparison = {
+  known: Schedule | null;
+  extracted: Schedule | null;
+  equal: boolean;
+  segments?: Segment[];
+  grant?: {
+    grantGameDate: string;
+    kits: { law: string; count: number }[];
+    claimUntilKst: string | null;
+    claimWindowAssumed: boolean;
+  };
+  blocking?: boolean;
+};
+
+function segmentsText(segments: Segment[]) {
+  return segments.length
+    ? segments
+        .map(
+          (segment) =>
+            `${escapeReviewText(String(segment.segment))} (${escapeReviewText(segment.kind)}): ${scheduleText(segment)}`,
+        )
+        .join("\n")
+    : "없음";
+}
+
+function comparisonText(comparison: Comparison) {
+  const lines: string[] = [];
+  if (typeof comparison.blocking === "boolean") {
+    lines.push(`게시 차단 여부: ${comparison.blocking ? "차단" : "차단 안 함"}`);
+  }
+  if (comparison.grant) {
+    const grant = comparison.grant;
+    lines.push(
+      `지급일: ${escapeReviewText(grant.grantGameDate)}`,
+      ...grant.kits.map((kit) => {
+        const name =
+          kit.law === "box-ii-v1"
+            ? "관리 키트 상자 II"
+            : kit.law === "regular-box-v1"
+              ? "관리 키트 상자"
+              : escapeReviewText(kit.law);
+        return `${name}: ${kit.count}개`;
+      }),
+      grant.claimWindowAssumed
+        ? "기한 미기재: 당일만 반영(보수적)"
+        : `수령 기한: ${escapeReviewText(grant.claimUntilKst ?? "확인 필요")}`,
+    );
+  }
+  if (comparison.segments) {
+    const known = comparison.known?.segments ?? [];
+    const before = new Set(known.flatMap((segment) => segment.rewardDays));
+    const after = new Set(comparison.segments.flatMap((segment) => segment.rewardDays));
+    lines.push(
+      "기존 구간 → 제안 구간",
+      `기존 구간: ${segmentsText(known)}`,
+      `제안 구간: ${segmentsText(comparison.segments)}`,
+      `보상 날짜 추가: ${escapeReviewText([...after].filter((day) => !before.has(day)).join(", ")) || "없음"}`,
+      `보상 날짜 제거: ${escapeReviewText([...before].filter((day) => !after.has(day)).join(", ")) || "없음"}`,
+    );
+  }
+  if (!comparison.segments && !comparison.grant) {
+    lines.push(
+      `기존: ${scheduleText(comparison.known)}\n추출: ${scheduleText(comparison.extracted)}\n${!comparison.known ? "기존 일정 없음" : comparison.equal ? "✅ 같음" : "⚠️ 다름"}`,
+    );
+  }
+  return lines.join("\n");
+}
 
 function quoteText(text: string) {
   return text
@@ -119,24 +229,24 @@ export function reviewEvidenceFields(rows: ReviewEvidence[]) {
       "원문의 레이드 기간과 변경 여부를 확인하세요. 무관하면 → [관련 없음]; 일정 변경이면 → [일정 직접 확정]",
     ];
     const triggers = JSON.parse(row.triggers_json) as string[];
-    const comparison = JSON.parse(row.comparison_json) as {
-      known: Schedule | null;
-      extracted: Schedule | null;
-      equal: boolean;
-    };
+    const comparison = JSON.parse(row.comparison_json) as Comparison;
     const quotes = [...triggers.slice(0, 5), row.block_excerpt].map(quoteText).join("\n");
     const values: [string, string, number][] = [
       ["🤖 확인하려던 것", escapeReviewText(row.question), 140],
       ["❓ 막힌 이유", `${reason}${knownCode ? `\n-# 사유 코드: \`${code}\`` : ""}`, 200],
       ["🔎 근거 인용", quotes, 500],
-      [
-        "📅 기존 일정 비교",
-        `기존: ${scheduleText(comparison.known)}\n추출: ${scheduleText(comparison.extracted)}\n${!comparison.known ? "기존 일정 없음" : comparison.equal ? "✅ 같음" : "⚠️ 다름"}`,
-        260,
-      ],
+      ["📅 기존 일정 비교", comparisonText(comparison), 900],
       ["✅ 해야 할 일", action, 260],
     ];
+    // Reserve action and comparison before lower-priority evidence.
     // <=4080 values + 675 names + 400 description + 250 footer + title: <5500.
+    let remaining = 1360;
+    for (const index of [4, 3, 1, 0, 2]) {
+      const entry = values[index];
+      if (!entry) continue;
+      entry[1] = truncateReview(entry[1], Math.max(5, Math.min(entry[2], remaining - 20)));
+      remaining -= Math.max(5, entry[1].length);
+    }
     return values.map(([name, value, limit]) => ({
       name: truncateReview(`${name} · ${row.block_index + 1}`, 45),
       value: truncateReview(value, limit) || "확인 필요",

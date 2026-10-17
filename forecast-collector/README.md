@@ -12,8 +12,11 @@ Solo notices are judged per top-level numbered solo section; sub-numbering remai
 inside its section. Struck text is evidence, not an effective schedule. Dedicated
 solo notices apply the same suspension/reopen/change safeguards. Known confirmed
 seasons compare by start game date and equivalent 04:59 end minute; unchanged
-notices do not publish a replacement candidate. Any manual-review section still
-blocks the entire post and the existing publication gates remain fail closed.
+notices do not publish a replacement candidate. Manual-review sections block
+publication unless a typed, context-bound exclusion is still valid at the publication gate.
+Pending sources always block. Schema 27 admits official board-11 suspension,
+reopen, and compensation titles; other board-11 titles are never queued or fetched.
+Kit grants have persistent identities and append-only revisions/restatement evidence.
 Maintenance-relative starts use same-post maintenance first, then stored board-48
 notice revisions without fetching another post. This is arrival-order dependent:
 posts held as `maintenance_missing` remain held until a human requests 재처리.
@@ -24,18 +27,20 @@ used by the manual review generation binding.
 ### Rotation schedule
 
 Staging uses `COLLECTION_SCHEDULE=rotation`; production remains `combined`.
-The unchanged three-minute cron rotates by `floor(scheduledTime / 180000) % 3`:
-board 48, board 56, then runtime ingestion. Each board is polled every nine
-minutes (normal scheduling latency ≤9 minutes, excluding outages and catch-up).
+The unchanged three-minute cron rotates by `floor(scheduledTime / 180000) % 4`:
+board 48, board 56, board 11, then runtime ingestion. Each board is polled every twelve
+minutes (normal scheduling latency ≤12 minutes, excluding outages and catch-up).
+New invocation identities carry `:v2`; historical unversioned identities retain
+their three-slot interpretation in canary evidence.
 Board 48 uses `NAVER_BOARD48_PAGE_SIZE="5"` in staging and `"10"` in production;
-other values fall back to ten. Board 56 stays at ten. Cursor catch-up remains enabled.
+other values fall back to ten. Boards 56 and 11 stay at ten. Cursor catch-up remains enabled.
 Five-row scans allow six pages (eight for recovery), preserving 30/40-row coverage.
 Moved-marker recovery reads ten rows across two pages. Migration 0025 records the
 page size in cursors and held alert snapshots. In-progress scans and holds retain
 their recorded size; configuration changes, including rollback to ten, take effect
 only at a clean scan boundary. The version-21 bootstrap remains unchanged.
-Row coverage is preserved, not catch-up time: at the nine-minute rotation cadence
-six five-row polls span about 54 minutes versus about 27 for three ten-row polls
+Row coverage is preserved, not catch-up time: at the twelve-minute rotation cadence
+six five-row polls span about 72 minutes versus about 36 for three ten-row polls
 (including the initial wait, excluding outages), so a moving feed can shift farther
 during catch-up. Board 48 averages about 0.18 posts per day, so multi-page catch-up
 is rare.
@@ -45,20 +50,21 @@ rows. First set `NAVER_BOARD48_PAGE_SIZE="10"`, wait until the board-48 row in
 `source_poll_state` is clean (`next_offset = 0`, `scan_head_item_id IS NULL`,
 `page_size = 10`), then deploy the older code. Roll out to a new environment by
 deploying with `"10"` first and switching to `"5"` afterwards.
-Ingestion requires both latest rotation attempts to have completed within ten
-minutes (nine minutes plus one minute scheduling margin), and consumes that
-pair atomically with its lease. Disabled ingestion logs without processing.
+Ingestion requires all three latest rotation attempts to have completed within thirteen
+minutes (twelve minutes plus one minute scheduling margin), and consumes those
+polls atomically with its lease. Disabled ingestion logs without processing.
+Detail reservations share one budget: pending solo board-56 notices, then board 48,
+then board 11; board-11 items pending longer than 24 hours take the next slot.
+Ignored board-11 items do not receive daily body rechecks.
 Staging profiling overrides rotation. Roll back with
 `COLLECTION_SCHEDULE=combined`; no cursor migration is needed.
 
-End-to-end post-to-ingestion latency can be up to approximately 15 minutes:
-up to nine minutes to the board poll, then up to six minutes to ingestion.
-At the nine-minute board cadence, the per-board circuit trips after the fourth
-consecutive failure: the third failure's six-minute backoff expires before the
-next poll. Existing thresholds and backoff remain unchanged.
+Excluding detail-budget waits, outages and catch-up, post-to-ingestion latency can
+be up to approximately 21 minutes: twelve minutes to the board poll plus nine
+minutes to ingestion. Existing circuit thresholds and backoff remain unchanged.
 During combined↔rotation propagation, combined invocations still ingest under
 the old completed-collection gate. Cursor and ingestion leases keep this safe;
-a rotation pair may already have been consumed, or a cycle may be skipped.
+rotation polls may already have been consumed, or a cycle may be skipped.
 
 Rotation ingestion slots persist `rotation-ingestion:<scheduledTime>` rows,
 including disabled or admission-skipped slots. These rows certify scheduled

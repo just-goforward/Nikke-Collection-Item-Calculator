@@ -7,7 +7,7 @@ const stats = readFileSync(".github/workflows/worker-deploy.yml", "utf8");
 const budget = readFileSync(".github/workflows/forecast-d1-budget-watch.yml", "utf8");
 
 function job(source: string, name: string) {
-  const value = source.split(`\n  ${name}:\n`)[1]?.split(/\n  [\w-]+:\n/)[0];
+  const value = source.split(`\n  ${name}:\n`)[1]?.split(/\n {2}[\w-]+:\n/)[0];
   if (!value) throw new Error(`Missing job: ${name}`);
   return value;
 }
