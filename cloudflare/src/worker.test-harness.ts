@@ -168,9 +168,12 @@ export class WorkerTestHarness {
           success: true,
           ...(this.#submittedEventKind ? { action: this.#submittedEventKind } : {}),
         };
-        return new Response(JSON.stringify(outcome?.body ?? defaultBody), {
-          status: outcome?.status || 200,
-        });
+        return new Response(
+          JSON.stringify({ hostname: "test.example", ...(outcome?.body ?? defaultBody) }),
+          {
+            status: outcome?.status || 200,
+          },
+        );
       }),
     );
   }
@@ -228,6 +231,8 @@ export class WorkerTestHarness {
       DB: db,
       USAGE_GUARD_DB: this.env.USAGE_GUARD_DB ?? db,
       EVENT_RATE_LIMITER: this.env.EVENT_RATE_LIMITER ?? env.EVENT_RATE_LIMITER,
+      READ_RATE_LIMITER: this.env.READ_RATE_LIMITER ?? { limit: async () => ({ success: true }) },
+      TURNSTILE_ALLOWED_HOSTNAMES: this.env.TURNSTILE_ALLOWED_HOSTNAMES ?? "test.example",
       ALLOWED_ORIGINS: this.env.ALLOWED_ORIGINS ?? "",
       DEPLOYMENT_SHA: this.env.DEPLOYMENT_SHA ?? "test",
       ADMIN_TOKEN: this.env.ADMIN_TOKEN ?? "",

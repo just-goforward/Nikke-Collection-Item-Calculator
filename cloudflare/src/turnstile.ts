@@ -9,11 +9,13 @@ type TurnstileEventKind =
 
 type TurnstileEnv = {
   TURNSTILE_SECRET_KEY?: string;
+  TURNSTILE_ALLOWED_HOSTNAMES?: string;
 };
 
 type SiteverifyResult = {
   success?: boolean;
   action?: string;
+  hostname?: string;
   "error-codes"?: string[];
 };
 
@@ -33,17 +35,26 @@ class SiteverifyTransportError extends Error {
   }
 }
 
+function validateVerificationInput(env: TurnstileEnv, token: string) {
+  if (!env.TURNSTILE_SECRET_KEY) throw new HttpError(500, "turnstile_not_configured");
+  const hostnames = (env.TURNSTILE_ALLOWED_HOSTNAMES || "")
+    .split(",")
+    .map((host) => host.trim())
+    .filter(Boolean);
+  if (!hostnames.length) throw new HttpError(500, "turnstile_hostnames_not_configured");
+  if (typeof token !== "string" || token.length < 20 || token.length > 2048) {
+    throw new HttpError(403, "turnstile_token_required", false);
+  }
+  return hostnames;
+}
+
 export async function verifyTurnstile(
   request: Request,
   env: TurnstileEnv,
   token: string,
   eventKind: TurnstileEventKind,
 ) {
-  if (!env.TURNSTILE_SECRET_KEY) throw new HttpError(500, "turnstile_not_configured");
-  if (typeof token !== "string" || token.length < 20 || token.length > 2048) {
-    throw new HttpError(403, "turnstile_token_required", false);
-  }
-
+  const hostnames = validateVerificationInput(env, token);
   const idempotencyKey = crypto.randomUUID();
   let internallyRetried = false;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -68,6 +79,14 @@ export async function verifyTurnstile(
           internallyRetried,
         });
         throw new HttpError(403, "turnstile_action_mismatch", false);
+      }
+      if (!result.hostname || !hostnames.includes(result.hostname)) {
+        logWarn("turnstile_hostname_mismatch", {
+          eventKind,
+          returnedHostname: result.hostname ?? null,
+          internallyRetried,
+        });
+        throw new HttpError(403, "turnstile_hostname_mismatch", false);
       }
       return;
     }

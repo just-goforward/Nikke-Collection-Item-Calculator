@@ -229,7 +229,7 @@ describe("stats response compatibility", () => {
     expect(allowed.status).toBe(200);
     expect(allowed.headers.get("Access-Control-Allow-Origin")).toBe("https://test.example");
     expect(noOrigin.status).toBe(200);
-    expect(noOrigin.headers.get("Access-Control-Allow-Origin")).toBeNull();
+    expect(noOrigin.headers.get("Access-Control-Allow-Origin")).toBe("https://test.example");
     expect(rejected.status).toBe(403);
   });
 

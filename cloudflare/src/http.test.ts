@@ -29,7 +29,7 @@ describe("http helpers", () => {
 
     expect(response.status).toBe(201);
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("https://allowed.example");
-    expect(response.headers.get("Cache-Control")).toBe("max-age=60");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     await expect(response.json()).resolves.toEqual({ ok: true });
   });

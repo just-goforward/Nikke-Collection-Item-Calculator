@@ -4,6 +4,7 @@ import {
   SOLVER_RECOVERY_SOLVER_VERSIONS,
   SOLVER_RECOVERY_VERSIONS,
 } from "../../shared/solverRecoveryContract";
+import { trustedClientIp } from "./client-ip";
 import type { WorkerEnv } from "./env";
 import { commitSubmission, commitSubmissionRejection } from "./event-commit";
 import { validatePayload } from "./event-validation";
@@ -172,8 +173,7 @@ function assertEventRequest(request: Request, env: WorkerEnv) {
 }
 
 async function nativeRateLimit(request: Request, env: WorkerEnv) {
-  const ip =
-    request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "unknown";
+  const ip = trustedClientIp(request);
   const result = await env.EVENT_RATE_LIMITER.limit({ key: ip });
   if (!result.success) throw new HttpError(429, "rate_limited", false);
 }

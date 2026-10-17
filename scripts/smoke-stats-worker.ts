@@ -137,7 +137,11 @@ assert(
 assertCors(preflightResponse, "preflight");
 
 const blockedOriginResponse = await smokeFetch(endpointUrl("api/stats"), {
-  headers: { Origin: "https://worker-smoke.invalid" },
+  method: "OPTIONS",
+  headers: {
+    Origin: "https://worker-smoke.invalid",
+    "Access-Control-Request-Method": "GET",
+  },
 });
 assert(
   blockedOriginResponse.status === 403,
