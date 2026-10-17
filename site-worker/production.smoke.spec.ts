@@ -140,8 +140,13 @@ test("production build metadata is not publicly served", async ({ request }) => 
 test("unbound production gateway never falls back to HTML and keeps health unavailable", async ({
   request,
 }) => {
+  // /api/stats is bound to STATS in production; locally the service is absent, but the gateway
+  // must still answer from the Worker (never the HTML shell) and never cache the failure.
+  const stats = await request.get("/api/stats");
+  expect(stats.status()).toBeGreaterThanOrEqual(500);
+  expect(stats.headers()["content-type"] ?? "").not.toContain("text/html");
+  expect(await stats.text()).not.toContain("<html");
   for (const [path, status, error] of [
-    ["/api/stats", 503, "service_not_configured"],
     ["/api/auth/session", 503, "service_not_configured"],
     ["/v1/account", 503, "service_not_configured"],
     ["/auth/callback/google", 503, "service_not_configured"],
