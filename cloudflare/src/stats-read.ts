@@ -1,4 +1,5 @@
 import { GREAT_SUCCESS, type Grade, KIT_ORDER, type Kit } from "../../shared/game";
+import { trustedClientIp } from "./client-ip";
 import {
   CURRENT_STATISTICS_DATE_BASIS,
   kstGameDateKeyFromUnixSeconds,
@@ -26,7 +27,10 @@ type SegmentGroup = NonNullable<ReturnType<typeof segmentForState>> & {
 };
 
 export async function handleStats(request: Request, env: StatsReadEnv) {
+  if (new URL(request.url).href.includes("?")) throw new HttpError(400, "unexpected_query");
   if (!isAllowedOrigin(request, env)) throw new HttpError(403, "origin_not_allowed");
+  const limit = await env.READ_RATE_LIMITER.limit({ key: trustedClientIp(request) });
+  if (!limit.success) throw new HttpError(429, "rate_limited", false);
   if (!env.DB) throw new HttpError(500, "database_not_configured");
   await assertQuotaAllows(env, "statistics_read");
   const now = Math.floor(Date.now() / 1000);

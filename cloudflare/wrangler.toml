@@ -3,6 +3,9 @@ main = "src/worker.ts"
 compatibility_date = "2026-08-09"
 upload_source_maps = false
 
+[cache]
+enabled = true
+
 [limits]
 cpu_ms = 10
 
@@ -31,7 +34,13 @@ simple = { limit = 120, period = 60 }
 
 [vars]
 ALLOWED_ORIGINS = "https://nikkecollection.com"
+TURNSTILE_ALLOWED_HOSTNAMES = "nikkecollection.com,www.nikkecollection.com"
 DEPLOYMENT_SHA = "local"
+
+[[ratelimits]]
+name = "READ_RATE_LIMITER"
+namespace_id = "419103"
+simple = { limit = 120, period = 60 }
 
 [secrets]
 required = ["TURNSTILE_SECRET_KEY"]
@@ -41,6 +50,9 @@ workers_dev = true
 
 [env.staging.limits]
 cpu_ms = 10
+
+[env.staging.cache]
+enabled = true
 
 [env.staging.observability.logs]
 enabled = true
@@ -64,7 +76,13 @@ simple = { limit = 120, period = 60 }
 
 [env.staging.vars]
 ALLOWED_ORIGINS = "https://nikkecollection.com,https://staging.nikkecollection.com"
+TURNSTILE_ALLOWED_HOSTNAMES = "staging.nikkecollection.com,nikkecollection.com"
 DEPLOYMENT_SHA = "local"
+
+[[env.staging.ratelimits]]
+name = "READ_RATE_LIMITER"
+namespace_id = "419104"
+simple = { limit = 120, period = 60 }
 
 [env.staging.secrets]
 required = ["TURNSTILE_SECRET_KEY"]

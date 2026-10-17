@@ -47,8 +47,27 @@ function securityHeaders(cacheControl = "no-store"): Record<string, string> {
 }
 
 export function handleOptions(request: Request, env: CorsEnv) {
-  if (!isAllowedOrigin(request, env)) return new Response(null, { status: 403 });
-  return new Response(null, { status: 204, headers: corsHeaders(request, env) });
+  return emptyResponse(request, env, isAllowedOrigin(request, env) ? 204 : 403);
+}
+
+function responseHeaders(
+  request: Request,
+  env: CorsEnv,
+  status: number,
+  cacheControl: string,
+  extraHeaders: Record<string, string>,
+) {
+  const cors = corsHeaders(request, env);
+  const origins = allowedOrigins(env);
+  const stats = request.method === "GET" && new URL(request.url).pathname === "/api/stats";
+  if (stats && (status === 200 || status === 304) && origins.length === 1) {
+    cors["Access-Control-Allow-Origin"] = origins[0] ?? "";
+    delete cors["Vary"];
+  } else {
+    // Multi-origin staging keeps reflected CORS, but never shares cached responses.
+    cacheControl = "no-store";
+  }
+  return { ...securityHeaders(cacheControl), ...extraHeaders, ...cors };
 }
 
 export function emptyResponse(
@@ -60,7 +79,7 @@ export function emptyResponse(
 ) {
   return new Response(null, {
     status,
-    headers: { ...securityHeaders(cacheControl), ...extraHeaders, ...corsHeaders(request, env) },
+    headers: responseHeaders(request, env, status, cacheControl, extraHeaders),
   });
 }
 
@@ -74,6 +93,6 @@ export function jsonResponse(
 ) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...securityHeaders(cacheControl), ...extraHeaders, ...corsHeaders(request, env) },
+    headers: responseHeaders(request, env, status, cacheControl, extraHeaders),
   });
 }
