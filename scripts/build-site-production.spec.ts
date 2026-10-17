@@ -162,14 +162,14 @@ describe("production site packaging", () => {
     );
   });
 
-  it("preserves direct stats, accounts-off HTML, locale SEO and robots; checks artifact integrity", async () => {
+  it("preserves gateway stats, accounts-off HTML, locale SEO and robots; checks artifact integrity", async () => {
     const directory = await fixture();
     try {
       const before = await readFile(join(directory, "en/index.html"), "utf8");
       await buildSiteProduction(directory);
       await buildSiteProduction(directory, true);
       expect(await readFile(join(directory, "en/index.html"), "utf8")).toBe(before);
-      expect(before).toContain('endpoint: "https://collection-kit-stats.tbvj159.workers.dev"');
+      expect(before).toContain('endpoint: "https://nikkecollection.com"');
       expect(before).not.toContain("COLLECTION_ACCOUNT_CONFIG");
       expect(before).toContain('href="https://nikkecollection.com/en/"');
       expect(await readFile(join(directory, "robots.txt"), "utf8")).toBe(
@@ -193,7 +193,10 @@ describe("production site packaging", () => {
           await writeFile(
             path,
             damage === "stats"
-              ? html.replace("collection-kit-stats.tbvj159", "wrong.tbvj159")
+              ? html.replace(
+                  'endpoint: "https://nikkecollection.com"',
+                  'endpoint: "https://wrong.example"',
+                )
               : html.replace("index,follow,max-image-preview:large", "noindex"),
           );
         } else if (damage === "locale" || damage === "asset") {

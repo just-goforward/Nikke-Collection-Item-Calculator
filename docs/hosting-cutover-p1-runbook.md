@@ -3,8 +3,8 @@
 ## 범위와 승인 원칙
 
 - 대상: `nikkecollection.com`, Worker `collection-kit-site-production`.
-- 정적 자산만 이전한다. 계정은 꺼짐, 서비스 바인딩 없음. stats 브라우저 요청은 기존
-  `https://collection-kit-stats.tbvj159.workers.dev`로 직접 전송한다.
+- 계정은 꺼짐. stats 브라우저 요청은 동일 출처 `https://nikkecollection.com/api/stats`로
+  전송하고 사이트 Worker의 STATS 서비스 바인딩으로 전달한다.
 - D1, 마이그레이션, 백엔드 배포, OAuth, 이벤트 쓰기, 개인정보 작업, 로깅 활성화는 금지한다.
 - 이 문서는 실행 승인이 아니다. 아래 각 **승인 게이트**는 대상·후보 SHA·담당자·시간창·
   비용 한도·중단 기준을 운영자가 별도로 승인해야 한다. 자동 롤백은 없다.
