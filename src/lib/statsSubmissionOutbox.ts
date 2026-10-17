@@ -1,7 +1,9 @@
 import {
   DELIVERY_FAILURE_CLASSES,
   type DeliveryFailureClass,
+  SOLVER_RECOVERY_APP_REVISION_PATTERN,
   STATS_DELIVERY_EVENT_KINDS,
+  type StatsDeliveryHealth,
 } from "../../shared/solverRecoveryContract";
 import { ignoreExpectedError } from "./errorHandling";
 import type { StatsEventKind, StatsSubmissionEnvelope } from "./statsSubmissionQueue";
@@ -79,6 +81,134 @@ function isStoredRecord(value: unknown): value is StatsOutboxRecord {
 
 function statsOutboxStorageKey(endpoint: string, prefix: string) {
   return `${prefix}${encodeURIComponent(endpoint)}`;
+}
+
+const STATS_ENDPOINT_PAIRS = [
+  ["https://collection-kit-stats.tbvj159.workers.dev", "https://nikkecollection.com"],
+  [
+    "https://collection-kit-stats-staging.tbvj159.workers.dev",
+    "https://staging.nikkecollection.com",
+  ],
+] as const;
+const DELIVERY_HEALTH_KEY_PREFIX = "collection-kit-calculator.stats-delivery-health.v1:";
+
+function readMigrationValue(storage: OutboxStorage, key: string): unknown {
+  const raw = storage.getItem(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    ignoreExpectedError("Malformed statistics storage was discarded.", error);
+    storage.removeItem(key);
+    return null;
+  }
+}
+
+/** Only migrate known sibling endpoints; storage is still scoped to the browser origin. */
+export function migrateStatsEndpointStorage(
+  storage: OutboxStorage,
+  endpoint: string,
+  now = Date.now(),
+) {
+  const pair = STATS_ENDPOINT_PAIRS.find((values) => values.some((value) => value === endpoint));
+  for (const endpoints of STATS_ENDPOINT_PAIRS) {
+    for (const prefix of [LEGACY_OUTBOX_KEY_PREFIX, STATS_OUTBOX_KEY_PREFIX]) {
+      const version = prefix === LEGACY_OUTBOX_KEY_PREFIX ? 1 : 2;
+      const recordsByEndpoint = endpoints.map((value) => {
+        const key = statsOutboxStorageKey(value, prefix);
+        const parsed = readMigrationValue(storage, key);
+        const records =
+          isRecord(parsed) && parsed["version"] === version && Array.isArray(parsed["records"])
+            ? parsed["records"].filter(
+                (record): record is Record<string, unknown> =>
+                  isRecord(record) &&
+                  isEnvelope(record["envelope"]) &&
+                  Number.isFinite(record["expiresAt"]) &&
+                  (value === endpoint || Number(record["expiresAt"]) > now) &&
+                  (version === 1 || isStoredRecord(record)),
+              )
+            : [];
+        if (records.length) storage.setItem(key, JSON.stringify({ version, records }));
+        else storage.removeItem(key);
+        return records;
+      });
+      if (pair !== endpoints) continue;
+      const target = endpoints[0] === endpoint ? 0 : 1;
+      const source = target === 0 ? 1 : 0;
+      const merged = new Map<string, Record<string, unknown>>();
+      for (const record of [
+        ...(recordsByEndpoint[source] ?? []),
+        ...(recordsByEndpoint[target] ?? []),
+      ]) {
+        merged.delete((record["envelope"] as StatsSubmissionEnvelope).eventId);
+        merged.set((record["envelope"] as StatsSubmissionEnvelope).eventId, record);
+      }
+      const targetKey = statsOutboxStorageKey(endpoint, prefix);
+      if (merged.size)
+        storage.setItem(
+          targetKey,
+          JSON.stringify({
+            version,
+            records: [...merged.values()].slice(-STATS_OUTBOX_MAX_EVENTS),
+          }),
+        );
+      storage.removeItem(statsOutboxStorageKey(endpoints[source], prefix));
+    }
+  }
+  if (!pair) return;
+  const sibling = pair.find((value) => value !== endpoint);
+  if (!sibling) return;
+  const targetKey = statsOutboxStorageKey(endpoint, DELIVERY_HEALTH_KEY_PREFIX);
+  const sourceKey = statsOutboxStorageKey(sibling, DELIVERY_HEALTH_KEY_PREFIX);
+  const readItems = (key: string): unknown[] => {
+    const parsed = readMigrationValue(storage, key);
+    return isRecord(parsed) && parsed["version"] === 1 && Array.isArray(parsed["items"])
+      ? parsed["items"]
+      : [];
+  };
+  const items = mergeDeliveryHealth([...readItems(sourceKey), ...readItems(targetKey)]);
+  if (items.length) {
+    storage.setItem(targetKey, JSON.stringify({ version: 1, items }));
+  } else storage.removeItem(targetKey);
+  storage.removeItem(sourceKey);
+}
+
+function mergeDeliveryHealth(values: unknown[]): StatsDeliveryHealth[] {
+  const items: StatsDeliveryHealth[] = [];
+  for (const health of values.filter(isDeliveryHealth)) {
+    const existing = items.find((value) => sameHealth(value, health));
+    if (existing) {
+      existing.events = Math.min(STATS_OUTBOX_MAX_EVENTS, existing.events + health.events);
+    } else items.push({ ...health });
+  }
+  return items.slice(-STATS_OUTBOX_MAX_EVENTS);
+}
+
+export function isDeliveryHealth(value: unknown): value is StatsDeliveryHealth {
+  if (!isRecord(value)) return false;
+  return (
+    (value["outcome"] === "retried_success" || value["outcome"] === "dropped_nonretryable") &&
+    EVENT_KINDS.has(value["eventKind"] as never) &&
+    typeof value["appRevision"] === "string" &&
+    SOLVER_RECOVERY_APP_REVISION_PATTERN.test(value["appRevision"]) &&
+    ["1", "2", "3_5", "6_plus"].includes(String(value["attempts"])) &&
+    ["lt_30s", "30s_2m", "2m_5m", "5m_15m", "expired"].includes(String(value["age"])) &&
+    DELIVERY_FAILURE_CLASSES.includes(value["lastFailureClass"] as DeliveryFailureClass) &&
+    Number.isSafeInteger(value["events"]) &&
+    Number(value["events"]) >= 1 &&
+    Number(value["events"]) <= STATS_OUTBOX_MAX_EVENTS
+  );
+}
+
+export function sameHealth(left: StatsDeliveryHealth, right: StatsDeliveryHealth) {
+  return (
+    left.outcome === right.outcome &&
+    left.eventKind === right.eventKind &&
+    left.appRevision === right.appRevision &&
+    left.attempts === right.attempts &&
+    left.age === right.age &&
+    left.lastFailureClass === right.lastFailureClass
+  );
 }
 
 class LegacyStatsSubmissionOutbox implements BrowserStatsOutbox {
@@ -280,6 +410,7 @@ function emptyState(): StoredOutbox {
 
 export function createBrowserStatsOutbox(endpoint: string): BrowserStatsOutbox | null {
   try {
+    migrateStatsEndpointStorage(window.localStorage, endpoint);
     const legacyStorageKey = statsOutboxStorageKey(endpoint, LEGACY_OUTBOX_KEY_PREFIX);
     if (!__STATS_DELIVERY_HEALTH_EMIT_ENABLED__) {
       return new LegacyStatsSubmissionOutbox(window.localStorage, legacyStorageKey);

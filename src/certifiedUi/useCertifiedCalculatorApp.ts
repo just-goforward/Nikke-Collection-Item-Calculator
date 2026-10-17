@@ -4,6 +4,7 @@ import {
   isCertifiedEventClaimable,
 } from "../../shared/certifiedSupply";
 import { REQUIRED_EXP } from "../../shared/game";
+import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import type { Stock } from "../types";
 import type { CertifiedCalculatorController } from "./calculatorController";
 import { resolveCertifiedStockCorrection } from "./calculatorSessionActions";
@@ -24,7 +25,9 @@ import {
 import { useCertifiedDailyRecompute } from "./useCertifiedDailyRecompute";
 
 /** The native session is the only calculator input; no legacy solver or stats flow is started. */
-export function useCertifiedCalculatorApp(): CertifiedCalculatorController {
+export function useCertifiedCalculatorApp(
+  queueStatsEvent?: (event: StatsSubmissionEvent) => void,
+): CertifiedCalculatorController {
   const store = useCertifiedCalculatorSession();
   const preparation = useCertifiedCalculatorSnapshot();
   const ownership = useCertifiedCalculatorRun(store.bridge.session, preparation);
@@ -32,6 +35,7 @@ export function useCertifiedCalculatorApp(): CertifiedCalculatorController {
     store,
     ownership,
     preparation.snapshotRef,
+    queueStatsEvent,
   );
   // Keep native binding, persistence, preparation, and committed recomputation effects in order.
   useCertifiedSessionPersistence(store.bridge, store.setSaveFailed, store.accountMode);
