@@ -7,15 +7,12 @@ import {
 import { LEGACY_CERTIFIED_SUPPLY_LAWS } from "../../shared/certifiedSupplyLaws";
 import type { CertifiedOutput } from "../certified/types";
 import type { CertifiedCalculatorController } from "./calculatorController";
+import { sessionFixture } from "./calculatorSession.test-helper";
 import {
   restoreCertifiedCalculatorSession,
   serializeCertifiedCalculatorSession,
 } from "./calculatorSessionPersistence";
-import {
-  CERTIFIED_SESSION_STORAGE_KEY,
-  type CertifiedSession,
-  createCertifiedSession,
-} from "./session";
+import { CERTIFIED_SESSION_STORAGE_KEY, type CertifiedSession } from "./session";
 import { useCertifiedCalculatorApp } from "./useCertifiedCalculatorApp";
 
 type EffectSlot = { deps: readonly unknown[] | undefined; cleanup?: () => void };
@@ -34,6 +31,7 @@ const driver = vi.hoisted(() => ({
   stored: new Map<string, string>(),
   readFailure: null as unknown,
   writeFailure: null as unknown,
+  queueStatsEvent: vi.fn(),
 }));
 
 // A dependency-aware hook dispatcher tests this bridge, not the runtime or presentation.
@@ -121,7 +119,7 @@ function CalculatorHarness() {
   driver.cursor = 0;
   driver.effects = [];
   driver.dirty = false;
-  return useCertifiedCalculatorApp();
+  return useCertifiedCalculatorApp(driver.queueStatsEvent);
 }
 function render() {
   app = CalculatorHarness();
@@ -150,31 +148,6 @@ async function reload() {
   driver.calculate.mockClear();
   render();
   await flush();
-}
-function sessionFixture() {
-  const session = createCertifiedSession(
-    "approved",
-    { grade: "SR", level: 2, exp: 0 },
-    [79, 13, 7],
-  );
-  return {
-    ...session,
-    cohortWeights: [
-      { numerator: "1", denominator: "2" },
-      { numerator: "1", denominator: "3" },
-      { numerator: "1", denominator: "6" },
-      { numerator: "0", denominator: "1" },
-    ] as const,
-    receipts: [
-      {
-        eventId: "actual-receipt",
-        at: "2026-09-30T02:00:00Z",
-        pieces: [3, 0, 0] as const,
-        alreadyInStock: true,
-      },
-    ],
-    retiredReceiptIds: ["actual-receipt"],
-  };
 }
 function installRecommendation(uses = 4) {
   // Only the native current action fields read by this bridge are relevant to these tests.
@@ -292,6 +265,12 @@ describe("certified inputs and action authorization", () => {
     expect(driver.calculate).toHaveBeenCalledOnce();
     expect(driver.calculate.mock.lastCall?.[0]).toEqual(app.session);
     expect(driver.calculate.mock.lastCall?.[0]).not.toBe(old.session);
+    expect(driver.queueStatsEvent).toHaveBeenCalledOnce();
+    expect(driver.queueStatsEvent.mock.lastCall?.[0]).toMatchObject({
+      kind: "kit_result",
+      recommendedUses: 4,
+      successAttempt: null,
+    });
   });
 
   it("retires stale authorization synchronously for input edits and receipt updates", async () => {
@@ -320,10 +299,23 @@ describe("certified inputs and action authorization", () => {
     await flush();
     expect(app.session.state.exp).toBe(100);
     expect(app.session.outcomes).toEqual([]);
+    expect(driver.queueStatsEvent).not.toHaveBeenCalled();
   });
 });
 
 describe("certified outcomes and full session undo", () => {
+  it("keeps the committed session when optional telemetry throws", async () => {
+    await authorize(1);
+    driver.queueStatsEvent.mockImplementation(() => {
+      throw new Error("telemetry_failed");
+    });
+    app.actions.applyOutcome("normal");
+    await flush();
+    expect(app.session.stock).toEqual([69, 13, 7]);
+    expect(app.actionError).toBeNull();
+    expect(driver.queueStatsEvent).toHaveBeenCalledOnce();
+  });
+
   it("uses the modal attempt and consumes only through the reported great success", async () => {
     await authorize();
     app.actions.applyOutcome("great");
@@ -335,12 +327,16 @@ describe("certified outcomes and full session undo", () => {
       beforeStock: 79,
     });
     expect(app.session.stock).toEqual([79, 13, 7]);
+    expect(driver.queueStatsEvent).not.toHaveBeenCalled();
+    app.actions.submitSuccessAttempt(2);
     app.actions.submitSuccessAttempt(2);
     await flush();
     expect(app.session.stock).toEqual([59, 13, 7]);
     expect(app.session.outcomes.map((entry) => entry.outcome)).toEqual(["normal", "great"]);
     expect(app.modal.open).toBe(false);
     expect(driver.calculate.mock.lastCall?.[0]).toEqual(app.session);
+    expect(driver.queueStatsEvent).toHaveBeenCalledOnce();
+    expect(driver.queueStatsEvent.mock.lastCall?.[0]).toMatchObject({ successAttempt: 2 });
   });
 
   it("blocks unknown consumption until an actual valid deduction reconciles the native ledger", async () => {
@@ -366,6 +362,7 @@ describe("certified outcomes and full session undo", () => {
     app.actions.setStock({ blue: 48, purple: 13, yellow: 7 });
     await flush();
     expect(app.stockCorrection?.reason).toBe("invalid_delta");
+    expect(driver.queueStatsEvent).not.toHaveBeenCalled();
     expect(driver.calculate).not.toHaveBeenCalled();
     app.actions.setStock({ blue: 49, purple: 13, yellow: 7 });
     await flush();
@@ -386,6 +383,8 @@ describe("certified outcomes and full session undo", () => {
     expect(app.session.receipts).toEqual(before.receipts);
     expect(app.session.cohortWeights).toEqual(before.cohortWeights);
     expect(driver.calculate).toHaveBeenCalledExactlyOnceWith(app.session);
+    expect(driver.queueStatsEvent).toHaveBeenCalledOnce();
+    expect(driver.queueStatsEvent.mock.lastCall?.[0]).toMatchObject({ successAttempt: 3 });
   });
 
   it("reset undo restores the complete session and unresolved correction, without restarting", async () => {

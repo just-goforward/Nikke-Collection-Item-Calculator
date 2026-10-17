@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { StatsDeliveryHealthStore } from "./statsDeliveryHealth";
 import {
   createStatsSubmissionOutbox,
+  migrateStatsEndpointStorage,
   STATS_OUTBOX_MAX_EVENTS,
   STATS_OUTBOX_TTL_MS,
   type StatsSubmissionOutboxV2,
@@ -35,6 +36,115 @@ function envelope(eventId: string): StatsSubmissionEnvelope {
 function createOutbox(storage: MemoryStorage, key: string, now: () => number, legacyKey?: string) {
   return createStatsSubmissionOutbox(storage, key, now, legacyKey) as StatsSubmissionOutboxV2;
 }
+
+describe("statistics endpoint migration", () => {
+  it("preserves active expiry reporting and bounds merged records", () => {
+    const storage = new MemoryStorage();
+    const endpoint = "https://nikkecollection.com";
+    const prefix = "collection-kit-calculator.stats-outbox.v2:";
+    const key = prefix + encodeURIComponent(endpoint);
+    const source = createOutbox(
+      storage,
+      prefix + encodeURIComponent("https://collection-kit-stats.tbvj159.workers.dev"),
+      () => 1000,
+    );
+    for (let index = 0; index < STATS_OUTBOX_MAX_EVENTS; index++) {
+      source.put(envelope(`source-${index}`));
+    }
+    const active = createOutbox(storage, key, () => 0);
+    active.put(envelope("expired-active"));
+    migrateStatsEndpointStorage(storage, endpoint, STATS_OUTBOX_TTL_MS);
+    expect(JSON.parse(storage.getItem(key) ?? "{}").records).toHaveLength(STATS_OUTBOX_MAX_EVENTS);
+    const restored = createOutbox(storage, key, () => STATS_OUTBOX_TTL_MS);
+    expect(restored.list()[0]?.envelope.eventId).toBe("source-1");
+    expect(restored.drainExpired().map((record) => record.envelope.eventId)).toEqual([
+      "expired-active",
+    ]);
+  });
+
+  it.each([
+    ["https://collection-kit-stats.tbvj159.workers.dev", "https://nikkecollection.com"],
+    ["https://nikkecollection.com", "https://collection-kit-stats.tbvj159.workers.dev"],
+    [
+      "https://collection-kit-stats-staging.tbvj159.workers.dev",
+      "https://staging.nikkecollection.com",
+    ],
+    [
+      "https://staging.nikkecollection.com",
+      "https://collection-kit-stats-staging.tbvj159.workers.dev",
+    ],
+  ])("migrates %s to %s without changing IDs or expiry", (source, target) => {
+    const storage = new MemoryStorage();
+    for (const version of [1, 2]) {
+      const prefix = `collection-kit-calculator.stats-outbox.v${version}:`;
+      const record = {
+        envelope: envelope("preserved-id"),
+        expiresAt: 2000,
+        queuedAt: 1000,
+        attempts: 2,
+        lastFailureClass: "network",
+      };
+      storage.setItem(
+        prefix + encodeURIComponent(source),
+        JSON.stringify({
+          version,
+          records: [record, { ...record, envelope: envelope("expired"), expiresAt: 999 }],
+        }),
+      );
+      migrateStatsEndpointStorage(storage, target, 1000);
+      expect(storage.getItem(prefix + encodeURIComponent(source))).toBeNull();
+      expect(
+        JSON.parse(storage.getItem(prefix + encodeURIComponent(target)) ?? "{}").records,
+      ).toEqual([record]);
+    }
+  });
+
+  it("purges expired orphan records without moving live staging records into production", () => {
+    const storage = new MemoryStorage();
+    const key =
+      "collection-kit-calculator.stats-outbox.v1:" +
+      encodeURIComponent("https://staging.nikkecollection.com");
+    storage.setItem(
+      key,
+      JSON.stringify({
+        version: 1,
+        records: [
+          { envelope: envelope("live-staging"), expiresAt: 2000 },
+          { envelope: envelope("expired-staging"), expiresAt: 1000 },
+        ],
+      }),
+    );
+    migrateStatsEndpointStorage(storage, "https://nikkecollection.com", 1000);
+    expect(JSON.parse(storage.getItem(key) ?? "{}").records).toHaveLength(1);
+    expect(storage.values.size).toBe(1);
+  });
+
+  it("moves delivery health without changing its buckets or crossing environments", () => {
+    const storage = new MemoryStorage();
+    const prefix = "collection-kit-calculator.stats-delivery-health.v1:";
+    const direct = prefix + encodeURIComponent("https://collection-kit-stats.tbvj159.workers.dev");
+    const site = prefix + encodeURIComponent("https://nikkecollection.com");
+    const item = {
+      events: 2,
+      age: "expired",
+      outcome: "dropped_nonretryable",
+      eventKind: "kit_result",
+      appRevision: "unknown",
+      attempts: "1",
+      lastFailureClass: "unknown",
+    };
+    storage.setItem(direct, JSON.stringify({ version: 1, items: [item] }));
+    migrateStatsEndpointStorage(storage, "https://nikkecollection.com", 1000);
+    expect(storage.getItem(direct)).toBeNull();
+    expect(JSON.parse(storage.getItem(site) ?? "{}").items).toEqual([item]);
+    migrateStatsEndpointStorage(storage, "https://collection-kit-stats.tbvj159.workers.dev", 1000);
+    expect(storage.getItem(site)).toBeNull();
+    expect(JSON.parse(storage.getItem(direct) ?? "{}").items).toEqual([item]);
+    storage.setItem(site, JSON.stringify({ version: 1, items: Array(30).fill(item) }));
+    migrateStatsEndpointStorage(storage, "https://nikkecollection.com", 1000);
+    expect(JSON.parse(storage.getItem(site) ?? "{}").items).toEqual([{ ...item, events: 20 }]);
+  });
+});
 
 describe("StatsSubmissionOutbox", () => {
   it("deduplicates event ids and keeps only the newest bounded records", () => {

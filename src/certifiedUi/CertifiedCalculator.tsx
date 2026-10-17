@@ -6,6 +6,7 @@ import { AccountControl } from "../account/AccountControl";
 import { accountFeatureEnabled } from "../account/config";
 import { useAppShellNavigation } from "../hooks/useAppShellNavigation";
 import { useStatsQuery } from "../hooks/useStatsQuery";
+import { useStatsSubmission } from "../hooks/useStatsSubmission";
 import { useTheme } from "../hooks/useTheme";
 import { useI18n } from "../i18n/locale";
 import { createCertifiedAccountPort } from "./accountSession";
@@ -87,14 +88,15 @@ function readOnlyInteractions(ui: CertifiedShellInteractions): CertifiedShellInt
 export default function CertifiedCalculator() {
   const { locale } = useI18n();
   const words = certifiedMessages[locale];
-  const app = useCertifiedCalculatorApp();
+  const shell = useAppShellNavigation<() => void>();
+  const stats = useStatsQuery(shell.statsVisible);
+  const queueStatsEvent = useStatsSubmission(stats.markSubmitted);
+  const app = useCertifiedCalculatorApp(queueStatsEvent);
   // With the flag off this stays false and no account code runs (only the constant flag check).
   const [accountLocked, setAccountLocked] = useState(accountFeatureEnabled);
   // The account binding keeps the engine's own lock; only the shown inputs are read-only.
   const controller = accountLocked ? { ...app, inputLocked: true, calculateDisabled: true } : app;
-  const shell = useAppShellNavigation<() => void>();
   const theme = useTheme(controller.statePanel.grade);
-  const stats = useStatsQuery(shell.statsVisible);
   const interactions = useCertifiedShellInteractions(controller, shell);
   const ui = accountLocked ? readOnlyInteractions(interactions) : interactions;
   const chrome = { controller, ui, words };

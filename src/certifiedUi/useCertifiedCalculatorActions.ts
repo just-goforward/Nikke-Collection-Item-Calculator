@@ -1,5 +1,7 @@
-import { type Dispatch, type SetStateAction, useCallback } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useRef } from "react";
 import { KIT_ORDER, REQUIRED_EXP } from "../../shared/game";
+import { ignoreExpectedError } from "../lib/errorHandling";
+import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import type { Stock } from "../types";
 import type { CertifiedCalculatorController } from "./calculatorController";
 import {
@@ -8,6 +10,7 @@ import {
   resolveCertifiedStockCorrection,
   unresolvedCertifiedSuccess,
 } from "./calculatorSessionActions";
+import { makeCertifiedKitResultEvent } from "./certifiedStats";
 import { showCertifiedRunResults } from "./runStatus";
 import { type CertifiedSession, convertCertifiedSession, createCertifiedSession } from "./session";
 import type { CertifiedSnapshotState } from "./useCertifiedCalculatorPreparation";
@@ -24,13 +27,14 @@ type Commit = (next: CertifiedSession, autoCalculate?: boolean) => void;
 type SessionActions = Pick<CertifiedSessionStore, "latest" | "publish" | "fail"> & {
   commit: Commit;
   retire: () => void;
+  confirm?: (batch: CertifiedBatch, attempt: number | null) => void;
 };
 type ActionContext = SessionActions &
   Pick<CertifiedSessionStore, "setSaveFailed"> & {
     ownership: CertifiedRunOwnership;
     snapshotRef: CertifiedSnapshotState["snapshotRef"];
   };
-type CalculationContext = Pick<SessionActions, "latest" | "commit" | "fail"> &
+type CalculationContext = Pick<SessionActions, "latest" | "commit" | "fail" | "confirm"> &
   Pick<CertifiedRunOwnership, "canStart" | "calculateNative"> & {
     snapshotRef: CertifiedSnapshotState["snapshotRef"];
   };
@@ -49,7 +53,7 @@ function updateCertifiedSession(context: SessionActions, update: SetStateAction<
 }
 
 async function calculateCertifiedAction(context: CalculationContext) {
-  const { latest, snapshotRef, canStart, calculateNative, commit, fail } = context;
+  const { latest, snapshotRef, canStart, calculateNative, fail } = context;
   const current = latest.current;
   if (
     current.storageBlocked ||
@@ -62,13 +66,16 @@ async function calculateCertifiedAction(context: CalculationContext) {
     await calculateNative(current.session);
     return;
   }
+  let attempt: number;
   try {
     const resolution = resolveCertifiedStockCorrection(current.correction, current.session);
     if (!resolution.view.canCalculate || resolution.successAttempt === null) return;
-    commit(applyCertifiedBatch(current.correction, resolution.successAttempt), true);
+    attempt = resolution.successAttempt;
   } catch (failure) {
     fail(failure);
+    return;
   }
+  context.confirm?.(current.correction, attempt);
 }
 
 function editCertifiedStock(context: SessionActions, stock: Stock) {
@@ -161,11 +168,15 @@ function applyCertifiedOutcome(context: ActionContext, outcome: "normal" | "grea
     return;
   }
   try {
-    if (outcome === "great" && batch.uses > 1) openCertifiedSuccessModal(context, batch);
-    else context.commit(applyCertifiedBatch(batch, outcome === "great" ? 1 : null), true);
+    if (outcome === "great" && batch.uses > 1) {
+      openCertifiedSuccessModal(context, batch);
+      return;
+    }
   } catch (failure) {
     context.fail(failure);
+    return;
   }
+  context.confirm?.(batch, outcome === "great" ? 1 : null);
 }
 
 function submitCertifiedSuccessAttempt(context: SessionActions, attempt: number | null) {
@@ -179,10 +190,13 @@ function submitCertifiedSuccessAttempt(context: SessionActions, attempt: number 
         ...settledCertifiedBridge(unresolvedCertifiedSuccess(batch)),
         correction: batch,
       });
-    } else context.commit(applyCertifiedBatch(batch, attempt), true);
+      return;
+    }
   } catch (failure) {
     context.fail(failure);
+    return;
   }
+  context.confirm?.(batch, attempt);
 }
 
 function convertCertifiedCollection(context: SessionActions) {
@@ -220,9 +234,11 @@ export function useCertifiedCalculatorActions(
   store: CertifiedSessionStore,
   ownership: CertifiedRunOwnership,
   snapshotRef: CertifiedSnapshotState["snapshotRef"],
+  queueStatsEvent?: (event: StatsSubmissionEvent) => void,
 ) {
   const { latest, publish, fail, setSaveFailed } = store;
   const { retire, recompute, canStart, calculateNative } = ownership;
+  const confirmed = useRef(new WeakSet<CertifiedSession>());
   const commit = useCallback(
     (next: CertifiedSession, autoCalculate = false) => {
       const session = validatedCertifiedSession(next);
@@ -238,6 +254,26 @@ export function useCertifiedCalculatorActions(
     },
     [latest, publish, fail, commit, retire],
   );
+  const confirm = useCallback(
+    (batch: CertifiedBatch, attempt: number | null) => {
+      if (confirmed.current.has(batch.before)) return;
+      let next: CertifiedSession;
+      try {
+        next = applyCertifiedBatch(batch, attempt);
+        commit(next, true);
+      } catch (error) {
+        fail(error);
+        return;
+      }
+      confirmed.current.add(batch.before);
+      try {
+        queueStatsEvent?.(makeCertifiedKitResultEvent(batch, next, attempt));
+      } catch (error) {
+        ignoreExpectedError("Optional certified statistics submission failed.", error);
+      }
+    },
+    [commit, fail, queueStatsEvent],
+  );
   const calculate = useCallback(async () => {
     await calculateCertifiedAction({
       latest,
@@ -246,8 +282,9 @@ export function useCertifiedCalculatorActions(
       calculateNative,
       commit,
       fail,
+      confirm,
     });
-  }, [latest, snapshotRef, canStart, calculateNative, commit, fail]);
+  }, [latest, snapshotRef, canStart, calculateNative, commit, fail, confirm]);
   const context: ActionContext = {
     latest,
     publish,
@@ -257,6 +294,7 @@ export function useCertifiedCalculatorActions(
     setSaveFailed,
     ownership,
     snapshotRef,
+    confirm,
   };
   const actions: CertifiedCalculatorController["actions"] = {
     setGrade: (grade) => editCertifiedState(updateSession, { grade }),
