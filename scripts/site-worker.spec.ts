@@ -37,6 +37,53 @@ function environment() {
 const request = (path: string, init?: RequestInit) =>
   new Request(`https://staging.nikkecollection.com${path}`, init);
 
+describe("production stats gateway", () => {
+  it.each([
+    ["/api/stats", "GET"],
+    ["/api/events", "POST"],
+  ])("proxies %s without credentials and preserves the client IP", async (path, method) => {
+    const env = environment();
+    env.STATS.fetch.mockResolvedValueOnce(
+      Response.json(
+        { accepted: true },
+        {
+          headers: { "Set-Cookie": "private=1", "Cache-Control": "public, max-age=60" },
+        },
+      ),
+    );
+    const response = await worker.fetch(
+      new Request(`https://nikkecollection.com${path}?fixture=1`, {
+        method,
+        headers: {
+          Cookie: "session=private",
+          Authorization: "Bearer private",
+          "Proxy-Authorization": "private",
+          "CF-Connecting-IP": "192.0.2.1",
+        },
+        ...(method === "POST" ? { body: '{"fixture":1}' } : {}),
+      }),
+      { ...env, SITE_ENV: "production" },
+    );
+    expect(env.STATS.fetch).toHaveBeenCalledTimes(1);
+    const forwarded = env.STATS.fetch.mock.calls[0]?.[0];
+    expect(forwarded?.url).toBe(`https://nikkecollection.com${path}?fixture=1`);
+    expect(forwarded?.method).toBe(method);
+    expect(forwarded?.redirect).toBe("manual");
+    for (const header of ["Cookie", "Authorization", "Proxy-Authorization"])
+      expect(forwarded?.headers.has(header)).toBe(false);
+    expect(forwarded?.headers.get("CF-Connecting-IP")).toBe("192.0.2.1");
+    if (method === "POST") expect(await forwarded?.text()).toBe('{"fixture":1}');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ accepted: true });
+    expect(response.headers.has("Set-Cookie")).toBe(false);
+    expect(response.headers.get("Cache-Control")).toBe(
+      method === "GET" ? "public, max-age=60" : "no-store",
+    );
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+    expect(env.PERSONAL_DATA.fetch).not.toHaveBeenCalled();
+  });
+});
+
 describe("staging site gateway: personal routing and callback security", () => {
   it.each(personalRoutes)("routes exactly the documented methods for %s", async (path, methods) => {
     for (const method of ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {

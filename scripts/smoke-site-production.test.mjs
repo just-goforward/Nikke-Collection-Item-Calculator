@@ -33,6 +33,7 @@ function fixture(change = () => {}) {
       assert.equal(init.credentials, "omit");
       assert.ok(init.signal instanceof AbortSignal);
       const path = url.pathname;
+      if (path === "/api/stats" && init.method === "GET") assert.equal(url.search, "");
       calls.push([path, init.method]);
       const locale = localePages.find((entry) => `/${entry.path}` === path);
       const result = {
@@ -72,8 +73,14 @@ function fixture(change = () => {}) {
       } else if (init.method === "HEAD") {
         result.status = 405;
         result.body = null;
+      } else if (path === "/api/stats") {
+        result.headers["Cache-Control"] = "public, max-age=60";
+        result.body = JSON.stringify({
+          summary: { events: 0, attempts: 0, greatSuccesses: 0 },
+          byKit: [],
+        });
       } else {
-        result.status = ["/api/stats", "/v1/statistics"].includes(path) ? 503 : 404;
+        result.status = path === "/v1/statistics" ? 503 : 404;
       }
       change(path, result);
       return new Response(result.body, { status: result.status, headers: result.headers });
@@ -95,6 +102,44 @@ test("production smoke verifies locales, assets, revision, SEO, cache and read-o
 
 const beaconTag = (src = "https://static.cloudflareinsights.com/beacon.min.js") =>
   `<script defer src="${src}" integrity="sha512-x" data-cf-beacon='{"token":"t"}' crossorigin="anonymous"></script>`;
+
+test("rejects unconditional stats 304, unavailable or non-aggregate stats", async () => {
+  await assert.rejects(
+    smokeSiteProduction(
+      origin,
+      revision,
+      fixture((path, result) => {
+        if (path === "/api/stats" && result.status === 200) {
+          result.status = 304;
+          result.body = null;
+          delete result.headers["Content-Type"];
+        }
+      }),
+    ),
+    /expected 200/,
+  );
+  for (const body of ['{"error":"service_not_configured"}', "null", "not json"]) {
+    await assert.rejects(
+      smokeSiteProduction(
+        origin,
+        revision,
+        fixture((path, result) => {
+          if (path === "/api/stats" && result.status === 200) result.body = body;
+        }),
+      ),
+    );
+  }
+  await assert.rejects(
+    smokeSiteProduction(
+      origin,
+      revision,
+      fixture((path, result) => {
+        if (path === "/api/stats" && result.status === 200) result.status = 503;
+      }),
+    ),
+    /expected 200/,
+  );
+});
 
 test("production smoke passes with and without the injected Web Analytics beacon, never fetching it", async () => {
   for (const inject of [

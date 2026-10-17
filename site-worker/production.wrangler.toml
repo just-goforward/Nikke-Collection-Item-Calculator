@@ -1,4 +1,4 @@
-# Static-only P1. DNS and Custom Domains require separate operator approval.
+# Production gateway. DNS and Custom Domains require separate operator approval.
 # Intentionally omit route/routes: Wrangler preserves dashboard-managed routes.
 name = "collection-kit-site-production"
 main = "src/worker.ts"
@@ -22,3 +22,7 @@ enabled = false
 [observability.logs]
 enabled = false
 invocation_logs = false
+
+[[services]]
+binding = "STATS"
+service = "collection-kit-stats"

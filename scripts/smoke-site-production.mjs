@@ -62,7 +62,7 @@ export async function smokeSiteProduction(origin, revision, { fetchImpl = fetch 
   async function get(path, type, status = 200, method = "GET") {
     assert(++requests <= 80, "Smoke request budget exceeded");
     const url = new URL(path, origin);
-    const response = await checkedFetch(url, type, {
+    const options = {
       origin,
       revision,
       fetchImpl,
@@ -70,7 +70,27 @@ export async function smokeSiteProduction(origin, revision, { fetchImpl = fetch 
       status,
       method,
       signal: AbortSignal.any([lifetime, AbortSignal.timeout(15_000)]),
-    });
+    };
+    let response;
+    if (path === "/api/stats" && method === "GET") {
+      response = await fetchImpl(url, {
+        cache: "no-store",
+        redirect: "manual",
+        credentials: "omit",
+        method,
+        signal: options.signal,
+      });
+      assert(!response.redirected, `${path}: unexpected redirect`);
+      assert(!response.url || new URL(response.url).origin === origin, `${path}: unapproved host`);
+      assert(response.status === 200, `${path}: expected 200`);
+      if (response.status === 200)
+        assert(
+          response.headers.get("content-type")?.includes("application/json"),
+          `${path}: unexpected Content-Type`,
+        );
+    } else {
+      response = await checkedFetch(url, type, options);
+    }
     assert(!response.headers.has("set-cookie"), `${path}: public smoke must remain cookie-free`);
     verifyCacheHeaders(response, url.pathname);
     const chunks = [];
@@ -150,7 +170,20 @@ export async function smokeSiteProduction(origin, revision, { fetchImpl = fetch 
     "sitemap locations mismatch",
   );
   // Public stats only. Never call OAuth callbacks, login/logout, personal-data, or /api/events.
-  for (const path of ["/api/stats", "/v1/statistics"]) {
+  const stats = await get("/api/stats", "application/json");
+  if (stats.response.status === 200) {
+    const aggregate = JSON.parse(stats.bytes.toString("utf8"));
+    assert(
+      aggregate !== null &&
+        typeof aggregate === "object" &&
+        ["events", "attempts", "greatSuccesses"].every(
+          (key) => Number.isFinite(aggregate.summary?.[key]) && aggregate.summary[key] >= 0,
+        ) &&
+        Array.isArray(aggregate.byKit),
+      "/api/stats: aggregate response is missing",
+    );
+  }
+  for (const path of ["/v1/statistics"]) {
     const { response } = await get(path, "application/json", 503);
     assert(response.headers.get("cache-control") === "no-store", `${path}: error must not cache`);
   }

@@ -150,6 +150,25 @@ describe("production site promotion", () => {
       ),
     ).toThrow("allowlist");
   });
+  it.each([
+    (source: string) => source.replace('binding = "STATS"', 'binding = "OTHER"'),
+    (source: string) => source.replace('service = "collection-kit-stats"', 'service = "other"'),
+    (source: string) => source.replace("[[services]]", "[[queues]]"),
+    (source: string) => source.replace("[[services]]", "[services]"),
+    (source: string) => source.replace('service = "collection-kit-stats"', ""),
+    (source: string) => source.replace('binding = "STATS"', ""),
+    (source: string) =>
+      `${source}\n[[services]]\nbinding = "STATS"\nservice = "collection-kit-stats"`,
+    (source: string) => `${source}\nentrypoint = "extra"`,
+    (source: string) => `${source}\nbinding = "STATS"`,
+    (source: string) => `${source}\nservice = "collection-kit-stats"`,
+    (source: string) => source.replace(/\[\[services\]\][\s\S]*$/, ""),
+  ])("rejects missing, duplicate or unapproved service configuration %#", (change) => {
+    expect(() => siteDeploymentArguments(sha, change(config))).toThrow();
+  });
+});
+
+describe("production site artifact and deployment execution", () => {
   it("builds with candidate revision in a sanitized child environment, not the dispatch SHA", async () => {
     const h = harness();
     h.env["UNRELATED_SECRET"] = "must-not-inherit";
