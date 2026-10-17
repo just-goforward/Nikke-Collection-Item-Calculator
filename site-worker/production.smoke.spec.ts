@@ -4,7 +4,7 @@ import { enMessages } from "../src/i18n/messages.en";
 import { jaMessages } from "../src/i18n/messages.ja";
 import { koMessages } from "../src/i18n/messages.ko";
 
-const STATS = "https://collection-kit-stats.tbvj159.workers.dev";
+const STATS = "https://nikkecollection.com";
 
 test.beforeEach(async ({ context }) => {
   // No live stats, fonts, Turnstile, accounts or collector traffic.
@@ -65,7 +65,7 @@ for (const [path, messages] of [
   });
 }
 
-test("the production client keeps its direct stats destination", async ({ page }) => {
+test("the production client uses the production site stats gateway", async ({ page }) => {
   const requests: string[] = [];
   await page.route(`${STATS}/**`, async (route) => {
     requests.push(route.request().url());

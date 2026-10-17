@@ -8,7 +8,7 @@ import {
 } from "./smoke-pages-deployment.mjs";
 
 const ORIGIN = "https://nikkecollection.com";
-const STATS = "https://collection-kit-stats.tbvj159.workers.dev";
+const STATS = "https://nikkecollection.com";
 const HASHED_ASSET = /^\/assets\/[^/]+-[A-Za-z0-9_-]{8,}\.(?:js|css|wasm)$/;
 
 export function verifyCacheHeaders(response, path) {
@@ -49,7 +49,7 @@ export function verifyProductionHtml(html, response, locale) {
   const stats = html.match(
     /window\.COLLECTION_STATS_CONFIG\s*=\s*\{\s*endpoint:\s*["']([^"']+)/,
   )?.[1];
-  assert(stats === STATS, "direct production stats endpoint is missing");
+  assert(stats === STATS, "production stats endpoint is missing");
 }
 
 /** Read-only public smoke: no cookies, OAuth, event writes, or private account operations. */
