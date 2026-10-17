@@ -34,6 +34,7 @@ const resultSchema = z.object({
   errorCode: z.optional(z.string().check(z.maxLength(80))),
   item: z.optional(itemSchema),
   event: z.optional(eventSchema),
+  events: z.optional(z.array(eventSchema).check(z.maxLength(8))),
 });
 const sourceQueueProcessSchema = z.object({
   mode: z.enum(["queue", "bootstrap"]),
@@ -66,6 +67,15 @@ export function parseSourceQueueProcess(raw: unknown) {
 }
 
 export async function validateSourceQueueResult(result: SourceQueueProcessResult) {
+  for (const event of result.events ?? []) {
+    if (
+      !result.item ||
+      event.sourceItem.itemId !== result.itemId ||
+      event.sourceItem.source !== result.source
+    ) {
+      throw new Error("source_queue_event_mismatch");
+    }
+  }
   if (
     result.item &&
     (result.item.source !== result.source || result.item.itemId !== result.itemId)

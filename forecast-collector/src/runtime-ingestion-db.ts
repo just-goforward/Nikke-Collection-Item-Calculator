@@ -1,7 +1,9 @@
 import { ROTATION_ADMISSION_MS, ROTATION_INGESTION_ADMISSION_SQL } from "./collection-schedule";
 import { sha256Hex, stableJson } from "./crypto";
+import { sourceItemAndEventStatements } from "./db";
 import { ensureManualReviewStatement } from "./manual-review";
 import { PROFILE_INGESTION_ADMISSION_SQL } from "./profile";
+import { judgments, SOLO_RULE_VERSION } from "./solo-judgment";
 import type {
   NaverSourceKind,
   NormalizedSourceItem,
@@ -165,13 +167,20 @@ export async function ingestionSettlement(
     after.push(
       db
         .prepare(`UPDATE source_queue SET status=?,attempts=attempts+1,error_code=?,updated_at=?,
-      review_generation=review_generation+CASE WHEN ?='manual_review' AND status<>'manual_review' THEN 1 ELSE 0 END
+      review_generation=review_generation+CASE WHEN ?='manual_review' AND
+        (status<>'manual_review' OR (? IS NOT NULL AND EXISTS(
+          SELECT 1 FROM source_manual_reviews m JOIN source_manual_review_bindings b ON b.review_id=m.review_id
+          WHERE m.source=source_queue.source AND m.item_id=source_queue.item_id
+            AND m.generation=source_queue.review_generation AND b.body_hash<>?
+        ))) THEN 1 ELSE 0 END
       WHERE source=? AND item_id=?`)
         .bind(
           outcome === "retry" ? "pending" : outcome,
           result.errorCode ?? null,
           now,
           outcome,
+          result.item?.contentHash ?? null,
+          result.item?.contentHash ?? null,
           row.source,
           row.item_id,
         ),
@@ -203,15 +212,104 @@ export async function ingestionSettlement(
       after.push(await ensureManualReviewStatement(db, row.source, row.item_id, now));
     }
     if (result.item) {
+      const judged = judgments.get(result.item);
+      let contextHash: string | null = null;
+      if (judged) {
+        after.push(
+          ...sourceItemAndEventStatements(
+            db,
+            [],
+            judged.flatMap((entry) =>
+              entry.event
+                ? [
+                    {
+                      ...entry.event,
+                      manualReview: outcome === "manual_review" || entry.event.manualReview,
+                    },
+                  ]
+                : [],
+            ),
+            now,
+          ),
+        );
+        const ordered = [...judged].sort((left, right) => left.blockIndex - right.blockIndex);
+        contextHash = await sha256Hex(
+          stableJson(
+            ordered.map((entry) => ({
+              blockIndex: entry.blockIndex,
+              comparison: entry.comparison,
+              maintenance: entry.maintenanceInputs,
+              verdict: entry.verdict,
+              reason: entry.reason,
+            })),
+          ),
+        );
+        for (const entry of ordered) {
+          after.push(
+            db
+              .prepare(`INSERT INTO source_judgment_evidence
+            (source,item_id,content_hash,rule_version,block_index,judged_at,verdict,reason,question,triggers_json,block_excerpt,comparison_json,context_hash)
+            SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (
+              SELECT 1 FROM source_judgment_evidence WHERE source=? AND item_id=? AND content_hash=? AND rule_version=? AND block_index=? AND context_hash=?)`)
+              .bind(
+                row.source,
+                row.item_id,
+                result.item.contentHash,
+                SOLO_RULE_VERSION,
+                entry.blockIndex,
+                now,
+                entry.verdict,
+                entry.reason,
+                entry.question,
+                JSON.stringify(entry.triggers.slice(0, 5).map((trigger) => trigger.slice(0, 200))),
+                entry.blockExcerpt.slice(0, 1200),
+                JSON.stringify(entry.comparison),
+                contextHash,
+                row.source,
+                row.item_id,
+                result.item.contentHash,
+                SOLO_RULE_VERSION,
+                entry.blockIndex,
+                contextHash,
+              ),
+          );
+        }
+      }
       after.push(...(await noticeRevisionStatements(db, row, result.item, result.event, now)));
+      if (outcome === "manual_review") {
+        after.push(
+          db
+            .prepare(`INSERT INTO source_manual_review_bindings
+          (review_id,source_revision,body_hash,revision_hash,semantic_hash,generation,review_token,metadata_json,item_json,created_at)
+          SELECT m.review_id,r.source_revision,r.body_hash,r.revision_hash,r.semantic_hash,m.generation,lower(hex(randomblob(32))),
+            ?,r.item_json,? FROM source_manual_reviews m JOIN source_queue q
+            ON q.source=m.source AND q.item_id=m.item_id AND q.review_generation=m.generation
+          JOIN source_notice_revisions r ON r.source=m.source AND r.item_id=m.item_id
+          WHERE m.source=? AND m.item_id=? AND r.source_revision=(SELECT MAX(source_revision) FROM source_notice_revisions WHERE source=m.source AND item_id=m.item_id)
+          AND NOT EXISTS(SELECT 1 FROM source_manual_review_bindings b WHERE b.review_id=m.review_id)`)
+            .bind(
+              JSON.stringify({ ...row, ...(contextHash ? { contextHash } : {}) }),
+              now,
+              row.source,
+              row.item_id,
+            ),
+        );
+      }
     }
     // Keep historical FK targets, but do not reuse an obsolete classification.
-    if (result.outcome !== "retry") {
+    if (result.outcome !== "retry" && result.errorCode !== "no_change") {
+      const retained = result.item
+        ? judgments.get(result.item)?.flatMap((entry) => (entry.event ? [entry.event.eventId] : []))
+        : undefined;
       after.push(
         db
           .prepare(`UPDATE schedule_events SET manual_review=1,reason='runtime_notice_replaced'
-        WHERE source=? AND source_item_id=? AND event_id<>?`)
-          .bind(row.source, row.item_id, result.event?.eventId ?? ""),
+        WHERE source=? AND source_item_id=? AND event_id NOT IN (SELECT value FROM json_each(?))`)
+          .bind(
+            row.source,
+            row.item_id,
+            JSON.stringify(retained ?? (result.event ? [result.event.eventId] : [])),
+          ),
       );
     }
   }
@@ -231,7 +329,17 @@ async function noticeRevisionStatements(
   event: ScheduleEvent | undefined,
   now: string,
 ) {
-  const events = event ? [event] : [];
+  if (judgments.get(item)?.every((entry) => entry.verdict === "no_change")) {
+    const latest = await db
+      .prepare(`SELECT body_hash FROM source_notice_revisions
+      WHERE source=? AND item_id=? ORDER BY source_revision DESC LIMIT 1`)
+      .bind(row.source, row.item_id)
+      .first<{ body_hash: string }>();
+    if (latest?.body_hash === item.contentHash) return [];
+  }
+  const events =
+    judgments.get(item)?.flatMap((entry) => (entry.event ? [entry.event] : [])) ??
+    (event ? [event] : []);
   const revisionHash = await sha256Hex(stableJson({ item, events }));
   const semanticHash = await sha256Hex(
     stableJson(events.map(({ sourceItem: _, ...event }) => event)),
@@ -263,7 +371,7 @@ async function noticeRevisionStatements(
         row.item_id,
       ),
   ];
-  if (event) {
+  for (const event of events) {
     statements.push(
       db
         .prepare(`INSERT INTO schedule_event_source_revisions(event_id,source,item_id,source_revision)

@@ -11,12 +11,143 @@ import {
   markDispatchRequested,
   raiseOpsAlert,
   readActionableWork,
+  readManualReviewEvidence,
   reserveNextDispatch,
   resolveOpsAlert,
 } from "./db";
+import { opsAlertMessage } from "./discord";
 import type { DispatcherEnv } from "./types";
 
 const testEnv = env as unknown as DispatcherEnv;
+
+it("binds evidence to the review hash, not a newer revision, and falls back without tables", async () => {
+  const db = testEnv.FORECAST_DB;
+  const now = Date.parse("2026-10-17T00:07:00Z");
+  const reviewId = `mr-${"a".repeat(32)}`;
+  await insertPending("8289927", now);
+  await db
+    .prepare(`INSERT INTO source_manual_reviews
+    (review_id,source,item_id,generation,state,created_at,expires_at)
+    VALUES (?,'naver-board-56','8289927',0,'pending',?,?)`)
+    .bind(reviewId, new Date(now).toISOString(), new Date(now + 86400000).toISOString())
+    .run();
+  await raiseOpsAlert(db, {
+    alertKey: "manual-review:staging:naver-board-56:8289927",
+    environment: "staging",
+    severity: "warning",
+    component: "source-queue",
+    errorCode: "manual_review",
+    context: { source: "naver-board-56", itemId: "8289927", reviewId },
+    nowMs: now,
+  });
+  const alert = await dueAlert(now);
+  await db
+    .prepare(`CREATE TABLE IF NOT EXISTS source_judgment_evidence (
+    source TEXT,item_id TEXT,content_hash TEXT,rule_version TEXT,block_index INTEGER,
+    judged_at TEXT,verdict TEXT,reason TEXT,question TEXT,triggers_json TEXT,
+    block_excerpt TEXT,comparison_json TEXT,context_hash TEXT)`)
+    .run();
+  expect(await readManualReviewEvidence(db, alert)).toEqual([]);
+  await db
+    .prepare(`INSERT INTO source_manual_review_bindings
+    (review_id,source_revision,body_hash,generation,review_token,metadata_json,created_at)
+    VALUES (?,1,?,0,?,'{}',?)`)
+    .bind(reviewId, "a".repeat(64), "c".repeat(64), new Date(now).toISOString())
+    .run();
+  for (const [hash, date, question, context] of [
+    ["a".repeat(64), "2026-10-16", "stale context", "d".repeat(64)],
+    ["a".repeat(64), "2026-10-17", "older review", "e".repeat(64)],
+    ["b".repeat(64), "2026-10-18", "newer revision", "f".repeat(64)],
+  ]) {
+    await db
+      .prepare(`INSERT INTO source_judgment_evidence
+      (source,item_id,content_hash,rule_version,block_index,judged_at,verdict,reason,
+       question,triggers_json,block_excerpt,comparison_json,context_hash) VALUES
+      ('naver-board-56','8289927',?,'v1',0,?,'manual_review',NULL,?,'[]','excerpt','{}',?)`)
+      .bind(hash, date, question, context)
+      .run();
+  }
+  expect((await readManualReviewEvidence(db, alert)).map((row) => row.question)).toEqual([
+    "older review",
+  ]);
+  // Each run shares one context across all sections, including non-review verdicts.
+  for (const run of [1, 2]) {
+    for (const [block, verdict, reason] of [
+      [0, "solo", null],
+      [1, "manual_review", "maintenance_missing"],
+      [2, "manual_review", "reopen_unsupported"],
+    ] as const) {
+      await db
+        .prepare(`INSERT INTO source_judgment_evidence
+        (source,item_id,content_hash,rule_version,context_hash,block_index,judged_at,
+         verdict,reason,question,triggers_json,block_excerpt,comparison_json)
+        VALUES ('naver-board-56','8289927',?,'v2',?,?,?,?,?,?,'[]','excerpt',
+          '{"known":null,"extracted":null,"equal":false}')`)
+        .bind(
+          "a".repeat(64),
+          String(run).repeat(64),
+          block,
+          `2026-10-${18 + run}T00:00:00Z`,
+          verdict,
+          reason,
+          `run ${run} block ${block}`,
+        )
+        .run();
+    }
+    const evidence = await readManualReviewEvidence(db, alert);
+    expect(evidence.map((row) => [row.block_index, row.reason, row.question])).toEqual([
+      [1, "maintenance_missing", `run ${run} block 1`],
+      [2, "reopen_unsupported", `run ${run} block 2`],
+    ]);
+    const card = JSON.stringify(await opsAlertMessage(alert, evidence));
+    expect(card).toContain("maintenance_missing");
+    expect(card).toContain("reopen_unsupported");
+    expect(card).not.toContain(`run ${run} block 0`);
+    expect(card).not.toContain(`run ${run - 1} block`);
+  }
+  // The source returns A → B → A without re-writing A's older evidence.
+  // Each review must use its immutable binding, not the newest evidence or binding.
+  for (const [generation, run] of [
+    [1, 1],
+    [2, 2],
+    [3, 1],
+  ]) {
+    const boundReviewId = `mr-${String(generation).repeat(32)}`;
+    await db
+      .prepare(`INSERT INTO source_manual_reviews
+      (review_id,source,item_id,generation,state,created_at,expires_at)
+      VALUES (?,'naver-board-56','8289927',?,'pending',?,?)`)
+      .bind(boundReviewId, generation, "2026-10-21T00:00:00Z", "2026-10-22T00:00:00Z")
+      .run();
+    await db
+      .prepare(`INSERT INTO source_manual_review_bindings
+      (review_id,source_revision,body_hash,generation,review_token,metadata_json,created_at)
+      VALUES (?,1,?,?,?,?,'2026-10-21T00:00:00Z')`)
+      .bind(
+        boundReviewId,
+        "a".repeat(64),
+        generation,
+        "c".repeat(64),
+        JSON.stringify({ contextHash: String(run).repeat(64) }),
+      )
+      .run();
+    const evidence = await readManualReviewEvidence(db, {
+      ...alert,
+      context: { ...alert.context, reviewId: boundReviewId },
+    });
+    expect(evidence.map((row) => row.question)).toEqual([
+      `run ${run} block 1`,
+      `run ${run} block 2`,
+    ]);
+  }
+  // Legacy bindings without contextHash still choose B, the newest judgment group.
+  expect((await readManualReviewEvidence(db, alert)).map((row) => row.question)).toEqual([
+    "run 2 block 1",
+    "run 2 block 2",
+  ]);
+  await db.prepare("DROP TABLE source_judgment_evidence").run();
+  expect(await readManualReviewEvidence(db, alert)).toEqual([]);
+});
 
 const deniedFetch = vi.fn(async () => {
   throw new Error("Unexpected outbound fetch in dispatcher D1 tests.");

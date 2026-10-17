@@ -5,8 +5,13 @@ import type { SupplyForecastCandidate } from "../../shared/supplyForecastCandida
 import { assertUsageAllowed } from "../../shared/usageGuard";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
 import { sha256Hex, stableJson } from "./crypto";
-import { markCandidateProposed, supersedeIncompatibleCandidates } from "./db";
+import {
+  markCandidateProposed,
+  sourceItemAndEventStatements,
+  supersedeIncompatibleCandidates,
+} from "./db";
 import { automationOperation, requireGuardDb } from "./http-shared";
+import { decideManualReview } from "./manual-review";
 import { parseScheduleEvents } from "./naver";
 import { fetchNotice, NOTICE_MAX_BYTES, NOTICE_TIMEOUT_MS, parseNoticeDetail } from "./notice";
 import { buildNoticeCandidate, isConstructedNoticeCandidate } from "./notice-processing";
@@ -39,6 +44,7 @@ async function initializeDatabase() {
     "0022_forecast_runtime_versions.sql",
     "0023_forecast_runtime_publication.sql",
     "0024_runtime_ingestion.sql",
+    "0026_source_judgment_evidence.sql",
   ]) {
     sqlite.exec(readFileSync(new URL(`migrations/${migration}`, root), "utf8"));
   }
@@ -57,7 +63,341 @@ async function initializeDatabase() {
 
 beforeEach(initializeDatabase);
 
+it("binds a reopen review generation to its immutable judgment evidence", async () => {
+  const payload = JSON.parse(
+    readFileSync(new URL("fixtures/naver-detail-7877359.json", root), "utf8"),
+  );
+  await enqueue(payload);
+  expect(
+    (await run(vi.fn<typeof fetch>().mockImplementation(async () => Response.json(payload))))
+      .candidateCreated,
+  ).toBe(false);
+  const joined = rows(`SELECT e.reason,e.content_hash,b.body_hash FROM source_manual_reviews r
+    JOIN source_manual_review_bindings b ON b.review_id=r.review_id AND b.generation=r.generation
+    JOIN source_judgment_evidence e ON e.source=r.source AND e.item_id=r.item_id AND e.content_hash=b.body_hash`);
+  expect(joined).toHaveLength(1);
+  expect(joined[0]).toMatchObject({
+    reason: "reopen_unsupported",
+    content_hash: joined[0]?.["body_hash"],
+  });
+});
+
+it("measures full ingestion CPU for captured update 8189601", async () => {
+  const payload = JSON.parse(
+    readFileSync(new URL("fixtures/naver-detail-8189601.json", root), "utf8"),
+  );
+  await enqueue(payload);
+  const sourceItem = await parseNoticeDetail(payload, 48, "8189601");
+  if (!sourceItem) throw new Error("missing CPU fixture");
+  await env.FORECAST_DB.batch(
+    sourceItemAndEventStatements(env.FORECAST_DB, [sourceItem], [], new Date().toISOString()),
+  );
+  const insert = sqlite.prepare(`INSERT INTO schedule_events
+    (event_id,event_type,source,source_item_id,starts_at,ends_at,schedule_status,manual_review,reason,observed_at)
+    VALUES(?,'solo','naver-board-48','8189601',?,?,'confirmed',0,NULL,?)`);
+  for (let index = 0; index < 240; index++) {
+    const start = new Date(Date.UTC(2000, 0, 1 + index * 28)).toISOString();
+    insert.run(
+      `cpu-history-${index}`,
+      start,
+      new Date(Date.parse(start) + 7 * 86400000).toISOString(),
+      start,
+    );
+  }
+  const revision = sqlite.prepare(`INSERT INTO source_notice_revisions
+    (source,item_id,source_revision,body_hash,revision_hash,semantic_hash,item_json,events_json,observed_at)
+    VALUES('naver-board-48',?,1,?,?,?,?,'[]',?)`);
+  for (let index = 0; index < 60; index++) {
+    revision.run(
+      `cpu-revision-${index}`,
+      "a".repeat(64),
+      "b".repeat(64),
+      "c".repeat(64),
+      JSON.stringify({ ...sourceItem, normalizedText: "점검 ".repeat(5500) }),
+      sourceItem.publishedAt,
+    );
+  }
+  // Vitest shares a process with its coordinator and other workers; process-wide
+  // CPU includes their startup/GC. Measure the ingestion worker's CPU instead.
+  const started = process.threadCpuUsage();
+  await run(vi.fn<typeof fetch>().mockImplementation(async () => Response.json(payload)));
+  const used = process.threadCpuUsage(started);
+  const cpuMs = (used.user + used.system) / 1000;
+  console.log(
+    JSON.stringify({
+      fixture: "8189601",
+      node: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      cpuMs,
+      method:
+        "process.threadCpuUsage user+system; 240 schedule events + 60 board-48 revisions (~16k characters), local SQLite, mocked GET",
+    }),
+  );
+  expect(cpuMs).toBeLessThanOrEqual(50);
+});
+
+it.each(["5월8일", "05월8일", "5월08일", "05월08일"])(
+  "resolves stored maintenance with date syntax %s",
+  async (date) => {
+    const payload = structuredClone(fixture);
+    payload.content.feed.contents = `<!-- SE_DOC_HEADER_START --><div class="se-viewer">
+      <p>솔로 레이드</p><p>진행 기간 - 5/8 점검 완료 후 ~ 5/15 4:59</p></div>`;
+    sqlite
+      .prepare(`INSERT INTO source_notice_revisions
+      (source,item_id,source_revision,body_hash,revision_hash,semantic_hash,item_json,events_json,observed_at)
+      VALUES('naver-board-48','padded-maintenance',1,?,?,?,?,'[]',?)`)
+      .run(
+        "a".repeat(64),
+        "b".repeat(64),
+        "c".repeat(64),
+        JSON.stringify({
+          normalizedText: `점검 일시 - ${date}(금) 11:00:00 ~ 15:00:00`,
+          publishedAt: "2026-05-07T00:00:00Z",
+        }),
+        "2026-05-07T00:00:00Z",
+      );
+    await enqueue(payload);
+    await run(async () => Response.json(payload));
+    expect(rows("SELECT starts_at,manual_review FROM schedule_events")).toEqual([
+      { starts_at: "2026-05-08T06:00:00.000Z", manual_review: 0 },
+    ]);
+  },
+);
+
+it("binds the newest review generation to context A after unchanged-body A → B → A", async () => {
+  const payload = JSON.parse(
+    readFileSync(new URL("fixtures/naver-detail-7877359.json", root), "utf8"),
+  );
+  await enqueue(payload);
+  await run(async () => Response.json(payload));
+  const bindings = () =>
+    rows(`SELECT b.* FROM source_manual_review_bindings b
+    JOIN source_manual_reviews r ON r.review_id=b.review_id
+    WHERE r.item_id='7877359' ORDER BY b.generation`);
+  const original = bindings()[0];
+  if (!original) throw new Error("missing initial binding");
+  const contextA = JSON.parse(String(original["metadata_json"])).contextHash;
+  expect(contextA).toMatch(/^[a-f0-9]{64}$/);
+  const reprocess = async (request: string) => {
+    const latest = bindings().at(-1);
+    await decideManualReview(
+      env.FORECAST_DB,
+      "staging",
+      String(latest?.["review_id"]),
+      {
+        requestId: `mrq-${request.repeat(32)}`,
+        decision: "requeue",
+        reason: "점검 및 일정 근거 재확인",
+        runId: 1,
+        event: null,
+      },
+      { runtimeIngestion: true },
+    );
+    allowRecheck();
+    await run(async () => Response.json(payload));
+  };
+  const item = await parseNoticeDetail(payload, 56, "7877359");
+  if (!item) throw new Error("missing reopen fixture");
+  const knownItem = {
+    ...item,
+    itemId: "9001",
+    url: "https://game.naver.com/lounge/nikke/board/detail/9001",
+  };
+  await env.FORECAST_DB.batch(
+    sourceItemAndEventStatements(
+      env.FORECAST_DB,
+      [knownItem],
+      [
+        {
+          eventId: "context-known",
+          eventType: "solo",
+          sourceItem: knownItem,
+          startsAt: "2026-07-03T03:00:00.000Z",
+          endsAt: "2026-07-07T19:59:00.000Z",
+          scheduleStatus: "confirmed",
+          manualReview: false,
+          reason: null,
+        },
+      ],
+      new Date().toISOString(),
+    ),
+  );
+  await reprocess("b");
+  const contextB = JSON.parse(String(bindings().at(-1)?.["metadata_json"])).contextHash;
+  expect(contextB).not.toBe(contextA);
+  // Withdraw the external confirmation; keep all source/review evidence immutable.
+  sqlite.exec("UPDATE schedule_events SET manual_review=1 WHERE event_id='context-known'");
+  await reprocess("c");
+  const all = bindings();
+  expect(all).toHaveLength(3);
+  expect(all[0]).toEqual(original);
+  expect(all.every((binding) => binding["body_hash"] === original["body_hash"])).toBe(true);
+  expect(JSON.parse(String(all[2]?.["metadata_json"])).contextHash).toBe(contextA);
+  expect(
+    rows("SELECT DISTINCT context_hash FROM source_judgment_evidence WHERE item_id='7877359'"),
+  ).toHaveLength(2);
+  const selected = sqlite
+    .prepare(`SELECT e.context_hash FROM source_manual_review_bindings b
+    JOIN source_manual_reviews r ON r.review_id=b.review_id
+    JOIN source_judgment_evidence e ON e.source=r.source AND e.item_id=r.item_id
+      AND e.content_hash=b.body_hash AND e.context_hash=json_extract(b.metadata_json,'$.contextHash')
+    WHERE b.review_id=?`)
+    .all(String(all[2]?.["review_id"]));
+  expect(selected).toEqual([{ context_hash: contextA }]);
+});
+
+it("persists both section judgments and their revision links while holding the post", async () => {
+  const payload = JSON.parse(
+    readFileSync(new URL("fixtures/naver-detail-7860406.json", root), "utf8"),
+  );
+  await enqueue(payload);
+  const result = await run(
+    vi.fn<typeof fetch>().mockImplementation(async () => Response.json(payload)),
+  );
+  expect(result.candidateCreated).toBe(false);
+  expect(rows("SELECT verdict FROM source_judgment_evidence ORDER BY block_index")).toEqual([
+    { verdict: "manual_review" },
+    { verdict: "solo" },
+  ]);
+  expect(rows("SELECT * FROM schedule_event_source_revisions")).toHaveLength(2);
+  expect(rows("SELECT DISTINCT context_hash FROM source_judgment_evidence")).toHaveLength(1);
+  expect(rows("SELECT * FROM schedule_events WHERE manual_review=0")).toHaveLength(0);
+  expect(rows("SELECT status FROM source_queue")[0]?.["status"]).toBe("manual_review");
+});
+
+it("builds from the second resolved solo section and persists both events", async () => {
+  const payload = structuredClone(fixture);
+  payload.content.feed.contents = `<!-- SE_DOC_HEADER_START --><div class="se-viewer">
+    <p>1. 솔로 레이드 오픈</p><p>진행 기간 - 8/20 12:00 ~ 8/27 4:59</p>
+    <p>2. 솔로 레이드 오픈</p><p>진행 기간 - 9/17 12:00 ~ 9/24 4:59</p></div>`;
+  await enqueue(payload);
+  const result = await runRuntimeIngestion(env, {
+    fetcher: async () => Response.json(payload),
+    candidateNowMs: Date.parse("2026-09-17T12:00:00Z"),
+  });
+  expect(result.candidateCreated).toBe(true);
+  expect(rows("SELECT * FROM schedule_events")).toHaveLength(2);
+  expect(rows("SELECT schedule_event_id FROM forecast_candidates")[0]?.["schedule_event_id"]).toBe(
+    "naver-board-56:8060044:solo:1",
+  );
+});
+
+it("persists no_change evidence without candidate churn and deduplicates rechecks", async () => {
+  const payload = JSON.parse(
+    readFileSync(new URL("fixtures/naver-detail-8189601.json", root), "utf8"),
+  );
+  await enqueue(payload);
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json(payload));
+  await run(fetcher);
+  const priorCandidates = rows("SELECT * FROM forecast_candidates");
+  allowRecheck();
+  expect((await run(fetcher)).candidateCreated).toBe(false);
+  expect(rows("SELECT * FROM forecast_candidates")).toEqual(priorCandidates);
+  // Re-evaluation with a newly known event creates a separate context identity.
+  const confirmation = structuredClone(payload);
+  confirmation.content.feed.feedId = 8189602;
+  confirmation.content.feedLink.pc = "https://game.naver.com/lounge/nikke/board/detail/8189602";
+  await enqueue(confirmation);
+  await run(vi.fn<typeof fetch>().mockImplementation(async () => Response.json(confirmation)));
+  expect(rows("SELECT verdict FROM source_judgment_evidence WHERE item_id='8189602'")).toEqual([
+    { verdict: "no_change" },
+  ]);
+  expect(rows("SELECT * FROM source_judgment_evidence")).toHaveLength(2);
+  for (const sql of [
+    "UPDATE source_judgment_evidence SET reason='tampered'",
+    "DELETE FROM source_judgment_evidence",
+    "INSERT OR REPLACE INTO source_judgment_evidence SELECT * FROM source_judgment_evidence LIMIT 1",
+  ])
+    expect(() => sqlite.exec(sql)).toThrow("source_evidence_immutable");
+  allowRecheck();
+  await run(
+    vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (url) =>
+        Response.json(String(url).endsWith("8189602") ? confirmation : payload),
+      ),
+  );
+  expect(rows("SELECT * FROM source_judgment_evidence")).toHaveLength(2);
+});
+
 describe("rotation admission", () => {
+  it("rejects more than eight submitted section events before writes", async () => {
+    const item = await parseNoticeDetail(fixture, 56, "8060044");
+    if (!item) throw new Error("missing fixture");
+    const [event] = await parseScheduleEvents([item]);
+    if (!event) throw new Error("missing event");
+    await expect(
+      processSourceQueue(env.FORECAST_DB, {
+        mode: "bootstrap",
+        results: [
+          {
+            source: item.source,
+            itemId: item.itemId,
+            outcome: "processed",
+            item,
+            event,
+            events: Array(9).fill(event),
+          },
+        ],
+      }),
+    ).rejects.toThrow();
+    expect(rows("SELECT * FROM schedule_events")).toHaveLength(0);
+  });
+  it("keeps the original season when 8289927 gains another solo section", async () => {
+    const payload = JSON.parse(
+      readFileSync(new URL("fixtures/naver-detail-8289927.json", root), "utf8"),
+    );
+    await enqueue(payload);
+    await run(async () => Response.json(payload));
+    const original = rows("SELECT event_id,starts_at,ends_at FROM schedule_events")[0];
+    payload.content.feed.contents +=
+      "<p>99. 솔로 레이드 오픈</p><p>진행 기간 - 2026년 11월 12일 12:00 ~ 2026년 11월 19일 4:59</p>";
+    allowRecheck();
+    await run(async () => Response.json(payload));
+    expect(
+      rows("SELECT event_id,starts_at,ends_at FROM schedule_events WHERE manual_review=0"),
+    ).toContainEqual(original);
+    expect(rows("SELECT * FROM schedule_events WHERE manual_review=0")).toHaveLength(2);
+    expect(
+      rows(
+        "SELECT count(*) AS blocks FROM source_judgment_evidence GROUP BY context_hash ORDER BY blocks",
+      ),
+    ).toEqual([{ blocks: 1 }, { blocks: 2 }]);
+    expect(rows("SELECT status FROM source_queue")[0]?.["status"]).toBe("processed");
+  });
+
+  it("finds 7709605 maintenance for 7699562 before limiting unrelated revision dates", async () => {
+    const maintenance = JSON.parse(
+      readFileSync(new URL("fixtures/naver-detail-7709605.json", root), "utf8"),
+    );
+    const solo = JSON.parse(
+      readFileSync(new URL("fixtures/naver-detail-7699562.json", root), "utf8"),
+    );
+    await enqueue(maintenance);
+    await run(async () => Response.json(maintenance));
+    const insert = sqlite.prepare(`INSERT INTO source_notice_revisions
+      (source,item_id,source_revision,body_hash,revision_hash,semantic_hash,item_json,events_json,observed_at)
+      VALUES('naver-board-48',?,1,?,?,?,?,'[]',?)`);
+    for (let index = 0; index < 61; index++)
+      insert.run(
+        `irrelevant-${index}`,
+        "a".repeat(64),
+        "b".repeat(64),
+        "c".repeat(64),
+        JSON.stringify({
+          normalizedText: "점검 일시 - 5월 27일(수) 11:00:00 ~ 15:00:00",
+          publishedAt: "2026-05-28T00:00:00Z",
+        }),
+        "2026-05-28T00:00:00Z",
+      );
+    await enqueue(solo);
+    await run(async () => Response.json(solo));
+    expect(rows("SELECT verdict FROM source_judgment_evidence WHERE item_id='7699562'")).toEqual([
+      { verdict: "no_change" },
+    ]);
+  });
+
   async function seed(board: number, status = "completed", age = 60_000) {
     const time = new Date(Date.now() - age).toISOString();
     await env.FORECAST_DB.prepare(`INSERT INTO collector_invocations
@@ -121,7 +461,9 @@ function allowRecheck() {
   sqlite.exec("UPDATE runtime_ingestion_items SET next_check_at='2000-01-01T00:00:00.000Z'");
 }
 function run(
-  fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json(fixture)),
+  fetcher: typeof fetch = vi
+    .fn<typeof fetch>()
+    .mockImplementation(async () => Response.json(fixture)),
 ) {
   return runRuntimeIngestion(env, { fetcher, candidateNowMs: now });
 }
@@ -279,6 +621,7 @@ describe("fixture ingestion end to end and CPU measurement", () => {
     expect(expected.candidate.rulesVersion).toBe("schedule-kit-v3");
     expect(expected.candidate.certifiedSnapshot).toBeDefined();
     expect(rows("SELECT * FROM source_notice_revisions")).toHaveLength(1);
+    expect(rows("SELECT status FROM source_queue")[0]?.["status"]).toBe("processed");
     expect(rows("SELECT * FROM runtime_ingestion_commits")).toHaveLength(1);
     expect(fetcher.mock.calls[0]?.[1]?.redirect).toBe("manual");
     expect(() => sqlite.exec("DELETE FROM runtime_notice_requests")).toThrow(
@@ -313,10 +656,11 @@ describe("fixture ingestion end to end and CPU measurement", () => {
     allowRecheck();
     expect((await run(fetcher)).candidateCreated).toBe(false);
     expect(rows("SELECT payload_json,payload_hash FROM forecast_candidates")).toEqual(original);
+    expect(rows("SELECT status FROM source_queue")[0]?.["status"]).toBe("processed");
     expect(rows("SELECT * FROM source_notice_revisions")).toHaveLength(1);
   });
 
-  it("retains corrected body evidence and creates a different immutable candidate", async () => {
+  it("replaces a notice's own earlier schedule without treating it as independent confirmation", async () => {
     await enqueue();
     await run();
     allowRecheck();
@@ -328,6 +672,7 @@ describe("fixture ingestion end to end and CPU measurement", () => {
     expect(corrected.content.feed.contents).not.toBe(fixture.content.feed.contents);
     await run(vi.fn<typeof fetch>().mockImplementation(async () => Response.json(corrected)));
     expect(rows("SELECT * FROM forecast_candidates")).toHaveLength(2);
+    expect(rows("SELECT status FROM source_queue")[0]?.["status"]).toBe("processed");
     expect(rows("SELECT * FROM source_notice_revisions")).toHaveLength(2);
   });
 });
@@ -389,6 +734,9 @@ async function runCorrectedNotice(day: "28" | "29") {
     `8/${day}(목)`,
   );
   allowRecheck();
+  // Publication-only fixture: retire the old schedule directly. This deliberately
+  // does not claim to exercise the generation/token-bound human review workflow.
+  sqlite.exec("UPDATE schedule_events SET manual_review=1 WHERE event_type='solo'");
   return run(vi.fn<typeof fetch>().mockImplementation(async () => Response.json(corrected)));
 }
 
@@ -630,9 +978,13 @@ describe("bounds, ownership and recovery", () => {
     conflict.content.feedLink.pc = "https://game.naver.com/lounge/nikke/board/detail/124";
     conflict.content.feed.contents = conflict.content.feed.contents.replace("8/27(목)", "8/28(금)");
     await enqueue(conflict);
-    await expect(
-      run(vi.fn<typeof fetch>().mockImplementation(async () => Response.json(conflict))),
-    ).rejects.toThrow("runtime_ingestion_source_conflict");
+    expect(
+      (await run(vi.fn<typeof fetch>().mockImplementation(async () => Response.json(conflict))))
+        .candidateCreated,
+    ).toBe(false);
+    expect(rows("SELECT error_code FROM source_queue WHERE item_id='124'")[0]?.["error_code"]).toBe(
+      "schedule_conflict",
+    );
     expect(rows("SELECT * FROM forecast_candidates")).toHaveLength(1);
   });
 });

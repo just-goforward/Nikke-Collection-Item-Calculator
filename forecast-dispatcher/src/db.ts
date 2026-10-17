@@ -1,4 +1,5 @@
 import { sha256Hex } from "./crypto";
+import type { ReviewEvidence } from "./review-evidence.ts";
 import type {
   ActionableWork,
   DispatcherEnvironment,
@@ -8,6 +9,51 @@ import type {
 } from "./types";
 
 const RESERVATION_LEASE_MS = 5 * 60 * 1_000;
+
+export async function readManualReviewEvidence(
+  db: D1Database,
+  alert: OpsAlertRow,
+): Promise<ReviewEvidence[]> {
+  if (!alert.alertKey.startsWith("manual-review:")) return [];
+  const { source, itemId, reviewId } = alert.context;
+  if (typeof source !== "string" || typeof itemId !== "string") return [];
+  try {
+    const result = await db
+      .prepare(
+        `WITH latest AS (
+          SELECT e.content_hash, e.rule_version, e.context_hash FROM source_judgment_evidence e
+          JOIN source_manual_reviews r ON r.source=e.source AND r.item_id=e.item_id
+          JOIN source_manual_review_bindings b ON b.review_id=r.review_id
+            AND b.generation=r.generation AND b.body_hash=e.content_hash
+          WHERE e.source = ? AND e.item_id = ? AND r.review_id = ?
+            AND (json_extract(b.metadata_json,'$.contextHash') IS NULL
+              OR e.context_hash=json_extract(b.metadata_json,'$.contextHash'))
+          GROUP BY e.content_hash, e.rule_version, e.context_hash
+          ORDER BY MAX(e.judged_at) DESC, e.rule_version DESC LIMIT 1
+        )
+        SELECT e.block_index,e.judged_at,e.reason,e.question,e.triggers_json,
+          e.block_excerpt,e.comparison_json,
+          (SELECT expires_at FROM source_manual_reviews WHERE review_id = ?) AS expires_at
+        FROM source_judgment_evidence e JOIN latest l
+          ON e.content_hash=l.content_hash AND e.rule_version=l.rule_version
+            AND e.context_hash=l.context_hash
+        WHERE e.source=? AND e.item_id=? AND e.verdict='manual_review'
+        ORDER BY e.block_index LIMIT 3`,
+      )
+      .bind(source, itemId, reviewId ?? "", reviewId ?? "", source, itemId)
+      .all<ReviewEvidence>();
+    return result.results;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      /no such table: (?:main\.)?source_(?:judgment_evidence|manual_review_bindings|manual_reviews)\b/.test(
+        error.message,
+      )
+    )
+      return [];
+    throw error;
+  }
+}
 const RECENT_DISPATCH_MS = 20 * 60 * 1_000;
 const ALERT_SUPPRESSION_MS = 30 * 60 * 1_000;
 const MAX_WORK_IDS = 1_000;

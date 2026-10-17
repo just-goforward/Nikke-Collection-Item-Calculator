@@ -127,6 +127,16 @@ it.each([
   ["empty text node", structured("")],
   ["null JSON", "null"],
   ["primitive JSON", '"솔로 레이드"'],
+  ["numeric primitive JSON", "42"],
+  ["boolean primitive JSON", "true"],
+  [
+    "literal less-than",
+    `<!-- SE_DOC_HEADER_START --><div class="se-viewer">${schedule}</div> tail <`,
+  ],
+  [
+    "nested template",
+    `<!-- SE_DOC_HEADER_START --><div class="se-viewer"><template><template>hidden</template>legacy visible</template>${schedule}</div>`,
+  ],
   ["malformed doc", '{"document":{"components":'],
   ["unrecognized HTML", `<p>${schedule}</p>`],
   ["empty recognized HTML", '<!-- SE_DOC_HEADER_START --><div class="se-viewer"></div>'],

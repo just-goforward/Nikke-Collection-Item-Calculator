@@ -1,6 +1,7 @@
 import { readBoundedText } from "../../shared/boundedHttp";
 import { type FetchLike, parseNaverFeed } from "./naver";
 import type { ProfileCounts } from "./profile";
+import { extractNoticeText, type NoticeText, noticeTexts } from "./solo-sections";
 
 const DETAIL_URL = "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/";
 export const NOTICE_MAX_BYTES = 2_000_000;
@@ -101,60 +102,29 @@ export async function parseNoticeDetail(
     feed,
     user: { ...user, role: user["userRoleCode"] },
   };
-  return (
+  const extracted = extractNoticeText(feed["contents"]);
+  const item =
     (
       await parseNaverFeed({ code: 200, content: { feeds: [normalized] } }, boardId, {
         structuredJsonOnly: true,
-        parsedContents: { value: normalizeSmartEditorContents(feed["contents"]) },
+        parsedContents: { value: normalizeSmartEditorContents(feed["contents"], extracted) },
       })
-    )[0] ?? null
-  );
+    )[0] ?? null;
+  if (item) noticeTexts.set(item, extracted);
+  return item;
 }
 
-function normalizeSmartEditorContents(rawContents: string) {
-  try {
-    return JSON.parse(rawContents) as unknown;
-  } catch (error) {
-    if (!(error instanceof SyntaxError)) throw error;
-  }
+function normalizeSmartEditorContents(rawContents: string, extracted: NoticeText) {
+  if (extracted.parsed !== undefined) return extracted.parsed;
   if (
     !rawContents.includes("SE_DOC_HEADER_START") ||
     !/<div\b[^>]*class=["'][^"']*\bse-viewer\b[^>]*>/i.test(rawContents)
   ) {
     throw new Error("naver_unstructured_body");
   }
-  const text = decodeHtmlEntities(
-    rawContents
-      .replace(/<!--[\s\S]*?-->/g, " ")
-      .replace(/<(script|style|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, " ")
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/(?:p|div|li|h[1-6]|tr)\s*>/gi, "\n")
-      .replace(/<[^>]*>/g, " "),
-  )
-    .replace(/\s+/g, " ")
-    .trim();
+  const text = extracted.legacyText;
   if (!text) throw new Error("naver_unstructured_body");
   return { document: { components: [{ "@ctype": "textNode", value: text }] } };
-}
-
-function decodeHtmlEntities(value: string) {
-  const named: Record<string, string> = {
-    amp: "&",
-    apos: "'",
-    gt: ">",
-    lt: "<",
-    nbsp: " ",
-    quot: '"',
-  };
-  return value.replace(/&(#\d+|#x[\da-f]+|amp|apos|gt|lt|nbsp|quot);/gi, (match, entity) => {
-    const normalized = String(entity).toLowerCase();
-    if (!normalized.startsWith("#")) return named[normalized] ?? match;
-    const codePoint = normalized.startsWith("#x")
-      ? Number.parseInt(normalized.slice(2), 16)
-      : Number.parseInt(normalized.slice(1), 10);
-    if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) return match;
-    return String.fromCodePoint(codePoint);
-  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

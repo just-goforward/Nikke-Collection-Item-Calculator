@@ -666,7 +666,7 @@ export async function processSourceQueue(
         ...sourceItemAndEventStatements(
           db,
           [result.item as NormalizedSourceItem],
-          result.event ? [result.event as ScheduleEvent] : [],
+          result.events ?? (result.event ? [result.event as ScheduleEvent] : []),
           nowIso,
         ),
       );
@@ -703,7 +703,11 @@ export async function processSourceQueue(
       throw new Error("candidate_payload_hash");
     }
     const eventKnown =
-      request.results.some((entry) => entry.event?.eventId === eventId) ||
+      request.results.some(
+        (entry) =>
+          entry.event?.eventId === eventId ||
+          entry.events?.some((event) => event.eventId === eventId),
+      ) ||
       (await db
         .prepare("SELECT event_id FROM schedule_events WHERE event_id = ?")
         .bind(eventId)

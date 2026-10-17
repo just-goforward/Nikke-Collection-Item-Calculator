@@ -12,6 +12,26 @@ import {
 } from "./naver";
 
 describe("Naver Lounge parser", () => {
+  it("requires solo and change words in the same sentence for unnumbered notices", async () => {
+    const [item] = await parseNaverFeed(JSON.parse(soloFixture) as unknown, 56);
+    if (!item) throw new Error("missing solo fixture");
+    const [unrelated] = await parseScheduleEvents([
+      {
+        ...item,
+        normalizedText: "솔로 레이드 8/20 12:00 ~ 8/27 4:59. 협동 작전 연장 안내.",
+      },
+    ]);
+    const [changed] = await parseScheduleEvents([
+      {
+        ...item,
+        normalizedText: "솔로 레이드 연장 안내. 8/20 12:00 ~ 8/27 4:59.",
+      },
+    ]);
+    expect(unrelated?.eventType).toBe("solo");
+    expect(unrelated?.manualReview).toBe(false);
+    expect(changed?.eventType).toBe("schedule_change");
+  });
+
   it("extracts an official structured Solo Raid schedule", async () => {
     const payload = JSON.parse(soloFixture) as unknown;
     const items = await parseNaverFeed(payload, 56);

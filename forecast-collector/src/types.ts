@@ -59,6 +59,8 @@ export type ScheduleEvent = {
   reason: string | null;
 };
 
+export type { SoloReason as ScheduleJudgmentReason } from "./solo-judgment";
+
 export type XProbeResult = {
   status: "crosschecked" | "x_unavailable" | "conflict";
   sourceItem: NormalizedSourceItem | null;
@@ -89,5 +91,6 @@ export type SourceQueueResult = {
   errorCode?: string;
   item?: NormalizedSourceItem;
   event?: ScheduleEvent;
+  events?: ScheduleEvent[];
 };
 /// <reference path="../worker-configuration.d.ts" />

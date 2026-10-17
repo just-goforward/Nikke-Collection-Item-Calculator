@@ -1,0 +1,117 @@
+import { describe, expect, it } from "vitest";
+import { opsAlertMessage } from "./discord";
+import { escapeReviewText, type ReviewEvidence, reviewEvidenceFields } from "./review-evidence";
+import type { OpsAlertRow } from "./types";
+
+const row: ReviewEvidence = {
+  block_index: 0,
+  judged_at: "2026-10-17T00:07:00Z",
+  reason: "ambiguous_schedule_change",
+  question: "솔로 레이드 기간이 기존 일정과 같은가?",
+  triggers_json: JSON.stringify(["솔로 레이드: 10월 22일 ~ 10월 29일"]),
+  block_excerpt: "솔로 레이드: 10월 22일 ~ 10월 29일",
+  comparison_json: JSON.stringify({
+    known: { startKst: "2026-10-22 05:00", endKst: "2026-10-29 04:59" },
+    extracted: { startKst: "2026-10-22 05:00", endKst: "2026-10-29 04:59" },
+    equal: true,
+  }),
+  expires_at: "2026-10-18T00:07:00Z",
+};
+const alert: OpsAlertRow = {
+  alertKey: "manual-review:staging:naver-board-48:8289927",
+  environment: "staging",
+  severity: "warning",
+  component: "source-queue",
+  errorCode: "source_item_manual_review",
+  state: "open",
+  context: { reviewId: `mr-${"a".repeat(32)}`, title: "솔로 레이드 안내" },
+  occurrenceCount: 1,
+  lastSentOccurrenceCount: 0,
+  firstSeenAt: row.judged_at,
+  resolvedAt: null,
+};
+
+describe("manual review evidence cards", () => {
+  it("renders equal 8289927-like periods and complete KST footer without timestamp", async () => {
+    const message = await opsAlertMessage(alert, [row]);
+    expect(JSON.stringify(message)).toContain("✅ 같음");
+    expect(message.embeds[0]).not.toHaveProperty("timestamp");
+    expect(message.embeds[0]).toHaveProperty(
+      "footer.text",
+      `감지 2026-10-17 (토) 09:07 KST · staging · mr-${"a".repeat(32)}\n마감 2026-10-18 (일) 09:07 KST`,
+    );
+    expect(message.allowed_mentions).toEqual({ parse: [] });
+    expect(reviewEvidenceFields([row])[1]?.value).toContain(
+      "-# 사유 코드: `ambiguous_schedule_change`",
+    );
+    expect(reviewEvidenceFields([row])[2]?.value).toBe(
+      "> 솔로 레이드: 10월 22일 ~ 10월 29일\n> 솔로 레이드: 10월 22일 ~ 10월 29일",
+    );
+  });
+  it.each([
+    ["maintenance_missing", "board-48 업데이트 공지의 점검 일시"],
+    ["maintenance_conflict", "board-48 업데이트 공지의 점검 일시"],
+    ["maintenance_crosses_day", "board-48 업데이트 공지의 점검 일시"],
+    ["reopen_unsupported", "재오픈/중단은 아직 자동 반영하지 않습니다."],
+    ["suspension_unsupported", "재오픈/중단은 아직 자동 반영하지 않습니다."],
+  ])("gives concrete guidance for %s", (reason, expected) => {
+    expect(reviewEvidenceFields([{ ...row, reason }])[4]?.value).toContain(expected);
+    expect(reviewEvidenceFields([{ ...row, reason }])[4]?.value).not.toContain("[일정 직접 확정]");
+  });
+  it("directs simple section schedule changes to direct confirmation", () => {
+    expect(reviewEvidenceFields([{ ...row, reason: "schedule_change_in_section" }])[4]?.value).toBe(
+      "솔로 레이드 항목에 연장·일정 변경 문구가 있습니다. 공지의 새 기간을 확인하고, 단순 연장/변경이면 [일정 직접 확정]으로 새 기간 입력, 반영할 필요가 없으면 [관련 없음].",
+    );
+  });
+  it("neutralizes formatting and bounds every field and the aggregate", async () => {
+    const text = "~~old~~ ||hidden|| `code` *bold* _italic_\n> @everyone <@123>";
+    expect(escapeReviewText(text)).toBe(
+      "\\~\\~old\\~\\~ \\|\\|hidden\\|\\| \\`code\\` \\*bold\\* \\_italic\\_\n＞ ＠everyone ＜＠123＞",
+    );
+    expect(escapeReviewText("a ~ b ~~~old~~~ \\*bold*")).toBe(
+      "a ~ b \\~\\~\\~old\\~\\~\\~ \\\\\\*bold\\*",
+    );
+    const evidence = { ...row, question: text.repeat(1000), block_excerpt: text.repeat(1000) };
+    const message = await opsAlertMessage(alert, [evidence, evidence, evidence]);
+    const fields = reviewEvidenceFields([evidence, evidence, evidence]);
+    expect(fields.every((field) => field.value.length <= 1024)).toBe(true);
+    expect(fields[2]?.value).toContain("[옛 값(취소선): old]");
+    expect(fields[2]?.value).toContain("…(생략)");
+    expect(JSON.stringify(message).length).toBeLessThan(8500);
+    expect(
+      fields.reduce((sum, field) => sum + field.name.length + field.value.length, 0) + 700,
+    ).toBeLessThanOrEqual(5500);
+  });
+  it.each(["unknown_code", "constructor", "__proto__", "`bad` @everyone"])(
+    "omits a reason code outside the fixed allowlist: %s",
+    (reason) => {
+      const value = reviewEvidenceFields([{ ...row, reason }])[1]?.value;
+      expect(value).not.toContain("사유 코드:");
+      expect(value).not.toContain(reason);
+    },
+  );
+  it("keeps the original card when no evidence is available", async () => {
+    expect((await opsAlertMessage(alert, [])).embeds[0]?.description).toEqual(
+      (await opsAlertMessage(alert)).embeds[0]?.description,
+    );
+  });
+  it("renders literal collector columns and camelCase comparison including an unknown start time", () => {
+    const evidence = {
+      block_index: 0,
+      judged_at: "2026-05-20T00:00:00Z",
+      reason: "maintenance_missing",
+      question: "점검 후 시작 시각은?",
+      triggers_json: '["2026-05-28 점검 완료 후"]',
+      block_excerpt: "~~*2026-05-21*~~ → 2026-05-28",
+      comparison_json:
+        '{"known":{"eventId":"solo-1","startsAt":"2026-05-28T01:00:00Z","endsAt":"2026-06-04T19:59:00Z","startKst":"2026-05-28 10:00","endKst":"2026-06-05 04:59"},"extracted":{"startsAt":null,"endsAt":"2026-06-04T19:59:00Z","startKst":"2026-05-28 점검 완료 후(시각 미확정)","endKst":"2026-06-05 04:59"},"equal":false}',
+      expires_at: null,
+    };
+    const fields = reviewEvidenceFields([evidence]);
+    expect(fields[3]?.value).toContain("기존: 2026-05-28 10:00 ~ 2026-06-05 04:59");
+    expect(fields[3]?.value).toContain("추출: 2026-05-28 점검 완료 후(시각 미확정)");
+    expect(fields[3]?.value).not.toContain("추출: 미확정");
+    expect(fields[2]?.value).toContain("[옛 값(취소선): \\*2026-05-21\\*]");
+    expect(fields[2]?.value).not.toContain("~");
+  });
+});

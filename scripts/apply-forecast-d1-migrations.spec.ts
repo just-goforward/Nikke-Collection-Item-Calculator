@@ -11,7 +11,6 @@ import {
 import {
   acceptedLegacyRows,
   assertLegacyBaseline,
-  currentVersions,
   database,
   fixtureDirectory,
   json,
@@ -19,11 +18,14 @@ import {
   legacyDatabase,
   localStaging,
   migrations,
+  currentVersions as previousVersions,
   result,
   root,
   type Spawn,
   sqliteRunner,
 } from "./forecast-migration-test-fixtures.ts";
+
+const currentVersions = [...previousVersions, 26];
 
 function databaseSnapshot(db: DatabaseSync) {
   const catalog = db
@@ -53,7 +55,7 @@ it("records the v24 latest-ingestion-run index in the migration schema snapshot"
 });
 
 describe("Forecast migration discovery and CLI", () => {
-  it("discovers current incremental files 0002..0025 in numeric order", () => {
+  it("discovers current incremental files 0002..0026 in numeric order", () => {
     expect(migrations.map((migration) => migration.version)).toEqual(currentVersions.slice(1));
     expect(migrations.map((migration) => basename(migration.file))).toEqual([
       "0002_collector_deployment_sha.sql",
@@ -80,9 +82,10 @@ describe("Forecast migration discovery and CLI", () => {
       "0023_forecast_runtime_publication.sql",
       "0024_runtime_ingestion.sql",
       "0025_naver_page_policy.sql",
+      "0026_source_judgment_evidence.sql",
     ]);
     expect(migrations.at(-1)?.file).toBe(
-      resolve(root, "forecast-collector/migrations/0025_naver_page_policy.sql"),
+      resolve(root, "forecast-collector/migrations/0026_source_judgment_evidence.sql"),
     );
   });
 
@@ -174,7 +177,7 @@ describe("Forecast migration SQL and restart behavior", () => {
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true })).toEqual({
         bootstrapped: true,
-        applied: [22, 23, 24, 25],
+        applied: [22, 23, 24, 25, 26],
         versions: currentVersions,
       });
       expect(runner.files()).toEqual([
@@ -183,6 +186,7 @@ describe("Forecast migration SQL and restart behavior", () => {
         "0023_forecast_runtime_publication.sql",
         "0024_runtime_ingestion.sql",
         "0025_naver_page_policy.sql",
+        "0026_source_judgment_evidence.sql",
       ]);
       const columns = db.prepare("PRAGMA table_info(canary_runs)").all();
       expect(columns).toEqual(
@@ -200,7 +204,7 @@ describe("Forecast migration SQL and restart behavior", () => {
       expect(runner.files()).toEqual([]);
     },
   );
-  it("upgrades real v1 SQL through 24 and leaves completed migrations untouched on restart", () => {
+  it("upgrades real v1 SQL through 26 and leaves completed migrations untouched on restart", () => {
     const db = legacyDatabase(1);
     const accepted = acceptedLegacyRows(db);
     const runner = sqliteRunner(db);
@@ -234,7 +238,7 @@ describe("Forecast migration SQL and restart behavior", () => {
     },
   );
 
-  it("upgrades v10 to 24 preserving accepted facts and cursors, then performs only reads", () => {
+  it("upgrades v10 to 26 preserving accepted facts and cursors, then performs only reads", () => {
     const db = legacyDatabase(10);
     db.exec(`INSERT INTO source_poll_state(source,committed_item_id,committed_published_at,
       scan_head_item_id,scan_head_published_at,next_offset,updated_at) VALUES
@@ -244,7 +248,7 @@ describe("Forecast migration SQL and restart behavior", () => {
     const runner = sqliteRunner(db);
     expect(runner.run()).toEqual({
       bootstrapped: false,
-      applied: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+      applied: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
       versions: currentVersions,
     });
     expect(runner.files()).toEqual(
@@ -307,7 +311,7 @@ describe("Forecast migration SQL and restart behavior", () => {
       ?, 0, 1, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`).run("a".repeat(64));
     const runner = sqliteRunner(db);
     expect(runner.run().applied).toEqual([
-      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
     ]);
     const reviews = db.prepare("SELECT * FROM source_manual_reviews").all();
     expect(reviews).toHaveLength(1);
@@ -358,7 +362,7 @@ describe("REVIEW11 create-only forecast storage upgrade", () => {
       const polls = db.prepare("SELECT * FROM source_poll_state").all();
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
       ]);
       expect(runner.files()).toEqual([
         "0013_source_metadata_and_adoption_infrastructure.sql",
@@ -374,6 +378,7 @@ describe("REVIEW11 create-only forecast storage upgrade", () => {
         "0023_forecast_runtime_publication.sql",
         "0024_runtime_ingestion.sql",
         "0025_naver_page_policy.sql",
+        "0026_source_judgment_evidence.sql",
       ]);
       for (const table of [
         "source_metadata_observations",
@@ -418,7 +423,7 @@ describe("REVIEW11 create-only forecast storage upgrade", () => {
       expect(db.prepare("SELECT * FROM staging_adoption_infrastructure_circuit").all()).toEqual(
         circuit,
       );
-      expect(runner.files()).toHaveLength(13);
+      expect(runner.files()).toHaveLength(14);
     },
   );
 });
@@ -438,7 +443,7 @@ describe("source-processor durable failure-budget storage", () => {
       const claims = db.prepare("SELECT * FROM source_processing_claims").all();
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
       ]);
       expect(runner.files()).toEqual([
         "0014_source_processor_failure_budget.sql",
@@ -453,6 +458,7 @@ describe("source-processor durable failure-budget storage", () => {
         "0023_forecast_runtime_publication.sql",
         "0024_runtime_ingestion.sql",
         "0025_naver_page_policy.sql",
+        "0026_source_judgment_evidence.sql",
       ]);
       for (const table of [
         "source_processor_state",
@@ -501,7 +507,7 @@ describe("source-processor durable failure-budget storage", () => {
           (table) => db.prepare(`SELECT * FROM ${table}`).all(),
         ),
       ).toEqual(history);
-      expect(runner.files()).toHaveLength(12);
+      expect(runner.files()).toHaveLength(13);
     },
   );
 
@@ -536,7 +542,7 @@ describe("Forecast migration production and fault recovery", () => {
       const processing = db.prepare("SELECT * FROM staging_adoption_processing").all();
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
       ]);
       expect(runner.files()).toEqual([
         "0012_staging_adoption_attempt_leases.sql",
@@ -553,6 +559,7 @@ describe("Forecast migration production and fault recovery", () => {
         "0023_forecast_runtime_publication.sql",
         "0024_runtime_ingestion.sql",
         "0025_naver_page_policy.sql",
+        "0026_source_judgment_evidence.sql",
       ]);
       expect(
         db
@@ -598,8 +605,10 @@ describe("Forecast migration production and fault recovery", () => {
     const runner = sqliteRunner(db);
     expect(runner.run({ environment: "production", local: false })).toEqual({
       bootstrapped: false,
-      applied: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
-      versions: [1, 2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+      applied: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
+      versions: [
+        1, 2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+      ],
     });
     expect(runner.files()).toEqual(
       migrations
@@ -655,9 +664,9 @@ describe("Forecast migration production and fault recovery", () => {
       }
       const runner = sqliteRunner(db);
       expect(runner.run({ environment: "production", local: true }).applied).toEqual([
-        8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+        8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
       ]);
-      expect(runner.files()).toHaveLength(18);
+      expect(runner.files()).toHaveLength(19);
     },
   );
 
@@ -673,7 +682,7 @@ describe("Forecast migration production and fault recovery", () => {
     expect(runner.files()).toEqual(["0006_discord_staging_message_identity.sql"]);
     runner.spawn.mockImplementation(normal);
     expect(runner.run().applied).toEqual([
-      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
     ]);
   });
 
@@ -690,7 +699,7 @@ describe("Forecast migration production and fault recovery", () => {
     expect(runner.files()).toEqual(["0006_discord_staging_message_identity.sql"]);
     runner.spawn.mockImplementation(normal).mockClear();
     expect(runner.run().applied).toEqual([
-      7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+      7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
     ]);
     expect(runner.files()).not.toContain("0006_discord_staging_message_identity.sql");
   });
@@ -712,14 +721,14 @@ describe("Forecast migration fail-closed ledger checks", () => {
   });
 
   it.each(["staging", "production"] as const)(
-    "rejects a contiguous unknown version 26 in %s before writes",
+    "rejects a contiguous unknown version 27 in %s before writes",
     (environment) => {
       const spawn = vi
         .fn<Spawn>()
         .mockReturnValueOnce(result(json([{ name: "schema_migrations", type: "table" }])))
-        .mockReturnValueOnce(result(json(ledgerRows([...currentVersions, 26]))));
+        .mockReturnValueOnce(result(json(ledgerRows([...currentVersions, 27]))));
       expect(() => applyForecastD1Migrations({ environment, local: true }, { spawn })).toThrow(
-        "Unknown schema_migrations version: 26",
+        "Unknown schema_migrations version: 27",
       );
       expect(spawn).toHaveBeenCalledTimes(2);
       expect(spawn.mock.calls.every(([, args]) => !args.includes("--file"))).toBe(true);

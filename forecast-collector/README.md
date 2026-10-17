@@ -8,6 +8,19 @@ statistics and cannot modify the repository or activate a product forecast.
 
 ## Sources and cadence
 
+Solo notices are judged per top-level numbered solo section; sub-numbering remains
+inside its section. Struck text is evidence, not an effective schedule. Dedicated
+solo notices apply the same suspension/reopen/change safeguards. Known confirmed
+seasons compare by start game date and equivalent 04:59 end minute; unchanged
+notices do not publish a replacement candidate. Any manual-review section still
+blocks the entire post and the existing publication gates remain fail closed.
+Maintenance-relative starts use same-post maintenance first, then stored board-48
+notice revisions without fetching another post. This is arrival-order dependent:
+posts held as `maintenance_missing` remain held until a human requests 재처리.
+The automatic body recheck does not re-evaluate held posts.
+Migration 0026 stores bounded per-section evidence with the immutable body hash
+used by the manual review generation binding.
+
 ### Rotation schedule
 
 Staging uses `COLLECTION_SCHEDULE=rotation`; production remains `combined`.

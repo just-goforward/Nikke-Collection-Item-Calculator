@@ -85,7 +85,7 @@ async function collectNotices(
     const requestId = row.official === 1 ? await reserveNotice(db, token, row, limit) : null;
     if (row.official === 1 && requestId === null) break;
     if (requestId && counts) counts.noticesReserved += 1;
-    const result = await processNotice(queueItem(row), fetcher ?? fetch, counts);
+    const result = await processNotice(queueItem(row), fetcher ?? fetch, counts, db);
     entries.push({ row, result, requestId });
   }
   return entries;

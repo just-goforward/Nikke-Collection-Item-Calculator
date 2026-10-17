@@ -1,4 +1,10 @@
-import { listDueAlerts, markAlertSendFailed, markAlertSent, raiseOpsAlert } from "./db.ts";
+import {
+  listDueAlerts,
+  markAlertSendFailed,
+  markAlertSent,
+  raiseOpsAlert,
+  readManualReviewEvidence,
+} from "./db.ts";
 import {
   DiscordMessageError,
   opsAlertMessage,
@@ -51,7 +57,9 @@ export async function flushOperations(env: DispatcherEnv): Promise<number> {
   for (const alert of await listDueAlerts(db, env.ENVIRONMENT, now)) {
     try {
       const payload =
-        alert.state === "resolved" ? await opsRecoveryMessage(alert) : await opsAlertMessage(alert);
+        alert.state === "resolved"
+          ? await opsRecoveryMessage(alert)
+          : await opsAlertMessage(alert, await readManualReviewEvidence(db, alert));
       const message = await sendDiscordMessage(env, "alert", payload);
       await markAlertSent(db, alert, message.messageId, now);
       sent += 1;

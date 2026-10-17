@@ -1,5 +1,7 @@
 import { readBoundedText } from "../../shared/boundedHttp.ts";
 import { sha256Hex, stableJson } from "./crypto";
+import { judgeSolo, judgments, type SoloContext } from "./solo-judgment";
+import { noticeTexts } from "./solo-sections";
 import type { NaverFeedMetadata, NormalizedSourceItem, ScheduleEvent, SourceKind } from "./types";
 
 const NAVER_FEED_URL = "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed";
@@ -241,17 +243,27 @@ export async function parseNaverFeed(
 
 export async function parseScheduleEvents(
   items: readonly NormalizedSourceItem[],
+  context: SoloContext = {},
 ): Promise<ScheduleEvent[]> {
   const events: ScheduleEvent[] = [];
   for (const item of items) {
+    if (noticeTexts.has(item)) {
+      const judged = judgeSolo(item, parseKoreanDateRange, context);
+      if (judged) {
+        judgments.set(item, judged);
+        events.push(...judged.flatMap((judgment) => (judgment.event ? [judgment.event] : [])));
+        continue;
+      }
+    }
     const text = item.normalizedText;
     const schedule = parseKoreanDateRange(text, item.publishedAt);
+    const eventType = classifyEvent(text);
     const manualReview =
       !item.structured ||
       !item.official ||
       /점검\s*완료\s*후/.test(text) ||
+      ((eventType === "solo" || eventType === "schedule_change") && /재오픈/.test(text)) ||
       (/(중단|연장|재개|일정\s*변경)/.test(text) && schedule === null);
-    const eventType = classifyEvent(text);
     if (!eventType) continue;
     const eventId = `${item.source}:${item.itemId}:${eventType}`;
     let reason: ScheduleEvent["reason"] = null;
@@ -449,7 +461,15 @@ async function readGuardedJson(response: Response): Promise<unknown> {
 
 function classifyEvent(text: string): ScheduleEvent["eventType"] | null {
   if (/(솔로\s*레이드|솔레)/.test(text)) {
-    return /(중단|연장|재개|종료|일정\s*변경)/.test(text) ? "schedule_change" : "solo";
+    return text
+      .split(/[.!?。！？\r\n]+/)
+      .some(
+        (sentence) =>
+          /(솔로\s*레이드|솔레)/.test(sentence) &&
+          /(중단|연장|재개|재오픈|종료|일정\s*변경)/.test(sentence),
+      )
+      ? "schedule_change"
+      : "solo";
   }
   if (/(협동\s*작전|협작)/.test(text)) return "cooperation";
   if (/콜라보/.test(text)) return "collaboration";

@@ -4,6 +4,8 @@ import type { FetchLike } from "./naver";
 import { parseScheduleEvents } from "./naver";
 import { fetchNotice } from "./notice";
 import type { ProfileCounts } from "./profile";
+import { judgments, soloLookup } from "./solo-judgment";
+import { readScheduleLedger } from "./source-queue";
 import type { ScheduleEvent, SourceQueueItem, SourceQueueResult } from "./types";
 
 const constructedCandidates = new WeakSet<object>();
@@ -19,6 +21,7 @@ export async function processNotice(
   queued: SourceQueueItem,
   fetcher: FetchLike,
   counts?: ProfileCounts,
+  db?: D1Database,
 ): Promise<SourceQueueResult> {
   const base = { source: queued.source, itemId: queued.itemId };
   if (!queued.official) return { ...base, outcome: "ignored", errorCode: "not_official_manager" };
@@ -31,14 +34,57 @@ export async function processNotice(
     );
     if (!item) return { ...base, outcome: "ignored", errorCode: "no_relevant_keyword" };
     if (item.url !== queued.url) throw new Error("naver_detail_url_mismatch");
-    const event = (await parseScheduleEvents([item]))[0];
-    if (!event) return { ...base, outcome: "ignored", errorCode: "no_schedule_event", item };
+    const lookup = soloLookup(item);
+    const known = db && lookup.solo ? (await readScheduleLedger(db, Date.now())).events : [];
+    const maintenance: { text: string; publishedAt: string }[] = [];
+    if (db)
+      for (const date of lookup.dates) {
+        const stored = await db
+          .prepare(`SELECT
+        json_extract(item_json,'$.normalizedText') AS text,
+        json_extract(item_json,'$.publishedAt') AS publishedAt
+        FROM source_notice_revisions r WHERE source='naver-board-48'
+        AND json_extract(item_json,'$.publishedAt')>=? AND json_extract(item_json,'$.publishedAt')<?
+        AND EXISTS (SELECT 1 FROM json_each(?) needle WHERE instr(replace(replace(replace(json_extract(item_json,'$.normalizedText'),' ',''),':','-'),'：','-'),needle.value)>0)
+        AND source_revision=(SELECT MAX(source_revision) FROM source_notice_revisions n WHERE n.source=r.source AND n.item_id=r.item_id)
+        ORDER BY publishedAt DESC LIMIT 60`)
+          .bind(
+            `${date.slice(0, 4)}-01-01T00:00:00.000Z`,
+            new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString(),
+            JSON.stringify([
+              ...new Set(
+                [String(Number(date.slice(5, 7))), date.slice(5, 7)].flatMap((month) =>
+                  [String(Number(date.slice(8, 10))), date.slice(8, 10)].map(
+                    (day) => `점검일시-${month}월${day}일`,
+                  ),
+                ),
+              ),
+            ]),
+          )
+          .all<{ text: string; publishedAt: string }>();
+        maintenance.push(...stored.results);
+      }
+    const events = await parseScheduleEvents([item], { known, maintenance });
+    const event = events.find((entry) => entry.manualReview) ?? events[0];
+    if (!event)
+      return {
+        ...base,
+        outcome: "ignored",
+        errorCode: judgments.get(item)?.every((judgment) => judgment.verdict === "no_change")
+          ? "no_change"
+          : "no_schedule_event",
+        item,
+      };
     return {
       ...base,
       outcome: event.manualReview ? "manual_review" : "processed",
       ...(event.reason ? { errorCode: event.reason } : {}),
       item,
       event,
+      events: events.map((entry) => ({
+        ...entry,
+        manualReview: event.manualReview || entry.manualReview,
+      })),
     };
   } catch (error) {
     const errorCode = noticeErrorCode(error);
@@ -59,14 +105,21 @@ export async function buildNoticeCandidate(
   // a matching event ID (a solo notice can become a schedule-change notice).
   const replaced = new Set(
     results
-      .filter((result) => result.outcome !== "retry")
+      .filter((result) => result.outcome !== "retry" && result.errorCode !== "no_change")
       .map((result) => `${result.source}:${result.itemId}`),
   );
   const events = [
     ...previous.filter(
       (event) => !replaced.has(`${event.sourceItem.source}:${event.sourceItem.itemId}`),
     ),
-    ...results.flatMap((result) => (result.event ? [result.event] : [])),
+    ...results.flatMap(
+      (result) =>
+        result.events ??
+        (result.item
+          ? judgments.get(result.item)?.flatMap((entry) => (entry.event ? [entry.event] : []))
+          : undefined) ??
+        (result.event ? [result.event] : []),
+    ),
   ];
   const latestSolo = events
     .filter((event) => event.eventType === "solo")
