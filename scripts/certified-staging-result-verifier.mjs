@@ -374,17 +374,17 @@ function expectedProfile() {
   assert.equal(fileDigest("public/certified_solver.wasm"), wasmHash, "pinned WASM hash drift");
   // This reviewed contract deliberately fails if the product profile evolves.
   return {
-    id: "certified-staging-v2",
+    id: "certified-staging-v3",
     environment: "staging",
-    schemaVersion: "certified-daily-v3",
+    schemaVersion: "certified-daily-v4",
     recommendedHorizonDays: 14,
     priceVersion: "stock-plus-recurring-day-v1",
     solverVersion: "certified-exact-rust-wasm-v1",
     lawVersion: "documented-physical-supply-v2",
     wasmHash,
     codeHash,
-    cacheNamespace: `certified-staging-v2:${codeHash}`,
-    sessionNamespace: "collection-certified-staging-v2",
+    cacheNamespace: `certified-staging-v3:${codeHash}`,
+    sessionNamespace: "collection-certified-staging-v3",
     diagnosticsEnvironment: "staging",
     recoveryEnvironment: "staging",
   };
