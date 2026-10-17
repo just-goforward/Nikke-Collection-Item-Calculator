@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
+import compat from "../shared/supplyForecastCompatIdentities.json" with { type: "json" };
 import { registryCertifiedSnapshot } from "./certified-forecast-registry.ts";
 
 type Gain = { blue: number; purple: number; yellow: number };
@@ -34,6 +36,16 @@ const sourcePath = resolve(root, "shared", "supplyForecasts.json");
 const tsPath = resolve(root, "shared", "generated", "supplyForecast.ts");
 const runtimeTsPath = resolve(root, "shared", "generated", "supplyForecastRuntime.ts");
 const checkOnly = process.argv.includes("--check");
+const identityHash = createHash("sha256")
+  .update(JSON.stringify([compat.forecastId, ...compat.profileIds].sort()))
+  .digest("hex");
+if (
+  identityHash !== compat.sha256 ||
+  compat.sourceCommit !== "32982fa9155180440e5a9b686caa5d9efe5e6fde" ||
+  compat.sha256 !== "f15758dc4290733ec011d1bdb5179dc4b9f15bda6f195700af3aa09f20515edf"
+) {
+  throw new Error("Pinned forecast compatibility identities changed.");
+}
 
 const registry = validateRegistry(JSON.parse(await readFile(sourcePath, "utf8")));
 const activeIndex = registry.forecasts.findIndex(
@@ -221,7 +233,9 @@ function renderTypeScript(registry: Registry, active: Forecast) {
     `export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE = ACTIVE_SUPPLY_FORECAST.profiles[0];\n` +
     `export const ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID = ACTIVE_SUPPLY_FORECAST_BASE_PROFILE.id;\n\n` +
     `export const SUPPLY_FORECAST_REGISTRY =\n${serialized} as const;\n\n` +
-    `export type SupplyForecastId = (typeof SUPPLY_FORECAST_REGISTRY.forecasts)[number]["id"];\n` +
+    `// Acceptance only; never used to select or calculate a forecast.\n` +
+    `const COMPAT_IDENTITIES = ${JSON.stringify(compat, null, 2)} as const;\n\n` +
+    `export type SupplyForecastId = (typeof SUPPLY_FORECAST_REGISTRY.forecasts)[number]["id"] | typeof COMPAT_IDENTITIES.forecastId;\n` +
     `export type SupplyForecastProfile = {\n` +
     `  id: string;\n` +
     `  effectiveFrom: string;\n` +
@@ -230,11 +244,13 @@ function renderTypeScript(registry: Registry, active: Forecast) {
     `  expectedGain: { blue: number; purple: number; yellow: number };\n` +
     `};\n\n` +
     `export function isSupplyForecastId(value: unknown): value is SupplyForecastId {\n` +
+    `  if (value === COMPAT_IDENTITIES.forecastId) return true;\n` +
     `  return (SUPPLY_FORECAST_REGISTRY.forecasts as readonly { id: string }[]).some(\n` +
     `    (forecast) => forecast.id === value,\n` +
     `  );\n` +
     `}\n\n` +
     `export function isSupplyForecastProfileId(value: unknown): value is string {\n` +
+    `  if (COMPAT_IDENTITIES.profileIds.some((id) => id === value)) return true;\n` +
     `  return SUPPLY_FORECAST_REGISTRY.forecasts.some((forecast) =>\n` +
     `    forecast.profiles.some((profile) => profile.id === value),\n` +
     `  );\n` +
