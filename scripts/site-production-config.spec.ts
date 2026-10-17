@@ -2,19 +2,21 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("production static site configuration", () => {
-  it("exposes only ASSETS and SITE_ENV, with no domain or backend provisioning", async () => {
+  it("exposes ASSETS, SITE_ENV and the stats service, without domain provisioning", async () => {
     const source = await readFile("site-worker/production.wrangler.toml", "utf8");
     const config = source.replace(/^#.*$/gm, "");
     expect(config).toContain('name = "collection-kit-site-production"');
     expect(config).toContain('SITE_ENV = "production"');
     expect([...config.matchAll(/^binding = "([^"]+)"/gm)].map((match) => match[1])).toEqual([
       "ASSETS",
+      "STATS",
     ]);
     expect([...config.matchAll(/^\[([^\]]+)\]/gm)].map((match) => match[1])).toEqual([
       "vars",
       "assets",
       "observability",
       "observability.logs",
+      "[services",
     ]);
     for (const key of ["workers_dev", "preview_urls", "upload_source_maps", "invocation_logs"]) {
       expect(config).toContain(`${key} = false`);

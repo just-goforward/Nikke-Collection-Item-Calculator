@@ -72,6 +72,7 @@ function configAssignments(config: string) {
     assets: ["directory", "binding", "not_found_handling", "run_worker_first"],
     observability: ["enabled"],
     "observability.logs": ["enabled", "invocation_logs"],
+    services: ["binding", "service"],
   };
   const values = new Map<string, string>();
   const sections = new Set<string>();
@@ -79,7 +80,8 @@ function configAssignments(config: string) {
   for (const raw of config.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
-    const heading = line.match(/^\[([a-z.]+)\]$/)?.[1];
+    const heading =
+      line === "[[services]]" ? "services" : line.match(/^\[((?!services\])[a-z.]+)\]$/)?.[1];
     if (heading && allowed[heading] && !sections.has(heading)) {
       section = heading;
       sections.add(heading);
@@ -106,6 +108,8 @@ export function siteDeploymentArguments(sha: string, config: string) {
     "observability.enabled": "false",
     "observability.logs.enabled": "false",
     "observability.logs.invocation_logs": "false",
+    "services.binding": '"STATS"',
+    "services.service": '"collection-kit-stats"',
   };
   for (const [key, value] of Object.entries(required)) {
     if (values.get(key) !== value) throw new Error(`Unexpected production config ${key}.`);
