@@ -167,7 +167,9 @@ function equalSolo(schedule: ScheduleRange | null, known: ScheduleEvent[]) {
 
 function sectionPeriod(effective: string, numbered: boolean) {
   return numbered
-    ? (effective.split("\n").find((line) => /(?:이벤트\s*)?진행\s*기간\s*[:：-]/.test(line)) ?? "")
+    ? (effective
+        .split("\n")
+        .find((line) => /(?:(?:이벤트\s*)?진행\s*기간|오픈\s*일시)\s*[:：-]/.test(line)) ?? "")
     : effective;
 }
 

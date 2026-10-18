@@ -72,6 +72,8 @@ it("does not classify unrelated extension, suspension or ending sentences in 818
 it.each([
   ["8189601", "2026-09-24T03:00:00Z", "2026-09-30T19:59:00Z"],
   ["8289927", "2026-10-15T03:00:00Z", "2026-10-21T19:59:00Z"],
+  // Solo section labels its period "오픈 일시" instead of "이벤트 진행 기간".
+  ["8042609", "2026-08-20T03:00:00Z", "2026-08-26T19:59:00Z"],
 ])(
   "recognizes %s as unchanged despite unrelated extension and suspension wording",
   async (id, start, end) => {
@@ -110,6 +112,7 @@ it("uses stored maintenance and compares the start game date rather than exact s
 it.each([
   ["8189601", ["solo"]],
   ["8289927", ["solo"]],
+  ["8042609", ["solo"]],
   ["7709605", ["solo"]],
   ["7699562", ["maintenance_missing"]],
   ["7860406", ["reopen_without_suspension", "solo"]],
