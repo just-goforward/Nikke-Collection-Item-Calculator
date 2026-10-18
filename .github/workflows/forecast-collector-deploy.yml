@@ -8,6 +8,13 @@ on:
       - "!forecast-collector/README.md"
       - "forecast-dispatcher/**"
       - "forecast-interactions/**"
+      - "forecast-admin/**"
+      - "shared/forecastV2Notifications.ts"
+      - "shared/forecastManualReview.ts"
+      - "shared/certifiedEvidenceCoverage.ts"
+      - "scripts/apply-forecast-d1-migrations.v2-gate.spec.ts"
+      - "scripts/apply-forecast-d1-migrations.fail-closed.spec.ts"
+      - "scripts/forecast-migration-0030.spec.ts"
       - "usage-guard/**"
       - "shared/boundedHttp.ts"
       - "shared/cloudflareD1Catalog.ts"
@@ -160,17 +167,17 @@ jobs:
           FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
           FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
           FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
-          DISCORD_FORECAST_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
-          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
-          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
-          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
-          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
-          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
-          DISCORD_FORECAST_GUILD_ID: ${{ vars.DISCORD_FORECAST_GUILD_ID }}
-          DISCORD_FORECAST_APPROVER_USER_ID: ${{ vars.DISCORD_FORECAST_APPROVER_USER_ID }}
-          DISCORD_FORECAST_APPLICATION_ID: ${{ vars.DISCORD_FORECAST_APPLICATION_ID }}
-          DISCORD_FORECAST_PUBLIC_KEY: ${{ vars.DISCORD_FORECAST_PUBLIC_KEY }}
+          DISCORD_FORECAST_STAGING_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_STAGING_BOT_TOKEN }}
+          DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
+          DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID }}
+          DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID }}
+          DISCORD_FORECAST_STAGING_GUILD_ID: ${{ vars.DISCORD_FORECAST_STAGING_GUILD_ID }}
+          DISCORD_FORECAST_STAGING_APPROVER_USER_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVER_USER_ID }}
+          DISCORD_FORECAST_STAGING_APPLICATION_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPLICATION_ID }}
+          DISCORD_FORECAST_STAGING_PUBLIC_KEY: ${{ vars.DISCORD_FORECAST_STAGING_PUBLIC_KEY }}
+          FORECAST_INTERACTIONS_STAGING_URL: ${{ vars.FORECAST_INTERACTIONS_STAGING_URL }}
         run: |
+          set -euo pipefail
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID variable." >&2; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN secret." >&2; exit 1; }
           test -n "$CLOUDFLARE_D1_ANALYTICS_TOKEN" || { echo "Missing CLOUDFLARE_D1_ANALYTICS_TOKEN secret." >&2; exit 1; }
@@ -182,16 +189,12 @@ jobs:
           [[ "$FORECAST_GITHUB_APP_ID" =~ ^[0-9]{1,20}$ ]] || { echo "Missing or invalid FORECAST_GITHUB_APP_ID variable." >&2; exit 1; }
           [[ "$FORECAST_GITHUB_APP_INSTALLATION_ID" =~ ^[0-9]{1,20}$ ]] || { echo "Missing or invalid FORECAST_GITHUB_APP_INSTALLATION_ID variable." >&2; exit 1; }
           test -n "$FORECAST_GITHUB_APP_PRIVATE_KEY" || { echo "Missing FORECAST_GITHUB_APP_PRIVATE_KEY secret." >&2; exit 1; }
-          test -n "$DISCORD_FORECAST_BOT_TOKEN" || { echo "Missing DISCORD_FORECAST_BOT_TOKEN secret." >&2; exit 1; }
-          [[ "$DISCORD_FORECAST_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_CHANNEL_ID variable." >&2; exit 1; }
-          [[ "$DISCORD_FORECAST_APPROVAL_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_APPROVAL_CHANNEL_ID variable." >&2; exit 1; }
-          [[ "$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_ACTIVITY_CHANNEL_ID variable." >&2; exit 1; }
-          [[ "$DISCORD_FORECAST_ALERT_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_ALERT_CHANNEL_ID variable." >&2; exit 1; }
-          [[ "$DISCORD_FORECAST_FALLBACK_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_FALLBACK_CHANNEL_ID variable." >&2; exit 1; }
-          [[ "$DISCORD_FORECAST_GUILD_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_GUILD_ID variable." >&2; exit 1; }
-          [[ "$DISCORD_FORECAST_APPROVER_USER_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_APPROVER_USER_ID variable." >&2; exit 1; }
-          [[ "$DISCORD_FORECAST_APPLICATION_ID" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_APPLICATION_ID variable." >&2; exit 1; }
-          [[ "$DISCORD_FORECAST_PUBLIC_KEY" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_PUBLIC_KEY variable." >&2; exit 1; }
+          test -n "$DISCORD_FORECAST_STAGING_BOT_TOKEN" || { echo "Missing DISCORD_FORECAST_STAGING_BOT_TOKEN secret." >&2; exit 1; }
+          for name in DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID DISCORD_FORECAST_STAGING_GUILD_ID DISCORD_FORECAST_STAGING_APPROVER_USER_ID DISCORD_FORECAST_STAGING_APPLICATION_ID; do
+            [[ "${!name}" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid $name variable." >&2; exit 1; }
+          done
+          [[ "$DISCORD_FORECAST_STAGING_PUBLIC_KEY" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_STAGING_PUBLIC_KEY variable." >&2; exit 1; }
+          [[ "$FORECAST_INTERACTIONS_STAGING_URL" =~ ^https://[^/]+$ ]] || { echo "Missing or invalid FORECAST_INTERACTIONS_STAGING_URL variable." >&2; exit 1; }
 
       - name: Validate boundary recovery inputs before mutations
         if: github.event_name == 'workflow_dispatch'
@@ -337,13 +340,38 @@ jobs:
           npx wrangler deploy --dry-run --config forecast-interactions/wrangler.toml
 
       - name: Verify Forecast migration runner
-        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/apply-forecast-d1-migrations-json.spec.ts scripts/forecast-dispatcher-workflow.spec.ts scripts/recover-forecast-boundary.spec.ts scripts/check-workflow-hardening.spec.ts
+        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/apply-forecast-d1-migrations-json.spec.ts scripts/apply-forecast-d1-migrations.v2-gate.spec.ts scripts/apply-forecast-d1-migrations.fail-closed.spec.ts scripts/forecast-migration-0030.spec.ts scripts/forecast-dispatcher-workflow.spec.ts scripts/recover-forecast-boundary.spec.ts scripts/check-workflow-hardening.spec.ts
+
+      - name: Verify Forecast admin
+        run: |
+          set -euo pipefail
+          npx tsc --noEmit -p forecast-admin/tsconfig.json
+          npm run test:forecast-admin
 
       - name: Apply staging Forecast D1 migrations
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node scripts/apply-forecast-d1-migrations.ts --env staging --remote
+        run: node scripts/apply-forecast-d1-migrations.ts --env staging --remote --allow-forecast-v2
+
+      - name: Deploy staging Forecast admin when Access is configured
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCESS_TEAM_DOMAIN: ${{ vars.FORECAST_ADMIN_ACCESS_TEAM_DOMAIN }}
+          ACCESS_AUD: ${{ vars.FORECAST_ADMIN_ACCESS_AUD }}
+          ADMIN_ALLOWED_EMAILS: ${{ vars.FORECAST_ADMIN_ALLOWED_EMAILS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$ACCESS_TEAM_DOMAIN" && -n "$ACCESS_AUD" && -n "$ADMIN_ALLOWED_EMAILS" ]]; then
+            npx wrangler deploy --config forecast-admin/wrangler.toml \
+              --var "ACCESS_TEAM_DOMAIN:$ACCESS_TEAM_DOMAIN" \
+              --var "ACCESS_AUD:$ACCESS_AUD" \
+              --var "ADMIN_ALLOWED_EMAILS:$ADMIN_ALLOWED_EMAILS"
+          else
+            echo "Forecast admin deployment skipped: all three FORECAST_ADMIN_ACCESS_TEAM_DOMAIN, FORECAST_ADMIN_ACCESS_AUD and FORECAST_ADMIN_ALLOWED_EMAILS variables are required." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Verify production and staging Forecast covering indexes
         env:
@@ -386,7 +414,7 @@ jobs:
       - name: Prepare dispatcher secret file
         env:
           FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
-          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_STAGING_BOT_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -415,11 +443,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
           FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
-          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
-          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
-          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
-          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
+          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID }}
+          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID }}
         run: >-
+          set -euo pipefail;
           npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml
           --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json"
           --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }}
@@ -430,14 +459,16 @@ jobs:
           --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID
           --var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID
           --var DISPATCH_ENABLED:false
+          --var FORECAST_V2_NOTIFICATIONS_ENABLED:false
+          --var DISCORD_APPROVAL_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID
           --tag "${{ github.sha }}-disabled" --message "Forecast dispatcher staging disabled ${{ github.sha }}"
 
       - name: Prepare deployment secret file
         env:
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
-          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
-          DISCORD_FORECAST_APPLICATION_ID: ${{ vars.DISCORD_FORECAST_APPLICATION_ID }}
-          DISCORD_FORECAST_PUBLIC_KEY: ${{ vars.DISCORD_FORECAST_PUBLIC_KEY }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_STAGING_BOT_TOKEN }}
+          DISCORD_FORECAST_APPLICATION_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPLICATION_ID }}
+          DISCORD_FORECAST_PUBLIC_KEY: ${{ vars.DISCORD_FORECAST_STAGING_PUBLIC_KEY }}
         shell: bash
         run: |
           set -euo pipefail
@@ -446,7 +477,7 @@ jobs:
             exit 1
           }
           test -n "$DISCORD_BOT_TOKEN" || {
-            echo "Missing DISCORD_FORECAST_BOT_TOKEN." >&2
+            echo "Missing DISCORD_FORECAST_STAGING_BOT_TOKEN." >&2
             exit 1
           }
           application="$RUNNER_TEMP/discord-bot-application.json"
@@ -485,8 +516,57 @@ jobs:
               DISCORD_APPLICATION_ID: application.id,
               DISCORD_PUBLIC_KEY: application.verify_key,
             }),
+            { mode: 0o600 },
           );
           NODE
+
+      - name: Prepare staging interactions secret file
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_STAGING_BOT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - "$RUNNER_TEMP/forecast-interactions-staging-secrets.json" <<'NODE'
+          import { writeFileSync } from "node:fs";
+          const token = process.env.DISCORD_BOT_TOKEN;
+          if (!token) throw new Error("Missing DISCORD_FORECAST_STAGING_BOT_TOKEN secret.");
+          writeFileSync(process.argv[2], JSON.stringify({ DISCORD_BOT_TOKEN: token }), { mode: 0o600 });
+          NODE
+
+      - name: Deploy staging interactions
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DISCORD_PUBLIC_KEY: ${{ vars.DISCORD_FORECAST_STAGING_PUBLIC_KEY }}
+          DISCORD_APPLICATION_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPLICATION_ID }}
+          DISCORD_GUILD_ID: ${{ vars.DISCORD_FORECAST_STAGING_GUILD_ID }}
+          DISCORD_FORECAST_APPROVER_USER_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVER_USER_ID }}
+          DISCORD_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
+          DISCORD_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID }}
+          DISCORD_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --env staging --config forecast-interactions/wrangler.toml \
+            --secrets-file "$RUNNER_TEMP/forecast-interactions-staging-secrets.json" \
+            --var FORECAST_ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} \
+            --var "DISCORD_PUBLIC_KEY:$DISCORD_PUBLIC_KEY" \
+            --var "DISCORD_APPLICATION_ID:$DISCORD_APPLICATION_ID" \
+            --var "DISCORD_GUILD_ID:$DISCORD_GUILD_ID" \
+            --var "DISCORD_FORECAST_APPROVER_USER_ID:$DISCORD_FORECAST_APPROVER_USER_ID" \
+            --var "DISCORD_APPROVAL_CHANNEL_ID:$DISCORD_APPROVAL_CHANNEL_ID" \
+            --var "DISCORD_ALERT_CHANNEL_ID:$DISCORD_ALERT_CHANNEL_ID" \
+            --var "DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_ACTIVITY_CHANNEL_ID" \
+            --var PRODUCTION_MUTATIONS_ENABLED:false \
+            --var STAGING_PUBLICATION_MODE:off --var PRODUCTION_PUBLICATION_MODE:off
+
+      - name: Verify staging interactions readiness
+        env:
+          FORECAST_EXPECTED_DEPLOY_SHA: ${{ github.sha }}
+          FORECAST_INTERACTIONS_STAGING_URL: ${{ vars.FORECAST_INTERACTIONS_STAGING_URL }}
+        run: |
+          set -euo pipefail
+          npm run smoke:forecast-interactions -- "$FORECAST_INTERACTIONS_STAGING_URL"
 
       - name: Verify dedicated Router readiness
         env:
@@ -498,14 +578,16 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
+          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
           POLL_MODE: ${{ inputs.poll_mode || 'both' }}
           DISCORD_INTERACTION_OWNER: ${{ github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && 'router' || 'collector' }}
         run: >-
+          set -euo pipefail;
           npx wrangler deploy --env staging --config forecast-collector/wrangler.toml
           --secrets-file "$RUNNER_TEMP/forecast-secrets.json"
           --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE
           --var COLLECT_ENABLED:false
+          --var FORECAST_V2_MODE:off
           --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID
           --var DISCORD_INTERACTION_OWNER:$DISCORD_INTERACTION_OWNER
           --tag "${{ github.sha }}-$POLL_MODE-disabled"
@@ -559,7 +641,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
+          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
           POLL_MODE: ${{ inputs.poll_mode || 'both' }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/collector-active-deploy.ndjson
         shell: bash
@@ -570,6 +652,7 @@ jobs:
             --secrets-file "$RUNNER_TEMP/forecast-secrets.json" \
             --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
             --var COLLECT_ENABLED:true \
+            --var FORECAST_V2_MODE:off \
             --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
             --var DISCORD_INTERACTION_OWNER:router \
             --tag "${{ github.sha }}-$POLL_MODE-v10" \
@@ -600,10 +683,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
           FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
-          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
-          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
-          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
-          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
+          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID }}
+          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/dispatcher-active-deploy.ndjson
         shell: bash
         run: |
@@ -619,6 +702,8 @@ jobs:
             --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
             --var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID \
             --var DISPATCH_ENABLED:true \
+            --var FORECAST_V2_NOTIFICATIONS_ENABLED:false \
+            --var DISCORD_APPROVAL_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID \
             --tag "${{ github.sha }}-v10" \
             --message "Forecast dispatcher staging live probe ${{ github.sha }}" \
             2>&1 | tee "$RUNNER_TEMP/dispatcher-active-deploy.log"
@@ -738,8 +823,8 @@ jobs:
       - name: Send direct Discord D1 budget failure alert
         if: always() && steps.d1_budget.outcome == 'failure'
         env:
-          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
-          DISCORD_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_STAGING_BOT_TOKEN }}
+          DISCORD_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID }}
         shell: bash
         run: |
           set -euo pipefail
@@ -860,8 +945,8 @@ jobs:
       - name: Send mutation-free Router test card
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
         env:
-          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
-          DISCORD_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_STAGING_BOT_TOKEN }}
+          DISCORD_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID }}
         run: npm run send:forecast-router-test
 
       - name: Record shadow start
@@ -937,10 +1022,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
           FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
-          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
-          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
-          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
-          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
+          DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
+          DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID }}
+          DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID }}
+          DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/dispatcher-validation-stop.ndjson
         shell: bash
         run: |
@@ -955,6 +1040,8 @@ jobs:
             --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
             --var DISCORD_FALLBACK_CHANNEL_ID:$DISCORD_FORECAST_FALLBACK_CHANNEL_ID \
             --var DISPATCH_ENABLED:false \
+            --var FORECAST_V2_NOTIFICATIONS_ENABLED:false \
+            --var DISCORD_APPROVAL_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID \
             --tag "${{ github.sha }}-v10-validation-stop" \
             --message "Disable forecast dispatcher after staging validation failure"
           version=$(node scripts/check-workflow-hardening.ts --deployment-version \
@@ -977,7 +1064,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
+          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
           POLL_MODE: ${{ inputs.poll_mode || 'both' }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/collector-validation-stop.ndjson
         shell: bash
@@ -987,6 +1074,7 @@ jobs:
             --secrets-file "$RUNNER_TEMP/forecast-secrets.json" \
             --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
             --var COLLECT_ENABLED:false \
+            --var FORECAST_V2_MODE:off \
             --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
             --var DISCORD_INTERACTION_OWNER:router \
             --tag "${{ github.sha }}-$POLL_MODE-v10-validation-stop" \

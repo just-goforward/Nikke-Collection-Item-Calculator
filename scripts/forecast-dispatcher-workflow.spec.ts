@@ -262,12 +262,17 @@ describe("Forecast production review and migration workflow contract", () => {
       ["staging", stagingDeploy],
       ["production", promoteJob],
     ] as const) {
-      const command = `run: node scripts/apply-forecast-d1-migrations.ts --env ${environment} --remote`;
+      const command = `run: node scripts/apply-forecast-d1-migrations.ts --env ${environment} --remote${environment === "staging" ? " --allow-forecast-v2" : ""}\n`;
       expect(workflow).toContain(command);
       expect(workflow.split(command)).toHaveLength(2);
-      expect(workflow).toContain(
-        "run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/apply-forecast-d1-migrations-json.spec.ts scripts/forecast-dispatcher-workflow.spec.ts",
-      );
+      const verification = workflowStep(workflow, "Verify Forecast migration runner");
+      for (const spec of [
+        "apply-forecast-d1-migrations.spec.ts",
+        "apply-forecast-d1-migrations-json.spec.ts",
+        "forecast-dispatcher-workflow.spec.ts",
+      ]) {
+        expect(verification).toContain(`scripts/${spec}`);
+      }
       expect(workflow).not.toMatch(/--file forecast-collector\/migrations\//);
       expect(workflow).not.toContain(
         "SELECT COUNT(*) AS count FROM schema_migrations WHERE version =",
@@ -282,6 +287,17 @@ describe("Forecast production review and migration workflow contract", () => {
     expect(stagingDeploy).toContain('"scripts/apply-forecast-d1-migrations.ts"');
     expect(stagingDeploy).toContain('"scripts/apply-forecast-d1-migrations.spec.ts"');
     expect(stagingDeploy).toContain('"scripts/apply-forecast-d1-migrations-json.spec.ts"');
+    expect(promoteJob).not.toContain("--allow-forecast-v2");
+    for (const spec of [
+      "apply-forecast-d1-migrations.v2-gate.spec.ts",
+      "apply-forecast-d1-migrations.fail-closed.spec.ts",
+      "forecast-migration-0030.spec.ts",
+    ]) {
+      expect(stagingDeploy).toContain(`"scripts/${spec}"`);
+      expect(workflowStep(stagingDeploy, "Verify Forecast migration runner")).toContain(
+        `scripts/${spec}`,
+      );
+    }
   });
 
   it("keeps directly executed Node imports resolvable on Linux", () => {
@@ -297,6 +313,42 @@ describe("Forecast production review and migration workflow contract", () => {
 });
 
 describe("Forecast deployment identity and restore workflow contract", () => {
+  it("isolates staging Discord deployments and keeps automatic rollout disabled", () => {
+    const job = stagingDeploy.split("\n  deploy-staging:")[1]?.split("\n  deploy-usage-guard:")[0];
+    expect(job).toBeDefined();
+    expect(job).not.toMatch(/\$\{\{ (?:vars|secrets)\.DISCORD_FORECAST_(?!STAGING_)/);
+    const validation = workflowStep(stagingDeploy, "Validate configuration");
+    for (const suffix of [
+      "BOT_TOKEN",
+      "APPLICATION_ID",
+      "PUBLIC_KEY",
+      "GUILD_ID",
+      "APPROVER_USER_ID",
+      "APPROVAL_CHANNEL_ID",
+      "ACTIVITY_CHANNEL_ID",
+      "ALERT_CHANNEL_ID",
+    ]) {
+      expect(validation).toContain(`DISCORD_FORECAST_STAGING_${suffix}`);
+    }
+    expect(validation).toContain("Missing or invalid FORECAST_INTERACTIONS_STAGING_URL");
+    const dispatcher = workflowStep(stagingDeploy, "Deploy staging dispatcher");
+    expect(dispatcher).toContain("--var DISPATCH_ENABLED:false");
+    expect(dispatcher).toContain("--var FORECAST_V2_NOTIFICATIONS_ENABLED:false");
+    const collector = workflowStep(stagingDeploy, "Deploy staging collector");
+    expect(collector).toContain("--var COLLECT_ENABLED:false");
+    expect(collector).toContain("--var FORECAST_V2_MODE:off");
+    const interactions = workflowStep(stagingDeploy, "Deploy staging interactions");
+    expect(interactions).toContain(
+      "wrangler deploy --env staging --config forecast-interactions/wrangler.toml",
+    );
+    expect(interactions).toContain("--var STAGING_PUBLICATION_MODE:off");
+    expect(interactions).toContain("--var PRODUCTION_PUBLICATION_MODE:off");
+    expect(interactions).toContain("--var PRODUCTION_MUTATIONS_ENABLED:false");
+    expect(workflowStep(stagingDeploy, "Verify staging interactions readiness")).toContain(
+      'npm run smoke:forecast-interactions -- "$FORECAST_INTERACTIONS_STAGING_URL"',
+    );
+  });
+
   it("rejects privileged manual refs and deploys the exact certified snapshot", () => {
     for (const workflow of [stagingDeploy, proposal, productionPromote]) {
       expect(workflow).toContain("github.ref == 'refs/heads/main'");
@@ -323,7 +375,10 @@ describe("Forecast deployment identity and restore workflow contract", () => {
     expect(routerGuard).toBeGreaterThan(stagingDeploy.indexOf("Install dependencies"));
     expect(routerGuard).toBeLessThan(stagingDeploy.indexOf("Apply staging Forecast D1 migrations"));
     expect(stagingDeploy).not.toMatch(ROUTER_DEPLOY_PATTERN);
-    expect(stagingDeploy).not.toContain("--var PRODUCTION_MUTATIONS_ENABLED:");
+    expect(workflowStep(stagingDeploy, "Deploy staging interactions")).toContain(
+      "--var PRODUCTION_MUTATIONS_ENABLED:false",
+    );
+    expect(stagingDeploy).not.toContain("--var PRODUCTION_MUTATIONS_ENABLED:true");
     expect(stagingDeploy).toContain(
       `FORECAST_EXPECTED_DEPLOY_SHA: \${{ steps.router.outputs.deployment_sha }}`,
     );
