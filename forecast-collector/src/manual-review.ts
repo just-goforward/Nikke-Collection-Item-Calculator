@@ -10,6 +10,7 @@ import {
   sourceItemAndEventStatements,
 } from "./db";
 import { buildNoticeCandidate } from "./notice-processing";
+import { ignoredReviewSources } from "./review-supersession";
 import { loadRuntimeEvents } from "./runtime-events";
 import { prepareTypedResolution, typedBinding, typedResolutionSchema } from "./typed-resolutions";
 import type { NaverSourceKind, NormalizedSourceItem, ScheduleEvent } from "./types";
@@ -447,6 +448,9 @@ async function prepareManualEventDecision(
           ],
           nowMs,
           revision,
+          [],
+          [],
+          await ignoredReviewSources(db),
         );
     if (candidate)
       priorStatements.push(

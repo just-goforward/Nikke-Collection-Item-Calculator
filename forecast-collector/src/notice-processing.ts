@@ -213,6 +213,7 @@ export async function buildNoticeCandidate(
   revision: number,
   existingGrants: readonly SupplyForecastGrant[] = [],
   persistedReviews: readonly ReviewEvidence[] = [],
+  ignoredSources: ReadonlySet<string> = new Set(),
 ) {
   if (
     results.some(
@@ -243,6 +244,12 @@ export async function buildNoticeCandidate(
   ];
   // Contradictory overlapping official intervals must not be silently deduplicated.
   assertSoloIntervals(events);
+  const currentReviews = results
+    .filter((result) => result.outcome === "manual_review" && result.item)
+    .map((result) => ({
+      item: result.item as NonNullable<typeof result.item>,
+      judgments: judgments.get(result.item as NonNullable<typeof result.item>) ?? [],
+    }));
   const resolved = resolveSoloSchedule(events, nowMs);
   if (!resolved) return undefined;
   const envelope = await buildForecastCandidate(
@@ -274,12 +281,6 @@ export async function buildNoticeCandidate(
   const grants = candidate.envelope.candidate.grants ?? [];
   const horizon = candidate.envelope.candidate.certifiedSnapshot?.coverage;
   if (!horizon) return undefined;
-  const currentReviews = results
-    .filter((result) => result.outcome === "manual_review" && result.item)
-    .map((result) => ({
-      item: result.item as NonNullable<typeof result.item>,
-      judgments: judgments.get(result.item as NonNullable<typeof result.item>) ?? [],
-    }));
   for (const review of currentReviews)
     if (!(await reviewExcluded(review, events, grants, horizon, true))) return undefined;
   for (const review of persistedReviews)
@@ -287,22 +288,30 @@ export async function buildNoticeCandidate(
       !(await reviewExcluded(review, events, grants, horizon, Boolean(review.publicationBinding)))
     )
       return undefined;
-  const reviewed = new Set(
-    [...currentReviews, ...persistedReviews].map(
-      (review) => `${review.item.source}:${review.item.itemId}`,
-    ),
-  );
-  if (
-    events.some(
-      (event) =>
-        event.manualReview &&
-        event.reason !== "runtime_notice_replaced" &&
-        !reviewed.has(`${event.sourceItem.source}:${event.sourceItem.itemId}`),
-    )
-  )
+  // Runtime preflight applies this same predicate before resolution/construction.
+  // Retain the constructor's final defence and historical validation/error
+  // precedence for other callers that supply current-run result overlays.
+  if (hasUnreviewedNoticeEvents(events, [...currentReviews, ...persistedReviews], ignoredSources))
     return undefined;
   constructedCandidates.add(candidate);
   return candidate;
+}
+
+export function hasUnreviewedNoticeEvents(
+  events: readonly ScheduleEvent[],
+  reviews: readonly ReviewEvidence[],
+  ignoredSources: ReadonlySet<string> = new Set(),
+) {
+  const reviewed = new Set([
+    ...ignoredSources,
+    ...reviews.map((review) => `${review.item.source}:${review.item.itemId}`),
+  ]);
+  return events.some(
+    (event) =>
+      event.manualReview &&
+      event.reason !== "runtime_notice_replaced" &&
+      !reviewed.has(`${event.sourceItem.source}:${event.sourceItem.itemId}`),
+  );
 }
 
 function assertSoloIntervals(events: ScheduleEvent[]) {

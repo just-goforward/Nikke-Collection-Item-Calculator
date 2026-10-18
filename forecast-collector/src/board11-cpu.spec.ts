@@ -8,6 +8,8 @@ import { planGrants } from "./grants";
 import { decideManualReview } from "./manual-review";
 import { parseNoticeDetail } from "./notice";
 import { runRuntimeCandidate, runRuntimeIngestion } from "./runtime-ingestion";
+import { assertCandidateFingerprint } from "./test-candidate-fingerprint";
+import { coldCandidateLifecycle } from "./test-cold-lifecycle";
 import { runtimeTestDb } from "./test-runtime-db";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv, ScheduleEvent } from "./types";
@@ -147,6 +149,7 @@ it.each([7833931, 7837735, 7860406, 7877359, 8091116])(
       const ingestionSnapshotCpuMs = snapshotCpuMs;
       const ingestionPublicationCpuMs = publicationCpuMs;
       if (id === 8091116) await resolveAmbiguousCpuFixture(db, sqlite);
+      await coldCandidateLifecycle(sqlite, env, Date.parse("2026-06-28T03:00:00Z"), String(id));
       snapshotCpuMs = 0;
       publicationCpuMs = 0;
       vi.mocked(supplyBuild.buildScheduleForecastSnapshot).mockClear();
@@ -179,6 +182,10 @@ it.each([7833931, 7837735, 7860406, 7877359, 8091116])(
       ).toBe(1);
       expect(cpuMs).toBeLessThanOrEqual(50);
       expect(candidateCpuMs).toBeLessThanOrEqual(50);
+      if (id === 7833931) {
+        vi.restoreAllMocks();
+        await assertCandidateFingerprint(env, String(id));
+      }
     } finally {
       vi.restoreAllMocks();
       sqlite.close();

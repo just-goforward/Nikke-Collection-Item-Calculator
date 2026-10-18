@@ -5,6 +5,8 @@ import * as candidateBuild from "../../shared/supplyForecastCandidate";
 import { sourceItemAndEventStatements } from "./db";
 import { parseNoticeDetail } from "./notice";
 import { runRuntimeCandidate, runRuntimeIngestion } from "./runtime-ingestion";
+import { assertCandidateFingerprint } from "./test-candidate-fingerprint";
+import { coldCandidateLifecycle } from "./test-cold-lifecycle";
 import { enqueue, env, now, root, sqlite } from "./test-ingestion-fixture";
 
 it("measures full ingestion CPU for captured update 8189601", async () => {
@@ -79,6 +81,7 @@ it("measures full ingestion CPU for captured update 8189601", async () => {
   const cpuMs = (used.user + used.system) / 1000;
   const ingestionSnapshotCpuMs = snapshotCpuMs,
     ingestionPublicationCpuMs = publicationCpuMs;
+  await coldCandidateLifecycle(sqlite, env, now, "8189601");
   snapshotCpuMs = 0;
   publicationCpuMs = 0;
   snapshotSpy.mockClear();
@@ -113,4 +116,5 @@ it("measures full ingestion CPU for captured update 8189601", async () => {
   );
   expect(cpuMs).toBeLessThanOrEqual(50);
   expect(candidateCpuMs).toBeLessThanOrEqual(50);
+  await assertCandidateFingerprint(env, "8189601");
 });

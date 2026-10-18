@@ -139,7 +139,6 @@ export async function buildForecastCandidate(
   revision: number,
   grants: readonly SupplyForecastGrant[] = [],
 ): Promise<CandidateBuildResult> {
-  const canonical = new WeakMap<object, string>();
   const gameDayStart = gameDayStartMs(nowMs);
   const generatedAt = new Date(gameDayStart).toISOString();
   const forecastDate = new Date(gameDayStart + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -220,7 +219,7 @@ export async function buildForecastCandidate(
     ledgerPeriods.find((period) => period.effectiveFrom === resolved.event.startsAt) ??
     ledgerPeriods.find((period) => Date.parse(period.effectiveUntil) > nowMs);
   if (!primary) throw new Error("forecast_primary_period_missing");
-  const ledgerHash = await sha256Hex(stableJson(certifiedSnapshot, canonical));
+  const ledgerHash = await sha256Hex(stableJson(certifiedSnapshot));
   const candidateId = `forecast-${(
     await sha256Hex(stableJson({ rulesVersion: SUPPLY_RULES_VERSION, sourceHash, ledgerHash }))
   ).slice(0, 24)}`;
@@ -245,7 +244,7 @@ export async function buildForecastCandidate(
     grants: [...grants],
     warnings: candidateWarnings(soloPeriods, resolved.cadenceDays, xProbe.status),
   });
-  return { candidate, payloadHash: await sha256Hex(stableJson(candidate, canonical)) };
+  return { candidate, payloadHash: await sha256Hex(stableJson(candidate)) };
 }
 
 function candidateWarnings(

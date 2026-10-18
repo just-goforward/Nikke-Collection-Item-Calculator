@@ -15,6 +15,17 @@ export type ReviewEvidence = {
 };
 type Horizon = { from: string; until: string };
 const RULE = "forecast-exclusion-v2";
+export function reviewsBlockWithoutHorizon(reviews: readonly ReviewEvidence[]) {
+  return reviews.some(
+    (review) =>
+      !review.judgments.length ||
+      review.judgments.some(
+        (judgment) =>
+          (judgment.verdict === "manual_review" || judgment.comparison.blocking === true) &&
+          review.evaluations?.[judgment.blockIndex] === null,
+      ),
+  );
+}
 const instant = (value: string | null) => (value === null ? null : new Date(value).toISOString());
 
 async function exclusionContext(
@@ -118,6 +129,9 @@ export async function reviewExcluded(
   horizon: Horizon,
   allowNew: boolean,
 ) {
+  // First evaluation is deferred until a candidate invocation can decide
+  // publication. Earlier pending/metadata-only/orphan gates do not consume it.
+  // Once evaluated, positive and negative results are immutable per binding.
   if (!review.judgments.length) return false;
   let excluded = true;
   for (const judgment of review.judgments) {

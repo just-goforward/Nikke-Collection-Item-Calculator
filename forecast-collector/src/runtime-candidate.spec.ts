@@ -115,6 +115,16 @@ it("establishes a museum exclusion after ingestion with old-path candidate parit
     candidateNowMs: now,
   });
   expect(rows("SELECT * FROM forecast_candidates")).toHaveLength(0);
+  const pending = structuredClone(fixture);
+  pending.content.feed.feedId = 8060046;
+  pending.content.feedLink.pc = "https://game.naver.com/lounge/nikke/board/detail/8060046";
+  await enqueue(pending);
+  expect((await runRuntimeCandidate(env, now)).candidateCreated).toBe(false);
+  expect(rows("SELECT * FROM publication_review_exclusions")).toHaveLength(0);
+  await runRuntimeIngestion(env, {
+    fetcher: async () => Response.json(pending),
+    candidateNowMs: now,
+  });
   const review = await persistedReviewEvidence(env.FORECAST_DB, item.source, item.itemId);
   expect(review?.judgments.length).toBeGreaterThan(0);
   if (!review) throw new Error("missing_review");

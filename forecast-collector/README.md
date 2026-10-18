@@ -26,6 +26,11 @@ used by the manual review generation binding.
 
 ### Rotation schedule
 
+A review's first immutable publication-exclusion evaluation happens at the first
+candidate run where it can decide publication. Pending notices, metadata-only
+reviews, orphan admission and other earlier blockers defer that evaluation;
+they do not record a negative decision merely because publication was not ready.
+
 With staging runtime ingestion enabled, combined mode alternates even cron slots
 (collection plus ingestion) and odd slots (candidate only): collection is every
 six minutes. Profile mode is a measurement tool and never publishes. Production

@@ -6,7 +6,13 @@ export async function sha256Hex(value: string) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function stableJson(value: unknown, cache?: WeakMap<object, string>): string {
+// Only registered deeply-frozen values are memoized; weak keys retain neither
+// mutable input state nor completed invocation graphs.
+const canonicalJsonCache = new WeakMap<object, string>();
+export function stableJson(
+  value: unknown,
+  cache: WeakMap<object, string> = canonicalJsonCache,
+): string {
   const memoizable = cache && typeof value === "object" && value !== null && isDeeplyFrozen(value);
   if (memoizable) {
     const cached = cache.get(value);

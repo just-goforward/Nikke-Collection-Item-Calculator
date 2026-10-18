@@ -401,7 +401,7 @@ it.each(["empty queue", "zero quota", "settled evidence"])(
       referenceSpy.mockRestore();
       const ledgerReads = referenceReads.filter(
         (sql) =>
-          /^\s*SELECT/i.test(sql) &&
+          /^\s*(SELECT|WITH)\b/i.test(sql) &&
           /forecast_candidates|schedule_events|source_notice_revisions|json_each/.test(sql),
       );
       expect(ledgerReads.length).toBeGreaterThanOrEqual(4);

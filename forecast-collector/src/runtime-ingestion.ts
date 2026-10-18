@@ -2,17 +2,27 @@ import { gameDayStartMs } from "../../shared/gameDay";
 import { assertUsageAllowed } from "../../shared/usageGuard";
 import { board11InvocationGate } from "./board11-policy";
 import { resolveSoloSchedule } from "./candidate";
+import { candidateCacheEvents, hasSegmentedEvents } from "./candidate-cache-input";
+import { legacyReviewStatements } from "./candidate-review-gates";
 import { sha256Hex, stableJson } from "./crypto";
 import { loadGrants } from "./grants";
 import { automationOperation, requireGuardDb } from "./http-shared";
 import type { FetchLike } from "./naver";
-import { buildNoticeCandidate, noticeErrorCode, processNotice } from "./notice-processing";
+import {
+  buildNoticeCandidate,
+  hasUnreviewedNoticeEvents,
+  noticeErrorCode,
+  processNotice,
+} from "./notice-processing";
 import type { ProfileCounts } from "./profile";
 import {
   persistedReviewEvidence,
   publicationExclusionStatements,
   type ReviewEvidence,
+  reviewsBlockWithoutHorizon,
 } from "./publication-exclusions";
+import { ignoredReviewSources } from "./review-supersession";
+import { candidateAlreadyStored } from "./runtime-candidate-identity";
 import { loadRuntimeEvents } from "./runtime-events";
 import {
   type IngestionEntry,
@@ -84,7 +94,9 @@ async function runRuntimeInvocation(
   const readLedger = () =>
     (ledgerPromise ??= (async () => {
       const ledger = await readScheduleLedger(db, options.candidateNowMs ?? Date.now());
-      return { ...ledger, events: await loadRuntimeEvents(db, ledger.events) };
+      return candidateOnly
+        ? ledger
+        : { ...ledger, events: await loadRuntimeEvents(db, ledger.events) };
     })());
   try {
     const entries = candidateOnly
@@ -180,18 +192,20 @@ async function prepareNoticeCandidate(
   // Empty invocations must not load a ledger or allocate/read a revision.
   if (!(await db.prepare("SELECT 1 FROM schedule_events LIMIT 1").first())) return undefined;
   const ledger = await readLedger();
-  const events = ledger.events;
-  const unresolved = await db
-    .prepare(`SELECT source,item_id,status FROM source_queue
-      WHERE status IN ('pending','manual_review')`)
-    .all<{ source: string; item_id: string; status: string }>();
-  if (unresolved.results.some((row) => row.status === "pending")) return undefined;
-  const reviews: ReviewEvidence[] = [];
-  for (const row of unresolved.results) {
-    const review = await persistedReviewEvidence(db, row.source, row.item_id);
-    if (!review) return undefined;
-    reviews.push(review);
+  const legacy = await legacyReviewStatements(db, ledger.events);
+  if (legacy.length) {
+    exclusionStatements.push(...legacy);
+    return undefined;
   }
+  const reviews = await readCandidateReviews(db);
+  if (!reviews) return undefined;
+  const ignoredSources = await ignoredReviewSources(db);
+  if (
+    hasUnreviewedNoticeEvents(ledger.events, reviews, ignoredSources) ||
+    reviewsBlockWithoutHorizon(reviews)
+  )
+    return undefined;
+  const events = await loadRuntimeEvents(db, ledger.events);
   const now = candidateNowMs ?? Date.now();
   const grants = await loadGrants(db);
   const resolved = resolveSoloSchedule(events, now);
@@ -199,7 +213,7 @@ async function prepareNoticeCandidate(
   // inexpensive schedule also detects coverage/focus changes within a game day.
   // Segmented schedules have additional primary-period boundaries: fail open to
   // reconstruction for those rather than approximate their temporal identity.
-  const cacheable = resolved && !events.some((event) => event.segment || event.segments);
+  const cacheable = resolved && !hasSegmentedEvents(events);
   const commits = await db
     .prepare(`SELECT COUNT(*) AS count FROM runtime_ingestion_commits
     WHERE run_token NOT LIKE 'candidate:%' AND json_array_length(queue_snapshot)>0`)
@@ -217,8 +231,7 @@ async function prepareNoticeCandidate(
         stableJson({
           gameDay: gameDayStartMs(now),
           deploymentSha,
-          events,
-          resolved,
+          ...candidateCacheEvents(events, resolved),
           grants,
           reviews,
           commits,
@@ -253,9 +266,11 @@ async function prepareNoticeCandidate(
     ledger.nextRevision,
     grants,
     reviews,
+    ignoredSources,
   );
   exclusionStatements.push(...publicationExclusionStatements(db, reviews));
-  if (signature && candidate)
+  if (!candidate) return undefined;
+  if (signature)
     exclusionStatements.push(
       db
         .prepare(`INSERT INTO runtime_candidate_cache VALUES(1,?,?,?,
@@ -269,8 +284,23 @@ async function prepareNoticeCandidate(
           candidate.envelope.candidate.candidateId,
         ),
     );
-  if (candidate && (await candidateAlreadyStored(db, candidate))) return undefined;
+  if (await candidateAlreadyStored(db, candidate)) return undefined;
   return candidate;
+}
+
+async function readCandidateReviews(db: D1Database): Promise<ReviewEvidence[] | null> {
+  const unresolved = await db
+    .prepare(`SELECT source,item_id,status FROM source_queue
+      WHERE status IN ('pending','manual_review')`)
+    .all<{ source: string; item_id: string; status: string }>();
+  if (unresolved.results.some((row) => row.status === "pending")) return null;
+  const reviews: ReviewEvidence[] = [];
+  for (const row of unresolved.results) {
+    const review = await persistedReviewEvidence(db, row.source, row.item_id);
+    if (!review) return null;
+    reviews.push(review);
+  }
+  return reviews;
 }
 
 async function assertCachedPayload(cached: {
@@ -286,37 +316,4 @@ async function assertCachedPayload(cached: {
     (await sha256Hex(stableJson(payload))) !== cached.payload_hash
   )
     throw new Error("runtime_candidate_identity_conflict");
-}
-
-async function candidateAlreadyStored(
-  db: D1Database,
-  candidate: NonNullable<Awaited<ReturnType<typeof buildNoticeCandidate>>>,
-) {
-  const existing = await db
-    .prepare(
-      "SELECT forecast_id,payload_json,payload_hash FROM forecast_candidates WHERE candidate_id=?",
-    )
-    .bind(candidate.envelope.candidate.candidateId)
-    .first<{ forecast_id: string; payload_json: string; payload_hash: string }>();
-  if (!existing) return false;
-  // Candidate identity is independent of the day's revision. Replaying
-  // unchanged content must not allocate a new revision or rewrite bytes.
-  // The profile builder's only revision-dependent value is its ID:
-  // `${forecastId}@${effectiveFrom}`. Reuse the exact derived gains.
-  const replay = {
-    ...candidate.envelope.candidate,
-    forecastId: existing.forecast_id,
-    profiles: candidate.envelope.candidate.profiles.map((profile) => ({
-      ...profile,
-      id: `${existing.forecast_id}@${profile.effectiveFrom}`,
-    })),
-  };
-  const replayJson = stableJson(replay);
-  if (
-    (await sha256Hex(replayJson)) !== existing.payload_hash ||
-    stableJson(JSON.parse(existing.payload_json)) !== replayJson
-  ) {
-    throw new Error("runtime_candidate_identity_conflict");
-  }
-  return true;
 }
