@@ -145,6 +145,24 @@ it.each([
   );
 });
 
+it("ignores a stored cadence estimate overlapping a later confirmed interval", async () => {
+  // Staging: estimated 9/21~9/27 (from 8060044) vs confirmed 8207413 9/24~9/30.
+  const confirmed = event("2026-09-24T03:00:00.000Z", "2026-09-30T19:59:00.000Z", 1);
+  const estimated = {
+    ...event("2026-09-21T03:00:00.000Z", "2026-09-27T19:59:00.000Z", 2),
+    scheduleStatus: "estimated" as const,
+    reason: "recent_six_start_median",
+  };
+  const later = event("2026-10-15T03:00:00.000Z", "2026-10-21T19:59:00.000Z", 3);
+  const conflicting = { ...estimated, scheduleStatus: "confirmed" as const, reason: null };
+  expect(await outcome(buildNoticeCandidate, [confirmed, estimated, later], [])).not.toEqual({
+    error: "runtime_ingestion_source_conflict",
+  });
+  expect(await outcome(buildNoticeCandidate, [confirmed, conflicting, later], [])).toEqual({
+    error: "runtime_ingestion_source_conflict",
+  });
+});
+
 it("matches the old pairwise algorithm for generated intervals, duplicates and replacements", async () => {
   await assertProperty(
     fc.asyncProperty(

@@ -306,7 +306,13 @@ function assertSoloIntervals(events: ScheduleEvent[]) {
   const solos = collapseSoloSegments(events)
     .filter(
       (event) =>
-        event.eventType === "solo" && !event.manualReview && event.startsAt && event.endsAt,
+        event.eventType === "solo" &&
+        // Stored cadence estimates are not official intervals and never feed
+        // resolveSoloSchedule; a later confirmed notice may overlap them.
+        event.scheduleStatus === "confirmed" &&
+        !event.manualReview &&
+        event.startsAt &&
+        event.endsAt,
     )
     .map((event) => ({
       event,
