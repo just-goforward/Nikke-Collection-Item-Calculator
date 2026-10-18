@@ -6,7 +6,14 @@ compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 [limits]
-cpu_ms = 50
+# Owner decision 2026-10-18: 100 ms cap per invocation (runaway guard; Cloudflare may
+# allow occasional overruns). Scheduled-work estimate per deployment: */3 Cron =
+# 14,400 runs/month x 100 ms = 1.44M CPU-ms (<5% of the Paid plan's 30M included);
+# staging is a second deployment. This is not an aggregate spending bound: HTTP
+# request count is caller-driven, so public /health and /discord/interactions are
+# rate-limited per address (location-local) before any D1 read, and Usage Guard stops
+# automation near the account CPU/request/D1 quotas.
+cpu_ms = 100
 
 [observability.logs]
 enabled = true
@@ -54,8 +61,7 @@ name = "collection-kit-forecast-collector-staging"
 workers_dev = true
 
 [env.staging.limits]
-# Temporary staging-only allowance (owner-approved 2026-10-16) while runtime ingestion
-# is optimized; measured 57-58 ms. Production stays at 50 ms and the 50 ms target stands.
+# Same 100 ms hard cap as production (owner decision 2026-10-18).
 cpu_ms = 100
 
 [env.staging.observability.logs]

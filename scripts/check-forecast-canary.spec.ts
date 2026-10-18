@@ -171,7 +171,7 @@ function inProgressReport() {
       warnings: ["performance_evidence_incomplete"],
       regressionCodes: [],
       sampleHash: "e".repeat(64),
-      collector: cpuPerformance("collection-kit-forecast-collector-staging", 50),
+      collector: cpuPerformance("collection-kit-forecast-collector-staging", 100),
       dispatcher: cpuPerformance("collection-kit-forecast-dispatcher-staging", 25),
     },
     certification: {

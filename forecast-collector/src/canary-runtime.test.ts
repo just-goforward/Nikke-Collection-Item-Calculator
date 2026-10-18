@@ -18,11 +18,12 @@ const END = START + 8 * 60 * 60 * 1_000;
 describe("forecast canary v10 runtime policy", () => {
   it("classifies the v8 CPU shape as a baseline warning instead of a failure", () => {
     const input = fixture();
+    // v8 shape scaled 2x to keep the same headroom ratio under the 100 ms collector limit.
     runtimeWorker(input, "collector").samples = samplesWithDistribution(
       slots(0),
-      24.619,
-      35.344,
-      41.169,
+      49.238,
+      70.688,
+      82.338,
     );
     runtimeWorker(input, "dispatcher").samples = samplesWithDistribution(
       slots(1),
@@ -40,15 +41,15 @@ describe("forecast canary v10 runtime policy", () => {
     expect(result.performance.warnings).toContain("runtime_p99_headroom_low:collector");
     expect(result.performance.warnings).toContain("runtime_p99_headroom_low:dispatcher");
     expect(result.performance.regressionCodes).toEqual([]);
-    expect(result.performance.collector.full).toMatchObject({ p95Ms: 35.344, p99Ms: 41.169 });
-    expect(result.performance.collector.full.averageMs).toBeCloseTo(24.619, 12);
+    expect(result.performance.collector.full).toMatchObject({ p95Ms: 70.688, p99Ms: 82.338 });
+    expect(result.performance.collector.full.averageMs).toBeCloseTo(49.238, 12);
     expect(result.performance.dispatcher.full).toMatchObject({ p95Ms: 9.266, p99Ms: 20.464 });
     expect(result.performance.dispatcher.full.averageMs).toBeCloseTo(7.283, 12);
   });
 
   it("keeps 80 and 95 percent p99 headroom thresholds as warnings", () => {
     const input = fixture();
-    runtimeWorker(input, "collector").samples = samples(slots(0), 30, 40);
+    runtimeWorker(input, "collector").samples = samples(slots(0), 60, 80);
     runtimeWorker(input, "dispatcher").samples = samples(
       slots(1),
       10,
@@ -64,11 +65,11 @@ describe("forecast canary v10 runtime policy", () => {
     expect(result.performance.warnings).toContain("runtime_p99_headroom_critical:dispatcher");
   });
 
-  it("fails when a successful collector invocation exceeds the 50 ms target", () => {
+  it("fails when a successful collector invocation exceeds the 100 ms target", () => {
     const input = fixture();
     const sample = runtimeWorker(input, "collector").samples.at(-1);
     if (!sample) throw new Error("missing_collector_sample");
-    sample.cpuTimeMs = 51;
+    sample.cpuTimeMs = 101;
 
     const result = evaluateForecastRuntimeTelemetry(input);
 
@@ -76,7 +77,7 @@ describe("forecast canary v10 runtime policy", () => {
     expect(result.runtimeSafety.failureCodes).toContain("runtime_success_above_target:collector");
   });
 
-  it.each([49, 50])("keeps collector CPU at %s ms nonblocking", (cpuTimeMs) => {
+  it.each([99, 100])("keeps collector CPU at %s ms nonblocking", (cpuTimeMs) => {
     const input = fixture();
     for (const sample of runtimeWorker(input, "collector").samples) sample.cpuTimeMs = cpuTimeMs;
     expect(evaluateForecastRuntimeTelemetry(input).runtimeSafety.status).toBe("passed");
@@ -84,7 +85,7 @@ describe("forecast canary v10 runtime policy", () => {
 
   it("fails collector p99 above target", () => {
     const input = fixture();
-    for (const sample of runtimeWorker(input, "collector").samples) sample.cpuTimeMs = 51;
+    for (const sample of runtimeWorker(input, "collector").samples) sample.cpuTimeMs = 101;
     const result = evaluateForecastRuntimeTelemetry(input);
     expect(result.runtimeSafety.status).toBe("failed");
     expect(result.runtimeSafety.failureCodes).toContain("runtime_p99_above_target:collector");

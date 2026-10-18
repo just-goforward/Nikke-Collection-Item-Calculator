@@ -19,23 +19,13 @@ export async function handleHttpRequest(
   executionContext: ExecutionContext,
 ) {
   const url = new URL(request.url);
-  if (request.method === "GET" && url.pathname === "/health") {
-    const quotaResponse = await enforceUsageGuard(env, "admin_read");
-    if (quotaResponse) return publicHealthResponse(quotaResponse, request, env);
-    const response = json({
-      ...(await readHealth(env.FORECAST_DB)),
-      operations: await readOperationsHealth(env.FORECAST_DB, opsEnvironment(env)),
-      ...(env.ENVIRONMENT === "staging"
-        ? { sourceReview: await readSourceReviewStatus(env.FORECAST_DB) }
-        : {}),
-    });
-    return publicHealthResponse(response, request, env);
-  }
+  if (request.method === "GET" && url.pathname === "/health") return handleHealth(request, env);
   if (request.method === "POST" && url.pathname === "/discord/interactions") {
-    const quotaResponse = await enforceUsageGuard(env, automationOperation(env));
-    if (quotaResponse) return quotaResponse;
+    // Rate-limit unauthenticated callers before the Usage Guard D1 read.
     const rateLimitResponse = await enforceDiscordRateLimit(request, env);
     if (rateLimitResponse) return rateLimitResponse;
+    const quotaResponse = await enforceUsageGuard(env, automationOperation(env));
+    if (quotaResponse) return quotaResponse;
     return handleDiscordInteraction(request, env, executionContext);
   }
   if (!url.pathname.startsWith("/admin/")) return new Response("Not found", { status: 404 });
@@ -55,6 +45,22 @@ export async function handleHttpRequest(
   return handleAdminRoute({ request, url, env, executionContext });
 }
 
+async function handleHealth(request: Request, env: CollectorEnv) {
+  // Public and unauthenticated: bound per-address D1 reads before any query.
+  const healthLimit = await enforceHealthRateLimit(request, env);
+  if (healthLimit) return publicHealthResponse(healthLimit, request, env);
+  const quotaResponse = await enforceUsageGuard(env, "admin_read");
+  if (quotaResponse) return publicHealthResponse(quotaResponse, request, env);
+  const response = json({
+    ...(await readHealth(env.FORECAST_DB)),
+    operations: await readOperationsHealth(env.FORECAST_DB, opsEnvironment(env)),
+    ...(env.ENVIRONMENT === "staging"
+      ? { sourceReview: await readSourceReviewStatus(env.FORECAST_DB) }
+      : {}),
+  });
+  return publicHealthResponse(response, request, env);
+}
+
 function publicHealthResponse(response: Response, request: Request, env: CollectorEnv) {
   if (env.ENVIRONMENT !== "staging") return response;
   response.headers.append("vary", "Origin");
@@ -70,6 +76,13 @@ async function enforceDiscordRateLimit(request: Request, env: CollectorEnv) {
   const result = await env.ADMIN_RATE_LIMITER.limit({
     key: `discord-interactions:${sourceAddress}`,
   });
+  return result.success ? null : new Response("Too many requests", { status: 429 });
+}
+
+async function enforceHealthRateLimit(request: Request, env: CollectorEnv) {
+  if (!env.ADMIN_RATE_LIMITER) return missingRateLimiter(env);
+  const sourceAddress = request.headers.get("cf-connecting-ip") ?? "unknown";
+  const result = await env.ADMIN_RATE_LIMITER.limit({ key: `health:${sourceAddress}` });
   return result.success ? null : new Response("Too many requests", { status: 429 });
 }
 

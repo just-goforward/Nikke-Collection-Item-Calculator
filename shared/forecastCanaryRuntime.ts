@@ -5,8 +5,8 @@ export const FORECAST_RUNTIME_TELEMETRY_SOURCE =
 export const FORECAST_RUNTIME_WORKERS = {
   collector: {
     scriptName: "collection-kit-forecast-collector-staging",
-    // Evaluation target, not the temporary deployed staging CPU allowance.
-    configuredLimitMs: 50,
+    // Must equal the deployed cpu_ms (owner decision 2026-10-18: 100 ms).
+    configuredLimitMs: 100,
   },
   dispatcher: {
     scriptName: "collection-kit-forecast-dispatcher-staging",

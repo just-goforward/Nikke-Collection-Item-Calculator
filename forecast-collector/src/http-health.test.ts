@@ -66,7 +66,11 @@ async function health(
     new Request("https://collector.example/health", {
       headers,
     }),
-    { ...testEnv, ENVIRONMENT: environment },
+    {
+      ...testEnv,
+      ENVIRONMENT: environment,
+      ADMIN_RATE_LIMITER: { limit: vi.fn().mockResolvedValue({ success: true }) },
+    },
     createExecutionContext(),
   );
 }
@@ -408,4 +412,69 @@ describe("unchanged production and protected routes", () => {
     expect(response.status).toBe(status);
     expect(response.headers.get("access-control-allow-origin")).toBeNull();
   });
+
+  it.each(["staging", "production"] as const)(
+    "rate-limits public %s health per address before any D1 read",
+    async (environment) => {
+      const limit = vi.fn().mockResolvedValue({ success: false });
+      const prepare = vi.spyOn(testEnv.FORECAST_DB, "prepare");
+      const guardDb = testEnv.USAGE_GUARD_DB;
+      if (!guardDb) throw new Error("missing usage guard binding");
+      const guardPrepare = vi.spyOn(guardDb, "prepare");
+      try {
+        const response = await handleHttpRequest(
+          new Request("https://collector.example/health", {
+            headers: { "cf-connecting-ip": "203.0.113.7" },
+          }),
+          { ...testEnv, ENVIRONMENT: environment, ADMIN_RATE_LIMITER: { limit } },
+          createExecutionContext(),
+        );
+        expect(response.status).toBe(429);
+        expect(limit).toHaveBeenCalledWith({ key: "health:203.0.113.7" });
+        expect(prepare).not.toHaveBeenCalled();
+        expect(guardPrepare).not.toHaveBeenCalled();
+      } finally {
+        prepare.mockRestore();
+        guardPrepare.mockRestore();
+      }
+    },
+  );
+
+  it("rate-limits Discord interactions before any Usage Guard or forecast D1 read", async () => {
+    const limit = vi.fn().mockResolvedValue({ success: false });
+    const forecastPrepare = vi.spyOn(testEnv.FORECAST_DB, "prepare");
+    const guardDb = testEnv.USAGE_GUARD_DB;
+    if (!guardDb) throw new Error("missing usage guard binding");
+    const guardPrepare = vi.spyOn(guardDb, "prepare");
+    try {
+      const response = await handleHttpRequest(
+        new Request("https://collector.example/discord/interactions", {
+          method: "POST",
+          headers: { "cf-connecting-ip": "203.0.113.7" },
+        }),
+        { ...testEnv, ENVIRONMENT: "staging", ADMIN_RATE_LIMITER: { limit } },
+        createExecutionContext(),
+      );
+      expect(response.status).toBe(429);
+      expect(limit).toHaveBeenCalledWith({ key: "discord-interactions:203.0.113.7" });
+      expect(forecastPrepare).not.toHaveBeenCalled();
+      expect(guardPrepare).not.toHaveBeenCalled();
+    } finally {
+      forecastPrepare.mockRestore();
+      guardPrepare.mockRestore();
+    }
+  });
+
+  it.each(["staging", "production"] as const)(
+    "fails closed when the %s health rate limiter binding is missing",
+    async (environment) => {
+      const { ADMIN_RATE_LIMITER: _omitted, ...withoutLimiter } = testEnv;
+      const response = await handleHttpRequest(
+        new Request("https://collector.example/health"),
+        { ...withoutLimiter, ENVIRONMENT: environment },
+        createExecutionContext(),
+      );
+      expect(response.status).toBe(503);
+    },
+  );
 });

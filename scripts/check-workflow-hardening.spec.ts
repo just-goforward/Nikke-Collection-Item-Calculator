@@ -154,7 +154,7 @@ function runtimeArtifactFixture() {
     workers: (["collector", "dispatcher"] as const).map((component) => ({
       component,
       scriptName: `collection-kit-forecast-${component}-staging`,
-      configuredLimitMs: component === "collector" ? 50 : 25,
+      configuredLimitMs: component === "collector" ? 100 : 25,
       headSamplingRate: 1,
       ...privateMetadata,
       samples: [
@@ -243,7 +243,7 @@ function approvalPerformanceFixture() {
     ...privateMetadata,
   };
   return {
-    configuredLimitMs: 50,
+    configuredLimitMs: 100,
     expectedSlots: 160,
     d1ObservedSlots: 160,
     telemetryObservedSlots: 160,

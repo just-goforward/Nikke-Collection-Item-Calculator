@@ -598,7 +598,7 @@ function runtimeTelemetry(collectorSlots: string[], dispatcherSlots: string[]) {
     endedAt: new Date(END).toISOString(),
     observedAt: new Date(END + 60_000).toISOString(),
     workers: [
-      runtimeWorker("collector", collectorSlots, 41.169, `${SHA}-both-v10`, 50, 0),
+      runtimeWorker("collector", collectorSlots, 41.169, `${SHA}-both-v10`, 100, 0),
       runtimeWorker("dispatcher", dispatcherSlots, 20.464, `${SHA}-v10`, 25, 1_000),
     ],
   };
