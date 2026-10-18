@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runCollection } from "./collector";
 import { profileIngestionAdmitted } from "./profile";
-import { runRuntimeIngestion } from "./runtime-ingestion";
+import { runRuntimeCandidate, runRuntimeIngestion } from "./runtime-ingestion";
 import type { CollectorEnv } from "./types";
 import worker from "./worker";
 
@@ -10,7 +10,11 @@ vi.mock("./source-queue", () => ({
   startInvocation: vi.fn().mockResolvedValue("rotation-ingestion:360000"),
   finishInvocation: vi.fn().mockResolvedValue(undefined),
 }));
-vi.mock("./runtime-ingestion", () => ({ runRuntimeIngestion: vi.fn() }));
+vi.mock("./runtime-ingestion", async (original) => ({
+  ...(await original<typeof import("./runtime-ingestion")>()),
+  runRuntimeIngestion: vi.fn(),
+  runRuntimeCandidate: vi.fn(),
+}));
 vi.mock("./http", () => ({ handleHttpRequest: vi.fn() }));
 vi.mock("./http-shared", () => ({
   requireGuardDb: vi.fn(),
@@ -27,6 +31,11 @@ vi.mock("./profile", async (original) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(runRuntimeCandidate).mockResolvedValue({
+    outcome: "completed",
+    processed: 0,
+    candidateCreated: true,
+  });
   vi.mocked(runCollection).mockResolvedValue({
     outcome: "completed",
     polledSources: 2,
@@ -44,6 +53,7 @@ async function invoke(
   environment = "staging",
   scheduledTime = 360_000,
   schedule = "combined",
+  enabled = false,
 ) {
   const pending: Promise<unknown>[] = [];
   await worker.scheduled(
@@ -52,6 +62,7 @@ async function invoke(
       ENVIRONMENT: environment,
       COLLECT_ENABLED: "true",
       COLLECTION_SCHEDULE: schedule,
+      RUNTIME_INGESTION_ENABLED: enabled ? "true" : "false",
       ...(phase === undefined ? {} : { COLLECTOR_PROFILE_PHASE: phase }),
     } as CollectorEnv,
     {
@@ -64,6 +75,31 @@ async function invoke(
 }
 
 describe("scheduled profiling routing", () => {
+  it("alternates combined collection and candidate-only invocations", async () => {
+    await invoke("off", "staging", 0, "combined", true);
+    expect(runCollection).toHaveBeenCalledOnce();
+    expect(runRuntimeIngestion).toHaveBeenCalledOnce();
+    expect(runRuntimeCandidate).not.toHaveBeenCalled();
+    vi.clearAllMocks();
+    await invoke("off", "staging", 180_000, "combined", true);
+    expect(runCollection).not.toHaveBeenCalled();
+    expect(runRuntimeIngestion).not.toHaveBeenCalled();
+    expect(runRuntimeCandidate).toHaveBeenCalledOnce();
+  });
+  it.each(["disabled", "production"])(
+    "keeps rotation slot seven ingestion for %s",
+    async (mode) => {
+      await invoke(
+        "off",
+        mode === "production" ? "production" : "staging",
+        7 * 180_000,
+        "rotation",
+        mode === "production",
+      );
+      expect(runRuntimeIngestion).toHaveBeenCalledOnce();
+      expect(runRuntimeCandidate).not.toHaveBeenCalled();
+    },
+  );
   it("labels a board boundary hold independently from ingestion admission", async () => {
     vi.mocked(runCollection).mockResolvedValue({
       outcome: "held",

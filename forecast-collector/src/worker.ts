@@ -10,7 +10,7 @@ import {
   profilePhase,
 } from "./profile";
 import { runRotationIngestion } from "./rotation-ingestion";
-import { runRuntimeIngestion } from "./runtime-ingestion";
+import { runRuntimeIngestion, runtimeIngestionEnabled } from "./runtime-ingestion";
 import type { CollectorEnv } from "./types";
 
 export default {
@@ -60,10 +60,12 @@ export default {
         ? runProfile(env, event.scheduledTime)
         : collectionSchedule(env) === "rotation"
           ? runRotation(env, event.scheduledTime)
-          : runCollection(env, { nowMs: event.scheduledTime }).then(async (summary) => {
-              if (summary.outcome === "completed") await runRuntimeIngestion(env);
-              return summary;
-            }),
+          : runtimeIngestionEnabled(env) && Math.floor(event.scheduledTime / 180_000) % 2 === 1
+            ? runRotationIngestion(env, event.scheduledTime, true, true)
+            : runCollection(env, { nowMs: event.scheduledTime }).then(async (summary) => {
+                if (summary.outcome === "completed") await runRuntimeIngestion(env);
+                return summary;
+              }),
     );
   },
 
@@ -74,8 +76,14 @@ export default {
 
 async function runRotation(env: CollectorEnv, scheduledTime: number) {
   const board = rotationBoard(scheduledTime);
-  const result =
-    board === null
+  // Alternate the fourth slot between ingestion and persisted-state publication.
+  // Poll cadence stays at twelve minutes; neither invocation combines CPU work.
+  // Disabled/production schedules retain their original behavior.
+  const candidateSlot =
+    board === null && runtimeIngestionEnabled(env) && Math.floor(scheduledTime / 180_000) % 8 === 7;
+  const result = candidateSlot
+    ? await runRotationIngestion(env, scheduledTime, true)
+    : board === null
       ? await runRotationIngestion(env, scheduledTime)
       : await runCollection(env, { nowMs: scheduledTime, board, rotation: true });
   console.log(
@@ -91,6 +99,7 @@ async function runRotation(env: CollectorEnv, scheduledTime: number) {
 }
 
 async function runProfile(env: CollectorEnv, scheduledTime: number) {
+  // Profiling isolates collection and notice ingestion costs; it never publishes.
   const phase = activeProfilePhase(env, scheduledTime);
   const counts: ProfileCounts = { rowsPolled: 0, noticesReserved: 0, bodyBytes: 0 };
   let outcome = "failed";

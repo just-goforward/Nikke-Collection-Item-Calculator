@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
+import * as supplyBuild from "../../shared/supplyForecastBuild";
+import * as candidateBuild from "../../shared/supplyForecastCandidate";
 import { sourceItemAndEventStatements } from "./db";
 import { parseNoticeDetail } from "./notice";
-import { enqueue, env, root, run, sqlite } from "./test-ingestion-fixture";
+import { runRuntimeCandidate, runRuntimeIngestion } from "./runtime-ingestion";
+import { enqueue, env, now, root, sqlite } from "./test-ingestion-fixture";
 
 it("measures full ingestion CPU for captured update 8189601", async () => {
   const payload = JSON.parse(
@@ -41,10 +44,57 @@ it("measures full ingestion CPU for captured update 8189601", async () => {
   }
   // Vitest shares a process with its coordinator and other workers; process-wide
   // CPU includes their startup/GC. Measure the ingestion worker's CPU instead.
+  let snapshotCpuMs = 0,
+    publicationCpuMs = 0;
+  const originalSnapshot = supplyBuild.buildScheduleForecastSnapshot;
+  const originalCandidate = candidateBuild.buildSupplyForecastCandidate;
+  const snapshotSpy = vi
+    .spyOn(supplyBuild, "buildScheduleForecastSnapshot")
+    .mockImplementation((...args) => {
+      const start = process.threadCpuUsage();
+      try {
+        return originalSnapshot(...args);
+      } finally {
+        const used = process.threadCpuUsage(start);
+        snapshotCpuMs += (used.user + used.system) / 1000;
+      }
+    });
+  const publicationSpy = vi
+    .spyOn(candidateBuild, "buildSupplyForecastCandidate")
+    .mockImplementation((...args) => {
+      const start = process.threadCpuUsage();
+      try {
+        return originalCandidate(...args);
+      } finally {
+        const used = process.threadCpuUsage(start);
+        publicationCpuMs += (used.user + used.system) / 1000;
+      }
+    });
   const started = process.threadCpuUsage();
-  await run(vi.fn<typeof fetch>().mockImplementation(async () => Response.json(payload)));
+  await runRuntimeIngestion(env, {
+    fetcher: vi.fn<typeof fetch>().mockImplementation(async () => Response.json(payload)),
+    candidateNowMs: now,
+  });
   const used = process.threadCpuUsage(started);
   const cpuMs = (used.user + used.system) / 1000;
+  const ingestionSnapshotCpuMs = snapshotCpuMs,
+    ingestionPublicationCpuMs = publicationCpuMs;
+  snapshotCpuMs = 0;
+  publicationCpuMs = 0;
+  snapshotSpy.mockClear();
+  publicationSpy.mockClear();
+  const candidateStart = process.threadCpuUsage();
+  const publication = await runRuntimeCandidate(env, now);
+  const candidateCpu = process.threadCpuUsage(candidateStart);
+  const candidateCpuMs = (candidateCpu.user + candidateCpu.system) / 1000;
+  expect(snapshotSpy).toHaveBeenCalledOnce();
+  expect(publicationSpy).toHaveBeenCalledOnce();
+  snapshotSpy.mockRestore();
+  publicationSpy.mockRestore();
+  expect(publication).toMatchObject({ outcome: "completed", candidateCreated: true });
+  expect(sqlite.prepare("SELECT COUNT(*) AS count FROM forecast_candidates").get()?.["count"]).toBe(
+    1,
+  );
   console.log(
     JSON.stringify({
       fixture: "8189601",
@@ -52,9 +102,15 @@ it("measures full ingestion CPU for captured update 8189601", async () => {
       platform: process.platform,
       arch: process.arch,
       cpuMs,
+      candidateCpuMs,
+      ingestionSnapshotCpuMs,
+      ingestionPublicationCpuMs,
+      snapshotCpuMs,
+      publicationCpuMs,
       method:
         "process.threadCpuUsage user+system; 240 schedule events + 60 board-48 revisions (~16k characters), local SQLite, mocked GET",
     }),
   );
   expect(cpuMs).toBeLessThanOrEqual(50);
+  expect(candidateCpuMs).toBeLessThanOrEqual(50);
 });

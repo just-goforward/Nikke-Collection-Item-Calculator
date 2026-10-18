@@ -15,7 +15,7 @@ import { parseScheduleEvents } from "./naver";
 import { fetchNotice, NOTICE_MAX_BYTES, NOTICE_TIMEOUT_MS, parseNoticeDetail } from "./notice";
 import { buildNoticeCandidate, isConstructedNoticeCandidate } from "./notice-processing";
 import { loadRuntimeEvents } from "./runtime-events";
-import { runRuntimeIngestion } from "./runtime-ingestion";
+import { runRuntimeCandidate, runRuntimeIngestion } from "./runtime-ingestion";
 import {
   INGESTION_BATCH_LIMIT,
   ingestionQueue,
@@ -34,7 +34,7 @@ import {
   now,
   root,
   rows,
-  run,
+  runIngestionThenCandidate as run,
   sqlite,
 } from "./test-ingestion-fixture";
 
@@ -155,7 +155,10 @@ it("builds from the second resolved solo section and persists both events", asyn
     fetcher: async () => Response.json(payload),
     candidateNowMs: Date.parse("2026-09-17T12:00:00Z"),
   });
-  expect(result.candidateCreated).toBe(true);
+  expect(result.candidateCreated).toBe(false);
+  expect(
+    (await runRuntimeCandidate(env, Date.parse("2026-09-17T12:00:00Z"))).candidateCreated,
+  ).toBe(true);
   expect(rows("SELECT * FROM schedule_events")).toHaveLength(2);
   expect(rows("SELECT schedule_event_id FROM forecast_candidates")[0]?.["schedule_event_id"]).toBe(
     "naver-board-56:8060044:solo:1",
@@ -415,7 +418,7 @@ it.each(["empty queue", "zero quota", "settled evidence"])(
         }),
       );
       const fetcher = vi.fn<typeof fetch>();
-      expect(await run(fetcher)).toEqual(expected);
+      expect(await runRuntimeIngestion(env, { fetcher, candidateNowMs: now })).toEqual(expected);
       expect(expected).toEqual({ outcome: "completed", processed: 0, candidateCreated: false });
       expect(fetcher).not.toHaveBeenCalled();
       expect(actualReads.filter((sql) => ledgerReads.includes(sql))).toEqual([]);
@@ -437,7 +440,7 @@ describe("fixture ingestion end to end and CPU measurement", () => {
     const result = await run(fetcher);
     expect(
       ledgerSpy.mock.calls.filter(([sql]) => sql.includes("FROM schedule_event_source_revisions")),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     ledgerSpy.mockRestore();
     const elapsed = performance.now() - start;
     const used = process.cpuUsage(cpu);
@@ -469,7 +472,7 @@ describe("fixture ingestion end to end and CPU measurement", () => {
     expect(expected.candidate.certifiedSnapshot).toBeDefined();
     expect(rows("SELECT * FROM source_notice_revisions")).toHaveLength(1);
     expect(rows("SELECT status FROM source_queue")[0]?.["status"]).toBe("processed");
-    expect(rows("SELECT * FROM runtime_ingestion_commits")).toHaveLength(1);
+    expect(rows("SELECT * FROM runtime_ingestion_commits")).toHaveLength(2);
     expect(fetcher.mock.calls[0]?.[1]?.redirect).toBe("manual");
     expect(() => sqlite.exec("DELETE FROM runtime_notice_requests")).toThrow(
       "runtime_notice_budget_immutable",

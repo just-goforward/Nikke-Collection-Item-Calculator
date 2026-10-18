@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
 import * as candidates from "./candidate";
-import { enqueue, fixture, root, rows, run, sqlite } from "./test-ingestion-fixture";
+import {
+  enqueue,
+  fixture,
+  root,
+  rows,
+  runIngestionThenCandidate as run,
+  sqlite,
+} from "./test-ingestion-fixture";
 
 it("does not reach the v4 builder before schema 27", async () => {
   sqlite.exec("DELETE FROM schema_migrations WHERE version >= 27");

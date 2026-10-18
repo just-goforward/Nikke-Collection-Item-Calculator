@@ -38,5 +38,6 @@ export const ROTATION_INGESTION_ADMISSION_SQL = `SELECT 1 FROM (
     AND MAX(board48.finished_at,board56.finished_at,board11.finished_at)<=?
     AND NOT EXISTS (
       SELECT 1 FROM runtime_ingestion_runs
-      WHERE started_at>=MAX(board48.finished_at,board56.finished_at,board11.finished_at)
+      WHERE token NOT LIKE 'candidate:%'
+        AND started_at>=MAX(board48.finished_at,board56.finished_at,board11.finished_at)
     )`;

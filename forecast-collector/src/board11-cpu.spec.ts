@@ -5,8 +5,9 @@ import * as supplyBuild from "../../shared/supplyForecastBuild";
 import * as candidateBuild from "../../shared/supplyForecastCandidate";
 import { sourceItemAndEventStatements } from "./db";
 import { planGrants } from "./grants";
+import { decideManualReview } from "./manual-review";
 import { parseNoticeDetail } from "./notice";
-import { runRuntimeIngestion } from "./runtime-ingestion";
+import { runRuntimeCandidate, runRuntimeIngestion } from "./runtime-ingestion";
 import { runtimeTestDb } from "./test-runtime-db";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv, ScheduleEvent } from "./types";
@@ -143,12 +144,28 @@ it.each([7833931, 7837735, 7860406, 7877359, 8091116])(
       });
       const used = process.threadCpuUsage(started),
         cpuMs = (used.user + used.system) / 1000;
+      const ingestionSnapshotCpuMs = snapshotCpuMs;
+      const ingestionPublicationCpuMs = publicationCpuMs;
+      if (id === 8091116) await resolveAmbiguousCpuFixture(db, sqlite);
+      snapshotCpuMs = 0;
+      publicationCpuMs = 0;
+      vi.mocked(supplyBuild.buildScheduleForecastSnapshot).mockClear();
+      vi.mocked(candidateBuild.buildSupplyForecastCandidate).mockClear();
+      const candidateStart = process.threadCpuUsage();
+      const publication = await runRuntimeCandidate(env, Date.parse("2026-06-28T03:00:00Z"));
+      const candidateCpu = process.threadCpuUsage(candidateStart);
+      const candidateCpuMs = (candidateCpu.user + candidateCpu.system) / 1000;
+      expect(supplyBuild.buildScheduleForecastSnapshot).toHaveBeenCalledOnce();
+      expect(candidateBuild.buildSupplyForecastCandidate).toHaveBeenCalledOnce();
       console.log(
         JSON.stringify({
           fixture: id,
           cpuMs,
+          candidateCpuMs,
           snapshotCpuMs,
           publicationCpuMs,
+          ingestionSnapshotCpuMs,
+          ingestionPublicationCpuMs,
           node: process.version,
           method:
             "worker-thread user+system CPU; 240 history events + 60 16k-character revisions; SQLite; mocked GET",
@@ -156,10 +173,39 @@ it.each([7833931, 7837735, 7860406, 7877359, 8091116])(
         }),
       );
       expect(result.outcome).toBe("completed");
+      expect(publication).toMatchObject({ outcome: "completed", candidateCreated: true });
+      expect(
+        sqlite.prepare("SELECT COUNT(*) AS count FROM forecast_candidates").get()?.["count"],
+      ).toBe(1);
       expect(cpuMs).toBeLessThanOrEqual(50);
+      expect(candidateCpuMs).toBeLessThanOrEqual(50);
     } finally {
       vi.restoreAllMocks();
       sqlite.close();
     }
   },
 );
+
+async function resolveAmbiguousCpuFixture(db: D1Database, sqlite: DatabaseSync) {
+  // Publication CPU fixture only: model a completed operator resolution and
+  // retirement of its obsolete tentative event. This is not an end-to-end
+  // assertion that an ambiguous, unresolved notice can publish.
+  const review = sqlite
+    .prepare("SELECT review_id FROM source_manual_reviews WHERE item_id='8091116'")
+    .get();
+  await decideManualReview(
+    db,
+    "staging",
+    String(review?.["review_id"]),
+    {
+      requestId: `mrq-${"a".repeat(32)}`,
+      decision: "ignore",
+      reason: "CPU fixture: operator excludes ambiguous compensation notice",
+      runId: 1,
+      event: null,
+    },
+    { runtimeIngestion: true },
+  );
+  sqlite.exec(`UPDATE schedule_events SET reason='runtime_notice_replaced'
+    WHERE source_item_id='8091116' AND manual_review=1`);
+}

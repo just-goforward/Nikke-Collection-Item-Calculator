@@ -432,7 +432,15 @@ describe("forecast collector D1 contract", () => {
     const failing = await readCanaryReport(testEnv.FORECAST_DB, now, "boundary-deployment");
     expect(failing.invocations.scheduled).toBe(199);
     expect(failing.passed).toBe(false);
-  });
+    await testEnv.FORECAST_DB.prepare(`UPDATE collector_invocations
+      SET invocation_id='runtime-candidate:' || invocation_id
+      WHERE deployment_sha='boundary-deployment'
+        AND CAST(substr(invocation_id,length('boundary-deployment:')+1) AS INTEGER)%2=1`).run();
+    const alternating = await readCanaryReport(testEnv.FORECAST_DB, now, "boundary-deployment");
+    expect(alternating.invocations).toMatchObject({ scheduled: 100, completed: 100 });
+    expect(alternating.passed).toBe(true);
+    // Seeds ~200 invocation rows; exceeded the 5 s default under full-suite load.
+  }, 20_000);
 
   it("includes all 102 hard terminations in a 240-invocation canary denominator", async () => {
     const now = Date.parse("2026-08-24T00:00:00Z");

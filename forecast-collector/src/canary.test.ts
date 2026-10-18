@@ -62,11 +62,22 @@ describe("rotation canary evidence", () => {
       });
       const firstIngestion = slots(0).find((slot) => rotationBoard(Date.parse(slot)) === null);
       if (!firstIngestion) throw new Error("missing_ingestion_slot");
+      const firstCandidate = slots(0).find(
+        (slot) => Math.floor(Date.parse(slot) / 180_000) % 8 === 7,
+      );
+      if (!firstCandidate) throw new Error("missing_candidate_slot");
+      const candidate = vi.spyOn(ingestion, "runRuntimeCandidate").mockResolvedValue({
+        outcome: "completed",
+        processed: 0,
+        candidateCreated: true,
+      });
       const env = { ...testEnv, DEPLOY_SHA: SHA };
       await runRotationIngestion(env, Date.parse(firstIngestion));
+      await runRotationIngestion(env, Date.parse(firstCandidate), true);
+      await runRotationIngestion(env, Date.parse(firstCandidate), true);
       await runRotationIngestion(env, Date.parse(firstIngestion));
       const statements = slots(0)
-        .filter((slot) => slot !== firstIngestion)
+        .filter((slot) => slot !== firstIngestion && slot !== firstCandidate)
         .map((slot) => {
           const time = Date.parse(slot);
           const board = rotationBoard(time);
@@ -95,6 +106,7 @@ describe("rotation canary evidence", () => {
       expect(report.runtimeSafety.status).toBe("passed");
       expect(report.collector.missingSlots).toBe(0);
       expect(ingest).toHaveBeenCalledOnce();
+      expect(candidate).toHaveBeenCalledOnce();
     },
   );
 

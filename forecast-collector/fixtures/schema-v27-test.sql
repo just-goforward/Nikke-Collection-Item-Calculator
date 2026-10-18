@@ -1312,6 +1312,27 @@ CREATE TRIGGER forecast_grant_revisions_replace_immutable BEFORE INSERT ON forec
 CREATE TRIGGER forecast_grant_restatements_update_immutable BEFORE UPDATE ON forecast_grant_restatements BEGIN SELECT RAISE(ABORT,'forecast_grant_immutable'); END;
 CREATE TRIGGER forecast_grant_restatements_delete_immutable BEFORE DELETE ON forecast_grant_restatements BEGIN SELECT RAISE(ABORT,'forecast_grant_immutable'); END;
 CREATE TRIGGER forecast_grant_restatements_replace_immutable BEFORE INSERT ON forecast_grant_restatements WHEN EXISTS(SELECT 1 FROM forecast_grant_restatements WHERE source=NEW.source AND item_id=NEW.item_id AND content_hash=NEW.content_hash AND grant_id=NEW.grant_id) BEGIN SELECT RAISE(ABORT,'forecast_grant_immutable'); END;
+CREATE TABLE publication_review_exclusions (
+  review_id TEXT NOT NULL REFERENCES source_manual_review_bindings(review_id),
+  context_hash TEXT NOT NULL,
+  block_index INTEGER NOT NULL,
+  exclusion_json TEXT NOT NULL CHECK(json_valid(exclusion_json)),
+  PRIMARY KEY(review_id,context_hash,block_index)
+);
+CREATE TRIGGER publication_review_exclusions_update BEFORE UPDATE ON publication_review_exclusions
+BEGIN SELECT RAISE(ABORT,'source_evidence_immutable'); END;
+CREATE TRIGGER publication_review_exclusions_delete BEFORE DELETE ON publication_review_exclusions
+BEGIN SELECT RAISE(ABORT,'source_evidence_immutable'); END;
+CREATE TRIGGER publication_review_exclusions_replace BEFORE INSERT ON publication_review_exclusions
+WHEN EXISTS(SELECT 1 FROM publication_review_exclusions WHERE review_id=NEW.review_id AND context_hash=NEW.context_hash AND block_index=NEW.block_index)
+BEGIN SELECT RAISE(ABORT,'source_evidence_immutable'); END;
+CREATE TABLE runtime_candidate_cache (
+  singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+  signature TEXT NOT NULL,
+  run_token TEXT NOT NULL REFERENCES runtime_ingestion_runs(token),
+  candidate_id TEXT NOT NULL REFERENCES forecast_candidates(candidate_id),
+  payload_hash TEXT NOT NULL
+);
 INSERT INTO schema_migrations VALUES(1,CURRENT_TIMESTAMP);
 INSERT INTO schema_migrations VALUES(2,CURRENT_TIMESTAMP);
 INSERT INTO schema_migrations VALUES(3,CURRENT_TIMESTAMP);
@@ -1339,3 +1360,5 @@ INSERT INTO schema_migrations VALUES(24,CURRENT_TIMESTAMP);
 INSERT INTO schema_migrations VALUES(25,CURRENT_TIMESTAMP);
 INSERT INTO schema_migrations VALUES(26,CURRENT_TIMESTAMP);
 INSERT INTO schema_migrations VALUES(27,CURRENT_TIMESTAMP);
+INSERT INTO schema_migrations VALUES(28,CURRENT_TIMESTAMP);
+INSERT INTO schema_migrations VALUES(29,CURRENT_TIMESTAMP);

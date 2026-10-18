@@ -39,9 +39,10 @@ export async function startIngestion(
   db: D1Database,
   requireProfileAdmission = false,
   requireRotationAdmission = false,
+  candidateOnly = false,
 ) {
   const now = new Date().toISOString();
-  const token = crypto.randomUUID();
+  const token = `${candidateOnly ? "candidate:" : ""}${crypto.randomUUID()}`;
   const results = await db.batch([
     db
       .prepare(`UPDATE runtime_ingestion_runs SET status='expired', finished_at=?, error_code='lease_expired'
@@ -55,7 +56,8 @@ export async function startIngestion(
         SELECT 1 FROM source_processor_state WHERE active_token IS NOT NULL
           OR state IN ('held','verifying')
       ) AND (SELECT COUNT(*) FROM (
-        SELECT status FROM runtime_ingestion_runs WHERE started_at>=? ORDER BY started_at DESC LIMIT 3
+        SELECT status FROM runtime_ingestion_runs WHERE started_at>=?
+          AND (token LIKE 'candidate:%')=? ORDER BY started_at DESC LIMIT 3
       ) WHERE status IN ('failed','expired'))<3${
         requireRotationAdmission
           ? ` AND EXISTS (${ROTATION_INGESTION_ADMISSION_SQL})`
@@ -68,6 +70,7 @@ export async function startIngestion(
         now,
         new Date(Date.now() + LEASE_MS).toISOString(),
         `${now.slice(0, 10)}T00:00:00.000Z`,
+        candidateOnly ? 1 : 0,
         ...(requireRotationAdmission
           ? [new Date(Date.parse(now) - ROTATION_ADMISSION_MS).toISOString(), now]
           : requireProfileAdmission

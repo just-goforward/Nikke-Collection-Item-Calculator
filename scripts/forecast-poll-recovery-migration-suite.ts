@@ -22,7 +22,7 @@ const POLL_RECOVERY_MIGRATION = resolve(
 const POLL_RECOVERY_TABLES = ["source_poll_recovery_previews", "source_poll_recovery_audits"];
 
 function expectedMigrationVersions(environment: "staging" | "production") {
-  return Array.from({ length: 27 }, (_, index) => index + 1).filter(
+  return Array.from({ length: 29 }, (_, index) => index + 1).filter(
     (version) => environment === "staging" || ![4, 5, 6].includes(version),
   );
 }
@@ -38,7 +38,7 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true })).toEqual({
         bootstrapped: false,
-        applied: [20, 21, 22, 23, 24, 25, 26, 27],
+        applied: [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
         versions: expectedMigrationVersions(environment),
       });
       expect(runner.files()).toEqual([
@@ -50,6 +50,8 @@ describe("REVIEW19 create-only source poll recovery migration 20", () => {
         "0025_naver_page_policy.sql",
         "0026_source_judgment_evidence.sql",
         "0027_board11_grants.sql",
+        "0028_publication_exclusions.sql",
+        "0029_candidate_replay_cache.sql",
       ]);
       expect(legacyTableSnapshot(db, oldTables)).toEqual(withPublicationProtections(before));
       expect(pollRecoveryTables(db)).toEqual([...POLL_RECOVERY_TABLES].sort());
@@ -101,7 +103,7 @@ describe("REVIEW19 source poll recovery migration restart behavior", () => {
       expect(legacyTableSnapshot(db, oldTables)).toEqual(before);
       runner.spawn.mockImplementation(normal).mockClear();
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        20, 21, 22, 23, 24, 25, 26, 27,
+        20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
       ]);
       expect(runner.files()).toEqual([
         "0020_source_poll_recovery_audits.sql",
@@ -112,6 +114,8 @@ describe("REVIEW19 source poll recovery migration restart behavior", () => {
         "0025_naver_page_policy.sql",
         "0026_source_judgment_evidence.sql",
         "0027_board11_grants.sql",
+        "0028_publication_exclusions.sql",
+        "0029_candidate_replay_cache.sql",
       ]);
       expect(legacyTableSnapshot(db, oldTables)).toEqual(withPublicationProtections(before));
     },
@@ -140,7 +144,7 @@ describe("REVIEW19 source poll recovery migration restart behavior", () => {
       const ledger = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
       runner.spawn.mockImplementation(normal).mockClear();
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        21, 22, 23, 24, 25, 26, 27,
+        21, 22, 23, 24, 25, 26, 27, 28, 29,
       ]);
       expect(runner.files()).toEqual([
         "0021_source_poll_marker_recovery_audits.sql",
@@ -150,6 +154,8 @@ describe("REVIEW19 source poll recovery migration restart behavior", () => {
         "0025_naver_page_policy.sql",
         "0026_source_judgment_evidence.sql",
         "0027_board11_grants.sql",
+        "0028_publication_exclusions.sql",
+        "0029_candidate_replay_cache.sql",
       ]);
       expect(
         db.prepare("SELECT * FROM schema_migrations WHERE version<=20 ORDER BY version").all(),
@@ -174,6 +180,8 @@ describe("REVIEW19 source poll recovery schema and immutable evidence", () => {
       "0025_naver_page_policy.sql",
       "0026_source_judgment_evidence.sql",
       "0027_board11_grants.sql",
+      "0028_publication_exclusions.sql",
+      "0029_candidate_replay_cache.sql",
     ]);
     for (const table of POLL_RECOVERY_TABLES) {
       for (const pragma of ["table_info", "foreign_key_list", "index_list"])
@@ -215,7 +223,7 @@ describe("REVIEW19 source poll recovery schema and immutable evidence", () => {
         pk: 0,
       });
       expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 27,
+        version: 29,
       });
     }
   });

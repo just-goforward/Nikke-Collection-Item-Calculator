@@ -12,6 +12,8 @@ for (const name of [
   "0025_naver_page_policy",
   "0026_source_judgment_evidence",
   "0027_board11_grants",
+  "0028_publication_exclusions",
+  "0029_candidate_replay_cache",
 ]) {
   db.exec(readFileSync(resolve(root, `forecast-collector/migrations/${name}.sql`), "utf8"));
 }

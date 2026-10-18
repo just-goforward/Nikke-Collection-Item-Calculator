@@ -371,6 +371,7 @@ export async function readHealth(db: D1Database) {
       `SELECT status, deployment_sha, COALESCE(finished_at, started_at) AS finished_at
        FROM collector_invocations
        WHERE invocation_id NOT LIKE 'rotation-ingestion:%'
+         AND invocation_id NOT LIKE 'runtime-candidate:%'
        ORDER BY scheduled_at DESC LIMIT 1`,
     )
     .first<{ status: string; deployment_sha: string; finished_at: string }>();
@@ -395,6 +396,16 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
   const minimumScheduled = 200;
   const minimumCompletionRate = 0.99;
   const since = new Date(nowMs - windowHours * 60 * 60 * 1000).toISOString();
+  // Publication slots identify the six-minute combined collection schedule,
+  // but never contribute to successful collection or its denominator.
+  const combinedAlternation = Boolean(
+    await db
+      .prepare(`SELECT 1 FROM collector_invocations
+    WHERE deployment_sha=? AND scheduled_at>=? AND invocation_id LIKE 'runtime-candidate:%'
+    LIMIT 1`)
+      .bind(deploymentSha, since)
+      .first(),
+  );
   const invocations = await db
     .prepare(
       `SELECT invocation_id, status, poll_mode, scheduled_at, started_at, finished_at
@@ -402,6 +413,7 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
        WHERE scheduled_at >= ? AND deployment_sha = ?
          AND invocation_id NOT LIKE 'profile-%'
          AND invocation_id NOT LIKE 'rotation-ingestion:%'
+         AND invocation_id NOT LIKE 'runtime-candidate:%'
        ORDER BY scheduled_at ASC`,
     )
     .bind(since, deploymentSha)
@@ -432,6 +444,7 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
       `SELECT scheduled_at AS started_at FROM collector_invocations
        WHERE deployment_sha = ? AND invocation_id NOT LIKE 'profile-%'
          AND invocation_id NOT LIKE 'rotation-ingestion:%'
+         AND invocation_id NOT LIKE 'runtime-candidate:%'
        ORDER BY scheduled_at ASC LIMIT 1`,
     )
     .bind(deploymentSha)
@@ -660,7 +673,7 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
     effective.length >=
       (rotation
         ? Math.floor((minimumScheduled * (rotationV2 ? 3 : 2)) / (rotationV2 ? 4 : 3))
-        : minimumScheduled) &&
+        : minimumScheduled / (combinedAlternation ? 2 : 1)) &&
     !missingRotationBoard &&
     successRate >= minimumCompletionRate &&
     latest?.status === "completed" &&

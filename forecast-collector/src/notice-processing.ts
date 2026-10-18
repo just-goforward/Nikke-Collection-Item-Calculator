@@ -283,7 +283,10 @@ export async function buildNoticeCandidate(
   for (const review of currentReviews)
     if (!(await reviewExcluded(review, events, grants, horizon, true))) return undefined;
   for (const review of persistedReviews)
-    if (!(await reviewExcluded(review, events, grants, horizon, false))) return undefined;
+    if (
+      !(await reviewExcluded(review, events, grants, horizon, Boolean(review.publicationBinding)))
+    )
+      return undefined;
   const reviewed = new Set(
     [...currentReviews, ...persistedReviews].map(
       (review) => `${review.item.source}:${review.item.itemId}`,

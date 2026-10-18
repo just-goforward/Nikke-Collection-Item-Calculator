@@ -146,6 +146,7 @@ export async function invocationCircuitState(db: D1Database, nowMs: number, boar
       `SELECT status, next_retry_at, error_code FROM collector_invocations
        WHERE status IN ('failure', 'completed')
          AND invocation_id NOT LIKE 'rotation-ingestion:%'
+         AND invocation_id NOT LIKE 'runtime-candidate:%'
          ${board ? `AND invocation_id LIKE 'rotation-board-${board}:%'` : ""}
          AND (error_code IS NULL OR error_code NOT IN (
            'naver_boundary_held_only', 'naver_stale_poll_only'

@@ -183,11 +183,29 @@ it("runs the scheduled metadata → full body → D1 v3 candidate path in worker
   try {
     const context = createExecutionContext();
     await worker.scheduled(
-      { scheduledTime: Date.now(), cron: "*/3 * * * *", noRetry: vi.fn() },
+      {
+        scheduledTime: Math.floor(Date.now() / 360_000) * 360_000,
+        cron: "*/3 * * * *",
+        noRetry: vi.fn(),
+      },
       testEnv,
       context,
     );
     await waitOnExecutionContext(context);
+    expect(
+      await testEnv.FORECAST_DB.prepare("SELECT COUNT(*) AS count FROM forecast_candidates").first(
+        "count",
+      ),
+    ).toBe(0);
+    const candidateContext = createExecutionContext();
+    const beforeCandidate = fetcher.mock.calls.length;
+    await worker.scheduled(
+      { scheduledTime: 7 * 180_000, cron: "*/3 * * * *", noRetry: vi.fn() },
+      { ...testEnv, COLLECTION_SCHEDULE: "rotation" },
+      candidateContext,
+    );
+    await waitOnExecutionContext(candidateContext);
+    expect(fetcher.mock.calls.length).toBe(beforeCandidate);
     const row = await testEnv.FORECAST_DB.prepare(
       "SELECT payload_json FROM forecast_candidates",
     ).first<{ payload_json: string }>();

@@ -27,10 +27,12 @@ export const PROFILE_INGESTION_ADMISSION_SQL = `SELECT invocation_id FROM (
         SELECT invocation_id,status,finished_at FROM collector_invocations
         WHERE invocation_id NOT LIKE 'profile-board-%'
           AND invocation_id NOT LIKE 'rotation-%'
+          AND invocation_id NOT LIKE 'runtime-candidate:%'
         ORDER BY scheduled_at DESC, started_at DESC, invocation_id DESC LIMIT 1
       ) latest WHERE status='completed' AND finished_at>=? AND finished_at<=?
         AND NOT EXISTS (
           SELECT 1 FROM runtime_ingestion_runs WHERE started_at>=latest.finished_at
+            AND token NOT LIKE 'candidate:%'
         )`;
 
 export async function profileIngestionAdmitted(

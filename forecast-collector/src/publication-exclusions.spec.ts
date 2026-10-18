@@ -36,6 +36,21 @@ const judgment = (): Judgment => ({
     },
   },
 });
+it("keeps a persisted negative first evaluation blocked after the horizon moves", async () => {
+  const review = {
+    item,
+    judgments: [judgment()],
+    publicationBinding: { reviewId: "test", contextHash: "test" },
+  };
+  expect(
+    await reviewExcluded(review, [], [], { from: "2026-06-22", until: "2026-06-24" }, true),
+  ).toBe(false);
+  const persisted = JSON.parse(JSON.stringify(review));
+  expect(persisted.evaluations[0]).toBeNull();
+  expect(
+    await reviewExcluded(persisted, [], [], { from: "2026-06-25", until: "2026-06-30" }, true),
+  ).toBe(false);
+});
 it.each(["interval", "status"] as const)(
   "invalidates modeled reopen exclusion on changed %s",
   async (change) => {

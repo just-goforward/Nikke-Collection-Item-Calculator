@@ -26,9 +26,24 @@ used by the manual review generation binding.
 
 ### Rotation schedule
 
+With staging runtime ingestion enabled, combined mode alternates even cron slots
+(collection plus ingestion) and odd slots (candidate only): collection is every
+six minutes. Profile mode is a measurement tool and never publishes. Production
+and disabled-ingestion scheduling are unchanged.
+
+Candidate construction requires a recorded schema version of at least 29.
+If 0028/0029 objects exist without their ledger entries, migration application
+deliberately stops on the existing-object error and candidate runs remain disabled
+without consuming failure budget. Do not insert ledger rows based on object names
+alone or drop evidence to retry. Preserve the database and obtain an operator-reviewed
+schema/data comparison and explicit repair plan before recording the missing versions.
+This is a fail-closed recovery boundary, not automatic migration repair.
+
 Staging uses `COLLECTION_SCHEDULE=rotation`; production remains `combined`.
 The unchanged three-minute cron rotates by `floor(scheduledTime / 180000) % 4`:
-board 48, board 56, board 11, then runtime ingestion. Each board is polled every twelve
+board 48, board 56, board 11, then a runtime slot alternating ingestion and
+candidate construction. Ingestion and candidate construction each run every
+24 minutes; the candidate slot fetches no notice bodies. Each board is polled every twelve
 minutes (normal scheduling latency ≤12 minutes, excluding outages and catch-up).
 New invocation identities carry `:v2`; historical unversioned identities retain
 their three-slot interpretation in canary evidence.
@@ -60,8 +75,10 @@ Staging profiling overrides rotation. Roll back with
 `COLLECTION_SCHEDULE=combined`; no cursor migration is needed.
 
 Excluding detail-budget waits, outages and catch-up, post-to-ingestion latency can
-be up to approximately 21 minutes: twelve minutes to the board poll plus nine
-minutes to ingestion. Existing circuit thresholds and backoff remain unchanged.
+be up to approximately 33 minutes: twelve minutes to the board poll plus up to
+21 minutes to ingestion. The next candidate slot is twelve minutes later, giving
+an approximately 45-minute post-to-candidate bound when all inputs resolve.
+Existing circuit thresholds and backoff remain unchanged.
 During combined↔rotation propagation, combined invocations still ingest under
 the old completed-collection gate. Cursor and ingestion leases keep this safe;
 rotation polls may already have been consumed, or a cycle may be skipped.

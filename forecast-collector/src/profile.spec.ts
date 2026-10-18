@@ -16,7 +16,7 @@ describe("staging profiling", () => {
       sqlite.exec(`CREATE TABLE collector_invocations
         (invocation_id TEXT, status TEXT, finished_at TEXT,
          scheduled_at TEXT, started_at TEXT);
-        CREATE TABLE runtime_ingestion_runs (started_at TEXT);`);
+        CREATE TABLE runtime_ingestion_runs (started_at TEXT, token TEXT DEFAULT 'ingestion');`);
       sqlite
         .prepare("INSERT INTO collector_invocations VALUES (?,?,?,?,?)")
         .run(id, status, new Date(time).toISOString(), "slot", "start");
@@ -49,12 +49,12 @@ describe("staging profiling", () => {
         sqlite.exec(`CREATE TABLE collector_invocations
           (invocation_id TEXT, status TEXT, finished_at TEXT,
            scheduled_at TEXT, started_at TEXT);
-          CREATE TABLE runtime_ingestion_runs (started_at TEXT);`);
+          CREATE TABLE runtime_ingestion_runs (started_at TEXT, token TEXT DEFAULT 'ingestion');`);
         const insert = sqlite.prepare("INSERT INTO collector_invocations VALUES (?,?,?,?,?)");
         const finished = new Date(history === "stale" ? -1 : 300_000).toISOString();
         insert.run("success", "completed", finished, "a", "a");
         if (history === "consumed") {
-          sqlite.prepare("INSERT INTO runtime_ingestion_runs VALUES (?)").run(finished);
+          sqlite.prepare("INSERT INTO runtime_ingestion_runs(started_at) VALUES (?)").run(finished);
         } else if (history !== "stale") {
           insert.run("newer", history, null, "b", "b");
         }

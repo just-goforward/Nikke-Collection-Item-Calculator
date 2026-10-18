@@ -1,12 +1,18 @@
+import { gameDayStartMs } from "../../shared/gameDay";
 import { assertUsageAllowed } from "../../shared/usageGuard";
 import { board11InvocationGate } from "./board11-policy";
+import { resolveSoloSchedule } from "./candidate";
 import { sha256Hex, stableJson } from "./crypto";
 import { loadGrants } from "./grants";
 import { automationOperation, requireGuardDb } from "./http-shared";
 import type { FetchLike } from "./naver";
 import { buildNoticeCandidate, noticeErrorCode, processNotice } from "./notice-processing";
 import type { ProfileCounts } from "./profile";
-import { persistedReviewEvidence, type ReviewEvidence } from "./publication-exclusions";
+import {
+  persistedReviewEvidence,
+  publicationExclusionStatements,
+  type ReviewEvidence,
+} from "./publication-exclusions";
 import { loadRuntimeEvents } from "./runtime-events";
 import {
   type IngestionEntry,
@@ -24,15 +30,26 @@ export function runtimeIngestionEnabled(env: CollectorEnv) {
   return env.ENVIRONMENT === "staging" && env.RUNTIME_INGESTION_ENABLED === "true";
 }
 
-export async function runRuntimeIngestion(
+export function runRuntimeCandidate(env: CollectorEnv, candidateNowMs?: number) {
+  return runRuntimeInvocation(env, { candidateNowMs: candidateNowMs ?? Date.now() }, true);
+}
+
+export function runRuntimeIngestion(env: CollectorEnv, options: RuntimeOptions = {}) {
+  return runRuntimeInvocation(env, options, false);
+}
+
+type RuntimeOptions = {
+  fetcher?: FetchLike;
+  candidateNowMs?: number;
+  counts?: ProfileCounts;
+  requireProfileAdmission?: boolean;
+  requireRotationAdmission?: boolean;
+};
+
+async function runRuntimeInvocation(
   env: CollectorEnv,
-  options: {
-    fetcher?: FetchLike;
-    candidateNowMs?: number;
-    counts?: ProfileCounts;
-    requireProfileAdmission?: boolean;
-    requireRotationAdmission?: boolean;
-  } = {},
+  options: RuntimeOptions,
+  candidateOnly: boolean,
 ) {
   if (!runtimeIngestionEnabled(env))
     return { outcome: "disabled" as const, processed: 0, candidateCreated: false };
@@ -42,15 +59,27 @@ export async function runRuntimeIngestion(
   if (!Number.isInteger(limit) || limit < 0 || limit > 20)
     throw new Error("runtime_notice_daily_limit");
   const db = env.FORECAST_DB;
+  // Check before claiming a lease: incomplete migrations are a disabled path,
+  // not repeated failed ingestion runs. Object presence alone is not admission.
+  if (
+    candidateOnly &&
+    !(await db
+      .prepare(
+        "SELECT COUNT(*) AS versions FROM schema_migrations WHERE version IN (28,29) HAVING COUNT(*)=2",
+      )
+      .first())
+  )
+    return { outcome: "disabled" as const, processed: 0, candidateCreated: false };
   const board11Allowed = board11InvocationGate(db);
   const token = await startIngestion(
     db,
     options.requireProfileAdmission,
     options.requireRotationAdmission,
+    candidateOnly,
   );
   if (!token) return { outcome: "held" as const, processed: 0, candidateCreated: false };
-  // No schedule writes occur before settlement. Share this invocation's lazy
-  // snapshot between notice judgments and candidate construction.
+  // No schedule writes occur before settlement. Notice judgments share a lazy
+  // snapshot; publication reads a fresh persisted snapshot in its own invocation.
   let ledgerPromise: Promise<Awaited<ReturnType<typeof readScheduleLedger>>> | undefined;
   const readLedger = () =>
     (ledgerPromise ??= (async () => {
@@ -58,23 +87,30 @@ export async function runRuntimeIngestion(
       return { ...ledger, events: await loadRuntimeEvents(db, ledger.events) };
     })());
   try {
-    const entries = await collectNotices(
-      env,
-      token,
-      limit,
-      options.fetcher,
-      options.counts,
-      board11Allowed,
-      async () => (await readLedger()).events,
-    );
+    const entries = candidateOnly
+      ? []
+      : await collectNotices(
+          env,
+          token,
+          limit,
+          options.fetcher,
+          options.counts,
+          board11Allowed,
+          async () => (await readLedger()).events,
+        );
     const results: SourceQueueResult[] = entries.map((entry) => entry.result);
-    const candidate = await prepareNoticeCandidate(
-      db,
-      results,
-      options.candidateNowMs,
-      board11Allowed,
-      readLedger,
-    );
+    const exclusionStatements: D1PreparedStatement[] = [];
+    const candidate = candidateOnly
+      ? await prepareNoticeCandidate(
+          db,
+          options.candidateNowMs,
+          board11Allowed,
+          readLedger,
+          exclusionStatements,
+          token,
+          env.DEPLOY_SHA,
+        )
+      : undefined;
     await assertUsageAllowed(requireGuardDb(env), automationOperation(env));
     const transaction = await ingestionSettlement(
       db,
@@ -86,7 +122,7 @@ export async function runRuntimeIngestion(
     const result = await processSourceQueue(
       db,
       { mode: "bootstrap", results, candidate },
-      transaction,
+      { before: transaction.before, after: [...exclusionStatements, ...transaction.after] },
       board11Allowed,
     );
     return { outcome: "completed" as const, ...result };
@@ -133,25 +169,21 @@ async function collectNotices(
 
 async function prepareNoticeCandidate(
   db: D1Database,
-  results: SourceQueueResult[],
   candidateNowMs: number | undefined,
   board11Allowed: () => Promise<boolean>,
   readLedger: () => Promise<Awaited<ReturnType<typeof readScheduleLedger>>>,
+  exclusionStatements: D1PreparedStatement[],
+  token: string,
+  deploymentSha: string,
 ) {
-  if (results.length === 0 || !(await board11Allowed())) return undefined;
+  if (!(await board11Allowed())) return undefined;
+  // Empty invocations must not load a ledger or allocate/read a revision.
+  if (!(await db.prepare("SELECT 1 FROM schedule_events LIMIT 1").first())) return undefined;
   const ledger = await readLedger();
   const events = ledger.events;
   const unresolved = await db
-    .prepare(`SELECT source,item_id,status FROM source_queue q
-      WHERE status IN ('pending','manual_review') AND NOT EXISTS (
-        SELECT 1 FROM json_each(?) r
-        WHERE json_extract(r.value,'$.source')=q.source
-          AND json_extract(r.value,'$.itemId')=q.item_id
-          AND json_extract(r.value,'$.outcome') IN ('processed','ignored','manual_review')
-      )`)
-    .bind(
-      JSON.stringify(results.map(({ source, itemId, outcome }) => ({ source, itemId, outcome }))),
-    )
+    .prepare(`SELECT source,item_id,status FROM source_queue
+      WHERE status IN ('pending','manual_review')`)
     .all<{ source: string; item_id: string; status: string }>();
   if (unresolved.results.some((row) => row.status === "pending")) return undefined;
   const reviews: ReviewEvidence[] = [];
@@ -160,16 +192,100 @@ async function prepareNoticeCandidate(
     if (!review) return undefined;
     reviews.push(review);
   }
+  const now = candidateNowMs ?? Date.now();
+  const grants = await loadGrants(db);
+  const resolved = resolveSoloSchedule(events, now);
+  // Cache constructor inputs, not timestamps or row counts alone. Resolving the
+  // inexpensive schedule also detects coverage/focus changes within a game day.
+  // Segmented schedules have additional primary-period boundaries: fail open to
+  // reconstruction for those rather than approximate their temporal identity.
+  const cacheable = resolved && !events.some((event) => event.segment || event.segments);
+  const commits = await db
+    .prepare(`SELECT COUNT(*) AS count FROM runtime_ingestion_commits
+    WHERE run_token NOT LIKE 'candidate:%' AND json_array_length(queue_snapshot)>0`)
+    .first();
+  const reviewState = await db
+    .prepare("SELECT * FROM source_manual_reviews ORDER BY review_id")
+    .all();
+  const bindings = await db
+    .prepare(
+      "SELECT review_id,generation,review_token FROM source_manual_review_bindings ORDER BY review_id",
+    )
+    .all();
+  const signature = cacheable
+    ? await sha256Hex(
+        stableJson({
+          gameDay: gameDayStartMs(now),
+          deploymentSha,
+          events,
+          resolved,
+          grants,
+          reviews,
+          commits,
+          reviewState: reviewState.results,
+          bindings: bindings.results,
+        }),
+      )
+    : null;
+  if (signature) {
+    const cached = await db
+      .prepare(`SELECT f.payload_json,c.payload_hash,f.payload_hash AS stored_payload_hash,
+        f.forecast_id FROM runtime_candidate_cache c
+      JOIN runtime_ingestion_runs r ON r.token=c.run_token
+      JOIN forecast_candidates f ON f.candidate_id=c.candidate_id
+      WHERE c.signature=? AND r.status='completed'`)
+      .bind(signature)
+      .first<{
+        payload_json: string;
+        payload_hash: string;
+        stored_payload_hash: string;
+        forecast_id: string;
+      }>();
+    if (cached) {
+      await assertCachedPayload(cached);
+      return undefined;
+    }
+  }
   const candidate = await buildNoticeCandidate(
     events,
-    results,
-    candidateNowMs ?? Date.now(),
+    [],
+    now,
     ledger.nextRevision,
-    await loadGrants(db),
+    grants,
     reviews,
   );
+  exclusionStatements.push(...publicationExclusionStatements(db, reviews));
+  if (signature && candidate)
+    exclusionStatements.push(
+      db
+        .prepare(`INSERT INTO runtime_candidate_cache VALUES(1,?,?,?,
+          (SELECT payload_hash FROM forecast_candidates WHERE candidate_id=?))
+      ON CONFLICT(singleton) DO UPDATE SET signature=excluded.signature,run_token=excluded.run_token,
+        candidate_id=excluded.candidate_id,payload_hash=excluded.payload_hash`)
+        .bind(
+          signature,
+          token,
+          candidate.envelope.candidate.candidateId,
+          candidate.envelope.candidate.candidateId,
+        ),
+    );
   if (candidate && (await candidateAlreadyStored(db, candidate))) return undefined;
   return candidate;
+}
+
+async function assertCachedPayload(cached: {
+  payload_json: string;
+  payload_hash: string;
+  stored_payload_hash: string;
+  forecast_id: string;
+}) {
+  const payload = JSON.parse(cached.payload_json);
+  if (
+    cached.payload_hash !== cached.stored_payload_hash ||
+    payload.forecastId !== cached.forecast_id ||
+    (await sha256Hex(stableJson(payload))) !== cached.payload_hash
+  )
+    throw new Error("runtime_candidate_identity_conflict");
 }
 
 async function candidateAlreadyStored(

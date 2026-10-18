@@ -26,6 +26,31 @@ import {
 } from "./forecast-recovery-migration-fixtures.ts";
 import "./forecast-poll-recovery-migration-suite.ts";
 
+it.each([28, 29])("fails closed on unrecorded version %s objects", (version) => {
+  const db = database();
+  db.exec(readFileSync(resolve(root, "forecast-collector/schema.sql"), "utf8"));
+  for (const migration of migrations.filter(
+    (entry) => entry.version > 21 && entry.version < version,
+  ))
+    db.exec(readFileSync(migration.file, "utf8"));
+  const migration = migrations.find((entry) => entry.version === version);
+  if (!migration) throw new Error("missing migration");
+  db.exec(
+    readFileSync(migration.file, "utf8").replace(
+      /INSERT INTO schema_migrations\(version,applied_at\) VALUES\(\d+,CURRENT_TIMESTAMP\);/,
+      "",
+    ),
+  );
+  const snapshot = () => ({
+    schema: db.prepare("SELECT * FROM sqlite_schema ORDER BY name").all(),
+    ledger: db.prepare("SELECT * FROM schema_migrations ORDER BY version").all(),
+    changes: db.prepare("SELECT total_changes() AS count").get(),
+  });
+  const before = snapshot();
+  expect(() => sqliteRunner(db).run()).toThrow(/already exists/);
+  expect(snapshot()).toEqual(before);
+});
+
 function databaseNow(db: DatabaseSync) {
   const row = db.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS now").get();
   return Date.parse(String(row?.["now"]));
@@ -44,7 +69,7 @@ describe("REVIEW12 explicit recovery storage upgrades", () => {
       const before = databaseNow(db);
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
       ]);
       const control = db.prepare("SELECT * FROM staging_adoption_recovery_control").get();
       const episode = db.prepare("SELECT * FROM staging_adoption_hold_episodes").get();
@@ -155,7 +180,7 @@ describe("REVIEW16 create-only recovery target upgrade and restart", () => {
       ).toEqual([]);
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+        18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
       ]);
       expect(runner.files()).toEqual([
         "0018_source_processor_target_reservations.sql",
@@ -168,6 +193,8 @@ describe("REVIEW16 create-only recovery target upgrade and restart", () => {
         "0025_naver_page_policy.sql",
         "0026_source_judgment_evidence.sql",
         "0027_board11_grants.sql",
+        "0028_publication_exclusions.sql",
+        "0029_candidate_replay_cache.sql",
       ]);
       expect(
         db.prepare("SELECT * FROM schema_migrations WHERE version<18 ORDER BY version").all(),
@@ -324,7 +351,7 @@ describe("C15 policy addendum create-only exception audit upgrade", () => {
       ).toEqual([]);
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        19, 20, 21, 22, 23, 24, 25, 26, 27,
+        19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
       ]);
       expect(runner.files()).toEqual([
         "0019_source_processor_exception_audits.sql",
@@ -336,6 +363,8 @@ describe("C15 policy addendum create-only exception audit upgrade", () => {
         "0025_naver_page_policy.sql",
         "0026_source_judgment_evidence.sql",
         "0027_board11_grants.sql",
+        "0028_publication_exclusions.sql",
+        "0029_candidate_replay_cache.sql",
       ]);
       expect(
         db.prepare("SELECT * FROM schema_migrations WHERE version<19 ORDER BY version").all(),
@@ -390,7 +419,7 @@ describe("C15 policy addendum create-only exception audit upgrade", () => {
       const ledger = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
       runner.spawn.mockImplementation(normal).mockClear();
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        20, 21, 22, 23, 24, 25, 26, 27,
+        20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
       ]);
       expect(runner.files()).toEqual([
         "0020_source_poll_recovery_audits.sql",
@@ -401,12 +430,14 @@ describe("C15 policy addendum create-only exception audit upgrade", () => {
         "0025_naver_page_policy.sql",
         "0026_source_judgment_evidence.sql",
         "0027_board11_grants.sql",
+        "0028_publication_exclusions.sql",
+        "0029_candidate_replay_cache.sql",
       ]);
       expect(
         db.prepare("SELECT * FROM schema_migrations WHERE version<=19 ORDER BY version").all(),
       ).toEqual(ledger);
       expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 27,
+        version: 29,
       });
       expect(db.prepare("SELECT * FROM source_processor_exception_audits").all()).toEqual([]);
       expect(exceptionEvidenceHistory(db)).toEqual(history);

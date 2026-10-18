@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, vi } from "vitest";
 import { parseNoticeDetail } from "./notice";
-import { runRuntimeIngestion } from "./runtime-ingestion";
+import { runRuntimeCandidate, runRuntimeIngestion } from "./runtime-ingestion";
 import { runtimeTestDb } from "./test-runtime-db";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
@@ -64,10 +64,19 @@ export function rows(sql: string) {
 export function allowRecheck() {
   sqlite.exec("UPDATE runtime_ingestion_items SET next_check_at='2000-01-01T00:00:00.000Z'");
 }
-export function run(
+export function runNoticeIngestion(fetcher: typeof fetch = async () => Response.json(fixture)) {
+  return runRuntimeIngestion(env, { fetcher, candidateNowMs: now });
+}
+export function runCandidateInvocation(at = now) {
+  return runRuntimeCandidate(env, at);
+}
+export async function runIngestionThenCandidate(
   fetcher: typeof fetch = vi
     .fn<typeof fetch>()
     .mockImplementation(async () => Response.json(fixture)),
 ) {
-  return runRuntimeIngestion(env, { fetcher, candidateNowMs: now });
+  const ingestion = await runNoticeIngestion(fetcher);
+  if (ingestion.outcome !== "completed") return ingestion;
+  const candidate = await runCandidateInvocation();
+  return { ...ingestion, candidateCreated: candidate.candidateCreated };
 }
