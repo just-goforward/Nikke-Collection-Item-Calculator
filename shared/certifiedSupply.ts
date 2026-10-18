@@ -47,6 +47,7 @@ import {
 } from "./certifiedSupplyValidation.ts";
 import { certifiedVersionPolicy } from "./certifiedVersionPolicy.ts";
 import { gameDayKey, gameDayStartMs } from "./gameDay.ts";
+import { soloRaidWaitingOffset } from "./soloRaidCadence.ts";
 
 export const CERTIFIED_SUPPLY_VERSION = SUPPLY_VERSION;
 export const DEFAULT_PERSONAL_COHORT_WEIGHTS = DEFAULT_COHORT_WEIGHTS;
@@ -132,12 +133,16 @@ export function viewCertifiedSupplySnapshot(
   asOf: string,
 ): CertifiedSupplySnapshot {
   const now = timestamp(asOf);
+  if (snapshot.cadence.version === "observed-median-v2")
+    snapshot = ageMedianSnapshot(snapshot, now);
   const today = gameDayStartMs(now);
   const authorityFrom = timestamp(snapshot.coverage.from);
   const authorityUntil = timestamp(snapshot.coverage.until);
   const soloRounds = snapshot.soloRounds.map(
     (round): CertifiedSoloRound =>
-      round.status === "estimated" && dateStart(round.startGameDate) <= now
+      snapshot.cadence.version !== "observed-median-v2" &&
+      round.status === "estimated" &&
+      dateStart(round.startGameDate) <= now
         ? { ...round, status: "unverified", endGameDate: null }
         : round,
   );
@@ -211,6 +216,60 @@ export function viewCertifiedSupplySnapshot(
       ]),
     ],
   });
+}
+
+/** Rewindow predictions only; never enlarge the adopted authority coverage. */
+function ageMedianSnapshot(
+  snapshot: CertifiedSupplySnapshot,
+  now: number,
+): CertifiedSupplySnapshot {
+  const first = snapshot.soloRounds.find(
+    (round) => round.round === snapshot.delayState.anchorRound + 1,
+  );
+  const segment = first?.segments?.[0];
+  if (!first || !segment) return snapshot;
+  const start = timestamp(segment.effectiveFrom) - snapshot.delayState.offsetDays * DAY_MS;
+  const offsetDays = soloRaidWaitingOffset(start, now);
+  const delta = (offsetDays - snapshot.delayState.offsetDays) * DAY_MS;
+  const shift = (time: string) => iso(timestamp(time) + delta);
+  const sourceIds = first.sourceIds.map((id, index) => {
+    if (index === 2) return offsetDays ? "공지 대기" : "prediction";
+    if (id.startsWith("predicted-notice:")) return id.slice(0, 17) + shift(id.slice(17));
+    if (id.startsWith("predicted-alternative:")) {
+      const original = timestamp(first.sourceIds[index + 1]?.slice(27) ?? "");
+      return id.slice(0, 22) + iso(original + soloRaidWaitingOffset(original, now) * DAY_MS);
+    }
+    return id;
+  });
+  const shiftedDate = (date: string) => gameDayKey(dateStart(date) + delta);
+  // These are the closed JSON wire fields of predicted rounds, segments and events.
+  // Transform only selected predictions; confirmed records and the frozen input stay intact.
+  const shifted = <T>(entry: T): T =>
+    JSON.parse(
+      JSON.stringify(entry, (key, value) => {
+        if (key === "sourceIds") return sourceIds;
+        if (typeof value !== "string") return value;
+        if (/^(at|effectiveFrom|effectiveUntil|expiresAt)$/.test(key)) return shift(value);
+        if (/^(gameDate|(start|end|rewardFrom|rewardUntil)GameDate)$/.test(key))
+          return shiftedDate(value);
+        return value;
+      }),
+    );
+  return {
+    ...snapshot,
+    delayState: { ...snapshot.delayState, offsetDays },
+    soloRounds: snapshot.soloRounds.map((round) =>
+      round.status === "estimated" ? shifted({ ...round, segments: round.segments ?? [] }) : round,
+    ),
+    events: snapshot.events.flatMap((event) => {
+      if (event.kind !== "solo" || event.status !== "estimated") return [event];
+      const next = shifted({ ...event, expiresAt: event.expiresAt ?? null });
+      const at = timestamp(next.at);
+      return at >= timestamp(snapshot.coverage.from) && at < timestamp(snapshot.coverage.until)
+        ? [next]
+        : [];
+    }),
+  };
 }
 
 export function certifiedCohortWeights(

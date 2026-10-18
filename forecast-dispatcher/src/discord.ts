@@ -35,6 +35,18 @@ export class DiscordMessageError extends Error {
   }
 }
 
+export function discordRetryable(error: unknown) {
+  return !(error instanceof DiscordMessageError) || error.retryable;
+}
+
+/** Only uncertain outcomes may have created a message; permission/429 did not. */
+export function discordAmbiguous(error: unknown) {
+  return (
+    error instanceof DiscordMessageError &&
+    /^discord_(network|timeout|response_|create_message_5)/.test(error.message)
+  );
+}
+
 export function dispatchAcceptedMessage(env: DispatcherEnv, reservation: DispatchReservation) {
   const links = reservation.links.slice(0, 3).map((item) => {
     const title = cleanText(item.title, 100);

@@ -51,6 +51,7 @@ import {
 import { prepareSnapshot, V8_AS_OF } from "../v8/snapshot.ts";
 import {
   ANCHOR_FILE,
+  ARCHIVE_FILES,
   EVIDENCE_FILES,
   type EvidenceProvenance,
   GENERATION_SOURCES,
@@ -261,6 +262,7 @@ describe("v9 publication pipeline (disposable root, product input)", () => {
       mkdirSync(dirname(resolve(root, path)), { recursive: true });
       copyFileSync(path, resolve(root, path));
     }
+    expect(existsSync(resolve(root, V9_ROOT, "calculate.ts"))).toBe(true);
     // Generation forbids inherited Node options/loaders, so it runs as a clean child.
     execFileSync(process.execPath, [`${V9_ROOT}/generate.ts`, root], {
       env: Object.fromEntries(
@@ -297,6 +299,7 @@ describe("v9 publication pipeline (disposable root, product input)", () => {
     "independent-physical-cohorts.json",
     "provenance.json",
     "pins.json",
+    "calculate.ts",
   ])("rejects changed %s bytes in the disposable publication", (name) => {
     expect(root).not.toBe("");
     const mutated = mkdtempSync(resolve(tmpdir(), "approved24-v9-mutation-"));
@@ -316,6 +319,13 @@ describe("v9 publication pipeline (disposable root, product input)", () => {
 });
 
 describe("tracked v9 publication", () => {
+  it("checks every archived source against its unchanged pinned sha256", () => {
+    const { provenance } = readV9Evidence();
+    const sources = [...provenance.generation.sources, ...provenance.snapshot.sources];
+    expect(ARCHIVE_FILES).toHaveLength(sources.length);
+    for (const source of sources)
+      expect(sha256(readFileSync(`${V9_ROOT}/source/${source.path}.txt`))).toBe(source.sha256);
+  });
   it("authenticates and exactly regenerates the tracked v3 approved24 expectations", () => {
     const panel = loadIndependentApprovedPanel();
     expect(panel).toHaveLength(24);

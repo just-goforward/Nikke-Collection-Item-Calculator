@@ -75,7 +75,8 @@ export const SOLO_RAID_CADENCE_SUMMARY = /* @__PURE__ */ (() =>
 
 /** The unreduced observed numerator/count retains the frequency's provenance. */
 export type ExactSoloRaidCadence = {
-  version: "observed-mean-thursday-v1";
+  version: "observed-mean-thursday-v1" | "observed-median-v2";
+  medianDays?: number;
   numerator: number;
   denominator: number;
   rounds: number;
@@ -126,6 +127,73 @@ export function deriveExactSoloRaidCadence(
 }
 
 export type CertifiedSoloEstimate = { round: number; startGameDate: string };
+
+/**
+ * V2 prediction only: never an announcement or supply authority.
+ * Legacy weekly delay offsets are deliberately not inputs. Recompute the daily
+ * waiting shift from the original prediction and the current 05:00 KST game day.
+ */
+export function predictMedianSoloRaid(input: {
+  confirmedRounds: readonly SoloRaidRound[];
+  previousStart: string;
+  previousEnd: string;
+  interruptionAt?: string;
+  asOf: string;
+}) {
+  // Reuse the contiguous, one-start-per-season history validation.
+  deriveExactSoloRaidCadence(input.confirmedRounds);
+  const ordered = [...input.confirmedRounds].sort((a, b) => a.round - b.round);
+  const summary = summarizeSoloRaidCadence(ordered.map((entry) => entry.startGameDate));
+  const medianDays = Math.floor(summary.medianDays);
+  const start = Date.parse(input.previousStart);
+  const end = Date.parse(input.interruptionAt ?? input.previousEnd);
+  const now = Date.parse(input.asOf);
+  if (![start, end, now].every(Number.isFinite) || end <= start)
+    throw new Error("solo_raid_prediction_time_invalid");
+  const gameDay = (at: number) => Math.floor((at + 4 * 3_600_000) / DAY_MS);
+  const last = ordered.at(-1);
+  if (!last || new Date(gameDay(start) * DAY_MS).toISOString().slice(0, 10) !== last.startGameDate)
+    throw new Error("solo_raid_prediction_anchor_invalid");
+  const alternatives = Object.entries(summary.frequency).sort(
+    ([left, a], [right, b]) => b - a || Number(left) - Number(right),
+  );
+  const prediction = (intervalDays: number) =>
+    predictSoloRaidInterval(start, end, now, intervalDays);
+  const second = alternatives[1];
+  return {
+    version: "observed-median-v2" as const,
+    summary,
+    primary: prediction(medianDays),
+    secondary: second ? prediction(Number(second[0])) : null,
+  };
+}
+
+export function predictSoloRaidInterval(
+  start: number,
+  end: number,
+  now: number,
+  intervalDays: number,
+) {
+  const original = start + intervalDays * DAY_MS;
+  const waiting = now > original;
+  const offsetDays = soloRaidWaitingOffset(original, now);
+  const shifted = original + offsetDays * DAY_MS;
+  const noticeDate = new Date(shifted + 9 * 3_600_000 - 6 * DAY_MS).toISOString().slice(0, 10);
+  return {
+    label: "prediction" as const,
+    status: waiting ? ("공지 대기" as const) : ("prediction" as const),
+    intervalDays,
+    offsetDays,
+    start: new Date(shifted).toISOString(),
+    end: new Date(shifted + end - start).toISOString(),
+    expectedNotice: new Date(`${noticeDate}T17:00:00+09:00`).toISOString(),
+  };
+}
+
+export function soloRaidWaitingOffset(start: number, now: number) {
+  const gameDay = (at: number) => Math.floor((at + 4 * 3_600_000) / DAY_MS);
+  return now > start ? Math.max(1, gameDay(now) - gameDay(start) + 1) : 0;
+}
 
 /** Snap anchor + k * mean independently; never recur from an already rounded date. */
 export function estimateCertifiedSoloRounds(input: {

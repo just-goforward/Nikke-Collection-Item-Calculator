@@ -1333,6 +1333,268 @@ CREATE TABLE runtime_candidate_cache (
   candidate_id TEXT NOT NULL REFERENCES forecast_candidates(candidate_id),
   payload_hash TEXT NOT NULL
 );
+CREATE TABLE forecast_v2_monitors (
+  stream_id TEXT PRIMARY KEY NOT NULL,
+  board_id INTEGER NOT NULL CHECK(board_id IN (11,48,56)),
+  keyword TEXT,
+  search_option TEXT NOT NULL CHECK(search_option IN ('COMMUNITY_FEED_TITLE','COMMUNITY_FEED_TITLE_CONTENT','BOARD_LIST')),
+  interval_seconds INTEGER NOT NULL CHECK(interval_seconds>0),
+  on_demand INTEGER NOT NULL DEFAULT 0 CHECK(on_demand IN (0,1)),
+  edit_horizon_days INTEGER NOT NULL DEFAULT 14 CHECK(edit_horizon_days>0),
+  CHECK((search_option='BOARD_LIST')=(keyword IS NULL))
+);
+CREATE TABLE forecast_v2_monitor_state (
+  stream_id TEXT PRIMARY KEY NOT NULL REFERENCES forecast_v2_monitors(stream_id),
+  committed_created_at TEXT,
+  committed_feed_ids_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(committed_feed_ids_json) AND json_type(committed_feed_ids_json)='array'),
+  continuation_cursor INTEGER NOT NULL DEFAULT 0 CHECK(continuation_cursor>=0),
+  generation INTEGER NOT NULL DEFAULT 0 CHECK(generation>=0),
+  lease_owner TEXT,
+  lease_expires_at TEXT,
+  consecutive_holds INTEGER NOT NULL DEFAULT 0 CHECK(consecutive_holds>=0),
+  edit_scan_cursor INTEGER NOT NULL DEFAULT 0 CHECK(edit_scan_cursor>=0),
+  edit_scan_cutoff TEXT,
+  edit_scan_completed_at TEXT,
+  updated_at TEXT NOT NULL,
+  CHECK((lease_owner IS NULL)=(lease_expires_at IS NULL))
+);
+CREATE TABLE forecast_v2_monitor_runs (
+  run_id TEXT PRIMARY KEY NOT NULL,
+  stream_id TEXT NOT NULL REFERENCES forecast_v2_monitors(stream_id),
+  generation INTEGER NOT NULL CHECK(generation>=0),
+  kind TEXT NOT NULL CHECK(kind IN ('new','edit','extended')),
+  status TEXT NOT NULL CHECK(status IN ('running','held','completed','failed')),
+  continuation_cursor INTEGER NOT NULL DEFAULT 0 CHECK(continuation_cursor>=0),
+  pages_used INTEGER NOT NULL DEFAULT 0 CHECK(pages_used>=0),
+  page_limit INTEGER NOT NULL DEFAULT 4 CHECK(page_limit>0),
+  review_id TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  error_code TEXT,
+  CHECK(pages_used<=page_limit),
+  UNIQUE(stream_id,generation,kind)
+);
+CREATE TABLE forecast_v2_search_hits (
+  run_id TEXT NOT NULL REFERENCES forecast_v2_monitor_runs(run_id),
+  feed_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_date TEXT NOT NULL,
+  metadata_json TEXT NOT NULL CHECK(json_valid(metadata_json)),
+  PRIMARY KEY(run_id,feed_id)
+);
+CREATE TABLE forecast_v2_post_versions (
+  version_id TEXT PRIMARY KEY NOT NULL,
+  feed_id TEXT NOT NULL,
+  updated_date TEXT NOT NULL,
+  content_hash TEXT NOT NULL CHECK(length(content_hash)=64),
+  board_id INTEGER NOT NULL CHECK(board_id IN (11,48,56)),
+  created_at TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  body_text TEXT NOT NULL,
+  UNIQUE(feed_id,updated_date,content_hash)
+);
+CREATE TABLE forecast_v2_rules_queue (
+  version_id TEXT NOT NULL REFERENCES forecast_v2_post_versions(version_id),
+  stream_id TEXT NOT NULL REFERENCES forecast_v2_monitors(stream_id),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','done','failed')),
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts BETWEEN 0 AND 3),
+  next_attempt_at TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(version_id,stream_id)
+);
+CREATE INDEX forecast_v2_rules_queue_pending
+  ON forecast_v2_rules_queue(status,attempts,created_at);
+CREATE INDEX forecast_v2_search_hits_version
+  ON forecast_v2_search_hits(feed_id,updated_date);
+CREATE TRIGGER forecast_v2_rules_enqueue_version AFTER INSERT ON forecast_v2_post_versions
+BEGIN
+  INSERT OR IGNORE INTO forecast_v2_rules_queue(version_id,stream_id,created_at)
+    SELECT NEW.version_id,r.stream_id,NEW.created_at
+    FROM forecast_v2_search_hits h JOIN forecast_v2_monitor_runs r ON r.run_id=h.run_id
+    WHERE h.feed_id=NEW.feed_id AND h.updated_date=NEW.updated_date;
+END;
+CREATE TRIGGER forecast_v2_rules_enqueue_hit AFTER INSERT ON forecast_v2_search_hits
+BEGIN
+  INSERT OR IGNORE INTO forecast_v2_rules_queue(version_id,stream_id,created_at)
+    SELECT v.version_id,r.stream_id,v.created_at FROM forecast_v2_post_versions v
+    JOIN forecast_v2_monitor_runs r ON r.run_id=NEW.run_id
+    WHERE v.feed_id=NEW.feed_id AND v.updated_date=NEW.updated_date;
+END;
+CREATE TABLE forecast_v2_fetch_attempts (
+  attempt_id TEXT PRIMARY KEY NOT NULL,
+  run_id TEXT NOT NULL REFERENCES forecast_v2_monitor_runs(run_id),
+  feed_id TEXT,
+  kind TEXT NOT NULL CHECK(kind IN ('metadata','detail')),
+  game_day TEXT NOT NULL,
+  attempted_at TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK(outcome IN ('reserved','success','failure','held')),
+  error_code TEXT,
+  next_attempt_at TEXT
+);
+CREATE TABLE forecast_v2_request_budgets (
+  game_day TEXT PRIMARY KEY NOT NULL,
+  metadata_used INTEGER NOT NULL DEFAULT 0 CHECK(metadata_used>=0 AND metadata_used<=metadata_limit),
+  detail_used INTEGER NOT NULL DEFAULT 0 CHECK(detail_used>=0 AND detail_used<=detail_limit),
+  metadata_limit INTEGER NOT NULL DEFAULT 240 CHECK(metadata_limit>=0),
+  detail_limit INTEGER NOT NULL DEFAULT 48 CHECK(detail_limit>=0)
+);
+CREATE TABLE forecast_v2_legacy_links (
+  import_key TEXT PRIMARY KEY NOT NULL,
+  legacy_table TEXT NOT NULL,
+  legacy_id TEXT NOT NULL,
+  version_id TEXT REFERENCES forecast_v2_post_versions(version_id),
+  disposition TEXT NOT NULL CHECK(disposition IN ('retained','migrated','resolved','disabled')),
+  created_at TEXT NOT NULL,
+  UNIQUE(legacy_table,legacy_id)
+);
+CREATE TABLE forecast_v2_calendar_revisions (
+ event_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>0),
+ kind TEXT NOT NULL CHECK(kind IN ('maintenance','solo','collaboration')),
+ status TEXT NOT NULL CHECK(status IN ('predicted','confirmed','pending','cancelled')),
+ starts_at TEXT, ends_at TEXT, start_game_day TEXT, end_game_day TEXT,
+ maintenance_event_id TEXT, maintenance_revision INTEGER,
+ prediction_provenance_json TEXT CHECK(prediction_provenance_json IS NULL OR json_valid(prediction_provenance_json)),
+ source_feed_ids_json TEXT NOT NULL CHECK(json_valid(source_feed_ids_json) AND json_type(source_feed_ids_json)='array'),
+ created_at TEXT NOT NULL,
+ PRIMARY KEY(event_id,revision),
+ FOREIGN KEY(maintenance_event_id,maintenance_revision) REFERENCES forecast_v2_calendar_revisions(event_id,revision),
+ CHECK((maintenance_event_id IS NULL)=(maintenance_revision IS NULL)),
+ CHECK(ends_at IS NULL OR starts_at IS NULL OR ends_at>=starts_at)
+);
+CREATE TABLE forecast_v2_calendar_heads (
+ event_id TEXT PRIMARY KEY NOT NULL, revision INTEGER NOT NULL,
+ FOREIGN KEY(event_id,revision) REFERENCES forecast_v2_calendar_revisions(event_id,revision)
+);
+CREATE TRIGGER forecast_v2_calendar_head_cas BEFORE UPDATE ON forecast_v2_calendar_heads
+ WHEN NEW.event_id<>OLD.event_id OR NEW.revision<>OLD.revision+1
+ BEGIN SELECT RAISE(ABORT,'calendar_revision_conflict'); END;
+CREATE TABLE forecast_v2_decision_requests (
+ decision_id TEXT PRIMARY KEY NOT NULL,
+ type TEXT NOT NULL CHECK(type IN ('solo_review','grant_date','collaboration','maintenance','grant_quantity')),
+ -- No FK: a decision may name an event before its first head exists.
+ event_id TEXT,
+ payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+ payload_hash TEXT NOT NULL CHECK(length(payload_hash)=64),
+ expected_calendar_revision INTEGER NOT NULL CHECK(expected_calendar_revision>=0),
+ expires_at TEXT NOT NULL, reminder_sent_at TEXT,
+ status TEXT NOT NULL CHECK(status IN ('pending','resolved','expired','stale')),
+ created_at TEXT NOT NULL
+);
+CREATE INDEX forecast_v2_decision_requests_status_expiry
+ ON forecast_v2_decision_requests(status,expires_at);
+CREATE TABLE forecast_v2_consumed_interactions (
+ interaction_id TEXT PRIMARY KEY NOT NULL, decision_id TEXT NOT NULL REFERENCES forecast_v2_decision_requests(decision_id),
+ consumed_at TEXT NOT NULL
+);
+CREATE TABLE forecast_v2_admin_commands (
+ command_id TEXT PRIMARY KEY NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+ payload_hash TEXT NOT NULL CHECK(length(payload_hash)=64),
+ -- A command may create the first head; it cannot reference an existing head here.
+ event_id TEXT,
+ decision_id TEXT UNIQUE REFERENCES forecast_v2_decision_requests(decision_id),
+ expected_revision INTEGER NOT NULL,
+ created_at TEXT NOT NULL
+);
+CREATE TRIGGER forecast_v2_command_cas BEFORE INSERT ON forecast_v2_admin_commands
+ WHEN NEW.event_id IS NOT NULL AND (
+   (NEW.expected_revision=0 AND EXISTS(
+     SELECT 1 FROM forecast_v2_calendar_heads WHERE event_id=NEW.event_id
+   )) OR
+   (NEW.expected_revision<>0 AND NOT EXISTS(
+     SELECT 1 FROM forecast_v2_calendar_heads WHERE event_id=NEW.event_id AND revision=NEW.expected_revision
+   ))
+ )
+ BEGIN SELECT RAISE(ABORT,'calendar_revision_conflict'); END;
+CREATE TABLE forecast_v2_decision_results (
+ decision_id TEXT PRIMARY KEY NOT NULL REFERENCES forecast_v2_decision_requests(decision_id),
+ interaction_id TEXT NOT NULL UNIQUE REFERENCES forecast_v2_consumed_interactions(interaction_id),
+ result_json TEXT NOT NULL CHECK(json_valid(result_json)), created_at TEXT NOT NULL
+);
+CREATE TRIGGER forecast_v2_result_update BEFORE UPDATE ON forecast_v2_decision_results
+ BEGIN SELECT RAISE(ABORT,'decision_result_immutable'); END;
+CREATE TRIGGER forecast_v2_result_delete BEFORE DELETE ON forecast_v2_decision_results
+ BEGIN SELECT RAISE(ABORT,'decision_result_immutable'); END;
+CREATE TRIGGER forecast_v2_result_replace BEFORE INSERT ON forecast_v2_decision_results
+ WHEN EXISTS(SELECT 1 FROM forecast_v2_decision_results WHERE decision_id=NEW.decision_id OR interaction_id=NEW.interaction_id)
+ BEGIN SELECT RAISE(ABORT,'decision_result_immutable'); END;
+CREATE TABLE forecast_v2_grant_observations (
+ observation_id TEXT PRIMARY KEY NOT NULL,
+ version_id TEXT NOT NULL REFERENCES forecast_v2_post_versions(version_id),
+ feed_id TEXT NOT NULL, ii_qty INTEGER NOT NULL CHECK(ii_qty>=0), box_qty INTEGER NOT NULL CHECK(box_qty>=0),
+ candidate_dates_json TEXT NOT NULL CHECK(json_valid(candidate_dates_json) AND json_type(candidate_dates_json)='array'),
+ date_basis TEXT NOT NULL CHECK(date_basis IN ('explicit_payment','in_post_datetime','maintenance_end','post_created','admin_selected','legacy_unverified')),
+ created_at TEXT NOT NULL, UNIQUE(version_id,ii_qty,box_qty),
+ CHECK(ii_qty+box_qty>0)
+);
+CREATE TABLE forecast_v2_grant_revisions (
+ occurrence_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>0),
+ grant_game_day TEXT NOT NULL, ii_qty INTEGER NOT NULL CHECK(ii_qty>=0), box_qty INTEGER NOT NULL CHECK(box_qty>=0),
+ decision_id TEXT REFERENCES forecast_v2_decision_requests(decision_id),
+ created_at TEXT NOT NULL, PRIMARY KEY(occurrence_id,revision),
+ UNIQUE(occurrence_id,revision,grant_game_day,ii_qty,box_qty),
+ CHECK(ii_qty+box_qty>0)
+);
+CREATE TABLE forecast_v2_grant_heads (
+ occurrence_id TEXT PRIMARY KEY NOT NULL, revision INTEGER NOT NULL,
+ grant_game_day TEXT NOT NULL, ii_qty INTEGER NOT NULL, box_qty INTEGER NOT NULL,
+ UNIQUE(grant_game_day,ii_qty,box_qty),
+ FOREIGN KEY(occurrence_id,revision,grant_game_day,ii_qty,box_qty)
+ REFERENCES forecast_v2_grant_revisions(occurrence_id,revision,grant_game_day,ii_qty,box_qty)
+);
+CREATE TRIGGER forecast_v2_grant_head_cas BEFORE UPDATE ON forecast_v2_grant_heads
+ WHEN NEW.occurrence_id<>OLD.occurrence_id OR NEW.revision<>OLD.revision+1
+ BEGIN SELECT RAISE(ABORT,'grant_revision_conflict'); END;
+CREATE TABLE forecast_v2_grant_links (
+ link_id TEXT PRIMARY KEY NOT NULL,
+ occurrence_id TEXT NOT NULL REFERENCES forecast_v2_grant_heads(occurrence_id),
+ observation_id TEXT REFERENCES forecast_v2_grant_observations(observation_id),
+ legacy_grant_id TEXT,
+ CHECK(observation_id IS NOT NULL OR legacy_grant_id IS NOT NULL),
+ UNIQUE(occurrence_id,observation_id), UNIQUE(legacy_grant_id)
+);
+CREATE TABLE forecast_v2_calendar_snapshots (
+ snapshot_id TEXT PRIMARY KEY NOT NULL, range_start TEXT NOT NULL, range_end TEXT NOT NULL,
+ content_hash TEXT NOT NULL CHECK(length(content_hash)=64), created_at TEXT NOT NULL,
+ CHECK(range_end>=range_start), UNIQUE(range_start,range_end,content_hash)
+);
+CREATE TABLE forecast_v2_calendar_days (
+ snapshot_id TEXT NOT NULL REFERENCES forecast_v2_calendar_snapshots(snapshot_id),
+ game_day TEXT NOT NULL, payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+ PRIMARY KEY(snapshot_id,game_day)
+);
+CREATE TABLE forecast_v2_calendar_event_links (
+ snapshot_id TEXT NOT NULL, game_day TEXT NOT NULL, event_id TEXT NOT NULL, revision INTEGER NOT NULL,
+ PRIMARY KEY(snapshot_id,game_day,event_id),
+ FOREIGN KEY(snapshot_id,game_day) REFERENCES forecast_v2_calendar_days(snapshot_id,game_day),
+ FOREIGN KEY(event_id,revision) REFERENCES forecast_v2_calendar_revisions(event_id,revision)
+);
+CREATE TABLE forecast_v2_calendar_active (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1), snapshot_id TEXT NOT NULL REFERENCES forecast_v2_calendar_snapshots(snapshot_id),
+ version INTEGER NOT NULL CHECK(version>0), updated_at TEXT NOT NULL
+);
+CREATE TRIGGER forecast_v2_calendar_active_cas BEFORE UPDATE ON forecast_v2_calendar_active
+ WHEN NEW.version<>OLD.version+1 BEGIN SELECT RAISE(ABORT,'calendar_version_conflict'); END;
+CREATE TABLE forecast_v2_calendar_diffs (
+ snapshot_id TEXT NOT NULL REFERENCES forecast_v2_calendar_snapshots(snapshot_id),
+ diff_key TEXT NOT NULL, previous_snapshot_id TEXT REFERENCES forecast_v2_calendar_snapshots(snapshot_id),
+ payload_json TEXT NOT NULL CHECK(json_valid(payload_json)), PRIMARY KEY(snapshot_id,diff_key)
+);
+CREATE TABLE forecast_v2_notification_outbox (
+ outbox_id TEXT PRIMARY KEY NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+ kind TEXT NOT NULL CHECK(kind IN ('b_report','decision_request','calendar_changed','decision_reminder')),
+ snapshot_id TEXT REFERENCES forecast_v2_calendar_snapshots(snapshot_id),
+ decision_id TEXT REFERENCES forecast_v2_decision_requests(decision_id),
+ channel_role TEXT NOT NULL CHECK(channel_role IN ('approval','activity')),
+ payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+ payload_hash TEXT NOT NULL CHECK(length(payload_hash)=64),
+ state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','sending','sent','dead')),
+ attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts>=0), next_attempt_at INTEGER NOT NULL,
+ lease_token TEXT, lease_until INTEGER, message_id TEXT, channel_id TEXT, error_code TEXT,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+ CHECK((kind='calendar_changed' AND snapshot_id IS NOT NULL AND channel_role='activity')
+ OR (kind<>'calendar_changed' AND decision_id IS NOT NULL AND channel_role='approval'))
+);
+CREATE INDEX forecast_v2_notification_due ON forecast_v2_notification_outbox(state,next_attempt_at);
 INSERT INTO schema_migrations VALUES(1,CURRENT_TIMESTAMP);
 INSERT INTO schema_migrations VALUES(2,CURRENT_TIMESTAMP);
 INSERT INTO schema_migrations VALUES(3,CURRENT_TIMESTAMP);
@@ -1362,3 +1624,16 @@ INSERT INTO schema_migrations VALUES(26,CURRENT_TIMESTAMP);
 INSERT INTO schema_migrations VALUES(27,CURRENT_TIMESTAMP);
 INSERT INTO schema_migrations VALUES(28,CURRENT_TIMESTAMP);
 INSERT INTO schema_migrations VALUES(29,CURRENT_TIMESTAMP);
+INSERT INTO schema_migrations VALUES(30,CURRENT_TIMESTAMP);
+INSERT INTO schema_migrations VALUES(31,CURRENT_TIMESTAMP);
+INSERT INTO schema_migrations VALUES(32,CURRENT_TIMESTAMP);
+INSERT INTO schema_migrations VALUES(33,CURRENT_TIMESTAMP);
+INSERT INTO forecast_v2_monitors VALUES('A',11,'관리 키트','COMMUNITY_FEED_TITLE_CONTENT',3600,0,14);
+INSERT INTO forecast_v2_monitors VALUES('B',11,'솔로 레이드','COMMUNITY_FEED_TITLE',3600,0,14);
+INSERT INTO forecast_v2_monitors VALUES('C-open',56,'솔로 레이드 오픈','COMMUNITY_FEED_TITLE_CONTENT',3600,0,14);
+INSERT INTO forecast_v2_monitors VALUES('C-reopen',56,'솔로 레이드 재오픈','COMMUNITY_FEED_TITLE_CONTENT',3600,0,14);
+INSERT INTO forecast_v2_monitors VALUES('D',56,'콜라보','COMMUNITY_FEED_TITLE_CONTENT',3600,0,14);
+INSERT INTO forecast_v2_monitors VALUES('E',48,'솔로 레이드 시즌','COMMUNITY_FEED_TITLE_CONTENT',3600,1,14);
+INSERT INTO forecast_v2_monitors VALUES('F',48,'관리 키트','COMMUNITY_FEED_TITLE_CONTENT',3600,0,14);
+INSERT INTO forecast_v2_monitors VALUES('G',48,NULL,'BOARD_LIST',1800,0,14);
+INSERT INTO forecast_v2_monitor_state(stream_id,updated_at) SELECT stream_id,CURRENT_TIMESTAMP FROM forecast_v2_monitors;

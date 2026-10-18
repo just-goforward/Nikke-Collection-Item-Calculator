@@ -1,0 +1,186 @@
+{
+  "rule": "§4 + A7/U21 + U4 + U8 changed: D titles containing Pick Up (spacing-insensitive, PickUp included) or 픽업 are excluded (title only); start sources ○/○(목) 점검 완료 후, ○/○ 콜라보 진행 결정, ○/○ 재등장 예정, mini-game/story event period lines; date-only start → same-date G maintenance end (U4); end = 04:59:59 after 28 included game days; posts without a start are evidence; overlap with the same start game day = same collaboration, any other overlap → Discord decision. U22: archive re-additions (7660727) → collaboration decision, never counted until decided.",
+  "postedAtBasis": "content.feed.createdDate interpreted as KST; posts judged oldest first against the final G heads in maintenance.json",
+  "posts": [
+    { "feedId": 5350189, "action": "evidence", "reason": "콜라보 확정 안내 without a date" },
+    { "feedId": 5611767, "action": "evidence", "reason": "PV, no date" },
+    { "feedId": 5612098, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    { "feedId": 5612476, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    { "feedId": 5612818, "action": "evidence", "reason": "Character intro, no date" },
+    { "feedId": 5622022, "action": "evidence", "reason": "Teaser, no date" },
+    { "feedId": 5629934, "action": "evidence", "reason": "Re-run summary, no date" },
+    { "feedId": 5635141, "action": "evidence", "reason": "Mini-game teaser without a period line" },
+    { "feedId": 5650324, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    {
+      "feedId": 5650379,
+      "action": "create",
+      "collaboration": "evangelion",
+      "reason": "Title has no Pick Up (body only); '2/20(목) 점검 완료 후' → G 5636852 end 09:00"
+    },
+    { "feedId": 5650831, "action": "evidence", "reason": "PV ('제2탄 OPEN'), no date" },
+    { "feedId": 5683190, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    {
+      "feedId": 5683490,
+      "action": "evidence",
+      "reason": "Pick Up recruitment period 2/27 5:00 is not a listed start source"
+    },
+    {
+      "feedId": 6153117,
+      "action": "create",
+      "collaboration": "stellar",
+      "reason": "Story event '6월 12일(목) 업데이트' date-only → U4 G 6162954 end 07:00"
+    },
+    {
+      "feedId": 6153121,
+      "action": "link",
+      "collaboration": "stellar",
+      "reason": "Same story-event date → same start game day"
+    },
+    { "feedId": 6153142, "action": "ignore", "reason": "Title contains '픽업'" },
+    { "feedId": 6153163, "action": "ignore", "reason": "Title contains '픽업'" },
+    { "feedId": 6153176, "action": "evidence", "reason": "Boss intro, no date" },
+    {
+      "feedId": 6169482,
+      "action": "evidence",
+      "alsoAccept": "decision",
+      "collaboration": "nier",
+      "overlaps": ["stellar"],
+      "ambiguous": true,
+      "reason": "'7월 3일(목)부터 재등장할 예정' — literal rule pattern is '재등장 예정'; if counted, its window overlaps Stellar with a different start → decision. Escalated wording ambiguity; Nier is created either way."
+    },
+    { "feedId": 6180846, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    { "feedId": 6181076, "action": "evidence", "reason": "Lily acquisition guide, no date" },
+    {
+      "feedId": 6188258,
+      "action": "link",
+      "collaboration": "stellar",
+      "reason": "Mini-game 이벤트 진행 기간 '6/12(목) 점검 완료 후' → 07:00, same start game day"
+    },
+    { "feedId": 6222120, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    {
+      "feedId": 6245290,
+      "action": "decision",
+      "collaboration": "nier",
+      "overlaps": ["stellar"],
+      "scripted": "new",
+      "reason": "'7/3(목) … 재등장 예정' → U4 G 6276795 end 16:00; window overlaps Stellar (start 06-12) → A7 decision; backtest admin answer: new collaboration"
+    },
+    { "feedId": 6265898, "action": "evidence", "reason": "Re-run summary, no date" },
+    { "feedId": 6297047, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    { "feedId": 6331692, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    { "feedId": 6556849, "action": "evidence", "reason": "콜라보 결정 without a date" },
+    { "feedId": 6687265, "action": "ignore", "reason": "Title contains '픽업'" },
+    { "feedId": 6687355, "action": "ignore", "reason": "Title contains '픽업'" },
+    { "feedId": 6687439, "action": "evidence", "reason": "Character intro, no date" },
+    { "feedId": 6687549, "action": "evidence", "reason": "PV, no date" },
+    { "feedId": 6692281, "action": "evidence", "reason": "Story teaser, no date" },
+    {
+      "feedId": 6701330,
+      "action": "create",
+      "collaboration": "biohazard",
+      "reason": "Mini-game '9/24(수) 점검 완료 후 ~ 10/21(화) 23:59' → G 6701562 end 07:00; sub-event end is reference only"
+    },
+    { "feedId": 6707635, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    { "feedId": 6711938, "action": "evidence", "reason": "Only an acquisition end 10/21 23:59" },
+    { "feedId": 6740900, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    { "feedId": 7121342, "action": "evidence", "reason": "Teaser, no date" },
+    { "feedId": 7241709, "action": "evidence", "reason": "Teaser, no date" },
+    { "feedId": 7265545, "action": "evidence", "reason": "PV, no date" },
+    { "feedId": 7265835, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    { "feedId": 7266011, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    { "feedId": 7266166, "action": "evidence", "reason": "Character intro, no date" },
+    { "feedId": 7276051, "action": "evidence", "reason": "Story teaser, no date" },
+    { "feedId": 7285223, "action": "evidence", "reason": "Only 콜라보 종료 일시 3/12 4:59" },
+    {
+      "feedId": 7290046,
+      "action": "create",
+      "collaboration": "lycoris",
+      "reason": "Mini-game '2/12(목) 점검 완료 후 ~ 3/12(목) 4:59' → G 7282687 end 07:00"
+    },
+    { "feedId": 7291685, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    { "feedId": 7321219, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    {
+      "feedId": 7660727,
+      "action": "decision",
+      "scripted": "not_collaboration",
+      "reason": "U22: archive re-addition (title '📢 아카이브 추가 안내', body-only D hit; 픽업 only in the body so U8 does not apply) → collaboration decision request; counts nothing until decided (backtest answer: not a collaboration)."
+    },
+    { "feedId": 7853865, "action": "evidence", "reason": "Teaser, no date" },
+    {
+      "feedId": 8012573,
+      "action": "evidence",
+      "alsoAccept": "create",
+      "collaboration": "persona",
+      "ambiguous": true,
+      "reason": "'8/13(목) 콜라보 진행이 결정되었습니다' — literal rule pattern is '콜라보 진행 결정'; if counted, creates Persona at G 8042609 end 07:00. Escalated wording ambiguity; Persona start is identical either way."
+    },
+    {
+      "feedId": 8031283,
+      "action": "evidence",
+      "reason": "'8/13(목), 콜라보 버전 … 업데이트됩니다' is not a listed start source"
+    },
+    { "feedId": 8031452, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    { "feedId": 8031679, "action": "ignore", "reason": "Title contains 'Pick Up' (U8 example)" },
+    { "feedId": 8041289, "action": "evidence", "reason": "PV, no date" },
+    { "feedId": 8053292, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    {
+      "feedId": 8067910,
+      "action": "evidence",
+      "reason": "Processed (title has no Pick Up/픽업); only 콜라보 종료 일시 9/10 4:59 → no start"
+    },
+    { "feedId": 8080556, "action": "ignore", "reason": "Title contains 'Pick Up'" },
+    {
+      "feedId": 8080706,
+      "action": "create",
+      "alsoAccept": "link",
+      "collaboration": "persona",
+      "reason": "Story event 진행 기간 '8/13(목) 점검 완료 후 ~ 9/10(목) 4:59' → G 8042609 end 07:00 (link instead of create if 8012573 already created Persona)"
+    },
+    { "feedId": 8164265, "action": "evidence", "reason": "Only 이벤트 종료 시간 9/10 4:59" }
+  ],
+  "collaborations": [
+    {
+      "key": "evangelion",
+      "name": "에반게리온 제2탄 (+제1탄 복각)",
+      "startAt": "2025-02-20T09:00:00+09:00",
+      "endAt": "2025-03-20T04:59:59+09:00",
+      "maintenance": 5636852
+    },
+    {
+      "key": "stellar",
+      "name": "스텔라 블레이드",
+      "startAt": "2025-06-12T07:00:00+09:00",
+      "endAt": "2025-07-10T04:59:59+09:00",
+      "maintenance": 6162954
+    },
+    {
+      "key": "nier",
+      "name": "니어: 오토마타 (복각)",
+      "startAt": "2025-07-03T16:00:00+09:00",
+      "endAt": "2025-07-31T04:59:59+09:00",
+      "maintenance": 6276795
+    },
+    {
+      "key": "biohazard",
+      "name": "바이오하자드",
+      "startAt": "2025-09-24T07:00:00+09:00",
+      "endAt": "2025-10-22T04:59:59+09:00",
+      "maintenance": 6701562
+    },
+    {
+      "key": "lycoris",
+      "name": "리코리스 리코일",
+      "startAt": "2026-02-12T07:00:00+09:00",
+      "endAt": "2026-03-12T04:59:59+09:00",
+      "maintenance": 7282687
+    },
+    {
+      "key": "persona",
+      "name": "페르소나 (P3R·P4G·P5R)",
+      "startAt": "2026-08-13T07:00:00+09:00",
+      "endAt": "2026-09-10T04:59:59+09:00",
+      "maintenance": 8042609
+    }
+  ],
+  "backtestCount": 6
+}

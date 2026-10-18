@@ -36,13 +36,14 @@ describe("Wrangler D1 JSON output", () => {
 
   it("applies file migrations whose Wrangler output carries the spinner preamble", () => {
     const db = legacyDatabase(latest - 1);
-    const { spawn, run } = sqliteRunner(db);
+    const { spawn, run, files } = sqliteRunner(db);
     const base = spawn.getMockImplementation();
     spawn.mockImplementation((command, args, options) => {
       const reply = base?.(command, args, options) ?? result("", { status: 1 });
       return args.includes("--file") ? { ...reply, stdout: spinner + reply.stdout } : reply;
     });
-    run();
+    expect(run().applied).toEqual([latest]);
+    expect(files()).toHaveLength(1);
     expect(
       db.prepare("SELECT max(version) AS version FROM schema_migrations").get()?.["version"],
     ).toBe(latest);

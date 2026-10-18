@@ -42,3 +42,31 @@ STAGING_PUBLICATION_MODE = "off"
 PRODUCTION_PUBLICATION_MODE = "off"
 FORECAST_PUBLICATION_KEY_ID = "unset"
 
+[env.staging]
+name = "collection-kit-forecast-interactions-staging"
+workers_dev = true
+
+[[env.staging.d1_databases]]
+binding = "STAGING_FORECAST_DB"
+database_name = "collection-kit-forecast-collector-staging"
+database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
+
+[[env.staging.d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+[env.staging.vars]
+FORECAST_ENVIRONMENT = "staging"
+DEPLOY_SHA = "local"
+DISCORD_PUBLIC_KEY = "unset"
+DISCORD_APPLICATION_ID = "unset"
+DISCORD_GUILD_ID = "unset"
+DISCORD_FORECAST_APPROVER_USER_ID = "unset"
+DISCORD_APPROVAL_CHANNEL_ID = "unset"
+DISCORD_ALERT_CHANNEL_ID = "unset"
+DISCORD_ACTIVITY_CHANNEL_ID = "unset"
+PRODUCTION_MUTATIONS_ENABLED = "false"
+STAGING_PUBLICATION_MODE = "off"
+PRODUCTION_PUBLICATION_MODE = "off"
+FORECAST_PUBLICATION_KEY_ID = "unset"

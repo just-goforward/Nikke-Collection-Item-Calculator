@@ -2,16 +2,25 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const production = readFileSync("forecast-interactions/wrangler.toml", "utf8").replace(
-  /\r\n/g,
-  "\n",
-);
+const config = readFileSync("forecast-interactions/wrangler.toml", "utf8").replace(/\r\n/g, "\n");
+const [production = "", stagingEnvironment = ""] = config.split("[env.staging]");
 const staging = readFileSync("forecast-interactions/staging.wrangler.toml", "utf8").replace(
   /\r\n/g,
   "\n",
 );
 
 describe("isolated staging interactions configuration", () => {
+  it("isolates the named staging environment and inherits the 10ms CPU limit", () => {
+    expect(config).toContain("[limits]\ncpu_ms = 10");
+    expect(stagingEnvironment).toContain('FORECAST_ENVIRONMENT = "staging"');
+    expect(stagingEnvironment).toContain('name = "collection-kit-forecast-interactions-staging"');
+    expect([...stagingEnvironment.matchAll(/^binding = "([^"]+)"$/gm)].map((m) => m[1])).toEqual([
+      "STAGING_FORECAST_DB",
+      "USAGE_GUARD_DB",
+    ]);
+    expect(stagingEnvironment).not.toContain("PRODUCTION_FORECAST_DB");
+    expect(stagingEnvironment).not.toContain("2d58bcc0-a7b5-43f3-8f42-34e1bf1ff853");
+  });
   it("preserves the existing production router config from c7740b8", () => {
     expect(createHash("sha256").update(production).digest("hex")).toBe(
       "de5fbc84892f1269d5329104d989927cb5dd359ce3d12247b08660160c03eaaf",

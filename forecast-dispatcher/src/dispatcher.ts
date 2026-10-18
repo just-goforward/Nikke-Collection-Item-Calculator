@@ -8,9 +8,10 @@ import {
 } from "../../shared/forecast-publication/store.ts";
 import { publicationHash } from "../../shared/forecastPublication.ts";
 import { admitCandidates } from "./admission.ts";
-import { DiscordMessageError, sendDiscordMessage } from "./discord.ts";
+import { DiscordMessageError, discordRetryable, sendDiscordMessage } from "./discord.ts";
 import { flushOperations } from "./operations.ts";
 import type { DispatcherEnv } from "./types.ts";
+import { drainV2Outbox } from "./v2-outbox.ts";
 
 const LEASE_MS = 60_000;
 const RETRY_MS = 5 * 60_000;
@@ -25,9 +26,18 @@ type OutboxRow = {
 };
 
 /** Only D1 -> Discord. No legacy queue mutations or GitHub workflow dispatch. */
+async function isolatedV2Drain(env: DispatcherEnv) {
+  try {
+    return await drainV2Outbox(env);
+  } catch {
+    console.error(JSON.stringify({ event: "v2_outbox_drain_failed" }));
+    return 0;
+  }
+}
+
 export async function runDispatcher(env: DispatcherEnv, _options: { scheduledTime?: number } = {}) {
   if (env.DISPATCH_ENABLED !== "true") return { status: "disabled", sent: 0 };
-  const operationsSent = await flushOperations(env);
+  const operationsSent = (await flushOperations(env)) + (await isolatedV2Drain(env));
   if (env.PUBLICATION_MODE !== "enabled") return { status: "completed", sent: operationsSent };
   const db = env.FORECAST_DB;
   const now = Date.now();
@@ -96,7 +106,7 @@ export async function runDispatcher(env: DispatcherEnv, _options: { scheduledTim
       if (changed.meta.changes !== 1) throw new Error("publication_delivery_lease_lost");
       sent += 1;
     } catch (error) {
-      const retryable = !(error instanceof DiscordMessageError) || error.retryable;
+      const retryable = discordRetryable(error);
       const retryAfter =
         error instanceof DiscordMessageError ? (error.retryAfterMs ?? RETRY_MS) : RETRY_MS;
       await finishDelivery(

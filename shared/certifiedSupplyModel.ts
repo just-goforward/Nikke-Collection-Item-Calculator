@@ -117,6 +117,7 @@ export type CertifiedSupplySnapshot = {
   provenance: readonly string[];
 };
 export type CertifiedSupplyBuildInput = {
+  cadenceVersion?: ExactSoloRaidCadence["version"];
   grants?: readonly CertifiedSupplyGrant[];
   asOf: string;
   revision: string;

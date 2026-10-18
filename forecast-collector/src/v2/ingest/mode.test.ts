@@ -1,0 +1,111 @@
+import {
+  applyD1Migrations,
+  createExecutionContext,
+  reset,
+  waitOnExecutionContext,
+} from "cloudflare:test";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { executeTestSql } from "../../../../shared/testD1Sql";
+import schemaSql from "../../test-schema";
+import { seedNormalUsageGuard } from "../../test-usage-guard";
+import type { CollectorEnv } from "../../types";
+import worker from "../../worker";
+import { metadataUrl } from "./client";
+import { collectorTestEnv } from "./test-support/env";
+import { count } from "./test-support/v2-db";
+
+// FORECAST_V2_MODE through the real scheduled handler. The oracle for "legacy
+// behaviour unchanged" is the same handler with the variable absent.
+const base = collectorTestEnv;
+const scheduledTime = Date.parse("2026-10-18T03:00:00.000Z"); // an A slot for v2
+const v2Tables = [
+  "forecast_v2_monitor_runs",
+  "forecast_v2_fetch_attempts",
+  "forecast_v2_search_hits",
+  "forecast_v2_post_versions",
+  "forecast_v2_request_budgets",
+  "forecast_v2_legacy_links",
+  "forecast_v2_notification_outbox",
+];
+
+async function scheduled(mode: string | undefined) {
+  await reset();
+  await executeTestSql(base.FORECAST_DB, schemaSql, applyD1Migrations);
+  await seedNormalUsageGuard(base.USAGE_GUARD_DB, scheduledTime);
+  const urls: string[] = [];
+  const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    urls.push(input instanceof Request ? input.url : String(input));
+    return Response.json({ code: 200, content: { feeds: [] } });
+  });
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const context = createExecutionContext();
+  await worker.scheduled(
+    { scheduledTime, cron: "*/3 * * * *", noRetry: vi.fn() },
+    {
+      ...base,
+      ENVIRONMENT: "staging",
+      COLLECT_ENABLED: "true",
+      FORECAST_V2_BOOTSTRAP_CUTOFF: "2026-10-15T00:00:00.000Z",
+      ...(mode === undefined ? {} : { FORECAST_V2_MODE: mode }),
+    } as CollectorEnv,
+    context,
+  );
+  await waitOnExecutionContext(context);
+  const events = log.mock.calls.map(([line]) => {
+    try {
+      return (JSON.parse(String(line)) as { event?: string }).event;
+    } catch {
+      return String(line);
+    }
+  });
+  const invocations = (
+    await base.FORECAST_DB.prepare(
+      "SELECT status,poll_mode FROM collector_invocations ORDER BY scheduled_at,invocation_id",
+    ).all()
+  ).results;
+  const v2 = Object.fromEntries(
+    await Promise.all(v2Tables.map(async (table) => [table, await count(base.FORECAST_DB, table)])),
+  );
+  const leases = (
+    await base.FORECAST_DB.prepare(
+      "SELECT COUNT(*) AS n FROM forecast_v2_monitor_state WHERE lease_owner IS NOT NULL OR consecutive_holds>0",
+    ).first<{ n: number }>()
+  )?.n;
+  fetcher.mockRestore();
+  vi.restoreAllMocks();
+  return { urls, events, invocations, v2, leases };
+}
+
+beforeEach(() => vi.useFakeTimers({ toFake: ["Date"], now: scheduledTime }));
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+it("off and unknown modes leave the legacy scheduled path exactly as with the variable absent", async () => {
+  const absent = await scheduled(undefined);
+  expect(absent.urls.length).toBeGreaterThan(0);
+  expect(absent.urls.some((url) => url.includes("/v2/search/feeds"))).toBe(false);
+  expect(absent.invocations.length).toBeGreaterThan(0);
+  expect(absent.events[0]).toBe("forecast_canary_scheduled_invocation");
+  expect(Object.values(absent.v2).every((n) => n === 0)).toBe(true);
+  expect(absent.leases).toBe(0);
+  for (const mode of ["off", "OFF", "enabled", ""])
+    expect(await scheduled(mode), mode).toEqual(absent);
+  // Five full legacy scheduled runs; exceeds the 5 s default under suite load.
+}, 20_000);
+
+it("hold runs only the v2 unit: no legacy collection, no rules or notification writes", async () => {
+  const held = await scheduled("hold");
+  expect(held.events[0]).toBe("forecast_v2_scheduled_invocation");
+  expect(held.invocations).toEqual([]);
+  expect(held.urls).toEqual([metadataUrl("A", 0).href]);
+  expect(held.v2).toMatchObject({
+    forecast_v2_monitor_runs: 1,
+    forecast_v2_fetch_attempts: 1,
+    forecast_v2_legacy_links: 0,
+    forecast_v2_notification_outbox: 0,
+  });
+});

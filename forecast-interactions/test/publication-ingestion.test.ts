@@ -13,9 +13,14 @@ import ingestionMigration from "../../forecast-collector/migrations/0024_runtime
 import pageMigration from "../../forecast-collector/migrations/0025_naver_page_policy.sql?raw";
 import evidenceMigration from "../../forecast-collector/migrations/0026_source_judgment_evidence.sql?raw";
 import grantsMigration from "../../forecast-collector/migrations/0027_board11_grants.sql?raw";
+import exclusionsMigration from "../../forecast-collector/migrations/0028_publication_exclusions.sql?raw";
+import cacheMigration from "../../forecast-collector/migrations/0029_candidate_replay_cache.sql?raw";
 import collectorSchema from "../../forecast-collector/schema.sql?raw";
 import { parseNoticeDetail } from "../../forecast-collector/src/notice.ts";
-import { runRuntimeIngestion } from "../../forecast-collector/src/runtime-ingestion.ts";
+import {
+  runRuntimeCandidate,
+  runRuntimeIngestion,
+} from "../../forecast-collector/src/runtime-ingestion.ts";
 import { seedNormalUsageGuard } from "../../forecast-collector/src/test-usage-guard.ts";
 import type { CollectorEnv } from "../../forecast-collector/src/types.ts";
 import { runDispatcher } from "../../forecast-dispatcher/src/dispatcher.ts";
@@ -89,6 +94,8 @@ it("real ingestion A → delivered review → corrected ingestion B rejects A's 
   await executeTestSql(db, pageMigration, applyD1Migrations);
   await executeTestSql(db, evidenceMigration, applyD1Migrations);
   await executeTestSql(db, grantsMigration, applyD1Migrations);
+  await executeTestSql(db, exclusionsMigration, applyD1Migrations);
+  await executeTestSql(db, cacheMigration, applyD1Migrations);
   await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB);
   const discordKey = (await crypto.subtle.generateKey("Ed25519", true, [
     "sign",
@@ -136,14 +143,12 @@ it("real ingestion A → delivered review → corrected ingestion B rejects A's 
     DISCORD_BOT_TOKEN: "fixture",
     DISCORD_APPROVAL_CHANNEL_ID: testEnv.DISCORD_APPROVAL_CHANNEL_ID,
   } as DispatcherEnv;
-  expect(
-    (
-      await runRuntimeIngestion(collector, {
-        fetcher: async () => Response.json(noticeFixture),
-        candidateNowMs,
-      })
-    ).candidateCreated,
-  ).toBe(true);
+  const ingestion = await runRuntimeIngestion(collector, {
+    fetcher: async () => Response.json(noticeFixture),
+    candidateNowMs,
+  });
+  expect(ingestion).toEqual({ outcome: "completed", processed: 1, candidateCreated: false });
+  expect((await runRuntimeCandidate(collector, candidateNowMs)).candidateCreated).toBe(true);
   expect(await runDispatcher(dispatcher)).toEqual({ status: "completed", sent: 1 });
   const a = await db
     .prepare(`SELECT r.review_id,r.candidate_id,o.message_id FROM forecast_runtime_reviews r
@@ -155,13 +160,12 @@ it("real ingestion A → delivered review → corrected ingestion B rejects A's 
   expect(corrected.content.feed.contents).not.toBe(noticeFixture.content.feed.contents);
   await db.prepare("UPDATE runtime_ingestion_items SET next_check_at='2000-01-01T00:00:00Z'").run();
   expect(
-    (
-      await runRuntimeIngestion(collector, {
-        fetcher: async () => Response.json(corrected),
-        candidateNowMs,
-      })
-    ).candidateCreated,
-  ).toBe(true);
+    await runRuntimeIngestion(collector, {
+      fetcher: async () => Response.json(corrected),
+      candidateNowMs,
+    }),
+  ).toEqual({ outcome: "completed", processed: 1, candidateCreated: false });
+  expect((await runRuntimeCandidate(collector, candidateNowMs)).candidateCreated).toBe(true);
   const candidates = (
     await db
       .prepare("SELECT candidate_id,state FROM forecast_candidates ORDER BY revision")

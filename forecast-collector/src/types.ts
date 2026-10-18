@@ -9,6 +9,8 @@ export type CollectorEnv = {
   DEPLOY_SHA: string;
   POLL_MODE: "both" | "alternating";
   COLLECT_ENABLED?: "true" | "false";
+  FORECAST_V2_MODE?: "off" | "hold" | "on";
+  FORECAST_V2_BOOTSTRAP_CUTOFF?: string;
   COLLECTION_SCHEDULE?: string;
   NAVER_BOARD48_PAGE_SIZE?: string;
   COLLECTOR_PROFILE_PHASE?: string;

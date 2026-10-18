@@ -1,0 +1,57 @@
+# Read-only admin calendar (plan §4 P1–P9). Staging only: the production forecast
+# database is never bound. Deployment, the Access application, DNS and the real
+# ADMIN_ALLOWED_EMAILS / ACCESS_* values are separate operator approvals (plan S5).
+name = "collection-kit-forecast-admin-staging"
+main = "src/worker.ts"
+compatibility_date = "2026-08-22"
+upload_source_maps = false
+workers_dev = false
+preview_urls = false
+
+[limits]
+cpu_ms = 50
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1.0
+
+# Declared only; nothing in this repository deploys this Worker.
+[[routes]]
+pattern = "forecast-admin-staging.nikkecollection.com"
+custom_domain = true
+
+[[d1_databases]]
+binding = "FORECAST_DB"
+database_name = "collection-kit-forecast-collector-staging"
+database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
+
+[[d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+# Dedicated namespaces; validate allocation before any deployment.
+[[ratelimits]]
+name = "ADMIN_IP_RATE_LIMITER"
+namespace_id = "419108"
+
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+[[ratelimits]]
+name = "ADMIN_IDENTITY_RATE_LIMITER"
+namespace_id = "419109"
+
+  [ratelimits.simple]
+  limit = 20
+  period = 60
+
+# Placeholders fail closed (503) until the deploy configuration supplies real values:
+# ACCESS_TEAM_DOMAIN = "https://<team>.cloudflareaccess.com", ACCESS_AUD = Access app AUD tag,
+# ADMIN_ALLOWED_EMAILS = comma-separated allow-list (never committed).
+[vars]
+ACCESS_TEAM_DOMAIN = "unset"
+ACCESS_AUD = "unset"
+ADMIN_ALLOWED_EMAILS = "unset"

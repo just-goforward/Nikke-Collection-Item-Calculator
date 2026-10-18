@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --config vitest.config.ts",
+    "test:node": "vitest run --config vitest.node.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage"
   },
   "devDependencies": {

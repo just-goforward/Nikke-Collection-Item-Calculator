@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { applyD1Migrations, reset } from "cloudflare:test";
+import { env } from "cloudflare:workers";
+import { beforeEach, describe, expect, it } from "vitest";
 import { assertForecastCandidateInvariants } from "../../shared/supplyForecastCandidate";
+import { executeTestSql } from "../../shared/testD1Sql";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
 import { sha256Hex, stableJson } from "./crypto";
+import { sourceItemAndEventStatements } from "./db";
+import { processSourceQueue } from "./source-queue";
+import schema from "./test-schema";
 import type { NormalizedSourceItem, ScheduleEvent } from "./types";
 
 const sourceItem: NormalizedSourceItem = {
@@ -91,6 +97,19 @@ const baseline = [
   },
 ];
 
+const currentHashes: Record<string, string> = {
+  "solo-d1": "64b25bb291b7c4695b9e851dcd2eb58a792ba31284d9d22db39944e6a9657201",
+  "solo-d2": "06e3ad10b3587a289a204e27ebafbdc6a797eb67582dd2e69e7e1f607911cb90",
+  "solo-d3": "8331306668fc4cd4aedc8f0934af874f6ba0d72e70bfc41371ebf46d5cc99587",
+  collaboration: "e039707626f158969637196c2f988a44a7fbd255b5226c8b01c49d094bd96444",
+  incomplete: "4d72f24a4cc08f797d7cf17d1497dc07669b782143554b9eadab4c279035744f",
+};
+
+beforeEach(async () => {
+  await reset();
+  await executeTestSql(env.FORECAST_DB, schema, applyD1Migrations);
+});
+
 describe("candidate v5 migration from historical byte identities", () => {
   it.each(baseline)(
     "$label validates v5 profile coverage without reusing a historical identity",
@@ -106,6 +125,41 @@ describe("candidate v5 migration from historical byte identities", () => {
         1,
       );
       const bytes = JSON.stringify(result);
+      expect(await sha256Hex(bytes)).toBe(currentHashes[row.label]);
+      const admittedItem = {
+        ...sourceItem,
+        contentHash: await sha256Hex(sourceItem.normalizedText),
+      };
+      if (row.label === "collaboration")
+        await env.FORECAST_DB.batch(
+          sourceItemAndEventStatements(
+            env.FORECAST_DB,
+            [collaboration.sourceItem],
+            [collaboration],
+            row.at,
+          ),
+        );
+      const admission = await processSourceQueue(env.FORECAST_DB, {
+        mode: "bootstrap",
+        results: [
+          {
+            source: sourceItem.source,
+            itemId: sourceItem.itemId,
+            outcome: "processed",
+            item: admittedItem,
+            event: { ...solo, sourceItem: admittedItem },
+          },
+        ],
+        candidate: {
+          eventId: solo.eventId,
+          gameDay: result.candidate.forecastId.slice(7, 17),
+          revision: 1,
+          envelope: result,
+        },
+      });
+      expect(await sha256Hex(JSON.stringify(admission))).toBe(
+        "436b98daf8a8c0a308e1ae12efb6325879f978e72819d401baea634ad9e0fa10",
+      );
       expect(await sha256Hex(bytes)).not.toBe(row.jsonSha256);
       expect(result.candidate.candidateId).not.toBe(row.candidateId);
       expect(result.payloadHash).not.toBe(row.payloadHash);

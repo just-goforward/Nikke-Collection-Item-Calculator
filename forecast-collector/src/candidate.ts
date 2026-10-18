@@ -1,4 +1,7 @@
-import { createCertifiedSupplyRule } from "../../shared/certifiedSupplyModel";
+import {
+  type CertifiedSupplyBuildInput,
+  createCertifiedSupplyRule,
+} from "../../shared/certifiedSupplyModel";
 import { gameDayStartCeilMs, gameDayStartMs } from "../../shared/gameDay";
 import { deriveSoloRaidCadenceDays, SOLO_RAID_CADENCE_SUMMARY } from "../../shared/soloRaidCadence";
 import { buildScheduleForecastSnapshot } from "../../shared/supplyForecastBuild";
@@ -138,6 +141,7 @@ export async function buildForecastCandidate(
   nowMs: number,
   revision: number,
   grants: readonly SupplyForecastGrant[] = [],
+  options: Pick<CertifiedSupplyBuildInput, "cadenceVersion" | "confirmedRounds"> = {},
 ): Promise<CandidateBuildResult> {
   const gameDayStart = gameDayStartMs(nowMs);
   const generatedAt = new Date(gameDayStart).toISOString();
@@ -179,6 +183,7 @@ export async function buildForecastCandidate(
         left.effectiveUntil.localeCompare(right.effectiveUntil),
     );
   const identity = stableJson({
+    ...(options.confirmedRounds ? { confirmedRounds: options.confirmedRounds } : {}),
     grants,
     forecastDate,
     schedule: {
@@ -194,6 +199,7 @@ export async function buildForecastCandidate(
   });
   const sourceHash = await sha256Hex(identity);
   const certifiedSnapshot = buildScheduleForecastSnapshot({
+    ...options,
     grants: grants.map(({ claimUntil, ...grant }) => ({
       ...grant,
       ...(claimUntil === undefined ? {} : { claimUntil }),
@@ -202,13 +208,15 @@ export async function buildForecastCandidate(
     revision: sourceHash,
     sourceHash,
     sourceStatus: "uncertain",
-    soloPeriods: resolved.soloEvents.filter(hasConcreteSchedule).map(snapshotSoloPeriod),
+    soloPeriods: resolved.soloEvents
+      .filter(hasConcreteSchedule)
+      .map((event) => snapshotSoloPeriod(event, options.cadenceVersion === "observed-median-v2")),
     collaborationPeriods,
     provenance: deduplicatedEvidence.map((evidence) => evidence.url).sort(),
   });
   if (certifiedSnapshot.version !== "certified-daily-v4")
     throw new Error("forecast_snapshot_version");
-  const ledgerPeriods = candidateLedgerPeriods(certifiedSnapshot);
+  const ledgerPeriods = candidateLedgerPeriods(certifiedSnapshot, options);
   const primary =
     ledgerPeriods.find(
       (period) =>
@@ -266,7 +274,7 @@ function candidateWarnings(
   ];
 }
 
-function snapshotSoloPeriod(event: ConcreteScheduleEvent) {
+function snapshotSoloPeriod(event: ConcreteScheduleEvent, median = false) {
   return {
     ...schedulePeriod(event),
     ...(event.segments?.[0] ? { round: event.segments[0].round } : {}),
@@ -279,7 +287,7 @@ function snapshotSoloPeriod(event: ConcreteScheduleEvent) {
           effectiveUntil: event.endsAt,
         },
       ]
-    ).map((segment) => ({
+    ).map((segment, index, segments) => ({
       segment: segment.segment,
       kind: segment.kind === "suspend" ? ("initial" as const) : segment.kind,
       effectiveFrom: segment.effectiveFrom,
@@ -290,6 +298,9 @@ function snapshotSoloPeriod(event: ConcreteScheduleEvent) {
       rewardUntilGameDate: new Date(
         Math.min(
           gameDayStartCeilMs(Date.parse(segment.effectiveUntil)),
+          median && segments[index + 1]
+            ? gameDayStartMs(Date.parse(segments[index + 1]!.effectiveFrom))
+            : Infinity,
           gameDayStartMs(Date.parse(segment.effectiveFrom)) +
             createCertifiedSupplyRule(segment.effectiveFrom).soloDays.length * DAY_MS,
         ) +
@@ -302,7 +313,10 @@ function snapshotSoloPeriod(event: ConcreteScheduleEvent) {
   };
 }
 
-function candidateLedgerPeriods(snapshot: ReturnType<typeof buildScheduleForecastSnapshot>) {
+function candidateLedgerPeriods(
+  snapshot: ReturnType<typeof buildScheduleForecastSnapshot>,
+  options: Pick<CertifiedSupplyBuildInput, "cadenceVersion"> = {},
+) {
   return snapshot.soloRounds.flatMap((round): SupplyForecastV5SoloPeriod[] => {
     if (round.segments)
       return round.segments.map((segment) => ({
@@ -310,7 +324,10 @@ function candidateLedgerPeriods(snapshot: ReturnType<typeof buildScheduleForecas
         segment: segment.segment,
         effectiveFrom: segment.effectiveFrom,
         effectiveUntil: segment.effectiveUntil,
-        scheduleStatus: "confirmed",
+        scheduleStatus:
+          options.cadenceVersion === "observed-median-v2" && round.status === "estimated"
+            ? "estimated"
+            : "confirmed",
       }));
     if (round.status !== "estimated" || !round.endGameDate) return [];
     const start = (date: string) => new Date(`${date}T05:00:00+09:00`).toISOString();

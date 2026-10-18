@@ -1,17 +1,29 @@
 import {
+  CERTIFIED_EVIDENCE_COVERAGE,
+  type CertifiedEvidenceCoverage,
+  hasCertifiedEvidenceCoverage,
+} from "../../shared/certifiedEvidenceCoverage.ts";
+import {
   type ActiveRow,
   createReview,
   publicationErrorCode,
   sealCandidate,
 } from "../../shared/forecast-publication/store.ts";
+import { CERTIFIED_ENGINE_CODE_HASH } from "../../shared/generated/certifiedEngineBuild.ts";
 
 const MAX_ATTEMPTS = 5;
 const RETRY_MS = 5 * 60_000;
+const EVIDENCE_RETRY_MS = 6 * 60 * 60_000;
 const LEASE_MS = 60_000;
 // Incremental admission: never derive more than one candidate's profiles per run.
 const BATCH_SIZE = 1;
 
-export async function admitCandidates(db: D1Database, active: ActiveRow, now: number) {
+export async function admitCandidates(
+  db: D1Database,
+  active: ActiveRow,
+  now: number,
+  coverage: readonly CertifiedEvidenceCoverage[] = CERTIFIED_EVIDENCE_COVERAGE,
+) {
   // A crash during the final attempt is terminal too; it cannot pin the candidate page.
   await db
     .prepare(`UPDATE forecast_runtime_admissions SET state='dead',
@@ -21,7 +33,7 @@ export async function admitCandidates(db: D1Database, active: ActiveRow, now: nu
     .bind(now, now, MAX_ATTEMPTS)
     .run();
   const candidates = await db
-    .prepare(`SELECT c.candidate_id FROM forecast_candidates c
+    .prepare(`SELECT c.candidate_id,json_extract(c.payload_json,'$.certifiedSnapshot.cadence.version') AS cadence_version FROM forecast_candidates c
     LEFT JOIN forecast_runtime_admissions f ON f.candidate_id=c.candidate_id
     WHERE c.state IN ('crosschecked','x_unavailable','proposed')
       AND (f.candidate_id IS NULL OR f.state='ready' OR
@@ -33,7 +45,7 @@ export async function admitCandidates(db: D1Database, active: ActiveRow, now: nu
     ORDER BY CASE WHEN f.state IN ('pending','running') THEN 1 ELSE 0 END,
       c.created_at DESC,c.candidate_id LIMIT ?`)
     .bind(MAX_ATTEMPTS, now, now, active.environment, active.sequence, now, BATCH_SIZE)
-    .all<{ candidate_id: string }>();
+    .all<{ candidate_id: string; cadence_version: string }>();
   for (const row of candidates.results) {
     const lease = crypto.randomUUID();
     const claimed = await db
@@ -52,17 +64,34 @@ export async function admitCandidates(db: D1Database, active: ActiveRow, now: nu
     let state: "ready" | "pending" | "dead" = "ready";
     let code: string | null = null;
     try {
+      if (
+        row.cadence_version === "observed-median-v2" &&
+        !hasCertifiedEvidenceCoverage(row.cadence_version, CERTIFIED_ENGINE_CODE_HASH, coverage)
+      )
+        throw new Error("awaiting_evidence_panel");
       const sealed = await sealCandidate(db, row.candidate_id, now);
       await createReview(db, active, "approve", row.candidate_id, sealed.hash, now);
     } catch (error) {
-      code = publicationErrorCode(error);
-      state = claimed.attempts < MAX_ATTEMPTS ? "pending" : "dead";
+      code =
+        error instanceof Error && error.message === "awaiting_evidence_panel"
+          ? "awaiting_evidence_panel"
+          : publicationErrorCode(error);
+      state =
+        code === "awaiting_evidence_panel" || claimed.attempts < MAX_ATTEMPTS ? "pending" : "dead";
     }
     const completed = await db
       .prepare(`UPDATE forecast_runtime_admissions SET state=?,error_code=COALESCE(?,error_code),
-      next_attempt_at=?,lease_token=NULL,lease_until=NULL,updated_at=?
+      attempts=attempts-?,next_attempt_at=?,lease_token=NULL,lease_until=NULL,updated_at=?
       WHERE candidate_id=? AND state='running' AND lease_token=?`)
-      .bind(state, code, now + RETRY_MS, now, row.candidate_id, lease)
+      .bind(
+        state,
+        code,
+        Number(code === "awaiting_evidence_panel"),
+        now + (code === "awaiting_evidence_panel" ? EVIDENCE_RETRY_MS : RETRY_MS),
+        now,
+        row.candidate_id,
+        lease,
+      )
       .run();
     if (completed.meta.changes !== 1) throw new Error("publication_admission_lease_lost");
     if (code)

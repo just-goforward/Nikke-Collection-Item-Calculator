@@ -104,7 +104,7 @@ describe("staging public advisory health", () => {
       await testEnv.FORECAST_DB.prepare(
         "SELECT MAX(version) AS version FROM schema_migrations",
       ).first(),
-    ).toEqual({ version: 29 });
+    ).toEqual({ version: 33 });
     expect((await health()).status).toBe(200);
   });
 

@@ -2,7 +2,7 @@ import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard.ts"
 import { collectionSchedule, rotationBoard } from "./collection-schedule";
 import { runCollection } from "./collector";
 import { handleHttpRequest } from "./http";
-import { automationOperation, requireGuardDb } from "./http-shared";
+import { automationOperation, opsEnvironment, requireGuardDb } from "./http-shared";
 import {
   activeProfilePhase,
   type ProfileCounts,
@@ -12,15 +12,21 @@ import {
 import { runRotationIngestion } from "./rotation-ingestion";
 import { runRuntimeIngestion, runtimeIngestionEnabled } from "./runtime-ingestion";
 import type { CollectorEnv } from "./types";
+import { runV2CandidateUnit } from "./v2/candidate";
+import { runV2Invocation } from "./v2/ingest/run";
+import { v2Mode } from "./v2/ingest/schedule";
+import { configureRules, rulesPort } from "./v2/rules";
 
 export default {
   async scheduled(event, env, context) {
     console.log(
       JSON.stringify({
         event:
-          profilePhase(env) === "off"
-            ? "forecast_canary_scheduled_invocation"
-            : "forecast_profile_scheduled_invocation",
+          v2Mode(env) !== "off"
+            ? "forecast_v2_scheduled_invocation"
+            : profilePhase(env) === "off"
+              ? "forecast_canary_scheduled_invocation"
+              : "forecast_profile_scheduled_invocation",
         component: "collector",
         environment: env.ENVIRONMENT,
         deploymentSha: env.DEPLOY_SHA,
@@ -56,16 +62,18 @@ export default {
       throw error;
     }
     context.waitUntil(
-      profilePhase(env) !== "off"
-        ? runProfile(env, event.scheduledTime)
-        : collectionSchedule(env) === "rotation"
-          ? runRotation(env, event.scheduledTime)
-          : runtimeIngestionEnabled(env) && Math.floor(event.scheduledTime / 180_000) % 2 === 1
-            ? runRotationIngestion(env, event.scheduledTime, true, true)
-            : runCollection(env, { nowMs: event.scheduledTime }).then(async (summary) => {
-                if (summary.outcome === "completed") await runRuntimeIngestion(env);
-                return summary;
-              }),
+      v2Mode(env) !== "off"
+        ? runV2Scheduled(env, event.scheduledTime)
+        : profilePhase(env) !== "off"
+          ? runProfile(env, event.scheduledTime)
+          : collectionSchedule(env) === "rotation"
+            ? runRotation(env, event.scheduledTime)
+            : runtimeIngestionEnabled(env) && Math.floor(event.scheduledTime / 180_000) % 2 === 1
+              ? runRotationIngestion(env, event.scheduledTime, true, true)
+              : runCollection(env, { nowMs: event.scheduledTime }).then(async (summary) => {
+                  if (summary.outcome === "completed") await runRuntimeIngestion(env);
+                  return summary;
+                }),
     );
   },
 
@@ -73,6 +81,17 @@ export default {
     return handleHttpRequest(request, env, context);
   },
 } satisfies ExportedHandler<CollectorEnv>;
+
+function runV2Scheduled(env: CollectorEnv, scheduledTime: number) {
+  if (v2Mode(env) === "on") {
+    configureRules({ environment: opsEnvironment(env) });
+    return runV2Invocation(env, scheduledTime, {
+      rules: rulesPort,
+      candidate: runV2CandidateUnit,
+    });
+  }
+  return runV2Invocation(env, scheduledTime);
+}
 
 async function runRotation(env: CollectorEnv, scheduledTime: number) {
   const board = rotationBoard(scheduledTime);

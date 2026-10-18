@@ -50,6 +50,8 @@ export async function handleManualInteraction(
   const denied = authorizeManual(interaction, env, action, actor);
   if (denied) return denied;
   const { environment, decision, reviewId, id, token } = action;
+  if (env.FORECAST_ENVIRONMENT === "staging" && environment === "production")
+    return ephemeral("production actions are disabled on this deployment. No changes were made.");
   const db = environment === "staging" ? env.STAGING_FORECAST_DB : env.PRODUCTION_FORECAST_DB;
   if (!db)
     return ephemeral(

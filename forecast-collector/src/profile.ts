@@ -15,6 +15,7 @@ export function profilePhase(env: Pick<CollectorEnv, "ENVIRONMENT" | "COLLECTOR_
 }
 
 export function activeProfilePhase(env: CollectorEnv, scheduledTime: number) {
+  if (env.FORECAST_V2_MODE === "hold" || env.FORECAST_V2_MODE === "on") return "off";
   const phase = profilePhase(env);
   return phase === "alternate"
     ? Math.floor(scheduledTime / 180_000) % 2 === 0

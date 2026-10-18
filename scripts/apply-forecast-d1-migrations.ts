@@ -23,6 +23,7 @@ type Options = {
   environment: "staging" | "production";
   local: boolean;
   persistTo?: string;
+  allowForecastV2?: boolean;
 };
 type Dependencies = {
   root?: string;
@@ -69,6 +70,7 @@ export function parseMigrationArguments(args: string[]): Options {
       local: { type: "boolean" },
       remote: { type: "boolean" },
       "persist-to": { type: "string" },
+      "allow-forecast-v2": { type: "boolean" },
     },
   });
   const names = tokens.filter((token) => token.kind === "option").map((token) => token.name);
@@ -87,6 +89,7 @@ export function parseMigrationArguments(args: string[]): Options {
     environment: values.env,
     local: values.local === true,
     ...(persistTo !== undefined ? { persistTo } : {}),
+    ...(values["allow-forecast-v2"] === true ? { allowForecastV2: true } : {}),
   };
 }
 
@@ -155,12 +158,31 @@ function verifyAppliedVersions(versions: number[], expected: number[], operation
   }
 }
 
+function validateTargetEnvironment(options: Options) {
+  if (options.environment !== "staging" && options.environment !== "production") {
+    throw new Error("An explicit --env staging or --env production is required.");
+  }
+}
+
+function validateV2Authorization(options: Options, migrations: Migration[]) {
+  const gated = migrations.filter((migration) => migration.version >= 30);
+  // No ledger reads are permitted before this gate, so authorize the inventory,
+  // including already-applied versions, rather than guessing remote pending state.
+  if (gated.length > 0 && options.allowForecastV2 !== true) {
+    throw new Error(
+      `Forecast v2 migrations require --allow-forecast-v2: ${gated.map((migration) => migration.version).join(", ")}.`,
+    );
+  }
+}
+
 export function applyForecastD1Migrations(options: Options, dependencies: Dependencies = {}) {
+  validateTargetEnvironment(options);
   const root = dependencies.root ?? REPOSITORY_ROOT;
   const spawn = dependencies.spawn ?? spawnSync;
   const log = dependencies.log ?? console.log;
   // Validate the complete file sequence before invoking Wrangler, including on an up-to-date DB.
   const migrations = discoverForecastMigrations(resolve(root, "forecast-collector/migrations"));
+  validateV2Authorization(options, migrations);
   const args = [
     resolve(root, "node_modules/wrangler/bin/wrangler.js"),
     "d1",

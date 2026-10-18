@@ -23,6 +23,7 @@ import { importPublicationSigningKey } from "../../shared/forecastPublication.ts
 import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard.ts";
 import { handleManualInteraction } from "./manual-interactions.ts";
 import type { InteractionRouterEnv } from "./types.ts";
+import { handleV2Interaction } from "./v2-interactions.ts";
 
 export default {
   async fetch(request: Request, env, context) {
@@ -34,10 +35,25 @@ export default {
       return new Response("Not found", { status: 404 });
     const body = await readVerifiedDiscordBody(request, env.DISCORD_PUBLIC_KEY, Date.now());
     if (body instanceof Response) return body;
+    // The shared legacy parser intentionally accepts buttons only; route signed
+    // v2 modal submissions here without broadening legacy interaction support.
+    try {
+      const v2 = JSON.parse(body);
+      if (typeof v2?.data?.custom_id === "string" && /^fv2m?:/.test(v2.data.custom_id))
+        return handleV2Interaction(v2, env, context);
+    } catch {
+      return new Response("Invalid JSON", { status: 400 });
+    }
     const interaction = parseDiscordInteraction(body, env.DISCORD_APPLICATION_ID);
     if (interaction instanceof Response) return interaction;
     if (interaction.type === 1) return reply({ type: 1 });
     const customId = interaction.data?.custom_id;
+    if (
+      env.FORECAST_ENVIRONMENT === "staging" &&
+      typeof customId === "string" &&
+      /^(forecast_publish:production:|forecast_manual_production_)/.test(customId)
+    )
+      return ephemeral("production actions are disabled on this deployment. No changes were made.");
     if (
       typeof customId === "string" &&
       /^forecast_manual_(staging|production)_(requeue|ignore|cancel)(_confirm)?:mr-/.test(customId)
@@ -313,19 +329,20 @@ async function health(env: InteractionRouterEnv) {
       { status: 503, headers: { "cache-control": "no-store" } },
     );
   }
+  const productionDb =
+    env.FORECAST_ENVIRONMENT === "staging" ? undefined : env.PRODUCTION_FORECAST_DB;
   const [staging, production] = await Promise.all([
     healthRow(env.STAGING_FORECAST_DB),
-    env.PRODUCTION_FORECAST_DB ? healthRow(env.PRODUCTION_FORECAST_DB) : undefined,
+    productionDb ? healthRow(productionDb) : undefined,
   ]);
   const keyAvailable = await publicationKeyAvailable(env);
   return reply({
     status: "ok",
     deploymentSha: env.DEPLOY_SHA,
-    productionMutationsEnabled:
-      !!env.PRODUCTION_FORECAST_DB && env.PRODUCTION_MUTATIONS_ENABLED === "true",
+    productionMutationsEnabled: !!productionDb && env.PRODUCTION_MUTATIONS_ENABLED === "true",
     stagingPublication: env.STAGING_PUBLICATION_MODE === "enabled" && keyAvailable,
     productionPublication:
-      !!env.PRODUCTION_FORECAST_DB &&
+      !!productionDb &&
       env.PRODUCTION_PUBLICATION_MODE === "enabled" &&
       env.PRODUCTION_MUTATIONS_ENABLED === "true" &&
       keyAvailable,

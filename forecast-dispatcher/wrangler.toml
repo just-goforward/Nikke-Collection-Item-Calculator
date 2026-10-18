@@ -27,6 +27,7 @@ database_name = "collection-kit-usage-guard"
 database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
 
 [vars]
+FORECAST_V2_NOTIFICATIONS_ENABLED = "false"
 ENVIRONMENT = "production"
 DEPLOY_SHA = "local"
 PUBLICATION_MODE = "off"
@@ -63,6 +64,7 @@ database_name = "collection-kit-usage-guard"
 database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
 
 [env.staging.vars]
+FORECAST_V2_NOTIFICATIONS_ENABLED = "false"
 ENVIRONMENT = "staging"
 DEPLOY_SHA = "local"
 PUBLICATION_MODE = "off"

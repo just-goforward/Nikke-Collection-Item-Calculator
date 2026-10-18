@@ -28,6 +28,7 @@ import {
   deriveExactSoloRaidCadence,
   type ExactSoloRaidCadence,
   estimateCertifiedSoloRounds,
+  predictMedianSoloRaid,
   SOLO_RAID_ROUND_HISTORY,
   type SoloRaidRound,
   soloRaidSourceUrl,
@@ -185,6 +186,7 @@ function confirmedLedgerRound(
 }
 
 function soloLedger(input: CertifiedSupplyBuildInput, window: BuildWindow, state: RoundState) {
+  if (input.cadenceVersion === "observed-median-v2") return medianSoloLedger(input, window, state);
   const { anchor, cadence } = state;
   const delayState = transitionCertifiedSoloDelay({
     anchor,
@@ -226,6 +228,75 @@ function soloLedger(input: CertifiedSupplyBuildInput, window: BuildWindow, state
       window.warnings.push(`unverified_solo_round:r${estimate.round}`);
   }
   return { soloRounds, delayState };
+}
+
+function medianSoloLedger(
+  input: CertifiedSupplyBuildInput,
+  window: BuildWindow,
+  state: RoundState,
+) {
+  const period = state.associations.get(state.anchor.round);
+  if (!period || state.historyGaps.length)
+    throw new Error("certified_median_anchor_period_required");
+  const prediction = predictMedianSoloRaid({
+    confirmedRounds: state.known,
+    previousStart: period.effectiveFrom,
+    previousEnd: period.segments?.[0]?.effectiveUntil ?? period.effectiveUntil,
+    asOf: input.asOf,
+  });
+  const { primary, secondary } = prediction;
+  state.cadence = {
+    ...state.cadence,
+    version: prediction.version,
+    medianDays: primary.intervalDays,
+  };
+  const soloRounds = state.known.map((entry) => confirmedLedgerRound(entry, state.associations));
+  for (let index = 0; ; index += 1) {
+    const shift = index * primary.intervalDays * DAY_MS;
+    const start = timestamp(primary.start) + shift;
+    if (start >= window.until) break;
+    const end = timestamp(primary.end) + shift;
+    const startGameDate = gameDayKey(start);
+    const endGameDate = gameDayKey(gameDayStartCeilMs(end));
+    const sourceIds = [
+      prediction.version,
+      "prediction",
+      primary.status,
+      `predicted-notice:${primary.expectedNotice}`,
+      ...(secondary
+        ? [
+            `predicted-alternative:${secondary.start}`,
+            `predicted-alternative-base:${iso(timestamp(secondary.start) - secondary.offsetDays * DAY_MS)}`,
+          ]
+        : []),
+    ];
+    soloRounds.push({
+      round: state.anchor.round + index + 1,
+      startGameDate,
+      endGameDate,
+      status: "estimated",
+      sourceIds,
+      segments: [
+        {
+          segment: 1,
+          kind: "initial",
+          effectiveFrom: iso(start),
+          effectiveUntil: iso(end),
+          rewardFromGameDate: startGameDate,
+          rewardUntilGameDate: endGameDate,
+          sourceIds,
+        },
+      ],
+    });
+  }
+  return {
+    soloRounds,
+    delayState: {
+      anchorRound: state.anchor.round,
+      anchorGameDate: state.anchor.startGameDate,
+      offsetDays: primary.offsetDays,
+    },
+  };
 }
 
 function buildRules(input: CertifiedSupplyBuildInput, today: number): CertifiedSupplyRule[] {

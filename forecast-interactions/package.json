@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "tsc --noEmit -p tsconfig.integration.json && vitest run --config vitest.config.ts",
+    "test": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.integration.json && vitest run --config vitest.config.ts && vitest run --config vitest.node.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage"
   },
   "devDependencies": {

@@ -29,6 +29,26 @@ export function isConstructedNoticeCandidate(value: unknown): value is Construct
   return typeof value === "object" && value !== null && constructedCandidates.has(value);
 }
 
+/**
+ * Backend-only constructor for callers with their own confirmed-evidence policy.
+ * Do not expose a generic branding API: serialized candidates must never acquire
+ * this proof without going through the validating constructor.
+ */
+export async function buildConstructedForecastCandidate(
+  eventId: string,
+  ...args: Parameters<typeof buildForecastCandidate>
+) {
+  const envelope = await buildForecastCandidate(...args);
+  const candidate = freezeJson({
+    eventId,
+    gameDay: envelope.candidate.forecastId.slice(7, 17),
+    revision: args[4],
+    envelope,
+  });
+  constructedCandidates.add(candidate);
+  return candidate;
+}
+
 export async function processNotice(
   queued: SourceQueueItem,
   fetcher: FetchLike,

@@ -66,6 +66,12 @@ describe("manual-review renewal delivery", () => {
 });
 
 describe("D1 publication Discord dispatcher", () => {
+  it("continues legacy delivery when the v2 table is unavailable", async () => {
+    await seedCandidate(testEnv.FORECAST_DB);
+    const result = await runDispatcher({ ...testEnv, FORECAST_V2_NOTIFICATIONS_ENABLED: "true" });
+    expect(result.sent).toBeGreaterThan(0);
+    expect(outbound).toHaveBeenCalled();
+  });
   it("redelivers a renewed review without deleting its alert", async () => {
     const { flushOperations } = await import("./operations");
     const db = testEnv.FORECAST_DB;

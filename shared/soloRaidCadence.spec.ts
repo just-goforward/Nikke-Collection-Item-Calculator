@@ -4,7 +4,11 @@ import { createHash } from "node:crypto";
 import { runInNewContext } from "node:vm";
 import { build } from "esbuild";
 import { describe, expect, it } from "vitest";
-import { SOLO_RAID_CADENCE_SUMMARY, SOLO_RAID_ROUND_HISTORY } from "./soloRaidCadence";
+import {
+  predictMedianSoloRaid,
+  SOLO_RAID_CADENCE_SUMMARY,
+  SOLO_RAID_ROUND_HISTORY,
+} from "./soloRaidCadence";
 
 async function bundledConsumer(body: string) {
   const result = await build({
@@ -71,5 +75,60 @@ describe("tree-shakeable cadence seed initialization", () => {
       `cadence.summarizeSoloRaidCadence(${JSON.stringify(dates)});`,
     );
     expect(() => runInNewContext(code)).toThrow(error);
+  });
+});
+
+describe("median v2 prediction", () => {
+  const confirmedRounds = [
+    ...SOLO_RAID_ROUND_HISTORY,
+    { round: 41, startGameDate: "2026-09-24", status: "as_announced" as const, sourceFeedId: 0 },
+    { round: 42, startGameDate: "2026-10-15", status: "as_announced" as const, sourceFeedId: 0 },
+  ];
+  const input = {
+    confirmedRounds,
+    previousStart: "2026-10-15T12:00:00+09:00",
+    previousEnd: "2026-10-22T04:59:59+09:00",
+    asOf: "2026-10-18T12:00:00+09:00",
+  };
+  it("predicts S43 and the second-most-frequent alternative without Thursday snapping", () => {
+    const result = predictMedianSoloRaid(input);
+    expect(result.summary.intervals).toBe(41);
+    expect(result.summary.frequency[28]).toBe(17);
+    expect(result.summary.frequency[35]).toBe(10);
+    expect(result.primary).toMatchObject({
+      label: "prediction",
+      intervalDays: 28,
+      start: "2026-11-12T03:00:00.000Z",
+      end: "2026-11-18T19:59:59.000Z",
+      expectedNotice: "2026-11-06T08:00:00.000Z",
+    });
+    expect(result.secondary).toMatchObject({ label: "prediction", intervalDays: 35 });
+  });
+  it("uses the interruption instant, not the originally announced end", () => {
+    expect(
+      predictMedianSoloRaid({ ...input, interruptionAt: "2026-10-15T17:00:00+09:00" }).primary.end,
+    ).toBe("2026-11-12T08:00:00.000Z");
+  });
+  it("shifts at the 05:00 KST game-day boundary", () => {
+    const before = predictMedianSoloRaid({ ...input, asOf: "2026-11-13T04:59:59+09:00" });
+    const after = predictMedianSoloRaid({ ...input, asOf: "2026-11-13T05:00:00+09:00" });
+    expect(before.primary).toMatchObject({ status: "공지 대기", offsetDays: 1 });
+    expect(after.primary.offsetDays).toBe(2);
+  });
+  it("floors an even median to whole days", () => {
+    const rounds = ["2026-01-01", "2026-01-29", "2026-02-27"].map((startGameDate, index) => ({
+      round: index + 1,
+      startGameDate,
+      status: "as_announced" as const,
+      sourceFeedId: 0,
+    }));
+    expect(
+      predictMedianSoloRaid({
+        confirmedRounds: rounds,
+        previousStart: "2026-02-27T12:00:00+09:00",
+        previousEnd: "2026-03-06T04:59:59+09:00",
+        asOf: "2026-03-01T12:00:00+09:00",
+      }).primary.intervalDays,
+    ).toBe(28);
   });
 });

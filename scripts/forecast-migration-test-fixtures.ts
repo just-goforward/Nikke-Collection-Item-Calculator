@@ -13,7 +13,7 @@ const root = resolve(import.meta.dirname, "..");
 const directory = resolve(root, "forecast-collector/migrations");
 const migrations = discoverForecastMigrations(directory);
 const currentVersions = Array.from({ length: 25 }, (_, index) => index + 1);
-const localStaging = { environment: "staging", local: true } as const;
+const localStaging = { environment: "staging", local: true, allowForecastV2: true } as const;
 const cleanup: Array<() => void> = [];
 type Spawn = NonNullable<NonNullable<Parameters<typeof applyForecastD1Migrations>[1]>["spawn"]>;
 
@@ -72,7 +72,7 @@ function sqliteRunner(db: DatabaseSync) {
     }
   });
   const run = (options = localStaging as Parameters<typeof applyForecastD1Migrations>[0]) =>
-    applyForecastD1Migrations(options, { spawn, log: () => {} });
+    applyForecastD1Migrations({ allowForecastV2: true, ...options }, { spawn, log: () => {} });
   const files = () =>
     spawn.mock.calls.flatMap(([, args]) => {
       const index = args.indexOf("--file");
@@ -102,6 +102,7 @@ function legacyDatabase(version: number, production = false) {
 function createLegacySourceLedger(db: DatabaseSync) {
   const schema = readFileSync(resolve(root, "forecast-collector/fixtures/schema-v10.sql"), "utf8");
   for (const table of [
+    "source_watermarks",
     "source_items",
     "schedule_events",
     "forecast_candidates",

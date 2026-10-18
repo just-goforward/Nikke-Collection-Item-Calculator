@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import type { CertifiedSupplySnapshot } from "../../../shared/certifiedSupply.ts";
 import { wire } from "../../certified-staging-oracle.ts";
 import { priceFourCohortSupply } from "../../certified-staging-oracle-four-cohort-pricing.ts";
 import { normalizeExact, validateGenerationEnvironment } from "../v6/evidence.ts";
-import { pinnedBytes, type SourceIdentity, sha256, sourceIdentity } from "../v6/history.ts";
+import { pinnedBytes, type SourceIdentity, sha256, type sourceIdentity } from "../v6/history.ts";
 import { V8_PINS_SHA } from "../v8/anchor.ts";
 import {
   assertV3Snapshot,
@@ -48,9 +50,31 @@ export const GENERATION_SOURCES = [
   ...["evidence.ts", "calculate.ts", "panel.ts", "generate.ts"].map((name) => `${V9_ROOT}/${name}`),
 ];
 export const ANCHOR_FILE = `${V9_ROOT}/anchor.ts`;
+export const V9_ARCHIVE_ROOT = `${V9_ROOT}/source`;
+export const SNAPSHOT_SOURCES = [
+  "shared/certifiedDispatchExpectations.ts",
+  "shared/certifiedForecastIdentity.ts",
+  "shared/certifiedRational.ts",
+  "shared/certifiedSupply.ts",
+  "shared/certifiedSupplyBuild.ts",
+  "shared/certifiedSupplyCoherence.ts",
+  "shared/certifiedSupplyLaws.ts",
+  "shared/certifiedSupplyModel.ts",
+  "shared/certifiedSupplyValidation.ts",
+  "shared/certifiedVersionPolicy.ts",
+  "shared/gameDay.ts",
+  "shared/generated/certifiedForecastAuthority.ts",
+  "shared/soloRaidCadence.ts",
+  "src/lib/certifiedForecast.ts",
+];
+const archivePath = (path: string) => `${V9_ARCHIVE_ROOT}/${path}.txt`;
+export const ARCHIVE_FILES = [...GENERATION_SOURCES, ...SNAPSHOT_SOURCES].map(archivePath);
+const archivedBytes = (source: SourceIdentity, root: string) =>
+  pinnedBytes({ path: archivePath(source.path), sha256: source.sha256 }, root);
 export const EVIDENCE_FILES = [
   ...new Set([
     ...HISTORICAL_EVIDENCE_FILES,
+    ...ARCHIVE_FILES,
     ...GENERATION_SOURCES,
     ANCHOR_FILE,
     ...PUBLICATION_FILES,
@@ -79,9 +103,10 @@ export type EvidenceProvenance = {
   panel: SourceIdentity;
 };
 
-/** `pinsSha` defaults to the reviewed tracked anchor; disposable publications pass
- * the digest of the pins they just generated. */
+/** The reviewed anchor authenticates archived source bytes. An explicitly supplied
+ * fresh pin authenticates the copied live sources used by that disposable calculation. */
 export function readV9Evidence(root = process.cwd(), pinsSha = V9_PINS_SHA) {
+  const sourceBytes = pinsSha === V9_PINS_SHA ? archivedBytes : pinnedBytes;
   const pins = JSON.parse(
     pinnedBytes({ path: `${V9_ROOT}/pins.json`, sha256: pinsSha }, root).toString(),
   ) as {
@@ -100,8 +125,26 @@ export function readV9Evidence(root = process.cwd(), pinsSha = V9_PINS_SHA) {
     cohortMigration: COHORT_MIGRATION,
   });
   readV8Evidence(root);
+  const inventory = readdirSync(resolve(root, V9_ARCHIVE_ROOT), {
+    recursive: true,
+    withFileTypes: true,
+  })
+    .filter((entry) => !entry.isDirectory())
+    .map((entry) => {
+      assert.ok(entry.isFile());
+      return resolve(entry.parentPath, entry.name);
+    });
+  assert.deepEqual(inventory.sort(), ARCHIVE_FILES.map((path) => resolve(root, path)).sort());
+  const { sources, sourceHash } = provenance.generation;
+  assert.deepEqual(
+    sources.map(({ path }) => path),
+    GENERATION_SOURCES,
+  );
+  assert.equal(sourceHash, sha256(JSON.stringify(sources)));
+  for (const source of sources) sourceBytes(source, root);
   assert.deepEqual(provenance.generation, {
-    ...sourceIdentity(GENERATION_SOURCES, root),
+    sources,
+    sourceHash,
     isolatedCacheEmpty: true,
     physicalEnumeration: "sequential-draw-state-merged",
     oracleRows: 24,
@@ -112,8 +155,11 @@ export function readV9Evidence(root = process.cwd(), pinsSha = V9_PINS_SHA) {
     provenance.snapshot.meaning,
     "approved forecast input only; not an expected solver output",
   );
-  assert.ok(provenance.snapshot.sources.length > 0);
-  for (const source of provenance.snapshot.sources) pinnedBytes(source, root);
+  assert.deepEqual(
+    provenance.snapshot.sources.map(({ path }) => path),
+    SNAPSHOT_SOURCES,
+  );
+  for (const source of provenance.snapshot.sources) sourceBytes(source, root);
   const snapshot = JSON.parse(
     pinnedBytes(provenance.snapshot, root).toString(),
   ) as CertifiedSupplySnapshot;

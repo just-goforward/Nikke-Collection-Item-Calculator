@@ -87,7 +87,13 @@ async function request(
       body,
       headers: { "x-signature-ed25519": hex(signature), "x-signature-timestamp": timestamp },
     }),
-    { ...routerEnv, ...overrides },
+    Object.defineProperties(
+      {},
+      {
+        ...Object.getOwnPropertyDescriptors(routerEnv),
+        ...Object.getOwnPropertyDescriptors(overrides),
+      },
+    ) as InteractionRouterEnv,
     context,
   );
   await waitOnExecutionContext(context);
@@ -182,8 +188,14 @@ describe("new publication Router", () => {
 describe("isolated staging Router", () => {
   let stagingEnv: InteractionRouterEnv;
   beforeEach(() => {
-    stagingEnv = { ...testEnv };
-    delete stagingEnv.PRODUCTION_FORECAST_DB;
+    stagingEnv = { ...testEnv, FORECAST_ENVIRONMENT: "staging" };
+    Object.defineProperty(stagingEnv, "PRODUCTION_FORECAST_DB", {
+      get() {
+        throw new Error("staging must never look up the production binding");
+      },
+      enumerable: true,
+      configurable: true,
+    });
     // A missing binding must fail closed independently of the configured flags.
     stagingEnv.PRODUCTION_MUTATIONS_ENABLED = "true";
     stagingEnv.PRODUCTION_PUBLICATION_MODE = "enabled";

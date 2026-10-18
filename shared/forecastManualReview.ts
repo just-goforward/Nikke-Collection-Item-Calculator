@@ -43,7 +43,7 @@ export function manualReviewReason(code: string): string {
 // as simple balanced pairs not followed by "(" (Discord's label grammar); any
 // other bracket becomes its full-width form so it cannot close the label or
 // start a nested link.
-function linkLabel(value: string) {
+export function linkLabel(value: string) {
   // "@" and "<" get an invisible zero-width space so "@everyone", "<@id>", "<#id>",
   // "<t:…>" or custom emoji never form a mention or Discord token.
   const formatted = value

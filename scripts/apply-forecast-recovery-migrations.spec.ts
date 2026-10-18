@@ -69,7 +69,7 @@ describe("REVIEW12 explicit recovery storage upgrades", () => {
       const before = databaseNow(db);
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+        15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
       ]);
       const control = db.prepare("SELECT * FROM staging_adoption_recovery_control").get();
       const episode = db.prepare("SELECT * FROM staging_adoption_hold_episodes").get();
@@ -180,7 +180,7 @@ describe("REVIEW16 create-only recovery target upgrade and restart", () => {
       ).toEqual([]);
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+        18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
       ]);
       expect(runner.files()).toEqual([
         "0018_source_processor_target_reservations.sql",
@@ -195,6 +195,10 @@ describe("REVIEW16 create-only recovery target upgrade and restart", () => {
         "0027_board11_grants.sql",
         "0028_publication_exclusions.sql",
         "0029_candidate_replay_cache.sql",
+        "0030_monitor_streams.sql",
+        "0031_calendar_decisions.sql",
+        "0032_grant_occurrences.sql",
+        "0033_calendar_snapshots.sql",
       ]);
       expect(
         db.prepare("SELECT * FROM schema_migrations WHERE version<18 ORDER BY version").all(),
@@ -351,7 +355,7 @@ describe("C15 policy addendum create-only exception audit upgrade", () => {
       ).toEqual([]);
       const runner = sqliteRunner(db);
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+        19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
       ]);
       expect(runner.files()).toEqual([
         "0019_source_processor_exception_audits.sql",
@@ -365,6 +369,10 @@ describe("C15 policy addendum create-only exception audit upgrade", () => {
         "0027_board11_grants.sql",
         "0028_publication_exclusions.sql",
         "0029_candidate_replay_cache.sql",
+        "0030_monitor_streams.sql",
+        "0031_calendar_decisions.sql",
+        "0032_grant_occurrences.sql",
+        "0033_calendar_snapshots.sql",
       ]);
       expect(
         db.prepare("SELECT * FROM schema_migrations WHERE version<19 ORDER BY version").all(),
@@ -419,7 +427,7 @@ describe("C15 policy addendum create-only exception audit upgrade", () => {
       const ledger = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
       runner.spawn.mockImplementation(normal).mockClear();
       expect(runner.run({ environment, local: true }).applied).toEqual([
-        20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+        20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
       ]);
       expect(runner.files()).toEqual([
         "0020_source_poll_recovery_audits.sql",
@@ -432,12 +440,16 @@ describe("C15 policy addendum create-only exception audit upgrade", () => {
         "0027_board11_grants.sql",
         "0028_publication_exclusions.sql",
         "0029_candidate_replay_cache.sql",
+        "0030_monitor_streams.sql",
+        "0031_calendar_decisions.sql",
+        "0032_grant_occurrences.sql",
+        "0033_calendar_snapshots.sql",
       ]);
       expect(
         db.prepare("SELECT * FROM schema_migrations WHERE version<=19 ORDER BY version").all(),
       ).toEqual(ledger);
       expect(db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()).toEqual({
-        version: 29,
+        version: 33,
       });
       expect(db.prepare("SELECT * FROM source_processor_exception_audits").all()).toEqual([]);
       expect(exceptionEvidenceHistory(db)).toEqual(history);

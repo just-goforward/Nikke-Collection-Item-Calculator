@@ -11,13 +11,18 @@
         "src/certifiedRuntime/browserHarness.ts",
         "src/certifiedRuntime/integrationFixture.ts",
         "scripts/**/*.ts",
-        "benchmarks/**/*.ts"
+        "benchmarks/**/*.ts",
+        // Not an npm workspace: the admin Worker runs on the root toolchain.
+        "forecast-admin/src/worker.ts",
+        "forecast-admin/vitest*.config.ts"
       ],
       "project": [
         "src/**/*.{ts,tsx,css,mjs}",
         "scripts/**/*.ts",
         "benchmarks/**/*.ts",
-        "e2e/**/*.ts"
+        "e2e/**/*.ts",
+        "forecast-admin/src/**/*.ts",
+        "forecast-admin/test/**/*.ts"
       ]
     },
     "cloudflare": {
@@ -63,6 +68,8 @@
   "ignoreBinaries": ["rustc", "where.exe"],
   "ignoreDependencies": [
     "cloudflare",
+    // forecast-admin is not an npm workspace; its pinned plugin resolves from the Worker workspaces.
+    "@cloudflare/vitest-plugin",
     // Knip infers a package for every testRunner; "command" is built into Stryker core.
     "@stryker-mutator/command-runner"
   ]

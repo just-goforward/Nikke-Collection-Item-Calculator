@@ -1,0 +1,215 @@
+{
+  "html": {
+    "path": ".artifacts/forecast-calendar-2y.html",
+    "sha256": "df30e4fda87f801bf41bbea1ac58baacdaa4edd0cc591fa20a6e840e865fb029"
+  },
+  "nextMonthHtml": {
+    "path": ".artifacts/forecast-next-month.html",
+    "sha256": "f7898b5425921057f31eeb9151cb013373b60042a61770528c6800688d088e22"
+  },
+  "note": "htmlSnapshot copies the SOLO / COLLAB / KITS / B11 arrays of the pinned 2y HTML (KST wall-clock strings, minute precision, ends written HH:59 mean HH:59:59). The HTML was built with older parameters (B every 10 min, '솔로 레이드 예정' keyword, 12:00 placeholder for '점검 완료 후' starts, creation time for board-48 grants); the rules win and every disagreement is listed in differences.",
+  "htmlSnapshot": {
+    "solo": [
+      {
+        "season": 19,
+        "segments": [
+          ["2024-10-31T12:00", "2024-11-01T22:00", "ok"],
+          ["2024-11-08T12:00", "2024-11-12T18:00", "ok"],
+          ["2024-11-13T12:00", "2024-11-17T05:00", "ok"]
+        ]
+      },
+      { "season": 20, "segments": [["2024-12-12T12:00", "2024-12-19T04:59", "ok"]] },
+      { "season": 21, "segments": [["2025-01-09T12:00", "2025-01-16T04:59", "ok"]] },
+      { "season": 22, "segments": [["2025-02-06T12:00", "2025-02-13T04:59", "ok"]] },
+      { "season": 23, "segments": [["2025-03-06T12:00", "2025-03-13T04:59", "ok"]] },
+      { "season": 24, "segments": [["2025-04-03T12:00", "2025-04-10T04:59", "ok"]] },
+      { "season": 25, "segments": [["2025-05-08T12:00", "2025-05-15T04:59", "ok"]] },
+      {
+        "season": 26,
+        "segments": [
+          ["2025-06-19T12:00", "2025-06-24T12:00", "unk"],
+          ["2025-06-24T12:00", "2025-06-26T00:00", "ok"],
+          ["2025-07-03T12:00", "2025-07-10T04:59", "ok"]
+        ]
+      },
+      { "season": 27, "segments": [["2025-07-24T12:00", "2025-07-31T04:59", "ok"]] },
+      {
+        "season": 28,
+        "segments": [
+          ["2025-08-21T12:00", "2025-08-26T17:00", "ok"],
+          ["2025-08-26T21:00", "2025-09-01T04:59", "ok"]
+        ]
+      },
+      { "season": 29, "segments": [["2025-09-16T12:00", "2025-09-23T04:59", "ok"]] },
+      { "season": 30, "segments": [["2025-10-09T12:00", "2025-10-16T04:59", "ok"]] },
+      { "season": 31, "segments": [["2025-11-13T12:00", "2025-11-20T04:59", "ok"]] },
+      { "season": 32, "segments": [["2025-12-11T12:00", "2025-12-18T04:59", "ok"]] },
+      { "season": 33, "segments": [["2026-01-08T12:00", "2026-01-15T04:59", "ok"]] },
+      { "season": 34, "segments": [["2026-02-19T12:00", "2026-02-26T04:59", "ok"]] },
+      { "season": 35, "segments": [["2026-03-20T12:00", "2026-03-27T04:59", "ok"]] },
+      { "season": 36, "segments": [["2026-04-30T12:00", "2026-05-07T04:59", "ok"]] },
+      { "season": 37, "segments": [["2026-05-28T12:00", "2026-06-04T04:59", "ok"]] },
+      {
+        "season": 38,
+        "segments": [
+          ["2026-06-18T20:30", "2026-06-23T04:59", "ok"],
+          ["2026-07-03T12:00", "2026-07-08T04:59", "ok"]
+        ]
+      },
+      { "season": 39, "segments": [["2026-07-16T12:00", "2026-07-23T04:59", "ok"]] },
+      { "season": 40, "segments": [["2026-08-20T12:00", "2026-08-27T04:59", "ok"]] },
+      { "season": 41, "segments": [["2026-09-24T12:00", "2026-10-01T04:59", "ok"]] },
+      { "season": 42, "segments": [["2026-10-15T12:00", "2026-10-22T04:59", "ok"]] }
+    ],
+    "collab": [
+      { "name": "에반게리온 제2탄 (+제1탄 복각)", "start": "2025-02-20T12:00" },
+      { "name": "스텔라 블레이드", "start": "2025-06-12T12:00" },
+      { "name": "니어: 오토마타 (복각)", "start": "2025-07-03T12:00" },
+      { "name": "바이오하자드", "start": "2025-09-24T12:00" },
+      { "name": "리코리스 리코일", "start": "2026-02-12T12:00" },
+      { "name": "페르소나 (P3R·P4G·P5R)", "start": "2026-08-13T12:00" }
+    ],
+    "kits": [
+      { "date": "2024-11-12", "ii": 27, "i": 0, "src": [5090650] },
+      { "date": "2024-12-06", "ii": 8, "i": 0, "src": [5252279] },
+      { "date": "2025-09-17", "ii": 24, "i": 0, "src": [6680020] },
+      { "date": "2026-08-22", "ii": 24, "i": 0, "src": [8091116] },
+      { "date": "2026-08-23", "ii": 24, "i": 0, "src": [8095400] },
+      { "date": "2024-11-01", "ii": 51, "i": 3, "src": [5013873] },
+      { "date": "2025-06-25", "ii": 8, "i": 16, "src": [6252194] },
+      { "date": "2025-08-26", "ii": 48, "i": 0, "src": [6579018] },
+      { "date": "2025-10-13", "ii": 48, "i": 0, "src": [6787708] },
+      { "date": "2026-06-11", "ii": 20, "i": 0, "src": [7783210, 7780995] },
+      { "date": "2026-06-23", "ii": 56, "i": 16, "src": [7833931, 7837735] }
+    ],
+    "b11": [
+      8138246, 8089996, 7837735, 7833931, 6787708, 6780744, 6675818, 6579018, 6576868, 6496769,
+      6252194, 6225681, 5089411, 5084065, 5013873
+    ],
+    "coop": { "from": "2024-10-22T05:00", "to": "2026-10-18T05:00" }
+  },
+  "coop": {
+    "windowStart": "2024-10-18",
+    "windowEnd": "2026-10-18",
+    "weeks": 104,
+    "doubledBacktest": 23,
+    "overlapTuesday": "2025-07-08",
+    "overlapSupply": 10
+  },
+  "differences": [
+    {
+      "area": "solo",
+      "item": "S26 segment 1 end",
+      "html": "2025-06-24T12:00",
+      "rules": "2025-06-24T16:00",
+      "reason": "The 6/24 '일정 변경' boundary is '6/24(화) 점검 완료 후' = G 6241570 end 16:00 (U7 widened), not 12:00."
+    },
+    {
+      "area": "solo",
+      "item": "S26 segment 2 start",
+      "html": "2025-06-24T12:00",
+      "rules": "2025-06-24T16:00",
+      "reason": "6225681 '6/24(화) 점검 완료 후' = G 6241570 end 16:00."
+    },
+    {
+      "area": "solo",
+      "item": "S26 segment 3 start",
+      "html": "2025-07-03T12:00",
+      "rules": "2025-07-03T16:00",
+      "reason": "'7월 3일(목) 점검 완료 후' = G 6276795 end 16:00."
+    },
+    {
+      "area": "solo",
+      "item": "S37 segment 1 start",
+      "html": "2026-05-28T12:00",
+      "rules": "2026-05-28T15:00",
+      "reason": "'5/28(목) 점검 완료 후' = G 7709605 end 15:00 (HTML itself notes 12:00 is a display placeholder)."
+    },
+    {
+      "area": "collab",
+      "item": "에반게리온 제2탄 (+제1탄 복각) start",
+      "html": "2025-02-20T12:00",
+      "rules": "2025-02-20T09:00",
+      "reason": "G 5636852 end 09:00; end 2025-03-20 04:59:59 unchanged."
+    },
+    {
+      "area": "collab",
+      "item": "스텔라 블레이드 start",
+      "html": "2025-06-12T12:00",
+      "rules": "2025-06-12T07:00",
+      "reason": "G 6162954 end 07:00; end unchanged."
+    },
+    {
+      "area": "collab",
+      "item": "니어: 오토마타 (복각) start",
+      "html": "2025-07-03T12:00",
+      "rules": "2025-07-03T16:00",
+      "reason": "U4 date-only '7/3(목)' → G 6276795 end 16:00; end unchanged."
+    },
+    {
+      "area": "collab",
+      "item": "바이오하자드 start",
+      "html": "2025-09-24T12:00",
+      "rules": "2025-09-24T07:00",
+      "reason": "G 6701562 end 07:00; end unchanged."
+    },
+    {
+      "area": "collab",
+      "item": "리코리스 리코일 start",
+      "html": "2026-02-12T12:00",
+      "rules": "2026-02-12T07:00",
+      "reason": "G 7282687 end 07:00; end unchanged."
+    },
+    {
+      "area": "collab",
+      "item": "페르소나 (P3R·P4G·P5R) start",
+      "html": "2026-08-13T12:00",
+      "rules": "2026-08-13T07:00",
+      "reason": "G 8042609 end 07:00; end unchanged."
+    }
+  ],
+  "informational": [
+    {
+      "area": "kits",
+      "item": "5090650 basis",
+      "html": "post creation 11/12 20:36",
+      "rules": "multiple in-post schedules → Discord decision (backtest answer 11/12 19:00)",
+      "sameGameDay": true
+    },
+    {
+      "area": "kits",
+      "item": "5252279 basis",
+      "html": "post creation 12/6 23:55",
+      "rules": "in-post 일시 12/6 22:00",
+      "sameGameDay": true
+    },
+    {
+      "area": "kits",
+      "item": "6680020 basis",
+      "html": "post creation 9/17 18:56",
+      "rules": "in-post 일시 9/17 16:00",
+      "sameGameDay": true
+    },
+    {
+      "area": "kits",
+      "item": "8091116 basis",
+      "html": "post creation 8/22 20:06",
+      "rules": "in-post 일시 8/22 19:30",
+      "sameGameDay": true
+    },
+    {
+      "area": "kits",
+      "item": "8095400 basis",
+      "html": "post creation 8/23 22:10",
+      "rules": "in-post 일시 8/23 20:00",
+      "sameGameDay": true
+    },
+    {
+      "area": "parameters",
+      "item": "B interval / C keyword",
+      "html": "B every 10 min; C '솔로 레이드 예정'",
+      "rules": "B every 1 h; C '솔로 레이드 오픈' + '솔로 레이드 재오픈'",
+      "sameGameDay": true
+    }
+  ]
+}

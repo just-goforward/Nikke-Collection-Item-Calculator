@@ -1,4 +1,5 @@
 export type InteractionRouterEnv = {
+  FORECAST_ENVIRONMENT?: "staging" | "production";
   STAGING_FORECAST_DB: D1Database;
   PRODUCTION_FORECAST_DB?: D1Database;
   USAGE_GUARD_DB: D1Database;
