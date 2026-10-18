@@ -558,7 +558,8 @@ jobs:
             --var "DISCORD_ALERT_CHANNEL_ID:$DISCORD_ALERT_CHANNEL_ID" \
             --var "DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_ACTIVITY_CHANNEL_ID" \
             --var PRODUCTION_MUTATIONS_ENABLED:false \
-            --var STAGING_PUBLICATION_MODE:off --var PRODUCTION_PUBLICATION_MODE:off
+            --var STAGING_PUBLICATION_MODE:enabled --var FORECAST_PUBLICATION_KEY_ID:staging-v1 \
+            --var PRODUCTION_PUBLICATION_MODE:off
 
       - name: Verify staging interactions readiness
         env:

@@ -341,7 +341,10 @@ describe("Forecast deployment identity and restore workflow contract", () => {
     expect(interactions).toContain(
       "wrangler deploy --env staging --config forecast-interactions/wrangler.toml",
     );
-    expect(interactions).toContain("--var STAGING_PUBLICATION_MODE:off");
+    // Staging publication stays enabled with the operator-managed signing key
+    // (secret preserved across deploys); production publication stays off.
+    expect(interactions).toContain("--var STAGING_PUBLICATION_MODE:enabled");
+    expect(interactions).toContain("--var FORECAST_PUBLICATION_KEY_ID:staging-v1");
     expect(interactions).toContain("--var PRODUCTION_PUBLICATION_MODE:off");
     expect(interactions).toContain("--var PRODUCTION_MUTATIONS_ENABLED:false");
     expect(workflowStep(stagingDeploy, "Verify staging interactions readiness")).toContain(
