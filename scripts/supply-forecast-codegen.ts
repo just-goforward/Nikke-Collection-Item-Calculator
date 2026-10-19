@@ -1,16 +1,8 @@
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  BUNDLED_V3_AS_OF,
-  BUNDLED_V3_FORECAST_ID,
-  buildBundledV3Forecast,
-} from "../shared/bundledSupplyForecast.ts";
 import type { CertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
 import { usesLedgerForecast } from "../shared/certifiedVersionPolicy.ts";
-import { SOLO_RAID_ROUND_HISTORY } from "../shared/soloRaidCadence.ts";
 import {
   buildScheduleForecastProfiles,
   type SupplyForecastProfile as Profile,
@@ -40,49 +32,11 @@ const tsPath = resolve(root, "shared", "generated", "supplyForecast.ts");
 const runtimeTsPath = resolve(root, "shared", "generated", "supplyForecastRuntime.ts");
 const checkOnly = process.argv.includes("--check");
 
+if (process.argv.includes("--add-v3-fallback") || process.argv.includes("--format-registry"))
+  throw new Error("supply_forecast_registry_frozen");
+
 const sourceText = await readFile(sourcePath, "utf8");
 const sourceRegistry = JSON.parse(sourceText) as Registry;
-const addFallback = process.argv.includes("--add-v3-fallback");
-if (addFallback) {
-  if (checkOnly || sourceRegistry.forecasts.some((entry) => entry.id === BUNDLED_V3_FORECAST_ID))
-    throw new Error("v3_fallback_already_exists_or_check_only");
-  const approved = sourceRegistry.forecasts.find(
-    (entry) => entry.id === sourceRegistry.approvedForecastId,
-  );
-  if (!approved) throw new Error("approved_forecast_missing");
-  const sourceEvidence = approved.sourceEvidence as { itemId: string; url: string }[];
-  const sourceHash = createHash("sha256")
-    .update(
-      JSON.stringify({
-        rulesVersion: "schedule-kit-v3",
-        asOf: BUNDLED_V3_AS_OF,
-        sourceEvidence,
-        rounds: SOLO_RAID_ROUND_HISTORY,
-        weeklyFixed: { lawId: "deterministic:10,10,0", count: 1 },
-      }),
-    )
-    .digest("hex");
-  sourceRegistry.forecasts.push(buildBundledV3Forecast(sourceEvidence, sourceHash));
-  sourceRegistry.activeForecastId = BUNDLED_V3_FORECAST_ID;
-  sourceRegistry.stagingForecastId = BUNDLED_V3_FORECAST_ID;
-  sourceRegistry.approvedForecastId = BUNDLED_V3_FORECAST_ID;
-}
-if (addFallback || process.argv.includes("--format-registry")) {
-  if (checkOnly) throw new Error("cannot_format_registry_in_check_mode");
-  const formatted = execFileSync(
-    process.execPath,
-    [
-      resolve(root, "node_modules/@biomejs/biome/bin/biome"),
-      "format",
-      `--stdin-file-path=${sourcePath}`,
-    ],
-    {
-      input: addFallback ? `${JSON.stringify(sourceRegistry, null, 2)}\n` : sourceText,
-      encoding: "utf8",
-    },
-  );
-  await writeFile(sourcePath, formatted, "utf8");
-}
 const registry = validateRegistry(sourceRegistry);
 const activeIndex = registry.forecasts.findIndex(
   (forecast) => forecast.id === registry.activeForecastId,
