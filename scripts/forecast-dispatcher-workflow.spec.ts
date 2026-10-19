@@ -30,6 +30,8 @@ function recoveryDecision(source: string, verified: string, attempted: string, c
 describe("staging-only forecast deployment", () => {
   it("cannot recreate production forecast Workers", () => {
     expect(existsSync(".github/workflows/forecast-collector-promote.yml")).toBe(false);
+    expect(existsSync(".github/workflows/forecast-router-bootstrap.yml")).toBe(false);
+    expect(existsSync(".github/workflows/forecast-d1-index-remediation.yml")).toBe(false);
     const commands = staging
       .split("\n")
       .filter((line) =>
@@ -186,6 +188,15 @@ describe("staging-only forecast deployment", () => {
     expect(budgetWatch).toContain("watch-staging:");
     expect(budgetWatch).toContain("Disable staging Collector and Dispatcher on budget pressure");
     expect(budgetWatch).toContain("vars.FORECAST_STAGING_AUTO_REDEPLOY != 'disabled'");
+  });
+
+  it("uses only staging Discord credentials for the routing smoke", () => {
+    const routing = readFileSync(".github/workflows/discord-forecast-routing-smoke.yml", "utf8");
+    expect(routing).toContain("secrets.DISCORD_FORECAST_STAGING_BOT_TOKEN");
+    for (const role of ["APPROVAL", "ACTIVITY", "ALERT"])
+      expect(routing).toContain(`vars.DISCORD_FORECAST_STAGING_${role}_CHANNEL_ID`);
+    expect(routing).toContain("FORECAST_ENVIRONMENT: staging");
+    expect(routing).not.toContain("secrets.DISCORD_FORECAST_BOT_TOKEN");
   });
 
   it("needs no project dependencies before npm ci", () => {

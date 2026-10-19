@@ -110,12 +110,19 @@ describe("Cloudflare Paid quota configuration", () => {
     const workflow = read(".github/workflows/cloudflare-quota-emergency-stop.yml");
     const watchdog = read(".github/workflows/forecast-d1-budget-watch.yml");
     expect(workflow).toContain("environment: cloudflare-production");
-    expect(workflow).toContain("collection-kit-forecast-collector");
-    expect(workflow).toContain("collection-kit-stats");
+    expect(workflow).not.toMatch(
+      /^\s+collection-kit-forecast-(?:collector|dispatcher|interactions)\s*$/m,
+    );
+    expect(workflow).toContain("collection-kit-forecast-collector-staging");
+    expect(workflow).toContain("collection-kit-forecast-dispatcher-staging");
+    expect(workflow).toMatch(/^\s+collection-kit-stats\s*$/m);
+    expect(workflow).toContain("collection-kit-stats-staging");
+    expect(workflow).not.toContain("- disable_forecast_production");
     expect(workflow).not.toContain("collection-kit-usage-guard\n");
     expect(workflow).toContain("Usage Guard Cron was intentionally retained");
     expect(watchdog).toContain("cloudflare-quota-emergency-stop.yml");
     expect(watchdog).toContain("actions: write");
+    expect(watchdog).toContain('if (( $(rank "$stricter_action") >= 4 )); then');
   });
 
   it("propagates stale guard escalation to the watchdog before health validation", () => {

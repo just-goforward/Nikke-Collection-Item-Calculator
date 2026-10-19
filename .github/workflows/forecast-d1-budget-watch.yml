@@ -252,7 +252,7 @@ jobs:
           if (( $(rank "$BUDGET_ACTION") > $(rank "$stricter_action") )); then
             stricter_action="$BUDGET_ACTION"
           fi
-          if (( $(rank "$stricter_action") >= 3 )); then
+          if (( $(rank "$stricter_action") >= 4 )); then
             emergency_action="$stricter_action"
           fi
           if [[ "$CANARY_OUTCOME" == "failure" ]]; then
@@ -360,7 +360,6 @@ jobs:
           set -euo pipefail
           requested_rank() {
             case "$1" in
-              disable_forecast_production) echo 3 ;;
               disable_statistics_writes) echo 4 ;;
               hard_stop) echo 5 ;;
               *) echo -1 ;;
@@ -372,7 +371,6 @@ jobs:
             --jq '[.workflow_runs[] | select(.status != "completed") | .display_title] | map(
               if contains("hard_stop") then 5
               elif contains("disable_statistics_writes") then 4
-              elif contains("disable_forecast_production") then 3
               else -1 end
             ) | max // -1')
           if (( active_rank >= required_rank )); then

@@ -9,7 +9,6 @@ on:
         required: true
         type: choice
         options:
-          - disable_forecast_production
           - disable_statistics_writes
           - hard_stop
       source_run_id:
@@ -41,7 +40,7 @@ jobs:
           set -euo pipefail
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid source run ID." >&2; exit 1; }
           case "$REQUESTED_ACTION" in
-            disable_forecast_production|disable_statistics_writes|hard_stop) ;;
+            disable_statistics_writes|hard_stop) ;;
             *) echo "Invalid emergency action." >&2; exit 1 ;;
           esac
           rank() {
@@ -85,10 +84,7 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing Cloudflare account ID." >&2; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing Cloudflare API token." >&2; exit 1; }
 
-          scripts=(
-            collection-kit-forecast-collector
-            collection-kit-forecast-dispatcher
-          )
+          scripts=()
           if [[ "$REQUESTED_ACTION" == "hard_stop" ]]; then
             scripts+=(
               collection-kit-forecast-collector-staging
