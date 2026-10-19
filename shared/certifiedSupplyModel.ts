@@ -330,6 +330,76 @@ export function freezeJson<T>(value: T): T {
   return value;
 }
 
+const JSON_CLONE_UNSUPPORTED = Symbol("json_clone_unsupported");
+
+type JsonWalk = (key: string, raw: unknown) => unknown;
+
+function cloneJsonScalar(value: unknown): unknown {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? (value === 0 ? 0 : value) : null;
+  if (value === undefined || typeof value === "function" || typeof value === "symbol")
+    return undefined;
+  throw JSON_CLONE_UNSUPPORTED; // bigint
+}
+
+// Plain arrays/objects without `toJSON`; anything else takes the native round trip.
+function assertPlainJsonContainer(value: object) {
+  const prototype = Object.getPrototypeOf(value);
+  if (
+    "toJSON" in value ||
+    prototype !== (Array.isArray(value) ? Array.prototype : prototype && Object.prototype)
+  )
+    throw JSON_CLONE_UNSUPPORTED;
+}
+
+// Index iteration visits holes (as undefined → null) without the array iterator.
+function cloneJsonArray(value: unknown[], walk: JsonWalk): unknown[] {
+  const copy: unknown[] = [];
+  for (let index = 0; index < value.length; index++)
+    copy.push(walk(String(index), value[index]) ?? null);
+  return copy;
+}
+
+// A `__proto__` key would need defineProperty; it takes the native round trip instead.
+function cloneJsonObject(value: object, walk: JsonWalk): Record<string, unknown> {
+  const copy: Record<string, unknown> = {};
+  for (const name of Object.keys(value)) {
+    if (name === "__proto__") throw JSON_CLONE_UNSUPPORTED;
+    const item = walk(name, (value as Record<string, unknown>)[name]);
+    if (item !== undefined) copy[name] = item;
+  }
+  return copy;
+}
+
+/**
+ * `JSON.parse(JSON.stringify(value, replacer))` without the string round trip, for an
+ * acyclic graph of side-effect-free data properties (no getters) and a pure replacer
+ * that ignores `this`. A function, a container with `toJSON` or a non-plain prototype, a
+ * boxed primitive or a bigint switches to the native round trip (which then calls the
+ * replacer again from the start), so the result is the same within that contract.
+ */
+export function cloneJsonWith(
+  value: unknown,
+  replacer: (key: string, value: unknown) => unknown,
+): unknown {
+  const walk = (key: string, raw: unknown): unknown => {
+    // Checked before the replacer: native serialization applies `toJSON` first.
+    if ((typeof raw === "object" || typeof raw === "function") && raw !== null)
+      assertPlainJsonContainer(raw);
+    const next = replacer(key, raw);
+    if (typeof next !== "object" || next === null) return cloneJsonScalar(next);
+    assertPlainJsonContainer(next);
+    return Array.isArray(next) ? cloneJsonArray(next, walk) : cloneJsonObject(next, walk);
+  };
+  try {
+    return walk("", value);
+  } catch (error) {
+    if (error !== JSON_CLONE_UNSUPPORTED) throw error;
+    const text = JSON.stringify(value, (key, item) => replacer(key, item));
+    return text === undefined ? undefined : JSON.parse(text);
+  }
+}
+
 /** Identity proof issued only after this module recursively freezes the graph. */
 export function isDeeplyFrozen(value: object): boolean {
   return deeplyFrozen.has(value);

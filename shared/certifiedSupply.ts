@@ -27,11 +27,13 @@ import {
 } from "./certifiedSupplyLaws.ts";
 import type * as Model from "./certifiedSupplyModel.ts";
 import {
+  cloneJsonWith,
   createCertifiedSupplyRule as createRule,
   DAY_MS,
   DEFAULT_PERSONAL_COHORT_WEIGHTS as DEFAULT_COHORT_WEIGHTS,
   dateStart,
   freezeJson,
+  isDeeplyFrozen,
   iso,
   LEGACY_PERSONAL_COHORT_WEIGHTS,
   linkCertifiedSoloAnnouncement as linkAnnouncement,
@@ -241,21 +243,27 @@ function ageMedianSnapshot(
     }
     return id;
   });
+  // `now` reaches the result only through offsetDays (and its delta) and the derived
+  // sourceIds, so equal keys yield byte-identical aged snapshots. Reuse is limited to
+  // deeply frozen inputs, whose content cannot change after the first computation.
+  const reusable = isDeeplyFrozen(snapshot);
+  const key = reusable ? JSON.stringify([offsetDays, sourceIds]) : "";
+  const entries = reusable ? agedMedianSnapshots.get(snapshot) : undefined;
+  const reused = entries?.get(key);
+  if (reused) return reused;
   const shiftedDate = (date: string) => gameDayKey(dateStart(date) + delta);
   // These are the closed JSON wire fields of predicted rounds, segments and events.
   // Transform only selected predictions; confirmed records and the frozen input stay intact.
   const shifted = <T>(entry: T): T =>
-    JSON.parse(
-      JSON.stringify(entry, (key, value) => {
-        if (key === "sourceIds") return sourceIds;
-        if (typeof value !== "string") return value;
-        if (/^(at|effectiveFrom|effectiveUntil|expiresAt)$/.test(key)) return shift(value);
-        if (/^(gameDate|(start|end|rewardFrom|rewardUntil)GameDate)$/.test(key))
-          return shiftedDate(value);
-        return value;
-      }),
-    );
-  return {
+    cloneJsonWith(entry, (key, value) => {
+      if (key === "sourceIds") return sourceIds;
+      if (typeof value !== "string") return value;
+      if (/^(at|effectiveFrom|effectiveUntil|expiresAt)$/.test(key)) return shift(value);
+      if (/^(gameDate|(start|end|rewardFrom|rewardUntil)GameDate)$/.test(key))
+        return shiftedDate(value);
+      return value;
+    }) as T;
+  const aged: CertifiedSupplySnapshot = {
     ...snapshot,
     delayState: { ...snapshot.delayState, offsetDays },
     soloRounds: snapshot.soloRounds.map((round) =>
@@ -270,7 +278,24 @@ function ageMedianSnapshot(
         : [];
     }),
   };
+  if (!reusable) return aged;
+  // The caller deep-freezes the view, which reaches every part of `aged`; freezing here
+  // first only makes the shared copy immutable. The per-snapshot map stays bounded.
+  const values = entries ?? new Map<string, CertifiedSupplySnapshot>();
+  const oldest = values.keys().next();
+  if (values.size >= AGED_MEDIAN_SNAPSHOT_LIMIT && !oldest.done) values.delete(oldest.value);
+  values.set(key, freezeJson(aged));
+  agedMedianSnapshots.set(snapshot, values);
+  return aged;
 }
+
+// Module-wide but authority-free: each value is a pure function of its immutable,
+// weakly held snapshot key; at most 128 aged copies (FIFO) per live snapshot.
+const AGED_MEDIAN_SNAPSHOT_LIMIT = 128;
+const agedMedianSnapshots = new WeakMap<
+  CertifiedSupplySnapshot,
+  Map<string, CertifiedSupplySnapshot>
+>();
 
 export function certifiedCohortWeights(
   weights?: SnapshotCohortWeights,

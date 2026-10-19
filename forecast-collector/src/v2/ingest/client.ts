@@ -72,6 +72,16 @@ export function metadataUrl(stream: Stream, page: number): URL {
   ).toString();
   return url;
 }
+/** Live shapes differ: search rows carry `lounge.loungeId`, while the board list and
+ * detail responses carry `feed.loungeId` (their `lounge` object has no id). Every id
+ * present must be "nikke"; at least one must be present. */
+function isNikkeLounge(row: Record<string, unknown>, feed: Record<string, unknown>) {
+  const loungeIds = [
+    row["lounge"] ? record(row["lounge"])["loungeId"] : undefined,
+    row["feed"] ? feed["loungeId"] : undefined,
+  ].filter((value) => value !== undefined);
+  return loungeIds.length > 0 && loungeIds.every((value) => value === "nikke");
+}
 export function parseMetadata(payload: unknown, stream: Stream): Metadata[] {
   const root = record(payload);
   if (root["code"] !== 200) throw new IngestFailure("schema_code");
@@ -85,19 +95,7 @@ export function parseMetadata(payload: unknown, stream: Stream): Metadata[] {
     const feed = row["feed"] ? record(row["feed"]) : row;
     const board = row["board"] ? record(row["board"])["boardId"] : row["boardId"];
     const role = row["user"] ? record(row["user"])["userRoleCode"] : row["userRoleCode"];
-    // Live shapes differ: search rows carry `lounge.loungeId`, while the board list and
-    // detail responses carry `feed.loungeId` (their `lounge` object has no id). Every
-    // id present must be "nikke"; at least one must be present.
-    const loungeIds = [
-      row["lounge"] ? record(row["lounge"])["loungeId"] : undefined,
-      row["feed"] ? feed["loungeId"] : undefined,
-    ].filter((value) => value !== undefined);
-    if (
-      loungeIds.length === 0 ||
-      !loungeIds.every((value) => value === "nikke") ||
-      board !== streams[stream].board ||
-      typeof role !== "string"
-    )
+    if (!isNikkeLounge(row, feed) || board !== streams[stream].board || typeof role !== "string")
       throw new IngestFailure("identity");
     const feedId = String(feed["feedId"]);
     if (!/^[1-9]\d{0,19}$/.test(feedId) || seen.has(feedId) || typeof feed["title"] !== "string")
