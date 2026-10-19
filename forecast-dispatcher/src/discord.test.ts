@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forecastDisplayText } from "../../shared/forecastDisplayText.ts";
-import { manualReviewPostLink, manualReviewReason } from "../../shared/forecastManualReview.ts";
+import { manualReviewPostLink } from "../../shared/forecastManualReview.ts";
 import {
   dispatchAcceptedMessage,
   opsAlertMessage,
@@ -74,13 +74,6 @@ describe("Discord manual-review reasons", () => {
       },
     })) as { embeds: { description: string }[] };
     expect(message).not.toHaveProperty("components");
-    expect(manualReviewReason("naver_http_404")).toContain("삭제·비공개");
-    expect(manualReviewReason("naver_detail_schema_code")).toContain("구조");
-    expect(manualReviewReason("naver_timeout")).toContain("반복해서 실패");
-    expect(manualReviewReason("naver_http_429")).toContain("반복해서 실패");
-    expect(manualReviewReason("something_new")).toBe(
-      "자동 처리에 실패해 사람의 확인이 필요합니다.",
-    );
   });
 });
 

@@ -1,5 +1,4 @@
 import { sha256Hex } from "./crypto";
-import type { ReviewEvidence } from "./review-evidence.ts";
 import type {
   ActionableWork,
   DispatcherEnvironment,
@@ -9,6 +8,16 @@ import type {
 } from "./types";
 
 const RESERVATION_LEASE_MS = 5 * 60 * 1_000;
+type ReviewEvidence = {
+  block_index: number;
+  judged_at: string;
+  reason: string | null;
+  question: string;
+  triggers_json: string;
+  block_excerpt: string;
+  comparison_json: string;
+  expires_at: string | null;
+};
 
 export async function readManualReviewEvidence(
   db: D1Database,
