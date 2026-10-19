@@ -49,8 +49,13 @@ export function readV10Evidence(root: string, anchor = V10_PINS_SHA, engineBuild
   const snapshot = authenticated("snapshot.json") as CertifiedSupplySnapshot;
   assertCadence(snapshot);
   const physical = authenticated("independent-physical-cohorts.json");
-  const cohorts = physical.map((row: Parameters<typeof fromWire>[0][]) => row.map(fromWire)) as FourCohorts;
-  assert.deepEqual(physical, independentFourCohorts().map((row) => row.map(wire)));
+  const cohorts = physical.map((row: Parameters<typeof fromWire>[0][]) =>
+    row.map(fromWire),
+  ) as FourCohorts;
+  assert.deepEqual(
+    physical,
+    independentFourCohorts().map((row) => row.map(wire)),
+  );
   const panel = authenticated("panel.json");
   assert.deepEqual(panel, {
     cases: calculatePanel(snapshot, cohorts),

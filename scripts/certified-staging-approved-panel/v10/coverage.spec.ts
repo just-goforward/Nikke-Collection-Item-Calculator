@@ -13,7 +13,9 @@ it("binds each coverage field to independently authenticated evidence", async ()
     engineBuildHash,
     panelAnchorSha256: anchor,
   };
-  expect(() => assertCoverageMatchesV10Publication(tuple, root, anchor, engineBuildHash)).not.toThrow();
+  expect(() =>
+    assertCoverageMatchesV10Publication(tuple, root, anchor, engineBuildHash),
+  ).not.toThrow();
   for (const field of Object.keys(tuple))
     expect(() =>
       assertCoverageMatchesV10Publication(

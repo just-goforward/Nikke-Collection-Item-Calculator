@@ -26,7 +26,9 @@ export function calculatePanel(snapshot: CertifiedSupplySnapshot, cohorts: FourC
       asOf: snapshot.asOf,
       cohortWeights: priors.map(wire),
       receivedEventIds: snapshot.events
-        .filter((event) => event.gameDate === snapshot.coverage.currentDay && event.at <= snapshot.asOf)
+        .filter(
+          (event) => event.gameDate === snapshot.coverage.currentDay && event.at <= snapshot.asOf,
+        )
         .map((event) => event.id),
     };
     const prices = rates.map((rate, color) => {

@@ -7,7 +7,7 @@ import { wire } from "../../certified-staging-oracle.ts";
 import { sha256 } from "../v6/history.ts";
 import { independentFourCohorts } from "../v8/physical.ts";
 import { calculateBoundaries, calculatePanel } from "./calculate.ts";
-import { PUBLICATION_FILES, type Provenance, VERSION } from "./evidence.ts";
+import { type Provenance, PUBLICATION_FILES, VERSION } from "./evidence.ts";
 import { prepareSnapshot } from "./snapshot.ts";
 
 /** Explicit destination only; no CLI/default production seal. Pins are written last. */
@@ -24,7 +24,9 @@ export async function generatePublication(root: string) {
     logLevel: "silent",
   });
   const { snapshot, sources } = await prepareSnapshot();
-  const paths = [...new Set([...Object.keys(closure.metafile.inputs), ...sources.map((s) => s.path)])].sort();
+  const paths = [
+    ...new Set([...Object.keys(closure.metafile.inputs), ...sources.map((s) => s.path)]),
+  ].sort();
   const archived = paths.map((path) => {
     const bytes = readFileSync(path);
     return { path, sha256: sha256(bytes), base64: bytes.toString("base64") };
