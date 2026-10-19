@@ -1,7 +1,7 @@
 import { z } from "zod/mini";
 import { supplyForecastCandidateEnvelopeSchema } from "../../shared/supplyForecastCandidate";
+import { isConstructedNoticeCandidate } from "./constructed-candidate";
 import { sha256Hex } from "./crypto";
-import { isConstructedNoticeCandidate } from "./notice-processing";
 
 const timestampSchema = z.string().check(z.iso.datetime({ offset: true }));
 const sourceSchema = z.enum(["naver-board-11", "naver-board-48", "naver-board-56"]);

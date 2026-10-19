@@ -1,7 +1,7 @@
-import { freezeJson } from "../../shared/certifiedSupplyModel";
 import type { SupplyForecastGrant } from "../../shared/supplyForecastCandidate";
 import { board11InvocationGate, board11MetadataEligible } from "./board11-policy";
-import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
+import { resolveSoloSchedule } from "./candidate";
+import { buildConstructedForecastCandidate } from "./constructed-candidate";
 import { grantPlans, planGrants } from "./grants";
 import type { FetchLike } from "./naver";
 import { parseScheduleEvents } from "./naver";
@@ -20,34 +20,10 @@ import type {
   SourceQueueResult,
 } from "./types";
 
-const constructedCandidates = new WeakSet<object>();
-type ConstructedCandidate = NonNullable<Awaited<ReturnType<typeof buildNoticeCandidate>>>;
-
-// This proof is an in-isolate object identity, never a serialized flag. Only
-// the local v3 constructor can issue it, and the complete result is deep-frozen.
-export function isConstructedNoticeCandidate(value: unknown): value is ConstructedCandidate {
-  return typeof value === "object" && value !== null && constructedCandidates.has(value);
-}
-
-/**
- * Backend-only constructor for callers with their own confirmed-evidence policy.
- * Do not expose a generic branding API: serialized candidates must never acquire
- * this proof without going through the validating constructor.
- */
-export async function buildConstructedForecastCandidate(
-  eventId: string,
-  ...args: Parameters<typeof buildForecastCandidate>
-) {
-  const envelope = await buildForecastCandidate(...args);
-  const candidate = freezeJson({
-    eventId,
-    gameDay: envelope.candidate.forecastId.slice(7, 17),
-    revision: args[4],
-    envelope,
-  });
-  constructedCandidates.add(candidate);
-  return candidate;
-}
+export {
+  buildConstructedForecastCandidate,
+  isConstructedNoticeCandidate,
+} from "./constructed-candidate";
 
 export async function processNotice(
   queued: SourceQueueItem,
@@ -272,7 +248,10 @@ export async function buildNoticeCandidate(
     }));
   const resolved = resolveSoloSchedule(events, nowMs);
   if (!resolved) return undefined;
-  const envelope = await buildForecastCandidate(
+  const candidate = await buildConstructedForecastCandidate(
+    resolved.scheduleStatus === "estimated"
+      ? (resolved.evidenceEvents.at(-1)?.eventId ?? resolved.event.eventId)
+      : resolved.event.eventId,
     resolved,
     events,
     { status: "x_unavailable", sourceItem: null, reason: "runtime_advisory_pending" },
@@ -289,15 +268,6 @@ export async function buildNoticeCandidate(
       ).values(),
     ],
   );
-  const candidate = freezeJson({
-    eventId:
-      resolved.scheduleStatus === "estimated"
-        ? (resolved.evidenceEvents.at(-1)?.eventId ?? resolved.event.eventId)
-        : resolved.event.eventId,
-    gameDay: envelope.candidate.forecastId.slice(7, 17),
-    revision,
-    envelope,
-  });
   const grants = candidate.envelope.candidate.grants ?? [];
   const horizon = candidate.envelope.candidate.certifiedSnapshot?.coverage;
   if (!horizon) return undefined;
@@ -313,7 +283,6 @@ export async function buildNoticeCandidate(
   // precedence for other callers that supply current-run result overlays.
   if (hasUnreviewedNoticeEvents(events, [...currentReviews, ...persistedReviews], ignoredSources))
     return undefined;
-  constructedCandidates.add(candidate);
   return candidate;
 }
 

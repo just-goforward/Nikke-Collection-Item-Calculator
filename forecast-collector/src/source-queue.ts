@@ -2,6 +2,7 @@ import { z } from "zod/mini";
 import { assertForecastCandidateInvariants } from "../../shared/supplyForecastCandidate";
 import { board11InvocationGate, board11MetadataEligible } from "./board11-policy";
 import { rotationInvocationId } from "./collection-schedule";
+import { isConstructedNoticeCandidate } from "./constructed-candidate";
 import { sha256Hex, stableJson } from "./crypto";
 import {
   candidateStatements,
@@ -16,7 +17,6 @@ import {
   orderedOfficialBoundaryItems,
   samePublicationTime,
 } from "./naver-boundary-proof";
-import { isConstructedNoticeCandidate } from "./notice-processing";
 import { type OpsEnvironment, upsertOpsAlertStatement } from "./ops";
 import type { PollStateRow, SourceQueueRow } from "./source-queue-rows";
 import {
