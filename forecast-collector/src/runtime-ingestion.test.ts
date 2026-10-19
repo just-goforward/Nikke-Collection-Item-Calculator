@@ -245,7 +245,7 @@ it("rolls back D1 batch writes when the lease expires during full-body retrieval
   expect(await testEnv.FORECAST_DB.prepare("SELECT * FROM source_items").first()).toBeNull();
 });
 
-it("fences legacy Actions source writes only while staging runtime ownership is enabled", async () => {
+it("rejects retired Actions source writes", async () => {
   const request = new Request("https://collector.example/admin/source-queue/process", {
     method: "POST",
     headers: {
@@ -265,8 +265,8 @@ it("fences legacy Actions source writes only while staging runtime ownership is 
     },
     createExecutionContext(),
   );
-  expect(response.status).toBe(409);
-  expect(await response.json()).toEqual({ error: "runtime_ingestion_owns_source_queue" });
+  expect(response.status).toBe(404);
+  expect(await response.text()).toBe("Not found");
 });
 
 function isLocalIncomingRequest(

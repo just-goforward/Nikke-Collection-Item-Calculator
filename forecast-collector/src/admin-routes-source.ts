@@ -1,26 +1,10 @@
-import { readBoundedJson } from "../../shared/boundedHttp.ts";
-import {
-  listProposalCandidates,
-  markCandidateProposed,
-  supersedeIncompatibleCandidates,
-} from "./db";
-import {
-  type AdminRequestContext,
-  type AdminRouteHandler,
-  json,
-  opsEnvironment,
-} from "./http-shared";
-import { decideManualReview, listManualReviews, renewManualReview } from "./manual-review";
-import { sanitizeOpsError } from "./ops";
-import { runtimeIngestionEnabled } from "./runtime-ingestion";
+import { listProposalCandidates } from "./db";
+import { type AdminRequestContext, type AdminRouteHandler, json } from "./http-shared";
+import { listManualReviews } from "./manual-review";
 import { readScheduleLedger } from "./schedule-ledger";
-import { listSourceQueue, processSourceQueue, recoverNaverBoundary } from "./source-queue";
+import { listSourceQueue } from "./source-queue";
 
-const SOURCE_ROUTE_HANDLERS: readonly AdminRouteHandler[] = [
-  handleSourceReadRoute,
-  handleManualReviewRoute,
-  handleSourceMutationRoute,
-];
+const SOURCE_ROUTE_HANDLERS: readonly AdminRouteHandler[] = [handleSourceReadRoute];
 
 export async function handleAdminSourceRoute(context: AdminRequestContext) {
   for (const handler of SOURCE_ROUTE_HANDLERS) {
@@ -34,9 +18,6 @@ async function handleSourceReadRoute({ request, url, env }: AdminRequestContext)
   if (request.method === "GET" && url.pathname === "/admin/candidates") {
     return json({ candidates: await listProposalCandidates(env.FORECAST_DB) });
   }
-  if (request.method === "POST" && url.pathname === "/admin/candidates/supersede-incompatible") {
-    return json({ superseded: await supersedeIncompatibleCandidates(env.FORECAST_DB) });
-  }
   if (request.method === "GET" && url.pathname === "/admin/source-queue") {
     const limit = Number(url.searchParams.get("limit") ?? 20);
     return json({ items: await listSourceQueue(env.FORECAST_DB, limit) });
@@ -44,72 +25,10 @@ async function handleSourceReadRoute({ request, url, env }: AdminRequestContext)
   if (request.method === "GET" && url.pathname === "/admin/schedule-ledger") {
     return json(await readScheduleLedger(env.FORECAST_DB, Date.now()));
   }
-  return null;
-}
-
-async function handleManualReviewRoute({ request, url, env }: AdminRequestContext) {
-  const renewal = /^\/admin\/manual-reviews\/(mr-[0-9a-f]{32})\/renew$/.exec(url.pathname);
-  if (request.method === "POST" && renewal?.[1]) {
-    try {
-      return json({
-        result: await renewManualReview(
-          env.FORECAST_DB,
-          opsEnvironment(env),
-          renewal[1],
-          await readBoundedJson(request, 8_192, "manual_review_body"),
-        ),
-      });
-    } catch (error) {
-      return json({ error: sanitizeOpsError(error) }, 409);
-    }
-  }
   if (request.method === "GET" && url.pathname === "/admin/manual-reviews") {
     return listReviews(url, env.FORECAST_DB);
   }
-
-  const manualReviewDecisionMatch = url.pathname.match(
-    /^\/admin\/manual-reviews\/(mr-[0-9a-f]{32})\/decision$/,
-  );
-  if (request.method === "POST" && manualReviewDecisionMatch?.[1]) {
-    return decideReview(request, env, manualReviewDecisionMatch[1]);
-  }
   return null;
-}
-
-async function handleSourceMutationRoute({ request, url, env }: AdminRequestContext) {
-  if (request.method === "POST" && url.pathname === "/admin/source-queue/process") {
-    if (Number(request.headers.get("content-length") ?? 0) > 1_000_000) {
-      return new Response("Payload too large", { status: 413 });
-    }
-    try {
-      const body = await readBoundedJson(request, 1_000_000, "source_queue_body");
-      if (isBoundaryRecoveryRequest(body)) {
-        return json(await recoverNaverBoundary(env.FORECAST_DB, opsEnvironment(env), body));
-      }
-      if (runtimeIngestionEnabled(env)) {
-        return json({ error: "runtime_ingestion_owns_source_queue" }, 409);
-      }
-      return json(await processSourceQueue(env.FORECAST_DB, body));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "invalid_request";
-      return json({ error: message.slice(0, 120) }, message.includes("_conflict") ? 409 : 400);
-    }
-  }
-
-  const proposedMatch = url.pathname.match(
-    /^\/admin\/candidates\/(forecast-[a-z0-9-]+)\/proposed$/,
-  );
-  if (request.method === "POST" && proposedMatch?.[1]) {
-    const updated = await markCandidateProposed(env.FORECAST_DB, proposedMatch[1]);
-    return json({ updated }, updated ? 200 : 409);
-  }
-  return null;
-}
-
-function isBoundaryRecoveryRequest(body: unknown): body is { mode: "recover-boundary" } {
-  return (
-    typeof body === "object" && body !== null && "mode" in body && body.mode === "recover-boundary"
-  );
 }
 
 async function listReviews(url: URL, db: D1Database) {
@@ -119,27 +38,4 @@ async function listReviews(url: URL, db: D1Database) {
   }
   const limit = Number(url.searchParams.get("limit") ?? 20);
   return json({ reviews: await listManualReviews(db, { status, limit }) });
-}
-
-async function decideReview(request: Request, env: AdminRequestContext["env"], reviewId: string) {
-  try {
-    return json({
-      result: await decideManualReview(
-        env.FORECAST_DB,
-        opsEnvironment(env),
-        reviewId,
-        await readBoundedJson(request, 8_192, "manual_review_body"),
-        { runtimeIngestion: runtimeIngestionEnabled(env) },
-      ),
-    });
-  } catch (error) {
-    const code = sanitizeOpsError(error);
-    let status = 400;
-    if (code.includes("conflict") || code.includes("not_pending") || code.includes("race")) {
-      status = 409;
-    } else if (code.includes("not_found")) {
-      status = 404;
-    }
-    return json({ error: code }, status);
-  }
 }

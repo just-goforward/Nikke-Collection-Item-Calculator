@@ -156,13 +156,13 @@ describe("forecast collector boundary recovery", () => {
       );
       expect(fetcher).not.toHaveBeenCalled();
       limit.mockClear();
+      const before = await testEnv.FORECAST_DB.prepare(
+        "SELECT committed_item_id, next_offset FROM source_poll_state WHERE source = 'naver-board-48'",
+      ).first();
       const response = await invokeAdmin(bindings, { ...options, token: "expected-token" });
-      expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toEqual({
-        recovered: true,
-        source: "naver-board-48",
-        queuedItems: 1,
-      });
+      expect(response.status).toBe(404);
+      expect(await response.text()).toBe("Not found");
+      expect(fetcher).not.toHaveBeenCalled();
       expect(limit.mock.calls).toEqual([
         [{ key: "admin-unauth:unknown" }],
         [{ key: "admin-auth:POST:source-queue" }],
@@ -170,11 +170,11 @@ describe("forecast collector boundary recovery", () => {
       const state = await testEnv.FORECAST_DB.prepare(
         "SELECT committed_item_id, next_offset FROM source_poll_state WHERE source = 'naver-board-48'",
       ).first();
-      expect(state).toEqual({ committed_item_id: "141", next_offset: 0 });
+      expect(state).toEqual(before);
       const hold = await testEnv.FORECAST_DB.prepare(
         "SELECT state FROM forecast_ops_alerts WHERE alert_key = 'naver-boundary:production:48'",
       ).first();
-      expect(hold).toEqual({ state: "resolved" });
+      expect(hold).toEqual({ state: "open" });
     } finally {
       vi.unstubAllGlobals();
     }

@@ -14,16 +14,6 @@ export function profilePhase(env: Pick<CollectorEnv, "ENVIRONMENT" | "COLLECTOR_
     : "off";
 }
 
-export function activeProfilePhase(env: CollectorEnv, scheduledTime: number) {
-  if (env.FORECAST_V2_MODE === "hold" || env.FORECAST_V2_MODE === "on") return "off";
-  const phase = profilePhase(env);
-  return phase === "alternate"
-    ? Math.floor(scheduledTime / 180_000) % 2 === 0
-      ? "poll-only"
-      : "ingest-only"
-    : phase;
-}
-
 export const PROFILE_INGESTION_ADMISSION_SQL = `SELECT invocation_id FROM (
         SELECT invocation_id,status,finished_at FROM collector_invocations
         WHERE invocation_id NOT LIKE 'profile-board-%'
