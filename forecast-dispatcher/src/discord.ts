@@ -1,18 +1,6 @@
 import { readBoundedBytes } from "../../shared/boundedHttp.ts";
-import { forecastDisplayText } from "../../shared/forecastDisplayText.ts";
-import {
-  manualReviewButtons,
-  manualReviewPostLink,
-  manualReviewReason,
-} from "../../shared/forecastManualReview.ts";
+import { manualReviewPostLink } from "../../shared/forecastManualReview.ts";
 import { sha256Hex } from "./crypto";
-import {
-  escapeReviewText,
-  type ReviewEvidence,
-  reviewEvidenceFields,
-  reviewKst,
-  truncateReview,
-} from "./review-evidence.ts";
 import type { DispatcherEnv, DispatchReservation, OpsAlertRow } from "./types";
 
 const DISCORD_API = "https://discord.com/api/v10";
@@ -82,10 +70,8 @@ export function dispatchAcceptedMessage(env: DispatcherEnv, reservation: Dispatc
   };
 }
 
-export async function opsAlertMessage(alert: OpsAlertRow, evidence: ReviewEvidence[] = []) {
+export async function opsAlertMessage(alert: OpsAlertRow) {
   const nonce = await alertNonce(alert, "alert");
-  const manualReview = manualReviewMessage(alert, nonce, evidence);
-  if (manualReview) return manualReview;
   const context = Object.entries(alert.context)
     .slice(0, 6)
     .map(([key, value]) => `${cleanText(key, 40)}: ${cleanText(String(value), 180)}`)
@@ -110,63 +96,6 @@ export async function opsAlertMessage(alert: OpsAlertRow, evidence: ReviewEviden
         timestamp: new Date().toISOString(),
       },
     ],
-  };
-}
-
-function manualReviewMessage(alert: OpsAlertRow, nonce: string, evidence: ReviewEvidence[]) {
-  if (!alert.alertKey.startsWith("manual-review:")) return null;
-  const reviewId = typeof alert.context["reviewId"] === "string" ? alert.context["reviewId"] : "";
-  const sourceUrl = typeof alert.context["url"] === "string" ? alert.context["url"] : "";
-  if (!/^mr-[0-9a-f]{32}$/.test(reviewId)) return null;
-  const environment = alert.environment;
-  const code = cleanText(String(alert.context["reason"] ?? alert.errorCode), 80);
-  const title = cleanText(
-    forecastDisplayText(String(alert.context["title"] ?? "Naver 일정 게시물")),
-    120,
-  );
-  if (evidence.length > 0) {
-    const expiresAt = evidence[0]?.expires_at;
-    return {
-      nonce,
-      enforce_nonce: true,
-      allowed_mentions: { parse: [] as string[] },
-      embeds: [
-        {
-          title: "Forecast 수동 검토 필요",
-          description: truncateReview(
-            `게시물: ${manualReviewPostLink(escapeReviewText(title), sourceUrl)}`,
-            400,
-          ),
-          color: 0xf1c40f,
-          fields: reviewEvidenceFields(evidence),
-          footer: {
-            text: truncateReview(
-              `감지 ${reviewKst(alert.firstSeenAt)} · ${environment} · ${reviewId}\n마감 ${expiresAt ? reviewKst(expiresAt) : "확인 필요"}`,
-              250,
-            ),
-          },
-        },
-      ],
-      components: manualReviewButtons(environment, reviewId),
-    };
-  }
-  return {
-    nonce,
-    enforce_nonce: true,
-    allowed_mentions: { parse: [] as string[] },
-    embeds: [
-      {
-        title: "Forecast 수동 검토 필요",
-        description: [
-          `게시물: ${manualReviewPostLink(title, sourceUrl)}`,
-          `사유: ${manualReviewReason(code)}`,
-          `환경 ${environment} · 코드 \`${code}\` · 검토 \`${reviewId}\``,
-        ].join("\n"),
-        color: 0xf1c40f,
-        timestamp: new Date().toISOString(),
-      },
-    ],
-    components: manualReviewButtons(environment, reviewId),
   };
 }
 

@@ -43,9 +43,7 @@ describe("Discord forecast operations messages", () => {
       },
     };
     const message = await opsAlertMessage(alert);
-    expect(message.embeds[0]?.description).toContain(
-      "[📢 [일정] & 안내](https://game.naver.com/lounge/nikke/board/detail/123)",
-    );
+    expect(message).not.toHaveProperty("components");
     const link = (value: string) =>
       manualReviewPostLink(value, "https://game.naver.com/lounge/nikke/board/detail/1");
     // Real board titles keep their brackets and parentheses without backslashes.
@@ -57,7 +55,8 @@ describe("Discord forecast operations messages", () => {
       "[a］ ［b ［c］(https://evil.example) \\*d\\*](https://game.naver.com/lounge/nikke/board/detail/1)",
     );
     expect(JSON.stringify(message)).not.toContain("원문 열기");
-    expect(JSON.stringify(message)).toContain("일정 직접 확정");
+    expect(JSON.stringify(message)).not.toContain("forecast_manual_");
+    expect(JSON.stringify(message)).not.toContain("일정 직접 확정");
     expect(alert.context.title).toBe(title);
   });
 });
@@ -74,9 +73,7 @@ describe("Discord manual-review reasons", () => {
         reason: "ambiguous_schedule_change",
       },
     })) as { embeds: { description: string }[] };
-    const [, reason, meta] = message.embeds[0]!.description.split("\n");
-    expect(reason).toBe("사유: 공지에서 일정 변경 여부를 자동으로 판단하지 못했습니다.");
-    expect(meta).toContain("`ambiguous_schedule_change`");
+    expect(message).not.toHaveProperty("components");
     expect(manualReviewReason("naver_http_404")).toContain("삭제·비공개");
     expect(manualReviewReason("naver_detail_schema_code")).toContain("구조");
     expect(manualReviewReason("naver_timeout")).toContain("반복해서 실패");

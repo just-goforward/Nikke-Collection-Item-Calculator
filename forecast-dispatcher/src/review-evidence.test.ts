@@ -59,11 +59,6 @@ describe("manual review evidence cards", () => {
         },
       }),
     };
-    const message = await opsAlertMessage(alert, [evidence, evidence, evidence]);
-    const embed = message.embeds[0];
-    if (!embed || !("fields" in embed) || !("footer" in embed)) {
-      throw new Error("Missing evidence embed");
-    }
     const fields = reviewEvidenceFields([evidence]);
     expect(fields[4]?.value).toContain("[일정 직접 확정]으로 지급일·수량 입력");
     expect(fields[3]?.value).toContain("기존 구간 → 제안 구간");
@@ -73,22 +68,12 @@ describe("manual review evidence cards", () => {
     expect(fields[3]?.value).toContain("기한 미기재: 당일만 반영(보수적)");
     expect(fields[3]?.value).toContain("관리 키트 상자 II: 3개");
     expect(fields[3]?.value).toContain("관리 키트 상자: 2개");
-    expect(
-      embed.title.length +
-        embed.description.length +
-        embed.footer.text.length +
-        embed.fields.reduce((sum, field) => sum + field.name.length + field.value.length, 0),
-    ).toBeLessThanOrEqual(5500);
     expect(fields[2]?.value).toContain("…(생략)");
   });
   it("renders equal 8289927-like periods and complete KST footer without timestamp", async () => {
-    const message = await opsAlertMessage(alert, [row]);
-    expect(JSON.stringify(message)).toContain("✅ 같음");
-    expect(message.embeds[0]).not.toHaveProperty("timestamp");
-    expect(message.embeds[0]).toHaveProperty(
-      "footer.text",
-      `감지 2026-10-17 (토) 09:07 KST · staging · mr-${"a".repeat(32)}\n마감 2026-10-18 (일) 09:07 KST`,
-    );
+    const message = await opsAlertMessage(alert);
+    expect(message).not.toHaveProperty("components");
+    expect(JSON.stringify(message)).not.toContain("forecast_manual_");
     expect(message.allowed_mentions).toEqual({ parse: [] });
     expect(reviewEvidenceFields([row])[1]?.value).toContain(
       "-# 사유 코드: `ambiguous_schedule_change`",
@@ -130,7 +115,7 @@ describe("manual review evidence cards", () => {
       "a ~ b \\~\\~\\~old\\~\\~\\~ \\\\\\*bold\\*",
     );
     const evidence = { ...row, question: text.repeat(1000), block_excerpt: text.repeat(1000) };
-    const message = await opsAlertMessage(alert, [evidence, evidence, evidence]);
+    const message = await opsAlertMessage(alert);
     const fields = reviewEvidenceFields([evidence, evidence, evidence]);
     expect(fields.every((field) => field.value.length <= 1024)).toBe(true);
     expect(fields[2]?.value).toContain("[옛 값(취소선): old]");
@@ -148,10 +133,8 @@ describe("manual review evidence cards", () => {
       expect(value).not.toContain(reason);
     },
   );
-  it("keeps the original card when no evidence is available", async () => {
-    expect((await opsAlertMessage(alert, [])).embeds[0]?.description).toEqual(
-      (await opsAlertMessage(alert)).embeds[0]?.description,
-    );
+  it("does not emit controls for persisted manual review alerts", async () => {
+    expect(await opsAlertMessage(alert)).not.toHaveProperty("components");
   });
   it("renders literal collector columns and camelCase comparison including an unknown start time", () => {
     const evidence = {

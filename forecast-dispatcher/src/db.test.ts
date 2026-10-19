@@ -99,9 +99,8 @@ it("binds evidence to the review hash, not a newer revision, and falls back with
       [1, "maintenance_missing", `run ${run} block 1`],
       [2, "reopen_unsupported", `run ${run} block 2`],
     ]);
-    const card = JSON.stringify(await opsAlertMessage(alert, evidence));
-    expect(card).toContain("maintenance_missing");
-    expect(card).toContain("reopen_unsupported");
+    const card = JSON.stringify(await opsAlertMessage(alert));
+    expect(card).not.toContain("forecast_manual_");
     expect(card).not.toContain(`run ${run} block 0`);
     expect(card).not.toContain(`run ${run - 1} block`);
   }
