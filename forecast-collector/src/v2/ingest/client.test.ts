@@ -203,6 +203,32 @@ describe("T02 response validation", () => {
       );
   });
 
+  it("accepts the live board-list shape with the lounge only in feed.loungeId (S6 evidence)", () => {
+    // Observed 2026-10-19: board-48 list and detail rows carry `feed.loungeId`;
+    // their `lounge` object holds only names, no id.
+    const row = {
+      feed: {
+        feedId: 1,
+        loungeId: "nikke",
+        title: "t",
+        createdDate: "20261018170000",
+        updatedDate: "20261018170000",
+      },
+      board: { boardId: 48 },
+      user: { userRoleCode: "game_manager" },
+      lounge: { loungeName: "승리의 여신: 니케" },
+    };
+    expect(parseMetadata(pagePayload([row]), "G")).toHaveLength(1);
+    for (const variant of [
+      { ...row, feed: { ...row.feed, loungeId: "other" } },
+      { ...row, lounge: { loungeId: "other" } },
+      { ...row, feed: { ...row.feed, loungeId: undefined } },
+    ])
+      expect(() => parseMetadata(pagePayload([variant]), "G")).toThrow(
+        expect.objectContaining({ code: "identity" }),
+      );
+  });
+
   it("skips non-manager rows without failing the page and still validates them (F7)", () => {
     const a = { feedId: 3, created: "2026-10-18T17:00:00" };
     const member = { feedId: 2, created: "2026-10-18T16:00:00" };
@@ -345,6 +371,19 @@ describe("T02 detail identity", () => {
     expect(naver.calls[0]?.url.href).toBe(
       `https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed/${post.feedId}`,
     );
+  });
+
+  it("accepts the live detail shape with the lounge only in feed.loungeId (S6 evidence)", async () => {
+    const payload = detailPayload("A", post);
+    Object.assign(payload.content, { lounge: { loungeName: "승리의 여신: 니케" } });
+    Object.assign(payload.content.feed, { loungeId: "nikke" });
+    await expect(
+      fetchDetail("A", expectedMetadata(post), async () => Response.json(payload)),
+    ).resolves.toMatchObject(expectedMetadata(post));
+    Object.assign(payload.content.feed, { loungeId: "other" });
+    await expect(
+      fetchDetail("A", expectedMetadata(post), async () => Response.json(payload)),
+    ).rejects.toMatchObject({ code: "identity" });
   });
 
   it.each<[string, Record<string, unknown>, Record<string, unknown>, string]>([
