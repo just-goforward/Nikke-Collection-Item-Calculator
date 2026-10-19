@@ -121,7 +121,9 @@ describe("Cloudflare Paid quota configuration", () => {
     expect(workflow).toContain("Usage Guard Cron was intentionally retained");
     expect(watchdog).toContain("cloudflare-quota-emergency-stop.yml");
     expect(watchdog).toContain("actions: write");
-    expect(watchdog).toContain('if (( $(rank "$stricter_action") >= 4 )); then');
+    expect(watchdog).toContain('if [[ "$stricter_action" == "hard_stop" ]]; then');
+    expect(workflow).not.toContain("- disable_statistics_writes");
+    expect(workflow).not.toContain("disable_statistics_writes|hard_stop) ;;");
   });
 
   it("propagates stale guard escalation to the watchdog before health validation", () => {

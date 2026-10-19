@@ -256,7 +256,7 @@ jobs:
           if (( $(rank "$BUDGET_ACTION") > $(rank "$stricter_action") )); then
             stricter_action="$BUDGET_ACTION"
           fi
-          if (( $(rank "$stricter_action") >= 4 )); then
+          if [[ "$stricter_action" == "hard_stop" ]]; then
             emergency_action="$stricter_action"
           fi
           if [[ "$CANARY_OUTCOME" == "failure" ]]; then
@@ -364,7 +364,6 @@ jobs:
           set -euo pipefail
           requested_rank() {
             case "$1" in
-              disable_statistics_writes) echo 4 ;;
               hard_stop) echo 5 ;;
               *) echo -1 ;;
             esac
