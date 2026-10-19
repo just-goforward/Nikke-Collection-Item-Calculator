@@ -334,37 +334,6 @@ export async function unapprovedCandidateCondition(db: D1Database) {
     : "1";
 }
 
-export async function supersedeIncompatibleCandidates(db: D1Database) {
-  const unapproved = await unapprovedCandidateCondition(db);
-  const result = await db
-    .prepare(
-      `UPDATE forecast_candidates
-       SET state = 'superseded', updated_at = ?
-       WHERE state IN ('observed', 'parsed', 'crosschecked', 'x_unavailable', 'conflict', 'proposed')
-         AND (
-           COALESCE(json_extract(payload_json, '$.payloadVersion'), -1) <> ?
-           OR COALESCE(json_extract(payload_json, '$.rulesVersion'), '') <> ?
-         ) AND (${unapproved})`,
-    )
-    .bind(new Date().toISOString(), SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION, SUPPLY_RULES_VERSION)
-    .run();
-  return Number(result.meta.changes ?? 0);
-}
-
-export async function markCandidateProposed(db: D1Database, candidateId: string) {
-  const unapproved = await unapprovedCandidateCondition(db);
-  const result = await db
-    .prepare(
-      `UPDATE forecast_candidates
-       SET state = 'proposed', updated_at = ?
-       WHERE candidate_id = ? AND state IN ('crosschecked', 'x_unavailable')
-         AND (${unapproved})`,
-    )
-    .bind(new Date().toISOString(), candidateId)
-    .run();
-  return Number(result.meta.changes ?? 0) === 1;
-}
-
 export async function readHealth(db: D1Database) {
   const latest = await db
     .prepare(
