@@ -97,12 +97,6 @@ export const TYPE_ESCAPE_BOUNDARY_ALLOWLIST: DebtEntry[] = [
     removalTarget: "Provide a typed forecast-collector Miniflare environment factory.",
   },
   {
-    file: "forecast-collector/src/discord-approval.test.ts",
-    owner: "test",
-    reason: "Discord interaction tests adapt Miniflare bindings and the rate-limit test double.",
-    removalTarget: "Share typed collector environment and rate-limit fixture builders.",
-  },
-  {
     file: "forecast-collector/src/source-queue.test.ts",
     owner: "test",
     reason: "Source queue integration tests adapt a Miniflare environment to generated bindings.",
@@ -301,15 +295,6 @@ export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
     reason:
       "The canary certificate currently assembles invocation, queue, and integrity counters together.",
     removalTarget: "Extract independent counter queries and a pure canary decision assembler.",
-  },
-  {
-    file: "forecast-collector/src/discord-approval.test.ts",
-    function: "<anonymous>",
-    owner: "test",
-    reason:
-      "Discord signature, test approval, and staging adoption cases share one Miniflare D1 fixture.",
-    removalTarget:
-      "Split interaction security and staging state-transition suites around a shared fixture.",
   },
   {
     file: "forecast-collector/src/naver.test.ts",

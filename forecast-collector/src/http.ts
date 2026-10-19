@@ -1,7 +1,6 @@
 import { handleAdminRoute } from "./admin-router";
 import { timingSafeBearer } from "./crypto";
 import { readHealth } from "./db";
-import { handleDiscordInteraction } from "./discord-approval";
 import {
   adminRouteGroup,
   automationOperation,
@@ -20,14 +19,6 @@ export async function handleHttpRequest(
 ) {
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/health") return handleHealth(request, env);
-  if (request.method === "POST" && url.pathname === "/discord/interactions") {
-    // Rate-limit unauthenticated callers before the Usage Guard D1 read.
-    const rateLimitResponse = await enforceDiscordRateLimit(request, env);
-    if (rateLimitResponse) return rateLimitResponse;
-    const quotaResponse = await enforceUsageGuard(env, automationOperation(env));
-    if (quotaResponse) return quotaResponse;
-    return handleDiscordInteraction(request, env, executionContext);
-  }
   if (!url.pathname.startsWith("/admin/")) return new Response("Not found", { status: 404 });
 
   const unauthenticatedLimit = await enforceUnauthenticatedAdminRateLimit(request, env);
@@ -68,15 +59,6 @@ function publicHealthResponse(response: Response, request: Request, env: Collect
     response.headers.set("access-control-allow-origin", "https://nikkecollection.com");
   }
   return response;
-}
-
-async function enforceDiscordRateLimit(request: Request, env: CollectorEnv) {
-  if (!env.ADMIN_RATE_LIMITER) return missingRateLimiter(env);
-  const sourceAddress = request.headers.get("cf-connecting-ip") ?? "unknown";
-  const result = await env.ADMIN_RATE_LIMITER.limit({
-    key: `discord-interactions:${sourceAddress}`,
-  });
-  return result.success ? null : new Response("Too many requests", { status: 429 });
 }
 
 async function enforceHealthRateLimit(request: Request, env: CollectorEnv) {

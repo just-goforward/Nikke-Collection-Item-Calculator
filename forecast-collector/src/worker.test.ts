@@ -36,6 +36,34 @@ describe("forecast collector runtime switch", () => {
 
 describe("forecast collector route dispatch boundary", () => {
   it.each([
+    "/admin/probe",
+    "/admin/dispatcher-smoke",
+    `/admin/workflow-dispatches/fd-${"a".repeat(32)}/status`,
+    "/admin/discord-test-approvals",
+    "/admin/discord-staging-adoptions",
+    `/admin/discord-staging-adoptions/discord-staging-${"a".repeat(36)}/message`,
+    `/admin/discord-staging-adoptions/discord-staging-${"a".repeat(36)}/adoption-pr`,
+    "/discord/interactions",
+  ])("rejects retired %s without touching forecast storage", async (path) => {
+    const prepare = vi.fn(() => {
+      throw new Error("retired_route_database_access");
+    });
+    const response = await invokeAdmin(
+      {
+        FORECAST_DB: { prepare } as unknown as D1Database,
+        ADMIN_RATE_LIMITER: {
+          limit: vi.fn().mockResolvedValue({ success: true }),
+        } as unknown as RateLimit,
+        ADMIN_TOKEN: "expected-token",
+      },
+      { token: "expected-token", path, method: "POST", body: "{}" },
+    );
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("Not found");
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ["/admin/probe", "probe"],
     ["/admin/dispatcher-smoke", "dispatcher-smoke"],
     [`/admin/workflow-dispatches/fd-${"a".repeat(32)}/status`, "workflow-dispatches"],
@@ -310,7 +338,8 @@ describe("forecast collector admin boundary", () => {
 });
 
 async function invokeAdmin(
-  bindings: Pick<CollectorEnv, "ADMIN_RATE_LIMITER" | "ADMIN_TOKEN">,
+  bindings: Pick<CollectorEnv, "ADMIN_RATE_LIMITER" | "ADMIN_TOKEN"> &
+    Partial<Pick<CollectorEnv, "FORECAST_DB">>,
   options: {
     sourceAddress?: string;
     token?: string;

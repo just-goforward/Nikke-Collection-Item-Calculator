@@ -391,7 +391,7 @@ describe("unchanged production and protected routes", () => {
   it.each([
     ["GET", "/admin/candidates", true, 401],
     ["GET", "/admin/candidates", false, 429],
-    ["POST", "/discord/interactions", false, 429],
+    ["POST", "/discord/interactions", false, 404],
     ["OPTIONS", "/health", true, 404],
     ["POST", "/health", true, 404],
   ])("keeps %s %s protected and without CORS", async (method, path, success, status) => {
@@ -440,7 +440,7 @@ describe("unchanged production and protected routes", () => {
     },
   );
 
-  it("rate-limits Discord interactions before any Usage Guard or forecast D1 read", async () => {
+  it("rejects retired Discord interactions without Usage Guard or forecast D1 reads", async () => {
     const limit = vi.fn().mockResolvedValue({ success: false });
     const forecastPrepare = vi.spyOn(testEnv.FORECAST_DB, "prepare");
     const guardDb = testEnv.USAGE_GUARD_DB;
@@ -455,8 +455,8 @@ describe("unchanged production and protected routes", () => {
         { ...testEnv, ENVIRONMENT: "staging", ADMIN_RATE_LIMITER: { limit } },
         createExecutionContext(),
       );
-      expect(response.status).toBe(429);
-      expect(limit).toHaveBeenCalledWith({ key: "discord-interactions:203.0.113.7" });
+      expect(response.status).toBe(404);
+      expect(limit).not.toHaveBeenCalled();
       expect(forecastPrepare).not.toHaveBeenCalled();
       expect(guardPrepare).not.toHaveBeenCalled();
     } finally {
