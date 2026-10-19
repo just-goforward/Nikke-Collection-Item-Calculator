@@ -76,6 +76,17 @@ describe("Workers Observability forecast runtime evidence", () => {
     expect(samples[0]?.outcome).toBe("exceededCpu");
   });
 
+  it("does not count legacy collector markers as v2 invocation evidence", async () => {
+    const value = fixture("legacy-collector", "ok");
+    const events = invocationEvents(value, "legacy-collector");
+    if (!events[1]) throw new Error("missing_fixture_marker");
+    events[1]["source"] = JSON.stringify({
+      ...marker("2026-09-03T00:03:00.000Z"),
+      event: "forecast_canary_scheduled_invocation",
+    });
+    expect(await parseInvocationSamples(value, expectedCollector())).toEqual([]);
+  });
+
   it("represents a marker without a runtime summary as a coverage gap", async () => {
     const value = fixture("req-marker-without-runtime", "ok");
     const events = invocationEvents(value, "req-marker-without-runtime");
@@ -338,7 +349,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function marker(slot: string, component: "collector" | "dispatcher" = "collector") {
   return {
-    event: "forecast_canary_scheduled_invocation",
+    event:
+      component === "collector"
+        ? "forecast_v2_scheduled_invocation"
+        : "forecast_canary_scheduled_invocation",
     component,
     deploymentSha: SHA,
     slot,

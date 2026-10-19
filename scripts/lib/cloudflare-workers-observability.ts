@@ -10,7 +10,10 @@ import {
 const API_BASE = "https://api.cloudflare.com/client/v4";
 const QUERY_LIMIT = 2_000;
 const QUERY_WINDOW_MS = 30 * 60 * 1_000;
-const MARKER_EVENT = "forecast_canary_scheduled_invocation";
+const MARKER_EVENTS = {
+  collector: "forecast_v2_scheduled_invocation",
+  dispatcher: "forecast_canary_scheduled_invocation",
+} as const;
 
 export type ObservabilityQueryOptions = {
   accountId: string;
@@ -328,8 +331,8 @@ function readMarker(event: Record<string, unknown>) {
     const parsed = parseSource(candidate);
     if (
       isRecord(parsed) &&
-      parsed["event"] === MARKER_EVENT &&
       (parsed["component"] === "collector" || parsed["component"] === "dispatcher") &&
+      parsed["event"] === MARKER_EVENTS[parsed["component"]] &&
       typeof parsed["deploymentSha"] === "string" &&
       typeof parsed["slot"] === "string"
     ) {
