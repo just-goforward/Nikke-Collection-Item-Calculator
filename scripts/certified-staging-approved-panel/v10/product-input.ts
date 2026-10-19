@@ -1,7 +1,7 @@
 /** Product imports are restricted to input preparation, never the oracle. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { buildConstructedForecastCandidate } from "../../../forecast-collector/src/notice-processing.ts";
+import { buildConstructedForecastCandidate } from "../../../forecast-collector/src/constructed-candidate.ts";
 import type { ScheduleEvent } from "../../../forecast-collector/src/types.ts";
 import { SOLO_RAID_ROUND_HISTORY } from "../../../shared/soloRaidCadence.ts";
 import { AS_OF, grants, history, seasons } from "./fixtures/input.ts";
