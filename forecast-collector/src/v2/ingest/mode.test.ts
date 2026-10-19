@@ -27,10 +27,12 @@ const v2Tables = [
   "forecast_v2_notification_outbox",
 ];
 
-async function scheduled(mode: string | undefined) {
+async function scheduled(mode: string | undefined, skip?: "collection_disabled" | "usage_guard") {
   await reset();
   await executeTestSql(base.FORECAST_DB, schemaSql, applyD1Migrations);
   await seedNormalUsageGuard(base.USAGE_GUARD_DB, scheduledTime);
+  if (skip === "usage_guard")
+    await base.USAGE_GUARD_DB?.prepare("UPDATE usage_guard_state SET action = 'hard_stop'").run();
   const urls: string[] = [];
   const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     urls.push(input instanceof Request ? input.url : String(input));
@@ -45,7 +47,7 @@ async function scheduled(mode: string | undefined) {
     {
       ...base,
       ENVIRONMENT: "staging",
-      COLLECT_ENABLED: "true",
+      COLLECT_ENABLED: skip === "collection_disabled" ? "false" : "true",
       FORECAST_V2_BOOTSTRAP_CUTOFF: "2026-10-15T00:00:00.000Z",
       ...(mode === undefined ? {} : { FORECAST_V2_MODE: mode }),
     } as CollectorEnv,
@@ -54,7 +56,7 @@ async function scheduled(mode: string | undefined) {
   await waitOnExecutionContext(context);
   const events = log.mock.calls.map(([line]) => {
     try {
-      return (JSON.parse(String(line)) as { event?: string }).event;
+      return JSON.parse(String(line)) as { event?: string };
     } catch {
       return String(line);
     }
@@ -78,6 +80,18 @@ async function scheduled(mode: string | undefined) {
 }
 
 beforeEach(() => vi.useFakeTimers({ toFake: ["Date"], now: scheduledTime }));
+
+it.each(["collection_disabled", "usage_guard"] as const)("logs skipped %s runs", async (reason) => {
+  const result = await scheduled("hold", reason);
+  expect(result.events[0]).toMatchObject({
+    event: "forecast_v2_scheduled_invocation",
+    mode: "hold",
+    admission: "skipped",
+    reason,
+  });
+  expect(result.urls).toEqual([]);
+  expect(Object.values(result.v2).every((n) => n === 0)).toBe(true);
+});
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -87,7 +101,12 @@ it("off and unknown modes perform no collection or durable writes", async () => 
   const absent = await scheduled(undefined);
   expect(absent.urls).toEqual([]);
   expect(absent.invocations).toEqual([]);
-  expect(absent.events[0]).toBe("forecast_v2_scheduled_invocation");
+  expect(absent.events[0]).toMatchObject({
+    event: "forecast_v2_scheduled_invocation",
+    mode: "off",
+    admission: "skipped",
+    reason: "v2_off",
+  });
   expect(Object.values(absent.v2).every((n) => n === 0)).toBe(true);
   expect(absent.leases).toBe(0);
   for (const mode of ["off", "OFF", "enabled", ""])
@@ -96,7 +115,11 @@ it("off and unknown modes perform no collection or durable writes", async () => 
 
 it("hold runs only the v2 unit: no legacy collection, no rules or notification writes", async () => {
   const held = await scheduled("hold");
-  expect(held.events[0]).toBe("forecast_v2_scheduled_invocation");
+  expect(held.events[0]).toMatchObject({
+    event: "forecast_v2_scheduled_invocation",
+    mode: "hold",
+    admission: "admitted",
+  });
   expect(held.invocations).toEqual([]);
   expect(held.urls).toEqual([metadataUrl("A", 0).href]);
   expect(held.v2).toMatchObject({

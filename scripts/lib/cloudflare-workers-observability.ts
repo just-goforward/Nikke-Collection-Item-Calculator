@@ -224,6 +224,8 @@ async function parseInvocationEntry(
       scriptVersionTag: null,
       identitySource: "marker" as const,
       eventType: "scheduled" as const,
+      mode: marker.mode,
+      admission: marker.admission,
       cpuTimeMs: null,
       outcome: null,
     };
@@ -243,6 +245,8 @@ async function parseInvocationEntry(
     scriptVersionTag: runtime.scriptVersionTag,
     identitySource: runtime.identitySource,
     eventType: "scheduled" as const,
+    mode: marker.mode,
+    admission: marker.admission,
     cpuTimeMs: runtime.cpuTimeMs,
     outcome: runtime.outcome,
   };
@@ -333,6 +337,9 @@ function readMarker(event: Record<string, unknown>) {
       isRecord(parsed) &&
       (parsed["component"] === "collector" || parsed["component"] === "dispatcher") &&
       parsed["event"] === MARKER_EVENTS[parsed["component"]] &&
+      (parsed["component"] !== "collector" ||
+        (parsed["admission"] === "admitted" &&
+          (parsed["mode"] === "on" || parsed["mode"] === "hold"))) &&
       typeof parsed["deploymentSha"] === "string" &&
       typeof parsed["slot"] === "string"
     ) {
@@ -340,6 +347,8 @@ function readMarker(event: Record<string, unknown>) {
         component: parsed["component"],
         deploymentSha: parsed["deploymentSha"],
         slot: parsed["slot"],
+        mode: typeof parsed["mode"] === "string" ? parsed["mode"] : undefined,
+        admission: typeof parsed["admission"] === "string" ? parsed["admission"] : undefined,
       };
     }
   }

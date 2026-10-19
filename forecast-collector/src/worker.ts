@@ -9,16 +9,22 @@ import { configureRules, rulesPort } from "./v2/rules";
 
 export default {
   async scheduled(event, env, context) {
-    console.log(
-      JSON.stringify({
-        event: "forecast_v2_scheduled_invocation",
-        component: "collector",
-        environment: env.ENVIRONMENT,
-        deploymentSha: env.DEPLOY_SHA,
-        slot: new Date(event.scheduledTime).toISOString(),
-      }),
-    );
+    const mode = v2Mode(env);
+    const marker = (admission: "admitted" | "skipped", reason?: string) =>
+      console.log(
+        JSON.stringify({
+          event: "forecast_v2_scheduled_invocation",
+          component: "collector",
+          environment: env.ENVIRONMENT,
+          deploymentSha: env.DEPLOY_SHA,
+          slot: new Date(event.scheduledTime).toISOString(),
+          mode,
+          admission,
+          ...(reason ? { reason } : {}),
+        }),
+      );
     if (env.COLLECT_ENABLED !== "true") {
+      marker("skipped", "collection_disabled");
       console.log(
         JSON.stringify({
           event: "forecast_collection_skipped",
@@ -28,11 +34,15 @@ export default {
       );
       return;
     }
-    if (v2Mode(env) === "off") return;
+    if (mode === "off") {
+      marker("skipped", "v2_off");
+      return;
+    }
     try {
       await assertUsageAllowed(requireGuardDb(env), automationOperation(env));
     } catch (error) {
       if (error instanceof UsageGuardError) {
+        marker("skipped", "usage_guard");
         console.warn(
           JSON.stringify({
             event: "forecast_collection_quota_disabled",
@@ -42,8 +52,10 @@ export default {
         );
         return;
       }
+      marker("skipped", "usage_guard_error");
       throw error;
     }
+    marker("admitted");
     context.waitUntil(runV2Scheduled(env, event.scheduledTime));
   },
 

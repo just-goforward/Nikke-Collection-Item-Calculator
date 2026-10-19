@@ -87,6 +87,22 @@ describe("Workers Observability forecast runtime evidence", () => {
     expect(await parseInvocationSamples(value, expectedCollector())).toEqual([]);
   });
 
+  it.each(["old", "v2_off", "collection_disabled", "usage_guard"])(
+    "excludes %s markers",
+    async (reason) => {
+      const value = fixture("skipped", "ok");
+      const events = invocationEvents(value, "skipped");
+      if (!events[1]) throw new Error("missing_fixture_marker");
+      events[1]["source"] = JSON.stringify({
+        ...marker("2026-09-03T00:03:00.000Z"),
+        mode: reason === "v2_off" ? "off" : "on",
+        admission: reason === "old" ? undefined : "skipped",
+        reason,
+      });
+      expect(await parseInvocationSamples(value, expectedCollector())).toEqual([]);
+    },
+  );
+
   it("represents a marker without a runtime summary as a coverage gap", async () => {
     const value = fixture("req-marker-without-runtime", "ok");
     const events = invocationEvents(value, "req-marker-without-runtime");
@@ -354,6 +370,8 @@ function marker(slot: string, component: "collector" | "dispatcher" = "collector
         ? "forecast_v2_scheduled_invocation"
         : "forecast_canary_scheduled_invocation",
     component,
+    mode: "on",
+    admission: "admitted",
     deploymentSha: SHA,
     slot,
   };

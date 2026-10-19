@@ -40,6 +40,8 @@ function fixture() {
         scriptVersionId: versions[component],
         scriptVersionTag: sha,
         identitySource: "tag",
+        mode: "on",
+        admission: "admitted",
         eventType: "scheduled",
         cpuTimeMs: 5,
         outcome: "ok",
@@ -74,6 +76,23 @@ it("uses Cron slots as the denominator and reports zero D1 invocation evidence",
     runtimeCoverage: 1,
   });
 });
+
+it.each(["old", "v2_off", "collection_disabled", "usage_guard"])(
+  "excludes %s samples from coverage",
+  (reason) => {
+    const input = fixture();
+    for (const sample of input.telemetry.workers[0]?.samples ?? []) {
+      sample.mode = reason === "v2_off" ? "off" : "on";
+      sample.admission = reason === "old" ? undefined : "skipped";
+    }
+    expect(evaluateForecastRuntimeTelemetry(input).performance.collector).toMatchObject({
+      coverage: 0,
+      runtimeCoverage: 0,
+      telemetryObservedSlots: 0,
+      runtimeObservedSlots: 0,
+    });
+  },
+);
 
 it("blocks a missing component rather than accepting healthy monitor rows as telemetry", () => {
   const input = fixture();

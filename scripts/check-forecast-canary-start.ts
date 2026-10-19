@@ -6,6 +6,7 @@ import {
   FORECAST_RUNTIME_EVIDENCE_MAX_AGE_MS,
   FORECAST_RUNTIME_WORKERS,
   type ForecastRuntimeTelemetryEvidence,
+  isAdmittedV2Sample,
   isSuccessfulOutcome,
 } from "../shared/forecastCanaryRuntime.ts";
 
@@ -46,6 +47,7 @@ function assertCompletedPair(
     const slot = cycle + (component === "collector" ? 0 : 60_000);
     const matching = worker?.samples.filter(
       (sample) =>
+        (component !== "collector" || isAdmittedV2Sample(sample)) &&
         Math.floor(Date.parse(sample.slot) / 60_000) * 60_000 === slot &&
         Date.parse(sample.slot) >= Date.parse(evidence.startedAt) &&
         Date.parse(sample.slot) < Date.parse(evidence.endedAt),

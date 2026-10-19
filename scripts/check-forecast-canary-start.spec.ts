@@ -38,6 +38,8 @@ function fixture(): ForecastRuntimeTelemetryEvidence {
             component === "collector" ? expected.collectorVersionId : expected.dispatcherVersionId,
           scriptVersionTag: null,
           identitySource: "version_id",
+          mode: "on",
+          admission: "admitted",
           eventType: "scheduled",
           cpuTimeMs: 5,
           outcome: "ok",
@@ -50,6 +52,20 @@ function fixture(): ForecastRuntimeTelemetryEvidence {
 it("accepts an independently version-bound completed Cron pair in the safe start phase", () => {
   expect(() => assertV2CanaryStart(fixture(), expected, now)).not.toThrow();
 });
+
+it.each(["old", "v2_off", "collection_disabled", "usage_guard"])(
+  "rejects %s admission",
+  (reason) => {
+    const value = fixture();
+    const sample = value.workers[0]?.samples[0];
+    if (!sample) throw new Error("fixture_missing");
+    sample.mode = reason === "v2_off" ? "off" : "on";
+    sample.admission = reason === "old" ? undefined : "skipped";
+    expect(() => assertV2CanaryStart(value, expected, now)).toThrow(
+      "canary_start_completed_pair_missing",
+    );
+  },
+);
 
 it.each(["collector", "dispatcher"] as const)("blocks missing %s evidence", (component) => {
   const value = fixture();

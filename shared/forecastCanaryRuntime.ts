@@ -18,6 +18,8 @@ export const FORECAST_RUNTIME_WORKERS = {
 export type ForecastRuntimeComponent = keyof typeof FORECAST_RUNTIME_WORKERS;
 
 export type ForecastRuntimeSample = {
+  mode?: string | undefined;
+  admission?: string | undefined;
   slot: string;
   requestIdHash: string;
   scriptVersionId: string | null;
@@ -363,7 +365,9 @@ function evaluateWorker(
   const expected = new Set(expectedSlots.map(normalizeSlot));
   const d1 = d1Slots === null ? null : new Set(d1Slots.map(normalizeSlot));
   const inspection = inspectWorkerSamples(
-    worker.samples,
+    worker.samples.filter(
+      (sample) => worker.component !== "collector" || isAdmittedV2Sample(sample),
+    ),
     expectedScriptVersion,
     expectedScriptVersionId,
   );
@@ -463,7 +467,9 @@ function buildWorkerSummary(
   ).length;
   const missingRuntimeSlots = [...coverageSlots].filter((slot) => !runtimeSlots.has(slot)).length;
   const splitMs = Date.parse(startedAt) + (Date.parse(endedAt) - Date.parse(startedAt)) / 2;
-  const runtimeSamples = worker.samples.filter(hasRuntimeSummary);
+  const runtimeSamples = worker.samples
+    .filter((sample) => worker.component !== "collector" || isAdmittedV2Sample(sample))
+    .filter(hasRuntimeSummary);
   const full = distribution(runtimeSamples.map((sample) => sample.cpuTimeMs));
   return {
     ...(d1 === null ? { coverageBasis: "scheduled" as const } : {}),
@@ -726,6 +732,8 @@ function parseSample(value: unknown): ForecastRuntimeSample {
   }
   const runtime = parseOptionalRuntimeSummary(value);
   return {
+    mode: optionalString(value["mode"] ?? null, "runtime_mode_invalid") ?? undefined,
+    admission: optionalString(value["admission"] ?? null, "runtime_admission_invalid") ?? undefined,
     slot: requiredTimestamp(value["slot"], "runtime_slot_invalid"),
     requestIdHash,
     scriptVersionId,
@@ -734,6 +742,10 @@ function parseSample(value: unknown): ForecastRuntimeSample {
     eventType: "scheduled",
     ...runtime,
   };
+}
+
+export function isAdmittedV2Sample(sample: ForecastRuntimeSample) {
+  return sample.admission === "admitted" && (sample.mode === "on" || sample.mode === "hold");
 }
 
 function parseOptionalRuntimeSummary(value: Record<string, unknown>) {
