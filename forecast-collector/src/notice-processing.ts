@@ -20,11 +20,6 @@ import type {
   SourceQueueResult,
 } from "./types";
 
-export {
-  buildConstructedForecastCandidate,
-  isConstructedNoticeCandidate,
-} from "./constructed-candidate";
-
 export async function processNotice(
   queued: SourceQueueItem,
   fetcher: FetchLike,

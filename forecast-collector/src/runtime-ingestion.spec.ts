@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupplyForecastCandidate } from "../../shared/supplyForecastCandidate";
 import { assertUsageAllowed } from "../../shared/usageGuard";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
+import { isConstructedNoticeCandidate } from "./constructed-candidate";
 import { sha256Hex, stableJson } from "./crypto";
 import {
   markCandidateProposed,
@@ -13,7 +14,7 @@ import { automationOperation, requireGuardDb } from "./http-shared";
 import { decideManualReview } from "./manual-review";
 import { parseScheduleEvents } from "./naver";
 import { fetchNotice, NOTICE_MAX_BYTES, NOTICE_TIMEOUT_MS, parseNoticeDetail } from "./notice";
-import { buildNoticeCandidate, isConstructedNoticeCandidate } from "./notice-processing";
+import { buildNoticeCandidate } from "./notice-processing";
 import { loadRuntimeEvents } from "./runtime-events";
 import { runRuntimeCandidate, runRuntimeIngestion } from "./runtime-ingestion";
 import {
@@ -313,8 +314,7 @@ describe("rotation admission", () => {
   });
 });
 
-// d336e9c's empty-results path, including the reads now skipped. Collection
-// still exercises queue selection and quota reservation before proving it empty.
+// Empty-results collection still exercises queue selection and quota reservation.
 async function oldEmptyRun() {
   const db = env.FORECAST_DB;
   await assertUsageAllowed(requireGuardDb(env), automationOperation(env));

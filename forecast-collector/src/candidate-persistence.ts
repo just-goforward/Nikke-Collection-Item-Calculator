@@ -51,6 +51,19 @@ export async function processSourceQueue(
     if (request.mode === "queue")
       statements.push(...((await queue?.statements(result, nowIso)) ?? []));
   }
+  await appendCandidate(db, request, statements, nowIso);
+  statements.unshift(...(transaction.before ?? []));
+  statements.push(...(transaction.after ?? []));
+  if (statements.length > 0) await db.batch(statements);
+  return { processed: request.results.length, candidateCreated: Boolean(request.candidate) };
+}
+
+async function appendCandidate(
+  db: D1Database,
+  request: ReturnType<typeof parseSourceQueueProcess>,
+  statements: D1PreparedStatement[],
+  nowIso: string,
+) {
   if (request.candidate) {
     const expectedRevision = await nextForecastRevision(db, request.candidate.gameDay);
     if (expectedRevision !== request.candidate.revision)
@@ -102,8 +115,4 @@ export async function processSourceQueue(
         .bind(nowIso, eventId, gameDay, envelope.candidate.candidateId),
     );
   }
-  statements.unshift(...(transaction.before ?? []));
-  statements.push(...(transaction.after ?? []));
-  if (statements.length > 0) await db.batch(statements);
-  return { processed: request.results.length, candidateCreated: Boolean(request.candidate) };
 }
