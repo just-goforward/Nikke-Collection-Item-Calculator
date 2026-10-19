@@ -88,8 +88,11 @@ function monitorFailures(rows: MonitorRow[], startedMs: number, nowMs: number) {
 function progressFailures(row: MonitorRow, startedMs: number, nowMs: number) {
   // One configured monitor interval plus one three-minute collector Cron slot.
   const maxAge = row.interval_seconds * 1000 + 180_000;
+  const began = Date.parse(row.started_at ?? "");
   return [
-    row.status === "failed" ? `v2_monitor_run_failed:${row.stream_id}` : null,
+    row.status === "failed" && Number.isFinite(began) && began >= startedMs
+      ? `v2_monitor_run_failed:${row.stream_id}`
+      : null,
     !row.run_id || row.status !== "completed"
       ? `v2_monitor_progress_missing:${row.stream_id}`
       : null,

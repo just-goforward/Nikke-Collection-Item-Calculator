@@ -124,6 +124,16 @@ it.each(["running", "held"])("blocks unfinished latest monitor state %s", async 
   expect((await report()).monitorProgress.failureCodes).toContain("v2_monitor_progress_missing:A");
 });
 
+it("keeps a pre-start failed latest run incomplete instead of attributing it to this canary", async () => {
+  await env.FORECAST_DB.prepare(
+    "UPDATE forecast_v2_monitor_runs SET status='failed',started_at='2000-01-01T00:00:00Z',finished_at='2000-01-01T00:01:00Z' WHERE stream_id='A'",
+  ).run();
+  const value = await report();
+  expect(value.certification.status).toBe("incomplete");
+  expect(value.monitorProgress.failureCodes).toContain("v2_monitor_run_stale_or_invalid:A");
+  expect(value.monitorProgress.failureCodes).not.toContain("v2_monitor_run_failed:A");
+});
+
 it.each([true, false])(
   "fails on an observed failed monitor even with telemetry=%s",
   async (present) => {
