@@ -56,7 +56,12 @@ export async function productInput() {
     { status: "x_unavailable", sourceItem: null, reason: null },
     Date.parse(AS_OF),
     1,
-    grants,
+    grants.map((grant) => ({
+      ...grant,
+      refs: grant.refs.map((ref) => ({ ...ref })),
+      sourceIds: [...grant.sourceIds],
+      restatementOf: [...grant.restatementOf],
+    })),
     { cadenceVersion: "observed-median-v2", confirmedRounds },
   );
   const snapshot = constructed.envelope.candidate.certifiedSnapshot;
