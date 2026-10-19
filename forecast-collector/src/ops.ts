@@ -1,5 +1,3 @@
-const REPOSITORY = "just-goforward/Nikke-Collection-Item-Calculator";
-
 export type OpsEnvironment = "staging" | "production";
 export type OpsSeverity = "warning" | "critical";
 
@@ -105,88 +103,6 @@ export async function resolveOpsAlertsByPrefix(
     )
     .bind(now, now, `${likeLiteral(bounded(alertKeyPrefix, 150))}%`)
     .run();
-}
-
-export async function recordWatchdogFallback(
-  db: D1Database,
-  environment: OpsEnvironment,
-  raw: unknown,
-  nowMs = Date.now(),
-) {
-  if (!isRecord(raw)) throw new Error("invalid_watchdog_fallback");
-  const runId = raw["runId"];
-  const runUrl = raw["runUrl"];
-  if (
-    !Number.isInteger(runId) ||
-    Number(runId) <= 0 ||
-    typeof runUrl !== "string" ||
-    runUrl !== `https://github.com/${REPOSITORY}/actions/runs/${runId}`
-  ) {
-    throw new Error("invalid_watchdog_fallback");
-  }
-  await upsertOpsAlert(db, {
-    alertKey: `watchdog-fallback:${environment}`,
-    environment,
-    severity: "warning",
-    component: "github-watchdog",
-    errorCode: "watchdog_fallback",
-    context: { runId: Number(runId), runUrl },
-    nowMs,
-  });
-  return { recorded: true as const };
-}
-
-export async function recordWatchdogNotificationFailure(
-  db: D1Database,
-  environment: OpsEnvironment,
-  raw: unknown,
-  nowMs = Date.now(),
-) {
-  const { runId, runUrl } = parseGithubRun(raw, "invalid_watchdog_notification_failure");
-  await upsertOpsAlert(db, {
-    alertKey: `watchdog-notification-failed:${environment}`,
-    environment,
-    severity: "critical",
-    component: "github-watchdog",
-    errorCode: "watchdog_notification_failed",
-    context: { runId, runUrl },
-    nowMs,
-  });
-  return { recorded: true as const };
-}
-
-export async function recordSourceProcessorInternalFailure(
-  db: D1Database,
-  environment: OpsEnvironment,
-  raw: unknown,
-  nowMs = Date.now(),
-) {
-  const { runId, runUrl } = parseGithubRun(raw, "invalid_source_processor_internal_failure");
-  await upsertOpsAlert(db, {
-    alertKey: `source-processor-internal:${environment}:${runId}`,
-    environment,
-    severity: "critical",
-    component: "source-processor",
-    errorCode: "source_processor_internal",
-    context: { runId, runUrl },
-    nowMs,
-  });
-  return { recorded: true as const };
-}
-
-function parseGithubRun(raw: unknown, invalidCode: string) {
-  if (!isRecord(raw)) throw new Error(invalidCode);
-  const runId = raw["runId"];
-  const runUrl = raw["runUrl"];
-  if (
-    !Number.isInteger(runId) ||
-    Number(runId) <= 0 ||
-    typeof runUrl !== "string" ||
-    runUrl !== `https://github.com/${REPOSITORY}/actions/runs/${runId}`
-  ) {
-    throw new Error(invalidCode);
-  }
-  return { runId: Number(runId), runUrl };
 }
 
 export async function readOperationsHealth(db: D1Database, environment: OpsEnvironment) {
@@ -299,8 +215,4 @@ function likeLiteral(value: string) {
 
 function errorCode(value: string) {
   return value.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "unknown";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

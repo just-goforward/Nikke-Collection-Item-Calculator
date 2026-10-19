@@ -36,6 +36,9 @@ describe("forecast collector runtime switch", () => {
 
 describe("forecast collector route dispatch boundary", () => {
   it.each([
+    "/admin/ops-alerts/watchdog-fallback",
+    "/admin/ops-alerts/watchdog-notification-failed",
+    "/admin/ops-alerts/source-processor-internal",
     "/admin/probe",
     "/admin/dispatcher-smoke",
     `/admin/workflow-dispatches/fd-${"a".repeat(32)}/status`,
@@ -282,37 +285,6 @@ describe("forecast collector admin boundary", () => {
     await expect(response.json()).resolves.toMatchObject({
       evidence: { status: "incomplete" },
       certification: { status: "incomplete", hardFailures: [] },
-    });
-  });
-
-  it("persists an unexpected source processor failure as a critical operations alert", async () => {
-    const limit = vi.fn().mockResolvedValue({ success: true });
-    const response = await invokeAdmin(
-      {
-        ADMIN_RATE_LIMITER: { limit } as unknown as RateLimit,
-        ADMIN_TOKEN: "expected-token",
-      },
-      {
-        token: "expected-token",
-        path: "/admin/ops-alerts/source-processor-internal",
-        method: "POST",
-        body: JSON.stringify({
-          runId: 123456,
-          runUrl:
-            "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/runs/123456",
-        }),
-      },
-    );
-
-    expect(response.status).toBe(200);
-    const alert = await testEnv.FORECAST_DB.prepare(
-      `SELECT severity, component, error_code FROM forecast_ops_alerts
-       WHERE alert_key = 'source-processor-internal:staging:123456'`,
-    ).first<{ severity: string; component: string; error_code: string }>();
-    expect(alert).toEqual({
-      severity: "critical",
-      component: "source-processor",
-      error_code: "source_processor_internal",
     });
   });
 });
