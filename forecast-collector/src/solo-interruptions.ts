@@ -11,7 +11,7 @@ export function eventRound(event: ScheduleEvent) {
   return SOLO_RAID_ROUND_HISTORY.find((round) => round.startGameDate === date)?.round;
 }
 
-export function segmentComparison(segment: SoloSegment) {
+function segmentComparison(segment: SoloSegment) {
   const kst = (date: string) =>
     `${new Date(Date.parse(date) + 9 * 3600000).toISOString().slice(0, 19)}+09:00`;
   return {

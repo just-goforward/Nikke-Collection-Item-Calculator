@@ -8,27 +8,17 @@ import {
   sourceItemAndEventStatements,
   unapprovedCandidateCondition,
 } from "./db";
-import {
-  parseSourceQueueProcess,
-  type SourceQueueProcessResult,
-  validateSourceQueueResult,
-} from "./source-queue-validation";
+import { parseSourceQueueProcess, validateSourceQueueResult } from "./source-queue-validation";
 import type { CandidateBuildResult, NormalizedSourceItem, ScheduleEvent } from "./types";
-
-type QueueHooks = {
-  validate(result: SourceQueueProcessResult): Promise<void>;
-  statements(result: SourceQueueProcessResult, nowIso: string): Promise<D1PreparedStatement[]>;
-};
 
 export async function processSourceQueue(
   db: D1Database,
   raw: unknown,
   transaction: { before?: D1PreparedStatement[]; after?: D1PreparedStatement[] } = {},
   board11Allowed = board11InvocationGate(db),
-  queue?: QueueHooks,
 ) {
   const request = parseSourceQueueProcess(raw);
-  if (request.mode === "queue" && !queue) throw new Error("legacy_queue_disabled");
+  if (request.mode === "queue") throw new Error("legacy_queue_disabled");
   if (
     request.results.some((result) => result.source === "naver-board-11") &&
     !(await board11Allowed())
@@ -38,7 +28,6 @@ export async function processSourceQueue(
   const statements: D1PreparedStatement[] = [];
   for (const result of request.results) {
     await validateSourceQueueResult(result);
-    if (request.mode === "queue") await queue?.validate(result);
     if (result.item)
       statements.push(
         ...sourceItemAndEventStatements(
@@ -48,8 +37,6 @@ export async function processSourceQueue(
           nowIso,
         ),
       );
-    if (request.mode === "queue")
-      statements.push(...((await queue?.statements(result, nowIso)) ?? []));
   }
   await appendCandidate(db, request, statements, nowIso);
   statements.unshift(...(transaction.before ?? []));

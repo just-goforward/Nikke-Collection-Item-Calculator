@@ -1,15 +1,9 @@
-import { readBoundedText } from "../../shared/boundedHttp.ts";
 import { board11MetadataEligible } from "./board11-policy";
-import { sha256Hex, stableJson } from "./crypto";
+import { sha256Hex } from "./crypto";
 import type { SoloContext } from "./solo-contracts";
 import { judgeSolo, judgments } from "./solo-judgment";
 import { noticeTexts } from "./solo-sections";
-import type { NaverFeedMetadata, NormalizedSourceItem, ScheduleEvent, SourceKind } from "./types";
-
-const NAVER_FEED_URL = "https://comm-api.game.naver.com/nng_main/v1/community/lounge/nikke/feed";
-const NAVER_SEARCH_URL = "https://comm-api.game.naver.com/nng_main/v2/search/feeds";
-const MAX_RESPONSE_BYTES = 2_000_000;
-const REQUEST_TIMEOUT_MS = 10_000;
+import type { NormalizedSourceItem, ScheduleEvent, SourceKind } from "./types";
 
 const BOARD_KEYWORDS: Record<11 | 48 | 56, readonly string[]> = {
   11: ["솔로 레이드", "솔로레이드", "보상", "관리 키트 상자"],
@@ -36,162 +30,6 @@ const BOARD_KEYWORDS: Record<11 | 48 | 56, readonly string[]> = {
 };
 
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-
-export type NaverMetadataPage = {
-  rawFeedCount: number;
-  items: NaverFeedMetadata[];
-  recognizedSkipped: number[];
-  unknownRejected: Array<{
-    index: number;
-    topLevelKeys: string[];
-    shapeHash: string;
-  }>;
-};
-
-export async function fetchNaverFeedMetadata(
-  boardId: 11 | 48 | 56,
-  offset = 0,
-  fetcher: FetchLike = fetch,
-  pageSize = 10,
-): Promise<NaverMetadataPage> {
-  const url = new URL(NAVER_FEED_URL);
-  url.search = new URLSearchParams({
-    boardId: String(boardId),
-    buffFilteringYN: "N",
-    limit: String(boardId === 48 && pageSize === 5 ? 5 : 10),
-    offset: String(offset),
-    order: "NEW",
-  }).toString();
-  return parseNaverFeedMetadata(await fetchWithRetry(url, fetcher), boardId);
-}
-
-export async function fetchNaverItemIdentity(itemId: string, fetcher: FetchLike = fetch) {
-  if (!/^\d{1,20}$/.test(itemId)) throw new Error("naver_item_id");
-  const payload = await fetchWithRetry(new URL(`${NAVER_FEED_URL}/${itemId}`), fetcher);
-  if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_detail_schema_code");
-  const content = payload["content"];
-  if (
-    !isRecord(content) ||
-    !isRecord(content["feed"]) ||
-    !isRecord(content["user"]) ||
-    !isRecord(content["board"])
-  ) {
-    throw new Error("naver_detail_schema_content");
-  }
-  const feed = content["feed"];
-  const boardId = content["board"]["boardId"];
-  if (
-    String(feed["feedId"]) !== itemId ||
-    feed["loungeId"] !== "nikke" ||
-    typeof boardId !== "number" ||
-    !Number.isSafeInteger(boardId) ||
-    boardId <= 0
-  ) {
-    throw new Error("naver_detail_identity");
-  }
-  return {
-    itemId,
-    boardId,
-    publishedAt: parseNaverDate(feed["createdDate"]),
-    official: content["user"]["userRoleCode"] === "game_manager",
-  };
-}
-
-async function parseNaverFeedMetadata(
-  payload: unknown,
-  boardId: 11 | 48 | 56,
-): Promise<NaverMetadataPage> {
-  if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_schema_code");
-  const content = payload["content"];
-  if (!isRecord(content) || !Array.isArray(content["feeds"])) throw new Error("naver_schema_feeds");
-  const items: NaverFeedMetadata[] = [];
-  const recognizedSkipped: number[] = [];
-  const unknownRejected: NaverMetadataPage["unknownRejected"] = [];
-  for (const [index, row] of content["feeds"].entries()) {
-    if (isRecognizedNonPostRow(row)) {
-      recognizedSkipped.push(index);
-      continue;
-    }
-    if (!isValidFeedRow(row, boardId)) {
-      unknownRejected.push(await rejectedShape(index, row));
-      continue;
-    }
-    const feed = row["feed"];
-    const user = row["user"];
-    const itemId = String(feed["feedId"] ?? "");
-    const title = typeof feed["title"] === "string" ? normalizeWhitespace(feed["title"]) : "";
-    try {
-      items.push({
-        source: `naver-board-${boardId}`,
-        itemId,
-        url: readFeedUrl(row, itemId),
-        title,
-        publishedAt: parseNaverDate(feed["createdDate"]),
-        official: user["role"] === "game_manager" || user["userRoleCode"] === "game_manager",
-      });
-    } catch {
-      unknownRejected.push(await rejectedShape(index, row));
-    }
-  }
-  return { rawFeedCount: content["feeds"].length, items, recognizedSkipped, unknownRejected };
-}
-
-export async function fetchNaverStructuredItem(
-  boardId: 11 | 48 | 56,
-  itemId: string,
-  fetcher: FetchLike = fetch,
-) {
-  if (!/^\d{1,20}$/.test(itemId)) throw new Error("naver_item_id");
-  const payload = await fetchWithRetry(new URL(`${NAVER_FEED_URL}/${itemId}`), fetcher);
-  return parseNaverDetail(payload, boardId, true);
-}
-
-export async function fetchNaverBoard(
-  boardId: 11 | 48 | 56,
-  fetcher: FetchLike = fetch,
-): Promise<NormalizedSourceItem[]> {
-  const url = new URL(NAVER_FEED_URL);
-  url.search = new URLSearchParams({
-    boardId: String(boardId),
-    buffFilteringYN: "N",
-    limit: "30",
-    offset: "0",
-    order: "NEW",
-  }).toString();
-  const payload = await fetchWithRetry(url, fetcher);
-  return parseNaverFeed(payload, boardId);
-}
-
-export async function fetchNaverSoloHistory(
-  fetcher: FetchLike = fetch,
-): Promise<NormalizedSourceItem[]> {
-  const candidates = new Map<string, Record<string, unknown>>();
-  for (const keyword of ["솔로레이드", "솔로 레이드"]) {
-    const url = new URL(NAVER_SEARCH_URL);
-    url.search = new URLSearchParams({
-      keyword,
-      limit: "100",
-      loungeId: "nikke",
-      offset: "0",
-      orderType: "LATEST",
-      searchOption: "COMMUNITY_FEED_TITLE",
-    }).toString();
-    for (const row of searchRows(await fetchWithRetry(url, fetcher))) {
-      if (!isOfficialSoloOpening(row)) continue;
-      const feedId = String(row["feedId"] ?? "");
-      if (feedId) candidates.set(feedId, row);
-    }
-  }
-
-  const items: NormalizedSourceItem[] = [];
-  for (const feedId of [...candidates.keys()].slice(0, 8)) {
-    const url = new URL(`${NAVER_FEED_URL}/${feedId}`);
-    const payload = await fetchWithRetry(url, fetcher);
-    const item = await parseNaverDetail(payload, 56, true);
-    if (item) items.push(item);
-  }
-  return items;
-}
 
 export async function parseNaverFeed(
   payload: unknown,
@@ -412,65 +250,6 @@ export function parseKoreanDateRange(
   return Date.parse(end) > Date.parse(start) ? { start, end } : null;
 }
 
-async function fetchWithRetry(url: URL, fetcher: FetchLike) {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-      let response: Response;
-      try {
-        response = await fetcher(url, {
-          headers: {
-            accept: "application/json",
-            origin: "https://game.naver.com",
-            referer: "https://game.naver.com/",
-            "user-agent": "collection-kit-forecast-collector/1.0",
-          },
-          signal: controller.signal,
-        });
-      } catch (error) {
-        const code = isTimeoutError(error) ? "naver_timeout" : "naver_network";
-        lastError = new Error(code);
-        if (attempt === 1) throw lastError;
-        continue;
-      }
-      if ((response.status === 429 || response.status >= 500) && attempt === 0) continue;
-      try {
-        return await readGuardedJson(response);
-      } catch (error) {
-        if (controller.signal.aborted || isTimeoutError(error)) {
-          throw new Error("naver_timeout");
-        }
-        throw error;
-      }
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error("naver_fetch_failed");
-}
-
-function isTimeoutError(error: unknown) {
-  return error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError");
-}
-
-async function readGuardedJson(response: Response): Promise<unknown> {
-  if (!response.ok) throw new Error(`naver_http_${response.status}`);
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("application/json")) {
-    throw new Error("naver_content_type");
-  }
-  const declared = Number(response.headers.get("content-length") ?? 0);
-  if (declared > MAX_RESPONSE_BYTES) throw new Error("naver_response_oversize");
-  const text = await readBoundedText(response, MAX_RESPONSE_BYTES, "naver_response_oversize");
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    throw new Error("naver_malformed_json");
-  }
-}
-
 function classifyEvent(text: string): ScheduleEvent["eventType"] | null {
   if (/(솔로\s*레이드|솔레)/.test(text)) {
     return text
@@ -487,49 +266,6 @@ function classifyEvent(text: string): ScheduleEvent["eventType"] | null {
   if (/콜라보/.test(text)) return "collaboration";
   if (/(관리\s*키트\s*상자|보상\s*지급)/.test(text)) return "reward";
   return null;
-}
-
-function searchRows(payload: unknown) {
-  if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_search_schema_code");
-  const content = payload["content"];
-  if (!isRecord(content) || !Array.isArray(content["feeds"])) {
-    throw new Error("naver_search_schema_feeds");
-  }
-  return content["feeds"].filter(isRecord);
-}
-
-function isOfficialSoloOpening(row: Record<string, unknown>) {
-  const title = typeof row["title"] === "string" ? normalizeWhitespace(row["title"]) : "";
-  const user = row["user"];
-  const board = row["board"];
-  return (
-    isRecord(user) &&
-    user["userRoleCode"] === "game_manager" &&
-    isRecord(board) &&
-    board["boardId"] === 56 &&
-    /솔로\s*레이드.*오픈(?:\s*예정|\s*안내)?/.test(title) &&
-    !/재오픈/.test(title)
-  );
-}
-
-async function parseNaverDetail(payload: unknown, boardId: 11 | 48 | 56, structuredOnly = false) {
-  if (!isRecord(payload) || payload["code"] !== 200) throw new Error("naver_detail_schema_code");
-  const content = payload["content"];
-  if (!isRecord(content) || !isRecord(content["user"])) {
-    throw new Error("naver_detail_schema_content");
-  }
-  const user = content["user"];
-  const normalized = {
-    ...content,
-    user: { ...user, role: user["userRoleCode"] },
-  };
-  const item =
-    (
-      await parseNaverFeed({ code: 200, content: { feeds: [normalized] } }, boardId, {
-        structuredJsonOnly: structuredOnly,
-      })
-    )[0] ?? null;
-  return item;
 }
 
 function visit(value: unknown, output: string[]) {
@@ -573,75 +309,6 @@ function hasRelevantKeyword(text: string, keywords: readonly string[]) {
 
 function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
-}
-
-function isValidFeedRow(
-  value: unknown,
-  boardId: 11 | 48 | 56,
-): value is Record<string, unknown> & {
-  feed: Record<string, unknown>;
-  user: Record<string, unknown>;
-} {
-  if (
-    !isRecord(value) ||
-    !isRecord(value["feed"]) ||
-    !isRecord(value["user"]) ||
-    !isRecord(value["board"])
-  ) {
-    return false;
-  }
-  const feed = value["feed"];
-  const itemId = String(feed["feedId"] ?? "");
-  const title = typeof feed["title"] === "string" ? normalizeWhitespace(feed["title"]) : "";
-  return (
-    /^\d{1,20}$/.test(itemId) &&
-    title.length > 0 &&
-    title.length <= 300 &&
-    feed["loungeId"] === "nikke" &&
-    value["board"]["boardId"] === boardId
-  );
-}
-
-function isRecognizedNonPostRow(value: unknown) {
-  if (!isRecord(value) || isRecord(value["feed"])) return false;
-  const type = typeof value["type"] === "string" ? value["type"].toLowerCase() : "";
-  return (
-    isRecord(value["advertisement"]) ||
-    value["advertisement"] === true ||
-    value["ad"] === true ||
-    type === "advertisement" ||
-    type === "banner"
-  );
-}
-
-async function rejectedShape(index: number, value: unknown) {
-  const topLevelKeys = isRecord(value) ? Object.keys(value).sort().slice(0, 24) : [];
-  const feedKeys =
-    isRecord(value) && isRecord(value["feed"])
-      ? Object.keys(value["feed"]).sort().slice(0, 24)
-      : [];
-  const userKeys =
-    isRecord(value) && isRecord(value["user"])
-      ? Object.keys(value["user"]).sort().slice(0, 24)
-      : [];
-  let kind: string = typeof value;
-  if (Array.isArray(value)) {
-    kind = "array";
-  } else if (value === null) {
-    kind = "null";
-  }
-  return {
-    index,
-    topLevelKeys,
-    shapeHash: await sha256Hex(
-      stableJson({
-        kind,
-        topLevelKeys,
-        feedKeys,
-        userKeys,
-      }),
-    ),
-  };
 }
 
 function koreanHour(period: string | undefined, rawHour: string | undefined, fallback: number) {

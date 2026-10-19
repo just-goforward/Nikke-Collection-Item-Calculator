@@ -3,36 +3,12 @@ import { judgeInterruption } from "./solo-interruptions";
 import { noticeTexts, soloSections } from "./solo-sections";
 import type { NormalizedSourceItem, ScheduleEvent } from "./types";
 
-export const SOLO_RULE_VERSION = "solo-section-v2";
 export const judgments = new WeakMap<NormalizedSourceItem, Judgment[]>();
 
 function times(start: string | null, end: string | null) {
   const kst = (value: string | null) =>
     value ? `${new Date(Date.parse(value) + 9 * 3600000).toISOString().slice(0, 19)}+09:00` : null;
   return { startsAt: start, endsAt: end, startKst: kst(start), endKst: kst(end) };
-}
-export function soloLookup(item: NormalizedSourceItem) {
-  const text = noticeTexts.get(item) ?? {
-    effective: item.normalizedText,
-    evidence: item.normalizedText,
-  };
-  const sections = soloSections(text);
-  const blocks = sections.length ? sections : [text];
-  const solo = sections.length > 0 || /(솔로\s*레이드|솔레)/.test(text.effective);
-  const dates =
-    solo && !/점검\s*일시/.test(text.effective)
-      ? blocks.flatMap((block) => {
-          const match = block.effective.match(
-            /(?:(\d{4})년\s*)?(\d{1,2})[월/]\s*(\d{1,2})일?(?:\([^)]*\))?[^~\n]*점검\s*완료\s*후/,
-          );
-          return match
-            ? [
-                `${match[1] ?? new Date(item.publishedAt).getUTCFullYear()}-${match[2]?.padStart(2, "0")}-${match[3]?.padStart(2, "0")}`,
-              ]
-            : [];
-        })
-      : [];
-  return { solo, dates: [...new Set(dates)] };
 }
 function startGameDate(value: string) {
   return new Date(Date.parse(value) + 4 * 3600000).toISOString().slice(0, 10);

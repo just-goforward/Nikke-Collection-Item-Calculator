@@ -32,7 +32,6 @@ export type GrantPlan = {
   statements: D1PreparedStatement[];
   judgments: Judgment[];
 };
-export const grantPlans = new WeakMap<NormalizedSourceItem, GrantPlan>();
 const datePattern = String.raw`(?:(\d{4})년\s*)?(\d{1,2})[월/]\s*(\d{1,2})일?(?:\([^)]*\))?`;
 
 function dateValue(match: RegExpMatchArray, published: string) {
@@ -261,7 +260,6 @@ export async function planGrants(
     }
     plan.judgments.push(grantJudgment(item, block, firstIndex + index, index, reason));
   }
-  grantPlans.set(item, plan);
   return plan;
 }
 

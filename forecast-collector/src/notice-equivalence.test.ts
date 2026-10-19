@@ -1,9 +1,7 @@
 import { expect, it } from "vitest";
-import { readBoundedText } from "../../shared/boundedHttp";
 import fixture from "../fixtures/official-solo-history/8060044.json";
 import { parseNaverFeed, parseScheduleEvents } from "./naver";
-import { fetchNotice, NOTICE_MAX_BYTES, parseNoticeDetail } from "./notice";
-import { buildNoticeCandidate, noticeErrorCode } from "./notice-processing";
+import { parseNoticeDetail } from "./notice";
 
 // Retained d336e9c normalization, including the synthetic JSON round trip.
 // parseNaverFeed without parsedContents retains the original raw-string extraction
@@ -97,23 +95,9 @@ async function outputs(parse: () => ReturnType<typeof parseNoticeDetail>) {
   try {
     const item = await parse();
     const events = await parseScheduleEvents(item ? [item] : []);
-    const candidate = await buildNoticeCandidate(
-      [],
-      item
-        ? events.map((event) => ({
-            source: "naver-board-56" as const,
-            itemId: item.itemId,
-            outcome: "processed" as const,
-            item,
-            event,
-          }))
-        : [],
-      Date.parse("2026-08-20T12:00:00Z"),
-      1,
-    );
-    return { json: JSON.stringify({ item, events, candidate }) };
+    return { json: JSON.stringify({ item, events }) };
   } catch (error) {
-    return { error: noticeErrorCode(error) };
+    return { error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -147,30 +131,9 @@ it.each([
     <p>&amp; &apos; &gt; &lt; &nbsp; &quot; &#39; &#x1f600; &#55296; &#1114112;
     &unknown; &AMP;<br>한글</p></div>`,
   ],
-])(
-  "%s preserves all item, event and candidate bytes or the error code",
-  async (_name, contents) => {
-    const payload = structuredClone(fixture);
-    payload.content.feed.contents = contents;
-    const expected = await outputs(() => oldParse(payload, 56, "8060044"));
-    expect(await outputs(() => parseNoticeDetail(payload, 56, "8060044"))).toEqual(expected);
-  },
-);
-
-it.each([-1, 0, 1])("preserves the UTF-8 response size boundary at limit %+i", async (delta) => {
+])("%s preserves historical item and event bytes or the error code", async (_name, contents) => {
   const payload = structuredClone(fixture);
-  payload.content.feed.contents = structured(`${schedule} 한글😀`);
-  const base = JSON.stringify({ ...payload, padding: "" });
-  const padding = " ".repeat(NOTICE_MAX_BYTES + delta - new TextEncoder().encode(base).length);
-  const body = JSON.stringify({ ...payload, padding });
-  expect(new TextEncoder().encode(body).length).toBe(NOTICE_MAX_BYTES + delta);
-  const response = () => new Response(body, { headers: { "content-type": "application/json" } });
-  // Retained successful-200 application/json transport path from d336e9c.
-  const expected = await outputs(async () => {
-    const text = await readBoundedText(response(), NOTICE_MAX_BYTES, "naver_response_too_large");
-    return oldParse(JSON.parse(text), 56, "8060044");
-  });
-  expect(await outputs(() => fetchNotice(56, "8060044", async () => response()))).toEqual(expected);
-  if (delta > 0) expect(expected).toEqual({ error: "naver_response_too_large" });
-  else expect(expected).toHaveProperty("json");
+  payload.content.feed.contents = contents;
+  const expected = await outputs(() => oldParse(payload, 56, "8060044"));
+  expect(await outputs(() => parseNoticeDetail(payload, 56, "8060044"))).toEqual(expected);
 });

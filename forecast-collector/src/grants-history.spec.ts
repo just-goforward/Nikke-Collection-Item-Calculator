@@ -7,6 +7,7 @@ import { extractNoticeText, noticeTexts } from "./solo-sections";
 import { runtimeTestDb } from "./test-runtime-db";
 import type { NormalizedSourceItem } from "./types";
 
+// Historical ledger reproduction also supports the independently sealed v4 oracle.
 let sqlite: DatabaseSync;
 beforeEach(() => {
   sqlite = new DatabaseSync(":memory:");

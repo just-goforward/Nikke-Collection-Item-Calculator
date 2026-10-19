@@ -97,12 +97,6 @@ export const TYPE_ESCAPE_BOUNDARY_ALLOWLIST: DebtEntry[] = [
     removalTarget: "Provide a typed forecast-collector Miniflare environment factory.",
   },
   {
-    file: "forecast-collector/src/source-queue.test.ts",
-    owner: "test",
-    reason: "Source queue integration tests adapt a Miniflare environment to generated bindings.",
-    removalTarget: "Use the shared typed collector environment fixture.",
-  },
-  {
     file: "forecast-collector/src/worker.test.ts",
     owner: "test",
     reason: "Worker boundary tests adapt request, execution-context, and rate-limit test doubles.",
@@ -297,34 +291,11 @@ export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
     removalTarget: "Extract independent counter queries and a pure canary decision assembler.",
   },
   {
-    file: "forecast-collector/src/naver.test.ts",
-    function: "<anonymous>",
-    owner: "test",
-    reason: "Recorded Naver feed and body parser cases share source fixtures.",
-    removalTarget: "Split feed metadata, SmartEditor body, and schedule parsing suites.",
-  },
-  {
     file: "forecast-collector/src/naver.ts",
     function: "parseNaverFeed",
     owner: "worker",
     reason: "Feed parsing validates several upstream response shapes before normalizing metadata.",
     removalTarget: "Separate upstream schema validation from normalized feed item construction.",
-  },
-  {
-    file: "forecast-collector/src/source-queue.ts",
-    function: "pollNaverSource",
-    owner: "worker",
-    reason: "Cursor recovery and queue insertion remain one transactional polling operation.",
-    removalTarget:
-      "Extract pagination-state transitions after replay fixtures cover cursor recovery.",
-  },
-  {
-    file: "forecast-collector/src/source-queue.ts",
-    function: "processSourceQueue",
-    owner: "worker",
-    reason:
-      "Queue validation and atomic source, event, and candidate writes share one D1 batch boundary.",
-    removalTarget: "Extract pure payload validation while keeping the final D1 batch atomic.",
   },
   {
     file: "benchmarks/evaluator/exact-replan.ts",

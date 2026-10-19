@@ -28,7 +28,7 @@ export type CollectorEnv = {
 export type SourceKind = "naver-board-11" | "naver-board-48" | "naver-board-56" | "x-nikke-kr";
 export type NaverSourceKind = Extract<SourceKind, `naver-${string}`>;
 
-export type NaverFeedMetadata = {
+type NaverFeedMetadata = {
   source: NaverSourceKind;
   itemId: string;
   url: string;
@@ -82,25 +82,10 @@ export type CandidateBuildResult = {
   payloadHash: string;
 };
 
-export type CollectionSummary = {
-  outcome: "completed" | "circuit_open" | "failure" | "held";
-  polledSources: number;
-  queuedItems: number;
-};
-
 export type SourceQueueItem = NaverFeedMetadata & {
   status: "pending" | "processed" | "ignored" | "manual_review";
   attempts: number;
   errorCode: string | null;
 };
 
-export type SourceQueueResult = {
-  source: NaverSourceKind;
-  itemId: string;
-  outcome: "processed" | "ignored" | "manual_review" | "retry";
-  errorCode?: string;
-  item?: NormalizedSourceItem;
-  event?: ScheduleEvent;
-  events?: ScheduleEvent[];
-};
 /// <reference path="../worker-configuration.d.ts" />
