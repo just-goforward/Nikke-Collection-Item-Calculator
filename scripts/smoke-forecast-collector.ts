@@ -6,7 +6,7 @@ import {
 
 const baseUrl = requiredArgument(2).replace(/\/$/, "");
 const token = requiredArgument(3);
-const mode = process.argv[4] ?? "probe";
+const mode = process.argv[4] ?? "read-only";
 const expectedDeploySha = process.env["FORECAST_EXPECTED_DEPLOY_SHA"];
 
 const health = await request("/health", false);
@@ -25,28 +25,9 @@ if (mode === "health-only") {
   process.exit(0);
 }
 
-const probe = await request("/admin/probe", true, "POST");
-if (!isRecord(probe) || !["completed", "circuit_open"].includes(String(probe["outcome"]))) {
-  throw new Error("Collector probe did not return a typed successful outcome.");
-}
-const queue = await request("/admin/source-queue?limit=20", true);
-if (!isRecord(queue) || !Array.isArray(queue["items"])) {
-  throw new Error("Collector source queue response is invalid.");
-}
 const ledger = await request("/admin/schedule-ledger", true);
 if (!isRecord(ledger) || !Array.isArray(ledger["events"])) {
   throw new Error("Collector schedule ledger response is invalid.");
-}
-const roundTrip = await request("/admin/source-queue/process", true, "POST", {
-  mode: "bootstrap",
-  results: [],
-});
-if (!isRecord(roundTrip) || roundTrip["processed"] !== 0) {
-  throw new Error("Collector queue round-trip response is invalid.");
-}
-const compatibility = await request("/admin/candidates/supersede-incompatible", true, "POST");
-if (!isRecord(compatibility) || !Number.isInteger(compatibility["superseded"])) {
-  throw new Error("Collector candidate compatibility response is invalid.");
 }
 const pending = await request("/admin/candidates", true);
 if (!isRecord(pending) || !Array.isArray(pending["candidates"])) {
@@ -63,16 +44,14 @@ console.log(
   `Forecast collector smoke passed with ${pending["candidates"].length} pending candidate(s).`,
 );
 
-async function request(path: string, authenticated: boolean, method = "GET", body?: unknown) {
+async function request(path: string, authenticated: boolean) {
   let headers: Record<string, string> | undefined;
   if (authenticated) {
     headers = { authorization: `Bearer ${token}` };
-    if (body !== undefined) headers["content-type"] = "application/json";
   }
   const response = await fetch(`${baseUrl}${path}`, {
-    method,
+    method: "GET",
     ...(headers === undefined ? {} : { headers }),
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) throw new Error(`${path} returned ${response.status}.`);

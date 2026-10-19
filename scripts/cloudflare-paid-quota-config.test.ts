@@ -55,7 +55,6 @@ describe("Cloudflare Paid quota configuration", () => {
   it("requires separate analytics and Billing Read credentials in quota workflows", () => {
     for (const path of [
       ".github/workflows/forecast-collector-deploy.yml",
-      ".github/workflows/forecast-collector-promote.yml",
       ".github/workflows/forecast-d1-budget-watch.yml",
       ".github/workflows/worker-deploy.yml",
       ".github/workflows/worker-promote.yml",
@@ -73,7 +72,6 @@ describe("Cloudflare Paid quota configuration", () => {
   it("uses the fixed eight-hour v10 canary contract", () => {
     const watcher = read(".github/workflows/forecast-d1-budget-watch.yml");
     const deploy = read(".github/workflows/forecast-collector-deploy.yml");
-    const promotion = read(".github/workflows/forecast-collector-promote.yml");
     const canarySource = read("forecast-collector/src/canary.ts");
     expect(watcher).toContain("active v10 canary");
     expect(watcher).toContain("report?.version === 10");
@@ -81,25 +79,16 @@ describe("Cloudflare Paid quota configuration", () => {
     expect(deploy).toContain("Start fixed eight-hour Paid canary v10");
     expect(deploy).not.toContain("until_d1_reset");
     expect(deploy).toContain("CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN");
-    expect(promotion).toContain("CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN");
-    expect(promotion).toContain("id: final_quota");
-    expect(promotion).toContain("continue-on-error: true");
-    expect(promotion).toContain("FORECAST_CANARY_RUNTIME_BASELINE");
     expect(canarySource).toContain("const pollMode = await readCanaryPollMode(");
   });
 
-  it("refreshes a separate rolling eight-hour Worker CPU window before final canary evaluation", () => {
+  it("uses a separate rolling eight-hour Worker CPU window for quota evaluation", () => {
     const analytics = read("shared/cloudflarePaidUsage.ts");
     const query = read("shared/cloudflarePaidUsageQuery.ts");
-    const promotion = read(".github/workflows/forecast-collector-promote.yml");
     expect(analytics).toContain("const WORKER_RUNTIME_WINDOW_MS = 8 * 60 * 60 * 1_000");
     expect(query).toContain("workerRuntime: workersInvocationsAdaptive(");
     expect(query).toContain("quantiles { cpuTimeP95 cpuTimeP99 }");
     expect(analytics).toContain("runtimeWorkerGroups");
-    expect(promotion.indexOf("/admin/refresh")).toBeGreaterThan(-1);
-    expect(promotion.indexOf("Read authenticated Paid canary v10 certificate")).toBeGreaterThan(
-      promotion.indexOf("/admin/refresh"),
-    );
   });
 
   it("waits for the deployed Usage Guard SHA before sending the mutating refresh", () => {

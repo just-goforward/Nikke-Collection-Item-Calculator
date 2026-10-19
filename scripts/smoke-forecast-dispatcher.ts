@@ -1,52 +1,49 @@
-const [rawBaseUrl, token, requestKey] = process.argv.slice(2);
-if (!rawBaseUrl || !token || !requestKey) {
-  throw new Error("Usage: smoke-forecast-dispatcher <collector-url> <admin-token> <request-key>");
-}
-if (!/^[a-zA-Z0-9._:-]{1,80}$/.test(requestKey)) throw new Error("Invalid smoke request key.");
+import { readFileSync } from "node:fs";
+import { parseWranglerJson } from "./apply-forecast-d1-migrations.ts";
+
+const [rawBaseUrl, outboxPath] = process.argv.slice(2);
+if (!rawBaseUrl || !outboxPath)
+  throw new Error("Usage: smoke-forecast-dispatcher <collector-url> <staging-outbox-json>");
 const baseUrl = rawBaseUrl.replace(/\/$/, "");
-const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
-const created = await requestJson(`${baseUrl}/admin/dispatcher-smoke`, {
-  method: "POST",
-  headers,
-  body: JSON.stringify({ requestKey }),
-});
-const dispatchId = isRecord(created) ? created["dispatchId"] : null;
-if (typeof dispatchId !== "string" || !/^fd-[0-9a-f]{32}$/.test(dispatchId)) {
-  throw new Error("Dispatcher smoke did not return a valid dispatch id.");
-}
+const health = await requestJson(`${baseUrl}/health`);
+if (
+  !isRecord(health) ||
+  health["status"] !== "ok" ||
+  !isRecord(health["operations"]) ||
+  !isRecord(health["operations"]["dispatcher"])
+)
+  throw new Error("Dispatcher storage health contract is invalid.");
 
-const deadline = Date.now() + 10 * 60 * 1_000;
-let lastState = "pending";
-while (Date.now() < deadline) {
-  const status = await requestJson(`${baseUrl}/admin/workflow-dispatches/${dispatchId}/status`, {
-    headers,
-  });
-  const dispatch = isRecord(status) && isRecord(status["dispatch"]) ? status["dispatch"] : null;
-  lastState = typeof dispatch?.["state"] === "string" ? dispatch["state"] : "missing";
+const query = parseWranglerJson(readFileSync(outboxPath, "utf8"));
+if (
+  !Array.isArray(query) ||
+  query.length !== 1 ||
+  !isRecord(query[0]) ||
+  query[0]["success"] !== true ||
+  !Array.isArray(query[0]["results"])
+)
+  throw new Error("Staging outbox query failed.");
+const rows: unknown[] = query[0]["results"];
+if (rows.length !== 2) throw new Error("Staging outbox query is incomplete.");
+const queues = new Set<string>();
+for (const row of rows) {
   if (
-    lastState === "succeeded" &&
-    Number.isInteger(dispatch?.["runId"]) &&
-    typeof dispatch?.["discordSentAt"] === "string"
-  ) {
-    console.log(
-      JSON.stringify({
-        status: "ok",
-        dispatchId,
-        runId: dispatch["runId"],
-        discordSent: true,
-      }),
-    );
-    process.exit(0);
-  }
-  if (["failed", "cancelled", "stale"].includes(lastState)) {
-    throw new Error(`Dispatcher smoke reached terminal state ${lastState}.`);
-  }
-  await new Promise((resolve) => setTimeout(resolve, 10_000));
+    !isRecord(row) ||
+    !["publication", "v2"].includes(String(row["queue"])) ||
+    row["environment"] !== "staging" ||
+    (row["state"] !== null &&
+      !["pending", "sending", "sent", "dead"].includes(String(row["state"])))
+  )
+    throw new Error("Staging outbox query contract is invalid.");
+  queues.add(String(row["queue"]));
 }
-throw new Error(`Dispatcher smoke timed out in state ${lastState}.`);
+if (queues.size !== 2) throw new Error("Staging outbox query contains duplicate queues.");
+// This proves storage readiness, not message delivery. Scheduled execution and
+// delivery remain covered by the workflow's live Observability/canary gates.
+console.log(JSON.stringify({ status: "ok", environment: "staging", outboxTablesReadable: true }));
 
-async function requestJson(url: string, init: RequestInit) {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(10_000) });
+async function requestJson(url: string) {
+  const response = await fetch(url, { method: "GET", signal: AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error(`Dispatcher smoke endpoint returned ${response.status}.`);
   const declared = Number(response.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > 32_768)

@@ -11,7 +11,6 @@ import { assertForecastRuntimeTelemetryEvidence } from "../shared/forecastCanary
 const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/i;
 const DOCKER_DIGEST = /^docker:\/\/[^\s@]+@sha256:[0-9a-f]{64}$/i;
 const VERSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -55,6 +54,7 @@ function rolloutVariables(bindings: readonly unknown[]) {
   const names = new Set([
     "DEPLOY_SHA",
     "ENVIRONMENT",
+    "FORECAST_ENVIRONMENT",
     "POLL_MODE",
     "COLLECT_ENABLED",
     "DISPATCH_ENABLED",

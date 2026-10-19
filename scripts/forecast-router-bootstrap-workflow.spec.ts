@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import { validateWorkflowSource } from "./check-workflow-hardening";
 
 const workflow = readFileSync(".github/workflows/forecast-router-bootstrap.yml", "utf8");
-const promotion = readFileSync(".github/workflows/forecast-collector-promote.yml", "utf8");
 
 function step(name: string) {
   const source = workflow.split(`      - name: ${name}\n`)[1]?.split("\n      - name: ")[0];
@@ -50,7 +49,6 @@ describe("Protected disabled production Router bootstrap", () => {
         /npx wrangler deploy --env="" --config forecast-interactions\/wrangler.toml \\\n(?:.*\n)*? {12}--message "Forecast interaction Router production disabled \$DEPLOY_SHA"/,
       )?.[0];
     expect(command(workflow)).toBeDefined();
-    expect(command(workflow)).toBe(command(promotion));
     expect(workflow.match(/npx wrangler deploy /g)).toHaveLength(1);
     const configs = [...workflow.matchAll(/--config (\S+)/g)].map((match) => match[1]);
     expect(new Set(configs)).toEqual(new Set(["forecast-interactions/wrangler.toml"]));

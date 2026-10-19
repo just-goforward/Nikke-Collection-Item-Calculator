@@ -38,10 +38,11 @@ on:
       - "shared/supplyForecastCandidate.ts"
       - "shared/supplyForecastModel.ts"
       - "scripts/smoke-forecast-collector.ts"
-      - "scripts/recover-forecast-boundary.ts"
-      - "scripts/recover-forecast-boundary.spec.ts"
       - "scripts/smoke-forecast-dispatcher.ts"
       - "scripts/smoke-forecast-interactions.ts"
+      - "scripts/forecast-v2-smoke.spec.ts"
+      - "scripts/check-workflow-hardening-staging.spec.ts"
+      - "scripts/smoke-forecast-interactions.spec.ts"
       - "scripts/send-forecast-router-test.ts"
       - "scripts/cloudflare-cron-capacity.ts"
       - "scripts/cloudflare-d1-budget.ts"
@@ -69,7 +70,6 @@ on:
       - "forecast-interactions/vitest.config.ts"
       - "usage-guard/vitest.config.ts"
       - ".github/workflows/forecast-collector-deploy.yml"
-      - ".github/workflows/forecast-collector-promote.yml"
       - ".github/workflows/forecast-d1-budget-watch.yml"
       - "package.json"
       - "package-lock.json"
@@ -88,20 +88,6 @@ on:
         required: true
         default: false
         type: boolean
-      recovery_source:
-        description: Explicit staging proven-boundary recovery before smoke (never reanchors)
-        required: true
-        default: none
-        type: choice
-        options:
-          - none
-          - "48"
-          - "56"
-      expected_committed_item_id:
-        description: Exact existing committed item ID for the selected recovery source
-        required: false
-        default: ""
-        type: string
 
 permissions:
   contents: read
@@ -157,7 +143,6 @@ jobs:
           CLOUDFLARE_USAGE_GUARD_URL: ${{ vars.CLOUDFLARE_USAGE_GUARD_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
-          FORECAST_INTERACTIONS_URL: ${{ vars.FORECAST_INTERACTIONS_URL }}
           DISCORD_FORECAST_STAGING_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_STAGING_BOT_TOKEN }}
           DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
           DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID }}
@@ -183,13 +168,6 @@ jobs:
           done
           [[ "$DISCORD_FORECAST_STAGING_PUBLIC_KEY" =~ ^[0-9a-fA-F]{64}$ ]] || { echo "Missing or invalid DISCORD_FORECAST_STAGING_PUBLIC_KEY variable." >&2; exit 1; }
           [[ "$FORECAST_INTERACTIONS_STAGING_URL" =~ ^https://[^/]+$ ]] || { echo "Missing or invalid FORECAST_INTERACTIONS_STAGING_URL variable." >&2; exit 1; }
-
-      - name: Validate boundary recovery inputs before mutations
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          RECOVERY_SOURCE: ${{ inputs.recovery_source || 'none' }}
-          EXPECTED_COMMITTED_ITEM_ID: ${{ inputs.expected_committed_item_id }}
-        run: node scripts/recover-forecast-boundary.ts --validate
 
       - name: Prepare npm 12.2.0 with pinned integrity
         shell: bash
@@ -259,41 +237,8 @@ jobs:
 
       - name: Validate required Router origin after dependency installation
         env:
-          FORECAST_INTERACTIONS_URL: ${{ vars.FORECAST_INTERACTIONS_URL }}
-        run: node scripts/check-workflow-hardening.ts --router-origin "$FORECAST_INTERACTIONS_URL"
-
-      - name: Require the production-owned Router before staging mutations
-        id: router
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          FORECAST_INTERACTIONS_URL: ${{ vars.FORECAST_INTERACTIONS_URL }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx wrangler deployments status --env="" --config forecast-interactions/wrangler.toml \
-            --json > "$RUNNER_TEMP/router-before-staging.json"
-          version=$(node scripts/check-workflow-hardening.ts --active-version "$RUNNER_TEMP/router-before-staging.json")
-          npx wrangler versions view "$version" --env="" --config forecast-interactions/wrangler.toml \
-            --json > "$RUNNER_TEMP/router-version-before-staging.json"
-          node scripts/check-workflow-hardening.ts --version-identity \
-            "$RUNNER_TEMP/router-version-before-staging.json" "$version" > "$RUNNER_TEMP/router-identity-before-staging.json"
-          node scripts/check-workflow-hardening.ts --sanitize-identity \
-            "$RUNNER_TEMP/router-identity-before-staging.json" > "$RUNNER_TEMP/router-identity-before-staging.evidence.json"
-          jq -e '.tag == (.deploymentSha + "-production-enabled") or .tag == (.deploymentSha + "-production-disabled")' \
-            "$RUNNER_TEMP/router-identity-before-staging.json" >/dev/null
-          jq -e '.vars.PRODUCTION_MUTATIONS_ENABLED == "true" or .vars.PRODUCTION_MUTATIONS_ENABLED == "false"' \
-            "$RUNNER_TEMP/router-identity-before-staging.json" >/dev/null
-          sha=$(jq -r '.deploymentSha' "$RUNNER_TEMP/router-identity-before-staging.json")
-          echo "deployment_sha=$sha" >> "$GITHUB_OUTPUT"
-          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
-            "$FORECAST_INTERACTIONS_URL/health" > "$RUNNER_TEMP/router-health-before-staging.json"
-          jq -e --arg sha "$sha" --slurpfile identity "$RUNNER_TEMP/router-identity-before-staging.json" \
-            '.status == "ok" and .deploymentSha == $sha and
-             .productionMutationsEnabled == ($identity[0].vars.PRODUCTION_MUTATIONS_ENABLED == "true")' \
-            "$RUNNER_TEMP/router-health-before-staging.json" >/dev/null
-          node scripts/check-workflow-hardening.ts --sanitize-readiness \
-            "$RUNNER_TEMP/router-health-before-staging.json" > "$RUNNER_TEMP/router-health-before-staging.evidence.json"
+          FORECAST_INTERACTIONS_STAGING_URL: ${{ vars.FORECAST_INTERACTIONS_STAGING_URL }}
+        run: node scripts/check-workflow-hardening.ts --router-origin "$FORECAST_INTERACTIONS_STAGING_URL"
 
       - name: Verify statistics production D1 remains readable
         env:
@@ -325,10 +270,13 @@ jobs:
           npm run interactions:types:check
           npx tsc --noEmit -p forecast-interactions/tsconfig.json
           npm run test:forecast-interactions
-          npx wrangler deploy --dry-run --config forecast-interactions/wrangler.toml
+          npx wrangler deploy --dry-run --env staging --config forecast-interactions/wrangler.toml
 
       - name: Verify Forecast migration runner
-        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/apply-forecast-d1-migrations-json.spec.ts scripts/apply-forecast-d1-migrations.v2-gate.spec.ts scripts/apply-forecast-d1-migrations.fail-closed.spec.ts scripts/forecast-migration-0030.spec.ts scripts/forecast-dispatcher-workflow.spec.ts scripts/recover-forecast-boundary.spec.ts scripts/check-workflow-hardening.spec.ts
+        run: npm test -- scripts/apply-forecast-d1-migrations.spec.ts scripts/apply-forecast-d1-migrations-json.spec.ts scripts/apply-forecast-d1-migrations.v2-gate.spec.ts scripts/apply-forecast-d1-migrations.fail-closed.spec.ts scripts/forecast-migration-0030.spec.ts scripts/forecast-dispatcher-workflow.spec.ts scripts/check-workflow-hardening.spec.ts
+
+      - name: Verify read-only forecast smoke clients
+        run: npm test -- scripts/forecast-v2-smoke.spec.ts scripts/smoke-forecast-interactions.spec.ts scripts/check-workflow-hardening-staging.spec.ts
 
       - name: Verify Forecast admin
         run: |
@@ -361,29 +309,22 @@ jobs:
             echo "Forecast admin deployment skipped: all three FORECAST_ADMIN_ACCESS_TEAM_DOMAIN, FORECAST_ADMIN_ACCESS_AUD and FORECAST_ADMIN_ALLOWED_EMAILS variables are required." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Verify production and staging Forecast covering indexes
+      - name: Verify staging Forecast covering indexes
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          for target in production staging; do
-            if [[ "$target" == "production" ]]; then
-              environment=(--env="")
-            else
-              environment=(--env staging)
-            fi
-            indexes=$(npx wrangler d1 execute FORECAST_DB --remote "${environment[@]}" \
-              --config forecast-collector/wrangler.toml \
-              --command "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('collector_invocations_latest_idx', 'dispatcher_invocations_environment_latest_idx') ORDER BY name;" \
-              --json)
-            jq -e '([.[0].results[].name] | sort) == ["collector_invocations_latest_idx","dispatcher_invocations_environment_latest_idx"]' \
-              <<<"$indexes" >/dev/null || {
-                echo "Forecast $target covering indexes are missing. Run the protected production index remediation before staging deployment." >&2
-                exit 1
-              }
-          done
+          indexes=$(npx wrangler d1 execute FORECAST_DB --remote --env staging \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('collector_invocations_latest_idx', 'dispatcher_invocations_environment_latest_idx') ORDER BY name;" \
+            --json)
+          jq -e '([.[0].results[].name] | sort) == ["collector_invocations_latest_idx","dispatcher_invocations_environment_latest_idx"]' \
+            <<<"$indexes" >/dev/null || {
+              echo "Forecast staging covering indexes are missing." >&2
+              exit 1
+            }
 
       - name: Check account-wide D1 preflight after index verification
         env:
@@ -534,21 +475,37 @@ jobs:
             --var "DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_ACTIVITY_CHANNEL_ID" \
             --var PRODUCTION_MUTATIONS_ENABLED:false \
             --var STAGING_PUBLICATION_MODE:enabled --var FORECAST_PUBLICATION_KEY_ID:staging-v1 \
-            --var PRODUCTION_PUBLICATION_MODE:off
+            --var PRODUCTION_PUBLICATION_MODE:off \
+            --tag "${{ github.sha }}-staging"
 
       - name: Verify staging interactions readiness
         env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           FORECAST_EXPECTED_DEPLOY_SHA: ${{ github.sha }}
           FORECAST_INTERACTIONS_STAGING_URL: ${{ vars.FORECAST_INTERACTIONS_STAGING_URL }}
         run: |
           set -euo pipefail
           npm run smoke:forecast-interactions -- "$FORECAST_INTERACTIONS_STAGING_URL"
-
-      - name: Verify dedicated Router readiness
-        env:
-          FORECAST_EXPECTED_DEPLOY_SHA: ${{ steps.router.outputs.deployment_sha }}
-          FORECAST_INTERACTIONS_URL: ${{ vars.FORECAST_INTERACTIONS_URL }}
-        run: npm run smoke:forecast-interactions -- "$FORECAST_INTERACTIONS_URL"
+          npx wrangler deployments status --env staging --config forecast-interactions/wrangler.toml \
+            --json > "$RUNNER_TEMP/staging-router-status.json"
+          version=$(node scripts/check-workflow-hardening.ts --active-version "$RUNNER_TEMP/staging-router-status.json")
+          npx wrangler versions view "$version" --env staging --config forecast-interactions/wrangler.toml \
+            --json > "$RUNNER_TEMP/staging-router-version.json"
+          node scripts/check-workflow-hardening.ts --version-identity \
+            "$RUNNER_TEMP/staging-router-version.json" "$version" > "$RUNNER_TEMP/staging-router-identity.json"
+          jq -e --arg sha "$FORECAST_EXPECTED_DEPLOY_SHA" \
+            '.deploymentSha == $sha and .vars.FORECAST_ENVIRONMENT == "staging" and
+             .vars.PRODUCTION_MUTATIONS_ENABLED == "false"' "$RUNNER_TEMP/staging-router-identity.json" >/dev/null
+          node scripts/check-workflow-hardening.ts --sanitize-identity \
+            "$RUNNER_TEMP/staging-router-identity.json" > "$RUNNER_TEMP/staging-router-identity.evidence.json"
+          curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
+            "$FORECAST_INTERACTIONS_STAGING_URL/health" > "$RUNNER_TEMP/staging-router-health.json"
+          jq -e --arg sha "$FORECAST_EXPECTED_DEPLOY_SHA" \
+            '.status == "ok" and .deploymentSha == $sha and .productionMutationsEnabled == false' \
+            "$RUNNER_TEMP/staging-router-health.json" >/dev/null
+          node scripts/check-workflow-hardening.ts --sanitize-readiness \
+            "$RUNNER_TEMP/staging-router-health.json" > "$RUNNER_TEMP/staging-router-health.evidence.json"
 
       - name: Deploy staging collector
         env:
@@ -556,7 +513,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
           POLL_MODE: ${{ inputs.poll_mode || 'both' }}
-          DISCORD_INTERACTION_OWNER: ${{ github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && 'router' || 'collector' }}
+          DISCORD_INTERACTION_OWNER: router
         run: >-
           set -euo pipefail;
           npx wrangler deploy --env staging --config forecast-collector/wrangler.toml
@@ -569,18 +526,7 @@ jobs:
           --tag "${{ github.sha }}-$POLL_MODE-disabled"
           --message "Forecast collector staging disabled ${{ github.sha }} ($POLL_MODE)"
 
-      - name: Recover explicitly selected staging boundary
-        if: github.event_name == 'workflow_dispatch' && inputs.recovery_source != 'none' && inputs.recovery_source != ''
-        timeout-minutes: 2
-        env:
-          RECOVERY_SOURCE: ${{ inputs.recovery_source }}
-          EXPECTED_COMMITTED_ITEM_ID: ${{ inputs.expected_committed_item_id }}
-          FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
-          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
-          FORECAST_EXPECTED_DEPLOY_SHA: ${{ github.sha }}
-        run: node scripts/recover-forecast-boundary.ts --apply
-
-      - name: Live staging queue round-trip smoke
+      - name: Live staging read-only collector smoke
         env:
           FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
@@ -696,17 +642,22 @@ jobs:
             "$RUNNER_TEMP/dispatcher-active-identity.json" > "$RUNNER_TEMP/dispatcher-active-identity.evidence.json"
           echo "version_id=$version_id" >> "$GITHUB_OUTPUT"
 
-      - name: Live staging dispatcher callback and Discord smoke
+      - name: Live staging dispatcher outbox readiness
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
         id: dispatcher_smoke
         env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
-          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
-        run: >-
-          npm run smoke:forecast-dispatcher --
-          "$FORECAST_COLLECTOR_STAGING_URL"
-          "$FORECAST_COLLECTOR_ADMIN_TOKEN"
-          "deploy:${{ github.sha }}:${{ github.run_id }}"
+        shell: bash
+        run: &staging_outbox_readiness |
+          set -euo pipefail
+          npx wrangler d1 execute FORECAST_DB --remote --env staging \
+            --config forecast-collector/wrangler.toml \
+            --command "SELECT 'publication' AS queue, 'staging' AS environment, (SELECT state FROM forecast_runtime_outbox WHERE environment='staging' LIMIT 1) AS state UNION ALL SELECT 'v2', 'staging', (SELECT state FROM forecast_v2_notification_outbox LIMIT 1);" \
+            --json > "$RUNNER_TEMP/staging-outbox-readiness.json"
+          npm run smoke:forecast-dispatcher -- \
+            "$FORECAST_COLLECTOR_STAGING_URL" "$RUNNER_TEMP/staging-outbox-readiness.json"
 
       - name: Wait for first scheduled live-contract samples
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.dispatcher_smoke.outcome == 'success'
@@ -903,16 +854,14 @@ jobs:
           node scripts/check-workflow-hardening.ts --sanitize-canary \
             "$RUNNER_TEMP/canary-start-identity.json" > "$RUNNER_TEMP/canary-start-identity.evidence.json"
 
-      - name: Record dispatcher smoke inside the canary window
+      - name: Check dispatcher outbox inside the canary window
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready && steps.canary_start.outputs.canary_id != ''
         env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
-          FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
-        run: >-
-          npm run smoke:forecast-dispatcher --
-          "$FORECAST_COLLECTOR_STAGING_URL"
-          "$FORECAST_COLLECTOR_ADMIN_TOKEN"
-          "canary:${{ steps.canary_start.outputs.canary_id }}:${{ github.run_id }}"
+        shell: bash
+        run: *staging_outbox_readiness
 
       - name: Send mutation-free Router test card
         if: github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready
@@ -937,7 +886,7 @@ jobs:
             else
               echo "- Dispatcher: remains disabled"
               echo "- Canary: not started"
-              echo "- Required action: verify the production-owned Discord Interaction Endpoint, then dispatch this workflow with router_endpoint_ready=true"
+              echo "- Required action: verify the staging Discord Interaction Endpoint, then dispatch this workflow with router_endpoint_ready=true"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -975,8 +924,8 @@ jobs:
         with:
           name: forecast-staging-identity-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/router-identity-before-staging.evidence.json
-            ${{ runner.temp }}/router-health-before-staging.evidence.json
+            ${{ runner.temp }}/staging-router-identity.evidence.json
+            ${{ runner.temp }}/staging-router-health.evidence.json
             ${{ runner.temp }}/*-active-identity.evidence.json
             ${{ runner.temp }}/canary-start-identity.evidence.json
             ${{ runner.temp }}/forecast-observability-live-probe.evidence.json
@@ -1068,8 +1017,8 @@ jobs:
         with:
           name: forecast-staging-stop-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/router-identity-before-staging.evidence.json
-            ${{ runner.temp }}/router-health-before-staging.evidence.json
+            ${{ runner.temp }}/staging-router-identity.evidence.json
+            ${{ runner.temp }}/staging-router-health.evidence.json
             ${{ runner.temp }}/*-active-identity.evidence.json
             ${{ runner.temp }}/*-validation-stop-identity.evidence.json
             ${{ runner.temp }}/canary-start-identity.evidence.json
