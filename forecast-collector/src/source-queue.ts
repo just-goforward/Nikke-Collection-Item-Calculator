@@ -1,14 +1,7 @@
 import { z } from "zod/mini";
-import { assertForecastCandidateInvariants } from "../../shared/supplyForecastCandidate";
 import { board11InvocationGate, board11MetadataEligible } from "./board11-policy";
+import { processSourceQueue as persistCandidateInputs } from "./candidate-persistence";
 import { rotationInvocationId } from "./collection-schedule";
-import { isConstructedNoticeCandidate } from "./constructed-candidate";
-import { sha256Hex, stableJson } from "./crypto";
-import {
-  candidateStatements,
-  sourceItemAndEventStatements,
-  unapprovedCandidateCondition,
-} from "./db";
 import { ensureManualReviewStatement } from "./manual-review";
 import { type FetchLike, fetchNaverFeedMetadata, fetchNaverItemIdentity } from "./naver";
 import {
@@ -19,20 +12,8 @@ import {
 } from "./naver-boundary-proof";
 import { type OpsEnvironment, upsertOpsAlertStatement } from "./ops";
 import type { PollStateRow, SourceQueueRow } from "./source-queue-rows";
-import {
-  parseSourceQueueProcess,
-  type SourceQueueProcessResult,
-  validateSourceQueueResult,
-} from "./source-queue-validation";
-import type {
-  CandidateBuildResult,
-  CollectorEnv,
-  NaverFeedMetadata,
-  NaverSourceKind,
-  NormalizedSourceItem,
-  ScheduleEvent,
-  SourceQueueItem,
-} from "./types";
+import type { SourceQueueProcessResult } from "./source-queue-validation";
+import type { CollectorEnv, NaverFeedMetadata, NaverSourceKind, SourceQueueItem } from "./types";
 
 const PAGE_STEP = 1;
 const sourceSchema = z.enum(["naver-board-11", "naver-board-48", "naver-board-56"]);
@@ -662,17 +643,8 @@ export async function processSourceQueue(
   } = {},
   board11Allowed = board11InvocationGate(db),
 ) {
-  const request = parseSourceQueueProcess(raw);
-  if (
-    request.results.some((result) => result.source === "naver-board-11") &&
-    !(await board11Allowed())
-  )
-    throw new Error("board11_schema_required");
-  const nowIso = new Date().toISOString();
-  const statements: D1PreparedStatement[] = [];
-  for (const result of request.results) {
-    await validateSourceQueueResult(result);
-    if (request.mode === "queue") {
+  return persistCandidateInputs(db, raw, transaction, board11Allowed, {
+    async validate(result) {
       const queued = await db
         .prepare("SELECT status, url, official FROM source_queue WHERE source = ? AND item_id = ?")
         .bind(result.source, result.itemId)
@@ -684,91 +656,17 @@ export async function processSourceQueue(
       ) {
         throw new Error("source_queue_metadata_mismatch");
       }
-    }
-    if (result.item) {
-      statements.push(
-        ...sourceItemAndEventStatements(
-          db,
-          [result.item as NormalizedSourceItem],
-          result.events ?? (result.event ? [result.event as ScheduleEvent] : []),
-          nowIso,
-        ),
-      );
-    }
-    if (request.mode === "queue") {
-      statements.push(queueResultStatement(db, result, nowIso));
+    },
+    async statements(result, nowIso) {
+      const statements = [queueResultStatement(db, result, nowIso)];
       if (result.outcome === "manual_review" || result.outcome === "retry") {
         statements.push(
           await ensureManualReviewStatement(db, result.source, result.itemId, nowIso),
         );
       }
-    }
-  }
-  if (request.candidate) {
-    const expectedRevision = await currentRevision(db, request.candidate.gameDay);
-    if (expectedRevision !== request.candidate.revision)
-      throw new Error("candidate_revision_conflict");
-    const { envelope, eventId, gameDay, revision } = request.candidate;
-    const constructed = isConstructedNoticeCandidate(request.candidate);
-    if (!constructed) {
-      assertForecastCandidateInvariants(envelope.candidate);
-    }
-    if (!envelope.candidate.forecastId.startsWith(`supply-${gameDay}-v`)) {
-      throw new Error("candidate_game_day_mismatch");
-    }
-    for (const evidence of envelope.candidate.sourceEvidence) {
-      const url = new URL(evidence.url);
-      const allowedHosts =
-        evidence.source === "x-nikke-kr" ? ["x.com", "twitter.com"] : ["game.naver.com"];
-      if (url.protocol !== "https:" || !allowedHosts.includes(url.hostname)) {
-        throw new Error("candidate_source_url_allowlist");
-      }
-    }
-    // The local constructor hashes these exact bytes before deep-freezing the
-    // envelope. Serialized admission never carries its object-identity proof.
-    if (
-      !constructed &&
-      (await sha256Hex(stableJson(envelope.candidate))) !== envelope.payloadHash
-    ) {
-      throw new Error("candidate_payload_hash");
-    }
-    const eventKnown =
-      request.results.some(
-        (entry) =>
-          entry.event?.eventId === eventId ||
-          entry.events?.some((event) => event.eventId === eventId),
-      ) ||
-      (await db
-        .prepare("SELECT event_id FROM schedule_events WHERE event_id = ?")
-        .bind(eventId)
-        .first());
-    if (!eventKnown) throw new Error("candidate_schedule_event_missing");
-    statements.push(
-      ...candidateStatements(
-        db,
-        envelope as CandidateBuildResult,
-        eventId,
-        gameDay,
-        revision,
-        nowIso,
-      ),
-    );
-    const unapproved = await unapprovedCandidateCondition(db);
-    statements.push(
-      db
-        .prepare(
-          `UPDATE forecast_candidates SET state = 'superseded', updated_at = ?
-           WHERE schedule_event_id = ? AND game_day = ? AND candidate_id <> ?
-             AND state IN ('crosschecked', 'x_unavailable', 'conflict', 'proposed')
-             AND (${unapproved})`,
-        )
-        .bind(nowIso, eventId, gameDay, envelope.candidate.candidateId),
-    );
-  }
-  statements.unshift(...(transaction.before ?? []));
-  statements.push(...(transaction.after ?? []));
-  if (statements.length > 0) await db.batch(statements);
-  return { processed: request.results.length, candidateCreated: Boolean(request.candidate) };
+      return statements;
+    },
+  });
 }
 
 function queueStatements(
@@ -832,16 +730,6 @@ function queueResultStatement(db: D1Database, result: SourceQueueProcessResult, 
       result.source,
       result.itemId,
     );
-}
-
-async function currentRevision(db: D1Database, gameDay: string) {
-  const row = await db
-    .prepare(
-      "SELECT COALESCE(MAX(revision), 0) AS revision FROM forecast_candidates WHERE game_day = ?",
-    )
-    .bind(gameDay)
-    .first<{ revision: number }>();
-  return Number(row?.revision ?? 0) + 1;
 }
 
 function scanHeadFromState(

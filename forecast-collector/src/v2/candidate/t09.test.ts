@@ -5,7 +5,7 @@ import { executeTestSql } from "../../../../shared/testD1Sql";
 import collaborations from "../../../fixtures/forecast-v2/expected/collaborations.json";
 import grants from "../../../fixtures/forecast-v2/expected/grants.json";
 import solo from "../../../fixtures/forecast-v2/expected/solo.json";
-import * as admission from "../../source-queue";
+import * as admission from "../../candidate-persistence";
 import schema from "../../test-schema";
 import { collectorTestEnv } from "../ingest/test-support/env";
 import { now } from "./fixture";

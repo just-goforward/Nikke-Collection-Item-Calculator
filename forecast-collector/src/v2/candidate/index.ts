@@ -2,11 +2,11 @@ import { CERTIFIED_SUPPLY_HISTORY_DAYS } from "../../../../shared/certifiedSuppl
 import { gameDayStartMs } from "../../../../shared/gameDay";
 import type { SupplyForecastGrant } from "../../../../shared/supplyForecastCandidate";
 import { SUPPLY_PROFILE_HORIZON_DAYS } from "../../../../shared/supplyForecastProjection";
+import { processSourceQueue } from "../../candidate-persistence";
 import { buildConstructedForecastCandidate } from "../../constructed-candidate";
 import { sha256Hex } from "../../crypto";
 import { nextForecastRevision } from "../../db";
 import { collapseSoloSegments } from "../../solo-interruptions";
-import { processSourceQueue } from "../../source-queue";
 import type { CollectorEnv, ScheduleEvent } from "../../types";
 import { candidateOutcome } from "./alerts";
 import { cachedInput, cacheStatements, inputSignature } from "./cache";
