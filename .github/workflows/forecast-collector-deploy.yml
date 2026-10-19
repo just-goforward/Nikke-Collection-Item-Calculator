@@ -54,8 +54,6 @@ on:
       - "scripts/process-forecast-source-queue.ts"
       - "scripts/process-forecast-source-queue-main.ts"
       - "scripts/forecast-naver-action.ts"
-      - "scripts/forecast-x-advisory.ts"
-      - "scripts/propose-supply-forecast.ts"
       - "scripts/peek-supply-forecast.ts"
       - "scripts/supply-forecast-codegen.ts"
       - "scripts/certified-forecast-registry.ts"

@@ -120,12 +120,8 @@ The phase is a manual `--var` override reverted by automated redeploys. Restore
 - Every three minutes the Collector Worker reads only ten shallow feed records from Naver Lounge
   boards 56 and 48. It queues IDs, titles, timestamps, manager roles, and URLs; it does not parse or
   hash post bodies on the Cron path.
-- The offset Dispatcher Worker checks the shared D1 queue at minutes 1, 4, 7, and so on. New work
-  is fingerprinted and reserved with a five-minute D1 lease before a repository-scoped GitHub App
-  requests `forecast-proposal.yml`. The Actions workflow fetches pending details and accepts only
-  official manager posts with structured SmartEditor JSON or a validated SmartEditor HTML envelope.
-  It performs schedule parsing, ledger
-  resolution, and candidate generation outside the Worker CPU limit.
+- The offset Dispatcher Worker handles publication admission, v2 outbox delivery and operational
+  alerts. It does not dispatch GitHub workflows.
 - The proposal workflow's `17,47 * * * *` schedule is a thirty-minute watchdog, not the normal
   execution path. If it finds actionable work, it records `watchdog_fallback` and processes the work
   without weakening the same approval boundaries.
@@ -244,21 +240,9 @@ the shared security chain or redefine production/staging authorization.
 
 ## Event dispatch and operations alerts
 
-`collection-kit-forecast-dispatcher` is a second Worker with no public route. It shares the Forecast
-D1 database but has a separate CPU invocation from the Naver collector. Its GitHub target is fixed
-in code to this repository, `forecast-proposal.yml`, and `main`; source titles, URLs, or bodies can
-never select a repository, workflow, ref, branch, or shell argument.
-
-The GitHub App is named `NIKKE Forecast Dispatcher`, is installed only on this repository, has
-`Actions: write` plus implicit `Metadata: read`, and has webhooks disabled. The private key and the
-Discord bot token are Dispatcher Worker secrets. Installation tokens are minted for one dispatch
-and are never written to D1, logs, GitHub summaries, or Discord.
-
-Each request uses a deterministic three-minute slot ID and a D1 owner lease. An accepted request is
-reported as "execution request accepted", never as a completed run. A dispatched workflow calls the
-Collector at start and finish with its fixed GitHub run URL; retransmission from the same run is
-idempotent, while a second run identity is rejected. A smoke request is staging-only and performs
-the callback and Discord path without reading the queue or changing candidates or repository files.
+The Dispatcher shares the Forecast D1 database but runs separately from the v2 collector.
+It delivers publication reviews, v2 notifications and operational alerts using its Discord token.
+GitHub App dispatch, installation tokens and workflow callbacks have been retired.
 
 The Dispatcher sends concise Discord notices for accepted work and grouped operations alerts for
 GitHub authentication or dispatch errors, workflow failures, Collector circuit-open state, stale
@@ -477,8 +461,6 @@ FORECAST_COLLECTOR_URL
 FORECAST_INTERACTIONS_URL
 CLOUDFLARE_USAGE_GUARD_URL
 FORECAST_DIRECT_NAVER_POLL (optional emergency fallback)
-FORECAST_GITHUB_APP_ID
-FORECAST_GITHUB_APP_INSTALLATION_ID
 DISCORD_FORECAST_CHANNEL_ID
 DISCORD_FORECAST_APPROVAL_CHANNEL_ID
 DISCORD_FORECAST_ACTIVITY_CHANNEL_ID
@@ -490,12 +472,10 @@ DISCORD_FORECAST_APPLICATION_ID
 DISCORD_FORECAST_PUBLIC_KEY
 ```
 
-Required repository secrets are `FORECAST_GITHUB_APP_PRIVATE_KEY`,
-`FORECAST_COLLECTOR_ADMIN_TOKEN`, `DISCORD_FORECAST_BOT_TOKEN`, the scoped
+Required repository secrets are `FORECAST_COLLECTOR_ADMIN_TOKEN`, `DISCORD_FORECAST_BOT_TOKEN`, the scoped
 `CLOUDFLARE_API_TOKEN`, a dedicated `CLOUDFLARE_D1_ANALYTICS_TOKEN`, and a separate
 `CLOUDFLARE_BILLING_READ_TOKEN` limited to `Account > Billing > Read`. Deployment credentials are
-never used as an analytics or billing-token fallback. The GitHub App is installed only on this repository with `Actions: write`
-and implicit `Metadata: read`; its private key belongs only to the Dispatcher deployment.
+never used as an analytics or billing-token fallback. No GitHub App credentials are required.
 
 `FORECAST_COLLECTOR_URL` is an administrator-managed one-time repository variable. Set it to the
 production URL only after the first production queue round-trip smoke and idempotent Solo Raid

@@ -413,4 +413,4 @@ jobs:
 
       - name: Record inactive watchdog
         if: steps.canary.outputs.active != 'true'
-        run: echo "No active v10 Forecast staging canary was found; monthly Paid quota monitoring still ran." >> "$GITHUB_STEP_SUMMARY"
+        run: echo "No active v11 Forecast staging canary was found; monthly Paid quota monitoring still ran." >> "$GITHUB_STEP_SUMMARY"
