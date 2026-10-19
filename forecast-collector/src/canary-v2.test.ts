@@ -95,6 +95,28 @@ it("rejects legacy-only D1 evidence even with valid scheduled telemetry and quot
   expect(value.certification.status).toBe("incomplete");
 });
 
+it.each(["old-format", "skipped"])("keeps %s collector telemetry incomplete", async (admission) => {
+  const telemetry = runtimeTelemetry();
+  const collector = telemetry.workers.find((worker) => worker.component === "collector");
+  if (!collector) throw new Error("fixture_missing");
+  for (const sample of collector.samples) {
+    if (admission === "old-format") {
+      delete sample.mode;
+      delete sample.admission;
+    } else {
+      sample.admission = "skipped";
+    }
+  }
+
+  const value = await report(telemetry);
+
+  expect(value.evidence.status).toBe("incomplete");
+  expect(value.evidence.errors).toContain("runtime_telemetry_coverage_incomplete:collector");
+  expect(value.runtimeSafety.status).toBe("incomplete");
+  expect(value.certification.status).toBe("incomplete");
+  expect(value.performance.collector).toMatchObject({ telemetryObservedSlots: 0 });
+});
+
 it.each(["running", "held"])("blocks unfinished latest monitor state %s", async (status) => {
   await env.FORECAST_DB.prepare("UPDATE forecast_v2_monitor_runs SET status=? WHERE stream_id='A'")
     .bind(status)

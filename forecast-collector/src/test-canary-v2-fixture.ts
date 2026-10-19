@@ -46,6 +46,8 @@ export function runtimeTelemetry(): ForecastRuntimeTelemetryEvidence {
         scriptVersionId: component === "collector" ? COLLECTOR_VERSION_ID : DISPATCHER_VERSION_ID,
         scriptVersionTag: component === "collector" ? `${SHA}-both-v10` : `${SHA}-v10`,
         identitySource: "tag",
+        mode: "on",
+        admission: "admitted",
         eventType: "scheduled",
         cpuTimeMs: 5,
         outcome: "ok",

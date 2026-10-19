@@ -116,6 +116,25 @@ describe("forecast canary v10 runtime policy", () => {
 });
 
 describe("forecast canary runtime coverage", () => {
+  it.each(["old-format", "skipped"])("keeps %s collector samples incomplete", (admission) => {
+    const input = fixture();
+    for (const sample of runtimeWorker(input, "collector").samples) {
+      if (admission === "old-format") {
+        delete sample.mode;
+        delete sample.admission;
+      } else {
+        sample.admission = "skipped";
+      }
+    }
+
+    const result = evaluateForecastRuntimeTelemetry(input);
+
+    expect(result.evidence.status).toBe("incomplete");
+    expect(result.evidence.errors).toContain("runtime_telemetry_coverage_incomplete:collector");
+    expect(result.runtimeSafety).toEqual({ status: "incomplete", failureCodes: [] });
+    expect(result.performance.collector.telemetryObservedSlots).toBe(0);
+  });
+
   it("marks delayed telemetry as incomplete without manufacturing a failure", () => {
     const input = fixture();
     runtimeWorker(input, "collector").samples.splice(0, 2);
@@ -361,6 +380,8 @@ function samples(
     scriptVersionId: versionId,
     scriptVersionTag: SHA,
     identitySource: "tag",
+    mode: "on",
+    admission: "admitted",
     eventType: "scheduled",
     cpuTimeMs: index < Math.ceil(values.length * 0.95) ? p95 : p99,
     outcome: "ok",
@@ -391,6 +412,8 @@ function samplesWithDistribution(
       scriptVersionId: versionId,
       scriptVersionTag: SHA,
       identitySource: "tag" as const,
+      mode: "on",
+      admission: "admitted",
       eventType: "scheduled" as const,
       cpuTimeMs,
       outcome: "ok",
