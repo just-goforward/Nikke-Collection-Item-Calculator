@@ -6,7 +6,11 @@ import { z } from "zod";
 import { stableJson } from "../forecast-collector/src/crypto.ts";
 import { type D1UsageSnapshot, evaluateD1PreflightBudget } from "../shared/cloudflarePaidUsage.ts";
 import { assertD1QuotaEvidence } from "../shared/d1QuotaEvidence.ts";
-import { assertForecastRuntimeTelemetryEvidence } from "../shared/forecastCanaryRuntime.ts";
+import {
+  assertForecastRuntimeTelemetryEvidence,
+  FORECAST_CANARY_POLICY_ID,
+} from "../shared/forecastCanaryRuntime.ts";
+import { monitorProgressProjection } from "./canary-v2-evidence-projection.ts";
 
 const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/i;
 const DOCKER_DIGEST = /^docker:\/\/[^\s@]+@sha256:[0-9a-f]{64}$/i;
@@ -267,9 +271,15 @@ const publicWorkerNames = [
   "collection-kit-forecast-dispatcher",
   "collection-kit-forecast-dispatcher-staging",
   "collection-kit-forecast-interactions",
+  "collection-kit-forecast-interactions-staging",
   "collection-kit-usage-guard",
 ] as const;
 const evidenceCode = z.union([
+  z
+    .string()
+    .regex(
+      /^v2_monitor_(?:definition_mismatch|progress_missing|run_stale_or_invalid|heartbeat_stale_or_invalid):(?:A|B|C-open|C-reopen|D|E|F|G)$/,
+    ),
   z
     .string()
     .regex(new RegExp(`^[a-z][a-z0-9_]*(?::(?:[a-z][a-z0-9_]*|${publicWorkerNames.join("|")}))*$`)),
@@ -394,6 +404,21 @@ const reportProjectionSchema = z.object({
     warnings: evidenceCodes,
   }),
 });
+const v2PerformanceWorkerSchema = performanceWorkerSchema.extend({
+  coverageBasis: z.literal("scheduled"),
+});
+const v2ReportProjectionSchema = reportProjectionSchema
+  .omit({ collector: true, dispatcher: true, router: true })
+  .extend({
+    version: z.literal(11),
+    policyId: z.literal(FORECAST_CANARY_POLICY_ID),
+    monitorProgress: monitorProgressProjection,
+    invariants: z.object({ candidates: evidenceNumber, totalInvalid: evidenceNumber }),
+    performance: reportProjectionSchema.shape.performance.extend({
+      collector: v2PerformanceWorkerSchema,
+      dispatcher: v2PerformanceWorkerSchema,
+    }),
+  });
 const quotaResultSchema = z.object({
   valid: z.boolean(),
   errorCode: evidenceCode.nullable(),
@@ -496,7 +521,9 @@ export function sanitizedCertificationEvidence(value: unknown) {
   const record = evidenceRecord(value);
   const performance = evidenceRecord(record["performance"]);
   const baselineId = z.string().nullable().optional().parse(performance["baselineId"]);
-  const projection = reportProjectionSchema.parse(record);
+  const projection = (
+    record["version"] === 11 ? v2ReportProjectionSchema : reportProjectionSchema
+  ).parse(record);
   const data = {
     ...projection,
     performance: {

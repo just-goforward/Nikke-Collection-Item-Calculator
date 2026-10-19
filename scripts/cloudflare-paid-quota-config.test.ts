@@ -69,17 +69,16 @@ describe("Cloudflare Paid quota configuration", () => {
     }
   });
 
-  it("uses the fixed eight-hour v10 canary contract", () => {
+  it("uses the fixed eight-hour v2 monitor canary contract", () => {
     const watcher = read(".github/workflows/forecast-d1-budget-watch.yml");
     const deploy = read(".github/workflows/forecast-collector-deploy.yml");
-    const canarySource = read("forecast-collector/src/canary.ts");
-    expect(watcher).toContain("active v10 canary");
-    expect(watcher).toContain("report?.version === 10");
+    expect(watcher).toContain("active v2 canary");
+    expect(watcher).toContain("report?.version === 11");
+    expect(watcher).toContain("forecast-canary-v2-monitor-contract-v1");
     expect(watcher).not.toContain("active v6 canary");
-    expect(deploy).toContain("Start fixed eight-hour Paid canary v10");
+    expect(deploy).toContain("Start fixed eight-hour v2 canary");
     expect(deploy).not.toContain("until_d1_reset");
     expect(deploy).toContain("CLOUDFLARE_WORKERS_OBSERVABILITY_TOKEN");
-    expect(canarySource).toContain("const pollMode = await readCanaryPollMode(");
   });
 
   it("uses a separate rolling eight-hour Worker CPU window for quota evaluation", () => {

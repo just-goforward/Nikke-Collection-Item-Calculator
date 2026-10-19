@@ -54,7 +54,8 @@ describe("staging-only forecast deployment", () => {
       "Activate staging collector for live contract probe",
       "Activate staging dispatcher after collector readiness",
       "Live staging dispatcher outbox readiness",
-      "Start fixed eight-hour Paid canary v10",
+      "Start fixed eight-hour v2 canary",
+      "Align canary start using version-bound scheduled telemetry",
     ])
       expect(step(name)).toContain(
         "github.event_name == 'workflow_dispatch' && inputs.router_endpoint_ready",
@@ -143,6 +144,11 @@ describe("staging-only forecast deployment", () => {
       expect(step(name)).not.toContain("continue-on-error");
     expect(step("Observe 30-minute account-wide D1 burn-in")).toContain("sleep 1800");
     expect(step("Fail after D1 budget rollback")).toContain("run: exit 1");
+    const alignment = step("Align canary start using version-bound scheduled telemetry");
+    expect(alignment).toContain("scripts/check-forecast-canary-start.ts");
+    expect(alignment).toContain("npm run preflight:forecast-runtime");
+    expect(alignment).not.toContain(".collector.lastFinishedAt");
+    expect(alignment).not.toContain(".operations.dispatcher.lastObservedAt");
   });
 
   it.each(["Collector", "Dispatcher"])(
@@ -161,7 +167,9 @@ describe("staging-only forecast deployment", () => {
       expect(recovery).not.toContain("continue-on-error");
     },
   );
+});
 
+describe("staging forecast evidence retention", () => {
   it("retains only explicitly projected rollout evidence", () => {
     const allowed = new Set([
       "collector-active-identity.evidence.json",
@@ -173,6 +181,7 @@ describe("staging-only forecast deployment", () => {
       "canary-start-identity.evidence.json",
       "forecast-observability-live-probe.evidence.json",
       "forecast-observability-preflight.evidence.json",
+      "forecast-canary-start-runtime.evidence.json",
       "d1-budget-preflight.evidence.json",
       "d1-budget-baseline.evidence.json",
       "d1-budget-evaluation.evidence.json",

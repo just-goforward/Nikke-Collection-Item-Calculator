@@ -26,6 +26,48 @@ import {
 const PINNED_SHA = "3d3c42e5aac5ba805825da76410c181273ba90b1";
 const VERSION = "12345678-1234-1234-1234-123456789abc";
 
+it("projects v2 monitor evidence without exposing run IDs or legacy invocation counters", () => {
+  const prior = certificationArtifactFixture().report;
+  const value = {
+    ...prior,
+    version: 11,
+    policyId: "forecast-canary-v2-monitor-contract-v1",
+    monitorProgress: {
+      valid: true,
+      identityBinding: "telemetry-only",
+      observedAt: "2026-09-03T08:01:00.000Z",
+      failureCodes: [],
+      streams: [
+        {
+          stream_id: "A",
+          interval_seconds: 3600,
+          on_demand: 0,
+          run_id: "private-run-id",
+          status: "completed",
+          heartbeat_at: "2026-09-03T08:00:00.000Z",
+          started_at: "2026-09-03T07:59:00.000Z",
+          finished_at: "2026-09-03T08:00:00.000Z",
+        },
+      ],
+    },
+    invariants: { candidates: 0, totalInvalid: 0 },
+    performance: {
+      ...prior.performance,
+      collector: { ...prior.performance.collector, coverageBasis: "scheduled", d1ObservedSlots: 0 },
+      dispatcher: {
+        ...prior.performance.dispatcher,
+        coverageBasis: "scheduled",
+        d1ObservedSlots: 0,
+      },
+    },
+  };
+  const projection = sanitizedCertificationEvidence(value);
+  expect(projection.data).toMatchObject({ version: 11, monitorProgress: { valid: true } });
+  expect(projection.data).not.toHaveProperty("collector");
+  expect(projection.data).not.toHaveProperty("monitorProgress.streams.0.run_id");
+  expect(JSON.stringify(projection)).not.toContain("private-run-id");
+});
+
 const privateMetadata = {
   author_email: "private-person@example.test",
   account: "private-account",

@@ -36,14 +36,14 @@ type CanaryQuotaResult = {
 
 type DecisionInput = {
   eligible: boolean;
-  collectorPassed: boolean;
-  dispatcherPassed: boolean;
-  routerPassed: boolean;
   earlyFailureReasons: string[];
   invariants: Record<string, number> & { totalInvalid: number };
   quota: CanaryQuotaResult;
   runtime: RuntimeEvaluation;
-};
+} & (
+  | { collectorPassed: boolean; dispatcherPassed: boolean; routerPassed: boolean }
+  | { monitorProgress: { valid: boolean; failureCodes: string[] } }
+);
 
 export function evaluateCanaryDecision(input: DecisionInput) {
   const functionalFailures = functionalFailureCodes(input);
@@ -62,6 +62,7 @@ export function evaluateCanaryDecision(input: DecisionInput) {
   const evidenceErrors = [
     !input.quota.valid ? input.quota.errorCode : null,
     ...input.runtime.evidence.errors,
+    ...("monitorProgress" in input ? functionalFailures : []),
   ].filter((value): value is string => value !== null);
   const evidence = {
     status: evidenceErrors.length > 0 ? ("incomplete" as const) : ("valid" as const),
@@ -112,7 +113,7 @@ export function missingCanaryReport(
   canaryId: string | null,
 ) {
   return {
-    version: 10,
+    version: 11,
     policyId: FORECAST_CANARY_POLICY_ID,
     canaryId,
     deploymentSha,
@@ -133,22 +134,12 @@ export function missingCanaryReport(
       earlyFailure: false,
       earlyFailureReasons: ["canary_deployment_missing"],
     },
-    collector: emptyInvocationSummary(),
-    dispatcher: {
-      ...emptyInvocationSummary(),
-      duplicateDispatches: 0,
-      duplicateRuns: 0,
-      invalidStates: 0,
-      smokeCount: 0,
-      invalidSmoke: 0,
-      passed: false,
-    },
-    router: {
-      routerTestCount: 0,
-      duplicateInteractions: 0,
-      maxInitialResponseMs: 0,
-      failedAuthorizationSmoke: 0,
-      passed: false,
+    monitorProgress: {
+      valid: false,
+      identityBinding: "telemetry-only",
+      observedAt: new Date(nowMs).toISOString(),
+      failureCodes: ["canary_run_missing"],
+      streams: [],
     },
     quotaEvidence: {
       valid: false,
@@ -160,7 +151,7 @@ export function missingCanaryReport(
       policy: null,
       accountRuntime: null,
     },
-    invariants: emptyInvariants(),
+    invariants: { candidates: 0, totalInvalid: 0 },
     identity: {
       canaryId,
       deploymentSha,
@@ -173,7 +164,7 @@ export function missingCanaryReport(
     },
     evidence: { status: "incomplete", errors: ["canary_run_missing"] },
     functional: gateResult("incomplete", []),
-    integrity: gateResult("passed", []),
+    integrity: gateResult("incomplete", []),
     quota: gateResult("incomplete", []),
     runtimeSafety: gateResult("incomplete", []),
     performance: {
@@ -194,6 +185,14 @@ export function missingCanaryReport(
 }
 
 function functionalFailureCodes(input: DecisionInput) {
+  if ("monitorProgress" in input) {
+    const { valid, failureCodes } = input.monitorProgress;
+    return valid && failureCodes.length === 0
+      ? []
+      : failureCodes.length
+        ? failureCodes
+        : ["v2_monitor_evidence_missing"];
+  }
   return [
     ...input.earlyFailureReasons,
     input.eligible && !input.collectorPassed ? "collector_functional_gate_failed" : null,
@@ -210,6 +209,8 @@ function invariantFailureCodes(invariants: DecisionInput["invariants"]) {
 
 function quotaGate(quota: CanaryQuotaResult) {
   if (!quota.valid || !quota.policy) return gateResult("incomplete", []);
+  // Account GraphQL runtime summaries also contain HTTP/non-canary traffic.
+  // Scheduled runtime safety is decided by independently version-bound telemetry.
   return gateResult(quota.policy.passed ? "passed" : "failed", quota.policy.failureCodes);
 }
 
@@ -252,38 +253,4 @@ function certificationStatus(
     return "passed_with_warning" as const;
   }
   return "passed" as const;
-}
-
-function emptyInvocationSummary() {
-  return {
-    expectedSlots: 0,
-    observedSlots: 0,
-    missingSlots: 0,
-    deliveryRate: 0,
-    completed: 0,
-    failure: 0,
-    abandoned: 0,
-    completionRate: 0,
-    abandonedRate: 0,
-    missingRate: 0,
-    duplicateInvocations: 0,
-    unexpectedInvocations: 0,
-    lateInvocations: 0,
-    partialSchemaRejections: 0,
-    latestStatus: "missing",
-  };
-}
-
-function emptyInvariants() {
-  return {
-    queue: 0,
-    cursors: 0,
-    candidates: 0,
-    watermarks: 0,
-    reviews: 0,
-    manualReviewCoverage: 0,
-    callbackStateConflicts: 0,
-    unsentCriticalAlerts: 0,
-    totalInvalid: 0,
-  };
 }

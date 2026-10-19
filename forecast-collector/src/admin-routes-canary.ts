@@ -42,6 +42,7 @@ async function canaryWindow({ url, env }: AdminRequestContext) {
       env.DEPLOY_SHA,
       opsEnvironment(env),
       canaryId,
+      env.POLL_MODE,
     ),
   );
 }
@@ -58,7 +59,7 @@ async function canaryReport({ request, url, env }: AdminRequestContext) {
     try {
       const parsed = await parseFinalEvidence(request);
       canaryId = parsed.canaryId;
-      runtimeQuota = parsed.runtimeQuota;
+      runtimeQuota = parsed.runtimeQuota ?? (await readUsageGuardState(requireGuardDb(env)));
       runtimeTelemetry = parsed.runtimeTelemetry;
       runtimeBaseline = parsed.runtimeBaseline;
     } catch (error) {
@@ -77,6 +78,7 @@ async function canaryReport({ request, url, env }: AdminRequestContext) {
       runtimeQuota,
       runtimeTelemetry,
       runtimeBaseline,
+      env.POLL_MODE,
     ),
   );
 }

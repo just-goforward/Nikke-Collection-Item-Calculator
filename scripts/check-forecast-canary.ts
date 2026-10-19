@@ -118,7 +118,7 @@ type GateResult = {
 };
 
 type CanaryReport = {
-  version: 10;
+  version: 11;
   policyId: typeof FORECAST_CANARY_POLICY_ID;
   canaryId: string;
   deploymentSha: string;
@@ -141,20 +141,12 @@ type CanaryReport = {
     maximumMissingSlots: 1;
   };
   window: { startedAt: string; endsAt: string; eligible: boolean; earlyFailure: boolean };
-  collector: InvocationSummary;
-  dispatcher: InvocationSummary & {
-    duplicateDispatches: number;
-    duplicateRuns: number;
-    invalidStates: number;
-    smokeCount: number;
-    invalidSmoke: number;
-    passed: boolean;
-  };
-  router: {
-    routerTestCount: number;
-    duplicateInteractions: number;
-    maxInitialResponseMs: number;
-    passed: boolean;
+  monitorProgress: {
+    valid: boolean;
+    identityBinding: "telemetry-only";
+    observedAt: string;
+    failureCodes: string[];
+    streams: unknown[];
   };
   quotaEvidence: CanaryQuota;
   invariants: { totalInvalid: number };
@@ -200,21 +192,8 @@ type CanaryQuota =
       accountRuntime: null;
     };
 
-type InvocationSummary = {
-  expectedSlots: number;
-  observedSlots: number;
-  missingSlots: number;
-  deliveryRate: number;
-  completed: number;
-  abandoned: number;
-  completionRate: number;
-  duplicateInvocations: number;
-  unexpectedInvocations: number;
-  lateInvocations: number;
-  latestStatus: string;
-};
-
 type CpuPerformanceEvidence = {
+  coverageBasis: "scheduled";
   scriptName: string;
   configuredLimitMs: number;
   expectedSlots: number;
@@ -265,7 +244,7 @@ function isCanaryReport(value: unknown): value is CanaryReport {
 function isCanaryReportHeader(value: unknown): value is Record<string, unknown> {
   return (
     isRecord(value) &&
-    value["version"] === 10 &&
+    value["version"] === 11 &&
     value["policyId"] === FORECAST_CANARY_POLICY_ID &&
     typeof value["deploymentSha"] === "string" &&
     /^[0-9a-f]{40}$/.test(value["deploymentSha"]) &&
@@ -286,9 +265,7 @@ function hasCanaryReportSections(value: Record<string, unknown>) {
     isRecord(value["window"]) &&
     isAcceptancePolicy(value["acceptance"]) &&
     isCanaryWindow(value["window"]) &&
-    isInvocationSummary(value["collector"]) &&
-    isDispatcherSummary(value["dispatcher"]) &&
-    isRouterSummary(value["router"]) &&
+    isMonitorProgress(value["monitorProgress"]) &&
     isQuotaEvidence(value["quotaEvidence"]) &&
     hasInvariantSummary(value["invariants"]) &&
     isEvidence(value["evidence"]) &&
@@ -316,6 +293,8 @@ function assertCertificationConsistency(report: CanaryReport) {
   if (
     (status === "passed" || status === "passed_with_warning") &&
     (!report.window.eligible ||
+      !report.monitorProgress.valid ||
+      report.monitorProgress.failureCodes.length > 0 ||
       report.evidence.status !== "valid" ||
       gates.some((gate) => gate.status !== "passed") ||
       report.certification.hardFailures.length > 0)
@@ -382,42 +361,15 @@ function isCanaryWindow(value: Record<string, unknown>) {
   );
 }
 
-function isInvocationSummary(value: unknown) {
-  if (!isRecord(value)) return false;
-  return (
-    [
-      "expectedSlots",
-      "observedSlots",
-      "missingSlots",
-      "deliveryRate",
-      "completed",
-      "abandoned",
-      "completionRate",
-      "duplicateInvocations",
-      "unexpectedInvocations",
-      "lateInvocations",
-    ].every((key) => typeof value[key] === "number") && typeof value["latestStatus"] === "string"
-  );
-}
-
-function isRouterSummary(value: unknown) {
+function isMonitorProgress(value: unknown) {
   return (
     isRecord(value) &&
-    typeof value["routerTestCount"] === "number" &&
-    typeof value["duplicateInteractions"] === "number" &&
-    typeof value["maxInitialResponseMs"] === "number" &&
-    typeof value["passed"] === "boolean"
-  );
-}
-
-function isDispatcherSummary(value: unknown) {
-  return (
-    isInvocationSummary(value) &&
-    isRecord(value) &&
-    ["duplicateDispatches", "duplicateRuns", "invalidStates", "smokeCount", "invalidSmoke"].every(
-      (key) => typeof value[key] === "number",
-    ) &&
-    typeof value["passed"] === "boolean"
+    typeof value["valid"] === "boolean" &&
+    value["identityBinding"] === "telemetry-only" &&
+    typeof value["observedAt"] === "string" &&
+    Number.isFinite(Date.parse(value["observedAt"])) &&
+    isStringArray(value["failureCodes"]) &&
+    Array.isArray(value["streams"])
   );
 }
 
@@ -480,6 +432,8 @@ function isCpuPerformanceEvidence(value: unknown): value is CpuPerformanceEviden
   ];
   return (
     typeof value["scriptName"] === "string" &&
+    value["coverageBasis"] === "scheduled" &&
+    value["d1ObservedSlots"] === 0 &&
     numeric.every((key) => typeof value[key] === "number" && Number.isFinite(value[key])) &&
     isCpuDistribution(value["full"]) &&
     isCpuDistribution(value["firstHalf"]) &&

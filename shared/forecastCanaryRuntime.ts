@@ -1,6 +1,7 @@
-export const FORECAST_CANARY_POLICY_ID = "forecast-canary-v10-live-contract-v1" as const;
+export const FORECAST_CANARY_POLICY_ID = "forecast-canary-v2-monitor-contract-v1" as const;
 export const FORECAST_RUNTIME_TELEMETRY_SOURCE =
   "cloudflare-workers-observability-scheduled-v2" as const;
+export const FORECAST_RUNTIME_EVIDENCE_MAX_AGE_MS = 180_000;
 
 export const FORECAST_RUNTIME_WORKERS = {
   collector: {
@@ -90,6 +91,7 @@ export type RuntimeEvaluation = {
 };
 
 export type CpuPerformanceEvidence = {
+  coverageBasis?: "scheduled";
   scriptName: string;
   configuredLimitMs: number;
   expectedSlots: number;
@@ -124,10 +126,16 @@ type EvaluationInput = {
   endedAt: string;
   collectorExpectedSlots: string[];
   dispatcherExpectedSlots: string[];
-  collectorD1Slots: string[];
-  dispatcherD1Slots: string[];
   baseline?: unknown;
-};
+} & (
+  | { coverageBasis?: "d1"; collectorD1Slots: string[]; dispatcherD1Slots: string[] }
+  | {
+      coverageBasis: "scheduled";
+      nowMs: number;
+      collectorD1Slots?: never;
+      dispatcherD1Slots?: never;
+    }
+);
 
 type WorkerEvaluation = {
   summary: CpuPerformanceEvidence;
@@ -150,17 +158,18 @@ type WorkerSampleInspection = {
 
 export function evaluateForecastRuntimeTelemetry(input: EvaluationInput): RuntimeEvaluation {
   const parsed = parseEvaluationInput(input);
-  if ("error" in parsed) return incompleteRuntime(parsed.error);
+  if ("error" in parsed)
+    return incompleteRuntime(parsed.error, input.coverageBasis === "scheduled");
   const identityErrors = runtimeIdentityErrors(parsed.telemetry, input);
   const workers = workerMap(parsed.telemetry);
   const missing = missingWorkerErrors(workers);
   if (identityErrors.length > 0 || missing.length > 0) {
-    return incompleteRuntime([...identityErrors, ...missing]);
+    return incompleteRuntime([...identityErrors, ...missing], input.coverageBasis === "scheduled");
   }
   const collectorTelemetry = workers.get("collector");
   const dispatcherTelemetry = workers.get("dispatcher");
   if (!collectorTelemetry || !dispatcherTelemetry) {
-    return incompleteRuntime("runtime_worker_lookup_failed");
+    return incompleteRuntime("runtime_worker_lookup_failed", input.coverageBasis === "scheduled");
   }
   const collector = evaluateWorkerFromInput("collector", collectorTelemetry, input);
   const dispatcher = evaluateWorkerFromInput("dispatcher", dispatcherTelemetry, input);
@@ -202,6 +211,12 @@ function runtimeIdentityErrors(
     Date.parse(telemetry.observedAt) < Date.parse(input.endedAt)
       ? "runtime_observed_before_window_end"
       : null,
+    input.coverageBasis === "scheduled" &&
+    (!Number.isFinite(input.nowMs) ||
+      Date.parse(telemetry.observedAt) > input.nowMs ||
+      input.nowMs - Date.parse(telemetry.observedAt) > FORECAST_RUNTIME_EVIDENCE_MAX_AGE_MS)
+      ? "runtime_observation_stale_or_future"
+      : null,
     ...(telemetry.collectionErrors ?? []),
   ].filter((value): value is string => value !== null);
 }
@@ -230,7 +245,11 @@ function evaluateWorkerFromInput(
     input.startedAt,
     input.endedAt,
     collector ? input.collectorExpectedSlots : input.dispatcherExpectedSlots,
-    collector ? input.collectorD1Slots : input.dispatcherD1Slots,
+    input.coverageBasis === "scheduled"
+      ? null
+      : collector
+        ? input.collectorD1Slots
+        : input.dispatcherD1Slots,
   );
 }
 
@@ -339,10 +358,10 @@ function evaluateWorker(
   startedAt: string,
   endedAt: string,
   expectedSlots: string[],
-  d1Slots: string[],
+  d1Slots: string[] | null,
 ): WorkerEvaluation {
   const expected = new Set(expectedSlots.map(normalizeSlot));
-  const d1 = new Set(d1Slots.map(normalizeSlot));
+  const d1 = d1Slots === null ? null : new Set(d1Slots.map(normalizeSlot));
   const inspection = inspectWorkerSamples(
     worker.samples,
     expectedScriptVersion,
@@ -352,7 +371,7 @@ function evaluateWorker(
   return {
     summary,
     hardFailures: workerHardFailures(component, worker, inspection, summary),
-    evidenceErrors: workerEvidenceErrors(component, summary),
+    evidenceErrors: workerEvidenceErrors(component, summary, worker),
     warnings: workerWarnings(component, summary),
   };
 }
@@ -426,32 +445,38 @@ function buildWorkerSummary(
   worker: ForecastRuntimeTelemetryEvidence["workers"][number],
   inspection: WorkerSampleInspection,
   expected: Set<string>,
-  d1: Set<string>,
+  d1: Set<string> | null,
   startedAt: string,
   endedAt: string,
 ): CpuPerformanceEvidence {
   const telemetrySlots = new Set(inspection.slotCounts.keys());
   const runtimeSlots = new Set(inspection.runtimeSlotCounts.keys());
   const duplicateSlots = [...inspection.slotCounts.values()].filter((count) => count > 1).length;
+  // V2 monitors are not an invocation ledger. Scheduled coverage uses the
+  // independently calculated Cron slots, never telemetry copied into D1 evidence.
+  const coverageSlots = d1 ?? expected;
   const unmatchedTelemetrySlots = [...telemetrySlots].filter(
-    (slot) => !expected.has(slot) || !d1.has(slot),
+    (slot) => !expected.has(slot) || !coverageSlots.has(slot),
   ).length;
-  const missingTelemetrySlots = [...d1].filter((slot) => !telemetrySlots.has(slot)).length;
-  const missingRuntimeSlots = [...d1].filter((slot) => !runtimeSlots.has(slot)).length;
+  const missingTelemetrySlots = [...coverageSlots].filter(
+    (slot) => !telemetrySlots.has(slot),
+  ).length;
+  const missingRuntimeSlots = [...coverageSlots].filter((slot) => !runtimeSlots.has(slot)).length;
   const splitMs = Date.parse(startedAt) + (Date.parse(endedAt) - Date.parse(startedAt)) / 2;
   const runtimeSamples = worker.samples.filter(hasRuntimeSummary);
   const full = distribution(runtimeSamples.map((sample) => sample.cpuTimeMs));
   return {
+    ...(d1 === null ? { coverageBasis: "scheduled" as const } : {}),
     scriptName: worker.scriptName,
     configuredLimitMs: worker.configuredLimitMs,
     expectedSlots: expected.size,
-    d1ObservedSlots: d1.size,
+    d1ObservedSlots: d1?.size ?? 0,
     telemetryObservedSlots: telemetrySlots.size,
     missingTelemetrySlots,
-    coverage: ratio(d1.size - missingTelemetrySlots, d1.size),
+    coverage: ratio(coverageSlots.size - missingTelemetrySlots, coverageSlots.size),
     runtimeObservedSlots: runtimeSlots.size,
     missingRuntimeSlots,
-    runtimeCoverage: ratio(d1.size - missingRuntimeSlots, d1.size),
+    runtimeCoverage: ratio(coverageSlots.size - missingRuntimeSlots, coverageSlots.size),
     exceededCpu: inspection.exceededCpu,
     unsuccessfulOutcomes: inspection.unsuccessfulOutcomes,
     duplicateSlots,
@@ -525,8 +550,17 @@ function workerHardFailures(
 function workerEvidenceErrors(
   component: ForecastRuntimeComponent,
   summary: CpuPerformanceEvidence,
+  worker: ForecastRuntimeTelemetryEvidence["workers"][number],
 ) {
   return [
+    summary.coverageBasis === "scheduled" &&
+    worker.samples.some((sample) => sample.scriptVersionId === null)
+      ? `runtime_version_metadata_missing:${component}`
+      : null,
+    summary.coverageBasis === "scheduled" &&
+    (summary.runtimeCoverage < 0.99 || summary.missingRuntimeSlots > 1)
+      ? `runtime_completion_coverage_incomplete:${component}`
+      : null,
     summary.coverage < 0.99 || summary.missingTelemetrySlots > 1
       ? `runtime_telemetry_coverage_incomplete:${component}`
       : null,
@@ -713,9 +747,12 @@ function parseOptionalRuntimeSummary(value: Record<string, unknown>) {
   };
 }
 
-function incompleteRuntime(errors: string | string[]): RuntimeEvaluation {
+function incompleteRuntime(errors: string | string[], scheduled = false): RuntimeEvaluation {
   const values = Array.isArray(errors) ? errors : [errors];
-  const empty = emptyCpuPerformance();
+  const empty = {
+    ...emptyCpuPerformance(),
+    ...(scheduled ? { coverageBasis: "scheduled" as const } : {}),
+  };
   return {
     evidence: { status: "incomplete", errors: values },
     runtimeSafety: { status: "incomplete", failureCodes: [] },
@@ -793,7 +830,7 @@ function ratio(numerator: number, denominator: number) {
   return denominator === 0 ? 0 : numerator / denominator;
 }
 
-function isSuccessfulOutcome(value: string) {
+export function isSuccessfulOutcome(value: string) {
   const normalized = value.toLowerCase();
   return normalized === "ok" || normalized === "success";
 }

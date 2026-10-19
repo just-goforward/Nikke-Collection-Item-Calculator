@@ -13,7 +13,7 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
 });
 
-describe("forecast canary v10 CLI", () => {
+describe("forecast v2 canary CLI", () => {
   it("accepts a structurally valid incomplete report without calling it failed", async () => {
     const { result, outputPath } = await runCli(inProgressReport());
     expect(result.stderr).toBe("");
@@ -32,6 +32,7 @@ describe("forecast canary v10 CLI", () => {
     report.window.eligible = true;
     report.evidence = { status: "valid", errors: [] };
     report.functional = gate("passed");
+    report.monitorProgress.valid = true;
     report.integrity = gate("passed");
     report.quota = gate("passed");
     report.runtimeSafety = gate("passed");
@@ -98,8 +99,8 @@ function inProgressReport() {
   const collectorVersionId = "11111111-1111-4111-8111-111111111111";
   const dispatcherVersionId = "22222222-2222-4222-8222-222222222222";
   return {
-    version: 10,
-    policyId: "forecast-canary-v10-live-contract-v1",
+    version: 11,
+    policyId: "forecast-canary-v2-monitor-contract-v1",
     canaryId,
     deploymentSha: sha,
     environment: "staging",
@@ -129,22 +130,12 @@ function inProgressReport() {
       earlyFailure: false,
       earlyFailureReasons: [],
     },
-    collector: invocationSummary(),
-    dispatcher: {
-      ...invocationSummary(),
-      duplicateDispatches: 0,
-      duplicateRuns: 0,
-      invalidStates: 0,
-      smokeCount: 1,
-      invalidSmoke: 0,
-      passed: false,
-    },
-    router: {
-      routerTestCount: 0,
-      duplicateInteractions: 0,
-      maxInitialResponseMs: 0,
-      failedAuthorizationSmoke: 0,
-      passed: false,
+    monitorProgress: {
+      valid: false,
+      identityBinding: "telemetry-only",
+      observedAt: "2026-09-02T09:41:06.000Z",
+      failureCodes: [],
+      streams: [],
     },
     quotaEvidence: {
       valid: false,
@@ -186,22 +177,6 @@ function gate(status: "passed" | "failed" | "incomplete") {
   return { status, failureCodes: status === "failed" ? ["fixture_failure"] : [] };
 }
 
-function invocationSummary() {
-  return {
-    expectedSlots: 3,
-    observedSlots: 3,
-    missingSlots: 0,
-    deliveryRate: 1,
-    completed: 3,
-    abandoned: 0,
-    completionRate: 1,
-    duplicateInvocations: 0,
-    unexpectedInvocations: 0,
-    lateInvocations: 0,
-    latestStatus: "completed",
-  };
-}
-
 function cpuPerformance(scriptName: string, configuredLimitMs: number) {
   const distribution = {
     samples: 0,
@@ -212,6 +187,7 @@ function cpuPerformance(scriptName: string, configuredLimitMs: number) {
     maxMs: 0,
   };
   return {
+    coverageBasis: "scheduled",
     scriptName,
     configuredLimitMs,
     expectedSlots: 0,
