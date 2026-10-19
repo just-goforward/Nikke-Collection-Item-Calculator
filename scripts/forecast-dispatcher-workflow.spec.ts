@@ -336,7 +336,8 @@ describe("Forecast deployment identity and restore workflow contract", () => {
     expect(dispatcher).toContain("--var FORECAST_V2_NOTIFICATIONS_ENABLED:false");
     const collector = workflowStep(stagingDeploy, "Deploy staging collector");
     expect(collector).toContain("--var COLLECT_ENABLED:false");
-    expect(collector).toContain("--var FORECAST_V2_MODE:off");
+    expect(collector).toContain("--var FORECAST_V2_MODE:on");
+    expect(stagingDeploy).not.toContain("--var FORECAST_V2_MODE:off");
     const interactions = workflowStep(stagingDeploy, "Deploy staging interactions");
     expect(interactions).toContain(
       "wrangler deploy --env staging --config forecast-interactions/wrangler.toml",

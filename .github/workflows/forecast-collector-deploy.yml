@@ -588,7 +588,7 @@ jobs:
           --secrets-file "$RUNNER_TEMP/forecast-secrets.json"
           --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE
           --var COLLECT_ENABLED:false
-          --var FORECAST_V2_MODE:off
+          --var FORECAST_V2_MODE:on
           --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID
           --var DISCORD_INTERACTION_OWNER:$DISCORD_INTERACTION_OWNER
           --tag "${{ github.sha }}-$POLL_MODE-disabled"
@@ -653,7 +653,7 @@ jobs:
             --secrets-file "$RUNNER_TEMP/forecast-secrets.json" \
             --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
             --var COLLECT_ENABLED:true \
-            --var FORECAST_V2_MODE:off \
+            --var FORECAST_V2_MODE:on \
             --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
             --var DISCORD_INTERACTION_OWNER:router \
             --tag "${{ github.sha }}-$POLL_MODE-v10" \
@@ -1075,7 +1075,7 @@ jobs:
             --secrets-file "$RUNNER_TEMP/forecast-secrets.json" \
             --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
             --var COLLECT_ENABLED:false \
-            --var FORECAST_V2_MODE:off \
+            --var FORECAST_V2_MODE:on \
             --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
             --var DISCORD_INTERACTION_OWNER:router \
             --tag "${{ github.sha }}-$POLL_MODE-v10-validation-stop" \
