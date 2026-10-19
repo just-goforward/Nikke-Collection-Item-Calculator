@@ -47,7 +47,13 @@ type DecisionInput = {
 
 export function evaluateCanaryDecision(input: DecisionInput) {
   const functionalFailures = functionalFailureCodes(input);
+  const observedMonitorFailures = functionalFailures.filter((code) =>
+    code.startsWith("v2_monitor_run_failed:"),
+  );
   let functionalStatus: CanaryGateResult["status"] = "failed";
+  if ("monitorProgress" in input && observedMonitorFailures.length === 0) {
+    functionalStatus = "incomplete";
+  }
   if (functionalFailures.length === 0) {
     functionalStatus = input.eligible ? "passed" : "incomplete";
   }
@@ -70,7 +76,7 @@ export function evaluateCanaryDecision(input: DecisionInput) {
   };
   const gates = { functional, integrity, quota, runtimeSafety };
   const candidateHardFailures = hardFailureCodes(gates, input.runtime.performance.regressionCodes);
-  const earlyHardFailures = [...input.earlyFailureReasons];
+  const earlyHardFailures = [...input.earlyFailureReasons, ...observedMonitorFailures];
   const incomplete =
     evidence.status === "incomplete" ||
     Object.values(gates).some((gate) => gate.status === "incomplete");

@@ -95,17 +95,23 @@ it("rejects legacy-only D1 evidence even with valid scheduled telemetry and quot
   expect(value.certification.status).toBe("incomplete");
 });
 
-it.each(["running", "held", "failed"])(
-  "blocks unfinished latest monitor state %s",
-  async (status) => {
+it.each(["running", "held"])("blocks unfinished latest monitor state %s", async (status) => {
+  await env.FORECAST_DB.prepare("UPDATE forecast_v2_monitor_runs SET status=? WHERE stream_id='A'")
+    .bind(status)
+    .run();
+  expect((await report()).monitorProgress.failureCodes).toContain("v2_monitor_progress_missing:A");
+});
+
+it.each([true, false])(
+  "fails on an observed failed monitor even with telemetry=%s",
+  async (present) => {
     await env.FORECAST_DB.prepare(
-      "UPDATE forecast_v2_monitor_runs SET status=? WHERE stream_id='A'",
-    )
-      .bind(status)
-      .run();
-    expect((await report()).monitorProgress.failureCodes).toContain(
-      "v2_monitor_progress_missing:A",
-    );
+      "UPDATE forecast_v2_monitor_runs SET status='failed' WHERE stream_id='A'",
+    ).run();
+    const value = await report(present ? runtimeTelemetry() : null);
+    expect(value.functional.status).toBe("failed");
+    expect(value.certification.status).toBe("failed");
+    expect(value.certification.hardFailures).toContain("v2_monitor_run_failed:A");
   },
 );
 
