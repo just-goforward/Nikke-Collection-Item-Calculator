@@ -73,8 +73,8 @@ function monitorFailures(rows: MonitorRow[], startedMs: number, nowMs: number) {
       failures.push(`v2_monitor_definition_mismatch:${id}`);
       continue;
     }
-    // E has no periodic work requirement. Its lease state must exist, but this
-    // readiness contract does not claim completion of human-triggered follow-ups.
+    // Freshness/completed-run requirements apply only to periodic streams.
+    // On-demand E requires an existing non-future heartbeat, not completed follow-ups.
     if (id === "E") {
       if (!row.heartbeat_at || Date.parse(row.heartbeat_at) > nowMs)
         failures.push("v2_monitor_heartbeat_stale_or_invalid:E");
