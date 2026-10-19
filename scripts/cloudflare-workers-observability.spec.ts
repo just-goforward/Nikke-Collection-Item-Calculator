@@ -90,15 +90,7 @@ describe("Workers Observability forecast runtime evidence", () => {
   it.each(["old", "v2_off", "collection_disabled", "usage_guard"])(
     "excludes %s markers",
     async (reason) => {
-      const value = fixture("skipped", "ok");
-      const events = invocationEvents(value, "skipped");
-      if (!events[1]) throw new Error("missing_fixture_marker");
-      events[1]["source"] = JSON.stringify({
-        ...marker("2026-09-03T00:03:00.000Z"),
-        mode: reason === "v2_off" ? "off" : "on",
-        admission: reason === "old" ? undefined : "skipped",
-        reason,
-      });
+      const value = skippedInvocationFixture(reason);
       expect(await parseInvocationSamples(value, expectedCollector())).toEqual([]);
     },
   );
@@ -337,6 +329,19 @@ function fixture(
       },
     },
   };
+}
+
+function skippedInvocationFixture(reason: string) {
+  const value = fixture("skipped", "ok");
+  const events = invocationEvents(value, "skipped");
+  if (!events[1]) throw new Error("missing_fixture_marker");
+  events[1]["source"] = JSON.stringify({
+    ...marker("2026-09-03T00:03:00.000Z"),
+    mode: reason === "v2_off" ? "off" : "on",
+    admission: reason === "old" ? undefined : "skipped",
+    reason,
+  });
+  return value;
 }
 
 function expectedCollector() {

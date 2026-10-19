@@ -732,8 +732,7 @@ function parseSample(value: unknown): ForecastRuntimeSample {
   }
   const runtime = parseOptionalRuntimeSummary(value);
   return {
-    mode: optionalString(value["mode"] ?? null, "runtime_mode_invalid") ?? undefined,
-    admission: optionalString(value["admission"] ?? null, "runtime_admission_invalid") ?? undefined,
+    ...parseSampleAdmission(value),
     slot: requiredTimestamp(value["slot"], "runtime_slot_invalid"),
     requestIdHash,
     scriptVersionId,
@@ -741,6 +740,13 @@ function parseSample(value: unknown): ForecastRuntimeSample {
     identitySource,
     eventType: "scheduled",
     ...runtime,
+  };
+}
+
+function parseSampleAdmission(value: Record<string, unknown>) {
+  return {
+    mode: optionalString(value["mode"] ?? null, "runtime_mode_invalid") ?? undefined,
+    admission: optionalString(value["admission"] ?? null, "runtime_admission_invalid") ?? undefined,
   };
 }
 
