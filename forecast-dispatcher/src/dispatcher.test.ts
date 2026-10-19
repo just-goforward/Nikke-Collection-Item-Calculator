@@ -1,6 +1,7 @@
 import { applyD1Migrations, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assertCertifiedSupplySnapshot } from "../../shared/certifiedSupply.ts";
 import {
   applyPublicationCommand,
   createReview,
@@ -11,17 +12,44 @@ import {
   approvalReview,
   emergencyReview,
   migratePublicationDb,
-  seedCandidate,
+  seedCandidate as seedLegacyCandidate,
   seedManualReview,
   seedRenewedManualReview,
   TEST_NOW,
 } from "../../shared/forecast-publication/test-fixtures.ts";
-import { encodeBase64 } from "../../shared/forecastPublication.ts";
+import {
+  canonicalPublicationJson,
+  encodeBase64,
+  publicationHash,
+} from "../../shared/forecastPublication.ts";
+import { buildV3SupplyForecastCandidate } from "../../shared/supplyForecastCandidate.ts";
 import { raiseOpsAlert, resolveOpsAlert } from "./db.ts";
 import { runDispatcher } from "./dispatcher.ts";
 import type { DispatcherEnv } from "./types.ts";
 
 const testEnv = env as unknown as DispatcherEnv;
+// Dispatcher transport/retry fixtures use the supported cadence; no pricing assertion here.
+async function seedCandidate(...args: Parameters<typeof seedLegacyCandidate>) {
+  const seeded = await seedLegacyCandidate(...args);
+  const snapshot = assertCertifiedSupplySnapshot(seeded.candidate.certifiedSnapshot);
+  const candidate = buildV3SupplyForecastCandidate({
+    ...seeded.candidate,
+    certifiedSnapshot: assertCertifiedSupplySnapshot({
+      ...snapshot,
+      cadence: {
+        ...snapshot.cadence,
+        version: "observed-median-v2",
+        medianDays: 28,
+      },
+    }),
+  });
+  const hash = await publicationHash(candidate);
+  await args[0]
+    .prepare("UPDATE forecast_candidates SET payload_json=?,payload_hash=? WHERE candidate_id=?")
+    .bind(canonicalPublicationJson(candidate), hash, candidate.candidateId)
+    .run();
+  return { candidate, hash };
+}
 let outbound: ReturnType<typeof vi.fn>;
 beforeEach(async () => {
   await reset();
@@ -140,7 +168,7 @@ describe("D1 publication Discord dispatcher", () => {
           JSON.stringify(
             revision % 2 === 0
               ? { ...candidate, payloadVersion: 3, rulesVersion: "schedule-kit-v2" }
-              : {},
+              : { certifiedSnapshot: candidate.certifiedSnapshot },
           ),
           new Date(TEST_NOW + revision).toISOString(),
           candidate.candidateId,

@@ -64,20 +64,23 @@ export async function admitCandidates(
     let state: "ready" | "pending" | "dead" = "ready";
     let code: string | null = null;
     try {
-      if (
-        row.cadence_version === "observed-median-v2" &&
-        !hasCertifiedEvidenceCoverage(row.cadence_version, CERTIFIED_ENGINE_CODE_HASH, coverage)
-      )
+      if (row.cadence_version !== "observed-median-v2") throw new Error("unsupported_cadence");
+      if (!hasCertifiedEvidenceCoverage(row.cadence_version, CERTIFIED_ENGINE_CODE_HASH, coverage))
         throw new Error("awaiting_evidence_panel");
       const sealed = await sealCandidate(db, row.candidate_id, now);
       await createReview(db, active, "approve", row.candidate_id, sealed.hash, now);
     } catch (error) {
       code =
-        error instanceof Error && error.message === "awaiting_evidence_panel"
-          ? "awaiting_evidence_panel"
+        error instanceof Error &&
+        (error.message === "awaiting_evidence_panel" || error.message === "unsupported_cadence")
+          ? error.message
           : publicationErrorCode(error);
       state =
-        code === "awaiting_evidence_panel" || claimed.attempts < MAX_ATTEMPTS ? "pending" : "dead";
+        code === "unsupported_cadence"
+          ? "dead"
+          : code === "awaiting_evidence_panel" || claimed.attempts < MAX_ATTEMPTS
+            ? "pending"
+            : "dead";
     }
     const completed = await db
       .prepare(`UPDATE forecast_runtime_admissions SET state=?,error_code=COALESCE(?,error_code),
