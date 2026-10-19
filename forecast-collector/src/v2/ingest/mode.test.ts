@@ -14,8 +14,7 @@ import { metadataUrl } from "./client";
 import { collectorTestEnv } from "./test-support/env";
 import { count } from "./test-support/v2-db";
 
-// FORECAST_V2_MODE through the real scheduled handler. The oracle for "legacy
-// behaviour unchanged" is the same handler with the variable absent.
+// Disabled modes must not fall back to legacy collection.
 const base = collectorTestEnv;
 const scheduledTime = Date.parse("2026-10-18T03:00:00.000Z"); // an A slot for v2
 const v2Tables = [
@@ -84,17 +83,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it("off and unknown modes leave the legacy scheduled path exactly as with the variable absent", async () => {
+it("off and unknown modes perform no collection or durable writes", async () => {
   const absent = await scheduled(undefined);
-  expect(absent.urls.length).toBeGreaterThan(0);
-  expect(absent.urls.some((url) => url.includes("/v2/search/feeds"))).toBe(false);
-  expect(absent.invocations.length).toBeGreaterThan(0);
-  expect(absent.events[0]).toBe("forecast_canary_scheduled_invocation");
+  expect(absent.urls).toEqual([]);
+  expect(absent.invocations).toEqual([]);
+  expect(absent.events[0]).toBe("forecast_v2_scheduled_invocation");
   expect(Object.values(absent.v2).every((n) => n === 0)).toBe(true);
   expect(absent.leases).toBe(0);
   for (const mode of ["off", "OFF", "enabled", ""])
     expect(await scheduled(mode), mode).toEqual(absent);
-  // Five full legacy scheduled runs; exceeds the 5 s default under suite load.
 }, 20_000);
 
 it("hold runs only the v2 unit: no legacy collection, no rules or notification writes", async () => {

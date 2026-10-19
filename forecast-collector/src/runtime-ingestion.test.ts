@@ -157,7 +157,7 @@ it("rechecks newer failed collection at claim time after a successful precheck",
   ).toBe(0);
 });
 
-it("runs the scheduled metadata → full body → D1 v3 candidate path in workerd", async () => {
+it("does not run retired scheduled ingestion even with the rotation configuration", async () => {
   const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = new URL(String(input));
     if (url.pathname.endsWith("/8060044")) return Response.json(fixture);
@@ -209,11 +209,8 @@ it("runs the scheduled metadata → full body → D1 v3 candidate path in worker
     const row = await testEnv.FORECAST_DB.prepare(
       "SELECT payload_json FROM forecast_candidates",
     ).first<{ payload_json: string }>();
-    expect(JSON.parse(row?.payload_json ?? "{}")).toMatchObject({
-      rulesVersion: "schedule-kit-v4",
-      certifiedSnapshot: { version: "certified-daily-v4" },
-    });
-    expect(fetcher.mock.calls.some(([input]) => String(input).endsWith("/8060044"))).toBe(true);
+    expect(row).toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
   } finally {
     fetcher.mockRestore();
   }

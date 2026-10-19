@@ -1,16 +1,6 @@
 import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard.ts";
-import { collectionSchedule, rotationBoard } from "./collection-schedule";
-import { runCollection } from "./collector";
 import { handleHttpRequest } from "./http";
 import { automationOperation, opsEnvironment, requireGuardDb } from "./http-shared";
-import {
-  activeProfilePhase,
-  type ProfileCounts,
-  profileIngestionAdmitted,
-  profilePhase,
-} from "./profile";
-import { runRotationIngestion } from "./rotation-ingestion";
-import { runRuntimeIngestion, runtimeIngestionEnabled } from "./runtime-ingestion";
 import type { CollectorEnv } from "./types";
 import { runV2CandidateUnit } from "./v2/candidate";
 import { runV2Invocation } from "./v2/ingest/run";
@@ -21,12 +11,7 @@ export default {
   async scheduled(event, env, context) {
     console.log(
       JSON.stringify({
-        event:
-          v2Mode(env) !== "off"
-            ? "forecast_v2_scheduled_invocation"
-            : profilePhase(env) === "off"
-              ? "forecast_canary_scheduled_invocation"
-              : "forecast_profile_scheduled_invocation",
+        event: "forecast_v2_scheduled_invocation",
         component: "collector",
         environment: env.ENVIRONMENT,
         deploymentSha: env.DEPLOY_SHA,
@@ -34,7 +19,6 @@ export default {
       }),
     );
     if (env.COLLECT_ENABLED !== "true") {
-      logProfile(env, event.scheduledTime, "collection_disabled");
       console.log(
         JSON.stringify({
           event: "forecast_collection_skipped",
@@ -44,11 +28,11 @@ export default {
       );
       return;
     }
+    if (v2Mode(env) === "off") return;
     try {
       await assertUsageAllowed(requireGuardDb(env), automationOperation(env));
     } catch (error) {
       if (error instanceof UsageGuardError) {
-        logProfile(env, event.scheduledTime, "usage_guard_disabled");
         console.warn(
           JSON.stringify({
             event: "forecast_collection_quota_disabled",
@@ -58,23 +42,9 @@ export default {
         );
         return;
       }
-      logProfile(env, event.scheduledTime, "usage_guard_failed");
       throw error;
     }
-    context.waitUntil(
-      v2Mode(env) !== "off"
-        ? runV2Scheduled(env, event.scheduledTime)
-        : profilePhase(env) !== "off"
-          ? runProfile(env, event.scheduledTime)
-          : collectionSchedule(env) === "rotation"
-            ? runRotation(env, event.scheduledTime)
-            : runtimeIngestionEnabled(env) && Math.floor(event.scheduledTime / 180_000) % 2 === 1
-              ? runRotationIngestion(env, event.scheduledTime, true, true)
-              : runCollection(env, { nowMs: event.scheduledTime }).then(async (summary) => {
-                  if (summary.outcome === "completed") await runRuntimeIngestion(env);
-                  return summary;
-                }),
-    );
+    context.waitUntil(runV2Scheduled(env, event.scheduledTime));
   },
 
   fetch(request, env, context) {
@@ -91,76 +61,4 @@ function runV2Scheduled(env: CollectorEnv, scheduledTime: number) {
     });
   }
   return runV2Invocation(env, scheduledTime);
-}
-
-async function runRotation(env: CollectorEnv, scheduledTime: number) {
-  const board = rotationBoard(scheduledTime);
-  // Alternate the fourth slot between ingestion and persisted-state publication.
-  // Poll cadence stays at twelve minutes; neither invocation combines CPU work.
-  // Disabled/production schedules retain their original behavior.
-  const candidateSlot =
-    board === null && runtimeIngestionEnabled(env) && Math.floor(scheduledTime / 180_000) % 8 === 7;
-  const result = candidateSlot
-    ? await runRotationIngestion(env, scheduledTime, true)
-    : board === null
-      ? await runRotationIngestion(env, scheduledTime)
-      : await runCollection(env, { nowMs: scheduledTime, board, rotation: true });
-  console.log(
-    JSON.stringify({
-      event: "forecast_rotation_slot",
-      slot: new Date(scheduledTime).toISOString(),
-      board,
-      outcome: result.outcome,
-      reason:
-        board === null && result.outcome === "held" ? "admission_or_lease_held" : result.outcome,
-    }),
-  );
-}
-
-async function runProfile(env: CollectorEnv, scheduledTime: number) {
-  // Profiling isolates collection and notice ingestion costs; it never publishes.
-  const phase = activeProfilePhase(env, scheduledTime);
-  const counts: ProfileCounts = { rowsPolled: 0, noticesReserved: 0, bodyBytes: 0 };
-  let outcome = "failed";
-  try {
-    if (phase === "ingest-only") {
-      if (!(await profileIngestionAdmitted(env.FORECAST_DB, Date.now()))) {
-        outcome = "skipped_no_recent_completed_collection";
-        return;
-      }
-      // The read above is only a skip diagnostic; the lease INSERT rechecks and
-      // consumes eligibility atomically, including changes since that read.
-      outcome = (await runRuntimeIngestion(env, { counts, requireProfileAdmission: true })).outcome;
-    } else {
-      outcome = (
-        await runCollection(env, {
-          nowMs: scheduledTime,
-          ...(phase === "board-48" ? { board: 48 as const } : {}),
-          ...(phase === "board-56" ? { board: 56 as const } : {}),
-          counts,
-        })
-      ).outcome;
-    }
-  } finally {
-    logProfile(env, scheduledTime, outcome, counts);
-  }
-}
-
-function logProfile(
-  env: CollectorEnv,
-  scheduledTime: number,
-  outcome: string,
-  counts: ProfileCounts = { rowsPolled: 0, noticesReserved: 0, bodyBytes: 0 },
-) {
-  const phase = activeProfilePhase(env, scheduledTime);
-  if (phase === "off") return;
-  console.log(
-    JSON.stringify({
-      event: "forecast_collector_profile",
-      phase,
-      slot: new Date(scheduledTime).toISOString(),
-      outcome,
-      ...counts,
-    }),
-  );
 }
