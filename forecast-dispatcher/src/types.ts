@@ -11,22 +11,6 @@ export type DispatcherEnv = Omit<GeneratedForecastDispatcherEnv, "ENVIRONMENT"> 
   DISCORD_APPROVAL_CHANNEL_ID: string;
 };
 
-export type WorkLink = {
-  source: "naver-board-11" | "naver-board-48" | "naver-board-56";
-  itemId: string;
-  title: string;
-  url: string;
-};
-
-export type ActionableWork = {
-  pendingIds: string[];
-  candidateIds: string[];
-  links: WorkLink[];
-  pendingCount: number;
-  candidateCount: number;
-  fingerprint: string;
-};
-
 export type OpsAlertRow = {
   alertKey: string;
   environment: DispatcherEnvironment;

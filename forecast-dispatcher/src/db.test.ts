@@ -8,7 +8,6 @@ import {
   markAlertSendFailed,
   markAlertSent,
   raiseOpsAlert,
-  readActionableWork,
   resolveOpsAlert,
 } from "./db";
 import type { DispatcherEnv } from "./types";
@@ -32,18 +31,6 @@ afterEach(() => {
   } finally {
     vi.unstubAllGlobals();
   }
-});
-
-describe("forecast dispatcher D1 reservations", () => {
-  it("preserves the canonical SHA-256 identity for empty work without runtime hashing", async () => {
-    const work = await readActionableWork(testEnv.FORECAST_DB, "staging");
-
-    expect(work).toMatchObject({
-      pendingCount: 0,
-      candidateCount: 0,
-      fingerprint: "faee245f61e12ff37e07bdd6778379da818d2c3dbf1b76e545babc3e5e012c6b",
-    });
-  });
 });
 
 describe("forecast dispatcher alert grouping", () => {

@@ -1,66 +1,6 @@
-import { sha256Hex } from "./crypto";
-import type { ActionableWork, DispatcherEnvironment, OpsAlertRow, WorkLink } from "./types";
+import type { DispatcherEnvironment, OpsAlertRow } from "./types";
 
 const ALERT_SUPPRESSION_MS = 30 * 60 * 1_000;
-const MAX_WORK_IDS = 1_000;
-const EMPTY_WORK_FINGERPRINTS: Record<DispatcherEnvironment, string> = {
-  staging: "faee245f61e12ff37e07bdd6778379da818d2c3dbf1b76e545babc3e5e012c6b",
-  production: "c5056c85d91b2c5f076950484107ac80d8b395c0706ba389e9f3dc0ce6382a62",
-};
-
-export async function readActionableWork(
-  db: D1Database,
-  environment: DispatcherEnvironment,
-): Promise<ActionableWork> {
-  const [pendingResult, candidateResult] = await db.batch([
-    db
-      .prepare(
-        `SELECT source, item_id, title, url
-       FROM source_queue WHERE status = 'pending'
-       ORDER BY published_at, source, item_id LIMIT ?`,
-      )
-      .bind(MAX_WORK_IDS + 1),
-    db
-      .prepare(
-        `SELECT candidate_id FROM forecast_candidates
-       WHERE state IN ('crosschecked', 'x_unavailable')
-       ORDER BY created_at, candidate_id LIMIT ?`,
-      )
-      .bind(MAX_WORK_IDS + 1),
-  ]);
-  if (!pendingResult || !candidateResult) throw new Error("actionable_work_batch_incomplete");
-  const pending = pendingResult.results as Array<{
-    source: WorkLink["source"];
-    item_id: string;
-    title: string;
-    url: string;
-  }>;
-  const candidates = candidateResult.results as Array<{ candidate_id: string }>;
-  if (pending.length > MAX_WORK_IDS || candidates.length > MAX_WORK_IDS) {
-    throw new Error("actionable_work_overflow");
-  }
-  const pendingIds = pending.map((row) => `${row.source}:${row.item_id}`).sort();
-  const candidateIds = candidates.map((row) => row.candidate_id).sort();
-  const fingerprint =
-    pendingIds.length + candidateIds.length === 0
-      ? EMPTY_WORK_FINGERPRINTS[environment]
-      : await sha256Hex(
-          JSON.stringify({ environment, pending: pendingIds, candidates: candidateIds }),
-        );
-  return {
-    pendingIds,
-    candidateIds,
-    links: pending.slice(0, 3).map((row) => ({
-      source: row.source,
-      itemId: row.item_id,
-      title: row.title,
-      url: row.url,
-    })),
-    pendingCount: pendingIds.length,
-    candidateCount: candidateIds.length,
-    fingerprint,
-  };
-}
 
 export async function raiseOpsAlert(
   db: D1Database,
