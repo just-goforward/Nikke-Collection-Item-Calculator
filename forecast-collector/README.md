@@ -1,5 +1,22 @@
 # Schedule forecast collector
 
+## Current v2 pipeline
+
+The collector generates forecasts only through `src/v2/`: Naver monitoring,
+judgment queues, calendar snapshots and `observed-median-v2` candidates.
+The dispatcher handles publication admission, v2 notifications and operational
+alerts; it does not dispatch GitHub workflows. Retained legacy admin reads expose
+history, not mutation or collection entrypoints.
+
+## [historical] Archived legacy operating reference
+
+**Everything below this heading is historical reference, not current deployment
+or operating instructions.** This includes all commands, schedules, credential
+instructions, approval flows and UI query parameters. The proposal watchdog,
+Actions-side parsing, X/FxTwitter advisory, staging-adoption workflows and GitHub
+dispatch error/callback notifications described below have been retired.
+Use the current v2 pipeline above; do not execute archived instructions.
+
 [D1 Time Travel recovery runbook (Korean)](../docs/d1-time-travel-recovery-runbook.md)
 
 `collection-kit-forecast-collector` is an isolated Cloudflare Worker that observes official NIKKE
