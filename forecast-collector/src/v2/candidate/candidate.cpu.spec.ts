@@ -3,7 +3,7 @@ import * as model from "../../../../shared/certifiedSupplyModel";
 import * as snapshots from "../../../../shared/supplyForecastBuild";
 import * as profiles from "../../../../shared/supplyForecastCandidate";
 import * as candidateBuilder from "../../candidate";
-import * as admission from "../../source-queue";
+import * as admission from "../../candidate-persistence";
 import type { CollectorEnv } from "../../types";
 import { localDatabase } from "../rules/sqlite-test-db";
 import { now, seed } from "./fixture";

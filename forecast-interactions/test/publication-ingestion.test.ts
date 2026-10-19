@@ -16,13 +16,12 @@ import grantsMigration from "../../forecast-collector/migrations/0027_board11_gr
 import exclusionsMigration from "../../forecast-collector/migrations/0028_publication_exclusions.sql?raw";
 import cacheMigration from "../../forecast-collector/migrations/0029_candidate_replay_cache.sql?raw";
 import collectorSchema from "../../forecast-collector/schema.sql?raw";
+import { resolveSoloSchedule } from "../../forecast-collector/src/candidate.ts";
+import { processSourceQueue } from "../../forecast-collector/src/candidate-persistence.ts";
+import { buildConstructedForecastCandidate } from "../../forecast-collector/src/constructed-candidate.ts";
+import { parseScheduleEvents } from "../../forecast-collector/src/naver.ts";
 import { parseNoticeDetail } from "../../forecast-collector/src/notice.ts";
-import {
-  runRuntimeCandidate,
-  runRuntimeIngestion,
-} from "../../forecast-collector/src/runtime-ingestion.ts";
 import { seedNormalUsageGuard } from "../../forecast-collector/src/test-usage-guard.ts";
-import type { CollectorEnv } from "../../forecast-collector/src/types.ts";
 import { runDispatcher } from "../../forecast-dispatcher/src/dispatcher.ts";
 import type { DispatcherEnv } from "../../forecast-dispatcher/src/types.ts";
 import { encodeBase64 } from "../../shared/forecastPublication.ts";
@@ -79,7 +78,41 @@ function hex(buffer: ArrayBuffer) {
   return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-it("real ingestion A → delivered review → corrected ingestion B rejects A's signed approval atomically", async () => {
+async function persistHistoricalNotice(
+  db: D1Database,
+  payload: typeof noticeFixture,
+  nowMs: number,
+  revision: number,
+) {
+  const item = await parseNoticeDetail(payload, 56, "8060044");
+  if (!item) throw new Error("fixture_missing");
+  const events = await parseScheduleEvents([item]);
+  const resolved = resolveSoloSchedule(events, nowMs);
+  if (!resolved) throw new Error("fixture_schedule_missing");
+  const candidate = await buildConstructedForecastCandidate(
+    resolved.scheduleStatus === "estimated"
+      ? (resolved.evidenceEvents.at(-1)?.eventId ?? resolved.event.eventId)
+      : resolved.event.eventId,
+    resolved,
+    events,
+    { status: "x_unavailable", sourceItem: null, reason: null },
+    nowMs,
+    revision,
+  );
+  return processSourceQueue(db, {
+    mode: "bootstrap",
+    results: events.map((event) => ({
+      source: item.source,
+      itemId: item.itemId,
+      outcome: "processed",
+      item,
+      event,
+    })),
+    candidate,
+  });
+}
+
+it("persisted historical candidate A → delivered review → corrected B rejects A's signed approval atomically", async () => {
   await reset();
   // D1 enforces ingestion leases with its real SQL clock. Only candidate construction
   // uses the historical notice date; do not fake the lease/signature/guard clocks.
@@ -115,24 +148,6 @@ it("real ingestion A → delivered review → corrected ingestion B rejects A's 
   });
   vi.stubGlobal("fetch", outbound);
   const candidateNowMs = Date.parse("2026-08-20T12:00:00Z");
-  const item = await parseNoticeDetail(noticeFixture, 56, "8060044");
-  if (!item) throw new Error("fixture_missing");
-  const now = new Date().toISOString();
-  await db
-    .prepare(`INSERT INTO source_queue
-    (source,item_id,url,title,published_at,official,status,attempts,first_seen_at,updated_at)
-    VALUES(?,?,?,?,?,1,'pending',0,?,?)`)
-    .bind(item.source, item.itemId, item.url, item.title, item.publishedAt, now, now)
-    .run();
-  const collector: CollectorEnv = {
-    FORECAST_DB: db,
-    USAGE_GUARD_DB: testEnv.USAGE_GUARD_DB,
-    ADMIN_TOKEN: "fixture",
-    ENVIRONMENT: "staging",
-    DEPLOY_SHA: "fixture",
-    POLL_MODE: "both",
-    RUNTIME_INGESTION_ENABLED: "true",
-  };
   const dispatcher = {
     FORECAST_DB: db,
     USAGE_GUARD_DB: testEnv.USAGE_GUARD_DB,
@@ -143,12 +158,9 @@ it("real ingestion A → delivered review → corrected ingestion B rejects A's 
     DISCORD_BOT_TOKEN: "fixture",
     DISCORD_APPROVAL_CHANNEL_ID: testEnv.DISCORD_APPROVAL_CHANNEL_ID,
   } as DispatcherEnv;
-  const ingestion = await runRuntimeIngestion(collector, {
-    fetcher: async () => Response.json(noticeFixture),
-    candidateNowMs,
-  });
-  expect(ingestion).toEqual({ outcome: "completed", processed: 1, candidateCreated: false });
-  expect((await runRuntimeCandidate(collector, candidateNowMs)).candidateCreated).toBe(true);
+  expect(
+    (await persistHistoricalNotice(db, noticeFixture, candidateNowMs, 1)).candidateCreated,
+  ).toBe(true);
   expect(await runDispatcher(dispatcher)).toEqual({ status: "completed", sent: 1 });
   const a = await db
     .prepare(`SELECT r.review_id,r.candidate_id,o.message_id FROM forecast_runtime_reviews r
@@ -158,14 +170,9 @@ it("real ingestion A → delivered review → corrected ingestion B rejects A's 
   const corrected = structuredClone(noticeFixture);
   corrected.content.feed.contents = corrected.content.feed.contents.replace("8/27(목)", "8/28(목)");
   expect(corrected.content.feed.contents).not.toBe(noticeFixture.content.feed.contents);
-  await db.prepare("UPDATE runtime_ingestion_items SET next_check_at='2000-01-01T00:00:00Z'").run();
-  expect(
-    await runRuntimeIngestion(collector, {
-      fetcher: async () => Response.json(corrected),
-      candidateNowMs,
-    }),
-  ).toEqual({ outcome: "completed", processed: 1, candidateCreated: false });
-  expect((await runRuntimeCandidate(collector, candidateNowMs)).candidateCreated).toBe(true);
+  expect((await persistHistoricalNotice(db, corrected, candidateNowMs, 2)).candidateCreated).toBe(
+    true,
+  );
   const candidates = (
     await db
       .prepare("SELECT candidate_id,state FROM forecast_candidates ORDER BY revision")

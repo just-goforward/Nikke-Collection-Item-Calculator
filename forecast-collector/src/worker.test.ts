@@ -2,7 +2,7 @@ import { applyD1Migrations, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { executeTestSql } from "../../shared/testD1Sql";
-import { pollNaverSource } from "./source-queue";
+import { upsertOpsAlert } from "./ops";
 import schemaSql from "./test-schema";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv } from "./types";
@@ -128,36 +128,16 @@ describe("forecast collector route dispatch boundary", () => {
 
 describe("forecast collector boundary recovery", () => {
   it("keeps boundary recovery behind production admin authentication and rate limiting", async () => {
-    const responseFor = (ids: readonly number[]) =>
-      Response.json({
-        code: 200,
-        content: {
-          feeds: ids.map((feedId) => ({
-            feed: {
-              feedId,
-              loungeId: "nikke",
-              title: `공지 ${feedId}`,
-              createdDate: "20260824120000",
-            },
-            user: { userRoleCode: "game_manager" },
-            board: { boardId: 48 },
-          })),
-        },
-      });
-    await pollNaverSource(
-      testEnv.FORECAST_DB,
-      48,
-      vi.fn<typeof fetch>().mockResolvedValue(responseFor([100])),
-      "production",
-    );
-    await expect(
-      pollNaverSource(
-        testEnv.FORECAST_DB,
-        48,
-        vi.fn<typeof fetch>().mockResolvedValue(responseFor([110])),
-        "production",
-      ),
-    ).rejects.toThrow("naver_scan_boundary_missing");
+    await testEnv.FORECAST_DB.prepare(`INSERT INTO source_poll_state
+      (source,committed_item_id,committed_published_at,updated_at)
+      VALUES('naver-board-48','100','2026-08-24T03:00:00Z','2026-08-24T03:00:00Z')`).run();
+    await upsertOpsAlert(testEnv.FORECAST_DB, {
+      alertKey: "naver-boundary:production:48",
+      environment: "production",
+      severity: "critical",
+      component: "collector",
+      errorCode: "naver_scan_boundary_missing",
+    });
     const options = {
       path: "/admin/source-queue/process",
       method: "POST",
@@ -174,7 +154,7 @@ describe("forecast collector boundary recovery", () => {
       ADMIN_RATE_LIMITER: { limit } as unknown as RateLimit,
       ADMIN_TOKEN: "expected-token",
     };
-    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => responseFor([141, 100]));
+    const fetcher = vi.fn<typeof fetch>();
     vi.stubGlobal("fetch", fetcher);
     try {
       expect((await invokeAdmin(bindings, options)).status).toBe(401);

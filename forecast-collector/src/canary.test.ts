@@ -12,8 +12,6 @@ import { executeTestSql } from "../../shared/testD1Sql";
 import { readCanaryReport, readCanaryWindow, startCanaryDeployment } from "./canary";
 import { rotationBoard, rotationInvocationId } from "./collection-schedule";
 import { readHealth } from "./db";
-import { runRotationIngestion } from "./rotation-ingestion";
-import * as ingestion from "./runtime-ingestion";
 import schemaSql from "./test-schema";
 import type { CollectorEnv } from "./types";
 
@@ -53,40 +51,17 @@ beforeEach(async () => {
 
 describe("rotation canary evidence", () => {
   it.each([true, false])(
-    "certifies full rotation slot identity, ingestion enabled=%s",
-    async (enabled) => {
-      const ingest = vi.spyOn(ingestion, "runRuntimeIngestion").mockResolvedValue({
-        outcome: enabled ? "completed" : "disabled",
-        processed: 0,
-        candidateCreated: false,
-      });
-      const firstIngestion = slots(0).find((slot) => rotationBoard(Date.parse(slot)) === null);
-      if (!firstIngestion) throw new Error("missing_ingestion_slot");
-      const firstCandidate = slots(0).find(
-        (slot) => Math.floor(Date.parse(slot) / 180_000) % 8 === 7,
-      );
-      if (!firstCandidate) throw new Error("missing_candidate_slot");
-      const candidate = vi.spyOn(ingestion, "runRuntimeCandidate").mockResolvedValue({
-        outcome: "completed",
-        processed: 0,
-        candidateCreated: true,
-      });
-      const env = { ...testEnv, DEPLOY_SHA: SHA };
-      await runRotationIngestion(env, Date.parse(firstIngestion));
-      await runRotationIngestion(env, Date.parse(firstCandidate), true);
-      await runRotationIngestion(env, Date.parse(firstCandidate), true);
-      await runRotationIngestion(env, Date.parse(firstIngestion));
-      const statements = slots(0)
-        .filter((slot) => slot !== firstIngestion && slot !== firstCandidate)
-        .map((slot) => {
-          const time = Date.parse(slot);
-          const board = rotationBoard(time);
-          const id =
-            board === null ? `rotation-ingestion:${time}:v2` : rotationInvocationId(board, time);
-          return testEnv.FORECAST_DB.prepare(`INSERT INTO collector_invocations
+    "reads archived full rotation slot identity, former ingestion enabled=%s",
+    async (_enabled) => {
+      const statements = slots(0).map((slot) => {
+        const time = Date.parse(slot);
+        const board = rotationBoard(time);
+        const id =
+          board === null ? `rotation-ingestion:${time}:v2` : rotationInvocationId(board, time);
+        return testEnv.FORECAST_DB.prepare(`INSERT INTO collector_invocations
           (invocation_id,deployment_sha,scheduled_at,started_at,finished_at,status,poll_mode)
           VALUES(?,?,?,?,?,'completed','both')`).bind(id, SHA, slot, slot, slot);
-        });
+      });
       for (let index = 0; index < statements.length; index += 80) {
         await testEnv.FORECAST_DB.batch(statements.slice(index, index + 80));
       }
@@ -105,16 +80,16 @@ describe("rotation canary evidence", () => {
       expect(report.evidence.errors).not.toContain("runtime_slot_identity_conflict:collector");
       expect(report.runtimeSafety.status).toBe("passed");
       expect(report.collector.missingSlots).toBe(0);
-      expect(ingest).toHaveBeenCalledOnce();
-      expect(candidate).toHaveBeenCalledOnce();
     },
   );
 
-  it("records ingestion errors but never presents ingestion as collection health", async () => {
-    vi.spyOn(ingestion, "runRuntimeIngestion").mockRejectedValue(new Error("fixture"));
-    await expect(runRotationIngestion({ ...testEnv, DEPLOY_SHA: SHA }, 360_000)).rejects.toThrow(
-      "fixture",
-    );
+  it("never presents archived ingestion failures as collection health", async () => {
+    await testEnv.FORECAST_DB.prepare(`INSERT INTO collector_invocations
+      (invocation_id,deployment_sha,scheduled_at,started_at,finished_at,status,poll_mode)
+      VALUES('rotation-ingestion:360000:v2',?,'1970-01-01T00:06:00Z',
+      '1970-01-01T00:06:00Z','1970-01-01T00:06:00Z','failure','both')`)
+      .bind(SHA)
+      .run();
     expect((await readHealth(testEnv.FORECAST_DB)).collector.status).toBe("missing");
     expect(
       await testEnv.FORECAST_DB.prepare(

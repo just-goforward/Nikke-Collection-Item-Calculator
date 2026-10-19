@@ -3,8 +3,12 @@ import { env } from "cloudflare:workers";
 import { beforeEach, expect, it } from "vitest";
 import { executeTestSql } from "../../../../shared/testD1Sql";
 import { buildForecastCandidate, resolveSoloSchedule } from "../../candidate";
+import { processSourceQueue } from "../../candidate-persistence";
+import {
+  buildConstructedForecastCandidate,
+  isConstructedNoticeCandidate,
+} from "../../constructed-candidate";
 import { sha256Hex } from "../../crypto";
-import { processSourceQueue } from "../../source-queue";
 import schema from "../../test-schema";
 import type { ScheduleEvent } from "../../types";
 import { collectorTestEnv } from "../ingest/test-support/env";
@@ -85,6 +89,28 @@ it("builds and stores byte-identical legacy candidates with mode off", async () 
   await runV2CandidateUnit(off, at);
   const actual = await buildForecastCandidate(resolved, [event], probe, at, 1);
   expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
+  const constructed = await buildConstructedForecastCandidate(
+    event.eventId,
+    resolved,
+    [event],
+    probe,
+    at,
+    1,
+  );
+  expect(JSON.stringify(constructed.envelope)).toBe(JSON.stringify(actual));
+  expect(Object.isFrozen(constructed)).toBe(true);
+  expect(Object.isFrozen(constructed.envelope.candidate)).toBe(true);
+  expect(isConstructedNoticeCandidate(constructed)).toBe(true);
+  const forged = structuredClone(constructed);
+  expect(isConstructedNoticeCandidate(forged)).toBe(false);
+  forged.envelope.payloadHash = "0".repeat(64);
+  await expect(
+    processSourceQueue(off.FORECAST_DB, {
+      mode: "bootstrap",
+      results: [{ source: item.source, itemId: item.itemId, outcome: "processed", item, event }],
+      candidate: forged,
+    }),
+  ).rejects.toThrow("candidate_payload_hash");
   await processSourceQueue(off.FORECAST_DB, {
     mode: "bootstrap",
     results: [{ source: item.source, itemId: item.itemId, outcome: "processed", item, event }],

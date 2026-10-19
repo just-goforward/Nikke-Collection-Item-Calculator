@@ -1,8 +1,7 @@
 import { listProposalCandidates } from "./db";
 import { type AdminRequestContext, type AdminRouteHandler, json } from "./http-shared";
-import { listManualReviews } from "./manual-review";
 import { readScheduleLedger } from "./schedule-ledger";
-import { listSourceQueue } from "./source-queue";
+import { listManualReviews, listSourceQueue } from "./source-history";
 
 const SOURCE_ROUTE_HANDLERS: readonly AdminRouteHandler[] = [handleSourceReadRoute];
 

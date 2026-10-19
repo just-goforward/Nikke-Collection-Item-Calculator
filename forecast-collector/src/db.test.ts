@@ -17,7 +17,10 @@ import {
   sourceItemAndEventStatements,
   supersedeIncompatibleCandidates,
 } from "./db";
-import { finishInvocation, startInvocation } from "./source-queue";
+import {
+  completeInvocation as finishInvocation,
+  seedInvocation as startInvocation,
+} from "./test-invocation-history";
 import schemaSql from "./test-schema";
 import { seedNormalUsageGuard } from "./test-usage-guard";
 import type { CollectorEnv, NormalizedSourceItem, ScheduleEvent } from "./types";

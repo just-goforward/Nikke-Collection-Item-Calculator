@@ -4,9 +4,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { assertForecastCandidateInvariants } from "../../shared/supplyForecastCandidate";
 import { executeTestSql } from "../../shared/testD1Sql";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
+import { processSourceQueue } from "./candidate-persistence";
 import { sha256Hex, stableJson } from "./crypto";
 import { sourceItemAndEventStatements } from "./db";
-import { processSourceQueue } from "./source-queue";
 import schema from "./test-schema";
 import type { NormalizedSourceItem, ScheduleEvent } from "./types";
 
