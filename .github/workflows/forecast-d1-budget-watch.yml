@@ -373,7 +373,6 @@ jobs:
             "repos/${{ github.repository }}/actions/workflows/cloudflare-quota-emergency-stop.yml/runs?per_page=30" \
             --jq '[.workflow_runs[] | select(.status != "completed") | .display_title] | map(
               if contains("hard_stop") then 5
-              elif contains("disable_statistics_writes") then 4
               else -1 end
             ) | max // -1')
           if (( active_rank >= required_rank )); then

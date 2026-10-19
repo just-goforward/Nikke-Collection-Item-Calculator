@@ -1,10 +1,8 @@
 import { handleAdminCanaryRoute } from "./admin-routes-canary";
-import { handleAdminOpsRoute } from "./admin-routes-ops";
 import { handleAdminSourceRoute } from "./admin-routes-source";
 import type { AdminRequestContext, AdminRouteHandler } from "./http-shared";
 
 const ROUTE_HANDLERS: readonly AdminRouteHandler[] = [
-  handleAdminOpsRoute,
   handleAdminSourceRoute,
   handleAdminCanaryRoute,
 ];

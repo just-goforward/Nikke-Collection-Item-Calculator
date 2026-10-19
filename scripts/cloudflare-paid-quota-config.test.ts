@@ -122,6 +122,7 @@ describe("Cloudflare Paid quota configuration", () => {
     expect(watchdog).toContain("cloudflare-quota-emergency-stop.yml");
     expect(watchdog).toContain("actions: write");
     expect(watchdog).toContain('if [[ "$stricter_action" == "hard_stop" ]]; then');
+    expect(watchdog).not.toContain('elif contains("disable_statistics_writes") then 4');
     expect(workflow).not.toContain("- disable_statistics_writes");
     expect(workflow).not.toContain("disable_statistics_writes|hard_stop) ;;");
   });
