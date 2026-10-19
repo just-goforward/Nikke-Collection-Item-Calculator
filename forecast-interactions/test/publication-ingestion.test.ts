@@ -83,6 +83,7 @@ async function persistHistoricalNotice(
   payload: typeof noticeFixture,
   nowMs: number,
   revision: number,
+  median = true,
 ) {
   const item = await parseNoticeDetail(payload, 56, "8060044");
   if (!item) throw new Error("fixture_missing");
@@ -98,6 +99,8 @@ async function persistHistoricalNotice(
     { status: "x_unavailable", sourceItem: null, reason: null },
     nowMs,
     revision,
+    [],
+    { cadenceVersion: median ? "observed-median-v2" : "observed-mean-thursday-v1" },
   );
   return processSourceQueue(db, {
     mode: "bootstrap",
@@ -112,7 +115,7 @@ async function persistHistoricalNotice(
   });
 }
 
-it("persisted historical candidate A → delivered review → corrected B rejects A's signed approval atomically", async () => {
+it.each([true, false])("historical ingestion with median cadence=%s", async (median) => {
   await reset();
   // D1 enforces ingestion leases with its real SQL clock. Only candidate construction
   // uses the historical notice date; do not fake the lease/signature/guard clocks.
@@ -159,8 +162,26 @@ it("persisted historical candidate A → delivered review → corrected B reject
     DISCORD_APPROVAL_CHANNEL_ID: testEnv.DISCORD_APPROVAL_CHANNEL_ID,
   } as DispatcherEnv;
   expect(
-    (await persistHistoricalNotice(db, noticeFixture, candidateNowMs, 1)).candidateCreated,
+    (await persistHistoricalNotice(db, noticeFixture, candidateNowMs, 1, median)).candidateCreated,
   ).toBe(true);
+  if (!median) {
+    expect(await runDispatcher(dispatcher)).toEqual({ status: "completed", sent: 0 });
+    expect(
+      await db.prepare("SELECT state,error_code,attempts FROM forecast_runtime_admissions").first(),
+    ).toEqual({ state: "dead", error_code: "unsupported_cadence", attempts: 1 });
+    for (const table of [
+      "forecast_runtime_reviews",
+      "forecast_runtime_outbox",
+      "forecast_runtime_approvals",
+      "forecast_runtime_activation_history",
+    ])
+      expect(await db.prepare(`SELECT COUNT(*) n FROM ${table}`).first()).toEqual({ n: 0 });
+    expect(
+      await db.prepare("SELECT sequence,candidate_id FROM forecast_runtime_active").first(),
+    ).toEqual({ sequence: 0, candidate_id: null });
+    expect(outbound).not.toHaveBeenCalled();
+    return;
+  }
   expect(await runDispatcher(dispatcher)).toEqual({ status: "completed", sent: 1 });
   const a = await db
     .prepare(`SELECT r.review_id,r.candidate_id,o.message_id FROM forecast_runtime_reviews r
@@ -168,7 +189,9 @@ it("persisted historical candidate A → delivered review → corrected B reject
     .first<{ review_id: string; candidate_id: string; message_id: string }>();
   if (!a) throw new Error("delivered_review_missing");
   const corrected = structuredClone(noticeFixture);
-  corrected.content.feed.contents = corrected.content.feed.contents.replace("8/27(목)", "8/28(목)");
+  // Shorten the corrected season: median predictions preserve its duration,
+  // so extending past seven reward days is not a valid positive fixture.
+  corrected.content.feed.contents = corrected.content.feed.contents.replace("8/27(목)", "8/26(수)");
   expect(corrected.content.feed.contents).not.toBe(noticeFixture.content.feed.contents);
   expect((await persistHistoricalNotice(db, corrected, candidateNowMs, 2)).candidateCreated).toBe(
     true,
