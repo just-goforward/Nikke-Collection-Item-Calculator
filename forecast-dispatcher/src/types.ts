@@ -27,16 +27,6 @@ export type ActionableWork = {
   fingerprint: string;
 };
 
-export type DispatchReservation = {
-  dispatchId: string;
-  mode: "work" | "smoke";
-  fingerprint: string;
-  pendingCount: number;
-  candidateCount: number;
-  attempt: number;
-  links: WorkLink[];
-};
-
 export type OpsAlertRow = {
   alertKey: string;
   environment: DispatcherEnvironment;
