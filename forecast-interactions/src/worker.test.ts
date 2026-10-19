@@ -6,6 +6,8 @@ import {
 } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as coverage from "../../shared/certifiedEvidenceCoverage.ts";
+import * as publicationStore from "../../shared/forecast-publication/store.ts";
 import { applyPublicationCommand } from "../../shared/forecast-publication/store.ts";
 import {
   approvalReview,
@@ -291,6 +293,81 @@ describe("isolated staging Router", () => {
 });
 
 describe("human-triggered rollback confirmation", () => {
+  it.each([
+    ["legacy", false],
+    ["legacy", true],
+    ["uncovered", false],
+    ["uncovered", true],
+    ["covered", false],
+  ] as const)("refresh policy %s expired=%s", async (policy, expired) => {
+    const db = testEnv.STAGING_FORECAST_DB;
+    const a = await approvalReview(db);
+    await request(interaction(custom(a.reviewId), { id: "1301" }));
+    const rollback = await emergencyReview(db, "rollback", a.candidate.candidateId);
+    const b = await approvalReview(db, 2);
+    await request(interaction(custom(b.reviewId), { id: "1302" }));
+    if (expired) vi.setSystemTime(TEST_NOW + 2 * 24 * 60 * 60_000);
+    const state = () =>
+      db
+        .prepare(`SELECT
+        (SELECT sequence FROM forecast_runtime_active) sequence,
+        (SELECT candidate_id FROM forecast_runtime_active) candidate,
+        (SELECT COUNT(*) FROM forecast_runtime_approvals) approvals,
+        (SELECT COUNT(*) FROM forecast_runtime_activation_history) history`)
+        .first();
+    const controls = () =>
+      db
+        .prepare(`SELECT
+        (SELECT COUNT(*) FROM forecast_runtime_reviews) reviews,
+        (SELECT COUNT(*) FROM forecast_runtime_outbox) outbox`)
+        .first<{
+          reviews: number;
+          outbox: number;
+        }>();
+    const before = await state();
+    const beforeControls = await controls();
+    const sealed = await publicationStore.readSealedCandidate(db, a.candidate.candidateId);
+    // Simulate immutable pre-policy target content at the sealed-reader boundary.
+    const reader = vi.spyOn(publicationStore, "readSealedCandidate");
+    if (policy === "legacy") {
+      const snapshot = sealed.candidate.certifiedSnapshot;
+      if (!snapshot) throw new Error("fixture_snapshot_missing");
+      reader.mockResolvedValue({
+        ...sealed,
+        candidate: {
+          ...sealed.candidate,
+          certifiedSnapshot: {
+            ...snapshot,
+            cadence: { ...snapshot.cadence, version: "observed-mean-thursday-v1" },
+          },
+        },
+      });
+    }
+    const gate = vi.spyOn(coverage, "hasCertifiedEvidenceCoverage");
+    if (policy === "uncovered") gate.mockReturnValue(false);
+    try {
+      await request(interaction(custom(rollback), { id: "1303" }));
+      expect(await state()).toEqual(before);
+      const body = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
+      if (policy === "covered") {
+        expect(await controls()).toEqual({
+          reviews: Number(beforeControls?.reviews) + 1,
+          outbox: Number(beforeControls?.outbox) + 1,
+        });
+        expect(body.components?.length).toBeGreaterThan(0);
+      } else {
+        expect(await controls()).toEqual(beforeControls);
+        expect(body.components ?? []).toEqual([]);
+        expect(body.content).toContain("nothing was published");
+        expect(body.content).toContain(
+          expired ? "publication_review_expired" : "publication_review_stale",
+        );
+      }
+    } finally {
+      reader.mockRestore();
+      gate.mockRestore();
+    }
+  });
   it("offers exact previous-target rollback on approval without Cron and confirms it during hard-stop", async () => {
     const db = testEnv.STAGING_FORECAST_DB;
     const a = await approvalReview(db);

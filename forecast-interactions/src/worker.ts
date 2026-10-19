@@ -7,12 +7,14 @@ import {
   applyPublicationCommand,
   bindDirectReviewMessage,
   type CommandInput,
+  candidateCoverageError,
   createPreviousRollbackReview,
   createReview,
   publicationErrorCode,
   type ReviewRow,
   readActive,
   readReview,
+  readSealedCandidate,
 } from "../../shared/forecast-publication/store.ts";
 import { importPublicationSigningKey } from "../../shared/forecastPublication.ts";
 import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard.ts";
@@ -155,6 +157,13 @@ async function publicationResponse(
       ].includes(publicationErrorCode(error))
     )
       throw error;
+    if (review.action === "rollback") {
+      const target = await readSealedCandidate(db, review.candidate_id!);
+      if (candidateCoverageError(target.candidate))
+        return {
+          content: `${input.environment}: nothing was published (${publicationErrorCode(error)}). Rollback confirmation unavailable.`,
+        };
+    }
     const active = await readActive(db, input.environment);
     // Explicit second confirmation, never an automatic stale emergency mutation. This
     // refresh is human-triggered and works even when Usage Guard has stopped the Cron.

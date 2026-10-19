@@ -404,7 +404,7 @@ async function prepareArtifactApproval(
     );
 }
 
-function candidateCoverageError(candidate: SupplyForecastCandidate) {
+export function candidateCoverageError(candidate: SupplyForecastCandidate) {
   const cadence = candidate.certifiedSnapshot?.cadence.version;
   if (cadence !== "observed-median-v2") return "publication_unsupported_cadence";
   return hasCertifiedEvidenceCoverage(cadence, CERTIFIED_ENGINE_CODE_HASH)
