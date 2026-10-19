@@ -1,8 +1,3 @@
-import { sha256Hex } from "../../forecast-collector/src/crypto.ts";
-import {
-  decideManualReview,
-  readManualReview,
-} from "../../forecast-collector/src/manual-review.ts";
 import { readBoundedText } from "../../shared/boundedHttp.ts";
 import {
   parseDiscordInteraction,
@@ -21,7 +16,6 @@ import {
 } from "../../shared/forecast-publication/store.ts";
 import { importPublicationSigningKey } from "../../shared/forecastPublication.ts";
 import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard.ts";
-import { handleManualInteraction } from "./manual-interactions.ts";
 import type { InteractionRouterEnv } from "./types.ts";
 import { handleV2Interaction } from "./v2-interactions.ts";
 
@@ -54,15 +48,6 @@ export default {
       /^(forecast_publish:production:|forecast_manual_production_)/.test(customId)
     )
       return ephemeral("production actions are disabled on this deployment. No changes were made.");
-    if (
-      typeof customId === "string" &&
-      /^forecast_manual_(staging|production)_(requeue|ignore|cancel)(_confirm)?:mr-/.test(customId)
-    )
-      return handleManualInteraction(interaction, env, context, {
-        sha256Hex,
-        decideManualReview,
-        readManualReview,
-      });
     if (typeof customId !== "string" || !customId.startsWith("forecast_publish:"))
       return ephemeral("Legacy Forecast / GitHub-PR buttons are disabled. No changes were made.");
     if (
