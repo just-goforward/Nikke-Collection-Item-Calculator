@@ -94,6 +94,9 @@ export function CertifiedPreparationNotice({
   error: CertifiedCalculatorController["prepareError"];
   words: CertifiedWords;
 }) {
+  // Staging only: RuntimeForecastNotice owns the fail-closed unavailable state and its retry.
+  if (import.meta.env.VITE_FORECAST_RUNTIME === "staging" && error === "forecast_unavailable")
+    return null;
   let message: string = words.ready;
   if (error === "preparation_failed") message = words.error;
   if (error === "unsupported_forecast_version") message = words.unsupportedForecastVersion;

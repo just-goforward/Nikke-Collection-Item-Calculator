@@ -1,14 +1,34 @@
 import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from "react";
 import type { CertifiedSupplySnapshot } from "../../shared/certifiedSupply";
 import { prepareCertifiedForecast } from "../lib/certifiedForecast";
+import type { RuntimeForecastStatus } from "../lib/runtimeForecast";
 import { type CertifiedSession, reconcileCertifiedSession } from "./session";
 import type { CertifiedSessionStore } from "./useCertifiedCalculatorSession";
 
+export type CertifiedPrepareError =
+  | "unsupported_forecast_version"
+  | "preparation_failed"
+  | "forecast_unavailable";
+
+type RuntimeForecast = typeof import("../lib/runtimeForecast").runtimeForecast;
+
+/** Staging fails closed: only a verified runtime publication may supply the calculator.
+ * Returns null while the first check is pending; never substitutes the bundled authority.
+ */
+export function stagingRuntimeSnapshot(
+  runtime: RuntimeForecast | undefined,
+  status: RuntimeForecastStatus,
+  asOf: string,
+): CertifiedSupplySnapshot | null {
+  if (!runtime || status === "checking") return null;
+  const accepted = runtime.peek(asOf);
+  if (!accepted) throw new Error("forecast_unavailable");
+  return accepted.snapshot;
+}
+
 export function useCertifiedCalculatorSnapshot() {
   const [snapshot, setSnapshot] = useState<CertifiedSupplySnapshot | null>(null);
-  const [prepareError, setPrepareError] = useState<
-    "unsupported_forecast_version" | "preparation_failed" | null
-  >(null);
+  const [prepareError, setPrepareError] = useState<CertifiedPrepareError | null>(null);
   const snapshotRef = useRef(snapshot);
   return { snapshot, setSnapshot, prepareError, setPrepareError, snapshotRef };
 }
@@ -34,14 +54,18 @@ export function useCertifiedCalculatorPreparation(
   const { snapshotRef, setSnapshot, setPrepareError } = preparation;
   useEffect(() => {
     let active = true;
-    let runtime: typeof import("../lib/runtimeForecast").runtimeForecast | undefined;
+    const staging = import.meta.env.VITE_FORECAST_RUNTIME === "staging";
+    let runtime: RuntimeForecast | undefined;
+    let runtimeStatus: RuntimeForecastStatus = "checking";
     let unwatch: (() => void) | undefined;
     const prepare = async () => {
       if (calculating.current) return;
       try {
         const asOf = new Date().toISOString();
-        const next = runtime?.peek(asOf)?.snapshot ?? (await prepareCertifiedForecast(asOf));
-        if (!active || calculating.current) return;
+        const next = staging
+          ? stagingRuntimeSnapshot(runtime, runtimeStatus, asOf)
+          : await prepareCertifiedForecast(asOf);
+        if (!next || !active || calculating.current) return;
         const previous = snapshotRef.current;
         if (changedForecast(previous, next)) retire();
         snapshotRef.current = next;
@@ -56,26 +80,36 @@ export function useCertifiedCalculatorPreparation(
         )
           updateSession((old) => reconcileCertifiedSession(old, next.revision, next.events));
       } catch (failure) {
-        if (!active) return;
-        if (failure instanceof Error && failure.message === "unsupported_forecast_version") {
-          retire();
-          snapshotRef.current = null;
-          setSnapshot(null);
-          setPrepareError("unsupported_forecast_version");
-        } else {
-          setPrepareError("preparation_failed");
-        }
+        if (active) fail(failure instanceof Error ? failure.message : "");
       }
     };
-    void prepare();
-    if (import.meta.env.VITE_FORECAST_RUNTIME === "staging")
-      void import("../lib/runtimeForecast").then((module) => {
-        if (!active) return;
-        runtime = module.runtimeForecast;
-        unwatch = runtime.watch(document, () => {
-          void prepare();
-        });
-      });
+    const fail = (message: string) => {
+      // Staging never keeps a previously displayed supply after a failed or missing publication.
+      if (message === "unsupported_forecast_version" || staging) {
+        retire();
+        snapshotRef.current = null;
+        setSnapshot(null);
+      }
+      if (message === "unsupported_forecast_version") setPrepareError(message);
+      else if (staging && message === "forecast_unavailable") setPrepareError(message);
+      else setPrepareError("preparation_failed");
+    };
+    if (staging)
+      void import("../lib/runtimeForecast").then(
+        (module) => {
+          if (!active) return;
+          runtime = module.runtimeForecast;
+          unwatch = runtime.watch(document, (status) => {
+            runtimeStatus = status;
+            void prepare();
+          });
+        },
+        () => {
+          // Without the runtime client no publication can be verified; nothing is prepared.
+          if (active) setPrepareError("preparation_failed");
+        },
+      );
+    else void prepare();
     const refresh = window.setInterval(() => {
       void prepare();
     }, 60_000);

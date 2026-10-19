@@ -122,6 +122,18 @@ describe("submit-to-preparation visibility lifecycle", () => {
     await run;
     expect(driver.acquire).toHaveBeenCalledTimes(1);
   });
+  it("fails closed on staging without an approved runtime publication, never using bundled supply", async () => {
+    vi.stubEnv("VITE_FORECAST_RUNTIME", "staging");
+    driver.acquire.mockResolvedValue(null);
+    driver.prepare.mockResolvedValue(snapshot);
+    await RunHarness().calculate();
+    expect(driver.acquire).toHaveBeenCalledOnce();
+    expect(driver.prepare).not.toHaveBeenCalled();
+    expect(driver.create).not.toHaveBeenCalled();
+    expect(driver.request).not.toHaveBeenCalled();
+    expect(onSnapshot).not.toHaveBeenCalled();
+    expect(RunHarness()).toMatchObject({ busy: false, error: "error", result: null });
+  });
   it("cancels while preparation is unresolved, discards its late snapshot, and requires manual recompute", async () => {
     const pending = deferred<CertifiedSupplySnapshot>();
     driver.prepare.mockReturnValueOnce(pending.promise);

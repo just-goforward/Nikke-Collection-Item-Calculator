@@ -264,7 +264,7 @@ test("native Ed25519, byte tampering, off/replay, resume and one proof per real 
     const info = test.info();
     info.annotations.push({
       type: "Ed25519",
-      description: "Native API unsupported; bundled fallback verified.",
+      description: "Native API unsupported; fail-closed (no runtime publication) verified.",
     });
     return;
   }

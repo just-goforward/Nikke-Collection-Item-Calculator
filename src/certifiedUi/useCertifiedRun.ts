@@ -44,13 +44,15 @@ function requestInput(
   };
 }
 
-function prepareRunSnapshot(asOf: string, accept: (proof: PublicationBytes | undefined) => void) {
+/** Staging submits only a freshly acquired, verified publication; there is no bundled fallback. */
+function prepareRunSnapshot(asOf: string, accept: (proof: PublicationBytes) => void) {
   return import.meta.env.VITE_FORECAST_RUNTIME === "staging"
     ? import("../lib/runtimeForecast")
         .then((module) => module.runtimeForecast.acquire(asOf))
         .then((runtime) => {
-          accept(runtime?.publication);
-          return runtime?.snapshot ?? prepareCertifiedForecast(asOf);
+          if (!runtime) throw new Error("forecast_unavailable");
+          accept(runtime.publication);
+          return runtime.snapshot;
         })
     : prepareCertifiedForecast(asOf);
 }

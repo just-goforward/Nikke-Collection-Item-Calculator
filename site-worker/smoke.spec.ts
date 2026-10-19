@@ -18,24 +18,31 @@ test.beforeEach(async ({ context }) => {
   });
 });
 
+// The local gateway has FORECAST_RUNTIME_MODE=off, so no approved runtime publication exists:
+// staging must show only the certified calculator, fail closed, and never use bundled supply.
 for (const [path, messages] of [
   ["/", koMessages],
   ["/en/", enMessages],
   ["/ja/", jaMessages],
 ] as const) {
-  for (const certified of [false, true]) {
-    test(`${path} ${certified ? "certified" : "existing"} solver works with emitted CSP`, async ({
+  for (const query of [
+    "",
+    "?statsEnv=disabled",
+    "?statsEnv=production&demoStats=1&engine=legacy",
+  ]) {
+    test(`${path}${query} serves only the certified calculator and fails closed with emitted CSP`, async ({
       page,
     }) => {
       const errors: string[] = [];
       const wasm: string[] = [];
+      const forecastChecks: number[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       page.on("response", (response) => {
-        if (response.url().endsWith(".wasm") && response.ok()) wasm.push(response.url());
+        const url = new URL(response.url());
+        if (url.pathname.endsWith(".wasm") && response.ok()) wasm.push(url.pathname);
+        if (url.pathname === "/api/forecast/version") forecastChecks.push(response.status());
       });
-      const response = await page.goto(
-        `${path}?${certified ? "engine=certified" : "statsEnv=disabled"}`,
-      );
+      const response = await page.goto(`${path}${query}`);
       expect(await page.evaluate(() => Reflect.get(window, "COLLECTION_ACCOUNT_CONFIG"))).toEqual({
         enabled: true,
       });
@@ -46,34 +53,26 @@ for (const [path, messages] of [
         "lang",
         path === "/" ? "ko" : path.slice(1, 3),
       );
-      if (certified) {
-        await expect(page).toHaveURL(/statsEnv=staging/);
-        await expect(
-          page.locator("main[data-engine-profile='certified-staging-v3']"),
-        ).toBeVisible();
-      } else {
-        await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toHaveCount(
-          0,
-        );
-      }
+      if (!query) await expect(page).toHaveURL(/statsEnv=staging/);
+      await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toBeVisible();
+      const unavailable = page.getByTestId("certified-forecast-unavailable");
+      await expect(unavailable).toBeVisible();
+      await expect(unavailable).toHaveAttribute("role", "alert");
+      await expect(page.locator("#calculateButton")).toBeDisabled();
       await page
         .getByRole("group", { name: messages["state.gradeAria"] })
         .getByRole("button", { name: "SR", exact: true })
         .click();
-      await page
-        .getByRole("button", {
-          name: messages["common.phase"].replace("{phase}", "14"),
-          exact: true,
-        })
-        .click();
-      await page.locator("#currentExp").fill("2900");
-      await page.locator("#currentExp").blur();
       await page.locator("#blueStock").fill("19");
-      await page.locator("#calculateButton").click();
-      await expect(
-        page.locator(certified ? ".cert-probability" : ".next-action .action-label").first(),
-      ).toBeVisible();
-      if (certified) expect(wasm.some((url) => url.endsWith("/certified_solver.wasm"))).toBe(true);
+      await expect(page.locator("#calculateButton")).toBeDisabled();
+      const checks = forecastChecks.length;
+      await unavailable.getByRole("button").click();
+      await expect.poll(() => forecastChecks.length).toBeGreaterThan(checks);
+      await expect(unavailable).toBeVisible();
+      await expect(page.locator("#calculateButton")).toBeDisabled();
+      expect(forecastChecks.every((status) => status === 503)).toBe(true);
+      await expect(page.locator(".cert-probability, .next-action")).toHaveCount(0);
+      expect(wasm).toEqual([]);
       expect(errors).toEqual([]);
       expect(await page.evaluate(() => Reflect.get(window, "stagingCspViolations"))).toEqual([]);
     });
