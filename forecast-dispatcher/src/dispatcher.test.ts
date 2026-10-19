@@ -39,7 +39,7 @@ beforeEach(async () => {
 });
 
 describe("manual-review renewal delivery", () => {
-  it("reopens exactly one retained alert after renewal", async () => {
+  it("does not reopen retained manual alerts after renewal", async () => {
     const { flushOperations } = await import("./operations");
     const db = testEnv.FORECAST_DB;
     await seedRenewedManualReview(db);
@@ -56,12 +56,13 @@ describe("manual-review renewal delivery", () => {
       { generation: 0, state: "expired" },
       { generation: 1, state: "pending" },
     ]);
-    expect(await flushOperations(testEnv)).toBe(1);
+    const before = await db.prepare("SELECT state,occurrence_count FROM forecast_ops_alerts").all();
+    expect(await flushOperations(testEnv)).toBe(0);
     expect(
       await db.prepare("SELECT state,occurrence_count FROM forecast_ops_alerts").all(),
-    ).toMatchObject({ results: [{ state: "open", occurrence_count: 1 }] });
+    ).toEqual(before);
     expect(await flushOperations(testEnv)).toBe(0);
-    expect(outbound).toHaveBeenCalledTimes(1);
+    expect(outbound).not.toHaveBeenCalled();
   });
 });
 
@@ -72,7 +73,7 @@ describe("D1 publication Discord dispatcher", () => {
     expect(result.sent).toBeGreaterThan(0);
     expect(outbound).toHaveBeenCalled();
   });
-  it("redelivers a renewed review without deleting its alert", async () => {
+  it("retains renewed history without redelivering a review", async () => {
     const { flushOperations } = await import("./operations");
     const db = testEnv.FORECAST_DB;
     await seedRenewedManualReview(db);
@@ -80,10 +81,10 @@ describe("D1 publication Discord dispatcher", () => {
     expect(await db.prepare("SELECT discord_message_id FROM forecast_ops_alerts").first()).toEqual({
       discord_message_id: null,
     });
-    expect(await flushOperations(testEnv)).toBe(1);
+    expect(await flushOperations(testEnv)).toBe(0);
     expect(await db.prepare("SELECT COUNT(*) n FROM forecast_ops_alerts").first()).toEqual(before);
     expect(await db.prepare("SELECT discord_message_id FROM forecast_ops_alerts").first()).toEqual({
-      discord_message_id: "123456789012345678",
+      discord_message_id: null,
     });
   });
   it("advances beyond the first bounded candidate page instead of starving older reviews", async () => {
@@ -357,27 +358,21 @@ describe("D1 operational delivery alongside publication", () => {
         nowMs: TEST_NOW,
       });
     const manual = await seedManualReview(testEnv.FORECAST_DB);
-    // Also restore delivery for retained manual rows whose alert was never created.
+    // Retained manual rows must not generate new alerts.
     await testEnv.FORECAST_DB.prepare("DELETE FROM forecast_ops_alerts WHERE alert_key=?")
       .bind(manual.alertKey)
       .run();
     expect(await runDispatcher({ ...testEnv, PUBLICATION_MODE: "off" })).toEqual({
       status: "completed",
-      sent: 4,
+      sent: 3,
     });
     const messages = outbound.mock.calls.map((call) => JSON.parse(String(call[1]?.body)));
-    const review = messages.find((message) => message.components);
-    expect(
-      review.components[0].components.map((button: { custom_id?: string }) => button.custom_id),
-    ).toContain(`forecast_manual_staging_requeue:${manual.reviewId}`);
-    expect(
-      review.components[0].components.map((button: { custom_id?: string }) => button.custom_id),
-    ).toContain(`forecast_manual_staging_ignore:${manual.reviewId}`);
+    expect(messages.every((message) => !message.components)).toBe(true);
     await runDispatcher({ ...testEnv, PUBLICATION_MODE: "off" });
-    expect(outbound).toHaveBeenCalledTimes(4);
+    expect(outbound).toHaveBeenCalledTimes(3);
     await resolveOpsAlert(testEnv.FORECAST_DB, "fixture:collector", TEST_NOW);
     await runDispatcher({ ...testEnv, PUBLICATION_MODE: "off" });
-    expect(outbound).toHaveBeenCalledTimes(5);
+    expect(outbound).toHaveBeenCalledTimes(4);
     expect(
       await testEnv.FORECAST_DB.prepare("SELECT COUNT(*) n FROM forecast_runtime_active").first(),
     ).toEqual({ n: 0 });
