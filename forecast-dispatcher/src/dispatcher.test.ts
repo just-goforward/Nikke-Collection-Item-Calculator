@@ -56,10 +56,12 @@ describe("manual-review renewal delivery", () => {
       { generation: 0, state: "expired" },
       { generation: 1, state: "pending" },
     ]);
-    const before = await db.prepare("SELECT state,occurrence_count FROM forecast_ops_alerts").all();
+    const before = (
+      await db.prepare("SELECT state,occurrence_count FROM forecast_ops_alerts").all()
+    ).results;
     expect(await flushOperations(testEnv)).toBe(0);
     expect(
-      await db.prepare("SELECT state,occurrence_count FROM forecast_ops_alerts").all(),
+      (await db.prepare("SELECT state,occurrence_count FROM forecast_ops_alerts").all()).results,
     ).toEqual(before);
     expect(await flushOperations(testEnv)).toBe(0);
     expect(outbound).not.toHaveBeenCalled();
