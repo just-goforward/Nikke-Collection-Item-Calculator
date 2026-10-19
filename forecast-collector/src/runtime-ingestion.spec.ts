@@ -380,7 +380,7 @@ it.each(["empty queue", "zero quota", "settled evidence"])(
         sqlite.close();
         sequence = 0;
         await initializeDatabase();
-        // Equal initial migration metadata across the two fresh databases.
+        sqlite.exec("UPDATE forecast_v2_monitor_state SET updated_at='2000-01-01T00:00:00Z'");
         sqlite
           .prepare("UPDATE schema_migrations SET applied_at=?")
           .run(new Date(wallNow).toISOString());
