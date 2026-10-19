@@ -136,7 +136,6 @@
     "smoke:discord-forecast-routing": "node scripts/discord-forecast-routing-smoke.ts",
     "check:cloudflare-cron-capacity": "node scripts/cloudflare-cron-capacity.ts",
     "check:d1-budget": "node scripts/cloudflare-d1-budget.ts",
-    "probe:forecast-github-app": "node scripts/probe-forecast-github-app.ts",
     "dispatch:pages-verification": "node scripts/dispatch-pages-verification.ts",
     "check:forecast-canary": "node scripts/check-forecast-canary.ts",
     "check:workflows": "node scripts/check-workflow-hardening.ts",

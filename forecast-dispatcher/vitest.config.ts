@@ -12,9 +12,6 @@ export default defineConfig({
         bindings: {
           ENVIRONMENT: "staging",
           DEPLOY_SHA: "test-dispatcher-sha",
-          GITHUB_APP_ID: "123456",
-          GITHUB_APP_INSTALLATION_ID: "789012",
-          GITHUB_APP_PRIVATE_KEY: "test-private-key",
           DISCORD_BOT_TOKEN: "test-discord-token",
           DISCORD_CHANNEL_ID: "123456789012345678",
           DISPATCH_ENABLED: "true",

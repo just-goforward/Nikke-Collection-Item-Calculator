@@ -23,7 +23,6 @@ const stagingAdoption = readFileSync(
   "utf8",
 );
 const pages = readFileSync(".github/workflows/pages.yml", "utf8");
-const githubApp = readFileSync("forecast-dispatcher/src/github-app.ts", "utf8");
 const naverAction = readFileSync("scripts/forecast-naver-action.ts", "utf8");
 const ROUTER_DEPLOY_PATTERN =
   /wrangler deploy (?:--env="" )?--config forecast-interactions\/wrangler.toml(?!.*--dry-run)/;
@@ -178,7 +177,7 @@ describe("Forecast dispatcher workflow contract", () => {
     expect(productionPromote).toContain("Read authenticated Paid canary v10 certificate");
     expect(productionPromote).toContain("environment: cloudflare-production");
     expect(productionPromote).toContain("Determine coupled production rollout");
-    expect(stagingDeploy).toContain("Probe GitHub App installation and fixed workflow");
+    expect(stagingDeploy).not.toContain("Probe GitHub App installation and fixed workflow");
     expect(stagingDeploy).toContain("Fail-closed rollback when staging validation fails");
     expect(stagingDeploy).toContain("Verify live Workers Observability contract before burn-in");
     expect(stagingDeploy).toContain("FORECAST_COLLECTOR_SCRIPT_VERSION_ID");
@@ -301,7 +300,6 @@ describe("Forecast production review and migration workflow contract", () => {
   });
 
   it("keeps directly executed Node imports resolvable on Linux", () => {
-    expect(githubApp).toContain('from "../../shared/boundedHttp.ts"');
     expect(naverAction).toContain('from "../shared/boundedHttp.ts"');
     expect(readFileSync("scripts/cloudflare-d1-budget.ts", "utf8")).toContain(
       'from "../shared/cloudflarePaidUsage.ts"',
@@ -626,7 +624,7 @@ describe("Clean-checkout staging validation ordering", () => {
     const early = workflowStep(stagingDeploy, "Validate configuration");
     expect(early).not.toContain("node scripts/check-workflow-hardening.ts");
     expect(early).toContain("Missing CLOUDFLARE_API_TOKEN secret.");
-    expect(early).toContain("Missing or invalid FORECAST_GITHUB_APP_INSTALLATION_ID variable.");
+    expect(stagingDeploy).not.toContain("GITHUB_APP_");
     expect(stagingDeploy.indexOf("      - name: Verify trusted checkout identity")).toBeLessThan(
       install,
     );

@@ -306,9 +306,6 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
-          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
-          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
-          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
           DISCORD_FORECAST_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
           DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
           DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
@@ -326,7 +323,6 @@ jobs:
             "$RUNNER_TEMP/forecast-secrets.json" <<'NODE'
           import { writeFileSync } from "node:fs";
           writeFileSync(process.argv[2], JSON.stringify({
-            GITHUB_APP_PRIVATE_KEY: process.env.FORECAST_GITHUB_APP_PRIVATE_KEY,
             DISCORD_BOT_TOKEN: process.env.DISCORD_FORECAST_BOT_TOKEN,
           }), { mode: 0o600 });
           writeFileSync(process.argv[3], JSON.stringify({
@@ -338,8 +334,6 @@ jobs:
           npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml \
             --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
             --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} \
-            --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID \
-            --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID \
             --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID \
             --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID \
             --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \

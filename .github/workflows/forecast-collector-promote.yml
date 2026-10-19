@@ -466,9 +466,6 @@ jobs:
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_COLLECTOR_PRODUCTION_URL: ${{ vars.FORECAST_COLLECTOR_PRODUCTION_URL }}
           FORECAST_INTERACTIONS_URL: ${{ vars.FORECAST_INTERACTIONS_URL }}
-          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
-          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
-          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
           DISCORD_FORECAST_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
           DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
           DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
@@ -485,9 +482,7 @@ jobs:
           [[ "$CLOUDFLARE_USAGE_GUARD_URL" =~ ^https://[^/]+$ ]] && \
           test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" && test -n "$FORECAST_COLLECTOR_PRODUCTION_URL"
           node scripts/check-workflow-hardening.ts --router-origin "$FORECAST_INTERACTIONS_URL"
-          [[ "$FORECAST_GITHUB_APP_ID" =~ ^[0-9]{1,20}$ ]]
-          [[ "$FORECAST_GITHUB_APP_INSTALLATION_ID" =~ ^[0-9]{1,20}$ ]]
-          test -n "$FORECAST_GITHUB_APP_PRIVATE_KEY" && test -n "$DISCORD_FORECAST_BOT_TOKEN"
+          test -n "$DISCORD_FORECAST_BOT_TOKEN"
           [[ "$DISCORD_FORECAST_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]]
           [[ "$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]]
           [[ "$DISCORD_FORECAST_ALERT_CHANNEL_ID" =~ ^[0-9]{6,24}$ ]]
@@ -614,19 +609,17 @@ jobs:
       - name: Prepare dispatcher deployment secret file
         if: steps.rollout.outputs.needed == 'true'
         env:
-          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_BOT_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module - "$RUNNER_TEMP/forecast-dispatcher-secrets.json" <<'NODE'
           import { writeFileSync } from "node:fs";
-          const privateKey = process.env.FORECAST_GITHUB_APP_PRIVATE_KEY ?? "";
           const discordToken = process.env.DISCORD_BOT_TOKEN ?? "";
-          if (!privateKey.includes("BEGIN") || !discordToken) throw new Error("Dispatcher secrets are invalid.");
+          if (!discordToken) throw new Error("Dispatcher secrets are invalid.");
           writeFileSync(
             process.argv[2],
-            JSON.stringify({ GITHUB_APP_PRIVATE_KEY: privateKey, DISCORD_BOT_TOKEN: discordToken }),
+            JSON.stringify({ DISCORD_BOT_TOKEN: discordToken }),
             { mode: 0o600 },
           );
           NODE
@@ -671,14 +664,6 @@ jobs:
             { mode: 0o600 },
           );
           NODE
-
-      - name: Probe GitHub App installation and fixed workflow
-        if: steps.rollout.outputs.needed == 'true'
-        env:
-          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
-          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
-          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
-        run: npm run probe:forecast-github-app
 
       - name: Verify production dispatch D1 contract
         if: steps.rollout.outputs.needed == 'true'
@@ -762,8 +747,6 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           DEPLOY_SHA: ${{ needs.canary.outputs.deployment_sha }}
-          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
-          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
           DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
           DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
           DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
@@ -776,8 +759,6 @@ jobs:
           npx wrangler deploy --env="" --config forecast-dispatcher/wrangler.toml \
             --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
             --var ENVIRONMENT:production --var DEPLOY_SHA:$DEPLOY_SHA \
-            --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID \
-            --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID \
             --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID \
             --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID \
             --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
@@ -863,8 +844,6 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           DEPLOY_SHA: ${{ needs.canary.outputs.deployment_sha }}
-          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
-          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
           DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_CHANNEL_ID }}
           DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
           DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
@@ -876,8 +855,6 @@ jobs:
           npx wrangler deploy --env="" --config forecast-dispatcher/wrangler.toml \
             --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
             --var ENVIRONMENT:production --var DEPLOY_SHA:$DEPLOY_SHA \
-            --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID \
-            --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID \
             --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID \
             --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID \
             --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \

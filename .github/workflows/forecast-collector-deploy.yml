@@ -66,7 +66,6 @@ on:
       - "scripts/apply-forecast-d1-migrations.ts"
       - "scripts/apply-forecast-d1-migrations.spec.ts"
       - "scripts/apply-forecast-d1-migrations-json.spec.ts"
-      - "scripts/probe-forecast-github-app.ts"
       - "scripts/forecast-dispatcher-workflow.spec.ts"
       - "forecast-collector/vitest.config.ts"
       - "forecast-dispatcher/vitest.config.ts"
@@ -164,9 +163,6 @@ jobs:
           FORECAST_COLLECTOR_ADMIN_TOKEN: ${{ secrets.FORECAST_COLLECTOR_ADMIN_TOKEN }}
           FORECAST_COLLECTOR_STAGING_URL: ${{ vars.FORECAST_COLLECTOR_STAGING_URL }}
           FORECAST_INTERACTIONS_URL: ${{ vars.FORECAST_INTERACTIONS_URL }}
-          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
-          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
-          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
           DISCORD_FORECAST_STAGING_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_STAGING_BOT_TOKEN }}
           DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
           DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID }}
@@ -186,9 +182,6 @@ jobs:
           [[ "$CLOUDFLARE_USAGE_GUARD_URL" =~ ^https://[^/]+$ ]] || { echo "Missing or invalid CLOUDFLARE_USAGE_GUARD_URL variable." >&2; exit 1; }
           test -n "$FORECAST_COLLECTOR_ADMIN_TOKEN" || { echo "Missing FORECAST_COLLECTOR_ADMIN_TOKEN secret." >&2; exit 1; }
           test -n "$FORECAST_COLLECTOR_STAGING_URL" || { echo "Missing FORECAST_COLLECTOR_STAGING_URL variable." >&2; exit 1; }
-          [[ "$FORECAST_GITHUB_APP_ID" =~ ^[0-9]{1,20}$ ]] || { echo "Missing or invalid FORECAST_GITHUB_APP_ID variable." >&2; exit 1; }
-          [[ "$FORECAST_GITHUB_APP_INSTALLATION_ID" =~ ^[0-9]{1,20}$ ]] || { echo "Missing or invalid FORECAST_GITHUB_APP_INSTALLATION_ID variable." >&2; exit 1; }
-          test -n "$FORECAST_GITHUB_APP_PRIVATE_KEY" || { echo "Missing FORECAST_GITHUB_APP_PRIVATE_KEY secret." >&2; exit 1; }
           test -n "$DISCORD_FORECAST_STAGING_BOT_TOKEN" || { echo "Missing DISCORD_FORECAST_STAGING_BOT_TOKEN secret." >&2; exit 1; }
           for name in DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID DISCORD_FORECAST_STAGING_GUILD_ID DISCORD_FORECAST_STAGING_APPROVER_USER_ID DISCORD_FORECAST_STAGING_APPLICATION_ID; do
             [[ "${!name}" =~ ^[0-9]{6,24}$ ]] || { echo "Missing or invalid $name variable." >&2; exit 1; }
@@ -413,36 +406,25 @@ jobs:
 
       - name: Prepare dispatcher secret file
         env:
-          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_FORECAST_STAGING_BOT_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module - "$RUNNER_TEMP/forecast-dispatcher-secrets.json" <<'NODE'
           import { writeFileSync } from "node:fs";
-          const privateKey = process.env.FORECAST_GITHUB_APP_PRIVATE_KEY ?? "";
           const discordToken = process.env.DISCORD_BOT_TOKEN ?? "";
-          if (!privateKey.includes("BEGIN") || !discordToken) throw new Error("Dispatcher secrets are invalid.");
+          if (!discordToken) throw new Error("Dispatcher secrets are invalid.");
           writeFileSync(
             process.argv[2],
-            JSON.stringify({ GITHUB_APP_PRIVATE_KEY: privateKey, DISCORD_BOT_TOKEN: discordToken }),
+            JSON.stringify({ DISCORD_BOT_TOKEN: discordToken }),
             { mode: 0o600 },
           );
           NODE
-
-      - name: Probe GitHub App installation and fixed workflow
-        env:
-          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
-          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
-          FORECAST_GITHUB_APP_PRIVATE_KEY: ${{ secrets.FORECAST_GITHUB_APP_PRIVATE_KEY }}
-        run: npm run probe:forecast-github-app
 
       - name: Deploy staging dispatcher
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
-          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
           DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
           DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID }}
           DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID }}
@@ -452,8 +434,6 @@ jobs:
           npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml
           --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json"
           --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }}
-          --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID
-          --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID
           --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID
           --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID
           --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID
@@ -682,8 +662,6 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
-          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
           DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
           DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID }}
           DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID }}
@@ -696,8 +674,6 @@ jobs:
           npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml \
             --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
             --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} \
-            --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID \
-            --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID \
             --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID \
             --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID \
             --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
@@ -1021,8 +997,6 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          FORECAST_GITHUB_APP_ID: ${{ vars.FORECAST_GITHUB_APP_ID }}
-          FORECAST_GITHUB_APP_INSTALLATION_ID: ${{ vars.FORECAST_GITHUB_APP_INSTALLATION_ID }}
           DISCORD_FORECAST_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
           DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ACTIVITY_CHANNEL_ID }}
           DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_ALERT_CHANNEL_ID }}
@@ -1034,8 +1008,6 @@ jobs:
           npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml \
             --secrets-file "$RUNNER_TEMP/forecast-dispatcher-secrets.json" \
             --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} \
-            --var GITHUB_APP_ID:$FORECAST_GITHUB_APP_ID \
-            --var GITHUB_APP_INSTALLATION_ID:$FORECAST_GITHUB_APP_INSTALLATION_ID \
             --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_CHANNEL_ID \
             --var DISCORD_ACTIVITY_CHANNEL_ID:$DISCORD_FORECAST_ACTIVITY_CHANNEL_ID \
             --var DISCORD_ALERT_CHANNEL_ID:$DISCORD_FORECAST_ALERT_CHANNEL_ID \
