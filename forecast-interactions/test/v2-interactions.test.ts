@@ -10,6 +10,7 @@ import { seedNormalUsageGuard } from "../../forecast-collector/src/test-usage-gu
 import { executeTestSql } from "../../shared/testD1Sql.ts";
 import type { InteractionRouterEnv } from "../src/types.ts";
 import { handleV2Interaction, kstInput } from "../src/v2-interactions.ts";
+import worker from "../src/worker.ts";
 import { seedV2Decision, v2Baseline, v2Migrations } from "./v2-test-fixture.ts";
 
 afterEach(() => {
@@ -140,6 +141,26 @@ it.each(["bok", "bno", "opt"])("records %s once and rejects replay", async (acti
   });
   expect(await db.prepare("SELECT COUNT(*) n FROM forecast_v2_decision_results").first()).toEqual({
     n: 1,
+  });
+});
+it("reports the latest v2 decision click in staging health", async () => {
+  const health = async () => {
+    const response = await worker.fetch(
+      new Request("https://router.test/health"),
+      testEnv,
+      createExecutionContext(),
+    );
+    return ((await response.json()) as { databases: { staging: Record<string, unknown> } })
+      .databases.staging;
+  };
+  expect(await health()).toMatchObject({ schemaVersion: 33, latestV2Interaction: null });
+  await seed();
+  await click("fv2:s:bno:d:0");
+  const consumed = await db
+    .prepare("SELECT consumed_at FROM forecast_v2_consumed_interactions")
+    .first<{ consumed_at: string }>();
+  expect(await health()).toMatchObject({
+    latestV2Interaction: { consumedAt: consumed?.consumed_at },
   });
 });
 it.each(["fv2:p:bok:d:0", "fv2:s:bad:d:0", "fv2:s:bok:d:1"])("rejects %s", async (id) => {

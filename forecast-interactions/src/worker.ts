@@ -370,8 +370,20 @@ async function healthRow(db: D1Database) {
             )
             .first<{ result: string | null; received_at: string }>()
         : null;
+  // v2 decision buttons are recorded separately (migration 0031); older schemas omit the field.
+  const v2 =
+    version >= 31
+      ? await db
+          .prepare(
+            "SELECT consumed_at FROM forecast_v2_consumed_interactions ORDER BY consumed_at DESC LIMIT 1",
+          )
+          .first<{ consumed_at: string }>()
+      : undefined;
   return {
     schemaVersion: version,
     latestInteraction: audit ? { result: audit.result, receivedAt: audit.received_at } : null,
+    ...(v2 === undefined
+      ? {}
+      : { latestV2Interaction: v2 ? { consumedAt: v2.consumed_at } : null }),
   };
 }
