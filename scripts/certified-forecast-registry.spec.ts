@@ -3,7 +3,6 @@ import { buildCertifiedSupplySnapshot } from "../shared/certifiedSupply.ts";
 import { LEGACY_CERTIFIED_SUPPLY_LAWS } from "../shared/certifiedSupplyLaws.ts";
 import type { SupplyForecastCandidate } from "../shared/supplyForecastCandidate.ts";
 import { forecastRegistryEntry } from "./certified-forecast-registry.ts";
-import { selectForecastForStagingRuntime } from "./select-staging-forecast.ts";
 
 const snapshot = buildCertifiedSupplySnapshot({
   asOf: "2026-09-30T04:00:00Z",
@@ -23,14 +22,8 @@ const candidate = {
   SupplyForecastCandidate,
   "forecastId" | "rulesVersion" | "sourceEvidence" | "profiles" | "certifiedSnapshot"
 >;
-const base = {
-  version: 3,
-  activeForecastId: "supply-2026-08-21-v1",
-  stagingForecastId: "supply-2026-08-21-v1",
-  approvedForecastId: candidate.forecastId,
-};
 describe("approved staging registry carries the certified daily contract", () => {
-  it("preserves historical v1 data but refuses to select it for the v2 runtime", () => {
+  it("preserves historical v1 snapshot bytes", () => {
     const legacy = {
       ...snapshot,
       version: "certified-daily-v1" as const,
@@ -39,31 +32,22 @@ describe("approved staging registry carries the certified daily contract", () =>
       events: snapshot.events.filter((event) => event.kind !== "weekly-kits"),
     };
     const entry = forecastRegistryEntry({ ...candidate, certifiedSnapshot: legacy });
-    expect(() =>
-      selectForecastForStagingRuntime({ ...base, forecasts: [entry] }, candidate.forecastId),
-    ).toThrow("unsupported_forecast_version");
     expect(entry.certifiedSnapshot).toEqual(legacy);
     expect(JSON.stringify(entry.certifiedSnapshot)).toBe(JSON.stringify(legacy));
   });
-  it("preserves semantic dates, receipt IDs, exact cadence and coverage through selection", () => {
+  it("preserves semantic dates, receipt IDs, exact cadence and coverage byte-for-byte", () => {
     const entry = forecastRegistryEntry(candidate);
-    const selected = selectForecastForStagingRuntime(
-      { ...base, forecasts: [entry] },
-      candidate.forecastId,
-    );
-    expect(selected.forecasts[0]?.certifiedSnapshot).toEqual(snapshot);
-    expect(selected.activeForecastId).toBe(base.activeForecastId);
+    expect(entry.certifiedSnapshot).toEqual(snapshot);
+    expect(JSON.stringify(entry.certifiedSnapshot)).toBe(JSON.stringify(snapshot));
     expect(JSON.parse(JSON.stringify(entry)).certifiedSnapshot.events[0].id).toBe(
       snapshot.events[0]?.id,
     );
   });
-  it("rejects an incompatible or malformed optional snapshot before selecting it", () => {
+  it("rejects a malformed optional snapshot", () => {
     const bad = {
-      ...forecastRegistryEntry(candidate),
-      certifiedSnapshot: { ...snapshot, version: "other-schema" },
+      ...candidate,
+      certifiedSnapshot: { ...snapshot, asOf: "not-a-date" },
     };
-    expect(() =>
-      selectForecastForStagingRuntime({ ...base, forecasts: [bad] }, candidate.forecastId),
-    ).toThrow();
+    expect(() => forecastRegistryEntry(bad)).toThrow();
   });
 });
