@@ -6,8 +6,6 @@ import { dirname, join, resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
-const proposal = readFileSync(".github/workflows/forecast-proposal.yml", "utf8");
-const xProbe = readFileSync(".github/workflows/forecast-x-probe.yml", "utf8");
 const stagingDeploy = readFileSync(".github/workflows/forecast-collector-deploy.yml", "utf8");
 const productionPromote = readFileSync(".github/workflows/forecast-collector-promote.yml", "utf8");
 const d1BudgetWatch = readFileSync(".github/workflows/forecast-d1-budget-watch.yml", "utf8");
@@ -17,13 +15,6 @@ const d1IndexRemediation = readFileSync(
 );
 const dispatcherConfig = readFileSync("forecast-dispatcher/wrangler.toml", "utf8");
 const interactionConfig = readFileSync("forecast-interactions/wrangler.toml", "utf8");
-const manualReview = readFileSync(".github/workflows/resolve-forecast-manual-review.yml", "utf8");
-const stagingAdoption = readFileSync(
-  ".github/workflows/process-staging-forecast-adoption.yml",
-  "utf8",
-);
-const pages = readFileSync(".github/workflows/pages.yml", "utf8");
-const naverAction = readFileSync("scripts/forecast-naver-action.ts", "utf8");
 const ROUTER_DEPLOY_PATTERN =
   /wrangler deploy (?:--env="" )?--config forecast-interactions\/wrangler.toml(?!.*--dry-run)/;
 
@@ -61,20 +52,6 @@ function artifactPaths(source: string) {
       .map((path) => path.trim()),
   );
 }
-
-describe("Paid X token isolation from advisory producer subprocesses", () => {
-  it("does not expose the bearer token through proposal or probe step, job or workflow wiring", () => {
-    for (const [source, name, command] of [
-      [proposal, "Fetch, verify, and apply one candidate", "npm run propose:supply-forecast"],
-      [xProbe, "Probe exact X status URLs", "node scripts/probe-forecast-x-sources.ts"],
-    ] as const) {
-      const step = workflowStep(source, name);
-      expect(step).toContain(command);
-      expect(step).not.toContain("X_API_BEARER_TOKEN");
-      expect(source).not.toContain("X_API_BEARER_TOKEN");
-    }
-  });
-});
 
 describe("Staging boundary recovery workflow contract", () => {
   it("makes proven-boundary recovery a validated staging dispatch opt-in before smoke", () => {
@@ -118,40 +95,6 @@ describe("Staging boundary recovery workflow contract", () => {
 });
 
 describe("Forecast dispatcher workflow contract", () => {
-  it("keeps the proposal schedule as a thirty-minute watchdog", () => {
-    expect(proposal).toContain('cron: "17,47 * * * *"');
-    expect(proposal).not.toContain('cron: "*/5 * * * *"');
-    expect(proposal).toContain("dispatch_id:");
-    expect(proposal).toContain("dispatch_mode:");
-    expect(proposal).toContain("/admin/workflow-dispatches/$FORECAST_DISPATCH_ID/status");
-    expect(proposal).toContain("/admin/ops-alerts/watchdog-fallback");
-    expect(proposal).toContain("/admin/ops-alerts/watchdog-notification-failed");
-    expect(proposal).toContain("/admin/ops-alerts/source-processor-internal");
-    expect(proposal).toContain("enforce_nonce:true");
-    expect(proposal).toContain("vars.DISCORD_FORECAST_ALERT_CHANNEL_ID");
-    expect(proposal).toContain(
-      'const tracked=dispatcher !== undefined && dispatcher.status !== "missing";',
-    );
-    expect(proposal).toContain('stale && unsentCritical ? "both"');
-    expect(proposal).toContain('reason === "dispatcher_stale"');
-    expect(proposal).not.toContain(
-      "const stale=!Number.isFinite(observed) || Date.now()-observed>10*60*1000;",
-    );
-    expect(proposal).toContain(
-      '"$FORECAST_DISPATCH_MODE" == "smoke" && -z "$FORECAST_DISPATCH_ID"',
-    );
-  });
-
-  it("dispatches full verification for GitHub-token-authored pull requests", () => {
-    for (const workflow of [proposal, stagingAdoption]) {
-      expect(workflow).toContain("actions: write");
-      expect(workflow).toContain("npm run dispatch:pages-verification");
-    }
-    expect(pages).toContain("workflow_dispatch:");
-    expect(pages).toContain("deploy:\n    if: github.event_name == 'push'");
-    expect(pages).toContain("Upload Pages artifact\n        if: github.event_name == 'push'");
-  });
-
   it("uses an offset private Worker Cron and a two-phase deployment", () => {
     expect(dispatcherConfig).toContain('crons = ["1-59/3 * * * *"]');
     expect(dispatcherConfig).toContain("workers_dev = false");
@@ -240,14 +183,6 @@ describe("Forecast dispatcher workflow contract", () => {
 });
 
 describe("Forecast production review and migration workflow contract", () => {
-  it("keeps manual review resolution read-only and approval-gated in production", () => {
-    expect(manualReview).toContain("permissions:\n  contents: read");
-    expect(manualReview).toContain("environment: cloudflare-production");
-    expect(manualReview).toContain("npm run resolve:forecast-manual-review");
-    expect(manualReview).not.toContain("pull-requests: write");
-    expect(manualReview).not.toContain("contents: write");
-  });
-
   it("centralizes migrations without moving production writes outside its approval job", () => {
     const promoteJob = productionPromote.slice(productionPromote.indexOf("\n  promote:\n"));
     const canaryJob = productionPromote.slice(0, productionPromote.indexOf("\n  promote:\n"));
@@ -300,7 +235,6 @@ describe("Forecast production review and migration workflow contract", () => {
   });
 
   it("keeps directly executed Node imports resolvable on Linux", () => {
-    expect(naverAction).toContain('from "../shared/boundedHttp.ts"');
     expect(readFileSync("scripts/cloudflare-d1-budget.ts", "utf8")).toContain(
       'from "../shared/cloudflarePaidUsage.ts"',
     );
@@ -352,12 +286,11 @@ describe("Forecast deployment identity and restore workflow contract", () => {
   });
 
   it("rejects privileged manual refs and deploys the exact certified snapshot", () => {
-    for (const workflow of [stagingDeploy, proposal, productionPromote]) {
+    for (const workflow of [stagingDeploy, productionPromote]) {
       expect(workflow).toContain("github.ref == 'refs/heads/main'");
       expect(workflow).not.toContain("ref: refs/heads/main");
     }
     expect(stagingDeploy).toContain(`ref: \${{ github.sha }}`);
-    expect(proposal).toContain(`ref: \${{ github.sha }}`);
     expect(productionPromote).toContain(`ref: \${{ needs.canary.outputs.deployment_sha }}`);
     expect(productionPromote).toContain(
       'git merge-base --is-ancestor "$CANARY_SHA" "$TRUSTED_SHA"',
@@ -428,9 +361,9 @@ describe("Forecast deployment identity and restore workflow contract", () => {
     expect(artifact).not.toContain("-version-before.json");
     expect(artifact).not.toContain("-version-after.json");
     expect(protectedJob).not.toContain("continue-on-error");
-    expect(
-      protectedJob.indexOf("Verify proposal workflow targets production collector"),
-    ).toBeLessThan(protectedJob.indexOf("Restore production Dispatcher"));
+    expect(protectedJob.indexOf("Verify production collector URL binding")).toBeLessThan(
+      protectedJob.indexOf("Restore production Dispatcher"),
+    );
     expect(protectedJob.indexOf("Retain successful rollout evidence")).toBeLessThan(
       protectedJob.indexOf("Restore production Dispatcher"),
     );
@@ -460,21 +393,6 @@ describe("Forecast deployment identity and restore workflow contract", () => {
       ".github/workflows/forecast-collector-promote.yml",
     ])
       expect(stagingDeploy).toContain(`- "${path}"`);
-  });
-
-  it("generates, checks and commits the complete certified registry identity", () => {
-    const generate = proposal.indexOf("npm run generate:certified-engine-build");
-    expect(generate).toBeGreaterThan(proposal.indexOf("npm run generate:supply-forecast"));
-    expect(proposal.indexOf("npm run check:certified-engine-build")).toBeGreaterThan(generate);
-    const add = proposal.match(/^\s*git add .+$/m)?.[0];
-    for (const path of [
-      "shared/supplyForecasts.json",
-      "shared/generated/supplyForecast.ts",
-      "shared/generated/supplyForecastRuntime.ts",
-      "shared/generated/certifiedForecastAuthority.ts",
-      "shared/generated/certifiedEngineBuild.ts",
-    ])
-      expect(add).toContain(path);
   });
 });
 

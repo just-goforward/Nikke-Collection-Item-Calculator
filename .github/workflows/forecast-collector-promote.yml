@@ -944,7 +944,7 @@ jobs:
           node scripts/check-workflow-hardening.ts --sanitize-readiness \
             "$RUNNER_TEMP/production-router-readiness.json" > "$RUNNER_TEMP/production-router-readiness.evidence.json"
 
-      - name: Verify proposal workflow targets production collector
+      - name: Verify production collector URL binding
         if: steps.smoke.outcome == 'success' && steps.bootstrap.outcome == 'success' && steps.dispatcher_activate.outcome != 'failure' && steps.router_activate.outcome != 'failure'
         env:
           FORECAST_COLLECTOR_URL: ${{ vars.FORECAST_COLLECTOR_URL }}

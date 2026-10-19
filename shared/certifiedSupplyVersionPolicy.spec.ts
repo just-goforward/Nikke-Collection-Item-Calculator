@@ -25,7 +25,6 @@ describe("certified version policy", () => {
       "src/certified/validation.ts",
       "scripts/supply-forecast-codegen.ts",
       "scripts/certified-forecast-registry.ts",
-      "scripts/staging-adoption-eligibility.ts",
     ];
     const literal = String.raw`["'](?:certified-daily-v\d+|schedule-kit-v\d+)["']`;
     const comparison = new RegExp(

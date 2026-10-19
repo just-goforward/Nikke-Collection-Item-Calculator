@@ -73,8 +73,6 @@ export async function fetchNotice(
   }
 }
 
-// Frozen Actions adapter parity: scripts/forecast-naver-action.ts. Keep that
-// legacy file untouched; fixture tests compare both implementations byte-for-byte.
 export async function parseNoticeDetail(
   payload: unknown,
   boardId: 11 | 48 | 56,
