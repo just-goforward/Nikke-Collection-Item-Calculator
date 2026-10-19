@@ -157,10 +157,16 @@ export async function migratePublicationDb<Database extends PublicationDatabase>
   for (const sql of migrations) await executeTestSql(db, sql, applyD1Migrations);
 }
 
-export async function seedCandidate(db: PublicationDatabase, revision = 1) {
+export async function seedCandidate(db: PublicationDatabase, revision = 1, median = true) {
   const entry = registry.forecasts.find((item) => item.id === registry.approvedForecastId);
   if (!entry) throw new Error("approved_fixture_missing");
-  const snapshot = assertCertifiedRuntimeSupplySnapshot(Reflect.get(entry, "certifiedSnapshot"));
+  const original = assertCertifiedRuntimeSupplySnapshot(Reflect.get(entry, "certifiedSnapshot"));
+  const snapshot = assertCertifiedRuntimeSupplySnapshot({
+    ...original,
+    cadence: median
+      ? { ...original.cadence, version: "observed-median-v2", medianDays: 28 }
+      : original.cadence,
+  });
   const periods = snapshot.soloRounds
     .filter((round) => round.startGameDate > snapshot.coverage.currentDay && round.endGameDate)
     .slice(0, 3)
@@ -216,8 +222,8 @@ export async function seedCandidate(db: PublicationDatabase, revision = 1) {
   return { candidate, hash };
 }
 
-export async function approvalReview(db: PublicationDatabase, revision = 1) {
-  const { candidate, hash } = await seedCandidate(db, revision);
+export async function approvalReview(db: PublicationDatabase, revision = 1, median = true) {
+  const { candidate, hash } = await seedCandidate(db, revision, median);
   const active = await initializePublication(db, "staging");
   await sealCandidate(db, candidate.candidateId, TEST_NOW);
   const reviewId = await createReview(db, active, "approve", candidate.candidateId, hash, TEST_NOW);

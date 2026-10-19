@@ -19,6 +19,7 @@ it("authenticates fresh evidence and rejects tampering, identity mismatch and ov
   expect(panel.cases).toHaveLength(24);
   expect(readV10Evidence(sealedRoot).panelAnchorSha256).toBe(V10_PINS_SHA);
   expect(() => readV10Evidence(root, "0".repeat(64))).toThrow("Anchor");
+  expect(() => readV10Evidence(root, "")).toThrow("Unsealed or invalid");
   expect(() => readV10Evidence(root, generated.anchor, "0".repeat(64))).toThrow("Engine");
   await expect(generatePublication(root)).rejects.toThrow("Refusing overwrite");
   for (const name of [

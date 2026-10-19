@@ -13,7 +13,7 @@ it("binds each coverage field to independently authenticated evidence", async ()
     engineBuildHash,
     panelAnchorSha256: anchor,
   };
-  expect(CERTIFIED_EVIDENCE_COVERAGE).toContainEqual(tuple);
+  expect(CERTIFIED_EVIDENCE_COVERAGE).toEqual([tuple]);
   expect(() =>
     assertCoverageMatchesV10Publication(tuple, root, anchor, engineBuildHash),
   ).not.toThrow();

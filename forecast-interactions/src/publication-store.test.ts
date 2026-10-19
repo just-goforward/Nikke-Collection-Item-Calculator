@@ -1,12 +1,15 @@
 import { applyD1Migrations, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as coverage from "../../shared/certifiedEvidenceCoverage.ts";
 import {
   applyPublicationCommand,
   type CommandInput,
+  createPreviousRollbackReview,
   initializePublication,
   REVIEW_TTL_MS,
   readActive,
+  readReview,
   readSealedCandidate,
   sealCandidate,
 } from "../../shared/forecast-publication/store.ts";
@@ -104,6 +107,138 @@ function verify(value: unknown, sequence = 0) {
     minimumSequence: sequence,
   });
 }
+
+it.each([false, true])("rejects unsupported/uncovered approval: %s", async (median) => {
+  const review = await approvalReview(db, 1, median);
+  const before = await counts();
+  const batch = vi.spyOn(db, "batch");
+  const gate = vi.spyOn(coverage, "hasCertifiedEvidenceCoverage").mockReturnValue(false);
+  const code = median ? "publication_evidence_uncovered" : "publication_unsupported_cadence";
+  try {
+    await expect(apply(review.reviewId)).rejects.toThrow(code);
+    expect(batch).not.toHaveBeenCalled();
+    expect(await counts()).toEqual(before);
+    expect(
+      await db.prepare("SELECT state,error_code FROM forecast_runtime_commands").first(),
+    ).toEqual({ state: "failed", error_code: code });
+  } finally {
+    gate.mockRestore();
+    batch.mockRestore();
+  }
+});
+
+it("blocks uncovered rollback and suppresses its review without affecting off", async () => {
+  const a = await approvalReview(db);
+  await apply(a.reviewId);
+  const b = await approvalReview(db, 2);
+  await apply(b.reviewId, "1002");
+  const review = await emergencyReview(db, "rollback", a.candidate.candidateId);
+  const before = await counts();
+  const gate = vi.spyOn(coverage, "hasCertifiedEvidenceCoverage").mockReturnValue(false);
+  try {
+    const rows = () =>
+      db
+        .prepare(`SELECT
+      (SELECT COUNT(*) FROM forecast_runtime_reviews) reviews,
+      (SELECT COUNT(*) FROM forecast_runtime_outbox) outbox`)
+        .first();
+    const beforeRows = await rows();
+    expect(
+      await createPreviousRollbackReview(db, await readActive(db, "staging"), TEST_NOW),
+    ).toBeNull();
+    expect(await rows()).toEqual(beforeRows);
+    const batch = vi.spyOn(db, "batch");
+    try {
+      await expect(apply(review, "1003")).rejects.toThrow("publication_evidence_uncovered");
+      expect(batch).not.toHaveBeenCalled();
+    } finally {
+      batch.mockRestore();
+    }
+    expect(await counts()).toEqual(before);
+    await expect(apply(await emergencyReview(db, "off"), "1004")).resolves.toMatchObject({
+      sequence: 3,
+    });
+  } finally {
+    gate.mockRestore();
+  }
+});
+
+it("rejects a non-median rollback target before any activation batch", async () => {
+  const legacy = await approvalReview(db, 1, false);
+  const original = await readReview(db, input(legacy.reviewId));
+  // Supply a pre-policy rollback review without bypassing current D1 schema guards.
+  const historicalDb = {
+    prepare(query: string) {
+      if (query.includes("SELECT r.* FROM forecast_runtime_reviews"))
+        return {
+          bind() {
+            return this;
+          },
+          async first<T>() {
+            return { ...original, action: "rollback" } as T;
+          },
+          async run() {
+            throw new Error("unexpected write");
+          },
+        };
+      return db.prepare(query);
+    },
+    batch: vi.fn(db.batch.bind(db)),
+  };
+  const before = await counts();
+  await expect(
+    applyPublicationCommand(historicalDb, input(legacy.reviewId), signing, TEST_NOW),
+  ).rejects.toThrow("publication_unsupported_cadence");
+  expect(historicalDb.batch).not.toHaveBeenCalled();
+  expect(await counts()).toEqual(before);
+  expect(
+    await db.prepare("SELECT state,error_code FROM forecast_runtime_commands").first(),
+  ).toEqual({ state: "failed", error_code: "publication_unsupported_cadence" });
+});
+
+it("does not create rollback controls for a historical non-median target", async () => {
+  const legacy = await approvalReview(db, 1, false);
+  const active = await readActive(db, "staging");
+  // Model a pre-policy historical activation. Keep real immutable candidate reads
+  // and real D1 writes, but supply the historical predecessor lookup independently.
+  const historicalDb = {
+    prepare(query: string) {
+      if (query.includes("SELECT h.previous_candidate_id"))
+        return {
+          bind() {
+            return this;
+          },
+          async first<T>() {
+            return {
+              previous_candidate_id: legacy.candidate.candidateId,
+              payload_hash: legacy.hash,
+            } as T;
+          },
+          async run() {
+            throw new Error("unexpected write");
+          },
+        };
+      return db.prepare(query);
+    },
+    batch: vi.fn(db.batch.bind(db)),
+  };
+  const rows = () =>
+    db
+      .prepare(`SELECT
+    (SELECT COUNT(*) FROM forecast_runtime_reviews) reviews,
+    (SELECT COUNT(*) FROM forecast_runtime_outbox) outbox`)
+      .first();
+  const before = await rows();
+  expect(
+    await createPreviousRollbackReview(
+      historicalDb,
+      { ...active, operation_id: "historical" },
+      TEST_NOW,
+    ),
+  ).toBeNull();
+  expect(historicalDb.batch).not.toHaveBeenCalled();
+  expect(await rows()).toEqual(before);
+});
 
 describe("collector writes with publication protections installed", () => {
   it("admits equivalent collector JSON serialization without changing its stored bytes", async () => {

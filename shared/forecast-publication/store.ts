@@ -1,3 +1,4 @@
+import { hasCertifiedEvidenceCoverage } from "../certifiedEvidenceCoverage.ts";
 import {
   ARTIFACT_DOMAIN,
   canonicalPublicationJson,
@@ -9,6 +10,7 @@ import {
   publicationHash,
   signPublication,
 } from "../forecastPublication.ts";
+import { CERTIFIED_ENGINE_CODE_HASH } from "../generated/certifiedEngineBuild.ts";
 import type { SupplyForecastCandidate } from "../supplyForecastCandidate.ts";
 
 // Only the D1 operations this backend consumes. A local structural boundary avoids importing
@@ -204,6 +206,8 @@ export async function createPreviousRollbackReview(
     .bind(active.operation_id, active.environment, active.sequence, active.candidate_id)
     .first<{ previous_candidate_id: string; payload_hash: string }>();
   if (!previous || previous.previous_candidate_id === active.candidate_id) return null;
+  const target = await readSealedCandidate(db, previous.previous_candidate_id);
+  if (candidateCoverageError(target.candidate)) return null;
   return createReview(
     db,
     active,
@@ -356,6 +360,11 @@ async function prepareArtifactApproval(
   key: CryptoKey,
   now: number,
 ): Promise<PublicationStatement | null> {
+  if (review.action === "off") return null;
+  const sealed = await readSealedCandidate(db, review.candidate_id!);
+  const coverageError = candidateCoverageError(sealed.candidate);
+  if (coverageError) throw new Error(coverageError);
+  if (sealed.hash !== review.payload_hash) throw new Error("publication_candidate_hash");
   if (review.action === "rollback") {
     // The immutable target must have been approved in this DB/environment. Rotation requires
     // a consumer trust set containing both keys; this v1 deployment uses one pinned key.
@@ -369,8 +378,6 @@ async function prepareArtifactApproval(
   if (review.action !== "approve") return null;
   // Sealing only attests immutable content. The approval INSERT trigger checks
   // current candidate eligibility in the same atomic write as activation.
-  const sealed = await readSealedCandidate(db, review.candidate_id!);
-  if (sealed.hash !== review.payload_hash) throw new Error("publication_candidate_hash");
   const artifact = await signPublication(
     {
       domain: ARTIFACT_DOMAIN,
@@ -395,6 +402,14 @@ async function prepareArtifactApproval(
       input.actorId,
       now,
     );
+}
+
+function candidateCoverageError(candidate: SupplyForecastCandidate) {
+  const cadence = candidate.certifiedSnapshot?.cadence.version;
+  if (cadence !== "observed-median-v2") return "publication_unsupported_cadence";
+  return hasCertifiedEvidenceCoverage(cadence, CERTIFIED_ENGINE_CODE_HASH)
+    ? null
+    : "publication_evidence_uncovered";
 }
 
 function readCommand(db: PublicationDatabase, id: string) {
