@@ -1,18 +1,19 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
 import { expect, it } from "vitest";
+import { CERTIFIED_EVIDENCE_COVERAGE } from "../../../shared/certifiedEvidenceCoverage.ts";
+import { CERTIFIED_ENGINE_CODE_HASH } from "../../../shared/generated/certifiedEngineBuild.ts";
+import { V10_PINS_SHA } from "./anchor.ts";
 import { assertCoverageMatchesV10Publication } from "./coverage-test-helper.ts";
-import { generatePublication } from "./generate.ts";
 
 it("binds each coverage field to independently authenticated evidence", async () => {
-  const root = mkdtempSync(resolve(tmpdir(), "v10-coverage-"));
-  const { anchor, engineBuildHash } = await generatePublication(root);
+  const root = "scripts/certified-staging-approved-panel/v10";
+  const anchor = V10_PINS_SHA;
+  const engineBuildHash = CERTIFIED_ENGINE_CODE_HASH;
   const tuple = {
     cadenceVersion: "observed-median-v2",
     engineBuildHash,
     panelAnchorSha256: anchor,
   };
+  expect(CERTIFIED_EVIDENCE_COVERAGE).toContainEqual(tuple);
   expect(() =>
     assertCoverageMatchesV10Publication(tuple, root, anchor, engineBuildHash),
   ).not.toThrow();

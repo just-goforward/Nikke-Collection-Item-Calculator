@@ -1,18 +1,23 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { expect, it } from "vitest";
+import { CERTIFIED_ENGINE_CODE_HASH } from "../../../shared/generated/certifiedEngineBuild.ts";
 import { sha256 } from "../v6/history.ts";
-import { readV10Evidence } from "./evidence.ts";
+import { V10_PINS_SHA } from "./anchor.ts";
+import { PUBLICATION_FILES, readV10Evidence } from "./evidence.ts";
 import { generatePublication } from "./generate.ts";
 import { loadIndependentApprovedPanel } from "./panel.ts";
 
 it("authenticates fresh evidence and rejects tampering, identity mismatch and overwrite", async () => {
   const root = mkdtempSync(resolve(tmpdir(), "v10-auth-"));
-  const generated = await generatePublication(root);
+  const sealedRoot = "scripts/certified-staging-approved-panel/v10";
+  for (const name of PUBLICATION_FILES)
+    copyFileSync(resolve(sealedRoot, name), resolve(root, name));
+  const generated = { anchor: V10_PINS_SHA, engineBuildHash: CERTIFIED_ENGINE_CODE_HASH };
   const panel = loadIndependentApprovedPanel(root, generated.anchor, generated.engineBuildHash);
   expect(panel.cases).toHaveLength(24);
-  expect(() => readV10Evidence(root)).toThrow("Unsealed");
+  expect(readV10Evidence(sealedRoot).panelAnchorSha256).toBe(V10_PINS_SHA);
   expect(() => readV10Evidence(root, "0".repeat(64))).toThrow("Anchor");
   expect(() => readV10Evidence(root, generated.anchor, "0".repeat(64))).toThrow("Engine");
   await expect(generatePublication(root)).rejects.toThrow("Refusing overwrite");

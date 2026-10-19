@@ -1,4 +1,5 @@
 import { expect, it, vi } from "vitest";
+import { CERTIFIED_EVIDENCE_COVERAGE } from "../../shared/certifiedEvidenceCoverage.ts";
 import { initializePublication } from "../../shared/forecast-publication/store.ts";
 import { CERTIFIED_ENGINE_CODE_HASH } from "../../shared/generated/certifiedEngineBuild.ts";
 import { admitCandidates } from "./admission.ts";
@@ -15,6 +16,8 @@ it.each([
   ["observed-median-v2", CERTIFIED_ENGINE_CODE_HASH, true],
   ["observed-median-v2", "0".repeat(64), false],
   ["observed-mean-thursday-v1", undefined, true],
+  ["observed-median-v2", "sealed", true],
+  ["unknown-cadence", "sealed", false],
 ] as const)("gates %s with engine coverage %s", async (cadence, hash, allowed) => {
   const store = await import("../../shared/forecast-publication/store.ts");
   vi.mocked(store.sealCandidate).mockClear();
@@ -46,15 +49,17 @@ it.each([
     db,
     active,
     1000,
-    hash
-      ? [
-          {
-            cadenceVersion: cadence,
-            engineBuildHash: hash,
-            panelAnchorSha256: "a".repeat(64),
-          },
-        ]
-      : [],
+    hash === "sealed"
+      ? CERTIFIED_EVIDENCE_COVERAGE
+      : hash
+        ? [
+            {
+              cadenceVersion: cadence,
+              engineBuildHash: hash,
+              panelAnchorSha256: "a".repeat(64),
+            },
+          ]
+        : [],
   );
   expect(store.sealCandidate).toHaveBeenCalledTimes(allowed ? 1 : 0);
   expect(store.createReview).toHaveBeenCalledTimes(allowed ? 1 : 0);
