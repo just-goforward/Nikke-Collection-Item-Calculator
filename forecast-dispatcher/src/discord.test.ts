@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forecastDisplayText } from "../../shared/forecastDisplayText.ts";
 import { manualReviewPostLink } from "../../shared/forecastManualReview.ts";
 import {
-  dispatchAcceptedMessage,
   opsAlertMessage,
   opsRecoveryMessage,
   resolveDiscordChannelId,
@@ -148,21 +147,9 @@ describe("Discord forecast operations message identity", () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValue(Response.json({ retry_after: 65 }, { status: 429 }));
-    const payload = dispatchAcceptedMessage(env(), {
-      dispatchId: `fd-${"a".repeat(32)}`,
-      mode: "work",
-      fingerprint: "b".repeat(64),
-      pendingCount: 1,
-      candidateCount: 0,
-      attempt: 1,
-      links: [
-        {
-          source: "naver-board-56",
-          itemId: "123",
-          title: "@everyone 솔로 레이드 안내",
-          url: "https://game.naver.com/lounge/nikke/board/detail/123",
-        },
-      ],
+    const payload = await opsAlertMessage({
+      ...alertRow(),
+      context: { title: "@everyone 솔로 레이드 안내" },
     });
 
     await expect(
@@ -178,7 +165,7 @@ describe("Discord forecast operations message identity", () => {
       embeds: Array<{ description: string }>;
     };
     expect(sentBody.allowed_mentions).toEqual({ parse: [] });
-    expect(sentBody.embeds[0]?.description).toContain("@\u200beveryone");
+    expect(sentBody.embeds[0]?.description).toContain("@everyone");
     expect(String(fetchImpl.mock.calls[0]?.[0])).toContain("/channels/222222222222222222/messages");
   });
 

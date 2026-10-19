@@ -1,11 +1,8 @@
 import { readBoundedBytes } from "../../shared/boundedHttp.ts";
-import { manualReviewPostLink } from "../../shared/forecastManualReview.ts";
 import { sha256Hex } from "./crypto";
-import type { DispatcherEnv, DispatchReservation, OpsAlertRow } from "./types";
+import type { DispatcherEnv, OpsAlertRow } from "./types";
 
 const DISCORD_API = "https://discord.com/api/v10";
-const WORKFLOW_URL =
-  "https://github.com/just-goforward/Nikke-Collection-Item-Calculator/actions/workflows/forecast-proposal.yml";
 const MAX_RESPONSE_BYTES = 16_384;
 
 type FetchLike = typeof fetch;
@@ -33,41 +30,6 @@ export function discordAmbiguous(error: unknown) {
     error instanceof DiscordMessageError &&
     /^discord_(network|timeout|response_|create_message_5)/.test(error.message)
   );
-}
-
-export function dispatchAcceptedMessage(env: DispatcherEnv, reservation: DispatchReservation) {
-  const links = reservation.links.slice(0, 3).map((item) => {
-    const title = cleanText(item.title, 100);
-    return `- ${manualReviewPostLink(title, item.url)}`;
-  });
-  const workSummary =
-    reservation.mode === "smoke"
-      ? "staging smoke 요청입니다. queue, candidate, 저장소 파일은 변경하지 않습니다."
-      : `pending ${reservation.pendingCount}건 / candidate ${reservation.candidateCount}건`;
-  return {
-    nonce: reservation.dispatchId.slice(3, 28),
-    enforce_nonce: true,
-    allowed_mentions: { parse: [] as string[] },
-    embeds: [
-      {
-        title: "Forecast workflow 실행 요청 접수",
-        description: [
-          `환경: **${env.ENVIRONMENT}**`,
-          workSummary,
-          links.length > 0 ? `\n확인 대상\n${links.join("\n")}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-        color: 0x3498db,
-        fields: [
-          { name: "Dispatch ID", value: `\`${reservation.dispatchId}\``, inline: false },
-          { name: "상태", value: "GitHub가 실행 요청을 접수했습니다. 완료 상태가 아닙니다." },
-        ],
-        url: WORKFLOW_URL,
-        timestamp: new Date().toISOString(),
-      },
-    ],
-  };
 }
 
 export async function opsAlertMessage(alert: OpsAlertRow) {
