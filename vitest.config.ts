@@ -17,6 +17,7 @@ const timeBudgetTestFiles = [
   "scripts/certified-staging-approved-panel/v10/pricing.spec.ts",
   "scripts/certified-staging-approved-panel/v10/evidence.spec.ts",
   "scripts/certified-staging-approved-panel/v10/coverage.spec.ts",
+  "scripts/certified-staging-approved-panel/v10/dry-run.spec.ts",
   "scripts/certified-staging-oracle-lane.spec.ts",
   "scripts/certified-wasm-oracle.property.spec.ts",
   "scripts/certified-wasm-cache.property.spec.ts",
