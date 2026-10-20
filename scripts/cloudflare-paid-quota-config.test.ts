@@ -6,7 +6,7 @@ const read = (path: string) => readFileSync(path, "utf8");
 
 describe("Cloudflare Paid quota configuration", () => {
   it.each([
-    ["cloudflare/wrangler.toml", 10, [0.1, 0.1]],
+    ["cloudflare/wrangler.toml", 10, [1, 0.1]],
     ["forecast-collector/wrangler.toml", 50, [0.25, 1]],
     ["forecast-dispatcher/wrangler.toml", 25, [0.25, 1]],
     ["forecast-interactions/wrangler.toml", 10, [0.25]],

@@ -322,6 +322,21 @@ scanner 예외는 근거/운영자 승인과 원래 count를 보존한다. missi
 10% sampling의 zero는 실제 zero의 증거가 아니므로 운영자가 잔여 위험을 수용하거나
 추가 sampling의 개인정보/비용 범위를 별도 승인해야 한다.
 
+**2026-10-21 운영자 승인: 임시 100% sampling.** production `collection-kit-stats`의
+`head_sampling_rate`를 1.0으로 올린다(staging 0.1 유지). 범위: 모든 production 호출의
+invocation log(요청/응답 metadata와 header, IP·UA 포함; `Authorization`은 `********`,
+`Cookie`는 `REDACTED`로 마스킹됨을 기존 로그에서 확인), Workers Logs 보존 최대 7일.
+비용: 관측 호출 일 39~473건 기준 월 포함량 20M events의 1% 미만. 개인정보 안내(i18n 3개,
+README 3개)는 같은 변경에서 "일시적으로 전체, 평소 10% 표본"으로 갱신하고, site publish로
+안내가 운영에 반영된 뒤에만 stats `worker-promote`를 실행한다.
+- 관찰 기준: production 100% 버전 promote 성공 시각부터 연속 7개 24h window. host 판정은
+  `$workers.event.request.headers.host`(legacy = `collection-kit-stats.tbvj159.workers.dev`)를
+  events view로 직접 세며, calculations group-by 결과는 events와 불일치해 사용하지 않는다.
+  같은 window의 GraphQL `workersInvocationsAdaptive` 호출 수와 대조해 누락 window를 판정한다.
+- 판정 후(B 종료 또는 연장 결정): `head_sampling_rate` 0.1, `scripts/cloudflare-paid-quota-config.test.ts`
+  기대값 `[0.1, 0.1]`, 개인정보 안내 6곳을 원래 "표본 요청 로그(설정 10%)" 문구로 되돌리고
+  승인된 staging→promote 경로로 배포한다. 담당: Lead, 결정: 운영자.
+
 ### Token rotation
 
 모든 consumer를 freeze/drain → 새 32-byte token 생성 → Worker와 모든 GitHub 환경 secret 갱신 →
