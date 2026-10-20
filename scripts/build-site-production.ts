@@ -45,7 +45,7 @@ export function assertProductionHtml(html: string, path: string, sourceConfig: s
   if (!locale) return;
   // The ordinary Vite build preserves this inline script; normalize line endings only.
   if (statsScript(html) !== sourceConfig) {
-    throw new Error(`Direct stats configuration changed in ${path}`);
+    throw new Error(`Same-origin stats configuration changed in ${path}`);
   }
   if (
     !html.includes(localizedSeoBlock(locale)) ||

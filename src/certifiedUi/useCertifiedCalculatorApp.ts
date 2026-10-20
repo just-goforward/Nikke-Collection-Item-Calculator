@@ -24,7 +24,11 @@ import {
 } from "./useCertifiedCalculatorSession";
 import { useCertifiedDailyRecompute } from "./useCertifiedDailyRecompute";
 
-/** The native session is the only calculator input; no legacy solver or stats flow is started. */
+/**
+ * The native session is the only calculator input and no legacy solver is started. Statistics are
+ * not started here either: the optional `queueStatsEvent` callback only receives confirmed
+ * kit_result events, and the submission queue/outbox lives in the caller's stats hook.
+ */
 export function useCertifiedCalculatorApp(
   queueStatsEvent?: (event: StatsSubmissionEvent) => void,
 ): CertifiedCalculatorController {

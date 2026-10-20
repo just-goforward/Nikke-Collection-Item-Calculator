@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { StatsDeliveryHealthStore } from "./statsDeliveryHealth";
 import {
+  createBrowserStatsOutbox,
   createStatsSubmissionOutbox,
   migrateStatsEndpointStorage,
   STATS_OUTBOX_MAX_EVENTS,
@@ -37,34 +38,132 @@ function createOutbox(storage: MemoryStorage, key: string, now: () => number, le
   return createStatsSubmissionOutbox(storage, key, now, legacyKey) as StatsSubmissionOutboxV2;
 }
 
+function storedRecords(storage: MemoryStorage, key: string): unknown[] {
+  const parsed: unknown = JSON.parse(storage.getItem(key) ?? "{}");
+  return typeof parsed === "object" &&
+    parsed !== null &&
+    Array.isArray((parsed as { records?: unknown[] }).records)
+    ? (parsed as { records: unknown[] }).records
+    : [];
+}
+
+const ENDPOINT_PREFIXES = {
+  1: "collection-kit-calculator.stats-outbox.v1:",
+  2: "collection-kit-calculator.stats-outbox.v2:",
+} as const;
+const DIRECT_STATS = "https://collection-kit-stats.tbvj159.workers.dev";
+const SITE_STATS = "https://nikkecollection.com";
+
+/** A full live backlog, a full expired backlog, and the storage keys they occupy. */
+function backlog(version: 1 | 2, now: number) {
+  const prefix = ENDPOINT_PREFIXES[version];
+  const record = (eventId: string, expiresAt: number) =>
+    version === 1
+      ? { envelope: envelope(eventId), expiresAt }
+      : {
+          envelope: envelope(eventId),
+          queuedAt: now - 60_000,
+          attempts: 2,
+          lastFailureClass: "network",
+          expiresAt,
+        };
+  return {
+    directKey: prefix + encodeURIComponent(DIRECT_STATS),
+    siteKey: prefix + encodeURIComponent(SITE_STATS),
+    live: Array.from({ length: STATS_OUTBOX_MAX_EVENTS }, (_, index) =>
+      record(`live-${index}`, now + 60_000),
+    ),
+    expired: Array.from({ length: STATS_OUTBOX_MAX_EVENTS }, (_, index) =>
+      record(`expired-${index}`, now - 1),
+    ),
+  };
+}
+
+function seedBacklog(storage: MemoryStorage, version: 1 | 2, now: number) {
+  const seeded = backlog(version, now);
+  storage.setItem(seeded.directKey, JSON.stringify({ version, records: seeded.live }));
+  storage.setItem(seeded.siteKey, JSON.stringify({ version, records: seeded.expired }));
+  return seeded;
+}
+
 describe("statistics endpoint migration", () => {
-  it("preserves active expiry reporting and bounds merged records", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps live records when the merged cap would otherwise displace one for an expired record", () => {
     const storage = new MemoryStorage();
-    const endpoint = "https://nikkecollection.com";
-    const prefix = "collection-kit-calculator.stats-outbox.v2:";
-    const key = prefix + encodeURIComponent(endpoint);
-    const source = createOutbox(
-      storage,
-      prefix + encodeURIComponent("https://collection-kit-stats.tbvj159.workers.dev"),
-      () => 1000,
-    );
+    const prefix = ENDPOINT_PREFIXES[2];
+    const key = prefix + encodeURIComponent(SITE_STATS);
+    const source = createOutbox(storage, prefix + encodeURIComponent(DIRECT_STATS), () => 1000);
     for (let index = 0; index < STATS_OUTBOX_MAX_EVENTS; index++) {
       source.put(envelope(`source-${index}`));
     }
-    const active = createOutbox(storage, key, () => 0);
-    active.put(envelope("expired-active"));
-    migrateStatsEndpointStorage(storage, endpoint, STATS_OUTBOX_TTL_MS);
-    expect(JSON.parse(storage.getItem(key) ?? "{}").records).toHaveLength(STATS_OUTBOX_MAX_EVENTS);
+    createOutbox(storage, key, () => 0).put(envelope("expired-active"));
+    migrateStatsEndpointStorage(storage, SITE_STATS, STATS_OUTBOX_TTL_MS);
     const restored = createOutbox(storage, key, () => STATS_OUTBOX_TTL_MS);
-    expect(restored.list()[0]?.envelope.eventId).toBe("source-1");
-    expect(restored.drainExpired().map((record) => record.envelope.eventId)).toEqual([
-      "expired-active",
-    ]);
+    expect(restored.list().map((record) => record.envelope.eventId)).toEqual(
+      Array.from({ length: STATS_OUTBOX_MAX_EVENTS }, (_, index) => `source-${index}`),
+    );
+    expect(restored.drainExpired()).toEqual([]);
+  });
+
+  it.each([1, 2] as const)(
+    "keeps 20 live v%s source records and removes the source key over an expired backlog",
+    (version) => {
+      const now = 10 * 60_000;
+      const storage = new MemoryStorage();
+      const seeded = seedBacklog(storage, version, now);
+
+      migrateStatsEndpointStorage(storage, SITE_STATS, now);
+
+      expect(storage.getItem(seeded.directKey)).toBeNull();
+      expect(storedRecords(storage, seeded.siteKey)).toEqual(seeded.live);
+      expect(JSON.parse(storage.getItem(seeded.siteKey) ?? "{}").records).toHaveLength(
+        STATS_OUTBOX_MAX_EVENTS,
+      );
+    },
+  );
+
+  it("keeps a working outbox when the migration write itself fails", () => {
+    const storage = new MemoryStorage();
+    const sourceKey = ENDPOINT_PREFIXES[2] + encodeURIComponent(DIRECT_STATS);
+    storage.setItem(
+      sourceKey,
+      JSON.stringify({
+        version: 2,
+        records: [
+          {
+            envelope: envelope("pending-before-failure"),
+            queuedAt: 1_000,
+            attempts: 1,
+            lastFailureClass: "network",
+            expiresAt: Date.now() + STATS_OUTBOX_TTL_MS,
+          },
+        ],
+      }),
+    );
+    const write = storage.setItem.bind(storage);
+    let migrated = false;
+    storage.setItem = (key, value) => {
+      if (migrated) return write(key, value);
+      migrated = true;
+      throw new Error("QuotaExceededError");
+    };
+    vi.stubGlobal("window", { localStorage: storage });
+
+    const outbox = createBrowserStatsOutbox(SITE_STATS);
+
+    expect(outbox).not.toBeNull();
+    expect(outbox?.put(envelope("after-migration"))).toMatchObject({
+      envelope: { eventId: "after-migration" },
+    });
+    expect(outbox?.remove("after-migration")).toMatchObject({
+      envelope: { eventId: "after-migration" },
+    });
   });
 
   it.each([
-    ["https://collection-kit-stats.tbvj159.workers.dev", "https://nikkecollection.com"],
-    ["https://nikkecollection.com", "https://collection-kit-stats.tbvj159.workers.dev"],
+    [DIRECT_STATS, SITE_STATS],
+    [SITE_STATS, DIRECT_STATS],
     [
       "https://collection-kit-stats-staging.tbvj159.workers.dev",
       "https://staging.nikkecollection.com",
@@ -76,7 +175,7 @@ describe("statistics endpoint migration", () => {
   ])("migrates %s to %s without changing IDs or expiry", (source, target) => {
     const storage = new MemoryStorage();
     for (const version of [1, 2]) {
-      const prefix = `collection-kit-calculator.stats-outbox.v${version}:`;
+      const prefix = ENDPOINT_PREFIXES[version as 1 | 2];
       const record = {
         envelope: envelope("preserved-id"),
         expiresAt: 2000,

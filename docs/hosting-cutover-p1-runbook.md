@@ -6,7 +6,9 @@
 - 계정은 꺼짐. stats 브라우저 요청(집계 조회 `GET /api/stats`, 확정 결과 제출
   `POST /api/events`)은 동일 출처 `https://nikkecollection.com`으로 전송하고 사이트 Worker의
   STATS 서비스 바인딩으로 전달한다. 직접 workers.dev stats 주소는 캐시된 클라이언트를 위해 유지한다.
-- D1, 마이그레이션, 백엔드 배포, OAuth, 이벤트 쓰기, 개인정보 작업, 로깅 활성화는 금지한다.
+- D1, 마이그레이션, 백엔드 배포, OAuth, 개인정보 작업, 로깅 활성화는 금지한다.
+  운영자와 smoke는 이벤트 쓰기를 수행하지 않는다. 실제 사용자 브라우저가 보내는
+  동일 출처 `POST /api/events`는 활성화 후 의도된 동작이며, 이는 운영자 주도 쓰기가 아니다.
 - 이 문서는 실행 승인이 아니다. 아래 각 **승인 게이트**는 대상·후보 SHA·담당자·시간창·
   비용 한도·중단 기준을 운영자가 별도로 승인해야 한다. 자동 롤백은 없다.
 - DNS, Custom Domain, 인증서, GitHub 환경 보호의 실제 운영 상태는 로컬 코드 검증으로
@@ -143,7 +145,8 @@ npm run smoke:site-production-deployed -- https://nikkecollection.com <full-cand
 - HTML 및 고정명 `solver_rs.wasm`/`certified_solver.wasm`은 명시적 재검증이 필요하다
   (`no-cache` 또는 `max-age=0, must-revalidate`). immutable은 해시 자산만 허용한다.
   공개 HTML에 CSP/noindex/쿠키가 없어야 한다.
-- `GET /api/stats`는 STATS 서비스로 전달되며 200이면 집계 형식(summary, byKit)을 검사한다.
+- `GET /api/stats`는 STATS 서비스로 전달되며 **200 응답과 집계 형식(summary, byKit)을 모두**
+  확인해야 한다. 200이라는 사실만으로 통과시키지 않는다.
   `POST /api/events`는 smoke에서 호출하지 않는다.
 - 공개 `/v1/statistics`는 503(no-store), 알 수 없는 `/api`, `/auth`, `/v1` 경로는 404,
   허용되지 않은 HEAD는 405, `/api/health`는 404여야 한다.
@@ -154,6 +157,21 @@ npm run smoke:site-production-deployed -- https://nikkecollection.com <full-cand
 - 어느 항목이든 실패하면 다음 변경을 중단하고 담당자에게 판단을 요청한다.
 
 ## 5. 롤백: 버전 복구와 호스팅 복구를 구분
+
+**활성화(`213b6f4`) 이후에는 두 복구 경로의 의미가 달라진다.** 먼저 아래 세 항목을 확인한다.
+
+- **Pages 호스팅 복구는 보존된 사전 활성화 Pages 아티팩트로만 가능하다.** `213b6f4` 이전 SHA
+  (예: `c39e5da`)의 아티팩트를 사용하거나, `index.html`의 endpoint만 되돌리는 forward 커밋을
+  새로 게시해야 한다. 활성화 후보 자체의 Pages 아티팩트는 동일 출처 `/api/*`를 대상으로 하므로
+  Pages가 제공할 수 없는 경로를 가리킨다. `scripts/smoke-pages-deployment.mjs`는 stats를
+  검사하지 않으므로 Pages smoke 통과는 stats 경로 복구의 증거가 아니다.
+- **Worker 버전 롤백은 제출만 직접 경로로 되돌린다.** 사전 활성화 version ID로 복구하면
+  브라우저가 직접 workers.dev stats 주소로 다시 제출하지만, 이미 동일 출처 키로 마이그레이션된
+  대기 이벤트는 그 복구된 Worker가 읽지 못한다(클라이언트 outbox TTL 15분으로 제한되고,
+  이후 이벤트는 만료로 폐기된다). 마이그레이션은 양방향이므로 다시 사이트를 활성화하면
+  대기 이벤트가 되돌아온다.
+- **권장 복구는 forward 수정이다.** 이 브랜치 위에서 endpoint만 되돌리는 커밋을 게시하면
+  양방향 마이그레이션이 유지되어 대기 이벤트가 원래 키로 다시 이동한다.
 
 ### Worker 버전 롤백 (호스팅은 Worker 유지)
 

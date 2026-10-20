@@ -143,15 +143,15 @@ export function migrateStatsEndpointStorage(
         merged.delete((record["envelope"] as StatsSubmissionEnvelope).eventId);
         merged.set((record["envelope"] as StatsSubmissionEnvelope).eventId, record);
       }
+      const records = [...merged.values()];
+      const isLive = (record: Record<string, unknown>) => Number(record["expiresAt"]) > now;
+      // Unexpired events keep the newest-wins cap; expired ones only fill whatever is left.
+      const bounded = [
+        ...records.filter(isLive).slice(-STATS_OUTBOX_MAX_EVENTS),
+        ...records.filter((record) => !isLive(record)),
+      ].slice(0, STATS_OUTBOX_MAX_EVENTS);
       const targetKey = statsOutboxStorageKey(endpoint, prefix);
-      if (merged.size)
-        storage.setItem(
-          targetKey,
-          JSON.stringify({
-            version,
-            records: [...merged.values()].slice(-STATS_OUTBOX_MAX_EVENTS),
-          }),
-        );
+      if (bounded.length) storage.setItem(targetKey, JSON.stringify({ version, records: bounded }));
       storage.removeItem(statsOutboxStorageKey(endpoints[source], prefix));
     }
   }
@@ -410,13 +410,19 @@ function emptyState(): StoredOutbox {
 
 export function createBrowserStatsOutbox(endpoint: string): BrowserStatsOutbox | null {
   try {
-    migrateStatsEndpointStorage(window.localStorage, endpoint);
+    const storage = window.localStorage;
+    try {
+      migrateStatsEndpointStorage(storage, endpoint);
+    } catch (error) {
+      // A failed merge must not disable submissions for the whole page session.
+      ignoreExpectedError("Statistics endpoint migration could not complete.", error);
+    }
     const legacyStorageKey = statsOutboxStorageKey(endpoint, LEGACY_OUTBOX_KEY_PREFIX);
     if (!__STATS_DELIVERY_HEALTH_EMIT_ENABLED__) {
-      return new LegacyStatsSubmissionOutbox(window.localStorage, legacyStorageKey);
+      return new LegacyStatsSubmissionOutbox(storage, legacyStorageKey);
     }
     return createStatsSubmissionOutbox(
-      window.localStorage,
+      storage,
       statsOutboxStorageKey(endpoint, STATS_OUTBOX_KEY_PREFIX),
       Date.now,
       legacyStorageKey,
