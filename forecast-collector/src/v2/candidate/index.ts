@@ -182,13 +182,18 @@ async function buildUnit(env: CollectorEnv, now: number): Promise<CandidateOutco
     grants,
     { cadenceVersion: "observed-median-v2", confirmedRounds: history },
   );
-  if (
-    await db
-      .prepare("SELECT 1 FROM forecast_candidates WHERE candidate_id=?")
-      .bind(candidate.envelope.candidate.candidateId)
-      .first()
-  )
+  const existing = await db
+    .prepare("SELECT candidate_id,payload_hash FROM forecast_candidates WHERE candidate_id=?")
+    .bind(candidate.envelope.candidate.candidateId)
+    .first<{ candidate_id: string; payload_hash: string }>();
+  if (existing) {
+    // Cache the unchanged outcome against the persisted payload, not the
+    // discarded rebuild (whose forecast/profile revision may differ).
+    await db.batch(
+      cacheStatements(db, signature, existing.candidate_id, existing.payload_hash, now),
+    );
     return { outcome: "unchanged" };
+  }
   await processSourceQueue(
     db,
     {
