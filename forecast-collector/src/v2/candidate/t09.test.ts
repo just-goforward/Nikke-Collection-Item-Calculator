@@ -89,6 +89,11 @@ it("projects the T09-sized confirmed calendar (24 seasons, six collaborations, e
     .prepare("SELECT payload_json FROM forecast_candidates")
     .first<string>("payload_json");
   const candidate = JSON.parse(json!);
+  // Captured from the unmodified from-scratch T09 builder at 038e361.
+  expect(candidate.candidateId).toBe("forecast-9137d3e5ed36b05aaadf85b6");
+  expect(
+    await db.prepare("SELECT payload_hash FROM forecast_candidates").first("payload_hash"),
+  ).toBe("e5bc43193eeaac8e19c638c7234901aaf0864876b872f0e9dca7234a6287c613");
   // Historical S1–S40 are already in the certified baseline; publication covers
   // the current window plus later confirmed cadence anchors, not a 2-year ledger.
   for (const season of solo.seasons.filter((entry) => entry.season >= 42))

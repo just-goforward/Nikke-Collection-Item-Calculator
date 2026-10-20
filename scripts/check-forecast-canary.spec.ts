@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
+import { FORECAST_RUNTIME_WORKERS } from "../shared/forecastCanaryRuntime";
 
 const execFileAsync = promisify(execFile);
 const cleanups: Array<() => Promise<void>> = [];
@@ -55,8 +56,8 @@ describe("forecast v2 canary CLI", () => {
     });
   });
 
-  it("refuses promotion for a collector CPU target failure", async () => {
-    const reason = "runtime_success_above_target:collector";
+  it("refuses promotion for a collector CPU configured-limit failure", async () => {
+    const reason = "runtime_success_above_configured_limit:collector";
     const report = {
       ...inProgressReport(),
       runtimeSafety: { status: "failed", failureCodes: [reason] },
@@ -162,7 +163,10 @@ function inProgressReport() {
       warnings: ["performance_evidence_incomplete"],
       regressionCodes: [],
       sampleHash: "e".repeat(64),
-      collector: cpuPerformance("collection-kit-forecast-collector-staging", 100),
+      collector: cpuPerformance(
+        "collection-kit-forecast-collector-staging",
+        FORECAST_RUNTIME_WORKERS.collector.configuredLimitMs,
+      ),
       dispatcher: cpuPerformance("collection-kit-forecast-dispatcher-staging", 25),
     },
     certification: {

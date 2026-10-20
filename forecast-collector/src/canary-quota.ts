@@ -9,7 +9,7 @@ import { sha256Hex } from "./crypto";
 export const CANARY_WINDOW_MS = CLOUDFLARE_PAID_THRESHOLDS.canaryHours * 60 * 60 * 1_000;
 
 const QUOTA_EVIDENCE_MAX_AGE_MS = 20 * 60 * 1_000;
-// Canary evaluation targets equal the deployed cpu_ms limits.
+// Configured runaway guards equal the deployed cpu_ms limits, not performance targets.
 const WORKER_CPU_LIMITS_MS: Record<string, number> = {
   "collection-kit-stats": 10,
   "collection-kit-stats-staging": 10,
@@ -17,8 +17,8 @@ const WORKER_CPU_LIMITS_MS: Record<string, number> = {
   "collection-kit-forecast-interactions-staging": 10,
   "collection-kit-forecast-dispatcher": 25,
   "collection-kit-forecast-dispatcher-staging": 25,
-  "collection-kit-forecast-collector": 100,
-  "collection-kit-forecast-collector-staging": 100,
+  "collection-kit-forecast-collector": 300,
+  "collection-kit-forecast-collector-staging": 300,
   "collection-kit-usage-guard": 25,
 };
 

@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
+import { FORECAST_RUNTIME_WORKERS } from "../../shared/forecastCanaryRuntime.ts";
 import {
   FORECAST_RUNTIME_TELEMETRY_SOURCE,
-  FORECAST_RUNTIME_WORKERS,
   type ForecastRuntimeComponent,
   type ForecastRuntimeSample,
   type ForecastRuntimeTelemetryEvidence,
-} from "../../shared/forecastCanaryRuntime.ts";
+} from "../../shared/forecastCanaryRuntimeEvidence.ts";
 
 const API_BASE = "https://api.cloudflare.com/client/v4";
 const QUERY_LIMIT = 2_000;

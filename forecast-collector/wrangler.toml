@@ -6,14 +6,17 @@ compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 [limits]
-# Owner decision 2026-10-18: 100 ms cap per invocation (runaway guard; Cloudflare may
-# allow occasional overruns). Scheduled-work estimate per deployment: */3 Cron =
-# 14,400 runs/month x 100 ms = 1.44M CPU-ms (<5% of the Paid plan's 30M included);
-# staging is a second deployment. This is not an aggregate spending bound: HTTP
+# Owner decision 2026-10-20: 300 ms runaway guard per invocation (observed legitimate
+# first-build peak: 114 ms on staging). The canary checks a separate 100 ms
+# performance target, not the cap. Scheduled worst case per deployment: */3 Cron =
+# 14,400 runs/month x 300 ms = 4.32M CPU-ms (<15% of the Paid plan's 30M included);
+# Production + staging worst case: 8.64M CPU-ms (~29% of 30M included), above the
+# 25% canary quota threshold; the canary quota check measures actual usage.
+# Staging is a second deployment. This is not an aggregate spending bound: HTTP
 # request count is caller-driven, so public /health and /discord/interactions are
 # rate-limited per address (location-local) before any D1 read, and Usage Guard stops
 # automation near the account CPU/request/D1 quotas.
-cpu_ms = 100
+cpu_ms = 300
 
 [observability.logs]
 enabled = true
@@ -63,8 +66,8 @@ name = "collection-kit-forecast-collector-staging"
 workers_dev = true
 
 [env.staging.limits]
-# Same 100 ms hard cap as production (owner decision 2026-10-18).
-cpu_ms = 100
+# Same 300 ms runaway guard and 100 ms performance target (owner decision 2026-10-20).
+cpu_ms = 300
 
 [env.staging.observability.logs]
 enabled = true

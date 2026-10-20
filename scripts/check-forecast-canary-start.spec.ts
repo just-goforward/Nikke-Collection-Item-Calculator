@@ -1,9 +1,9 @@
 import { expect, it } from "vitest";
+import { FORECAST_RUNTIME_WORKERS } from "../shared/forecastCanaryRuntime";
 import {
   FORECAST_RUNTIME_TELEMETRY_SOURCE,
-  FORECAST_RUNTIME_WORKERS,
   type ForecastRuntimeTelemetryEvidence,
-} from "../shared/forecastCanaryRuntime";
+} from "../shared/forecastCanaryRuntimeEvidence";
 import { assertV2CanaryStart } from "./check-forecast-canary-start";
 
 const now = Date.parse("2026-09-01T00:02:20Z");

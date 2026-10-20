@@ -2,13 +2,15 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  assertForecastRuntimeTelemetryEvidence,
   FORECAST_RUNTIME_EVIDENCE_MAX_AGE_MS,
   FORECAST_RUNTIME_WORKERS,
-  type ForecastRuntimeTelemetryEvidence,
   isAdmittedV2Sample,
   isSuccessfulOutcome,
 } from "../shared/forecastCanaryRuntime.ts";
+import {
+  assertForecastRuntimeTelemetryEvidence,
+  type ForecastRuntimeTelemetryEvidence,
+} from "../shared/forecastCanaryRuntimeEvidence.ts";
 
 type Expected = {
   deploymentSha: string;

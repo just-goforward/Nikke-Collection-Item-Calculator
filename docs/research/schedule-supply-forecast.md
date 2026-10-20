@@ -104,7 +104,12 @@ reports at two, four, and six hours;
 the final CPU certificate uses the exact fixed eight-hour interval after it closes, so monitoring
 requests do not dominate the runtime distribution being certified. Runtime evidence uses Workers
 Observability scheduled invocations only. Actual CPU termination or unsuccessful outcomes are hard
-failures; low p99 headroom is `passed_with_warning`, and missing telemetry is `incomplete`. The first
+failures. Collector successful samples above the configured 300 ms limit are hard failures;
+successful samples or p99 above the separate 100 ms target produce warnings. Collector p99
+headroom warnings (80%/95%) are relative to 300 ms. Canary evidence recorded under the old
+100 ms limit cannot be re-evaluated: fresh evidence under the 300 ms limit is required,
+without rewriting historical evidence. Low p99 headroom is `passed_with_warning`, and missing
+telemetry is `incomplete`. The first
 v10 run bootstraps a clean scheduled-only performance baseline candidate. The artifact does not become
 policy until a separate review adds it as `forecast-collector/runtime-baseline.json`.
 The canary may start only below 25% of each Workers Paid monthly allowance. Guard stages at

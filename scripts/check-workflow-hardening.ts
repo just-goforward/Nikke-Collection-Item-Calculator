@@ -6,10 +6,8 @@ import { z } from "zod";
 import { stableJson } from "../forecast-collector/src/crypto.ts";
 import { type D1UsageSnapshot, evaluateD1PreflightBudget } from "../shared/cloudflarePaidUsage.ts";
 import { assertD1QuotaEvidence } from "../shared/d1QuotaEvidence.ts";
-import {
-  assertForecastRuntimeTelemetryEvidence,
-  FORECAST_CANARY_POLICY_ID,
-} from "../shared/forecastCanaryRuntime.ts";
+import { FORECAST_CANARY_POLICY_ID } from "../shared/forecastCanaryRuntime.ts";
+import { assertForecastRuntimeTelemetryEvidence } from "../shared/forecastCanaryRuntimeEvidence.ts";
 import { monitorProgressProjection } from "./canary-v2-evidence-projection.ts";
 
 const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/i;

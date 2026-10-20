@@ -1,10 +1,12 @@
 import { expect, it } from "vitest";
 import {
   evaluateForecastRuntimeTelemetry,
-  FORECAST_RUNTIME_TELEMETRY_SOURCE,
   FORECAST_RUNTIME_WORKERS,
-  type ForecastRuntimeTelemetryEvidence,
 } from "./forecastCanaryRuntime";
+import {
+  FORECAST_RUNTIME_TELEMETRY_SOURCE,
+  type ForecastRuntimeTelemetryEvidence,
+} from "./forecastCanaryRuntimeEvidence";
 
 function fixture() {
   const sha = "a".repeat(40);

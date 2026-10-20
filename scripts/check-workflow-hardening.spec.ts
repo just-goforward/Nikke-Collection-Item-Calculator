@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { stableJson } from "../forecast-collector/src/crypto.ts";
 import { evaluateD1PreflightBudget } from "../shared/cloudflarePaidUsage.ts";
 import { D1_DATABASE_IDS } from "../shared/d1QuotaEvidence.ts";
-import { FORECAST_RUNTIME_TELEMETRY_SOURCE } from "../shared/forecastCanaryRuntime.ts";
+import { FORECAST_RUNTIME_TELEMETRY_SOURCE } from "../shared/forecastCanaryRuntimeEvidence.ts";
 
 import {
   activeVersionId,
@@ -104,7 +104,7 @@ function runtimeArtifactFixture() {
     workers: (["collector", "dispatcher"] as const).map((component) => ({
       component,
       scriptName: `collection-kit-forecast-${component}-staging`,
-      configuredLimitMs: component === "collector" ? 100 : 25,
+      configuredLimitMs: component === "collector" ? 300 : 25,
       headSamplingRate: 1,
       ...privateMetadata,
       samples: [
@@ -193,7 +193,7 @@ function approvalPerformanceFixture() {
     ...privateMetadata,
   };
   return {
-    configuredLimitMs: 100,
+    configuredLimitMs: 300,
     expectedSlots: 160,
     d1ObservedSlots: 160,
     telemetryObservedSlots: 160,

@@ -34,6 +34,7 @@ on:
       - "shared/testD1Sql.ts"
       - "shared/d1QuotaEvidence.ts"
       - "shared/forecastCanaryRuntime.ts"
+      - "shared/forecastCanaryRuntimeEvidence.ts"
       - "shared/usageGuard.ts"
       - "shared/supplyForecastCandidate.ts"
       - "shared/supplyForecastModel.ts"

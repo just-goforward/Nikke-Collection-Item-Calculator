@@ -5,11 +5,11 @@ import {
   D1_DATABASE_IDS,
   type D1QuotaEvidence,
 } from "../../shared/d1QuotaEvidence";
+import { FORECAST_RUNTIME_WORKERS } from "../../shared/forecastCanaryRuntime";
 import {
   FORECAST_RUNTIME_TELEMETRY_SOURCE,
-  FORECAST_RUNTIME_WORKERS,
   type ForecastRuntimeTelemetryEvidence,
-} from "../../shared/forecastCanaryRuntime";
+} from "../../shared/forecastCanaryRuntimeEvidence";
 
 export const SHA = "a".repeat(40);
 export const CANARY_ID = `fc-${"a".repeat(32)}`;

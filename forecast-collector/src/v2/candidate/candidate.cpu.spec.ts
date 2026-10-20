@@ -9,7 +9,8 @@ import { localDatabase } from "../rules/sqlite-test-db";
 import { now, seed } from "./fixture";
 import { runV2CandidateUnit } from "./index";
 
-// User-approved local threshold for this unit only (plan §7B): 80 ms; production cap is 100 ms.
+// User-approved local threshold for this unit only (plan §7B): 80 ms.
+// Production uses a 300 ms runaway guard and a separate 100 ms performance target.
 it("builds one candidate within 80ms thread CPU", async () => {
   const { db, sqlite } = localDatabase();
   try {

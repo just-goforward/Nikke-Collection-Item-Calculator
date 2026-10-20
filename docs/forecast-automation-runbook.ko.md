@@ -226,7 +226,11 @@ canary row에 저장하고 Observability의 Version ID나 tag가 제공되면 �
 선택 메타데이터를 생략하면 배포 SHA·구조화 Cron marker·D1 slot의 조합으로 대조하고 경고를
 남긴다. API 지연, telemetry coverage 부족, hash나 배포 신원 불일치는 `incomplete`이며 production으로
 진행하지 않는다. 완전한 증거가 기능·무결성·
-quota·runtime hard gate 위반을 증명할 때만 `failed`다. CPU p99가 설정 상한의 80% 이상이면
+quota·runtime hard gate 위반을 증명할 때만 `failed`다. Collector의 성공 표본이 설정 상한
+300 ms를 초과하면 hard failure다. 별도 성능 목표 100 ms를 단일 성공 표본 또는 p99가
+초과하면 각각 warning이다. Collector headroom은 이제 300 ms 기준이다.
+이전 100 ms 설정 상한으로 기록한 canary 증거는 재평가할 수 없으며, 새로운 300 ms 설정의
+증거를 수집해야 한다. 과거 증거는 수정하지 않는다. CPU p99가 설정 상한의 80% 이상이면
 warning, 95% 이상이면 높은 등급의 warning이지만 `exceededCpu=0`이고 다른 hard gate가 정상이면
 `passed_with_warning`이다. 이 상태도 workflow 성공으로 기록되지만 production 승격에는 기존
 `cloudflare-production` 수동 승인이 필요하다.
