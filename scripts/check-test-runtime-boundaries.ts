@@ -2,9 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, parse, relative, resolve } from "node:path";
 
-const ROOT_VITEST_VERSION = "5.0.4";
-const WORKER_VITEST_VERSION = "5.0.4";
-const CLOUDFLARE_PLUGIN_VERSION = "1.4.1";
+const ROOT_VITEST_VERSION = "5.0.5";
+const WORKER_VITEST_VERSION = "5.0.5";
+const CLOUDFLARE_PLUGIN_VERSION = "1.4.3";
 const WORKER_WORKSPACES = [
   "cloudflare",
   "forecast-collector",

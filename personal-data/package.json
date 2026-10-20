@@ -14,9 +14,9 @@
     "openid-client": "6.8.8"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.4.1",
-    "@vitest/coverage-v8": "5.0.4",
+    "@cloudflare/vitest-plugin": "1.4.3",
+    "@vitest/coverage-v8": "5.0.5",
     "typescript": "7.0.2",
-    "vitest": "5.0.4"
+    "vitest": "5.0.5"
   }
 }
