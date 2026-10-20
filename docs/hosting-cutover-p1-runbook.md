@@ -161,8 +161,7 @@ npm run smoke:site-production-deployed -- https://nikkecollection.com <full-cand
 **활성화(`213b6f4`) 이후에는 두 복구 경로의 의미가 달라진다.** 먼저 아래 세 항목을 확인한다.
 
 - **Pages 호스팅 복구는 보존된 사전 활성화 Pages 아티팩트로만 가능하다.** `213b6f4` 이전 SHA
-  (예: `c39e5da`)의 아티팩트를 사용하거나, `index.html`의 endpoint만 되돌리는 forward 커밋을
-  새로 게시해야 한다. 활성화 후보 자체의 Pages 아티팩트는 동일 출처 `/api/*`를 대상으로 하므로
+  (예: `c39e5da`)의 아티팩트를 사용하거나, 아래 forward 복구 커밋을 새로 게시해야 한다. 활성화 후보 자체의 Pages 아티팩트는 동일 출처 `/api/*`를 대상으로 하므로
   Pages가 제공할 수 없는 경로를 가리킨다. `scripts/smoke-pages-deployment.mjs`는 stats를
   검사하지 않으므로 Pages smoke 통과는 stats 경로 복구의 증거가 아니다.
 - **Worker 버전 롤백은 제출만 직접 경로로 되돌린다.** 사전 활성화 version ID로 복구하면
@@ -170,8 +169,13 @@ npm run smoke:site-production-deployed -- https://nikkecollection.com <full-cand
   대기 이벤트는 그 복구된 Worker가 읽지 못한다(클라이언트 outbox TTL 15분으로 제한되고,
   이후 이벤트는 만료로 폐기된다). 마이그레이션은 양방향이므로 다시 사이트를 활성화하면
   대기 이벤트가 되돌아온다.
-- **권장 복구는 forward 수정이다.** 이 브랜치 위에서 endpoint만 되돌리는 커밋을 게시하면
-  양방향 마이그레이션이 유지되어 대기 이벤트가 원래 키로 다시 이동한다.
+- **권장 복구는 forward 수정이다.** 이 브랜치 위에서 `index.html`의 endpoint를 직접
+  workers.dev stats 주소로 되돌리고, 같은 커밋에서 동일 출처 endpoint를 요구하는 검사
+  (`scripts/smoke-site-production.mjs`, `scripts/build-site-production.spec.ts`,
+  `site-worker/production.smoke.spec.ts`의 기대값)를 직접 주소로 함께 갱신한다. 마이그레이션 코드는
+  유지하므로 대기 이벤트가 원래 키로 다시 이동한다. 검사를 갱신하지 않으면
+  `site-worker-promote.yml`의 배포 전 smoke가 `production stats endpoint is missing`으로 거절한다.
+  검사를 약화하거나 생략해 통과시키지 않는다.
 
 ### Worker 버전 롤백 (호스팅은 Worker 유지)
 
