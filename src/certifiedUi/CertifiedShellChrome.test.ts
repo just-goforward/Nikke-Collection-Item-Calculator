@@ -11,14 +11,14 @@ vi.mock("../i18n/locale", () => ({ useI18n: () => ({ locale: "ko", t: (key: stri
 
 const words = certifiedMessages.ko;
 
-function renderBanner(snapshot: Pick<CertifiedSupplySnapshot, "sourceStatus" | "cadence">) {
+function renderBanner(snapshot: CertifiedSupplySnapshot) {
   const controller = {
     snapshot,
     prepareError: null,
     storageBlocked: false,
     sessionSaveFailed: false,
-    session: { migrationNotice: null },
-  } as unknown as CertifiedCalculatorController;
+    session: {} as CertifiedCalculatorController["session"],
+  } as CertifiedCalculatorController;
   return renderToStaticMarkup(
     createElement(CertifiedBanner, {
       controller,
@@ -32,7 +32,10 @@ function snapshot(
   version: CertifiedSupplySnapshot["cadence"]["version"],
   sourceStatus: CertifiedSupplySnapshot["sourceStatus"] = "uncertain",
 ) {
-  return { sourceStatus, cadence: { version } as CertifiedSupplySnapshot["cadence"] };
+  return {
+    sourceStatus,
+    cadence: { version } as CertifiedSupplySnapshot["cadence"],
+  } as CertifiedSupplySnapshot;
 }
 
 describe("CertifiedBanner", () => {
