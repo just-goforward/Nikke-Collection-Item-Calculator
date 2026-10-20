@@ -33,6 +33,7 @@ export const jaMessages = {
   "common.superSuccessNoConfirm": "大成功 X 確定",
   "common.stockEditRequired": "キット修正必要",
   "common.convertToSr": "SRへ交換",
+  "common.convertToSrAria": "交換を適用（SRへ交換）",
   "common.applyConversion": "交換を適用",
   "common.loadingTitle": "計算中",
   "common.mobileActions": "モバイル操作",

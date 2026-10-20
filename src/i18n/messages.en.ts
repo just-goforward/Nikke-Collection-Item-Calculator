@@ -33,6 +33,7 @@ export const enMessages = {
   "common.superSuccessNoConfirm": "Confirm Failure",
   "common.stockEditRequired": "Update kits",
   "common.convertToSr": "Convert to SR",
+  "common.convertToSrAria": "Apply conversion (convert to SR)",
   "common.applyConversion": "Apply conversion",
   "common.loadingTitle": "Calculating",
   "common.mobileActions": "Mobile actions",

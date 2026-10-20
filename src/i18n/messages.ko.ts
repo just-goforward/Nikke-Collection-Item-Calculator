@@ -32,6 +32,7 @@ export const koMessages = {
   "common.superSuccessNoConfirm": "대성공 X 확정",
   "common.stockEditRequired": "키트 수정 필요",
   "common.convertToSr": "SR 등급으로 교체",
+  "common.convertToSrAria": "교체 적용 (SR 등급으로 교체)",
   "common.applyConversion": "교체 적용",
   "common.loadingTitle": "계산 중",
   "common.mobileActions": "모바일 작업",

@@ -646,7 +646,7 @@ test("a workspace that cannot load shows guest data as 'account not loaded' and 
   await enableAccountFlag(page);
   await openApp(page);
   const retry = page.getByRole("button", {
-    name: "계정 데이터를 불러오지 못했습니다. 다시 시도",
+    name: "계정 불러오기 실패 – 다시 시도",
   });
   await expect(retry).toBeVisible();
   await expect(
