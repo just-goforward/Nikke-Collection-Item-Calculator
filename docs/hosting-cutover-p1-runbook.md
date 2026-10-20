@@ -3,8 +3,9 @@
 ## 범위와 승인 원칙
 
 - 대상: `nikkecollection.com`, Worker `collection-kit-site-production`.
-- 계정은 꺼짐. stats 브라우저 요청은 동일 출처 `https://nikkecollection.com/api/stats`로
-  전송하고 사이트 Worker의 STATS 서비스 바인딩으로 전달한다.
+- 계정은 꺼짐. stats 브라우저 요청(집계 조회 `GET /api/stats`, 확정 결과 제출
+  `POST /api/events`)은 동일 출처 `https://nikkecollection.com`으로 전송하고 사이트 Worker의
+  STATS 서비스 바인딩으로 전달한다. 직접 workers.dev stats 주소는 캐시된 클라이언트를 위해 유지한다.
 - D1, 마이그레이션, 백엔드 배포, OAuth, 이벤트 쓰기, 개인정보 작업, 로깅 활성화는 금지한다.
 - 이 문서는 실행 승인이 아니다. 아래 각 **승인 게이트**는 대상·후보 SHA·담당자·시간창·
   비용 한도·중단 기준을 운영자가 별도로 승인해야 한다. 자동 롤백은 없다.
@@ -62,8 +63,9 @@ Discord alerts do not claim that a suppressed redeploy completed a stop.
    - 다른 값: 게시 전에 실패한다. 공백이나 대소문자를 자동 보정하지 않는다.
 3. 해당 SHA의 Pages rollback 아티팩트, 다운로드 digest, checkout identity를 보존한다.
    보존 기간은 30일이므로 전환/복구 훈련 전에 만료 여부를 확인한다.
-4. `site-worker/production.wrangler.toml`은 이름, `SITE_ENV=production`, `ASSETS`만 사용하고
-   `routes`, 서비스/D1 바인딩, 로그, workers.dev, preview URL이 없어야 한다.
+4. `site-worker/production.wrangler.toml`은 이름, `SITE_ENV=production`, `ASSETS`, 그리고
+   `collection-kit-stats`로 가는 `STATS` 서비스 바인딩만 사용하고 `routes`, D1 바인딩, 로그,
+   workers.dev, preview URL이 없어야 한다.
    Custom Domain은 이 워크플로가 만들거나 제거하지 않는다. Wrangler 설정의 source-of-truth
    동작 및 dashboard 소유 도메인 보존은 사전 훈련에서 확인한다.
 5. 현재 apex/www DNS, TTL, Pages custom domain/TLS, GitHub 도메인 검증 TXT, 기존 Worker
@@ -137,11 +139,13 @@ npm run smoke:site-production-deployed -- https://nikkecollection.com <full-cand
 - 한 실행 최대 80 요청, 요청당 15초, 전체 120초, 응답당 20 MiB/전체 64 MiB.
   리다이렉트는 따라가지 않는다. apex를 명시해야 한다.
 - `/`, `/en/`, `/ja/` 언어/제목/canonical/hreflang, 정확한 프런트엔드 SHA, sitemap,
-  `robots.txt`의 Allow와 Sitemap, JS/CSS/WASM, 계정 off, 직접 stats URL을 검사한다.
+  `robots.txt`의 Allow와 Sitemap, JS/CSS/WASM, 계정 off, 동일 출처 stats endpoint 설정을 검사한다.
 - HTML 및 고정명 `solver_rs.wasm`/`certified_solver.wasm`은 명시적 재검증이 필요하다
   (`no-cache` 또는 `max-age=0, must-revalidate`). immutable은 해시 자산만 허용한다.
   공개 HTML에 CSP/noindex/쿠키가 없어야 한다.
-- `/api/stats`, 공개 `/v1/statistics`는 503, 알 수 없는 `/api`, `/auth`, `/v1` 경로는 404,
+- `GET /api/stats`는 STATS 서비스로 전달되며 200이면 집계 형식(summary, byKit)을 검사한다.
+  `POST /api/events`는 smoke에서 호출하지 않는다.
+- 공개 `/v1/statistics`는 503(no-store), 알 수 없는 `/api`, `/auth`, `/v1` 경로는 404,
   허용되지 않은 HEAD는 405, `/api/health`는 404여야 한다.
   OAuth/로그인/로그아웃/개인정보의 허용 메서드 503 검증은 **로컬 gateway 테스트**에서만 한다.
   공개 smoke는 이를 실행하지 않는다. 이벤트 쓰기, 세션 생성, 개인정보 접근은 금지한다.
