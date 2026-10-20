@@ -343,11 +343,13 @@ test("모바일 R 10 다회 대성공도 SR 5 교체 후 자동 계산한다", a
 
   await expect(page.getByRole("tab", { name: "결과" })).toHaveAttribute("aria-selected", "true");
   await expect(
-    actionBar.getByRole("button", { name: "SR 등급으로 교체", exact: true }),
+    actionBar.getByRole("button", { name: "교체 적용 (SR 등급으로 교체)", exact: true }),
   ).toBeVisible();
   await expect(page.locator("#stockEditNotice")).toBeHidden();
 
-  await actionBar.getByRole("button", { name: "SR 등급으로 교체", exact: true }).click();
+  await actionBar
+    .getByRole("button", { name: "교체 적용 (SR 등급으로 교체)", exact: true })
+    .click();
 
   await expect(page.getByRole("tab", { name: "결과" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".status-grade")).toHaveText("SR");
