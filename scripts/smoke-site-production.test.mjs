@@ -236,6 +236,56 @@ test("post-deploy smoke retries only a stale frontend revision, within a bounded
   assert.equal(calls, 1);
 });
 
+test("post-deploy smoke retries a hashed asset missing during propagation, nothing broader", async () => {
+  const missing = new Error(
+    "https://nikkecollection.com/assets/index-jwhTu8kd.js: expected 200, received 404",
+  );
+  const sleep = async () => {};
+  let calls = 0;
+  const recovered = await smokeSiteProductionAfterDeploy(origin, revision, {
+    sleep,
+    smoke: async () => {
+      if (++calls < 2) throw missing;
+      return "ok";
+    },
+  });
+  assert.equal(recovered, "ok");
+  assert.equal(calls, 2);
+
+  calls = 0;
+  await assert.rejects(
+    smokeSiteProductionAfterDeploy(origin, revision, {
+      attempts: 3,
+      sleep,
+      smoke: async () => {
+        calls++;
+        throw missing;
+      },
+    }),
+    /received 404/,
+  );
+  assert.equal(calls, 3);
+
+  for (const message of [
+    "https://nikkecollection.com/assets/index-jwhTu8kd.js: expected 200, received 500",
+    "https://nikkecollection.com/solver_rs.wasm: expected 200, received 404",
+    "https://nikkecollection.com/en/: expected 200, received 404",
+    "https://example.com/assets/index-jwhTu8kd.js: expected 200, received 404",
+  ]) {
+    calls = 0;
+    await assert.rejects(
+      smokeSiteProductionAfterDeploy(origin, revision, {
+        sleep,
+        smoke: async () => {
+          calls++;
+          throw new Error(message);
+        },
+      }),
+    );
+    assert.equal(calls, 1, message);
+  }
+});
+
 test("rejects an expected revision embedded in a longer hexadecimal run", async () => {
   for (const value of [`f${revision}`, `${revision}0`]) {
     const source = fixture((path, result) => {

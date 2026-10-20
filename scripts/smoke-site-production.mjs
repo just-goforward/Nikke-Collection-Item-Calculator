@@ -211,9 +211,14 @@ export async function smokeSiteProduction(origin, revision, { fetchImpl = fetch 
   };
 }
 
+// Previous-version HTML can still link an /assets/ file the new version no longer serves.
+// Retries stay bounded by the attempt count; each attempt keeps its own 120 s lifetime.
+const PROPAGATION_ASSET_MISSING =
+  /^https:\/\/nikkecollection\.com\/assets\/[^\s:]+: expected 200, received 404$/;
+
 /**
  * Edge propagation after `wrangler deploy` can briefly serve the previous frontend.
- * Only a revision mismatch is retried; every other failure is final.
+ * Only a revision mismatch or a missing hashed asset is retried; every other failure is final.
  */
 export async function smokeSiteProductionAfterDeploy(
   origin,
@@ -230,7 +235,9 @@ export async function smokeSiteProductionAfterDeploy(
       return await smoke(origin, revision);
     } catch (error) {
       const stale =
-        error instanceof Error && /frontend revision does not match/.test(error.message);
+        error instanceof Error &&
+        (/frontend revision does not match/.test(error.message) ||
+          PROPAGATION_ASSET_MISSING.test(error.message));
       if (!stale || attempt >= attempts) throw error;
       await sleep(delayMs);
     }
