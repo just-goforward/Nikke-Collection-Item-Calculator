@@ -98,6 +98,7 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID variable." >&2; exit 1; }
           test -n "$STATS_ALLOWED_ORIGIN" || { echo "Missing STATS_ALLOWED_ORIGIN variable." >&2; exit 1; }
           test -n "$STAGING_WORKER_URL" || { echo "Missing CLOUDFLARE_STAGING_WORKER_URL variable." >&2; exit 1; }
+          node -e 'if (process.env.STAGING_WORKER_URL !== "https://collection-kit-stats-staging.tbvj159.workers.dev") throw new Error("Staging probe origin mismatch")'
 
       - name: Prepare npm 12.2.0 with pinned integrity
         if: steps.commit.outputs.current == 'true'
@@ -354,7 +355,7 @@ jobs:
               throw new Error(`STATS_ALLOWED_ORIGIN must be one of the TOML staging origins: ${origins.join(", ")}`);
             }
           '
-          npm run smoke:stats-worker -- "$STAGING_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
+          npm run smoke:stats-worker -- "$STAGING_WORKER_URL" "$STATS_ALLOWED_ORIGIN" full direct-staging
 
       - name: Restore staging after smoke failure
         if: steps.staging_smoke.outcome == 'failure' && steps.staging_previous.outputs.version_id != ''

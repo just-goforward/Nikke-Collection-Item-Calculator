@@ -5,7 +5,8 @@
 - 대상: `nikkecollection.com`, Worker `collection-kit-site-production`.
 - 계정은 꺼짐. stats 브라우저 요청(집계 조회 `GET /api/stats`, 확정 결과 제출
   `POST /api/events`)은 동일 출처 `https://nikkecollection.com`으로 전송하고 사이트 Worker의
-  STATS 서비스 바인딩으로 전달한다. 직접 workers.dev stats 주소는 캐시된 클라이언트를 위해 유지한다.
+  STATS 서비스 바인딩으로 전달한다. **Release A 준비 단계에서는** 직접 workers.dev stats 주소를
+  유지한다. 이 문서의 후속 retirement 절차와 별도 승인된 release B 전에는 닫지 않는다.
 - D1, 마이그레이션, 백엔드 배포, OAuth, 개인정보 작업, 로깅 활성화는 금지한다.
   운영자와 smoke는 이벤트 쓰기를 수행하지 않는다. 실제 사용자 브라우저가 보내는
   동일 출처 `POST /api/events`는 활성화 후 의도된 동작이며, 이는 운영자 주도 쓰기가 아니다.
@@ -78,9 +79,19 @@ Discord alerts do not claim that a suppressed redeploy completed a stop.
    최소 범위 토큰 `CLOUDFLARE_SITE_API_TOKEN`, 변수 `CLOUDFLARE_SITE_ACCOUNT_ID`,
    `CLOUDFLARE_SITE_PRODUCTION_URL=https://nikkecollection.com`을 설정한다.
    토큰에는 DNS 편집, D1 또는 백엔드 변경 권한을 주지 않는다.
-7. `CLOUDFLARE_PRODUCTION_WORKER_URL`은 기존 stats 백엔드 주소다. 사이트 주소로 바꾸지 않는다.
+7. Release A 이전/전환 중에는 URL과 profile을 한 쌍으로 관리한다:
+   `CLOUDFLARE_PRODUCTION_WORKER_URL=https://collection-kit-stats.tbvj159.workers.dev`,
+   `CLOUDFLARE_PRODUCTION_SMOKE_PROFILE=direct`. profile 미설정은 실패다.
+   URL은 **exact value, no trailing slash**이다. `/`, query 또는 별칭 host를 덧붙이지 않는다.
+   사이트 private probe 배포 및 아래 drain 게이트 이후에만
+   `https://nikkecollection.com` / `gateway`로 함께 변경한다.
 
-## 2. Bootstrap (공개 호스트 연결 없음)
+## 2. Bootstrap (과거 P1 절차, release A에서 사용 금지)
+
+아래는 이미 존재하는 사이트 Worker의 역사적 생성 절차다. Release A의 trusted YAML과
+deployment validator는 `publish`만 허용한다. 필수 probe secret을 배포 전에 별도로 설정해야
+하므로 이 workflow로 새 Worker를 bootstrap할 수 없다. 신규 계정/Worker의 domain-free
+bootstrap은 별도 설계·승인이 필요하며 필수 secret 검사를 우회하지 않는다.
 
 **승인 게이트 B — Worker 생성/버전 배포:** 정확한 후보 SHA와 계정/Worker를 승인한 후,
 `Promote production site Worker`를 `main`, `deploy_sha=<SHA>`, `mode=bootstrap`으로 dispatch한다.
@@ -156,26 +167,29 @@ npm run smoke:site-production-deployed -- https://nikkecollection.com <full-cand
   smoke는 리다이렉트를 허용하지 않으므로 www를 smoke 입력으로 사용하지 않는다.
 - 어느 항목이든 실패하면 다음 변경을 중단하고 담당자에게 판단을 요청한다.
 
-## 5. 롤백: 버전 복구와 호스팅 복구를 구분
+## 5. 롤백: 초기 복구와 retirement 이후 복구를 구분
 
-**활성화(`213b6f4`) 이후에는 두 복구 경로의 의미가 달라진다.** 먼저 아래 세 항목을 확인한다.
-
-- **Pages 호스팅 복구는 보존된 사전 활성화 Pages 아티팩트로만 가능하다.** `213b6f4` 이전 SHA
-  (예: `c39e5da`)의 아티팩트를 사용하거나, 아래 forward 복구 커밋을 새로 게시해야 한다. 활성화 후보 자체의 Pages 아티팩트는 동일 출처 `/api/*`를 대상으로 하므로
-  Pages가 제공할 수 없는 경로를 가리킨다. `scripts/smoke-pages-deployment.mjs`는 stats를
-  검사하지 않으므로 Pages smoke 통과는 stats 경로 복구의 증거가 아니다.
-- **Worker 버전 롤백은 제출만 직접 경로로 되돌린다.** 사전 활성화 version ID로 복구하면
-  브라우저가 직접 workers.dev stats 주소로 다시 제출하지만, 이미 동일 출처 키로 마이그레이션된
-  대기 이벤트는 그 복구된 Worker가 읽지 못한다(클라이언트 outbox TTL 15분으로 제한되고,
-  이후 이벤트는 만료로 폐기된다). 마이그레이션은 양방향이므로 다시 사이트를 활성화하면
-  대기 이벤트가 되돌아온다.
-- **권장 복구는 forward 수정이다.** 이 브랜치 위에서 `index.html`의 endpoint를 직접
-  workers.dev stats 주소로 되돌리고, 같은 커밋에서 동일 출처 endpoint를 요구하는 검사
-  (`scripts/smoke-site-production.mjs`, `scripts/build-site-production.spec.ts`,
-  `site-worker/production.smoke.spec.ts`의 기대값)를 직접 주소로 함께 갱신한다. 마이그레이션 코드는
-  유지하므로 대기 이벤트가 원래 키로 다시 이동한다. 검사를 갱신하지 않으면
-  `site-worker-promote.yml`의 배포 전 smoke가 `production stats endpoint is missing`으로 거절한다.
-  검사를 약화하거나 생략해 통과시키지 않는다.
+- **Secret/CI cutover 이전:** 기록된 초기 site version 복구는 기존 호스팅 제약 아래에서만 가능하다.
+  pre-probe 버전은 private probe나 최신 secret을 제공하지 않는다.
+- **변수 전환 이후, B 이전:** 모든 관련 실행을 drain하고 직접 endpoint가 실제로 살아 있는지
+  확인한 뒤 URL/profile 쌍을 되돌릴 수 있다. 변수 하나만 되돌리지 않는다.
+- **B 이후:** 사전 목록화한 retirement-compatible site/backend version만 사용한다.
+  사이트는 동일 출처 stats, private probe, 필요한 secret/limiter를 유지해야 한다.
+  backend는 현재 D1/recovery/policy 계약과 quota binding에 호환되어야 한다.
+  exact version ID, SHA, artifact digest, secret 세대(값 제외)를 승인 기록에 남긴다.
+  pre-activation/direct-client 및 pre-probe site version은 복구 대상이 아니다.
+- **Fingerprint equality 제약:** 이후 main에서 fingerprint 대상 파일이 바뀌면 promote
+  workflow는 이전 candidate와의 byte equality가 깨져 승격을 거절한다. 호환된 과거
+  candidate라도 새 workflow snapshot과 일치하는 검토가 필요하다. Version ID 기반
+  `worker-rollback.yml` 복구는 이 candidate fingerprint 제약을 받지 않지만, 복구 후
+  현재 smoke의 전체 계약 검증은 여전히 필수다.
+- **Pages/direct 복구는 B 이후 사용 불가:** 별도로 승인된 routing 재개방과 호스팅 복구 없이는
+  아래 Pages 절차를 실행하지 않는다. Pages smoke 통과는 stats 복구의 증거가 아니다.
+- `src/lib/statsSubmissionOutbox.ts`의 기존 endpoint 문자열과 storage-key migration은 유지한다.
+  이 코드는 로컬 저장소 마이그레이션이며 네트워크 fallback이 아니다.
+- Worker 버전 복구는 workers.dev routing을 복구하지 않는다. 버전 ID, routing 상태,
+  gateway/private contract를 각각 확인한다. 실패 시 자동으로 public routing을 열지 않는다.
+  필요한 경우 정확한 `collection-kit-stats` 대상의 재개방을 별도 승인하고 preview는 닫아 둔다.
 
 ### Worker 버전 롤백 (호스팅은 Worker 유지)
 
@@ -185,6 +199,8 @@ npm run smoke:site-production-deployed -- https://nikkecollection.com <full-cand
 이 워크플로는 자동 rollback을 수행하지 않는다.
 
 ### GitHub Pages 호스팅 복구 (DNS/TLS 포함)
+
+**Retirement 이후 금지, 별도 재개방 승인 시에만 사용 가능한 역사적 절차다.**
 
 1. **승인 게이트 R2:** 승인된 Pages rollback SHA/digest와 보존 아티팩트를 확인하고
    `SITE_HOSTING_TARGET=pages`로 되돌린다. Pages 배포는 기존 승인 절차로 수행한다.
@@ -212,6 +228,107 @@ DNS 캐시, 도메인 충돌 해소, 인증서 발급 때문에 **즉시 롤백�
 | T_dns_observed | DNS 변경 → 지정 관측점 모두 새 대상 확인 | 미측정 |
 | T_pages_restore | Pages 복구 승인 → DNS/TLS/Pages smoke 정상 | 미측정 |
 | T_end_to_end_recovery | 장애 선언 → 사용자 경로 수용 완료 | 미측정 |
+
+## 6. Release A private probe 준비 및 pending retirement
+
+**현재 범위는 코드 준비뿐이다.** 다음 배포·secret·변수·로그 조회·B routing 변경은 실행되지
+않았으며 각 대상/SHA/예산/시간창에 대한 별도 승인이 필요하다.
+
+1. 운영자가 32 random bytes를 unpadded base64url로 생성한다(43자; 길이는 entropy 증거가 아님).
+   사이트 Worker에 `STATS_HEALTH_PROBE_TOKEN`을 먼저 provision한다.
+   `wrangler secret put`은 새 버전을 즉시 배포하므로 이전 version ID를 먼저 기록한다.
+   GitHub `cloudflare-site-production`, `cloudflare-production`, `cloudflare-stats-probe`에
+   같은 probe capability를 저장한다. secret은 build/install/artifact에 전달하지 않는다.
+   namespace `419105`는 tracked config에서 미사용이나 계정 전체 충돌 여부는 운영자가 확인한다.
+2. `cloudflare-stats-probe`는 main-only branch policy와 15분 job 제한을 적용한다.
+   읽기 전용 Pages 계약 검사가 매 push마다 막히지 않도록 **required reviewer 없음**을 권장한다.
+   이는 운영자 정책 결정이며 site/backend 배포 환경의 승인 요구를 완화하지 않는다.
+3. 승인된 A site를 `mode=publish`로 배포한다. 공개 `/api/health`, `/api/admin/*`는 계속 404,
+   `GET /api/_ci/stats-health`만 bearer로 인증한다. upstream은 고정
+   `https://nikkecollection.com/api/health`, headers는 고정 Accept뿐이다.
+   Site publish의 frontend-contract smoke는 **site candidate의** D1 schema/recovery/policy
+   상수를 사용한다. 이미 운영 중인 backend가 이를 만족해야 하므로 새 계약을 포함한 site
+   candidate는 나중 Stats promotion 전에 post-publish smoke가 실패할 수 있다.
+   이 coupling은 유지한다. A처럼 계약이 바뀌지 않는 후보를 사용하거나 별도 승인된
+   backend-first rollout으로 맞추며 검사를 완화하지 않는다.
+4. 새 실행을 freeze하고 site, Stats promote/rollback, Observer, Pages probe의 모든 concurrency
+   group에서 실행/대기 작업을 drain한다. 취소가 필요하면 별도 승인한다.
+   아무 실행도 없는 상태에서 URL/profile을 `https://nikkecollection.com` / `gateway`로 변경하고
+   일치 여부를 확인한다. GitHub의 두 변수 업데이트가 원자적이라고 가정하지 않는다.
+5. `SITE_HOSTING_TARGET=worker`를 유지하여 **production mutation 없이** Pages workflow의
+   분리된 frontend-contract job을 검증한다. Observer promotion이나 live rollback을 smoke
+   테스트 용도로 dispatch하지 않는다.
+6. 정확한 A SHA를 수동 staging 배포한 뒤 Stats A를 promote한다. maintenance switch
+   `FORECAST_STAGING_AUTO_REDEPLOY=disabled`는 일반 workflow_dispatch도 막는다.
+   trusted SHA/pinned dependencies, Worker types/tests, Paid quota preflight/Guard normal,
+   D1 schema check, dry-run, prior-version capture를 먼저 수행한다. 예상 밖 migration은 중단한다.
+   기존 staging deploy command를 그대로 사용한다:
+
+   ```text
+   npx wrangler deploy --env staging --config cloudflare/wrangler.toml --var "DEPLOYMENT_SHA:<APPROVED_SHA>" --tag "<APPROVED_SHA>" --message "GitHub <APPROVED_SHA>"
+   npm run smoke:stats-worker -- https://collection-kit-stats-staging.tbvj159.workers.dev https://nikkecollection.com full direct-staging
+   ```
+
+   100% active staging version의 tag가 SHA와 일치해야 한다. production promotion은 승인 전/후
+   동일 staging target을 재검증한다. dispatch override는 별도 승인된 추가 작업일 뿐이다.
+   `direct-staging`은 위 staging origin만, `direct`는 production workers.dev origin만
+   허용한다. 둘 다 trailing slash 없이 정확히 일치해야 하며 staging workflow는
+   최초 staging probe/mutation 전에 별도 trusted-YAML origin 검사도 수행한다.
+7. 7일 traffic/recovery gate 후에만 B를 준비한다. B에서 production `workers_dev=false`,
+   `preview_urls=false`; staging `workers_dev=true`, `preview_urls=false`를 명시한다.
+   **A는 stats routing config를 바꾸지 않는다.** B trusted main-ref YAML은 candidate TOML의
+   top-level false/false를 독립 검사해야 한다. `[env.staging]` 값은 그 검사를 만족시키지도,
+   실패시키지도 않는다. 버전 복구와 별도로 subdomain flags를 확인한다.
+   승인자는 pre-guard run의 재실행을 거부하고 guard를 포함한 workflow SHA의 새 main dispatch만
+   승인한다. A의 capability guard도 candidate script의 self-report가 아닌 trusted workflow
+   commit의 파일 fingerprint와 비교한다. adapter 변경은 해당 main workflow snapshot의 검토가 필요하다.
+
+### 요청/D1 예산과 limiter
+
+최대 4개 probe slot: Stats promote/rollback 공유 1개, site 1개, Observer 1개, Pages 1개.
+각 health 요청은 첫 요청/phase 전환도 최소 1초 pacing, episode당 최대 60회/120초이다.
+429 및 `cf-mitigated`는 bounded backoff 후 unavailable로 보고하며 backend incompatibility나
+성공으로 간주하지 않는다. 404 exhaustion은 auth/routing uncertainty이다. redirect는 금지한다.
+Schema repair/rollback 전 `readiness-only`는 backend health 성공이 아니라 authenticated
+transport를 통한 well-formed backend envelope 도달을 확인한다. Healthy 200 또는
+well-formed non-2xx backend JSON `error` envelope(예: 500 `internal_error`)가 통과할 수 있다.
+`retryable`은 없거나 boolean이어야 한다. 인증/limiter 이후 binding 호출이 실패한 gateway
+502 `service_unavailable`도 recovery를 허용한다. 그러나 limiter의 503 `service_unavailable`,
+`service_not_configured`, 404, 429, challenge, redirect 및 malformed body는 통과하지 않는다.
+Quota preflight/runtime guard는 우회하지 않으며 corrective operation 이후에는 전체 healthy
+계약을 요구한다. Readiness summary에는 임의 backend error 원문을 기록하지 않는다.
+Full verification의 gateway failure, 429/challenge exhaustion 및 public-request challenge는
+`verification unavailable (transport)`로 구분하고 restore 시에도 그 분류를 보존한다.
+
+경계 여유를 포함한 244/min에 25% headroom을 적용해 limiter 320/60을 사용한다.
+key는 고정 `stats-health-production`; Cloudflare location별 eventual limiter는 전역 비용 상한이 아니다.
+T=28 + guard read 1: frontend-only 최대 66 HTTP/1,743 SQL statements, full 67/1,743,
+readiness + post-change full + restore full은 최대 194/5,226이다. 두 invalid-token event는
+Turnstile 전에 native counter를 사용할 수 있으나 D1 이전에 거부되며 Siteverify는 최대 4회다.
+Site publish는 기존 asset smoke 최대 80회에 frontend-contract 최대 66회가 추가된다.
+기존 quota/schema/deployment control-plane 및 B negative-probe 요청은 별도 예산에 더한다.
+statement 수는 billable rows가 아니다. 각 run은 approved budget 안에서만 실행한다.
+
+### Traffic gate (미실행)
+
+실제 telemetry field keys를 먼저 discover한다(현재 unresolved).
+Workers Observability telemetry query에는 **Workers Observability Write** 권한이 필요하다.
+dataset `cloudflare-workers`, service `collection-kit-stats`, URL prefix
+`https://collection-kit-stats.tbvj159.workers.dev/`를 사용해 매일 bounded 24h window를 조회한다.
+consumer signal은 GET `/api/stats`, POST `/api/events`, GET `/api/health`, GET `/api/admin/*`.
+7일 완전한 window에서 legitimate 또는 unclassified signal **0**이 게이트다.
+승인된 synthetic run과 확실히 상관된 요청만 제외하며 UA만으로 bot/CI를 판정하지 않는다.
+scanner 예외는 근거/운영자 승인과 원래 count를 보존한다. missing/truncated window는 0이 아니다.
+10% sampling의 zero는 실제 zero의 증거가 아니므로 운영자가 잔여 위험을 수용하거나
+추가 sampling의 개인정보/비용 범위를 별도 승인해야 한다.
+
+### Token rotation
+
+모든 consumer를 freeze/drain → 새 32-byte token 생성 → Worker와 모든 GitHub 환경 secret 갱신 →
+새 token으로 private probe 검증 → recovery version/secret 세대 목록 갱신 → resume 순서다.
+단일 token 교체 중 CI를 실행하지 않는다. secret 값은 기록/로그/URL/CLI 인자로 노출하지 않는다.
+실패하면 resume하지 말고 승인된 복구/새 rotation으로 해결한다. old-secret version을 무심코
+rollback하지 않는다.
 
 ## 근거 및 한계
 

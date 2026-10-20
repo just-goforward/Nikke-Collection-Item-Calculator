@@ -8,11 +8,10 @@ on:
         required: true
         type: string
       mode:
-        description: Bootstrap creates only the domain-free Worker; publish updates an existing Worker
+        description: Publish an existing Worker with its separately provisioned probe secret
         required: true
         type: choice
         options:
-          - bootstrap
           - publish
 
 permissions:
@@ -56,6 +55,18 @@ jobs:
           [[ "$GITHUB_WORKFLOW_REF" == "$GITHUB_REPOSITORY/.github/workflows/site-worker-promote.yml@refs/heads/main" ]]
           git merge-base --is-ancestor "$DEPLOY_SHA" refs/remotes/origin/main
           git checkout --detach "$DEPLOY_SHA"
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { createHash } from "node:crypto";
+          import { execFileSync } from "node:child_process";
+          const env = process.env;
+          if (env.SITE_DEPLOY_MODE !== "publish" || env.GITHUB_REF !== "refs/heads/main" || env.GITHUB_WORKFLOW_REF !== `${env.GITHUB_REPOSITORY}/.github/workflows/site-worker-promote.yml@refs/heads/main` || !/^[0-9a-f]{40}$/.test(env.GITHUB_WORKFLOW_SHA ?? "")) throw new Error("Trusted publish-only workflow required");
+          for (const path of ["site-worker/src/worker.ts", "site-worker/src/probe-auth.ts", "site-worker/production.wrangler.toml", "scripts/site-production-deployment.ts", "scripts/stats-worker-health.ts", "scripts/smoke-stats-worker.ts"]) {
+            const trusted = execFileSync("git", ["show", `${env.GITHUB_WORKFLOW_SHA}:${path}`]);
+            const hash = value => createHash("sha256").update(value).digest("hex");
+            if (hash(readFileSync(path)) !== hash(trusted)) throw new Error(`Candidate probe capability differs from trusted workflow: ${path}`);
+          }
+          NODE
           node scripts/site-production-deployment.ts verify
 
   verify:
@@ -184,6 +195,21 @@ jobs:
         with:
           node-version: 24.21.0
           cache: npm
+      - name: Recheck trusted publish adapter after approval
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { createHash } from "node:crypto";
+          import { execFileSync } from "node:child_process";
+          const env = process.env;
+          if (env.SITE_DEPLOY_MODE !== "publish" || env.GITHUB_REF !== "refs/heads/main" || env.GITHUB_WORKFLOW_REF !== `${env.GITHUB_REPOSITORY}/.github/workflows/site-worker-promote.yml@refs/heads/main` || !/^[0-9a-f]{40}$/.test(env.GITHUB_WORKFLOW_SHA ?? "")) throw new Error("Trusted publish-only workflow required");
+          for (const path of ["site-worker/src/worker.ts", "site-worker/src/probe-auth.ts", "site-worker/production.wrangler.toml", "scripts/site-production-deployment.ts", "scripts/stats-worker-health.ts", "scripts/smoke-stats-worker.ts"]) {
+            const trusted = execFileSync("git", ["show", `${env.GITHUB_WORKFLOW_SHA}:${path}`]);
+            const hash = value => createHash("sha256").update(value).digest("hex");
+            if (hash(readFileSync(path)) !== hash(trusted)) throw new Error(`Candidate probe capability differs from trusted workflow: ${path}`);
+          }
+          NODE
       - name: Recheck exact candidate and main ancestry after approval
         run: node scripts/site-production-deployment.ts verify
       - name: Download this run's verified artifact
@@ -245,6 +271,10 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Check downloaded production artifact without deployment credentials
         run: npm run check:site-production
+      - name: Validate probe secret before publish
+        env:
+          STATS_HEALTH_PROBE_TOKEN: ${{ secrets.STATS_HEALTH_PROBE_TOKEN }}
+        run: npm run smoke:stats-worker -- https://nikkecollection.com https://nikkecollection.com validate-only gateway
       - name: Deploy only the production site Worker
         env:
           SITE_ARTIFACT_PATH: ${{ runner.temp }}/site-artifact/site-production.tar
@@ -256,3 +286,7 @@ jobs:
       - name: Smoke published site (never bootstrap)
         if: inputs.mode == 'publish'
         run: npm run smoke:site-production-deployed -- "$SITE_URL" "$DEPLOY_SHA"
+      - name: Verify private probe after site publish
+        env:
+          STATS_HEALTH_PROBE_TOKEN: ${{ secrets.STATS_HEALTH_PROBE_TOKEN }}
+        run: npm run smoke:stats-worker -- https://nikkecollection.com https://nikkecollection.com frontend-contract-only gateway

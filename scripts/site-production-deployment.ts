@@ -43,7 +43,11 @@ export function productionCandidate(input: {
   }
   if (!input.inMainHistory) throw new Error("Candidate is not in main history.");
   if (input.checkout !== input.sha) throw new Error("Candidate checkout SHA mismatch.");
-  if (input.mode !== "bootstrap" && input.mode !== "publish") throw new Error("Invalid site mode.");
+  if (input.mode !== "publish") {
+    throw new Error(
+      "Private-probe releases are publish-only; bootstrap needs a separate approval.",
+    );
+  }
   return { sha: input.sha, mode: input.mode };
 }
 
@@ -57,14 +61,18 @@ function acceptAssignment(
   const key = assignment?.[1] ?? "";
   const value = assignment?.[2] ?? "";
   const fullKey = section ? `${section}.${key}` : key;
-  if (!keys.includes(key) || values.has(fullKey) || /[{}]/.test(value)) {
+  if (
+    !keys.includes(key) ||
+    values.has(fullKey) ||
+    (/[{}]/.test(value) && fullKey !== "ratelimits.simple")
+  ) {
     throw new Error("Production config allowlist rejected an unknown or duplicate assignment.");
   }
   values.set(fullKey, value);
 }
 
 // Deliberately restricted TOML: this deployment config uses only single-line scalar/array
-// assignments. Unknown syntax, duplicate keys, extra sections and inline tables fail closed.
+// assignments, plus the one pinned rate-limit inline table. Unknown syntax fails closed.
 function configAssignments(config: string) {
   const allowed: Record<string, readonly string[]> = {
     "": ["name", "main", "compatibility_date", "workers_dev", "preview_urls", "upload_source_maps"],
@@ -73,6 +81,8 @@ function configAssignments(config: string) {
     observability: ["enabled"],
     "observability.logs": ["enabled", "invocation_logs"],
     services: ["binding", "service"],
+    secrets: ["required"],
+    ratelimits: ["name", "namespace_id", "simple"],
   };
   const values = new Map<string, string>();
   const sections = new Set<string>();
@@ -81,7 +91,8 @@ function configAssignments(config: string) {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
     const heading =
-      line === "[[services]]" ? "services" : line.match(/^\[((?!services\])[a-z.]+)\]$/)?.[1];
+      line.match(/^\[\[(services|ratelimits)\]\]$/)?.[1] ??
+      line.match(/^\[((?!services\]|ratelimits\])[a-z.]+)\]$/)?.[1];
     if (heading && allowed[heading] && !sections.has(heading)) {
       section = heading;
       sections.add(heading);
@@ -110,6 +121,10 @@ export function siteDeploymentArguments(sha: string, config: string) {
     "observability.logs.invocation_logs": "false",
     "services.binding": '"STATS"',
     "services.service": '"collection-kit-stats"',
+    "secrets.required": '["STATS_HEALTH_PROBE_TOKEN"]',
+    "ratelimits.name": '"STATS_HEALTH_RATE_LIMITER"',
+    "ratelimits.namespace_id": '"419105"',
+    "ratelimits.simple": "{ limit = 320, period = 60 }",
   };
   for (const [key, value] of Object.entries(required)) {
     if (values.get(key) !== value) throw new Error(`Unexpected production config ${key}.`);
@@ -189,35 +204,16 @@ function assertArtifactDigest(env: NodeJS.ProcessEnv, read: (path: string) => Bu
   }
 }
 
-function isMissingWorker(error: unknown) {
-  if (!(error instanceof Error)) return false;
-  const failure = error as Error & { status?: number; signal?: string; stderr?: string };
-  return failure.status === 1 && !failure.signal && /\[code: 10007\]/.test(failure.stderr ?? "");
-}
-
-async function assertDeploymentMode(mode: string, env: NodeJS.ProcessEnv, execute: Execute) {
+async function assertDeploymentMode(env: NodeJS.ProcessEnv, execute: Execute) {
   const wrangler = resolve("node_modules/wrangler/bin/wrangler.js");
-  const verb = mode === "bootstrap" ? "list" : "status";
-  let output: string;
-  try {
-    output = execute(
-      process.execPath,
-      [wrangler, "deployments", verb, "--config", CONFIG, "--env", "", "--json"],
-      { env, timeout: 60_000, encoding: "utf8" },
-    );
-  } catch (error) {
-    if (mode === "bootstrap" && isMissingWorker(error)) return;
-    throw error;
-  }
+  const output = execute(
+    process.execPath,
+    [wrangler, "deployments", "status", "--config", CONFIG, "--env", "", "--json"],
+    { env, timeout: 60_000, encoding: "utf8" },
+  );
   const state: unknown = JSON.parse(output);
-  if (mode === "bootstrap") {
-    if (!Array.isArray(state) || state.length !== 0) {
-      throw new Error("Bootstrap refuses an existing deployment; use publish.");
-    }
-  } else {
-    const { activeVersionId } = await import("./check-workflow-hardening.ts");
-    activeVersionId(state);
-  }
+  const { activeVersionId } = await import("./check-workflow-hardening.ts");
+  activeVersionId(state);
 }
 
 async function deploy(
@@ -242,7 +238,7 @@ async function deploy(
   assertArtifactDigest(env, read);
   assertBuiltRevision(candidate.sha, read);
   const args = siteDeploymentArguments(candidate.sha, read(CONFIG).toString());
-  await assertDeploymentMode(candidate.mode, env, execute);
+  await assertDeploymentMode(env, execute);
   execute(process.execPath, [resolve("node_modules/wrangler/bin/wrangler.js"), ...args], {
     env,
     timeout: 300_000,

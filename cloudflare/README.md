@@ -62,7 +62,10 @@ Set the secret key on the Worker:
 wrangler secret put TURNSTILE_SECRET_KEY
 ```
 
-Optionally set a private admin token to enable non-public diagnostic reads:
+Optionally set an admin token for authenticated diagnostic reads while the direct endpoint
+is available (including staging). Release A retains that endpoint; after the separately approved
+production retirement B, HTTP admin diagnostics will be unavailable in production. There is no
+gateway admin route. Use separately authorized dashboard/D1 reads instead.
 
 ```powershell
 wrangler secret put ADMIN_TOKEN
@@ -137,7 +140,9 @@ Configure these GitHub repository settings:
 | Variable | `CLOUDFLARE_USAGE_GUARD_URL` | The deployed Usage Guard URL used by preflight and smoke checks |
 | Variable | `STATS_ALLOWED_ORIGIN` | `https://nikkecollection.com` |
 | Variable | `CLOUDFLARE_STAGING_WORKER_URL` | The public staging Worker URL |
-| Variable | `CLOUDFLARE_PRODUCTION_WORKER_URL` | The public production Worker URL |
+| Variable | `CLOUDFLARE_PRODUCTION_WORKER_URL` | Exact value, no trailing slash: `https://collection-kit-stats.tbvj159.workers.dev`, then `https://nikkecollection.com` after approved cutover |
+| Variable | `CLOUDFLARE_PRODUCTION_SMOKE_PROFILE` | Explicit `direct` or `gateway`; unset fails closed; must match the URL |
+| Environment secret | `STATS_HEALTH_PROBE_TOKEN` | Health-only bearer capability for gateway probes; never needed for staging direct smoke |
 
 The workflows do not upload Turnstile or admin secret values. Wrangler preserves
 secrets already stored on each Worker. Manual staging and production promotion are intentionally
@@ -150,7 +155,53 @@ documented in the [Usage Guard service contract](../usage-guard/README.md).
 The deployment token should be limited to this account's Worker deployment and version-management
 operations plus read/edit access to `collection-kit-stats` and `collection-kit-stats-staging`.
 Remote schema compatibility is checked directly before deployment and again through the deployed
-Worker's bound database at `/api/health`.
+Worker's bound database at `/api/health` in direct mode, or through the authenticated gateway
+`/api/_ci/stats-health` in gateway mode. Public gateway `/api/health` remains 404.
+
+### Release A preparation (no routing retirement yet)
+
+Code preparation does not provision secrets, publish Workers, change CI variables or prove deployed
+state. `cloudflare/wrangler.toml` routing remains unchanged in A. The ordered, approval-gated
+cutover is in `docs/hosting-cutover-p1-runbook.md` (project-root path):
+site secret provisioning and publish → drain/flip URL+profile → Pages gateway contract validation
+without production mutation → exact-SHA manual staging deployment and Stats A promotion → traffic
+and compatible-recovery gate → separately approved B.
+
+Both staging smoke callers pass `full direct-staging` with no production probe secret and reject
+any origin except `https://collection-kit-stats-staging.tbvj159.workers.dev` before staging
+probes/mutations. The `direct` profile accepts only the exact production workers.dev origin.
+Production consumers
+require the explicit repository profile and exact approved origin. Gateway health alone carries the
+bearer; it never accompanies stats, events, OPTIONS, admin or public-health requests. The gateway
+forwards only a fixed Accept header to canonical `/api/health` over STATS, so gateway health has no
+CORS assertion. Gateway OPTIONS is 405 for both origins; backend staging OPTIONS remains 204/403.
+404 is not success; auth/routing uncertainty, 429 and Cloudflare challenges exhaust bounded retries
+as distinct failures, not evidence of backend incompatibility.
+
+Before schema repair or version rollback, readiness proves authenticated backend reachability,
+not that the currently broken version is healthy. A healthy 200 or well-formed non-2xx backend JSON
+`error` envelope (including 500 `internal_error`) qualifies; `retryable` may be absent or boolean.
+Gateway 502 `service_unavailable` also permits recovery because the binding call failed after auth
+and rate limiting. Limiter 503 `service_unavailable`, `service_not_configured`, 404, 429, challenges,
+redirects and malformed bodies still block readiness. Existing quota gates remain in force and full
+healthy-contract verification is required after correction. Arbitrary backend error text is redacted
+from readiness summaries. Gateway failures during full verification, 429/challenge exhaustion and
+public-request challenges are reported as `verification unavailable (transport)`, including during
+precautionary restoration.
+
+The `cloudflare-stats-probe` environment must be main-only; no required reviewers is recommended for
+its read-only, 15-minute Pages job so every push does not await approval. Deployment environments
+retain required approval. Secrets are supplied only to probe steps. Generate 32 random bytes as
+unpadded base64url (minimum format length 43 is not proof of entropy). Namespace 419105 must be
+confirmed unused account-wide before site publish; the probe uses a fixed key and 320/60 local
+limiter. Rotation requires a consumer freeze/drain and coordinated Worker/GitHub secret replacement.
+
+Before B, inventory gateway-compatible site and backend recovery versions and the required secret
+generation. A version restore does not restore workers.dev routing. After B, Pages/direct recovery
+requires separately approved reopening; never use live rollback or Observer promotion simply to
+test smoke. Preserve the browser outbox storage-key migration: its old URL strings do not make
+network requests. The future B trusted-main YAML routing guard must inspect top-level flags only,
+not `[env.staging]`, and approvers must reject reruns of pre-guard workflows.
 
 ## Abuse controls
 
@@ -496,11 +547,15 @@ type, and counts. Raw errors, inputs, stock, and timings are not stored.
 npx wrangler d1 execute collection-kit-stats --remote --config cloudflare/wrangler.toml --env="" --command "SELECT invariant_version, invariant_code, component, lane, device_type, SUM(events) AS events FROM runtime_invariant_aggregates_game_day GROUP BY invariant_version, invariant_code, component, lane, device_type ORDER BY events DESC"
 ```
 
-Or query the protected admin endpoint:
+While the direct endpoint remains enabled, or in staging, query the protected admin endpoint:
 
 ```powershell
 Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:ADMIN_TOKEN" } "https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev/api/admin/solver-diagnostics?days=30"
 ```
+
+After production retirement B this HTTP operation is unavailable, even with `ADMIN_TOKEN`.
+Use separately authorized dashboard/D1 reads such as the query above. No gateway admin route
+will replace it. Release A has not performed that retirement.
 
 To delete current private aggregate rows for a specific 05:00 KST game date:
 
@@ -571,10 +626,10 @@ After deployment, add the public staging Worker URL and staging widget site key 
 
 ```js
 window.COLLECTION_STATS_CONFIG = {
-  endpoint: "https://YOUR_PRODUCTION_WORKER.workers.dev",
+  endpoint: "https://nikkecollection.com",
   turnstileSiteKey: "YOUR_PRODUCTION_SITE_KEY",
   staging: {
-    endpoint: "https://YOUR_STAGING_WORKER.workers.dev",
+    endpoint: "https://collection-kit-stats-staging.tbvj159.workers.dev",
     turnstileSiteKey: "YOUR_STAGING_SITE_KEY",
   },
 };

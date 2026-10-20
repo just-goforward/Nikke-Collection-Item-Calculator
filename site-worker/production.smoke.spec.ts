@@ -154,6 +154,8 @@ test("unbound production gateway never falls back to HTML and keeps health unava
     ["/v1/account", 503, "service_not_configured"],
     ["/auth/callback/google", 503, "service_not_configured"],
     ["/api/health", 404, "not_found"],
+    ["/api/_ci/stats-health", 404, "not_found"],
+    ["/api/admin/solver-diagnostics", 404, "not_found"],
     ["/v1/health", 404, "not_found"],
     ["/api/unknown", 404, "not_found"],
     ["/account", 404, "not_found"],

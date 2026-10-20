@@ -21,11 +21,14 @@ const candidate = {
   repository: "owner/repo",
   workflowRef: "owner/repo/.github/workflows/site-worker-promote.yml@refs/heads/main",
   inMainHistory: true,
-  mode: "bootstrap",
+  mode: "publish",
 };
 const payload = Buffer.from("verified tar fixture");
 
-function harness(mode = "bootstrap", state = "[]") {
+function harness(
+  mode = "publish",
+  state = JSON.stringify({ versions: [{ version_id: versionId, percentage: 100 }] }),
+) {
   const env: NodeJS.ProcessEnv = {
     DEPLOY_SHA: sha,
     SITE_DEPLOY_MODE: mode,
@@ -99,6 +102,7 @@ describe("production site promotion", () => {
     { workflowRef: candidate.workflowRef.replace("main", "next") },
     { inMainHistory: false },
     { mode: "rollback" },
+    { mode: "bootstrap" },
   ])("rejects untrusted candidates %j", (change) => {
     expect(() => productionCandidate({ ...candidate, ...change })).toThrow();
   });
@@ -149,6 +153,18 @@ describe("production site promotion", () => {
         config.replace('SITE_ENV = "production"', 'SITE_ENV = "production"\nEXTRA = "value"'),
       ),
     ).toThrow("allowlist");
+  });
+  it.each([
+    (source: string) => source.replace('namespace_id = "419105"', 'namespace_id = "419101"'),
+    (source: string) => source.replace("limit = 320", "limit = 600"),
+    (source: string) => source.replace("period = 60", "period = 10"),
+    (source: string) => source.replace('["STATS_HEALTH_PROBE_TOKEN"]', '["OTHER_TOKEN"]'),
+    (source: string) => source.replace("[[ratelimits]]", "[ratelimits]"),
+    (source: string) => `${source}\n[secrets]\nrequired = []`,
+    (source: string) => `${source}\n[[ratelimits]]\nname = "EXTRA"`,
+    (source: string) => source.replace("period = 60 }", "period = 60, extra = 1 }"),
+  ])("pins the exact required secret and inline limiter contract %#", (change) => {
+    expect(() => siteDeploymentArguments(sha, change(config))).toThrow();
   });
   it.each([
     (source: string) => source.replace('binding = "STATS"', 'binding = "OTHER"'),
@@ -205,17 +221,13 @@ describe("production site artifact and deployment execution", () => {
     await expect(run("verify", h)).rejects.toThrow("credentials");
     await expect(run("build", h)).rejects.toThrow("credentials");
   });
-  it.each(["bootstrap", "publish"])("runs %s only after its target-state guard", async (mode) => {
-    const state =
-      mode === "publish"
-        ? JSON.stringify({ versions: [{ version_id: versionId, percentage: 100 }] })
-        : "[]";
-    const h = harness(mode, state);
+  it("runs publish only after its target-state guard", async () => {
+    const h = harness();
     h.credentials();
     const evidence = await run("deploy", h);
-    expect(evidence).toMatchObject({ sha, versionId, mode });
+    expect(evidence).toMatchObject({ sha, versionId, mode: "publish" });
     const calls = h.execute.mock.calls.map(([, args]) => args);
-    expect(calls[2]).toContain(mode === "publish" ? "status" : "list");
+    expect(calls[2]).toContain("status");
     expect(calls[2]).toContain("site-worker/production.wrangler.toml");
     expect(calls[3]).toEqual([
       resolve("node_modules/wrangler/bin/wrangler.js"),
@@ -223,14 +235,14 @@ describe("production site artifact and deployment execution", () => {
     ]);
     expect(h.append).toHaveBeenCalledWith("summary", expect.stringContaining(versionId));
   });
-  it("bootstrap refuses an existing deployment before invoking deploy", async () => {
+  it("bootstrap is unavailable in the secret-required retirement path", async () => {
     const h = harness("bootstrap", JSON.stringify([{ versions: [{ version_id: versionId }] }]));
     h.credentials();
-    await expect(run("deploy", h)).rejects.toThrow("Bootstrap refuses");
+    await expect(run("deploy", h)).rejects.toThrow("publish-only");
     expect(h.execute.mock.calls.some(([, args]) => args[1] === "deploy")).toBe(false);
   });
   it.each([10007, 10000, 10090])(
-    "bootstrap handles Wrangler error %s without hiding auth failures",
+    "publish propagates Wrangler error %s without hiding missing-worker/auth failures",
     async (code) => {
       const h = harness();
       h.credentials();
@@ -245,9 +257,8 @@ describe("production site artifact and deployment execution", () => {
         }
         return "";
       });
-      if (code === 10007) await expect(run("deploy", h)).resolves.toMatchObject({ versionId });
-      else await expect(run("deploy", h)).rejects.toThrow("Wrangler failed");
-      expect(h.execute.mock.calls.some(([, args]) => args[1] === "deploy")).toBe(code === 10007);
+      await expect(run("deploy", h)).rejects.toThrow("Wrangler failed");
+      expect(h.execute.mock.calls.some(([, args]) => args[1] === "deploy")).toBe(false);
     },
   );
   it("publish refuses absent or malformed target state", async () => {
@@ -271,7 +282,10 @@ describe("production site artifact and deployment execution", () => {
       deploy.indexOf("check:site-production"),
     );
     expect(deploy.indexOf("check:site-production")).toBeLessThan(deploy.indexOf("secrets."));
-    expect(deploy.match(/secrets\./g)).toHaveLength(1);
+    expect(deploy.match(/secrets\./g)).toHaveLength(3);
+    expect(deploy.indexOf("Validate probe secret before publish")).toBeLessThan(
+      deploy.indexOf("Deploy only the production site Worker"),
+    );
     expect(deploy).toContain("if: inputs.mode == 'publish'");
   });
 });

@@ -37,6 +37,107 @@ function environment() {
 const request = (path: string, init?: RequestInit) =>
   new Request(`https://staging.nikkecollection.com${path}`, init);
 
+describe("private production stats health capability", () => {
+  const token = "a".repeat(43);
+  function probeEnvironment() {
+    return {
+      ...environment(),
+      SITE_ENV: "production",
+      STATS_HEALTH_PROBE_TOKEN: token,
+      STATS_HEALTH_RATE_LIMITER: { limit: vi.fn(async () => ({ success: true })) },
+    };
+  }
+  const probe = (authorization?: string, method = "GET") =>
+    new Request("https://nikkecollection.com/api/_ci/stats-health?untrusted=1", {
+      method,
+      headers: authorization ? { Authorization: authorization } : {},
+    });
+
+  it.each([undefined, "", "Bearer wrong", `Bearer ${"b".repeat(43)}`, token])(
+    "matches unknown API 404 for invalid authentication %s",
+    async (authorization) => {
+      const env = probeEnvironment();
+      const denied = await worker.fetch(probe(authorization), env);
+      const unknown = await worker.fetch(request("/api/unknown"), env);
+      expect(denied.status).toBe(404);
+      expect([...denied.headers]).toEqual([...unknown.headers]);
+      expect(await denied.text()).toBe(await unknown.text());
+      expect(env.STATS.fetch).not.toHaveBeenCalled();
+      expect(env.STATS_HEALTH_RATE_LIMITER.limit).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["", "a".repeat(42), "+".repeat(43)])(
+    "rejects malformed configured secrets",
+    async (secret) => {
+      const env = { ...probeEnvironment(), STATS_HEALTH_PROBE_TOKEN: secret };
+      expect((await worker.fetch(probe(`Bearer ${secret}`), env)).status).toBe(404);
+      expect(env.STATS.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["POST", "HEAD", "OPTIONS", "DELETE"])("keeps %s hidden", async (method) => {
+    const env = probeEnvironment();
+    expect((await worker.fetch(probe(`Bearer ${token}`, method), env)).status).toBe(404);
+    expect(env.STATS.fetch).not.toHaveBeenCalled();
+  });
+
+  it("forwards only fixed Accept to the canonical authority over STATS", async () => {
+    const env = probeEnvironment();
+    const input = probe(`Bearer ${token}`);
+    for (const [name, value] of Object.entries({
+      Cookie: "private=1",
+      Origin: "https://evil.example",
+      "CF-Connecting-IP": "192.0.2.1",
+      "X-Forwarded-Host": "evil.example",
+    }))
+      input.headers.set(name, value);
+    const response = await worker.fetch(input, env);
+    const forwarded = env.STATS.fetch.mock.calls[0]?.[0];
+    expect(forwarded?.url).toBe("https://nikkecollection.com/api/health");
+    expect([...(forwarded?.headers ?? [])]).toEqual([["accept", "application/json"]]);
+    expect(forwarded?.method).toBe("GET");
+    expect(env.STATS_HEALTH_RATE_LIMITER.limit).toHaveBeenCalledWith({
+      key: "stats-health-production",
+    });
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.has("Set-Cookie")).toBe(false);
+  });
+
+  it("fails closed for absent or failing bindings and rate limits before D1", async () => {
+    const env = probeEnvironment();
+    env.STATS_HEALTH_RATE_LIMITER.limit.mockResolvedValueOnce({ success: false });
+    expect((await worker.fetch(probe(`Bearer ${token}`), env)).status).toBe(429);
+    expect(env.STATS.fetch).not.toHaveBeenCalled();
+    env.STATS_HEALTH_RATE_LIMITER.limit.mockRejectedValueOnce(new Error(token));
+    const failed = await worker.fetch(probe(`Bearer ${token}`), env);
+    expect(failed.status).toBe(503);
+    expect(await failed.text()).not.toContain(token);
+    const { STATS_HEALTH_RATE_LIMITER: _limiter, ...unbound } = env;
+    expect((await worker.fetch(probe(`Bearer ${token}`), unbound)).status).toBe(503);
+    env.STATS.fetch.mockRejectedValueOnce(new Error(token));
+    expect((await worker.fetch(probe(`Bearer ${token}`), env)).status).toBe(502);
+  });
+
+  it.each(["/api/health", "/api/admin/solver-diagnostics"])(
+    "does not grant the token access to %s",
+    async (path) => {
+      const env = probeEnvironment();
+      expect(
+        (
+          await worker.fetch(
+            request(path, {
+              headers: { Authorization: `Bearer ${token}` },
+            }),
+            env,
+          )
+        ).status,
+      ).toBe(404);
+      expect(env.STATS.fetch).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe("production stats gateway", () => {
   it.each([
     ["/api/stats", "GET"],
