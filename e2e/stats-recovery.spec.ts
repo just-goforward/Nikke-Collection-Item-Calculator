@@ -116,7 +116,7 @@ async function installStatsRoutes(
 async function openStats(page: Page, query = "statsEnv=staging") {
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.goto(`${ORIGIN}/?${query}`);
-  await expect(page.getByRole("button", { name: "0단계", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "0 단계", exact: true })).toBeVisible();
   await page.getByLabel("초심자용 키트").fill("73");
   await page.getByRole("tab", { name: "통계", exact: true }).click();
 }

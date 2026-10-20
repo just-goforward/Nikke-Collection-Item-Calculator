@@ -53,7 +53,10 @@ for (const [path, messages] of [
       .getByRole("button", { name: "SR", exact: true })
       .click();
     await page
-      .getByRole("button", { name: messages["common.phase"].replace("{phase}", "14"), exact: true })
+      .getByRole("button", {
+        name: messages["state.phaseOptionAria"].replace("{phase}", "14"),
+        exact: true,
+      })
       .click();
     await page.locator("#currentExp").fill("2900");
     await page.locator("#currentExp").blur();

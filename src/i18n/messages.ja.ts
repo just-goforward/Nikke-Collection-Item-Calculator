@@ -62,6 +62,7 @@ export const jaMessages = {
   "reset.undoAction": "入力のリセットを元に戻す",
   "state.gradeAria": "コレクション等級",
   "state.phaseAria": "現在の段階",
+  "state.phaseOptionAria": "{phase}段階",
   "state.current": "現在のコレクション",
   "state.currentExp": "現在の経験値",
   "state.expHelp": "0以上の整数を100単位で入力できます。現在の上限は{max}です。",

@@ -42,7 +42,7 @@ test.afterAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/?statsEnv=disabled");
-  await expect(page.getByRole("button", { name: "0단계", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "0 단계", exact: true })).toBeVisible();
 });
 
 async function openDetails(details: Locator) {
@@ -299,7 +299,7 @@ test("SR 10 + 상급자용 100 — 세부 정보에 SR 15 도달 확률이 나�
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: "10단계", exact: true }).click();
+  await page.getByRole("button", { name: "10 단계", exact: true }).click();
 
   await page.getByLabel("상급자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
@@ -331,7 +331,7 @@ test("SR 15 도달률이 모두 100%면 비추천 후보를 키트 부담 사유
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: "14단계", exact: true }).click();
+  await page.getByRole("button", { name: "14 단계", exact: true }).click();
   await page.getByLabel("초심자용 키트").fill("200");
   await page.getByLabel("중급자용 키트").fill("100");
   await page.getByLabel("상급자용 키트").fill("100");
@@ -403,7 +403,7 @@ test("모바일 metric 콘텐츠는 카드 안에서 상하 가운데 정렬된�
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: "10단계", exact: true }).click();
+  await page.getByRole("button", { name: "10 단계", exact: true }).click();
   await page.getByLabel("상급자용 키트").fill("100");
   await page
     .getByRole("toolbar", { name: "모바일 작업" })
@@ -432,7 +432,7 @@ test("SR 5 다회 대성공 — 모달 없이 키트 수정 후 다시 계산할
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: "5단계", exact: true }).click();
+  await page.getByRole("button", { name: "5 단계", exact: true }).click();
 
   await page.getByLabel("상급자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
@@ -472,7 +472,7 @@ test("대성공 확정 전 취소하면 같은 패널에서 선택 상태만 해
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: "10단계", exact: true }).click();
+  await page.getByRole("button", { name: "10 단계", exact: true }).click();
   await page.getByLabel("상급자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await page.getByRole("button", { name: "대성공 O", exact: true }).first().click();
@@ -485,7 +485,7 @@ test("대성공 확정 전 취소하면 같은 패널에서 선택 상태만 해
 
 test("R 15 — SR 등급 교체 안내와 적용이 동작한다", async ({ page }) => {
   await page.getByLabel("상급자용 키트").fill("100");
-  await page.getByRole("button", { name: "15단계", exact: true }).click();
+  await page.getByRole("button", { name: "15 단계", exact: true }).click();
 
   await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
   await expect(page.getByText("SR 등급 교체를 적용할 수 있습니다.")).toBeVisible();
@@ -502,7 +502,7 @@ test("R 15 — SR 등급 교체 안내와 적용이 동작한다", async ({ page
 
 test("R 15 교체 안내는 키트 수량만 바꿔도 유지된다", async ({ page }) => {
   await page.getByLabel("상급자용 키트").fill("100");
-  await page.getByRole("button", { name: "15단계", exact: true }).click();
+  await page.getByRole("button", { name: "15 단계", exact: true }).click();
 
   await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
   await expect(page.getByRole("button", { name: "교체 적용", exact: true })).toBeVisible();
@@ -514,7 +514,7 @@ test("R 15 교체 안내는 키트 수량만 바꿔도 유지된다", async ({ p
 });
 
 test("R 15/SR 15 안내는 최대 단계 선택을 반복하거나 등급을 바꿔도 유지된다", async ({ page }) => {
-  await page.getByRole("button", { name: "15단계", exact: true }).click();
+  await page.getByRole("button", { name: "15 단계", exact: true }).click();
   await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
 
   await page
@@ -523,7 +523,7 @@ test("R 15/SR 15 안내는 최대 단계 선택을 반복하거나 등급을 바
     .click();
   await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
 
-  await page.getByRole("button", { name: "15단계", exact: true }).click();
+  await page.getByRole("button", { name: "15 단계", exact: true }).click();
   await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
 
   await page
@@ -533,7 +533,7 @@ test("R 15/SR 15 안내는 최대 단계 선택을 반복하거나 등급을 바
   await expect(page.getByText("SR 15단계입니다. 최종 목표 상태입니다.")).toBeVisible();
   await expect(page.getByText("SR 등급으로 교체")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "15단계", exact: true }).click();
+  await page.getByRole("button", { name: "15 단계", exact: true }).click();
   await expect(page.getByText("SR 15단계입니다. 최종 목표 상태입니다.")).toBeVisible();
 
   await page
@@ -543,7 +543,7 @@ test("R 15/SR 15 안내는 최대 단계 선택을 반복하거나 등급을 바
   await expect(page.getByText("SR 등급으로 교체")).toBeVisible();
   await expect(page.getByText("SR 15단계입니다. 최종 목표 상태입니다.")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "14단계", exact: true }).click();
+  await page.getByRole("button", { name: "14 단계", exact: true }).click();
   await expect(page.getByText("SR 등급으로 교체")).toHaveCount(0);
   await expect(
     page.getByText("최대 단계입니다. R 15단계는 SR 5단계로 교체할 수 있습니다."),
@@ -555,7 +555,7 @@ test("SR 15 — 최종 목표 상태 문구가 정상 한글로 표시된다", a
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: "15단계", exact: true }).click();
+  await page.getByRole("button", { name: "15 단계", exact: true }).click();
 
   await expect(page.getByText("SR 15단계입니다. 최종 목표 상태입니다.")).toBeVisible();
 });
@@ -751,7 +751,7 @@ test("초기화 되돌리기는 R·SR 입력 스냅샷을 원자적으로 복원
     await page.goto("/?statsEnv=disabled");
     const gradeGroup = page.getByRole("group", { name: "소장품 등급" });
     await gradeGroup.getByRole("button", { name: scenario.grade, exact: true }).click();
-    await page.getByRole("button", { name: `${scenario.level}단계`, exact: true }).click();
+    await page.getByRole("button", { name: `${scenario.level} 단계`, exact: true }).click();
     await page.locator("#currentExp").fill(scenario.exp);
     await page.locator("#currentExp").blur();
 
@@ -771,7 +771,7 @@ test("초기화 되돌리기는 R·SR 입력 스냅샷을 원자적으로 복원
       gradeGroup.getByRole("button", { name: scenario.grade, exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(
-      page.getByRole("button", { name: `${scenario.level}단계`, exact: true }),
+      page.getByRole("button", { name: `${scenario.level} 단계`, exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator("#currentExp")).toHaveValue(scenario.exp);
     await expect(page.getByLabel("초심자용 키트")).toHaveValue(scenario.stock[0]);
@@ -948,7 +948,7 @@ test("검산 details — 펼치면 가상의 니붕이 검산 결과가 자동 �
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: "10단계", exact: true }).click();
+  await page.getByRole("button", { name: "10 단계", exact: true }).click();
   await page.getByLabel("상급자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible({ timeout: 20_000 });
@@ -1294,7 +1294,7 @@ test("다회 대성공 역산이 불가능해도 수정된 재고로 계산하�
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: "5단계", exact: true }).click();
+  await page.getByRole("button", { name: "5 단계", exact: true }).click();
   await page.getByLabel("상급자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await confirmOutcome(

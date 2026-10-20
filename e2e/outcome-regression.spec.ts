@@ -27,7 +27,7 @@ test.afterAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
-  await expect(page.getByRole("button", { name: "0단계", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "0 단계", exact: true })).toBeVisible();
 });
 
 async function failSolveRequest(page: Page, requestNumber: number) {
@@ -159,7 +159,7 @@ test("모든 키트의 단회 대성공은 팝업 없이 재고를 차감하고 
 
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByLabel(kitLabel)).toHaveValue("");
-    await expect(page.getByRole("button", { name: "5단계", exact: true })).toHaveAttribute(
+    await expect(page.getByRole("button", { name: "5 단계", exact: true })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
@@ -197,7 +197,7 @@ test("단회 대성공 자동 계산은 중간 성공 결과를 표시하지 않
     "대성공 O",
   );
 
-  await expect(page.getByRole("button", { name: "5단계", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "5 단계", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -241,7 +241,7 @@ test("결과 적용 후 다음 계산만 실패하면 적용 상태를 보존하
 test("SR 교체 후 다음 계산만 실패하면 교체 상태를 보존하고 재계산할 수 있다", async ({ page }) => {
   await failSolveRequest(page, 1);
   await page.getByLabel("초심자용 키트").fill("1000");
-  await page.getByRole("button", { name: "15단계", exact: true }).click();
+  await page.getByRole("button", { name: "15 단계", exact: true }).click();
   await page.getByRole("button", { name: "교체 적용", exact: true }).click();
 
   await expect(
@@ -252,7 +252,7 @@ test("SR 교체 후 다음 계산만 실패하면 교체 상태를 보존하고 
       .getByRole("group", { name: "소장품 등급" })
       .getByRole("button", { name: "SR", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "5단계", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "5 단계", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -264,7 +264,7 @@ test("SR 교체 후 다음 계산만 실패하면 교체 상태를 보존하고 
 });
 
 test("R 6에서 5회 추천 대성공은 재고 수정 전 자동 계산하지 않는다", async ({ page }) => {
-  await page.getByRole("button", { name: "6단계", exact: true }).click();
+  await page.getByRole("button", { name: "6 단계", exact: true }).click();
   await page.getByLabel("초심자용 키트").fill("50");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.locator(".next-action .action-chip-count").first()).toContainText("5회", {
@@ -289,7 +289,7 @@ test("R 6에서 5회 추천 대성공은 재고 수정 전 자동 계산하지 �
 });
 
 test("R 10 다회 대성공은 회차를 선택하면 정확한 재고로 R 15를 적용한다", async ({ page }) => {
-  await page.getByRole("button", { name: "10단계", exact: true }).click();
+  await page.getByRole("button", { name: "10 단계", exact: true }).click();
   await page.getByLabel("초심자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({
@@ -322,7 +322,7 @@ test("R 10 다회 대성공은 회차를 선택하면 정확한 재고로 R 15�
 
 test("모바일 R 10 다회 대성공도 SR 5 교체 후 자동 계산한다", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "10단계", exact: true }).click();
+  await page.getByRole("button", { name: "10 단계", exact: true }).click();
   await page.getByLabel("초심자용 키트").fill("100");
 
   const actionBar = page.getByRole("toolbar", { name: "모바일 작업" });
@@ -366,7 +366,7 @@ async function prepareSr14TerminalSuccess(page: Page) {
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: "14단계", exact: true }).click();
+  await page.getByRole("button", { name: "14 단계", exact: true }).click();
   await page.getByLabel("상급자용 키트").fill("10");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({
@@ -386,7 +386,7 @@ test("SR 단회 대성공은 회차 입력 없이 재고 차감 후 SR 15까지 
   await expect(dialog).toHaveCount(0);
   await expect(page.getByLabel("상급자용 키트")).toHaveValue("");
   await expect(page.locator("#stockEditNotice")).toBeHidden();
-  await expect(page.getByRole("button", { name: "15단계", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "15 단계", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -395,7 +395,7 @@ test("SR 단회 대성공은 회차 입력 없이 재고 차감 후 SR 15까지 
 });
 
 async function prepareR10MultiSuccess(page: Page) {
-  await page.getByRole("button", { name: "10단계", exact: true }).click();
+  await page.getByRole("button", { name: "10 단계", exact: true }).click();
   await page.getByLabel("초심자용 키트").fill("100");
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.locator(".next-action .action-label").first()).toBeVisible({
@@ -417,7 +417,7 @@ test("R 15 회차 입력을 취소하면 키트 수량을 유지하고 교체 �
 
   await expect(dialog).toHaveCount(0);
   await expect(page.getByLabel("초심자용 키트")).toHaveValue("100");
-  await expect(page.getByRole("button", { name: "15단계", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "15 단계", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -486,7 +486,7 @@ test("다회 회차 입력 팝업 바깥을 누르면 취소와 동일하게 처
 
   await expect(dialog).toHaveCount(0);
   await expect(page.getByLabel("초심자용 키트")).toHaveValue("100");
-  await expect(page.getByRole("button", { name: "15단계", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "15 단계", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );

@@ -219,7 +219,7 @@ export function signedInApi(blue: number, revision = 1) {
 export async function openApp(page: Page) {
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.goto(`${ORIGIN}/`);
-  await expect(page.getByRole("button", { name: "0단계", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "0 단계", exact: true })).toBeVisible();
 }
 
 export const beginnerKit = (page: Page) => page.getByLabel("초심자용 키트");

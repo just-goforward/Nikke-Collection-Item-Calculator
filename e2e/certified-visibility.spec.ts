@@ -300,7 +300,7 @@ async function setCertifiedInput(
     .click();
   await page
     .getByRole("button", {
-      name: enMessages["common.phase"].replace("{phase}", String(level)),
+      name: enMessages["state.phaseOptionAria"].replace("{phase}", String(level)),
       exact: true,
     })
     .click();
@@ -320,7 +320,7 @@ async function expectCertifiedInput(grade: "R" | "SR", level: number, exp: strin
   ).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByRole("button", {
-      name: enMessages["common.phase"].replace("{phase}", String(level)),
+      name: enMessages["state.phaseOptionAria"].replace("{phase}", String(level)),
       exact: true,
     }),
   ).toHaveAttribute("aria-pressed", "true");

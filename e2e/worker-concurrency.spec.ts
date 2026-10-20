@@ -140,7 +140,7 @@ async function solveSr10(page: Page, yellow: string) {
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: "10단계", exact: true }).click();
+  await page.getByRole("button", { name: "10 단계", exact: true }).click();
   await page.getByLabel("상급자용 키트").fill(yellow);
   await page.getByRole("button", { name: "계산", exact: true }).click();
   await expect(page.getByText("SR 15 도달 확률").first()).toBeVisible({ timeout: 20_000 });
@@ -186,7 +186,7 @@ test("input edits let shared validation finish without terminating its Worker", 
   expect(loadingCard?.height || 0).toBeGreaterThanOrEqual(112);
 
   await page.getByLabel("상급자용 키트").fill("90");
-  await page.getByRole("button", { name: "9단계", exact: true }).click();
+  await page.getByRole("button", { name: "9 단계", exact: true }).click();
   await expect(
     page
       .locator(".result-panel")
@@ -211,7 +211,7 @@ test("a new solve preempts edited-input validation before starting replacement w
   await expect(page.locator(".validation-chart-loading")).toBeVisible();
   await expect.poll(async () => (await workerProbe(page)).validationPosted).toBe(1);
   await page.getByLabel("상급자용 키트").fill("90");
-  await page.getByRole("button", { name: "9단계", exact: true }).click();
+  await page.getByRole("button", { name: "9 단계", exact: true }).click();
   await expect(
     page
       .locator(".result-panel")

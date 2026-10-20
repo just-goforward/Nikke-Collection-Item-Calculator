@@ -291,7 +291,7 @@ async function calculateSr(
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: `${level}단계`, exact: true }).click();
+  await page.getByRole("button", { name: `${level} 단계`, exact: true }).click();
   if (stock.blue) await page.getByLabel("초심자용 키트").fill(stock.blue);
   if (stock.purple) await page.getByLabel("중급자용 키트").fill(stock.purple);
   if (stock.yellow) await page.getByLabel("상급자용 키트").fill(stock.yellow);
@@ -357,8 +357,8 @@ test("등급과 단계 버튼은 방향키로 선택과 포커스를 같이 이�
   await expect(superRare).toHaveAttribute("aria-pressed", "true");
 
   const levelGroup = page.getByRole("group", { name: "현재 단계" });
-  const level0 = levelGroup.getByRole("button", { name: "0단계", exact: true });
-  const level1 = levelGroup.getByRole("button", { name: "1단계", exact: true });
+  const level0 = levelGroup.getByRole("button", { name: "0 단계", exact: true });
+  const level1 = levelGroup.getByRole("button", { name: "1 단계", exact: true });
   await level0.focus();
   await page.keyboard.press("ArrowRight");
   await expect(level1).toBeFocused();

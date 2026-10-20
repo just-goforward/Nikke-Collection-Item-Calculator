@@ -121,7 +121,7 @@ function stockInput(page: Page, kit: KitName) {
 }
 function levelButton(page: Page, level: number, words: (typeof APP_WORDS)[Locale] = en) {
   return page.getByRole("button", {
-    name: words["common.phase"].replace("{phase}", String(level)),
+    name: words["state.phaseOptionAria"].replace("{phase}", String(level)),
     exact: true,
   });
 }
@@ -706,7 +706,10 @@ for (const [locale, path, words] of [
       .getByRole("button", { name: "SR", exact: true })
       .click();
     await page
-      .getByRole("button", { name: words["common.phase"].replace("{phase}", "14"), exact: true })
+      .getByRole("button", {
+        name: words["state.phaseOptionAria"].replace("{phase}", "14"),
+        exact: true,
+      })
       .click();
     await page.getByLabel(words["state.currentExp"], { exact: true }).fill("2900");
     await page.getByLabel(words["state.currentExp"], { exact: true }).blur();

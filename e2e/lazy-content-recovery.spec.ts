@@ -46,7 +46,7 @@ test.afterAll(async () => {
 
 async function visit(page: Page) {
   await page.goto(`${ORIGIN}/?statsEnv=disabled`);
-  await expect(page.getByRole("button", { name: "0단계", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "0 단계", exact: true })).toBeVisible();
 }
 
 async function prepareModal(page: Page) {
@@ -55,7 +55,7 @@ async function prepareModal(page: Page) {
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR", exact: true })
     .click();
-  await page.getByRole("button", { name: "14단계", exact: true }).click();
+  await page.getByRole("button", { name: "14 단계", exact: true }).click();
   await page.getByLabel("초심자용 키트").fill("100");
   await page.getByLabel("중급자용 키트").fill("20");
   await page.getByLabel("상급자용 키트").fill("20");
@@ -179,7 +179,7 @@ test("recommendation retries are bounded and explicit reload restores inputs wit
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR", exact: true })
     .click();
-  await page.getByRole("button", { name: "10단계", exact: true }).click();
+  await page.getByRole("button", { name: "10 단계", exact: true }).click();
   await page.getByLabel("현재 경험치", { exact: true }).fill("1200");
   await page.getByLabel("초심자용 키트").fill("123");
   await page.getByLabel("중급자용 키트").fill("24");
@@ -205,7 +205,7 @@ test("recommendation retries are bounded and explicit reload restores inputs wit
       .getByRole("group", { name: "소장품 등급" })
       .getByRole("button", { name: "SR", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: "10단계", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "10 단계", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -329,7 +329,7 @@ test("exhausted modal retries reload only a pending marker, never unconfirmed pr
     .toBeNull();
   for (const label of ["초심자용 키트", "중급자용 키트", "상급자용 키트"])
     await expect(page.getByLabel(label)).toHaveValue("");
-  await expect(page.getByRole("button", { name: "0단계", exact: true })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "0 단계", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );

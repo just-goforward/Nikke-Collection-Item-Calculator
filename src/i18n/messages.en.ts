@@ -63,6 +63,7 @@ export const enMessages = {
   "reset.undoAction": "Undo input reset",
   "state.gradeAria": "Collection Item rarity",
   "state.phaseAria": "Current Phase",
+  "state.phaseOptionAria": "Phase {phase}",
   "state.current": "Current Collection Item",
   "state.currentExp": "Current EXP",
   "state.expHelp":

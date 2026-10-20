@@ -61,6 +61,7 @@ export const koMessages = {
   "reset.undoAction": "입력 초기화 되돌리기",
   "state.gradeAria": "소장품 등급",
   "state.phaseAria": "현재 단계",
+  "state.phaseOptionAria": "{phase} 단계",
   "state.current": "현재 소장품",
   "state.currentExp": "현재 경험치",
   "state.expHelp": "0 이상의 정수를 100 단위로 입력할 수 있습니다. 현재 최대값은 {max}입니다.",
