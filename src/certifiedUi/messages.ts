@@ -1,9 +1,6 @@
 export const certifiedMessages = {
   ko: {
     backgroundInterrupted: "화면을 벗어나 계산이 중단됐습니다. 다시 계산해 주세요",
-    reviewPending: "변경된 정보가 검토 중입니다. 마지막으로 승인된 공급 예측을 사용합니다.",
-    reviewUnknown:
-      "정보 검토 상태를 확인하지 못했습니다. 마지막으로 승인된 공급 예측을 계속 사용합니다.",
     staging: "새 계산 · staging",
     intro: "현재 재고의 정확한 결과와 앞으로 14일 범위의 권장일을 함께 확인합니다.",
     stock: "보유 조각",
@@ -78,7 +75,7 @@ export const certifiedMessages = {
     incomplete:
       "과거 자료가 부족합니다. 확인된 규칙·기간만 합산하며 미확인 회차를 개최나 0수급으로 가정하지 않습니다.",
     uncertain: "관련 공지 수집의 최신성을 확인하지 못해 지난 추정 일정을 자동 연기하지 않습니다.",
-    estimates: "미공개 솔로 레이드의 평균 주기 추정을 포함합니다.",
+    estimates: "미공개 솔로 레이드의 추정 일정을 포함합니다.",
     rates: "가격에 사용한 하루 평균 수급",
     fixed: "초기 재고 + 하루 수급의 역수로 정한 가격을 이번 비교 동안 고정합니다.",
     restart: "재고나 결과를 바꾸면 다시 계산합니다.",
@@ -102,9 +99,6 @@ export const certifiedMessages = {
   en: {
     backgroundInterrupted:
       "The calculation stopped when you left this screen. Please calculate again.",
-    reviewPending: "Changes are under review. Using the last approved supply forecast.",
-    reviewUnknown:
-      "Could not retrieve the source review status. Continuing with the last approved supply forecast.",
     staging: "New calculator · staging",
     intro:
       "See the exact result for your current stock and a recommended day within the next 14 days.",
@@ -183,7 +177,7 @@ export const certifiedMessages = {
       "Historical records are incomplete. Only supported rules and periods are included; unverified rounds are neither assumed held nor assigned zero supply.",
     uncertain:
       "Collection freshness is unverified. Overdue estimates are not delayed automatically.",
-    estimates: "Includes unannounced Solo Raid estimates based on the mean cadence.",
+    estimates: "Includes estimated dates for unannounced Solo Raids.",
     rates: "Daily recurring supply used for prices",
     fixed:
       "Prices are the inverse of initial stock plus one day's supply and stay fixed throughout this comparison.",
@@ -207,9 +201,6 @@ export const certifiedMessages = {
   },
   ja: {
     backgroundInterrupted: "画面を離れたため計算が中断されました。もう一度計算してください。",
-    reviewPending: "変更された情報は審査中です。最後に承認された供給予測を使用しています。",
-    reviewUnknown:
-      "情報の審査状況を確認できませんでした。最後に承認された供給予測を引き続き使用します。",
     staging: "新しい計算 · staging",
     intro: "現在の在庫の正確な結果と、今後14日間の推奨日を確認できます。",
     stock: "所持ピース",
@@ -286,7 +277,7 @@ export const certifiedMessages = {
     incomplete:
       "過去の資料が不足しています。確認できた規則と期間のみ合計し、未確認の開催を開催済みや供給0として扱いません。",
     uncertain: "関連告知の収集状況を確認できないため、過ぎた推定日程を自動延期しません。",
-    estimates: "未公開のソロレイドを平均周期で推定した日程を含みます。",
+    estimates: "未公開のソロレイドの推定日程を含みます。",
     rates: "価格に使った1日平均供給",
     fixed: "初期在庫と1日分の供給の合計の逆数を価格とし、今回の比較中は固定します。",
     restart: "在庫や結果を更新したら再計算してください。",

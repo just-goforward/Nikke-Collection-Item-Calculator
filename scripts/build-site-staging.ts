@@ -74,7 +74,7 @@ export function stagingHeaders(htmlDocuments: readonly string[]): string {
     "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
     "font-src 'self' https://cdn.jsdelivr.net",
     "img-src 'self' data:",
-    "connect-src 'self' https://challenges.cloudflare.com https://collection-kit-forecast-collector-staging.tbvj159.workers.dev",
+    "connect-src 'self' https://challenges.cloudflare.com",
     "worker-src 'self' blob:",
     "frame-src https://challenges.cloudflare.com",
     "frame-ancestors 'none'",

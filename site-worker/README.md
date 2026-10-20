@@ -28,6 +28,15 @@ D1 bindings through SELECT-only consumer code and first-primary sessions, not a
 database-level read-only grant. The native IP limiter is configured for 60/minute.
 Validate its namespace and deployed enforcement before rollout.
 
+Staging sits behind Cloudflare Access. An operator manually configured an Access
+application with a Bypass (Everyone) policy for exactly `/api/forecast` and
+`/api/forecast/version`. It is required because the runtime forecast client
+(`src/lib/runtimeForecast.ts`) fetches with `credentials: "omit"` and `redirect: "error"`,
+so an Access login redirect would fail every check. This is an operator-configured edge
+policy, not source-controlled; recreate it by hand if the staging Access setup changes.
+Production has no Access. The bypass does not change publication signature
+verification, and every other staging path stays behind Access.
+
 Success and failure results share a non-sliding 60-second primary-read deadline per
 binding/isolate. Guard stops, missing pointers and database failures cannot cause one
 D1 read per public request. New guard stops and pointer decisions propagate within

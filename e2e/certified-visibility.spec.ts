@@ -5,12 +5,6 @@ import { type Browser, chromium, expect, type Page, test } from "@playwright/tes
 import { build, type PreviewServer, preview } from "vite";
 import { certifiedMessages } from "../src/certifiedUi/messages";
 import { enMessages } from "../src/i18n/messages.en";
-import {
-  expectApprovedReviewHealthAttempts,
-  isReviewCollector,
-  type ReviewHealthAttempt,
-  serveReviewHealth,
-} from "./reviewHealth";
 
 type VisibilityTraceEntry = {
   phase: string;
@@ -39,7 +33,9 @@ if (!["native", "tab"].includes(visibilityAdapter))
   throw new Error("Unknown certified visibility adapter");
 if (visibilityAdapter === "native" && process.platform !== "win32")
   throw new Error("Native certified visibility adapter requires Windows");
-const healthAttempts: ReviewHealthAttempt[] = [];
+// The retired source-review advisory polled this collector; the calculator must never contact it.
+const RETIRED_COLLECTOR_ORIGIN =
+  "https://collection-kit-forecast-collector-staging.tbvj159.workers.dev";
 const blockedRequests: string[] = [];
 const directory = resolve("benchmarks/results", `certified-visibility-ui-${Date.now()}`);
 let child: ChildProcess | undefined;
@@ -132,15 +128,13 @@ test.beforeAll(async () => {
   if (!context) throw new Error("Owned browser context missing");
   context.on("request", (request) => {
     const url = new URL(request.url());
-    if (!isLoopback(url) && !isReviewCollector(url))
-      blockedRequests.push(`${request.method()} ${url.origin}${url.pathname}`);
+    if (!isLoopback(url)) blockedRequests.push(`${request.method()} ${url.origin}${url.pathname}`);
   });
-  // Keep browser verification local; only the approved metadata GET is answered by a local mock.
+  // Keep browser verification local.
   await context.route(
     (url) => !isLoopback(url),
     (route) => route.abort("blockedbyclient"),
   );
-  await serveReviewHealth(context, () => "blocked", healthAttempts);
   await context.addInitScript(() => {
     const trace: unknown[] = [];
     Object.assign(globalThis, { __visibilityTrace: trace });
@@ -242,15 +236,14 @@ test.afterEach(async ({ browserName }, testInfo) => {
       browserName,
       trace: await page.evaluate(() => window.__visibilityTrace),
     });
-  expectApprovedReviewHealthAttempts(
-    healthAttempts,
-    "visibility flows may only use the credential-free approved GET",
-  );
+  expect(
+    blockedRequests.filter((attempt) => attempt.includes(RETIRED_COLLECTOR_ORIGIN)),
+    "visibility flows never request the retired collector health endpoint",
+  ).toEqual([]);
 });
 
 test.afterAll(async () => {
   observations.push({ phase: "blocked_external_requests", attempts: blockedRequests });
-  observations.push({ phase: "review_health_attempts", attempts: healthAttempts });
   if (page && !page.isClosed())
     observations.push(
       await page.evaluate(() => ({
@@ -273,8 +266,6 @@ test.afterAll(async () => {
     `${JSON.stringify(observations, null, 2)}\n`,
   );
   console.log(`VISIBILITY_EVIDENCE ${directory}`);
-  expect(healthAttempts.map(({ mode }) => mode)).toContain("blocked");
-  expectApprovedReviewHealthAttempts(healthAttempts, "visibility metadata attempts");
 });
 
 function isLoopback(url: URL) {

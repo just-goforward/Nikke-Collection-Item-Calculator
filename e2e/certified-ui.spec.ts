@@ -7,55 +7,44 @@ import { certifiedMessages } from "../src/certifiedUi/messages";
 import { enMessages } from "../src/i18n/messages.en";
 import { jaMessages } from "../src/i18n/messages.ja";
 import { koMessages } from "../src/i18n/messages.ko";
-import {
-  expectApprovedReviewHealthAttempts,
-  isReviewCollector,
-  type ReviewHealthAttempt,
-  type ReviewHealthMode,
-  reviewHealthUrl,
-  serveReviewHealth,
-} from "./reviewHealth";
 import { closePreviewServer } from "./test";
 
 let server: PreviewServer | null = null;
-let reviewHealthMode: ReviewHealthMode = "blocked";
+// The retired source-review advisory polled this collector; the calculator must never contact it.
+const RETIRED_COLLECTOR_ORIGIN =
+  "https://collection-kit-forecast-collector-staging.tbvj159.workers.dev";
 // playwright.account.config.ts builds an isolated output and picks a free port per run; the
 // default config serves `dist` on E2E_SMOKE_PORT (4273).
 const OUT_DIR = process.env["ACCOUNT_E2E_DIST"] ?? "dist";
 const PORT = Number(process.env["ACCOUNT_E2E_PORT"] ?? process.env["E2E_SMOKE_PORT"] ?? 4273);
 test.use({ baseURL: `http://127.0.0.1:${PORT}` });
 
-const healthAttempts = new WeakMap<Page, ReviewHealthAttempt[]>();
 const externalAttempts = new WeakMap<Page, string[]>();
 test.beforeEach(async ({ page, context }) => {
-  reviewHealthMode = "blocked";
-  const attempts: ReviewHealthAttempt[] = [];
-  healthAttempts.set(page, attempts);
   const external: string[] = [];
   externalAttempts.set(page, external);
   context.on("request", (request) => {
     const url = new URL(request.url());
-    if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) && !isReviewCollector(url))
+    if (!["127.0.0.1", "localhost", "[::1]"].includes(url.hostname))
       external.push(`${request.method()} ${url.origin}${url.pathname}`);
   });
-  // Keep browser verification local; only the approved metadata GET is answered by a local mock.
+  // Keep browser verification local.
   await context.route(
     (url) => !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname),
     (route) => route.abort("blockedbyclient"),
   );
-  await serveReviewHealth(context, () => reviewHealthMode, attempts);
 });
 test.afterEach(async ({ page }, testInfo) => {
-  const attempts = healthAttempts.get(page) ?? [];
-  await testInfo.attach("review-health-attempts", {
-    body: JSON.stringify(attempts),
-    contentType: "application/json",
-  });
+  const external = externalAttempts.get(page) ?? [];
   await testInfo.attach("blocked-external-attempts", {
-    body: JSON.stringify(externalAttempts.get(page) ?? []),
+    body: JSON.stringify(external),
     contentType: "application/json",
   });
-  expectApprovedReviewHealthAttempts(attempts, "only the credential-free approved GET may run");
+  expect(
+    external.filter((attempt) => attempt.includes(RETIRED_COLLECTOR_ORIGIN)),
+    "the retired source-review collector health endpoint is never requested",
+  ).toEqual([]);
+  await expect(page.locator("[data-forecast-review]")).toHaveCount(0);
 });
 test.beforeAll(async () => {
   server = await preview({
@@ -271,7 +260,7 @@ test("certified route renders inside the shared calculator shell", async ({ page
   await expect(page.locator("#resetButton")).toBeVisible();
   await expect(page.getByTestId("certified-result")).toBeVisible();
   await expect(page.locator("footer.privacy-footer")).toBeVisible();
-  await expect(page.locator("[data-forecast-review]")).toHaveCount(1);
+  await expect(page.locator("[data-forecast-review]")).toHaveCount(0);
   expect(await accessibilityViolations(page)).toEqual([]);
   await page.locator("button[data-theme-mode='dark']").first().click();
   await expect(page.locator("body")).toHaveClass(/theme-dark/);
@@ -397,10 +386,7 @@ test("staging uses one profile and renders all three supported languages", async
     await expect(page.locator("#calculateButton")).toHaveText(
       APP_WORDS[locale]["common.calculate"],
     );
-    await expect(page.locator("[data-forecast-review]")).toHaveCount(1);
-    await expect(page.locator("[data-forecast-review='unknown']")).toHaveText(
-      certifiedMessages[locale].reviewUnknown,
-    );
+    await expect(page.locator("[data-forecast-review]")).toHaveCount(0);
     await expect(
       page.getByText(certifiedMessages[locale].uncertain, { exact: true }),
     ).toBeVisible();
@@ -413,7 +399,6 @@ test("staging uses one profile and renders all three supported languages", async
     page.getByText("Historical records are incomplete.", { exact: false }),
   ).toBeVisible();
   await expect(page.locator(".cert-supply table")).toContainText("N/A");
-  expect(healthAttempts.get(page)?.map(({ mode }) => mode)).toEqual(["blocked"]);
 });
 
 for (const locale of ["en", "ja"] as const) {
@@ -439,64 +424,9 @@ for (const locale of ["en", "ja"] as const) {
     await expect(page.getByTestId("certified-waiting")).toContainText(words.magnitudeUncomputed);
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
     await expect(page.getByRole("alert")).toHaveCount(0);
-    await expect(page.locator("[data-forecast-review='unknown']")).toHaveText(words.reviewUnknown);
     await expect(page.getByText(words.uncertain, { exact: true })).toBeVisible();
   });
 }
-
-test("offline review notice preserves approved calculation and uncertain supply policy", async ({
-  page,
-}) => {
-  reviewHealthMode = "failed";
-  await openStaging(page);
-  const notice = page.locator("[data-forecast-review='unknown']");
-  await expect(notice).toHaveText(certifiedMessages.en.reviewUnknown);
-  await expect(
-    page.locator("[data-forecast-review='review_pending'], [data-forecast-review='current']"),
-  ).toHaveCount(0);
-  await expect(page.getByText(certifiedMessages.en.uncertain, { exact: true })).toBeVisible();
-  await setAlmostComplete(page);
-  await calculate(page);
-  await expect(page.getByTestId("certified-current")).toContainText("100");
-  await expect(page.getByTestId("certified-waiting")).toContainText(
-    certifiedMessages.en.magnitudeUncomputed,
-  );
-  await expect(notice).toHaveText(certifiedMessages.en.reviewUnknown);
-  await expect(page.getByText(certifiedMessages.en.uncertain, { exact: true })).toBeVisible();
-  expect(healthAttempts.get(page)?.map(({ mode }) => mode)).toEqual(["failed"]);
-  await reopen(page);
-  await expect(notice).toHaveText(certifiedMessages.en.reviewUnknown);
-  await expect(page.getByText(certifiedMessages.en.uncertain, { exact: true })).toBeVisible();
-  expect(healthAttempts.get(page)?.map(({ mode }) => mode)).toEqual(["failed", "failed"]);
-});
-
-test("approved review metadata shows pending, hides current, and keeps the approved calculation", async ({
-  page,
-}) => {
-  const words = certifiedMessages.en;
-  reviewHealthMode = "pending";
-  await openStaging(page);
-  await expect(page.locator("[data-forecast-review='review_pending']")).toHaveText(
-    words.reviewPending,
-  );
-  await expect(page.locator("[data-forecast-review='unknown']")).toHaveCount(0);
-  await expect(page.getByText(words.uncertain, { exact: true })).toBeVisible();
-  await setAlmostComplete(page);
-  await calculate(page);
-  await expect(page.getByTestId("certified-current")).toContainText("100");
-  await expect(page.getByTestId("certified-waiting")).toContainText(words.magnitudeUncomputed);
-  reviewHealthMode = "current";
-  const current = page.waitForResponse((response) => response.url() === reviewHealthUrl);
-  await reopen(page);
-  await (await current).finished();
-  await setAlmostComplete(page);
-  await calculate(page);
-  await expect(page.getByTestId("certified-current")).toContainText("100");
-  await expect(page.getByTestId("certified-waiting")).toContainText(words.magnitudeUncomputed);
-  await expect(page.locator("[data-forecast-review]")).toHaveCount(0);
-  await expect(page.getByText(words.uncertain, { exact: true })).toBeVisible();
-  expect(healthAttempts.get(page)?.map(({ mode }) => mode)).toEqual(["pending", "current"]);
-});
 
 test("real Worker computes, records one outcome, and preserves raw remainders after reload", async ({
   page,
@@ -650,7 +580,6 @@ test("mobile certified route uses the shared input, result and stats navigation"
   await expect(page).toHaveURL(/#stats$/);
   await expect(page.locator("#statsWorkspace")).toBeVisible();
   await expect(page.locator("#mobile-panel-input")).toBeHidden();
-  await expect(page.locator("[data-forecast-review='unknown']")).toBeVisible();
   await resultTab.click();
   await expect(page.locator("#mobile-panel-result")).toBeVisible();
   await expect(page.getByTestId("certified-result")).toBeVisible();
@@ -684,7 +613,6 @@ for (const path of [
     await page.waitForLoadState("networkidle");
     page.off("request", record);
     expect(requests.filter((url) => forbidden.has(new URL(url).pathname.slice(1)))).toEqual([]);
-    expect(healthAttempts.get(page)).toEqual([]);
   });
 }
 
@@ -718,6 +646,5 @@ for (const [locale, path, words] of [
     ).toBeVisible();
     await expect(page.locator("main[data-engine-profile]")).toHaveCount(0);
     expect(requested.filter((url) => forbidden.has(new URL(url).pathname.slice(1)))).toEqual([]);
-    expect(healthAttempts.get(page)).toEqual([]);
   });
 }

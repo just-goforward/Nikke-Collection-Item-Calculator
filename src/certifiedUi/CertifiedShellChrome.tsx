@@ -5,7 +5,6 @@ import type { LoadingView, ResultView } from "../ui-types";
 import { ResultPanels } from "./CertifiedResultPanels";
 import { CertifiedPanel, SupplyComparison } from "./CertifiedSupplyPanels";
 import type { CertifiedCalculatorController } from "./calculatorController";
-import { ForecastReviewNotice } from "./ForecastReviewNotice";
 import type { CertifiedWords } from "./messages";
 import { dismissCertifiedMigrationNotice } from "./session";
 import type { CertifiedShellInteractions } from "./useCertifiedShellInteractions";
@@ -37,7 +36,6 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
           <span className="cert-muted">{words.sessionNotice}</span>
         )}
       </aside>
-      <ForecastReviewNotice />
       {RuntimeForecastNotice && (
         <Suspense fallback={null}>
           <RuntimeForecastNotice />
@@ -77,9 +75,12 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
           {words.sessionSaveFailed}
         </p>
       )}
-      {controller.snapshot?.sourceStatus === "uncertain" && (
-        <p className="cert-notice">{words.uncertain}</p>
-      )}
+      {/* Median candidates always carry sourceStatus "uncertain" and never auto-delay,
+          so neither half of this legacy-cadence notice applies to them. */}
+      {controller.snapshot?.sourceStatus === "uncertain" &&
+        controller.snapshot.cadence.version !== "observed-median-v2" && (
+          <p className="cert-notice">{words.uncertain}</p>
+        )}
       {!controller.snapshot && (
         <CertifiedPreparationNotice error={controller.prepareError} words={words} />
       )}

@@ -70,7 +70,8 @@ describe("staging build headers", () => {
       "https://static.cloudflareinsights.com/beacon.min.js/",
     ]);
     expect(headers.match(/cloudflareinsights/g)).toHaveLength(2);
-    expect(headers).toContain("connect-src 'self'");
+    expect(headers).toContain("connect-src 'self' https://challenges.cloudflare.com;");
+    expect(headers).not.toContain("forecast-collector");
     expect(headers).toContain("/v1/*\n  Cache-Control: no-store");
     expect(headers.split("\n").every((line) => line.length <= 2000)).toBe(true);
     expect(documents[0]).toContain("endpoint: window.location.origin");
