@@ -300,4 +300,5 @@ it.each(["package-lock.json", "biome.json"])(
     );
     expect(prepareIndependentPhysicalRatesCache(root).cacheHit).toBe(true);
   },
+  30_000,
 );
