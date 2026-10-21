@@ -10,7 +10,7 @@ const locales = [
     lang: "ko",
     prefix: "/",
     home: "NIKKE 소장품 레벨업 계산기",
-    titles: { privacy: "개인정보 처리방침", terms: "이용약관", licenses: "라이선스" },
+    titles: { privacy: "개인정보 처리방침", terms: "서비스 이용약관", licenses: "라이선스" },
     links: ["개인정보 처리방침", "이용약관", "문의하기", "라이선스"],
     subject: "[NIKKE 계산기] 문의",
     rights: "비공식 팬 제작 계산기이며, 게임 개발사 또는 퍼블리셔와 제휴하거나",
@@ -30,7 +30,7 @@ const locales = [
     lang: "ja",
     prefix: "/ja/",
     home: "NIKKE コレクション強化計算機",
-    titles: { privacy: "プライバシーポリシー", terms: "利用規約", licenses: "ライセンス" },
+    titles: { privacy: "プライバシーポリシー", terms: "サービス利用規約", licenses: "ライセンス" },
     links: ["プライバシーポリシー", "利用規約", "お問い合わせ", "ライセンス"],
     subject: "[NIKKE計算機] お問い合わせ",
     rights: "本プロジェクトは非公式のファン制作計算ツールであり",
@@ -112,6 +112,12 @@ for (const locale of locales) {
         }
         await expect(page.locator("main")).toContainText(locale.logging);
       }
+      if (legalPage === "terms") {
+        const main = page.locator("main");
+        await expect(main.locator(`a[href="${locale.prefix}privacy"]`)).toHaveCount(1);
+        await expect(main.locator(`a[href="${locale.prefix}licenses"]`)).toHaveCount(1);
+        await expect(main.locator('a[href="mailto:contact@nikkecollection.com"]')).toHaveCount(1);
+      }
       await context.close();
     });
   }
@@ -125,6 +131,15 @@ for (const colorScheme of ["light", "dark"] as const) {
     await expect(regions).toHaveAttribute("tabindex", "0");
     await regions.focus();
     await expect(regions).toBeFocused();
+    const result = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+    expect(result.violations.map((violation) => violation.id)).toEqual([]);
+  });
+
+  test(`ko /terms has no WCAG A/AA violations (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme });
+    await page.goto(`http://127.0.0.1:${PORT}/terms`);
     const result = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
       .analyze();

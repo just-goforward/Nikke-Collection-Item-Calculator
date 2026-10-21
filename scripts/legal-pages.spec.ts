@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { PRIVACY_POLICY } from "../shared/legal/privacy";
+import { TERMS_OF_SERVICE } from "../shared/legal/terms";
 import {
   SITE_LEGAL_PAGES,
   SITE_LOCALE_ORDER,
@@ -95,10 +96,30 @@ describe("legal pages", () => {
     expect(shape("ja")).toEqual(shape("ko"));
   });
 
-  it("marks the terms body as a placeholder in every locale", () => {
-    expect(renderLegalPage("terms", "ko", inputs)).toContain(
-      '<p class="placeholder-block" role="note">이용약관 준비 중입니다.</p>',
-    );
+  it.each(SITE_LOCALE_ORDER)(
+    "renders the %s terms with local legal links and contact",
+    (locale) => {
+      const html = renderLegalPage("terms", locale, inputs);
+      expect(html).not.toContain('<p class="placeholder-block"');
+      expect(html.match(/<mark class="placeholder"/g)).toHaveLength(1);
+      expect(html).toContain(`href="${siteLegalPagePath(locale, "privacy")}"`);
+      expect(html).toContain(`href="${siteLegalPagePath(locale, "licenses")}"`);
+      expect(html).toContain(
+        '<a href="mailto:contact@nikkecollection.com">contact@nikkecollection.com</a>',
+      );
+      expect(html.match(/<h2/g)).toHaveLength(11);
+    },
+  );
+
+  it("keeps every terms translation structurally aligned with the Korean source", () => {
+    const shape = (locale: (typeof SITE_LOCALE_ORDER)[number]) =>
+      TERMS_OF_SERVICE[locale].sections.map((section) =>
+        section.blocks.map((block) =>
+          block.type === "list" ? [block.type, block.items.length] : [block.type],
+        ),
+      );
+    expect(shape("en")).toEqual(shape("ko"));
+    expect(shape("ja")).toEqual(shape("ko"));
   });
 
   it("includes the project license, Rust crates and escaped npm notices", () => {
