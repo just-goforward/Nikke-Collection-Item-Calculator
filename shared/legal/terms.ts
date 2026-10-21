@@ -26,7 +26,7 @@ export const TERMS_OF_SERVICE = {
             type: "list",
             items: [
               "게임 「승리의 여신: 니케」의 소장품 레벨업에 필요한 키트 사용 계획과 확률을 계산합니다.",
-              "관리 키트 수급 예보와, 이용자가 보낸 결과로 만든 공개 통계를 보여 줍니다.",
+              "관리 키트 수급 예보를 반영해 계산하고, 이용자가 보낸 결과로 만든 공개 통계를 보여 줍니다.",
               "서비스는 무료이며 회원가입 없이 이용할 수 있습니다.",
             ],
           },
@@ -174,7 +174,7 @@ export const TERMS_OF_SERVICE = {
             type: "list",
             items: [
               "It calculates kit usage plans and probabilities for leveling up collection items in the game GODDESS OF VICTORY: NIKKE.",
-              "It shows forecasts of Maintenance Kit supply and public statistics built from results sent by users.",
+              "It reflects Maintenance Kit supply forecasts in its calculations and shows public statistics built from results sent by users.",
               "The Service is free and can be used without creating an account.",
             ],
           },
@@ -328,7 +328,7 @@ export const TERMS_OF_SERVICE = {
             type: "list",
             items: [
               "ゲーム『勝利の女神：NIKKE』のコレクション強化に必要なキットの使用計画と確率を計算します。",
-              "お手入れキットの入手予報と、利用者が送信した結果から作成した公開統計を表示します。",
+              "お手入れキットの入手予報を計算に反映し、利用者が送信した結果から作成した公開統計を表示します。",
               "本サービスは無料で、会員登録なしで利用できます。",
             ],
           },
