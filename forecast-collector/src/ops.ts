@@ -19,12 +19,20 @@ export function upsertOpsAlertStatement(
     context?: Record<string, string | number | boolean | null>;
     notifyAfterCount?: number;
     nowMs?: number;
+    /**
+     * A stream to add to the open row's `context.affectedStreams` inside the same
+     * statement. The union is computed from the row's own current value, so
+     * concurrent holds on different streams cannot overwrite each other the way a
+     * read-modify-write would.
+     */
+    mergeAffectedStream?: string;
     guard?: { sql: string; bindings: (string | number | null)[] };
   },
 ) {
   const nowMs = input.nowMs ?? Date.now();
   const now = new Date(nowMs).toISOString();
   const nextSendAt = now;
+  const merge = input.mergeAffectedStream;
   return db
     .prepare(
       `INSERT INTO forecast_ops_alerts (
@@ -41,7 +49,17 @@ export function upsertOpsAlertStatement(
          component = excluded.component,
          error_code = excluded.error_code,
          state = 'open',
-         context_json = excluded.context_json,
+         context_json = ${
+           merge === undefined
+             ? "excluded.context_json"
+             : `json_set(excluded.context_json, '$.affectedStreams', CASE
+                 WHEN instr(','||COALESCE(json_extract(forecast_ops_alerts.context_json,'$.affectedStreams'),'')||',', ','||?||',') > 0
+                   THEN json_extract(forecast_ops_alerts.context_json,'$.affectedStreams')
+                 WHEN COALESCE(json_extract(forecast_ops_alerts.context_json,'$.affectedStreams'),'') = ''
+                   THEN ?
+                 ELSE json_extract(forecast_ops_alerts.context_json,'$.affectedStreams')||','||?
+               END)`
+         },
          notify_after_count = excluded.notify_after_count,
          occurrence_count = CASE
            WHEN forecast_ops_alerts.state = 'open' THEN forecast_ops_alerts.occurrence_count + 1
@@ -86,6 +104,7 @@ export function upsertOpsAlertStatement(
       now,
       nextSendAt,
       ...(input.guard?.bindings ?? []),
+      ...(merge === undefined ? [] : [merge, merge, merge]),
     );
 }
 
@@ -103,6 +122,40 @@ export async function resolveOpsAlertsByPrefix(
     )
     .bind(now, now, `${likeLiteral(bounded(alertKeyPrefix, 150))}%`)
     .run();
+}
+
+/**
+ * Close budget incidents from earlier game days (their keys end with the game day,
+ * so the suffix compares chronologically). `recovery_sent_at` is set together with
+ * `resolved_at` because this family is one-shot: a rollover closes it silently
+ * instead of posting a separate "복구" message at 05:00 KST.
+ */
+export function resolveBudgetIncidentsBeforeStatement(
+  db: D1Database,
+  environment: OpsEnvironment,
+  gameDay: string,
+  nowMs: number,
+  /** Only act when this attempt row exists, i.e. inside a reservation's own batch. */
+  reservedAttemptId?: string,
+) {
+  const now = new Date(nowMs).toISOString();
+  const prefix = `forecast-v2:${environment}:budget:`;
+  return db
+    .prepare(
+      `UPDATE forecast_ops_alerts
+       SET state = 'resolved', resolved_at = ?, recovery_sent_at = ?, next_send_at = ?
+       WHERE state = 'open' AND substr(alert_key, 1, ?) = ? AND substr(alert_key, -10) < ?
+         ${reservedAttemptId ? "AND EXISTS(SELECT 1 FROM forecast_v2_fetch_attempts WHERE attempt_id=?)" : ""}`,
+    )
+    .bind(
+      now,
+      now,
+      now,
+      prefix.length,
+      prefix,
+      gameDay,
+      ...(reservedAttemptId ? [reservedAttemptId] : []),
+    );
 }
 
 export async function readOperationsHealth(db: D1Database, environment: OpsEnvironment) {
@@ -146,7 +199,10 @@ export async function readOperationsHealth(db: D1Database, environment: OpsEnvir
       .prepare(
         `SELECT
            SUM(CASE WHEN state = 'open' THEN 1 ELSE 0 END) AS open_count,
-           SUM(CASE WHEN state = 'open' AND occurrence_count > last_sent_occurrence_count THEN 1 ELSE 0 END) AS unsent_count,
+           SUM(CASE WHEN state = 'open' AND occurrence_count > last_sent_occurrence_count
+                     AND NOT (alert_key GLOB 'forecast-v2:*:budget:*' AND last_sent_at IS NOT NULL)
+                     AND NOT (alert_key GLOB 'forecast-v2:*:*:budget_exhausted')
+                    THEN 1 ELSE 0 END) AS unsent_count,
            SUM(CASE WHEN state = 'open' AND severity = 'critical'
                           AND occurrence_count > last_sent_occurrence_count THEN 1 ELSE 0 END) AS unsent_critical_count
          FROM forecast_ops_alerts WHERE environment = ?`,

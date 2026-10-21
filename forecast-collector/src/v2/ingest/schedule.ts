@@ -9,6 +9,7 @@ export const streams = {
   G: { board: 48, keyword: null },
 } as const;
 export type Stream = keyof typeof streams;
+export const EDIT_SCAN_INTERVAL_MS = 6 * 60 * 60_000;
 const slots: Readonly<Record<number, Stream>> = {
   0: "A",
   3: "G",

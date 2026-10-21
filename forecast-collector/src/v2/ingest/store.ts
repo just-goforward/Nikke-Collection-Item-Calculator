@@ -1,9 +1,26 @@
-import { type OpsEnvironment, upsertOpsAlert } from "../../ops";
+import {
+  BUDGET_UNEXPLAINED_ERROR_CODE,
+  type BudgetIncidentKind,
+  budgetGameDayResetAt,
+  budgetIncidentKey,
+  budgetUnexplainedAlertKey,
+} from "../../../../shared/forecastOpsAlerts";
+import {
+  type OpsEnvironment,
+  resolveBudgetIncidentsBeforeStatement,
+  upsertOpsAlert,
+} from "../../ops";
 import { IngestFailure, type Metadata } from "./client";
 import { budgetGameDay, type Stream } from "./schedule";
 import { nextBoundary, type Scan } from "./traversal";
 
 export type Lease = { stream: Stream; owner: string; expiresAt: string };
+type BudgetRow = {
+  metadata_used: number;
+  metadata_limit: number;
+  detail_used: number;
+  detail_limit: number;
+};
 export class MonitorStore {
   constructor(
     private readonly db: D1Database,
@@ -19,6 +36,78 @@ export class MonitorStore {
       component: "collector",
       errorCode: reason,
       context: { stream },
+      nowMs: now,
+    });
+  }
+
+  /**
+   * Exhausted daily limits are an incident per budget kind and game day, not per
+   * stream: every stream that can no longer fetch joins the same row, so the
+   * dispatcher delivers one message instead of one per stream plus renewals.
+   * Which limit ran out is read from that game day's budget row; without one
+   * (or with neither column at its limit) the per-stream hold alert stands.
+   */
+  private async budgetAlert(stream: Stream, now: number) {
+    const environment = this.environment;
+    if (!environment) return;
+    const gameDay = budgetGameDay(now);
+    const budget = await this.db
+      .prepare(`SELECT metadata_used,metadata_limit,detail_used,detail_limit
+      FROM forecast_v2_request_budgets WHERE game_day=?`)
+      .bind(gameDay)
+      .first<BudgetRow>();
+    const exhausted =
+      budget === null
+        ? []
+        : BUDGET_KINDS.flatMap((kind) => {
+            const used = kind === "metadata" ? budget.metadata_used : budget.detail_used;
+            const limit = kind === "metadata" ? budget.metadata_limit : budget.detail_limit;
+            return used >= limit ? [{ kind, used, limit }] : [];
+          });
+    if (!exhausted.length) {
+      // No budget row explains the admission failure, so it is not a daily-limit
+      // incident: keep the ordinary per-stream alert policy under its own code, since
+      // the superseded `budget_exhausted` keys are retired by the dispatcher.
+      await upsertOpsAlert(this.db, {
+        alertKey: budgetUnexplainedAlertKey(environment, stream),
+        environment,
+        severity: "warning",
+        component: "collector",
+        errorCode: BUDGET_UNEXPLAINED_ERROR_CODE,
+        context: { stream, gameDay },
+        nowMs: now,
+      });
+      return;
+    }
+    for (const { kind, used, limit } of exhausted)
+      await this.upsertBudgetIncident(environment, stream, kind, gameDay, used, limit, now);
+  }
+
+  private async upsertBudgetIncident(
+    environment: OpsEnvironment,
+    stream: Stream,
+    kind: BudgetIncidentKind,
+    gameDay: string,
+    used: number,
+    limit: number,
+    now: number,
+  ) {
+    await upsertOpsAlert(this.db, {
+      alertKey: budgetIncidentKey(environment, kind, gameDay),
+      environment,
+      severity: "warning",
+      component: "collector",
+      errorCode: "budget_exhausted",
+      context: {
+        gameDay,
+        kind,
+        used,
+        limit,
+        resetAt: budgetGameDayResetAt(gameDay),
+        affectedStreams: stream,
+      },
+      // Concurrent leases on other streams union into the row's own value atomically.
+      mergeAffectedStream: stream,
       nowMs: now,
     });
   }
@@ -75,6 +164,12 @@ export class MonitorStore {
         .prepare(`UPDATE forecast_v2_request_budgets SET ${column}_used=${column}_used+1
         WHERE game_day=? AND EXISTS(SELECT 1 FROM forecast_v2_fetch_attempts WHERE attempt_id=?)`)
         .bind(day, id),
+      // The first successful reservation of a game day proves the previous game day
+      // ended at 05:00 KST, so its budget incident closes silently in this same batch
+      // (guarded by this reservation's own attempt row; a no-op otherwise).
+      ...(this.environment
+        ? [resolveBudgetIncidentsBeforeStatement(this.db, this.environment, day, now, id)]
+        : []),
     ]);
     if (result[1]?.meta.changes !== 1) throw new IngestFailure("budget_or_lease");
     return id;
@@ -148,7 +243,9 @@ export class MonitorStore {
         reason === "attempts_exhausted" ||
         reason === "missing_boundary")
     ) {
-      await this.alert(lease.stream, reason, now);
+      await (reason === "budget_exhausted"
+        ? this.budgetAlert(lease.stream, now)
+        : this.alert(lease.stream, reason, now));
       console.error(
         JSON.stringify({
           event: "forecast_v2_stale_coverage",
@@ -160,11 +257,21 @@ export class MonitorStore {
     }
   }
 
-  async commitPage(lease: Lease, runId: string, scan: Scan, now: number) {
+  async commitPage(
+    lease: Lease,
+    runId: string,
+    scan: Scan,
+    now: number,
+    leaseTime = new Date(now).toISOString(),
+  ) {
     const time = new Date(now).toISOString();
     const fence = `EXISTS(SELECT 1 FROM forecast_v2_monitor_state
       WHERE stream_id=? AND lease_owner=? AND lease_expires_at>?)`;
     const boundary = scan.status === "completed" ? nextBoundary(scan) : scan.boundary;
+    // A capped edit remains held (coverage is incomplete), but its next restart
+    // observes the same cooldown as a completed edit, atomically with the page.
+    const editCooldown =
+      scan.kind === "edit" && (scan.status === "completed" || scan.reason === "page_cap");
     const writes = scan.hits.map((hit) =>
       this.db
         .prepare(`INSERT INTO forecast_v2_search_hits
@@ -178,7 +285,7 @@ export class MonitorStore {
           JSON.stringify(hit),
           lease.stream,
           lease.owner,
-          time,
+          leaseTime,
         ),
     );
     writes.push(
@@ -194,7 +301,7 @@ export class MonitorStore {
           runId,
           lease.stream,
           lease.owner,
-          time,
+          leaseTime,
         ),
     );
     writes.push(
@@ -205,7 +312,7 @@ export class MonitorStore {
       continuation_cursor=CASE WHEN ?='new' THEN ? ELSE continuation_cursor END,
       edit_scan_cursor=CASE WHEN ?='edit' THEN ? ELSE edit_scan_cursor END,
       edit_scan_cutoff=CASE WHEN ?='edit' THEN ? ELSE edit_scan_cutoff END,
-      edit_scan_completed_at=CASE WHEN ?='edit' AND ?='completed' THEN ? ELSE edit_scan_completed_at END,
+      edit_scan_completed_at=CASE WHEN ? THEN ? ELSE edit_scan_completed_at END,
       consecutive_holds=CASE WHEN ?='completed' THEN 0 ELSE consecutive_holds END,updated_at=?
       WHERE stream_id=? AND lease_owner=? AND lease_expires_at>?`)
         .bind(
@@ -216,20 +323,21 @@ export class MonitorStore {
           scan.kind,
           scan.status === "completed" ? 0 : scan.page,
           scan.kind,
-          scan.status === "completed" ? 0 : scan.page,
+          editCooldown ? 0 : scan.page,
           scan.kind,
-          scan.status === "completed" ? null : scan.boundary.createdAt,
-          scan.kind,
-          scan.status,
+          editCooldown ? null : scan.boundary.createdAt,
+          Number(editCooldown),
           time,
           scan.status,
           time,
           lease.stream,
           lease.owner,
-          time,
+          leaseTime,
         ),
     );
     const results = await this.db.batch(writes);
     if (results.at(-1)?.meta.changes !== 1) throw new IngestFailure("lease_lost");
   }
 }
+
+const BUDGET_KINDS: readonly BudgetIncidentKind[] = ["metadata", "detail"];

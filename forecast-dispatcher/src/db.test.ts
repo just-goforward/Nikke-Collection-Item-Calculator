@@ -4,11 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import schemaSql from "../../forecast-collector/schema.sql?raw";
 import { executeTestSql } from "../../shared/testD1Sql";
 import {
+  expireBudgetIncidents,
   listDueAlerts,
   markAlertSendFailed,
   markAlertSent,
   raiseOpsAlert,
   resolveOpsAlert,
+  retireLegacyBudgetAlerts,
 } from "./db";
 import type { DispatcherEnv } from "./types";
 
@@ -229,6 +231,76 @@ describe("forecast dispatcher recurrence-linked alert completion", () => {
       expect(await dueAlert(retryAt)).toMatchObject({ state: "resolved" });
     },
   );
+});
+
+describe("forecast dispatcher budget incidents", () => {
+  const now = Date.parse("2026-10-18T10:00:00.000Z"); // 19:00 KST, mid game day
+  const incidentKey = "forecast-v2:staging:budget:metadata:2026-10-18";
+
+  async function raiseIncident(atMs: number, key = incidentKey) {
+    await raiseOpsAlert(testEnv.FORECAST_DB, {
+      alertKey: key,
+      environment: "staging",
+      severity: "warning",
+      component: "collector",
+      errorCode: "budget_exhausted",
+      context: { gameDay: "2026-10-18", kind: "metadata", used: 240, limit: 240 },
+      nowMs: atMs,
+    });
+  }
+
+  it("delivers once and never renews while later holds raise the occurrence count", async () => {
+    await raiseIncident(now);
+    const first = await dueAlert(now);
+    expect(first).toMatchObject({ alertKey: incidentKey, occurrenceCount: 1 });
+    await markAlertSent(testEnv.FORECAST_DB, first, "123456789012345678", now);
+    await raiseIncident(now + 60_000);
+    await raiseIncident(now + 120_000);
+    await expect(listDueAlerts(testEnv.FORECAST_DB, "staging", now + 120_000)).resolves.toEqual([]);
+    await expect(
+      listDueAlerts(testEnv.FORECAST_DB, "staging", now + 31 * 60 * 1_000),
+    ).resolves.toEqual([]);
+    expect(await deliveryState(incidentKey)).toMatchObject({
+      occurrence_count: 3,
+      last_sent_occurrence_count: 1,
+    });
+  });
+
+  it("never delivers an incident whose game day already ended", async () => {
+    await raiseIncident(now);
+    const nextDay = Date.parse("2026-10-18T20:00:00.000Z"); // 05:00 KST
+    await expect(listDueAlerts(testEnv.FORECAST_DB, "staging", nextDay)).resolves.toEqual([]);
+  });
+
+  it("closes an ended incident silently, without a recovery delivery", async () => {
+    await raiseIncident(now);
+    await markAlertSent(testEnv.FORECAST_DB, await dueAlert(now), "123456789012345678", now);
+    const nextDay = Date.parse("2026-10-18T20:00:00.000Z");
+    await expireBudgetIncidents(testEnv.FORECAST_DB, "staging", nextDay);
+    expect(await deliveryState(incidentKey)).toMatchObject({
+      state: "resolved",
+      resolved_at: new Date(nextDay).toISOString(),
+      recovery_sent_at: new Date(nextDay).toISOString(),
+    });
+    await expect(listDueAlerts(testEnv.FORECAST_DB, "staging", nextDay + 60_000)).resolves.toEqual(
+      [],
+    );
+  });
+
+  it("suppresses the retired legacy keys but keeps unexplained budget alerts deliverable", async () => {
+    const legacyKey = "forecast-v2:staging:A:budget_exhausted";
+    const unexplainedKey = "forecast-v2:staging:A:budget_unexplained";
+    await raiseIncident(now, legacyKey);
+    await raiseIncident(now, unexplainedKey);
+    const due = await listDueAlerts(testEnv.FORECAST_DB, "staging", now);
+    expect(due.map((alert) => alert.alertKey)).toEqual([unexplainedKey]);
+    await retireLegacyBudgetAlerts(testEnv.FORECAST_DB, "staging", now);
+    expect(await deliveryState(legacyKey)).toMatchObject({
+      state: "resolved",
+      recovery_sent_at: new Date(now).toISOString(),
+    });
+    await expect(listDueAlerts(testEnv.FORECAST_DB, "staging", now)).resolves.toHaveLength(1);
+  });
 });
 
 async function dueAlert(nowMs: number) {

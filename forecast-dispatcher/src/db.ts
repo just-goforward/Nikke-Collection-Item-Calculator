@@ -1,6 +1,58 @@
+import { gameDayKey } from "../../shared/gameDay.ts";
 import type { DispatcherEnvironment, OpsAlertRow } from "./types";
 
 const ALERT_SUPPRESSION_MS = 30 * 60 * 1_000;
+/** `forecast-v2:<env>:budget:<kind>:<gameDay>`; the key ends with the game day. */
+const BUDGET_INCIDENT_GLOB = "forecast-v2:*:budget:*";
+/** Legacy per-stream keys `forecast-v2:<env>:<stream>:budget_exhausted`. */
+const LEGACY_BUDGET_GLOB = "forecast-v2:*:*:budget_exhausted";
+
+async function resolveSilently(
+  db: D1Database,
+  environment: DispatcherEnvironment,
+  pattern: string,
+  now: string,
+) {
+  await db
+    .prepare(
+      `UPDATE forecast_ops_alerts
+       SET state = 'resolved', resolved_at = ?, recovery_sent_at = ?, next_send_at = ?
+       WHERE environment = ? AND state = 'open' AND alert_key GLOB ?`,
+    )
+    .bind(now, now, now, environment, pattern)
+    .run();
+}
+
+/**
+ * Retire the legacy per-stream `budget_exhausted` alerts without a data migration:
+ * their keys are replaced by per-kind incidents, so a single silent resolve stops
+ * every pending renewal (the resolved row is already recovery-complete).
+ */
+export async function retireLegacyBudgetAlerts(
+  db: D1Database,
+  environment: DispatcherEnvironment,
+  nowMs: number,
+) {
+  await resolveSilently(db, environment, LEGACY_BUDGET_GLOB, new Date(nowMs).toISOString());
+}
+
+/** Close budget incidents whose game day already ended; no recovery message is sent. */
+export async function expireBudgetIncidents(
+  db: D1Database,
+  environment: DispatcherEnvironment,
+  nowMs: number,
+) {
+  const now = new Date(nowMs).toISOString();
+  await db
+    .prepare(
+      `UPDATE forecast_ops_alerts
+       SET state = 'resolved', resolved_at = ?, recovery_sent_at = ?, next_send_at = ?
+       WHERE environment = ? AND state = 'open' AND alert_key GLOB ?
+         AND substr(alert_key, -10) < ?`,
+    )
+    .bind(now, now, now, environment, BUDGET_INCIDENT_GLOB, gameDayKey(nowMs))
+    .run();
+}
 
 export async function raiseOpsAlert(
   db: D1Database,
@@ -107,10 +159,26 @@ export async function listDueAlerts(
          (state = 'resolved' AND last_sent_at IS NOT NULL AND recovery_sent_at IS NULL
           AND (next_send_at IS NULL OR next_send_at <= ?))
        )
+       -- Budget incidents are one-shot: only a first delivery is due, never a renewal
+       -- or a recovery, and never after their game day ended.
+       AND NOT (alert_key GLOB ? AND (
+              substr(alert_key, -10) < ?
+              OR state = 'resolved'
+              OR last_sent_at IS NOT NULL))
+       -- Legacy per-stream budget alerts are retired, never delivered.
+       AND NOT (alert_key GLOB ?)
        ORDER BY CASE severity WHEN 'critical' THEN 0 ELSE 1 END, first_seen_at
        LIMIT ?`,
     )
-    .bind(environment, now, now, Math.max(1, Math.min(20, Math.trunc(limit))))
+    .bind(
+      environment,
+      now,
+      now,
+      BUDGET_INCIDENT_GLOB,
+      gameDayKey(nowMs),
+      LEGACY_BUDGET_GLOB,
+      Math.max(1, Math.min(20, Math.trunc(limit))),
+    )
     .all<{
       alert_key: string;
       environment: DispatcherEnvironment;

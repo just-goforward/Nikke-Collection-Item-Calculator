@@ -36,10 +36,12 @@ import {
 import {
   alerts,
   boundary,
+  budget,
   count,
   hits,
   rulesQueue,
   rulesRetryAt,
+  runs,
   seedBoundary,
   seedBudget,
   state,
@@ -47,6 +49,43 @@ import {
 
 // Plan §7C review-round fixes F4, F7, F9, F14 and the :51/:54 units.
 useRunHarness();
+
+describe("T03 six-hour edit scan scheduling", () => {
+  it("refresh drift makes a recently completed edit scan immediately due and pending bodies keep priority", async () => {
+    await seedBoundary(db, "A", cutoff, []);
+    await db
+      .prepare("UPDATE forecast_v2_monitor_state SET edit_scan_completed_at=?")
+      .bind(at("03:00"))
+      .run();
+    const edited: Post = { ...failurePost, updated: "2026-10-18T11:30:00" };
+    naver
+      .page("A", 0, page("A", [failurePost, oldPost]), page("A", [edited, oldPost]))
+      .detail(failurePost.feedId, detailPayload("A", edited));
+    expect(await invoke(at("03:00"))).toEqual({ outcome: "completed" });
+    expect((await state(db, "A")).edit_scan_completed_at).toBe(at("03:00"));
+    expect(await invoke(at("03:09"))).toEqual({ outcome: "held", reason: "detail_drift" });
+    expect((await state(db, "A")).edit_scan_completed_at).toBeNull();
+    expect(await invoke(at("03:15"))).toEqual({ outcome: "completed" });
+    expect((await runs(db, "A")).at(-1)).toMatchObject({ kind: "edit", status: "completed" });
+    expect((await invoke(at("03:21"))).outcome).toBe("body_stored");
+    const before = naver.calls.length;
+    expect(await invoke(at("03:27"))).toEqual({ outcome: "idle" });
+    expect(naver.calls).toHaveLength(before);
+    expect(naver.detailCalls()).toEqual([String(failurePost.feedId), String(failurePost.feedId)]);
+  });
+
+  it("honors persisted metadata retry time without another reservation or fetch before it is due", async () => {
+    await seedBoundary(db, "B", cutoff, []);
+    naver.page("B", 0, status(503), pagePayload([]));
+    expect(await invoke(at("03:06"))).toEqual({ outcome: "held", reason: "http_503" });
+    expect(await invoke(at("03:07"))).toEqual({ outcome: "held", reason: "retry_backoff" });
+    expect(naver.metadataCalls("B")).toHaveLength(1);
+    expect(await budget(db, "2026-10-18")).toEqual({ metadata_used: 1, detail_used: 0 });
+    expect(await invoke(at("03:09"))).toEqual({ outcome: "completed" });
+    expect(naver.metadataCalls("B").map((call) => call.page)).toEqual([0, 0]);
+    expect(await budget(db, "2026-10-18")).toEqual({ metadata_used: 2, detail_used: 0 });
+  });
+});
 
 describe("T03 rules poison isolation (F4)", () => {
   it("caps a poison version at 3 failures with a terminal marker and an ops alert; later versions still run", async () => {
@@ -332,7 +371,23 @@ describe("T15 stale coverage alerts via forecast_ops_alerts (F9)", () => {
       outcome: "held",
       reason: "budget_exhausted",
     });
-    expect(await alerts(db)).toEqual(n ? [alertFor("budget_exhausted")] : []);
+    const raised = await alerts(db);
+    expect(raised).toHaveLength(n);
+    if (n)
+      expect(raised[0]).toEqual({
+        environment: "staging",
+        component: "collector",
+        error_code: "budget_exhausted",
+        state: "open",
+        context: {
+          gameDay: "2026-10-18",
+          kind: "metadata",
+          used: 240,
+          limit: 240,
+          resetAt: "2026-10-18T20:00:00.000Z",
+          affectedStreams: "A",
+        },
+      });
   });
 
   it.each([

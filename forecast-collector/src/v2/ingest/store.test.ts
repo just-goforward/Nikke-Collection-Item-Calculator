@@ -6,7 +6,16 @@ import schemaSql from "../../test-schema";
 import type { Metadata } from "./client";
 import { IngestFailure } from "./client";
 import { MonitorStore } from "./store";
-import { attempts, boundary, budget, count, hits, seedBudget, state } from "./test-support/v2-db";
+import {
+  alerts,
+  attempts,
+  boundary,
+  budget,
+  count,
+  hits,
+  seedBudget,
+  state,
+} from "./test-support/v2-db";
 import { advanceScan, startScan } from "./traversal";
 
 const db = env.FORECAST_DB;
@@ -173,5 +182,118 @@ describe("T03 holds", () => {
     await store.commitPage(lease, "r1", scan, now);
     expect((await state(db, "A")).consecutive_holds).toBe(0);
     expect(await count(db, "forecast_v2_search_hits")).toBe(0);
+  });
+});
+
+describe("T03 budget incidents", () => {
+  const staging = "staging" as const;
+
+  async function holdOnBudget(stream: "A" | "B", atMs: number) {
+    const store = new MonitorStore(db, staging);
+    const lease = (await store.acquire(stream, atMs))!;
+    await store.hold(lease, "budget_exhausted", atMs);
+    return store;
+  }
+
+  it("keys one incident per kind and game day while accumulating affected streams", async () => {
+    await seedBudget(db, "2026-10-18", { metadata: 240 });
+    await holdOnBudget("A", now);
+    await holdOnBudget("B", now + 1_000);
+    const incidents = await alerts(db);
+    expect(incidents).toEqual([
+      {
+        environment: "staging",
+        component: "collector",
+        error_code: "budget_exhausted",
+        state: "open",
+        context: {
+          gameDay: "2026-10-18",
+          kind: "metadata",
+          used: 240,
+          limit: 240,
+          resetAt: "2026-10-18T20:00:00.000Z",
+          affectedStreams: "A,B",
+        },
+      },
+    ]);
+  });
+
+  it("keys detail exhaustion separately from the metadata kind", async () => {
+    await seedBudget(db, "2026-10-18", { detail: 48 });
+    await holdOnBudget("A", now);
+    expect((await alerts(db))[0]).toMatchObject({
+      error_code: "budget_exhausted",
+      context: { kind: "detail", used: 48, limit: 48, affectedStreams: "A" },
+    });
+  });
+
+  it("raises a deliverable per-stream alert when no budget row explains the hold", async () => {
+    await holdOnBudget("A", now);
+    expect(await alerts(db)).toEqual([
+      {
+        environment: "staging",
+        component: "collector",
+        error_code: "budget_unexplained",
+        state: "open",
+        context: { stream: "A", gameDay: "2026-10-18" },
+      },
+    ]);
+    const key = await db
+      .prepare("SELECT alert_key FROM forecast_ops_alerts")
+      .first<{ alert_key: string }>();
+    expect(key?.alert_key).toBe("forecast-v2:staging:A:budget_unexplained");
+  });
+
+  it("unions affected streams when two leases interleave their holds", async () => {
+    await seedBudget(db, "2026-10-18", { metadata: 240 });
+    const store = new MonitorStore(db, staging);
+    const [leaseA, leaseB] = await Promise.all([store.acquire("A", now), store.acquire("B", now)]);
+    await Promise.all([
+      store.hold(leaseA!, "budget_exhausted", now),
+      store.hold(leaseB!, "budget_exhausted", now + 10),
+      store.hold(leaseA!, "budget_exhausted", now + 20),
+    ]);
+    const incidents = await alerts(db);
+    expect(incidents).toHaveLength(1);
+    const streams = String(incidents[0]?.context.affectedStreams).split(",").sort();
+    expect(streams).toEqual(["A", "B"]);
+  });
+
+  it("keeps the incident open while the same game day still has budget", async () => {
+    await seedBudget(db, "2026-10-18", { metadata: 240 });
+    await holdOnBudget("A", now);
+    await insertRun("r2");
+    const store = new MonitorStore(db, staging);
+    const lease = (await store.acquire("B", now + 60_000))!;
+    // The detail budget is not the exhausted kind, so this reservation is admitted.
+    await store.reserve(lease, "r2", "detail", now + 60_000, "1");
+    const row = await db
+      .prepare(
+        `SELECT state FROM forecast_ops_alerts
+         WHERE alert_key = 'forecast-v2:staging:budget:metadata:2026-10-18'`,
+      )
+      .first();
+    expect(row).toEqual({ state: "open" });
+  });
+
+  it("closes the ended incident on the first reservation of a later game day", async () => {
+    await seedBudget(db, "2026-10-18", { metadata: 240 });
+    await holdOnBudget("A", now);
+    const next = Date.parse("2026-10-18T20:00:00.000Z"); // 05:00 KST next game day
+    await insertRun("r2");
+    const store = new MonitorStore(db, staging);
+    const lease = (await store.acquire("A", next))!;
+    await store.reserve(lease, "r2", "metadata", next);
+    const row = await db
+      .prepare(
+        `SELECT state, resolved_at, recovery_sent_at FROM forecast_ops_alerts
+         WHERE alert_key = 'forecast-v2:staging:budget:metadata:2026-10-18'`,
+      )
+      .first();
+    expect(row).toEqual({
+      state: "resolved",
+      resolved_at: new Date(next).toISOString(),
+      recovery_sent_at: new Date(next).toISOString(),
+    });
   });
 });

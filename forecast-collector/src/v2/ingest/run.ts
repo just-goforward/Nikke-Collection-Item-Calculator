@@ -5,7 +5,7 @@ import type { FetchLike } from "../../naver";
 import type { CollectorEnv } from "../../types";
 import { fetchDetail, fetchMetadata, IngestFailure, type Metadata } from "./client";
 import type { RulesPort } from "./rules-port";
-import { type Stream, scheduledStream, streams, v2Mode } from "./schedule";
+import { EDIT_SCAN_INTERVAL_MS, type Stream, scheduledStream, streams, v2Mode } from "./schedule";
 import { type Lease, MonitorStore } from "./store";
 import { advanceScan, type Scan, startScan } from "./traversal";
 
@@ -116,6 +116,7 @@ async function dispatchUnit(context: Invocation) {
     }
     stream = await continuationStream(context, minute);
   }
+  if (!stream) return { outcome: "idle" };
   const lease = await store.acquire(stream, now);
   if (!lease) return { outcome: "held", reason: "lease" };
   return streamUnit({ ...context, stream, lease });
@@ -204,7 +205,7 @@ async function recordRulesFailure(
 async function continuationStream(
   { db, env, now, rules }: Invocation,
   minute: number,
-): Promise<Stream> {
+): Promise<Stream | null> {
   const continuation = await db
     .prepare(`SELECT stream_id FROM forecast_v2_monitor_runs
       WHERE (status='running' OR EXISTS(SELECT 1 FROM forecast_v2_search_hits h
@@ -223,9 +224,11 @@ async function continuationStream(
     (
       await db
         .prepare(`SELECT stream_id FROM forecast_v2_monitor_state
-      WHERE stream_id<>'E' ORDER BY edit_scan_cutoff IS NOT NULL DESC,COALESCE(edit_scan_completed_at,'') LIMIT 1`)
+      WHERE stream_id<>'E' AND (edit_scan_completed_at IS NULL OR edit_scan_completed_at<=?)
+      ORDER BY edit_scan_cutoff IS NOT NULL DESC,COALESCE(edit_scan_completed_at,'') LIMIT 1`)
+        .bind(new Date(now - EDIT_SCAN_INTERVAL_MS).toISOString())
         .first<{ stream_id: Stream }>()
-    )?.stream_id ?? "A";
+    )?.stream_id ?? null;
   return stream;
 }
 
@@ -359,12 +362,18 @@ async function bodyUnit(
 }
 
 async function metadataUnit(
-  { db, store, stream, lease, now, guard, fetcher }: StreamInvocation,
+  { db, store, stream, lease, now, clock, guard, fetcher }: StreamInvocation,
   run: Run,
   state: State,
   cutoff: string,
   progress: AttemptState,
 ) {
+  const retryPending = await db
+    .prepare(`SELECT 1 FROM forecast_v2_fetch_attempts
+      WHERE run_id=? AND kind='metadata' AND next_attempt_at>? LIMIT 1`)
+    .bind(run.run_id, new Date(now).toISOString())
+    .first();
+  if (retryPending) throw new IngestFailure("retry_backoff");
   const hits = await db
     .prepare(`SELECT metadata_json FROM forecast_v2_search_hits WHERE run_id=?
       ORDER BY created_at DESC,feed_id`)
@@ -392,7 +401,7 @@ async function metadataUnit(
   const page = await fetchMetadata(stream, scan.page, fetcher);
   const next = advanceScan(scan, page, stream);
   await guard();
-  await store.commitPage(lease, run.run_id, next, now);
+  await store.commitPage(lease, run.run_id, next, now, clock());
   await store.finishAttempt(progress.attempt, null, now);
   if (next.status === "held") await store.hold(lease, next.reason!, now);
   if (next.reason === "boundary_reseeded") await store.alert(stream, next.reason, now);

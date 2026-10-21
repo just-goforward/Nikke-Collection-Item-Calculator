@@ -1,4 +1,10 @@
-import { listDueAlerts, markAlertSendFailed, markAlertSent } from "./db.ts";
+import {
+  expireBudgetIncidents,
+  listDueAlerts,
+  markAlertSendFailed,
+  markAlertSent,
+  retireLegacyBudgetAlerts,
+} from "./db.ts";
 import {
   DiscordMessageError,
   opsAlertMessage,
@@ -11,6 +17,11 @@ import type { DispatcherEnv } from "./types.ts";
 export async function flushOperations(env: DispatcherEnv): Promise<number> {
   const db = env.FORECAST_DB;
   const now = Date.now();
+  // Budget incidents live exactly as long as their game day: close the ended ones
+  // silently here (this runs every few minutes), and retire the legacy per-stream
+  // keys so their pending renewals stop without a data migration.
+  await expireBudgetIncidents(db, env.ENVIRONMENT, now);
+  await retireLegacyBudgetAlerts(db, env.ENVIRONMENT, now);
   let sent = 0;
   for (const alert of await listDueAlerts(db, env.ENVIRONMENT, now)) {
     try {

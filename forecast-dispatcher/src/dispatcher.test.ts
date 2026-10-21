@@ -430,6 +430,55 @@ describe("D1 operational delivery alongside publication", () => {
   });
 });
 
+describe("collector budget alerts reach the dispatcher", () => {
+  it("delivers the unexplained fallback alert and silently retires legacy budget keys", async () => {
+    const { flushOperations } = await import("./operations");
+    const { upsertOpsAlert } = await import("../../forecast-collector/src/ops.ts");
+    const { budgetUnexplainedAlertKey, BUDGET_UNEXPLAINED_ERROR_CODE } = await import(
+      "../../shared/forecastOpsAlerts.ts"
+    );
+    const db = testEnv.FORECAST_DB;
+    // Producer-owned rows: the fallback alert and a superseded legacy per-stream key.
+    await upsertOpsAlert(db, {
+      alertKey: budgetUnexplainedAlertKey("staging", "A"),
+      environment: "staging",
+      severity: "warning",
+      component: "collector",
+      errorCode: BUDGET_UNEXPLAINED_ERROR_CODE,
+      context: { stream: "A", gameDay: "2026-10-18" },
+      nowMs: TEST_NOW,
+    });
+    await upsertOpsAlert(db, {
+      alertKey: "forecast-v2:staging:A:budget_exhausted",
+      environment: "staging",
+      severity: "warning",
+      component: "collector",
+      errorCode: "budget_exhausted",
+      context: { stream: "A" },
+      nowMs: TEST_NOW,
+    });
+
+    expect(await flushOperations({ ...testEnv, PUBLICATION_MODE: "off" })).toBe(1);
+    expect(outbound).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(String(outbound.mock.calls[0]?.[1]?.body)) as {
+      embeds: { title: string; description: string }[];
+    };
+    expect(sent.embeds[0]?.title).toBe("Forecast 운영 경고");
+    expect(sent.embeds[0]?.description).toContain("budget_unexplained");
+    expect(sent.embeds[0]?.description).not.toContain("공지 수집 일시 대기");
+
+    const legacy = await db
+      .prepare("SELECT state, recovery_sent_at FROM forecast_ops_alerts WHERE alert_key=?")
+      .bind("forecast-v2:staging:A:budget_exhausted")
+      .first<{ state: string; recovery_sent_at: string | null }>();
+    expect(legacy?.state).toBe("resolved");
+    expect(legacy?.recovery_sent_at).not.toBeNull();
+    // The retirement is idempotent and never turns into a delivery.
+    expect(await flushOperations({ ...testEnv, PUBLICATION_MODE: "off" })).toBe(0);
+    expect(outbound).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("emergency review admission does not block delivery", () => {
   async function approve() {
     const review = await approvalReview(testEnv.FORECAST_DB);
