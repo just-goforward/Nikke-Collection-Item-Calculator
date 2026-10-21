@@ -51,13 +51,22 @@ describe("legal pages", () => {
       }
       expect(html).toContain(`<p class="back"><a href="${SITE_LOCALES[locale].path}">`);
       expect(html).not.toMatch(/<script\b[^>]*\bsrc=/);
+      expect(html.match(/<mark class="placeholder"/g) ?? []).toHaveLength(0);
+      if (page !== "licenses") {
+        const effectiveDates = {
+          ko: "시행일: 2026년 10월 21일",
+          en: "Effective date: October 21, 2026",
+          ja: "施行日: 2026年10月21日",
+        };
+        expect(html).toContain(effectiveDates[locale]);
+      }
     });
   }
 
-  it("renders the Korean privacy draft with placeholders, tables and the contact email", () => {
+  it("renders the Korean privacy policy with its effective date, tables and contact email", () => {
     const html = renderLegalPage("privacy", "ko", inputs);
     expect(html).toContain("<title>개인정보 처리방침 - NIKKE 소장품 레벨업 계산기</title>");
-    expect(html).toContain('<mark class="placeholder" title="입력 예정">2026년 ○월 ○일</mark>');
+    expect(html).toContain("시행일: 2026년 10월 21일");
     expect(html).toContain("개인정보 보호책임자: 서비스 운영자");
     expect(html).toContain(
       "도메인 이전 점검 기간(2026년 10월 28일 무렵 종료 예정)에는 일시적으로 모든 요청을 기록합니다",
@@ -101,7 +110,7 @@ describe("legal pages", () => {
     (locale) => {
       const html = renderLegalPage("terms", locale, inputs);
       expect(html).not.toContain('<p class="placeholder-block"');
-      expect(html.match(/<mark class="placeholder"/g)).toHaveLength(1);
+      expect(html.match(/<mark class="placeholder"/g) ?? []).toHaveLength(0);
       expect(html).toContain(`href="${siteLegalPagePath(locale, "privacy")}"`);
       expect(html).toContain(`href="${siteLegalPagePath(locale, "licenses")}"`);
       expect(html).toContain(

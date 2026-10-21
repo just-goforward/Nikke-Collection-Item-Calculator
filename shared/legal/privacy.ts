@@ -11,7 +11,7 @@ export const PRIVACY_POLICY = {
   ko: {
     title: "개인정보 처리방침",
     description: "NIKKE 소장품 레벨업 계산기의 개인정보 처리방침입니다.",
-    effective: ["시행일: ", { placeholder: "2026년 ○월 ○일" }],
+    effective: ["시행일: 2026년 10월 21일"],
     intro: [
       {
         type: "paragraph",
@@ -234,7 +234,7 @@ export const PRIVACY_POLICY = {
   en: {
     title: "Privacy Policy",
     description: "Privacy policy of the NIKKE Collection Item Upgrade Calculator.",
-    effective: ["Effective date: ", { placeholder: "○○ ○○, 2026" }],
+    effective: ["Effective date: October 21, 2026"],
     intro: [
       {
         type: "paragraph",
@@ -457,7 +457,7 @@ export const PRIVACY_POLICY = {
   ja: {
     title: "プライバシーポリシー",
     description: "NIKKE コレクション強化計算機のプライバシーポリシーです。",
-    effective: ["施行日: ", { placeholder: "2026年○月○日" }],
+    effective: ["施行日: 2026年10月21日"],
     intro: [
       {
         type: "paragraph",

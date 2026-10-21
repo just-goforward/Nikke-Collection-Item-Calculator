@@ -7,7 +7,7 @@ export const TERMS_OF_SERVICE = {
   ko: {
     title: "서비스 이용약관",
     description: "NIKKE 소장품 레벨업 계산기의 서비스 이용약관입니다.",
-    effective: ["시행일: ", { placeholder: "2026년 ○월 ○일" }],
+    effective: ["시행일: 2026년 10월 21일"],
     intro: [],
     sections: [
       {
@@ -155,7 +155,7 @@ export const TERMS_OF_SERVICE = {
   en: {
     title: "Terms of Service",
     description: "Terms of service of the NIKKE Collection Item Upgrade Calculator.",
-    effective: ["Effective date: ", { placeholder: "○○ ○○, 2026" }],
+    effective: ["Effective date: October 21, 2026"],
     intro: [],
     sections: [
       {
@@ -309,7 +309,7 @@ export const TERMS_OF_SERVICE = {
   ja: {
     title: "サービス利用規約",
     description: "NIKKE コレクション強化計算機のサービス利用規約です。",
-    effective: ["施行日: ", { placeholder: "2026年○月○日" }],
+    effective: ["施行日: 2026年10月21日"],
     intro: [],
     sections: [
       {

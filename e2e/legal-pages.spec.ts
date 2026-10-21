@@ -8,6 +8,7 @@ const ORIGIN = "https://nikkecollection.com";
 const locales = [
   {
     lang: "ko",
+    effective: "시행일: 2026년 10월 21일",
     prefix: "/",
     home: "NIKKE 소장품 레벨업 계산기",
     titles: { privacy: "개인정보 처리방침", terms: "서비스 이용약관", licenses: "라이선스" },
@@ -18,6 +19,7 @@ const locales = [
   },
   {
     lang: "en",
+    effective: "Effective date: October 21, 2026",
     prefix: "/en/",
     home: "NIKKE Collection Item Upgrade Calculator",
     titles: { privacy: "Privacy Policy", terms: "Terms of Service", licenses: "Licenses" },
@@ -28,6 +30,7 @@ const locales = [
   },
   {
     lang: "ja",
+    effective: "施行日: 2026年10月21日",
     prefix: "/ja/",
     home: "NIKKE コレクション強化計算機",
     titles: { privacy: "プライバシーポリシー", terms: "サービス利用規約", licenses: "ライセンス" },
@@ -104,6 +107,10 @@ for (const locale of locales) {
         ["x-default", `${ORIGIN}/${legalPage}`],
       ]);
       await expect(page.locator(".back a")).toHaveAttribute("href", locale.prefix);
+      await expect(page.locator("mark.placeholder")).toHaveCount(0);
+      if (legalPage !== "licenses") {
+        await expect(page.locator("main")).toContainText(locale.effective);
+      }
       if (legalPage === "privacy") {
         const contactLinks = page.getByRole("link", { name: "contact@nikkecollection.com" });
         await expect(contactLinks).toHaveCount(2);
