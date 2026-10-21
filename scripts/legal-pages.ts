@@ -136,7 +136,7 @@ function generatedSections(page: SiteLegalPage, locale: SiteLocale, inputs: Lega
 }
 
 const THEME_SCRIPT =
-  '(()=>{try{const t=localStorage.getItem("collectionThemeMode");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch{}})();';
+  '(()=>{try{const t=localStorage.getItem("collectionThemeMode");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch{document.documentElement.removeAttribute("data-theme")}})();';
 
 // Colors mirror the light/dark tokens in src/styles.css; no app bundle is loaded.
 const PAGE_STYLE = `:root{color-scheme:light;--bg:#eef7fb;--surface:#fff;--surface-strong:#f3f8fb;--ink:#172534;--muted:#506475;--strong:#24342e;--line:#d5e6ef;--link:#1d5f8a}
