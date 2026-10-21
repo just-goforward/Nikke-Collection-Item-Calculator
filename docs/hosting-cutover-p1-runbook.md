@@ -334,7 +334,8 @@ README 3개)는 같은 변경에서 "일시적으로 전체, 평소 10% 표본"�
   events view로 직접 세며, calculations group-by 결과는 events와 불일치해 사용하지 않는다.
   같은 window의 GraphQL `workersInvocationsAdaptive` 호출 수와 대조해 누락 window를 판정한다.
 - 판정 후(B 종료 또는 연장 결정): `head_sampling_rate` 0.1, `scripts/cloudflare-paid-quota-config.test.ts`
-  기대값 `[0.1, 0.1]`, 개인정보 안내 6곳을 원래 "표본 요청 로그(설정 10%)" 문구로 되돌리고
+  기대값 `[0.1, 0.1]`, 개인정보 안내 6곳(`shared/legal/privacy.ts` 1항 운영 로그 bullet ko/en/ja +
+README 3개)을 원래 "표본 요청 로그(설정 10%)" 문구로 되돌리고
   승인된 staging→promote 경로로 배포한다. 담당: Lead, 결정: 운영자.
 
 ### Token rotation
