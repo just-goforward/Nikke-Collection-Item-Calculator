@@ -5,8 +5,10 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
 import {
+  SITE_LEGAL_PAGES,
   SITE_LOCALE_ORDER,
   SITE_LOCALES,
+  siteLegalPageUrl,
   siteLocaleFromPathname,
   siteLocaleUrl,
 } from "../shared/siteLocales";
@@ -96,11 +98,18 @@ describe("localized pages", () => {
     ).toContain(`<html lang="${SITE_LOCALES.en.htmlLang}" data-locale="en"`);
   });
 
-  it("lists exactly the three canonical locale URLs in the sitemap", () => {
+  it("lists the three locale homes, then the nine legal pages, in the sitemap", () => {
     const sitemap = renderSitemap();
     const locations = [...sitemap.matchAll(/<loc>(.*?)<\/loc>/g)].map((match) => match[1]);
 
-    expect(locations).toEqual(SITE_LOCALE_ORDER.map(siteLocaleUrl));
+    expect(locations).toEqual([
+      ...SITE_LOCALE_ORDER.map(siteLocaleUrl),
+      ...SITE_LOCALE_ORDER.flatMap((locale) =>
+        SITE_LEGAL_PAGES.map((page) => siteLegalPageUrl(locale, page)),
+      ),
+    ]);
+    expect(locations).toContain("https://nikkecollection.com/en/privacy");
+    expect(locations).toHaveLength(12);
   });
 
   it.each(SITE_LOCALE_ORDER)("ships a 1200x630 %s Open Graph image", async (locale) => {

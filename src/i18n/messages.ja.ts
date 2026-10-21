@@ -244,10 +244,12 @@ export const jaMessages = {
   "stats.piecesUsed": "{pieces}個使用",
   "stats.piecesUsedBreakdown": "キット別使用量を表示: {pieces}",
   "modal.preparing": "残りのキット数を選ぶ画面を準備中。",
-  "privacy.notice":
-    "結果検証のため使用前後の正確なキット在庫を送信します。統計DBには集計とイベントID（拒否IDを含め重複防止のため約14日）を保存し、在庫・IP・ユーザーIDは保存しません。未送信結果は再試行のためブラウザに約15分保持します。IPは不正利用・レート制限のため一時処理します。別途Cloudflareは運用・問題解決用のリクエストログ（ドメイン移行の確認中は一時的に全件、通常は10%標本）をWorkers Paidで最大7日保存する場合があり、リクエスト・レスポンスのメタデータとヘッダーにIPが含まれる場合があります。送信されたイベントのみ反映し、ユーザー数は集計しません。Cloudflare Web AnalyticsはCookie・ローカルストレージなしで閲覧・性能（パス、参照元、国、ブラウザ・OS・機器）を計測します。IPは受け取りますが保存せず、EU・EEA・英国・スイスのデータセンター経由の訪問者は除外します。",
+  "footer.nav": "サイト情報",
+  "footer.privacy": "プライバシーポリシー",
+  "footer.terms": "利用規約",
+  "footer.contact": "お問い合わせ",
+  "footer.contactSubject": "[NIKKE計算機] お問い合わせ",
+  "footer.license": "ライセンス",
   "rights.notice":
     "NIKKEおよび関連する名称、商標、ゲーム内アセットの権利は、各権利者に帰属します。本プロジェクトは非公式のファン制作計算ツールであり、ゲームの開発元またはパブリッシャーとの提携、承認、後援を受けたものではありません。",
-  "license.notice": "本プログラムは無保証でAGPL-3.0-or-laterに基づき提供されます。",
-  "license.source": "ライセンスとソースコード",
 } satisfies Record<keyof typeof koMessages, string>;

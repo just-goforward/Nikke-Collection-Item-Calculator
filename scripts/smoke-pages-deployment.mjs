@@ -23,6 +23,13 @@ export const localePages = [
   },
 ];
 const canonicalUrls = localePages.map(({ canonical }) => canonical);
+/** Sitemap order: locale homes, then each locale's legal pages. */
+export const sitemapUrls = [
+  ...canonicalUrls,
+  ...canonicalUrls.flatMap((canonical) =>
+    ["privacy", "terms", "licenses"].map((page) => `${canonical}${page}`),
+  ),
+];
 // Optional script Cloudflare Web Analytics may inject at the edge (documented or versioned form);
 // it is not a site asset.
 const WEB_ANALYTICS_BEACON =
@@ -181,7 +188,7 @@ export async function smokePages(pageUrl, expectedRevision, fetchImpl = fetch) {
   const sitemap = await sitemapResponse.text();
   const sitemapLocations = [...sitemap.matchAll(/<loc>(.*?)<\/loc>/g)].map((match) => match[1]);
   assert(
-    JSON.stringify(sitemapLocations) === JSON.stringify(canonicalUrls),
+    JSON.stringify(sitemapLocations) === JSON.stringify(sitemapUrls),
     `sitemap URLs mismatch: ${JSON.stringify(sitemapLocations)}`,
   );
 

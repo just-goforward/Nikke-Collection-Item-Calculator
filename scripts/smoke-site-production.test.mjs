@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { renderLegalPage } from "./legal-pages.ts";
 import { renderLocalizedPage } from "./localized-pages.ts";
-import { localePages } from "./smoke-pages-deployment.mjs";
+import { localePages, sitemapUrls } from "./smoke-pages-deployment.mjs";
 import {
   smokeSiteProduction,
   smokeSiteProductionAfterDeploy,
@@ -21,6 +22,23 @@ function html(locale) {
   assert.ok(rendered.includes("<noscript>") && rendered.includes("https://cdn.jsdelivr.net"));
   return rendered;
 }
+
+const legalInputs = {
+  npmLicensesMarkdown: "## react - 19.3.1 (MIT)\n\nMIT License\n",
+  rustCrates: [
+    {
+      name: "itoa",
+      version: "1.0.18",
+      license: "MIT",
+      texts: [{ file: "LICENSE-MIT", text: "MIT" }],
+    },
+  ],
+};
+const legalPages = new Map([
+  ["/privacy", renderLegalPage("privacy", "ko", legalInputs)],
+  ["/en/terms", renderLegalPage("terms", "en", legalInputs)],
+  ["/ja/licenses", renderLegalPage("licenses", "ja", legalInputs)],
+]);
 
 function fixture(change = () => {}) {
   const calls = [];
@@ -47,6 +65,17 @@ function fixture(change = () => {}) {
           "Cache-Control": "public, max-age=0, must-revalidate",
         };
         result.body = html(locale);
+      } else if (legalPages.has(path)) {
+        result.headers = {
+          "Content-Type": "text/html",
+          "Cache-Control": "public, max-age=0, must-revalidate",
+        };
+        result.body = legalPages.get(path);
+      } else if (path === "/privacy/") {
+        assert.equal(url.search, "");
+        result.status = 307;
+        result.headers = { Location: "/privacy" };
+        result.body = null;
       } else if (path.endsWith(".js")) {
         result.headers = {
           "Content-Type": "text/javascript",
@@ -69,7 +98,7 @@ function fixture(change = () => {}) {
         result.body = `User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`;
       } else if (path === "/sitemap.xml") {
         result.headers["Content-Type"] = "application/xml";
-        result.body = `<urlset>${localePages.map((entry) => `<url><loc>${entry.canonical}</loc></url>`).join("")}</urlset>`;
+        result.body = `<urlset>${sitemapUrls.map((url) => `<url><loc>${url}</loc></url>`).join("")}</urlset>`;
       } else if (init.method === "HEAD") {
         result.status = 405;
         result.body = null;
@@ -98,6 +127,12 @@ test("production smoke verifies locales, assets, revision, SEO, cache and read-o
   assert.ok(
     !source.calls.some(([path]) => /events|callback|logout|workspace|export|consent/.test(path)),
   );
+  for (const path of ["/privacy", "/en/terms", "/ja/licenses", "/privacy/"]) {
+    assert.ok(
+      source.calls.some(([called]) => called === path),
+      `${path} was not checked`,
+    );
+  }
 });
 
 const beaconTag = (src = "https://static.cloudflareinsights.com/beacon.min.js") =>
@@ -329,6 +364,51 @@ for (const [name, change, error] of [
       if (path === "/sitemap.xml") value.status = 404;
     },
     /expected 200/,
+  ],
+  [
+    "a sitemap without the legal pages",
+    (path, value) => {
+      if (path === "/sitemap.xml") value.body = value.body.replace(/<url><loc>[^<]*privacy.*$/, "");
+    },
+    /sitemap locations mismatch/,
+  ],
+  [
+    "a missing legal page",
+    (path, value) => {
+      if (path === "/en/terms") value.status = 404;
+    },
+    /expected 200/,
+  ],
+  [
+    "a legal page in the wrong language",
+    (path, value) => {
+      if (path === "/ja/licenses") value.body = value.body.replace('lang="ja"', 'lang="en"');
+    },
+    /wrong language/,
+  ],
+  [
+    "a redirecting legal page",
+    (path, value) => {
+      if (path === "/privacy") {
+        value.status = 308;
+        value.headers.Location = "/privacy/";
+      }
+    },
+    /unexpected redirect/,
+  ],
+  [
+    "a served trailing-slash alias",
+    (path, value) => {
+      if (path === "/privacy/") value.status = 200;
+    },
+    /expected a redirect/,
+  ],
+  [
+    "a trailing-slash redirect elsewhere",
+    (path, value) => {
+      if (path === "/privacy/") value.headers.Location = "/";
+    },
+    /redirect target mismatch/,
   ],
   [
     "bad HTML cache",

@@ -1461,9 +1461,12 @@ test("데스크톱 구간 막대 클릭은 툴팁 위치를 움직이지 않는�
 test("개인정보 안내는 데스크톱 푸터와 모바일 통계 탭 푸터에만 표시된다", async ({ page }) => {
   await page.goto("/?demoStats=1");
   await expect(page.locator("footer:visible")).toHaveCount(1);
-  await expect(page.locator("footer:visible")).toContainText(
-    "재고·IP·사용자 ID는 저장하지 않습니다",
-  );
+  await expect(page.locator("footer:visible").getByRole("link")).toHaveText([
+    "개인정보 처리방침",
+    "이용약관",
+    "문의하기",
+    "라이선스",
+  ]);
   await expect(page.locator("footer:visible")).toContainText(
     "비공식 팬 제작 계산기이며, 게임 개발사 또는 퍼블리셔와 제휴하거나",
   );

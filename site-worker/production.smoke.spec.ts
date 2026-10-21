@@ -98,7 +98,24 @@ test("production robots, sitemap, HTML aliases and static cache behavior", async
   expect(robots.headers()["cache-control"]).toBe("public, max-age=0, must-revalidate");
   expect(await (await request.head("/robots.txt")).text()).toBe("");
   const sitemap = await request.get("/sitemap.xml");
-  expect(await sitemap.text()).toContain("<loc>https://nikkecollection.com/en/</loc>");
+  const sitemapText = await sitemap.text();
+  expect(sitemapText).toContain("<loc>https://nikkecollection.com/en/</loc>");
+  expect(sitemapText).toContain("<loc>https://nikkecollection.com/ja/licenses</loc>");
+  for (const [path, lang] of [
+    ["/privacy", "ko"],
+    ["/en/terms", "en"],
+    ["/ja/licenses", "ja"],
+  ] as const) {
+    const legal = await request.get(path, { maxRedirects: 0 });
+    expect(legal.status(), path).toBe(200);
+    expect(legal.headers()["content-type"]).toContain("text/html");
+    expect(legal.headers()["cache-control"]).toBe("public, max-age=0, must-revalidate");
+    expect(legal.headers()["x-robots-tag"]).toBeUndefined();
+    expect(await legal.text()).toContain(`<html lang="${lang}" data-locale="${lang}"`);
+  }
+  const slash = await request.get("/privacy/", { maxRedirects: 0 });
+  expect([301, 307, 308]).toContain(slash.status());
+  expect(new URL(slash.headers()["location"] ?? "", "http://x").pathname).toBe("/privacy");
   for (const path of ["/", "/index.html", "/en", "/en/", "/en/index.html", "/ja/"]) {
     const html = await request.get(path);
     expect(html.status()).toBe(200);

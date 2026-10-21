@@ -176,6 +176,8 @@
     "format": "biome format --write",
     "report:bundle": "node scripts/report-bundle.ts",
     "check:bundle-budget": "node scripts/check-bundle-budget.ts",
+    "generate:rust-wasm-licenses": "node scripts/rust-wasm-licenses.ts --write",
+    "check:rust-wasm-licenses": "node scripts/rust-wasm-licenses.ts --check",
     "lint:rust": "cargo fmt --manifest-path rust/solver-rs/Cargo.toml --check && cargo clippy --manifest-path rust/solver-rs/Cargo.toml --target wasm32-unknown-unknown -- -D warnings",
     "perf:fonts": "node scripts/compare-font-loading.mjs",
     "generate:og": "npm run build && node scripts/generate-og-images.ts",

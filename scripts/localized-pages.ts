@@ -10,7 +10,9 @@ import {
   siteLocaleFromPathname,
   siteLocaleJsonLd,
   siteLocaleUrl,
+  siteSitemapUrls,
 } from "../shared/siteLocales.ts";
+import { writeLegalBuildPages } from "./legal-pages.ts";
 
 const SEO_BLOCK_PATTERN = /<!-- localized-seo:start -->[\s\S]*?<!-- localized-seo:end -->/;
 const HTML_LOCALE_PATTERN = /<html lang="[^"]+" data-locale="[^"]+" data-site-locale-root>/;
@@ -107,9 +109,9 @@ export function renderLocalizedPage(html: string, locale: SiteLocale) {
 }
 
 export function renderSitemap() {
-  const urls = SITE_LOCALE_ORDER.map(
-    (locale) => `  <url>\n    <loc>${siteLocaleUrl(locale)}</loc>\n  </url>`,
-  ).join("\n");
+  const urls = siteSitemapUrls()
+    .map((url) => `  <url>\n    <loc>${url}</loc>\n  </url>`)
+    .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
 }
 
@@ -122,6 +124,7 @@ async function writeLocalizedBuildPages(distDir: string) {
     await writeFile(output, renderLocalizedPage(rootHtml, locale), "utf8");
   }
   await writeFile(resolve(distDir, "sitemap.xml"), renderSitemap(), "utf8");
+  await writeLegalBuildPages(distDir);
 }
 
 export function localizedPagesPlugin(): Plugin {

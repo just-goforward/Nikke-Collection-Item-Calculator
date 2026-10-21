@@ -4,6 +4,7 @@ import {
   assetUrlsFromHtml,
   checkedFetch,
   localePages,
+  sitemapUrls,
   verifyLocalizedHtml,
 } from "./smoke-pages-deployment.mjs";
 
@@ -106,6 +107,28 @@ export async function smokeSiteProduction(origin, revision, { fetchImpl = fetch 
     }
     return { response, bytes: Buffer.concat(chunks), url };
   }
+  // Trailing-slash aliases of extensionless asset pages redirect to the canonical URL.
+  async function legacySlashRedirect(path, target) {
+    assert(++requests <= 80, "Smoke request budget exceeded");
+    const response = await fetchImpl(new URL(path, origin), {
+      cache: "no-store",
+      redirect: "manual",
+      credentials: "omit",
+      method: "GET",
+      signal: AbortSignal.any([lifetime, AbortSignal.timeout(15_000)]),
+    });
+    await response.body?.cancel();
+    assert(
+      [301, 307, 308].includes(response.status),
+      `${path}: expected a redirect, received ${response.status}`,
+    );
+    const location = new URL(response.headers.get("location") ?? "", new URL(path, origin));
+    assert(
+      location.origin === origin && location.pathname === target,
+      `${path}: redirect target mismatch`,
+    );
+    assert(!response.headers.has("set-cookie"), `${path}: public smoke must remain cookie-free`);
+  }
   const assets = new Map();
   const entryScripts = new Set();
   for (const locale of localePages) {
@@ -165,10 +188,21 @@ export async function smokeSiteProduction(origin, revision, { fetchImpl = fetch 
   assert(robots.includes(`Sitemap: ${origin}/sitemap.xml`), "robots missing Sitemap");
   const sitemap = (await get("/sitemap.xml", "xml")).bytes.toString("utf8");
   const locations = [...sitemap.matchAll(/<loc>(.*?)<\/loc>/g)].map((match) => match[1]);
-  assert(
-    JSON.stringify(locations) === JSON.stringify(localePages.map((locale) => locale.canonical)),
-    "sitemap locations mismatch",
-  );
+  assert(JSON.stringify(locations) === JSON.stringify(sitemapUrls), "sitemap locations mismatch");
+  // One legal page per locale; the extensionless URL is canonical and must not redirect.
+  for (const [path, lang] of [
+    ["/privacy", "ko"],
+    ["/en/terms", "en"],
+    ["/ja/licenses", "ja"],
+  ]) {
+    const html = (await get(path, "text/html")).bytes.toString("utf8");
+    assert(html.includes(`<html lang="${lang}"`), `${path}: wrong language`);
+    assert(
+      html.includes(`<link rel="canonical" href="${origin}${path}" />`),
+      `${path}: canonical URL mismatch`,
+    );
+  }
+  await legacySlashRedirect("/privacy/", "/privacy");
   // Public stats only. Never call OAuth callbacks, login/logout, personal-data, or /api/events.
   const stats = await get("/api/stats", "application/json");
   if (stats.response.status === 200) {

@@ -261,10 +261,12 @@ export const enMessages = {
   "stats.piecesUsed": "{pieces} used",
   "stats.piecesUsedBreakdown": "View usage by kit: {pieces}",
   "modal.preparing": "Loading remaining kit choices.",
-  "privacy.notice":
-    "Exact before/after kit stock is sent to validate results. The statistics DB stores aggregates and event IDs (including rejected-event IDs, about 14 days to prevent duplicates), not stock, IP or user IDs. Unsent results stay in the browser about 15 minutes for retry. IP is processed transiently for abuse/rate limits. Separately, Cloudflare may keep request logs (all requests during a temporary domain-migration check, normally a 10% sample) for operations/troubleshooting up to 7 days on Workers Paid; request/response metadata and headers may include IP. Only submitted events count, not unique users. Cloudflare Web Analytics measures page views/performance (path, referrer, country, browser, OS, device) without cookies/local storage. It receives but does not store IP; visitors via EU, EEA, UK or Swiss data centers are excluded.",
+  "footer.nav": "Site information",
+  "footer.privacy": "Privacy policy",
+  "footer.terms": "Terms of service",
+  "footer.contact": "Contact",
+  "footer.contactSubject": "[NIKKE Calculator] Inquiry",
+  "footer.license": "License",
   "rights.notice":
     "NIKKE and all related names, trademarks, and in-game assets are the property of their respective owners. This is an unofficial fan-made calculator and is not affiliated with, endorsed by, or sponsored by the game's developer or publisher.",
-  "license.notice": "This program is provided without warranty under AGPL-3.0-or-later.",
-  "license.source": "License and source code",
 } satisfies Record<keyof typeof koMessages, string>;
