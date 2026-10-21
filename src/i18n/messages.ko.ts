@@ -252,8 +252,7 @@ export const koMessages = {
   "footer.contact": "문의하기",
   "footer.contactSubject": "[NIKKE 계산기] 문의",
   "footer.license": "라이선스",
-  "rights.notice":
-    "비공식 팬 제작 계산기입니다. NIKKE 관련 권리는 각 권리자에게 있습니다.",
+  "rights.notice": "비공식 팬 제작 계산기입니다. NIKKE 관련 권리는 각 권리자에게 있습니다.",
 } as const;
 
 export type MessageKey = keyof typeof koMessages;

@@ -250,6 +250,5 @@ export const jaMessages = {
   "footer.contact": "お問い合わせ",
   "footer.contactSubject": "[NIKKE計算機] お問い合わせ",
   "footer.license": "ライセンス",
-  "rights.notice":
-    "非公式のファン制作計算ツールです。NIKKE関連の権利は各権利者に帰属します。",
+  "rights.notice": "非公式のファン制作計算ツールです。NIKKE関連の権利は各権利者に帰属します。",
 } satisfies Record<keyof typeof koMessages, string>;

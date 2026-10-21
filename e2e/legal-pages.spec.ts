@@ -25,7 +25,8 @@ const locales = [
     titles: { privacy: "Privacy Policy", terms: "Terms of Service", licenses: "Licenses" },
     links: ["Privacy policy", "Terms of service", "Contact", "License"],
     subject: "[NIKKE Calculator] Inquiry",
-    rights: "An unofficial fan-made calculator. NIKKE-related rights belong to their respective owners.",
+    rights:
+      "An unofficial fan-made calculator. NIKKE-related rights belong to their respective owners.",
     logging: "(expected to end around October 28, 2026), all requests are temporarily recorded",
   },
   {
