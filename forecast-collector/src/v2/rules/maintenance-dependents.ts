@@ -82,19 +82,44 @@ async function maintenanceGrants(
       ON julianday(d.value)=julianday(m.ends_at) WHERE m.event_id=? AND m.kind='maintenance')`)
     .bind(eventId)
     .all<{ occurrence_id: string; revision: number; ii_qty: number; box_qty: number }>();
+  // Every grant in the batch is classified first: the ambiguity lookahead needs the link
+  // set the *whole* batch leaves behind, not just one grant's own moving links.
+  const planned: {
+    grant: GrantHead;
+    destinations: GrantDestination[];
+    exact: GrantDestination | undefined;
+  }[] = [];
   for (const grant of grants.results) {
     const destinations = (
       await db
         .prepare(`SELECT occurrence_id,ii_qty,box_qty FROM forecast_v2_grant_heads
       WHERE grant_game_day=? AND occurrence_id<>?`)
         .bind(gameDay(end), grant.occurrence_id)
-        .all<{ occurrence_id: string; ii_qty: number; box_qty: number }>()
+        .all<GrantDestination>()
     ).results;
-    const exact = destinations.find(
-      (target) => target.ii_qty === grant.ii_qty && target.box_qty === grant.box_qty,
-    );
+    planned.push({
+      grant,
+      destinations,
+      exact: destinations.find(
+        (target) => target.ii_qty === grant.ii_qty && target.box_qty === grant.box_qty,
+      ),
+    });
+  }
+  const batch = await batchLinkOutcome(db, eventId, planned);
+  for (const { grant, destinations, exact } of planned) {
     if (destinations.length) {
-      await collideGrant(db, grant, exact, eventId, revision, end, now, environment, statements);
+      await collideGrant(
+        db,
+        grant,
+        exact,
+        eventId,
+        revision,
+        end,
+        now,
+        environment,
+        statements,
+        batch,
+      );
       continue;
     }
     statements.push(
@@ -120,24 +145,90 @@ async function maintenanceGrants(
   return statements;
 }
 
+/** The link state this batch produces, per feed, as `persistGrantDecision` will see it. */
+type BatchLinks = {
+  /** Every link id the batch deletes, across all colliding grants. */
+  removed: ReadonlySet<string>;
+  /** Occurrences that receive a new link of the feed through an `exact` re-link. */
+  relinked: ReadonlyMap<string, readonly string[]>;
+  /** The moving links of one colliding grant, so it can emit its own statements. */
+  movingOf: (occurrenceId: string) => readonly MovingLink[];
+};
+type MovingLink = {
+  link_id: string;
+  observation_id: string;
+  feed_id: string;
+  content_hash: string;
+};
+
+async function batchLinkOutcome(
+  db: D1Database,
+  eventId: string,
+  planned: readonly {
+    grant: GrantHead;
+    destinations: GrantDestination[];
+    exact: GrantDestination | undefined;
+  }[],
+): Promise<BatchLinks> {
+  const removed = new Set<string>();
+  const relinked = new Map<string, Set<string>>();
+  const byGrant = new Map<string, readonly MovingLink[]>();
+  for (const { grant, destinations, exact } of planned) {
+    if (!destinations.length) continue;
+    const moving = await movingLinks(db, grant.occurrence_id, eventId);
+    byGrant.set(grant.occurrence_id, moving);
+    for (const link of moving) {
+      removed.add(link.link_id);
+      if (!exact) continue;
+      const kept = relinked.get(link.feed_id) ?? new Set<string>();
+      kept.add(exact.occurrence_id);
+      relinked.set(link.feed_id, kept);
+    }
+  }
+  return {
+    removed,
+    relinked: new Map([...relinked].map(([feed, ids]) => [feed, [...ids]])),
+    movingOf: (occurrenceId) => byGrant.get(occurrenceId) ?? [],
+  };
+}
+
+async function movingLinks(db: D1Database, occurrenceId: string, eventId: string) {
+  return (
+    await db
+      .prepare(`SELECT l.link_id,l.observation_id,o.feed_id,v.content_hash
+        FROM forecast_v2_grant_links l JOIN forecast_v2_grant_observations o ON o.observation_id=l.observation_id
+        JOIN forecast_v2_post_versions v ON v.version_id=o.version_id
+        WHERE l.occurrence_id=? AND o.date_basis='maintenance_end' AND EXISTS(
+          SELECT 1 FROM json_each(o.candidate_dates_json) d JOIN forecast_v2_calendar_revisions m
+          ON julianday(d.value)=julianday(m.ends_at) WHERE m.event_id=?)`)
+      .bind(occurrenceId, eventId)
+      .all<MovingLink>()
+  ).results;
+}
+
 /**
- * Occurrences this feed keeps once this batch deletes the moved links — the same set
- * `previousGrantOccurrences` sees inside `persistGrantDecision`.
+ * Occurrences this feed still has once this batch applies — the same set
+ * `previousGrantOccurrences` sees inside `persistGrantDecision`. Every link the batch
+ * deletes is excluded, across every colliding grant, and a re-link into an existing
+ * occurrence (the `exact` destination) counts that occurrence again.
+ *
+ * Both id lists travel as one JSON array each: a batch can move more links than D1's
+ * 100 bound-parameter limit, so the bind count here stays constant.
  */
 async function remainingOccurrences(
   db: D1Database,
   feedId: string,
-  movedOccurrence: string,
   removedLinkIds: readonly string[],
+  relinkedOccurrences: readonly string[],
 ) {
-  const placeholders = removedLinkIds.map(() => "?").join(",");
   const row = await db
-    .prepare(`SELECT COUNT(DISTINCT l.occurrence_id) AS n FROM forecast_v2_grant_links l
+    .prepare(`SELECT COUNT(DISTINCT occurrence_id) AS n FROM (
+    SELECT l.occurrence_id AS occurrence_id FROM forecast_v2_grant_links l
     JOIN forecast_v2_grant_observations o USING(observation_id)
     JOIN forecast_v2_grant_heads h USING(occurrence_id)
-    WHERE o.feed_id=? AND l.occurrence_id<>?
-    ${removedLinkIds.length ? `AND l.link_id NOT IN (${placeholders})` : ""}`)
-    .bind(feedId, movedOccurrence, ...removedLinkIds)
+    WHERE o.feed_id=? AND l.link_id NOT IN (SELECT value FROM json_each(?))
+    UNION SELECT value AS occurrence_id FROM json_each(?))`)
+    .bind(feedId, JSON.stringify(removedLinkIds), JSON.stringify(relinkedOccurrences))
     .first<{ n: number }>();
   return row?.n ?? 0;
 }
@@ -152,23 +243,9 @@ async function collideGrant(
   now: string,
   environment: "staging" | "production" | undefined,
   statements: D1PreparedStatement[],
+  batch: BatchLinks,
 ) {
-  const moving = (
-    await db
-      .prepare(`SELECT l.link_id,l.observation_id,o.feed_id,v.content_hash
-        FROM forecast_v2_grant_links l JOIN forecast_v2_grant_observations o ON o.observation_id=l.observation_id
-        JOIN forecast_v2_post_versions v ON v.version_id=o.version_id
-        WHERE l.occurrence_id=? AND o.date_basis='maintenance_end' AND EXISTS(
-          SELECT 1 FROM json_each(o.candidate_dates_json) d JOIN forecast_v2_calendar_revisions m
-          ON julianday(d.value)=julianday(m.ends_at) WHERE m.event_id=?)`)
-      .bind(grant.occurrence_id, eventId)
-      .all<{
-        link_id: string;
-        observation_id: string;
-        feed_id: string;
-        content_hash: string;
-      }>()
-  ).results;
+  const moving = batch.movingOf(grant.occurrence_id);
   for (const link of moving) {
     if (exact) {
       statements.push(
@@ -184,13 +261,13 @@ async function collideGrant(
     } else {
       if (!environment) throw new Error("maintenance_collision_environment_required");
       // persistGrantDecision rejects BOTH options when this feed keeps several prior
-      // occurrences (grant_correction_target_ambiguous). It reads the links that
-      // survive this batch, so count them the same way.
+      // occurrences (grant_correction_target_ambiguous). It counts what survives the
+      // whole batch, so count that same set here.
       const remaining = await remainingOccurrences(
         db,
         link.feed_id,
-        grant.occurrence_id,
-        moving.map((entry) => entry.link_id),
+        [...batch.removed],
+        batch.relinked.get(link.feed_id) ?? [],
       );
       const ambiguous = remaining > 1;
       await requestDecision(

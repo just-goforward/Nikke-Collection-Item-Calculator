@@ -219,9 +219,13 @@ describe("v2 rendered confirm path mirrors the interaction contract", () => {
       )
       .all();
     const payload = JSON.parse(String(row?.["payload_json"])) as {
+      decisionRequestId: string;
+      title: string;
+      url: string;
       reason: string;
       confirmed?: string[];
       guessed?: string[];
+      noGuess?: string;
       options: { id: string; label: string }[];
     };
     expect(payload.reason).toBe("collaboration_overlap");
@@ -236,6 +240,10 @@ describe("v2 rendered confirm path mirrors the interaction contract", () => {
     );
     // Windows read from the calendar are never presented as guesses.
     expect(payload.guessed ?? []).not.toContain(existing?.replace("달력의 기존 콜라보: ", ""));
+    // The notice's own period is a confirmed fact only: repeating it as a guess would
+    // print the same period twice in one message.
+    const noticeWindow = (notice as string).replace("이번 공지의 콜라보 기간: ", "");
+    expect(payload.guessed ?? []).not.toContain(noticeWindow);
     const rendered = renderForecastV2Notification("decision_request", payload, {
       environment: "staging",
       expectedRevision: 0,
@@ -244,7 +252,32 @@ describe("v2 rendered confirm path mirrors the interaction contract", () => {
     const text = descriptionOf(rendered);
     expect(text).toContain(notice as string);
     expect(text).toContain(existing as string);
+    expect(text.split(noticeWindow)).toHaveLength(2);
     expect(text).not.toContain("일정을 전혀 확인하지 못했습니다");
+    expect(text).toContain(
+      "🤔 추측한 것: 공지의 콜라보 기간은 확인했습니다. 새 일정인지 기존 콜라보와 같은 일정인지 결정이 필요합니다.",
+    );
+    // The same line is replayed verbatim into the reminder, which renders no buttons,
+    // so it must never tell the approver to press one.
+    expect(payload.noGuess).not.toContain("버튼");
+    const reminder = renderForecastV2Notification(
+      "decision_reminder",
+      {
+        decisionRequestId: payload.decisionRequestId ?? "one",
+        type: "collaboration",
+        title: payload.title,
+        url: payload.url,
+        reason: payload.reason,
+        ...(payload.noGuess ? { noGuess: payload.noGuess } : {}),
+        confirmed: payload.confirmed,
+        expiresAt: "2026-11-15T00:00:00Z",
+      },
+      { environment: "staging", expectedRevision: 0, idempotencyKey: "collab_reminder" },
+    );
+    expect(descriptionOf(reminder)).toContain(
+      "🤔 추측한 것: 공지의 콜라보 기간은 확인했습니다. 새 일정인지 기존 콜라보와 같은 일정인지 결정이 필요합니다.",
+    );
+    expect(reminder.components.flatMap((row) => row.components)).toEqual([]);
   });
 });
 

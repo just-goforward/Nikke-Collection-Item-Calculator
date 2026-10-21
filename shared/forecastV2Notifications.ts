@@ -305,8 +305,10 @@ export function renderForecastV2Notification<K extends ForecastV2NotificationKin
       manualEntry: true,
       actions: [...(confirmable ? [confirmLabel] : []), "일정 수정", "관련 없음"],
       rendered: [...(confirmable ? [confirmLabel] : []), "일정 수정", "관련 없음"],
-      // Ask the explicit question only when a range backs the confirm button.
-      ...(window
+      // Ask the explicit question only when a range backs the confirm button: a window
+      // without `complete` renders no [이 일정으로 확정], so the question would promise a
+      // button the message does not have.
+      ...(confirmable && window
         ? { guess: window }
         : {
             noGuess: segments.length
@@ -632,7 +634,12 @@ function compose(input: {
   const confirmed = evidenceList(input.confirmed);
   const guessed = evidenceList(input.guessed);
   const fallbackGuess = evidenceList(input.fallbackGuess ?? []);
-  const noGuess = input.noGuess === undefined ? undefined : escapeDisplay(input.noGuess);
+  // `noGuess` is producer prose, so it gets the same one-item bound as evidence: a
+  // payload may carry many segments and none of them may displace the guidance.
+  const noGuess =
+    input.noGuess === undefined
+      ? undefined
+      : clip(escapeDisplay(input.noGuess), V2_EVIDENCE_LIMITS.item);
 
   // Legacy rows store no facts, so the fallbacks must not invent them.
   const emptyConfirmed = input.legacyFormat
@@ -644,10 +651,11 @@ function compose(input: {
       ? "🤔 추측한 것: 일정을 확인하지 못했습니다. [일정 수정]으로 직접 입력해 주세요."
       : "🤔 추측한 것: 일정을 확인하지 못했습니다. 원래 결정 요청 메시지의 버튼을 눌러 주세요.";
 
-  // The heading keeps a valid masked link; only its visible text is shortened.
-  const middle = (itemLimit: number, titleLimit = Number.POSITIVE_INFINITY) => {
+  // The heading keeps a valid masked link; only its visible text is shortened. The link
+  // is part of the budget below, not a fixed cost on top of it.
+  const middle = (itemLimit: number, titleLimit: number, url: string | undefined) => {
     const lines = [
-      heading(clipTitle(input.title, titleLimit), input.url, input.postedAt),
+      heading(clipTitle(input.title, titleLimit), url, input.postedAt),
       `하려던 일: ${goal}`,
     ];
     lines.push(
@@ -667,17 +675,25 @@ function compose(input: {
     return lines;
   };
   const tail = input.expiresAt ? [`만료 ${kstLabel(input.expiresAt)} KST`] : [];
-  // Fixed sections (goal, reason, action, expiry) are reserved first; the heading text
-  // then shrinks, and only last do the evidence lists lose items ("외 N건").
+  // Fixed sections (goal, reason, action, expiry) are reserved first; then the evidence
+  // lists lose items ("외 N건"), and only after that does the heading text shrink.
   const room = V2_MESSAGE_BUDGET - tail.join("\n").length - 1;
-  let titleLimit = V2_EVIDENCE_LIMITS.goal + 80;
-  let limit = V2_EVIDENCE_LIMITS.item * V2_EVIDENCE_LIMITS.items;
-  while (middle(limit, titleLimit).join("\n").length > room) {
-    if (limit > 12) limit -= 10;
-    else if (titleLimit > 12) titleLimit -= 10;
-    else break;
-  }
-  return [...middle(limit, titleLimit), ...tail].join("\n");
+  /** Shrink the evidence lists, then the visible title, until the body fits `room`. */
+  const fitted = (url: string | undefined) => {
+    let titleLimit = V2_EVIDENCE_LIMITS.goal + 80;
+    let limit = V2_EVIDENCE_LIMITS.item * V2_EVIDENCE_LIMITS.items;
+    while (middle(limit, titleLimit, url).join("\n").length > room) {
+      if (limit > 12) limit -= 10;
+      else if (titleLimit > 12) titleLimit -= 10;
+      else break;
+    }
+    return middle(limit, titleLimit, url).join("\n");
+  };
+  let body = fitted(input.url);
+  // A notice URL longer than the leftover budget must never push the reason, the
+  // guidance or the expiry out of the message: the heading text still names the post.
+  if (body.length > room) body = fitted(undefined);
+  return [body, ...tail].join("\n");
 }
 
 /** Shorten the visible title text while `manualReviewPostLink` keeps the URL intact. */

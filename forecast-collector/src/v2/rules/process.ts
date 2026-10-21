@@ -563,23 +563,32 @@ function scheduleEvidence(
     !guess && !endOnly && partialSpan?.startAt && partialSpan.endAt
       ? `${kstLabel(partialSpan.startAt)} ~ ${kstLabel(partialSpan.endAt)}`
       : undefined;
+  const candidateGuesses = guess
+    ? [`${kstLabel(guess.startAt)} ~ ${kstLabel(guess.endAt)}`]
+    : partialText
+      ? [partialText]
+      : // Candidate windows the approver can pick are listed, never denied. Only
+        // windows read from this notice are candidates; existing calendar windows
+        // are confirmed facts above, not guesses.
+        (optionLabels?.length ?? 0) > 0
+        ? [...(optionLabels ?? [])]
+        : [];
   return {
     goal,
     reason,
     postedAt: post.postedAt,
     confirmed,
-    guessed: guess
-      ? [`${kstLabel(guess.startAt)} ~ ${kstLabel(guess.endAt)}`]
-      : partialText
-        ? [partialText]
-        : // Candidate windows the approver can pick are listed, never denied. Only
-          // windows read from this notice are candidates; existing calendar windows
-          // are confirmed facts above, not guesses.
-          (optionLabels?.length ?? 0) > 0
-          ? [...(optionLabels ?? [])]
-          : collaboration?.noticeWindow
-            ? [window(collaboration.noticeWindow)]
-            : [],
+    guessed: candidateGuesses,
+    // This notice's own period is already a confirmed fact above; repeating it as a
+    // guess would show it twice. The open question is which window it matches. The
+    // line is replayed verbatim into the reminder, which has no buttons, so it must
+    // not tell the approver to press one.
+    ...(!candidateGuesses.length && collaboration?.noticeWindow
+      ? {
+          noGuess:
+            "공지의 콜라보 기간은 확인했습니다. 새 일정인지 기존 콜라보와 같은 일정인지 결정이 필요합니다.",
+        }
+      : {}),
     ...(guess ? { guess } : {}),
     // A partial span is the important nuance: the reason line alone would hide it.
     ...(endsOnly
