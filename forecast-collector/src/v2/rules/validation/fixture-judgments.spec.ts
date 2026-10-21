@@ -514,13 +514,16 @@ describe("T05 solo raid", () => {
       endAt: "2025-07-10T04:59:59+09:00",
       maintenanceEventId: "6276795",
     });
-    expect(judgeSolo(post, [])).toEqual({ action: "decision", reason: "maintenance_missing" });
+    expect(judgeSolo(post, [])).toMatchObject({
+      action: "decision",
+      reason: "maintenance_missing",
+    });
     expect(
       judgeSolo(post, [
         ...heads,
         { id: "x", startAt: "2025-07-03T20:00:00+09:00", endAt: "2025-07-03T21:00:00+09:00" },
       ]),
-    ).toEqual({ action: "decision", reason: "maintenance_multiple" });
+    ).toMatchObject({ action: "decision", reason: "maintenance_multiple" });
   });
 
   it("assumes no weekday (Tuesday S29, Friday S35 and the Friday S38 reopen)", () => {

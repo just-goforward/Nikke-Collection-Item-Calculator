@@ -28,6 +28,7 @@ type Payload = {
   url: string;
   options: DecisionInput["options"];
   extracted?: DecisionInput["extracted"];
+  evidence?: DecisionInput["evidence"];
 };
 type Result = { action: "bok" | "bno" | "edit" | "opt"; startAt?: string; endAt?: string };
 type Head = {
@@ -101,6 +102,7 @@ async function supersedeDecision(
       url: payload.url,
       options: payload.options,
       ...(payload.extracted ? { extracted: payload.extracted } : {}),
+      ...(payload.evidence ? { evidence: payload.evidence } : {}),
     },
     now,
   );

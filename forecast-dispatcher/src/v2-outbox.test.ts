@@ -85,6 +85,22 @@ it("reconciles a successful send whose database commit failed without resending"
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(fetcher.mock.calls[1]![0]).toContain("?limit=50");
 });
+it("sends a legacy reminder payload with the actionable fallback layout", async () => {
+  const fetcher = vi.fn(async (_url: string, _init: RequestInit) =>
+    Response.json({ id: "123456789" }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  expect(await drainV2Outbox(await fixture())).toBe(1);
+  const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body)) as {
+    embeds: { description: string; footer: { text: string } }[];
+  };
+  const description = body.embeds[0]?.description ?? "";
+  expect(description).toContain("하려던 일:");
+  expect(description).toContain("❌ 막힌 이유:");
+  expect(description).toContain("👉 해 주실 일:");
+  expect(description).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+  expect(body.embeds[0]?.footer.text).toBe("ref:key");
+});
 it.each([429, 403, 503])("handles HTTP %s without unbounded sends", async (status) => {
   const fetcher = vi.fn(async () => Response.json({ retry_after: 90 }, { status }));
   vi.stubGlobal("fetch", fetcher);

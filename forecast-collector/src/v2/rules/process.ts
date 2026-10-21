@@ -1,3 +1,7 @@
+import {
+  type ForecastV2DecisionEvidence,
+  kstLabel,
+} from "../../../../shared/forecastV2Notifications";
 import type { RulesPort } from "../ingest/rules-port";
 import { judgeCollaboration } from "./collaboration";
 import {
@@ -32,6 +36,7 @@ type Decision = (
   options: DecisionInput["options"],
   eventId?: string | null,
   extracted?: DecisionInput["extracted"],
+  evidence?: ForecastV2DecisionEvidence,
 ) => Promise<string>;
 type PostWork = {
   db: D1Database;
@@ -101,6 +106,7 @@ export const processPostVersion: RulesPort["processPostVersion"] = async (db, in
     options: DecisionInput["options"],
     eventId: string | null = null,
     extracted?: DecisionInput["extracted"],
+    evidence?: ForecastV2DecisionEvidence,
   ) => {
     const id = await decisionIdentity(input.feedId, input.versionId, type);
     await requestDecision(
@@ -118,6 +124,7 @@ export const processPostVersion: RulesPort["processPostVersion"] = async (db, in
         options,
         suppressNotification: input.monitorId === "B" && type === "solo_review",
         ...(extracted ? { extracted } : {}),
+        ...(evidence ? { evidence } : {}),
       },
       now,
     );
@@ -188,6 +195,25 @@ async function processGrants(work: PostWork) {
           id: `date_${i}`,
           label: candidate.instant ?? candidate.date,
         })),
+        null,
+        undefined,
+        {
+          goal: "보상 지급일 확정",
+          reason: grant.reason,
+          postedAt: post.postedAt,
+          confirmed: grantConfirmation(grant.ii, grant.box),
+          noGuess: "공지에 지급 시각이 적혀 있지 않아 지급일만 후보로 모았습니다.",
+          guessed: grant.candidates.map((candidate) =>
+            describeCandidate(candidate.instant, candidate.date, candidate.basis),
+          ),
+          todo:
+            grant.reason === "maintenance_missing" || grant.reason === "maintenance_multiple"
+              ? // apply-grants applies whichever date is chosen: there is no automatic re-ask.
+                "점검 일정이 확정되면 공지의 지급일을 다시 확인하고, 맞는 지급일이 아래 버튼에 있으면 골라 주세요. 없으면 운영자에게 알려 주세요."
+              : grant.reason === "grant_date_precision"
+                ? "공지에 적힌 지급 시각을 확인하고, 시각이 없으면 아래 버튼에서 맞는 지급일을 골라 주세요."
+                : "아래 버튼에서 맞는 지급일을 골라 주세요. 후보에 없으면 공지의 지급일을 다시 확인해 주세요.",
+        },
       );
     } else {
       reportedKits.push({ gameDay: grant.gameDay, ii: grant.ii, box: grant.box });
@@ -197,12 +223,38 @@ async function processGrants(work: PostWork) {
           WHERE grant_game_day=? AND (ii_qty<>? OR box_qty<>?) LIMIT 1`)
         .bind(grant.gameDay, grant.ii, grant.box)
         .first();
-      if (conflict || previous.length > 1)
-        await decision("grant_quantity", [
-          { id: "separate", label: "별도 지급" },
-          { id: "correction", label: "정정" },
-        ]);
-      else {
+      if (conflict || previous.length > 1) {
+        // apply-grants rejects every option when this feed has several prior
+        // occurrences (grant_correction_target_ambiguous), so neither button applies.
+        const ambiguous = previous.length > 1;
+        await decision(
+          "grant_quantity",
+          [
+            { id: "separate", label: "별도 지급" },
+            { id: "correction", label: "정정" },
+          ],
+          null,
+          undefined,
+          {
+            goal: "지급 수량 확인",
+            postedAt: post.postedAt,
+            confirmed: [
+              `지급일 ${kstLabel(grant.instant ?? `${grant.gameDay}T00:00:00+09:00`)}`,
+              `이번 공지 수량: 관리 키트 II ${grant.ii} · 상자 ${grant.box}`,
+              ...(ambiguous ? [`이 공지의 이전 지급 기록: ${previous.length}건`] : []),
+            ],
+            noGuess: "수량 판단만 남아 있어 일정 추측은 없습니다.",
+            ...(ambiguous
+              ? { reason: "grant_quantity_ambiguous" }
+              : {
+                  reason: "grant_quantity",
+                  blocked:
+                    "달력에 같은 날 이미 다른 수량의 지급이 있어 별도 지급인지 정정인지 확인이 필요합니다.",
+                  todo: "새로 더 지급된 것이면 [별도 지급], 기존 수량을 고치는 것이면 [정정]을 눌러 주세요.",
+                }),
+          },
+        );
+      } else {
         const occurrence = `grant_${grant.gameDay}_${grant.ii}_${grant.box}`;
         writes.push(
           db
@@ -246,12 +298,43 @@ async function reportInterruption(work: PostWork) {
     : undefined;
   const startAt = segment?.kind === "suspend" ? target?.startAt : segment?.startAt;
   const endAt = segment?.kind === "suspend" ? segment.startAt : segment?.endAt;
-  const id = await decision("solo_review", [], target?.id ?? null, {
-    segments,
-    ...(startAt ? { startAt } : {}),
-    ...(endAt ? { endAt } : {}),
-    kits: reportedKits,
-  });
+  const complete = startAt && endAt ? Date.parse(endAt) > Date.parse(startAt) : false;
+  const kinds = [...new Set(segments.map((value) => value.kind))];
+  const evidence: ForecastV2DecisionEvidence = {
+    goal: "중단·재개 공지를 반영해 솔로 레이드 일정 확정",
+    reason: complete ? "b_evidence_only" : "solo_period_unresolved",
+    postedAt: post.postedAt,
+    confirmed: [
+      ...(kinds.length ? [`감지한 구간: ${kinds.map((kind) => SEGMENT_KO[kind]).join(", ")}`] : []),
+      ...(target ? [`기존 솔로 레이드 일정과 겹치는 구간 확인`] : []),
+      ...reportedKits.map(
+        (kit) =>
+          `${kstLabel(`${kit.gameDay}T00:00:00+09:00`).slice(0, 8)} 관리 키트 II ${kit.ii} · 상자 ${kit.box}`,
+      ),
+    ],
+    guessed: segments
+      .filter((value) => !(value.kind === "suspend" && !value.endAt))
+      .map((value) => `${SEGMENT_KO[value.kind]} ${segmentRange(value.startAt, value.endAt)}`),
+    ...(startAt && endAt ? { guess: { startAt, endAt } } : {}),
+    todo: complete
+      ? "추출한 구간이 맞으면 [이 일정으로 확정], 다르면 [일정 수정]으로 직접 입력, 근거가 무관하면 [관련 없음]."
+      : "공지의 중단·재개 시각을 확인해 [일정 수정]으로 시작·종료를 직접 입력해 주세요. 무관하면 [관련 없음].",
+    ...(complete
+      ? {}
+      : { blocked: "중단·재개 문구는 근거일 뿐이라 시작·종료를 확정하지 못했습니다." }),
+  };
+  const id = await decision(
+    "solo_review",
+    [],
+    target?.id ?? null,
+    {
+      segments,
+      ...(startAt ? { startAt } : {}),
+      ...(endAt ? { endAt } : {}),
+      kits: reportedKits,
+    },
+    evidence,
+  );
   writes.push(
     await notification(
       db,
@@ -263,6 +346,14 @@ async function reportInterruption(work: PostWork) {
         url,
         postedAt: post.postedAt,
         extracted: { segments, kits: reportedKits },
+        // Exactly the span apply uses and the stored decision's todo, so the B report
+        // and the decision request can never disagree about what is confirmable.
+        decision: {
+          complete,
+          ...(startAt ? { startAt } : {}),
+          ...(endAt ? { endAt } : {}),
+          ...(evidence.todo ? { todo: evidence.todo } : {}),
+        },
         decisionRequestId: id,
       },
       now,
@@ -312,12 +403,34 @@ async function processSchedule(work: PostWork) {
         ],
         conflicts.length === 1 ? conflicts[0]!.id : null,
         { startAt: source.startAt, endAt: source.endAt },
+        {
+          goal: "점검 일정 확정",
+          reason: "maintenance_conflict",
+          postedAt: post.postedAt,
+          confirmed: [
+            `이 공지의 점검: ${kstLabel(source.startAt)} ~ ${kstLabel(source.endAt)}`,
+            ...conflicts.map(
+              (event) => `달력의 기존 점검: ${kstLabel(event.startAt)} ~ ${kstLabel(event.endAt)}`,
+            ),
+          ],
+          noGuess: "이 공지의 점검 시간은 읽었지만 달력에 어느 점검을 남길지는 결정이 필요합니다.",
+          blocked:
+            "같은 날짜에 이미 달력에 점검 일정이 있어 이 공지의 시간으로 바꿀지 기존 점검을 유지할지 확인이 필요합니다.",
+          todo: "이 공지의 시간을 적용하려면 해당 항목을, 기존 일정을 유지하려면 [기존 점검 유지]를 눌러 주세요.",
+        },
       );
       judged = { action: "ignore" };
     }
   }
   if (judged.action === "decision") {
-    await requestScheduleDecision(work, kind, eventId);
+    // Overlapping collaboration candidates are existing windows: show them, don't list ids.
+    const overlaps =
+      kind === "collaboration" && judged.reason === "collaboration_overlap"
+        ? (judged as { candidates?: string[] }).candidates
+            ?.map((candidate) => windows.results.find((event) => event.id === candidate))
+            .filter((event): event is Window => event !== undefined)
+        : undefined;
+    await requestScheduleDecision(work, kind, eventId, judged, overlaps);
   }
   if (judged.action === "confirmed" || judged.action === "create") {
     await storeSchedule(work, kind, judged, eventId, identity);
@@ -328,11 +441,49 @@ async function requestScheduleDecision(
   work: PostWork,
   kind: "solo" | "maintenance" | "collaboration",
   eventId: string,
+  judged?: { action: "decision"; reason: string; startAt?: string; endAt?: string },
+  overlaps?: readonly { startAt: string; endAt: string }[],
 ) {
   const { post, maintenance, decision } = work;
   const source = kind === "collaboration" ? judgeCollaboration(post, maintenance, []) : null;
+  const partial: { reason: string; startAt?: string; endAt?: string } | null =
+    judged ?? (source?.action === "decision" ? source : null);
+  const reason =
+    judged?.reason ??
+    (kind === "maintenance"
+      ? "maintenance_period_missing"
+      : kind === "solo"
+        ? "solo_period_unresolved"
+        : (partial?.reason ?? "collaboration_start_unresolved"));
   const extracted =
     source?.action === "create" ? { startAt: source.startAt, endAt: source.endAt } : undefined;
+  // A partial judge result (e.g. start parsed, maintenance end unknown) stays evidence only
+  // and is never marked complete, so no confirmation button appears.
+  const partialSpan =
+    kind !== "collaboration" && (partial?.startAt || partial?.endAt)
+      ? {
+          ...(partial.startAt ? { startAt: partial.startAt } : {}),
+          ...(partial.endAt ? { endAt: partial.endAt } : {}),
+        }
+      : undefined;
+  const ordered =
+    partialSpan?.startAt && partialSpan.endAt
+      ? Date.parse(partialSpan.endAt) > Date.parse(partialSpan.startAt)
+      : false;
+  const guess =
+    ordered && partialSpan?.startAt && partialSpan.endAt
+      ? { startAt: partialSpan.startAt, endAt: partialSpan.endAt }
+      : undefined;
+  const optionLabels =
+    kind === "collaboration" && !extracted
+      ? // Only candidate starts read from this notice are guesses; calendar windows are not.
+        collaborationOptions(post, maintenance).map((option) =>
+          [option.startAt, option.endAt]
+            .filter((value): value is string => value !== undefined)
+            .map(kstLabel)
+            .join(" ~ "),
+        )
+      : undefined;
   await decision(
     kind === "solo" ? "solo_review" : kind,
     kind === "solo"
@@ -348,8 +499,150 @@ async function requestScheduleDecision(
             { id: "ignore", label: "관련 없음" },
           ],
     eventId,
+    // Extracted schedules keep their existing meaning (complete schedule only);
+    // partial judge output is carried as evidence, never as a confirmable span.
     extracted,
+    {
+      ...scheduleEvidence(kind, post, partial, reason, guess, partialSpan, optionLabels, {
+        ...(extracted ? { noticeWindow: extracted } : {}),
+        overlapWindows: overlaps ?? [],
+      }),
+      ...(extracted
+        ? {
+            todo: "새 콜라보 일정이면 [새 콜라보], 기존 콜라보와 같은 일정이면 [기존 콜라보], 기간이 다르면 [일정 수정]으로 직접 입력, 반영할 필요가 없으면 [관련 없음]을 눌러 주세요.",
+          }
+        : {}),
+    },
   );
+}
+
+function scheduleEvidence(
+  kind: "solo" | "maintenance" | "collaboration",
+  post: Notice,
+  judged: { reason: string; startAt?: string; endAt?: string } | null,
+  reason: string,
+  guess: { startAt: string; endAt: string } | undefined,
+  partialSpan: { startAt?: string; endAt?: string } | undefined,
+  optionLabels?: readonly string[],
+  collaboration?: {
+    noticeWindow?: { startAt: string; endAt: string };
+    overlapWindows: readonly { startAt: string; endAt: string }[];
+  },
+): ForecastV2DecisionEvidence {
+  const text = `${post.title}\n${post.body}`;
+  const keywords = KEYWORDS.filter(([pattern]) => pattern.test(text)).map(([, label]) => label);
+  const round = /솔로\s*레이드(?:\s*재오픈)?\s*시즌\s*(\d+)/.exec(text)?.[1];
+  const goal =
+    kind === "solo"
+      ? "솔로 레이드 일정 확정"
+      : kind === "maintenance"
+        ? "점검 일정 확정"
+        : "콜라보 일정 확정";
+  // maintenance_missing/_multiple keep the table's blocked line, so the endpoint the
+  // notice did give us belongs in 확인한 것 instead of overriding the reason.
+  const endsOnly = reason.startsWith("maintenance_") && !guess;
+  const endOnly = endsOnly && partialSpan?.endAt ? partialSpan.endAt : undefined;
+  const window = (value: { startAt: string; endAt: string }) =>
+    `${kstLabel(value.startAt)} ~ ${kstLabel(value.endAt)}`;
+  const confirmed = [
+    `감지한 키워드: ${keywords.length ? keywords.join(", ") : "없음"}`,
+    ...(round ? [`공지에 적힌 시즌: ${round}시즌`] : []),
+    ...(judged?.startAt ? [`공지에서 읽은 시작: ${kstLabel(judged.startAt)}`] : []),
+    ...(judged?.endAt ? [`공지에서 읽은 종료: ${kstLabel(judged.endAt)}`] : []),
+    ...(endOnly ? [`종료(${kstLabel(endOnly)})는 읽음`] : []),
+    // Labelled facts, never presented as guesses: this notice's own period, and the
+    // existing calendar windows it collides with.
+    ...(collaboration?.noticeWindow
+      ? [`이번 공지의 콜라보 기간: ${window(collaboration.noticeWindow)}`]
+      : []),
+    ...(collaboration?.overlapWindows ?? []).map(
+      (overlap) => `달력의 기존 콜라보: ${window(overlap)}`,
+    ),
+  ];
+  const partialText =
+    !guess && !endOnly && partialSpan?.startAt && partialSpan.endAt
+      ? `${kstLabel(partialSpan.startAt)} ~ ${kstLabel(partialSpan.endAt)}`
+      : undefined;
+  return {
+    goal,
+    reason,
+    postedAt: post.postedAt,
+    confirmed,
+    guessed: guess
+      ? [`${kstLabel(guess.startAt)} ~ ${kstLabel(guess.endAt)}`]
+      : partialText
+        ? [partialText]
+        : // Candidate windows the approver can pick are listed, never denied. Only
+          // windows read from this notice are candidates; existing calendar windows
+          // are confirmed facts above, not guesses.
+          (optionLabels?.length ?? 0) > 0
+          ? [...(optionLabels ?? [])]
+          : collaboration?.noticeWindow
+            ? [window(collaboration.noticeWindow)]
+            : [],
+    ...(guess ? { guess } : {}),
+    // A partial span is the important nuance: the reason line alone would hide it.
+    ...(endsOnly
+      ? {}
+      : partialSpan?.startAt && !partialSpan.endAt
+        ? {
+            blocked: `시작(${kstLabel(partialSpan.startAt)})은 읽었지만 종료 시각을 확인하지 못했습니다.`,
+          }
+        : partialSpan?.endAt && !partialSpan.startAt
+          ? {
+              blocked: `종료(${kstLabel(partialSpan.endAt)})는 읽었지만 시작 시각을 확인하지 못했습니다.`,
+            }
+          : {}),
+  };
+}
+
+const KEYWORDS: [RegExp, string][] = [
+  [/솔로\s*레이드/, "솔로 레이드"],
+  [/콜라보/, "콜라보"],
+  [/점검/, "점검"],
+  [/아카이브/, "아카이브"],
+  [/진행\s*기간/, "진행 기간"],
+  [/점검\s*완료\s*후/, "점검 완료 후"],
+  [/재오픈/, "재오픈"],
+  [/중단/, "중단"],
+  [/관리\s*키트/, "관리 키트"],
+];
+
+const SEGMENT_KO = {
+  suspend: "중단",
+  resume: "재개",
+  extend: "연장",
+  reopen: "재오픈",
+  close: "종료",
+} as const;
+
+function segmentRange(startAt: string | undefined, endAt: string | undefined) {
+  return startAt && endAt
+    ? `${kstLabel(startAt)} ~ ${kstLabel(endAt)}`
+    : startAt
+      ? `${kstLabel(startAt)} ~ 미확정`
+      : endAt
+        ? `미확정 ~ ${kstLabel(endAt)}`
+        : "시각 미확정";
+}
+
+function grantConfirmation(ii: number, box: number) {
+  return [`공지에서 읽은 수량: 관리 키트 II ${ii} · 상자 ${box}`];
+}
+
+/** Grant date-basis codes are internal; approvers only see their meaning. */
+const GRANT_BASIS: Record<string, string> = {
+  explicit_payment: "공지에 지급일 명시",
+  in_post_datetime: "공지 본문의 일시",
+  maintenance_end: "점검 종료 시각",
+  post_created: "게시 시각",
+};
+
+function describeCandidate(instant: string | null, date: string, basis: string) {
+  const basisText = GRANT_BASIS[basis];
+  const label = instant ? kstLabel(instant) : kstLabel(`${date}T00:00:00+09:00`);
+  const detail = instant ? basisText : ["시각 미확인", basisText].filter(Boolean).join(", ");
+  return detail ? `${label} (${detail})` : label;
 }
 
 async function storeSchedule(

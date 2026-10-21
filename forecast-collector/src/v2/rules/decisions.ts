@@ -1,6 +1,8 @@
 import {
+  type ForecastV2DecisionEvidence,
   type ForecastV2NotificationKind,
   type ForecastV2Payloads,
+  V2_EVIDENCE_LIMITS,
   validateForecastV2Payload,
 } from "../../../../shared/forecastV2Notifications";
 import { DAY_MS } from "./game-day";
@@ -71,7 +73,36 @@ export type DecisionInput = {
     segments?: ForecastV2Payloads["b_report"]["extracted"]["segments"];
     kits?: ForecastV2Payloads["b_report"]["extracted"]["kits"];
   };
+  /** Why the judges asked; rendered into the approver-facing message. */
+  evidence?: ForecastV2DecisionEvidence;
 };
+
+const clamp = (value: string, limit: number) =>
+  value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
+/** Producers clamp to the payload caps so a queued row can never fail validation. */
+export function clampEvidence(
+  evidence: ForecastV2DecisionEvidence | undefined,
+  postedAt?: string,
+): ForecastV2DecisionEvidence {
+  const limits = V2_EVIDENCE_LIMITS;
+  const items = (values: readonly string[] | undefined) =>
+    values?.slice(0, limits.items).map((item) => clamp(item, limits.item));
+  const confirmed = items(evidence?.confirmed);
+  const guessed = items(evidence?.guessed);
+  return {
+    ...(evidence?.goal ? { goal: clamp(evidence.goal, limits.goal) } : {}),
+    ...(evidence?.reason ? { reason: clamp(evidence.reason, limits.reason) } : {}),
+    ...((postedAt ?? evidence?.postedAt)
+      ? { postedAt: postedAt ?? (evidence?.postedAt as string) }
+      : {}),
+    ...(confirmed?.length ? { confirmed } : {}),
+    ...(guessed?.length ? { guessed } : {}),
+    ...(evidence?.guess ? { guess: evidence.guess } : {}),
+    ...(evidence?.noGuess ? { noGuess: clamp(evidence.noGuess, limits.item) } : {}),
+    ...(evidence?.blocked ? { blocked: clamp(evidence.blocked, limits.blocked) } : {}),
+    ...(evidence?.todo ? { todo: clamp(evidence.todo, limits.todo) } : {}),
+  };
+}
 
 /** Persist request and notification together; replay never resets expiry. */
 export async function requestDecision(
@@ -92,6 +123,7 @@ export async function requestDecision(
     ORDER BY julianday(updated_date) DESC,julianday(fetched_at) DESC,version_id DESC LIMIT 1`)
     .bind(String(input.feedIds[0]), input.sourceHash)
     .first<{ version_id: string }>();
+  const evidence = clampEvidence(input.evidence);
   const payload = {
     env: input.environment,
     eventId: input.eventId,
@@ -102,6 +134,7 @@ export async function requestDecision(
     url: input.url,
     options: input.options,
     ...decisionExtraction(input),
+    ...(Object.keys(evidence).length ? { evidence } : {}),
   };
   const json = JSON.stringify(payload);
   await db.batch([
@@ -134,6 +167,10 @@ export async function requestDecision(
               url: input.url,
               options: input.options,
               expiresAt,
+              // Mirrors the stored payload so the post-render confirmation path matches
+              // what permitsAction accepts (bok only for a complete solo extraction).
+              ...notificationExtraction(input),
+              ...evidence,
             },
             now,
             { decisionId: input.id },
@@ -155,6 +192,20 @@ function decisionExtraction(input: DecisionInput) {
   return input.extracted ? { extracted: input.extracted } : {};
 }
 
+/** Notification payloads carry only the span the renderer shows, never b_report extras. */
+function notificationExtraction(input: DecisionInput) {
+  const stored = decisionExtraction(input).extracted;
+  if (!stored) return {};
+  const { startAt, endAt } = stored;
+  return {
+    extracted: {
+      ...(stored.complete === undefined ? {} : { complete: stored.complete }),
+      ...(startAt ? { startAt } : {}),
+      ...(endAt ? { endAt } : {}),
+    },
+  };
+}
+
 /** One bounded lifecycle unit; subsequent invocations drain any remaining reminders. */
 export async function maintainDecisions(db: D1Database, now: string): Promise<void> {
   await refreshRevisionDecision(db, now);
@@ -165,12 +216,18 @@ export async function maintainDecisions(db: D1Database, now: string): Promise<vo
     .run();
   const cutoff = new Date(Date.parse(now) - 3 * DAY_MS).toISOString();
   const row = await db
-    .prepare(`SELECT decision_id FROM forecast_v2_decision_requests
+    .prepare(`SELECT decision_id,type,expires_at,payload_json FROM forecast_v2_decision_requests
     WHERE status='pending' AND reminder_sent_at IS NULL AND julianday(created_at)<=julianday(?)
     AND julianday(expires_at)>julianday(?) ORDER BY created_at,decision_id LIMIT 1`)
     .bind(cutoff, now)
-    .first<{ decision_id: string }>();
+    .first<{
+      decision_id: string;
+      type: DecisionInput["type"];
+      expires_at: string;
+      payload_json: string;
+    }>();
   if (!row) return;
+  const reminder = reminderEvidence(row.payload_json);
   await db.batch([
     await notification(
       db,
@@ -178,6 +235,12 @@ export async function maintainDecisions(db: D1Database, now: string): Promise<vo
       "decision_reminder",
       {
         decisionRequestId: row.decision_id,
+        // The type lets the renderer show the type-based goal without inventing a reason.
+        type: row.type,
+        ...reminder.evidence,
+        ...(reminder.title ? { title: reminder.title } : {}),
+        ...(reminder.url ? { url: reminder.url } : {}),
+        expiresAt: new Date(row.expires_at).toISOString(),
       },
       now,
       { decisionId: row.decision_id },
@@ -187,6 +250,27 @@ export async function maintainDecisions(db: D1Database, now: string): Promise<vo
       WHERE decision_id=? AND reminder_sent_at IS NULL AND status='pending'`)
       .bind(now, row.decision_id),
   ]);
+}
+
+/** A reminder repeats stored evidence verbatim; it never synthesizes a judgment. */
+function reminderEvidence(payloadJson: string): {
+  evidence: ForecastV2DecisionEvidence;
+  title?: string;
+  url?: string;
+} {
+  const payload = JSON.parse(payloadJson) as {
+    evidence?: ForecastV2DecisionEvidence;
+    title?: string;
+    url?: string;
+  };
+  const evidence = payload.evidence;
+  return {
+    // Without stored evidence nothing about the judgment is known: no goal, no reason,
+    // no blocked line. The renderer then shows the neutral legacy wording.
+    evidence: evidence === undefined ? {} : clampEvidence(evidence),
+    ...(typeof payload.title === "string" && payload.title ? { title: payload.title } : {}),
+    ...(typeof payload.url === "string" && payload.url ? { url: payload.url } : {}),
+  };
 }
 
 export async function refreshRevisionDecision(db: D1Database, now: string) {
@@ -217,6 +301,7 @@ export async function refreshRevisionDecision(db: D1Database, now: string) {
       url: string;
       options: DecisionInput["options"];
       extracted?: DecisionInput["extracted"];
+      evidence?: ForecastV2DecisionEvidence;
     };
     await requestDecision(
       db,
@@ -232,6 +317,7 @@ export async function refreshRevisionDecision(db: D1Database, now: string) {
         url: payload.url,
         options: payload.options,
         ...(payload.extracted ? { extracted: payload.extracted } : {}),
+        ...(payload.evidence ? { evidence: payload.evidence } : {}),
       },
       now,
     );

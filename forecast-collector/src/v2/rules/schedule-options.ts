@@ -43,7 +43,9 @@ export function maintenanceConflictOptions(
   return conflicts.flatMap((event, index) => [
     {
       id: `source_${index}`,
-      label: `${event.id}: 이 공지의 점검 시간 적용`,
+      // The approver picks between two calendar entries, so name the existing one
+      // by its window rather than by its internal event id.
+      label: `기존 점검(${kst(event.startAt)} ~ ${kst(event.endAt)})에 이 공지 시간 적용`,
       ...source,
       eventId: event.id,
       expectedRevision: event.revision,

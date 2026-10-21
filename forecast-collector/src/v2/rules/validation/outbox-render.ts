@@ -97,6 +97,20 @@ function checkRendered(
   const description = rendered.embeds[0]?.description ?? "";
   if (!description || description.length > 2000)
     report.problems.push(`${where}: embed description length ${description.length}`);
+  // Every approver message must say what it tried, what blocked it and what to do.
+  if (row.kind !== "calendar_changed")
+    for (const section of ["하려던 일:", "확인한 것:", "추측한 것:", "막힌 이유:", "해 주실 일:"])
+      if (!description.includes(section)) report.problems.push(`${where}: missing ${section}`);
+  // Raw ISO stamps in any common form ("T" or space separator, optional seconds).
+  if (/\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(description))
+    report.problems.push(`${where}: raw ISO instant in message`);
+  // Internal identifiers (reason/basis codes, event/decision ids) must never reach the approver.
+  const visible = `${description}\n${rendered.components
+    .flatMap((container) => container.components)
+    .map((component) => component.label)
+    .join("\n")}`;
+  if (/\b[a-z]+_[a-z0-9_]+\b/.test(visible))
+    report.problems.push(`${where}: internal code ${/\b[a-z]+_[a-z0-9_]+\b/.exec(visible)?.[0]}`);
   if (rendered.components.length > 5 || rendered.components.some((r) => r.components.length > 5))
     report.problems.push(`${where}: component layout`);
   const buttons = rendered.components.flatMap((r) => r.components);

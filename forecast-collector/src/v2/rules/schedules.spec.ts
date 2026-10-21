@@ -27,7 +27,7 @@ it("resolves maintenance dependencies and end-only open notices", () => {
     body: "진행 기간: 6/18(목) 점검 완료 후 ~ 6/25(목) 4:59",
     postedAt: "2026-06-18T10:00:00+09:00",
   };
-  expect(judgeSolo(post, [])).toEqual({ action: "decision", reason: "maintenance_missing" });
+  expect(judgeSolo(post, [])).toMatchObject({ action: "decision", reason: "maintenance_missing" });
   expect(
     judgeSolo(post, [
       { id: "m", startAt: "2026-06-18T05:00:00+09:00", endAt: "2026-06-18T12:00:00+09:00" },

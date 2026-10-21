@@ -4,7 +4,13 @@ import { noticeDates } from "./notice-dates";
 
 export type ScheduleJudgment =
   | { action: "ignore" }
-  | { action: "decision"; reason: string }
+  | {
+      action: "decision";
+      reason: string;
+      /** Partial parse kept as evidence; a decision is still required. */
+      startAt?: string;
+      endAt?: string;
+    }
   | { action: "confirmed"; startAt: string; endAt: string; maintenanceEventId?: string };
 export type Notice = { title: string; body: string; postedAt: string };
 
@@ -56,11 +62,14 @@ export function judgeSolo(post: Notice, maintenance: readonly ExistingWindow[]):
   const dates = noticeDates(period, post.postedAt);
   let startAt: string | null = dates[0]?.instant ?? null;
   let maintenanceEventId: string | undefined;
+  let unresolvedMaintenance: string | undefined;
   if (dates[0]?.maintenance) {
     const match = resolveMaintenance(dates[0].date, maintenance);
-    if ("reason" in match) return { action: "decision", reason: match.reason };
-    startAt = match.endAt;
-    maintenanceEventId = match.eventId;
+    if ("reason" in match) unresolvedMaintenance = match.reason;
+    else {
+      startAt = match.endAt;
+      maintenanceEventId = match.eventId;
+    }
   }
   const ends = noticeDates(period, post.postedAt, true);
   let endAt = ends.length > 1 ? ends.at(-1)?.instant : null;
@@ -68,8 +77,19 @@ export function judgeSolo(post: Notice, maintenance: readonly ExistingWindow[]):
     startAt = post.postedAt;
     endAt = ends[0]?.instant;
   }
+  if (unresolvedMaintenance)
+    return {
+      action: "decision",
+      reason: unresolvedMaintenance,
+      ...(endAt ? { endAt } : {}),
+    };
   if (!startAt || !endAt || Date.parse(endAt) <= Date.parse(startAt))
-    return { action: "decision", reason: "solo_period_unresolved" };
+    return {
+      action: "decision",
+      reason: "solo_period_unresolved",
+      ...(startAt ? { startAt } : {}),
+      ...(endAt && (!startAt || Date.parse(endAt) > Date.parse(startAt)) ? { endAt } : {}),
+    };
   return {
     action: "confirmed",
     startAt,

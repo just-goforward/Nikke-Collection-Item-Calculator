@@ -1,6 +1,6 @@
+import { kstLabel } from "../../../../shared/forecastV2Notifications";
 import { decisionIdentity, requestDecision } from "./decisions";
 import { collaborationEnd, gameDay } from "./game-day";
-
 /** Statements are appended after the corrected G revision in the same atomic batch. */
 export async function maintenanceDependents(
   db: D1Database,
@@ -120,6 +120,28 @@ async function maintenanceGrants(
   return statements;
 }
 
+/**
+ * Occurrences this feed keeps once this batch deletes the moved links — the same set
+ * `previousGrantOccurrences` sees inside `persistGrantDecision`.
+ */
+async function remainingOccurrences(
+  db: D1Database,
+  feedId: string,
+  movedOccurrence: string,
+  removedLinkIds: readonly string[],
+) {
+  const placeholders = removedLinkIds.map(() => "?").join(",");
+  const row = await db
+    .prepare(`SELECT COUNT(DISTINCT l.occurrence_id) AS n FROM forecast_v2_grant_links l
+    JOIN forecast_v2_grant_observations o USING(observation_id)
+    JOIN forecast_v2_grant_heads h USING(occurrence_id)
+    WHERE o.feed_id=? AND l.occurrence_id<>?
+    ${removedLinkIds.length ? `AND l.link_id NOT IN (${placeholders})` : ""}`)
+    .bind(feedId, movedOccurrence, ...removedLinkIds)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
 async function collideGrant(
   db: D1Database,
   grant: GrantHead,
@@ -161,6 +183,16 @@ async function collideGrant(
       );
     } else {
       if (!environment) throw new Error("maintenance_collision_environment_required");
+      // persistGrantDecision rejects BOTH options when this feed keeps several prior
+      // occurrences (grant_correction_target_ambiguous). It reads the links that
+      // survive this batch, so count them the same way.
+      const remaining = await remainingOccurrences(
+        db,
+        link.feed_id,
+        grant.occurrence_id,
+        moving.map((entry) => entry.link_id),
+      );
+      const ambiguous = remaining > 1;
       await requestDecision(
         db,
         {
@@ -177,6 +209,24 @@ async function collideGrant(
             { id: "correction", label: "정정" },
           ],
           extracted: { startAt: end },
+          evidence: {
+            goal: "점검 종료 변경에 따른 지급 수량 확인",
+            reason: ambiguous ? "grant_quantity_ambiguous" : "grant_quantity",
+            confirmed: [
+              `점검 종료가 ${kstLabel(end)}로 변경되었습니다.`,
+              `이전 관측 수량: 관리 키트 II ${grant.ii_qty} · 상자 ${grant.box_qty}`,
+              ...(ambiguous ? [`이 공지의 이전 지급 기록: ${remaining}건`] : []),
+            ],
+            guessed: [],
+            noGuess: "수량 판단만 남아 있어 일정 추측은 없습니다.",
+            ...(ambiguous
+              ? {}
+              : {
+                  blocked:
+                    "점검 종료일이 바뀌면서 같은 날 이미 다른 수량의 지급이 달력에 있어 별도 지급인지 정정인지 확인이 필요합니다.",
+                  todo: "새로 더 지급된 것이면 [별도 지급], 기존 수량을 고치는 것이면 [정정]을 눌러 주세요.",
+                }),
+          },
         },
         now,
       );
