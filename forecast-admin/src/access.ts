@@ -1,4 +1,5 @@
 import { readBoundedJson } from "../../shared/boundedHttp.ts";
+import { errorCode } from "../../shared/errorCodes.ts";
 
 /** Cloudflare Access application token verification (fail closed).
  * RS256 only; keys come from `<team>/cdn-cgi/access/certs`, looked up by `kid`.
@@ -25,6 +26,7 @@ const MIN_REFRESH_MS = 30_000;
 const FETCH_TIMEOUT_MS = 5_000;
 const CLOCK_SKEW_SECONDS = 30;
 const ALGORITHM = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" } as const;
+const MIN_RSA_MODULUS_BITS = 2_048;
 
 /** Returns null when any value is missing, a placeholder, or malformed. */
 export function accessConfig(env: {
@@ -57,20 +59,66 @@ function decodeSegment(segment: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-function decodeJson(segment: string): Record<string, unknown> {
+type DecodedJson = { ok: true; value: Record<string, unknown> } | { ok: false };
+
+/** Malformed base64url, invalid UTF-8, and non-object JSON are all the same expected
+ * invalid-token class (an unauthenticated caller's input), so the parse outcome is a typed
+ * value that the caller converts to `AccessError("invalid_token")`. */
+function tryDecodeJson(segment: string): DecodedJson {
   try {
     const value: unknown = JSON.parse(
       new TextDecoder("utf-8", { fatal: true }).decode(decodeSegment(segment)),
     );
     if (value && typeof value === "object" && !Array.isArray(value))
-      return value as Record<string, unknown>;
+      return { ok: true, value: value as Record<string, unknown> };
+    return { ok: false };
   } catch {
-    // Reported below as one invalid-token class.
+    return { ok: false };
   }
-  throw new AccessError("invalid_token");
+}
+
+function decodeJson(segment: string): Record<string, unknown> {
+  const decoded = tryDecodeJson(segment);
+  if (!decoded.ok) throw new AccessError("invalid_token");
+  return decoded.value;
 }
 
 type KeySet = { domain: string; fetchedAt: number; keys: Map<string, CryptoKey> };
+
+/** Discarding an unread JWKS error body can itself reject, but that must not replace the
+ * JWKS-unavailable outcome; the discard failure is recorded and the caller keeps failing closed. */
+async function discardBody(response: Response) {
+  try {
+    await response.body?.cancel();
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: "access_jwks_body_discard_failed",
+        code: errorCode(error),
+      }),
+    );
+  }
+}
+
+/** Returns null for a JWK this verifier cannot use (unimportable or too small).
+ * Such a key is intentionally not indexed, so a token naming it fails closed as an
+ * unknown `kid`; if every published key is unusable the JWKS is unavailable (503). */
+async function importVerificationKey(modulus: string, exponent: string): Promise<CryptoKey | null> {
+  try {
+    const key = await crypto.subtle.importKey(
+      "jwk",
+      { kty: "RSA", n: modulus, e: exponent, alg: "RS256", ext: true },
+      ALGORITHM,
+      false,
+      ["verify"],
+    );
+    return (key.algorithm as RsaHashedKeyAlgorithm).modulusLength >= MIN_RSA_MODULUS_BITS
+      ? key
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Factory lifetime = isolate. The key cache is bounded in entries and age, and an unknown
  * `kid` triggers at most one JWKS refresh per MIN_REFRESH_MS (single flight). */
@@ -94,7 +142,7 @@ export function createAccessVerifier(
       throw new AccessError("jwks_unavailable");
     }
     if (response.status !== 200) {
-      await response.body?.cancel();
+      await discardBody(response);
       throw new AccessError("jwks_unavailable");
     }
     let body: unknown;
@@ -119,19 +167,8 @@ export function createAccessVerifier(
         typeof jwk["e"] !== "string"
       )
         continue;
-      try {
-        const key = await crypto.subtle.importKey(
-          "jwk",
-          { kty: "RSA", n: jwk["n"], e: jwk["e"], alg: "RS256", ext: true },
-          ALGORITHM,
-          false,
-          ["verify"],
-        );
-        if ((key.algorithm as RsaHashedKeyAlgorithm).modulusLength >= 2048)
-          keys.set(jwk["kid"], key);
-      } catch {
-        // Malformed keys are skipped; a token naming them fails as unknown kid.
-      }
+      const key = await importVerificationKey(jwk["n"], jwk["e"]);
+      if (key) keys.set(jwk["kid"], key);
     }
     if (keys.size === 0) throw new AccessError("jwks_unavailable");
     return { domain, fetchedAt: now(), keys };

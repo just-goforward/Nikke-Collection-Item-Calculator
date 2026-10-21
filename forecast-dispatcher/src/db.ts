@@ -1,57 +1,43 @@
+import {
+  BUDGET_INCIDENT_GLOB,
+  LEGACY_BUDGET_GLOB,
+  LEGACY_BUDGET_SUNSET_MS,
+  resolveBudgetIncidentsBeforeStatement,
+  retireLegacyBudgetAlertsStatement,
+} from "../../shared/forecastOpsAlerts.ts";
 import { gameDayKey } from "../../shared/gameDay.ts";
 import type { DispatcherEnvironment, OpsAlertRow } from "./types";
 
 const ALERT_SUPPRESSION_MS = 30 * 60 * 1_000;
-/** `forecast-v2:<env>:budget:<kind>:<gameDay>`; the key ends with the game day. */
-const BUDGET_INCIDENT_GLOB = "forecast-v2:*:budget:*";
-/** Legacy per-stream keys `forecast-v2:<env>:<stream>:budget_exhausted`. */
-const LEGACY_BUDGET_GLOB = "forecast-v2:*:*:budget_exhausted";
 
-async function resolveSilently(
+/**
+ * Close incidents whose game day already ended; no recovery message is sent.
+ * Shares its statement with the collector so both sides expire the same rows.
+ */
+export async function expireBudgetIncidents(
   db: D1Database,
   environment: DispatcherEnvironment,
-  pattern: string,
-  now: string,
+  nowMs: number,
 ) {
-  await db
-    .prepare(
-      `UPDATE forecast_ops_alerts
-       SET state = 'resolved', resolved_at = ?, recovery_sent_at = ?, next_send_at = ?
-       WHERE environment = ? AND state = 'open' AND alert_key GLOB ?`,
-    )
-    .bind(now, now, now, environment, pattern)
-    .run();
+  await resolveBudgetIncidentsBeforeStatement(db, environment, gameDayKey(nowMs), nowMs).run();
 }
 
 /**
  * Retire the legacy per-stream `budget_exhausted` alerts without a data migration:
  * their keys are replaced by per-kind incidents, so a single silent resolve stops
- * every pending renewal (the resolved row is already recovery-complete).
+ * every pending renewal. The sweep is bounded by `LEGACY_BUDGET_SUNSET_MS` — every
+ * pre-existing row is retired on the first flush — and is skipped as a whole once
+ * that sunset passes, so it does not scan the alert table on every flush forever.
+ * Returns whether the sweep ran (false after the sunset); callers no longer log it.
  */
 export async function retireLegacyBudgetAlerts(
   db: D1Database,
   environment: DispatcherEnvironment,
   nowMs: number,
 ) {
-  await resolveSilently(db, environment, LEGACY_BUDGET_GLOB, new Date(nowMs).toISOString());
-}
-
-/** Close budget incidents whose game day already ended; no recovery message is sent. */
-export async function expireBudgetIncidents(
-  db: D1Database,
-  environment: DispatcherEnvironment,
-  nowMs: number,
-) {
-  const now = new Date(nowMs).toISOString();
-  await db
-    .prepare(
-      `UPDATE forecast_ops_alerts
-       SET state = 'resolved', resolved_at = ?, recovery_sent_at = ?, next_send_at = ?
-       WHERE environment = ? AND state = 'open' AND alert_key GLOB ?
-         AND substr(alert_key, -10) < ?`,
-    )
-    .bind(now, now, now, environment, BUDGET_INCIDENT_GLOB, gameDayKey(nowMs))
-    .run();
+  if (nowMs > LEGACY_BUDGET_SUNSET_MS) return false;
+  await retireLegacyBudgetAlertsStatement(db, environment, nowMs).run();
+  return true;
 }
 
 export async function raiseOpsAlert(
@@ -199,7 +185,7 @@ export async function listDueAlerts(
     component: row.component,
     errorCode: row.error_code,
     state: row.state,
-    context: parseContext(row.context_json),
+    context: parseContext(row.context_json, row.alert_key),
     occurrenceCount: Number(row.occurrence_count),
     lastSentOccurrenceCount: Number(row.last_sent_occurrence_count),
     firstSeenAt: row.first_seen_at,
@@ -215,7 +201,7 @@ export async function markAlertSent(
 ) {
   const now = new Date(nowMs).toISOString();
   if (alert.state === "resolved") {
-    await db
+    const recorded = await db
       .prepare(
         `UPDATE forecast_ops_alerts SET recovery_sent_at = ?, discord_message_id = ?, last_send_error = NULL
          WHERE alert_key = ? AND first_seen_at = ? AND state = 'resolved'
@@ -223,9 +209,9 @@ export async function markAlertSent(
       )
       .bind(now, messageId, alert.alertKey, alert.firstSeenAt, alert.resolvedAt)
       .run();
-    return;
+    return recorded.meta.changes;
   }
-  await db
+  const recorded = await db
     .prepare(
       `UPDATE forecast_ops_alerts
        SET last_sent_at = ?, last_sent_occurrence_count = ?,
@@ -244,6 +230,7 @@ export async function markAlertSent(
       alert.occurrenceCount,
     )
     .run();
+  return recorded.meta.changes;
 }
 
 export async function markAlertSendFailed(
@@ -253,7 +240,7 @@ export async function markAlertSendFailed(
   nowMs: number,
   retryAfterMs = 5 * 60 * 1_000,
 ) {
-  await db
+  const recorded = await db
     .prepare(
       `UPDATE forecast_ops_alerts SET last_send_error = ?, next_send_at = ?
        WHERE alert_key = ? AND first_seen_at = ? AND state = ?
@@ -275,6 +262,7 @@ export async function markAlertSendFailed(
       alert.resolvedAt,
     )
     .run();
+  return recorded.meta.changes;
 }
 
 function contextJson(value: Record<string, string | number | boolean | null> | undefined) {
@@ -282,22 +270,38 @@ function contextJson(value: Record<string, string | number | boolean | null> | u
   return json.length <= 2_000 ? json : '{"truncated":true}';
 }
 
-function parseContext(value: string) {
+/**
+ * Alert context is shown in Discord, so an unreadable row is replaced by a marker
+ * instead of its raw body. The fallback is deliberate for legacy rows, but it is
+ * reported once per read as a structured event so a producer bug cannot hide here.
+ */
+function parseContext(value: string, alertKey: string) {
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(value) as unknown;
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      return Object.fromEntries(
-        Object.entries(parsed as Record<string, unknown>)
-          .filter(
-            (entry): entry is [string, string | number | boolean | null] =>
-              ["string", "number", "boolean"].includes(typeof entry[1]) || entry[1] === null,
-          )
-          .slice(0, 12),
-      );
-    }
+    parsed = JSON.parse(value) as unknown;
   } catch {
-    // Invalid legacy context is represented without exposing its body.
+    console.warn(
+      JSON.stringify({
+        event: "forecast_ops_context_invalid",
+        alertKey,
+        code: "invalid_json",
+      }),
+    );
+    return { invalidContext: true };
   }
+  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>)
+        .filter(
+          (entry): entry is [string, string | number | boolean | null] =>
+            ["string", "number", "boolean"].includes(typeof entry[1]) || entry[1] === null,
+        )
+        .slice(0, 12),
+    );
+  }
+  console.warn(
+    JSON.stringify({ event: "forecast_ops_context_invalid", alertKey, code: "not_an_object" }),
+  );
   return { invalidContext: true };
 }
 

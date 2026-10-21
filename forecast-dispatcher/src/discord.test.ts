@@ -24,6 +24,7 @@ afterEach(() => {
     expect(deniedFetch).not.toHaveBeenCalled();
   } finally {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   }
 });
 
@@ -203,6 +204,23 @@ describe("Discord forecast operations message identity", () => {
     ).catch((caught: unknown) => caught);
     expect(error).toMatchObject({ message: "discord_create_message_403", retryable: false });
     expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("reports an unreadable retry delay and keeps the durable fallback", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("not json", { status: 429 }));
+    const error = await sendDiscordMessage(
+      env(),
+      "alert",
+      { allowed_mentions: { parse: [] } },
+      { fetchImpl },
+    ).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ retryAfterMs: 5 * 60 * 1_000 });
+    expect(JSON.parse(String(warn.mock.calls.at(-1)?.[0]))).toMatchObject({
+      event: "discord_retry_after_fallback",
+      code: "retry_after_unreadable",
+      status: 429,
+    });
   });
 
   it("returns a typed retryable server failure without sleeping", async () => {

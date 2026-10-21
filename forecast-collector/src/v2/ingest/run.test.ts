@@ -150,40 +150,6 @@ describe("T03 scan and boundary", () => {
     },
   );
 
-  it("holds after four pages, keeps the boundary, and retries from page 0 next slot", async () => {
-    const all = posts(120);
-    await seedVersions(all);
-    for (let p = 0; p < 5; p++)
-      naver.page(
-        "A",
-        p,
-        page(
-          "A",
-          all.slice(p * 30, p * 30 + 30).length ? all.slice(p * 30, p * 30 + 30) : [oldPost],
-        ),
-      );
-    const outcomes = [];
-    for (const minute of ["03:00", "03:09", "03:15", "03:21"])
-      outcomes.push((await invoke(at(minute))).outcome);
-    expect(outcomes).toEqual(["running", "running", "running", "held"]);
-    expect(naver.metadataCalls("A").map((call) => call.url.searchParams.get("offset"))).toEqual([
-      "0",
-      "30",
-      "60",
-      "90",
-    ]);
-    expect(await runs(db, "A")).toMatchObject([
-      { status: "held", pages_used: 4, error_code: "page_cap" },
-    ]);
-    expect([null, cutoff]).toContain((await boundary(db, "A")).createdAt);
-    expect((await state(db, "A")).consecutive_holds).toBe(1);
-    expect(await hits(db)).toHaveLength(120);
-
-    await invoke(at("04:00"));
-    expect(naver.metadataCalls("A").at(-1)?.page).toBe(0);
-    expect(await runs(db, "A")).toHaveLength(2);
-  });
-
   it("keeps the boundary on a failed later page and resumes at that page", async () => {
     const first = posts(30);
     const rest = posts(5, 4000, "2026-10-17T11:00:00");

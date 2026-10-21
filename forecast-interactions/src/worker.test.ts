@@ -185,6 +185,91 @@ describe("new publication Router", () => {
     ).toBe(401);
     expect(await count()).toEqual({ n: 0 });
   });
+  it("rejects a signed but unparseable body with 400 before any dispatch", async () => {
+    const body = "not-json{";
+    const timestamp = String(Math.floor(Date.now() / 1_000));
+    const signature = await crypto.subtle.sign(
+      "Ed25519",
+      discordKey.privateKey,
+      new TextEncoder().encode(timestamp + body),
+    );
+    const context = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("https://router.test/discord/interactions", {
+        method: "POST",
+        body,
+        headers: { "x-signature-ed25519": hex(signature), "x-signature-timestamp": timestamp },
+      }),
+      testEnv,
+      context,
+    );
+    await waitOnExecutionContext(context);
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Invalid JSON");
+    expect(webhook).not.toHaveBeenCalled();
+  });
+
+  it("rejects a forged signature without logging attacker-controlled detail", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const body = "{}";
+    const timestamp = String(Math.floor(Date.now() / 1_000));
+    const context = createExecutionContext();
+    const response = await worker.fetch(
+      new Request("https://router.test/discord/interactions", {
+        method: "POST",
+        body,
+        headers: {
+          "x-signature-ed25519": "a".repeat(128),
+          "x-signature-timestamp": timestamp,
+        },
+      }),
+      testEnv,
+      context,
+    );
+    await waitOnExecutionContext(context);
+
+    expect(response.status).toBe(401);
+    // An ordinary invalid signature is a routine 401 and is not logged at all.
+    expect(warning).not.toHaveBeenCalled();
+    expect(errorLog).not.toHaveBeenCalled();
+    warning.mockRestore();
+    errorLog.mockRestore();
+  });
+
+  it("serves 401 when signature verification itself rejects, and logs a bad configured key", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const a = await approvalReview(testEnv.STAGING_FORECAST_DB);
+    // An unusable configured public key is a misconfiguration, not attacker input.
+    errorLog.mockClear();
+    const request = new Request("https://router.test/discord/interactions", {
+      method: "POST",
+      body: JSON.stringify(interaction(custom(a.reviewId))),
+      headers: {
+        "x-signature-ed25519": "b".repeat(128),
+        "x-signature-timestamp": String(Math.floor(Date.now() / 1_000)),
+      },
+    });
+    const verify = vi
+      .spyOn(crypto.subtle, "importKey")
+      .mockRejectedValue(new Error("SENTINEL_key_import_secret"));
+    const failing = await worker.fetch(request, testEnv, createExecutionContext());
+    expect(failing.status).toBe(401);
+    verify.mockRestore();
+    // A rejected crypto.subtle.verify is also just "not verified".
+    const rejectVerify = vi
+      .spyOn(crypto.subtle, "verify")
+      .mockRejectedValue(new Error("SENTINEL_verify_secret"));
+    const rejected = await worker.fetch(request, testEnv, createExecutionContext());
+    expect(rejected.status).toBe(401);
+    rejectVerify.mockRestore();
+
+    const logged = JSON.stringify(errorLog.mock.calls);
+    expect(logged).toContain("discord_public_key_unusable");
+    expect(logged).not.toContain("SENTINEL_key_import_secret");
+    errorLog.mockRestore();
+  });
+
   it("keeps production off even when the old mutations flag is enabled", async () => {
     const a = await approvalReview(testEnv.STAGING_FORECAST_DB);
     expect(
@@ -630,5 +715,68 @@ describe("publication emergency controls and delivery recovery", () => {
     expect(webhook).not.toHaveBeenCalled();
     await request(interaction(custom(a.reviewId)));
     expect(await count()).toEqual({ n: 1 });
+  });
+});
+
+describe("stale activation re-confirmation is decided by the registered trigger token", () => {
+  it.each([
+    ["driver layout", "D1_ERROR: runtime_activation_stale: SQLITE_CONSTRAINT"],
+    [
+      "extended result code",
+      "D1_ERROR: runtime_activation_stale: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)",
+    ],
+    [
+      "prefixed variant",
+      "Error: D1_ERROR: runtime_activation_stale: SQLITE_CONSTRAINT: SENTINEL_layout_9f3a",
+    ],
+  ])("re-confirms a stale activation whatever the %s of the trigger abort", async (_, message) => {
+    const db = testEnv.STAGING_FORECAST_DB;
+    const a = await approvalReview(db);
+    const off = await emergencyReview(db, "off");
+    await request(interaction(custom(a.reviewId)));
+    const reviews = () =>
+      db.prepare("SELECT COUNT(*) n FROM forecast_runtime_reviews").first<{ n: number }>();
+    const before = await reviews();
+    // The branch is decided by comparing the registered token against the message, not
+    // by the exact shape the sanitizer recognises.
+    const apply = vi
+      .spyOn(publicationStore, "applyPublicationCommand")
+      .mockRejectedValueOnce(new Error(message));
+    try {
+      await request(interaction(custom(off), { id: "1002" }));
+    } finally {
+      apply.mockRestore();
+    }
+    expect(await count()).toEqual({ n: 1 });
+    expect(await reviews()).toEqual({ n: Number(before?.n) + 1 });
+    const body = String(webhook.mock.calls.at(-1)?.[1]?.body);
+    expect(body).toContain("the emergency review was stale/expired. Nothing was published.");
+    expect(body).not.toContain("SENTINEL_layout_9f3a");
+    expect(body).not.toContain("D1_ERROR");
+  });
+  it("does not re-confirm when the token is only a fragment of an unregistered abort", async () => {
+    const db = testEnv.STAGING_FORECAST_DB;
+    const a = await approvalReview(db);
+    const off = await emergencyReview(db, "off");
+    await request(interaction(custom(a.reviewId)));
+    const reviews = () =>
+      db.prepare("SELECT COUNT(*) n FROM forecast_runtime_reviews").first<{ n: number }>();
+    const before = await reviews();
+    const apply = vi
+      .spyOn(publicationStore, "applyPublicationCommand")
+      .mockRejectedValueOnce(
+        new Error("D1_ERROR: runtime_activation_stale_sentinel_9f3a: SQLITE_CONSTRAINT"),
+      );
+    try {
+      await request(interaction(custom(off), { id: "1002" }));
+    } finally {
+      apply.mockRestore();
+    }
+    expect(await count()).toEqual({ n: 1 });
+    expect(await reviews()).toEqual(before);
+    const body = String(webhook.mock.calls.at(-1)?.[1]?.body);
+    // Rendered from the registry: the fixed D1 category, never the unregistered token.
+    expect(body).toContain("Publication not applied (D1_ERROR)");
+    expect(body).not.toContain("sentinel_9f3a");
   });
 });

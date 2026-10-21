@@ -1,8 +1,8 @@
+import { errorCode, persistedErrorCode } from "../../shared/errorCodes.ts";
 import {
   createPreviousRollbackReview,
   createReview,
   initializePublication,
-  publicationErrorCode,
   type ReviewRow,
   readSealedCandidate,
 } from "../../shared/forecast-publication/store.ts";
@@ -29,8 +29,17 @@ type OutboxRow = {
 async function isolatedV2Drain(env: DispatcherEnv) {
   try {
     return await drainV2Outbox(env);
-  } catch {
-    console.error(JSON.stringify({ event: "v2_outbox_drain_failed" }));
+  } catch (error) {
+    // The v2 outbox is isolated from operational delivery, but its failure still gets a
+    // typed code so a broken drain is diagnosable instead of a bare event. Only
+    // registered codes are logged; raw `Error.message` would leak whatever the driver
+    // quoted back to us.
+    console.error(
+      JSON.stringify({
+        event: "v2_outbox_drain_failed",
+        code: errorCode(error),
+      }),
+    );
     return 0;
   }
 }
@@ -59,7 +68,7 @@ export async function runDispatcher(env: DispatcherEnv, _options: { scheduledTim
     // A concurrent activation can stale this snapshot. Existing outbox deliveries
     // (especially committed results) must still proceed.
     console.warn(
-      JSON.stringify({ event: "publication_review_failed", code: publicationErrorCode(error) }),
+      JSON.stringify({ event: "publication_review_failed", code: errorCode(error, "publication") }),
     );
   }
   const due = await db
@@ -114,7 +123,9 @@ export async function runDispatcher(env: DispatcherEnv, _options: { scheduledTim
         row.outbox_id,
         lease,
         retryable && row.attempts + 1 < MAX_ATTEMPTS ? "pending" : "dead",
-        error instanceof DiscordMessageError ? error.message : publicationErrorCode(error),
+        // Persisted on the row and later rendered in an ops alert: a registered code or
+        // the fixed publication fallback, never a driver message or a runtime error name.
+        persistedErrorCode(error, "publication"),
         now + Math.max(RETRY_MS, retryAfter),
       );
     }

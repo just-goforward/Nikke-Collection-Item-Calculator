@@ -1,3 +1,4 @@
+import { errorCode } from "../../shared/errorCodes";
 import { publicationWire } from "../../shared/forecast-publication/consumer-wire";
 import { ARTIFACT_DOMAIN, type PublicationEnvelope } from "../../shared/forecastPublication";
 import { type PublicationBytes, publicationBytesHash } from "../../shared/forecastPublicationBytes";
@@ -47,6 +48,78 @@ type Entry = { expiresAt: number } & (
   | { wire: null; guard: null }
 );
 
+/** The rate limiter is fail-closed: a rejected limit() call is recorded under a fixed
+ * category and reported as "unavailable", which the caller serves as 503. */
+async function checkRateLimit(
+  limiter: NonNullable<ForecastEnv["FORECAST_RATE_LIMITER"]>,
+  ip: string,
+): Promise<"allowed" | "limited" | "unavailable"> {
+  try {
+    return (await limiter.limit({ key: ip })).success ? "allowed" : "limited";
+  } catch (error) {
+    // Registered code or fixed category only: a binding error message is arbitrary
+    // provider text and must never reach the log.
+    console.warn(
+      JSON.stringify({ event: "forecast_rate_limiter_unavailable", code: errorCode(error) }),
+    );
+    return "unavailable";
+  }
+}
+
+/** One primary read of the guard and the active pointer, validated against the sealed
+ * artifact. Every failure is a registered code; the caller serves them all as 503. */
+async function load(db: Database, guardDb: Database, now: () => number): Promise<Entry> {
+  const expiresAt = now() + 60_000;
+  const guard = await assertUsageAllowed(
+    guardDb.withSession("first-primary"),
+    "staging_automation",
+    now(),
+  );
+  const row = await db.withSession("first-primary").prepare(ACTIVE_SQL).first<Active>();
+  if (!row || row.environment !== "staging" || !row.sequence || !row.signed_pointer_json)
+    throw new Error("forecast_pointer_missing");
+  const pointer: PublicationEnvelope["pointer"] = JSON.parse(row.signed_pointer_json);
+  if (pointer.statement.environment !== "staging" || pointer.statement.sequence !== row.sequence)
+    throw new Error("forecast_pointer_mismatch");
+  let artifact: PublicationEnvelope["artifact"] = null;
+  if (pointer.statement.mode === "active") {
+    if (
+      !row.payload_json ||
+      !row.candidate_id ||
+      !row.key_id ||
+      !row.artifact_signature ||
+      !row.payload_hash ||
+      row.payload_hash !== row.sealed_hash ||
+      row.payload_hash !== pointer.statement.contentHash ||
+      row.candidate_id !== pointer.statement.candidateId
+    )
+      throw new Error("forecast_artifact_missing");
+    artifact = {
+      candidate: JSON.parse(row.payload_json),
+      authorization: {
+        statement: {
+          domain: ARTIFACT_DOMAIN,
+          environment: "staging",
+          keyId: row.key_id,
+          candidateId: row.candidate_id,
+          contentHash: row.payload_hash,
+        },
+        signature: row.artifact_signature,
+      },
+    };
+  } else if (
+    pointer.statement.mode !== "off" ||
+    pointer.statement.candidateId !== null ||
+    pointer.statement.contentHash !== null
+  )
+    throw new Error("forecast_invalid_off");
+  const wire = publicationWire({ pointer, artifact });
+  if (wire.artifact && (await publicationBytesHash(wire.artifact.candidate)) !== row.payload_hash)
+    throw new Error("forecast_hash_mismatch");
+  if (now() >= expiresAt) throw new Error("forecast_expired");
+  return { expiresAt, wire, guard };
+}
+
 /** At most one publication per binding/isolate; no stale-while-revalidate.
  * The guard and pointer share the SAME non-sliding 60-second primary-read deadline.
  * New stops/approvals/rollbacks become observable within that deadline; no browser
@@ -57,57 +130,6 @@ export function createForecastEndpoint(now = Date.now) {
     Database,
     { guardDb: Database; value?: Entry; pending?: Promise<Entry> }
   >();
-  async function load(db: Database, guardDb: Database): Promise<Entry> {
-    const expiresAt = now() + 60_000;
-    const guard = await assertUsageAllowed(
-      guardDb.withSession("first-primary"),
-      "staging_automation",
-      now(),
-    );
-    const row = await db.withSession("first-primary").prepare(ACTIVE_SQL).first<Active>();
-    if (!row || row.environment !== "staging" || !row.sequence || !row.signed_pointer_json)
-      throw new Error("forecast_pointer_missing");
-    const pointer: PublicationEnvelope["pointer"] = JSON.parse(row.signed_pointer_json);
-    if (pointer.statement.environment !== "staging" || pointer.statement.sequence !== row.sequence)
-      throw new Error("forecast_pointer_mismatch");
-    let artifact: PublicationEnvelope["artifact"] = null;
-    if (pointer.statement.mode === "active") {
-      if (
-        !row.payload_json ||
-        !row.candidate_id ||
-        !row.key_id ||
-        !row.artifact_signature ||
-        !row.payload_hash ||
-        row.payload_hash !== row.sealed_hash ||
-        row.payload_hash !== pointer.statement.contentHash ||
-        row.candidate_id !== pointer.statement.candidateId
-      )
-        throw new Error("forecast_artifact_missing");
-      artifact = {
-        candidate: JSON.parse(row.payload_json),
-        authorization: {
-          statement: {
-            domain: ARTIFACT_DOMAIN,
-            environment: "staging",
-            keyId: row.key_id,
-            candidateId: row.candidate_id,
-            contentHash: row.payload_hash,
-          },
-          signature: row.artifact_signature,
-        },
-      };
-    } else if (
-      pointer.statement.mode !== "off" ||
-      pointer.statement.candidateId !== null ||
-      pointer.statement.contentHash !== null
-    )
-      throw new Error("forecast_invalid_off");
-    const wire = publicationWire({ pointer, artifact });
-    if (wire.artifact && (await publicationBytesHash(wire.artifact.candidate)) !== row.payload_hash)
-      throw new Error("forecast_hash_mismatch");
-    if (now() >= expiresAt) throw new Error("forecast_expired");
-    return { expiresAt, wire, guard };
-  }
 
   return async (request: Request, env: ForecastEnv): Promise<Response> => {
     const respond = (body: unknown, status = 200) =>
@@ -128,8 +150,11 @@ export function createForecastEndpoint(now = Date.now) {
       return respond({ error: "forecast_disabled" }, 503);
     try {
       const ip = request.headers.get("CF-Connecting-IP");
-      if (!ip || !(await env.FORECAST_RATE_LIMITER.limit({ key: ip })).success)
-        return respond({ error: "forecast_rate_limited" }, 429);
+      if (!ip) return respond({ error: "forecast_rate_limited" }, 429);
+      // A limiter failure is not a client limit: it stays the fail-closed 503 answer.
+      const limit = await checkRateLimit(env.FORECAST_RATE_LIMITER, ip);
+      if (limit === "limited") return respond({ error: "forecast_rate_limited" }, 429);
+      if (limit === "unavailable") return respond({ error: "forecast_unavailable" }, 503);
       let cell = cache.get(db);
       if (!cell || cell.guardDb !== guardDb) {
         cell = { guardDb };
@@ -139,8 +164,13 @@ export function createForecastEndpoint(now = Date.now) {
         delete cell.value;
         const target = cell;
         const expiresAt = now() + 60_000;
-        target.pending ??= load(db, guardDb)
-          .catch((): Entry => ({ expiresAt, wire: null, guard: null }))
+        target.pending ??= load(db, guardDb, now)
+          .catch((error: unknown): Entry => {
+            // A failed load is served as "unavailable" for this cache window; record which
+            // failure it was so a client 503 is diagnosable.
+            console.warn(JSON.stringify({ event: "forecast_load_failed", code: errorCode(error) }));
+            return { expiresAt, wire: null, guard: null };
+          })
           .then((entry) => {
             target.value = entry;
             return entry;
@@ -157,7 +187,9 @@ export function createForecastEndpoint(now = Date.now) {
         now() >= entry.expiresAt ||
         !operationAllowed(effectiveUsageGuardAction(entry.guard, now()), "staging_automation")
       )
-        throw new Error("forecast_unavailable");
+        // A failed load was already recorded at the load site; an expired or guarded
+        // entry is an expected unavailable state.
+        return respond({ error: "forecast_unavailable" }, 503);
       return respond({
         pointer: entry.wire.pointer,
         ...(new URL(request.url).pathname === "/api/forecast"
@@ -165,7 +197,8 @@ export function createForecastEndpoint(now = Date.now) {
           : {}),
         remainingMs: entry.expiresAt - now(),
       });
-    } catch {
+    } catch (error) {
+      console.error(JSON.stringify({ event: "forecast_request_failed", code: errorCode(error) }));
       return respond({ error: "forecast_unavailable" }, 503);
     }
   };

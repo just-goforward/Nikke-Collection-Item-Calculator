@@ -1,14 +1,13 @@
-import { env } from "cloudflare:workers";
 import { beforeEach, expect, it } from "vitest";
 import type { PublicStatistics } from "./contracts";
 import { applyPrivacyChange, withPrivacyIntent } from "./privacy";
 import { publishWeekly, weekStart } from "./publication";
 import { admitAccount, EMPTY_DOCUMENT } from "./store";
-import { type FixtureEnv, resetFixture } from "./test-fixture";
+import { fixtureEnv, resetFixture } from "./test-fixture";
 import type { PersonalEnv } from "./types";
 import worker from "./worker";
 
-const dbs = env as unknown as FixtureEnv;
+const dbs = fixtureEnv();
 const NOW = Date.UTC(2026, 8, 2, 12);
 const enabled: PersonalEnv = {
   ...dbs,

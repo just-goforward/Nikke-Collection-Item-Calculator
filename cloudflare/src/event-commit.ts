@@ -1,3 +1,4 @@
+import { type AppErrorCode, errorCode } from "../../shared/errorCodes";
 import { clientEnvironment } from "./client-environment";
 import { kstGameDateKeyFromUnixSeconds } from "./date-key";
 import type { WorkerEnv } from "./env";
@@ -9,7 +10,7 @@ import type {
   ValidatedSubmission,
 } from "./event-validation-types";
 import { HttpError } from "./http-error";
-import { logError, sanitizedError } from "./logger";
+import { logError } from "./logger";
 
 type StatsEventKind = "kit_result" | "runtime_invariant" | "solver_diagnostic" | "solver_recovery";
 
@@ -19,7 +20,8 @@ export type SubmissionRejection = {
   eventKind: StatsEventKind;
   policyVersion: string;
   recoveryVersion: string;
-  rejectionCode: string;
+  /** Persisted per rejected event and aggregated per game day: a registered code only. */
+  rejectionCode: AppErrorCode;
 };
 
 export async function commitSubmissionRejection(
@@ -53,18 +55,25 @@ export async function commitSubmissionRejection(
         now,
       ),
     ]);
-  } catch {
-    const duplicate = await env.DB.prepare(
-      `SELECT 1 AS event_exists FROM stats_rejection_event_ids
-       WHERE event_id = ?`,
-    )
-      .bind(rejection.eventId)
-      .first<{ event_exists?: number }>()
-      .catch(() => null);
+  } catch (primaryWriteError) {
+    let duplicate: { event_exists?: number } | null = null;
+    let lookupError: unknown = null;
+    try {
+      duplicate = await env.DB.prepare(
+        `SELECT 1 AS event_exists FROM stats_rejection_event_ids
+         WHERE event_id = ?`,
+      )
+        .bind(rejection.eventId)
+        .first<{ event_exists?: number }>();
+    } catch (error) {
+      lookupError = error;
+    }
     if (duplicate?.event_exists === 1) return;
     logError("statistics_rejection_storage_failed", {
       eventKind: rejection.eventKind,
       rejectionCode: rejection.rejectionCode,
+      primaryWriteError: errorCode(primaryWriteError),
+      ...(lookupError === null ? {} : { duplicateLookupError: errorCode(lookupError) }),
     });
     throw new HttpError(503, "rejection_storage_unavailable", true);
   }
@@ -609,15 +618,15 @@ async function commitEvent(
     } catch (lookupError) {
       logError("statistics_event_storage_lookup_failed", {
         eventKind,
-        duplicateLookupError: sanitizedError(lookupError),
-        primaryWriteError: sanitizedError(error),
+        duplicateLookupError: errorCode(lookupError),
+        primaryWriteError: errorCode(error),
       });
       throw new HttpError(503, "storage_unavailable", true);
     }
     if (existing?.event_exists === 1) return true;
     logError("statistics_event_storage_failed", {
       eventKind,
-      primaryWriteError: sanitizedError(error),
+      primaryWriteError: errorCode(error),
     });
     throw new HttpError(503, "storage_unavailable", true);
   }

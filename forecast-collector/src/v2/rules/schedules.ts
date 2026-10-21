@@ -1,6 +1,6 @@
 import { extractNoticeText } from "../../solo-sections";
 import { type ExistingWindow, resolveMaintenance } from "./identity";
-import { noticeDates } from "./notice-dates";
+import { type NoticeDate, noticeDates } from "./notice-dates";
 
 export type ScheduleJudgment =
   | { action: "ignore" }
@@ -50,51 +50,82 @@ export function judgeMaintenance(post: Notice): ScheduleJudgment {
   return { action: "confirmed", startAt, endAt };
 }
 
-export function judgeSolo(post: Notice, maintenance: readonly ExistingWindow[]): ScheduleJudgment {
-  const text = extractNoticeText(post.body).effective;
-  if (!/솔로\s*레이드/.test(`${post.title}\n${text}`)) return { action: "ignore" };
+/**
+ * The period block a solo notice states: the "진행 기간" line plus its continuation,
+ * with any "(내용 추가/수정)" editorial note removed.
+ */
+function soloPeriod(text: string) {
   const lines = text.split("\n");
   const index = lines.findIndex((line) => /진행\s*기간/.test(line));
   const period = (index < 0 ? text : `${lines[index]}\n${lines[index + 1] ?? ""}`).replace(
     /\([^)]*내용\s*(?:추가|수정)[^)]*\)/g,
     "",
   );
+  return period;
+}
+
+/** A "점검 완료 후" start either resolves to a maintenance end or names a reason. */
+function soloStart(dates: NoticeDate[], maintenance: readonly ExistingWindow[]) {
+  const first = dates[0];
+  if (!first?.maintenance) return { startAt: first?.instant ?? null };
+  const match = resolveMaintenance(first.date, maintenance);
+  return "reason" in match
+    ? { startAt: null, unresolvedMaintenance: match.reason }
+    : { startAt: match.endAt, maintenanceEventId: match.eventId };
+}
+
+/** "오픈 안내 … 까지" states an end only; the post time is then the start. */
+function openNoticeSpan(
+  post: Notice,
+  period: string,
+  dates: NoticeDate[],
+  ends: NoticeDate[],
+): { startAt: string; endAt: string | undefined } | null {
+  if (dates.length !== 1 || !/오픈\s*안내/.test(post.title) || !/까지/.test(period)) return null;
+  return { startAt: post.postedAt, endAt: ends[0]?.instant ?? undefined };
+}
+
+/** The span a solo notice states, keeping a known start when the end is unusable. */
+function soloSpan(startAt: string | null, endAt: string | null | undefined) {
+  const usableEnd = endAt && (!startAt || Date.parse(endAt) > Date.parse(startAt)) ? endAt : null;
+  return {
+    ordered: Boolean(startAt && usableEnd && Date.parse(usableEnd) > Date.parse(startAt)),
+    usableEnd,
+  };
+}
+
+export function judgeSolo(post: Notice, maintenance: readonly ExistingWindow[]): ScheduleJudgment {
+  const text = extractNoticeText(post.body).effective;
+  if (!/솔로\s*레이드/.test(`${post.title}\n${text}`)) return { action: "ignore" };
+  const period = soloPeriod(text);
   const dates = noticeDates(period, post.postedAt);
-  let startAt: string | null = dates[0]?.instant ?? null;
-  let maintenanceEventId: string | undefined;
-  let unresolvedMaintenance: string | undefined;
-  if (dates[0]?.maintenance) {
-    const match = resolveMaintenance(dates[0].date, maintenance);
-    if ("reason" in match) unresolvedMaintenance = match.reason;
-    else {
-      startAt = match.endAt;
-      maintenanceEventId = match.eventId;
-    }
-  }
+  const start = soloStart(dates, maintenance);
   const ends = noticeDates(period, post.postedAt, true);
-  let endAt = ends.length > 1 ? ends.at(-1)?.instant : null;
-  if (dates.length === 1 && /오픈\s*안내/.test(post.title) && /까지/.test(period)) {
-    startAt = post.postedAt;
-    endAt = ends[0]?.instant;
-  }
-  if (unresolvedMaintenance)
+  const defaultEnd = ends.length > 1 ? (ends.at(-1)?.instant ?? null) : null;
+  const open = openNoticeSpan(post, period, dates, ends);
+  const startAt = open?.startAt ?? start.startAt;
+  const endAt = open ? open.endAt : defaultEnd;
+  if ("unresolvedMaintenance" in start && start.unresolvedMaintenance)
     return {
       action: "decision",
-      reason: unresolvedMaintenance,
+      reason: start.unresolvedMaintenance,
       ...(endAt ? { endAt } : {}),
     };
-  if (!startAt || !endAt || Date.parse(endAt) <= Date.parse(startAt))
+  const span = soloSpan(startAt, endAt);
+  if (!span.ordered)
     return {
       action: "decision",
       reason: "solo_period_unresolved",
       ...(startAt ? { startAt } : {}),
-      ...(endAt && (!startAt || Date.parse(endAt) > Date.parse(startAt)) ? { endAt } : {}),
+      ...(span.usableEnd ? { endAt: span.usableEnd } : {}),
     };
   return {
     action: "confirmed",
-    startAt,
-    endAt,
-    ...(maintenanceEventId ? { maintenanceEventId } : {}),
+    startAt: startAt as string,
+    endAt: span.usableEnd as string,
+    ...("maintenanceEventId" in start && start.maintenanceEventId
+      ? { maintenanceEventId: start.maintenanceEventId }
+      : {}),
   };
 }
 

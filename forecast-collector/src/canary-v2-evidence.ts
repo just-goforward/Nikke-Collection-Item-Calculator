@@ -1,5 +1,6 @@
 import {
   assertForecastCandidateInvariants,
+  isExpectedCandidateRejection,
   supplyForecastCandidateSchema,
 } from "../../shared/supplyForecastCandidate";
 import { sha256Hex, stableJson } from "./crypto";
@@ -135,13 +136,31 @@ export async function readV2CandidateIntegrity(db: D1Database) {
     .all<{ payload_json: string; payload_hash: string }>();
   let candidates = 0;
   for (const row of rows.results) {
+    let payload: unknown;
     try {
-      const candidate = supplyForecastCandidateSchema.parse(JSON.parse(row.payload_json));
-      assertForecastCandidateInvariants(candidate);
-      if ((await sha256Hex(stableJson(candidate))) !== row.payload_hash) candidates += 1;
-    } catch {
+      payload = JSON.parse(row.payload_json);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
       candidates += 1;
+      continue;
     }
+    const parsed = supplyForecastCandidateSchema.safeParse(payload);
+    if (!parsed.success) {
+      candidates += 1;
+      continue;
+    }
+    // Plain Error signals rejected data; validator defects mean unavailable
+    // evidence and must propagate without exposing candidate data in logs.
+    try {
+      assertForecastCandidateInvariants(parsed.data);
+    } catch (error) {
+      if (!isExpectedCandidateRejection(error)) throw error;
+      console.error(JSON.stringify({ event: "canary_v2_candidate_invariant_check_failed" }));
+      candidates += 1;
+      continue;
+    }
+    // A hashing failure is unavailable evidence, not an invalid candidate.
+    if ((await sha256Hex(stableJson(parsed.data))) !== row.payload_hash) candidates += 1;
   }
   return { candidates, totalInvalid: candidates };
 }

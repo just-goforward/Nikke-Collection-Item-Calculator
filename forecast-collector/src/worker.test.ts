@@ -1,6 +1,7 @@
 import { applyD1Migrations, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { isAppErrorCode } from "../../shared/errorCodes.ts";
 import { executeTestSql } from "../../shared/testD1Sql";
 import { upsertOpsAlert } from "./ops";
 import schemaSql from "./test-schema";
@@ -287,6 +288,42 @@ describe("forecast collector admin boundary", () => {
       certification: { status: "incomplete", hardFailures: [] },
     });
   });
+
+  it.each(["/admin/canary-report", "/admin/canary-deployments/start"])(
+    "returns only a sanitized code from %s and never echoes request text",
+    async (path) => {
+      // The request text itself is the sentinel: these error bodies are returned to
+      // operators and some of them are persisted, so no part of the request may come back.
+      const sentinel = "SENTINEL_secret_9f3a";
+      const response = await invokeAdmin(
+        {
+          ADMIN_RATE_LIMITER: {
+            limit: vi.fn().mockResolvedValue({ success: true }),
+          } as unknown as RateLimit,
+          ADMIN_TOKEN: "expected-token",
+        },
+        {
+          token: "expected-token",
+          path,
+          method: "POST",
+          body: JSON.stringify({
+            canaryId: sentinel,
+            collectorCron: sentinel,
+            dispatcherCron: sentinel,
+            collectorVersionId: sentinel,
+            dispatcherVersionId: sentinel,
+            quotaEvidence: null,
+          }),
+        },
+      );
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      const text = await response.text();
+      expect(text).not.toContain(sentinel);
+      const payload = JSON.parse(text) as { error: string };
+      // Whatever failed, the body is a registered code (or fixed category), never text.
+      expect(isAppErrorCode(payload.error) || payload.error === "D1_ERROR").toBe(true);
+    },
+  );
 });
 
 async function invokeAdmin(

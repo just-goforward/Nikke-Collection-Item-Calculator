@@ -1,4 +1,5 @@
 import { readBoundedBytes } from "../../shared/boundedHttp.ts";
+import { errorCode } from "../../shared/errorCodes.ts";
 import {
   type BudgetIncidentKind,
   budgetGameDayResetAt,
@@ -231,7 +232,13 @@ async function createMessage(
   }
 }
 
+/**
+ * A 429 body we cannot read still means "slow down"; the fixed fallback keeps the
+ * alert durable in D1. The reason is reported so a Discord schema change (or an
+ * oversized body) stays visible instead of hiding behind the fallback delay.
+ */
 async function readRetryAfter(response: Response) {
+  let problem = "retry_after_missing";
   try {
     const bytes = await boundedResponseBytes(response);
     const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
@@ -239,9 +246,21 @@ async function readRetryAfter(response: Response) {
     if (Number.isFinite(retryAfter) && retryAfter >= 0) {
       return Math.min(Math.max(retryAfter * 1_000, 250), 60 * 60 * 1_000);
     }
-  } catch {
-    // The fallback delay is intentionally short; the unsent alert remains durable in D1.
+  } catch (error) {
+    // Only the registered oversize code is reported by name; a parse failure (or a forged
+    // message on a DiscordMessageError) stays the fixed "unreadable" reason.
+    problem =
+      errorCode(error) === "discord_response_too_large"
+        ? "discord_response_too_large"
+        : "retry_after_unreadable";
   }
+  console.warn(
+    JSON.stringify({
+      event: "discord_retry_after_fallback",
+      code: problem,
+      status: response.status,
+    }),
+  );
   return 5 * 60 * 1_000;
 }
 

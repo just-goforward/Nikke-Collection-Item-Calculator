@@ -1,3 +1,9 @@
+import { errorCode as registeredErrorCode } from "../../shared/errorCodes.ts";
+import {
+  BUDGET_INCIDENT_UNSENT_FILTER,
+  resolveBudgetIncidentsBeforeStatement as resolveSharedBudgetIncidentsBeforeStatement,
+} from "../../shared/forecastOpsAlerts";
+
 export type OpsEnvironment = "staging" | "production";
 export type OpsSeverity = "warning" | "critical";
 
@@ -52,7 +58,10 @@ export function upsertOpsAlertStatement(
          context_json = ${
            merge === undefined
              ? "excluded.context_json"
-             : `json_set(excluded.context_json, '$.affectedStreams', CASE
+             : // A reopened row starts a new incident, so stale streams from the previous
+               // occurrence are dropped instead of being carried into its first message.
+               `json_set(excluded.context_json, '$.affectedStreams', CASE
+                 WHEN forecast_ops_alerts.state <> 'open' THEN ?
                  WHEN instr(','||COALESCE(json_extract(forecast_ops_alerts.context_json,'$.affectedStreams'),'')||',', ','||?||',') > 0
                    THEN json_extract(forecast_ops_alerts.context_json,'$.affectedStreams')
                  WHEN COALESCE(json_extract(forecast_ops_alerts.context_json,'$.affectedStreams'),'') = ''
@@ -104,7 +113,7 @@ export function upsertOpsAlertStatement(
       now,
       nextSendAt,
       ...(input.guard?.bindings ?? []),
-      ...(merge === undefined ? [] : [merge, merge, merge]),
+      ...(merge === undefined ? [] : [merge, merge, merge, merge]),
     );
 }
 
@@ -125,37 +134,25 @@ export async function resolveOpsAlertsByPrefix(
 }
 
 /**
- * Close budget incidents from earlier game days (their keys end with the game day,
- * so the suffix compares chronologically). `recovery_sent_at` is set together with
- * `resolved_at` because this family is one-shot: a rollover closes it silently
- * instead of posting a separate "복구" message at 05:00 KST.
+ * Close budget incidents from earlier game days. The statement (key shape, prefix,
+ * silent-recovery semantics) lives in `shared/forecastOpsAlerts.ts` so the collector
+ * and the dispatcher cannot drift; see its doc comment for the `reservedAttemptId`
+ * guard used inside a reservation batch.
  */
 export function resolveBudgetIncidentsBeforeStatement(
   db: D1Database,
   environment: OpsEnvironment,
   gameDay: string,
   nowMs: number,
-  /** Only act when this attempt row exists, i.e. inside a reservation's own batch. */
   reservedAttemptId?: string,
 ) {
-  const now = new Date(nowMs).toISOString();
-  const prefix = `forecast-v2:${environment}:budget:`;
-  return db
-    .prepare(
-      `UPDATE forecast_ops_alerts
-       SET state = 'resolved', resolved_at = ?, recovery_sent_at = ?, next_send_at = ?
-       WHERE state = 'open' AND substr(alert_key, 1, ?) = ? AND substr(alert_key, -10) < ?
-         ${reservedAttemptId ? "AND EXISTS(SELECT 1 FROM forecast_v2_fetch_attempts WHERE attempt_id=?)" : ""}`,
-    )
-    .bind(
-      now,
-      now,
-      now,
-      prefix.length,
-      prefix,
-      gameDay,
-      ...(reservedAttemptId ? [reservedAttemptId] : []),
-    );
+  return resolveSharedBudgetIncidentsBeforeStatement(
+    db,
+    environment,
+    gameDay,
+    nowMs,
+    reservedAttemptId,
+  );
 }
 
 export async function readOperationsHealth(db: D1Database, environment: OpsEnvironment) {
@@ -200,8 +197,7 @@ export async function readOperationsHealth(db: D1Database, environment: OpsEnvir
         `SELECT
            SUM(CASE WHEN state = 'open' THEN 1 ELSE 0 END) AS open_count,
            SUM(CASE WHEN state = 'open' AND occurrence_count > last_sent_occurrence_count
-                     AND NOT (alert_key GLOB 'forecast-v2:*:budget:*' AND last_sent_at IS NOT NULL)
-                     AND NOT (alert_key GLOB 'forecast-v2:*:*:budget_exhausted')
+                     AND ${BUDGET_INCIDENT_UNSENT_FILTER}
                     THEN 1 ELSE 0 END) AS unsent_count,
            SUM(CASE WHEN state = 'open' AND severity = 'critical'
                           AND occurrence_count > last_sent_occurrence_count THEN 1 ELSE 0 END) AS unsent_critical_count
@@ -244,9 +240,24 @@ export async function readOperationsHealth(db: D1Database, environment: OpsEnvir
   };
 }
 
+/**
+ * Sanitizer for a caught value that is returned to an operator in a collector admin error
+ * body (`admin-routes-canary.ts`). Its callers are HTTP responses, not a persisted column.
+ * Output is the registry's diagnostic output under the `forecast_ops` policy: a registered
+ * code, a fixed runtime error name, `D1_ERROR`, or the fixed `forecast_ops_unknown_error`
+ * fallback, so no text from an arbitrary message reaches the response.
+ *
+ * A caught value that is written to a column (`forecast_ops_alerts.error_code`,
+ * `last_send_error`) must go through `persistedErrorCode` from `shared/errorCodes.ts`
+ * instead, where runtime error names fall to the policy's registered fallback.
+ *
+ * Callers that pass `errorCode` to `upsertOpsAlert` supply a code of their own (a v2
+ * ingest reason such as `http_503`, `detail_drift`, or a budget code); those are the
+ * alert's identity and are normalized but not run through this sanitizer, because an
+ * unregistered-but-intentional reason must stay visible to the operator.
+ */
 export function sanitizeOpsError(error: unknown) {
-  const value = error instanceof Error ? error.message : "unknown";
-  return errorCode(value);
+  return registeredErrorCode(error, "forecast_ops");
 }
 
 function contextJson(value: Record<string, string | number | boolean | null> | undefined) {

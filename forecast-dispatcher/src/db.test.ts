@@ -301,6 +301,32 @@ describe("forecast dispatcher budget incidents", () => {
     });
     await expect(listDueAlerts(testEnv.FORECAST_DB, "staging", now)).resolves.toHaveLength(1);
   });
+
+  it("stops sweeping legacy keys after the sunset", async () => {
+    const { LEGACY_BUDGET_SUNSET_MS } = await import("../../shared/forecastOpsAlerts.ts");
+    expect(await retireLegacyBudgetAlerts(testEnv.FORECAST_DB, "staging", now)).toBe(true);
+    expect(
+      await retireLegacyBudgetAlerts(testEnv.FORECAST_DB, "staging", LEGACY_BUDGET_SUNSET_MS + 1),
+    ).toBe(false);
+  });
+
+  it("reports invalid legacy context instead of hiding it behind the fallback", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await testEnv.FORECAST_DB.prepare(
+      `INSERT INTO forecast_ops_alerts (alert_key,environment,severity,component,error_code,state,
+        context_json,notify_after_count,occurrence_count,first_seen_at,last_seen_at,next_send_at)
+       VALUES ('fixture:broken-context','staging','warning','collector','fixture','open','{oops',1,1,?,?,?)`,
+    )
+      .bind(new Date(now).toISOString(), new Date(now).toISOString(), new Date(now).toISOString())
+      .run();
+    const due = await dueAlert(now);
+    expect(due.context).toEqual({ invalidContext: true });
+    expect(JSON.parse(String(warn.mock.calls.at(-1)?.[0]))).toMatchObject({
+      event: "forecast_ops_context_invalid",
+      alertKey: "fixture:broken-context",
+      code: "invalid_json",
+    });
+  });
 });
 
 async function dueAlert(nowMs: number) {

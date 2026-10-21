@@ -1,11 +1,10 @@
-import { env } from "cloudflare:workers";
 import { beforeEach, expect, it } from "vitest";
 import { inactivityDeadline, runInactivityDeletion } from "./inactivity";
 import { admitAccount } from "./store";
-import { type FixtureEnv, resetFixture } from "./test-fixture";
+import { fixtureEnv, resetFixture } from "./test-fixture";
 import type { PersonalEnv, SqlStatement } from "./types";
 
-const dbs = env as unknown as FixtureEnv;
+const dbs = fixtureEnv();
 const LAST = Date.UTC(2024, 2, 1, 12);
 const DUE = Date.UTC(2026, 2, 1, 12);
 beforeEach(() => resetFixture(dbs));

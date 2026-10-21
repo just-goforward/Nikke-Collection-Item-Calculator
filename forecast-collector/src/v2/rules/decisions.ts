@@ -80,7 +80,7 @@ export type DecisionInput = {
 const clamp = (value: string, limit: number) =>
   value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
 /** Producers clamp to the payload caps so a queued row can never fail validation. */
-export function clampEvidence(
+function clampEvidence(
   evidence: ForecastV2DecisionEvidence | undefined,
   postedAt?: string,
 ): ForecastV2DecisionEvidence {

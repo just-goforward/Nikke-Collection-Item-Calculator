@@ -1,5 +1,3 @@
-import { env } from "cloudflare:workers";
-import type { D1Migration } from "@cloudflare/vitest-plugin";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   consumeOAuthTransaction,
@@ -19,15 +17,11 @@ import {
   recordPrivacyChange,
 } from "./privacy";
 import { admitAccount, EMPTY_DOCUMENT, getWorkspace, OP_RETENTION_MS, putWorkspace } from "./store";
-import { resetFixture } from "./test-fixture";
-import type { PersonalEnv, SqlDatabase } from "./types";
+import { fixtureEnv, resetFixture } from "./test-fixture";
+import type { SqlDatabase } from "./types";
 import worker from "./worker";
 
-const dbs = env as unknown as PersonalEnv & {
-  PERSONAL_MIGRATIONS: D1Migration[];
-  PRIVACY_MIGRATIONS: D1Migration[];
-  PUBLIC_MIGRATIONS: D1Migration[];
-};
+const dbs = fixtureEnv();
 const NOW = Date.UTC(2026, 8, 2);
 const summary: StageSummary = {
   itemId: "item-1",

@@ -4,9 +4,14 @@ import {
   hasCertifiedEvidenceCoverage,
 } from "../../shared/certifiedEvidenceCoverage.ts";
 import {
+  errorCode,
+  type PersistedErrorCode,
+  persistedErrorCode,
+  type SafeErrorCode,
+} from "../../shared/errorCodes.ts";
+import {
   type ActiveRow,
   createReview,
-  publicationErrorCode,
   sealCandidate,
 } from "../../shared/forecast-publication/store.ts";
 import { CERTIFIED_ENGINE_CODE_HASH } from "../../shared/generated/certifiedEngineBuild.ts";
@@ -62,7 +67,8 @@ export async function admitCandidates(
       .first<{ attempts: number }>();
     if (!claimed) continue;
     let state: "ready" | "pending" | "dead" = "ready";
-    let code: string | null = null;
+    let code: PersistedErrorCode | null = null;
+    let diagnostic: SafeErrorCode | null = null;
     try {
       if (row.cadence_version !== "observed-median-v2") throw new Error("unsupported_cadence");
       if (!hasCertifiedEvidenceCoverage(row.cadence_version, CERTIFIED_ENGINE_CODE_HASH, coverage))
@@ -70,11 +76,12 @@ export async function admitCandidates(
       const sealed = await sealCandidate(db, row.candidate_id, now);
       await createReview(db, active, "approve", row.candidate_id, sealed.hash, now);
     } catch (error) {
-      code =
-        error instanceof Error &&
-        (error.message === "awaiting_evidence_panel" || error.message === "unsupported_cadence")
-          ? error.message
-          : publicationErrorCode(error);
+      // `awaiting_evidence_panel` and `unsupported_cadence` are registered, so they
+      // survive the sanitizer; every other failure is a registered code or the fixed
+      // publication fallback in the column, never a driver message or a runtime error
+      // name. The log keeps the diagnostic output, which may be a fixed runtime name.
+      code = persistedErrorCode(error, "publication");
+      diagnostic = errorCode(error, "publication");
       state =
         code === "unsupported_cadence"
           ? "dead"
@@ -103,6 +110,7 @@ export async function admitCandidates(
           event: "publication_candidate_review_failed",
           candidateId: row.candidate_id,
           code,
+          errorCode: diagnostic,
           state,
           attempts: claimed.attempts,
         }),

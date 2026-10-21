@@ -1,24 +1,14 @@
 import { reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  type CloudflarePaidUsageSnapshot,
-  evaluateD1PreflightBudget,
-} from "../../shared/cloudflarePaidUsage";
-import {
-  CLOUDFLARE_PAID_INCLUDED_LIMITS,
-  CLOUDFLARE_PAID_THRESHOLDS,
-  D1_DATABASE_IDS,
-  type D1QuotaEvidence,
-  QUOTA_ACTIONS,
-} from "../../shared/d1QuotaEvidence";
+import { type D1QuotaEvidence, QUOTA_ACTIONS } from "../../shared/d1QuotaEvidence";
 import { assertUsageAllowed, type UsageGuardError } from "../../shared/usageGuard";
 import schemaSql from "../schema.sql?raw";
+import { usageGuardFixtures } from "./guard.test-fixtures";
 import type { StoredGuardState, UsageGuardEnv } from "./types";
 import worker, {
   actionAlertRequired,
   findQuotaBaseline,
-  recordSuccessfulEvaluation,
   runUsageGuard,
   transitionAction,
   usageGuardRunId,
@@ -26,6 +16,7 @@ import worker, {
 
 const testEnv = env as unknown as UsageGuardEnv;
 const NOW = Date.parse("2026-09-01T02:00:00.000Z");
+const { observation, recordSample, reserveTestRun, storedRun } = usageGuardFixtures(testEnv, NOW);
 
 beforeEach(async () => {
   vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("unexpected_fetch"));
@@ -405,6 +396,50 @@ describe("usage guard publication identity and notifications", () => {
   });
 });
 
+describe("usage guard alert transport failures", () => {
+  it.each([
+    [
+      "a plain Error",
+      new Error("SENTINEL_transport_secret"),
+      "discord_network",
+      "usage_guard_unknown_error",
+    ],
+    [
+      "a runtime TypeError",
+      new TypeError("SENTINEL_transport_secret"),
+      "discord_network",
+      "TypeError",
+    ],
+    [
+      "a timeout",
+      Object.assign(new Error("SENTINEL_transport_secret"), { name: "TimeoutError" }),
+      "discord_timeout",
+      "TimeoutError",
+    ],
+  ])(
+    "records a fixed transport code, never the thrown message, when the alert call rejects with %s",
+    async (_, thrown, alertStatus, loggedCode) => {
+      // `alert_status` durably records the attempt, so a rejected transport must land there
+      // as one of two registered transport codes rather than as the provider error text or
+      // a runtime error name; the log keeps the diagnostic output.
+      const warnLog = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      vi.mocked(globalThis.fetch).mockRejectedValue(thrown);
+      await reserveTestRun("alert-transport");
+      await recordSample("alert-transport", observation("warning", NOW), testEnv);
+
+      const run = await storedRun("alert-transport");
+      expect(run).toMatchObject({ alert_status: alertStatus });
+      expect(JSON.stringify(run)).not.toContain("SENTINEL_transport_secret");
+      const transport = warnLog.mock.calls
+        .map(([line]) => JSON.parse(String(line)) as { event: string; errorCode: string })
+        .find((entry) => entry.event === "usage_guard_alert_transport_failed");
+      expect(transport).toMatchObject({ errorCode: loggedCode });
+      expect(JSON.stringify(warnLog.mock.calls)).not.toContain("SENTINEL_transport_secret");
+      warnLog.mockRestore();
+    },
+  );
+});
+
 describe("usage guard state transitions", () => {
   it("latches stricter actions inside a billing period", () => {
     const previous = state("warning", "2026-08-15T00:00:00.000Z");
@@ -684,91 +719,6 @@ function evidence(action: D1QuotaEvidence["action"], periodStart: string) {
   return { action, plan: { periodStart } } as D1QuotaEvidence;
 }
 
-function observation(
-  action: D1QuotaEvidence["action"],
-  capturedAt: number,
-  periodStart = "2026-08-15T00:00:00.000Z",
-  periodEnd = periodStart === "2026-08-15T00:00:00.000Z"
-    ? "2026-09-15T00:00:00.000Z"
-    : "2026-10-15T00:00:00.000Z",
-) {
-  const percentages = {
-    normal: 0,
-    warning: CLOUDFLARE_PAID_THRESHOLDS.warningPercent,
-    disable_staging: CLOUDFLARE_PAID_THRESHOLDS.disableStagingPercent,
-    disable_forecast_production: CLOUDFLARE_PAID_THRESHOLDS.disableForecastProductionPercent,
-    disable_statistics_writes: CLOUDFLARE_PAID_THRESHOLDS.disableStatisticsWritesPercent,
-    hard_stop: CLOUDFLARE_PAID_THRESHOLDS.hardStopPercent,
-  };
-  const snapshot: CloudflarePaidUsageSnapshot = {
-    version: 2,
-    source: "cloudflare-paid-account-analytics-v2",
-    accountId: testEnv.CLOUDFLARE_ACCOUNT_ID,
-    capturedAt: new Date(capturedAt).toISOString(),
-    plan: {
-      id: "workers-paid",
-      verified: true,
-      state: "Paid",
-      frequency: "monthly",
-      periodStart,
-      periodEnd,
-      subscriptionId: "local-subscription",
-      ratePlanId: "workers-paid",
-    },
-    daily: [],
-    databases: Object.values(D1_DATABASE_IDS).map((databaseId, index) => ({
-      databaseId,
-      databaseName: `local-quota-${index}`,
-      rowsReadObserved: 0,
-      rowsWrittenObserved: 0,
-      // Preflight storage projects observed usage by the safety factor, even without growth.
-      storageBytesObserved:
-        index === 0
-          ? (CLOUDFLARE_PAID_INCLUDED_LIMITS.d1StorageBytes * percentages[action]) /
-            (100 * CLOUDFLARE_PAID_THRESHOLDS.safetyFactor)
-          : 0,
-    })),
-    workers: [],
-    workerRuntime: {
-      startedAt: new Date(capturedAt - 30 * 60_000).toISOString(),
-      endedAt: new Date(capturedAt).toISOString(),
-      workers: [],
-    },
-  };
-  const evaluation = evaluateD1PreflightBudget(snapshot);
-  if (!evaluation.evidence) throw new Error("test_evidence_missing");
-  expect(evaluation.evidence.utilization.currentPercent).toBe(
-    percentages[action] / CLOUDFLARE_PAID_THRESHOLDS.safetyFactor,
-  );
-  expect(evaluation.evidence.utilization.projectedPercent).toBe(percentages[action]);
-  expect(evaluation.action).toBe(action);
-  return { snapshot, evaluation, evidence: evaluation.evidence };
-}
-
-async function recordSample(
-  runId: string,
-  sample: ReturnType<typeof observation>,
-  guardEnv: UsageGuardEnv = { ...testEnv, DISCORD_BOT_TOKEN: "" },
-) {
-  await recordSuccessfulEvaluation(
-    guardEnv,
-    sample.snapshot,
-    sample.evaluation,
-    sample.evidence,
-    runId,
-  );
-}
-
-async function reserveTestRun(runId: string) {
-  await testEnv.GUARD_DB.prepare(
-    `INSERT INTO usage_guard_runs (
-       run_id, scheduled_at, started_at, status, deployment_sha
-     ) VALUES (?, ?, ?, 'running', ?)`,
-  )
-    .bind(runId, new Date(NOW).toISOString(), new Date(NOW).toISOString(), testEnv.DEPLOY_SHA)
-    .run();
-}
-
 async function seedStoredState(previous: StoredGuardState) {
   await testEnv.GUARD_DB.prepare(
     `INSERT INTO usage_guard_state (
@@ -801,12 +751,6 @@ async function storedState() {
   ).first<StoredGuardState & { updated_at: string }>();
   if (!row) throw new Error("test_state_missing");
   return row;
-}
-
-async function storedRun(runId: string) {
-  return testEnv.GUARD_DB.prepare("SELECT * FROM usage_guard_runs WHERE run_id = ?")
-    .bind(runId)
-    .first<Record<string, unknown>>();
 }
 
 function deferred() {

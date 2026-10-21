@@ -131,8 +131,8 @@ async function requestTurnstileVerification(
       let result: SiteverifyResult;
       try {
         result = (await response.json()) as SiteverifyResult;
-      } catch (error) {
-        throw invalidSiteverifyJson(error, response.status);
+      } catch {
+        throw new SiteverifyTransportError("invalid_json", response.status);
       }
       if (!response.ok && !Array.isArray(result["error-codes"])) {
         throw new SiteverifyTransportError("http_status", response.status);
@@ -145,11 +145,6 @@ async function requestTurnstileVerification(
   } finally {
     clearTimeout(timeout);
   }
-}
-
-function invalidSiteverifyJson(error: unknown, status: number): SiteverifyTransportError {
-  void error;
-  return new SiteverifyTransportError("invalid_json", status);
 }
 
 function logTurnstileFailure(

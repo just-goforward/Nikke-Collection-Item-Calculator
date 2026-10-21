@@ -1,3 +1,4 @@
+import { errorCode } from "../../shared/errorCodes";
 import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard";
 import { runDispatcher } from "./dispatcher";
 import type { DispatcherEnv } from "./types";
@@ -40,7 +41,22 @@ export default {
       );
       return;
     }
-    context.waitUntil(runDispatcher(env, { scheduledTime: event.scheduledTime }));
+    // `waitUntil` keeps the run alive after the response; it must not swallow a
+    // rejection, so the failure is reported with a typed event either way.
+    context.waitUntil(
+      runDispatcher(env, { scheduledTime: event.scheduledTime }).catch((error: unknown) => {
+        console.error(
+          JSON.stringify({
+            event: "forecast_dispatcher_run_failed",
+            environment: env.ENVIRONMENT,
+            // Registered codes only: an exception message can hold data the log sink
+            // must never receive.
+            code: errorCode(error),
+          }),
+        );
+        throw error;
+      }),
+    );
   },
 
   fetch() {

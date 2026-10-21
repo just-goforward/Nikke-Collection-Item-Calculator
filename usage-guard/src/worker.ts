@@ -10,6 +10,7 @@ import {
   type D1QuotaEvidence,
   QUOTA_ACTIONS,
 } from "../../shared/d1QuotaEvidence.ts";
+import { errorCode, persistedErrorCode } from "../../shared/errorCodes.ts";
 import { effectiveUsageGuardAction } from "../../shared/usageGuard.ts";
 import type { StoredGuardState, StoredSnapshot, UsageGuardEnv } from "./types";
 
@@ -109,18 +110,20 @@ export async function runUsageGuard(env: UsageGuardEnv, scheduledTime: number) {
     if (!evidence) throw new Error("usage_guard_evidence_missing");
     await recordSuccessfulEvaluation(env, snapshot, evaluation, evidence, runId);
   } catch (error) {
-    const errorCode = safeErrorCode(error);
+    // The column takes the registry's persisted output (a registered code or `D1_ERROR`);
+    // the log keeps the diagnostic output, which may also be a fixed runtime error name.
+    // Neither ever carries the message.
     await env.GUARD_DB.prepare(
       `UPDATE usage_guard_runs
        SET finished_at = ?, status = 'failure', error_code = ?
        WHERE run_id = ?`,
     )
-      .bind(new Date().toISOString(), errorCode, runId)
+      .bind(new Date().toISOString(), persistedErrorCode(error, "usage_guard"), runId)
       .run();
     console.error(
       JSON.stringify({
         event: "usage_guard_failure",
-        errorCode,
+        errorCode: errorCode(error, "usage_guard"),
         deploymentSha: env.DEPLOY_SHA,
       }),
     );
@@ -183,7 +186,7 @@ export async function recordSuccessfulEvaluation(
     .bind(alertStatus, runId)
     .run();
   if (alertStatus === "sent") {
-    await env.GUARD_DB.prepare(
+    const recorded = await env.GUARD_DB.prepare(
       `UPDATE usage_guard_state
        SET last_alert_action = ?, updated_at = ?
        WHERE singleton_id = 1 AND action = ? AND observed_at = ?
@@ -199,6 +202,11 @@ export async function recordSuccessfulEvaluation(
         evidenceHash,
       )
       .run();
+    // The guard state was superseded by a newer observation between the batch and this
+    // guarded update; recording it keeps a re-alert loop from looking like a clean run.
+    if (Number(recorded.meta.changes ?? 0) === 0) {
+      console.warn(JSON.stringify({ event: "usage_guard_alert_marker_not_recorded", runId }));
+    }
   }
 }
 
@@ -479,15 +487,39 @@ async function sendQuotaAlert(
       },
     );
     if (response.ok) {
-      await response.body?.cancel();
+      await discardAlertBody(response);
       return "sent";
     }
-    await response.body?.cancel();
+    await discardAlertBody(response);
     return `discord_http_${response.status}`;
   } catch (error) {
-    return safeErrorCode(error).startsWith("usage_guard_")
-      ? safeErrorCode(error)
-      : `discord_transport_${safeErrorCode(error)}`;
+    // `alert_status` is a column: a fetch failure is one of two registered transport codes
+    // (the same pair the Observer and the dispatcher use), never a runtime error name. The
+    // diagnostic output goes to the log only.
+    console.warn(
+      JSON.stringify({
+        event: "usage_guard_alert_transport_failed",
+        errorCode: errorCode(error, "usage_guard"),
+      }),
+    );
+    return error instanceof Error && error.name === "TimeoutError"
+      ? "discord_timeout"
+      : "discord_network";
+  }
+}
+
+/** Discarding an unread Discord body must not reclassify a delivered alert as a transport
+ * failure, so its own rejection is recorded separately. */
+async function discardAlertBody(response: Response) {
+  try {
+    await response.body?.cancel();
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: "usage_guard_alert_body_discard_failed",
+        errorCode: errorCode(error, "usage_guard"),
+      }),
+    );
   }
 }
 
@@ -517,11 +549,6 @@ function sortValue(value: unknown): unknown {
 async function sha256Hex(value: string) {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function safeErrorCode(error: unknown) {
-  const message = error instanceof Error ? error.message : "usage_guard_unknown_error";
-  return message.replace(/[^a-zA-Z0-9:_-]/g, "_").slice(0, 160);
 }
 
 async function timingSafeBearer(request: Request, expected: string) {

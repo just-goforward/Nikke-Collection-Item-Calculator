@@ -1,9 +1,10 @@
+import { errorCode } from "../../shared/errorCodes";
 import { handleAdminSolverDiagnostics } from "./admin-solver-diagnostics";
 import type { WorkerEnv } from "./env";
 import { handleEvent } from "./event-submission";
 import { handleOptions, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
-import { logError, sanitizedError } from "./logger";
+import { logError } from "./logger";
 import { assertQuotaAllows } from "./quota-guard";
 import { cleanupExpiredStatistics } from "./rate-limit";
 import { handleSchemaHealth } from "./schema-health";
@@ -33,7 +34,7 @@ const worker: ExportedHandler<WorkerEnv> = {
       const message = expected ? error.message : "internal_error";
       if (!expected) {
         logError("unhandled_worker_error", {
-          error: sanitizedError(error),
+          error: errorCode(error),
           path: new URL(request.url).pathname,
         });
       }
@@ -50,7 +51,7 @@ const worker: ExportedHandler<WorkerEnv> = {
     const cleanup = assertQuotaAllows(env, "statistics_write")
       .then(() => cleanupExpiredStatistics(env, Math.floor(Date.now() / 1000)))
       .catch((error) => {
-        logError("statistics_cleanup_failed", { error: sanitizedError(error) });
+        logError("statistics_cleanup_failed", { error: errorCode(error) });
       });
     ctx.waitUntil(cleanup);
   },

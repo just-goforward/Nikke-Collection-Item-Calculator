@@ -1,6 +1,7 @@
 /** Test-only D1 schema reset. No production entrypoint imports this module. */
 
 import { applyD1Migrations } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import type { D1Migration } from "@cloudflare/vitest-plugin";
 import type { PersonalEnv, SqlDatabase } from "./types";
 
@@ -8,6 +9,23 @@ export interface FixtureEnv extends PersonalEnv {
   PERSONAL_MIGRATIONS: D1Migration[];
   PRIVACY_MIGRATIONS: D1Migration[];
   PUBLIC_MIGRATIONS: D1Migration[];
+}
+
+// The Miniflare test bindings include the migration fixtures; declare them on the runtime Env
+// so suites read one typed environment instead of casting the binding object.
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      PERSONAL_MIGRATIONS: D1Migration[];
+      PRIVACY_MIGRATIONS: D1Migration[];
+      PUBLIC_MIGRATIONS: D1Migration[];
+    }
+  }
+}
+
+/** Bindings come from vitest.config.ts; a missing binding fails at query time. */
+export function fixtureEnv(): FixtureEnv {
+  return env;
 }
 
 async function rebuild(

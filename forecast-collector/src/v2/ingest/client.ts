@@ -63,7 +63,7 @@ export function metadataUrl(stream: Stream, page: number): URL {
       : {
           loungeId: "nikke",
           boardId: String(definition.board),
-          keyword: definition.keyword!,
+          keyword: streams[stream].keyword,
           limit: "30",
           offset: String(page * 30),
           orderType: "LATEST",

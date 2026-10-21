@@ -56,13 +56,15 @@ export function cookie(name: string, value: string, age: number): string {
 
 export async function createSession(db: SqlDatabase, userId: string, now: number): Promise<string> {
   const raw = randomToken();
-  await db
+  const inserted = await db
     .prepare(
       `INSERT INTO sessions (token_hash, user_id, created_at, idle_expires_at, max_expires_at, auth_epoch)
      SELECT ?, user_id, ?, ?, ?, auth_epoch FROM accounts WHERE user_id = ? AND blocked = 0`,
     )
     .bind(await sha256(raw), now, now + SESSION_IDLE_MS, now + SESSION_MAX_MS, userId)
     .run();
+  // Never hand out a token for a session row that was not created (absent or blocked account).
+  if (inserted.meta.changes !== 1) throw new Error("session_not_created");
   return raw;
 }
 

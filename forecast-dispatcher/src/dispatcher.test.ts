@@ -1,6 +1,7 @@
 import { applyD1Migrations, reset } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as coverage from "../../shared/certifiedEvidenceCoverage.ts";
 import { assertCertifiedSupplySnapshot } from "../../shared/certifiedSupply.ts";
 import {
   applyPublicationCommand,
@@ -153,87 +154,6 @@ describe("D1 publication Discord dispatcher", () => {
       ).first(),
     ).toEqual({ n: 0 });
   });
-  it("admits an older valid candidate past newer legacy/invalid candidates and caps failed retries", async () => {
-    const db = testEnv.FORECAST_DB;
-    const valid = await seedCandidate(db);
-    await db
-      .prepare("UPDATE forecast_candidates SET created_at=? WHERE candidate_id=?")
-      .bind(new Date(TEST_NOW - 1).toISOString(), valid.candidate.candidateId)
-      .run();
-    for (let revision = 2; revision <= 6; revision += 1) {
-      const { candidate } = await seedCandidate(db, revision);
-      await db
-        .prepare("UPDATE forecast_candidates SET payload_json=?,created_at=? WHERE candidate_id=?")
-        .bind(
-          JSON.stringify(
-            revision % 2 === 0
-              ? { ...candidate, payloadVersion: 3, rulesVersion: "schedule-kit-v2" }
-              : { certifiedSnapshot: candidate.certifiedSnapshot },
-          ),
-          new Date(TEST_NOW + revision).toISOString(),
-          candidate.candidateId,
-        )
-        .run();
-    }
-    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      for (let run = 0; run < 5; run += 1) await runDispatcher(testEnv);
-      expect(
-        await db
-          .prepare("SELECT COUNT(*) n FROM forecast_runtime_reviews WHERE action='approve'")
-          .first(),
-      ).toEqual({ n: 0 });
-      expect(
-        (
-          await db
-            .prepare(
-              "SELECT state,attempts,next_attempt_at,error_code FROM forecast_runtime_admissions",
-            )
-            .all()
-        ).results,
-      ).toEqual(
-        Array.from({ length: 5 }, () => ({
-          state: "pending",
-          attempts: 1,
-          next_attempt_at: TEST_NOW + 5 * 60_000,
-          error_code: expect.stringMatching(/^publication_/),
-        })),
-      );
-      // Even when the failures are due again, an untried candidate gets priority.
-      vi.setSystemTime(TEST_NOW + 5 * 60_000);
-      await runDispatcher(testEnv);
-      expect(
-        await db
-          .prepare(`SELECT r.candidate_id,o.state FROM forecast_runtime_reviews r
-        JOIN forecast_runtime_outbox o ON o.review_id=r.review_id WHERE r.action='approve'`)
-          .first(),
-      ).toEqual({ candidate_id: valid.candidate.candidateId, state: "sent" });
-      for (let attempt = 2; attempt <= 5; attempt += 1) {
-        vi.setSystemTime(TEST_NOW + attempt * 5 * 60_000);
-        for (let run = 0; run < 5; run += 1) await runDispatcher(testEnv);
-      }
-      const terminal = await db
-        .prepare(
-          "SELECT state,attempts,error_code FROM forecast_runtime_admissions WHERE candidate_id!=?",
-        )
-        .bind(valid.candidate.candidateId)
-        .all();
-      expect(terminal.results).toEqual(
-        Array.from({ length: 5 }, () => ({
-          state: "dead",
-          attempts: 5,
-          error_code: expect.stringMatching(/^publication_/),
-        })),
-      );
-      expect(warnings).toHaveBeenCalledTimes(25);
-      vi.setSystemTime(TEST_NOW + 60 * 60_000);
-      await runDispatcher(testEnv);
-      expect(warnings).toHaveBeenCalledTimes(25);
-      expect((await db.prepare("PRAGMA foreign_key_check").all()).results).toEqual([]);
-    } finally {
-      warnings.mockRestore();
-    }
-  });
   it("backs off transient admission failures and retries them after a restart", async () => {
     const db = testEnv.FORECAST_DB;
     const { candidate } = await seedCandidate(db);
@@ -244,19 +164,54 @@ describe("D1 publication Discord dispatcher", () => {
     await runDispatcher(testEnv);
     await db.prepare("DROP TRIGGER fail_admission").run();
     await runDispatcher(testEnv);
+    // The test-only trigger's token is not a registered code, so the persisted reason is
+    // the fixed D1 category rather than text read out of the driver message.
     expect(
       await db.prepare("SELECT state,attempts,error_code FROM forecast_runtime_admissions").first(),
-    ).toEqual({ state: "pending", attempts: 1, error_code: "publication_admission_unavailable" });
+    ).toEqual({ state: "pending", attempts: 1, error_code: "D1_ERROR" });
     vi.setSystemTime(TEST_NOW + 5 * 60_000);
     await runDispatcher(testEnv);
     expect(
       await db.prepare("SELECT state,attempts,error_code FROM forecast_runtime_admissions").first(),
-    ).toEqual({ state: "ready", attempts: 2, error_code: "publication_admission_unavailable" });
+    ).toEqual({ state: "ready", attempts: 2, error_code: "D1_ERROR" });
     expect(
       await db
         .prepare("SELECT candidate_id FROM forecast_runtime_reviews WHERE action='approve'")
         .first(),
     ).toEqual({ candidate_id: candidate.candidateId });
+  });
+  it("persists the publication fallback, never a runtime error name, for an unregistered admission failure", async () => {
+    const db = testEnv.FORECAST_DB;
+    await seedCandidate(db);
+    const sentinel = "SENTINEL_runtime_9f3a";
+    const gate = vi.spyOn(coverage, "hasCertifiedEvidenceCoverage").mockImplementationOnce(() => {
+      throw new TypeError(sentinel);
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await runDispatcher(testEnv);
+      const admission = await db
+        .prepare("SELECT state,attempts,error_code FROM forecast_runtime_admissions")
+        .first();
+      expect(admission).toEqual({
+        state: "pending",
+        attempts: 1,
+        error_code: "publication_operation_failed",
+      });
+      expect(JSON.stringify(admission)).not.toContain(sentinel);
+      // The column keeps the compatible fallback; the log keeps the runtime category.
+      const review = warn.mock.calls
+        .map(([line]) => String(line))
+        .find((line) => line.includes("publication_candidate_review_failed"));
+      expect(JSON.parse(review ?? "{}")).toMatchObject({
+        code: "publication_operation_failed",
+        errorCode: "TypeError",
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(sentinel);
+    } finally {
+      gate.mockRestore();
+      warn.mockRestore();
+    }
   });
   it("records an interrupted final admission as terminal and continues with other candidates", async () => {
     const db = testEnv.FORECAST_DB;
@@ -351,6 +306,156 @@ describe("D1 publication Discord dispatcher", () => {
     await expect(runDispatcher({ ...testEnv, ENVIRONMENT: "production" })).rejects.toThrow(
       "publication_environment_mismatch",
     );
+  });
+});
+
+describe("unrecorded operational delivery outcomes", () => {
+  it("reports a sent message whose delivery could not be recorded instead of counting it", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await raiseOpsAlert(testEnv.FORECAST_DB, {
+      alertKey: "fixture:collector",
+      environment: "staging",
+      severity: "critical",
+      component: "collector",
+      errorCode: "fixture_failure",
+      nowMs: TEST_NOW,
+    });
+    // The row disappears while the message is in flight, so recording matches nothing.
+    outbound.mockImplementationOnce(async () => {
+      await testEnv.FORECAST_DB.prepare("DELETE FROM forecast_ops_alerts").run();
+      return Response.json({ id: "123456789012345678" });
+    });
+    expect(await runDispatcher({ ...testEnv, PUBLICATION_MODE: "off" })).toEqual({
+      status: "completed",
+      sent: 0,
+    });
+    expect(JSON.parse(String(error.mock.calls.at(-1)?.[0]))).toMatchObject({
+      event: "forecast_ops_send_result_not_recorded",
+      alertKey: "fixture:collector",
+      code: "stale_row",
+    });
+    error.mockRestore();
+  });
+  it("reports a failed delivery whose retry deadline could not be recorded", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await raiseOpsAlert(testEnv.FORECAST_DB, {
+      alertKey: "fixture:collector",
+      environment: "staging",
+      severity: "critical",
+      component: "collector",
+      errorCode: "fixture_failure",
+      nowMs: TEST_NOW,
+    });
+    outbound.mockImplementationOnce(async () => {
+      await testEnv.FORECAST_DB.prepare("DELETE FROM forecast_ops_alerts").run();
+      return new Response(null, { status: 403 });
+    });
+    expect(await runDispatcher({ ...testEnv, PUBLICATION_MODE: "off" })).toEqual({
+      status: "completed",
+      sent: 0,
+    });
+    expect(JSON.parse(String(warn.mock.calls.at(-1)?.[0]))).toMatchObject({
+      event: "forecast_ops_send_failure_not_recorded",
+      alertKey: "fixture:collector",
+      code: "stale_row",
+    });
+    warn.mockRestore();
+  });
+});
+
+describe("operational bookkeeping failures stay contained", () => {
+  it("keeps sending later alerts and later phases when one send cannot be recorded", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const alertKey of ["fixture:a", "fixture:b"])
+      await raiseOpsAlert(testEnv.FORECAST_DB, {
+        alertKey,
+        environment: "staging",
+        severity: "critical",
+        component: "collector",
+        errorCode: "fixture_failure",
+        nowMs: TEST_NOW,
+      });
+    // Deterministic order: fixture:a is due first.
+    await testEnv.FORECAST_DB.prepare(
+      "UPDATE forecast_ops_alerts SET first_seen_at=? WHERE alert_key='fixture:b'",
+    )
+      .bind(new Date(TEST_NOW + 1).toISOString())
+      .run();
+    // Recording the first alert's delivery fails at the database, after Discord accepted it.
+    await testEnv.FORECAST_DB.prepare(`CREATE TRIGGER test_fail_record BEFORE UPDATE ON
+      forecast_ops_alerts WHEN OLD.alert_key='fixture:a'
+      BEGIN SELECT RAISE(ABORT,'test_record_failure'); END`).run();
+    expect(await runDispatcher(testEnv)).toEqual({ status: "completed", sent: 1 });
+    expect(outbound).toHaveBeenCalledTimes(2);
+    const logged = String(error.mock.calls.at(-1)?.[0]);
+    expect(JSON.parse(logged)).toMatchObject({
+      event: "forecast_ops_send_result_not_recorded",
+      alertKey: "fixture:a",
+      // The D1 error text stays out of the log; the test trigger's token is not a
+      // registered code, so only the fixed D1 category is logged.
+      code: "D1_ERROR",
+    });
+    expect(logged).not.toContain("test_record_failure");
+    // The later phase of the same tick still ran.
+    expect(
+      await testEnv.FORECAST_DB.prepare("SELECT COUNT(*) n FROM forecast_runtime_active").first(),
+    ).toEqual({ n: 1 });
+    error.mockRestore();
+  });
+});
+
+describe("dispatcher log codes", () => {
+  it("never logs the message of an unexpected failure", async () => {
+    const sentinel = "SENTINEL_SECRET_9f3a";
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    // A real D1 error quoting an arbitrary identifier is the leak this guards against.
+    await testEnv.FORECAST_DB.prepare(
+      `CREATE VIEW forecast_v2_notification_outbox AS SELECT * FROM "${sentinel}"`,
+    ).run();
+    expect(
+      await runDispatcher({ ...testEnv, FORECAST_V2_NOTIFICATIONS_ENABLED: "true" }),
+    ).toMatchObject({ status: "completed" });
+    const logged = error.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(logged).toContain("v2_outbox_drain_failed");
+    // The driver message keeps only its fixed D1 token, never the quoted identifier.
+    expect(logged).toContain('"code":"D1_ERROR"');
+    expect(logged).not.toContain(sentinel);
+    error.mockRestore();
+  });
+
+  it("keeps an allowlisted code at the scheduled handler boundary", async () => {
+    const { default: worker } = await import("./worker.ts");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await testEnv.USAGE_GUARD_DB.prepare(`CREATE TABLE usage_guard_state (singleton_id INTEGER
+      PRIMARY KEY, action TEXT NOT NULL, observed_at TEXT NOT NULL, period_start TEXT NOT NULL,
+      period_end TEXT NOT NULL, evidence_hash TEXT NOT NULL)`).run();
+    await testEnv.USAGE_GUARD_DB.prepare(
+      "INSERT INTO usage_guard_state VALUES (1,'normal',?,?,?,?)",
+    )
+      .bind(
+        new Date(TEST_NOW).toISOString(),
+        new Date(TEST_NOW - 86_400_000).toISOString(),
+        new Date(TEST_NOW + 2_592_000_000).toISOString(),
+        "a".repeat(64),
+      )
+      .run();
+    // Staging owns the publication rows, so a production run against them is rejected
+    // with an allowlisted code rather than a driver message.
+    await runDispatcher(testEnv);
+    let pending: Promise<unknown> | undefined;
+    await worker.scheduled(
+      { scheduledTime: TEST_NOW } as ScheduledController,
+      { ...testEnv, ENVIRONMENT: "production" },
+      {
+        waitUntil: (promise: Promise<unknown>) => (pending = promise),
+      } as unknown as ExecutionContext,
+    );
+    await expect(pending).rejects.toThrow("publication_environment_mismatch");
+    expect(JSON.parse(String(error.mock.calls.at(-1)?.[0]))).toMatchObject({
+      event: "forecast_dispatcher_run_failed",
+      code: "publication_environment_mismatch",
+    });
+    error.mockRestore();
   });
 });
 

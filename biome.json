@@ -107,6 +107,16 @@
           }
         }
       }
+    },
+    {
+      "includes": ["scripts/error-codes.spec.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noTemplateCurlyInString": "off"
+          }
+        }
+      }
     }
   ],
   "assist": {

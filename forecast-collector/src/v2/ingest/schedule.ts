@@ -10,6 +10,8 @@ export const streams = {
 } as const;
 export type Stream = keyof typeof streams;
 export const EDIT_SCAN_INTERVAL_MS = 6 * 60 * 60_000;
+// Unsuccessful metadata requests (including abandoned reservations) per run.
+export const METADATA_FAILURE_LIMIT = 3;
 const slots: Readonly<Record<number, Stream>> = {
   0: "A",
   3: "G",

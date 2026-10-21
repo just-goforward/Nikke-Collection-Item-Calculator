@@ -7,7 +7,6 @@ import { admitCandidates } from "./admission.ts";
 vi.mock("../../shared/forecast-publication/store.ts", () => ({
   sealCandidate: vi.fn(async () => ({ hash: "sealed" })),
   createReview: vi.fn(async () => "review"),
-  publicationErrorCode: () => "publication_operation_failed",
   initializePublication: vi.fn(async () => ({ environment: "staging", sequence: 0 })),
 }));
 

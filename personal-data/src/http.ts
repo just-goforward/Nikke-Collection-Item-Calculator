@@ -1,4 +1,4 @@
-import type { StageSummary, WorkspacePut } from "./contracts";
+import type { StageSummary, WorkspaceAction, WorkspacePut } from "./contracts";
 
 export const MAX_BODY_BYTES = 2_000_000;
 export type Reason =
@@ -121,17 +121,20 @@ export function opBody(value: Record<string, unknown>): string {
 /** Exact arithmetic ceiling for each item and for each lifetime stage total. */
 export const MAX_LIFETIME_VALUE = Number.MAX_SAFE_INTEGER;
 
+const STAGE_SUMMARY_KEYS = [
+  "itemId",
+  "stage",
+  "lifetimeAttempts",
+  "lifetimeIncome",
+  "preSignupIncome",
+  "manualEntry",
+  "verified",
+];
+
+/** A true predicate: invalid input returns false so read paths can classify it, never throw. */
 export function stageSummary(value: unknown): value is StageSummary {
-  if (!isObject(value)) return false;
-  exactKeys(value, [
-    "itemId",
-    "stage",
-    "lifetimeAttempts",
-    "lifetimeIncome",
-    "preSignupIncome",
-    "manualEntry",
-    "verified",
-  ]);
+  if (!isObject(value) || Object.keys(value).length !== STAGE_SUMMARY_KEYS.length) return false;
+  if (Object.keys(value).some((key) => !STAGE_SUMMARY_KEYS.includes(key))) return false;
   const income = value["lifetimeIncome"];
   const previous = value["preSignupIncome"];
   return (
@@ -160,29 +163,16 @@ function boundedJson(value: unknown, depth = 0): boolean {
   if (Array.isArray(value)) return value.every((entry) => boundedJson(entry, depth + 1));
   return isObject(value) && Object.values(value).every((entry) => boundedJson(entry, depth + 1));
 }
-export function workspaceBody(value: Record<string, unknown>): WorkspacePut {
-  exactKeys(value, ["opId", "baseRevision", "document", "action"]);
-  const document = value["document"];
-  const action = value["action"];
-  if (
-    !validId(value["opId"]) ||
-    !Number.isSafeInteger(value["baseRevision"]) ||
-    Number(value["baseRevision"]) < 0 ||
-    !isObject(document) ||
-    !isObject(action)
-  ) {
+/** Every stage must be individually valid before any total is computed. */
+function stageList(value: unknown): StageSummary[] {
+  if (!Array.isArray(value) || !value.every(stageSummary)) {
     throw new HttpError(400, "invalid_request");
   }
-  exactKeys(document, ["schemaVersion", "items", "lifetimeStages"]);
-  if (
-    document["schemaVersion"] !== 1 ||
-    !Array.isArray(document["items"]) ||
-    !boundedJson(document["items"]) ||
-    !Array.isArray(document["lifetimeStages"]) ||
-    !document["lifetimeStages"].every(stageSummary)
-  )
-    throw new HttpError(400, "invalid_request");
-  const stages = document["lifetimeStages"] as StageSummary[];
+  return value;
+}
+
+/** Exact arithmetic ceiling for each item and for each lifetime stage total. */
+function stageTotalsWithinCeiling(stages: StageSummary[]): void {
   const totals = new Map<string, { income: number; previous: number; attempts: number }>();
   for (const summary of stages) {
     const total = totals.get(summary.stage) ?? { income: 0, previous: 0, attempts: 0 };
@@ -198,35 +188,88 @@ export function workspaceBody(value: Record<string, unknown>): WorkspacePut {
     total.attempts += summary.lifetimeAttempts;
     totals.set(summary.stage, total);
   }
+}
+
+/** Field-by-field because both sides are validated `StageSummary` values. */
+function sameSummary(left: StageSummary, right: StageSummary): boolean {
+  return (
+    left.itemId === right.itemId &&
+    left.stage === right.stage &&
+    left.lifetimeAttempts === right.lifetimeAttempts &&
+    left.lifetimeIncome === right.lifetimeIncome &&
+    left.preSignupIncome === right.preSignupIncome &&
+    left.manualEntry === right.manualEntry &&
+    left.verified === right.verified
+  );
+}
+
+/** An archive must name a summary the submitted document itself already contains. */
+function archiveAction(action: Record<string, unknown>, stages: StageSummary[]): WorkspaceAction {
+  if (action["kind"] === "save" && !("archive" in action)) {
+    exactKeys(action, ["kind"]);
+    return { kind: "save" };
+  }
+  if (action["kind"] !== "archive" || !isObject(action["archive"])) {
+    throw new HttpError(400, "invalid_request");
+  }
+  exactKeys(action, ["kind", "archive"]);
+  const archive = action["archive"];
+  exactKeys(archive, ["archiveId", "summary", "startedAt", "completedAt"]);
+  const summary = archive["summary"];
   if (
-    new Set(stages.map((entry) => JSON.stringify([entry.itemId, entry.stage]))).size !==
-    stages.length
+    !validId(archive["archiveId"]) ||
+    !stageSummary(summary) ||
+    !Number.isSafeInteger(archive["startedAt"]) ||
+    Number(archive["startedAt"]) < 0 ||
+    !Number.isSafeInteger(archive["completedAt"]) ||
+    Number(archive["completedAt"]) < Number(archive["startedAt"]) ||
+    !stages.some((entry) => sameSummary(entry, summary))
   ) {
     throw new HttpError(400, "invalid_request");
   }
-  if (action["kind"] === "save") {
-    exactKeys(action, ["kind"]);
-  } else if (action["kind"] === "archive" && isObject(action["archive"])) {
-    exactKeys(action, ["kind", "archive"]);
-    const archive = action["archive"];
-    exactKeys(archive, ["archiveId", "summary", "startedAt", "completedAt"]);
-    if (
-      !validId(archive["archiveId"]) ||
-      !stageSummary(archive["summary"]) ||
-      !Number.isSafeInteger(archive["startedAt"]) ||
-      Number(archive["startedAt"]) < 0 ||
-      !Number.isSafeInteger(archive["completedAt"]) ||
-      Number(archive["completedAt"]) < Number(archive["startedAt"]) ||
-      !stages.some((entry) =>
-        Object.keys(entry).every(
-          (key) =>
-            entry[key as keyof StageSummary] ===
-            (archive["summary"] as StageSummary)[key as keyof StageSummary],
-        ),
-      )
-    ) {
-      throw new HttpError(400, "invalid_request");
-    }
-  } else throw new HttpError(400, "invalid_request");
-  return value as unknown as WorkspacePut;
+  return {
+    kind: "archive",
+    archive: {
+      archiveId: archive["archiveId"],
+      summary,
+      startedAt: Number(archive["startedAt"]),
+      completedAt: Number(archive["completedAt"]),
+    },
+  };
+}
+
+export function workspaceBody(value: Record<string, unknown>): WorkspacePut {
+  exactKeys(value, ["opId", "baseRevision", "document", "action"]);
+  const opId = value["opId"];
+  const baseRevision = value["baseRevision"];
+  const document = value["document"];
+  const action = value["action"];
+  if (
+    !validId(opId) ||
+    !Number.isSafeInteger(baseRevision) ||
+    Number(baseRevision) < 0 ||
+    !isObject(document) ||
+    !isObject(action)
+  ) {
+    throw new HttpError(400, "invalid_request");
+  }
+  exactKeys(document, ["schemaVersion", "items", "lifetimeStages"]);
+  const items = document["items"];
+  if (document["schemaVersion"] !== 1 || !Array.isArray(items) || !boundedJson(items)) {
+    throw new HttpError(400, "invalid_request");
+  }
+  const lifetimeStages = stageList(document["lifetimeStages"]);
+  stageTotalsWithinCeiling(lifetimeStages);
+  if (
+    new Set(lifetimeStages.map((entry) => JSON.stringify([entry.itemId, entry.stage]))).size !==
+    lifetimeStages.length
+  ) {
+    throw new HttpError(400, "invalid_request");
+  }
+  return {
+    opId,
+    baseRevision: Number(baseRevision),
+    document: { schemaVersion: 1, items, lifetimeStages },
+    action: archiveAction(action, lifetimeStages),
+  };
 }

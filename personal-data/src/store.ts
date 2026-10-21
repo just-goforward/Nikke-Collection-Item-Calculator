@@ -1,6 +1,5 @@
 import { type GoogleIdentity, identityHash, sha256 } from "./auth";
 import type {
-  Json,
   WorkspaceDocument,
   WorkspaceGet,
   WorkspacePut,
@@ -16,12 +15,12 @@ export const EMPTY_DOCUMENT: WorkspaceDocument = {
 export const OP_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 /** Object key order is not part of operation identity; array order is. */
-function canonical(value: Json): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
+function canonical(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  return `{${Object.keys(value)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonical(value[key]!)}`)
+  return `{${Object.entries(value)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${canonical(entry)}`)
     .join(",")}}`;
 }
 
@@ -113,24 +112,37 @@ export function workspaceRead(db: SqlDatabase, userId: string): SqlStatement {
     .bind(userId);
 }
 
+/** Explicit field read from an untyped D1 row; the row itself stays untyped at the boundary. */
+export function workspaceRow(row: Record<string, unknown> | null | undefined): WorkspaceRow | null {
+  if (!row) return null;
+  const lastOpId = row["last_op_id"];
+  return {
+    user_id: String(row["user_id"]),
+    revision: Number(row["revision"]),
+    last_op_id: lastOpId === null || lastOpId === undefined ? null : String(lastOpId),
+    document: String(row["document"]),
+    quota_bytes: Number(row["quota_bytes"]),
+    bytes: Number(row["bytes"]),
+  };
+}
+
 export function workspaceResult(row: WorkspaceRow | null): WorkspaceGet | null {
-  return (
-    row && {
-      userId: row.user_id,
-      revision: row.revision,
-      lastOpId: row.last_op_id,
-      document: JSON.parse(row.document) as WorkspaceDocument,
-      quota: {
-        bytes: row.bytes,
-        limitBytes: row.quota_bytes,
-        newArchivingBlocked: row.bytes >= row.quota_bytes,
-      },
-    }
-  );
+  if (!row) return null;
+  return {
+    userId: row.user_id,
+    revision: row.revision,
+    lastOpId: row.last_op_id,
+    document: JSON.parse(row.document) as WorkspaceDocument,
+    quota: {
+      bytes: row.bytes,
+      limitBytes: row.quota_bytes,
+      newArchivingBlocked: row.bytes >= row.quota_bytes,
+    },
+  };
 }
 
 export async function getWorkspace(db: SqlDatabase, userId: string): Promise<WorkspaceGet | null> {
-  return workspaceResult(await workspaceRead(db, userId).first<WorkspaceRow>());
+  return workspaceResult(workspaceRow(await workspaceRead(db, userId).first()));
 }
 
 export async function putWorkspace(
@@ -139,26 +151,19 @@ export async function putWorkspace(
   request: WorkspacePut,
   now: number,
 ): Promise<WorkspacePutResult> {
-  const requestHash = await sha256(canonical(request as unknown as Json));
-  const document = canonical(request.document as unknown as Json);
+  const requestHash = await sha256(canonical(request));
+  const document = canonical(request.document);
   const nonce = crypto.randomUUID();
   const archive = request.action.kind === "archive" ? request.action.archive : null;
   const stages = request.document.lifetimeStages;
   const stageBytes = stages.reduce(
-    (bytes, stage) =>
-      bytes + new TextEncoder().encode(canonical(stage as unknown as Json)).byteLength,
+    (bytes, stage) => bytes + new TextEncoder().encode(canonical(stage)).byteLength,
     0,
   );
-  if (
-    archive &&
-    !stages.some(
-      (stage) =>
-        canonical(stage as unknown as Json) === canonical(archive.summary as unknown as Json),
-    )
-  ) {
+  if (archive && !stages.some((stage) => canonical(stage) === canonical(archive.summary))) {
     throw new Error("archive_summary_missing_from_document");
   }
-  const payload = archive ? canonical(archive as unknown as Json) : "";
+  const payload = archive ? canonical(archive) : "";
   const costGuard = archive
     ? `AND (
     length(CAST(? AS BLOB))
@@ -205,7 +210,7 @@ export async function putWorkspace(
        SELECT ?, json_extract(value, '$.itemId'), json_extract(value, '$.stage'), value
        FROM json_each(?) WHERE EXISTS (${winner})`,
       )
-      .bind(userId, canonical(stages as unknown as Json), ...winnerArgs),
+      .bind(userId, canonical(stages), ...winnerArgs),
   );
   if (archive) {
     statements.push(

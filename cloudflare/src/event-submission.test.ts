@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { readJsonPayload } from "./event-submission";
 
@@ -36,5 +36,45 @@ describe("readJsonPayload", () => {
       message: "payload_too_large",
       status: 413,
     });
+  });
+
+  it("reports a missing body as invalid_json and a cancel rejection as a warning", async () => {
+    await expect(
+      readJsonPayload(new Request("https://worker.test/api/events")),
+    ).rejects.toMatchObject({ message: "invalid_json", status: 400 });
+
+    const encoder = new TextEncoder();
+    let sent = false;
+    const cancelError = new Error("SENTINEL_cancel_secret");
+    const cancel = vi.fn(async () => {
+      throw cancelError;
+    });
+    const request = new Request("https://worker.test/api/events", {
+      method: "POST",
+      body: new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (sent) return;
+          sent = true;
+          controller.enqueue(encoder.encode(`{"value":"${"a".repeat(5_000)}"}`));
+        },
+        cancel,
+      }),
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    // The 413 for the oversized body stays authoritative even though cancel rejects.
+    await expect(readJsonPayload(request)).rejects.toMatchObject({
+      message: "payload_too_large",
+      status: 413,
+    });
+    expect(cancel).toHaveBeenCalledWith("payload_too_large");
+    const logged = warning.mock.calls.map(([line]) => JSON.parse(String(line)));
+    // A plain Error with a foreign message is the fixed category, never its name or text.
+    expect(logged).toContainEqual(
+      expect.objectContaining({ event: "stream_cancel_failed", error: "unexpected" }),
+    );
+    // The thrown message itself never reaches the log line.
+    expect(JSON.stringify(warning.mock.calls)).not.toContain("SENTINEL_cancel_secret");
+    warning.mockRestore();
   });
 });

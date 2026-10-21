@@ -1,4 +1,5 @@
 import { hasCertifiedEvidenceCoverage } from "../certifiedEvidenceCoverage.ts";
+import { persistedErrorCode } from "../errorCodes.ts";
 import {
   ARTIFACT_DOMAIN,
   canonicalPublicationJson,
@@ -343,10 +344,12 @@ export async function applyPublicationCommand(
     const completed = await readCommand(db, input.interactionId);
     if (completed.state === "applied")
       return { sequence: completed.result_sequence!, duplicate: true };
+    // Persisted and later rendered to the approver: a registered code or the fixed D1
+    // category, never a driver message or a runtime error name.
     await db
       .prepare(`UPDATE forecast_runtime_commands SET state='failed',error_code=?,updated_at=?
       WHERE interaction_id=? AND state!='applied'`)
-      .bind(publicationErrorCode(error), now, input.interactionId)
+      .bind(persistedErrorCode(error, "publication"), now, input.interactionId)
       .run();
     throw error;
   }
@@ -423,9 +426,4 @@ function readCommand(db: PublicationDatabase, id: string) {
       if (!row) throw new Error("publication_command_missing");
       return row;
     });
-}
-
-export function publicationErrorCode(error: unknown) {
-  const message = error instanceof Error ? error.message : "";
-  return message.match(/(?:publication|runtime)_[a-z_]+/)?.[0] ?? "publication_operation_failed";
 }

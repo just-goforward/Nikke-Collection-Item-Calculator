@@ -1,3 +1,4 @@
+import { errorCode } from "./errorCodes.ts";
 import {
   assertForecastRuntimeTelemetryEvidence,
   type ForecastRuntimeComponent,
@@ -161,7 +162,9 @@ function parseEvaluationInput(input: EvaluationInput) {
       baseline: input.baseline == null ? null : assertCpuPerformanceBaseline(input.baseline),
     };
   } catch (error) {
-    return { error: errorCode(error) };
+    // Evidence errors are rendered in canary reports and CI output: a registered code or
+    // fixed category only, never the parser's raw message.
+    return { error: errorCode(error, "canary_runtime") };
   }
 }
 
@@ -693,8 +696,4 @@ function ratio(numerator: number, denominator: number) {
 export function isSuccessfulOutcome(value: string) {
   const normalized = value.toLowerCase();
   return normalized === "ok" || normalized === "success";
-}
-
-function errorCode(error: unknown) {
-  return error instanceof Error ? error.message.slice(0, 120) : "runtime_telemetry_invalid";
 }

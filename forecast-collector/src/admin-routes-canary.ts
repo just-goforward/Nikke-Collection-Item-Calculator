@@ -141,9 +141,18 @@ async function startCanary({ request, env }: AdminRequestContext) {
     });
   } catch (error) {
     const code = sanitizeOpsError(error);
-    return json({ error: code }, code.includes("conflict") || code.includes("overlap") ? 409 : 400);
+    // A run that already exists with a different identity is a state conflict, not a bad
+    // request. Match the registered codes explicitly: the sanitizer never returns text, so
+    // a substring heuristic would misclassify every unregistered error as 400.
+    return json({ error: code }, CANARY_CONFLICT_CODES.has(code) ? 409 : 400);
   }
 }
+
+/** Registered codes that mean "the canary run state conflicts with this request". */
+const CANARY_CONFLICT_CODES: ReadonlySet<string> = new Set([
+  "canary_run_conflict",
+  "canary_run_overlap",
+]);
 
 async function parseCanaryStartBody(request: Request) {
   const body = await readBoundedJson(request, 65_536, "canary_start_body");

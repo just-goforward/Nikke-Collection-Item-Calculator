@@ -193,6 +193,33 @@ describe("authentication (A11, fail closed)", () => {
     expect((await call(rotated)).response.status).toBe(200);
     expect(jwksFetch).toHaveBeenCalledTimes(2);
   });
+
+  it("skips an unusable published key and keeps failing closed on the others", async () => {
+    // A JWK whose modulus is not valid base64url cannot be imported; it must be dropped
+    // from the key set, so a token naming it fails closed as an unknown kid.
+    jwksResponse = () =>
+      Response.json({
+        keys: [
+          { ...keys.jwks.keys[0], kid: "broken-kid", n: "***not-base64url***" },
+          ...keys.jwks.keys,
+        ],
+      });
+    const broken = await signAccessToken(keys.privateKey, accessClaims(clock), {
+      alg: "RS256",
+      kid: "broken-kid",
+    });
+
+    expect((await call(broken)).response.status).toBe(401);
+    // The valid key published alongside the broken one still verifies.
+    expect((await call(await validToken())).response.status).toBe(200);
+  });
+
+  it("reports jwks_unavailable when every published key is unusable", async () => {
+    jwksResponse = () =>
+      Response.json({ keys: [{ ...keys.jwks.keys[0], n: "***not-base64url***" }] });
+
+    expect((await call(await validToken())).response.status).toBe(503);
+  });
 });
 
 describe("limits and guard order", () => {
@@ -270,6 +297,67 @@ describe("limits and guard order", () => {
     expect(response.status).toBe(503);
     expect(body).toContain("사용량 보호");
     expect(calls).not.toContain("forecast");
+  });
+
+  it("fails closed with a recorded reason when the rate limiter itself throws", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { overrides } = recording();
+    const failing: Partial<AdminEnv> = {
+      ...overrides,
+      ADMIN_IP_RATE_LIMITER: {
+        async limit() {
+          throw new TypeError("SENTINEL_admin_limiter_secret");
+        },
+      },
+    };
+
+    const { response, body } = await call(await validToken(), { env: failing });
+
+    expect(response.status).toBe(429);
+    expect(body).toContain("요청이 너무 많습니다");
+    expect(jwksFetch).not.toHaveBeenCalled();
+    const logged = errorLog.mock.calls.map(([line]) => JSON.parse(String(line)));
+    expect(logged).toContainEqual({
+      event: "admin_rate_limiter_unavailable",
+      code: "TypeError",
+    });
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain("SENTINEL_admin_limiter_secret");
+    errorLog.mockRestore();
+  });
+
+  it("keeps the 503 contract for a denied Usage Guard while recording the reason", async () => {
+    await seedUsageGuard(testEnv.USAGE_GUARD_DB, NOW, "hard_stop");
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { overrides } = recording();
+
+    const { response } = await call(await validToken(), { env: overrides });
+
+    expect(response.status).toBe(503);
+    expect(errorLog.mock.calls.map(([line]) => JSON.parse(String(line)))).toContainEqual(
+      expect.objectContaining({ event: "admin_usage_guard_unavailable" }),
+    );
+    errorLog.mockRestore();
+  });
+
+  it("never logs an arbitrary guard error message", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { overrides } = recording();
+    const failing: Partial<AdminEnv> = {
+      ...overrides,
+      USAGE_GUARD_DB: {
+        withSession() {
+          throw new RangeError("SENTINEL_guard_message_secret");
+        },
+      },
+    };
+
+    const { response } = await call(await validToken(), { env: failing });
+
+    expect(response.status).toBe(503);
+    const logged = JSON.stringify(errorLog.mock.calls);
+    expect(logged).toContain("admin_usage_guard_unavailable");
+    expect(logged).not.toContain("SENTINEL_guard_message_secret");
+    errorLog.mockRestore();
   });
 });
 

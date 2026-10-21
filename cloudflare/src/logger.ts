@@ -23,7 +23,3 @@ export function logInfo(event: string, fields?: LogFields) {
 export function logWarn(event: string, fields?: LogFields) {
   log("warn", event, fields);
 }
-
-export function sanitizedError(error: unknown) {
-  return error instanceof Error ? error.message : "unknown_error";
-}

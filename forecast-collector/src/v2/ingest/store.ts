@@ -25,7 +25,12 @@ export class MonitorStore {
   constructor(
     private readonly db: D1Database,
     private readonly environment?: OpsEnvironment,
+    private readonly clock?: () => string,
   ) {}
+
+  private leaseTime(now: number) {
+    return this.clock?.() ?? new Date(now).toISOString();
+  }
 
   async alert(stream: Stream, reason: string, now: number) {
     if (!this.environment) return;
@@ -114,23 +119,34 @@ export class MonitorStore {
 
   async acquire(stream: Stream, now: number): Promise<Lease | null> {
     const owner = crypto.randomUUID();
-    const expiresAt = new Date(now + 120_000).toISOString();
+    const time = this.leaseTime(now);
+    const expiresAt = new Date(Date.parse(time) + 120_000).toISOString();
     const row = await this.db
       .prepare(`UPDATE forecast_v2_monitor_state
       SET lease_owner=?,lease_expires_at=?,updated_at=?
       WHERE stream_id=? AND (lease_owner IS NULL OR lease_expires_at<=?)
       RETURNING stream_id`)
-      .bind(owner, expiresAt, new Date(now).toISOString(), stream, new Date(now).toISOString())
+      .bind(owner, expiresAt, new Date(now).toISOString(), stream, time)
       .first();
     return row ? { stream, owner, expiresAt } : null;
   }
 
   async release(lease: Lease) {
-    await this.db
+    // Cleanup may release this owner's expired lease, but never a successor's.
+    const result = await this.db
       .prepare(`UPDATE forecast_v2_monitor_state SET lease_owner=NULL,lease_expires_at=NULL
       WHERE stream_id=? AND lease_owner=?`)
       .bind(lease.stream, lease.owner)
       .run();
+    if (result.meta.changes === 0)
+      console.info(
+        JSON.stringify({
+          event: "forecast_v2_write_skipped",
+          operation: "release",
+          stream: lease.stream,
+          reason: "lease_not_owned",
+        }),
+      );
   }
 
   async reserve(
@@ -159,7 +175,18 @@ export class MonitorStore {
           SELECT 1 FROM forecast_v2_request_budgets WHERE game_day=? AND ${column}_used<${column}_limit)
         AND EXISTS(SELECT 1 FROM forecast_v2_monitor_state
           WHERE stream_id=? AND lease_owner=? AND lease_expires_at>?)`)
-        .bind(id, runId, feedId, kind, day, time, day, lease.stream, lease.owner, time),
+        .bind(
+          id,
+          runId,
+          feedId,
+          kind,
+          day,
+          time,
+          day,
+          lease.stream,
+          lease.owner,
+          this.leaseTime(now),
+        ),
       this.db
         .prepare(`UPDATE forecast_v2_request_budgets SET ${column}_used=${column}_used+1
         WHERE game_day=? AND EXISTS(SELECT 1 FROM forecast_v2_fetch_attempts WHERE attempt_id=?)`)
@@ -172,11 +199,13 @@ export class MonitorStore {
         : []),
     ]);
     if (result[1]?.meta.changes !== 1) throw new IngestFailure("budget_or_lease");
+    if (result[2]?.meta.changes !== 1) throw new IngestFailure("budget_accounting");
+    // Budget-row creation may conflict; incident resolution may match no rows.
     return id;
   }
 
   async finishAttempt(id: string, error: IngestFailure | null, now: number) {
-    await this.db
+    const result = await this.db
       .prepare(`UPDATE forecast_v2_fetch_attempts SET outcome=?,error_code=?,next_attempt_at=
       CASE WHEN ?=1 OR (kind='detail' AND ? IS NOT NULL AND ? NOT IN ('http_404','detail_drift','lease_lost'))
         THEN ? ELSE NULL END
@@ -191,16 +220,46 @@ export class MonitorStore {
         id,
       )
       .run();
+    if (result.meta.changes === 1) return;
+    const existing = await this.db
+      .prepare("SELECT outcome FROM forecast_v2_fetch_attempts WHERE attempt_id=?")
+      .bind(id)
+      .first<{ outcome: string }>();
+    if (!existing) throw new IngestFailure("attempt_missing");
+    if (existing.outcome === "reserved") throw new IngestFailure("attempt_not_finalized");
+    // A later cleanup must not overwrite the first durable result.
+    console.info(
+      JSON.stringify({
+        event: "forecast_v2_write_skipped",
+        operation: "finish_attempt",
+        reason: "attempt_already_finalized",
+        outcome: existing.outcome,
+      }),
+    );
   }
 
   async bodyAttempts(item: Metadata) {
-    return (await this.db
+    const row = await this.db
       .prepare(`SELECT COUNT(*) AS count, MAX(a.next_attempt_at) AS next
       FROM forecast_v2_fetch_attempts a JOIN forecast_v2_search_hits h
         ON h.run_id=a.run_id AND h.feed_id=a.feed_id
       WHERE a.kind='detail' AND h.feed_id=? AND h.updated_date=?`)
       .bind(item.feedId, item.updatedAt)
-      .first<{ count: number; next: string | null }>())!;
+      .first<{ count: number; next: string | null }>();
+    if (!row) throw new IngestFailure("body_attempts_missing");
+    return row;
+  }
+
+  async metadataAttempts(runId: string) {
+    const row = await this.db
+      .prepare(`SELECT COUNT(*) AS failures,MAX(next_attempt_at) AS next
+        FROM forecast_v2_fetch_attempts WHERE run_id=? AND kind='metadata'
+          AND outcome IN ('failure','reserved')
+          AND (error_code IS NULL OR error_code<>'lease_lost')`)
+      .bind(runId)
+      .first<{ failures: number; next: string | null }>();
+    if (!row) throw new IngestFailure("metadata_attempts_missing");
+    return row;
   }
 
   async disposeBody(
@@ -210,7 +269,7 @@ export class MonitorStore {
     reason: string,
     now: number,
   ) {
-    const time = new Date(now).toISOString();
+    const time = this.leaseTime(now);
     const fence = `EXISTS(SELECT 1 FROM forecast_v2_monitor_state WHERE stream_id=? AND lease_owner=? AND lease_expires_at>?)`;
     const writes = [
       this.db
@@ -222,10 +281,21 @@ export class MonitorStore {
       writes.push(
         this.db
           .prepare(`UPDATE forecast_v2_monitor_state
-      SET edit_scan_completed_at=NULL,edit_scan_cutoff=? WHERE stream_id=? AND lease_owner=? AND lease_expires_at>?`)
-          .bind(new Date(now - 14 * 86_400_000).toISOString(), lease.stream, lease.owner, time),
+      SET edit_scan_completed_at=NULL,edit_scan_cutoff=? WHERE stream_id=? AND lease_owner=? AND lease_expires_at>?
+        AND EXISTS(SELECT 1 FROM forecast_v2_search_hits WHERE feed_id=? AND updated_date=?)`)
+          .bind(
+            new Date(now - 14 * 86_400_000).toISOString(),
+            lease.stream,
+            lease.owner,
+            time,
+            item.feedId,
+            item.updatedAt,
+          ),
       );
-    await this.db.batch(writes);
+    const results = await this.db.batch(writes);
+    if (!results[0]?.meta.changes) throw new IngestFailure("body_disposition_not_written");
+    if (disposition === "refresh" && results[1]?.meta.changes !== 1)
+      throw new IngestFailure("lease_lost");
   }
 
   async hold(lease: Lease, reason: string, now: number) {
@@ -234,14 +304,25 @@ export class MonitorStore {
       SET consecutive_holds=consecutive_holds+1,updated_at=?
       WHERE stream_id=? AND lease_owner=? AND lease_expires_at>?
       RETURNING consecutive_holds`)
-      .bind(new Date(now).toISOString(), lease.stream, lease.owner, new Date(now).toISOString())
+      .bind(new Date(now).toISOString(), lease.stream, lease.owner, this.leaseTime(now))
       .first<{ consecutive_holds: number }>();
+    if (!row) {
+      console.warn(
+        JSON.stringify({
+          event: "forecast_v2_write_skipped",
+          operation: "hold",
+          stream: lease.stream,
+          reason: "lease_lost",
+        }),
+      );
+      return "lease_lost";
+    }
     if (
-      row &&
-      (row.consecutive_holds >= 3 ||
-        reason === "budget_exhausted" ||
-        reason === "attempts_exhausted" ||
-        reason === "missing_boundary")
+      row.consecutive_holds >= 3 ||
+      reason === "budget_exhausted" ||
+      reason === "attempts_exhausted" ||
+      reason === "metadata_attempts_exhausted" ||
+      reason === "missing_boundary"
     ) {
       await (reason === "budget_exhausted"
         ? this.budgetAlert(lease.stream, now)
@@ -255,6 +336,7 @@ export class MonitorStore {
         }),
       );
     }
+    return reason;
   }
 
   async commitPage(
@@ -262,7 +344,7 @@ export class MonitorStore {
     runId: string,
     scan: Scan,
     now: number,
-    leaseTime = new Date(now).toISOString(),
+    leaseTime = this.leaseTime(now),
   ) {
     const time = new Date(now).toISOString();
     const fence = `EXISTS(SELECT 1 FROM forecast_v2_monitor_state
@@ -271,7 +353,10 @@ export class MonitorStore {
     // A capped edit remains held (coverage is incomplete), but its next restart
     // observes the same cooldown as a completed edit, atomically with the page.
     const editCooldown =
-      scan.kind === "edit" && (scan.status === "completed" || scan.reason === "page_cap");
+      scan.kind === "edit" &&
+      (scan.status === "completed" ||
+        scan.reason === "page_cap" ||
+        scan.reason === "metadata_attempts_exhausted");
     const writes = scan.hits.map((hit) =>
       this.db
         .prepare(`INSERT INTO forecast_v2_search_hits
@@ -314,7 +399,8 @@ export class MonitorStore {
       edit_scan_cutoff=CASE WHEN ?='edit' THEN ? ELSE edit_scan_cutoff END,
       edit_scan_completed_at=CASE WHEN ? THEN ? ELSE edit_scan_completed_at END,
       consecutive_holds=CASE WHEN ?='completed' THEN 0 ELSE consecutive_holds END,updated_at=?
-      WHERE stream_id=? AND lease_owner=? AND lease_expires_at>?`)
+      WHERE stream_id=? AND lease_owner=? AND lease_expires_at>?
+        AND EXISTS(SELECT 1 FROM forecast_v2_monitor_runs WHERE run_id=? AND stream_id=?)`)
         .bind(
           scan.kind,
           boundary.createdAt,
@@ -333,10 +419,14 @@ export class MonitorStore {
           lease.stream,
           lease.owner,
           leaseTime,
+          runId,
+          lease.stream,
         ),
     );
     const results = await this.db.batch(writes);
     if (results.at(-1)?.meta.changes !== 1) throw new IngestFailure("lease_lost");
+    if (results.at(-2)?.meta.changes !== 1) throw new IngestFailure("page_run_not_written");
+    // Hit inserts may be no-ops for already persisted (run, feed) pairs.
   }
 }
 

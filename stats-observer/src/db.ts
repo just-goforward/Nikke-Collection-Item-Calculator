@@ -1,3 +1,4 @@
+import type { PersistedErrorCode } from "../../shared/errorCodes";
 import { nextSeverity } from "./policy";
 import type { ObserverAlertRow, SourceObservation, StatsObserverEnv } from "./types";
 
@@ -30,7 +31,7 @@ export async function finishRun(
   runId: string,
   input: { rows: number; deltas: number; alerts: number },
 ) {
-  await env.OBSERVER_DB.prepare(
+  const result = await env.OBSERVER_DB.prepare(
     `UPDATE observer_runs
      SET status = 'completed', finished_at = ?, rows_observed = ?,
          deltas_observed = ?, alerts_attempted = ?, error_code = NULL
@@ -38,15 +39,20 @@ export async function finishRun(
   )
     .bind(new Date().toISOString(), input.rows, input.deltas, input.alerts, runId)
     .run();
+  // The run row is the durable evidence of a completed poll; an update that matched no row
+  // means that evidence was not written, which must not look like success.
+  reportUnappliedUpdate(result, "observer_run_completion_not_recorded", { runId });
 }
 
-export async function failRun(env: StatsObserverEnv, runId: string, errorCode: string) {
+/** `errorCode` is the registry's persisted output (a registered code or `D1_ERROR`), so it
+ * is stored as is; the type, not a shape check, keeps arbitrary text out of the column. */
+export async function failRun(env: StatsObserverEnv, runId: string, errorCode: PersistedErrorCode) {
   await env.OBSERVER_DB.prepare(
     `UPDATE observer_runs
      SET status = 'failure', finished_at = ?, error_code = ?
      WHERE run_id = ? AND status = 'running'`,
   )
-    .bind(new Date().toISOString(), safeToken(errorCode, "observer_internal_error"), runId)
+    .bind(new Date().toISOString(), errorCode, runId)
     .run();
 }
 
@@ -204,7 +210,7 @@ export async function markAlertSent(
   messageId: string,
   now: string,
 ) {
-  await env.OBSERVER_DB.prepare(
+  const result = await env.OBSERVER_DB.prepare(
     `UPDATE observer_alerts SET
       last_sent_at = ?, last_sent_severity = severity, discord_message_id = ?,
       next_send_at = NULL, send_status = 'sent', last_send_error = NULL, updated_at = ?
@@ -212,12 +218,17 @@ export async function markAlertSent(
   )
     .bind(now, messageId, now, alert.fingerprint)
     .run();
+  // A delivered alert left at `send_status = 'pending'` would be sent again, so an update
+  // that matched no row is recorded instead of passing silently as a success.
+  reportUnappliedUpdate(result, "observer_alert_sent_marker_not_recorded", {
+    fingerprint: alert.fingerprint,
+  });
 }
 
 export async function markAlertRetry(
   env: StatsObserverEnv,
   fingerprint: string,
-  errorCode: string,
+  errorCode: PersistedErrorCode,
   nextSendAt: string | null,
 ) {
   await env.OBSERVER_DB.prepare(
@@ -228,7 +239,7 @@ export async function markAlertRetry(
     .bind(
       nextSendAt,
       nextSendAt === null ? "failed" : "pending",
-      safeToken(errorCode, "discord_error"),
+      errorCode,
       new Date().toISOString(),
       fingerprint,
     )
@@ -246,8 +257,16 @@ function numberOrZero(value: unknown) {
   return Number.isFinite(number) && number >= 0 ? number : 0;
 }
 
-function safeToken(value: string, fallback: string) {
-  return /^[a-z0-9_]{1,64}$/.test(value) ? value : fallback;
+/** D1 reports how many rows a write actually changed. A guarded UPDATE that matched no row
+ * is not an error, but it does mean the durable state did not advance, so it is logged. */
+function reportUnappliedUpdate(
+  result: { meta?: { changes?: number } },
+  event: string,
+  fields: Record<string, string>,
+) {
+  const changes = Number(result.meta?.changes ?? 0);
+  if (changes > 0) return;
+  console.error(JSON.stringify({ event, changes, ...fields }));
 }
 
 function normalizedDeploySha(value: string) {

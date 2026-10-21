@@ -1,4 +1,5 @@
 import { readBoundedBytes } from "../../shared/boundedHttp.ts";
+import { persistedErrorCode } from "../../shared/errorCodes.ts";
 import { publicationHash } from "../../shared/forecastPublication.ts";
 import {
   type ForecastV2NotificationKind,
@@ -104,7 +105,7 @@ async function recordDeliveryFailure(
   if (exhausted) await alertReconciliationExhausted(env, row.outbox_id, now);
   if (phase === "render")
     console.error(JSON.stringify({ event: "v2_notification_invalid", outboxId: row.outbox_id }));
-  await db
+  const recorded = await db
     .prepare(
       `UPDATE forecast_v2_notification_outbox SET state=?,next_attempt_at=?,error_code=?,lease_token=NULL,lease_until=NULL WHERE outbox_id=? AND lease_token=?`,
     )
@@ -116,10 +117,23 @@ async function recordDeliveryFailure(
       lease,
     )
     .run();
+  // Losing the lease means another drain owns the row now; say so instead of
+  // assuming this failure was persisted.
+  if (recorded.meta.changes !== 1)
+    console.warn(
+      JSON.stringify({
+        event: "v2_delivery_failure_not_recorded",
+        outboxId: row.outbox_id,
+        code: "lease_lost",
+      }),
+    );
 }
 
 function deliveryErrorCode(error: unknown) {
-  return error instanceof Error ? error.message : "v2_delivery_failed";
+  // Persisted verbatim and later rendered in an ops alert, so only a registered code
+  // (or the fixed v2 delivery fallback) reaches D1 instead of a driver message or a
+  // runtime error name.
+  return persistedErrorCode(error, "v2_delivery");
 }
 
 async function alertReconciliationExhausted(env: DispatcherEnv, outboxId: string, now: number) {

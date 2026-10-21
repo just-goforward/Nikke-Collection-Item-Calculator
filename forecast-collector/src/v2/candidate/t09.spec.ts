@@ -1,22 +1,25 @@
-import { applyD1Migrations, reset } from "cloudflare:test";
-import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { executeTestSql } from "../../../../shared/testD1Sql";
 import collaborations from "../../../fixtures/forecast-v2/expected/collaborations.json";
 import grants from "../../../fixtures/forecast-v2/expected/grants.json";
 import solo from "../../../fixtures/forecast-v2/expected/solo.json";
 import * as admission from "../../candidate-persistence";
-import schema from "../../test-schema";
-import { collectorTestEnv } from "../ingest/test-support/env";
+import type { CollectorEnv } from "../../types";
+import { localDatabase } from "../rules/sqlite-test-db";
 import { now } from "./fixture";
 import { runV2CandidateUnit } from "./index";
 
-const db = env.FORECAST_DB;
-afterEach(() => vi.restoreAllMocks());
+// Keep the complete calendar and real transactional SQL without workerd RPC
+// round trips for each fixture row. Candidate D1 contracts remain in workerd.
+let database: ReturnType<typeof localDatabase>;
+let db: D1Database;
+afterEach(() => {
+  vi.restoreAllMocks();
+  database.sqlite.close();
+});
 const iso = (value: string) => new Date(value).toISOString();
-beforeEach(async () => {
-  await reset();
-  await executeTestSql(db, schema, applyD1Migrations);
+beforeEach(() => {
+  database = localDatabase();
+  db = database.db;
 });
 
 async function event(
@@ -76,7 +79,15 @@ it("projects the T09-sized confirmed calendar (24 seasons, six collaborations, e
   expect(solo.seasons).toHaveLength(24);
   expect(collaborations.collaborations).toHaveLength(6);
   expect(grants.occurrences).toHaveLength(11);
-  const configuration = { ...collectorTestEnv, FORECAST_V2_MODE: "on" as const };
+  const configuration: CollectorEnv = {
+    FORECAST_DB: db,
+    USAGE_GUARD_DB: db,
+    ADMIN_TOKEN: "test-forecast-admin-token",
+    ENVIRONMENT: "test",
+    DEPLOY_SHA: "test-deploy-sha",
+    POLL_MODE: "both",
+    FORECAST_V2_MODE: "on",
+  };
   const admitted = vi.spyOn(admission, "processSourceQueue");
   expect(await runV2CandidateUnit(configuration, now)).toEqual({ outcome: "built" });
   expect(admitted).toHaveBeenCalledOnce();

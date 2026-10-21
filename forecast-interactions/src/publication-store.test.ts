@@ -127,6 +127,26 @@ it.each([false, true])("rejects unsupported/uncovered approval: %s", async (medi
   }
 });
 
+it("persists the publication fallback, never a runtime error name, for an unregistered failure", async () => {
+  const review = await approvalReview(db);
+  const before = await counts();
+  const sentinel = "SENTINEL_runtime_9f3a";
+  const gate = vi.spyOn(coverage, "hasCertifiedEvidenceCoverage").mockImplementation(() => {
+    throw new TypeError(sentinel);
+  });
+  try {
+    await expect(apply(review.reviewId)).rejects.toThrow(TypeError);
+    expect(await counts()).toEqual(before);
+    const command = await db
+      .prepare("SELECT state,error_code FROM forecast_runtime_commands")
+      .first();
+    expect(command).toEqual({ state: "failed", error_code: "publication_operation_failed" });
+    expect(JSON.stringify(command)).not.toContain(sentinel);
+  } finally {
+    gate.mockRestore();
+  }
+});
+
 it("blocks uncovered rollback and suppresses its review without affecting off", async () => {
   const a = await approvalReview(db);
   await apply(a.reviewId);

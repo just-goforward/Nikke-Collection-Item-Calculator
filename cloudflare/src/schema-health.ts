@@ -4,6 +4,7 @@ import {
   REQUIRED_D1_SCHEMA,
   validateD1SchemaRows,
 } from "../../shared/d1SchemaContract";
+import { errorCode } from "../../shared/errorCodes";
 import {
   SOLVER_RECOVERY_POLICY_VERSIONS,
   SOLVER_RECOVERY_VERSIONS,
@@ -11,6 +12,7 @@ import {
 import type { WorkerEnv } from "./env";
 import { isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
+import { logError } from "./logger";
 import { assertQuotaAllows } from "./quota-guard";
 
 export async function handleSchemaHealth(request: Request, env: WorkerEnv) {
@@ -31,10 +33,10 @@ export async function handleSchemaHealth(request: Request, env: WorkerEnv) {
       return (result.results || []).map((row) => ({ ...row, table_name: table }));
     });
     if (validateD1SchemaRows(rows).length > 0) {
-      throw new Error("D1 schema contract mismatch");
+      throw new Error("database_schema_mismatch");
     }
   } catch (error) {
-    void error;
+    logError("statistics_schema_probe_failed", { error: errorCode(error) });
     throw new HttpError(503, "database_schema_not_ready", true);
   }
 

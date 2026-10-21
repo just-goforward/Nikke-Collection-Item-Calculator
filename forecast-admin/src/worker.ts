@@ -1,3 +1,4 @@
+import { errorCode } from "../../shared/errorCodes.ts";
 import { assertUsageAllowed } from "../../shared/usageGuard.ts";
 import { AccessError, accessConfig, createAccessVerifier } from "./access.ts";
 import { type ReadDatabase, readActiveCalendar } from "./calendar.ts";
@@ -55,10 +56,18 @@ const message = (
   extra?: HeadersInit,
 ) => page(status, renderMessagePage(title, text), request, extra);
 
+/** The rate limiter is fail-closed: a limiter error is treated as "not allowed", and the
+ * category is recorded so a broken binding is distinguishable from a genuine limit hit. */
 async function allowed(limiter: RateLimiter, key: string) {
   try {
     return (await limiter.limit({ key })).success;
-  } catch {
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "admin_rate_limiter_unavailable",
+        code: errorCode(error),
+      }),
+    );
     return false;
   }
 }
@@ -114,7 +123,15 @@ export function createAdminHandler(options: { fetch?: typeof fetch; now?: () => 
         "admin_read",
         now(),
       );
-    } catch {
+    } catch (error) {
+      // Fail closed with the existing 503 contract, but record why: a Usage Guard stop and
+      // a broken guard binding must not be indistinguishable in the logs.
+      console.error(
+        JSON.stringify({
+          event: "admin_usage_guard_unavailable",
+          code: errorCode(error),
+        }),
+      );
       return message(503, "일시 중지", "사용량 보호 장치가 조회를 중지했습니다.", request);
     }
     try {
@@ -125,8 +142,10 @@ export function createAdminHandler(options: { fetch?: typeof fetch; now?: () => 
         request,
       );
     } catch (error) {
+      // `CalendarDataError` carries a registered application code, so calendar payload
+      // details stay out of the log while the reason is still diagnosable.
       console.error(
-        JSON.stringify({ event: "admin_calendar_unavailable", code: (error as Error).message }),
+        JSON.stringify({ event: "admin_calendar_unavailable", code: errorCode(error) }),
       );
       return message(503, "달력을 불러오지 못했습니다", "잠시 후 다시 시도하세요.", request);
     }

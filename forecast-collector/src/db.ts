@@ -1,6 +1,7 @@
 import type { SupplyForecastCandidateEnvelope } from "../../shared/supplyForecastCandidate";
 import {
   assertForecastCandidateInvariants,
+  isExpectedCandidateRejection,
   SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION,
   supplyForecastCandidateSchema,
 } from "../../shared/supplyForecastCandidate";
@@ -506,13 +507,31 @@ export async function readCanaryReport(db: D1Database, nowMs: number, deployment
     }>();
   let invalidCandidates = 0;
   for (const row of candidates.results) {
+    let payload: unknown;
     try {
-      const candidate = supplyForecastCandidateSchema.parse(JSON.parse(row.payload_json));
-      assertForecastCandidateInvariants(candidate);
-      if ((await sha256Hex(stableJson(candidate))) !== row.payload_hash) invalidCandidates += 1;
-    } catch {
+      payload = JSON.parse(row.payload_json);
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
       invalidCandidates += 1;
+      continue;
     }
+    const parsed = supplyForecastCandidateSchema.safeParse(payload);
+    if (!parsed.success) {
+      invalidCandidates += 1;
+      continue;
+    }
+    // Plain Error signals rejected data; validator defects mean unavailable
+    // evidence and must propagate without exposing candidate data in logs.
+    try {
+      assertForecastCandidateInvariants(parsed.data);
+    } catch (error) {
+      if (!isExpectedCandidateRejection(error)) throw error;
+      console.error(JSON.stringify({ event: "canary_candidate_invariant_check_failed" }));
+      invalidCandidates += 1;
+      continue;
+    }
+    // A hashing failure is unavailable evidence, not an invalid candidate.
+    if ((await sha256Hex(stableJson(parsed.data))) !== row.payload_hash) invalidCandidates += 1;
   }
   const invalidWatermarks = watermarks.results.filter(
     (row) =>

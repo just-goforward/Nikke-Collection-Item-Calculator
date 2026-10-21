@@ -1,10 +1,9 @@
-import { env } from "cloudflare:workers";
 import { expect, it } from "vitest";
 import { readSession, SESSION_IDLE_MS, SESSION_MAX_MS, sha256 } from "./auth";
-import { type FixtureEnv, migrateFixture, resetFixture } from "./test-fixture";
+import { fixtureEnv, migrateFixture, resetFixture } from "./test-fixture";
 import type { SqlDatabase } from "./types";
 
-const dbs = env as unknown as FixtureEnv;
+const dbs = fixtureEnv();
 const NOW = Date.UTC(2026, 8, 2);
 const DAY = 86_400_000;
 

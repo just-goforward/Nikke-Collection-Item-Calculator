@@ -1,5 +1,5 @@
 import { linkLabel, manualReviewPostLink } from "./forecastManualReview.ts";
-import { FALLBACK_GUIDANCE, guidance } from "./forecastV2Guidance.ts";
+import { type ComposeInput, compose, escapeDisplay } from "./forecastV2Messages.ts";
 
 /** Shared caps so producers clamp before validation ever rejects a queued message. */
 export const V2_EVIDENCE_LIMITS = {
@@ -107,26 +107,41 @@ function url(v: unknown, host: string) {
 const optionalText = (v: unknown) => v === undefined || text(v);
 const bounded = (v: unknown, limit: number): v is string =>
   typeof v === "string" && v.length > 0 && v.length <= limit;
+/** Request types that render [일정 수정], so an empty option list is still valid. */
+const EDITABLE_REQUEST_TYPES = ["solo_review", "collaboration", "maintenance"];
+/** Option lists that are calendar windows, which cap one entry lower than actions. */
+const WINDOW_OPTION_TYPES = ["collaboration", "maintenance"];
+/** A field that may be absent but, when present, must be bounded display text. */
+const optionalBounded = (v: unknown, limit: number) => v === undefined || bounded(v, limit);
+const optionalDate = (v: unknown) => v === undefined || date(v);
+const optionalBoolean = (v: unknown) => v === undefined || typeof v === "boolean";
+/** One of a fixed label table's own keys; the table is also the renderer's source. */
+const oneOf = (v: unknown, table: object) => typeof v === "string" && Object.hasOwn(table, v);
+/** Evidence lists are optional, bounded in count, and every kept item is bounded. */
+function boundedItems(v: unknown) {
+  return (
+    v === undefined ||
+    (Array.isArray(v) &&
+      v.length <= V2_EVIDENCE_LIMITS.items &&
+      v.every((item) => bounded(item, V2_EVIDENCE_LIMITS.item)))
+  );
+}
+function validateGuessSpan(v: unknown) {
+  return v === undefined || (record(v) && date(v["startAt"]) && date(v["endAt"]));
+}
 /** Evidence is optional in full and per field, so pre-evidence payloads still pass. */
 function validateEvidence(v: Record<string, unknown>) {
   const limits = V2_EVIDENCE_LIMITS;
   return (
-    (v["goal"] === undefined || bounded(v["goal"], limits.goal)) &&
-    (v["reason"] === undefined || bounded(v["reason"], limits.reason)) &&
-    (v["postedAt"] === undefined ||
-      (text(v["postedAt"]) && Number.isFinite(Date.parse(v["postedAt"])))) &&
-    (v["blocked"] === undefined || bounded(v["blocked"], limits.blocked)) &&
-    (v["noGuess"] === undefined || bounded(v["noGuess"], limits.item)) &&
-    (v["todo"] === undefined || bounded(v["todo"], limits.todo)) &&
-    (v["guess"] === undefined ||
-      (record(v["guess"]) && date(v["guess"]["startAt"]) && date(v["guess"]["endAt"]))) &&
-    [v["confirmed"], v["guessed"]].every(
-      (list) =>
-        list === undefined ||
-        (Array.isArray(list) &&
-          list.length <= limits.items &&
-          list.every((item) => bounded(item, limits.item))),
-    )
+    optionalBounded(v["goal"], limits.goal) &&
+    optionalBounded(v["reason"], limits.reason) &&
+    optionalDate(v["postedAt"]) &&
+    optionalBounded(v["blocked"], limits.blocked) &&
+    optionalBounded(v["noGuess"], limits.item) &&
+    optionalBounded(v["todo"], limits.todo) &&
+    validateGuessSpan(v["guess"]) &&
+    boundedItems(v["confirmed"]) &&
+    boundedItems(v["guessed"])
   );
 }
 export function validateForecastV2Payload<K extends ForecastV2NotificationKind>(
@@ -135,25 +150,28 @@ export function validateForecastV2Payload<K extends ForecastV2NotificationKind>(
 ): v is ForecastV2Payloads[K] {
   if (!record(v)) return false;
   if (kind === "calendar_changed") return validateCalendarChanged(v);
-  if (!id(v["decisionRequestId"])) return false;
-  if (!validateEvidence(v)) return false;
-  if (kind === "decision_reminder")
-    return (
-      (v["title"] === undefined || text(v["title"])) &&
-      (v["url"] === undefined || url(v["url"], "game.naver.com")) &&
-      (v["expiresAt"] === undefined || date(v["expiresAt"])) &&
-      (v["type"] === undefined ||
-        one(v["type"], [
-          "grant_date",
-          "solo_review",
-          "collaboration",
-          "maintenance",
-          "grant_quantity",
-        ]))
-    );
+  return id(v["decisionRequestId"]) && validateEvidence(v) && validateRequestOrReport(kind, v);
+}
+
+/** Reminders and reports share the request identity but not the post metadata. */
+function validateRequestOrReport(kind: ForecastV2NotificationKind, v: Record<string, unknown>) {
+  if (kind === "decision_reminder") return validateReminder(v);
   if (!text(v["title"]) || !url(v["url"], "game.naver.com")) return false;
   if (kind === "decision_request") return validateDecisionRequest(v);
   return kind === "b_report" && validateBReport(v);
+}
+
+/**
+ * A reminder repeats stored evidence, so its heading and expiry are both optional;
+ * only the type, when present, must be one this renderer knows.
+ */
+function validateReminder(v: Record<string, unknown>) {
+  return (
+    optionalText(v["title"]) &&
+    (v["url"] === undefined || url(v["url"], "game.naver.com")) &&
+    optionalDate(v["expiresAt"]) &&
+    (v["type"] === undefined || oneOf(v["type"], GOALS))
+  );
 }
 
 function validateCalendarChanged(v: Record<string, unknown>) {
@@ -163,73 +181,94 @@ function validateCalendarChanged(v: Record<string, unknown>) {
     url(v["adminUrl"], "forecast-admin-staging.nikkecollection.com") &&
     /\?rev=\d+#gd-\d{4}-\d{2}-\d{2}$/.test(String(v["adminUrl"])) &&
     Array.isArray(v["changes"]) &&
-    v["changes"].every(
-      (c) =>
-        record(c) &&
-        one(c["kind"], ["solo", "collaboration", "maintenance", "grant"]) &&
-        text(c["label"]) &&
-        one(c["change"], ["added", "removed", "changed"]) &&
-        optionalText(c["before"]) &&
-        optionalText(c["after"]),
-    )
+    v["changes"].every(validateCalendarChange)
+  );
+}
+
+function validateCalendarChange(change: unknown) {
+  return (
+    record(change) &&
+    oneOf(change["kind"], KIND_LABELS) &&
+    text(change["label"]) &&
+    oneOf(change["change"], CHANGE_LABELS) &&
+    optionalText(change["before"]) &&
+    optionalText(change["after"])
   );
 }
 
 function validateDecisionRequest(v: Record<string, unknown>) {
   return (
-    one(v["type"], [
-      "grant_date",
-      "solo_review",
-      "collaboration",
-      "maintenance",
-      "grant_quantity",
-    ]) &&
+    oneOf(v["type"], GOALS) &&
     Array.isArray(v["feedIds"]) &&
     v["feedIds"].every(integer) &&
     date(v["expiresAt"]) &&
     Array.isArray(v["options"]) &&
-    (one(v["type"], ["solo_review", "collaboration", "maintenance"]) || v["options"].length > 0) &&
-    v["options"].length <=
-      (["collaboration", "maintenance"].includes(String(v["type"])) ? 24 : 25) &&
-    v["options"].every((o) => record(o) && id(o["id"]) && text(o["label"])) &&
-    new Set(v["options"].map((o) => o.id)).size === v["options"].length &&
-    (v["extracted"] === undefined ||
-      (record(v["extracted"]) &&
-        (v["extracted"]["complete"] === undefined ||
-          typeof v["extracted"]["complete"] === "boolean") &&
-        (v["extracted"]["startAt"] === undefined || date(v["extracted"]["startAt"])) &&
-        (v["extracted"]["endAt"] === undefined || date(v["extracted"]["endAt"]))))
+    validateOptions(v["options"], String(v["type"])) &&
+    (v["extracted"] === undefined || validateExtracted(v["extracted"]))
+  );
+}
+
+/** Request types without options still need at least one; windows cap one lower. */
+function validateOptions(options: unknown[], type: string) {
+  if (!EDITABLE_REQUEST_TYPES.includes(type) && options.length === 0) return false;
+  const limit = WINDOW_OPTION_TYPES.includes(type) ? 24 : 25;
+  return (
+    options.length <= limit &&
+    options.every((option) => record(option) && id(option["id"]) && text(option["label"])) &&
+    new Set(options.map((option) => (option as { id: string }).id)).size === options.length
+  );
+}
+
+function validateExtracted(extracted: unknown) {
+  return (
+    record(extracted) &&
+    optionalBoolean(extracted["complete"]) &&
+    optionalDate(extracted["startAt"]) &&
+    optionalDate(extracted["endAt"])
+  );
+}
+
+const SEGMENT_KINDS = ["open", "suspend", "resume", "extend", "reopen", "close"];
+
+function validateSegment(segment: unknown) {
+  return (
+    record(segment) &&
+    one(segment["kind"], SEGMENT_KINDS) &&
+    optionalDate(segment["startAt"]) &&
+    optionalDate(segment["endAt"])
+  );
+}
+
+/** Kits are reported as game days; the quantity counter caps each one. */
+function validateKit(kit: unknown) {
+  return (
+    record(kit) &&
+    text(kit["gameDay"]) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(kit["gameDay"]) &&
+    integer(kit["ii"]) &&
+    integer(kit["box"])
+  );
+}
+
+function validateBDecision(decision: unknown) {
+  return (
+    record(decision) &&
+    typeof decision["complete"] === "boolean" &&
+    optionalDate(decision["startAt"]) &&
+    optionalDate(decision["endAt"]) &&
+    optionalBounded(decision["todo"], V2_EVIDENCE_LIMITS.todo)
   );
 }
 
 function validateBReport(v: Record<string, unknown>) {
   if (!integer(v["feedId"]) || !date(v["postedAt"]) || !record(v["extracted"])) return false;
-  const e = v["extracted"];
+  const extracted = v["extracted"];
   return (
-    Array.isArray(e["segments"]) &&
-    e["segments"].every(
-      (s) =>
-        record(s) &&
-        one(s["kind"], ["open", "suspend", "resume", "extend", "reopen", "close"]) &&
-        (s["startAt"] === undefined || date(s["startAt"])) &&
-        (s["endAt"] === undefined || date(s["endAt"])),
-    ) &&
-    Array.isArray(e["kits"]) &&
-    e["kits"].every(
-      (k) =>
-        record(k) &&
-        text(k["gameDay"]) &&
-        /^\d{4}-\d{2}-\d{2}$/.test(k["gameDay"]) &&
-        integer(k["ii"]) &&
-        integer(k["box"]),
-    ) &&
-    (v["decision"] === undefined ||
-      (record(v["decision"]) &&
-        typeof v["decision"]["complete"] === "boolean" &&
-        (v["decision"]["startAt"] === undefined || date(v["decision"]["startAt"])) &&
-        (v["decision"]["endAt"] === undefined || date(v["decision"]["endAt"])) &&
-        (v["decision"]["todo"] === undefined ||
-          bounded(v["decision"]["todo"], V2_EVIDENCE_LIMITS.todo))))
+    Array.isArray(extracted["segments"]) &&
+    extracted["segments"].every(validateSegment) &&
+    Array.isArray(extracted["kits"]) &&
+    extracted["kits"].every(validateKit) &&
+    (v["decision"] === undefined || validateBDecision(v["decision"]))
   );
 }
 export function forecastV2CustomId(
@@ -249,25 +288,54 @@ export function forecastV2CustomId(
     throw new Error("v2_custom_id_invalid");
   return value;
 }
+type DiscordButton = { type: number; style: number; label: string; custom_id: string };
+type RenderContext = {
+  environment: "staging" | "production";
+  expectedRevision: number;
+  idempotencyKey: string;
+};
+type ButtonAction = "opt" | "bok" | "bedit" | "bno";
+type PushButton = (decision: string, action: ButtonAction, label: string, option?: string) => void;
+
 export function renderForecastV2Notification<K extends ForecastV2NotificationKind>(
   kind: K,
   input: unknown,
-  context: {
-    environment: "staging" | "production";
-    expectedRevision: number;
-    idempotencyKey: string;
-  },
+  context: RenderContext,
 ) {
   if (!validateForecastV2Payload(kind, input)) throw new Error("v2_payload_invalid");
   if (!/^[A-Za-z0-9_:.-]{1,180}$/.test(context.idempotencyKey))
     throw new Error("v2_idempotency_key_invalid");
-  const buttons: { type: number; style: number; label: string; custom_id: string }[] = [];
-  const button = (
-    decision: string,
-    action: "opt" | "bok" | "bedit" | "bno",
-    label: string,
-    option?: string,
-  ) =>
+  const buttons: DiscordButton[] = [];
+  const body = bodyFor(kind, input, context, buttons);
+  const marker = `ref:${context.idempotencyKey}`;
+  return {
+    allowed_mentions: { parse: [] as string[] },
+    embeds: [{ description: cap(body, 2000 - marker.length), footer: { text: marker } }],
+    components: Array.from({ length: Math.ceil(buttons.length / 5) }, (_, i) => ({
+      type: 1,
+      components: buttons.slice(i * 5, i * 5 + 5),
+    })),
+  };
+}
+
+/** Each kind renders its own body; only the kind that has them pushes buttons. */
+function bodyFor(
+  kind: ForecastV2NotificationKind,
+  input: unknown,
+  context: RenderContext,
+  buttons: DiscordButton[],
+) {
+  if (kind === "b_report")
+    return bReportBody(input as ForecastV2Payloads["b_report"], buttons, context);
+  if (kind === "decision_request")
+    return decisionRequestBody(input as ForecastV2Payloads["decision_request"], buttons, context);
+  if (kind === "calendar_changed")
+    return calendarChangedBody(input as ForecastV2Payloads["calendar_changed"], context);
+  return reminderBody(input as ForecastV2Payloads["decision_reminder"]);
+}
+
+function buttonPusher(buttons: DiscordButton[], context: RenderContext): PushButton {
+  return (decision, action, label, option) =>
     buttons.push({
       type: 2,
       style: 2,
@@ -282,146 +350,205 @@ export function renderForecastV2Notification<K extends ForecastV2NotificationKin
         option,
       ),
     });
-  let body = "";
-  if (kind === "b_report") {
-    const p = input as ForecastV2Payloads["b_report"];
-    const segments = segmentSummaries(p.extracted.segments);
-    const kits = kitSummaries(p.extracted.kits);
-    // Only the decision's own extraction is confirmable; it is exactly what apply uses.
-    const window = p.decision
-      ? rangeOf(p.decision.startAt, p.decision.endAt)
-        ? { startAt: p.decision.startAt as string, endAt: p.decision.endAt as string }
-        : undefined
-      : undefined;
-    const confirmable = p.decision?.complete === true && window !== undefined;
-    const confirmLabel = "이 일정으로 확정";
-    body = compose({
-      title: p.title,
-      url: p.url,
-      postedAt: p.postedAt,
+}
+
+const B_CONFIRM = "이 일정으로 확정";
+
+/** The span a B report may confirm: complete extraction *and* a usable range. */
+function confirmableSpan(decision: ForecastV2Payloads["b_report"]["decision"]) {
+  if (decision?.complete !== true) return undefined;
+  const range = rangeOf(decision.startAt, decision.endAt);
+  return range && decision.startAt && decision.endAt
+    ? { startAt: decision.startAt, endAt: decision.endAt }
+    : undefined;
+}
+
+function bReportBody(
+  p: ForecastV2Payloads["b_report"],
+  buttons: DiscordButton[],
+  context: RenderContext,
+) {
+  const segments = segmentSummaries(p.extracted.segments);
+  const kits = kitSummaries(p.extracted.kits);
+  // Only the decision's own extraction is confirmable; it is exactly what apply uses.
+  const window = confirmableSpan(p.decision);
+  const actions = [...(window ? [B_CONFIRM] : []), "일정 수정", "관련 없음"];
+  const body = renderBody(
+    {
       goal: "B 게시판의 일정 변경 근거를 달력에 반영할지 확인",
       confirmed: [...segments, ...kits],
       guessed: [],
       manualEntry: true,
-      actions: [...(confirmable ? [confirmLabel] : []), "일정 수정", "관련 없음"],
-      rendered: [...(confirmable ? [confirmLabel] : []), "일정 수정", "관련 없음"],
+      actions,
+      rendered: actions,
       // Ask the explicit question only when a range backs the confirm button: a window
       // without `complete` renders no [이 일정으로 확정], so the question would promise a
       // button the message does not have.
-      ...(confirmable && window
-        ? { guess: window }
-        : {
-            noGuess: segments.length
-              ? `읽은 구간: ${segments.join(" / ")}`
-              : "공지에서 구간을 읽지 못해 직접 입력이 필요합니다.",
-          }),
+      ...(window ? { guess: window } : { noGuess: bReadSpan(segments) }),
       reason: "b_evidence_only",
-      todo:
-        p.decision?.todo ??
-        (confirmable
-          ? "추출한 일정이 맞으면 [이 일정으로 확정], 다르면 [일정 수정]으로 직접 입력, 근거가 무관하면 [관련 없음]."
-          : "공지의 변경 구간을 확인해 [일정 수정]으로 시작·종료를 직접 입력해 주세요. 근거가 무관하면 [관련 없음]."),
-    });
-    if (confirmable) button(p.decisionRequestId, "bok", confirmLabel);
-    button(p.decisionRequestId, "bedit", "일정 수정");
-    button(p.decisionRequestId, "bno", "관련 없음");
-  } else if (kind === "decision_request") {
-    const p = input as ForecastV2Payloads["decision_request"];
-    const extractedRange =
-      p.extracted?.startAt && p.extracted.endAt
-        ? { startAt: p.extracted.startAt, endAt: p.extracted.endAt }
-        : undefined;
-    // Only a solo review has a confirm button (permitsAction admits bok there alone),
-    // so only a solo review asks "이 일정(…)으로 하면 될까요?". Grant and
-    // collaboration/maintenance payloads carry `extracted` for bookkeeping only.
-    const guess = p.type === "solo_review" ? (p.guess ?? extractedRange) : p.guess;
-    const guessRange = guess ? rangeOf(guess.startAt, guess.endAt) : undefined;
-    const useGuess = Boolean(guessRange) && guess !== undefined;
-    // Options are always buttons for non-solo requests; echo their visible labels as
-    // the guess so the message never claims nothing was found while buttons exist.
-    // Grant options are actions ("별도 지급"/"정정"), not windows, so they are excluded.
-    // Echo only option labels that are real windows: "관련 없음"/"기존 점검 유지"
-    // are actions, not candidates, so they must not be reported as read windows.
-    const optionLabels =
-      p.type === "collaboration" || p.type === "maintenance"
-        ? p.options
-            .map((o) => optionLabel(o.label))
-            .filter((label) => /\d{1,2}:\d{2}|\d{4}\/\d{2}\/\d{2}/.test(label))
-        : [];
-    const soloConfirm = guessRange ? "이 일정으로 확정" : "확정";
-    const optionLabelsForButtons = p.options.map((o) => optionLabel(o.label));
-    // A solo review renders only action buttons; every other type renders its options.
-    const rendered =
-      p.type === "solo_review"
-        ? [...(p.extracted?.complete === true ? [soloConfirm] : []), "일정 수정", "관련 없음"]
-        : [
-            ...optionLabelsForButtons,
-            ...(["collaboration", "maintenance"].includes(p.type) ? ["일정 수정"] : []),
-          ];
-    // Only the non-option buttons need naming in the todo; options speak for themselves.
-    // A solo review has no options, so all of its buttons are actions.
-    const actions =
-      p.type === "solo_review"
-        ? rendered
-        : rendered.filter((label) => !optionLabelsForButtons.includes(label));
-    body = compose({
-      title: p.title,
-      url: p.url,
-      ...(p.postedAt ? { postedAt: p.postedAt } : {}),
+      todo: p.decision?.todo ?? bReportTodo(Boolean(window)),
+    },
+    { title: p.title, url: p.url, postedAt: p.postedAt },
+  );
+  const push = buttonPusher(buttons, context);
+  if (window) push(p.decisionRequestId, "bok", B_CONFIRM);
+  push(p.decisionRequestId, "bedit", "일정 수정");
+  push(p.decisionRequestId, "bno", "관련 없음");
+  return body;
+}
+
+function bReadSpan(segments: readonly string[]) {
+  return segments.length
+    ? `읽은 구간: ${segments.join(" / ")}`
+    : "공지에서 구간을 읽지 못해 직접 입력이 필요합니다.";
+}
+
+function bReportTodo(confirmable: boolean) {
+  return confirmable
+    ? "추출한 일정이 맞으면 [이 일정으로 확정], 다르면 [일정 수정]으로 직접 입력, 근거가 무관하면 [관련 없음]."
+    : "공지의 변경 구간을 확인해 [일정 수정]으로 시작·종료를 직접 입력해 주세요. 근거가 무관하면 [관련 없음].";
+}
+
+/** The buttons a decision request renders, and the ones the todo may name. */
+function requestLayout(p: ForecastV2Payloads["decision_request"]) {
+  const extracted =
+    p.extracted?.startAt && p.extracted.endAt
+      ? { startAt: p.extracted.startAt, endAt: p.extracted.endAt }
+      : undefined;
+  // Only a solo review has a confirm button (permitsAction admits bok there alone),
+  // so only a solo review asks "이 일정(…)으로 하면 될까요?". Grant and
+  // collaboration/maintenance payloads carry `extracted` for bookkeeping only.
+  const guess = p.type === "solo_review" ? (p.guess ?? extracted) : p.guess;
+  const guessRange = guess ? rangeOf(guess.startAt, guess.endAt) : undefined;
+  const useGuess = Boolean(guessRange) && guess !== undefined;
+  const optionLabelsForButtons = p.options.map((option) => optionLabel(option.label));
+  const soloConfirm = guessRange ? B_CONFIRM : "확정";
+  // A solo review renders only action buttons; every other type renders its options.
+  const rendered =
+    p.type === "solo_review"
+      ? [...(p.extracted?.complete === true ? [soloConfirm] : []), "일정 수정", "관련 없음"]
+      : [
+          ...optionLabelsForButtons,
+          ...(EDITABLE_REQUEST_TYPES.includes(p.type) ? ["일정 수정"] : []),
+        ];
+  // Only the non-option buttons need naming in the todo; options speak for themselves.
+  // A solo review has no options, so all of its buttons are actions.
+  const actions =
+    p.type === "solo_review"
+      ? rendered
+      : rendered.filter((label) => !optionLabelsForButtons.includes(label));
+  return {
+    guess: useGuess ? guess : undefined,
+    fallbackGuess: guessFallback(p, useGuess),
+    rendered,
+    actions,
+    soloConfirm,
+    optionLabelsForButtons,
+  };
+}
+
+/**
+ * Options are always buttons for non-solo requests; echo their visible labels as the
+ * guess so the message never claims nothing was found while buttons exist. Grant
+ * options are actions ("별도 지급"/"정정"), not windows, so they are excluded, and
+ * "관련 없음"/"기존 점검 유지" are actions rather than candidates.
+ */
+function guessFallback(p: ForecastV2Payloads["decision_request"], useGuess: boolean) {
+  const candidates =
+    p.type === "collaboration" || p.type === "maintenance"
+      ? p.options
+          .map((option) => optionLabel(option.label))
+          .filter((label) => /\d{1,2}:\d{2}|\d{4}\/\d{2}\/\d{2}/.test(label))
+      : [];
+  return useGuess ? [] : candidates;
+}
+
+function requestNoGuess(p: ForecastV2Payloads["decision_request"]) {
+  if (p.type === "grant_date" || p.type === "grant_quantity")
+    return p.noGuess ?? "지급일 후보를 아래 버튼으로 모았습니다.";
+  return p.noGuess;
+}
+
+function decisionRequestBody(
+  p: ForecastV2Payloads["decision_request"],
+  buttons: DiscordButton[],
+  context: RenderContext,
+) {
+  const layout = requestLayout(p);
+  const noGuess = requestNoGuess(p);
+  const body = renderBody(
+    {
       goal: p.goal ?? GOALS[p.type],
       confirmed: p.confirmed ?? [],
       guessed: p.guessed ?? [],
-      actions,
-      rendered,
+      actions: layout.actions,
+      rendered: layout.rendered,
       ...(legacyRequest(p) ? { legacyFormat: true } : {}),
-      // Only solo/collaboration/maintenance requests render [일정 수정].
-      manualEntry: ["solo_review", "collaboration", "maintenance"].includes(p.type),
-      ...(p.type === "grant_date" || p.type === "grant_quantity"
-        ? { noGuess: p.noGuess ?? "지급일 후보를 아래 버튼으로 모았습니다." }
-        : p.noGuess
-          ? { noGuess: p.noGuess }
-          : {}),
-      ...(useGuess && guess ? { guess } : {}),
-      ...(useGuess || !optionLabels.length ? {} : { fallbackGuess: optionLabels }),
+      manualEntry: EDITABLE_REQUEST_TYPES.includes(p.type),
+      ...(noGuess ? { noGuess } : {}),
+      ...(layout.guess ? { guess: layout.guess } : {}),
+      ...(layout.fallbackGuess.length ? { fallbackGuess: layout.fallbackGuess } : {}),
       reason: p.reason ?? DEFAULT_REASONS[p.type],
       ...(p.blocked ? { blocked: p.blocked } : {}),
       ...(p.todo ? { todo: p.todo } : {}),
-      expiresAt: p.expiresAt,
-    });
-    if (p.type === "solo_review") {
-      // bok is only admitted by permitsAction for a complete solo extraction.
-      if (p.extracted?.complete === true) button(p.decisionRequestId, "bok", soloConfirm);
-      button(p.decisionRequestId, "bedit", "일정 수정");
-      button(p.decisionRequestId, "bno", "관련 없음");
-    } else {
-      for (const option of p.options)
-        button(p.decisionRequestId, "opt", optionLabel(option.label), option.id);
-      if (["collaboration", "maintenance"].includes(p.type))
-        button(p.decisionRequestId, "bedit", "일정 수정");
-    }
-  } else if (kind === "calendar_changed") {
-    const p = input as ForecastV2Payloads["calendar_changed"];
-    const admin = new URL(p.adminUrl);
-    admin.search = `?rev=${p.revision}`;
-    const changes = p.changes
-      .slice(0, V2_EVIDENCE_LIMITS.items)
-      .map(
-        (change) =>
-          `• ${{ added: "추가", removed: "삭제", changed: "변경" }[change.change]} [${{ solo: "솔로", collaboration: "콜라보", maintenance: "점검", grant: "지급" }[change.kind]}] ${changeLabel(change.label)}: ${changeValue(change.before)} → ${changeValue(change.after)}`,
-      );
-    body =
-      `🗓 달력 변경 (rev ${p.revision})\n` +
-      (changes.length ? `${changes.join("\n")}\n` : "• 의미 있는 변경 없음\n");
-    const link = `\n[달력 보기](${admin.href})`;
-    body = cap(body, 2000 - link.length - context.idempotencyKey.length - 4) + link;
-  } else {
-    const p = input as ForecastV2Payloads["decision_reminder"];
-    // Reminders repeat the stored evidence; without it nothing about the judgment is
-    // known, so only the type-based goal is safe to show.
-    body = compose({
-      title: p.title ?? "결정 대기 알림",
-      ...(p.url ? { url: p.url } : {}),
+    },
+    {
+      title: p.title,
+      url: p.url,
       ...(p.postedAt ? { postedAt: p.postedAt } : {}),
+      expiresAt: p.expiresAt,
+    },
+  );
+  pushRequestButtons(p, layout, buttonPusher(buttons, context));
+  return body;
+}
+
+function pushRequestButtons(
+  p: ForecastV2Payloads["decision_request"],
+  layout: ReturnType<typeof requestLayout>,
+  push: PushButton,
+) {
+  if (p.type === "solo_review") {
+    // bok is only admitted by permitsAction for a complete solo extraction.
+    if (p.extracted?.complete === true) push(p.decisionRequestId, "bok", layout.soloConfirm);
+    push(p.decisionRequestId, "bedit", "일정 수정");
+    push(p.decisionRequestId, "bno", "관련 없음");
+    return;
+  }
+  for (const option of p.options)
+    push(p.decisionRequestId, "opt", optionLabel(option.label), option.id);
+  if (EDITABLE_REQUEST_TYPES.includes(p.type)) push(p.decisionRequestId, "bedit", "일정 수정");
+}
+
+const CHANGE_LABELS = { added: "추가", removed: "삭제", changed: "변경" } as const;
+const KIND_LABELS = {
+  solo: "솔로",
+  collaboration: "콜라보",
+  maintenance: "점검",
+  grant: "지급",
+} as const;
+
+function calendarChangedBody(p: ForecastV2Payloads["calendar_changed"], context: RenderContext) {
+  const admin = new URL(p.adminUrl);
+  admin.search = `?rev=${p.revision}`;
+  const changes = p.changes
+    .slice(0, V2_EVIDENCE_LIMITS.items)
+    .map(
+      (change) =>
+        `• ${CHANGE_LABELS[change.change]} [${KIND_LABELS[change.kind]}] ${changeLabel(change.label)}: ${changeValue(change.before)} → ${changeValue(change.after)}`,
+    );
+  const body =
+    `🗓 달력 변경 (rev ${p.revision})\n` +
+    (changes.length ? `${changes.join("\n")}\n` : "• 의미 있는 변경 없음\n");
+  const link = `\n[달력 보기](${admin.href})`;
+  return cap(body, 2000 - link.length - context.idempotencyKey.length - 4) + link;
+}
+
+function reminderBody(p: ForecastV2Payloads["decision_reminder"]) {
+  // Reminders repeat the stored evidence; without it nothing about the judgment is
+  // known, so only the type-based goal is safe to show.
+  return renderBody(
+    {
       goal: p.goal ?? (p.type ? GOALS[p.type] : "결정 대기 중인 요청 확인"),
       confirmed: p.confirmed ?? [],
       guessed: p.guessed ?? [],
@@ -431,19 +558,15 @@ export function renderForecastV2Notification<K extends ForecastV2NotificationKin
       ...(p.blocked ? { blocked: p.blocked } : {}),
       // Buttons live on the original request message, not on this reminder.
       todo: p.todo ?? "원래 결정 요청 메시지에서 버튼을 눌러 처리해 주세요.",
-      ...(p.expiresAt ? { expiresAt: p.expiresAt } : {}),
       ...(legacyRequest(p) ? { legacyFormat: true } : {}),
-    });
-  }
-  const marker = `ref:${context.idempotencyKey}`;
-  return {
-    allowed_mentions: { parse: [] as string[] },
-    embeds: [{ description: cap(body, 2000 - marker.length), footer: { text: marker } }],
-    components: Array.from({ length: Math.ceil(buttons.length / 5) }, (_, i) => ({
-      type: 1,
-      components: buttons.slice(i * 5, i * 5 + 5),
-    })),
-  };
+    },
+    {
+      title: p.title ?? "결정 대기 알림",
+      ...(p.url ? { url: p.url } : {}),
+      ...(p.postedAt ? { postedAt: p.postedAt } : {}),
+      ...(p.expiresAt ? { expiresAt: p.expiresAt } : {}),
+    },
+  );
 }
 /** A request row queued before the evidence schema stored no facts about the judgment. */
 function legacyRequest(payload: ForecastV2DecisionEvidence) {
@@ -570,130 +693,51 @@ function changeLabel(label: string) {
 /** Calendar diff values carry JSON snapshots; show their schedule in KST. */
 function changeValue(value: string | undefined) {
   if (!value) return "없음";
-  try {
-    const parsed = JSON.parse(value) as Record<string, unknown>;
-    if (typeof parsed["startAt"] === "string" && typeof parsed["endAt"] === "string")
-      return rangeOf(parsed["startAt"], parsed["endAt"]) ?? "일정 확인 필요";
-    if (typeof parsed["gameDay"] === "string")
-      return `${kstLabel(`${parsed["gameDay"]}T00:00:00+09:00`).slice(0, 8)} 관리 키트 II ${Number(parsed["ii"] ?? 0)} · 상자 ${Number(parsed["box"] ?? 0)}`;
-  } catch {
-    // A plain label is already human text.
-  }
+  const parsed = jsonObject(value);
+  if (parsed && typeof parsed["startAt"] === "string" && typeof parsed["endAt"] === "string")
+    return rangeOf(parsed["startAt"], parsed["endAt"]) ?? "일정 확인 필요";
+  if (parsed && typeof parsed["gameDay"] === "string")
+    return `${kstLabel(`${parsed["gameDay"]}T00:00:00+09:00`).slice(0, 8)} 관리 키트 II ${Number(parsed["ii"] ?? 0)} · 상자 ${Number(parsed["box"] ?? 0)}`;
+  // A diff value that is not JSON is already a plain human label.
   return linkLabel(value);
 }
-function compose(input: {
-  title: string;
-  url?: string;
-  postedAt?: string;
-  goal: string;
-  confirmed: string[];
-  guessed: string[];
-  guess?: { startAt: string; endAt: string };
-  /** Visible option labels, used when no window exists but buttons do. */
-  fallbackGuess?: string[];
-  noGuess?: string;
-  reason?: string;
-  blocked?: string;
-  todo?: string;
-  expiresAt?: string;
-  /** This request renders [일정 수정], so direct input is a real option. */
-  manualEntry?: boolean;
-  /** Labels of the non-option buttons this message renders (must be offered). */
-  actions?: string[];
-  /** Every button label this message renders (references outside it are dropped). */
-  rendered?: string[];
-  /** No evidence was stored at all (rows queued before the evidence schema). */
-  legacyFormat?: boolean;
-}) {
-  const table = guidance(input.reason);
+
+/** `JSON.parse` as a typed result: null when the value is not a JSON object. */
+function jsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return record(parsed) ? parsed : null;
+  } catch (error) {
+    // Only a syntax error means "not JSON"; anything else would be a real defect.
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+/** Join the shared composer's inputs with this module's display formatting. */
+function renderBody(
+  input: ComposeInput,
+  labels: {
+    title: string;
+    url?: string;
+    postedAt?: string;
+    expiresAt?: string;
+  },
+) {
+  // The window comes from the one place the composer reads it (`input.guess`): taking it
+  // from a separate label let a caller pass a guess without its formatted range, and the
+  // reminder then rendered the question with no KST span.
   const range = input.guess ? rangeOf(input.guess.startAt, input.guess.endAt) : undefined;
-  // Escape first (display normalization), then budget (length), never the reverse: a
-  // clip must not cut an escape sequence in half.
-  const goal = clip(escapeDisplay(input.goal), V2_EVIDENCE_LIMITS.goal);
-  const blocked = clip(
-    escapeDisplay(
-      input.blocked ??
-        (input.legacyFormat
-          ? "이전 형식의 요청이라 막힌 이유가 저장되지 않았습니다"
-          : (table ?? FALLBACK_GUIDANCE)[0]),
-    ),
-    V2_EVIDENCE_LIMITS.blocked,
-  );
-  // The table line is written for the buttons that reason's request renders; only an
-  // unmapped reason falls back to the branch-specific default. Action references are
-  // reserved before the prose is clipped, so the todo can never drop a button name.
-  const todo = budgetTodo(
-    input.todo ??
-      table?.[1] ??
-      (input.manualEntry
-        ? "공지 원문을 확인해 맞으면 [일정 수정]으로 시작·종료를 직접 입력하고, 무관하면 [관련 없음]을 눌러 주세요."
-        : "원래 결정 요청 메시지에서 맞는 버튼을 눌러 주세요."),
-    input.actions,
-    input.rendered,
-  );
-  const confirmed = evidenceList(input.confirmed);
-  const guessed = evidenceList(input.guessed);
-  const fallbackGuess = evidenceList(input.fallbackGuess ?? []);
-  // `noGuess` is producer prose, so it gets the same one-item bound as evidence: a
-  // payload may carry many segments and none of them may displace the guidance.
-  const noGuess =
-    input.noGuess === undefined
-      ? undefined
-      : clip(escapeDisplay(input.noGuess), V2_EVIDENCE_LIMITS.item);
-
-  // Legacy rows store no facts, so the fallbacks must not invent them.
-  const emptyConfirmed = input.legacyFormat
-    ? "✅ 확인한 것: 이전 형식의 요청이라 세부 근거가 저장되지 않았습니다"
-    : "✅ 확인한 것: 확정에 쓸 수 있는 항목을 찾지 못했습니다";
-  const emptyGuessed = input.legacyFormat
-    ? "🤔 추측한 것: 이전 형식의 요청이라 세부 근거가 저장되지 않았습니다"
-    : input.manualEntry
-      ? "🤔 추측한 것: 일정을 확인하지 못했습니다. [일정 수정]으로 직접 입력해 주세요."
-      : "🤔 추측한 것: 일정을 확인하지 못했습니다. 원래 결정 요청 메시지의 버튼을 눌러 주세요.";
-
-  // The heading keeps a valid masked link; only its visible text is shortened. The link
-  // is part of the budget below, not a fixed cost on top of it.
-  const middle = (itemLimit: number, titleLimit: number, url: string | undefined) => {
-    const lines = [
-      heading(clipTitle(input.title, titleLimit), url, input.postedAt),
-      `하려던 일: ${goal}`,
-    ];
-    lines.push(
-      confirmed.items.length ? `✅ 확인한 것: ${listLine(confirmed, itemLimit)}` : emptyConfirmed,
-    );
-    if (range) lines.push(`🤔 추측한 것: 이 일정(${range})으로 하면 될까요?`);
-    else if (input.guess)
-      lines.push("🤔 추측한 것: 이 일정으로 하면 될까요? (공지에서 추출한 시작·종료)");
-    else if (guessed.items.length)
-      lines.push(`🤔 추측한 것: 읽은 후보 ${listLine(guessed, itemLimit)}`);
-    else if (noGuess) lines.push(`🤔 추측한 것: ${noGuess}`);
-    else if (fallbackGuess.items.length)
-      lines.push(`🤔 추측한 것: 읽은 후보 ${listLine(fallbackGuess, itemLimit)}`);
-    else lines.push(emptyGuessed);
-    lines.push(`❌ 막힌 이유: ${blocked}`);
-    lines.push(`👉 해 주실 일: ${todo}`);
-    return lines;
-  };
-  const tail = input.expiresAt ? [`만료 ${kstLabel(input.expiresAt)} KST`] : [];
-  // Fixed sections (goal, reason, action, expiry) are reserved first; then the evidence
-  // lists lose items ("외 N건"), and only after that does the heading text shrink.
-  const room = V2_MESSAGE_BUDGET - tail.join("\n").length - 1;
-  /** Shrink the evidence lists, then the visible title, until the body fits `room`. */
-  const fitted = (url: string | undefined) => {
-    let titleLimit = V2_EVIDENCE_LIMITS.goal + 80;
-    let limit = V2_EVIDENCE_LIMITS.item * V2_EVIDENCE_LIMITS.items;
-    while (middle(limit, titleLimit, url).join("\n").length > room) {
-      if (limit > 12) limit -= 10;
-      else if (titleLimit > 12) titleLimit -= 10;
-      else break;
-    }
-    return middle(limit, titleLimit, url).join("\n");
-  };
-  let body = fitted(input.url);
-  // A notice URL longer than the leftover budget must never push the reason, the
-  // guidance or the expiry out of the message: the heading text still names the post.
-  if (body.length > room) body = fitted(undefined);
-  return [body, ...tail].join("\n");
+  return compose(input, V2_EVIDENCE_LIMITS, {
+    // The heading keeps a valid masked link; only its visible text is shortened.
+    heading: (titleLimit, withLink) =>
+      heading(
+        clipTitle(labels.title, titleLimit),
+        withLink ? labels.url : undefined,
+        labels.postedAt,
+      ),
+    ...(range ? { guessRange: range } : {}),
+    ...(labels.expiresAt ? { expiry: kstLabel(labels.expiresAt) } : {}),
+  });
 }
 
 /** Shorten the visible title text while `manualReviewPostLink` keeps the URL intact. */
@@ -703,85 +747,4 @@ function clipTitle(title: string, limit: number) {
   return escaped.length <= limit
     ? title
     : title.slice(0, Math.max(1, Math.min(title.length, limit))).trimEnd();
-}
-
-/** Whole embed budget: marker + escaping slack stays below Discord's 2000-char cap. */
-const V2_MESSAGE_BUDGET = 1800;
-
-/**
- * Escape, drop references to buttons this message lacks, append missing action buttons,
- * then clip the prose around them: action references are reserved and never cut.
- */
-function budgetTodo(
-  todo: string,
-  actions: readonly string[] | undefined,
-  rendered: readonly string[] | undefined,
-) {
-  const limit = V2_EVIDENCE_LIMITS.todo;
-  let text = todo;
-  if (rendered)
-    for (const reference of new Set(text.match(/\[[^\]]+\]/g) ?? []))
-      if (!rendered.some((label) => reference === `[${label}]`))
-        text = text.replaceAll(reference, "");
-  if (actions) {
-    const missing = actions.filter((label) => !text.includes(`[${label}]`));
-    if (missing.length)
-      text = `${text.replace(/[,\s]+$/, "")}${text.endsWith(".") ? "" : "."} 그 밖에 ${missing
-        .map((label) => `[${label}]`)
-        .join(", ")} 버튼도 있습니다.`;
-  }
-  text = text.replace(/\s{2,}/g, " ").trim();
-  const escaped = escapeDisplay(text);
-  if (escaped.length <= limit) return escaped;
-  // Keep every button reference, spend the remaining length on the surrounding prose.
-  const references = [...new Set(escaped.match(/\[[^\]]+\]/g) ?? [])];
-  const prose = references.reduce((value, reference) => value.replaceAll(reference, ""), escaped);
-  const room = limit - references.join(" ").length - 1;
-  const keptProse = room > 1 ? clip(prose.replace(/\s{2,}/g, " ").trim(), room) : "";
-  // Re-append them as-is so a truncated todo still names every action.
-  return clip(`${keptProse} ${references.join(" ")}`.trim(), limit);
-}
-
-function listLine(list: { items: string[]; dropped: number }, limit: number) {
-  const shown: string[] = [];
-  let used = 0;
-  let dropped = list.dropped;
-  for (const item of list.items) {
-    const separator = shown.length ? " · " : "";
-    if (used + separator.length + item.length > limit) {
-      dropped++;
-      continue;
-    }
-    shown.push(item);
-    used += separator.length + item.length;
-  }
-  const text = shown.join(" · ");
-  return dropped ? `${text}${text ? " · " : ""}외 ${dropped}건` : text || "항목 없음";
-}
-
-/** Evidence items are display text: escaped, newline-collapsed, length-bounded. */
-function evidenceList(values: readonly string[]) {
-  const items = values.map(evidenceText).filter((item) => item.length > 0);
-  const kept = items.slice(0, V2_EVIDENCE_LIMITS.items);
-  return { items: kept, dropped: items.length - kept.length };
-}
-
-function evidenceText(value: string) {
-  return clip(escapeDisplay(value), V2_EVIDENCE_LIMITS.item);
-}
-
-/** Display normalization only: no markdown, links or mention tokens, one line. */
-function escapeDisplay(value: string) {
-  // Same escaping as titles; one line only so sections cannot be forged.
-  // linkLabel backslash-escapes "~" because it builds link labels; in an embed a lone
-  // "~" is harmless and ranges read better unescaped, while "~~" (strikethrough) stays
-  // neutralised as full-width tildes.
-  return linkLabel(value.replace(/[\r\n]+/g, " ").trim())
-    .replace(/\\~\\~/g, "～～")
-    .replace(/\\~/g, "~");
-}
-
-/** Length budgeting only, applied after escaping so no escape pair is split. */
-function clip(value: string, limit: number) {
-  return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
 }

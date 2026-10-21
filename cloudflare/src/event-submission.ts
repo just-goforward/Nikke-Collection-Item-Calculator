@@ -1,3 +1,4 @@
+import { type AppErrorCode, errorCode, isAppErrorCode } from "../../shared/errorCodes";
 import {
   SOLVER_RECOVERY_APP_REVISION_PATTERN,
   SOLVER_RECOVERY_POLICY_VERSIONS,
@@ -10,6 +11,7 @@ import { commitSubmission, commitSubmissionRejection } from "./event-commit";
 import { validatePayload } from "./event-validation";
 import { isAllowedOrigin, jsonResponse } from "./http";
 import { HttpError } from "./http-error";
+import { logWarn } from "./logger";
 import { assertQuotaAllows } from "./quota-guard";
 import { EventSubmissionSchema } from "./schemas";
 import { verifyTurnstile } from "./turnstile";
@@ -107,7 +109,7 @@ function securityEnvelope(payload: unknown): SecurityEnvelope | null {
 
 function classifyRejectedPayload(envelope: SecurityEnvelope) {
   const event = envelope.event;
-  let code = "invalid_payload";
+  let code: AppErrorCode = "invalid_payload";
   if (envelope.eventKind === "solver_recovery") {
     if (!SOLVER_RECOVERY_VERSIONS.includes(event["recoveryVersion"] as never)) {
       code = "unsupported_recovery_version";
@@ -155,8 +157,10 @@ function rejectedAppRevision(event: Record<string, unknown>) {
     : "unknown";
 }
 
-function rejectionCode(value: string) {
-  return /^[a-z0-9_]{1,64}$/.test(value) ? value : "invalid_payload";
+/** A validation HttpError carries a registered code by construction; anything else is the
+ * generic rejection rather than text copied into the rejection aggregates. */
+function rejectionCode(value: string): AppErrorCode {
+  return isAppErrorCode(value) ? value : "invalid_payload";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -178,9 +182,19 @@ async function nativeRateLimit(request: Request, env: WorkerEnv) {
   if (!result.success) throw new HttpError(429, "rate_limited", false);
 }
 
+/** Cancelling a reader rejects with the underlying source's error; the caller is already
+ * failing the request for its own reason, so the cancel outcome is recorded, not thrown. */
+async function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  try {
+    await reader.cancel("payload_too_large");
+  } catch (error) {
+    logWarn("stream_cancel_failed", { error: errorCode(error) });
+  }
+}
+
 export async function readJsonPayload(request: Request) {
   const stream = request.body;
-  if (!stream) throw invalidJsonPayload(null);
+  if (!stream) throw new HttpError(400, "invalid_json");
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let bytesRead = 0;
@@ -191,7 +205,7 @@ export async function readJsonPayload(request: Request) {
       if (done) break;
       bytesRead += value.byteLength;
       if (bytesRead > MAX_BODY_BYTES) {
-        await reader.cancel("payload_too_large").catch(() => undefined);
+        await cancelReader(reader);
         throw new HttpError(413, "payload_too_large");
       }
       chunks.push(value);
@@ -211,13 +225,8 @@ export async function readJsonPayload(request: Request) {
   let payload: unknown;
   try {
     payload = JSON.parse(text);
-  } catch (error) {
-    throw invalidJsonPayload(error);
+  } catch {
+    throw new HttpError(400, "invalid_json");
   }
   return payload;
-}
-
-function invalidJsonPayload(error: unknown): HttpError {
-  void error;
-  return new HttpError(400, "invalid_json");
 }

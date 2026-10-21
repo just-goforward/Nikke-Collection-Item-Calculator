@@ -1,5 +1,6 @@
 import type { PublicCell, PublicStatistics, SelfPercentile, StageSummary } from "./contracts";
 import { MAX_LIFETIME_VALUE, stageSummary } from "./http";
+import { logFailure } from "./log";
 import type { PersonalEnv } from "./types";
 
 const K = 10;
@@ -38,6 +39,27 @@ function bin(income: number): number {
   return Math.min(CLAMP_MAX / BIN_WIDTH - 1, Math.floor(Math.min(income, CLAMP_MAX) / BIN_WIDTH));
 }
 
+/** JSON.parse without an exception path: unparsable text becomes an explicit marker. */
+const UNPARSABLE = Symbol("unparsable");
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return UNPARSABLE;
+  }
+}
+
+/** A projection is publishable only when it parses AND still matches its own row identity. */
+function parseSummary(row: Record<string, unknown>): StageSummary | null {
+  const parsed = parseJson(String(row["summary"]));
+  if (stageSummary(parsed) && parsed.itemId === row["item_id"] && parsed.stage === row["stage"]) {
+    return parsed;
+  }
+  // Excluded, never published: an unparsable or mismatched row keeps its identity opaque.
+  logFailure("personal_data_publication_summary_invalid", "invalid_summary");
+  return null;
+}
+
 function points(rows: Record<string, unknown>[]): Point[] {
   const result = new Map<string, Point>();
   const invalid = new Set<string>();
@@ -46,18 +68,8 @@ function points(rows: Record<string, unknown>[]): Point[] {
     const userId = String(row["user_id"]);
     const key = JSON.stringify([userId, row["stage"]]);
     if (invalid.has(key)) continue;
-    let summary: StageSummary;
-    try {
-      const parsed: unknown = JSON.parse(String(row["summary"]));
-      if (
-        !stageSummary(parsed) ||
-        parsed.itemId !== row["item_id"] ||
-        parsed.stage !== row["stage"]
-      ) {
-        throw new Error("invalid_summary");
-      }
-      summary = parsed;
-    } catch {
+    const summary = parseSummary(row);
+    if (!summary) {
       invalid.add(key);
       result.delete(key);
       continue;
@@ -121,6 +133,22 @@ function cells(all: Point[], participants: Set<string>): PublicCell[] {
     });
 }
 
+/** Removes this attempt's staged rows and gives the publisher token back to the fence. */
+async function abortRelease(env: PersonalEnv, id: string): Promise<void> {
+  await env.PERSONAL_DB.prepare("DELETE FROM self_percentiles WHERE release_id = ?").bind(id).run();
+  const released = await env.PUBLIC_AGGREGATE_DB.batch([
+    env.PUBLIC_AGGREGATE_DB.prepare(
+      "DELETE FROM weekly_releases WHERE release_id = ? AND state = 'staged'",
+    ).bind(id),
+    env.PUBLIC_AGGREGATE_DB.prepare(
+      "UPDATE privacy_fence SET publisher_token = NULL WHERE publisher_token = ?",
+    ).bind(id),
+  ]);
+  // A retained token keeps publication blocked with no owner, so a failed release is reported.
+  if (released[1]?.meta.changes !== 1)
+    logFailure("personal_data_publication_token_release_failed", "incomplete_write");
+}
+
 /** Local hooks model interleavings/crash boundaries; no HTTP route exposes them. */
 export async function publishWeekly(
   env: PersonalEnv,
@@ -165,17 +193,7 @@ export async function publishWeekly(
   ]);
   async function abort(): Promise<"blocked"> {
     // Only unpublished projections of this attempt are removed.
-    await env.PERSONAL_DB.prepare("DELETE FROM self_percentiles WHERE release_id = ?")
-      .bind(id)
-      .run();
-    await env.PUBLIC_AGGREGATE_DB.batch([
-      env.PUBLIC_AGGREGATE_DB.prepare(
-        "DELETE FROM weekly_releases WHERE release_id = ? AND state = 'staged'",
-      ).bind(id),
-      env.PUBLIC_AGGREGATE_DB.prepare(
-        "UPDATE privacy_fence SET publisher_token = NULL WHERE publisher_token = ?",
-      ).bind(id),
-    ]);
+    await abortRelease(env, id);
     return "blocked";
   }
   if (Number(privacy[1]?.results[0]?.["n"]) || Number(personal[1]?.results[0]?.["n"]))

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ACTIVE_SUPPLY_FORECAST_BASE_PROFILE_ID,
   ACTIVE_SUPPLY_FORECAST_ID,
@@ -207,6 +207,29 @@ describe("solver_recovery operational telemetry", () => {
       error: "rejection_storage_unavailable",
       retryable: true,
     });
+  });
+
+  it("records both the primary write and the duplicate-lookup failure of rejection evidence", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // Both the aggregate insert and the duplicate lookup now fail; the storage failure
+    // must still be the served outcome, with both causes in the log line.
+    await harness.database.exec("DROP TABLE stats_submission_rejection_aggregates_game_day");
+    await harness.database.exec("DROP TABLE stats_rejection_event_ids");
+    const payload = solverRecoveryEvent("solver-recovery-lookup-fail");
+    payload.event.policyVersion = "ladder_future";
+
+    expect((await submit(payload)).status).toBe(503);
+
+    const lines = errorLog.mock.calls.map(([line]) => JSON.parse(String(line)));
+    expect(lines).toContainEqual(
+      expect.objectContaining({
+        event: "statistics_rejection_storage_failed",
+        rejectionCode: "unsupported_recovery_policy",
+        primaryWriteError: "D1_ERROR",
+        duplicateLookupError: "D1_ERROR",
+      }),
+    );
+    errorLog.mockRestore();
   });
 
   it("commits bucketed delivery health with the accepted event", async () => {

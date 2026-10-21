@@ -400,9 +400,12 @@ describe("T15 stale coverage alerts via forecast_ops_alerts (F9)", () => {
       for (const minute of ["03:00", "04:00"])
         expect(await invoke(at(minute), mode)).toEqual({ outcome: "held", reason: "http_500" });
       expect(await alerts(db)).toEqual([]);
-      expect(await invoke(at("05:00"), mode)).toEqual({ outcome: "held", reason: "http_500" });
+      expect(await invoke(at("05:00"), mode)).toEqual({
+        outcome: "held",
+        reason: "metadata_attempts_exhausted",
+      });
       expect((await state(db, "A")).consecutive_holds).toBe(3);
-      expect(await alerts(db)).toEqual(n ? [alertFor("http_500")] : []);
+      expect(await alerts(db)).toEqual(n ? [alertFor("metadata_attempts_exhausted")] : []);
     },
   );
 

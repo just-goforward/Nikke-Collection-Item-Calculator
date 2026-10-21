@@ -1,3 +1,4 @@
+import { errorCode } from "../../shared/errorCodes.ts";
 import { publicationBytesHash as sha256Hex } from "../../shared/forecastPublicationBytes.ts";
 import { assertUsageAllowed } from "../../shared/usageGuard.ts";
 import type { InteractionRouterEnv } from "./types.ts";
@@ -266,6 +267,21 @@ function editModal({ decisionId, revision }: Action, payload: DecisionPayload) {
     })),
   });
 }
+/** The webhook PATCH result is advisory; an unread body discard failure must not mask the
+ * already-recorded decision, so it is logged instead of rejected. */
+async function discardDiscordBody(response: Response) {
+  try {
+    await response.body?.cancel();
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: "v2_message_body_discard_failed",
+        code: errorCode(error),
+      }),
+    );
+  }
+}
+
 function outcomeResponse(
   result: DecisionResult,
   modal: boolean,
@@ -294,11 +310,19 @@ function outcomeResponse(
       },
     )
       .then(async (response) => {
-        await response.body?.cancel();
-        if (!response.ok) console.warn("v2_message_update_failed");
+        await discardDiscordBody(response);
+        if (!response.ok)
+          console.warn(
+            JSON.stringify({ event: "v2_message_update_failed", code: response.status }),
+          );
       })
-      .catch(() => {
-        console.warn("v2_message_update_failed");
+      .catch((error) => {
+        console.warn(
+          JSON.stringify({
+            event: "v2_message_update_failed",
+            code: errorCode(error),
+          }),
+        );
       }),
   );
   return reply(6, {});
@@ -326,6 +350,14 @@ export async function handleV2Interaction(
         content: "공지가 수정되어 이 결정은 더 이상 유효하지 않습니다",
         flags: 64,
       });
+    // Every rejection path (unauthorized, invalid action, stale request) answers with the
+    // same public denial, so the internal reason is recorded for diagnosis.
+    console.warn(
+      JSON.stringify({
+        event: "v2_interaction_rejected",
+        code: errorCode(error),
+      }),
+    );
     return denied();
   }
 }

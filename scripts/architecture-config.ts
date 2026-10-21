@@ -38,6 +38,9 @@ export const CHECK_ROOTS = [
   "e2e",
   "rust/solver-rs/src",
   "rust/certified/src",
+  "personal-data/src",
+  "forecast-admin/src",
+  "site-worker/src",
 ];
 
 export const SOURCE_EXTENSIONS = [".ts", ".tsx", ".rs"];
@@ -69,6 +72,14 @@ export const LONG_FILE_ALLOWLIST: DebtEntry[] = [
     removalTarget:
       "Split a cohesive stats-runtime or outcome-flow suite once it has enough independent setup to avoid duplicating preview lifecycle code.",
   },
+  {
+    file: "personal-data/src/auth.test.ts",
+    owner: "test",
+    reason:
+      "OIDC and account-lifecycle cases share one local D1 harness, fake issuer, and cookie/session helpers.",
+    removalTarget:
+      "Extract the shared harness into a test helper module, then split OIDC, consent/deletion, and cron suites.",
+  },
 ];
 
 export const TYPE_ESCAPE_BOUNDARY_ALLOWLIST: DebtEntry[] = [
@@ -77,6 +88,21 @@ export const TYPE_ESCAPE_BOUNDARY_ALLOWLIST: DebtEntry[] = [
     owner: "test",
     reason: "The Worker test harness needs Cloudflare runtime boundary casts.",
     removalTarget: "Introduce typed test helpers for env, request, and execution context.",
+  },
+  {
+    file: "forecast-admin/src/worker.test.ts",
+    owner: "test",
+    reason:
+      "The Admin test harness adapts the Miniflare environment and the JWKS fetch double to generated Worker bindings.",
+    removalTarget: "Provide typed Admin Miniflare environment and fetch-double factories.",
+  },
+  {
+    file: "forecast-admin/src/worker.cpu.spec.ts",
+    owner: "test",
+    reason:
+      "The CPU-budget spec builds an AdminEnv snapshot whose allowlisted emails are not in the binding type.",
+    removalTarget:
+      "Expose a typed AdminEnv test builder once access config is a standalone module.",
   },
   {
     file: "src/wasm/rustLoader.ts",
@@ -130,6 +156,30 @@ export const TYPE_ESCAPE_BOUNDARY_ALLOWLIST: DebtEntry[] = [
 
 export const MODULE_BOUNDARY_ALLOWLIST: ModuleBoundaryDebtEntry[] = [
   {
+    file: "cloudflare/src/site-gateway.test.ts",
+    dependency: "site-worker/src/worker.ts",
+    owner: "test",
+    reason:
+      "The gateway test proves the site Worker rejects unallowlisted paths behind the Cloudflare proxy.",
+    removalTarget: "Compare the gateway allowlist against an exported site route table instead.",
+  },
+  {
+    file: "forecast-collector/src/v2/rules/prediction-identity.test.ts",
+    dependency: "forecast-admin/src/calendar.ts",
+    owner: "test",
+    reason:
+      "The collector rule test reuses the Admin business-day calendar the schedule is evaluated against.",
+    removalTarget: "Move the business-day calendar into a shared module both Workers import.",
+  },
+  {
+    file: "forecast-collector/src/v2/rules/decisions.projection.test.ts",
+    dependency: "forecast-admin/src/calendar.ts",
+    owner: "test",
+    reason:
+      "The projection test reuses the Admin business-day calendar the production schedule is evaluated against.",
+    removalTarget: "Move the business-day calendar into a shared module both Workers import.",
+  },
+  {
     file: "forecast-dispatcher/src/dispatcher.test.ts",
     dependency: "forecast-collector/src/ops.ts",
     owner: "test",
@@ -176,37 +226,179 @@ export const BIOME_IGNORE_ALLOWLIST: DebtEntry[] = [
   },
 ];
 
-export const EMPTY_CATCH_ALLOWLIST: DebtEntry[] = [
-  {
-    file: "forecast-dispatcher/src/db.ts",
-    owner: "worker",
-    reason: "Malformed legacy alert context is intentionally reduced to a safe invalid marker.",
-    removalTarget: "Delete the fallback after all legacy context rows have aged out.",
-  },
-  {
-    file: "forecast-dispatcher/src/discord.ts",
-    owner: "worker",
-    reason: "Invalid Discord retry metadata uses a durable five-minute retry fallback.",
-    removalTarget:
-      "Replace the fallback after Discord retry responses are schema-validated centrally.",
-  },
-  {
-    file: "forecast-dispatcher/src/dispatcher.ts",
-    owner: "worker",
-    reason:
-      "A failed best-effort alert write must not replace the original durable invocation failure evidence.",
-    removalTarget: "Record alert-path failure through an independent service binding or log sink.",
-  },
-  {
-    file: "stats-observer/src/discord.ts",
-    owner: "worker",
-    reason:
-      "Invalid Discord retry metadata and legacy context both fall back to bounded safe values.",
-    removalTarget: "Separate retry parsing and legacy-context migration into typed result helpers.",
-  },
-];
+export const EMPTY_CATCH_ALLOWLIST: DebtEntry[] = [];
 
 export const COMPLEXITY_ALLOWLIST: FunctionDebtEntry[] = [
+  {
+    file: "personal-data/src/fake-issuer.ts",
+    function: "fakeIssuer",
+    owner: "test",
+    reason:
+      "The local OIDC issuer keeps discovery, JWKS, token and PKCE verification in one fixture lifetime.",
+    removalTarget:
+      "Split discovery/JWKS serving from token exchange once each has its own fixture.",
+  },
+  {
+    file: "personal-data/src/fake-issuer.ts",
+    function: "fetchImpl",
+    owner: "test",
+    reason: "The fixture fetch routes three fixed Google endpoints and validates PKCE per request.",
+    removalTarget: "Route each endpoint to its own typed handler after the fixture gains a router.",
+  },
+  {
+    file: "personal-data/src/google.ts",
+    function: "googleProvider",
+    owner: "worker",
+    reason:
+      "One isolate-lifetime provider owns discovery caching, shared outbound flight control for the three pinned Google endpoints, and the authorization-code exchange with its issuer rejection.",
+    removalTarget:
+      "Extract outbound flight control once discovery caching can be separated from claim validation.",
+  },
+  {
+    file: "personal-data/src/http.ts",
+    function: "stageSummary",
+    owner: "worker",
+    reason:
+      "The stage projection predicate validates all seven persisted fields and their arithmetic range.",
+    removalTarget: "Represent the stage schema as data and validate fields through shared helpers.",
+  },
+  {
+    file: "personal-data/src/publication.ts",
+    function: "publishWeekly",
+    owner: "worker",
+    reason:
+      "Fence acquisition, cross-store snapshot, disclosure, rank freeze, and activation form one publishable release.",
+    removalTarget:
+      "Extract snapshot/disclosure/activation stages after fence recovery is isolated.",
+  },
+  {
+    file: "personal-data/src/store.ts",
+    function: "putWorkspace",
+    owner: "worker",
+    reason:
+      "Workspace CAS, summary projection, archive insertion, replay detection and quota outcome share one batch.",
+    removalTarget: "Extract statement construction from result classification.",
+  },
+  {
+    file: "personal-data/src/worker.ts",
+    function: "createWorker",
+    owner: "worker",
+    reason:
+      "The Worker closure owns provider lifetime plus the login, callback, session, and account handlers.",
+    removalTarget:
+      "Move each route family into a typed handler module bound to one provider instance.",
+  },
+  {
+    file: "personal-data/src/worker.ts",
+    function: "callback",
+    owner: "worker",
+    reason:
+      "Callback validation, identity comparison, admission, and session creation form one atomic login flow.",
+    removalTarget:
+      "Extract admission and session issuance after the deletion-fence checks are isolated.",
+  },
+  {
+    file: "personal-data/src/worker.ts",
+    function: "fetch",
+    owner: "worker",
+    reason:
+      "The route table, account context, consent/workspace/export routes, and error mapping share one contract.",
+    removalTarget:
+      "Replace route branching with typed handlers registered in the existing route table.",
+  },
+  {
+    file: "personal-data/src/auth.test.ts",
+    function: "<anonymous>",
+    owner: "test",
+    reason:
+      "OIDC and account-lifecycle cases share one local D1 harness, fake issuer, and cookie/session helpers.",
+    removalTarget:
+      "Extract the shared harness into a test helper module, then split OIDC, consent/deletion, and cron suites.",
+  },
+  {
+    file: "personal-data/src/store.test.ts",
+    function: "<anonymous>",
+    owner: "test",
+    reason: "Workspace, quota, and privacy-projection cases share one PERSONAL_DB fixture.",
+    removalTarget: "Extract the fixture and split workspace CAS from privacy projection suites.",
+  },
+  {
+    file: "forecast-admin/src/access.ts",
+    function: "createAccessVerifier",
+    owner: "worker",
+    reason:
+      "Split area: Admin access. One isolate-lifetime closure owns the bounded Cloudflare Access JWKS cache, its single-flight refresh, and the per-`kid` key lookup the verifier calls.",
+    removalTarget:
+      "Owned by the forecast-admin agent; extract the JWKS cache/single-flight into its own module.",
+  },
+  {
+    file: "forecast-admin/src/access.ts",
+    function: "download",
+    owner: "worker",
+    reason:
+      "Split area: Admin access. One bounded fetch reads `<team>/cdn-cgi/access/certs` (manual redirect, 5 s timeout, 64 KiB cap) and imports only usable RS256 keys, at most 8.",
+    removalTarget:
+      "Owned by the forecast-admin agent; separate the bounded fetch from JWK filtering and key import.",
+  },
+  {
+    file: "forecast-admin/src/access.ts",
+    function: "<anonymous>",
+    owner: "worker",
+    reason:
+      "Split area: Admin access. This returned verifier validates one Access JWT end to end: header algorithm pin, signature, then iss/aud/exp/nbf/email claims.",
+    removalTarget:
+      "Owned by the forecast-admin agent; extract claim validation from signature verification.",
+  },
+  {
+    file: "forecast-admin/src/calendar.ts",
+    function: "parseDay",
+    owner: "worker",
+    reason:
+      "Split area: Admin calendar. One stored `payload_json` is validated into a day: kits/coop counts, grants, pending labels, and per-event titles.",
+    removalTarget:
+      "Owned by the forecast-admin agent; split kits/coop, grants/pending, and titles validation.",
+  },
+  {
+    file: "forecast-admin/src/calendar.ts",
+    function: "readActiveCalendar",
+    owner: "worker",
+    reason:
+      "Split area: Admin calendar. One snapshot query's rows are validated into the snapshot header, day payloads, event revisions, and their cross-row consistency.",
+    removalTarget:
+      "Owned by the forecast-admin agent; extract snapshot header, day, and event-revision readers.",
+  },
+  {
+    file: "forecast-admin/src/render.ts",
+    function: "<anonymous>",
+    owner: "worker",
+    reason:
+      "Split area: Admin render. This per-day callback builds one day's event/coop/grant items, accumulates the II and box totals, and tracks which events were shown.",
+    removalTarget:
+      "Owned by the forecast-admin agent; extract per-day item rendering and total accumulation.",
+  },
+  {
+    file: "site-worker/src/forecast.ts",
+    function: "load",
+    owner: "worker",
+    reason:
+      "Split area: site Worker. The load path validates the upstream payload before caching it.",
+    removalTarget: "Owned by the site-worker agent; split schema validation from normalize.",
+  },
+  {
+    file: "site-worker/src/forecast.ts",
+    function: "<anonymous>",
+    owner: "worker",
+    reason: "Split area: site Worker. Anonymous handlers are inline request closures.",
+    removalTarget: "Owned by the site-worker agent; register named route handlers.",
+  },
+  {
+    file: "site-worker/src/worker.ts",
+    function: "fetch",
+    owner: "worker",
+    reason:
+      "Split area: site Worker. The gateway routes static assets and forecast paths in one entry.",
+    removalTarget: "Owned by the site-worker agent; extract the route table.",
+  },
   {
     file: "forecast-dispatcher/src/dispatcher.test.ts",
     function: "<anonymous>",

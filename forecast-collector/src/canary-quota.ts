@@ -3,6 +3,7 @@ import {
   CLOUDFLARE_PAID_THRESHOLDS,
   type D1QuotaEvidence,
 } from "../../shared/d1QuotaEvidence";
+import { errorCode } from "../../shared/errorCodes.ts";
 import type { UsageGuardEvidence, UsageGuardState } from "../../shared/usageGuard";
 import { sha256Hex } from "./crypto";
 
@@ -59,7 +60,8 @@ export async function readQuotaEvidence(
   } catch (error) {
     return {
       valid: false,
-      errorCode: error instanceof Error ? error.message.slice(0, 120) : "d1_quota_evidence_invalid",
+      // Registered quota-evidence codes survive; any other message text never reaches the report.
+      errorCode: errorCode(error, "forecast_ops"),
       evidence: null,
       evidenceHash: runtimeQuota?.evidenceHash ?? row.quota_evidence_hash,
       initialEvidenceHash: row.quota_evidence_hash,

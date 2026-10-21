@@ -141,6 +141,11 @@ export function approvalFailureData() {
   };
 }
 
+/** Fail-closed Ed25519 verification. A malformed signature, stale timestamp, unusable
+ * configured public key, or WebCrypto rejection all mean "not verified", which the caller
+ * answers with 401; none of them may ever return true. An unusable *configured* public key
+ * is a misconfiguration rather than an attacker-controlled input, so it is logged under a
+ * fixed code while ordinary signature mismatches stay silent. */
 async function verifyDiscordSignature(
   headers: Headers,
   body: string,
@@ -159,15 +164,19 @@ async function verifyDiscordSignature(
   ) {
     return false;
   }
+  let key: CryptoKey;
   try {
-    const key = await crypto.subtle.importKey(
-      "raw",
-      hexBytes(publicKeyHex),
-      { name: "Ed25519" },
-      false,
-      ["verify"],
-    );
-    return crypto.subtle.verify(
+    key = await crypto.subtle.importKey("raw", hexBytes(publicKeyHex), { name: "Ed25519" }, false, [
+      "verify",
+    ]);
+  } catch {
+    console.error(JSON.stringify({ event: "discord_public_key_unusable" }));
+    return false;
+  }
+  try {
+    // Awaited so a rejected verification (rather than a `false` result) also lands here
+    // as "not verified"; both spell 401 at the caller.
+    return await crypto.subtle.verify(
       { name: "Ed25519" },
       key,
       hexBytes(signatureHex),

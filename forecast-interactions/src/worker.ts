@@ -3,6 +3,7 @@ import {
   parseDiscordInteraction,
   readVerifiedDiscordBody,
 } from "../../shared/discordInteraction.ts";
+import { errorCode, isD1TriggerAbort } from "../../shared/errorCodes.ts";
 import {
   applyPublicationCommand,
   bindDirectReviewMessage,
@@ -10,7 +11,6 @@ import {
   candidateCoverageError,
   createPreviousRollbackReview,
   createReview,
-  publicationErrorCode,
   type ReviewRow,
   readActive,
   readReview,
@@ -20,6 +20,16 @@ import { importPublicationSigningKey } from "../../shared/forecastPublication.ts
 import { assertUsageAllowed, UsageGuardError } from "../../shared/usageGuard.ts";
 import type { InteractionRouterEnv } from "./types.ts";
 import { handleV2Interaction } from "./v2-interactions.ts";
+
+/** Discord's signature is already verified here; an unparseable body is an expected
+ * 400 client error, so the parse outcome is returned explicitly instead of swallowed. */
+function parseSignedJson(body: string): { value: unknown } | null {
+  try {
+    return { value: JSON.parse(body) as unknown };
+  } catch {
+    return null;
+  }
+}
 
 export default {
   async fetch(request: Request, env, context) {
@@ -33,13 +43,11 @@ export default {
     if (body instanceof Response) return body;
     // The shared legacy parser intentionally accepts buttons only; route signed
     // v2 modal submissions here without broadening legacy interaction support.
-    try {
-      const v2 = JSON.parse(body);
-      if (typeof v2?.data?.custom_id === "string" && /^fv2m?:/.test(v2.data.custom_id))
-        return handleV2Interaction(v2, env, context);
-    } catch {
-      return new Response("Invalid JSON", { status: 400 });
-    }
+    const signedBody = parseSignedJson(body);
+    if (!signedBody) return new Response("Invalid JSON", { status: 400 });
+    const v2 = signedBody.value as Parameters<typeof handleV2Interaction>[0];
+    if (typeof v2?.data?.custom_id === "string" && /^fv2m?:/.test(v2.data.custom_id))
+      return handleV2Interaction(v2, env, context);
     const interaction = parseDiscordInteraction(body, env.DISCORD_APPLICATION_ID);
     if (interaction instanceof Response) return interaction;
     if (interaction.type === 1) return reply({ type: 1 });
@@ -114,7 +122,7 @@ async function complete(
     message = await publicationResponse(env, db, input);
   } catch (error) {
     message = {
-      content: `Publication not applied (${publicationErrorCode(error)}). The review is unchanged; retry this button. If stale/expired, use a fresh review.`,
+      content: `Publication not applied (${errorCode(error, "publication")}). The review is unchanged; retry this button. If stale/expired, use a fresh review.`,
     };
   }
   await deliverPublicationResponse(env, db, input, token, message);
@@ -148,20 +156,27 @@ async function publicationResponse(
         ),
     );
   } catch (error) {
+    // `runtime_activation_stale` is a D1 trigger abort. The branch compares the registered
+    // token against the driver message (whole word, any layout) instead of depending on
+    // the exact shape the sanitizer recognises; what is rendered is a registered code
+    // either way, never text read out of the message.
+    const code = isD1TriggerAbort(error, "runtime_activation_stale")
+      ? "runtime_activation_stale"
+      : errorCode(error, "publication");
     if (
       review.action === "approve" ||
       ![
         "publication_review_expired",
         "publication_review_stale",
         "runtime_activation_stale",
-      ].includes(publicationErrorCode(error))
+      ].includes(code)
     )
       throw error;
     if (review.action === "rollback") {
       const target = await readSealedCandidate(db, review.candidate_id!);
       if (candidateCoverageError(target.candidate))
         return {
-          content: `${input.environment}: nothing was published (${publicationErrorCode(error)}). Rollback confirmation unavailable.`,
+          content: `${input.environment}: nothing was published (${code}). Rollback confirmation unavailable.`,
         };
     }
     const active = await readActive(db, input.environment);
@@ -198,7 +213,7 @@ async function publicationResponse(
   } catch (error) {
     // The activation already committed; never report a failed publication or undo it.
     return {
-      content: `${content}\nEmergency confirmation unavailable (${publicationErrorCode(error)}).`,
+      content: `${content}\nEmergency confirmation unavailable (${errorCode(error, "publication")}).`,
     };
   }
   return { content };
@@ -234,6 +249,22 @@ async function emergencyConfirmation(
     content: `${content}\n${details.join("\n\n")}`,
     components: [{ type: 1, components: buttons }],
   };
+}
+
+/** Discarding an unread Discord body can itself reject; the delivery outcome is already
+ * committed to the outbox, so the discard failure is recorded, not surfaced. */
+async function discardResponseBody(response: Response, interactionId: string) {
+  try {
+    await response.body?.cancel();
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: "publication_discord_body_discard_failed",
+        interactionId,
+        code: errorCode(error),
+      }),
+    );
+  }
 }
 
 async function deliverPublicationResponse(
@@ -273,7 +304,7 @@ async function deliverPublicationResponse(
           channelId: input.channelId,
         });
     } else {
-      await response.body?.cancel();
+      await discardResponseBody(response, input.interactionId);
     }
   } catch (error) {
     // Never roll back a committed decision for a delivery failure. The atomic result outbox
@@ -282,7 +313,7 @@ async function deliverPublicationResponse(
       JSON.stringify({
         event: "publication_discord_response_failed",
         interactionId: input.interactionId,
-        code: publicationErrorCode(error),
+        code: errorCode(error, "publication"),
       }),
     );
   }
@@ -295,6 +326,9 @@ function ephemeral(content: string) {
   return reply({ type: 4, data: { content, flags: 64 } });
 }
 
+/** Expected configuration check, not a hidden failure: a missing or unusable key makes every
+ * caller report `publication_signing_key_unavailable` and keep publication disabled, so the
+ * unusable outcome is a deliberate `false` rather than a swallowed error. */
 async function publicationKeyAvailable(env: InteractionRouterEnv) {
   if (
     !env.FORECAST_PUBLICATION_SIGNING_KEY ||

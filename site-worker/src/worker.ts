@@ -1,3 +1,4 @@
+import { errorCode } from "../../shared/errorCodes";
 import { createForecastEndpoint, type ForecastEnv } from "./forecast";
 
 const forecastEndpoint = createForecastEndpoint();
@@ -67,8 +68,10 @@ async function proxy(
     const forwarded = privateResponse(response, noStore);
     if (!credentials) forwarded.headers.delete("Set-Cookie");
     return forwarded;
-  } catch {
-    // Never log request headers, personal data, or upstream exception details.
+  } catch (error) {
+    // Never log request headers, personal data, or upstream exception details: only the
+    // registry's fixed category for the upstream binding call is recorded.
+    console.warn(JSON.stringify({ event: "upstream_proxy_failed", code: errorCode(error) }));
     return errorResponse(502, "service_unavailable");
   }
 }

@@ -95,47 +95,61 @@ const candidateSchema = z.object({
   grants: z.optional(z.array(grantSchema)),
 });
 
-export const supplyForecastCandidateSchema = candidateSchema.check(
-  z.refine((candidate) => {
-    if (!isForecastVersionPair(candidate.payloadVersion, candidate.rulesVersion)) return false;
-    try {
-      // Ledger fields exist exactly when the snapshot version policy defines them.
-      const segmented =
-        !isLegacyForecastRules(candidate.rulesVersion) &&
-        candidate.certifiedSnapshot !== undefined &&
-        certifiedVersionPolicy(candidate.certifiedSnapshot.version).segmentsAndGrants;
-      if (
-        (candidate.grants !== undefined) !== segmented ||
-        candidate.schedule.soloPeriods.some(
-          (period) =>
-            (period.round !== undefined) !== segmented ||
-            (period.segment !== undefined) !== segmented,
-        )
+/**
+ * Candidate and certified validators signal expected rejection with plain Error.
+ * Error subclasses and non-Error throws signal unavailable validation, not invalid
+ * input. Classify by exact constructor, never by potentially sensitive messages.
+ */
+export function isExpectedCandidateRejection(error: unknown): error is Error {
+  return error instanceof Error && error.constructor === Error;
+}
+
+/** Admission reports expected assertion rejections as false, but propagates
+ * unexpected validator failures; the assertions remain the source of the rule. */
+function admitsCandidate(candidate: z.infer<typeof candidateSchema>): boolean {
+  if (!isForecastVersionPair(candidate.payloadVersion, candidate.rulesVersion)) return false;
+  try {
+    // Ledger fields exist exactly when the snapshot version policy defines them.
+    const segmented =
+      !isLegacyForecastRules(candidate.rulesVersion) &&
+      candidate.certifiedSnapshot !== undefined &&
+      certifiedVersionPolicy(candidate.certifiedSnapshot.version).segmentsAndGrants;
+    if (
+      (candidate.grants !== undefined) !== segmented ||
+      candidate.schedule.soloPeriods.some(
+        (period) =>
+          (period.round !== undefined) !== segmented ||
+          (period.segment !== undefined) !== segmented,
       )
-        return false;
-      if (isLegacyForecastRules(candidate.rulesVersion)) return candidate.profiles.length > 0;
-      if (!candidate.certifiedSnapshot) return false;
-      if (
-        forecastVersionsForSnapshot(candidate.certifiedSnapshot.version).rulesVersion !==
-        candidate.rulesVersion
-      )
-        return false;
-      if (certifiedVersionPolicy(candidate.certifiedSnapshot.version).segmentsAndGrants)
-        assertCandidateLedger(
-          candidate.certifiedSnapshot,
-          candidate.schedule.soloPeriods,
-          candidate.grants ?? [],
-        );
-      assertLedgerForecastProfiles(
-        candidate.forecastId,
-        candidate.certifiedSnapshot,
-        candidate.profiles,
-      );
-      return true;
-    } catch {
+    )
       return false;
-    }
-  }),
+    if (isLegacyForecastRules(candidate.rulesVersion)) return candidate.profiles.length > 0;
+    if (!candidate.certifiedSnapshot) return false;
+    if (
+      forecastVersionsForSnapshot(candidate.certifiedSnapshot.version).rulesVersion !==
+      candidate.rulesVersion
+    )
+      return false;
+    if (certifiedVersionPolicy(candidate.certifiedSnapshot.version).segmentsAndGrants)
+      assertCandidateLedger(
+        candidate.certifiedSnapshot,
+        candidate.schedule.soloPeriods,
+        candidate.grants ?? [],
+      );
+    assertLedgerForecastProfiles(
+      candidate.forecastId,
+      candidate.certifiedSnapshot,
+      candidate.profiles,
+    );
+    return true;
+  } catch (error) {
+    if (!isExpectedCandidateRejection(error)) throw error;
+    return false;
+  }
+}
+
+export const supplyForecastCandidateSchema = candidateSchema.check(
+  z.refine((candidate) => admitsCandidate(candidate)),
 );
 
 export type SupplyForecastCandidate = z.infer<typeof supplyForecastCandidateSchema>;

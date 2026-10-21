@@ -5,7 +5,14 @@ import type { FetchLike } from "../../naver";
 import type { CollectorEnv } from "../../types";
 import { fetchDetail, fetchMetadata, IngestFailure, type Metadata } from "./client";
 import type { RulesPort } from "./rules-port";
-import { EDIT_SCAN_INTERVAL_MS, type Stream, scheduledStream, streams, v2Mode } from "./schedule";
+import {
+  EDIT_SCAN_INTERVAL_MS,
+  METADATA_FAILURE_LIMIT,
+  type Stream,
+  scheduledStream,
+  streams,
+  v2Mode,
+} from "./schedule";
 import { type Lease, MonitorStore } from "./store";
 import { advanceScan, type Scan, startScan } from "./traversal";
 
@@ -47,7 +54,12 @@ type Invocation = {
   candidate: ((env: V2Env, now: number) => Promise<unknown>) | undefined;
 };
 type StreamInvocation = Invocation & { stream: Stream; lease: Lease };
-type AttemptState = { attempt: string | null; body: Metadata | null; bodyAttemptCount: number };
+type AttemptState = {
+  attempt: string | null;
+  body: Metadata | null;
+  bodyAttemptCount: number;
+  metadata: { runId: string; scan: Scan } | null;
+};
 export async function runV2Invocation(
   env: V2Env,
   now: number,
@@ -69,7 +81,7 @@ export async function runV2Invocation(
     (() => assertUsageAllowed(requireGuardDb(env), automationOperation(env)).then(() => {}));
   await guard();
   const time = new Date(now).toISOString();
-  const store = new MonitorStore(db, v2Mode(env) === "on" ? opsEnvironment(env) : undefined);
+  const store = new MonitorStore(db, v2Mode(env) === "on" ? opsEnvironment(env) : undefined, clock);
   return dispatchUnit({
     env,
     now,
@@ -162,8 +174,7 @@ async function rulesUnit({ db, store, now, guard, clock }: Invocation, rules: Ru
         return { outcome: "held", reason: "lease_lost" };
       const recorded = await recordRulesFailure(db, store, version, now, ruleLease.owner, clock());
       if (!recorded) return { outcome: "held", reason: "lease_lost" };
-      await store.hold(ruleLease, "rules_failed", now);
-      return { outcome: "held", reason: "rules_failed" };
+      return { outcome: "held", reason: await store.hold(ruleLease, "rules_failed", now) };
     } finally {
       await store.release(ruleLease);
     }
@@ -225,8 +236,9 @@ async function continuationStream(
       await db
         .prepare(`SELECT stream_id FROM forecast_v2_monitor_state
       WHERE stream_id<>'E' AND (edit_scan_completed_at IS NULL OR edit_scan_completed_at<=?)
-      ORDER BY edit_scan_cutoff IS NOT NULL DESC,COALESCE(edit_scan_completed_at,'') LIMIT 1`)
-        .bind(new Date(now - EDIT_SCAN_INTERVAL_MS).toISOString())
+        AND (lease_owner IS NULL OR lease_expires_at<=?)
+      ORDER BY edit_scan_cutoff IS NOT NULL DESC,COALESCE(edit_scan_completed_at,''),stream_id LIMIT 1`)
+        .bind(new Date(now - EDIT_SCAN_INTERVAL_MS).toISOString(), new Date(now).toISOString())
         .first<{ stream_id: Stream }>()
     )?.stream_id ?? null;
   return stream;
@@ -234,7 +246,7 @@ async function continuationStream(
 
 async function streamUnit(context: StreamInvocation) {
   const { db, store, lease } = context;
-  const progress: AttemptState = { attempt: null, body: null, bodyAttemptCount: 0 };
+  const progress: AttemptState = { attempt: null, body: null, bodyAttemptCount: 0, metadata: null };
   try {
     const { state, cutoff } = await loadState(context);
     const run = await loadRun(context, state);
@@ -271,7 +283,10 @@ async function loadState({ db, stream, env, time }: StreamInvocation) {
   return { state, cutoff };
 }
 
-async function loadRun({ db, stream, now, time, guard, lease }: StreamInvocation, state: State) {
+async function loadRun(
+  { db, stream, now, time, clock, guard, lease }: StreamInvocation,
+  state: State,
+) {
   let run = await db
     .prepare(`SELECT * FROM forecast_v2_monitor_runs
       WHERE stream_id=? AND (status='running' OR EXISTS(SELECT 1 FROM forecast_v2_search_hits h
@@ -302,12 +317,13 @@ async function loadRun({ db, stream, now, time, guard, lease }: StreamInvocation
       started_at: time,
     };
     await guard();
-    await db
+    const inserted = await db
       .prepare(`INSERT INTO forecast_v2_monitor_runs(run_id,stream_id,generation,kind,status,started_at)
         SELECT ?,?,?,?,'running',? WHERE EXISTS(SELECT 1 FROM forecast_v2_monitor_state
           WHERE stream_id=? AND lease_owner=? AND lease_expires_at>?)`)
-      .bind(run.run_id, stream, generation, kind, time, stream, lease.owner, time)
+      .bind(run.run_id, stream, generation, kind, time, stream, lease.owner, clock())
       .run();
+    if (inserted.meta.changes !== 1) throw new IngestFailure("lease_lost");
   }
   return run;
 }
@@ -368,12 +384,9 @@ async function metadataUnit(
   cutoff: string,
   progress: AttemptState,
 ) {
-  const retryPending = await db
-    .prepare(`SELECT 1 FROM forecast_v2_fetch_attempts
-      WHERE run_id=? AND kind='metadata' AND next_attempt_at>? LIMIT 1`)
-    .bind(run.run_id, new Date(now).toISOString())
-    .first();
-  if (retryPending) throw new IngestFailure("retry_backoff");
+  const prior = await store.metadataAttempts(run.run_id);
+  if (prior.failures < METADATA_FAILURE_LIMIT && prior.next && prior.next > clock())
+    throw new IngestFailure("retry_backoff");
   const hits = await db
     .prepare(`SELECT metadata_json FROM forecast_v2_search_hits WHERE run_id=?
       ORDER BY created_at DESC,feed_id`)
@@ -397,24 +410,36 @@ async function metadataUnit(
     seenBoundaryIds: rows.filter((row) => row.createdAt === scanCutoff).map((row) => row.feedId),
     lastCreatedAt: rows.at(-1)?.createdAt ?? null,
   };
+  progress.metadata = { runId: run.run_id, scan };
+  if (prior.failures >= METADATA_FAILURE_LIMIT)
+    throw new IngestFailure("metadata_attempts_exhausted");
   progress.attempt = await store.reserve(lease, run.run_id, "metadata", now);
   const page = await fetchMetadata(stream, scan.page, fetcher);
   const next = advanceScan(scan, page, stream);
+  // Persistence failures are not upstream-page failures and must not rewind a
+  // page that may already have committed.
+  progress.metadata = null;
   await guard();
   await store.commitPage(lease, run.run_id, next, now, clock());
   await store.finishAttempt(progress.attempt, null, now);
-  if (next.status === "held") await store.hold(lease, next.reason!, now);
+  if (next.status === "held") {
+    if (!next.reason) throw new IngestFailure("hold_reason_missing");
+    return { outcome: "held", reason: await store.hold(lease, next.reason, now) };
+  }
   if (next.reason === "boundary_reseeded") await store.alert(stream, next.reason, now);
   return next.reason ? { outcome: next.status, reason: next.reason } : { outcome: next.status };
 }
 
 async function holdUnit(
   { db, store, stream, lease, clock, now, guard }: StreamInvocation,
-  { attempt, body, bodyAttemptCount }: AttemptState,
+  progress: AttemptState,
   error: unknown,
 ) {
+  const { attempt, metadata } = progress;
   let failure = error instanceof IngestFailure ? error : new IngestFailure("unit_failed");
   await guard();
+  // Waiting is not a failed request and must not increment hold/alert counters.
+  if (failure.code === "retry_backoff") return { outcome: "held", reason: failure.code };
   if (failure.code === "budget_or_lease") {
     const owned = await db
       .prepare(`SELECT 1 FROM forecast_v2_monitor_state
@@ -423,7 +448,47 @@ async function holdUnit(
       .first();
     failure = new IngestFailure(owned ? "budget_exhausted" : "lease_lost");
   }
-  if (attempt) await store.finishAttempt(attempt, failure, now);
+  try {
+    if (attempt) await store.finishAttempt(attempt, failure, now);
+    if (
+      metadata &&
+      (await store.metadataAttempts(metadata.runId)).failures >= METADATA_FAILURE_LIMIT
+    ) {
+      failure = new IngestFailure("metadata_attempts_exhausted");
+      await store.commitPage(
+        lease,
+        metadata.runId,
+        { ...metadata.scan, status: "held", reason: failure.code },
+        now,
+        clock(),
+      );
+    }
+    failure = await disposeFailedBody(store, lease, progress, failure, now);
+  } catch (recordingError) {
+    const originalReason = failure.code;
+    failure =
+      recordingError instanceof IngestFailure
+        ? recordingError
+        : new IngestFailure("failure_recording_failed");
+    console.error(
+      JSON.stringify({
+        event: "forecast_v2_failure_recording_failed",
+        stream,
+        originalReason,
+        reason: failure.code,
+      }),
+    );
+  }
+  return { outcome: "held", reason: await store.hold(lease, failure.code, now) };
+}
+
+async function disposeFailedBody(
+  store: MonitorStore,
+  lease: Lease,
+  { body, bodyAttemptCount }: AttemptState,
+  failure: IngestFailure,
+  now: number,
+) {
   if (body) {
     if (failure.code === "detail_drift" || failure.code === "http_404") {
       await store.disposeBody(
@@ -438,6 +503,5 @@ async function holdUnit(
       failure = new IngestFailure("attempts_exhausted");
     }
   }
-  await store.hold(lease, failure.code, now);
-  return { outcome: "held", reason: failure.code };
+  return failure;
 }

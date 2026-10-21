@@ -14,6 +14,8 @@
  * Prediction provenance (`forecast_v2_calendar_revisions.prediction_provenance_json`), all
  * optional: { intervalDays, alternativeIntervalDays, alternativeStartsAt, expectedNoticeAt }.
  */
+import type { AppErrorCode } from "../../shared/errorCodes.ts";
+
 type Statement = { all<T = Record<string, unknown>>(): Promise<{ results: T[] }> };
 type ReadSession = { prepare(sql: string): Statement };
 export type ReadDatabase = { withSession(constraint: "first-primary"): ReadSession };
@@ -93,14 +95,19 @@ type Row = {
   prediction_provenance_json: string | null;
 };
 
-class CalendarDataError extends Error {}
+/** Every calendar validation failure is a registered code, so the Admin log stays diagnosable. */
+class CalendarDataError extends Error {
+  constructor(readonly code: AppErrorCode) {
+    super(code);
+  }
+}
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const KINDS: readonly string[] = ["solo", "collaboration", "maintenance"];
 const STATUSES: readonly string[] = ["confirmed", "predicted", "pending", "cancelled"];
 const MAX_TEXT = 200;
 
-function fail(code: string): never {
+function fail(code: AppErrorCode): never {
   throw new CalendarDataError(code);
 }
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -114,7 +121,7 @@ const optionalDay = (value: unknown) =>
   value === null || (typeof value === "string" && DAY.test(value));
 const optionalInstant = (value: unknown) => value === null || instant(value);
 
-function parseJson(text: string, code: string): unknown {
+function parseJson(text: string, code: AppErrorCode): unknown {
   try {
     return JSON.parse(text);
   } catch {

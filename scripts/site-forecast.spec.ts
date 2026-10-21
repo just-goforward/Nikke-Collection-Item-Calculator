@@ -249,4 +249,65 @@ describe("site forecast read-only consumer", () => {
     expect(f.sql).toHaveLength(0);
     expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
+
+  it("records why a publication load failed while still serving 503", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const f = await fixture();
+    f.change("DELETE FROM forecast_runtime_active");
+
+    expect((await f.get()).status).toBe(503);
+
+    const lines = warning.mock.calls.map(([line]) => JSON.parse(String(line)));
+    expect(lines).toContainEqual(
+      expect.objectContaining({ event: "forecast_load_failed", code: "forecast_pointer_missing" }),
+    );
+    warning.mockRestore();
+  });
+
+  it("records a rejected rate limiter under a fixed category and keeps failing closed", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const f = await fixture();
+    f.env.FORECAST_RATE_LIMITER = {
+      limit: vi.fn(async () => {
+        throw new TypeError("SENTINEL_limiter_binding_secret");
+      }),
+    };
+
+    for (const path of ["/api/forecast", "/api/forecast/version"])
+      expect((await f.get(path)).status).toBe(503);
+
+    // No publication read happens behind an unavailable limiter.
+    expect(f.sql).toHaveLength(0);
+    const logged = JSON.stringify(warning.mock.calls);
+    expect(logged).toContain("forecast_rate_limiter_unavailable");
+    expect(logged).not.toContain("SENTINEL_limiter_binding_secret");
+    warning.mockRestore();
+  });
+
+  it("records the sanitized failure class of a rejected upstream proxy call", async () => {
+    const f = await fixture();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const env = {
+      ...f.env,
+      SITE_ENV: "local",
+      ASSETS: { fetch: vi.fn(async () => new Response("asset")) },
+      STATS: {
+        fetch: vi.fn(async () => {
+          throw new TypeError("upstream down: SENTINEL_proxy_secret");
+        }),
+      },
+    };
+
+    const response = await gateway.fetch(new Request("https://site.invalid/api/stats"), env);
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "service_unavailable" });
+    const lines = warning.mock.calls.map(([line]) => JSON.parse(String(line)));
+    expect(lines).toContainEqual(
+      expect.objectContaining({ event: "upstream_proxy_failed", code: "TypeError" }),
+    );
+    // No upstream exception detail leaks into the log line or the response.
+    expect(lines.some((line: unknown) => JSON.stringify(line).includes("secret"))).toBe(false);
+    warning.mockRestore();
+  });
 });
