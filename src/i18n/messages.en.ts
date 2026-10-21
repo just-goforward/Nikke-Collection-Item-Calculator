@@ -268,5 +268,5 @@ export const enMessages = {
   "footer.contactSubject": "[NIKKE Calculator] Inquiry",
   "footer.license": "License",
   "rights.notice":
-    "NIKKE and all related names, trademarks, and in-game assets are the property of their respective owners. This is an unofficial fan-made calculator and is not affiliated with, endorsed by, or sponsored by the game's developer or publisher.",
+    "An unofficial fan-made calculator. NIKKE-related rights belong to their respective owners.",
 } satisfies Record<keyof typeof koMessages, string>;

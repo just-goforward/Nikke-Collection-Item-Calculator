@@ -14,7 +14,7 @@ const locales = [
     titles: { privacy: "개인정보 처리방침", terms: "서비스 이용약관", licenses: "라이선스" },
     links: ["개인정보 처리방침", "이용약관", "문의하기", "라이선스"],
     subject: "[NIKKE 계산기] 문의",
-    rights: "비공식 팬 제작 계산기이며, 게임 개발사 또는 퍼블리셔와 제휴하거나",
+    rights: "비공식 팬 제작 계산기입니다. NIKKE 관련 권리는 각 권리자에게 있습니다.",
     logging: "(2026년 10월 28일 무렵 종료 예정)에는 일시적으로 모든 요청을 기록합니다",
   },
   {
@@ -25,7 +25,7 @@ const locales = [
     titles: { privacy: "Privacy Policy", terms: "Terms of Service", licenses: "Licenses" },
     links: ["Privacy policy", "Terms of service", "Contact", "License"],
     subject: "[NIKKE Calculator] Inquiry",
-    rights: "This is an unofficial fan-made calculator and is not affiliated with",
+    rights: "An unofficial fan-made calculator. NIKKE-related rights belong to their respective owners.",
     logging: "(expected to end around October 28, 2026), all requests are temporarily recorded",
   },
   {
@@ -36,7 +36,7 @@ const locales = [
     titles: { privacy: "プライバシーポリシー", terms: "サービス利用規約", licenses: "ライセンス" },
     links: ["プライバシーポリシー", "利用規約", "お問い合わせ", "ライセンス"],
     subject: "[NIKKE計算機] お問い合わせ",
-    rights: "本プロジェクトは非公式のファン制作計算ツールであり",
+    rights: "非公式のファン制作計算ツールです。NIKKE関連の権利は各権利者に帰属します。",
     logging: "(2026年10月28日ごろ終了予定)中は一時的にすべてのリクエストを記録します",
   },
 ] as const;

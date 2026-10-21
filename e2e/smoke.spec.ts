@@ -1468,18 +1468,18 @@ test("개인정보 안내는 데스크톱 푸터와 모바일 통계 탭 푸터�
     "라이선스",
   ]);
   await expect(page.locator("footer:visible")).toContainText(
-    "비공식 팬 제작 계산기이며, 게임 개발사 또는 퍼블리셔와 제휴하거나",
+    "비공식 팬 제작 계산기입니다. NIKKE 관련 권리는 각 권리자에게 있습니다.",
   );
   await expect(page.getByText("계산 모드")).toHaveCount(0);
 
   await page.goto("/en/?demoStats=1");
   await expect(page.locator("footer:visible")).toContainText(
-    "This is an unofficial fan-made calculator and is not affiliated with",
+    "An unofficial fan-made calculator. NIKKE-related rights belong to their respective owners.",
   );
 
   await page.goto("/ja/?demoStats=1");
   await expect(page.locator("footer:visible")).toContainText(
-    "本プロジェクトは非公式のファン制作計算ツールであり",
+    "非公式のファン制作計算ツールです。NIKKE関連の権利は各権利者に帰属します。",
   );
 
   await page.setViewportSize({ width: 390, height: 844 });

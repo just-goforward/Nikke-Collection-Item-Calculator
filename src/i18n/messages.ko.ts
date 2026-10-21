@@ -253,7 +253,7 @@ export const koMessages = {
   "footer.contactSubject": "[NIKKE 계산기] 문의",
   "footer.license": "라이선스",
   "rights.notice":
-    "NIKKE 및 관련 명칭·상표·게임 자산의 권리는 각 권리자에게 있습니다. 이 프로젝트는 비공식 팬 제작 계산기이며, 게임 개발사 또는 퍼블리셔와 제휴하거나 이들의 승인·후원을 받지 않았습니다.",
+    "비공식 팬 제작 계산기입니다. NIKKE 관련 권리는 각 권리자에게 있습니다.",
 } as const;
 
 export type MessageKey = keyof typeof koMessages;

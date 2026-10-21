@@ -251,5 +251,5 @@ export const jaMessages = {
   "footer.contactSubject": "[NIKKE計算機] お問い合わせ",
   "footer.license": "ライセンス",
   "rights.notice":
-    "NIKKEおよび関連する名称、商標、ゲーム内アセットの権利は、各権利者に帰属します。本プロジェクトは非公式のファン制作計算ツールであり、ゲームの開発元またはパブリッシャーとの提携、承認、後援を受けたものではありません。",
+    "非公式のファン制作計算ツールです。NIKKE関連の権利は各権利者に帰属します。",
 } satisfies Record<keyof typeof koMessages, string>;
