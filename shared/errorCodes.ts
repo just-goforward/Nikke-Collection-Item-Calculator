@@ -187,6 +187,8 @@ const REGISTERED_ERROR_CODES = [
   // forecast-dispatcher/src
   "unsupported_cadence",
   "awaiting_evidence_panel",
+  /** An older candidate replaced by a newer one that already asks for the same sequence. */
+  "publication_review_superseded",
   "publication_admission_lease_lost",
   "publication_delivery_lease_lost",
   "publication_result_missing",

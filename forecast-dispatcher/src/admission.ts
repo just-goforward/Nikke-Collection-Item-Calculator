@@ -38,7 +38,7 @@ export async function admitCandidates(
     .bind(now, now, MAX_ATTEMPTS)
     .run();
   const candidates = await db
-    .prepare(`SELECT c.candidate_id,json_extract(c.payload_json,'$.certifiedSnapshot.cadence.version') AS cadence_version FROM forecast_candidates c
+    .prepare(`SELECT c.candidate_id,c.created_at,json_extract(c.payload_json,'$.certifiedSnapshot.cadence.version') AS cadence_version FROM forecast_candidates c
     LEFT JOIN forecast_runtime_admissions f ON f.candidate_id=c.candidate_id
     WHERE c.state IN ('crosschecked','x_unavailable','proposed')
       AND (f.candidate_id IS NULL OR f.state='ready' OR
@@ -50,7 +50,7 @@ export async function admitCandidates(
     ORDER BY CASE WHEN f.state IN ('pending','running') THEN 1 ELSE 0 END,
       c.created_at DESC,c.candidate_id LIMIT ?`)
     .bind(MAX_ATTEMPTS, now, now, active.environment, active.sequence, now, BATCH_SIZE)
-    .all<{ candidate_id: string; cadence_version: string }>();
+    .all<{ candidate_id: string; created_at: string; cadence_version: string }>();
   for (const row of candidates.results) {
     const lease = crypto.randomUUID();
     const claimed = await db
@@ -73,6 +73,11 @@ export async function admitCandidates(
       if (row.cadence_version !== "observed-median-v2") throw new Error("unsupported_cadence");
       if (!hasCertifiedEvidenceCoverage(row.cadence_version, CERTIFIED_ENGINE_CODE_HASH, coverage))
         throw new Error("awaiting_evidence_panel");
+      // Only the newest admissible candidate per expected sequence asks for approval. An
+      // older one is superseded instead of being renewed after its review expired: two
+      // approval requests for the same sequence could only conflict at activation time.
+      if (await supersededByNewerCandidate(db, row, active, now))
+        throw new Error("publication_review_superseded");
       const sealed = await sealCandidate(db, row.candidate_id, now);
       await createReview(db, active, "approve", row.candidate_id, sealed.hash, now);
     } catch (error) {
@@ -83,7 +88,7 @@ export async function admitCandidates(
       code = persistedErrorCode(error, "publication");
       diagnostic = errorCode(error, "publication");
       state =
-        code === "unsupported_cadence"
+        code === "unsupported_cadence" || code === "publication_review_superseded"
           ? "dead"
           : code === "awaiting_evidence_panel" || claimed.attempts < MAX_ATTEMPTS
             ? "pending"
@@ -116,4 +121,46 @@ export async function admitCandidates(
         }),
       );
   }
+}
+
+/**
+ * True when a newer admissible candidate for the same environment already holds a live
+ * approve review for this expected sequence.
+ *
+ * A live review or the active candidate prevents a downgrade. Merely sealed or queued
+ * candidates do not block recovery past a candidate that never becomes approvable.
+ *
+ * "Newer" compares `created_at` as the TEXT it is stored as, exactly like the page's
+ * `c.created_at DESC,c.candidate_id` order, so two runs cannot disagree about which
+ * candidate is the newest. (Comparing that column to a number would compare a string to a
+ * number, where SQLite's type precedence makes every row "newer".)
+ */
+async function supersededByNewerCandidate(
+  db: D1Database,
+  row: { candidate_id: string; created_at: string },
+  active: ActiveRow,
+  now: number,
+) {
+  const newer = await db
+    .prepare(`SELECT c.candidate_id FROM forecast_candidates c
+    WHERE (c.created_at>? OR (c.created_at=? AND c.candidate_id<?))
+      AND (c.candidate_id=? OR
+        (c.state IN ('crosschecked','x_unavailable','proposed')
+        AND NOT EXISTS(SELECT 1 FROM forecast_runtime_approvals a WHERE a.candidate_id=c.candidate_id)
+        AND EXISTS(SELECT 1 FROM forecast_runtime_reviews r WHERE r.candidate_id=c.candidate_id
+          AND r.environment=? AND r.action='approve' AND r.expected_sequence=? AND r.expires_at>?)))
+    LIMIT 1`)
+    .bind(
+      row.created_at,
+      row.created_at,
+      row.candidate_id,
+      active.candidate_id,
+      active.environment,
+      active.sequence,
+      now,
+    )
+    .first<{ candidate_id: string }>();
+  // Boolean, not `!== null`: D1's `first()` returns null for "no row", but a test adapter
+  // may return undefined, and treating a missing row as found would supersede everything.
+  return Boolean(newer);
 }

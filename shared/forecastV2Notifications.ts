@@ -1,5 +1,11 @@
 import { linkLabel, manualReviewPostLink } from "./forecastManualReview.ts";
 import { type ComposeInput, compose, escapeDisplay } from "./forecastV2Messages.ts";
+import { kstLabel as formatKstLabel, kst } from "./kst.ts";
+
+/** Compatibility entrypoint; the small formatter is shared without a barrel export. */
+export function kstLabel(instant: string): string {
+  return formatKstLabel(instant);
+}
 
 /** Shared caps so producers clamp before validation ever rejects a queued message. */
 export const V2_EVIDENCE_LIMITS = {
@@ -643,18 +649,6 @@ const DEFAULT_REASONS: Record<ForecastV2Payloads["decision_request"]["type"], st
 export const decisionGoal = (type: ForecastV2Payloads["decision_request"]["type"]) => GOALS[type];
 export const defaultReason = (type: ForecastV2Payloads["decision_request"]["type"]) =>
   DEFAULT_REASONS[type];
-const WEEKDAYS = "일월화수목금토";
-
-/** Every instant is shown as KST `MM/DD(요일) HH:mm`; never a raw ISO string. */
-export function kstLabel(instant: string): string {
-  const at = Date.parse(instant);
-  if (!Number.isFinite(at)) return "시각 확인 필요";
-  return kst(at);
-}
-function kst(at: number): string {
-  const value = new Date(at + 9 * 3_600_000).toISOString();
-  return `${value.slice(5, 7)}/${value.slice(8, 10)}(${WEEKDAYS[new Date(at + 9 * 3_600_000).getUTCDay()]}) ${value.slice(11, 16)}`;
-}
 function rangeOf(startAt: string | undefined, endAt: string | undefined) {
   if (!startAt || !endAt) return undefined;
   const start = Date.parse(startAt),

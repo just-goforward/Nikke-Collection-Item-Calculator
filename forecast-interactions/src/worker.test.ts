@@ -443,7 +443,8 @@ describe("human-triggered rollback confirmation", () => {
       } else {
         expect(await controls()).toEqual(beforeControls);
         expect(body.components ?? []).toEqual([]);
-        expect(body.content).toContain("nothing was published");
+        expect(body.content).toContain("**Forecast 반영 안 됨**");
+        expect(body.content).toContain("아무것도 반영되지 않았습니다");
         expect(body.content).toContain(
           expired ? "publication_review_expired" : "publication_review_stale",
         );
@@ -462,13 +463,17 @@ describe("human-triggered rollback confirmation", () => {
     await testEnv.USAGE_GUARD_DB.prepare("UPDATE usage_guard_state SET action='hard_stop'").run();
     expect(await count()).toEqual({ n: 2 });
     const response = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
-    expect(response.content).toContain("approve applied at sequence 2");
-    expect(response.content).toContain("Confirm rollback against CURRENT sequence 2");
-    expect(response.content).toContain(`Candidate: ${a.candidate.candidateId}`);
-    expect(response.content).toContain(`SHA-256: ${a.hash}`);
+    expect(response.content).toContain("**Forecast 승인 반영 완료** · 환경: staging");
+    expect(response.content).toContain("처리 당시 순번은 2입니다");
+    expect(response.content).toContain(
+      "🛟 비상 조치(선택): 문제가 있을 때만 아래 버튼을 누르세요. 누르면 현재 순번 2 기준으로 이전 후보로 되돌아갑니다. 필요 없으면 누르지 마세요.",
+    );
+    expect(response.content).not.toContain("확인 필요");
+    expect(response.content).toContain(`· 대상 후보: ${a.candidate.candidateId}`);
+    expect(response.content).toContain(`· SHA-256: ${a.hash.slice(0, 12)}…`);
     const rollbackCustomId = response.components[0].components[0].custom_id;
-    expect(response.components[0].components[0].label).toBe("Confirm rollback (staging)");
-    expect(response.components[0].components[1].label).toBe("Confirm off (staging)");
+    expect(response.components[0].components[0].label).toBe("롤백 확인 (staging)");
+    expect(response.components[0].components[1].label).toBe("끄기 확인 (staging)");
     expect(
       await db
         .prepare(`SELECT r.action,r.candidate_id,r.payload_hash,r.expected_sequence,
@@ -513,10 +518,17 @@ describe("human-triggered rollback confirmation", () => {
     });
     await request(interaction(rollbackCustomId, { id: "1105", message: { id: "777777777" } }));
     expect(await count()).toEqual({ n: 3 });
-    expect(String(webhook.mock.calls.at(-1)?.[1]?.body)).toContain("already applied");
+    expect(String(webhook.mock.calls.at(-1)?.[1]?.body)).toContain(
+      "이미 처리된 요청이라 다시 반영하지 않았습니다",
+    );
     // Replaying approval B must not offer an inverse rollback for the now-current A.
     await request(interaction(custom(b.reviewId), { id: "1102" }));
-    expect(JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body)).components).toEqual([]);
+    const replay = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
+    expect(replay.components).toEqual([]);
+    expect(replay.content).toContain("처리 당시 순번은 2입니다");
+    expect(replay.content).toContain("원래 처리 결과");
+    expect(replay.content).not.toContain("아래 버튼");
+    expect(replay.content).not.toContain("현재 시퀀스");
     expect(await count()).toEqual({ n: 3 });
   });
 });
@@ -528,10 +540,21 @@ describe("durable emergency controls without Cron", () => {
     const activation = await request(interaction(custom(a.reviewId), { id: "1201" }));
     expect(await activation.json()).toEqual({ type: 5, data: { flags: 0 } });
     const firstMessage = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
-    expect(firstMessage.content).toContain("Activation operation: 1201");
+    expect(firstMessage.content).toBe(
+      [
+        "**Forecast 승인 반영 완료** · 환경: staging",
+        "✅ 처리 결과: 요청대로 반영했습니다. 처리 당시 순번은 1입니다.",
+        "📌 영향: 이 작업은 사이트 예보를 요청한 후보 내용으로 반영했습니다. 이후 다른 작업으로 상태가 바뀌었을 수 있습니다.",
+        "👉 해 주실 일: 할 일 없음.",
+        "기록용: 시퀀스 1 · 작업 1201",
+        "🛟 비상 조치(선택): 문제가 있을 때만 아래 버튼을 누르세요. 누르면 현재 순번 1 기준으로 예보가 꺼집니다. 필요 없으면 누르지 마세요.",
+        "· 대상 후보: 없음(끄기)",
+        "· 만료: 10/08(목) 12:00 KST (누르지 않으면 추가 변경 없음)",
+      ].join("\n"),
+    );
     expect(firstMessage.components[0].components).toHaveLength(1);
     const offButton = firstMessage.components[0].components[0];
-    expect(offButton.label).toBe("Confirm off (staging)");
+    expect(offButton.label).toBe("끄기 확인 (staging)");
     expect(
       await db
         .prepare(`SELECT r.expected_sequence,r.previous_candidate_id,r.review_key,
@@ -561,12 +584,12 @@ describe("durable emergency controls without Cron", () => {
       await db.prepare("SELECT sequence,candidate_id FROM forecast_runtime_active").first(),
     ).toEqual({ sequence: 2, candidate_id: null });
     const offMessage = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
-    expect(offMessage.content).toContain("Activation operation: 1202");
-    expect(offMessage.content).toContain(`Candidate: ${a.candidate.candidateId}`);
-    expect(offMessage.content).toContain(`SHA-256: ${a.hash}`);
+    expect(offMessage.content).toContain("기록용: 시퀀스 2 · 작업 1202");
+    expect(offMessage.content).toContain(`· 대상 후보: ${a.candidate.candidateId}`);
+    expect(offMessage.content).toContain(`· SHA-256: ${a.hash.slice(0, 12)}…`);
     expect(offMessage.components[0].components).toHaveLength(1);
     const rollbackButton = offMessage.components[0].components[0];
-    expect(rollbackButton.label).toBe("Confirm rollback (staging)");
+    expect(rollbackButton.label).toBe("롤백 확인 (staging)");
     await request(
       interaction(rollbackButton.custom_id, {
         id: "1203",
@@ -577,7 +600,10 @@ describe("durable emergency controls without Cron", () => {
       await db.prepare("SELECT sequence,candidate_id FROM forecast_runtime_active").first(),
     ).toEqual({ sequence: 3, candidate_id: a.candidate.candidateId });
     const rollbackMessage = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
-    expect(rollbackMessage.content).toContain("Confirm off against CURRENT sequence 3");
+    expect(rollbackMessage.content).toContain(
+      "🛟 비상 조치(선택): 문제가 있을 때만 아래 버튼을 누르세요. 누르면 현재 순번 3 기준으로 예보가 꺼집니다. 필요 없으면 누르지 마세요.",
+    );
+    expect(rollbackMessage.content).not.toContain("확인 필요");
     expect(await count()).toEqual({ n: 3 });
   });
 });
@@ -616,6 +642,11 @@ describe("publication emergency controls and delivery recovery", () => {
     vi.setSystemTime(TEST_NOW + 2 * 24 * 60 * 60_000);
     await request(interaction(custom(off), { id: "1002" }));
     expect(await count()).toEqual({ n: 1 });
+    const reconfirmation = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
+    expect(reconfirmation.content).toContain(
+      "🔁 확인 필요: 현재 순번 1에 대해 끄기 버튼을 눌러 확정합니다.",
+    );
+    expect(reconfirmation.content).not.toContain("비상 조치(선택)");
     const refreshedOff = await db
       .prepare(`SELECT review_id FROM forecast_runtime_reviews
       WHERE action='off' AND created_at=?`)
@@ -674,7 +705,9 @@ describe("publication emergency controls and delivery recovery", () => {
     expect(await db.prepare("SELECT COUNT(*) n FROM forecast_runtime_reviews").first()).toEqual(
       reviewsBeforeReplay,
     );
-    expect(String(webhook.mock.calls.at(-1)?.[1]?.body)).toContain("already applied");
+    expect(String(webhook.mock.calls.at(-1)?.[1]?.body)).toContain(
+      "이미 처리된 요청이라 다시 반영하지 않았습니다",
+    );
   });
   it("retains committed outcome and durable result when Discord fails after DB commit", async () => {
     const a = await approvalReview(testEnv.STAGING_FORECAST_DB);
@@ -691,7 +724,9 @@ describe("publication emergency controls and delivery recovery", () => {
     ).toEqual({ state: "pending" });
     await request(interaction(custom(a.reviewId)));
     expect(await count()).toEqual({ n: 1 });
-    expect(String(webhook.mock.calls.at(-1)?.[1]?.body)).toContain("already applied");
+    expect(String(webhook.mock.calls.at(-1)?.[1]?.body)).toContain(
+      "이미 처리된 요청이라 다시 반영하지 않았습니다",
+    );
   });
   it("returns signing failure to Discord while leaving the original review retryable", async () => {
     const a = await approvalReview(testEnv.STAGING_FORECAST_DB);
@@ -719,6 +754,26 @@ describe("publication emergency controls and delivery recovery", () => {
 });
 
 describe("stale activation re-confirmation is decided by the registered trigger token", () => {
+  it.each(["publication_review_stale", "publication_review_expired", "runtime_activation_stale"])(
+    "directs a passed approve request to the newest message: %s",
+    async (code) => {
+      const a = await approvalReview(testEnv.STAGING_FORECAST_DB);
+      const apply = vi
+        .spyOn(publicationStore, "applyPublicationCommand")
+        .mockRejectedValueOnce(new Error(code));
+      try {
+        await request(interaction(custom(a.reviewId), { id: "1901" }));
+      } finally {
+        apply.mockRestore();
+      }
+      const body = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
+      expect(body.content).toContain("이미 지난 승인 요청");
+      expect(body.content).toContain("가장 최신 검토 메시지의 버튼");
+      expect(body.content).not.toContain("한 번 다시 눌러");
+      expect(body.components).toEqual([]);
+      expect(await count()).toEqual({ n: 0 });
+    },
+  );
   it.each([
     ["driver layout", "D1_ERROR: runtime_activation_stale: SQLITE_CONSTRAINT"],
     [
@@ -750,7 +805,8 @@ describe("stale activation re-confirmation is decided by the registered trigger 
     expect(await count()).toEqual({ n: 1 });
     expect(await reviews()).toEqual({ n: Number(before?.n) + 1 });
     const body = String(webhook.mock.calls.at(-1)?.[1]?.body);
-    expect(body).toContain("the emergency review was stale/expired. Nothing was published.");
+    expect(body).toContain("**Forecast 확인 필요**");
+    expect(body).toContain("아무것도 반영되지 않았습니다");
     expect(body).not.toContain("SENTINEL_layout_9f3a");
     expect(body).not.toContain("D1_ERROR");
   });
@@ -776,7 +832,55 @@ describe("stale activation re-confirmation is decided by the registered trigger 
     expect(await reviews()).toEqual(before);
     const body = String(webhook.mock.calls.at(-1)?.[1]?.body);
     // Rendered from the registry: the fixed D1 category, never the unregistered token.
-    expect(body).toContain("Publication not applied (D1_ERROR)");
+    expect(body).toContain("**Forecast 끄기 처리 실패** · 오류 코드: `D1_ERROR`");
     expect(body).not.toContain("sentinel_9f3a");
+  });
+});
+
+describe("publication failure action wording", () => {
+  it.each([
+    ["approve", "승인"],
+    ["rollback", "되돌리기"],
+    ["off", "끄기"],
+  ] as const)("names the available %s review on failure", async (action, label) => {
+    const db = testEnv.STAGING_FORECAST_DB;
+    const a = await approvalReview(db);
+    let reviewId = a.reviewId;
+    if (action !== "approve") {
+      await request(interaction(custom(a.reviewId), { id: "2100" }));
+      reviewId = await emergencyReview(
+        db,
+        action,
+        action === "rollback" ? a.candidate.candidateId : null,
+      );
+    }
+    const before = await count();
+    const apply = vi
+      .spyOn(publicationStore, "applyPublicationCommand")
+      .mockRejectedValueOnce(new Error("publication_signing_key_unavailable"));
+    try {
+      await request(interaction(custom(reviewId), { id: "2101" }));
+    } finally {
+      apply.mockRestore();
+    }
+    const body = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
+    expect(body.content).toContain(`**Forecast ${label} 처리 실패**`);
+    expect(await count()).toEqual(before);
+  });
+
+  it("uses a generic failure title when the review cannot be read", async () => {
+    const a = await approvalReview(testEnv.STAGING_FORECAST_DB);
+    const read = vi
+      .spyOn(publicationStore, "readReview")
+      .mockRejectedValueOnce(new Error("publication_review_missing"));
+    try {
+      await request(interaction(custom(a.reviewId)));
+    } finally {
+      read.mockRestore();
+    }
+    const body = JSON.parse(String(webhook.mock.calls.at(-1)?.[1]?.body));
+    expect(body.content).toContain("**Forecast 처리 실패**");
+    expect(body.content).not.toContain("승인 처리 실패");
+    expect(await count()).toEqual({ n: 0 });
   });
 });

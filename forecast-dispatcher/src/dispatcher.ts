@@ -4,12 +4,18 @@ import {
   createReview,
   initializePublication,
   type ReviewRow,
+  readActive,
   readSealedCandidate,
 } from "../../shared/forecast-publication/store.ts";
 import { publicationHash } from "../../shared/forecastPublication.ts";
 import { admitCandidates } from "./admission.ts";
 import { DiscordMessageError, discordRetryable, sendDiscordMessage } from "./discord.ts";
 import { flushOperations } from "./operations.ts";
+import {
+  loadReviewCompetition,
+  publicationResultContent,
+  publicationReviewPayload,
+} from "./publication-review-message.ts";
 import type { DispatcherEnv } from "./types.ts";
 import { drainV2Outbox } from "./v2-outbox.ts";
 
@@ -163,7 +169,7 @@ async function outboxMessage(db: D1Database, row: OutboxRow, now: number) {
       }>();
     if (!result) throw new Error("publication_result_missing");
     return {
-      content: `${result.environment}: ${result.action} committed at sequence ${result.sequence}.\nCandidate: ${result.candidate_id ?? "off"}\nCommand: ${row.operation_id}`,
+      content: publicationResultContent({ ...result, operationId: row.operation_id ?? "unknown" }),
     };
   }
   const review = await db
@@ -172,39 +178,47 @@ async function outboxMessage(db: D1Database, row: OutboxRow, now: number) {
     WHERE r.review_id=? AND r.expires_at>? AND NOT EXISTS(
       SELECT 1 FROM forecast_runtime_activation_history h WHERE h.review_id=r.review_id)`)
     .bind(row.review_id, now)
-    .first<ReviewRow>();
+    .first<ReviewRow & { created_at: number }>();
   if (!review) return null;
-  let details = "";
-  if (review.candidate_id) {
-    const { candidate, hash } = await readSealedCandidate(db, review.candidate_id);
-    if (hash !== review.payload_hash) throw new Error("publication_candidate_hash");
-    details =
-      `\nRules: ${candidate.rulesVersion}; payload: ${candidate.payloadVersion}; ledger: ${candidate.certifiedSnapshot!.version}` +
-      `\nCoverage: ${candidate.certifiedSnapshot!.coverage.currentDay}` +
-      `\nSources:\n${candidate.sourceEvidence
-        .slice(0, 3)
-        .map((source) => `${source.source}/${source.itemId}: ${source.url}`)
-        .join("\n")}` +
-      `\nWarnings: ${candidate.warnings.join("; ").slice(0, 600) || "none"}`;
+  const candidate = review.candidate_id ? await readSealedCandidate(db, review.candidate_id) : null;
+  if (candidate && candidate.hash !== review.payload_hash)
+    throw new Error("publication_candidate_hash");
+  const active = await readActive(db, review.environment);
+  // The operator-facing diff needs the candidate the site shows now. It is read for
+  // comparison only; a known-missing artifact degrades the diff, never the delivery.
+  const activeCandidate = active.candidate_id
+    ? await readActiveCandidateForMessage(db, active.candidate_id)
+    : null;
+  return publicationReviewPayload({
+    review,
+    active,
+    candidate: candidate?.candidate ?? null,
+    activeCandidate,
+    competition: await loadReviewCompetition(db, review, now),
+    now,
+  });
+}
+
+/**
+ * A candidate that is no longer sealed must not block an approval request that is still
+ * valid, so this one lookup degrades instead of throwing. The reason is logged with its
+ * registered code; any other failure propagates because it is not a known absence.
+ */
+async function readActiveCandidateForMessage(db: D1Database, candidateId: string) {
+  try {
+    return (await readSealedCandidate(db, candidateId)).candidate;
+  } catch (error) {
+    const code = errorCode(error, "publication");
+    if (
+      code !== "publication_candidate_unsealed" &&
+      code !== "publication_candidate_missing" &&
+      code !== "publication_candidate_hash" &&
+      !(error instanceof SyntaxError)
+    )
+      throw error;
+    console.warn(
+      JSON.stringify({ event: "publication_review_active_candidate_unknown", code, candidateId }),
+    );
+    return null;
   }
-  return {
-    content: (
-      `${review.environment.toUpperCase()} forecast ${review.action}\nCandidate: ${review.candidate_id ?? "off"}` +
-      `\nSHA-256: ${review.payload_hash ?? "none"}\nExpected sequence: ${review.expected_sequence}` +
-      `\nExpires: ${new Date(review.expires_at).toISOString()}${details}`
-    ).slice(0, 2000),
-    components: [
-      {
-        type: 1,
-        components: [
-          {
-            type: 2,
-            style: review.action === "approve" ? 3 : 4,
-            label: `${review.action} (${review.environment})`,
-            custom_id: `forecast_publish:${review.environment}:${review.review_id}`,
-          },
-        ],
-      },
-    ],
-  };
 }
