@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { PRIVACY_POLICY } from "../shared/legal/privacy";
@@ -9,6 +10,8 @@ import {
   siteLegalPagePath,
   siteLegalPageUrl,
 } from "../shared/siteLocales";
+import { STATS_OUTBOX_TTL_MS } from "../src/lib/statsSubmissionOutbox";
+import { assertProductionHtml } from "./build-site-production";
 import { stagingHtml } from "./build-site-staging";
 import { legalPageFile, renderLegalPage, renderNpmLicenses } from "./legal-pages";
 
@@ -157,6 +160,121 @@ describe("legal pages", () => {
     expect(html).toContain("<h3>react - 19.3.1 (MIT)</h3>");
     expect(html).toContain("MIT License &lt;x&gt;");
     expect(() => renderNpmLicenses("# Licenses\n")).toThrowError("lists no packages");
+  });
+});
+
+const sourceNumber = (path: string, pattern: RegExp) => {
+  const match = readFileSync(path, "utf8").match(pattern);
+  if (!match?.[1]) throw new Error(`${pattern} not found in ${path}`);
+  return Number(match[1].replaceAll("_", ""));
+};
+const outboxMinutes = STATS_OUTBOX_TTL_MS / 60_000;
+const recoveryMinutes = sourceNumber(
+  "src/lib/legacyInputRecovery.ts",
+  /const TTL_MS = ([\d_]+) \* 60_000;/,
+);
+const cleanupDays = sourceNumber("cloudflare/src/rate-limit.ts", /now - 86400 \* (\d+);/);
+const productionSampling = sourceNumber(
+  "cloudflare/wrangler.toml",
+  /^\[observability\.logs\][^[]*?^head_sampling_rate = ([\d.]+)$/m,
+);
+const privacyFacts = {
+  ko: [
+    `전송하지 못한 결과·진단 정보: ${outboxMinutes}분간 재전송용으로 보관`,
+    `약 ${recoveryMinutes}분 안에 다시 불러올 때만 복구에 쓰고`,
+    `${cleanupDays}일이 지나면 매일 정리 작업에서 삭제`,
+    "통상 요청의 약 10%를 무작위로 기록",
+    "일시적으로 모든 요청을 기록합니다",
+    "문의 메일 전달(Email Routing)",
+    "문의 메일 전달 기록(발신자·수신자 주소, 제목 등)은 31일",
+    "문의 메일 수신 시 Cloudflare Email Routing을 거쳐 네트워크로 전송",
+    "계산 진단 정보는 계산이 완료되면 자동으로 전송되므로(시험용 certified 모드 제외)",
+    "문의 메일(Gmail)은 보내지 않으면 되지만, 다른 문의 창구가 없어 문의를 받거나 답변할 수 없습니다.",
+    "글꼴(jsDelivr)은 브라우저에서 cdn.jsdelivr.net을 차단하면 되며",
+    "보안, 서비스 개선, 법적 의무를 위해 더 오래 보관할 수 있음",
+  ],
+  en: [
+    `Results and diagnostics not yet submitted: kept for resubmission for ${outboxMinutes} minutes`,
+    `within about ${recoveryMinutes} minutes`,
+    `once ${cleanupDays} days have passed`,
+    "a random sample of about 10% of requests",
+    "all requests are temporarily recorded",
+    "forwarding inquiry emails (Email Routing)",
+    "Inquiry email forwarding records (sender and recipient addresses, subject, etc.): 31 days",
+    "Network transmission via Cloudflare Email Routing when an inquiry email is received",
+    "calculation diagnostics are sent automatically when a calculation completes (except in the trial certified mode)",
+    "You can simply not send inquiry emails (Gmail), but as there is no other inquiry channel",
+    "Fonts (jsDelivr) can be avoided by blocking cdn.jsdelivr.net in your browser",
+    "jsDelivr may keep data longer for security, service improvement or legal obligations",
+  ],
+  ja: [
+    `未送信の結果・診断情報: 再送信用に${outboxMinutes}分間保持`,
+    `約${recoveryMinutes}分以内に再読み込みした場合のみ`,
+    `${cleanupDays}日が経過すると毎日の整理処理で削除`,
+    "リクエストの約10%を無作為に記録",
+    "一時的にすべてのリクエストを記録します",
+    "お問い合わせメールの転送(Email Routing)",
+    "お問い合わせメールの転送記録(送信者・受信者のアドレス、件名など)は31日",
+    "お問い合わせメール受信時にCloudflare Email Routingを経由してネットワークで送信",
+    "計算の診断情報は計算が完了すると自動で送信されるため(試験用certifiedモードを除く)",
+    "お問い合わせメール(Gmail)は送信しないことができますが、ほかにお問い合わせ窓口がないため",
+    "フォント(jsDelivr)はブラウザでcdn.jsdelivr.netをブロックでき",
+    "セキュリティ、サービス改善、法的義務のためにより長く保管する場合あり",
+  ],
+} as const;
+const termsFacts = {
+  ko: [
+    "서비스 운영자에게 고의나 중대한 과실이 없는 한",
+    "다만 관련 법령이 달리 정하는 경우에는 그 법령을 따릅니다.",
+    "약관을 바꾸면 시행 7일 전부터 이 페이지에 알립니다.",
+    "AGPL-3.0-or-later 라이선스로 공개되어 있습니다.",
+  ],
+  en: [
+    "Unless the damage results from the service operator’s intentional misconduct or gross negligence",
+    "However, where applicable laws provide otherwise, those laws apply.",
+    "notice will be posted on this page from 7 days before the changes take effect",
+    "published under the AGPL-3.0-or-later license",
+  ],
+  ja: [
+    "サービス運営者に故意または重大な過失がない限り",
+    "ただし、関連法令に別段の定めがある場合は、その法令に従います。",
+    "施行の7日前からこのページでお知らせします。",
+    "AGPL-3.0-or-laterライセンスで公開されています。",
+  ],
+} as const;
+const documentText = (value: unknown): string =>
+  typeof value === "string"
+    ? value
+    : Array.isArray(value)
+      ? value.map(documentText).join("\n")
+      : value && typeof value === "object"
+        ? Object.values(value).map(documentText).join("\n")
+        : "";
+
+describe("legal page content and publish gate", () => {
+  it("reads the disclosed production log sampling rate from wrangler.toml", () => {
+    // Full sampling is the disclosed temporary migration setting; 0.1 is the disclosed normal rate.
+    expect([1, 0.1]).toContain(productionSampling);
+  });
+
+  it.each(SITE_LOCALE_ORDER)("states the reviewed privacy and terms facts in %s", (locale) => {
+    const privacy = documentText(PRIVACY_POLICY[locale]);
+    for (const fact of privacyFacts[locale]) expect(privacy).toContain(fact);
+    const terms = documentText(TERMS_OF_SERVICE[locale]);
+    for (const fact of termsFacts[locale]) expect(terms).toContain(fact);
+  });
+
+  it("fails the production build on any unfilled legal placeholder", () => {
+    const html = renderLegalPage("terms", "ko", inputs);
+    expect(() => assertProductionHtml(html, "terms.html", "")).not.toThrow();
+    for (const marker of [
+      '<mark class="placeholder" title="입력 예정">2026년 ○월 ○일</mark>',
+      '<p class="placeholder-block" role="note">준비 중</p>',
+    ]) {
+      expect(() =>
+        assertProductionHtml(html.replace("</article>", `${marker}</article>`), "terms.html", ""),
+      ).toThrowError("Unfilled legal placeholder in terms.html");
+    }
   });
 
   it("passes the staging transform without a stats configuration script", () => {

@@ -134,7 +134,7 @@ export const PRIVACY_POLICY = {
                 "페이지를 열 때 브라우저가 글꼴을 직접 받음",
                 "접속 IP 주소, 브라우저 요청 정보",
                 [
-                  "분석 후 삭제하며 집계 통계는 계속 보관(",
+                  "분석 후 삭제하며 집계 통계는 계속 보관. 보안, 서비스 개선, 법적 의무를 위해 더 오래 보관할 수 있음(",
                   { href: JSDELIVR_PRIVACY, text: "jsDelivr 개인정보 처리방침" },
                   "에 따름)",
                 ],
@@ -158,7 +158,7 @@ export const PRIVACY_POLICY = {
                 ").",
               ],
               '방문 통계에는 Cloudflare의 "EU 방문자 제외" 설정을 적용합니다(사이트 제공·보안에 필요한 처리에는 적용되지 않음).',
-              "이전을 원하지 않는 경우: 호스팅·보안을 위한 이전은 사이트 이용에 필요하므로 거부하면 서비스를 이용할 수 없습니다. 결과 통계는 전송하지 않으면 되고, 계산 진단 정보는 계산할 때 자동으로 전송되므로 원하지 않으면 계산 기능을 이용하지 않아야 합니다. 방문 통계는 브라우저의 추적 차단 기능으로 막을 수 있으며 서비스 이용에는 영향이 없습니다. 문의 메일(Gmail)은 보내지 않으면 되지만, 다른 문의 창구가 없어 문의를 받거나 답변할 수 없습니다. 글꼴(jsDelivr)은 브라우저에서 cdn.jsdelivr.net을 차단하면 되며, 이 경우 페이지가 기본 시스템 글꼴로 표시될 뿐 다른 영향은 없습니다.",
+              "이전을 원하지 않는 경우: 호스팅·보안을 위한 이전은 사이트 이용에 필요하므로 거부하면 서비스를 이용할 수 없습니다. 결과 통계는 전송하지 않으면 되고, 계산 진단 정보는 계산이 완료되면 자동으로 전송되므로(시험용 certified 모드 제외) 원하지 않으면 계산 기능을 이용하지 않아야 합니다. 방문 통계는 브라우저의 추적 차단 기능으로 막을 수 있으며 서비스 이용에는 영향이 없습니다. 문의 메일(Gmail)은 보내지 않으면 되지만, 다른 문의 창구가 없어 문의를 받거나 답변할 수 없습니다. 글꼴(jsDelivr)은 브라우저에서 cdn.jsdelivr.net을 차단하면 되며, 이 경우 페이지가 기본 시스템 글꼴로 표시될 뿐 다른 영향은 없습니다.",
             ],
           },
           {
@@ -357,7 +357,7 @@ export const PRIVACY_POLICY = {
                 "Your browser downloads the fonts directly when a page opens",
                 "IP address, browser request information",
                 [
-                  "Deleted after analysis; aggregated statistics are kept indefinitely (subject to the ",
+                  "Deleted after analysis; aggregated statistics are kept indefinitely. jsDelivr may keep data longer for security, service improvement or legal obligations (subject to the ",
                   { href: JSDELIVR_PRIVACY, text: "jsDelivr Privacy Policy" },
                   ")",
                 ],
@@ -381,7 +381,7 @@ export const PRIVACY_POLICY = {
                 ").",
               ],
               'Cloudflare\'s "Exclude EU visitors" setting is applied to visit statistics (not to processing needed to provide and secure the site).',
-              "If you do not want the transfer: transfers for hosting and security are needed to use the site, so if you refuse them you cannot use the Service. You can simply not submit result statistics; calculation diagnostics are sent automatically when you calculate, so if you do not want them sent, do not use the calculator. Visit statistics can be blocked with your browser's tracking protection without affecting use of the Service. You can simply not send inquiry emails (Gmail), but as there is no other inquiry channel, your inquiry then cannot be received or answered. Fonts (jsDelivr) can be avoided by blocking cdn.jsdelivr.net in your browser; pages are then shown in system fonts with no other effect.",
+              "If you do not want the transfer: transfers for hosting and security are needed to use the site, so if you refuse them you cannot use the Service. You can simply not submit result statistics; calculation diagnostics are sent automatically when a calculation completes (except in the trial certified mode), so if you do not want them sent, do not use the calculator. Visit statistics can be blocked with your browser's tracking protection without affecting use of the Service. You can simply not send inquiry emails (Gmail), but as there is no other inquiry channel, your inquiry then cannot be received or answered. Fonts (jsDelivr) can be avoided by blocking cdn.jsdelivr.net in your browser; pages are then shown in system fonts with no other effect.",
             ],
           },
           {
@@ -580,7 +580,7 @@ export const PRIVACY_POLICY = {
                 "ページを開くとブラウザがフォントを直接取得",
                 "アクセス元IPアドレス、ブラウザのリクエスト情報",
                 [
-                  "分析後に削除し、集計統計は継続して保管(",
+                  "分析後に削除し、集計統計は継続して保管。セキュリティ、サービス改善、法的義務のためにより長く保管する場合あり(",
                   { href: JSDELIVR_PRIVACY, text: "jsDelivrのプライバシーポリシー" },
                   "に従う)",
                 ],
@@ -604,7 +604,7 @@ export const PRIVACY_POLICY = {
                 ")。",
               ],
               "訪問統計にはCloudflareの「EU訪問者を除外」設定を適用しています(サイトの提供・セキュリティに必要な取り扱いには適用されません)。",
-              "移転を望まない場合: ホスティング・セキュリティのための移転はサイトの利用に必要なため、拒否するとサービスを利用できません。結果統計は送信しないことができ、計算の診断情報は計算時に自動で送信されるため、望まない場合は計算機能を利用しないでください。訪問統計はブラウザのトラッキング防止機能でブロックでき、サービスの利用には影響しません。お問い合わせメール(Gmail)は送信しないことができますが、ほかにお問い合わせ窓口がないため、お問い合わせの受付・回答ができなくなります。フォント(jsDelivr)はブラウザでcdn.jsdelivr.netをブロックでき、その場合ページがシステムフォントで表示されるだけで、ほかに影響はありません。",
+              "移転を望まない場合: ホスティング・セキュリティのための移転はサイトの利用に必要なため、拒否するとサービスを利用できません。結果統計は送信しないことができ、計算の診断情報は計算が完了すると自動で送信されるため(試験用certifiedモードを除く)、望まない場合は計算機能を利用しないでください。訪問統計はブラウザのトラッキング防止機能でブロックでき、サービスの利用には影響しません。お問い合わせメール(Gmail)は送信しないことができますが、ほかにお問い合わせ窓口がないため、お問い合わせの受付・回答ができなくなります。フォント(jsDelivr)はブラウザでcdn.jsdelivr.netをブロックでき、その場合ページがシステムフォントで表示されるだけで、ほかに影響はありません。",
             ],
           },
           {
