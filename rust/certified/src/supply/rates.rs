@@ -51,7 +51,7 @@ impl Supply {
     }
 
     pub fn minimum_wait_rates(&mut self) -> Result<[Q; 3]> {
-        if self.priors.len() != 4 {
+        if self.priors.len() != 4 && self.model.snapshot_version != "certified-daily-v5" {
             return Err("minimum_wait_requires_four_cohorts");
         }
         self.recurring_rates(&self.population_prior.clone())

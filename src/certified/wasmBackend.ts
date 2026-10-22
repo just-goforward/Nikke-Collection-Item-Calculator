@@ -4,8 +4,10 @@ import { DISPATCH_CLASSES } from "../../shared/certifiedSupplyLaws";
 import {
   DEFAULT_PERSONAL_COHORT_WEIGHTS,
   dateStart,
+  FIXED_DISPATCH_COHORT_WEIGHTS,
   ruleAt,
 } from "../../shared/certifiedSupplyModel";
+import { certifiedVersionPolicy } from "../../shared/certifiedVersionPolicy";
 import { CERTIFIED_WASM_HASH } from "../../shared/generated/certifiedWasmBuild";
 import {
   assertMinimumWaitBinding,
@@ -214,7 +216,9 @@ export class WasmKernel {
         })),
         laws: input.snapshot.laws,
         priors: priors.map(toWire),
-        populationPrior: DEFAULT_PERSONAL_COHORT_WEIGHTS,
+        populationPrior: certifiedVersionPolicy(input.snapshot.version).fixedDispatch
+          ? FIXED_DISPATCH_COHORT_WEIGHTS
+          : DEFAULT_PERSONAL_COHORT_WEIGHTS,
         dispatch: rule.dispatch,
         shop: [...rule.normalShop, ...(rule.weeklyFixed ?? [])],
         solo: rule.soloDays.flat(),

@@ -27,6 +27,8 @@ it("derives the historical v2 probe from the product probe by replacing only its
 it("exposes a JSON probe without importing oracle expectations and fails closed on historical input", async () => {
   const asOf = "2026-10-13T08:00:00.000Z";
   const snapshot = buildCertifiedSupplySnapshot({
+    // The historical rejection probe intentionally keeps its original v4 input contract.
+    version: "certified-daily-v4",
     asOf,
     revision: "probe-test",
     sourceHash: "a".repeat(64),

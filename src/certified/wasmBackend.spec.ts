@@ -84,6 +84,7 @@ describe("v3 population prior and weekly supply wire contract", () => {
     const snapshot = buildCertifiedSupplySnapshot({
       asOf: AS_OF,
       revision: "v3-wasm-contract",
+      version: "certified-daily-v4",
       sourceHash: "a".repeat(64),
       soloPeriods: [],
       collaborationPeriods: [],

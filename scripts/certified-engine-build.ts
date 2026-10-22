@@ -9,6 +9,7 @@ import {
   writeCertifiedForecastAuthority,
 } from "./certified-forecast-authority.ts";
 import { assertPinnedCertifiedForecastFiles } from "./certified-forecast-pins.ts";
+import { assertCertifiedLocalForecast } from "./certified-local-forecast.ts";
 import { assertCertifiedWasmBuild } from "./certified-wasm-build-inputs.ts";
 
 const projectRoot = new URL("../", import.meta.url);
@@ -50,6 +51,11 @@ export async function deriveCertifiedEngineBuild(root = projectRoot): Promise<En
     ),
   );
   const provenancePaths = new Set<string>();
+  if (paths.has("shared/generated/certifiedLocalForecast.ts")) {
+    assertCertifiedLocalForecast(root);
+    paths.add("shared/certifiedLocalPolicy.json");
+    provenancePaths.add("shared/certifiedLocalPolicy.json");
+  }
   if (paths.has("shared/generated/certifiedWasmBuild.ts")) {
     const { inputs } = assertCertifiedWasmBuild(root);
     paths.add("public/certified_solver.wasm");

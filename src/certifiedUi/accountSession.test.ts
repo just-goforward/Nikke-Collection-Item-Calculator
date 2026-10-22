@@ -14,6 +14,7 @@ import {
   CERTIFIED_SESSION_STORAGE_KEY,
   type CertifiedSession,
   createCertifiedSession,
+  recordCertifiedOutcome,
 } from "./session";
 import {
   type CertifiedBridgeState,
@@ -62,6 +63,29 @@ afterEach(() => {
 });
 
 describe("certified account read/apply API", () => {
+  it("ignores only the cohort reset notice for emptiness and preserves every ledger", () => {
+    const { port } = fixture();
+    const blank = {
+      ...createCertifiedSession("approved", { grade: "R", level: 0, exp: 0 }, [0, 0, 0]),
+      migrationNotice: "cohort_prior_reset" as const,
+    };
+    const original = text(blank);
+    expect(port.isEmpty(original)).toBe(true);
+    expect(port.validate(original)).toBe(original);
+    const at = "2026-10-18T00:00:00.000Z";
+    for (const value of [
+      { ...blank, stock: [1, 0, 0] as const },
+      { ...blank, receipts: [{ eventId: "receipt", at, pieces: null, alreadyInStock: true }] },
+      { ...blank, retiredReceiptIds: ["retired"] },
+      recordCertifiedOutcome({ ...blank, stock: [10, 0, 0] }, "blue", "great", at),
+      { ...blank, migrationNotice: "receipts_hidden" as const },
+    ]) {
+      const saved = text(value);
+      expect(port.isEmpty(saved)).toBe(false);
+      expect(port.validate(saved)).toBe(saved);
+    }
+    expect(text(blank)).toBe(original);
+  });
   it("round-trips the live session through the storage format", () => {
     const { port, deps } = fixture();
     const current = port.current();

@@ -75,6 +75,8 @@ describe("certified daily supply contract", () => {
   it("uses current per-round rewards and the exact mean in recurring prices", () => {
     const snapshot = buildCertifiedSupplySnapshot({
       ...base,
+      // These pinned rates describe the historical four-cohort FRP-v3.1 policy.
+      version: "certified-daily-v3",
       historyCoverage: {
         from: "2026-08-01T05:00:00+09:00",
         until: "2026-09-30T05:00:00+09:00",

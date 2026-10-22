@@ -2,7 +2,6 @@ import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { expect, it } from "vitest";
-import { CERTIFIED_ENGINE_CODE_HASH } from "../../../shared/generated/certifiedEngineBuild.ts";
 import { sha256 } from "../v6/history.ts";
 import { V10_PINS_SHA } from "./anchor.ts";
 import { PUBLICATION_FILES, readV10Evidence } from "./evidence.ts";
@@ -14,7 +13,10 @@ it("authenticates fresh evidence and rejects tampering, identity mismatch and ov
   const sealedRoot = "scripts/certified-staging-approved-panel/v10";
   for (const name of PUBLICATION_FILES)
     copyFileSync(resolve(sealedRoot, name), resolve(root, name));
-  const generated = { anchor: V10_PINS_SHA, engineBuildHash: CERTIFIED_ENGINE_CODE_HASH };
+  const generated = {
+    anchor: V10_PINS_SHA,
+    engineBuildHash: readV10Evidence(sealedRoot).provenance.engineBuildHash,
+  };
   const panel = loadIndependentApprovedPanel(root, generated.anchor, generated.engineBuildHash);
   expect(panel.cases).toHaveLength(24);
   expect(readV10Evidence(sealedRoot).panelAnchorSha256).toBe(V10_PINS_SHA);

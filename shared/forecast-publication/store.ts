@@ -1,4 +1,8 @@
-import { hasCertifiedEvidenceCoverage } from "../certifiedEvidenceCoverage.ts";
+import {
+  CERTIFIED_EVIDENCE_COVERAGE,
+  type CertifiedEvidenceCoverage,
+  hasCertifiedEvidenceCoverage,
+} from "../certifiedEvidenceCoverage.ts";
 import { persistedErrorCode } from "../errorCodes.ts";
 import {
   ARTIFACT_DOMAIN,
@@ -198,6 +202,7 @@ export async function createPreviousRollbackReview(
   active: ActiveRow,
   now: number,
   directInteractionId?: string,
+  coverage: readonly CertifiedEvidenceCoverage[] = CERTIFIED_EVIDENCE_COVERAGE,
 ): Promise<string | null> {
   if (!active.operation_id) return null;
   const previous = await db
@@ -208,7 +213,7 @@ export async function createPreviousRollbackReview(
     .first<{ previous_candidate_id: string; payload_hash: string }>();
   if (!previous || previous.previous_candidate_id === active.candidate_id) return null;
   const target = await readSealedCandidate(db, previous.previous_candidate_id);
-  if (candidateCoverageError(target.candidate)) return null;
+  if (candidateCoverageError(target.candidate, coverage)) return null;
   return createReview(
     db,
     active,
@@ -264,6 +269,7 @@ export async function applyPublicationCommand(
   signing: { privateKey: string; keyId: string },
   now = Date.now(),
   authorizeApprove?: () => Promise<unknown>,
+  coverage: readonly CertifiedEvidenceCoverage[] = CERTIFIED_EVIDENCE_COVERAGE,
 ): Promise<{ sequence: number; duplicate: boolean }> {
   const review = await readReview(db, input);
   const requestHash = await publicationHash(input);
@@ -301,7 +307,15 @@ export async function applyPublicationCommand(
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(signing.keyId)) throw new Error("publication_key_id");
     const key = await importPublicationSigningKey(signing.privateKey);
     const statements: PublicationStatement[] = [];
-    const approval = await prepareArtifactApproval(db, review, input, signing.keyId, key, now);
+    const approval = await prepareArtifactApproval(
+      db,
+      review,
+      input,
+      signing.keyId,
+      key,
+      now,
+      coverage,
+    );
     if (approval) statements.push(approval);
     const pointer: PointerStatement = {
       domain: POINTER_DOMAIN,
@@ -362,10 +376,11 @@ async function prepareArtifactApproval(
   keyId: string,
   key: CryptoKey,
   now: number,
+  coverage: readonly CertifiedEvidenceCoverage[],
 ): Promise<PublicationStatement | null> {
   if (review.action === "off") return null;
   const sealed = await readSealedCandidate(db, review.candidate_id!);
-  const coverageError = candidateCoverageError(sealed.candidate);
+  const coverageError = candidateCoverageError(sealed.candidate, coverage);
   if (coverageError) throw new Error(coverageError);
   if (sealed.hash !== review.payload_hash) throw new Error("publication_candidate_hash");
   if (review.action === "rollback") {
@@ -407,10 +422,13 @@ async function prepareArtifactApproval(
     );
 }
 
-export function candidateCoverageError(candidate: SupplyForecastCandidate) {
+export function candidateCoverageError(
+  candidate: SupplyForecastCandidate,
+  coverage: readonly CertifiedEvidenceCoverage[] = CERTIFIED_EVIDENCE_COVERAGE,
+) {
   const cadence = candidate.certifiedSnapshot?.cadence.version;
   if (cadence !== "observed-median-v2") return "publication_unsupported_cadence";
-  return hasCertifiedEvidenceCoverage(cadence, CERTIFIED_ENGINE_CODE_HASH)
+  return hasCertifiedEvidenceCoverage(cadence, CERTIFIED_ENGINE_CODE_HASH, coverage)
     ? null
     : "publication_evidence_uncovered";
 }

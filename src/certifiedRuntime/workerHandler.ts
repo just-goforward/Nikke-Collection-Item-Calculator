@@ -28,6 +28,7 @@ async function bindSnapshot(request: Extract<CertifiedRequest<CertifiedInput>, {
         throw new Error("Forecast hash workspace ceiling exceeded.");
     },
     request.input.forecastPublication,
+    request.input.forecastSource,
   );
   if (!sameCertifiedForecastIdentity(identity, actual))
     throw new Error("Worker input snapshot does not match requested forecast identity.");

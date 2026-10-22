@@ -1,7 +1,12 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { DISPATCH_EXPECTED_PIECES } from "../shared/certifiedDispatchExpectations";
-import type { CertifiedSupplySnapshot } from "../shared/certifiedSupply";
+import {
+  assertCertifiedRuntimeSupplySnapshot,
+  type CertifiedSupplySnapshot,
+  viewCertifiedSupplySnapshot,
+} from "../shared/certifiedSupply";
 import type { CollectionState, Kit } from "../shared/game";
+import registry from "../shared/supplyForecasts.json";
 import { solveCertified } from "../src/certified/solver";
 import type { CertifiedInput, CertifiedOutput, Triple } from "../src/certified/types";
 import {
@@ -11,7 +16,6 @@ import {
   recordCertifiedOutcome,
   restoreCertifiedSession,
 } from "../src/certifiedUi/session";
-import { prepareCertifiedForecast } from "../src/lib/certifiedForecast";
 import { frozenIndependentCohorts } from "./certified-staging-approved-panel.ts";
 import {
   add,
@@ -38,7 +42,13 @@ let snapshot: CertifiedSupplySnapshot;
 let rates: QTriple;
 
 beforeAll(async () => {
-  snapshot = await prepareCertifiedForecast(AS_OF);
+  // This historical oracle must not silently follow a newer locally adopted policy.
+  const entry = registry.forecasts.find((row) => row.id === "supply-2026-10-15-v3");
+  if (!entry) throw new Error("historical_v3_forecast_missing");
+  snapshot = viewCertifiedSupplySnapshot(
+    assertCertifiedRuntimeSupplySnapshot(Reflect.get(entry, "certifiedSnapshot")),
+    AS_OF,
+  );
   expect(snapshot.version).toBe("certified-daily-v3");
   // V6 remains an immutable three-cohort oracle. The fourth constant is checked
   // against raw joint laws in certifiedSupplyLaws.spec.ts, not derived from a
@@ -82,7 +92,6 @@ function request(
     stock: session.stock,
     asOf: AS_OF,
     snapshot,
-    cohortWeights: session.cohortWeights,
     receivedEventIds: certifiedRequestReceivedEventIds(session, snapshot, AS_OF),
     computeWaiting: false,
     batchLimit: 10,
@@ -125,7 +134,7 @@ function checkCurrent(output: CertifiedOutput, session: CertifiedSession, fixedP
   );
   expect(pricing.recurringRate).toEqual(mapTriple(rates, wire));
   expect(pricing.weights).toEqual(mapTriple(fixedPrices, wire));
-  expect(pricing.cohortWeights).toEqual(session.cohortWeights);
+  expect(pricing.cohortWeights).toEqual([q(1, 7), q(2, 7), q(3, 7), q(1, 7)].map(wire));
   return { current, independent, pricing };
 }
 
@@ -155,7 +164,7 @@ function record(session: CertifiedSession, kit: Kit, outcome: "normal" | "great"
   });
   expect(next.outcomes).toHaveLength(session.outcomes.length + 1);
   expect(next.receipts).toEqual(session.receipts);
-  expect(next.cohortWeights).toEqual(session.cohortWeights);
+  expect(next).not.toHaveProperty("cohortWeights");
   return next;
 }
 

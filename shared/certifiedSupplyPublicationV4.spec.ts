@@ -13,7 +13,6 @@ import {
 } from "./forecastPublication";
 import { verifyPublicationBytes } from "./forecastPublicationBytes";
 import {
-  buildSupplyForecastCandidate,
   buildV3SupplyForecastCandidate,
   type SupplyForecastGrant,
 } from "./supplyForecastCandidate";
@@ -70,7 +69,7 @@ describe("historical and v4 signed publication compatibility", () => {
       sourceIds: ["fixture"],
       restatementOf: [],
     };
-    const current = buildSupplyForecastCandidate({
+    const current = buildV3SupplyForecastCandidate({
       ...historical,
       grants: [grant],
       certifiedSnapshot: {

@@ -1,15 +1,11 @@
 import type { ReactNode } from "react";
-import { eq, fromWire, ONE, toNumber, type WireQ } from "../../shared/certifiedRational";
-import {
-  type CertifiedSupplyComparison,
-  DEFAULT_PERSONAL_COHORT_WEIGHTS,
-} from "../../shared/certifiedSupply";
+import { fromWire, toNumber, type WireQ } from "../../shared/certifiedRational";
+import type { CertifiedSupplyComparison } from "../../shared/certifiedSupply";
 import { KIT_ORDER, type Kit } from "../../shared/game";
 import { gameDayKey } from "../../shared/gameDay";
 import { KIT_PANEL_LABEL_KEYS } from "../components/kitPresentation";
 import { useI18n } from "../i18n/locale";
 import type { CertifiedWords } from "./messages";
-import type { CertifiedSession } from "./session";
 
 /** Positions shared by KIT_ORDER and every engine triple, typed so tuple reads stay defined. */
 export const KIT_INDICES = [0, 1, 2] as const;
@@ -62,66 +58,6 @@ export function CertifiedPanel({
       </div>
       <div className={panelClasses.body}>{children}</div>
     </section>
-  );
-}
-
-function cohortIndex(session: CertifiedSession) {
-  const selected = session.cohortWeights.findIndex((weight) => eq(fromWire(weight), ONE));
-  if (selected >= 0) return selected;
-  const prior = ([0, 1, 2, 3] as const).every((cohort) =>
-    eq(fromWire(session.cohortWeights[cohort]), fromWire(DEFAULT_PERSONAL_COHORT_WEIGHTS[cohort])),
-  );
-  return prior ? -1 : -2;
-}
-
-export function CohortPanel({
-  disabled,
-  session,
-  onUpdate,
-  words,
-}: {
-  disabled: boolean;
-  session: CertifiedSession;
-  onUpdate: (update: (current: CertifiedSession) => CertifiedSession) => void;
-  words: CertifiedWords;
-}) {
-  const selected = cohortIndex(session);
-  return (
-    <CertifiedPanel headingId="certified-cohort-title" title={words.cohort}>
-      <div className="cert-field">
-        <select
-          aria-label={words.cohort}
-          disabled={disabled}
-          value={selected}
-          onChange={(e) => {
-            const cohort = Number(e.target.value);
-            if (cohort === -2) return;
-            const weight = (i: number) => ({
-              numerator: i === cohort ? "1" : "0",
-              denominator: "1",
-            });
-            onUpdate((current) => ({
-              ...current,
-              cohortWeights:
-                cohort < 0
-                  ? DEFAULT_PERSONAL_COHORT_WEIGHTS
-                  : [weight(0), weight(1), weight(2), weight(3)],
-            }));
-          }}
-        >
-          <option value="-1">{words.mixture}</option>
-          {selected === -2 && (
-            <option value="-2" disabled>
-              {words.learnedMixture}
-            </option>
-          )}
-          <option value="0">{words.reroll0}</option>
-          <option value="1">{words.reroll1}</option>
-          <option value="2">{words.reroll2}</option>
-          <option value="3">{words.reroll3}</option>
-        </select>
-      </div>
-    </CertifiedPanel>
   );
 }
 

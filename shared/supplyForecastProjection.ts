@@ -11,7 +11,6 @@ import {
 import { isCoherentSnapshot } from "./certifiedSupplyCoherence.ts";
 import {
   CERTIFIED_SUPPLY_HISTORY_DAYS,
-  DEFAULT_PERSONAL_COHORT_WEIGHTS,
   dateStart,
   isDeeplyFrozen,
   ruleAt,
@@ -171,7 +170,7 @@ function projectReference(
   const { from, until } = window;
   const reason = supplyReferenceUnavailableReason(snapshot, from, until);
   if (reason !== null) return { available: false, reason };
-  cache.weights ??= certifiedCohortWeights(DEFAULT_PERSONAL_COHORT_WEIGHTS, "certified-daily-v3");
+  cache.weights ??= certifiedCohortWeights(undefined, snapshot.version);
   if (!cache.events) {
     cache.events = new Map();
     for (const event of snapshot.events) {

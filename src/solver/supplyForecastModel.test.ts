@@ -15,6 +15,8 @@ import {
 
 const at = (date: string) => Date.parse(`${date}T05:00:00+09:00`);
 const snapshot = buildCertifiedSupplySnapshot({
+  // Preserve the v3 ledger projection oracle, independently of the current UI policy.
+  version: "certified-daily-v3",
   asOf: new Date(at("2026-09-16")).toISOString(),
   revision: "reference-windows",
   sourceHash: "b".repeat(64),
@@ -66,7 +68,7 @@ describe("ledger-only legacy supply projection", () => {
     expect(result.window).toMatchObject({ from: at("2026-09-19"), until: at("2026-10-17") });
     const dispatch = expectedCertifiedRefs(
       [{ lawId: "dispatch-board-v1", count: 1 }],
-      certifiedCohortWeights(),
+      certifiedCohortWeights(undefined, snapshot.version),
       {},
     );
     const expected = dispatch.map((daily, color) =>

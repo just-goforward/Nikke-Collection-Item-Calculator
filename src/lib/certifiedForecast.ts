@@ -6,19 +6,19 @@ import {
 } from "../../shared/certifiedSupply";
 import { CERTIFIED_APPROVED_FORECAST } from "../../shared/generated/certifiedForecastAuthority";
 
-function bundledSnapshot(): CertifiedSupplySnapshot {
-  return assertCertifiedRuntimeSupplySnapshot(
-    Reflect.get(CERTIFIED_APPROVED_FORECAST, "certifiedSnapshot"),
-  );
+export function approvedCertifiedSnapshot(): CertifiedSupplySnapshot {
+  return assertCertifiedRuntimeSupplySnapshot(CERTIFIED_APPROVED_FORECAST.certifiedSnapshot);
 }
 
 /** Account for the adopted ledger; viewing it never generates additional authority. */
-export function certifiedForecastBuildWorkspaceBound(): number {
-  return 4 * 1024 * 1024 + 8 * certifiedForecastIdentityWorkspaceBound(bundledSnapshot());
+export function certifiedForecastBuildWorkspaceBound(
+  snapshot = approvedCertifiedSnapshot(),
+): number {
+  return 4 * 1024 * 1024 + 8 * certifiedForecastIdentityWorkspaceBound(snapshot);
 }
 
 export async function prepareCertifiedForecast(
   asOf = new Date().toISOString(),
 ): Promise<CertifiedSupplySnapshot> {
-  return viewCertifiedSupplySnapshot(bundledSnapshot(), asOf);
+  return viewCertifiedSupplySnapshot(approvedCertifiedSnapshot(), asOf);
 }

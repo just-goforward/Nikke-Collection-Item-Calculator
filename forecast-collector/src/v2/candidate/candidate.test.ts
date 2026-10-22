@@ -138,9 +138,10 @@ it("leaves sealed and approved fixture bytes unchanged when a new input builds",
   const id = row!.candidate_id;
   const hash = row!.payload_hash;
   // Local fixture records, not a seal/approval operation or a real signature.
+  // The current fixed-dispatch writer seals only the payload-6 / v5 publication tuple.
   await db
     .prepare(
-      `INSERT INTO forecast_runtime_versions VALUES(?,?,'schedule-kit-v4',5,'certified-daily-v4',?,?)`,
+      `INSERT INTO forecast_runtime_versions VALUES(?,?,'schedule-kit-v5',6,'certified-daily-v5',?,?)`,
     )
     .bind(id, hash, new TextEncoder().encode(row!.payload_json).length, now)
     .run();

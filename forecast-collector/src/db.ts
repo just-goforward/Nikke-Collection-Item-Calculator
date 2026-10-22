@@ -1,3 +1,4 @@
+import { certifiedVersionPolicy } from "../../shared/certifiedVersionPolicy";
 import type { SupplyForecastCandidateEnvelope } from "../../shared/supplyForecastCandidate";
 import {
   assertForecastCandidateInvariants,
@@ -245,9 +246,13 @@ export function candidateStatements(
   condition?: StatementWriteCondition,
 ) {
   const { candidate, payloadHash } = result;
-  if (candidate.certifiedSnapshot?.version === "certified-daily-v4") {
+  const policy = candidate.certifiedSnapshot
+    ? certifiedVersionPolicy(candidate.certifiedSnapshot.version)
+    : undefined;
+  if (policy?.segmentsAndGrants) {
+    const schemaVersion = policy.fixedDispatch ? 34 : 27;
     condition = {
-      sql: `EXISTS (SELECT 1 FROM schema_migrations WHERE version >= 27)${condition ? ` AND (${condition.sql})` : ""}`,
+      sql: `EXISTS (SELECT 1 FROM schema_migrations WHERE version >= ${schemaVersion})${condition ? ` AND (${condition.sql})` : ""}`,
       bindings: condition?.bindings ?? [],
     };
   }

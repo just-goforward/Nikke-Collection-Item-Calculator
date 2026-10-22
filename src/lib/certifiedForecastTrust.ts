@@ -17,15 +17,18 @@ import {
   certifiedForecastBuildWorkspaceBound,
   prepareCertifiedForecast,
 } from "./certifiedForecast";
+import { localCertifiedSnapshot, prepareLocalCertifiedForecast } from "./certifiedLocalForecast";
+import { localCertifiedForecastEnabled } from "./certifiedLocalPolicy";
 import { runtimeForecastConfig, runtimeForecastEnabled } from "./runtimeForecastConfig";
 
-/** Bundled authority or a publication authenticated with build-pinned keys, never
- * request-declared revision/hash. Client and Worker independently verify the proof
- * and bind exactly the submitted time-view; neither fetches a new pointer mid-run.
+/** Approved authority/publication by default; unsigned local policy requires an explicit
+ * marker and is forbidden in publication mode. Client and Worker bind the selected
+ * compiled input independently, never a request-declared revision/hash.
  */
 export function trustedCertifiedForecastWorkspaceBound(
   snapshot: CertifiedSupplySnapshot,
   publication?: PublicationBytes,
+  source?: "local",
 ): number {
   // Reserve wire strings, UTF-8 verification buffers and parsed working copies
   // before verification, without allocating a second serialization for admission.
@@ -39,20 +42,38 @@ export function trustedCertifiedForecastWorkspaceBound(
         : 0)
     : 0;
   return (
-    certifiedForecastBuildWorkspaceBound() +
+    bundledWorkspaceBound(source) +
     2 * certifiedForecastIdentityWorkspaceBound(assertCertifiedSupplySnapshot(snapshot)) +
     8 * wireChars
   );
 }
 
 let highestRuntimeSequence = 0;
+const NOT_APPROVED = "certified_forecast_not_approved";
+function bundledWorkspaceBound(source?: "local") {
+  return certifiedForecastBuildWorkspaceBound(
+    source === "local" ? localCertifiedSnapshot() : undefined,
+  );
+}
+function assertForecastSource(source: unknown, publication?: PublicationBytes): void {
+  if (
+    source !== undefined &&
+    (source !== "local" ||
+      !localCertifiedForecastEnabled() ||
+      runtimeForecastEnabled ||
+      publication)
+  )
+    throw new Error(NOT_APPROVED);
+}
 export async function assertTrustedCertifiedForecast(
   snapshot: CertifiedSupplySnapshot,
   accountWorkspace: (bytes: number) => void,
   publication?: PublicationBytes,
+  source?: "local",
 ): Promise<CertifiedForecastIdentity> {
+  assertForecastSource(source, publication);
   const valid = assertCertifiedSupplySnapshot(snapshot);
-  const bound = trustedCertifiedForecastWorkspaceBound(valid, publication);
+  const bound = trustedCertifiedForecastWorkspaceBound(valid, publication, source);
   try {
     accountWorkspace(bound);
     if (publication && !runtimeForecastEnabled) throw new Error("certified_runtime_disabled");
@@ -70,16 +91,18 @@ export async function assertTrustedCertifiedForecast(
     if (approved && !approved.snapshot) throw new Error("certified_runtime_off");
     const trusted = approved?.snapshot
       ? viewCertifiedSupplySnapshot(approved.snapshot, valid.asOf)
-      : await prepareCertifiedForecast(valid.asOf);
+      : await (source === "local" ? prepareLocalCertifiedForecast : prepareCertifiedForecast)(
+          valid.asOf,
+        );
     if (
       certifiedForecastIdentityWorkspaceBound(trusted) >
-      (publication ? bound : certifiedForecastBuildWorkspaceBound())
+      (publication ? bound : bundledWorkspaceBound(source))
     )
       throw new Error("certified_trusted_forecast_workspace_invariant");
     const incomingIdentity = await createCertifiedForecastIdentity(valid);
     const trustedIdentity = await createCertifiedForecastIdentity(trusted);
     if (!sameCertifiedForecastIdentity(incomingIdentity, trustedIdentity))
-      throw new Error("certified_forecast_not_approved");
+      throw new Error(NOT_APPROVED);
     return incomingIdentity;
   } finally {
     accountWorkspace(0);

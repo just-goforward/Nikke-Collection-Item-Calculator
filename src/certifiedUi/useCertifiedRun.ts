@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CERTIFIED_STAGING_ENGINE_PROFILE } from "../../shared/certifiedEngineProfile";
-import type { CertifiedSupplySnapshot } from "../../shared/certifiedSupply";
+import { toWire, type WireQ } from "../../shared/certifiedRational";
+import { type CertifiedSupplySnapshot, certifiedCohortWeights } from "../../shared/certifiedSupply";
 import type { PublicationBytes } from "../../shared/forecastPublicationBytes";
 import type { CertifiedInput, CertifiedOutput } from "../certified/types";
 import { createBrowserCertifiedClient } from "../certifiedRuntime/browserClient";
 import type { CertifiedMemory, CertifiedTiming } from "../certifiedRuntime/protocol";
 import { prepareCertifiedForecast } from "../lib/certifiedForecast";
+import { prepareLocalCertifiedForecast } from "../lib/certifiedLocalForecast";
+import { localCertifiedForecastEnabled } from "../lib/certifiedLocalPolicy";
 import { certifiedRunCacheKey } from "./certifiedRunCache";
 import {
   certifiedBackgroundPartial,
@@ -31,12 +34,18 @@ function requestInput(
   publication?: PublicationBytes,
 ): CertifiedInput {
   return {
-    ...(publication ? { forecastPublication: publication } : {}),
+    ...(publication
+      ? { forecastPublication: publication }
+      : localCertifiedForecastEnabled()
+        ? { forecastSource: "local" as const }
+        : {}),
     ...session.state,
     stock: session.stock,
     asOf,
     snapshot,
-    cohortWeights: session.cohortWeights,
+    cohortWeights: certifiedCohortWeights(undefined, snapshot.version).map(toWire) as
+      | [WireQ, WireQ, WireQ]
+      | [WireQ, WireQ, WireQ, WireQ],
     receivedEventIds: certifiedRequestReceivedEventIds(session, snapshot, asOf),
     computeWaiting: true,
     computeMinimumWait: true,
@@ -54,7 +63,9 @@ function prepareRunSnapshot(asOf: string, accept: (proof: PublicationBytes) => v
           accept(runtime.publication);
           return runtime.snapshot;
         })
-    : prepareCertifiedForecast(asOf);
+    : (localCertifiedForecastEnabled() ? prepareLocalCertifiedForecast : prepareCertifiedForecast)(
+        asOf,
+      );
 }
 
 export function useCertifiedRun(

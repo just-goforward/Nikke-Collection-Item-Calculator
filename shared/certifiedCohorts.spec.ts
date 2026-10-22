@@ -15,6 +15,7 @@ import {
 
 const current = () =>
   buildCertifiedSupplySnapshot({
+    version: "certified-daily-v4",
     asOf: "2026-09-30T04:00:00Z",
     revision: "four-cohort-contract",
     sourceHash: "a".repeat(64),
@@ -38,7 +39,12 @@ describe("versioned certified cohort contracts", () => {
     expect(DEFAULT_PERSONAL_COHORT_WEIGHTS).toEqual(
       [q(1, 7), q(2, 7), q(3, 7), q(1, 7)].map(toWire),
     );
-    expect(certifiedCohortWeights()).toEqual([q(1, 7), q(2, 7), q(3, 7), q(1, 7)]);
+    expect(certifiedCohortWeights(undefined, snapshot.version)).toEqual([
+      q(1, 7),
+      q(2, 7),
+      q(3, 7),
+      q(1, 7),
+    ]);
     const rates = certifiedRecurringRate(snapshot).map(toNumber);
     expect(rates).toHaveLength(3);
     for (const [k, expected] of [

@@ -16,7 +16,7 @@ it.each(["staging", "production"] as const)(
       applyForecastD1Migrations(parseMigrationArguments([`--env=${environment}`, "--remote"]), {
         spawn: runner.spawn,
       }),
-    ).toThrow("Forecast v2 migrations require --allow-forecast-v2: 30, 31, 32, 33.");
+    ).toThrow("Forecast v2 migrations require --allow-forecast-v2: 30, 31, 32, 33, 34.");
     expect(runner.spawn).not.toHaveBeenCalled();
   },
 );
@@ -29,7 +29,7 @@ it("applies v2 with explicit CLI authorization", () => {
       parseMigrationArguments(["--env=staging", "--local", "--allow-forecast-v2"]),
       { spawn: runner.spawn, log: () => {} },
     ).applied,
-  ).toEqual([30, 31, 32, 33]);
+  ).toEqual([30, 31, 32, 33, 34]);
 });
 
 it("keeps a migration inventory through v29 usable without the flag", () => {

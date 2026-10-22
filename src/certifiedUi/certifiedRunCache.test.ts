@@ -62,6 +62,29 @@ it("reuses only same-day actual-stock requests with all model and receipt inputs
     { ...snapshot, coverage: { ...snapshot.coverage, currentDay: "2026-10-01" } },
     { ...snapshot, sourceHash: "b".repeat(64) },
     { ...snapshot, sourceStatus: "healthy" as const },
+    { ...snapshot, version: "certified-daily-v4" as const },
   ])
     expect(certifiedRunCacheKey(session, changed, asOf)).not.toBe(key);
+});
+
+it("binds the policy version independently of session storage", () => {
+  const asOf = "2026-10-01T08:00:00Z";
+  const snapshot = buildCertifiedSupplySnapshot({
+    asOf,
+    revision: "same-revision",
+    sourceHash: "b".repeat(64),
+    soloPeriods: [],
+    collaborationPeriods: [],
+  });
+  const session = createCertifiedSession(
+    snapshot.revision,
+    { grade: "SR", level: 14, exp: 0 },
+    [10, 0, 0],
+  );
+  const v4 = certifiedRunCacheKey(session, { ...snapshot, version: "certified-daily-v4" }, asOf);
+  const v5 = certifiedRunCacheKey(session, { ...snapshot, version: "certified-daily-v5" }, asOf);
+  expect(session).not.toHaveProperty("cohortWeights");
+  expect(v4).not.toBe(v5);
+  expect(JSON.parse(v4).snapshot.version).toBe("certified-daily-v4");
+  expect(JSON.parse(v5).snapshot.version).toBe("certified-daily-v5");
 });

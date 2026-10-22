@@ -81,7 +81,7 @@ function certifiedAssetPaths() {
   ]);
 }
 
-const SESSION_KEY = "collection-certified-staging-v3:session";
+const SESSION_KEY = "collection-certified-staging-v4:session";
 const APP_WORDS = { ko: koMessages, en: enMessages, ja: jaMessages } as const;
 const LOCALE_LABELS = { ko: "한국어", en: "English", ja: "日本語" } as const;
 const en = enMessages;
@@ -96,14 +96,14 @@ async function selectLocale(page: Page, locale: Locale) {
 }
 async function openStaging(page: Page) {
   await page.goto("/?statsEnv=staging&engine=certified");
-  await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v4']")).toBeVisible();
   await selectLocale(page, "en");
   await expect(page.locator("#calculateButton")).toBeEnabled();
 }
 async function reopen(page: Page) {
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v4']")).toBeVisible();
 }
 function stockInput(page: Page, kit: KitName) {
   return page.locator(`#${kit}Stock`);
@@ -147,38 +147,30 @@ async function setAlmostComplete(page: Page, pieces = 19) {
   await setCollectionState(page, "SR", 14, 2900);
   await setStock(page, { blue: pieces });
 }
-test("offers four reroll cohorts and the 1:2:3:1 mixture", async ({ page }) => {
+test("uses the forecast policy with no cohort selector or saved weights", async ({ page }) => {
   await openStaging(page);
-  const select = page.getByRole("combobox", { name: certifiedMessages.en.cohort, exact: true });
-  await expect(select.locator("option")).toHaveCount(5);
-  await select.selectOption("3");
+  await expect(
+    page.getByRole("combobox", { name: "Dispatch reroll type", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText("Three rerolls", { exact: true })).toHaveCount(0);
+  await setStock(page, { blue: 19 });
   await expect
     .poll(() =>
-      page.evaluate(
-        (key) => JSON.parse(localStorage.getItem(key) ?? "{}").cohortWeights,
-        SESSION_KEY,
-      ),
+      page.evaluate((key) => {
+        const saved = JSON.parse(localStorage.getItem(key) ?? "null");
+        return saved !== null && saved.stock[0] === 19 && !Object.hasOwn(saved, "cohortWeights");
+      }, SESSION_KEY),
     )
-    .toEqual([
-      { numerator: "0", denominator: "1" },
-      { numerator: "0", denominator: "1" },
-      { numerator: "0", denominator: "1" },
-      { numerator: "1", denominator: "1" },
-    ]);
-  await select.selectOption("-1");
+    .toBe(true);
+  await reopen(page);
   await expect
     .poll(() =>
-      page.evaluate(
-        (key) => JSON.parse(localStorage.getItem(key) ?? "{}").cohortWeights,
-        SESSION_KEY,
-      ),
+      page.evaluate((key) => {
+        const saved = JSON.parse(localStorage.getItem(key) ?? "null");
+        return saved !== null && saved.stock[0] === 19 && !Object.hasOwn(saved, "cohortWeights");
+      }, SESSION_KEY),
     )
-    .toEqual([
-      { numerator: "1", denominator: "7" },
-      { numerator: "2", denominator: "7" },
-      { numerator: "3", denominator: "7" },
-      { numerator: "1", denominator: "7" },
-    ]);
+    .toBe(true);
 });
 
 test("migrates old certified storage with an explicit posterior-only reset notice", async ({
@@ -271,7 +263,7 @@ test("certified route renders inside the shared calculator shell", async ({ page
   await expect(page.locator("#calculatorWorkspace")).toBeHidden();
   await page.getByRole("tab", { name: en["top.calculator"] }).click();
   await expect(page.locator("#calculatorWorkspace")).toBeVisible();
-  await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v4']")).toBeVisible();
 });
 
 test("malformed saved data blocks calculation and offers explicit reset recovery", async ({
@@ -409,7 +401,7 @@ for (const locale of ["en", "ja"] as const) {
     const appWords = APP_WORDS[locale];
     await page.goto(`/${locale}/?statsEnv=staging&engine=certified`);
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
-    await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toBeVisible();
+    await expect(page.locator("main[data-engine-profile='certified-staging-v4']")).toBeVisible();
     await expect(page.locator("h1")).toHaveText(appWords["app.title"]);
     const calculateButton = page.getByRole("button", {
       name: appWords["common.calculate"],

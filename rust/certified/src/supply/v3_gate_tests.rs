@@ -114,6 +114,46 @@ fn v3_accepts_reordered_builtin_declarations_and_equivalent_population_prior() {
 }
 
 #[test]
+fn v5_requires_three_fixed_cohorts_and_uses_their_population_rate() {
+    let fixed: Vec<_> = [1, 2, 3]
+        .map(|n| wire(&Q::new(n.into(), 6.into())))
+        .to_vec();
+    let model = || {
+        let mut value = versioned_model("certified-daily-v5");
+        value.priors = fixed.clone();
+        value.population_prior = fixed.clone();
+        value.dispatch_expected.truncate(3);
+        value
+    };
+    let mut supply = Supply::new(model(), f64::MAX).unwrap();
+    // Independently: (7 + 2*14 + 3*21)/6 = 49/3. Cohort 3's 28 is absent.
+    let expected = [Q::new(49.into(), 3.into()), Q::zero(), Q::zero()];
+    assert_eq!(supply.minimum_wait_rates().unwrap(), expected);
+    assert_eq!(supply.pricing([1; 3], [0; 3], TERMINAL).unwrap().0, expected);
+    assert_eq!(supply.supports(&reference("deterministic:10,10,0", 1)).unwrap().len(), 3);
+    for weights in [
+        vec![wire(&Q::new(1.into(), 3.into())); 3],
+        [1, 0, 0].map(|n| wire(&Q::from_integer(n.into()))).to_vec(),
+        [1, 2, 3, 1].map(|n| wire(&Q::new(n.into(), 7.into()))).to_vec(),
+    ] {
+        let mut personal = model();
+        personal.priors = weights.clone();
+        assert_eq!(Supply::new(personal, f64::MAX).err(), Some("invalid_cohort_weights"));
+        let mut population = model();
+        population.population_prior = weights;
+        assert_eq!(Supply::new(population, f64::MAX).err(), Some("invalid_population_prior"));
+    }
+    let mut wrong_arity = model();
+    wrong_arity.dispatch_expected.push([wire(&Q::zero()), wire(&Q::zero()), wire(&Q::zero())]);
+    assert_eq!(Supply::new(wrong_arity, f64::MAX).err(), Some("invalid_cohort_weights"));
+    let mut finite = model();
+    finite.laws.push(serde_json::from_value(json!({
+        "id": "finite", "kind": "finite", "outcomesByCohort": [[], [], []]
+    })).unwrap());
+    assert_eq!(Supply::new(finite, f64::MAX).err(), Some("certified_v3_finite_law_forbidden"));
+}
+
+#[test]
 fn v3_requires_exact_builtin_descriptor_set_without_changing_legacy_laws() {
     let canonical = versioned_model("certified-daily-v3").laws;
     let mut cases = vec![vec![]];
@@ -255,7 +295,7 @@ fn v3_weekly_kits_add_exact_recurring_and_minimum_wait_rates_and_dated_support()
     let reference = weekly.model.events[0].refs[0].clone();
     assert_eq!(
         *weekly.supports(&reference).unwrap(),
-        std::array::from_fn(|_| vec![[10, 10, 0]])
+        vec![vec![[10, 10, 0]]; 4]
     );
 }
 
@@ -382,7 +422,7 @@ fn versions_are_required_and_unknown_versions_are_rejected() {
         "dispatchExpected": [], "classes": []
     }));
     assert!(missing.err().unwrap().to_string().contains("snapshotVersion"));
-    for version in ["", "certified-daily-v0", "certified-daily-v5"] {
+    for version in ["", "certified-daily-v0", "certified-daily-v6"] {
         assert_eq!(
             Supply::new(versioned_model(version), f64::MAX).err(),
             Some("unsupported_snapshot_version")

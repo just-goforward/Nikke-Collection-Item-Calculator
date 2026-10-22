@@ -64,7 +64,7 @@ pub struct Outcome {
     pub mass: Q,
 }
 pub type Dist = Rc<Vec<Outcome>>;
-pub(super) type CohortSupports = [Vec<Pieces>; 4];
+pub(super) type CohortSupports = Vec<Vec<Pieces>>;
 pub struct Supply {
     pub model: Model,
     pub priors: Vec<Q>,
@@ -78,7 +78,8 @@ pub struct Supply {
 impl Supply {
     pub fn new(model: Model, deadline: f64) -> Result<Self> {
         v3_gate::validate_laws(&model)?;
-        if model.population_prior.len() != 4 {
+        let fixed_dispatch = model.snapshot_version == "certified-daily-v5";
+        if model.population_prior.len() != if fixed_dispatch { 3 } else { 4 } {
             return Err("invalid_population_prior");
         }
         let population_prior = model
@@ -92,8 +93,9 @@ impl Supply {
         {
             return Err("invalid_population_prior");
         }
-        // Three priors are the historical profile, four the new profile. Never pad.
+        // Arity is versioned: v1 and v5 both have three entries. Never pad.
         if !matches!(model.priors.len(), 3 | 4)
+            || (fixed_dispatch && model.priors.len() != 3)
             || model.dispatch_expected.len() != model.priors.len()
         {
             return Err("invalid_cohort_weights");
@@ -111,6 +113,9 @@ impl Supply {
             .map(WireQ::rational)
             .collect::<Result<Vec<_>>>()?;
         if priors.iter().any(|q| q < &Q::zero()) || priors.iter().sum::<Q>() != Q::one() {
+            return Err("invalid_cohort_weights");
+        }
+        if fixed_dispatch && priors != population_prior {
             return Err("invalid_cohort_weights");
         }
         Ok(Self {
@@ -415,14 +420,14 @@ impl Supply {
     }
     pub fn supports(&mut self, reference: &LawRef) -> Result<Rc<CohortSupports>> {
         self.check()?;
-        if self.priors.len() != 4 {
+        if self.priors.len() != 4 && self.model.snapshot_version != "certified-daily-v5" {
             return Err("minimum_wait_requires_four_cohorts");
         }
         let key = (reference.law_id.clone(), reference.count);
         if let Some(rows) = self.support_cache.get(&key) {
             return Ok(Rc::clone(rows));
         }
-        let mut supports: CohortSupports = std::array::from_fn(|_| Vec::new());
+        let mut supports: CohortSupports = vec![Vec::new(); self.population_prior.len()];
         for (cohort, rows) in supports.iter_mut().enumerate() {
             let law = self.law(reference, cohort)?;
             *rows = law

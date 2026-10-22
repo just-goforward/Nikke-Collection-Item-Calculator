@@ -48,8 +48,8 @@ export function initialBridge(): CertifiedBridgeState {
   let storedText: string | null = null;
   try {
     storedText = readStoredCertifiedSession(localStorage);
-    // Live storage has no authenticated original snapshot: non-point legacy
-    // mixtures reset with a notice; fixed selections are preserved, not replayed.
+    // All old selections and inferred mixtures migrate to the fixed policy;
+    // stock, state and historical ledger entries remain unchanged.
     const restored = restoreCertifiedCalculatorSession(storedText);
     if (!restored) return settledCertifiedBridge(emptySession());
     return { ...settledCertifiedBridge(restored.session), correction: restored.correction };

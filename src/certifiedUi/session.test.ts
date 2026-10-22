@@ -188,7 +188,11 @@ describe("certified personal ledger", () => {
       },
       {
         ...session,
-        cohortWeights: [{ numerator: "1", denominator: "0" }, ...session.cohortWeights.slice(1)],
+        cohortWeights: [
+          { numerator: "1", denominator: "0" },
+          { numerator: "1", denominator: "3" },
+          { numerator: "1", denominator: "2" },
+        ],
       },
     ])
       expect(restoreCertifiedSession(JSON.stringify(corrupted))).toBeNull();

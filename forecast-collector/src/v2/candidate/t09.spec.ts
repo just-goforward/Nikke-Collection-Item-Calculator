@@ -2,7 +2,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import collaborations from "../../../fixtures/forecast-v2/expected/collaborations.json";
 import grants from "../../../fixtures/forecast-v2/expected/grants.json";
 import solo from "../../../fixtures/forecast-v2/expected/solo.json";
+import * as candidateBuilder from "../../candidate";
 import * as admission from "../../candidate-persistence";
+import { fixedPolicyEnvelope } from "../../candidate-policy-test-helper";
+import { sha256Hex, stableJson } from "../../crypto";
 import type { CollectorEnv } from "../../types";
 import { localDatabase } from "../rules/sqlite-test-db";
 import { now } from "./fixture";
@@ -88,6 +91,8 @@ it("projects the T09-sized confirmed calendar (24 seasons, six collaborations, e
     POLL_MODE: "both",
     FORECAST_V2_MODE: "on",
   };
+  const build = candidateBuilder.buildForecastCandidate;
+  const built = vi.spyOn(candidateBuilder, "buildForecastCandidate");
   const admitted = vi.spyOn(admission, "processSourceQueue");
   expect(await runV2CandidateUnit(configuration, now)).toEqual({ outcome: "built" });
   expect(admitted).toHaveBeenCalledOnce();
@@ -100,11 +105,30 @@ it("projects the T09-sized confirmed calendar (24 seasons, six collaborations, e
     .prepare("SELECT payload_json FROM forecast_candidates")
     .first<string>("payload_json");
   const candidate = JSON.parse(json!);
-  // Captured from the unmodified from-scratch T09 builder at 038e361.
-  expect(candidate.candidateId).toBe("forecast-9137d3e5ed36b05aaadf85b6");
+  expect(built).toHaveBeenCalledOnce();
+  const args = built.mock.calls[0]!;
+  const historical = await build(args[0], args[1], args[2], args[3], args[4], args[5], {
+    ...args[6],
+    version: "certified-daily-v4",
+  });
+  // Preserve both identities captured from the unmodified T09 builder at 038e361.
+  expect(historical.candidate.candidateId).toBe("forecast-9137d3e5ed36b05aaadf85b6");
+  expect(historical.payloadHash).toBe(
+    "e5bc43193eeaac8e19c638c7234901aaf0864876b872f0e9dca7234a6287c613",
+  );
+  expect(await sha256Hex(stableJson(historical.candidate))).toBe(historical.payloadHash);
+  // V5 changes the tuple/rule references/provenance and 51 profile means (fixed 1:2:3).
+  // Derive both new identity pins from authenticated v4 plus sealed independent cohorts;
+  // full serialized equality rejects changes to any other payload field or ordering.
+  const expected = await fixedPolicyEnvelope(historical);
+  expect(json).toBe(JSON.stringify(expected.candidate));
+  expect(candidate.candidateId).toBe("forecast-00cd18ae97c635bcf20e56ba");
+  expect(expected.payloadHash).toBe(
+    "c3351ed827413fa3cecf7f60375f6d31744b5860a1eac0ea532687fc60a70e7a",
+  );
   expect(
     await db.prepare("SELECT payload_hash FROM forecast_candidates").first("payload_hash"),
-  ).toBe("e5bc43193eeaac8e19c638c7234901aaf0864876b872f0e9dca7234a6287c613");
+  ).toBe(expected.payloadHash);
   // Historical S1–S40 are already in the certified baseline; publication covers
   // the current window plus later confirmed cadence anchors, not a 2-year ledger.
   for (const season of solo.seasons.filter((entry) => entry.season >= 42))

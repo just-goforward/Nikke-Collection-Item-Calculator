@@ -100,11 +100,12 @@ async function expectReview(payload: unknown, sourceReview: PublicReview) {
 
 describe("staging public advisory health", () => {
   it("runs against the canonical staging schema27", async () => {
+    // The canonical staging fixture includes 0034's v5 publication tuple.
     expect(
       await testEnv.FORECAST_DB.prepare(
         "SELECT MAX(version) AS version FROM schema_migrations",
       ).first(),
-    ).toEqual({ version: 33 });
+    ).toEqual({ version: 34 });
     expect((await health()).status).toBe(200);
   });
 

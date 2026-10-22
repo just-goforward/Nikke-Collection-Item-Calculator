@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as coverage from "../../shared/certifiedEvidenceCoverage.ts";
 import * as publicationStore from "../../shared/forecast-publication/store.ts";
 import { applyPublicationCommand } from "../../shared/forecast-publication/store.ts";
+import { TEST_PUBLICATION_COVERAGE } from "../../shared/forecast-publication/test-coverage.ts";
 import {
   approvalReview,
   emergencyReview,
@@ -18,8 +19,11 @@ import {
 import { encodeBase64 } from "../../shared/forecastPublication.ts";
 import { executeTestSql } from "../../shared/testD1Sql.ts";
 import usageSchema from "../../usage-guard/schema.sql?raw";
+import { requestPublicationInteraction } from "./publication-test-request.ts";
 import type { InteractionRouterEnv } from "./types.ts";
-import worker from "./worker.ts";
+import deployedWorker, { createInteractionWorker } from "./worker.ts";
+
+const worker = createInteractionWorker(TEST_PUBLICATION_COVERAGE);
 
 type SharedRouterTestEnv = InteractionRouterEnv & { PRODUCTION_FORECAST_DB: D1Database };
 let testEnv: SharedRouterTestEnv;
@@ -71,32 +75,9 @@ async function request(
   value: object,
   overrides: Partial<InteractionRouterEnv> = {},
   routerEnv: InteractionRouterEnv = testEnv,
+  handler = worker,
 ) {
-  const body = JSON.stringify(value);
-  const timestamp = String(Math.floor(Date.now() / 1_000));
-  const signature = await crypto.subtle.sign(
-    "Ed25519",
-    discordKey.privateKey,
-    new TextEncoder().encode(timestamp + body),
-  );
-  const context = createExecutionContext();
-  const response = await worker.fetch(
-    new Request("https://router.test/discord/interactions", {
-      method: "POST",
-      body,
-      headers: { "x-signature-ed25519": hex(signature), "x-signature-timestamp": timestamp },
-    }),
-    Object.defineProperties(
-      {},
-      {
-        ...Object.getOwnPropertyDescriptors(routerEnv),
-        ...Object.getOwnPropertyDescriptors(overrides),
-      },
-    ) as InteractionRouterEnv,
-    context,
-  );
-  await waitOnExecutionContext(context);
-  return response;
+  return requestPublicationInteraction(value, routerEnv, discordKey, overrides, handler);
 }
 function hex(buffer: ArrayBuffer) {
   return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -107,6 +88,15 @@ function custom(reviewId: string, environment = "staging") {
 async function count(db = testEnv.STAGING_FORECAST_DB) {
   return db.prepare("SELECT COUNT(*) n FROM forecast_runtime_activation_history").first();
 }
+
+it("activates through the deployed handler with the real registered v11 coverage", async () => {
+  const review = await approvalReview(testEnv.STAGING_FORECAST_DB);
+  await request(interaction(custom(review.reviewId)), {}, testEnv, deployedWorker);
+  expect(await count()).toEqual({ n: 1 });
+  expect(String(webhook.mock.calls.at(-1)?.[1]?.body)).toContain(
+    "**Forecast 승인 반영 완료** · 환경: staging",
+  );
+});
 
 describe("new publication Router", () => {
   it("preserves the read-only health/readiness contract", async () => {
@@ -628,6 +618,8 @@ describe("publication emergency controls and delivery recovery", () => {
       },
       signing,
       TEST_NOW,
+      undefined,
+      TEST_PUBLICATION_COVERAGE,
     );
     const b = await approvalReview(db, 2);
     await testEnv.USAGE_GUARD_DB.prepare("UPDATE usage_guard_state SET action='hard_stop'").run();

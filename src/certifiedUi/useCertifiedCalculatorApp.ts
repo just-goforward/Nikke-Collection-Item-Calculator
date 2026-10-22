@@ -64,8 +64,8 @@ export function useCertifiedCalculatorApp(
   const { bridge } = store;
   const { snapshot, prepareError } = preparation;
   const comparison = useMemo(
-    () => (snapshot ? compareCertifiedSupplyPeriods(snapshot, bridge.session.cohortWeights) : null),
-    [snapshot, bridge.session.cohortWeights],
+    () => (snapshot ? compareCertifiedSupplyPeriods(snapshot) : null),
+    [snapshot],
   );
   const stock = useMemo<Stock>(
     () => ({

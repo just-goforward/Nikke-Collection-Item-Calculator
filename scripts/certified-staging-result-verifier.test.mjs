@@ -795,7 +795,7 @@ test("freeze CLI enforces required source membership in actual Git repositories"
   assert.equal(process.version, "v24.22.1", "freeze CLI fixtures require Node v24.22.1");
   assert.equal(
     sourcePaths.length,
-    184,
+    218,
     "all versioned required sources must have omission coverage",
   );
   const { git, inheritedPath } = resolveFixtureGit();

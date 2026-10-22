@@ -24,9 +24,6 @@
 fieldset.cert-mobile-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .cert-mobile-button { display: inline-flex; height: 3rem; min-height: 3rem; align-items: center; justify-content: center; border: 1px solid var(--yellow); border-radius: 8px; background: var(--button-bg); padding: 0 .5rem; color: var(--ink); text-align: center; font-size: 15px; font-weight: 700; line-height: 1.25; }
 .cert-mobile-primary { border: 0; background: var(--action-bg); color: var(--ice); }
-.cert-field { display: grid; gap: 6px; min-width: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
-.cert-field select { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--input-bg); padding: 6px 10px; color: var(--ink); font: inherit; font-size: 15px; }
-.cert-field select:disabled { opacity: .6; }
 .cert-kit-dot { display: inline-block; width: 10px; height: 10px; border-radius: 999px; }
 .cert-supply table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
 .cert-supply th, .cert-supply td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }

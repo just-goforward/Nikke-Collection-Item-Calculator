@@ -304,6 +304,10 @@ function buildRules(input: CertifiedSupplyBuildInput, today: number): CertifiedS
   const rules = JSON.parse(
     JSON.stringify(input.rules ?? [createCertifiedSupplyRule(start)]),
   ) as CertifiedSupplyRule[];
+  if (!input.rules && input.version) {
+    for (const rule of rules)
+      rule.id = `${forecastVersionsForSnapshot(input.version).rulesVersion}:documented-physical-supply-v2`;
+  }
   rules.sort((a, b) => timestamp(a.effectiveFrom) - timestamp(b.effectiveFrom));
   if (rules.length > 1) {
     rules.reduce((previous, current) => {
@@ -552,7 +556,7 @@ export function buildSnapshot(
   const missing = historyMissing(input, window, soloRounds, recurring.missingPastRules);
   const futureMissing = recurring.missingFutureRules ? ["reward_rules"] : [];
   const snapshot: CertifiedSupplySnapshot = {
-    version: CERTIFIED_SUPPLY_VERSION,
+    version: input.version ?? CERTIFIED_SUPPLY_VERSION,
     futureLawSemantics: "independent_given_cohort-v1",
     revision: input.revision,
     sourceHash: input.sourceHash,
@@ -586,7 +590,7 @@ export function buildSnapshot(
     warnings: [...new Set(window.warnings)],
     provenance: [
       ...(input.provenance ?? []),
-      forecastVersionsForSnapshot(CERTIFIED_SUPPLY_VERSION).rulesVersion,
+      forecastVersionsForSnapshot(input.version ?? CERTIFIED_SUPPLY_VERSION).rulesVersion,
       "documented-physical-supply-v2",
       ...state.cadence.sourceUrls,
     ],

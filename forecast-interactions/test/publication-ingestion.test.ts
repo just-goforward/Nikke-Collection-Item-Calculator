@@ -22,12 +22,16 @@ import { buildConstructedForecastCandidate } from "../../forecast-collector/src/
 import { parseScheduleEvents } from "../../forecast-collector/src/naver.ts";
 import { parseNoticeDetail } from "../../forecast-collector/src/notice.ts";
 import { seedNormalUsageGuard } from "../../forecast-collector/src/test-usage-guard.ts";
-import { runDispatcher } from "../../forecast-dispatcher/src/dispatcher.ts";
+import { runDispatcher as runWithCoverage } from "../../forecast-dispatcher/src/dispatcher.ts";
 import type { DispatcherEnv } from "../../forecast-dispatcher/src/types.ts";
+import { TEST_PUBLICATION_COVERAGE } from "../../shared/forecast-publication/test-coverage.ts";
 import { encodeBase64 } from "../../shared/forecastPublication.ts";
 import { executeTestSql } from "../../shared/testD1Sql.ts";
 import type { InteractionRouterEnv } from "../src/types.ts";
-import router from "../src/worker.ts";
+import { createInteractionWorker } from "../src/worker.ts";
+
+const router = createInteractionWorker(TEST_PUBLICATION_COVERAGE);
+const runDispatcher = (env: DispatcherEnv) => runWithCoverage(env, {}, TEST_PUBLICATION_COVERAGE);
 
 // Cross-worker integration lives outside each Worker's production source boundary.
 // Its dedicated TS project prevents the three generated Cloudflare Env declarations
@@ -100,7 +104,11 @@ async function persistHistoricalNotice(
     nowMs,
     revision,
     [],
-    { cadenceVersion: median ? "observed-median-v2" : "observed-mean-thursday-v1" },
+    // This historical schema-29 ingestion scenario replays v4, not the v5 writer.
+    {
+      version: "certified-daily-v4",
+      cadenceVersion: median ? "observed-median-v2" : "observed-mean-thursday-v1",
+    },
   );
   return processSourceQueue(db, {
     mode: "bootstrap",

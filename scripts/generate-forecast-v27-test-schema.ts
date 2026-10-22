@@ -18,6 +18,7 @@ for (const name of [
   "0031_calendar_decisions",
   "0032_grant_occurrences",
   "0033_calendar_snapshots",
+  "0034_runtime_publication_v5",
 ]) {
   db.exec(readFileSync(resolve(root, `forecast-collector/migrations/${name}.sql`), "utf8"));
 }

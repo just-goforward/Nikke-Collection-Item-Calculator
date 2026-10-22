@@ -1,3 +1,7 @@
+import {
+  CERTIFIED_EVIDENCE_COVERAGE,
+  type CertifiedEvidenceCoverage,
+} from "../../shared/certifiedEvidenceCoverage.ts";
 import { errorCode, persistedErrorCode } from "../../shared/errorCodes.ts";
 import {
   createPreviousRollbackReview,
@@ -50,7 +54,11 @@ async function isolatedV2Drain(env: DispatcherEnv) {
   }
 }
 
-export async function runDispatcher(env: DispatcherEnv, _options: { scheduledTime?: number } = {}) {
+export async function runDispatcher(
+  env: DispatcherEnv,
+  _options: { scheduledTime?: number } = {},
+  coverage: readonly CertifiedEvidenceCoverage[] = CERTIFIED_EVIDENCE_COVERAGE,
+) {
   if (env.DISPATCH_ENABLED !== "true") return { status: "disabled", sent: 0 };
   const operationsSent = (await flushOperations(env)) + (await isolatedV2Drain(env));
   if (env.PUBLICATION_MODE !== "enabled") return { status: "completed", sent: operationsSent };
@@ -66,10 +74,10 @@ export async function runDispatcher(env: DispatcherEnv, _options: { scheduledTim
         AND (state='pending' OR (state='sending' AND lease_until<=?)) LIMIT 1`)
       .bind(env.ENVIRONMENT, MAX_ATTEMPTS, now, now)
       .first();
-    if (!deliveryDue) await admitCandidates(db, active, now);
+    if (!deliveryDue) await admitCandidates(db, active, now, coverage);
     if (active.sequence > 0 && active.candidate_id)
       await createReview(db, active, "off", null, null, now);
-    await createPreviousRollbackReview(db, active, now);
+    await createPreviousRollbackReview(db, active, now, undefined, coverage);
   } catch (error) {
     // A concurrent activation can stale this snapshot. Existing outbox deliveries
     // (especially committed results) must still proceed.

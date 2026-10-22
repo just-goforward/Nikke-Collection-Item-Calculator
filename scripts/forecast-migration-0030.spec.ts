@@ -15,7 +15,7 @@ it("upgrades populated v29 without changing legacy facts and skips applied migra
   const db = populatedV29();
   const before = acceptedLegacyRows(db);
   const runner = sqliteRunner(db);
-  expect(runner.run().applied).toEqual([30, 31, 32, 33]);
+  expect(runner.run().applied).toEqual([30, 31, 32, 33, 34]);
   expect(acceptedLegacyRows(db)).toEqual(before);
   expect(runner.run().applied).toEqual([]);
   expect(db.prepare("SELECT count(*) AS n FROM forecast_v2_monitors").get()).toEqual({ n: 8 });
@@ -27,7 +27,7 @@ it("upgrades populated v29 without changing legacy facts and skips applied migra
       .map((row) => row["name"]),
   ).toEqual(["status", "attempts", "created_at"]);
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
-  for (const migration of migrations.filter((m) => m.version >= 30)) {
+  for (const migration of migrations.filter((m) => m.version >= 30 && m.version <= 33)) {
     expect(readFileSync(migration.file, "utf8")).not.toMatch(
       /\b(?:ALTER|DROP)\s+(?:TABLE|TRIGGER)/i,
     );

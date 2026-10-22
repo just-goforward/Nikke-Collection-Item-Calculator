@@ -60,11 +60,11 @@ describe("versioned forecast payload admission", () => {
     const second = buildV3SupplyForecastCandidate({ ...admitted, certifiedSnapshot: frozen });
     expect(JSON.stringify(second)).toBe(JSON.stringify(expected));
   });
-  it("writes payload 5 for v4 while preserving payload 4 reconstruction", () => {
+  it("writes payload 6 for v5 while preserving payload 4 reconstruction", () => {
     const historical = supplyForecastCandidateSchema.parse(candidate);
     const current = buildSupplyForecastCandidate({
       ...historical,
-      certifiedSnapshot: { ...snapshot, version: "certified-daily-v4" },
+      certifiedSnapshot: { ...snapshot, version: "certified-daily-v5" },
       grants: [],
       schedule: {
         ...historical.schedule,
@@ -77,9 +77,9 @@ describe("versioned forecast payload admission", () => {
         }),
       },
     });
-    expect(current.payloadVersion).toBe(5);
-    expect(current.rulesVersion).toBe("schedule-kit-v4");
-    expect(current.certifiedSnapshot.version).toBe("certified-daily-v4");
+    expect(current.payloadVersion).toBe(6);
+    expect(current.rulesVersion).toBe("schedule-kit-v5");
+    expect(current.certifiedSnapshot.version).toBe("certified-daily-v5");
     expect(buildV3SupplyForecastCandidate({ ...historical, certifiedSnapshot: snapshot })).toEqual(
       historical,
     );

@@ -301,9 +301,10 @@ describe("P8 candidateId canonical identity", () => {
       const sourceHash = await sha256Hex(stableJson({ ...JSON.parse(legacyIdentity), grants: [] }));
       const ledgerHash = await sha256Hex(stableJson(result.candidate.certifiedSnapshot));
       expect(result.candidate.certifiedSnapshot?.sourceHash).toBe(sourceHash);
+      // V5 policy identity must not reuse the historical v4 rules namespace.
       expect(result.candidate.candidateId).toBe(
         `forecast-${(
-          await sha256Hex(stableJson({ rulesVersion: "schedule-kit-v4", sourceHash, ledgerHash }))
+          await sha256Hex(stableJson({ rulesVersion: "schedule-kit-v5", sourceHash, ledgerHash }))
         ).slice(0, 24)}`,
       );
       expect(result.candidate.schedule.collaborationPeriods).toEqual(

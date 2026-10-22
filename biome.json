@@ -92,6 +92,7 @@
         "scripts/certified-staging-approved-panel/v8/*.json",
         "scripts/certified-staging-approved-panel/v9/*.json",
         "scripts/certified-staging-approved-panel/v10/*.json",
+        "scripts/certified-staging-approved-panel/v11/*.json",
         "forecast-collector/fixtures/forecast-v2/**/*.json"
       ],
       "formatter": {

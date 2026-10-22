@@ -62,7 +62,7 @@ describe("certified version policy", () => {
     null,
     "",
     "certified-daily-v0",
-    "certified-daily-v5",
+    "certified-daily-v6",
     "__proto__",
     "constructor",
     {},
@@ -74,13 +74,14 @@ describe("certified version policy", () => {
   });
 
   it.each([
-    ["certified-daily-v1", 3, false, false, 56, false],
-    ["certified-daily-v2", 4, false, true, 56, false],
-    ["certified-daily-v3", 4, true, true, 7, false],
-    ["certified-daily-v4", 4, true, true, 7, true],
+    ["certified-daily-v1", 3, false, false, 56, false, false],
+    ["certified-daily-v2", 4, false, true, 56, false, false],
+    ["certified-daily-v3", 4, true, true, 7, false, false],
+    ["certified-daily-v4", 4, true, true, 7, true, false],
+    ["certified-daily-v5", 3, true, true, 7, true, true],
   ] as const)(
     "dispatches %s explicitly",
-    (version, cohortCount, physicalLaws, minimumWait, historyDays, segmentsAndGrants) => {
+    (version, cohortCount, physicalLaws, minimumWait, historyDays, segmentsAndGrants, fixedDispatch) => {
       expect(isCertifiedSnapshotVersion(version)).toBe(true);
       expect(certifiedVersionPolicy(version)).toEqual({
         cohortCount,
@@ -88,16 +89,18 @@ describe("certified version policy", () => {
         minimumWait,
         historyDays,
         segmentsAndGrants,
+        fixedDispatch,
       });
       expect(Object.isFrozen(certifiedVersionPolicy(version))).toBe(true);
     },
   );
 
-  it("accepts only the three historical/current payload and rules pairs", () => {
+  it("accepts only the four historical/current payload and rules pairs", () => {
     const pairs = [
       [3, "schedule-kit-v2"],
       [4, "schedule-kit-v3"],
       [5, "schedule-kit-v4"],
+      [6, "schedule-kit-v5"],
     ] as const;
     for (const payload of [undefined, null, "", 2, 3, 4, 5, 6]) {
       for (const rules of [

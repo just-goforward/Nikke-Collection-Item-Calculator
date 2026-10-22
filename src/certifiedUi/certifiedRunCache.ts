@@ -6,7 +6,8 @@ import {
 import { activeCertifiedReceiptIds, type CertifiedSession } from "./session";
 
 /** One in-memory result only; not stock forecasting or persistent result storage.
- * Bind every numerical/claim input while ignoring only the preparation timestamp.
+ * Bind every numerical/claim input, including the snapshot's versioned cohort policy,
+ * while ignoring only the preparation timestamp.
  */
 export function certifiedRunCacheKey(
   session: CertifiedSession,
@@ -18,7 +19,6 @@ export function certifiedRunCacheKey(
     id: session.id,
     state: session.state,
     stock: session.stock,
-    cohortWeights: session.cohortWeights,
     received: activeCertifiedReceiptIds(session, snapshot.events),
     snapshot: { ...snapshot, asOf: undefined },
     claimable: snapshot.events

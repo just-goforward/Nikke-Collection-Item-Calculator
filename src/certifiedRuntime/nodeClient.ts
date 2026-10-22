@@ -18,9 +18,18 @@ export function createNodeCertifiedClient(
     preservePartial: interruptedCertifiedWaiting,
     validateOutputBinding: assertCertifiedOutputBinding,
     bindForecastIdentity: (input, track) =>
-      assertTrustedCertifiedForecast(input.snapshot, track, input.forecastPublication),
+      assertTrustedCertifiedForecast(
+        input.snapshot,
+        track,
+        input.forecastPublication,
+        input.forecastSource,
+      ),
     forecastIdentityWorkspaceBound: (input) =>
-      trustedCertifiedForecastWorkspaceBound(input.snapshot, input.forecastPublication),
+      trustedCertifiedForecastWorkspaceBound(
+        input.snapshot,
+        input.forecastPublication,
+        input.forecastSource,
+      ),
     createWorker: () => {
       const worker = new Worker(workerUrl);
       const port: CertifiedWorkerPort<CertifiedInput, CertifiedRuntimeOutput> = {

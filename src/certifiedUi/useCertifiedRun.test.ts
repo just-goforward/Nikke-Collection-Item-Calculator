@@ -14,6 +14,7 @@ const driver = vi.hoisted(() => ({
   cursor: 0,
   effects: [] as EffectCallback[],
   prepare: vi.fn(),
+  approved: vi.fn(),
   request: vi.fn(),
   dispose: vi.fn(),
   create: vi.fn(),
@@ -38,7 +39,8 @@ vi.mock("react", () => ({
     ];
   },
 }));
-vi.mock("../lib/certifiedForecast", () => ({ prepareCertifiedForecast: driver.prepare }));
+vi.mock("../lib/certifiedLocalForecast", () => ({ prepareLocalCertifiedForecast: driver.prepare }));
+vi.mock("../lib/certifiedForecast", () => ({ prepareCertifiedForecast: driver.approved }));
 vi.mock("../lib/runtimeForecast", () => ({ runtimeForecast: { acquire: driver.acquire } }));
 vi.mock("../certifiedRuntime/browserClient", () => ({
   createBrowserCertifiedClient: driver.create,
@@ -81,6 +83,7 @@ function change(state: DocumentVisibilityState) {
 beforeEach(() => {
   driver.slots = [];
   vi.stubEnv("VITE_FORECAST_RUNTIME", "");
+  vi.stubEnv("DEV", true);
   vi.resetAllMocks();
   visibility = Object.assign(new EventTarget(), {
     visibilityState: "visible" as DocumentVisibilityState,
@@ -97,6 +100,59 @@ afterEach(() => {
 });
 
 describe("submit-to-preparation visibility lifecycle", () => {
+  it("submits only the approved bundled forecast in the production query-enabled calculator", async () => {
+    vi.stubEnv("DEV", false);
+    const approved = { ...snapshot, version: "certified-daily-v3" as const };
+    driver.approved.mockResolvedValue(approved);
+    driver.request.mockRejectedValue(new CertifiedRuntimeError("deadline", "deadline"));
+    await RunHarness().calculate();
+    expect(driver.approved).toHaveBeenCalledOnce();
+    expect(driver.prepare).not.toHaveBeenCalled();
+    expect(driver.acquire).not.toHaveBeenCalled();
+    expect(driver.request.mock.lastCall?.[0]).toMatchObject({ snapshot: approved });
+    expect(driver.request.mock.lastCall?.[0]).not.toHaveProperty("forecastSource");
+  });
+  it("derives each snapshot version's weights for the same weightless session", async () => {
+    expect(session).not.toHaveProperty("cohortWeights");
+    const original = JSON.stringify(session);
+    const thirds = [
+      [1, 3],
+      [1, 3],
+      [1, 3],
+    ] as const;
+    const historicalFour = [
+      [1, 7],
+      [2, 7],
+      [3, 7],
+      [1, 7],
+    ] as const;
+    const fixedThree = [
+      [1, 6],
+      [1, 3],
+      [1, 2],
+    ] as const;
+    for (const [version, weights] of [
+      ["certified-daily-v1", thirds],
+      ["certified-daily-v2", historicalFour],
+      ["certified-daily-v3", historicalFour],
+      ["certified-daily-v4", historicalFour],
+      ["certified-daily-v5", fixedThree],
+    ] as const) {
+      driver.prepare.mockResolvedValueOnce({ ...snapshot, version });
+      driver.request.mockRejectedValueOnce(new CertifiedRuntimeError("deadline", "deadline"));
+      await RunHarness(session).calculate();
+      const submitted = driver.request.mock.lastCall?.[0];
+      expect(submitted.forecastSource).toBe("local");
+      expect(submitted.snapshot.version).toBe(version);
+      expect(submitted.cohortWeights).toEqual(
+        weights.map(([numerator, denominator]) => ({
+          numerator: String(numerator),
+          denominator: String(denominator),
+        })),
+      );
+      expect(JSON.stringify(session)).toBe(original);
+    }
+  });
   it("selects one runtime forecast immediately before submission and retains it throughout the run", async () => {
     vi.stubEnv("VITE_FORECAST_RUNTIME", "staging");
     const selected = { ...snapshot, revision: "runtime-selected" };
@@ -115,6 +171,7 @@ describe("submit-to-preparation visibility lifecycle", () => {
     expect(onSnapshot).toHaveBeenCalledWith(selected);
     const submitted = driver.request.mock.calls[0]?.[0];
     expect(submitted).toMatchObject({ snapshot: selected, forecastPublication: publication });
+    expect(submitted).not.toHaveProperty("forecastSource");
     driver.acquire.mockResolvedValue({ snapshot: { ...snapshot, revision: "later-approval" } });
     expect(submitted.snapshot.revision).toBe("runtime-selected");
     expect(onSnapshot).toHaveBeenCalledTimes(1);

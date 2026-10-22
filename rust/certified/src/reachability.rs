@@ -132,11 +132,11 @@ impl Grid {
 pub(super) struct Reachability {
     stock: Units,
     remaining: Units,
-    layers: [Rc<Grid>; 4],
+    layers: Vec<Rc<Grid>>,
 }
 
 impl Reachability {
-    pub fn new(stock: Units, caps: Units) -> Result<Self> {
+    pub fn new(stock: Units, caps: Units, cohort_count: usize) -> Result<Self> {
         let stock = std::array::from_fn(|axis| stock[axis].min(caps[axis]));
         // Saturating stock+receipts equals stock plus receipts saturated at the
         // remaining cap. Keeping stock as an offset avoids allocating empty
@@ -148,13 +148,13 @@ impl Reachability {
         Ok(Self {
             stock,
             remaining,
-            layers: std::array::from_fn(|_| Rc::clone(&initial)),
+            layers: vec![initial; cohort_count],
         })
     }
 
     pub fn advance(
         &mut self,
-        supports: &[Vec<Pieces>; 4],
+        supports: &[Vec<Pieces>],
         check: &mut impl FnMut() -> Result<()>,
     ) -> Result<()> {
         let previous = self.layers.clone();
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn keeps_latent_cohorts_separate_across_receipts() {
-        let mut reach = Reachability::new([9, 0, 0], [30, 30, 30]).unwrap();
+        let mut reach = Reachability::new([9, 0, 0], [30, 30, 30], 4).unwrap();
         let supports = [
             vec![[10, 0, 0]],
             vec![[0, 10, 0]],
@@ -276,8 +276,8 @@ mod tests {
 
     #[test]
     fn projects_only_after_adding_raw_stock_and_receipts() {
-        let mut reach = Reachability::new([9, 0, 0], [30; 3]).unwrap();
-        let supports = std::array::from_fn(|_| vec![[1, 0, 0]]);
+        let mut reach = Reachability::new([9, 0, 0], [30; 3], 4).unwrap();
+        let supports = vec![vec![[1, 0, 0]]; 4];
         reach.advance(&supports, &mut || Ok(())).unwrap();
         assert_eq!(
             reach.units(25_000, &mut || Ok(())).unwrap(),
@@ -287,8 +287,8 @@ mod tests {
 
     #[test]
     fn checks_budget_and_clamps_large_raw_receipts_without_truncation() {
-        let mut reach = Reachability::new([100_000; 3], [20; 3]).unwrap();
-        let supports = std::array::from_fn(|_| vec![[u64::MAX; 3]]);
+        let mut reach = Reachability::new([100_000; 3], [20; 3], 4).unwrap();
+        let supports = vec![vec![[u64::MAX; 3]]; 4];
         assert_eq!(
             reach
                 .advance(&supports, &mut || Err("request_budget_exhausted"))

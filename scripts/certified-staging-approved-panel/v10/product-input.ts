@@ -62,7 +62,7 @@ export async function productInput() {
       sourceIds: [...grant.sourceIds],
       restatementOf: [...grant.restatementOf],
     })),
-    { cadenceVersion: "observed-median-v2", confirmedRounds },
+    { version: "certified-daily-v4", cadenceVersion: "observed-median-v2", confirmedRounds },
   );
   const snapshot = constructed.envelope.candidate.certifiedSnapshot;
   assert.ok(snapshot);

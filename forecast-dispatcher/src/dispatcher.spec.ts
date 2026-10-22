@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, it, vi } from "vitest";
+import { TEST_PUBLICATION_COVERAGE } from "../../shared/forecast-publication/test-coverage.ts";
 import {
   migratePublicationDb,
   seedCandidate,
   TEST_NOW,
 } from "../../shared/forecast-publication/test-fixtures.ts";
-import { runDispatcher } from "./dispatcher.ts";
+import { runDispatcher as runWithCoverage } from "./dispatcher.ts";
 import { localDatabase } from "./test-database.ts";
 import type { DispatcherEnv } from "./types.ts";
+
+const runDispatcher = (env: DispatcherEnv) => runWithCoverage(env, {}, TEST_PUBLICATION_COVERAGE);
 
 /**
  * Runs in the Node/SQLite lane. This scenario drives 26 full dispatcher passes and

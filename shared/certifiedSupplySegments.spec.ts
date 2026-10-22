@@ -69,7 +69,7 @@ describe("season 38 suspended and reopened round", () => {
   it("issues ten rewards with two independent five-day claim windows", () => {
     const snapshot = buildCertifiedSupplySnapshot(input);
     const events = snapshot.events.filter((event) => event.round === 38);
-    expect(snapshot.version).toBe("certified-daily-v4");
+    expect(snapshot.version).toBe("certified-daily-v5");
     expect(events.map((event) => event.id)).toEqual([
       ...Array.from({ length: 5 }, (_, day) => `solo:r38:day${day + 1}`),
       ...Array.from({ length: 5 }, (_, day) => `solo:r38:segment2:day${day + 1}`),

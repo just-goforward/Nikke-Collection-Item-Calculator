@@ -3,16 +3,18 @@ import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as coverage from "../../shared/certifiedEvidenceCoverage.ts";
 import {
-  applyPublicationCommand,
+  applyPublicationCommand as applyCommand,
   type CommandInput,
-  createPreviousRollbackReview,
+  candidateCoverageError,
   initializePublication,
+  createPreviousRollbackReview as previousRollbackReview,
   REVIEW_TTL_MS,
   readActive,
   readReview,
   readSealedCandidate,
   sealCandidate,
 } from "../../shared/forecast-publication/store.ts";
+import { TEST_PUBLICATION_COVERAGE } from "../../shared/forecast-publication/test-coverage.ts";
 import {
   approvalReview,
   emergencyReview,
@@ -27,6 +29,10 @@ import {
 } from "../../shared/forecastPublication.ts";
 
 const db = env.STAGING_FORECAST_DB;
+const applyPublicationCommand: typeof applyCommand = (...args) =>
+  applyCommand(args[0], args[1], args[2], args[3], args[4], TEST_PUBLICATION_COVERAGE);
+const createPreviousRollbackReview: typeof previousRollbackReview = (...args) =>
+  previousRollbackReview(args[0], args[1], args[2], args[3], TEST_PUBLICATION_COVERAGE);
 let signing: { privateKey: string; keyId: string };
 let publicKeyBase64: string;
 beforeEach(async () => {
@@ -107,6 +113,38 @@ function verify(value: unknown, sequence = 0) {
     minimumSequence: sequence,
   });
 }
+
+it("admits the real registered v11 engine while empty coverage still fails closed", async () => {
+  const review = await approvalReview(db);
+  expect(candidateCoverageError(review.candidate)).toBeNull();
+  expect(candidateCoverageError(review.candidate, TEST_PUBLICATION_COVERAGE)).toBeNull();
+  expect(candidateCoverageError(review.candidate, [])).toBe("publication_evidence_uncovered");
+  const before = await counts();
+  await expect(
+    applyCommand(db, input(review.reviewId), signing, TEST_NOW, undefined, []),
+  ).rejects.toThrow("publication_evidence_uncovered");
+  expect(await counts()).toEqual(before);
+  await expect(applyCommand(db, input(review.reviewId), signing, TEST_NOW)).resolves.toEqual({
+    sequence: 1,
+    duplicate: false,
+  });
+  expect(await counts()).toEqual({ approvals: 1, history: 1, results: 1, sequence: 1 });
+});
+
+it("creates rollback review with real v11 coverage but suppresses it with empty coverage", async () => {
+  const first = await approvalReview(db);
+  await apply(first.reviewId);
+  const second = await approvalReview(db, 2);
+  await apply(second.reviewId, "1002");
+  const active = await readActive(db, "staging");
+  const before = await counts();
+  expect(await previousRollbackReview(db, active, TEST_NOW, undefined, [])).toBeNull();
+  expect(await counts()).toEqual(before);
+  expect(await previousRollbackReview(db, active, TEST_NOW)).toEqual(
+    expect.stringMatching(/^[0-9a-f]{32}$/),
+  );
+  expect(await counts()).toEqual(before);
+});
 
 it.each([false, true])("rejects unsupported/uncovered approval: %s", async (median) => {
   const review = await approvalReview(db, 1, median);

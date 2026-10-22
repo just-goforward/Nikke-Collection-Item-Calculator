@@ -20,6 +20,7 @@ import { projectSupplyReference } from "./supplyForecastProjection.ts";
 const at = Date.parse("2026-10-01T05:00:00+09:00");
 const snapshot = () =>
   buildCertifiedSupplySnapshot({
+    version: "certified-daily-v3",
     asOf: new Date(at).toISOString(),
     revision: "v3-oracles",
     sourceHash: "a".repeat(64),
@@ -51,7 +52,7 @@ describe("FRP-v3.1 exact supply rules", () => {
     const rule = snapshot().rules[0];
     if (!rule) throw new Error("fixture_rule");
     const solo = rule.soloDays.map((refs) =>
-      expectedCertifiedRefs(refs, certifiedCohortWeights(), {}),
+      expectedCertifiedRefs(refs, certifiedCohortWeights(undefined, "certified-daily-v3"), {}),
     );
     expect(solo).toEqual([
       [q(144, 5), q(12, 5), ZERO],
@@ -122,11 +123,12 @@ describe("FRP-v3.1 exact supply rules", () => {
     expect(
       expectedCertifiedRefs(
         future.flatMap((event) => event.refs),
-        certifiedCohortWeights(),
+        certifiedCohortWeights(undefined, "certified-daily-v3"),
         {},
       ),
     ).toEqual([q(80), q(80), ZERO]);
     const collaboration = buildCertifiedSupplySnapshot({
+      version: "certified-daily-v3",
       asOf: value.asOf,
       revision: "collaboration",
       sourceHash: "a".repeat(64),
@@ -170,7 +172,7 @@ describe("FRP-v3.1 exact supply rules", () => {
 
 describe("v3 runtime admission, separate from historical law readers", () => {
   it("accepts exactly the builtin law set and keeps v2 finite fixtures readable", () => {
-    expect(assertCertifiedRuntimeSupplySnapshot(snapshot()).version).toBe("certified-daily-v4");
+    expect(assertCertifiedRuntimeSupplySnapshot(snapshot()).version).toBe("certified-daily-v3");
     const legacy = historic();
     legacy.laws = [
       ...legacy.laws,

@@ -14,9 +14,18 @@ export function createBrowserCertifiedClient(options: { idleTimeoutMs?: number }
     preservePartial: interruptedCertifiedWaiting,
     validateOutputBinding: assertCertifiedOutputBinding,
     bindForecastIdentity: (input, track) =>
-      assertTrustedCertifiedForecast(input.snapshot, track, input.forecastPublication),
+      assertTrustedCertifiedForecast(
+        input.snapshot,
+        track,
+        input.forecastPublication,
+        input.forecastSource,
+      ),
     forecastIdentityWorkspaceBound: (input) =>
-      trustedCertifiedForecastWorkspaceBound(input.snapshot, input.forecastPublication),
+      trustedCertifiedForecastWorkspaceBound(
+        input.snapshot,
+        input.forecastPublication,
+        input.forecastSource,
+      ),
     createWorker: () => {
       const worker = new Worker(new URL("./browserWorker.ts", import.meta.url), {
         type: "module",

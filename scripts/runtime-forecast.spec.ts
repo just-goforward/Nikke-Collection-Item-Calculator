@@ -208,6 +208,9 @@ describe("signed runtime forecast consumer admission", () => {
     ).resolves.toMatchObject({
       snapshotRevision: "runtime-approved-fixture",
     });
+    await expect(
+      assertTrustedCertifiedForecast(selected.snapshot, () => {}, selected.publication, "local"),
+    ).rejects.toThrow("certified_forecast_not_approved");
     const forged = {
       ...selected.snapshot,
       provenance: [...selected.snapshot.provenance, "unsigned-provenance"],

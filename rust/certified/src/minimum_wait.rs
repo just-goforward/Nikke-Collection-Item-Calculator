@@ -1,5 +1,5 @@
 //! Batch-valued endpoint classifier. The loss unit is one day of the fixed
-//! 1:2:3:1 mixed recurring supply, not the user's posterior or initial stock.
+//! versioned population supply, not the user's posterior or initial stock.
 //! Directed enclosures prove separated primary comparisons; overlapping bounds
 //! always fall back to exact rational probabilities, never approximate ties.
 use super::reachability::Reachability;
@@ -43,6 +43,7 @@ pub(super) struct Assessment {
     evaluated: Vec<usize>,
     rates: Option<[Q; 3]>,
     certificate: bool,
+    cohort_count: usize,
     days: Vec<Day>,
 }
 
@@ -57,6 +58,7 @@ impl Assessment {
             evaluated: Vec::new(),
             rates: None,
             certificate: false,
+            cohort_count: 4,
             days: Vec::new(),
         }
     }
@@ -91,6 +93,7 @@ impl Assessment {
             "evaluatedDays":self.evaluated,"reason":self.reason,
             "mixedDailyRate":self.rates.as_ref().map(|rates|rates.iter().map(wire).collect::<Vec<_>>()),
             "evidence":if self.certificate {vec!["batch_settlement_bound_theta_rate_ge_10n"]}
+                else if self.cohort_count == 3 {vec!["exact_P_only_batch_endpoints","positive_support_union_all_three_latent_cohorts"]}
                 else {vec!["exact_P_only_batch_endpoints","positive_support_union_all_four_latent_cohorts"]},
         })
     }
@@ -246,6 +249,7 @@ impl Engine {
         all_days: bool,
     ) -> Assessment {
         let mut result = Assessment::unknown(batch, "minimum_wait_in_progress");
+        result.cohort_count = supply.priors.len();
         let evaluation = (|| -> Result<()> {
             if now() >= self.deadline {
                 return Err("request_budget_exhausted");
@@ -287,7 +291,7 @@ impl Engine {
                 // P lookups are canonicalized by the exact finite-game caps.
                 caps = [usize::MAX; 3];
             }
-            let mut reach = Reachability::new(stock, caps)?;
+            let mut reach = Reachability::new(stock, caps, supply.priors.len())?;
             let mut answers = HashMap::new();
             for day in 1..=HORIZON {
                 if now() >= self.deadline {

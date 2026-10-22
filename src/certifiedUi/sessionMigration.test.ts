@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { add, div, mul, ONE, q, sum, toWire, ZERO } from "../../shared/certifiedRational";
-import {
-  buildCertifiedSupplySnapshot,
-  DEFAULT_PERSONAL_COHORT_WEIGHTS,
-} from "../../shared/certifiedSupply";
+import { q, toWire } from "../../shared/certifiedRational";
+import { buildCertifiedSupplySnapshot } from "../../shared/certifiedSupply";
 import { LEGACY_CERTIFIED_SUPPLY_LAWS } from "../../shared/certifiedSupplyLaws";
 import {
   restoreCertifiedCalculatorSession,
@@ -15,25 +12,6 @@ import {
   recordCertifiedOutcome,
   restoreCertifiedSession,
 } from "./session";
-
-// Independent likelihood invariant: a zero-piece dispatch implies no kept card
-// in earlier rounds. Each such round restarts the entire weighted 56-card pool.
-function probabilityNoKeptCard() {
-  const weights = [15, 15, 15, 3, 7, 7, 3];
-  const counts = weights.map(() => 0);
-  function draw(slots: number, total: number): ReturnType<typeof q> {
-    if (slots === 0) return ONE;
-    let mass = ZERO;
-    for (const [index, weight] of weights.entries()) {
-      const used = counts[index] ?? 0;
-      counts[index] = used + 1;
-      mass = add(mass, mul(q((4 - used) * weight, total), draw(slots - 1, total - weight)));
-      counts[index] = used;
-    }
-    return mass;
-  }
-  return draw(4, 400);
-}
 
 function fixture() {
   const built = buildCertifiedSupplySnapshot({
@@ -74,15 +52,15 @@ function fixture() {
   return { original, legacy };
 }
 
-describe("four-cohort legacy certified-session migration", () => {
+describe("fixed-policy certified-session migration", () => {
   it.each([0, 1, 2])(
-    "keeps the explicit legacy cohort %i selection in four entries",
+    "discards the explicit legacy cohort %i selection without changing the ledger",
     (selected) => {
       const { legacy } = fixture();
       const weights = [0, 1, 2].map((cohort) => toWire(q(cohort === selected ? 1 : 0)));
       const next = restoreCertifiedSession(JSON.stringify({ ...legacy, cohortWeights: weights }));
-      expect(next?.cohortWeights).toEqual([...weights, toWire(ZERO)]);
-      expect(next?.migrationNotice).toBe("cohort_selection_kept");
+      expect(next).not.toHaveProperty("cohortWeights");
+      expect(next?.migrationNotice).toBe("cohort_prior_reset");
       expect(next?.stock).toEqual(legacy.stock);
       expect(next?.receipts).toEqual(legacy.receipts);
       expect(next?.outcomes).toEqual(legacy.outcomes);
@@ -93,7 +71,7 @@ describe("four-cohort legacy certified-session migration", () => {
     const { original, legacy } = fixture();
     for (const source of [undefined, original]) {
       const next = restoreCertifiedSession(JSON.stringify({ ...legacy, receipts: [] }), source);
-      expect(next?.cohortWeights).toEqual(DEFAULT_PERSONAL_COHORT_WEIGHTS);
+      expect(next).not.toHaveProperty("cohortWeights");
       expect(next?.migrationNotice).toBe("cohort_prior_reset");
     }
   });
@@ -107,8 +85,7 @@ describe("four-cohort legacy certified-session migration", () => {
       const next = restoreCertifiedSession(JSON.stringify(legacy), source);
       expect(next).toMatchObject({
         version: 2,
-        profileId: "certified-staging-v3",
-        cohortWeights: DEFAULT_PERSONAL_COHORT_WEIGHTS,
+        profileId: "certified-staging-v4",
         migrationNotice: "cohort_prior_reset",
         stock: legacy.stock,
         state: legacy.state,
@@ -117,21 +94,22 @@ describe("four-cohort legacy certified-session migration", () => {
         outcomes: legacy.outcomes,
       });
       expect(restoreCertifiedSession(JSON.stringify(next))).toEqual(next);
+      expect(next).not.toHaveProperty("cohortWeights");
     }
   });
 
-  it("can replay a retired receipt from its complete original law without adding stock twice", () => {
+  it("preserves retired receipts without replay or adding stock twice", () => {
     const { original, legacy } = fixture();
     const next = restoreCertifiedSession(JSON.stringify(legacy), original);
-    expect(next?.cohortWeights).toEqual(DEFAULT_PERSONAL_COHORT_WEIGHTS);
-    expect(next?.migrationNotice).toBe("cohort_posterior_replayed");
+    expect(next).not.toHaveProperty("cohortWeights");
+    expect(next?.migrationNotice).toBe("cohort_prior_reset");
     expect(next?.stock).toEqual(legacy.stock);
     expect(next?.state).toEqual(legacy.state);
     expect(next?.outcomes).toEqual(legacy.outcomes);
     expect(next?.receipts).toEqual(legacy.receipts);
   });
 
-  it("replays a cohort-dependent dispatch likelihood, while the live path resets", () => {
+  it("never applies a cohort-dependent receipt likelihood, even with its original source", () => {
     const { original, legacy } = fixture();
     const event = original.events[0];
     if (!event) throw new Error("missing original event");
@@ -143,17 +121,13 @@ describe("four-cohort legacy certified-session migration", () => {
       ...legacy,
       receipts: [{ eventId: event.id, at: event.at, pieces: [0, 0, 0], alreadyInStock: true }],
     };
-    const a = probabilityNoKeptCard();
-    const a2 = mul(a, a);
-    const masses = [ONE, mul(q(2), a), mul(q(3), a2), mul(a2, a)];
-    const expected = masses.map((mass) => toWire(div(mass, sum(masses))));
     const replayed = restoreCertifiedSession(JSON.stringify(observed), source);
-    expect(replayed?.cohortWeights).toEqual(expected);
-    expect(replayed?.cohortWeights).not.toEqual(DEFAULT_PERSONAL_COHORT_WEIGHTS);
-    expect(replayed?.migrationNotice).toBe("cohort_posterior_replayed");
+    expect(replayed).not.toHaveProperty("cohortWeights");
+    expect(replayed?.migrationNotice).toBe("cohort_prior_reset");
+    expect(replayed?.receipts).toEqual(observed.receipts);
     expect(replayed?.stock).toEqual(legacy.stock);
     const live = restoreCertifiedCalculatorSession(JSON.stringify(observed));
-    expect(live?.session.cohortWeights).toEqual(DEFAULT_PERSONAL_COHORT_WEIGHTS);
+    expect(live?.session).not.toHaveProperty("cohortWeights");
     expect(live?.session.migrationNotice).toBe("cohort_prior_reset");
   });
 
@@ -203,4 +177,36 @@ describe("four-cohort legacy certified-session migration", () => {
     expect(next?.receipts).toEqual(restored.receipts);
     expect(next?.outcomes).toEqual(restored.outcomes);
   });
+
+  it.each(["certified-staging-v2", "certified-staging-v3"])(
+    "discards all four-cohort selections and posteriors from %s",
+    (profileId) => {
+      const { legacy } = fixture();
+      for (const values of [
+        [1, 0, 0, 0],
+        [0, 0, 0, 1],
+        [1, 2, 3, 1],
+        [4, 3, 2, 1],
+      ]) {
+        const total = values.reduce((a, b) => a + b, 0);
+        const old = {
+          ...legacy,
+          version: 2,
+          profileId,
+          cohortWeights: values.map((value) => toWire(q(value, total))),
+        };
+        const next = restoreCertifiedSession(JSON.stringify(old));
+        expect(next).toMatchObject({
+          id: old.id,
+          state: old.state,
+          stock: old.stock,
+          outcomes: old.outcomes,
+          receipts: old.receipts,
+          retiredReceiptIds: old.retiredReceiptIds,
+          migrationNotice: "cohort_prior_reset",
+        });
+        expect(next).not.toHaveProperty("cohortWeights");
+      }
+    },
+  );
 });

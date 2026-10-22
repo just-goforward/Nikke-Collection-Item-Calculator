@@ -32,6 +32,7 @@ import {
   DAY_MS,
   DEFAULT_PERSONAL_COHORT_WEIGHTS as DEFAULT_COHORT_WEIGHTS,
   dateStart,
+  FIXED_DISPATCH_COHORT_WEIGHTS,
   freezeJson,
   isDeeplyFrozen,
   iso,
@@ -301,12 +302,26 @@ export function certifiedCohortWeights(
   weights?: SnapshotCohortWeights,
   version: Model.CertifiedSupplyVersion = CERTIFIED_SUPPLY_VERSION,
 ): CohortTuple<Q> {
-  const legacy = certifiedVersionPolicy(version).cohortCount === 3;
+  const policy = certifiedVersionPolicy(version);
+  const legacy = policy.cohortCount === 3 && !policy.fixedDispatch;
   const selected =
-    weights ?? (legacy ? LEGACY_PERSONAL_COHORT_WEIGHTS : DEFAULT_PERSONAL_COHORT_WEIGHTS);
-  if (selected.length !== (legacy ? 3 : 4)) throw new Error("certified_cohort_weights_invalid");
+    weights ??
+    (policy.fixedDispatch
+      ? FIXED_DISPATCH_COHORT_WEIGHTS
+      : legacy
+        ? LEGACY_PERSONAL_COHORT_WEIGHTS
+        : DEFAULT_PERSONAL_COHORT_WEIGHTS);
+  if (selected.length !== policy.cohortCount) throw new Error("certified_cohort_weights_invalid");
   const values = selected.map(fromWire) as [Q, Q, Q] | [Q, Q, Q, Q];
   if (values.some((weight) => weight.n < 0n) || !eq(sum(values), ONE))
+    throw new Error("certified_cohort_weights_invalid");
+  if (
+    policy.fixedDispatch &&
+    !values.every((value, index) => {
+      const fixed = FIXED_DISPATCH_COHORT_WEIGHTS[index];
+      return fixed !== undefined && eq(value, fromWire(fixed));
+    })
+  )
     throw new Error("certified_cohort_weights_invalid");
   return values;
 }

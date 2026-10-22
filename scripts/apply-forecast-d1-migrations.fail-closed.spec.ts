@@ -14,7 +14,7 @@ import {
 } from "./forecast-migration-test-fixtures.ts";
 import { legacyDatabase } from "./forecast-migration-v27-fixtures.ts";
 
-const currentVersions = [...previousVersions, 26, 27, 28, 29, 30, 31, 32, 33];
+const currentVersions = [...previousVersions, 26, 27, 28, 29, 30, 31, 32, 33, 34];
 
 function databaseSnapshot(db: DatabaseSync) {
   const catalog = db
@@ -50,14 +50,14 @@ describe("Forecast migration fail-closed ledger checks", () => {
   });
 
   it.each(["staging", "production"] as const)(
-    "rejects a contiguous unknown version 30 in %s before writes",
+    "rejects a contiguous unknown version 35 in %s before writes",
     (environment) => {
       const spawn = vi
         .fn<Spawn>()
         .mockReturnValueOnce(result(json([{ name: "schema_migrations", type: "table" }])))
-        .mockReturnValueOnce(result(json(ledgerRows([...currentVersions, 34]))));
+        .mockReturnValueOnce(result(json(ledgerRows([...currentVersions, 35]))));
       expect(() => applyForecastD1Migrations({ ...localStaging, environment }, { spawn })).toThrow(
-        "Unknown schema_migrations version: 34",
+        "Unknown schema_migrations version: 35",
       );
       expect(spawn).toHaveBeenCalledTimes(2);
       expect(spawn.mock.calls.every(([, args]) => !args.includes("--file"))).toBe(true);

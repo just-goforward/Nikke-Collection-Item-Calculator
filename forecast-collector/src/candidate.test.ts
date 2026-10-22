@@ -34,7 +34,7 @@ const soloEvent: ScheduleEvent = {
 };
 
 describe("forecast candidate model", () => {
-  it("projects the exact 1:2:3:1 dispatch mix plus Tuesday boxes and Wednesday kits", async () => {
+  it("projects the exact 1:2:3 dispatch mix plus Tuesday boxes and Wednesday kits", async () => {
     const now = Date.parse("2026-08-28T00:00:00Z");
     const resolved = resolveSoloSchedule([soloEvent], now);
     if (!resolved) throw new Error("Expected a resolved schedule.");
@@ -55,11 +55,12 @@ describe("forecast candidate model", () => {
     if (!projection.available) throw new Error(projection.reason);
     const daily = [0, 1, 2].map((color) =>
       div(
-        DISPATCH_EXPECTED_PIECES.reduce(
-          (total, row, cohort) => add(total, mul(row[color] ?? ZERO, q([1, 2, 3, 1][cohort] ?? 0))),
+        // V5 removes the fourth cohort; the remaining fixed weights sum to six.
+        DISPATCH_EXPECTED_PIECES.slice(0, 3).reduce(
+          (total, row, cohort) => add(total, mul(row[color] ?? ZERO, q([1, 2, 3][cohort] ?? 0))),
           ZERO,
         ),
-        q(7),
+        q(6),
       ),
     );
     expect(projection.expected).toEqual(
@@ -84,10 +85,11 @@ describe("forecast candidate model", () => {
     expect(result.payloadHash).toMatch(/^[a-f0-9]{64}$/);
     expect(result.candidate.forecastId).toBe("supply-2026-08-24-v1");
     expect(result.candidate.profiles.at(-1)?.effectiveUntil).not.toBeNull();
-    expect(result.candidate.rulesVersion).toBe("schedule-kit-v4");
-    expect(result.candidate.payloadVersion).toBe(5);
+    // The fixed-dispatch policy has its own v5 snapshot/rules and payload-6 identity.
+    expect(result.candidate.rulesVersion).toBe("schedule-kit-v5");
+    expect(result.candidate.payloadVersion).toBe(6);
     const ledger = assertCertifiedRuntimeSupplySnapshot(result.candidate.certifiedSnapshot);
-    expect(ledger.version).toBe("certified-daily-v4");
+    expect(ledger.version).toBe("certified-daily-v5");
     expect(() =>
       assertLedgerForecastProfiles(result.candidate.forecastId, ledger, result.candidate.profiles),
     ).not.toThrow();

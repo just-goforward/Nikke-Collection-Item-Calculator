@@ -11,6 +11,7 @@ import {
 const driver = vi.hoisted(() => ({
   effects: [] as EffectCallback[],
   prepare: vi.fn(),
+  approved: vi.fn(),
   peek: vi.fn(),
   watch: vi.fn(),
   listener: undefined as ((status: RuntimeForecastStatus) => void) | undefined,
@@ -20,7 +21,8 @@ vi.mock("react", async (original) => ({
   ...(await original<typeof import("react")>()),
   useEffect: (effect: EffectCallback) => driver.effects.push(effect),
 }));
-vi.mock("../lib/certifiedForecast", () => ({ prepareCertifiedForecast: driver.prepare }));
+vi.mock("../lib/certifiedLocalForecast", () => ({ prepareLocalCertifiedForecast: driver.prepare }));
+vi.mock("../lib/certifiedForecast", () => ({ prepareCertifiedForecast: driver.approved }));
 vi.mock("../lib/runtimeForecast", () => ({
   runtimeForecast: { peek: driver.peek, watch: driver.watch },
 }));
@@ -78,6 +80,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   driver.listener = undefined;
   driver.prepare.mockResolvedValue(bundled);
+  driver.approved.mockResolvedValue(bundled);
   driver.watch.mockImplementation((_document, listener) => {
     driver.listener = listener;
     return () => {};
@@ -177,9 +180,11 @@ describe("staging calculator preparation", () => {
 
 describe("production calculator preparation", () => {
   it("keeps the bundled authority and never loads the runtime client", async () => {
+    vi.stubEnv("DEV", false);
     vi.stubEnv("VITE_FORECAST_RUNTIME", "");
     const { preparation } = await mount();
-    expect(driver.prepare).toHaveBeenCalledOnce();
+    expect(driver.approved).toHaveBeenCalledOnce();
+    expect(driver.prepare).not.toHaveBeenCalled();
     expect(driver.watch).not.toHaveBeenCalled();
     expect(preparation.snapshotRef.current).toBe(bundled);
     expect(lastError(preparation)).toBeNull();

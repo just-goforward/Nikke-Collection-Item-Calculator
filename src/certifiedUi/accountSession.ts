@@ -29,7 +29,7 @@ export type CertifiedAccountPort = {
   /** Validated, re-serialized text, or null when the bytes fail restore validation. */
   validate(text: string): string | null;
   summary(text: string): CertifiedSessionInputs;
-  /** True for a fresh session: default state, empty stock, ledgers and cohort weights. */
+  /** True for a fresh session: default state, empty stock and ledgers. */
   isEmpty(text: string): boolean;
   /** A fresh session for an account without a certified item. */
   emptyText(): string;
@@ -81,8 +81,9 @@ export function certifiedSessionSummary(text: string): CertifiedSessionInputs {
 export function isEmptyCertifiedSession(text: string): boolean {
   const restored = restoreText(text);
   if (!restored || restored.correction) return false;
-  const { id, snapshotRevision } = restored.session;
+  const { id, snapshotRevision, migrationNotice } = restored.session;
   const blank = { ...createCertifiedSession(snapshotRevision, EMPTY_STATE, [0, 0, 0]), id };
+  if (migrationNotice === "cohort_prior_reset") blank.migrationNotice = migrationNotice;
   return serialize(restored) === serialize({ session: blank, correction: null });
 }
 

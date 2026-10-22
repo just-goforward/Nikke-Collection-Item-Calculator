@@ -295,7 +295,12 @@ function validateFiniteLaw(law: CertifiedSupplyLaw, cohortCount: 3 | 4, checkBud
   for (const outcomes of groups) validateFiniteOutcomes(outcomes, checkBudget);
 }
 
-function validateLaw(law: CertifiedSupplyLaw, cohortCount: 3 | 4, checkBudget?: () => void) {
+function validateLaw(
+  law: CertifiedSupplyLaw,
+  version: CertifiedSupplySnapshot["version"],
+  checkBudget?: () => void,
+) {
+  const { cohortCount, physicalLaws } = certifiedVersionPolicy(version);
   knownFields(law, "id kind modelVersion outcomes outcomesByCohort");
   if (
     typeof law.id !== "string" ||
@@ -309,7 +314,9 @@ function validateLaw(law: CertifiedSupplyLaw, cohortCount: 3 | 4, checkBudget?: 
     validateFiniteLaw(law, cohortCount, checkBudget);
     return;
   }
-  const known = (cohortCount === 3 ? LEGACY_CERTIFIED_SUPPLY_LAWS : CERTIFIED_SUPPLY_LAWS).some(
+  const known = (
+    cohortCount === 3 && !physicalLaws ? LEGACY_CERTIFIED_SUPPLY_LAWS : CERTIFIED_SUPPLY_LAWS
+  ).some(
     (model) =>
       model.id === law.id && model.kind === law.kind && law.modelVersion === model.modelVersion,
   );
@@ -514,7 +521,7 @@ export function validateSnapshot(
     snapshotError("authority_identity_duplicate");
   for (const law of snapshot.laws) {
     checkBudget?.();
-    validateLaw(law, certifiedVersionPolicy(snapshot.version).cohortCount, checkBudget);
+    validateLaw(law, snapshot.version, checkBudget);
   }
   validateRules(snapshot, lawIds, checkBudget);
   const rounds = new Set<number>();

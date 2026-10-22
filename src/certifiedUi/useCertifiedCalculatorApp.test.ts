@@ -84,7 +84,7 @@ vi.mock("react", () => ({
     }
   },
 }));
-vi.mock("../lib/certifiedForecast", () => ({ prepareCertifiedForecast: driver.prepare }));
+vi.mock("../lib/certifiedLocalForecast", () => ({ prepareLocalCertifiedForecast: driver.prepare }));
 vi.mock("../../shared/generated/certifiedForecastAuthority", () => ({
   CERTIFIED_APPROVED_REGISTRY_HASH: "a".repeat(64),
   CERTIFIED_APPROVED_FORECAST: {
@@ -223,8 +223,8 @@ describe("certified inputs and action authorization", () => {
     expect(driver.calculate).toHaveBeenCalledOnce();
   });
   it("rejects an adopted v1 authority without rendering a three/four-cohort mismatch", async () => {
-    const actual = await vi.importActual<typeof import("../lib/certifiedForecast")>(
-      "../lib/certifiedForecast",
+    const actual = await vi.importActual<typeof import("../lib/certifiedLocalForecast")>(
+      "../lib/certifiedLocalForecast",
     );
     driver.adoptedSnapshot = {
       ...snapshot,
@@ -233,7 +233,7 @@ describe("certified inputs and action authorization", () => {
       rules: snapshot.rules.map(({ weeklyFixed: _weeklyFixed, ...rule }) => rule),
       events: snapshot.events.filter((event) => event.kind !== "weekly-kits"),
     };
-    driver.prepare.mockImplementation(() => actual.prepareCertifiedForecast(snapshot.asOf));
+    driver.prepare.mockImplementation(() => actual.prepareLocalCertifiedForecast(snapshot.asOf));
     const before = app.session;
     await expect(reload()).resolves.toBeUndefined();
     expect(app.prepareError).toBe("unsupported_forecast_version");
@@ -241,7 +241,7 @@ describe("certified inputs and action authorization", () => {
     expect(app.comparison).toBeNull();
     expect(app.calculateDisabled).toBe(true);
     expect(app.session.stock).toEqual(before.stock);
-    expect(app.session.cohortWeights).toEqual(before.cohortWeights);
+    expect(app.session).not.toHaveProperty("cohortWeights");
     expect(driver.calculate).not.toHaveBeenCalled();
   });
   it("allows waiting calculations without usable stock and keeps raw remainders", async () => {
@@ -383,7 +383,7 @@ describe("certified outcomes and full session undo", () => {
       "great",
     ]);
     expect(app.session.receipts).toEqual(before.receipts);
-    expect(app.session.cohortWeights).toEqual(before.cohortWeights);
+    expect(app.session).not.toHaveProperty("cohortWeights");
     expect(driver.calculate).toHaveBeenCalledExactlyOnceWith(app.session);
     expect(driver.queueStatsEvent).toHaveBeenCalledOnce();
     expect(driver.queueStatsEvent.mock.lastCall?.[0]).toMatchObject({ successAttempt: 3 });
@@ -408,7 +408,7 @@ describe("certified outcomes and full session undo", () => {
     expect(app.session).toEqual(previous.session);
     expect(app.stockCorrection).toEqual(previous.stockCorrection);
     expect(app.session.receipts).toEqual(sessionFixture().receipts);
-    expect(app.session.cohortWeights).toEqual(sessionFixture().cohortWeights);
+    expect(app.session).not.toHaveProperty("cohortWeights");
     expect(app.run.result).toBeNull();
     expect(driver.calculate).not.toHaveBeenCalled();
   });
@@ -426,7 +426,7 @@ describe("certified outcomes and full session undo", () => {
     expect(driver.calculate).toHaveBeenCalledExactlyOnceWith(app.session);
   });
 
-  it("undo also restores settled outcome entries, receipts, and cohort weights", async () => {
+  it("undo also restores settled outcome entries and receipts without saved cohort weights", async () => {
     await authorize();
     app.actions.applyOutcome("normal");
     await flush();
@@ -493,7 +493,7 @@ describe("certified pending correction reload and confirmation", () => {
       expect(app.session).toEqual(observed);
       expect(app.session.state).toEqual({ grade: "SR", level: 5, exp: 0 });
       expect(app.session.receipts).toEqual(before.receipts);
-      expect(app.session.cohortWeights).toEqual(before.cohortWeights);
+      expect(app.session).not.toHaveProperty("cohortWeights");
       expect(app.session.outcomes).toEqual(before.outcomes);
       expect(app.stockCorrectionRequired).toBe(true);
       expect(app.stockCorrection).toMatchObject({ status: "invalid", reason });
@@ -530,7 +530,7 @@ describe("certified pending correction reload and confirmation", () => {
         "great",
       ]);
       expect(app.session.receipts).toEqual(before.receipts);
-      expect(app.session.cohortWeights).toEqual(before.cohortWeights);
+      expect(app.session).not.toHaveProperty("cohortWeights");
       expect(app.stockCorrectionRequired).toBe(false);
       expect(JSON.parse(storedSessionText())).toEqual(app.session);
       expect(driver.calculate).toHaveBeenCalledExactlyOnceWith(app.session);
@@ -561,7 +561,7 @@ describe("certified pending correction reload and confirmation", () => {
       expect(app.session.state).toEqual({ grade: "SR", level: 5, exp: 0 });
       expect(app.session.outcomes).toEqual([]);
       expect(app.session.receipts).toEqual(before.receipts);
-      expect(app.session.cohortWeights).toEqual(before.cohortWeights);
+      expect(app.session).not.toHaveProperty("cohortWeights");
       expect(app.stockCorrectionRequired).toBe(true);
       expect(app.stockCorrection?.canCalculate).toBe(confirmable[index]);
       expect(app.calculateDisabled).toBe(!confirmable[index]);
@@ -603,7 +603,7 @@ describe("certified pending correction reload and confirmation", () => {
       after: { grade: "SR", level: 5, exp: 0 },
     });
     expect(app.session.receipts).toEqual(before.receipts);
-    expect(app.session.cohortWeights).toEqual(before.cohortWeights);
+    expect(app.session).not.toHaveProperty("cohortWeights");
     expect(driver.calculate).toHaveBeenCalledExactlyOnceWith(app.session);
   });
 });

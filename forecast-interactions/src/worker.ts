@@ -1,5 +1,9 @@
 import { readBoundedText } from "../../shared/boundedHttp.ts";
 import {
+  CERTIFIED_EVIDENCE_COVERAGE,
+  type CertifiedEvidenceCoverage,
+} from "../../shared/certifiedEvidenceCoverage.ts";
+import {
   parseDiscordInteraction,
   readVerifiedDiscordBody,
 } from "../../shared/discordInteraction.ts";
@@ -32,97 +36,105 @@ function parseSignedJson(body: string): { value: unknown } | null {
   }
 }
 
-export default {
-  async fetch(request: Request, env, context) {
-    const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/health") {
-      return health(env);
-    }
-    if (request.method !== "POST" || url.pathname !== "/discord/interactions")
-      return new Response("Not found", { status: 404 });
-    const body = await readVerifiedDiscordBody(request, env.DISCORD_PUBLIC_KEY, Date.now());
-    if (body instanceof Response) return body;
-    // The shared legacy parser intentionally accepts buttons only; route signed
-    // v2 modal submissions here without broadening legacy interaction support.
-    const signedBody = parseSignedJson(body);
-    if (!signedBody) return new Response("Invalid JSON", { status: 400 });
-    const v2 = signedBody.value as Parameters<typeof handleV2Interaction>[0];
-    if (typeof v2?.data?.custom_id === "string" && /^fv2m?:/.test(v2.data.custom_id))
-      return handleV2Interaction(v2, env, context);
-    const interaction = parseDiscordInteraction(body, env.DISCORD_APPLICATION_ID);
-    if (interaction instanceof Response) return interaction;
-    if (interaction.type === 1) return reply({ type: 1 });
-    const customId = interaction.data?.custom_id;
-    if (
-      env.FORECAST_ENVIRONMENT === "staging" &&
-      typeof customId === "string" &&
-      /^(forecast_publish:production:|forecast_manual_production_)/.test(customId)
-    )
-      return ephemeral("production actions are disabled on this deployment. No changes were made.");
-    if (typeof customId !== "string" || !customId.startsWith("forecast_publish:"))
-      return ephemeral("Legacy Forecast / GitHub-PR buttons are disabled. No changes were made.");
-    if (
-      interaction.guild_id !== env.DISCORD_GUILD_ID ||
-      interaction.member?.user?.id !== env.DISCORD_FORECAST_APPROVER_USER_ID
-    )
-      return ephemeral("You are not authorized to publish forecasts.");
-    if (interaction.channel_id !== env.DISCORD_APPROVAL_CHANNEL_ID)
-      return ephemeral("Use the configured forecast approval channel.");
-    const match = /^forecast_publish:(staging|production):([0-9a-f]{32})$/.exec(customId);
-    const message = Reflect.get(interaction, "message") as { id?: unknown } | undefined;
-    if (
-      !match ||
-      typeof interaction.id !== "string" ||
-      !/^\d{1,24}$/.test(interaction.id) ||
-      typeof message?.id !== "string" ||
-      !/^\d{6,24}$/.test(message.id) ||
-      typeof interaction.token !== "string" ||
-      !/^[A-Za-z0-9._-]{1,512}$/.test(interaction.token)
-    )
-      return ephemeral("Invalid publication button.");
-    const environment = match[1] as "staging" | "production";
-    const db = environment === "staging" ? env.STAGING_FORECAST_DB : env.PRODUCTION_FORECAST_DB;
-    if (!db)
-      return ephemeral(
-        `${environment} actions are disabled on this deployment. No changes were made.`,
-      );
-    if (
-      environment === "production"
-        ? env.PRODUCTION_PUBLICATION_MODE !== "enabled" ||
-          env.PRODUCTION_MUTATIONS_ENABLED !== "true"
-        : env.STAGING_PUBLICATION_MODE !== "enabled"
-    )
-      return ephemeral(`${environment} publication is disabled. No changes were made.`);
-    if (!(await publicationKeyAvailable(env)))
-      return ephemeral(
-        `${environment} publication is disabled: publication_signing_key_unavailable (missing or invalid key/key ID). No changes were made.`,
-      );
-    const input: CommandInput = {
-      environment,
-      reviewId: match[2]!,
-      interactionId: interaction.id,
-      actorId: env.DISCORD_FORECAST_APPROVER_USER_ID,
-      channelId: env.DISCORD_APPROVAL_CHANNEL_ID,
-      messageId: message.id,
-    };
-    // Public deferred response: emergency confirmations survive client reloads in
-    // the authenticated approval channel; the clicked review remains unchanged.
-    context.waitUntil(complete(env, db, input, interaction.token));
-    return reply({ type: 5, data: { flags: 0 } });
-  },
-} satisfies ExportedHandler<InteractionRouterEnv>;
+/** The deployed export below closes over the real registry, never request/env data. */
+export const createInteractionWorker = (
+  coverage: readonly CertifiedEvidenceCoverage[] = CERTIFIED_EVIDENCE_COVERAGE,
+) =>
+  ({
+    async fetch(request: Request, env, context) {
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/health") {
+        return health(env);
+      }
+      if (request.method !== "POST" || url.pathname !== "/discord/interactions")
+        return new Response("Not found", { status: 404 });
+      const body = await readVerifiedDiscordBody(request, env.DISCORD_PUBLIC_KEY, Date.now());
+      if (body instanceof Response) return body;
+      // The shared legacy parser intentionally accepts buttons only; route signed
+      // v2 modal submissions here without broadening legacy interaction support.
+      const signedBody = parseSignedJson(body);
+      if (!signedBody) return new Response("Invalid JSON", { status: 400 });
+      const v2 = signedBody.value as Parameters<typeof handleV2Interaction>[0];
+      if (typeof v2?.data?.custom_id === "string" && /^fv2m?:/.test(v2.data.custom_id))
+        return handleV2Interaction(v2, env, context);
+      const interaction = parseDiscordInteraction(body, env.DISCORD_APPLICATION_ID);
+      if (interaction instanceof Response) return interaction;
+      if (interaction.type === 1) return reply({ type: 1 });
+      const customId = interaction.data?.custom_id;
+      if (
+        env.FORECAST_ENVIRONMENT === "staging" &&
+        typeof customId === "string" &&
+        /^(forecast_publish:production:|forecast_manual_production_)/.test(customId)
+      )
+        return ephemeral(
+          "production actions are disabled on this deployment. No changes were made.",
+        );
+      if (typeof customId !== "string" || !customId.startsWith("forecast_publish:"))
+        return ephemeral("Legacy Forecast / GitHub-PR buttons are disabled. No changes were made.");
+      if (
+        interaction.guild_id !== env.DISCORD_GUILD_ID ||
+        interaction.member?.user?.id !== env.DISCORD_FORECAST_APPROVER_USER_ID
+      )
+        return ephemeral("You are not authorized to publish forecasts.");
+      if (interaction.channel_id !== env.DISCORD_APPROVAL_CHANNEL_ID)
+        return ephemeral("Use the configured forecast approval channel.");
+      const match = /^forecast_publish:(staging|production):([0-9a-f]{32})$/.exec(customId);
+      const message = Reflect.get(interaction, "message") as { id?: unknown } | undefined;
+      if (
+        !match ||
+        typeof interaction.id !== "string" ||
+        !/^\d{1,24}$/.test(interaction.id) ||
+        typeof message?.id !== "string" ||
+        !/^\d{6,24}$/.test(message.id) ||
+        typeof interaction.token !== "string" ||
+        !/^[A-Za-z0-9._-]{1,512}$/.test(interaction.token)
+      )
+        return ephemeral("Invalid publication button.");
+      const environment = match[1] as "staging" | "production";
+      const db = environment === "staging" ? env.STAGING_FORECAST_DB : env.PRODUCTION_FORECAST_DB;
+      if (!db)
+        return ephemeral(
+          `${environment} actions are disabled on this deployment. No changes were made.`,
+        );
+      if (
+        environment === "production"
+          ? env.PRODUCTION_PUBLICATION_MODE !== "enabled" ||
+            env.PRODUCTION_MUTATIONS_ENABLED !== "true"
+          : env.STAGING_PUBLICATION_MODE !== "enabled"
+      )
+        return ephemeral(`${environment} publication is disabled. No changes were made.`);
+      if (!(await publicationKeyAvailable(env)))
+        return ephemeral(
+          `${environment} publication is disabled: publication_signing_key_unavailable (missing or invalid key/key ID). No changes were made.`,
+        );
+      const input: CommandInput = {
+        environment,
+        reviewId: match[2]!,
+        interactionId: interaction.id,
+        actorId: env.DISCORD_FORECAST_APPROVER_USER_ID,
+        channelId: env.DISCORD_APPROVAL_CHANNEL_ID,
+        messageId: message.id,
+      };
+      // Public deferred response: emergency confirmations survive client reloads in
+      // the authenticated approval channel; the clicked review remains unchanged.
+      context.waitUntil(complete(env, db, input, interaction.token, coverage));
+      return reply({ type: 5, data: { flags: 0 } });
+    },
+  }) satisfies ExportedHandler<InteractionRouterEnv>;
+export default createInteractionWorker();
 
 async function complete(
   env: InteractionRouterEnv,
   db: D1Database,
   input: CommandInput,
   token: string,
+  coverage: readonly CertifiedEvidenceCoverage[],
 ) {
   let message: PublicationResponse;
   let review: ReviewRow | undefined;
   try {
     review = await readReview(db, input);
-    message = await publicationResponse(env, db, input, review);
+    message = await publicationResponse(env, db, input, review, coverage);
   } catch (error) {
     message = {
       content: publicationFailedContent(errorCode(error, "publication"), review?.action),
@@ -138,6 +150,7 @@ async function publicationResponse(
   db: D1Database,
   input: CommandInput,
   review: ReviewRow,
+  coverage: readonly CertifiedEvidenceCoverage[],
 ): Promise<PublicationResponse> {
   const now = Date.now();
   let result: { sequence: number; duplicate: boolean };
@@ -157,6 +170,7 @@ async function publicationResponse(
           env.USAGE_GUARD_DB,
           input.environment === "staging" ? "staging_automation" : "production_forecast_automation",
         ),
+      coverage,
     );
   } catch (error) {
     // `runtime_activation_stale` is a D1 trigger abort. The branch compares the registered
@@ -183,7 +197,7 @@ async function publicationResponse(
       };
     if (review.action === "rollback") {
       const target = await readSealedCandidate(db, review.candidate_id!);
-      if (candidateCoverageError(target.candidate))
+      if (candidateCoverageError(target.candidate, coverage))
         return {
           content: publicationNotAppliedContent(
             code,
@@ -223,7 +237,13 @@ async function publicationResponse(
     const active = await readActive(db, input.environment);
     if (active.operation_id === input.interactionId && active.sequence === result.sequence) {
       const ids: string[] = [];
-      const rollback = await createPreviousRollbackReview(db, active, now, input.interactionId);
+      const rollback = await createPreviousRollbackReview(
+        db,
+        active,
+        now,
+        input.interactionId,
+        coverage,
+      );
       if (rollback) ids.push(rollback);
       if (active.candidate_id)
         ids.push(await createReview(db, active, "off", null, null, now, input.interactionId));

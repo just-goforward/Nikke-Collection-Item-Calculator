@@ -22,6 +22,23 @@ const queryOverrides = [
 ];
 
 describe("calculator engine routing", () => {
+  it.each([false, true])(
+    "never enables local forecasts in deployed builds (staging=%s)",
+    async (staging) => {
+      vi.stubEnv("DEV", false);
+      await routing(staging ? "staging" : "");
+      const { localCertifiedForecastEnabled } = await import("./certifiedLocalPolicy");
+      expect(localCertifiedForecastEnabled()).toBe(false);
+    },
+  );
+  it("enables the unsigned policy only in the local non-publication dev server", async () => {
+    vi.stubEnv("DEV", true);
+    await routing("");
+    const { localCertifiedForecastEnabled } = await import("./certifiedLocalPolicy");
+    expect(localCertifiedForecastEnabled()).toBe(true);
+    vi.stubEnv("VITE_FORECAST_RUNTIME", "staging");
+    expect(localCertifiedForecastEnabled()).toBe(false);
+  });
   it.each(queryOverrides)(
     "staging builds always select the certified calculator for %j",
     async (search) => {

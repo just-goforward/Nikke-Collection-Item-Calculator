@@ -15,7 +15,7 @@ export const CERTIFIED_SUPPLY_VERSION = CURRENT_CERTIFIED_SNAPSHOT_VERSION;
 export const CERTIFIED_SUPPLY_HISTORY_DAYS = 7;
 export const CERTIFIED_WEEKLY_FIXED_LAW_ID = "deterministic:10,10,0";
 export type CertifiedSupplyVersion = CertifiedSnapshotVersion;
-export type PersonalCohortWeights = readonly [WireQ, WireQ, WireQ, WireQ];
+export type PersonalCohortWeights = CohortTuple<WireQ>;
 export type SnapshotCohortWeights = CohortTuple<WireQ>;
 export type CertifiedSourceStatus = "healthy" | "uncertain";
 export type CertifiedSupplyGrant = {
@@ -117,6 +117,8 @@ export type CertifiedSupplySnapshot = {
   provenance: readonly string[];
 };
 export type CertifiedSupplyBuildInput = {
+  /** Explicit historical replay; live construction uses the current policy. */
+  version?: "certified-daily-v3" | "certified-daily-v4" | "certified-daily-v5";
   cadenceVersion?: ExactSoloRaidCadence["version"];
   grants?: readonly CertifiedSupplyGrant[];
   asOf: string;
@@ -175,12 +177,19 @@ export type CertifiedSupplyComparison = {
 };
 
 export const DAY_MS = 86_400_000;
-export const DEFAULT_PERSONAL_COHORT_WEIGHTS: PersonalCohortWeights = [
+/** Historical v2–v4 personal/population default. Never reinterpret sealed evidence. */
+export const DEFAULT_PERSONAL_COHORT_WEIGHTS = [
   toWire(q(1, 7)),
   toWire(q(2, 7)),
   toWire(q(3, 7)),
   toWire(q(1, 7)),
-];
+] as const;
+/** Current policy: 0/1/2 rerolls, fixed population, not a personal posterior. */
+export const FIXED_DISPATCH_COHORT_WEIGHTS = [
+  toWire(q(1, 6)),
+  toWire(q(2, 6)),
+  toWire(q(3, 6)),
+] as const;
 export const LEGACY_PERSONAL_COHORT_WEIGHTS = [
   toWire(q(1, 3)),
   toWire(q(1, 3)),

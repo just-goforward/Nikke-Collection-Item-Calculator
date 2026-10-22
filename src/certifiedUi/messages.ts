@@ -29,7 +29,7 @@ export const certifiedMessages = {
     minimumWaitInterval: "최소 대기 {from}–{to}일 · 구간만 확인",
     minimumWaitLower: "{n}일 이전은 제외 · 이후 미확인",
     minimumWaitExplain:
-      "현재 재고 기준 · 하루 평균 수급(1:2:3:1) 손실 한도 · 모든 수급 가능성을 고려한 7일 검증입니다. 14일 권장일과는 다릅니다.",
+      "현재 재고 기준 · 예측 정책의 하루 평균 수급 손실 한도 · 모든 수급 가능성을 고려한 7일 검증입니다. 14일 권장일과는 다릅니다.",
     probability: "SR 15 도달 확률",
     burden: "기대 부담",
     consumption: "기대 총 소비",
@@ -46,21 +46,10 @@ export const certifiedMessages = {
     normal: "일반 결과 기록",
     great: "대성공 기록",
     convert: "R 15 → SR 5 전환",
-    cohort: "파견 재추첨 유형",
-    mixture: "기본 사전 확률 · 1:2:3:1",
-    learnedMixture: "추정 혼합(수급 기록 반영)",
     dismissMigrationNotice: "알림 닫기",
     receipts_hidden: "숨긴 수령 기록은 보존됩니다.",
-    cohort_selection_kept:
-      "선택한 파견 재추첨 유형을 그대로 유지했습니다. 재고, 성장 상태, 수령·사용 이력은 보존됩니다.",
-    reroll0: "재추첨 없음",
-    reroll1: "1회 재추첨",
-    reroll2: "2회 재추첨",
-    reroll3: "3회 재추첨",
     cohort_prior_reset:
-      "이전 파견 유형의 혼합 확률만 기본 1:2:3:1로 초기화했습니다. 수령 기록을 재계산한 결과가 아닙니다. 재고, 성장 상태, 수령·사용 이력은 그대로 보존됩니다.",
-    cohort_posterior_replayed:
-      "복원 가능한 수령 기록을 1:2:3:1 사전 확률로 다시 반영했습니다. 재고, 성장 상태, 수령·사용 이력은 그대로 보존됩니다.",
+      "수급 확률은 이제 예측 버전의 정책을 따릅니다. 재고, 성장 상태, 수령·사용 이력은 그대로 보존됩니다.",
     comparison: "과거와 미래의 수급 기댓값",
     past: "과거 7일 · 확정 일정",
     future: "미래 56일 · 확정 + 추정",
@@ -83,7 +72,7 @@ export const certifiedMessages = {
       "변경 사항을 기기에 저장하지 못했습니다. 새로고침하거나 페이지를 닫으면 최근 변경 사항이 사라질 수 있습니다.",
     ready: "수급 일정을 준비하는 중…",
     unsupportedForecastVersion:
-      "지원하지 않는 수급 예측 버전입니다. 이 계산기에는 4개 파견 유형을 지원하는 승인된 v2 예측이 필요합니다. 입력과 기록은 보존됩니다.",
+      "지원하지 않는 수급 예측 버전입니다. 고정 파견 정책을 지원하는 승인된 예측이 필요합니다. 입력과 기록은 보존됩니다.",
     uses: "회까지 · 일반 결과가 이어지는 동안, 대성공·레벨 변경에서 중단",
     elapsed: "전체 소요",
     NA: "N/A",
@@ -122,7 +111,7 @@ export const certifiedMessages = {
     minimumWaitInterval: "Minimum wait {from}–{to} days · interval only",
     minimumWaitLower: "Before day {n} excluded · later days unconfirmed",
     minimumWaitExplain:
-      "Current stock only · loss threshold: one average supply day (1:2:3:1) · all supply possibilities checked over 7 days. Separate from the 14-day recommendation.",
+      "Current stock only · loss threshold: one average supply day under the forecast policy · all supply possibilities checked over 7 days. Separate from the 14-day recommendation.",
     probability: "Chance of reaching SR 15",
     burden: "Expected burden",
     consumption: "Expected total consumption",
@@ -140,21 +129,10 @@ export const certifiedMessages = {
     normal: "Record normal result",
     great: "Record great success",
     convert: "Convert R 15 → SR 5",
-    cohort: "Dispatch reroll type",
-    mixture: "Default prior · 1:2:3:1",
-    learnedMixture: "Learned mixture (receipt history applied)",
     dismissMigrationNotice: "Dismiss notice",
     receipts_hidden: "Hidden receipts are retained.",
-    cohort_selection_kept:
-      "Your selected dispatch reroll cohort was kept. Stock, progression, receipts and use history are preserved.",
-    reroll0: "No rerolls",
-    reroll1: "One reroll",
-    reroll2: "Two rerolls",
-    reroll3: "Three rerolls",
     cohort_prior_reset:
-      "Only the legacy dispatch mixture was reset to the 1:2:3:1 prior; receipts were not replayed. Stock, progression, receipts and use history are preserved.",
-    cohort_posterior_replayed:
-      "Reconstructable receipt records were replayed under the 1:2:3:1 prior. Stock, progression, receipts and use history are preserved.",
+      "Supply probabilities now follow the forecast policy. Stock, progression, receipts and use history are preserved.",
     comparison: "Past and future expected supply",
     past: "Past 7 days · confirmed schedules",
     future: "Next 56 days · confirmed + estimated",
@@ -179,7 +157,7 @@ export const certifiedMessages = {
       "Your changes couldn't be saved on this device. If you refresh or close the page, your recent changes may be lost.",
     ready: "Preparing the supply schedule…",
     unsupportedForecastVersion:
-      "Unsupported forecast version. This calculator requires an approved v2 forecast with four dispatch cohorts. Your inputs and history are preserved.",
+      "Unsupported forecast version. An approved forecast supporting the fixed dispatch policy is required. Your inputs and history are preserved.",
     uses: "uses while normal results continue; stop at a great success or level change",
     elapsed: "Total time",
     NA: "N/A",
@@ -216,7 +194,7 @@ export const certifiedMessages = {
     minimumWaitInterval: "最小待機{from}–{to}日 · 区間のみ確認",
     minimumWaitLower: "{n}日未満は除外 · 以降は未確認",
     minimumWaitExplain:
-      "現在の在庫のみ · 損失上限は平均供給1日分（1:2:3:1）· すべての供給可能性を7日間検証します。14日間の推奨日とは別です。",
+      "現在の在庫のみ · 損失上限は予測方針の平均供給1日分 · すべての供給可能性を7日間検証します。14日間の推奨日とは別です。",
     probability: "SR 15到達確率",
     burden: "期待負担",
     consumption: "期待総消費",
@@ -233,21 +211,10 @@ export const certifiedMessages = {
     normal: "通常結果を記録",
     great: "大成功を記録",
     convert: "R 15 → SR 5に変換",
-    cohort: "派遣の再抽選タイプ",
-    mixture: "既定の事前確率 · 1:2:3:1",
-    learnedMixture: "推定混合（受取記録を反映）",
     dismissMigrationNotice: "通知を閉じる",
     receipts_hidden: "非表示の受取記録は保持されます。",
-    cohort_selection_kept:
-      "選択した派遣の再抽選タイプを維持しました。在庫、育成状態、受取・使用履歴は保持しています。",
-    reroll0: "再抽選なし",
-    reroll1: "再抽選1回",
-    reroll2: "再抽選2回",
-    reroll3: "再抽選3回",
     cohort_prior_reset:
-      "過去の派遣タイプの混合確率のみ既定の1:2:3:1に初期化しました。受取記録の再計算ではありません。在庫、育成状態、受取・使用履歴は保持しています。",
-    cohort_posterior_replayed:
-      "復元可能な受取記録を1:2:3:1の事前確率で再計算しました。在庫、育成状態、受取・使用履歴は保持しています。",
+      "供給確率は予測バージョンの方針に従います。在庫、育成状態、受取・使用履歴は保持しています。",
     comparison: "過去と未来の供給期待値",
     past: "過去7日 · 確定日程",
     future: "未来56日 · 確定＋推定",
@@ -270,7 +237,7 @@ export const certifiedMessages = {
       "変更内容を端末に保存できませんでした。再読み込みするかページを閉じると、最近の変更内容が失われる可能性があります。",
     ready: "供給日程を準備しています…",
     unsupportedForecastVersion:
-      "未対応の供給予測バージョンです。この計算機には4つの派遣タイプに対応する承認済みv2予測が必要です。入力と履歴は保持しています。",
+      "未対応の供給予測バージョンです。固定派遣方針に対応する承認済み予測が必要です。入力と履歴は保持しています。",
     uses: "回まで · 通常結果が続く間、大成功・レベル変更で停止",
     elapsed: "全体所要時間",
     NA: "N/A",

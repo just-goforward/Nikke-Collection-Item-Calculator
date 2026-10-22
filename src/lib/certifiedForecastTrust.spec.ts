@@ -5,8 +5,27 @@ import {
   assertTrustedCertifiedForecast,
   trustedCertifiedForecastWorkspaceBound,
 } from "./certifiedForecastTrust";
+import { prepareLocalCertifiedForecast } from "./certifiedLocalForecast";
 
 describe("shipped approved forecast anchor", () => {
+  it("never admits the local policy as approved and binds it only through explicit local selection", async () => {
+    const local = await prepareLocalCertifiedForecast("2026-10-15T03:00:00.000Z");
+    expect(local.version).toBe("certified-daily-v5");
+    await expect(assertTrustedCertifiedForecast(local, () => {})).rejects.toThrow(
+      "certified_forecast_not_approved",
+    );
+    await expect(
+      assertTrustedCertifiedForecast(local, () => {}, undefined, "local"),
+    ).resolves.toEqual(await createCertifiedForecastIdentity(local));
+    await expect(
+      assertTrustedCertifiedForecast(
+        { ...local, provenance: [...local.provenance, "not_in_local_policy"] },
+        () => {},
+        undefined,
+        "local",
+      ),
+    ).rejects.toThrow("certified_forecast_not_approved");
+  });
   it("reconstructs the approved forecast independently at the submitted time", async () => {
     const snapshot = await prepareCertifiedForecast("2026-09-30T03:00:00.000Z");
     const accounting: number[] = [];

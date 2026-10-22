@@ -44,6 +44,7 @@ const candidateSchema = z.object({
   payloadVersion: z.union([
     z.literal(3),
     z.literal(4),
+    z.literal(5),
     z.literal(SUPPLY_FORECAST_CANDIDATE_PAYLOAD_VERSION),
   ]),
   candidateId: z.string().check(z.regex(/^forecast-[a-z0-9-]{8,120}$/)),

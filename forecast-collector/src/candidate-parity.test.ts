@@ -5,6 +5,7 @@ import { assertForecastCandidateInvariants } from "../../shared/supplyForecastCa
 import { executeTestSql } from "../../shared/testD1Sql";
 import { buildForecastCandidate, resolveSoloSchedule } from "./candidate";
 import { processSourceQueue } from "./candidate-persistence";
+import { fixedPolicyEnvelope } from "./candidate-policy-test-helper";
 import { sha256Hex, stableJson } from "./crypto";
 import { sourceItemAndEventStatements } from "./db";
 import schema from "./test-schema";
@@ -97,7 +98,7 @@ const baseline = [
   },
 ];
 
-const currentHashes: Record<string, string> = {
+const v4Hashes: Record<string, string> = {
   "solo-d1": "64b25bb291b7c4695b9e851dcd2eb58a792ba31284d9d22db39944e6a9657201",
   "solo-d2": "06e3ad10b3587a289a204e27ebafbdc6a797eb67582dd2e69e7e1f607911cb90",
   "solo-d3": "8331306668fc4cd4aedc8f0934af874f6ba0d72e70bfc41371ebf46d5cc99587",
@@ -110,9 +111,9 @@ beforeEach(async () => {
   await executeTestSql(env.FORECAST_DB, schema, applyD1Migrations);
 });
 
-describe("candidate v5 migration from historical byte identities", () => {
+describe("candidate payload-6 / snapshot-v5 migration from historical byte identities", () => {
   it.each(baseline)(
-    "$label validates v5 profile coverage without reusing a historical identity",
+    "$label validates fixed-policy profile coverage without reusing a historical identity",
     async (row) => {
       const now = Date.parse(row.at);
       const resolved = resolveSoloSchedule([solo], now);
@@ -125,7 +126,20 @@ describe("candidate v5 migration from historical byte identities", () => {
         1,
       );
       const bytes = JSON.stringify(result);
-      expect(await sha256Hex(bytes)).toBe(currentHashes[row.label]);
+      const historical = await buildForecastCandidate(
+        resolved,
+        row.label === "collaboration" ? [collaboration] : [],
+        { status: "x_unavailable", sourceItem: null, reason: "local-cpu-probe" },
+        now,
+        1,
+        [],
+        { version: "certified-daily-v4" },
+      );
+      expect(await sha256Hex(JSON.stringify(historical))).toBe(v4Hashes[row.label]);
+      // V5 changes exact bytes: retain the v4 golden and derive the new policy independently.
+      const expected = await fixedPolicyEnvelope(historical);
+      expect(await sha256Hex(bytes)).toBe(await sha256Hex(JSON.stringify(expected)));
+      expect(bytes).toBe(JSON.stringify(expected));
       const admittedItem = {
         ...sourceItem,
         contentHash: await sha256Hex(sourceItem.normalizedText),
@@ -164,9 +178,10 @@ describe("candidate v5 migration from historical byte identities", () => {
       expect(result.candidate.candidateId).not.toBe(row.candidateId);
       expect(result.payloadHash).not.toBe(row.payloadHash);
       expect(result.payloadHash).toBe(await sha256Hex(stableJson(result.candidate)));
+      // Fixed dispatch is serialized as snapshot/rules v5 with payload 6, not historical payload 5.
       expect(result.candidate).toMatchObject({
-        payloadVersion: 5,
-        rulesVersion: "schedule-kit-v4",
+        payloadVersion: 6,
+        rulesVersion: "schedule-kit-v5",
         grants: [],
       });
       expect(() => assertForecastCandidateInvariants(result.candidate)).not.toThrow();

@@ -45,6 +45,7 @@ function fixture() {
     join(directory, "shared/supplyForecasts.json"),
     JSON.stringify({
       stagingForecastId: "approved",
+      approvedForecastId: "approved",
       forecasts: [
         { id: "approved", sourceEvidence: [], profiles: [{ effectiveFrom: "2026-09-30" }] },
       ],
@@ -71,6 +72,49 @@ function refreshPins(manifestPath: string) {
 }
 
 describe("approved forecast version admission", () => {
+  it("interns rule IDs without changing any expanded approved snapshot byte", async () => {
+    const root = new URL("../", import.meta.url);
+    const bytes = readFileSync(new URL("shared/supplyForecasts.json", root));
+    const registry = JSON.parse(bytes.toString());
+    const approved = registry.forecasts.find(
+      (row: { id: string }) => row.id === registry.approvedForecastId,
+    );
+    const authority = deriveCertifiedForecastAuthority(root);
+    const loaded = await import(
+      `data:text/javascript;base64,${Buffer.from(authority.contents).toString("base64")}`
+    );
+    expect(JSON.stringify(loaded.CERTIFIED_APPROVED_FORECAST.certifiedSnapshot)).toBe(
+      JSON.stringify(approved.certifiedSnapshot),
+    );
+    expect(loaded.CERTIFIED_APPROVED_FORECAST.id).toBe(registry.approvedForecastId);
+    expect(loaded.CERTIFIED_APPROVED_REGISTRY_HASH).toBe(
+      createHash("sha256").update(bytes).digest("hex"),
+    );
+    expect(Buffer.byteLength(authority.contents)).toBeLessThan(
+      Buffer.byteLength(JSON.stringify(loaded.CERTIFIED_APPROVED_FORECAST)),
+    );
+  });
+  it("selects the approved ID, never an unapproved staging selection", () => {
+    const item = fixture();
+    const path = join(item.directory, "shared/supplyForecasts.json");
+    const registry = JSON.parse(readFileSync(path, "utf8"));
+    registry.forecasts.push({ id: "unapproved", sourceEvidence: [], profiles: [] });
+    registry.stagingForecastId = "unapproved";
+    writeFileSync(path, JSON.stringify(registry));
+    const authority = deriveCertifiedForecastAuthority(item.root);
+    expect(authority.contents).toContain('"id":"approved"');
+    expect(authority.contents).not.toContain('"id":"unapproved"');
+    delete registry.approvedForecastId;
+    writeFileSync(path, JSON.stringify(registry));
+    expect(() => deriveCertifiedForecastAuthority(item.root)).toThrow(
+      "approved_staging_forecast_missing",
+    );
+    delete registry.forecasts[0].id;
+    writeFileSync(path, JSON.stringify(registry));
+    expect(() => deriveCertifiedForecastAuthority(item.root)).toThrow(
+      "approved_staging_forecast_missing",
+    );
+  });
   it("refuses to generate v3 runtime authority from an adopted historical v1 ledger", () => {
     const item = fixture();
     const current = buildCertifiedSupplySnapshot({
@@ -90,6 +134,7 @@ describe("approved forecast version admission", () => {
     const registry = (certifiedSnapshot: unknown) =>
       JSON.stringify({
         stagingForecastId: "approved",
+        approvedForecastId: "approved",
         forecasts: [{ id: "approved", sourceEvidence: [], certifiedSnapshot }],
       });
     const path = join(item.directory, "shared/supplyForecasts.json");
@@ -99,7 +144,7 @@ describe("approved forecast version admission", () => {
     );
     expect(readFileSync(path, "utf8")).toBe(registry(legacy));
     writeFileSync(path, registry(current));
-    expect(deriveCertifiedForecastAuthority(item.root).contents).toContain("certified-daily-v4");
+    expect(deriveCertifiedForecastAuthority(item.root).contents).toContain("certified-daily-v5");
   });
 });
 

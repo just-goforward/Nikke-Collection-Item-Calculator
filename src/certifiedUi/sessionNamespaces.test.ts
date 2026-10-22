@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_PERSONAL_COHORT_WEIGHTS } from "../../shared/certifiedSupplyModel";
 import {
   CERTIFIED_SESSION_READ_KEYS,
   createCertifiedSession,
@@ -29,9 +30,14 @@ describe("certified session namespaces", () => {
 
   it("migrates v3 snapshot-era sessions without altering stock or ledger", () => {
     const session = createCertifiedSession("old", { grade: "R", level: 0, exp: 0 }, [1, 2, 3]);
-    const old = { ...session, profileId: "certified-staging-v2" };
+    const old = {
+      ...session,
+      profileId: "certified-staging-v2",
+      cohortWeights: DEFAULT_PERSONAL_COHORT_WEIGHTS,
+    };
     const restored = restoreCertifiedSession(JSON.stringify(old));
-    expect(restored).toEqual(session);
-    expect(JSON.stringify(restored).length).toBe(JSON.stringify(old).length);
+    expect(restored).toEqual({ ...session, migrationNotice: "cohort_prior_reset" });
+    expect(restored?.stock).toEqual(old.stock);
+    expect(restored?.receipts).toEqual(old.receipts);
   });
 });

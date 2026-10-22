@@ -241,7 +241,7 @@ export async function setBeginnerKit(page: Page, value: string) {
 
 export const CERTIFIED_PATH = "/?statsEnv=staging&engine=certified";
 
-const CERTIFIED_GUEST_KEY = "collection-certified-staging-v3:session";
+const CERTIFIED_GUEST_KEY = "collection-certified-staging-v4:session";
 
 export type CertifiedItem = { type: string; version: number; session: { stock: number[] } };
 
@@ -256,7 +256,7 @@ export async function blockExternalRequests(context: BrowserContext) {
 export async function openCertified(page: Page) {
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.goto(`${ORIGIN}${CERTIFIED_PATH}`);
-  await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v4']")).toBeVisible();
   await expect(page.locator("#calculateButton")).toBeEnabled();
 }
 

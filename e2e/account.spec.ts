@@ -570,7 +570,7 @@ test("certified inputs stay read-only until the account check resolves", async (
   await enableAccountFlag(page);
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.goto(`${ORIGIN}${CERTIFIED_PATH}`);
-  await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v4']")).toBeVisible();
   await expect(checkingIndicator(page)).toBeVisible();
   await expect(certifiedBlue(page)).toBeDisabled();
   await expect(page.locator("#calculateButton")).toBeDisabled();
@@ -630,7 +630,7 @@ test("a session switched between the account and workspace reads shows nothing a
   api.userId = "user-a";
   api.switchAfterAccount = "user-b";
   await page.goto(`${ORIGIN}${CERTIFIED_PATH}`);
-  await expect(page.locator("main[data-engine-profile='certified-staging-v3']")).toBeVisible();
+  await expect(page.locator("main[data-engine-profile='certified-staging-v4']")).toBeVisible();
   await expect(contextStaleAlert(page)).toBeVisible();
   await expect(certifiedBlue(page)).toBeDisabled();
   await expect(page.locator("#calculateButton")).toBeDisabled();

@@ -18,9 +18,8 @@ import {
   CertifiedMobileActions,
   CertifiedResultRegion,
 } from "./CertifiedShellChrome";
-import { CohortPanel } from "./CertifiedSupplyPanels";
 import type { CertifiedCalculatorController } from "./calculatorController";
-import { type CertifiedWords, certifiedMessages } from "./messages";
+import { certifiedMessages } from "./messages";
 import { useCertifiedCalculatorApp } from "./useCertifiedCalculatorApp";
 import {
   type CertifiedShellInteractions,
@@ -28,11 +27,10 @@ import {
 } from "./useCertifiedShellInteractions";
 import "./certified.css";
 
-/** Shared StatePanel/StockPanel plus the certified-only reroll type and receipt inputs. */
+/** Shared state and stock inputs; dispatch policy is not user-selectable. */
 function certifiedInputPanels(
   controller: CertifiedCalculatorController,
   ui: CertifiedShellInteractions,
-  words: CertifiedWords,
 ): ComponentProps<typeof AppShell>["inputPanels"] {
   const { actions } = controller;
   return {
@@ -59,16 +57,6 @@ function certifiedInputPanels(
       onCalculate: ui.onCalculate,
       onReset: ui.onReset,
     },
-    extra: (
-      <>
-        <CohortPanel
-          disabled={ui.inputSessionLocked}
-          session={controller.session}
-          onUpdate={controller.updateSession}
-          words={words}
-        />
-      </>
-    ),
   };
 }
 
@@ -112,7 +100,7 @@ export default function CertifiedCalculator() {
       banner={<CertifiedBanner {...chrome} />}
       engineProfile={CERTIFIED_STAGING_ENGINE_PROFILE.id}
       hasResult={ui.current !== null}
-      inputPanels={certifiedInputPanels(controller, ui, words)}
+      inputPanels={certifiedInputPanels(controller, ui)}
       mobileActions={<CertifiedMobileActions {...chrome} />}
       mobileTab={shell.mobileTab}
       modal={controller.modal}

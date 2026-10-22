@@ -5,11 +5,12 @@ import * as coverage from "../../shared/certifiedEvidenceCoverage.ts";
 import { assertCertifiedSupplySnapshot } from "../../shared/certifiedSupply.ts";
 import * as publicationStore from "../../shared/forecast-publication/store.ts";
 import {
-  applyPublicationCommand,
+  applyPublicationCommand as applyCommand,
   createReview,
   initializePublication,
   sealCandidate,
 } from "../../shared/forecast-publication/store.ts";
+import { TEST_PUBLICATION_COVERAGE } from "../../shared/forecast-publication/test-coverage.ts";
 import {
   approvalReview,
   emergencyReview,
@@ -27,11 +28,15 @@ import {
 import { buildV3SupplyForecastCandidate } from "../../shared/supplyForecastCandidate.ts";
 import { admitCandidates } from "./admission.ts";
 import { raiseOpsAlert, resolveOpsAlert } from "./db.ts";
-import { runDispatcher } from "./dispatcher.ts";
+import { runDispatcher as runWithCoverage } from "./dispatcher.ts";
 import { loadReviewCompetition } from "./publication-review-message.ts";
 import type { DispatcherEnv } from "./types.ts";
 
 const testEnv = env as unknown as DispatcherEnv;
+const runDispatcher = (env: DispatcherEnv, options?: Parameters<typeof runWithCoverage>[1]) =>
+  runWithCoverage(env, options, TEST_PUBLICATION_COVERAGE);
+const applyPublicationCommand: typeof applyCommand = (...args) =>
+  applyCommand(args[0], args[1], args[2], args[3], args[4], TEST_PUBLICATION_COVERAGE);
 // Dispatcher transport/retry fixtures use the supported cadence; no pricing assertion here.
 async function seedCandidate(...args: Parameters<typeof seedLegacyCandidate>) {
   const seeded = await seedLegacyCandidate(...args);
@@ -232,12 +237,7 @@ describe("D1 publication Discord dispatcher", () => {
       // why the incident could only ever be "renewed" by a new request.
       Date.now() - 25 * 60 * 60_000,
     );
-    await admitCandidates(
-      db,
-      active,
-      Date.now(),
-      (await import("../../shared/certifiedEvidenceCoverage.ts")).CERTIFIED_EVIDENCE_COVERAGE,
-    );
+    await admitCandidates(db, active, Date.now(), TEST_PUBLICATION_COVERAGE);
     // Exactly one live approval request exists for this sequence, and it is the newer one.
     const live = await db
       .prepare(`SELECT candidate_id,review_id FROM forecast_runtime_reviews
@@ -314,7 +314,7 @@ describe("D1 publication Discord dispatcher", () => {
       (candidate_id,state,attempts,next_attempt_at,updated_at) VALUES(?,'dead',5,?,?)`)
         .bind(active.candidate_id, TEST_NOW, TEST_NOW)
         .run();
-      await admitCandidates(db, active, TEST_NOW);
+      await admitCandidates(db, active, TEST_NOW, TEST_PUBLICATION_COVERAGE);
       expect(
         await db
           .prepare("SELECT state,error_code FROM forecast_runtime_admissions WHERE candidate_id=?")

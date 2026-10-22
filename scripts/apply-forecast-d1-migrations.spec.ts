@@ -22,12 +22,13 @@ import {
 } from "./forecast-migration-test-fixtures.ts";
 import { acceptedLegacyRows, legacyDatabase } from "./forecast-migration-v27-fixtures.ts";
 
-const v2Versions = [30, 31, 32, 33];
+const v2Versions = [30, 31, 32, 33, 34];
 const v2Files = [
   "0030_monitor_streams.sql",
   "0031_calendar_decisions.sql",
   "0032_grant_occurrences.sql",
   "0033_calendar_snapshots.sql",
+  "0034_runtime_publication_v5.sql",
 ];
 const currentVersions = [...previousVersions, 26, 27, 28, 29, ...v2Versions];
 
@@ -69,7 +70,7 @@ describe("Forecast migration discovery and CLI", () => {
     ).toThrow("explicit --env");
     expect(spawn).not.toHaveBeenCalled();
   });
-  it("discovers current incremental files 0002..0033 in numeric order", () => {
+  it("discovers current incremental files 0002..0034 in numeric order", () => {
     expect(migrations.map((migration) => migration.version)).toEqual(currentVersions.slice(1));
     expect(migrations.map((migration) => basename(migration.file))).toEqual([
       "0002_collector_deployment_sha.sql",
@@ -103,7 +104,7 @@ describe("Forecast migration discovery and CLI", () => {
       ...v2Files,
     ]);
     expect(migrations.at(-1)?.file).toBe(
-      resolve(root, "forecast-collector/migrations/0033_calendar_snapshots.sql"),
+      resolve(root, "forecast-collector/migrations/0034_runtime_publication_v5.sql"),
     );
   });
 
@@ -450,7 +451,7 @@ describe("REVIEW11 create-only forecast storage upgrade", () => {
       expect(db.prepare("SELECT * FROM staging_adoption_infrastructure_circuit").all()).toEqual(
         circuit,
       );
-      expect(runner.files()).toHaveLength(21);
+      expect(runner.files()).toHaveLength(22);
     },
   );
 });
@@ -554,7 +555,7 @@ describe("source-processor durable failure-budget storage", () => {
           (table) => db.prepare(`SELECT * FROM ${table}`).all(),
         ),
       ).toEqual(history);
-      expect(runner.files()).toHaveLength(20);
+      expect(runner.files()).toHaveLength(21);
     },
   );
 
@@ -809,7 +810,7 @@ describe("Forecast migration production seed handling", () => {
         29,
         ...v2Versions,
       ]);
-      expect(runner.files()).toHaveLength(26);
+      expect(runner.files()).toHaveLength(27);
     },
   );
 });

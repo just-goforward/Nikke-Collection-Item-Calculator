@@ -65,34 +65,57 @@ afterEach(() => {
 });
 
 describe("forecast collector D1 contract", () => {
-  it("does not persist v4 candidates before schema 27", async () => {
-    const db = testEnv.FORECAST_DB;
-    const item = sourceItem();
-    const event = soloEvent(item);
-    const now = Date.parse("2026-08-24T00:00:00.000Z");
-    await persistSourceItemsAndEvents(db, [item], [event], new Date(now).toISOString());
-    const resolved = resolveSoloSchedule([event], now);
-    if (!resolved) throw new Error("Expected a resolved schedule");
-    const candidate = await buildForecastCandidate(
-      resolved,
-      [],
-      {
-        status: "x_unavailable",
-        sourceItem: null,
-        reason: "test",
-      },
-      now,
-      1,
-    );
-    expect(candidate.candidate.certifiedSnapshot?.version).toBe("certified-daily-v4");
-    await db.prepare("DELETE FROM schema_migrations WHERE version >= 27").run();
-    const writes = await db.batch(
-      candidateStatements(db, candidate, event.eventId, "2026-08-24", 1),
-    );
-    expect(writes.every((result) => result.meta.changes === 0)).toBe(true);
-    expect((await db.prepare("SELECT * FROM forecast_candidates").all()).results).toEqual([]);
-    expect((await db.prepare("SELECT * FROM candidate_sources").all()).results).toEqual([]);
-  });
+  // V5 needs its publication tuple in 0034; historical v4 retains its 0027 boundary.
+  it.each([
+    { version: "certified-daily-v4", schemaVersion: 27 },
+    { version: "certified-daily-v5", schemaVersion: 34 },
+  ] as const)(
+    "does not persist $version before schema $schemaVersion and persists at that version",
+    async ({ version, schemaVersion }) => {
+      const db = testEnv.FORECAST_DB;
+      const item = sourceItem();
+      const event = soloEvent(item);
+      const now = Date.parse("2026-08-24T00:00:00.000Z");
+      await persistSourceItemsAndEvents(db, [item], [event], new Date(now).toISOString());
+      const resolved = resolveSoloSchedule([event], now);
+      if (!resolved) throw new Error("Expected a resolved schedule");
+      const candidate = await buildForecastCandidate(
+        resolved,
+        [],
+        {
+          status: "x_unavailable",
+          sourceItem: null,
+          reason: "test",
+        },
+        now,
+        1,
+        [],
+        { version },
+      );
+      expect(candidate.candidate.certifiedSnapshot?.version).toBe(version);
+      await db
+        .prepare("DELETE FROM schema_migrations WHERE version >= ?")
+        .bind(schemaVersion)
+        .run();
+      const writes = await db.batch(
+        candidateStatements(db, candidate, event.eventId, "2026-08-24", 1),
+      );
+      expect(writes.every((result) => result.meta.changes === 0)).toBe(true);
+      expect((await db.prepare("SELECT * FROM forecast_candidates").all()).results).toEqual([]);
+      expect((await db.prepare("SELECT * FROM candidate_sources").all()).results).toEqual([]);
+      await db
+        .prepare("INSERT INTO schema_migrations VALUES(?,CURRENT_TIMESTAMP)")
+        .bind(schemaVersion)
+        .run();
+      await persistCandidate(db, candidate, event.eventId, "2026-08-24", 1);
+      expect(
+        await db.prepare("SELECT state,payload_hash FROM forecast_candidates").first(),
+      ).toEqual({ state: candidate.candidate.sourceStatus, payload_hash: candidate.payloadHash });
+      expect(await db.prepare("SELECT COUNT(*) n FROM candidate_sources").first()).toEqual({
+        n: 1,
+      });
+    },
+  );
   it("preserves changes() across D1 batch statements and clears it after a zero-row write", async () => {
     const db = testEnv.FORECAST_DB;
     const item = sourceItem();

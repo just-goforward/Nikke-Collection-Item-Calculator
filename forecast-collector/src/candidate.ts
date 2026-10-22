@@ -2,18 +2,21 @@ import {
   type CertifiedSupplyBuildInput,
   createCertifiedSupplyRule,
 } from "../../shared/certifiedSupplyModel";
+import {
+  certifiedVersionPolicy,
+  forecastVersionsForSnapshot,
+} from "../../shared/certifiedVersionPolicy";
 import { gameDayStartCeilMs, gameDayStartMs } from "../../shared/gameDay";
 import { deriveSoloRaidCadenceDays, SOLO_RAID_CADENCE_SUMMARY } from "../../shared/soloRaidCadence";
 import { buildScheduleForecastSnapshot } from "../../shared/supplyForecastBuild";
 import {
-  buildSupplyForecastCandidate,
+  buildV3SupplyForecastCandidate,
   type SupplyForecastGrant,
   type SupplyForecastV5SoloPeriod,
 } from "../../shared/supplyForecastCandidate";
 import {
   DISPATCH_POLICY_ID,
   SUPPLY_PROFILE_HORIZON_DAYS,
-  SUPPLY_RULES_VERSION,
 } from "../../shared/supplyForecastProjection";
 import { sha256Hex, stableJson } from "./crypto";
 import { collapseSoloSegments, eventRound } from "./solo-interruptions";
@@ -141,7 +144,7 @@ export async function buildForecastCandidate(
   nowMs: number,
   revision: number,
   grants: readonly SupplyForecastGrant[] = [],
-  options: Pick<CertifiedSupplyBuildInput, "cadenceVersion" | "confirmedRounds"> = {},
+  options: Pick<CertifiedSupplyBuildInput, "version" | "cadenceVersion" | "confirmedRounds"> = {},
 ): Promise<CandidateBuildResult> {
   const gameDayStart = gameDayStartMs(nowMs);
   const generatedAt = new Date(gameDayStart).toISOString();
@@ -214,7 +217,7 @@ export async function buildForecastCandidate(
     collaborationPeriods,
     provenance: deduplicatedEvidence.map((evidence) => evidence.url).sort(),
   });
-  if (certifiedSnapshot.version !== "certified-daily-v4")
+  if (!certifiedVersionPolicy(certifiedSnapshot.version).segmentsAndGrants)
     throw new Error("forecast_snapshot_version");
   const ledgerPeriods = candidateLedgerPeriods(certifiedSnapshot, options);
   const primary =
@@ -228,10 +231,10 @@ export async function buildForecastCandidate(
     ledgerPeriods.find((period) => Date.parse(period.effectiveUntil) > nowMs);
   if (!primary) throw new Error("forecast_primary_period_missing");
   const ledgerHash = await sha256Hex(stableJson(certifiedSnapshot));
-  const candidateId = `forecast-${(
-    await sha256Hex(stableJson({ rulesVersion: SUPPLY_RULES_VERSION, sourceHash, ledgerHash }))
-  ).slice(0, 24)}`;
-  const candidate = buildSupplyForecastCandidate({
+  const rulesVersion = forecastVersionsForSnapshot(certifiedSnapshot.version).rulesVersion;
+  const identityHash = await sha256Hex(stableJson({ rulesVersion, sourceHash, ledgerHash }));
+  const candidateId = `forecast-${identityHash.slice(0, 24)}`;
+  const candidate = buildV3SupplyForecastCandidate({
     candidateId,
     forecastId,
     dispatchPolicyId: DISPATCH_POLICY_ID,
@@ -246,9 +249,7 @@ export async function buildForecastCandidate(
       collaborationPeriods,
     },
     sourceEvidence: deduplicatedEvidence,
-    certifiedSnapshot: certifiedSnapshot as typeof certifiedSnapshot & {
-      version: "certified-daily-v4";
-    },
+    certifiedSnapshot,
     grants: [...grants],
     warnings: candidateWarnings(soloPeriods, resolved.cadenceDays, xProbe.status),
   });

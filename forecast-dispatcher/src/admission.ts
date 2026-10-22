@@ -42,7 +42,8 @@ export async function admitCandidates(
     LEFT JOIN forecast_runtime_admissions f ON f.candidate_id=c.candidate_id
     WHERE c.state IN ('crosschecked','x_unavailable','proposed')
       AND (f.candidate_id IS NULL OR f.state='ready' OR
-        (f.attempts<? AND f.next_attempt_at<=? AND
+        ((f.attempts<? OR (f.state='pending' AND f.error_code='awaiting_evidence_panel'))
+          AND f.next_attempt_at<=? AND
           (f.state='pending' OR (f.state='running' AND f.lease_until<=?))))
       AND NOT EXISTS(SELECT 1 FROM forecast_runtime_approvals a WHERE a.candidate_id=c.candidate_id)
       AND NOT EXISTS(SELECT 1 FROM forecast_runtime_reviews r WHERE r.candidate_id=c.candidate_id
@@ -53,14 +54,19 @@ export async function admitCandidates(
     .all<{ candidate_id: string; created_at: string; cadence_version: string }>();
   for (const row of candidates.results) {
     const lease = crypto.randomUUID();
+    // A pending evidence wait retains the next real attempt's one-based number.
+    // Reuse it on the next claim, including attempt 5; only real failures consume it.
     const claimed = await db
       .prepare(`INSERT INTO forecast_runtime_admissions
       (candidate_id,state,attempts,next_attempt_at,lease_token,lease_until,updated_at)
       VALUES(?,'running',1,?,?,?,?)
       ON CONFLICT(candidate_id) DO UPDATE SET state='running',
-        attempts=CASE WHEN state='ready' THEN 1 ELSE attempts+1 END,
+        attempts=CASE WHEN state='ready' THEN 1
+          WHEN state='pending' AND error_code='awaiting_evidence_panel' THEN attempts
+          ELSE attempts+1 END,
         lease_token=excluded.lease_token,lease_until=excluded.lease_until,updated_at=excluded.updated_at
-      WHERE state='ready' OR (attempts<? AND next_attempt_at<=? AND
+      WHERE state='ready' OR ((attempts<? OR (state='pending' AND error_code='awaiting_evidence_panel'))
+        AND next_attempt_at<=? AND
         (state='pending' OR (state='running' AND lease_until<=?)))
       RETURNING attempts`)
       .bind(row.candidate_id, now, lease, now + LEASE_MS, now, MAX_ATTEMPTS, now, now)
@@ -96,12 +102,11 @@ export async function admitCandidates(
     }
     const completed = await db
       .prepare(`UPDATE forecast_runtime_admissions SET state=?,error_code=COALESCE(?,error_code),
-      attempts=attempts-?,next_attempt_at=?,lease_token=NULL,lease_until=NULL,updated_at=?
+      next_attempt_at=?,lease_token=NULL,lease_until=NULL,updated_at=?
       WHERE candidate_id=? AND state='running' AND lease_token=?`)
       .bind(
         state,
         code,
-        Number(code === "awaiting_evidence_panel"),
         now + (code === "awaiting_evidence_panel" ? EVIDENCE_RETRY_MS : RETRY_MS),
         now,
         row.candidate_id,

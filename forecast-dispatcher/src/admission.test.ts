@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import { CERTIFIED_EVIDENCE_COVERAGE } from "../../shared/certifiedEvidenceCoverage.ts";
 import { initializePublication } from "../../shared/forecast-publication/store.ts";
+import { TEST_PUBLICATION_COVERAGE } from "../../shared/forecast-publication/test-coverage.ts";
 import { CERTIFIED_ENGINE_CODE_HASH } from "../../shared/generated/certifiedEngineBuild.ts";
 import { admitCandidates } from "./admission.ts";
 
@@ -15,6 +16,7 @@ it.each([
   ["observed-median-v2", CERTIFIED_ENGINE_CODE_HASH, true],
   ["observed-median-v2", "0".repeat(64), false],
   ["observed-mean-thursday-v1", undefined, false],
+  // The real registry now includes the reviewed v11 engine; unknown cadences still fail closed.
   ["observed-median-v2", "sealed", true],
   ["unknown-cadence", "sealed", false],
   ["", "sealed", false],
@@ -75,14 +77,14 @@ it.each([
   );
   expect(store.sealCandidate).toHaveBeenCalledTimes(allowed ? 1 : 0);
   expect(store.createReview).toHaveBeenCalledTimes(allowed ? 1 : 0);
-  expect(completions[0]?.slice(0, 3)).toEqual(
+  expect(completions[0]?.slice(0, 2)).toEqual(
     allowed
-      ? ["ready", null, 0]
+      ? ["ready", null]
       : cadence === "observed-median-v2"
-        ? ["pending", "awaiting_evidence_panel", 1]
-        : ["dead", "unsupported_cadence", 0],
+        ? ["pending", "awaiting_evidence_panel"]
+        : ["dead", "unsupported_cadence"],
   );
-  expect(completions[0]?.[3]).toBe(
+  expect(completions[0]?.[2]).toBe(
     1000 + (!allowed && cadence === "observed-median-v2" ? 6 * 60 * 60_000 : 5 * 60_000),
   );
 });
@@ -145,12 +147,12 @@ it("supersedes an older candidate when a newer one already has a live review", a
     },
     newer: { candidate_id: "forecast-new" },
   });
-  await admitCandidates(db, POLICY_ACTIVE, 1000, CERTIFIED_EVIDENCE_COVERAGE);
+  await admitCandidates(db, POLICY_ACTIVE, 1000, TEST_PUBLICATION_COVERAGE);
   // No second approval request is created for the same sequence.
   expect(store.createReview).not.toHaveBeenCalled();
   expect(store.sealCandidate).not.toHaveBeenCalled();
   // Terminal, so a later run cannot renew it either; the code is registered and persisted.
-  expect(completions[0]?.slice(0, 3)).toEqual(["dead", "publication_review_superseded", 0]);
+  expect(completions[0]?.slice(0, 2)).toEqual(["dead", "publication_review_superseded"]);
   expect(probes).toHaveLength(1);
 });
 
@@ -166,10 +168,10 @@ it("still admits the newest candidate, which has nothing newer to defer to", asy
     },
     newer: null,
   });
-  await admitCandidates(db, POLICY_ACTIVE, 1000, CERTIFIED_EVIDENCE_COVERAGE);
+  await admitCandidates(db, POLICY_ACTIVE, 1000, TEST_PUBLICATION_COVERAGE);
   expect(store.sealCandidate).toHaveBeenCalledTimes(1);
   expect(store.createReview).toHaveBeenCalledTimes(1);
-  expect(completions[0]?.slice(0, 3)).toEqual(["ready", null, 0]);
+  expect(completions[0]?.slice(0, 2)).toEqual(["ready", null]);
 });
 
 it("logs the supersession with its registered code and the terminal state", async () => {
@@ -183,7 +185,7 @@ it("logs the supersession with its registered code and the terminal state", asyn
       },
       newer: { candidate_id: "forecast-new" },
     });
-    await admitCandidates(db, POLICY_ACTIVE, 1000, CERTIFIED_EVIDENCE_COVERAGE);
+    await admitCandidates(db, POLICY_ACTIVE, 1000, TEST_PUBLICATION_COVERAGE);
     const logged = warn.mock.calls.map((call) => String(call[0])).join("\n");
     expect(logged).toContain('"event":"publication_candidate_review_failed"');
     expect(logged).toContain('"code":"publication_review_superseded"');
@@ -203,7 +205,7 @@ it("compares the supersession candidate with the same order the page selects wit
     },
     newer: null,
   });
-  await admitCandidates(db, POLICY_ACTIVE, 1000, CERTIFIED_EVIDENCE_COVERAGE);
+  await admitCandidates(db, POLICY_ACTIVE, 1000, TEST_PUBLICATION_COVERAGE);
   // created_at (TEXT), created_at, candidate_id, active candidate, environment, sequence, now
   expect(probes[0]).toEqual([
     "2026-10-07T03:00:00.000Z",

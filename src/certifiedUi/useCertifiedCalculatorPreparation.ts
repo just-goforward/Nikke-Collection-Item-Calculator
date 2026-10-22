@@ -1,6 +1,8 @@
 import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from "react";
 import type { CertifiedSupplySnapshot } from "../../shared/certifiedSupply";
 import { prepareCertifiedForecast } from "../lib/certifiedForecast";
+import { prepareLocalCertifiedForecast } from "../lib/certifiedLocalForecast";
+import { localCertifiedForecastEnabled } from "../lib/certifiedLocalPolicy";
 import type { RuntimeForecastStatus } from "../lib/runtimeForecast";
 import { type CertifiedSession, reconcileCertifiedSession } from "./session";
 import type { CertifiedSessionStore } from "./useCertifiedCalculatorSession";
@@ -64,7 +66,9 @@ export function useCertifiedCalculatorPreparation(
         const asOf = new Date().toISOString();
         const next = staging
           ? stagingRuntimeSnapshot(runtime, runtimeStatus, asOf)
-          : await prepareCertifiedForecast(asOf);
+          : await (localCertifiedForecastEnabled()
+              ? prepareLocalCertifiedForecast
+              : prepareCertifiedForecast)(asOf);
         if (!next || !active || calculating.current) return;
         const previous = snapshotRef.current;
         if (changedForecast(previous, next)) retire();

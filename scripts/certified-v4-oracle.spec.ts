@@ -151,6 +151,7 @@ async function candidateAt(
     nowMs,
     1,
     grants,
+    { version: "certified-daily-v4" },
   );
   return built.candidate;
 }

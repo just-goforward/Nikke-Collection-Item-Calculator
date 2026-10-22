@@ -15,6 +15,8 @@ export interface CertifiedInput {
   asOf: string;
   snapshot: CertifiedSupplySnapshot;
   forecastPublication?: PublicationBytes;
+  /** Explicit unsigned local policy; omitted means approved authority/publication. */
+  forecastSource?: "local";
   cohortWeights?: CohortTuple<WireQ>;
   receivedEventIds?: readonly string[];
   /** Original raw stock for fixed prices across a closed-loop execution. */

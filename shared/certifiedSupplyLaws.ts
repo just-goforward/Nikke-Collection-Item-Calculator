@@ -3,7 +3,7 @@ import { add, eq, fromWire, mul, ONE, type Q, q, type WireQ, ZERO } from "./cert
 
 export type Triple = readonly [number, number, number];
 export type DispatchCohort = 0 | 1 | 2 | 3;
-/** Three entries belong exclusively to the historical v1 snapshot contract. */
+/** Arity alone never identifies a policy: v1 and v5 both have three cohorts. */
 export type CohortTuple<T> = readonly [T, T, T] | readonly [T, T, T, T];
 export type CertifiedLawRef = { lawId: string; count: number };
 export type ExactSupplyOutcome = { pieces: Triple; mass: Q };
