@@ -53,22 +53,29 @@ const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
  */
 export function shiftInsertionPoint(source: string): number | null {
   let index = source.startsWith("\uFEFF") ? 1 : 0;
-  if (source.startsWith("#!", index)) {
-    const lineEnd = source.slice(index).search(LINE_TERMINATOR);
-    index = lineEnd === -1 ? source.length : index + lineEnd;
-  }
-  while (index < source.length) {
-    if (/\s/.test(source.charAt(index))) index += 1;
-    else if (source.startsWith("//", index)) {
-      const lineEnd = source.slice(index).search(LINE_TERMINATOR);
-      index = lineEnd === -1 ? source.length : index + lineEnd;
-    } else if (source.startsWith("/*", index)) {
-      const close = source.indexOf("*/", index + 2);
-      index = close === -1 ? source.length : close + 2;
-    } else break;
+  if (source.startsWith("#!", index)) index = lineEndFrom(source, index);
+  let next = skipOneTrivia(source, index);
+  while (next !== index) {
+    index = next;
+    next = skipOneTrivia(source, index);
   }
   if (source.charAt(index) === '"' || source.charAt(index) === "'") return null;
   return /<!--|-->/.test(source.slice(0, index + 4)) ? null : index;
+}
+
+function lineEndFrom(source: string, index: number) {
+  const lineEnd = source.slice(index).search(LINE_TERMINATOR);
+  return lineEnd === -1 ? source.length : index + lineEnd;
+}
+
+/** Index after one whitespace character or standard comment at `index`; `index` itself if none. */
+function skipOneTrivia(source: string, index: number) {
+  if (index >= source.length) return index;
+  if (/\s/.test(source.charAt(index))) return index + 1;
+  if (source.startsWith("//", index)) return lineEndFrom(source, index);
+  if (!source.startsWith("/*", index)) return index;
+  const close = source.indexOf("*/", index + 2);
+  return close === -1 ? source.length : close + 2;
 }
 
 const pinnedPages = new WeakSet<Page>();
