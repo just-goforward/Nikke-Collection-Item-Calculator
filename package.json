@@ -124,7 +124,7 @@
     "test:alignment": "playwright test --config playwright.alignment.config.ts",
     "pretest:visual": "npm run build",
     "test:visual": "playwright test e2e/visual.spec.ts",
-    "test:visual:update": "playwright test e2e/visual.spec.ts --update-snapshots",
+    "test:visual:update": "playwright test e2e/visual.spec.ts --update-snapshots=all",
     "worker:types": "wrangler types cloudflare/worker-configuration.d.ts --config cloudflare/wrangler.toml --env= --env-interface GeneratedWorkerEnv --strict-vars false",
     "validate:certified-staging:waiting-cache": "node --max-old-space-size=768 scripts/validate-certified-staging-waiting-cache.ts",
     "validate:wasm-candidate": "node scripts/validate-wasm-candidate.ts",
