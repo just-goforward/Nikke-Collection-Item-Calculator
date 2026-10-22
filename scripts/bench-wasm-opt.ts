@@ -24,7 +24,7 @@ type CompileSample = {
   elapsedMs: number;
 };
 
-const BINARYEN_VERSION = "131.0.0";
+const BINARYEN_VERSION = "132.0.0";
 const DEFAULT_REPEATS = 31;
 const SIZE_REDUCTION_TARGET = 0.15;
 const RUNTIME_PERCENT_LIMIT = 0.05;

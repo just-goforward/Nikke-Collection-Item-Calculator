@@ -16,7 +16,7 @@ function installShiftedDate(shiftMs: number) {
   if (Reflect.has(globalThis, marker)) return;
   const NativeDate = Date;
   const now = () => NativeDate.now() + shiftMs;
-  function ShiftedDate(...args: unknown[]) {
+  function shiftedDate(...args: unknown[]) {
     if (!new.target) return new NativeDate(now()).toString();
     return Reflect.construct(NativeDate, args.length === 0 ? [now()] : args, new.target);
   }
@@ -31,13 +31,13 @@ function installShiftedDate(shiftMs: number) {
       const descriptor = Object.getOwnPropertyDescriptor(source, key);
       if (copied.has(key) || !descriptor) continue;
       copied.add(key);
-      Object.defineProperty(ShiftedDate, key, descriptor);
+      Object.defineProperty(shiftedDate, key, descriptor);
     }
   }
-  Object.defineProperty(ShiftedDate, "now", { value: now });
-  Object.defineProperty(ShiftedDate, "prototype", { value: NativeDate.prototype, writable: false });
-  Object.defineProperty(NativeDate.prototype, "constructor", { value: ShiftedDate });
-  Object.defineProperty(globalThis, "Date", { value: ShiftedDate });
+  Object.defineProperty(shiftedDate, "now", { value: now });
+  Object.defineProperty(shiftedDate, "prototype", { value: NativeDate.prototype, writable: false });
+  Object.defineProperty(NativeDate.prototype, "constructor", { value: shiftedDate });
+  Object.defineProperty(globalThis, "Date", { value: shiftedDate });
   Object.defineProperty(globalThis, marker, { value: true });
 }
 

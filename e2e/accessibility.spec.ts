@@ -137,7 +137,7 @@ async function readModalDomEvidence(page: import("@playwright/test").Page) {
         right: rect.right,
         bottom: rect.bottom,
       });
-      const describe = (element: Element) => {
+      const describeElement = (element: Element) => {
         const style = getComputedStyle(element);
         return {
           tag: element.localName,
@@ -192,7 +192,7 @@ async function readModalDomEvidence(page: import("@playwright/test").Page) {
             inViewport: x >= 0 && y >= 0 && x < innerWidth && y < innerHeight,
             nativeTopEqualsTarget: nativeStack[0] === target,
             nativeElementsFromPointStack: nativeStack.map((element) => {
-              const snapshot = describe(element);
+              const snapshot = describeElement(element);
               return {
                 ...snapshot,
                 isTarget: element === target,
@@ -214,8 +214,8 @@ async function readModalDomEvidence(page: import("@playwright/test").Page) {
         visibilityState: document.visibilityState,
         lang: document.documentElement.lang,
         bodyClasses: document.body.className,
-        target: { ...describe(target), text: target.textContent },
-        parentButton: describe(parent),
+        target: { ...describeElement(target), text: target.textContent },
+        parentButton: describeElement(parent),
         directTextRangeRects,
         membershipFormula:
           "floor(x)<floor(left+width) && floor(x)>=floor(left) && " +

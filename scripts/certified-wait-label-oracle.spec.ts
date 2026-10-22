@@ -533,13 +533,13 @@ describe("named regressions", () => {
     if (!batch) throw new Error("missing batch");
     expect(O.certificateApplies(q(1), rates[2], 3)).toBe(false);
     const u: Triple = [4, 3, 3];
-    const P = (value: O.EngineValue) => engine.toExact(value).P;
+    const p = (value: O.EngineValue) => engine.toExact(value).P;
     // Waiting value cross-checked against the independent single-use Bellman oracle.
-    expect(P(engine.value(state, u))).toEqual(q(6516188709953095252193n, 7812500000000000000000n));
+    expect(p(engine.value(state, u))).toEqual(q(6516188709953095252193n, 7812500000000000000000n));
     expect(createOracleEvaluator(prices)({ ...state, stock: [40, 30, 30] }).P).toEqual(
-      P(engine.value(state, u)),
+      p(engine.value(state, u)),
     );
-    const at = (point: Triple) => P(engine.batch(state, point, 2, 3));
+    const at = (point: Triple) => p(engine.batch(state, point, 2, 3));
     expect(at([6, 4, 3])).toEqual(
       q(13065176545936002589963287643579n, 15625000000000000000000000000000n),
     );
