@@ -4,7 +4,10 @@ import { DatabaseSync } from "node:sqlite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ActiveRow, ReviewRow } from "../../shared/forecast-publication/store.ts";
 import { publicationHash } from "../../shared/forecastPublication.ts";
-import { supplyForecastCandidateSchema } from "../../shared/supplyForecastCandidate.ts";
+import {
+  buildV3SupplyForecastCandidate,
+  supplyForecastCandidateSchema,
+} from "../../shared/supplyForecastCandidate.ts";
 import {
   loadReviewCompetition,
   publicationReviewContent,
@@ -43,6 +46,48 @@ function snapshot(id: string) {
   const value = candidate(id).certifiedSnapshot;
   if (!value) throw new Error("staging_snapshot_fixture_missing");
   return value;
+}
+
+function withoutNotice(value: ReturnType<typeof candidate>, round: number) {
+  return {
+    ...value,
+    schedule: {
+      ...value.schedule,
+      soloPeriods: value.schedule.soloPeriods.filter((period) => period.round !== round),
+    },
+  };
+}
+
+function cappedNotice() {
+  const value = candidate(FIRST);
+  const end = "2026-10-22T19:59:59.000Z";
+  const original = snapshot(FIRST);
+  const segments = original.soloRounds.find((round) => round.round === 42)?.segments;
+  if (!segments) throw new Error("round_segments_fixture_missing");
+  return buildV3SupplyForecastCandidate({
+    ...value,
+    schedule: {
+      ...value.schedule,
+      soloEnd: end,
+      soloPeriods: value.schedule.soloPeriods.map((period) =>
+        period.round === 42 ? { ...period, effectiveUntil: end } : period,
+      ),
+    },
+    certifiedSnapshot: {
+      ...original,
+      events: original.events.map((event) =>
+        event.kind === "solo" && event.round === 42 ? { ...event, expiresAt: end } : event,
+      ),
+      soloRounds: original.soloRounds.map((round) =>
+        round.round === 42
+          ? {
+              ...round,
+              segments: segments.map((segment) => ({ ...segment, effectiveUntil: end })),
+            }
+          : round,
+      ),
+    },
+  });
 }
 
 // Actions, candidate prefixes and expiry timestamps come from the Lead's five-row
@@ -233,6 +278,11 @@ describe("publication comparison window and wording boundaries", () => {
       expect(content).toContain("· 외 2건: 콜라보 상점(주당) · 주간 키트");
       expect(content).not.toContain("그 외 2건 구성 변경");
       expect(content).not.toContain("시작일만");
+      expect(content).toContain(
+        field === "effectiveFrom"
+          ? "10/12 05:00 KST부터 → 10/16 06:00 KST부터"
+          : "10/12 05:00 KST부터 → 10/15 05:00~2027/01/01 04:59 KST",
+      );
     },
   );
 
@@ -244,6 +294,10 @@ describe("publication comparison window and wording boundaries", () => {
       activeCandidate: value.candidate,
       candidate: {
         ...value.candidate,
+        schedule: {
+          ...value.candidate.schedule,
+          soloPeriods: value.candidate.schedule.soloPeriods.filter((period) => period.round !== 42),
+        },
         certifiedSnapshot: {
           ...original,
           soloRounds: original.soloRounds.map((round) =>
@@ -253,9 +307,9 @@ describe("publication comparison window and wording boundaries", () => {
       },
     });
     expect(content).toContain(
-      "· 라운드 42 변경: 10-15~10-21 (확정) → 10-15 시작 · 종료일 정보 없음(확인 필요) (확정)",
+      "· 라운드 42 변경: 10/15 12:00~10/22 04:59 KST (확정) → 게임일 10/15 05:00 KST 시작 · 종료일 정보 없음(확인 필요) (확정)",
     );
-    expect(content).not.toContain("10-15부터");
+    expect(content).not.toContain("10/15 05:00 KST부터");
   });
 
   it("preserves unknown reward identifiers verbatim instead of guessing Korean names", async () => {
@@ -281,5 +335,172 @@ describe("publication comparison window and wording boundaries", () => {
     });
     expect(content).toContain("· 주간 키트: unknown-weekly-law 1");
     expect(content).toContain("보상 종류: unknown-reward-law");
+  });
+});
+
+describe("publication period boundary formatting", () => {
+  it("formats a removed round with its original sealed notice times", async () => {
+    const value = await input(FIRST);
+    const original = snapshot(FIRST);
+    const content = publicationReviewContent({
+      ...value,
+      activeCandidate: value.candidate,
+      candidate: {
+        ...withoutNotice(value.candidate, 44),
+        certifiedSnapshot: {
+          ...original,
+          soloRounds: original.soloRounds.filter((round) => round.round !== 44),
+        },
+      },
+    });
+    expect(content).toContain("· 라운드 44 제외: 기존 12/10 12:00~12/17 04:59 KST");
+    expect(content.length).toBeLessThanOrEqual(2000);
+  });
+
+  it("uses sealed notice times in the legacy no-snapshot branch", async () => {
+    const value = await input(FIRST);
+    const content = publicationReviewContent({
+      ...value,
+      active: { ...active, candidate_id: null },
+      activeCandidate: null,
+      candidate: {
+        ...value.candidate,
+        certifiedSnapshot: undefined,
+      },
+    });
+    // The captured period ends at 04:59:59 KST, not a midnight or 05:00 instant.
+    expect(value.candidate.schedule.soloPeriods[0]?.effectiveUntil).toBe(
+      "2026-10-21T19:59:59.000Z",
+    );
+    expect(content).toContain("42 10/15 12:00~10/22 04:59 KST (확정)");
+    expect(content).toContain("44 12/10 12:00~12/17 04:59 KST (추정)");
+    expect(content.length).toBeLessThanOrEqual(2000);
+  });
+});
+
+describe("publication notice precision and provenance", () => {
+  it.each(["before", "after"] as const)(
+    "does not invent a time change when only the %s side uses ledger dates",
+    async (side) => {
+      const value = await input(FIRST);
+      const fallback = withoutNotice(value.candidate, 42);
+      const content = publicationReviewContent({
+        ...value,
+        activeCandidate: side === "before" ? fallback : value.candidate,
+        candidate: side === "after" ? fallback : value.candidate,
+      });
+      expect(content).not.toContain("라운드 42 변경");
+      expect(content).toContain("솔로 레이드 일정은 지금과 같습니다.");
+    },
+  );
+
+  it("labels a ledger-only range as a game-day range on an off-baseline listing", async () => {
+    const value = await input(FIRST);
+    const content = publicationReviewContent({
+      ...value,
+      active: { ...active, candidate_id: null },
+      activeCandidate: null,
+      candidate: withoutNotice(value.candidate, 42),
+    });
+    expect(content).toContain("42 게임일 10/15 05:00~10/22 04:59 KST (확정)");
+    expect(content).toContain("43 11/12 12:00~11/19 04:59 KST (추정)");
+  });
+
+  it("detects a changed notice hour even though both ledger game dates are unchanged", async () => {
+    const value = await input(FIRST);
+    const content = publicationReviewContent({
+      ...value,
+      activeCandidate: value.candidate,
+      candidate: {
+        ...value.candidate,
+        schedule: {
+          ...value.candidate.schedule,
+          soloPeriods: value.candidate.schedule.soloPeriods.map((period) =>
+            period.round === 42 ? { ...period, effectiveFrom: "2026-10-15T04:00:00Z" } : period,
+          ),
+        },
+      },
+    });
+    expect(content).toContain(
+      "· 라운드 42 변경: 10/15 12:00~10/22 04:59 KST (확정) → 10/15 13:00~10/22 04:59 KST (확정)",
+    );
+  });
+
+  it.each(["before", "after"] as const)(
+    "keeps capped ledger dates when the %s side still has the longer notice",
+    async (side) => {
+      const value = await input(FIRST);
+      // Schema-admitted collector shape: notice ends 10/23 04:59, while rewards
+      // stop at the ledger's exclusive 10/22 boundary.
+      const capped = cappedNotice();
+      const fallback = withoutNotice(capped, 42);
+      const ledger = capped.certifiedSnapshot?.soloRounds.find((round) => round.round === 42);
+      expect(capped.schedule.soloPeriods.find((period) => period.round === 42)).toMatchObject({
+        effectiveFrom: "2026-10-15T03:00:00.000Z",
+        effectiveUntil: "2026-10-22T19:59:59.000Z",
+      });
+      expect(ledger).toMatchObject({
+        startGameDate: "2026-10-15",
+        endGameDate: "2026-10-22",
+      });
+      const content = publicationReviewContent({
+        ...value,
+        activeCandidate: side === "before" ? capped : fallback,
+        candidate: side === "after" ? capped : fallback,
+      });
+      expect(content).not.toContain("라운드 42 변경");
+      expect(content).toContain("솔로 레이드 일정은 지금과 같습니다.");
+    },
+  );
+
+  it("compares equivalent timezone representations and notice-minute bounds equally", async () => {
+    const value = await input(FIRST);
+    const content = publicationReviewContent({
+      ...value,
+      activeCandidate: value.candidate,
+      candidate: {
+        ...value.candidate,
+        schedule: {
+          ...value.candidate.schedule,
+          soloPeriods: value.candidate.schedule.soloPeriods.map((period) =>
+            period.round === 42
+              ? {
+                  ...period,
+                  effectiveFrom: "2026-10-15T12:00:00+09:00",
+                  effectiveUntil: "2026-10-22T05:00:00+09:00",
+                }
+              : period,
+          ),
+        },
+      },
+    });
+    expect(content).not.toContain("라운드 42 변경");
+  });
+});
+
+describe("publication ranges crossing a KST year", () => {
+  it.each([
+    ["2027-01-06T19:59:59Z", "12/31 12:00~2027/01/07 04:59 KST"],
+    ["2026-12-31T20:00:00Z", "12/31 12:00~2027/01/01 04:59 KST"],
+  ])("includes the end's KST year for %s", async (end, expected) => {
+    const value = await input(FIRST);
+    const content = publicationReviewContent({
+      ...value,
+      active: { ...active, candidate_id: null },
+      activeCandidate: null,
+      candidate: {
+        ...value.candidate,
+        schedule: {
+          ...value.candidate.schedule,
+          soloPeriods: value.candidate.schedule.soloPeriods.map((period) =>
+            period.round === 44
+              ? { ...period, effectiveFrom: "2026-12-31T03:00:00Z", effectiveUntil: end }
+              : period,
+          ),
+        },
+      },
+    });
+    expect(content).toContain(`44 ${expected} (추정)`);
+    expect(content.length).toBeLessThanOrEqual(2000);
   });
 });

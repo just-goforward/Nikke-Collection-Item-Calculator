@@ -7,7 +7,7 @@ export function kstLabel(instant: string): string {
   return kst(at);
 }
 
-export function kst(at: number): string {
+export function kst(at: number, includeYear = false): string {
   const value = new Date(at + 9 * 3_600_000).toISOString();
-  return `${value.slice(5, 7)}/${value.slice(8, 10)}(${WEEKDAYS[new Date(at + 9 * 3_600_000).getUTCDay()]}) ${value.slice(11, 16)}`;
+  return `${includeYear ? `${value.slice(0, 4)}/` : ""}${value.slice(5, 7)}/${value.slice(8, 10)}(${WEEKDAYS[new Date(at + 9 * 3_600_000).getUTCDay()]}) ${value.slice(11, 16)}`;
 }

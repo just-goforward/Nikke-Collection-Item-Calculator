@@ -4,8 +4,8 @@ import type {
   ReviewRow,
 } from "../../shared/forecast-publication/store.ts";
 import { canonicalPublicationJson } from "../../shared/forecastPublication.ts";
-import { gameDayKey } from "../../shared/gameDay.ts";
-import { kstLabel } from "../../shared/kst.ts";
+import { gameDayKey, gameDayStartCeilMs, gameDayStartMs } from "../../shared/gameDay.ts";
+import { kst, kstLabel } from "../../shared/kst.ts";
 import type { SupplyForecastCandidate } from "../../shared/supplyForecastCandidate.ts";
 
 /** Discord rejects content above 2000 characters, so the layout is budgeted, not sliced. */
@@ -80,12 +80,15 @@ const WARNING_KO: Readonly<Record<string, string>> = {
   "Official sources report conflicting schedules.": "공식 출처 간 일정이 서로 다릅니다.",
 };
 
-/** One solo-raid round as either ledger stores it. Game dates, never instants. */
+type NoticePeriod = { start: number; end: number };
+
+/** Preserve the notice instants and the lower-resolution ledger separately. */
 type ReviewRound = {
   round: number;
   status: "confirmed" | "estimated" | "unverified";
   startGameDate: string;
   endGameDate: string | null;
+  periods: NoticePeriod[];
 };
 
 export type ReviewCandidateView = SupplyForecastCandidate;
@@ -256,6 +259,7 @@ function roundDiff(before: ReviewCandidateView, after: ReviewCandidateView) {
       old.startGameDate === current.startGameDate &&
       old.endGameDate !== null &&
       current.endGameDate === null &&
+      current.periods.length === 0 &&
       outsideWindow(old, after) &&
       outsideWindow(current, after);
     const line = historyOnly ? null : roundLine(round, old, current);
@@ -303,28 +307,70 @@ function roundsByNumber(candidate: ReviewCandidateView) {
       status: round.status,
       startGameDate: round.startGameDate,
       endGameDate: round.endGameDate,
+      periods: sealedPeriods(candidate, round.round),
     });
   }
   // Legacy periods can carry explicit identities, never fabricate a round by array index.
-  if (rounds.size === 0)
+  if (!candidate.certifiedSnapshot)
     candidate.schedule.soloPeriods.forEach((period) => {
-      if (period.round === undefined) return;
+      if (period.round === undefined || rounds.has(period.round)) return;
+      const periods = sealedPeriods(candidate, period.round);
       rounds.set(period.round, {
         round: period.round,
         status: period.scheduleStatus,
-        startGameDate: gameDayKey(Date.parse(period.effectiveFrom)),
-        endGameDate: gameDayKey(Date.parse(period.effectiveUntil)),
+        ...noticeGameDays(periods),
+        periods,
       });
     });
   return rounds;
 }
 
 function sameRound(left: ReviewRound, right: ReviewRound) {
-  return (
-    left.status === right.status &&
-    left.startGameDate === right.startGameDate &&
-    left.endGameDate === right.endGameDate
-  );
+  // Snapshot ledger dates include reward caps; do not derive them again from a
+  // notice that may remain open beyond the reward window.
+  if (
+    left.status !== right.status ||
+    left.startGameDate !== right.startGameDate ||
+    left.endGameDate !== right.endGameDate
+  )
+    return false;
+  // Notice-minute precision is an additional comparison only when both sides have it.
+  if (left.periods.length && right.periods.length) {
+    return (
+      left.periods.length === right.periods.length &&
+      left.periods.every((period, index) => {
+        const other = right.periods[index];
+        return (
+          other !== undefined &&
+          Math.floor(period.start / 60_000) === Math.floor(other.start / 60_000) &&
+          lastNoticeMinute(period.end) === lastNoticeMinute(other.end)
+        );
+      })
+    );
+  }
+  return true;
+}
+
+function sealedPeriods(candidate: ReviewCandidateView, round: number): NoticePeriod[] {
+  return candidate.schedule.soloPeriods
+    .filter((period) => period.round === round)
+    .map((period) => ({
+      start: Date.parse(period.effectiveFrom),
+      end: Date.parse(period.effectiveUntil),
+    }))
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+}
+
+function noticeGameDays(periods: NoticePeriod[]) {
+  return {
+    startGameDate: gameDayKey(Math.min(...periods.map((period) => period.start))),
+    endGameDate: gameDayKey(gameDayStartCeilMs(Math.max(...periods.map((period) => period.end)))),
+  };
+}
+
+/** 04:59:59 and an exclusive 05:00 boundary both end in the 04:59 notice minute. */
+function lastNoticeMinute(end: number) {
+  return Math.floor((end - 1) / 60_000) * 60_000;
 }
 
 /**
@@ -354,13 +400,31 @@ function outsideWindow(round: ReviewRound, candidate: ReviewCandidateView) {
   );
 }
 
-/** Game dates only: the same span twice, never a raw instant. */
+/** Prefer notice times; explicitly label lower-resolution game-day fallbacks. */
 function roundRange(round: ReviewRound) {
-  const start = round.startGameDate.slice(5);
-  const end = round.endGameDate
-    ? gameDayKey(Date.parse(`${round.endGameDate}T05:00:00+09:00`) - 1).slice(5)
-    : null;
-  return end ? `${start}~${end}` : `${start} 시작 · 종료일 정보 없음(확인 필요)`;
+  if (round.periods.length)
+    return round.periods
+      .map((period) => displayedPeriod(period.start, lastNoticeMinute(period.end)))
+      .join(" / ");
+  const start = gameDayStartMs(Date.parse(round.startGameDate));
+  if (round.endGameDate === null)
+    return `게임일 ${periodTime(start)} KST 시작 · 종료일 정보 없음(확인 필요)`;
+  return `게임일 ${periodRange(start, gameDayStartMs(Date.parse(round.endGameDate)))}`;
+}
+
+/** Reuse the shared KST formatter, omitting weekdays only for compact period ranges. */
+function periodTime(at: number, includeYear = false) {
+  return kst(at, includeYear).replace(/\([일월화수목금토]\)/, "");
+}
+
+function periodRange(start: number, exclusiveEnd: number | null) {
+  return displayedPeriod(start, exclusiveEnd === null ? null : exclusiveEnd - 60_000);
+}
+
+function displayedPeriod(start: number, lastMinute: number | null) {
+  if (lastMinute === null) return `${periodTime(start)} KST부터`;
+  const yearChanged = kst(start, true).slice(0, 4) !== kst(lastMinute, true).slice(0, 4);
+  return `${periodTime(start)}~${periodTime(lastMinute, yearChanged)} KST`;
 }
 
 function statusKo(status: ReviewRound["status"]) {
@@ -501,7 +565,10 @@ function ruleDiffLines(before: ReviewCandidateView, after: ReviewCandidateView) 
 
 function ruleDateRange(rule: { effectiveFrom: string; effectiveUntil: string | null } | undefined) {
   if (!rule) return "없음";
-  return `${kstLabel(rule.effectiveFrom)} ~ ${rule.effectiveUntil ? kstLabel(rule.effectiveUntil) : "종료 제한 없음"} KST`;
+  return periodRange(
+    Date.parse(rule.effectiveFrom),
+    rule.effectiveUntil === null ? null : Date.parse(rule.effectiveUntil),
+  );
 }
 
 /** Law references as counts, e.g. "일반 상자 5, Box II 5"; an unknown law keeps its id. */

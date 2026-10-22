@@ -170,9 +170,9 @@ describe("publication review message", () => {
       now: NOW,
     });
     expect(content).toContain(
-      "· 라운드 42 변경: 10-22~10-28 (추정) → 10-15~10-21 (확정)\n" +
-        "· 라운드 43 변경: 11-19~11-25 (추정) → 11-12~11-18 (추정)\n" +
-        "· 라운드 44 추가: 12-10~12-16 (추정)",
+      "· 라운드 42 변경: 10/22 05:00~10/29 04:59 KST (추정) → 10/15 05:00~10/22 04:59 KST (확정)\n" +
+        "· 라운드 43 변경: 11/19 05:00~11/26 04:59 KST (추정) → 11/12 05:00~11/19 04:59 KST (추정)\n" +
+        "· 라운드 44 추가: 12/10 05:00~12/17 04:59 KST (추정)",
     );
     expect(content).toContain("· 변경 없음: 지급·상점·주간 키트·파견·보상 구성 동일");
   });
@@ -188,7 +188,7 @@ describe("publication review message", () => {
     });
     expect(content).toContain("· 지금은 예보가 끄기 상태입니다.");
     expect(content).toContain(
-      "· 라운드: 42 10-15~10-21 (확정), 43 11-12~11-18 (추정), 44 12-10~12-16 (추정)",
+      "· 라운드: 42 10/15 05:00~10/22 04:59 KST (확정), 43 11/12 05:00~11/19 04:59 KST (추정), 44 12/10 05:00~12/17 04:59 KST (추정)",
     );
     expect(content).toContain("📊 지금 반영된 것: 없음(끄기 상태)");
     expect(content).toContain(
@@ -253,7 +253,7 @@ describe("publication review comparison safety", () => {
     expect(content).toContain("현재 반영본을 읽을 수 없어 비교할 수 없습니다.");
     expect(content).not.toContain("지금은 예보가 끄기 상태");
     expect(content).not.toContain("구성 동일");
-    expect(content).toContain("42 10-15~10-21 (확정)");
+    expect(content).toContain("42 10/15 05:00~10/22 04:59 KST (확정)");
   });
 
   it("detects a real nested shop quantity change even when round dates match", () => {
