@@ -86,7 +86,7 @@ Discord alerts do not claim that a suppressed redeploy completed a stop.
 승인 직전에 살아 있는 실행 ID와 후보 SHA를 다시 확인한다.
 
 - 승인 전 main 이력 검증, 승인 후 정확한 SHA 재checkout 및 재검증.
-- Node 24.22.1 / npm 12.2.1 / Rust 1.98.1; 자식 빌드 프로세스의 `GITHUB_SHA`는 후보 SHA이다.
+- Node 24.22.1 / npm 12.2.1 / Rust 1.99.1; 자식 빌드 프로세스의 `GITHUB_SHA`는 후보 SHA이다.
   GitHub 예약 환경변수의 step-level 재정의에 의존하지 않는다. 업로드 전에 실제 entry JS의
   후보 SHA를 검사한다.
 - 빌드, `check:site-production`, 로컬 `smoke:site-production`, bundle budget, 아티팩트 업로드에는

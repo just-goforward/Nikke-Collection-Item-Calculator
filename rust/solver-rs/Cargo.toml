@@ -1,8 +1,8 @@
 # Rust implementation of the finite-inventory solver kernels used by the browser product and
 # research benchmarks. Build to wasm32 and verify against the TypeScript solver parity suite.
 #
-# BUILT + VERIFIED (2026-08-24, Rust 1.98.0): min-E[f], phase2, dynamic-gain ABI, cache lifecycle,
-# memory growth, and browser/product parity remain checked against the previous toolchain artifact.
+# TOOLCHAIN: Rust 1.99.1 (root rust-toolchain.toml). Validated against 1.98.1 for min-E[f], phase2,
+# dynamic-gain ABI, cache lifecycle, WASM page growth, and existing product parity tests.
 # To reproduce:
 #   rustup target add wasm32-unknown-unknown
 #   cargo build --release --target wasm32-unknown-unknown

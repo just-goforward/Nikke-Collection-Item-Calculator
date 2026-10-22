@@ -37,7 +37,7 @@ Solverは最初にSR15への到達確率を最大化し、同じ確率範囲で�
 必要な環境:
 
 - 現行CI基準と同じNode.js 24.xとnpm 12.x
-- [`rust-toolchain.toml`](./rust-toolchain.toml)で固定したRust 1.98.1と`wasm32-unknown-unknown` target
+- [`rust-toolchain.toml`](./rust-toolchain.toml)で固定したRust 1.99.1と`wasm32-unknown-unknown` target
 
 ```powershell
 npm install

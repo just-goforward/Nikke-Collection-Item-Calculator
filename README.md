@@ -37,7 +37,7 @@ Solver는 먼저 SR15 도달 확률을 최대화하고, 같은 확률 범위에�
 필요 환경:
 
 - Node.js 24.x와 npm 12.x(현재 CI 검증 기준)
-- [`rust-toolchain.toml`](./rust-toolchain.toml)이 고정한 Rust 1.98.1 및 `wasm32-unknown-unknown` target
+- [`rust-toolchain.toml`](./rust-toolchain.toml)이 고정한 Rust 1.99.1 및 `wasm32-unknown-unknown` target
 
 ```powershell
 npm install

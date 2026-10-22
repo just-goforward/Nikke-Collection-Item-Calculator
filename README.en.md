@@ -37,7 +37,7 @@ For security issues, use the private reporting route in the [security policy](./
 Requirements:
 
 - Node.js 24.x and npm 12.x, matching the current CI baseline
-- Rust 1.98.1 and the `wasm32-unknown-unknown` target, pinned by [`rust-toolchain.toml`](./rust-toolchain.toml)
+- Rust 1.99.1 and the `wasm32-unknown-unknown` target, pinned by [`rust-toolchain.toml`](./rust-toolchain.toml)
 
 ```powershell
 npm install
