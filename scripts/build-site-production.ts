@@ -39,13 +39,16 @@ export function assertProductionHtml(html: string, path: string, sourceConfig: s
   ) {
     throw new Error(`Staging or header policy contamination in ${path}`);
   }
+  if (/<mark class="placeholder"|<p class="placeholder-block"/.test(html)) {
+    throw new Error(`Unfilled legal placeholder in ${path}`);
+  }
   const locale = SITE_LOCALE_ORDER.find(
     (value) => `${SITE_LOCALES[value].path.slice(1)}index.html` === path,
   );
   if (!locale) return;
   // The ordinary Vite build preserves this inline script; normalize line endings only.
   if (statsScript(html) !== sourceConfig) {
-    throw new Error(`Direct stats configuration changed in ${path}`);
+    throw new Error(`Same-origin stats configuration changed in ${path}`);
   }
   if (
     !html.includes(localizedSeoBlock(locale)) ||

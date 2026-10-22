@@ -16,6 +16,7 @@ env:
   STATS_ALLOWED_ORIGIN: ${{ vars.STATS_ALLOWED_ORIGIN }}
   STAGING_WORKER_URL: ${{ vars.CLOUDFLARE_STAGING_WORKER_URL }}
   PRODUCTION_WORKER_URL: ${{ vars.CLOUDFLARE_PRODUCTION_WORKER_URL }}
+  PRODUCTION_SMOKE_PROFILE: ${{ vars.CLOUDFLARE_PRODUCTION_SMOKE_PROFILE }}
 
 concurrency:
   group: cloudflare-worker-production
@@ -23,6 +24,7 @@ concurrency:
 
 jobs:
   preflight:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -57,6 +59,24 @@ jobs:
         with:
           node-version: 24.22.1
           cache: npm
+
+      - name: Validate trusted stats probe adapter
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { createHash } from "node:crypto";
+          import { execFileSync } from "node:child_process";
+          const env = process.env;
+          if (env.GITHUB_REF !== "refs/heads/main" || env.GITHUB_WORKFLOW_REF !== `${env.GITHUB_REPOSITORY}/.github/workflows/worker-promote.yml@refs/heads/main` || !/^[0-9a-f]{40}$/.test(env.GITHUB_WORKFLOW_SHA ?? "")) throw new Error("Untrusted workflow identity");
+          const expected = { direct: "https://collection-kit-stats.tbvj159.workers.dev", gateway: "https://nikkecollection.com" };
+          if (!Object.hasOwn(expected, env.PRODUCTION_SMOKE_PROFILE ?? "") || expected[env.PRODUCTION_SMOKE_PROFILE] !== env.PRODUCTION_WORKER_URL) throw new Error("Missing or mismatched production smoke profile");
+          for (const path of ["scripts/stats-worker-health.ts", "scripts/smoke-stats-worker.ts"]) {
+            const trusted = execFileSync("git", ["show", `${env.GITHUB_WORKFLOW_SHA}:${path}`]);
+            const hash = value => createHash("sha256").update(value).digest("hex");
+            if (hash(readFileSync(path)) !== hash(trusted)) throw new Error(`Candidate probe capability differs from trusted workflow: ${path}`);
+          }
+          NODE
 
       - name: Prepare npm 12.2.1 with pinned integrity
         shell: bash
@@ -205,6 +225,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.preflight.outputs.deploy_sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Verify production checkout matches staging target
         shell: bash
@@ -230,6 +252,24 @@ jobs:
         with:
           node-version: 24.22.1
           cache: npm
+
+      - name: Validate trusted stats probe adapter
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { createHash } from "node:crypto";
+          import { execFileSync } from "node:child_process";
+          const env = process.env;
+          if (env.GITHUB_REF !== "refs/heads/main" || env.GITHUB_WORKFLOW_REF !== `${env.GITHUB_REPOSITORY}/.github/workflows/worker-promote.yml@refs/heads/main` || !/^[0-9a-f]{40}$/.test(env.GITHUB_WORKFLOW_SHA ?? "")) throw new Error("Untrusted workflow identity");
+          const expected = { direct: "https://collection-kit-stats.tbvj159.workers.dev", gateway: "https://nikkecollection.com" };
+          if (!Object.hasOwn(expected, env.PRODUCTION_SMOKE_PROFILE ?? "") || expected[env.PRODUCTION_SMOKE_PROFILE] !== env.PRODUCTION_WORKER_URL) throw new Error("Missing or mismatched production smoke profile");
+          for (const path of ["scripts/stats-worker-health.ts", "scripts/smoke-stats-worker.ts"]) {
+            const trusted = execFileSync("git", ["show", `${env.GITHUB_WORKFLOW_SHA}:${path}`]);
+            const hash = value => createHash("sha256").update(value).digest("hex");
+            if (hash(readFileSync(path)) !== hash(trusted)) throw new Error(`Candidate probe capability differs from trusted workflow: ${path}`);
+          }
+          NODE
 
       - name: Validate production configuration
         shell: bash
@@ -347,6 +387,13 @@ jobs:
           }
           NODE
 
+      # Reachability permits recognized backend schema/quota failure, not gateway/auth failure.
+      # Existing Paid guard checks remain mandatory; full verification follows the correction.
+      - name: Verify authenticated transport before schema repair
+        env:
+          STATS_HEALTH_PROBE_TOKEN: ${{ vars.CLOUDFLARE_PRODUCTION_SMOKE_PROFILE == 'gateway' && secrets.STATS_HEALTH_PROBE_TOKEN || '' }}
+        run: npm run smoke:stats-worker -- "$PRODUCTION_WORKER_URL" "$STATS_ALLOWED_ORIGIN" readiness-only "$PRODUCTION_SMOKE_PROFILE"
+
       - name: Ensure production D1 schema
         shell: bash
         env:
@@ -405,7 +452,9 @@ jobs:
       - name: Smoke test production Worker
         id: production_smoke
         continue-on-error: true
-        run: npm run smoke:stats-worker -- "$PRODUCTION_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
+        env:
+          STATS_HEALTH_PROBE_TOKEN: ${{ vars.CLOUDFLARE_PRODUCTION_SMOKE_PROFILE == 'gateway' && secrets.STATS_HEALTH_PROBE_TOKEN || '' }}
+        run: npm run smoke:stats-worker -- "$PRODUCTION_WORKER_URL" "$STATS_ALLOWED_ORIGIN" full "$PRODUCTION_SMOKE_PROFILE"
 
       - name: Restore production after smoke failure
         if: steps.production_smoke.outcome == 'failure' && steps.previous.outputs.version_id != ''
@@ -413,10 +462,16 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           PREVIOUS_VERSION_ID: ${{ steps.previous.outputs.version_id }}
-        run: >-
-          npx wrangler versions deploy "$PREVIOUS_VERSION_ID@100%"
-          --yes --env="" --config cloudflare/wrangler.toml
-          --message "Automatic restore after production smoke failure"
+          VERIFICATION_CLASS: ${{ steps.production_smoke.outputs.verification_class }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$VERIFICATION_CLASS" == "transport" ]]; then
+            echo "verification unavailable (transport); precautionary restore, not confirmed backend incompatibility." >&2
+          fi
+          npx wrangler versions deploy "$PREVIOUS_VERSION_ID@100%" \
+            --yes --env="" --config cloudflare/wrangler.toml \
+            --message "Automatic restore after production smoke failure"
 
       - name: Verify automatic production restore
         if: steps.production_smoke.outcome == 'failure' && steps.previous.outputs.version_id != ''
@@ -434,10 +489,16 @@ jobs:
             if (active !== process.argv[2]) throw new Error(`Automatic restore left ${active ?? "unknown"} active.`);
           ' "$RUNNER_TEMP/production-restored.json" "$PREVIOUS_VERSION_ID"
 
+      - name: Verify restored production contract
+        if: steps.production_smoke.outcome == 'failure' && steps.previous.outputs.version_id != ''
+        env:
+          STATS_HEALTH_PROBE_TOKEN: ${{ vars.CLOUDFLARE_PRODUCTION_SMOKE_PROFILE == 'gateway' && secrets.STATS_HEALTH_PROBE_TOKEN || '' }}
+        run: npm run smoke:stats-worker -- "$PRODUCTION_WORKER_URL" "$STATS_ALLOWED_ORIGIN" full "$PRODUCTION_SMOKE_PROFILE"
+
       - name: Fail production deployment after restore
         if: steps.production_smoke.outcome == 'failure'
         run: |
-          echo "Production smoke failed; the previous version was restored." >&2
+          echo "Production verification failed; restoration was attempted. Check identity and contract verification separately; transport failure is not proof of backend incompatibility." >&2
           exit 1
 
       - name: Record production deployment

@@ -1,5 +1,6 @@
 import { errorCode } from "../../shared/errorCodes";
 import { createForecastEndpoint, type ForecastEnv } from "./forecast";
+import { tokensMatch, validProbeSecret } from "./probe-auth";
 
 const forecastEndpoint = createForecastEndpoint();
 type FetchBinding = { fetch(request: Request): Promise<Response> };
@@ -9,6 +10,10 @@ export type SiteEnv = ForecastEnv & {
   SITE_ENV?: string;
   STATS?: FetchBinding;
   PERSONAL_DATA?: FetchBinding;
+  STATS_HEALTH_PROBE_TOKEN?: string;
+  STATS_HEALTH_RATE_LIMITER?: {
+    limit(options: { key: string }): Promise<{ success: boolean }>;
+  };
 };
 
 const STATS_METHODS: Record<string, readonly string[]> = {
@@ -81,6 +86,36 @@ export default {
     const path = new URL(request.url).pathname;
     if (path === "/api/forecast" || path === "/api/forecast/version")
       return privateResponse(await forecastEndpoint(request, env), true);
+    if (path === "/api/_ci/stats-health") {
+      const authorization = request.headers.get("Authorization") ?? "";
+      if (
+        request.method !== "GET" ||
+        !validProbeSecret(env.STATS_HEALTH_PROBE_TOKEN) ||
+        !authorization.startsWith("Bearer ") ||
+        !(await tokensMatch(authorization.slice(7), env.STATS_HEALTH_PROBE_TOKEN))
+      ) {
+        return errorResponse(404, "not_found");
+      }
+      if (!env.STATS_HEALTH_RATE_LIMITER) return errorResponse(503, "service_not_configured");
+      try {
+        const limit = await env.STATS_HEALTH_RATE_LIMITER.limit({
+          key: "stats-health-production",
+        });
+        if (!limit.success) return errorResponse(429, "rate_limited");
+      } catch {
+        return errorResponse(503, "service_unavailable");
+      }
+      // Fixed authority and Accept only: never forward caller credentials, Origin or query.
+      return proxy(
+        new Request("https://nikkecollection.com/api/health", {
+          headers: { Accept: "application/json" },
+          redirect: "manual",
+        }),
+        env.STATS,
+        false,
+        true,
+      );
+    }
     if (path === "/robots.txt") {
       if (env.SITE_ENV === "production") {
         const response = await env.ASSETS.fetch(request);
@@ -118,7 +153,7 @@ export default {
       // Public releases are cookie-free, even though they use the personal binding.
       return proxy(request, env.PERSONAL_DATA, path !== "/v1/statistics", true);
     }
-    // No wildcard proxy, diagnostic/health endpoints, or API-to-SPA fallback.
+    // No wildcard proxy, public diagnostic/health endpoints, or API-to-SPA fallback.
     if (/^\/(?:api|auth|account|admin|v1)(?:\/|$)/.test(path)) {
       return errorResponse(404, "not_found");
     }

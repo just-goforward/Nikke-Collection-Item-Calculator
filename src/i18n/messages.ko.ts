@@ -32,6 +32,7 @@ export const koMessages = {
   "common.superSuccessNoConfirm": "대성공 X 확정",
   "common.stockEditRequired": "키트 수정 필요",
   "common.convertToSr": "SR 등급으로 교체",
+  "common.convertToSrAria": "교체 적용 (SR 등급으로 교체)",
   "common.applyConversion": "교체 적용",
   "common.loadingTitle": "계산 중",
   "common.mobileActions": "모바일 작업",
@@ -62,6 +63,7 @@ export const koMessages = {
   "reset.undoAction": "입력 초기화 되돌리기",
   "state.gradeAria": "소장품 등급",
   "state.phaseAria": "현재 단계",
+  "state.phaseOptionAria": "{phase} 단계",
   "state.current": "현재 소장품",
   "state.currentExp": "현재 경험치",
   "state.expHelp": "0 이상의 정수를 100 단위로 입력할 수 있습니다. 현재 최대값은 {max}입니다.",
@@ -245,12 +247,13 @@ export const koMessages = {
   "stats.piecesUsed": "{pieces}개 사용",
   "stats.piecesUsedBreakdown": "키트별 사용량 보기: {pieces}",
   "modal.preparing": "남은 키트 선택 준비 중.",
-  "privacy.notice":
-    "결과 검증을 위해 정확한 사용 전후 키트 재고를 전송합니다. 통계 DB에는 집계와 이벤트 ID(거부 ID 포함, 중복 방지를 위해 약 14일)를 저장하며 재고·IP·사용자 ID는 저장하지 않습니다. 미전송 결과는 재시도를 위해 브라우저에 약 15분 보관합니다. IP는 악용·속도 제한을 위해 일시 처리합니다. 별도로 Cloudflare는 운영·문제 해결용 표본 요청 로그(설정 10%)를 Workers Paid에서 최대 7일 보관할 수 있으며 요청·응답 메타데이터와 헤더에 IP가 포함될 수 있습니다. 전송된 이벤트만 반영하며 사용자 수는 집계하지 않습니다. Cloudflare Web Analytics는 쿠키·로컬 저장소 없이 조회·성능(경로, 유입 경로, 국가, 브라우저·OS·기기)을 측정합니다. IP는 받지만 저장하지 않으며 EU·EEA·영국·스위스 데이터센터 경유 방문자는 제외됩니다.",
-  "rights.notice":
-    "NIKKE 및 관련 명칭·상표·게임 자산의 권리는 각 권리자에게 있습니다. 이 프로젝트는 비공식 팬 제작 계산기이며, 게임 개발사 또는 퍼블리셔와 제휴하거나 이들의 승인·후원을 받지 않았습니다.",
-  "license.notice": "이 프로그램은 어떠한 보증도 없이 AGPL-3.0-or-later로 제공됩니다.",
-  "license.source": "라이선스 및 소스 코드",
+  "footer.nav": "사이트 정보",
+  "footer.privacy": "개인정보 처리방침",
+  "footer.terms": "이용약관",
+  "footer.contact": "문의하기",
+  "footer.contactSubject": "[NIKKE 계산기] 문의",
+  "footer.license": "라이선스",
+  "rights.notice": "비공식 팬 제작 계산기입니다. NIKKE 관련 권리는 각 권리자에게 있습니다.",
 } as const;
 
 export type MessageKey = keyof typeof koMessages;

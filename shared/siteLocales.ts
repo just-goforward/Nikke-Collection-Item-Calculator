@@ -65,6 +65,33 @@ export function siteLocaleUrl(locale: SiteLocale) {
   return `${SITE_ORIGIN}${SITE_LOCALES[locale].path}`;
 }
 
+export const SITE_CONTACT_EMAIL = "contact@nikkecollection.com";
+export const SITE_SOURCE_REPOSITORY =
+  "https://github.com/just-goforward/Nikke-Collection-Item-Calculator";
+export const SITE_LICENSE_URL = `${SITE_SOURCE_REPOSITORY}/blob/main/LICENSE`;
+
+export const SITE_LEGAL_PAGES = ["privacy", "terms", "licenses"] as const;
+export type SiteLegalPage = (typeof SITE_LEGAL_PAGES)[number];
+
+/** Extensionless path served from the build's `<page>.html` asset. */
+export function siteLegalPagePath(locale: SiteLocale, page: SiteLegalPage) {
+  return `${SITE_LOCALES[locale].path}${page}`;
+}
+
+export function siteLegalPageUrl(locale: SiteLocale, page: SiteLegalPage) {
+  return `${SITE_ORIGIN}${siteLegalPagePath(locale, page)}`;
+}
+
+/** Every indexable URL: the locale homes first, then each locale's legal pages. */
+export function siteSitemapUrls() {
+  return [
+    ...SITE_LOCALE_ORDER.map(siteLocaleUrl),
+    ...SITE_LOCALE_ORDER.flatMap((locale) =>
+      SITE_LEGAL_PAGES.map((page) => siteLegalPageUrl(locale, page)),
+    ),
+  ];
+}
+
 export function siteLocaleJsonLd(locale: SiteLocale) {
   const metadata = SITE_LOCALES[locale];
   return {

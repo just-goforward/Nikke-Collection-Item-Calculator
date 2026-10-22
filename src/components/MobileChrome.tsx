@@ -306,7 +306,7 @@ function MobileConvertActionBar({
         className={`${classes.actionButton} ${classes.outcomeButton} ${classes.convertButton} convert-button`}
         type="button"
         disabled={loading.active}
-        aria-label={t("common.convertToSr")}
+        aria-label={t("common.convertToSrAria")}
         onClick={onConvert}
       >
         <AlignedText alignmentRole="action">{t("common.applyConversion")}</AlignedText>

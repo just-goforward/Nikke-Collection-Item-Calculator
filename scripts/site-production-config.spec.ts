@@ -17,11 +17,17 @@ describe("production static site configuration", () => {
       "observability",
       "observability.logs",
       "[services",
+      "secrets",
+      "[ratelimits",
     ]);
     for (const key of ["workers_dev", "preview_urls", "upload_source_maps", "invocation_logs"]) {
       expect(config).toContain(`${key} = false`);
     }
     expect(config.match(/^enabled = false$/gm)).toHaveLength(2);
+    expect(config).toContain('required = ["STATS_HEALTH_PROBE_TOKEN"]');
+    expect(config).toContain('name = "STATS_HEALTH_RATE_LIMITER"');
+    expect(config).toContain('namespace_id = "419105"');
+    expect(config).toContain("simple = { limit = 320, period = 60 }");
     expect(config).not.toMatch(/^(?:routes?|account_id|zone_id|services|d1_databases)\s*=/m);
     expect(config).toContain('not_found_handling = "404-page"');
     for (const path of ["/api", "/auth", "/v1", "/account", "/admin"]) {

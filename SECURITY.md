@@ -15,6 +15,9 @@ Use GitHub's private vulnerability reporting form:
 
 https://github.com/just-goforward/Nikke-Collection-Item-Calculator/security/advisories/new
 
+If you cannot use that form, email contact@nikkecollection.com with a subject
+starting with `[Security]`. Do not include real credentials or other users' data.
+
 Include the following information when available:
 
 - affected page, endpoint, or component

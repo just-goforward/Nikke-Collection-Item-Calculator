@@ -53,7 +53,10 @@ for (const [path, messages] of [
       .getByRole("button", { name: "SR", exact: true })
       .click();
     await page
-      .getByRole("button", { name: messages["common.phase"].replace("{phase}", "14"), exact: true })
+      .getByRole("button", {
+        name: messages["state.phaseOptionAria"].replace("{phase}", "14"),
+        exact: true,
+      })
       .click();
     await page.locator("#currentExp").fill("2900");
     await page.locator("#currentExp").blur();
@@ -95,7 +98,24 @@ test("production robots, sitemap, HTML aliases and static cache behavior", async
   expect(robots.headers()["cache-control"]).toBe("public, max-age=0, must-revalidate");
   expect(await (await request.head("/robots.txt")).text()).toBe("");
   const sitemap = await request.get("/sitemap.xml");
-  expect(await sitemap.text()).toContain("<loc>https://nikkecollection.com/en/</loc>");
+  const sitemapText = await sitemap.text();
+  expect(sitemapText).toContain("<loc>https://nikkecollection.com/en/</loc>");
+  expect(sitemapText).toContain("<loc>https://nikkecollection.com/ja/licenses</loc>");
+  for (const [path, lang] of [
+    ["/privacy", "ko"],
+    ["/en/terms", "en"],
+    ["/ja/licenses", "ja"],
+  ] as const) {
+    const legal = await request.get(path, { maxRedirects: 0 });
+    expect(legal.status(), path).toBe(200);
+    expect(legal.headers()["content-type"]).toContain("text/html");
+    expect(legal.headers()["cache-control"]).toBe("public, max-age=0, must-revalidate");
+    expect(legal.headers()["x-robots-tag"]).toBeUndefined();
+    expect(await legal.text()).toContain(`<html lang="${lang}" data-locale="${lang}"`);
+  }
+  const slash = await request.get("/privacy/", { maxRedirects: 0 });
+  expect([301, 307, 308]).toContain(slash.status());
+  expect(new URL(slash.headers()["location"] ?? "", "http://x").pathname).toBe("/privacy");
   for (const path of ["/", "/index.html", "/en", "/en/", "/en/index.html", "/ja/"]) {
     const html = await request.get(path);
     expect(html.status()).toBe(200);
@@ -151,6 +171,8 @@ test("unbound production gateway never falls back to HTML and keeps health unava
     ["/v1/account", 503, "service_not_configured"],
     ["/auth/callback/google", 503, "service_not_configured"],
     ["/api/health", 404, "not_found"],
+    ["/api/_ci/stats-health", 404, "not_found"],
+    ["/api/admin/solver-diagnostics", 404, "not_found"],
     ["/v1/health", 404, "not_found"],
     ["/api/unknown", 404, "not_found"],
     ["/account", 404, "not_found"],

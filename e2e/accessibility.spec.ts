@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import AxeBuilder from "@axe-core/playwright";
 import { expect } from "@playwright/test";
 import { type PreviewServer, preview } from "vite";
+import { enableAccountFlag, MockAccountApi, signedInApi } from "./account.helpers";
 import { closePreviewServer, test } from "./test";
 
 const PORT = 4175;
@@ -291,7 +292,7 @@ async function calculateSr(
     .getByRole("group", { name: "소장품 등급" })
     .getByRole("button", { name: "SR" })
     .click();
-  await page.getByRole("button", { name: `${level}단계`, exact: true }).click();
+  await page.getByRole("button", { name: `${level} 단계`, exact: true }).click();
   if (stock.blue) await page.getByLabel("초심자용 키트").fill(stock.blue);
   if (stock.purple) await page.getByLabel("중급자용 키트").fill(stock.purple);
   if (stock.yellow) await page.getByLabel("상급자용 키트").fill(stock.yellow);
@@ -357,8 +358,8 @@ test("등급과 단계 버튼은 방향키로 선택과 포커스를 같이 이�
   await expect(superRare).toHaveAttribute("aria-pressed", "true");
 
   const levelGroup = page.getByRole("group", { name: "현재 단계" });
-  const level0 = levelGroup.getByRole("button", { name: "0단계", exact: true });
-  const level1 = levelGroup.getByRole("button", { name: "1단계", exact: true });
+  const level0 = levelGroup.getByRole("button", { name: "0 단계", exact: true });
+  const level1 = levelGroup.getByRole("button", { name: "1 단계", exact: true });
   await level0.focus();
   await page.keyboard.press("ArrowRight");
   await expect(level1).toBeFocused();
@@ -494,5 +495,48 @@ test("강제 색상과 200% 확대 상당 폭에서도 결과 화면이 재배�
     scroll: document.documentElement.scrollWidth,
   }));
   expect(widths.scroll).toBeLessThanOrEqual(widths.client + 1);
+  expect(await accessibilityViolations(page)).toEqual([]);
+});
+
+test("계정 로그인 진행 중 트리거에는 WCAG A/AA 위반이 없다", async ({ page, context }) => {
+  await enableAccountFlag(page);
+  const api = new MockAccountApi();
+  await api.install(context, `http://127.0.0.1:${PORT}`);
+
+  // The trigger still shows the visible "로그인" while its name says where the redirect goes.
+  let releaseLogin: () => void = () => undefined;
+  api.holdLogin = new Promise<void>((resolve) => {
+    releaseLogin = resolve;
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  const busyLogin = page.getByRole("button", { name: "로그인 – Google로 이동 중…", exact: true });
+  await page.getByRole("button", { name: "Google 계정으로 로그인", exact: true }).click();
+  await expect(busyLogin).toBeVisible();
+  expect(await accessibilityViolations(page)).toEqual([]);
+  releaseLogin();
+});
+
+test("모바일 변환 버튼에는 WCAG A/AA 위반이 없다", async ({ page }) => {
+  // Mobile R 15 shows the convert action bar; its name must start with its visible "교체 적용".
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await page.getByLabel("상급자용 키트").fill("100");
+  await page.locator(".level-button").nth(15).click();
+  await expect(
+    page.getByRole("button", { name: "교체 적용 (SR 등급으로 교체)", exact: true }),
+  ).toBeVisible();
+  expect(await accessibilityViolations(page)).toEqual([]);
+});
+
+test("계정을 불러오지 못한 상태에는 WCAG A/AA 위반이 없다", async ({ page, context }) => {
+  await enableAccountFlag(page);
+  const api = signedInApi(10);
+  api.failWorkspaceReads = 1;
+  await api.install(context, `http://127.0.0.1:${PORT}`);
+  await page.goto(`http://127.0.0.1:${PORT}/?statsEnv=disabled`);
+  await expect(
+    page.getByRole("button", { name: "계정 불러오기 실패 – 다시 시도", exact: true }),
+  ).toBeVisible();
   expect(await accessibilityViolations(page)).toEqual([]);
 });

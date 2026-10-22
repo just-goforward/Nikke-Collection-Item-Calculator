@@ -1407,7 +1407,58 @@ export const SUPPLY_FORECAST_REGISTRY =
     ]
   } as const;
 
-export type SupplyForecastId = (typeof SUPPLY_FORECAST_REGISTRY.forecasts)[number]["id"];
+// Acceptance only; never used to select or calculate a forecast.
+const COMPAT_IDENTITIES = {
+  "sourceCommit": "32982fa9155180440e5a9b686caa5d9efe5e6fde",
+  "sha256": "f15758dc4290733ec011d1bdb5179dc4b9f15bda6f195700af3aa09f20515edf",
+  "forecastId": "supply-2026-10-15-v3",
+  "profileIds": [
+    "supply-2026-10-15-v3@2026-10-14T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-10-15T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-10-16T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-10-17T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-10-18T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-10-19T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-10-20T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-10-28T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-10-29T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-10-30T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-10-31T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-01T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-02T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-03T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-04T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-05T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-06T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-07T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-08T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-09T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-10T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-11T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-12T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-13T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-14T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-15T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-16T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-17T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-25T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-26T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-27T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-28T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-29T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-11-30T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-12-01T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-12-02T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-12-03T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-12-04T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-12-05T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-12-06T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-12-07T20:00:00.000Z",
+    "supply-2026-10-15-v3@2026-12-08T20:00:00.000Z"
+  ]
+} as const;
+
+export type SupplyForecastId = (typeof SUPPLY_FORECAST_REGISTRY.forecasts)[number]["id"] | typeof COMPAT_IDENTITIES.forecastId;
 export type SupplyForecastProfile = {
   id: string;
   effectiveFrom: string;
@@ -1420,12 +1471,14 @@ export type SupplyForecastProfile = {
 };
 
 export function isSupplyForecastId(value: unknown): value is SupplyForecastId {
+  if (value === COMPAT_IDENTITIES.forecastId) return true;
   return (SUPPLY_FORECAST_REGISTRY.forecasts as readonly { id: string }[]).some(
     (forecast) => forecast.id === value,
   );
 }
 
 export function isSupplyForecastProfileId(value: unknown): value is string {
+  if (COMPAT_IDENTITIES.profileIds.some((id) => id === value)) return true;
   return SUPPLY_FORECAST_REGISTRY.forecasts.some((forecast) =>
     forecast.profiles.some((profile) => profile.id === value),
   );

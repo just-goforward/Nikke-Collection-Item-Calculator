@@ -102,7 +102,7 @@ test("entering an account from 'account not loaded' never makes guest inputs edi
   await api.install(context);
   await enableAccountFlag(page);
   await openApp(page);
-  const retry = page.getByRole("button", { name: "계정 데이터를 불러오지 못했습니다. 다시 시도" });
+  const retry = page.getByRole("button", { name: "계정 불러오기 실패 – 다시 시도" });
   await expect(retry).toBeVisible();
   await setBeginnerKit(page, "45");
 
@@ -240,7 +240,7 @@ test("certified engine: a workspace that cannot load shows the guest session as 
   api.failWorkspaceReads = 1;
   await openCertified(page);
   const retry = page.getByRole("button", {
-    name: "계정 데이터를 불러오지 못했습니다. 다시 시도",
+    name: "계정 불러오기 실패 – 다시 시도",
   });
   await expect(retry).toBeVisible();
   await expect(

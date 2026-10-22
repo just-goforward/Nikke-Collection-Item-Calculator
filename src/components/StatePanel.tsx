@@ -156,7 +156,7 @@ function LevelSelector({
               className={levelButtonClass(level === state.level)}
               data-level={level}
               type="button"
-              aria-label={t("common.phase", { phase: level })}
+              aria-label={t("state.phaseOptionAria", { phase: level })}
               aria-pressed={level === state.level}
               tabIndex={level === state.level ? 0 : -1}
               disabled={disabled}

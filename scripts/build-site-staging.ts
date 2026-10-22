@@ -46,13 +46,18 @@ export function stagingHtml(html: string): string {
   const normalized = html.replace(/\r\n?/g, "\n");
   const scripts = [...normalized.matchAll(/<script\b[^>]*>[\s\S]*?<\/script>/gi)];
   const config = scripts.filter((match) => match[0].includes("window.COLLECTION_STATS_CONFIG"));
-  if (config.length !== 1) throw new Error("Expected exactly one emitted stats config script.");
-  return normalized
-    .replace(config[0]?.[0] ?? STATS_SCRIPT, STAGING_CONFIG)
-    .replace(
-      /<meta name="robots" content="[^"]*"\s*\/?>/g,
-      '<meta name="robots" content="noindex,nofollow" />',
-    );
+  // Static legal pages (scripts/legal-pages.ts) run no app code and carry no stats config.
+  const legalPage = /<html\b[^>]*\bdata-legal-page="/.test(normalized);
+  if (config.length !== (legalPage ? 0 : 1)) {
+    throw new Error("Expected exactly one emitted stats config script.");
+  }
+  const configured = legalPage
+    ? normalized
+    : normalized.replace(config[0]?.[0] ?? STATS_SCRIPT, STAGING_CONFIG);
+  return configured.replace(
+    /<meta name="robots" content="[^"]*"\s*\/?>/g,
+    '<meta name="robots" content="noindex,nofollow" />',
+  );
 }
 
 export function stagingHeaders(htmlDocuments: readonly string[]): string {

@@ -12,7 +12,8 @@ cpu_ms = 10
 [observability.logs]
 enabled = true
 invocation_logs = true
-head_sampling_rate = 0.1
+# Full sampling while the legacy workers.dev hostname is observed before retirement.
+head_sampling_rate = 1.0
 
 [triggers]
 crons = ["17 3 * * *"]

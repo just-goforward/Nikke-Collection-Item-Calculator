@@ -43,6 +43,15 @@ describe("Stats Observer workflow contract", () => {
     expect(audit).not.toContain("contents: write");
     expect(audit).not.toContain("pull-requests: write");
   });
+  it("keeps staging smoke staging-only without a production probe secret", () => {
+    expect(deploy).toContain(
+      'npm run smoke:stats-worker -- "$STAGING_WORKER_URL" "$STATS_ALLOWED_ORIGIN" full direct-staging',
+    );
+    expect(deploy).not.toContain("STATS_HEALTH_PROBE_TOKEN");
+    expect(promote).toContain("vars.CLOUDFLARE_PRODUCTION_SMOKE_PROFILE");
+    expect(promote).toContain('full "$PRODUCTION_SMOKE_PROFILE"');
+    expect(promote).toContain("secrets.STATS_HEALTH_PROBE_TOKEN");
+  });
 
   it("leaves the browser on recovery v1 until the server-first rollout is complete", () => {
     expect(recoveryContract).toContain("SOLVER_RECOVERY_EMIT_VERSION: SolverRecoveryVersion = 1");

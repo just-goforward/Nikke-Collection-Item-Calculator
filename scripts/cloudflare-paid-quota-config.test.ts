@@ -6,7 +6,7 @@ const read = (path: string) => readFileSync(path, "utf8");
 
 describe("Cloudflare Paid quota configuration", () => {
   it.each([
-    ["cloudflare/wrangler.toml", 10, [0.1, 0.1]],
+    ["cloudflare/wrangler.toml", 10, [1, 0.1]],
     // Owner decision 2026-10-20: 300 ms runaway guard; 100 ms performance target.
     ["forecast-collector/wrangler.toml", 300, [0.25, 1]],
     ["forecast-dispatcher/wrangler.toml", 25, [0.25, 1]],

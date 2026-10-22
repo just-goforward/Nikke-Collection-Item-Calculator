@@ -44,13 +44,15 @@ export class MockAccountApi {
   lastOpId: string | null = null;
   /** Holds GET /v1/account (a slow account check) until the promise settles. */
   holdAccount: Promise<void> | null = null;
+  /** Holds POST /auth/login/google (a slow sign-in start) until the promise settles. */
+  holdLogin: Promise<void> | null = null;
   /** Holds GET /v1/workspace until the promise settles. */
   holdWorkspace: Promise<void> | null = null;
   readonly requests: Recorded[] = [];
 
-  async install(context: BrowserContext) {
-    await context.route(`${ORIGIN}/v1/**`, (route) => this.handle(route));
-    await context.route(`${ORIGIN}/auth/**`, (route) => this.handle(route));
+  async install(context: BrowserContext, origin = ORIGIN) {
+    await context.route(`${origin}/v1/**`, (route) => this.handle(route));
+    await context.route(`${origin}/auth/**`, (route) => this.handle(route));
     await context.route("https://accounts.google.com/**", (route) =>
       route.fulfill({ status: 200, contentType: "text/html", body: "<title>Google</title>" }),
     );
@@ -81,6 +83,9 @@ export class MockAccountApi {
     }
     if (recorded.method === "GET" && path === "/v1/workspace" && this.holdWorkspace) {
       await this.holdWorkspace;
+    }
+    if (recorded.method === "POST" && path === "/auth/login/google" && this.holdLogin) {
+      await this.holdLogin;
     }
     const [status, json] = this.respond(recorded);
     await route.fulfill({
@@ -219,7 +224,7 @@ export function signedInApi(blue: number, revision = 1) {
 export async function openApp(page: Page) {
   await page.setViewportSize({ width: 1365, height: 900 });
   await page.goto(`${ORIGIN}/`);
-  await expect(page.getByRole("button", { name: "0단계", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "0 단계", exact: true })).toBeVisible();
 }
 
 export const beginnerKit = (page: Page) => page.getByLabel("초심자용 키트");

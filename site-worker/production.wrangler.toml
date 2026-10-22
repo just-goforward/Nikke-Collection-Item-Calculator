@@ -26,3 +26,12 @@ invocation_logs = false
 [[services]]
 binding = "STATS"
 service = "collection-kit-stats"
+
+[secrets]
+required = ["STATS_HEALTH_PROBE_TOKEN"]
+
+[[ratelimits]]
+name = "STATS_HEALTH_RATE_LIMITER"
+# Unused in tracked configs; operator must confirm account-wide availability before publish.
+namespace_id = "419105"
+simple = { limit = 320, period = 60 }

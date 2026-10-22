@@ -125,10 +125,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          node -e 'if (process.env.STAGING_WORKER_URL !== "https://collection-kit-stats-staging.tbvj159.workers.dev") throw new Error("Staging probe origin mismatch")'
           curl --silent --show-error --fail-with-body --connect-timeout 5 --max-time 20 \
             "$CLOUDFLARE_USAGE_GUARD_URL/health" | jq -e '.state.action == "normal"' >/dev/null
           npm run check:d1-schema -- collection-kit-stats-staging staging
-          npm run smoke:stats-worker -- "$STAGING_WORKER_URL" "$STATS_ALLOWED_ORIGIN"
+          npm run smoke:stats-worker -- "$STAGING_WORKER_URL" "$STATS_ALLOWED_ORIGIN" full direct-staging
           npx wrangler deployments status --env staging --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/stats-deployment.json"
           npx wrangler versions list --env staging --config cloudflare/wrangler.toml --json > "$RUNNER_TEMP/stats-versions.json"
           node --input-type=module - "$RUNNER_TEMP/stats-deployment.json" "$RUNNER_TEMP/stats-versions.json" "$DEPLOY_SHA" <<'NODE'
