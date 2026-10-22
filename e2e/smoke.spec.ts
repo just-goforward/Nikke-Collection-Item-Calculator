@@ -6,12 +6,25 @@ import {
   installTurnstileStub,
   maxBackgroundChannel,
   mockStagingStatsEndpoints,
+  pinStagingForecastClock,
+  pinWallClock,
   serveStagingDocument,
+  stagingForecastCoverageGap,
+  stagingForecastOpenEndedProfile,
 } from "./smoke.helpers";
 import { closePreviewServer, test } from "./test";
 
 const PORT = Number(process.env["E2E_SMOKE_PORT"] ?? 4273);
+const ORIGIN = `http://127.0.0.1:${PORT}`;
+const SCHEDULE_STATUS_LABELS = { confirmed: "일정 확정", estimated: "일정 추정" } as const;
 let previewServer: PreviewServer | null = null;
+
+/** "2026년 10월 22일 05:00" for an instant, in KST (UTC+9, no daylight saving time). */
+function kstMinuteLabel(iso: string) {
+  const kst = new Date(Date.parse(iso) + 9 * 60 * 60 * 1000);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${kst.getUTCFullYear()}년 ${kst.getUTCMonth() + 1}월 ${kst.getUTCDate()}일 ${pad(kst.getUTCHours())}:${pad(kst.getUTCMinutes())}`;
+}
 const MOBILE_OUTCOME_PROMPT = "추천 행동의 대성공 여부를 선택해주세요.";
 
 /**
@@ -852,6 +865,7 @@ test("전송 실패 통계는 새로고침 뒤 같은 eventId로 재전송되고
   const replayedEventIds = new Set<string>();
   let acceptEvents = false;
 
+  await pinStagingForecastClock(page, ORIGIN);
   await installTurnstileStub(page);
   await serveStagingDocument(page, {
     endpoint,
@@ -1383,6 +1397,7 @@ test("통계 키트별 사용량은 키보드 포커스와 Escape로 확인하�
 });
 
 test("통계 요청 실패 후 화면에서 다시 불러오면 새 요청으로 복구한다", async ({ page }) => {
+  await pinStagingForecastClock(page, ORIGIN);
   await serveStagingDocument(page, {
     endpoint: "https://staging.example.test",
     turnstileSiteKey: "staging-site-key",
@@ -1610,6 +1625,7 @@ test("모바일 info-tip 텍스트는 말풍선 안에 머문다", async ({ page
 });
 
 test("스테이징 쿼리는 임시 Forecast를 표시하고 solver worker에도 전달한다", async ({ page }) => {
+  const pinnedProfile = await pinStagingForecastClock(page, ORIGIN);
   const submittedForecastIds: string[] = [];
   page.on("request", (request) => {
     if (request.url() !== "https://staging.example.test/api/events") return;
@@ -1655,14 +1671,12 @@ test("스테이징 쿼리는 임시 Forecast를 표시하고 solver worker에도
     "data-forecast-id",
     STAGING_SUPPLY_FORECAST_ID,
   );
-  await expect(forecastDetails).toHaveAttribute(
-    "data-forecast-profile-id",
-    new RegExp(`^${STAGING_SUPPLY_FORECAST_ID}@`),
-  );
+  await expect(forecastDetails).toHaveAttribute("data-forecast-profile-id", pinnedProfile.id);
+  expect(pinnedProfile.id.startsWith(`${STAGING_SUPPLY_FORECAST_ID}@`)).toBe(true);
   await expect(forecastDetails).toContainText("임시 예상 수급");
   await expect(forecastDetails).toContainText("적용 기간");
   await expect(forecastDetails).toContainText("KST");
-  await expect(forecastDetails).toContainText("일정 추정");
+  await expect(forecastDetails).toContainText(SCHEDULE_STATUS_LABELS[pinnedProfile.scheduleStatus]);
   await expect(forecastDetails).not.toContainText(STAGING_SUPPLY_FORECAST_ID);
   await expect(page.getByLabel("Rust solver staging")).toHaveCount(0);
   await page.locator("[data-grade='SR']").click();
@@ -1682,4 +1696,51 @@ test("스테이징 쿼리는 임시 Forecast를 표시하고 solver worker에도
     )
     .toBe(true);
   await expect.poll(() => submittedForecastIds.at(-1)).toBe(STAGING_SUPPLY_FORECAST_ID);
+});
+
+test("스테이징 Forecast의 마지막 무기한 프로필은 시작 시각 이후 배너로 표시된다", async ({
+  page,
+}) => {
+  const profile = stagingForecastOpenEndedProfile();
+  test.skip(!profile, "The staging forecast fixture has no open-ended profile.");
+  if (!profile) return;
+  await pinWallClock(page, ORIGIN, Date.parse(profile.effectiveFrom) + 24 * 60 * 60 * 1000);
+  await serveStagingDocument(page, {
+    endpoint: "https://staging.example.test",
+    turnstileSiteKey: "staging-site-key",
+  });
+  await mockStagingStatsEndpoints(page, ORIGIN);
+
+  await page.goto("/?statsEnv=staging");
+
+  const banner = page.getByLabel("스테이징 환경");
+  const forecastDetails = page.getByTestId("staging-forecast-details");
+  await expect(banner).toHaveAttribute("data-forecast-id", STAGING_SUPPLY_FORECAST_ID);
+  await expect(forecastDetails).toHaveAttribute("data-forecast-profile-id", profile.id);
+  await expect(forecastDetails).toContainText(
+    `임시 예상 수급 · ${kstMinuteLabel(profile.effectiveFrom)} KST 이후 · ${SCHEDULE_STATUS_LABELS[profile.scheduleStatus]}`,
+  );
+  await expect(forecastDetails).not.toContainText("적용 기간");
+});
+
+test("스테이징 Forecast 적용 기간 사이의 공백에서는 수급 계산 불가를 알린다", async ({ page }) => {
+  const gap = stagingForecastCoverageGap();
+  test.skip(!gap, "The staging forecast fixture has no gap between profiles.");
+  if (!gap) return;
+  await pinWallClock(page, ORIGIN, gap.fromMs + Math.floor((gap.untilMs - gap.fromMs) / 2));
+  await serveStagingDocument(page, {
+    endpoint: "https://staging.example.test",
+    turnstileSiteKey: "staging-site-key",
+  });
+  await mockStagingStatsEndpoints(page, ORIGIN);
+
+  await page.goto("/?statsEnv=staging");
+
+  const banner = page.getByLabel("스테이징 환경");
+  await expect(banner).toContainText("테스트 기록은 운영 통계에 반영되지 않음");
+  await expect(banner.getByRole("alert")).toHaveText(
+    "수급 계산 불가: 승인된 원장이 기준 기간 전체를 포함하지 않습니다.",
+  );
+  await expect(banner).not.toHaveAttribute("data-forecast-id");
+  await expect(page.getByTestId("staging-forecast-details")).toHaveCount(0);
 });

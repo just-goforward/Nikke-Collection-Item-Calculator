@@ -3,6 +3,7 @@ import { type PreviewServer, preview } from "vite";
 import {
   installTurnstileStub,
   mockStagingStatsEndpoints,
+  pinStagingForecastClock,
   serveStagingDocument,
 } from "./smoke.helpers";
 import { closePreviewServer, test } from "./test";
@@ -154,6 +155,7 @@ async function openValidation(page: Page) {
 }
 
 test("staging parallel validation uses a dedicated Worker", async ({ page }) => {
+  await pinStagingForecastClock(page, ORIGIN);
   await installWorkerProbe(page);
   await serveStagingDocument(page, {
     endpoint: "https://staging.example.test",
@@ -233,6 +235,7 @@ test("a new solve preempts edited-input validation before starting replacement w
 test("min-E[f] capacity fallback restarts in a fresh phase2 Worker", async ({ page }) => {
   test.setTimeout(60_000);
   const submittedEvents: Array<Record<string, unknown>> = [];
+  await pinStagingForecastClock(page, ORIGIN);
   await installWorkerProbe(page);
   await installTurnstileStub(page);
   await serveStagingDocument(page, {
