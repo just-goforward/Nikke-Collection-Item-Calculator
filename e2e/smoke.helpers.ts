@@ -11,7 +11,7 @@ import { recordPinRefusal, registeredRoutePatterns } from "./test";
  * Dates. Timers are untouched. It is serialized into pages and Worker scripts, so it must stay
  * self-contained, and it installs at most once per realm.
  */
-export function installShiftedDate(shiftMs: number) {
+function installShiftedDate(shiftMs: number) {
   const marker = Symbol.for("e2e.shiftedDate");
   if (Reflect.has(globalThis, marker)) return;
   const NativeDate = Date;
