@@ -1,14 +1,10 @@
 import { useMemo } from "react";
-import {
-  compareCertifiedSupplyPeriods,
-  isCertifiedEventClaimable,
-} from "../../shared/certifiedSupply";
+import { compareCertifiedSupplyPeriods } from "../../shared/certifiedSupply";
 import { REQUIRED_EXP } from "../../shared/game";
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import type { Stock } from "../types";
 import type { CertifiedCalculatorController } from "./calculatorController";
 import { resolveCertifiedStockCorrection } from "./calculatorSessionActions";
-import { certifiedClaimableEvents } from "./session";
 import { useCertifiedCalculatorActions } from "./useCertifiedCalculatorActions";
 import {
   useCertifiedCalculatorPreparation,
@@ -75,12 +71,6 @@ export function useCertifiedCalculatorApp(
     }),
     [bridge.session.stock[0], bridge.session.stock[1], bridge.session.stock[2]],
   );
-  const now = Date.now();
-  const claims = snapshot
-    ? certifiedClaimableEvents(snapshot.events, bridge.session, now).filter((event) =>
-        isCertifiedEventClaimable(snapshot, event, new Date(now).toISOString()),
-      )
-    : [];
   const correction = bridge.correction
     ? resolveCertifiedStockCorrection(bridge.correction, bridge.session).view
     : null;
@@ -105,7 +95,6 @@ export function useCertifiedCalculatorApp(
     snapshot,
     prepareError,
     comparison,
-    claims,
     run,
     statePanel: {
       ...bridge.session.state,

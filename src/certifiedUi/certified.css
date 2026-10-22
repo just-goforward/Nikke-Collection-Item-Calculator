@@ -25,20 +25,33 @@ fieldset.cert-mobile-actions { grid-template-columns: repeat(2, minmax(0, 1fr));
 .cert-mobile-button { display: inline-flex; height: 3rem; min-height: 3rem; align-items: center; justify-content: center; border: 1px solid var(--yellow); border-radius: 8px; background: var(--button-bg); padding: 0 .5rem; color: var(--ink); text-align: center; font-size: 15px; font-weight: 700; line-height: 1.25; }
 .cert-mobile-primary { border: 0; background: var(--action-bg); color: var(--ice); }
 .cert-field { display: grid; gap: 6px; min-width: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
-.cert-field :is(input, select) { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--input-bg); padding: 6px 10px; color: var(--ink); font: inherit; font-size: 15px; }
-.cert-field :is(input, select):disabled { opacity: .6; }
-.cert-kit-label { display: inline-flex; align-items: center; gap: 6px; }
+.cert-field select { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--input-bg); padding: 6px 10px; color: var(--ink); font: inherit; font-size: 15px; }
+.cert-field select:disabled { opacity: .6; }
 .cert-kit-dot { display: inline-block; width: 10px; height: 10px; border-radius: 999px; }
-.cert-claim { display: grid; gap: 10px; min-width: 0; margin: 0; border: 0; border-top: 1px solid var(--line); padding: 12px 0 0; }
-.cert-claim legend { float: left; width: 100%; padding: 0; color: var(--text-strong); font-size: 13px; font-weight: 700; }
-.cert-claim-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .cert-supply table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
 .cert-supply th, .cert-supply td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .cert-supply th:first-child { text-align: left; }
 .cert-supply small { display: block; margin-top: 4px; color: var(--muted); font-size: 11.5px; font-weight: 400; }
 .cert-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 0 4px; color: var(--muted); font-size: 12px; }
 .cert-meta p { margin: 0; }
-.cert-meta a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+/* Centre certified control labels on cap height / alphabetic baseline instead of the shared
+   per-locale translate nudges (tuned in Chromium; they moved text off-centre in Firefox and
+   WebKit). Only the certified shell has `main[data-engine-profile]`; the mobile bottom bar sits
+   outside `main`, hence the `body:has()` scope. Text-box trims block containers only, so a
+   text-only AlignedText becomes inline-block (blockified inside its grid/flex button) and
+   element children are trimmed individually. Control heights come from min-height/height. */
+@supports (text-box: trim-both cap alphabetic) {
+  body:has(main[data-engine-profile]) .aligned-text { --aligned-text-y: 0px; }
+  body:has(main[data-engine-profile]) .aligned-text:not(:has(> *)) { display: inline-block; text-box: trim-both cap alphabetic; }
+  body:has(main[data-engine-profile]) .aligned-text > span:not([aria-hidden="true"]),
+  .cert-button-label { display: block; text-box: trim-both cap alphabetic; }
+  /* Single engine-independent nudges, kept only where one value lowered the measured worst-case
+     perceived offset across Chromium/Firefox/WebKit, DPR 1–3 and ko/en/ja. */
+  body:has(main[data-engine-profile]) :is(#desktop-tab-calc, #desktop-tab-stats) .aligned-text { --aligned-text-y: -0.25px; }
+  body:has(main[data-engine-profile]) [data-theme-mode] .aligned-text { --aligned-text-y: 0.25px; }
+  body:has(main[data-engine-profile]) .status-grade .aligned-text { --aligned-text-y: -0.25px; }
+  .cert-button > .cert-button-label { position: relative; top: 0.25px; }
+}
 @media (max-width: 980px) { .cert-result-grid { grid-template-columns: 1fr; } }
 @media (width < 380px) { .cert-mobile-button { font-size: 13px; } }
 @media (max-width: 660px) {

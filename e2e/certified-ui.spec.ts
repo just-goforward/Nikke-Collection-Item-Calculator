@@ -443,43 +443,27 @@ test("real Worker computes, records one outcome, and preserves raw remainders af
   await expect(levelButton(page, 15)).toHaveAttribute("aria-pressed", "true");
   await calculate(page);
   await expect(page.getByTestId("certified-current")).toContainText("SR 15 is complete.");
-  const unreceived = page.getByRole("button", {
-    name: "Already included in entered stock",
-    exact: true,
-  });
-  while (await unreceived.count()) {
-    const count = await unreceived.count();
-    await unreceived.first().click();
-    await expect(unreceived).toHaveCount(count - 1);
-  }
-  await calculate(page);
+  // Rewards claimable today count as already received, so the waiting day is computed directly.
   await expect(page.getByTestId("certified-waiting")).toContainText("Now");
 });
 
-test("a claim already included in stock records an identity without adding or inventing pieces", async ({
+test("today's claimable rewards count as already in stock without a claims panel or stored receipts", async ({
   page,
 }) => {
   await openStaging(page);
+  await expect(page.getByTestId("certified-claims")).toHaveCount(0);
   await setStock(page, { blue: 40 });
-  const first = page.locator(".cert-claim").first();
-  await expect(first).toBeVisible();
-  await first
-    .getByRole("button", { name: "Already included in entered stock", exact: true })
-    .click();
+  await calculate(page);
+  await expect(page.getByTestId("certified-waiting")).not.toContainText(
+    certifiedMessages.en.claimRequired,
+  );
   await expect(stockInput(page, "blue")).toHaveValue("40");
   const ledger = await page.evaluate(
     (key) => JSON.parse(localStorage.getItem(key) ?? "null"),
     SESSION_KEY,
   );
-  expect(ledger.receipts).toHaveLength(1);
-  expect(ledger.receipts[0]).toMatchObject({ pieces: null, alreadyInStock: true });
+  expect(ledger.receipts).toEqual([]);
   expect(ledger.stock).toEqual([40, 0, 0]);
-  await page.reload();
-  const restored = await page.evaluate(
-    (key) => JSON.parse(localStorage.getItem(key) ?? "null"),
-    SESSION_KEY,
-  );
-  expect(restored.receipts).toEqual(ledger.receipts);
 });
 
 test("R 15 requires conversion before recording another kit use", async ({ page }) => {

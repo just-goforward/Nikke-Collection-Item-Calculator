@@ -1,21 +1,15 @@
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import { eq, fromWire, ONE, toNumber, type WireQ } from "../../shared/certifiedRational";
 import {
   type CertifiedSupplyComparison,
-  type CertifiedSupplyEvent,
-  type CertifiedSupplySnapshot,
   DEFAULT_PERSONAL_COHORT_WEIGHTS,
 } from "../../shared/certifiedSupply";
-import { KIT_ORDER, type Kit, MAX_STOCK_PIECES } from "../../shared/game";
+import { KIT_ORDER, type Kit } from "../../shared/game";
 import { gameDayKey } from "../../shared/gameDay";
-import { KIT_PANEL_LABEL_KEYS, kitDotClass } from "../components/kitPresentation";
+import { KIT_PANEL_LABEL_KEYS } from "../components/kitPresentation";
 import { useI18n } from "../i18n/locale";
 import type { CertifiedWords } from "./messages";
-import {
-  acknowledgeCertifiedReceipt,
-  type CertifiedSession,
-  recordCertifiedReceipt,
-} from "./session";
+import type { CertifiedSession } from "./session";
 
 /** Positions shared by KIT_ORDER and every engine triple, typed so tuple reads stay defined. */
 export const KIT_INDICES = [0, 1, 2] as const;
@@ -127,153 +121,6 @@ export function CohortPanel({
           <option value="3">{words.reroll3}</option>
         </select>
       </div>
-    </CertifiedPanel>
-  );
-}
-
-const EVENT_NAMES = {
-  ko: {
-    dispatch: "파견",
-    shop: "상점",
-    solo: "솔로 레이드",
-    "weekly-kits": "수요일 키트",
-    grant: "일회성 지급",
-  },
-  en: {
-    dispatch: "Dispatch",
-    shop: "Shop",
-    solo: "Solo Raid",
-    "weekly-kits": "Wednesday kits",
-    grant: "One-time grant",
-  },
-  ja: {
-    dispatch: "派遣",
-    shop: "ショップ",
-    solo: "ソロレイド",
-    "weekly-kits": "水曜日のキット",
-    grant: "一回限りの配布",
-  },
-} as const;
-
-function ClaimEditor({
-  disabled,
-  event,
-  snapshot,
-  session,
-  onUpdate,
-  words,
-}: {
-  disabled: boolean;
-  event: CertifiedSupplyEvent;
-  snapshot: CertifiedSupplySnapshot;
-  session: CertifiedSession;
-  onUpdate: (next: CertifiedSession) => void;
-  words: CertifiedWords;
-}) {
-  const { locale } = useI18n();
-  const kitLabel = useKitLabel();
-  const [pieces, setPieces] = useState<[number, number, number]>([0, 0, 0]);
-  const [error, setError] = useState(false);
-  const title = `${event.gameDate} · ${EVENT_NAMES[locale][event.kind]}`;
-  // Only the user's explicit receipt is recorded; the approved event law validates the pieces.
-  const claim = (already: boolean) => {
-    let next: CertifiedSession;
-    try {
-      next = already
-        ? acknowledgeCertifiedReceipt(session, event, new Date().toISOString())
-        : recordCertifiedReceipt(session, event, pieces, new Date().toISOString(), false, {
-            laws: snapshot.laws,
-          });
-    } catch {
-      setError(true);
-      return;
-    }
-    setError(false);
-    onUpdate(next);
-  };
-  return (
-    <fieldset className="cert-claim" disabled={disabled}>
-      <legend>{title}</legend>
-      <div className="cert-claim-fields">
-        {KIT_ORDER.map((kit, i) => (
-          <label className="cert-field" key={kit}>
-            <span className="cert-kit-label">
-              <span className={`cert-kit-dot ${kitDotClass[kit]}`} aria-hidden="true" />
-              {kitLabel(kit)}
-            </span>
-            <input
-              aria-label={`${words.received} ${kitLabel(kit)}`}
-              type="number"
-              inputMode="numeric"
-              min="0"
-              max={MAX_STOCK_PIECES}
-              value={pieces[i]}
-              onChange={(e) => {
-                const next: [number, number, number] = [...pieces];
-                next[i] = Math.max(
-                  0,
-                  Math.min(MAX_STOCK_PIECES, Math.floor(Number(e.target.value) || 0)),
-                );
-                setPieces(next);
-              }}
-            />
-          </label>
-        ))}
-      </div>
-      <div className="cert-actions">
-        <button type="button" className="cert-button" onClick={() => claim(false)}>
-          {words.record}
-        </button>
-        <button type="button" className="cert-button" onClick={() => claim(true)}>
-          {words.already}
-        </button>
-      </div>
-      {error && (
-        <p role="alert" className="cert-notice cert-notice-danger">
-          {words.modelMismatch}
-        </p>
-      )}
-    </fieldset>
-  );
-}
-
-export function ClaimsPanel({
-  claims,
-  disabled,
-  snapshot,
-  session,
-  onUpdate,
-  words,
-}: {
-  claims: readonly CertifiedSupplyEvent[];
-  disabled: boolean;
-  snapshot: CertifiedSupplySnapshot;
-  session: CertifiedSession;
-  onUpdate: (next: CertifiedSession) => void;
-  words: CertifiedWords;
-}) {
-  return (
-    <CertifiedPanel
-      headingId="certified-claims-title"
-      title={words.claims}
-      testId="certified-claims"
-    >
-      <p className="cert-muted">{words.claimExplain}</p>
-      {claims.length ? (
-        claims.map((event) => (
-          <ClaimEditor
-            key={event.id}
-            disabled={disabled}
-            event={event}
-            snapshot={snapshot}
-            session={session}
-            onUpdate={onUpdate}
-            words={words}
-          />
-        ))
-      ) : (
-        <p className="cert-muted">{words.expired}</p>
-      )}
     </CertifiedPanel>
   );
 }

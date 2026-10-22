@@ -5,8 +5,8 @@ import type { CollectionState, Kit } from "../shared/game";
 import { solveCertified } from "../src/certified/solver";
 import type { CertifiedInput, CertifiedOutput, Triple } from "../src/certified/types";
 import {
-  acknowledgeCertifiedReceipt,
   type CertifiedSession,
+  certifiedRequestReceivedEventIds,
   createCertifiedSession,
   recordCertifiedOutcome,
   restoreCertifiedSession,
@@ -64,12 +64,10 @@ function initial(
   state: CollectionState = { grade: "SR", level: 14, exp: 0 },
   stock: Triple = [45, 0, 0],
 ) {
-  let session = createCertifiedSession(snapshot.revision, state, stock);
-  for (const id of TODAY_EVENT_IDS) {
-    const today = snapshot.events.find((event) => event.id === id);
-    if (!today) throw new Error(`approved_today_event_missing:${id}`);
-    session = acknowledgeCertifiedReceipt(session, today, AS_OF);
-  }
+  const session = createCertifiedSession(snapshot.revision, state, stock);
+  // Today's claimable rewards count as already in the entered stock through the request.
+  const received = certifiedRequestReceivedEventIds(session, snapshot, AS_OF);
+  for (const id of TODAY_EVENT_IDS) expect(received).toContain(id);
   return session;
 }
 
@@ -85,7 +83,7 @@ function request(
     asOf: AS_OF,
     snapshot,
     cohortWeights: session.cohortWeights,
-    receivedEventIds: session.receipts.map((receipt) => receipt.eventId),
+    receivedEventIds: certifiedRequestReceivedEventIds(session, snapshot, AS_OF),
     computeWaiting: false,
     batchLimit: 10,
     ...options,

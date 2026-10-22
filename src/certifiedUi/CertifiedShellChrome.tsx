@@ -50,7 +50,7 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
             disabled={controller.inputLocked || controller.stockCorrectionRequired}
             onClick={() => controller.updateSession(dismissCertifiedMigrationNotice)}
           >
-            {words.dismissMigrationNotice}
+            <span className="cert-button-label">{words.dismissMigrationNotice}</span>
           </button>
         </p>
       )}
@@ -62,7 +62,7 @@ export function CertifiedBanner({ controller, ui, words }: ChromeProps) {
         >
           {words.storageBlocked}
           <button type="button" className="cert-button" onClick={ui.onReset}>
-            {t("common.reset")}
+            <span className="cert-button-label">{t("common.reset")}</span>
           </button>
         </p>
       )}
@@ -124,7 +124,7 @@ export function CertifiedMobileActions({ controller, ui, words }: ChromeProps) {
           className="cert-mobile-button cert-mobile-primary"
           onClick={ui.onConvert}
         >
-          {words.convert}
+          <span className="cert-button-label">{words.convert}</span>
         </button>
       </div>
     );
@@ -134,10 +134,10 @@ export function CertifiedMobileActions({ controller, ui, words }: ChromeProps) {
       <fieldset className="mobile-action-bar cert-mobile-actions">
         <legend className="sr-only">{words.use}</legend>
         <button type="button" className="cert-mobile-button" onClick={() => ui.onOutcome("normal")}>
-          {words.normal}
+          <span className="cert-button-label">{words.normal}</span>
         </button>
         <button type="button" className="cert-mobile-button" onClick={() => ui.onOutcome("great")}>
-          {words.great}
+          <span className="cert-button-label">{words.great}</span>
         </button>
       </fieldset>
     );
@@ -212,20 +212,12 @@ function RunStatusNotices({ controller, ui, words }: ChromeProps) {
 function CertifiedRunMeta({ controller, words }: Omit<ChromeProps, "ui">) {
   const { formatNumber } = useI18n();
   const finished = controller.run.finished;
+  if (!finished) return null;
   return (
     <div className="cert-meta">
-      {finished && (
-        <p>
-          {words.elapsed}: {formatNumber(finished.timing.totalMs / 1000, 3)}s
-        </p>
-      )}
-      <a
-        href="https://game.naver.com/lounge/nikke/board/detail/8060044"
-        target="_blank"
-        rel="noreferrer"
-      >
-        {words.source}
-      </a>
+      <p>
+        {words.elapsed}: {formatNumber(finished.timing.totalMs / 1000, 3)}s
+      </p>
     </div>
   );
 }
@@ -240,7 +232,7 @@ export function CertifiedResultRegion({ controller, ui, words }: ChromeProps) {
         action={
           run.busy ? (
             <button type="button" className="cert-button" onClick={ui.onCancel}>
-              {words.cancel}
+              <span className="cert-button-label">{words.cancel}</span>
             </button>
           ) : null
         }

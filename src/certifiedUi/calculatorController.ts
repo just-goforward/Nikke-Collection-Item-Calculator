@@ -1,7 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type {
   CertifiedSupplyComparison,
-  CertifiedSupplyEvent,
   CertifiedSupplySnapshot,
 } from "../../shared/certifiedSupply";
 import type { Grade, Stock } from "../types";
@@ -21,7 +20,6 @@ export type CertifiedCalculatorController = {
   snapshot: CertifiedSupplySnapshot | null;
   prepareError: CertifiedPrepareError | null;
   comparison: CertifiedSupplyComparison | null;
-  claims: readonly CertifiedSupplyEvent[];
   run: ReturnType<typeof useCertifiedRun>;
   statePanel: StatePanelModel;
   stock: Stock;

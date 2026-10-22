@@ -554,8 +554,6 @@ test("actual hidden cancellation discards stale work and requires a new foregrou
 
 test("actual visibility abort during waiting retains the completed current panel", async () => {
   await setCertifiedInput("R", 0, 0, { blue: 0, purple: 0, yellow: 0 });
-  const acknowledge = page.getByRole("button", { name: certifiedMessages.en.already, exact: true });
-  while (await acknowledge.count()) await acknowledge.first().click();
   await page.exposeBinding("__currentVisibility", async () => {
     await hide();
     await bringVisible();

@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { CertifiedSupplyEvent } from "../../shared/certifiedSupply";
-import type { CertifiedSupplyLaw } from "../../shared/certifiedSupplyLaws";
+import type {
+  CertifiedSoloRound,
+  CertifiedSupplyEvent,
+  CertifiedSupplySnapshot,
+} from "../../shared/certifiedSupply";
+import { prepareCertifiedForecast } from "../lib/certifiedForecast";
 import {
-  acknowledgeCertifiedReceipt,
-  certifiedClaimableEvents,
+  certifiedRequestReceivedEventIds,
   createCertifiedSession,
   reconcileCertifiedSession,
   recordCertifiedOutcome,
-  recordCertifiedReceipt,
   restoreCertifiedSession,
 } from "./session";
 
@@ -21,106 +23,77 @@ const event: CertifiedSupplyEvent = {
   ruleId: "fixture",
   sourceIds: [],
 };
-const laws: readonly CertifiedSupplyLaw[] = [
-  {
-    id: "observed-cohort",
-    kind: "finite",
-    modelVersion: "fixture-v1",
-    outcomesByCohort: [
-      [{ pieces: [3, 0, 0], mass: { numerator: "1", denominator: "1" } }],
-      [{ pieces: [0, 2, 0], mass: { numerator: "1", denominator: "1" } }],
-      [{ pieces: [0, 0, 1], mass: { numerator: "1", denominator: "1" } }],
-      [{ pieces: [0, 0, 2], mass: { numerator: "1", denominator: "1" } }],
-    ],
-  },
-];
 
-describe("Wednesday fixed-kit receipts", () => {
-  const weekly: CertifiedSupplyEvent = {
-    id: "weekly-kits:2026-09-30",
-    kind: "weekly-kits",
-    gameDate: "2026-09-30",
-    at: "2026-09-29T20:00:00Z",
-    expiresAt: "2026-10-05T20:00:00Z",
-    status: "confirmed",
-    ruleId: "schedule-kit-v3:documented-physical-supply-v2",
-    refs: [{ lawId: "deterministic:10,10,0", count: 1 }],
-  };
-  it("accepts only the fixed pieces and preserves the posterior and saved session on reconciliation", () => {
-    const session = createCertifiedSession(
-      "old-forecast",
-      { grade: "R", level: 0, exp: 0 },
-      [20, 30, 40],
-    );
-    for (const pieces of [
-      [10, 0, 0],
-      [0, 10, 0],
-      [10, 10, 1],
-    ] as const)
-      expect(() => recordCertifiedReceipt(session, weekly, pieces, weekly.at)).toThrow(
-        "receipt_outside_supply_model",
-      );
-    const claimed = recordCertifiedReceipt(session, weekly, [10, 10, 0], weekly.at);
-    expect(claimed.cohortWeights).toEqual(session.cohortWeights);
-    expect(claimed.stock).toEqual([30, 40, 40]);
-    const next = reconcileCertifiedSession(claimed, "new-forecast", [weekly.id]);
-    expect(next.version).toBe(2);
-    expect(next.receipts).toEqual(claimed.receipts);
-    expect(next.stock).toEqual(claimed.stock);
-    expect(next.cohortWeights).toEqual(claimed.cohortWeights);
-    expect(restoreCertifiedSession(JSON.stringify(next))).toEqual(next);
-    expect(reconcileCertifiedSession(session, "new-forecast", [weekly.id]).stock).toEqual(
-      session.stock,
-    );
+describe("engine request receipts", () => {
+  const asOf = "2026-09-30T04:00:00Z"; // 13:00 KST on game day 2026-09-30
+  const solo = (round: number): CertifiedSupplyEvent => ({
+    ...event,
+    id: `solo:r${round}:day1`,
+    kind: "solo",
+    round,
   });
-  it("permits prior-day claims until next Tuesday 05:00 exclusively", () => {
-    const session = createCertifiedSession("forecast", { grade: "R", level: 0, exp: 0 }, [0, 0, 0]);
-    expect(
-      certifiedClaimableEvents([weekly], session, Date.parse("2026-09-30T04:59:59+09:00")),
-    ).toEqual([]);
-    expect(certifiedClaimableEvents([weekly], session, Date.parse(weekly.at))).toEqual([weekly]);
-    expect(
-      certifiedClaimableEvents([weekly], session, Date.parse("2026-10-06T04:59:59+09:00")),
-    ).toEqual([weekly]);
-    expect(
-      certifiedClaimableEvents([weekly], session, Date.parse("2026-10-06T05:00:00+09:00")),
-    ).toEqual([]);
+  const events: CertifiedSupplyEvent[] = [
+    event, // today's dispatch, arrived 05:00 KST
+    { ...event, id: "shop:2026-09-30", kind: "shop", cancelled: true },
+    { ...event, id: "dispatch:later", at: "2026-09-30T06:00:00Z" },
+    {
+      ...event,
+      id: "weekly-kits:2026-09-23",
+      gameDate: "2026-09-23",
+      at: "2026-09-22T20:00:00Z",
+      expiresAt: "2026-09-29T20:00:00Z",
+    },
+    {
+      ...event,
+      id: "weekly-kits:2026-09-24",
+      gameDate: "2026-09-24",
+      at: "2026-09-23T20:00:00Z",
+      expiresAt: "2026-10-05T20:00:00Z",
+    },
+    { ...event, id: "dispatch:2026-09-29", gameDate: "2026-09-29", at: "2026-09-28T20:00:00Z" },
+    { ...event, id: "dispatch:2026-09-28", gameDate: "2026-09-28", at: "2026-09-27T20:00:00Z" },
+    solo(41),
+    solo(40),
+  ];
+  const round = (number: number, status: CertifiedSoloRound["status"], startGameDate: string) => ({
+    round: number,
+    startGameDate,
+    endGameDate: null,
+    status,
+    sourceIds: [],
+  });
+
+  it("adds every currently claimable reward to the stored receipts without changing the session", async () => {
+    const snapshot: CertifiedSupplySnapshot = {
+      ...(await prepareCertifiedForecast(asOf)),
+      events,
+      soloRounds: [round(40, "confirmed", "2026-09-30"), round(41, "estimated", "2026-09-28")],
+    };
+    const session = {
+      ...createCertifiedSession("revision-a", { grade: "SR", level: 14, exp: 0 }, [40, 2, 1]),
+      receipts: [
+        {
+          eventId: "dispatch:2026-09-28",
+          gameDate: "2026-09-28",
+          at: "2026-09-28T04:00:00Z",
+          pieces: [3, 0, 0] as [number, number, number],
+          alreadyInStock: false,
+        },
+      ],
+    };
+    const before = structuredClone(session);
+    expect(certifiedRequestReceivedEventIds(session, snapshot, asOf)).toEqual([
+      "dispatch:2026-09-30",
+      "weekly-kits:2026-09-24",
+      "dispatch:2026-09-28",
+      "solo:r40:day1",
+    ]);
+    // Cancelled, later-today, expired, closed prior-day and estimated solo rewards stay out.
+    expect(session).toEqual(before);
   });
 });
 
 describe("certified personal ledger", () => {
-  it("does not invent a historical claim backlog from unknown expiry", () => {
-    const session = createCertifiedSession("review6", { grade: "R", level: 0, exp: 0 }, [0, 0, 0]);
-    const now = Date.parse("2026-10-01T04:00:00Z");
-    expect(certifiedClaimableEvents([event, { ...event, expiresAt: null }], session, now)).toEqual(
-      [],
-    );
-    expect(() => acknowledgeCertifiedReceipt(session, event, new Date(now).toISOString())).toThrow(
-      "receipt_not_claimable",
-    );
-    expect(
-      certifiedClaimableEvents([{ ...event, expiresAt: "2026-10-02T00:00:00Z" }], session, now),
-    ).toHaveLength(1);
-  });
-
-  it("admits current-day receipts only after their actual arrival and before explicit expiry", () => {
-    const session = createCertifiedSession("review6", { grade: "R", level: 0, exp: 0 }, [0, 0, 0]);
-    const noon = { ...event, at: "2026-09-30T12:00:00+09:00" };
-    expect(
-      certifiedClaimableEvents([noon], session, Date.parse("2026-09-30T09:30:00+09:00")),
-    ).toEqual([]);
-    expect(
-      certifiedClaimableEvents([noon], session, Date.parse("2026-09-30T12:01:00+09:00")),
-    ).toHaveLength(1);
-    expect(
-      certifiedClaimableEvents(
-        [{ ...noon, expiresAt: "2026-09-30T12:01:00+09:00" }],
-        session,
-        Date.parse("2026-09-30T12:01:00+09:00"),
-      ),
-    ).toEqual([]);
-  });
-
   it("keeps the raw remainder and charges exactly one use before a great success", () => {
     const session = createCertifiedSession(
       "revision-a",
@@ -224,63 +197,5 @@ describe("certified personal ledger", () => {
     );
     expect(restored?.receipts).toEqual([receipt]);
     expect(restored?.outcomes).toEqual([outcome]);
-  });
-});
-
-describe("certified receipt observations", () => {
-  it("uses the adopted event law and carries the same inferred cohort into later days", () => {
-    const session = createCertifiedSession(
-      "revision-a",
-      { grade: "SR", level: 14, exp: 0 },
-      [0, 0, 0],
-    );
-    const observed = recordCertifiedReceipt(
-      session,
-      event,
-      [0, 2, 0],
-      "2026-09-30T04:00:00Z",
-      false,
-      { laws },
-    );
-    expect(observed.stock).toEqual([0, 2, 0]);
-    expect(observed.cohortWeights).toEqual([
-      { numerator: "0", denominator: "1" },
-      { numerator: "1", denominator: "1" },
-      { numerator: "0", denominator: "1" },
-      { numerator: "0", denominator: "1" },
-    ]);
-    expect(() =>
-      recordCertifiedReceipt(
-        observed,
-        { ...event, id: "dispatch:2026-10-01", gameDate: "2026-10-01", at: "2026-09-30T20:00:00Z" },
-        [3, 0, 0],
-        "2026-10-01T04:00:00Z",
-        false,
-        { laws },
-      ),
-    ).toThrow("receipt_outside_supply_model");
-    expect(() =>
-      recordCertifiedReceipt(observed, event, [0, 2, 0], "2026-09-30T04:00:00Z", false, { laws }),
-    ).toThrow("receipt_not_claimable");
-  });
-  it("acknowledges already counted pieces without fabricating an observation or adding stock", () => {
-    const session = createCertifiedSession(
-      "revision-a",
-      { grade: "SR", level: 14, exp: 0 },
-      [40, 2, 1],
-    );
-    const next = acknowledgeCertifiedReceipt(session, event, "2026-09-30T04:00:00Z");
-    expect(next.stock).toEqual(session.stock);
-    expect(next.cohortWeights).toEqual(session.cohortWeights);
-    expect(next.receipts).toEqual([
-      {
-        eventId: event.id,
-        gameDate: event.gameDate,
-        at: "2026-09-30T04:00:00Z",
-        pieces: null,
-        alreadyInStock: true,
-      },
-    ]);
-    expect(restoreCertifiedSession(JSON.stringify(next))).toEqual(next);
   });
 });

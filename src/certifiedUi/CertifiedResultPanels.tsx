@@ -70,7 +70,7 @@ function CurrentAction({
           disabled={actionsDisabled}
           onClick={() => onOutcome("normal")}
         >
-          {words.normal}
+          <span className="cert-button-label">{words.normal}</span>
         </button>
         <button
           type="button"
@@ -78,7 +78,7 @@ function CurrentAction({
           disabled={actionsDisabled}
           onClick={() => onOutcome("great")}
         >
-          {words.great}
+          <span className="cert-button-label">{words.great}</span>
         </button>
       </div>
     </>
@@ -95,7 +95,7 @@ function ConvertAction({ actionsDisabled, conversionRequired, onConvert, words }
         disabled={actionsDisabled}
         onClick={onConvert}
       >
-        {words.convert}
+        <span className="cert-button-label">{words.convert}</span>
       </button>
     </div>
   );

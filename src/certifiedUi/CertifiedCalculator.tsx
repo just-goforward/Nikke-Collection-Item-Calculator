@@ -18,7 +18,7 @@ import {
   CertifiedMobileActions,
   CertifiedResultRegion,
 } from "./CertifiedShellChrome";
-import { ClaimsPanel, CohortPanel } from "./CertifiedSupplyPanels";
+import { CohortPanel } from "./CertifiedSupplyPanels";
 import type { CertifiedCalculatorController } from "./calculatorController";
 import { type CertifiedWords, certifiedMessages } from "./messages";
 import { useCertifiedCalculatorApp } from "./useCertifiedCalculatorApp";
@@ -67,16 +67,6 @@ function certifiedInputPanels(
           onUpdate={controller.updateSession}
           words={words}
         />
-        {controller.snapshot && (
-          <ClaimsPanel
-            claims={controller.claims}
-            disabled={ui.inputSessionLocked}
-            snapshot={controller.snapshot}
-            session={controller.session}
-            onUpdate={controller.updateSession}
-            words={words}
-          />
-        )}
       </>
     ),
   };

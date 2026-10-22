@@ -18,6 +18,7 @@ import {
   type CertifiedSupplySnapshot,
   DEFAULT_PERSONAL_COHORT_WEIGHTS,
   getCertifiedEventDistribution,
+  isCertifiedEventClaimable,
   type PersonalCohortWeights,
 } from "../../shared/certifiedSupply";
 import type { CertifiedLawOptions, Triple } from "../../shared/certifiedSupplyLaws";
@@ -30,7 +31,6 @@ import {
   MAX_STOCK_PIECES,
   REQUIRED_EXP,
 } from "../../shared/game";
-import { gameDayKey } from "../../shared/gameDay";
 
 type CertifiedReceipt = {
   eventId: string;
@@ -429,69 +429,21 @@ export function convertCertifiedSession(session: CertifiedSession): CertifiedSes
   return { ...session, state: { grade: "SR", level: 5, exp: 0 } };
 }
 
-export function certifiedClaimableEvents(
-  events: readonly CertifiedSupplyEvent[],
+/**
+ * Received-event ids for an engine request: the stored receipts plus every reward claimable at
+ * `asOf`. Users enter stock after receiving today's rewards, so a claimable reward counts as
+ * already received and already in stock. Nothing is stored and no pieces are observed, so the
+ * cohort weights stay unchanged (as with the former "already included in stock" receipt).
+ */
+export function certifiedRequestReceivedEventIds(
   session: CertifiedSession,
-  nowMs: number,
-) {
-  const received = new Set(activeCertifiedReceiptIds(session, events));
-  return events.filter(
-    (event) =>
-      !received.has(event.id) &&
-      !event.cancelled &&
-      event.status === "confirmed" &&
-      Date.parse(event.at) <= nowMs &&
-      (event.gameDate === gameDayKey(nowMs) ||
-        (event.expiresAt !== undefined && event.expiresAt !== null)) &&
-      (event.expiresAt === undefined ||
-        event.expiresAt === null ||
-        Date.parse(event.expiresAt) > nowMs),
-  );
-}
-
-/** A user can acknowledge a reward already included in the input without fabricating its observed pieces. */
-export function acknowledgeCertifiedReceipt(
-  session: CertifiedSession,
-  event: CertifiedSupplyEvent,
-  at: string,
-): CertifiedSession {
-  if (!isoTime(at) || !certifiedClaimableEvents([event], session, Date.parse(at)).length)
-    throw new Error("receipt_not_claimable");
-  return {
-    ...session,
-    receipts: [
-      ...session.receipts,
-      { eventId: event.id, gameDate: event.gameDate, at, pieces: null, alreadyInStock: true },
-    ],
-  };
-}
-
-/** Observed pieces update the single latent cohort posterior; all future days share that posterior. */
-export function recordCertifiedReceipt(
-  session: CertifiedSession,
-  event: CertifiedSupplyEvent,
-  pieces: Triple,
-  at: string,
-  alreadyInStock = false,
-  lawOptions: CertifiedLawOptions = {},
-): CertifiedSession {
-  if (!validStock(pieces) || !isoTime(at)) throw new Error("invalid_receipt");
-  if (!certifiedClaimableEvents([event], session, Date.parse(at)).length)
-    throw new Error("receipt_not_claimable");
-  const weights = receiptPosterior(session.cohortWeights, event, pieces, lawOptions);
-  const stock: [number, number, number] = [0, 1, 2].map(
-    (i) => (session.stock[i] ?? 0) + (alreadyInStock ? 0 : (pieces[i] ?? 0)),
-  ) as [number, number, number];
-  if (!validStock(stock)) throw new Error("stock_limit");
-  return {
-    ...session,
-    stock,
-    cohortWeights: weights,
-    receipts: [
-      ...session.receipts,
-      { eventId: event.id, gameDate: event.gameDate, at, pieces: [...pieces], alreadyInStock },
-    ],
-  };
+  snapshot: CertifiedSupplySnapshot,
+  asOf: string,
+): string[] {
+  const received = new Set(activeCertifiedReceiptIds(session, snapshot.events));
+  return snapshot.events
+    .filter((event) => received.has(event.id) || isCertifiedEventClaimable(snapshot, event, asOf))
+    .map((event) => event.id);
 }
 
 function receiptPosterior(
