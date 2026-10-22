@@ -181,7 +181,7 @@ describe("Shared Guard safety during staging maintenance", () => {
         expect(staging).not.toContain(`- name: ${name}`);
       }
       expect(step(guard, "Deploy and initialize Paid usage guard")).toContain("/admin/refresh");
-      expect(step(guard, "Prepare Guard npm 12.2.0 with pinned integrity")).toContain(
+      expect(step(guard, "Prepare Guard npm 12.2.1 with pinned integrity")).toContain(
         "run: *prepare_forecast_npm",
       );
     },

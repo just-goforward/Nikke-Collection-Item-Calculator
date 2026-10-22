@@ -22,10 +22,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24.21.0
+          node-version: 24.22.1
           cache: npm
 
-      - name: Prepare npm 12.2.0 with pinned integrity
+      - name: Prepare npm 12.2.1 with pinned integrity
         shell: bash
         timeout-minutes: 5
         env:
@@ -38,16 +38,16 @@ jobs:
           import { dirname, join, resolve } from 'node:path';
           import { execFileSync } from 'node:child_process';
           import { setTimeout as delay } from 'node:timers/promises';
-          const version = '12.2.0';
-          const url = 'https://registry.npmjs.org/npm/-/npm-12.2.0.tgz';
-          const sri = 'sha512-ZsJjKpTnlmSXOLLXiU1xDCzC4Wlok4IwZmh/aw2KUuXytU7q6qMv/cUT7MoeSf95Slwuw/lRXYefGzGCspHPNQ==';
-          if (process.version !== 'v24.21.0') throw new Error('Unexpected Node version');
+          const version = '12.2.1';
+          const url = 'https://registry.npmjs.org/npm/-/npm-12.2.1.tgz';
+          const sri = 'sha512-bKCmFRVT/BB+YPEYbZwQ1XUI3N5t4xKSpU1MxOjo7z3iWzKBJ0ZXRC1xFdEN+TC7N5TdywaBzf2dMXGJq/e2PQ==';
+          if (process.version !== 'v24.22.1') throw new Error('Unexpected Node version');
           if (!process.env.RUNNER_TEMP || !process.env.GITHUB_PATH || !process.env.NPM_CONFIG_CACHE) throw new Error('Missing runner paths');
           const nodeDir = dirname(process.execPath);
           const sourceCli = [join(nodeDir, 'node_modules/npm/bin/npm-cli.js'), resolve(nodeDir, '../lib/node_modules/npm/bin/npm-cli.js')].find(existsSync);
           if (!sourceCli) throw new Error('Bundled npm CLI not found');
           const cleanEnv = Object.fromEntries(['PATH', 'HOME', 'USERPROFILE', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'TMPDIR', 'APPDATA', 'LOCALAPPDATA'].filter(k => process.env[k] !== undefined).map(k => [k, process.env[k]]));
-          const root = mkdtempSync(join(process.env.RUNNER_TEMP, 'npm-12.2.0-'));
+          const root = mkdtempSync(join(process.env.RUNNER_TEMP, 'npm-12.2.1-'));
           const prefix = join(root, 'prefix');
           const userConfig = join(root, 'user.npmrc');
           const globalConfig = join(root, 'global.npmrc');
@@ -77,7 +77,7 @@ jobs:
             }
           }
           if ('sha512-' + createHash('sha512').update(bytes).digest('base64') !== sri) throw new Error('npm tarball integrity mismatch');
-          const tgz = join(root, 'npm-12.2.0.tgz');
+          const tgz = join(root, 'npm-12.2.1.tgz');
           writeFileSync(tgz, bytes, { flag: 'wx' });
           const options = { cwd: root, env: cleanEnv, timeout: 120000 };
           execFileSync(process.execPath, [sourceCli, 'install', '--global', '--prefix', prefix, tgz, '--offline', '--ignore-scripts', '--no-audit', '--no-fund', '--no-update-notifier', '--cache', cache, '--userconfig', userConfig, '--globalconfig', globalConfig], { ...options, stdio: 'inherit' });

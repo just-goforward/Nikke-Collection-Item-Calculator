@@ -792,7 +792,7 @@ for (const [name, corrupt] of corruptions) {
 }
 
 test("freeze CLI enforces required source membership in actual Git repositories", async (t) => {
-  assert.equal(process.version, "v24.21.0", "freeze CLI fixtures require Node v24.21.0");
+  assert.equal(process.version, "v24.22.1", "freeze CLI fixtures require Node v24.22.1");
   assert.equal(
     sourcePaths.length,
     184,

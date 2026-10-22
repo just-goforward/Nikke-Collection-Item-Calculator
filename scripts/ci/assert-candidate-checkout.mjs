@@ -7,7 +7,7 @@ import { childEnvironment, validateCheckout } from "./run-checked-command.mjs";
 const expected = process.env.EXPECTED_CANDIDATE_SHA;
 if (!expected || !/^[a-f0-9]{40}$/.test(expected))
   throw new Error("A full candidate SHA is required");
-if (process.version !== "v24.21.0") throw new Error("Unexpected Node version");
+if (process.version !== "v24.22.1") throw new Error("Unexpected Node version");
 const root = process.cwd();
 const env = childEnvironment(process.env, expected);
 const git = (...args) => execFileSync("git", args, { cwd: root, env, encoding: "utf8" });
