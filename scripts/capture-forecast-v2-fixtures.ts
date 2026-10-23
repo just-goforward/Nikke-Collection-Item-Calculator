@@ -70,7 +70,7 @@ function inventory(dir: string, existing: Map<string, string>) {
   }
 }
 function addCalendarIds(requested: Set<string>) {
-  const calendar = readFileSync(".artifacts/forecast-calendar-2y.html", "utf8");
+  const calendar = readFileSync("docs/forecast-v2/forecast-calendar-2y.html", "utf8");
   for (const name of ["SOLO", "COLLAB", "KITS", "B11"]) {
     const body = calendar.split(`const ${name} = [`)[1]?.split("\n];")[0];
     assert.ok(body, name);

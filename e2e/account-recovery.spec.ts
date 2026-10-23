@@ -24,7 +24,7 @@ import {
 } from "./account.helpers";
 import { closePreviewServer, test } from "./test";
 
-// playwright.account.config.ts builds an isolated output per run; the default config serves `dist`.
+// The specs serve the built app themselves; ACCOUNT_E2E_DIST overrides the build directory.
 const OUT_DIR = process.env["ACCOUNT_E2E_DIST"] ?? "dist";
 let server: PreviewServer | null = null;
 

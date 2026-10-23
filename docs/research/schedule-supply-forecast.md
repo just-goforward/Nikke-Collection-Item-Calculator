@@ -1,5 +1,14 @@
 # Schedule-based kit-supply forecast research contract
 
+> **Historical research: legacy `schedule-kit-v2`.** The statuses, numerical results, and
+> Actions proposal/adoption/H/p procedures below describe the retired pipeline, not current
+> operating instructions. `probe:forecast-x` and that Actions automation are no longer available.
+> Current certified-v5 uses fixed 0/1/2-reroll cohort weights **1:2:3** (`1/6`, `2/6`, `3/6`),
+> defined by `FIXED_DISPATCH_COHORT_WEIGHTS` in `shared/certifiedSupplyModel.ts`.
+> Do not reinterpret the historical equal-weight numbers as certified-v5 results.
+> Current collection, D1 candidates and Discord publication are described in
+> `docs/forecast-automation-runbook.ko.md`; no historical result authorizes activation.
+
 ## Status
 
 - `[confirmed]` The product still uses the fixed 28-day gain vector from
@@ -23,8 +32,8 @@ reset take effect exactly at 05:00:00.
 - Between rounds, it includes the current game day through the next round's day 2.
 
 Profiles can therefore increase from day 1 to day 2, switch reference windows on day 3, and then
-decline. Global monotonic decrease is not an invariant. Dispatch combines the no-reroll,
-one-reroll, and two-reroll cohorts equally, yielding
+decline. Global monotonic decrease is not an invariant. Legacy `schedule-kit-v2` dispatch combines
+the no-reroll, one-reroll, and two-reroll cohorts equally, yielding
 `8.947399682 / 2.014546824 / 0.714208160` blue/purple/yellow per game day. Co-op shop supply is
 fixed at five Kit Box II rewards for every Tuesday 05:00 inside the reference window, independent
 of individual Co-op Operation dates. Once an official collaboration schedule is published, only
@@ -60,7 +69,7 @@ five status URLs present in the source. It is therefore not part of discovery or
 and is not added as a second lossy representation of structured text.
 Paid-X bearer consumption, tweet-result, syndication, and Jina runtime branches have been replaced.
 Existing secrets are not deleted, and rollback must not restore paid-X calls.
-`npm run probe:forecast-x` uses the same inactive trust gate and prints only bounded diagnostics.
+The retired `npm run probe:forecast-x` used the same inactive trust gate and printed only bounded diagnostics.
 Zero requests are expected while this gate is inactive; an inactive probe cannot establish provider
 availability, response status, or contract compatibility. Activation still requires authoritative
 evidence for the official numeric author ID, the actual provider's v2 response shape and repost, pinned-post,

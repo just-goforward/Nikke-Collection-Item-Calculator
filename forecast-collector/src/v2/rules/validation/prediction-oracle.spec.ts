@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { SOLO_RAID_ROUND_HISTORY, type SoloRaidRound } from "../../../../../shared/soloRaidCadence";
 import { predictMedianSoloRaid } from "../projection";
@@ -317,10 +317,10 @@ describe("T10 oracle integrity", () => {
   });
 });
 
-// The .artifacts HTML files are untracked working-copy artifacts; when present they must be
-// the exact files the snapshot was copied from.
+// The pinned HTML files are tracked under docs/forecast-v2 and must be the exact bytes the
+// snapshot was copied from.
 const htmlUrl = new URL(oracle.html.path, repo);
-describe.runIf(existsSync(htmlUrl))("T10 pinned 2y HTML matches the snapshot", () => {
+describe("T10 pinned 2y HTML matches the snapshot", () => {
   it("sha256 is pinned", () => {
     expect(createHash("sha256").update(readFileSync(htmlUrl)).digest("hex")).toBe(
       oracle.html.sha256,
@@ -366,24 +366,21 @@ describe.runIf(existsSync(htmlUrl))("T10 pinned 2y HTML matches the snapshot", (
 });
 
 const nextMonthUrl = new URL(oracle.nextMonthHtml.path, repo);
-describe.runIf(existsSync(nextMonthUrl))(
-  "T06 pinned next-month HTML agrees with the prediction",
-  () => {
-    it("S43, 35-day alternative and the expected notice day", () => {
-      const bytes = readFileSync(nextMonthUrl);
-      expect(createHash("sha256").update(bytes).digest("hex")).toBe(oracle.nextMonthHtml.sha256);
-      const html = bytes.toString("utf8");
-      const s43 = /label:"S43 예측", a:"([^"]+)", b:"([^"]+)"/.exec(html);
-      expect([htmlInstant(s43?.[1] ?? ""), htmlInstant(s43?.[2] ?? "")].map(at)).toEqual([
-        at(prediction.primary.startAt),
-        at(prediction.primary.endAt),
-      ]);
-      expect(/ALT = \{label:"[^"]*", start:"([^"]+)"\}/.exec(html)?.[1]).toBe(
-        prediction.secondary.startAt.slice(0, 10),
-      );
-      expect(/NOTICES = \[\{date:"([^"]+)", text:"S43 오픈 공지 예상 17:00"/.exec(html)?.[1]).toBe(
-        prediction.primary.expectedNotice.slice(0, 10),
-      );
-    });
-  },
-);
+describe("T06 pinned next-month HTML agrees with the prediction", () => {
+  it("S43, 35-day alternative and the expected notice day", () => {
+    const bytes = readFileSync(nextMonthUrl);
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(oracle.nextMonthHtml.sha256);
+    const html = bytes.toString("utf8");
+    const s43 = /label:"S43 예측", a:"([^"]+)", b:"([^"]+)"/.exec(html);
+    expect([htmlInstant(s43?.[1] ?? ""), htmlInstant(s43?.[2] ?? "")].map(at)).toEqual([
+      at(prediction.primary.startAt),
+      at(prediction.primary.endAt),
+    ]);
+    expect(/ALT = \{label:"[^"]*", start:"([^"]+)"\}/.exec(html)?.[1]).toBe(
+      prediction.secondary.startAt.slice(0, 10),
+    );
+    expect(/NOTICES = \[\{date:"([^"]+)", text:"S43 오픈 공지 예상 17:00"/.exec(html)?.[1]).toBe(
+      prediction.primary.expectedNotice.slice(0, 10),
+    );
+  });
+});

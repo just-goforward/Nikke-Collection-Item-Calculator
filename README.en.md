@@ -61,8 +61,8 @@ npm run build
 npm run report:bundle
 ```
 
-Application and script tests use Vitest 5, while the six Cloudflare Worker workspaces remain on the
-Vitest 4 runtime supported by the official plugin. `npm run lint` verifies this boundary.
+Application, script, and Cloudflare Worker workspace tests use Vitest 5.0.5.
+`npm run lint` verifies the official plugin and Worker runtime version alignment.
 
 ## Research and Technical Records
 

@@ -60,7 +60,6 @@ function rolloutVariables(bindings: readonly unknown[]) {
     "POLL_MODE",
     "COLLECT_ENABLED",
     "DISPATCH_ENABLED",
-    "DISCORD_INTERACTION_OWNER",
     "PRODUCTION_MUTATIONS_ENABLED",
   ]);
   const vars: Record<string, string> = {};

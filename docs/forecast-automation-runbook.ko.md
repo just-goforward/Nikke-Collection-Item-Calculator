@@ -1,19 +1,55 @@
 # Forecast 자동화 운영 Runbook
 
-현재 활성값, 미병합 후보와 재개 순서는
-[Forecast 구현 상태와 재개 절차](./forecast-status.ko.md)에 날짜별 스냅샷으로 정리한다.
-이 문서는 배포·장애 대응 절차를 다룬다.
+이 문서는 현재 저장소의 D1 기반 v2 수집·Discord publication 경계와 운영 안전 요건을 다룬다.
+로컬 설정은 실제 배포 상태를 증명하지 않는다. 배포·migration·Discord 전달·활성화에는
+대상 환경과 비용을 포함한 별도 승인이 필요하다.
+[Forecast 구현 상태와 재개 절차](./forecast-status.ko.md)는 2026-09-05의 역사적 스냅샷이며
+현재 활성값이나 PR 해결 상태의 증거가 아니다.
 
 ## 책임 경계
 
-- Collector는 Naver 48·56번 게시판의 얕은 메타데이터만 3분마다 수집한다.
-- Dispatcher는 1·4·7분 순서의 offset Cron에서 D1 작업을 발견하고 고정된 GitHub workflow를
-  호출한다. Actions의 `17,47` schedule은 30분 watchdog이다.
+- Collector의 `src/v2/`가 Naver monitor, judgment queue, calendar snapshot과
+  `observed-median-v2` 후보를 D1에 기록한다. `*/3` Cron은 유지되지만 staging `rotation`은
+  board 48·56·11·runtime slot을 순환한다. 생산 `combined`와 같은 수집 주기라고 가정하지 않는다.
+- Dispatcher는 offset Cron에서 D1 후보 admission/sealing과 durable Discord review/result
+  outbox 및 운영 경보를 처리한다. GitHub 호출·source queue 소비·artifact publication은 하지 않는다.
 - Interaction Router는 Discord 서명·guild·channel·approver를 검증하고 staging 또는 production
-  D1의 제한된 승인 상태만 바꾼다. GitHub key, Collector admin token, Discord bot token은 없다.
-- 수집·승인·research 결과만으로 Forecast를 활성화하거나 PR을 병합하지 않는다.
+  D1의 승인과 publication pointer를 변경하는 유일한 signer/publisher다.
+  staging 전용 Router는 production Forecast D1에 바인딩하지 않는다.
+- 수집·후보 생성·research 결과만으로 Forecast를 활성화하거나 PR을 병합하지 않는다.
+  runtime publication은 현재 pointer에 결합된 명시적 Discord 승인과 Router 검증이 필요하다.
 
-## PR 검증과 Migration
+현재 계약은 `forecast-collector/README.md`의 Current v2 pipeline,
+`forecast-dispatcher/README.md`, `forecast-interactions/README.md`를 따른다.
+Dispatcher의 `PUBLICATION_MODE`/`DISPATCH_ENABLED`, Router의 환경별 publication flag와
+production mutation flag는 별도 승인 없이 켜지 않는다. signing key는 Router에만 두며
+소비자는 신뢰된 공개키와 key ID를 pin한다. Collector의 Discord route/owner 변수는 폐기됐다.
+Collector는 운영 경보를 D1에 기록하고 실제 Discord 전달은 Dispatcher가 담당한다.
+
+## 현재 Canary 계약과 안전 요건
+
+`.github/workflows/forecast-d1-budget-watch.yml`, `forecast-collector/src/canary-report.ts`(`version`, `windowMode`), `shared/forecastCanaryRuntime.ts`(`policyId`)의 계약:
+
+```text
+version = 11
+policyId = forecast-canary-v2-monitor-contract-v1
+windowMode = fixed_8_hours
+```
+
+v2 monitor progress와 기능·무결성·quota·runtime 증거를 현재 report/validator로 확인한다.
+아래의 v10 인증, GitHub dispatch smoke, legacy adoption 결과를 v11 증거로 재해석하지 않는다.
+증거 부족은 `incomplete`이며 성공으로 처리하지 않는다. Collector의 설정 상한 300 ms와
+성능 목표 100 ms는 별개다. 상한/정책 위반을 warning으로 낮추거나 과거 증거를 수정하지 않는다.
+8시간 고정 구간, 계정 전체 quota preflight, Usage Guard fail-closed, 환경별 승인,
+실패 시 수집·dispatch 중단과 writer drain 요건을 유지한다. 현재 월간 guard 요건은 아래
+`Workers Paid 월간 사용량 보호` 절과 `usage-guard/README.md`를 따른다.
+복구 시 `docs/d1-time-travel-recovery-runbook.md`의 현재/legacy writer 모두를 조사한다.
+
+## [Historical] PR 검증과 Migration
+
+아래 PR/proposal/adoption 및 version 10 snapshot 절차는 retired pipeline의 기록이다.
+기존 DB에 snapshot을 재실행하지 않는 요건은 유지한다. 현재 migration은
+`scripts/apply-forecast-d1-migrations.ts`와 해당 schema ledger를 기준으로 별도 승인한다.
 
 - 자동 Forecast 및 staging-adoption PR은 branch push 후 `pages.yml`을 명시적으로 호출한다.
   GITHUB_TOKEN으로 만든 PR의 자동 이벤트에만 의존하지 않는다. branch namespace, 원격 SHA,
@@ -31,7 +67,7 @@
 - production migration은 기존 `cloudflare-production` 승인 job 내부에서만 실행한다.
   로컬 검증은 `node scripts/apply-forecast-d1-migrations.ts --env staging --local`을 사용한다.
 
-## 필수 Repository 설정
+## [Historical] Legacy Repository 설정
 
 Variables:
 
@@ -67,7 +103,7 @@ Forecast Dispatcher는 GitHub App을 사용하지 않으며 App 자격 증명을
 등록한다. 배포 workflow는 Bot token으로 Discord API를 조회한 값과 두 변수를 대조하고,
 불일치하면 Router 배포 전에 중단한다.
 
-## Production Router disabled bootstrap 승인
+## [Historical] Production Router disabled bootstrap 승인
 
 기존 Router가 `<sha>-staging` tag라서 staging 소유권 검사에서 중단되면
 `.github/workflows/forecast-router-bootstrap.yml`만 별도로 승인한다.
@@ -111,7 +147,10 @@ Forecast Dispatcher는 GitHub App을 사용하지 않으며 App 자격 증명을
 6. 성공 후 Discord endpoint와 Router identity를 확인하고 staging 재배포를 별도로 승인한다.
    production 전체 migration·수집·dispatch 활성화는 별도의 canary/promotion 승인 대상이다.
 
-## Staging 배포와 Router 전환
+## [Historical] Staging 배포와 Router 전환
+
+이 절의 legacy test/adoption 전환 절차는 현재 publication 활성화 절차가 아니다.
+현재 staging 배포는 `forecast-collector-deploy.yml`의 환경 분리와 승인·quota guard를 따른다.
 
 1. 실행 중인 canary가 있으면 먼저 해당 SHA의 `canary_only=true` 결과를 보존한다.
 2. migration 0009가 production Forecast D1에 아직 없으면 `Remediate Forecast D1 Indexes`를
@@ -136,10 +175,13 @@ Forecast Dispatcher는 GitHub App을 사용하지 않으며 App 자격 증명을
     예상 사용률이 모두 25% 미만이면 독립 `canaryId`의 v10 row가 생성된다.
    실패하면 staging Collector·Dispatcher가 모두 비활성화되고 alert 채널에 직접 경고한다.
 
-Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난 뒤 owner 설정으로
-비활성화한다. Endpoint 소유자는 동시에 두 곳이 될 수 없다.
+역사적으로 Collector의 `/discord/interactions` 경로를 owner 설정으로 비활성화했다.
+현재는 해당 경로와 owner 설정이 폐기됐으며 Discord endpoint는 Router가 소유한다.
 
-## Manual Review
+## [Historical] Legacy Manual Review
+
+아래 Actions 링크 절차는 폐기됐다. 현재 재처리/무시 결정은 Router의 D1-only 권한·audit·
+message binding·Usage Guard 계약을 따르며 임의 JSON이나 legacy workflow로 우회하지 않는다.
 
 - alert 채널의 `재처리`는 queue를 `pending`, attempts 0으로 되돌린다.
 - `관련 없음`은 queue를 `ignored`로 확정한다.
@@ -184,7 +226,10 @@ Collector의 예전 `/discord/interactions` 경로는 Router readiness가 끝난
 - 계산기와 Rust/WASM solver는 브라우저에서 계속 동작한다. 중단되는 것은 통계 기록과 Forecast
   자동 갱신이며, Cloudflare Budget Alert는 외부 알림일 뿐 이 차단 계약을 대체하지 않는다.
 
-## Canary v10 판독
+## [Historical] Canary v10 판독 — v11 인증으로 사용 금지
+
+아래 수치·smoke·baseline 절차는 과거 v10 기록이다. 현재 report의 version/policy는 위의
+v11 계약을 사용한다. 고정 window, 증거 보존과 quota/runtime 안전 요건은 완화하지 않는다.
 
 Canary는 이전 기간을 합치지 않고 `canary_runs.startedAt`부터 정확히 8시간 진행한다. Collector
 `*/3`과 Dispatcher `1-59/3`의 예상 slot을 이 구간에서 생성하므로 정상적으로 Worker별 약 160개
@@ -267,7 +312,7 @@ window의 unexpected invocation으로 잘못 세는 경계 오류를 막는다. 
 권한으로 별도 repository secret에 둔다. staging Collector와 Dispatcher만 canary 동안 log head
 sampling `1.0`을 사용하고 production은 기존 sampling을 유지한다.
 
-## Production 승격
+## [Historical] Legacy Production 승격
 
 1. v10 인증 상태가 `passed` 또는 `passed_with_warning`이고 promotion 시점의 계정 전체 Paid quota
    preflight가 통과한 뒤에만
@@ -284,7 +329,8 @@ sampling `1.0`을 사용하고 production은 기존 sampling을 유지한다.
 - 일반 Dispatcher 장애는 `DISPATCH_ENABLED=false`로 되돌린다. D1 예산·통계 D1 장애에서는
   staging Collector도 `COLLECT_ENABLED=false`로 함께 중지한다.
 - Collector queue·cursor·watermark, Forecast registry, 기존 승인 Forecast는 유지한다.
-- 30분 Actions watchdog은 Dispatcher 비활성 기간의 제한된 fallback이다.
+- 현재 budget-watch는 quota/canary 안전 감시이며 retired proposal Actions의 대체 실행기가 아니다.
+  Dispatcher 중단 시 GitHub proposal watchdog을 fallback으로 되살리지 않는다.
 - Router 오류 시 production mutation을 false로 되돌리고 Discord Endpoint는 마지막 검증된 Router
   deployment로 유지한다. Collector route를 동시에 다시 켜지 않는다.
 - 실패한 canary 기간은 수정 후 canary에 재사용하지 않는다.

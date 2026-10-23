@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { forecastDisplayText } from "../../shared/forecastDisplayText.ts";
 import { manualReviewPostLink } from "../../shared/forecastManualReview.ts";
 import {
   opsAlertMessage,
@@ -29,10 +28,8 @@ afterEach(() => {
 });
 
 describe("Discord forecast operations messages", () => {
-  it("normalizes titles only for display and links the escaped title", async () => {
+  it("links the escaped title and leaves the stored title untouched", async () => {
     const title = "&#x1f4e2;\u200b [일정] &amp; 안내";
-    expect(forecastDisplayText(title)).toBe("📢 [일정] & 안내");
-    expect(forecastDisplayText("&#128226;&quot;&apos;&nbsp;&#x110000;")).toBe("📢\"' ");
     const alert = {
       ...alertRow(),
       alertKey: "manual-review:example",

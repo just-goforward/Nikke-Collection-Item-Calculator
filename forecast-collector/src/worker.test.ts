@@ -342,7 +342,6 @@ async function invokeAdmin(
     ...testEnv,
     ...bindings,
     ENVIRONMENT: options.environment ?? "staging",
-    DISCORD_APPROVAL_MODE: "staging_adoption",
   } as CollectorEnv;
   const context = {
     passThroughOnException: vi.fn(),

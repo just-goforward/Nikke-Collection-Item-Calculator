@@ -37,7 +37,6 @@ on:
       - "shared/forecastCanaryRuntimeEvidence.ts"
       - "shared/usageGuard.ts"
       - "shared/supplyForecastCandidate.ts"
-      - "shared/supplyForecastModel.ts"
       - "scripts/smoke-forecast-collector.ts"
       - "scripts/smoke-forecast-dispatcher.ts"
       - "scripts/smoke-forecast-interactions.ts"
@@ -52,9 +51,6 @@ on:
       - "scripts/check-forecast-canary.ts"
       - "scripts/cloudflare-workers-observability.ts"
       - "scripts/lib/cloudflare-workers-observability.ts"
-      - "scripts/process-forecast-source-queue.ts"
-      - "scripts/process-forecast-source-queue-main.ts"
-      - "scripts/forecast-naver-action.ts"
       - "scripts/peek-supply-forecast.ts"
       - "scripts/supply-forecast-codegen.ts"
       - "scripts/certified-forecast-registry.ts"
@@ -430,8 +426,6 @@ jobs:
             process.argv[3],
             JSON.stringify({
               ADMIN_TOKEN: process.env.FORECAST_COLLECTOR_ADMIN_TOKEN,
-              DISCORD_APPLICATION_ID: application.id,
-              DISCORD_PUBLIC_KEY: application.verify_key,
             }),
             { mode: 0o600 },
           );
@@ -512,9 +506,7 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
           POLL_MODE: ${{ inputs.poll_mode || 'both' }}
-          DISCORD_INTERACTION_OWNER: router
         run: >-
           set -euo pipefail;
           npx wrangler deploy --env staging --config forecast-collector/wrangler.toml
@@ -522,8 +514,6 @@ jobs:
           --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE
           --var COLLECT_ENABLED:false
           --var FORECAST_V2_MODE:on
-          --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID
-          --var DISCORD_INTERACTION_OWNER:$DISCORD_INTERACTION_OWNER
           --tag "${{ github.sha }}-$POLL_MODE-disabled"
           --message "Forecast collector staging disabled ${{ github.sha }} ($POLL_MODE)"
 
@@ -564,7 +554,6 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
           POLL_MODE: ${{ inputs.poll_mode || 'both' }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/collector-active-deploy.ndjson
         shell: bash
@@ -576,8 +565,6 @@ jobs:
             --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
             --var COLLECT_ENABLED:true \
             --var FORECAST_V2_MODE:on \
-            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
-            --var DISCORD_INTERACTION_OWNER:router \
             --tag "${{ github.sha }}-$POLL_MODE-v10" \
             --message "Forecast collector staging live probe ${{ github.sha }} ($POLL_MODE)" \
             2>&1 | tee "$RUNNER_TEMP/collector-active-deploy.log"
@@ -982,7 +969,6 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_STAGING_APPROVAL_CHANNEL_ID }}
           POLL_MODE: ${{ inputs.poll_mode || 'both' }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/collector-validation-stop.ndjson
         shell: bash
@@ -993,8 +979,6 @@ jobs:
             --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
             --var COLLECT_ENABLED:false \
             --var FORECAST_V2_MODE:on \
-            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
-            --var DISCORD_INTERACTION_OWNER:router \
             --tag "${{ github.sha }}-$POLL_MODE-v10-validation-stop" \
             --message "Disable forecast collector after staging validation failure"
           version=$(node scripts/check-workflow-hardening.ts --deployment-version \

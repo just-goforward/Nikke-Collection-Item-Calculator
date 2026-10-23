@@ -69,7 +69,9 @@ describe("staging-only forecast deployment", () => {
     expect(step("Activate staging collector for live contract probe")).toContain(
       "--var FORECAST_V2_MODE:on",
     );
-    expect(step("Deploy staging collector")).toContain("DISCORD_INTERACTION_OWNER: router");
+    // The Collector no longer serves Discord interactions; the Router owns them.
+    expect(step("Deploy staging collector")).not.toContain("DISCORD_INTERACTION_OWNER");
+    expect(step("Deploy staging collector")).not.toContain("DISCORD_CHANNEL_ID");
   });
 
   it("keeps migrations and verification ahead of staging deployment", () => {

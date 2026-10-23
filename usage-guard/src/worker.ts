@@ -11,7 +11,7 @@ import {
   QUOTA_ACTIONS,
 } from "../../shared/d1QuotaEvidence.ts";
 import { errorCode, persistedErrorCode } from "../../shared/errorCodes.ts";
-import { effectiveUsageGuardAction } from "../../shared/usageGuard.ts";
+import { effectiveUsageGuardAction, sha256Hex } from "../../shared/usageGuard.ts";
 import type { StoredGuardState, StoredSnapshot, UsageGuardEnv } from "./types";
 
 const SIX_HOURS_MS = 6 * 60 * 60 * 1_000;
@@ -544,11 +544,6 @@ function sortValue(value: unknown): unknown {
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, item]) => [key, sortValue(item)]),
   );
-}
-
-async function sha256Hex(value: string) {
-  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function timingSafeBearer(request: Request, expected: string) {

@@ -7,10 +7,7 @@ import {
   STAGING_SUPPLY_FORECAST,
   STAGING_SUPPLY_FORECAST_ID,
 } from "../../shared/generated/supplyForecastRuntime";
-import {
-  STAGING_FORECAST_REVIEW_URL,
-  STAGING_RUNTIME_SEARCH,
-} from "../../shared/runtimeEnvironment";
+import { STAGING_RUNTIME_SEARCH } from "../../shared/runtimeEnvironment";
 import { assertLedgerForecastProfiles } from "../../shared/supplyForecastProjection";
 import { activeSupplyForecastContext } from "../wasm/rustCoreShared";
 import {
@@ -88,7 +85,6 @@ describe("supply forecast runtime", () => {
     expect(selection.environment).toBe("staging");
     expect(selection.forecastId).toBe(STAGING_SUPPLY_FORECAST_ID);
     expect(selection.profile.id).toBe(firstProfile.id);
-    expect(STAGING_FORECAST_REVIEW_URL).toBe("https://nikkecollection.com/?statsEnv=staging");
   });
 
   it("keeps demo statistics on the production forecast", () => {

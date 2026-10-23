@@ -18,7 +18,7 @@ import {
   settledCertifiedBridge,
 } from "./useCertifiedCalculatorSession";
 
-export type CertifiedSessionInputs = { grade: Grade; level: number; exp: number; stock: Stock };
+type CertifiedSessionInputs = { grade: Grade; level: number; exp: number; stock: Stock };
 
 /**
  * Account read/apply API for the certified session. Text is always the guest storage format

@@ -8,7 +8,8 @@ GitHub Actions 제어에는 정확한 대상과 비용·중단 기준을 포함�
 
 - **공식 사실:** 아래 Cloudflare 문서의 플랫폼 계약. 승인된 계획에서 제공한
   2026-04-21 갱신 문서를 기준으로 한다.
-- **저장소 사실:** `next`의 `0a76a77` 설정·스키마·운영 문서 기준이다.
+- **저장소 사실:** DB 바인딩 표는 `next`의 `0a76a77` 인벤토리를 보존한다.
+  writer 구분은 `69f5b5c`의 v2 수집·D1 publication 계약을 반영한다.
   설정 파일은 실제 배포 상태나 현재 Workers Paid 가입 상태를 증명하지 않는다.
 - **운영 권고:** 차단·drain·검증·재개 순서는 이 서비스의 안전한 복구를 위한 절차다.
   실제 계정과 배포 상태가 다르면 중단하고 대상 목록부터 갱신한다.
@@ -125,6 +126,24 @@ staging Stats는 같은 config에 `--env staging`을 사용한다.
 
 ### Forecast
 
+#### 현재 저장소의 writer
+
+- Collector v2: monitor/ingestion, judgment queue, calendar snapshot, candidate와 운영 경보 D1 쓰기.
+- Dispatcher: candidate admission/sealing, publication outbox, Discord 전달 상태와 운영 경보 쓰기.
+  현재 Worker는 GitHub workflow를 dispatch하지 않는다.
+- Router: 서명·권한 검증 후 D1 승인/publication pointer와 수동 재처리·무시 결정을 기록한다.
+- Forecast admin의 승인된 관리 mutation, deploy/migration, budget-watch/canary 제어도
+  실제 대상 DB별로 확인한다. 설정의 바인딩 표만으로 모든 HTTP·CI writer가 차단됐다고 보지 않는다.
+
+#### Legacy 배포에서 추가 확인할 writer
+
+현재 소스에서 제거됐어도 이전 배포·실행 중 작업에는 proposal watchdog, Actions-side parsing,
+staging-adoption/manual-review workflow, Collector legacy approval·callback이 남아 있을 수 있다.
+현재 자동화로 안내하지 않되, 실제 배포 버전·예약 작업·진행 중 Actions를 확인하고 해당 writer를
+차단·drain한다. 저장소에서 파일이 없다는 이유만으로 원격 실행이 끝났다고 판단하지 않는다.
+
+#### 모든 배포에 공통인 차단·drain 요건
+
 - 대상 Collector: `COLLECT_ENABLED=false`, `RUNTIME_INGESTION_ENABLED=false`.
 - 대상 Dispatcher: `DISPATCH_ENABLED=false`, `PUBLICATION_MODE=off`.
 - Router: 대상 환경의 `STAGING_PUBLICATION_MODE=off` 또는
@@ -134,8 +153,8 @@ staging Stats는 같은 config에 `--env staging`을 사용한다.
   `PRODUCTION_MUTATIONS_ENABLED=false`는 staging 전체 차단 스위치가 아니다.
 - Collector `*/3 * * * *`, Dispatcher `1-59/3 * * * *` 예약 실행과 이미 시작한
   invocation을 중지·drain한다. 플래그로 남은 쓰기 경로까지 차단되는지 확인한다.
-- proposal watchdog, adoption/manual-review, deploy/migration, callback을 포함한
-  GitHub Actions의 신규 실행을 막고 진행 중 실행·재시도를 처리한다.
+- 현재 deploy/migration·budget-watch/canary와, 실제 남아 있는 legacy proposal/adoption/
+  manual-review/callback GitHub Actions의 신규 실행을 막고 진행 중 실행·재시도를 처리한다.
 - staging 유지보수 중 `FORECAST_STAGING_AUTO_REDEPLOY=disabled`를 별도 승인으로 설정한다.
   이는 writer 중지 스위치가 아니며 이미 실행 중인 배포도 종료하지 않는다.
 - `docs/hosting-cutover-p1-runbook.md`에 따라 이 변수는 **Usage Guard 배포·schema 적용·

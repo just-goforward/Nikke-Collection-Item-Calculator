@@ -315,9 +315,6 @@ jobs:
           DISCORD_FORECAST_ACTIVITY_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ACTIVITY_CHANNEL_ID }}
           DISCORD_FORECAST_ALERT_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_ALERT_CHANNEL_ID }}
           DISCORD_FORECAST_FALLBACK_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_FALLBACK_CHANNEL_ID }}
-          DISCORD_FORECAST_APPROVAL_CHANNEL_ID: ${{ vars.DISCORD_FORECAST_APPROVAL_CHANNEL_ID }}
-          DISCORD_FORECAST_APPLICATION_ID: ${{ vars.DISCORD_FORECAST_APPLICATION_ID }}
-          DISCORD_FORECAST_PUBLIC_KEY: ${{ vars.DISCORD_FORECAST_PUBLIC_KEY }}
           POLL_MODE: ${{ steps.canary.outputs.poll_mode }}
         shell: bash
         run: |
@@ -331,8 +328,6 @@ jobs:
           }), { mode: 0o600 });
           writeFileSync(process.argv[3], JSON.stringify({
             ADMIN_TOKEN: process.env.FORECAST_COLLECTOR_ADMIN_TOKEN,
-            DISCORD_APPLICATION_ID: process.env.DISCORD_FORECAST_APPLICATION_ID,
-            DISCORD_PUBLIC_KEY: process.env.DISCORD_FORECAST_PUBLIC_KEY,
           }), { mode: 0o600 });
           NODE
           npx wrangler deploy --env staging --config forecast-dispatcher/wrangler.toml \
@@ -349,8 +344,6 @@ jobs:
             --secrets-file "$RUNNER_TEMP/forecast-secrets.json" \
             --var ENVIRONMENT:staging --var DEPLOY_SHA:${{ github.sha }} --var POLL_MODE:$POLL_MODE \
             --var COLLECT_ENABLED:false \
-            --var DISCORD_CHANNEL_ID:$DISCORD_FORECAST_APPROVAL_CHANNEL_ID \
-            --var DISCORD_INTERACTION_OWNER:router \
             --tag "${{ github.sha }}-$POLL_MODE-runtime-budget-stop" \
             --message "Disable forecast collector after runtime D1 budget failure"
 

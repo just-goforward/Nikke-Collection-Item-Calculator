@@ -14,7 +14,7 @@ crons = ["*/3 * * * *"]
 
 [[ratelimits]]
 name = "ADMIN_RATE_LIMITER"
-namespace_id = "419001"
+namespace_id = "replace-with-production-rate-limit-namespace-id"
 
   [ratelimits.simple]
   limit = 60
@@ -25,11 +25,15 @@ binding = "FORECAST_DB"
 database_name = "collection-kit-forecast-collector"
 database_id = "replace-with-production-d1-id"
 
+[[d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "replace-with-usage-guard-d1-id"
+
 [vars]
 ENVIRONMENT = "production"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
-DISCORD_APPROVAL_MODE = "disabled"
 
 [secrets]
 required = ["ADMIN_TOKEN"]
@@ -40,7 +44,7 @@ workers_dev = true
 
 [[env.staging.ratelimits]]
 name = "ADMIN_RATE_LIMITER"
-namespace_id = "419002"
+namespace_id = "replace-with-staging-rate-limit-namespace-id"
 
   [env.staging.ratelimits.simple]
   limit = 60
@@ -51,11 +55,16 @@ binding = "FORECAST_DB"
 database_name = "collection-kit-forecast-collector-staging"
 database_id = "replace-with-staging-d1-id"
 
+[[env.staging.d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+# Shared account guard, not the production Forecast database.
+database_id = "replace-with-usage-guard-d1-id"
+
 [env.staging.vars]
 ENVIRONMENT = "staging"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
-DISCORD_APPROVAL_MODE = "staging_adoption"
 
 [env.staging.secrets]
 required = ["ADMIN_TOKEN"]

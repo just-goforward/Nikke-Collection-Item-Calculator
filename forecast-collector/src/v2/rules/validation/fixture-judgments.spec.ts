@@ -21,7 +21,7 @@ import {
 } from "../schedules";
 
 // Expected values live in fixtures/forecast-v2/expected/*.json and are derived from
-// .artifacts/forecast-rules-v2.md + plan §7A/§7B, never from these functions' output.
+// docs/forecast-v2/forecast-rules-v2.md + plan §7A/§7B, never from these functions' output.
 const fixtures = new URL("../../../../fixtures/", import.meta.url);
 const read = (relative: string) => readFileSync(new URL(relative, fixtures));
 const readJson = <T>(relative: string): T => JSON.parse(read(relative).toString("utf8")) as T;

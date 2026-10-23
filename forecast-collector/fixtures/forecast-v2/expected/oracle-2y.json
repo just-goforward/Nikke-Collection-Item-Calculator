@@ -1,10 +1,10 @@
 {
   "html": {
-    "path": ".artifacts/forecast-calendar-2y.html",
+    "path": "docs/forecast-v2/forecast-calendar-2y.html",
     "sha256": "df30e4fda87f801bf41bbea1ac58baacdaa4edd0cc591fa20a6e840e865fb029"
   },
   "nextMonthHtml": {
-    "path": ".artifacts/forecast-next-month.html",
+    "path": "docs/forecast-v2/forecast-next-month.html",
     "sha256": "f7898b5425921057f31eeb9151cb013373b60042a61770528c6800688d088e22"
   },
   "note": "htmlSnapshot copies the SOLO / COLLAB / KITS / B11 arrays of the pinned 2y HTML (KST wall-clock strings, minute precision, ends written HH:59 mean HH:59:59). The HTML was built with older parameters (B every 10 min, '솔로 레이드 예정' keyword, 12:00 placeholder for '점검 완료 후' starts, creation time for board-48 grants); the rules win and every disagreement is listed in differences.",

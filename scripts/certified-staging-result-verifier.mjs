@@ -425,7 +425,7 @@ function expectedProfile() {
   };
 }
 
-export async function freezeExpected(commit) {
+async function freezeExpected(commit) {
   const source = sourceSnapshot(commit);
   const { readV9Evidence } = await import("./certified-staging-approved-panel/v9/evidence.ts");
   const { panel } = readV9Evidence();

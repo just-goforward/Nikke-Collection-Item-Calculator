@@ -13,8 +13,8 @@ workers_dev = true
 # Production + staging worst case: 8.64M CPU-ms (~29% of 30M included), above the
 # 25% canary quota threshold; the canary quota check measures actual usage.
 # Staging is a second deployment. This is not an aggregate spending bound: HTTP
-# request count is caller-driven, so public /health and /discord/interactions are
-# rate-limited per address (location-local) before any D1 read, and Usage Guard stops
+# request count is caller-driven, so public /health is rate-limited per address
+# (location-local) before any D1 read, and Usage Guard stops
 # automation near the account CPU/request/D1 quotas.
 cpu_ms = 300
 
@@ -55,8 +55,6 @@ POLL_MODE = "both"
 COLLECT_ENABLED = "true"
 RUNTIME_INGESTION_ENABLED = "false"
 RUNTIME_NOTICE_DAILY_LIMIT = "20"
-DISCORD_APPROVAL_MODE = "disabled"
-DISCORD_INTERACTION_OWNER = "collector"
 
 [secrets]
 required = ["ADMIN_TOKEN"]
@@ -103,8 +101,6 @@ POLL_MODE = "both"
 COLLECT_ENABLED = "true"
 RUNTIME_INGESTION_ENABLED = "true"
 RUNTIME_NOTICE_DAILY_LIMIT = "2"
-DISCORD_APPROVAL_MODE = "disabled"
-DISCORD_INTERACTION_OWNER = "collector"
 
 [env.staging.secrets]
 required = ["ADMIN_TOKEN"]

@@ -61,8 +61,8 @@ npm run build
 npm run report:bundle
 ```
 
-앱과 스크립트는 Vitest 5를 사용하고, Cloudflare Worker workspace 여섯 곳은 공식 plugin과
-호환되는 Vitest 4를 사용합니다. `npm run lint`가 이 런타임 경계를 함께 검사합니다.
+앱·스크립트와 Cloudflare Worker workspace는 Vitest 5.0.5를 사용합니다.
+`npm run lint`가 공식 plugin과 Worker 런타임의 버전 정합성을 함께 검사합니다.
 
 ## 연구 및 기술 기록
 

@@ -31,7 +31,13 @@ simple = { limit = 120, period = 60 }
 
 [vars]
 ALLOWED_ORIGINS = "https://nikkecollection.com"
+TURNSTILE_ALLOWED_HOSTNAMES = "example.com,www.example.com"
 DEPLOYMENT_SHA = "local"
+
+[[ratelimits]]
+name = "READ_RATE_LIMITER"
+namespace_id = "REPLACE_WITH_PRODUCTION_READ_RATE_LIMIT_NAMESPACE_ID"
+simple = { limit = 120, period = 60 }
 
 [secrets]
 required = ["TURNSTILE_SECRET_KEY"]
@@ -64,7 +70,13 @@ simple = { limit = 120, period = 60 }
 
 [env.staging.vars]
 ALLOWED_ORIGINS = "https://nikkecollection.com"
+TURNSTILE_ALLOWED_HOSTNAMES = "staging.example.com,example.com"
 DEPLOYMENT_SHA = "local"
+
+[[env.staging.ratelimits]]
+name = "READ_RATE_LIMITER"
+namespace_id = "REPLACE_WITH_STAGING_READ_RATE_LIMIT_NAMESPACE_ID"
+simple = { limit = 120, period = 60 }
 
 [env.staging.secrets]
 required = ["TURNSTILE_SECRET_KEY"]

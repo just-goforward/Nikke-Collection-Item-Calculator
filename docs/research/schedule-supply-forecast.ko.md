@@ -1,5 +1,14 @@
 # 일정 기반 키트 수급 Forecast 연구 계약
 
+> **과거 연구 기록 — legacy `schedule-kit-v2`.** 아래 상태·수치·Actions proposal/adoption/H/p
+> 절차는 폐기된 파이프라인의 기록이며 현재 운영 지침이 아니다. `probe:forecast-x` 명령과
+> 해당 Actions 자동화는 현재 제공되지 않는다. 현재 certified-v5는 0·1·2회 재추첨 cohort에
+> **1:2:3** (`1/6`, `2/6`, `3/6`) 고정 가중치를 사용한다
+> (`shared/certifiedSupplyModel.ts`의 `FIXED_DISPATCH_COHORT_WEIGHTS`).
+> 아래 동일 가중치의 역사적 수치를 certified-v5 결과로 해석하지 않는다.
+> 현재 D1 후보·Discord publication 흐름은 `docs/forecast-automation-runbook.ko.md`를 따른다.
+> 과거 연구 결과는 활성화 승인이 아니다.
+
 ## 상태
 
 - `[확인]` 기존 제품은 `supply-2026-08-21-v1`의 고정 28일 기대 수급량을 사용한다.
@@ -28,7 +37,7 @@ profile과 주간 reset을 적용한다.
 솔로 레이드 일별 기대값은 1일차 `28.8 / 2.4 / 0`, 2일차
 `37.6 / 4.0 / 1.6`, 3일차 이후 매일 `42.0 / 4.8 / 2.4`다.
 
-파견은 0회·최대 1회·최대 2회 재추첨 사용자를 각각 1/3로 혼합한다. 유지 대상은 보라
+Legacy `schedule-kit-v2` 파견은 0회·최대 1회·최대 2회 재추첨 사용자를 각각 1/3로 혼합한다. 유지 대상은 보라
 직접 보상, 노랑 직접 보상, 일반 상자 2개, 상자 II 1·2개다. 이 정책의 하루 기대값은
 `8.947399682 / 2.014546824 / 0.714208160`이다. 협동작전 상점 수급은 개별 협동작전 개최
 여부와 무관하게, 수급 기준 구간 안의 매주 화요일 05:00마다 상자 II 5개를 고정 반영한다.
@@ -67,7 +76,7 @@ Markdown으로 정리하는 데는 쓸 수 있지만, 차단되거나 불완전�
 발견·기계 검증 단계에는 넣지 않으며 구조화된 본문을 다시 손실 변환하지 않는다.
 유료 X bearer 사용과 tweet-result·syndication·Jina runtime 분기는 교체했다.
 기존 secret은 삭제하지 않으며 rollback으로 유료 X 호출을 복원하지 않는다.
-`npm run probe:forecast-x`도 같은 비활성 trust gate를 사용하고 제한된 진단 정보만 출력한다.
+폐기된 `npm run probe:forecast-x`도 같은 비활성 trust gate를 사용하고 제한된 진단 정보만 출력했다.
 gate가 비활성이면 요청 0건이 예상 결과이며, 비활성 probe로 공급자 가용성·응답 상태·계약
 호환성을 입증할 수 없다. 활성화 전에는 공식 계정의 숫자 작성자 ID를 입증하는 권위 있는
 증거, 실제 공급자 v2 응답 구조와 repost·고정 게시물·conversation 의미론에 대한 증거, 설정된

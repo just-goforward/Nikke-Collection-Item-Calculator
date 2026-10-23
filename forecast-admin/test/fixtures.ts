@@ -22,7 +22,7 @@ type SqlDatabase = {
  * `;` inside a trigger's BEGIN…END body (including nested CASE…END) does not end
  * the statement. workerd tests use D1's own parser via shared/testD1Sql.ts.
  */
-export function splitSqlStatements(sql: string): string[] {
+function splitSqlStatements(sql: string): string[] {
   const statements: string[] = [];
   let start = 0;
   let words: string[] = [];
@@ -88,7 +88,7 @@ export async function seedUsageGuard(db: SqlDatabase, nowMs: number, action = "n
     .run();
 }
 
-export const EVENT_TITLES: Record<string, string> = {
+const EVENT_TITLES: Record<string, string> = {
   "solo-s42": "시즌 42",
   "solo-s43": "시즌 43",
   "maint-1": "정기 점검",

@@ -209,7 +209,7 @@ function workerGraphFiles(graph: WorkerChunkGraph, available: Set<string>): Set<
   return reachable;
 }
 
-export function classifyUnmappedJavaScript(
+function classifyUnmappedJavaScript(
   files: readonly string[],
   classifications: Map<string, BundleKind>,
   perWorker: readonly WorkerChunkGraph[],
@@ -263,7 +263,7 @@ async function entryFor(file: URL, classifications: Map<string, BundleKind>): Pr
   };
 }
 
-export function bundleTotals(entries: BundleEntry[], perWorker: readonly WorkerChunkGraph[]) {
+function bundleTotals(entries: BundleEntry[], perWorker: readonly WorkerChunkGraph[]) {
   const byKind = new Map<string, { rawBytes: number; gzipBytes: number }>();
   for (const entry of entries) {
     const bucket = byKind.get(entry.kind) || { rawBytes: 0, gzipBytes: 0 };

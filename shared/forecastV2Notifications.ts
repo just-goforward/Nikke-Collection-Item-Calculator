@@ -646,9 +646,6 @@ const DEFAULT_REASONS: Record<ForecastV2Payloads["decision_request"]["type"], st
   grant_date: "grant_date",
   grant_quantity: "grant_quantity",
 };
-export const decisionGoal = (type: ForecastV2Payloads["decision_request"]["type"]) => GOALS[type];
-export const defaultReason = (type: ForecastV2Payloads["decision_request"]["type"]) =>
-  DEFAULT_REASONS[type];
 function rangeOf(startAt: string | undefined, endAt: string | undefined) {
   if (!startAt || !endAt) return undefined;
   const start = Date.parse(startAt),

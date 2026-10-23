@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import type { CertifiedInput, CertifiedOutput, CertifiedValue } from "../src/certified/types.ts";
 import { fromWire, mapTriple } from "./certified-staging-oracle.ts";
 import {
@@ -31,6 +31,7 @@ const { snapshot: _snapshot, ...fullInput } = input;
 const signature = waitingProofSignature(fullInput, output, prices, snapshotHash);
 mkdirSync(".certified-test-tmp", { recursive: true });
 const directory = mkdtempSync(join(".certified-test-tmp", "waiting-cache-controls-"));
+afterAll(() => rmSync(directory, { recursive: true, force: true }));
 function document(): WaitingProofCacheDocument {
   return {
     version: "independent_waiting_exact_signature_cache_v1",

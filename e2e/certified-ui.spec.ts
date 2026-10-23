@@ -13,8 +13,7 @@ let server: PreviewServer | null = null;
 // The retired source-review advisory polled this collector; the calculator must never contact it.
 const RETIRED_COLLECTOR_ORIGIN =
   "https://collection-kit-forecast-collector-staging.tbvj159.workers.dev";
-// playwright.account.config.ts builds an isolated output and picks a free port per run; the
-// default config serves `dist` on E2E_SMOKE_PORT (4273).
+// The spec serves the built app itself; ACCOUNT_E2E_DIST overrides the build directory.
 const OUT_DIR = process.env["ACCOUNT_E2E_DIST"] ?? "dist";
 const PORT = Number(process.env["ACCOUNT_E2E_PORT"] ?? process.env["E2E_SMOKE_PORT"] ?? 4273);
 test.use({ baseURL: `http://127.0.0.1:${PORT}` });

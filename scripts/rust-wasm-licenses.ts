@@ -17,7 +17,7 @@ export type RustWasmLicenseManifest = {
 
 const ROOT = resolve(import.meta.dirname, "..");
 export const RUST_WASM_CRATE_DIRS = ["rust/certified", "rust/solver-rs"] as const;
-export const RUST_WASM_LICENSE_MANIFEST = resolve(ROOT, "shared/legal/rust-wasm-licenses.json");
+const RUST_WASM_LICENSE_MANIFEST = resolve(ROOT, "shared/legal/rust-wasm-licenses.json");
 
 const TREE_LINE = /^(\S+) v(\S+)(?: \(proc-macro\))?\|(.*?)(?: \(\*\))?$/;
 
@@ -108,7 +108,7 @@ export function collectRustWasmLicenses(): RustWasmLicenseManifest {
   return { crates: compiled, buildOnly };
 }
 
-export function serializeRustWasmLicenses(manifest: RustWasmLicenseManifest) {
+function serializeRustWasmLicenses(manifest: RustWasmLicenseManifest) {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 

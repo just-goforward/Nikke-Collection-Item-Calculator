@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>앞으로 1달 일정·관리 키트 수급 (2026-10-18 ~ 11-18)</title>
+<style>
+  :root { --solo:#7c4dff; --collab:#ef6c00; --kit:#00796b; --line:#d9d9de; --muted:#6b6b76; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 "Pretendard","Malgun Gothic",system-ui,sans-serif; color:#1d1d24; background:#f6f6f9; }
+  header, main { padding:16px 24px; }
+  h1 { font-size:20px; margin:0 0 6px; } h2 { font-size:16px; margin:24px 0 8px; }
+  .sub { color:var(--muted); }
+  .legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:10px; }
+  .grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; max-width:1100px; }
+  .dow { text-align:center; font-size:12px; color:var(--muted); }
+  .dow.sun { color:#d32f2f; } .dow.sat { color:#1565c0; }
+  .day { min-height:96px; background:#fff; border:1px solid #e6e6ea; border-radius:6px; padding:4px 5px; font-size:12px; }
+  .day.out { background:transparent; border:none; }
+  .day.today { border:2px solid #1d1d24; }
+  .day .n { font-size:11px; color:var(--muted); display:flex; justify-content:space-between; }
+  .bar { display:block; margin-top:3px; border-radius:3px; padding:1px 4px; color:#fff; font-size:11px; white-space:nowrap; overflow:hidden; }
+  .solo { background:var(--solo); }
+  .pred { background:var(--solo); background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.5) 0 5px,transparent 5px 10px); color:#2b1a66; font-weight:600; }
+  .alt { background:#b39ddb; background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.6) 0 5px,transparent 5px 10px); color:#2b1a66; }
+  .coop { display:block; margin-top:3px; background:#e3f2fd; color:#1565c0; border-radius:3px; padding:1px 4px; font-size:11px; }
+  .notice { display:block; margin-top:3px; border:1px dashed #9e9e9e; color:#555; border-radius:3px; padding:1px 4px; font-size:11px; }
+  .info { display:block; margin-top:3px; background:#f1f1f4; color:#555; border-radius:3px; padding:1px 4px; font-size:11px; }
+  .sw { display:inline-block; width:22px; height:11px; border-radius:3px; vertical-align:middle; margin-right:5px; }
+  table { border-collapse:collapse; background:#fff; border:1px solid var(--line); font-size:13px; max-width:1100px; width:100%; }
+  th, td { border-bottom:1px solid #eee; padding:6px 8px; text-align:left; vertical-align:top; }
+  th { background:#fafafc; }
+  td.num { text-align:right; }
+  .box { background:#fffdf3; border:1px solid #f0e2a8; border-radius:8px; padding:10px 14px; max-width:1100px; }
+  a { color:#3949ab; }
+</style>
+</head>
+<body>
+<header>
+  <h1>앞으로 1달 일정 · 관리 키트 수급 (2026-10-18 ~ 2026-11-18)</h1>
+  <div class="sub">작성 2026-10-18 17:50 KST · 한국 시각 · 날짜 칸은 게임일(05:00 ~ 다음 날 04:59:59) · 근거: 네이버 라운지 게시판11·48·56 공식 공지(읽기 전용 조회) + 계산기 규칙</div>
+  <div class="legend">
+    <span><span class="sw solo"></span>솔로 레이드 (공지 확정)</span>
+    <span><span class="sw pred"></span>솔로 레이드 예측 (간격 중앙값 28일)</span>
+    <span><span class="sw alt"></span>차순위 예측 (35일 간격)</span>
+    <span><span class="sw" style="border:1px dashed #9e9e9e"></span>예상 공지 시점</span>
+    <span><span class="coop" style="display:inline">협동 II×5</span> 협동작전 상점 (매주 화 05:00)</span>
+  </div>
+</header>
+<main>
+  <div class="grid" id="cal"></div>
+
+  <h2>기간 합계 (10/18 ~ 11/18 게임일)</h2>
+  <table id="sum"><thead><tr><th>수급원</th><th>상자 II</th><th>상자</th><th>근거</th></tr></thead><tbody></tbody></table>
+
+  <h2>일정 근거와 예측 방법</h2>
+  <div class="box">
+    <ul>
+      <li><b>솔로 레이드 시즌 42 (확정):</b> 10/15(목) 12:00 ~ 10/22(목) 4:59 — <a href="https://game.naver.com/lounge/nikke/board/detail/8306665" target="_blank" rel="noopener">8306665</a></li>
+      <li><b>시즌 43 (예측):</b> 시작 간격 중앙값 <b>28일</b> → <b>11/12(목) 12:00 ~ 11/19(목) 4:59</b>. 간격은 공식 시즌 기록(S1~S40)과 S41·S42 시작일 42개에서 얻은 41개 간격의 중앙값입니다(28일 17번, 35일 10번, 21~23일 5번, 그 외).</li>
+      <li><b>차순위:</b> 35일 간격이면 11/19(목) 시작으로 이 달력 범위 밖입니다. 최근 12개 간격: 35, 28, 28, 42, 29, 41, 28, 21, 28, 35, 35, 21.</li>
+      <li><b>예상 공지 시점:</b> 2년간 오픈 공지는 대부분 시작 6일 전 금요일 17:00 → 28일 간격이면 <b>11/6(금) 17:00</b>쯤 게시판56 「솔로 레이드 오픈 예정」이 올라올 것으로 예상합니다. 공지가 나오면 예측을 공지 일정으로 교체합니다.</li>
+      <li><b>시작 시각:</b> 예측 시즌은 최근 패턴대로 12:00 시작으로 표시합니다. '점검 완료 후' 시작으로 공지되면 게시판48 점검 공지의 종료 시각을 씁니다.</li>
+    </ul>
+  </div>
+
+  <h2>이 기간에 확인된 다른 공지</h2>
+  <table><thead><tr><th>일시</th><th>내용</th><th>키트 영향</th></tr></thead><tbody>
+    <tr><td>~ 12/3(목) 4:59</td><td>Cinderella Special 이벤트 보상 (<a href="https://game.naver.com/lounge/nikke/board/detail/8290149" target="_blank" rel="noopener">8290149</a>, 게시판11)</td><td>관리 키트 없음</td></tr>
+    <tr><td>10/24(토) 19:00</td><td>4주년 기념 방송 「승리의 여신 집결」 (<a href="https://game.naver.com/lounge/nikke/board/detail/8335015" target="_blank" rel="noopener">8335015</a>, 게시판11)</td><td>관리 키트 없음 (방송에서 새 일정 발표 가능성)</td></tr>
+    <tr><td>—</td><td>점검 공지(게시판48): 최신은 10/8(목) 정기 점검(완료). 이후 예정된 점검 공지 없음</td><td>—</td></tr>
+    <tr><td>—</td><td>콜라보(게시판56): 최신 콜라보는 페르소나(9/10 종료). 새 콜라보 공지 없음 → 협동작전 2배 없음</td><td>—</td></tr>
+    <tr><td>—</td><td>관리 키트 보상 공지(게시판11·48): 8/23 이후 없음</td><td>—</td></tr>
+  </tbody></table>
+</main>
+<script>
+const kst = s => Date.UTC(+s.slice(0,4), +s.slice(5,7)-1, +s.slice(8,10), +s.slice(11,13)||0, +s.slice(14,16)||0) - 9*3600e3;
+const SOLO = [
+  {label:"S42", a:"2026-10-15T12:00", b:"2026-10-22T04:59", cls:"solo", start:"2026-10-15"},
+  {label:"S43 예측", a:"2026-11-12T12:00", b:"2026-11-19T04:59", cls:"pred", start:"2026-11-12"},
+];
+const ALT = {label:"S43 차순위(35일)", start:"2026-11-19"};
+const NOTICES = [{date:"2026-11-06", text:"S43 오픈 공지 예상 17:00"}];
+const INFO = [{date:"2026-10-24", text:"4주년 방송 19:00"}];
+const COOP = ["2026-10-20","2026-10-27","2026-11-03","2026-11-10","2026-11-17"];
+
+const cal = document.getElementById("cal");
+["일","월","화","수","목","금","토"].forEach((d,i)=>cal.insertAdjacentHTML("beforeend",`<div class="dow ${i===0?"sun":i===6?"sat":""}">${d}</div>`));
+const from = Date.UTC(2026,9,18), to = Date.UTC(2026,10,18);
+for (let i=0;i<new Date(from).getUTCDay();i++) cal.insertAdjacentHTML("beforeend",`<div class="day out"></div>`);
+for (let t=from; t<=to; t+=864e5) {
+  const dt = new Date(t), iso = dt.toISOString().slice(0,10);
+  const ds = kst(iso+"T05:00"), de = ds + 864e5;
+  let html = `<div class="n"><span>${dt.getUTCMonth()+1}/${dt.getUTCDate()}</span></div>`;
+  for (const s of SOLO) if (kst(s.a) < de && kst(s.b) > ds) {
+    const day = Math.round((kst(iso+"T00:00") - kst(s.start+"T00:00"))/864e5) + 1;
+    html += `<span class="bar ${s.cls}">솔로 ${s.label} · ${day}일차</span>`;
+  }
+  if (iso === ALT.start) html += `<span class="bar alt">${ALT.label} 시작</span>`;
+  for (const n of NOTICES) if (n.date === iso) html += `<span class="notice">${n.text}</span>`;
+  for (const n of INFO) if (n.date === iso) html += `<span class="info">${n.text}</span>`;
+  if (COOP.includes(iso)) html += `<span class="coop">협동 II×5</span>`;
+  cal.insertAdjacentHTML("beforeend",`<div class="day ${iso==="2026-10-18"?"today":""}">${html}</div>`);
+}
+document.querySelector("#sum tbody").innerHTML = `
+  <tr><td>협동작전 상점</td><td class="num">${COOP.length*5}</td><td class="num">0</td><td>화요일 ${COOP.length}회 × 5 (콜라보 없음)</td></tr>
+  <tr><td>공지 보상</td><td class="num">0</td><td class="num">0</td><td>예정된 관리 키트 보상 공지 없음</td></tr>
+  <tr><th>합계</th><th class="num">${COOP.length*5}</th><th class="num">0</th><th>솔로 레이드 시즌 보상·파견·수요일 고정 키트 등 다른 정기 수급은 제외</th></tr>`;
+</script>
+</body>
+</html>

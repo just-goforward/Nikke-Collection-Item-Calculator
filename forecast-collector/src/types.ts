@@ -16,13 +16,6 @@ export type CollectorEnv = {
   COLLECTOR_PROFILE_PHASE?: string;
   RUNTIME_INGESTION_ENABLED?: "true" | "false";
   RUNTIME_NOTICE_DAILY_LIMIT?: string;
-  DISCORD_APPROVAL_MODE?: "disabled" | "test" | "staging_adoption";
-  DISCORD_INTERACTION_OWNER?: "collector" | "router";
-  DISCORD_PUBLIC_KEY?: string;
-  DISCORD_APPLICATION_ID?: string;
-  DISCORD_APPROVER_USER_ID?: string;
-  DISCORD_GUILD_ID?: string;
-  DISCORD_CHANNEL_ID?: string;
 };
 
 export type SourceKind = "naver-board-11" | "naver-board-48" | "naver-board-56" | "x-nikke-kr";

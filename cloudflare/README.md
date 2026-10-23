@@ -2,64 +2,67 @@
 
 This folder contains the optional backend for global user statistics.
 
-Architecture:
+Current repository architecture (configuration is not evidence of live deployment):
 
 ```text
-GitHub Pages
-  -> Cloudflare Turnstile token
-  -> Cloudflare Worker
-  -> Cloudflare D1
+Browser calculator + Turnstile
+  -> site-worker production gateway (static assets and same-origin /api routes)
+  -> STATS service binding -> collection-kit-stats -> statistics D1
+  -> Usage Guard checks before budget-sensitive work
 ```
 
 The calculator still runs locally in the user's browser. The backend only receives validated result events for aggregate statistics.
+The statistics Worker has separate production/staging D1 bindings and an account-wide
+`USAGE_GUARD_DB`. Stats Observer uses its own D1; the request Worker is not bound to it.
+The direct statistics endpoint remains during the approval-gated cutover below; do not retire it
+as part of setup. Legacy GitHub Pages hosting is not the production gateway architecture.
 
-## Setup
+## New installation only
 
-1. Install Wrangler:
+These are provisioning steps, not instructions to overwrite an existing deployment. Each remote
+creation, schema application, secret change and deployment needs separate operator approval.
+Use the repository's pinned Wrangler through `npx wrangler`, not a globally installed version.
 
-```powershell
-npm install -g wrangler
-```
-
-2. Login:
-
-```powershell
-wrangler login
-```
-
-3. Create a D1 database:
+1. Authenticate to the approved account:
 
 ```powershell
-wrangler d1 create collection-kit-stats
+npx wrangler login
 ```
 
-4. Copy the returned `database_id` into `wrangler.toml`:
+2. Create separate production and staging statistics databases:
+
+```powershell
+npx wrangler d1 create collection-kit-stats
+npx wrangler d1 create collection-kit-stats-staging
+```
+
+3. Only for a new installation with no configured file, copy the template and replace placeholders:
 
 ```powershell
 Copy-Item cloudflare\wrangler.toml.example cloudflare\wrangler.toml
 ```
 
-5. Apply the schema:
+Set both `DB` IDs independently, the approved shared `USAGE_GUARD_DB` ID, and unique
+`EVENT_RATE_LIMITER` / `READ_RATE_LIMITER` namespaces for each environment. Provision the
+Usage Guard using `usage-guard/README.md` before enabling guarded work.
+
+4. Apply the snapshot only to the new empty statistics databases:
 
 ```powershell
-wrangler d1 execute collection-kit-stats --remote --file cloudflare/schema.sql
+npx wrangler d1 execute collection-kit-stats --remote --file cloudflare/schema.sql --config cloudflare/wrangler.toml --env=""
+npx wrangler d1 execute collection-kit-stats-staging --remote --file cloudflare/schema.sql --config cloudflare/wrangler.toml --env=staging
 ```
 
-6. Create a Turnstile widget in the Cloudflare dashboard.
+5. Create a Turnstile widget in the Cloudflare dashboard.
 
-Use the site key in `index.html`:
+Configure the frontend's site key for the approved hostnames. Production browser traffic uses
+the same-origin gateway; do not replace it with a workers.dev endpoint.
 
-```js
-window.COLLECTION_STATS_CONFIG = {
-  endpoint: "https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev",
-  turnstileSiteKey: "YOUR_TURNSTILE_SITE_KEY",
-};
-```
-
-Set the secret key on the Worker:
+Set the appropriate secret in each environment:
 
 ```powershell
-wrangler secret put TURNSTILE_SECRET_KEY
+npx wrangler secret put TURNSTILE_SECRET_KEY --config cloudflare/wrangler.toml --env=""
+npx wrangler secret put TURNSTILE_SECRET_KEY --config cloudflare/wrangler.toml --env=staging
 ```
 
 Optionally set an admin token for authenticated diagnostic reads while the direct endpoint
@@ -68,17 +71,19 @@ production retirement B, HTTP admin diagnostics will be unavailable in productio
 gateway admin route. Use separately authorized dashboard/D1 reads instead.
 
 ```powershell
-wrangler secret put ADMIN_TOKEN
+npx wrangler secret put ADMIN_TOKEN --config cloudflare/wrangler.toml --env=""
 ```
 
 `TURNSTILE_SECRET_KEY` is required in every deployed environment. Request throttling uses the
-native `EVENT_RATE_LIMITER` binding declared in `wrangler.toml`; it has no shared secret.
+native `EVENT_RATE_LIMITER` and `READ_RATE_LIMITER` bindings declared in `wrangler.toml`; neither has a shared secret.
 `ADMIN_TOKEN` is optional: when it is absent, the private diagnostics endpoint stays hidden with
 `404 not_found`.
 
-7. Set `ALLOWED_ORIGINS` in `wrangler.toml`.
+6. Set `ALLOWED_ORIGINS` and `TURNSTILE_ALLOWED_HOSTNAMES` separately for each environment.
 
-The production and staging Workers accept browser requests only from the canonical custom domain:
+Production uses the canonical origin; staging may additionally allow the staging origin.
+Turnstile hostname values contain hostnames, not URL schemes. Replace the template's example
+hostnames with the approved widget hosts. Production origin example:
 
 ```toml
 ALLOWED_ORIGINS = "https://nikkecollection.com"
@@ -88,11 +93,16 @@ The legacy GitHub Pages project URL redirects to the custom domain and does not 
 access. Locale routes such as `/en/` and `/ja/` share the same origin and require no additional
 entries.
 
-8. Deploy:
+7. Use the approval-gated staging deployment and production promotion below. Provision the
+site gateway and its service binding separately; deploying the statistics Worker alone does not
+publish the site or authorize DNS/cutover changes.
 
-```powershell
-wrangler deploy --config cloudflare/wrangler.toml
-```
+## Existing deployment maintenance
+
+Do **not** copy the example over `cloudflare/wrangler.toml`, recreate databases, or replay
+`schema.sql`. Preserve IDs, stored secrets, routing and environment separation. Verify the
+current schema and apply only reviewed migrations through the guarded workflows below.
+Direct-endpoint retirement is still a separate approval gate, not routine maintenance.
 
 ### Automated Worker deployment
 
@@ -439,11 +449,11 @@ To change the administrator-managed forecast, append a new immutable record to
 and Rust constants. Never reuse an ID for different gain values: aggregate interpretation and
 solver cache identity depend on that mapping remaining stable.
 
-Registry v3 also has an independent `stagingForecastId`. Changing it does not authorize production
-adoption: it selects the forecast used only when the public app is opened with
-`?statsEnv=staging`. The default URL continues to resolve `activeForecastId`. Use the staging
-adoption workflow or `npm run select:staging-forecast -- <forecast-id>` followed by code generation;
-do not edit generated runtime files directly.
+Historical registry v3 also has an independent `stagingForecastId`. The former staging-adoption
+workflow and `npm run select:staging-forecast -- <forecast-id>` are retired and are not current
+operating commands. Current Forecast uses the v2 D1 candidate / Discord publication flow described
+in `docs/forecast-automation-runbook.ko.md`; registry history is not a runtime publication approval.
+Do not edit generated runtime files directly.
 
 ```powershell
 npm run generate:supply-forecast

@@ -57,15 +57,10 @@
   ],
   "ignore": [
     // Immutable review packets and measured outputs are data, not executable project modules.
-    ".tmp/**",
-    ".certified-test-tmp/**",
-    "tmp/**",
     "benchmarks/results/**",
-    "src/wasm/rustRerankProductSolver.ts",
     "src/wasm/rustResearchLoader.ts"
   ],
-  // where.exe is Windows' built-in PATH lookup for the local Git Bash workflow fixture.
-  "ignoreBinaries": ["rustc", "where.exe"],
+  "ignoreBinaries": ["rustc"],
   "ignoreDependencies": [
     "cloudflare",
     // forecast-admin is not an npm workspace; its pinned plugin resolves from the Worker workspaces.

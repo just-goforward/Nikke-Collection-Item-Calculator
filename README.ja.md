@@ -61,8 +61,8 @@ npm run build
 npm run report:bundle
 ```
 
-アプリとスクリプトのテストはVitest 5を使用し、6つのCloudflare Worker workspaceは公式
-pluginが対応するVitest 4を維持します。`npm run lint`がこの境界も検証します。
+アプリ・スクリプトとCloudflare Worker workspaceのテストはVitest 5.0.5を使用します。
+`npm run lint`が公式pluginとWorkerランタイムのバージョン整合性も検証します。
 
 ## 研究・技術資料
 

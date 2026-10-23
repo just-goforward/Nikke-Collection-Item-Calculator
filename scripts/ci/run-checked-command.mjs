@@ -77,7 +77,7 @@ export function commandFor(kind, args, { node, npmCli, root, platform }) {
   throw new Error("Unsupported CI command kind");
 }
 
-export async function runChecked(stage, kind, args) {
+async function runChecked(stage, kind, args) {
   if (!/^[a-z][a-z0-9-]{0,63}$/.test(stage)) throw new Error("Invalid stage");
   const root = process.cwd();
   const expected = process.env.R65_EXPECTED_SHA;

@@ -1,5 +1,10 @@
 # Forecast 구현 상태와 재개 절차
 
+> **Historical / superseded:** 아래 내용은 2026-09-05의 기록이며 현재 운영 지침이 아니다.
+> 현재 D1 기반 v2 수집·Discord publication 흐름은 `docs/forecast-automation-runbook.ko.md`와
+> 각 Worker의 현재 계약을 따른다. 여기에 기록된 PR #15·#37의 현재 상태는 조회하지 않았으며,
+> 병합·해결·폐기를 뜻하지 않는다. 과거 수치와 결과는 그대로 보존한다.
+
 이 문서는 2026-09-05 KST 기준 운영 상태를 정리한 스냅샷이다. 실행 의미론의 정본은
 `shared/supplyForecasts.json`, 생성 코드, Worker 코드와 테스트이며, 이 문서는 그 계약을
 대체하지 않는다.

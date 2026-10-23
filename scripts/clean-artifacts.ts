@@ -13,6 +13,11 @@ export const ARTIFACT_TARGETS = [
   "debug.log",
   "public/solver_rs.wasm",
   "rust/solver-rs/target",
+  "rust/certified/target",
+  ".certified-test-tmp",
+  ".artifacts",
+  ".tmp",
+  ".tmp-worker-bundle",
 ];
 
 export const RESEARCH_ARTIFACT_TARGETS = ["benchmarks/results", "output", ".superloopy"];
@@ -55,7 +60,7 @@ export function plannedArtifactRemovals(
     .filter((target) => !hasTrackedFileAtOrBelow(target, tracked));
 }
 
-export function cleanArtifacts({
+function cleanArtifacts({
   apply,
   includeResearch = false,
 }: {

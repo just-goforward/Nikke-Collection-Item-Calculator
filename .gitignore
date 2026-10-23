@@ -26,3 +26,8 @@ output/
 *.checkpoint.json
 public/solver_rs.wasm
 rust/**/target/
+/.tmp/
+/.tmp-worker-bundle/
+/.certified-test-tmp/
+/.mixdog/
+/.artifacts/

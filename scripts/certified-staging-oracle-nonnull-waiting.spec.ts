@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import type { CertifiedInput, CertifiedOutput } from "../src/certified/types.ts";
 import {
   compareValue,
@@ -33,6 +33,11 @@ import {
 } from "./certified-staging-oracle-witness.ts";
 
 const prices: QTriple = [q(1, 21), q(1, 3), q(10, 13)];
+const tempDirectories: string[] = [];
+afterAll(() => {
+  for (const directory of tempDirectories.splice(0))
+    rmSync(directory, { recursive: true, force: true });
+});
 const terminalValue = {
   P: q(1),
   B: q(0),
@@ -347,6 +352,7 @@ describe("waiting source and cache boundaries", () => {
     };
     mkdirSync(".certified-test-tmp", { recursive: true });
     const directory = mkdtempSync(join(".certified-test-tmp", "nonnull-waiting-"));
+    tempDirectories.push(directory);
     function saved(value: WaitingProofCacheDocument, name: string) {
       const bytes = JSON.stringify(value),
         path = join(directory, name);

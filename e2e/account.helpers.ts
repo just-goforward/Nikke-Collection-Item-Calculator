@@ -1,7 +1,6 @@
 import { type BrowserContext, expect, type Page, type Route } from "@playwright/test";
 
 /** Local mock of the personal-data API and device-store helpers for e2e/account.spec.ts. */
-// playwright.account.config.ts supplies a free port per run; 4297 serves the default config.
 export const PORT = Number(process.env["ACCOUNT_E2E_PORT"] ?? 4297);
 export const ORIGIN = `http://127.0.0.1:${PORT}`;
 const GOOGLE_URL = "https://accounts.google.com/o/oauth2/v2/auth?client_id=e2e";

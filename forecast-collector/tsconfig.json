@@ -22,7 +22,6 @@
     "src/**/*.ts",
     "worker-configuration.d.ts",
     "../shared/supplyForecastCandidate.ts",
-    "../shared/supplyForecastModel.ts",
     "../shared/boundedHttp.ts"
   ]
 }
