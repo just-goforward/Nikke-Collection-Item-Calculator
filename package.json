@@ -197,7 +197,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
-    "@biomejs/biome": "^2.5.15",
+    "@biomejs/biome": "^2.6.2",
     "@playwright/test": "1.64.1",
     "@stryker-mutator/api": "^10.0.0",
     "@stryker-mutator/core": "^10.0.0",
@@ -209,15 +209,15 @@
     "@vitest/coverage-v8": "^5.0.5",
     "esbuild": "^0.28.2",
     "fast-check": "^4.10.2",
-    "knip": "^6.41.0",
+    "knip": "^6.42.1",
     "miniflare": "5.20261006.2-beta",
-    "oxc-parser": "^0.154.0",
+    "oxc-parser": "^0.155.0",
     "sharp": "0.35.5",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
-    "vite": "^8.3.4",
+    "vite": "^8.3.5",
     "vitest": "^5.0.5",
-    "wrangler": "^4.151.0"
+    "wrangler": "^4.152.0"
   },
   "dependencies": {
     "react": "^19.3.1",

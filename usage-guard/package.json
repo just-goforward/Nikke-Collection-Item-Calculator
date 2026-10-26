@@ -7,7 +7,7 @@
     "test:coverage": "vitest run --config vitest.config.ts --coverage"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.4.3",
+    "@cloudflare/vitest-plugin": "1.4.7",
     "@vitest/coverage-v8": "5.0.5",
     "vitest": "5.0.5"
   }
