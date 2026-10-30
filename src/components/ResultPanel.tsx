@@ -1,9 +1,11 @@
 import { lazy, Suspense, useCallback, useState } from "react";
+import { useDecisionReceipt } from "../analytics/DecisionPresentation";
 
 import { useAnimatedStateProgress } from "../hooks/useAnimatedStateProgress";
 import { useI18n } from "../i18n/locale";
 import type { LocalizedMessage } from "../i18n/messages.ko";
-import { lazyModuleRetryUrl, reloadWithLegacyInputs } from "../lib/lazyModuleRetry";
+import { lazyModuleRetryUrl } from "../lib/lazyModuleRetry";
+import { reloadWithoutPersonalRecovery as reloadWithLegacyInputs } from "../lib/volatileSession";
 import type { LegacyRecoveryNotice } from "../lib/legacyInputRecovery";
 import type { CollectionState, Kit } from "../types";
 import type { LoadingView, ResultView, StateChangeFeedback, StatePanelModel } from "../ui-types";
@@ -240,6 +242,11 @@ function LazyRecommendation(props: RecommendationProps) {
   );
 }
 
+function ObservedCallout({ message, currentPreservation }: { message: string; currentPreservation: boolean }) {
+  const receiptRef = useDecisionReceipt("current", currentPreservation);
+  return <div ref={receiptRef} className={classes.callout}>{message}</div>;
+}
+
 function ResultViewContent({
   onActionTransitionComplete,
   onConvert,
@@ -285,7 +292,7 @@ function ResultViewContent({
   if (view.type === "callout") {
     return (
       <div className={classes.resultContent}>
-        <div className={classes.callout}>{text(view.message)}</div>
+        <ObservedCallout message={text(view.message)} currentPreservation={view.reason === "certified_preserve"} />
       </div>
     );
   }

@@ -1,22 +1,48 @@
 import { q, toWire, type WireQ } from "./certifiedRational.ts";
 import type { CertifiedLawRef, CertifiedSupplyLaw, CohortTuple } from "./certifiedSupplyLaws.ts";
 import {
+  type CertifiedSnapshotVersion,
+  CURRENT_CERTIFIED_SNAPSHOT_VERSION,
+  CURRENT_FORECAST_RULES_VERSION,
+} from "./certifiedVersionPolicy.ts";
+import { gameDayKey, gameDayStartMs } from "./gameDay.ts";
+import {
   type ExactSoloRaidCadence,
   estimateCertifiedSoloRounds,
   type SoloRaidRound,
 } from "./soloRaidCadence.ts";
-import { gameDayKey, gameDayStartMs } from "./supplyForecastModel.ts";
-export const CERTIFIED_SUPPLY_VERSION = "certified-daily-v2" as const;
-export type CertifiedSupplyVersion = "certified-daily-v1" | typeof CERTIFIED_SUPPLY_VERSION;
-export type PersonalCohortWeights = readonly [WireQ, WireQ, WireQ, WireQ];
+export const CERTIFIED_SUPPLY_VERSION = CURRENT_CERTIFIED_SNAPSHOT_VERSION;
+export const CERTIFIED_SUPPLY_HISTORY_DAYS = 7;
+export const CERTIFIED_WEEKLY_FIXED_LAW_ID = "deterministic:10,10,0";
+export type CertifiedSupplyVersion = CertifiedSnapshotVersion;
+export type PersonalCohortWeights = CohortTuple<WireQ>;
 export type SnapshotCohortWeights = CohortTuple<WireQ>;
 export type CertifiedSourceStatus = "healthy" | "uncertain";
+export type CertifiedSupplyGrant = {
+  id: string;
+  grantGameDate: string;
+  refs: readonly CertifiedLawRef[];
+  claimUntil?: string;
+  claimWindowAssumed: boolean;
+  sourceIds: readonly string[];
+  restatementOf: readonly string[];
+};
+export type CertifiedSoloSegment = {
+  segment: number;
+  kind: "initial" | "reopen";
+  effectiveFrom: string;
+  effectiveUntil: string;
+  rewardFromGameDate: string;
+  rewardUntilGameDate: string;
+  sourceIds: readonly string[];
+};
 export type CertifiedSoloRound = {
   round: number;
   startGameDate: string;
   endGameDate: string | null;
   status: "confirmed" | "estimated" | "unverified";
   sourceIds: readonly string[];
+  segments?: readonly CertifiedSoloSegment[];
 };
 export type CertifiedSoloDelayState = {
   anchorRound: number;
@@ -27,12 +53,15 @@ export type CertifiedSupplyEvent = {
   id: string;
   gameDate: string;
   at: string;
-  kind: "dispatch" | "shop" | "solo";
+  kind: "dispatch" | "shop" | "solo" | "weekly-kits" | "grant";
   status: "confirmed" | "estimated";
   refs: readonly CertifiedLawRef[];
   ruleId: string;
   round?: number;
   dayNumber?: number;
+  segment?: number;
+  claimWindowAssumed?: boolean;
+  restatementOf?: readonly string[];
   /** Sourced exclusive claim deadline; null/omitted means the deadline is unknown. */
   expiresAt?: string | null;
   cancelled?: boolean;
@@ -45,6 +74,8 @@ export type CertifiedSupplyRule = {
   dispatch: readonly CertifiedLawRef[];
   normalShop: readonly CertifiedLawRef[];
   collaborationShop: readonly CertifiedLawRef[];
+  /** Absent only in historical v1/v2 rules. */
+  weeklyFixed?: readonly CertifiedLawRef[];
   soloDays: readonly (readonly CertifiedLawRef[])[];
   provenance: readonly string[];
 };
@@ -86,14 +117,23 @@ export type CertifiedSupplySnapshot = {
   provenance: readonly string[];
 };
 export type CertifiedSupplyBuildInput = {
+  /** Explicit historical replay; live construction uses the current policy. */
+  version?: "certified-daily-v3" | "certified-daily-v4" | "certified-daily-v5";
+  cadenceVersion?: ExactSoloRaidCadence["version"];
+  grants?: readonly CertifiedSupplyGrant[];
   asOf: string;
   revision: string;
   sourceHash: string;
+  soloRounds?: readonly {
+    round: number;
+    segments: readonly CertifiedSoloSegment[];
+  }[];
   soloPeriods: readonly {
     effectiveFrom: string;
     effectiveUntil: string;
     scheduleStatus: "confirmed" | "estimated";
     round?: number;
+    segments?: readonly CertifiedSoloSegment[];
   }[];
   collaborationPeriods: readonly { effectiveFrom: string; effectiveUntil: string }[];
   confirmedRounds?: readonly SoloRaidRound[];
@@ -137,29 +177,55 @@ export type CertifiedSupplyComparison = {
 };
 
 export const DAY_MS = 86_400_000;
-export const DEFAULT_PERSONAL_COHORT_WEIGHTS: PersonalCohortWeights = [
+/** Historical v2–v4 personal/population default. Never reinterpret sealed evidence. */
+export const DEFAULT_PERSONAL_COHORT_WEIGHTS = [
   toWire(q(1, 7)),
   toWire(q(2, 7)),
   toWire(q(3, 7)),
   toWire(q(1, 7)),
-];
+] as const;
+/** Current policy: 0/1/2 rerolls, fixed population, not a personal posterior. */
+export const FIXED_DISPATCH_COHORT_WEIGHTS = [
+  toWire(q(1, 6)),
+  toWire(q(2, 6)),
+  toWire(q(3, 6)),
+] as const;
 export const LEGACY_PERSONAL_COHORT_WEIGHTS = [
   toWire(q(1, 3)),
   toWire(q(1, 3)),
   toWire(q(1, 3)),
 ] as const;
 
+let dateCache: { timestamps: Map<string, number>; starts: Map<string, number> } | undefined;
+
+/** Reuse pure conversions during a synchronous ledger operation, never across requests. */
+export function withSupplyDateCache<T>(operation: () => T): T {
+  if (dateCache) return operation();
+  dateCache = { timestamps: new Map(), starts: new Map() };
+  try {
+    return operation();
+  } finally {
+    dateCache = undefined;
+  }
+}
+
 export function timestamp(value: string): number {
+  const cached = dateCache?.timestamps.get(value);
+  if (cached !== undefined) return cached;
   if (!/(?:Z|[+-]\d{2}:\d{2})$/.test(value)) throw new Error("certified_timestamp_offset_required");
   const epoch = Date.parse(value);
   if (!Number.isFinite(epoch)) throw new Error("certified_timestamp_invalid");
+  dateCache?.timestamps.set(value, epoch);
   return epoch;
 }
 export const iso = (epoch: number) => new Date(epoch).toISOString();
 export const dateStart = (date: string) => {
+  const cached = dateCache?.starts.get(date);
+  if (cached !== undefined) return cached;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("certified_game_date_invalid");
   const epoch = timestamp(`${date}T05:00:00+09:00`);
   if (gameDayKey(epoch) !== date) throw new Error("certified_game_date_invalid");
+  dateCache?.starts.set(date, epoch);
   return epoch;
 };
 const refs = (regularBoxes: number, boxII: number): readonly CertifiedLawRef[] => [
@@ -172,14 +238,15 @@ export function createCertifiedSupplyRule(
   effectiveUntil: string | null = null,
 ): CertifiedSupplyRule {
   return {
-    id: "schedule-kit-v2:documented-physical-supply-v2",
+    id: `${CURRENT_FORECAST_RULES_VERSION}:documented-physical-supply-v2`,
     effectiveFrom,
     effectiveUntil,
     dispatch: [{ lawId: "dispatch-board-v1", count: 1 }],
     normalShop: refs(0, 5),
     collaborationShop: refs(0, 10),
+    weeklyFixed: [{ lawId: CERTIFIED_WEEKLY_FIXED_LAW_ID, count: 1 }],
     soloDays: [refs(12, 0), refs(4, 8), ...Array.from({ length: 5 }, () => refs(0, 12))],
-    provenance: ["shared/supplyForecastModel.ts", "docs/research/kit-expected-gain.ko.md"],
+    provenance: ["shared/certifiedSupplyModel.ts", "docs/research/kit-expected-gain.ko.md"],
   };
 }
 
@@ -248,10 +315,101 @@ export function ruleAt(rules: readonly CertifiedSupplyRule[], at: number) {
   );
 }
 
+// Only this traversal establishes recursive freezing; Object.isFrozen alone
+// would incorrectly trust shallow-frozen caller objects. Weak keys do not retain ledgers.
+const deeplyFrozen = new WeakSet<object>();
+// Only plain JSON data qualifies: functions, accessors and class instances are rejected.
+// Callers must pass JSON-origin graphs: a lying Proxy cannot be detected here.
 export function freezeJson<T>(value: T): T {
-  if (typeof value === "object" && value !== null) {
-    for (const child of Object.values(value)) freezeJson(child);
+  if (typeof value === "function") throw new Error("certified_json_graph_invalid");
+  if (typeof value === "object" && value !== null && !deeplyFrozen.has(value)) {
+    const prototype = Object.getPrototypeOf(value);
+    // Arrays require Array.prototype; other objects Object.prototype or null.
+    if (prototype !== (Array.isArray(value) ? Array.prototype : prototype && Object.prototype))
+      throw new Error("certified_json_graph_invalid");
+    for (const key of Reflect.ownKeys(value)) {
+      // Descriptors are inspected so getters are never invoked.
+      const descriptor = Reflect.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !("value" in descriptor)) throw new Error("certified_json_graph_invalid");
+      freezeJson(descriptor.value);
+    }
     Object.freeze(value);
+    deeplyFrozen.add(value);
   }
   return value;
+}
+
+const JSON_CLONE_UNSUPPORTED = Symbol("json_clone_unsupported");
+
+type JsonWalk = (key: string, raw: unknown) => unknown;
+
+function cloneJsonScalar(value: unknown): unknown {
+  if (value === null || typeof value === "boolean" || typeof value === "string") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? (value === 0 ? 0 : value) : null;
+  if (value === undefined || typeof value === "function" || typeof value === "symbol")
+    return undefined;
+  throw JSON_CLONE_UNSUPPORTED; // bigint
+}
+
+// Plain arrays/objects without `toJSON`; anything else takes the native round trip.
+function assertPlainJsonContainer(value: object) {
+  const prototype = Object.getPrototypeOf(value);
+  if (
+    "toJSON" in value ||
+    prototype !== (Array.isArray(value) ? Array.prototype : prototype && Object.prototype)
+  )
+    throw JSON_CLONE_UNSUPPORTED;
+}
+
+// Index iteration visits holes (as undefined → null) without the array iterator.
+function cloneJsonArray(value: unknown[], walk: JsonWalk): unknown[] {
+  const copy: unknown[] = [];
+  for (let index = 0; index < value.length; index++)
+    copy.push(walk(String(index), value[index]) ?? null);
+  return copy;
+}
+
+// A `__proto__` key would need defineProperty; it takes the native round trip instead.
+function cloneJsonObject(value: object, walk: JsonWalk): Record<string, unknown> {
+  const copy: Record<string, unknown> = {};
+  for (const name of Object.keys(value)) {
+    if (name === "__proto__") throw JSON_CLONE_UNSUPPORTED;
+    const item = walk(name, (value as Record<string, unknown>)[name]);
+    if (item !== undefined) copy[name] = item;
+  }
+  return copy;
+}
+
+/**
+ * `JSON.parse(JSON.stringify(value, replacer))` without the string round trip, for an
+ * acyclic graph of side-effect-free data properties (no getters) and a pure replacer
+ * that ignores `this`. A function, a container with `toJSON` or a non-plain prototype, a
+ * boxed primitive or a bigint switches to the native round trip (which then calls the
+ * replacer again from the start), so the result is the same within that contract.
+ */
+export function cloneJsonWith(
+  value: unknown,
+  replacer: (key: string, value: unknown) => unknown,
+): unknown {
+  const walk = (key: string, raw: unknown): unknown => {
+    // Checked before the replacer: native serialization applies `toJSON` first.
+    if ((typeof raw === "object" || typeof raw === "function") && raw !== null)
+      assertPlainJsonContainer(raw);
+    const next = replacer(key, raw);
+    if (typeof next !== "object" || next === null) return cloneJsonScalar(next);
+    assertPlainJsonContainer(next);
+    return Array.isArray(next) ? cloneJsonArray(next, walk) : cloneJsonObject(next, walk);
+  };
+  try {
+    return walk("", value);
+  } catch (error) {
+    if (error !== JSON_CLONE_UNSUPPORTED) throw error;
+    const text = JSON.stringify(value, (key, item) => replacer(key, item));
+    return text === undefined ? undefined : JSON.parse(text);
+  }
+}
+
+/** Identity proof issued only after this module recursively freezes the graph. */
+export function isDeeplyFrozen(value: object): boolean {
+  return deeplyFrozen.has(value);
 }

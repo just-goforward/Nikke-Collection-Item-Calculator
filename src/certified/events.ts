@@ -1,3 +1,4 @@
+import { CERTIFIED_RECOMMENDED_HORIZON_DAYS } from "../../shared/certifiedHorizon";
 import { type CertifiedSupplyEvent, isCertifiedEventModeled } from "../../shared/certifiedSupply";
 import {
   certifiedSupplyLawPayloadBytes,
@@ -24,7 +25,7 @@ export function futureEvents(input: CertifiedInput): CertifiedSupplyEvent[] {
       const d = eventOffset(input, event);
       return (
         d >= 1 &&
-        d <= 56 &&
+        d <= CERTIFIED_RECOMMENDED_HORIZON_DAYS &&
         isCertifiedEventModeled(input.snapshot, event, input.asOf) &&
         !received.has(event.id)
       );
@@ -72,7 +73,7 @@ export function waitingBase(
 ): CertifiedWaiting {
   return {
     status,
-    horizonDays: 56,
+    horizonDays: CERTIFIED_RECOMMENDED_HORIZON_DAYS,
     recommendedDays: null,
     rangeBoundary: false,
     bestDayRange: null,

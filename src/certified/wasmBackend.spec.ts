@@ -1,10 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { ONE, type Q, q, sub, sum, toWire, ZERO } from "../../shared/certifiedRational";
+import { fromWire, ONE, type Q, q, sub, sum, toWire, ZERO } from "../../shared/certifiedRational";
 import {
   buildCertifiedSupplySnapshot,
   type CertifiedSupplyEvent,
+  certifiedRecurringRate,
 } from "../../shared/certifiedSupply";
+import { DEFAULT_PERSONAL_COHORT_WEIGHTS } from "../../shared/certifiedSupplyModel";
 import { WorkBudget } from "./budget";
 import { encode } from "./game";
 import { FiniteKernel } from "./kernel";
@@ -43,6 +45,7 @@ function fixture(events: CertifiedSupplyEvent[] = [], zeroRate = false): Certifi
       sourceStatus: "healthy",
     }),
   );
+  snapshot.version = "certified-daily-v2";
   snapshot.events = events;
   snapshot.rules = [
     {
@@ -68,14 +71,239 @@ function behavior(result: CertifiedOutput) {
     claimNotice: result.claimNotice,
   };
 }
-function parity(input: CertifiedInput) {
+const PREFIX_EVIDENCE = [
+  "exact_cohort_conditional_distributions_single_latent_cohort",
+  "exact_rational_completed_date_prefix",
+  "exact_P_B_C_equal_unlimited_optimum_at_completed_date",
+  "earliest_exact_objective_tie_in_completed_prefix",
+  "fixed_prices_all_dates",
+  "nonnegative_nonexpiring_inventory_coupling",
+  "range_only_no_global_or_deadline_claim",
+];
+const EXHAUSTIVE_EVIDENCE = [
+  "exact_cohort_conditional_distributions_single_latent_cohort",
+  "exact_rational_all_15_date_expectations",
+  "fixed_prices_all_dates",
+  "nonnegative_nonexpiring_inventory_coupling",
+  "exact_previous_day_strict_lex_inequality",
+  "range_only_no_global_or_deadline_claim",
+];
+type PrefixExpectation = {
+  evaluatedDays: readonly number[];
+  day: number;
+  burden: Q;
+  uncertain?: boolean;
+};
+function parity(input: CertifiedInput, prefix?: PrefixExpectation) {
   const expected = solveCertified(input);
   const actual = solveCertifiedWasm(module, input);
-  expect(behavior(actual)).toEqual(behavior(expected));
+  if (prefix) {
+    const suffix = prefix.uncertain
+      ? ["modeled_forecast_source_uncertain_no_automatic_delay"] : [];
+    expect(expected.waiting.evaluatedDays).toEqual(ALL_DAYS);
+    expect(expected.waiting.evidence).toEqual([...EXHAUSTIVE_EVIDENCE, ...suffix]);
+    const evidence = [...PREFIX_EVIDENCE, ...suffix];
+    expect(behavior(actual)).toEqual({
+      ...behavior(expected),
+      waiting: { ...expected.waiting, evaluatedDays: prefix.evaluatedDays, evidence },
+    });
+    expect(actual.waiting).toMatchObject({
+      status: "certified",
+      horizonDays: 14,
+      reason: null,
+      recommendedDays: prefix.day,
+      bestDayRange: [prefix.day, prefix.day],
+      rangeBoundary: prefix.day === 14,
+      successProbabilityInterval: { lower: toWire(ONE), upper: toWire(ONE) },
+      successImprovementUpperBound: toWire(ZERO),
+    });
+    expect(actual.current?.value.successP).toEqual(toWire(ZERO));
+    expect(actual.waiting.value).toMatchObject({
+      successP: toWire(ONE),
+      weightedExpectedConsumptionB: toWire(prefix.burden),
+      expectedTotalConsumptionC: toWire(q(10)),
+      expectedConsumed: [ZERO, ZERO, q(10)].map(toWire),
+    });
+  } else expect(behavior(actual)).toEqual(behavior(expected));
   expect(actual.diagnostics.wasmMemoryBytes).toBeGreaterThan(0);
   expect(actual.provenance.solverVersion).toBe("certified-exact-rust-wasm-v1");
   return actual;
 }
+describe("v3 population prior and weekly supply wire contract", () => {
+  function physicalInput(): CertifiedInput {
+    const snapshot = buildCertifiedSupplySnapshot({
+      asOf: AS_OF,
+      revision: "v3-wasm-contract",
+      version: "certified-daily-v4",
+      sourceHash: "a".repeat(64),
+      soloPeriods: [],
+      collaborationPeriods: [],
+    });
+    return {
+      grade: "SR",
+      level: 14,
+      exp: 2900,
+      stock: [10, 10, 0],
+      asOf: AS_OF,
+      snapshot,
+      cohortWeights: [toWire(q(1)), toWire(q(0)), toWire(q(0)), toWire(q(0))],
+    };
+  }
+
+  it.each([{ stock: [300, 50, 20] as const }, { stock: [150, 30, 8] as const }])(
+    "completes v3 R0 $stock under the unchanged memo budget",
+    ({ stock }) => {
+      const { cohortWeights: _posterior, ...base } = physicalInput();
+      const input: CertifiedInput = {
+        ...base,
+        grade: "R",
+        level: 0,
+        exp: 0,
+        stock,
+        receivedEventIds: base.snapshot.events
+          .filter((event) => event.gameDate === base.snapshot.coverage.currentDay)
+          .map((event) => event.id),
+      };
+      const options = { maxManagedPayloadBytes: 160 * 1024 * 1024 };
+      const expected = solveCertified(input, options);
+      const actual = solveCertifiedWasm(module, input, options);
+      console.info(
+        JSON.stringify({
+          case: `v3-R0:${stock.join(",")}`,
+          jsStatus: expected.status,
+          wasmStatus: actual.status,
+          refusal: actual.refusal,
+          waitingHorizon: actual.waiting.horizonDays,
+          recommendedDays: actual.waiting.recommendedDays,
+          wasmMemo: actual.diagnostics.memoEntries,
+        }),
+      );
+      expect(actual.current).toEqual(expected.current);
+      expect(actual.pricing).toEqual(expected.pricing);
+      expect(actual.status).toBe("completed");
+      expect(actual.minimumWait?.status).not.toBe("unknown");
+      expect(actual.waiting).toEqual(expected.waiting);
+      expect(input.snapshot.coverage.future.days).toBeGreaterThanOrEqual(56);
+      expect(actual.waiting.horizonDays).toBe(14);
+      expect(actual.diagnostics.memoEntries).toBeLessThanOrEqual(250_000);
+      expect(actual.waiting.evaluatedDays.every((day) => day >= 0 && day <= 14)).toBe(true);
+      expect(actual.waiting.recommendedDays === null || actual.waiting.recommendedDays <= 14).toBe(
+        true,
+      );
+    },
+    90_000,
+  );
+
+  it("passes the shared population prior separately from the personal posterior", () => {
+    const input = physicalInput();
+    const kernel = new WasmKernel(module, new WorkBudget({}, performance.now()));
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      kernel.prepare(input, encode("SR", 14, 2900), [q(1), q(0), q(0), q(0)]);
+      expect(DEFAULT_PERSONAL_COHORT_WEIGHTS).toEqual(
+        [q(1, 7), q(2, 7), q(3, 7), q(1, 7)].map(toWire),
+      );
+      expect(stringify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          op: "configureSupply",
+          model: expect.objectContaining({
+            snapshotVersion: "certified-daily-v4",
+            populationPrior: DEFAULT_PERSONAL_COHORT_WEIGHTS,
+            priors: input.cohortWeights,
+            shop: [
+              { lawId: "box-ii-v1", count: 5 },
+              { lawId: "deterministic:10,10,0", count: 1 },
+            ],
+            events: expect.arrayContaining([
+              expect.objectContaining({
+                refs: [{ lawId: "deterministic:10,10,0", count: 1 }],
+              }),
+            ]),
+          }),
+        }),
+      );
+    } finally {
+      stringify.mockRestore();
+      kernel.dispose();
+    }
+  });
+
+  it("matches exact TypeScript rates including the Wednesday delta", () => {
+    const input = physicalInput();
+    const priors = [q(1), q(0), q(0), q(0)] as const;
+    const kernel = new WasmKernel(module, new WorkBudget({}, performance.now()));
+    try {
+      const weekly = kernel.prepare(input, encode("SR", 14, 2900), priors);
+      expect(weekly.recurringRate).toEqual(
+        certifiedRecurringRate(input.snapshot, input.cohortWeights).map(toWire),
+      );
+      const withoutWeekly: CertifiedInput = {
+        ...input,
+        snapshot: {
+          ...input.snapshot,
+          version: "certified-daily-v2",
+          rules: input.snapshot.rules.map(({ weeklyFixed: _weeklyFixed, ...rule }) => rule),
+          events: input.snapshot.events.filter((event) => event.kind !== "weekly-kits"),
+        },
+      };
+      const baseline = kernel.prepare(withoutWeekly, encode("SR", 14, 2900), priors);
+      expect(baseline.recurringRate).toEqual(
+        certifiedRecurringRate(withoutWeekly.snapshot, input.cohortWeights).map(toWire),
+      );
+      expect(
+        weekly.recurringRate.map((rate, k) =>
+          toWire(sub(fromWire(rate), fromWire(baseline.recurringRate[k]!))),
+        ),
+      ).toEqual([toWire(q(10, 7)), toWire(q(10, 7)), toWire(q(0))]);
+    } finally {
+      kernel.dispose();
+    }
+  });
+
+  it.each(["novel", "regular-box-v1", "deterministic:10,10,0"])(
+    "rejects finite %s at the real WASM boundary, without host validation",
+    (id) => {
+      const input = physicalInput();
+      input.snapshot = {
+        ...input.snapshot,
+        laws: [
+          ...input.snapshot.laws,
+          {
+            id,
+            kind: "finite",
+            modelVersion: "test",
+            outcomes: [{ pieces: [10, 10, 0], mass: toWire(q(1)) }],
+          },
+        ],
+      };
+      const kernel = new WasmKernel(module, new WorkBudget({}, performance.now()));
+      try {
+        expect(() =>
+          kernel.prepare(input, encode("SR", 14, 2900), [q(1), q(0), q(0), q(0)]),
+        ).toThrow("certified_v3_finite_law_forbidden");
+      } finally {
+        kernel.dispose();
+      }
+    },
+  );
+
+  it.each(["novel", "deterministic:10,0,0"])(
+    "rejects event ref %s before computing rates",
+    (lawId) => {
+      const input = physicalInput();
+      input.snapshot = { ...input.snapshot, events: [event(1, lawId)] };
+      const kernel = new WasmKernel(module, new WorkBudget({}, performance.now()));
+      try {
+        expect(() =>
+          kernel.prepare(input, encode("SR", 14, 2900), [q(1), q(0), q(0), q(0)]),
+        ).toThrow("certified_v3_law_not_allowlisted");
+      } finally {
+        kernel.dispose();
+      }
+    },
+  );
+});
+
 describe("four-cohort Rust/WASM certified computation", () => {
   it("carries a positive fourth cohort through pricing and repeated future receipts", () => {
     const input = fixture([event(1, "fourth"), event(2, "fourth")]);
@@ -89,7 +317,8 @@ describe("four-cohort Rust/WASM certified computation", () => {
       },
     ];
     input.cohortWeights = [toWire(q(0)), toWire(q(0)), toWire(q(0)), toWire(q(1))];
-    const result = parity(input);
+    // Five yellow pieces cannot fund a use; ten on D2 attain the one-use P/B/C bound.
+    const result = parity(input, { evaluatedDays: [0, 1, 2], day: 2, burden: q(10) });
     expect(result.waiting.recommendedDays).toBe(2);
     expect(result.waiting.value?.successP).toEqual(toWire(q(1)));
     expect(result.pricing?.cohortWeights).toEqual(input.cohortWeights);
@@ -171,14 +400,17 @@ describe("real Rust/WASM certified computation", () => {
     parity({ ...fixture(), stock: [30, 20, 10], batchLimit: 3, priceBasisStock: [300, 50, 20] });
     parity({ ...fixture(), exp: 2900, stock: [10, 10, 10] });
   });
-  it("keeps fixed pricing, earliest day, H56 witness, completion, claims and source uncertainty", () => {
-    expect(parity(fixture([event(1, "deterministic:0,0,10")])).waiting.recommendedDays).toBe(1);
-    expect(parity(fixture([event(56, "deterministic:0,0,10")])).waiting.recommendedDays).toBe(56);
+  it("keeps fixed pricing, earliest day, H14 witness, completion, claims and source uncertainty", () => {
+    const dayOne = { evaluatedDays: [0, 1], day: 1, burden: q(10) };
+    expect(parity(fixture([event(1, "deterministic:0,0,10")]), dayOne).waiting.recommendedDays).toBe(1);
+    expect(parity(fixture([event(14, "deterministic:0,0,10")])).waiting.recommendedDays).toBe(14);
+    expect(parity(fixture([event(15, "deterministic:0,0,10")])).waiting.recommendedDays).toBe(0);
+    expect(parity(fixture([event(56, "deterministic:0,0,10")])).waiting.recommendedDays).toBe(0);
     parity({ ...fixture([event(0, "deterministic:10,0,0")], true), level: 15 });
     parity(fixture([event(1, "deterministic:0,0,10")], true));
     const uncertain = fixture([event(1, "deterministic:0,0,10")]);
     uncertain.snapshot.sourceStatus = "uncertain";
-    parity(uncertain);
+    parity(uncertain, { ...dayOne, uncertain: true });
     const incomplete = fixture();
     incomplete.snapshot.coverage.future.complete = false;
     incomplete.snapshot.coverage.future.missing = ["not_covered"];
@@ -266,12 +498,14 @@ describe("real Rust/WASM certified computation", () => {
     }
   });
   it("keeps safe-integer raw arrivals without u32 truncation and observes fixed price basis", () => {
-    parity(fixture([event(1, "deterministic:4294967296,0,0")]));
+    const hugeBlue = parity(fixture([event(1, "deterministic:4294967296,0,0")]));
+    expect(hugeBlue.waiting.evaluatedDays).toEqual(ALL_DAYS);
+    expect(hugeBlue.waiting.evidence).toEqual(EXHAUSTIVE_EVIDENCE);
     const input = {
       ...fixture([event(1, "deterministic:0,0,10")]),
       priceBasisStock: [100, 200, 300] as const,
     };
-    parity(input);
+    parity(input, { evaluatedDays: [0, 1], day: 1, burden: q(10, 301) });
   });
 });
 
@@ -288,7 +522,7 @@ describe("real Rust/WASM certified computation", () => {
 //   V(b,p,1) = P 1, consumed [0,0,10] (the only P=1 policy costing exactly one use).
 type Row = readonly [blue: number, purple: number, yellow: number, n: number, d: number];
 type Exact = readonly [Q, Q, Q];
-const ALL_DAYS = Array.from({ length: 57 }, (_, day) => day);
+const ALL_DAYS = Array.from({ length: 15 }, (_, day) => day);
 const rows = (list: readonly Row[]) =>
   list.map(([blue, purple, yellow, n, d]) => ({
     pieces: [blue, purple, yellow] as [number, number, number],
@@ -319,7 +553,13 @@ function expectValue(value: CertifiedValue | null | undefined, p: Q, consumed: E
     expectedConsumed: consumed.map(toWire),
   });
 }
-function expectCertifiedDay(result: CertifiedOutput, day: number, p: Q, consumed: Exact) {
+function expectCertifiedDay(
+  result: CertifiedOutput,
+  day: number,
+  p: Q,
+  consumed: Exact,
+  metadata = { evaluatedDays: ALL_DAYS, evidence: EXHAUSTIVE_EVIDENCE },
+) {
   expect({
     status: result.status,
     refusal: result.refusal,
@@ -341,11 +581,11 @@ function expectCertifiedDay(result: CertifiedOutput, day: number, p: Q, consumed
     recommendedDays: day,
     bestDayRange: [day, day],
     rangeBoundary: false,
-    evaluatedDays: ALL_DAYS,
+    evaluatedDays: metadata.evaluatedDays,
     interval: { lower: toWire(p), upper: toWire(p) },
     gap: toWire(sub(ONE, p)),
   });
-  expect(waiting.evidence).toContain("exact_rational_all_57_date_expectations");
+  expect(waiting.evidence).toEqual(metadata.evidence);
   expectValue(waiting.value, p, consumed);
 }
 describe("Rust/WASM exact date expectations over physical supports", () => {
@@ -456,7 +696,9 @@ describe("Rust/WASM exact date expectations over physical supports", () => {
       maxSupportPoints: 1,
     });
     // Capped units (15,0,1): V = P 1 with one yellow use.
-    expectCertifiedDay(result, 1, ONE, [ZERO, ZERO, q(10)]);
+    expectCertifiedDay(result, 1, ONE, [ZERO, ZERO, q(10)], {
+      evaluatedDays: [0, 1], evidence: PREFIX_EVIDENCE,
+    });
     expect(result.diagnostics.supportPeakPoints).toBe(1);
   });
   it("enforces the physical support limit even when every point maps to one whole use", () => {
@@ -499,7 +741,7 @@ describe("Rust/WASM exact date expectations over physical supports", () => {
       reason: "exact_support_limit",
       recommendedDays: null,
       value: null,
-      bestDayRange: [0, 56],
+      bestDayRange: [0, 14],
       evaluatedDays: [0, 1],
       successProbabilityInterval: { lower: toWire(q(1, 10)), upper: toWire(ONE) },
       successImprovementUpperBound: toWire(q(9, 10)),
@@ -578,13 +820,20 @@ describe("Rust/WASM execution limits", () => {
     );
   });
   it("bounded representative exact comparison: SR10 and physical R0 including waiting", () => {
-    const physical = buildCertifiedSupplySnapshot({
+    const latest = buildCertifiedSupplySnapshot({
       asOf: AS_OF,
       revision: "physical-wasm-parity",
       sourceHash: "a".repeat(64),
       soloPeriods: [],
       collaborationPeriods: [],
     });
+    // Preserve this historical v2 budget/parity fixture as the default builder advances.
+    const physical = {
+      ...latest,
+      version: "certified-daily-v2" as const,
+      rules: latest.rules.map(({ weeklyFixed: _weeklyFixed, ...rule }) => rule),
+      events: latest.events.filter((event) => event.kind !== "weekly-kits"),
+    };
     const inputs: CertifiedInput[] = [
       { ...fixture(), level: 10, stock: [100, 30, 20] },
       {
@@ -629,11 +878,14 @@ describe("Rust/WASM execution limits", () => {
       console.info(
         JSON.stringify({
           case: `${input.grade}${input.level}:${input.stock.join(",")}`,
+          version: input.snapshot.version,
           jsMs: expected.diagnostics.elapsedMs,
           wasmMs: actual.diagnostics.elapsedMs,
           jsStatus: expected.status,
           wasmStatus: actual.status,
           refusal: actual.refusal,
+          waitingHorizon: actual.waiting.horizonDays,
+          recommendedDays: actual.waiting.recommendedDays,
           wasmMemo: actual.diagnostics.memoEntries,
           wasmMemoryBytes: actual.diagnostics.wasmMemoryBytes,
         }),

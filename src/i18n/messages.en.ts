@@ -10,9 +10,9 @@ export const enMessages = {
   "error.reload": "Reload page",
   "error.sectionDetail": "The files required for this section could not be loaded.",
   "error.retrySection": "Try loading again",
-  "error.reloadInputsDetail": "Unconfirmed pre-use inputs won't be restored.",
+  "error.reloadInputsDetail": "Reloading resets current inputs. Inputs are kept only in this tab's memory.",
   "error.reloadInputsUnavailable":
-    "Inputs weren't saved. Copy them or finish kit correction, then retry.",
+    "The page could not reload. Use your browser's reload button. Current inputs will not be restored.",
   "common.calculate": "Calculate",
   "common.calculateLong": "Calculate",
   "common.recalculate": "Recalculate",
@@ -51,6 +51,8 @@ export const enMessages = {
   "tab.stats": "Stats",
   "staging.label": "Staging environment",
   "staging.missing": "STAGING configuration is missing. Stats submission is disabled.",
+  "staging.supplyUnavailable":
+    "Supply calculation unavailable: the approved ledger does not cover the complete reference window.",
   "staging.notice": "STAGING - test records are excluded from production stats",
   "staging.forecastWindow": "Temporary expected gains · active {from} to {until} KST · {status}",
   "staging.forecastWindowOpenEnded":
@@ -173,6 +175,12 @@ export const enMessages = {
   "detail.sr15ProbabilityHelp":
     "The probability of eventually reaching SR Phase 15 from your current state and inventory while continuing to follow the calculator's choices.",
   "detail.segmentSuperSuccess": "Segment Super Success chance",
+  "detail.recommendedWaitDays": "Recommended wait",
+  "detail.notApplicable": "N/A",
+  "stock.certifiedReceivedConvention": "Enter your inventory after collecting all currently available rewards.",
+  "result.certifiedPreserve": "Current inventory cannot reach the target. Preserve your kits.",
+  "result.certifiedClaimRequired": "Guidance is withheld because reward collection could not be verified for this request.",
+  "detail.waitAfterDays": "In {days} days",
   "detail.candidate": "Option",
   "detail.firstAction": "First action",
   "detail.reachRate": "Reach rate",

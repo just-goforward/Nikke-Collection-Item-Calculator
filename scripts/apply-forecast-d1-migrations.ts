@@ -17,12 +17,17 @@ const CATALOG_QUERY = `SELECT name, type FROM sqlite_master
 WHERE type IN ('table', 'view') AND name NOT GLOB 'sqlite_*' AND name NOT GLOB '_cf_*'
 ORDER BY name;`;
 const LEDGER_QUERY = "SELECT version, applied_at FROM schema_migrations ORDER BY version;";
+const PREREQUISITES = [{ migration: 12, requires: 5 }] as const;
+const PREREQUISITE_SCHEMA_QUERY = `SELECT type,name,sql FROM sqlite_schema
+WHERE name IN ('discord_staging_adoptions','discord_staging_adoptions_state_expires_idx',
+  'discord_staging_adoptions_message_id_unique_idx') ORDER BY name LIMIT 4;`;
 
 type Migration = { version: number; file: string };
 type Options = {
   environment: "staging" | "production";
   local: boolean;
   persistTo?: string;
+  allowForecastV2?: boolean;
 };
 type Dependencies = {
   root?: string;
@@ -69,6 +74,7 @@ export function parseMigrationArguments(args: string[]): Options {
       local: { type: "boolean" },
       remote: { type: "boolean" },
       "persist-to": { type: "string" },
+      "allow-forecast-v2": { type: "boolean" },
     },
   });
   const names = tokens.filter((token) => token.kind === "option").map((token) => token.name);
@@ -87,6 +93,7 @@ export function parseMigrationArguments(args: string[]): Options {
     environment: values.env,
     local: values.local === true,
     ...(persistTo !== undefined ? { persistTo } : {}),
+    ...(values["allow-forecast-v2"] === true ? { allowForecastV2: true } : {}),
   };
 }
 
@@ -155,12 +162,84 @@ function verifyAppliedVersions(versions: number[], expected: number[], operation
   }
 }
 
+function validateTargetEnvironment(options: Options) {
+  if (options.environment !== "staging" && options.environment !== "production") {
+    throw new Error("An explicit --env staging or --env production is required.");
+  }
+}
+
+function validateV2Authorization(options: Options, migrations: Migration[]) {
+  const gated = migrations.filter((migration) => migration.version >= 30);
+  // No ledger reads are permitted before this gate, so authorize the inventory,
+  // including already-applied versions, rather than guessing remote pending state.
+  if (gated.length > 0 && options.allowForecastV2 !== true) {
+    throw new Error(
+      `Forecast v2 migrations require --allow-forecast-v2: ${gated.map((migration) => migration.version).join(", ")}.`,
+    );
+  }
+}
+
+function schemaTokens(sql: string) {
+  return (
+    sql.match(/--[^\n]*|\/\*[\s\S]*?\*\/|'(?:''|[^'])*'|"[^"]+"|[A-Za-z_][A-Za-z0-9_]*|\d+|[^\s;]/g) ?? []
+  )
+    .filter((token) => !token.startsWith("--") && !token.startsWith("/*"))
+    .map((token) => (token.startsWith("'") ? token : token.replace(/^"|"$/g, "").toLowerCase()))
+    .filter((token, index, tokens) =>
+      !(token === "if" && tokens[index + 1] === "not" && tokens[index + 2] === "exists") &&
+      !(token === "not" && tokens[index - 1] === "if" && tokens[index + 1] === "exists") &&
+      !(token === "exists" && tokens[index - 2] === "if" && tokens[index - 1] === "not"),
+    );
+}
+
+function createSql(source: string, name: string) {
+  const sql = source.match(
+    new RegExp(`CREATE\\s+(?:UNIQUE\\s+)?(?:TABLE|INDEX)\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?${name}\\b[^;]*;`, "i"),
+  )?.[0];
+  if (!sql) throw new Error(`Missing prerequisite schema contract: ${name}`);
+  return schemaTokens(sql).join("\0");
+}
+
+function validatePrerequisiteSchema(root: string, versions: number[], rows: unknown[]) {
+  const parsed = z.array(z.object({ type: z.string(), name: z.string(), sql: z.string().nullable() })).safeParse(rows);
+  if (!parsed.success) throw new Error("Invalid prerequisite schema metadata.");
+  const objects = new Map(parsed.data.map((row) => [row.name, row]));
+  const table = "discord_staging_adoptions";
+  const index = `${table}_state_expires_idx`;
+  const identityIndex = `${table}_message_id_unique_idx`;
+  const source5 = readFileSync(resolve(root, "forecast-collector/migrations/0005_discord_staging_adoptions.sql"), "utf8");
+  const source6 = readFileSync(resolve(root, "forecast-collector/migrations/0006_discord_staging_message_identity.sql"), "utf8");
+  const bootstrap = readFileSync(resolve(root, "forecast-collector/schema.sql"), "utf8");
+  const matches = (name: string, type: string, expected: string) => {
+    const row = objects.get(name);
+    return row?.type === type && row.sql !== null && row.sql !== undefined &&
+      schemaTokens(row.sql).join("\0") === expected;
+  };
+  let parentMatches = matches(table, "table", createSql(source5, table));
+  if (versions.includes(6)) {
+    const additions = [...source6.matchAll(/ADD COLUMN\s+([^;]+);/g)].map((match) => match[1]);
+    if (additions.length !== 2) throw new Error("Invalid migration6 schema contract.");
+    const withIdentity = source5.replace(/,\s*CHECK\s*\(/, `,${additions.join(",")},CHECK (`);
+    const identityMatches = matches(identityIndex, "index", createSql(source6, identityIndex));
+    const bootstrapMatches = matches(table, "table", createSql(bootstrap, table));
+    parentMatches = (bootstrapMatches && (!objects.has(identityIndex) || identityMatches)) ||
+      (matches(table, "table", createSql(withIdentity, table)) && identityMatches);
+  } else if (objects.has(identityIndex)) {
+    parentMatches = false;
+  }
+  if (!parentMatches || !matches(index, "index", createSql(source5, index))) {
+    throw new Error("migration_prerequisite_schema: version 5 parent/index differs from its applied schema contract; reconcile before any migration write.");
+  }
+}
+
 export function applyForecastD1Migrations(options: Options, dependencies: Dependencies = {}) {
+  validateTargetEnvironment(options);
   const root = dependencies.root ?? REPOSITORY_ROOT;
   const spawn = dependencies.spawn ?? spawnSync;
   const log = dependencies.log ?? console.log;
   // Validate the complete file sequence before invoking Wrangler, including on an up-to-date DB.
   const migrations = discoverForecastMigrations(resolve(root, "forecast-collector/migrations"));
+  validateV2Authorization(options, migrations);
   const args = [
     resolve(root, "node_modules/wrangler/bin/wrangler.js"),
     "d1",
@@ -176,7 +255,8 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
   if (options.persistTo !== undefined) args.push("--persist-to", options.persistTo);
 
   function execute(input: "--command" | "--file", value: string) {
-    const result = spawn(process.execPath, [...args, input, value], {
+    const inputArgs = input === "--command" ? [`--command=${value}`] : [input, value];
+    const result = spawn(process.execPath, [...args, ...inputArgs], {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -204,6 +284,22 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
     return validateLedger(execute("--command", LEDGER_QUERY), migrations, options.environment);
   }
 
+  function validatePrerequisites(versions: number[]) {
+    const available = new Set(versions);
+    for (const migration of migrations) {
+      if (!isRequired(migration.version, options.environment)) continue;
+      for (const prerequisite of PREREQUISITES) {
+        if (migration.version === prerequisite.migration && !available.has(prerequisite.requires)) {
+          throw new Error(`migration_prerequisite_missing: version ${prerequisite.requires} requires separate approval/application before the version ${prerequisite.migration} chain; no migration writes performed.`);
+        }
+      }
+      available.add(migration.version);
+    }
+    if (versions.includes(5) && migrations.some(({ version }) => version === 12)) {
+      validatePrerequisiteSchema(root, versions, execute("--command", PREREQUISITE_SCHEMA_QUERY));
+    }
+  }
+
   const catalog = catalogRows.safeParse(execute("--command", CATALOG_QUERY));
   if (!catalog.success) throw new Error("Wrangler returned invalid D1 catalog rows.");
   let versions: number[];
@@ -228,6 +324,7 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
     bootstrapped = true;
   }
 
+  validatePrerequisites(versions);
   const applied: number[] = [];
   for (const migration of migrations) {
     if (!isRequired(migration.version, options.environment) || versions.includes(migration.version))
@@ -247,6 +344,7 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
     const expected = [...versions, migration.version].sort((left, right) => left - right);
     verifyAppliedVersions(verified, expected, `Forecast migration ${migration.version}`);
     versions = verified;
+    if (migration.version === 5 || migration.version === 6) validatePrerequisites(versions);
     applied.push(migration.version);
   }
   log(`Forecast D1 migrations verified (${options.environment}): ${versions.join(", ")}.`);

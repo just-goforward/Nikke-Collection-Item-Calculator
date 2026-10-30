@@ -177,6 +177,7 @@ export function useValidationFlow({
 
   return useCallback(async () => {
     const latest = latestResultRef.current;
+    if (latest?.certified) return;
     if (!latest?.possible || !latest.input) return;
     generationRef.current += 1;
     const generation = generationRef.current;

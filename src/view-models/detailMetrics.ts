@@ -57,7 +57,7 @@ function formatKitPieces(value: number) {
   return message("detail.approxPieces", { count: Math.round(value) });
 }
 
-function formatReadablePercent(value: number, digits = 4) {
+export function formatReadablePercent(value: number, digits = 4) {
   const percent = value * 100;
   const rounded = Number(percent.toFixed(digits));
   if (Math.abs(rounded - Math.round(rounded)) <= 1e-10) {

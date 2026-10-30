@@ -1,5 +1,5 @@
 import type { Q } from "../../shared/certifiedRational";
-import type { CertifiedOptions } from "./types";
+import type { CertifiedEvidenceBudget, CertifiedOptions } from "./types";
 
 export class CertifiedLimit extends Error {
   constructor(readonly reason: string) {
@@ -95,4 +95,30 @@ export class WorkBudget {
 /** Account owned numerical payload, including BigInt limbs, tuple slots, and memo key. */
 export function rationalPayload(a: Q): number {
   return 32 + Math.ceil((a.n.toString(2).length + a.d.toString(2).length) / 8);
+}
+
+/** Detached methods remain bound to the same request accounting and deadline. */
+export function evidenceBudgetView(budget: WorkBudget): CertifiedEvidenceBudget {
+  return {
+    check: () => budget.check(),
+    reserve: (bytes) => budget.reserve(bytes),
+    release: (bytes) => budget.release(bytes),
+  };
+}
+
+export const targetBudgetView = evidenceBudgetView;
+
+/** Internal pre-allocation admission only. Keep accepted charges; roll back a
+ * rejected, never-allocated charge. NOT the runtime workspace reserve contract,
+ * whose consumer releases every attempted reservation in finally. */
+export function reserveTargetPayload(
+  budget: Pick<WorkBudget, "reserve" | "release">,
+  bytes: number,
+): void {
+  try {
+    budget.reserve(bytes);
+  } catch (error) {
+    budget.release(bytes);
+    throw error;
+  }
 }

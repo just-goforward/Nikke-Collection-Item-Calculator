@@ -1,36 +1,24 @@
 import { useState } from "react";
 import { type AppHandlers, AppLayout, preloadDetailPanel } from "./AppLayout";
-import { AccountControl } from "./account/AccountControl";
-import { accountFeatureEnabled } from "./account/config";
 import type { MobileTab } from "./components/MobileChrome";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
 import { useAppShellNavigation } from "./hooks/useAppShellNavigation";
 import { useCalculatorApp } from "./hooks/useCalculatorApp";
 import { statsRuntimeMode } from "./lib/statsRuntime";
 import type { Grade, Stock } from "./types";
+import { useDecisionPort } from "./analytics/useDecisionPort";
+import { DecisionPresentation } from "./analytics/DecisionPresentation";
+import { useMobileLayout } from "./hooks/useMobileLayout";
 
-type InputSnapshot = {
-  grade: Grade;
-  level: number;
-  exp: number;
-  stock: Stock;
-};
-
+type InputSnapshot = { grade: Grade; level: number; exp: number; stock: Stock };
 type AppHandlerOptions = {
-  /** Inputs are read-only while the optional account control locks them (never with the flag off). */
-  accountLocked: boolean;
   calculator: CalculatorAppModel;
   resetWithUndo: () => void;
   setMobileViewTab: (next: MobileTab, focus?: boolean) => void;
   setPendingOutcome: (outcome: "success" | "fail" | null) => void;
 };
-
 function makeAppHandlers({
-  accountLocked,
-  calculator,
-  resetWithUndo,
-  setMobileViewTab,
-  setPendingOutcome,
+  calculator, resetWithUndo, setMobileViewTab, setPendingOutcome,
 }: AppHandlerOptions): AppHandlers {
   const { actions } = calculator;
   const handlers: AppHandlers = {
@@ -41,18 +29,13 @@ function makeAppHandlers({
       if (!started) return;
       setMobileViewTab("result", true);
     },
-    onReset: () => {
-      if (!calculator.inputLocked) resetWithUndo();
-    },
+    onReset: () => { if (!calculator.inputLocked) resetWithUndo(); },
     onConvert: async () => {
       preloadDetailPanel();
       setPendingOutcome(null);
       const applied = await actions.applyConvert();
       if (!applied) return;
-      if (applied?.needsStockEdit) {
-        setMobileViewTab("input", true);
-        return;
-      }
+      if (applied?.needsStockEdit) { setMobileViewTab("input", true); return; }
       setMobileViewTab("result", true);
     },
     onOutcome: async (outcome) => {
@@ -63,84 +46,59 @@ function makeAppHandlers({
       setMobileViewTab(applied?.needsStockEdit ? "input" : "result", true);
     },
   };
-  if (!accountLocked) return handlers;
-  const idle = async () => undefined;
-  return { onCalculate: idle, onReset: () => undefined, onConvert: idle, onOutcome: idle };
+  return handlers;
 }
-
-export default function App() {
+export default function App({ decision }: { decision?: Parameters<typeof useDecisionPort>[0] } = {}) {
   const [pendingOutcome, setPendingOutcome] = useState<"success" | "fail" | null>(null);
   const shell = useAppShellNavigation<InputSnapshot>();
   const { mobileTab, setMobileViewTab, viewTab } = shell;
-  const model = useCalculatorApp(shell.statsVisible);
-  // With the flag off this stays false and no account code runs (only the constant flag check).
-  const [accountLocked, setAccountLocked] = useState(accountFeatureEnabled);
-  // The account binding below keeps the model's own lock; only the shown inputs are read-only.
-  const calculator = accountLocked ? { ...model, inputLocked: true } : model;
+  const binding = useDecisionPort(decision);
+  const model = useCalculatorApp(shell.statsVisible, binding.lifecycle);
+  const calculator = model;
   const { actions } = calculator;
   const statsMode = statsRuntimeMode();
-
+  const isMobile = useMobileLayout();
+  const eligible = (isMobile ? mobileTab === "result" : viewTab !== "stats") &&
+    !calculator.stockPanel.isStale && !calculator.stockPanel.needsStockEdit &&
+    !calculator.inputLocked;
   const rememberInputSnapshot = (): InputSnapshot => ({
-    grade: calculator.statePanel.grade,
-    level: calculator.statePanel.level,
-    exp: calculator.statePanel.exp,
-    stock: { ...calculator.stockPanel.stock },
+    grade: calculator.statePanel.grade, level: calculator.statePanel.level,
+    exp: calculator.statePanel.exp, stock: { ...calculator.stockPanel.stock },
   });
-
   const restoreInputSnapshot = (snapshot: InputSnapshot) => {
     actions.restoreInputSnapshot(snapshot);
     setMobileViewTab("input", true);
     shell.clearResetToast();
   };
-
   const resetWithUndo = () => {
     const snapshot = rememberInputSnapshot();
+    binding.explicitAction("reset");
     setPendingOutcome(null);
     actions.reset();
     setMobileViewTab("input", true);
     shell.showResetToast(snapshot);
   };
   const resetToast = shell.resetToast;
-
   const handlers = makeAppHandlers({
-    accountLocked,
-    calculator,
-    resetWithUndo,
-    setMobileViewTab,
-    setPendingOutcome,
+    calculator, resetWithUndo, setMobileViewTab, setPendingOutcome,
   });
-
-  return (
-    <AppLayout
-      accountControl={
-        accountFeatureEnabled() ? (
-          <AccountControl
-            kind="calculator-input"
-            input={rememberInputSnapshot()}
-            inputLocked={model.inputLocked}
-            onApplyInput={actions.restoreInputSnapshot}
-            onLockChange={setAccountLocked}
-            onSwitched={shell.clearResetToast}
-          />
-        ) : null
-      }
-      calculator={calculator}
-      handlers={handlers}
-      mobileTab={mobileTab}
-      pendingOutcome={pendingOutcome}
-      onTabChange={(tab) => setMobileViewTab(tab)}
-      onPendingOutcomeChange={setPendingOutcome}
-      onViewTabChange={shell.setViewTab}
-      resetToast={
-        resetToast
-          ? {
-              secondsLeft: resetToast.secondsLeft,
-              onUndo: () => restoreInputSnapshot(resetToast.payload),
-            }
-          : null
-      }
-      statsMode={statsMode}
-      viewTab={viewTab}
-    />
-  );
+  const observedHandlers = {
+    ...handlers,
+    onCalculate: async () => {
+      if (!calculator.inputLocked) binding.explicitAction("recalculate");
+      return handlers.onCalculate();
+    },
+  };
+  return <DecisionPresentation.Provider value={{ lifecycle: binding.lifecycle, owner: binding.owner, eligible }}><AppLayout
+    accountControl={null}
+    calculator={calculator} handlers={observedHandlers} mobileTab={mobileTab}
+    pendingOutcome={pendingOutcome} onTabChange={(tab) => setMobileViewTab(tab)}
+    onPendingOutcomeChange={(value) => {
+      binding.explicitAction(value === null ? "dismiss" : "outcome_open");
+      setPendingOutcome(value);
+    }}
+    onViewTabChange={shell.setViewTab}
+    resetToast={resetToast ? { secondsLeft: resetToast.secondsLeft, onUndo: () => restoreInputSnapshot(resetToast.payload) } : null}
+    statsMode={statsMode} viewTab={viewTab}
+  /></DecisionPresentation.Provider>;
 }

@@ -9,6 +9,7 @@ import type { Kit, Stock } from "../types";
 import type { StockCorrectionView } from "../ui-types";
 import { AlignedText } from "./AlignedText";
 import { commitFocusedInput } from "./focusedInput";
+import { SERVICE_CERTIFIED_SOLVER } from "../lib/serviceCertified";
 import { KIT_PANEL_LABEL_KEYS, kitDotClass } from "./kitPresentation";
 
 type StockPanelProps = {
@@ -440,6 +441,9 @@ export default function StockPanel({
       <p id="strategyDescription" className={classes.help}>
         {text(description)}
       </p>
+      {SERVICE_CERTIFIED_SOLVER && <p className="px-[18px] pb-3 text-xs text-muted max-mobile:px-3">
+        {t("stock.certifiedReceivedConvention")}
+      </p>}
       <div className={classes.buttonRow}>
         <button
           id="resetButton"

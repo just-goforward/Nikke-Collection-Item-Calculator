@@ -6,6 +6,7 @@ import type { DetailView, RecommendationAction, ResultView, ValidationView } fro
 import { makeMetricsDetailView } from "../view-models/detailMetrics";
 import { makeOutcomePreview } from "../view-models/outcomePresentation";
 import { INITIAL_VALIDATION, monteCarloRuns, type SolverResult } from "./calculatorShared";
+import { serviceCertifiedViews } from "./serviceCertifiedPresentation";
 
 type MutableRef<T> = { current: T };
 
@@ -71,6 +72,18 @@ export function useCalculatorResultRendering({
   const renderResult = useCallback(
     (result: SolverResult, previousAction?: RecommendationAction | null) => {
       latestResultRef.current = result;
+      if (result.certified && result.input) {
+        const views = serviceCertifiedViews(result.input, result.certified);
+        if (previousAction && views.result.type === "recommendation")
+          views.result.actionTransition = {
+            id: ++actionTransitionIdRef.current,
+            previous: previousAction,
+          };
+        setResultView(views.result);
+        setDetailView(views.detail);
+        setValidationView({ ...INITIAL_VALIDATION, disabled: true });
+        return;
+      }
       if (result.terminal) {
         setResultView({
           type: "callout",

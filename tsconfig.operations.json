@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "shared/**/*.ts",
+    "vite.config.ts",
+    "scripts/build-site-production.ts",
+    "scripts/build-certified-wasm.ts",
+    "scripts/build-solver-wasm.ts",
+    "scripts/apply-forecast-d1-migrations.ts"
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "benchmarks/**",
+    "node_modules/**"
+  ]
+}

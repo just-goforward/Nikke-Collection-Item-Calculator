@@ -1,4 +1,5 @@
 import type { CertifiedEngineProfile } from "../../shared/certifiedEngineProfile.ts";
+import type { CertifiedTargetBudget } from "../certified/types.ts";
 import {
   assertCertifiedForecastIdentity,
   type CertifiedForecastIdentity,
@@ -43,6 +44,8 @@ export class CertifiedRuntimeError extends Error {
   }
 }
 type CertifiedClientResult<O> = {
+  requestId: number;
+  generation: number;
   output: O;
   engineProfile: CertifiedEngineProfile;
   forecastIdentity?: CertifiedForecastIdentity;
@@ -54,6 +57,7 @@ type CertifiedClientResult<O> = {
   };
 };
 type Task<I, O> = {
+  generation?: number;
   id: number;
   sessionId: string;
   input: I;
@@ -175,6 +179,8 @@ class CertifiedClient<I, O> {
       const computeStart = task.computeStarted ?? initEnd;
       const response = task.responseReceived ?? now;
       task.resolve({
+        requestId: task.id,
+        generation: task.generation ?? 0,
         output: output as O,
         engineProfile: task.profile,
         ...(task.forecastIdentity ? { forecastIdentity: task.forecastIdentity } : {}),
@@ -430,10 +436,28 @@ class CertifiedClient<I, O> {
     return true;
   };
   #boundResponse = (task: Task<I, O>, current: Live<I, O>, message: OutputResponse<O>) => {
+    task.generation = current.generation;
+    const budget: CertifiedTargetBudget = {
+      check: () => {
+        if (this.#expired(task))
+          throw new CertifiedRuntimeError("deadline", "Total deadline expired during output validation.");
+      },
+      reserve: (bytes) => {
+        const admitted = this.#admits(bytes);
+        this.#transientBytes += bytes;
+        if (!admitted)
+          throw new CertifiedRuntimeError("memory", "Runtime capacity unavailable for output validation.");
+      },
+      release: (bytes) => { this.#transientBytes -= bytes; },
+    };
     try {
       if (task.forecastIdentity)
-        this.#options.validateOutputBinding?.(message.output, task.forecastIdentity);
+        this.#options.validateOutputBinding?.(message.output, task.forecastIdentity, task.input, budget, message.type, { id: task.id, generation: current.generation, sessionId: task.sessionId });
     } catch (error) {
+      if (error instanceof CertifiedRuntimeError && error.code === "deadline") {
+        this.#cancel(task, "deadline");
+        return false;
+      }
       this.#failLive(current, error);
       return false;
     }
@@ -490,6 +514,10 @@ class CertifiedClient<I, O> {
       return;
     }
     if (message.type === "error") {
+      if (message.code === "managed_payload_ceiling") {
+        this.#failLive(current, new CertifiedRuntimeError("memory", message.message));
+        return;
+      }
       let preserve: "deadline" | "worker" | undefined;
       if (message.code === "request_total_deadline") {
         preserve = "deadline";
@@ -684,7 +712,7 @@ export type CertifiedClientOptions<I, O> = {
     trackTransientBytes: (bytes: number) => void,
   ) => Promise<CertifiedForecastIdentity>;
   forecastIdentityWorkspaceBound?: (input: I) => number;
-  validateOutputBinding?: (output: O, identity: CertifiedForecastIdentity) => void;
+  validateOutputBinding?: (output: O, identity: CertifiedForecastIdentity, input: I, budget: CertifiedTargetBudget, mode: "current" | "result", request: { id: number; generation: number; sessionId: string }) => void;
 };
 export function createCertifiedClient<I, O>(options: CertifiedClientOptions<I, O>) {
   return new CertifiedClient(options);

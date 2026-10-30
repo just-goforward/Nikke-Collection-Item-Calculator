@@ -68,6 +68,7 @@ export function useStaleAwareResultRendering({
   });
 
   const clearResultStale = useCallback(() => setResultStale(false), []);
+  const markResultStale = useCallback(() => setResultStale(true), []);
 
   const renderMaxLevelState = useCallback(
     (nextGrade: Grade, nextLevel: number) => {
@@ -88,6 +89,7 @@ export function useStaleAwareResultRendering({
   return {
     clearActionTransition,
     clearResultStale,
+    markResultStale,
     isResultStale,
     markInputChanged,
     renderMaxLevelState,

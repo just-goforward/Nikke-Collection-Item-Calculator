@@ -1,9 +1,11 @@
+import { freezeCoherentSnapshot } from "./certifiedSupplyCoherence.ts";
 import {
   CERTIFIED_SUPPLY_LAWS,
   type CertifiedLawRef,
   type CertifiedSupplyLaw,
 } from "./certifiedSupplyLaws.ts";
 import {
+  CERTIFIED_SUPPLY_HISTORY_DAYS,
   CERTIFIED_SUPPLY_VERSION,
   type CertifiedSoloRound,
   type CertifiedSourceStatus,
@@ -14,23 +16,23 @@ import {
   createCertifiedSupplyRule,
   DAY_MS,
   dateStart,
-  freezeJson,
   iso,
   linkCertifiedSoloAnnouncement,
   ruleAt,
   timestamp,
   transitionCertifiedSoloDelay,
 } from "./certifiedSupplyModel.ts";
-import { validateSnapshot } from "./certifiedSupplyValidation.ts";
+import { forecastVersionsForSnapshot } from "./certifiedVersionPolicy.ts";
+import { gameDayKey, gameDayStartCeilMs, gameDayStartMs } from "./gameDay.ts";
 import {
   deriveExactSoloRaidCadence,
   type ExactSoloRaidCadence,
   estimateCertifiedSoloRounds,
+  predictMedianSoloRaid,
   SOLO_RAID_ROUND_HISTORY,
   type SoloRaidRound,
   soloRaidSourceUrl,
 } from "./soloRaidCadence.ts";
-import { gameDayKey, gameDayStartCeilMs, gameDayStartMs } from "./supplyForecastModel.ts";
 
 type Period = CertifiedSupplyBuildInput["soloPeriods"][number];
 type BuildWindow = {
@@ -62,7 +64,7 @@ function buildWindow(input: CertifiedSupplyBuildInput): BuildWindow {
   return {
     now,
     today,
-    from: today - 56 * DAY_MS,
+    from: today - CERTIFIED_SUPPLY_HISTORY_DAYS * DAY_MS,
     until: today + (horizon + 1) * DAY_MS,
     sourceStatus: input.sourceStatus ?? "uncertain",
     warnings: [],
@@ -152,6 +154,17 @@ function confirmedRoundState(input: CertifiedSupplyBuildInput): RoundState {
   };
   refreshRoundState(state);
   for (const period of input.soloPeriods) applyConfirmedPeriod(state, input, period);
+  for (const round of input.soloRounds ?? []) {
+    const first = round.segments[0];
+    if (!first) throw new Error("certified_solo_segments_required");
+    applyConfirmedPeriod(state, input, {
+      round: round.round,
+      effectiveFrom: first.effectiveFrom,
+      effectiveUntil: first.effectiveUntil,
+      scheduleStatus: "confirmed",
+      segments: round.segments,
+    });
+  }
   return state;
 }
 
@@ -163,13 +176,17 @@ function confirmedLedgerRound(
   return {
     round: entry.round,
     startGameDate: entry.startGameDate,
-    endGameDate: period ? gameDayKey(gameDayStartCeilMs(timestamp(period.effectiveUntil))) : null,
+    endGameDate:
+      period?.segments?.at(-1)?.rewardUntilGameDate ??
+      (period ? gameDayKey(gameDayStartCeilMs(timestamp(period.effectiveUntil))) : null),
     status: "confirmed",
     sourceIds: entry.sourceFeedId > 0 ? [soloRaidSourceUrl(entry)] : ["accepted-period"],
+    ...(period?.segments ? { segments: period.segments } : {}),
   };
 }
 
 function soloLedger(input: CertifiedSupplyBuildInput, window: BuildWindow, state: RoundState) {
+  if (input.cadenceVersion === "observed-median-v2") return medianSoloLedger(input, window, state);
   const { anchor, cadence } = state;
   const delayState = transitionCertifiedSoloDelay({
     anchor,
@@ -213,11 +230,84 @@ function soloLedger(input: CertifiedSupplyBuildInput, window: BuildWindow, state
   return { soloRounds, delayState };
 }
 
+function medianSoloLedger(
+  input: CertifiedSupplyBuildInput,
+  window: BuildWindow,
+  state: RoundState,
+) {
+  const period = state.associations.get(state.anchor.round);
+  if (!period || state.historyGaps.length)
+    throw new Error("certified_median_anchor_period_required");
+  const prediction = predictMedianSoloRaid({
+    confirmedRounds: state.known,
+    previousStart: period.effectiveFrom,
+    previousEnd: period.segments?.[0]?.effectiveUntil ?? period.effectiveUntil,
+    asOf: input.asOf,
+  });
+  const { primary, secondary } = prediction;
+  state.cadence = {
+    ...state.cadence,
+    version: prediction.version,
+    medianDays: primary.intervalDays,
+  };
+  const soloRounds = state.known.map((entry) => confirmedLedgerRound(entry, state.associations));
+  for (let index = 0; ; index += 1) {
+    const shift = index * primary.intervalDays * DAY_MS;
+    const start = timestamp(primary.start) + shift;
+    if (start >= window.until) break;
+    const end = timestamp(primary.end) + shift;
+    const startGameDate = gameDayKey(start);
+    const endGameDate = gameDayKey(gameDayStartCeilMs(end));
+    const sourceIds = [
+      prediction.version,
+      "prediction",
+      primary.status,
+      `predicted-notice:${primary.expectedNotice}`,
+      ...(secondary
+        ? [
+            `predicted-alternative:${secondary.start}`,
+            `predicted-alternative-base:${iso(timestamp(secondary.start) - secondary.offsetDays * DAY_MS)}`,
+          ]
+        : []),
+    ];
+    soloRounds.push({
+      round: state.anchor.round + index + 1,
+      startGameDate,
+      endGameDate,
+      status: "estimated",
+      sourceIds,
+      segments: [
+        {
+          segment: 1,
+          kind: "initial",
+          effectiveFrom: iso(start),
+          effectiveUntil: iso(end),
+          rewardFromGameDate: startGameDate,
+          rewardUntilGameDate: endGameDate,
+          sourceIds,
+        },
+      ],
+    });
+  }
+  return {
+    soloRounds,
+    delayState: {
+      anchorRound: state.anchor.round,
+      anchorGameDate: state.anchor.startGameDate,
+      offsetDays: primary.offsetDays,
+    },
+  };
+}
+
 function buildRules(input: CertifiedSupplyBuildInput, today: number): CertifiedSupplyRule[] {
-  const start = input.historyCoverage?.rewardRules ? input.historyCoverage.from : iso(today);
+  const start = iso(today - CERTIFIED_SUPPLY_HISTORY_DAYS * DAY_MS);
   const rules = JSON.parse(
     JSON.stringify(input.rules ?? [createCertifiedSupplyRule(start)]),
   ) as CertifiedSupplyRule[];
+  if (!input.rules && input.version) {
+    for (const rule of rules)
+      rule.id = `${forecastVersionsForSnapshot(input.version).rulesVersion}:documented-physical-supply-v2`;
+  }
   rules.sort((a, b) => timestamp(a.effectiveFrom) - timestamp(b.effectiveFrom));
   if (rules.length > 1) {
     rules.reduce((previous, current) => {
@@ -243,7 +333,7 @@ function collaborationWindows(input: CertifiedSupplyBuildInput): Collaboration[]
 }
 
 function recurringEvent(
-  kind: "dispatch" | "shop",
+  kind: "dispatch" | "shop" | "weekly-kits",
   at: number,
   refs: readonly CertifiedLawRef[],
   rule: CertifiedSupplyRule,
@@ -257,7 +347,7 @@ function recurringEvent(
     status: "confirmed",
     refs,
     ruleId: rule.id,
-    expiresAt: null,
+    expiresAt: kind === "weekly-kits" ? iso(at + 6 * DAY_MS) : null,
     sourceIds: rule.provenance,
   };
 }
@@ -278,11 +368,15 @@ function recurringEvents(
       continue;
     }
     events.push(recurringEvent("dispatch", at, rule.dispatch, rule));
-    if (new Date(at + 9 * 3_600_000).getUTCDay() !== 2) continue;
-    const collaboration = collaborations.some((period) => at >= period.start && at < period.end);
-    events.push(
-      recurringEvent("shop", at, collaboration ? rule.collaborationShop : rule.normalShop, rule),
-    );
+    const weekday = new Date(at + 9 * 3_600_000).getUTCDay();
+    if (weekday === 2) {
+      const collaboration = collaborations.some((period) => at >= period.start && at < period.end);
+      events.push(
+        recurringEvent("shop", at, collaboration ? rule.collaborationShop : rule.normalShop, rule),
+      );
+    }
+    if (weekday === 3 && rule.weeklyFixed)
+      events.push(recurringEvent("weekly-kits", at, rule.weeklyFixed, rule));
   }
   return { events, missingPastRules, missingFutureRules };
 }
@@ -319,6 +413,34 @@ function soloRoundEvents(
   window: BuildWindow,
 ): CertifiedSupplyEvent[] {
   if (round.status === "unverified" || round.endGameDate === null) return [];
+  if (round.segments) {
+    return round.segments.flatMap((segment) => {
+      const events: CertifiedSupplyEvent[] = [];
+      for (
+        let at = dateStart(segment.rewardFromGameDate), dayNumber = 1;
+        at < dateStart(segment.rewardUntilGameDate);
+        at += DAY_MS, dayNumber += 1
+      ) {
+        const available = Math.max(at, timestamp(segment.effectiveFrom));
+        if (available < window.from || available >= window.until) continue;
+        const rule = ruleAt(rules, at);
+        const refs = rule?.soloDays[dayNumber - 1];
+        if (!rule || !refs) throw new Error("certified_solo_segment_reward_rule_missing");
+        events.push({
+          ...soloDayEvent(round, period, at, dayNumber, rule, refs),
+          id:
+            segment.segment === 1
+              ? `solo:r${round.round}:day${dayNumber}`
+              : `solo:r${round.round}:segment${segment.segment}:day${dayNumber}`,
+          segment: segment.segment,
+          at: iso(available),
+          expiresAt: segment.effectiveUntil,
+          sourceIds: segment.sourceIds,
+        });
+      }
+      return events;
+    });
+  }
   const events: CertifiedSupplyEvent[] = [];
   const end = dateStart(round.endGameDate);
   for (
@@ -386,15 +508,46 @@ function historyMissing(
   return missing;
 }
 
-export function buildSnapshot(input: CertifiedSupplyBuildInput): CertifiedSupplySnapshot {
-  const window = buildWindow(input);
+export function buildSnapshot(
+  input: CertifiedSupplyBuildInput,
+  referenceHorizon?: (rounds: readonly CertifiedSoloRound[]) => number,
+): CertifiedSupplySnapshot {
+  let window = buildWindow(input);
   const state = confirmedRoundState(input);
   window.warnings.push(...state.historyGaps);
-  const { soloRounds, delayState } = soloLedger(input, window, state);
+  let ledger = soloLedger(input, window, state);
+  if (referenceHorizon) {
+    const horizonDays = referenceHorizon(ledger.soloRounds);
+    window = buildWindow({ ...input, horizonDays });
+    window.warnings.push(...state.historyGaps);
+    ledger = soloLedger(input, window, state);
+  }
+  const { soloRounds, delayState } = ledger;
   const rules = buildRules(input, window.today);
   const recurring = recurringEvents(window, rules, collaborationWindows(input));
   const events = [
     ...recurring.events,
+    ...(input.grants ?? []).flatMap((grant): CertifiedSupplyEvent[] => {
+      const at = dateStart(grant.grantGameDate);
+      if (at < window.from || at >= window.until) return [];
+      const rule = ruleAt(rules, at);
+      if (!rule) throw new Error("certified_grant_rule_missing");
+      return [
+        {
+          id: grant.id,
+          gameDate: grant.grantGameDate,
+          at: iso(at),
+          kind: "grant",
+          status: "confirmed",
+          refs: grant.refs,
+          ruleId: rule.id,
+          claimWindowAssumed: grant.claimWindowAssumed,
+          sourceIds: grant.sourceIds,
+          restatementOf: grant.restatementOf,
+          ...(grant.claimUntil === undefined ? {} : { expiresAt: grant.claimUntil }),
+        },
+      ];
+    }),
     ...soloRounds.flatMap((round) =>
       soloRoundEvents(round, state.associations.get(round.round), rules, window),
     ),
@@ -403,7 +556,7 @@ export function buildSnapshot(input: CertifiedSupplyBuildInput): CertifiedSupply
   const missing = historyMissing(input, window, soloRounds, recurring.missingPastRules);
   const futureMissing = recurring.missingFutureRules ? ["reward_rules"] : [];
   const snapshot: CertifiedSupplySnapshot = {
-    version: CERTIFIED_SUPPLY_VERSION,
+    version: input.version ?? CERTIFIED_SUPPLY_VERSION,
     futureLawSemantics: "independent_given_cohort-v1",
     revision: input.revision,
     sourceHash: input.sourceHash,
@@ -422,7 +575,7 @@ export function buildSnapshot(input: CertifiedSupplyBuildInput): CertifiedSupply
       past: {
         from: iso(window.from),
         until: iso(window.today),
-        days: 56,
+        days: CERTIFIED_SUPPLY_HISTORY_DAYS,
         complete: missing.length === 0,
         missing,
       },
@@ -437,11 +590,10 @@ export function buildSnapshot(input: CertifiedSupplyBuildInput): CertifiedSupply
     warnings: [...new Set(window.warnings)],
     provenance: [
       ...(input.provenance ?? []),
-      "schedule-kit-v2",
+      forecastVersionsForSnapshot(input.version ?? CERTIFIED_SUPPLY_VERSION).rulesVersion,
       "documented-physical-supply-v2",
       ...state.cadence.sourceUrls,
     ],
   };
-  validateSnapshot(snapshot);
-  return freezeJson(snapshot);
+  return freezeCoherentSnapshot(snapshot);
 }

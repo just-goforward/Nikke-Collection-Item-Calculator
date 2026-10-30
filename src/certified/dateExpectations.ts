@@ -1,12 +1,14 @@
+import { CERTIFIED_RECOMMENDED_HORIZON_DAYS } from "../../shared/certifiedHorizon";
 import { q, sub, toWire } from "../../shared/certifiedRational";
 import type { CertifiedSupplyEvent } from "../../shared/certifiedSupply";
-import { CertifiedLimit } from "./budget";
+import { CertifiedLimit, reserveTargetPayload } from "./budget";
 import { convolve, expectation, type Support, singleton } from "./distribution";
 import { eventOffset, law, waitingBase } from "./events";
 import { CAPS, type StateId } from "./game";
 import type { CertifiedWaiting, Triple } from "./types";
 import { compareValue, type ExactValue } from "./value";
 import type { WaitingContext } from "./waitingContext";
+import { valuePayload } from "./value";
 
 const ONE = q(1);
 
@@ -50,15 +52,15 @@ function exactDateResult(
   return {
     ...waitingBase("certified", null),
     recommendedDays: earliest,
-    rangeBoundary: earliest === 56,
+    rangeBoundary: earliest === CERTIFIED_RECOMMENDED_HORIZON_DAYS,
     bestDayRange: [earliest, earliest],
-    value: context.view(h),
+    value: context.view(values[earliest]!),
     evaluatedDays,
     successProbabilityInterval: { lower: toWire(h.p), upper: toWire(h.p) },
     successImprovementUpperBound: toWire(sub(ONE, h.p)),
     evidence: [
       "exact_cohort_conditional_distributions_single_latent_cohort",
-      "exact_rational_all_57_date_expectations",
+      "exact_rational_all_15_date_expectations",
       "fixed_prices_all_dates",
       "nonnegative_nonexpiring_inventory_coupling",
       earliest === 0 ? "exact_day0_tie" : "exact_previous_day_strict_lex_inequality",
@@ -74,7 +76,7 @@ function unresolvedDateResult(
   return {
     ...waitingBase("unresolved", reason),
     evaluatedDays,
-    bestDayRange: [0, 56],
+    bestDayRange: [0, CERTIFIED_RECOMMENDED_HORIZON_DAYS],
     successProbabilityInterval: { lower: toWire(lastCompleted.p), upper: toWire(ONE) },
     successImprovementUpperBound: toWire(sub(ONE, lastCompleted.p)),
     evidence: [
@@ -98,7 +100,7 @@ export function exhaustiveDates(
   const evaluatedDays = [0];
   let lastCompleted = context.current;
   try {
-    for (let day = 1; day <= 56; day++) {
+    for (let day = 1; day <= CERTIFIED_RECOMMENDED_HORIZON_DAYS; day++) {
       context.kernel.budget.check();
       const arrivals = events.filter((event) => eventOffset(context.input, event) === day);
       advanceSupports(context, supports, arrivals, caps);
@@ -108,6 +110,12 @@ export function exhaustiveDates(
       if (compareValue(value, lastCompleted) < 0)
         throw new Error("certified_inventory_monotonicity_failed");
       values.push(value);
+      if (context.completedDates) {
+        context.kernel.budget.check();
+        reserveTargetPayload(context.kernel.budget, 1024 + valuePayload(value) * 32);
+        const record = { day, value: context.view(value) };
+        context.completedDates.push(record);
+      }
       evaluatedDays.push(day);
       lastCompleted = value;
     }

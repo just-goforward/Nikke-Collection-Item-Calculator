@@ -1,6 +1,6 @@
 import {
+  ACTIVE_SUPPLY_FORECAST,
   ACTIVE_SUPPLY_FORECAST_ID,
-  resolveActiveSupplyForecastProfile,
   type SupplyForecastProfile,
 } from "../../shared/generated/supplyForecast";
 import {
@@ -19,10 +19,40 @@ export type RuntimeSupplyForecast = {
   profile: SupplyForecastProfile;
 };
 
+export type SupplyForecastContext = {
+  forecastId: string;
+  forecastProfileId: string;
+  expectedGain: SupplyForecastProfile["expectedGain"];
+  referenceDays?: number;
+};
+
+export function captureSupplyForecastContext(): SupplyForecastContext {
+  const { forecastId, profile } = resolveRuntimeSupplyForecast();
+  return {
+    forecastId,
+    forecastProfileId: profile.id,
+    expectedGain: { ...profile.expectedGain },
+    referenceDays: profile.referenceDays ?? 28,
+  };
+}
+
 export const STAGING_SUPPLY_FORECAST_WORKER_NAME = "collection-solver:staging";
 
 let stagingForecastModule: StagingForecastModule | null = null;
 let stagingForecastModulePromise: Promise<void> | null = null;
+
+export const SUPPLY_UNAVAILABLE_MESSAGE =
+  "Supply calculation unavailable: the approved ledger does not cover the complete reference window.";
+
+function profileAt(profiles: readonly SupplyForecastProfile[], at: number) {
+  const profile = profiles.find(
+    (entry) =>
+      at >= Date.parse(entry.effectiveFrom) &&
+      (entry.effectiveUntil === null || at < Date.parse(entry.effectiveUntil)),
+  );
+  if (!profile) throw new Error(SUPPLY_UNAVAILABLE_MESSAGE);
+  return profile;
+}
 
 function currentSearch() {
   if (
@@ -54,18 +84,18 @@ export function resolveRuntimeSupplyForecast(
     return {
       environment: "staging",
       forecastId: stagingForecastModule.STAGING_SUPPLY_FORECAST_ID,
-      profile: stagingForecastModule.resolveStagingSupplyForecastProfile(timestampMs),
+      profile: profileAt(stagingForecastModule.STAGING_SUPPLY_FORECAST.profiles, timestampMs),
     };
   }
   return {
     environment: "production",
     forecastId: ACTIVE_SUPPLY_FORECAST_ID,
-    profile: resolveActiveSupplyForecastProfile(timestampMs),
+    profile: profileAt(ACTIVE_SUPPLY_FORECAST.profiles, timestampMs),
   };
 }
 
 export function prepareRuntimeSupplyForecast(search = currentSearch()) {
-  if (supplyForecastEnvironment(search) !== "staging" || stagingForecastModule) return null;
+  if (supplyForecastEnvironment(search) !== "staging") return null;
   stagingForecastModulePromise ??= import("../../shared/generated/supplyForecastRuntime").then(
     (module) => {
       stagingForecastModule = module;

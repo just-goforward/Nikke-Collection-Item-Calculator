@@ -27,11 +27,14 @@ import {
 } from "./certifiedSupplyLaws.ts";
 import type * as Model from "./certifiedSupplyModel.ts";
 import {
+  cloneJsonWith,
   createCertifiedSupplyRule as createRule,
   DAY_MS,
   DEFAULT_PERSONAL_COHORT_WEIGHTS as DEFAULT_COHORT_WEIGHTS,
   dateStart,
+  FIXED_DISPATCH_COHORT_WEIGHTS,
   freezeJson,
+  isDeeplyFrozen,
   iso,
   LEGACY_PERSONAL_COHORT_WEIGHTS,
   linkCertifiedSoloAnnouncement as linkAnnouncement,
@@ -40,8 +43,14 @@ import {
   timestamp,
   transitionCertifiedSoloDelay as transitionDelay,
 } from "./certifiedSupplyModel.ts";
-import { assertFutureLawIndependence, validateSnapshot } from "./certifiedSupplyValidation.ts";
-import { gameDayKey, gameDayStartMs } from "./supplyForecastModel.ts";
+import {
+  assertFutureLawIndependence,
+  assertV3RuntimeLaws,
+  validateSnapshot,
+} from "./certifiedSupplyValidation.ts";
+import { certifiedVersionPolicy } from "./certifiedVersionPolicy.ts";
+import { gameDayKey, gameDayStartMs } from "./gameDay.ts";
+import { soloRaidWaitingOffset } from "./soloRaidCadence.ts";
 
 export const CERTIFIED_SUPPLY_VERSION = SUPPLY_VERSION;
 export const DEFAULT_PERSONAL_COHORT_WEIGHTS = DEFAULT_COHORT_WEIGHTS;
@@ -56,6 +65,8 @@ export type CertifiedHistoryCoverage = Model.CertifiedHistoryCoverage;
 export type CertifiedSupplyCoverageWindow = Model.CertifiedSupplyCoverageWindow;
 export type CertifiedSupplySnapshot = Model.CertifiedSupplySnapshot;
 export type CertifiedSupplyBuildInput = Model.CertifiedSupplyBuildInput;
+export type CertifiedSupplyGrant = Model.CertifiedSupplyGrant;
+export type CertifiedSoloSegment = Model.CertifiedSoloSegment;
 export type CertifiedDailySupply = Model.CertifiedDailySupply;
 export type CertifiedSupplyPeriod = Model.CertifiedSupplyPeriod;
 export type CertifiedSupplyComparison = Model.CertifiedSupplyComparison;
@@ -125,12 +136,16 @@ export function viewCertifiedSupplySnapshot(
   asOf: string,
 ): CertifiedSupplySnapshot {
   const now = timestamp(asOf);
+  if (snapshot.cadence.version === "observed-median-v2")
+    snapshot = ageMedianSnapshot(snapshot, now);
   const today = gameDayStartMs(now);
   const authorityFrom = timestamp(snapshot.coverage.from);
   const authorityUntil = timestamp(snapshot.coverage.until);
   const soloRounds = snapshot.soloRounds.map(
     (round): CertifiedSoloRound =>
-      round.status === "estimated" && dateStart(round.startGameDate) <= now
+      snapshot.cadence.version !== "observed-median-v2" &&
+      round.status === "estimated" &&
+      dateStart(round.startGameDate) <= now
         ? { ...round, status: "unverified", endGameDate: null }
         : round,
   );
@@ -166,12 +181,13 @@ export function viewCertifiedSupplySnapshot(
     return {
       from: iso(from),
       until: iso(until),
-      days: 56,
+      days: (until - from) / DAY_MS,
       complete: missing.length === 0,
       missing,
     };
   };
-  const past = rewindow(snapshot.coverage.past, today - 56 * DAY_MS, today);
+  const pastDays = certifiedVersionPolicy(snapshot.version).historyDays;
+  const past = rewindow(snapshot.coverage.past, today - pastDays * DAY_MS, today);
   const future = rewindow(snapshot.coverage.future, today + DAY_MS, today + 57 * DAY_MS);
   return freezeJson({
     ...snapshot,
@@ -205,21 +221,112 @@ export function viewCertifiedSupplySnapshot(
   });
 }
 
+/** Rewindow predictions only; never enlarge the adopted authority coverage. */
+function ageMedianSnapshot(
+  snapshot: CertifiedSupplySnapshot,
+  now: number,
+): CertifiedSupplySnapshot {
+  const first = snapshot.soloRounds.find(
+    (round) => round.round === snapshot.delayState.anchorRound + 1,
+  );
+  const segment = first?.segments?.[0];
+  if (!first || !segment) return snapshot;
+  const start = timestamp(segment.effectiveFrom) - snapshot.delayState.offsetDays * DAY_MS;
+  const offsetDays = soloRaidWaitingOffset(start, now);
+  const delta = (offsetDays - snapshot.delayState.offsetDays) * DAY_MS;
+  const shift = (time: string) => iso(timestamp(time) + delta);
+  const sourceIds = first.sourceIds.map((id, index) => {
+    if (index === 2) return offsetDays ? "공지 대기" : "prediction";
+    if (id.startsWith("predicted-notice:")) return id.slice(0, 17) + shift(id.slice(17));
+    if (id.startsWith("predicted-alternative:")) {
+      const original = timestamp(first.sourceIds[index + 1]?.slice(27) ?? "");
+      return id.slice(0, 22) + iso(original + soloRaidWaitingOffset(original, now) * DAY_MS);
+    }
+    return id;
+  });
+  // `now` reaches the result only through offsetDays (and its delta) and the derived
+  // sourceIds, so equal keys yield byte-identical aged snapshots. Reuse is limited to
+  // deeply frozen inputs, whose content cannot change after the first computation.
+  const reusable = isDeeplyFrozen(snapshot);
+  const key = reusable ? JSON.stringify([offsetDays, sourceIds]) : "";
+  const entries = reusable ? agedMedianSnapshots.get(snapshot) : undefined;
+  const reused = entries?.get(key);
+  if (reused) return reused;
+  const shiftedDate = (date: string) => gameDayKey(dateStart(date) + delta);
+  // These are the closed JSON wire fields of predicted rounds, segments and events.
+  // Transform only selected predictions; confirmed records and the frozen input stay intact.
+  const shifted = <T>(entry: T): T =>
+    cloneJsonWith(entry, (key, value) => {
+      if (key === "sourceIds") return sourceIds;
+      if (typeof value !== "string") return value;
+      if (/^(at|effectiveFrom|effectiveUntil|expiresAt)$/.test(key)) return shift(value);
+      if (/^(gameDate|(start|end|rewardFrom|rewardUntil)GameDate)$/.test(key))
+        return shiftedDate(value);
+      return value;
+    }) as T;
+  const aged: CertifiedSupplySnapshot = {
+    ...snapshot,
+    delayState: { ...snapshot.delayState, offsetDays },
+    soloRounds: snapshot.soloRounds.map((round) =>
+      round.status === "estimated" ? shifted({ ...round, segments: round.segments ?? [] }) : round,
+    ),
+    events: snapshot.events.flatMap((event) => {
+      if (event.kind !== "solo" || event.status !== "estimated") return [event];
+      const next = shifted({ ...event, expiresAt: event.expiresAt ?? null });
+      const at = timestamp(next.at);
+      return at >= timestamp(snapshot.coverage.from) && at < timestamp(snapshot.coverage.until)
+        ? [next]
+        : [];
+    }),
+  };
+  if (!reusable) return aged;
+  // The caller deep-freezes the view, which reaches every part of `aged`; freezing here
+  // first only makes the shared copy immutable. The per-snapshot map stays bounded.
+  const values = entries ?? new Map<string, CertifiedSupplySnapshot>();
+  const oldest = values.keys().next();
+  if (values.size >= AGED_MEDIAN_SNAPSHOT_LIMIT && !oldest.done) values.delete(oldest.value);
+  values.set(key, freezeJson(aged));
+  agedMedianSnapshots.set(snapshot, values);
+  return aged;
+}
+
+// Module-wide but authority-free: each value is a pure function of its immutable,
+// weakly held snapshot key; at most 128 aged copies (FIFO) per live snapshot.
+const AGED_MEDIAN_SNAPSHOT_LIMIT = 128;
+const agedMedianSnapshots = new WeakMap<
+  CertifiedSupplySnapshot,
+  Map<string, CertifiedSupplySnapshot>
+>();
+
 export function certifiedCohortWeights(
   weights?: SnapshotCohortWeights,
   version: Model.CertifiedSupplyVersion = CERTIFIED_SUPPLY_VERSION,
 ): CohortTuple<Q> {
-  const legacy = version === "certified-daily-v1";
+  const policy = certifiedVersionPolicy(version);
+  const legacy = policy.cohortCount === 3 && !policy.fixedDispatch;
   const selected =
-    weights ?? (legacy ? LEGACY_PERSONAL_COHORT_WEIGHTS : DEFAULT_PERSONAL_COHORT_WEIGHTS);
-  if (selected.length !== (legacy ? 3 : 4)) throw new Error("certified_cohort_weights_invalid");
+    weights ??
+    (policy.fixedDispatch
+      ? FIXED_DISPATCH_COHORT_WEIGHTS
+      : legacy
+        ? LEGACY_PERSONAL_COHORT_WEIGHTS
+        : DEFAULT_PERSONAL_COHORT_WEIGHTS);
+  if (selected.length !== policy.cohortCount) throw new Error("certified_cohort_weights_invalid");
   const values = selected.map(fromWire) as [Q, Q, Q] | [Q, Q, Q, Q];
   if (values.some((weight) => weight.n < 0n) || !eq(sum(values), ONE))
+    throw new Error("certified_cohort_weights_invalid");
+  if (
+    policy.fixedDispatch &&
+    !values.every((value, index) => {
+      const fixed = FIXED_DISPATCH_COHORT_WEIGHTS[index];
+      return fixed !== undefined && eq(value, fromWire(fixed));
+    })
+  )
     throw new Error("certified_cohort_weights_invalid");
   return values;
 }
 
-function expectedRefs(
+export function expectedCertifiedRefs(
   refs: readonly CertifiedLawRef[],
   weights: CohortTuple<Q>,
   options: CertifiedLawOptions,
@@ -245,7 +352,12 @@ export function deriveCertifiedDailySupply(
   const current = dateStart(snapshot.coverage.currentDay);
   const days: CertifiedDailySupply[] = [];
   const expectationCache = new Map<string, readonly [Q, Q, Q]>();
-  for (let at = current - 56 * DAY_MS; at <= current + 56 * DAY_MS; at += DAY_MS) {
+  const pastDays = certifiedVersionPolicy(snapshot.version).historyDays;
+  for (
+    let at = Math.max(current - pastDays * DAY_MS, timestamp(snapshot.coverage.from));
+    at <= current + 56 * DAY_MS && at < timestamp(snapshot.coverage.until);
+    at += DAY_MS
+  ) {
     options.checkBudget?.();
     const events = snapshot.events.filter(
       (event) => event.gameDate === gameDayKey(at) && isCertifiedEventModeled(snapshot, event),
@@ -254,7 +366,7 @@ export function deriveCertifiedDailySupply(
     const key = JSON.stringify(dayRefs);
     let gain = expectationCache.get(key);
     if (!gain) {
-      gain = expectedRefs(dayRefs, personal, { ...options, laws: snapshot.laws });
+      gain = expectedCertifiedRefs(dayRefs, personal, { ...options, laws: snapshot.laws });
       expectationCache.set(key, gain);
     }
     const offset = (at - current) / DAY_MS;
@@ -279,6 +391,7 @@ export function compareCertifiedSupplyPeriods(
   snapshot: CertifiedSupplySnapshot,
   weights?: SnapshotCohortWeights,
 ): CertifiedSupplyComparison {
+  snapshot = viewCertifiedSupplySnapshot(snapshot, snapshot.asOf);
   const daily = deriveCertifiedDailySupply(snapshot, weights);
   const period = (window: CertifiedSupplyCoverageWindow): CertifiedSupplyPeriod => {
     const days = daily.filter(
@@ -290,15 +403,13 @@ export function compareCertifiedSupplyPeriods(
       for (const k of [0, 1, 2] as const) total[k] = add(total[k], fromWire(day.expectedGain[k]));
     const events = days.flatMap((day) => day.events);
     return {
-      from: window.from,
+      from: days[0]?.at ?? window.from,
       until: window.until,
       days: days.length,
       total: total.map(toWire) as [WireQ, WireQ, WireQ],
-      dailyAverage: total.map((value) => toWire(div(value, q(days.length)))) as [
-        WireQ,
-        WireQ,
-        WireQ,
-      ],
+      dailyAverage: total.map((value) =>
+        toWire(days.length ? div(value, q(days.length)) : ZERO),
+      ) as [WireQ, WireQ, WireQ],
       shopDays: events.filter((event) => event.kind === "shop").length,
       confirmedRaidDays: events.filter(
         (event) => event.kind === "solo" && event.status === "confirmed",
@@ -321,14 +432,20 @@ export function compareCertifiedSupplyPeriods(
   const past = period(snapshot.coverage.past);
   const future = period(snapshot.coverage.future);
   const percentChange = ([0, 1, 2] as const).map((k) => {
-    const wire = past.total[k];
-    const before = fromWire(wire);
-    return before.n === 0n
+    const before = fromWire(past.dailyAverage[k]);
+    return !past.complete || !future.complete || before.n === 0n
       ? null
-      : toWire(mul(div(sub(fromWire(future.total[k]), before), before), q(100)));
+      : toWire(mul(div(sub(fromWire(future.dailyAverage[k]), before), before), q(100)));
   }) as [WireQ | null, WireQ | null, WireQ | null];
-  // Daily derivation emits offsets -56 through 56 exactly once, including day zero.
-  const [currentDay] = daily.filter((day) => day.offset === 0) as [CertifiedDailySupply];
+  const currentDay = daily.find((day) => day.offset === 0) ?? {
+    gameDate: snapshot.coverage.currentDay,
+    at: iso(dateStart(snapshot.coverage.currentDay)),
+    offset: 0,
+    events: [],
+    expectedGain: [toWire(ZERO), toWire(ZERO), toWire(ZERO)] as const,
+    complete: false,
+    estimated: false,
+  };
   return {
     past,
     future,
@@ -348,9 +465,13 @@ export function certifiedRecurringRate(
   const rule = ruleAt(snapshot.rules, dateStart(snapshot.coverage.currentDay));
   if (!rule) throw new Error("certified_current_supply_rule_missing");
   const lawOptions = { ...options, laws: snapshot.laws };
-  const dispatch = expectedRefs(rule.dispatch, personal, lawOptions);
-  const shop = expectedRefs(rule.normalShop, personal, lawOptions);
-  const solo = expectedRefs(rule.soloDays.flat(), personal, lawOptions);
+  const dispatch = expectedCertifiedRefs(rule.dispatch, personal, lawOptions);
+  const shop = expectedCertifiedRefs(
+    [...rule.normalShop, ...(rule.weeklyFixed ?? [])],
+    personal,
+    lawOptions,
+  );
+  const solo = expectedCertifiedRefs(rule.soloDays.flat(), personal, lawOptions);
   const mean = q(snapshot.cadence.numerator, snapshot.cadence.denominator);
   const rate = ([0, 1, 2] as const).map((k) =>
     add(add(dispatch[k], div(shop[k], q(7))), div(solo[k], mean)),
@@ -396,11 +517,12 @@ export function assertCertifiedSupplySnapshot(
 ): CertifiedSupplySnapshot {
   return validateSnapshot(value, checkBudget);
 }
-/** Historical snapshots remain readable, but the current certified runtime is v2-only. */
+/** Historical snapshots remain readable; new runtime authority uses the v3 allowlist. */
 export function assertCertifiedRuntimeSupplySnapshot(value: unknown): CertifiedSupplySnapshot {
   const snapshot = assertCertifiedSupplySnapshot(value);
-  if (snapshot.version !== CERTIFIED_SUPPLY_VERSION)
+  if (!certifiedVersionPolicy(snapshot.version).physicalLaws)
     throw new Error("unsupported_forecast_version");
+  assertV3RuntimeLaws(snapshot);
   return snapshot;
 }
 export function isCertifiedSupplySnapshot(value: unknown): value is CertifiedSupplySnapshot {

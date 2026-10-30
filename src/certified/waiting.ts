@@ -2,7 +2,7 @@ import { type Q, q, sub, toWire } from "../../shared/certifiedRational";
 import { exhaustiveDates } from "./dateExpectations";
 import { futureEvents, waitingBase } from "./events";
 import type { FiniteKernel } from "./kernel";
-import type { CertifiedInput, CertifiedValue, CertifiedWaiting } from "./types";
+import type { CertifiedInput, CertifiedValue, CertifiedWaiting, CompletedDate } from "./types";
 import { compareValue, type ExactValue } from "./value";
 import type { WaitingContext } from "./waitingContext";
 import { boundaryWitness } from "./witness";
@@ -30,8 +30,12 @@ export function solveWaiting(
   kernel: FiniteKernel,
   priors: readonly Q[],
   view: (value: ExactValue) => CertifiedValue,
+  completedDates?: CompletedDate[],
 ): CertifiedWaiting {
-  const context: WaitingContext = { input, sid, current, kernel, priors, view };
+  const context: WaitingContext = {
+    input, sid, current, kernel, priors, view,
+    ...(completedDates === undefined ? {} : { completedDates }),
+  };
   const events = futureEvents(input);
   // Equality in all three exact components proves stock-value invariance even
   // when future coverage is incomplete or positive arrivals exist.
@@ -44,7 +48,7 @@ export function solveWaiting(
     ]);
   }
   if (!input.snapshot.coverage.future.complete)
-    return { ...waitingBase("unresolved", "future_coverage_incomplete"), bestDayRange: [0, 56] };
+    return { ...waitingBase("unresolved", "future_coverage_incomplete"), bestDayRange: [0, 14] };
   if (events.every((event) => event.refs.every((ref) => ref.count === 0))) {
     return invariantResult(context, [
       "no_random_and_no_deterministic_arrivals_in_complete_future_snapshot",

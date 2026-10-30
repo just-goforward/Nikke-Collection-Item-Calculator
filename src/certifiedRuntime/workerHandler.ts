@@ -3,7 +3,8 @@ import {
   assertCertifiedForecastIdentity,
   sameCertifiedForecastIdentity,
 } from "../../shared/certifiedForecastIdentity.ts";
-import type { CertifiedInput } from "../certified/types.ts";
+import type { CertifiedInput, CertifiedTargetBudget } from "../certified/types.ts";
+import { CertifiedLimit } from "../certified/budget.ts";
 import { loadCertifiedWasm } from "../certified/wasmBackend.ts";
 import { solveCertifiedWasm } from "../certified/wasmSolver.ts";
 import { assertTrustedCertifiedForecast } from "../lib/certifiedForecastTrust.ts";
@@ -21,10 +22,15 @@ import {
 
 async function bindSnapshot(request: Extract<CertifiedRequest<CertifiedInput>, { type: "solve" }>) {
   const identity = assertCertifiedForecastIdentity(request.forecastIdentity);
-  const actual = await assertTrustedCertifiedForecast(request.input.snapshot, (bytes) => {
-    if (bytes > CERTIFIED_RUNTIME_PAYLOAD_CEILING)
-      throw new Error("Forecast hash workspace ceiling exceeded.");
-  });
+  const actual = await assertTrustedCertifiedForecast(
+    request.input.snapshot,
+    (bytes) => {
+      if (bytes > CERTIFIED_RUNTIME_PAYLOAD_CEILING)
+        throw new Error("Forecast hash workspace ceiling exceeded.");
+    },
+    request.input.forecastPublication,
+    request.input.forecastSource,
+  );
   if (!sameCertifiedForecastIdentity(identity, actual))
     throw new Error("Worker input snapshot does not match requested forecast identity.");
   return identity;
@@ -97,17 +103,28 @@ export function createCertifiedWorkerHandler(
       });
       failureCode = "solver_execution_failure";
       if (!wasm) throw new Error("certified_wasm_not_initialized");
+      let targetBudget: CertifiedTargetBudget | undefined;
       const output = solveCertifiedWasm(wasm, request.input, {
+        ...(request.input.autoRecommendation === true || request.input.riskSummary === true ? {
+          onEvidenceBudget: (budget: CertifiedTargetBudget) => { targetBudget = budget; },
+        } : {}),
+        ...(request.input.target === undefined ? {} : {
+          onTargetBudget: (budget: CertifiedTargetBudget) => { targetBudget = budget; },
+        }),
         maxManagedPayloadBytes: CERTIFIED_WORKER_MANAGED_CEILING,
         deadlineAt:
           performance.now() +
           Math.max(0, request.deadlineAt - Date.now() - CERTIFIED_WORKER_RESPONSE_RESERVE_MS),
         onCurrent: (output) => {
           failureCode = "protocol_invariant";
-          const boundOutput = bindCertifiedOutput(output, forecastIdentity);
+          const boundOutput = bindCertifiedOutput(output, forecastIdentity, request.input, targetBudget, "current");
           failureCode = "response_payload_ceiling";
           if (payloadBytes(boundOutput) > CERTIFIED_RESPONSE_PAYLOAD_CEILING)
             throw new Error("Certified response payload ceiling exceeded.");
+          if (request.input.target !== undefined || request.input.autoRecommendation === true || request.input.riskSummary === true) {
+            failureCode = "request_total_deadline";
+            assertTimeRemaining(request.deadlineAt);
+          }
           if (!closed)
             post({
               type: "current",
@@ -122,7 +139,7 @@ export function createCertifiedWorkerHandler(
       });
       if (!closed) {
         failureCode = "protocol_invariant";
-        const boundOutput = bindCertifiedOutput(output, forecastIdentity);
+        const boundOutput = bindCertifiedOutput(output, forecastIdentity, request.input, targetBudget, "result", request);
         failureCode = "response_payload_ceiling";
         if (payloadBytes(boundOutput) > CERTIFIED_RESPONSE_PAYLOAD_CEILING)
           throw new Error("Certified response payload ceiling exceeded.");
@@ -139,6 +156,10 @@ export function createCertifiedWorkerHandler(
         });
       }
     } catch (error) {
+      if (error instanceof CertifiedLimit && error.reason === "managed_payload_ceiling")
+        failureCode = "managed_payload_ceiling";
+      else if (error instanceof CertifiedLimit && error.reason === "request_budget_exhausted")
+        failureCode = "request_total_deadline";
       reportFailure(request, failureCode, error);
     } finally {
       if (ownsComputation) busy = false;

@@ -1,0 +1,15 @@
+{
+  "id": "supply-2026-10-15-v5",
+  "approved": false,
+  "source": {
+    "sourceForecastId": "supply-2026-10-15-v3",
+    "sourceRevision": "supply-2026-10-15-v3:4047dfaf56307763",
+    "sourceHash": "4047dfaf563077639ef98a947af97cf0a2e252ca421983e1353079a24b86c302",
+    "policy": "fixed-dispatch-0-1-2:1-2-3"
+  },
+  "delta": {
+    "version": "certified-daily-v5",
+    "revision": "04206beef15478ebad5edb40f2aa0d3bf6d3b97efbcb8541516126feb51e3d0e",
+    "provenanceSuffix": ["local-unapproved"]
+  }
+}

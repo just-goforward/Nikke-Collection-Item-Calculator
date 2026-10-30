@@ -215,6 +215,7 @@ export function estimateA2SurrogateAfterFirstActionFromCurrent(
     firstAction,
     horizonFactor,
     normPower,
+    state.supplyForecast.expectedGain,
   );
 }
 

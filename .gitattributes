@@ -13,3 +13,6 @@
 **/worker-configuration.d.ts text eol=lf -whitespace
 package.json text eol=lf
 package-lock.json text eol=lf
+
+# Keep the frozen rollback manifest byte-identical.
+rollback/production/retained.json -text

@@ -6,6 +6,9 @@ import type { Manifest } from "vite";
 import { SITE_LOCALE_ORDER, SITE_LOCALES, siteLocaleUrl } from "../shared/siteLocales.ts";
 import type { CertifiedBundleBoundary } from "./certified-bundle-boundary.ts";
 import { localizedSeoBlock, renderSitemap } from "./localized-pages.ts";
+import { assertProductionForecastContract } from "./forecast-runtime-build.ts";
+import productionProposal from "../site-worker/production-forecast.proposed.json" with { type: "json" };
+import { assertProductionAssetReferences, stageProductionAssetCoexistence } from "./production-asset-coexistence.ts";
 
 const RECEIPT = ".vite/site-production.json";
 const ASSETS_IGNORE = "/.vite/\n";
@@ -63,6 +66,7 @@ export function productionHeaders(
   boundary: CertifiedBundleBoundary,
   files: readonly string[],
   publicFiles: readonly string[],
+  retainedFiles: readonly string[] = [],
 ): string {
   const outputs = new Set<string>();
   for (const chunk of Object.values(manifest)) {
@@ -73,12 +77,14 @@ export function productionHeaders(
   for (const worker of boundary.perWorker) {
     for (const chunk of worker.chunks) outputs.add(chunk.file);
   }
+  for (const file of retainedFiles) if (/\.(?:js|css)$/.test(file)) outputs.add(file);
   // Only metadata-owned JS/CSS matching the current Vite [name]-[hash] output
   // convention qualify. Public files and unknown output formats revalidate.
   const fingerprinted = [...outputs]
     .filter(
       (file) =>
-        /^assets\/[^/]+-[A-Za-z0-9_-]{8}\.(?:js|css)$/.test(file) && !publicFiles.includes(file),
+        /^assets\/[^/]+-[A-Za-z0-9_-]{8}\.(?:js|css)$/.test(file) &&
+          (!publicFiles.includes(file) || retainedFiles.includes(file)),
     )
     .sort();
   for (const file of outputs) {
@@ -101,8 +107,35 @@ async function productionAssetExclusions(directory: string, check: boolean): Pro
   }
 }
 
-export async function buildSiteProduction(directory: string, check = false): Promise<void> {
+export async function buildSiteProduction(
+  directory: string, check = false, productionContract?: unknown,
+): Promise<void> {
+  // The CLI/default stays bundled. Online packaging requires a separately reviewed,
+  // complete contract and a matching receipt; this parameter cannot activate a service.
+  if (productionContract !== undefined) {
+    // Caller-supplied/synthetic approval is not authority for the formal packaging path.
+    const configured = assertProductionForecastContract(productionProposal);
+    const requested = assertProductionForecastContract(productionContract);
+    if (JSON.stringify(configured) !== JSON.stringify(requested))
+      throw new Error("production_forecast_configured_contract_mismatch");
+    await assertForecastBuild(directory, "production", configured);
+  } else await assertForecastBuild(directory, "bundled");
+  const releaseAssets = await stageProductionAssetCoexistence(directory, check);
   const files = await filesIn(directory);
+  for (const file of files.filter((path) => !path.startsWith(".vite/"))) {
+    if (
+      /^(?:e2e|scripts|src|shared|evidence|deliverables|benchmarks|node_modules|test-results|coverage|playwright-report|debug|diagnostic|rollback)\//.test(file) ||
+      /(?:\.test\.|\.spec\.|\.map$|(?:^|\/)\.env(?:\.|$))/.test(file)
+    ) throw new Error(`production_developer_export:${file}`);
+    if (!/\.(?:js|html|json|css|md)$/.test(file)) continue;
+    const text = await readFile(join(directory, file), "utf8");
+    for (const marker of [
+      "BEGIN PRIVATE KEY", "CLOUDFLARE_API_TOKEN=", "NPM_TOKEN=",
+      "forecast-async-test", "native_worker_prohibited", "C:/Users/",
+    ]) {
+      if (text.includes(marker)) throw new Error(`production_selected_marker:${file}:${marker}`);
+    }
+  }
   const source = await readFile(join(ROOT, "index.html"), "utf8");
   const sourceConfig = statsScript(source);
   for (const locale of SITE_LOCALE_ORDER) {
@@ -126,7 +159,9 @@ export async function buildSiteProduction(directory: string, check = false): Pro
   const boundary: CertifiedBundleBoundary = JSON.parse(
     await readFile(join(directory, ".vite/certified-boundary.json"), "utf8"),
   );
-  const headers = productionHeaders(manifest, boundary, files, await filesIn(join(ROOT, "public")));
+  await assertProductionAssetReferences(directory, manifest, boundary);
+  const headers = productionHeaders(manifest, boundary, files, await filesIn(join(ROOT, "public")),
+    releaseAssets.retainedFiles.map((asset) => asset.file));
   if (files.includes("_headers")) {
     const previous = await readFile(join(directory, "_headers"), "utf8");
     if (previous !== headers)
@@ -147,7 +182,7 @@ export async function buildSiteProduction(directory: string, check = false): Pro
           .digest("hex"),
       ]),
   );
-  const receipt = `${JSON.stringify({ version: 1, files: Object.fromEntries(hashes) }, null, 2)}\n`;
+  const receipt = `${JSON.stringify({ version: 1, releaseAssets, files: Object.fromEntries(hashes) }, null, 2)}\n`;
   if (check) {
     if ((await readFile(join(directory, RECEIPT), "utf8")) !== receipt) {
       throw new Error("Production artifact content changed; rebuild before deployment");
@@ -164,3 +199,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   await buildSiteProduction(resolve("dist"), args[0] === "--check");
 }
+
+import { assertForecastBuild } from "./forecast-runtime-build.ts";

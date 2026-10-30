@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { observeDecision, type DecisionLifecycle } from "../analytics/decisionLifecycle";
 import type {
   DetailView,
   LoadingView,
@@ -16,6 +17,7 @@ import {
   EMPTY_DETAIL,
   EMPTY_RESULT,
   INITIAL_VALIDATION,
+  sameState,
   type SolverResult,
 } from "./calculatorShared";
 import { useSolveFlow } from "./calculatorSolveFlow";
@@ -32,6 +34,12 @@ import { usePendingStatsEvent } from "./usePendingStatsEvent";
 import { useSolverWorker } from "./useSolverWorker";
 import { useStats } from "./useStats";
 import { useTheme } from "./useTheme";
+import { SERVICE_CERTIFIED_SOLVER } from "../lib/serviceCertified";
+import { useServiceCertifiedSolver } from "./useServiceCertifiedSolver";
+import { withoutRecommendedWait } from "./serviceCertifiedPresentation";
+
+// A build-time constant selects one hook for this App's entire lifetime, never two engines.
+const useCalculatorSolver = SERVICE_CERTIFIED_SOLVER ? useServiceCertifiedSolver : useSolverWorker;
 
 type ConfiguredOutcomeFlowOptions = Omit<
   Parameters<typeof useOutcomeFlow>[0],
@@ -76,7 +84,8 @@ function stockCorrectionView(
   return { ...view, status: "invalid", reason: resolution.reason };
 }
 
-export function useCalculatorApp(statsQueryEnabled = false) {
+export function useCalculatorApp(statsQueryEnabled = false, lifecycle?: DecisionLifecycle) {
+  const observerOwner = observeDecision(lifecycle ? () => lifecycle.captureOutcomeOwner() : undefined);
   const [resultView, setResultView] = useState<ResultView>(EMPTY_RESULT);
   const [detailView, setDetailView] = useState<DetailView>(EMPTY_DETAIL);
   const [validationView, setValidationView] = useState<ValidationView>(INITIAL_VALIDATION);
@@ -92,6 +101,7 @@ export function useCalculatorApp(statsQueryEnabled = false) {
   const actionTransitionIdRef = useRef(0);
   const inputRevisionRef = useRef(0);
   const latestResultRef = useRef<SolverResult | null>(null);
+  const resetOutcomeRef = useRef<(() => void) | null>(null);
   const { pendingStatsEvent, pendingStatsEventRef, setPendingStatsEvent } = usePendingStatsEvent();
   const { recordStateFeedback, stateFeedback } = useStateFeedbackNotifier();
   const updateProgress = useSolverProgressLoading(setLoading);
@@ -106,15 +116,19 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     },
     [stats.queueStatsEvent],
   );
-  const { cancelValidationForSolve, solveBestAvailable, validateBestAvailable } = useSolverWorker(
+  const solver = useCalculatorSolver(
     updateProgress,
     reportRuntimeInvariant,
   );
+  const { cancelValidationForSolve, solveBestAvailable, validateBestAvailable } = solver;
+  const retireService = "invalidateSolve" in solver ? solver.invalidateSolve : undefined;
+  const checkForecastBoundary = "checkForecastBoundary" in solver ? solver.checkForecastBoundary : undefined;
 
   const {
     clearActionTransition,
     clearResultStale,
     isResultStale,
+    markResultStale,
     markInputChanged,
     renderMaxLevelState,
     renderResult,
@@ -126,6 +140,23 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     setResultView,
     setValidationView,
   });
+  const forecastInvalidated = useCallback(() => {
+    if (observerOwner !== undefined)
+      observeDecision(lifecycle ? () => lifecycle.retire(observerOwner, "forecast_invalid") : undefined);
+    ++inputRevisionRef.current;
+    // Mark before removing executable ownership. A forecast change is not a
+    // physical stock edit and must not discard recorded/pending stock history.
+    markInputChanged(false, "state");
+    // An ordinary error clears executable ownership before its deferred error
+    // render. Retained Current metrics still need a stale marker if B arrives.
+    if (detailView.type === "metrics") markResultStale();
+    latestResultRef.current = null;
+    setDetailView(withoutRecommendedWait);
+    setResultView((current) => current.type === "loading" ? EMPTY_RESULT : current);
+    resetOutcomeRef.current?.();
+  }, [detailView.type, markInputChanged, markResultStale, lifecycle, observerOwner]);
+  if ("forecastInvalidationRef" in solver)
+    solver.forecastInvalidationRef.current = forecastInvalidated;
 
   const {
     generationRef: validationGenerationRef,
@@ -136,27 +167,68 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     reportRuntimeInvariant,
     setValidationView,
   });
+  const prepareOwnedSolve = useCallback(() => {
+    // A new explicit request replaces the recommendation behind an open modal,
+    // even if B is first discovered by that request's own acquisition.
+    if (SERVICE_CERTIFIED_SOLVER) resetOutcomeRef.current?.();
+    prepareForSolve();
+  }, [prepareForSolve]);
 
   const trackInputChanged = useInputChangeTracker(setStaleSource, markInputChanged);
   const handleInputChanged = useCallback(
     (manualStockEditRequired: boolean, source: "state" | "stock") => {
       inputRevisionRef.current += 1;
       trackInputChanged(manualStockEditRequired, source);
+      if (retireService) {
+        retireService();
+        latestResultRef.current = null;
+        setDetailView(withoutRecommendedWait);
+        setResultView((current) => current.type === "loading" ? EMPTY_RESULT : current);
+      }
     },
-    [trackInputChanged],
+    [retireService, trackInputChanged],
   );
   const invalidateSolveInput = useCallback(() => {
     inputRevisionRef.current += 1;
-  }, []);
+    retireService?.();
+    setDetailView(withoutRecommendedWait);
+  }, [retireService]);
+
+  const onInputRestored = useCallback(() => {
+    if (observerOwner !== undefined)
+      observeDecision(lifecycle ? () => lifecycle.retire(observerOwner, "restore") : undefined);
+    invalidateSolveInput();
+    latestResultRef.current = null;
+    setPendingStatsEvent(null);
+    resetOutcomeRef.current?.();
+    clearResultStale();
+    setStaleSource(null);
+    setResultView(EMPTY_RESULT);
+    setDetailView(EMPTY_DETAIL);
+  }, [clearResultStale, invalidateSolveInput, setPendingStatsEvent, lifecycle, observerOwner]);
+
+  const onMaxLevelState = useCallback((nextGrade: Parameters<typeof renderMaxLevelState>[0], level: number) => {
+    if (retireService) invalidateSolveInput();
+    renderMaxLevelState(nextGrade, level);
+  }, [invalidateSolveInput, renderMaxLevelState, retireService]);
 
   const calculatorState = useCalculatorState({
+    onBeforeInputMutation: () => {
+      if (observerOwner !== undefined) {
+        observeDecision(lifecycle ? () => lifecycle.explicitAction?.(observerOwner, "input_edit") : undefined);
+        observeDecision(lifecycle ? () => lifecycle.retire(observerOwner, "input_edit") : undefined);
+      }
+    },
     onInputChanged: handleInputChanged,
-    onMaxLevelState: renderMaxLevelState,
+    onMaxLevelState,
+    ...(SERVICE_CERTIFIED_SOLVER ? { onInputRestored } : {}),
   });
   const { currentStateSnapshot, grade, resetState } = calculatorState;
   const theme = useTheme(grade);
 
   const outcomeFlow = useConfiguredOutcomeFlow({
+    ...(lifecycle ? { lifecycle } : {}),
+    observerOwner,
     calculatorState,
     currentStateSnapshot,
     latestResultRef,
@@ -168,7 +240,15 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     queueStatsEvent: stats.queueStatsEvent,
     recordStateFeedback,
   });
-
+  resetOutcomeRef.current = outcomeFlow.resetOutcomeFlow;
+  const applyOwnedOutcome = useCallback((outcome: "success" | "fail") => {
+    if (SERVICE_CERTIFIED_SOLVER) {
+      if (checkForecastBoundary?.() === false) return null;
+      if (!sameState(currentStateSnapshot(), latestResultRef.current?.input?.start)) return null;
+      setDetailView(withoutRecommendedWait);
+    }
+    return outcomeFlow.applyOutcome(outcome);
+  }, [checkForecastBoundary, currentStateSnapshot, outcomeFlow.applyOutcome]);
   const runMonteCarloValidation = useValidationFlow({
     generationRef: validationGenerationRef,
     latestResultRef,
@@ -176,15 +256,18 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     setValidationView,
     validateBestAvailable,
   });
-  const { applyConvertAndCalculate, applyOutcomeAndMaybeCalculate, runCalculation } = useSolveFlow({
+  const { applyConvertAndCalculate, applyOutcomeAndMaybeCalculate, runCalculation, captureCalculationOwnership } = useSolveFlow({
+    ...(lifecycle ? { lifecycle } : {}),
+    observerOwner,
+    ...(checkForecastBoundary ? { checkForecastBoundary } : {}),
     applyConvert: outcomeFlow.applyConvert,
-    applyOutcome: outcomeFlow.applyOutcome,
+    applyOutcome: applyOwnedOutcome,
     collectInput: calculatorState.collectInput,
     getCurrentViews,
     inputRevisionRef,
     latestResultRef,
     pendingStatsEventRef,
-    prepareForSolve,
+    prepareForSolve: prepareOwnedSolve,
     queueStatsEvent: stats.queueStatsEvent,
     renderResult,
     setCalculateBusy: calculatorState.setCalculateBusy,
@@ -195,6 +278,11 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     setResultView,
     solveBestAvailable,
   });
+  const ownsRenderedOutcome = captureCalculationOwnership();
+  const submitOwnedSuccessAttempt = useCallback((attempt: number | null) => {
+    if (!ownsRenderedOutcome() || checkForecastBoundary?.() === false) return;
+    outcomeFlow.submitSuccessAttempt(attempt);
+  }, [checkForecastBoundary, outcomeFlow.submitSuccessAttempt, ownsRenderedOutcome]);
 
   const setStock = useGuardedStockSetter({
     setStock: calculatorState.actions.setStock,
@@ -213,6 +301,7 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     : ({ status: "none" } as const);
   const correction = stockCorrectionView(correctionResolution);
   const { calculateAndClearStale, resetInputs } = useCalculatorAppLifecycle({
+    captureCalculationOwnership,
     clearResultStale,
     invalidateValidation,
     invalidateSolveInput,
@@ -236,7 +325,7 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     isResultStale,
     staleSource,
     loading,
-    outcomeFlow,
+    outcomeFlow: { ...outcomeFlow, submitSuccessAttempt: submitOwnedSuccessAttempt },
     resetInputs,
     resultView,
     runCalculation: calculateAndClearStale,
@@ -247,6 +336,6 @@ export function useCalculatorApp(statsQueryEnabled = false) {
     stateFeedback,
     statsView: stats.statsView,
     theme,
-    validationView,
+    validationView: SERVICE_CERTIFIED_SOLVER ? { ...validationView, disabled: true } : validationView,
   });
 }

@@ -38,7 +38,7 @@ export type OutcomePreview = {
 export type ResultView =
   | { type: "empty"; message: LocalizedMessage }
   | { type: "loading" }
-  | { type: "callout"; reason: "final_target" | "converted"; message: LocalizedMessage }
+  | { type: "callout"; reason: "final_target" | "converted" | "certified_preserve"; message: LocalizedMessage }
   | {
       type: "error";
       reason:
@@ -46,7 +46,9 @@ export type ResultView =
         | "solver_failure"
         | "solver_capacity_failure"
         | "follow_up_outcome_failure"
-        | "follow_up_conversion_failure";
+        | "follow_up_conversion_failure"
+        | "certified_preserve"
+        | "certified_claim_required";
       message: LocalizedMessage;
     }
   | {
@@ -103,7 +105,9 @@ export type DetailView =
   | {
       type: "metrics";
       successProbability: string;
-      greatSuccessProbability: string;
+      greatSuccessProbability: string | null;
+      /** Final validated stable WAIT only; never populated by a Current checkpoint. */
+      recommendedWaitDays?: number;
       candidates: CandidateView[];
       monteCarloRuns: number;
       solverLabel: string;

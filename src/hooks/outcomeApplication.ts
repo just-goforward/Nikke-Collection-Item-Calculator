@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { message } from "../i18n/locale";
-import { setLegacyOutcomeRecovery } from "../lib/lazyModuleRetry";
+import { setVolatileOutcomeRecovery as setLegacyOutcomeRecovery } from "../lib/volatileSession";
 import type { SolverInput } from "../types";
 import type { RecommendationAction } from "../ui-types";
 import type { TerminalSuccessContext } from "./calculatorShared";

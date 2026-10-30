@@ -2,6 +2,14 @@ import { spawnSync } from "node:child_process";
 import { copyFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertWasmRuntimeAssets } from "./wasm-runtime-assets.ts";
+
+// Ordinary release builds validate pinned bytes. Recompilation is an explicit
+// operator action; it cannot silently replace the retained deployed aliases.
+if (!process.argv.includes("--rebuild")) {
+  console.log(JSON.stringify(assertWasmRuntimeAssets()));
+  process.exit(0);
+}
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const crateDir = resolve(root, "rust", "solver-rs");

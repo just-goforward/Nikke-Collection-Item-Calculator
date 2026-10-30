@@ -19,12 +19,12 @@ export function solverBackendFromRuntime(): SolverBackend {
 
 export function solverWasmUrl(): string {
   if (typeof document !== "undefined" && document.baseURI) {
-    return new URL("solver_rs.wasm", document.baseURI).toString();
+    return new URL(LEGACY_WASM_ASSET.file, document.baseURI).toString();
   }
   if (typeof window !== "undefined") {
-    return new URL("solver_rs.wasm", window.location.href).toString();
+    return new URL(LEGACY_WASM_ASSET.file, window.location.href).toString();
   }
-  return "solver_rs.wasm";
+  return LEGACY_WASM_ASSET.file;
 }
 
 export function parallelValidationFromRuntime(): boolean {
@@ -35,3 +35,5 @@ export function parallelValidationFromRuntime(): boolean {
   }
   return window.matchMedia?.("(hover: hover) and (pointer: fine)").matches === true;
 }
+import { LEGACY_WASM_ASSET } from "../../shared/generated/wasmRuntimeAssets";
+

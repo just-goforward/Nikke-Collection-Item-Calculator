@@ -63,8 +63,8 @@ export async function solveRustPhase2Rerank(
   const earlyResult = buildRustEarlyResult(normalizedInput, RUST_RERANK_SOLVER_VERSION);
   if (earlyResult) return earlyResult;
 
-  const solver = await getRustPhase2ResearchSolver(wasmUrl);
   const supplyForecast = activeSupplyForecastContext();
+  const solver = await getRustPhase2ResearchSolver(wasmUrl, supplyForecast);
   solver.setSupplyForecast(supplyForecast);
   const decision = selectAdaptiveRerankDecision(solver, normalizedInput);
   const rerank = decision?.rerank;
@@ -105,7 +105,7 @@ export async function solveRustPhase2Rerank(
   if (progress)
     progress({ phase: "done", scanned: baselineRoot.states, total: baselineRoot.states });
 
-  return buildRerankResult({
+  const result = buildRerankResult({
     normalizedInput,
     selection,
     view,
@@ -113,6 +113,15 @@ export async function solveRustPhase2Rerank(
     heldOutBaseline,
     monteCarlo,
   });
+  return {
+    ...result,
+    stats: {
+      ...result.stats,
+      forecastId: supplyForecast.forecastId,
+      forecastProfileId: supplyForecast.forecastProfileId,
+      supplyForecast,
+    },
+  };
 }
 
 function collectHeldOutDiagnostics(
@@ -161,7 +170,7 @@ function buildRerankView(
   const edge = transition(normalizedInput.start, selected.firstAction);
   const totalExpectedKits = totalKits(selected.vector);
   const pressure = pressureScore(selected.vector, normalizedInput.stockUses);
-  const legacySupplyCost = legacySupplyCostScore(selected.vector);
+  const legacySupplyCost = legacySupplyCostScore(selected.vector, expectedGain);
   const availabilityCost = availabilityCostScore(
     selected.vector,
     normalizedInput.stock,

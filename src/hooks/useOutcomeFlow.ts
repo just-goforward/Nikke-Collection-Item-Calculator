@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useRef, useState } from "react";
-import { setLegacyOutcomeRecovery } from "../lib/lazyModuleRetry";
+import { setVolatileOutcomeRecovery as setLegacyOutcomeRecovery } from "../lib/volatileSession";
 import type { StatsSubmissionEvent } from "../lib/statsSubmissionQueue";
 import type { CollectionState, Kit, Stock } from "../types";
 import type {
@@ -14,8 +14,11 @@ import { useOutcomeApplication } from "./outcomeApplication";
 import { useConvertAction } from "./outcomeConvertAction";
 import { useOutcomeRenderer } from "./outcomeRenderer";
 import { useTerminalSuccessAttempt } from "./terminalSuccessAttempt";
+import { observeDecision, type DecisionLifecycle } from "../analytics/decisionLifecycle";
 
 type UseOutcomeFlowOptions = {
+  lifecycle?: DecisionLifecycle;
+  observerOwner?: unknown;
   latestResultRef: RefObject<SolverResult | null>;
   pendingStatsEventRef: RefObject<PendingStatsEvent | null>;
   setPendingStatsEvent: (event: PendingStatsEvent | null) => void;
@@ -41,6 +44,7 @@ export function useOutcomeFlow(options: UseOutcomeFlowOptions) {
     attempt: 1,
   });
   const terminalSuccessContextRef = useRef<TerminalSuccessContext | null>(null);
+  const attemptOwners = useRef(new WeakMap<TerminalSuccessContext, unknown>());
   const renderOutcomeApplied = useOutcomeRenderer(options);
   const applyTerminalSuccessAttempt = useTerminalSuccessAttempt({
     ...options,
@@ -58,13 +62,20 @@ export function useOutcomeFlow(options: UseOutcomeFlowOptions) {
     },
     [applyTerminalSuccessAttempt],
   );
-  const applyOutcome = useOutcomeApplication({
+  const applyInnerOutcome = useOutcomeApplication({
     ...options,
     applyKnownSuccessAttempt,
     renderOutcomeApplied,
     setModal,
     terminalSuccessContextRef,
   });
+  const applyOutcome = useCallback((outcome: "success" | "fail") => {
+    const owner = options.observerOwner;
+    const applied = applyInnerOutcome(outcome);
+    const context = terminalSuccessContextRef.current;
+    if (applied && context && owner !== undefined) attemptOwners.current.set(context, owner);
+    return applied;
+  }, [applyInnerOutcome, options.observerOwner]);
   const applyConvert = useConvertAction(options);
 
   const submitSuccessAttempt = useCallback(
@@ -74,11 +85,17 @@ export function useOutcomeFlow(options: UseOutcomeFlowOptions) {
       setModal((current) => ({ ...current, open: false }));
       if (!context) return;
       const settled = applyTerminalSuccessAttempt(context, successAttempt);
+      const owner = attemptOwners.current.get(context);
+      attemptOwners.current.delete(context);
+      if (successAttempt !== null && owner !== undefined && owner === options.observerOwner)
+        observeDecision(options.lifecycle ? () => options.lifecycle!.attemptReported(owner, successAttempt) : undefined);
+      if (successAttempt === null && owner !== undefined && owner === options.observerOwner)
+        observeDecision(options.lifecycle ? () => options.lifecycle!.retire(owner, "cancelled") : undefined);
       setLegacyOutcomeRecovery(
         settled ? { ...settled.nextInput.start, stock: settled.nextInput.stock } : null,
       );
     },
-    [applyTerminalSuccessAttempt],
+    [applyTerminalSuccessAttempt, options.lifecycle, options.observerOwner],
   );
 
   const resetOutcomeFlow = useCallback(() => {

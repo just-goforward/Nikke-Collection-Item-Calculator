@@ -6,7 +6,7 @@ import {
   useEffect,
   useRef,
 } from "react";
-import { setLegacyOutcomeRecovery } from "../lib/lazyModuleRetry";
+import { setVolatileOutcomeRecovery as setLegacyOutcomeRecovery } from "../lib/volatileSession";
 import { normalizeState } from "../solver/domain";
 import type { CollectionState, Grade, Kit, SolverInput, Stock, Strategy } from "../types";
 import { clampStock, sanitizeExpValue } from "./calculatorShared";
@@ -44,8 +44,10 @@ type CalculatorStateSetters = {
 };
 
 export type UseCalculatorStateOptions = {
+  onBeforeInputMutation?: () => void;
   onInputChanged: (manualStockEditRequired: boolean, source: "state" | "stock") => void;
   onMaxLevelState: (grade: Grade, level: number) => void;
+  onInputRestored?: () => void;
 };
 
 function safeLevelFromInput(nextLevel: number) {
@@ -88,8 +90,10 @@ export function useCalculatorStateRef({
 }
 
 type CalculatorActionOptions = CalculatorStateValues & {
+  onBeforeInputMutation?: () => void;
   onInputChanged: (manualStockEditRequired: boolean, source: "state" | "stock") => void;
   onMaxLevelState: (grade: Grade, level: number) => void;
+  onInputRestored?: () => void;
   setters: CalculatorStateSetters;
   stateRef: RefObject<CalculatorStateRef>;
 };
@@ -98,6 +102,7 @@ function useCalculatorCoreActions({
   manualStockEditRequired,
   onInputChanged,
   onMaxLevelState,
+  onInputRestored,
   setters,
   stateRef,
 }: CalculatorActionOptions) {
@@ -152,6 +157,7 @@ function useCalculatorCoreActions({
 
   const restoreInputSnapshot = useCallback(
     (snapshot: CalculatorInputSnapshot) => {
+      onInputRestored?.();
       setLegacyOutcomeRecovery(null);
       const normalized = normalizeState(snapshot) as CollectionState;
       const nextExp = sanitizeExpValue(normalized.grade, normalized.level, normalized.exp);
@@ -172,6 +178,7 @@ function useCalculatorCoreActions({
       setStockState(nextStock);
     },
     [
+      onInputRestored,
       setExpState,
       setGradeState,
       setLevelState,
@@ -190,6 +197,7 @@ function useCalculatorCoreActions({
 }
 
 function useCalculatorInputActions({
+  onBeforeInputMutation,
   exp,
   grade,
   level,
@@ -216,6 +224,7 @@ function useCalculatorInputActions({
     (nextGrade: Grade) => {
       const nextExp = sanitizeExpValue(nextGrade, level, exp);
       if (nextGrade === grade && nextExp === exp) return;
+      onBeforeInputMutation?.();
       setLegacyOutcomeRecovery(null);
       setGradeState(nextGrade);
       setExpState(nextExp);
@@ -225,6 +234,7 @@ function useCalculatorInputActions({
     [
       exp,
       grade,
+      onBeforeInputMutation,
       level,
       manualStockEditRequired,
       onInputChanged,
@@ -239,6 +249,7 @@ function useCalculatorInputActions({
       const safeLevel = safeLevelFromInput(nextLevel);
       const nextExp = sanitizeExpValue(grade, safeLevel, exp);
       if (safeLevel === level && nextExp === exp) return;
+      onBeforeInputMutation?.();
       setLegacyOutcomeRecovery(null);
       setLevelState(safeLevel);
       setExpState(nextExp);
@@ -249,6 +260,7 @@ function useCalculatorInputActions({
       exp,
       grade,
       level,
+      onBeforeInputMutation,
       manualStockEditRequired,
       onInputChanged,
       onMaxLevelState,
@@ -261,22 +273,24 @@ function useCalculatorInputActions({
     (nextExp: number) => {
       const safeExp = sanitizeExpValue(grade, level, nextExp);
       if (safeExp === exp) return;
+      onBeforeInputMutation?.();
       setLegacyOutcomeRecovery(null);
       setExpState(safeExp);
       onInputChanged(manualStockEditRequired, "state");
     },
-    [exp, grade, level, manualStockEditRequired, onInputChanged, setExpState],
+    [exp, grade, level, manualStockEditRequired, onInputChanged, setExpState, onBeforeInputMutation],
   );
 
   const setStock = useCallback(
     (nextStock: Stock) => {
       const next = clampStock(nextStock);
       if (sameStock(stock, next)) return;
+      onBeforeInputMutation?.();
       setLegacyOutcomeRecovery(null);
       setStockState(next);
       onInputChanged(manualStockEditRequired, "stock");
     },
-    [manualStockEditRequired, onInputChanged, setStockState, stock],
+    [manualStockEditRequired, onInputChanged, setStockState, stock, onBeforeInputMutation],
   );
 
   const resetState = useCallback(() => {

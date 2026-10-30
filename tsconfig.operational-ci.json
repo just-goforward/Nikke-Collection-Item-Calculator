@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.operations.json",
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "benchmarks/**",
+    "node_modules/**",
+    "src/certifiedRuntime/controlledStableFixture.ts",
+    "src/certifiedRuntime/controlledStableWorker.ts"
+  ]
+}

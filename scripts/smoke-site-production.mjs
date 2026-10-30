@@ -27,7 +27,7 @@ export function verifyCacheHeaders(response, path) {
   }
 }
 
-export function verifyProductionHtml(html, response, locale) {
+function verifyProductionHtml(html, response, locale) {
   verifyLocalizedHtml(html, locale);
   assert(!/data-site-staging|statsEnv",\s*"staging"/i.test(html), "staging HTML is forbidden");
   assert(

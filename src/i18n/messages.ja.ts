@@ -10,9 +10,9 @@ export const jaMessages = {
   "error.reload": "ページを再読み込み",
   "error.sectionDetail": "この領域に必要なファイルを読み込めませんでした。",
   "error.retrySection": "もう一度読み込む",
-  "error.reloadInputsDetail": "未確定の使用前入力は復元しません。",
+  "error.reloadInputsDetail": "再読み込みすると現在の入力はリセットされます。入力はこのタブのメモリ内だけに保持されます。",
   "error.reloadInputsUnavailable":
-    "入力を保存できません。入力を控えるかキット数を修正して再試行してください。",
+    "ページを再読み込みできませんでした。ブラウザーの再読み込みを使用してください。現在の入力は復元されません。",
   "common.calculate": "計算",
   "common.calculateLong": "計算する",
   "common.recalculate": "再計算",
@@ -51,6 +51,8 @@ export const jaMessages = {
   "tab.stats": "統計",
   "staging.label": "ステージング環境",
   "staging.missing": "STAGING設定がありません。統計送信を停止しました。",
+  "staging.supplyUnavailable":
+    "補給量を計算できません。承認済み台帳に参照期間全体のデータがありません。",
   "staging.notice": "STAGING - テスト記録は本番統計に反映されません",
   "staging.forecastWindow": "一時予想獲得量 · 適用期間 {from} ～ {until} KST · {status}",
   "staging.forecastWindowOpenEnded": "一時予想獲得量 · {from} KST以降 · {status}",
@@ -162,6 +164,12 @@ export const jaMessages = {
   "detail.sr15ProbabilityHelp":
     "現在の状態と所持キットから、計算機の選択を続けた場合に最終目標のSR15段階へ到達する確率です。",
   "detail.segmentSuperSuccess": "区間の大成功率",
+  "detail.recommendedWaitDays": "推奨待機日数",
+  "detail.notApplicable": "対象外",
+  "stock.certifiedReceivedConvention": "現在受け取れる報酬をすべて受け取った後の所持数を入力してください。",
+  "result.certifiedPreserve": "現在の所持数では目標に到達できません。キットを温存してください。",
+  "result.certifiedClaimRequired": "このリクエストの報酬受取状況を確認できないため、案内を保留します。",
+  "detail.waitAfterDays": "{days}日後",
   "detail.candidate": "候補",
   "detail.firstAction": "最初の行動",
   "detail.reachRate": "到達率",

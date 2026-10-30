@@ -1,14 +1,25 @@
 import { DISPATCH_EXPECTED_PIECES } from "../../shared/certifiedDispatchExpectations";
 import { div, fromWire, type Q, q, toWire, type WireQ } from "../../shared/certifiedRational";
 import { DISPATCH_CLASSES } from "../../shared/certifiedSupplyLaws";
-import { dateStart, ruleAt } from "../../shared/certifiedSupplyModel";
+import {
+  DEFAULT_PERSONAL_COHORT_WEIGHTS,
+  dateStart,
+  FIXED_DISPATCH_COHORT_WEIGHTS,
+  ruleAt,
+} from "../../shared/certifiedSupplyModel";
+import { certifiedVersionPolicy } from "../../shared/certifiedVersionPolicy";
 import { CERTIFIED_WASM_HASH } from "../../shared/generated/certifiedWasmBuild";
+import { CERTIFIED_WASM_ASSET } from "../../shared/generated/wasmRuntimeAssets";
+import { assertWasmAssetBytes, fetchVerifiedWasmAsset } from "../../shared/wasmAssetBytes";
 import {
   assertMinimumWaitBinding,
   assertMinimumWaitTie,
   minimumWaitBase,
 } from "../certifiedRuntime/minimumWait";
-import { CertifiedLimit, type WorkBudget } from "./budget";
+import { CertifiedLimit, reserveTargetPayload, type WorkBudget } from "./budget";
+import { completedEvidenceRequested } from "./completedEvidence";
+import { decodeRiskSummaries } from "./riskSummary";
+import type { CertifiedRiskSummaries } from "./types";
 import { eventOffset, futureEvents } from "./events";
 import { CAPS, capUnits, EDGES } from "./game";
 import type {
@@ -18,10 +29,12 @@ import type {
   CertifiedMinimumWaitProbe,
   CertifiedOutput,
   CertifiedWaiting,
+  CompletedDate,
   Triple,
 } from "./types";
 import type { ExactValue } from "./value";
 import { certifiedValueView } from "./views";
+import { decodeCompletedDates } from "./target";
 
 type Exports = WebAssembly.Exports & {
   memory: WebAssembly.Memory;
@@ -42,6 +55,8 @@ type WireValue = { p: WireQ; b: WireQ; c: WireQ; consumed: [WireQ, WireQ, WireQ]
 type BackendCurrent = Omit<CertifiedCurrent, "value"> & { value: WireValue };
 type BackendWitness = NonNullable<CertifiedWaiting["strictBoundaryWitness"]>;
 type BackendWaiting = Omit<CertifiedWaiting, "value" | "strictBoundaryWitness"> & {
+  riskSummaries?: CertifiedRiskSummaries;
+  completedDates?: { schemaVersion: 1; records: { day: number; value: WireValue }[] };
   value: WireValue | null;
   strictBoundaryWitness?: Omit<BackendWitness, "beforeValue" | "afterValue"> & {
     beforeValue: WireValue;
@@ -61,18 +76,13 @@ export async function loadCertifiedWasm(
   readBytes?: () => Promise<Uint8Array>,
 ): Promise<WebAssembly.Module> {
   const bytes = readBytes
-    ? await readBytes()
-    : await (async () => {
-        const response = await fetch(
-          new URL("../../public/certified_solver.wasm", import.meta.url),
-          { cache: "no-cache" },
-        );
-        if (!response.ok) throw new Error("certified_wasm_fetch_failed");
-        return new Uint8Array(await response.arrayBuffer());
-      })();
-  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
-  const actual = [...new Uint8Array(digest)].map((n) => n.toString(16).padStart(2, "0")).join("");
-  if (actual !== CERTIFIED_WASM_HASH) throw new Error("certified_wasm_hash_mismatch");
+    ? await assertWasmAssetBytes(await readBytes(), CERTIFIED_WASM_ASSET, "certified_wasm")
+    : await fetchVerifiedWasmAsset(
+        `/${CERTIFIED_WASM_ASSET.file}`,
+        CERTIFIED_WASM_ASSET, "certified_wasm", { cache: "no-cache" },
+      );
+  if (CERTIFIED_WASM_ASSET.sha256 !== CERTIFIED_WASM_HASH)
+    throw new Error("certified_wasm_hash_mismatch");
   const module = await WebAssembly.compile(new Uint8Array(bytes));
   const imports = WebAssembly.Module.imports(module);
   if (imports.length !== 1 || imports[0]?.module !== "certified" || imports[0]?.name !== "now_ms")
@@ -83,6 +93,8 @@ export async function loadCertifiedWasm(
 /** Request-owned memo and supply state; an explicitly cleared idle instance
  * reuses linear memory without relying on GC between sequential Worker requests. */
 export class WasmKernel {
+  riskSummaries: CertifiedRiskSummaries | undefined;
+  completedDates: CompletedDate[] = [];
   readonly exports: Exports;
   private scale = q(1);
   private failed = false;
@@ -106,10 +118,14 @@ export class WasmKernel {
   get hasFailed(): boolean {
     return this.failed;
   }
-  dispose(): void {
+  dispose(refreshEvidenceAccounting = false): void {
     // A trapped instance is never reused: Rust destructors may not have run.
     if (!this.failed) {
       this.exports.certified_release();
+      // Final evidence consumers share this budget after return. Retire only
+      // released Rust allocations, retaining any live ABI/cache allocation.
+      if (refreshEvidenceAccounting)
+        this.budget.setWasmPayload(this.exports.certified_heap_live());
       idleInstances.set(this.module, this.exports);
     }
   }
@@ -126,13 +142,15 @@ export class WasmKernel {
       throw error;
     }
   }
-  private call<T>(command: unknown): T {
+  private call<T>(command: unknown, retainCompletedPayload = false): T {
     if (this.failed) throw new CertifiedLimit("certified_wasm_instance_failed");
     this.budget.check();
     const text = JSON.stringify(command);
     const bytes = new TextEncoder().encode(text);
+    if (retainCompletedPayload) this.budget.check();
     const transient = text.length * 2 + bytes.byteLength;
-    this.budget.reserve(transient);
+    if (retainCompletedPayload) reserveTargetPayload(this.budget, transient);
+    else this.budget.reserve(transient);
     try {
       this.exports.certified_heap_limit(
         Math.max(0, this.budget.maxManagedPayloadBytes - this.budget.hostPayloadBytes),
@@ -141,9 +159,17 @@ export class WasmKernel {
       if (!pointer) throw new CertifiedLimit("managed_payload_ceiling");
       new Uint8Array(this.exports.memory.buffer, pointer, bytes.byteLength).set(bytes);
       this.enterWasm(() => this.exports.certified_call());
+      // Evidence retention must compete with this command's Rust peak, not the
+      // preceding command's peak. Preserve the historical opt-out ordering.
+      if (retainCompletedPayload) this.account();
       const length = this.exports.certified_output_len();
-      this.budget.reserve(length * 3);
+      // Admit the retained parsed envelope and conversion workspace before decoding.
+      // Unlike the ordinary call transient, this remains charged for the request.
+      if (retainCompletedPayload) reserveTargetPayload(this.budget, 2048 + length * 16);
+      if (retainCompletedPayload) reserveTargetPayload(this.budget, length * 3);
+      else this.budget.reserve(length * 3);
       try {
+        if (retainCompletedPayload) this.budget.check();
         const response = JSON.parse(
           new TextDecoder().decode(
             new Uint8Array(this.exports.memory.buffer, this.exports.certified_output_ptr(), length),
@@ -169,6 +195,7 @@ export class WasmKernel {
         }
         this.account();
         if (response.error) throw new CertifiedLimit(response.error);
+        if (retainCompletedPayload) this.budget.check();
         return response.value;
       } finally {
         this.budget.release(length * 3);
@@ -202,6 +229,7 @@ export class WasmKernel {
       sid,
       deadline: this.budget.deadlineAt,
       model: {
+        snapshotVersion: input.snapshot.version,
         events: futureEvents(input).map((event) => ({
           id: event.id,
           day: eventOffset(input, event),
@@ -209,8 +237,11 @@ export class WasmKernel {
         })),
         laws: input.snapshot.laws,
         priors: priors.map(toWire),
+        populationPrior: certifiedVersionPolicy(input.snapshot.version).fixedDispatch
+          ? FIXED_DISPATCH_COHORT_WEIGHTS
+          : DEFAULT_PERSONAL_COHORT_WEIGHTS,
         dispatch: rule.dispatch,
-        shop: rule.normalShop,
+        shop: [...rule.normalShop, ...(rule.weeklyFixed ?? [])],
         solo: rule.soloDays.flat(),
         cadence: {
           numerator: String(input.snapshot.cadence.numerator),
@@ -292,13 +323,27 @@ export class WasmKernel {
     return result;
   }
   waiting(sid: number, input: CertifiedInput): CertifiedWaiting {
+    this.riskSummaries = undefined;
+    this.completedDates = [];
+    const includeCompletedDates = completedEvidenceRequested(input);
     const result = this.call<BackendWaiting>({
       op: "waiting",
       sid,
       stock: input.stock,
       complete: input.snapshot.coverage.future.complete,
-    });
-    const { strictBoundaryWitness: witness, ...rest } = result;
+      ...(includeCompletedDates ? { includeCompletedDates: true } : {}),
+      ...(input.riskSummary === true ? { includeRiskSummaries: true } : {}),
+    }, includeCompletedDates);
+    const { strictBoundaryWitness: witness, completedDates, riskSummaries, ...rest } = result;
+    if (includeCompletedDates) {
+      this.completedDates = decodeCompletedDates(completedDates, {
+        check: this.budget.check,
+        reserve: bytes => reserveTargetPayload(this.budget, bytes),
+      },
+        value => certifiedValueView(valueFromWire(value)));
+    }
+    this.riskSummaries = decodeRiskSummaries(riskSummaries, input.riskSummary === true,
+      this.completedDates, this.budget);
     return {
       ...rest,
       value: result.value ? certifiedValueView(valueFromWire(result.value)) : null,

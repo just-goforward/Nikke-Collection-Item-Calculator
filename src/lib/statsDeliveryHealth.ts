@@ -7,6 +7,7 @@ import {
   type StatsDeliveryHealth,
 } from "../../shared/solverRecoveryContract";
 import { ignoreExpectedError } from "./errorHandling";
+import { createVolatileStorage } from "./volatileSession";
 import {
   isDeliveryHealth,
   STATS_OUTBOX_MAX_EVENTS,
@@ -102,6 +103,16 @@ export class StatsDeliveryHealthStore {
       ignoreExpectedError("Statistics delivery health could not be written.", error);
     }
   }
+}
+
+export function createMemoryStatsDeliveryHealth(endpoint: string, now: () => number = Date.now) {
+  const revision = typeof __APP_REVISION__ === "string" ? __APP_REVISION__ : "unknown";
+  return new StatsDeliveryHealthStore(
+    createVolatileStorage(),
+    `${KEY_PREFIX}${encodeURIComponent(endpoint)}`,
+    normalizedRevision(revision),
+    now,
+  );
 }
 
 export function createBrowserStatsDeliveryHealth(endpoint: string) {

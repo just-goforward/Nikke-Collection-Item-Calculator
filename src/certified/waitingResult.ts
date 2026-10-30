@@ -2,10 +2,13 @@ import type { Q } from "../../shared/certifiedRational";
 import { isCertifiedEventClaimable } from "../../shared/certifiedSupply";
 import { waitingBase } from "./events";
 import type { FiniteKernel } from "./kernel";
-import type { CertifiedInput, CertifiedOutput } from "./types";
+import type { CertifiedInput, CertifiedOutput, CompletedDate } from "./types";
+import { selectTarget } from "./target";
 import type { ExactValue } from "./value";
 import { certifiedValueView } from "./views";
 import { solveWaiting } from "./waiting";
+import { reserveTargetPayload } from "./budget";
+import { bindCompletedEvidence, completedEvidenceRequested } from "./completedEvidence";
 export function completeWaiting(
   output: CertifiedOutput,
   input: CertifiedInput,
@@ -14,6 +17,7 @@ export function completeWaiting(
   kernel: FiniteKernel,
   priors: readonly Q[],
 ): void {
+  const records: CompletedDate[] | undefined = completedEvidenceRequested(input) ? [] : undefined;
   const received = new Set(input.receivedEventIds ?? []);
   const claimable = input.snapshot.events.filter(
     (event) =>
@@ -27,9 +31,12 @@ export function completeWaiting(
     output.waiting = waitingBase("claim_required", "current_claimable_unreceived");
   } else if (input.computeWaiting === false) output.waiting = waitingBase("not_requested", null);
   else
-    output.waiting = solveWaiting(input, sid, root, kernel, priors, (value) =>
-      certifiedValueView(kernel.actualValue(value)),
-    );
+    output.waiting = solveWaiting(input, sid, root, kernel, priors,
+      (value) => certifiedValueView(kernel.actualValue(value)), records);
+  if (output.target && output.current)
+    output.target = selectTarget(output.target, output.current.value, records ?? [],
+      claimable.length > 0, kernel.budget.check, bytes => reserveTargetPayload(kernel.budget, bytes));
+  if (records) bindCompletedEvidence(output, input, records, kernel.budget);
   if (input.snapshot.sourceStatus !== "healthy") {
     output.waiting.evidence = [
       ...output.waiting.evidence,

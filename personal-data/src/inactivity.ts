@@ -1,5 +1,6 @@
 import type { GoogleIdentity } from "./auth";
 import { queueDeletion } from "./consent";
+import { failureCode, logFailure } from "./log";
 import type { PersonalEnv } from "./types";
 
 /** Two UTC calendar years; leap-day anniversaries fall on February 28 in a non-leap year. */
@@ -73,9 +74,10 @@ export async function runInactivityDeletion(env: PersonalEnv, now: number): Prom
         now,
         row.last_active_at,
       );
-    } catch {
+    } catch (error) {
       // Before blocking there is no deletion job to back off. Keep this candidate from
       // monopolizing selection, without delaying a concurrently refreshed account.
+      logFailure("personal_data_inactivity_failed", failureCode(error));
       await env.PERSONAL_DB.prepare(
         `UPDATE accounts SET inactivity_retry_after = ?
          WHERE user_id = ? AND blocked = 0 AND last_active_at = ?`,

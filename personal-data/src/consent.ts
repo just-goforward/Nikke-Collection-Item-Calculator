@@ -1,6 +1,7 @@
 import { FLOW_TTL_MS, identityHash, type SessionAccount, sha256 } from "./auth";
 import type { ConsentGet, ConsentPut, PrivacyAccepted } from "./contracts";
 import { exactKeys, HttpError, validId } from "./http";
+import { failureCode, logFailure } from "./log";
 import {
   blockPublication,
   type PrivacyIntent,
@@ -12,15 +13,18 @@ import type { PersonalEnv } from "./types";
 
 export function consentBody(value: Record<string, unknown>): ConsentPut {
   exactKeys(value, ["opId", "baseDecisionVersion", "participation"]);
+  const opId = value["opId"];
+  const participation = value["participation"];
+  const baseDecisionVersion = value["baseDecisionVersion"];
   if (
-    !validId(value["opId"]) ||
-    typeof value["participation"] !== "boolean" ||
-    !Number.isSafeInteger(value["baseDecisionVersion"]) ||
-    Number(value["baseDecisionVersion"]) < 0
+    !validId(opId) ||
+    typeof participation !== "boolean" ||
+    !Number.isSafeInteger(baseDecisionVersion) ||
+    Number(baseDecisionVersion) < 0
   ) {
     throw new HttpError(400, "invalid_request");
   }
-  return value as unknown as ConsentPut;
+  return { opId, participation, baseDecisionVersion: Number(baseDecisionVersion) };
 }
 
 export async function getConsent(env: PersonalEnv, userId: string): Promise<ConsentGet> {
@@ -46,6 +50,28 @@ interface Reservation {
   attempt_nonce: string | null;
   busy_until: number;
   maintenance_after: number;
+}
+
+function nullableNumber(value: unknown): number | null {
+  return value === null || value === undefined ? null : Number(value);
+}
+
+/** D1 rows are untyped; every field a reservation write depends on is read explicitly. */
+function reservationRow(row: Record<string, unknown>): Reservation {
+  return {
+    user_id: String(row["user_id"]),
+    op_id: String(row["op_id"]),
+    request_hash: String(row["request_hash"]),
+    base_revision: Number(row["base_revision"]),
+    participation: Number(row["participation"]),
+    write_nonce: String(row["write_nonce"]),
+    created_at: Number(row["created_at"]),
+    fence_generation: nullableNumber(row["fence_generation"]),
+    attempt_nonce:
+      nullableNumber(row["attempt_nonce"]) === null ? null : String(row["attempt_nonce"]),
+    busy_until: Number(row["busy_until"]),
+    maintenance_after: Number(row["maintenance_after"]),
+  };
 }
 
 const CONSENT_LEASE_MS = 60_000;
@@ -101,12 +127,13 @@ async function putConsentCore(
   ];
   intent.beforeWrite();
   const result = await env.PRIVACY_CONTROL_DB.batch(statements);
-  const operation = result[0]?.results[0] as { request_hash: string } | undefined;
+  const operation = result[0]?.results[0];
   if (operation) {
-    if (operation.request_hash !== hash) throw new HttpError(409, "op_id_conflict");
+    if (String(operation["request_hash"]) !== hash) throw new HttpError(409, "op_id_conflict");
     return getConsent(env, account.userId);
   }
-  const reserved = result[2]?.results[0] as unknown as Reservation | undefined;
+  const reservedRow = result[2]?.results[0];
+  const reserved = reservedRow ? reservationRow(reservedRow) : undefined;
   if (!reserved) throw new HttpError(409, "revision_conflict");
   if (reserved.op_id !== input.opId) throw new HttpError(409, "consent_change_pending");
   if (reserved.request_hash !== hash) throw new HttpError(409, "op_id_conflict");
@@ -260,10 +287,13 @@ async function queueDeletionCore(
   return { operationId: opId, ...(await finishDeletion(env, account.userId)) };
 }
 
-async function finishDeletion(
-  env: PersonalEnv,
-  userId: string,
-): Promise<{ fenceGeneration: number; status: "complete" }> {
+/**
+ * "pending" is returned only when the durable completion marker was not written. The deletion
+ * job is then kept, so scheduled maintenance retries it instead of losing automatic recovery.
+ */
+type DeletionOutcome = { fenceGeneration: number; status: "complete" | "pending" };
+
+async function finishDeletion(env: PersonalEnv, userId: string): Promise<DeletionOutcome> {
   const job = await env.PERSONAL_DB.prepare(
     "SELECT op_id, created_at, fence_generation, fence_ready FROM deletion_jobs WHERE user_id = ?",
   )
@@ -289,11 +319,16 @@ async function finishDeletion(
     job.created_at,
   );
   await reapplyUserTombstones(env, userId);
-  await env.PRIVACY_CONTROL_DB.prepare(
+  const completed = await env.PRIVACY_CONTROL_DB.prepare(
     "UPDATE privacy_operations SET state = 'complete' WHERE user_id = ? AND op_id = ? AND kind = 'deletion'",
   )
     .bind(userId, job.op_id)
     .run();
+  if (completed.meta.changes !== 1) {
+    // A pending operation keeps publication blocked, so the job must survive to retry it.
+    logFailure("personal_data_deletion_completion_failed", "incomplete_write");
+    return { fenceGeneration: job.fence_generation, status: "pending" };
+  }
   await env.PERSONAL_DB.prepare("DELETE FROM deletion_jobs WHERE user_id = ?").bind(userId).run();
   return { fenceGeneration: job.fence_generation, status: "complete" };
 }
@@ -305,12 +340,15 @@ export async function resumeDeletion(env: PersonalEnv, userId: string): Promise<
     .first();
   if (!job) return true;
   try {
-    await withPrivacyIntent(env, (intent) => {
+    const outcome = await withPrivacyIntent(env, (intent) => {
       intent.beforeWrite();
       return finishDeletion(env, userId);
     });
-    return true;
-  } catch {
+    // An unwritten completion marker is reported as an unapplied deletion, never as success.
+    return outcome.status === "complete";
+  } catch (error) {
+    // Reported as an unapplied deletion, never as success; the job row keeps the retry.
+    logFailure("personal_data_deletion_resume_failed", failureCode(error));
     return false;
   }
 }
@@ -333,8 +371,9 @@ export async function runPrivacyMaintenance(
       let completed = false;
       try {
         completed = await resumeDeletion(env, userId);
-      } catch {
-        completed = false;
+      } catch (error) {
+        // The selection read itself failed for this job; isolate it from the remaining jobs.
+        logFailure("personal_data_deletion_resume_failed", failureCode(error));
       }
       if (!completed) {
         try {
@@ -343,7 +382,10 @@ export async function runPrivacyMaintenance(
           )
             .bind(now + MAINTENANCE_RETRY_MS, userId)
             .run();
-        } catch {}
+        } catch (error) {
+          // The job keeps its ready retry_after, so the next run selects it again.
+          logFailure("personal_data_deletion_backoff_failed", failureCode(error));
+        }
       }
     }
     return;
@@ -358,15 +400,19 @@ export async function runPrivacyMaintenance(
     const userId = String(row["user_id"]);
     try {
       await recoverConsentChange(env, userId, now);
-    } catch {
+    } catch (error) {
       // This delays only scheduled retries; a matching client retry can resume immediately.
+      logFailure("personal_data_consent_maintenance_failed", failureCode(error));
       try {
         await env.PRIVACY_CONTROL_DB.prepare(
           "UPDATE consent_reservations SET maintenance_after = ? WHERE user_id = ? AND busy_until = 0",
         )
           .bind(now + MAINTENANCE_RETRY_MS, userId)
           .run();
-      } catch {}
+      } catch (backoffError) {
+        // The reservation keeps its maintenance_after, so the next run selects it again.
+        logFailure("personal_data_consent_backoff_failed", failureCode(backoffError));
+      }
     }
   }
 }

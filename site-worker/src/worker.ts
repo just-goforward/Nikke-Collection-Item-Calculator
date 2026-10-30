@@ -1,8 +1,11 @@
+import { errorCode } from "../../shared/errorCodes";
+import { createForecastEndpoint, type ForecastEnv } from "./forecast";
 import { tokensMatch, validProbeSecret } from "./probe-auth";
 
+const forecastEndpoint = createForecastEndpoint();
 type FetchBinding = { fetch(request: Request): Promise<Response> };
 
-export type SiteEnv = {
+export type SiteEnv = ForecastEnv & {
   ASSETS: FetchBinding;
   SITE_ENV?: string;
   STATS?: FetchBinding;
@@ -16,6 +19,7 @@ export type SiteEnv = {
 const STATS_METHODS: Record<string, readonly string[]> = {
   "/api/stats": ["GET"],
   "/api/events": ["POST"],
+  "/api/decision-events": ["POST"],
 };
 
 // Exact personal-data HTTP contract, including the existing session/settings aliases.
@@ -64,14 +68,17 @@ async function proxy(
     headers.delete("Cookie");
     headers.delete("Authorization");
     headers.delete("Proxy-Authorization");
+    if (new URL(request.url).pathname === "/api/decision-events") headers.delete("Referer");
   }
   try {
     const response = await binding.fetch(new Request(request, { headers, redirect: "manual" }));
     const forwarded = privateResponse(response, noStore);
     if (!credentials) forwarded.headers.delete("Set-Cookie");
     return forwarded;
-  } catch {
-    // Never log request headers, personal data, or upstream exception details.
+  } catch (error) {
+    // Never log request headers, personal data, or upstream exception details: only the
+    // registry's fixed category for the upstream binding call is recorded.
+    console.warn(JSON.stringify({ event: "upstream_proxy_failed", code: errorCode(error) }));
     return errorResponse(502, "service_unavailable");
   }
 }
@@ -79,6 +86,8 @@ async function proxy(
 export default {
   async fetch(request: Request, env: SiteEnv): Promise<Response> {
     const path = new URL(request.url).pathname;
+    if (path === "/api/forecast" || path === "/api/forecast/version")
+      return privateResponse(await forecastEndpoint(request, env), true);
     if (path === "/api/_ci/stats-health") {
       const authorization = request.headers.get("Authorization") ?? "";
       if (

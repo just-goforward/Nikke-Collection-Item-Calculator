@@ -3,6 +3,14 @@
 //! board draws/rerolls and cohort expectation arithmetic stay inside WASM.
 use super::*;
 use std::rc::Rc;
+mod rates;
+mod v3_gate;
+mod convolve_grouping;
+#[cfg(test)]
+mod convolve_tests;
+#[cfg(test)]
+mod convolve_grouping_tests;
+
 pub type Pieces = [u64; 3];
 const MAX_SAFE_PIECES: u64 = 9_007_199_254_740_991;
 fn checked_pieces_sum(a: u64, b: u64) -> Result<u64> {
@@ -29,6 +37,8 @@ pub struct Event {
 pub struct Law {
     id: String,
     kind: String,
+    // Legacy versions ignored this metadata; only v3 constrains its value.
+    model_version: Option<Json>,
     outcomes: Option<Vec<Row>>,
     outcomes_by_cohort: Option<Vec<Vec<Row>>>,
 }
@@ -41,9 +51,11 @@ pub struct Class {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Model {
+    snapshot_version: String,
     pub events: Vec<Event>,
     laws: Vec<Law>,
     pub priors: Vec<WireQ>,
+    population_prior: Vec<WireQ>,
     dispatch: Vec<LawRef>,
     shop: Vec<LawRef>,
     solo: Vec<LawRef>,
@@ -57,20 +69,164 @@ pub struct Outcome {
     pub mass: Q,
 }
 pub type Dist = Rc<Vec<Outcome>>;
-pub(super) type CohortSupports = [Vec<Pieces>; 4];
+pub(super) type CohortSupports = Vec<Vec<Pieces>>;
+struct IntegerConvolution {
+    numerators: [Vec<BigUint>; 2],
+    denominator: BigUint,
+    grouping_bounds: convolve_grouping::Bounds,
+}
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ConvolvePath {
+    Fast,
+    Rational,
+}
+
+// Bound retained payload for the pinned num-bigint/Vec/HashMap implementations,
+// before allocating common denominators or scaled numerators. This is admission,
+// not a reservation or an upper bound on transient library arithmetic scratch.
+fn convolve_integer_bytes(bits: u64) -> Option<usize> {
+    // Keep x2: num-bigint 0.4.8's BigDigits::normalize only shrinks below
+    // half capacity, and Vec's append growth can retain nearly twice the
+    // required length. These integers are fresh normalized products or
+    // nondecreasing sums, not copies of arbitrary input capacities. Two
+    // spare 64-bit words cover multiplication's extra limb, the odd-capacity
+    // half threshold and minimum Vec capacity for either digit width.
+    usize::try_from(bits.checked_add(63)? / 64)
+        .ok()?
+        .checked_add(2)?
+        .checked_mul(8)?
+        .checked_mul(2)
+}
+
+fn convolve_workspace_bytes(
+    lengths: [usize; 2],
+    limit: usize,
+    denominator_bits: [u64; 2],
+    excess_bits: [u64; 2],
+) -> Option<usize> {
+    let a_bits = denominator_bits[0].checked_add(excess_bits[0])?;
+    let b_bits = denominator_bits[1].checked_add(excess_bits[1])?;
+    // Each scaled numerator is < 2^a_bits or < 2^b_bits. There are at most
+    // lengths[0] * lengths[1] nonnegative contributions to any output row.
+    let mass_bits = a_bits
+        .checked_add(b_bits)?
+        .checked_add((usize::BITS - lengths[0].saturating_sub(1).leading_zeros()) as u64)?
+        .checked_add((usize::BITS - lengths[1].saturating_sub(1).leading_zeros()) as u64)?;
+    let a_bytes = convolve_integer_bytes(a_bits)?;
+    let b_bytes = convolve_integer_bytes(b_bits)?;
+    let mass_bytes = convolve_integer_bytes(mass_bits)?;
+    let denominator_bytes =
+        convolve_integer_bytes(denominator_bits[0].checked_add(denominator_bits[1])?)?;
+    let rows = lengths[0].checked_mul(lengths[1])?.min(limit);
+    let slots = rows.max(4).checked_next_power_of_two()?;
+    let inputs = lengths[0]
+        .checked_mul(std::mem::size_of::<BigUint>().checked_add(a_bytes)?)?
+        .checked_add(
+            lengths[1].checked_mul(std::mem::size_of::<BigUint>().checked_add(b_bytes)?)?,
+        )?;
+    let outputs = slots
+        .checked_mul(std::mem::size_of::<(Pieces, BigUint)>())?
+        .checked_add(rows.checked_mul(std::mem::size_of::<Outcome>())?)?
+        .checked_add(rows.checked_mul(mass_bytes.checked_add(denominator_bytes)?)?)?;
+    // A row vector grown by push needs at most next_power_of_two(max(rows,4))
+    // slots. The pinned HashMap's 7/8 load bound needs at most twice that many
+    // buckets, plus its control bytes and trailing group (at most 16 bytes).
+    // Count both output vectors even though inputs/the map are dropped before
+    // final conversion. Reallocation overlap and internal arithmetic scratch
+    // are transient, and remain subject to the accounted allocator.
+    let indices = slots
+        .checked_mul(2)?
+        .checked_mul(std::mem::size_of::<(Pieces, usize)>().checked_add(1)?)?
+        .checked_add(16)?;
+    inputs
+        .checked_add(outputs)?
+        .checked_add(indices)?
+        .checked_add(mass_bytes)?
+        .checked_add(denominator_bytes.checked_mul(6)?)
+}
+
+fn convolve_cap_volume(caps: Pieces) -> Option<usize> {
+    caps.iter().try_fold(1usize, |volume, &cap| {
+        volume.checked_mul(usize::try_from(cap.checked_add(1)?).ok()?)
+    })
+}
+
+fn convolve_capped_workspace_bytes(
+    lengths: [usize; 2],
+    limit: usize,
+    caps: Pieces,
+    denominator_bits: [u64; 2],
+    excess_bits: [u64; 2],
+) -> Option<usize> {
+    // A successful capped key lies in [0,caps[0]] x [0,caps[1]] x [0,caps[2]].
+    // checked_add rejects the unbounded u64::MAX sentinel. Any conversion or
+    // volume overflow retains the original bound; never use a partial product.
+    let volume = convolve_cap_volume(caps);
+    convolve_workspace_bytes(
+        lengths,
+        volume.map_or(limit, |volume| limit.min(volume)),
+        denominator_bits,
+        excess_bits,
+    )
+}
+
+fn convolve_reachable_volume(minima: [Pieces; 2], maxima: [Pieces; 2], caps: Pieces) -> Option<usize> {
+    (0..3).try_fold(1usize, |volume, axis| {
+        // Unsafe raw extrema disable this refinement, even when capping would
+        // hide them. Only the original pair loop may report a piece error.
+        let lo = caps[axis].min(checked_pieces_sum(minima[0][axis], minima[1][axis]).ok()?);
+        let hi = caps[axis].min(checked_pieces_sum(maxima[0][axis], maxima[1][axis]).ok()?);
+        let width = usize::try_from(hi.checked_sub(lo)?.checked_add(1)?).ok()?;
+        volume.checked_mul(width)
+    })
+}
+
 pub struct Supply {
     pub model: Model,
     pub priors: Vec<Q>,
+    population_prior: Vec<Q>,
     cache: HashMap<(String, usize, usize), Dist>,
     boxes: HashMap<(usize, usize), Dist>,
     support_cache: HashMap<(String, usize), Rc<CohortSupports>>,
     deadline: f64,
     ticks: usize,
+    #[cfg(test)]
+    pub(super) convolve_last_path: Option<ConvolvePath>,
+    #[cfg(test)]
+    pub(super) convolve_force_rational: bool,
+    #[cfg(test)]
+    pub(super) convolve_force_admission_failure: bool,
+    #[cfg(test)]
+    convolve_scratch_failure: Option<convolve_grouping::ForcedFailure>,
+    #[cfg(test)]
+    convolve_grouping_active: bool,
+    #[cfg(test)]
+    convolve_flush_trace: Option<Vec<(usize, usize, usize, usize)>>,
+    #[cfg(test)]
+    convolve_fail_check_at: Option<usize>,
 }
 impl Supply {
     pub fn new(model: Model, deadline: f64) -> Result<Self> {
-        // Three priors are the historical profile, four the new profile. Never pad.
+        v3_gate::validate_laws(&model)?;
+        let fixed_dispatch = model.snapshot_version == "certified-daily-v5";
+        if model.population_prior.len() != if fixed_dispatch { 3 } else { 4 } {
+            return Err("invalid_population_prior");
+        }
+        let population_prior = model
+            .population_prior
+            .iter()
+            .map(WireQ::rational)
+            .collect::<Result<Vec<_>>>()?;
+        if population_prior.iter().any(|q| q < &Q::zero())
+            || population_prior.iter().sum::<Q>() != Q::one()
+            || !v3_gate::population_prior_is_allowed(&model.snapshot_version, &population_prior)
+        {
+            return Err("invalid_population_prior");
+        }
+        // Arity is versioned: v1 and v5 both have three entries. Never pad.
         if !matches!(model.priors.len(), 3 | 4)
+            || (fixed_dispatch && model.priors.len() != 3)
             || model.dispatch_expected.len() != model.priors.len()
         {
             return Err("invalid_cohort_weights");
@@ -90,18 +246,40 @@ impl Supply {
         if priors.iter().any(|q| q < &Q::zero()) || priors.iter().sum::<Q>() != Q::one() {
             return Err("invalid_cohort_weights");
         }
+        if fixed_dispatch && priors != population_prior {
+            return Err("invalid_cohort_weights");
+        }
         Ok(Self {
             model,
             priors,
+            population_prior,
             cache: HashMap::new(),
             boxes: HashMap::new(),
             support_cache: HashMap::new(),
             deadline,
             ticks: 0,
+            #[cfg(test)]
+            convolve_last_path: None,
+            #[cfg(test)]
+            convolve_force_rational: false,
+            #[cfg(test)]
+            convolve_force_admission_failure: false,
+            #[cfg(test)]
+            convolve_scratch_failure: None,
+            #[cfg(test)]
+            convolve_grouping_active: false,
+            #[cfg(test)]
+            convolve_flush_trace: None,
+            #[cfg(test)]
+            convolve_fail_check_at: None,
         })
     }
     fn check(&mut self) -> Result<()> {
         self.ticks += 1;
+        #[cfg(test)]
+        if self.ticks % 32 == 0 && self.convolve_fail_check_at == Some(self.ticks) {
+            return Err("request_budget_exhausted");
+        }
         if self.ticks % 32 == 0 && now() >= self.deadline {
             return Err("request_budget_exhausted");
         }
@@ -113,7 +291,342 @@ impl Supply {
             mass: Q::one(),
         }]
     }
+    fn convolve_deadline(&self) -> Result<()> {
+        if now() >= self.deadline {
+            Err("request_budget_exhausted")
+        } else {
+            Ok(())
+        }
+    }
+    fn convolve_admit(&self, bytes: Option<usize>) -> bool {
+        #[cfg(test)]
+        if self.convolve_force_admission_failure {
+            return false;
+        }
+        let Some(bytes) = bytes else {
+            return false;
+        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            super::allocation::can_admit(bytes)
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = bytes;
+            true
+        }
+    }
+    fn prepare_convolve(
+        &self,
+        a: &[Outcome],
+        b: &[Outcome],
+        caps: Pieces,
+        limit: usize,
+    ) -> Result<Option<IntegerConvolution>> {
+        let inputs = [a, b];
+        let lengths = [a.len(), b.len()];
+        let mut excess_bits = [0; 2];
+        let mut minima = [[u64::MAX; 3]; 2];
+        let mut maxima = [[0; 3]; 2];
+        // Never interpret a signed numerator's magnitude as its probability.
+        for (side, rows) in inputs.iter().enumerate() {
+            for (i, row) in rows.iter().enumerate() {
+                if i % 32 == 0 {
+                    self.convolve_deadline()?;
+                }
+                if row.mass.numer() < &BigInt::zero() || row.mass.denom() <= &BigInt::zero() {
+                    return Ok(None);
+                }
+                // Include left-zero rows (which can retain support) and every
+                // right row. This piggybacks on the existing validation pass.
+                for (axis, &pieces) in row.pieces.iter().enumerate() {
+                    minima[side][axis] = minima[side][axis].min(pieces);
+                    maxima[side][axis] = maxima[side][axis].max(pieces);
+                }
+                if !row.mass.is_zero() {
+                    let Some(excess) = row
+                        .mass
+                        .numer()
+                        .bits()
+                        .saturating_sub(row.mass.denom().bits())
+                        .checked_add(1)
+                    else {
+                        return Ok(None);
+                    };
+                    excess_bits[side] = excess_bits[side].max(excess);
+                }
+            }
+            if !rows.is_empty() {
+                self.convolve_deadline()?;
+            }
+        }
+        // One call-wide bound for every admission gate; never replace the real
+        // support limit or operand lengths. None retains the original estimate.
+        let projection_limit =
+            convolve_reachable_volume(minima, maxima, caps).map_or(limit, |volume| limit.min(volume));
+        let mut denominator_bits = [1; 2];
+        if !self.convolve_admit(convolve_capped_workspace_bytes(
+            lengths,
+            projection_limit,
+            caps,
+            denominator_bits,
+            excess_bits,
+        )) {
+            return Ok(None);
+        }
+        let mut denominators = [BigUint::one(), BigUint::one()];
+        for (side, rows) in inputs.iter().enumerate() {
+            for (i, row) in rows.iter().enumerate() {
+                if i % 32 == 0 {
+                    self.convolve_deadline()?;
+                }
+                let d = row.mass.denom().magnitude();
+                if d.is_one() || &denominators[side] == d {
+                    continue;
+                }
+                let Some(candidate_bits) = denominator_bits[side].checked_add(d.bits()) else {
+                    return Ok(None);
+                };
+                let mut projected_bits = denominator_bits;
+                projected_bits[side] = candidate_bits;
+                if !self.convolve_admit(convolve_capped_workspace_bytes(
+                    lengths,
+                    projection_limit,
+                    caps,
+                    projected_bits,
+                    excess_bits,
+                )) {
+                    return Ok(None);
+                }
+                if (&denominators[side] % d).is_zero() {
+                    continue;
+                }
+                // Q's reduction supplies d/gcd(D,d), without another dependency
+                // or a second implementation of arbitrary-precision GCD.
+                let reduced = Q::new(denominators[side].clone().into(), row.mass.denom().clone());
+                denominators[side] *= reduced.denom().magnitude();
+                denominator_bits[side] = denominators[side].bits();
+            }
+            if !rows.is_empty() {
+                self.convolve_deadline()?;
+            }
+        }
+        if !self.convolve_admit(convolve_capped_workspace_bytes(
+            lengths,
+            projection_limit,
+            caps,
+            denominator_bits,
+            excess_bits,
+        )) {
+            return Ok(None);
+        }
+        let denominator = &denominators[0] * &denominators[1];
+        let mut numerators: [Vec<BigUint>; 2] = std::array::from_fn(|_| Vec::new());
+        for (side, rows) in inputs.iter().enumerate() {
+            if numerators[side].try_reserve_exact(rows.len()).is_err() {
+                return Ok(None);
+            }
+            for (i, row) in rows.iter().enumerate() {
+                if i % 32 == 0 {
+                    self.convolve_deadline()?;
+                }
+                let numerator = if row.mass.is_zero() {
+                    BigUint::zero()
+                } else {
+                    row.mass.numer().magnitude()
+                        * (&denominators[side] / row.mass.denom().magnitude())
+                };
+                numerators[side].push(numerator);
+            }
+            if !rows.is_empty() {
+                self.convolve_deadline()?;
+            }
+        }
+        Ok(Some(IntegerConvolution {
+            numerators,
+            denominator,
+            // Metadata only: no E estimation, admission or reservation until
+            // this entire original C preparation has returned successfully.
+            grouping_bounds: convolve_grouping::Bounds {
+                lengths,
+                projection_limit,
+                caps,
+                denominator_bits,
+                excess_bits,
+            },
+        }))
+    }
+    fn flush_convolve_groups(
+        &mut self,
+        scratch: &mut convolve_grouping::Scratch,
+        left: &BigUint,
+        right: &[BigUint],
+        out: &mut [(Pieces, BigUint)],
+        row: usize,
+    ) {
+        #[cfg(test)]
+        let (m, g) = scratch.pending();
+        scratch.flush(left, right, out);
+        #[cfg(test)]
+        if m != 0 {
+            if let Some(trace) = &mut self.convolve_flush_trace {
+                trace.push((self.ticks, row, m, g));
+            }
+        }
+        #[cfg(not(test))]
+        let _ = row;
+    }
+    /// With D_A/D_B the input denominator LCMs, scale masses to integers A_i/B_j
+    /// and accumulate A_i*B_j over D_A*D_B, then normalize each final Q once.
+    /// Signed/raw-invalid masses or failed admission use convolve_rational;
+    /// preparation buffers are dropped before that exact fallback.
+    /// Retained payload is bounded separately: scaled-numerator bit bounds and
+    /// the pair count bound every nonnegative partial sum; distinct rows are at
+    /// most min(|A|*|B|,limit,product(caps+1)). The cap bound is used only when all
+    /// caps are finite and its checked product fits usize, otherwise it is
+    /// omitted. The reachable box further bounds rows by product(hi-lo+1), with
+    /// lo=min(cap,minA+minB), hi=min(cap,maxA+maxB) per axis over all input rows.
+    /// Unsafe raw sums or usize overflow omit only this refinement.
+    /// Integer capacity slack, row-vector slots, index-map buckets and
+    /// normalized output denominators are included by convolve_workspace_bytes.
+    /// This does not bound transient GCD/division/multiplication scratch or
+    /// reallocation overlap: the accounted allocator enforces those allocations
+    /// too. The projection is not a reservation or a promise of total heap fit.
+    /// Keep first-insertion order, capped collisions, left-zero rows, checked
+    /// piece sums and support errors in the original pair positions. Each pair
+    /// calls self.check() exactly once, before skipping a right-zero mass.
+    /// Sign, denominator, numerator and final-conversion loops check the clock
+    /// directly before indices 0,32,64,... and after each nonempty loop. These
+    /// checks never change ticks and only return request_budget_exhausted;
+    /// individual big-integer operations remain non-preemptible.
     pub fn convolve(
+        &mut self,
+        a: &[Outcome],
+        b: &[Outcome],
+        caps: Pieces,
+        limit: usize,
+    ) -> Result<Vec<Outcome>> {
+        let result = self.convolve_inner(a, b, caps, limit);
+        result
+    }
+    fn convolve_inner(
+        &mut self,
+        a: &[Outcome],
+        b: &[Outcome],
+        caps: Pieces,
+        limit: usize,
+    ) -> Result<Vec<Outcome>> {
+        #[cfg(test)]
+        {
+            self.convolve_last_path = None;
+            self.convolve_grouping_active = false;
+            if self.convolve_force_rational {
+                self.convolve_last_path = Some(ConvolvePath::Rational);
+                return self.convolve_rational(a, b, caps, limit);
+            }
+        }
+        // The original empty product does not inspect masses or the deadline.
+        let prepared = if a.is_empty() || b.is_empty() {
+            None
+        } else {
+            self.prepare_convolve(a, b, caps, limit)?
+        };
+        let Some(IntegerConvolution {
+            numerators,
+            denominator,
+            grouping_bounds,
+        }) = prepared
+        else {
+            #[cfg(test)]
+            {
+                self.convolve_last_path = Some(ConvolvePath::Rational);
+            }
+            return self.convolve_rational(a, b, caps, limit);
+        };
+        // E rejection drops every scratch allocation, but retains C's prepared
+        // numerators/denominator. It must never restart or select rational.
+        let mut grouping = convolve_grouping::Scratch::prepare(self, grouping_bounds);
+        #[cfg(test)]
+        {
+            self.convolve_last_path = Some(ConvolvePath::Fast);
+            self.convolve_grouping_active = grouping.is_some();
+        }
+        let mut indices = HashMap::<Pieces, usize>::new();
+        let mut out: Vec<(Pieces, BigUint)> = Vec::new();
+        for (xi, x) in a.iter().enumerate() {
+            for (yi, y) in b.iter().enumerate() {
+                // Flush BEFORE the next existing clock-bearing check, including
+                // when entry ticks are unaligned. The checked pair itself starts
+                // the next window. No E clock reads or ticks are introduced.
+                if self.ticks % 32 == 31 {
+                    if let Some(scratch) = grouping.as_mut() {
+                        self.flush_convolve_groups(
+                            scratch, &numerators[0][xi], &numerators[1], &mut out, xi,
+                        );
+                    }
+                }
+                self.check()?;
+                if y.mass.is_zero() {
+                    continue;
+                }
+                let mut pieces = [0; 3];
+                for k in 0..3 {
+                    pieces[k] = caps[k].min(checked_pieces_sum(x.pieces[k], y.pieces[k])?);
+                }
+                if let Some(scratch) = grouping.as_mut() {
+                    let slot = if let Some(&i) = indices.get(&pieces) {
+                        i
+                    } else {
+                        if out.len() >= limit {
+                            return Err("exact_support_limit");
+                        }
+                        let i = out.len();
+                        indices.insert(pieces, i);
+                        out.push((pieces, BigUint::zero()));
+                        i
+                    };
+                    scratch.push(slot, yi, &numerators[1]);
+                } else {
+                    // Original C LCM loop, sharing every pair visit, tick,
+                    // right-zero skip and checked raw/capped key computation.
+                    let mass = &numerators[0][xi] * &numerators[1][yi];
+                    if let Some(&i) = indices.get(&pieces) {
+                        out[i].1 += mass;
+                    } else {
+                        if out.len() >= limit {
+                            return Err("exact_support_limit");
+                        }
+                        indices.insert(pieces, out.len());
+                        out.push((pieces, mass));
+                    }
+                }
+            }
+            if let Some(scratch) = grouping.as_mut() {
+                self.flush_convolve_groups(
+                    scratch, &numerators[0][xi], &numerators[1], &mut out, xi,
+                );
+            }
+        }
+        drop(grouping);
+        drop(numerators);
+        drop(indices);
+        let length = out.len();
+        let mut result = Vec::with_capacity(length);
+        for (i, (pieces, numerator)) in out.into_iter().enumerate() {
+            if i % 32 == 0 {
+                self.convolve_deadline()?;
+            }
+            result.push(Outcome {
+                pieces,
+                mass: Q::new(numerator.into(), denominator.clone().into()),
+            });
+        }
+        if length != 0 {
+            self.convolve_deadline()?;
+        }
+        Ok(result)
+    }
+    pub(super) fn convolve_rational(
         &mut self,
         a: &[Outcome],
         b: &[Outcome],
@@ -391,14 +904,14 @@ impl Supply {
     }
     pub fn supports(&mut self, reference: &LawRef) -> Result<Rc<CohortSupports>> {
         self.check()?;
-        if self.priors.len() != 4 {
+        if self.priors.len() != 4 && self.model.snapshot_version != "certified-daily-v5" {
             return Err("minimum_wait_requires_four_cohorts");
         }
         let key = (reference.law_id.clone(), reference.count);
         if let Some(rows) = self.support_cache.get(&key) {
             return Ok(Rc::clone(rows));
         }
-        let mut supports: CohortSupports = std::array::from_fn(|_| Vec::new());
+        let mut supports: CohortSupports = vec![Vec::new(); self.population_prior.len()];
         for (cohort, rows) in supports.iter_mut().enumerate() {
             let law = self.law(reference, cohort)?;
             *rows = law
@@ -415,114 +928,6 @@ impl Supply {
         let supports = Rc::new(supports);
         self.support_cache.insert(key, Rc::clone(&supports));
         Ok(supports)
-    }
-
-    fn expected(&mut self, refs: &[LawRef], priors: &[Q]) -> Result<[Q; 3]> {
-        let mut gain = std::array::from_fn(|_| Q::zero());
-        for r in refs {
-            if r.count == 0 {
-                continue;
-            }
-            for (cohort, prior) in priors.iter().enumerate() {
-                self.check()?;
-                if prior.is_zero() {
-                    continue;
-                }
-                let values =
-                    if r.law_id == "dispatch-board-v1" && self.finite_law(&r.law_id).is_none() {
-                        let row = &self.model.dispatch_expected[cohort];
-                        [row[0].rational()?, row[1].rational()?, row[2].rational()?]
-                    } else {
-                        let rows = self.law(
-                            &LawRef {
-                                law_id: r.law_id.clone(),
-                                count: 1,
-                            },
-                            cohort,
-                        )?;
-                        std::array::from_fn(|k| {
-                            rows.iter()
-                                .map(|o| &o.mass * Q::from_integer(o.pieces[k].into()))
-                                .sum()
-                        })
-                    };
-                for k in 0..3 {
-                    gain[k] += prior * &values[k] * Q::from_integer(r.count.into());
-                }
-            }
-        }
-        Ok(gain)
-    }
-    fn recurring_rates(&mut self, priors: &[Q]) -> Result<[Q; 3]> {
-        let dispatch = self.expected(&self.model.dispatch.clone(), priors)?;
-        let shop = self.expected(&self.model.shop.clone(), priors)?;
-        let solo = self.expected(&self.model.solo.clone(), priors)?;
-        let cadence = self.model.cadence.rational()?;
-        if cadence <= Q::zero() {
-            return Err("invalid_cadence");
-        }
-        Ok(std::array::from_fn(|k| {
-            &dispatch[k] + &shop[k] / Q::from_integer(7.into()) + &solo[k] / &cadence
-        }))
-    }
-
-    pub fn minimum_wait_rates(&mut self) -> Result<[Q; 3]> {
-        if self.priors.len() != 4 {
-            return Err("minimum_wait_requires_four_cohorts");
-        }
-        let priors = [1, 2, 3, 1].map(|n| Q::new(n.into(), 7.into()));
-        self.recurring_rates(&priors)
-    }
-
-    pub fn pricing(&mut self, basis: Units, stock: Units, sid: usize) -> Result<([Q; 3], [Q; 3])> {
-        let rates = self.recurring_rates(&self.priors.clone())?;
-        let mut weights = std::array::from_fn(|_| Q::zero());
-        for k in 0..3 {
-            let denominator = &rates[k] + Q::from_integer(basis[k].into());
-            if denominator.is_zero() {
-                let mut usable = sid < TERMINAL && stock[k] >= 10;
-                if sid < TERMINAL && !usable {
-                    for cohort in 0..self.priors.len() {
-                        if self.priors[cohort].is_zero() {
-                            continue;
-                        }
-                        let mut reachable = stock[k] as u64;
-                        for event in self.model.events.clone() {
-                            for r in event.refs {
-                                let law = self.law(&r, cohort)?;
-                                reachable = reachable.saturating_add(
-                                    law.iter()
-                                        .filter(|r| r.mass > Q::zero())
-                                        .map(|r| r.pieces[k])
-                                        .max()
-                                        .unwrap_or(0),
-                                );
-                                if reachable >= 10 {
-                                    usable = true;
-                                    break;
-                                }
-                            }
-                            if usable {
-                                break;
-                            }
-                        }
-                        if usable {
-                            break;
-                        }
-                    }
-                }
-                if usable {
-                    return Err([
-                        "zero_basis_future_usable_blue",
-                        "zero_basis_future_usable_purple",
-                        "zero_basis_future_usable_yellow",
-                    ][k]);
-                }
-            } else {
-                weights[k] = denominator.recip();
-            }
-        }
-        Ok((rates, weights))
     }
 }
 fn law_limit(reason: &'static str) -> &'static str {
@@ -546,10 +951,12 @@ mod tests {
         "custom",
     ];
 
-    fn source(laws: Json) -> Supply {
+    pub(super) fn source(laws: Json) -> Supply {
         let model = serde_json::from_value(json!({
+            "snapshotVersion": "certified-daily-v1",
             "events": [], "laws": laws,
             "priors": vec![wire(&Q::new(1.into(),3.into())); 3],
+            "populationPrior": ([1, 2, 3, 1].map(|n| wire(&Q::new(n.into(), 7.into())))),
             "dispatch": [], "shop": [], "solo": [],
             "cadence": wire(&Q::from_integer(30.into())),
             "dispatchExpected": vec![vec![wire(&Q::one());3];3],
@@ -558,10 +965,10 @@ mod tests {
         .unwrap();
         Supply::new(model, f64::MAX).unwrap()
     }
-    fn row(pieces: Pieces, numerator: i64, denominator: i64) -> Json {
+    pub(super) fn row(pieces: Pieces, numerator: i64, denominator: i64) -> Json {
         json!({"pieces":pieces,"mass":{"numerator":numerator.to_string(),"denominator":denominator.to_string()}})
     }
-    fn reference(id: &str, count: usize) -> LawRef {
+    pub(super) fn reference(id: &str, count: usize) -> LawRef {
         LawRef {
             law_id: id.to_string(),
             count,
@@ -572,6 +979,116 @@ mod tests {
         for (actual, &(pieces, n, d)) in rows.iter().zip(expected) {
             assert_eq!(actual.pieces, pieces);
             assert_eq!(actual.mass, Q::new(n.into(), d.into()));
+        }
+    }
+
+    #[test]
+    fn capped_convolution_projection_uses_cap_volume_for_a_hard_shape() {
+        let lengths = [1_100, 1_141];
+        let bits = [11_000, 231];
+        let uncapped = convolve_workspace_bytes(lengths, 25_000, bits, [1; 2]).unwrap();
+        let capped =
+            convolve_capped_workspace_bytes(lengths, 25_000, [10; 3], bits, [1; 2]).unwrap();
+        let volume = 11usize.pow(3);
+        assert_eq!(
+            capped,
+            convolve_workspace_bytes(lengths, volume, bits, [1; 2]).unwrap()
+        );
+        assert!(capped < uncapped);
+        // Pure headroom arithmetic for the review's 154 MiB example, not a
+        // claim about the live heap or fast-path selection of actual late days.
+        assert!(capped < 154 * 1024 * 1024);
+    }
+
+    #[test]
+    fn capped_convolution_projection_keeps_the_original_bound_on_volume_overflow() {
+        let lengths = [1_100, 1_141];
+        let original = convolve_workspace_bytes(lengths, 25_000, [11_000, 231], [1; 2]);
+        // All caps are finite, but the product cannot fit either usize width.
+        assert_eq!(
+            convolve_capped_workspace_bytes(
+                lengths,
+                25_000,
+                [u64::MAX - 1; 3],
+                [11_000, 231],
+                [1; 2],
+            ),
+            original
+        );
+    }
+
+    #[test]
+    fn capped_convolution_projection_treats_any_max_cap_as_unbounded() {
+        let lengths = [1_100, 1_141];
+        let original = convolve_workspace_bytes(lengths, 25_000, [11_000, 231], [1; 2]);
+        for color in 0..3 {
+            // The other dimensions must not turn a partial volume into a bound.
+            let mut caps = [0; 3];
+            caps[color] = u64::MAX;
+            assert_eq!(
+                convolve_capped_workspace_bytes(lengths, 25_000, caps, [11_000, 231], [1; 2]),
+                original
+            );
+        }
+    }
+
+    #[test]
+    fn capped_convolution_projection_is_monotone_in_each_bound() {
+        let project = |lengths, limit, caps, bits, excess| {
+            convolve_capped_workspace_bytes(lengths, limit, caps, bits, excess).unwrap()
+        };
+        let ascending = |values: Vec<usize>| {
+            assert!(values.windows(2).all(|pair| pair[0] <= pair[1]));
+        };
+        for color in 0..3 {
+            ascending(
+                [0, 1, 3, 10, 100, u64::MAX - 1, u64::MAX]
+                    .into_iter()
+                    .map(|cap| {
+                        let mut caps = [10; 3];
+                        caps[color] = cap;
+                        project([1_100, 1_141], 25_000, caps, [11_000, 231], [1; 2])
+                    })
+                    .collect(),
+            );
+        }
+        ascending(
+            [0, 1, 4, 7, 8, 1_331, 25_000]
+                .into_iter()
+                .map(|limit| project([1_100, 1_141], limit, [10; 3], [11_000, 231], [1; 2]))
+                .collect(),
+        );
+        for side in 0..2 {
+            ascending(
+                [1, 2, 4, 8, 64, 1_141]
+                    .into_iter()
+                    .map(|length| {
+                        let mut lengths = [1_100, 1_141];
+                        lengths[side] = length;
+                        project(lengths, 25_000, [10; 3], [11_000, 231], [1; 2])
+                    })
+                    .collect(),
+            );
+            ascending(
+                [1, 31, 32, 63, 64, 65, 11_000]
+                    .into_iter()
+                    .map(|bits| {
+                        let mut denominators = [11_000, 231];
+                        denominators[side] = bits;
+                        project([1_100, 1_141], 25_000, [10; 3], denominators, [1; 2])
+                    })
+                    .collect(),
+            );
+            ascending(
+                [0, 1, 31, 32, 64, 128]
+                    .into_iter()
+                    .map(|bits| {
+                        let mut excess = [1; 2];
+                        excess[side] = bits;
+                        project([1_100, 1_141], 25_000, [10; 3], [11_000, 231], excess)
+                    })
+                    .collect(),
+            );
         }
     }
 

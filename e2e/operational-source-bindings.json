@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "inventoryDigest": "2a45d0cbe0642f0b4d64a49e9b11f8cf2a21d56504f98935120a22c77116d302",
+  "sources": {
+    "vitest.operational-ci.config.ts": "576d85d41c39c841780958390e85d686e4daa2db800629b8ef90b8243c2fb4c1",
+    "e2e/operational-vitest-reporter.ts": "ba2908213e3a29ce0f8d1010803677e6ebcb743fae1b7db247b35274f547431a",
+    "e2e/operational-console-flood.test.mjs": "9a0ba857f211eda137dec97e5e13391191d28efcc8bca8e31bacad9f548b4c60",
+    "tsconfig.operational-ci.json": "2f034f0bd444d16fe0720652b4284a35876ca6ac2074e0bb3baf2ea0b34335f1",
+    "e2e/operational-type-config.test.mjs": "6ba590ee5026cf2c7359cee1c23fbe5f966a2b3ffdfc0dafe6eb7bdc5947e542",
+    "src/certified/wasmBackend.spec.ts": "7893059cb4389322c798abcd2a3c10c8fd48f65ef761faa4f75ef58473bccc51",
+    "e2e/decision-analytics.spec.ts": "889e97cfeed9419dc7d12e943c407de73997f6a00344f48cc3ac4e8cfa248301",
+    "e2e/decision-analytics-browser.tsx": "beeefa808b87eec648144963a49422616194e3ab4772e147b61d6870f5c77e07",
+    "e2e/decision-analytics-client.ts": "3ae2e066142e50e6e5afe4c08b35428a9b680b724daceb092f119cd5b39b11f8",
+    "e2e/decision-analytics-persistence.ts": "73896c3ca32341beb85a58e335d523570e8c67560b5ee6cf5818aa022aeef350",
+    "e2e/forecast-async.fixtures.ts": "081be50a68b922620084045a9d653aa5703790a801ceb29efb721dc9d8f2eda1",
+    "e2e/operational-production.spec.ts": "edd78b61e56d34d55f4e70c955a4082dedd850a72887ba47130cd9517cb1d09e",
+    "e2e/operational-font-policy.mjs": "7f7c65f6268aeb27dc95c663217f3d686bd4017887024f71a7eb80223cf6f432",
+    "shared/siteLocales.ts": "1342fb07a6be7f988285915279876db27b13fc5ecba13e5aea2ff9e95cca0370",
+    "e2e/operational-case-map.mjs": "4bfd4150d5a96115d6076129fc69ec94d4b3fc6bace395443d58b51ff45ab619"
+  }
+}

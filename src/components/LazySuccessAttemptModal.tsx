@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n/locale";
-import { lazyModuleRetryUrl, reloadWithLegacyInputs } from "../lib/lazyModuleRetry";
+import { lazyModuleRetryUrl } from "../lib/lazyModuleRetry";
+import { reloadWithoutPersonalRecovery as reloadWithLegacyInputs } from "../lib/volatileSession";
 import type { SuccessAttemptModalState } from "../ui-types";
 import { LazySectionErrorBoundary } from "./LazySectionErrorBoundary";
 import { useDialogFocusTrap } from "./useDialogFocusTrap";

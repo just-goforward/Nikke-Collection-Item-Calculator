@@ -2,6 +2,10 @@ import { KIT_ORDER } from "../../shared/game";
 import type { CertifiedCurrent, CertifiedOutput } from "../certified/types";
 import { kitDotClass } from "../components/kitPresentation";
 import { useI18n } from "../i18n/locale";
+import {
+  CertifiedRecommendationResult,
+  type CertifiedRecommendationResultProps,
+} from "./CertifiedRecommendationResult";
 import { KIT_INDICES, useKitLabel, wireNumber } from "./CertifiedSupplyPanels";
 import type { CertifiedWords } from "./messages";
 import {
@@ -13,7 +17,7 @@ import { certifiedCurrentRefusal } from "./runStatus";
 
 export type CertifiedOutcome = "normal" | "great";
 
-type ResultPanelsProps = {
+export type ResultPanelsProps = {
   output: CertifiedOutput | null;
   busy: boolean;
   words: CertifiedWords;
@@ -23,12 +27,14 @@ type ResultPanelsProps = {
   actionsDisabled: boolean;
   onOutcome: (outcome: CertifiedOutcome) => void;
   onConvert: () => void;
+  /** Internal presentation opt-in; omission preserves the existing result layout. */
+  autoRecommendation?: Omit<CertifiedRecommendationResultProps, "enabled" | "busy">;
 };
 
 /** Native certified output: current use/preserve/complete and the waiting recommendation. */
 export function ResultPanels(props: ResultPanelsProps) {
   const refusal = certifiedCurrentRefusal(props.output);
-  if (refusal)
+  if (refusal && !props.autoRecommendation)
     return (
       <p role="alert" className="cert-notice cert-notice-danger">
         {refusal === "limit" ? props.words.limit : props.words.error}
@@ -36,8 +42,12 @@ export function ResultPanels(props: ResultPanelsProps) {
     );
   return (
     <div className="cert-result-grid" aria-live="polite">
-      <CurrentResult {...props} />
-      <WaitingResult {...props} />
+      {refusal ? <p role="alert" className="cert-notice cert-notice-danger">
+        {refusal === "limit" ? props.words.limit : props.words.error}
+      </p> : <CurrentResult {...props} />}
+      {props.autoRecommendation ? <CertifiedRecommendationResult
+        {...props.autoRecommendation} enabled busy={props.busy}
+      /> : <WaitingResult {...props} />}
     </div>
   );
 }
@@ -70,7 +80,7 @@ function CurrentAction({
           disabled={actionsDisabled}
           onClick={() => onOutcome("normal")}
         >
-          {words.normal}
+          <span className="cert-button-label">{words.normal}</span>
         </button>
         <button
           type="button"
@@ -78,7 +88,7 @@ function CurrentAction({
           disabled={actionsDisabled}
           onClick={() => onOutcome("great")}
         >
-          {words.great}
+          <span className="cert-button-label">{words.great}</span>
         </button>
       </div>
     </>
@@ -95,7 +105,7 @@ function ConvertAction({ actionsDisabled, conversionRequired, onConvert, words }
         disabled={actionsDisabled}
         onClick={onConvert}
       >
-        {words.convert}
+        <span className="cert-button-label">{words.convert}</span>
       </button>
     </div>
   );
@@ -128,7 +138,7 @@ function CurrentValue(props: CurrentProps) {
         </div>
       </dl>
       <CurrentAction {...props} />
-      {current.kit && (
+      {current.kit && !props.autoRecommendation && (
         <div
           data-testid="certified-minimum-wait"
           data-status={
@@ -177,6 +187,11 @@ function CurrentResult(props: ResultPanelsProps) {
   return (
     <section className="cert-card" data-testid="certified-current">
       <h3>{props.words.current}</h3>
+      {props.autoRecommendation && <p className="cert-muted">{{
+        ko: "지금 강화하는 경우의 행동과 최종 SR15 도달 확률입니다. 지금 강화하라는 추천과는 다릅니다.",
+        en: "Action and final SR15 probability if you upgrade now. This is not a recommendation to upgrade now.",
+        ja: "今強化する場合の行動と最終 SR15 到達確率です。今強化する推奨とは異なります。",
+      }[props.autoRecommendation.locale]}</p>}
       {current ? <CurrentValue {...props} current={current} /> : <MissingCurrent {...props} />}
     </section>
   );
@@ -220,26 +235,29 @@ function WaitingResult(props: ResultPanelsProps) {
   const { formatPercent } = useI18n();
   const { output, busy, words } = props;
   const wait = output?.waiting;
+  const content = <>
+    <h3>{words.recommend}</h3>
+    {wait?.status === "certified" && wait.recommendedDays !== null ? (
+      <>
+        <p className="cert-wait-day">{waitDayText(wait.recommendedDays, words)}</p>
+        {wait.rangeBoundary && <p className="cert-notice">{words.boundary}</p>}
+        {wait.successImprovementUpperBound && (
+          <p>
+            {words.gap}: ≤ {formatPercent(wireNumber(wait.successImprovementUpperBound), 3)}
+          </p>
+        )}
+      </>
+    ) : (
+      <p className="cert-notice" data-waiting-status={wait?.status ?? "none"}>
+        {waitingMessage(output, busy, words)}
+      </p>
+    )}
+    <p className="cert-muted">{words.estimates}</p>
+    <p className="cert-muted">{words.magnitudeUncomputed}</p>
+  </>;
   return (
     <section className="cert-card" data-testid="certified-waiting">
-      <h3>{words.recommend}</h3>
-      {wait?.status === "certified" && wait.recommendedDays !== null ? (
-        <>
-          <p className="cert-wait-day">{waitDayText(wait.recommendedDays, words)}</p>
-          {wait.rangeBoundary && <p className="cert-notice">{words.boundary}</p>}
-          {wait.successImprovementUpperBound && (
-            <p>
-              {words.gap}: ≤ {formatPercent(wireNumber(wait.successImprovementUpperBound), 3)}
-            </p>
-          )}
-        </>
-      ) : (
-        <p className="cert-notice" data-waiting-status={wait?.status ?? "none"}>
-          {waitingMessage(output, busy, words)}
-        </p>
-      )}
-      <p className="cert-muted">{words.estimates}</p>
-      <p className="cert-muted">{words.magnitudeUncomputed}</p>
+      {content}
       <WaitingPricing {...props} />
     </section>
   );

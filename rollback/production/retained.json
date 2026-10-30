@@ -1,0 +1,348 @@
+{
+  "version": 1,
+  "documentPolicy": "HTML/navigation documents, sitemap/robots and private build metadata belong to the selected frontend release. All other archived public runtime resources are retained.",
+  "generations": [
+    {
+      "id": "a4658b8f16b3fca18b8a8bf0039d7a7505444f2d",
+      "role": "current",
+      "artifactId": 12384740660,
+      "siteVersion": "5642929c-b133-426e-a29e-3686a3d33f40",
+      "archiveSha256": "0cbd7673b0a34e9c8c3cd665b5e09d9609edd1af132b42060e28e6735b4135c9",
+      "entry": "/assets/index-DBmseKMr.js",
+      "engineProfile": {
+        "id": "certified-staging-v2",
+        "environment": "staging",
+        "schemaVersion": "certified-daily-v2",
+        "priceVersion": "stock-plus-recurring-day-v1",
+        "solverVersion": "certified-exact-rust-wasm-v1",
+        "lawVersion": "documented-physical-supply-v2",
+        "wasmHash": "0dd2f50d682678c9c23c1fe87eea32d16b349c316a9dd3e79d9365bc49ddbf2e",
+        "codeHash": "3edbc7aee424d4b836248981914c8daff257fa65ce808bd78782f1cbdbf5a435",
+        "cacheNamespace": "certified-staging-v2:3edbc7aee424d4b836248981914c8daff257fa65ce808bd78782f1cbdbf5a435",
+        "sessionNamespace": "collection-certified-staging-v2",
+        "diagnosticsEnvironment": "staging",
+        "recoveryEnvironment": "staging"
+      },
+      "workers": [
+        {
+          "source": "src/certifiedRuntime/browserWorker.ts",
+          "entry": "/assets/browserWorker-DW1kWeJ-.js",
+          "chunks": [
+            "/assets/browserWorker-DW1kWeJ-.js"
+          ]
+        },
+        {
+          "source": "src/worker.ts",
+          "entry": "/assets/worker-ChF9Mfx9.js",
+          "chunks": [
+            "/assets/supplyForecastRuntime-DDqpVeWj.js",
+            "/assets/worker-ChF9Mfx9.js"
+          ]
+        }
+      ],
+      "files": [
+        {
+          "url": "/assets/AccountEntry-DOb2gTI9.js",
+          "sha256": "4936bf34b6fe085b407637a44b04aa44f38c5c5a4378079e7585fc764d11013d",
+          "bytes": 78944
+        },
+        {
+          "url": "/assets/CertifiedCalculator-DHjE91tz.js",
+          "sha256": "2a5052af7aa0691a0089ddbe7e56d62c86e132365f94f28ac4bff1776b0d62be",
+          "bytes": 119305
+        },
+        {
+          "url": "/assets/CertifiedCalculator-hg8oebi3.css",
+          "sha256": "0aab08b0d1777571a00317f918351421b284b69b15c9684e7df30966662497fc",
+          "bytes": 4207
+        },
+        {
+          "url": "/assets/DetailPanel-BYhinRMA.js",
+          "sha256": "1e3dbb005ca5c3f85a7c0e1d1df597d08964f2d52fd9d8eac1873bf73c3f97c5",
+          "bytes": 21866
+        },
+        {
+          "url": "/assets/RecommendationContent-BFML87GQ.js",
+          "sha256": "a9109a0b9ce67a7bd607916c3b6959cbb12b592c0f53cc443c8c86faeb6c9091",
+          "bytes": 13395
+        },
+        {
+          "url": "/assets/StatsPanelBody-Dx3jd5mH.js",
+          "sha256": "43111168da22fd1649730b865c3a1c0a17030f49e0c797a8510dbd6be6a16284",
+          "bytes": 24521
+        },
+        {
+          "url": "/assets/SuccessAttemptModal-DYsFjrZR.js",
+          "sha256": "09f3c9032708515395d29a5c7f9200f701ab2605b28b5b5888fe139d9f3b29b4",
+          "bytes": 6450
+        },
+        {
+          "url": "/assets/browserWorker-DW1kWeJ-.js",
+          "sha256": "66bcfccb98ac4b5c55965a4f41a55bb509e3baad6d8ddce65f6accc71b9ad00b",
+          "bytes": 63157
+        },
+        {
+          "url": "/assets/demoStats-z7RyRlc_.js",
+          "sha256": "5e2374410cb1936423d1a17871e4096018a64dffa9a71c8beeaa5d563ac039be",
+          "bytes": 3395
+        },
+        {
+          "url": "/assets/index-DBmseKMr.js",
+          "sha256": "902a0339cf744224c50bd3d899a6104c515d45b524458d612441aec51a62e744",
+          "bytes": 220669
+        },
+        {
+          "url": "/assets/index-DSIEkFue.css",
+          "sha256": "62d7e956e8341b134b324ae355199f1e06bc8eee3581d22455820b0032f19a27",
+          "bytes": 96121
+        },
+        {
+          "url": "/assets/legacyInputRecovery-zK0ZgzLB.js",
+          "sha256": "b7b46c05138562e1a3ae1f8428d4dee76237f5168bb5208e5b38aa36b783c9ce",
+          "bytes": 1542
+        },
+        {
+          "url": "/assets/react-CiIEYdbH.js",
+          "sha256": "3b0b275aadc61c5998d075b3eb5fdb3deaf37ba36ccf576270093fc922162f34",
+          "bytes": 218777
+        },
+        {
+          "url": "/assets/schemas-CF1WjMV4.js",
+          "sha256": "3807e181c7b0fb8f947f7b7c14ec382ae64c5909835c549f6a1bbcf551684545",
+          "bytes": 1440
+        },
+        {
+          "url": "/assets/schemas-DTAKN762.js",
+          "sha256": "dcf8702aa8806ef8ca621a34435930d7a1552f5efaf0ca84a7b297a257e683af",
+          "bytes": 27684
+        },
+        {
+          "url": "/assets/solve-CQ613xSp.js",
+          "sha256": "1c737110b603893c4b28959077587b44683d14a65a00baac1df7cb009d31b915",
+          "bytes": 10984
+        },
+        {
+          "url": "/assets/statsErrorResponse-Dxx4x9hV.js",
+          "sha256": "db414a818bbc1615205da85927c545fb4653e6e2f6e78bdafb7a8a6823fcb4de",
+          "bytes": 1107
+        },
+        {
+          "url": "/assets/statsView-BKg6lyQm.js",
+          "sha256": "ab5b4058a98eaea3f60814d9a5c2ca635aaefa49c572b38ec4b88d6336d0bf10",
+          "bytes": 2479
+        },
+        {
+          "url": "/assets/supplyForecastRuntime-DDqpVeWj.js",
+          "sha256": "17be8d1e77c9717520890eb5e6f18866d40fc687834ea2829631c9e31ae55909",
+          "bytes": 13669
+        },
+        {
+          "url": "/assets/supplyForecastRuntime-SQigaBzU.js",
+          "sha256": "1fc3fec2b39c21d36e1a504ca0e1ccc775de642eda8f8867f6f98f3317adb242",
+          "bytes": 13667
+        },
+        {
+          "url": "/assets/turnstileScriptLoader-C-uS8Dda.js",
+          "sha256": "2ee6179c335ed0ee37f2da52765b7fc716e6fc05546e70aea2eb5cff88967a7c",
+          "bytes": 978
+        },
+        {
+          "url": "/assets/worker-ChF9Mfx9.js",
+          "sha256": "0a9bb75036070d22ab454bb475652c9814899ca2096d4fd2d07afde083beb803",
+          "bytes": 40737
+        },
+        {
+          "url": "/certified_solver.wasm",
+          "sha256": "0dd2f50d682678c9c23c1fe87eea32d16b349c316a9dd3e79d9365bc49ddbf2e",
+          "bytes": 943549
+        },
+        {
+          "url": "/favicon-32.png",
+          "sha256": "300b9a4e8c3fa48869446267679aa6c64732afef66856453eef91bc8fb1d3d9d",
+          "bytes": 2093
+        },
+        {
+          "url": "/icon-192.png",
+          "sha256": "207ec9083eb8f6d5179179c53ad4e8ee5f5446267df2034068e8bad0a497243e",
+          "bytes": 54608
+        },
+        {
+          "url": "/solver_rs.wasm",
+          "sha256": "00d048298243919048ced1658a3d2ec1b01fc6b23c1b76a267bdff87432e35f5",
+          "bytes": 111787
+        }
+      ]
+    },
+    {
+      "id": "96ec256460f85d2466fd262528bdd972e13d4a6c",
+      "role": "previous",
+      "artifactId": 12341124610,
+      "siteVersion": "834c3ea1-9d01-493c-8754-8b3aaf94898f",
+      "archiveSha256": "50f786f354bd03ace4b983e12bb5ebe05d4df0b2111bde7353b0a8ce336262a2",
+      "entry": "/assets/index-BHqXqhNr.js",
+      "engineProfile": {
+        "id": "certified-staging-v2",
+        "environment": "staging",
+        "schemaVersion": "certified-daily-v2",
+        "priceVersion": "stock-plus-recurring-day-v1",
+        "solverVersion": "certified-exact-rust-wasm-v1",
+        "lawVersion": "documented-physical-supply-v2",
+        "wasmHash": "0dd2f50d682678c9c23c1fe87eea32d16b349c316a9dd3e79d9365bc49ddbf2e",
+        "codeHash": "3edbc7aee424d4b836248981914c8daff257fa65ce808bd78782f1cbdbf5a435",
+        "cacheNamespace": "certified-staging-v2:3edbc7aee424d4b836248981914c8daff257fa65ce808bd78782f1cbdbf5a435",
+        "sessionNamespace": "collection-certified-staging-v2",
+        "diagnosticsEnvironment": "staging",
+        "recoveryEnvironment": "staging"
+      },
+      "workers": [
+        {
+          "source": "src/certifiedRuntime/browserWorker.ts",
+          "entry": "/assets/browserWorker-DW1kWeJ-.js",
+          "chunks": [
+            "/assets/browserWorker-DW1kWeJ-.js"
+          ]
+        },
+        {
+          "source": "src/worker.ts",
+          "entry": "/assets/worker-ChF9Mfx9.js",
+          "chunks": [
+            "/assets/supplyForecastRuntime-DDqpVeWj.js",
+            "/assets/worker-ChF9Mfx9.js"
+          ]
+        }
+      ],
+      "files": [
+        {
+          "url": "/assets/AccountEntry-Cc-WOhbu.js",
+          "sha256": "d6b7419837bdf3fe0f6235616336dd4098960e8d6264d554be87165eea58aa35",
+          "bytes": 78944
+        },
+        {
+          "url": "/assets/CertifiedCalculator-C-DfIsrb.js",
+          "sha256": "fdb7921ceb1aa878ed6339e9a4b31a8fb877e88670a247c7bc72969638f994b0",
+          "bytes": 119305
+        },
+        {
+          "url": "/assets/CertifiedCalculator-hg8oebi3.css",
+          "sha256": "0aab08b0d1777571a00317f918351421b284b69b15c9684e7df30966662497fc",
+          "bytes": 4207
+        },
+        {
+          "url": "/assets/DetailPanel-B1xD1cfD.js",
+          "sha256": "b4cbaac550f925e6df899e0c26b73a2da515c059bc2c6f32dd762936c8c80a50",
+          "bytes": 21866
+        },
+        {
+          "url": "/assets/RecommendationContent-BFNnwPCa.js",
+          "sha256": "876f96678a154871c08ff4f954514d6f84c5da4d41bf5bb3161b5191a5af66c6",
+          "bytes": 13395
+        },
+        {
+          "url": "/assets/StatsPanelBody-C29-4o-A.js",
+          "sha256": "5bc779215950cdccdd1e48746735f31cb2ef54ea0b7696a0efb763eeae677905",
+          "bytes": 24521
+        },
+        {
+          "url": "/assets/SuccessAttemptModal-CBEtvxKl.js",
+          "sha256": "d2c4eb3e2a428b49c1429cfb4056a6b8ad461be124916a31447e8ea9041ddc27",
+          "bytes": 6450
+        },
+        {
+          "url": "/assets/browserWorker-DW1kWeJ-.js",
+          "sha256": "66bcfccb98ac4b5c55965a4f41a55bb509e3baad6d8ddce65f6accc71b9ad00b",
+          "bytes": 63157
+        },
+        {
+          "url": "/assets/demoStats-BD7CEIMt.js",
+          "sha256": "bf5ed785d00dca49073756c34a2a07bfafbef1981f3b5d05a0b9dccf2777ce71",
+          "bytes": 3395
+        },
+        {
+          "url": "/assets/index-BHqXqhNr.js",
+          "sha256": "b9fa8acdd90428c4c7d11d992d1d5fb440f0b6b6aad63efaa3870995b0bccae5",
+          "bytes": 220669
+        },
+        {
+          "url": "/assets/index-DSIEkFue.css",
+          "sha256": "62d7e956e8341b134b324ae355199f1e06bc8eee3581d22455820b0032f19a27",
+          "bytes": 96121
+        },
+        {
+          "url": "/assets/legacyInputRecovery-DmGShOmr.js",
+          "sha256": "fc1feabe7bbc7f209c84b682e937141aa84233478a40936de55acc323aed9859",
+          "bytes": 1542
+        },
+        {
+          "url": "/assets/react-CiIEYdbH.js",
+          "sha256": "3b0b275aadc61c5998d075b3eb5fdb3deaf37ba36ccf576270093fc922162f34",
+          "bytes": 218777
+        },
+        {
+          "url": "/assets/schemas-CF1WjMV4.js",
+          "sha256": "3807e181c7b0fb8f947f7b7c14ec382ae64c5909835c549f6a1bbcf551684545",
+          "bytes": 1440
+        },
+        {
+          "url": "/assets/schemas-DTAKN762.js",
+          "sha256": "dcf8702aa8806ef8ca621a34435930d7a1552f5efaf0ca84a7b297a257e683af",
+          "bytes": 27684
+        },
+        {
+          "url": "/assets/solve-BXrNQMnX.js",
+          "sha256": "077aed147e06dd09f2f3455998ed03b210517f82408ad9b5cc786f997277ed16",
+          "bytes": 10984
+        },
+        {
+          "url": "/assets/statsErrorResponse-e98qOsXr.js",
+          "sha256": "08d5b57a27a041c6199af5bcfc088bbaa749bfd9e1ccb03265ac30359c3ea19a",
+          "bytes": 1107
+        },
+        {
+          "url": "/assets/statsView-CAphMdVJ.js",
+          "sha256": "23d97edc10611798ef707df02bb54857dcd36bed459a8778cbaa360ef3e60208",
+          "bytes": 2479
+        },
+        {
+          "url": "/assets/supplyForecastRuntime-DDqpVeWj.js",
+          "sha256": "17be8d1e77c9717520890eb5e6f18866d40fc687834ea2829631c9e31ae55909",
+          "bytes": 13669
+        },
+        {
+          "url": "/assets/supplyForecastRuntime-SQigaBzU.js",
+          "sha256": "1fc3fec2b39c21d36e1a504ca0e1ccc775de642eda8f8867f6f98f3317adb242",
+          "bytes": 13667
+        },
+        {
+          "url": "/assets/turnstileScriptLoader-C-uS8Dda.js",
+          "sha256": "2ee6179c335ed0ee37f2da52765b7fc716e6fc05546e70aea2eb5cff88967a7c",
+          "bytes": 978
+        },
+        {
+          "url": "/assets/worker-ChF9Mfx9.js",
+          "sha256": "0a9bb75036070d22ab454bb475652c9814899ca2096d4fd2d07afde083beb803",
+          "bytes": 40737
+        },
+        {
+          "url": "/certified_solver.wasm",
+          "sha256": "0dd2f50d682678c9c23c1fe87eea32d16b349c316a9dd3e79d9365bc49ddbf2e",
+          "bytes": 943549
+        },
+        {
+          "url": "/favicon-32.png",
+          "sha256": "300b9a4e8c3fa48869446267679aa6c64732afef66856453eef91bc8fb1d3d9d",
+          "bytes": 2093
+        },
+        {
+          "url": "/icon-192.png",
+          "sha256": "207ec9083eb8f6d5179179c53ad4e8ee5f5446267df2034068e8bad0a497243e",
+          "bytes": 54608
+        },
+        {
+          "url": "/solver_rs.wasm",
+          "sha256": "00d048298243919048ced1658a3d2ec1b01fc6b23c1b76a267bdff87432e35f5",
+          "bytes": 111787
+        }
+      ]
+    }
+  ]
+}

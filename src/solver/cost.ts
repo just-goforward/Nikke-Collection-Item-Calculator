@@ -1,13 +1,16 @@
 import type { KitVector, ResearchCostModel, Strategy } from "./domain";
 import {
-  EXPECTED_28_DAY_GAIN,
   KIT_ORDER,
   STRICT_EPSILON,
   SUPPLY_AVAILABILITY_PARAMS,
+  selectedSupplyGain,
 } from "./domain";
 
-export function legacySupplyCostScore(vector: KitVector) {
-  return KIT_ORDER.reduce((sum, kit) => sum + vector[kit] / EXPECTED_28_DAY_GAIN[kit], 0);
+export function legacySupplyCostScore(
+  vector: KitVector,
+  expectedGain: KitVector = selectedSupplyGain(),
+) {
+  return KIT_ORDER.reduce((sum, kit) => sum + availabilityRatio(vector[kit], expectedGain[kit]), 0);
 }
 
 function availabilityRatio(consumption: number, availability: number) {
@@ -40,7 +43,7 @@ function availabilityCostScoreWithParams(
       ? Math.max(0, model.horizonFactor)
       : SUPPLY_AVAILABILITY_PARAMS.horizon;
   const normPower = model.normPower ?? SUPPLY_AVAILABILITY_PARAMS.normPower;
-  const expectedGain = model.expectedGain ?? EXPECTED_28_DAY_GAIN;
+  const expectedGain = model.expectedGain ?? selectedSupplyGain();
 
   const ratios = KIT_ORDER.map((kit) =>
     availabilityRatio(vector[kit], stockPieces[kit] + horizonFactor * expectedGain[kit]),
@@ -58,7 +61,7 @@ function availabilityCostScoreWithParams(
 export function availabilityCostScore(
   vector: KitVector,
   stockPieces: KitVector,
-  expectedGain: KitVector = EXPECTED_28_DAY_GAIN,
+  expectedGain: KitVector = selectedSupplyGain(),
 ) {
   return availabilityCostScoreWithParams(vector, stockPieces, {
     kind: "availability-pnorm",

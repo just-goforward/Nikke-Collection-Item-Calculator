@@ -1,18 +1,41 @@
 import type { WireQ } from "../../shared/certifiedRational";
 import type { CertifiedSupplySnapshot } from "../../shared/certifiedSupply";
 import type { CohortTuple, DispatchCohort } from "../../shared/certifiedSupplyLaws";
+import type { PublicationBytes } from "../../shared/forecastPublicationBytes";
 
 export type Triple = readonly [number, number, number];
 export type ExactTriple = readonly [WireQ, WireQ, WireQ];
+export interface CertifiedRiskSummaries {
+  schemaVersion: 1;
+  policyVersion: "experimental-w-selector-v1";
+  horizonDays: 14;
+  records: readonly {
+    day: number;
+    meanSuccessP: WireQ;
+    insufficientGainMass: WireQ;
+    noFurtherWaitCertifiedMass: WireQ;
+    renewedWaitUpperBound: WireQ;
+  }[];
+}
 type CertifiedKit = "blue" | "purple" | "yellow";
 
 export interface CertifiedInput {
+  /** Internal default-off risk-qualified selector; never a frontend option. */
+  stableRecommendation?: import("../certifiedRecommendation/stablePolicy").StableRiskPolicy;
+  target?: { version: "target-v1"; alpha: WireQ; maxDays?: number };
+  /** Internal opt-in to retain already completed date evidence; never a user target. */
+  autoRecommendation?: boolean;
+  /** Internal bounded summary opt-in; does not select a recommendation policy. */
+  riskSummary?: boolean;
   grade: "R" | "SR";
   level: number;
   exp: number;
   stock: Triple;
   asOf: string;
   snapshot: CertifiedSupplySnapshot;
+  forecastPublication?: PublicationBytes;
+  /** Explicit unsigned local policy; omitted means approved authority/publication. */
+  forecastSource?: "local";
   cohortWeights?: CohortTuple<WireQ>;
   receivedEventIds?: readonly string[];
   /** Original raw stock for fixed prices across a closed-loop execution. */
@@ -23,7 +46,21 @@ export interface CertifiedInput {
   batchLimit?: number;
 }
 
+/** Internal request-owned admission handle; never serialized onto the wire. */
+export interface CertifiedEvidenceBudget {
+  check(): void;
+  reserve(bytes: number): void;
+  release(bytes: number): void;
+}
+
+/** Compatibility name for the existing target consumer. */
+export type CertifiedTargetBudget = CertifiedEvidenceBudget;
+
 export interface CertifiedOptions {
+  /** Target-only hook, called once before current callbacks with the existing request budget. */
+  onTargetBudget?: (budget: CertifiedTargetBudget) => void;
+  /** Target OR auto opt-in: the same request budget, before Current callbacks and after return. */
+  onEvidenceBudget?: (budget: CertifiedEvidenceBudget) => void;
   /** Monotonic deadline, including the time already spent in the worker queue and initialization. */
   deadlineAt?: number;
   /** Lower test/work admission limits may be selected; neither may exceed the production ceilings. */
@@ -31,7 +68,7 @@ export interface CertifiedOptions {
   maxSupportPoints?: number;
   /** Standalone ceiling 192 MiB; managed workers reserve separate boundary headroom. */
   maxManagedPayloadBytes?: number;
-  /** Current first, then a bound minimum-wait/tie update before H56 work. */
+  /** Current first, then a bound minimum-wait/tie update before H14 work. */
   onCurrent?: (partial: CertifiedOutput) => void;
 }
 
@@ -60,10 +97,15 @@ export interface CertifiedCurrent {
 
 export interface CertifiedWaiting {
   status: "certified" | "unresolved" | "claim_required" | "not_requested";
-  horizonDays: 56;
+  horizonDays: 14;
   recommendedDays: number | null;
   rangeBoundary: boolean;
   bestDayRange: readonly [number, number] | null;
+  /**
+   * When non-null, exact P/B/C and per-color expected consumption at recommendedDays,
+   * including day 0; never substitute the horizon vector merely because P/B/C tie.
+   * Null when that day's exact value is not computed (including boundary witnesses).
+   */
   value: CertifiedValue | null;
   evaluatedDays: readonly number[];
   /** Certified upper bound on success-probability improvement after H; never an MC estimate. */
@@ -119,10 +161,22 @@ export interface CertifiedMinimumWaitProbe {
 }
 
 export interface CertifiedOutput {
+  riskSummaries?: CertifiedRiskSummaries;
+  target?: CertifiedTarget;
+  /**
+   * Internal auto-only final evidence; absent from Current callbacks, claim-gated
+   * results and failed evidence production. D0 is the final post-H7 Current.
+   * A successful waiting adapter return (including unresolved completed prefixes)
+   * or explicit waiting skip publishes 1..15 records once binding succeeds.
+   * A thrown failure may preserve partial Current without this envelope; absence
+   * is not an empty record set and must not be repaired into evidence by consumers.
+   * Runtime owns identity binding and recommendation policy; never infer missing dates.
+   */
+  completedEvidence?: { schemaVersion: 1; records: readonly CompletedDate[] };
   status: "completed" | "partial" | "refused";
   current: CertifiedCurrent | null;
   waiting: CertifiedWaiting;
-  /** Optional for historical/reference outputs; never inferred from the H56 result. */
+  /** Optional for historical/reference outputs; never inferred from the H14 result. */
   minimumWait?: CertifiedMinimumWait;
   refusal: {
     reason: string;
@@ -156,4 +210,25 @@ export interface CertifiedOutput {
     wasmMemoryBytes: number;
     kernelCalls: number;
   };
+}
+
+export interface CompletedDate {
+  day: number;
+  value: CertifiedValue;
+}
+
+export interface CertifiedTarget {
+  version: "target-v1";
+  alpha: WireQ;
+  maxDays: number;
+  status: "certified" | "not_reached_within_limit" | "unresolved" | "claim_required";
+  minimumDays: number | null;
+  /** Exact probabilities only; selected vector is retained once, below. */
+  probabilities: readonly { day: number; successP: WireQ }[];
+  earliestNotRuledOutDay: number | null;
+  attainedByDay: number | null;
+  /** Actual contiguous completed prefix of the whole H14 calculation from canonical D0; may exceed target maxDays; null before claim gate. */
+  completedThroughDay: number | null;
+  value: CertifiedValue | null;
+  reason: string | null;
 }

@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { useDecisionReceipt } from "../analytics/DecisionPresentation";
 import { useDismissableLayer } from "../hooks/useDismissableLayer";
 import { useI18n } from "../i18n/locale";
 import type { LocalizedMessage, MessageKey } from "../i18n/messages.ko";
@@ -64,7 +65,7 @@ const classes = {
   chipDot:
     "inline-block aspect-square size-4 flex-none rounded-full shadow-[0_0_0_3px_rgba(255,255,255,0.18)] max-mobile:size-3 max-mobile:shadow-none",
   chipText:
-    "action-chip-text grid min-w-0 grid-cols-[minmax(0,var(--action-name-track-width))_auto_max-content] items-baseline justify-start whitespace-nowrap max-mobile:text-[10px]",
+    "action-chip-text grid min-w-0 grid-cols-[var(--action-name-track-width)_auto_max-content] items-baseline justify-start whitespace-nowrap max-mobile:text-[10px]",
   chipName: "action-chip-name min-w-0 justify-self-start whitespace-nowrap",
   chipNameFull: "action-chip-name-full",
   chipNamePanel: "action-chip-name-panel",
@@ -401,11 +402,15 @@ function CandidateReason({
   );
 }
 
-function DetailMetricGrid({ view }: { view: MetricsDetailView }) {
+function DetailMetricGrid({ view, loading }: { view: MetricsDetailView; loading: boolean }) {
   const { t } = useI18n();
   const probabilityLabel = t("detail.sr15Probability");
+  const waitDays = view.recommendedWaitDays;
+  const showWait = !loading && typeof waitDays === "number" &&
+    Number.isInteger(waitDays) && waitDays > 0 && waitDays <= 14;
+  const waitReceiptRef = useDecisionReceipt("wait", showWait);
   return (
-    <div className={classes.metricGrid}>
+    <div className={showWait ? classes.metricGrid.replace("grid-cols-2", "grid-cols-3") : classes.metricGrid}>
       <div className={`${classes.metric} ${classes.metricHighlight}`}>
         <span
           className={`${classes.metricLabel} ${classes.metricLabelHighlight}`}
@@ -423,10 +428,29 @@ function DetailMetricGrid({ view }: { view: MetricsDetailView }) {
       </div>
       <div className={classes.metric}>
         <span className={classes.metricText}>{t("detail.segmentSuperSuccess")}</span>
-        <strong className={classes.metricValue}>{view.greatSuccessProbability}</strong>
+        <strong className={classes.metricValue}>
+          {view.greatSuccessProbability ?? t("detail.notApplicable")}
+        </strong>
       </div>
+      {showWait && <div ref={waitReceiptRef} className={classes.metric}>
+        <span className={classes.metricText}>{t("detail.recommendedWaitDays")}</span>
+        <strong className={classes.metricValue}>
+          {t("detail.waitAfterDays", { days: waitDays })}
+        </strong>
+      </div>}
     </div>
   );
+}
+
+function candidateActionFits(chip: HTMLElement) {
+  if (chip.scrollWidth > chip.clientWidth + 1) return false;
+  const parts = Array.from(chip.children).filter(
+    (part) => getComputedStyle(part).display !== "none",
+  );
+  return parts.every((part, index) => {
+    const next = parts[index + 1];
+    return !next || part.getBoundingClientRect().right <= next.getBoundingClientRect().left + 1;
+  });
 }
 
 function useResponsiveCandidateTable(
@@ -455,7 +479,7 @@ function useResponsiveCandidateTable(
       alignVisibleActionNames();
       const labelsFit = Array.from(
         tableWrap.querySelectorAll<HTMLElement>(".action-chip-text"),
-      ).every((chip) => chip.scrollWidth <= chip.clientWidth + 1);
+      ).every(candidateActionFits);
       const countStarts = Array.from(
         tableWrap.querySelectorAll<HTMLElement>(".action-chip-count"),
         (count) => count.getBoundingClientRect().left,
@@ -676,16 +700,18 @@ function ValidationDetails({
 
 function MetricsDetail({
   view,
+  loading,
   validation,
   onRunValidation,
 }: {
   view: MetricsDetailView;
+  loading: boolean;
   validation: ValidationView;
   onRunValidation: () => void;
 }) {
   return (
     <div className={classes.resultContent}>
-      <DetailMetricGrid view={view} />
+      <DetailMetricGrid view={view} loading={loading} />
       <CandidateTable view={view} />
       <ValidationDetails
         monteCarloRuns={view.monteCarloRuns}
@@ -726,7 +752,7 @@ export default function DetailPanel({
           </div>
         ) : null}
         <div aria-hidden={loading || undefined} inert={loading || undefined}>
-          <MetricsDetail view={view} validation={validation} onRunValidation={onRunValidation} />
+          <MetricsDetail view={view} loading={loading} validation={validation} onRunValidation={onRunValidation} />
         </div>
       </div>
     </section>
