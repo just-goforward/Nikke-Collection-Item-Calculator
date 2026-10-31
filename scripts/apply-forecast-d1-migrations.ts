@@ -3,8 +3,12 @@ import {
   type SpawnSyncReturns,
   spawnSync,
 } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createHash } from "node:crypto";
+import {
+  appendFileSync, closeSync, fsyncSync, mkdtempSync, openSync, readdirSync,
+  readFileSync, writeFileSync,
+} from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { z } from "zod";
@@ -28,6 +32,7 @@ type Options = {
   local: boolean;
   persistTo?: string;
   allowForecastV2?: boolean;
+  checkpointPlan?: string;
 };
 type Dependencies = {
   root?: string;
@@ -44,7 +49,10 @@ const commandResults = z
   .nonempty();
 const catalogRows = z.array(z.object({ name: z.string().min(1), type: z.enum(["table", "view"]) }));
 const ledgerRows = z
-  .array(z.object({ version: z.number().int().positive(), applied_at: z.string().trim().min(1) }))
+  .array(z.object({
+    version: z.number().int().positive(),
+    applied_at: z.string().refine((value) => value.trim().length > 0),
+  }))
   .nonempty();
 
 // Wrangler 4.x writes non-interactive spinner lines (prefixed with ├, │ or └) to stdout
@@ -75,6 +83,7 @@ export function parseMigrationArguments(args: string[]): Options {
       remote: { type: "boolean" },
       "persist-to": { type: "string" },
       "allow-forecast-v2": { type: "boolean" },
+      "checkpoint-plan": { type: "string" },
     },
   });
   const names = tokens.filter((token) => token.kind === "option").map((token) => token.name);
@@ -94,6 +103,7 @@ export function parseMigrationArguments(args: string[]): Options {
     local: values.local === true,
     ...(persistTo !== undefined ? { persistTo } : {}),
     ...(values["allow-forecast-v2"] === true ? { allowForecastV2: true } : {}),
+    ...(values["checkpoint-plan"] !== undefined ? { checkpointPlan: values["checkpoint-plan"] } : {}),
   };
 }
 
@@ -232,14 +242,108 @@ function validatePrerequisiteSchema(root: string, versions: number[], rows: unkn
   }
 }
 
-export function applyForecastD1Migrations(options: Options, dependencies: Dependencies = {}) {
-  validateTargetEnvironment(options);
+const checkpointPlanSchema = z.object({
+  version: z.literal(1),
+  local: z.boolean(),
+  persistTo: z.string().min(1).optional(),
+  migration: z.number().int().refine((version) => version === 5 || version >= 11),
+  expectedLedger: ledgerRows,
+  files: z.array(z.object({ path: z.string(), sha256: z.string().regex(/^[0-9a-f]{64}$/) })),
+  receiptPath: z.string().refine(isAbsolute),
+}).strict();
+
+function openCheckpoint(options: Options, root: string, migrations: Migration[]) {
+  if (options.environment !== "production") {
+    throw new Error("checkpoint_environment: checkpoint plans are production-only.");
+  }
+  const planBytes = readFileSync(resolve(options.checkpointPlan!));
+  const plan = checkpointPlanSchema.parse(JSON.parse(planBytes.toString("utf8")));
+  if (plan.local !== options.local || plan.persistTo !== options.persistTo) {
+    throw new Error("checkpoint_target_changed: local/remote or persist-to differs from the plan.");
+  }
+  const paths = [
+    "scripts/apply-forecast-d1-migrations.ts", "package-lock.json",
+    "forecast-collector/wrangler.toml", "forecast-collector/schema.sql",
+    "forecast-collector/preflight-0011.sql",
+    ...migrations.map(({ file }) => relative(root, file).replaceAll("\\", "/")),
+  ];
+  const approved = new Map(plan.files.map(({ path, sha256 }) => [path, sha256]));
+  if (approved.size !== plan.files.length || approved.size !== paths.length ||
+    paths.some((path) => !approved.has(path))) {
+    throw new Error("checkpoint_input_inventory: the complete input manifest is required.");
+  }
+  const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+  const frozen = new Map(paths.map((path) => [path, readFileSync(resolve(root, path))]));
+  function assertInputs() {
+    for (const path of paths) {
+      if (hash(readFileSync(resolve(root, path))) !== approved.get(path)) {
+        throw new Error(`checkpoint_input_changed: ${path}`);
+      }
+    }
+  }
+  assertInputs();
+  for (const [path, bytes] of frozen) {
+    if (hash(bytes) !== approved.get(path)) throw new Error(`checkpoint_input_changed: ${path}`);
+  }
+  validateLedger(plan.expectedLedger, migrations, options.environment);
+  if (!migrations.some(({ version }) => version === plan.migration)) {
+    throw new Error("checkpoint_next_migration: selected file does not exist.");
+  }
+  // Exclusive creation is the crash/unknown-outcome interlock. Never truncate or
+  // automatically remove this receipt, even when no successful response arrives.
+  const fd = openSync(plan.receiptPath, "wx", 0o600);
+  const checkpoint = {
+    plan,
+    submitted: false,
+    ledgerChecked: false,
+    assertInputs,
+    record(event: Record<string, unknown>) {
+      appendFileSync(fd, `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`);
+      fsyncSync(fd);
+    },
+    checkLedger(rows: unknown[]) {
+      const actual = ledgerRows.parse(rows);
+      if (!checkpoint.ledgerChecked) {
+        if (JSON.stringify(actual) !== JSON.stringify(plan.expectedLedger)) {
+          throw new Error("checkpoint_ledger_changed: reconcile before any file submission.");
+        }
+        checkpoint.ledgerChecked = true;
+      } else if (plan.expectedLedger.some((before) =>
+        !actual.some((after) => after.version === before.version && after.applied_at === before.applied_at))) {
+        throw new Error("checkpoint_ledger_changed: existing ledger timestamps changed.");
+      }
+    },
+    freezeSql(file: string) {
+      const path = relative(root, file).replaceAll("\\", "/");
+      const bytes = frozen.get(path);
+      if (!bytes) throw new Error("checkpoint_input_inventory: unapproved SQL file.");
+      const directory = mkdtempSync(join(dirname(plan.receiptPath), ".forecast-checkpoint-"));
+      const copy = join(directory, basename(file));
+      writeFileSync(copy, bytes, { flag: "wx", mode: 0o600 });
+      return copy;
+    },
+    close() { closeSync(fd); },
+  };
+  try {
+    checkpoint.record({
+      type: "attempt", outcome: "unknown", planSha256: hash(planBytes),
+      environment: options.environment, local: options.local, persistTo: options.persistTo,
+      migration: plan.migration, files: plan.files, expectedLedger: plan.expectedLedger,
+    });
+  } catch (error) {
+    checkpoint.close();
+    throw error;
+  }
+  return checkpoint;
+}
+
+function applyMigrations(
+  options: Options, dependencies: Dependencies, migrations: Migration[],
+  checkpoint?: ReturnType<typeof openCheckpoint>,
+) {
   const root = dependencies.root ?? REPOSITORY_ROOT;
   const spawn = dependencies.spawn ?? spawnSync;
   const log = dependencies.log ?? console.log;
-  // Validate the complete file sequence before invoking Wrangler, including on an up-to-date DB.
-  const migrations = discoverForecastMigrations(resolve(root, "forecast-collector/migrations"));
-  validateV2Authorization(options, migrations);
   const args = [
     resolve(root, "node_modules/wrangler/bin/wrangler.js"),
     "d1",
@@ -255,6 +359,12 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
   if (options.persistTo !== undefined) args.push("--persist-to", options.persistTo);
 
   function execute(input: "--command" | "--file", value: string) {
+    checkpoint?.assertInputs();
+    if (checkpoint && input === "--file") {
+      value = checkpoint.freezeSql(value);
+      checkpoint.record({ type: "submitting", input, value });
+      checkpoint.submitted = true;
+    }
     const inputArgs = input === "--command" ? [`--command=${value}`] : [input, value];
     const result = spawn(process.execPath, [...args, ...inputArgs], {
       cwd: root,
@@ -263,6 +373,10 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
       windowsHide: true,
       timeout: 120_000,
       maxBuffer: 8 * 1024 * 1024,
+    });
+    checkpoint?.record({
+      type: "result", input, value, status: result.status, signal: result.signal,
+      error: result.error?.message, stdout: result.stdout, stderr: result.stderr,
     });
     if (result.error || result.signal || result.status !== 0) {
       const detail = (result.stderr || result.stdout || "").trim().slice(-4_000);
@@ -281,7 +395,10 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
   }
 
   function readLedger() {
-    return validateLedger(execute("--command", LEDGER_QUERY), migrations, options.environment);
+    const rows = execute("--command", LEDGER_QUERY);
+    const versions = validateLedger(rows, migrations, options.environment);
+    checkpoint?.checkLedger(rows);
+    return versions;
   }
 
   function validatePrerequisites(versions: number[]) {
@@ -308,6 +425,7 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
   if (ledger?.type === "table") {
     versions = readLedger();
   } else {
+    if (checkpoint) throw new Error("checkpoint_bootstrap_forbidden: an existing ledger is required.");
     if (catalog.data.length !== 0) {
       throw new Error(
         "Missing schema_migrations ledger on a nonempty database; refusing bootstrap.",
@@ -324,10 +442,22 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
     bootstrapped = true;
   }
 
-  validatePrerequisites(versions);
+  if (checkpoint) {
+    const next = !versions.includes(5) ? 5 :
+      migrations.find(({ version }) => isRequired(version, options.environment) && !versions.includes(version))?.version;
+    if (checkpoint.plan.migration !== next) {
+      throw new Error(`checkpoint_next_migration: expected ${next ?? "none"}, not ${checkpoint.plan.migration}.`);
+    }
+    validateLedger([
+      ...checkpoint.plan.expectedLedger,
+      { version: checkpoint.plan.migration, applied_at: "pending-validation" },
+    ].sort((left, right) => left.version - right.version), migrations, options.environment);
+  }
+  if (checkpoint?.plan.migration !== 5) validatePrerequisites(versions);
   const applied: number[] = [];
   for (const migration of migrations) {
-    if (!isRequired(migration.version, options.environment) || versions.includes(migration.version))
+    if (checkpoint ? migration.version !== checkpoint.plan.migration :
+      !isRequired(migration.version, options.environment) || versions.includes(migration.version))
       continue;
     if (migration.version === 11) {
       const query = readFileSync(resolve(root, "forecast-collector/preflight-0011.sql"), "utf8");
@@ -349,6 +479,34 @@ export function applyForecastD1Migrations(options: Options, dependencies: Depend
   }
   log(`Forecast D1 migrations verified (${options.environment}): ${versions.join(", ")}.`);
   return { bootstrapped, applied, versions };
+}
+
+export function applyForecastD1Migrations(options: Options, dependencies: Dependencies = {}) {
+  validateTargetEnvironment(options);
+  if (options.environment === "production" && !options.local && !options.checkpointPlan) {
+    throw new Error("checkpoint_plan_required: remote production requires a single-file checkpoint plan.");
+  }
+  const root = dependencies.root ?? REPOSITORY_ROOT;
+  // Validate the complete sequence and V2 gate before any transport or receipt.
+  const migrations = discoverForecastMigrations(resolve(root, "forecast-collector/migrations"));
+  validateV2Authorization(options, migrations);
+  const checkpoint = options.checkpointPlan ? openCheckpoint(options, root, migrations) : undefined;
+  try {
+    const result = applyMigrations(options, dependencies, migrations, checkpoint);
+    checkpoint?.record({ type: "complete", outcome: "verified", ...result });
+    return result;
+  } catch (error) {
+    const outcome = checkpoint?.submitted ? "unknown" : "blocked";
+    checkpoint?.record({
+      type: "stopped", outcome, error: error instanceof Error ? error.message : String(error),
+    });
+    if (checkpoint?.submitted) {
+      throw new Error("checkpoint_unknown: reconcile the retained receipt; do not replay this approval.", { cause: error });
+    }
+    throw error;
+  } finally {
+    checkpoint?.close();
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

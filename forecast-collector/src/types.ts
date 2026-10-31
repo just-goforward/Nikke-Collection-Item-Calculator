@@ -1,0 +1,84 @@
+import type { SupplyForecastCandidate } from "../../shared/supplyForecastCandidate";
+
+export type CollectorEnv = {
+  FORECAST_DB: D1Database;
+  USAGE_GUARD_DB?: D1Database;
+  ADMIN_RATE_LIMITER?: RateLimit;
+  ADMIN_TOKEN: string;
+  ENVIRONMENT: "test" | "staging" | "production";
+  DEPLOY_SHA: string;
+  POLL_MODE: "both" | "alternating";
+  COLLECT_ENABLED?: "true" | "false";
+  FORECAST_V2_MODE?: "off" | "hold" | "on";
+  FORECAST_V2_BOOTSTRAP_CUTOFF?: string;
+  COLLECTION_SCHEDULE?: string;
+  NAVER_BOARD48_PAGE_SIZE?: string;
+  COLLECTOR_PROFILE_PHASE?: string;
+  RUNTIME_INGESTION_ENABLED?: "true" | "false";
+  RUNTIME_NOTICE_DAILY_LIMIT?: string;
+};
+
+export type SourceKind = "naver-board-11" | "naver-board-48" | "naver-board-56" | "x-nikke-kr";
+export type NaverSourceKind = Extract<SourceKind, `naver-${string}`>;
+
+type NaverFeedMetadata = {
+  source: NaverSourceKind;
+  itemId: string;
+  url: string;
+  title: string;
+  publishedAt: string;
+  official: boolean;
+};
+
+export type NormalizedSourceItem = {
+  source: SourceKind;
+  itemId: string;
+  url: string;
+  title: string;
+  excerpt: string;
+  normalizedText: string;
+  publishedAt: string;
+  contentHash: string;
+  structured: boolean;
+  official: boolean;
+};
+
+export type ScheduleEvent = {
+  eventId: string;
+  eventType: "solo" | "cooperation" | "collaboration" | "schedule_change" | "reward" | "grant";
+  sourceItem: NormalizedSourceItem;
+  startsAt: string | null;
+  endsAt: string | null;
+  scheduleStatus: "confirmed" | "estimated";
+  manualReview: boolean;
+  reason: string | null;
+  segment?: SoloSegment | undefined;
+  segments?: SoloSegment[];
+};
+
+export type SoloSegment = {
+  round: number;
+  segment: number;
+  kind: "initial" | "suspend" | "reopen";
+  effectiveFrom: string;
+  effectiveUntil: string;
+};
+
+export type XProbeResult = {
+  status: "crosschecked" | "x_unavailable" | "conflict";
+  sourceItem: NormalizedSourceItem | null;
+  reason: string | null;
+};
+
+export type CandidateBuildResult = {
+  candidate: SupplyForecastCandidate;
+  payloadHash: string;
+};
+
+export type SourceQueueItem = NaverFeedMetadata & {
+  status: "pending" | "processed" | "ignored" | "manual_review";
+  attempts: number;
+  errorCode: string | null;
+};
+
+/// <reference path="../worker-configuration.d.ts" />

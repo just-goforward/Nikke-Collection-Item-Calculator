@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>니케 일정·관리 키트 수급 달력 (2024-10 ~ 2026-10)</title>
+<style>
+  :root { --solo:#7c4dff; --solo-bg:#ede7ff; --collab:#ef6c00; --collab-bg:#fff0e0; --kit:#00796b; --line:#d9d9de; --muted:#6b6b76; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 "Pretendard","Malgun Gothic",system-ui,sans-serif; color:#1d1d24; background:#f6f6f9; }
+  header { padding:20px 24px 8px; }
+  h1 { font-size:20px; margin:0 0 6px; }
+  h2 { font-size:16px; margin:28px 0 8px; }
+  .sub { color:var(--muted); }
+  main { padding:0 24px 40px; }
+  .legend { display:flex; flex-wrap:wrap; gap:14px; margin:10px 0 4px; align-items:center; }
+  .sw { display:inline-block; width:22px; height:10px; border-radius:3px; vertical-align:middle; margin-right:5px; }
+  .summary { display:flex; flex-wrap:wrap; gap:10px; margin:12px 0; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 14px; min-width:170px; }
+  .card b { font-size:18px; display:block; }
+  .months { display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:14px; }
+  .month { background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px; }
+  .month h3 { margin:0 0 6px; font-size:15px; display:flex; justify-content:space-between; }
+  .month h3 small { color:var(--kit); font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(7,1fr); gap:2px; }
+  .dow { font-size:11px; color:var(--muted); text-align:center; }
+  .dow.sun { color:#d32f2f; } .dow.sat { color:#1565c0; }
+  .day { min-height:58px; border:1px solid #eee; border-radius:4px; padding:2px 3px; font-size:11px; position:relative; background:#fff; }
+  .day.empty { border:none; background:transparent; }
+  .day .n { color:var(--muted); font-size:10px; }
+  .bar { display:block; height:13px; margin-top:2px; border-radius:2px; font-size:9.5px; line-height:13px; padding:0 2px; white-space:nowrap; overflow:hidden; color:#fff; }
+  .bar.solo { background:var(--solo); }
+  .bar.collab { background:var(--collab); }
+  .bar.est { background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.45) 0 4px,transparent 4px 8px); }
+  .bar.unk { background:#9e9e9e; background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.45) 0 4px,transparent 4px 8px); }
+  .kit { display:block; margin-top:2px; background:#e0f2f1; color:var(--kit); border-radius:2px; font-weight:700; font-size:9.5px; padding:0 2px; }
+  .kit.est { outline:1px dashed var(--kit); }
+  .coop { display:block; margin-top:2px; background:#e3f2fd; color:#1565c0; border-radius:2px; font-size:9.5px; padding:0 2px; }
+  .coop.x2 { background:#1565c0; color:#fff; font-weight:700; }
+  .day[title] { cursor:help; }
+  table { border-collapse:collapse; width:100%; background:#fff; border:1px solid var(--line); font-size:13px; }
+  th, td { border-bottom:1px solid #eee; padding:6px 8px; text-align:left; vertical-align:top; }
+  th { background:#fafafc; font-weight:600; }
+  td.num { text-align:right; white-space:nowrap; }
+  .tag { display:inline-block; padding:0 6px; border-radius:10px; font-size:11px; font-weight:600; }
+  .t-ok { background:#e8f5e9; color:#2e7d32; } .t-est { background:#fff8e1; color:#a66f00; } .t-miss { background:#ffebee; color:#c62828; } .t-unk { background:#eceff1; color:#455a64; }
+  .note { background:#fffdf3; border:1px solid #f0e2a8; border-radius:8px; padding:10px 14px; }
+  .note li { margin:3px 0; }
+  a { color:#3949ab; }
+</style>
+</head>
+<body>
+<header>
+  <h1>니케 솔로 레이드 · 콜라보 기간 / 일자별 관리 키트 수급 달력</h1>
+  <div class="sub">범위: 2024-10-18 ~ 2026-10-18 게시물 · 한국 시각 · 날짜 칸은 게임일(그날 05:00 ~ 다음 날 04:59) 기준 · 수집: 2026-10-18 네이버 라운지 공개 검색/본문 API(읽기 전용)</div>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--solo)"></span>솔로 레이드 (공지 확정)</span>
+    <span><span class="sw" style="background:var(--collab)"></span>콜라보 (시작 공지 + 28일 규칙, 복각 포함)</span>
+    <span><span class="sw" style="background:#9e9e9e"></span>종료 시각 원문 없음</span>
+    <span><span class="kit" style="display:inline">II×56</span> 공지 보상 키트 (II = 상자 II, I = 상자) · 점선 = 지급일 추정</span>
+    <span><span class="coop" style="display:inline">협동 II×5</span> <span class="coop x2" style="display:inline">협동 II×10</span> 협동작전 상점(매주 화 05:00, 콜라보 기간 2배)</span>
+  </div>
+  <div class="summary" id="summary"></div>
+</header>
+<main>
+  <div class="months" id="months"></div>
+
+  <h2>관리 키트 공지 보상 (게시판11 + 게시판48)</h2>
+  <table id="kitTable"><thead><tr><th>지급일</th><th>게시판</th><th>상자 II</th><th>상자</th><th>근거 공지</th><th>지급일 판단</th><th>검색 결과</th></tr></thead><tbody></tbody></table>
+
+  <h2>솔로 레이드 시즌 (게시판56 오픈 공지 + 게시판11 중단·재오픈 공지)</h2>
+  <table id="soloTable"><thead><tr><th>시즌</th><th>기간 (구간별)</th><th>근거 공지</th><th>비고</th></tr></thead><tbody></tbody></table>
+
+  <h2>콜라보 (게시판56, Pick Up 제외)</h2>
+  <table id="collabTable"><thead><tr><th>콜라보</th><th>시작</th><th>종료 (28일 규칙)</th><th>협동작전 2배 화요일</th><th>참고: 원문 세부 이벤트 종료</th><th>근거 공지</th><th>판단</th></tr></thead><tbody></tbody></table>
+
+  <h2>게시판11 제목 「솔로 레이드」 감시 대상 (10분 감시 → Discord 보고 대상이 됐을 글)</h2>
+  <table id="b11Table"><thead><tr><th>게시 시각</th><th>제목</th><th>내용 요약</th></tr></thead><tbody></tbody></table>
+
+  <h2>판단 기준 정리 (주인님 규칙 + 자료로 확인한 보완점)</h2>
+  <div class="note" id="rules"></div>
+</main>
+<script>
+const L = id => `https://game.naver.com/lounge/nikke/board/detail/${id}`;
+
+// ── 솔로 레이드: 구간 [시작, 끝) 한국 시각. kind: ok | unk
+const SOLO = [
+  {s:19, segs:[["2024-10-31T12:00","2024-11-01T22:00","ok","원래 10/31 12:00~11/7 4:59, 11/1 22:00 중단"],["2024-11-08T12:00","2024-11-12T18:00","ok","재오픈 11/8 12:00~"],["2024-11-13T12:00","2024-11-17T05:00","ok","11/12 18:00~11/13 12:00 일시 중단 후 11/17 5:00까지 연장"]], src:[4989013,5013873,5058745,5089411]},
+  {s:20, segs:[["2024-12-12T12:00","2024-12-19T04:59","ok"]], src:[5250302]},
+  {s:21, segs:[["2025-01-09T12:00","2025-01-16T04:59","ok"]], src:[5414775]},
+  {s:22, segs:[["2025-02-06T12:00","2025-02-13T04:59","ok"]], src:[5558577]},
+  {s:23, segs:[["2025-03-06T12:00","2025-03-13T04:59","ok"]], src:[5689969]},
+  {s:24, segs:[["2025-04-03T12:00","2025-04-10T04:59","ok"]], src:[5815120]},
+  {s:25, segs:[["2025-05-08T12:00","2025-05-15T04:59","ok"]], src:[5968589]},
+  {s:26, segs:[["2025-06-19T12:00","2025-06-24T12:00","unk","6/19 12:00 오픈. 원래 종료(6/26 4:59)와 이후 '일정 변경' 경위는 수정된 공지에 남아 있지 않음"],["2025-06-24T12:00","2025-06-26T00:00","ok","'일정 변경 재오픈' 6/24 점검 완료 후~7/1 4:59 → 6/26 00:00 일시 중단('추후 안내')"],["2025-07-03T12:00","2025-07-10T04:59","ok","게시판48 7/1 무점검 공지: '시즌 26 진행 기간 변경 7/3(목) 점검 완료 후 ~ 7/10(목) 4:59:59'"]], src:[6193554,6225681,6252194,6280133], note:"6/26 중단 이후 일정은 게시판48 「솔로 레이드 시즌」 검색(6280133)으로 확정"},
+  {s:27, segs:[["2025-07-24T12:00","2025-07-31T04:59","ok"]], src:[6383981]},
+  {s:28, segs:[["2025-08-21T12:00","2025-08-26T17:00","ok"],["2025-08-26T21:00","2025-09-01T04:59","ok","8/26 17:00~21:00 일시 중단 후 9/1 4:59까지 연장"]], src:[6533571,6579018]},
+  {s:29, segs:[["2025-09-16T12:00","2025-09-23T04:59","ok","화요일 오픈(이례적)"]], src:[6674249], missed:true},
+  {s:30, segs:[["2025-10-09T12:00","2025-10-16T04:59","ok"]], src:[6748668]},
+  {s:31, segs:[["2025-11-13T12:00","2025-11-20T04:59","ok"]], src:[6916387]},
+  {s:32, segs:[["2025-12-11T12:00","2025-12-18T04:59","ok"]], src:[7034442]},
+  {s:33, segs:[["2026-01-08T12:00","2026-01-15T04:59","ok"]], src:[7138616]},
+  {s:34, segs:[["2026-02-19T12:00","2026-02-26T04:59","ok"]], src:[7298679]},
+  {s:35, segs:[["2026-03-20T12:00","2026-03-27T04:59","ok","금요일 오픈"]], src:[7409051]},
+  {s:36, segs:[["2026-04-30T12:00","2026-05-07T04:59","ok"]], src:[7576019]},
+  {s:37, segs:[["2026-05-28T12:00","2026-06-04T04:59","ok","5/28 점검 완료 후 오픈(5/28 수정). 시작 시각은 점검 종료 시각 — 달력에는 12:00로 표시"]], src:[7699562]},
+  {s:38, segs:[["2026-06-18T20:30","2026-06-23T04:59","ok","6/18 20:30 오픈 공지, 원래 6/25 4:59까지 → 6/23 4:59:59 중단"],["2026-07-03T12:00","2026-07-08T04:59","ok","재오픈 7/3 12:00~7/8 4:59"]], src:[7817596,7833931,7837735,7877359], missed:true},
+  {s:39, segs:[["2026-07-16T12:00","2026-07-23T04:59","ok"]], src:[7911818]},
+  {s:40, segs:[["2026-08-20T12:00","2026-08-27T04:59","ok"]], src:[8060044]},
+  {s:41, segs:[["2026-09-24T12:00","2026-10-01T04:59","ok"]], src:[8207413]},
+  {s:42, segs:[["2026-10-15T12:00","2026-10-22T04:59","ok"]], src:[8306665]},
+];
+
+// ── 콜라보 (주인님 규칙: 신규·복각 모두 시작일 + 28일째 04:59:59까지)
+const COLLAB = [
+  {name:"에반게리온 제2탄 (+제1탄 복각)", start:"2025-02-20T12:00", startText:"2/20(목) 점검 완료 후", refEnd:"3/13(목) 4:59 — 기간 한정 캐릭터 재등장 기간(세부 이벤트)", src:[5611767,5650379,5683490], judge:"세부 이벤트는 3주. 콜라보 전체 종료 원문 없음"},
+  {name:"스텔라 블레이드", start:"2025-06-12T12:00", startText:"6/12(목) 점검 완료 후", refEnd:"7/3(목) 4:59 미니 게임 → 게시판48 7/1 공지로 이브 한정 모집·임시 합류 7/10(목) 4:59:59까지 연장", src:[5350189,6153117,6153121,6188258,6280133], judge:"연장 후 종료가 28일 규칙과 일치"},
+  {name:"니어: 오토마타 (복각)", start:"2025-07-03T12:00", startText:"7/3(목)", refEnd:"원문 없음", src:[6169482,6245290,6265898], judge:"복각 · 28일 규칙 적용"},
+  {name:"바이오하자드", start:"2025-09-24T12:00", startText:"9/24(수) 점검 완료 후", refEnd:"10/21(화) 23:59 — 미니 게임·프레임 획득 종료", src:[6556849,6701330,6711938], judge:"세부 이벤트 종료가 28일 규칙보다 약 5시간 빠름"},
+  {name:"리코리스 리코일", start:"2026-02-12T12:00", startText:"2/12(목) 점검 완료 후", refEnd:"3/12(목) 4:59", src:[7121342,7241709,7285223,7290046], judge:"28일 규칙과 일치"},
+  {name:"페르소나 (P3R·P4G·P5R)", start:"2026-08-13T12:00", startText:"8/13(목) 점검 완료 후", refEnd:"9/10(목) 4:59", src:[7853865,8012573,8080706,8164265], judge:"28일 규칙과 일치"},
+];
+
+// ── 관리 키트 지급 (공지 보상). est: 지급일 추정. 같은 지급일·같은 보상의 재안내는 1회만.
+const KITS = [
+  {date:"2024-11-12", ii:27, i:0, board:48, src:[5090650], basis:"S19 일시 중단 보상, 지급일 미명시 → 글 작성 시각(11/12 20:36)", est:false},
+  {date:"2024-12-06", ii:8, i:0, board:48, src:[5252279], basis:"파견 게시판 진입 불가 보상(전체), 지급일 미명시 → 글 작성 시각(12/6 23:55)", est:false},
+  {date:"2025-09-17", ii:24, i:0, board:48, src:[6680020], basis:"9/17 무점검 업데이트 보상 → 글 작성 시각(9/17 18:56)", est:false},
+  {date:"2026-08-22", ii:24, i:0, board:48, src:[8091116], basis:"8/22 무점검 업데이트 '지급해 드립니다' → 글 작성 시각(8/22 20:06)", est:false},
+  {date:"2026-08-23", ii:24, i:0, board:48, src:[8095400], basis:"8/23 무점검 업데이트 '거듭 불편' 별도 보상 → 글 작성 시각(8/23 22:10). 8/22와 날짜가 달라 별도 계산", est:false},
+  {date:"2024-11-01", ii:51, i:3, board:11, src:[5013873], basis:"지급일 미명시 → 글 안의 일시 '11월 1일(금) 22:00'(중단 시작) 우선 = 11/1 게임일 (작성일 11/1 15:51은 후순위)", est:false, missed:true},
+  {date:"2025-06-25", ii:8, i:16, src:[6252194], basis:"지급일 미명시 → 글 안의 일시 '6월 26일(목) 00:00 ~ 추후 안내' 우선 (작성일 6/25 19:02는 후순위). 6/26 00:00은 05:00 이전이라 게임일로는 6/25", est:false, missed:true},
+  {date:"2025-08-26", ii:48, i:0, src:[6579018], basis:"글 안의 일정이 2개(중단 8/26 17:00~21:00 · 연장 8/26 21:00~9/1 4:59) → Discord 결정 요청 대상. 달력에는 임시로 '재개 이후 지급' 문구에 맞춰 재개 시각 8/26 21:00 표시", est:true, decide:true, missed:true},
+  {date:"2025-10-13", ii:48, i:0, src:[6787708], basis:"별도 일정 없음 → 글 작성 시각(10/13 18:52)", est:false},
+  {date:"2026-06-11", ii:20, i:0, src:[7783210,7780995], basis:"지급일 없음 → '6/11(목) 점검 완료 후' (7780995 지급 예정 글과 같은 보상, 1회만 계산)", est:false},
+  {date:"2026-06-23", ii:56, i:16, src:[7833931,7837735], basis:"'보상 지급일 6/23(화)' · 7837735는 같은 날짜 재안내(1회만 계산)", est:false},
+];
+
+const B11 = [
+  ["2026-09-02 20:49",8138246,"솔로 레이드 - 사치스러운 거미 비정상 데이터 처리 및 대응 결과 안내","일정 영향 문구 없음"],
+  ["2026-08-22 14:03",8089996,"솔로 레이드 - 사치스러운 거미 관련 이슈 안내 (8/22 수정 완료)","시즌40 진행 중 이슈, 일정 변경 없음"],
+  ["2026-06-23 20:51",7837735,"솔로 레이드 후속 처리 방안에 대한 추가 안내","시즌38 재오픈 7/3 12:00~7/8 4:59 · 6/23 보상 재안내"],
+  ["2026-06-23 00:47",7833931,"솔로 레이드 중단 및 분배 대미지 관련 이슈 안내","시즌38 6/23 4:59:59 중단 · 보상 II×56, I×16"],
+  ["2025-10-13 18:52",6787708,"솔로 레이드 시즌 30 이상 현상 관련 보상 안내","보상 II×48"],
+  ["2025-10-11 18:32",6780744,"솔로 레이드 - 차가운 심판자 관련 안내","일정 영향 문구 없음"],
+  ["2025-09-16 18:36",6675818,"솔로 레이드 관련 진행 상황 안내","9/17 16:00~17:30 무점검 업데이트"],
+  ["2025-08-26 01:07",6579018,"솔로 레이드 시즌 28 일시 중단 및 챌린지 모드 기록 초기화 사전 안내","8/26 17:00~21:00 중단, 9/1 4:59까지 연장 · 보상 II×48"],
+  ["2025-08-25 16:12",6576868,"솔로 레이드 관련 안내","일정 문구 없음"],
+  ["2025-08-07 20:00",6496769,"신규 콘텐츠 안내 「솔로 레이드 뮤지엄」","콘텐츠 안내(일정 판정 대상 아님)"],
+  ["2025-06-25 19:02",6252194,"솔로 레이드 시즌 26 일시 중단 안내(6/26 내용 추가)","6/26 00:00 중단 · 보상 I×16, II×8"],
+  ["2025-06-19 21:18",6225681,"솔로 레이드 시즌 26 재오픈 안내(6/24 내용 추가)","6/24 점검 완료 후~7/1 4:59 재오픈"],
+  ["2024-11-12 16:38",5089411,"솔로 레이드 시즌 19 일시 중단 및 챌린지 모드 기록 초기화 사전 안내","11/12 18:00~11/13 12:00 중단, 11/17 5:00까지 연장"],
+  ["2024-11-11 16:30",5084065,"솔로 레이드 내 비정상적인 플레이 관련 안내","일정 문구 없음"],
+  ["2024-11-01 15:51",5013873,"솔로 레이드 일시 중단 안내(11/1 내용 추가)","11/1 22:00 중단 · 보상 II×51, I×3"],
+];
+
+// ── 날짜 계산 (한국 시각 문자열 → UTC ms)
+const kst = s => Date.UTC(+s.slice(0,4), +s.slice(5,7)-1, +s.slice(8,10), +s.slice(11,13)||0, +s.slice(14,16)||0) - 9*3600e3;
+const dayStart = (y,m,d) => Date.UTC(y,m,d,5) - 9*3600e3;
+const covers = (a,b,y,m,d) => { const s = dayStart(y,m,d), e = s + 864e5; return kst(a) < e && kst(b) > s; };
+const addDays = (s,n) => { const t = new Date(kst(s) + 9*3600e3 + n*864e5); return t.toISOString().slice(0,10); };
+
+const collabSegs = COLLAB.map(c => ({...c, segEnd: addDays(c.start, 28) + "T04:59"}));
+
+// ── 협동작전 상점: 매주 화요일 05:00 상자 II×5, 콜라보 기간(시작 ~ 28일째 04:59:59)에 속하면 ×10
+//    (shared/certifiedSupplyBuild.ts recurringEvents와 같은 규칙. 공지 보상이 아닌 정기 수급)
+const COOP = [];
+for (let t = kst("2024-10-22T05:00"); t <= kst("2026-10-18T05:00"); t += 7*864e5) {
+  const iso = new Date(t + 9*3600e3).toISOString().slice(0,10);
+  const collab = collabSegs.find(c => t >= kst(c.start) && t < kst(c.segEnd));
+  COOP.push({date: iso, ii: collab ? 10 : 5, collab: collab ? collab.name : null});
+}
+
+function render() {
+  const months = document.getElementById("months");
+  for (let y=2024, m=9; y<2026 || (y===2026 && m<=9); m===11 ? (y++, m=0) : m++) {
+    const box = document.createElement("div"); box.className = "month";
+    const pfx = `${y}-${String(m+1).padStart(2,"0")}`;
+    const kitsM = KITS.filter(k => k.date.startsWith(pfx));
+    const sumII = kitsM.reduce((a,k)=>a+k.ii,0), sumI = kitsM.reduce((a,k)=>a+k.i,0);
+    const coopII = COOP.filter(c => c.date.startsWith(pfx)).reduce((a,c)=>a+c.ii,0);
+    box.innerHTML = `<h3>${y}년 ${m+1}월 <small>${sumII||sumI ? `보상 II×${sumII}${sumI?` · I×${sumI}`:""} · ` : ""}협동 II×${coopII}</small></h3>`;
+    const g = document.createElement("div"); g.className = "grid";
+    ["일","월","화","수","목","금","토"].forEach((d,i)=>g.insertAdjacentHTML("beforeend",`<div class="dow ${i===0?"sun":i===6?"sat":""}">${d}</div>`));
+    const first = new Date(Date.UTC(y,m,1)).getUTCDay(), days = new Date(Date.UTC(y,m+1,0)).getUTCDate();
+    for (let i=0;i<first;i++) g.insertAdjacentHTML("beforeend",`<div class="day empty"></div>`);
+    for (let d=1; d<=days; d++) {
+      const iso = `${pfx}-${String(d).padStart(2,"0")}`;
+      const tips = []; let html = `<span class="n">${d}</span>`;
+      for (const r of SOLO) for (const [a,b,kind,why] of r.segs) if (covers(a,b,y,m,d)) {
+        html += `<span class="bar solo ${kind==="unk"?"unk":""}">솔로 S${r.s}</span>`;
+        tips.push(`솔로 레이드 시즌 ${r.s}: ${a.replace("T"," ")} ~ ${b.replace("T"," ")}${why?` (${why})`:""}`);
+      }
+      for (const c of collabSegs) if (covers(c.start,c.segEnd,y,m,d)) {
+        html += `<span class="bar collab">${c.name.split(" ")[0]}</span>`;
+        tips.push(`콜라보 ${c.name}: ${c.startText} ~ ${c.segEnd.replace("T"," ")}:59 (28일 규칙)`);
+      }
+      for (const k of KITS.filter(k=>k.date===iso)) {
+        html += `<span class="kit ${k.est?"est":""}">${k.decide?"결정 필요 ":""}${k.ii?`II×${k.ii}`:""}${k.ii&&k.i?" ":""}${k.i?`I×${k.i}`:""}</span>`;
+        tips.push(`공지 보상(게시판${k.board||11}): 상자 II×${k.ii}, 상자×${k.i} — ${k.basis}`);
+      }
+      for (const c of COOP.filter(c=>c.date===iso)) {
+        html += `<span class="coop ${c.collab?"x2":""}">협동 II×${c.ii}</span>`;
+        tips.push(`협동작전 상점(화 05:00): 상자 II×${c.ii}${c.collab?` — 콜라보(${c.collab}) 기간 2배`:""}`);
+      }
+      g.insertAdjacentHTML("beforeend",`<div class="day"${tips.length?` title="${tips.join("\n").replace(/"/g,"&quot;")}"`:""}>${html}</div>`);
+    }
+    box.appendChild(g); months.appendChild(box);
+  }
+
+  KITS.sort((a,b)=>a.date.localeCompare(b.date));
+  const totII = KITS.reduce((a,k)=>a+k.ii,0), totI = KITS.reduce((a,k)=>a+k.i,0);
+  const coopTot = COOP.reduce((a,c)=>a+c.ii,0), coopX2 = COOP.filter(c=>c.collab).length;
+  document.getElementById("summary").innerHTML = [
+    ["솔로 레이드 시즌", `${SOLO.length}개 (S19~S42)`],
+    ["콜라보 (28일 규칙)", `${COLLAB.length}건`],
+    ["공지 보상 키트", `${KITS.length}회 · II×${totII} · I×${totI}`],
+    ["협동작전 상점", `${COOP.length}주 · II×${coopTot} (2배 ${coopX2}주)`],
+    ["검색 키워드로 놓친 글", `솔로 3건 · 키트 3건`],
+  ].map(([a,b])=>`<div class="card">${a}<b>${b}</b></div>`).join("");
+
+  const links = ids => ids.map(id=>`<a href="${L(id)}" target="_blank" rel="noopener">${id}</a>`).join(", ");
+  document.querySelector("#kitTable tbody").innerHTML = KITS.map(k=>`<tr><td>${k.date}</td><td>${k.board||11}</td><td class="num">${k.ii}</td><td class="num">${k.i}</td><td>${links(k.src)}</td><td>${k.basis}</td><td>${(k.board||11)===48?'<span class="tag t-ok">게시판48 「관리 키트」 검색됨 (전체 목록 132건 대조 결과와 동일)</span>':k.missed?'<span class="tag t-miss">「관리 키트」 검색에 안 나옴 → 「솔로 레이드」 제목 감시로 보완</span>':'<span class="tag t-ok">검색됨</span>'}</td></tr>`).join("")
+    + `<tr><th>합계</th><th></th><th class="num">${totII}</th><th class="num">${totI}</th><th colspan="3"></th></tr>`;
+  document.querySelector("#soloTable tbody").innerHTML = SOLO.map(r=>`<tr><td>S${r.s}</td><td>${r.segs.map(([a,b,k,w])=>`${a.replace("T"," ")} ~ ${b.replace("T"," ")}${k==="unk"?' <span class="tag t-unk">종료 원문 없음</span>':""}${w?`<br><span class="sub">${w}</span>`:""}`).join("<br>")}</td><td>${links(r.src)}</td><td>${r.missed?'<span class="tag t-miss">「솔로 레이드 예정」 검색에 안 나옴(제목 「오픈 안내」)</span> ':""}${r.note||""}</td></tr>`).join("");
+  document.querySelector("#collabTable tbody").innerHTML = collabSegs.map(c=>`<tr><td>${c.name}</td><td>${c.startText}</td><td><b>${c.segEnd.replace("T"," ")}:59</b></td><td>${COOP.filter(x=>x.collab===c.name).map(x=>x.date.slice(5)).join(", ")}</td><td class="sub">${c.refEnd}</td><td>${links(c.src)}</td><td><span class="tag ${c.judge.includes("일치")?"t-ok":"t-unk"}">${c.judge}</span></td></tr>`).join("");
+  document.querySelector("#b11Table tbody").innerHTML = B11.map(([t,id,title,sum])=>`<tr><td>${t}</td><td><a href="${L(id)}" target="_blank" rel="noopener">${title}</a></td><td>${sum}</td></tr>`).join("");
+
+  document.getElementById("rules").innerHTML = `
+  <b>1) 게시판11 · 1시간 · 「관리 키트」(제목+내용) → 지급일·수량</b>
+  <ul>
+    <li>지급일 판단 순서: <b>① '보상 지급일 / ○/○ 지급' 명시</b> → <b>② 'OO 점검 완료 후' 기간</b> → <b>③ 명시 없으면 글 작성 시각</b> (주인님 규칙).</li>
+    <li>같은 지급일·같은 수량의 재안내/지급 예정 글은 1회만 계산 (7833931 = 7837735, 7780995 = 7783210).</li>
+    <li><b>보완 필요:</b> 검색은 긴 본문의 앞부분만 찾기 때문에 솔로 중단 보상 공지 3건(2024-11-01, 2025-06-26, 2025-08-26 · 합계 II×107, I×19)이 「관리 키트」 검색에 나오지 않았습니다. → 아래 2)의 제목 감시에서 발견된 글도 본문에서 키트를 찾아야 합니다.</li>
+    <li><b>지급일 명시가 없으면 글 안의 일시를 우선</b>하고 작성일은 후순위입니다 (주인님 규칙). 5013873은 '11월 1일(금) 22:00', 6252194는 '6월 26일(목) 00:00 ~ 추후 안내'로 판단했습니다.</li>
+    <li><b>글 안의 일정이 여러 개면 Discord에 결정 요청</b> (주인님 규칙). 6579018은 중단(8/26 17:00~21:00)과 연장(8/26 21:00~9/1 4:59) 두 일정이 있어 결정 요청 대상입니다. 달력에는 '결정 필요'로 표시했습니다.</li>
+  </ul>
+  <b>2) 게시판11 · 10분 · 제목 「솔로 레이드」 → Discord 보고, 관리자 직접 수정</b>
+  <ul>
+    <li>2년간 15건. 중단·재오픈·연장이 있었던 시즌: S19, S26, S28, S38 (모두 이 감시로 잡힘).</li>
+    <li><b>게시판11만으로 확정할 수 없으면 게시판48에서 「솔로 레이드 시즌」(제목+내용) 검색으로 보충</b> (주인님 규칙). S26: 게시판11은 6/26 중단 '추후 안내'로 끝났고, 게시판48 7/1 무점검 공지(6280133)에서 '7/3(목) 점검 완료 후 ~ 7/10(목) 4:59:59' 재진행을 확보했습니다. 같은 검색으로 S19 중단·연장 공지(5090650)도 나옵니다.</li>
+    <li>게시판48 「솔로 레이드 시즌」 검색도 긴 점검 공지 본문 뒷부분은 찾지 못하므로, 무점검 업데이트처럼 짧은 공지에서만 보충이 가능합니다.</li>
+    <li>이슈 안내·콘텐츠 안내(뮤지엄 등)처럼 일정 영향이 없는 글도 섞여 있어, 보고 카드에 '일정 문구 유무'를 함께 보여주면 판단이 빠릅니다.</li>
+  </ul>
+  <b>3) 게시판56 · 1시간 · 「솔로 레이드 예정」(제목+내용) → 본문에서 일정 확보</b>
+  <ul>
+    <li>23건 확보, 기간 줄 형식은 2년간 <b>'✅(✔️) 진행 기간' 다음 줄 '- M/D(요일) 12:00 ~ M/D(요일) 4:59'</b>로 일정. 예외: '점검 완료 후'(S37), 다른 요일(S19 재오픈·S29·S35).</li>
+    <li><b>키워드를 「솔로 레이드 오픈」으로 변경</b> (주인님 결정): 2년간 운영자 글 25건에서 S19~S42가 모두 나와 누락 시즌 없음. 「오픈 안내」 3건(S26, S29, S38)도 포함됩니다.</li>
+    <li>대신 「솔로 레이드 <b>재오픈</b> 안내」(7877359, S38 재오픈 7/3~7/8)는 '오픈'과 다른 낱말로 취급되어 빠집니다. 같은 일정이 게시판11 7837735(10분 제목 감시)에 있어 이번에는 영향이 없었습니다.</li>
+    <li>S38 「오픈 안내」 본문의 기간은 '- 6/25(목) 4:59까지'뿐이고, 시작은 글 게시 시각(6/18 20:30)입니다.</li>
+  </ul>
+  <b>4) 게시판56 · 1시간 · 「콜라보」(Pick Up 제외) → 시작일 + 28일째 4:59:59 (복각 포함)</b>
+  <ul>
+    <li>신규·복각 모두 28일간 진행으로 계산합니다 (주인님 규칙). 2년간 6건.</li>
+    <li>원문에 적힌 종료일은 대부분 <b>세부 이벤트</b>(미니 게임·캐릭터 재등장·프레임 획득) 종료라 콜라보 전체 종료와 다를 수 있습니다. 스텔라 블레이드는 미니 게임이 7/3에 끝났지만 게시판48 7/1 공지로 한정 모집이 7/10 4:59:59까지 연장되어 28일 규칙과 맞았습니다.</li>
+    <li>콜라보 기간 동안 <b>협동작전 상점 주간 보상 2배</b>: 매주 화요일 05:00 상자 II×5 → ×10. 콜라보 시작이 목요일이면 기간 안의 화요일은 4번입니다(6건 모두 4주씩, 2배 주 합계는 위 요약 참고).</li>
+    <li>콜라보 글 42건 중 시작일이 글자로 적힌 것은 일부뿐이고(예고·PV·캐릭터 소개는 이미지 위주), 시작일은 '미니 게임/스토리 이벤트 기간' 줄이나 '○/○(목) 콜라보 진행 결정', '○/○(목) 재등장 예정' 문구에서 나왔습니다.</li>
+    <li>니어 복각(7/3~7/31)은 스텔라 블레이드(~7/10)와 7/3~7/9에 겹칩니다. 2배는 중복 적용하지 않고 한 번만(×10) 계산했습니다.</li>
+  </ul>
+  <b>5) 게시판48 보상 — 날짜가 겹치는 같은 보상만 1회로, 나머지는 모두 추가</b>
+  <ul>
+    <li>게시판48 「관리 키트」(제목+내용) 검색 5건 = 2년 치 게시판48 운영자 글 132건 전체 본문 대조 결과 5건과 같았습니다. 정기 점검 공지에는 글자로 된 관리 키트 보상이 없었습니다.</li>
+    <li>게시판11과 날짜가 겹치는 같은 보상은 없었습니다. 8/22(8091116)와 8/23(8095400)은 같은 수량(II×24)이지만 날짜와 사유가 달라 각각 계산했습니다.</li>
+  </ul>
+  <b>6) 이 달력에 없는 것</b>
+  <ul>
+    <li>수요일 고정 주간 키트(파랑 10·보라 10, 상자가 아닌 키트), 파견·솔로 레이드 시즌 보상 등 다른 정기 수급.</li>
+    <li>협동작전 상점은 공지가 아닌 계산기 규칙(<code>shared/certifiedSupplyBuild.ts</code>)으로 2년 전체 화요일에 적용했습니다. 과거 실제 판매 수량과의 대조는 하지 않았습니다.</li>
+  </ul>`;
+}
+render();
+</script>
+</body>
+</html>

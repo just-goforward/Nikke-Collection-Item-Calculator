@@ -108,8 +108,9 @@ async function productionAssetExclusions(directory: string, check: boolean): Pro
 }
 
 export async function buildSiteProduction(
-  directory: string, check = false, productionContract?: unknown,
+  directory: string, check = false, productionContract?: unknown, target = "production",
 ): Promise<void> {
+  if (target !== "production" && target !== "staging") throw new Error("Invalid site target");
   // The CLI/default stays bundled. Online packaging requires a separately reviewed,
   // complete contract and a matching receipt; this parameter cannot activate a service.
   if (productionContract !== undefined) {
@@ -137,7 +138,7 @@ export async function buildSiteProduction(
     }
   }
   const source = await readFile(join(ROOT, "index.html"), "utf8");
-  const sourceConfig = statsScript(source);
+  const sourceConfig = statsScript(siteTargetHtml(source, target));
   for (const locale of SITE_LOCALE_ORDER) {
     const path = `${SITE_LOCALES[locale].path.slice(1)}index.html`;
     if (!files.includes(path)) throw new Error(`Missing production locale: ${path}`);
@@ -190,6 +191,19 @@ export async function buildSiteProduction(
   } else {
     await writeFile(join(directory, RECEIPT), receipt);
   }
+}
+
+export function siteTargetHtml(html: string, target: string): string {
+  if (target === "production") return html;
+  if (target !== "staging") throw new Error("Invalid site target");
+  // Both selectors stay on staging; an ordinary staging page must never submit to production.
+  const config = statsScript(html);
+  const key = config.match(/staging:\s*\{[\s\S]*?turnstileSiteKey:\s*"([^"]+)"/)?.[1];
+  if (!key) throw new Error("Missing staging statistics configuration");
+  const staged = config
+    .replace(/endpoint:\s*"[^"]+"/g, 'endpoint: "https://staging.nikkecollection.com"')
+    .replace(/turnstileSiteKey:\s*"[^"]+"/, `turnstileSiteKey: "${key}"`);
+  return html.replace(config, staged);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -1,0 +1,367 @@
+import { applyD1Migrations, reset } from "cloudflare:test";
+import { env } from "cloudflare:workers";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { isAppErrorCode } from "../../shared/errorCodes.ts";
+import { executeTestSql } from "../../shared/testD1Sql";
+import { upsertOpsAlert } from "./ops";
+import schemaSql from "./test-schema";
+import { seedNormalUsageGuard } from "./test-usage-guard";
+import type { CollectorEnv } from "./types";
+import worker from "./worker";
+
+const testEnv = env as unknown as CollectorEnv;
+
+beforeEach(async () => {
+  await reset();
+  await executeTestSql(testEnv.FORECAST_DB, schemaSql, applyD1Migrations);
+  await seedNormalUsageGuard(testEnv.USAGE_GUARD_DB);
+});
+
+describe("forecast collector runtime switch", () => {
+  it("does not touch D1 when scheduled collection is disabled", async () => {
+    const waitUntil = vi.fn();
+
+    await worker.scheduled(
+      { scheduledTime: Date.now() } as ScheduledController,
+      { ...testEnv, COLLECT_ENABLED: "false" },
+      { waitUntil } as unknown as ExecutionContext,
+    );
+
+    expect(waitUntil).not.toHaveBeenCalled();
+    const count = await testEnv.FORECAST_DB.prepare(
+      "SELECT COUNT(*) AS count FROM collector_invocations",
+    ).first<{ count: number }>();
+    expect(count?.count).toBe(0);
+  });
+});
+
+describe("forecast collector route dispatch boundary", () => {
+  it.each([
+    "/admin/ops-alerts/watchdog-fallback",
+    "/admin/ops-alerts/watchdog-notification-failed",
+    "/admin/ops-alerts/source-processor-internal",
+    "/admin/probe",
+    "/admin/dispatcher-smoke",
+    `/admin/workflow-dispatches/fd-${"a".repeat(32)}/status`,
+    "/admin/discord-test-approvals",
+    "/admin/discord-staging-adoptions",
+    `/admin/discord-staging-adoptions/discord-staging-${"a".repeat(36)}/message`,
+    `/admin/discord-staging-adoptions/discord-staging-${"a".repeat(36)}/adoption-pr`,
+    "/discord/interactions",
+  ])("rejects retired %s without touching forecast storage", async (path) => {
+    const prepare = vi.fn(() => {
+      throw new Error("retired_route_database_access");
+    });
+    const response = await invokeAdmin(
+      {
+        FORECAST_DB: { prepare } as unknown as D1Database,
+        ADMIN_RATE_LIMITER: {
+          limit: vi.fn().mockResolvedValue({ success: true }),
+        } as unknown as RateLimit,
+        ADMIN_TOKEN: "expected-token",
+      },
+      { token: "expected-token", path, method: "POST", body: "{}" },
+    );
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("Not found");
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["/admin/probe", "probe"],
+    ["/admin/dispatcher-smoke", "dispatcher-smoke"],
+    [`/admin/workflow-dispatches/fd-${"a".repeat(32)}/status`, "workflow-dispatches"],
+    ["/admin/ops-alerts/watchdog-fallback", "ops-alerts"],
+    ["/admin/source-queue/process", "source-queue"],
+    [`/admin/manual-reviews/mr-${"a".repeat(32)}/decision`, "manual-reviews"],
+    ["/admin/canary-deployments/start", "canary-deployments"],
+    ["/admin/discord-test-approvals", "discord"],
+  ])("applies the shared authenticated limit before dispatching %s", async (path, group) => {
+    const limit = vi
+      .fn()
+      .mockResolvedValueOnce({ success: true })
+      .mockResolvedValueOnce({ success: false });
+    const response = await invokeAdmin(
+      { ADMIN_RATE_LIMITER: { limit } as unknown as RateLimit, ADMIN_TOKEN: "expected-token" },
+      { token: "expected-token", path, method: "POST", body: "invalid-json" },
+    );
+    expect(response.status).toBe(429);
+    expect(limit.mock.calls).toEqual([
+      [{ key: "admin-unauth:unknown" }],
+      [{ key: `admin-auth:POST:${group}` }],
+    ]);
+  });
+
+  it.each([
+    ["GET", "/admin/probe"],
+    ["DELETE", "/admin/candidates"],
+    ["POST", "/admin/unknown"],
+  ])("retains 404 for unsupported %s %s", async (method, path) => {
+    const response = await invokeAdmin(
+      {
+        ADMIN_RATE_LIMITER: {
+          limit: vi.fn().mockResolvedValue({ success: true }),
+        } as unknown as RateLimit,
+        ADMIN_TOKEN: "expected-token",
+      },
+      { token: "expected-token", path, method },
+    );
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("Not found");
+  });
+
+  it.each([
+    "/admin/dispatcher-smoke",
+    "/admin/discord-test-approvals",
+    "/admin/discord-staging-adoptions",
+    `/admin/discord-staging-adoptions/discord-staging-${"a".repeat(36)}/message`,
+    `/admin/discord-staging-adoptions/discord-staging-${"a".repeat(36)}/adoption-pr`,
+  ])("keeps staging-only route %s unavailable in production", async (path) => {
+    const response = await invokeAdmin(
+      {
+        ADMIN_RATE_LIMITER: {
+          limit: vi.fn().mockResolvedValue({ success: true }),
+        } as unknown as RateLimit,
+        ADMIN_TOKEN: "expected-token",
+      },
+      { token: "expected-token", path, method: "POST", body: "{}", environment: "production" },
+    );
+    expect(response.status).toBe(404);
+  });
+});
+
+describe("forecast collector boundary recovery", () => {
+  it("keeps boundary recovery behind production admin authentication and rate limiting", async () => {
+    await testEnv.FORECAST_DB.prepare(`INSERT INTO source_poll_state
+      (source,committed_item_id,committed_published_at,updated_at)
+      VALUES('naver-board-48','100','2026-08-24T03:00:00Z','2026-08-24T03:00:00Z')`).run();
+    await upsertOpsAlert(testEnv.FORECAST_DB, {
+      alertKey: "naver-boundary:production:48",
+      environment: "production",
+      severity: "critical",
+      component: "collector",
+      errorCode: "naver_scan_boundary_missing",
+    });
+    const options = {
+      path: "/admin/source-queue/process",
+      method: "POST",
+      environment: "production" as const,
+      body: JSON.stringify({
+        mode: "recover-boundary",
+        environment: "production",
+        source: "naver-board-48",
+        expectedCommittedItemId: "100",
+      }),
+    };
+    const limit = vi.fn().mockResolvedValue({ success: true });
+    const bindings = {
+      ADMIN_RATE_LIMITER: { limit } as unknown as RateLimit,
+      ADMIN_TOKEN: "expected-token",
+    };
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      expect((await invokeAdmin(bindings, options)).status).toBe(401);
+      limit.mockResolvedValueOnce({ success: true }).mockResolvedValueOnce({ success: false });
+      expect((await invokeAdmin(bindings, { ...options, token: "expected-token" })).status).toBe(
+        429,
+      );
+      expect(fetcher).not.toHaveBeenCalled();
+      limit.mockClear();
+      const before = await testEnv.FORECAST_DB.prepare(
+        "SELECT committed_item_id, next_offset FROM source_poll_state WHERE source = 'naver-board-48'",
+      ).first();
+      const response = await invokeAdmin(bindings, { ...options, token: "expected-token" });
+      expect(response.status).toBe(404);
+      expect(await response.text()).toBe("Not found");
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(limit.mock.calls).toEqual([
+        [{ key: "admin-unauth:unknown" }],
+        [{ key: "admin-auth:POST:source-queue" }],
+      ]);
+      const state = await testEnv.FORECAST_DB.prepare(
+        "SELECT committed_item_id, next_offset FROM source_poll_state WHERE source = 'naver-board-48'",
+      ).first();
+      expect(state).toEqual(before);
+      const hold = await testEnv.FORECAST_DB.prepare(
+        "SELECT state FROM forecast_ops_alerts WHERE alert_key = 'naver-boundary:production:48'",
+      ).first();
+      expect(hold).toEqual({ state: "open" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("forecast collector admin boundary", () => {
+  it("checks the admin rate limiter before bearer authentication", async () => {
+    const limit = vi.fn().mockResolvedValue({ success: false });
+    const response = await invokeAdmin({
+      ADMIN_RATE_LIMITER: { limit } as unknown as RateLimit,
+      ADMIN_TOKEN: "expected-token",
+    });
+
+    expect(response.status).toBe(429);
+    expect(limit).toHaveBeenCalledWith({ key: "admin-unauth:unknown" });
+  });
+
+  it("rejects an invalid bearer after an allowed rate-limit check", async () => {
+    const limit = vi.fn().mockResolvedValue({ success: true });
+    const response = await invokeAdmin({
+      ADMIN_RATE_LIMITER: { limit } as unknown as RateLimit,
+      ADMIN_TOKEN: "expected-token",
+    });
+
+    expect(response.status).toBe(401);
+    expect(limit).toHaveBeenCalledOnce();
+  });
+
+  it("keeps unauthenticated IP abuse separate from an authenticated route budget", async () => {
+    const limit = vi.fn().mockResolvedValue({ success: true });
+    const binding = { limit } as unknown as RateLimit;
+
+    for (let index = 0; index < 60; index += 1) {
+      const response = await invokeAdmin(
+        { ADMIN_RATE_LIMITER: binding, ADMIN_TOKEN: "expected-token" },
+        { sourceAddress: "203.0.113.10", token: "wrong-token" },
+      );
+      expect(response.status).toBe(401);
+    }
+    const authorized = await invokeAdmin(
+      { ADMIN_RATE_LIMITER: binding, ADMIN_TOKEN: "expected-token" },
+      { sourceAddress: "203.0.113.11", token: "expected-token" },
+    );
+
+    expect(authorized.status).toBe(200);
+    expect(limit).toHaveBeenLastCalledWith({ key: "admin-auth:GET:candidates" });
+    const keys = limit.mock.calls.map(([input]) => (input as { key: string }).key);
+    expect(keys.filter((key) => key === "admin-unauth:203.0.113.10")).toHaveLength(60);
+    expect(keys).toContain("admin-unauth:203.0.113.11");
+  });
+
+  it("serves a lightweight canary window without requiring a full report", async () => {
+    const limit = vi.fn().mockResolvedValue({ success: true });
+    const response = await invokeAdmin(
+      {
+        ADMIN_RATE_LIMITER: { limit } as unknown as RateLimit,
+        ADMIN_TOKEN: "expected-token",
+      },
+      { token: "expected-token", path: "/admin/canary-window" },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      version: 11,
+      policyId: "forecast-canary-v2-monitor-contract-v1",
+      canaryId: null,
+      pollMode: "missing",
+      acceptance: { windowMode: "fixed_8_hours", windowHours: null },
+      window: { active: false, eligible: false },
+    });
+    expect(limit).toHaveBeenLastCalledWith({ key: "admin-auth:GET:canary-window" });
+  });
+
+  it("accepts a null final quota as incomplete evidence instead of rejecting the report request", async () => {
+    const response = await invokeAdmin(
+      {
+        ADMIN_RATE_LIMITER: {
+          limit: vi.fn().mockResolvedValue({ success: true }),
+        } as unknown as RateLimit,
+        ADMIN_TOKEN: "expected-token",
+      },
+      {
+        token: "expected-token",
+        path: "/admin/canary-report",
+        method: "POST",
+        body: JSON.stringify({
+          canaryId: `fc-${"a".repeat(32)}`,
+          quotaEvidence: null,
+          runtimeTelemetry: null,
+          runtimeBaseline: null,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      evidence: { status: "incomplete" },
+      certification: { status: "incomplete", hardFailures: [] },
+    });
+  });
+
+  it.each(["/admin/canary-report", "/admin/canary-deployments/start"])(
+    "returns only a sanitized code from %s and never echoes request text",
+    async (path) => {
+      // The request text itself is the sentinel: these error bodies are returned to
+      // operators and some of them are persisted, so no part of the request may come back.
+      const sentinel = "SENTINEL_secret_9f3a";
+      const response = await invokeAdmin(
+        {
+          ADMIN_RATE_LIMITER: {
+            limit: vi.fn().mockResolvedValue({ success: true }),
+          } as unknown as RateLimit,
+          ADMIN_TOKEN: "expected-token",
+        },
+        {
+          token: "expected-token",
+          path,
+          method: "POST",
+          body: JSON.stringify({
+            canaryId: sentinel,
+            collectorCron: sentinel,
+            dispatcherCron: sentinel,
+            collectorVersionId: sentinel,
+            dispatcherVersionId: sentinel,
+            quotaEvidence: null,
+          }),
+        },
+      );
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      const text = await response.text();
+      expect(text).not.toContain(sentinel);
+      const payload = JSON.parse(text) as { error: string };
+      // Whatever failed, the body is a registered code (or fixed category), never text.
+      expect(isAppErrorCode(payload.error) || payload.error === "D1_ERROR").toBe(true);
+    },
+  );
+});
+
+async function invokeAdmin(
+  bindings: Pick<CollectorEnv, "ADMIN_RATE_LIMITER" | "ADMIN_TOKEN"> &
+    Partial<Pick<CollectorEnv, "FORECAST_DB">>,
+  options: {
+    sourceAddress?: string;
+    token?: string;
+    path?: string;
+    method?: string;
+    body?: string;
+    environment?: "staging" | "production";
+  } = {},
+) {
+  const runtimeEnv = {
+    ...testEnv,
+    ...bindings,
+    ENVIRONMENT: options.environment ?? "staging",
+  } as CollectorEnv;
+  const context = {
+    passThroughOnException: vi.fn(),
+    waitUntil: vi.fn(),
+  } as unknown as ExecutionContext;
+  const init: RequestInit = {
+    headers: {
+      authorization: `Bearer ${options.token ?? "wrong-token"}`,
+      ...(options.body ? { "content-type": "application/json" } : {}),
+      ...(options.sourceAddress ? { "cf-connecting-ip": options.sourceAddress } : {}),
+    },
+    ...(options.method === undefined ? {} : { method: options.method }),
+    ...(options.body === undefined ? {} : { body: options.body }),
+  };
+  return worker.fetch(
+    new Request(
+      `https://collector.example${options.path ?? "/admin/candidates"}`,
+      init,
+    ) as unknown as Parameters<typeof worker.fetch>[0],
+    runtimeEnv,
+    context,
+  );
+}

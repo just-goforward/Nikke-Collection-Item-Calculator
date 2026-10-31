@@ -1,0 +1,511 @@
+{
+  "rule": "§2 solo raid: period line after 진행 기간; written 4:59 = 04:59:59; '점검 완료 후' start = matching G maintenance end (missing/multiple → decision, never guessed); end-only '오픈 안내' → start = post time; B extraction is evidence for admin confirmation; E supplements (S26 via 6280133). No weekday is assumed.",
+  "postedAtBasis": "content.feed.createdDate interpreted as KST",
+  "judgeSolo": [
+    {
+      "feedId": 4989013,
+      "monitor": "C-open",
+      "season": 19,
+      "action": "confirmed",
+      "startAt": "2024-10-31T12:00:00+09:00",
+      "endAt": "2024-11-07T04:59:59+09:00",
+      "reason": "10/31(목) 12:00 ~ 11/7(목) 4:59"
+    },
+    {
+      "feedId": 5058745,
+      "monitor": "C-open",
+      "season": 19,
+      "action": "confirmed",
+      "startAt": "2024-11-08T12:00:00+09:00",
+      "endAt": "2024-11-15T04:59:59+09:00",
+      "reason": "S19 reopen ('다시 오픈될 예정') 11/8(금) 12:00 ~ 11/15(금) 4:59 — second S19 segment, not a new season"
+    },
+    {
+      "feedId": 5250302,
+      "monitor": "C-open",
+      "season": 20,
+      "action": "confirmed",
+      "startAt": "2024-12-12T12:00:00+09:00",
+      "endAt": "2024-12-19T04:59:59+09:00",
+      "reason": "12/12(목) 12:00 ~ 12/19(목) 4:59"
+    },
+    {
+      "feedId": 5414775,
+      "monitor": "C-open",
+      "season": 21,
+      "action": "confirmed",
+      "startAt": "2025-01-09T12:00:00+09:00",
+      "endAt": "2025-01-16T04:59:59+09:00",
+      "reason": "1/9(목) 12:00 ~ 1/16(목) 4:59"
+    },
+    {
+      "feedId": 5558577,
+      "monitor": "C-open",
+      "season": 22,
+      "action": "confirmed",
+      "startAt": "2025-02-06T12:00:00+09:00",
+      "endAt": "2025-02-13T04:59:59+09:00",
+      "reason": "2/6(목) 12:00 ~ 2/13(목) 4:59"
+    },
+    {
+      "feedId": 5689969,
+      "monitor": "C-open",
+      "season": 23,
+      "action": "confirmed",
+      "startAt": "2025-03-06T12:00:00+09:00",
+      "endAt": "2025-03-13T04:59:59+09:00",
+      "reason": "3/6(목) 12:00 ~ 3/13(목) 4:59"
+    },
+    {
+      "feedId": 5815120,
+      "monitor": "C-open",
+      "season": 24,
+      "action": "confirmed",
+      "startAt": "2025-04-03T12:00:00+09:00",
+      "endAt": "2025-04-10T04:59:59+09:00",
+      "reason": "4/3(목) 12:00 ~ 4/10(목) 4:59"
+    },
+    {
+      "feedId": 5968589,
+      "monitor": "C-open",
+      "season": 25,
+      "action": "confirmed",
+      "startAt": "2025-05-08T12:00:00+09:00",
+      "endAt": "2025-05-15T04:59:59+09:00",
+      "reason": "5/8(목) 12:00 ~ 5/15(목) 4:59"
+    },
+    {
+      "feedId": 6193554,
+      "monitor": "C-open",
+      "season": 26,
+      "action": "confirmed",
+      "startAt": "2025-06-19T12:00:00+09:00",
+      "endAt": "2025-06-26T04:59:59+09:00",
+      "reason": "'오픈 안내' with both start and end 6/19(목) 12:00 ~ 6/26(목) 4:59"
+    },
+    {
+      "feedId": 6383981,
+      "monitor": "C-open",
+      "season": 27,
+      "action": "confirmed",
+      "startAt": "2025-07-24T12:00:00+09:00",
+      "endAt": "2025-07-31T04:59:59+09:00",
+      "reason": "7/24(목) 12:00 ~ 7/31(목) 4:59"
+    },
+    {
+      "feedId": 6533571,
+      "monitor": "C-open",
+      "season": 28,
+      "action": "confirmed",
+      "startAt": "2025-08-21T12:00:00+09:00",
+      "endAt": "2025-08-28T04:59:59+09:00",
+      "reason": "8/21(목) 12:00 ~ 8/28(목) 4:59"
+    },
+    {
+      "feedId": 6674249,
+      "monitor": "C-open",
+      "season": 29,
+      "action": "confirmed",
+      "startAt": "2025-09-16T12:00:00+09:00",
+      "endAt": "2025-09-23T04:59:59+09:00",
+      "reason": "Tuesday start 9/16(화) 12:00 ~ 9/23(화) 4:59 — no Thursday assumption"
+    },
+    {
+      "feedId": 6748668,
+      "monitor": "C-open",
+      "season": 30,
+      "action": "confirmed",
+      "startAt": "2025-10-09T12:00:00+09:00",
+      "endAt": "2025-10-16T04:59:59+09:00",
+      "reason": "10/9(목) 12:00 ~ 10/16(목) 4:59"
+    },
+    {
+      "feedId": 6916387,
+      "monitor": "C-open",
+      "season": 31,
+      "action": "confirmed",
+      "startAt": "2025-11-13T12:00:00+09:00",
+      "endAt": "2025-11-20T04:59:59+09:00",
+      "reason": "11/13(목) 12:00 ~ 11/20(목) 4:59"
+    },
+    {
+      "feedId": 7034442,
+      "monitor": "C-open",
+      "season": 32,
+      "action": "confirmed",
+      "startAt": "2025-12-11T12:00:00+09:00",
+      "endAt": "2025-12-18T04:59:59+09:00",
+      "reason": "12/11(목) 12:00 ~ 12/18(목) 4:59"
+    },
+    {
+      "feedId": 7138616,
+      "monitor": "C-open",
+      "season": 33,
+      "action": "confirmed",
+      "startAt": "2026-01-08T12:00:00+09:00",
+      "endAt": "2026-01-15T04:59:59+09:00",
+      "reason": "1/8(목) 12:00 ~ 1/15(목) 4:59 (year from post time 2026-01-02)"
+    },
+    {
+      "feedId": 7298679,
+      "monitor": "C-open",
+      "season": 34,
+      "action": "confirmed",
+      "startAt": "2026-02-19T12:00:00+09:00",
+      "endAt": "2026-02-26T04:59:59+09:00",
+      "reason": "2/19(목) 12:00 ~ 2/26(목) 4:59"
+    },
+    {
+      "feedId": 7409051,
+      "monitor": "C-open",
+      "season": 35,
+      "action": "confirmed",
+      "startAt": "2026-03-20T12:00:00+09:00",
+      "endAt": "2026-03-27T04:59:59+09:00",
+      "reason": "Friday start 3/20(금) — no Thursday assumption"
+    },
+    {
+      "feedId": 7576019,
+      "monitor": "C-open",
+      "season": 36,
+      "action": "confirmed",
+      "startAt": "2026-04-30T12:00:00+09:00",
+      "endAt": "2026-05-07T04:59:59+09:00",
+      "reason": "4/30(목) 12:00 ~ 5/7(목) 4:59"
+    },
+    {
+      "feedId": 7699562,
+      "monitor": "C-open",
+      "season": 37,
+      "action": "confirmed",
+      "startAt": "2026-05-28T15:00:00+09:00",
+      "endAt": "2026-06-04T04:59:59+09:00",
+      "maintenanceEventId": "7709605",
+      "reason": "'5/28(목) 점검 완료 후 ~ 6/4(목) 4:59(5/28 내용 수정)': start = G 7709605 end 15:00; the trailing '(5/28 내용 수정)' is an edit note, not the period end"
+    },
+    {
+      "feedId": 7817596,
+      "monitor": "C-open",
+      "season": 38,
+      "action": "confirmed",
+      "startAt": "2026-06-18T20:30:28+09:00",
+      "endAt": "2026-06-25T04:59:59+09:00",
+      "reason": "'오픈 안내' with only '6/25(목) 4:59까지' → start = post time 20:30:28"
+    },
+    {
+      "feedId": 7877359,
+      "monitor": "C-reopen",
+      "season": 38,
+      "action": "confirmed",
+      "startAt": "2026-07-03T12:00:00+09:00",
+      "endAt": "2026-07-08T04:59:59+09:00",
+      "reason": "재오픈 7/3(금) 12:00 ~ 7/8(수) 4:59 (found only by '솔로 레이드 재오픈')"
+    },
+    {
+      "feedId": 7911818,
+      "monitor": "C-open",
+      "season": 39,
+      "action": "confirmed",
+      "startAt": "2026-07-16T12:00:00+09:00",
+      "endAt": "2026-07-23T04:59:59+09:00",
+      "reason": "7/16(목) 12:00 ~ 7/23(목) 4:59"
+    },
+    {
+      "feedId": 8060044,
+      "monitor": "C-open",
+      "season": 40,
+      "action": "confirmed",
+      "startAt": "2026-08-20T12:00:00+09:00",
+      "endAt": "2026-08-27T04:59:59+09:00",
+      "reason": "8/20(목) 12:00 ~ 8/27(목) 4:59"
+    },
+    {
+      "feedId": 8207413,
+      "monitor": "C-open",
+      "season": 41,
+      "action": "confirmed",
+      "startAt": "2026-09-24T12:00:00+09:00",
+      "endAt": "2026-10-01T04:59:59+09:00",
+      "reason": "9/24(목) 12:00 ~ 10/1(목) 4:59"
+    },
+    {
+      "feedId": 8306665,
+      "monitor": "C-open",
+      "season": 42,
+      "action": "confirmed",
+      "startAt": "2026-10-15T12:00:00+09:00",
+      "endAt": "2026-10-22T04:59:59+09:00",
+      "reason": "10/15(목) 12:00 ~ 10/22(목) 4:59"
+    },
+    {
+      "feedId": 6280133,
+      "monitor": "E",
+      "season": 26,
+      "action": "confirmed",
+      "startAt": "2025-07-03T16:00:00+09:00",
+      "endAt": "2025-07-10T04:59:59+09:00",
+      "maintenanceEventId": "6276795",
+      "reason": "E supplement: '2025년 7월 3일(목) 점검 완료 후 ~ 7월 10일(목) 4:59:59' → G 6276795 end 16:00"
+    },
+    {
+      "feedId": 5090650,
+      "monitor": "E",
+      "season": 19,
+      "action": "decision",
+      "reason": "Interruption/extension notice (11/12 18:00 ~ 11/13 12:00 suspension, end 11/17 5:00:00), not a single 진행 기간 period → admin review"
+    },
+    {
+      "feedId": 6225681,
+      "monitor": "B",
+      "season": 26,
+      "action": "confirmed",
+      "startAt": "2025-06-24T16:00:00+09:00",
+      "endAt": "2025-07-01T04:59:59+09:00",
+      "maintenanceEventId": "6241570",
+      "reason": "'6/24(화) 점검 완료 후 ~ 7/1(화) 4:59': start = G 6241570 end 16:00 (U7 widened)"
+    }
+  ],
+  "bEvidence": [
+    {
+      "feedId": 5013873,
+      "requires": [{ "kinds": ["suspend"], "at": "2024-11-01T22:00:00+09:00" }],
+      "reason": "11월 1일(금) 22:00 ~ 추후 안내 suspension (S19 segment 1 end)"
+    },
+    { "feedId": 5084065, "requires": [], "reason": "No schedule wording" },
+    {
+      "feedId": 5089411,
+      "requires": [
+        { "kinds": ["suspend"], "at": "2024-11-12T18:00:00+09:00" },
+        { "kinds": ["suspend", "resume"], "at": "2024-11-13T12:00:00+09:00" },
+        { "kinds": ["extend"], "at": "2024-11-17T05:00:00+09:00" }
+      ],
+      "reason": "중단 기간 '11/12일(화) 18:00 ~ 11/13(수) 12:00' and 진행 기간 연장 '11/17(일) 5:00까지' (values on the line after each label)"
+    },
+    {
+      "feedId": 6225681,
+      "requires": [{ "kinds": ["reopen"], "at": "2025-07-01T04:59:59+09:00" }],
+      "reason": "재오픈 진행 기간 '6/24(화) 점검 완료 후 ~ 7/1(화) 4:59' (start depends on maintenance)"
+    },
+    {
+      "feedId": 6252194,
+      "requires": [{ "kinds": ["suspend"], "at": "2025-06-26T00:00:00+09:00" }],
+      "noResume": true,
+      "reason": "6월 26일(목) 00:00 ~ 추후 안내 — unresolved; E must supplement (6280133)"
+    },
+    {
+      "feedId": 6496769,
+      "requires": [],
+      "reason": "New content announcement (솔로 레이드 뮤지엄), no schedule change"
+    },
+    { "feedId": 6576868, "requires": [], "reason": "No schedule wording" },
+    {
+      "feedId": 6579018,
+      "requires": [
+        { "kinds": ["suspend"], "at": "2025-08-26T17:00:00+09:00" },
+        { "kinds": ["suspend", "resume", "extend"], "at": "2025-08-26T21:00:00+09:00" },
+        { "kinds": ["extend"], "at": "2025-09-01T04:59:59+09:00" }
+      ],
+      "reason": "중단 기간 '8/26일(화) 17:00 ~ 21:00'; 연장 기간 '8/26(화) 21:00 ~ 9/1(월) 4:59'"
+    },
+    {
+      "feedId": 6675818,
+      "requires": [],
+      "reason": "Server update 9/17 16:00 ~ 17:30; no solo schedule change"
+    },
+    { "feedId": 6780744, "requires": [], "reason": "No schedule change" },
+    { "feedId": 6787708, "requires": [], "reason": "Compensation only" },
+    {
+      "feedId": 7833931,
+      "requires": [{ "kinds": ["suspend"], "at": "2026-06-23T04:59:59+09:00" }],
+      "reason": "S38 suspension 6/23(화) 4:59:59"
+    },
+    {
+      "feedId": 7837735,
+      "requires": [
+        { "kinds": ["reopen"], "at": "2026-07-03T12:00:00+09:00" },
+        { "kinds": ["reopen"], "at": "2026-07-08T04:59:59+09:00" }
+      ],
+      "reason": "'✅ 솔로 레이드 재오픈 기간 - 7/3(금) 12:00 ~ 7/8(수) 4:59' (value on the line after the label)"
+    },
+    { "feedId": 8089996, "requires": [], "reason": "Issue notice, schedule unchanged" },
+    { "feedId": 8138246, "requires": [], "reason": "Ranking data handling, no schedule change" }
+  ],
+  "seasons": [
+    {
+      "season": 19,
+      "segments": [
+        ["2024-10-31T12:00:00+09:00", "2024-11-01T22:00:00+09:00"],
+        ["2024-11-08T12:00:00+09:00", "2024-11-12T18:00:00+09:00"],
+        ["2024-11-13T12:00:00+09:00", "2024-11-17T05:00:00+09:00"]
+      ],
+      "sources": [4989013, 5013873, 5058745, 5089411],
+      "reason": "Three segments: open → 11/1 22:00 suspension; reopen 11/8 12:00 → 11/12 18:00 suspension; resume 11/13 12:00 → extended end 11/17 5:00 (not 4:59, so exactly 05:00:00)"
+    },
+    {
+      "season": 20,
+      "segments": [["2024-12-12T12:00:00+09:00", "2024-12-19T04:59:59+09:00"]],
+      "sources": [5250302]
+    },
+    {
+      "season": 21,
+      "segments": [["2025-01-09T12:00:00+09:00", "2025-01-16T04:59:59+09:00"]],
+      "sources": [5414775]
+    },
+    {
+      "season": 22,
+      "segments": [["2025-02-06T12:00:00+09:00", "2025-02-13T04:59:59+09:00"]],
+      "sources": [5558577]
+    },
+    {
+      "season": 23,
+      "segments": [["2025-03-06T12:00:00+09:00", "2025-03-13T04:59:59+09:00"]],
+      "sources": [5689969]
+    },
+    {
+      "season": 24,
+      "segments": [["2025-04-03T12:00:00+09:00", "2025-04-10T04:59:59+09:00"]],
+      "sources": [5815120]
+    },
+    {
+      "season": 25,
+      "segments": [["2025-05-08T12:00:00+09:00", "2025-05-15T04:59:59+09:00"]],
+      "sources": [5968589]
+    },
+    {
+      "season": 26,
+      "segments": [
+        ["2025-06-19T12:00:00+09:00", "2025-06-24T16:00:00+09:00"],
+        ["2025-06-24T16:00:00+09:00", "2025-06-26T00:00:00+09:00"],
+        ["2025-07-03T16:00:00+09:00", "2025-07-10T04:59:59+09:00"]
+      ],
+      "sources": [6193554, 6225681, 6252194, 6280133],
+      "reason": "The 6/24 schedule change (6225681 '6/24(화) 점검 완료 후') starts segment 2 at G 6241570 end 16:00; no source states a separate end for segment 1, so the boundary is the reopen instant 16:00 (user decision). Segment 2 ends at the 6/26 00:00 suspension ('추후 안내' → unresolved until E 6280133). Segment 3 from E 6280133 with G 6276795 end 16:00."
+    },
+    {
+      "season": 27,
+      "segments": [["2025-07-24T12:00:00+09:00", "2025-07-31T04:59:59+09:00"]],
+      "sources": [6383981]
+    },
+    {
+      "season": 28,
+      "segments": [
+        ["2025-08-21T12:00:00+09:00", "2025-08-26T17:00:00+09:00"],
+        ["2025-08-26T21:00:00+09:00", "2025-09-01T04:59:59+09:00"]
+      ],
+      "sources": [6533571, 6579018]
+    },
+    {
+      "season": 29,
+      "segments": [["2025-09-16T12:00:00+09:00", "2025-09-23T04:59:59+09:00"]],
+      "sources": [6674249]
+    },
+    {
+      "season": 30,
+      "segments": [["2025-10-09T12:00:00+09:00", "2025-10-16T04:59:59+09:00"]],
+      "sources": [6748668]
+    },
+    {
+      "season": 31,
+      "segments": [["2025-11-13T12:00:00+09:00", "2025-11-20T04:59:59+09:00"]],
+      "sources": [6916387]
+    },
+    {
+      "season": 32,
+      "segments": [["2025-12-11T12:00:00+09:00", "2025-12-18T04:59:59+09:00"]],
+      "sources": [7034442]
+    },
+    {
+      "season": 33,
+      "segments": [["2026-01-08T12:00:00+09:00", "2026-01-15T04:59:59+09:00"]],
+      "sources": [7138616]
+    },
+    {
+      "season": 34,
+      "segments": [["2026-02-19T12:00:00+09:00", "2026-02-26T04:59:59+09:00"]],
+      "sources": [7298679]
+    },
+    {
+      "season": 35,
+      "segments": [["2026-03-20T12:00:00+09:00", "2026-03-27T04:59:59+09:00"]],
+      "sources": [7409051]
+    },
+    {
+      "season": 36,
+      "segments": [["2026-04-30T12:00:00+09:00", "2026-05-07T04:59:59+09:00"]],
+      "sources": [7576019]
+    },
+    {
+      "season": 37,
+      "segments": [["2026-05-28T15:00:00+09:00", "2026-06-04T04:59:59+09:00"]],
+      "sources": [7699562, 7709605]
+    },
+    {
+      "season": 38,
+      "segments": [
+        ["2026-06-18T20:30:28+09:00", "2026-06-23T04:59:59+09:00"],
+        ["2026-07-03T12:00:00+09:00", "2026-07-08T04:59:59+09:00"]
+      ],
+      "sources": [7817596, 7833931, 7837735, 7877359],
+      "reason": "7817596 open (post time) → 7833931 suspension 6/23 4:59:59 → 7837735 reopen announcement → 7877359 C-reopen confirmation"
+    },
+    {
+      "season": 39,
+      "segments": [["2026-07-16T12:00:00+09:00", "2026-07-23T04:59:59+09:00"]],
+      "sources": [7911818]
+    },
+    {
+      "season": 40,
+      "segments": [["2026-08-20T12:00:00+09:00", "2026-08-27T04:59:59+09:00"]],
+      "sources": [8060044]
+    },
+    {
+      "season": 41,
+      "segments": [["2026-09-24T12:00:00+09:00", "2026-10-01T04:59:59+09:00"]],
+      "sources": [8207413]
+    },
+    {
+      "season": 42,
+      "segments": [["2026-10-15T12:00:00+09:00", "2026-10-22T04:59:59+09:00"]],
+      "sources": [8306665]
+    }
+  ],
+  "prediction": {
+    "asOf": "2026-10-18T19:17:44+09:00",
+    "additionalRounds": [
+      {
+        "round": 41,
+        "startGameDate": "2026-09-24",
+        "status": "as_announced",
+        "sourceFeedId": 8207413
+      },
+      {
+        "round": 42,
+        "startGameDate": "2026-10-15",
+        "status": "as_announced",
+        "sourceFeedId": 8306665
+      }
+    ],
+    "intervals": 41,
+    "medianDays": 28,
+    "previousStart": "2026-10-15T12:00:00+09:00",
+    "previousEnd": "2026-10-22T04:59:59+09:00",
+    "primary": {
+      "status": "prediction",
+      "startAt": "2026-11-12T12:00:00+09:00",
+      "endAt": "2026-11-19T04:59:59+09:00",
+      "expectedNotice": "2026-11-06T17:00:00+09:00"
+    },
+    "secondary": { "intervalDays": 35, "startAt": "2026-11-19T12:00:00+09:00" },
+    "interrupted": {
+      "reason": "U5 changed: previous season interrupted → duration = start → suspension (S28: 8/21 12:00 → 8/26 17:00 = 5 d 5 h)",
+      "rounds": 28,
+      "previousStart": "2025-08-21T12:00:00+09:00",
+      "previousEnd": "2025-08-28T04:59:59+09:00",
+      "interruptionAt": "2025-08-26T17:00:00+09:00",
+      "asOf": "2025-08-26T18:00:00+09:00",
+      "medianDays": 28,
+      "startAt": "2025-09-18T12:00:00+09:00",
+      "endAt": "2025-09-23T17:00:00+09:00"
+    }
+  }
+}

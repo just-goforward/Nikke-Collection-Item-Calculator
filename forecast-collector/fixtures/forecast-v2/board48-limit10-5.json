@@ -1,0 +1,89 @@
+{
+  "code": 200,
+  "content": {
+    "totalCount": 229,
+    "offset": 5,
+    "feeds": [
+      {
+        "feedId": 7080072,
+        "title": "12/18(목) 무점검 업데이트 안내​​​​​​",
+        "createdDate": "20251218164602",
+        "updatedDate": "20251218164602",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 7051186,
+        "title": "12/10(수) 무점검 업데이트 안내",
+        "createdDate": "20251210123458",
+        "updatedDate": "20251210123458",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 7035182,
+        "title": "12/5(금) 무점검 업데이트 안내​​​​​​",
+        "createdDate": "20251205194726",
+        "updatedDate": "20251205194753",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 7033250,
+        "title": "12/5(금) 무점검 업데이트 안내​​​​​​",
+        "createdDate": "20251205121343",
+        "updatedDate": "20251205121343",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 7030439,
+        "title": "12월 4일(목) 업데이트 개선사항 안내",
+        "createdDate": "20251204180018",
+        "updatedDate": "20251204180018",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 7020317,
+        "title": "[점검 완료][점검&업데이트] 12월 4일(목) 업데이트 소식 사전 안내(12/1 내용 수정)",
+        "createdDate": "20251201170514",
+        "updatedDate": "20251205093438",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6971810,
+        "title": "11/18(화) 무점검 업데이트 안내​​​​​​",
+        "createdDate": "20251118224046",
+        "updatedDate": "20251118224116",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6963012,
+        "title": "11/17(월) 무점검 업데이트 안내​​​​​​",
+        "createdDate": "20251117185722",
+        "updatedDate": "20251117185722",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6962528,
+        "title": "[점검 완료][점검&업데이트] 11월 20일(목) 업데이트 소식 사전 안내",
+        "createdDate": "20251117174327",
+        "updatedDate": "20251120150030",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      },
+      {
+        "feedId": 6937770,
+        "title": "11/11(화) 무점검 업데이트 안내​​​​​​",
+        "createdDate": "20251111223250",
+        "updatedDate": "20251111223250",
+        "boardId": 48,
+        "userRoleCode": "game_manager"
+      }
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+name = "collection-kit-forecast-collector-v2-staging"
+main = "src/worker.ts"
+compatibility_date = "2026-08-14"
+compatibility_flags = ["nodejs_compat"]
+upload_source_maps = false
+workers_dev = false
+preview_urls = false
+routes = []
+
+[limits]
+cpu_ms = 300
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1.0
+[triggers]
+crons = []
+[[ratelimits]]
+name = "ADMIN_RATE_LIMITER"
+namespace_id = "419002"
+simple = { limit = 60, period = 60 }
+[[d1_databases]]
+binding = "FORECAST_DB"
+database_name = "collection-kit-forecast-collector-staging"
+database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
+[[d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+[vars]
+FORECAST_V2_MODE = "off"
+FORECAST_V2_BOOTSTRAP_CUTOFF = ""
+NAVER_BOARD48_PAGE_SIZE = "5"
+ENVIRONMENT = "staging"
+COLLECTION_SCHEDULE = "rotation"
+DEPLOY_SHA = "local"
+POLL_MODE = "both"
+COLLECT_ENABLED = "false"
+RUNTIME_INGESTION_ENABLED = "false"
+RUNTIME_NOTICE_DAILY_LIMIT = "2"
+[secrets]
+required = ["ADMIN_TOKEN"]

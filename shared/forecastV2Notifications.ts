@@ -1,5 +1,5 @@
 import { linkLabel, manualReviewPostLink } from "./forecastManualReview.ts";
-import { type ComposeInput, compose, escapeDisplay } from "./forecastV2Messages.ts";
+import { type ComposeInput, compose, escapeDisplay, publicNoticeUrl } from "./forecastV2Messages.ts";
 import { kstLabel as formatKstLabel, kst } from "./kst.ts";
 
 /** Compatibility entrypoint; the small formatter is shared without a barrel export. */
@@ -394,7 +394,7 @@ function bReportBody(
       reason: "b_evidence_only",
       todo: p.decision?.todo ?? bReportTodo(Boolean(window)),
     },
-    { title: p.title, url: p.url, postedAt: p.postedAt },
+    { title: p.title, url: p.url, postedAt: p.postedAt, environment: context.environment },
   );
   const push = buttonPusher(buttons, context);
   if (window) push(p.decisionRequestId, "bok", B_CONFIRM);
@@ -503,6 +503,7 @@ function decisionRequestBody(
       url: p.url,
       ...(p.postedAt ? { postedAt: p.postedAt } : {}),
       expiresAt: p.expiresAt,
+      environment: context.environment,
     },
   );
   pushRequestButtons(p, layout, buttonPusher(buttons, context));
@@ -654,7 +655,7 @@ function rangeOf(startAt: string | undefined, endAt: string | undefined) {
   return `${kst(start)} ~ ${kst(end)}`;
 }
 function heading(title: string, url: string | undefined, postedAt: string | undefined) {
-  const label = url ? manualReviewPostLink(title, url) : linkLabel(title);
+  const label = url ? manualReviewPostLink(title, publicNoticeUrl(url)) : linkLabel(title);
   return `🔎 ${label}${postedAt ? ` · 게시 ${kst(Date.parse(postedAt))}` : ""}`;
 }
 /** Human button label: KST dates instead of raw ISO, everything else verbatim. */
@@ -712,6 +713,7 @@ function renderBody(
     url?: string;
     postedAt?: string;
     expiresAt?: string;
+    environment?: "staging" | "production";
   },
 ) {
   // The window comes from the one place the composer reads it (`input.guess`): taking it
@@ -719,6 +721,9 @@ function renderBody(
   // reminder then rendered the question with no KST span.
   const range = input.guess ? rangeOf(input.guess.startAt, input.guess.endAt) : undefined;
   return compose(input, V2_EVIDENCE_LIMITS, {
+    ...(labels.environment
+      ? { pending: `## Forecast 검토 요청\n**환경: ${labels.environment} · ⏳ 승인 대기**` }
+      : {}),
     // The heading keeps a valid masked link; only its visible text is shortened.
     heading: (titleLimit, withLink) =>
       heading(

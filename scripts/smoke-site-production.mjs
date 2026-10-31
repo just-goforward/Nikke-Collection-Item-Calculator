@@ -203,7 +203,7 @@ export async function smokeSiteProduction(origin, revision, { fetchImpl = fetch 
     );
   }
   await legacySlashRedirect("/privacy/", "/privacy");
-  // Public stats only. Never call OAuth callbacks, login/logout, personal-data, or /api/events.
+  // Read-only probes only: retired account routes must not reach personal data.
   const stats = await get("/api/stats", "application/json");
   if (stats.response.status === 200) {
     const aggregate = JSON.parse(stats.bytes.toString("utf8"));
@@ -218,7 +218,7 @@ export async function smokeSiteProduction(origin, revision, { fetchImpl = fetch 
     );
   }
   for (const path of ["/v1/statistics"]) {
-    const { response } = await get(path, "application/json", 503);
+    const { response } = await get(path, "application/json", 404);
     assert(response.headers.get("cache-control") === "no-store", `${path}: error must not cache`);
   }
   for (const path of [
@@ -232,9 +232,9 @@ export async function smokeSiteProduction(origin, revision, { fetchImpl = fetch 
   ]) {
     await get(path, "application/json", 404);
   }
-  // HEAD is side-effect-free and intentionally not in these route method allowlists.
+  // Statistics reject HEAD; the retired login route remains not found.
   await get("/api/stats", "", 405, "HEAD");
-  await get("/auth/login/google", "", 405, "HEAD");
+  await get("/auth/login/google", "", 404, "HEAD");
   return {
     origin,
     revision,

@@ -1,0 +1,43 @@
+name = "collection-kit-site-staging"
+main = "src/worker.ts"
+compatibility_date = "2026-10-13"
+workers_dev = false
+preview_urls = false
+upload_source_maps = false
+
+[vars]
+SITE_ENV = "staging"
+# Retain publication bindings without activating the parked forecast runtime.
+FORECAST_RUNTIME_MODE = "off"
+
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+not_found_handling = "404-page"
+run_worker_first = ["/api", "/api/*", "/auth", "/auth/*", "/v1", "/v1/*", "/account", "/account/*", "/admin", "/admin/*", "/robots.txt"]
+
+[observability]
+enabled = false
+
+[observability.logs]
+enabled = false
+invocation_logs = false
+
+[[services]]
+binding = "STATS"
+service = "collection-kit-stats-staging"
+
+[[d1_databases]]
+binding = "FORECAST_DB"
+database_name = "collection-kit-forecast-collector-staging"
+database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
+
+[[d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+[[ratelimits]]
+name = "FORECAST_RATE_LIMITER"
+namespace_id = "419107"
+simple = { limit = 60, period = 60 }

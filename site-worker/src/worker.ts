@@ -9,7 +9,6 @@ export type SiteEnv = ForecastEnv & {
   ASSETS: FetchBinding;
   SITE_ENV?: string;
   STATS?: FetchBinding;
-  PERSONAL_DATA?: FetchBinding;
   STATS_HEALTH_PROBE_TOKEN?: string;
   STATS_HEALTH_RATE_LIMITER?: {
     limit(options: { key: string }): Promise<{ success: boolean }>;
@@ -20,23 +19,6 @@ const STATS_METHODS: Record<string, readonly string[]> = {
   "/api/stats": ["GET"],
   "/api/events": ["POST"],
   "/api/decision-events": ["POST"],
-};
-
-// Exact personal-data HTTP contract, including the existing session/settings aliases.
-const PERSONAL_METHODS: Record<string, readonly string[]> = {
-  "/auth/login/google": ["POST"],
-  "/auth/callback/google": ["GET", "POST"],
-  "/auth/logout": ["POST"],
-  "/v1/account": ["GET", "DELETE"],
-  "/v1/workspace": ["GET", "PUT"],
-  "/v1/export": ["GET"],
-  "/v1/consent": ["GET", "PUT"],
-  "/v1/sessions/revoke-all": ["POST"],
-  "/v1/statistics": ["GET"],
-  "/v1/self-percentile": ["GET"],
-  "/api/auth/session": ["GET", "DELETE"],
-  "/api/auth/logout": ["POST"],
-  "/api/personal/settings": ["GET", "PUT"],
 };
 
 function privateResponse(response: Response, noStore = false): Response {
@@ -59,21 +41,18 @@ function errorResponse(status: number, error: string): Response {
 async function proxy(
   request: Request,
   binding: FetchBinding | undefined,
-  credentials: boolean,
   noStore: boolean,
 ): Promise<Response> {
   if (!binding) return errorResponse(503, "service_not_configured");
   const headers = new Headers(request.headers);
-  if (!credentials) {
-    headers.delete("Cookie");
-    headers.delete("Authorization");
-    headers.delete("Proxy-Authorization");
-    if (new URL(request.url).pathname === "/api/decision-events") headers.delete("Referer");
-  }
+  headers.delete("Cookie");
+  headers.delete("Authorization");
+  headers.delete("Proxy-Authorization");
+  if (new URL(request.url).pathname === "/api/decision-events") headers.delete("Referer");
   try {
     const response = await binding.fetch(new Request(request, { headers, redirect: "manual" }));
     const forwarded = privateResponse(response, noStore);
-    if (!credentials) forwarded.headers.delete("Set-Cookie");
+    forwarded.headers.delete("Set-Cookie");
     return forwarded;
   } catch (error) {
     // Never log request headers, personal data, or upstream exception details: only the
@@ -114,7 +93,6 @@ export default {
           redirect: "manual",
         }),
         env.STATS,
-        false,
         true,
       );
     }
@@ -138,22 +116,7 @@ export default {
     const statsMethods = STATS_METHODS[path];
     if (statsMethods) {
       if (!statsMethods.includes(request.method)) return errorResponse(405, "method_not_allowed");
-      return proxy(request, env.STATS, false, request.method !== "GET");
-    }
-    const personalMethods = PERSONAL_METHODS[path];
-    if (personalMethods) {
-      if (!personalMethods.includes(request.method))
-        return errorResponse(405, "method_not_allowed");
-      if (
-        path === "/auth/callback/google" &&
-        request.method === "POST" &&
-        (request.headers.get("Origin") !== new URL(request.url).origin ||
-          ![null, "same-origin"].includes(request.headers.get("Sec-Fetch-Site")))
-      ) {
-        return errorResponse(403, "origin_rejected");
-      }
-      // Public releases are cookie-free, even though they use the personal binding.
-      return proxy(request, env.PERSONAL_DATA, path !== "/v1/statistics", true);
+      return proxy(request, env.STATS, request.method !== "GET");
     }
     // No wildcard proxy, public diagnostic/health endpoints, or API-to-SPA fallback.
     if (/^\/(?:api|auth|account|admin|v1)(?:\/|$)/.test(path)) {

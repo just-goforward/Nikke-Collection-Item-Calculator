@@ -16,3 +16,7 @@ package-lock.json text eol=lf
 
 # Keep the frozen rollback manifest byte-identical.
 rollback/production/retained.json -text
+
+# Preserve restored SQL checksums during staging.
+forecast-collector/migrations/0027_board11_grants.sql -text
+forecast-collector/fixtures/schema-v27-test.sql -text

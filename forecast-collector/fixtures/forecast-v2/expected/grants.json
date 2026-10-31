@@ -1,0 +1,173 @@
+{
+  "rule": "§3 kit grants + A8 candidates + U6/U16: items 관리 키트 상자 II/Ⅱ and 관리 키트 상자 with quantities; date priority 1 explicit 보상 지급일 / ○/○ 지급, 2 date-time written in the grant block or schedule lines (중단, 연장, 재개, 점검, 진행 기간, 일시; a range or '~ 추후 안내' is one schedule anchored at its start), 3 post creation time; more than one candidate schedule → Discord decision; dedup = same game day + same quantities; game day 05:00 KST.",
+  "postedAtBasis": "content.feed.createdDate interpreted as KST",
+  "posts": [
+    {
+      "feedId": 5013873,
+      "board": 11,
+      "action": "grant",
+      "ii": 51,
+      "box": 3,
+      "gameDay": "2024-11-01",
+      "instant": "2024-11-01T22:00:00+09:00",
+      "basis": "in_post_datetime",
+      "reason": "All-account compensation mail (U16). No payment date; the only schedule is 일시 '11월 1일(금) 22:00 ~ 추후 안내' (written twice); title note (11/1 내용 추가) excluded by A8."
+    },
+    {
+      "feedId": 5090650,
+      "board": 48,
+      "action": "decision",
+      "ii": 27,
+      "box": 0,
+      "candidateInstants": ["2024-11-12T18:00:00+09:00", "2024-11-12T19:00:00+09:00"],
+      "reason": "Board-48 update notice with an all-account compensation block. Several distinct schedules: 일시 11/12 19:00 ~ 20:00, suspension 2024년 11월 12일 18:00 ~ 11월 13일 12:00 (중단/일시), extension end 11월 17일 5:00:00 → more than one candidate → Discord decision."
+    },
+    {
+      "feedId": 5252279,
+      "board": 48,
+      "action": "grant",
+      "ii": 8,
+      "box": 0,
+      "gameDay": "2024-12-06",
+      "instant": "2024-12-06T22:00:00+09:00",
+      "basis": "in_post_datetime",
+      "reason": "All-account compensation (파견 게시판 진입 불가 보상). One schedule: 일시 12/6(금) 22:00 ~ 12/7(토) 00:00 (range = one schedule). The '📢 12월 7일(토)' heading carries no time; interpretation flagged to the Lead."
+    },
+    {
+      "feedId": 6252194,
+      "board": 11,
+      "action": "grant",
+      "ii": 8,
+      "box": 16,
+      "gameDay": "2025-06-25",
+      "instant": "2025-06-26T00:00:00+09:00",
+      "basis": "in_post_datetime",
+      "reason": "Compensation mail already sent; one schedule 중단 일시 '6월 26일(목) 00:00 ~ 추후 안내'; 00:00 is before 05:00 → game day 06-25. '관리 키트 상자 Ⅱ *8' uses the Ⅱ glyph."
+    },
+    {
+      "feedId": 6579018,
+      "board": 11,
+      "action": "decision",
+      "ii": 48,
+      "box": 0,
+      "candidateInstants": ["2025-08-26T17:00:00+09:00", "2025-08-26T21:00:00+09:00"],
+      "reason": "§3 example: suspension 8/26 17:00 ~ 21:00 and extension 8/26 21:00 ~ 9/1 4:59 are two candidate schedules → Discord decision."
+    },
+    {
+      "feedId": 6680020,
+      "board": 48,
+      "action": "grant",
+      "ii": 24,
+      "box": 0,
+      "gameDay": "2025-09-17",
+      "instant": "2025-09-17T16:00:00+09:00",
+      "basis": "in_post_datetime",
+      "reason": "All-account update compensation; one schedule 일시 9/17(수) 16:00 ~ 17:30 경. '관리 키트 상자 II * 24' is box II only (no plain box)."
+    },
+    {
+      "feedId": 6787708,
+      "board": 11,
+      "action": "grant",
+      "ii": 48,
+      "box": 0,
+      "gameDay": "2025-10-13",
+      "instant": "2025-10-13T18:52:38+09:00",
+      "basis": "post_created",
+      "reason": "Compensation mail already sent; the post contains no date at all → creation time."
+    },
+    {
+      "feedId": 7780995,
+      "board": 11,
+      "action": "grant",
+      "ii": 20,
+      "box": 0,
+      "gameDay": "2026-06-11",
+      "acceptBasis": ["post_created", "in_post_datetime"],
+      "reason": "All-account skill-reset support [관리 키트 상자 II *20]. The only date is '└ 기간 : 6월 11일(목) 11:00 ~ …' which is not one of the A8 schedule labels (strict A8 → creation time 13:35:31); either reading gives game day 06-11."
+    },
+    {
+      "feedId": 7783210,
+      "board": 11,
+      "action": "grant",
+      "ii": 20,
+      "box": 0,
+      "gameDay": "2026-06-11",
+      "instant": "2026-06-11T21:00:00+09:00",
+      "basis": "maintenance_end",
+      "reason": "§3 example '6/11(목) 점검 완료 후 ~' is the in-post date-time; resolves to G 7767444 end 21:00. Same game day and quantities as 7780995 → counted once."
+    },
+    {
+      "feedId": 7833931,
+      "board": 11,
+      "action": "grant",
+      "ii": 56,
+      "box": 16,
+      "gameDay": "2026-06-23",
+      "basis": "explicit_payment",
+      "reason": "Priority 1: '✔️ 보상 지급일 - 6/23(화)' (date precision kept; no time is required)."
+    },
+    {
+      "feedId": 7837735,
+      "board": 11,
+      "action": "grant",
+      "ii": 56,
+      "box": 16,
+      "gameDay": "2026-06-23",
+      "basis": "explicit_payment",
+      "reason": "Priority 1: '6/23(화) 지급 보상 안내' — re-announcement of 7833931 on the same game day with equal quantities → counted once."
+    },
+    {
+      "feedId": 8091116,
+      "board": 48,
+      "action": "grant",
+      "ii": 24,
+      "box": 0,
+      "gameDay": "2026-08-22",
+      "instant": "2026-08-22T19:30:00+09:00",
+      "basis": "in_post_datetime",
+      "reason": "Inline '(관리 키트 상자 II * 24, 큐브 배터리 …)을 지급해 드립니다' to all commanders; one schedule 일시 8/22(토) 19:30 ~ 20:00 경. II only, no plain box."
+    },
+    {
+      "feedId": 8095400,
+      "board": 48,
+      "action": "grant",
+      "ii": 24,
+      "box": 0,
+      "gameDay": "2026-08-23",
+      "instant": "2026-08-23T20:00:00+09:00",
+      "basis": "in_post_datetime",
+      "reason": "Separate compensation ('거듭 불편'); one schedule 일시 8/23(일) 20:00 ~ 22:00 경. Different game day from 8091116 → counted separately even with equal quantities."
+    }
+  ],
+  "scriptedDecisions": [
+    {
+      "feedId": 5090650,
+      "selected": "2024-11-12T19:00:00+09:00",
+      "gameDay": "2024-11-12",
+      "reason": "Backtest admin answer (assumption): compensation shipped with the 11/12 update window."
+    },
+    {
+      "feedId": 6579018,
+      "selected": "2025-08-26T21:00:00+09:00",
+      "gameDay": "2025-08-26",
+      "reason": "Backtest admin answer (assumption): post says the reward is paid after the solo raid resumes (21:00)."
+    }
+  ],
+  "occurrences": [
+    { "gameDay": "2024-11-01", "ii": 51, "box": 3, "board": 11, "sources": [5013873] },
+    { "gameDay": "2024-11-12", "ii": 27, "box": 0, "board": 48, "sources": [5090650] },
+    { "gameDay": "2024-12-06", "ii": 8, "box": 0, "board": 48, "sources": [5252279] },
+    { "gameDay": "2025-06-25", "ii": 8, "box": 16, "board": 11, "sources": [6252194] },
+    { "gameDay": "2025-08-26", "ii": 48, "box": 0, "board": 11, "sources": [6579018] },
+    { "gameDay": "2025-09-17", "ii": 24, "box": 0, "board": 48, "sources": [6680020] },
+    { "gameDay": "2025-10-13", "ii": 48, "box": 0, "board": 11, "sources": [6787708] },
+    { "gameDay": "2026-06-11", "ii": 20, "box": 0, "board": 11, "sources": [7780995, 7783210] },
+    { "gameDay": "2026-06-23", "ii": 56, "box": 16, "board": 11, "sources": [7833931, 7837735] },
+    { "gameDay": "2026-08-22", "ii": 24, "box": 0, "board": 48, "sources": [8091116] },
+    { "gameDay": "2026-08-23", "ii": 24, "box": 0, "board": 48, "sources": [8095400] }
+  ],
+  "totals": { "occurrences": 11, "board11": 6, "board48": 5, "ii": 338, "box": 35 },
+  "nonGrant": {
+    "reason": "Every other captured post (incl. '소장품 관리 키트' recruitment rewards and non-kit compensation items) has no 관리 키트 상자 quantity → ignore."
+  }
+}

@@ -9,6 +9,27 @@
 import { linkLabel } from "./forecastManualReview.ts";
 import { FALLBACK_GUIDANCE, guidance } from "./forecastV2Guidance.ts";
 
+/**
+ * Naver's public post route has no board ID. The board-qualified route redirects
+ * to a missing lounge page (verified against public post 8207413).
+ * Repair only that exact historical shape; preserve every other source URL.
+ */
+export function publicNoticeUrl(value: string): string {
+  const url = URL.parse(value);
+  if (
+    !url ||
+    url.protocol !== "https:" ||
+    url.hostname !== "game.naver.com" ||
+    url.username ||
+    url.password ||
+    url.port
+  ) return value;
+  const match = /^\/lounge\/nikke\/board\/\d+\/detail\/(\d+)\/?$/.exec(url.pathname);
+  if (!match) return value;
+  url.pathname = `/lounge/nikke/board/detail/${match[1]}`;
+  return url.toString();
+}
+
 /** Whole embed budget: marker + escaping slack stays below Discord's 2000-char cap. */
 const MESSAGE_BUDGET = 1800;
 /** Smallest budget a list or title may shrink to before the loop gives up. */
@@ -48,6 +69,8 @@ export type ComposeInput = {
 };
 
 export type ComposeLabels = {
+  /** Present only on actionable requests, never automatic notifications. */
+  pending?: string;
   /** Render the heading with at most `titleLimit` visible title characters. */
   heading: (titleLimit: number, withLink: boolean) => string;
   /** The guess window, already formatted for display. */
@@ -84,13 +107,14 @@ export function compose(input: ComposeInput, limits: EvidenceLimits, labels: Com
   const noGuess =
     input.noGuess === undefined ? undefined : clip(escapeDisplay(input.noGuess), limits.item);
   const tail = labels.expiry ? [`만료 ${labels.expiry} KST`] : [];
-  const room = MESSAGE_BUDGET - tail.join("\n").length - 1;
+  const prefix = labels.pending ? `${labels.pending}\n\n` : "";
+  const room = MESSAGE_BUDGET - tail.join("\n").length - 1 - prefix.length;
   let body = fitted(input, limits, labels, lists, noGuess, goal, blocked, todo, room, true);
   // A notice URL longer than the leftover budget must never push the reason, the
   // guidance or the expiry out of the message: the heading text still names the post.
   if (body.length > room)
     body = fitted(input, limits, labels, lists, noGuess, goal, blocked, todo, room, false);
-  return [body, ...tail].join("\n");
+  return prefix + [body, ...tail].join("\n");
 }
 
 /** The reason table's blocked line, or the legacy/branch fallback when unmapped. */

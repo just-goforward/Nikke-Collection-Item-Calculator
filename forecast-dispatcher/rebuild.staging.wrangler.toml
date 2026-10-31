@@ -1,0 +1,38 @@
+name = "collection-kit-forecast-dispatcher-v2-staging"
+main = "src/worker.ts"
+compatibility_date = "2026-08-22"
+compatibility_flags = ["nodejs_compat"]
+upload_source_maps = false
+workers_dev = false
+preview_urls = false
+routes = []
+
+[limits]
+cpu_ms = 25
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1.0
+[triggers]
+crons = []
+[[d1_databases]]
+binding = "FORECAST_DB"
+database_name = "collection-kit-forecast-collector-staging"
+database_id = "49b5dc06-37ae-4245-896c-daea98562ed8"
+[[d1_databases]]
+binding = "USAGE_GUARD_DB"
+database_name = "collection-kit-usage-guard"
+database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+[vars]
+FORECAST_V2_NOTIFICATIONS_ENABLED = "false"
+ENVIRONMENT = "staging"
+DEPLOY_SHA = "local"
+PUBLICATION_MODE = "off"
+DISCORD_APPROVAL_CHANNEL_ID = "1561375802027810957"
+DISCORD_CHANNEL_ID = "1542497534373662802"
+DISCORD_ACTIVITY_CHANNEL_ID = "1561375968441143306"
+DISCORD_ALERT_CHANNEL_ID = "1542497534373662802"
+DISCORD_FALLBACK_CHANNEL_ID = "1542497534373662802"
+DISPATCH_ENABLED = "false"
+[secrets]
+required = ["DISCORD_BOT_TOKEN"]

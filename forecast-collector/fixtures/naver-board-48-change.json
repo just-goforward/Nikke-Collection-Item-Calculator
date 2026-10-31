@@ -1,0 +1,20 @@
+{
+  "code": 200,
+  "content": {
+    "feeds": [
+      {
+        "feed": {
+          "feedId": 8061000,
+          "title": "솔로 레이드 중단 안내",
+          "createdDate": "20260822100000",
+          "contents": "{\"document\":{\"components\":[{\"@ctype\":\"textNode\",\"value\":\"솔로 레이드는 점검 완료 후 재개됩니다.\"}]}}"
+        },
+        "user": { "role": "game_manager" },
+        "feedLink": {
+          "pc": "https://game.naver.com/lounge/nikke/board/detail/8061000"
+        },
+        "board": { "boardId": 48 }
+      }
+    ]
+  }
+}

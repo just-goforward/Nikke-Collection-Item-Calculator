@@ -100,7 +100,7 @@ function fixture(change = () => {}) {
         result.headers["Content-Type"] = "application/xml";
         result.body = `<urlset>${sitemapUrls.map((url) => `<url><loc>${url}</loc></url>`).join("")}</urlset>`;
       } else if (init.method === "HEAD") {
-        result.status = 405;
+        result.status = path === "/api/stats" ? 405 : 404;
         result.body = null;
       } else if (path === "/api/stats") {
         result.headers["Cache-Control"] = "public, max-age=60";
@@ -109,7 +109,7 @@ function fixture(change = () => {}) {
           byKit: [],
         });
       } else {
-        result.status = path === "/v1/statistics" ? 503 : 404;
+        result.status = 404;
       }
       change(path, result);
       return new Response(result.body, { status: result.status, headers: result.headers });
