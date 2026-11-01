@@ -33,6 +33,7 @@
     "smoke:site-production-deployed": "node scripts/smoke-site-production.mjs",
     "deploy:site-staging": "node scripts/deploy-site.ts staging",
     "deploy:site-production": "node scripts/deploy-site.ts production",
+    "deploy:site-production-online": "node scripts/deploy-site.ts production-online",
     "deploy:site-production-off": "node scripts/deploy-site.ts production-off",
     "deploy:site-rebuild-production": "node scripts/deploy-site.ts rebuild-production",
     "deploy:site-rebuild-staging": "node scripts/deploy-site.ts rebuild-staging",

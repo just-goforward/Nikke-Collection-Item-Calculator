@@ -18,7 +18,7 @@ export type ProductionForecastContract = {
 /** A local approval reference records an operator decision; it does not grant deployment
  * authority. Publication environment is separate from the exact engine contract, whose
  * staging-labelled fields also bind results, sessions and caches and must not be renamed.
- * The checked-in proposal deliberately lacks approval and production public trust.
+ * The checked-in contract records approved public trust, not deployment authority.
  */
 export function assertProductionForecastContract(value: unknown): ProductionForecastContract {
   if (typeof value !== "object" || value === null || Array.isArray(value))
@@ -43,7 +43,7 @@ export function assertProductionForecastContract(value: unknown): ProductionFore
   };
 }
 
-/** Explicit future build preparation only; no command, deployment or default activation. */
+/** Build preparation only; this does not activate a deployed service. */
 export function productionForecastBuildEnv(
   base: NodeJS.ProcessEnv, contract: unknown = productionProposal,
 ): NodeJS.ProcessEnv {

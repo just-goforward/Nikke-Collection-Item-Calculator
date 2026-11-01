@@ -3,17 +3,24 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serviceCommands, serviceEnvironment } from "./build-local-service.mjs";
 import { childEnvironment } from "./ci/run-checked-command.mjs";
+import { productionForecastBuildEnv } from "./forecast-runtime-build.ts";
 
 export function productionServiceEnvironment(parent) {
-  // Keep the approved candidate revision and CI guards, but never ambient online
-  // authority or deployment credentials. The shared selector fixes bundled mode.
-  return { ...serviceEnvironment(parent), ...childEnvironment(parent, parent.GITHUB_SHA) };
+  // Public trust comes only from the checked-in approved contract, never ambient
+  // online authority or deployment credentials.
+  return productionForecastBuildEnv({ ...serviceEnvironment(parent), ...childEnvironment(parent, parent.GITHUB_SHA) });
 }
 
 export function buildProductionService(parent, execute = spawnSync) {
   const env = productionServiceEnvironment(parent);
   const root = resolve(import.meta.dirname, "..");
-  for (const args of serviceCommands("dist")) {
+  const commands = serviceCommands("dist");
+  commands[commands.length - 1] = [
+    "--input-type=module", "-e",
+    "const {buildSiteProduction}=await import('./scripts/build-site-production.ts'); const {default:contract}=await import('./site-worker/production-forecast.proposed.json',{with:{type:'json'}}); await buildSiteProduction(process.argv[1],false,contract); await buildSiteProduction(process.argv[1],true,contract);",
+    "dist",
+  ];
+  for (const args of commands) {
     const result = execute(process.execPath, args, {
       cwd: root, env, stdio: "inherit", timeout: 2_700_000,
     });

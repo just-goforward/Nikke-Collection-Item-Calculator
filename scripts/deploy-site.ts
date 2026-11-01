@@ -43,12 +43,13 @@ export function deploy(kind: "site" | "stats", args: string[], parent = process.
   execute: typeof execFileSync = execFileSync) {
 const [selection, sha, ...extra] = args;
 const productionOff = kind === "site" && selection === "production-off";
+const productionOnline = kind === "site" && selection === "production-online";
 const replacement = selection?.startsWith("rebuild-") ?? false;
-const target = productionOff ? "production" : replacement ? selection!.slice(8) : selection;
+const target = productionOff || productionOnline ? "production" : replacement ? selection!.slice(8) : selection;
 if (extra.length || !["production", "staging"].includes(target ?? "") ||
     (kind === "stats" && !replacement) ||
     !/^[a-f0-9]{40}$/.test(sha ?? ""))
-  throw new Error("Expected production|staging|rebuild-production|rebuild-staging and approved full SHA; stats requires rebuild");
+  throw new Error("Expected production|production-off|production-online|staging|rebuild-production|rebuild-staging and approved full SHA; stats requires rebuild");
 const root = resolve(import.meta.dirname, "..");
 const candidate = (replacement || productionOff) && target === "production" ? productionTarget(kind) : null;
 const worker = candidate?.worker ?? `collection-kit-${kind}-${replacement ? "v2-" : ""}${target}`;
@@ -72,6 +73,12 @@ if (productionOff) {
     throw new Error("Production OFF account mismatch");
   assertProductionOffSiteConfiguration(text);
 }
+if (productionOnline) {
+  if (account !== "15be33fd20ea78eb3d60b719be831148")
+    throw new Error("Production online account mismatch");
+  if (!text.split(/\r?\n/).includes('FORECAST_RUNTIME_MODE = "enabled"'))
+    throw new Error("Production online runtime configuration mismatch");
+}
 const env = childEnvironment(parent, sha!);
 function git(args: string[]) {
   return String(execute("git", args, { cwd: root, env, encoding: "utf8" })).trim();
@@ -84,7 +91,7 @@ function snapshot() {
 snapshot();
 // Check the completed local artifact without rebuilding or granting credentials to verification.
 if (kind === "site") execute(process.execPath,
-  siteArtifactValidationArgs(resolve(root, "dist"), target!, sha!, candidate !== null, productionOff),
+  siteArtifactValidationArgs(resolve(root, "dist"), target!, sha!, candidate !== null || productionOnline, productionOff),
   { cwd: root, env, stdio: "inherit" });
 snapshot();
 execute(process.execPath, [

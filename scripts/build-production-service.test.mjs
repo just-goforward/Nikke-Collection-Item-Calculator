@@ -4,10 +4,10 @@ import { buildProductionService, productionServiceEnvironment } from "./build-pr
 import { serviceCommands } from "./build-local-service.mjs";
 
 const sha = "a".repeat(40);
-test("production fixes bundled service selection while retaining the exact revision and CI guards", () => {
+test("production fixes approved online trust while retaining the exact revision and CI guards", () => {
   const env = productionServiceEnvironment({
     GITHUB_SHA: sha, PATH: "held-path", VITE_SERVICE_CERTIFIED_SOLVER: "false",
-    VITE_FORECAST_RUNTIME: "production", VITE_FORECAST_PUBLIC_KEY_ID: "ambient",
+    VITE_FORECAST_RUNTIME: "staging", VITE_FORECAST_PUBLIC_KEY_ID: "ambient",
     VITE_FORECAST_PUBLIC_KEY_BASE64: "ambient", CLOUDFLARE_API_TOKEN: "secret",
     UNRELATED_SECRET: "secret",
   });
@@ -16,9 +16,9 @@ test("production fixes bundled service selection while retaining the exact revis
   assert.equal(env.WRANGLER_SEND_METRICS, "false");
   assert.equal(env.PATH, "held-path");
   assert.equal(env.VITE_SERVICE_CERTIFIED_SOLVER, "true");
-  assert.equal(env.VITE_FORECAST_RUNTIME, "bundled");
-  assert.equal(env.VITE_FORECAST_PUBLIC_KEY_ID, "");
-  assert.equal(env.VITE_FORECAST_PUBLIC_KEY_BASE64, "");
+  assert.equal(env.VITE_FORECAST_RUNTIME, "production");
+  assert.equal(env.VITE_FORECAST_PUBLIC_KEY_ID, "production-v1");
+  assert.equal(env.VITE_FORECAST_PUBLIC_KEY_BASE64, "BJAu/55jE5vGF7axWWKIp3RbjZyjm1QPY4IuqSzMf9Y=");
   assert.equal(env.CLOUDFLARE_API_TOKEN, undefined);
   assert.equal(env.UNRELATED_SECRET, undefined);
 });
@@ -35,7 +35,12 @@ test("production reuses the accepted guarded build and formal packaging chain at
     assert.equal(options.env.GITHUB_SHA, sha);
     return { status: 0 };
   });
-  assert.deepEqual(calls, serviceCommands("dist"));
+  assert.deepEqual(calls.slice(0, -1), serviceCommands("dist").slice(0, -1));
+  assert.deepEqual(calls.at(-1), [
+    "--input-type=module", "-e",
+    "const {buildSiteProduction}=await import('./scripts/build-site-production.ts'); const {default:contract}=await import('./site-worker/production-forecast.proposed.json',{with:{type:'json'}}); await buildSiteProduction(process.argv[1],false,contract); await buildSiteProduction(process.argv[1],true,contract);",
+    "dist",
+  ]);
 });
 test("a failed build cannot proceed to packaging", () => {
   let calls = 0;
