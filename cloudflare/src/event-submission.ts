@@ -64,6 +64,14 @@ export async function handleEvent(request: Request, env: WorkerEnv) {
     throw error;
   }
 
+  // Upgraded reports reserve this same ID atomically with raw admission. The
+  // permanent effect claim still suppresses old writes after receipt cleanup.
+  if (env.STATS_CAPABILITY_CUTOVER === "true" && normalized.event.kind === "kit_result") {
+    const claimed = await env.DB.withSession("first-primary").prepare(
+      "SELECT 1 found FROM outcome_effects WHERE report_id=? AND raw_admitted=1",
+    ).bind(normalized.eventId).first();
+    if (claimed) return jsonResponse(request, env, { ok: true, duplicate: true });
+  }
   const duplicate = await commitSubmission(request, env, normalized, now);
   return jsonResponse(request, env, duplicate ? { ok: true, duplicate: true } : { ok: true });
 }

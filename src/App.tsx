@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { type AppHandlers, AppLayout, preloadDetailPanel } from "./AppLayout";
 import type { MobileTab } from "./components/MobileChrome";
 import type { CalculatorAppModel } from "./hooks/calculatorAppModel";
@@ -9,6 +9,7 @@ import type { Grade, Stock } from "./types";
 import { useDecisionPort } from "./analytics/useDecisionPort";
 import { DecisionPresentation } from "./analytics/DecisionPresentation";
 import { useMobileLayout } from "./hooks/useMobileLayout";
+import { createProductionDecision } from "./analytics/decisionProduction";
 
 type InputSnapshot = { grade: Grade; level: number; exp: number; stock: Stock };
 type AppHandlerOptions = {
@@ -49,10 +50,21 @@ function makeAppHandlers({
   return handlers;
 }
 export default function App({ decision }: { decision?: Parameters<typeof useDecisionPort>[0] } = {}) {
+  const [productionDecision, setProductionDecision] = useState<Awaited<ReturnType<typeof createProductionDecision>>>();
+  useEffect(() => {
+    let retired = false;
+    let port: Awaited<ReturnType<typeof createProductionDecision>>;
+    setProductionDecision(undefined);
+    if (!decision) void createProductionDecision().then(next => {
+      if (retired) next?.disable();
+      else { port = next; setProductionDecision(next); }
+    });
+    return () => { retired = true; port?.disable(); };
+  }, [decision]);
   const [pendingOutcome, setPendingOutcome] = useState<"success" | "fail" | null>(null);
   const shell = useAppShellNavigation<InputSnapshot>();
   const { mobileTab, setMobileViewTab, viewTab } = shell;
-  const binding = useDecisionPort(decision);
+  const binding = useDecisionPort(decision ?? productionDecision);
   const model = useCalculatorApp(shell.statsVisible, binding.lifecycle);
   const calculator = model;
   const { actions } = calculator;

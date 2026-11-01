@@ -5,7 +5,9 @@ type TurnstileEventKind =
   | "kit_result"
   | "runtime_invariant"
   | "solver_diagnostic"
-  | "solver_recovery";
+  | "solver_recovery"
+  | "decision_episode"
+  | "decision_outcome_v4";
 
 type TurnstileEnv = {
   TURNSTILE_SECRET_KEY?: string;
@@ -23,6 +25,10 @@ type SiteverifyTransportFailure = "fetch_error" | "http_status" | "invalid_json"
 
 const TURNSTILE_VERIFY_TIMEOUT_MS = 5_000;
 const TURNSTILE_CLIENT_RETRY_CODES = new Set(["timeout-or-duplicate", "invalid-input-response"]);
+const TURNSTILE_LOG_ERROR_CODES = new Set([
+  "missing-input-secret", "invalid-input-secret", "missing-input-response", "invalid-input-response",
+  "bad-request", "timeout-or-duplicate", "internal-error",
+]);
 
 class SiteverifyTransportError extends Error {
   failure: SiteverifyTransportFailure;
@@ -75,7 +81,6 @@ export async function verifyTurnstile(
         logWarn("turnstile_action_mismatch", {
           eventKind,
           expectedAction: eventKind,
-          returnedAction: result.action ?? null,
           internallyRetried,
         });
         throw new HttpError(403, "turnstile_action_mismatch", false);
@@ -83,7 +88,7 @@ export async function verifyTurnstile(
       if (!result.hostname || !hostnames.includes(result.hostname)) {
         logWarn("turnstile_hostname_mismatch", {
           eventKind,
-          returnedHostname: result.hostname ?? null,
+          expectedAction: eventKind,
           internallyRetried,
         });
         throw new HttpError(403, "turnstile_hostname_mismatch", false);
@@ -152,11 +157,14 @@ function logTurnstileFailure(
   result: SiteverifyResult | null,
   internallyRetried: boolean,
 ) {
+  const reported = Array.isArray(result?.["error-codes"]) ? result["error-codes"] : [];
+  const errorCodes = [...TURNSTILE_LOG_ERROR_CODES].filter((code) => reported.includes(code));
+  if (reported.length === 0 || reported.some((code) => !TURNSTILE_LOG_ERROR_CODES.has(code)))
+    errorCodes.push("unknown");
   logWarn("turnstile_verification_failed", {
     eventKind,
     expectedAction: eventKind,
-    returnedAction: result?.action || null,
-    errorCodes: result?.["error-codes"] || ["siteverify_unavailable"],
+    errorCodes,
     internallyRetried,
   });
 }

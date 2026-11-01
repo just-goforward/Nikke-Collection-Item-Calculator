@@ -35,6 +35,12 @@ function statsScript(html: string): string {
   return (scripts[0]?.[1] ?? "").replace(/\r\n?/g, "\n").trim();
 }
 
+function siteApplicationLocale(path: string) {
+  return SITE_LOCALE_ORDER.find(
+    (value) => `${SITE_LOCALES[value].path.slice(1)}index.html` === path,
+  );
+}
+
 export function assertProductionHtml(html: string, path: string, sourceConfig: string): void {
   if (
     /data-site-staging|COLLECTION_ACCOUNT_CONFIG|Content-Security-Policy/i.test(html) ||
@@ -45,9 +51,7 @@ export function assertProductionHtml(html: string, path: string, sourceConfig: s
   if (/<mark class="placeholder"|<p class="placeholder-block"/.test(html)) {
     throw new Error(`Unfilled legal placeholder in ${path}`);
   }
-  const locale = SITE_LOCALE_ORDER.find(
-    (value) => `${SITE_LOCALES[value].path.slice(1)}index.html` === path,
-  );
+  const locale = siteApplicationLocale(path);
   if (!locale) return;
   // The ordinary Vite build preserves this inline script; normalize line endings only.
   if (statsScript(html) !== sourceConfig) {
@@ -144,7 +148,10 @@ export async function buildSiteProduction(
     if (!files.includes(path)) throw new Error(`Missing production locale: ${path}`);
   }
   for (const path of files.filter((file) => file.endsWith(".html"))) {
-    assertProductionHtml(await readFile(join(directory, path), "utf8"), path, sourceConfig);
+    const html = await readFile(join(directory, path), "utf8");
+    const packaged = siteTargetHtml(html, target, path);
+    if (!check && packaged !== html) await writeFile(join(directory, path), packaged);
+    assertProductionHtml(check ? html : packaged, path, sourceConfig);
   }
   for (const [file, expected] of [
     ["robots.txt", await readFile(join(ROOT, "public/robots.txt"), "utf8")],
@@ -193,14 +200,24 @@ export async function buildSiteProduction(
   }
 }
 
-export function siteTargetHtml(html: string, target: string): string {
-  if (target === "production") return html;
-  if (target !== "staging") throw new Error("Invalid site target");
-  // Both selectors stay on staging; an ordinary staging page must never submit to production.
+export function siteTargetHtml(html: string, target: string, path?: string): string {
+  if (target !== "production" && target !== "staging") throw new Error("Invalid site target");
+  if (path !== undefined && !siteApplicationLocale(path)) return html;
   const config = statsScript(html);
+  const gatewayConfig = config.replace(
+    /(staging:\s*\{[\s\S]*?endpoint:\s*)"[^"]+"/,
+    '$1"https://staging.nikkecollection.com"',
+  );
+  if (target === "production") {
+    const productionConfig = config.replace(/[ \t]*\bstaging:\s*\{[^{}]*\},?[ \t]*\r?\n?/g, "");
+    if (/\bstaging\s*:/.test(productionConfig))
+      throw new Error("Unsupported nested staging statistics configuration");
+    return html.replace(config, productionConfig);
+  }
+  // Both selectors stay on staging; an ordinary staging page must never submit to production.
   const key = config.match(/staging:\s*\{[\s\S]*?turnstileSiteKey:\s*"([^"]+)"/)?.[1];
   if (!key) throw new Error("Missing staging statistics configuration");
-  const staged = config
+  const staged = gatewayConfig
     .replace(/endpoint:\s*"[^"]+"/g, 'endpoint: "https://staging.nikkecollection.com"')
     .replace(/turnstileSiteKey:\s*"[^"]+"/, `turnstileSiteKey: "${key}"`);
   return html.replace(config, staged);

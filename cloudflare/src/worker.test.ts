@@ -717,7 +717,6 @@ describe("Turnstile verification response handling", () => {
         expect.objectContaining({
           event: "turnstile_action_mismatch",
           expectedAction: action,
-          returnedAction: mismatchedAction,
           internallyRetried: false,
         }),
       );
@@ -725,12 +724,12 @@ describe("Turnstile verification response handling", () => {
   );
 
   it.each([
-    { label: "missing", body: { success: true }, returnedAction: null },
-    { label: "empty", body: { success: true, action: "" }, returnedAction: "" },
-    { label: "non-string", body: { success: true, action: 42 }, returnedAction: 42 },
+    { label: "missing", body: { success: true } },
+    { label: "empty", body: { success: true, action: "" } },
+    { label: "non-string", body: { success: true, action: 42 } },
   ])(
     "rejects a successful response with a $label action without retrying or writing",
-    async ({ body, returnedAction }) => {
+    async ({ body }) => {
       const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
       await setGuardAction("disable_statistics_writes");
       mockSiteverify({ body });
@@ -749,7 +748,6 @@ describe("Turnstile verification response handling", () => {
         expect.objectContaining({
           event: "turnstile_action_mismatch",
           expectedAction: "kit_result",
-          returnedAction,
           internallyRetried: false,
         }),
       );
@@ -782,7 +780,6 @@ describe("Turnstile verification response handling", () => {
       expect.objectContaining({
         event: "turnstile_action_mismatch",
         expectedAction: "solver_recovery",
-        returnedAction: "runtime_invariant",
         internallyRetried: false,
       }),
     ]);

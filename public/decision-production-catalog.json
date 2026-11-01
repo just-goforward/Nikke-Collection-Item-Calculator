@@ -1,0 +1,10 @@
+{
+  "enabled": false,
+  "producer": {
+    "producerVersion": "",
+    "producerCodeHash": ""
+  },
+  "allowedProducers": [],
+  "turnstileSiteKey": "",
+  "publications": []
+}

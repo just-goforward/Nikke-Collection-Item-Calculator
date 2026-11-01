@@ -4,11 +4,11 @@ import {
   greatSuccessState,
   KIT_ORDER,
   type Kit,
-} from "../../shared/game";
-import { sameState, validateState } from "./event-validation-common";
+} from "../../shared/game.ts";
+import { sameState, validateState } from "./event-validation-common.ts";
 import type { SubmissionEnvelope, ValidatedSubmission } from "./event-validation-types";
-import { HttpError } from "./http-error";
-import { normalizeSourceHost } from "./normalization";
+import { HttpError } from "./http-error.ts";
+import { normalizeSourceHost } from "./normalization.ts";
 import type { KitResultEventInput } from "./schemas";
 
 export function validateKitResultSubmission(

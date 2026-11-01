@@ -6,6 +6,7 @@ import * as client from "./decision-analytics-client";
 import type { DecisionEvent } from "../shared/decisionAnalyticsV3";
 import type { useCalculatorApp } from "../src/hooks/useCalculatorApp";
 import type { createDecisionBridge } from "../src/analytics/decisionBridge";
+import type { createOutcomeBridge } from "../src/analytics/outcomeBridge";
 import type { RunProvider } from "../src/analytics/decisionRun";
 import type { CollectionState, Stock } from "../src/types";
 import type { StatsSubmissionEnvelope } from "../src/lib/statsSubmissionQueue";
@@ -16,7 +17,7 @@ import type { TurnstileTokenProvider } from "../src/lib/turnstileTokenProvider";
 
 type Fixtures = Awaited<ReturnType<typeof forecastAsyncFixtures>>;
 type Model = ReturnType<typeof useCalculatorApp>;
-type Bridge = ReturnType<typeof createDecisionBridge>;
+type Bridge = ReturnType<typeof createDecisionBridge> | ReturnType<typeof createOutcomeBridge>;
 type Input = CollectionState & { stock: Stock };
 export type BootOptions = {
   harness?: "app" | "core";
@@ -26,6 +27,9 @@ export type BootOptions = {
   seedPersonal?: boolean;
   denyStorage?: boolean;
   composition?: "strict" | "production";
+  productionPortFailure?: boolean;
+  outcomeV4?: boolean;
+  holdOutcomeTransport?: boolean;
 };
 type Guards = {
   unexpected: string[];
@@ -51,6 +55,16 @@ let releaseAct: (() => void) | undefined;
 let clockAct: Promise<void> | undefined;
 let coreHarness = false;
 let rootComposition: "strict" | "production" = "strict";
+let cleanupProductionFixture: (() => void) | undefined;
+let outcomeTransportHeld = false;
+const productionDelivery = {
+  requests: 0, tokens: 0, idsBeforeSecurity: -1, idsAtSecurityReady: -1,
+  actions: [] as unknown[],
+  wires: [] as Array<{
+    url: string; credentials: RequestCredentials | undefined; referrerPolicy: ReferrerPolicy | undefined;
+    headers: [string, string][]; body: Record<string, unknown>;
+  }>,
+};
 const events: DecisionEvent[] = [];
 const sentAt: Array<{ stage: string; level: number | null; blueStock: string | null }> = [];
 const legacyEvents: StatsSubmissionEnvelope[] = [];
@@ -145,11 +159,12 @@ async function commit(callback: () => void | Promise<void>) {
 
 async function flush() {
   if (coreHarness) await act(async () => { await Promise.resolve(); });
-  await bridge?.flush();
+  if (!outcomeTransportHeld) await bridge?.flush();
 }
 
 async function initialize(value: Fixtures, options: BootOptions = {}) {
   fixtures = value;
+  outcomeTransportHeld = options.holdOutcomeTransport === true;
   installResourceCounters();
   coreHarness = options.harness === "core";
   rootComposition = options.composition ?? "strict";
@@ -187,7 +202,7 @@ async function initialize(value: Fixtures, options: BootOptions = {}) {
     },
   };
   bridge = createBridge({
-    ...(options.mode !== "off" && options.mode !== "baseline" ? { enabled: true } : {}),
+    enabled: options.mode !== "off" && options.mode !== "baseline",
     ...(options.mode === "unconfigured" ? {} : {
       producer, allowedProducers: [{
         producerVersion: producer.producerVersion, producerCodeHash: producer.producerCodeHash,
@@ -210,6 +225,62 @@ async function initialize(value: Fixtures, options: BootOptions = {}) {
       return () => { --counts.analyticsTimers; window.clearTimeout(timer); };
     },
   });
+  if (options.productionPortFailure || options.outcomeV4) {
+    const { decisionProductionFixture } = await import("./decision-analytics-production.fixture");
+    const fixture = decisionProductionFixture({
+      producer: { producerVersion: producer.producerVersion, producerCodeHash: producer.producerCodeHash },
+      cases: [value.a, value.b].map(publication => ({
+        publication, expectedSupply: { blue: "one_to_nine", purple: "zero", yellow: "ten_to_forty_nine" },
+      })),
+      environment: {
+        origin: "https://nikkecollection.com",
+        now: () => performance.now(),
+        randomUUID: () => `00000000-0000-4000-8000-${String(++counts.analyticsIds).padStart(12, "0")}`,
+        fetch: async (url, init) => {
+          if (!init || url !== "https://nikkecollection.com/api/decision-outcomes" || init.method !== "POST")
+            throw new Error("synthetic_transport_target_mismatch");
+          ++productionDelivery.requests;
+          productionDelivery.wires.push({
+            url, credentials: init.credentials, referrerPolicy: init.referrerPolicy,
+            headers: Array.from(new Headers(init.headers).entries()),
+            body: JSON.parse(String(init.body)),
+          });
+          if (outcomeTransportHeld) await new Promise<void>((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () => reject(new Error("TEST_ONLY_transport_aborted")), { once: true });
+          });
+          if (options.productionPortFailure) throw new Error("TEST_ONLY_delivery_unavailable");
+          return Response.json({ ok: true, duplicate: false });
+        },
+        loadTurnstile: async () => {
+          productionDelivery.idsBeforeSecurity = counts.analyticsIds;
+          await Promise.resolve();
+          productionDelivery.idsAtSecurityReady = counts.analyticsIds;
+          let callback: unknown;
+          return {
+            render: (_container, options) => {
+              productionDelivery.actions.push(options["action"]);
+              callback = options["callback"];
+              return "TEST_ONLY_widget";
+            },
+            reset: () => undefined,
+            remove: () => undefined,
+            execute: () => {
+              if (typeof callback === "function")
+                callback(`TEST_ONLY_fresh_decision_token_${++productionDelivery.tokens}`);
+            },
+          };
+        },
+        createContainer: () => {
+          const container = document.createElement("div");
+          document.body.append(container);
+          return container;
+        },
+      },
+    });
+    cleanupProductionFixture = fixture.cleanup;
+    bridge = await fixture.create();
+    if (!bridge?.enabled) throw new Error("synthetic_production_port_required");
+  }
   // The fixture owns this external bridge beyond StrictMode's simulated
   // effect cleanup; the real port still owns each run's unmount retirement.
   const decision = options.mode === "baseline" ? undefined : {
@@ -322,8 +393,10 @@ export const api = {
   async closeAct() { releaseAct?.(); await clockAct; clockAct = undefined; releaseAct = undefined; await flush(); },
   async unmount() {
     await commit(() => { root?.unmount(); root = null; });
+    if (outcomeTransportHeld) bridge?.disable();
     await bridge?.flush();
     bridge?.disable();
+    cleanupProductionFixture?.();
     for (const release of releaseLegacy.splice(0)) release();
   },
   holdLegacySender() { legacyHold = true; },
@@ -331,6 +404,7 @@ export const api = {
     return {
       events: structuredClone(events), sentAt: structuredClone(sentAt), tasks: structuredClone(tasks),
       counts: { ...counts }, timers: timers.size, intervals: intervals.size,
+      productionDelivery: { ...productionDelivery },
       listeners: listenerCounts(), client: { ...client.evidence },
       requests: client.requests.map((request) => ({
         grade: request.input.grade, level: request.input.level, stock: request.input.stock,

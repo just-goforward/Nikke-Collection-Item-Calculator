@@ -1,5 +1,5 @@
-import { type CollectionState, REQUIRED_EXP } from "../../shared/game";
-import { HttpError } from "./http-error";
+import { type CollectionState, REQUIRED_EXP } from "../../shared/game.ts";
+import { HttpError } from "./http-error.ts";
 
 export function validateState(state: CollectionState, allowLevel15: boolean): CollectionState {
   const grade = state.grade;

@@ -6,6 +6,8 @@
     "shared/**/*.ts",
     "vite.config.ts",
     "scripts/build-site-production.ts",
+    "scripts/deploy-site.ts",
+    "scripts/deploy-stats.ts",
     "scripts/build-certified-wasm.ts",
     "scripts/build-solver-wasm.ts",
     "scripts/apply-forecast-d1-migrations.ts"

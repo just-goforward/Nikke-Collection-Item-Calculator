@@ -1,32 +1,39 @@
+# Generated from scripts/production-operating-catalog.mjs; do not edit.
 name = "collection-kit-forecast-collector-v2-production"
 main = "src/worker.ts"
 compatibility_date = "2026-08-14"
-compatibility_flags = ["nodejs_compat"]
-upload_source_maps = false
 workers_dev = false
 preview_urls = false
 routes = []
+upload_source_maps = false
+compatibility_flags = ["nodejs_compat"]
 
 [limits]
 cpu_ms = 300
+
 [observability.logs]
 enabled = true
 invocation_logs = true
 head_sampling_rate = 0.25
+
 [triggers]
 crons = []
-[[ratelimits]]
-name = "ADMIN_RATE_LIMITER"
-namespace_id = "419001"
-simple = { limit = 60, period = 60 }
+
 [[d1_databases]]
 binding = "FORECAST_DB"
 database_name = "collection-kit-forecast-collector"
 database_id = "2d58bcc0-a7b5-43f3-8f42-34e1bf1ff853"
+
 [[d1_databases]]
 binding = "USAGE_GUARD_DB"
 database_name = "collection-kit-usage-guard"
 database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+[[ratelimits]]
+name = "ADMIN_RATE_LIMITER"
+namespace_id = "419001"
+simple = { limit = 60, period = 60 }
+
 [vars]
 FORECAST_V2_MODE = "off"
 FORECAST_V2_BOOTSTRAP_CUTOFF = ""
@@ -36,7 +43,9 @@ COLLECTION_SCHEDULE = "combined"
 DEPLOY_SHA = "local"
 POLL_MODE = "both"
 COLLECT_ENABLED = "false"
+FORECAST_CLEANUP_ENABLED = "false"
 RUNTIME_INGESTION_ENABLED = "false"
 RUNTIME_NOTICE_DAILY_LIMIT = "20"
+
 [secrets]
 required = ["ADMIN_TOKEN"]

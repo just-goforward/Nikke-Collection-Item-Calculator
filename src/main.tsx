@@ -9,6 +9,7 @@ import { localCertifiedUiEnabled } from "./lib/localCertifiedUi";
 import { SERVICE_CERTIFIED_SOLVER } from "./lib/serviceCertified";
 import { prepareRuntimeSupplyForecast } from "./lib/supplyForecastRuntime";
 import "./styles.css";
+import { initializeDecisionProduction } from "./analytics/decisionBootstrap";
 
 function boot(Calculator: ComponentType) {
   const app = document.getElementById("app");
@@ -46,7 +47,7 @@ function renderBootFailure(error: unknown) {
 // Keep the local entry's dynamic import behind Vite's compile-time dev guard.
 if (SERVICE_CERTIFIED_SOLVER) {
   // Keep the service shell; its adapter owns certified forecast preparation.
-  boot(App);
+  void initializeDecisionProduction().then(() => boot(App));
 } else if (import.meta.env.DEV && localCertifiedUiEnabled(location.hostname)) {
   void import("./CurrentUiCertifiedApp")
     .then((module) => boot(module.default))

@@ -8,6 +8,8 @@ import { holdingsBands } from "./decisionProvider.ts";
 type Options = {
   enabled?: boolean;
   producer?: RunProvider;
+  captureProducer?: () => RunProvider | undefined;
+  providerReady?: () => boolean;
   allowedProducers?: readonly ProducerContext[];
   send?: Parameters<typeof createDecisionClient>[0]["send"];
   now: () => number;
@@ -30,7 +32,7 @@ function bands(value: Readonly<{ blue: string; purple: string; yellow: string }>
 
 /** No actual public producer, security provider or expected-supply mapping is registered here. */
 export function createDecisionBridge(options: Options) {
-  const producer = options.producer;
+  const producer = options.captureProducer?.() ?? options.producer;
   const enabled = (options.enabled ?? DECISION_COLLECTION_ENABLED) === true;
   const allowed = enabled ? (options.allowedProducers ?? []).map(tuple => Object.freeze({
     producerVersion: tuple.producerVersion, producerCodeHash: tuple.producerCodeHash,
@@ -38,6 +40,10 @@ export function createDecisionBridge(options: Options) {
   const ready = enabled &&
     typeof options.send === "function" && approved(producer, allowed);
   let activeReady = ready;
+  const isReady = () => {
+    try { return activeReady && (options.providerReady?.() ?? true); }
+    catch { return false; }
+  };
   let client: ReturnType<typeof createDecisionClient> | undefined;
   const tokens = new WeakMap<RunRecord, ReturnType<ReturnType<typeof createDecisionClient>["accepted"]>>();
   const eligibility = { committed: true, loaded: true, current: true, visible: true, stale: false, inert: false };
@@ -49,10 +55,13 @@ export function createDecisionBridge(options: Options) {
   };
   const lifecycle = createDecisionRun({
     enabled: ready,
-    captureProvider: () => activeReady && approved(producer, allowed) ? producer : undefined,
+    captureProvider: () => {
+      const captured = options.captureProducer?.() ?? options.producer;
+      return isReady() && approved(captured, allowed) ? captured : undefined;
+    },
     accepted(record, input) {
       const expectedSupply = bands(record.expectedSupply);
-      if (!activeReady || !expectedSupply || !options.send) return false;
+      if (!isReady() || !expectedSupply || !options.send) return false;
       const data: StageData["calculation"] = {
         producerVersion: record.provider.producerVersion, producerCodeHash: record.provider.producerCodeHash,
         publicationContentHash: record.contentHash,
@@ -61,7 +70,7 @@ export function createDecisionBridge(options: Options) {
         waitRecommended: record.verifiedWait !== null, holdings: holdingsBands(input.stock), expectedSupply,
       };
       client ??= createDecisionClient({
-        enabled: ready, providerReady: () => activeReady, now: options.now, randomUUID: options.randomUUID,
+        enabled: ready, providerReady: isReady, now: options.now, randomUUID: options.randomUUID,
         send: options.send, ...(options.schedule ? { schedule: options.schedule } : {}),
       });
       const token = client.accepted(data);
@@ -95,7 +104,7 @@ export function createDecisionBridge(options: Options) {
     },
   });
   return {
-    enabled: ready, providerReady: () => activeReady, lifecycle,
+    enabled: ready, providerReady: isReady, lifecycle,
     flush,
     disable: () => { activeReady = false; client?.disable(); },
   };

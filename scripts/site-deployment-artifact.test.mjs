@@ -36,9 +36,12 @@ test("deployment rejects a same-SHA non-operational artifact, accepting the cert
       { ...profile, entryBinding: "legacy selection" },
     ]) {
       writeFileSync(path, JSON.stringify(invalid));
-      assert.throws(() => assertSiteDeploymentArtifact(root, sha), /certified bundled operational profile/);
+      assert.throws(() => assertSiteDeploymentArtifact(root, sha), /approved certified operational profile/);
     }
     writeFileSync(path, JSON.stringify(profile));
+    writeFileSync(join(root, ".vite/forecast-runtime.json"), JSON.stringify({
+      version: 1, mode: "bundled", keyId: "", publicKeyBase64: "",
+    }));
     assert.doesNotThrow(() => assertSiteDeploymentArtifact(root, sha));
   } finally {
     rmSync(root, { recursive: true, force: true });

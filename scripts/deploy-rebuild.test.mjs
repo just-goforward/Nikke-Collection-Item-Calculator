@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import { deploy } from "./deploy-site.ts";
 
 const sha = "a".repeat(40);
+const productionWorkers = {
+  site: "collection-kit-site-production",
+  stats: "collection-kit-stats",
+};
 for (const kind of ["site", "stats"]) for (const target of ["production", "staging"]) {
   test(`${kind} replacement ${target} uses explicit config without credentialled checks`, () => {
     const prefix = kind.toUpperCase();
@@ -10,7 +14,8 @@ for (const kind of ["site", "stats"]) for (const target of ["production", "stagi
     const parent = {
       CLOUDFLARE_ACCOUNT_ID: account, CLOUDFLARE_API_TOKEN: "synthetic",
       [`${prefix}_DEPLOY_ACCOUNT_ID`]: account,
-      [`${prefix}_DEPLOY_WORKER`]: `collection-kit-${kind}-v2-${target}`,
+      [`${prefix}_DEPLOY_WORKER`]: target === "production"
+        ? productionWorkers[kind] : `collection-kit-${kind}-v2-${target}`,
       [`${prefix}_DEPLOY_HOSTNAME`]: target === "production" ? "nikkecollection.com" : "staging.nikkecollection.com",
     };
     const calls = [];
@@ -46,7 +51,7 @@ for (const kind of ["site", "stats"]) {
     const account = "b".repeat(32);
     const parent = { CLOUDFLARE_ACCOUNT_ID: account, CLOUDFLARE_API_TOKEN: "synthetic",
       [`${prefix}_DEPLOY_ACCOUNT_ID`]: account,
-      [`${prefix}_DEPLOY_WORKER`]: `collection-kit-${kind}-v2-production`,
+      [`${prefix}_DEPLOY_WORKER`]: productionWorkers[kind],
       [`${prefix}_DEPLOY_HOSTNAME`]: "nikkecollection.com" };
     const cases = [
       [["unknown", sha], parent],

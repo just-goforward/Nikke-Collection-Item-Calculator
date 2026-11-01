@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { capturePreparedOutcome } from "../analytics/acceptedOutcome";
 import { message } from "../i18n/locale";
 import { setVolatileOutcomeRecovery as setLegacyOutcomeRecovery } from "../lib/volatileSession";
 import type { SolverInput } from "../types";
@@ -144,6 +145,7 @@ export function useOutcomeApplication(options: OutcomeApplicationOptions) {
       };
       const prepared = prepareOutcome(currentOptions);
       if (!prepared) return null;
+      capturePreparedOutcome(prepared.currentStock, prepared.best.firstAction, prepared.run.count);
       return outcome === "success"
         ? applySuccessfulOutcome(prepared, currentOptions)
         : applyFailedOutcome(prepared, currentOptions);

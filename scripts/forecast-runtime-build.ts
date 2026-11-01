@@ -33,7 +33,9 @@ export function assertProductionForecastContract(value: unknown): ProductionFore
     typeof record["keyId"] !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(record["keyId"]) ||
     typeof record["publicKeyBase64"] !== "string" ||
     !/^[A-Za-z0-9+/]{43}=$/.test(record["publicKeyBase64"])
-  ) throw new Error("production_forecast_contract_unapproved");
+  ) throw new Error("production_forecast_contract_unapproved: operator-reviewed approvalRef, keyId and Ed25519 public key required in site-worker/production-forecast.proposed.json; online build disabled");
+  if (Buffer.from(record["publicKeyBase64"], "base64").toString("base64") !== record["publicKeyBase64"])
+    throw new Error("production_forecast_public_key_noncanonical");
   const engineProfile = assertCertifiedEngineProfile(record["engineProfile"]);
   return {
     version: 1, environment: "production", approvalRef: record["approvalRef"],

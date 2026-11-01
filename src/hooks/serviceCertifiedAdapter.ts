@@ -113,6 +113,7 @@ export function createServiceCertifiedAdapter(
             try {
               checkpoint = (bindings.projectResult ?? projectServiceCertifiedResult)(input, output, false);
               onCurrent?.(checkpoint.result);
+              retainVerifiedAcquisition(checkpoint.result, snapshot, publication, asOf, source);
             } catch (failure) {
               checkpoint = undefined;
               projectionFailure = failure;

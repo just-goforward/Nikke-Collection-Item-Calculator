@@ -1,4 +1,7 @@
 import { errorCode } from "../../shared/errorCodes";
+import { DECISION_ANALYTICS_ENDPOINT } from "../../shared/decisionAnalyticsV3";
+import { OUTCOME_ANALYTICS_ENDPOINT } from "../../shared/decisionOutcomeV4";
+import type { StatsIngest, StatsPublic } from "../../cloudflare/src/stats-capability-contract";
 import { createForecastEndpoint, type ForecastEnv } from "./forecast";
 import { tokensMatch, validProbeSecret } from "./probe-auth";
 
@@ -8,6 +11,8 @@ type FetchBinding = { fetch(request: Request): Promise<Response> };
 export type SiteEnv = ForecastEnv & {
   ASSETS: FetchBinding;
   SITE_ENV?: string;
+  STATS_INGEST?: StatsIngest;
+  STATS_PUBLIC?: StatsPublic;
   STATS?: FetchBinding;
   STATS_HEALTH_PROBE_TOKEN?: string;
   STATS_HEALTH_RATE_LIMITER?: {
@@ -17,9 +22,12 @@ export type SiteEnv = ForecastEnv & {
 
 const STATS_METHODS: Record<string, readonly string[]> = {
   "/api/stats": ["GET"],
+  "/api/outcome-summary": ["GET"],
   "/api/events": ["POST"],
-  "/api/decision-events": ["POST"],
+  [DECISION_ANALYTICS_ENDPOINT]: ["POST"],
+  [OUTCOME_ANALYTICS_ENDPOINT]: ["POST"],
 };
+const DECISION_ENDPOINTS = new Set([DECISION_ANALYTICS_ENDPOINT, OUTCOME_ANALYTICS_ENDPOINT]);
 
 function privateResponse(response: Response, noStore = false): Response {
   const headers = new Headers(response.headers);
@@ -48,11 +56,20 @@ async function proxy(
   headers.delete("Cookie");
   headers.delete("Authorization");
   headers.delete("Proxy-Authorization");
-  if (new URL(request.url).pathname === "/api/decision-events") headers.delete("Referer");
+  const url = new URL(request.url);
+  const decision = DECISION_ENDPOINTS.has(url.pathname);
+  if (decision) {
+    if (url.pathname === DECISION_ANALYTICS_ENDPOINT) url.search = "";
+    const allowed = new Set(["accept", "content-type", "origin", "cf-connecting-ip",
+      "access-control-request-method", "access-control-request-headers"]);
+    for (const name of [...headers.keys()]) if (!allowed.has(name)) headers.delete(name);
+  }
   try {
-    const response = await binding.fetch(new Request(request, { headers, redirect: "manual" }));
+    const forwardedRequest = new Request(request, { headers, redirect: "manual" });
+    const response = await binding.fetch(decision ? new Request(url, forwardedRequest) : forwardedRequest);
     const forwarded = privateResponse(response, noStore);
-    forwarded.headers.delete("Set-Cookie");
+    for (const name of ["Set-Cookie", "Cookie", "Authorization", "Proxy-Authorization"])
+      forwarded.headers.delete(name);
     return forwarded;
   } catch (error) {
     // Never log request headers, personal data, or upstream exception details: only the
@@ -92,7 +109,7 @@ export default {
           headers: { Accept: "application/json" },
           redirect: "manual",
         }),
-        env.STATS,
+        env.STATS_PUBLIC ?? env.STATS,
         true,
       );
     }
@@ -115,8 +132,22 @@ export default {
     }
     const statsMethods = STATS_METHODS[path];
     if (statsMethods) {
-      if (!statsMethods.includes(request.method)) return errorResponse(405, "method_not_allowed");
-      return proxy(request, env.STATS, request.method !== "GET");
+      // The Stats upstream retains Origin authorization; preflight targets only implemented routes.
+      const eventPreflight =
+        request.method === "OPTIONS" &&
+        Boolean(request.headers.get("Origin")) &&
+        statsMethods.includes(request.headers.get("Access-Control-Request-Method") ?? "") &&
+        (!DECISION_ENDPOINTS.has(path) ||
+          (request.headers.get("Access-Control-Request-Headers") ?? "").split(",")
+            .every(name => !name.trim() || name.trim().toLowerCase() === "content-type"));
+      if (!statsMethods.includes(request.method) && !eventPreflight)
+        return errorResponse(405, "method_not_allowed");
+      if (path === DECISION_ANALYTICS_ENDPOINT && env.STATS_INGEST)
+        return errorResponse(410, "decision_v3_retired");
+      const binding = path === "/api/stats" || path === "/api/outcome-summary"
+        ? env.STATS_PUBLIC ?? env.STATS
+        : env.STATS_INGEST ?? env.STATS;
+      return proxy(request, binding, request.method !== "GET");
     }
     // No wildcard proxy, public diagnostic/health endpoints, or API-to-SPA fallback.
     if (/^\/(?:api|auth|account|admin|v1)(?:\/|$)/.test(path)) {

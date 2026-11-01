@@ -9,6 +9,33 @@ import { forecastAsyncFixtures } from "./forecast-async.fixtures";
 import type { BootOptions } from "./decision-analytics-browser";
 import type { SyntheticResult } from "./decision-analytics-client";
 import { installPersistenceAudit, type PersonalInventory } from "./decision-analytics-persistence";
+import { TurnstileTokenProvider } from "../src/lib/turnstileTokenProvider";
+import { parseOutcomeEnvelope } from "../shared/decisionOutcomeV4";
+import { outcomeAnalyticsFixtures } from "./decision-analytics-production.fixture";
+
+test("Turnstile decision sends reset and execute afresh", async () => {
+  const actions: unknown[] = [];
+  let callback: ((token: string) => void) | undefined;
+  let executions = 0;
+  let resets = 0;
+  const provider = new TurnstileTokenProvider<"decision_episode">("TEST_ONLY", async () => ({
+    render: (_container, options) => {
+      actions.push(options["action"]);
+      callback = options["callback"] as (token: string) => void;
+      return String(actions.length);
+    },
+    execute: () => callback?.(`TEST_ONLY_token_${++executions}`),
+    reset: () => { resets++; },
+    remove: () => undefined,
+  }), () => ({} as HTMLElement));
+  try {
+    const first = await provider.issueToken("decision_episode");
+    const retry = await provider.issueToken("decision_episode");
+    expect(retry).not.toBe(first);
+    expect(resets).toBe(2);
+    expect(actions).toEqual(["decision_episode"]);
+  } finally { provider.dispose(); }
+});
 
 type Snapshot = ReturnType<Window["decisionAnalytics"]["snapshot"]>;
 type Stage = Snapshot["events"][number]["stage"];
@@ -28,7 +55,7 @@ let devClientTransportSuppressions = 0;
 
 test.use({ serviceWorkers: "block" });
 test.beforeAll(async () => {
-  fixtures = await forecastAsyncFixtures();
+  fixtures = await outcomeAnalyticsFixtures();
   server = await createServer({
     configFile: false, root: process.cwd(),
     cacheDir: mkdtempSync(join(tmpdir(), "decision-analytics-vite-")),
@@ -130,6 +157,7 @@ test.beforeEach(async ({ page, context }) => {
     await route.continue();
   });
   await context.addInitScript(() => {
+    Object.defineProperty(window, "__STATS_DELIVERY_HEALTH_EMIT_ENABLED__", { value: false, writable: true, configurable: true });
     const guards = { unexpected: [] as string[], visibility: "visible" as DocumentVisibilityState };
     window.decisionAnalyticsGuards = guards;
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => guards.visibility });
@@ -278,6 +306,182 @@ async function expose(page: Page) {
   await expect.poll(async () => stages(await state(page), "wait_presented").length).toBe(1);
 }
 
+for (const outcome of ["success", "fail"] as const) {
+  test(`v4 accepted ${outcome} alone commits pre-mutation stock through real transport`, async ({ page }) => {
+    await boot(page, { outcomeV4: true, legacyStatsConfig: true });
+    await beginApp(page);
+    await page.evaluate(() => window.decisionAnalytics.current(0, { uses: 1 }));
+    expect((await state(page)).productionDelivery.requests).toBe(0);
+    await finish(page, 0, { uses: 1 });
+    await showLeaf(page, currentLeaf);
+    const unanswered = await state(page);
+    expect(unanswered.productionDelivery.requests).toBe(0);
+    expect(unanswered.counts.analyticsIds).toBe(0);
+    await page.locator("#resultBox .outcome-buttons button").nth(outcome === "success" ? 0 : 1).click();
+    expect((await state(page)).productionDelivery.requests).toBe(0);
+    await page.locator("#resultBox").getByRole("button", {
+      name: outcome === "success" ? "대성공 O 확정" : "대성공 X 확정", exact: true,
+    }).click();
+    await page.evaluate(() => window.decisionAnalytics.waitRequest(1));
+    const value = await state(page);
+    expect(value.productionDelivery.wires).toHaveLength(1);
+    const wire = value.productionDelivery.wires[0]!;
+    const { event } = parseOutcomeEnvelope(wire.body);
+    expect(event.operation).toBe("commit");
+    if (event.operation !== "commit") throw new Error("commit_required");
+    expect(event.data.holdings).toEqual(input.stock);
+    expect(event.data.outcome).toBe(outcome === "success" ? "great" : "no_great");
+    expect(event.data.attemptCount).toBeNull();
+    expect(event.data.recommendedUses).toBe(1);
+    expect(event.data.waitRecommended).toBe(true);
+    expect(event.data.legacySettlement).toMatchObject({
+      kind: "kit_result", stockBefore: input.stock, recommendedUses: 1,
+      outcome: outcome === "success" ? "great_success" : "no_great_success",
+    });
+    expect(Object.keys(event.data.supplyReference).sort()).toEqual([
+      "gameDay", "projectionPolicyVersion", "publicationContentHash", "slotEnd", "slotStart",
+    ]);
+    expect(wire.credentials).toBe("omit");
+    expect(wire.referrerPolicy).toBe("no-referrer");
+    expect(value.legacyEvents.filter(envelope => envelope.event.kind === "kit_result")).toEqual([]);
+    await page.evaluate(() => window.decisionAnalytics.fail(1, "error"));
+    await tick(page, 300);
+    expect((await state(page)).productionDelivery.wires).toHaveLength(1);
+  });
+}
+
+test("v4 transport failure retries one confirmed identity without legacy fallback", async ({ page }) => {
+  await boot(page, { outcomeV4: true, productionPortFailure: true, legacyStatsConfig: true });
+  await beginApp(page); await finish(page, 0, { uses: 1 });
+  await showLeaf(page, currentLeaf);
+  await page.locator("#resultBox .outcome-buttons button").first().click();
+  await page.locator("#resultBox").getByRole("button", { name: "대성공 O 확정", exact: true }).click();
+  await page.evaluate(() => window.decisionAnalytics.waitRequest(1));
+  const value = await state(page);
+  expect(value.productionDelivery.wires).toHaveLength(3);
+  const reports = value.productionDelivery.wires.map(wire => parseOutcomeEnvelope(wire.body).event);
+  expect(new Set(reports.map(event => event.reportId)).size).toBe(1);
+  expect(value.productionDelivery.tokens).toBe(3);
+  expect(value.productionDelivery.actions).toEqual(Array(3).fill("decision_outcome_v4"));
+  expect(value.legacyEvents.filter(envelope => envelope.event.kind === "kit_result")).toEqual([]);
+  await page.evaluate(() => window.decisionAnalytics.fail(1, "error"));
+  await tick(page, 300);
+});
+
+test("v4 validated retained Current becomes eligible only after cleanup without WAIT", async ({ page }) => {
+  await boot(page, { harness: "core", outcomeV4: true });
+  await beginCore(page);
+  await page.evaluate(() => window.decisionAnalytics.current(0, { uses: 1 }));
+  expect((await state(page)).productionDelivery.requests).toBe(0);
+  await page.evaluate(() => window.decisionAnalytics.fail(0, "limit"));
+  await tick(page, 300);
+  expect((await state(page)).core!.busy).toBe(false);
+  await page.evaluate(() => window.decisionAnalytics.action("outcome", "fail"));
+  await page.evaluate(() => window.decisionAnalytics.waitRequest(1));
+  const wires = (await state(page)).productionDelivery.wires;
+  expect(wires).toHaveLength(1);
+  const { event } = parseOutcomeEnvelope(wires[0]!.body);
+  expect(event.operation === "commit" && event.data.waitRecommended).toBe(false);
+  await page.evaluate(() => window.decisionAnalytics.fail(1, "error"));
+  await tick(page, 300);
+});
+
+for (const attempt of [1, null] as const) {
+  test(`v4 terminal explicit attempt ${attempt} preserves the original confirmed report`, async ({ page }) => {
+    await boot(page, { harness: "core", outcomeV4: true, legacyStatsConfig: true });
+    await beginCore(page, { ...input, level: 14 }); await finish(page);
+    await page.evaluate(() => window.decisionAnalytics.action("outcome", "success"));
+    const committed = (await state(page)).productionDelivery.wires;
+    expect(committed).toHaveLength(1);
+    const original = parseOutcomeEnvelope(committed[0]!.body).event;
+    await page.evaluate(value => window.decisionAnalytics.action("attempt", value), attempt);
+    const value = await state(page);
+    const events = value.productionDelivery.wires.map(wire => parseOutcomeEnvelope(wire.body).event);
+    expect(events.filter(event => event.operation === "commit")).toHaveLength(1);
+    expect(events.filter(event => event.operation === "attempt_patch")).toHaveLength(attempt === null ? 0 : 1);
+    expect(events.every(event => event.reportId === original.reportId)).toBe(true);
+    expect(value.legacyEvents.filter(envelope => envelope.event.kind === "kit_result")).toEqual([]);
+  });
+}
+
+test("v4 unconfigured analytics preserves the actual legacy-only outcome route", async ({ page }) => {
+  await boot(page, { harness: "core", mode: "unconfigured", legacyStatsConfig: true });
+  await beginCore(page); await finish(page, 0, { uses: 1 });
+  await page.evaluate(() => window.decisionAnalytics.action("outcome", "fail"));
+  await page.evaluate(() => window.decisionAnalytics.waitRequest(1));
+  const value = await state(page);
+  expect(value.counts.analyticsIds).toBe(0);
+  expect(value.productionDelivery.requests).toBe(0);
+  expect(value.legacyEvents.filter(envelope => envelope.event.kind === "kit_result")).toHaveLength(1);
+  await page.evaluate(() => window.decisionAnalytics.fail(1, "error"));
+  await tick(page, 300);
+});
+
+test("v4 unanswered mobile Current and WAIT remain RAM-only across reload", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await boot(page, { outcomeV4: true, denyStorage: true });
+  for (const [id, value] of [["blueStock", "59"], ["purpleStock", "39"], ["yellowStock", "19"]]) {
+    await page.locator(`#${id}`).fill(value!); await page.locator(`#${id}`).blur();
+  }
+  await page.locator(".mobile-action-bar button").filter({ hasText: /계산/ }).click();
+  await page.evaluate(() => window.decisionAnalytics.waitRequest(0));
+  await finish(page);
+  await showLeaf(page, currentLeaf);
+  await showLeaf(page, waitLeaf);
+  const value = await state(page);
+  expect(value.productionDelivery.requests).toBe(0);
+  expect(value.counts.analyticsIds).toBe(0);
+  expect(value.requests).toHaveLength(1);
+  await reloadApp(page, { outcomeV4: true, denyStorage: true });
+  const reloaded = await state(page);
+  expect(reloaded.productionDelivery.requests).toBe(0);
+  expect(reloaded.requests).toEqual([]);
+  expect(reloaded.counts.analyticsIds).toBe(0);
+});
+
+test("v4 stock correction settles the same report without inventing an explicit attempt", async ({ page }) => {
+  await boot(page, { harness: "core", outcomeV4: true, legacyStatsConfig: true });
+  await beginCore(page); await finish(page, 0, { uses: 2 });
+  await page.evaluate(() => window.decisionAnalytics.action("outcome", "success"));
+  const before = (await state(page)).productionDelivery.wires;
+  expect(before).toHaveLength(1);
+  const original = parseOutcomeEnvelope(before[0]!.body).event;
+  expect(original.operation === "commit" && original.data.attemptCount).toBeNull();
+  await page.evaluate(() => window.decisionAnalytics.action("stock", { blue: 49, purple: 39, yellow: 19 }));
+  await page.evaluate(() => window.decisionAnalytics.action("calculate"));
+  await page.evaluate(() => window.decisionAnalytics.waitRequest(1));
+  const value = await state(page);
+  const events = value.productionDelivery.wires.map(wire => parseOutcomeEnvelope(wire.body).event);
+  expect(events).toHaveLength(2);
+  const patch = events[1]!;
+  expect(patch.reportId).toBe(original.reportId);
+  expect(patch.operation).toBe("attempt_patch");
+  if (patch.operation !== "attempt_patch") throw new Error("patch_required");
+  expect(patch.data.attemptCount).toBeNull();
+  expect(patch.data.legacySettlement).toMatchObject({ kind: "kit_result", successAttempt: 1 });
+  expect(value.legacyEvents.filter(envelope => envelope.event.kind === "kit_result")).toEqual([]);
+  await page.evaluate(() => window.decisionAnalytics.fail(1, "error"));
+  await tick(page, 300);
+});
+
+test("v4 full RAM queue admits no new report and preserves legacy-only statistics before POST", async ({ page }) => {
+  await boot(page, { harness: "core", outcomeV4: true, legacyStatsConfig: true, holdOutcomeTransport: true });
+  for (let index = 0; index < 21; index++) {
+    await page.evaluate(value => window.decisionAnalytics.action("restore", value), input);
+    await page.evaluate(() => window.decisionAnalytics.action("calculate"));
+    await page.evaluate(i => window.decisionAnalytics.waitRequest(i), index * 2);
+    await finish(page, index * 2, { uses: 1 });
+    await page.evaluate(() => window.decisionAnalytics.action("outcome", "fail"));
+    await page.evaluate(i => window.decisionAnalytics.waitRequest(i), index * 2 + 1);
+    await page.evaluate(i => window.decisionAnalytics.fail(i, "error"), index * 2 + 1);
+    await tick(page, 300);
+  }
+  const value = await state(page);
+  expect(value.counts.analyticsIds).toBe(20);
+  expect(value.productionDelivery.requests).toBe(1);
+  expect(value.legacyEvents.filter(envelope => envelope.event.kind === "kit_result")).toHaveLength(1);
+});
+
 test("same acquired final stores Current AND WAIT; neither lazy fallback counts as exposure", async ({ page }) => {
   hold(page, "current"); hold(page, "wait");
   await boot(page);
@@ -333,6 +537,70 @@ test("same acquired final stores Current AND WAIT; neither lazy fallback counts 
     expect(event.data).toMatchObject({ currentAction: "use_blue", waitRecommended: true });
   }
   await recordPhase(page, "same tab and same physical input: separate calculations, no visitor dimension");
+});
+
+test("production port delivery failure cannot fail shared App Current and conditional WAIT", async ({ page }) => {
+  await boot(page, { productionPortFailure: true, legacyStatsConfig: true });
+  await beginApp(page);
+  await finish(page);
+  await showLeaf(page, currentLeaf);
+  await showLeaf(page, waitLeaf);
+  const unanswered = await state(page);
+  expect(unanswered.productionDelivery.requests).toBe(0);
+  expect(unanswered.productionDelivery.tokens).toBe(0);
+  expect(unanswered.productionDelivery.actions).toEqual([]);
+  expect(unanswered.counts.analyticsIds).toBe(0);
+  expect(unanswered.productionDelivery.idsBeforeSecurity).toBe(-1);
+  expect(unanswered.productionDelivery.idsAtSecurityReady).toBe(-1);
+  await page.locator("#resultBox .outcome-buttons button").last().click();
+  expect((await state(page)).productionDelivery.requests).toBe(0);
+  await page.locator("#resultBox").getByRole("button", { name: "대성공 X 확정", exact: true }).click();
+  await page.evaluate(() => window.decisionAnalytics.waitRequest(1));
+  const value = await state(page);
+  expect(value.client.completions).toBe(1);
+  expect(value.productionDelivery.requests).toBe(3);
+  expect(value.productionDelivery.tokens).toBe(3);
+  expect(value.counts.analyticsIds).toBe(1);
+  expect(value.productionDelivery.idsBeforeSecurity).toBe(1);
+  expect(value.productionDelivery.idsAtSecurityReady).toBe(1);
+  expect(value.productionDelivery.actions).toEqual(Array(3).fill("decision_outcome_v4"));
+  const wires = value.productionDelivery.wires;
+  expect(wires).toHaveLength(3);
+  const events = wires.map(wire => parseOutcomeEnvelope(wire.body).event);
+  expect(new Set(events.map(event => event.reportId)).size).toBe(1);
+  expect(events).toEqual(Array(3).fill(events[0]));
+  expect(new Set(wires.map(wire => wire.body.turnstileToken)).size).toBe(wires.length);
+  for (const wire of wires) {
+    expect(wire.url).toBe("https://nikkecollection.com/api/decision-outcomes");
+    expect(wire.body.kind).toBe("confirmed_outcome");
+    expect(wire.body.version).toBe(4);
+    expect(wire.body.operation).toBe("commit");
+    expect(wire.body.data).toMatchObject({
+      holdings: input.stock, outcome: "no_great", recommendedUses: 2, attemptCount: null,
+    });
+    expect(wire.credentials).toBe("omit");
+    expect(wire.referrerPolicy).toBe("no-referrer");
+    expect(wire.headers).toEqual([["content-type", "application/json"]]);
+  }
+  expect(value.unexpected).toEqual([]);
+  expect(value.legacyEvents.filter(envelope => envelope.event.kind === "kit_result")).toEqual([]);
+  await page.evaluate(() => window.decisionAnalytics.current(1));
+  await showLeaf(page, currentLeaf);
+  await expect(page.locator(waitLeaf)).toBeHidden();
+  await finish(page, 1);
+  await showLeaf(page, currentLeaf);
+  await showLeaf(page, waitLeaf);
+  const currentText = await page.locator(currentLeaf).textContent();
+  const waitText = await page.locator(waitLeaf).textContent();
+  await page.evaluate(() => window.decisionAnalytics.flush());
+  const settled = await state(page);
+  expect(settled.client.completions).toBe(2);
+  expect(settled.productionDelivery.requests).toBe(3);
+  expect(settled.counts.analyticsIds).toBe(1);
+  expect(settled.legacyEvents.filter(envelope => envelope.event.kind === "kit_result")).toEqual([]);
+  await expect(page.locator("#calculateButton")).toBeEnabled();
+  await expect(page.locator(currentLeaf)).toHaveText(currentText!);
+  await expect(page.locator(waitLeaf)).toHaveText(waitText!);
 });
 
 for (const leaf of ["current", "wait"] as const) {

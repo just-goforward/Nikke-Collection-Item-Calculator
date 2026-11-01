@@ -6,7 +6,7 @@ import type {
 } from "../../shared/decisionAnalyticsV3.ts";
 
 // Activation is deliberately independent of legacy statistics and account consent.
-export const DECISION_COLLECTION_ENABLED = false;
+export const DECISION_COLLECTION_ENABLED = true;
 
 type Token = Readonly<{ generation: number }>;
 type Entry = { event: DecisionEvent; expires: number; attempts: number };

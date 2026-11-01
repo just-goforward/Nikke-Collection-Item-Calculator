@@ -26,6 +26,7 @@ import { SERVICE_CERTIFIED_SOLVER } from "../lib/serviceCertified";
 import { withoutRecommendedWait } from "./serviceCertifiedPresentation";
 import { ServiceCertifiedCancelled, type ServiceCertifiedSolveOutcome } from "./serviceCertifiedTypes";
 import { observeDecision, type DecisionLifecycle } from "../analytics/decisionLifecycle";
+import { isOutcomeReportPending, retainPendingOutcomeSettlement, withAcceptedOutcomeCapture } from "../analytics/acceptedOutcome";
 
 type MutableRef<T> = { current: T };
 
@@ -309,18 +310,13 @@ async function executeSolveAndRender(
     }
   } finally {
     await loadingSession.finish(skipUiCleanup || !owns());
+    if (execution === context.executionRef.current) context.busyRef.current = false;
     if (!skipUiCleanup && owns()) {
       const forecastCurrent = context.checkForecastBoundary?.() !== false;
       if (SERVICE_CERTIFIED_SOLVER && context.inputRevisionRef.current !== inputRevision) {
         // A reset/account switch during the minimum loading delay owns the new views.
       } else if (completedResult) {
         context.renderResult(completedResult, options.previousAction);
-        if (forecastCurrent && owns() && context.inputRevisionRef.current === inputRevision &&
-            completedResult.certified?.final !== false && observerOwner !== undefined) {
-          const finalResult = completedResult;
-          observeDecision(context.lifecycle ?
-            () => context.lifecycle!.accepted(observerOwner, input, finalResult, "final") : undefined);
-        }
       } else if (failureViews) {
         context.setResultView(failureViews.result);
         context.setDetailView(failureViews.detail);
@@ -330,8 +326,14 @@ async function executeSolveAndRender(
       }
       context.setCalculateBusy(false);
       context.setLoading({ active: false, text: DEFAULT_LOADING_TEXT });
+      if (forecastCurrent && owns() && context.inputRevisionRef.current === inputRevision &&
+          completedResult && observerOwner !== undefined) {
+        const retainedResult = completedResult;
+        const origin = retainedResult.certified?.final === false ? "current_checkpoint" : "final";
+        observeDecision(context.lifecycle ?
+          () => context.lifecycle!.accepted(observerOwner, input, retainedResult, origin) : undefined);
+      }
     }
-    if (execution === context.executionRef.current) context.busyRef.current = false;
   }
   // A supersession during the deferred loading cleanup must not report success
   // to calculateAndClearStale, which would otherwise clear the new stale marker.
@@ -380,7 +382,11 @@ export function consumePendingStockCorrection({
   );
   if (resolution.status === "none") return true;
   if (resolution.status === "invalid" && !resolution.canCalculate) return false;
-  if (resolution.status === "valid") queueStatsEvent(resolution.event);
+  if (resolution.status === "valid") {
+    if (isOutcomeReportPending(pendingStatsEventRef.current!))
+      retainPendingOutcomeSettlement(pendingStatsEventRef.current!, resolution.event);
+    else queueStatsEvent(resolution.event);
+  }
   setPendingStatsEvent(null);
   setManualStockEditRequired(false);
   return true;
@@ -531,10 +537,26 @@ export function useSolveFlow({
   const applyOutcomeAndMaybeCalculate = useCallback(
     async (outcome: "success" | "fail") => {
       if (busyRef.current || !ownsRenderedAction()) return null;
-      const applied = applyOutcome(outcome);
-      if (!applied) return null;
-      if (observerOwner !== undefined)
-        observeDecision(lifecycle ? () => lifecycle.outcomeConfirmed(observerOwner, outcome) : undefined);
+      let prepared: unknown;
+      let legacySettlement: StatsSubmissionEvent | undefined;
+      const capture = observerOwner !== undefined && lifecycle?.prepareOutcome
+        ? (context: Parameters<NonNullable<DecisionLifecycle["prepareOutcome"]>>[1]) => {
+            prepared = observeDecision(() => lifecycle.prepareOutcome!(observerOwner, context));
+            return prepared !== undefined;
+          }
+        : undefined;
+      let applied: OutcomeApplyResult;
+      try {
+        applied = withAcceptedOutcomeCapture(capture, () => applyOutcome(outcome), event => {
+          legacySettlement = event;
+          observeDecision(() => lifecycle?.retainLegacySettlement?.(observerOwner, event));
+        });
+        if (!applied) return null;
+        if (observerOwner !== undefined)
+          observeDecision(lifecycle ? () => lifecycle.outcomeConfirmed(observerOwner, outcome, prepared, legacySettlement) : undefined);
+      } finally {
+        observeDecision(() => lifecycle?.releaseOutcomePreparation?.(prepared));
+      }
       const next = calculationAfterOutcome(applied);
       if (!next) return applied;
       const started = await solveAndRenderInput(next.calculation.nextInput, next.options);

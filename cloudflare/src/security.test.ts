@@ -115,6 +115,80 @@ describe("stats security", () => {
 });
 
 describe("Turnstile hostname", () => {
+  it("rejects untrusted verification fields without logging their identifiers", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const responses = [
+      { success: true, action: "sentinel_action_id", hostname: "test.example" },
+      { success: true, action: "decision_episode", hostname: "sentinel_host.example" },
+      { success: false, action: "sentinel_error_action", hostname: "sentinel_error_host.example",
+        "error-codes": ["invalid-input-response", "sentinel_error_id", { nested: "sentinel_nested_id" }] },
+    ];
+    let responseIndex = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(responses[responseIndex++])));
+    try {
+      for (const [index, message, retryable] of [
+        [0, "turnstile_action_mismatch", false],
+        [1, "turnstile_hostname_mismatch", false],
+        [2, "turnstile_failed", true],
+      ] as const) {
+        await expect(verifyTurnstile(
+          new Request("https://test.example/api/decision-events"),
+          { TURNSTILE_SECRET_KEY: "test-turnstile-secret", TURNSTILE_ALLOWED_HOSTNAMES: "test.example" },
+          `fresh-test-token-at-least-twenty-${index}`,
+          "decision_episode",
+        )).rejects.toMatchObject({ status: 403, message, retryable });
+      }
+      expect(JSON.stringify(warning.mock.calls)).not.toContain("sentinel_");
+      const logs = warning.mock.calls.map(([line]) => JSON.parse(String(line)));
+      expect(logs).toMatchObject([
+        { event: "turnstile_action_mismatch", expectedAction: "decision_episode" },
+        { event: "turnstile_hostname_mismatch", expectedAction: "decision_episode" },
+        { event: "turnstile_verification_failed", expectedAction: "decision_episode",
+          errorCodes: ["invalid-input-response", "unknown"] },
+      ]);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("validates the decision action and hostname on every verification attempt", async () => {
+    const siteverify = vi.fn()
+      .mockResolvedValueOnce(Response.json({
+        success: true, action: "decision_episode", hostname: "test.example",
+      }))
+      .mockResolvedValueOnce(Response.json({
+        success: true, action: "kit_result", hostname: "test.example",
+      }))
+      .mockResolvedValueOnce(Response.json({
+        success: true, action: "decision_episode", hostname: "other.example",
+      }))
+      .mockResolvedValueOnce(Response.json({
+        success: false, "error-codes": ["timeout-or-duplicate"],
+      }))
+      .mockResolvedValueOnce(Response.json({
+        success: true, action: "decision_episode", hostname: "test.example",
+      }));
+    vi.stubGlobal("fetch", siteverify);
+    const request = new Request("https://test.example/api/decision-events");
+    const verify = (token: string) => verifyTurnstile(request, {
+      TURNSTILE_SECRET_KEY: "test-turnstile-secret",
+      TURNSTILE_ALLOWED_HOSTNAMES: "test.example",
+    }, token, "decision_episode");
+
+    await expect(verify("first-test-token-at-least-twenty")).resolves.toBeUndefined();
+    await expect(verify("wrong-action-token-at-least-twenty")).rejects.toMatchObject({
+      status: 403, message: "turnstile_action_mismatch", retryable: false,
+    });
+    await expect(verify("wrong-host-token-at-least-twenty")).rejects.toMatchObject({
+      status: 403, message: "turnstile_hostname_mismatch", retryable: false,
+    });
+    await expect(verify("first-test-token-at-least-twenty")).rejects.toMatchObject({
+      status: 403, message: "turnstile_failed", retryable: true,
+    });
+    await expect(verify("fresh-test-token-at-least-twenty")).resolves.toBeUndefined();
+    expect(siteverify).toHaveBeenCalledTimes(5);
+  });
+
   it.each(["nikkecollection.com", "evil.example", undefined])("validates %s", async (hostname) => {
     vi.stubGlobal(
       "fetch",

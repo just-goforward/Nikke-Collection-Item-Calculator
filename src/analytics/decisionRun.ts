@@ -1,7 +1,7 @@
 import type { DecisionLifecycle } from "./decisionLifecycle";
 import type { SolverInput } from "../types";
 import type { SolverResult } from "../hooks/calculatorShared";
-import { acquisitionForResult, requestDecisionAcquisition, type PublicAcquisition } from "./decisionAcquisition";
+import { acquisitionForResult, requestDecisionAcquisition, verifiedAcquisitionSupply, type PublicAcquisition } from "./decisionAcquisition";
 
 /** Internal correspondence, not a proposed v3 wire schema. Never serialized wholesale. */
 type SupplyMetadata = Readonly<{
@@ -14,6 +14,7 @@ export type RunProvider = Readonly<{
   forecasts: readonly SupplyMetadata[];
   /** Pure approved public mapping over the pinned source and actual acquired context. */
   bindAcquisition: (source: readonly SupplyMetadata[], actual: PublicAcquisition) => BoundSupplyMetadata | undefined;
+  verifiedSignedMapping?: boolean;
 }>;
 export type RunRecord = {
   readonly provider: RunProvider;
@@ -62,6 +63,7 @@ export function createDecisionRun(options: Options = {}): DecisionLifecycle {
         producerCodeHash: captured.producerCodeHash,
         forecasts: structuredClone(captured.forecasts),
         bindAcquisition: captured.bindAcquisition,
+        ...(captured.verifiedSignedMapping ? { verifiedSignedMapping: true } : {}),
       };
       for (const entry of provider.forecasts) {
         Object.freeze(entry.expectedSupply);
@@ -81,7 +83,11 @@ export function createDecisionRun(options: Options = {}): DecisionLifecycle {
       if (!match || match.contentHash !== acquisition.contentHash ||
           match.runtimeSnapshotHash !== acquisition.runtimeSnapshotHash || match.asOf !== acquisition.asOf)
         return;
-      if (!owner.provider.forecasts.some(entry =>
+      const signedSupply = owner.provider.verifiedSignedMapping ? verifiedAcquisitionSupply(acquisition) : undefined;
+      if (owner.provider.verifiedSignedMapping ? !signedSupply ||
+        signedSupply.blue !== match.expectedSupply.blue ||
+        signedSupply.purple !== match.expectedSupply.purple ||
+        signedSupply.yellow !== match.expectedSupply.yellow : !owner.provider.forecasts.some(entry =>
         entry.contentHash === match.contentHash &&
         entry.expectedSupply.blue === match.expectedSupply.blue &&
         entry.expectedSupply.purple === match.expectedSupply.purple &&

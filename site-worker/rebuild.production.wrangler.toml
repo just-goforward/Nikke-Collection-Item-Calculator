@@ -1,4 +1,5 @@
-name = "collection-kit-site-v2-production"
+# Generated from scripts/production-operating-catalog.mjs; do not edit.
+name = "collection-kit-site-production"
 main = "src/worker.ts"
 compatibility_date = "2026-10-13"
 workers_dev = false
@@ -6,24 +7,39 @@ preview_urls = false
 routes = []
 upload_source_maps = false
 
+[observability.logs]
+enabled = false
+invocation_logs = false
+
+[triggers]
+crons = []
+
 [vars]
 SITE_ENV = "production"
 FORECAST_RUNTIME_MODE = "off"
+
 [assets]
 directory = "../dist"
 binding = "ASSETS"
 not_found_handling = "404-page"
-run_worker_first = ["/api", "/api/*", "/auth", "/auth/*", "/v1", "/v1/*", "/account", "/account/*", "/admin", "/admin/*", "/robots.txt"]
+run_worker_first = ["/api","/api/*","/auth","/auth/*","/v1","/v1/*","/account","/account/*","/admin","/admin/*","/robots.txt"]
+
 [observability]
 enabled = false
-[observability.logs]
-enabled = false
-invocation_logs = false
+
 [[services]]
-binding = "STATS"
-service = "collection-kit-stats-v2-production"
+binding = "STATS_INGEST"
+service = "collection-kit-stats"
+entrypoint = "Ingest"
+
+[[services]]
+binding = "STATS_PUBLIC"
+service = "collection-kit-stats"
+entrypoint = "PublicStats"
+
 [secrets]
 required = ["STATS_HEALTH_PROBE_TOKEN"]
+
 [[ratelimits]]
 name = "STATS_HEALTH_RATE_LIMITER"
 namespace_id = "419105"

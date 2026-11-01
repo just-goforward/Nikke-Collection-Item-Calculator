@@ -55,6 +55,16 @@ export const approvedNames = {
     "storage-denied edits outcomes conversion and undo work in RAM; reload discards state and pending queue",
     "fresh durable state is theme only; language follows URL while calculator state resets on reload",
     "fixture startup retains local layout CSS without devclient transport or solver requests",
+    "Turnstile decision sends reset and execute afresh",
+    "production port delivery failure cannot fail shared App Current and conditional WAIT",
+    ...["success", "fail"].map(outcome => `v4 accepted ${outcome} alone commits pre-mutation stock through real transport`),
+    "v4 transport failure retries one confirmed identity without legacy fallback",
+    "v4 validated retained Current becomes eligible only after cleanup without WAIT",
+    ...[1, null].map(attempt => `v4 terminal explicit attempt ${attempt} preserves the original confirmed report`),
+    "v4 unconfigured analytics preserves the actual legacy-only outcome route",
+    "v4 unanswered mobile Current and WAIT remain RAM-only across reload",
+    "v4 stock correction settles the same report without inventing an explicit attempt",
+    "v4 full RAM queue admits no new report and preserves legacy-only statistics before POST",
   ],
 };
 export const suiteSources = {

@@ -1,39 +1,61 @@
-name = "collection-kit-stats-v2-production"
-main = "src/worker.ts"
+# Generated from scripts/production-operating-catalog.mjs; do not edit.
+name = "collection-kit-stats"
+main = "src/production-worker.ts"
 compatibility_date = "2026-08-09"
-workers_dev = false
-preview_urls = false
+workers_dev = true
+preview_urls = true
 routes = []
 upload_source_maps = false
 
-[cache]
-enabled = true
 [limits]
 cpu_ms = 10
+
 [observability.logs]
 enabled = false
 invocation_logs = false
+
 [triggers]
-crons = []
+crons = ["17 3 * * *"]
+
+[cache]
+enabled = true
+
 [[d1_databases]]
 binding = "DB"
 database_name = "collection-kit-stats"
 database_id = "3e18385a-af83-4c67-83a0-ab889149692c"
+
 [[d1_databases]]
 binding = "USAGE_GUARD_DB"
 database_name = "collection-kit-usage-guard"
 database_id = "49b7f966-f4e8-4c2d-8453-279415737054"
+
+[[d1_databases]]
+binding = "FORECAST_DB"
+database_name = "collection-kit-forecast-collector"
+database_id = "2d58bcc0-a7b5-43f3-8f42-34e1bf1ff853"
+
 [[ratelimits]]
 name = "EVENT_RATE_LIMITER"
 namespace_id = "419101"
 simple = { limit = 120, period = 60 }
+
 [[ratelimits]]
 name = "READ_RATE_LIMITER"
 namespace_id = "419103"
 simple = { limit = 120, period = 60 }
+
 [vars]
 ALLOWED_ORIGINS = "https://nikkecollection.com"
 TURNSTILE_ALLOWED_HOSTNAMES = "nikkecollection.com,www.nikkecollection.com"
 DEPLOYMENT_SHA = "local"
+SITE_ENV = "production"
+FORECAST_RUNTIME_MODE = "off"
+STATS_CAPABILITY_CUTOVER = "false"
+DECISION_ANALYTICS_ENABLED = "false"
+DECISION_ANALYTICS_MAINTENANCE_ENABLED = "false"
+OUTCOME_FACTS_ENABLED = "false"
+OUTCOME_FACTS_MAINTENANCE_ENABLED = "false"
+
 [secrets]
 required = ["TURNSTILE_SECRET_KEY"]

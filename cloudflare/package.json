@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest run --config vitest.config.ts",
+    "test:decision-analytics": "node --test backend-tests/decision-analytics-v3.test.mjs backend-tests/decision-analytics-maintenance.test.mjs",
+    "test:outcome-facts": "node backend-tests/run-outcome-tests.mjs",
     "test:coverage": "vitest run --config vitest.config.ts --coverage"
   },
   "dependencies": {
