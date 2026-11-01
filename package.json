@@ -151,7 +151,7 @@
     "pretest:coverage": "npm run build:certified-wasm && node scripts/prepare-certified-staging-oracle-cache.ts",
     "clean:artifacts:apply": "node scripts/clean-artifacts.ts --apply",
     "typecheck:operations": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.operations.json",
-    "test:operations": "node --test scripts/operational-boundary.test.mjs scripts/local-service-profile.test.mjs scripts/site-target-html.test.mjs scripts/site-gateway-preflight.test.mjs scripts/production-off-artifact.test.mjs",
+    "test:operations": "node --test scripts/operational-boundary.test.mjs scripts/local-service-profile.test.mjs scripts/site-target-html.test.mjs scripts/site-gateway-preflight.test.mjs scripts/production-off-artifact.test.mjs scripts/localized-pages.test.mjs",
     "generate:production-operations": "node scripts/render-production-operations.mjs --write",
     "check:production-operations": "node scripts/render-production-operations.mjs --check",
     "build:operations": "node scripts/build-local-service.mjs",

@@ -142,7 +142,7 @@ export function localizedPagesPlugin(): Plugin {
       const locale = siteLocaleFromPathname(context.path);
       return renderLocalizedPage(html, locale);
     },
-    async closeBundle() {
+    async writeBundle() {
       if (resolvedConfig?.command !== "build") return;
       await writeLocalizedBuildPages(resolve(resolvedConfig.root, resolvedConfig.build.outDir));
     },
