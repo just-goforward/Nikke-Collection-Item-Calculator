@@ -1,8 +1,8 @@
 import { MAX_STOCK_PIECES, type CollectionState, type Kit } from "./game.ts";
-import { canonicalPublicationJson } from "./forecastPublication.ts";
-import { publicationBytesHash } from "./forecastPublicationBytes.ts";
-import { parsePublicSupplyReference, type PublicSupplyReference } from "./decisionSupplyReference.ts";
-export type { PublicSupplyReference } from "./decisionSupplyReference.ts";
+import { canonicalPublicationJson } from "./canonicalPublicationJson.ts";
+import { publicationBytesHash } from "./publicationBytesHash.ts";
+import { parsePublicSupplyReference, type PublicSupplyReference } from "./publicSupplyReference.ts";
+export type { PublicSupplyReference } from "./publicSupplyReference.ts";
 
 /** Separate protocol: existing M2/v3 pre-outcome/band semantics are not reinterpreted. */
 export const OUTCOME_ANALYTICS_VERSION = 4 as const;

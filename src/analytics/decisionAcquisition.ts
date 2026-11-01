@@ -3,7 +3,7 @@ import type { CertifiedSupplySnapshot } from "../../shared/certifiedSupply";
 import type { PublicationBytes } from "../../shared/forecastPublicationBytes";
 import type { SolverInput } from "../types";
 import { BANDS, type Bands } from "../../shared/decisionAnalyticsV3";
-import { normalizePublishedSupplyReference, selectPublishedSupplyReference, type PublicSupplyReference } from "../../shared/decisionSupplyReference";
+import type { normalizePublishedSupplyReference, selectPublishedSupplyReference, PublicSupplyReference } from "../../shared/decisionSupplyReference";
 import type { SupplyForecastCandidate } from "../../shared/supplyForecastCandidate";
 
 export type PublicAcquisition = Readonly<{
@@ -43,6 +43,10 @@ export function requestDecisionAcquisition(input: SolverInput) {
 export function retainVerifiedAcquisition(
   result: SolverResult, snapshot: CertifiedSupplySnapshot, publication: PublicationBytes | undefined, asOf: string,
   originalInput: SolverInput,
+  projection: {
+    select: typeof selectPublishedSupplyReference;
+    normalize: typeof normalizePublishedSupplyReference;
+  },
 ) {
   try {
     if (!requestedInputs.has(originalInput)) return;
@@ -63,8 +67,8 @@ export function retainVerifiedAcquisition(
       publicationContentHash: pointer.contentHash,
       candidate: JSON.parse(publication.artifact.candidate) as SupplyForecastCandidate,
     };
-    const reference = selectPublishedSupplyReference(source, Date.parse(asOf));
-    publicReferences.set(actual, normalizePublishedSupplyReference(source, reference).reference);
+    const reference = projection.select(source, Date.parse(asOf));
+    publicReferences.set(actual, projection.normalize(source, reference).reference);
     acquisitions.set(result, actual);
     // Pin the derivation at request start, not after a later provider refresh.
     const mapping = requestedMappings.get(originalInput);

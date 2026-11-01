@@ -1,4 +1,5 @@
 import { CERTIFIED_STAGING_ENGINE_PROFILE } from "../../shared/certifiedEngineProfile";
+import { normalizePublishedSupplyReference, selectPublishedSupplyReference } from "../../shared/decisionSupplyReference";
 import { createBrowserCertifiedClient } from "../certifiedRuntime/browserClient";
 import { CERTIFIED_TOTAL_DEADLINE_MS } from "../certifiedRuntime/protocol";
 import { certifiedRunError } from "../certifiedUi/runStatus";
@@ -12,6 +13,11 @@ import { ServiceCertifiedCancelled, type ServiceCertifiedSolveOutcome } from "./
 import { retainVerifiedAcquisition } from "../analytics/decisionAcquisition";
 
 export { serviceCertifiedInput } from "./serviceCertifiedInput";
+
+const acquisitionProjection = {
+  select: selectPublishedSupplyReference,
+  normalize: normalizePublishedSupplyReference,
+};
 
 /** This module is loaded only after the service's explicit Calculate action. */
 export function createServiceCertifiedAdapter(
@@ -113,7 +119,7 @@ export function createServiceCertifiedAdapter(
             try {
               checkpoint = (bindings.projectResult ?? projectServiceCertifiedResult)(input, output, false);
               onCurrent?.(checkpoint.result);
-              retainVerifiedAcquisition(checkpoint.result, snapshot, publication, asOf, source);
+              retainVerifiedAcquisition(checkpoint.result, snapshot, publication, asOf, source, acquisitionProjection);
             } catch (failure) {
               checkpoint = undefined;
               projectionFailure = failure;
@@ -128,7 +134,7 @@ export function createServiceCertifiedAdapter(
           throw new ServiceCertifiedCancelled();
         }
         const final = (bindings.projectResult ?? projectServiceCertifiedResult)(input, run.output, true);
-        retainVerifiedAcquisition(final.result, snapshot, publication, asOf, source);
+        retainVerifiedAcquisition(final.result, snapshot, publication, asOf, source, acquisitionProjection);
         return final;
       } catch (failure) {
         checkForecastBoundary();

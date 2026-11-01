@@ -1,5 +1,7 @@
 import { assertCertifiedRuntimeSupplySnapshot } from "./certifiedSupply.ts";
 import { isPublicationVersionPair } from "./certifiedVersionPolicy.ts";
+import { publicationBytesHash } from "./publicationBytesHash.ts";
+export { publicationBytesHash } from "./publicationBytesHash.ts";
 export const ARTIFACT_DOMAIN = "nikke.forecast.artifact.v1";
 export const POINTER_DOMAIN = "nikke.forecast.pointer.v1";
 export type PublicationEnvironment = "staging" | "production";
@@ -60,11 +62,6 @@ export function decodePublicationBase64(value: string): Uint8Array<ArrayBuffer> 
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value) || !value)
     throw new Error("publication_invalid_base64");
   return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
-}
-
-export async function publicationBytesHash(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 export async function verifyPublicationSignature(signed: SignedPublicationBytes, key: CryptoKey) {
