@@ -1,0 +1,97 @@
+name: Manual Site-only sealed publication (not isolated operational admission)
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: Approved full main SHA matching this workflow revision
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: cloudflare-site-production
+  cancel-in-progress: false
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  WRANGLER_SEND_METRICS: "false"
+  WRANGLER_SEND_ERROR_REPORTS: "false"
+# Separate approved Actions boundary: does NOT satisfy operational ADMISSION_BLOCKED.
+# Do not dispatch until protection, authorization and account overage eligibility are resolved.
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main' && inputs.deploy_sha == github.sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      manifest: ${{ steps.seal.outputs.manifest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - run: node scripts/site-release.mjs context unused "$GITHUB_SHA"
+      - run: npm install --global npm@12.2.1 --ignore-scripts --no-audit --no-fund
+      - run: npm ci --ignore-scripts
+      - run: node --test scripts/site-release.test.mjs scripts/deploy-rebuild.test.mjs
+      - run: npm run build:site-production
+      - name: Check approved online profile without credentials
+        run: |
+          node --input-type=module -e 'const {assertProductionSiteCandidateProfile}=await import("./scripts/site-deployment-artifact.mjs"); const {buildSiteProduction}=await import("./scripts/build-site-production.ts"); const c=await assertProductionSiteCandidateProfile("dist",process.env.GITHUB_SHA); await buildSiteProduction("dist",true,c);'
+      - name: Bundle Worker once without credentials
+        run: |
+          mkdir -p "$RUNNER_TEMP/site-release/worker"
+          node node_modules/wrangler/bin/wrangler.js deploy --config site-worker/production.wrangler.toml --env "" --dry-run --outdir "$RUNNER_TEMP/site-bundle" --metafile "$RUNNER_TEMP/site-release/worker/meta.json"
+          cp "$RUNNER_TEMP/site-bundle/worker.js" "$RUNNER_TEMP/site-release/worker/worker.js"
+      - id: seal
+        run: |
+          digest="$(node scripts/site-release.mjs seal "$RUNNER_TEMP/site-release" "$GITHUB_SHA")"
+          printf 'manifest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        id: upload
+        with:
+          name: site-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/site-release
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: cloudflare-site-production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+      - run: node scripts/site-release.mjs context unused "$GITHUB_SHA"
+      - run: npm install --global npm@12.2.1 --ignore-scripts --no-audit --no-fund
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/site-release
+          merge-multiple: true
+      - name: Restore verified bytes without credentials
+        env:
+          DIGEST: ${{ needs.build.outputs.manifest }}
+        run: node scripts/site-release.mjs restore "$RUNNER_TEMP/site-release" "$GITHUB_SHA" "$DIGEST" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"
+      - name: Publish sealed bytes through existing guarded target
+        env:
+          SITE_RELEASE_DIR: ${{ runner.temp }}/site-release
+          SITE_RELEASE_MANIFEST_SHA256: ${{ needs.build.outputs.manifest }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_SITE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 15be33fd20ea78eb3d60b719be831148
+          SITE_DEPLOY_ACCOUNT_ID: 15be33fd20ea78eb3d60b719be831148
+          SITE_DEPLOY_WORKER: collection-kit-site-production
+          SITE_DEPLOY_HOSTNAME: nikkecollection.com
+        run: node scripts/deploy-site.ts production-online-sealed "$GITHUB_SHA"

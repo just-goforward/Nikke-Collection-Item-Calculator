@@ -8,6 +8,55 @@ const productionWorkers = {
   site: "collection-kit-site-production",
   stats: "collection-kit-stats",
 };
+test("sealed online promotion publishes only the verified fixed entry without rebuilding", () => {
+  const sha = "a".repeat(40), account = "15be33fd20ea78eb3d60b719be831148";
+  const parent = {
+    CLOUDFLARE_ACCOUNT_ID: account, CLOUDFLARE_API_TOKEN: "synthetic",
+    SITE_DEPLOY_ACCOUNT_ID: account, SITE_DEPLOY_WORKER: "collection-kit-site-production",
+    SITE_DEPLOY_HOSTNAME: "nikkecollection.com",
+    SITE_RELEASE_DIR: resolve(import.meta.dirname, "../../sealed-test-placeholder"),
+    SITE_RELEASE_MANIFEST_SHA256: "c".repeat(64), GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1",
+  };
+  function run({ changes = {}, rejectSeal = false, dirtyAfterSeal = false } = {}) {
+    const calls = [];
+    let verified = false;
+    const invoke = () => deploy("site", ["production-online-sealed", sha], { ...parent, ...changes },
+      (command, args, options) => {
+        calls.push(args);
+        if (command === "git") return args[0] === "rev-parse" ? sha :
+          dirtyAfterSeal && verified ? " M changed.ts" : "";
+        if (!args.includes("deploy")) {
+          assert.equal(options.env.CLOUDFLARE_API_TOKEN, undefined);
+          assert.equal(options.env.CLOUDFLARE_ACCOUNT_ID, undefined);
+        }
+        if (args[0].endsWith("site-release.mjs")) {
+          assert.deepEqual(args.slice(1), ["verify", parent.SITE_RELEASE_DIR, sha,
+            parent.SITE_RELEASE_MANIFEST_SHA256, "123", "1"]);
+          if (rejectSeal) throw new Error("synthetic sealed payload rejection");
+          verified = true;
+        }
+        if (args.includes("deploy")) {
+          assert.equal(verified, true);
+          assert.equal(options.env.CLOUDFLARE_API_TOKEN, "synthetic");
+        }
+        return "";
+      });
+    return { calls, invoke };
+  }
+  const accepted = run(); accepted.invoke();
+  const upload = accepted.calls.at(-1);
+  assert.deepEqual(upload.slice(-3), [resolve(parent.SITE_RELEASE_DIR, "worker/worker.js"),
+    "--no-bundle", "--no-experimental-auto-create"]);
+  assert.equal(upload[upload.indexOf("--config") + 1], "site-worker/production.wrangler.toml");
+  for (const options of [{ rejectSeal: true }, { dirtyAfterSeal: true },
+    { changes: { SITE_RELEASE_MANIFEST_SHA256: "" } }, { changes: { GITHUB_RUN_ID: "" } },
+    { changes: { SITE_DEPLOY_HOSTNAME: "other.example" } },
+    { changes: { CLOUDFLARE_ACCOUNT_ID: "b".repeat(32), SITE_DEPLOY_ACCOUNT_ID: "b".repeat(32) } }]) {
+    const rejected = run(options);
+    assert.throws(rejected.invoke);
+    assert.equal(rejected.calls.some(args => args.includes("deploy")), false);
+  }
+});
 test("explicit online Site promotion validates production trust before uploading and retains all authority and snapshot gates", () => {
   const account = "15be33fd20ea78eb3d60b719be831148";
   const parent = {

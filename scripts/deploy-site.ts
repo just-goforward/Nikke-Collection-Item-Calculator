@@ -42,14 +42,15 @@ export function assertProductionOffSiteConfiguration(text: string) {
 export function deploy(kind: "site" | "stats", args: string[], parent = process.env,
   execute: typeof execFileSync = execFileSync) {
 const [selection, sha, ...extra] = args;
+const sealed = kind === "site" && selection === "production-online-sealed";
 const productionOff = kind === "site" && selection === "production-off";
-const productionOnline = kind === "site" && selection === "production-online";
+const productionOnline = kind === "site" && (selection === "production-online" || sealed);
 const replacement = selection?.startsWith("rebuild-") ?? false;
 const target = productionOff || productionOnline ? "production" : replacement ? selection!.slice(8) : selection;
 if (extra.length || !["production", "staging"].includes(target ?? "") ||
     (kind === "stats" && !replacement) ||
     !/^[a-f0-9]{40}$/.test(sha ?? ""))
-  throw new Error("Expected production|production-off|production-online|staging|rebuild-production|rebuild-staging and approved full SHA; stats requires rebuild");
+  throw new Error("Expected production|production-off|production-online|production-online-sealed|staging|rebuild-production|rebuild-staging and approved full SHA; stats requires rebuild");
 const root = resolve(import.meta.dirname, "..");
 const candidate = (replacement || productionOff) && target === "production" ? productionTarget(kind) : null;
 const worker = candidate?.worker ?? `collection-kit-${kind}-${replacement ? "v2-" : ""}${target}`;
@@ -94,11 +95,25 @@ if (kind === "site") execute(process.execPath,
   siteArtifactValidationArgs(resolve(root, "dist"), target!, sha!, candidate !== null || productionOnline, productionOff),
   { cwd: root, env, stdio: "inherit" });
 snapshot();
+let sealedEntry: string | undefined;
+if (sealed) {
+  const directory = parent.SITE_RELEASE_DIR;
+  if (!directory || !parent.SITE_RELEASE_MANIFEST_SHA256 ||
+      !/^[0-9]+$/.test(parent.GITHUB_RUN_ID ?? "") || !/^[0-9]+$/.test(parent.GITHUB_RUN_ATTEMPT ?? ""))
+    throw new Error("Sealed Site release identity required");
+  execute(process.execPath, [
+    resolve(root, "scripts/site-release.mjs"), "verify", directory, sha!,
+    parent.SITE_RELEASE_MANIFEST_SHA256, parent.GITHUB_RUN_ID!, parent.GITHUB_RUN_ATTEMPT!,
+  ], { cwd: root, env, stdio: "inherit" });
+  sealedEntry = resolve(directory, "worker/worker.js");
+  snapshot();
+}
 execute(process.execPath, [
   resolve(root, "node_modules/wrangler/bin/wrangler.js"),
   "deploy", "--config",
   config,
   "--env", "", "--tag", sha!, "--message", `${kind === "site" ? "Site" : "Stats"} ${target} ${sha}`,
+  ...(sealedEntry ? [sealedEntry, "--no-bundle", "--no-experimental-auto-create"] : []),
   ...(kind === "stats" ? ["--var", `DEPLOYMENT_SHA:${sha}`] : []),
 ], {
   cwd: root,
